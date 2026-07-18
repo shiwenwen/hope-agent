@@ -1,7 +1,8 @@
 use serde_json::json;
 
 use super::super::{
-    TOOL_ACP_SPAWN, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TEAM, TOOL_TOOL_SEARCH, TOOL_WORKFLOW,
+    TOOL_ACP_SPAWN, TOOL_AUDIO_GENERATE, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TEAM,
+    TOOL_TOOL_SEARCH, TOOL_WORKFLOW,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -365,67 +366,73 @@ pub fn get_workflow_tool() -> ToolDefinition {
     }
 }
 
-/// Returns the image_generate tool definition with dynamic description based on enabled providers.
+/// Returns the `image_generate` tool definition with a dynamic description
+/// built from the unified media-gen config (chain-aware candidates + data-
+/// driven per-model capabilities).
 pub fn get_image_generate_tool_dynamic(
-    config: &crate::tools::image_generate::ImageGenConfig,
+    config: &crate::media_gen::MediaGenConfig,
 ) -> ToolDefinition {
-    use crate::tools::image_generate;
+    use crate::media_gen::{resolve_candidates, MediaFunction, MediaModality};
 
-    // Build available models list from enabled providers
-    let enabled: Vec<_> = config
-        .providers
-        .iter()
-        .filter(|p| p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty()))
-        .collect();
-
-    let models_desc = if enabled.is_empty() {
+    // Chain-aware candidate list — exactly what auto mode would try.
+    let candidates = resolve_candidates(config, MediaFunction::Image, None).unwrap_or_default();
+    let models_desc = if candidates.is_empty() {
         "No models configured".to_string()
     } else {
-        enabled
+        candidates
             .iter()
-            .map(|p| {
-                let model = image_generate::effective_model(p);
-                let display = image_generate::provider_display_name(p);
-                format!("{} ({})", model, display)
-            })
+            .take(12)
+            .map(|c| c.label())
             .collect::<Vec<_>>()
             .join(", ")
     };
+    let chain_desc = if config.chains.image.is_some() {
+        "the configured default chain"
+    } else {
+        "provider priority order"
+    };
 
-    // Build dynamic capability summaries from enabled providers
+    // Capability summaries from data-driven model caps (all usable
+    // providers' image models, not just the default candidates).
     let mut edit_providers: Vec<String> = Vec::new();
     let mut multi_image_providers: Vec<String> = Vec::new();
     let mut ar_providers: Vec<String> = Vec::new();
     let mut res_providers: Vec<String> = Vec::new();
+    let mut all_model_ids: Vec<String> = Vec::new();
     let mut max_n: u32 = 4;
-
-    for p in &enabled {
-        if let Some(impl_) = image_generate::resolve_provider(&p.id) {
-            let caps = impl_.capabilities();
-            let name = impl_.display_name().to_string();
-            if caps.edit.enabled {
-                let detail = if caps.edit.max_input_images > 1 {
-                    format!("{} (up to {})", name, caps.edit.max_input_images)
+    for provider in config.providers.iter().filter(|p| p.is_usable()) {
+        for model in provider
+            .models
+            .iter()
+            .filter(|m| m.modality == MediaModality::Image)
+        {
+            all_model_ids.push(model.id.clone());
+            let Some(caps) = &model.image else { continue };
+            if let Some(edit) = &caps.edit {
+                let detail = if edit.max_input_images > 1 {
+                    format!("{} (up to {})", provider.name, edit.max_input_images)
                 } else {
-                    name.clone()
+                    provider.name.clone()
                 };
-                edit_providers.push(detail);
-                if caps.edit.max_input_images > 1 {
-                    multi_image_providers.push(name.clone());
+                if !edit_providers.contains(&detail) {
+                    edit_providers.push(detail);
                 }
+                if edit.max_input_images > 1 && !multi_image_providers.contains(&provider.name) {
+                    multi_image_providers.push(provider.name.clone());
+                }
+                max_n = max_n.max(edit.max_n);
             }
-            if caps.generate.supports_aspect_ratio {
-                ar_providers.push(name.clone());
+            if caps.supports_aspect_ratio && !ar_providers.contains(&provider.name) {
+                ar_providers.push(provider.name.clone());
             }
-            if caps.generate.supports_resolution {
-                res_providers.push(name.clone());
+            if caps.supports_resolution && !res_providers.contains(&provider.name) {
+                res_providers.push(provider.name.clone());
             }
-            max_n = max_n.max(caps.generate.max_count);
-            if caps.edit.enabled {
-                max_n = max_n.max(caps.edit.max_count);
-            }
+            max_n = max_n.max(caps.max_n);
         }
     }
+    all_model_ids.sort();
+    all_model_ids.dedup();
 
     let edit_desc = if edit_providers.is_empty() {
         String::new()
@@ -438,28 +445,27 @@ pub fn get_image_generate_tool_dynamic(
 
     let description = format!(
         "Generate or edit images from text descriptions. \
-         Available models (priority order): {}.{} \
+         Default candidates ({chain_desc}, automatic failover): {models_desc}.{edit_desc} \
          Use action='list' to see all providers with detailed capabilities. \
-         Images are saved to disk and returned for visual inspection. \
-         Default: auto — tries models in order with automatic failover on failure.",
-        models_desc, edit_desc
+         Images are saved to disk and returned for visual inspection."
     );
 
-    let model_param_desc = if enabled.is_empty() {
+    let model_param_desc = if all_model_ids.is_empty() {
         "Specify a model. Default: auto.".to_string()
     } else {
-        let model_list = enabled
+        let model_list = all_model_ids
             .iter()
-            .map(|p| format!("'{}'", image_generate::effective_model(p)))
+            .take(16)
+            .map(|m| format!("'{m}'"))
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "Specify a model. Available: {}. Default: auto (uses priority order with failover).",
-            model_list
+            "Specify a model. Available: {model_list}. When the same model id exists on \
+             multiple providers, use the 'provider-id::model-id' form to disambiguate. \
+             Default: auto (default chain / priority order with failover)."
         )
     };
 
-    // Dynamic descriptions for parameters
     let image_desc = if edit_providers.is_empty() {
         "Path or URL of a reference/input image for editing.".to_string()
     } else {
@@ -503,7 +509,7 @@ pub fn get_image_generate_tool_dynamic(
             default_for_main: true,
             default_for_others: true,
             default_deferred: false,
-            config_hint: "Settings → Tools → Image Generation",
+            config_hint: "Settings → Model Providers → Generation Models",
         },
         internal: false,
         concurrent_safe: false,
@@ -531,7 +537,7 @@ pub fn get_image_generate_tool_dynamic(
                 },
                 "size": {
                     "type": "string",
-                    "description": "Image dimensions (e.g. '1024x1024', '1024x1536', '1536x1024', '1024x1792', '1792x1024'). Default: 1024x1024"
+                    "description": "Image dimensions (e.g. '1024x1024', '1024x1536', '1536x1024', '1024x1792', '1792x1024'). Default: the configured global default."
                 },
                 "aspectRatio": {
                     "type": "string",
@@ -551,6 +557,94 @@ pub fn get_image_generate_tool_dynamic(
                 "model": {
                     "type": "string",
                     "description": model_param_desc
+                }
+            },
+            "required": ["prompt"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Returns the `audio_generate` tool definition with a dynamic description
+/// listing per-kind candidates from the unified media-gen config.
+pub fn get_audio_generate_tool_dynamic(
+    config: &crate::media_gen::MediaGenConfig,
+) -> ToolDefinition {
+    use crate::media_gen::{resolve_candidates, AudioKind, MediaFunction};
+
+    let kind_summary = |kind: AudioKind| -> String {
+        let candidates =
+            resolve_candidates(config, MediaFunction::Audio(kind), None).unwrap_or_default();
+        if candidates.is_empty() {
+            format!("{}: none", kind.as_str())
+        } else {
+            format!(
+                "{}: {}",
+                kind.as_str(),
+                candidates
+                    .iter()
+                    .take(6)
+                    .map(|c| c.label())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+    };
+    let models_desc = [
+        kind_summary(AudioKind::Speech),
+        kind_summary(AudioKind::Music),
+        kind_summary(AudioKind::Sfx),
+    ]
+    .join("; ");
+
+    let description = format!(
+        "Generate audio from text: speech narration (TTS), music, or sound effects. \
+         Default candidates per kind (automatic failover): {models_desc}. \
+         Use action='list' to see providers, models, and voices. \
+         Generated audio is saved to disk and returned as a playable attachment."
+    );
+
+    ToolDefinition {
+        name: TOOL_AUDIO_GENERATE.into(),
+        description,
+        tier: ToolTier::Configured {
+            default_for_main: true,
+            default_for_others: true,
+            default_deferred: false,
+            config_hint: "Settings → Model Providers → Generation Models",
+        },
+        internal: false,
+        concurrent_safe: false,
+        // Billed side effect: must stay OUT of `async_jobs::retry::is_retry_eligible`.
+        async_capable: true,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["generate", "list"],
+                    "description": "Action: 'generate' (default) creates audio, 'list' shows available providers and capabilities."
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "For speech: the exact text to narrate. For music/sfx: a description of the desired sound."
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ["speech", "music", "sfx"],
+                    "description": "Audio kind: 'speech' (TTS narration, default), 'music', or 'sfx' (short sound effect)."
+                },
+                "voice": {
+                    "type": "string",
+                    "description": "Voice id for speech (provider-specific, e.g. 'alloy' for OpenAI or an ElevenLabs voice id). Default: the configured default voice cascade."
+                },
+                "durationSeconds": {
+                    "type": "number",
+                    "description": "Target duration in seconds for music/sfx (provider clamps to its legal range). Ignored for speech."
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Specify a model id, or 'provider-id::model-id' to disambiguate. Default: auto (default chain / priority order with failover)."
                 }
             },
             "required": ["prompt"],

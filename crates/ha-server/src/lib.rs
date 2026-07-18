@@ -861,10 +861,6 @@ fn build_router_with_cors(
             "/providers/test-embedding",
             post(routes::providers::test_embedding),
         )
-        .route(
-            "/providers/test-image",
-            post(routes::providers::test_image_generate),
-        )
         .route("/providers/test-model", post(routes::providers::test_model))
         .route("/providers/has-any", get(routes::providers::has_providers))
         .route(
@@ -1589,25 +1585,45 @@ fn build_router_with_cors(
                 .patch(routes::config::patch_filesystem_config),
         )
         .route(
-            "/config/image-generate",
-            get(routes::config::get_image_generate_config),
+            "/config/media-gen",
+            get(routes::config::get_media_gen_config),
         )
         .route(
-            "/config/image-generate",
-            put(routes::config::save_image_generate_config),
+            "/config/media-gen/providers",
+            post(routes::config::add_media_provider),
         )
         .route(
-            "/config/audio-generate",
-            get(routes::config::get_audio_generate_config)
-                .put(routes::config::save_audio_generate_config),
+            "/config/media-gen/providers/reorder",
+            put(routes::config::reorder_media_providers),
         )
         .route(
-            "/config/audio-model-catalog",
-            get(routes::config::get_audio_model_catalog),
+            "/config/media-gen/providers/{id}",
+            put(routes::config::update_media_provider)
+                .delete(routes::config::delete_media_provider),
         )
         .route(
-            "/config/elevenlabs-voices",
-            get(routes::config::list_elevenlabs_voices),
+            "/config/media-gen/chains/{function}",
+            put(routes::config::set_media_default_chain),
+        )
+        .route(
+            "/config/media-gen/defaults",
+            put(routes::config::update_media_gen_defaults),
+        )
+        .route(
+            "/config/media-gen/templates",
+            get(routes::config::get_media_provider_templates),
+        )
+        .route(
+            "/config/media-gen/voices",
+            get(routes::config::list_media_voices),
+        )
+        .route(
+            "/config/media-gen/test",
+            post(routes::config::test_media_provider),
+        )
+        .route(
+            "/config/media-gen/overview",
+            get(routes::config::get_media_gen_overview),
         )
         .route("/config/canvas", get(routes::config::get_canvas_config))
         .route("/config/canvas", put(routes::config::save_canvas_config))

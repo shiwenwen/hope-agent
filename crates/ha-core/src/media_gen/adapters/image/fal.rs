@@ -6,13 +6,9 @@ use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::{
-    GeneratedImage, ImageGenCapabilities, ImageGenEditCapabilities, ImageGenGeometry,
-    ImageGenModeCapabilities, ImageGenParams, ImageGenProviderImpl, ImageGenResult,
-};
+use crate::media_gen::adapters::{GeneratedImage, ImageGenAdapter, ImageGenParams, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://fal.run";
-const DEFAULT_MODEL: &str = "fal-ai/flux/dev";
 const EDIT_SUBPATH: &str = "image-to-image";
 
 #[derive(Deserialize)]
@@ -123,49 +119,7 @@ fn resolve_fal_image_size(
 
 pub(crate) struct FalProvider;
 
-impl ImageGenProviderImpl for FalProvider {
-    fn id(&self) -> &str {
-        "fal"
-    }
-
-    fn display_name(&self) -> &str {
-        "Fal"
-    }
-
-    fn default_model(&self) -> &str {
-        DEFAULT_MODEL
-    }
-
-    fn capabilities(&self) -> ImageGenCapabilities {
-        ImageGenCapabilities {
-            generate: ImageGenModeCapabilities {
-                max_count: 4,
-                supports_size: true,
-                supports_aspect_ratio: true,
-                supports_resolution: true,
-            },
-            edit: ImageGenEditCapabilities {
-                enabled: true,
-                max_count: 4,
-                max_input_images: 1,
-                supports_size: true,
-                supports_aspect_ratio: false, // Fal edit doesn't support aspectRatio
-                supports_resolution: true,
-            },
-            geometry: Some(ImageGenGeometry {
-                sizes: vec![
-                    "1024x1024",
-                    "1024x1536",
-                    "1536x1024",
-                    "1024x1792",
-                    "1792x1024",
-                ],
-                aspect_ratios: vec!["1:1", "4:3", "3:4", "16:9", "9:16"],
-                resolutions: vec!["1K", "2K", "4K"],
-            }),
-        }
-    }
-
+impl ImageGenAdapter for FalProvider {
     fn generate<'a>(
         &'a self,
         params: ImageGenParams<'a>,

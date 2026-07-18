@@ -6,13 +6,9 @@ use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::{
-    GeneratedImage, ImageGenCapabilities, ImageGenEditCapabilities, ImageGenGeometry,
-    ImageGenModeCapabilities, ImageGenParams, ImageGenProviderImpl, ImageGenResult,
-};
+use crate::media_gen::adapters::{GeneratedImage, ImageGenAdapter, ImageGenParams, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://api.minimax.io";
-const DEFAULT_MODEL: &str = "image-01";
 
 #[derive(Deserialize)]
 struct MiniMaxImageResponse {
@@ -41,43 +37,7 @@ struct MiniMaxBaseResp {
 
 pub(crate) struct MiniMaxProvider;
 
-impl ImageGenProviderImpl for MiniMaxProvider {
-    fn id(&self) -> &str {
-        "minimax"
-    }
-
-    fn display_name(&self) -> &str {
-        "MiniMax"
-    }
-
-    fn default_model(&self) -> &str {
-        DEFAULT_MODEL
-    }
-
-    fn capabilities(&self) -> ImageGenCapabilities {
-        ImageGenCapabilities {
-            generate: ImageGenModeCapabilities {
-                max_count: 9,
-                supports_size: false,
-                supports_aspect_ratio: true,
-                supports_resolution: false,
-            },
-            edit: ImageGenEditCapabilities {
-                enabled: true,
-                max_count: 9,
-                max_input_images: 1,
-                supports_size: false,
-                supports_aspect_ratio: true,
-                supports_resolution: false,
-            },
-            geometry: Some(ImageGenGeometry {
-                sizes: vec![],
-                aspect_ratios: vec!["1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9"],
-                resolutions: vec![],
-            }),
-        }
-    }
-
+impl ImageGenAdapter for MiniMaxProvider {
     fn generate<'a>(
         &'a self,
         params: ImageGenParams<'a>,

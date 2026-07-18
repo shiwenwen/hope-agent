@@ -4,8 +4,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import ToolGeneralPanel from "@/components/settings/ToolGeneralPanel"
 import WebSearchPanel from "@/components/settings/WebSearchPanel"
 import WebFetchPanel from "@/components/settings/WebFetchPanel"
-import ImageGeneratePanel from "@/components/settings/ImageGeneratePanel"
-import AudioGeneratePanel from "@/components/settings/AudioGeneratePanel"
+import MediaGeneratePanel from "@/components/settings/MediaGeneratePanel"
 import IssueReportingPanel from "@/components/settings/IssueReportingPanel"
 import CanvasSettingsPanel from "@/components/settings/CanvasSettingsPanel"
 import AsyncToolsPanel from "@/components/settings/AsyncToolsPanel"
@@ -19,8 +18,7 @@ export default function ToolSettingsPanel() {
     general: 0,
     webSearch: 0,
     webFetch: 0,
-    imageGenerate: 0,
-    audioGenerate: 0,
+    mediaGenerate: 0,
     canvas: 0,
     asyncTools: 0,
     issueReporting: 0,
@@ -29,8 +27,7 @@ export default function ToolSettingsPanel() {
     general: t("settings.toolGeneral"),
     webSearch: t("settings.webSearch"),
     webFetch: t("settings.webFetch"),
-    imageGenerate: t("settings.imageGenerate"),
-    audioGenerate: t("settings.audioGenerate", "音频生成"),
+    mediaGenerate: t("settings.mediaGenerate.tabTitle", "媒体生成"),
     canvas: t("settings.canvas"),
     asyncTools: t("settings.asyncTools"),
     issueReporting: t("settings.issueReporting"),
@@ -52,8 +49,7 @@ export default function ToolSettingsPanel() {
             <TabsTrigger value="general">{t("settings.toolGeneral")}</TabsTrigger>
             <TabsTrigger value="webSearch">{t("settings.webSearch")}</TabsTrigger>
             <TabsTrigger value="webFetch">{t("settings.webFetch")}</TabsTrigger>
-            <TabsTrigger value="imageGenerate">{t("settings.imageGenerate")}</TabsTrigger>
-            <TabsTrigger value="audioGenerate">{t("settings.audioGenerate", "音频生成")}</TabsTrigger>
+            <TabsTrigger value="mediaGenerate">{t("settings.mediaGenerate.tabTitle", "媒体生成")}</TabsTrigger>
             <TabsTrigger value="canvas">{t("settings.canvas")}</TabsTrigger>
             <TabsTrigger value="asyncTools">{t("settings.asyncTools")}</TabsTrigger>
             <TabsTrigger value="issueReporting">{t("settings.issueReporting")}</TabsTrigger>
@@ -76,11 +72,8 @@ export default function ToolSettingsPanel() {
       <TabsContent value="webFetch" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <WebFetchPanel key={revisions.webFetch} />
       </TabsContent>
-      <TabsContent value="imageGenerate" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
-        <ImageGeneratePanel key={revisions.imageGenerate} />
-      </TabsContent>
-      <TabsContent value="audioGenerate" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
-        <AudioGeneratePanel key={revisions.audioGenerate} />
+      <TabsContent value="mediaGenerate" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+        <MediaGeneratePanel key={revisions.mediaGenerate} />
       </TabsContent>
       <TabsContent value="canvas" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <CanvasSettingsPanel key={revisions.canvas} />

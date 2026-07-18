@@ -424,7 +424,6 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   reorder_providers: { method: "POST", path: "/api/providers/reorder" },
   test_provider: { method: "POST", path: "/api/providers/test" },
   test_embedding: { method: "POST", path: "/api/providers/test-embedding" },
-  test_image_generate: { method: "POST", path: "/api/providers/test-image" },
   test_model: { method: "POST", path: "/api/providers/test-model" },
   test_proxy: { method: "POST", path: "/api/config/proxy/test" },
   has_providers: { method: "GET", path: "/api/providers/has-any" },
@@ -1281,12 +1280,17 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_canvas_projects_by_session: { method: "GET", path: "/api/canvas/by-session/{sessionId}" },
 
   // -- Image generation --
-  get_image_generate_config: { method: "GET", path: "/api/config/image-generate" },
-  save_image_generate_config: { method: "PUT", path: "/api/config/image-generate" },
-  get_audio_generate_config: { method: "GET", path: "/api/config/audio-generate" },
-  save_audio_generate_config: { method: "PUT", path: "/api/config/audio-generate" },
-  get_audio_model_catalog_cmd: { method: "GET", path: "/api/config/audio-model-catalog" },
-  list_elevenlabs_voices_cmd: { method: "GET", path: "/api/config/elevenlabs-voices" },
+  get_media_gen_config: { method: "GET", path: "/api/config/media-gen" },
+  add_media_provider: { method: "POST", path: "/api/config/media-gen/providers" },
+  update_media_provider: { method: "PUT", path: "/api/config/media-gen/providers/{providerId}" },
+  delete_media_provider: { method: "DELETE", path: "/api/config/media-gen/providers/{providerId}" },
+  reorder_media_providers: { method: "PUT", path: "/api/config/media-gen/providers/reorder" },
+  set_media_default_chain: { method: "PUT", path: "/api/config/media-gen/chains/{function}" },
+  update_media_gen_defaults: { method: "PUT", path: "/api/config/media-gen/defaults" },
+  get_media_provider_templates: { method: "GET", path: "/api/config/media-gen/templates" },
+  list_media_voices: { method: "GET", path: "/api/config/media-gen/voices" },
+  test_media_provider: { method: "POST", path: "/api/config/media-gen/test" },
+  get_media_gen_overview: { method: "GET", path: "/api/config/media-gen/overview" },
 
   // -- Web search --
   get_web_search_config: { method: "GET", path: "/api/config/web-search" },

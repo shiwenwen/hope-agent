@@ -1257,61 +1257,174 @@ pub async fn patch_filesystem_config(
     Ok(Json(next))
 }
 
-/// `GET /api/config/image-generate` -- get image generation config.
-pub async fn get_image_generate_config(
-) -> Result<Json<ha_core::tools::image_generate::ImageGenConfig>, AppError> {
-    let store = load_config()?;
-    let mut config = store.image_generate;
-    ha_core::tools::image_generate::backfill_providers(&mut config);
-    Ok(Json(config))
+/// `GET /api/config/media-gen` -- full media-gen config. Providers come
+/// back **masked** — remote API clients must not see credentials (desktop
+/// Tauri returns them unmasked inside the local trust domain).
+pub async fn get_media_gen_config() -> Result<Json<Value>, AppError> {
+    let cfg = ha_core::config::cached_config();
+    let mg = &cfg.media_gen;
+    Ok(Json(json!({
+        "providers": mg.providers.iter().map(|p| p.masked()).collect::<Vec<_>>(),
+        "chains": mg.chains,
+        "imageDefaults": mg.image_defaults,
+        "audioDefaults": mg.audio_defaults,
+    })))
 }
 
-/// `PUT /api/config/image-generate` -- save image generation config.
-pub async fn save_image_generate_config(
-    Json(body): Json<ConfigBody<ha_core::tools::image_generate::ImageGenConfig>>,
+fn media_err(err: ha_core::media_gen::crud::MediaWriteError) -> AppError {
+    AppError::bad_request(err.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MediaProviderBody {
+    pub provider: ha_core::media_gen::MediaProviderConfig,
+}
+
+/// `POST /api/config/media-gen/providers` -- add a provider (returns masked).
+pub async fn add_media_provider(
+    Json(body): Json<MediaProviderBody>,
+) -> Result<Json<ha_core::media_gen::MediaProviderConfig>, AppError> {
+    let stored = ha_core::blocking::run_blocking(move || {
+        ha_core::media_gen::crud::add_media_provider(body.provider, "http").map_err(media_err)
+    })
+    .await?;
+    Ok(Json(stored.masked()))
+}
+
+/// `PUT /api/config/media-gen/providers/{id}` -- update a provider
+/// (masked-key round-trips keep existing secrets).
+pub async fn update_media_provider(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(mut body): Json<MediaProviderBody>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config_async(("image_generate", "http"), move |store| {
-        store.image_generate = body.config;
-        Ok(())
+    body.provider.id = id;
+    ha_core::blocking::run_blocking(move || {
+        ha_core::media_gen::crud::update_media_provider(body.provider, "http").map_err(media_err)
     })
     .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
-/// `GET /api/config/audio-generate` -- get audio generation config.
-pub async fn get_audio_generate_config(
-) -> Result<Json<ha_core::tools::audio_generate::AudioGenConfig>, AppError> {
-    let store = load_config()?;
-    let mut config = store.audio_generate;
-    ha_core::tools::audio_generate::backfill_providers(&mut config);
-    Ok(Json(config))
+/// `DELETE /api/config/media-gen/providers/{id}` -- delete a provider.
+pub async fn delete_media_provider(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let chains_touched = ha_core::blocking::run_blocking(move || {
+        ha_core::media_gen::crud::delete_media_provider(id, "http").map_err(media_err)
+    })
+    .await?;
+    Ok(Json(
+        json!({ "deleted": true, "chainsTouched": chains_touched }),
+    ))
 }
 
-/// `PUT /api/config/audio-generate` -- save audio generation config.
-pub async fn save_audio_generate_config(
-    Json(body): Json<ConfigBody<ha_core::tools::audio_generate::AudioGenConfig>>,
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderMediaProvidersBody {
+    pub provider_ids: Vec<String>,
+}
+
+/// `PUT /api/config/media-gen/providers/reorder` -- reorder (order = auto priority).
+pub async fn reorder_media_providers(
+    Json(body): Json<ReorderMediaProvidersBody>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("audio_generate", "http"), |store| {
-        store.audio_generate = body.config;
-        Ok(())
-    })?;
+    ha_core::blocking::run_blocking(move || {
+        ha_core::media_gen::crud::reorder_media_providers(body.provider_ids, "http")
+            .map_err(media_err)
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
-/// `GET /api/config/audio-model-catalog` -- 策展音频模型目录（B8-1，只读）。
-pub async fn get_audio_model_catalog(
-) -> Result<Json<Vec<ha_core::tools::audio_generate::AudioModelInfo>>, AppError> {
-    Ok(Json(ha_core::tools::audio_generate::audio_model_catalog()))
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaChainBody {
+    #[serde(default)]
+    pub chain: Option<ha_core::media_gen::MediaModelChain>,
 }
 
-/// `GET /api/config/elevenlabs-voices?limit=100` -- 实时拉 ElevenLabs 语音（B8-1）。
-pub async fn list_elevenlabs_voices(
-    axum::extract::Query(q): axum::extract::Query<VoicesQuery>,
-) -> Result<Json<Vec<ha_core::tools::audio_generate::VoiceOption>>, AppError> {
-    let voices = ha_core::tools::audio_generate::list_elevenlabs_voices(q.limit.unwrap_or(100))
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?;
+/// `PUT /api/config/media-gen/chains/{function}` -- set/clear one default
+/// chain (`function` ∈ image|speech|music|sfx; body `{chain: null}` = auto).
+pub async fn set_media_default_chain(
+    axum::extract::Path(function): axum::extract::Path<String>,
+    Json(body): Json<MediaChainBody>,
+) -> Result<Json<Value>, AppError> {
+    let function = ha_core::media_gen::MediaFunction::parse(&function)
+        .ok_or_else(|| AppError::bad_request(format!("unknown media function: {function}")))?;
+    ha_core::blocking::run_blocking(move || {
+        ha_core::media_gen::crud::set_media_default_chain(function, body.chain, "http")
+            .map_err(media_err)
+    })
+    .await?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaDefaultsBody {
+    pub image_defaults: ha_core::media_gen::ImageGenDefaults,
+    pub audio_defaults: ha_core::media_gen::AudioGenDefaults,
+}
+
+/// `PUT /api/config/media-gen/defaults` -- save tool defaults (timeouts,
+/// default size / aspect ratio / resolution / duration, enable switches).
+pub async fn update_media_gen_defaults(
+    Json(body): Json<MediaDefaultsBody>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_core::media_gen::crud::update_media_gen_defaults(
+            body.image_defaults,
+            body.audio_defaults,
+            "http",
+        )
+        .map_err(media_err)
+    })
+    .await?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/media-gen/templates` -- built-in vendor templates (GUI-only catalog).
+pub async fn get_media_provider_templates(
+) -> Result<Json<Vec<ha_core::media_gen::MediaProviderTemplate>>, AppError> {
+    Ok(Json(ha_core::media_gen::media_provider_templates()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaVoicesQuery {
+    pub provider_id: String,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// `GET /api/config/media-gen/voices?providerId=..&limit=..` -- voice catalog.
+pub async fn list_media_voices(
+    axum::extract::Query(q): axum::extract::Query<MediaVoicesQuery>,
+) -> Result<Json<Vec<ha_core::media_gen::voices::VoiceOption>>, AppError> {
+    let voices =
+        ha_core::media_gen::voices::list_media_voices(&q.provider_id, q.limit.unwrap_or(100))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(voices))
+}
+
+/// `POST /api/config/media-gen/test` -- connectivity probe (saved provider
+/// by id, or a pre-save draft by kind + apiKey + baseUrl).
+pub async fn test_media_provider(
+    Json(body): Json<ha_core::media_gen::probe::TestMediaProviderInput>,
+) -> Result<Json<Value>, AppError> {
+    let payload = ha_core::media_gen::probe::test_media_provider(body)
+        .await
+        .unwrap_or_else(|e| e);
+    let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
+    Ok(Json(v))
+}
+
+/// `GET /api/config/media-gen/overview` -- sanitized availability/caps view.
+pub async fn get_media_gen_overview() -> Result<Json<ha_core::media_gen::MediaGenOverview>, AppError>
+{
+    let cfg = ha_core::config::cached_config();
+    Ok(Json(ha_core::media_gen::media_gen_overview(&cfg.media_gen)))
 }
 
 #[derive(serde::Deserialize)]

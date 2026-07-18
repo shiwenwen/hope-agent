@@ -71,14 +71,15 @@ pub use approval::{
     ApprovalResolutionSource, ApprovalResponse, ApprovalSubmitError, EVENT_APPROVAL_RESOLVED,
 };
 pub use definitions::{
-    get_artifact_tool, get_ask_user_question_tool, get_available_tools, get_canvas_tool,
-    get_core_tools, get_core_tools_for_provider, get_deferred_tools, get_enter_plan_mode_tool,
-    get_image_generate_tool_dynamic, get_notification_tool, get_subagent_tool,
-    get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
-    get_workflow_tool, is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass,
-    ToolApprovalHint, ToolDefinition, ToolEffect, ToolInputMetadata, ToolInterruptBehavior,
-    ToolMetadata, ToolPathExtractorMetadata, ToolPermissionMetadata, ToolPermissionSubject,
-    ToolRenderMetadata, ToolResultKind, ToolRisk, ToolTier, ToolValidationMetadata,
+    get_artifact_tool, get_ask_user_question_tool, get_audio_generate_tool_dynamic,
+    get_available_tools, get_canvas_tool, get_core_tools, get_core_tools_for_provider,
+    get_deferred_tools, get_enter_plan_mode_tool, get_image_generate_tool_dynamic,
+    get_notification_tool, get_subagent_tool, get_submit_plan_tool, get_tool_search_tool,
+    get_tools_for_provider, get_web_search_tool, get_workflow_tool, is_async_capable,
+    is_concurrent_safe, is_internal_tool, CoreSubclass, ToolApprovalHint, ToolDefinition,
+    ToolEffect, ToolInputMetadata, ToolInterruptBehavior, ToolMetadata, ToolPathExtractorMetadata,
+    ToolPermissionMetadata, ToolPermissionSubject, ToolRenderMetadata, ToolResultKind, ToolRisk,
+    ToolTier, ToolValidationMetadata,
 };
 pub use execution::{
     execute_tool_with_context, purge_tool_results_for_session, PidSink, SessionDbHandle,
@@ -180,6 +181,7 @@ pub const TOOL_SESSIONS_HISTORY: &str = "sessions_history";
 pub const TOOL_SESSIONS_SEND: &str = "sessions_send";
 pub const TOOL_IMAGE: &str = "image";
 pub const TOOL_IMAGE_GENERATE: &str = "image_generate";
+pub const TOOL_AUDIO_GENERATE: &str = "audio_generate";
 pub const TOOL_ISSUE_REPORT: &str = "issue_report";
 pub const TOOL_PDF: &str = "pdf";
 pub const TOOL_CANVAS: &str = "canvas";
@@ -389,7 +391,7 @@ pub fn is_knowledge_scope_tool(name: &str) -> bool {
 /// White-list predicate for [`ToolScope::Design`] — the trimmed tool set the
 /// design-space per-project chat injects. Keeps the `design` tool (the whole
 /// create/iterate/restyle/critique surface), reference-gathering (`web_search` /
-/// `web_fetch` / `image_generate`), cross-store recall, and the framework basics
+/// `web_fetch` / `image_generate` / `audio_generate`), cross-store recall, and the framework basics
 /// the dispatcher / deferred-tool flow need; everything else (exec / browser /
 /// subagent / cron / channel / raw fs …) is dropped so a design chat stays
 /// focused on the artifact and can't wander into unrelated capabilities.
@@ -403,6 +405,7 @@ pub fn is_design_scope_tool(name: &str) -> bool {
             | TOOL_WEB_SEARCH
             | TOOL_WEB_FETCH
             | TOOL_IMAGE_GENERATE
+            | TOOL_AUDIO_GENERATE
             | TOOL_RECALL_MEMORY
             | TOOL_MEMORY_GET
             | TOOL_KNOWLEDGE_RECALL

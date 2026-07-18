@@ -1,28 +1,30 @@
-//! `image` 形态：接线现有 `image_generate` Provider 栈，生成图片并内嵌进
+//! `image` 形态：接线统一媒体生成栈（`crate::media_gen`），生成图片并内嵌进
 //! **自包含产物**（data-uri，守「轻量自包含 HTML」红线）。
 //!
-//! 不复用 `tool_image_generate`（它解析 JSON args、做 failover、落 attachments 目录、
-//! 返回带 `__MEDIA_ITEMS__` 头的字符串）——而是直接组合公共 provider trait：
-//! `resolve_image_gen_config` + `resolve_provider` + `ImageGenParams` +
-//! `ImageGenProviderImpl::generate`（全 `crate::tools::image_generate::*` 公共）。
+//! 不复用 `tool_image_generate`（它解析 JSON args、落 attachments 目录、返回带
+//! `__MEDIA_ITEMS__` 头的字符串）——但 failover / 能力校验 / 记账与它共用同一
+//! `media_gen::execute_image` 执行器（消灭旧版三份重复的 provider 循环）。
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
 
 use super::renderer::{html_escape, ArtifactParts};
-use crate::tools::image_generate::InputImage;
-use crate::tools::image_generate::{
-    effective_model, resolve_image_gen_config, resolve_provider, ImageGenParams, ImageGenResult,
-};
+use crate::media_gen::adapters::InputImage;
+use crate::media_gen::{execute_image, ImageRequest, UsageMeta};
 
-/// 生图可选项（B0-4）：比例提示 + 参考图（图生图/编辑）。默认空 = 纯文生图（改动前行为）。
+/// 生图可选项（B0-4 + 参数透传）：几何参数 + 参考图（图生图/编辑）。默认空 =
+/// 纯文生图、几何全落 `media_gen.image_defaults`。
 #[derive(Default)]
 pub struct ImageGenOptions {
     /// 比例提示，如 "1:1" / "16:9" / "9:16"。
     pub aspect_ratio: Option<String>,
+    /// 尺寸，如 "1024x1024"；None = 全局默认。
+    pub size: Option<String>,
+    /// 分辨率档："1K" / "2K" / "4K"；None = 全局默认。
+    pub resolution: Option<String>,
     /// 参考/输入图（图生图或编辑）。空 = 纯文生图。
     pub input_images: Vec<InputImage>,
-    /// inpaint 蒙版（PNG，透明/涂画区=重绘区）。与恰一张 input_image 搭配走 OpenAI `/images/edits`。
+    /// inpaint 蒙版（PNG，透明/涂画区=重绘区）。只投给 `supports_mask` 的模型。
     pub mask: Option<Vec<u8>>,
 }
 
@@ -56,124 +58,49 @@ pub async fn generate_image_parts(
     })
 }
 
-/// 生成一张图片，返回原始字节 + mime。**按配置顺序在多个 provider 间 failover**——首选
-/// 被限流 / 报错时自动尝试下一个可用 provider（对齐 `tool_image_generate` 的健壮性）。
+/// 生成一张图片，返回原始字节 + mime。链解析 / failover / 重试 / 记账全在
+/// `media_gen::execute_image`（KIND_IMAGE_GENERATION，owner 平面无 session id）。
 async fn generate_image_bytes(prompt: &str, opts: &ImageGenOptions) -> Result<(Vec<u8>, String)> {
     if prompt.trim().is_empty() {
         anyhow::bail!("image prompt is empty");
     }
     let app_cfg = crate::config::cached_config();
-    let cfg = resolve_image_gen_config(&app_cfg.image_generate).ok_or_else(|| {
-        anyhow!("no image-generation provider configured (Settings → Tools → Image)")
-    })?;
-    let candidates: Vec<_> = cfg
-        .providers
-        .iter()
-        .filter(|p| p.enabled && p.api_key.as_deref().is_some_and(|k| !k.is_empty()))
-        .collect();
-    if candidates.is_empty() {
-        anyhow::bail!("no image-generation provider configured");
-    }
-
-    let mut last_err: Option<anyhow::Error> = None;
-    for entry in candidates {
-        let Some(provider) = resolve_provider(&entry.id) else {
-            last_err = Some(anyhow!("unknown image provider '{}'", entry.id));
-            continue;
-        };
-        let model = effective_model(entry);
-        let Some(api_key) = entry.api_key.as_deref() else {
-            continue;
-        };
-        let params = ImageGenParams {
-            api_key,
-            base_url: entry.base_url.as_deref(),
-            model: &model,
+    let outcome = execute_image(
+        &app_cfg.media_gen,
+        ImageRequest {
             prompt,
-            size: &cfg.default_size,
+            size: opts.size.as_deref(),
             n: 1,
-            timeout_secs: cfg.timeout_seconds,
-            extra: entry,
             aspect_ratio: opts.aspect_ratio.as_deref(),
-            resolution: None,
+            resolution: opts.resolution.as_deref(),
             input_images: &opts.input_images,
             mask: opts.mask.as_deref(),
-        };
-        let started = std::time::Instant::now();
-        match provider.generate(params).await {
-            Ok(ImageGenResult { images, .. }) => {
-                // Image providers return no token usage — record call + duration
-                // only (KIND_IMAGE_GENERATION), matching `tool_image_generate`.
-                record_image_usage(
-                    &entry.id,
-                    provider.display_name(),
-                    &model,
-                    started.elapsed().as_millis() as u64,
-                    true,
-                    None,
-                    Some(images.len()),
-                );
-                if let Some(img) = images.into_iter().next() {
-                    crate::app_info!(
-                        "design",
-                        "image",
-                        "generated image {} bytes mime={} via provider={}",
-                        img.data.len(),
-                        img.mime,
-                        entry.id
-                    );
-                    return Ok((img.data, img.mime));
-                }
-                last_err = Some(anyhow!("image provider '{}' returned no images", entry.id));
-            }
-            Err(e) => {
-                record_image_usage(
-                    &entry.id,
-                    provider.display_name(),
-                    &model,
-                    started.elapsed().as_millis() as u64,
-                    false,
-                    Some(e.to_string()),
-                    None,
-                );
-                crate::app_warn!(
-                    "design",
-                    "image",
-                    "image provider '{}' failed, trying next: {e}",
-                    entry.id
-                );
-                last_err = Some(e);
-            }
-        }
-    }
-    Err(last_err.unwrap_or_else(|| anyhow!("all image providers failed")))
-}
+            explicit_model: None,
+        },
+        UsageMeta {
+            operation: "design.image",
+            source: "design.image",
+            session_id: None,
+            agent_id: None,
+        },
+    )
+    .await?;
 
-/// Record one design image-generation attempt (`KIND_IMAGE_GENERATION`, owner
-/// plane so no session/agent id). Images carry no token usage — call count +
-/// duration only, per the usage-ledger contract.
-fn record_image_usage(
-    provider_id: &str,
-    provider_name: &str,
-    model: &str,
-    duration_ms: u64,
-    success: bool,
-    error: Option<String>,
-    output_image_count: Option<usize>,
-) {
-    let mut event =
-        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_IMAGE_GENERATION);
-    event.operation = Some("design.image".to_string());
-    event.source = Some("design.image".to_string());
-    event.provider_id = Some(provider_id.to_string());
-    // Human display name (matches `tool_image_generate`) so the Dashboard
-    // "by model" GROUP BY (model_id, provider_name) doesn't fragment the same
-    // provider/model into two rows across the two image entry points.
-    event.provider_name = Some(provider_name.to_string());
-    event.model_id = Some(model.to_string());
-    event.duration_ms = Some(duration_ms);
-    event.success = success;
-    event.error = error;
-    event.metadata = Some(serde_json::json!({ "output_image_count": output_image_count }));
-    crate::model_usage::record_model_usage_best_effort(event);
+    let provider_name = outcome.provider_name;
+    let img = outcome
+        .result
+        .images
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("image provider '{provider_name}' returned no images"))?;
+    crate::app_info!(
+        "design",
+        "image",
+        "generated image {} bytes mime={} via {}/{}",
+        img.data.len(),
+        img.mime,
+        provider_name,
+        outcome.model_id
+    );
+    Ok((img.data, img.mime))
 }

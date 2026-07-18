@@ -56,8 +56,7 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("canvas", "low"),
     ("image", "low"),
     ("pdf", "low"),
-    ("image_generate", "low"),
-    ("audio_generate", "low"),
+    ("media_generation", "low"),
     ("temperature", "low"),
     ("tool_timeout", "low"),
     ("default_agent", "low"),
@@ -180,6 +179,11 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              pre-fetches + verifies the new binary; the actual install / restart always stays \
              behind the user-confirmed `app_update install` (headless) or the GUI restart choice \
              (desktop). checkIntervalHours is clamped to [1, 168]."
+        ),
+        "media_generation" => Some(
+            "Chains decide which paid model serves image/speech/music/sfx generation — changing \
+             them changes spend. Provider entries (API keys) are read-only here; manage them in \
+             Settings → Model Providers → Generation Models."
         ),
         "server" => Some("Changes take effect on next app restart."),
         "shortcuts" => Some("Global shortcut re-registration happens immediately; conflicts may silently fail."),
@@ -386,8 +390,8 @@ fn redact_mcp_servers_value(mut value: Value) -> Value {
 /// non-string non-null value (object / array / number) is also masked
 /// defensively in case a future schema swap embeds a richer secret payload.
 ///
-/// Used to scrub `providers[*].api_key` style fields from web_search /
-/// image_generate read responses without dropping the structural metadata
+/// Used to scrub `providers[*].api_key` style fields from web_search-style
+/// read responses without dropping the structural metadata
 /// (id, enabled, baseUrl) that lets the model describe what's configured.
 /// Redact `http` hook handler header values (they can carry bearer tokens) from
 /// a serialized `HooksConfig` tree (`{ Event: [ { hooks: [ {type, headers} ] } ] }`).
@@ -442,18 +446,6 @@ fn redact_web_search_value(mut value: Value) -> Value {
             if let Some(obj) = entry.as_object_mut() {
                 redact_string_field(obj, "apiKey");
                 redact_string_field(obj, "apiKey2");
-            }
-        }
-    }
-    value
-}
-
-/// Redact `providers[*].api_key` from an `ImageGenConfig` JSON tree.
-fn redact_image_generate_value(mut value: Value) -> Value {
-    if let Some(providers) = value.get_mut("providers").and_then(|v| v.as_array_mut()) {
-        for entry in providers.iter_mut() {
-            if let Some(obj) = entry.as_object_mut() {
-                redact_string_field(obj, "apiKey");
             }
         }
     }
@@ -601,13 +593,17 @@ fn read_category(category: &str) -> Result<Value> {
             "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
             "approvalTimeoutAction": cfg.permission.approval_timeout_action,
         })),
-        "image_generate" => Ok(redact_image_generate_value(serde_json::to_value(
-            &cfg.image_generate,
-        )?)),
-        // Audio providers share the `{providers:[{apiKey}]}` shape → same redactor.
-        "audio_generate" => Ok(redact_image_generate_value(serde_json::to_value(
-            &cfg.audio_generate,
-        )?)),
+        "media_generation" => {
+            // Providers carry credentials → per-provider masked() (apiKey +
+            // extra map). Chains and defaults are safe to show verbatim.
+            let mg = &cfg.media_gen;
+            Ok(json!({
+                "providers": mg.providers.iter().map(|p| p.masked()).collect::<Vec<_>>(),
+                "chains": mg.chains,
+                "imageDefaults": mg.image_defaults,
+                "audioDefaults": mg.audio_defaults,
+            }))
+        }
         "canvas" => Ok(serde_json::to_value(&cfg.canvas)?),
         "design" => Ok(serde_json::to_value(&cfg.design)?),
         "image" => Ok(serde_json::to_value(&cfg.image)?),
@@ -1194,8 +1190,57 @@ fn apply_app_config_update(
             // Keep the persisted interval inside the supported range.
             store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
         }
-        "image_generate" => merge_field(&mut store.image_generate, values)?,
-        "audio_generate" => merge_field(&mut store.audio_generate, values)?,
+        "media_generation" => {
+            // Only the behavioral sections are writable here. Provider entries
+            // carry API keys — writable providers would let the model plant
+            // credentials / exfil endpoints, so they stay owner-UI only.
+            let Some(obj) = values.as_object() else {
+                anyhow::bail!("media_generation values must be an object");
+            };
+            for key in obj.keys() {
+                if !matches!(key.as_str(), "chains" | "imageDefaults" | "audioDefaults") {
+                    anyhow::bail!(
+                        "media_generation only accepts `chains` / `imageDefaults` / `audioDefaults` \
+                         here; provider entries (credentials) are managed in \
+                         Settings → Model Providers → Generation Models"
+                    );
+                }
+            }
+            if let Some(v) = obj.get("imageDefaults") {
+                merge_field(&mut store.media_gen.image_defaults, v)?;
+            }
+            if let Some(v) = obj.get("audioDefaults") {
+                merge_field(&mut store.media_gen.audio_defaults, v)?;
+            }
+            if let Some(chains_obj) = obj.get("chains").and_then(|v| v.as_object()) {
+                use crate::media_gen::{MediaFunction, MediaModelChain};
+                // Per-function assignment (not a deep merge): an explicit
+                // `null` clears that chain back to auto, and only the keys the
+                // caller sent are touched. A deep merge would silently drop a
+                // `null` and leave the chain in place.
+                let mut next = store.media_gen.chains.clone();
+                for (key, value) in chains_obj {
+                    let Some(function) = MediaFunction::parse(key) else {
+                        anyhow::bail!(
+                            "unknown media chain key `{key}` (expected image/speech/music/sfx)"
+                        );
+                    };
+                    let chain: Option<MediaModelChain> = if value.is_null() {
+                        None
+                    } else {
+                        Some(serde_json::from_value(value.clone())?)
+                    };
+                    if let Some(chain) = &chain {
+                        for entry in chain.iter() {
+                            crate::media_gen::crud::check_serves_function(store, entry, function)
+                                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                        }
+                    }
+                    next.set_for_function(function, chain);
+                }
+                store.media_gen.chains = next;
+            }
+        }
         "canvas" => merge_field(&mut store.canvas, values)?,
         "design" => merge_field(&mut store.design, values)?,
         "image" => merge_field(&mut store.image, values)?,
@@ -1964,22 +2009,6 @@ mod tests {
             "providers": [{ "id": "Brave", "apiKey": "" }]
         }));
         assert_eq!(r["providers"][0]["apiKey"], json!(""));
-    }
-
-    #[test]
-    fn redact_image_generate_masks_provider_keys() {
-        let original = json!({
-            "providers": [
-                {"id": "openai", "enabled": true, "apiKey": "sk-secret"},
-                {"id": "stability", "enabled": false, "apiKey": null}
-            ],
-            "defaultSize": "1024x1024"
-        });
-        let r = redact_image_generate_value(original);
-        assert_eq!(r["providers"][0]["apiKey"], json!("[REDACTED]"));
-        assert!(r["providers"][1]["apiKey"].is_null());
-        assert_eq!(r["providers"][0]["enabled"], true);
-        assert_eq!(r["defaultSize"], "1024x1024");
     }
 
     #[test]

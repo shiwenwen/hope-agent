@@ -809,7 +809,6 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `reorder_providers` | `POST /api/providers/reorder` | ✅ |
 | `test_provider` | `POST /api/providers/test` | ✅ |
 | `test_embedding` | `POST /api/providers/test-embedding` | ✅ |
-| `test_image_generate` | `POST /api/providers/test-image` | ✅ |
 | `test_model` | `POST /api/providers/test-model` | ✅ |
 | `test_proxy` | `POST /api/config/proxy/test` | ✅ |
 | `has_providers` | `GET /api/providers/has-any` | ✅ |
@@ -1035,10 +1034,6 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `get_audio_model_catalog_cmd` | `GET /api/config/audio-model-catalog` | ✅ |
-| `list_elevenlabs_voices_cmd` | `GET /api/config/elevenlabs-voices` | ✅ |
-| `get_audio_generate_config` | `GET /api/config/audio-generate` | ✅ |
-| `save_audio_generate_config` | `PUT /api/config/audio-generate` | ✅ |
 | `get_embedding_config` | `GET /api/config/embedding` | ✅ |
 | `save_embedding_config` | `PUT /api/config/embedding` | ✅ |
 | `get_embedding_presets` | `GET /api/config/embedding/presets` | ✅ |
@@ -1293,8 +1288,17 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `get_image_generate_config` | `GET /api/config/image-generate` | ✅ |
-| `save_image_generate_config` | `PUT /api/config/image-generate` | ✅ |
+| `get_media_gen_config` | `GET /api/config/media-gen` | ✅ |
+| `add_media_provider` | `POST /api/config/media-gen/providers` | ✅ |
+| `update_media_provider` | `PUT /api/config/media-gen/providers/{providerId}` | ✅ |
+| `delete_media_provider` | `DELETE /api/config/media-gen/providers/{providerId}` | ✅ |
+| `reorder_media_providers` | `PUT /api/config/media-gen/providers/reorder` | ✅ |
+| `set_media_default_chain` | `PUT /api/config/media-gen/chains/{function}` | ✅ |
+| `update_media_gen_defaults` | `PUT /api/config/media-gen/defaults` | ✅ |
+| `get_media_provider_templates` | `GET /api/config/media-gen/templates` | ✅ |
+| `list_media_voices` | `GET /api/config/media-gen/voices` | ✅ |
+| `test_media_provider` | `POST /api/config/media-gen/test` | ✅ |
+| `get_media_gen_overview` | `GET /api/config/media-gen/overview` | ✅ |
 | `get_web_search_config` | `GET /api/config/web-search` | ✅ |
 | `save_web_search_config` | `PUT /api/config/web-search` | ✅ |
 | `get_web_fetch_config` | `GET /api/config/web-fetch` | ✅ |

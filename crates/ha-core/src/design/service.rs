@@ -1187,7 +1187,7 @@ pub struct CreateArtifactInput {
     /// 缺省 = `effective_chain` 默认链。
     #[serde(default)]
     pub model_override: Option<crate::provider::ActiveModel>,
-    /// image 形态：参考图路径 / URL（agent 面图生图入口）。每项经 `image_generate::load_input_images`
+    /// image 形态：参考图路径 / URL（agent 面图生图入口）。每项经 `media_gen::load_input_images`
     /// 加载（本地路径 / data: / http(s) 走 SSRF），≤5 张，坏项跳过不阻断。与 `reference_image_b64`
     /// 叠加（owner 面用 b64、agent 面用 paths）。
     #[serde(default)]
@@ -1202,6 +1202,18 @@ pub struct CreateArtifactInput {
     /// audio 形态：music / sfx 目标时长（秒）透传给音频 provider。B8-2。
     #[serde(default)]
     pub audio_duration_secs: Option<f64>,
+    /// audio 形态：显式子能力（"speech" / "music" / "sfx"）。缺省 = prompt 前缀推断。
+    #[serde(default)]
+    pub audio_kind: Option<String>,
+    /// audio 形态：调用级 voice 覆盖（> 模型默认 > provider 默认）。
+    #[serde(default)]
+    pub audio_voice: Option<String>,
+    /// image 形态：尺寸（如 "1024x1024"）；缺省 = 全局默认。
+    #[serde(default)]
+    pub image_size: Option<String>,
+    /// image 形态：分辨率档（"1K" / "2K" / "4K"）；缺省 = 全局默认。
+    #[serde(default)]
+    pub image_resolution: Option<String>,
     /// 新页面落入的文件夹（页面分组）：斜杠路径，缺省 = 根。OD「新文件落 currentDir」的对应。
     #[serde(default)]
     pub folder: Option<String>,
@@ -1284,7 +1296,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .filter(|s| !s.trim().is_empty())
         {
             match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
-                Ok(data) => input_images.push(crate::tools::image_generate::InputImage {
+                Ok(data) => input_images.push(crate::media_gen::adapters::InputImage {
                     data,
                     mime: input
                         .reference_image_mime
@@ -1311,7 +1323,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
                     continue;
                 }
                 match base64::engine::general_purpose::STANDARD.decode(b64) {
-                    Ok(data) => input_images.push(crate::tools::image_generate::InputImage {
+                    Ok(data) => input_images.push(crate::media_gen::adapters::InputImage {
                         data,
                         mime: r
                             .mime
@@ -1334,7 +1346,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .as_deref()
             .filter(|p| !p.is_empty())
         {
-            match crate::tools::image_generate::load_input_images(paths).await {
+            match crate::media_gen::load_input_images(paths).await {
                 Ok(mut loaded) => {
                     let room = 5usize.saturating_sub(input_images.len());
                     loaded.truncate(room);
@@ -1349,6 +1361,11 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
         }
         let opts = super::image::ImageGenOptions {
             aspect_ratio: input.aspect_ratio.clone().filter(|s| !s.trim().is_empty()),
+            size: input.image_size.clone().filter(|s| !s.trim().is_empty()),
+            resolution: input
+                .image_resolution
+                .clone()
+                .filter(|s| !s.trim().is_empty()),
             input_images,
             mask: None,
         };
@@ -1361,9 +1378,15 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .clone()
             .filter(|p| !p.trim().is_empty())
             .unwrap_or_else(|| input.title.clone());
-        let parts =
-            super::audio::generate_audio_parts(&prompt, &input.title, input.audio_duration_secs)
-                .await?;
+        let audio_opts = super::audio::AudioGenPartsOptions {
+            kind: input
+                .audio_kind
+                .as_deref()
+                .and_then(crate::media_gen::AudioKind::parse),
+            voice: input.audio_voice.clone().filter(|v| !v.trim().is_empty()),
+            duration_seconds: input.audio_duration_secs,
+        };
+        let parts = super::audio::generate_audio_parts(&prompt, &input.title, &audio_opts).await?;
         input.body_html = Some(parts.body_html);
     } else if body_empty && input.kind == "component" {
         // component 形态：brief → 生成 React 组件源（JSX），render() 时后端 oxc 编译。
@@ -1976,7 +1999,9 @@ pub async fn inpaint_image_artifact(
     };
     let opts = super::image::ImageGenOptions {
         aspect_ratio: None,
-        input_images: vec![crate::tools::image_generate::InputImage {
+        size: None,
+        resolution: None,
+        input_images: vec![crate::media_gen::adapters::InputImage {
             data: img_bytes,
             mime: img_mime,
         }],
@@ -4853,6 +4878,10 @@ pub async fn refine_artifact_with_comment(
         recipe_id: None,
         aspect_ratio: None,
         audio_duration_secs: None,
+        audio_kind: None,
+        audio_voice: None,
+        image_size: None,
+        image_resolution: None,
         folder: None,
     };
     let (system_md, tokens) = resolve_system_for_generation(&sys_input);

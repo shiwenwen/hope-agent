@@ -3,57 +3,18 @@ use std::collections::HashSet;
 use anyhow::Result;
 use serde_json::Value;
 
-use super::helpers::*;
 use super::output::*;
-use super::types::*;
+use crate::media_gen::adapters::InputImage;
+use crate::media_gen::{
+    execute_image, infer_resolution, load_input_image, ImageRequest, UsageMeta, MAX_INPUT_IMAGES,
+    VALID_ASPECT_RATIOS, VALID_RESOLUTIONS,
+};
 use crate::tools::execution::ToolExecContext;
 
-fn record_image_generation_usage(
-    ctx: &ToolExecContext,
-    entry: &ImageGenProviderEntry,
-    display_name: &str,
-    model_name: &str,
-    size: &str,
-    n: u32,
-    aspect_ratio: Option<&str>,
-    resolution: Option<&str>,
-    is_edit: bool,
-    input_image_count: usize,
-    attempt: u32,
-    duration_ms: u64,
-    success: bool,
-    error: Option<String>,
-    output_image_count: Option<usize>,
-) {
-    let mut event =
-        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_IMAGE_GENERATION);
-    event.operation = Some("tool.image_generate".to_string());
-    event.source = Some("tool".to_string());
-    event.provider_id = Some(entry.id.clone());
-    event.provider_name = Some(display_name.to_string());
-    event.model_id = Some(model_name.to_string());
-    event.session_id = ctx.session_id.clone();
-    event.agent_id = ctx.agent_id.clone();
-    event.duration_ms = Some(duration_ms);
-    event.success = success;
-    event.error = error;
-    event.metadata = Some(serde_json::json!({
-        "size": size,
-        "n": n,
-        "aspect_ratio": aspect_ratio,
-        "resolution": resolution,
-        "is_edit": is_edit,
-        "input_image_count": input_image_count,
-        "attempt": attempt,
-        "output_image_count": output_image_count,
-    }));
-    crate::model_usage::record_model_usage_best_effort(event);
-}
-
-// ── Tool Entry Point (with Failover) ────────────────────────────
+// ── Tool Entry Point ────────────────────────────────────────────
 
 pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let config = crate::config::cached_config().image_generate.clone();
+    let config = crate::config::cached_config().media_gen.clone();
 
     // Parse action
     let action = args
@@ -77,7 +38,7 @@ pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> 
     let size = args
         .get("size")
         .and_then(|v| v.as_str())
-        .unwrap_or(&config.default_size);
+        .filter(|s| !s.is_empty());
 
     let n = args.get("n").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as u32;
 
@@ -162,221 +123,47 @@ pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> 
 
     let is_edit = !input_images.is_empty();
 
-    // Auto-infer resolution from input images when editing
+    // Auto-infer resolution from input images when editing and the caller
+    // didn't pin size or resolution explicitly.
     let effective_resolution = if resolution.is_some() {
         resolution
-    } else if is_edit && size == config.default_size {
-        // Only auto-infer if no explicit size/resolution
+    } else if is_edit && size.is_none() {
         Some(infer_resolution(&input_images))
     } else {
         None
     };
 
-    // Build candidate list
-    let candidates: Vec<&ImageGenProviderEntry> = if let Some(model_name) = model_override {
-        // Explicit model → find its provider (no failover)
-        match find_provider_by_model(model_name, &config) {
-            Some(entry) => vec![entry],
-            None => anyhow::bail!(
-                "Model '{}' not available. Configure it in Settings > Tool Settings > Image Generation.",
-                model_name
-            ),
-        }
-    } else {
-        // Auto mode → all enabled providers in priority order
-        config
-            .providers
-            .iter()
-            .filter(|p| p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty()))
-            .collect()
-    };
-
-    if candidates.is_empty() {
-        anyhow::bail!(
-            "No image generation provider configured. Please configure one in Settings > Tool Settings > Image Generation."
-        );
-    }
-
-    let timeout = config.timeout_seconds;
-    let mut failover_log: Vec<String> = Vec::new();
-    let mut last_error = String::new();
-
-    for entry in &candidates {
-        let impl_ = match super::resolve_provider(&entry.id) {
-            Some(i) => i,
-            None => {
-                failover_log.push(format!("Unknown provider '{}', skipped", entry.id));
-                continue;
-            }
-        };
-
-        let model_name = entry
-            .model
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or(impl_.default_model());
-        let display = impl_.display_name();
-
-        // Validate capabilities before attempting
-        let caps = impl_.capabilities();
-        if let Err(e) = validate_capabilities(
-            &caps,
-            display,
-            is_edit,
-            n,
-            aspect_ratio,
-            effective_resolution,
-            size,
-            input_images.len(),
-        ) {
-            failover_log.push(format!("{}/{} skipped: {}", display, model_name, e));
-            app_info!(
-                "tool",
-                "image_generate",
-                "{}/{} skipped (capability mismatch): {}",
-                display,
-                model_name,
-                e
-            );
-            continue;
-        }
-
-        app_info!(
-            "tool",
-            "image_generate",
-            "Image generate [{}/{}]: prompt='{}', size={}, n={}, edit={}, aspectRatio={:?}, resolution={:?}",
-            display,
-            model_name,
-            if prompt.len() > 80 {
-                format!("{}...", crate::truncate_utf8(prompt, 80))
-            } else {
-                prompt.to_string()
-            },
+    let outcome = execute_image(
+        &config,
+        ImageRequest {
+            prompt,
             size,
             n,
-            is_edit,
             aspect_ratio,
-            effective_resolution
-        );
+            resolution: effective_resolution,
+            input_images: &input_images,
+            mask: None,
+            explicit_model: model_override,
+        },
+        UsageMeta {
+            operation: "tool.image_generate",
+            source: "tool",
+            session_id: ctx.session_id.clone(),
+            agent_id: ctx.agent_id.clone(),
+        },
+    )
+    .await?;
 
-        // Retry loop: max 1 retry for retryable errors
-        let max_retries: u32 = 1;
-
-        for attempt in 0..=max_retries {
-            let params = ImageGenParams {
-                api_key: entry.api_key.as_deref().unwrap(),
-                base_url: entry.base_url.as_deref(),
-                model: model_name,
-                prompt,
-                size,
-                n,
-                timeout_secs: timeout,
-                extra: entry,
-                aspect_ratio,
-                resolution: effective_resolution,
-                input_images: &input_images,
-                mask: None,
-            };
-
-            let attempt_started = std::time::Instant::now();
-            match impl_.generate(params).await {
-                Ok(result) => {
-                    record_image_generation_usage(
-                        ctx,
-                        entry,
-                        display,
-                        model_name,
-                        size,
-                        n,
-                        aspect_ratio,
-                        effective_resolution,
-                        is_edit,
-                        input_images.len(),
-                        attempt,
-                        attempt_started.elapsed().as_millis() as u64,
-                        true,
-                        None,
-                        Some(result.images.len()),
-                    );
-                    return build_success_result(
-                        result,
-                        display,
-                        model_name,
-                        size,
-                        aspect_ratio,
-                        effective_resolution,
-                        is_edit,
-                        &failover_log,
-                        ctx.session_id.as_deref(),
-                    );
-                }
-                Err(e) => {
-                    let err_string = e.to_string();
-                    record_image_generation_usage(
-                        ctx,
-                        entry,
-                        display,
-                        model_name,
-                        size,
-                        n,
-                        aspect_ratio,
-                        effective_resolution,
-                        is_edit,
-                        input_images.len(),
-                        attempt,
-                        attempt_started.elapsed().as_millis() as u64,
-                        false,
-                        Some(err_string.clone()),
-                        None,
-                    );
-                    let reason = crate::failover::classify_error(&e.to_string());
-                    let reason_label = format!("{:?}", reason);
-
-                    if reason.is_retryable() && attempt < max_retries {
-                        let delay = crate::failover::retry_delay_ms(attempt, 2000, 10000);
-                        failover_log.push(format!(
-                            "{}/{} failed ({}), retrying in {}ms...",
-                            display, model_name, reason_label, delay
-                        ));
-                        app_warn!(
-                            "tool",
-                            "image_generate",
-                            "{}/{} failed ({}), retrying in {}ms",
-                            display,
-                            model_name,
-                            reason_label,
-                            delay
-                        );
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                        continue;
-                    }
-
-                    let err_preview = crate::truncate_utf8(&err_string, 200);
-                    failover_log.push(format!(
-                        "{}/{} failed ({}): {}",
-                        display, model_name, reason_label, err_preview
-                    ));
-                    last_error = e.to_string();
-                    app_warn!(
-                        "tool",
-                        "image_generate",
-                        "{}/{} failed ({}): {}",
-                        display,
-                        model_name,
-                        reason_label,
-                        err_preview
-                    );
-                    break; // → next candidate
-                }
-            }
-        }
-    }
-
-    // All providers failed
-    let log_summary = failover_log.join("\n");
-    anyhow::bail!(
-        "All image generation providers failed.\n{}\nLast error: {}",
-        log_summary,
-        crate::truncate_utf8(&last_error, 300)
+    let effective_size = size.unwrap_or(&config.image_defaults.default_size);
+    build_success_result(
+        outcome.result,
+        &outcome.provider_name,
+        &outcome.model_id,
+        effective_size,
+        aspect_ratio,
+        effective_resolution,
+        is_edit,
+        &outcome.failover_log,
+        ctx.session_id.as_deref(),
     )
 }

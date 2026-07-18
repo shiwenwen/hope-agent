@@ -76,6 +76,7 @@ pub mod mac_control;
 
 pub mod mcp;
 pub mod mcp_server;
+pub mod media_gen;
 pub mod memory;
 pub mod memory_extract;
 pub mod model_usage;

@@ -312,7 +312,7 @@ graph LR
 
 | 模块 | 文档 |
 |------|------|
-| 图像生成 | [图像生成](image-generation.md) |
+| 媒体生成 | [媒体生成](media-generation.md) |
 | 定时任务 | [Cron 调度](cron.md) |
 | Sandbox 架构 | [Sandbox](sandbox.md) |
 | 数据大盘 / Learning 质量门 | [Dashboard](dashboard.md) |

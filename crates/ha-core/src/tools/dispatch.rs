@@ -78,14 +78,22 @@ pub enum ToolFate {
 /// alone decides them.
 pub fn is_globally_configured(name: &str, app_config: &AppConfig) -> bool {
     use crate::tools::{
-        TOOL_ACP_SPAWN, TOOL_ARTIFACT, TOOL_CANVAS, TOOL_DESIGN, TOOL_IMAGE_GENERATE,
-        TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT, TOOL_WEB_SEARCH,
+        TOOL_ACP_SPAWN, TOOL_ARTIFACT, TOOL_AUDIO_GENERATE, TOOL_CANVAS, TOOL_DESIGN,
+        TOOL_IMAGE_GENERATE, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT, TOOL_WEB_SEARCH,
     };
     match name {
         TOOL_WEB_SEARCH => crate::tools::web_search::has_enabled_provider(&app_config.web_search),
         TOOL_IMAGE_GENERATE => {
-            crate::tools::image_generate::resolve_image_gen_config(&app_config.image_generate)
-                .is_some()
+            app_config.media_gen.image_defaults.enabled
+                && app_config
+                    .media_gen
+                    .has_capable_provider(crate::media_gen::MediaModality::Image)
+        }
+        TOOL_AUDIO_GENERATE => {
+            app_config.media_gen.audio_defaults.enabled
+                && app_config
+                    .media_gen
+                    .has_capable_provider(crate::media_gen::MediaModality::Audio)
         }
         TOOL_CANVAS | TOOL_ARTIFACT => app_config.canvas.enabled,
         TOOL_DESIGN => app_config.design.enabled,
@@ -372,16 +380,17 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
 /// time. Every other consumer reads tier metadata only and doesn't care.
 static ALL_DISPATCHABLE_TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| {
     use super::definitions::{
-        get_acp_spawn_tool, get_artifact_tool, get_available_tools, get_canvas_tool,
-        get_design_tool, get_enter_plan_mode_tool, get_image_generate_tool_dynamic,
-        get_notification_tool, get_subagent_tool, get_submit_plan_tool, get_tool_search_tool,
-        get_web_search_tool,
+        get_acp_spawn_tool, get_artifact_tool, get_audio_generate_tool_dynamic,
+        get_available_tools, get_canvas_tool, get_design_tool, get_enter_plan_mode_tool,
+        get_image_generate_tool_dynamic, get_notification_tool, get_subagent_tool,
+        get_submit_plan_tool, get_tool_search_tool, get_web_search_tool,
     };
     let mut tools = get_available_tools();
     tools.extend([
         get_notification_tool(),
         get_subagent_tool(),
-        get_image_generate_tool_dynamic(&crate::tools::image_generate::ImageGenConfig::default()),
+        get_image_generate_tool_dynamic(&crate::media_gen::MediaGenConfig::default()),
+        get_audio_generate_tool_dynamic(&crate::media_gen::MediaGenConfig::default()),
         get_canvas_tool(),
         get_design_tool(),
         get_artifact_tool(),

@@ -6,13 +6,9 @@ use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::{
-    GeneratedImage, ImageGenCapabilities, ImageGenEditCapabilities, ImageGenGeometry,
-    ImageGenModeCapabilities, ImageGenParams, ImageGenProviderImpl, ImageGenResult,
-};
+use crate::media_gen::adapters::{GeneratedImage, ImageGenAdapter, ImageGenParams, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://dashscope.aliyuncs.com";
-const DEFAULT_MODEL: &str = "wanx-v1";
 const EDIT_MODEL: &str = "wanx2.1-imageedit";
 const TEXT2IMAGE_PATH: &str = "/api/v1/services/aigc/text2image/image-synthesis";
 const IMAGE2IMAGE_PATH: &str = "/api/v1/services/aigc/image2image/image-synthesis";
@@ -46,43 +42,7 @@ struct TongyiResult {
 
 pub(crate) struct TongyiProvider;
 
-impl ImageGenProviderImpl for TongyiProvider {
-    fn id(&self) -> &str {
-        "tongyi"
-    }
-
-    fn display_name(&self) -> &str {
-        "Tongyi Wanxiang"
-    }
-
-    fn default_model(&self) -> &str {
-        DEFAULT_MODEL
-    }
-
-    fn capabilities(&self) -> ImageGenCapabilities {
-        ImageGenCapabilities {
-            generate: ImageGenModeCapabilities {
-                max_count: 4,
-                supports_size: true,
-                supports_aspect_ratio: false,
-                supports_resolution: false,
-            },
-            edit: ImageGenEditCapabilities {
-                enabled: true,
-                max_count: 1,
-                max_input_images: 1,
-                supports_size: false,
-                supports_aspect_ratio: false,
-                supports_resolution: false,
-            },
-            geometry: Some(ImageGenGeometry {
-                sizes: vec!["1024x1024", "720x1280", "1280x720"],
-                aspect_ratios: vec![],
-                resolutions: vec![],
-            }),
-        }
-    }
-
+impl ImageGenAdapter for TongyiProvider {
     fn generate<'a>(
         &'a self,
         params: ImageGenParams<'a>,

@@ -435,7 +435,10 @@ fn collect_legacy_saved_to_paths(
     result: &str,
     paths: &mut HashSet<String>,
 ) {
-    if !matches!(tool_name, "send_attachment" | "image_generate") {
+    if !matches!(
+        tool_name,
+        "send_attachment" | "image_generate" | "audio_generate"
+    ) {
         return;
     }
     for line in result.lines() {

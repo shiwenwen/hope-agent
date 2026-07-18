@@ -36,6 +36,7 @@ pub mod logging;
 pub mod loop_control;
 pub mod lsp;
 pub mod mcp;
+pub mod media_gen;
 pub mod memory;
 pub mod misc;
 pub mod onboarding;

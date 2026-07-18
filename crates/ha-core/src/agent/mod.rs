@@ -3448,7 +3448,10 @@ impl AssistantAgent {
                 continue;
             }
             let schema = if def.name == tools::TOOL_IMAGE_GENERATE {
-                tools::get_image_generate_tool_dynamic(&app_config.image_generate)
+                tools::get_image_generate_tool_dynamic(&app_config.media_gen)
+                    .to_provider_schema(provider)
+            } else if def.name == tools::TOOL_AUDIO_GENERATE {
+                tools::get_audio_generate_tool_dynamic(&app_config.media_gen)
                     .to_provider_schema(provider)
             } else {
                 def.to_provider_schema(provider)
@@ -3558,7 +3561,10 @@ impl AssistantAgent {
             }
             deferred_builtin_names.insert(def.name.clone());
             let mut schema = if def.name == tools::TOOL_IMAGE_GENERATE {
-                tools::get_image_generate_tool_dynamic(&app_config.image_generate)
+                tools::get_image_generate_tool_dynamic(&app_config.media_gen)
+                    .to_provider_schema(provider)
+            } else if def.name == tools::TOOL_AUDIO_GENERATE {
+                tools::get_audio_generate_tool_dynamic(&app_config.media_gen)
                     .to_provider_schema(provider)
             } else {
                 def.to_provider_schema(provider)
@@ -3974,7 +3980,10 @@ impl AssistantAgent {
             prompt.push_str("\n\n- **send_notification**: Send a native desktop notification to alert the user about important events, task completions, or findings that need their attention. Parameters: title (optional), body (required).");
         }
         if eager.contains(tools::TOOL_IMAGE_GENERATE) {
-            prompt.push_str("\n\n- **image_generate**: Generate images from text descriptions. Parameters: prompt (required), size (optional, default 1024x1024), n (optional, 1-4), model (optional, default auto with failover). Generated images are saved to disk.");
+            prompt.push_str("\n\n- **image_generate**: Generate images from text descriptions. Parameters: prompt (required), size (optional), aspectRatio, resolution, n, model (optional, default auto with failover). Generated images are saved to disk.");
+        }
+        if eager.contains(tools::TOOL_AUDIO_GENERATE) {
+            prompt.push_str("\n\n- **audio_generate**: Generate audio from text — speech narration (TTS), music, or sound effects. Parameters: prompt (required), kind (speech|music|sfx, default speech), voice, durationSeconds, model (optional, default auto with failover). Generated audio is saved to disk.");
         }
         if eager.contains(tools::TOOL_CANVAS) {
             prompt.push_str("\n\n# Canvas\n\nYou have a `canvas` tool for creating interactive visual content rendered in a preview panel visible to the user.\n\n## Content Types\n- **html**: Full HTML/CSS/JS — web apps, games, animations, interactive demos\n- **markdown**: Rich documents with live preview\n- **code**: Syntax-highlighted code with line numbers\n- **svg**: Scalable vector graphics\n- **mermaid**: Diagrams (flowchart, sequence, class, gantt, etc.)\n- **chart**: Data visualizations (Chart.js JSON config in `content` field)\n- **slides**: Presentation slides (HTML `<section>` tags, arrow key navigation)\n\n## Workflow\n1. `canvas(action=\"create\", content_type=\"html\", title=\"...\", html=\"...\", css=\"...\", js=\"...\")` — create project\n2. Content appears in the user's preview panel immediately\n3. `canvas(action=\"snapshot\", project_id=\"...\")` — capture screenshot to verify visual output\n4. `canvas(action=\"update\", project_id=\"...\", html=\"...\")` — iterate based on screenshot feedback\n5. `canvas(action=\"export\", project_id=\"...\", format=\"html\")` — export when done\n\n## Best Practices\n- Always use snapshot after create/update to verify the visual result\n- For complex UIs, build incrementally — skeleton first, then add features\n- Use semantic HTML and responsive CSS\n- For charts, use Chart.js config JSON format in the `content` field\n- For slides, use `<section>` tags to separate slides");

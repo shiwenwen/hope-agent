@@ -5,7 +5,9 @@ type RadioPillsVariant = "subtle" | "strong"
 
 interface RadioPillsProps<V extends string | number> {
   value: V | null
-  options: ReadonlyArray<{ value: V; label: ReactNode; icon?: ReactNode }>
+  /** `disabled` pills ignore clicks but stay hoverable (aria-disabled, no
+   *  native `disabled`) so wrapping tooltips can still explain why. */
+  options: ReadonlyArray<{ value: V; label: ReactNode; icon?: ReactNode; disabled?: boolean }>
   onChange: (next: V) => void
   /** Tailwind grid columns class. Default `grid-cols-3`. */
   cols?: string
@@ -51,8 +53,9 @@ export function RadioPills<V extends string | number>({
             type="button"
             role="radio"
             aria-checked={isActive}
+            aria-disabled={opt.disabled || undefined}
             onClick={() => {
-              if (!isActive) onChange(opt.value)
+              if (!opt.disabled && !isActive) onChange(opt.value)
             }}
             className={cn(
               "inline-flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs transition-colors",
@@ -60,10 +63,17 @@ export function RadioPills<V extends string | number>({
               variant === "strong"
                 ? isActive
                   ? "bg-primary font-medium text-primary-foreground"
-                  : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground"
+                  : cn(
+                      "text-muted-foreground",
+                      !opt.disabled && "hover:bg-secondary/40 hover:text-foreground",
+                    )
                 : isActive
                   ? "bg-secondary/70 text-foreground"
-                  : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                  : cn(
+                      "bg-secondary/40 text-muted-foreground",
+                      !opt.disabled && "hover:bg-secondary/60 hover:text-foreground",
+                    ),
+              opt.disabled && "cursor-not-allowed opacity-45",
               itemClassName,
             )}
           >
