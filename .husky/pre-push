@@ -8,6 +8,16 @@
 #                              pushing a WIP branch and don't need the 1–3 min
 #                              test run locally; CI will still catch it)
 
+# Drain the ref list git streams on our stdin. We don't use it, but exiting
+# without reading leaves git writing into a closed pipe — it then dies of
+# SIGPIPE (exit 141) *after* the checks pass, so the push silently never
+# happens. The longer the hook runs, the wider that window, and this one runs
+# for minutes. `-t 0` keeps a manual `.husky/pre-push` run from blocking on the
+# terminal. Must stay above every exit path below.
+if [ ! -t 0 ]; then
+  cat > /dev/null 2>&1 || true
+fi
+
 if [ "${HA_SKIP_PREPUSH:-}" = "1" ]; then
   echo "[pre-push] HA_SKIP_PREPUSH=1 — skipping all checks"
   exit 0
