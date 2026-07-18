@@ -339,6 +339,19 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
         let poll_status = poll_resp.status();
         let poll_text = poll_resp.text().await.unwrap_or_default();
         if !poll_status.is_success() {
+            // The SFX query sub-path is documented; the TTS one is inferred by
+            // symmetry. A 404 here most likely means that inference is wrong,
+            // so say so rather than leaving a bare status code — the task did
+            // submit successfully and the audio may well exist elsewhere.
+            if poll_status.as_u16() == 404 && path == TTS_PATH {
+                anyhow::bail!(
+                    "Kling TTS poll returned 404 for {} — the TTS task-query path is not \
+                     documented and may differ from the sound-effect one; the task itself was \
+                     submitted (task_id={})",
+                    poll_url,
+                    task_id
+                );
+            }
             anyhow::bail!(
                 "Kling audio poll failed ({}, task_id={}): {}",
                 poll_status.as_u16(),
