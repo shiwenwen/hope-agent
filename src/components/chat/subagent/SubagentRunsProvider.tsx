@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from "react"
+import { type ReactNode } from "react"
 
 import {
   SubagentRunsContext,
@@ -31,7 +31,9 @@ export function SubagentRunsProvider({
   // When a host snapshot is supplied, subscribe to nothing (null session) so we
   // don't duplicate its fetch/listener; otherwise self-subscribe.
   const own = useSubagentRuns(snapshot ? null : sessionId)
-  const openRun = useCallback((target: SubagentOpenTarget) => onOpenRun?.(target), [onOpenRun])
-  const value: SubagentRunsView = { ...(snapshot ?? own), openRun }
+  // Pass the handler through as-is: wrapping it in an always-defined callback
+  // would make chips look actionable on hosts that wired nothing (e.g. the cron
+  // session viewer), where a click would silently do nothing.
+  const value: SubagentRunsView = { ...(snapshot ?? own), openRun: onOpenRun }
   return <SubagentRunsContext.Provider value={value}>{children}</SubagentRunsContext.Provider>
 }

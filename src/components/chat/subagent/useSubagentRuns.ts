@@ -92,7 +92,9 @@ export function useSubagentRuns(sessionId: string | null | undefined): SubagentR
 }
 
 export type SubagentRunsView = SubagentRunsSnapshot & {
-  openRun: (target: SubagentOpenTarget) => void
+  /** Absent when the host wired no handler — chips then render inert rather
+   *  than as buttons that silently do nothing. */
+  openRun?: (target: SubagentOpenTarget) => void
 }
 
 export const SubagentRunsContext = createContext<SubagentRunsView | null>(null)
