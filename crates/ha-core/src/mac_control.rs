@@ -81,7 +81,12 @@ pub trait MacControlBridge: Send + Sync {
         &self,
         request: MacControlElementsRequest,
     ) -> Result<MacControlElementsResult, String>;
-    async fn capture_frame(&self) -> Result<MacControlFramePayload, String>;
+    /// `display_id = None` captures the main display (panel default).
+    async fn capture_frame(
+        &self,
+        display_id: Option<u32>,
+    ) -> Result<MacControlFramePayload, String>;
+    async fn list_displays(&self) -> Result<Vec<MacControlDisplaySummary>, String>;
     async fn apps(&self, request: MacControlAppsRequest) -> Result<MacControlAppsResult, String>;
     async fn dock(&self, request: MacControlDockRequest) -> Result<MacControlDockResult, String>;
     async fn spaces(
@@ -1081,6 +1086,11 @@ pub struct MacControlFramePayload {
     pub scale: Option<f64>,
     pub captured_at: i64,
     pub frontmost_app: Option<MacControlAppSummary>,
+    /// Action-event foreign key (`tool_actions::ToolActionEvent.action_id`)
+    /// when this frame follows a recorded tool step; `None` for panel polls
+    /// and snapshot-tool frames.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -3445,7 +3455,39 @@ async fn visual_ocr_or_find_text(
     }
 }
 
-pub async fn capture_frame() -> MacControlFrameResponse {
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlDisplaysResponse {
+    pub displays: Vec<MacControlDisplaySummary>,
+    pub error: Option<String>,
+}
+
+/// Panel quick-bar: enumerate displays for the capture-target dropdown.
+pub async fn list_displays() -> MacControlDisplaysResponse {
+    let Some(bridge) = available_bridge() else {
+        return MacControlDisplaysResponse {
+            displays: Vec::new(),
+            error: Some(unsupported_reason().to_string()),
+        };
+    };
+    match bridge.list_displays().await {
+        Ok(displays) => MacControlDisplaysResponse {
+            displays,
+            error: None,
+        },
+        Err(error) => MacControlDisplaysResponse {
+            displays: Vec::new(),
+            error: Some(error),
+        },
+    }
+}
+
+pub async fn capture_frame(display_id: Option<u32>) -> MacControlFrameResponse {
+    // Remember the panel's target so follow-up action frames mirror the same
+    // display (the 1s poll keeps this fresh; None = main display).
+    if let Ok(mut sel) = PANEL_CAPTURE_DISPLAY.lock() {
+        *sel = display_id;
+    }
     let Some(bridge) = available_bridge() else {
         return unsupported_frame_response(unsupported_reason());
     };
@@ -3468,7 +3510,7 @@ pub async fn capture_frame() -> MacControlFrameResponse {
         };
     }
 
-    match bridge.capture_frame().await {
+    match bridge.capture_frame(display_id).await {
         Ok(frame) => {
             emit_frame(&frame);
             MacControlFrameResponse {
@@ -3486,6 +3528,63 @@ pub async fn capture_frame() -> MacControlFrameResponse {
             }
         }
     }
+}
+
+/// Fire-and-forget follow-up frame for a recorded action step: capture →
+/// stamp `action_id` → emit `mac_control:frame` → backfill the timeline
+/// thumbnail. Never blocks the tool's return path; every failure is silent
+/// (the panel's 1s poll covers the gap). Memory-only — deliberately does NOT
+/// go through `store_screenshot_jpeg` (no disk write, incognito-safe).
+/// Last display the panel asked to mirror (set by every `capture_frame` owner
+/// call, i.e. the 1s poll / quick-bar selection). Follow-up action frames use
+/// it so the mirror and thumbnails show the display the user is watching
+/// instead of unconditionally flashing back to the main display.
+static PANEL_CAPTURE_DISPLAY: Mutex<Option<u32>> = Mutex::new(None);
+
+fn panel_capture_display() -> Option<u32> {
+    PANEL_CAPTURE_DISPLAY.lock().ok().and_then(|sel| *sel)
+}
+
+pub fn capture_frame_for_action(action_id: String, session_id: Option<String>) {
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    handle.spawn(async move {
+        let Some(bridge) = available_bridge() else {
+            return;
+        };
+        match bridge.capture_frame(panel_capture_display()).await {
+            Ok(mut frame) => {
+                frame.action_id = Some(action_id.clone());
+                emit_frame(&frame);
+                // CPU-bound JPEG decode + re-encode off the async workers.
+                let jpeg_base64 = frame.jpeg_base64.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Ok(bytes) = base64::Engine::decode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &jpeg_base64,
+                    ) {
+                        if let Some(thumb) = crate::tool_actions::encode_thumbnail_from_jpeg(&bytes)
+                        {
+                            crate::tool_actions::attach_thumbnail(
+                                session_id.as_deref(),
+                                &action_id,
+                                thumb,
+                            );
+                        }
+                    }
+                });
+            }
+            Err(error) => {
+                app_debug!(
+                    "mac_control",
+                    "action_frame",
+                    "follow-up frame capture failed: {}",
+                    error
+                );
+            }
+        }
+    });
 }
 
 pub fn store_screenshot_jpeg(

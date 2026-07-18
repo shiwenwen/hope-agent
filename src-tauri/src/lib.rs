@@ -655,6 +655,8 @@ pub fn run() {
             tauri_wrappers::mac_control_snapshot,
             tauri_wrappers::mac_control_elements,
             tauri_wrappers::mac_control_capture_frame,
+            tauri_wrappers::mac_control_list_displays,
+            tauri_wrappers::tool_recent_actions,
             // Session management
             commands::session::create_session_cmd,
             commands::session::fork_session_cmd,
@@ -1264,6 +1266,7 @@ pub fn run() {
             commands::browser::browser_connect,
             commands::browser::browser_disconnect,
             commands::browser::browser_capture_frame,
+            commands::browser::browser_panel_navigate,
             commands::browser::browser_spawn_user_chrome,
             commands::browser::browser_doctor,
             commands::browser::browser_get_config,

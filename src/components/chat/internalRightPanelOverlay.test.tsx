@@ -34,6 +34,9 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, fallback?: string) => (typeof fallback === "string" ? fallback : key),
   }),
+  // Needed by src/i18n/i18n.ts, pulled in transitively via chatUtils
+  // (PanelActionTimeline reuses its formatDuration).
+  initReactI18next: { type: "3rdParty", init: () => {} },
 }))
 
 vi.mock("@/lib/transport-provider", () => ({

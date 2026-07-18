@@ -73,6 +73,18 @@ pub async fn browser_capture_frame(
         .map_err(Into::into)
 }
 
+/// Panel quick-bar navigation (`go` / `back` / `reload`) for the mirrored tab.
+#[tauri::command]
+pub async fn browser_panel_navigate(
+    op: String,
+    url: Option<String>,
+    session_id: Option<String>,
+) -> Result<(), CmdError> {
+    ha_core::browser_ui::panel_navigate(&op, url.as_deref(), session_id.as_deref())
+        .await
+        .map_err(Into::into)
+}
+
 /// Spawn the user's daily Chrome into hope-agent's user-attach profile, then
 /// hand the debug URL back so the frontend can immediately follow up with
 /// `browser_connect`. See [`ha_core::browser::user_attach`].

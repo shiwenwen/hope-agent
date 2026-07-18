@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **浏览器 / macOS 控制面板：悬浮小窗 + 执行历史时间线**：两个实时镜像面板可切换为应用内悬浮小窗（任意拖拽、8 向调整大小、位置记忆、随时停靠回面板，且两者可同时悬浮）；停靠态底部新增执行历史时间线（每步操作图标+描述+耗时+成败+截图缩略图，点击可回放该步画面）、会话统计（步数/耗时/当前目标）与快捷操作条（浏览器 URL 直达/后退/刷新，Mac 显示器切换/立即截屏）。 (#499)
+
 - **Provider 支持声明单价币种，人民币价目不再被当美元入账**：Provider 编辑页新增「计价货币」（USD/CNY），单价照厂商价目页原文录入、成本大盘统一换算成 USD 统计；内置 qwen / 火山引擎 / 腾讯混元模板标为人民币计价，并修正火山引擎模板残留的占位单价与混元官方价目。 (#493)
 
 - **内置 Provider 模板刷新：新增当代旗舰模型与五个 Provider**：新增 Claude Sonnet 5 与 Mythos 5、GPT-5.6、Kimi K3、Grok 4.5、Step 3.7 Flash、Qwen 3.7 Plus、混元 Hy3 等当代旗舰，并新增 Cohere、Baseten、LongCat、Meta、Featherless 五个 Provider；内置模板增至 50 个 Provider、392 个预设模型。各家新一代模型统一排在模型选择器最前，已废弃的旧模型下沉到列表末尾。

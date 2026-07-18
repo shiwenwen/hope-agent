@@ -72,6 +72,8 @@ import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import CanvasPanel from "@/components/chat/CanvasPanel"
 import BrowserPanel from "@/components/chat/BrowserPanel"
 import MacControlPanel from "@/components/chat/MacControlPanel"
+import { FloatingPanelLayer } from "@/components/chat/right-panel/FloatingPanelLayer"
+import { useFloatingPanels, type FloatablePanel } from "@/hooks/useFloatingPanels"
 import { TeamPanel } from "@/components/team/TeamPanel"
 import TeamMiniIndicator from "@/components/team/TeamMiniIndicator"
 import { useActiveTeam } from "@/components/team/useTeam"
@@ -2994,6 +2996,18 @@ export default function ChatScreen({
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const [manualRightPanelExpandedOverride, setManualRightPanelExpandedOverride] = useState(false)
   const autoCollapsedRightPanelRef = useRef(false)
+  // In-app floating windows for the browser / mac-control mirrors. A floating
+  // panel leaves the exclusive right-panel slot (visibility below) so the slot
+  // falls through to the next open panel; docking re-enters it.
+  const {
+    floatingPanels: floatingPanelList,
+    isFloating: isPanelFloating,
+    zIndexOf: floatingPanelZIndex,
+    float: floatPanel,
+    dock: dockFloatingPanel,
+    closeFloating: closeFloatingPanel,
+    focusFloating: focusFloatingPanel,
+  } = useFloatingPanels()
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
       workspace: showWorkspacePanel,
@@ -3001,8 +3015,8 @@ export default function ChatScreen({
       diff: isDiffPanelVisible,
       plan: shouldShowPlanPanel,
       files: showFilesPanel && !!effectiveWorkingDir,
-      browser: showBrowserPanel,
-      "mac-control": showMacControlPanel,
+      browser: showBrowserPanel && !isPanelFloating("browser"),
+      "mac-control": showMacControlPanel && !isPanelFloating("mac-control"),
       canvas: canvasPanelOpen,
       team: !!activeTeamId && showTeamPanel,
       "background-jobs": showBackgroundJobsPanel,
@@ -3014,6 +3028,7 @@ export default function ChatScreen({
       effectiveWorkingDir,
       isDiffPanelVisible,
       isFilePreviewVisible,
+      isPanelFloating,
       shouldShowPlanPanel,
       showBackgroundJobsPanel,
       showBrowserPanel,
@@ -3313,6 +3328,9 @@ export default function ChatScreen({
     previousBackgroundRunningCountRef.current = 0
     setShowBrowserPanel(false)
     setShowMacControlPanel(false)
+    // Frames are session-scoped — close floating mirrors on session switch.
+    closeFloatingPanel("browser")
+    closeFloatingPanel("mac-control")
     setShowWorkspacePanel(preserveWorkspace)
     setShowPullRequestPanel(false)
     setShowBackgroundJobsPanel(false)
@@ -3321,7 +3339,7 @@ export default function ChatScreen({
     if (preserveWorkspace) {
       preserveWorkspaceOnSessionSwitchRef.current = false
     }
-  }, [session.currentSessionId, closeFilePreview])
+  }, [session.currentSessionId, closeFilePreview, closeFloatingPanel])
 
   // Auto-open the BrowserPanel only on the first `browser:frame` of a session
   // and only if the user hasn't already dismissed it.
@@ -3449,8 +3467,13 @@ export default function ChatScreen({
       (panel) => panel !== "files" || !!effectiveWorkingDir,
     )
     const persistentSet = new Set<ExclusiveRightPanel>(persistentPanels)
+    // Floating mirrors left the exclusive slot but stay listed (open) so the
+    // user can find them — clicking their button docks them back.
+    const isFloatingPanelId = (panel: ExclusiveRightPanel) =>
+      (panel === "browser" || panel === "mac-control") && isPanelFloating(panel)
     const transientPanels = EXCLUSIVE_RIGHT_PANEL_ORDER.filter(
-      (panel) => !persistentSet.has(panel) && rightPanelVisibility[panel],
+      (panel) =>
+        !persistentSet.has(panel) && (rightPanelVisibility[panel] || isFloatingPanelId(panel)),
     )
     const workflowBadgeCount =
       workflowTitleBarStatus.attentionCount || workflowTitleBarStatus.activeCount
@@ -3460,7 +3483,7 @@ export default function ChatScreen({
         id: panel,
         labelKey: EXCLUSIVE_RIGHT_PANEL_LABEL_KEYS[panel],
         icon: EXCLUSIVE_RIGHT_PANEL_ICONS[panel],
-        open: rightPanelVisibility[panel],
+        open: rightPanelVisibility[panel] || isFloatingPanelId(panel),
       }
       if (panel === "workspace" && workflowBadgeCount > 0) {
         return {
@@ -3495,6 +3518,7 @@ export default function ChatScreen({
   }, [
     backgroundJobs.runningCount,
     effectiveWorkingDir,
+    isPanelFloating,
     rightPanelVisibility,
     workflowTitleBarStatus,
   ])
@@ -3542,6 +3566,12 @@ export default function ChatScreen({
     (panelId: string) => {
       if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
       const panel = panelId as ExclusiveRightPanel
+      // A floating mirror's title-bar button docks it back into the slot.
+      if ((panel === "browser" || panel === "mac-control") && isPanelFloating(panel)) {
+        dockFloatingPanel(panel)
+        showRightPanelByUser(panel)
+        return
+      }
       if (panel === renderedExclusiveRightPanel) {
         const nextCollapsed = !rightPanelCollapsed
         autoCollapsedRightPanelRef.current = false
@@ -3566,7 +3596,9 @@ export default function ChatScreen({
       handleSelectRightPanel(panel)
     },
     [
+      dockFloatingPanel,
       handleSelectRightPanel,
+      isPanelFloating,
       openBackgroundJobsPanel,
       openWorkspacePanel,
       renderedExclusiveRightPanel,
@@ -4311,6 +4343,7 @@ export default function ChatScreen({
                 browserPanelDismissedRef.current = true
                 setShowBrowserPanel(false)
               }}
+              onFloat={() => floatPanel("browser")}
             />
           )}
 
@@ -4319,6 +4352,7 @@ export default function ChatScreen({
               open panel and must not re-open after a session switch. */}
           {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "mac-control" && (
             <MacControlPanel
+              sessionId={session.currentSessionId}
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
@@ -4329,8 +4363,31 @@ export default function ChatScreen({
                 macControlPanelDismissedRef.current = true
                 setShowMacControlPanel(false)
               }}
+              onFloat={() => floatPanel("mac-control")}
             />
           )}
+
+          {/* In-app floating control-panel windows (portal to body). */}
+          <FloatingPanelLayer
+            floatingPanels={floatingPanelList}
+            zIndexOf={floatingPanelZIndex}
+            onDock={(panel: FloatablePanel) => {
+              dockFloatingPanel(panel)
+              showRightPanelByUser(panel)
+            }}
+            onClose={(panel: FloatablePanel) => {
+              closeFloatingPanel(panel)
+              if (panel === "browser") {
+                browserPanelDismissedRef.current = true
+                setShowBrowserPanel(false)
+              } else {
+                macControlPanelDismissedRef.current = true
+                setShowMacControlPanel(false)
+              }
+            }}
+            onFocus={focusFloatingPanel}
+            sessionId={session.currentSessionId}
+          />
 
           {/* Team Panel */}
           {shouldRenderRightPanelContent &&

@@ -1,14 +1,16 @@
 use anyhow::{bail, Result};
 use serde_json::Value;
 
-pub(crate) async fn tool_mac_control(args: &Value) -> Result<String> {
+pub(crate) async fn tool_mac_control(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     let args = crate::mac_control::sanitize_tool_args(args);
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
         .unwrap_or("status");
+    let started = std::time::Instant::now();
+    let started_at = chrono::Utc::now().timestamp_millis();
 
-    match action {
+    let result = match action {
         "status" => Ok(serde_json::to_string_pretty(
             &crate::mac_control::status().await,
         )?),
@@ -128,6 +130,155 @@ pub(crate) async fn tool_mac_control(args: &Value) -> Result<String> {
             "Unsupported mac_control action '{}'. Supported actions: 'status', 'permissions', 'diagnostics', 'snapshot', 'elements', 'wait', 'apps', 'dock', 'spaces', 'windows', 'act', 'menu', 'clipboard', 'dialog', 'visual'.",
             other
         ),
+    };
+    record_mac_control_action(&args, ctx, action, &result, started, started_at);
+    result
+}
+
+/// Effective sub-op: explicit `op` from args, else the serde default the
+/// request type would apply.
+fn mac_effective_op<'a>(args: &'a Value, action: &str) -> Option<&'a str> {
+    args.get("op").and_then(|v| v.as_str()).or(match action {
+        "act" => Some("click"),
+        "windows" | "menu" | "dock" | "spaces" => Some("list"),
+        "apps" => Some("frontmost"),
+        "dialog" => Some("inspect"),
+        "clipboard" => Some("get"),
+        _ => None,
+    })
+}
+
+/// Timeline whitelist — only mutating steps; read-only queries (status /
+/// snapshot / elements / lists / clipboard.get / act.dry_run) are skipped.
+fn is_recordable_mac_action(action: &str, op: Option<&str>) -> bool {
+    match action {
+        "act" => !matches!(op, Some("dry_run")),
+        "windows" => matches!(op, Some("focus" | "move" | "resize" | "minimize" | "close")),
+        "menu" => matches!(op, Some("click" | "popover")),
+        "dialog" => matches!(op, Some("click" | "input" | "file" | "accept" | "dismiss")),
+        "dock" => matches!(op, Some("launch" | "hide" | "show" | "select_menu")),
+        "apps" => matches!(op, Some("activate" | "launch" | "quit")),
+        "spaces" => matches!(op, Some("switch" | "move_window")),
+        "clipboard" => matches!(op, Some("set" | "clear")),
+        _ => false,
+    }
+}
+
+/// Redacted `(target, detail)` summary. Typed/pasted/clipboard text never
+/// enters the payload — length only.
+fn mac_action_summary(
+    args: &Value,
+    action: &str,
+    op: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let target_obj = args.get("target");
+    // Probe order mirrors MacControlTargetQuery's actual camelCase fields,
+    // most descriptive first (element text match is the common targeting mode).
+    let target = target_obj.and_then(|t| {
+        ["text", "windowTitle", "appName", "elementId", "bundleId"]
+            .iter()
+            .find_map(|k| t.get(k).and_then(|v| v.as_str()))
+            .map(str::to_string)
+    });
+    let text_summary = |key: &str| {
+        args.get(key)
+            .and_then(|v| v.as_str())
+            .map(crate::tool_actions::redacted_text_summary)
+    };
+    let detail = match (action, op) {
+        ("act", Some("type" | "paste")) => text_summary("text"),
+        ("act", Some("set_value")) => text_summary("value").or_else(|| text_summary("text")),
+        ("act", Some("hotkey" | "press")) => args
+            .get("keys")
+            .and_then(|v| v.as_array())
+            .map(|keys| {
+                format!(
+                    "key={}",
+                    keys.iter()
+                        .filter_map(|k| k.as_str())
+                        .collect::<Vec<_>>()
+                        .join("+")
+                )
+            })
+            .or_else(|| {
+                args.get("key")
+                    .and_then(|v| v.as_str())
+                    .map(|k| format!("key={k}"))
+            }),
+        ("clipboard", Some("set")) => text_summary("text"),
+        ("dialog", Some("input")) => text_summary("text"),
+        ("dock" | "apps", _) => args
+            .get("appName")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        _ => None,
+    };
+    (target, detail)
+}
+
+/// Choke-point recorder mirroring the browser tool: builds the redacted event,
+/// pushes it into the ring buffer + EventBus, and fires the follow-up frame
+/// capture (mutating success, plus `act` failure — screen may have changed).
+fn record_mac_control_action(
+    args: &Value,
+    ctx: &super::ToolExecContext,
+    action: &str,
+    result: &Result<String>,
+    started: std::time::Instant,
+    started_at: i64,
+) {
+    let op = mac_effective_op(args, action);
+    if !is_recordable_mac_action(action, op) {
+        return;
+    }
+    // Responses embed their failure in an `error` field while the tool still
+    // returns Ok(json) — probe it for the real outcome.
+    let parsed = result
+        .as_ref()
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(s).ok());
+    let response_error = parsed
+        .as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let ok = result.is_ok() && response_error.is_none();
+    let app = parsed
+        .as_ref()
+        .and_then(|v| {
+            v.pointer("/result/frontmostApp/name")
+                .or_else(|| v.pointer("/frontmostApp/name"))
+        })
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let error = result
+        .as_ref()
+        .err()
+        .map(|e| e.to_string())
+        .or(response_error)
+        .map(|e| crate::tool_actions::clamp_error(&e));
+    let emit_frame = ok || action == "act";
+    let action_id = crate::tool_actions::new_action_id();
+    let (target, detail) = mac_action_summary(args, action, op);
+    crate::tool_actions::record_action(crate::tool_actions::ToolActionEvent {
+        action_id: action_id.clone(),
+        source: crate::tool_actions::ToolActionSource::MacControl,
+        session_id: ctx.session_id.clone(),
+        action: action.to_string(),
+        op: op.map(str::to_string),
+        target,
+        detail,
+        url: None,
+        app,
+        ok,
+        error,
+        duration_ms: started.elapsed().as_millis() as u64,
+        started_at,
+        tool_call_id: ctx.tool_call_id.clone(),
+        has_frame: emit_frame,
+    });
+    if emit_frame {
+        crate::mac_control::capture_frame_for_action(action_id, ctx.session_id.clone());
     }
 }
 
@@ -278,5 +429,61 @@ mod tests {
             compact["result"]["warnings"],
             serde_json::json!(["annotation failed"])
         );
+    }
+
+    /// Locks `mac_effective_op`'s hand-written default table to the actual
+    /// serde `#[default]` variants — if a default moves, this fails instead
+    /// of the recorder silently mislabeling op-omitted steps.
+    #[test]
+    fn mac_effective_op_defaults_match_serde_defaults() {
+        fn serde_default<T: Default + serde::Serialize>() -> String {
+            serde_json::to_value(T::default())
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+        let empty = serde_json::json!({});
+        let cases: &[(&str, String)] = &[
+            (
+                "act",
+                serde_default::<crate::mac_control::MacControlActOp>(),
+            ),
+            (
+                "windows",
+                serde_default::<crate::mac_control::MacControlWindowsOp>(),
+            ),
+            (
+                "menu",
+                serde_default::<crate::mac_control::MacControlMenuOp>(),
+            ),
+            (
+                "dock",
+                serde_default::<crate::mac_control::MacControlDockOp>(),
+            ),
+            (
+                "spaces",
+                serde_default::<crate::mac_control::MacControlSpacesOp>(),
+            ),
+            (
+                "apps",
+                serde_default::<crate::mac_control::MacControlAppsOp>(),
+            ),
+            (
+                "dialog",
+                serde_default::<crate::mac_control::MacControlDialogOp>(),
+            ),
+            (
+                "clipboard",
+                serde_default::<crate::mac_control::MacControlClipboardOp>(),
+            ),
+        ];
+        for (action, expected) in cases {
+            assert_eq!(
+                mac_effective_op(&empty, action),
+                Some(expected.as_str()),
+                "mac_effective_op default drifted for action '{action}'"
+            );
+        }
     }
 }

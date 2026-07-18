@@ -60,3 +60,11 @@ pub async fn capture_frame() -> Result<Json<ha_core::mac_control::MacControlFram
         HTTP_UNSUPPORTED_MESSAGE,
     )))
 }
+
+pub async fn displays() -> Result<Json<ha_core::mac_control::MacControlDisplaysResponse>, AppError>
+{
+    Ok(Json(ha_core::mac_control::MacControlDisplaysResponse {
+        displays: Vec::new(),
+        error: Some(HTTP_UNSUPPORTED_MESSAGE.to_string()),
+    }))
+}

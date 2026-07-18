@@ -2609,6 +2609,8 @@ fn build_router_with_cors(
             "/url-preview/batch",
             post(routes::url_preview::fetch_url_previews),
         )
+        // Panel action timeline
+        .route("/tool-actions", get(routes::tool_actions::recent))
         // Embedded browser
         .route("/browser/status", get(routes::browser::get_status))
         .route(
@@ -2637,6 +2639,10 @@ fn build_router_with_cors(
         .route(
             "/browser/capture-frame",
             post(routes::browser::capture_frame),
+        )
+        .route(
+            "/browser/panel-navigate",
+            post(routes::browser::panel_navigate),
         )
         .route(
             "/browser/spawn-user-chrome",
@@ -3171,6 +3177,7 @@ fn build_router_with_cors(
             "/mac-control/capture-frame",
             post(routes::mac_control::capture_frame),
         )
+        .route("/mac-control/displays", get(routes::mac_control::displays))
         // Local LLM assistant
         .route("/local-llm/hardware", get(routes::local_llm::get_hardware))
         .route(

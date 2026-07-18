@@ -416,6 +416,51 @@ pub async fn connect(debug_url: &str) -> Result<BrowserStatus> {
     get_status().await
 }
 
+/// Panel quick-bar navigation: drive the tab the BrowserPanel is mirroring.
+/// Owner plane (desktop / API-key HTTP) — not an agent tool surface. `go`
+/// runs the same SSRF gate as the browser tool; every op re-emits a frame so
+/// the mirror updates within one tick.
+pub async fn panel_navigate(op: &str, url: Option<&str>, session_id: Option<&str>) -> Result<()> {
+    let Some((backend, _)) = crate::browser::frame::panel_backend(session_id).await else {
+        return Err(anyhow!("No active browser backend"));
+    };
+    if !backend.is_connected().await {
+        return Err(anyhow!("Browser backend is not connected"));
+    }
+    match op {
+        "go" => {
+            let raw = url
+                .map(str::trim)
+                .filter(|u| !u.is_empty())
+                .ok_or_else(|| anyhow!("panel_navigate op=go requires 'url'"))?;
+            // Quick-bar input is free text — default to https:// when the
+            // scheme is missing so "example.com" just works.
+            let url = if raw.contains("://") {
+                raw.to_string()
+            } else {
+                format!("https://{raw}")
+            };
+            let ssrf_cfg = &crate::config::cached_config().ssrf;
+            crate::security::ssrf::check_url(&url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
+                .await?;
+            backend.navigate(&url).await?;
+        }
+        "back" => {
+            backend.go_back().await?;
+        }
+        "reload" => {
+            backend.reload().await?;
+        }
+        other => {
+            return Err(anyhow!(
+                "Unknown panel_navigate op '{other}'. Valid: go / back / reload"
+            ))
+        }
+    }
+    crate::browser::frame::emit_frame_async(session_id.map(str::to_string), None);
+    Ok(())
+}
+
 pub async fn disconnect() -> Result<BrowserStatus> {
     crate::browser::reset_backend().await;
     {
