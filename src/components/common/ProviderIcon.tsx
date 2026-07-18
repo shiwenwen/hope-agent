@@ -38,6 +38,9 @@ import {
   AssemblyAI,
   Azure,
   IFlyTekCloud,
+  ElevenLabs,
+  Fal,
+  SiliconCloud,
 } from "@lobehub/icons"
 import { Mic, Settings2 } from "lucide-react"
 
@@ -107,6 +110,11 @@ const ICON_MAP: Record<string, IconEntry> = {
   /** DashScope (Bailian) is Alibaba Cloud's model gateway — Qwen mark
    * is the appropriate brand since Qwen3-ASR is the actual model. */
   dashscope: { mono: Qwen, color: Qwen.Color },
+  // ── Media generation (image / audio) providers ───────────────────
+  fal: { mono: Fal, color: Fal.Color },
+  siliconflow: { mono: SiliconCloud, color: SiliconCloud.Color },
+  /** ElevenLabs ships no Color variant — the brand mark is black. */
+  elevenlabs: { mono: ElevenLabs },
 }
 
 // ── Name → Key 模糊匹配（用于已持久化的 Provider） ────────────────

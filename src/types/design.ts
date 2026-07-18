@@ -346,6 +346,18 @@ export interface CreateArtifactInput {
   referenceImages?: { b64: string; mime: string }[]
   /** 用户显式选的生成模型（单模型、失败即报错不降级）；涉图时须视觉合格。 */
   modelOverride?: ActiveModel
+  /** image 形态：宽高比提示（"1:1" / "16:9"…）透传生图 provider；缺省 = 自动。 */
+  aspectRatio?: string
+  /** image 形态：尺寸（如 "1024x1024"）；缺省 = 全局默认。 */
+  imageSize?: string
+  /** image 形态：分辨率档（"1K" / "2K" / "4K"）；缺省 = 全局默认。 */
+  imageResolution?: string
+  /** audio 形态：显式子能力（"speech" / "music" / "sfx"）；缺省 = prompt 前缀推断。 */
+  audioKind?: string
+  /** audio 形态：调用级 voice 覆盖（> 模型默认 > provider 默认）。 */
+  audioVoice?: string
+  /** audio 形态：music / sfx 目标时长（秒）。 */
+  audioDurationSecs?: number
 }
 
 /** 产物形态元数据（前端展示：标签 + 图标语义）。 */

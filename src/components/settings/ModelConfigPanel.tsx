@@ -5,6 +5,7 @@ import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import GlobalModelPanel from "@/components/settings/GlobalModelPanel"
 import LocalModelsPanel from "@/components/settings/local-llm/LocalModelsPanel"
 import EmbeddingModelsPanel from "@/components/settings/embedding-models/EmbeddingModelsPanel"
+import MediaProvidersPanel from "@/components/settings/media-gen/MediaProvidersPanel"
 
 export default function ModelConfigPanel({
   onAddProvider,
@@ -29,6 +30,7 @@ export default function ModelConfigPanel({
           <TabsTrigger value="models">{t("settings.globalModel")}</TabsTrigger>
           <TabsTrigger value="localModels">{t("settings.localModels.tab")}</TabsTrigger>
           <TabsTrigger value="embeddingModels">{t("settings.embeddingModels.tab")}</TabsTrigger>
+          <TabsTrigger value="mediaModels">{t("settings.mediaModels.tabTitle")}</TabsTrigger>
         </TabsList>
       </div>
       <TabsContent value="providers" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
@@ -46,6 +48,9 @@ export default function ModelConfigPanel({
       </TabsContent>
       <TabsContent value="embeddingModels" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <EmbeddingModelsPanel />
+      </TabsContent>
+      <TabsContent value="mediaModels" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+        <MediaProvidersPanel />
       </TabsContent>
     </Tabs>
   )

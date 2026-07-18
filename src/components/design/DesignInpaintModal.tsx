@@ -5,9 +5,9 @@
  * 蒙版画布：加载产物预览图为底，覆盖一层可涂画 canvas；用户涂白=重绘区。导出时把涂画区
  * 转成**透明**（OpenAI edits 约定：蒙版透明处 = 重绘），其余不透明黑保留。
  */
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, Eraser, Brush, RotateCcw } from "lucide-react"
+import { Loader2, Eraser, Brush, RotateCcw, TriangleAlert } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,9 @@ import { Input } from "@/components/ui/input"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { toast } from "sonner"
+import type { MediaGenOverview } from "@/components/settings/media-gen/types"
+import { openMediaModelSettings } from "@/components/settings/media-gen/types"
+import { fetchMediaGenOverview } from "@/components/settings/media-gen/useMediaGenData"
 
 interface Props {
   open: boolean
@@ -45,6 +48,25 @@ export function DesignInpaintModal({ open, onClose, artifactId, indexUrl, onDone
   const [dims, setDims] = useState({ w: CANVAS_MAX, h: CANVAS_MAX })
   const [hasStroke, setHasStroke] = useState(false)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
+  // 能力驱动 hint：打开时拉 sanitized overview，找首个支持蒙版重绘的图像候选。
+  const [overview, setOverview] = useState<MediaGenOverview | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setOverview(null)
+    void fetchMediaGenOverview().then((ov) => {
+      if (!cancelled) setOverview(ov)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  const maskCand = useMemo(
+    () => overview?.image.candidates.find((c) => c.image?.supportsMask) ?? null,
+    [overview],
+  )
 
   // 打开时 fetch index.html → 提取第一个 data:image URI → 载底图，按长边 ≤512 缩放画布。
   useEffect(() => {
@@ -176,8 +198,35 @@ export function DesignInpaintModal({ open, onClose, artifactId, indexUrl, onDone
           </DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
-          {t("design.inpaint.hint", "在图上涂出要重绘的区域，再描述想要的内容。仅 OpenAI 图像模型支持。")}
+          {t("design.gen.inpaintHint", "在图上涂出要重绘的区域，再描述想要的内容。")}
         </p>
+        {overview &&
+          (maskCand ? (
+            <p className="text-xs text-muted-foreground">
+              {t("design.gen.inpaintUsing", "将使用 {{provider}} / {{model}} 进行局部重绘", {
+                provider: maskCand.providerName,
+                model: maskCand.modelName || maskCand.modelId,
+              })}
+            </p>
+          ) : (
+            /* 无 mask-capable 候选：警示但不阻断（后端会给出明确错误）。 */
+            <div className="flex items-center gap-2 rounded-md bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1">
+                {t("design.gen.inpaintNoMaskModel", "当前没有支持蒙版重绘的图像模型")}
+              </span>
+              <button
+                type="button"
+                className="shrink-0 underline underline-offset-2 transition-colors hover:text-foreground"
+                onClick={() => {
+                  openMediaModelSettings()
+                  onClose()
+                }}
+              >
+                {t("design.gen.goConfigure", "去配置生成模型")}
+              </button>
+            </div>
+          ))}
 
         <div className="flex justify-center">
           <div
