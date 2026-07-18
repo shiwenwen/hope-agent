@@ -6,13 +6,9 @@ use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::{
-    GeneratedImage, ImageGenCapabilities, ImageGenEditCapabilities, ImageGenGeometry,
-    ImageGenModeCapabilities, ImageGenParams, ImageGenProviderImpl, ImageGenResult,
-};
+use crate::media_gen::adapters::{GeneratedImage, ImageGenAdapter, ImageGenParams, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://api.siliconflow.cn";
-const DEFAULT_MODEL: &str = "Qwen/Qwen-Image";
 const EDIT_MODEL: &str = "Qwen/Qwen-Image-Edit";
 
 #[derive(Deserialize)]
@@ -27,52 +23,7 @@ struct SiliconFlowImage {
 
 pub(crate) struct SiliconFlowProvider;
 
-impl ImageGenProviderImpl for SiliconFlowProvider {
-    fn id(&self) -> &str {
-        "siliconflow"
-    }
-
-    fn display_name(&self) -> &str {
-        "SiliconFlow"
-    }
-
-    fn default_model(&self) -> &str {
-        DEFAULT_MODEL
-    }
-
-    fn capabilities(&self) -> ImageGenCapabilities {
-        ImageGenCapabilities {
-            generate: ImageGenModeCapabilities {
-                max_count: 4,
-                supports_size: true,
-                supports_aspect_ratio: false,
-                supports_resolution: false,
-            },
-            edit: ImageGenEditCapabilities {
-                enabled: true,
-                max_count: 1,
-                max_input_images: 1,
-                supports_size: true,
-                supports_aspect_ratio: false,
-                supports_resolution: false,
-            },
-            geometry: Some(ImageGenGeometry {
-                sizes: vec![
-                    "1024x1024",
-                    "1328x1328",
-                    "1664x928",
-                    "928x1664",
-                    "1472x1140",
-                    "1140x1472",
-                    "1584x1056",
-                    "1056x1584",
-                ],
-                aspect_ratios: vec![],
-                resolutions: vec![],
-            }),
-        }
-    }
-
+impl ImageGenAdapter for SiliconFlowProvider {
     fn generate<'a>(
         &'a self,
         params: ImageGenParams<'a>,

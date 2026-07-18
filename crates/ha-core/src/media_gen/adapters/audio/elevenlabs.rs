@@ -9,12 +9,10 @@ use std::time::Duration;
 use anyhow::{bail, Result};
 use reqwest::Client;
 
-use super::types::{AudioGenParams, AudioGenProviderImpl, AudioGenResult, AudioKind};
+use crate::media_gen::adapters::{AudioGenAdapter, AudioGenParams, AudioGenResult};
+use crate::media_gen::AudioKind;
 
 const DEFAULT_BASE_URL: &str = "https://api.elevenlabs.io";
-const DEFAULT_TTS_MODEL: &str = "eleven_multilingual_v2";
-const DEFAULT_MUSIC_MODEL: &str = "music_v1";
-const DEFAULT_SFX_MODEL: &str = "eleven_text_to_sound_v2";
 // A stock public ElevenLabs voice (Rachel) so speech works before a user picks one.
 const DEFAULT_VOICE: &str = "21m00Tcm4TlvDq8ikWAM";
 /// SFX 时长上限（ElevenLabs sound-generation 硬上限 30s）+ 默认。
@@ -29,23 +27,7 @@ const SFX_MAX_PROMPT_CHARS: usize = 450;
 
 pub(crate) struct ElevenLabsAudioProvider;
 
-impl AudioGenProviderImpl for ElevenLabsAudioProvider {
-    fn id(&self) -> &str {
-        "elevenlabs"
-    }
-    fn display_name(&self) -> &str {
-        "ElevenLabs"
-    }
-    fn default_model(&self, kind: AudioKind) -> &str {
-        match kind {
-            AudioKind::Speech => DEFAULT_TTS_MODEL,
-            AudioKind::Music => DEFAULT_MUSIC_MODEL,
-            AudioKind::Sfx => DEFAULT_SFX_MODEL,
-        }
-    }
-    fn supports(&self, _kind: AudioKind) -> bool {
-        true // speech + music + sfx
-    }
+impl AudioGenAdapter for ElevenLabsAudioProvider {
     fn generate<'a>(
         &'a self,
         params: AudioGenParams<'a>,
@@ -70,10 +52,7 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
 
     let (url, body) = match params.kind {
         AudioKind::Speech => {
-            let voice = params
-                .entry
-                .voice
-                .as_deref()
+            let voice = params.voice
                 .filter(|s| !s.is_empty())
                 .unwrap_or(DEFAULT_VOICE);
             (
@@ -114,9 +93,9 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
         }
     };
 
-    // SSRF 红线：base_url 属可写设置项（audio_generate LOW risk、非 BLOCKED_UPDATE），
-    // 模型可经 update_settings 改写指向内网/metadata，出站前必过 check_url（与 voices.rs 同源）。
-    crate::security::ssrf::check_url(&url, crate::security::ssrf::SsrfPolicy::Strict, &[]).await?;
+    // SSRF 红线：出站前必过 check_url；策略来自 provider 的 allow_private_network
+    // （默认仍 Strict 档兜底），self-hosted OpenAI-compatible 才放行内网。
+    crate::security::ssrf::check_url(&url, params.ssrf, &[]).await?;
     let resp = client
         .post(&url)
         .header("xi-api-key", params.api_key)

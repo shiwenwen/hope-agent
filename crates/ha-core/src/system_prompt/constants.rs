@@ -228,8 +228,13 @@ const TOOL_DESC_IMAGE: &str = "\
 
 const TOOL_DESC_IMAGE_GENERATE: &str = "\
 - image_generate: Generate images from text descriptions using AI image generation models.\n\
-  - Params: prompt (required), size (default 1024x1024), n (1-4, default 1), model (optional, default auto with failover)\n\
+  - Params: prompt (required), size, aspectRatio, resolution, n (default 1), model (optional, default auto with failover)\n\
   - Generated images are saved to disk and returned for visual inspection";
+
+const TOOL_DESC_AUDIO_GENERATE: &str = "\
+- audio_generate: Generate audio from text — speech narration (TTS), music, or sound effects.\n\
+  - Params: prompt (required), kind (speech|music|sfx, default speech), voice, durationSeconds, model (optional, default auto with failover)\n\
+  - Generated audio is saved to disk and returned as a playable attachment";
 
 const TOOL_DESC_PDF: &str = "\
 - pdf: Extract text content from PDF documents with page-level pagination.\n\
@@ -410,6 +415,7 @@ pub(super) const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
     ("sessions_send", TOOL_DESC_SESSIONS_SEND),
     ("image", TOOL_DESC_IMAGE),
     ("image_generate", TOOL_DESC_IMAGE_GENERATE),
+    ("audio_generate", TOOL_DESC_AUDIO_GENERATE),
     ("pdf", TOOL_DESC_PDF),
     ("canvas", TOOL_DESC_CANVAS),
     ("acp_spawn", TOOL_DESC_ACP_SPAWN),

@@ -6,13 +6,9 @@ use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::{
-    GeneratedImage, ImageGenCapabilities, ImageGenEditCapabilities, ImageGenGeometry,
-    ImageGenModeCapabilities, ImageGenParams, ImageGenProviderImpl, ImageGenResult,
-};
+use crate::media_gen::adapters::{GeneratedImage, ImageGenAdapter, ImageGenParams, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com";
-const DEFAULT_MODEL: &str = "gemini-3.1-flash-image-preview";
 
 #[derive(Deserialize)]
 struct GoogleResponse {
@@ -45,51 +41,7 @@ struct GoogleInlineData {
 
 pub(crate) struct GoogleProvider;
 
-impl ImageGenProviderImpl for GoogleProvider {
-    fn id(&self) -> &str {
-        "google"
-    }
-
-    fn display_name(&self) -> &str {
-        "Google"
-    }
-
-    fn default_model(&self) -> &str {
-        DEFAULT_MODEL
-    }
-
-    fn capabilities(&self) -> ImageGenCapabilities {
-        ImageGenCapabilities {
-            generate: ImageGenModeCapabilities {
-                max_count: 4,
-                supports_size: true,
-                supports_aspect_ratio: true,
-                supports_resolution: true,
-            },
-            edit: ImageGenEditCapabilities {
-                enabled: true,
-                max_count: 4,
-                max_input_images: 5,
-                supports_size: true,
-                supports_aspect_ratio: true,
-                supports_resolution: true,
-            },
-            geometry: Some(ImageGenGeometry {
-                sizes: vec![
-                    "1024x1024",
-                    "1024x1536",
-                    "1536x1024",
-                    "1024x1792",
-                    "1792x1024",
-                ],
-                aspect_ratios: vec![
-                    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
-                ],
-                resolutions: vec!["1K", "2K", "4K"],
-            }),
-        }
-    }
-
+impl ImageGenAdapter for GoogleProvider {
     fn generate<'a>(
         &'a self,
         params: ImageGenParams<'a>,
@@ -119,7 +71,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         .trim_end_matches('/');
     let url = format!("{}/v1beta/models/{}:generateContent", base, params.model);
 
-    let thinking_level = params.extra.thinking_level.as_deref().unwrap_or("MINIMAL");
+    let thinking_level = params.extra.get("thinking_level").map(String::as_str).unwrap_or("MINIMAL");
 
     // Build content parts: input images first, then text prompt
     let mut parts = Vec::new();

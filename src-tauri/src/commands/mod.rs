@@ -30,6 +30,7 @@ pub mod ide_context;
 pub mod knowledge;
 pub mod local_embedding;
 pub mod local_llm;
+pub mod media_gen;
 pub mod local_model_alerts;
 pub mod local_model_jobs;
 pub mod logging;

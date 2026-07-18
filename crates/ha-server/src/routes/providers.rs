@@ -133,25 +133,6 @@ pub async fn test_embedding(Json(body): Json<TestEmbeddingBody>) -> Result<Json<
     Ok(Json(v))
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TestImageBody {
-    pub provider_id: String,
-    pub api_key: String,
-    #[serde(default)]
-    pub base_url: Option<String>,
-}
-
-/// `POST /api/providers/test-image` — ping an image-generation provider.
-pub async fn test_image_generate(Json(body): Json<TestImageBody>) -> Result<Json<Value>, AppError> {
-    let payload =
-        ha_core::provider::test::test_image_generate(body.provider_id, body.api_key, body.base_url)
-            .await
-            .unwrap_or_else(|e| e);
-    let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
-    Ok(Json(v))
-}
-
 /// Body for [`test_model`]. Matches Tauri's `test_model(config, modelId)` signature.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

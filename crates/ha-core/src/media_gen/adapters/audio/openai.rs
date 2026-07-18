@@ -8,27 +8,14 @@ use std::time::Duration;
 use anyhow::{bail, Result};
 use reqwest::Client;
 
-use super::types::{AudioGenParams, AudioGenProviderImpl, AudioGenResult, AudioKind};
+use crate::media_gen::adapters::{AudioGenAdapter, AudioGenParams, AudioGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com";
-const DEFAULT_MODEL: &str = "gpt-4o-mini-tts";
 const DEFAULT_VOICE: &str = "alloy";
 
 pub(crate) struct OpenAiAudioProvider;
 
-impl AudioGenProviderImpl for OpenAiAudioProvider {
-    fn id(&self) -> &str {
-        "openai"
-    }
-    fn display_name(&self) -> &str {
-        "OpenAI"
-    }
-    fn default_model(&self, _kind: AudioKind) -> &str {
-        DEFAULT_MODEL
-    }
-    fn supports(&self, kind: AudioKind) -> bool {
-        matches!(kind, AudioKind::Speech)
-    }
+impl AudioGenAdapter for OpenAiAudioProvider {
     fn generate<'a>(
         &'a self,
         params: AudioGenParams<'a>,
@@ -44,10 +31,7 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
         .unwrap_or(DEFAULT_BASE_URL)
         .trim_end_matches('/');
     let url = format!("{}/v1/audio/speech", base);
-    let voice = params
-        .entry
-        .voice
-        .as_deref()
+    let voice = params.voice
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_VOICE);
     let body = serde_json::json!({
@@ -63,9 +47,9 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
             .timeout(Duration::from_secs(params.timeout_secs)),
     )
     .build()?;
-    // SSRF 红线：base_url 属可写设置项（audio_generate LOW risk、非 BLOCKED_UPDATE），
-    // 模型可经 update_settings 改写指向内网/metadata，出站前必过 check_url（与 voices.rs 同源）。
-    crate::security::ssrf::check_url(&url, crate::security::ssrf::SsrfPolicy::Strict, &[]).await?;
+    // SSRF 红线：出站前必过 check_url；策略来自 provider 的 allow_private_network
+    // （默认仍 Strict 档兜底），self-hosted OpenAI-compatible 才放行内网。
+    crate::security::ssrf::check_url(&url, params.ssrf, &[]).await?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", params.api_key))

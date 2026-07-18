@@ -1,109 +1,81 @@
 use anyhow::Result;
 use chrono::Local;
 
-use super::helpers::effective_model;
-use super::types::*;
 use crate::agent::MEDIA_ITEMS_PREFIX;
 use crate::attachments::{self, MediaItem, MediaKind};
+use crate::media_gen::adapters::ImageGenResult;
+use crate::media_gen::{MediaGenConfig, MediaModality};
 
 // ── List Action ─────────────────────────────────────────────────
 
-/// Build formatted text listing all available providers and their capabilities.
-pub(super) fn build_list_result(config: &ImageGenConfig) -> Result<String> {
+/// Build formatted text listing all usable providers and their image
+/// models with data-driven capabilities.
+pub(super) fn build_list_result(config: &MediaGenConfig) -> Result<String> {
     let mut lines = Vec::new();
     lines.push("Available Image Generation Providers:".to_string());
     lines.push(String::new());
 
-    let enabled: Vec<_> = config
+    let usable: Vec<_> = config
         .providers
         .iter()
-        .filter(|p| p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty()))
+        .filter(|p| p.is_usable() && p.models.iter().any(|m| m.modality == MediaModality::Image))
         .collect();
 
-    if enabled.is_empty() {
-        lines.push("No providers configured. Enable one and enter an API Key in Settings > Tool Settings > Image Generation.".to_string());
+    if usable.is_empty() {
+        lines.push(
+            "No providers configured. Add one in Settings → Model Providers → Generation Models."
+                .to_string(),
+        );
         return Ok(lines.join("\n"));
     }
 
-    for (i, entry) in enabled.iter().enumerate() {
-        let impl_ = match super::resolve_provider(&entry.id) {
-            Some(i) => i,
-            None => continue,
-        };
-        let caps = impl_.capabilities();
-        let model = effective_model(entry);
+    if let Some(chain) = &config.chains.image {
+        let refs: Vec<String> = chain.iter().map(|r| r.model_id.clone()).collect();
+        lines.push(format!("Default chain: {}", refs.join(" → ")));
+        lines.push(String::new());
+    }
 
-        lines.push(format!(
-            "{}. {} (default: {}) [Priority {}]",
-            i + 1,
-            impl_.display_name(),
-            model,
-            i + 1
-        ));
-
-        // Generate capabilities
-        lines.push(format!(
-            "   Generate: max {} image(s){}{}{}",
-            caps.generate.max_count,
-            if caps.generate.supports_size {
-                ", size"
-            } else {
-                ""
-            },
-            if caps.generate.supports_aspect_ratio {
-                ", aspectRatio"
-            } else {
-                ""
-            },
-            if caps.generate.supports_resolution {
-                ", resolution"
-            } else {
-                ""
-            },
-        ));
-
-        // Edit capabilities
-        if caps.edit.enabled {
-            lines.push(format!(
-                "   Edit: enabled, max {} input image(s), max {} output{}{}{}",
-                caps.edit.max_input_images,
-                caps.edit.max_count,
-                if caps.edit.supports_size {
-                    ", size"
-                } else {
-                    ""
-                },
-                if caps.edit.supports_aspect_ratio {
-                    ", aspectRatio"
-                } else {
-                    ""
-                },
-                if caps.edit.supports_resolution {
-                    ", resolution"
-                } else {
-                    ""
-                },
-            ));
-        } else {
-            lines.push("   Edit: not supported".to_string());
-        }
-
-        // Geometry
-        if let Some(ref geo) = caps.geometry {
-            if !geo.sizes.is_empty() {
-                lines.push(format!("   Sizes: {}", geo.sizes.join(", ")));
+    for (i, provider) in usable.iter().enumerate() {
+        lines.push(format!("{}. {} [Priority {}]", i + 1, provider.name, i + 1));
+        for model in provider
+            .models
+            .iter()
+            .filter(|m| m.modality == MediaModality::Image)
+        {
+            let Some(caps) = &model.image else {
+                lines.push(format!("   - {} (capabilities unknown)", model.id));
+                continue;
+            };
+            let mut feats: Vec<String> = vec![format!("max {} image(s)", caps.max_n)];
+            if caps.supports_size {
+                feats.push("size".into());
             }
-            if !geo.aspect_ratios.is_empty() {
+            if caps.supports_aspect_ratio {
+                feats.push("aspectRatio".into());
+            }
+            if caps.supports_resolution {
+                feats.push("resolution".into());
+            }
+            if caps.supports_mask {
+                feats.push("mask inpaint".into());
+            }
+            if let Some(edit) = &caps.edit {
+                feats.push(format!("edit (≤{} input)", edit.max_input_images));
+            }
+            lines.push(format!("   - {}: {}", model.id, feats.join(", ")));
+            if !caps.sizes.is_empty() {
+                lines.push(format!("     Sizes: {}", caps.sizes.join(", ")));
+            }
+            if !caps.aspect_ratios.is_empty() {
                 lines.push(format!(
-                    "   Aspect Ratios: {}",
-                    geo.aspect_ratios.join(", ")
+                    "     Aspect Ratios: {}",
+                    caps.aspect_ratios.join(", ")
                 ));
             }
-            if !geo.resolutions.is_empty() {
-                lines.push(format!("   Resolutions: {}", geo.resolutions.join(", ")));
+            if !caps.resolutions.is_empty() {
+                lines.push(format!("     Resolutions: {}", caps.resolutions.join(", ")));
             }
         }
-
         lines.push(String::new());
     }
 
@@ -119,6 +91,7 @@ pub(super) fn build_list_result(config: &ImageGenConfig) -> Result<String> {
 /// `/api/attachments/{sid}/{filename}` endpoint can serve them. Emits the
 /// `__MEDIA_ITEMS__` structured header so the event system produces a
 /// unified `media_items[]` payload shared with `send_attachment`.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_success_result(
     gen_result: ImageGenResult,
     display_name: &str,
@@ -266,43 +239,4 @@ pub(super) fn build_success_result(
     }
 
     Ok(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use super::super::test_fixtures::{cfg as mk_cfg, entry};
-
-    #[test]
-    fn list_result_empty_when_no_provider_configured() {
-        let cfg = mk_cfg(vec![entry("openai", false, None, None)]);
-        let out = build_list_result(&cfg).unwrap();
-        assert!(out.starts_with("Available Image Generation Providers:"));
-        assert!(out.contains("No providers configured"));
-    }
-
-    #[test]
-    fn list_result_shows_enabled_provider_with_priority() {
-        let cfg = mk_cfg(vec![
-            entry("openai", false, Some("sk"), None),
-            entry("google", true, Some("real-key"), None),
-        ]);
-        let out = build_list_result(&cfg).unwrap();
-        // "Priority 1" reflects index among the enabled subset, not the full list.
-        assert!(out.contains("[Priority 1]"));
-        // Only google is enabled with a key; the openai (disabled) should not appear.
-        assert!(!out.contains("[Priority 2]"));
-        // Provider capabilities block should be present.
-        assert!(out.contains("Generate:"));
-    }
-
-    #[test]
-    fn list_result_reports_edit_support() {
-        let cfg = mk_cfg(vec![entry("openai", true, Some("sk"), None)]);
-        let out = build_list_result(&cfg).unwrap();
-        // OpenAI supports editing → the line must say "Edit: enabled" or similar.
-        let has_edit_line = out.contains("Edit: enabled") || out.contains("Edit: not supported");
-        assert!(has_edit_line, "expected Edit: line, got:\n{}", out);
-    }
 }

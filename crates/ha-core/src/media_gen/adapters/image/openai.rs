@@ -6,13 +6,9 @@ use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::{
-    GeneratedImage, ImageGenCapabilities, ImageGenEditCapabilities, ImageGenGeometry,
-    ImageGenModeCapabilities, ImageGenParams, ImageGenProviderImpl, ImageGenResult,
-};
+use crate::media_gen::adapters::{GeneratedImage, ImageGenAdapter, ImageGenParams, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com";
-const DEFAULT_MODEL: &str = "gpt-image-1";
 
 #[derive(Deserialize)]
 struct OpenAIImageResponse {
@@ -27,43 +23,7 @@ struct OpenAIImageData {
 
 pub(crate) struct OpenAIProvider;
 
-impl ImageGenProviderImpl for OpenAIProvider {
-    fn id(&self) -> &str {
-        "openai"
-    }
-
-    fn display_name(&self) -> &str {
-        "OpenAI"
-    }
-
-    fn default_model(&self) -> &str {
-        DEFAULT_MODEL
-    }
-
-    fn capabilities(&self) -> ImageGenCapabilities {
-        ImageGenCapabilities {
-            generate: ImageGenModeCapabilities {
-                max_count: 4,
-                supports_size: true,
-                supports_aspect_ratio: false,
-                supports_resolution: false,
-            },
-            edit: ImageGenEditCapabilities {
-                enabled: false,
-                max_count: 0,
-                max_input_images: 0,
-                supports_size: false,
-                supports_aspect_ratio: false,
-                supports_resolution: false,
-            },
-            geometry: Some(ImageGenGeometry {
-                sizes: vec!["1024x1024", "1024x1536", "1536x1024"],
-                aspect_ratios: vec![],
-                resolutions: vec![],
-            }),
-        }
-    }
-
+impl ImageGenAdapter for OpenAIProvider {
     fn generate<'a>(
         &'a self,
         params: ImageGenParams<'a>,

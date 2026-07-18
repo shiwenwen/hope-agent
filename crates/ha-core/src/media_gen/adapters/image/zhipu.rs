@@ -5,13 +5,9 @@ use anyhow::Result;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::{
-    GeneratedImage, ImageGenCapabilities, ImageGenEditCapabilities, ImageGenGeometry,
-    ImageGenModeCapabilities, ImageGenParams, ImageGenProviderImpl, ImageGenResult,
-};
+use crate::media_gen::adapters::{GeneratedImage, ImageGenAdapter, ImageGenParams, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://open.bigmodel.cn/api/paas";
-const DEFAULT_MODEL: &str = "cogView-4-250304";
 
 #[derive(Deserialize)]
 struct ZhipuResponse {
@@ -25,50 +21,7 @@ struct ZhipuImageData {
 
 pub(crate) struct ZhipuProvider;
 
-impl ImageGenProviderImpl for ZhipuProvider {
-    fn id(&self) -> &str {
-        "zhipu"
-    }
-
-    fn display_name(&self) -> &str {
-        "ZhipuAI"
-    }
-
-    fn default_model(&self) -> &str {
-        DEFAULT_MODEL
-    }
-
-    fn capabilities(&self) -> ImageGenCapabilities {
-        ImageGenCapabilities {
-            generate: ImageGenModeCapabilities {
-                max_count: 1,
-                supports_size: true,
-                supports_aspect_ratio: false,
-                supports_resolution: false,
-            },
-            edit: ImageGenEditCapabilities {
-                enabled: false,
-                max_count: 0,
-                max_input_images: 0,
-                supports_size: false,
-                supports_aspect_ratio: false,
-                supports_resolution: false,
-            },
-            geometry: Some(ImageGenGeometry {
-                sizes: vec![
-                    "1024x1024",
-                    "1024x1536",
-                    "1536x1024",
-                    "1024x1792",
-                    "1792x1024",
-                    "2048x2048",
-                ],
-                aspect_ratios: vec![],
-                resolutions: vec![],
-            }),
-        }
-    }
-
+impl ImageGenAdapter for ZhipuProvider {
     fn generate<'a>(
         &'a self,
         params: ImageGenParams<'a>,
