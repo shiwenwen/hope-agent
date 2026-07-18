@@ -163,6 +163,28 @@ pub async fn test_media_provider(input: TestMediaProviderInput) -> Result<String
             "Authorization",
             format!("Bearer {api_key}"),
         ),
+        // Pure-TTS vendors: probe their voice/model listing endpoint.
+        MediaVendorKind::Cartesia => (
+            format!("{base}/voices?limit=1"),
+            "Authorization",
+            format!("Bearer {api_key}"),
+        ),
+        // Deepgram's scheme word is `Token`, not `Bearer`.
+        MediaVendorKind::Deepgram => (
+            format!("{base}/v1/models"),
+            "Authorization",
+            format!("Token {api_key}"),
+        ),
+        MediaVendorKind::Fishaudio => (
+            format!("{base}/model?page_size=1"),
+            "Authorization",
+            format!("Bearer {api_key}"),
+        ),
+        MediaVendorKind::Hume => (
+            format!("{base}/v0/tts/voices?provider=HUME_AI&page_size=1"),
+            "X-Hume-Api-Key",
+            api_key.clone(),
+        ),
         MediaVendorKind::Qianfan => (
             format!("{base}/v2/images/generations"),
             "Authorization",

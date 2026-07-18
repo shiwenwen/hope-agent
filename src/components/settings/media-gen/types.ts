@@ -24,6 +24,10 @@ export type MediaVendorKind =
   | "recraft"
   | "qianfan"
   | "sensenova"
+  | "cartesia"
+  | "deepgram"
+  | "fishaudio"
+  | "hume"
   | "openai-compatible"
 
 export interface ImageEditCaps {

@@ -66,6 +66,16 @@ fn speech_caps() -> AudioModelCaps {
     }
 }
 
+/// Speech models whose voice is optional (the vendor falls back to its own
+/// default) or not a separate parameter at all. See
+/// [`VOICELESS_SPEECH_VENDORS`] for why this is not a mistake.
+fn speech_caps_no_voice() -> AudioModelCaps {
+    AudioModelCaps {
+        needs_voice: false,
+        ..speech_caps()
+    }
+}
+
 // ── Per-vendor image caps (transcribed from the old adapter traits) ──
 
 fn openai_image_caps() -> ImageModelCaps {
@@ -582,7 +592,38 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
             base_url: MediaVendorKind::Minimax.default_base_url(),
             requires_api_key: true,
             supports_voice_listing: false,
-            models: vec![img("image-01", "Image-01", minimax_image_caps(), &[])],
+            models: vec![
+                img("image-01", "Image-01", minimax_image_caps(), &[]),
+                aud("speech-2.8-hd", "Speech 2.8 HD", speech_caps()),
+                aud("speech-2.8-turbo", "Speech 2.8 Turbo", speech_caps()),
+                aud("speech-2.6-hd", "Speech 2.6 HD", speech_caps()),
+                aud("speech-2.6-turbo", "Speech 2.6 Turbo", speech_caps()),
+                aud(
+                    "music-3.0",
+                    "Music 3.0",
+                    AudioModelCaps {
+                        kinds: vec![AudioKind::Music],
+                        // The music endpoint exposes no duration parameter.
+                        supports_duration: false,
+                        needs_voice: false,
+                        default_voice: None,
+                        min_duration_secs: None,
+                        max_duration_secs: None,
+                    },
+                ),
+                aud(
+                    "music-2.6",
+                    "Music 2.6",
+                    AudioModelCaps {
+                        kinds: vec![AudioKind::Music],
+                        supports_duration: false,
+                        needs_voice: false,
+                        default_voice: None,
+                        min_duration_secs: None,
+                        max_duration_secs: None,
+                    },
+                ),
+            ],
         },
         MediaProviderTemplate {
             key: "siliconflow",
@@ -863,6 +904,90 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
             )],
         },
         MediaProviderTemplate {
+            key: "cartesia",
+            name: "Cartesia",
+            kind: MediaVendorKind::Cartesia,
+            base_url: MediaVendorKind::Cartesia.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: true,
+            models: vec![
+                aud("sonic-3.5", "Sonic 3.5", speech_caps()),
+                aud("sonic-3", "Sonic 3", speech_caps()),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "deepgram",
+            name: "Deepgram",
+            kind: MediaVendorKind::Deepgram,
+            base_url: MediaVendorKind::Deepgram.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: true,
+            // Deepgram has no voice parameter — the voice *is* the model id
+            // (`aura-2-{voice}-{lang}`), so each voice ships as its own
+            // preset. These are a subset of the ~94 documented voices.
+            models: vec![
+                aud(
+                    "aura-2-thalia-en",
+                    "Aura 2 Thalia (en)",
+                    speech_caps_no_voice(),
+                ),
+                aud(
+                    "aura-2-asteria-en",
+                    "Aura 2 Asteria (en)",
+                    speech_caps_no_voice(),
+                ),
+                aud("aura-2-luna-en", "Aura 2 Luna (en)", speech_caps_no_voice()),
+                aud("aura-2-zeus-en", "Aura 2 Zeus (en)", speech_caps_no_voice()),
+                aud(
+                    "aura-2-andromeda-en",
+                    "Aura 2 Andromeda (en)",
+                    speech_caps_no_voice(),
+                ),
+                aud(
+                    "aura-2-sirio-es",
+                    "Aura 2 Sirio (es)",
+                    speech_caps_no_voice(),
+                ),
+                aud(
+                    "aura-asteria-en",
+                    "Aura 1 Asteria (en)",
+                    speech_caps_no_voice(),
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "fishaudio",
+            name: "Fish Audio",
+            kind: MediaVendorKind::Fishaudio,
+            base_url: MediaVendorKind::Fishaudio.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: true,
+            models: vec![
+                aud("s2.1-pro", "Fish Speech S2.1 Pro", speech_caps_no_voice()),
+                aud(
+                    "s2.1-pro-free",
+                    "Fish Speech S2.1 Pro (free)",
+                    speech_caps_no_voice(),
+                ),
+                aud("s2-pro", "Fish Speech S2 Pro", speech_caps_no_voice()),
+                aud("s1", "Fish Speech S1", speech_caps_no_voice()),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "hume",
+            name: "Hume AI",
+            kind: MediaVendorKind::Hume,
+            base_url: MediaVendorKind::Hume.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: true,
+            // Hume takes no `model` field — these ids map to its `version`
+            // selector inside the adapter.
+            models: vec![
+                aud("octave-2", "Octave 2", speech_caps_no_voice()),
+                aud("octave-1", "Octave 1", speech_caps_no_voice()),
+            ],
+        },
+        MediaProviderTemplate {
             key: "openai-compatible",
             name: "OpenAI-compatible",
             kind: MediaVendorKind::OpenaiCompatible,
@@ -942,9 +1067,19 @@ mod tests {
         assert!(!dalle3.image.as_ref().unwrap().supports_mask);
     }
 
+    /// Vendors whose speech models legitimately declare `needs_voice=false`:
+    /// Deepgram has no voice parameter at all (the voice *is* the model id),
+    /// while Fish Audio's `reference_id` and Hume's `voice` are optional and
+    /// fall back to a vendor default. Forcing a voice on these would make the
+    /// UI demand a value the API does not accept or need.
+    const VOICELESS_SPEECH_VENDORS: &[&str] = &["deepgram", "fishaudio", "hume"];
+
     #[test]
     fn speech_presets_declare_voice_requirement() {
         for tpl in media_provider_templates() {
+            if VOICELESS_SPEECH_VENDORS.contains(&tpl.key) {
+                continue;
+            }
             for m in &tpl.models {
                 if let Some(caps) = &m.audio {
                     if caps.kinds.contains(&AudioKind::Speech) {
@@ -952,6 +1087,27 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// The exception list above is only allowed to name vendors that really
+    /// ship voiceless speech presets — otherwise a stale entry would silently
+    /// disarm the check for a vendor that later grows a voice parameter.
+    #[test]
+    fn voiceless_exception_list_has_no_stale_entries() {
+        let templates = media_provider_templates();
+        for key in VOICELESS_SPEECH_VENDORS {
+            let tpl = templates
+                .iter()
+                .find(|t| &t.key == key)
+                .unwrap_or_else(|| panic!("{key} is not a template"));
+            assert!(
+                tpl.models.iter().any(|m| m
+                    .audio
+                    .as_ref()
+                    .is_some_and(|c| c.kinds.contains(&AudioKind::Speech) && !c.needs_voice)),
+                "{key} is listed as voiceless but has no voiceless speech preset"
+            );
         }
     }
 }

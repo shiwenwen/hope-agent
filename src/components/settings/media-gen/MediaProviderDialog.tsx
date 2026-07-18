@@ -63,6 +63,10 @@ const VOICE_VENDORS: ReadonlySet<MediaVendorKind> = new Set([
   "openai",
   "openai-compatible",
   "stepfun",
+  "cartesia",
+  "fishaudio",
+  "hume",
+  "minimax",
 ])
 
 const AUDIO_KINDS: MediaAudioKind[] = ["speech", "music", "sfx"]

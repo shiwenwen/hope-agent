@@ -21,6 +21,10 @@ export const VENDOR_DISPLAY_NAME: Record<MediaVendorKind, string> = {
   recraft: "Recraft",
   qianfan: "Baidu Qianfan",
   sensenova: "SenseNova",
+  cartesia: "Cartesia",
+  deepgram: "Deepgram",
+  fishaudio: "Fish Audio",
+  hume: "Hume AI",
   "openai-compatible": "OpenAI Compatible",
 }
 
@@ -44,6 +48,10 @@ export const VENDOR_ICON_KEY: Partial<Record<MediaVendorKind, string>> = {
   recraft: "recraft",
   qianfan: "qianfan",
   sensenova: "sensenova",
+  cartesia: "cartesia",
+  deepgram: "deepgram",
+  fishaudio: "fishaudio",
+  hume: "hume",
 }
 
 /** Grouping for the "add provider" template grid. Vendors serving both
@@ -54,7 +62,6 @@ export const VENDOR_GROUP: Record<MediaVendorKind, VendorGroup> = {
   openai: "both",
   google: "image",
   fal: "image",
-  minimax: "image",
   siliconflow: "image",
   zhipu: "image",
   tongyi: "image",
@@ -67,6 +74,11 @@ export const VENDOR_GROUP: Record<MediaVendorKind, VendorGroup> = {
   recraft: "image",
   qianfan: "image",
   sensenova: "image",
+  cartesia: "audio",
+  deepgram: "audio",
+  fishaudio: "audio",
+  hume: "audio",
+  minimax: "both",
   "openai-compatible": "custom",
 }
 

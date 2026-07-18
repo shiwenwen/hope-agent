@@ -115,6 +115,14 @@ pub enum MediaVendorKind {
     Qianfan,
     /// SenseNova images — OpenAI-ish request, `images_urls` response envelope.
     Sensenova,
+    /// Cartesia Sonic TTS.
+    Cartesia,
+    /// Deepgram Aura TTS — voice *is* the model id.
+    Deepgram,
+    /// Fish Audio TTS — model travels in an HTTP header.
+    Fishaudio,
+    /// Hume Octave TTS — no `model` field, `version` selects the generation.
+    Hume,
     /// Self-hosted or third-party endpoint speaking the OpenAI wire shape
     /// (images `/v1/images/generations`, speech `/v1/audio/speech`).
     /// Requires an explicit `base_url`; routed through the OpenAI adapters.
@@ -140,6 +148,10 @@ impl MediaVendorKind {
             Self::Recraft => "https://external.api.recraft.ai",
             Self::Qianfan => "https://qianfan.baidubce.com",
             Self::Sensenova => "https://token.sensenova.cn",
+            Self::Cartesia => "https://api.cartesia.ai",
+            Self::Deepgram => "https://api.deepgram.com",
+            Self::Fishaudio => "https://api.fish.audio",
+            Self::Hume => "https://api.hume.ai",
             Self::OpenaiCompatible => "",
         }
     }
@@ -162,16 +174,31 @@ impl MediaVendorKind {
             Self::Recraft => "Recraft",
             Self::Qianfan => "Baidu Qianfan",
             Self::Sensenova => "SenseNova",
+            Self::Cartesia => "Cartesia",
+            Self::Deepgram => "Deepgram",
+            Self::Fishaudio => "Fish Audio",
+            Self::Hume => "Hume AI",
             Self::OpenaiCompatible => "OpenAI-compatible",
         }
     }
 
     /// Whether this vendor exposes a listable voice catalog (used to gate
     /// the "fetch voices" UI + `list_media_voices` command).
+    ///
+    /// **Must stay in sync with the arms in [`super::voices`]** — claiming a
+    /// catalog we cannot fetch turns the UI button into a guaranteed error.
+    /// Deepgram is deliberately absent: its voices *are* model ids, so the
+    /// model picker already covers them. StepFun / Fish Audio / Hume do
+    /// publish listing endpoints, but their response shapes are not verified
+    /// yet, so they keep the free-form voice input for now.
     pub fn supports_voice_listing(&self) -> bool {
         matches!(
             self,
-            Self::Elevenlabs | Self::Openai | Self::OpenaiCompatible | Self::Stepfun
+            Self::Elevenlabs
+                | Self::Openai
+                | Self::OpenaiCompatible
+                | Self::Cartesia
+                | Self::Minimax
         )
     }
 }

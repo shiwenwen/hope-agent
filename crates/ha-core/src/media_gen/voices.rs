@@ -19,6 +19,10 @@ use super::types::MediaVendorKind;
 
 const CACHE_TTL: Duration = Duration::from_secs(600);
 
+/// Cartesia pins behaviour to a dated API version; the header is required on
+/// every request, listing included.
+const CARTESIA_VERSION: &str = "2026-03-01";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceOption {
@@ -51,6 +55,8 @@ pub async fn list_media_voices(provider_id: &str, limit: u32) -> Result<Vec<Voic
                 category: None,
             })
             .collect()),
+        MediaVendorKind::Cartesia => list_cartesia_voices(provider_id, limit).await,
+        MediaVendorKind::Minimax => list_minimax_voices(provider_id).await,
         // Self-hosted / third-party endpoints have their own voice catalog we
         // can't enumerate — the documented OpenAI voice names would mislead.
         // Return empty; the UI keeps the free-form voice-id input.
@@ -129,4 +135,122 @@ async fn list_elevenlabs_voices(provider_id: &str, limit: u32) -> Result<Vec<Voi
         m.insert(cache_key, (Instant::now(), voices.clone()));
     }
     Ok(voices)
+}
+
+/// Shared plumbing for the vendors below: resolve credentials, SSRF-gate the
+/// URL, and hand back a proxied client. Mirrors `list_elevenlabs_voices`.
+async fn voice_request(provider_id: &str, path: &str) -> Result<(Client, String, String, String)> {
+    let cfg = crate::config::cached_config();
+    let provider = cfg
+        .media_gen
+        .provider(provider_id)
+        .context("media provider not found")?;
+    let key = Some(provider.api_key.as_str())
+        .filter(|k| !k.is_empty())
+        .with_context(|| {
+            format!(
+                "{} API Key not set (Settings → Model Configuration → Media Generation Models)",
+                provider.kind.display_name()
+            )
+        })?
+        .to_string();
+    let base = provider
+        .effective_base_url()
+        .trim_end_matches('/')
+        .to_string();
+    let url = format!("{base}{path}");
+    crate::security::ssrf::check_url(&url, provider.ssrf_policy(), &cfg.ssrf.trusted_hosts).await?;
+    let client =
+        crate::provider::apply_proxy(Client::builder().timeout(Duration::from_secs(15))).build()?;
+    Ok((client, url, key, base))
+}
+
+/// Pull `(id, name)` pairs out of a vendor array, accepting either the
+/// OpenAI-ish `id`/`name` keys or MiniMax-style `voice_id`/`voice_name`.
+fn collect_voices(items: &[serde_json::Value], category: Option<&str>) -> Vec<VoiceOption> {
+    items
+        .iter()
+        .filter_map(|v| {
+            let voice_id = v
+                .get("id")
+                .or_else(|| v.get("voice_id"))
+                .and_then(|x| x.as_str())?
+                .to_string();
+            let name = v
+                .get("name")
+                .or_else(|| v.get("voice_name"))
+                .or_else(|| v.get("description"))
+                .and_then(|x| x.as_str())
+                .unwrap_or(&voice_id)
+                .to_string();
+            Some(VoiceOption {
+                voice_id,
+                name,
+                category: category.map(String::from),
+            })
+        })
+        .collect()
+}
+
+async fn list_cartesia_voices(provider_id: &str, limit: u32) -> Result<Vec<VoiceOption>> {
+    let page_size = limit.clamp(1, 100);
+    let (client, url, key, _) =
+        voice_request(provider_id, &format!("/voices?limit={page_size}")).await?;
+    let resp = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {key}"))
+        // Cartesia rejects any request without a dated version header.
+        .header("Cartesia-Version", CARTESIA_VERSION)
+        .header("Accept", "application/json")
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        bail!(
+            "Cartesia voices fetch failed ({status}): {}",
+            crate::truncate_utf8(&body, 200)
+        );
+    }
+    let json: serde_json::Value = resp.json().await?;
+    // Paginated list endpoints return the page under `data`.
+    let items = json
+        .get("data")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(collect_voices(&items, None))
+}
+
+/// MiniMax lists voices through a POST with a selector body, and splits the
+/// result into system / cloned / generated buckets.
+async fn list_minimax_voices(provider_id: &str) -> Result<Vec<VoiceOption>> {
+    let (client, url, key, _) = voice_request(provider_id, "/v1/get_voice").await?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {key}"))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "voice_type": "all" }))
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        bail!(
+            "MiniMax voices fetch failed ({status}): {}",
+            crate::truncate_utf8(&body, 200)
+        );
+    }
+    let json: serde_json::Value = resp.json().await?;
+    let mut out = Vec::new();
+    for (field, category) in [
+        ("system_voice", "system"),
+        ("voice_cloning", "cloned"),
+        ("voice_generation", "generated"),
+    ] {
+        if let Some(items) = json.get(field).and_then(|v| v.as_array()) {
+            out.extend(collect_voices(items, Some(category)));
+        }
+    }
+    Ok(out)
 }

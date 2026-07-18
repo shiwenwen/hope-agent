@@ -308,7 +308,11 @@ pub fn image_adapter(kind: MediaVendorKind) -> Option<&'static dyn ImageGenAdapt
         MediaVendorKind::Recraft => Some(&RECRAFT_IMAGE),
         MediaVendorKind::Qianfan => Some(&QIANFAN_IMAGE),
         MediaVendorKind::Sensenova => Some(&SENSENOVA_IMAGE),
-        MediaVendorKind::Elevenlabs => None,
+        MediaVendorKind::Elevenlabs
+        | MediaVendorKind::Cartesia
+        | MediaVendorKind::Deepgram
+        | MediaVendorKind::Fishaudio
+        | MediaVendorKind::Hume => None,
     }
 }
 
@@ -319,6 +323,11 @@ pub fn audio_adapter(kind: MediaVendorKind) -> Option<&'static dyn AudioGenAdapt
             Some(&audio::openai::OpenAiAudioProvider)
         }
         MediaVendorKind::Elevenlabs => Some(&audio::elevenlabs::ElevenLabsAudioProvider),
+        MediaVendorKind::Cartesia => Some(&audio::cartesia::Provider),
+        MediaVendorKind::Deepgram => Some(&audio::deepgram::Provider),
+        MediaVendorKind::Fishaudio => Some(&audio::fishaudio::Provider),
+        MediaVendorKind::Hume => Some(&audio::hume::Provider),
+        MediaVendorKind::Minimax => Some(&audio::minimax::Provider),
         // StepFun / xAI / SenseNova speak OpenAI's `/v1/audio/speech`.
         MediaVendorKind::Stepfun | MediaVendorKind::Xai | MediaVendorKind::Sensenova => {
             Some(&audio::openai::OpenAiAudioProvider)
@@ -330,7 +339,6 @@ pub fn audio_adapter(kind: MediaVendorKind) -> Option<&'static dyn AudioGenAdapt
         | MediaVendorKind::Qianfan
         | MediaVendorKind::Google
         | MediaVendorKind::Fal
-        | MediaVendorKind::Minimax
         | MediaVendorKind::Siliconflow
         | MediaVendorKind::Zhipu
         | MediaVendorKind::Tongyi => None,

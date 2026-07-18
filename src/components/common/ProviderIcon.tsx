@@ -40,9 +40,10 @@ import {
   IFlyTekCloud,
   ElevenLabs,
   Fal,
+  FishAudio,
   SiliconCloud,
 } from "@lobehub/icons"
-import { Mic, Settings2 } from "lucide-react"
+import { AudioLines, Mic, Settings2 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -115,6 +116,11 @@ const ICON_MAP: Record<string, IconEntry> = {
   siliconflow: { mono: SiliconCloud, color: SiliconCloud.Color },
   /** ElevenLabs ships no Color variant — the brand mark is black. */
   elevenlabs: { mono: ElevenLabs },
+  fishaudio: { mono: FishAudio },
+  /** LobeHub ships no Cartesia / Hume marks — generic waveform glyphs,
+   *  tinted to each brand's primary. */
+  cartesia: { mono: AudioLines, colorPrimary: "#6E56CF" },
+  hume: { mono: AudioLines, colorPrimary: "#FF8B5E" },
 }
 
 // ── Name → Key 模糊匹配（用于已持久化的 Provider） ────────────────
