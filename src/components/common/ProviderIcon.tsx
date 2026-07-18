@@ -38,10 +38,14 @@ import {
   AssemblyAI,
   Azure,
   IFlyTekCloud,
+  Bfl,
   ElevenLabs,
   Fal,
   FishAudio,
+  Kling,
+  Replicate,
   SiliconCloud,
+  Stability,
 } from "@lobehub/icons"
 import { AudioLines, Mic, Settings2 } from "lucide-react"
 
@@ -120,6 +124,10 @@ const ICON_MAP: Record<string, IconEntry> = {
   /** LobeHub ships no Cartesia / Hume marks — generic waveform glyphs,
    *  tinted to each brand's primary. */
   cartesia: { mono: AudioLines, colorPrimary: "#6E56CF" },
+  bfl: { mono: Bfl },
+  stability: { mono: Stability, color: Stability.Color },
+  replicate: { mono: Replicate },
+  kling: { mono: Kling, color: Kling.Color },
   hume: { mono: AudioLines, colorPrimary: "#FF8B5E" },
 }
 

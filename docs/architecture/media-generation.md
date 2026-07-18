@@ -45,8 +45,42 @@ MediaGenConfig (AppConfig.media_gen)
 | `openai` | image + audio | 图 + TTS | `/v1/images/generations\|edits` + `/v1/audio/speech`；gpt-image 系支持 mask inpaint |
 | `google` | image | 图 | Gemini / Imagen；`thinking_level` 走模型级 `extra` |
 | `fal` / `minimax` / `siliconflow` / `zhipu` / `tongyi` | image | 图 | 能力矩阵各异（见 catalog） |
+| `stepfun` / `volcengine` / `hunyuan` / `together` / `xai` / `recraft` / `qianfan` / `sensenova` | image（profile 驱动） | 图 | 见下「OpenAI-compatible 家族」 |
+| `bfl` | image | 图 | `x-key` 鉴权，model 在 URL path，submit + poll，结果 URL 10 分钟过期 |
+| `stability` | image + audio | 图 + Music/SFX | multipart-only；图同步、音频 202 + 轮询（间隔 ≥10s）；**无 TTS** |
+| `replicate` | image | 图 | prediction submit + `Prefer: wait` 快路径 + 轮询兜底；结果 1 小时后删除 |
+| `kling` | image + audio | 图 + TTS/SFX | 全线异步任务；双区域域名；顶层 `code != 0` 即业务失败 |
+| `iflytek` | image | 图 | HMAC-SHA256 签名拼进 URL query；三段式自有 JSON；结果 base64 |
 | `elevenlabs` | audio | TTS + Music + SFX | voices 实时拉取 |
+| `cartesia` / `deepgram` / `fishaudio` / `hume` | audio | TTS | 四家各自私有 wire，见下 |
+| `volcengine-tts` | audio | TTS | 与 `volcengine`（图像）**不同 host、不同鉴权**：`X-Api-Key` + `X-Api-Resource-Id`，响应 NDJSON 分块 base64 |
 | `openai-compatible` | image + audio | 自建 | 必填 base_url，复用 openai adapter，可无 key |
+
+#### OpenAI-compatible 家族（`adapters/image/openai_compat.rs`）
+
+这些厂商的请求体只是 OpenAI images 形状的**局部偏离**，故共用一个 profile 驱动的适配器，
+偏离表达为数据而非代码。新增同类厂商**只加 profile、不加文件**；一旦需要异步轮询、
+multipart、非 Bearer 鉴权或自定义结果信封，就必须另起适配器——把这些塞进 profile 会让它
+退化回被它取代的那堆近似重复实现。
+
+profile 覆盖的偏离维度：`size` 编码（像素 `WxH` / 冒号 `W:H` / 拆成 `width`+`height` / 不发）、
+有无 `n`、`response_format` 取哪个 token（`b64_json` / `base64` / 不发）、是否发
+`aspect_ratio`·`resolution`、参考图字段名与是否数组、常量 body 字段、固定像素桶白名单。
+结果解析统一兼容三种信封：`data[].b64_json`、`data[].url`、顶层 `images_urls`。
+
+各家已知易错点（写进了 profile 注释）：火山方舟无 `n`（多图靠 `sequential_image_generation`）
+且 `watermark` 默认为真；Together 的 `response_format` 取值是 `base64` 而非 `b64_json`；
+腾讯混元 size 用冒号分隔；SenseNova 只接受 20 个固定像素桶且全局默认尺寸不在其中。
+
+#### 音频厂商的 wire 差异
+
+| kind | 关键差异 |
+| --- | --- |
+| `cartesia` | `transcript` 而非 `input`；`voice` 是 `{mode,id}` 对象；`output_format` 是对象，mp3 容器要 `bit_rate`（`encoding` 是 PCM 编解码枚举，发 `"mp3"` 会失败）；必带 `Cartesia-Version` |
+| `deepgram` | 参数全走 query string、body 只有 `{text}`；鉴权 scheme 词是 `Token` 不是 `Bearer`；**音色即 model id**，故只接受 `aura` 前缀的 voice（音色在 failover 链上只解析一次，否则上游厂商的音色名会被当 model 发出） |
+| `fishaudio` | model 走 HTTP **header**；音色字段是 `reference_id`；语速在嵌套 `prosody` 下 |
+| `hume` | **无 `model` 字段**（`version` 选代际，按 model id 精确匹配而非嗅探数字）；文本必须包在 `utterances[]` 里；`format` 是对象 |
+| `minimax` | 响应是 JSON 且音频为 **hex** 编码（非 base64）；`voice_setting.voice_id` 必填 |
 
 ## 2. 模块布局
 
@@ -68,8 +102,13 @@ media_gen/
 ├── voices.rs     voice 目录（elevenlabs 实时 + 10min 凭据指纹缓存按 provider_id 隔离；
 │                 openai 系静态表 OPENAI_TTS_VOICES）
 └── adapters/     wire 协议实现（trait 只剩 generate；身份/默认模型/能力全数据化）
+    ├── fetch.rs   fetch_asset：下载厂商返回的结果 URL 的唯一入口（强制 SSRF，见 §3）
+    ├── image/openai_compat.rs  profile 驱动的 OpenAI-ish 家族（见 §1）
     ├── image/{openai,google,fal,minimax,siliconflow,zhipu,tongyi}.rs
-    └── audio/{openai,elevenlabs}.rs
+    ├── image/{bfl,stability,replicate,kling,iflytek}.rs  异步轮询 / multipart / 签名
+    ├── audio/{openai,elevenlabs}.rs
+    └── audio/{cartesia,deepgram,fishaudio,hume,minimax,volcengine_audio,
+        stability_audio,kling_audio}.rs
 ```
 
 ## 3. 运行时解析与执行（红线）
@@ -90,8 +129,11 @@ media_gen/
 错误重试（`failover::classify_error` + `retry_delay_ms(attempt, 2000, 10000)`）→ 下一候选；
 **每次 attempt 记账**（`KIND_IMAGE_GENERATION` / `KIND_AUDIO_GENERATION`，metadata 含
 size/n/AR/res/kind/duration/attempt；provider_id 为 UUID、provider_name 为用户显示名）。
-SSRF：执行器对每候选 base URL 过 `check_url`（策略 = `allow_private_network` ? AllowPrivate
-: 全局默认）；audio adapter 对最终 URL 再检一次（同策略）。
+**SSRF（红线）**：执行器对每候选 base URL 过 `check_url`（策略 = `allow_private_network` ?
+AllowPrivate : 全局默认）；audio adapter 对最终 URL 再检一次（同策略）。**厂商返回的结果
+资产 URL 必须经 `adapters/fetch.rs::fetch_asset` 下载**——它不是 base URL 的子路径而是响应
+体里的服务端可控数据，执行器那一次 base 检查覆盖不到；恶意或被攻陷的端点可借此让我们去打
+内网或云元数据服务。禁止在适配器里自写 `client.get(结果URL)`。
 
 **三处消费全部走执行器，禁止再各写 provider 循环**（旧版聊天工具 / design image / design
 audio 三份重复 failover 是本次重构消灭的对象）：

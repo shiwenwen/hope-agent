@@ -28,6 +28,12 @@ export type MediaVendorKind =
   | "deepgram"
   | "fishaudio"
   | "hume"
+  | "bfl"
+  | "stability"
+  | "replicate"
+  | "kling"
+  | "iflytek"
+  | "volcengine-tts"
   | "openai-compatible"
 
 export interface ImageEditCaps {

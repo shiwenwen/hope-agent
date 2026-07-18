@@ -447,6 +447,124 @@ fn sensenova_image_caps() -> ImageModelCaps {
     }
 }
 
+/// FLUX sizing splits by model family: FLUX.2 and `flux-pro-1.1` take
+/// width/height, while ultra and the Kontext editors take aspect ratio only.
+fn bfl_image_caps(pixel_sized: bool, max_input_images: u32) -> ImageModelCaps {
+    ImageModelCaps {
+        // No batch parameter anywhere in the BFL API.
+        max_n: 1,
+        supports_size: pixel_sized,
+        supports_aspect_ratio: !pixel_sized,
+        supports_resolution: false,
+        sizes: if pixel_sized {
+            strs(&["1024x1024", "1024x768", "768x1024", "1344x768", "768x1344"])
+        } else {
+            vec![]
+        },
+        aspect_ratios: if pixel_sized {
+            vec![]
+        } else {
+            strs(&["21:9", "16:9", "3:2", "1:1", "2:3", "9:16", "9:21"])
+        },
+        resolutions: vec![],
+        supports_mask: false,
+        edit: (max_input_images > 0).then_some(ImageEditCaps {
+            max_n: 1,
+            max_input_images,
+            supports_size: pixel_sized,
+            supports_aspect_ratio: !pixel_sized,
+            supports_resolution: false,
+        }),
+    }
+}
+
+fn stability_image_caps() -> ImageModelCaps {
+    ImageModelCaps {
+        // v2beta has no `n` / `samples`.
+        max_n: 1,
+        // Dimensions are expressed as aspect ratio only.
+        supports_size: false,
+        supports_aspect_ratio: true,
+        supports_resolution: false,
+        sizes: vec![],
+        aspect_ratios: strs(&[
+            "21:9", "16:9", "3:2", "5:4", "1:1", "4:5", "2:3", "9:16", "9:21",
+        ]),
+        resolutions: vec![],
+        supports_mask: false,
+        edit: Some(ImageEditCaps {
+            max_n: 1,
+            max_input_images: 1,
+            supports_size: false,
+            supports_aspect_ratio: true,
+            supports_resolution: false,
+        }),
+    }
+}
+
+/// Replicate proxies models with wildly different input schemas, so caps stay
+/// permissive: the adapter forwards `aspect_ratio` plus whatever the user put
+/// in `extra` rather than asserting one vendor's parameter set.
+fn replicate_image_caps() -> ImageModelCaps {
+    ImageModelCaps {
+        max_n: 1,
+        supports_size: false,
+        supports_aspect_ratio: true,
+        supports_resolution: false,
+        sizes: vec![],
+        aspect_ratios: strs(&["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"]),
+        resolutions: vec![],
+        supports_mask: false,
+        edit: None,
+    }
+}
+
+fn kling_image_caps(resolutions: &[&str]) -> ImageModelCaps {
+    ImageModelCaps {
+        max_n: 9,
+        supports_size: false,
+        supports_aspect_ratio: true,
+        supports_resolution: true,
+        sizes: vec![],
+        aspect_ratios: strs(&["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9"]),
+        resolutions: strs(resolutions),
+        supports_mask: false,
+        edit: Some(ImageEditCaps {
+            max_n: 9,
+            max_input_images: 1,
+            supports_size: false,
+            supports_aspect_ratio: true,
+            supports_resolution: true,
+        }),
+    }
+}
+
+fn iflytek_image_caps() -> ImageModelCaps {
+    ImageModelCaps {
+        max_n: 1,
+        supports_size: true,
+        supports_aspect_ratio: false,
+        supports_resolution: false,
+        // Exactly these ten pairs are accepted; anything else is rejected.
+        sizes: strs(&[
+            "1024x1024",
+            "768x768",
+            "640x640",
+            "512x512",
+            "640x360",
+            "640x480",
+            "680x512",
+            "512x680",
+            "720x1280",
+            "1280x720",
+        ]),
+        aspect_ratios: vec![],
+        resolutions: vec![],
+        supports_mask: false,
+        edit: None,
+    }
+}
+
 // ── Templates ─────────────────────────────────────────────────────
 
 /// All built-in vendor templates, in suggested display order.
@@ -985,6 +1103,217 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
             models: vec![
                 aud("octave-2", "Octave 2", speech_caps_no_voice()),
                 aud("octave-1", "Octave 1", speech_caps_no_voice()),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "bfl",
+            name: "Black Forest Labs",
+            kind: MediaVendorKind::Bfl,
+            base_url: MediaVendorKind::Bfl.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            // Model ids are URL path slugs, not body fields.
+            models: vec![
+                img("flux-2-pro", "FLUX.2 pro", bfl_image_caps(true, 8), &[]),
+                img("flux-2-flex", "FLUX.2 flex", bfl_image_caps(true, 8), &[]),
+                img("flux-2-max", "FLUX.2 max", bfl_image_caps(true, 8), &[]),
+                img(
+                    "flux-kontext-pro",
+                    "FLUX.1 Kontext pro",
+                    bfl_image_caps(false, 4),
+                    &[],
+                ),
+                img(
+                    "flux-kontext-max",
+                    "FLUX.1 Kontext max",
+                    bfl_image_caps(false, 4),
+                    &[],
+                ),
+                img("flux-pro-1.1", "FLUX 1.1 pro", bfl_image_caps(true, 0), &[]),
+                img(
+                    "flux-pro-1.1-ultra",
+                    "FLUX 1.1 pro ultra",
+                    bfl_image_caps(false, 0),
+                    &[],
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "stability",
+            name: "Stability AI",
+            kind: MediaVendorKind::Stability,
+            base_url: MediaVendorKind::Stability.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            // `ultra` / `core` select an endpoint (they are not `model` form
+            // values); only the sd3.5 ids travel in the request body.
+            models: vec![
+                img("ultra", "Stable Image Ultra", stability_image_caps(), &[]),
+                img(
+                    "core",
+                    "Stable Image Core",
+                    ImageModelCaps {
+                        // Core is text-to-image only.
+                        edit: None,
+                        ..stability_image_caps()
+                    },
+                    &[],
+                ),
+                img("sd3.5-large", "SD 3.5 Large", stability_image_caps(), &[]),
+                img(
+                    "sd3.5-large-turbo",
+                    "SD 3.5 Large Turbo",
+                    stability_image_caps(),
+                    &[],
+                ),
+                img("sd3.5-medium", "SD 3.5 Medium", stability_image_caps(), &[]),
+                aud(
+                    "stable-audio-2.5",
+                    "Stable Audio 2.5",
+                    AudioModelCaps {
+                        // Stability generates music and SFX but has no TTS.
+                        kinds: vec![AudioKind::Music, AudioKind::Sfx],
+                        supports_duration: true,
+                        needs_voice: false,
+                        default_voice: None,
+                        min_duration_secs: Some(1.0),
+                        max_duration_secs: Some(180.0),
+                    },
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "replicate",
+            name: "Replicate",
+            kind: MediaVendorKind::Replicate,
+            base_url: MediaVendorKind::Replicate.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            // Curated subset of Replicate's ~86 image models: the flagships
+            // that are not reachable through a direct vendor entry here.
+            models: vec![
+                img(
+                    "black-forest-labs/flux-2-pro",
+                    "FLUX.2 pro",
+                    replicate_image_caps(),
+                    &[],
+                ),
+                img(
+                    "google/imagen-4-ultra",
+                    "Imagen 4 Ultra",
+                    replicate_image_caps(),
+                    &[],
+                ),
+                img(
+                    "bytedance/seedream-4.5",
+                    "Seedream 4.5",
+                    replicate_image_caps(),
+                    &[],
+                ),
+                img(
+                    "openai/gpt-image-2",
+                    "GPT Image 2",
+                    replicate_image_caps(),
+                    &[],
+                ),
+                img(
+                    "ideogram-ai/ideogram-v3-quality",
+                    "Ideogram v3 Quality",
+                    replicate_image_caps(),
+                    &[],
+                ),
+                img(
+                    "stability-ai/stable-diffusion-3.5-large",
+                    "SD 3.5 Large",
+                    replicate_image_caps(),
+                    &[],
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "kling",
+            name: "Kling",
+            kind: MediaVendorKind::Kling,
+            base_url: MediaVendorKind::Kling.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            models: vec![
+                img(
+                    "kling-v3",
+                    "Kling 3.0",
+                    kling_image_caps(&["1K", "2K"]),
+                    &[],
+                ),
+                img(
+                    "kling-v3-omni",
+                    "Kling 3.0 Omni",
+                    kling_image_caps(&["1K", "2K", "4K"]),
+                    &[],
+                ),
+                img(
+                    "kling-image-o1",
+                    "Kling Image O1",
+                    kling_image_caps(&["1K", "2K"]),
+                    &[],
+                ),
+                img(
+                    "kling-v2-1",
+                    "Kling 2.1",
+                    kling_image_caps(&["1K", "2K"]),
+                    &[],
+                ),
+                img(
+                    "kling-v2",
+                    "Kling 2.0",
+                    kling_image_caps(&["1K", "2K"]),
+                    &[],
+                ),
+                // Kling publishes no audio model ids — these select the
+                // endpoint locally and are never sent on the wire.
+                aud("tts", "Kling TTS", speech_caps()),
+                aud(
+                    "text-to-audio",
+                    "Kling Sound Effects",
+                    AudioModelCaps {
+                        kinds: vec![AudioKind::Sfx],
+                        supports_duration: true,
+                        needs_voice: false,
+                        default_voice: None,
+                        min_duration_secs: Some(3.0),
+                        max_duration_secs: Some(10.0),
+                    },
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "iflytek",
+            name: "iFlytek Spark",
+            kind: MediaVendorKind::Iflytek,
+            base_url: MediaVendorKind::Iflytek.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            // `general` is the `parameter.chat.domain` value, iFlytek's
+            // closest equivalent to a model id.
+            models: vec![img(
+                "general",
+                "Spark Image (general)",
+                iflytek_image_caps(),
+                &[],
+            )],
+        },
+        MediaProviderTemplate {
+            key: "volcengine-tts",
+            name: "Doubao Speech",
+            kind: MediaVendorKind::VolcengineTts,
+            base_url: MediaVendorKind::VolcengineTts.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            // These are `X-Api-Resource-Id` values, which double as the model
+            // selector — they must match the voice family or the API errors.
+            models: vec![
+                aud("seed-tts-2.0", "Doubao TTS 2.0", speech_caps()),
+                aud("seed-tts-1.0", "Doubao TTS 1.0", speech_caps()),
+                aud("seed-icl-2.0", "Doubao Voice Clone 2.0", speech_caps()),
             ],
         },
         MediaProviderTemplate {

@@ -67,6 +67,8 @@ const VOICE_VENDORS: ReadonlySet<MediaVendorKind> = new Set([
   "fishaudio",
   "hume",
   "minimax",
+  "kling",
+  "volcengine-tts",
 ])
 
 const AUDIO_KINDS: MediaAudioKind[] = ["speech", "music", "sfx"]

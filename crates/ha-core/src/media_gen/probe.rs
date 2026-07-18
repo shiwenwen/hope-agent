@@ -185,6 +185,32 @@ pub async fn test_media_provider(input: TestMediaProviderInput) -> Result<String
             "X-Hume-Api-Key",
             api_key.clone(),
         ),
+        // BFL authenticates with a bare `x-key` header; `/v1/credits` is its
+        // documented account endpoint.
+        MediaVendorKind::Bfl => (format!("{base}/v1/credits"), "x-key", api_key.clone()),
+        MediaVendorKind::Stability => (
+            format!("{base}/v1/user/balance"),
+            "Authorization",
+            format!("Bearer {api_key}"),
+        ),
+        MediaVendorKind::Replicate => (
+            format!("{base}/v1/account"),
+            "Authorization",
+            format!("Bearer {api_key}"),
+        ),
+        // Kling and iFlytek sign every request (JWT / HMAC-in-URL), which a
+        // static probe can't reproduce, so these only prove reachability.
+        MediaVendorKind::Kling => (
+            format!("{base}/v1/images/generations"),
+            "Authorization",
+            format!("Bearer {api_key}"),
+        ),
+        MediaVendorKind::Iflytek => (format!("{base}/v2.1/tti"), "", String::new()),
+        MediaVendorKind::VolcengineTts => (
+            format!("{base}/api/v3/tts/unidirectional"),
+            "X-Api-Key",
+            api_key.clone(),
+        ),
         MediaVendorKind::Qianfan => (
             format!("{base}/v2/images/generations"),
             "Authorization",
@@ -238,6 +264,9 @@ pub async fn test_media_provider(input: TestMediaProviderInput) -> Result<String
                     | MediaVendorKind::Hunyuan
                     | MediaVendorKind::Sensenova
                     | MediaVendorKind::Qianfan
+                    | MediaVendorKind::Kling
+                    | MediaVendorKind::Iflytek
+                    | MediaVendorKind::VolcengineTts
             );
             let ok = status < 400 || (post_only_route && (status == 405 || status == 422));
             let msg = if ok {

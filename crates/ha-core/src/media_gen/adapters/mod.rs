@@ -308,11 +308,17 @@ pub fn image_adapter(kind: MediaVendorKind) -> Option<&'static dyn ImageGenAdapt
         MediaVendorKind::Recraft => Some(&RECRAFT_IMAGE),
         MediaVendorKind::Qianfan => Some(&QIANFAN_IMAGE),
         MediaVendorKind::Sensenova => Some(&SENSENOVA_IMAGE),
+        MediaVendorKind::Bfl => Some(&image::bfl::Provider),
+        MediaVendorKind::Stability => Some(&image::stability::Provider),
+        MediaVendorKind::Replicate => Some(&image::replicate::Provider),
+        MediaVendorKind::Kling => Some(&image::kling::Provider),
+        MediaVendorKind::Iflytek => Some(&image::iflytek::Provider),
         MediaVendorKind::Elevenlabs
         | MediaVendorKind::Cartesia
         | MediaVendorKind::Deepgram
         | MediaVendorKind::Fishaudio
-        | MediaVendorKind::Hume => None,
+        | MediaVendorKind::Hume
+        | MediaVendorKind::VolcengineTts => None,
     }
 }
 
@@ -328,6 +334,9 @@ pub fn audio_adapter(kind: MediaVendorKind) -> Option<&'static dyn AudioGenAdapt
         MediaVendorKind::Fishaudio => Some(&audio::fishaudio::Provider),
         MediaVendorKind::Hume => Some(&audio::hume::Provider),
         MediaVendorKind::Minimax => Some(&audio::minimax::Provider),
+        MediaVendorKind::VolcengineTts => Some(&audio::volcengine_audio::Provider),
+        MediaVendorKind::Stability => Some(&audio::stability_audio::Provider),
+        MediaVendorKind::Kling => Some(&audio::kling_audio::Provider),
         // StepFun / xAI / SenseNova speak OpenAI's `/v1/audio/speech`.
         MediaVendorKind::Stepfun | MediaVendorKind::Xai | MediaVendorKind::Sensenova => {
             Some(&audio::openai::OpenAiAudioProvider)
@@ -339,6 +348,9 @@ pub fn audio_adapter(kind: MediaVendorKind) -> Option<&'static dyn AudioGenAdapt
         | MediaVendorKind::Qianfan
         | MediaVendorKind::Google
         | MediaVendorKind::Fal
+        | MediaVendorKind::Bfl
+        | MediaVendorKind::Replicate
+        | MediaVendorKind::Iflytek
         | MediaVendorKind::Siliconflow
         | MediaVendorKind::Zhipu
         | MediaVendorKind::Tongyi => None,

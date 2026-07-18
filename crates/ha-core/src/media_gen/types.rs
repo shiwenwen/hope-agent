@@ -123,6 +123,19 @@ pub enum MediaVendorKind {
     Fishaudio,
     /// Hume Octave TTS — no `model` field, `version` selects the generation.
     Hume,
+    /// Black Forest Labs FLUX — `x-key` auth, submit + poll, model in the path.
+    Bfl,
+    /// Stability AI — multipart images, plus Stable Audio music / SFX.
+    Stability,
+    /// Replicate — prediction submit + poll over arbitrary hosted models.
+    Replicate,
+    /// Kuaishou Kling — async task API, region-split hosts.
+    Kling,
+    /// iFlytek Spark — HMAC-signed URLs, bespoke three-section JSON.
+    Iflytek,
+    /// Volcengine "Doubao" speech. Separate from [`Self::Volcengine`]: a
+    /// different host, different auth headers, and a streaming NDJSON body.
+    VolcengineTts,
     /// Self-hosted or third-party endpoint speaking the OpenAI wire shape
     /// (images `/v1/images/generations`, speech `/v1/audio/speech`).
     /// Requires an explicit `base_url`; routed through the OpenAI adapters.
@@ -152,6 +165,12 @@ impl MediaVendorKind {
             Self::Deepgram => "https://api.deepgram.com",
             Self::Fishaudio => "https://api.fish.audio",
             Self::Hume => "https://api.hume.ai",
+            Self::Bfl => "https://api.bfl.ai",
+            Self::Stability => "https://api.stability.ai",
+            Self::Replicate => "https://api.replicate.com",
+            Self::Kling => "https://api-singapore.klingai.com",
+            Self::Iflytek => "https://spark-api.cn-huabei-1.xf-yun.com",
+            Self::VolcengineTts => "https://openspeech.bytedance.com",
             Self::OpenaiCompatible => "",
         }
     }
@@ -178,6 +197,12 @@ impl MediaVendorKind {
             Self::Deepgram => "Deepgram",
             Self::Fishaudio => "Fish Audio",
             Self::Hume => "Hume AI",
+            Self::Bfl => "Black Forest Labs",
+            Self::Stability => "Stability AI",
+            Self::Replicate => "Replicate",
+            Self::Kling => "Kling",
+            Self::Iflytek => "iFlytek Spark",
+            Self::VolcengineTts => "Doubao Speech",
             Self::OpenaiCompatible => "OpenAI-compatible",
         }
     }

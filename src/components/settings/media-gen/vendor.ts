@@ -25,6 +25,12 @@ export const VENDOR_DISPLAY_NAME: Record<MediaVendorKind, string> = {
   deepgram: "Deepgram",
   fishaudio: "Fish Audio",
   hume: "Hume AI",
+  bfl: "Black Forest Labs",
+  stability: "Stability AI",
+  replicate: "Replicate",
+  kling: "Kling",
+  iflytek: "iFlytek Spark",
+  "volcengine-tts": "Doubao Speech",
   "openai-compatible": "OpenAI Compatible",
 }
 
@@ -52,6 +58,12 @@ export const VENDOR_ICON_KEY: Partial<Record<MediaVendorKind, string>> = {
   deepgram: "deepgram",
   fishaudio: "fishaudio",
   hume: "hume",
+  bfl: "bfl",
+  stability: "stability",
+  replicate: "replicate",
+  kling: "kling",
+  iflytek: "iflytek",
+  "volcengine-tts": "volcengine",
 }
 
 /** Grouping for the "add provider" template grid. Vendors serving both
@@ -79,6 +91,12 @@ export const VENDOR_GROUP: Record<MediaVendorKind, VendorGroup> = {
   fishaudio: "audio",
   hume: "audio",
   minimax: "both",
+  bfl: "image",
+  stability: "both",
+  replicate: "image",
+  kling: "both",
+  iflytek: "image",
+  "volcengine-tts": "audio",
   "openai-compatible": "custom",
 }
 
