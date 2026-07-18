@@ -274,7 +274,6 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                         // The OSS URL is server-supplied, not a sub-path of
                         // the configured base — re-gate it through SSRF.
                         let (data, content_type) = crate::media_gen::adapters::fetch::fetch_asset(
-                            &client,
                             &img_url,
                             params.ssrf,
                             "image/png",

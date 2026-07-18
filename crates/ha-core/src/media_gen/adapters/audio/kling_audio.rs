@@ -308,7 +308,7 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
     // Some Kling audio jobs can already carry their result on the submit
     // response; only fall through to polling when they don't.
     if let Some(url) = data.task_result.as_ref().and_then(extract_audio_url) {
-        return download(&client, &url, &params).await;
+        return download(&url, &params).await;
     }
 
     let task_id = data
@@ -389,7 +389,7 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
                     started.elapsed().as_millis() as u64,
                     task_id
                 );
-                return download(&client, &url, &params).await;
+                return download(&url, &params).await;
             }
             TaskState::Failed => {
                 anyhow::bail!(
@@ -435,12 +435,8 @@ fn check_envelope(envelope: Envelope, stage: &str) -> Result<TaskData> {
         .ok_or_else(|| anyhow::anyhow!("Kling audio: {} response carried no data", stage))
 }
 
-async fn download(
-    client: &Client,
-    url: &str,
-    params: &AudioGenParams<'_>,
-) -> Result<AudioGenResult> {
-    let (data, mime) = fetch_asset(client, url, params.ssrf, FALLBACK_MIME).await?;
+async fn download(url: &str, params: &AudioGenParams<'_>) -> Result<AudioGenResult> {
+    let (data, mime) = fetch_asset(url, params.ssrf, FALLBACK_MIME).await?;
     if data.is_empty() {
         anyhow::bail!("Kling audio: downloaded asset was empty");
     }

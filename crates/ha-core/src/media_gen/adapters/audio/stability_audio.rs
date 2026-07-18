@@ -382,13 +382,8 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
             AudioPayload::Url(url) => {
                 // Vendor-supplied URL, not a sub-path of the configured base —
                 // fetch_asset re-gates it through SSRF.
-                let (data, _) = crate::media_gen::adapters::fetch::fetch_asset(
-                    &client,
-                    &url,
-                    params.ssrf,
-                    mime,
-                )
-                .await?;
+                let (data, _) =
+                    crate::media_gen::adapters::fetch::fetch_asset(&url, params.ssrf, mime).await?;
                 data
             }
         };

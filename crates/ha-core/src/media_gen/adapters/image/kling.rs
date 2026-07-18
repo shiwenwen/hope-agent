@@ -499,7 +499,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                     started.elapsed().as_millis() as u64,
                     task_id
                 );
-                return download_images(&client, data, &params, &task_id).await;
+                return download_images(data, &params, &task_id).await;
             }
             TaskState::Failed => {
                 let reason = data.task_status_msg.unwrap_or_default();
@@ -527,7 +527,6 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 }
 
 async fn download_images(
-    client: &Client,
     data: TaskData,
     params: &ImageGenParams<'_>,
     task_id: &str,
@@ -549,7 +548,7 @@ async fn download_images(
 
     let mut images = Vec::with_capacity(entries.len());
     for (_, url) in entries {
-        let (bytes, mime) = fetch_asset(client, &url, params.ssrf, FALLBACK_MIME).await?;
+        let (bytes, mime) = fetch_asset(&url, params.ssrf, FALLBACK_MIME).await?;
         if bytes.is_empty() {
             anyhow::bail!(
                 "Kling image: downloaded asset was empty (task_id={})",

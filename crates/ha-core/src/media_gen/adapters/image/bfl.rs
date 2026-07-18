@@ -384,8 +384,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                     .get("output_format")
                     .map(|f| format!("image/{}", f.trim().to_ascii_lowercase()))
                     .unwrap_or_else(|| "image/png".to_string());
-                let (data, mime) =
-                    fetch_asset(&client, sample, params.ssrf, &fallback_mime).await?;
+                let (data, mime) = fetch_asset(sample, params.ssrf, &fallback_mime).await?;
                 if data.is_empty() {
                     bail!("BFL FLUX: downloaded image was empty (id={task_id})");
                 }

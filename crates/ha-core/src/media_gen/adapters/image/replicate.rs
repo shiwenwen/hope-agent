@@ -396,8 +396,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     let mut images = Vec::with_capacity(urls.len());
     for url in &urls {
         let (data, mime) =
-            crate::media_gen::adapters::fetch::fetch_asset(&client, url, params.ssrf, "image/webp")
-                .await?;
+            crate::media_gen::adapters::fetch::fetch_asset(url, params.ssrf, "image/webp").await?;
         images.push(GeneratedImage {
             data,
             mime,

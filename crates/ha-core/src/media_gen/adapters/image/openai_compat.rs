@@ -200,7 +200,6 @@ fn build_body(profile: &CompatProfile, params: &ImageGenParams<'_>) -> Value {
 /// `data[].b64_json` / `data[].url`, or SenseNova's top-level `images_urls`.
 async fn extract_images(
     profile: &CompatProfile,
-    client: &Client,
     body: &Value,
     params: &ImageGenParams<'_>,
 ) -> Result<Vec<GeneratedImage>> {
@@ -218,8 +217,7 @@ async fn extract_images(
                         .map(String::from),
                 });
             } else if let Some(url) = item.get("url").and_then(|v| v.as_str()) {
-                let (data, mime) =
-                    fetch_asset(client, url, params.ssrf, profile.fallback_mime()).await?;
+                let (data, mime) = fetch_asset(url, params.ssrf, profile.fallback_mime()).await?;
                 out.push(GeneratedImage {
                     data,
                     mime,
@@ -232,8 +230,7 @@ async fn extract_images(
         }
     } else if let Some(urls) = body.get("images_urls").and_then(|v| v.as_array()) {
         for url in urls.iter().filter_map(|u| u.as_str()) {
-            let (data, mime) =
-                fetch_asset(client, url, params.ssrf, profile.fallback_mime()).await?;
+            let (data, mime) = fetch_asset(url, params.ssrf, profile.fallback_mime()).await?;
             out.push(GeneratedImage {
                 data,
                 mime,
@@ -325,7 +322,7 @@ async fn generate_impl(
     }
 
     let payload: Value = resp.json().await?;
-    let images = extract_images(profile, &client, &payload, &params).await?;
+    let images = extract_images(profile, &payload, &params).await?;
     if images.is_empty() {
         anyhow::bail!("{} returned no image data", profile.vendor);
     }

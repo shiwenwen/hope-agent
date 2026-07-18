@@ -330,7 +330,6 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
             let dl_start = std::time::Instant::now();
             let fallback_mime = item.content_type.unwrap_or_else(|| "image/png".to_string());
             let (data, mime) = crate::media_gen::adapters::fetch::fetch_asset(
-                &client,
                 &img_url,
                 params.ssrf,
                 &fallback_mime,
