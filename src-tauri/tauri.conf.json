@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "pnpm dev:browser-host && pnpm dev",
-    "beforeBuildCommand": "pnpm prepare:browser-host && pnpm build"
+    "beforeDevCommand": "pnpm dev:browser-host && pnpm dev:eval-sidecar && pnpm prepare:chrome-extension && pnpm dev",
+    "beforeBuildCommand": "pnpm prepare:browser-host && pnpm prepare:eval-sidecar && pnpm prepare:chrome-extension && pnpm build"
   },
   "app": {
     "macOSPrivateApi": true,
@@ -46,10 +46,16 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": [
+      "binaries/hope-agent-eval"
+    ],
     "createUpdaterArtifacts": true,
     "targets": "all",
     "resources": {
-      "resources/browser-host": "browser-host"
+      "resources/browser-host": "browser-host",
+      "resources/chrome-extension": "chrome-extension",
+      "../skills": "skills",
+      "../evals/live": "evals/live"
     },
     "shortDescription": "Local-first AI assistant with cross-device sessions and IM channel routing",
     "longDescription": "Hope Agent is a local-first AI assistant desktop app. Sessions hand off seamlessly across your devices and chats; memory accumulates over time and recurring work crystallizes into reusable skills. The single binary runs in three modes: desktop GUI, HTTP/WS daemon for headless deployment, and ACP stdio for IDE integrations. Built-in templates for mainstream LLM providers (Anthropic, OpenAI, Codex, plus local LLM via Ollama) cover the typical setup with a paste-the-API-key flow; IM channel integration covers Slack, Discord, Telegram, Feishu, WhatsApp, LINE, and more.",

@@ -5607,6 +5607,7 @@ mod tests {
                         provider_id: Some("missing-provider-for-leaderboard-unit".to_string()),
                         model_id: Some("missing-model-for-leaderboard-unit".to_string()),
                         label: Some("missing provider model".to_string()),
+                        credential_profile_ref: None,
                     }],
                     ..Default::default()
                 },
@@ -5675,6 +5676,7 @@ mod tests {
                         provider_id: Some("secret-provider".to_string()),
                         model_id: Some("secret-model".to_string()),
                         label: Some("secret baseline".to_string()),
+                        credential_profile_ref: None,
                     }],
                     ..Default::default()
                 },
@@ -6190,8 +6192,8 @@ mod contract_tests {
             max_tokens: 8192,
             reasoning: false,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         });
         let dir = tempfile::tempdir().unwrap();
         let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).unwrap());
@@ -6220,6 +6222,7 @@ mod contract_tests {
                         provider_id: Some("secret-provider".to_string()),
                         model_id: Some("secret-model".to_string()),
                         label: Some("secret baseline".to_string()),
+                        credential_profile_ref: None,
                     }],
                     ..Default::default()
                 },

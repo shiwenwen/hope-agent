@@ -1072,6 +1072,41 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_domain_quality_run: { method: "GET", path: "/api/domain-quality-runs/{runId}" },
   run_domain_quality: { method: "POST", path: "/api/domain-quality-runs/run" },
 
+  // -- Evaluation Center --
+  eval_readiness: { method: "GET", path: "/api/evaluation/readiness" },
+  eval_catalog: { method: "GET", path: "/api/evaluation/catalog" },
+  eval_list_model_options: { method: "GET", path: "/api/evaluation/model-options" },
+  eval_preview: { method: "POST", path: "/api/evaluation/preview" },
+  eval_start: { method: "POST", path: "/api/evaluation/start" },
+  eval_cancel: { method: "POST", path: "/api/evaluation/cancel" },
+  eval_retry: { method: "POST", path: "/api/evaluation/retry" },
+  eval_list_history: { method: "POST", path: "/api/evaluation/history" },
+  eval_get_experiment: {
+    method: "GET",
+    path: "/api/evaluation/experiments/{experimentId}",
+  },
+  eval_compare: { method: "POST", path: "/api/evaluation/compare" },
+  eval_trends: { method: "POST", path: "/api/evaluation/trends" },
+  eval_get_trial: {
+    method: "GET",
+    path: "/api/evaluation/experiments/{experimentId}/campaigns/{campaignId}/trials/{trialId}",
+  },
+  eval_set_pinned: { method: "POST", path: "/api/evaluation/pin" },
+  eval_import_bundle: { method: "POST", path: "/api/evaluation/import" },
+  eval_import_unverified: { method: "POST", path: "/api/evaluation/import-unverified" },
+  eval_export_local_bundle: { method: "POST", path: "/api/evaluation/export" },
+  eval_create_baseline: { method: "POST", path: "/api/evaluation/baselines" },
+  eval_list_baselines: { method: "PUT", path: "/api/evaluation/baselines" },
+  eval_delete_baseline: {
+    method: "DELETE",
+    path: "/api/evaluation/baselines/{baselineId}",
+  },
+  eval_create_annotation: { method: "POST", path: "/api/evaluation/annotations" },
+  eval_list_annotations: {
+    method: "GET",
+    path: "/api/evaluation/experiments/{experimentId}/annotations",
+  },
+
   // -- Managed worktrees --
   list_managed_worktrees: { method: "GET", path: "/api/sessions/{sessionId}/worktrees" },
   create_managed_worktree: { method: "POST", path: "/api/sessions/{sessionId}/worktrees" },

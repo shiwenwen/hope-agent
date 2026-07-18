@@ -170,6 +170,19 @@ strip = "symbols"
 # codegen-units=1 不在此设：只在 release-tag CI 经 CARGO_PROFILE_RELEASE_CODEGEN_UNITS
 # env 覆盖，避免 Docker / 日常 release 构建被串行化拖慢（见 release.yml）。
 
+# The desktop bundle carries `hope-agent-eval` as an isolated Sidecar.  It
+# links ha-core for registered evaluators, while the latency-sensitive Agent
+# itself runs in the separately packaged Hope product binary.  Whole-program
+# size optimization therefore removes otherwise retained ha-core code without
+# slowing the product binary or changing the normal release/CI profile.
+[profile.eval-sidecar]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
 [profile.dev]
 # 自身 crate 仍可调试，但 debuginfo 从 full(2) 降到 line-tables-only(1)：
 # 大幅缩小 target/debug、加快链接，调试仍能定位到行。

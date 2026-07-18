@@ -1321,6 +1321,12 @@ pub struct ModelCampaignEvidence {
     pub runner_digest: String,
     pub runner_os: String,
     pub runner_arch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_profile: Option<crate::app::AppExecutionProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_plan_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_environment: Option<crate::app::RuntimeEnvironmentSnapshot>,
     pub aggregate_status: EvalStatus,
     pub started_at: String,
     pub completed_at: String,
@@ -2547,6 +2553,24 @@ pub fn validate_evidence_shape(evidence: &ModelCampaignEvidence) -> Result<()> {
     }
     if evidence.runner_os.trim().is_empty() || evidence.runner_arch.trim().is_empty() {
         bail!("model evidence must record the runner OS and architecture");
+    }
+    if evidence.source == ModelCampaignSource::LocalApp {
+        if evidence.execution_profile
+            != Some(crate::app::AppExecutionProfile::LocalNativeDiagnostic)
+            || evidence
+                .app_plan_digest
+                .as_deref()
+                .is_none_or(|digest| !is_sha256(digest))
+            || evidence.runtime_environment.is_none()
+        {
+            bail!("local_app evidence must record its app plan and runtime environment");
+        }
+    }
+    if let Some(runtime) = &evidence.runtime_environment {
+        crate::app::validate_runtime_environment(runtime)?;
+        if runtime.os != evidence.runner_os || runtime.arch != evidence.runner_arch {
+            bail!("model evidence runner and runtime environment identity differ");
+        }
     }
     if evidence.counts != aggregate_counts(evidence.planned_trials.len(), &evidence.trial_results) {
         bail!("model evidence counts cannot be recomputed from trial results");

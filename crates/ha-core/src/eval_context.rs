@@ -1837,21 +1837,27 @@ fn configured_eval_cost(event: &ModelUsageEvent) -> Option<(f64, String)> {
         .iter()
         .find(|provider| provider.id == provider_id)?;
     let model = provider.models.iter().find(|model| model.id == model_id)?;
-    let cost_input = model.cost_input?;
-    let cost_output = model.cost_output?;
-    if !cost_input.is_finite()
-        || !cost_output.is_finite()
-        || cost_input < 0.0
-        || cost_output < 0.0
-        || (cost_input == 0.0 && cost_output == 0.0)
+    if model.cost_input.is_none() && model.cost_output.is_none() {
+        return None;
+    }
+    let mut input_price = model.cost_input.unwrap_or(0.0);
+    let mut output_price = model.cost_output.unwrap_or(0.0);
+    if !input_price.is_finite()
+        || !output_price.is_finite()
+        || input_price < 0.0
+        || output_price < 0.0
     {
         return None;
     }
+    if matches!(provider.currency, Some(crate::provider::Currency::Cny)) {
+        input_price /= crate::dashboard::CNY_PER_USD;
+        output_price /= crate::dashboard::CNY_PER_USD;
+    }
     let cost =
-        (input_tokens as f64 * cost_input + output_tokens as f64 * cost_output) / 1_000_000.0;
+        (input_tokens as f64 * input_price + output_tokens as f64 * output_price) / 1_000_000.0;
     let component = format!(
         "usd-per-million-v1\0{provider_id}\0{model_id}\0{:.12}\0{:.12}",
-        cost_input, cost_output
+        input_price, output_price
     );
     Some((cost, component))
 }

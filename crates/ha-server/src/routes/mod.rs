@@ -25,6 +25,7 @@ pub mod domain_eval;
 pub mod domain_quality;
 pub mod domain_workflow;
 pub mod dreaming;
+pub mod evaluation;
 pub mod execution_mode;
 pub mod file_upload;
 pub mod filesystem;

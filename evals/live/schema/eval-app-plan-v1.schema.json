@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hope-agent.local/evals/eval-app-plan-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "experimentId", "planDigest", "reference", "dirty",
+    "appVersion", "source", "executionProfile", "profileId", "profileVersion",
+    "profileDigest", "selectionDigest", "assetRootDigest", "runtimeEnvironment",
+    "debugRetention", "campaignBudget", "campaigns"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "eval-app-plan.v1" },
+    "experimentId": { "type": "string", "pattern": "^exp-[0-9a-f]{20}$" },
+    "planDigest": { "$ref": "#/$defs/sha256" },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "dirty": { "type": "boolean" },
+    "appVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "source": { "const": "local_app" },
+    "executionProfile": { "const": "local_native_diagnostic" },
+    "profileId": { "$ref": "#/$defs/identifier" },
+    "profileVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "profileDigest": { "$ref": "#/$defs/sha256" },
+    "selectionDigest": { "$ref": "#/$defs/sha256" },
+    "assetRootDigest": { "$ref": "#/$defs/sha256" },
+    "runtimeEnvironment": { "$ref": "#/$defs/runtime" },
+    "debugRetention": { "enum": ["metrics_only", "redacted", "full_local"] },
+    "campaignBudget": { "$ref": "#/$defs/budget" },
+    "campaigns": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "campaignId", "planDigest", "model", "modelDigest",
+          "providerConfigDigest", "credentialConfigDigest", "resolvedPlan"
+        ],
+        "properties": {
+          "campaignId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "planDigest": { "$ref": "#/$defs/sha256" },
+          "model": { "$ref": "#/$defs/model" },
+          "modelDigest": { "$ref": "#/$defs/sha256" },
+          "providerConfigDigest": { "$ref": "#/$defs/sha256" },
+          "credentialConfigDigest": { "$ref": "#/$defs/sha256" },
+          "resolvedPlan": { "type": "object" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actualRunnerClass", "os", "arch", "networkEnforcement",
+        "productBinaryDigest", "runnerBinaryDigest", "assetRootDigest"
+      ],
+      "properties": {
+        "actualRunnerClass": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "os": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "arch": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "osVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "networkEnforcement": { "enum": ["unverified", "enforced"] },
+        "productBinaryDigest": { "$ref": "#/$defs/sha256" },
+        "runnerBinaryDigest": { "$ref": "#/$defs/sha256" },
+        "assetRootDigest": { "$ref": "#/$defs/sha256" },
+        "hardwareClassDigest": { "$ref": "#/$defs/sha256" },
+        "containerImageDigest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "providerId", "modelId"],
+      "properties": {
+        "role": { "$ref": "#/$defs/identifier" },
+        "providerId": { "$ref": "#/$defs/identifier" },
+        "modelId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "snapshot": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "temperature": { "type": "number" },
+        "reasoningEffort": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "maxOutputTokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxWallSeconds": { "type": "integer", "minimum": 1 },
+        "maxModelCalls": { "type": "integer", "minimum": 1 },
+        "maxInputTokens": { "type": "integer", "minimum": 1 },
+        "maxOutputTokens": { "type": "integer", "minimum": 1 },
+        "maxCostUsd": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
+        "maxToolCalls": { "type": "integer", "minimum": 1 },
+        "maxAgents": { "type": "integer", "minimum": 1 },
+        "maxConcurrency": { "type": "integer", "minimum": 1, "maximum": 2 }
+      }
+    }
+  }
+}

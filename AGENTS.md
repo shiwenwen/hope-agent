@@ -16,6 +16,8 @@ pnpm release:verify    # 校验 package.json / src-tauri 版本一致；可附 -
 cargo run -p ha-eval --locked -- validate  # 校验专项评测 schema / policy / suite / fixture
 cargo run -p ha-eval --locked -- model validate  # 校验真实模型 Campaign 资产（不调用模型）
 cargo run -p ha-eval --locked -- model smoke --server-bin target/debug/hope-agent-server --output target/eval-smoke/trial.json  # fake Provider 黑盒 smoke（零费用）
+cargo run -p ha-eval --locked -- model app-smoke --sidecar target/debug/hope-agent-eval --server-bin target/debug/hope-agent-server  # App/Sidecar 全链 fake smoke（零费用）
+pnpm prepare:eval-sidecar  # 为当前 Tauri target 构建并准备 release 版评测 Sidecar
 node scripts/verify-eval-version-lock.mjs --base <base-sha>  # 校验专项评测版本锁只追加、不覆写
 pnpm typecheck         # 前端类型检查（tsc -b）
 pnpm lint              # Lint
@@ -52,7 +54,7 @@ pnpm test                                                                    # C
 - **clippy / test 只覆盖 `ha-core` + `ha-server`**（CI 也是如此）；`src-tauri` 不在钩子内，tauri-specific 问题用 `cargo {clippy,test} --workspace` 自查
 - **完整能力评测不进 PR / pre-push**：Coding / Domain / Dreaming / Memory Retrieval 整包走独立 `hope-agent-eval` 与 `Capability Evals` workflow（weekly + 发版前精确 SHA）；默认 Cargo test 只保留快速契约测试。详见 [`capability-eval.md`](docs/architecture/capability-eval.md)
 - **PR 只跑零费用评测基础设施 smoke**：Linux Rust job 会以本地 fake Provider 驱动真实 Hope Server，校验模型/tool/Goal/Loop 归因与 trial schema；它不使用真实 API Key、不衡量模型能力，也不替代 nightly/weekly/release Campaign
-- **真实模型 Campaign 同样不进 PR / pre-push**：`hope-agent-eval model` 只有显式本地运行或 `Live Model Campaign`（nightly / weekly / pre-release / monthly）才调用 Provider；App 现有 Coding / Domain 真实模型入口保留。本地 source 不得晋升，发布只接受受保护 Runner 的 clean exact-SHA evidence。详见 [`live-model-evaluation.md`](docs/architecture/live-model-evaluation.md)
+- **真实模型 Campaign 同样不进 PR / pre-push**：`hope-agent-eval model` 只有显式本地运行或 `Live Model Campaign`（nightly / weekly / pre-release / monthly）才调用 Provider；Dashboard“能力评测”可通过签名 Sidecar 显式运行 Hope Core Quick/Standard/Reliability/Custom，Coding / Domain 原入口与历史继续兼容。App 只传模型/凭据引用，owner 后端解析 Key；本地 source 永远是 diagnostic，不得晋升，发布只接受受保护 Runner 的 clean exact-SHA evidence。详见 [`live-model-evaluation.md`](docs/architecture/live-model-evaluation.md)
 - **Rust 版本**由 [`rust-toolchain.toml`](rust-toolchain.toml) 固定，本地 / CI 共用
 - **应急开关**：`HA_SKIP_PREPUSH=1`（整段跳过，仅限纯 `.md` / 弱网紧急）/ `HA_SKIP_PREPUSH_TEST=1`（只跳 cargo test）。**禁止 `--no-verify`**——会绕过 GPG 等其它钩子
 
@@ -84,7 +86,7 @@ pnpm test                                                                    # C
 - GitHub ruleset `main-branch-protection` 的 `conditions.ref_name.include` 覆盖 `~DEFAULT_BRANCH` + `refs/heads/release/**`：必须 PR、必跑 8 项 status check、禁 force push、禁删分支、`enforce_admins: true`
 - 修改 workflow 的 job 名或 matrix 时需同步通过 `gh api` 更新 ruleset 的 `required_status_checks` context 列表
 - `capability-eval.yml` 不属于 required check；release policy 初始 advisory，达到稳定性条件后只通过配置 PR 切 enforce。发版 evidence 必须来自 GitHub、`dirty=false` 且 SHA/digest 精确匹配；本地结果不得替代
-- `model-campaign.yml` 也不属于 required check；真实模型 evidence 与 deterministic evidence 物理分离、互不替代。隔离 `config.json` 禁止保存 Provider Key，Key 只能通过受保护 `model-eval` environment 的 `MODEL_EVAL_PROVIDER_SECRETS_B64` 注入 Hope Server 内存；只允许评测专用账号、合成/授权脱敏数据及 Provider/suite allowlist 出网，禁止个人生产账号、真实用户数据和不受约束的公网访问。模型轨道转 enforce 只能通过 `evals/live/policy/release.json` 配置 PR
+- `model-campaign.yml` 也不属于 required check；真实模型 evidence 与 deterministic evidence 物理分离、互不替代。隔离 `config.json` 禁止保存 Provider Key，Key 只能通过受保护 `model-eval` environment 的 `MODEL_EVAL_PROVIDER_SECRETS_B64` 注入 Hope Server 内存；Server/Supervisor token 必须独立。只允许评测专用账号、合成/授权脱敏数据及 Provider/suite allowlist 出网，禁止个人生产账号、真实用户数据和不受约束的公网访问。签名 registry 尚未配置时保留普通 evidence、跳过 bundle 签名；registry 存在后签名链任一错误 fail closed。模型轨道转 enforce 只能通过 `evals/live/policy/release.json` 配置 PR
 
 ## 项目结构
 
@@ -101,11 +103,12 @@ src/                    前端（React + TypeScript）
   components/           chat/ settings/ dashboard/ cron/ common/ ui/ 等
   lib/                  Transport 抽象层：transport.ts + transport-tauri.ts + transport-http.ts
   i18n/locales/         多语言翻译文件（语言集见 src/i18n/locales/）
+evals/live/             真实模型 scenario/suite/policy/App profile/schema/trust 资产
 skills/                 内置技能（meta / 编程方法论 vendor / 办公方法论原创）
 docs/architecture/      子系统设计文档（跨 PR 必读单一真相源）
 ```
 
-ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `knowledge/` `skills/` `tools/` `channel/` `subagent/` `team/` `cron/` `acp/` `dashboard/` `recap/` `awareness/` `config/` `session/` `project/` `plan/` `goal/` `workflow/` `loop_control.rs` `worktree.rs` `lsp.rs` `review.rs` `verification.rs` `context_retrieval.rs` `coding_eval.rs` `coding_improvement.rs` `domain_workflow.rs` `domain_quality.rs` `domain_eval.rs` `ask_user/` `async_jobs/` `wakeup/` `failover/` `platform/` `security/` `logging/` `local_llm/`。Vendor skill 来源记录在 `THIRD_PARTY_NOTICES.md`。
+ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `knowledge/` `skills/` `tools/` `channel/` `subagent/` `team/` `cron/` `acp/` `dashboard/` `evaluation/` `recap/` `awareness/` `config/` `session/` `project/` `plan/` `goal/` `workflow/` `loop_control.rs` `worktree.rs` `lsp.rs` `review.rs` `verification.rs` `context_retrieval.rs` `coding_eval.rs` `coding_improvement.rs` `domain_workflow.rs` `domain_quality.rs` `domain_eval.rs` `ask_user/` `async_jobs/` `wakeup/` `failover/` `platform/` `security/` `logging/` `local_llm/`。Vendor skill 来源记录在 `THIRD_PARTY_NOTICES.md`。
 
 ## 技术栈
 

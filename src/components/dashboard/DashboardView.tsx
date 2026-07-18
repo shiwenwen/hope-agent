@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -70,6 +70,8 @@ function defaultFilter(): DashboardFilterState {
 
 /** Max 60 samples (~30 min at 30s refresh) kept in-memory for sparklines. */
 const SYSTEM_HISTORY_LIMIT = 60
+
+const EvaluationTab = lazy(() => import("./evaluation/EvaluationTab"))
 
 interface SystemHistoryPoint {
   t: number
@@ -519,11 +521,13 @@ export default function DashboardView({
       </div>
 
       {/* Filter bar */}
-      <DashboardFilter
-        filter={filter}
-        onChange={setFilter}
-        controlPlane={activeTab === "control-plane"}
-      />
+      {activeTab !== "evaluation" && (
+        <DashboardFilter
+          filter={filter}
+          onChange={setFilter}
+          controlPlane={activeTab === "control-plane"}
+        />
+      )}
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -565,6 +569,7 @@ export default function DashboardView({
               <TabsTrigger value="recap">{t("dashboard.tabs.recap")}</TabsTrigger>
               <TabsTrigger value="learning">{t("dashboard.tabs.learning")}</TabsTrigger>
               <TabsTrigger value="dreaming">{t("dashboard.tabs.dreaming")}</TabsTrigger>
+              <TabsTrigger value="evaluation">{t("dashboard.tabs.evaluation")}</TabsTrigger>
             </TabsList>
             {showGranularity && (
               <div className="flex gap-1">
@@ -649,6 +654,17 @@ export default function DashboardView({
           </TabsContent>
           <TabsContent value="dreaming">
             <DreamingTab />
+          </TabsContent>
+          <TabsContent value="evaluation">
+            <Suspense
+              fallback={
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  {t("common.loading")}
+                </div>
+              }
+            >
+              <EvaluationTab />
+            </Suspense>
           </TabsContent>
         </Tabs>
       </div>

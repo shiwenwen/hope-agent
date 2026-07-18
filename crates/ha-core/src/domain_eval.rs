@@ -482,6 +482,9 @@ pub struct DomainEvalCampaignModel {
     pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    /// Owner-plane request reference; stripped before campaign persistence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_profile_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -547,6 +550,7 @@ pub struct DomainEvalCampaignLeaderboardInput {
 #[serde(rename_all = "camelCase")]
 pub struct RunDomainEvalCampaignInput {
     pub campaign_id: String,
+    /// Deprecated one-cycle compatibility field.
     #[serde(default)]
     pub providers: Vec<ProviderConfig>,
     #[serde(default)]
@@ -5602,6 +5606,7 @@ fn normalize_domain_eval_campaign_models(
             provider_id: provider_id.map(str::to_string),
             model_id: model_id.map(str::to_string),
             label: label.map(str::to_string),
+            credential_profile_ref: None,
         });
     }
     if out.is_empty() {
@@ -5609,6 +5614,7 @@ fn normalize_domain_eval_campaign_models(
             provider_id: None,
             model_id: None,
             label: Some("trace fixture".to_string()),
+            credential_profile_ref: None,
         });
     }
     if out.len() > MAX_DOMAIN_EVAL_CAMPAIGN_MODELS {
@@ -9390,6 +9396,7 @@ mod tests {
                     provider_id: Some("missing-provider".to_string()),
                     model_id: Some("missing-model".to_string()),
                     label: Some("Missing Model".to_string()),
+                    credential_profile_ref: None,
                 }],
                 execution_mode: Some("agent".to_string()),
                 providers: vec![mock_responses_provider(
@@ -9933,6 +9940,7 @@ mod tests {
                     provider_id: Some("missing-provider".to_string()),
                     model_id: Some("missing-model".to_string()),
                     label: Some("Missing Model".to_string()),
+                    credential_profile_ref: None,
                 }],
                 execution_mode: Some("agent".to_string()),
                 providers: vec![mock_responses_provider(

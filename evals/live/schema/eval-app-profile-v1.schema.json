@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hope-agent.local/evals/eval-app-profile-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "id", "version", "title", "description", "baseTier",
+    "suites", "allowedArms", "armMode", "maxTrials", "maxModels",
+    "maxConcurrency", "maxCostUsd", "useSuiteRepetitions", "allowCustom"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "eval-app-profile.v1" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "baseTier": { "enum": ["nightly", "weekly", "monthly"] },
+    "suites": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["suiteId", "caseTags"],
+        "properties": {
+          "suiteId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+          "caseTags": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" } }
+        }
+      }
+    },
+    "allowedArms": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" } },
+    "armMode": { "enum": ["one_control_per_case", "all_allowed"] },
+    "defaultRepetitions": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "useSuiteRepetitions": { "type": "boolean" },
+    "maxTrials": { "type": "integer", "minimum": 1, "maximum": 500 },
+    "maxModels": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "maxConcurrency": { "type": "integer", "minimum": 1, "maximum": 2 },
+    "maxCostUsd": { "type": "number", "minimum": 0.01, "maximum": 100 },
+    "allowCustom": { "type": "boolean" }
+  }
+}

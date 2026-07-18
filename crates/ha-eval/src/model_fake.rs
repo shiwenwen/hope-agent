@@ -24,9 +24,9 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
-const PROVIDER_ID: &str = "eval-anchor";
-const MODEL_ID: &str = "configured-anchor-v1";
-const FAKE_PROVIDER_KEY: &str = "fake-provider-smoke-key";
+pub const PROVIDER_ID: &str = "eval-anchor";
+pub const MODEL_ID: &str = "configured-anchor-v1";
+pub const FAKE_PROVIDER_KEY: &str = "fake-provider-smoke-key";
 pub const FAKE_SERVER_TOKEN: &str = "fake-smoke-server-token-00000001";
 
 #[derive(Clone)]
@@ -108,6 +108,13 @@ impl Drop for HopeServer {
 pub fn write_smoke_config(data_dir: &Path, provider_base_url: &str) -> Result<()> {
     std::fs::create_dir_all(data_dir)
         .with_context(|| format!("creating fake Provider data dir {}", data_dir.display()))?;
+    ha_eval_spec::write_json(
+        &data_dir.join("config.json"),
+        &smoke_config(provider_base_url),
+    )
+}
+
+pub fn smoke_config(provider_base_url: &str) -> AppConfig {
     let mut provider = ProviderConfig::new(
         "Evaluation fake Provider".to_string(),
         ApiType::OpenaiChat,
@@ -127,18 +134,24 @@ pub fn write_smoke_config(data_dir: &Path, provider_base_url: &str) -> Result<()
         // Synthetic non-zero pricing exercises exact cost attribution and
         // runtime budget enforcement without incurring any real API charge.
         // It is deliberately scoped to this loopback-only fake Provider.
-        cost_input: 1.0,
-        cost_output: 1.0,
+        cost_input: Some(1.0),
+        cost_output: Some(1.0),
     });
-    let config = AppConfig {
+    AppConfig {
         providers: vec![provider],
         active_model: Some(ActiveModel {
             provider_id: PROVIDER_ID.to_string(),
             model_id: MODEL_ID.to_string(),
         }),
         ..AppConfig::default()
-    };
-    ha_eval_spec::write_json(&data_dir.join("config.json"), &config)
+    }
+}
+
+pub fn provider_secrets_b64() -> Result<String> {
+    Ok(base64::engine::general_purpose::STANDARD.encode(
+        serde_json::to_vec(&json!({ (PROVIDER_ID): FAKE_PROVIDER_KEY }))
+            .context("encoding fake Provider secret bundle")?,
+    ))
 }
 
 pub fn spawn_hope_server(server_bin: &Path, data_dir: &Path) -> Result<HopeServer> {
@@ -150,10 +163,7 @@ pub fn spawn_hope_server(server_bin: &Path, data_dir: &Path) -> Result<HopeServe
     }
     let port = reserve_loopback_port()?;
     let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    let secret_bundle = base64::engine::general_purpose::STANDARD.encode(
-        serde_json::to_vec(&json!({ (PROVIDER_ID): FAKE_PROVIDER_KEY }))
-            .context("encoding fake Provider secret bundle")?,
-    );
+    let secret_bundle = provider_secrets_b64()?;
     let child = Command::new(server_bin)
         .args(["server", "start", "--bind", &address.to_string()])
         .env("HA_DATA_DIR", data_dir)

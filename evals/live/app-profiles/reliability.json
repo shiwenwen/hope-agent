@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "eval-app-profile.v1",
+  "id": "reliability",
+  "version": "1.0.0",
+  "title": "Reliability and recovery",
+  "description": "Weekly comparison arms with manifest repetitions for reliability, faults, and compute-matched team analysis.",
+  "baseTier": "weekly",
+  "suites": [
+    { "suiteId": "hope-core-orchestration", "caseTags": ["smoke_weekly"] }
+  ],
+  "allowedArms": [
+    "control", "faulted", "team_full_control", "team_full_faulted",
+    "single_agent_compute_matched_control", "single_agent_compute_matched_faulted"
+  ],
+  "armMode": "all_allowed",
+  "useSuiteRepetitions": true,
+  "maxTrials": 500,
+  "maxModels": 1,
+  "maxConcurrency": 2,
+  "maxCostUsd": 100,
+  "allowCustom": true
+}

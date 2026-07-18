@@ -164,6 +164,7 @@ pub fn run() {
         })
         .setup(setup::app_setup)
         .manage(app_init::init_tauri_app_state())
+        .manage(commands::evaluation::EvaluationState::new())
         .invoke_handler(tauri::generate_handler![
             // Provider management
             commands::provider::get_providers,
@@ -1076,6 +1077,28 @@ pub fn run() {
             commands::dashboard::dashboard_coding_improvement,
             commands::dashboard::dashboard_plan_stats,
             commands::dashboard::dashboard_local_model_usage,
+            // Evaluation Center (isolated real-model diagnostics)
+            commands::evaluation::eval_readiness,
+            commands::evaluation::eval_catalog,
+            commands::evaluation::eval_list_model_options,
+            commands::evaluation::eval_preview,
+            commands::evaluation::eval_start,
+            commands::evaluation::eval_cancel,
+            commands::evaluation::eval_retry,
+            commands::evaluation::eval_list_history,
+            commands::evaluation::eval_get_experiment,
+            commands::evaluation::eval_compare,
+            commands::evaluation::eval_trends,
+            commands::evaluation::eval_get_trial,
+            commands::evaluation::eval_set_pinned,
+            commands::evaluation::eval_import_bundle,
+            commands::evaluation::eval_import_unverified,
+            commands::evaluation::eval_export_local_bundle,
+            commands::evaluation::eval_create_baseline,
+            commands::evaluation::eval_delete_baseline,
+            commands::evaluation::eval_list_baselines,
+            commands::evaluation::eval_create_annotation,
+            commands::evaluation::eval_list_annotations,
             // Recap (deep analysis reports)
             commands::recap::recap_generate,
             commands::recap::recap_list_reports,

@@ -47,6 +47,7 @@ jobs:
       tier: ${{ steps.meta.outputs.tier }}
       retention: ${{ steps.meta.outputs.retention }}
       max_parallel: ${{ steps.meta.outputs.max_parallel }}
+      signing_ready: ${{ steps.meta.outputs.signing_ready }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -77,10 +78,13 @@ jobs:
           trial_concurrency=$(jq -r '.budget.maxConcurrency' "evals/live/policy/$tier.json")
           max_parallel=$((campaign_concurrency / trial_concurrency))
           if [ "$max_parallel" -lt 1 ]; then max_parallel=1; fi
+          signing_ready=false
+          if [ -f evals/live/trust/evidence-keys.json ]; then signing_ready=true; fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
           echo "retention=$retention" >> "$GITHUB_OUTPUT"
           echo "max_parallel=$max_parallel" >> "$GITHUB_OUTPUT"
+          echo "signing_ready=$signing_ready" >> "$GITHUB_OUTPUT"
 
       - name: Build and validate model campaign control plane
         run: |
@@ -168,11 +172,13 @@ jobs:
           HA_MODEL_EVAL_MODE: "1"
           HA_SERVER_AUTO_APPROVE_TOOLS: "1"
           HA_MODEL_EVAL_SERVER_TOKEN: ${{ secrets.MODEL_EVAL_SERVER_TOKEN }}
-          HA_MODEL_EVAL_SUPERVISOR_TOKEN: ${{ secrets.MODEL_EVAL_SERVER_TOKEN }}
+          HA_MODEL_EVAL_SUPERVISOR_TOKEN: ${{ secrets.MODEL_EVAL_SUPERVISOR_TOKEN }}
           HA_MODEL_EVAL_PROVIDER_SECRETS_B64: ${{ secrets.MODEL_EVAL_PROVIDER_SECRETS_B64 }}
         run: |
           set -euo pipefail
           test -n "$HA_MODEL_EVAL_SERVER_TOKEN"
+          test -n "$HA_MODEL_EVAL_SUPERVISOR_TOKEN"
+          test "$HA_MODEL_EVAL_SERVER_TOKEN" != "$HA_MODEL_EVAL_SUPERVISOR_TOKEN"
           test -n "$HA_MODEL_EVAL_PROVIDER_SECRETS_B64"
           port=$((18420 + ${{ matrix.shardIndex }}))
           supervisor_port=$((19420 + ${{ matrix.shardIndex }}))
@@ -203,7 +209,7 @@ jobs:
           # attestation is checked by the binary and is not a substitute for it.
           HA_MODEL_EVAL_NETWORK_ENFORCED: "1"
           HA_MODEL_EVAL_SERVER_TOKEN: ${{ secrets.MODEL_EVAL_SERVER_TOKEN }}
-          HA_MODEL_EVAL_SUPERVISOR_TOKEN: ${{ secrets.MODEL_EVAL_SERVER_TOKEN }}
+          HA_MODEL_EVAL_SUPERVISOR_TOKEN: ${{ secrets.MODEL_EVAL_SUPERVISOR_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/model-result"
@@ -218,7 +224,7 @@ jobs:
         if: always()
         shell: bash
         env:
-          HA_MODEL_EVAL_SUPERVISOR_TOKEN: ${{ secrets.MODEL_EVAL_SERVER_TOKEN }}
+          HA_MODEL_EVAL_SUPERVISOR_TOKEN: ${{ secrets.MODEL_EVAL_SUPERVISOR_TOKEN }}
         run: |
           if [ -n "${HA_MODEL_EVAL_SUPERVISOR_URL:-}" ] && [ -n "${HA_MODEL_EVAL_SUPERVISOR_TOKEN:-}" ]; then
             curl --fail --silent --request POST \
@@ -363,4 +369,63 @@ jobs:
         with:
           name: ${{ needs.prepare.outputs.tier }}-model-evidence-${{ needs.prepare.outputs.sha }}
           path: ${{ runner.temp }}/model-evidence/
+          retention-days: ${{ fromJSON(needs.prepare.outputs.retention) }}
+
+  sign:
+    name: sign protected model evidence bundle
+    needs: [prepare, aggregate]
+    if: ${{ needs.aggregate.result == 'success' && needs.prepare.outputs.signing_ready == 'true' }}
+    runs-on: ubuntu-latest
+    # The evidence signing key is independent from Provider and updater keys.
+    # Environment approval is the operational trust boundary for bundle export.
+    environment: model-eval-evidence-signing
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: ""
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.prepare.outputs.tier }}-model-evidence-${{ needs.prepare.outputs.sha }}
+          path: ${{ runner.temp }}/model-evidence
+
+      - name: Build protected bundle signer
+        run: cargo build -p ha-eval --locked
+
+      - name: Sign exact-SHA evidence bundle
+        shell: bash
+        env:
+          MODEL_EVAL_EVIDENCE_SIGNING_KEY_PKCS8_B64: ${{ secrets.MODEL_EVAL_EVIDENCE_SIGNING_KEY_PKCS8_B64 }}
+          MODEL_EVAL_EVIDENCE_KEY_ID: ${{ vars.MODEL_EVAL_EVIDENCE_KEY_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$MODEL_EVAL_EVIDENCE_SIGNING_KEY_PKCS8_B64"
+          test -n "$MODEL_EVAL_EVIDENCE_KEY_ID"
+          mkdir -p "$RUNNER_TEMP/model-bundle"
+          target/debug/hope-agent-eval model bundle-export \
+            --evidence "$RUNNER_TEMP/model-evidence/eval-model-campaign.v1.json" \
+            --output "$RUNNER_TEMP/model-bundle/eval-evidence-bundle.v1.zip" \
+            --repository "${{ github.repository }}" \
+            --workflow "${{ github.workflow_ref }}" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --environment model-eval \
+            --key-id "$MODEL_EVAL_EVIDENCE_KEY_ID"
+          test -f evals/live/trust/evidence-keys.json
+          target/debug/hope-agent-eval model bundle-verify \
+            --bundle "$RUNNER_TEMP/model-bundle/eval-evidence-bundle.v1.zip" \
+            --trust-registry evals/live/trust/evidence-keys.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.prepare.outputs.tier }}-signed-model-evidence-${{ needs.prepare.outputs.sha }}
+          path: ${{ runner.temp }}/model-bundle/eval-evidence-bundle.v1.zip
           retention-days: ${{ fromJSON(needs.prepare.outputs.retention) }}

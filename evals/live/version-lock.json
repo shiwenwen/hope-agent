@@ -22,6 +22,13 @@
     "live-weekly@1.0.7": "53af5d3c0cbc6e421add3a7fbcaf62f5806326311f97f1a9a5e85abb9929180f",
     "live-weekly@1.0.8": "ba2590dca0b990499e91a0796378c7a04bcb51bc6bc7ee81858b63eea262bd40"
   },
+  "appProfiles": {
+    "custom@1.0.0": "3aba1ebdf5239b771ae9fdab640ff7641bd43664fe178dcd9c3bf1ca52d40922",
+    "quick@1.0.0": "07cdcddbda2b078ca9995e67c3cfcb28bc87d77b526463642d910918740ddf12",
+    "reliability@1.0.0": "a7a452224564b715028687a41628a8d54b42d6242d7d91c3d6cd749841600adb",
+    "standard@1.0.0": "93647cdc309fb34b80c75ad46f5c1f874a943129f77dd65de098c0ec82c7e51e"
+  },
+  "trustRegistries": {},
   "suites": {
     "hope-core-orchestration@1.4.0": "03919ad4d35306cf2df7233f30be6e32f5bdd0b8da172c50e84d396d09048ee9",
     "hope-core-orchestration@1.5.0": "a98d124b366c7976c89f517cfa6bdef2061c453fd0f75508aa90954f5692d605",

@@ -24,23 +24,36 @@ pub async fn run(root: &Path, server_bin: &Path, bind: &str, control_bind: &str)
     let server_bin = server_bin
         .canonicalize()
         .with_context(|| format!("canonicalizing Hope server {}", server_bin.display()))?;
-    if server_bin.file_name().and_then(|name| name.to_str()) != Some("hope-agent-server") {
-        bail!("model supervisor only launches the registered hope-agent-server binary");
+    let name = server_bin
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(
+        name.as_str(),
+        "hope-agent-server"
+            | "hope-agent-server.exe"
+            | "hope-agent"
+            | "hope-agent.exe"
+            | "hope agent"
+    ) {
+        bail!("model supervisor only launches a registered Hope product binary");
     }
-    let sibling = std::env::current_exe()
+    let supervisor = std::env::current_exe()
         .context("resolving model supervisor executable")?
-        .parent()
-        .map(|parent| parent.join("hope-agent-server"))
-        .and_then(|path| path.canonicalize().ok());
-    if !server_bin.starts_with(root) && sibling.as_deref() != Some(server_bin.as_path()) {
-        bail!("model supervisor server binary must be in the checkout or beside hope-agent-eval");
+        .canonicalize()?;
+    if !server_bin.starts_with(root)
+        && server_bin.parent() != supervisor.parent()
+        && !same_macos_app_bundle(&server_bin, &supervisor)
+    {
+        bail!("model supervisor product binary must be in the checkout or installed Hope bundle");
     }
     let server_addr = parse_loopback(bind, "server bind")?;
     let control_addr = parse_loopback(control_bind, "supervisor control bind")?;
     if server_addr == control_addr {
         bail!("model supervisor control and server binds must differ");
     }
-    let provider_secrets = required_secret(PROVIDER_SECRETS_ENV)?;
+    let provider_secrets = optional_secret(PROVIDER_SECRETS_ENV)?;
     let server_token = required_secret(SERVER_TOKEN_ENV)?;
     let supervisor_token = required_secret(SUPERVISOR_TOKEN_ENV)?;
 
@@ -52,7 +65,12 @@ pub async fn run(root: &Path, server_bin: &Path, bind: &str, control_bind: &str)
         .build()
         .context("building supervisor health client")?;
     let health_url = format!("http://{server_addr}/api/health");
-    let mut child = spawn_server(&server_bin, bind, &provider_secrets, &server_token)?;
+    let mut child = spawn_server(
+        &server_bin,
+        bind,
+        provider_secrets.as_deref(),
+        &server_token,
+    )?;
     wait_healthy(&client, &health_url, &mut child).await?;
     println!("model-eval supervisor ready on {control_addr} for Hope {server_addr}");
 
@@ -70,7 +88,7 @@ pub async fn run(root: &Path, server_bin: &Path, bind: &str, control_bind: &str)
                     }
                     SupervisorRequest::Restart(mut stream) => {
                         terminate_child(&mut child);
-                        child = spawn_server(&server_bin, bind, &provider_secrets, &server_token)?;
+                        child = spawn_server(&server_bin, bind, provider_secrets.as_deref(), &server_token)?;
                         match wait_healthy(&client, &health_url, &mut child).await {
                             Ok(()) => write_response(&mut stream, 200, "restarted").await?,
                             Err(error) => {
@@ -101,12 +119,39 @@ pub async fn run(root: &Path, server_bin: &Path, bind: &str, control_bind: &str)
     }
 }
 
+#[cfg(target_os = "macos")]
+fn same_macos_app_bundle(left: &Path, right: &Path) -> bool {
+    fn bundle(path: &Path) -> Option<&Path> {
+        path.ancestors()
+            .find(|part| part.extension().and_then(|value| value.to_str()) == Some("app"))
+    }
+    matches!((bundle(left), bundle(right)), (Some(left), Some(right)) if left == right)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn same_macos_app_bundle(_left: &Path, _right: &Path) -> bool {
+    false
+}
+
 fn required_secret(name: &str) -> Result<String> {
     let value = std::env::var(name).with_context(|| format!("{name} is required"))?;
     if value.len() < 24 || value.len() > 1_000_000 || value.contains(['\r', '\n']) {
         bail!("{name} has an invalid length or encoding");
     }
     Ok(value)
+}
+
+fn optional_secret(name: &str) -> Result<Option<String>> {
+    match std::env::var(name) {
+        Ok(value) => {
+            if value.len() < 24 || value.len() > 1_000_000 || value.contains(['\r', '\n']) {
+                bail!("{name} has an invalid length or encoding");
+            }
+            Ok(Some(value))
+        }
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("reading {name}")),
+    }
 }
 
 fn parse_loopback(value: &str, label: &str) -> Result<SocketAddr> {
@@ -122,20 +167,22 @@ fn parse_loopback(value: &str, label: &str) -> Result<SocketAddr> {
 fn spawn_server(
     server_bin: &Path,
     bind: &str,
-    provider_secrets: &str,
+    provider_secrets: Option<&str>,
     server_token: &str,
 ) -> Result<Child> {
-    Command::new(server_bin)
+    let mut command = Command::new(server_bin);
+    command
         .args(["server", "start", "--bind", bind])
         .env("HA_MODEL_EVAL_MODE", "1")
-        .env(PROVIDER_SECRETS_ENV, provider_secrets)
         .env(SERVER_TOKEN_ENV, server_token)
         .env_remove(SUPERVISOR_TOKEN_ENV)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .context("spawning supervised Hope server")
+        .stderr(Stdio::inherit());
+    if let Some(provider_secrets) = provider_secrets {
+        command.env(PROVIDER_SECRETS_ENV, provider_secrets);
+    }
+    command.spawn().context("spawning supervised Hope server")
 }
 
 async fn wait_healthy(client: &Client, health_url: &str, child: &mut Child) -> Result<()> {

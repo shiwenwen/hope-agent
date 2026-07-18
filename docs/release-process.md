@@ -111,6 +111,10 @@ PR 合并后，本地：
 
 等待两份 evidence 生成后确认分支 HEAD 未变化；若有新提交，必须针对新 SHA 重跑。真实模型 Campaign 会访问所选模型 Provider，但必须使用评测专用账号、合成/授权脱敏数据和 Provider/suite 网络 allowlist；不得使用个人生产账号、真实用户数据或不受约束的公网访问。
 
+首次启用真实模型受保护轨道前，Release Engineering 必须按 [真实模型评测架构 §16](architecture/live-model-evaluation.md#16-运维完成度与启用顺序) 完成 disposable Runner、provider-only egress、专用 Provider 账号/预算以及 `model-eval` environment 配置。`MODEL_EVAL_SERVER_TOKEN` 与 `MODEL_EVAL_SUPERVISOR_TOKEN` 必须分别生成且值不同；它们、Provider Key、evidence 签名 Key 和 updater Key 禁止复用。
+
+普通 `release-model-evidence-<sha>` 是 release preflight 的 JSON 真相源。若已按 [`evals/live/trust/README.md`](../evals/live/trust/README.md) 提交 Ed25519 公钥 registry 并配置 `model-eval-evidence-signing` environment，同一次 workflow 还会生成 `release-signed-model-evidence-<sha>`，供 App 离线验签导入与批准 advisory baseline。registry 尚未配置时签名 job 会跳过，不影响普通 evidence；registry 一旦存在，缺私钥、key id、签名或回验失败都会令签名 job 失败。不得把未签名 JSON、本地导出或 `ProtectedUnknownAssets` 记录设为受保护 baseline。
+
 两条轨道各自有独立 policy，初始均为 advisory；缺失/失败会写入 release workflow summary，但不互相冒充。切到 enforce 后，无合格 evidence 或未覆盖失败 suite 的 release 会直接停止。确定性紧急 waiver 经 `release-eval-waiver`，真实模型 waiver 经 `release-model-eval-waiver` protected environment 审批；二者都必须绑定本次 SHA + tag，安全护栏、超预算和证据完整性问题不可 waiver。
 
 随后只给刚完成评测的同一 SHA 打 tag：

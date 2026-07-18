@@ -36,7 +36,7 @@ function parseLock(raw, label) {
   return lock;
 }
 
-function parseLiveLock(raw, label) {
+function parseLiveLock(raw, label, allowLegacyMissing = false) {
   let lock;
   try {
     lock = JSON.parse(raw);
@@ -46,7 +46,11 @@ function parseLiveLock(raw, label) {
   if (lock?.schemaVersion !== "model-campaign-version-lock.v1") {
     fail(`${label} has an unsupported schemaVersion`);
   }
-  for (const section of ["suites", "policies", "scenarios"]) {
+  // These sections were added after the original live lock. Treat their
+  // absence in an older base as empty while requiring them in the worktree.
+  if (!lock.appProfiles && allowLegacyMissing) lock.appProfiles = {};
+  if (!lock.trustRegistries && allowLegacyMissing) lock.trustRegistries = {};
+  for (const section of ["suites", "policies", "scenarios", "appProfiles", "trustRegistries"]) {
     if (!lock[section] || Array.isArray(lock[section]) || typeof lock[section] !== "object") {
       fail(`${label} is missing object section ${section}`);
     }
@@ -223,7 +227,7 @@ try {
   console.log(`eval version lock: existing entries from ${base} are unchanged; new entries are append-only`);
   process.exit(0);
 }
-const livePrevious = parseLiveLock(livePreviousRaw, `live lock at ${base}`);
-verifyAppendOnly(livePrevious, liveCurrent, ["suites", "policies", "scenarios"], LIVE_LOCK_PATH);
+const livePrevious = parseLiveLock(livePreviousRaw, `live lock at ${base}`, true);
+verifyAppendOnly(livePrevious, liveCurrent, ["suites", "policies", "scenarios", "appProfiles", "trustRegistries"], LIVE_LOCK_PATH);
 
 console.log(`eval version lock: existing entries from ${base} are unchanged; new entries are append-only`);

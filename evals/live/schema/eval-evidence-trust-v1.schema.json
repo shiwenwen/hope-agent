@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hope-agent.local/evals/eval-evidence-trust-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "version", "keys"],
+  "properties": {
+    "schemaVersion": { "const": "eval-evidence-trust.v1" },
+    "version": { "type": "string", "minLength": 1 },
+    "keys": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "algorithm", "publicKey", "status", "validFrom"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+          "algorithm": { "const": "ed25519" },
+          "publicKey": { "type": "string", "minLength": 43, "maxLength": 44 },
+          "status": { "enum": ["active", "retired", "revoked"] },
+          "validFrom": { "type": "string", "format": "date-time" },
+          "validUntil": { "type": "string", "format": "date-time" },
+          "revokedAt": { "type": "string", "format": "date-time" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "status": { "const": "retired" } }, "required": ["status"] },
+            "then": { "required": ["validUntil"] }
+          },
+          {
+            "if": { "properties": { "status": { "const": "revoked" } }, "required": ["status"] },
+            "then": { "required": ["revokedAt"] }
+          }
+        ]
+      }
+    }
+  }
+}

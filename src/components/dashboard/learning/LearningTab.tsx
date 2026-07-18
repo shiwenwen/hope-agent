@@ -91,7 +91,16 @@ interface BenchmarkProviderOption {
   id: string
   name: string
   enabled?: boolean
-  models: { id: string; name: string }[]
+  models: { id: string; name: string; credentialProfileRef?: string }[]
+}
+
+interface SafeEvalModelOption {
+  providerId: string
+  modelId: string
+  label: string
+  providerLabel: string
+  supportsIsolatedEval: boolean
+  credentialProfiles: { credentialProfileRef: string; label: string }[]
 }
 
 interface BenchmarkModelOption {
@@ -100,6 +109,7 @@ interface BenchmarkModelOption {
   providerName: string
   modelId: string
   modelName: string
+  credentialProfileRef?: string
 }
 
 const WINDOW_OPTIONS = [7, 14, 30, 60, 90]
@@ -271,7 +281,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
           },
         }),
         getTransport()
-          .call<BenchmarkProviderOption[]>("get_providers")
+          .call<SafeEvalModelOption[]>("eval_list_model_options")
           .catch((error) => {
             logger.warn(
               "dashboard",
@@ -390,7 +400,23 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setBenchmarkReports(reports ?? [])
       setContinuousGate(gate)
       setBenchmarkBacklog(backlog ?? [])
-      setBenchmarkProviders(providers ?? [])
+      const groupedProviders = new Map<string, BenchmarkProviderOption>()
+      for (const model of providers ?? []) {
+        if (!model.supportsIsolatedEval) continue
+        const provider = groupedProviders.get(model.providerId) ?? {
+          id: model.providerId,
+          name: model.providerLabel,
+          enabled: true,
+          models: [],
+        }
+        provider.models.push({
+          id: model.modelId,
+          name: model.label,
+          credentialProfileRef: model.credentialProfiles[0]?.credentialProfileRef,
+        })
+        groupedProviders.set(model.providerId, provider)
+      }
+      setBenchmarkProviders([...groupedProviders.values()])
       setReleaseGate(rg)
       setGeneralization(gen)
       setDomainReadinessGate(drg)
@@ -449,6 +475,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         providerName: provider.name,
         modelId: model.id,
         modelName: model.name,
+        credentialProfileRef: model.credentialProfileRef,
       })),
     )
 
@@ -480,8 +507,6 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setBenchmarkError(t("dashboard.learning.selectAtLeastOneModel"))
       return
     }
-    const providerIds = new Set(selected.map((option) => option.providerId))
-    const providers = benchmarkProviders.filter((provider) => providerIds.has(provider.id))
     const parsedBudget = Number(benchmarkBudgetUsd)
     setBenchmarkRunning(true)
     setBenchmarkError(null)
@@ -505,11 +530,11 @@ export default function LearningTab({ filter }: LearningTabProps) {
             evaluateGoal: true,
             autoApproveTools: true,
             maxTasks: Math.max(1, Math.min(20, benchmarkMaxTasks)),
-            providers,
           },
           models: selected.map((option) => ({
             providerId: option.providerId,
             modelId: option.modelId,
+            credentialProfileRef: option.credentialProfileRef,
             label: `${option.providerName}/${option.modelName}`,
           })),
         },
@@ -525,7 +550,6 @@ export default function LearningTab({ filter }: LearningTabProps) {
     benchmarkBudgetUsd,
     benchmarkMaxTasks,
     benchmarkModelOptions,
-    benchmarkProviders,
     reload,
     selectedBenchmarkModels,
     t,
@@ -596,8 +620,6 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setDomainCampaignError(t("dashboard.learning.selectAtLeastOneModel"))
       return
     }
-    const providerIds = new Set(selected.map((option) => option.providerId))
-    const providers = benchmarkProviders.filter((provider) => providerIds.has(provider.id))
     const parsedBudget = Number(domainCampaignBudgetUsd)
     setDomainCampaignActionId("external")
     setDomainCampaignError(null)
@@ -612,10 +634,10 @@ export default function LearningTab({ filter }: LearningTabProps) {
             domainCampaignBudgetUsd.trim() && Number.isFinite(parsedBudget) && parsedBudget > 0
               ? parsedBudget
               : null,
-          providers,
           models: selected.map((option) => ({
             providerId: option.providerId,
             modelId: option.modelId,
+            credentialProfileRef: option.credentialProfileRef,
             label: `${option.providerName}/${option.modelName}`,
           })),
         },
@@ -634,7 +656,6 @@ export default function LearningTab({ filter }: LearningTabProps) {
     }
   }, [
     benchmarkModelOptions,
-    benchmarkProviders,
     domainCampaignBudgetUsd,
     domainCampaignMaxTasks,
     reload,

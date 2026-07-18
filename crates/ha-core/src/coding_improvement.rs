@@ -1016,6 +1016,10 @@ pub struct CodingBenchmarkCampaignModel {
     pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    /// Owner-plane reference accepted on create/run requests only. Campaign
+    /// normalization clears it before persistence and responses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_profile_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -1056,6 +1060,8 @@ pub struct CodingBenchmarkCampaignListInput {
 #[serde(rename_all = "camelCase")]
 pub struct CodingBenchmarkCampaignRunInput {
     pub campaign_id: String,
+    /// Deprecated compatibility field. Owner adapters resolve `models` from
+    /// backend configuration and clear this field before persistence.
     #[serde(default)]
     pub providers: Vec<crate::provider::ProviderConfig>,
     #[serde(default)]
@@ -10598,6 +10604,7 @@ fn normalize_benchmark_campaign_models(
                     provider_id,
                     model_id,
                     label,
+                    credential_profile_ref: None,
                 })
             }
         })
@@ -10607,6 +10614,7 @@ fn normalize_benchmark_campaign_models(
             provider_id: None,
             model_id: None,
             label: Some("deterministic".to_string()),
+            credential_profile_ref: None,
         });
     }
     if out.len() > MAX_BENCHMARK_CAMPAIGN_MODELS {

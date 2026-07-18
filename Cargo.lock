@@ -3234,6 +3234,7 @@ dependencies = [
  "readability",
  "regex",
  "reqwest 0.12.28",
+ "ring",
  "rmcp",
  "rquickjs",
  "rquickjs-serde",
@@ -3280,11 +3281,16 @@ dependencies = [
  "clap",
  "ha-core",
  "ha-eval-spec",
+ "libc",
+ "rand 0.9.2",
  "reqwest 0.12.28",
+ "ring",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "windows-sys 0.52.0",
+ "zip 7.2.0",
 ]
 
 [[package]]
@@ -3292,6 +3298,8 @@ name = "ha-eval-spec"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
+ "chrono",
  "serde",
  "serde_json",
  "serde_yaml_ng",

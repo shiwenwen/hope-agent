@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hope-agent.local/evals/eval-evidence-bundle-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "repository", "workflow", "workflowRunId", "environment",
+    "commitSha", "tier", "createdAt", "keyId", "evidence", "artifacts"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "eval-evidence-bundle.v1" },
+    "repository": { "type": "string", "minLength": 1 },
+    "workflow": { "type": "string", "minLength": 1 },
+    "workflowRunId": { "type": "string", "minLength": 1 },
+    "environment": { "const": "model-eval" },
+    "commitSha": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+    "tier": { "enum": ["nightly", "weekly", "release", "monthly"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "keyId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+    "evidence": { "$ref": "#/$defs/artifact" },
+    "artifacts": { "type": "array", "maxItems": 254, "items": { "$ref": "#/$defs/artifact" } }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

@@ -1161,7 +1161,24 @@ async fn fetch_telemetry(
     if !response.status().is_success() {
         return None;
     }
-    response.json().await.ok()
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("missing")
+        .to_string();
+    let bytes = response.bytes().await.ok()?;
+    match serde_json::from_slice(&bytes) {
+        Ok(snapshot) => Some(snapshot),
+        Err(error) => {
+            eprintln!(
+                "Hope model-eval telemetry schema mismatch: {error}; content-type={content_type}; bytes={}; body sha256:{}",
+                bytes.len(),
+                sha256_bytes(&bytes)
+            );
+            None
+        }
+    }
 }
 
 async fn restart_supervised_server(client: &Client) -> Result<()> {

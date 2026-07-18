@@ -1,6 +1,7 @@
 mod adapters;
 mod model;
 mod model_adapter;
+mod model_app_control;
 mod model_fake;
 mod model_supervisor;
 
@@ -128,6 +129,7 @@ enum PlanFormat {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    model_app_control::install_parent_watchdog_from_env()?;
     let cli = Cli::parse();
     let root = match cli.root {
         Some(root) => root.canonicalize().context("canonicalizing --root")?,

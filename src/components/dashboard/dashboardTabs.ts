@@ -12,6 +12,7 @@ const DASHBOARD_TAB_VALUES = new Set([
   "recap",
   "learning",
   "dreaming",
+  "evaluation",
 ])
 
 export function normalizeInitialTab(tab?: string): string {
@@ -20,5 +21,5 @@ export function normalizeInitialTab(tab?: string): string {
 }
 
 export function showsGlobalOverview(tab: string): boolean {
-  return tab !== "control-plane"
+  return tab !== "control-plane" && tab !== "evaluation"
 }

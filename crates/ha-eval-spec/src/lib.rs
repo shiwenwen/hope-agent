@@ -4,6 +4,7 @@
 //! evidence can therefore be inspected and verified without constructing an
 //! Agent, loading provider configuration, or touching the product database.
 
+pub mod app;
 pub mod model;
 
 use anyhow::{anyhow, bail, Context, Result};
