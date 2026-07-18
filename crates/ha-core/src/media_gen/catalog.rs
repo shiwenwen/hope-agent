@@ -230,6 +230,213 @@ fn tongyi_image_caps() -> ImageModelCaps {
     }
 }
 
+fn stepfun_image_caps() -> ImageModelCaps {
+    ImageModelCaps {
+        // StepFun documents "currently only 1" for n on every image model.
+        max_n: 1,
+        supports_size: true,
+        supports_aspect_ratio: false,
+        supports_resolution: false,
+        sizes: strs(&[
+            "1024x1024",
+            "768x768",
+            "512x512",
+            "256x256",
+            "1280x800",
+            "800x1280",
+        ]),
+        aspect_ratios: vec![],
+        resolutions: vec![],
+        supports_mask: false,
+        // img2img runs on `/v1/images/image2image` with a `source_url`.
+        edit: Some(ImageEditCaps {
+            max_n: 1,
+            max_input_images: 1,
+            supports_size: true,
+            supports_aspect_ratio: false,
+            supports_resolution: false,
+        }),
+    }
+}
+
+/// Ark sizes are tier tokens ("2K") or explicit `WxH`; tiers are listed
+/// because they are what the docs steer callers to.
+fn volcengine_image_caps(sizes: &[&str], max_input_images: u32) -> ImageModelCaps {
+    ImageModelCaps {
+        // No `n` on this API — batches need `sequential_image_generation`,
+        // which the shared compat profile does not drive.
+        max_n: 1,
+        supports_size: true,
+        supports_aspect_ratio: false,
+        supports_resolution: false,
+        sizes: strs(sizes),
+        aspect_ratios: vec![],
+        resolutions: vec![],
+        supports_mask: false,
+        edit: Some(ImageEditCaps {
+            max_n: 1,
+            max_input_images,
+            supports_size: true,
+            supports_aspect_ratio: false,
+            supports_resolution: false,
+        }),
+    }
+}
+
+fn together_image_caps(edit: bool) -> ImageModelCaps {
+    ImageModelCaps {
+        max_n: 4,
+        supports_size: true,
+        supports_aspect_ratio: false,
+        supports_resolution: false,
+        // Width/height are free integers (256–1920, multiples of 8); these
+        // are the documented presets.
+        sizes: strs(&["1024x1024", "1344x768", "768x1344", "1024x768", "768x1024"]),
+        aspect_ratios: vec![],
+        resolutions: vec![],
+        supports_mask: false,
+        edit: edit.then_some(ImageEditCaps {
+            max_n: 1,
+            max_input_images: 1,
+            supports_size: true,
+            supports_aspect_ratio: false,
+            supports_resolution: false,
+        }),
+    }
+}
+
+fn xai_image_caps() -> ImageModelCaps {
+    ImageModelCaps {
+        max_n: 10,
+        // xAI defines no size/quality/style knobs at all.
+        supports_size: false,
+        supports_aspect_ratio: true,
+        supports_resolution: true,
+        sizes: vec![],
+        aspect_ratios: strs(&[
+            "1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "1:2", "2:1",
+        ]),
+        resolutions: strs(&["1K", "2K"]),
+        supports_mask: false,
+        // `/v1/images/edits` exists but takes a JSON `image` object rather
+        // than the shared profile's field shape.
+        edit: None,
+    }
+}
+
+fn recraft_image_caps(pro: bool) -> ImageModelCaps {
+    ImageModelCaps {
+        max_n: 6,
+        supports_size: true,
+        supports_aspect_ratio: false,
+        supports_resolution: false,
+        sizes: if pro {
+            strs(&["2048x2048", "3072x1536", "1536x3072"])
+        } else {
+            strs(&["1024x1024", "1536x768", "768x1344", "1280x832"])
+        },
+        aspect_ratios: vec![],
+        resolutions: vec![],
+        supports_mask: false,
+        // Recraft's edit/inpaint tools are separate endpoints with a
+        // different response envelope (bare `image` object).
+        edit: None,
+    }
+}
+
+fn hunyuan_image_caps(edit: bool) -> ImageModelCaps {
+    ImageModelCaps {
+        max_n: 1,
+        supports_size: true,
+        supports_aspect_ratio: false,
+        supports_resolution: false,
+        // Stored `WxH`; the adapter rewrites the separator to `W:H`.
+        sizes: strs(&[
+            "1024x1024",
+            "1280x768",
+            "768x1280",
+            "1024x768",
+            "768x1024",
+            "1280x720",
+            "720x1280",
+        ]),
+        aspect_ratios: vec![],
+        resolutions: vec![],
+        supports_mask: false,
+        edit: edit.then_some(ImageEditCaps {
+            max_n: 1,
+            max_input_images: 3,
+            supports_size: true,
+            supports_aspect_ratio: false,
+            supports_resolution: false,
+        }),
+    }
+}
+
+fn qianfan_image_caps(max_n: u32, edit: bool) -> ImageModelCaps {
+    ImageModelCaps {
+        max_n,
+        supports_size: true,
+        supports_aspect_ratio: false,
+        supports_resolution: false,
+        sizes: strs(&[
+            "1024x1024",
+            "1024x768",
+            "768x1024",
+            "1536x1536",
+            "2048x2048",
+            "512x512",
+        ]),
+        aspect_ratios: vec![],
+        resolutions: vec![],
+        supports_mask: false,
+        edit: edit.then_some(ImageEditCaps {
+            max_n: 1,
+            max_input_images: 1,
+            supports_size: true,
+            supports_aspect_ratio: false,
+            supports_resolution: false,
+        }),
+    }
+}
+
+fn sensenova_image_caps() -> ImageModelCaps {
+    ImageModelCaps {
+        max_n: 1,
+        supports_size: true,
+        supports_aspect_ratio: false,
+        supports_resolution: false,
+        // Only these fixed buckets are accepted; anything else fails the
+        // task server-side (4K is rejected outright).
+        sizes: strs(&[
+            "1792x992",
+            "992x1792",
+            "1344x1344",
+            "1088x1632",
+            "1632x1088",
+            "1152x1536",
+            "1536x1152",
+            "1184x1472",
+            "1472x1184",
+            "864x2048",
+            "2752x1536",
+            "1536x2752",
+            "2048x2048",
+            "1664x2496",
+            "2496x1664",
+            "1760x2368",
+            "2368x1760",
+            "1824x2272",
+            "2272x1824",
+            "1344x3136",
+        ]),
+        aspect_ratios: vec![],
+        resolutions: vec![],
+        supports_mask: false,
+        edit: None,
+    }
+}
+
 // ── Templates ─────────────────────────────────────────────────────
 
 /// All built-in vendor templates, in suggested display order.
@@ -322,6 +529,18 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
                     speech_caps(),
                 ),
                 aud(
+                    "music_v2",
+                    "ElevenLabs Music v2",
+                    AudioModelCaps {
+                        kinds: vec![AudioKind::Music],
+                        supports_duration: true,
+                        needs_voice: false,
+                        default_voice: None,
+                        min_duration_secs: Some(3.0),
+                        max_duration_secs: Some(600.0),
+                    },
+                ),
+                aud(
                     "music_v1",
                     "ElevenLabs Music",
                     AudioModelCaps {
@@ -401,6 +620,247 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
             requires_api_key: true,
             supports_voice_listing: false,
             models: vec![img("wanx-v1", "Wanxiang v1", tongyi_image_caps(), &[])],
+        },
+        MediaProviderTemplate {
+            key: "stepfun",
+            name: "StepFun",
+            kind: MediaVendorKind::Stepfun,
+            base_url: MediaVendorKind::Stepfun.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: true,
+            models: vec![
+                img("step-2x-large", "Step-2x Large", stepfun_image_caps(), &[]),
+                img(
+                    "step-1x-medium",
+                    "Step-1x Medium",
+                    stepfun_image_caps(),
+                    &[],
+                ),
+                img(
+                    "step-image-edit-2",
+                    "Step Image Edit 2",
+                    ImageModelCaps {
+                        // Its edit endpoint is multipart, which the shared
+                        // compat profile can't drive — generation only here.
+                        edit: None,
+                        sizes: strs(&["1024x1024", "768x1360", "1360x768", "896x1184", "1184x896"]),
+                        ..stepfun_image_caps()
+                    },
+                    &[],
+                ),
+                aud("step-tts-2", "Step TTS 2", speech_caps()),
+                aud("stepaudio-2.5-tts", "Step Audio 2.5 TTS", speech_caps()),
+                aud("step-tts-mini", "Step TTS Mini", speech_caps()),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "volcengine",
+            name: "Volcengine Ark",
+            kind: MediaVendorKind::Volcengine,
+            base_url: MediaVendorKind::Volcengine.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            models: vec![
+                img(
+                    "doubao-seedream-5-0-pro-260628",
+                    "Doubao Seedream 5.0 Pro",
+                    volcengine_image_caps(&["1K", "2K"], 10),
+                    &[],
+                ),
+                img(
+                    "doubao-seedream-5-0-260128",
+                    "Doubao Seedream 5.0 Lite",
+                    volcengine_image_caps(&["2K", "3K"], 14),
+                    &[],
+                ),
+                img(
+                    "doubao-seedream-4-5-251128",
+                    "Doubao Seedream 4.5",
+                    volcengine_image_caps(&["2K", "4K"], 14),
+                    &[],
+                ),
+                img(
+                    "doubao-seedream-4-0-250828",
+                    "Doubao Seedream 4.0",
+                    volcengine_image_caps(&["1K", "2K", "4K"], 14),
+                    &[],
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "hunyuan",
+            name: "Tencent Hunyuan",
+            kind: MediaVendorKind::Hunyuan,
+            base_url: MediaVendorKind::Hunyuan.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            models: vec![
+                img(
+                    "hy-image-v3.0",
+                    "Hunyuan Image 3.0",
+                    hunyuan_image_caps(true),
+                    &[],
+                ),
+                img(
+                    "hy-image-lite",
+                    "Hunyuan Image Lite",
+                    hunyuan_image_caps(false),
+                    &[],
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "together",
+            name: "Together AI",
+            kind: MediaVendorKind::Together,
+            base_url: MediaVendorKind::Together.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            // Deliberately a curated subset of Together's ~28 image models:
+            // current flagships plus the models not reachable elsewhere here.
+            models: vec![
+                img(
+                    "black-forest-labs/FLUX.2-pro",
+                    "FLUX.2 pro",
+                    together_image_caps(false),
+                    &[],
+                ),
+                img(
+                    "black-forest-labs/FLUX.2-flex",
+                    "FLUX.2 flex",
+                    together_image_caps(false),
+                    &[],
+                ),
+                img(
+                    "black-forest-labs/FLUX.1-kontext-pro",
+                    "FLUX.1 Kontext pro",
+                    together_image_caps(true),
+                    &[],
+                ),
+                img(
+                    "black-forest-labs/FLUX.1-schnell",
+                    "FLUX.1 schnell",
+                    together_image_caps(false),
+                    &[],
+                ),
+                img(
+                    "ByteDance-Seed/Seedream-4.0",
+                    "Seedream 4.0",
+                    together_image_caps(false),
+                    &[],
+                ),
+                img(
+                    "Qwen/Qwen-Image-2.0",
+                    "Qwen-Image 2.0",
+                    together_image_caps(false),
+                    &[],
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "xai",
+            name: "xAI",
+            kind: MediaVendorKind::Xai,
+            base_url: MediaVendorKind::Xai.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            models: vec![
+                img(
+                    "grok-imagine-image",
+                    "Grok Imagine Image",
+                    xai_image_caps(),
+                    &[],
+                ),
+                img(
+                    "grok-imagine-image-quality",
+                    "Grok Imagine Image Quality",
+                    xai_image_caps(),
+                    &[],
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "recraft",
+            name: "Recraft",
+            kind: MediaVendorKind::Recraft,
+            base_url: MediaVendorKind::Recraft.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            models: vec![
+                img(
+                    "recraftv4_1",
+                    "Recraft V4.1",
+                    recraft_image_caps(false),
+                    &[],
+                ),
+                img(
+                    "recraftv4_1_vector",
+                    "Recraft V4.1 Vector (SVG)",
+                    recraft_image_caps(false),
+                    &[],
+                ),
+                img(
+                    "recraftv4_1_pro",
+                    "Recraft V4.1 Pro",
+                    recraft_image_caps(true),
+                    &[],
+                ),
+                img("recraftv3", "Recraft V3", recraft_image_caps(false), &[]),
+                img(
+                    "recraftv3_vector",
+                    "Recraft V3 Vector (SVG)",
+                    recraft_image_caps(false),
+                    &[],
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "qianfan",
+            name: "Baidu Qianfan",
+            kind: MediaVendorKind::Qianfan,
+            base_url: MediaVendorKind::Qianfan.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            // `musesteamer-air-image` is intentionally absent: it lives on
+            // `/v2/musesteamer/images/generations` with its own parameter
+            // table, which this provider's single path can't reach.
+            models: vec![
+                img(
+                    "qwen-image",
+                    "Qwen-Image",
+                    qianfan_image_caps(1, false),
+                    &[],
+                ),
+                img(
+                    "qwen-image-edit",
+                    "Qwen-Image Edit",
+                    qianfan_image_caps(1, true),
+                    &[],
+                ),
+                img(
+                    "ernie-irag-edit",
+                    "ERNIE iRAG Edit",
+                    qianfan_image_caps(4, true),
+                    &[],
+                ),
+            ],
+        },
+        MediaProviderTemplate {
+            key: "sensenova",
+            name: "SenseNova",
+            kind: MediaVendorKind::Sensenova,
+            base_url: MediaVendorKind::Sensenova.default_base_url(),
+            requires_api_key: true,
+            supports_voice_listing: false,
+            // SenseNova TTS lives on a different host (api.sensenova.cn) with
+            // its own auth, so it is not a model of this provider — add it
+            // separately as an OpenAI-compatible provider if wanted.
+            models: vec![img(
+                "sensenova-u1-fast",
+                "SenseNova U1 Fast",
+                sensenova_image_caps(),
+                &[],
+            )],
         },
         MediaProviderTemplate {
             key: "openai-compatible",

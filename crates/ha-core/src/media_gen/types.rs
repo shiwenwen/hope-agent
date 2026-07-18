@@ -98,6 +98,23 @@ pub enum MediaVendorKind {
     Tongyi,
     /// ElevenLabs TTS / music / SFX.
     Elevenlabs,
+    /// StepFun images (`/v1/images/generations`) + TTS (`/v1/audio/speech`).
+    Stepfun,
+    /// Volcengine Ark images (ByteDance Doubao Seedream). TTS lives on a
+    /// different host with different auth — modelled separately.
+    Volcengine,
+    /// Tencent Hunyuan images via the TokenHub plane (`tokenhub.tencentmaas.com`).
+    Hunyuan,
+    /// Together AI hosted image models (OpenAI-ish, `base64` response token).
+    Together,
+    /// xAI Grok Imagine images.
+    Xai,
+    /// Recraft images — the only vendor here with native vector (SVG) output.
+    Recraft,
+    /// Baidu Qianfan images (`qianfan.baidubce.com/v2`).
+    Qianfan,
+    /// SenseNova images — OpenAI-ish request, `images_urls` response envelope.
+    Sensenova,
     /// Self-hosted or third-party endpoint speaking the OpenAI wire shape
     /// (images `/v1/images/generations`, speech `/v1/audio/speech`).
     /// Requires an explicit `base_url`; routed through the OpenAI adapters.
@@ -115,6 +132,14 @@ impl MediaVendorKind {
             Self::Zhipu => "https://open.bigmodel.cn/api/paas",
             Self::Tongyi => "https://dashscope.aliyuncs.com",
             Self::Elevenlabs => "https://api.elevenlabs.io",
+            Self::Stepfun => "https://api.stepfun.com",
+            Self::Volcengine => "https://ark.cn-beijing.volces.com",
+            Self::Hunyuan => "https://tokenhub.tencentmaas.com",
+            Self::Together => "https://api.together.ai",
+            Self::Xai => "https://api.x.ai",
+            Self::Recraft => "https://external.api.recraft.ai",
+            Self::Qianfan => "https://qianfan.baidubce.com",
+            Self::Sensenova => "https://token.sensenova.cn",
             Self::OpenaiCompatible => "",
         }
     }
@@ -129,6 +154,14 @@ impl MediaVendorKind {
             Self::Zhipu => "ZhipuAI",
             Self::Tongyi => "Tongyi Wanxiang",
             Self::Elevenlabs => "ElevenLabs",
+            Self::Stepfun => "StepFun",
+            Self::Volcengine => "Volcengine Ark",
+            Self::Hunyuan => "Tencent Hunyuan",
+            Self::Together => "Together AI",
+            Self::Xai => "xAI",
+            Self::Recraft => "Recraft",
+            Self::Qianfan => "Baidu Qianfan",
+            Self::Sensenova => "SenseNova",
             Self::OpenaiCompatible => "OpenAI-compatible",
         }
     }
@@ -138,7 +171,7 @@ impl MediaVendorKind {
     pub fn supports_voice_listing(&self) -> bool {
         matches!(
             self,
-            Self::Elevenlabs | Self::Openai | Self::OpenaiCompatible
+            Self::Elevenlabs | Self::Openai | Self::OpenaiCompatible | Self::Stepfun
         )
     }
 }

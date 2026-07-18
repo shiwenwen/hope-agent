@@ -271,30 +271,15 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                 for (i, result) in results.into_iter().enumerate() {
                     if let Some(img_url) = result.url {
                         let dl_start = std::time::Instant::now();
-                        let img_resp = client
-                            .get(&img_url)
-                            .timeout(std::time::Duration::from_secs(30))
-                            .send()
-                            .await
-                            .map_err(|e| {
-                                anyhow::anyhow!("Failed to download Tongyi image: {}", e)
-                            })?;
-
-                        if !img_resp.status().is_success() {
-                            anyhow::bail!("Tongyi image download failed ({})", img_resp.status());
-                        }
-
-                        let content_type = img_resp
-                            .headers()
-                            .get("content-type")
-                            .and_then(|v| v.to_str().ok())
-                            .unwrap_or("image/png")
-                            .split(';')
-                            .next()
-                            .unwrap_or("image/png")
-                            .trim()
-                            .to_string();
-                        let data = img_resp.bytes().await?.to_vec();
+                        // The OSS URL is server-supplied, not a sub-path of
+                        // the configured base — re-gate it through SSRF.
+                        let (data, content_type) = crate::media_gen::adapters::fetch::fetch_asset(
+                            &client,
+                            &img_url,
+                            params.ssrf,
+                            "image/png",
+                        )
+                        .await?;
                         let dl_ms = dl_start.elapsed().as_millis() as u64;
 
                         if let Some(logger) = crate::get_logger() {

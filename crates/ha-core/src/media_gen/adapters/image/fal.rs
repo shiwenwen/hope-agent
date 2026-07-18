@@ -325,24 +325,17 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     let mut images = Vec::new();
     for (i, item) in items.into_iter().enumerate() {
         if let Some(img_url) = item.url {
-            // Download image from CDN URL
+            // CDN URL comes from the response body, not the configured base —
+            // re-gate it through SSRF before fetching.
             let dl_start = std::time::Instant::now();
-            let img_resp = client
-                .get(&img_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .send()
-                .await
-                .map_err(|e| {
-                    anyhow::anyhow!("Failed to download Fal image from {}: {}", img_url, e)
-                })?;
-
-            let dl_status = img_resp.status();
-            if !dl_status.is_success() {
-                anyhow::bail!("Fal image download failed ({}): {}", dl_status, img_url);
-            }
-
-            let mime = item.content_type.unwrap_or_else(|| "image/png".to_string());
-            let data = img_resp.bytes().await?.to_vec();
+            let fallback_mime = item.content_type.unwrap_or_else(|| "image/png".to_string());
+            let (data, mime) = crate::media_gen::adapters::fetch::fetch_asset(
+                &client,
+                &img_url,
+                params.ssrf,
+                &fallback_mime,
+            )
+            .await?;
             let dl_ms = dl_start.elapsed().as_millis() as u64;
 
             if let Some(logger) = crate::get_logger() {
@@ -361,7 +354,6 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                         serde_json::json!({
                             "index": i,
                             "url": &img_url,
-                            "status": dl_status.as_u16(),
                             "size_bytes": data.len(),
                             "download_ms": dl_ms,
                             "mime": &mime,

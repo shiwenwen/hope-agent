@@ -13,6 +13,14 @@ export const VENDOR_DISPLAY_NAME: Record<MediaVendorKind, string> = {
   zhipu: "ZhipuAI",
   tongyi: "Tongyi Wanxiang",
   elevenlabs: "ElevenLabs",
+  stepfun: "StepFun",
+  volcengine: "Volcengine Ark",
+  hunyuan: "Tencent Hunyuan",
+  together: "Together AI",
+  xai: "xAI",
+  recraft: "Recraft",
+  qianfan: "Baidu Qianfan",
+  sensenova: "SenseNova",
   "openai-compatible": "OpenAI Compatible",
 }
 
@@ -28,4 +36,45 @@ export const VENDOR_ICON_KEY: Partial<Record<MediaVendorKind, string>> = {
   zhipu: "zhipu",
   tongyi: "qwen",
   elevenlabs: "elevenlabs",
+  stepfun: "stepfun",
+  volcengine: "volcengine",
+  hunyuan: "tencent",
+  together: "together",
+  xai: "xai",
+  recraft: "recraft",
+  qianfan: "qianfan",
+  sensenova: "sensenova",
+}
+
+/** Grouping for the "add provider" template grid. Vendors serving both
+ *  modalities appear once, under `both`. */
+export type VendorGroup = "image" | "audio" | "both" | "custom"
+
+export const VENDOR_GROUP: Record<MediaVendorKind, VendorGroup> = {
+  openai: "both",
+  google: "image",
+  fal: "image",
+  minimax: "image",
+  siliconflow: "image",
+  zhipu: "image",
+  tongyi: "image",
+  elevenlabs: "audio",
+  stepfun: "both",
+  volcengine: "image",
+  hunyuan: "image",
+  together: "image",
+  xai: "image",
+  recraft: "image",
+  qianfan: "image",
+  sensenova: "image",
+  "openai-compatible": "custom",
+}
+
+export const VENDOR_GROUP_ORDER: VendorGroup[] = ["both", "image", "audio", "custom"]
+
+export const VENDOR_GROUP_LABEL_KEY: Record<VendorGroup, string> = {
+  both: "settings.mediaModels.groupBoth",
+  image: "settings.mediaModels.groupImage",
+  audio: "settings.mediaModels.groupAudio",
+  custom: "settings.mediaModels.groupCustom",
 }

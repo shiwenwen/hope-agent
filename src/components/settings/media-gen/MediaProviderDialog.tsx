@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { NumberInput } from "@/components/ui/number-input"
 import { RadioPills } from "@/components/ui/radio-pills"
+import { SearchInput } from "@/components/ui/search-input"
 import { SecretInput } from "@/components/ui/secret-input"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -45,7 +46,14 @@ import type {
   MediaVendorKind,
   MediaVoiceOption,
 } from "./types"
-import { VENDOR_DISPLAY_NAME, VENDOR_ICON_KEY } from "./vendor"
+import {
+  VENDOR_DISPLAY_NAME,
+  VENDOR_GROUP,
+  VENDOR_GROUP_LABEL_KEY,
+  VENDOR_GROUP_ORDER,
+  VENDOR_ICON_KEY,
+} from "./vendor"
+import type { VendorGroup } from "./vendor"
 
 // ── Constants ─────────────────────────────────────────────────────
 
@@ -54,6 +62,7 @@ const VOICE_VENDORS: ReadonlySet<MediaVendorKind> = new Set([
   "elevenlabs",
   "openai",
   "openai-compatible",
+  "stepfun",
 ])
 
 const AUDIO_KINDS: MediaAudioKind[] = ["speech", "music", "sfx"]
@@ -415,6 +424,33 @@ export default function MediaProviderDialog({
   const [voices, setVoices] = useState<MediaVoiceOption[] | null>(null)
   const [voicesLoading, setVoicesLoading] = useState(false)
   const [voicesError, setVoicesError] = useState<string | null>(null)
+  const [templateQuery, setTemplateQuery] = useState("")
+
+  // The grid grew past 20 vendors, so it is grouped by modality and
+  // filtered. Matching covers brand name, template key and preset model ids
+  // so that searching "seedream" or "flux" lands on the right provider.
+  const groupedTemplates = useMemo(() => {
+    const q = templateQuery.trim().toLowerCase()
+    const matches = (tpl: MediaProviderTemplate) =>
+      !q ||
+      tpl.name.toLowerCase().includes(q) ||
+      tpl.key.toLowerCase().includes(q) ||
+      tpl.models.some(
+        (m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q),
+      )
+    const buckets = new Map<VendorGroup, MediaProviderTemplate[]>()
+    for (const tpl of templates) {
+      if (!matches(tpl)) continue
+      const group = VENDOR_GROUP[tpl.kind] ?? "custom"
+      const list = buckets.get(group)
+      if (list) list.push(tpl)
+      else buckets.set(group, [tpl])
+    }
+    return VENDOR_GROUP_ORDER.flatMap((group) => {
+      const items = buckets.get(group)
+      return items && items.length > 0 ? [{ group, items }] : []
+    })
+  }, [templates, templateQuery])
 
   const template = useMemo(
     () => (draft ? templates.find((tpl) => tpl.kind === draft.kind) ?? null : null),
@@ -549,22 +585,44 @@ export default function MediaProviderDialog({
         </DialogHeader>
 
         {inTemplateStep ? (
-          <div className="grid max-h-[65vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-            {templates.map((tpl) => (
-              <button
-                key={tpl.key}
-                type="button"
-                onClick={() => chooseTemplate(tpl)}
-                className="flex flex-col items-center gap-2 rounded-lg border border-border bg-card p-4 transition-colors hover:bg-secondary/40"
-              >
-                <ProviderIcon providerKey={VENDOR_ICON_KEY[tpl.kind]} size={28} color />
-                <span className="text-center text-xs font-medium text-foreground">
-                  {tpl.key === "openai-compatible"
-                    ? t("settings.mediaModels.customOpenAiCompatible")
-                    : tpl.name}
-                </span>
-              </button>
-            ))}
+          <div className="space-y-3">
+            <SearchInput
+              value={templateQuery}
+              onChange={(e) => setTemplateQuery(e.target.value)}
+              placeholder={t("settings.mediaModels.searchTemplates")}
+            />
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+              {groupedTemplates.length === 0 ? (
+                <p className="py-8 text-center text-xs text-muted-foreground">
+                  {t("settings.mediaModels.noTemplateMatch")}
+                </p>
+              ) : (
+                groupedTemplates.map(({ group, items }) => (
+                  <div key={group} className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t(VENDOR_GROUP_LABEL_KEY[group])}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {items.map((tpl) => (
+                        <button
+                          key={tpl.key}
+                          type="button"
+                          onClick={() => chooseTemplate(tpl)}
+                          className="flex flex-col items-center gap-2 rounded-lg border border-border bg-card p-4 transition-colors hover:bg-secondary/40"
+                        >
+                          <ProviderIcon providerKey={VENDOR_ICON_KEY[tpl.kind]} size={28} color />
+                          <span className="text-center text-xs font-medium text-foreground">
+                            {tpl.key === "openai-compatible"
+                              ? t("settings.mediaModels.customOpenAiCompatible")
+                              : tpl.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         ) : draft ? (
           <>
