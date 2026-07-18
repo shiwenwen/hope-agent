@@ -193,7 +193,54 @@ pub(crate) fn update_media_provider_in_config(
     }
     merged_extra.retain(|k, _| config.extra.contains_key(k));
     existing.extra = merged_extra;
+    // Replacing the model list can strand a default chain on a model that no
+    // longer exists (renamed / removed). A configured chain is authoritative
+    // in `resolve_candidates` — a stranded ref would fail the whole function
+    // instead of falling back to auto — so scrub dangling refs here too.
+    prune_dangling_chain_refs(store);
     Ok(())
+}
+
+/// A chain ref is "live" when its provider still exists AND still lists that
+/// model. Disabled providers are kept (the chain retains them; the resolver
+/// skips them at runtime) — only truly missing providers/models are pruned.
+fn chain_ref_is_live(store: &AppConfig, entry: &MediaModelRef) -> bool {
+    store
+        .media_gen
+        .provider(&entry.provider_id)
+        .is_some_and(|p| p.model_config(&entry.model_id).is_some())
+}
+
+/// Scrub every default chain of refs whose provider/model no longer exists: a
+/// dangling primary promotes the first surviving fallback, else the slot
+/// clears back to auto. Returns true if any chain changed. Shared by delete
+/// (provider removed) and update (model list replaced) so both keep chains
+/// pointing only at live models.
+fn prune_dangling_chain_refs(store: &mut AppConfig) -> bool {
+    // Clone the chains so the liveness check can borrow `store` immutably
+    // while we mutate the (independent) working copy.
+    let mut chains = store.media_gen.chains.clone();
+    let mut touched = false;
+    for slot in chains.slots_mut() {
+        let Some(chain) = slot.as_mut() else { continue };
+        let before_fallbacks = chain.fallbacks.len();
+        chain.fallbacks.retain(|r| chain_ref_is_live(store, r));
+        if chain.fallbacks.len() != before_fallbacks {
+            touched = true;
+        }
+        if !chain_ref_is_live(store, &chain.primary) {
+            touched = true;
+            if chain.fallbacks.is_empty() {
+                *slot = None;
+            } else {
+                chain.primary = chain.fallbacks.remove(0);
+            }
+        }
+    }
+    if touched {
+        store.media_gen.chains = chains;
+    }
+    touched
 }
 
 pub(crate) fn delete_media_provider_in_config(
@@ -205,37 +252,7 @@ pub(crate) fn delete_media_provider_in_config(
     if store.media_gen.providers.len() == len_before {
         return Err(MediaWriteError::NotFound(provider_id.to_string()));
     }
-    let mut touched = false;
-    for slot in store.media_gen.chains.slots_mut() {
-        let Some(chain) = slot.as_mut() else { continue };
-        if chain.primary.provider_id == provider_id {
-            // Primary gone → promote the first surviving fallback, else
-            // clear the slot back to auto.
-            let mut rest: Vec<MediaModelRef> = chain
-                .fallbacks
-                .iter()
-                .filter(|r| r.provider_id != provider_id)
-                .cloned()
-                .collect();
-            *slot = if rest.is_empty() {
-                None
-            } else {
-                let primary = rest.remove(0);
-                Some(MediaModelChain {
-                    primary,
-                    fallbacks: rest,
-                })
-            };
-            touched = true;
-        } else {
-            let before = chain.fallbacks.len();
-            chain.fallbacks.retain(|r| r.provider_id != provider_id);
-            if chain.fallbacks.len() != before {
-                touched = true;
-            }
-        }
-    }
-    Ok(touched)
+    Ok(prune_dangling_chain_refs(store))
 }
 
 pub(crate) fn reorder_media_providers_in_config(store: &mut AppConfig, provider_ids: &[String]) {
@@ -366,6 +383,40 @@ mod tests {
         assert_eq!(stored.extra["secret"], "real-secret-value");
         assert_eq!(stored.extra["fresh"], "new-value-123");
         assert!(!stored.extra.contains_key("gone"));
+    }
+
+    #[test]
+    fn update_prunes_chain_refs_to_removed_models() {
+        let mut cfg = AppConfig::default();
+        let a = provider_with(vec![image_model("m1"), image_model("m2")]);
+        let aid = a.id.clone();
+        let mut added = add_media_provider_in_config(&mut cfg, a);
+
+        // image chain primary=m1 fallback=m2; speech-less. Editing the
+        // provider to drop m1 must promote m2 (not strand the chain on m1).
+        cfg.media_gen.chains.image = Some(MediaModelChain {
+            primary: MediaModelRef {
+                provider_id: aid.clone(),
+                model_id: "m1".into(),
+            },
+            fallbacks: vec![MediaModelRef {
+                provider_id: aid.clone(),
+                model_id: "m2".into(),
+            }],
+        });
+        // sfx chain references only m1 → dropping m1 clears it to auto.
+        cfg.media_gen.chains.sfx = Some(chain(&aid, "m1"));
+
+        added.models = vec![image_model("m2")]; // m1 removed
+        update_media_provider_in_config(&mut cfg, added).unwrap();
+
+        let img = cfg.media_gen.chains.image.as_ref().unwrap();
+        assert_eq!(img.primary.model_id, "m2", "m2 promoted after m1 removed");
+        assert!(img.fallbacks.is_empty());
+        assert!(
+            cfg.media_gen.chains.sfx.is_none(),
+            "sfx chain cleared to auto when its only model vanished"
+        );
     }
 
     #[test]
