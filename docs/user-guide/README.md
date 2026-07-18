@@ -1,5 +1,7 @@
 # Hope Agent 使用手册
 
+> **简体中文** · [English](en/README.md)
+
 > 这是一份面向**最终用户**的完整中文使用文档,覆盖 Hope Agent 的安装、上手、每一项功能的用法与设置。
 > 如果你想了解代码架构与实现细节,请看 [`docs/architecture/`](../architecture/);想快速浏览产品亮点,请看根目录 [README.md](../../README.md)。
 

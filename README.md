@@ -323,7 +323,7 @@ skills/          内置技能（随应用发行）
 
 ## 文档
 
-- 📖 **[使用手册](docs/user-guide/README.md)** —— 面向用户的完整中文文档:安装上手、每项功能的用法与设置
+- 📖 **[使用手册](docs/user-guide/README.md)** —— 面向用户的完整中文文档:安装上手、每项功能的用法与设置([English](docs/user-guide/en/README.md))
 - 🏗️ [技术文档](docs/) —— 架构设计与实现细节(面向开发者)
 
 ## 贡献
