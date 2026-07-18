@@ -1361,12 +1361,11 @@ pub struct AppConfig {
     /// `channel::worker::startup_watcher`.
     #[serde(default)]
     pub startup_notification: StartupNotificationConfig,
-    /// Image generation configuration
+    /// Unified media-generation providers + per-function default chains
+    /// (image / speech / music / sfx). Replaces the fixed-slot
+    /// `image_generate` / `audio_generate` stacks.
     #[serde(default)]
-    pub image_generate: crate::tools::image_generate::ImageGenConfig,
-    /// Audio generation configuration (design space `audio` artifact form).
-    #[serde(default)]
-    pub audio_generate: crate::tools::audio_generate::AudioGenConfig,
+    pub media_gen: crate::media_gen::MediaGenConfig,
     /// GitHub issue reporting target and defaults. Token lives separately under
     /// `~/.hope-agent/credentials/github-issue.json`.
     #[serde(default)]
@@ -1701,8 +1700,7 @@ impl Default for AppConfig {
             session_title: crate::session_title::SessionTitleConfig::default(),
             notification: NotificationConfig::default(),
             startup_notification: StartupNotificationConfig::default(),
-            image_generate: crate::tools::image_generate::ImageGenConfig::default(),
-            audio_generate: crate::tools::audio_generate::AudioGenConfig::default(),
+            media_gen: crate::media_gen::MediaGenConfig::default(),
             issue_reporting: crate::issue_reporting::IssueReportingConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
             design: crate::design::DesignConfig::default(),

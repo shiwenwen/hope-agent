@@ -223,6 +223,14 @@ async fn cleanup_session(
     // shouldn't linger. Incognito wakeups are in-memory only; this aborts them.
     crate::wakeup::purge_for_session(session_id);
 
+    // Panel action timeline: drop the in-memory step history (delete and burn
+    // alike — the buffer is memory-only, so purge here fulfils incognito's
+    // close-and-burn contract).
+    crate::tool_actions::purge_for_session(session_id);
+    for child_sid in &descendant_session_ids {
+        crate::tool_actions::purge_for_session(child_sid);
+    }
+
     // Browser Extension backend: release user-tab leases and close unkept
     // agent-created tabs owned by this session. This mirrors tool-level
     // `tabs.finalize` so deleting or burning a session cannot leave stale

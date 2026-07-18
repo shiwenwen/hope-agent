@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::AppConfig;
 use crate::permission::{dangerous_commands, edit_commands, protected_paths};
-use crate::tools::{audio_generate, image_generate, web_search};
+use crate::tools::web_search;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -99,8 +99,7 @@ pub enum SettingsResetSection {
     ToolsGeneral,
     ToolsWebSearch,
     ToolsWebFetch,
-    ToolsImageGenerate,
-    ToolsAudioGenerate,
+    ToolsMediaGen,
     ToolsCanvas,
     ToolsAsyncTools,
     ToolsIssueReporting,
@@ -139,8 +138,7 @@ impl SettingsResetSection {
             (SettingsResetScope::Tools, "general") => Self::ToolsGeneral,
             (SettingsResetScope::Tools, "web_search") => Self::ToolsWebSearch,
             (SettingsResetScope::Tools, "web_fetch") => Self::ToolsWebFetch,
-            (SettingsResetScope::Tools, "image_generate") => Self::ToolsImageGenerate,
-            (SettingsResetScope::Tools, "audio_generate") => Self::ToolsAudioGenerate,
+            (SettingsResetScope::Tools, "media_gen") => Self::ToolsMediaGen,
             (SettingsResetScope::Tools, "canvas") => Self::ToolsCanvas,
             (SettingsResetScope::Tools, "async_tools") => Self::ToolsAsyncTools,
             (SettingsResetScope::Tools, "issue_reporting") => Self::ToolsIssueReporting,
@@ -186,8 +184,7 @@ impl SettingsResetSection {
             Self::ToolsGeneral => "general",
             Self::ToolsWebSearch => "web_search",
             Self::ToolsWebFetch => "web_fetch",
-            Self::ToolsImageGenerate => "image_generate",
-            Self::ToolsAudioGenerate => "audio_generate",
+            Self::ToolsMediaGen => "media_gen",
             Self::ToolsCanvas => "canvas",
             Self::ToolsAsyncTools => "async_tools",
             Self::ToolsIssueReporting => "issue_reporting",
@@ -280,54 +277,13 @@ fn reset_web_search(current: &web_search::WebSearchConfig) -> web_search::WebSea
     defaults
 }
 
-fn reset_image_generate(
-    current: &image_generate::ImageGenConfig,
-) -> image_generate::ImageGenConfig {
-    let mut defaults = image_generate::ImageGenConfig::default();
-    for entry in &mut defaults.providers {
-        if let Some(saved) = current.providers.iter().find(|item| item.id == entry.id) {
-            entry.api_key = saved.api_key.clone();
-            entry.base_url = saved.base_url.clone();
-        }
-    }
-    for saved in &current.providers {
-        if defaults.providers.iter().all(|entry| entry.id != saved.id) {
-            defaults
-                .providers
-                .push(image_generate::ImageGenProviderEntry {
-                    id: saved.id.clone(),
-                    api_key: saved.api_key.clone(),
-                    base_url: saved.base_url.clone(),
-                    ..Default::default()
-                });
-        }
-    }
-    defaults
-}
-
-fn reset_audio_generate(
-    current: &audio_generate::AudioGenConfig,
-) -> audio_generate::AudioGenConfig {
-    let mut defaults = audio_generate::AudioGenConfig::default();
-    for entry in &mut defaults.providers {
-        if let Some(saved) = current.providers.iter().find(|item| item.id == entry.id) {
-            entry.api_key = saved.api_key.clone();
-            entry.base_url = saved.base_url.clone();
-        }
-    }
-    for saved in &current.providers {
-        if defaults.providers.iter().all(|entry| entry.id != saved.id) {
-            defaults
-                .providers
-                .push(audio_generate::AudioGenProviderEntry {
-                    id: saved.id.clone(),
-                    api_key: saved.api_key.clone(),
-                    base_url: saved.base_url.clone(),
-                    ..Default::default()
-                });
-        }
-    }
-    defaults
+fn reset_media_gen(config: &mut AppConfig) {
+    // Reset behavior (chains + defaults) only; providers carry user
+    // credentials and survive a reset — same contract as the old per-slot
+    // reset that preserved api_key/base_url.
+    config.media_gen.chains = Default::default();
+    config.media_gen.image_defaults = Default::default();
+    config.media_gen.audio_defaults = Default::default();
 }
 
 fn reset_memory_budget(config: &mut AppConfig, defaults: &AppConfig) {
@@ -389,11 +345,8 @@ fn apply_app_target(config: &mut AppConfig, target: SettingsResetTarget) {
                 config.web_search = reset_web_search(&config.web_search);
             }
             SettingsResetSection::ToolsWebFetch => config.web_fetch = defaults.web_fetch,
-            SettingsResetSection::ToolsImageGenerate => {
-                config.image_generate = reset_image_generate(&config.image_generate);
-            }
-            SettingsResetSection::ToolsAudioGenerate => {
-                config.audio_generate = reset_audio_generate(&config.audio_generate);
+            SettingsResetSection::ToolsMediaGen => {
+                reset_media_gen(config);
             }
             SettingsResetSection::ToolsCanvas => config.canvas = defaults.canvas,
             SettingsResetSection::ToolsAsyncTools => config.async_tools = defaults.async_tools,
@@ -475,8 +428,7 @@ fn apply_app_target(config: &mut AppConfig, target: SettingsResetTarget) {
         SettingsResetScope::Tools => {
             config.web_search = reset_web_search(&config.web_search);
             config.web_fetch = defaults.web_fetch;
-            config.image_generate = reset_image_generate(&config.image_generate);
-            config.audio_generate = reset_audio_generate(&config.audio_generate);
+            reset_media_gen(config);
             config.issue_reporting = defaults.issue_reporting;
             config.canvas = defaults.canvas;
             config.image = defaults.image;
@@ -946,15 +898,14 @@ mod tests {
         (SettingsResetScope::Logs, "logs"),
     ];
 
-    const ALL_SECTIONS: [(SettingsResetScope, &str); 35] = [
+    const ALL_SECTIONS: [(SettingsResetScope, &str); 34] = [
         (SettingsResetScope::General, "appearance"),
         (SettingsResetScope::General, "system"),
         (SettingsResetScope::General, "network"),
         (SettingsResetScope::Tools, "general"),
         (SettingsResetScope::Tools, "web_search"),
         (SettingsResetScope::Tools, "web_fetch"),
-        (SettingsResetScope::Tools, "image_generate"),
-        (SettingsResetScope::Tools, "audio_generate"),
+        (SettingsResetScope::Tools, "media_gen"),
         (SettingsResetScope::Tools, "canvas"),
         (SettingsResetScope::Tools, "async_tools"),
         (SettingsResetScope::Tools, "issue_reporting"),
@@ -1197,9 +1148,13 @@ mod tests {
             provider_id: "fallback".into(),
             model_id: "model".into(),
         });
-        config.image_generate.providers[0].api_key = Some("secret".into());
-        config.image_generate.providers[0].enabled = true;
-        config.image_generate.timeout_seconds = 999;
+        let mut provider = crate::media_gen::MediaProviderConfig::new(
+            "OpenAI",
+            crate::media_gen::MediaVendorKind::Openai,
+        );
+        provider.api_key = "secret".into();
+        config.media_gen.providers.push(provider);
+        config.media_gen.image_defaults.timeout_seconds = 999;
 
         let active = config.active_model.clone();
         let fallbacks = config.fallback_models.clone();
@@ -1210,14 +1165,12 @@ mod tests {
             active.as_ref().map(|m| &m.model_id)
         );
         assert_eq!(config.fallback_models.len(), fallbacks.len());
+        // Providers (credentials) survive a tools reset; defaults return to
+        // factory values.
+        assert_eq!(config.media_gen.providers[0].api_key, "secret");
         assert_eq!(
-            config.image_generate.providers[0].api_key.as_deref(),
-            Some("secret")
-        );
-        assert!(!config.image_generate.providers[0].enabled);
-        assert_eq!(
-            config.image_generate.timeout_seconds,
-            image_generate::ImageGenConfig::default().timeout_seconds
+            config.media_gen.image_defaults.timeout_seconds,
+            crate::media_gen::ImageGenDefaults::default().timeout_seconds
         );
     }
 

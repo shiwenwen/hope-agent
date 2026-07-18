@@ -101,6 +101,11 @@ export default function App() {
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection | undefined>(
     undefined,
   )
+  // `settings:navigate` 深链的 modelTab（如 embeddingModels / mediaModels）；
+  // SettingsView 未挂载时事件监听不到，须经 prop 传入初值。
+  const [settingsInitialModelTab, setSettingsInitialModelTab] = useState<string | undefined>(
+    undefined,
+  )
   const [settingsInitialSectionRequestKey, setSettingsInitialSectionRequestKey] = useState(0)
   // 记住进设置前所在的视图，返回时回到那里（而非硬编码回 chat）。
   const [settingsReturnView, setSettingsReturnView] = useState<AppView>("chat")
@@ -231,11 +236,12 @@ export default function App() {
 
   // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
   const handleOpenSettings = useCallback(
-    (section?: SettingsSection) => {
+    (section?: SettingsSection, modelTab?: string) => {
     if (keepConfigRecoveryView()) return
     // 记住来源视图（非 settings 本身），返回时回去。
     if (viewRef.current !== "settings") setSettingsReturnView(viewRef.current)
     setSettingsInitialSection(section)
+    setSettingsInitialModelTab(modelTab)
     setSettingsInitialSectionRequestKey((n) => n + 1)
     setView("settings")
     },
@@ -244,8 +250,10 @@ export default function App() {
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
-      const detail = (event as CustomEvent<{ section?: SettingsSection }>).detail
-      handleOpenSettings(detail?.section)
+      const detail = (
+        event as CustomEvent<{ section?: SettingsSection; modelTab?: string }>
+      ).detail
+      handleOpenSettings(detail?.section, detail?.modelTab)
     }
     window.addEventListener("settings:navigate", handleNavigate)
     return () => window.removeEventListener("settings:navigate", handleNavigate)
@@ -730,6 +738,7 @@ export default function App() {
                   onCodexAuth={handleCodexAuth}
                   onCodexReauth={handleCodexAuth}
                   initialSection={settingsInitialSection}
+                  initialModelConfigTab={settingsInitialModelTab}
                 />
               )}
               {view === "skills" && (

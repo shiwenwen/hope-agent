@@ -100,6 +100,9 @@ import DesignKitModal from "@/components/design/DesignKitModal"
 import DesignVersionHistoryModal from "@/components/design/DesignVersionHistoryModal"
 import DesignDeployModal from "@/components/design/DesignDeployModal"
 import DesignInpaintModal from "@/components/design/DesignInpaintModal"
+import MediaGenerateDialog, {
+  type MediaGeneratePayload,
+} from "@/components/design/MediaGenerateDialog"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { DesignTokenExport } from "@/components/design/DesignTokenExport"
 import { DesignFigmaImport } from "@/components/design/DesignFigmaImport"
@@ -1590,7 +1593,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   )
 
   const createArtifact = useCallback(
-    async (kind: ArtifactKind, prompt?: string) => {
+    async (kind: ArtifactKind, prompt?: string, media?: Omit<MediaGeneratePayload, "prompt">) => {
       if (!activeProject) return
       try {
         // 有 brief → 走流式生成（返回 generating 壳，内容经 design:generate_delta 回填）；
@@ -1602,6 +1605,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             title: kind === "image" && prompt ? prompt.slice(0, 40) : `${kindLabel(kind)}`,
             kind,
             prompt,
+            // 媒体生成参数（MediaGenerateDialog 收集；camelCase 对齐后端 serde）
+            ...media,
           },
         })
         await loadArtifacts(activeProject.id)
@@ -1675,18 +1680,16 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     [tx, activeProject, loadArtifacts, openArtifact, t],
   )
 
-  // image 形态需要描述 prompt → 弹小对话框收集。
-  const [imagePromptOpen, setImagePromptOpen] = useState(false)
-  const [imagePrompt, setImagePrompt] = useState("")
-  const [creatingImage, setCreatingImage] = useState(false)
-  const [promptKind, setPromptKind] = useState<ArtifactKind>("image")
+  // image / audio 媒体形态 → 弹 MediaGenerateDialog 收集 prompt + 生成参数。
+  const [mediaGenOpen, setMediaGenOpen] = useState(false)
+  const [mediaGenKind, setMediaGenKind] = useState<"image" | "audio">("image")
+  const [creatingMedia, setCreatingMedia] = useState(false)
   const onPickKind = useCallback(
     (kind: ArtifactKind) => {
       // image / audio 是媒体形态：需要一段描述（图像描述 / 旁白文本或音乐提示）→ 收集 prompt。
       if (kind === "image" || kind === "audio") {
-        setPromptKind(kind)
-        setImagePrompt("")
-        setImagePromptOpen(true)
+        setMediaGenKind(kind)
+        setMediaGenOpen(true)
       } else {
         // error already surfaced via toast in createArtifact; swallow the rejection
         void createArtifact(kind).catch(() => {})
@@ -1694,18 +1697,20 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     },
     [createArtifact],
   )
-  const confirmImagePrompt = useCallback(async () => {
-    if (!imagePrompt.trim()) return
-    setCreatingImage(true)
-    try {
-      await createArtifact(promptKind, imagePrompt.trim())
-      setImagePromptOpen(false) // only on success — createArtifact throws on failure
-    } catch {
-      // error already surfaced via toast in createArtifact; keep dialog open to retry
-    } finally {
-      setCreatingImage(false)
-    }
-  }, [createArtifact, imagePrompt, promptKind])
+  const confirmMediaGenerate = useCallback(
+    async ({ prompt, ...media }: MediaGeneratePayload) => {
+      setCreatingMedia(true)
+      try {
+        await createArtifact(mediaGenKind, prompt, media)
+        setMediaGenOpen(false) // only on success — createArtifact throws on failure
+      } catch {
+        // error already surfaced via toast in createArtifact; keep dialog open to retry
+      } finally {
+        setCreatingMedia(false)
+      }
+    },
+    [createArtifact, mediaGenKind],
+  )
 
   // ── 从参考图生成匹配产物（「照着这张图做」）─────────────────
   const [refDialogOpen, setRefDialogOpen] = useState(false)
@@ -6170,46 +6175,14 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         </div>
       )}
 
-      {/* Image prompt dialog */}
-      <Dialog open={imagePromptOpen} onOpenChange={setImagePromptOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4" />
-              {promptKind === "audio"
-                ? t("design.newAudio", "生成音频")
-                : t("design.newImage", "生成图像")}
-            </DialogTitle>
-          </DialogHeader>
-          <Textarea
-            autoFocus
-            value={imagePrompt}
-            onChange={(e) => setImagePrompt(e.target.value)}
-            rows={3}
-            placeholder={
-              promptKind === "audio"
-                ? t(
-                    "design.audioPromptPlaceholder",
-                    "旁白文本，或音乐/音效描述（可加 [music] / [sfx] 前缀）…",
-                  )
-                : t("design.imagePromptPlaceholder", "描述你想要的图像…")
-            }
-            className="resize-none"
-          />
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setImagePromptOpen(false)}>
-              {t("common.cancel", "取消")}
-            </Button>
-            <Button
-              onClick={() => void confirmImagePrompt()}
-              disabled={creatingImage || !imagePrompt.trim()}
-            >
-              {creatingImage && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
-              {t("design.generate", "生成")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Image / audio 参数化生成对话框（能力驱动参数区 + 空态引导） */}
+      <MediaGenerateDialog
+        open={mediaGenOpen}
+        kind={mediaGenKind}
+        onClose={() => setMediaGenOpen(false)}
+        onConfirm={confirmMediaGenerate}
+        busy={creatingMedia}
+      />
 
       {/* 图片导出就地选项（W3-L）：格式 PNG/JPEG + 倍率 1/2/3x */}
       <Dialog open={imgExportOpen} onOpenChange={setImgExportOpen}>

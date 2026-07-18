@@ -258,6 +258,7 @@ export default function SettingsView({
   onCodexAuth,
   onCodexReauth,
   initialSection,
+  initialModelConfigTab,
   initialAgentId,
   initialAgentTab,
   initialChannelId,
@@ -267,6 +268,11 @@ export default function SettingsView({
   onCodexAuth: () => Promise<void>
   onCodexReauth?: () => void
   initialSection?: SettingsSection
+  /** When `initialSection === "modelConfig"`, pre-select this inner tab
+   *  (e.g. "embeddingModels" / "mediaModels"). Deep links dispatched while
+   *  SettingsView is unmounted lose the `settings:navigate` event, so App
+   *  forwards the tab through this prop instead. */
+  initialModelConfigTab?: string
   initialAgentId?: string
   initialAgentTab?: AgentTab
   /** When `initialSection === "channels"`, pre-open the Add dialog with
@@ -286,7 +292,7 @@ export default function SettingsView({
     if (initial === "developer" && import.meta.env.PROD) return "modelConfig"
     return initial
   })
-  const [modelConfigTab, setModelConfigTab] = useState("providers")
+  const [modelConfigTab, setModelConfigTab] = useState(initialModelConfigTab ?? "providers")
   const [addingProvider, setAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
   const [resetRevision, setResetRevision] = useState(0)

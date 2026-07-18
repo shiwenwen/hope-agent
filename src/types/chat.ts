@@ -529,6 +529,16 @@ export interface SessionMeta {
    * "needs your response" indicator on non-active sessions.
    */
   pendingInteractionCount: number
+  /**
+   * Earliest auto-resolve deadline among pending interactions that carry a
+   * timeout (server clock, ms). Absent when no pending interaction has a
+   * timeout — the sidebar then renders the plain badge without a countdown.
+   */
+  pendingCountdown?: {
+    deadlineAtMs: number
+    totalMs: number
+    serverNowMs: number
+  } | null
   isCron: boolean
   parentSessionId?: string | null
   /**

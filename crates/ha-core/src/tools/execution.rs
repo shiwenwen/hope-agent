@@ -15,20 +15,20 @@ use super::{
     workflow_tool,
 };
 use super::{
-    agents, artifact, ask_user_question, canvas, design, enter_plan_mode, image, image_generate,
-    job_status, pdf, runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
+    agents, artifact, ask_user_question, audio_generate, canvas, design, enter_plan_mode, image,
+    image_generate, job_status, pdf, runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
 };
 use super::{apply_patch, edit, exec, find, grep, ls, lsp, process, read, write};
 use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ARTIFACT,
-    TOOL_ASK_USER_QUESTION, TOOL_BROWSER, TOOL_CANVAS, TOOL_CORE_MEMORY, TOOL_DELETE_MEMORY,
-    TOOL_DESIGN, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC, TOOL_FIND, TOOL_GET_SETTINGS,
-    TOOL_GET_WEATHER, TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT, TOOL_GOAL_EVALUATE,
-    TOOL_GOAL_FINISH_REQUEST, TOOL_GOAL_PREPARE_CONTRACT, TOOL_GOAL_RECORD_EVIDENCE,
-    TOOL_GOAL_STATUS, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_ISSUE_REPORT,
-    TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LOOP_RECORD_PROGRESS, TOOL_LOOP_RESCHEDULE,
-    TOOL_LOOP_STATUS, TOOL_LOOP_STOP, TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH, TOOL_LS, TOOL_LSP,
-    TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
+    TOOL_ASK_USER_QUESTION, TOOL_AUDIO_GENERATE, TOOL_BROWSER, TOOL_CANVAS, TOOL_CORE_MEMORY,
+    TOOL_DELETE_MEMORY, TOOL_DESIGN, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC, TOOL_FIND,
+    TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT,
+    TOOL_GOAL_EVALUATE, TOOL_GOAL_FINISH_REQUEST, TOOL_GOAL_PREPARE_CONTRACT,
+    TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
+    TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LOOP_RECORD_PROGRESS,
+    TOOL_LOOP_RESCHEDULE, TOOL_LOOP_STATUS, TOOL_LOOP_STOP, TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH,
+    TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
     TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
     TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND,
@@ -1847,7 +1847,7 @@ pub async fn execute_tool_with_context(
             TOOL_PROJECT_MEMORY => project_memory::tool_project_memory(args, dispatch_ctx).await,
             TOOL_MANAGE_CRON => cron::tool_manage_cron(args, dispatch_ctx).await,
             TOOL_BROWSER => browser::tool_browser(args, dispatch_ctx).await,
-            TOOL_MAC_CONTROL => mac_control::tool_mac_control(args).await,
+            TOOL_MAC_CONTROL => mac_control::tool_mac_control(args, dispatch_ctx).await,
             TOOL_SEND_NOTIFICATION => {
                 notification::tool_send_notification(args, dispatch_ctx).await
             }
@@ -1889,6 +1889,7 @@ pub async fn execute_tool_with_context(
             TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, dispatch_ctx)).await,
             TOOL_IMAGE => image::tool_image(args, dispatch_ctx).await,
             TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args, dispatch_ctx).await,
+            TOOL_AUDIO_GENERATE => audio_generate::tool_audio_generate(args, dispatch_ctx).await,
             TOOL_ISSUE_REPORT => issue_report::tool_issue_report(args, dispatch_ctx).await,
             TOOL_PDF => pdf::tool_pdf(args).await,
             TOOL_CANVAS => canvas::tool_canvas(args, dispatch_ctx).await,

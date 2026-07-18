@@ -76,6 +76,7 @@ pub mod mac_control;
 
 pub mod mcp;
 pub mod mcp_server;
+pub mod media_gen;
 pub mod memory;
 pub mod memory_extract;
 pub mod model_usage;
@@ -111,6 +112,7 @@ pub mod stt;
 pub mod subagent;
 pub mod system_prompt;
 pub mod team;
+pub mod tool_actions;
 pub mod tools;
 pub mod ttl_cache;
 pub mod updater;

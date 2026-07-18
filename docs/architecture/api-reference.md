@@ -213,7 +213,8 @@ Tauri ↔ COMMAND_MAP 差集为 21 条合法非通用映射命令：5 条 Deskto
 | `design:show` / `design:reload` / `design:artifact_ready` / `design:artifact_deleted` / `design:project_changed` / `design:system_changed` / `design:critiqued` / `design:code_drift` | 设计空间（产物生成 / 预览刷新 / 系统变更 / 质量评审 / code→design 回灌 stale 翻转） |
 | `design:artifact_generating` / `design:generate_delta` / `design:generate_done` / `design:generate_error` | 设计空间真流式生成（建 generating 壳 / 逐帧回填预览 / 定稿受控 swap / 失败降级）。`generate_delta` payload `{ projectId, artifactId, streamId, seq, css, bodyHtml, done }` |
 | `design:ffmpeg_download_progress` | MP4 导出编码器（ffmpeg）按需下载进度。Payload `{ stage: "downloading"\|"ready", percent?, downloadedBytes?, totalBytes?, binaryPath? }` |
-| `browser:frame` | 浏览器活动 tab 的实时 JPEG 帧。Payload `{ sessionId?, targetId?, url?, title?, jpegBase64, capturedAt, backend }`。在 `act` / `navigate` / `tabs.new|select|claim` 后由后端自动 emit；BrowserPanel 同时以 1Hz 轮询 `browser_capture_frame` 兜底并按当前会话过滤 |
+| `browser:frame` | 浏览器活动 tab 的实时 JPEG 帧。Payload `{ sessionId?, targetId?, url?, title?, jpegBase64, capturedAt, backend, actionId? }`。在 `act` / `navigate` / `tabs.new|select|claim` 后由 `tool_browser` choke point 统一 emit（`actionId` 关联对应 action 事件；1Hz 轮询帧无 `actionId`）；BrowserPanel 同时以 1Hz 轮询 `browser_capture_frame` 兜底并按当前会话过滤 |
+| `browser:action` / `mac_control:action` | 浏览器 / macOS 控制工具的逐步操作事件（面板执行历史时间线）。Payload = `ToolActionEvent`（camelCase）：`{ actionId, source, sessionId?, action, op?, target?, detail?, url?, app?, ok, error?, durationMs, startedAt, toolCallId?, hasFrame }`。输入文本经脱敏只记长度（`text(N chars)`）；历史落进程内 per-session ring buffer（200 条 / 缩略图最近 50 条），经 `tool_recent_actions` 拉取，会话删除 / 焚毁即清 |
 
 ### Artifacts
 
@@ -791,7 +792,9 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `mac_control_status` | `GET /api/mac-control/status` | ✅ |
 | `mac_control_permissions` | `GET /api/mac-control/permissions` | ✅ |
 | `mac_control_snapshot` | `POST /api/mac-control/snapshot` | ✅ |
-| `mac_control_capture_frame` | `POST /api/mac-control/capture-frame` | ✅ |
+| `mac_control_capture_frame` | `POST /api/mac-control/capture-frame`（可带 `{ displayId? }` 指定捕获显示器） | ✅ |
+| `mac_control_list_displays` | `GET /api/mac-control/displays`（面板快捷条显示器下拉；server 模式返回空 + error） | ✅ |
+| `tool_recent_actions` | `GET /api/tool-actions?source=&sessionId=&limit=`（浏览器 / mac control 面板执行历史，读内存 ring buffer） | ✅ |
 
 这些是前端 Transport 层的桌面状态 / 权限 / 画面镜像入口；聊天里的 builtin tool 统一叫 `mac_control`，其 `wait/apps/windows/act/menu/dialog` 等动作在 ha-core 工具执行层分发，不按每个 op 增加 Tauri / HTTP command。HTTP/server 模式保持同形状响应，但本机桌面控制返回 `supported=false`。
 
@@ -806,7 +809,6 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `reorder_providers` | `POST /api/providers/reorder` | ✅ |
 | `test_provider` | `POST /api/providers/test` | ✅ |
 | `test_embedding` | `POST /api/providers/test-embedding` | ✅ |
-| `test_image_generate` | `POST /api/providers/test-image` | ✅ |
 | `test_model` | `POST /api/providers/test-model` | ✅ |
 | `test_proxy` | `POST /api/config/proxy/test` | ✅ |
 | `has_providers` | `GET /api/providers/has-any` | ✅ |
@@ -1032,10 +1034,6 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `get_audio_model_catalog_cmd` | `GET /api/config/audio-model-catalog` | ✅ |
-| `list_elevenlabs_voices_cmd` | `GET /api/config/elevenlabs-voices` | ✅ |
-| `get_audio_generate_config` | `GET /api/config/audio-generate` | ✅ |
-| `save_audio_generate_config` | `PUT /api/config/audio-generate` | ✅ |
 | `get_embedding_config` | `GET /api/config/embedding` | ✅ |
 | `save_embedding_config` | `PUT /api/config/embedding` | ✅ |
 | `get_embedding_presets` | `GET /api/config/embedding/presets` | ✅ |
@@ -1290,8 +1288,17 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `get_image_generate_config` | `GET /api/config/image-generate` | ✅ |
-| `save_image_generate_config` | `PUT /api/config/image-generate` | ✅ |
+| `get_media_gen_config` | `GET /api/config/media-gen` | ✅ |
+| `add_media_provider` | `POST /api/config/media-gen/providers` | ✅ |
+| `update_media_provider` | `PUT /api/config/media-gen/providers/{providerId}` | ✅ |
+| `delete_media_provider` | `DELETE /api/config/media-gen/providers/{providerId}` | ✅ |
+| `reorder_media_providers` | `PUT /api/config/media-gen/providers/reorder` | ✅ |
+| `set_media_default_chain` | `PUT /api/config/media-gen/chains/{function}` | ✅ |
+| `update_media_gen_defaults` | `PUT /api/config/media-gen/defaults` | ✅ |
+| `get_media_provider_templates` | `GET /api/config/media-gen/templates` | ✅ |
+| `list_media_voices` | `GET /api/config/media-gen/voices` | ✅ |
+| `test_media_provider` | `POST /api/config/media-gen/test` | ✅ |
+| `get_media_gen_overview` | `GET /api/config/media-gen/overview` | ✅ |
 | `get_web_search_config` | `GET /api/config/web-search` | ✅ |
 | `save_web_search_config` | `PUT /api/config/web-search` | ✅ |
 | `get_web_fetch_config` | `GET /api/config/web-fetch` | ✅ |
@@ -1510,6 +1517,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `browser_connect` | `POST /api/browser/connect` | ✅ |
 | `browser_disconnect` | `POST /api/browser/disconnect` | ✅ |
 | `browser_capture_frame` | `POST /api/browser/capture-frame`，body 可带 `{ sessionId? }` | ✅ |
+| `browser_panel_navigate` | `POST /api/browser/panel-navigate`，body `{ op: "go"\|"back"\|"reload", url?, sessionId? }`（面板快捷条；`go` 过 SSRF 检查，缺 scheme 默认 https） | ✅ |
 | `browser_spawn_user_chrome` | `POST /api/browser/spawn-user-chrome` | ✅ |
 | `browser_doctor` | `GET /api/browser/doctor` | ✅ |
 | `browser_get_config` | `GET /api/browser/config` | ✅ |

@@ -119,6 +119,23 @@ pub async fn capture_frame(
     ))
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelNavigateBody {
+    pub op: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+/// `POST /api/browser/panel-navigate`
+pub async fn panel_navigate(Json(body): Json<PanelNavigateBody>) -> Result<Json<()>, AppError> {
+    ha_core::browser_ui::panel_navigate(&body.op, body.url.as_deref(), body.session_id.as_deref())
+        .await?;
+    Ok(Json(()))
+}
+
 /// `POST /api/browser/spawn-user-chrome`
 pub async fn spawn_user_chrome(
     Json(args): Json<ha_core::browser::user_attach::SpawnUserChromeArgs>,

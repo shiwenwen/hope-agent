@@ -242,12 +242,18 @@ Ring 容量 `OBSERVE_RING_CAPACITY=500`/kind，满则 shift 最旧。Core 侧对
 
 桌面 app 独占优势——chat 右侧固定 panel，实时镜像 agent 控制的 Chrome 窗口。**事件驱动 + 1s 兜底轮询**：
 
-- **后端 emit**：[`browser::frame::emit_frame_async`](../../crates/ha-core/src/browser/frame.rs) 在每次 `act` / `navigate` / `tabs.new|select|claim` 完成后 fire-and-forget 一次截图（JPEG quality=70），通过 EventBus 发 `browser:frame`。payload 带可选 `sessionId`，ExtensionBackend 按会话构造临时 backend 捕获真实 claimed tab；CDP fallback 保持旧路径且不强制启动新浏览器，但仍保留请求会话的 `sessionId` 供前端过滤。
+- **后端 emit（choke point 集中）**：[`browser::frame::emit_frame_async`](../../crates/ha-core/src/browser/frame.rs) 由 [`tool_browser`](../../crates/ha-core/src/tools/browser/mod.rs) choke point 的 `should_emit_frame_after` 统一触发（`act` 失败也发帧——页面可能已部分变化；`navigate` / `tabs.new|select|claim` 仅成功发），不再散在各 handler 里。fire-and-forget 一次截图（JPEG quality=70），通过 EventBus 发 `browser:frame`。payload 带可选 `sessionId` 与可选 `actionId`（关联同 choke point 记录的 `browser:action` 事件，帧任务事后降采样 ≤240px q60 缩略图回填进 action ring buffer；轮询帧无 `actionId` 不回填）。ExtensionBackend 按会话构造临时 backend 捕获真实 claimed tab；CDP fallback 保持旧路径且不强制启动新浏览器，但仍保留请求会话的 `sessionId` 供前端过滤。
 - **前端订阅**：[`BrowserPanel.tsx`](../../src/components/chat/BrowserPanel.tsx) `useEffect` 订阅 `browser:frame` 立即替换帧；[`ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx) 只用当前会话的 `sessionId` 自动打开 BrowserPanel，避免其它会话的浏览器动作把右侧 panel 拉出来。
 - **兜底轮询**：panel 打开期 `setInterval(1000, browser_capture_frame)`，关闭即 clear。调用时传当前 `sessionId`，优先复用同会话 extension tab，覆盖用户在 Chrome 里手动操作的场景。
 - **互斥**：跟 PlanPanel / DiffPanel / CanvasPanel / WorkspacePanel 互斥，第一次当前会话 `browser:frame` 到来自动开 panel，用户手动关闭后保持关闭。
 
 `browser_capture_frame` 同时暴露为 Tauri 命令（[`src-tauri/src/commands/browser.rs`](../../src-tauri/src/commands/browser.rs)）和 HTTP `POST /api/browser/capture-frame`（[`crates/ha-server/src/routes/browser.rs`](../../crates/ha-server/src/routes/browser.rs)），两端都接受可选 `{ sessionId }`，保持 Transport 抽象对齐。
+
+### 面板执行历史 / 悬浮小窗 / 快捷条
+
+- **逐步操作事件流**：`tool_browser` choke point 按白名单（`navigate` / `act` / `tabs` 变更类 / `control` 操作类 / `snapshot.screenshot|pdf`；status / profile / observe / 各 list 类只读查询跳过）经 [`tool_actions`](../../crates/ha-core/src/tool_actions.rs) 记录 `ToolActionEvent` 并 emit `browser:action`。**脱敏红线**：`act.fill` 文本只记长度（`text(N chars)`，不留前缀）；error 截断 256B。历史落**进程内 per-session ring buffer**（200 条、缩略图最近 50 条、session key LRU 64，纯内存不落盘——incognito 照记，会话删除 / 焚毁经 `session::cleanup_watcher` → `tool_actions::purge_for_session` 即清），`tool_recent_actions`（Tauri + HTTP `GET /api/tool-actions`）拉取。
+- **面板底部功能区**（docked 态）：[`BrowserPanelContent`](../../src/components/chat/BrowserPanelContent.tsx) 在帧预览（aspect-ratio 自适应 + `max-h-[55%]`）下方叠 QuickBar（URL 直达 / 后退 / 刷新走 owner 命令 `browser_panel_navigate`，`go` 过 SSRF、缺 scheme 补 https；接管暂停与外部打开也收拢于此）、三格统计条（步数+失败 / 总耗时 / 当前目标 host）与执行历史时间线（[`PanelActionTimeline`](../../src/components/chat/right-panel/PanelActionTimeline.tsx)，点击条目用该步缩略图回放、「回到实时」退出——回放只是显示层选择，live 帧照常更新）。数据源 [`usePanelActionHistory`](../../src/hooks/usePanelActionHistory.ts)（挂载拉 ring buffer + 增量监听 action/frame 事件）。
+- **悬浮小窗**：面板 header 的悬浮按钮把镜像切成应用内可拖拽 / 8 向 resize 的悬浮卡片（[`FloatingPanelWindow`](../../src/components/chat/right-panel/FloatingPanelWindow.tsx) + [`useFloatingWindow`](../../src/hooks/useFloatingWindow.ts)，pointer capture + 手势中 rAF 直写 DOM、pointer-up 才 commit、rect 记 localStorage、视口双重 clamp；z-40..49 恒低于 dialog 的 z-50）。悬浮 = 退出右侧互斥槽位（`rightPanelVisibility` 置 false，槽位自动让给下一面板），标题栏切换器仍列出该面板、点击即停靠回槽位；browser 与 mac-control 可同时悬浮。帧监听经引用计数 [`frame-store`](../../src/lib/frame-store.ts)（0→1 挂 transport listener、1→0 延迟 300ms 卸载）在停靠↔悬浮容器切换间不断流、全局仅一份轮询。会话切换关闭悬浮窗（帧是会话相关的）。
 
 ### 工作台浏览器活动
 

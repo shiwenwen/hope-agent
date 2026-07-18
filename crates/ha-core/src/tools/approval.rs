@@ -522,14 +522,40 @@ pub async fn pending_request_ids_for_session(session_id: &str) -> Vec<String> {
         .collect()
 }
 
-/// Count pending approvals grouped by session id. Approvals registered without
-/// a session id (e.g. global commands triggered outside any chat) are skipped.
-pub async fn pending_approvals_per_session() -> HashMap<String, i64> {
+/// Per-session aggregate over the pending-approval registry: count plus the
+/// earliest not-yet-expired deadline (and that request's full timeout span)
+/// for the sidebar countdown badge.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SessionApprovalAgg {
+    pub count: i64,
+    /// Earliest `timeout_at_ms` among pending approvals that carry a timeout
+    /// and have not already passed it. `None` when every pending approval
+    /// waits indefinitely.
+    pub min_deadline_ms: Option<i64>,
+    /// `timeout_at_ms - created_at_ms` of the request behind
+    /// `min_deadline_ms`; `None` iff `min_deadline_ms` is.
+    pub min_deadline_total_ms: Option<i64>,
+}
+
+/// Aggregate pending approvals grouped by session id. Approvals registered
+/// without a session id (e.g. global commands triggered outside any chat) are
+/// skipped. Already-expired deadlines (timeout task racing cleanup) are
+/// treated as having no deadline so the countdown never renders negative.
+pub async fn pending_approvals_per_session() -> HashMap<String, SessionApprovalAgg> {
     let pending = get_pending_approvals().lock().await;
-    let mut out: HashMap<String, i64> = HashMap::new();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let mut out: HashMap<String, SessionApprovalAgg> = HashMap::new();
     for entry in pending.values() {
-        if let Some(sid) = entry.request.session_id.as_ref() {
-            *out.entry(sid.clone()).or_insert(0) += 1;
+        let Some(sid) = entry.request.session_id.as_ref() else {
+            continue;
+        };
+        let agg = out.entry(sid.clone()).or_default();
+        agg.count += 1;
+        if let Some(deadline) = entry.request.timeout_at_ms {
+            if deadline > now_ms && agg.min_deadline_ms.is_none_or(|cur| deadline < cur) {
+                agg.min_deadline_ms = Some(deadline);
+                agg.min_deadline_total_ms = Some((deadline - entry.request.created_at_ms).max(1));
+            }
         }
     }
     out
@@ -1293,5 +1319,65 @@ mod tests {
             .await
             .iter()
             .all(|candidate| candidate.request_id != request_id));
+    }
+
+    /// Sidebar countdown: the per-session aggregate counts every pending
+    /// approval but only surfaces the earliest *future* deadline (and that
+    /// request's own total span). Timeout-free and already-expired entries
+    /// contribute to the count, never to the deadline.
+    #[tokio::test]
+    async fn per_session_aggregate_picks_earliest_future_deadline() {
+        let session_id = format!("session-agg-{}", create_session_id());
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let mut receivers = Vec::new();
+        // (suffix, created_at_ms, timeout_at_ms)
+        let entries = [
+            ("later", now_ms - 10_000, Some(now_ms + 600_000)),
+            ("earliest", now_ms - 5_000, Some(now_ms + 120_000)),
+            ("no-timeout", now_ms - 1_000, None),
+            ("expired", now_ms - 60_000, Some(now_ms - 1_000)),
+        ];
+        {
+            let mut pending = get_pending_approvals().lock().await;
+            for (suffix, created_at_ms, timeout_at_ms) in entries {
+                let request_id = format!("approval-agg-{}-{}", suffix, session_id);
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                receivers.push(receiver);
+                pending.insert(
+                    request_id.clone(),
+                    PendingApprovalEntry {
+                        sender,
+                        request: ApprovalRequest {
+                            request_id,
+                            command: "test".into(),
+                            cwd: "/tmp".into(),
+                            session_id: Some(session_id.clone()),
+                            reason: None,
+                            incognito: false,
+                            created_at_ms,
+                            server_now_ms: created_at_ms,
+                            timeout_at_ms,
+                            timeout_secs: 0,
+                            timeout_action: crate::config::ApprovalTimeoutAction::Deny,
+                        },
+                    },
+                );
+            }
+        }
+
+        let agg = pending_approvals_per_session()
+            .await
+            .remove(&session_id)
+            .expect("session aggregated");
+        assert_eq!(agg.count, 4);
+        assert_eq!(agg.min_deadline_ms, Some(now_ms + 120_000));
+        // Total span belongs to the same request that supplied the deadline.
+        assert_eq!(agg.min_deadline_total_ms, Some(125_000));
+
+        // Cleanup the global registry so other tests see no leakage.
+        assert_eq!(
+            deny_pending_for_session(&session_id, ApprovalResolutionSource::UserStop).await,
+            4
+        );
     }
 }

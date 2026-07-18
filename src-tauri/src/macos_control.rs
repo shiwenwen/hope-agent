@@ -86,10 +86,19 @@ mod imp {
                 .map_err(|e| format!("macOS elements worker failed: {e}"))?
         }
 
-        async fn capture_frame(&self) -> Result<MacControlFramePayload, String> {
-            tokio::task::spawn_blocking(capture_desktop_frame)
+        async fn capture_frame(
+            &self,
+            display_id: Option<u32>,
+        ) -> Result<MacControlFramePayload, String> {
+            tokio::task::spawn_blocking(move || capture_desktop_frame(display_id))
                 .await
                 .map_err(|e| format!("macOS frame worker failed: {e}"))?
+        }
+
+        async fn list_displays(&self) -> Result<Vec<MacControlDisplaySummary>, String> {
+            tokio::task::spawn_blocking(display_summaries)
+                .await
+                .map_err(|e| format!("macOS displays worker failed: {e}"))?
         }
 
         async fn apps(
@@ -8010,10 +8019,10 @@ mod imp {
         ))
     }
 
-    fn capture_desktop_frame() -> Result<MacControlFramePayload, String> {
+    fn capture_desktop_frame(display_id: Option<u32>) -> Result<MacControlFramePayload, String> {
         let snapshot_id = ha_core::mac_control::new_snapshot_id();
         let frontmost_app = focused_app_summary();
-        let captured = capture_display_frame_bytes(None)?;
+        let captured = capture_display_frame_bytes(display_id)?;
         Ok(build_frame_payload(
             &snapshot_id,
             frontmost_app,
@@ -8231,6 +8240,7 @@ mod imp {
             scale: captured.scale,
             captured_at: chrono::Utc::now().timestamp_millis(),
             frontmost_app,
+            action_id: None,
         }
     }
 

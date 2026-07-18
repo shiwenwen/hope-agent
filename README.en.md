@@ -323,7 +323,8 @@ For the full module map, architecture conventions, and coding guidelines, see [A
 
 ## Documentation
 
-See [docs/](docs/).
+- 📖 **[User Guide](docs/user-guide/en/README.md)** — the complete user manual: installation, getting started, and how to use and configure every feature ([简体中文](docs/user-guide/README.md))
+- 🏗️ [Technical docs](docs/) — architecture and implementation details (for developers)
 
 ## Contributing
 

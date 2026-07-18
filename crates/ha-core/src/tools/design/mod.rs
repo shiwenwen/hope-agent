@@ -220,7 +220,7 @@ fn scoped_local_path(session_id: Option<&str>, raw: &str) -> Result<std::path::P
 /// Agent-plane guard for `create_artifact kind=image` reference images. Remote
 /// (`http(s)://`) and inline (`data:`) sources pass through to the loader, which
 /// SSRF-checks URLs and decodes data URIs. Local file paths are normalized the
-/// same way `image_generate::helpers::load_input_images` will (`~` expansion,
+/// same way `media_gen::load_input_images` will (`~` expansion,
 /// `file://` stripping) and then scoped via [`scoped_local_path`]; any entry that
 /// resolves outside the session working directory / attachments / bound repo (or
 /// can't be resolved) is dropped fail-closed. Without this, the approval-exempt
@@ -344,6 +344,10 @@ async fn action_create_artifact(
         recipe_id: str_arg(args, "recipe_id").map(str::to_string),
         aspect_ratio: str_arg(args, "aspect_ratio").map(str::to_string),
         audio_duration_secs: args.get("audio_duration_secs").and_then(|v| v.as_f64()),
+        audio_kind: str_arg(args, "audio_kind").map(str::to_string),
+        audio_voice: str_arg(args, "voice").map(str::to_string),
+        image_size: str_arg(args, "image_size").map(str::to_string),
+        image_resolution: str_arg(args, "image_resolution").map(str::to_string),
         folder: None,
     };
     let artifact = service::create_artifact_generating(input).await?;

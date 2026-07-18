@@ -65,6 +65,7 @@ pub mod subagent;
 pub mod system;
 pub mod tasks;
 pub mod team;
+pub mod tool_actions;
 pub mod url_preview;
 pub mod verification;
 pub mod weather;
