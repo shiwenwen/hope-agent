@@ -1212,24 +1212,33 @@ fn apply_app_config_update(
             if let Some(v) = obj.get("audioDefaults") {
                 merge_field(&mut store.media_gen.audio_defaults, v)?;
             }
-            if let Some(v) = obj.get("chains") {
-                use crate::media_gen::{AudioKind, MediaFunction};
-                let mut chains = store.media_gen.chains.clone();
-                merge_field(&mut chains, v)?;
-                for function in [
-                    MediaFunction::Image,
-                    MediaFunction::Audio(AudioKind::Speech),
-                    MediaFunction::Audio(AudioKind::Music),
-                    MediaFunction::Audio(AudioKind::Sfx),
-                ] {
-                    if let Some(chain) = chains.for_function(function) {
+            if let Some(chains_obj) = obj.get("chains").and_then(|v| v.as_object()) {
+                use crate::media_gen::{MediaFunction, MediaModelChain};
+                // Per-function assignment (not a deep merge): an explicit
+                // `null` clears that chain back to auto, and only the keys the
+                // caller sent are touched. A deep merge would silently drop a
+                // `null` and leave the chain in place.
+                let mut next = store.media_gen.chains.clone();
+                for (key, value) in chains_obj {
+                    let Some(function) = MediaFunction::parse(key) else {
+                        anyhow::bail!(
+                            "unknown media chain key `{key}` (expected image/speech/music/sfx)"
+                        );
+                    };
+                    let chain: Option<MediaModelChain> = if value.is_null() {
+                        None
+                    } else {
+                        Some(serde_json::from_value(value.clone())?)
+                    };
+                    if let Some(chain) = &chain {
                         for entry in chain.iter() {
                             crate::media_gen::crud::check_serves_function(store, entry, function)
                                 .map_err(|e| anyhow::anyhow!("{e}"))?;
                         }
                     }
+                    next.set_for_function(function, chain);
                 }
-                store.media_gen.chains = chains;
+                store.media_gen.chains = next;
             }
         }
         "canvas" => merge_field(&mut store.canvas, values)?,

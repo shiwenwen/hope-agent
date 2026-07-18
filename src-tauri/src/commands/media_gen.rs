@@ -131,6 +131,7 @@ pub async fn test_media_provider(
     kind: Option<ha_core::media_gen::MediaVendorKind>,
     api_key: Option<String>,
     base_url: Option<String>,
+    allow_private_network: Option<bool>,
 ) -> Result<String, String> {
     ha_core::media_gen::probe::test_media_provider(
         ha_core::media_gen::probe::TestMediaProviderInput {
@@ -138,6 +139,7 @@ pub async fn test_media_provider(
             kind,
             api_key,
             base_url,
+            allow_private_network: allow_private_network.unwrap_or(false),
         },
     )
     .await

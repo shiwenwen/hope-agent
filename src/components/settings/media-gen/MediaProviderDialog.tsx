@@ -448,6 +448,9 @@ export default function MediaProviderDialog({
             kind: draft.kind,
             apiKey: draft.apiKey,
             baseUrl: draft.baseUrl?.trim() || undefined,
+            // Draft probe of a self-hosted (localhost) endpoint needs the same
+            // private-network allowance the saved provider would carry.
+            allowPrivateNetwork: draft.allowPrivateNetwork,
           }
       // Tauri returns the probe JSON as a string; HTTP returns it parsed.
       const raw = await getTransport().call<unknown>("test_media_provider", args)

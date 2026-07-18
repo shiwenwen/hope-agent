@@ -103,17 +103,22 @@ pub fn resolve_candidates<'a>(
         return Ok(out);
     }
 
-    // Auto: provider order × capability filter, first match per provider.
+    // Auto: provider order × every serving model. Multiple models on one
+    // provider are all candidates (in declared order) so a request the first
+    // model can't satisfy — e.g. n=4 on a max_n=1 model — still reaches a
+    // later capable model on the SAME provider before failing over. Capability
+    // filtering happens in the executor per candidate; `serves()` only gates
+    // modality/kind here, not request geometry.
     let out: Vec<ResolvedCandidate<'a>> = cfg
         .providers
         .iter()
         .filter(|p| p.is_usable())
-        .filter_map(|provider| {
+        .flat_map(|provider| {
             provider
                 .models
                 .iter()
-                .find(|m| m.serves(function))
-                .map(|model| ResolvedCandidate { provider, model })
+                .filter(move |m| m.serves(function))
+                .map(move |model| ResolvedCandidate { provider, model })
         })
         .collect();
     if out.is_empty() {
@@ -320,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_picks_first_matching_model_per_provider_in_order() {
+    fn auto_includes_all_serving_models_per_provider_in_order() {
         let mut cfg = MediaGenConfig::default();
         cfg.providers.push(usable(
             "A",
@@ -337,8 +342,11 @@ mod tests {
 
         let candidates = resolve_candidates(&cfg, MediaFunction::Image, None).unwrap();
         let labels: Vec<_> = candidates.iter().map(|c| c.model.id.clone()).collect();
-        // One per provider, first matching model, disabled skipped.
-        assert_eq!(labels, vec!["img-a", "img-b"]);
+        // Every serving model, in provider then model order; the non-image
+        // model and the disabled provider are skipped. Both of A's image
+        // models are candidates so a request the first can't satisfy can
+        // still reach the second before failing over to B.
+        assert_eq!(labels, vec!["img-a", "img-a2", "img-b"]);
     }
 
     #[test]

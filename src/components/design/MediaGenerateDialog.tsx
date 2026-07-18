@@ -148,6 +148,15 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
   )
   const needsVoice = kind === "audio" && audioKind === "speech" && !!cand?.audio?.needsVoice
   const supportsDuration = kind === "audio" && !!cand?.audio?.supportsDuration
+  // Only offer durations within the model's declared range (SFX ≈ 0.5–30s,
+  // music ≈ 10–300s); out-of-range picks would be silently clamped.
+  const durationChoices = useMemo(() => {
+    const min = cand?.audio?.minDurationSecs ?? null
+    const max = cand?.audio?.maxDurationSecs ?? null
+    return AUDIO_DURATION_OPTIONS.filter(
+      (s) => (min == null || s >= min) && (max == null || s <= max),
+    )
+  }, [cand])
 
   // prompt 以 [music] / [sfx] 开头 → 自动切 kind（不删文本；目标 kind 不可用则不切）。
   const handlePromptChange = useCallback(
@@ -189,7 +198,12 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
     if (!p) return
     const payload: MediaGeneratePayload = { prompt: p }
     if (kind === "image") {
-      if (aspect !== AUTO) payload.aspectRatio = aspect
+      // Only carry a parameter the resolved model actually supports —
+      // otherwise the backend capability check skips the sole candidate and
+      // the whole generation fails.
+      if (cand?.image?.supportsAspectRatio && aspect !== AUTO) {
+        payload.aspectRatio = aspect
+      }
       if (cand?.image?.supportsResolution && resolution !== AUTO) {
         payload.imageResolution = resolution
       }
@@ -353,25 +367,28 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
               className="resize-none"
             />
 
-            {kind === "image" && (
+            {kind === "image" &&
+              (cand?.image?.supportsAspectRatio || cand?.image?.supportsResolution) && (
               <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <span className="text-sm text-muted-foreground">
-                    {t("design.gen.aspectRatio", "宽高比")}
-                  </span>
-                  <RadioPills
-                    value={aspect}
-                    onChange={setAspect}
-                    variant="strong"
-                    layout="wrap"
-                    itemClassName="h-7 px-3 text-xs"
-                    ariaLabel={t("design.gen.aspectRatio", "宽高比")}
-                    options={[
-                      { value: AUTO, label: t("design.gen.auto", "自动") },
-                      ...aspectChoices.map((r) => ({ value: r, label: r })),
-                    ]}
-                  />
-                </div>
+                {cand?.image?.supportsAspectRatio && (
+                  <div className="space-y-1.5">
+                    <span className="text-sm text-muted-foreground">
+                      {t("design.gen.aspectRatio", "宽高比")}
+                    </span>
+                    <RadioPills
+                      value={aspect}
+                      onChange={setAspect}
+                      variant="strong"
+                      layout="wrap"
+                      itemClassName="h-7 px-3 text-xs"
+                      ariaLabel={t("design.gen.aspectRatio", "宽高比")}
+                      options={[
+                        { value: AUTO, label: t("design.gen.auto", "自动") },
+                        ...aspectChoices.map((r) => ({ value: r, label: r })),
+                      ]}
+                    />
+                  </div>
+                )}
                 {cand?.image?.supportsResolution && (
                   <div className="space-y-1.5">
                     <span className="text-sm text-muted-foreground">
@@ -477,7 +494,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
                         <SelectItem value={DEFAULT_DURATION}>
                           {t("design.gen.durationDefault", "默认")}
                         </SelectItem>
-                        {AUDIO_DURATION_OPTIONS.map((s) => (
+                        {durationChoices.map((s) => (
                           <SelectItem key={s} value={String(s)}>
                             {t("design.gen.durationSecs", "{{n}} 秒", { n: s })}
                           </SelectItem>

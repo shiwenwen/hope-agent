@@ -80,8 +80,10 @@ media_gen/
    撞名报错要求 `pid::mid` 形式。**pin = 不 failover**（沿袭旧工具行为）。
 2. **已配置链**：primary → fallbacks，悬挂 / 不可用引用 `app_warn` 跳过；**链耗尽即失败、
    绝不滑落 auto**（可预测性——用户 pin 了链就不该悄悄用别的服务商）。
-3. **auto**：providers 顺序 × 能力过滤，每 provider 取首个匹配模型（避免同 provider 排队
-   多模型拖长失败链）。
+3. **auto**：providers 顺序 × 每个 serves 该 function 的模型（同 provider 多模型按声明序全部
+   入候选）。`serves()` 只 gate modality/kind，请求几何（n/size/AR）由执行器逐候选校验——
+   故同一 provider 上首模型满足不了的请求（如 n=4 撞 max_n=1）仍能落到后面能胜任的模型，
+   再 failover 到下个 provider。
 
 **唯一执行入口 `execute.rs::execute_image / execute_audio`**：逐候选 → 宽松能力校验
 （`validate_image_request`，mask 请求只投 `supports_mask` 模型）→ 每候选至多 1 次可重试

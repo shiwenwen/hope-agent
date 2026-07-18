@@ -27,6 +27,12 @@ pub struct TestMediaProviderInput {
     pub api_key: Option<String>,
     #[serde(default)]
     pub base_url: Option<String>,
+    /// Draft-only: mirrors the provider's `allow_private_network` so a
+    /// self-hosted (localhost) OpenAI-compatible endpoint can be tested
+    /// before it's saved. Ignored when `provider_id` is set (the saved
+    /// provider's own policy applies).
+    #[serde(default)]
+    pub allow_private_network: bool,
 }
 
 fn fail(message: String) -> String {
@@ -59,11 +65,16 @@ pub async fn test_media_provider(input: TestMediaProviderInput) -> Result<String
             .clone()
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| kind.default_base_url().to_string());
+        let policy = if input.allow_private_network {
+            crate::security::ssrf::SsrfPolicy::AllowPrivate
+        } else {
+            crate::config::cached_config().ssrf.default_policy
+        };
         (
             kind,
             input.api_key.clone().unwrap_or_default(),
             base,
-            crate::config::cached_config().ssrf.default_policy,
+            policy,
         )
     };
     let base = base_url.trim_end_matches('/').to_string();

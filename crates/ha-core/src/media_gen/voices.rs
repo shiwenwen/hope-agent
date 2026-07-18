@@ -43,7 +43,7 @@ pub async fn list_media_voices(provider_id: &str, limit: u32) -> Result<Vec<Voic
 
     match provider.kind {
         MediaVendorKind::Elevenlabs => list_elevenlabs_voices(provider_id, limit).await,
-        MediaVendorKind::Openai | MediaVendorKind::OpenaiCompatible => Ok(OPENAI_TTS_VOICES
+        MediaVendorKind::Openai => Ok(OPENAI_TTS_VOICES
             .iter()
             .map(|name| VoiceOption {
                 voice_id: (*name).to_string(),
@@ -51,6 +51,10 @@ pub async fn list_media_voices(provider_id: &str, limit: u32) -> Result<Vec<Voic
                 category: None,
             })
             .collect()),
+        // Self-hosted / third-party endpoints have their own voice catalog we
+        // can't enumerate — the documented OpenAI voice names would mislead.
+        // Return empty; the UI keeps the free-form voice-id input.
+        MediaVendorKind::OpenaiCompatible => Ok(Vec::new()),
         other => bail!("{} does not expose a voice catalog", other.display_name()),
     }
 }
