@@ -286,7 +286,6 @@ fn reset_media_gen(config: &mut AppConfig) {
     config.media_gen.audio_defaults = Default::default();
 }
 
-
 fn reset_memory_budget(config: &mut AppConfig, defaults: &AppConfig) {
     config.memory_budget = defaults.memory_budget.clone();
 

@@ -1386,8 +1386,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             voice: input.audio_voice.clone().filter(|v| !v.trim().is_empty()),
             duration_seconds: input.audio_duration_secs,
         };
-        let parts =
-            super::audio::generate_audio_parts(&prompt, &input.title, &audio_opts).await?;
+        let parts = super::audio::generate_audio_parts(&prompt, &input.title, &audio_opts).await?;
         input.body_html = Some(parts.body_html);
     } else if body_empty && input.kind == "component" {
         // component 形态：brief → 生成 React 组件源（JSX），render() 时后端 oxc 编译。

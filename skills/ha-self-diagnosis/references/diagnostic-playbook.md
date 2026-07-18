@@ -128,9 +128,9 @@ gotcha that most often explains a failure. Open every DB read-only.
 
 ### Ask-user / Prompt system / Image generation — `ask-user.md`, `prompt-system.md`, `image-generation.md`
 
-- Entry: `tools/ask_user_question.rs`, `ask_user/questions.rs`, `channel/worker/ask_user.rs`, `system_prompt/build.rs`, `tools/image_generate/`.
+- Entry: `tools/ask_user_question.rs`, `ask_user/questions.rs`, `channel/worker/ask_user.rs`, `system_prompt/build.rs`, `media_gen/` (unified image/audio generation: provider→models→chains, executor, catalog), `tools/{image_generate,audio_generate}/` (chat-tool front-ends).
 - State: `sessions.db` (`ask_user_questions`). Config: `ask_user_question_timeout_enabled` (default false = wait forever) / `_secs`, `imageGenerate` (ordered `providers[]` = failover priority).
-- Grep: `category='ask_user'`; image generation logs under `category='tool'` (source `image_generate`); IM ask_user uses `category='channel'` with an `ask_user:` prefix.
+- Grep: `category='ask_user'`; media generation logs under `category='media_gen'` (source `resolve`/`execute`) plus tool-level `category='tool'` (source `image_generate`/`audio_generate`); IM ask_user uses `category='channel'` with an `ask_user:` prefix.
 - Gotcha: pending ask-user is in-memory (`PENDING_ASK_USER_QUESTIONS` oneshot); startup flips all DB pending→answered, so a DB pending surviving a restart is an orphan (answering returns "No pending request"). Image gen failures return a transparent per-provider `failover_log`.
 
 ### Reliability / Security / Sandbox / Platform / Backup — `reliability.md`, `security.md`, `sandbox.md`, `platform.md`, `backup-autosave.md`

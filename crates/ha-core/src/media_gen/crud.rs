@@ -276,12 +276,13 @@ pub(crate) fn check_serves_function(
         .media_gen
         .provider(&entry.provider_id)
         .ok_or_else(|| MediaWriteError::NotFound(entry.provider_id.clone()))?;
-    let model = provider
-        .model_config(&entry.model_id)
-        .ok_or_else(|| MediaWriteError::ModelNotFound {
-            provider_id: entry.provider_id.clone(),
-            model_id: entry.model_id.clone(),
-        })?;
+    let model =
+        provider
+            .model_config(&entry.model_id)
+            .ok_or_else(|| MediaWriteError::ModelNotFound {
+                provider_id: entry.provider_id.clone(),
+                model_id: entry.model_id.clone(),
+            })?;
     if !model.serves(function) {
         return Err(MediaWriteError::FunctionMismatch {
             provider_id: entry.provider_id.clone(),
@@ -296,8 +297,7 @@ pub(crate) fn check_serves_function(
 mod tests {
     use super::*;
     use crate::media_gen::types::{
-        AudioKind, AudioModelCaps, ImageModelCaps, MediaModality, MediaModelConfig,
-        MediaVendorKind,
+        AudioKind, AudioModelCaps, ImageModelCaps, MediaModality, MediaModelConfig, MediaVendorKind,
     };
 
     fn provider_with(models: Vec<MediaModelConfig>) -> MediaProviderConfig {
@@ -357,7 +357,9 @@ mod tests {
 
         let mut incoming = added.masked();
         incoming.extra.remove("gone");
-        incoming.extra.insert("fresh".into(), "new-value-123".into());
+        incoming
+            .extra
+            .insert("fresh".into(), "new-value-123".into());
         update_media_provider_in_config(&mut cfg, incoming).unwrap();
 
         let stored = &cfg.media_gen.providers[0];

@@ -71,7 +71,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         .trim_end_matches('/');
     let url = format!("{}/v1beta/models/{}:generateContent", base, params.model);
 
-    let thinking_level = params.extra.get("thinking_level").map(String::as_str).unwrap_or("MINIMAL");
+    let thinking_level = params
+        .extra
+        .get("thinking_level")
+        .map(String::as_str)
+        .unwrap_or("MINIMAL");
 
     // Build content parts: input images first, then text prompt
     let mut parts = Vec::new();

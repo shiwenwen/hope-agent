@@ -165,8 +165,8 @@ pub async fn test_media_provider(input: TestMediaProviderInput) -> Result<String
             let status = resp.status().as_u16();
             let latency = start.elapsed().as_millis() as u64;
             // Fal: 405 (GET on a POST route) / 422 still prove connectivity.
-            let ok = status < 400
-                || (kind == MediaVendorKind::Fal && (status == 405 || status == 422));
+            let ok =
+                status < 400 || (kind == MediaVendorKind::Fal && (status == 405 || status == 422));
             let msg = if ok {
                 format!("{display_name} 连接成功")
             } else if status == 401 || status == 403 {

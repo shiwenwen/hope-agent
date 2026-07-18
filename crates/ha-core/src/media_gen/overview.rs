@@ -84,7 +84,9 @@ pub fn media_gen_overview(cfg: &MediaGenConfig) -> MediaGenOverview {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::media_gen::types::{MediaModality, MediaModelConfig, MediaProviderConfig, MediaVendorKind};
+    use crate::media_gen::types::{
+        MediaModality, MediaModelConfig, MediaProviderConfig, MediaVendorKind,
+    };
 
     #[test]
     fn overview_never_leaks_credentials() {

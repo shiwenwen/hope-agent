@@ -117,7 +117,9 @@ pub fn resolve_candidates<'a>(
         })
         .collect();
     if out.is_empty() {
-        bail!("no media-generation provider configured for `{function}` — add one in {CONFIG_HINT}");
+        bail!(
+            "no media-generation provider configured for `{function}` — add one in {CONFIG_HINT}"
+        );
     }
     Ok(out)
 }
@@ -230,7 +232,10 @@ pub fn validate_image_request(
             ));
         }
         if spec.n > edit.max_n {
-            return Err(format!("model produces at most {} image(s) in edit mode", edit.max_n));
+            return Err(format!(
+                "model produces at most {} image(s) in edit mode",
+                edit.max_n
+            ));
         }
         if spec.size.is_some() && !edit.supports_size {
             return Err("model does not support custom size in edit mode".into());
@@ -319,7 +324,11 @@ mod tests {
         let mut cfg = MediaGenConfig::default();
         cfg.providers.push(usable(
             "A",
-            vec![speech_model("tts-a"), image_model("img-a"), image_model("img-a2")],
+            vec![
+                speech_model("tts-a"),
+                image_model("img-a"),
+                image_model("img-a2"),
+            ],
         ));
         cfg.providers.push(usable("B", vec![image_model("img-b")]));
         let mut disabled = usable("C", vec![image_model("img-c")]);
@@ -439,8 +448,7 @@ mod tests {
         let speech =
             resolve_candidates(&cfg, MediaFunction::Audio(AudioKind::Speech), None).unwrap();
         assert_eq!(speech[0].model.id, "eleven_v3");
-        let music =
-            resolve_candidates(&cfg, MediaFunction::Audio(AudioKind::Music), None).unwrap();
+        let music = resolve_candidates(&cfg, MediaFunction::Audio(AudioKind::Music), None).unwrap();
         assert_eq!(music[0].model.id, "music_v1");
         assert!(resolve_candidates(&cfg, MediaFunction::Audio(AudioKind::Sfx), None).is_err());
     }

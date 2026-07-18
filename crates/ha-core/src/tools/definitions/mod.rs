@@ -28,7 +28,6 @@ pub use registry::{
 };
 pub use special_tools::{
     get_acp_spawn_tool, get_audio_generate_tool_dynamic, get_image_generate_tool_dynamic,
-    get_subagent_tool, get_tool_search_tool,
-    get_workflow_tool,
+    get_subagent_tool, get_tool_search_tool, get_workflow_tool,
 };
 pub use types::{CoreSubclass, ToolDefinition, ToolTier};

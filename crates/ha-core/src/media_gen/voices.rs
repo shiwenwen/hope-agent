@@ -42,9 +42,7 @@ pub async fn list_media_voices(provider_id: &str, limit: u32) -> Result<Vec<Voic
         .context("media provider not found")?;
 
     match provider.kind {
-        MediaVendorKind::Elevenlabs => {
-            list_elevenlabs_voices(provider_id, limit).await
-        }
+        MediaVendorKind::Elevenlabs => list_elevenlabs_voices(provider_id, limit).await,
         MediaVendorKind::Openai | MediaVendorKind::OpenaiCompatible => Ok(OPENAI_TTS_VOICES
             .iter()
             .map(|name| VoiceOption {
@@ -53,10 +51,7 @@ pub async fn list_media_voices(provider_id: &str, limit: u32) -> Result<Vec<Voic
                 category: None,
             })
             .collect()),
-        other => bail!(
-            "{} does not expose a voice catalog",
-            other.display_name()
-        ),
+        other => bail!("{} does not expose a voice catalog", other.display_name()),
     }
 }
 
@@ -85,8 +80,7 @@ async fn list_elevenlabs_voices(provider_id: &str, limit: u32) -> Result<Vec<Voi
     let url = format!("{base}/v2/voices?page_size={page_size}");
     // base_url is owner config (trusted-ish); SSRF still gates intranet /
     // metadata unless the provider opted into private networking.
-    crate::security::ssrf::check_url(&url, provider.ssrf_policy(), &cfg.ssrf.trusted_hosts)
-        .await?;
+    crate::security::ssrf::check_url(&url, provider.ssrf_policy(), &cfg.ssrf.trusted_hosts).await?;
     let client =
         crate::provider::apply_proxy(Client::builder().timeout(Duration::from_secs(15))).build()?;
     let resp = client

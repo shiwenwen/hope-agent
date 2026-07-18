@@ -31,7 +31,8 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
         .unwrap_or(DEFAULT_BASE_URL)
         .trim_end_matches('/');
     let url = format!("{}/v1/audio/speech", base);
-    let voice = params.voice
+    let voice = params
+        .voice
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_VOICE);
     let body = serde_json::json!({

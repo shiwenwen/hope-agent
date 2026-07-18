@@ -126,7 +126,8 @@ pub(crate) async fn tool_audio_generate(args: &Value, ctx: &ToolExecContext) -> 
         ext
     );
     let session_id = ctx.session_id.as_deref();
-    let saved_path = attachments::save_attachment_bytes(session_id, &display_filename, &audio.data)?;
+    let saved_path =
+        attachments::save_attachment_bytes(session_id, &display_filename, &audio.data)?;
     // `MediaKind::File` + accurate audio mime rides the existing media_items
     // pipeline (FileCard inline, FilePreviewPane playback) — no new kind.
     let item = MediaItem::from_saved_path(
@@ -195,11 +196,7 @@ fn build_list_result(config: &MediaGenConfig) -> Result<String> {
 
     for (i, provider) in usable.iter().enumerate() {
         lines.push(format!("{}. {} [Priority {}]", i + 1, provider.name, i + 1));
-        if let Some(voice) = provider
-            .default_voice
-            .as_deref()
-            .filter(|v| !v.is_empty())
-        {
+        if let Some(voice) = provider.default_voice.as_deref().filter(|v| !v.is_empty()) {
             lines.push(format!("   Default voice: {}", voice));
         }
         for model in provider

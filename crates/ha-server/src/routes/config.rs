@@ -1313,7 +1313,9 @@ pub async fn delete_media_provider(
         ha_core::media_gen::crud::delete_media_provider(id, "http").map_err(media_err)
     })
     .await?;
-    Ok(Json(json!({ "deleted": true, "chainsTouched": chains_touched })))
+    Ok(Json(
+        json!({ "deleted": true, "chainsTouched": chains_touched }),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1399,9 +1401,10 @@ pub struct MediaVoicesQuery {
 pub async fn list_media_voices(
     axum::extract::Query(q): axum::extract::Query<MediaVoicesQuery>,
 ) -> Result<Json<Vec<ha_core::media_gen::voices::VoiceOption>>, AppError> {
-    let voices = ha_core::media_gen::voices::list_media_voices(&q.provider_id, q.limit.unwrap_or(100))
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let voices =
+        ha_core::media_gen::voices::list_media_voices(&q.provider_id, q.limit.unwrap_or(100))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(voices))
 }
 
@@ -1418,8 +1421,8 @@ pub async fn test_media_provider(
 }
 
 /// `GET /api/config/media-gen/overview` -- sanitized availability/caps view.
-pub async fn get_media_gen_overview(
-) -> Result<Json<ha_core::media_gen::MediaGenOverview>, AppError> {
+pub async fn get_media_gen_overview() -> Result<Json<ha_core::media_gen::MediaGenOverview>, AppError>
+{
     let cfg = ha_core::config::cached_config();
     Ok(Json(ha_core::media_gen::media_gen_overview(&cfg.media_gen)))
 }

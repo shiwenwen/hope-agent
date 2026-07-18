@@ -36,12 +36,7 @@ pub struct MediaProviderTemplate {
     pub models: Vec<MediaModelConfig>,
 }
 
-fn img(
-    id: &str,
-    name: &str,
-    caps: ImageModelCaps,
-    extra: &[(&str, &str)],
-) -> MediaModelConfig {
+fn img(id: &str, name: &str, caps: ImageModelCaps, extra: &[(&str, &str)]) -> MediaModelConfig {
     let mut m = MediaModelConfig::new(id, name, MediaModality::Image);
     m.image = Some(caps);
     for (k, v) in extra {
@@ -477,7 +472,11 @@ mod tests {
     fn openai_mask_support_is_model_specific() {
         let templates = media_provider_templates();
         let openai = templates.iter().find(|t| t.key == "openai").unwrap();
-        let gpt1 = openai.models.iter().find(|m| m.id == "gpt-image-1").unwrap();
+        let gpt1 = openai
+            .models
+            .iter()
+            .find(|m| m.id == "gpt-image-1")
+            .unwrap();
         assert!(gpt1.image.as_ref().unwrap().supports_mask);
         let dalle3 = openai.models.iter().find(|m| m.id == "dall-e-3").unwrap();
         assert!(!dalle3.image.as_ref().unwrap().supports_mask);

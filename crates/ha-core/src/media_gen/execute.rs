@@ -23,7 +23,9 @@ use super::adapters::{
     InputImage,
 };
 use super::resolve::{resolve_candidates, validate_image_request, ImageRequestSpec};
-use super::types::{AudioKind, MediaFunction, MediaGenConfig, MediaModelConfig, MediaProviderConfig};
+use super::types::{
+    AudioKind, MediaFunction, MediaGenConfig, MediaModelConfig, MediaProviderConfig,
+};
 
 const MAX_RETRIES_PER_CANDIDATE: u32 = 1;
 

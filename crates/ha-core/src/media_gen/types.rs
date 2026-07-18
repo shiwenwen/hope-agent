@@ -136,7 +136,10 @@ impl MediaVendorKind {
     /// Whether this vendor exposes a listable voice catalog (used to gate
     /// the "fetch voices" UI + `list_media_voices` command).
     pub fn supports_voice_listing(&self) -> bool {
-        matches!(self, Self::Elevenlabs | Self::Openai | Self::OpenaiCompatible)
+        matches!(
+            self,
+            Self::Elevenlabs | Self::Openai | Self::OpenaiCompatible
+        )
     }
 }
 
@@ -739,10 +742,8 @@ mod tests {
         let mut p = MediaProviderConfig::new("ElevenLabs", MediaVendorKind::Elevenlabs);
         p.api_key = "xi-test".into();
         p.default_voice = Some("21m00Tcm4TlvDq8ikWAM".into());
-        p.models.push(audio_model(
-            "eleven_v3",
-            vec![AudioKind::Speech],
-        ));
+        p.models
+            .push(audio_model("eleven_v3", vec![AudioKind::Speech]));
         p.models.push({
             let mut m = audio_model("music_v1", vec![AudioKind::Music]);
             m.audio.as_mut().unwrap().supports_duration = true;
@@ -763,11 +764,13 @@ mod tests {
         let parsed: MediaGenConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.providers.len(), 1);
         assert_eq!(parsed.providers[0].models.len(), 2);
-        assert!(parsed.providers[0].models[1]
-            .audio
-            .as_ref()
-            .unwrap()
-            .supports_duration);
+        assert!(
+            parsed.providers[0].models[1]
+                .audio
+                .as_ref()
+                .unwrap()
+                .supports_duration
+        );
         assert_eq!(
             parsed.chains.speech.as_ref().unwrap().primary.model_id,
             "eleven_v3"
@@ -782,7 +785,10 @@ mod tests {
 
     #[test]
     fn audio_kind_serde_is_lowercase() {
-        assert_eq!(serde_json::to_string(&AudioKind::Speech).unwrap(), "\"speech\"");
+        assert_eq!(
+            serde_json::to_string(&AudioKind::Speech).unwrap(),
+            "\"speech\""
+        );
         let k: AudioKind = serde_json::from_str("\"sfx\"").unwrap();
         assert_eq!(k, AudioKind::Sfx);
     }

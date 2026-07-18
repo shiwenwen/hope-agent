@@ -52,7 +52,8 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
 
     let (url, body) = match params.kind {
         AudioKind::Speech => {
-            let voice = params.voice
+            let voice = params
+                .voice
                 .filter(|s| !s.is_empty())
                 .unwrap_or(DEFAULT_VOICE);
             (
