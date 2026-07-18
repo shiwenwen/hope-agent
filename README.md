@@ -98,7 +98,7 @@
 <tr><td><b>👥 多 Agent 与自然语言定时</b></td><td>通过预设团队或动态子 Agent 并行协作，结果自动汇总回主对话；也可以用自然语言创建定时任务，并把结果投递到指定 IM 渠道。</td></tr>
 <tr><td><b>📁 Project 项目容器</b></td><td>把相关会话、项目指令、记忆与共享文件组织在一起。上传文件自动提取文本，并按内容规模选择目录、内联或按需读取，控制上下文占用。</td></tr>
 <tr><td><b>🔌 MCP 与 Hooks</b></td><td>内置 MCP 客户端，覆盖主流 transport 与 OAuth 2.1；Hooks 可在 20+ 生命周期事件上接入 command / HTTP / MCP / prompt / agent 处理器，并支持分层配置与热重载。</td></tr>
-<tr><td><b>🔧 工具箱与工作空间</b></td><td>内置 AI 画图、Web 搜索、bash、文件操作、Canvas、URL 预览与自诊断；飞书工作空间提供 40+ 工具，覆盖文档、多维表格、云盘、知识库、审批、日历、联系人和招聘。</td></tr>
+<tr><td><b>🔧 工具箱与工作空间</b></td><td>内置 AI 画图、语音与音乐音效生成、Web 搜索、bash、文件操作、Canvas、URL 预览与自诊断；飞书工作空间提供 40+ 工具，覆盖文档、多维表格、云盘、知识库、审批、日历、联系人和招聘。</td></tr>
 <tr><td><b>📊 Dashboard + Recap</b></td><td>统一查看成本、Token、活跃度、健康度、Plan 与长期任务状态；Recap 可复盘一段时间内的会话，生成多章节报告并导出独立 HTML。</td></tr>
 </table>
 

@@ -245,25 +245,37 @@ A "speech-to-text" engine independent of the main model, used for: desktop micro
 
 ## 2.12 AI image and audio generation
 
-### AI image generation (image_generate)
+Image and audio generation share one **provider → models → per-function default chain** configuration, serving the `image_generate` / `audio_generate` tools in conversations and the [Design Space](06-design-space.md).
 
-Connect text-to-image / image-editing providers for the `image_generate` tool in conversations and for the [Design Space](06-design-space.md).
+### Step 1: Configure providers and models
 
-**Where**: Settings → **Image Generation** panel. Supports 7 vendors: OpenAI (gpt-image), Google (Gemini / Imagen, supporting image editing and multiple reference images), Fal (Flux), MiniMax, SiliconFlow (Qwen-Image), Zhipu (CogView), and Tongyi Wanxiang. Each can be enabled, given a key, have a model selected, and be tested for connectivity; cards can be dragged to reorder (the order is the priority for failover).
+**Where**: Settings → **Model Configuration** → **Media Generation Models** tab. Click "Add Provider" to connect a template in one click: OpenAI (gpt-image / TTS), Google (Gemini / Imagen, supporting image editing and multiple reference images), Fal (Flux), MiniMax, SiliconFlow (Qwen-Image), Zhipu (CogView), Tongyi Wanxiang, ElevenLabs (TTS + music + sound effects) — or pick "Custom (OpenAI-compatible)" for a self-hosted endpoint.
+
+Just like language models, **one provider takes one key and hosts multiple models**, and image and audio models can live side by side under the same provider. Preset models come with capability data (supported sizes, aspect ratios, resolutions, whether they support image editing / mask inpainting, audio kinds, duration range, whether a voice is required); those capabilities decide which parameters light up later in the UI. You can also "Add Custom Model" to enter a model ID and declare its capabilities by hand.
+
+Provider cards can be dragged to reorder — the order is the priority for automatic selection and failover. ElevenLabs / OpenAI can "Fetch Voices" to list the voices available to your account and set a provider-level default voice. The API key is a password box in the panel; the AI sees it masked when reading it through conversation, and **cannot write provider entries at all**.
+
+### Step 2: Configure default chains and tool parameters
+
+**Where**: Settings → **Tool Settings** → **Media Generation** tab. Set one default model chain each for **image, speech, music, and sound effects** (a primary model plus optional fallbacks; if the primary fails, it degrades to the next automatically). Leave a chain empty to "follow provider order (auto)" — the hint below shows which model will actually be used.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Default size | 1024×1024 | The output size when unspecified |
-| Request timeout | 60 seconds | Timeout for a single generation (10–300) |
-| Google image reasoning depth | MINIMAL | The reasoning tier for Gemini image generation |
+| Default image size | 1024×1024 | The output size when the call doesn't specify one |
+| Default aspect ratio / resolution | Unset | Fallback when the call doesn't specify one (only if the model supports it) |
+| Image request timeout | 180 seconds | Timeout for a single generation (30–900) |
+| Default audio duration | Unset | Fallback when music / SFX calls don't specify a duration |
+| Audio request timeout | 300 seconds | Timeout for a single generation (30–900) |
 
-When a reference image is present, some providers automatically switch to the corresponding image-editing endpoint. The API key in the panel is a password box; the AI sees it masked when reading it through conversation.
+The image and audio master switches live here too; turning one off removes the corresponding tool from the AI's tool list.
 
-### Audio generation (audio_generate)
+### Using it in chat and Design Space
 
-Connect TTS / music / sound-effect providers, primarily serving the "audio" artifacts of the [Design Space](06-design-space.md).
+In a conversation, just say "draw me a …" to trigger `image_generate`, or "generate a narration / background music / sound effect" to trigger `audio_generate` (you can specify speech / music / SFX, a voice, and a duration). When a reference image is present, models whose capability data declares image editing automatically switch to the corresponding image-editing endpoint; a mask (inpainting) request is only routed to models that declare mask support, and any candidate that can't do it is skipped in favour of the next one.
 
-**Where**: Settings → **Audio Generation** panel. Supports OpenAI (TTS) and ElevenLabs (TTS + music). ElevenLabs can "fetch voices" to list the voices available to your account. The request timeout defaults to 120 seconds (10–600).
+The image and audio artifacts of the [Design Space](06-design-space.md) run on the same configuration, and its generate dialog lets you pick aspect ratio, resolution, audio kind, voice and duration directly (shown according to model capabilities). **When no provider is configured yet**, those entry points show a guidance card that deep-links straight to the settings page in Step 1.
+
+> When adjusting settings through conversation, the AI can only change the default chains and the parameters in the table above; provider entries (including API keys) **can only be changed in the GUI**.
 
 ---
 

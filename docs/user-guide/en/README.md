@@ -37,7 +37,7 @@ By default all data is stored on your own computer (`~/.hope-agent/`), and model
 | Chapter | Contents | When to read it |
 | --- | --- | --- |
 | [01 · Getting Started](01-getting-started.md) | Per-platform installation, the first-launch wizard, the three run modes, auto-update, and one-click local model install | You just got the app and want to get running fast |
-| [02 · Models & Providers](02-models-and-providers.md) | Adding a Provider and API key, Codex sign-in, primary/fallback models, thinking effort and temperature, automatic failover, speech-to-text, AI image generation, web search | Configuring or switching models |
+| [02 · Models & Providers](02-models-and-providers.md) | Adding a Provider and API key, Codex sign-in, primary/fallback models, thinking effort and temperature, automatic failover, speech-to-text, media generation (images, speech, music, sound effects), web search | Configuring or switching models |
 | [03 · Chat & Sessions](03-chat-and-sessions.md) | The chat interface, attachments and multimodal input, session management and search, incognito sessions, working directory, context compaction, and all slash commands | Everyday use of the chat features |
 | [04 · Memory](04-memory.md) | The three memory tiers, auto-memory, on-demand recall, offline consolidation (Dreaming), user profile, and the correction loop | You want the AI to remember / forget certain things |
 | [05 · Knowledge Space](05-knowledge-space.md) | Your second brain: creating a knowledge space, binding Obsidian, reading and writing notes, full-text and vector search, the backlink graph, and the AI chat panel | Managing notes and material |

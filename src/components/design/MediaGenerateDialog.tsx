@@ -2,11 +2,11 @@
  * 图 / 音生成对话框（从 DesignView 内嵌 prompt 框抽出并扩展）：
  * 打开时拉 `get_media_gen_overview`（sanitized，无凭据）驱动参数区 —— image 走宽高比 /
  * 分辨率，audio 走 kind（语音/音乐/音效）/ 音色 / 时长；对应功能无可用模型时渲染
- * 空态引导（去配置生成模型 / 重新检查）。参数以 camelCase 直传 `CreateArtifactInput`。
+ * 空态引导（去配置媒体生成模型 / 重新检查）。参数以 camelCase 直传 `CreateArtifactInput`。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ImageOff, Loader2, Sparkles, VolumeX } from "lucide-react"
+import { Image as ImageIcon, ImageOff, Loader2, Music, VolumeX } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -258,7 +258,11 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4" />
+            {kind === "audio" ? (
+              <Music className="h-4 w-4" />
+            ) : (
+              <ImageIcon className="h-4 w-4" />
+            )}
             {kind === "audio"
               ? t("design.newAudio", "生成音频")
               : t("design.newImage", "生成图像")}
@@ -281,14 +285,14 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
             <div className="space-y-1">
               <p className="text-sm font-medium">
                 {kind === "image"
-                  ? t("design.gen.imageUnavailableTitle", "未配置图像生成模型")
-                  : t("design.gen.audioUnavailableTitle", "未配置音频生成模型")}
+                  ? t("design.gen.imageUnavailableTitle", "未配置图像服务商")
+                  : t("design.gen.audioUnavailableTitle", "未配置音频服务商")}
               </p>
               <p className="text-xs text-muted-foreground">
                 {kind === "image"
                   ? t(
                       "design.gen.imageUnavailableDesc",
-                      "配置图像生成模型后即可在设计空间生成图片。",
+                      "配置图像服务商后即可在设计空间生成图片。",
                     )
                   : t(
                       "design.gen.audioUnavailableDesc",
@@ -304,7 +308,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
                   onClose()
                 }}
               >
-                {t("design.gen.goConfigure", "去配置生成模型")}
+                {t("design.gen.goConfigure", "去配置媒体生成模型")}
               </Button>
               <Button
                 variant="ghost"

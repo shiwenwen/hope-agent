@@ -223,7 +223,7 @@ export function DesignInpaintModal({ open, onClose, artifactId, indexUrl, onDone
                   onClose()
                 }}
               >
-                {t("design.gen.goConfigure", "去配置生成模型")}
+                {t("design.gen.goConfigure", "去配置媒体生成模型")}
               </button>
             </div>
           ))}

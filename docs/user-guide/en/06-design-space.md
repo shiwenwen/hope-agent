@@ -37,7 +37,7 @@ There are 11 forms in total. Most are self-contained HTML (rendered directly by 
 | Audio (audio) | Text-to-speech / music / sound effects, with an embedded player |
 | Interactive component (component) | A genuinely interactive React component / mini app, compiled by the backend into a static artifact |
 
-> **Audio** artifacts first require [configuring an audio-generation provider in Settings](02-models-and-providers.md#audio-generation-audio_generate); **image** artifacts reuse the [image generation](02-models-and-providers.md#ai-image-generation-image_generate) capability. Even if an interactive component fails to compile, it degrades to a static error page rather than showing a blank screen.
+> **Audio** and **image** artifacts both require a media generation provider: add one under Settings → Model Configuration → **Media Generation Models** (one key can carry several image / audio models), then pick the default model chains under Settings → Tool Settings → **Media Generation**. See [02 · Models & Providers](02-models-and-providers.md#212-ai-image-and-audio-generation). Even if an interactive component fails to compile, it degrades to a static error page rather than showing a blank screen.
 
 ---
 
@@ -45,12 +45,13 @@ There are 11 forms in total. Most are self-contained HTML (rendered directly by 
 
 The Design Space home page is a large input box—one sentence gets you started, with no need to create a project first.
 
-- **Generate from a sentence**: type a description and press `Cmd/Ctrl+Enter` to generate. Optionally pick an artifact type, a quick-select template, an inline design system, and a generation model.
+- **Generate from a sentence**: type a description and press `Cmd/Ctrl+Enter` to generate. Optionally pick an artifact type, a quick-select template, an inline design system, and a vision model.
 - **Build from a reference image**: on the home page you can multi-select / paste / drag **up to 5** reference images, and you can generate from images alone without any text. The vision model **looks at the original image directly**, faithfully reproducing its colors, layout, and typographic feel. If the current model can't read images, it automatically switches to an available vision model and tells you; if no vision model is available at all, it stops and guides you to Settings.
 - **Extract from a URL**: fetch a web page and its first-screen screenshot, and reverse-extract its brand design system.
 - **Import from Figma**: read the published color / text / effect styles in Figma and distill them into a design system (**available only on desktop / the owner interface**; the Figma token is entered per use, never written to disk, and never sent to the model).
 - **Extract from an existing code project**: derive a design system from a local code project's CSS / Tailwind config / design token files.
 - **Brand kit**: generate multiple artifacts with reference images in one go.
+- **Generate an image / audio artifact**: picking the "image" or "audio" type opens a dedicated generation dialog—images let you choose an aspect ratio and a resolution, audio lets you choose the type (speech / music / sound effects), a voice, and a duration. Only the options the configured models actually support are offered, and the dialog tells you which provider / model will be used. If no model is available for that capability, it shows an empty state that links straight to the media generation settings.
 
 Generation is **truly streaming**, taking shape in the preview as it generates. Failures degrade to a clean placeholder page without interrupting the flow, and you can keep refining in the conversation.
 

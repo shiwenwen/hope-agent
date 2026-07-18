@@ -98,7 +98,7 @@
 <tr><td><b>👥 Multiple agents and natural-language scheduling</b></td><td>Preset teams or dynamic sub-agents work in parallel and summarize results back to the main conversation. Natural-language schedules can run recurring work and deliver results to a chosen IM channel.</td></tr>
 <tr><td><b>📁 Project containers</b></td><td>Keep related sessions, project instructions, memory, and shared files together. Uploaded files are extracted automatically and exposed as a directory, inline context, or on-demand reads according to size.</td></tr>
 <tr><td><b>🔌 MCP and Hooks</b></td><td>The built-in MCP client covers major transports and OAuth 2.1. Hooks attach command / HTTP / MCP / prompt / agent handlers to 20+ lifecycle events, with layered configuration and hot reload.</td></tr>
-<tr><td><b>🔧 Toolbox and workspaces</b></td><td>Built-ins include AI image generation, web search, bash, file operations, Canvas, URL preview, and self-diagnosis. Deep Feishu / Lark integration adds 40+ tools across documents, bitable, drive, wiki, approvals, calendar, contacts, and recruiting.</td></tr>
+<tr><td><b>🔧 Toolbox and workspaces</b></td><td>Built-ins include AI image and audio generation (speech, music, and sound effects), web search, bash, file operations, Canvas, URL preview, and self-diagnosis. Deep Feishu / Lark integration adds 40+ tools across documents, bitable, drive, wiki, approvals, calendar, contacts, and recruiting.</td></tr>
 <tr><td><b>📊 Dashboard + Recap</b></td><td>Track cost, tokens, activity, health, Plans, and long-running work in one place. Recap reviews a period of conversation history, produces a multi-section report, and exports standalone HTML.</td></tr>
 </table>
 

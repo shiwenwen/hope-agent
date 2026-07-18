@@ -30,6 +30,7 @@ The AI calls these tools **automatically** when needed; you usually don't trigge
 | **Network** | `web_search` / `web_fetch` | Web search / fetch a web page's main content |
 | **Multimodal** | `image` / `pdf` | Let the model view images / parse PDFs |
 | | `image_generate` | AI image generation |
+| | `audio_generate` | AI audio generation (speech, music, sound effects) |
 | **Browser / Computer** | `browser` | Drive the browser (see [7.7](#77-browser-control)) |
 | | `mac_control` | Control the macOS desktop (see [7.8](#78-computer-control-macos)) |
 | **Memory / Knowledge** | Memory and note tools | Save / recall memory, read and write notes (called internally, no approval dialog) |

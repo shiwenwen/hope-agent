@@ -838,10 +838,10 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `set_design_presenter_notes_cmd` | `PUT /api/design/artifacts/{artifactId}/presenter-notes`（deck 演讲者备注，存 metadata） | ✅ |
 | `set_design_artifact_dir_cmd` | `PUT /api/design/artifacts/{id}/dir`（RTL/LTR 文本方向，存 metadata.dir + 重渲染） | ✅ |
 | `patch_design_page_style_cmd` | `PUT /api/design/artifacts/{id}/page-style`（页面级 body 样式，CSS 标记块 + 落版本） | ✅ |
-| `inpaint_design_image_cmd` | `POST /api/design/artifacts/{id}/inpaint`（image 蒙版局部重绘，OpenAI `/images/edits`） | ✅ |
+| `inpaint_design_image_cmd` | `POST /api/design/artifacts/{id}/inpaint`（image 蒙版局部重绘，经 `media_gen::execute_image` 只投给声明 `supports_mask` 的模型） | ✅ |
 | `export_design_pptx_outline_cmd` | `GET /api/design/artifacts/{id}/pptx-outline`（deck 结构化可编辑文本 PPTX，服务端抽大纲） | ✅ |
 | `review_design_artifact_cmd` | `GET /api/design/artifacts/{id}/quality-review`（确定性多镜头质量审查：a11y/内容/语义） | ✅ |
-| `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate`（`referenceImages`（≤5 张，优先于单张 `referenceImageB64`）作视觉附件真多模态；`modelOverride` 单模型不降级） | ✅ |
+| `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate`（`referenceImages`（≤5 张，优先于单张 `referenceImageB64`）作视觉附件真多模态；`modelOverride` 单模型不降级；image 形态可带 `aspectRatio` / `imageSize` / `imageResolution`，audio 形态可带 `audioKind` / `audioVoice` / `audioDurationSecs`，缺省落 `media_gen` 的 `imageDefaults` / `audioDefaults`） | ✅ |
 | `design_ffmpeg_doctor_cmd` | `GET /api/design/ffmpeg/doctor` | ✅ |
 | `design_install_ffmpeg_cmd` | `POST /api/design/ffmpeg/install` | ✅ |
 | `design_browser_doctor_cmd` | `GET /api/design/browser/doctor` | ✅ |
@@ -1284,7 +1284,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `show_canvas_panel` | `POST /api/canvas/show` | ✅ |
 | `list_canvas_projects_by_session` | `GET /api/canvas/by-session/{sessionId}` | ✅ |
 
-### Image generation / Web search / Web fetch / SSRF / SearXNG
+### Media generation / Web search / Web fetch / SSRF / SearXNG
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|

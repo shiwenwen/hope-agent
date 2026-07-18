@@ -22,12 +22,12 @@ The left side of the Settings page is a navigation column. The table below tells
 | --- | --- |
 | **Profile** | Avatar, name, time zone, preferred reply language, AI experience level, reply style |
 | **General** | Appearance (theme / interface language / sidebar and chat display mode / background animation), System (launch at startup / prevent sleep / global shortcuts / rerun onboarding), Network (proxy) |
-| **Model Configuration** | [Providers, API keys, primary / fallback models](02-models-and-providers.md) |
+| **Model Configuration** | [Providers, API keys, primary / fallback models, media generation models](02-models-and-providers.md) |
 | **Agents** | [Creating / editing Agents](12-projects-and-insights.md#122-custom-agents) |
 | **Teams** | [Agent Team templates](09-multi-agent-and-scheduling.md#92-agent-teams) |
 | **IM Channels** | [IM Channel accounts](10-im-channels.md) |
 | **Skills** | [Skill enablement / draft review / installation](11-connect-and-extend.md#114-the-skill-system) |
-| **Tool Settings** | General, Web search, Web fetch, Image generation, Audio generation, Canvas, Async tools, Issue reporting (the weather widget is configured inside the "General" sub-page) |
+| **Tool Settings** | General, Web search, Web fetch, Media generation, Canvas, Async tools, Issue reporting (the weather widget is configured inside the "General" sub-page) |
 | **MCP Servers** | [MCP connections](11-connect-and-extend.md#111-mcp-connecting-external-tools) |
 | **Memory** | [Memory extraction / recall / budget, embedding, Dreaming](04-memory.md) |
 | **Knowledge** | [Knowledge bases, retrieval, passive recall, autonomous maintenance, Sprite](05-knowledge-space.md) |
@@ -68,6 +68,7 @@ It confirms with you in three risk tiers:
 **A few classes of settings the AI can only read, not change—you can only change them in the interface** (for credential safety and runtime stability):
 
 - **The Provider list and API keys**
+- **The media generation provider list and API keys** (the default model chains and generation parameters can still be changed by conversation)
 - **IM Channel accounts**
 - **MCP server configuration**
 - **The choice of primary / fallback models**

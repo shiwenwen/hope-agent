@@ -1,4 +1,4 @@
-// Settings → Model Providers → Generation Models tab. Draggable provider
+// Settings → Model Configuration → Media Generation Models tab. Draggable provider
 // card list (order = failover priority, mirrors ProviderSettings) with an
 // add/edit dialog and a confirm-delete flow.
 
@@ -20,7 +20,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { GripVertical, Loader2, Pencil, Plus, Sparkles, Trash2 } from "lucide-react"
+import { Boxes, GripVertical, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -247,7 +247,7 @@ export default function MediaProvidersPanel() {
           </div>
         ) : providers.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border py-12 text-center">
-            <Sparkles className="mx-auto h-8 w-8 text-muted-foreground/50" />
+            <Boxes className="mx-auto h-8 w-8 text-muted-foreground/50" />
             <p className="mt-3 text-sm font-medium text-foreground">
               {t("settings.mediaModels.emptyTitle")}
             </p>

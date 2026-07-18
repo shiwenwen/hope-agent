@@ -126,12 +126,12 @@ gotcha that most often explains a failure. Open every DB read-only.
 - Grep: `category IN ('awareness','recap')`.
 - Gotcha: Dashboard stats must filter `is_cron=0 AND parent_session_id IS NULL`. Awareness short-circuits for incognito sessions (also excluded from stats); digest auto-clears after 3 consecutive side_query failures. `awareness.enabled=false` is a hard-gate that ignores per-session overrides.
 
-### Ask-user / Prompt system / Image generation — `ask-user.md`, `prompt-system.md`, `image-generation.md`
+### Ask-user / Prompt system / Media generation — `ask-user.md`, `prompt-system.md`, `media-generation.md`
 
 - Entry: `tools/ask_user_question.rs`, `ask_user/questions.rs`, `channel/worker/ask_user.rs`, `system_prompt/build.rs`, `media_gen/` (unified image/audio generation: provider→models→chains, executor, catalog), `tools/{image_generate,audio_generate}/` (chat-tool front-ends).
-- State: `sessions.db` (`ask_user_questions`). Config: `ask_user_question_timeout_enabled` (default false = wait forever) / `_secs`, `imageGenerate` (ordered `providers[]` = failover priority).
+- State: `sessions.db` (`ask_user_questions`). Config: `ask_user_question_timeout_enabled` (default false = wait forever) / `_secs`, `mediaGen` (`providers[]` + per-function `chains` — image / speech / music / sfx, each = primary model + fallbacks; an empty chain falls back to provider order — plus `imageDefaults` / `audioDefaults`).
 - Grep: `category='ask_user'`; media generation logs under `category='media_gen'` (source `resolve`/`execute`) plus tool-level `category='tool'` (source `image_generate`/`audio_generate`); IM ask_user uses `category='channel'` with an `ask_user:` prefix.
-- Gotcha: pending ask-user is in-memory (`PENDING_ASK_USER_QUESTIONS` oneshot); startup flips all DB pending→answered, so a DB pending surviving a restart is an orphan (answering returns "No pending request"). Image gen failures return a transparent per-provider `failover_log`.
+- Gotcha: pending ask-user is in-memory (`PENDING_ASK_USER_QUESTIONS` oneshot); startup flips all DB pending→answered, so a DB pending surviving a restart is an orphan (answering returns "No pending request"). Image / audio generation failures return a transparent per-candidate `failover_log` (one line per provider+model tried in the function chain, including capability-mismatch and endpoint-blocked skips). Provider credentials are owner-GUI-only — `update_settings` on `media_generation` accepts only `chains` / `imageDefaults` / `audioDefaults` and rejects any payload carrying `providers`.
 
 ### Reliability / Security / Sandbox / Platform / Backup — `reliability.md`, `security.md`, `sandbox.md`, `platform.md`, `backup-autosave.md`
 

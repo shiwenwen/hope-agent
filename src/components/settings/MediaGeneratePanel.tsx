@@ -1,11 +1,11 @@
-// Settings → Tools → Media Generation: merged replacement for the old
+// Settings → Tool Settings → Media Generation: merged replacement for the old
 // imageGenerate/audioGenerate tabs. Providers themselves are managed in
-// Settings → Model Providers → Generation Models; this panel only edits the
+// Settings → Model Configuration → Media Generation Models; this panel only edits the
 // per-function default chains (image/speech/music/sfx) and tool defaults.
 
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, Check, Loader2, Settings2, Sparkles } from "lucide-react"
+import { AlertTriangle, Boxes, Check, Loader2, Settings2 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
@@ -254,23 +254,23 @@ export default function MediaGeneratePanel() {
             <p className="text-xs text-muted-foreground">
               {t(
                 "settings.mediaGenerate.desc",
-                "为图像与音频生成配置默认模型链和生成参数；服务商与模型在生成模型设置中管理。",
+                "为图像与音频生成配置默认模型链和生成参数；服务商与模型在「媒体生成模型」设置中管理。",
               )}
             </p>
             {!hasUsableProvider ? (
               <div className="rounded-lg border border-border bg-muted/30 px-6 py-8 flex flex-col items-center gap-2 text-center">
-                <Sparkles className="h-6 w-6 text-muted-foreground/60" />
+                <Boxes className="h-6 w-6 text-muted-foreground/60" />
                 <p className="text-sm font-medium">
-                  {t("settings.mediaGenerate.noProviderTitle", "尚未配置生成模型服务商")}
+                  {t("settings.mediaGenerate.noProviderTitle", "尚未配置媒体生成服务商")}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {t(
                     "settings.mediaGenerate.noProviderDesc",
-                    "需要先添加图像 / 音频生成服务商，媒体生成工具才能工作。",
+                    "需要先添加媒体生成服务商，媒体生成工具才能工作。",
                   )}
                 </p>
                 <Button size="sm" className="mt-2" onClick={openMediaModelSettings}>
-                  {t("settings.mediaGenerate.goConfigure", "去配置生成模型")}
+                  {t("settings.mediaGenerate.goConfigure", "去配置媒体生成模型")}
                 </Button>
               </div>
             ) : (
@@ -281,7 +281,7 @@ export default function MediaGeneratePanel() {
                 onClick={openMediaModelSettings}
               >
                 <Settings2 className="h-3.5 w-3.5" />
-                {t("settings.mediaGenerate.manageProviders", "管理生成模型服务商")}
+                {t("settings.mediaGenerate.manageProviders", "管理媒体生成服务商")}
               </Button>
             )}
           </div>

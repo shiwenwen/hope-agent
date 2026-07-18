@@ -344,7 +344,7 @@ export interface CreateArtifactInput {
   /** 多张参考图（首页 composer：≤5 张视觉附件）。非空时后端优先于单张 referenceImageB64，
    *  选中的视觉模型同时看全部原图生成。 */
   referenceImages?: { b64: string; mime: string }[]
-  /** 用户显式选的生成模型（单模型、失败即报错不降级）；涉图时须视觉合格。 */
+  /** 用户显式选的视觉模型（单模型、失败即报错不降级）；涉图时须视觉合格。 */
   modelOverride?: ActiveModel
   /** image 形态：宽高比提示（"1:1" / "16:9"…）透传生图 provider；缺省 = 自动。 */
   aspectRatio?: string

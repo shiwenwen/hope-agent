@@ -1075,7 +1075,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       .catch(() => {})
   }, [tx])
 
-  // ── 生成模型选择（首页 + 涉图入口共享一份「上次使用」记忆）────────────
+  // ── 视觉模型选择（首页 + 涉图入口共享一份「上次使用」记忆）────────────
   // `genModel = null` 表示跟随默认链；显式选择 = 单模型（后端失败即报错不降级）。
   const [homeModels, setHomeModels] = useState<AvailableModel[]>([])
   useEffect(() => {
@@ -6293,7 +6293,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             {homeModels.length > 0 && (
               <div className="flex items-center gap-2">
                 <span className="shrink-0 text-sm text-muted-foreground">
-                  {t("design.model.label", "生成模型")}
+                  {t("design.model.label", "视觉模型")}
                 </span>
                 <ModelSelector
                   value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}
@@ -6773,7 +6773,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           {extractFrom === "image" && homeModels.length > 0 && (
             <div className="flex items-center gap-2">
               <span className="shrink-0 text-sm text-muted-foreground">
-                {t("design.model.label", "生成模型")}
+                {t("design.model.label", "视觉模型")}
               </span>
               <ModelSelector
                 value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}
@@ -7276,7 +7276,7 @@ function LaunchHome({
   refImages: { url: string }[]
   onPickImages: (files: File[]) => void
   onRemoveImage: (index: number) => void
-  /** 生成模型（null = 跟随默认链）；传图态选择器只亮视觉模型。 */
+  /** 视觉模型（null = 跟随默认链）；传图态选择器只亮视觉模型。 */
   genModel: ActiveModel | null
   models: AvailableModel[]
   onModelChange: (providerId: string, modelId: string) => void
@@ -7465,7 +7465,7 @@ function LaunchHome({
                   {systemName ?? t("design.pickSystem", "选择设计系统")}
                 </span>
               </Button>
-              {/* 生成模型 chip：prompt dock 工具栏 ghost action（已登记例外）；传图态只亮视觉模型。 */}
+              {/* 视觉模型 chip：prompt dock 工具栏 ghost action（已登记例外）；传图态只亮视觉模型。 */}
               {models.length > 0 && (
                 <ModelSelector
                   value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}

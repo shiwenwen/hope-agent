@@ -68,7 +68,7 @@ graph LR
 - `providers`: 已注册的 Provider 列表
 - `active_model`: 当前选中的模型 `{providerId, modelId}`
 - `fallback_models`: 降级模型链
-- 子配置：`compact`、`notification`、`imageGenerate`、`canvas`、`webSearch` 等
+- 子配置：`compact`、`notification`、`mediaGen`、`canvas`、`webSearch` 等
 
 ### 1.2 前端模板
 
