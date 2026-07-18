@@ -249,11 +249,17 @@ Image and audio generation share one **provider → models → per-function defa
 
 ### Step 1: Configure providers and models
 
-**Where**: Settings → **Model Configuration** → **Media Generation Models** tab. Click "Add Provider" to connect a template in one click: OpenAI (gpt-image / TTS), Google (Gemini / Imagen, supporting image editing and multiple reference images), Fal (Flux), MiniMax, SiliconFlow (Qwen-Image), Zhipu (CogView), Tongyi Wanxiang, ElevenLabs (TTS + music + sound effects) — or pick "Custom (OpenAI-compatible)" for a self-hosted endpoint.
+**Where**: Settings → **Model Configuration** → **Media Generation Models** tab. Click "Add Provider" to connect one of 27 built-in templates in a single click. Templates are grouped by modality and searchable — both brand names and model IDs match, so typing `seedream` or `flux` jumps straight to the right provider:
+
+- **Image**: OpenAI (gpt-image), Google (Gemini / Imagen, supporting image editing and multiple reference images), Fal (Flux), SiliconFlow (Qwen-Image), Zhipu (CogView), Tongyi Wanxiang, Volcengine (Seedream), Tencent Hunyuan, StepFun, Baidu Qianfan, SenseNova, Black Forest Labs (FLUX), Stability AI, Replicate, Together, xAI (Grok Image), Recraft, Kling, iFlytek
+- **Audio**: ElevenLabs (TTS + music + sound effects), MiniMax (speech + music), OpenAI (TTS), Cartesia, Deepgram, Fish Audio, Hume, Volcengine Doubao Speech, Stability (sound effects), Kling
+- **Self-hosted**: "Custom (OpenAI-compatible)"
+
+A few providers have credential formats worth noting: Kling and Volcengine Doubao Speech accept both the current and the legacy auth scheme — entering `ak:sk` (Kling) or `app_id:access_key` (Doubao Speech) signs requests the legacy way. iFlytek needs the `appid:apikey:apisecret` triple.
 
 Just like language models, **one provider takes one key and hosts multiple models**, and image and audio models can live side by side under the same provider. Preset models come with capability data (supported sizes, aspect ratios, resolutions, whether they support image editing / mask inpainting, audio kinds, duration range, whether a voice is required); those capabilities decide which parameters light up later in the UI. You can also "Add Custom Model" to enter a model ID and declare its capabilities by hand.
 
-Provider cards can be dragged to reorder — the order is the priority for automatic selection and failover. ElevenLabs / OpenAI can "Fetch Voices" to list the voices available to your account and set a provider-level default voice. The API key is a password box in the panel; the AI sees it masked when reading it through conversation, and **cannot write provider entries at all**.
+Provider cards can be dragged to reorder — the order is the priority for automatic selection and failover. ElevenLabs / OpenAI / Cartesia / MiniMax can "Fetch Voices" to list the voices available to your account and set a provider-level default voice; the other speech providers keep a manually entered voice ID. The API key is a password box in the panel; the AI sees it masked when reading it through conversation, and **cannot write provider entries at all**.
 
 ### Step 2: Configure default chains and tool parameters
 

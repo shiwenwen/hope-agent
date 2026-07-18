@@ -249,11 +249,17 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 ### 第一步:配置服务商与模型
 
-**入口**:设置 → **模型配置** → **媒体生成模型** 标签页。点「添加服务商」从模板一键接入 OpenAI(gpt-image / TTS)、Google(Gemini / Imagen,支持改图和多参考图)、Fal(Flux)、MiniMax、SiliconFlow(Qwen-Image)、智谱(CogView)、通义万相、ElevenLabs(TTS + 音乐 + 音效),或选「自定义(OpenAI 兼容)」接入自建端点。
+**入口**:设置 → **模型配置** → **媒体生成模型** 标签页。点「添加服务商」从 27 个内置模板一键接入,模板按模态分组并支持搜索——品牌名和模型 ID 都能搜(例如输入 `seedream` 或 `flux` 直接定位到对应服务商):
+
+- **图像**:OpenAI(gpt-image)、Google(Gemini / Imagen,支持改图和多参考图)、Fal(Flux)、SiliconFlow(Qwen-Image)、智谱(CogView)、通义万相、火山引擎(Seedream)、腾讯混元、阶跃星辰、百度千帆、商汤日日新、Black Forest Labs(FLUX)、Stability AI、Replicate、Together、xAI(Grok Image)、Recraft、快手可灵、科大讯飞
+- **音频**:ElevenLabs(TTS + 音乐 + 音效)、MiniMax(语音 + 音乐)、OpenAI(TTS)、Cartesia、Deepgram、Fish Audio、Hume、火山豆包语音、Stability(音效)、快手可灵
+- **自建端点**:「自定义(OpenAI 兼容)」
+
+部分服务商的凭据格式需注意:快手可灵与火山豆包语音同时支持新旧两套鉴权,填 `ak:sk`(可灵)或 `app_id:access_key`(豆包语音)即按旧版签发;科大讯飞需填 `appid:apikey:apisecret` 三件套。
 
 和语言模型一样,**一个服务商填一次 Key、挂多个模型**,图像和音频模型可以混挂在同一个服务商下。模板自带的预设模型会带上能力信息(支持的尺寸、宽高比、分辨率、是否支持改图 / 蒙版重绘、音频类型、时长范围、是否需要音色),这些能力决定了后续哪些参数会在界面上亮起。也可以「添加自定义模型」手工填模型 ID 并标注能力。
 
-服务商卡片可拖拽排序——顺序即**自动挑选和失败切换的优先级**。ElevenLabs / OpenAI 可「拉取音色」列出账号可用音色,并设一个服务商级默认音色。API Key 在面板里是密码框;AI 通过对话读取时会打码,而且**不能写入服务商条目**。
+服务商卡片可拖拽排序——顺序即**自动挑选和失败切换的优先级**。ElevenLabs / OpenAI / Cartesia / MiniMax 可「拉取音色」列出账号可用音色,并设一个服务商级默认音色;其余语音服务商保留手填音色 ID。API Key 在面板里是密码框;AI 通过对话读取时会打码,而且**不能写入服务商条目**。
 
 ### 第二步:配置默认调用链与工具参数
 
