@@ -174,7 +174,7 @@ export default function CronSettingsPanel() {
         </div>
       </div>
 
-      <div className="space-y-5 max-w-2xl">
+      <div className="w-full space-y-5">
         {rows.map((row) => (
           <div key={row.label} className="flex items-start justify-between gap-6">
             <div className="min-w-0">
