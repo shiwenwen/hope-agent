@@ -981,7 +981,8 @@
       "expandPanel": "Expandir {{panel}}",
       "workflowActiveCount": "{{count}} fluxos de trabalho ativos",
       "workflowAttentionCount": "{{count}} fluxos de trabalho precisam de atenção",
-      "backgroundRunningCount": "{{count}} tarefas em segundo plano em execução"
+      "backgroundRunningCount": "{{count}} tarefas em segundo plano em execução",
+      "subagentRunningCount": "{{count}} subagentes em execução"
     },
     "visionBridgeEngaged": "O modelo principal não consegue ver imagens, então {{model}} as descreveu para ele.",
     "visionBridgeUnavailable": "O modelo de visão não conseguiu descrever a imagem, então ela foi ignorada.",
@@ -2486,6 +2487,7 @@
         "completed": "Concluído",
         "error": "Erro",
         "killed": "Encerrado",
+        "queued": "Na fila",
         "running": "Em execução",
         "spawning": "Iniciando",
         "timeout": "Tempo esgotado"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "Abrir sessão do sub-agente",
     "agentId": "Agent ID",
+    "attachments": "Anexos",
     "childSessionId": "Sessão secundária",
+    "depth": "Profundidade",
     "duration": "Duração",
+    "finishedAt": "Fim",
+    "label": "Rótulo",
     "model": "Modelo",
     "openSession": "Abrir sessão",
+    "parentAgent": "Agente pai",
+    "parentSession": "Sessão pai",
+    "provider": "Provedor",
     "runId": "ID de execução",
+    "startedAt": "Início",
     "task": "Tarefa",
+    "thinking": "Raciocínio",
     "tokens": "Quantidade de tokens"
+  },
+  "subagentPanel": {
+    "conversationTab": "Conversa",
+    "detailsSection": "Detalhes",
+    "empty": "Ainda não há execuções de subagentes nesta sessão",
+    "finishedCount": "{{count}} concluídos",
+    "resizePanel": "Redimensionar painel de subagentes",
+    "resultSection": "Resultado",
+    "runMissing": "Registro de execução não encontrado",
+    "runningCount": "{{count}} em execução",
+    "selectHint": "Selecione uma execução para ver a conversa",
+    "title": "Subagentes"
   },
   "team": {
     "active": "Ativo",

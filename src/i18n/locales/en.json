@@ -981,7 +981,8 @@
       "expandPanel": "Expand {{panel}}",
       "workflowActiveCount": "{{count}} active workflows",
       "workflowAttentionCount": "{{count}} workflows need attention",
-      "backgroundRunningCount": "{{count}} background tasks running"
+      "backgroundRunningCount": "{{count}} background tasks running",
+      "subagentRunningCount": "{{count}} sub-agents running"
     },
     "visionBridgeEngaged": "The primary model can't view images, so {{model}} described them for it.",
     "visionBridgeUnavailable": "The vision model couldn't describe the image, so it was left out.",
@@ -2486,6 +2487,7 @@
         "completed": "Completed",
         "error": "Error",
         "killed": "Killed",
+        "queued": "Queued",
         "running": "Running",
         "spawning": "Spawning",
         "timeout": "Timeout"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "Open sub-agent session",
     "agentId": "Agent ID",
+    "attachments": "Attachments",
     "childSessionId": "Child session",
+    "depth": "Depth",
     "duration": "Duration",
+    "finishedAt": "Finished",
+    "label": "Label",
     "model": "Model",
     "openSession": "Open Session",
+    "parentAgent": "Parent agent",
+    "parentSession": "Parent session",
+    "provider": "Provider",
     "runId": "Run ID",
+    "startedAt": "Started",
     "task": "Task",
+    "thinking": "Thinking",
     "tokens": "Tokens"
+  },
+  "subagentPanel": {
+    "conversationTab": "Conversation",
+    "detailsSection": "Details",
+    "empty": "No sub-agent runs in this session yet",
+    "finishedCount": "{{count}} finished",
+    "resizePanel": "Resize sub-agents panel",
+    "resultSection": "Result",
+    "runMissing": "Run record not found",
+    "runningCount": "{{count}} running",
+    "selectHint": "Select a run to view its conversation",
+    "title": "Sub-agents"
   },
   "team": {
     "active": "Active",

@@ -1534,7 +1534,7 @@ stateDiagram-v2
 | 展开 | 点击标题栏 → 折叠区显示 markdown 渲染的 tool_result（fork 模式自动去掉 `Skill '...' completed.\n\nResult:\n` 信封） |
 | 流程识别 | 标签显示 `skill · fork` 或 `skill · inline`，让用户一眼看到这次激活是否走了隔离执行 |
 
-**子 Agent 进度联动**（未来迭代接入）：`SubagentEvent.skill_name` 字段已就绪，前端可在 `SkillProgressBlock` 内订阅 `subagent_event`、按 `skillName === args.name` 过滤拉到子 Agent tool call 流，在展开区内嵌 mini-transcript。当前版本先不做，避免和 `SubagentGroup` 的渲染路径撞车。
+**子 Agent 进度联动**（未来迭代接入）：`SubagentEvent.skill_name` 字段已就绪，前端可在 `SkillProgressBlock` 内订阅 `subagent_event`、按 `skillName === args.name` 过滤拉到子 Agent tool call 流，在展开区内嵌 mini-transcript。当前版本先不做，避免和子 Agent 芯片行（`subagent/SubagentChips.tsx`）的渲染路径撞车。
 
 ---
 

@@ -113,6 +113,7 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
         onLoadMore={handleLoadMore}
         sessionId={sessionId}
         heroComposer
+        bottomInset
       />
     </div>
   )

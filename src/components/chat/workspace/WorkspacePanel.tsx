@@ -99,6 +99,9 @@ import { getTransport, useTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import { type BackgroundJobSnapshot, isBackgroundJobActive } from "@/types/background-jobs"
 import { SessionBackgroundJobsList } from "../background-jobs/SessionBackgroundJobsList"
+import { SubagentRunRow } from "../subagent/SubagentRunRow"
+import type { SubagentRunsSnapshot } from "../subagent/useSubagentRuns"
+import { useAgentsMap } from "../subagentShared"
 import type {
   CodingFailureBucket,
   CodingImprovementActionPlan,
@@ -257,10 +260,7 @@ import {
 import { workspaceSourceOpenErrorToast } from "./workspaceSourceFeedback"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import { shouldConsumeWorkspaceFocus } from "./workspaceFocus"
-import {
-  resolveWorkspaceEnvironmentStatus,
-  workingDirSourceLabelKey,
-} from "./workspaceEnvironment"
+import { resolveWorkspaceEnvironmentStatus, workingDirSourceLabelKey } from "./workspaceEnvironment"
 
 export interface WorkspaceFocusRequest {
   sessionId: string
@@ -329,6 +329,8 @@ interface WorkspacePanelProps {
   onOpenBrowserPanel?: () => void
   /** 打开子 agent 实时会话弹层，不切换当前主会话。 */
   onViewSubagentSession?: (sessionId: string) => void
+  /** 本会话子 agent 运行快照（复用聊天页已有订阅，不额外拉取）。 */
+  subagentRunsState?: SubagentRunsSnapshot
   /** 从输入框或其它全局入口请求打开「持续推进」创建器。 */
   openLoopCreateRequest?: number
   /** Dashboard attention deep-link: scroll to the relevant control section
@@ -1604,95 +1606,95 @@ function EnvironmentSection({
           {t("workspace.environment.details", "详细信息")}
         </summary>
         <div className="space-y-0.5 border-t border-border/45 p-1.5">
-        <EnvRow
-          icon={Monitor}
-          label={t("workspace.environment.version", "版本")}
-          value={`v${appVersion}`}
-        />
-
-        <EnvRow
-          icon={isLocalRuntime ? HardDrive : Server}
-          label={t("workspace.environment.runtime", "运行")}
-          value={
-            isLocalRuntime
-              ? t("workspace.environment.runtimeLocal", "本机桌面")
-              : t("workspace.environment.runtimeRemote", "远端服务")
-          }
-        />
-
-        <EnvRow
-          icon={FolderOpen}
-          label={t("workspace.environment.workingDir", "目录")}
-          value={workingDirName || t("workspace.environment.noWorkingDir", "未设置")}
-          detail={t(sourceLabel.key, sourceLabel.fallback)}
-          title={workingDir ?? undefined}
-          tone={status.kind === "missingWorkingDir" ? "danger" : "muted"}
-        />
-
-        {project ? (
           <EnvRow
-            icon={FolderGit2}
-            label={t("workspace.environment.project", "项目")}
-            value={project.name}
-            detail={project.archived ? t("workspace.environment.archived", "已归档") : undefined}
+            icon={Monitor}
+            label={t("workspace.environment.version", "版本")}
+            value={`v${appVersion}`}
           />
-        ) : null}
 
-        <EnvRow
-          icon={sessionSource.icon}
-          label={t("workspace.environment.source", "来源")}
-          value={sessionSource.value}
-          detail={sessionSource.detail}
-        />
-
-        {sessionMeta?.incognito ? (
           <EnvRow
-            icon={EyeOff}
-            label={t("workspace.environment.privacy", "隐私")}
-            value={t("chat.incognito", "无痕")}
-            detail={t("workspace.environment.incognitoDetail", "不读取历史产物")}
-            tone="info"
+            icon={isLocalRuntime ? HardDrive : Server}
+            label={t("workspace.environment.runtime", "运行")}
+            value={
+              isLocalRuntime
+                ? t("workspace.environment.runtimeLocal", "本机桌面")
+                : t("workspace.environment.runtimeRemote", "远端服务")
+            }
           />
-        ) : null}
 
-        <EnvRow
-          icon={dangerous.active ? ShieldAlert : Shield}
-          label={t("workspace.environment.permission", "权限")}
-          value={t(`chat.permissionMode.${permissionMode}.label`, permissionMode)}
-          detail={
-            dangerous.active ? t("workspace.environment.dangerousMode", "危险模式") : undefined
-          }
-          tone={dangerous.active || permissionMode === "yolo" ? "danger" : "muted"}
-        />
-
-        {planState !== "off" ? (
           <EnvRow
-            icon={GitPullRequest}
-            label={t("workspace.environment.plan", "计划")}
-            value={planStateLabel(t, planState)}
+            icon={FolderOpen}
+            label={t("workspace.environment.workingDir", "目录")}
+            value={workingDirName || t("workspace.environment.noWorkingDir", "未设置")}
+            detail={t(sourceLabel.key, sourceLabel.fallback)}
+            title={workingDir ?? undefined}
+            tone={status.kind === "missingWorkingDir" ? "danger" : "muted"}
+          />
+
+          {project ? (
+            <EnvRow
+              icon={FolderGit2}
+              label={t("workspace.environment.project", "项目")}
+              value={project.name}
+              detail={project.archived ? t("workspace.environment.archived", "已归档") : undefined}
+            />
+          ) : null}
+
+          <EnvRow
+            icon={sessionSource.icon}
+            label={t("workspace.environment.source", "来源")}
+            value={sessionSource.value}
+            detail={sessionSource.detail}
+          />
+
+          {sessionMeta?.incognito ? (
+            <EnvRow
+              icon={EyeOff}
+              label={t("workspace.environment.privacy", "隐私")}
+              value={t("chat.incognito", "无痕")}
+              detail={t("workspace.environment.incognitoDetail", "不读取历史产物")}
+              tone="info"
+            />
+          ) : null}
+
+          <EnvRow
+            icon={dangerous.active ? ShieldAlert : Shield}
+            label={t("workspace.environment.permission", "权限")}
+            value={t(`chat.permissionMode.${permissionMode}.label`, permissionMode)}
+            detail={
+              dangerous.active ? t("workspace.environment.dangerousMode", "危险模式") : undefined
+            }
+            tone={dangerous.active || permissionMode === "yolo" ? "danger" : "muted"}
+          />
+
+          {planState !== "off" ? (
+            <EnvRow
+              icon={GitPullRequest}
+              label={t("workspace.environment.plan", "计划")}
+              value={planStateLabel(t, planState)}
               tone={
                 planState === "executing" ? "info" : planState === "completed" ? "good" : "muted"
               }
-          />
-        ) : null}
+            />
+          ) : null}
 
-        {env.error ? (
-          <EnvRow
-            icon={CircleAlert}
-            label={t("workspace.environment.statusLabel", "状态")}
-            value={t("workspace.environment.unavailable", "无法读取环境状态")}
-            detail={env.error}
-            tone="warn"
-          />
-        ) : null}
+          {env.error ? (
+            <EnvRow
+              icon={CircleAlert}
+              label={t("workspace.environment.statusLabel", "状态")}
+              value={t("workspace.environment.unavailable", "无法读取环境状态")}
+              detail={env.error}
+              tone="warn"
+            />
+          ) : null}
 
-        {!git && env.snapshot && workingDir ? (
-          <EnvRow
-            icon={GitBranch}
-            label={t("workspace.environment.git", "Git")}
-            value={t("workspace.environment.nonGit", "非 Git 工作目录")}
-          />
-        ) : null}
+          {!git && env.snapshot && workingDir ? (
+            <EnvRow
+              icon={GitBranch}
+              label={t("workspace.environment.git", "Git")}
+              value={t("workspace.environment.nonGit", "非 Git 工作目录")}
+            />
+          ) : null}
         </div>
       </details>
     </WorkspaceSection>
@@ -2447,10 +2449,7 @@ function contextCandidateAskUserInput(
         "请确认这条上下文是否应该作为当前任务决策依据：{{subtitle}}",
         { subtitle: candidate.subtitle },
       )
-    : t(
-        "workspace.context.confirmationContext",
-        "请确认这条上下文是否应该作为当前任务决策依据。",
-      )
+    : t("workspace.context.confirmationContext", "请确认这条上下文是否应该作为当前任务决策依据。")
   return {
     sessionId,
     source: "workspace_context",
@@ -11768,6 +11767,43 @@ function BackgroundJobsSection({
   )
 }
 
+/** Compact roster of this session's sub-agent runs. Reads the snapshot the chat
+ *  screen already subscribes to (no extra fetch); a row opens the sub-agent panel
+ *  on that run. Hidden entirely when the session has never spawned one. */
+function SubagentsSection({
+  runsState,
+  onViewSubagentSession,
+}: {
+  runsState: SubagentRunsSnapshot
+  onViewSubagentSession?: (sessionId: string) => void
+}) {
+  const { t } = useTranslation()
+  const agentsMap = useAgentsMap()
+  const { runs } = runsState
+  if (runs.length === 0) return null
+
+  return (
+    // Count is the section's item total (matching 输出 / 来源); a running-only
+    // count reads as a confusing "· 0" next to a list of finished runs.
+    <WorkspaceSection title={t("subagentPanel.title", "子智能体")} count={runs.length} icon={Bot}>
+      <div className="max-h-[32vh] space-y-1 overflow-y-auto pr-0.5">
+        {runs.map((run) => (
+          <SubagentRunRow
+            key={run.runId}
+            run={run}
+            agent={agentsMap.get(run.childAgentId)}
+            onClick={
+              onViewSubagentSession && run.childSessionId
+                ? () => onViewSubagentSession(run.childSessionId)
+                : undefined
+            }
+          />
+        ))}
+      </div>
+    </WorkspaceSection>
+  )
+}
+
 const WORKFLOW_RUN_PREVIEW = 6
 const WORKFLOW_EVENT_PREVIEW = 4
 const WORKFLOW_OVERVIEW_EVENT_PREVIEW = 5
@@ -14050,10 +14086,7 @@ function loopEventStateOptions(eventName: LoopEventName): string[] {
   return ["completed", "in_progress", "pending"]
 }
 
-function loopEventStateLabel(
-  t: ReturnType<typeof useTranslation>["t"],
-  state: string,
-): string {
+function loopEventStateLabel(t: ReturnType<typeof useTranslation>["t"], state: string): string {
   switch (state) {
     case "active":
       return t("common.statusValues.active", "Active")
@@ -19223,9 +19256,7 @@ function GoalControlStrip({
     editTemplate?.taskTypes.find((taskType) => taskType === editTaskType) ??
     editTemplate?.taskTypes[0] ??
     ""
-  const goalEditTemplateValue = goal
-    ? goalDomainTemplateValue(goal)
-    : GOAL_DOMAIN_FREE_VALUE
+  const goalEditTemplateValue = goal ? goalDomainTemplateValue(goal) : GOAL_DOMAIN_FREE_VALUE
 
   /* eslint-disable react-hooks/set-state-in-effect -- durable Goal changes intentionally reset the local editor draft */
   useEffect(() => {
@@ -22249,6 +22280,7 @@ export default function WorkspacePanel({
   onOpenBackgroundJobs,
   onOpenBrowserPanel,
   onViewSubagentSession,
+  subagentRunsState,
   openLoopCreateRequest = 0,
   focusRequest,
   onFocusRequestHandled,
@@ -22409,7 +22441,6 @@ export default function WorkspacePanel({
           systemPromptLoading={systemPromptLoading}
         />
 
-        <MemoryDiagnosticsSection messages={messages} incognito={incognito} />
         <div ref={progressSectionRef}>
           {taskSnapshot && taskSnapshot.total > 0 ? (
             <TaskProgressPanel
@@ -22466,6 +22497,13 @@ export default function WorkspacePanel({
           onOpenPanel={onOpenBackgroundJobs}
           onViewSubagentSession={onViewSubagentSession}
         />
+
+        {subagentRunsState && (
+          <SubagentsSection
+            runsState={subagentRunsState}
+            onViewSubagentSession={onViewSubagentSession}
+          />
+        )}
 
         {/* 输出 — 本会话碰到的文件(读 + 改),定高内部滚动 + 滚动增量渲染。 */}
         <WorkspaceSection
@@ -22562,6 +22600,10 @@ export default function WorkspacePanel({
           onPreviewFile={onPreviewFile}
           onDomainEvidenceRecorded={domainTaskWorkbenchState.refreshAll}
         />
+
+        {/* 与「知识空间 / 上下文检索」同属「模型取用了什么」，排在它们之后、
+            代码类诊断（LSP / 评审 / 验证 / 趋势）之前。 */}
+        <MemoryDiagnosticsSection messages={messages} incognito={incognito} />
 
         <div ref={domainWorkbenchRef}>
           <DomainTaskWorkbenchSection

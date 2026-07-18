@@ -44,6 +44,10 @@ import type {
   PendingMessageQuote,
 } from "@/types/chat"
 import type { PlanModeState } from "./plan-mode/usePlanMode"
+import { PANEL_SCROLL_FADE } from "./right-panel/panelFade"
+import { SubagentRunsProvider } from "./subagent/SubagentRunsProvider"
+import type { SubagentRunsSnapshot } from "./subagent/useSubagentRuns"
+import type { SubagentOpenTarget } from "./subagent/subagentRunModel"
 
 interface MessageListProps {
   messages: Message[]
@@ -97,6 +101,18 @@ interface MessageListProps {
   onCompactContext?: () => Promise<CompactResult | null>
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   onViewChildSession?: (sessionId: string) => void
+  /** A sub-agent chip in the transcript was clicked — open the sub-agent panel
+   *  and select the run. Falls back to `onViewChildSession` when absent. */
+  onOpenSubagentRun?: (target: SubagentOpenTarget) => void
+  /** Reuse the host's existing sub-agent run snapshot instead of self-subscribing
+   *  (the main chat screen already keeps one). Omit and the list self-subscribes. */
+  subagentRunsSnapshot?: SubagentRunsSnapshot
+  /** Pad the transcript bottom when no composer sits below it (read-only
+   *  sub-agent / cron session viewers) so the last message isn't flush to the edge. */
+  bottomInset?: boolean
+  /** Soften the top/bottom scroll edges with the shared panel mask. Applied to
+   *  the scroll container only, so the floating jump-to-latest button stays crisp. */
+  scrollFade?: boolean
   onOpenDiff?: (
     metadata:
       | import("@/types/chat").FileChangeMetadata
@@ -678,6 +694,10 @@ export default function MessageList({
   onCompactContext,
   onOpenDashboardTab,
   onViewChildSession,
+  onOpenSubagentRun,
+  subagentRunsSnapshot,
+  bottomInset,
+  scrollFade,
   onOpenDiff,
   onResume,
   onForkFromMessage,
@@ -1546,259 +1566,295 @@ export default function MessageList({
   // scroll position.
   const showJumpToLatest = Boolean((!atBottom && items.length > 0) || hasMoreAfter)
 
+  // Only self-subscribe to sub-agent runs when this transcript actually contains
+  // a `subagent` block (so chip-less surfaces — design / knowledge / quick chat —
+  // pay nothing). When the host supplies a snapshot, the provider reuses it and
+  // never fetches, so the scan is skipped.
+  const hasSubagentContent = useMemo(
+    () =>
+      !subagentRunsSnapshot &&
+      messages.some(
+        (m) =>
+          m.contentBlocks?.some((b) => b.type === "tool_call" && b.tool.name === "subagent") ||
+          m.toolCalls?.some((t) => t.name === "subagent"),
+      ),
+    [messages, subagentRunsSnapshot],
+  )
+
   return (
-    <div ref={rootRef} className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
-      <div
-        ref={containerRef}
-        key={sessionKey}
-        // `overflow-anchor: none` opts out of the browser's default scroll-
-        // anchoring. Otherwise the browser tries to keep visible elements at
-        // their viewport position when content above grows (e.g. Load More
-        // prepend), and the `useLayoutEffect` top-anchor below tries to do
-        // the same — the result is double-compensation, which the user reads
-        // as "the scroll keeps moving by itself after the load finished".
-        // `overscroll-behavior-y: none` disables macOS WebKit/Tauri rubber-
-        // band overscroll, which on a long Load-More'd conversation can
-        // leave scrollTop sitting at a small negative value (e.g. -41) past
-        // the gesture's end — a bug we observed where the negative gap +
-        // async KaTeX/Mermaid/Shiki layout settling created a multi-frame
-        // blank viewport even after the messages had committed to the DOM.
-        className={cn(
-          "h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none] [overscroll-behavior-y:none]",
-          isTimelineMode && "px-5 sm:px-6",
-        )}
-      >
-        <div ref={contentRef} className={cn("mx-auto w-full pt-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
-          {hasMore && displayedStart === 0 && (
-            <div className="pt-6">
-              <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
-            </div>
-          )}
-
-          {renderRows.map((row) => {
-            if (row.kind === "completed-turn-collapse") {
-              return (
-                <CompletedTurnCollapseSummary
-                  key={row.key}
-                  row={row}
-                  onToggle={toggleCompletedTurn}
-                />
-              )
+    <SubagentRunsProvider
+      sessionId={subagentRunsSnapshot || hasSubagentContent ? (sessionId ?? null) : null}
+      snapshot={subagentRunsSnapshot}
+      onOpenRun={
+        onOpenSubagentRun ??
+        (onViewChildSession
+          ? (target) => {
+              if (target.childSessionId) onViewChildSession(target.childSessionId)
             }
-
-            const { msg, originalIndex } = row.item
-            const rowKey = rowKeyForItem(row.item)
-            const isLast = originalIndex === messages.length - 1
-            // Only the last bubble cares about the `loading` prop (drives
-            // streaming-bubble class, dots placeholder, MarkdownRenderer
-            // streaming hint). Pass false to all others so global loading
-            // flips don't re-render the entire list — that's the source of
-            // the post-stream "flicker" (markdown / shiki / katex subtree
-            // rebuilds when each bubble's loading prop changes).
-            const bubbleLoading = isLast ? loading : false
-            const bubbleExecutionState = shouldPassExecutionStateToBubble(
-              isLast,
-              bubbleLoading,
-              executionState,
-            )
-              ? executionState
-              : null
-            const forceExpandUserContent =
-              msg.dbId != null && searchExpandedUserMessageId === msg.dbId
-            return (
-              <div
-                key={rowKey}
-                data-message-key={rowKey}
-                data-message-id={msg.dbId ?? undefined}
-                data-message-source-id={row.item.sourceDbId ?? undefined}
-                className={cn(
-                  "grid w-full min-w-0 grid-cols-1 rounded-lg transition-colors",
-                  itemMatchesMessageId(row.item, highlightMessageId) && "message-hit-pulse",
-                  isTimelineMode
-                    ? isCenteredSystemMessage(msg)
-                      ? "justify-items-center pb-4"
-                      : isUserAlignedMessage(msg) && !msg.fromAgentId
-                        ? "justify-items-end pb-4"
-                        : msg.role === "assistant"
-                          ? "justify-items-stretch pb-0"
-                          : "justify-items-start pb-4"
-                    : cn(
-                        "pb-4",
-                        isCenteredSystemMessage(msg)
-                          ? "justify-items-center"
-                          : isUserAlignedMessage(msg) && !msg.fromAgentId
-                            ? "justify-items-end"
-                            : "justify-items-start",
-                      ),
-                  isLast && originalIndex >= animationBaseline && "animate-fade-slide-in",
-                )}
-              >
-                <MessageBubble
-                  msg={msg}
-                  index={originalIndex}
-                  isLast={isLast}
-                  loading={bubbleLoading}
-                  executionState={bubbleExecutionState}
-                  agents={agents}
-                  isHovered={hoveredMsgIndex === originalIndex}
-                  onHover={setHoveredMsgIndex}
-                  onContextMenu={handleContextMenu}
-                  isCopied={copiedIndex === originalIndex}
-                  onCopy={handleCopyMessage}
-                  onAddQuickPrompt={onAddQuickPrompt}
-                  sessionId={sessionId}
-                  onOpenPlanPanel={onOpenPlanPanel}
-                  onViewChildSession={onViewChildSession}
-                  onSwitchModel={onSwitchModel}
-                  onViewSystemPrompt={onViewSystemPrompt}
-                  compacting={compacting}
-                  onCompactContext={onCompactContext}
-                  onOpenDashboardTab={onOpenDashboardTab}
-                  onOpenDiff={onOpenDiff}
-                  onResume={onResume}
-                  onForkFromMessage={onForkFromMessage}
-                  onOpenMemorySettings={onOpenMemorySettings}
-                  onOpenKnowledge={onOpenKnowledge}
-                  displayMode={displayMode}
-                  footerFiles={row.item.footerFiles}
-                  hideOwnFooterFiles={row.item.hideOwnFooterFiles}
-                  goalCompletionReportOverride={row.item.goalCompletionReport}
-                  suppressGoalCompletionFooter={row.item.suppressGoalCompletionFooter}
-                  forceExpandUserContent={forceExpandUserContent}
-                  onForceExpandedUserContentDismiss={
-                    forceExpandUserContent
-                      ? () =>
-                          setSearchExpandedUserMessageId((current) =>
-                            current === msg.dbId ? null : current,
-                          )
-                      : undefined
-                  }
-                />
-                {renderMessageActions?.(msg, originalIndex)}
-              </div>
-            )
-          })}
-
-          {hasMoreAfter && (
-            <div className="pt-2 pb-1">
-              <LoadMoreRow loadingMore={loadingMoreAfter} onLoadMore={onLoadMoreAfter} />
-            </div>
+          : undefined)
+      }
+    >
+      <div ref={rootRef} className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
+        <div
+          ref={containerRef}
+          key={sessionKey}
+          // `overflow-anchor: none` opts out of the browser's default scroll-
+          // anchoring. Otherwise the browser tries to keep visible elements at
+          // their viewport position when content above grows (e.g. Load More
+          // prepend), and the `useLayoutEffect` top-anchor below tries to do
+          // the same — the result is double-compensation, which the user reads
+          // as "the scroll keeps moving by itself after the load finished".
+          // `overscroll-behavior-y: none` disables macOS WebKit/Tauri rubber-
+          // band overscroll, which on a long Load-More'd conversation can
+          // leave scrollTop sitting at a small negative value (e.g. -41) past
+          // the gesture's end — a bug we observed where the negative gap +
+          // async KaTeX/Mermaid/Shiki layout settling created a multi-frame
+          // blank viewport even after the messages had committed to the DOM.
+          className={cn(
+            "h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none] [overscroll-behavior-y:none]",
+            isTimelineMode && "px-5 sm:px-6",
+            scrollFade && PANEL_SCROLL_FADE,
           )}
+        >
+          <div
+            ref={contentRef}
+            className={cn(
+              "mx-auto w-full pt-4",
+              bottomInset && "pb-6",
+              CHAT_CONTENT_MAX_WIDTH_CLASS,
+            )}
+          >
+            {hasMore && displayedStart === 0 && (
+              <div className="pt-6">
+                <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
+              </div>
+            )}
 
-          <AnimatedCollapse open={hasFooterContent} durationMs={220}>
-            <div className="flex flex-col gap-4 pt-2 pb-6">
-              {pendingQuestionGroup && (
-                <div className="w-full">
-                  <AskUserQuestionBlock
-                    key={pendingQuestionGroup.requestId}
-                    group={pendingQuestionGroup}
-                    onSubmitted={onQuestionSubmitted}
-                    variant={askUserVariant}
+            {renderRows.map((row) => {
+              if (row.kind === "completed-turn-collapse") {
+                return (
+                  <CompletedTurnCollapseSummary
+                    key={row.key}
+                    row={row}
+                    onToggle={toggleCompletedTurn}
                   />
+                )
+              }
+
+              const { msg, originalIndex } = row.item
+              const rowKey = rowKeyForItem(row.item)
+              const isLast = originalIndex === messages.length - 1
+              // Only the last bubble cares about the `loading` prop (drives
+              // streaming-bubble class, dots placeholder, MarkdownRenderer
+              // streaming hint). Pass false to all others so global loading
+              // flips don't re-render the entire list — that's the source of
+              // the post-stream "flicker" (markdown / shiki / katex subtree
+              // rebuilds when each bubble's loading prop changes).
+              const bubbleLoading = isLast ? loading : false
+              const bubbleExecutionState = shouldPassExecutionStateToBubble(
+                isLast,
+                bubbleLoading,
+                executionState,
+              )
+                ? executionState
+                : null
+              const forceExpandUserContent =
+                msg.dbId != null && searchExpandedUserMessageId === msg.dbId
+              return (
+                <div
+                  key={rowKey}
+                  data-message-key={rowKey}
+                  data-message-id={msg.dbId ?? undefined}
+                  data-message-source-id={row.item.sourceDbId ?? undefined}
+                  className={cn(
+                    "grid w-full min-w-0 grid-cols-1 rounded-lg transition-colors",
+                    itemMatchesMessageId(row.item, highlightMessageId) && "message-hit-pulse",
+                    isTimelineMode
+                      ? isCenteredSystemMessage(msg)
+                        ? "justify-items-center pb-4"
+                        : isUserAlignedMessage(msg) && !msg.fromAgentId
+                          ? "justify-items-end pb-4"
+                          : msg.role === "assistant"
+                            ? "justify-items-stretch pb-0"
+                            : "justify-items-start pb-4"
+                      : cn(
+                          "pb-4",
+                          isCenteredSystemMessage(msg)
+                            ? "justify-items-center"
+                            : isUserAlignedMessage(msg) && !msg.fromAgentId
+                              ? "justify-items-end"
+                              : "justify-items-start",
+                        ),
+                    isLast && originalIndex >= animationBaseline && "animate-fade-slide-in",
+                  )}
+                >
+                  <MessageBubble
+                    msg={msg}
+                    index={originalIndex}
+                    isLast={isLast}
+                    loading={bubbleLoading}
+                    executionState={bubbleExecutionState}
+                    agents={agents}
+                    isHovered={hoveredMsgIndex === originalIndex}
+                    onHover={setHoveredMsgIndex}
+                    onContextMenu={handleContextMenu}
+                    isCopied={copiedIndex === originalIndex}
+                    onCopy={handleCopyMessage}
+                    onAddQuickPrompt={onAddQuickPrompt}
+                    sessionId={sessionId}
+                    onOpenPlanPanel={onOpenPlanPanel}
+                    onViewChildSession={onViewChildSession}
+                    onSwitchModel={onSwitchModel}
+                    onViewSystemPrompt={onViewSystemPrompt}
+                    compacting={compacting}
+                    onCompactContext={onCompactContext}
+                    onOpenDashboardTab={onOpenDashboardTab}
+                    onOpenDiff={onOpenDiff}
+                    onResume={onResume}
+                    onForkFromMessage={onForkFromMessage}
+                    onOpenMemorySettings={onOpenMemorySettings}
+                    onOpenKnowledge={onOpenKnowledge}
+                    displayMode={displayMode}
+                    footerFiles={row.item.footerFiles}
+                    hideOwnFooterFiles={row.item.hideOwnFooterFiles}
+                    goalCompletionReportOverride={row.item.goalCompletionReport}
+                    suppressGoalCompletionFooter={row.item.suppressGoalCompletionFooter}
+                    forceExpandUserContent={forceExpandUserContent}
+                    onForceExpandedUserContentDismiss={
+                      forceExpandUserContent
+                        ? () =>
+                            setSearchExpandedUserMessageId((current) =>
+                              current === msg.dbId ? null : current,
+                            )
+                        : undefined
+                    }
+                  />
+                  {renderMessageActions?.(msg, originalIndex)}
                 </div>
-              )}
-              {planCardVisible && planCardData && (
-                <div className="flex justify-start">
-                  <div className="max-w-[85%] w-full">
-                    <PlanCardBlock
-                      data={planCardData}
-                      planState={planState ?? "off"}
-                      onOpenPanel={onOpenPlanPanel}
-                      onApprove={onApprovePlan}
-                      onExit={onExitPlan}
+              )
+            })}
+
+            {hasMoreAfter && (
+              <div className="pt-2 pb-1">
+                <LoadMoreRow loadingMore={loadingMoreAfter} onLoadMore={onLoadMoreAfter} />
+              </div>
+            )}
+
+            <AnimatedCollapse open={hasFooterContent} durationMs={220}>
+              <div className="flex flex-col gap-4 pt-2 pb-6">
+                {pendingQuestionGroup && (
+                  <div className="w-full">
+                    <AskUserQuestionBlock
+                      key={pendingQuestionGroup.requestId}
+                      group={pendingQuestionGroup}
+                      onSubmitted={onQuestionSubmitted}
+                      variant={askUserVariant}
                     />
                   </div>
-                </div>
-              )}
-              {planSubagentRunning && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-sm text-blue-600 dark:text-blue-400 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full shrink-0" />
-                  <span>{t("planMode.planningInProgress")}</span>
-                </div>
-              )}
-              {showEmpty && !historyLoading && !heroComposer && (
-                <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
-                  <ChatWelcomeHero
-                    incognito={incognito}
-                    context={welcomeContext}
-                    projectName={projectName}
-                    onProjectSuggestion={onProjectSuggestion}
-                  />
-                </div>
-              )}
-            </div>
-          </AnimatedCollapse>
-        </div>
-      </div>
-
-      {showHistoryLoading && (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-4">
-          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-surface-floating px-3 py-2 text-sm text-muted-foreground shadow-sm">
-            <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            <span>{t("chat.loadingSession", "正在加载会话…")}</span>
+                )}
+                {planCardVisible && planCardData && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[85%] w-full">
+                      <PlanCardBlock
+                        data={planCardData}
+                        planState={planState ?? "off"}
+                        onOpenPanel={onOpenPlanPanel}
+                        onApprove={onApprovePlan}
+                        onExit={onExitPlan}
+                      />
+                    </div>
+                  </div>
+                )}
+                {planSubagentRunning && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-sm text-blue-600 dark:text-blue-400 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full shrink-0" />
+                    <span>{t("planMode.planningInProgress")}</span>
+                  </div>
+                )}
+                {showEmpty && !historyLoading && !heroComposer && (
+                  <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
+                    <ChatWelcomeHero
+                      incognito={incognito}
+                      context={welcomeContext}
+                      projectName={projectName}
+                      onProjectSuggestion={onProjectSuggestion}
+                    />
+                  </div>
+                )}
+              </div>
+            </AnimatedCollapse>
           </div>
         </div>
-      )}
 
-      {compactUserAnchor && (compactUserAnchorVisible || compactUserAnchorMounted) && (
-        <div
-          style={
-            compactUserAnchorFrame
-              ? {
-                  left: compactUserAnchorFrame.left,
-                  width: compactUserAnchorFrame.width,
-                }
-              : undefined
-          }
-          className={cn(
-            "pointer-events-none absolute top-2 z-30 flex justify-end transition-all duration-200 ease-out",
-            !compactUserAnchorFrame && "inset-x-0 px-4 sm:px-6",
-            compactUserAnchorVisible
-              ? "translate-y-0 opacity-100 animate-in fade-in-0 slide-in-from-top-1"
-              : "-translate-y-1 opacity-0",
-          )}
+        {showHistoryLoading && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-4">
+            <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-surface-floating px-3 py-2 text-sm text-muted-foreground shadow-sm">
+              <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <span>{t("chat.loadingSession", "正在加载会话…")}</span>
+            </div>
+          </div>
+        )}
+
+        {compactUserAnchor && (compactUserAnchorVisible || compactUserAnchorMounted) && (
+          <div
+            style={
+              compactUserAnchorFrame
+                ? {
+                    left: compactUserAnchorFrame.left,
+                    width: compactUserAnchorFrame.width,
+                  }
+                : undefined
+            }
+            className={cn(
+              "pointer-events-none absolute top-2 z-30 flex justify-end transition-all duration-200 ease-out",
+              !compactUserAnchorFrame && "inset-x-0 px-4 sm:px-6",
+              compactUserAnchorVisible
+                ? "translate-y-0 opacity-100 animate-in fade-in-0 slide-in-from-top-1"
+                : "-translate-y-1 opacity-0",
+            )}
+          >
+            <button
+              type="button"
+              onClick={handleCompactUserAnchorClick}
+              className={cn(
+                "pointer-events-auto flex h-9 max-w-[min(720px,85%)] cursor-pointer items-center rounded-full border border-border-soft bg-surface-floating/95 px-3.5 text-right text-sm font-medium text-foreground shadow-panel backdrop-blur transition-colors hover:bg-surface-subtle supports-[backdrop-filter]:bg-surface-floating/85",
+                !compactUserAnchorVisible && "pointer-events-none",
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate">
+                <SkillMentionText text={compactUserAnchor.text} />
+              </span>
+            </button>
+          </div>
+        )}
+
+        <AnimatedPresenceBox
+          open={showJumpToLatest}
+          className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4"
+          enterClassName="translate-y-0 scale-100 opacity-100"
+          exitClassName="translate-y-2 scale-95 opacity-0 pointer-events-none"
         >
           <button
             type="button"
-            onClick={handleCompactUserAnchorClick}
-            className={cn(
-              "pointer-events-auto flex h-9 max-w-[min(720px,85%)] cursor-pointer items-center rounded-full border border-border-soft bg-surface-floating/95 px-3.5 text-right text-sm font-medium text-foreground shadow-panel backdrop-blur transition-colors hover:bg-surface-subtle supports-[backdrop-filter]:bg-surface-floating/85",
-              !compactUserAnchorVisible && "pointer-events-none",
-            )}
+            onClick={handleJumpToLatest}
+            className="pointer-events-auto inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
+            aria-label={t("chat.scrollToBottom")}
           >
-            <span className="min-w-0 flex-1 truncate">
-              <SkillMentionText text={compactUserAnchor.text} />
-            </span>
+            <ArrowDown className="h-4 w-4" />
           </button>
-        </div>
-      )}
+        </AnimatedPresenceBox>
 
-      <AnimatedPresenceBox
-        open={showJumpToLatest}
-        className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4"
-        enterClassName="translate-y-0 scale-100 opacity-100"
-        exitClassName="translate-y-2 scale-95 opacity-0 pointer-events-none"
-      >
-        <button
-          type="button"
-          onClick={handleJumpToLatest}
-          className="pointer-events-auto inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
-          aria-label={t("chat.scrollToBottom")}
-        >
-          <ArrowDown className="h-4 w-4" />
-        </button>
-      </AnimatedPresenceBox>
-
-      <MessageContextMenu
-        contextMenu={contextMenu}
-        onCopy={(index, selectedText) => {
-          const msg = messages[index]
-          const content = selectedText ?? msg?.content
-          if (content) handleCopyMessage(content, index)
-        }}
-        onAddToChat={onAddMessageQuote}
-        onClose={() => setContextMenu(null)}
-      />
-    </div>
+        <MessageContextMenu
+          contextMenu={contextMenu}
+          onCopy={(index, selectedText) => {
+            const msg = messages[index]
+            const content = selectedText ?? msg?.content
+            if (content) handleCopyMessage(content, index)
+          }}
+          onAddToChat={onAddMessageQuote}
+          onClose={() => setContextMenu(null)}
+        />
+      </div>
+    </SubagentRunsProvider>
   )
 }

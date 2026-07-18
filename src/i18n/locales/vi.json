@@ -981,7 +981,8 @@
       "expandPanel": "Mở rộng {{panel}}",
       "workflowActiveCount": "{{count}} quy trình đang hoạt động",
       "workflowAttentionCount": "{{count}} quy trình cần chú ý",
-      "backgroundRunningCount": "{{count}} tác vụ nền đang chạy"
+      "backgroundRunningCount": "{{count}} tác vụ nền đang chạy",
+      "subagentRunningCount": "{{count}} tác nhân phụ đang chạy"
     },
     "visionBridgeEngaged": "Mô hình chính không xem được hình ảnh, nên {{model}} đã mô tả chúng thay cho nó.",
     "visionBridgeUnavailable": "Mô hình thị giác không mô tả được hình ảnh, nên hình ảnh đã bị bỏ qua.",
@@ -2486,6 +2487,7 @@
         "completed": "Hoàn tất",
         "error": "Lỗi",
         "killed": "Đã chấm dứt",
+        "queued": "Đang chờ",
         "running": "Đang chạy",
         "spawning": "Đang khởi chạy",
         "timeout": "Hết thời gian"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "Mở phiên của sub-agent",
     "agentId": "Agent ID",
+    "attachments": "Tệp đính kèm",
     "childSessionId": "Phiên con",
+    "depth": "Độ sâu",
     "duration": "Thời lượng",
+    "finishedAt": "Kết thúc",
+    "label": "Nhãn",
     "model": "Mô hình",
     "openSession": "Mở phiên",
+    "parentAgent": "Tác nhân cha",
+    "parentSession": "Phiên cha",
+    "provider": "Nhà cung cấp",
     "runId": "ID lần chạy",
+    "startedAt": "Bắt đầu",
     "task": "Nhiệm vụ",
+    "thinking": "Mức suy luận",
     "tokens": "Số Token"
+  },
+  "subagentPanel": {
+    "conversationTab": "Hội thoại",
+    "detailsSection": "Chi tiết",
+    "empty": "Chưa có lần chạy tác nhân phụ nào trong phiên này",
+    "finishedCount": "{{count}} đã hoàn tất",
+    "resizePanel": "Thay đổi kích thước bảng tác nhân phụ",
+    "resultSection": "Kết quả",
+    "runMissing": "Không tìm thấy bản ghi lần chạy",
+    "runningCount": "{{count}} đang chạy",
+    "selectHint": "Chọn một lần chạy để xem cuộc trò chuyện của nó",
+    "title": "Tác nhân phụ"
   },
   "team": {
     "active": "Hoạt động",

@@ -2,9 +2,7 @@ export const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const
 
 export type ByteUnit = (typeof BYTE_UNITS)[number]
 
-type FractionDigits =
-  | number
-  | Partial<Record<ByteUnit, number>>
+type FractionDigits = number | Partial<Record<ByteUnit, number>>
 
 export interface FormatBytesOptions {
   unit?: ByteUnit
@@ -87,4 +85,26 @@ export function formatDurationCompact(seconds: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`
   if (minutes > 0) return `${minutes}m ${secs}s`
   return `${secs}s`
+}
+
+/**
+ * "3 hours ago" style stamp via `Intl.RelativeTimeFormat` — locale-aware with
+ * no translation keys of its own. Returns the raw input if it can't be parsed.
+ */
+export function formatRelativeTime(timestamp: string, locale: string): string {
+  try {
+    const then = new Date(timestamp)
+    const diffMs = Date.now() - then.getTime()
+    if (Number.isNaN(diffMs)) return timestamp
+    const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" })
+    const minutes = Math.floor(diffMs / 60000)
+    if (minutes < 1) return relative.format(0, "minute")
+    if (minutes < 60) return relative.format(-minutes, "minute")
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return relative.format(-hours, "hour")
+    const days = Math.floor(hours / 24)
+    return relative.format(-days, "day")
+  } catch {
+    return timestamp
+  }
 }

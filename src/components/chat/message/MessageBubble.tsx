@@ -213,7 +213,7 @@ export interface MessageBubbleProps {
   // Plan mode
   sessionId?: string | null
   onOpenPlanPanel?: () => void
-  // Child-session preview (used by SubagentBlock's "view child session" button)
+  // Child-session preview (used by the skill-fork status card's open button)
   onViewChildSession?: (sessionId: string) => void
   // Model switching
   onSwitchModel?: (providerId: string, modelId: string) => void
@@ -1219,10 +1219,7 @@ function ActiveMemoryTrace({
                               promotionState === "done" &&
                                 "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
                             )}
-                            aria-label={t(
-                              "chat.memoryTrace.promoteToCore",
-                              "Always remember this",
-                            )}
+                            aria-label={t("chat.memoryTrace.promoteToCore", "Always remember this")}
                           >
                             {promotionState === "saving" ? (
                               <Timer className="h-3.5 w-3.5 animate-pulse" />
@@ -1993,7 +1990,6 @@ function MessageBubbleInner({
             executionState={executionState}
             sessionId={sessionId}
             onOpenPlanPanel={onOpenPlanPanel}
-            onViewChildSession={onViewChildSession}
             onOpenDiff={onOpenDiff}
             displayMode="timeline"
             contentRenderMode={contentRenderMode}
@@ -2132,7 +2128,6 @@ function MessageBubbleInner({
               executionState={executionState}
               sessionId={sessionId}
               onOpenPlanPanel={onOpenPlanPanel}
-              onViewChildSession={onViewChildSession}
               onOpenDiff={onOpenDiff}
               contentRenderMode={contentRenderMode}
             />

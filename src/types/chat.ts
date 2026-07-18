@@ -672,7 +672,7 @@ export interface SubagentEvent {
   childAgentId: string
   childSessionId: string
   taskPreview: string
-  status: "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
+  status: "queued" | "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
   resultPreview?: string
   resultFull?: string
   error?: string
@@ -689,7 +689,7 @@ export interface SubagentRun {
   childAgentId: string
   childSessionId: string
   task: string
-  status: "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
+  status: "queued" | "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
   result?: string
   error?: string
   depth: number

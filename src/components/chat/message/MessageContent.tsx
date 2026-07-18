@@ -7,18 +7,18 @@ import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
 import ProcessedBlockGroup from "./ProcessedBlockGroup"
 import InterruptedMark from "./InterruptedMark"
-import {
-  AnimatedCollapse,
-  AnimatedPresenceBox,
-} from "@/components/ui/animated-presence"
+import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import {
   MessageTimeline,
   MessageTimelineItem,
   type MessageTimelineMarkerAlign,
   type MessageTimelineTone,
 } from "./MessageTimeline"
-import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/SubagentGroup"
-import SubagentBlock from "@/components/chat/SubagentBlock"
+import SubagentChipRow from "@/components/chat/subagent/SubagentChips"
+import {
+  extractSubagentChipItems,
+  type SubagentChipItem,
+} from "@/components/chat/subagent/subagentRunModel"
 import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import { TASK_TOOL_NAMES } from "@/components/chat/tasks/taskProgress"
@@ -38,7 +38,6 @@ import type {
   ToolCall,
 } from "@/types/chat"
 import type { Message } from "@/types/chat"
-import { DEFAULT_AGENT_ID } from "@/types/tools"
 
 const NO_GROUP_TOOLS = new Set([
   "ask_user_question",
@@ -46,7 +45,7 @@ const NO_GROUP_TOOLS = new Set([
   "task_create",
   "task_update",
   "task_list",
-  // subagent spawns are handled by a dedicated SubagentGroup path below;
+  // subagent spawns are handled by a dedicated inline chip-row path below;
   // never let them fall into the generic tool-call group.
   "subagent",
   // skill activations get their own SkillProgressBlock renderer.
@@ -56,69 +55,6 @@ const NO_GROUP_TOOLS = new Set([
   "canvas",
 ])
 
-/** Extract zero or more subagent runs from a tool_call block. Handles:
- *   - action=spawn            → 1 run (if runId present)
- *   - action=spawn_and_wait   → 1 run (foreground or backgrounded)
- *   - action=batch_spawn      → N runs from result.runs[] (only "spawned" entries)
- */
-function extractSubagentRuns(tool: ToolCall): SubagentGroupRun[] {
-  if (tool.name !== "subagent") return []
-  if (!tool.result) return []
-  let args: {
-    action?: string
-    agent_id?: string
-    task?: string
-    tasks?: Array<{ agent_id?: string; task?: string }>
-  }
-  try {
-    args = JSON.parse(tool.arguments)
-  } catch {
-    return []
-  }
-  let result: unknown
-  try {
-    result = JSON.parse(tool.result)
-  } catch {
-    return []
-  }
-  if (!result || typeof result !== "object") return []
-
-  if (args.action === "spawn" || args.action === "spawn_and_wait") {
-    const runId = (result as { run_id?: unknown }).run_id
-    if (typeof runId !== "string" || !runId) return []
-    return [
-      {
-        runId,
-        agentId: args.agent_id || DEFAULT_AGENT_ID,
-        task: args.task || "",
-      },
-    ]
-  }
-
-  if (args.action === "batch_spawn") {
-    const runs = (result as { runs?: unknown }).runs
-    if (!Array.isArray(runs)) return []
-    const taskDefs = Array.isArray(args.tasks) ? args.tasks : []
-    const out: SubagentGroupRun[] = []
-    for (let idx = 0; idx < runs.length; idx++) {
-      const r = runs[idx]
-      if (!r || typeof r !== "object") continue
-      const obj = r as { status?: unknown; run_id?: unknown }
-      if (obj.status !== "spawned") continue
-      if (typeof obj.run_id !== "string" || !obj.run_id) continue
-      const def = taskDefs[idx] || {}
-      out.push({
-        runId: obj.run_id,
-        agentId: def.agent_id || DEFAULT_AGENT_ID,
-        task: def.task || "",
-      })
-    }
-    return out
-  }
-
-  return []
-}
-
 interface MessageContentProps {
   msg: Message
   loading: boolean
@@ -126,7 +62,6 @@ interface MessageContentProps {
   executionState?: ChatTurnStatus | null
   sessionId?: string | null
   onOpenPlanPanel?: () => void
-  onViewChildSession?: (sessionId: string) => void
   /** Open the right-side diff panel for a file change payload. */
   onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
   displayMode?: ChatDisplayMode
@@ -258,9 +193,7 @@ function collapseProcessedUnits(units: RenderUnit[]): React.ReactNode[] {
     }
 
     if (run.length >= 2) {
-      nodes.push(
-        <ProcessedRunTransition key={`process-run-${run[0].key}`} units={run} />,
-      )
+      nodes.push(<ProcessedRunTransition key={`process-run-${run[0].key}`} units={run} />)
     } else {
       nodes.push(unit.node)
     }
@@ -358,15 +291,12 @@ export function AssistantContentBlocks({
   executionState,
   sessionId,
   onOpenPlanPanel,
-  onViewChildSession,
   onOpenDiff,
   displayMode = "bubble",
   contentRenderMode = "markdown",
 }: MessageContentProps) {
   const blocks =
-    msg.contentBlocks && msg.contentBlocks.length > 0
-      ? msg.contentBlocks
-      : synthesizeBlocks(msg)
+    msg.contentBlocks && msg.contentBlocks.length > 0 ? msg.contentBlocks : synthesizeBlocks(msg)
 
   // Streaming pre-first-token: no content yet, no tool call yet → show dots
   // placeholder. Dimensions are tuned to match the box of a one-line `<p>`
@@ -514,7 +444,9 @@ export function AssistantContentBlocks({
         let title = ""
         try {
           title = JSON.parse(block.tool.arguments)?.title || ""
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         units.push({
           key: block.tool.callId,
           markerAlign: "control",
@@ -546,72 +478,44 @@ export function AssistantContentBlocks({
         i++
         continue
       }
-      // subagent spawn / batch_spawn / spawn_and_wait → dedicated rendering
+      // subagent spawn / batch_spawn / spawn_and_wait → inline chip row.
       if (block.tool.name === "subagent") {
-        const firstRuns = extractSubagentRuns(block.tool)
-        if (firstRuns.length > 0) {
-          // Collect additional consecutive subagent blocks that also expose
-          // one-or-more runs — covers "N parallel spawn calls" and "1 spawn
-          // followed by 1 batch_spawn" alike.
-          const runs: SubagentGroupRun[] = [...firstRuns]
+        const firstItems = extractSubagentChipItems(block.tool)
+        if (firstItems.length > 0) {
+          // Merge consecutive subagent spawn blocks into one chip row — covers
+          // "N parallel spawn calls" and "1 spawn + 1 batch_spawn" alike.
+          // In-flight (pending) items merge too, so the row is stable as
+          // results land.
+          const items: SubagentChipItem[] = [...firstItems]
           let j = i + 1
           while (j < blocks.length) {
             const nb = blocks[j]
             if (nb.type !== "tool_call" || nb.tool.name !== "subagent") break
-            const nextRuns = extractSubagentRuns(nb.tool)
-            if (nextRuns.length === 0) break
-            runs.push(...nextRuns)
+            const nextItems = extractSubagentChipItems(nb.tool)
+            if (nextItems.length === 0) break
+            items.push(...nextItems)
             j++
           }
-          if (runs.length >= 2) {
-            // Key on the concatenated runIds so React remounts the group
-            // (instead of re-running effects) when the underlying run set
-            // actually changes.
-            const groupKey = `sgrp-${runs.map((r) => r.runId).join("|")}`
-            units.push({
-              key: groupKey,
-              markerAlign: "control",
-              node: (
-                <SubagentGroup
-                  key={groupKey}
-                  runs={runs}
-                  onViewChildSession={onViewChildSession}
-                />
-              ),
-            })
-          } else {
-            // Single run (plain spawn, spawn_and_wait, or batch_spawn w/ 1 task)
-            // → render SubagentBlock directly so batch_spawn's single case
-            // also gets the rich UI (the legacy ToolCallBlock path only
-            // detects action="spawn").
-            const run = runs[0]
-            units.push({
-              key: run.runId,
-              markerAlign: "control",
-              node: (
-                <SubagentBlock
-                  key={run.runId}
-                  runId={run.runId}
-                  agentId={run.agentId}
-                  task={run.task}
-                  onViewChildSession={onViewChildSession}
-                />
-              ),
-            })
-          }
+          // Key on each item's stable callId-derived identity — the SAME value
+          // whether the item is pending or resolved — so the row survives the
+          // pending → resolved flip and only remounts when the item set changes.
+          const rowKey = `schips-${items.map((it) => it.key).join("|")}`
+          units.push({
+            key: rowKey,
+            markerAlign: "control",
+            node: <SubagentChipRow key={rowKey} items={items} />,
+          })
           i = j
           continue
         }
         // Non-spawn-like subagent action (check / list / kill / steer / etc)
-        // or spawn still in-flight without a run_id yet → render individually.
+        // or a spawn that failed without a run → render individually.
         // NO_GROUP_TOOLS prevents it from falling into the generic tool-call
         // group below.
         units.push({
           key: block.tool.callId,
           markerAlign: "control",
-          node: (
-            <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />
-          ),
+          node: <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />,
         })
         i++
         continue
@@ -620,9 +524,7 @@ export function AssistantContentBlocks({
         units.push({
           key: block.tool.callId,
           markerAlign: "control",
-          node: (
-            <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />
-          ),
+          node: <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />,
         })
         i++
         continue
@@ -630,10 +532,7 @@ export function AssistantContentBlocks({
       // Collect ALL consecutive tool_call blocks (regardless of category)
       const group: ContentBlock[] = [block]
       let j = i + 1
-      while (
-        j < blocks.length &&
-        blocks[j].type === "tool_call"
-      ) {
+      while (j < blocks.length && blocks[j].type === "tool_call") {
         const tb = blocks[j] as { type: "tool_call"; tool: { name: string } }
         if (NO_GROUP_TOOLS.has(tb.tool.name)) break
         group.push(blocks[j])
@@ -644,9 +543,7 @@ export function AssistantContentBlocks({
       const hasLaterText = hasTextFrom(blocks, j)
       if (group.length >= 2) {
         // Render as a collapsed group
-        const tools = group.map(
-          (b) => (b as { type: "tool_call"; tool: typeof block.tool }).tool,
-        )
+        const tools = group.map((b) => (b as { type: "tool_call"; tool: typeof block.tool }).tool)
         units.push({
           key: `grp-${tools[0].callId}`,
           markerAlign: "control",
@@ -668,8 +565,7 @@ export function AssistantContentBlocks({
           key: block.tool.callId,
           markerAlign: "control",
           processTools: [block.tool],
-          isProcessComplete:
-            hasLaterText && getToolExecutionState(block.tool) !== "running",
+          isProcessComplete: hasLaterText && getToolExecutionState(block.tool) !== "running",
           elapsedMs: block.tool.durationMs,
           node: (
             <ToolCallBlock

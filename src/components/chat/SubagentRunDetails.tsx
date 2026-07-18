@@ -3,6 +3,8 @@ import { Check, Copy } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import type { SessionMeta, SubagentRun } from "@/types/chat"
+import { splitModelRef } from "./subagentShared"
 
 interface DetailRow {
   key: string
@@ -11,72 +13,124 @@ interface DetailRow {
   monospace?: boolean
 }
 
-interface SubagentRunDetailsProps {
-  runId: string
-  agentId: string
-  childSessionId?: string
-  task: string
-  modelUsed?: string
-  durationMs?: number
-  inputTokens?: number
-  outputTokens?: number
+function formatTimestamp(value: string | undefined, locale: string): string | undefined {
+  if (!value) return undefined
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString(locale)
 }
 
+/** Full record for one sub-agent run — the "Details" pane of the sub-agent panel.
+ *  Ordered meaning-first (what it did, how long, with what) and identifiers last.
+ *
+ *  `sessionMeta` is the run's CHILD session: `modelUsed` only encodes an opaque
+ *  `<providerId>::<modelId>`, so the human provider name and the Think level
+ *  come from there. */
 export default function SubagentRunDetails({
-  runId,
-  agentId,
-  childSessionId,
-  task,
-  modelUsed,
-  durationMs,
-  inputTokens,
-  outputTokens,
-}: SubagentRunDetailsProps) {
-  const { t } = useTranslation()
+  run,
+  sessionMeta,
+}: {
+  run: SubagentRun
+  sessionMeta?: SessionMeta | null
+}) {
+  const { t, i18n } = useTranslation()
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+
   const tokenSummary =
-    inputTokens != null && outputTokens != null
-      ? `${inputTokens.toLocaleString()} in / ${outputTokens.toLocaleString()} out`
+    run.inputTokens != null && run.outputTokens != null
+      ? `${run.inputTokens.toLocaleString()} in / ${run.outputTokens.toLocaleString()} out`
       : undefined
+  const { providerId, modelId } = splitModelRef(run.modelUsed)
+
   const rows: DetailRow[] = [
     {
-      key: "runId",
-      label: t("subagent.runId", { defaultValue: "Run ID" }),
-      value: runId,
-      monospace: true,
-    },
-    {
-      key: "agentId",
-      label: t("subagent.agentId", { defaultValue: "Agent ID" }),
-      value: agentId,
-      monospace: true,
-    },
-    {
-      key: "childSessionId",
-      label: t("subagent.childSessionId", { defaultValue: "Child session" }),
-      value: childSessionId,
-      monospace: true,
+      key: "label",
+      label: t("subagent.label", { defaultValue: "Label" }),
+      value: run.label,
     },
     {
       key: "task",
       label: t("subagent.task", { defaultValue: "Task" }),
-      value: task,
+      value: run.task,
+    },
+    {
+      key: "provider",
+      label: t("subagent.provider", { defaultValue: "Provider" }),
+      // Prefer the resolved display name; fall back to the raw id only when the
+      // child session meta hasn't loaded.
+      value: sessionMeta?.providerName || providerId,
+      monospace: !sessionMeta?.providerName,
     },
     {
       key: "model",
       label: t("subagent.model", { defaultValue: "Model" }),
-      value: modelUsed,
+      value: modelId || sessionMeta?.modelId || undefined,
       monospace: true,
+    },
+    {
+      key: "thinking",
+      label: t("subagent.thinking", { defaultValue: "Thinking" }),
+      value: sessionMeta?.reasoningEffort || undefined,
     },
     {
       key: "duration",
       label: t("subagent.duration", { defaultValue: "Duration" }),
-      value: durationMs != null ? `${(durationMs / 1000).toFixed(1)}s` : undefined,
+      value: run.durationMs != null ? `${(run.durationMs / 1000).toFixed(1)}s` : undefined,
     },
     {
       key: "tokens",
       label: t("subagent.tokens", { defaultValue: "Tokens" }),
       value: tokenSummary,
+    },
+    {
+      key: "attachments",
+      label: t("subagent.attachments", { defaultValue: "Attachments" }),
+      // Zero attachments is the norm — only worth a row when there were some.
+      value: run.attachmentCount ? run.attachmentCount : undefined,
+    },
+    {
+      key: "startedAt",
+      label: t("subagent.startedAt", { defaultValue: "Started" }),
+      value: formatTimestamp(run.startedAt, i18n.language),
+    },
+    {
+      key: "finishedAt",
+      label: t("subagent.finishedAt", { defaultValue: "Finished" }),
+      value: formatTimestamp(run.finishedAt, i18n.language),
+    },
+    {
+      key: "depth",
+      label: t("subagent.depth", { defaultValue: "Depth" }),
+      value: run.depth,
+    },
+    {
+      key: "agentId",
+      label: t("subagent.agentId", { defaultValue: "Agent ID" }),
+      value: run.childAgentId,
+      monospace: true,
+    },
+    {
+      key: "parentAgent",
+      label: t("subagent.parentAgent", { defaultValue: "Parent agent" }),
+      value: run.parentAgentId,
+      monospace: true,
+    },
+    {
+      key: "runId",
+      label: t("subagent.runId", { defaultValue: "Run ID" }),
+      value: run.runId,
+      monospace: true,
+    },
+    {
+      key: "childSessionId",
+      label: t("subagent.childSessionId", { defaultValue: "Child session" }),
+      value: run.childSessionId,
+      monospace: true,
+    },
+    {
+      key: "parentSession",
+      label: t("subagent.parentSession", { defaultValue: "Parent session" }),
+      value: run.parentSessionId,
+      monospace: true,
     },
   ].filter((row) => row.value !== undefined && row.value !== "")
 
@@ -91,14 +145,15 @@ export default function SubagentRunDetails({
   }
 
   return (
-    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded bg-background/70 px-2.5 py-2 text-[11px] leading-relaxed">
+    // No surface of its own — the hosting pane card provides it.
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[11px] leading-relaxed">
       {rows.map((row) => {
         const value = String(row.value)
         const copied = copiedKey === row.key
         return (
           <div key={row.key} className="contents">
-            <dt className="text-muted-foreground whitespace-nowrap">{row.label}</dt>
-            <dd className="min-w-0 flex items-center gap-1.5 text-foreground/85">
+            <dt className="whitespace-nowrap text-muted-foreground">{row.label}</dt>
+            <dd className="flex min-w-0 items-center gap-1.5 text-foreground/85">
               <span
                 className={cn(
                   "min-w-0 truncate select-text",
@@ -111,7 +166,7 @@ export default function SubagentRunDetails({
               <IconTip label={copied ? t("chat.copied") : t("chat.copy")}>
                 <button
                   type="button"
-                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                   onClick={() => copyValue(row.key, value)}
                   aria-label={copied ? t("chat.copied") : t("chat.copy")}
                 >
