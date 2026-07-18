@@ -333,12 +333,33 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     .build()?;
 
     let started = std::time::Instant::now();
+    // The signature, api_key and date all ride in the query string, and
+    // reqwest's error Display appends the full URL. Propagating that error
+    // verbatim would put credentials into the log and into the model-visible
+    // error text, so transport failures are re-worded without the URL.
     let resp = client
         .post(&url)
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
-        .await?;
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "iFlytek request failed ({}): {}",
+                if e.is_timeout() {
+                    "timeout"
+                } else if e.is_connect() {
+                    "connect"
+                } else {
+                    "transport"
+                },
+                // `status()` and the kind flags are safe; the Display impl is
+                // not, because it carries the signed URL.
+                e.status()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "no response".to_string())
+            )
+        })?;
 
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();

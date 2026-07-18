@@ -1,7 +1,7 @@
 //! Doubao Speech (Volcengine) TTS — `POST /api/v3/tts/unidirectional`.
 //!
 //! This is a *different platform* from Volcengine Ark (the image side):
-//! host `openspeech.bytedance.com`, and auth is a bare `X-Api-Key` header
+//! host `openspeech.bytedance.com`, and auth is header-based (see below)
 //! rather than an `Authorization: Bearer` token.
 //!
 //! Two things drive the shape of this file:
@@ -107,6 +107,20 @@ fn build_request_body(text: &str, speaker: &str) -> serde_json::Value {
 /// A non-zero, non-terminator `code` is a server error even though the HTTP
 /// status was 200 — surfacing it here is the only way the caller ever sees
 /// the vendor's own diagnostics.
+/// The console migrated auth styles and both are live: the current one is a
+/// single `X-Api-Key`, the legacy one is an App-Id / Access-Key pair. A key
+/// entered as `app_id:access_key` selects the legacy triple — otherwise the
+/// legacy accounts would have no working configuration at all.
+fn auth_headers(api_key: &str) -> Vec<(&'static str, String)> {
+    match api_key.split_once(':') {
+        Some((app_id, access_key)) if !app_id.is_empty() && !access_key.is_empty() => vec![
+            ("X-Api-App-Id", app_id.to_string()),
+            ("X-Api-Access-Key", access_key.to_string()),
+        ],
+        _ => vec![("X-Api-Key", api_key.to_string())],
+    }
+}
+
 fn parse_ndjson_audio(body: &str) -> Result<Vec<u8>> {
     let mut out: Vec<u8> = Vec::new();
     let mut saw_terminator = false;
@@ -160,12 +174,12 @@ fn parse_ndjson_audio(body: &str) -> Result<Vec<u8>> {
         bail!("Doubao Speech returned no audio data");
     }
     if !saw_terminator {
-        // Truncated transfers otherwise yield a silently clipped mp3.
-        app_warn!(
-            "tool",
-            "media_gen::audio::volcengine",
-            "Doubao Speech stream ended without terminator code {}; audio may be truncated ({} bytes)",
-            CODE_STREAM_END,
+        // The terminator is the only completion signal this protocol has: a
+        // chunked transfer cut short still looks like HTTP 200, so accepting
+        // the partial buffer would hand back a clipped file that reads as a
+        // success. TTS is cheap and idempotent — failing is the better trade.
+        bail!(
+            "Doubao Speech stream ended without a terminator after {} bytes; the audio would be truncated",
             out.len()
         );
     }
@@ -243,15 +257,15 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
     // SSRF 红线：出站前必过 check_url（base_url 由用户配置，可能指向内网）。
     crate::security::ssrf::check_url(&url, params.ssrf, &[]).await?;
 
-    let resp = client
+    let mut req = client
         .post(&url)
-        .header("X-Api-Key", params.api_key)
         .header("X-Api-Resource-Id", resource_id)
         .header("X-Api-Request-Id", &request_id)
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await?;
+        .header("Content-Type", "application/json");
+    for (name, value) in auth_headers(params.api_key) {
+        req = req.header(name, value);
+    }
+    let resp = req.json(&body).send().await?;
 
     let status = resp.status();
     if !status.is_success() {
