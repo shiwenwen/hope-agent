@@ -41,7 +41,7 @@
     "fetch:vcredist": "node scripts/fetch-vcredist.mjs",
     "tauri": "tauri",
     "version": "node scripts/sync-version.mjs",
-    "prepare": "husky",
+    "prepare": "husky && node scripts/setup-ssh-keepalive.mjs",
     "postinstall": "node scripts/patch-codemirror-edit-context.mjs"
   },
   "dependencies": {

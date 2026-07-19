@@ -8,12 +8,18 @@
 #                              pushing a WIP branch and don't need the 1–3 min
 #                              test run locally; CI will still catch it)
 
-# Drain the ref list git streams on our stdin. We don't use it, but exiting
-# without reading leaves git writing into a closed pipe — it then dies of
-# SIGPIPE (exit 141) *after* the checks pass, so the push silently never
-# happens. The longer the hook runs, the wider that window, and this one runs
-# for minutes. `-t 0` keeps a manual `.husky/pre-push` run from blocking on the
-# terminal. Must stay above every exit path below.
+# Drain the ref list git streams on our stdin — we don't use it, and leaving it
+# unread is untidy. `-t 0` keeps a manual `.husky/pre-push` run from blocking on
+# the terminal.
+#
+# NOTE: this drain is NOT what protects the push. The "gates pass, then git dies
+# of SIGPIPE (141) and the branch never moves" failure has a different cause:
+# git opens the connection to the remote BEFORE running this hook, so the socket
+# sits idle for the 10-15 minutes we spend here and GitHub's SSH server closes
+# it ("Connection to ssh.github.com closed by remote host"). The pack write right
+# after the gates then hits a dead socket. The fix is the SSH keepalive that
+# `scripts/setup-ssh-keepalive.mjs` configures (via `pnpm install`); measured, a
+# 15-minute hook exits 141 without it and 0 with it.
 if [ ! -t 0 ]; then
   cat > /dev/null 2>&1 || true
 fi
