@@ -39,8 +39,19 @@ p{line-height:1.6;margin:0 0 1rem 0}
 code{background:#1f232a;padding:.15rem .35rem;border-radius:4px;font-size:.9em}"#;
 
 fn main() {
-    // Resolve ../../dist relative to this crate.
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Resolve ../../dist relative to this crate. Read CARGO_MANIFEST_DIR at RUN
+    // time, not with `env!`: that bakes the path in when the build script is
+    // compiled, and a shared CARGO_TARGET_DIR reuses one compiled build script
+    // across every worktree — so the placeholder lands in whichever worktree
+    // compiled it first (even a deleted one) and the current worktree fails
+    // with "#[derive(RustEmbed)] folder '../../dist' does not exist".
+    let manifest = match std::env::var("CARGO_MANIFEST_DIR") {
+        Ok(dir) => PathBuf::from(dir),
+        Err(e) => {
+            println!("cargo:warning=ha-server build.rs: CARGO_MANIFEST_DIR unavailable: {e}");
+            return;
+        }
+    };
     let dist = manifest.join("..").join("..").join("dist");
 
     if let Err(e) = fs::create_dir_all(&dist) {
