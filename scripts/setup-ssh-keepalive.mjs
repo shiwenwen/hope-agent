@@ -44,10 +44,24 @@ if (git(["rev-parse", "--is-inside-work-tree"], { allowFailure: true }) !== "tru
 
 // Never clobber an existing setting: contributors using 1Password / a custom
 // identity / a proxy command have their own `core.sshCommand`, and silently
-// replacing it would break their auth. Plain `ssh` still reads ~/.ssh/config,
-// so the value we set stays compatible with per-host settings.
-const existing = git(["config", "--local", "--get", "core.sshCommand"], { allowFailure: true })
+// replacing it would break their auth.
+//
+// Query the EFFECTIVE value (no `--local`): such a setting usually lives in the
+// user's global config, and a local write would take precedence over it — so a
+// local-only lookup sees nothing, writes, and silently strips their working
+// auth setup. We can't safely append our flags to an arbitrary command either
+// (it may be a wrapper script that rejects `-o`), so we leave it untouched and
+// point at the equivalent ~/.ssh/config knob instead.
+const existing = git(["config", "--get", "core.sshCommand"], { allowFailure: true })
 if (existing) {
+  if (!existing.includes("ServerAliveInterval")) {
+    console.log(
+      `[setup-ssh-keepalive] core.sshCommand already set (${existing}) — leaving it alone.\n` +
+        `[setup-ssh-keepalive] If a long push dies with exit 141 after "all checks passed", add to ~/.ssh/config:\n` +
+        `[setup-ssh-keepalive]     Host github.com\n` +
+        `[setup-ssh-keepalive]       ServerAliveInterval 30`,
+    )
+  }
   process.exit(0)
 }
 
