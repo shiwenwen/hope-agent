@@ -13,8 +13,9 @@
 //! 3. IM channel notice (when attached) — reuses the existing
 //!    `im_error_message` copy bank.
 //!
-//! Subagent runs intentionally bypass this — they keep
-//! `abort_on_cancel=true` discard semantics.
+//! Subagent runs keep their `abort_on_cancel=true` return/error semantics, but
+//! the durability coordinator still atomically preserves every acknowledged
+//! partial/tool record.
 
 pub mod copy;
 pub mod rebuild;
@@ -52,6 +53,17 @@ impl ProviderApiKind {
             Self::Codex => "codex",
         }
     }
+
+    /// Parse the stable provider-shape tag stored in stream attempts.
+    pub fn from_shape(shape: &str) -> Option<Self> {
+        match shape.trim().to_ascii_lowercase().as_str() {
+            "anthropic" => Some(Self::Anthropic),
+            "openai_chat" | "openai-chat" | "openai" => Some(Self::OpenAIChat),
+            "openai_responses" | "openai-responses" | "responses" => Some(Self::OpenAIResponses),
+            "codex" => Some(Self::Codex),
+            _ => None,
+        }
+    }
 }
 
 impl From<crate::provider::ApiType> for ProviderApiKind {
@@ -76,6 +88,9 @@ impl From<crate::provider::ApiType> for ProviderApiKind {
 pub enum TerminationReason {
     /// User pressed the stop button in GUI/HTTP/IM.
     UserStop,
+    /// The owning runtime/request task was dropped (for example an HTTP
+    /// client disconnected) before the engine returned normally.
+    RuntimeCancel,
     /// No usable auth profile (all disabled, cooled-down, or missing).
     /// Zero API calls were attempted — this is a configuration error.
     NoProfileAvailable,
@@ -114,7 +129,9 @@ impl TerminationReason {
     /// `Failed` with an error string attached.
     pub fn to_chat_turn_status(&self) -> ChatTurnStatus {
         match self {
-            Self::UserStop | Self::Shutdown | Self::Crash => ChatTurnStatus::Interrupted,
+            Self::UserStop | Self::RuntimeCancel | Self::Shutdown | Self::Crash => {
+                ChatTurnStatus::Interrupted
+            }
             _ => ChatTurnStatus::Failed,
         }
     }
@@ -123,6 +140,7 @@ impl TerminationReason {
     pub fn to_chat_turn_interrupt_reason(&self) -> ChatTurnInterruptReason {
         match self {
             Self::UserStop => ChatTurnInterruptReason::UserStop,
+            Self::RuntimeCancel => ChatTurnInterruptReason::RuntimeCancel,
             Self::Shutdown => ChatTurnInterruptReason::Shutdown,
             Self::Crash => ChatTurnInterruptReason::CrashRecovery,
             Self::NoProfileAvailable => ChatTurnInterruptReason::NoProfile,
@@ -142,7 +160,7 @@ impl TerminationReason {
     /// non-error reasons so the column stays NULL.
     pub fn to_error_text(&self) -> Option<String> {
         match self {
-            Self::UserStop | Self::Shutdown | Self::Crash => None,
+            Self::UserStop | Self::RuntimeCancel | Self::Shutdown | Self::Crash => None,
             Self::NoProfileAvailable => Some("no auth profile available".to_string()),
             Self::ProviderFailed { last_message, .. } => Some(last_message.clone()),
             Self::CompactionFailed { detail } => Some(detail.clone()),
@@ -154,6 +172,7 @@ impl TerminationReason {
     pub fn category_label(&self) -> &'static str {
         match self {
             Self::UserStop => "user_stop",
+            Self::RuntimeCancel => "runtime_cancel",
             Self::Shutdown => "shutdown",
             Self::Crash => "crash",
             Self::NoProfileAvailable => "no_profile",
@@ -463,8 +482,8 @@ fn rebuild_and_save_context(
     // context_json so a save failure later doesn't leave the UI stuck.
     mark_pending_tool_rows_as_interrupted(db, session_id, partial);
 
-    let mut history: Vec<Value> = db
-        .load_context(session_id)?
+    let (stored_context, context_revision) = db.load_context_with_revision(session_id)?;
+    let mut history: Vec<Value> = stored_context
         .as_deref()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
@@ -503,7 +522,7 @@ fn rebuild_and_save_context(
     );
 
     let json_str = serde_json::to_string(&history)?;
-    db.save_context(session_id, &json_str)?;
+    db.save_context_at_revision(session_id, context_revision, &json_str, None)?;
     Ok(())
 }
 

@@ -1026,6 +1026,8 @@ mod tests {
             stream_status: None,
             source: Some("desktop".into()),
             queue_request_id: None,
+            persistence_run_id: None,
+            logical_block_seq: None,
         };
         db.append_message(&sid, &assistant).expect("append");
 

@@ -420,19 +420,19 @@ async fn execute_tool_with_cancel(
     args: &serde_json::Value,
     ctx: &ToolExecContext,
     cancel: &Arc<AtomicBool>,
-) -> (
+    durability: Option<Arc<dyn crate::turn_durability::TurnDurabilitySink>>,
+    on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+) -> Result<(
     String,
     u64,
     super::streaming_adapter::ToolDispatchSideOutput,
-) {
+)> {
     let sink: Arc<tokio::sync::Mutex<Option<serde_json::Value>>> =
         Arc::new(tokio::sync::Mutex::new(None));
-    // Mirror sink for the `PreToolUse` `updatedInput` rewrite — populated by
-    // `execute_tool_with_context::emit_effective_args` and drained alongside
-    // `metadata` so the caller can route the effective args into the live
-    // UI delta, the persisted history row, and the `PostToolUse` hook input.
-    let effective_args_sink: Arc<tokio::sync::Mutex<Option<serde_json::Value>>> =
-        Arc::new(tokio::sync::Mutex::new(None));
+    // Handshake sink for effective arguments. Tool execution pauses at the
+    // rewrite point until this task journals and flushes the update, so a
+    // side effect can never race ahead of its durable invocation record.
+    let effective_args_sink = Arc::new(tools::EffectiveArgsSink::default());
     let mut local_ctx = ctx.clone();
     local_ctx.metadata_sink = Some(sink.clone());
     local_ctx.effective_args_sink = Some(effective_args_sink.clone());
@@ -442,62 +442,84 @@ async fn execute_tool_with_cancel(
     let tool_start = std::time::Instant::now();
     let cancel_clone = cancel.clone();
     let mut dispatch = Box::pin(tools::execute_tool_with_context(name, args, &local_ctx));
-    let result = tokio::select! {
-        res = &mut dispatch => {
-            match res {
-                Ok(r) => r,
-                Err(e) => tools::ToolRejection::render_error(&e),
-            }
-        }
-        _ = async {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                if cancel_clone.load(Ordering::SeqCst) { break; }
-            }
-        } => {
-            cancellation_token.cancel();
-            // Grace window: let the dispatch wind down. If the user approved a
-            // background-capable tool (exec / web_search / …) inside this
-            // window, the dispatch returns a synthetic `{job_id,status:"started"}`
-            // and has ALREADY detached a runner with its own fresh cancel token —
-            // the turn cancel never reaches it, so the job would run on as an
-            // orphan while the model is told "cancelled" (MISC-2). Capture that
-            // result and cancel the freshly-spawned job so the verdict stays
-            // truthful. (Sync inline tools that don't finish in time are dropped
-            // here as before; their exec process group is reaped by
-            // `ProcessGroupGuard::drop`.)
-            if let Ok(Ok(grace_result)) =
-                tokio::time::timeout(TOOL_CANCEL_CLEANUP_GRACE, &mut dispatch).await
-            {
-                if let Some(job_id) = extract_started_job_id(&grace_result) {
-                    app_info!(
-                        "async_jobs",
-                        "cancel",
-                        "Reaping job {} spawned by tool '{}' inside the turn-cancel grace window",
-                        job_id,
-                        name
-                    );
-                    let _ = crate::async_jobs::JobManager::cancel(&job_id);
+    let mut effective_arguments = None;
+    let result = loop {
+        tokio::select! {
+            biased;
+            update = effective_args_sink.next() => {
+                let patched = update.value.to_string();
+                emit_tool_call_args_rewritten(on_delta, call_id, &patched);
+                let barrier = match durability.as_ref() {
+                    Some(sink) => sink
+                        .flush(crate::turn_durability::FlushReason::ToolBoundary)
+                        .await
+                        .map(|_| ()),
+                    None => Ok(()),
+                };
+                match barrier {
+                    Ok(()) => {
+                        effective_arguments = Some(patched);
+                        let _ = update.acknowledged.send(Ok(()));
+                    }
+                    Err(error) => {
+                        let message = error.to_string();
+                        let _ = update.acknowledged.send(Err(message));
+                        cancellation_token.cancel();
+                        return Err(error);
+                    }
                 }
             }
-            tools::ToolRejection::cancelled(name).to_tool_result()
+            res = &mut dispatch => {
+                break match res {
+                    Ok(r) => r,
+                    Err(e) => tools::ToolRejection::render_error(&e),
+                };
+            }
+            _ = async {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    if cancel_clone.load(Ordering::SeqCst) { break; }
+                }
+            } => {
+                cancellation_token.cancel();
+                // Grace window: let the dispatch wind down. If the user approved a
+                // background-capable tool (exec / web_search / …) inside this
+                // window, the dispatch returns a synthetic `{job_id,status:"started"}`
+                // and has ALREADY detached a runner with its own fresh cancel token —
+                // the turn cancel never reaches it, so the job would run on as an
+                // orphan while the model is told "cancelled" (MISC-2). Capture that
+                // result and cancel the freshly-spawned job so the verdict stays
+                // truthful. (Sync inline tools that don't finish in time are dropped
+                // here as before; their exec process group is reaped by
+                // `ProcessGroupGuard::drop`.)
+                if let Ok(Ok(grace_result)) =
+                    tokio::time::timeout(TOOL_CANCEL_CLEANUP_GRACE, &mut dispatch).await
+                {
+                    if let Some(job_id) = extract_started_job_id(&grace_result) {
+                        app_info!(
+                            "async_jobs",
+                            "cancel",
+                            "Reaping job {} spawned by tool '{}' inside the turn-cancel grace window",
+                            job_id,
+                            name
+                        );
+                        let _ = crate::async_jobs::JobManager::cancel(&job_id);
+                    }
+                }
+                break tools::ToolRejection::cancelled(name).to_tool_result();
+            }
         }
     };
     let elapsed_ms = tool_start.elapsed().as_millis() as u64;
     let metadata = sink.lock().await.take();
-    let effective_arguments = effective_args_sink
-        .lock()
-        .await
-        .take()
-        .map(|v| v.to_string());
-    (
+    Ok((
         result,
         elapsed_ms,
         super::streaming_adapter::ToolDispatchSideOutput {
             metadata,
             effective_arguments,
         },
-    )
+    ))
 }
 
 fn invalid_tool_arguments_result(
@@ -603,6 +625,32 @@ impl AssistantAgent {
 
         self.reset_chat_flags();
         self.refresh_coding_profile_suffix(message);
+
+        // The user item is the turn's crash-recovery base, not merely transient
+        // request state. Persist its exact provider-native shape at seq=0 before
+        // slow dynamic-context work or provider IO can expose assistant output.
+        // A failed attempt rolls this snapshot back and the next provider writes
+        // its independently normalized user shape.
+        let mut messages = {
+            let history_guard = self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let mut h = history_guard.clone();
+            drop(history_guard);
+            adapter.normalize_history(&mut h);
+            h
+        };
+        Self::push_user_message(&mut messages, user_content_for_history);
+        *self
+            .conversation_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = messages.clone();
+        if let Some(sink) = self.turn_durability.as_ref() {
+            sink.checkpoint_context(&messages, sink.context_revision())
+                .await?;
+        }
+
         self.warm_kb_access().await;
         self.warm_memory_agent_config().await;
         self.configure_retrieval_planner_context(message);
@@ -637,26 +685,6 @@ impl AssistantAgent {
         let mut deferred_tool_count = tool_inventory.deferred_count;
         let mut deferred_tool_schemas = tool_inventory.deferred_schemas;
         let mut tool_schemas = tool_inventory.schemas;
-
-        // Normalize prior history (it may have been persisted from a different
-        // provider during failover / model switch). Then append the new user
-        // message via push_user_message (handles consecutive-user merging for
-        // Anthropic role-alternation requirement).
-        let mut messages = {
-            let history_guard = self
-                .conversation_history
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            let mut h = history_guard.clone();
-            drop(history_guard);
-            adapter.normalize_history(&mut h);
-            h
-        };
-        Self::push_user_message(&mut messages, user_content_for_history);
-        *self
-            .conversation_history
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = messages.clone();
 
         // Static system prompt prefix (cache-friendly). Dynamic suffixes are
         // sent as independent provider-level blocks when supported.
@@ -1016,6 +1044,7 @@ impl AssistantAgent {
             // effect in this batch.
             self.warm_memory_agent_config().await;
             let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
+            let tool_durability = self.turn_durability.clone();
 
             // Phase 1: concurrent-safe in parallel, but BOUNDED — a single
             // assistant message with many read-only calls (e.g. N `web_fetch`)
@@ -1029,6 +1058,7 @@ impl AssistantAgent {
                     .map(|tc| {
                         let cancel_clone = cancel.clone();
                         let tool_ctx = tool_ctx.clone();
+                        let durability = tool_durability.clone();
                         let call_id = tc.call_id.clone();
                         let name = tc.name.clone();
                         let arguments = tc.arguments.clone();
@@ -1042,8 +1072,10 @@ impl AssistantAgent {
                                         &args,
                                         &tool_ctx,
                                         &cancel_clone,
+                                        durability,
+                                        on_delta_dyn,
                                     )
-                                    .await
+                                    .await?
                                 }
                                 Err(e) => (
                                     invalid_tool_arguments_result(&name, &arguments, e),
@@ -1051,7 +1083,9 @@ impl AssistantAgent {
                                     Default::default(),
                                 ),
                             };
-                            (call_id, name, arguments, result, elapsed_ms, side)
+                            Ok::<_, anyhow::Error>((
+                                call_id, name, arguments, result, elapsed_ms, side,
+                            ))
                         }
                     })
                     .collect();
@@ -1063,11 +1097,17 @@ impl AssistantAgent {
                     log_tool_input(tc, round);
                 }
 
+                // A tool may have external side effects. Do not start any
+                // executor until every preceding tool_call frame is durable.
+                self.flush_turn_durability(crate::turn_durability::FlushReason::ToolBoundary)
+                    .await?;
+
                 // Bounded fan-out: at most MAX_CONCURRENT_SAFE_TOOLS in flight at
                 // once (order preserved; each result self-describes via call_id).
                 let results = run_bounded_in_order(MAX_CONCURRENT_SAFE_TOOLS, futures).await;
 
-                for (call_id, name, arguments, result, elapsed_ms, side) in results {
+                for result in results {
+                    let (call_id, name, arguments, result, elapsed_ms, side) = result?;
                     collect_tool_search_activations(&side, &mut pending_tool_activations);
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_error = result.starts_with("Tool error:");
@@ -1083,9 +1123,6 @@ impl AssistantAgent {
                     let effective_args: &str = side
                         .effective_arguments
                         .as_deref()
-                        .inspect(|patched| {
-                            emit_tool_call_args_rewritten(on_delta, &call_id, patched);
-                        })
                         .unwrap_or(arguments.as_str());
                     emit_tool_result(
                         on_delta,
@@ -1154,10 +1191,21 @@ impl AssistantAgent {
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
                 log_tool_input(tc, round);
 
+                self.flush_turn_durability(crate::turn_durability::FlushReason::ToolBoundary)
+                    .await?;
+
                 let (result, elapsed_ms, side) = match serde_json::from_str(&tc.arguments) {
                     Ok(args) => {
-                        execute_tool_with_cancel(&tc.name, &tc.call_id, &args, &tool_ctx, cancel)
-                            .await
+                        execute_tool_with_cancel(
+                            &tc.name,
+                            &tc.call_id,
+                            &args,
+                            &tool_ctx,
+                            cancel,
+                            tool_durability.clone(),
+                            on_delta_dyn,
+                        )
+                        .await?
                     }
                     Err(e) => (
                         invalid_tool_arguments_result(&tc.name, &tc.arguments, e),
@@ -1168,20 +1216,12 @@ impl AssistantAgent {
                 collect_tool_search_activations(&side, &mut pending_tool_activations);
 
                 // If a `PreToolUse` hook rewrote the tool input via
-                // `updatedInput`, surface the effective args through the rest
-                // of the round so the UI block, the persisted history row, and
-                // the `PostToolUse` hook input all see what actually ran — not
-                // the model's pre-rewrite arguments. The pre-execution
-                // `emit_tool_call` already went out with the model's args, so
-                // we follow up with a typed delta the frontend can apply to the
-                // existing tool block in place (see
-                // `useStreamEventHandler.ts::tool_call_args_rewritten`).
+                // `updatedInput`, execute_tool_with_cancel has already emitted
+                // and durably flushed the rewrite before acknowledging dispatch.
+                // Carry the same effective args into history and PostToolUse.
                 let effective_args: &str = side
                     .effective_arguments
                     .as_deref()
-                    .inspect(|patched| {
-                        emit_tool_call_args_rewritten(on_delta, &tc.call_id, patched);
-                    })
                     .unwrap_or(tc.arguments.as_str());
 
                 log_tool_output(&tc.call_id, &tc.name, &result, elapsed_ms, round);
@@ -1282,6 +1322,14 @@ impl AssistantAgent {
                 }
             }
 
+            // A later model round must never observe a tool result which is
+            // absent from crash recovery. Flush the whole completed batch
+            // before appending it to provider-native history.
+            if !executed.is_empty() {
+                self.flush_turn_durability(crate::turn_durability::FlushReason::ToolResultBoundary)
+                    .await?;
+            }
+
             // Adapter writes assistant + tool_results into history in its
             // native shape (Anthropic content blocks / OpenAI tool_calls /
             // Responses function_call+function_call_output items).
@@ -1304,7 +1352,7 @@ impl AssistantAgent {
                 round,
                 on_delta,
             )
-            .await;
+            .await?;
             round = round.saturating_add(1);
         }
 

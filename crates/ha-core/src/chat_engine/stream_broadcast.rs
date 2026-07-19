@@ -35,7 +35,18 @@ pub fn inject_seq(
     turn_id: Option<&str>,
 ) -> (String, u64, Option<String>) {
     let (seq, stream_id) = stream_seq::next_seq_and_stream(session_id);
+    let out = envelope_with_seq(event, seq, stream_id.as_deref(), turn_id);
+    (out, seq, stream_id)
+}
 
+/// Add a caller-assigned durable sequence. The stream coordinator uses this
+/// so the journal sequence and the UI de-duplication sequence are identical.
+pub fn envelope_with_seq(
+    event: &str,
+    seq: u64,
+    stream_id: Option<&str>,
+    turn_id: Option<&str>,
+) -> String {
     // Fast path: `event` is a compact JSON object produced upstream by
     // `Value::to_string()`. Splice the `_oc_*` keys in just before the closing
     // `}` instead of paying a full serde parse + re-serialize per token. The
@@ -44,10 +55,10 @@ pub fn inject_seq(
     let trimmed = event.trim_end();
     let Some(close) = trimmed.rfind('}') else {
         // Not a JSON object — preserve the old defensive verbatim fallback.
-        return (event.to_string(), seq, stream_id);
+        return event.to_string();
     };
     if !trimmed.trim_start().starts_with('{') {
-        return (event.to_string(), seq, stream_id);
+        return event.to_string();
     }
     // The `}` must be the final non-whitespace char. If anything follows it
     // (e.g. `{"a":1}x`), the input isn't a bare object; the old serde path
@@ -55,7 +66,7 @@ pub fn inject_seq(
     // emit invalid JSON like `{"a":1,"_oc_seq":0}x`. Preserve verbatim. (`}` is
     // ASCII, so `close + 1` is the byte just past it.)
     if close + 1 != trimmed.len() {
-        return (event.to_string(), seq, stream_id);
+        return event.to_string();
     }
 
     // Empty object `{}` → no leading comma (matches the old path's
@@ -69,7 +80,7 @@ pub fn inject_seq(
     }
     out.push_str("\"_oc_seq\":");
     out.push_str(&seq.to_string()); // u64 — no escaping needed
-    if let Some(id) = stream_id.as_deref() {
+    if let Some(id) = stream_id {
         out.push_str(",\"_oc_stream_id\":");
         // serde escapes the scalar string — zero object traversal, injection-safe.
         out.push_str(&serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string()));
@@ -79,7 +90,7 @@ pub fn inject_seq(
         out.push_str(&serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string()));
     }
     out.push_str(&event[close..]); // the close `}` and anything after it
-    (out, seq, stream_id)
+    out
 }
 
 /// Emit `chat:stream_delta` to the EventBus. Caller has already obtained the
@@ -140,6 +151,70 @@ pub fn broadcast_stream_end(
     interrupt_reason: Option<ChatTurnInterruptReason>,
     error: Option<&str>,
 ) {
+    let stream_state = super::session_stream_state(session_id);
+    let incognito = crate::get_session_db()
+        .and_then(|db| db.get_session(session_id).ok().flatten())
+        .is_some_and(|session| session.incognito);
+    let persisted_run = stream_state
+        .persistence_run_id
+        .as_deref()
+        .and_then(|_| crate::get_session_db())
+        .and_then(|db| db.latest_stream_run(session_id).ok().flatten());
+    let persistence_status = match persisted_run.as_ref() {
+        Some(run)
+            if matches!(run.status.as_str(), "committed" | "interrupted" | "failed")
+                && run.committed_seq == run.durable_seq =>
+        {
+            "committed"
+        }
+        Some(run) if run.status == "recovered" => "recovered",
+        // Incognito deliberately has no journal/run/spool rows, but its live
+        // assistant/context/turn still commit atomically inside sessions.db.
+        // It therefore may finish normally without claiming crash recovery.
+        _ if incognito && status == Some(ChatTurnStatus::Completed) => "committed",
+        // Non-model local replies (for example the Plan sub-agent routing
+        // acknowledgement) use the same atomic assistant/context/turn
+        // transaction without creating a stream journal run.
+        _ if status == Some(ChatTurnStatus::Completed)
+            && turn_id.is_some_and(|id| {
+                crate::get_session_db()
+                    .and_then(|db| db.get_chat_turn(id).ok().flatten())
+                    .is_some_and(|turn| {
+                        turn.status == ChatTurnStatus::Completed
+                            && turn.assistant_message_id.is_some()
+                    })
+            }) =>
+        {
+            "committed"
+        }
+        _ => "pending",
+    };
+    // A completed UI state is legal only after the atomic final transaction.
+    let wire_status =
+        if status == Some(ChatTurnStatus::Completed) && persistence_status != "committed" {
+            Some(ChatTurnStatus::Failed)
+        } else {
+            status
+        };
+    let assistant_message_id = stream_state
+        .persistence_run_id
+        .as_deref()
+        .and_then(|run_id| {
+            crate::get_session_db()
+                .and_then(|db| db.assistant_message_id_for_run(run_id).ok().flatten())
+        })
+        .or_else(|| {
+            turn_id.and_then(|id| {
+                crate::get_session_db()
+                    .and_then(|db| db.get_chat_turn(id).ok().flatten())
+                    .and_then(|turn| turn.assistant_message_id)
+            })
+        });
+    let final_seq = if stream_state.committed_seq > 0 {
+        stream_state.committed_seq
+    } else {
+        stream_state.durable_seq
+    };
     if let Some(bus) = globals::get_event_bus() {
         bus.emit(
             EVENT_CHAT_STREAM_END,
@@ -147,9 +222,13 @@ pub fn broadcast_stream_end(
                 "sessionId": session_id,
                 "streamId": stream_id,
                 "turnId": turn_id,
-                "status": status.map(|s| s.as_str()),
+                "status": wire_status.map(|s| s.as_str()),
                 "interruptReason": interrupt_reason.map(|r| r.as_str()),
                 "error": error,
+                "finalSeq": final_seq,
+                "durableSeq": stream_state.durable_seq,
+                "assistantMessageId": assistant_message_id,
+                "persistenceStatus": persistence_status,
             }),
         );
     }

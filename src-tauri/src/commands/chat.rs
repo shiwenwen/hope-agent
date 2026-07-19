@@ -48,23 +48,30 @@ fn broadcast_turn_end(
     );
 }
 
-fn finish_turn_once_and_broadcast(
+fn commit_local_reply(
     db: &SessionDB,
     session_id: &str,
     turn_id: &str,
-    status: session::ChatTurnStatus,
-    interrupt_reason: Option<session::ChatTurnInterruptReason>,
-    error: Option<&str>,
-    assistant_message_id: Option<i64>,
-) {
-    let _ = db.finish_chat_turn_once(
-        turn_id,
-        status,
-        interrupt_reason,
-        error,
-        assistant_message_id,
-    );
-    broadcast_turn_end(session_id, turn_id, status, interrupt_reason, error);
+    content: &str,
+) -> Result<(), CmdError> {
+    let (context_json, context_revision) = db
+        .load_context_with_revision(session_id)
+        .map_err(CmdError::from)?;
+    let commit = session::CommitAssistantTurn {
+        run_id: None,
+        attempt_no: 0,
+        session_id: session_id.to_string(),
+        assistant: session::NewMessage::assistant(content)
+            .with_source(ha_core::chat_engine::ChatSource::Desktop),
+        trailing_placeholder_id: None,
+        context_json: context_json.unwrap_or_else(|| "[]".to_string()),
+        expected_context_revision: context_revision,
+        turn_id: Some(turn_id.to_string()),
+        usage: None,
+        final_seq: 0,
+    };
+    db.commit_assistant_turn(&commit).map_err(CmdError::from)?;
+    Ok(())
 }
 
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
@@ -1040,6 +1047,8 @@ pub async fn chat(
             if let Some(run_id) = crate::plan::get_active_plan_run_id(&sid).await {
                 // User sent a message while planning → route as steer to the sub-agent
                 crate::subagent::SUBAGENT_MAILBOX.push(&run_id, message.clone());
+                let reply = "💬 Message forwarded to planning agent.";
+                commit_local_reply(&db, &sid, &turn_id, reply)?;
                 let _ = on_event.send(
                     serde_json::json!({
                         "type": "text",
@@ -1047,16 +1056,14 @@ pub async fn chat(
                     })
                     .to_string(),
                 );
-                finish_turn_once_and_broadcast(
-                    &db,
+                broadcast_turn_end(
                     &sid,
                     &turn_id,
                     session::ChatTurnStatus::Completed,
                     None,
                     None,
-                    None,
                 );
-                return Ok("Message forwarded to planning agent.".to_string());
+                return Ok(reply.to_string());
             }
 
             // First message in Planning state → spawn plan sub-agent
@@ -1076,6 +1083,8 @@ pub async fn chat(
             {
                 Ok(run_id) => {
                     app_info!("plan", "chat", "Plan sub-agent spawned: run_id={}", run_id);
+                    let reply = "🗂️ Plan creation started...";
+                    commit_local_reply(&db, &sid, &turn_id, reply)?;
                     let _ = on_event.send(
                         serde_json::json!({
                             "type": "text",
@@ -1083,12 +1092,10 @@ pub async fn chat(
                         })
                         .to_string(),
                     );
-                    finish_turn_once_and_broadcast(
-                        &db,
+                    broadcast_turn_end(
                         &sid,
                         &turn_id,
                         session::ChatTurnStatus::Completed,
-                        None,
                         None,
                         None,
                     );

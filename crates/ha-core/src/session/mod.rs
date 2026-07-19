@@ -8,6 +8,7 @@ pub mod export;
 mod helpers;
 mod ide_context;
 mod pending;
+mod stream_persistence;
 mod subagent_db;
 mod tasks;
 mod turn_queue;
@@ -40,6 +41,13 @@ pub use ide_context::{
     SessionIdeContextSnapshot,
 };
 pub use pending::enrich_pending_interactions;
+pub use stream_persistence::{
+    journal_events_have_assistant_output, select_recoverable_attempt_prefix,
+    stream_attempt_context_checkpoint, trailing_text_from_journal_events, verify_block,
+    ChatStreamAttempt, ChatStreamJournalBlock, ChatStreamRun, CommitAssistantTurn,
+    CommitInterruptedTurn, CommittedTurn, CreateStreamRun, JournalBatch, JournalEvent,
+    StreamRunRegistration, StreamRunSnapshot,
+};
 pub use tasks::{
     create_task_and_snapshot, delete_task_and_snapshot, emit_task_snapshot,
     set_task_status_and_snapshot, Task, TaskStatus,

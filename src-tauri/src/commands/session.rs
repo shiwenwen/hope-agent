@@ -582,6 +582,18 @@ pub async fn get_session_stream_state(
     Ok(ha_core::chat_engine::session_stream_state(&session_id))
 }
 
+/// Return the durable journal snapshot used by reload handshakes. Unlike the
+/// lightweight state endpoint, this contains the full visible stream prefix.
+#[tauri::command]
+pub async fn get_session_stream_snapshot(
+    session_id: String,
+) -> Result<Option<ha_core::chat_engine::SessionStreamSnapshot>, CmdError> {
+    tokio::task::spawn_blocking(move || ha_core::chat_engine::session_stream_snapshot(&session_id))
+        .await
+        .map_err(|error| CmdError::msg(format!("stream snapshot task failed: {error}")))?
+        .map_err(Into::into)
+}
+
 /// Serialize a session to disk in Markdown / JSON / HTML.
 ///
 /// `output_path` is supplied by the frontend's native save dialog

@@ -23,6 +23,17 @@ pub fn root_dir() -> Result<PathBuf> {
     Ok(home.join(".hope-agent"))
 }
 
+/// Emergency append-only stream spool. Used only for non-incognito chat runs
+/// when SQLite cannot accept a journal batch.
+pub fn stream_spool_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("stream_spool"))
+}
+
+pub fn stream_spool_path(run_id: &str) -> Result<PathBuf> {
+    uuid::Uuid::parse_str(run_id).map_err(|_| anyhow::anyhow!("invalid stream run id"))?;
+    Ok(stream_spool_dir()?.join(format!("{run_id}.log")))
+}
+
 /// Ephemeral files used while a project chat is preparing a managed worktree.
 pub fn bootstrap_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("bootstrap"))

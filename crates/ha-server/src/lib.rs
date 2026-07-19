@@ -733,6 +733,10 @@ fn build_router_with_cors(
             "/sessions/{id}/stream-state",
             get(routes::sessions::get_session_stream_state),
         )
+        .route(
+            "/sessions/{id}/stream-snapshot",
+            get(routes::sessions::get_session_stream_snapshot),
+        )
         // Chat
         .route("/chat", post(routes::chat::chat))
         .route(

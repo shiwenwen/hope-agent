@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::agent::AssistantAgent;
 use crate::failover::{
@@ -7,11 +7,11 @@ use crate::failover::{
 };
 use crate::provider::{ApiType, AuthProfile};
 use crate::session;
+use crate::turn_durability::{FlushReason, TurnDurabilitySink};
 
 use super::context::*;
 use super::finalize::{self, PartialMeta, TerminationReason};
 use super::im_mirror::{attach_im_live_mirror, finalize_im_live_mirror};
-use super::persister::StreamPersister;
 use super::sink_registry;
 use super::stream_broadcast;
 use super::stream_seq;
@@ -79,26 +79,8 @@ struct ChatRoundOk {
     response: String,
     thinking: Option<String>,
     agent: AssistantAgent,
-    persister: Arc<StreamPersister>,
     history_len_before: usize,
     chat_start: std::time::Instant,
-}
-
-/// Stores the last failed attempt that produced user-visible partial output.
-/// Empty retry failures intentionally do not replace the slot, so a later
-/// all-failed result can still preserve the most recent partial the user saw.
-///
-/// `api_type` is the provider shape that *wrote* this partial — captured
-/// at store time so finalize can rebuild the assistant-side blocks in
-/// the matching native format. Without it, model_chain rotation followed
-/// by a no-partial failure on the second attempt would make finalize
-/// rebuild the *first* attempt's partial using the *second* attempt's
-/// provider shape, and the next request would 4xx or silently drop tool
-/// calls depending on which provider it crossed into.
-struct FailedAttemptPartial {
-    persister: Arc<StreamPersister>,
-    duration_ms: u64,
-    api_type: crate::provider::ApiType,
 }
 
 /// Drop-guarded scope for a session's visible stream lifecycle. Ensures
@@ -115,6 +97,7 @@ struct StreamLifecycle {
     terminal_status: Option<session::ChatTurnStatus>,
     interrupt_reason: Option<session::ChatTurnInterruptReason>,
     terminal_error: Option<String>,
+    abandoned_recovery: Option<(std::sync::Arc<session::SessionDB>, String)>,
     finished: bool,
 }
 
@@ -137,8 +120,17 @@ impl StreamLifecycle {
             terminal_status: None,
             interrupt_reason: None,
             terminal_error: None,
+            abandoned_recovery: None,
             finished: false,
         })
+    }
+
+    fn arm_abandoned_recovery(
+        &mut self,
+        db: std::sync::Arc<session::SessionDB>,
+        persistence_run_id: String,
+    ) {
+        self.abandoned_recovery = Some((db, persistence_run_id));
     }
 
     fn set_terminal(
@@ -168,7 +160,10 @@ impl StreamLifecycle {
                 self.finished = true;
                 return;
             }
-            if self.source.broadcasts_to_user_ui() {
+            // A dropped/panicked engine future has no committed terminal fact
+            // yet. Its Drop path schedules journal convergence below; emitting
+            // an unqualified end here would let the UI outrun persistence.
+            if self.source.broadcasts_to_user_ui() && self.terminal_status.is_some() {
                 stream_broadcast::broadcast_stream_end(
                     &self.session_id,
                     Some(stream_id),
@@ -188,39 +183,18 @@ impl StreamLifecycle {
 
 impl Drop for StreamLifecycle {
     fn drop(&mut self) {
+        if !self.finished && self.terminal_status.is_none() {
+            if let Some((db, persistence_run_id)) = self.abandoned_recovery.take() {
+                super::spawn_abandoned_stream_recovery(
+                    db,
+                    self.session_id.clone(),
+                    self.turn_id.clone(),
+                    self.source,
+                    persistence_run_id,
+                );
+            }
+        }
         self.finish();
-    }
-}
-
-fn take_failed_attempt_partial(
-    slot: &Arc<Mutex<Option<FailedAttemptPartial>>>,
-) -> Option<FailedAttemptPartial> {
-    match slot.lock() {
-        Ok(mut guard) => guard.take(),
-        Err(poisoned) => poisoned.into_inner().take(),
-    }
-}
-
-fn store_failed_attempt_partial(
-    slot: &Arc<Mutex<Option<FailedAttemptPartial>>>,
-    partial: FailedAttemptPartial,
-) {
-    if let Some(previous) = take_failed_attempt_partial(slot) {
-        previous.persister.discard_attempt_rows();
-    }
-    match slot.lock() {
-        Ok(mut guard) => {
-            *guard = Some(partial);
-        }
-        Err(poisoned) => {
-            *poisoned.into_inner() = Some(partial);
-        }
-    }
-}
-
-fn discard_failed_attempt_partial(slot: &Arc<Mutex<Option<FailedAttemptPartial>>>) {
-    if let Some(partial) = take_failed_attempt_partial(slot) {
-        partial.persister.discard_attempt_rows();
     }
 }
 
@@ -340,6 +314,18 @@ fn emit_stream_event_unchecked(
     turn_id: Option<&str>,
     event: &str,
 ) {
+    if let Some(coordinator) = super::durability::active(session_id) {
+        if let Err(error) = coordinator.accept_event(event) {
+            app_error!(
+                "chat",
+                "stream_durability",
+                "failed to accept stream event for {}: {}",
+                session_id,
+                error
+            );
+        }
+        return;
+    }
     let payload: String = if !source.broadcasts_to_user_ui() {
         event_sink.send(event);
         event.to_string()
@@ -612,6 +598,52 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
     let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source, turn_id.clone())?;
 
+    // Every conversation-producing entry receives a persistence run, even
+    // when it has no user-visible chat_turn id. Incognito registrations stay
+    // memory-only inside the coordinator.
+    let durability = match super::durability::StreamCoordinator::create(
+        db.clone(),
+        session_id.clone(),
+        source,
+        stream_lifecycle.stream_id.clone(),
+        turn_id.clone(),
+        event_sink.clone(),
+        cancel.clone(),
+    )
+    .await
+    {
+        Ok(coordinator) => coordinator,
+        Err(error) => {
+            let message = format!("Cannot initialize durable chat stream: {error}");
+            if let Some(turn_id) = turn_id.as_deref() {
+                if let Err(finish_error) = db.finish_chat_turn_once(
+                    turn_id,
+                    session::ChatTurnStatus::Failed,
+                    Some(session::ChatTurnInterruptReason::Unknown),
+                    Some(&message),
+                    None,
+                ) {
+                    app_error!(
+                        "chat",
+                        "stream_durability",
+                        "failed to converge turn {} after coordinator initialization error: {}",
+                        turn_id,
+                        finish_error
+                    );
+                }
+            }
+            stream_lifecycle.set_terminal(
+                session::ChatTurnStatus::Failed,
+                Some(session::ChatTurnInterruptReason::Unknown),
+                Some(message.clone()),
+            );
+            stream_lifecycle.finish();
+            return Err(message);
+        }
+    };
+    stream_lifecycle
+        .arm_abandoned_recovery(db.clone(), durability.persistence_run_id().to_string());
+
     // Idle/busy tracking (R2 — §5.4 fix). Mark this session active for the whole
     // turn so background-job / sub-agent completion injection yields to the live
     // turn instead of splicing into it. Created here at the shared engine entry
@@ -767,11 +799,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     // multiple providers, and the user-facing hint depends on which one
     // actually erred.
     let mut last_is_codex_auth = false;
-    // Provider shape of the most recently attempted model; drives the
-    // finalize path's partial-block reconstruction. Updated each
-    // model_chain iteration so the value reflects whichever model
-    // produced the partial currently stored in `failed_attempt_partial`.
-    let mut last_provider_api_kind: Option<crate::provider::ApiType> = None;
     // Set when emergency compaction was attempted but still failed to
     // bring history below the model's context window — promoted into
     // `TerminationReason::CompactionFailed` by `derive_termination_reason`
@@ -786,8 +813,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     // so the user-facing copy can say "configure provider" instead of
     // "all models failed".
     let mut last_was_no_profile = false;
-    let failed_attempt_partial: Arc<Mutex<Option<FailedAttemptPartial>>> =
-        Arc::new(Mutex::new(None));
 
     // Build primary model display name for fallback events
     let primary_display = {
@@ -822,11 +847,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 continue;
             }
         };
-        last_provider_api_kind = Some(prov.api_type.clone());
 
-        // Emit fallback event if this is not the first model in the chain.
-        // Only fires once per model (not per executor retry / rotation).
-        if idx > 0 {
+        // Build the fallback event now, but enqueue it only after the next
+        // attempt has been opened. Otherwise it would land in the previous
+        // attempt and be correctly discarded together with that superseded
+        // output during replay/materialization.
+        let fallback_event_json = if idx > 0 {
             let display = format!("{} / {}", prov.name, model_ref.model_id);
             let reason_str = last_error
                 .as_deref()
@@ -843,22 +869,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 "total": total_models,
                 "error": last_error.as_deref().unwrap_or(""),
             });
-            if let Ok(json_str) = serde_json::to_string(&event) {
-                if emit_stream_event(
-                    &db,
-                    &event_sink,
-                    &session_id,
-                    source,
-                    turn_id.as_deref(),
-                    &json_str,
-                ) {
-                    let _ = db.append_message(
-                        &session_id,
-                        &session::NewMessage::event(&json_str).with_source(source),
-                    );
-                }
-            }
-        }
+            serde_json::to_string(&event).ok()
+        } else {
+            None
+        };
 
         // ── Outer compaction-retry loop ─────────────────────────
         // The executor (execute_with_failover) handles profile rotation +
@@ -898,21 +912,14 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         "to_profile": to.label,
                         "reason": reason,
                     })) {
-                        if emit_stream_event(
+                        emit_stream_event(
                             &db,
                             &event_sink,
                             &session_id,
                             source,
                             turn_id.as_deref(),
                             &json_str,
-                        ) {
-                            // Persist as `role=event` so the GUI's
-                            // ProfileRotationBanner survives session reload.
-                            let _ = db.append_message(
-                                &session_id,
-                                &session::NewMessage::event(&json_str).with_source(source),
-                            );
-                        }
+                        );
                     }
                 };
 
@@ -935,7 +942,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let db_ref = &db;
             let model_ref_for_op = model_ref;
             let codex_token_ref = &codex_token;
-            let failed_attempt_partial_ref = failed_attempt_partial.clone();
+            let durability_ref = durability.clone();
+            let fallback_event_ref = fallback_event_json.as_deref();
 
             let exec_result = execute_with_failover(
                 prov,
@@ -973,12 +981,32 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let provider_id_for_err = model_ref_for_op.provider_id.clone();
                     let model_id_for_err = model_ref_for_op.model_id.clone();
                     let codex_token_owned = codex_token_ref.clone();
-                    let failed_attempt_partial_owned = failed_attempt_partial_ref.clone();
-                    // Stamp partial with the provider shape that wrote
-                    // it; see `FailedAttemptPartial::api_type` rationale.
-                    let api_type_for_partial = prov.api_type.clone();
-
+                    let durability_owned = durability_ref.clone();
+                    let fallback_event_owned = fallback_event_ref.map(ToOwned::to_owned);
                     async move {
+                        let provider_shape = match &prov.api_type {
+                            ApiType::Anthropic => "anthropic",
+                            ApiType::OpenaiChat => "openai_chat",
+                            ApiType::OpenaiResponses => "openai_responses",
+                            ApiType::Codex => "codex",
+                        };
+                        durability_owned
+                            .begin_attempt(
+                                Some(&model_ref_for_op.provider_id),
+                                Some(&model_ref_for_op.model_id),
+                                Some(provider_shape),
+                            )
+                            .await?;
+                        if let Some(fallback_event) = fallback_event_owned.as_deref() {
+                            emit_stream_event(
+                                &db_owned,
+                                &event_sink_for_cb,
+                                &session_for_cb,
+                                source_for_cb,
+                                turn_id_for_cb.as_deref(),
+                                fallback_event,
+                            );
+                        }
                         let mut agent = build_agent_from_snapshot(
                             model_ref_for_op,
                             providers_ref,
@@ -1016,16 +1044,11 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             kb_origin,
                             channel_kb_context_owned,
                         );
+                        agent.set_turn_durability(durability_owned.clone());
                         restore_agent_context(&db_owned, &session_id_owned, &agent);
 
                         let history_len_before = agent.get_conversation_history().len();
                         let chat_start = std::time::Instant::now();
-                        let persister = StreamPersister::new(
-                            db_owned.clone(),
-                            session_id_owned.clone(),
-                            source_for_cb,
-                        );
-                        let persist_cb = persister.build_callback();
                         let allow_hard_cancel = Arc::new(std::sync::atomic::AtomicBool::new(true));
                         let allow_hard_cancel_for_cb = allow_hard_cancel.clone();
 
@@ -1046,7 +1069,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                     allow_hard_cancel_for_cb
                                         .store(false, std::sync::atomic::Ordering::SeqCst);
                                 }
-                                persist_cb(delta);
                                 // Guard already checked above this tick — skip
                                 // the redundant turn_accepts lock + snapshot.
                                 emit_stream_event_unchecked(
@@ -1074,11 +1096,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         if abort_on_cancel
                             && cancel_for_check.load(std::sync::atomic::Ordering::SeqCst)
                         {
-                            // Discard any partial placeholder this attempt left
-                            // behind so a cancelled run doesn't show up after
-                            // reload. This must clear completed text/tool rows
-                            // too, not just the currently active placeholder.
-                            persister.discard_attempt_rows();
                             return Err(anyhow::anyhow!("chat cancelled by caller"));
                         }
 
@@ -1087,31 +1104,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 response,
                                 thinking,
                                 agent,
-                                persister,
                                 history_len_before,
                                 chat_start,
                             }),
-                            Err(e) => {
-                                // Failover may retry on a different model; the
-                                // failed attempt's partial text must NOT bleed
-                                // into the eventual successful bubble (frontend
-                                // would group both text_block rows under the
-                                // same assistant) or into the next turn's
-                                // orphan-summary injection.
-                                if persister.has_visible_partial_output() {
-                                    store_failed_attempt_partial(
-                                        &failed_attempt_partial_owned,
-                                        FailedAttemptPartial {
-                                            persister,
-                                            duration_ms: chat_start.elapsed().as_millis() as u64,
-                                            api_type: api_type_for_partial.clone(),
-                                        },
-                                    );
-                                } else {
-                                    persister.discard_attempt_rows();
-                                }
-                                Err(e)
-                            }
+                            Err(e) => Err(e),
                         }
                     }
                 },
@@ -1124,7 +1120,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         response,
                         thinking,
                         agent,
-                        persister,
                         history_len_before,
                         chat_start,
                     } = ok;
@@ -1133,9 +1128,96 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     if let Some(ref tid) = turn_id {
                         if let Ok(Some(turn)) = db.get_chat_turn(tid) {
                             if turn.status.is_terminal() {
+                                // A watchdog/request guard may have finalized
+                                // chat_turns while the provider future was
+                                // still unwinding. The journal must still be
+                                // materialized atomically; merely marking the
+                                // run terminal would strand already displayed
+                                // bytes outside canonical messages/context.
+                                let terminal = if turn.status == session::ChatTurnStatus::Completed
+                                {
+                                    session::ChatTurnStatus::Failed
+                                } else {
+                                    turn.status
+                                };
+                                let interrupt = turn
+                                    .interrupt_reason
+                                    .unwrap_or(session::ChatTurnInterruptReason::Unknown);
+                                let convergence: Result<(), String> = async {
+                                    let final_seq = durability
+                                        .flush(FlushReason::Failure)
+                                        .await
+                                        .map_err(|error| error.to_string())?;
+                                    durability
+                                        .reconcile_spool_to_sqlite()
+                                        .await
+                                        .map_err(|error| error.to_string())?;
+                                    let mut partial_text = durability.trailing_text();
+                                    if partial_text.is_empty() && !durability.had_text_output() {
+                                        partial_text = response.clone();
+                                    }
+                                    let assistant = durability.had_text_output().then(|| {
+                                        build_durable_assistant_message(
+                                            &durability,
+                                            &partial_text,
+                                            thinking.clone(),
+                                            duration_ms,
+                                            source,
+                                        )
+                                    });
+                                    let context_json =
+                                        serde_json::to_string(&agent.get_conversation_history())
+                                            .map_err(|error| error.to_string())?;
+                                    let commit = session::CommitInterruptedTurn {
+                                        run_id: durability
+                                            .is_persistent()
+                                            .then(|| durability.persistence_run_id().to_string()),
+                                        attempt_no: durability.current_attempt_no(),
+                                        session_id: session_id.clone(),
+                                        assistant,
+                                        context_json,
+                                        expected_context_revision: durability.context_revision(),
+                                        turn_id: turn_id.clone(),
+                                        final_seq,
+                                        status: terminal,
+                                        interrupt_reason: Some(interrupt.as_str().to_string()),
+                                        error: turn.error.clone(),
+                                        recovery_event: None,
+                                    };
+                                    let db_for_commit = db.clone();
+                                    db_for_commit
+                                        .run(move |db| db.commit_interrupted_turn(&commit))
+                                        .await
+                                        .map_err(|error| error.to_string())?;
+                                    Ok(())
+                                }
+                                .await;
+                                if let Err(error) = convergence {
+                                    let message = format!(
+                                        "externally-terminal stream convergence failed: {error}"
+                                    );
+                                    app_error!(
+                                        "chat",
+                                        "stream_durability",
+                                        "run {}: {}",
+                                        durability.persistence_run_id(),
+                                        message
+                                    );
+                                    // Keep the DB run in `running` state so a
+                                    // restart can replay its durable journal.
+                                    durability.mark_interrupted("persistence_unavailable");
+                                    stream_lifecycle.set_terminal(
+                                        session::ChatTurnStatus::Failed,
+                                        Some(session::ChatTurnInterruptReason::Unknown),
+                                        Some(message.clone()),
+                                    );
+                                    stream_lifecycle.finish();
+                                    return Err(message);
+                                }
+                                durability.mark_interrupted(terminal.as_str());
                                 stream_lifecycle.set_terminal(
-                                    turn.status,
-                                    turn.interrupt_reason,
+                                    terminal,
+                                    Some(interrupt),
                                     turn.error.clone(),
                                 );
                                 stream_lifecycle.finish();
@@ -1143,51 +1225,45 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 return Ok(ChatEngineResult {
                                     response,
                                     model_used: Some(model_ref.clone()),
-                                    usage: persister.usage(),
+                                    usage: durability.usage(),
                                     agent: Some(agent),
                                 });
                             }
                         }
                     }
 
+                    // A provider can finish before the 100ms durability writer
+                    // publishes its last batch. Publishing that batch may be
+                    // the moment the UI observes the first delta and requests
+                    // Stop, so check cancellation only after this barrier as
+                    // well as inside the provider loop. Otherwise a late Stop
+                    // races through the normal completed transaction.
+                    if !abort_on_cancel && persist_final_error_event {
+                        durability
+                            .flush(FlushReason::FinalEnd)
+                            .await
+                            .map_err(|error| {
+                                format!("pre-final durability barrier failed: {error}")
+                            })?;
+                        durability
+                            .reconcile_spool_to_sqlite()
+                            .await
+                            .map_err(|error| format!("pre-final spool import failed: {error}"))?;
+                    }
+
                     if !abort_on_cancel
                         && cancel.load(std::sync::atomic::Ordering::SeqCst)
                         && persist_final_error_event
                     {
-                        let assistant_id =
-                            persister.persist_failed_partial_assistant(thinking, duration_ms);
-                        let partial = collect_partial_meta_from_runtime(
-                            &db,
-                            &session_id,
-                            &message,
-                            Some(prov.api_type.clone()),
-                            assistant_id,
-                            turn_id.as_deref(),
-                        );
-                        let outcome = finalize::finalize_turn_context(
-                            &db,
-                            &session_id,
-                            TerminationReason::UserStop,
-                            partial,
-                            source,
-                            im_mirror.take(),
-                        )
-                        .await;
-                        let terminal = outcome
-                            .turn_status
-                            .unwrap_or(session::ChatTurnStatus::Interrupted);
-                        stream_lifecycle.set_terminal(terminal, outcome.interrupt_reason, None);
-                        stream_lifecycle.finish();
-                        schedule_browser_turn_finalize(source, &session_id);
-                        return Ok(ChatEngineResult {
-                            response: String::new(),
-                            model_used: None,
-                            usage: persister.usage(),
-                            agent: None,
-                        });
+                        // Reuse the common journal-replay convergence below. It
+                        // appends the user-stop marker to provider context and
+                        // writes the matching UI event in the same transaction;
+                        // the former inline branch omitted both.
+                        last_reason = None;
+                        last_error = Some(CHAT_CANCELLED_BY_CALLER.to_string());
+                        last_was_no_profile = false;
+                        break;
                     }
-
-                    discard_failed_attempt_partial(&failed_attempt_partial);
 
                     // Emit usage event with duration
                     let usage_event = serde_json::json!({
@@ -1205,10 +1281,52 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         );
                     }
 
-                    persister.flush_remaining_thinking();
-                    let trailing_text = persister.take_trailing_text();
-                    let mut assistant_msg =
-                        persister.build_assistant_message(&trailing_text, thinking, duration_ms);
+                    // Freeze the complete durable prefix before deriving the
+                    // canonical assistant. Reading `trailing_text()` before
+                    // this barrier can miss the final <100ms pending batch and
+                    // would commit a truncated assistant despite the journal
+                    // containing (and the UI receiving) the full response.
+                    let final_seq = match durability.flush(FlushReason::FinalEnd).await {
+                        Ok(seq) => seq,
+                        Err(error) => {
+                            let message = format!("final durability barrier failed: {error}");
+                            stream_lifecycle.set_terminal(
+                                session::ChatTurnStatus::Failed,
+                                Some(session::ChatTurnInterruptReason::Unknown),
+                                Some(message.clone()),
+                            );
+                            stream_lifecycle.finish();
+                            return Err(message);
+                        }
+                    };
+                    if let Err(error) = durability.reconcile_spool_to_sqlite().await {
+                        let message = format!("cannot import emergency stream spool: {error}");
+                        stream_lifecycle.set_terminal(
+                            session::ChatTurnStatus::Failed,
+                            Some(session::ChatTurnInterruptReason::Unknown),
+                            Some(message.clone()),
+                        );
+                        stream_lifecycle.finish();
+                        return Err(message);
+                    }
+
+                    let mut trailing_text = durability.trailing_text();
+                    let trailing_placeholder_id = None;
+                    if trailing_text.is_empty()
+                        && !durability.had_text_output()
+                        && !response.is_empty()
+                    {
+                        // Defensive fallback for provider adapters that return
+                        // terminal text without emitting text_delta.
+                        trailing_text = response.clone();
+                    }
+                    let mut assistant_msg = build_durable_assistant_message(
+                        &durability,
+                        &trailing_text,
+                        thinking,
+                        duration_ms,
+                        source,
+                    );
                     let active_trace = agent.current_active_memory_trace();
                     let used_refs = agent.current_used_memory_refs();
                     let retrieval_planner_trace = agent.current_retrieval_planner_trace(&used_refs);
@@ -1238,107 +1356,78 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         assistant_msg.attachments_meta =
                             serde_json::to_string(&serde_json::Value::Object(meta)).ok();
                     }
-                    let assistant_id = db.append_message(&session_id, &assistant_msg).ok();
-                    if let Some(message_id) = assistant_id {
-                        let usage = persister.usage();
-                        let mut event =
-                            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT)
-                                .with_usage(
-                                    usage.input_tokens.unwrap_or(0) as u64,
-                                    usage.output_tokens.unwrap_or(0) as u64,
-                                    usage.cache_creation_input_tokens.unwrap_or(0) as u64,
-                                    usage.cache_read_input_tokens.unwrap_or(0) as u64,
-                                )
-                                .with_context_usage(
-                                    usage
-                                        .context_input_tokens
-                                        .or(usage.input_tokens)
-                                        .unwrap_or(0) as u64,
-                                    usage.fresh_input_tokens.or(usage.input_tokens).unwrap_or(0)
-                                        as u64,
-                                );
-                        event.request_key = Some(format!("message:{message_id}"));
-                        event.timestamp = Some(chrono::Utc::now().to_rfc3339());
-                        event.operation = Some("chat".to_string());
-                        event.source = Some(source.as_str().to_string());
-                        event.provider_id = Some(model_ref.provider_id.clone());
-                        event.provider_name = Some(prov.name.clone());
-                        event.model_id = Some(
-                            usage
-                                .model
-                                .clone()
-                                .unwrap_or_else(|| model_ref.model_id.clone()),
-                        );
-                        event.session_id = Some(session_id.clone());
-                        event.agent_id = Some(agent_id.clone());
-                        event.duration_ms = Some(duration_ms);
-                        event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
-                        if let Err(e) = db.insert_model_usage_event(&event) {
-                            app_warn!(
-                                "model_usage",
-                                "chat",
-                                "failed to record chat usage for message {}: {}",
-                                message_id,
-                                e
+                    let usage = durability.usage();
+                    let mut ledger_event =
+                        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT)
+                            .with_usage(
+                                usage.input_tokens.unwrap_or(0) as u64,
+                                usage.output_tokens.unwrap_or(0) as u64,
+                                usage.cache_creation_input_tokens.unwrap_or(0) as u64,
+                                usage.cache_read_input_tokens.unwrap_or(0) as u64,
+                            )
+                            .with_context_usage(
+                                usage
+                                    .context_input_tokens
+                                    .or(usage.input_tokens)
+                                    .unwrap_or(0) as u64,
+                                usage.fresh_input_tokens.or(usage.input_tokens).unwrap_or(0) as u64,
                             );
+                    ledger_event.timestamp = Some(chrono::Utc::now().to_rfc3339());
+                    ledger_event.operation = Some("chat".to_string());
+                    ledger_event.source = Some(source.as_str().to_string());
+                    ledger_event.provider_id = Some(model_ref.provider_id.clone());
+                    ledger_event.provider_name = Some(prov.name.clone());
+                    ledger_event.model_id = Some(
+                        usage
+                            .model
+                            .clone()
+                            .unwrap_or_else(|| model_ref.model_id.clone()),
+                    );
+                    ledger_event.session_id = Some(session_id.clone());
+                    ledger_event.agent_id = Some(agent_id.clone());
+                    ledger_event.duration_ms = Some(duration_ms);
+                    ledger_event.ttft_ms = usage.ttft_ms.map(|value| value.max(0) as u64);
+
+                    let context_json = serde_json::to_string(&agent.get_conversation_history())
+                        .map_err(|error| format!("serialize final context failed: {error}"))?;
+                    let commit = session::CommitAssistantTurn {
+                        run_id: durability
+                            .is_persistent()
+                            .then(|| durability.persistence_run_id().to_string()),
+                        attempt_no: durability.current_attempt_no(),
+                        session_id: session_id.clone(),
+                        assistant: assistant_msg,
+                        trailing_placeholder_id,
+                        context_json,
+                        expected_context_revision: durability.context_revision(),
+                        turn_id: turn_id.clone(),
+                        usage: Some(ledger_event),
+                        final_seq,
+                    };
+                    let committed = {
+                        let db = db.clone();
+                        db.run(move |db| db.commit_assistant_turn(&commit)).await
+                    };
+                    let committed = match committed {
+                        Ok(committed) => committed,
+                        Err(error) => {
+                            let message = format!("final assistant transaction failed: {error}");
+                            // Do not terminalize the persistence run here.
+                            // Its journal is the only recovery source after a
+                            // failed final transaction; startup must still see
+                            // the run as recoverable.
+                            durability.mark_interrupted("failed");
+                            stream_lifecycle.set_terminal(
+                                session::ChatTurnStatus::Failed,
+                                Some(session::ChatTurnInterruptReason::Unknown),
+                                Some(message.clone()),
+                            );
+                            stream_lifecycle.finish();
+                            return Err(message);
                         }
-                    }
-
-                    // Persist conversation context
-                    save_agent_context(&db, &session_id, &agent);
-
-                    // User-stop on a non-abort path. `abort_on_cancel=false`
-                    // (Desktop / HTTP / IM / Cron) means `agent.chat` returned
-                    // Ok with whatever partial accumulated rather than Err on
-                    // cancel. Without this branch the partial would be filed
-                    // as a normal `Completed` assistant turn and the model
-                    // would never know the user pressed stop on its next
-                    // reply. Route through `finalize(UserStop)` so a `[系统
-                    // 事件]` marker is appended to `context_json`, a user-
-                    // visible event row lands, and the chat_turn closes with
-                    // `Interrupted/UserStop` instead of `Completed`.
-                    if !abort_on_cancel
-                        && cancel.load(std::sync::atomic::Ordering::SeqCst)
-                        && persist_final_error_event
-                    {
-                        // No partial-block rebuild: `save_agent_context` above
-                        // already pushed the in-progress history (including
-                        // the just-written assistant row) into context_json.
-                        // finalize only needs to append the marker, write the
-                        // event row, and close the turn.
-                        let partial = PartialMeta {
-                            user_message: Some(message.clone()),
-                            provider_kind: Some(prov.api_type.clone().into()),
-                            text: None,
-                            thinking: None,
-                            tool_calls: Vec::new(),
-                            executed_tools: Vec::new(),
-                            round_id: None,
-                            turn_id: turn_id.clone(),
-                            assistant_message_id: assistant_id,
-                        };
-                        let outcome = finalize::finalize_turn_context(
-                            &db,
-                            &session_id,
-                            TerminationReason::UserStop,
-                            partial,
-                            source,
-                            im_mirror.take(),
-                        )
-                        .await;
-                        let terminal = outcome
-                            .turn_status
-                            .unwrap_or(session::ChatTurnStatus::Interrupted);
-                        stream_lifecycle.set_terminal(terminal, outcome.interrupt_reason, None);
-                        stream_lifecycle.finish();
-                        schedule_browser_turn_finalize(source, &session_id);
-                        return Ok(ChatEngineResult {
-                            response,
-                            model_used: Some(model_ref.clone()),
-                            usage: persister.usage(),
-                            agent: Some(agent),
-                        });
-                    }
+                    };
+                    let assistant_id = Some(committed.assistant_message_id);
+                    durability.mark_committed(committed.committed_seq);
 
                     // GUI / HTTP turns mirror into the attached IM chat via
                     // the live stream sink. Kick the final IM flush before
@@ -1358,19 +1447,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // assistant row is durable. End the frontend stream here;
                     // memory extraction and other follow-ups below must not
                     // keep the stop button/sidebar spinner alive.
-                    let mut terminal_status = session::ChatTurnStatus::Completed;
-                    let mut interrupt_reason = None;
-                    if let Some(ref turn_id) = turn_id {
-                        if let Ok(Some(turn)) = db.finish_chat_turn_after_execution(
-                            turn_id,
-                            cancel.load(std::sync::atomic::Ordering::SeqCst),
-                            None,
-                            assistant_id,
-                        ) {
-                            terminal_status = turn.status;
-                            interrupt_reason = turn.interrupt_reason;
-                        }
-                    }
+                    let terminal_status = session::ChatTurnStatus::Completed;
+                    let interrupt_reason = None;
                     stream_lifecycle.set_terminal(terminal_status, interrupt_reason, None);
                     stream_lifecycle.finish();
                     schedule_browser_turn_finalize(source, &session_id);
@@ -1416,7 +1494,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             model_ref.clone(),
                         );
                         {
-                            let usage_snapshot = persister.usage();
+                            let usage_snapshot = durability.usage();
                             let round_tokens = {
                                 let input = usage_snapshot.input_tokens.unwrap_or(0);
                                 let output = usage_snapshot.output_tokens.unwrap_or(0);
@@ -1446,7 +1524,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         // without cloning the whole history.
                         {
                             let round_tokens = {
-                                let u = persister.usage();
+                                let u = durability.usage();
                                 let input = u.input_tokens.unwrap_or(0);
                                 let output = u.output_tokens.unwrap_or(0);
                                 (input + output) as usize
@@ -1524,7 +1602,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     return Ok(ChatEngineResult {
                         response,
                         model_used: Some(model_ref.clone()),
-                        usage: persister.usage(),
+                        usage: durability.usage(),
                         agent: Some(agent),
                     });
                 }
@@ -1543,8 +1621,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             agent: None,
                         });
                     }
-
-                    discard_failed_attempt_partial(&failed_attempt_partial);
 
                     if compaction_attempts >= MAX_COMPACTION_RETRIES {
                         app_warn!(
@@ -1692,7 +1768,30 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             agent: None,
                         });
                     }
-                    save_agent_context(&db, &session_id, &compact_agent);
+                    let compact_history = compact_agent.get_conversation_history();
+                    if let Err(error) = durability
+                        .checkpoint_context(&compact_history, durability.context_revision())
+                        .await
+                    {
+                        let _ = emit_context_compaction_progress(
+                            &db,
+                            &event_sink,
+                            &session_id,
+                            source,
+                            turn_id.as_deref(),
+                            "failed",
+                            "emergency",
+                            None,
+                        );
+                        last_error =
+                            Some(format!("Emergency compaction context CAS failed: {error}"));
+                        break;
+                    }
+                    if let Err(error) = durability.adopt_attempt_base_context(&compact_history) {
+                        last_error =
+                            Some(format!("Emergency compaction retry base failed: {error}"));
+                        break;
+                    }
 
                     let mut progress_extra = serde_json::Map::new();
                     progress_extra.insert(
@@ -1731,24 +1830,16 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             "manifest": compact_result.manifest,
                         },
                     })) {
-                        if emit_stream_event(
+                        // The coordinator journals this event and materializes
+                        // it exactly once with the final turn transaction.
+                        emit_stream_event(
                             &db,
                             &event_sink,
                             &session_id,
                             source,
                             turn_id.as_deref(),
                             &event_str,
-                        ) {
-                            // emergency_compact always runs Tier ≥ 3 — persist
-                            // unconditionally so the GUI's ContextCompactedBanner
-                            // survives session reload. Per-turn pre-LLM compaction
-                            // (agent/context.rs) is filtered separately in the
-                            // persister's `context_compacted` arm.
-                            let _ = db.append_message(
-                                &session_id,
-                                &session::NewMessage::event(&event_str).with_source(source),
-                            );
-                        }
+                        );
                     }
 
                     // Write the just-failed profile back to PROFILE_STICKY
@@ -1853,77 +1944,163 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         last_was_no_profile,
     );
 
-    // Discard or preserve the visible partial depending on the
-    // disambiguated termination reason. Subagent `abort_on_cancel=true`
-    // is the only path that throws partials away.
-    let (failed_assistant_id, partial_api_type) =
-        if matches!(reason, TerminationReason::UserStop) && abort_on_cancel {
-            discard_failed_attempt_partial(&failed_attempt_partial);
-            (None, None)
-        } else {
-            match take_failed_attempt_partial(&failed_attempt_partial) {
-                Some(partial) => {
-                    let assistant_id = partial
-                        .persister
-                        .persist_failed_partial_assistant(None, partial.duration_ms);
-                    (assistant_id, Some(partial.api_type))
-                }
-                None => (None, None),
-            }
-        };
-
-    // Prefer the API type that *wrote* the surviving partial; fall
-    // back to the last attempted provider when no partial exists
-    // (which only matters for `provider_kind` selection — the message
-    // table will be empty of that turn's blocks).
-    let api_type_for_rebuild = partial_api_type.or_else(|| last_provider_api_kind.clone());
-    let partial = collect_partial_meta_from_runtime(
-        &db,
-        &session_id,
-        &message,
-        api_type_for_rebuild,
-        failed_assistant_id,
-        turn_id.as_deref(),
-    );
-
-    if persist_final_error_event {
-        let outcome = finalize::finalize_turn_context(
-            &db,
-            &session_id,
-            reason.clone(),
-            partial,
-            source,
-            im_mirror.take(),
-        )
-        .await;
-        let terminal_status = outcome
-            .turn_status
-            .unwrap_or(session::ChatTurnStatus::Failed);
-        let terminal_error =
-            (terminal_status == session::ChatTurnStatus::Failed).then(|| final_error.clone());
-        stream_lifecycle.set_terminal(terminal_status, outcome.interrupt_reason, terminal_error);
-    } else {
-        // Subagent / Cron / IM-inbound entry points self-manage their
-        // user-facing error surfaces (the channel worker has its own IM
-        // notice, subagents drop partials, cron writes its delivery
-        // event). The unified path still writes `chat_turns` if there's
-        // a turn id, but skips context_json / event row / IM dispatch.
-        if let Some(ref tid) = turn_id {
-            let _ = db.finish_chat_turn_once(
-                tid,
-                reason.to_chat_turn_status(),
-                Some(reason.to_chat_turn_interrupt_reason()),
-                reason.to_error_text().as_deref(),
-                failed_assistant_id,
-            );
+    // The journal, rather than legacy placeholder rows, is the truth source
+    // for failed/aborted turns. Keep the last visible attempt and converge the
+    // partial assistant + context + turn status atomically.
+    let terminal_status = reason.to_chat_turn_status();
+    let terminal_interrupt = reason.to_chat_turn_interrupt_reason();
+    let durability_result: anyhow::Result<()> = async {
+        let durable_seq = durability.flush(FlushReason::Stop).await?;
+        if durability.is_persistent() {
+            durability.reconcile_spool_to_sqlite().await?;
         }
-        stream_lifecycle.set_terminal(
-            reason.to_chat_turn_status(),
-            Some(reason.to_chat_turn_interrupt_reason()),
-            (reason.to_chat_turn_status() == session::ChatTurnStatus::Failed)
-                .then(|| final_error.clone()),
-        );
+
+        let (attempt_no, commit_seq, visible_events, integrity_error, provider_kind) =
+            if durability.is_persistent() {
+                let run_id = durability.persistence_run_id().to_string();
+                let db_for_snapshot = db.clone();
+                let snapshot = db_for_snapshot
+                    .run(move |db| db.stream_run_snapshot(&run_id))
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("persistence run disappeared"))?;
+                let (attempt_no, commit_seq, events, integrity_error) =
+                    session::select_recoverable_attempt_prefix(&snapshot);
+                let attempt = snapshot
+                    .attempts
+                    .iter()
+                    .find(|attempt| attempt.attempt_no == attempt_no);
+                let provider_kind = attempt
+                    .and_then(|attempt| attempt.provider_shape.as_deref())
+                    .or(snapshot.run.provider_shape.as_deref())
+                    .and_then(finalize::ProviderApiKind::from_shape);
+                (
+                    attempt_no,
+                    commit_seq,
+                    events,
+                    integrity_error,
+                    provider_kind,
+                )
+            } else {
+                let snapshot = durability.snapshot();
+                (
+                    durability.current_attempt_no(),
+                    durable_seq,
+                    snapshot.events,
+                    None,
+                    durability
+                        .current_provider_shape()
+                        .as_deref()
+                        .and_then(finalize::ProviderApiKind::from_shape),
+                )
+            };
+        let trailing_text = session::trailing_text_from_journal_events(&visible_events);
+        let assistant = session::journal_events_have_assistant_output(&visible_events).then(|| {
+            let mut message = session::NewMessage::assistant(&trailing_text);
+            message.source = Some(source.as_str().to_string());
+            message
+        });
+        let (context_json, context_checkpoint_seq, context_revision, has_context_checkpoint) =
+            if durability.is_persistent() {
+                let run_id = durability.persistence_run_id().to_string();
+                db.clone()
+                    .run(move |db| {
+                        let (context, checkpoint_seq, revision) =
+                            db.recovery_context_for_prefix(&run_id, attempt_no, commit_seq)?;
+                        let has_checkpoint =
+                            db.stream_context_checkpoint_exists(&run_id, attempt_no, commit_seq)?;
+                        Ok::<_, anyhow::Error>((context, checkpoint_seq, revision, has_checkpoint))
+                    })
+                    .await?
+            } else {
+                let session_id_for_context = session_id.clone();
+                let (context, revision) = db
+                    .clone()
+                    .run(move |db| db.load_context_with_revision(&session_id_for_context))
+                    .await?;
+                (context, 0, revision, false)
+            };
+        let mut history: Vec<serde_json::Value> = context_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str(json).ok())
+            .unwrap_or_default();
+        if !has_context_checkpoint {
+            let user_message = message.trim();
+            if !user_message.is_empty() {
+                history.push(serde_json::json!({
+                    "role": "user",
+                    "content": user_message,
+                }));
+            }
+        }
+        finalize::rebuild::append_journal_suffix_to_history(
+            &mut history,
+            &visible_events,
+            context_checkpoint_seq,
+            provider_kind,
+        )?;
+        history.push(serde_json::json!({
+            "role": "assistant",
+            "content": finalize::copy::model_marker(&reason),
+        }));
+        let context_json = serde_json::to_string(&history)?;
+        let recovery_event = persist_final_error_event.then(|| {
+            let mut event = if terminal_status == session::ChatTurnStatus::Failed {
+                session::NewMessage::error_event(&finalize::copy::user_notice(&reason))
+            } else {
+                session::NewMessage::event(&finalize::copy::user_notice(&reason))
+            };
+            event.source = Some(source.as_str().to_string());
+            event
+        });
+        let commit = session::CommitInterruptedTurn {
+            run_id: durability
+                .is_persistent()
+                .then(|| durability.persistence_run_id().to_string()),
+            attempt_no,
+            session_id: session_id.clone(),
+            assistant,
+            context_json,
+            expected_context_revision: context_revision,
+            turn_id: turn_id.clone(),
+            final_seq: commit_seq,
+            status: terminal_status,
+            interrupt_reason: Some(terminal_interrupt.as_str().to_string()),
+            error: integrity_error.or_else(|| {
+                (terminal_status == session::ChatTurnStatus::Failed).then(|| final_error.clone())
+            }),
+            recovery_event,
+        };
+        let db_for_commit = db.clone();
+        db_for_commit
+            .run(move |db| db.commit_interrupted_turn(&commit))
+            .await?;
+        durability.mark_interrupted(terminal_status.as_str());
+        Ok(())
     }
+    .await;
+
+    if let Err(error) = durability_result {
+        app_error!(
+            "chat",
+            "stream_durability",
+            "failed to converge terminal stream {}: {}",
+            durability.persistence_run_id(),
+            error
+        );
+        // Leave the DB run recoverable, but release the live coordinator so
+        // the UI is not reported as indefinitely active in this process.
+        durability.mark_interrupted("persistence_unavailable");
+    }
+    if let Some(state) = im_mirror.take() {
+        tokio::spawn(async move {
+            finalize_im_live_mirror(state, "").await;
+        });
+    }
+    stream_lifecycle.set_terminal(
+        terminal_status,
+        Some(terminal_interrupt),
+        (terminal_status == session::ChatTurnStatus::Failed).then(|| final_error.clone()),
+    );
 
     if matches!(reason, TerminationReason::UserStop) && !abort_on_cancel {
         stream_lifecycle.finish();
@@ -1939,6 +2116,34 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     schedule_browser_turn_finalize(source, &session_id);
     stream_lifecycle.finish();
     Err(final_error)
+}
+
+fn build_durable_assistant_message(
+    durability: &super::durability::StreamCoordinator,
+    content: &str,
+    thinking: Option<String>,
+    duration_ms: u64,
+    source: stream_seq::ChatSource,
+) -> session::NewMessage {
+    let usage = durability.usage();
+    let mut message = session::NewMessage::assistant(content);
+    message.tool_duration_ms = Some(duration_ms.min(i64::MAX as u64) as i64);
+    if !durability.had_thinking() {
+        message.thinking = thinking;
+    }
+    message.tokens_in = usage.input_tokens;
+    message.tokens_out = usage.output_tokens;
+    message.tokens_in_last = usage.last_context_input_tokens.or(usage.last_input_tokens);
+    message.model = usage.model;
+    message.ttft_ms = usage.ttft_ms;
+    message.tokens_cache_creation = usage
+        .last_cache_creation_input_tokens
+        .or(usage.cache_creation_input_tokens);
+    message.tokens_cache_read = usage
+        .last_cache_read_input_tokens
+        .or(usage.cache_read_input_tokens);
+    message.source = Some(source.as_str().to_string());
+    message
 }
 
 // ── Termination reason derivation ────────────────────────────────────
@@ -2001,6 +2206,7 @@ fn derive_termination_reason(
 /// the table doesn't carry (user_message text for the early-persist
 /// gap, provider shape from the last attempt, turn id, persisted
 /// assistant id).
+#[allow(dead_code)] // legacy placeholder finalize compatibility
 fn collect_partial_meta_from_runtime(
     db: &std::sync::Arc<session::SessionDB>,
     session_id: &str,
@@ -2037,6 +2243,7 @@ fn kb_access_source(source: stream_seq::ChatSource) -> crate::knowledge::KbAcces
         ChatSource::Subagent => KbAccessSource::Subagent,
         ChatSource::ParentInjection => KbAccessSource::Other,
         ChatSource::Cron => KbAccessSource::Cron,
+        ChatSource::Acp => KbAccessSource::Other,
     }
 }
 
@@ -2495,7 +2702,7 @@ mod stream_lifecycle_tests {
     }
 
     #[tokio::test]
-    async fn user_stop_drops_model_deltas_after_cancel_point() {
+    async fn user_stop_preserves_the_batch_durable_before_cancel_was_observed() {
         let _lock = crate::chat_engine::active_turn::test_lock();
         let (_dir, db) = temp_db();
         let session = db
@@ -2539,15 +2746,17 @@ mod stream_lifecycle_tests {
             .expect("user stop should not surface as chat error");
 
         let messages = db.load_session_messages(&session.id).unwrap();
-        assert!(messages
-            .iter()
-            .any(|msg| { msg.role == MessageRole::Assistant && msg.content == "before stop" }));
-        assert!(!messages
-            .iter()
-            .any(|msg| msg.content.contains("after stop")));
+        // Both deltas entered the same 100ms journal batch before the sink saw
+        // the first durable broadcast and flipped `cancel`. The durable batch
+        // is indivisible for terminal replay: preserving it avoids showing a
+        // prefix that a reload cannot reproduce without per-token fsync.
+        assert!(messages.iter().any(|msg| {
+            msg.role == MessageRole::Assistant && msg.content == "before stop after stop"
+        }));
         let context_json = db.load_context(&session.id).unwrap().unwrap_or_default();
         assert!(context_json.contains("before stop"));
-        assert!(!context_json.contains("after stop"));
+        assert!(context_json.contains("after stop"));
+        assert!(context_json.contains("用户主动停止"));
     }
 
     #[tokio::test]
@@ -2804,7 +3013,7 @@ mod stream_lifecycle_tests {
     }
 
     #[tokio::test]
-    async fn abort_on_cancel_discards_failed_partial_candidate() {
+    async fn abort_on_cancel_preserves_durable_partial_without_changing_error_semantics() {
         let (_dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
@@ -2841,13 +3050,13 @@ mod stream_lifecycle_tests {
         assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
 
         let messages = db.load_session_messages(&session.id).unwrap();
-        assert!(!messages.iter().any(|msg| {
-            msg.role == MessageRole::Assistant || msg.content == "partial before cancel"
+        assert!(messages.iter().any(|msg| {
+            msg.role == MessageRole::Assistant && msg.content == "partial before cancel"
         }));
     }
 
     #[tokio::test]
-    async fn abort_on_cancel_after_tool_call_discards_completed_attempt_rows() {
+    async fn abort_on_cancel_after_tool_call_preserves_side_effect_barrier_record() {
         let (_dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
@@ -2889,12 +3098,25 @@ mod stream_lifecycle_tests {
         assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
 
         let messages = db.load_session_messages(&session.id).unwrap();
-        assert!(!messages.iter().any(|msg| {
-            msg.role == MessageRole::Assistant
-                || msg.role == MessageRole::TextBlock
-                || msg.role == MessageRole::Tool
-                || msg.content == "partial before tool"
-        }));
+        assert!(
+            messages.iter().any(|msg| {
+                msg.role == MessageRole::TextBlock && msg.content == "partial before tool"
+            }),
+            "durable messages: {messages:#?}"
+        );
+        assert!(messages
+            .iter()
+            .any(|msg| msg.role == MessageRole::Tool && msg.tool_call_id.is_some()));
+        let context = db
+            .load_context(&session.id)
+            .unwrap()
+            .expect("interrupted context");
+        assert!(context.contains("function_call"));
+        assert!(
+            context.contains("function_call_output")
+                || context.contains(finalize::rebuild::INTERRUPTED_TOOL_RESULT),
+            "tool call must have a real or synthetic matching result: {context}"
+        );
     }
 
     #[tokio::test]
@@ -2957,6 +3179,45 @@ mod stream_lifecycle_tests {
         assert_eq!(assistants.len(), 1);
         assert_eq!(assistants[0].content, "final answer");
         assert!(!messages.iter().any(|msg| msg.content == "failed partial"));
+    }
+
+    #[tokio::test]
+    async fn failure_before_first_context_checkpoint_keeps_user_prompt() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let prompt = "keep this prompt after early provider failure";
+        db.append_message(&session.id, &NewMessage::user(prompt))
+            .unwrap();
+
+        let model = ActiveModel {
+            provider_id: "missing-provider".to_string(),
+            model_id: "missing-model".to_string(),
+        };
+        let mut chat_params = params(db.clone(), session.id.clone(), vec![model], Vec::new());
+        chat_params.message = prompt.to_string();
+
+        let result = run_chat_engine(chat_params).await;
+        assert!(result.is_err());
+
+        let context = db
+            .load_context(&session.id)
+            .unwrap()
+            .expect("terminal context");
+        let history: Vec<serde_json::Value> = serde_json::from_str(&context).unwrap();
+        let prompt_index = history
+            .iter()
+            .position(|item| {
+                item.get("role").and_then(|role| role.as_str()) == Some("user")
+                    && item.get("content").and_then(|content| content.as_str()) == Some(prompt)
+            })
+            .expect("failed turn must retain the user prompt");
+        let marker_index = history
+            .iter()
+            .rposition(|item| item.get("role").and_then(|role| role.as_str()) == Some("assistant"))
+            .expect("terminal marker");
+        assert!(prompt_index < marker_index);
     }
 
     #[tokio::test]

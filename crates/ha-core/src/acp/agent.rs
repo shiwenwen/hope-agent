@@ -14,12 +14,37 @@ use crate::acp::protocol::NdJsonTransport;
 use crate::acp::session::{now_epoch_secs, AcpSession, AcpSessionStore};
 use crate::acp::types::*;
 use crate::agent::AssistantAgent;
+use crate::chat_engine::EventSink;
 use crate::failover;
 use crate::provider;
 use crate::session::{self, SessionDB, SessionIdeContext};
+use crate::turn_durability::{FlushReason, TurnDurabilitySink};
 
 /// ACP protocol version we advertise
 const ACP_PROTOCOL_VERSION: &str = "0.2";
+
+/// ACP's live transport is fed by the coordinator's post-durability output
+/// hook. Writing from the model callback would expose bytes before the journal
+/// or emergency spool had acknowledged them.
+struct AcpDurableEventSink {
+    session_id: String,
+}
+
+impl EventSink for AcpDurableEventSink {
+    fn send(&self, event: &str) {
+        let Some(notification) = event_mapper::map_agent_event(&self.session_id, event) else {
+            return;
+        };
+        let Ok(json) = serde_json::to_string(&notification) else {
+            return;
+        };
+        use std::io::Write;
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        let _ = writeln!(handle, "{}", json);
+        let _ = handle.flush();
+    }
+}
 
 /// ACP Agent server — handles incoming JSON-RPC requests/notifications
 pub struct AcpAgent {
@@ -443,12 +468,19 @@ impl AcpAgent {
             Err(_) => text.clone(),
         };
 
-        // Save user message
-        let _ = self.session_db.append_message(
+        // A model turn must never start without its triggering user message
+        // being durable. Otherwise a successful assistant commit could leave
+        // an irrecoverable one-sided transcript.
+        if let Err(error) = self.session_db.append_message(
             &session_id,
             &session::NewMessage::user(&effective_prompt)
-                .with_source(crate::chat_engine::ChatSource::Http),
-        );
+                .with_source(crate::chat_engine::ChatSource::Acp),
+        ) {
+            if let Some(session) = self.sessions.get_mut(&session_id) {
+                session.active_prompt = false;
+            }
+            return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, error.to_string());
+        }
 
         // Auto-generate fallback title
         if let Ok(Some(title)) = session::ensure_first_message_title(
@@ -792,6 +824,7 @@ impl AcpAgent {
         const RETRY_MAX_MS: u64 = 10_000;
 
         let mut last_error = String::new();
+        let mut stop_all_models = false;
 
         // Build CompactionProvider once, reuse across retries
         let compaction_provider: Option<
@@ -830,6 +863,18 @@ impl AcpAgent {
             });
         }
 
+        let durability = rt.block_on(crate::chat_engine::durability::StreamCoordinator::create(
+            db_clone.clone(),
+            session_id_owned.clone(),
+            crate::chat_engine::ChatSource::Acp,
+            None,
+            None,
+            Arc::new(AcpDurableEventSink {
+                session_id: session_id_owned.clone(),
+            }),
+            cancel.clone(),
+        ))?;
+
         for model_ref in &model_chain {
             let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
                 Some(p) => p,
@@ -838,6 +883,17 @@ impl AcpAgent {
 
             let mut retry_count: u32 = 0;
             loop {
+                let provider_shape = match &prov.api_type {
+                    crate::provider::ApiType::Anthropic => "anthropic",
+                    crate::provider::ApiType::OpenaiChat => "openai_chat",
+                    crate::provider::ApiType::OpenaiResponses => "openai_responses",
+                    crate::provider::ApiType::Codex => "codex",
+                };
+                rt.block_on(durability.begin_attempt(
+                    Some(&model_ref.provider_id),
+                    Some(&model_ref.model_id),
+                    Some(provider_shape),
+                ))?;
                 let build_result = rt.block_on(AssistantAgent::try_new_from_provider(
                     prov,
                     &model_ref.model_id,
@@ -872,6 +928,8 @@ impl AcpAgent {
                 };
                 agent.set_agent_id(&agent_id);
                 agent.set_session_id(&session_id_owned);
+                agent.set_session_db(db_clone.clone());
+                agent.set_turn_durability(durability.clone());
                 agent.set_compact_config(store.compact.clone());
                 if let Some(ref cp) = compaction_provider {
                     agent.set_compaction_provider(Some(cp.clone()));
@@ -888,15 +946,7 @@ impl AcpAgent {
                 }
 
                 let cancel_clone = cancel.clone();
-                let sid_for_cb = session_id_owned.clone();
-                let db_for_cb = db_clone.clone();
-                let captured_usage: std::sync::Arc<
-                    std::sync::Mutex<crate::chat_engine::CapturedUsage>,
-                > = std::sync::Arc::new(std::sync::Mutex::new(Default::default()));
-                let captured_usage_for_cb = captured_usage.clone();
-
-                // Use a channel to send events from async callback to sync transport
-                let (tx, rx) = std::sync::mpsc::channel::<String>();
+                let durability_for_cb = durability.clone();
 
                 let result = rt.block_on(async {
                     agent
@@ -906,98 +956,106 @@ impl AcpAgent {
                             None,
                             cancel_clone,
                             move |delta| {
-                                if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta)
-                                {
-                                    if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
-                                        if let Ok(mut usage) = captured_usage_for_cb.lock() {
-                                            usage.absorb_event(&event);
-                                        }
-                                    }
+                                if let Err(error) = durability_for_cb.accept_event(delta) {
+                                    app_error!(
+                                        "acp",
+                                        "stream_durability",
+                                        "failed to accept ACP stream event: {}",
+                                        error
+                                    );
                                 }
-                                // Map to ACP event
-                                if let Some(notif) =
-                                    event_mapper::map_agent_event(&sid_for_cb, delta)
-                                {
-                                    if let Ok(json) = serde_json::to_string(&notif) {
-                                        let _ = tx.send(json);
-                                    }
-                                }
-                                // Persist tool events
-                                persist_tool_event_inline(&db_for_cb, &sid_for_cb, delta);
                             },
                         )
                         .await
                 });
 
-                // Flush all queued events to stdout
-                while let Ok(event_json) = rx.try_recv() {
-                    use std::io::Write;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    let _ = writeln!(handle, "{}", event_json);
-                    let _ = handle.flush();
-                }
-
                 match result {
-                    Ok((response, thinking)) => {
-                        let mut assistant_msg = session::NewMessage::assistant(&response)
-                            .with_source(crate::chat_engine::ChatSource::Http);
-                        assistant_msg.thinking = thinking;
-                        if let Ok(usage) = captured_usage.lock() {
-                            assistant_msg.tokens_in = usage.input_tokens;
-                            assistant_msg.tokens_out = usage.output_tokens;
-                            assistant_msg.tokens_in_last = usage.last_input_tokens;
-                            assistant_msg.model = usage.model.clone();
-                            assistant_msg.ttft_ms = usage.ttft_ms;
-                            assistant_msg.tokens_cache_creation = usage
-                                .last_cache_creation_input_tokens
-                                .or(usage.cache_creation_input_tokens);
-                            assistant_msg.tokens_cache_read = usage
-                                .last_cache_read_input_tokens
-                                .or(usage.cache_read_input_tokens);
-                        }
-                        let assistant_id = self
-                            .session_db
-                            .append_message(&session_id_owned, &assistant_msg)
-                            .ok();
-                        if let Some(message_id) = assistant_id {
-                            if let Ok(usage) = captured_usage.lock() {
-                                let mut event = crate::model_usage::ModelUsageEvent::new(
-                                    crate::model_usage::KIND_CHAT,
-                                )
-                                .with_usage(
-                                    usage.input_tokens.unwrap_or(0) as u64,
-                                    usage.output_tokens.unwrap_or(0) as u64,
-                                    usage.cache_creation_input_tokens.unwrap_or(0) as u64,
-                                    usage.cache_read_input_tokens.unwrap_or(0) as u64,
-                                );
-                                event.request_key = Some(format!("message:{message_id}"));
-                                event.operation = Some("chat.acp".to_string());
-                                event.source =
-                                    Some(crate::chat_engine::ChatSource::Http.as_str().to_string());
-                                event.provider_id = Some(model_ref.provider_id.clone());
-                                event.provider_name = Some(prov.name.clone());
-                                event.model_id = Some(
-                                    usage
-                                        .model
-                                        .clone()
-                                        .unwrap_or_else(|| model_ref.model_id.clone()),
-                                );
-                                event.session_id = Some(session_id_owned.clone());
-                                event.agent_id = Some(agent_id.clone());
-                                event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
-                                if let Err(e) = self.session_db.insert_model_usage_event(&event) {
-                                    app_warn!(
-                                        "model_usage",
-                                        "chat",
-                                        "failed to record ACP chat usage for message {}: {}",
-                                        message_id,
-                                        e
-                                    );
-                                }
+                    Ok((response, _thinking)) => {
+                        let final_seq = rt.block_on(durability.flush(FlushReason::FinalEnd))?;
+                        rt.block_on(durability.reconcile_spool_to_sqlite())?;
+                        let trailing = {
+                            let text = durability.trailing_text();
+                            if text.is_empty() && !durability.had_text_output() {
+                                response.clone()
+                            } else {
+                                text
                             }
+                        };
+                        let mut assistant_msg = session::NewMessage::assistant(&trailing)
+                            .with_source(crate::chat_engine::ChatSource::Acp);
+                        let usage = durability.usage();
+                        assistant_msg.tokens_in = usage.input_tokens;
+                        assistant_msg.tokens_out = usage.output_tokens;
+                        assistant_msg.tokens_in_last =
+                            usage.last_context_input_tokens.or(usage.last_input_tokens);
+                        assistant_msg.model = usage.model.clone();
+                        assistant_msg.ttft_ms = usage.ttft_ms;
+                        assistant_msg.tokens_cache_creation = usage
+                            .last_cache_creation_input_tokens
+                            .or(usage.cache_creation_input_tokens);
+                        assistant_msg.tokens_cache_read = usage
+                            .last_cache_read_input_tokens
+                            .or(usage.cache_read_input_tokens);
+                        let mut usage_event =
+                            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT);
+                        usage_event = usage_event.with_usage(
+                            usage.input_tokens.unwrap_or(0) as u64,
+                            usage.output_tokens.unwrap_or(0) as u64,
+                            usage.cache_creation_input_tokens.unwrap_or(0) as u64,
+                            usage.cache_read_input_tokens.unwrap_or(0) as u64,
+                        );
+                        usage_event.model_id = Some(
+                            usage
+                                .model
+                                .clone()
+                                .unwrap_or_else(|| model_ref.model_id.clone()),
+                        );
+                        usage_event.ttft_ms = usage.ttft_ms.map(|value| value.max(0) as u64);
+                        usage_event.operation = Some("chat.acp".to_string());
+                        usage_event.source = Some("acp".to_string());
+                        usage_event.provider_id = Some(model_ref.provider_id.clone());
+                        usage_event.provider_name = Some(prov.name.clone());
+                        usage_event.session_id = Some(session_id_owned.clone());
+                        usage_event.agent_id = Some(agent_id.clone());
+                        let context_json =
+                            serde_json::to_string(&agent.get_conversation_history())?;
+                        if cancel.load(Ordering::SeqCst) {
+                            let commit = session::CommitInterruptedTurn {
+                                run_id: durability
+                                    .is_persistent()
+                                    .then(|| durability.persistence_run_id().to_string()),
+                                attempt_no: durability.current_attempt_no(),
+                                session_id: session_id_owned.clone(),
+                                assistant: Some(assistant_msg),
+                                context_json,
+                                expected_context_revision: durability.context_revision(),
+                                turn_id: None,
+                                final_seq,
+                                status: session::ChatTurnStatus::Interrupted,
+                                interrupt_reason: Some("user_stop".to_string()),
+                                error: None,
+                                recovery_event: None,
+                            };
+                            db_clone.commit_interrupted_turn(&commit)?;
+                            durability.mark_interrupted("interrupted");
+                        } else {
+                            let commit = session::CommitAssistantTurn {
+                                run_id: durability
+                                    .is_persistent()
+                                    .then(|| durability.persistence_run_id().to_string()),
+                                attempt_no: durability.current_attempt_no(),
+                                session_id: session_id_owned.clone(),
+                                assistant: assistant_msg,
+                                trailing_placeholder_id: None,
+                                context_json,
+                                expected_context_revision: durability.context_revision(),
+                                turn_id: None,
+                                usage: Some(usage_event),
+                                final_seq,
+                            };
+                            let committed = db_clone.commit_assistant_turn(&commit)?;
+                            durability.mark_committed(committed.committed_seq);
                         }
-                        save_agent_context(&db_clone, &session_id_owned, &agent);
                         crate::session_title::maybe_schedule_after_success(
                             db_clone.clone(),
                             session_id_owned.clone(),
@@ -1017,7 +1075,8 @@ impl AcpAgent {
                         let reason = failover::classify_error(&last_error);
 
                         if reason.is_terminal() {
-                            return Err(anyhow::anyhow!("{}", last_error));
+                            stop_all_models = true;
+                            break;
                         }
 
                         if reason.is_retryable() && retry_count < MAX_RETRIES {
@@ -1036,12 +1095,128 @@ impl AcpAgent {
                     }
                 }
             }
+            if stop_all_models {
+                break;
+            }
         }
 
-        Err(anyhow::anyhow!(
-            "All models failed. Last error: {}",
-            last_error
-        ))
+        // Converge provider/build failures through the same durable protocol;
+        // do not leave a `running` run waiting for the next process restart.
+        let final_error = format!("All models failed. Last error: {}", last_error);
+        let durable_seq = rt.block_on(durability.flush(FlushReason::Failure))?;
+        // Never terminalize a run while some already-emitted bytes exist only
+        // in the spool. Keeping it `running` lets startup import and recover
+        // that complete displayed prefix.
+        rt.block_on(durability.reconcile_spool_to_sqlite())?;
+        let (attempt_no, final_seq, visible_events, integrity_error, provider_kind) =
+            if durability.is_persistent() {
+                let snapshot = db_clone
+                    .stream_run_snapshot(durability.persistence_run_id())?
+                    .ok_or_else(|| anyhow::anyhow!("ACP persistence run disappeared"))?;
+                let (attempt_no, final_seq, events, integrity_error) =
+                    session::select_recoverable_attempt_prefix(&snapshot);
+                let provider_kind = snapshot
+                    .attempts
+                    .iter()
+                    .find(|attempt| attempt.attempt_no == attempt_no)
+                    .and_then(|attempt| attempt.provider_shape.as_deref())
+                    .or(snapshot.run.provider_shape.as_deref())
+                    .and_then(crate::chat_engine::finalize::ProviderApiKind::from_shape);
+                (
+                    attempt_no,
+                    final_seq,
+                    events,
+                    integrity_error,
+                    provider_kind,
+                )
+            } else {
+                let snapshot = durability.snapshot();
+                (
+                    durability.current_attempt_no(),
+                    durable_seq,
+                    snapshot.events,
+                    None,
+                    durability
+                        .current_provider_shape()
+                        .as_deref()
+                        .and_then(crate::chat_engine::finalize::ProviderApiKind::from_shape),
+                )
+            };
+        let trailing = session::trailing_text_from_journal_events(&visible_events);
+        let (stored_context, context_checkpoint_seq, context_revision) =
+            if durability.is_persistent() {
+                db_clone.recovery_context_for_prefix(
+                    durability.persistence_run_id(),
+                    attempt_no,
+                    final_seq,
+                )?
+            } else {
+                let (context, revision) = db_clone
+                    .load_context_with_revision(&session_id_owned)
+                    .unwrap_or((None, durability.context_revision()));
+                (context, 0, revision)
+            };
+        let mut history: Vec<serde_json::Value> = stored_context
+            .as_deref()
+            .and_then(|json| serde_json::from_str(json).ok())
+            .unwrap_or_default();
+        crate::chat_engine::finalize::rebuild::append_journal_suffix_to_history(
+            &mut history,
+            &visible_events,
+            context_checkpoint_seq,
+            provider_kind,
+        )?;
+        history.push(serde_json::json!({
+            "role": "assistant",
+            "content": crate::chat_engine::finalize::copy::model_marker(
+                &crate::chat_engine::finalize::TerminationReason::ProviderFailed {
+                    last_kind: failover::classify_error(&final_error),
+                    last_message: final_error.clone(),
+                    is_codex_auth: false,
+                },
+            ),
+        }));
+        let context_json = serde_json::to_string(&history)?;
+        let assistant = session::journal_events_have_assistant_output(&visible_events).then(|| {
+            session::NewMessage::assistant(&trailing)
+                .with_source(crate::chat_engine::ChatSource::Acp)
+        });
+        let commit = session::CommitInterruptedTurn {
+            run_id: durability
+                .is_persistent()
+                .then(|| durability.persistence_run_id().to_string()),
+            attempt_no,
+            session_id: session_id_owned.clone(),
+            assistant,
+            context_json,
+            expected_context_revision: context_revision,
+            turn_id: None,
+            final_seq,
+            status: session::ChatTurnStatus::Failed,
+            interrupt_reason: Some("provider_failed".to_string()),
+            error: Some(
+                integrity_error
+                    .map(|integrity| format!("{final_error}; {integrity}"))
+                    .unwrap_or_else(|| final_error.clone()),
+            ),
+            recovery_event: Some(
+                session::NewMessage::error_event(&final_error)
+                    .with_source(crate::chat_engine::ChatSource::Acp),
+            ),
+        };
+        if let Err(error) = db_clone.commit_interrupted_turn(&commit) {
+            app_error!(
+                "acp",
+                "stream_durability",
+                "failed to converge terminal ACP run {}: {}",
+                durability.persistence_run_id(),
+                error
+            );
+            // Keep the DB run recoverable; its journal/spool is still the
+            // durable source for every ACP chunk already emitted.
+        }
+        durability.mark_interrupted("failed");
+        Err(anyhow::anyhow!(final_error))
     }
 
     /// Build session modes from available agents
@@ -1183,55 +1358,6 @@ fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &Assistan
             if !history.is_empty() {
                 agent.set_conversation_history(history);
             }
-        }
-    }
-}
-
-/// Save agent conversation history to DB
-fn save_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &AssistantAgent) {
-    let history = agent.get_conversation_history();
-    if let Ok(json_str) = serde_json::to_string(&history) {
-        let _ = db.save_context(session_id, &json_str);
-    }
-}
-
-/// Persist tool events (call + result) to session DB (inline version)
-fn persist_tool_event_inline(db: &Arc<SessionDB>, session_id: &str, delta: &str) {
-    if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-        match event.get("type").and_then(|t| t.as_str()) {
-            Some("tool_result") => {
-                let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
-                let result = event.get("result").and_then(|v| v.as_str()).unwrap_or("");
-                let duration_ms = event.get("duration_ms").and_then(|v| v.as_i64());
-                let is_error = event
-                    .get("is_error")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let metadata_json: Option<String> = event
-                    .get("tool_metadata")
-                    .filter(|v| !v.is_null())
-                    .and_then(|v| serde_json::to_string(v).ok());
-                let _ = db.update_tool_result_with_metadata(
-                    session_id,
-                    call_id,
-                    result,
-                    duration_ms,
-                    is_error,
-                    metadata_json.as_deref(),
-                );
-            }
-            Some("tool_call") => {
-                let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
-                let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let arguments = event
-                    .get("arguments")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let tool_msg = session::NewMessage::tool(call_id, name, arguments, "", None, false)
-                    .with_source(crate::chat_engine::ChatSource::Http);
-                let _ = db.append_message(session_id, &tool_msg);
-            }
-            _ => {}
         }
     }
 }

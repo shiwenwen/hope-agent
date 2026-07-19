@@ -337,45 +337,35 @@ impl AssistantAgent {
     /// and persist it to `sessions.context_json`. Called at every round
     /// boundary so a mid-turn crash leaves all completed rounds durable.
     ///
-    /// Skipped silently when:
+    /// Detached/session-less agents are the only silent no-op. A configured
+    /// durability sink is fail-closed: checkpoint/CAS failure must stop the
+    /// tool loop before another provider round observes an unrecorded result.
+    ///
+    /// Skipped when:
     /// - `session_id` is empty (e.g. side-query or detached agent)
     /// - the global `SessionDB` is not initialized yet
-    /// - serialization fails (logged as warn, never blocks the round)
-    pub(crate) fn persist_round_context(&self, messages: &[serde_json::Value]) {
+    pub(crate) async fn persist_round_context(&self, messages: &[serde_json::Value]) -> Result<()> {
         let Some(sid) = self.session_id.as_deref() else {
-            return;
+            return Ok(());
         };
-        let Some(db) = crate::get_session_db() else {
-            return;
-        };
-
         *self
             .conversation_history
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = messages.to_vec();
 
-        match serde_json::to_string(messages) {
-            Ok(json) => {
-                if let Err(e) = db.save_context(sid, &json) {
-                    app_warn!(
-                        "session",
-                        "round_persist",
-                        "save_context failed for {}: {}",
-                        sid,
-                        e
-                    );
-                }
-            }
-            Err(e) => {
-                app_warn!(
-                    "session",
-                    "round_persist",
-                    "serialize history failed for {}: {}",
-                    sid,
-                    e
-                );
-            }
+        if let Some(sink) = self.turn_durability.as_ref() {
+            let expected = sink.context_revision();
+            sink.checkpoint_context(messages, expected).await?;
+            return Ok(());
         }
+
+        let Some(db) = crate::get_session_db() else {
+            return Ok(());
+        };
+        let json = serde_json::to_string(messages)?;
+        let (_, revision) = db.load_context_with_revision(sid)?;
+        db.save_context_at_revision(sid, revision, &json, None)?;
+        Ok(())
     }
 
     /// Run context compaction (Tier 1-3) on messages before API call.
@@ -1229,7 +1219,7 @@ impl AssistantAgent {
         mid_loop_state: &mut MidLoopCompactionState,
         round: u32,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> CompactionRunOutcome {
+    ) -> Result<CompactionRunOutcome> {
         let mut changed_history = false;
 
         changed_history |= crate::context_compact::truncate_tool_results(
@@ -1286,7 +1276,7 @@ impl AssistantAgent {
         if !self.compact_config.enabled
             || usage_after_cheap_cleanup < self.compact_config.summarization_threshold
         {
-            self.persist_round_context(messages);
+            self.persist_round_context(messages).await?;
             if changed_history {
                 self.save_cache_safe_params(
                     system_prompt_for_cache.to_string(),
@@ -1295,11 +1285,11 @@ impl AssistantAgent {
                     model,
                 );
             }
-            return CompactionRunOutcome {
+            return Ok(CompactionRunOutcome {
                 changed_history,
                 tokens_after: tokens_after_cheap_cleanup,
                 ..CompactionRunOutcome::default()
-            };
+            });
         }
 
         let tier3_summarization_throttled = mid_loop_state.suppress_tier3_for_turn
@@ -1333,7 +1323,7 @@ impl AssistantAgent {
             )
             .await;
 
-        self.persist_round_context(messages);
+        self.persist_round_context(messages).await?;
         if changed_history || outcome.changed_history {
             self.save_cache_safe_params(
                 system_prompt_for_cache.to_string(),
@@ -1344,7 +1334,7 @@ impl AssistantAgent {
         }
 
         if outcome.cancelled {
-            return outcome;
+            return Ok(outcome);
         }
 
         if outcome.summary_applied {
@@ -1368,7 +1358,7 @@ impl AssistantAgent {
             }
         }
 
-        outcome
+        Ok(outcome)
     }
 
     /// Build common hook-input fields from agent-level state, for hooks that
@@ -2348,7 +2338,8 @@ mod mid_loop_compaction_tests {
                 2,
                 &on_delta,
             )
-            .await;
+            .await
+            .expect("mid-loop checkpoint");
 
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(outcome.tier_applied, 2);
@@ -2388,7 +2379,8 @@ mod mid_loop_compaction_tests {
                 1,
                 &on_delta,
             )
-            .await;
+            .await
+            .expect("mid-loop checkpoint");
 
         assert!(outcome.summary_applied);
         assert!(serde_json::to_string(&messages)

@@ -271,6 +271,31 @@ impl HttpChatTurnDropFinalizer {
         }
         self.armed = false;
 
+        // Once the unified journal run exists, its atomic convergence path is
+        // the only authority allowed to terminalize the turn or emit
+        // `chat:stream_end`. This includes Drop during client disconnect: the
+        // engine lifecycle schedules runtime-cancel recovery from the durable
+        // prefix, while this outer HTTP guard merely records `cancelling`.
+        if self
+            .db
+            .latest_stream_run(&self.session_id)
+            .ok()
+            .flatten()
+            .is_some_and(|run| {
+                run.status == "running" && run.turn_id.as_deref() == Some(self.turn_id.as_str())
+            })
+        {
+            if status == session::ChatTurnStatus::Interrupted
+                && interrupt_reason == Some(session::ChatTurnInterruptReason::RuntimeCancel)
+            {
+                let _ = self.db.mark_chat_turn_cancelling(
+                    &self.turn_id,
+                    session::ChatTurnInterruptReason::RuntimeCancel,
+                );
+            }
+            return;
+        }
+
         let turn = match self.db.get_chat_turn(&self.turn_id) {
             Ok(Some(turn)) if !turn.status.is_terminal() => turn,
             _ => return,

@@ -660,10 +660,12 @@ export function parseSessionMessages(
   const displayMessages: Message[] = []
   const pendingTools: ToolCall[] = []
   const pendingBlocks: ContentBlock[] = []
+  let pendingPersistenceRunId: string | undefined
   let firstUserSeen = false
   const seenPlainEventContentSinceLastUser = new Set<string>()
   for (const msg of msgs) {
     if (msg.role === "user") {
+      pendingPersistenceRunId = undefined
       seenPlainEventContentSinceLastUser.clear()
       // Detect sub-agent result / cron trigger / plan trigger messages via attachments_meta marker
       let isSubagentResult = false
@@ -764,6 +766,7 @@ export function parseSessionMessages(
         ...(attachments ? { attachments } : {}),
       })
     } else if (msg.role === "tool" && msg.toolCallId) {
+      pendingPersistenceRunId ||= msg.persistenceRunId || undefined
       // Extract media info from tool results (for DB-loaded history):
       //   - image_generate still uses the old "Saved to:" text lines (mediaUrls)
       //   - send_attachment and future tools emit a `__MEDIA_ITEMS__<json>` header
@@ -829,6 +832,7 @@ export function parseSessionMessages(
         pendingBlocks.push({ type: "tool_call", tool })
       }
     } else if (msg.role === "thinking_block") {
+      pendingPersistenceRunId ||= msg.persistenceRunId || undefined
       // Intermediate thinking emitted before tool calls — preserve multi-round thinking ordering
       if (msg.content) {
         const interrupted = isInterruptedStreamStatus(msg.streamStatus)
@@ -840,6 +844,7 @@ export function parseSessionMessages(
         })
       }
     } else if (msg.role === "text_block") {
+      pendingPersistenceRunId ||= msg.persistenceRunId || undefined
       // Intermediate text emitted before tool calls — preserve ordering
       if (msg.content) {
         const interrupted = isInterruptedStreamStatus(msg.streamStatus)
@@ -890,10 +895,12 @@ export function parseSessionMessages(
         usage,
         model: msg.model || undefined,
         dbId: msg.id,
+        persistenceRunId: msg.persistenceRunId || pendingPersistenceRunId,
         ...(activeMemory ? { activeMemory } : {}),
         ...(usedMemoryRefs ? { usedMemoryRefs } : {}),
         ...(retrievalPlanner ? { retrievalPlanner } : {}),
       })
+      pendingPersistenceRunId = undefined
     } else if (msg.role === "event") {
       let slashEvent: Message["slashEvent"] | undefined
       if (msg.attachmentsMeta) {
@@ -924,6 +931,7 @@ export function parseSessionMessages(
         timestamp: msg.timestamp,
         slashEvent,
         dbId: msg.id,
+        persistenceRunId: msg.persistenceRunId || undefined,
       }
       if (upsertContextCompactionEventMessage(displayMessages, eventMessage)) {
         continue
@@ -942,6 +950,7 @@ export function parseSessionMessages(
       contentBlocks: pendingBlocks.length > 0 ? [...pendingBlocks] : undefined,
       toolCalls: pendingTools.length > 0 ? [...pendingTools] : undefined,
       timestamp: new Date().toISOString(),
+      persistenceRunId: pendingPersistenceRunId,
     })
   }
   return displayMessages

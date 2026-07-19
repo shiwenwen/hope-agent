@@ -368,6 +368,9 @@ export interface Message {
   }
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
+  /** Durable run which owns this canonical/checkpoint projection. Used only
+   *  by the reload handshake to replace an in-flight projection idempotently. */
+  persistenceRunId?: string
   /** Trace for memory actively recalled for this turn. Live events attach it
    *  during streaming; completed assistant rows restore it from attachments
    *  metadata on history reload. */
@@ -626,6 +629,7 @@ export interface SessionMessage {
    * legacy rows (treat as `completed`).
    */
   streamStatus?: "streaming" | "completed" | "orphaned" | "recovered" | null
+  persistenceRunId?: string | null
 }
 
 /**
