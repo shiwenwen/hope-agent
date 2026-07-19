@@ -5,6 +5,13 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **内置技能与浏览器扩展在所有部署形态（桌面 / Docker / 单文件）不再缺失或过时**：两者编译进主程序、随升级自动更新，单文件发布包并附带浏览器扩展桥 `ha-browser-host` 且自升级一并换新。(#506)
+  升级后 Chrome 已加载的扩展需在 `chrome://extensions` 手动 reload 一次生效。
+
 ## [0.20.0] - 2026-07-19
 
 ### Added
@@ -91,9 +98,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **用户气泡与记忆追溯面板配色调整**：用户消息气泡底色在浅色主题下略浅并去掉偏蓝色调、在深色主题下略深；消息下方的记忆召回追溯面板改用紫色系主题，并按记忆条目角色（已注入 / 已选中 / 候选）与检索状态分色标注，便于一眼区分。 (#452)
 
 ### Fixed
-
-- **内置技能与浏览器扩展在所有部署形态（桌面 / Docker / 单文件）不再缺失或过时**：两者编译进主程序、随升级自动更新，单文件发布包并附带浏览器扩展桥 `ha-browser-host` 且自升级一并换新。(#505)
-  升级后 Chrome 已加载的扩展需在 `chrome://extensions` 手动 reload 一次生效。
 
 - **修正 Claude 等多家模型的定价与上下文长度**：Claude Opus 4.8 / 4.7 / 4.6 此前按旧 Opus 档位记为 $15/$75（实际 $5/$25）、Haiku 4.5 记为 $0.8/$4（实际 $1/$5）；Opus 4.7 / 4.6 与 Sonnet 4.6 的上下文仍写 200K（实际 1M），Grok 4.20 写 2M（实际 1M）——上下文写大会让压缩迟迟不触发、直至撞满真实上限报错。DeepSeek Chat / Reasoner、Mistral Small、GPT-5.6 系列的上下文与价格，以及 MiniMax M2.7 误标的图片输入能力一并校正。数据大盘的成本统计此前对 Claude 5 系列、GPT-5.x、Gemini 3.x 与 Kimi 完全没有价目条目而回退到默认估价，现已补齐。
 
