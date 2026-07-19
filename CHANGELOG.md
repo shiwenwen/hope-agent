@@ -5,6 +5,13 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-07-19
+
+### Fixed
+
+- **补回 Linux arm64 安装包**：v0.20.0 的 Linux arm64 构建在发版流水线中连续两次被 CI runner 中断，导致该平台的 deb、AppImage 与 rpm 全部缺失，更新清单里也没有对应条目——树莓派 4/5、Apple Silicon 上的 Asahi Linux 以及 Graviton / Ampere 云主机用户既装不上新版，也收不到更新提示。本版修复了流水线在该平台的内存瓶颈，arm64 安装包恢复正常提供。 (#507)
+- **恢复 AUR 软件源同步**：`hope-agent-bin` 同时声明 x86_64 与 aarch64 两种架构，v0.20.0 因缺少 arm64 包而同步失败，Arch Linux 用户停留在 v0.17.0。本版发布后自动恢复，可直接升级到最新版。 (#507)
+
 ## [0.20.0] - 2026-07-19
 
 ### Added
