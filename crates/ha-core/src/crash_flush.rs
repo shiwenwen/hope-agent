@@ -48,6 +48,20 @@ fn finalize_active_turns_for_shutdown() {
         return;
     }
     for snapshot in active {
+        // A running unified journal is already durable-before-broadcast and is
+        // recovered atomically on the next launch with the clean-shutdown
+        // marker. The legacy messages-based finalizer must not terminalize its
+        // chat_turn first or advance context independently of the run CAS.
+        if db
+            .latest_stream_run(&snapshot.session_id)
+            .ok()
+            .flatten()
+            .is_some_and(|run| {
+                run.status == "running" && run.turn_id.as_deref() == Some(snapshot.turn_id.as_str())
+            })
+        {
+            continue;
+        }
         // Mirror app_init's startup-sweep behavior: resolve the
         // session's actual provider shape so a Shutdown finalize on an
         // OpenAI Chat / Responses / Codex session doesn't get rebuilt

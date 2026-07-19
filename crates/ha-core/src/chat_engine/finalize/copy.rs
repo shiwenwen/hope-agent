@@ -46,6 +46,10 @@ pub fn model_marker(reason: &TerminationReason) -> String {
              如非用户明确要求,不要为此道歉或重新生成,直接回应用户的下一条消息即可。"
                 .to_string()
         }
+        TerminationReason::RuntimeCancel => {
+            "[系统事件] 此轮回复因运行任务被取消而中断。上方已产生并确认持久化的内容和工具调用已保留。"
+                .to_string()
+        }
         TerminationReason::NoProfileAvailable => {
             "[系统事件] 此轮无法启动:没有可用的 API 凭据(所有 Profile 被禁用、\
              处于冷却期或未配置)。这是配置问题,请提醒用户检查 Provider 设置后再重试。"
@@ -138,6 +142,7 @@ fn model_marker_provider_failed(kind: FailoverReason, raw: &str) -> String {
 pub fn user_notice(reason: &TerminationReason) -> String {
     match reason {
         TerminationReason::UserStop => "已停止此次回复".to_string(),
+        TerminationReason::RuntimeCancel => "回复任务已中断，已保留中断前的内容".to_string(),
         TerminationReason::NoProfileAvailable => {
             "无可用 API 凭据。请检查 Provider 设置".to_string()
         }
@@ -183,6 +188,10 @@ fn user_notice_provider_failed(kind: FailoverReason, raw: &str) -> String {
 pub fn im_notice(reason: &TerminationReason) -> String {
     match reason {
         TerminationReason::UserStop => CANCEL_NOTICE.to_string(),
+        TerminationReason::RuntimeCancel => {
+            "⏸ **Response task was cancelled** — the durable partial response is preserved."
+                .to_string()
+        }
         TerminationReason::ProviderFailed {
             last_kind,
             last_message,

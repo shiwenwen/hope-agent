@@ -34,7 +34,8 @@ const LEGACY_STREAM_ID = "__legacy__"
 // 流式 flush 节流：把每帧（≈60fps）flush 降到 ~30fps。每次 flush 都触发末块
 // markdown re-lex + Shiki 重高亮 + React reconcile，长内容下这是主成本之一。
 // char fadeIn 动画在视觉上补帧，掉到 30fps 几乎无感，CPU 直接减半。尾部因
-// stream_end 抢跑被丢的 delta 由 `mergeMessagesByDbId` 的 DB 终态重对账补回。
+// stream_end 前由 reattach handler 强制 flush RAF 缓冲；committed 终态仍会再用
+// `mergeMessagesByDbId` 对账，pending 终态也不会丢掉已经耐久投递的尾帧。
 const FLUSH_MIN_INTERVAL_MS = 33
 
 export function streamCursorKey(sessionId: string, streamId?: string | null): string {
@@ -297,6 +298,31 @@ export function handleStreamEvent(
   deps: StreamEventHandlerDeps,
 ): boolean {
   const { updateSessionMessages, deltaBuffersRef, setShowCodexAuthExpired } = deps
+
+  // A durable failover can happen after the failed attempt already rendered.
+  // The backend journals this marker as the first event of the replacement
+  // attempt, so clearing here is ordered and replay-safe. Never flush the old
+  // rAF buffer: those bytes belong to the superseded attempt.
+  if (event.type === "stream_attempt_started" && event.reset_superseded === true) {
+    discardPendingStreamDeltas(sid, deltaBuffersRef)
+    updateSessionMessages(sid, (prev) => {
+      const last = prev[prev.length - 1]
+      if (!last || last.role !== "assistant") return prev
+      const updated = [...prev]
+      updated[updated.length - 1] = {
+        ...last,
+        content: "",
+        thinking: undefined,
+        contentBlocks: undefined,
+        toolCalls: undefined,
+        usage: undefined,
+        model: undefined,
+        fallbackEvent: undefined,
+      }
+      return updated
+    })
+    return true
+  }
 
   // text_delta and thinking_delta: buffer and flush via rAF
   if (event.type === "text_delta" || event.type === "thinking_delta") {

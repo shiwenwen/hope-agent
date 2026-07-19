@@ -130,6 +130,21 @@ fn emit_unread_changed(session_id: Option<&str>, domain: Option<UnreadDomain>) {
     }
 }
 
+impl SessionDB {
+    /// Emit the usual unread invalidation after an assistant row was committed
+    /// by a transaction implemented outside `append_message`.
+    pub(crate) fn notify_assistant_persisted(&self, session_id: &str) {
+        let domain = self
+            .conn
+            .lock()
+            .ok()
+            .and_then(|conn| unread_domain_for_session(&conn, session_id).ok().flatten());
+        if let Some(domain) = domain {
+            emit_unread_changed(Some(session_id), Some(domain));
+        }
+    }
+}
+
 /// Strict SQL whitelist for one user-facing regular conversation. Every
 /// aggregate, list flag, project rollup, reveal target, and bulk-read mutation
 /// must compose this helper rather than spelling the scope again.
@@ -221,7 +236,11 @@ impl SessionDB {
 
         // Enable WAL mode for crash safety and better concurrent read performance
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-        conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+        // Stream journals acknowledge user-visible deltas only after SQLite
+        // reports a durable commit. FULL is required here: NORMAL may lose the
+        // newest WAL frames after an OS/power failure even though COMMIT
+        // returned successfully.
+        conn.execute_batch("PRAGMA synchronous=FULL;")?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         // Wait up to 5s on a busy lock instead of returning SQLITE_BUSY
         // immediately — removes spurious write failures under WAL contention.
@@ -242,6 +261,8 @@ impl SessionDB {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 context_json TEXT,
+                context_revision INTEGER NOT NULL DEFAULT 0,
+                context_run_id TEXT,
                 last_read_message_id INTEGER DEFAULT 0,
                 is_cron INTEGER NOT NULL DEFAULT 0,
                 parent_session_id TEXT,
@@ -293,6 +314,8 @@ impl SessionDB {
                 tool_metadata TEXT,
                 source TEXT,
                 queue_request_id TEXT,
+                persistence_run_id TEXT,
+                logical_block_seq INTEGER,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
@@ -578,6 +601,38 @@ impl SessionDB {
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_queue_request_id
              ON messages(queue_request_id) WHERE queue_request_id IS NOT NULL;",
         )?;
+        let has_persistence_run_id = conn
+            .prepare("SELECT persistence_run_id FROM messages LIMIT 1")
+            .is_ok();
+        if !has_persistence_run_id {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN persistence_run_id TEXT;")?;
+        }
+        let has_logical_block_seq = conn
+            .prepare("SELECT logical_block_seq FROM messages LIMIT 1")
+            .is_ok();
+        if !has_logical_block_seq {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN logical_block_seq INTEGER;")?;
+        }
+        let has_context_revision = conn
+            .prepare("SELECT context_revision FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_context_revision {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN context_revision INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+        let has_context_run_id = conn
+            .prepare("SELECT context_run_id FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_context_run_id {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN context_run_id TEXT;")?;
+        }
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_persistence_block
+             ON messages(persistence_run_id, logical_block_seq)
+             WHERE persistence_run_id IS NOT NULL AND logical_block_seq IS NOT NULL;",
+        )?;
+        Self::ensure_stream_persistence_tables(&conn)?;
         Self::ensure_turn_message_queue_table(&conn)?;
         Self::recover_turn_message_queue(&conn)?;
         crate::goal::ensure_tables(&conn)?;
@@ -2453,7 +2508,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1
              ORDER BY id ASC",
@@ -2476,7 +2531,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE id = ?1",
             params![message_id],
@@ -2514,7 +2569,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1
              ORDER BY id DESC
@@ -2561,7 +2616,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1 AND id < ?2
              ORDER BY id DESC
@@ -2647,7 +2702,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1 AND id >= ?2 AND id < ?3
              ORDER BY id ASC",
@@ -2702,7 +2757,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1 AND id > ?2
              ORDER BY id ASC
@@ -2783,7 +2838,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1 AND id > ?2 AND id < ?3
              ORDER BY id ASC",
@@ -2917,6 +2972,7 @@ impl SessionDB {
             tokens_cache_read: row.get(20)?,
             tool_metadata: row.get::<_, Option<String>>(21).ok().flatten(),
             stream_status: row.get::<_, Option<String>>(22).ok().flatten(),
+            persistence_run_id: row.get::<_, Option<String>>(23).ok().flatten(),
         })
     }
 
@@ -2939,8 +2995,8 @@ impl SessionDB {
                 tool_call_id, tool_name, tool_arguments, tool_result,
                 tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                 tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, source,
-                queue_request_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                queue_request_id, persistence_run_id, logical_block_seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 session_id,
                 msg.role.as_str(),
@@ -2966,6 +3022,8 @@ impl SessionDB {
                 msg.stream_status,
                 msg.source,
                 msg.queue_request_id,
+                msg.persistence_run_id,
+                msg.logical_block_seq,
             ],
         )?;
 
@@ -3185,19 +3243,24 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
-        match duration_ms {
+        let changed = match duration_ms {
             Some(d) => {
                 conn.execute(
                     "UPDATE messages SET content = ?1, stream_status = ?2, tool_duration_ms = ?3 WHERE id = ?4",
                     params![content, status, d, message_id],
-                )?;
+                )?
             }
             None => {
                 conn.execute(
                     "UPDATE messages SET content = ?1, stream_status = ?2 WHERE id = ?3",
                     params![content, status, message_id],
-                )?;
+                )?
             }
+        };
+        if changed != 1 {
+            anyhow::bail!(
+                "stream placeholder update affected {changed} rows for message {message_id}"
+            );
         }
         conn.execute(
             "UPDATE sessions SET updated_at = ?1
@@ -3244,7 +3307,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1
                AND id > COALESCE(
@@ -3291,7 +3354,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1
                AND id > COALESCE(
@@ -3321,7 +3384,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1 AND role = 'user'
              ORDER BY id DESC
@@ -4606,17 +4669,47 @@ impl SessionDB {
         Ok(policy)
     }
 
-    /// Save the agent's conversation_history JSON for a session.
+    /// Compatibility convenience wrapper. It still performs a revision CAS;
+    /// callers racing a newer turn receive an error instead of overwriting it.
     pub fn save_context(&self, session_id: &str, context_json: &str) -> Result<()> {
+        let (_, revision) = self.load_context_with_revision(session_id)?;
+        self.save_context_at_revision(session_id, revision, context_json, None)?;
+        Ok(())
+    }
+
+    /// Revision-CAS variant used by every runtime context writer. Callers
+    /// must reload the authoritative snapshot after a conflict; stale agent
+    /// history is never allowed to overwrite a newer turn/compaction.
+    pub fn save_context_at_revision(
+        &self,
+        session_id: &str,
+        expected_revision: i64,
+        context_json: &str,
+        context_run_id: Option<&str>,
+    ) -> Result<i64> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "UPDATE sessions SET context_json = ?1 WHERE id = ?2",
-            params![context_json, session_id],
+        let changed = conn.execute(
+            "UPDATE sessions
+             SET context_json = ?1,
+                 context_revision = context_revision + 1,
+                 context_run_id = ?2,
+                 updated_at = ?3
+             WHERE id = ?4 AND context_revision = ?5",
+            params![
+                context_json,
+                context_run_id,
+                chrono::Utc::now().to_rfc3339(),
+                session_id,
+                expected_revision,
+            ],
         )?;
-        Ok(())
+        if changed != 1 {
+            anyhow::bail!("context revision conflict for session {session_id}");
+        }
+        Ok(expected_revision.saturating_add(1))
     }
 
     /// Save context only if the DB value still matches the caller's snapshot.
@@ -4633,14 +4726,18 @@ impl SessionDB {
         let changed = if let Some(expected) = expected_context_json {
             conn.execute(
                 "UPDATE sessions
-                 SET context_json = ?1
+                 SET context_json = ?1,
+                     context_revision = context_revision + 1,
+                     context_run_id = NULL
                  WHERE id = ?2 AND context_json = ?3",
                 params![context_json, session_id, expected],
             )?
         } else {
             conn.execute(
                 "UPDATE sessions
-                 SET context_json = ?1
+                 SET context_json = ?1,
+                     context_revision = context_revision + 1,
+                     context_run_id = NULL
                  WHERE id = ?2 AND context_json IS NULL",
                 params![context_json, session_id],
             )?
@@ -5552,7 +5649,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1 AND id <= ?2
              ORDER BY id DESC
@@ -5576,7 +5673,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
              FROM messages
              WHERE session_id = ?1 AND id > ?2
              ORDER BY id ASC

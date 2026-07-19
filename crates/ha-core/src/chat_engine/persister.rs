@@ -57,13 +57,35 @@ pub(crate) struct StreamPersister {
     last_flush: Mutex<Instant>,
     bytes_since_flush: AtomicUsize,
     sealed: AtomicBool,
+    /// New journal-backed streams keep this type only as an in-memory usage /
+    /// text accumulator. SQLite writes are owned by StreamCoordinator.
+    journal_only: bool,
+    persistence_error: Mutex<Option<String>>,
 }
 
+#[allow(dead_code)] // legacy placeholder writer retained for one-minor rollback compatibility
 impl StreamPersister {
     /// Construct a registered persister. The returned `Arc` is also held
     /// (weakly) by [`super::active_persisters`] so a panic / signal hook
     /// can finalize any in-flight placeholder before the process exits.
     pub(crate) fn new(db: Arc<SessionDB>, session_id: String, source: ChatSource) -> Arc<Self> {
+        Self::new_with_mode(db, session_id, source, false)
+    }
+
+    pub(crate) fn new_journaled(
+        db: Arc<SessionDB>,
+        session_id: String,
+        source: ChatSource,
+    ) -> Arc<Self> {
+        Self::new_with_mode(db, session_id, source, true)
+    }
+
+    fn new_with_mode(
+        db: Arc<SessionDB>,
+        session_id: String,
+        source: ChatSource,
+        journal_only: bool,
+    ) -> Arc<Self> {
         let me = Arc::new(Self {
             db,
             session_id,
@@ -79,9 +101,26 @@ impl StreamPersister {
             last_flush: Mutex::new(Instant::now()),
             bytes_since_flush: AtomicUsize::new(0),
             sealed: AtomicBool::new(false),
+            journal_only,
+            persistence_error: Mutex::new(None),
         });
         super::active_persisters::register(&me);
         me
+    }
+
+    fn record_persistence_error(&self, error: impl ToString) {
+        let mut slot = lock_or_poisoned(&self.persistence_error);
+        if slot.is_none() {
+            *slot = Some(error.to_string());
+        }
+    }
+
+    pub(crate) fn persistence_error(&self) -> Option<String> {
+        lock_or_poisoned(&self.persistence_error).clone()
+    }
+
+    pub(crate) fn journal_only(&self) -> bool {
+        self.journal_only
     }
 
     pub(crate) fn session_id(&self) -> &str {
@@ -148,8 +187,11 @@ impl StreamPersister {
                         .unwrap_or("");
                     let tool_msg = NewMessage::tool(call_id, name, arguments, "", None, false)
                         .with_source(me.source);
-                    if let Ok(id) = me.db.append_message(&me.session_id, &tool_msg) {
-                        me.record_owned_partial_message_id(id);
+                    if !me.journal_only {
+                        match me.db.append_message(&me.session_id, &tool_msg) {
+                            Ok(id) => me.record_owned_partial_message_id(id),
+                            Err(error) => me.record_persistence_error(error),
+                        }
                     }
                 }
                 Some("tool_result") => {
@@ -170,21 +212,27 @@ impl StreamPersister {
                     let attachments_meta = event
                         .get("media_items")
                         .and_then(crate::session::build_tool_media_items_attachments_meta);
-                    let _ = me.db.update_tool_result_with_side_outputs(
-                        &me.session_id,
-                        call_id,
-                        result,
-                        duration_ms,
-                        is_error,
-                        metadata_json.as_deref(),
-                        attachments_meta.as_deref(),
-                    );
+                    if !me.journal_only {
+                        if let Err(error) = me.db.update_tool_result_with_side_outputs(
+                            &me.session_id,
+                            call_id,
+                            result,
+                            duration_ms,
+                            is_error,
+                            metadata_json.as_deref(),
+                            attachments_meta.as_deref(),
+                        ) {
+                            me.record_persistence_error(error);
+                        }
+                    }
                 }
-                Some("round_limit_reached") => {
-                    let _ = me.db.append_message(
+                Some("round_limit_reached") if !me.journal_only => {
+                    if let Err(error) = me.db.append_message(
                         &me.session_id,
                         &NewMessage::event(delta).with_source(me.source),
-                    );
+                    ) {
+                        me.record_persistence_error(error);
+                    }
                 }
                 Some("context_compacted") => {
                     // Persist Tier ≥ 2 only — Tier 0/1 reactive micro-compact
@@ -206,10 +254,14 @@ impl StreamPersister {
                     let is_start_marker =
                         matches!(description, Some("summarizing" | "emergency_compacting"));
                     if tier >= 2 && !is_start_marker {
-                        let _ = me.db.append_message(
-                            &me.session_id,
-                            &NewMessage::event(delta).with_source(me.source),
-                        );
+                        if !me.journal_only {
+                            if let Err(error) = me.db.append_message(
+                                &me.session_id,
+                                &NewMessage::event(delta).with_source(me.source),
+                            ) {
+                                me.record_persistence_error(error);
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -241,7 +293,11 @@ impl StreamPersister {
             buf.push_str(text);
         }
 
-        let need_begin = lock_or_poisoned(&self.streaming_id).is_none();
+        let need_begin = if self.journal_only {
+            self.current_role().is_none()
+        } else {
+            lock_or_poisoned(&self.streaming_id).is_none()
+        };
         if need_begin {
             self.begin_placeholder(role);
             return;
@@ -264,6 +320,12 @@ impl StreamPersister {
     /// INSERT a placeholder row carrying the current buffer as initial
     /// content + `stream_status='streaming'`, and record its rowid.
     fn begin_placeholder(&self, role: MessageRole) {
+        if self.journal_only {
+            *lock_or_poisoned(&self.streaming_role) = Some(role);
+            *lock_or_poisoned(&self.last_flush) = Instant::now();
+            self.bytes_since_flush.store(0, Ordering::SeqCst);
+            return;
+        }
         let buffer_arc = self.buffer_for(role);
         let initial = lock_or_poisoned(buffer_arc).clone();
         let placeholder = match role {
@@ -299,6 +361,7 @@ impl StreamPersister {
                 );
             }
             Err(e) => {
+                self.record_persistence_error(&e);
                 app_warn!(
                     "session",
                     "stream_persist",
@@ -311,6 +374,11 @@ impl StreamPersister {
     }
 
     fn flush_active_placeholder(&self, content: &str, status: &str, duration_ms: Option<i64>) {
+        if self.journal_only {
+            *lock_or_poisoned(&self.last_flush) = Instant::now();
+            self.bytes_since_flush.store(0, Ordering::SeqCst);
+            return;
+        }
         let id = match *lock_or_poisoned(&self.streaming_id) {
             Some(id) => id,
             None => return,
@@ -319,6 +387,7 @@ impl StreamPersister {
             .db
             .update_message_stream_content(id, content, status, duration_ms)
         {
+            self.record_persistence_error(&e);
             app_warn!(
                 "session",
                 "stream_persist",
@@ -326,6 +395,7 @@ impl StreamPersister {
                 id,
                 e
             );
+            return;
         }
         *lock_or_poisoned(&self.last_flush) = Instant::now();
         self.bytes_since_flush.store(0, Ordering::SeqCst);
@@ -343,7 +413,7 @@ impl StreamPersister {
             None => return,
         };
         let buffer_arc = self.buffer_for(role);
-        let final_content = std::mem::take(&mut *lock_or_poisoned(buffer_arc));
+        let final_content = lock_or_poisoned(buffer_arc).clone();
         // Recompute thinking duration at finalize: the placeholder was
         // inserted with a near-zero duration on the first delta, but the
         // real elapsed time only becomes accurate now.
@@ -355,6 +425,10 @@ impl StreamPersister {
             None
         };
         self.flush_active_placeholder(&final_content, status, duration_override);
+        if self.persistence_error().is_some() && !self.journal_only {
+            return;
+        }
+        lock_or_poisoned(buffer_arc).clear();
         *lock_or_poisoned(&self.streaming_id) = None;
         *lock_or_poisoned(&self.streaming_role) = None;
         if matches!(role, MessageRole::ThinkingBlock) {
@@ -399,6 +473,22 @@ impl StreamPersister {
         std::mem::take(&mut *lock_or_poisoned(&self.pending_text))
     }
 
+    /// Journal path: snapshot the trailing text and legacy placeholder id
+    /// without deleting either. The final transaction owns deletion.
+    pub(crate) fn trailing_text_for_commit(&self) -> (String, Option<i64>) {
+        let content = lock_or_poisoned(&self.pending_text).clone();
+        let placeholder_id = *lock_or_poisoned(&self.streaming_id);
+        (content, placeholder_id)
+    }
+
+    pub(crate) fn mark_final_commit_complete(&self) {
+        *lock_or_poisoned(&self.streaming_id) = None;
+        *lock_or_poisoned(&self.streaming_role) = None;
+        lock_or_poisoned(&self.pending_text).clear();
+        lock_or_poisoned(&self.pending_thinking).clear();
+        self.sealed.store(true, Ordering::SeqCst);
+    }
+
     /// Flush any remaining thinking buffer at turn end. Run AFTER the
     /// agent.chat() future resolves and BEFORE writing the final assistant
     /// row, so `had_thinking_blocks()` is accurate when the caller decides
@@ -418,9 +508,16 @@ impl StreamPersister {
         let duration = lock_or_poisoned(&self.thinking_start_time)
             .take()
             .map(|t| t.elapsed().as_millis() as i64);
-        let msg = NewMessage::thinking_block_with_duration(&pk, duration).with_source(self.source);
-        if let Ok(id) = self.db.append_message(&self.session_id, &msg) {
-            self.record_owned_partial_message_id(id);
+        if !self.journal_only {
+            let msg =
+                NewMessage::thinking_block_with_duration(&pk, duration).with_source(self.source);
+            match self.db.append_message(&self.session_id, &msg) {
+                Ok(id) => self.record_owned_partial_message_id(id),
+                Err(error) => {
+                    self.record_persistence_error(error);
+                    return;
+                }
+            }
         }
         pk.clear();
         self.had_thinking_blocks.store(true, Ordering::SeqCst);

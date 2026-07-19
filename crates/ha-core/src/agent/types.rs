@@ -197,6 +197,11 @@ pub struct AssistantAgent {
     /// paths use the global DB, but deterministic/eval runners can provide an
     /// isolated DB; agent-side session lookups must honor that source first.
     pub(crate) session_db: Option<std::sync::Arc<crate::session::SessionDB>>,
+    /// Optional durable journal/barrier for conversation-producing chat
+    /// turns. Detached one-shot/automation agents deliberately leave this
+    /// unset.
+    pub(crate) turn_durability:
+        Option<std::sync::Arc<dyn crate::turn_durability::TurnDurabilitySink>>,
     /// Cached `sessions.incognito` flag for the current session. Refreshed at
     /// each turn boundary (`reset_chat_flags`) and on `set_session_id`; allows
     /// hot-path guards to avoid a SQLite round-trip per call.

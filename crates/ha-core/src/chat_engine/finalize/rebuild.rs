@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use crate::session::{MessageRole, SessionDB, SessionMessage};
+use crate::session::{JournalEvent, MessageRole, SessionDB, SessionMessage};
 
 use super::{ExecutedTool, PartialMeta, PendingToolCall, ProviderApiKind};
 
@@ -34,6 +34,137 @@ use super::{ExecutedTool, PartialMeta, PendingToolCall, ProviderApiKind};
 /// failure). All four provider shapes accept this string verbatim; per-
 /// reason wording is the model marker, not the tool result.
 pub const INTERRUPTED_TOOL_RESULT: &str = "Tool execution was interrupted";
+
+/// Rebuild the provider-native part of a durable journal which is not yet
+/// represented by `sessions.context_json`. `after_seq` is the atomically
+/// persisted context-checkpoint watermark, so replaying only the suffix keeps
+/// restart/failure convergence idempotent across completed tool rounds.
+pub fn partial_from_journal_events(
+    events: &[JournalEvent],
+    after_seq: u64,
+    provider_kind: Option<ProviderApiKind>,
+) -> anyhow::Result<PartialMeta> {
+    let mut partial = PartialMeta {
+        provider_kind,
+        ..PartialMeta::default()
+    };
+    let mut text = String::new();
+    let mut thinking = String::new();
+    let mut call_indexes = std::collections::HashMap::<String, usize>::new();
+
+    for journal_event in events.iter().filter(|event| event.seq > after_seq) {
+        // Checkpoints are durability barriers and therefore batch boundaries;
+        // a coalesced range must never straddle a stored checkpoint.
+        if journal_event.start_seq() <= after_seq {
+            anyhow::bail!(
+                "journal segment {}..{} straddles context checkpoint {}",
+                journal_event.start_seq(),
+                journal_event.seq,
+                after_seq
+            );
+        }
+        let event: Value = serde_json::from_str(&journal_event.event).map_err(|error| {
+            anyhow::anyhow!(
+                "invalid journal event at seq {} while rebuilding context: {}",
+                journal_event.seq,
+                error
+            )
+        })?;
+        match event.get("type").and_then(Value::as_str) {
+            Some("text_delta") => {
+                text.push_str(event.get("content").and_then(Value::as_str).unwrap_or(""));
+            }
+            Some("thinking_delta") => {
+                thinking.push_str(event.get("content").and_then(Value::as_str).unwrap_or(""));
+            }
+            Some("tool_call") => {
+                let call_id = event
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                if call_id.is_empty() {
+                    anyhow::bail!("tool_call at seq {} has no call_id", journal_event.seq);
+                }
+                if call_indexes.contains_key(&call_id) {
+                    anyhow::bail!("duplicate durable tool_call id {call_id}");
+                }
+                let index = partial.tool_calls.len();
+                call_indexes.insert(call_id.clone(), index);
+                partial.tool_calls.push(PendingToolCall {
+                    call_id,
+                    name: event
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    arguments: event
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    has_result: false,
+                });
+            }
+            Some("tool_call_args_rewritten") => {
+                let call_id = event.get("call_id").and_then(Value::as_str).unwrap_or("");
+                let Some(index) = call_indexes.get(call_id).copied() else {
+                    anyhow::bail!("tool args rewrite has no durable tool_call {call_id}");
+                };
+                partial.tool_calls[index].arguments = event
+                    .get("arguments")
+                    .or_else(|| event.get("effective_arguments"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+            }
+            Some("tool_result") => {
+                let call_id = event.get("call_id").and_then(Value::as_str).unwrap_or("");
+                let Some(index) = call_indexes.get(call_id).copied() else {
+                    anyhow::bail!("tool_result has no durable tool_call {call_id}");
+                };
+                let call = &mut partial.tool_calls[index];
+                if call.has_result {
+                    anyhow::bail!("duplicate durable tool_result for {call_id}");
+                }
+                call.has_result = true;
+                partial.executed_tools.push(ExecutedTool {
+                    call_id: call.call_id.clone(),
+                    name: call.name.clone(),
+                    arguments: call.arguments.clone(),
+                    result: event
+                        .get("result")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    is_error: event
+                        .get("is_error")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    partial.text = (!text.is_empty()).then_some(text);
+    partial.thinking = (!thinking.is_empty()).then_some(thinking);
+    Ok(partial)
+}
+
+/// Append the uncheckpointed journal suffix in the exact provider-native
+/// assistant/tool-result shape expected by the next model request.
+pub fn append_journal_suffix_to_history(
+    history: &mut Vec<Value>,
+    events: &[JournalEvent],
+    after_seq: u64,
+    provider_kind: Option<ProviderApiKind>,
+) -> anyhow::Result<PartialMeta> {
+    let partial = partial_from_journal_events(events, after_seq, provider_kind)?;
+    history.extend(rebuild_partial_assistant_blocks(&partial));
+    history.extend(synthesize_tool_results(&partial, INTERRUPTED_TOOL_RESULT));
+    Ok(partial)
+}
 
 /// Resolve the provider shape used by a session by joining the session
 /// row's `provider_id` against the cached provider catalog. Returns
@@ -601,5 +732,83 @@ mod tests {
     fn synthesize_returns_empty_when_no_tool_calls() {
         let partial = meta_with(ProviderApiKind::Anthropic, None, None, vec![], vec![]);
         assert!(synthesize_tool_results(&partial, INTERRUPTED_TOOL_RESULT).is_empty());
+    }
+
+    #[test]
+    fn journal_suffix_rebuild_skips_checkpoint_and_preserves_rewritten_tool_result() {
+        let events = vec![
+            JournalEvent::single(
+                1,
+                json!({"type":"text_delta","content":"already checkpointed"}).to_string(),
+            ),
+            JournalEvent::single(
+                2,
+                json!({
+                    "type":"tool_call","call_id":"call-1","name":"exec",
+                    "arguments":"{\"cmd\":\"old\"}"
+                })
+                .to_string(),
+            ),
+            JournalEvent::single(
+                3,
+                json!({
+                    "type":"tool_call_args_rewritten","call_id":"call-1",
+                    "effective_arguments":"{\"cmd\":\"new\"}"
+                })
+                .to_string(),
+            ),
+            JournalEvent::single(
+                4,
+                json!({
+                    "type":"tool_result","call_id":"call-1","result":"done",
+                    "is_error":false
+                })
+                .to_string(),
+            ),
+        ];
+        let partial =
+            partial_from_journal_events(&events, 1, Some(ProviderApiKind::OpenAIResponses))
+                .unwrap();
+        assert_eq!(partial.text, None);
+        assert_eq!(partial.tool_calls.len(), 1);
+        assert_eq!(partial.tool_calls[0].arguments, r#"{"cmd":"new"}"#);
+        assert!(partial.tool_calls[0].has_result);
+        assert_eq!(partial.executed_tools[0].result, "done");
+
+        let mut history = Vec::new();
+        append_journal_suffix_to_history(
+            &mut history,
+            &events,
+            1,
+            Some(ProviderApiKind::OpenAIResponses),
+        )
+        .unwrap();
+        assert_eq!(history[0]["type"], "function_call");
+        assert_eq!(history[1]["type"], "function_call_output");
+        assert_eq!(history[1]["output"], "done");
+    }
+
+    #[test]
+    fn journal_suffix_synthesizes_result_for_interrupted_tool() {
+        let events = vec![JournalEvent::single(
+            7,
+            json!({
+                "type":"tool_call","call_id":"call-7","name":"read",
+                "arguments":"{}"
+            })
+            .to_string(),
+        )];
+        let mut history = Vec::new();
+        append_journal_suffix_to_history(
+            &mut history,
+            &events,
+            6,
+            Some(ProviderApiKind::OpenAIChat),
+        )
+        .unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0]["tool_calls"][0]["id"], "call-7");
+        assert_eq!(history[1]["role"], "tool");
+        assert_eq!(history[1]["content"], INTERRUPTED_TOOL_RESULT);
     }
 }

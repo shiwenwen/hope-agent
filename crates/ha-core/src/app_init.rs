@@ -1108,6 +1108,10 @@ pub async fn start_background_tasks() {
         // startup and then once per day. Disabled entirely when both
         // `retention_secs` and `orphan_grace_secs` are `0`.
         crate::async_jobs::JobManager::spawn_retention_loop();
+        // Durable chat journals remain available for diagnostics/replay for
+        // 24 hours after terminal convergence, then cascade away without
+        // touching canonical messages/context.
+        spawn_chat_stream_journal_gc(true);
 
         // Retention sweep for recap session facets. Runs once at startup and
         // then once per day. Disabled when `recap.cache_retention_days == 0`.
@@ -1364,6 +1368,9 @@ pub async fn start_minimal_background_tasks() {
         crate::workflow::spawn_startup_recovery_if_primary();
         crate::local_model_jobs::replay_interrupted_jobs();
         crate::loop_control::spawn_loop_event_trigger_watcher();
+        // ACP processes are intentionally short-lived: run one retention
+        // sweep, but do not install another daily timer.
+        spawn_chat_stream_journal_gc(false);
 
         // Re-arm agent self-scheduled wakeups (R10). Primary-only (shared rows).
         crate::wakeup::replay_pending();
@@ -1403,6 +1410,357 @@ fn init_mcp_subsystem() -> bool {
         );
         false
     }
+}
+
+fn recover_durable_chat_streams(
+    session_db: &Arc<SessionDB>,
+    cause: crate::chat_engine::finalize::sentinel::StartupCause,
+) {
+    let mut spool_integrity_errors = std::collections::HashMap::<String, String>::new();
+    // Import every complete emergency-spool frame first. The spool is only
+    // deleted after the corresponding run converges transactionally below.
+    match crate::chat_engine::spool::list_run_ids() {
+        Ok(run_ids) => {
+            for run_id in run_ids {
+                match crate::chat_engine::spool::read_batches(&run_id) {
+                    Ok(spool) => {
+                        if let Some(error) = spool.integrity_error {
+                            app_warn!(
+                                "session",
+                                "stream_recovery",
+                                "emergency spool for run {} has a damaged tail: {}",
+                                run_id,
+                                error
+                            );
+                            spool_integrity_errors.insert(run_id.clone(), error);
+                        }
+                        if !spool.batches.is_empty() {
+                            if let Err(group_error) =
+                                session_db.append_stream_journal_batches(&spool.batches)
+                            {
+                                // Exceptional corruption/mismatch path: retain
+                                // the largest valid prefix instead of making
+                                // the healthy frames after SQLite's existing
+                                // prefix all-or-nothing.
+                                app_warn!(
+                                    "session",
+                                    "stream_recovery",
+                                    "group spool import failed for run {}, scanning prefix: {}",
+                                    run_id,
+                                    group_error
+                                );
+                                for batch in spool.batches {
+                                    if let Err(error) =
+                                        session_db.append_stream_journal_batch(&batch)
+                                    {
+                                        app_warn!(
+                                            "session",
+                                            "stream_recovery",
+                                            "spool import stopped for run {} at seq {}..{}: {}",
+                                            run_id,
+                                            batch.seq_start,
+                                            batch.seq_end,
+                                            error
+                                        );
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => app_warn!(
+                        "session",
+                        "stream_recovery",
+                        "cannot read emergency spool for run {}: {}",
+                        run_id,
+                        error
+                    ),
+                }
+            }
+        }
+        Err(error) => app_warn!(
+            "session",
+            "stream_recovery",
+            "cannot enumerate emergency stream spool: {}",
+            error
+        ),
+    }
+
+    let runs = match session_db.recoverable_stream_runs() {
+        Ok(runs) => runs,
+        Err(error) => {
+            app_warn!(
+                "session",
+                "stream_recovery",
+                "cannot enumerate unfinished stream runs: {}",
+                error
+            );
+            return;
+        }
+    };
+    for run in runs {
+        let Some(snapshot) = session_db
+            .stream_run_snapshot(&run.run_id)
+            .unwrap_or_else(|error| {
+                app_warn!(
+                    "session",
+                    "stream_recovery",
+                    "cannot load stream run {}: {}",
+                    run.run_id,
+                    error
+                );
+                None
+            })
+        else {
+            continue;
+        };
+
+        // One shared selector is used by live failure convergence, ACP, and
+        // startup replay so attempt choice and corruption truncation cannot
+        // drift between entry points.
+        let (selected_attempt, through_seq, events, journal_error) =
+            crate::session::select_recoverable_attempt_prefix(&snapshot);
+        let selected_attempt_meta = snapshot
+            .attempts
+            .iter()
+            .find(|attempt| attempt.attempt_no == selected_attempt);
+        let provider_kind = selected_attempt_meta
+            .and_then(|attempt| attempt.provider_shape.as_deref())
+            .or(snapshot.run.provider_shape.as_deref())
+            .and_then(crate::chat_engine::finalize::ProviderApiKind::from_shape);
+        let recovery_bytes = events.iter().map(|event| event.event.len()).sum::<usize>();
+        let spool_damaged = spool_integrity_errors.contains_key(&run.run_id);
+        let recovery_error =
+            journal_error.or_else(|| spool_integrity_errors.get(&run.run_id).cloned());
+        let trailing_text = crate::session::trailing_text_from_journal_events(&events);
+
+        let (context_json, context_checkpoint_seq, context_revision) = match session_db
+            .recovery_context_for_prefix(&run.run_id, selected_attempt, through_seq)
+        {
+            Ok(value) => value,
+            Err(error) => {
+                app_warn!(
+                    "session",
+                    "stream_recovery",
+                    "cannot load trusted context checkpoint for run {}: {}",
+                    run.run_id,
+                    error
+                );
+                continue;
+            }
+        };
+        let mut history: Vec<serde_json::Value> = context_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str(json).ok())
+            .unwrap_or_default();
+        let reason = cause.to_termination_reason();
+        if let Err(error) = crate::chat_engine::finalize::rebuild::append_journal_suffix_to_history(
+            &mut history,
+            &events,
+            context_checkpoint_seq,
+            provider_kind,
+        ) {
+            app_warn!(
+                "session",
+                "stream_recovery",
+                "cannot rebuild provider-native journal suffix for run {}: {}",
+                run.run_id,
+                error
+            );
+            continue;
+        }
+        history.push(serde_json::json!({
+            "role": "assistant",
+            "content": crate::chat_engine::finalize::copy::model_marker(&reason),
+        }));
+        let context_json = match serde_json::to_string(&history) {
+            Ok(json) => json,
+            Err(error) => {
+                app_warn!(
+                    "session",
+                    "stream_recovery",
+                    "cannot serialize recovered context for run {}: {}",
+                    run.run_id,
+                    error
+                );
+                continue;
+            }
+        };
+        let source = crate::chat_engine::ChatSource::from_db_string(&run.source);
+        let assistant = crate::session::journal_events_have_assistant_output(&events).then(|| {
+            let mut message = crate::session::NewMessage::assistant(&trailing_text);
+            message.source = Some(source.as_str().to_string());
+            message
+        });
+        let mut recovery_event =
+            if cause == crate::chat_engine::finalize::sentinel::StartupCause::Crash {
+                crate::session::NewMessage::error_event(
+                    &crate::chat_engine::finalize::copy::user_notice(&reason),
+                )
+            } else {
+                crate::session::NewMessage::event(&crate::chat_engine::finalize::copy::user_notice(
+                    &reason,
+                ))
+            };
+        recovery_event.source = Some(source.as_str().to_string());
+        let commit = crate::session::CommitInterruptedTurn {
+            run_id: Some(run.run_id.clone()),
+            attempt_no: selected_attempt,
+            session_id: run.session_id.clone(),
+            assistant,
+            context_json,
+            expected_context_revision: context_revision,
+            turn_id: run.turn_id.clone(),
+            final_seq: through_seq,
+            status: crate::session::ChatTurnStatus::Interrupted,
+            interrupt_reason: Some(match cause {
+                crate::chat_engine::finalize::sentinel::StartupCause::Clean => {
+                    "shutdown".to_string()
+                }
+                crate::chat_engine::finalize::sentinel::StartupCause::Crash => {
+                    "crash_recovery".to_string()
+                }
+            }),
+            error: recovery_error.clone(),
+            recovery_event: Some(recovery_event),
+        };
+        match session_db.commit_interrupted_turn(&commit) {
+            Ok(_) => {
+                let spool_cleanup = if spool_damaged {
+                    crate::chat_engine::spool::quarantine(&run.run_id)
+                } else {
+                    crate::chat_engine::spool::remove(&run.run_id)
+                };
+                if let Err(error) = spool_cleanup {
+                    app_warn!(
+                        "session",
+                        "stream_recovery",
+                        "recovered run {} but could not archive/remove spool: {}",
+                        run.run_id,
+                        error
+                    );
+                }
+                app_info!(
+                    "session",
+                    "stream_recovery",
+                    "recovered durable stream run {} through seq {} bytes={}{}",
+                    run.run_id,
+                    through_seq,
+                    recovery_bytes,
+                    if recovery_error.is_some() {
+                        " (truncated at corruption/gap)"
+                    } else {
+                        ""
+                    }
+                );
+            }
+            Err(error) => app_warn!(
+                "session",
+                "stream_recovery",
+                "failed to converge durable stream run {}: {}",
+                run.run_id,
+                error
+            ),
+        }
+    }
+
+    // Crash window: the final DB transaction may have committed immediately
+    // before the process died, leaving its spool file behind. Such a run is no
+    // longer in `recoverable_stream_runs`, so converge the leftover file here
+    // instead of re-importing it forever on every startup.
+    if let Ok(run_ids) = crate::chat_engine::spool::list_run_ids() {
+        for run_id in run_ids {
+            match session_db.stream_run_status(&run_id) {
+                Ok(Some(status)) if status != "running" => {
+                    let result = if spool_integrity_errors.contains_key(&run_id) {
+                        crate::chat_engine::spool::quarantine(&run_id)
+                    } else {
+                        crate::chat_engine::spool::remove(&run_id)
+                    };
+                    if let Err(error) = result {
+                        app_warn!(
+                            "session",
+                            "stream_recovery",
+                            "cannot clean terminal leftover spool for run {}: {}",
+                            run_id,
+                            error
+                        );
+                    }
+                }
+                Ok(None) => {
+                    if let Err(error) = crate::chat_engine::spool::quarantine(&run_id) {
+                        app_warn!(
+                            "session",
+                            "stream_recovery",
+                            "cannot quarantine orphan stream spool {}: {}",
+                            run_id,
+                            error
+                        );
+                    }
+                }
+                Ok(Some(_)) => {}
+                Err(error) => app_warn!(
+                    "session",
+                    "stream_recovery",
+                    "cannot inspect leftover spool run {}: {}",
+                    run_id,
+                    error
+                ),
+            }
+        }
+    }
+}
+
+fn spawn_chat_stream_journal_gc(repeat_daily: bool) {
+    let Some(db) = crate::get_session_db() else {
+        return;
+    };
+    tokio::spawn(async move {
+        loop {
+            let cutoff = (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339();
+            let gc_db = db.clone();
+            match gc_db.run(move |db| db.gc_stream_journals(&cutoff)).await {
+                Ok(count) if count > 0 => app_info!(
+                    "session",
+                    "stream_gc",
+                    "removed {} terminal stream journal run(s)",
+                    count
+                ),
+                Ok(_) => {}
+                Err(error) => app_warn!(
+                    "session",
+                    "stream_gc",
+                    "stream journal retention sweep failed: {}",
+                    error
+                ),
+            }
+            match crate::blocking::run_blocking(|| {
+                crate::chat_engine::spool::gc_quarantined(std::time::Duration::from_secs(
+                    24 * 60 * 60,
+                ))
+            })
+            .await
+            {
+                Ok(count) if count > 0 => app_info!(
+                    "session",
+                    "stream_gc",
+                    "removed {} quarantined stream spool file(s)",
+                    count
+                ),
+                Ok(_) => {}
+                Err(error) => app_warn!(
+                    "session",
+                    "stream_gc",
+                    "stream spool retention sweep failed: {}",
+                    error
+                ),
+            }
+            if !repeat_daily {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(crate::SECS_PER_DAY)).await;
+        }
+    });
 }
 
 fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runtime_lock::Tier) {
@@ -1468,6 +1826,11 @@ fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runti
             e
         ),
     }
+
+    // New journal/spool recovery runs before stale chat_turn convergence so
+    // the legacy sweep sees those turns already terminal and cannot overwrite
+    // the richer durable reconstruction.
+    recover_durable_chat_streams(session_db, cause);
 
     // 2. Collect every chat_turn left in `running` / `cancelling` state.
     //    finalize will set the terminal status itself; we don't UPDATE

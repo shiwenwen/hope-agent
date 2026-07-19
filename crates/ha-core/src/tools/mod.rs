@@ -81,6 +81,8 @@ pub use definitions::{
     ToolPermissionMetadata, ToolPermissionSubject, ToolRenderMetadata, ToolResultKind, ToolRisk,
     ToolTier, ToolValidationMetadata,
 };
+#[doc(hidden)]
+pub use execution::EffectiveArgsSink;
 pub use execution::{
     execute_tool_with_context, purge_tool_results_for_session, PidSink, SessionDbHandle,
     ToolExecContext,

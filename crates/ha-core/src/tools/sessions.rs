@@ -410,10 +410,19 @@ pub(crate) async fn tool_sessions_send(
     let session_id_owned = target_session_id.to_string();
     let message_owned = message.to_string();
 
-    let agent_task = run_agent_for_session(&agent_id, &message_owned, &session_id_owned);
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut agent_task = Box::pin(run_agent_for_session(
+        &agent_id,
+        &message_owned,
+        &session_id_owned,
+        cancel.clone(),
+    ));
 
-    let response =
-        tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), agent_task).await;
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        agent_task.as_mut(),
+    )
+    .await;
 
     match response {
         Ok(Ok(reply)) => Ok(format!(
@@ -424,22 +433,34 @@ pub(crate) async fn tool_sessions_send(
             "Message delivered to session [{}], but agent execution failed: {}",
             target_session_id, e,
         )),
-        Err(_) => Ok(format!(
-            "Message delivered to session [{}], but agent did not respond within {} seconds.",
-            target_session_id, timeout_secs,
-        )),
+        Err(_) => {
+            // Keep the future alive long enough for the unified engine to
+            // flush and atomically converge its interrupted journal. Dropping
+            // it at the timeout boundary would leave a recoverable run until
+            // the next process restart even though this process is healthy.
+            cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_secs(5), agent_task.as_mut()).await;
+            Ok(format!(
+                "Message delivered to session [{}], but agent did not respond within {} seconds.",
+                target_session_id, timeout_secs,
+            ))
+        }
     }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-/// Build and run an agent for a target session (used by sessions_send wait mode).
-/// This is similar to cron::build_and_run_agent but with a different system context.
-async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) -> Result<String> {
-    use crate::agent::AssistantAgent;
-    use crate::failover;
+/// Run a target session through the same durable engine as every other
+/// conversation-producing entry. `Box::pin` at the caller breaks the async
+/// recursion (`sessions_send` can itself be invoked by this tool loop).
+async fn run_agent_for_session(
+    agent_id: &str,
+    message: &str,
+    session_id: &str,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<String> {
     use crate::provider;
-    use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
 
     let store = crate::config::cached_config();
@@ -469,127 +490,57 @@ async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) 
         ));
     }
 
-    let mut last_error = String::new();
-    for (idx, model_ref) in model_chain.iter().enumerate() {
-        let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
-            Some(p) => p,
-            None => continue,
-        };
-
-        let model_label = model_ref.to_string();
-        let mut retry_count: u32 = 0;
-
-        loop {
-            let mut agent =
-                match AssistantAgent::try_new_from_provider(prov, &model_ref.model_id).await {
-                    Ok(a) => a.with_failover_context(prov),
-                    Err(e) => {
-                        last_error = e.to_string();
-                        let reason = failover::classify_error(&last_error);
-                        if reason.is_retryable() && retry_count < 2 {
-                            retry_count += 1;
-                            let delay = failover::retry_delay_ms(retry_count - 1, 1000, 10_000);
-                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                            continue;
-                        }
-                        app_warn!(
-                            "tool",
-                            "sessions_send",
-                            "Build agent failed for {}, trying next model: {}",
-                            model_label,
-                            last_error
-                        );
-                        break;
-                    }
-                };
-            agent.set_agent_id(agent_id);
-            agent.set_session_id(session_id);
-            agent.set_extra_system_context(
+    let agent_def = crate::agent_loader::load_agent(agent_id).ok();
+    let result = Box::pin(crate::chat_engine::run_chat_engine(
+        crate::chat_engine::ChatEngineParams {
+            session_id: session_id.to_string(),
+            agent_id: agent_id.to_string(),
+            turn_id: None,
+            message: message.to_string(),
+            display_text: None,
+            attachments: Vec::new(),
+            session_db: crate::get_session_db()
+                .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?
+                .clone(),
+            model_chain,
+            providers: store.providers.clone(),
+            codex_token: None,
+            resolved_temperature: agent_def
+                .as_ref()
+                .and_then(|definition| definition.config.model.temperature)
+                .or(store.temperature),
+            compact_config: store.compact.clone(),
+            extra_system_context: Some(
                 "## Execution Context\n\
                  You are responding to a cross-session message. Another agent or session sent you this message.\n\
-                 - Respond concisely and directly to the message content.\n\
-                 - This is an isolated execution with no prior conversation history."
-                .to_string()
-            );
-
-            let cancel = Arc::new(AtomicBool::new(false));
-            let started = std::time::Instant::now();
-            let captured_usage: Arc<std::sync::Mutex<crate::chat_engine::CapturedUsage>> =
-                Arc::new(std::sync::Mutex::new(Default::default()));
-            let captured_usage_for_cb = captured_usage.clone();
-            match agent
-                .chat(message, &[], None, cancel, move |delta| {
-                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-                        if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
-                            if let Ok(mut usage) = captured_usage_for_cb.lock() {
-                                usage.absorb_event(&event);
-                            }
-                        }
-                    }
-                })
-                .await
-            {
-                Ok((response, _thinking)) => {
-                    if let Ok(usage) = captured_usage.lock() {
-                        let mut event =
-                            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT)
-                                .with_usage(
-                                    usage.input_tokens.unwrap_or(0) as u64,
-                                    usage.output_tokens.unwrap_or(0) as u64,
-                                    usage.cache_creation_input_tokens.unwrap_or(0) as u64,
-                                    usage.cache_read_input_tokens.unwrap_or(0) as u64,
-                                );
-                        event.operation = Some("chat.session_send".to_string());
-                        event.source = Some("tool".to_string());
-                        event.provider_id = Some(model_ref.provider_id.clone());
-                        event.provider_name = Some(prov.name.clone());
-                        event.model_id = Some(
-                            usage
-                                .model
-                                .clone()
-                                .unwrap_or_else(|| model_ref.model_id.clone()),
-                        );
-                        event.session_id = Some(session_id.to_string());
-                        event.agent_id = Some(agent_id.to_string());
-                        event.duration_ms = Some(started.elapsed().as_millis() as u64);
-                        event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
-                        crate::model_usage::record_model_usage_best_effort(event);
-                    }
-                    if idx > 0 {
-                        app_info!(
-                            "tool",
-                            "sessions_send",
-                            "Fallback model {} succeeded",
-                            model_label
-                        );
-                    }
-                    return Ok(response);
-                }
-                Err(e) => {
-                    last_error = e.to_string();
-                    let reason = failover::classify_error(&last_error);
-
-                    if reason.is_terminal() {
-                        return Err(anyhow::anyhow!("{}", last_error));
-                    }
-
-                    if reason.is_retryable() && retry_count < 2 {
-                        retry_count += 1;
-                        let delay = failover::retry_delay_ms(retry_count - 1, 1000, 10_000);
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                        continue;
-                    }
-
-                    break;
-                }
-            }
-        }
-    }
-
-    Err(anyhow::anyhow!(
-        "All models failed. Last error: {}",
-        last_error
+                 - Respond concisely and directly to the message content."
+                    .to_string(),
+            ),
+            reasoning_effort: agent_def
+                .as_ref()
+                .and_then(|definition| definition.config.model.reasoning_effort.clone())
+                .or(crate::agent::live_reasoning_effort(None).await),
+            cancel,
+            plan_context_override: None,
+            skill_allowed_tools: Vec::new(),
+            denied_tools: Vec::new(),
+            tool_scope: None,
+            subagent_depth: 0,
+            steer_run_id: None,
+            auto_approve_tools: false,
+            follow_global_reasoning_effort: false,
+            post_turn_effects: false,
+            abort_on_cancel: false,
+            persist_final_error_event: true,
+            source: crate::chat_engine::ChatSource::Subagent,
+            origin_source: None,
+            channel_kb_context: None,
+            event_sink: Arc::new(crate::chat_engine::NoopEventSink),
+        },
     ))
+    .await
+    .map_err(anyhow::Error::msg)?;
+    Ok(result.response)
 }
 
 fn truncate_str(s: &str, max: usize) -> &str {

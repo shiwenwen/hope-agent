@@ -455,6 +455,11 @@ pub struct SessionMessage {
     /// treated as `completed` by readers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_status: Option<String>,
+    /// Durable stream run that materialized this row. Exposed additively so a
+    /// reload handshake can replace the current run's checkpoint projection
+    /// with its authoritative journal snapshot without duplicate rendering.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persistence_run_id: Option<String>,
 }
 
 // ── NewMessage (for inserting) ───────────────────────────────────
@@ -495,6 +500,12 @@ pub struct NewMessage {
     /// Durable queue id that produced this user row. A partial unique index
     /// makes queue recovery exactly-once across process crashes.
     pub queue_request_id: Option<String>,
+    /// Internal durability run which materialized this row. `None` for legacy
+    /// and non-streaming writes.
+    pub persistence_run_id: Option<String>,
+    /// Stable logical block sequence within `persistence_run_id`. Together
+    /// with the run id this is an idempotency key for crash replay.
+    pub logical_block_seq: Option<i64>,
 }
 
 impl NewMessage {
@@ -524,6 +535,8 @@ impl NewMessage {
             stream_status: None,
             source: None,
             queue_request_id: None,
+            persistence_run_id: None,
+            logical_block_seq: None,
         }
     }
 
@@ -553,6 +566,8 @@ impl NewMessage {
             stream_status: None,
             source: None,
             queue_request_id: None,
+            persistence_run_id: None,
+            logical_block_seq: None,
         }
     }
 
@@ -594,6 +609,8 @@ impl NewMessage {
             stream_status: Some("streaming".to_string()),
             source: None,
             queue_request_id: None,
+            persistence_run_id: None,
+            logical_block_seq: None,
         }
     }
 
@@ -623,6 +640,8 @@ impl NewMessage {
             stream_status: None,
             source: None,
             queue_request_id: None,
+            persistence_run_id: None,
+            logical_block_seq: None,
         }
     }
 
@@ -657,6 +676,8 @@ impl NewMessage {
             stream_status: None,
             source: None,
             queue_request_id: None,
+            persistence_run_id: None,
+            logical_block_seq: None,
         }
     }
 
@@ -686,6 +707,8 @@ impl NewMessage {
             stream_status: None,
             source: None,
             queue_request_id: None,
+            persistence_run_id: None,
+            logical_block_seq: None,
         }
     }
 

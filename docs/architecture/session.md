@@ -162,6 +162,8 @@ CREATE TABLE sessions (
     created_at               TEXT NOT NULL,
     updated_at               TEXT NOT NULL,
     context_json             TEXT,                            -- Agent conversation_history 快照
+    context_revision         INTEGER NOT NULL DEFAULT 0,      -- 上下文 CAS revision
+    context_run_id           TEXT,                            -- 最近一次成功写 context 的 persistence run
     last_read_message_id     INTEGER DEFAULT 0,
     is_cron                  INTEGER NOT NULL DEFAULT 0,
     parent_session_id        TEXT,
@@ -203,7 +205,55 @@ CREATE TABLE messages (
     tool_metadata            TEXT,                            -- JSON: 工具结构化副输出（diff/before-after）
     stream_status            TEXT,                            -- streaming/completed/orphaned，NULL 视为 completed
     queue_request_id         TEXT,                            -- 持久发送队列 exactly-once 幂等键（partial unique）
+    persistence_run_id       TEXT,                            -- durable stream 物化来源
+    logical_block_seq        INTEGER,                         -- run 内逻辑块序号（重放幂等）
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+-- 追加式流运行与尝试状态
+CREATE TABLE chat_stream_runs (
+    run_id                   TEXT PRIMARY KEY,
+    session_id               TEXT NOT NULL,
+    source                   TEXT NOT NULL,
+    stream_id                TEXT,
+    turn_id                  TEXT,
+    status                   TEXT NOT NULL,
+    accepted_seq             INTEGER NOT NULL DEFAULT 0,
+    durable_seq              INTEGER NOT NULL DEFAULT 0,
+    checkpoint_seq           INTEGER NOT NULL DEFAULT 0,
+    committed_seq            INTEGER NOT NULL DEFAULT 0,
+    provider_shape           TEXT,
+    started_at               TEXT NOT NULL,
+    ended_at                 TEXT,
+    error                    TEXT
+);
+
+CREATE TABLE chat_stream_attempts (
+    run_id                   TEXT NOT NULL,
+    attempt_no               INTEGER NOT NULL,
+    provider_id              TEXT,
+    model_id                 TEXT,
+    provider_shape           TEXT,
+    status                   TEXT NOT NULL,
+    accepted_seq             INTEGER NOT NULL DEFAULT 0,
+    durable_seq              INTEGER NOT NULL DEFAULT 0,
+    checkpoint_seq           INTEGER NOT NULL DEFAULT 0,
+    started_at               TEXT NOT NULL,
+    ended_at                 TEXT,
+    error                    TEXT,
+    PRIMARY KEY (run_id, attempt_no)
+);
+
+CREATE TABLE chat_stream_journal (
+    run_id                   TEXT NOT NULL,
+    attempt_no               INTEGER NOT NULL,
+    block_no                 INTEGER NOT NULL,
+    seq_start                INTEGER NOT NULL,
+    seq_end                  INTEGER NOT NULL,
+    checksum                 TEXT NOT NULL,
+    payload                  BLOB NOT NULL,
+    created_at               TEXT NOT NULL,
+    PRIMARY KEY (run_id, attempt_no, block_no)
 );
 
 -- 忙时用户消息持久队列（UI 只保存投影）
@@ -227,14 +277,17 @@ CREATE TABLE queued_turn_user_messages (
 );
 ```
 
-`stream_status` 取值：
+`stream_status` 仅是一个 minor 的旧版本读取/恢复兼容字段，新流不再创建 placeholder：
 
-- `streaming` — 当前正在被一个活跃的 `StreamPersister` 节流写入，placeholder 行
+- `streaming` — 旧版本中由 `StreamPersister` 节流写入的 placeholder 行
 - `completed` — 流式块已 finalize，content 是最终内容
 - `orphaned` — 启动扫尾把上次崩溃残留的 `streaming` 行批量改成此状态；前端按"上次未完成"渲染
 - `NULL` — 旧版本数据库残留，所有 reader 视为 `completed`
 
-详见 [`chat-engine.md` Round-level Persistence & Crash Recovery](chat-engine.md#round-level-persistence--crash-recovery)。
+新流以 `chat_stream_*` journal + spool 为崩溃真相源，详见
+[`chat-engine.md` Durable Stream Coordinator](chat-engine.md#durable-stream-coordinator)。
+`load_context_with_revision` + `save_context_at_revision` 是运行时上下文写入协议；兼容
+`save_context` 也会先读取 revision 再 CAS，冲突返回错误，任何入口都不得盲写覆盖。
 
 ### 索引
 
@@ -246,6 +299,9 @@ CREATE INDEX idx_sessions_project_id  ON sessions(project_id);
 -- 部分索引：仅覆盖 streaming 行，让 mark_orphaned_streaming_rows() 启动扫尾走 O(streaming-count)
 CREATE INDEX idx_messages_stream_active
   ON messages(session_id, stream_status) WHERE stream_status = 'streaming';
+CREATE UNIQUE INDEX idx_messages_persistence_block
+  ON messages(persistence_run_id, logical_block_seq)
+  WHERE persistence_run_id IS NOT NULL AND logical_block_seq IS NOT NULL;
 ```
 
 ### FTS5 全文搜索
@@ -392,10 +448,16 @@ DELETE FROM acp_runs                  WHERE parent_session_id = ?;
 
 | 方法 | 说明 |
 |---|---|
-| `save_context(session_id, context_json)` | 保存 Agent 的 `conversation_history` JSON |
-| `load_context(session_id)` | 加载上下文 JSON（无则返回 None） |
+| `load_context_with_revision(session_id)` | 加载 Agent context 与当前 CAS revision |
+| `save_context_at_revision(session_id, context_json, run_id, expected_revision)` | 仅 revision 匹配时更新并递增；旧快照 fail closed |
+| `checkpoint_stream_context(...)` | 同一事务物化 durable journal 前缀并 CAS 更新中间 context |
+| `commit_assistant_turn(...)` | 最终 assistant/context/turn/usage/run 的原子成功提交 |
+| `commit_interrupted_turn(...)` | 最大合法前缀/context/turn/run 的原子中断或恢复提交 |
+| `load_context(session_id)` | 兼容读取上下文 JSON（无则返回 None） |
 
-上下文以 `Vec<serde_json::Value>` 序列化为 JSON 字符串，存储在 `sessions.context_json` 列。Chat Engine 在每次请求开始时调用 `restore_agent_context()` 恢复，请求结束后调用 `save_agent_context()` 持久化。
+上下文以 `Vec<serde_json::Value>` 序列化为 JSON 字符串，存储在
+`sessions.context_json`。运行时 chat/tool-loop 写入必须使用 revision CAS；旧的无条件
+`save_context` 只保留兼容/测试用途，不能用于新对话入口。
 
 ### Plan Mode 崩溃恢复
 

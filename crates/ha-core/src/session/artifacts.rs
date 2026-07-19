@@ -590,6 +590,7 @@ mod tests {
             tokens_cache_read: None,
             tool_metadata: tool_metadata.map(str::to_string),
             stream_status: None,
+            persistence_run_id: None,
         }
     }
 

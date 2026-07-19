@@ -284,3 +284,47 @@ describe("handleStreamEvent context compaction notices", () => {
     expect(data.messages_affected).toBe(9)
   })
 })
+
+describe("handleStreamEvent durable attempt replacement", () => {
+  test("discards the superseded tail before replaying the replacement attempt", () => {
+    const messagesRef = {
+      current: [
+        { role: "user", content: "continue" },
+        {
+          role: "assistant",
+          content: "failed attempt",
+          thinking: "old thought",
+          contentBlocks: [{ type: "text", content: "failed attempt" }],
+          toolCalls: [{ callId: "old", name: "read_file", arguments: "{}" }],
+          usage: { inputTokens: 12 },
+        },
+      ] satisfies Message[],
+    }
+    const deps = createDeps(messagesRef)
+    deps.deltaBuffersRef.current.pending.set("s1", {
+      text: "not-yet-rendered old bytes",
+      thinking: "",
+    })
+
+    const handled = handleStreamEvent(
+      {
+        type: "stream_attempt_started",
+        attempt_no: 2,
+        reset_superseded: true,
+      },
+      "s1",
+      deps,
+    )
+
+    expect(handled).toBe(true)
+    expect(deps.deltaBuffersRef.current.pending.has("s1")).toBe(false)
+    expect(messagesRef.current[1]).toMatchObject({
+      role: "assistant",
+      content: "",
+    })
+    expect(messagesRef.current[1].thinking).toBeUndefined()
+    expect(messagesRef.current[1].contentBlocks).toBeUndefined()
+    expect(messagesRef.current[1].toolCalls).toBeUndefined()
+    expect(messagesRef.current[1].usage).toBeUndefined()
+  })
+})

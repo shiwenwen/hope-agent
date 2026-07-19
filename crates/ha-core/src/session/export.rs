@@ -477,6 +477,7 @@ mod tests {
                 tokens_cache_read: None,
                 tool_metadata: None,
                 stream_status: None,
+                persistence_run_id: None,
             },
             SessionMessage {
                 id: 2,
@@ -502,6 +503,7 @@ mod tests {
                 tokens_cache_read: None,
                 tool_metadata: None,
                 stream_status: None,
+                persistence_run_id: None,
             },
             SessionMessage {
                 id: 3,
@@ -527,6 +529,7 @@ mod tests {
                 tokens_cache_read: None,
                 tool_metadata: None,
                 stream_status: None,
+                persistence_run_id: None,
             },
             SessionMessage {
                 id: 4,
@@ -552,6 +555,7 @@ mod tests {
                 tokens_cache_read: None,
                 tool_metadata: None,
                 stream_status: None,
+                persistence_run_id: None,
             },
         ]
     }
@@ -710,6 +714,7 @@ mod tests {
             tokens_cache_read: None,
             tool_metadata: None,
             stream_status: None,
+            persistence_run_id: None,
         });
 
         let html = to_html(

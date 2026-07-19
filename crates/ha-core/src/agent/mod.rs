@@ -386,6 +386,7 @@ impl AssistantAgent {
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
             session_db: None,
+            turn_durability: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
             chat_source: None,
@@ -457,6 +458,7 @@ impl AssistantAgent {
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
             session_db: None,
+            turn_durability: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
             chat_source: None,
@@ -653,6 +655,7 @@ impl AssistantAgent {
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
             session_db: None,
+            turn_durability: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
             chat_source: None,
@@ -858,6 +861,23 @@ impl AssistantAgent {
             .unwrap_or_else(|e| e.into_inner()) = None;
         if self.session_id.is_some() {
             self.refresh_incognito_cache();
+        }
+    }
+
+    pub(crate) fn set_turn_durability(
+        &mut self,
+        sink: Arc<dyn crate::turn_durability::TurnDurabilitySink>,
+    ) {
+        self.turn_durability = Some(sink);
+    }
+
+    pub(crate) async fn flush_turn_durability(
+        &self,
+        reason: crate::turn_durability::FlushReason,
+    ) -> anyhow::Result<u64> {
+        match self.turn_durability.as_ref() {
+            Some(sink) => sink.flush(reason).await,
+            None => Ok(0),
         }
     }
 

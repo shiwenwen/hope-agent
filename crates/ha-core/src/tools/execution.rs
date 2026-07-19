@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{oneshot, Mutex as AsyncMutex, Notify};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
@@ -46,6 +46,54 @@ use super::{
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
+
+pub(crate) struct EffectiveArgsUpdate {
+    pub(crate) value: Value,
+    pub(crate) acknowledged: oneshot::Sender<std::result::Result<(), String>>,
+}
+
+/// Per-dispatch rendezvous used to stop a tool between `PreToolUse` argument
+/// rewriting and the first permission/side-effecting operation. The streaming
+/// orchestrator journals the effective arguments, crosses a durability barrier,
+/// and only then acknowledges the update so dispatch may continue.
+#[derive(Default)]
+#[doc(hidden)]
+pub struct EffectiveArgsSink {
+    pending: AsyncMutex<Option<EffectiveArgsUpdate>>,
+    changed: Notify,
+}
+
+impl std::fmt::Debug for EffectiveArgsSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EffectiveArgsSink").finish_non_exhaustive()
+    }
+}
+
+impl EffectiveArgsSink {
+    async fn publish_and_wait(&self, value: Value) -> anyhow::Result<()> {
+        let (acknowledged, wait) = oneshot::channel();
+        *self.pending.lock().await = Some(EffectiveArgsUpdate {
+            value,
+            acknowledged,
+        });
+        self.changed.notify_one();
+        match wait.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => anyhow::bail!(error),
+            Err(_) => anyhow::bail!("effective tool arguments were not acknowledged"),
+        }
+    }
+
+    pub(crate) async fn next(&self) -> EffectiveArgsUpdate {
+        loop {
+            let changed = self.changed.notified();
+            if let Some(update) = self.pending.lock().await.take() {
+                return update;
+            }
+            changed.await;
+        }
+    }
+}
 
 /// Single entry point that builds a [`permission::engine::ResolveContext`]
 /// from a [`ToolExecContext`] and runs `engine::resolve_async`. Both
@@ -376,16 +424,12 @@ pub struct ToolExecContext {
     /// constructs a single sink and shares it only with the helpers it spawns
     /// for that dispatch — exactly the pattern the rule allows.
     pub metadata_sink: Option<Arc<AsyncMutex<Option<Value>>>>,
-    /// Per-dispatch sink for the *effective* tool arguments — populated by
-    /// [`execute_tool_with_context`] when a `PreToolUse` hook rewrites the
-    /// input via `updatedInput`. Same lifecycle as `metadata_sink`: the
-    /// orchestrator constructs the `Arc<Mutex<None>>` per dispatch, clones it
-    /// into the local context, and drains it after the tool returns so the
-    /// caller can surface the rewrite through the UI / persisted history /
-    /// `PostToolUse` hook input. None ⇒ no rewrite occurred (or the caller
-    /// doesn't care; the regular non-orchestrator callers of
-    /// `execute_tool_with_context` leave it `None`).
-    pub effective_args_sink: Option<Arc<AsyncMutex<Option<Value>>>>,
+    /// Per-dispatch handshake for *effective* tool arguments. When
+    /// `PreToolUse` (or exec migration) rewrites input, dispatch pauses here
+    /// until the streaming orchestrator has journaled the rewrite and crossed
+    /// a durability barrier. `None` keeps non-chat/direct callers unchanged.
+    #[doc(hidden)]
+    pub effective_args_sink: Option<Arc<EffectiveArgsSink>>,
     /// Callback to record the OS pid of a tool's spawned child process (e.g.
     /// `exec`'s shell child) into the owning async-job row, so a crash/restart
     /// can detect and terminate orphaned process trees (I3). Set by
@@ -723,10 +767,11 @@ impl ToolExecContext {
     /// Push the effective (post-`PreToolUse` rewrite) tool arguments into the
     /// per-dispatch sink. Called once at most, only when `updatedInput`
     /// shadowed the model's args. No-op when no sink is wired up.
-    pub(crate) async fn emit_effective_args(&self, value: Value) {
+    pub(crate) async fn emit_effective_args(&self, value: Value) -> anyhow::Result<()> {
         if let Some(sink) = &self.effective_args_sink {
-            *sink.lock().await = Some(value);
+            sink.publish_and_wait(value).await?;
         }
+        Ok(())
     }
 
     /// Best-effort: tell any open file-browser view that a file under this
@@ -1448,7 +1493,7 @@ pub async fn execute_tool_with_context(
                     // sink is None for non-orchestrator callers
                     // (`execute_tool` direct path, async-job re-entry, slash
                     // commands), so this is free for them.
-                    ctx.emit_effective_args(ui.clone()).await;
+                    ctx.emit_effective_args(ui.clone()).await?;
                 }
                 updated_input
             }
@@ -1477,7 +1522,7 @@ pub async fn execute_tool_with_context(
             "exec",
             "Migrating legacy exec background/yield_ms request to async job dispatch"
         );
-        ctx.emit_effective_args(migrated.clone()).await;
+        ctx.emit_effective_args(migrated.clone()).await?;
     }
     let args: &Value = migrated_exec_args_holder.as_ref().unwrap_or(args);
 
@@ -2448,7 +2493,7 @@ mod tests {
         mcp_server_auto_approves_config, migrate_exec_process_mode_to_async_job_args,
         needs_permission_engine, should_migrate_exec_process_mode_to_async_job_with_config,
         should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
-        AsyncDecision, JobOrigin, SessionDbHandle, ToolExecContext,
+        AsyncDecision, EffectiveArgsSink, JobOrigin, SessionDbHandle, ToolExecContext,
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
@@ -3202,25 +3247,32 @@ export default async function main(workflow) {
     #[tokio::test]
     async fn effective_args_sink_emits_only_when_wired() {
         use std::sync::Arc;
-        use tokio::sync::Mutex as AsyncMutex;
 
-        // Wired sink: emit populates it.
-        let sink = Arc::new(AsyncMutex::new(None));
+        // Wired sink: publishing waits until the orchestrator durably
+        // acknowledges the rewritten input.
+        let sink = Arc::new(EffectiveArgsSink::default());
         let ctx = ToolExecContext {
             effective_args_sink: Some(sink.clone()),
             ..ToolExecContext::default()
         };
-        ctx.emit_effective_args(json!({ "command": "echo safe" }))
-            .await;
-        let drained = sink.lock().await.take();
-        assert_eq!(
-            drained.as_ref().and_then(|v| v.get("command")),
-            Some(&json!("echo safe")),
+        let publish = tokio::spawn(async move {
+            ctx.emit_effective_args(json!({ "command": "echo safe" }))
+                .await
+        });
+        let update = sink.next().await;
+        assert!(
+            !publish.is_finished(),
+            "dispatch must remain paused before the durability acknowledgement"
         );
+        assert_eq!(update.value.get("command"), Some(&json!("echo safe")),);
+        let _ = update.acknowledged.send(Ok(()));
+        publish.await.unwrap().unwrap();
 
         // No sink: emit is a no-op (no panic, nothing observable changes).
         let bare = ToolExecContext::default();
-        bare.emit_effective_args(json!({ "ignored": true })).await;
+        bare.emit_effective_args(json!({ "ignored": true }))
+            .await
+            .unwrap();
         // No assertion needed beyond "did not panic" — the bare context has
         // no sink to inspect.
     }

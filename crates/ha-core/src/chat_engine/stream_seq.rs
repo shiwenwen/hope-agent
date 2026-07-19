@@ -42,6 +42,8 @@ pub enum ChatSource {
     /// cap). Distinct from `Channel` so KB access is granted via the owner bucket
     /// rather than being denied by the WS8 IM gate.
     Cron,
+    /// Agent Client Protocol stdio session.
+    Acp,
 }
 
 impl ChatSource {
@@ -77,7 +79,12 @@ impl ChatSource {
     pub fn tracks_seq(&self) -> bool {
         matches!(
             self,
-            Self::Desktop | Self::Http | Self::Channel | Self::ParentInjection | Self::Cron
+            Self::Desktop
+                | Self::Http
+                | Self::Channel
+                | Self::ParentInjection
+                | Self::Cron
+                | Self::Acp
         )
     }
 
@@ -133,6 +140,7 @@ impl ChatSource {
             Self::Subagent => "subagent",
             Self::ParentInjection => "parent_injection",
             Self::Cron => "cron",
+            Self::Acp => "acp",
         }
     }
 
@@ -148,6 +156,7 @@ impl ChatSource {
             "subagent" => Self::Subagent,
             "parent_injection" => Self::ParentInjection,
             "cron" => Self::Cron,
+            "acp" => Self::Acp,
             _ => Self::Desktop,
         }
     }
@@ -162,6 +171,7 @@ impl fmt::Display for ChatSource {
             Self::Subagent => "subagent",
             Self::ParentInjection => "parent_injection",
             Self::Cron => "cron",
+            Self::Acp => "acp",
         })
     }
 }
@@ -320,7 +330,10 @@ pub fn active_counts() -> ActiveChatCounts {
             // a scheduled run is not an IM channel turn (this struct has no cron
             // bucket yet — add one here + in `ActiveChatCounts` if the status UI
             // grows a dedicated cron source).
-            ChatSource::Subagent | ChatSource::ParentInjection | ChatSource::Cron => {}
+            ChatSource::Subagent
+            | ChatSource::ParentInjection
+            | ChatSource::Cron
+            | ChatSource::Acp => {}
         }
     }
     out.total = out.desktop + out.http + out.channel;

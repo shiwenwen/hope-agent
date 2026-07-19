@@ -1314,6 +1314,18 @@ pub async fn get_session_stream_state(
     Ok(Json(ha_core::chat_engine::session_stream_state(&id)))
 }
 
+pub async fn get_session_stream_snapshot(
+    Path(id): Path<String>,
+) -> Result<Json<Option<ha_core::chat_engine::SessionStreamSnapshot>>, AppError> {
+    let snapshot =
+        tokio::task::spawn_blocking(move || ha_core::chat_engine::session_stream_snapshot(&id))
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("stream snapshot task failed: {error}"))
+            })??;
+    Ok(Json(snapshot))
+}
+
 // ── Read-state / Compact ───────────────────────────────────────
 
 #[derive(Debug, Deserialize)]

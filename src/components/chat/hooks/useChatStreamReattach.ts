@@ -8,6 +8,7 @@ import {
   createStreamDeltaBuffers,
   discardAllPendingStreamDeltas,
   discardPendingStreamDeltas,
+  flushPendingStreamDeltas,
   handleStreamEvent,
   streamCursorKey,
   streamIdFromPayload,
@@ -63,6 +64,10 @@ export interface UseChatStreamReattachDeps {
 export interface SessionStreamState {
   active: boolean
   lastSeq: number
+  acceptedSeq: number
+  durableSeq: number
+  committedSeq: number
+  persistenceRunId?: string | null
   streamId?: string | null
   turnId?: string | null
   status?: ChatTurnStatus | null
@@ -83,6 +88,28 @@ interface StreamEndPayload {
   turnId?: string | null
   status?: ChatTurnStatus | null
   interruptReason?: ChatTurnInterruptReason | null
+  finalSeq?: number
+  durableSeq?: number
+  assistantMessageId?: number | null
+  persistenceStatus?: "committed" | "recovered" | "pending"
+}
+
+interface SessionStreamSnapshot {
+  sessionId: string
+  streamId?: string | null
+  turnId?: string | null
+  persistenceRunId: string
+  throughSeq: number
+  durableSeq: number
+  committedSeq: number
+  status: string
+  events: Array<{ seq: number; event: string }>
+}
+
+interface SnapshotHandshake {
+  deltas: StreamDeltaPayload[]
+  ended: boolean
+  stagedMessages: Message[] | null
 }
 
 /**
@@ -121,6 +148,30 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
   // hook they are keyed by session so overlapping background streams cannot
   // mix pending text before the rAF flush runs.
   const deltaBuffersRef = useRef(createStreamDeltaBuffers())
+  const snapshotHandshakeRef = useRef(new Map<string, SnapshotHandshake>())
+
+  const applyStreamPayload = (payload: StreamDeltaPayload) => {
+    const sid = payload.sessionId
+    const seq = payload.seq
+    if (payload.streamId && endedStreamIdsRef.current.get(sid) === payload.streamId) return
+    const cursorKey = streamCursorKey(sid, payload.streamId)
+    const prev = lastSeqRef.current.get(cursorKey) ?? 0
+    if (seq <= prev) return
+    lastSeqRef.current.set(cursorKey, seq)
+
+    let event: Record<string, unknown>
+    try {
+      event = JSON.parse(payload.event) as Record<string, unknown>
+    } catch (e) {
+      logger.warn("chat", "useChatStreamReattach::parse", "Failed to parse bus event", e)
+      return
+    }
+    handleStreamEvent(event, sid, {
+      updateSessionMessages,
+      deltaBuffersRef,
+      setShowCodexAuthExpired,
+    })
+  }
 
   useEffect(() => {
     const unlisten = getTransport().listen(EVENT_CHAT_TURN_STARTED, (raw) => {
@@ -137,26 +188,12 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       if (!payload?.sessionId || typeof payload.seq !== "number") return
 
       const sid = payload.sessionId
-      const seq = payload.seq
-      if (payload.streamId && endedStreamIdsRef.current.get(sid) === payload.streamId) return
-      const cursorKey = streamCursorKey(sid, payload.streamId)
-      const prev = lastSeqRef.current.get(cursorKey) ?? 0
-      if (seq <= prev) return // already handled via primary path
-      lastSeqRef.current.set(cursorKey, seq)
-
-      let event: Record<string, unknown>
-      try {
-        event = JSON.parse(payload.event) as Record<string, unknown>
-      } catch (e) {
-        logger.warn("chat", "useChatStreamReattach::parse", "Failed to parse bus event", e)
+      const handshake = snapshotHandshakeRef.current.get(sid)
+      if (handshake) {
+        handshake.deltas.push(payload)
         return
       }
-
-      handleStreamEvent(event, sid, {
-        updateSessionMessages,
-        deltaBuffersRef,
-        setShowCodexAuthExpired,
-      })
+      applyStreamPayload(payload)
     })
     return () => {
       unlisten()
@@ -165,17 +202,46 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Seeds lastSeqRef from the backend's cursor on session switch so events
-  // already reflected in the DB snapshot we loaded are skipped.
+  // Durable snapshot handshake: listeners are registered first, incoming
+  // frames are buffered while DB + journal snapshots load, then the durable
+  // prefix is replayed before frames newer than `throughSeq`.
   useEffect(() => {
     if (!currentSessionId) return
     const sid = currentSessionId
     let cancelled = false
-    getTransport()
-      .call<SessionStreamState>("get_session_stream_state", { sessionId: sid })
-      .then((state) => {
-        if (cancelled) return
+    const handshakeRegistry = snapshotHandshakeRef.current
+    const handshake: SnapshotHandshake = {
+      deltas: [],
+      ended: false,
+      stagedMessages: null,
+    }
+    handshakeRegistry.set(sid, handshake)
+    const stagedSessionCacheRef = {
+      current: new Map(sessionCacheRef.current),
+    }
+    const stageMessages: React.Dispatch<React.SetStateAction<Message[]>> = (value) => {
+      const previous = handshake.stagedMessages ?? stagedSessionCacheRef.current.get(sid) ?? []
+      handshake.stagedMessages = typeof value === "function" ? value(previous) : value
+    }
+    Promise.all([
+      getTransport().call<SessionStreamState>("get_session_stream_state", { sessionId: sid }),
+      getTransport().call<SessionStreamSnapshot | null>("get_session_stream_snapshot", {
+        sessionId: sid,
+      }),
+      reloadAndMergeSessionMessages({
+        sessionId: sid,
+        pageSize: PAGE_SIZE,
+        sessionCacheRef: stagedSessionCacheRef,
+        setMessages: stageMessages,
+      }),
+    ])
+      .then(([state, snapshot]) => {
+        if (cancelled || handshake.ended) return
         if (!state) return
+        if (handshake.stagedMessages) {
+          sessionCacheRef.current.set(sid, handshake.stagedMessages)
+          setMessages(handshake.stagedMessages)
+        }
         if (state.turnId && state.active) {
           onTurnStarted?.(sid, state.turnId)
         } else {
@@ -185,13 +251,70 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
             state.interruptReason ?? null,
           )
         }
-        if (!state.active) return
-        const streamId = state.streamId || undefined
-        if (streamId) endedStreamIdsRef.current.delete(sid)
-        const cursorKey = streamCursorKey(sid, streamId)
-        if (!lastSeqRef.current.has(cursorKey)) {
-          lastSeqRef.current.set(cursorKey, Number(state.lastSeq) || 0)
+        const streamId = snapshot?.streamId || state.streamId || undefined
+        if (snapshot) {
+          if (streamId) endedStreamIdsRef.current.delete(sid)
+          const cursorKey = streamCursorKey(sid, streamId)
+          // DB snapshot can lag accepted memory state. Rebuild from the
+          // journal prefix instead of jumping to `lastSeq`.
+          lastSeqRef.current.set(cursorKey, 0)
+          const snapshotIsLive = snapshot.status === "running"
+          if (snapshotIsLive) {
+            // Replace, rather than append to, any pre-reload transient tail.
+            // A cold reload has no optimistic placeholder, so create one
+            // before replaying the full durable prefix.
+            updateSessionMessages(sid, (prev) => {
+              // Round checkpoints materialize query-friendly rows before the
+              // run is terminal. The journal snapshot is authoritative for
+              // that same run, so remove its DB projection before replaying;
+              // otherwise text/tool blocks render twice after reload.
+              const canonical = prev.filter(
+                (message) => message.persistenceRunId !== snapshot.persistenceRunId,
+              )
+              const last = canonical[canonical.length - 1]
+              const placeholder: Message = {
+                role: "assistant",
+                content: "",
+                timestamp: new Date().toISOString(),
+                _clientId: `durable-stream:${snapshot.persistenceRunId}`,
+              }
+              if (!last || last.role !== "assistant" || typeof last.dbId === "number") {
+                return [...canonical, placeholder]
+              }
+              const updated = [...canonical]
+              updated[updated.length - 1] = { ...last, ...placeholder }
+              return updated
+            })
+            for (const durableEvent of snapshot.events) {
+              applyStreamPayload({
+                sessionId: sid,
+                streamId,
+                seq: durableEvent.seq,
+                event: durableEvent.event,
+              })
+            }
+          }
+          // A committed/recovered run is already represented by canonical DB
+          // rows loaded above. Replaying its journal would duplicate content.
+          lastSeqRef.current.set(cursorKey, Number(snapshot.throughSeq) || 0)
+          if (handshakeRegistry.get(sid) === handshake) {
+            handshakeRegistry.delete(sid)
+          }
+          handshake.deltas
+            .filter((event) => event.seq > snapshot.throughSeq)
+            .sort((a, b) => a.seq - b.seq)
+            .forEach(applyStreamPayload)
+        } else {
+          // Legacy/no-run fallback: only durableSeq is safe to skip. Never
+          // jump to acceptedSeq because the DB may not contain that tail.
+          const cursorKey = streamCursorKey(sid, streamId)
+          lastSeqRef.current.set(cursorKey, Number(state.durableSeq) || 0)
+          if (handshakeRegistry.get(sid) === handshake) {
+            handshakeRegistry.delete(sid)
+          }
+          handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
         }
+        if (!state.active) return
         if (!loadingSessionsRef.current.has(sid)) {
           loadingSessionsRef.current.add(sid)
           setLoadingSessionIds(new Set(loadingSessionsRef.current))
@@ -200,9 +323,20 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       })
       .catch(() => {
         // Older backend without this command — gracefully degrade.
+        if (handshake.ended) return
+        if (handshakeRegistry.get(sid) === handshake) {
+          handshakeRegistry.delete(sid)
+        }
+        handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
       })
     return () => {
       cancelled = true
+      if (handshakeRegistry.get(sid) === handshake) {
+        handshakeRegistry.delete(sid)
+      }
+      if (!handshake.ended) {
+        handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSessionId])
@@ -213,21 +347,63 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       if (!payload?.sessionId) return
       const sid = payload.sessionId
       const streamId = payload.streamId || streamIdFromPayload(raw)
+      const handshake = snapshotHandshakeRef.current.get(sid)
+      if (handshake) {
+        handshake.ended = true
+        snapshotHandshakeRef.current.delete(sid)
+        // A committed/recovered end is reconciled from its atomic DB rows
+        // below. A pending end has no such fallback, so preserve the staged
+        // DB baseline (when ready) and drain every pre-end durable frame now.
+        if (payload.persistenceStatus === "pending") {
+          if (handshake.stagedMessages) {
+            sessionCacheRef.current.set(sid, handshake.stagedMessages)
+            setMessages(handshake.stagedMessages)
+          }
+          updateSessionMessages(sid, (prev) => {
+            const last = prev[prev.length - 1]
+            if (last?.role === "assistant" && typeof last.dbId !== "number") return prev
+            return [
+              ...prev,
+              {
+                role: "assistant",
+                content: "",
+                timestamp: new Date().toISOString(),
+                _clientId: `durable-end:${streamId || sid}`,
+              },
+            ]
+          })
+          handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
+        }
+      }
       if (streamId) endedStreamIdsRef.current.set(sid, streamId)
       onTurnEnded?.(sid, payload.status, payload.interruptReason)
 
+      // The backend deliberately delivers every durable delta before end, but
+      // the most recent frame may still be waiting in our 30fps RAF merge
+      // buffer. Flush it before cleanup; a `pending` persistence end does not
+      // reload DB rows and therefore has no later reconciliation fallback.
+      flushPendingStreamDeltas(
+        sid,
+        { updateSessionMessages, deltaBuffersRef, setShowCodexAuthExpired },
+        true,
+      )
       discardPendingStreamDeltas(sid, deltaBuffersRef)
       loadingSessionsRef.current.delete(sid)
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
 
       if (currentSessionIdRef.current === sid) {
         setLoading(false)
-        reloadAndMergeSessionMessages({
-          sessionId: sid,
-          pageSize: PAGE_SIZE,
-          sessionCacheRef,
-          setMessages,
-        })
+        // A pending/degraded end has no atomic DB materialization yet. Keep
+        // the durable in-memory snapshot visible instead of replacing it with
+        // an older DB window.
+        if (payload.persistenceStatus !== "pending") {
+          reloadAndMergeSessionMessages({
+            sessionId: sid,
+            pageSize: PAGE_SIZE,
+            sessionCacheRef,
+            setMessages,
+          })
+        }
       } else {
         sessionCacheRef.current.delete(sid)
       }

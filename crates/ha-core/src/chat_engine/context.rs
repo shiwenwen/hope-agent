@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::agent::AssistantAgent;
 use crate::context_compact::CompactConfig;
 use crate::provider::{self, ActiveModel, AuthProfile, ProviderConfig};
-use crate::session::{self, SessionDB};
+use crate::session::SessionDB;
 
 // ── Agent Construction ──────────────────────────────────────────────
 
@@ -83,66 +83,6 @@ pub fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &Assi
         return;
     };
     restore_agent_context_from_json(session_id, &json_str, agent);
-}
-
-/// Save the agent's conversation history to DB.
-pub fn save_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &AssistantAgent) {
-    let history = agent.get_conversation_history();
-    if let Ok(json_str) = serde_json::to_string(&history) {
-        let _ = db.save_context(session_id, &json_str);
-    }
-}
-
-// ── Tool-event persistence (streaming callback) ─────────────────────
-
-/// Parse tool_call and tool_result events from the streaming callback and persist to DB.
-pub fn persist_tool_event(
-    db: &Arc<SessionDB>,
-    session_id: &str,
-    source: super::stream_seq::ChatSource,
-    delta: &str,
-) {
-    if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-        match event.get("type").and_then(|t| t.as_str()) {
-            Some("tool_result") => {
-                let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
-                let result = event.get("result").and_then(|v| v.as_str()).unwrap_or("");
-                let duration_ms = event.get("duration_ms").and_then(|v| v.as_i64());
-                let is_error = event
-                    .get("is_error")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let metadata_json: Option<String> = event
-                    .get("tool_metadata")
-                    .filter(|v| !v.is_null())
-                    .and_then(|v| serde_json::to_string(v).ok());
-                let attachments_meta = event
-                    .get("media_items")
-                    .and_then(session::build_tool_media_items_attachments_meta);
-                let _ = db.update_tool_result_with_side_outputs(
-                    session_id,
-                    call_id,
-                    result,
-                    duration_ms,
-                    is_error,
-                    metadata_json.as_deref(),
-                    attachments_meta.as_deref(),
-                );
-            }
-            Some("tool_call") => {
-                let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
-                let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let arguments = event
-                    .get("arguments")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let tool_msg = session::NewMessage::tool(call_id, name, arguments, "", None, false)
-                    .with_source(source);
-                let _ = db.append_message(session_id, &tool_msg);
-            }
-            _ => {}
-        }
-    }
 }
 
 // ── Auto memory extraction scheduling ───────────────────────────────

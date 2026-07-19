@@ -35,6 +35,24 @@ function sessionMessage(patch: Partial<SessionMessage>): SessionMessage {
 }
 
 describe("parseSessionMessages events", () => {
+  test("tags an in-flight checkpoint projection with its persistence run", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({ id: 1, role: "user", content: "question" }),
+      sessionMessage({
+        id: 2,
+        role: "text_block",
+        content: "durable prefix",
+        persistenceRunId: "run-1",
+      }),
+    ])
+
+    expect(parsed.at(-1)).toMatchObject({
+      role: "assistant",
+      persistenceRunId: "run-1",
+      contentBlocks: [{ type: "text", content: "durable prefix" }],
+    })
+  })
+
   test("only collapses duplicate startup recovery events within one user turn", () => {
     const notice = "上次会话异常中断,已保留中断前的内容"
     const parsed = parseSessionMessages([

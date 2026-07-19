@@ -4,7 +4,7 @@ use crate::attachments::MediaItem;
 
 use super::types::ChatUsage;
 
-pub(super) fn emit_event(on_delta: &(impl Fn(&str) + Send), event: &serde_json::Value) {
+pub(super) fn emit_event(on_delta: &(impl Fn(&str) + Send + ?Sized), event: &serde_json::Value) {
     if let Ok(json_str) = serde_json::to_string(event) {
         on_delta(&json_str);
     }
@@ -43,7 +43,7 @@ pub(super) fn emit_tool_call(
 /// pre-rewrite arguments the `tool_call` event delivered moments earlier.
 /// Skipped entirely when no rewrite happened (the common case).
 pub(super) fn emit_tool_call_args_rewritten(
-    on_delta: &(impl Fn(&str) + Send),
+    on_delta: &(impl Fn(&str) + Send + ?Sized),
     call_id: &str,
     arguments: &str,
 ) {
