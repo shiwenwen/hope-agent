@@ -69,7 +69,7 @@ jobs:
         with:
           node-version: 20
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
