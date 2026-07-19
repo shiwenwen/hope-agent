@@ -35,5 +35,5 @@
 ## Fallback path
 
 - Keep unpacked install documented and working for Alpha, development, self-use, and enterprise environments where Web Store install is blocked.
-- Release desktop bundles ship the extension runtime files (with `manifest.key` preserved) as a Tauri resource (`scripts/prepare-chrome-extension.mjs`), so a packaged app can guide the user to Load unpacked from Settings -> Browser without cloning the repo. This is the pre-Web-Store path: the preserved key fixes the unpacked id, which the native host `allowed_origins` is derived from, so the local extension connects without a Web Store id.
+- Release builds embed the extension runtime files (with `manifest.key` preserved) into the binary itself (`ha-core` `browser/extension/embedded.rs`) and mirror them to a stable directory under the data dir, so any packaged or bare-binary install can guide the user to Load unpacked from Settings -> Browser without cloning the repo. This is the pre-Web-Store path: the preserved key fixes the unpacked id, which the native host `allowed_origins` is derived from, so the local extension connects without a Web Store id.
 - Do not distribute `.crx` as a normal user path.

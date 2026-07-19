@@ -19,12 +19,15 @@
 import fs from "node:fs";
 import path from "node:path";
 
+// `extras`: additional executables shipped in the same archive (the
+// native-messaging browser host); `self_contained::install` swaps them next
+// to the main binary so bare-binary upgrades keep the host current too.
 const PLATFORM_MAP = {
-  "macos-arm64": { key: "darwin-aarch64", archive: "tar_gz", binary: "hope-agent" },
-  "macos-x64": { key: "darwin-x86_64", archive: "tar_gz", binary: "hope-agent" },
-  "linux-x64": { key: "linux-x86_64", archive: "tar_gz", binary: "hope-agent" },
-  "linux-arm64": { key: "linux-aarch64", archive: "tar_gz", binary: "hope-agent" },
-  "windows-x64": { key: "windows-x86_64", archive: "zip", binary: "hope-agent.exe" },
+  "macos-arm64": { key: "darwin-aarch64", archive: "tar_gz", binary: "hope-agent", extras: ["ha-browser-host"] },
+  "macos-x64": { key: "darwin-x86_64", archive: "tar_gz", binary: "hope-agent", extras: ["ha-browser-host"] },
+  "linux-x64": { key: "linux-x86_64", archive: "tar_gz", binary: "hope-agent", extras: ["ha-browser-host"] },
+  "linux-arm64": { key: "linux-aarch64", archive: "tar_gz", binary: "hope-agent", extras: ["ha-browser-host"] },
+  "windows-x64": { key: "windows-x86_64", archive: "zip", binary: "hope-agent.exe", extras: ["ha-browser-host.exe"] },
 };
 
 function usage() {
@@ -69,6 +72,7 @@ for (const [platformDir, meta] of Object.entries(PLATFORM_MAP)) {
     signature,
     archive: meta.archive,
     binary_path: meta.binary,
+    extra_binaries: meta.extras,
   };
   console.log(`[patch-latest-json] added bare_binary entry for ${meta.key}`);
 }

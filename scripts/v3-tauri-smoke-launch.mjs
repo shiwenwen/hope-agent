@@ -21,7 +21,6 @@ const devUrl = `http://localhost:${vitePort}`
 const serverBindAddr = `127.0.0.1:${serverPort}`
 const beforeDevCommand = [
   "pnpm dev:browser-host",
-  "pnpm prepare:chrome-extension",
   `pnpm dev --host 127.0.0.1 --port ${vitePort} --strictPort true`,
 ].join(" && ")
 const tauriConfig = {

@@ -430,7 +430,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **Minisign pubkey 单一真相源**：[`ha-core/updater/keys.rs::MINISIGN_PUBKEY_BASE64`](crates/ha-core/src/updater/keys.rs) 与 `src-tauri/tauri.conf.json#plugins.updater.pubkey` 必须字符串相等。三重防线：启动期 `keys::assert_pubkey_matches_tauri_conf` panic / CI `lint.yml` 跑 `scripts/verify-updater-pubkey.mjs` / 本地 `.husky/pre-push` 同脚本拦截
 - **`app_update` 工具**（`tools::app_update`，`async_capable=true`）：4 个 action `check | install | status | rollback`；`install` / `rollback` 工具内用 `ask_user_question` 弹结构化 Yes/No 确认
 - **UpdaterBridge trait**（[`updater::UpdaterBridge`](crates/ha-core/src/updater/mod.rs)）由 src-tauri 注册、ha-core 经 `OnceLock` 反向调用，**严禁 ha-core 直接依赖 tauri-plugin-updater**
-- **Bare-binary release artifact**：`release.yml` 每平台用同一 Minisign 私钥签 `tar.gz`(Unix)/`zip`(Windows)，`patch-manifest` job 合并写回 `latest.json`
+- **Bare-binary release artifact**：`release.yml` 每平台把主二进制 + `ha-browser-host` 打进同一 `tar.gz`(Unix)/`zip`(Windows) 用同一 Minisign 私钥签，`patch-manifest` job 合并写回 `latest.json`（entry 带 `extra_binaries`）；`install` 主二进制自检通过后 best-effort swap sibling，**失败不阻断不回滚主升级**
 - **Binary swap 必须走 [`platform::atomic_replace_binary`](crates/ha-core/src/platform/mod.rs)**（Unix `rename(2)` / Windows `MoveFileExW` rename-aside）——**禁止 `fs::write` 直接覆盖运行中 binary**
 - **自动更新统一配置 `AppConfig.auto_update`**（[`updater::AutoUpdateConfig`](crates/ha-core/src/updater/config.rs)，`ha-settings` 归 **HIGH**）：桌面与 headless 共享开关；后台只做**检查 + 静默预下载 + 校验**到 staging，**绝不自行 swap/restart**——安装走 `app_update install`（headless 审批）或桌面二选一，**桌面绝不无条件自动 relaunch**
 - **下载健壮性红线**：下载走 [`download::download_to`](crates/ha-core/src/updater/download.rs)（重试 + `Range` 续传）；`self_contained::install` swap 后**先 `--version` 冷烟自检、失败自动回滚**再重启

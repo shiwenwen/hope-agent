@@ -57,6 +57,13 @@ pub struct BareBinaryEntry {
     /// Path to the executable inside the archive. Always uses `/` separators
     /// regardless of the host OS — extractors normalize.
     pub binary_path: String,
+    /// Additional executables shipped in the same archive (e.g. the
+    /// native-messaging browser host). `self_contained::install` swaps each
+    /// one next to the main binary, best-effort — a failure there never fails
+    /// or rolls back the main upgrade. Absent on manifests that pre-date the
+    /// field.
+    #[serde(default)]
+    pub extra_binaries: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -253,6 +260,31 @@ mod tests {
         let entry = select_bare_binary(&m, "linux-x86_64").unwrap();
         assert_eq!(entry.archive, ArchiveKind::TarGz);
         assert_eq!(entry.binary_path, "hope-agent");
+        // Manifests published before the `extra_binaries` field must keep
+        // parsing, with no siblings to swap.
+        assert!(entry.extra_binaries.is_empty());
+    }
+
+    #[test]
+    fn parses_bare_binary_extra_binaries() {
+        let body = r#"{
+            "version": "0.2.1",
+            "platforms": {},
+            "bare_binary": {
+                "platforms": {
+                    "linux-x86_64": {
+                        "url": "https://example/hope-agent-0.2.1-linux-x86_64.tar.gz",
+                        "signature": "RUR...",
+                        "archive": "tar_gz",
+                        "binary_path": "hope-agent",
+                        "extra_binaries": ["ha-browser-host"]
+                    }
+                }
+            }
+        }"#;
+        let m: Manifest = serde_json::from_str(body).unwrap();
+        let entry = select_bare_binary(&m, "linux-x86_64").unwrap();
+        assert_eq!(entry.extra_binaries, vec!["ha-browser-host".to_string()]);
     }
 
     #[test]

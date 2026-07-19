@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub mod backend;
 pub mod broker;
 pub mod diagnostics;
+mod embedded;
 pub mod events;
 pub mod registry;
 

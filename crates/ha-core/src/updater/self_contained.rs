@@ -34,6 +34,9 @@ pub struct InstallOutcome {
     pub archive_bytes: u64,
     pub binary_swapped: bool,
     pub service_restart: Option<String>,
+    /// Sibling executables from the archive's `extra_binaries` (e.g. the
+    /// browser native host) that were swapped next to the main binary.
+    pub extra_binaries_swapped: usize,
 }
 
 /// Phase events emitted on `app_update:progress` so the UI / status tool
@@ -84,6 +87,10 @@ pub fn emit_phase(job_id: &str, phase: Phase) {
 struct StagedBuild {
     /// Path to the extracted new binary inside the staging dir.
     extracted: PathBuf,
+    /// Sibling executables extracted from the archive's `extra_binaries`
+    /// (basename + staged path). Best-effort: a missing declared extra is
+    /// logged and skipped, never failing the main upgrade.
+    extras: Vec<(String, PathBuf)>,
     /// Bytes of the downloaded archive (0 if a verified archive was reused).
     archive_bytes: u64,
     /// Resolved target version (frontmatter-stripped).
@@ -179,8 +186,25 @@ async fn download_and_extract(
     emit_phase(job_id, Phase::Staging);
     let extracted = extract_binary(&archive_path, &entry.archive, &entry.binary_path, &staging)?;
 
+    let mut extras = Vec::new();
+    for extra in &entry.extra_binaries {
+        match extract_binary(&archive_path, &entry.archive, extra, &staging) {
+            Ok(path) => extras.push((binary_basename(extra), path)),
+            Err(e) => {
+                // Manifest declared it but the archive lacks it — a release
+                // packaging bug. The main upgrade must not be held hostage.
+                app_warn!(
+                    "self_update",
+                    "stage",
+                    "declared extra binary '{extra}' not extractable: {e:#}"
+                );
+            }
+        }
+    }
+
     Ok(StagedBuild {
         extracted,
+        extras,
         archive_bytes,
         to_version,
         from_version,
@@ -207,6 +231,7 @@ pub async fn install(
 ) -> Result<InstallOutcome> {
     let StagedBuild {
         extracted,
+        extras,
         archive_bytes,
         to_version,
         from_version,
@@ -251,6 +276,29 @@ pub async fn install(
         anyhow::bail!("new binary failed smoke test ({e}); no backup available to roll back");
     }
 
+    // Swap sibling executables (e.g. the browser native host) next to the main
+    // binary AFTER the smoke test passed — a rolled-back main binary keeps its
+    // matching old siblings. Best-effort: a failed sibling swap is logged, the
+    // upgrade itself stands (the broker's version handshake surfaces any
+    // host/core mismatch explicitly), and rollback never touches siblings.
+    let mut extra_binaries_swapped = 0usize;
+    if let Some(exe_dir) = current_exe.parent() {
+        for (file_name, staged_path) in &extras {
+            let target = exe_dir.join(file_name);
+            match crate::platform::atomic_replace_binary(&target, staged_path) {
+                Ok(()) => extra_binaries_swapped += 1,
+                Err(e) => {
+                    app_warn!(
+                        "self_update",
+                        "install",
+                        "failed to update sibling binary {}: {e:#}",
+                        target.display()
+                    );
+                }
+            }
+        }
+    }
+
     emit_phase(job_id, Phase::Restarting);
     // NOTE: do NOT call `stop_if_running` here — `restart_service`
     // already does atomic kill+restart on every platform
@@ -273,6 +321,7 @@ pub async fn install(
         archive_bytes,
         binary_swapped: true,
         service_restart: restart,
+        extra_binaries_swapped,
     })
 }
 
@@ -363,6 +412,9 @@ pub fn rollback(job_id: &str) -> Result<InstallOutcome> {
         archive_bytes: 0,
         binary_swapped: true,
         service_restart: restart,
+        // Rollback restores the main binary only; siblings keep whatever
+        // version is on disk (see install: sibling swap is best-effort).
+        extra_binaries_swapped: 0,
     })
 }
 
