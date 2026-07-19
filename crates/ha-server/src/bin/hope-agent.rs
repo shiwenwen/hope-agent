@@ -251,6 +251,12 @@ fn run_server(args: &[String]) {
         return;
     };
     let model_eval_mode = ha_core::eval_context::model_eval_mode_enabled();
+    if model_eval_mode {
+        if let Err(error) = ha_core::platform::prevent_process_dumping() {
+            eprintln!("[model-eval] failed to harden Provider secret process: {error}");
+            std::process::exit(2);
+        }
+    }
     let model_eval_server_token = if model_eval_mode {
         if api_key.is_some() {
             eprintln!(

@@ -7,7 +7,8 @@ use super::types::{
 use anyhow::{anyhow, bail, Result};
 use chrono::{Duration, SecondsFormat, Utc};
 use ha_eval_spec::app::{
-    AppDebugRetention, EvalAppPlan, EvalAppRunRequest, EvidenceKeyStatus, EvidenceTrustRegistry,
+    evidence_trust_key_fingerprint, AppDebugRetention, EvalAppPlan, EvalAppRunRequest,
+    EvidenceKeyStatus, EvidenceTrustRegistry,
 };
 use ha_eval_spec::model::{
     ModelCampaignEvidence, ModelCampaignOutcome, ModelCampaignSource, ModelCampaignTier,
@@ -15,7 +16,7 @@ use ha_eval_spec::model::{
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct EvalRepository {
@@ -159,6 +160,7 @@ impl EvalRepository {
               evidence_sha256 TEXT NOT NULL,
               integrity TEXT NOT NULL,
               key_id TEXT,
+              key_fingerprint TEXT,
               signature_status TEXT NOT NULL,
               imported_at TEXT NOT NULL
             );
@@ -218,6 +220,21 @@ impl EvalRepository {
             if !has_approved_by {
                 transaction.execute(
                     "ALTER TABLE eval_baselines ADD COLUMN approved_by TEXT NOT NULL DEFAULT 'legacy_local_owner'",
+                    [],
+                )?;
+            }
+        }
+        if current < 5 {
+            let has_key_fingerprint = {
+                let mut statement = transaction.prepare("PRAGMA table_info(eval_imports)")?;
+                let columns = statement
+                    .query_map([], |row| row.get::<_, String>(1))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                columns.iter().any(|column| column == "key_fingerprint")
+            };
+            if !has_key_fingerprint {
+                transaction.execute(
+                    "ALTER TABLE eval_imports ADD COLUMN key_fingerprint TEXT",
                     [],
                 )?;
             }
@@ -1030,8 +1047,8 @@ impl EvalRepository {
         transaction.execute(
             "INSERT INTO eval_imports(
                id,bundle_sha256,experiment_id,evidence_sha256,integrity,key_id,
-               signature_status,imported_at
-             ) VALUES(?1,?2,?3,?2,'unverified_import',NULL,'unsigned',?4)",
+               key_fingerprint,signature_status,imported_at
+             ) VALUES(?1,?2,?3,?2,'unverified_import',NULL,NULL,'unsigned',?4)",
             params![import_id, evidence_artifact.sha256, experiment_id, now()],
         )?;
         transaction.commit()?;
@@ -1055,6 +1072,7 @@ impl EvalRepository {
         evidence_artifact: &StoredEvalArtifact,
         extra_artifacts: &[StoredEvalArtifact],
         key_id: &str,
+        key_fingerprint: &str,
         evidence: &ModelCampaignEvidence,
         assets_known: bool,
     ) -> Result<EvalImportResult> {
@@ -1099,6 +1117,12 @@ impl EvalRepository {
                 transaction.commit()?;
                 existing.integrity = EvalIntegrity::ProtectedVerified;
             }
+            connection.execute(
+                "UPDATE eval_imports
+                 SET key_id=?2,key_fingerprint=?3,signature_status='verified'
+                 WHERE id=?1",
+                params![existing.import_id, key_id, key_fingerprint],
+            )?;
             return Ok(existing);
         }
 
@@ -1146,8 +1170,8 @@ impl EvalRepository {
             transaction.execute(
                 "INSERT INTO eval_imports(
                    id,bundle_sha256,experiment_id,evidence_sha256,integrity,key_id,
-                   signature_status,imported_at
-                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                   key_fingerprint,signature_status,imported_at
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![
                     import_id,
                     bundle.sha256,
@@ -1155,6 +1179,7 @@ impl EvalRepository {
                     evidence_artifact.sha256,
                     existing_integrity_name,
                     key_id,
+                    key_fingerprint,
                     signature_status,
                     now(),
                 ],
@@ -1297,8 +1322,8 @@ impl EvalRepository {
         transaction.execute(
             "INSERT INTO eval_imports(
                id,bundle_sha256,experiment_id,evidence_sha256,integrity,key_id,
-               signature_status,imported_at
-             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+               key_fingerprint,signature_status,imported_at
+             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![
                 import_id,
                 bundle.sha256,
@@ -1306,6 +1331,7 @@ impl EvalRepository {
                 evidence_artifact.sha256,
                 integrity_name,
                 key_id,
+                key_fingerprint,
                 signature_status,
                 now(),
             ],
@@ -1328,26 +1354,39 @@ impl EvalRepository {
     pub fn refresh_import_signature_status(&self, trust: &EvidenceTrustRegistry) -> Result<usize> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT id,key_id FROM eval_imports
+            "SELECT id,key_id,key_fingerprint FROM eval_imports
              WHERE integrity IN ('protected_verified','protected_unknown_assets')",
         )?;
         let imports = statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         drop(statement);
 
         let mut changed = 0usize;
-        for (import_id, key_id) in imports {
-            let status = key_id
+        for (import_id, key_id, stored_fingerprint) in imports {
+            let status = match key_id
                 .as_deref()
                 .and_then(|id| trust.keys.iter().find(|key| key.id == id))
-                .map_or("verified_key_missing", |key| match key.status {
-                    EvidenceKeyStatus::Active => "verified",
-                    EvidenceKeyStatus::Retired => "verified_retired",
-                    EvidenceKeyStatus::Revoked => "verified_now_revoked",
-                });
+            {
+                None => "verified_key_missing",
+                Some(_) if stored_fingerprint.is_none() => "verified_key_identity_missing",
+                Some(key) => match evidence_trust_key_fingerprint(key) {
+                    Ok(current) if stored_fingerprint.as_deref() == Some(current.as_str()) => {
+                        match key.status {
+                            EvidenceKeyStatus::Active => "verified",
+                            EvidenceKeyStatus::Retired => "verified_retired",
+                            EvidenceKeyStatus::Revoked => "verified_now_revoked",
+                        }
+                    }
+                    _ => "verified_key_mismatch",
+                },
+            };
             changed += connection.execute(
                 "UPDATE eval_imports SET signature_status=?2
                  WHERE id=?1 AND signature_status<>?2",
@@ -1639,6 +1678,7 @@ fn sql_conversion(error: impl std::error::Error + Send + Sync + 'static) -> rusq
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use ha_eval_spec::app::{EvidenceTrustKey, EVIDENCE_TRUST_SCHEMA_VERSION};
 
     #[test]
@@ -1668,6 +1708,8 @@ mod tests {
     fn trust_reconciliation_preserves_history_but_revokes_baseline_eligibility() {
         let temp = tempfile::tempdir().unwrap();
         let repository = EvalRepository::open(temp.path().join("evals.db")).unwrap();
+        let public_key = [7u8; 32];
+        let key_fingerprint = ha_eval_spec::sha256_bytes(&public_key);
         let connection = repository.connection().unwrap();
         connection
             .execute(
@@ -1685,10 +1727,10 @@ mod tests {
             .execute(
                 "INSERT INTO eval_imports(
                id,bundle_sha256,experiment_id,evidence_sha256,integrity,key_id,
-               signature_status,imported_at
+               key_fingerprint,signature_status,imported_at
              ) VALUES('import-test',?1,'protected-test',?2,'protected_verified',
-               'release-key','verified',?3)",
-                params!["b".repeat(64), "c".repeat(64), now()],
+               'release-key',?3,'verified',?4)",
+                params!["b".repeat(64), "c".repeat(64), key_fingerprint, now()],
             )
             .unwrap();
         drop(connection);
@@ -1699,7 +1741,7 @@ mod tests {
             keys: vec![EvidenceTrustKey {
                 id: "release-key".to_string(),
                 algorithm: "ed25519".to_string(),
-                public_key: "unused-by-reconciliation".to_string(),
+                public_key: base64::engine::general_purpose::STANDARD.encode(public_key),
                 status: EvidenceKeyStatus::Active,
                 valid_from: now(),
                 valid_until: None,
@@ -1726,6 +1768,30 @@ mod tests {
                 None,
             )
             .unwrap();
+
+        registry.keys[0].public_key = base64::engine::general_purpose::STANDARD.encode([8u8; 32]);
+        repository
+            .refresh_import_signature_status(&registry)
+            .unwrap();
+        assert_eq!(
+            repository
+                .get_experiment("protected-test")
+                .unwrap()
+                .unwrap()
+                .signature_status
+                .as_deref(),
+            Some("verified_key_mismatch")
+        );
+        assert!(repository
+            .create_baseline(
+                "protected-test",
+                ModelCampaignTier::Weekly,
+                "test_owner",
+                None,
+            )
+            .is_err());
+
+        registry.keys[0].public_key = base64::engine::general_purpose::STANDARD.encode(public_key);
 
         registry.keys[0].status = EvidenceKeyStatus::Revoked;
         registry.keys[0].revoked_at = Some(now());

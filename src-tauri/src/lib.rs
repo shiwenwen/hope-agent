@@ -164,7 +164,6 @@ pub fn run() {
         })
         .setup(setup::app_setup)
         .manage(app_init::init_tauri_app_state())
-        .manage(commands::evaluation::EvaluationState::new())
         .invoke_handler(tauri::generate_handler![
             // Provider management
             commands::provider::get_providers,

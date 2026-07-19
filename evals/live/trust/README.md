@@ -54,6 +54,14 @@ cargo run -p ha-eval --locked -- model bundle-verify \
 - 轮换：先追加新 active key，把旧 key 改为 `retired` 并填写 `validUntil`，提升 registry
   version，追加新 digest；随后再切换 GitHub variable 和 secret。两个版本都必须保留。
 - 泄露撤销：把 key 改为 `revoked` 并填写 `revokedAt`，提升 registry version、追加 digest，
-  立即禁用对应 environment secret。之后的新导入拒绝该 key；此前已导入记录保留原签名
+立即禁用对应 environment secret。之后的新导入拒绝该 key；此前已导入记录保留原签名
   审计信息，但不得重新晋升或覆盖新的 baseline。
+- App 导入时会固化 `key id + SHA-256(raw public key)`；后续刷新必须同时匹配二者。
+  禁止在保留 key id 的情况下替换公钥。升级前已有、尚未记录指纹的导入会 fail closed，
+  需要用原 signed bundle 重新导入、重新验签后补齐。
 - 禁止删除历史 key、改写已有 version-lock digest，或复用 Provider/updater 签名密钥。
+
+Headless Server 不从当前工作目录或可执行文件祖先目录发现注册表。只有确需在 HTTP 只读
+Evaluation 查询中刷新签名状态时，管理员才设置 `HA_EVAL_TRUST_REGISTRY_PATH`；它必须是
+注册表文件的绝对 canonical path，且路径中不能包含 symlink。未配置或校验失败时查询会把
+受保护导入按 key missing 处理。

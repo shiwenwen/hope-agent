@@ -157,6 +157,28 @@ jobs:
           path: ${{ runner.temp }}/eval-result/result.json
           retention-days: ${{ fromJSON(needs.prepare.outputs.retention) }}
 
+  internal_contracts:
+    name: legacy internal eval contracts
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: ""
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+
+      - name: Run opt-in legacy eval contracts
+        run: cargo test -p ha-core --features eval-internal-tests --locked
+
   waiver:
     name: approve one-shot release eval waiver
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.waiver_reason != '' }}
@@ -201,8 +223,8 @@ jobs:
 
   aggregate:
     name: aggregate and verify evidence
-    needs: [prepare, run, waiver]
-    if: ${{ always() && needs.prepare.result == 'success' && needs.run.result == 'success' && (needs.waiver.result == 'success' || needs.waiver.result == 'skipped') }}
+    needs: [prepare, run, internal_contracts, waiver]
+    if: ${{ always() && needs.prepare.result == 'success' && needs.run.result == 'success' && needs.internal_contracts.result == 'success' && (needs.waiver.result == 'success' || needs.waiver.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

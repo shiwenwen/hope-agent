@@ -52,6 +52,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event_name == 'schedule' && 'main' || inputs.target_ref }}
+          persist-credentials: false
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -89,6 +90,9 @@ jobs:
       - name: Build and validate model campaign control plane
         run: |
           cargo build -p ha-eval --locked
+          # Linux-only process-tree regression: prove that restart/shutdown
+          # reaps descendants even after they create another process group.
+          cargo test -p ha-eval --locked model_supervisor::tests
           target/debug/hope-agent-eval model validate
 
       - name: Create immutable plan and shard matrix
@@ -129,6 +133,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.sha }}
+          # The evaluated Agent has real file/exec tools. Never leave the
+          # workflow token in .git/config where a tool result could return it to
+          # the allowed model Provider.
+          persist-credentials: false
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -154,17 +162,34 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$MODEL_EVAL_CONFIG_B64"
-          eval_data="$RUNNER_TEMP/hope-model-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shardIndex }}"
-          mkdir -p "$eval_data"
+          umask 077
+          eval_data="$RUNNER_TEMP/hope-model-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suite }}-${{ matrix.shardIndex }}"
+          if [ -e "$eval_data" ] || [ -L "$eval_data" ]; then
+            echo "Refusing to reuse pre-existing evaluation data path: $eval_data" >&2
+            exit 1
+          fi
+          install -d -m 700 \
+            "$eval_data" \
+            "$eval_data/home/.cache" \
+            "$eval_data/home/.config" \
+            "$eval_data/home/.local/state" \
+            "$eval_data/tmp" \
+            "$eval_data/runtime"
+          # Publish the cleanup target before writing any sensitive material so
+          # the always() cleanup step still sees it if decoding/validation fails.
+          echo "HA_DATA_DIR=$eval_data" >> "$GITHUB_ENV"
           printf '%s' "$MODEL_EVAL_CONFIG_B64" | base64 --decode > "$eval_data/config.json"
           chmod 700 "$eval_data"
           chmod 600 "$eval_data/config.json"
+          install -m 700 target/debug/hope-agent-eval "$eval_data/runtime/hope-agent-eval"
+          install -m 700 target/debug/hope-agent-server "$eval_data/runtime/hope-agent-server"
           jq -e '[.providers[] | select(.enabled == true)] | length == 1 and .[0].id == "eval-anchor"' "$eval_data/config.json" >/dev/null
           jq -e '.activeModel.providerId == "eval-anchor" and .activeModel.modelId == "configured-anchor-v1"' "$eval_data/config.json" >/dev/null
           jq -e 'all(.providers[]; ((.apiKey // "") == "") and (((.authProfiles // []) | length) == 0))' "$eval_data/config.json" >/dev/null
           jq -e '((.server.apiKey // "") == "") and ((.server.knowledgeAgentReadToken // "") == "")' "$eval_data/config.json" >/dev/null
-          echo "HA_DATA_DIR=$eval_data" >> "$GITHUB_ENV"
           echo "HA_MODEL_EVAL_RUNTIME_CONFIG_DIGEST=$(sha256sum "$eval_data/config.json" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          echo "HA_MODEL_EVAL_HOME=$eval_data/home" >> "$GITHUB_ENV"
+          echo "HA_MODEL_EVAL_TMP=$eval_data/tmp" >> "$GITHUB_ENV"
 
       - name: Start isolated Hope server supervisor
         shell: bash
@@ -180,16 +205,86 @@ jobs:
           test -n "$HA_MODEL_EVAL_SUPERVISOR_TOKEN"
           test "$HA_MODEL_EVAL_SERVER_TOKEN" != "$HA_MODEL_EVAL_SUPERVISOR_TOKEN"
           test -n "$HA_MODEL_EVAL_PROVIDER_SECRETS_B64"
+          command -v bwrap >/dev/null
           port=$((18420 + ${{ matrix.shardIndex }}))
           supervisor_port=$((19420 + ${{ matrix.shardIndex }}))
           server_url="http://127.0.0.1:$port"
           supervisor_url="http://127.0.0.1:$supervisor_port"
-          target/debug/hope-agent-eval model _supervise-server \
-            --server-bin "$GITHUB_WORKSPACE/target/debug/hope-agent-server" \
+
+          # Build the anonymous-stdin envelope before removing secrets from the
+          # environment inherited by Bubblewrap and the long-lived supervisor.
+          credential_envelope=$(jq -nc '{
+            providerSecretsB64: env.HA_MODEL_EVAL_PROVIDER_SECRETS_B64,
+            serverToken: env.HA_MODEL_EVAL_SERVER_TOKEN,
+            supervisorToken: env.HA_MODEL_EVAL_SUPERVISOR_TOKEN
+          }')
+          unset HA_MODEL_EVAL_PROVIDER_SECRETS_B64
+          unset HA_MODEL_EVAL_SERVER_TOKEN
+          unset HA_MODEL_EVAL_SUPERVISOR_TOKEN
+
+          # Construct an empty mount namespace: only system runtime files and
+          # this shard's synthetic data tree are visible. The real checkout,
+          # runner installation, host HOME and sibling jobs never enter it.
+          sandbox_args=(
+            --die-with-parent
+            --new-session
+            --unshare-all
+            --share-net
+            --cap-drop ALL
+            --ro-bind /usr /usr
+            --ro-bind-try /bin /bin
+            --ro-bind-try /lib /lib
+            --ro-bind-try /lib64 /lib64
+            --dir /etc
+            --ro-bind-try /etc/alternatives /etc/alternatives
+            --ro-bind-try /etc/ca-certificates /etc/ca-certificates
+            --ro-bind-try /etc/ssl /etc/ssl
+            --ro-bind-try /etc/hosts /etc/hosts
+            --ro-bind-try /etc/resolv.conf /etc/resolv.conf
+            --ro-bind-try /etc/nsswitch.conf /etc/nsswitch.conf
+            --ro-bind-try /etc/passwd /etc/passwd
+            --ro-bind-try /etc/group /etc/group
+            --ro-bind-try /etc/ld.so.cache /etc/ld.so.cache
+            --ro-bind-try /etc/localtime /etc/localtime
+            --proc /proc
+            --dev /dev
+            --tmpfs /tmp
+            --tmpfs /run
+          )
+          sandbox_path=""
+          IFS='/' read -r -a eval_parts <<< "${HA_DATA_DIR#/}"
+          for part in "${eval_parts[@]}"; do
+            sandbox_path="$sandbox_path/$part"
+            sandbox_args+=(--dir "$sandbox_path")
+          done
+          sandbox_args+=(
+            --bind "$HA_DATA_DIR" "$HA_DATA_DIR"
+            --clearenv
+            --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            --setenv HOME "$HA_MODEL_EVAL_HOME"
+            --setenv USERPROFILE "$HA_MODEL_EVAL_HOME"
+            --setenv XDG_CACHE_HOME "$HA_MODEL_EVAL_HOME/.cache"
+            --setenv XDG_CONFIG_HOME "$HA_MODEL_EVAL_HOME/.config"
+            --setenv XDG_STATE_HOME "$HA_MODEL_EVAL_HOME/.local/state"
+            --setenv TMPDIR "$HA_MODEL_EVAL_TMP"
+            --setenv TMP "$HA_MODEL_EVAL_TMP"
+            --setenv TEMP "$HA_MODEL_EVAL_TMP"
+            --setenv HA_DATA_DIR "$HA_DATA_DIR"
+            --setenv HA_MODEL_EVAL_MODE 1
+            --setenv HA_MODEL_EVAL_ISOLATED_PID_NAMESPACE 1
+            --setenv HA_SERVER_AUTO_APPROVE_TOOLS 1
+            --chdir "$HA_DATA_DIR"
+          )
+          printf '%s\n' "$credential_envelope" | bwrap "${sandbox_args[@]}" \
+            "$HA_DATA_DIR/runtime/hope-agent-eval" --root "$HA_DATA_DIR" \
+            model _supervise-server \
+            --server-bin "$HA_DATA_DIR/runtime/hope-agent-server" \
             --bind "127.0.0.1:$port" \
             --control-bind "127.0.0.1:$supervisor_port" \
+            --credentials-stdin \
             > "$RUNNER_TEMP/hope-model-server-${{ matrix.shardIndex }}.log" 2>&1 &
           supervisor_pid=$!
+          unset credential_envelope
           echo "HA_MODEL_EVAL_SUPERVISOR_PID=$supervisor_pid" >> "$GITHUB_ENV"
           echo "HA_MODEL_EVAL_SERVER_URL=$server_url" >> "$GITHUB_ENV"
           echo "HA_MODEL_EVAL_SUPERVISOR_URL=$supervisor_url" >> "$GITHUB_ENV"
@@ -212,6 +307,16 @@ jobs:
           HA_MODEL_EVAL_SUPERVISOR_TOKEN: ${{ secrets.MODEL_EVAL_SUPERVISOR_TOKEN }}
         run: |
           set -euo pipefail
+          export HOME="$HA_MODEL_EVAL_HOME"
+          export USERPROFILE="$HA_MODEL_EVAL_HOME"
+          export XDG_CACHE_HOME="$HA_MODEL_EVAL_HOME/.cache"
+          export XDG_CONFIG_HOME="$HA_MODEL_EVAL_HOME/.config"
+          export XDG_STATE_HOME="$HA_MODEL_EVAL_HOME/.local/state"
+          export TMPDIR="$HA_MODEL_EVAL_TMP"
+          export TMP="$HA_MODEL_EVAL_TMP"
+          export TEMP="$HA_MODEL_EVAL_TMP"
+          export GIT_CONFIG_GLOBAL=/dev/null
+          export GIT_CONFIG_NOSYSTEM=1
           mkdir -p "$RUNNER_TEMP/model-result"
           target/debug/hope-agent-eval model run \
             --plan "$RUNNER_TEMP/model-plan/plan.json" \
@@ -226,6 +331,7 @@ jobs:
         env:
           HA_MODEL_EVAL_SUPERVISOR_TOKEN: ${{ secrets.MODEL_EVAL_SUPERVISOR_TOKEN }}
         run: |
+          set -euo pipefail
           if [ -n "${HA_MODEL_EVAL_SUPERVISOR_URL:-}" ] && [ -n "${HA_MODEL_EVAL_SUPERVISOR_TOKEN:-}" ]; then
             curl --fail --silent --request POST \
               --header "Authorization: Bearer $HA_MODEL_EVAL_SUPERVISOR_TOKEN" \
@@ -235,9 +341,22 @@ jobs:
             kill "$HA_MODEL_EVAL_SUPERVISOR_PID" 2>/dev/null || true
             wait "$HA_MODEL_EVAL_SUPERVISOR_PID" 2>/dev/null || true
           fi
-          if [ -n "${HA_DATA_DIR:-}" ] && [ -d "$HA_DATA_DIR" ]; then
-            find "$HA_DATA_DIR" -type f -exec shred -u {} + 2>/dev/null || true
-            rmdir "$HA_DATA_DIR" 2>/dev/null || true
+          if [ -n "${HA_DATA_DIR:-}" ]; then
+            expected_data_dir="$RUNNER_TEMP/hope-model-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suite }}-${{ matrix.shardIndex }}"
+            if [ "$HA_DATA_DIR" != "$expected_data_dir" ] || [ -L "$HA_DATA_DIR" ]; then
+              echo "Refusing to remove unexpected evaluation data path: $HA_DATA_DIR" >&2
+              exit 1
+            fi
+            if [ -d "$HA_DATA_DIR" ]; then
+              # Best-effort overwrite regular files, then remove the exact,
+              # validated per-run tree including directories, links and sockets.
+              find "$HA_DATA_DIR" -xdev -type f -exec shred -u {} + 2>/dev/null || true
+              rm -rf -- "$HA_DATA_DIR"
+            fi
+            if [ -e "$HA_DATA_DIR" ] || [ -L "$HA_DATA_DIR" ]; then
+              echo "Evaluation data cleanup did not complete: $HA_DATA_DIR" >&2
+              exit 1
+            fi
           fi
 
       - uses: actions/upload-artifact@v4
@@ -295,6 +414,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -383,6 +503,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:

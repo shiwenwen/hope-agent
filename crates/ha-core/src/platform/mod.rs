@@ -65,6 +65,20 @@ pub fn pid_alive(pid: u32) -> bool {
     sys.process(target).is_some()
 }
 
+/// Prevent same-UID processes from attaching to or dumping this process on
+/// Linux. Real-model evaluation servers keep Provider credentials in memory
+/// while deliberately executing model-selected tools, so this hardening is a
+/// required boundary rather than a best-effort diagnostic setting.
+pub fn prevent_process_dumping() -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
 /// Try to discover the user-configured HTTP proxy from the OS.
 ///
 /// - macOS: reads `scutil --proxy`.

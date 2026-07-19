@@ -13,28 +13,12 @@ use ha_core::evaluation::{
 use crate::error::AppError;
 use crate::routes::helpers::session_db;
 
+const TRUST_REGISTRY_PATH_ENV: &str = "HA_EVAL_TRUST_REGISTRY_PATH";
+
 fn reconcile_import_trust(repository: &EvalRepository) -> anyhow::Result<()> {
-    let path = std::env::current_exe()
-        .ok()
-        .into_iter()
-        .flat_map(|path| {
-            path.ancestors()
-                .map(std::path::Path::to_path_buf)
-                .collect::<Vec<_>>()
-        })
-        .flat_map(|ancestor| [ancestor.join("Resources"), ancestor])
-        .chain(std::env::current_dir().ok().into_iter().flat_map(|path| {
-            path.ancestors()
-                .map(std::path::Path::to_path_buf)
-                .collect::<Vec<_>>()
-        }))
-        .map(|root| root.join("evals/live/trust/evidence-keys.json"))
-        .find(|candidate| candidate.is_file());
-    match path
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("evidence trust registry is unavailable"))
-        .and_then(ha_core::evaluation::load_evidence_trust_registry_file)
-    {
+    let trust = configured_trust_registry_path()
+        .and_then(|path| ha_core::evaluation::load_evidence_trust_registry_file(&path));
+    match trust {
         Ok(trust) => {
             repository.refresh_import_signature_status(&trust)?;
         }
@@ -43,6 +27,28 @@ fn reconcile_import_trust(repository: &EvalRepository) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn configured_trust_registry_path() -> anyhow::Result<std::path::PathBuf> {
+    let configured = std::env::var_os(TRUST_REGISTRY_PATH_ENV)
+        .ok_or_else(|| anyhow::anyhow!("{TRUST_REGISTRY_PATH_ENV} is not configured"))?;
+    let path = std::path::PathBuf::from(configured);
+    if !path.is_absolute() {
+        anyhow::bail!("{TRUST_REGISTRY_PATH_ENV} must be an absolute path");
+    }
+    let canonical = path.canonicalize().map_err(|error| {
+        anyhow::anyhow!(
+            "canonicalizing configured evidence trust registry {}: {error}",
+            path.display()
+        )
+    })?;
+    if canonical != path {
+        anyhow::bail!(
+            "{TRUST_REGISTRY_PATH_ENV} must not traverse symlinks or aliases: {}",
+            path.display()
+        );
+    }
+    Ok(canonical)
 }
 
 #[derive(serde::Deserialize)]

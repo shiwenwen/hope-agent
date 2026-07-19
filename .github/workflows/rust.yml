@@ -26,7 +26,7 @@ jobs:
 
       - name: Verify eval version lock is append-only
         env:
-          EVAL_LOCK_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          EVAL_LOCK_BASE: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: node scripts/verify-eval-version-lock.mjs --base "$EVAL_LOCK_BASE"
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -178,7 +178,10 @@ jobs:
       # or running any stochastic capability campaign.
       - name: Build fake-Provider smoke binaries
         if: runner.os == 'Linux'
-        run: cargo build -p ha-server -p ha-eval --locked
+        # The smoke control plane does not compile ha-core's deterministic
+        # eval-runner feature, so the PR job reuses the ha-core artifacts built
+        # above instead of codegen/linking the complete capability Runner.
+        run: cargo build -p ha-server -p ha-eval --no-default-features --locked
 
       - name: Run fake-Provider black-box smoke
         if: runner.os == 'Linux'

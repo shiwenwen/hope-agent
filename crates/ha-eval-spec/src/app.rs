@@ -975,6 +975,20 @@ pub fn validate_trust_registry(registry: &EvidenceTrustRegistry) -> Result<()> {
     Ok(())
 }
 
+/// Stable identity for one trusted signing key. Key IDs are operator-friendly
+/// labels and may never be sufficient on their own: trust refresh must also
+/// prove that the registry still contains the exact Ed25519 public key that
+/// verified the imported bundle.
+pub fn evidence_trust_key_fingerprint(key: &EvidenceTrustKey) -> Result<String> {
+    let public_key = base64::engine::general_purpose::STANDARD
+        .decode(key.public_key.trim())
+        .map_err(|_| anyhow::anyhow!("evidence trust key {} is not valid base64", key.id))?;
+    if key.algorithm != "ed25519" || public_key.len() != 32 {
+        bail!("evidence trust key {} is invalid", key.id);
+    }
+    Ok(crate::sha256_bytes(&public_key))
+}
+
 pub fn validate_evidence_bundle_manifest(manifest: &EvidenceBundleManifest) -> Result<()> {
     if manifest.schema_version != EVIDENCE_BUNDLE_SCHEMA_VERSION
         || manifest.repository.trim().is_empty()
@@ -1125,8 +1139,13 @@ mod tests {
             }],
         };
         validate_trust_registry(&registry).unwrap();
+        assert_eq!(
+            evidence_trust_key_fingerprint(&registry.keys[0]).unwrap(),
+            crate::sha256_bytes(&[7u8; 32])
+        );
         registry.keys[0].public_key = base64::engine::general_purpose::STANDARD.encode([7u8; 31]);
         assert!(validate_trust_registry(&registry).is_err());
+        assert!(evidence_trust_key_fingerprint(&registry.keys[0]).is_err());
     }
 
     #[test]

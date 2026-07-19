@@ -181,6 +181,10 @@ pub enum ModelCommands {
         bind: String,
         #[arg(long)]
         control_bind: String,
+        /// Read the Provider/server/supervisor credential envelope from the
+        /// anonymous stdin stream instead of inheriting secrets in env.
+        #[arg(long)]
+        credentials_stdin: bool,
     },
     #[command(name = "_run-trial", hide = true)]
     RunTrial {
@@ -340,7 +344,11 @@ pub async fn execute(root: &Path, command: ModelCommands) -> Result<()> {
             server_bin,
             bind,
             control_bind,
-        } => crate::model_supervisor::run(root, &server_bin, &bind, &control_bind).await,
+            credentials_stdin,
+        } => {
+            crate::model_supervisor::run(root, &server_bin, &bind, &control_bind, credentials_stdin)
+                .await
+        }
     }
 }
 
@@ -3047,7 +3055,19 @@ fn run_trial_subprocess(
     let temp = tempfile::tempdir().context("creating model trial subprocess directory")?;
     let result_path = temp.path().join("trial-result.json");
     let trial_home = temp.path().join("home");
-    fs::create_dir_all(&trial_home)?;
+    let trial_cache = trial_home.join(".cache");
+    let trial_config = trial_home.join(".config");
+    let trial_state = trial_home.join(".local/state");
+    let trial_tmp = trial_home.join("tmp");
+    for directory in [
+        &trial_home,
+        &trial_cache,
+        &trial_config,
+        &trial_state,
+        &trial_tmp,
+    ] {
+        fs::create_dir_all(directory)?;
+    }
     let executable = std::env::current_exe().context("resolving model eval executable")?;
     let mut command = Command::new(executable);
     command
@@ -3064,6 +3084,14 @@ fn run_trial_subprocess(
         .env("HA_MODEL_EVAL_SUBPROCESS", "1")
         .env("HA_MODEL_EVAL_ATTEMPT", attempt.to_string())
         .env("HA_MODEL_EVAL_TRIAL_HOME", &trial_home)
+        .env("HOME", &trial_home)
+        .env("USERPROFILE", &trial_home)
+        .env("XDG_CACHE_HOME", &trial_cache)
+        .env("XDG_CONFIG_HOME", &trial_config)
+        .env("XDG_STATE_HOME", &trial_state)
+        .env("TMPDIR", &trial_tmp)
+        .env("TMP", &trial_tmp)
+        .env("TEMP", &trial_tmp)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     // The runner talks to a separately provisioned Hope process. Provider and

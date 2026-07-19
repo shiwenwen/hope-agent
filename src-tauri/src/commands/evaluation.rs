@@ -32,8 +32,8 @@ pub struct EvaluationState {
 }
 
 impl EvaluationState {
-    pub fn new() -> Self {
-        match build_orchestrator() {
+    pub fn new(packaged_asset_root: Option<PathBuf>) -> Self {
+        match build_orchestrator(packaged_asset_root) {
             Ok(orchestrator) => Self {
                 orchestrator: Some(Arc::new(orchestrator)),
                 init_error: None,
@@ -55,8 +55,8 @@ impl EvaluationState {
     }
 }
 
-fn build_orchestrator() -> Result<DesktopOrchestrator> {
-    let runtime = Arc::new(DesktopEvalRuntime::discover()?);
+fn build_orchestrator(packaged_asset_root: Option<PathBuf>) -> Result<DesktopOrchestrator> {
+    let runtime = Arc::new(DesktopEvalRuntime::discover(packaged_asset_root)?);
     let repository = EvalRepository::default_repository()?;
     let artifacts = EvalArtifactStore::default_store()?;
     let events = ha_core::get_event_bus()
@@ -119,25 +119,15 @@ struct ActiveSidecar {
 }
 
 impl DesktopEvalRuntime {
-    fn discover() -> Result<Self> {
+    fn discover(packaged_asset_root: Option<PathBuf>) -> Result<Self> {
         let product = std::env::current_exe()?.canonicalize()?;
         let sidecar_name = if cfg!(windows) {
             "hope-agent-eval.exe"
         } else {
             "hope-agent-eval"
         };
-        let sidecar = product
-            .parent()
-            .map(|parent| parent.join(sidecar_name))
-            .filter(|path| path.is_file())
-            .or_else(|| {
-                std::env::current_dir().ok().and_then(|cwd| {
-                    find_upward(&cwd, |root| root.join("target/debug").join(sidecar_name))
-                        .map(|root| root.join("target/debug").join(sidecar_name))
-                })
-            })
-            .and_then(|path| path.canonicalize().ok());
-        let asset_root = locate_asset_root(&product).ok();
+        let sidecar = locate_sidecar(&product, sidecar_name, cfg!(debug_assertions));
+        let asset_root = locate_asset_root(packaged_asset_root, cfg!(debug_assertions)).ok();
         let output_root = ha_core::paths::evals_dir()?.join("runs");
         std::fs::create_dir_all(&output_root)?;
         Ok(Self {
@@ -732,20 +722,43 @@ async fn read_event(
     }
 }
 
-fn locate_asset_root(product: &Path) -> Result<PathBuf> {
-    if let Ok(cwd) = std::env::current_dir() {
-        if let Some(root) = find_upward(&cwd, |root| root.join("evals/live")) {
+fn locate_sidecar(
+    product: &Path,
+    sidecar_name: &str,
+    allow_development_fallback: bool,
+) -> Option<PathBuf> {
+    let packaged = product
+        .parent()
+        .map(|parent| parent.join(sidecar_name))
+        .filter(|path| path.is_file());
+    let development = allow_development_fallback.then(|| {
+        std::env::current_dir().ok().and_then(|cwd| {
+            find_upward(&cwd, |root| root.join("target/debug").join(sidecar_name))
+                .map(|root| root.join("target/debug").join(sidecar_name))
+        })
+    });
+    packaged
+        .or_else(|| development.flatten())
+        .and_then(|path| path.canonicalize().ok())
+}
+
+fn locate_asset_root(
+    packaged_asset_root: Option<PathBuf>,
+    allow_development_fallback: bool,
+) -> Result<PathBuf> {
+    if let Some(root) = packaged_asset_root {
+        if root.join("evals/live").is_dir() {
             return root
                 .canonicalize()
-                .context("canonicalizing evaluation checkout root");
+                .context("canonicalizing packaged evaluation asset root");
         }
     }
-    for ancestor in product.ancestors() {
-        for candidate in [ancestor.to_path_buf(), ancestor.join("Resources")] {
-            if candidate.join("evals/live").is_dir() {
-                return candidate
+    if allow_development_fallback {
+        if let Ok(cwd) = std::env::current_dir() {
+            if let Some(root) = find_upward(&cwd, |root| root.join("evals/live")) {
+                return root
                     .canonicalize()
-                    .context("canonicalizing packaged evaluation asset root");
+                    .context("canonicalizing evaluation checkout root");
             }
         }
     }

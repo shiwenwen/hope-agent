@@ -1,4 +1,12 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react"
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  type SetStateAction,
+} from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -14,7 +22,11 @@ import {
 import { ArrowLeft, RefreshCw, Download, Play, Pause } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
-import DashboardFilter from "./DashboardFilter"
+import { PANEL_SCROLL_FADE } from "@/components/chat/right-panel/panelFade"
+import DashboardFilter, {
+  computeDashboardDateRange,
+  type DashboardRangeKey,
+} from "./DashboardFilter"
 import OverviewCards from "./OverviewCards"
 import type { CardAction } from "./OverviewCards"
 import DetailListPanel from "./DetailListPanel"
@@ -30,7 +42,14 @@ import RecapTab from "./recap/RecapTab"
 import DreamingTab from "./dreaming/DreamingTab"
 import LearningTab from "./learning/LearningTab"
 import ControlPlaneSection from "./ControlPlaneSection"
-import { normalizeInitialTab, showsGlobalOverview } from "./dashboardTabs"
+import {
+  dashboardFilterFields,
+  FILTERED_DASHBOARD_TABS,
+  isFilteredDashboardTab,
+  normalizeInitialTab,
+  showsGlobalOverview,
+  type FilteredDashboardTab,
+} from "./dashboardTabs"
 import type {
   DashboardFilter as DashboardFilterState,
   OverviewStatsWithDelta,
@@ -54,18 +73,30 @@ import type { LocalModelJobSnapshot } from "@/types/local-model-jobs"
 import type { SettingsSection } from "@/components/settings/types"
 
 function defaultFilter(): DashboardFilterState {
-  const now = new Date()
-  const thirtyDaysAgo = new Date(now)
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  const { start, end } = computeDashboardDateRange("30d")
   return {
-    startDate: thirtyDaysAgo.toISOString(),
-    endDate: now.toISOString(),
+    startDate: start,
+    endDate: end,
     agentId: null,
     providerId: null,
     modelId: null,
     usageKind: null,
     operation: null,
   }
+}
+
+function defaultFiltersByTab(): Record<FilteredDashboardTab, DashboardFilterState> {
+  return Object.fromEntries(FILTERED_DASHBOARD_TABS.map((tab) => [tab, defaultFilter()])) as Record<
+    FilteredDashboardTab,
+    DashboardFilterState
+  >
+}
+
+function defaultRangeKeysByTab(): Record<FilteredDashboardTab, DashboardRangeKey> {
+  return Object.fromEntries(FILTERED_DASHBOARD_TABS.map((tab) => [tab, "30d"])) as Record<
+    FilteredDashboardTab,
+    DashboardRangeKey
+  >
 }
 
 /** Max 60 samples (~30 min at 30s refresh) kept in-memory for sparklines. */
@@ -135,8 +166,9 @@ export default function DashboardView({
   onOpenControlItem,
 }: DashboardViewProps) {
   const { t } = useTranslation()
-  const [filter, setFilter] = useState<DashboardFilterState>(defaultFilter)
   const [activeTab, setActiveTab] = useState(() => normalizeInitialTab(initialTab))
+  const [filtersByTab, setFiltersByTab] = useState(defaultFiltersByTab)
+  const [rangeKeysByTab, setRangeKeysByTab] = useState(defaultRangeKeysByTab)
   const [activeList, setActiveList] = useState<DetailListType | null>(null)
   const [loading, setLoading] = useState(true)
   const [overview, setOverview] = useState<OverviewStatsWithDelta | null>(null)
@@ -162,7 +194,31 @@ export default function DashboardView({
   const [autoRefresh, setAutoRefresh] = useState<AutoRefreshInterval>("off")
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
   const [agents, setAgents] = useState<{ id: string; name: string; emoji?: string | null }[]>([])
-  const tabsRef = useRef<HTMLDivElement>(null)
+
+  const filteredTab = isFilteredDashboardTab(activeTab) ? activeTab : null
+  const filter = filteredTab ? filtersByTab[filteredTab] : filtersByTab.insights
+  const filterFields = dashboardFilterFields(activeTab)
+  const rangeKey = filteredTab ? rangeKeysByTab[filteredTab] : "30d"
+
+  const setFilter = useCallback(
+    (next: SetStateAction<DashboardFilterState>) => {
+      if (!filteredTab) return
+      setFiltersByTab((current) => {
+        const previous = current[filteredTab]
+        const value = typeof next === "function" ? next(previous) : next
+        return { ...current, [filteredTab]: value }
+      })
+    },
+    [filteredTab],
+  )
+
+  const setRangeKey = useCallback(
+    (next: DashboardRangeKey) => {
+      if (!filteredTab) return
+      setRangeKeysByTab((current) => ({ ...current, [filteredTab]: next }))
+    },
+    [filteredTab],
+  )
 
   const agentNameMap = useMemo(() => {
     const map: Record<string, string> = {}
@@ -316,15 +372,7 @@ export default function DashboardView({
       })
     }, 0)
     return () => clearTimeout(timer)
-  }, [filter, loadOverview, loadTabData, activeTab])
-
-  // Tab switch reload (skip initial mount since above effect handles it)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadTabData(activeTab)
-    }, 0)
-    return () => clearTimeout(timer)
-  }, [activeTab, granularity, loadTabData])
+  }, [filter, loadOverview, loadTabData, activeTab, granularity])
 
   // Auto-refresh polling
   useEffect(() => {
@@ -339,17 +387,27 @@ export default function DashboardView({
     return () => window.clearInterval(id)
   }, [autoRefresh, loadOverview, loadTabData, activeTab])
 
-  const handleCardClick = useCallback((action: CardAction) => {
-    if (action.type === "tab") {
-      setActiveList(null)
-      setActiveTab(action.tab)
-      requestAnimationFrame(() => {
-        tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-      })
-    } else {
-      setActiveList((prev) => (prev === action.listType ? null : action.listType))
-    }
-  }, [])
+  const handleCardClick = useCallback(
+    (action: CardAction) => {
+      if (action.type === "tab") {
+        setActiveList(null)
+        if (filteredTab && isFilteredDashboardTab(action.tab)) {
+          setFiltersByTab((current) => ({
+            ...current,
+            [action.tab]: { ...filter },
+          }))
+          setRangeKeysByTab((current) => ({
+            ...current,
+            [action.tab]: rangeKey,
+          }))
+        }
+        setActiveTab(action.tab)
+      } else {
+        setActiveList((prev) => (prev === action.listType ? null : action.listType))
+      }
+    },
+    [filter, filteredTab, rangeKey],
+  )
 
   const handleTabChange = useCallback((tab: string) => {
     setActiveList(null)
@@ -452,6 +510,7 @@ export default function DashboardView({
 
   const showGranularity =
     activeTab === "tokens" || activeTab === "sessions" || activeTab === "errors"
+  const tabContentClassName = filterFields ? "mt-6" : "mt-0"
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-background">
@@ -520,43 +579,15 @@ export default function DashboardView({
         </IconTip>
       </div>
 
-      {/* Filter bar */}
-      {activeTab !== "evaluation" && (
-        <DashboardFilter
-          filter={filter}
-          onChange={setFilter}
-          controlPlane={activeTab === "control-plane"}
-        />
-      )}
-
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Overview cards with delta */}
-        {showsGlobalOverview(activeTab) && (
-          <>
-            <OverviewCards
-              data={overview}
-              loading={loading}
-              activeList={activeList}
-              onCardClick={handleCardClick}
-            />
-
-            {/* Detail list panel (between cards and tabs) */}
-            {activeList && (
-              <DetailListPanel
-                listType={activeList}
-                filter={filter}
-                agentNameMap={agentNameMap}
-                onClose={() => setActiveList(null)}
-              />
-            )}
-          </>
-        )}
-
-        {/* Tabs */}
-        <Tabs ref={tabsRef} value={activeTab} onValueChange={handleTabChange}>
-          <div className="flex items-center gap-3 flex-wrap">
-            <TabsList>
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
+        {/* Primary dashboard navigation remains visible while tab content scrolls. */}
+        <div className="shrink-0 px-6 py-3">
+          <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <TabsList className="h-9 w-max justify-start">
               <TabsTrigger value="insights">{t("dashboard.tabs.insights")}</TabsTrigger>
               <TabsTrigger value="control-plane">{t("dashboard.controlPlane.title")}</TabsTrigger>
               <TabsTrigger value="tokens">{t("dashboard.tabs.tokens")}</TabsTrigger>
@@ -571,31 +602,68 @@ export default function DashboardView({
               <TabsTrigger value="dreaming">{t("dashboard.tabs.dreaming")}</TabsTrigger>
               <TabsTrigger value="evaluation">{t("dashboard.tabs.evaluation")}</TabsTrigger>
             </TabsList>
-            {showGranularity && (
-              <div className="flex gap-1">
-                {(["day", "week", "month"] as Granularity[]).map((g) => (
-                  <Button
-                    key={g}
-                    variant={granularity === g ? "secondary" : "ghost"}
-                    size="sm"
-                    onClick={() => setGranularity(g)}
-                    className="text-xs h-7"
-                  >
-                    {t(`dashboard.granularity.${g}`)}
-                  </Button>
-                ))}
-              </div>
-            )}
           </div>
+        </div>
 
-          <TabsContent value="insights">
+        {/* Each tab owns the filters that apply to its data. */}
+        <div className={cn("min-h-0 flex-1 overflow-y-auto p-6", PANEL_SCROLL_FADE)}>
+          {filterFields && (
+            <DashboardFilter
+              key={activeTab}
+              filter={filter}
+              onChange={setFilter}
+              fields={filterFields}
+              rangeKey={rangeKey}
+              onRangeKeyChange={setRangeKey}
+            >
+              {showGranularity && (
+                <>
+                  <div className="h-5 w-px bg-border" />
+                  <div className="flex gap-1">
+                    {(["day", "week", "month"] as Granularity[]).map((g) => (
+                      <Button
+                        key={g}
+                        variant={granularity === g ? "secondary" : "ghost"}
+                        size="sm"
+                        onClick={() => setGranularity(g)}
+                        className="text-xs h-7"
+                      >
+                        {t(`dashboard.granularity.${g}`)}
+                      </Button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </DashboardFilter>
+          )}
+
+          <TabsContent value="insights" className={cn(tabContentClassName, "space-y-6")}>
+            {showsGlobalOverview(activeTab) && (
+              <>
+                <OverviewCards
+                  data={overview}
+                  loading={loading}
+                  activeList={activeList}
+                  onCardClick={handleCardClick}
+                />
+
+                {activeList && (
+                  <DetailListPanel
+                    listType={activeList}
+                    filter={filter}
+                    agentNameMap={agentNameMap}
+                    onClose={() => setActiveList(null)}
+                  />
+                )}
+              </>
+            )}
             <InsightsSection
               data={insightsData}
               loading={loading}
               onDrillDownModel={(modelId) => setFilter((f) => ({ ...f, modelId }))}
             />
           </TabsContent>
-          <TabsContent value="control-plane">
+          <TabsContent value="control-plane" className={tabContentClassName}>
             <ControlPlaneSection
               data={controlPlaneData}
               loading={loading}
@@ -606,7 +674,7 @@ export default function DashboardView({
               initialSection={initialTab === "plans" ? "progress" : "overview"}
             />
           </TabsContent>
-          <TabsContent value="tokens">
+          <TabsContent value="tokens" className={tabContentClassName}>
             <TokenUsageSection
               data={tokenData}
               loading={loading}
@@ -614,10 +682,10 @@ export default function DashboardView({
               onDrillDownOperation={(operation) => setFilter((f) => ({ ...f, operation }))}
             />
           </TabsContent>
-          <TabsContent value="tools">
+          <TabsContent value="tools" className={tabContentClassName}>
             <ToolUsageSection data={toolData} loading={loading} />
           </TabsContent>
-          <TabsContent value="sessions">
+          <TabsContent value="sessions" className={tabContentClassName}>
             <SessionSection
               data={sessionData}
               loading={loading}
@@ -625,16 +693,16 @@ export default function DashboardView({
               onDrillDown={(agentId) => setFilter((f) => ({ ...f, agentId: agentId }))}
             />
           </TabsContent>
-          <TabsContent value="errors">
+          <TabsContent value="errors" className={tabContentClassName}>
             <ErrorSection data={errorData} loading={loading} />
           </TabsContent>
-          <TabsContent value="tasks">
+          <TabsContent value="tasks" className={tabContentClassName}>
             <TaskSection data={taskData} loading={loading} />
           </TabsContent>
-          <TabsContent value="system">
+          <TabsContent value="system" className={tabContentClassName}>
             <SystemMetricsSection data={systemMetrics} history={systemHistory} loading={loading} />
           </TabsContent>
-          <TabsContent value="local-models">
+          <TabsContent value="local-models" className={tabContentClassName}>
             <LocalModelsSection
               loading={loading}
               ollama={localModelsData.ollama}
@@ -646,16 +714,16 @@ export default function DashboardView({
               onOpenSettings={onOpenSettings}
             />
           </TabsContent>
-          <TabsContent value="recap">
+          <TabsContent value="recap" className={tabContentClassName}>
             <RecapTab initialReportId={initialRecapReportId} />
           </TabsContent>
-          <TabsContent value="learning">
-            <LearningTab filter={filter} />
+          <TabsContent value="learning" className={tabContentClassName}>
+            <LearningTab />
           </TabsContent>
-          <TabsContent value="dreaming">
+          <TabsContent value="dreaming" className={tabContentClassName}>
             <DreamingTab />
           </TabsContent>
-          <TabsContent value="evaluation">
+          <TabsContent value="evaluation" className={tabContentClassName}>
             <Suspense
               fallback={
                 <div className="py-12 text-center text-sm text-muted-foreground">
@@ -666,8 +734,8 @@ export default function DashboardView({
               <EvaluationTab />
             </Suspense>
           </TabsContent>
-        </Tabs>
-      </div>
+        </div>
+      </Tabs>
     </div>
   )
 }

@@ -3,8 +3,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use ha_eval_spec::app::{
-    validate_evidence_bundle_manifest, validate_trust_registry, EvidenceBundleManifest,
-    EvidenceKeyStatus, EvidenceTrustRegistry,
+    evidence_trust_key_fingerprint, validate_evidence_bundle_manifest, validate_trust_registry,
+    EvidenceBundleManifest, EvidenceKeyStatus, EvidenceTrustRegistry,
 };
 use ha_eval_spec::canonical_json;
 use ha_eval_spec::model::{validate_evidence_shape, ModelCampaignEvidence};
@@ -43,6 +43,7 @@ pub struct VerifiedEvidenceBundle {
     pub manifest: EvidenceBundleManifest,
     pub evidence: ModelCampaignEvidence,
     pub key_id: String,
+    pub key_fingerprint: String,
     pub evidence_bytes: Vec<u8>,
     pub files: BTreeMap<String, Vec<u8>>,
     pub assets_known: bool,
@@ -73,6 +74,7 @@ pub fn import_evidence_bundle(
         &evidence_artifact,
         &stored_artifacts,
         &verified.key_id,
+        &verified.key_fingerprint,
         &verified.evidence,
         verified.assets_known,
     )
@@ -174,7 +176,8 @@ pub fn verify_evidence_bundle(
     let signature = base64::engine::general_purpose::STANDARD
         .decode(signature_text)
         .context("decoding evidence bundle signature")?;
-    verify_manifest_signature(&manifest_value, &manifest, &signature, &trust)?;
+    let key_fingerprint =
+        verify_manifest_signature(&manifest_value, &manifest, &signature, &trust)?;
 
     let mut declared = BTreeSet::from([MANIFEST_PATH.to_string(), SIGNATURE_PATH.to_string()]);
     for artifact in std::iter::once(&manifest.evidence).chain(manifest.artifacts.iter()) {
@@ -221,6 +224,7 @@ pub fn verify_evidence_bundle(
     let assets_known = evidence_assets_known(&evidence, trust_registry_path)?;
     Ok(VerifiedEvidenceBundle {
         key_id: manifest.key_id.clone(),
+        key_fingerprint,
         manifest,
         evidence,
         evidence_bytes,
@@ -287,7 +291,7 @@ fn verify_manifest_signature(
     manifest: &EvidenceBundleManifest,
     signature: &[u8],
     trust: &EvidenceTrustRegistry,
-) -> Result<()> {
+) -> Result<String> {
     let key = trust
         .keys
         .iter()
@@ -308,7 +312,8 @@ fn verify_manifest_signature(
     let canonical = canonical_json(manifest_value)?;
     UnparsedPublicKey::new(&ED25519, public_key)
         .verify(&canonical, signature)
-        .map_err(|_| anyhow!("evidence bundle signature verification failed"))
+        .map_err(|_| anyhow!("evidence bundle signature verification failed"))?;
+    evidence_trust_key_fingerprint(key)
 }
 
 fn validate_key_for_import(

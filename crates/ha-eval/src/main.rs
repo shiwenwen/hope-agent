@@ -1,3 +1,4 @@
+#[cfg(feature = "full-runner")]
 mod adapters;
 mod model;
 mod model_adapter;
@@ -604,7 +605,12 @@ async fn command_run_case(
         .and_then(|value| value.parse().ok())
         .unwrap_or(1);
     let started = Instant::now();
+    #[cfg(feature = "full-runner")]
     let result = adapters::run_case(root, suite, case, attempt).await;
+    #[cfg(not(feature = "full-runner"))]
+    let result: Result<CaseResult> = Err(anyhow!(
+        "deterministic case adapters are unavailable in the smoke-only Runner build"
+    ));
     let outcome = match result {
         Ok(mut outcome) => {
             outcome.duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;

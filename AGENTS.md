@@ -86,7 +86,7 @@ pnpm test                                                                    # C
 - GitHub ruleset `main-branch-protection` 的 `conditions.ref_name.include` 覆盖 `~DEFAULT_BRANCH` + `refs/heads/release/**`：必须 PR、必跑 8 项 status check、禁 force push、禁删分支、`enforce_admins: true`
 - 修改 workflow 的 job 名或 matrix 时需同步通过 `gh api` 更新 ruleset 的 `required_status_checks` context 列表
 - `capability-eval.yml` 不属于 required check；release policy 初始 advisory，达到稳定性条件后只通过配置 PR 切 enforce。发版 evidence 必须来自 GitHub、`dirty=false` 且 SHA/digest 精确匹配；本地结果不得替代
-- `model-campaign.yml` 也不属于 required check；真实模型 evidence 与 deterministic evidence 物理分离、互不替代。隔离 `config.json` 禁止保存 Provider Key，Key 只能通过受保护 `model-eval` environment 的 `MODEL_EVAL_PROVIDER_SECRETS_B64` 注入 Hope Server 内存；Server/Supervisor token 必须独立。只允许评测专用账号、合成/授权脱敏数据及 Provider/suite allowlist 出网，禁止个人生产账号、真实用户数据和不受约束的公网访问。签名 registry 尚未配置时保留普通 evidence、跳过 bundle 签名；registry 存在后签名链任一错误 fail closed。模型轨道转 enforce 只能通过 `evals/live/policy/release.json` 配置 PR
+- `model-campaign.yml` 也不属于 required check；真实模型 evidence 与 deterministic evidence 物理分离、互不替代。隔离 `config.json` 禁止保存 Provider Key，Key 只能通过受保护 `model-eval` environment 的 `MODEL_EVAL_PROVIDER_SECRETS_B64` 注入 Hope Server 内存；Server/Supervisor token 必须独立。只允许评测专用账号、合成/授权脱敏数据及 Provider/suite allowlist 出网，禁止个人生产账号、真实用户数据和不受约束的公网访问。受保护 Runner 必须通过 Bubblewrap mount/PID namespace 只暴露合成数据目录，checkout 禁止持久化 GitHub 凭据，Supervisor 必须回收完整后代树；缺少隔离能力时 fail closed。签名 registry 尚未配置时保留普通 evidence、跳过 bundle 签名；registry 存在后签名链任一错误 fail closed，导入信任刷新必须同时匹配 key id 与公钥 SHA-256。Headless Server 只接受显式绝对 `HA_EVAL_TRUST_REGISTRY_PATH`，禁止 cwd/exe ancestor 搜索。模型轨道转 enforce 只能通过 `evals/live/policy/release.json` 配置 PR
 
 ## 项目结构
 

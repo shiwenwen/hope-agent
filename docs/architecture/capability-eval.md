@@ -13,7 +13,7 @@
 | `crates/ha-eval-spec` | 不依赖 `ha-core` 的 manifest、policy、plan、shard、evidence、waiver 类型，canonical JSON、SHA-256、路径与 JSON Schema 校验 |
 | `crates/ha-eval` | `hope-agent-eval` CLI；创建计划、稳定分片、逐 case 子进程隔离、聚合与发布证据校验 |
 | `evals/` | JSON Schema、weekly/release policy、suite manifest 和 fixture 单一真相源 |
-| `.github/workflows/capability-eval.yml` | weekly schedule 与手动 release-tier 编排；不监听 PR/push，不是 branch protection required check |
+| `.github/workflows/capability-eval.yml` | weekly schedule 与手动 release-tier 编排；运行公开 suite 及 `eval-internal-tests` 遗留契约，不监听 PR/push，不是 branch protection required check |
 
 CLI：
 
@@ -34,6 +34,8 @@ hope-agent-eval verify-evidence --evidence eval-evidence.v1.json --ref <sha> --t
 - manifest 不能携带任意 shell 命令；fixture 路径只能使用 suite 目录内的普通相对路径，canonicalize 后越界或 symlink escape 一律拒绝。
 - case 使用稳定 SHA-256 分片，在独立子进程运行；超时/崩溃/无结果为 `infra_error`，只自动重试一次。业务断言失败不重试。
 - suite/case/policy 以 canonical JSON 和资产内容生成 digest；`evals/version-lock.json` 使用 `id@version` 追加式锁定内容。修改 suite 或 fixture 时必须提升 suite `version` 并追加 lock；修改阈值/套件集合时必须提升 policy `version` 并追加 lock，原版本 digest 不得改写。PR 的 Rust `fmt` check 会运行 `scripts/verify-eval-version-lock.mjs` 对比 base commit，拒绝删除或覆写已有 key。
+
+`ha-eval` 默认启用 `full-runner`，供本地、weekly 和 release 执行完整确定性 adapter。PR 的 fake-Provider smoke 使用 `--no-default-features` 构建同一控制面，只复用普通 feature 集的 `ha-core`，不再次 codegen/link 确定性 adapter。此前从默认测试移出的内部评测契约通过 `ha-core/eval-internal-tests` 在 `Capability Evals` workflow 单独执行；它们不回到普通 PR 或 pre-push。
 
 所有 v1 adapter 都不调用模型 API。某些 Coding fixture 可执行其已审阅的本地验证命令；这与模型网络访问无关。Memory latency 只进入 advisory check，质量/召回正确性才是 blocking check。
 

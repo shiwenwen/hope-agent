@@ -12,7 +12,7 @@ name = "hope-agent-eval"
 path = "src/main.rs"
 
 [dependencies]
-ha-core = { path = "../ha-core", features = ["eval-runner"] }
+ha-core = { path = "../ha-core" }
 ha-eval-spec = { path = "../ha-eval-spec" }
 anyhow = { workspace = true }
 axum = "0.8"
@@ -40,3 +40,9 @@ windows-sys = { version = "0.52", features = [
 
 [lints]
 workspace = true
+
+[features]
+# Normal CLI/Sidecar builds contain every deterministic adapter. PR smoke
+# builds disable defaults so they can reuse ha-core's ordinary feature set.
+default = ["full-runner"]
+full-runner = ["ha-core/eval-runner"]

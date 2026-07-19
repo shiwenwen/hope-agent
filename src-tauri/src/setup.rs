@@ -27,6 +27,21 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 std::env::set_var("HOPE_AGENT_BROWSER_HOST_PATH", &host_path);
             }
         }
+
+        // The evaluation trust registry and suite assets are security-sensitive:
+        // resolve them through Tauri's package-aware resource resolver instead of
+        // allowing a release build to discover an arbitrary checkout from cwd.
+        let eval_asset_root = app
+            .path()
+            .resolve("evals/live", tauri::path::BaseDirectory::Resource)
+            .ok()
+            .filter(|path| path.is_dir())
+            .and_then(|path| path.parent()?.parent().map(std::path::Path::to_path_buf));
+        if !app.manage(crate::commands::evaluation::EvaluationState::new(
+            eval_asset_root,
+        )) {
+            return Err("evaluation state was already registered".into());
+        }
     }
     if cfg!(debug_assertions) {
         app.handle().plugin(

@@ -128,7 +128,8 @@ default = []
 # `hope-agent-eval` binary, never by the default PR test harness.
 eval-runner = []
 # Legacy internal eval tests remain opt-in while their public-suite coverage is
-# migrated to `hope-agent-eval`. This feature is intentionally absent from CI.
+# migrated to `hope-agent-eval`. The Capability Evals workflow runs them away
+# from the latency-sensitive PR test jobs.
 eval-internal-tests = []
 # Enables the desktop-only image sources (`clipboard`, `screenshot`) of
 # `tools::image`. The desktop binary (src-tauri) opts in; ha-server's
