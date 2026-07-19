@@ -1,10 +1,12 @@
+#[cfg(unix)]
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
-use ha_core::session::{
-    ChatTurnStatus, CommitInterruptedTurn, CreateStreamRun, JournalBatch, JournalEvent, NewMessage,
-    SessionDB,
-};
+#[cfg(unix)]
+use ha_core::session::{ChatTurnStatus, CommitInterruptedTurn, NewMessage};
+use ha_core::session::{CreateStreamRun, JournalBatch, JournalEvent, SessionDB};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
