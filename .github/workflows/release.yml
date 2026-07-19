@@ -415,7 +415,12 @@ jobs:
           mkdir -p manifest
           gh release download "${RELEASE_TAG}" --pattern "latest.json" --dir manifest
       - name: Patch latest.json with bare_binary entries
-        run: node scripts/patch-latest-json.mjs manifest/latest.json artifacts "${RELEASE_TAG}"
+        # --require 必须与上面 build job 的 matrix 平台列表一致：少写一个，那个
+        # 平台的产物丢失又会变成静默的残缺清单；多写一个（如已禁用的 macos-x64）
+        # 则每次发版都失败。改 matrix 时同步改这里。
+        run: |
+          node scripts/patch-latest-json.mjs manifest/latest.json artifacts "${RELEASE_TAG}" \
+            --require=macos-arm64,linux-x64,linux-arm64,windows-x64
       - name: Re-upload patched latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
