@@ -498,32 +498,91 @@ pub fn default_native_host_manifest_path() -> Option<PathBuf> {
 /// connected. Falls back to the source if the copy hasn't been made yet (before
 /// first desktop startup, or in a headless server with no copy step).
 fn unpacked_extension_path() -> Option<PathBuf> {
-    // Use the stable copy only when the completion marker proves the last mirror
-    // finished fully. A copy interrupted partway (crash / disk full) can have
-    // manifest.json but be missing other files; without the marker we fall
-    // through to the source instead of returning a broken extension.
+    // Use the stable copy only when the completion marker proves the last
+    // mirror finished fully AND matches the current source set. The marker
+    // stores the source fingerprint, so a binary upgrade (new embedded files)
+    // invalidates it and headless deployments re-mirror lazily below — a
+    // presence-only marker would pin the mirror to the first version forever.
+    let fingerprint = extension_source_fingerprint();
     if let (Ok(stable), Ok(marker)) = (
         crate::paths::browser_extension_unpacked_dir(),
         crate::paths::browser_extension_unpacked_marker(),
     ) {
-        if stable_copy_is_complete(&stable, &marker) {
+        if stable_copy_is_complete(&stable, &marker, fingerprint.as_deref()) {
             return Some(stable);
         }
     }
     // Lazy bootstrap for entry points without the desktop startup hook
-    // (headless server): mirror the embedded extension once per process.
-    static LAZY_ENSURE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
-    if let Some(path) = LAZY_ENSURE.get_or_init(ensure_local_unpacked_extension) {
-        return Some(path.clone());
+    // (headless server). Only success is cached — a transient mirror failure
+    // retries on the next call instead of pinning None for the process
+    // lifetime. Gated out of cargo test: the mirror writes the REAL user data
+    // dir, which unit tests must never touch.
+    #[cfg(not(test))]
+    {
+        static LAZY_ENSURE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        if let Some(path) = LAZY_ENSURE.get() {
+            return Some(path.clone());
+        }
+        if let Some(path) = ensure_local_unpacked_extension() {
+            return Some(LAZY_ENSURE.get_or_init(|| path).clone());
+        }
     }
-    repo_extension_source()
+    // Dev fallback only: a release binary must never serve a stray checkout
+    // (see extension_source_files).
+    #[cfg(debug_assertions)]
+    {
+        return repo_extension_source();
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
 }
 
-/// A stable copy is usable only if BOTH the completion marker and a manifest are
-/// present — the marker proves the last mirror finished fully, guarding against
-/// a partial copy (crash / disk full mid-sync) shadowing the bundled source.
-fn stable_copy_is_complete(dir: &Path, marker: &Path) -> bool {
-    marker.exists() && dir.join("manifest.json").exists()
+/// A stable copy is usable only if a manifest is present AND the completion
+/// marker matches the current source fingerprint — the marker proves the last
+/// mirror finished fully (guarding against a partial copy shadowing the
+/// source) and pins WHICH source set it mirrored (guarding against a stale
+/// mirror surviving a binary upgrade). When the fingerprint is unavailable
+/// the check degrades to marker presence.
+fn stable_copy_is_complete(dir: &Path, marker: &Path, expected_fingerprint: Option<&str>) -> bool {
+    if !dir.join("manifest.json").exists() {
+        return false;
+    }
+    let Ok(actual) = std::fs::read_to_string(marker) else {
+        return false;
+    };
+    match expected_fingerprint {
+        Some(want) => actual.trim() == want,
+        None => true,
+    }
+}
+
+/// Fingerprint of the current extension source set (dev repo checkout or
+/// embedded files). Cached per process — the set is fixed for a binary, and
+/// dev edits take effect on restart, same as the mirror itself.
+fn extension_source_fingerprint() -> Option<String> {
+    static FINGERPRINT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    FINGERPRINT
+        .get_or_init(|| {
+            let dest = crate::paths::browser_extension_unpacked_dir().ok()?;
+            let files = extension_source_files(&dest)?;
+            Some(fingerprint_files(&files))
+        })
+        .clone()
+}
+
+/// Stable digest over (path, content) pairs, length-prefixed to keep field
+/// boundaries unambiguous; truncated hex is plenty for a change detector.
+fn fingerprint_files(files: &[(String, Vec<u8>)]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    for (rel, bytes) in files {
+        hasher.update(&(rel.len() as u64).to_le_bytes());
+        hasher.update(rel.as_bytes());
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(bytes);
+    }
+    hasher.finalize().to_hex()[..16].to_string()
 }
 
 /// Mirror the extension runtime files into a STABLE location under
@@ -537,23 +596,32 @@ fn stable_copy_is_complete(dir: &Path, marker: &Path) -> bool {
 /// headless entry points bootstrap it lazily via [`unpacked_extension_path`].
 /// Returns the stable dir on success.
 pub fn ensure_local_unpacked_extension() -> Option<PathBuf> {
+    // Serialize mirrors within the process: desktop startup fires this on a
+    // detached blocking task while status queries can bootstrap lazily at the
+    // same time, and two interleaved mirrors prune each other's in-flight
+    // temp files (each run's write_atomic temps are not in the other's keep
+    // set), failing both.
+    static ENSURE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = ENSURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     let dest = crate::paths::browser_extension_unpacked_dir().ok()?;
     let marker = crate::paths::browser_extension_unpacked_marker().ok()?;
     let files = match extension_source_files(&dest) {
         Some(files) if !files.is_empty() => files,
         _ => return None,
     };
+    let fingerprint = fingerprint_files(&files);
     // Clear the completion marker first: while the mirror is in progress the copy
     // may be partial, so `unpacked_extension_path` must not trust it until we
     // re-stamp the marker on full success.
     let _ = std::fs::remove_file(&marker);
     match mirror_extension_files(&files, &dest) {
         Ok(()) => {
-            // Full mirror succeeded — stamp the marker so the stable copy becomes
-            // the preferred path. If the marker write fails, report failure so
-            // callers keep using the bundled source rather than a copy we can't
-            // vouch for.
-            if let Err(e) = crate::platform::write_atomic(&marker, b"ok\n") {
+            // Full mirror succeeded — stamp the marker (with the source
+            // fingerprint) so the stable copy becomes the preferred path. If
+            // the marker write fails, report failure so callers keep using
+            // the source rather than a copy we can't vouch for.
+            if let Err(e) = crate::platform::write_atomic(&marker, fingerprint.as_bytes()) {
                 app_warn!(
                     "browser",
                     "unpacked_copy",
@@ -578,10 +646,15 @@ pub fn ensure_local_unpacked_extension() -> Option<PathBuf> {
     }
 }
 
-/// Runtime file list for the mirror: dev repo checkout when present, else the
-/// set embedded in the binary. `dest` is excluded defensively so we never
-/// mirror the stable copy onto itself.
+/// Runtime file list for the mirror: dev repo checkout when present (debug
+/// builds only — a RELEASE binary must never let a stray/stale checkout found
+/// by cwd/exe ancestor walking shadow its embedded set, which would pin the
+/// user's extension to old files and let a foreign manifest.key drive the
+/// derived unpacked id; this mirrors the debug-gating of the skills
+/// resolver), else the set embedded in the binary. `dest` is excluded
+/// defensively so we never mirror the stable copy onto itself.
 fn extension_source_files(dest: &Path) -> Option<Vec<(String, Vec<u8>)>> {
+    #[cfg(debug_assertions)]
     if let Some(dir) = repo_extension_source() {
         if dir != *dest {
             if let Ok(files) = read_extension_dir_files(&dir) {
@@ -591,12 +664,15 @@ fn extension_source_files(dest: &Path) -> Option<Vec<(String, Vec<u8>)>> {
             }
         }
     }
+    #[cfg(not(debug_assertions))]
+    let _ = dest;
     let embedded = super::embedded::extension_files();
     (!embedded.is_empty()).then_some(embedded)
 }
 
 /// Collect `(relative path, bytes)` for every file under `root`, skipping
 /// dev-checkout noise that must never reach the mirrored copy.
+#[cfg(debug_assertions)]
 fn read_extension_dir_files(root: &Path) -> Result<Vec<(String, Vec<u8>)>> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
         for entry in
@@ -606,7 +682,10 @@ fn read_extension_dir_files(root: &Path) -> Result<Vec<(String, Vec<u8>)>> {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
             if path.is_dir() {
-                if name == "node_modules" || name == ".git" {
+                if matches!(
+                    name.as_str(),
+                    "node_modules" | ".git" | "scripts" | "store-listing" | "test-pages"
+                ) {
                     continue;
                 }
                 walk(root, &path, out)?;
@@ -671,6 +750,13 @@ fn prune_unlisted(dir: &Path, keep: &std::collections::HashSet<PathBuf>) -> Resu
     for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
         let entry = entry?;
         let path = entry.path();
+        // Never sweep a write_atomic in-flight temp (`<name>.tmp.<pid>.<ns>`):
+        // it may belong to a concurrent mirror in ANOTHER process (this
+        // process's mirrors are serialized by ENSURE_LOCK), and deleting it
+        // fails that mirror mid-rename.
+        if entry.file_name().to_string_lossy().contains(".tmp.") {
+            continue;
+        }
         if path.is_dir() {
             if keep.contains(&path) {
                 prune_unlisted(&path, keep)?;
@@ -690,6 +776,7 @@ fn prune_unlisted(dir: &Path, keep: &std::collections::HashSet<PathBuf>) -> Resu
 /// packaged installs carry the runtime files embedded in the binary instead
 /// (see [`super::embedded`]), mirrored to the stable copy by
 /// [`ensure_local_unpacked_extension`].
+#[cfg(debug_assertions)]
 fn repo_extension_source() -> Option<PathBuf> {
     // Look in the working directory and a few of its ancestors, plus the
     // executable directory's ancestors. `pnpm tauri dev` runs the binary with
@@ -901,15 +988,20 @@ mod tests {
 
         // manifest present but no marker → partial sync, NOT usable.
         fs::write(dir.join("manifest.json"), b"{}").unwrap();
-        assert!(!stable_copy_is_complete(&dir, &marker));
+        assert!(!stable_copy_is_complete(&dir, &marker, None));
 
-        // both present → usable.
-        fs::write(&marker, b"ok\n").unwrap();
-        assert!(stable_copy_is_complete(&dir, &marker));
+        // marker present, fingerprint unknown → presence check only.
+        fs::write(&marker, b"abc123").unwrap();
+        assert!(stable_copy_is_complete(&dir, &marker, None));
+
+        // Fingerprint matches → usable; mismatched (stale mirror from an
+        // older binary, incl. legacy "ok" markers) → must re-mirror.
+        assert!(stable_copy_is_complete(&dir, &marker, Some("abc123")));
+        assert!(!stable_copy_is_complete(&dir, &marker, Some("def456")));
 
         // marker present but manifest gone → NOT usable.
         fs::remove_file(dir.join("manifest.json")).unwrap();
-        assert!(!stable_copy_is_complete(&dir, &marker));
+        assert!(!stable_copy_is_complete(&dir, &marker, None));
     }
 
     #[test]

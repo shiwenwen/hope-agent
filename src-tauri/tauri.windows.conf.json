@@ -20,8 +20,7 @@
     "targets": ["nsis"],
     "resources": {
       "resources/browser-host": "browser-host",
-      "resources/vc_redist.x64.exe": "resources/vc_redist.x64.exe",
-      "../skills": "skills"
+      "resources/vc_redist.x64.exe": "resources/vc_redist.x64.exe"
     },
     "windows": {
       "nsis": {

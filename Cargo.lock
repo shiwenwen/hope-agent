@@ -3070,7 +3070,7 @@ dependencies = [
 
 [[package]]
 name = "ha-browser-host"
-version = "0.10.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",

@@ -49,14 +49,38 @@ mod tests {
             parsed.get("key").is_some(),
             "embedded manifest must keep `key` for the fixed unpacked id"
         );
-        assert!(files.iter().any(|(rel, _)| rel == "service_worker.js"));
-        assert!(files.iter().any(|(rel, _)| rel.starts_with("icons/")));
-        assert!(files
-            .iter()
-            .any(|(rel, _)| rel.starts_with("_locales/") && rel.ends_with("messages.json")));
-        // Whitelist must not leak dev files.
-        assert!(!files.iter().any(|(rel, _)| rel.ends_with(".ts")
-            || rel.starts_with("test-pages/")
-            || rel.starts_with("store-listing/")));
+    }
+
+    #[test]
+    fn embeds_exact_runtime_file_set() {
+        // Successor to the retired prepare-chrome-extension.mjs fail-fast
+        // whitelist: rust-embed `#[include]` silently embeds nothing for a
+        // missing/renamed file, so this exact-set assertion is what turns
+        // that into a CI failure instead of a silently broken release
+        // extension (dead popup, refused load on a missing manifest-referenced
+        // icon/locale). Update it in lockstep with the runtime file set.
+        const LOCALES: [&str; 12] = [
+            "ar", "en", "es", "ja", "ko", "ms", "pt", "ru", "tr", "vi", "zh_CN", "zh_TW",
+        ];
+        let mut want: Vec<String> = [
+            "manifest.json",
+            "service_worker.js",
+            "popup.html",
+            "popup.js",
+            "icons/icon16.png",
+            "icons/icon32.png",
+            "icons/icon48.png",
+            "icons/icon128.png",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        want.extend(LOCALES.iter().map(|l| format!("_locales/{l}/messages.json")));
+        want.sort();
+        let got: Vec<String> = extension_files().into_iter().map(|(rel, _)| rel).collect();
+        assert_eq!(
+            got, want,
+            "embedded runtime set drifted from the expected whitelist"
+        );
     }
 }

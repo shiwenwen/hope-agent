@@ -58,7 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **内置资源在所有部署形态下不再缺失或过时**：内置技能与浏览器扩展文件此前靠构建产物里的目录拷贝定位，单文件（tar.gz）部署完全拿不到、自升级只换二进制也会让拷贝逐渐过时；现在两者直接编译进主程序并自动落到数据目录，桌面 / Docker / 单文件三形态统一携带并随升级自动更新（Chrome 侧加载的扩展更新后仍需在 `chrome://extensions` 手动 reload）。单文件发布包同时附带浏览器扩展桥 `ha-browser-host`，自升级会把它一并换新——headless 部署从此也能完整使用浏览器扩展后端。(#505)
+- **内置技能与浏览器扩展在所有部署形态（桌面 / Docker / 单文件）不再缺失或过时**：两者编译进主程序、随升级自动更新，单文件发布包并附带浏览器扩展桥 `ha-browser-host` 且自升级一并换新。(#505)
+  升级后 Chrome 已加载的扩展需在 `chrome://extensions` 手动 reload 一次生效。
 
 - **修正 Claude 等多家模型的定价与上下文长度**：Claude Opus 4.8 / 4.7 / 4.6 此前按旧 Opus 档位记为 $15/$75（实际 $5/$25）、Haiku 4.5 记为 $0.8/$4（实际 $1/$5）；Opus 4.7 / 4.6 与 Sonnet 4.6 的上下文仍写 200K（实际 1M），Grok 4.20 写 2M（实际 1M）——上下文写大会让压缩迟迟不触发、直至撞满真实上限报错。DeepSeek Chat / Reasoner、Mistral Small、GPT-5.6 系列的上下文与价格，以及 MiniMax M2.7 误标的图片输入能力一并校正。数据大盘的成本统计此前对 Claude 5 系列、GPT-5.x、Gemini 3.x 与 Kimi 完全没有价目条目而回退到默认估价，现已补齐。
 

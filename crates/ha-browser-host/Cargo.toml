@@ -1,6 +1,6 @@
 [package]
 name = "ha-browser-host"
-version = "0.10.0"
+version = "0.17.0"
 description = "Hope Agent Chrome Native Messaging host"
 license.workspace = true
 authors.workspace = true

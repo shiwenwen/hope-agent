@@ -151,10 +151,20 @@ jobs:
             ls "$target_dir" || true
             exit 1
           fi
+          # Mirror release.yml: ship the native-messaging browser host in the
+          # same archive (from the triple-independent Tauri resources staging
+          # dir written by `prepare:browser-host`).
+          host_path="src-tauri/resources/browser-host/ha-browser-host"
+          if [ ! -f "$host_path" ]; then
+            echo "::error::Browser host not found at $host_path"
+            ls src-tauri/resources/browser-host || true
+            exit 1
+          fi
+          cp "$host_path" "$target_dir/ha-browser-host"
           out_dir="bare-binary-bundle"
           mkdir -p "$out_dir"
           archive="$out_dir/hope-agent-${version}-darwin-x86_64.tar.gz"
-          tar -C "$target_dir" -czf "$archive" "hope-agent"
+          tar -C "$target_dir" -czf "$archive" "hope-agent" "ha-browser-host"
           pnpm tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
           echo "sig=$archive.sig" >> "$GITHUB_OUTPUT"
@@ -200,6 +210,7 @@ jobs:
               signature: fs.readFileSync(process.env.SIG_PATH, "utf8").trim(),
               archive: "tar_gz",
               binary_path: "hope-agent",
+              extra_binaries: ["ha-browser-host"],
             };
             fs.writeFileSync("latest.json", JSON.stringify(m, null, 2) + "\n");
             console.log("latest.json: bare_binary.platforms now has " + Object.keys(m.bare_binary.platforms).length + " entries");

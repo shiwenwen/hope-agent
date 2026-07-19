@@ -31,6 +31,18 @@ struct BundledSkillAssets;
 /// abandoned (crashed process) rather than a concurrent writer.
 const STALE_TMP_AGE: Duration = Duration::from_secs(3600);
 
+/// Age after which another binary version's extraction is reaped. A live
+/// older-version process keeps its resolved path cached (OnceLock) and reads
+/// SKILL.md lazily from disk, so deleting other versions eagerly would empty
+/// its skills mid-flight during mixed-version coexistence (desktop still on
+/// vN while an upgraded server/mcp process extracts vN+1). Recency is tracked
+/// via [`LAST_USED_MARKER`], refreshed on every reuse.
+const STALE_VERSION_AGE: Duration = Duration::from_secs(24 * 3600);
+
+/// Touch file inside each extraction recording the last time a process
+/// adopted it (file mtime is the signal; contents are irrelevant).
+const LAST_USED_MARKER: &str = ".last-used";
+
 /// Extract the embedded skills and return the content-addressed directory.
 /// Reuses an existing extraction of the same hash; prunes extractions left
 /// behind by older binaries.
@@ -45,18 +57,30 @@ fn ensure_extracted_in(root: &Path) -> Result<PathBuf> {
 
     if target.is_dir() {
         if looks_like_skills_dir(&target) {
+            touch_last_used(&target);
             prune_stale(root, &version);
             return Ok(target);
         }
         // The directory-level rename below is atomic, so a hash-named dir is
         // normally complete — this only fires if a user gutted it by hand.
-        fs::remove_dir_all(&target).ok();
+        // Failing to clear it must be a hard error: otherwise the rename
+        // below fails on the leftover and gets misread as "a concurrent
+        // extraction won", returning the known-broken dir as Ok.
+        fs::remove_dir_all(&target)
+            .with_context(|| format!("failed to clear gutted {}", target.display()))?;
     }
 
     fs::create_dir_all(root)
         .with_context(|| format!("failed to create {}", root.display()))?;
-    let tmp = root.join(format!(".tmp-{}", std::process::id()));
-    fs::remove_dir_all(&tmp).ok();
+    // pid alone is not unique across pid namespaces (two containers sharing a
+    // volume are both pid 1); the nanos nonce keeps concurrent extractions
+    // from interleaving into one tree. Abandoned tmp dirs are reaped by
+    // `prune_stale` after STALE_TMP_AGE.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = root.join(format!(".tmp-{}-{nonce}", std::process::id()));
     for (rel, data) in &files {
         // Embedded paths come from our own repo, but stay defensive.
         if rel.split('/').any(|seg| seg.is_empty() || seg == ".." || seg == ".") {
@@ -67,7 +91,18 @@ fn ensure_extracted_in(root: &Path) -> Result<PathBuf> {
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
-        fs::write(&dest, data).with_context(|| format!("failed to write {}", dest.display()))?;
+        let mut f = fs::File::create(&dest)
+            .with_context(|| format!("failed to create {}", dest.display()))?;
+        use std::io::Write;
+        f.write_all(data)
+            .with_context(|| format!("failed to write {}", dest.display()))?;
+        // Match the repo's write_atomic durability bar: without the fsync, a
+        // power loss can journal the dir rename while file data is still
+        // unflushed, and the torn (zero-length) cache would pass
+        // `looks_like_skills_dir` and be adopted forever (same hash → never
+        // re-extracted).
+        f.sync_all()
+            .with_context(|| format!("failed to sync {}", dest.display()))?;
         // rust-embed drops file modes; restore +x for shebang scripts so
         // skills that execute helpers directly keep working.
         #[cfg(unix)]
@@ -86,6 +121,7 @@ fn ensure_extracted_in(root: &Path) -> Result<PathBuf> {
         }
         // Lost the race to a concurrent process; its copy is complete.
     }
+    touch_last_used(&target);
     prune_stale(root, &version);
     crate::app_info!(
         "skills",
@@ -125,9 +161,17 @@ fn content_hash(files: &[(String, Cow<'static, [u8]>)]) -> String {
     hasher.finalize().to_hex()[..16].to_string()
 }
 
+/// Record that a process just adopted this extraction (see
+/// [`STALE_VERSION_AGE`]). Best-effort — the fallback is the dir's own mtime.
+fn touch_last_used(dir: &Path) {
+    fs::write(dir.join(LAST_USED_MARKER), b"").ok();
+}
+
 /// Best-effort removal of extractions from other binary versions and
-/// abandoned tmp dirs. Recent `.tmp-*` dirs are spared — they may belong to a
-/// concurrent extraction still in flight.
+/// abandoned tmp dirs. Recent `.tmp-*` dirs are spared (they may belong to a
+/// concurrent extraction still in flight); other-version dirs are spared
+/// until unused for [`STALE_VERSION_AGE`], so a still-running older binary
+/// keeps its extraction during mixed-version coexistence.
 fn prune_stale(root: &Path, keep: &str) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -138,8 +182,16 @@ fn prune_stale(root: &Path, keep: &str) {
             continue;
         }
         let path = entry.path();
-        if name.starts_with(".tmp-") && !older_than(&path, STALE_TMP_AGE) {
-            continue;
+        if name.starts_with(".tmp-") {
+            if !stale_since(&path, STALE_TMP_AGE) {
+                continue;
+            }
+        } else if path.is_dir() {
+            let marker = path.join(LAST_USED_MARKER);
+            let probe = if marker.is_file() { marker } else { path.clone() };
+            if !stale_since(&probe, STALE_VERSION_AGE) {
+                continue;
+            }
         }
         if path.is_dir() {
             fs::remove_dir_all(&path).ok();
@@ -149,13 +201,17 @@ fn prune_stale(root: &Path, keep: &str) {
     }
 }
 
-fn older_than(path: &Path, age: Duration) -> bool {
-    fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.elapsed().ok())
-        .map(|elapsed| elapsed > age)
-        .unwrap_or(false)
+/// Whether `path`'s mtime is older than `age`. A FUTURE mtime (clock skew,
+/// restored backup) counts as stale — otherwise such leftovers would dodge
+/// collection forever. An unreadable mtime spares the entry.
+fn stale_since(path: &Path, age: Duration) -> bool {
+    match fs::metadata(path).and_then(|m| m.modified()) {
+        Ok(mtime) => match mtime.elapsed() {
+            Ok(elapsed) => elapsed > age,
+            Err(_) => true,
+        },
+        Err(_) => false,
+    }
 }
 
 #[cfg(test)]
@@ -180,16 +236,49 @@ mod tests {
     }
 
     #[test]
-    fn prunes_stale_versions_and_old_tmp_dirs() {
+    fn spares_recent_other_versions_and_prunes_stale_ones() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("bundled-skills");
-        let old_version = root.join("0123456789abcdef");
-        fs::create_dir_all(old_version.join("some-skill")).unwrap();
-        fs::write(old_version.join("some-skill/SKILL.md"), b"old").unwrap();
+        // A freshly-used other-version extraction (live older process) must
+        // survive the prune during mixed-version coexistence.
+        let fresh = root.join("0123456789abcdef");
+        fs::create_dir_all(fresh.join("some-skill")).unwrap();
+        fs::write(fresh.join("some-skill/SKILL.md"), b"old").unwrap();
+        touch_last_used(&fresh);
+        // A long-unused version must be reaped.
+        let stale = root.join("fedcba9876543210");
+        fs::create_dir_all(stale.join("some-skill")).unwrap();
+        fs::write(stale.join("some-skill/SKILL.md"), b"older").unwrap();
+        let stale_marker = fs::File::options()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(stale.join(LAST_USED_MARKER))
+            .unwrap();
+        let past = std::time::SystemTime::now() - (STALE_VERSION_AGE + Duration::from_secs(60));
+        stale_marker
+            .set_times(fs::FileTimes::new().set_modified(past))
+            .unwrap();
 
         let dir = ensure_extracted_in(&root).unwrap();
         assert!(dir.is_dir());
-        assert!(!old_version.exists(), "stale version should be pruned");
+        assert!(fresh.is_dir(), "recently-used other version must be spared");
+        assert!(!stale.exists(), "long-unused version should be pruned");
+    }
+
+    #[test]
+    fn future_mtime_counts_as_stale() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = tmp.path().join("x");
+        fs::write(&f, b"").unwrap();
+        let future = std::time::SystemTime::now() + Duration::from_secs(7200);
+        fs::File::options()
+            .write(true)
+            .open(&f)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(future))
+            .unwrap();
+        assert!(stale_since(&f, Duration::from_secs(3600)));
     }
 
     #[test]

@@ -278,9 +278,11 @@ pub async fn install(
 
     // Swap sibling executables (e.g. the browser native host) next to the main
     // binary AFTER the smoke test passed — a rolled-back main binary keeps its
-    // matching old siblings. Best-effort: a failed sibling swap is logged, the
-    // upgrade itself stands (the broker's version handshake surfaces any
-    // host/core mismatch explicitly), and rollback never touches siblings.
+    // matching old siblings. Best-effort: a failed sibling swap is logged and
+    // the upgrade itself stands. A version-skewed host is tolerable today —
+    // the host is a thin frame forwarder and the broker hard-checks only
+    // PROTOCOL_VERSION at connect (hostVersion is reported but not enforced) —
+    // so a stale host degrades gracefully rather than breaking the backend.
     let mut extra_binaries_swapped = 0usize;
     if let Some(exe_dir) = current_exe.parent() {
         for (file_name, staged_path) in &extras {
@@ -401,6 +403,7 @@ pub fn rollback(job_id: &str) -> Result<InstallOutcome> {
 
     emit_phase(job_id, Phase::Swapping);
     crate::platform::atomic_replace_binary(&current_exe, &backup_path)?;
+    warn_sibling_skew_after_rollback();
 
     emit_phase(job_id, Phase::Restarting);
     let restart = service_control::restart_service().ok();
@@ -416,6 +419,19 @@ pub fn rollback(job_id: &str) -> Result<InstallOutcome> {
         // version is on disk (see install: sibling swap is best-effort).
         extra_binaries_swapped: 0,
     })
+}
+
+/// Emitted from `rollback` right after the main-binary swap so the skew is on
+/// the record: siblings (ha-browser-host) are never backed up and `install`
+/// refuses non-newer targets, so the only way back to matched versions is the
+/// next upgrade.
+fn warn_sibling_skew_after_rollback() {
+    app_warn!(
+        "self_update",
+        "rollback",
+        "main binary restored from backup, but sibling binaries (ha-browser-host) keep their \
+         newer version until the next upgrade — the extension native host may be version-skewed"
+    );
 }
 
 fn archive_filename(entry: &BareBinaryEntry) -> &'static str {

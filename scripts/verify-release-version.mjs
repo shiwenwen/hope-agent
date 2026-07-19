@@ -14,6 +14,9 @@ const haServerCargoTomlPath = path.join(rootDir, "crates", "ha-server", "Cargo.t
 // ha-core is the shared business-logic crate. Not user-facing, but kept
 // in lockstep so the whole workspace reports one coherent version.
 const haCoreCargoTomlPath = path.join(rootDir, "crates", "ha-core", "Cargo.toml")
+// ha-browser-host ships in desktop bundles and bare-binary archives
+// (updater extra_binaries) and reports hostVersion from CARGO_PKG_VERSION.
+const browserHostCargoTomlPath = path.join(rootDir, "crates", "ha-browser-host", "Cargo.toml")
 
 const args = process.argv.slice(2)
 let expectedTag = null
@@ -49,6 +52,13 @@ if (!haCoreVersionMatch) {
   process.exit(1)
 }
 
+const browserHostCargoToml = readFileSync(browserHostCargoTomlPath, "utf8")
+const browserHostVersionMatch = browserHostCargoToml.match(/^version = "(.*)"$/m)
+if (!browserHostVersionMatch) {
+  console.error("[release:verify] could not read crates/ha-browser-host/Cargo.toml version")
+  process.exit(1)
+}
+
 const cargoLock = readFileSync(cargoLockPath, "utf8")
 const cargoLockHopeAgentMatch = cargoLock.match(/name = "hope-agent"\r?\nversion = "(.*)"/)
 const cargoLockHaServerMatch = cargoLock.match(/name = "ha-server"\r?\nversion = "(.*)"/)
@@ -75,6 +85,7 @@ const haServerVersion = haServerVersionMatch[1]
 const haServerLockVersion = cargoLockHaServerMatch[1]
 const haCoreVersion = haCoreVersionMatch[1]
 const haCoreLockVersion = cargoLockHaCoreMatch[1]
+const browserHostVersion = browserHostVersionMatch[1]
 
 const mismatches = [
   ["package.json", packageVersion],
@@ -85,6 +96,7 @@ const mismatches = [
   ["Cargo.lock (ha-server)", haServerLockVersion],
   ["crates/ha-core/Cargo.toml", haCoreVersion],
   ["Cargo.lock (ha-core)", haCoreLockVersion],
+  ["crates/ha-browser-host/Cargo.toml", browserHostVersion],
 ].filter(([, value], _, all) => value !== all[0][1])
 
 if (mismatches.length > 0) {

@@ -307,20 +307,25 @@ jobs:
             echo "Bare binary not found at $bin_path"; ls "$target_dir" || true; exit 1
           fi
           # The native-messaging browser host rides along in the same archive
-          # so extension-backend installs work on bare-binary deployments.
-          # It was built by `pnpm prepare:browser-host` (beforeBuildCommand)
-          # into the same target dir; `self_contained::install` swaps it next
-          # to the main binary on upgrade (manifest `extra_binaries`).
-          host_path="$target_dir/ha-browser-host$ext"
+          # so extension-backend installs work on bare-binary deployments;
+          # `self_contained::install` swaps it next to the main binary on
+          # upgrade (manifest `extra_binaries`). Take it from the Tauri
+          # resources staging dir — `prepare:browser-host` (beforeBuildCommand)
+          # always copies it there, whereas its cargo output dir depends on
+          # TAURI_ENV_TARGET_TRIPLE (set by tauri even on lanes that pass no
+          # --target), which does NOT match this step's $target_dir on the
+          # linux/windows lanes.
+          host_path="src-tauri/resources/browser-host/ha-browser-host$ext"
           if [ ! -f "$host_path" ]; then
-            echo "Browser host not found at $host_path"; ls "$target_dir" || true; exit 1
+            echo "Browser host not found at $host_path"; ls src-tauri/resources/browser-host || true; exit 1
           fi
+          cp "$host_path" "$target_dir/ha-browser-host$ext"
           version="${RELEASE_TAG#v}"
           out_dir="bare-binary-bundle"
           mkdir -p "$out_dir"
           if [ "${{ runner.os }}" = "Windows" ]; then
             archive="$out_dir/hope-agent-${version}-${plat}.zip"
-            powershell -Command "Compress-Archive -Path '$bin_path','$host_path' -DestinationPath '$archive' -Force"
+            powershell -Command "Compress-Archive -Path '$bin_path','$target_dir/ha-browser-host$ext' -DestinationPath '$archive' -Force"
           else
             archive="$out_dir/hope-agent-${version}-${plat}.tar.gz"
             tar -C "$target_dir" -czf "$archive" "hope-agent$ext" "ha-browser-host$ext"

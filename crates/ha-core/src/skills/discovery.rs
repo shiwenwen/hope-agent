@@ -8,8 +8,11 @@ use super::types::*;
 
 // ── Bundled Skills ──────────────────────────────────────────────
 
-/// Cached bundled skills directory path, resolved once per process.
-static BUNDLED_SKILLS_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+/// Cached bundled skills directory path. Only SUCCESS is cached: resolution
+/// now performs real IO (embedded extraction), so a transient failure (disk
+/// full, AV lock) must retry on the next call instead of pinning `None` for
+/// the process lifetime.
+static BUNDLED_SKILLS_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Resolve the bundled skills directory shipped with the application.
 ///
@@ -72,9 +75,13 @@ pub(super) fn looks_like_skills_dir(dir: &Path) -> bool {
 
 /// Get the cached bundled skills directory.
 pub fn bundled_skills_dir() -> Option<&'static PathBuf> {
-    BUNDLED_SKILLS_DIR
-        .get_or_init(resolve_bundled_skills_dir)
-        .as_ref()
+    if let Some(dir) = BUNDLED_SKILLS_DIR.get() {
+        return Some(dir);
+    }
+    let dir = resolve_bundled_skills_dir()?;
+    // Two threads may both resolve on first miss; get_or_init keeps one,
+    // the loser's identical PathBuf is dropped.
+    Some(BUNDLED_SKILLS_DIR.get_or_init(|| dir))
 }
 
 // ── Path Utilities ───────────────────────────────────────────────
