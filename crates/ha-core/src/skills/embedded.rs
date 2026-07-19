@@ -70,8 +70,7 @@ fn ensure_extracted_in(root: &Path) -> Result<PathBuf> {
             .with_context(|| format!("failed to clear gutted {}", target.display()))?;
     }
 
-    fs::create_dir_all(root)
-        .with_context(|| format!("failed to create {}", root.display()))?;
+    fs::create_dir_all(root).with_context(|| format!("failed to create {}", root.display()))?;
     // pid alone is not unique across pid namespaces (two containers sharing a
     // volume are both pid 1); the nanos nonce keeps concurrent extractions
     // from interleaving into one tree. Abandoned tmp dirs are reaped by
@@ -83,7 +82,10 @@ fn ensure_extracted_in(root: &Path) -> Result<PathBuf> {
     let tmp = root.join(format!(".tmp-{}-{nonce}", std::process::id()));
     for (rel, data) in &files {
         // Embedded paths come from our own repo, but stay defensive.
-        if rel.split('/').any(|seg| seg.is_empty() || seg == ".." || seg == ".") {
+        if rel
+            .split('/')
+            .any(|seg| seg.is_empty() || seg == ".." || seg == ".")
+        {
             continue;
         }
         let dest = rel.split('/').fold(tmp.clone(), |p, seg| p.join(seg));
@@ -116,7 +118,10 @@ fn ensure_extracted_in(root: &Path) -> Result<PathBuf> {
         fs::remove_dir_all(&tmp).ok();
         if !target.is_dir() {
             return Err(e).with_context(|| {
-                format!("failed to move extracted bundled skills to {}", target.display())
+                format!(
+                    "failed to move extracted bundled skills to {}",
+                    target.display()
+                )
             });
         }
         // Lost the race to a concurrent process; its copy is complete.
@@ -188,7 +193,11 @@ fn prune_stale(root: &Path, keep: &str) {
             }
         } else if path.is_dir() {
             let marker = path.join(LAST_USED_MARKER);
-            let probe = if marker.is_file() { marker } else { path.clone() };
+            let probe = if marker.is_file() {
+                marker
+            } else {
+                path.clone()
+            };
             if !stale_since(&probe, STALE_VERSION_AGE) {
                 continue;
             }
@@ -224,7 +233,10 @@ mod tests {
         let root = tmp.path().join("bundled-skills");
 
         let dir = ensure_extracted_in(&root).unwrap();
-        assert!(looks_like_skills_dir(&dir), "extraction should contain */SKILL.md");
+        assert!(
+            looks_like_skills_dir(&dir),
+            "extraction should contain */SKILL.md"
+        );
         assert_eq!(dir.parent().unwrap(), root);
 
         // A second call must reuse the extraction, not rebuild it.

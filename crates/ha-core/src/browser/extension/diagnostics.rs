@@ -527,16 +527,20 @@ fn unpacked_extension_path() -> Option<PathBuf> {
             return Some(LAZY_ENSURE.get_or_init(|| path).clone());
         }
     }
-    // Dev fallback only: a release binary must never serve a stray checkout
-    // (see extension_source_files).
-    #[cfg(debug_assertions)]
-    {
-        return repo_extension_source();
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        None
-    }
+    dev_repo_fallback()
+}
+
+/// Last-resort source for the install card in dev, where the mirror may not
+/// have run yet. A release binary must never serve a stray checkout (see
+/// [`extension_source_files`]), so there it resolves to nothing.
+#[cfg(debug_assertions)]
+fn dev_repo_fallback() -> Option<PathBuf> {
+    repo_extension_source()
+}
+
+#[cfg(not(debug_assertions))]
+fn dev_repo_fallback() -> Option<PathBuf> {
+    None
 }
 
 /// A stable copy is usable only if a manifest is present AND the completion
@@ -675,9 +679,7 @@ fn extension_source_files(dest: &Path) -> Option<Vec<(String, Vec<u8>)>> {
 #[cfg(debug_assertions)]
 fn read_extension_dir_files(root: &Path) -> Result<Vec<(String, Vec<u8>)>> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
-        for entry in
-            std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))?
-        {
+        for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
             let entry = entry?;
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -735,7 +737,9 @@ fn mirror_extension_files(files: &[(String, Vec<u8>)], dst: &Path) -> Result<()>
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
-        let differs = std::fs::read(&dest).map(|cur| cur != *bytes).unwrap_or(true);
+        let differs = std::fs::read(&dest)
+            .map(|cur| cur != *bytes)
+            .unwrap_or(true);
         if differs {
             crate::platform::write_atomic(&dest, bytes)
                 .with_context(|| format!("writing {}", dest.display()))?;
@@ -765,8 +769,7 @@ fn prune_unlisted(dir: &Path, keep: &std::collections::HashSet<PathBuf>) -> Resu
                     .with_context(|| format!("removing {}", path.display()))?;
             }
         } else if !keep.contains(&path) {
-            std::fs::remove_file(&path)
-                .with_context(|| format!("removing {}", path.display()))?;
+            std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
         }
     }
     Ok(())

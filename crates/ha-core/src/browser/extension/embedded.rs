@@ -75,7 +75,11 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        want.extend(LOCALES.iter().map(|l| format!("_locales/{l}/messages.json")));
+        want.extend(
+            LOCALES
+                .iter()
+                .map(|l| format!("_locales/{l}/messages.json")),
+        );
         want.sort();
         let got: Vec<String> = extension_files().into_iter().map(|(rel, _)| rel).collect();
         assert_eq!(
