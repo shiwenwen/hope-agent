@@ -52,6 +52,7 @@ export interface EvalAppProfile {
   maxModels: number
   maxConcurrency: number
   maxCostUsd: number
+  maxTrialSeconds?: number
   allowCustom: boolean
 }
 
@@ -134,7 +135,17 @@ export interface EvalAppPlan {
   campaigns: Array<{
     campaignId: string
     model: { providerId: string; modelId: string }
-    resolvedPlan: { trials: unknown[]; suites: Array<{ id: string; cases: unknown[] }> }
+    resolvedPlan: {
+      trials: Array<{
+        id: string
+        campaignId: string
+        suiteId: string
+        caseId: string
+        arm: string
+        trialIndex: number
+      }>
+      suites: Array<{ id: string; cases: unknown[] }>
+    }
   }>
   campaignBudget: EvalCampaignBudget
   runtimeEnvironment: {
@@ -183,7 +194,13 @@ export interface EvalExperimentRecord {
   maxCostUsd?: number
   observedCostUsd?: number
   pinned: boolean
-  signatureStatus?: "verified" | "verified_retired" | "verified_now_revoked" | "verified_key_missing" | "unsigned" | string
+  signatureStatus?:
+    | "verified"
+    | "verified_retired"
+    | "verified_now_revoked"
+    | "verified_key_missing"
+    | "unsigned"
+    | string
   error?: string
 }
 
@@ -295,7 +312,13 @@ export interface EvalTrialDetail {
     milestones: EvalTrialCheck[]
     invariants: EvalTrialCheck[]
     judgeChecks: EvalTrialCheck[]
-    trace: { traceId: string; rootSpanId: string; spanCount: number; orphanSpanCount: number; closed: boolean }
+    trace: {
+      traceId: string
+      rootSpanId: string
+      spanCount: number
+      orphanSpanCount: number
+      closed: boolean
+    }
     traceEvents: Array<{
       seq: number
       timestampMs: number

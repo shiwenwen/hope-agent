@@ -23,6 +23,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, watch};
 
 const PROVIDER_SECRETS_ENV: &str = "HA_MODEL_EVAL_PROVIDER_SECRETS_B64";
+const LOCAL_CODEX_OAUTH_ENV: &str = "HA_MODEL_EVAL_LOCAL_CODEX_OAUTH";
 const SERVER_TOKEN_ENV: &str = "HA_MODEL_EVAL_SERVER_TOKEN";
 const SUPERVISOR_TOKEN_ENV: &str = "HA_MODEL_EVAL_SUPERVISOR_TOKEN";
 pub const PARENT_PID_ENV: &str = "HA_EVAL_PARENT_PID";
@@ -307,6 +308,7 @@ pub async fn run(root: &Path) -> Result<()> {
                 let experiment_id = plan.experiment_id.clone();
                 let plan_digest = plan.plan_digest.clone();
                 let max_wall_seconds = plan.campaign_budget.max_wall_seconds;
+                let deadline_cancel = cancel_tx.clone();
                 let _ = events_tx.send(AppControlEvent::Started {
                     experiment_id: experiment_id.clone(),
                     plan_digest,
@@ -323,10 +325,28 @@ pub async fn run(root: &Path) -> Result<()> {
                         &event_output,
                     );
                     let result = match max_wall_seconds {
-                        Some(seconds) => tokio::time::timeout(Duration::from_secs(seconds), run)
-                            .await
-                            .map_err(|_| anyhow!("experiment wall-clock budget exhausted"))
-                            .and_then(|result| result),
+                        Some(seconds) => {
+                            tokio::pin!(run);
+                            tokio::select! {
+                                result = run.as_mut() => result,
+                                _ = tokio::time::sleep(Duration::from_secs(seconds)) => {
+                                    // Do not drop run_experiment at the deadline: doing so skips
+                                    // its shard and Supervisor shutdown path and can orphan the
+                                    // isolated Hope Server on macOS. Ask the same cancellation
+                                    // path used by the user-facing Cancel action to unwind first.
+                                    let _ = deadline_cancel.send(true);
+                                    match tokio::time::timeout(Duration::from_secs(20), run.as_mut()).await {
+                                        Ok(Ok(_)) => Err(anyhow!("experiment wall-clock budget exhausted")),
+                                        Ok(Err(error)) => Err(anyhow!(
+                                            "experiment wall-clock budget exhausted; cleanup failed: {error:#}"
+                                        )),
+                                        Err(_) => Err(anyhow!(
+                                            "experiment wall-clock budget exhausted; cleanup timed out"
+                                        )),
+                                    }
+                                }
+                            }
+                        }
                         None => run.await,
                     };
                     match result {
@@ -706,6 +726,10 @@ async fn run_experiment(
         .env("HOME", &home_dir)
         .env("USERPROFILE", &home_dir)
         .env("HA_MODEL_EVAL_WORKSPACE", &workspace)
+        // App-control evidence is permanently local_diagnostic. It may carry a
+        // freshly resolved Codex access token, but never OAuth refresh state.
+        // Protected CLI/GitHub supervisors do not receive this opt-in.
+        .env(LOCAL_CODEX_OAUTH_ENV, "1")
         // Registered scenarios run in a disposable synthetic workspace with
         // explicit user consent. There is no interactive approval surface in
         // the supervised headless process, so registered tool calls must use
@@ -907,6 +931,13 @@ async fn run_experiment(
                     input_tokens: trial.tokens.input,
                     output_tokens: trial.tokens.output,
                     cost_usd: trial.cost.total_usd,
+                    model_calls: trial.orchestration.model_calls,
+                    tool_calls: trial.tools.attempted,
+                    suite_id: trial.suite_id.clone(),
+                    case_id: trial.case_id.clone(),
+                    arm: trial.arm.clone(),
+                    attempt: trial.attempt,
+                    failure_class: trial.failure_class.clone(),
                 });
             }
             emit_budget_warnings(

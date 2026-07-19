@@ -426,6 +426,13 @@ pub enum EvalWorkerEvent {
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,
         cost_usd: Option<f64>,
+        model_calls: u64,
+        tool_calls: u64,
+        suite_id: String,
+        case_id: String,
+        arm: String,
+        attempt: u8,
+        failure_class: Option<String>,
     },
     BudgetWarning {
         experiment_id: String,

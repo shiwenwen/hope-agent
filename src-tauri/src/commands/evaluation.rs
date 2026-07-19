@@ -500,6 +500,13 @@ impl EvalWorkerRuntime for DesktopEvalRuntime {
                         input_tokens,
                         output_tokens,
                         cost_usd,
+                        model_calls,
+                        tool_calls,
+                        suite_id,
+                        case_id,
+                        arm,
+                        attempt,
+                        failure_class,
                         ..
                     } => {
                         let _ = events_tx.send(EvalWorkerEvent::TrialCompleted {
@@ -513,6 +520,13 @@ impl EvalWorkerRuntime for DesktopEvalRuntime {
                             input_tokens,
                             output_tokens,
                             cost_usd,
+                            model_calls,
+                            tool_calls,
+                            suite_id,
+                            case_id,
+                            arm,
+                            attempt,
+                            failure_class,
                         });
                     }
                     AppControlEvent::BudgetWarning {
@@ -793,6 +807,7 @@ async fn resolve_launch(
         hello.runner_digest,
         hello.asset_root_digest,
     )
+    .await
 }
 
 fn local_build_identity(product: &Path) -> (String, bool) {

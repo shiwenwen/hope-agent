@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import {
   AlertTriangle,
@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils"
 
 import type {
   EvalAppRunRequest,
+  EvalAppPlan,
   EvalAnnotationRecord,
   EvalBaselineRecord,
   EvalCatalog,
@@ -46,6 +47,7 @@ import type {
   EvalModelOption,
   EvalPreview,
   EvalTrialDetail,
+  EvalTrialRecord,
   EvalTrendMetric,
   EvalTrendPoint,
 } from "./types"
@@ -56,9 +58,14 @@ interface EvaluationChangedEvent {
   experimentId?: string
   change?: string
   phase?: string
+  campaignId?: string
   trialId?: string
   completed?: number
   total?: number
+  outcome?: string
+  wallMs?: number
+  modelCalls?: number
+  toolCalls?: number
   inputTokens?: number
   outputTokens?: number
   costUsd?: number
@@ -76,6 +83,38 @@ interface LiveEvalProgress {
   tokens: number
   costUsd: number
   warning?: string
+}
+
+interface LiveTrialProgress {
+  campaignId: string
+  trialId: string
+  status: "running" | "completed"
+  outcome?: string
+  durationMs?: number
+  modelCalls?: number
+  toolCalls?: number
+  inputTokens?: number
+  outputTokens?: number
+  costUsd?: number
+}
+
+type MonitorTrialStatus = "queued" | "running" | "completed" | "aborted" | "not_run"
+
+interface MonitorTrialRow {
+  campaignId: string
+  trialId: string
+  status: MonitorTrialStatus
+  outcome?: string
+  durationMs?: number
+  modelCalls?: number
+  toolCalls?: number
+  inputTokens?: number
+  outputTokens?: number
+  costUsd?: number
+  suiteId?: string
+  caseId?: string
+  arm?: string
+  persisted: boolean
 }
 
 export default function EvaluationTab() {
@@ -105,9 +144,16 @@ export default function EvaluationTab() {
   const [consentTools, setConsentTools] = useState(false)
   const [preview, setPreview] = useState<EvalPreview | null>(null)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
+  const [focusedRunId, setFocusedRunId] = useState<string | null>(null)
+  const [focusedRunPlan, setFocusedRunPlan] = useState<EvalAppPlan | null>(null)
+  const [runDetail, setRunDetail] = useState<EvalExperimentDetail | null>(null)
+  const [runDetailLoading, setRunDetailLoading] = useState(false)
+  const [liveTrials, setLiveTrials] = useState<Record<string, LiveTrialProgress>>({})
   const [liveProgress, setLiveProgress] = useState<LiveEvalProgress>({ tokens: 0, costUsd: 0 })
+  const [activeSection, setActiveSection] = useState("run")
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+  const focusedRunIdRef = useRef<string | null>(null)
 
   const profile = useMemo(
     () => catalog?.profiles.find((candidate) => candidate.id === profileId) ?? null,
@@ -132,6 +178,10 @@ export default function EvaluationTab() {
     [catalog, selectedModels],
   )
   const activeRun = history.find((item) => item.id === activeRunId) ?? null
+  const focusedRun =
+    runDetail?.experiment.id === focusedRunId
+      ? runDetail.experiment
+      : (history.find((item) => item.id === focusedRunId) ?? null)
 
   const applyHistorySnapshot = useCallback(
     (nextHistory: EvalExperimentRecord[], nextBaselines: EvalBaselineRecord[]) => {
@@ -141,6 +191,11 @@ export default function EvaluationTab() {
         (item) => item.kind === "hope_core" && ACTIVE_STATUSES.has(item.status),
       )
       setActiveRunId(active?.id ?? null)
+      if (active && !focusedRunIdRef.current) {
+        focusedRunIdRef.current = active.id
+        setFocusedRunId(active.id)
+        setActiveSection("run")
+      }
       const comparable = nextHistory.filter(
         (item) => item.kind === "hope_core" && item.status === "completed",
       )
@@ -163,6 +218,13 @@ export default function EvaluationTab() {
     ])
     applyHistorySnapshot(nextHistory, nextBaselines)
   }, [applyHistorySnapshot])
+
+  const refreshRunDetail = useCallback(async (experimentId: string) => {
+    const next = await getTransport().call<EvalExperimentDetail>("eval_get_experiment", {
+      experimentId,
+    })
+    if (focusedRunIdRef.current === experimentId) setRunDetail(next)
+  }, [])
 
   const load = useCallback(async () => {
     const transport = getTransport()
@@ -193,7 +255,7 @@ export default function EvaluationTab() {
     const unlisten = getTransport().listen("evaluation:changed", (raw) => {
       const event = parsePayload<EvaluationChangedEvent>(raw)
       if (!event?.experimentId) return
-      if (event.experimentId === activeRunId) {
+      if (event.experimentId === focusedRunIdRef.current) {
         if (event.change === "budget_warning") {
           const percent = Math.round((event.ratio ?? 0) * 100)
           toast.warning(t("dashboard.evaluation.budgetWarning", "评测预算接近上限"), {
@@ -234,6 +296,51 @@ export default function EvaluationTab() {
           }
           return current
         })
+        const campaignId = event.campaignId
+        const trialId = event.trialId
+        if (trialId && campaignId) {
+          const key = trialProgressKey(campaignId, trialId)
+          if (event.change === "trial_started") {
+            setLiveTrials((current) => ({
+              ...current,
+              [key]: {
+                campaignId,
+                trialId,
+                status: "running",
+              },
+            }))
+          }
+          if (event.change === "trial_completed") {
+            setLiveTrials((current) => ({
+              ...current,
+              [key]: {
+                ...current[key],
+                campaignId,
+                trialId,
+                status: "completed",
+                outcome: event.outcome,
+                durationMs: event.wallMs,
+                modelCalls: event.modelCalls,
+                toolCalls: event.toolCalls,
+                inputTokens: event.inputTokens,
+                outputTokens: event.outputTokens,
+                costUsd: event.costUsd,
+              },
+            }))
+          }
+        }
+        if (
+          [
+            "trial_completed",
+            "campaign_completed",
+            "completed",
+            "cancelled",
+            "failed",
+            "interrupted",
+          ].includes(event.change ?? "")
+        ) {
+          void refreshRunDetail(event.experimentId).catch(() => undefined)
+        }
       }
       if (
         ![
@@ -247,18 +354,32 @@ export default function EvaluationTab() {
         void refreshHistory()
       }
     })
-    const timer = window.setInterval(() => {
-      if (activeRunId) void refreshHistory()
-    }, 2500)
     return () => {
       unlisten()
-      window.clearInterval(timer)
     }
-  }, [activeRunId, refreshHistory, t])
+  }, [refreshHistory, refreshRunDetail, t])
+
+  useEffect(() => {
+    if (!activeRunId) return
+    const timer = window.setInterval(() => {
+      void refreshHistory()
+      if (focusedRunIdRef.current === activeRunId) {
+        void refreshRunDetail(activeRunId).catch(() => undefined)
+      }
+    }, 2500)
+    return () => window.clearInterval(timer)
+  }, [activeRunId, refreshHistory, refreshRunDetail])
 
   useEffect(() => {
     setLiveProgress({ tokens: 0, costUsd: 0 })
-  }, [activeRunId])
+    setLiveTrials({})
+    setRunDetail(null)
+    if (!focusedRunId) return
+    setRunDetailLoading(true)
+    refreshRunDetail(focusedRunId)
+      .catch((error) => toast.error(String(error)))
+      .finally(() => setRunDetailLoading(false))
+  }, [focusedRunId, refreshRunDetail])
 
   useEffect(() => {
     setPreview(null)
@@ -343,12 +464,17 @@ export default function EvaluationTab() {
   async function handleStart() {
     setActionLoading(true)
     try {
+      const plan = preview?.plan ?? null
       const experimentId = await getTransport().call<string>("eval_start", {
         request: buildRequest(),
         parentExperimentId: null,
         expectedPlanDigest: preview?.plan.planDigest,
       })
+      focusedRunIdRef.current = experimentId
       setActiveRunId(experimentId)
+      setFocusedRunId(experimentId)
+      setFocusedRunPlan(plan)
+      setActiveSection("run")
       toast.success(t("dashboard.evaluation.started", "评测已启动"))
       await refreshHistory()
     } catch (error) {
@@ -375,7 +501,11 @@ export default function EvaluationTab() {
     setActionLoading(true)
     try {
       const nextId = await getTransport().call<string>("eval_retry", { experimentId })
+      focusedRunIdRef.current = nextId
       setActiveRunId(nextId)
+      setFocusedRunId(nextId)
+      setFocusedRunPlan(null)
+      setActiveSection("run")
       setDetail(null)
       toast.success(t("dashboard.evaluation.retryCreated"))
       await refreshHistory()
@@ -384,6 +514,18 @@ export default function EvaluationTab() {
     } finally {
       setActionLoading(false)
     }
+  }
+
+  function handleNewRun() {
+    if (activeRunId) return
+    focusedRunIdRef.current = null
+    setFocusedRunId(null)
+    setFocusedRunPlan(null)
+    setRunDetail(null)
+    setLiveTrials({})
+    setLiveProgress({ tokens: 0, costUsd: 0 })
+    setPreview(null)
+    setActiveSection("run")
   }
 
   async function handlePinned(experimentId: string, pinned: boolean) {
@@ -640,18 +782,17 @@ export default function EvaluationTab() {
         </div>
       </section>
 
-      {activeRun && (
-        <ActiveRunCard
-          run={activeRun}
-          live={liveProgress}
-          onCancel={handleCancel}
-          busy={actionLoading}
-        />
-      )}
-
-      <Tabs defaultValue="run">
+      <Tabs value={activeSection} onValueChange={setActiveSection}>
         <TabsList>
-          <TabsTrigger value="run">{t("dashboard.evaluation.run", "运行")}</TabsTrigger>
+          <TabsTrigger value="run" className="gap-2">
+            {t("dashboard.evaluation.run", "运行")}
+            {activeRun && (
+              <span
+                className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"
+                aria-label={t("dashboard.evaluation.running", "评测运行中")}
+              />
+            )}
+          </TabsTrigger>
           <TabsTrigger value="history">{t("dashboard.evaluation.history", "历史")}</TabsTrigger>
           <TabsTrigger value="compare">{t("dashboard.evaluation.compare")}</TabsTrigger>
           <TabsTrigger value="trends">{t("dashboard.evaluation.trends")}</TabsTrigger>
@@ -660,279 +801,326 @@ export default function EvaluationTab() {
         </TabsList>
 
         <TabsContent value="run" className="space-y-4">
-          <WizardSection number="1" title={t("dashboard.evaluation.chooseProfile", "选择评测画像")}>
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {catalog?.profiles.map((item) => {
-                const selected = profileId === item.id
-                return (
-                  <button
-                    type="button"
-                    key={item.id}
-                    aria-pressed={selected}
-                    onClick={() => setProfileId(item.id)}
-                    className={cn(
-                      "rounded-lg p-3 text-left transition-colors",
-                      selected ? "bg-secondary/70" : "bg-secondary/30 hover:bg-secondary/40",
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="text-sm font-medium">
-                        {t(`dashboard.evaluation.profiles.${item.id}.title`, item.title)}
-                      </div>
-                      <SelectionMark selected={selected} kind="radio" />
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {t(`dashboard.evaluation.profiles.${item.id}.description`, item.description)}
-                    </div>
-                    <div className="mt-2 text-[11px] text-muted-foreground">
-                      {t("dashboard.evaluation.profileLimits", {
-                        trials: item.maxTrials,
-                        models: item.maxModels,
-                        cost: item.maxCostUsd,
-                      })}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </WizardSection>
-
-          {profile?.allowCustom && (
-            <WizardSection
-              number="2"
-              title={t("dashboard.evaluation.chooseCases", "选择场景与对照组")}
-            >
-              <div className="grid gap-2 lg:grid-cols-2">
-                {availableCases.map((item) => (
-                  <button
-                    type="button"
-                    key={item.id}
-                    aria-pressed={selectedCases.includes(item.id)}
-                    onClick={() => toggleCase(item.id)}
-                    className={cn(
-                      "rounded-lg p-3 text-left text-sm transition-colors",
-                      selectedCases.includes(item.id)
-                        ? "bg-secondary/70"
-                        : "bg-secondary/30 hover:bg-secondary/40",
-                    )}
-                  >
-                    <span className="flex items-start justify-between gap-3">
-                      <span>
-                        <span className="font-medium">{item.id}</span>
-                        <span className="ml-2 text-muted-foreground">{item.title}</span>
-                      </span>
-                      <SelectionMark selected={selectedCases.includes(item.id)} kind="checkbox" />
-                    </span>
-                  </button>
-                ))}
+          {focusedRunId ? (
+            focusedRun ? (
+              <RunMonitorPanel
+                run={focusedRun}
+                detail={runDetail}
+                plan={focusedRunPlan}
+                live={liveProgress}
+                liveTrials={liveTrials}
+                loading={runDetailLoading}
+                onCancel={handleCancel}
+                onNewRun={handleNewRun}
+                busy={actionLoading}
+              />
+            ) : (
+              <div className="flex items-center justify-center gap-2 rounded-xl bg-secondary/20 py-12 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                {t("dashboard.evaluation.loadingRun", "正在加载运行详情…")}
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {profile.allowedArms.map((arm) => (
-                  <Button
-                    key={arm}
-                    size="sm"
-                    variant={selectedArms.includes(arm) ? "secondary" : "ghost"}
-                    onClick={() => toggleArm(arm)}
-                  >
-                    {arm}
-                  </Button>
-                ))}
-                {!profile.useSuiteRepetitions && (
-                  <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-                    {t("dashboard.evaluation.repetitions", "重复")}
-                    <NumberInput
-                      className="h-8 w-20"
-                      min={1}
-                      max={5}
-                      value={repetitions}
-                      onChange={(event) => {
-                        setPreview(null)
-                        setRepetitions(Math.min(5, Math.max(1, Number(event.target.value) || 1)))
-                      }}
-                    />
-                  </label>
-                )}
-              </div>
-            </WizardSection>
-          )}
-
-          <WizardSection
-            number={profile?.allowCustom ? "3" : "2"}
-            title={t("dashboard.evaluation.chooseModels", "选择真实模型")}
-          >
-            {catalog?.models.filter((model) => model.supportsIsolatedEval).length ? (
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {catalog.models
-                  .filter((model) => model.supportsIsolatedEval)
-                  .map((model) => {
-                    const selected = selectedModels.includes(modelKey(model))
-                    const key = modelKey(model)
+            )
+          ) : (
+            <>
+              <WizardSection
+                number="1"
+                title={t("dashboard.evaluation.chooseProfile", "选择评测画像")}
+              >
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                  {catalog?.profiles.map((item) => {
+                    const selected = profileId === item.id
                     return (
-                      <div
-                        key={key}
+                      <button
+                        type="button"
+                        key={item.id}
+                        aria-pressed={selected}
+                        onClick={() => setProfileId(item.id)}
                         className={cn(
-                          "rounded-lg p-3 transition-colors",
+                          "rounded-lg p-3 text-left transition-colors",
                           selected ? "bg-secondary/70" : "bg-secondary/30 hover:bg-secondary/40",
                         )}
                       >
-                        <button
-                          type="button"
-                          aria-pressed={selected}
-                          onClick={() => toggleModel(model)}
-                          className="w-full text-left"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="text-sm font-medium">{model.label}</div>
-                            <SelectionMark selected={selected} kind="checkbox" />
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="text-sm font-medium">
+                            {t(`dashboard.evaluation.profiles.${item.id}.title`, item.title)}
                           </div>
-                          <div className="text-xs text-muted-foreground">{model.providerLabel}</div>
-                          <div className="mt-2 text-[11px] text-muted-foreground">
-                            {model.costKnown
-                              ? t("dashboard.evaluation.priceKnown", "价格已配置")
-                              : t("dashboard.evaluation.priceUnknown", "费用可能无法估算")}
-                          </div>
-                        </button>
-                        {selected && model.credentialProfiles.length > 1 && (
-                          <Select
-                            value={
-                              selectedCredentials[key] ??
-                              model.credentialProfiles[0]?.credentialProfileRef
-                            }
-                            onValueChange={(value) => {
-                              setPreview(null)
-                              setSelectedCredentials((values) => ({ ...values, [key]: value }))
-                            }}
-                          >
-                            <SelectTrigger className="mt-2 h-8 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {model.credentialProfiles.map((credential) => (
-                                <SelectItem
-                                  key={credential.credentialProfileRef}
-                                  value={credential.credentialProfileRef}
-                                >
-                                  {credential.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
+                          <SelectionMark selected={selected} kind="radio" />
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {t(
+                            `dashboard.evaluation.profiles.${item.id}.description`,
+                            item.description,
+                          )}
+                        </div>
+                        <div className="mt-2 text-[11px] text-muted-foreground">
+                          {t("dashboard.evaluation.profileLimits", {
+                            trials: item.maxTrials,
+                            models: item.maxModels,
+                            cost: item.maxCostUsd,
+                          })}
+                        </div>
+                      </button>
                     )
                   })}
-              </div>
-            ) : (
-              <div className="rounded-lg bg-secondary/30 p-4 text-sm text-muted-foreground">
-                {t(
-                  "dashboard.evaluation.noModels",
-                  "没有可用于隔离评测的 API Key 或本地模型配置。请先在设置中添加 Provider。",
+                </div>
+              </WizardSection>
+
+              {profile?.allowCustom && (
+                <WizardSection
+                  number="2"
+                  title={t("dashboard.evaluation.chooseCases", "选择场景与对照组")}
+                >
+                  <div className="grid gap-2 lg:grid-cols-2">
+                    {availableCases.map((item) => (
+                      <button
+                        type="button"
+                        key={item.id}
+                        aria-pressed={selectedCases.includes(item.id)}
+                        onClick={() => toggleCase(item.id)}
+                        className={cn(
+                          "rounded-lg p-3 text-left text-sm transition-colors",
+                          selectedCases.includes(item.id)
+                            ? "bg-secondary/70"
+                            : "bg-secondary/30 hover:bg-secondary/40",
+                        )}
+                      >
+                        <span className="flex items-start justify-between gap-3">
+                          <span>
+                            <span className="font-medium">{item.id}</span>
+                            <span className="ml-2 text-muted-foreground">{item.title}</span>
+                          </span>
+                          <SelectionMark
+                            selected={selectedCases.includes(item.id)}
+                            kind="checkbox"
+                          />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {profile.allowedArms.map((arm) => (
+                      <Button
+                        key={arm}
+                        size="sm"
+                        variant={selectedArms.includes(arm) ? "secondary" : "ghost"}
+                        onClick={() => toggleArm(arm)}
+                      >
+                        {arm}
+                      </Button>
+                    ))}
+                    {!profile.useSuiteRepetitions && (
+                      <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+                        {t("dashboard.evaluation.repetitions", "重复")}
+                        <NumberInput
+                          className="h-8 w-20"
+                          min={1}
+                          max={5}
+                          value={repetitions}
+                          onChange={(event) => {
+                            setPreview(null)
+                            setRepetitions(
+                              Math.min(5, Math.max(1, Number(event.target.value) || 1)),
+                            )
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </WizardSection>
+              )}
+
+              <WizardSection
+                number={profile?.allowCustom ? "3" : "2"}
+                title={t("dashboard.evaluation.chooseModels", "选择真实模型")}
+              >
+                {catalog?.models.filter((model) => model.supportsIsolatedEval).length ? (
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {catalog.models
+                      .filter((model) => model.supportsIsolatedEval)
+                      .map((model) => {
+                        const selected = selectedModels.includes(modelKey(model))
+                        const key = modelKey(model)
+                        const codexLocalOnly = model.warnings.includes(
+                          "codex_oauth_local_diagnostic_only",
+                        )
+                        return (
+                          <div
+                            key={key}
+                            className={cn(
+                              "rounded-lg p-3 transition-colors",
+                              selected
+                                ? "bg-secondary/70"
+                                : "bg-secondary/30 hover:bg-secondary/40",
+                            )}
+                          >
+                            <button
+                              type="button"
+                              aria-pressed={selected}
+                              onClick={() => toggleModel(model)}
+                              className="w-full text-left"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="text-sm font-medium">{model.label}</div>
+                                <SelectionMark selected={selected} kind="checkbox" />
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {model.providerLabel}
+                              </div>
+                              <div className="mt-2 text-[11px] text-muted-foreground">
+                                {model.costKnown
+                                  ? t("dashboard.evaluation.priceKnown", "价格已配置")
+                                  : t("dashboard.evaluation.priceUnknown", "费用可能无法估算")}
+                                {codexLocalOnly && (
+                                  <span>
+                                    {" · "}
+                                    {t("dashboard.evaluation.diagnosticOnly", "仅诊断")}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                            {selected && model.credentialProfiles.length > 1 && (
+                              <Select
+                                value={
+                                  selectedCredentials[key] ??
+                                  model.credentialProfiles[0]?.credentialProfileRef
+                                }
+                                onValueChange={(value) => {
+                                  setPreview(null)
+                                  setSelectedCredentials((values) => ({ ...values, [key]: value }))
+                                }}
+                              >
+                                <SelectTrigger className="mt-2 h-8 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {model.credentialProfiles.map((credential) => (
+                                    <SelectItem
+                                      key={credential.credentialProfileRef}
+                                      value={credential.credentialProfileRef}
+                                    >
+                                      {credential.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                        )
+                      })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg bg-secondary/30 p-4 text-sm text-muted-foreground">
+                    {t(
+                      "dashboard.evaluation.noModels",
+                      "没有可用于隔离评测的 API Key、本地模型或已登录 Codex。请先在设置中配置 Provider。",
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
-          </WizardSection>
+              </WizardSection>
 
-          <WizardSection
-            number={profile?.allowCustom ? "4" : "3"}
-            title={t("dashboard.evaluation.budget", "设置硬预算")}
-          >
-            <div className="grid gap-3 sm:grid-cols-3">
-              <BudgetField
-                label={t("dashboard.evaluation.maxCost", "最高费用（USD）")}
-                value={maxCost}
-                min={0.01}
-                max={profile?.maxCostUsd ?? 100}
-                step={0.5}
-                onChange={(value) => {
-                  setPreview(null)
-                  setMaxCost(value)
-                }}
-              />
-              <BudgetField
-                label={t("dashboard.evaluation.maxWall", "最长时间（分钟）")}
-                value={maxWallMinutes}
-                min={1}
-                max={480}
-                onChange={(value) => {
-                  setPreview(null)
-                  setMaxWallMinutes(value)
-                }}
-              />
-              <BudgetField
-                label={t("dashboard.evaluation.concurrency", "并发数")}
-                value={concurrency}
-                min={1}
-                max={profile?.maxConcurrency ?? 1}
-                onChange={(value) => {
-                  setPreview(null)
-                  setConcurrency(value)
-                }}
-              />
-            </div>
-          </WizardSection>
+              <WizardSection
+                number={profile?.allowCustom ? "4" : "3"}
+                title={t("dashboard.evaluation.budget", "设置硬预算")}
+              >
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <BudgetField
+                    label={t("dashboard.evaluation.maxCost", "最高费用（USD）")}
+                    value={maxCost}
+                    min={0.01}
+                    max={profile?.maxCostUsd ?? 100}
+                    step={0.5}
+                    onChange={(value) => {
+                      setPreview(null)
+                      setMaxCost(value)
+                    }}
+                  />
+                  <BudgetField
+                    label={t("dashboard.evaluation.maxWall", "最长时间（分钟）")}
+                    value={maxWallMinutes}
+                    min={1}
+                    max={480}
+                    onChange={(value) => {
+                      setPreview(null)
+                      setMaxWallMinutes(value)
+                    }}
+                  />
+                  <BudgetField
+                    label={t("dashboard.evaluation.concurrency", "并发数")}
+                    value={concurrency}
+                    min={1}
+                    max={profile?.maxConcurrency ?? 1}
+                    onChange={(value) => {
+                      setPreview(null)
+                      setConcurrency(value)
+                    }}
+                  />
+                </div>
+              </WizardSection>
 
-          <WizardSection
-            number={profile?.allowCustom ? "5" : "4"}
-            title={t("dashboard.evaluation.confirm", "预览并确认")}
-          >
-            <div className="flex flex-wrap gap-2">
-              <ConsentButton
-                selected={consentCosts}
-                onClick={() => {
-                  setPreview(null)
-                  setConsentCosts((value) => !value)
-                }}
-                label={t("dashboard.evaluation.costConsent", "我确认会产生模型费用")}
-              />
-              <ConsentButton
-                selected={consentTools}
-                onClick={() => {
-                  setPreview(null)
-                  setConsentTools((value) => !value)
-                }}
-                label={t("dashboard.evaluation.toolConsent", "我确认会执行合成工具任务")}
-              />
-            </div>
-            {preview && (
-              <div className="mt-3 grid gap-2 rounded-lg bg-secondary/30 p-3 text-sm sm:grid-cols-4">
-                <Metric
-                  label={t("dashboard.evaluation.trials")}
-                  value={String(preview.estimatedTrials)}
-                />
-                <Metric
-                  label={t("dashboard.evaluation.models")}
-                  value={String(preview.plan.campaigns.length)}
-                />
-                <Metric
-                  label={t("dashboard.evaluation.maxCost")}
-                  value={`$${preview.maxCostUsd?.toFixed(2) ?? "—"}`}
-                />
-                <Metric
-                  label={t("dashboard.evaluation.environment")}
-                  value={`${preview.plan.runtimeEnvironment.os}/${preview.plan.runtimeEnvironment.arch}`}
-                />
-              </div>
-            )}
-            <div className="mt-3 flex gap-2">
-              <Button
-                variant="secondary"
-                onClick={handlePreview}
-                disabled={
-                  actionLoading || selectedModels.length === 0 || !consentCosts || !consentTools
-                }
+              <WizardSection
+                number={profile?.allowCustom ? "5" : "4"}
+                title={t("dashboard.evaluation.confirm", "预览并确认")}
               >
-                <RefreshCw className={cn("mr-2 h-4 w-4", actionLoading && "animate-spin")} />
-                {t("dashboard.evaluation.preview", "生成计划")}
-              </Button>
-              <Button
-                onClick={handleStart}
-                disabled={!preview || actionLoading || Boolean(activeRunId)}
-              >
-                <Play className="mr-2 h-4 w-4" />
-                {t("dashboard.evaluation.start", "开始真实评测")}
-              </Button>
-            </div>
-          </WizardSection>
+                <div className="flex flex-wrap gap-2">
+                  <ConsentButton
+                    selected={consentCosts}
+                    onClick={() => {
+                      setPreview(null)
+                      setConsentCosts((value) => !value)
+                    }}
+                    label={t("dashboard.evaluation.costConsent", "我确认会产生模型费用")}
+                  />
+                  <ConsentButton
+                    selected={consentTools}
+                    onClick={() => {
+                      setPreview(null)
+                      setConsentTools((value) => !value)
+                    }}
+                    label={t("dashboard.evaluation.toolConsent", "我确认会执行合成工具任务")}
+                  />
+                </div>
+                {preview && (
+                  <div className="mt-3 grid gap-2 rounded-lg bg-secondary/30 p-3 text-sm sm:grid-cols-4">
+                    <Metric
+                      label={t("dashboard.evaluation.trials")}
+                      value={String(preview.estimatedTrials)}
+                    />
+                    <Metric
+                      label={t("dashboard.evaluation.models")}
+                      value={String(preview.plan.campaigns.length)}
+                    />
+                    <Metric
+                      label={t("dashboard.evaluation.maxCost")}
+                      value={`$${preview.maxCostUsd?.toFixed(2) ?? "—"}`}
+                    />
+                    <Metric
+                      label={t("dashboard.evaluation.environment")}
+                      value={`${preview.plan.runtimeEnvironment.os}/${preview.plan.runtimeEnvironment.arch}`}
+                    />
+                  </div>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={handlePreview}
+                    disabled={
+                      actionLoading || selectedModels.length === 0 || !consentCosts || !consentTools
+                    }
+                  >
+                    <RefreshCw className={cn("mr-2 h-4 w-4", actionLoading && "animate-spin")} />
+                    {t("dashboard.evaluation.preview", "生成计划")}
+                  </Button>
+                  <Button
+                    onClick={handleStart}
+                    disabled={!preview || actionLoading || Boolean(activeRunId)}
+                  >
+                    <Play className="mr-2 h-4 w-4" />
+                    {t("dashboard.evaluation.start", "开始真实评测")}
+                  </Button>
+                </div>
+              </WizardSection>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="history">
@@ -1166,57 +1354,459 @@ function ConsentButton({
   )
 }
 
-function ActiveRunCard({
+function RunMonitorPanel({
   run,
+  detail,
+  plan,
   live,
+  liveTrials,
+  loading,
   onCancel,
+  onNewRun,
   busy,
 }: {
   run: EvalExperimentRecord
+  detail: EvalExperimentDetail | null
+  plan: EvalAppPlan | null
   live: LiveEvalProgress
+  liveTrials: Record<string, LiveTrialProgress>
+  loading: boolean
   onCancel: () => void
+  onNewRun: () => void
   busy: boolean
 }) {
   const { t } = useTranslation()
-  const completed = Math.max(run.completedTrials, live.completed ?? 0)
+  const [trialDetail, setTrialDetail] = useState<EvalTrialDetail | null>(null)
+  const [trialLoading, setTrialLoading] = useState(false)
+  const [now, setNow] = useState(Date.now())
+  const active = ACTIVE_STATUSES.has(run.status)
+
+  useEffect(() => {
+    setNow(Date.now())
+    if (!active) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [active])
+
+  const persistedByKey = new Map(
+    (detail?.trials ?? []).map((trial) => [trialProgressKey(trial.campaignId, trial.id), trial]),
+  )
+  const rowsByKey = new Map<string, MonitorTrialRow>()
+  for (const campaign of plan?.campaigns ?? []) {
+    for (const trial of campaign.resolvedPlan.trials) {
+      const key = trialProgressKey(campaign.campaignId, trial.id)
+      rowsByKey.set(key, {
+        campaignId: campaign.campaignId,
+        trialId: trial.id,
+        suiteId: trial.suiteId,
+        caseId: trial.caseId,
+        arm: trial.arm,
+        status: "queued",
+        persisted: false,
+      })
+    }
+  }
+  for (const [key, trial] of Object.entries(liveTrials)) {
+    rowsByKey.set(key, { ...rowsByKey.get(key), ...trial, persisted: false })
+  }
+  for (const [key, trial] of persistedByKey) {
+    rowsByKey.set(key, monitorTrialFromRecord(trial))
+  }
+  const startedKeys = new Set(Object.keys(liveTrials))
+  const persistedKeys = new Set(persistedByKey.keys())
+  const trialRows = [...rowsByKey.entries()].map(([key, row]) => ({
+    ...row,
+    status:
+      persistedKeys.has(key) || row.status === "completed"
+        ? ("completed" as const)
+        : active
+          ? startedKeys.has(key)
+            ? ("running" as const)
+            : ("queued" as const)
+          : startedKeys.has(key)
+            ? ("aborted" as const)
+            : ("not_run" as const),
+  }))
+
+  const completed = Math.max(
+    run.completedTrials,
+    live.completed ?? 0,
+    trialRows.filter((trial) => trial.status === "completed").length,
+  )
   const total = Math.max(run.totalTrials, live.total ?? 0)
   const progress = total ? (completed / total) * 100 : 0
+  const passed = Math.max(
+    run.passedTrials,
+    trialRows.filter((trial) => trial.outcome === "passed").length,
+  )
+  const infraErrors = Math.max(
+    run.infraErrorTrials,
+    trialRows.filter((trial) => trial.outcome === "infra_error").length,
+  )
+  const failed = Math.max(
+    run.failedTrials,
+    trialRows.filter((trial) =>
+      ["task_failed", "policy_failed", "budget_exhausted"].includes(trial.outcome ?? ""),
+    ).length,
+  )
+  const tokens = Math.max(
+    live.tokens,
+    trialRows.reduce((sum, trial) => sum + (trial.inputTokens ?? 0) + (trial.outputTokens ?? 0), 0),
+  )
+  const toolCalls = trialRows.reduce((sum, trial) => sum + (trial.toolCalls ?? 0), 0)
+  const modelCalls = trialRows.reduce((sum, trial) => sum + (trial.modelCalls ?? 0), 0)
+  const observedCost = Math.max(
+    run.observedCostUsd ?? 0,
+    live.costUsd,
+    trialRows.reduce((sum, trial) => sum + (trial.costUsd ?? 0), 0),
+  )
+  const startedAt = run.startedAt ? new Date(run.startedAt).getTime() : NaN
+  const endedAt = run.completedAt ? new Date(run.completedAt).getTime() : now
+  const elapsedMs = Number.isFinite(startedAt) ? Math.max(0, endedAt - startedAt) : 0
+  const campaignPlanById = new Map(
+    (plan?.campaigns ?? []).map((campaign) => [campaign.campaignId, campaign]),
+  )
+  const campaignIds = new Set([
+    ...(plan?.campaigns ?? []).map((campaign) => campaign.campaignId),
+    ...(detail?.campaigns ?? []).map((campaign) => campaign.id),
+    ...trialRows.map((trial) => trial.campaignId),
+  ])
+
+  async function openTrial(row: MonitorTrialRow) {
+    if (!row.persisted) return
+    setTrialLoading(true)
+    try {
+      setTrialDetail(
+        await getTransport().call<EvalTrialDetail>("eval_get_trial", {
+          experimentId: run.id,
+          campaignId: row.campaignId,
+          trialId: row.trialId,
+        }),
+      )
+    } catch (error) {
+      toast.error(String(error))
+    } finally {
+      setTrialLoading(false)
+    }
+  }
+
   return (
-    <section className="rounded-xl bg-primary/5 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium">
-            {run.profileId} · {live.phase ?? run.status}
+    <div className="space-y-4">
+      <section className="rounded-xl bg-secondary/20 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              {active ? (
+                <RefreshCw className="h-4 w-4 animate-spin text-emerald-600" />
+              ) : run.status === "completed" ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              ) : (
+                <XCircle className="h-4 w-4 text-destructive" />
+              )}
+              <h3 className="text-sm font-semibold">
+                {active
+                  ? t("dashboard.evaluation.runningDetail", "实时运行详情")
+                  : t("dashboard.evaluation.resultDetail", "评测结果")}
+              </h3>
+              <StatusBadge status={run.status} />
+              <IntegrityBadge integrity={run.integrity} />
+            </div>
+            <div className="mt-1 truncate text-xs text-muted-foreground">
+              {run.profileId} · {active ? (live.phase ?? run.status) : run.status} · {run.id}
+            </div>
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {t("dashboard.evaluation.progressTrials", { completed, total })} · {run.id}
+          {active ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={onCancel}
+              disabled={busy || run.status === "cancelling"}
+            >
+              <Square className="mr-2 h-3.5 w-3.5" />
+              {t("common.cancel")}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={onNewRun} disabled={busy}>
+              <Play className="mr-2 h-3.5 w-3.5" />
+              {t("dashboard.evaluation.newRun", "开始新评测")}
+            </Button>
+          )}
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span>{t("dashboard.evaluation.progressTrials", { completed, total })}</span>
+          <span>{Math.round(progress)}%</span>
+        </div>
+        <Progress
+          className="mt-2"
+          value={progress}
+          indeterminate={run.status === "planning" && run.totalTrials === 0}
+        />
+        {live.warning && (
+          <div className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+            {live.warning}
           </div>
-          {(live.currentTrial || live.tokens > 0 || live.costUsd > 0) && (
-            <div className="mt-1 text-[11px] text-muted-foreground">
-              {live.currentTrial ?? "—"} ·{" "}
-              {t("dashboard.evaluation.tokensShort", { count: live.tokens })} · $
-              {live.costUsd.toFixed(4)}
+        )}
+        {run.error && (
+          <div className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {run.error}
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <RunMetricCard
+          label={t("dashboard.evaluation.completed", "已完成")}
+          value={`${completed}/${total}`}
+        />
+        <RunMetricCard
+          label={t("dashboard.evaluation.passed", "通过")}
+          value={String(passed)}
+          tone="success"
+        />
+        <RunMetricCard
+          label={t("dashboard.evaluation.failed", "失败")}
+          value={String(failed)}
+          tone={failed > 0 ? "danger" : "default"}
+        />
+        <RunMetricCard
+          label={t("dashboard.evaluation.infraErrors", "基础设施错误")}
+          value={String(infraErrors)}
+          tone={infraErrors > 0 ? "warning" : "default"}
+        />
+        <RunMetricCard
+          label={t("dashboard.evaluation.tokens", "Token 数")}
+          value={tokens.toLocaleString()}
+        />
+        <RunMetricCard
+          label={t("dashboard.evaluation.toolCalls", "工具调用")}
+          value={toolCalls.toLocaleString()}
+          hint={`${modelCalls} ${t("dashboard.evaluation.modelCalls", "模型调用")}`}
+        />
+        <RunMetricCard
+          label={t("dashboard.evaluation.cost", "费用")}
+          value={observedCost > 0 ? `$${observedCost.toFixed(4)}` : "—"}
+        />
+        <RunMetricCard
+          label={t("dashboard.evaluation.duration", "耗时")}
+          value={formatLongDuration(elapsedMs)}
+        />
+      </section>
+
+      <section className="rounded-xl bg-secondary/20 p-4">
+        <h3 className="text-sm font-semibold">
+          {t("dashboard.evaluation.campaignStatus", "Campaign 状态")}
+        </h3>
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {[...campaignIds].map((campaignId) => {
+            const record = detail?.campaigns.find((campaign) => campaign.id === campaignId)
+            const campaignPlan = campaignPlanById.get(campaignId)
+            const campaignTrials = trialRows.filter((trial) => trial.campaignId === campaignId)
+            const campaignCompleted = campaignTrials.filter(
+              (trial) => trial.status === "completed",
+            ).length
+            const campaignTotal = Math.max(record?.totalTrials ?? 0, campaignTrials.length)
+            const campaignActive = campaignTrials.some((trial) => trial.status === "running")
+            const status: EvalExperimentRecord["status"] =
+              record?.status === "completed"
+                ? "completed"
+                : !active
+                  ? run.status
+                  : campaignActive
+                    ? "running"
+                    : "queued"
+            return (
+              <div key={campaignId} className="rounded-lg bg-background/50 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {campaignPlan
+                        ? `${campaignPlan.model.providerId} / ${campaignPlan.model.modelId}`
+                        : campaignId}
+                    </div>
+                    <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                      {campaignId}
+                    </div>
+                  </div>
+                  <StatusBadge status={status} />
+                </div>
+                <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span>
+                    {campaignCompleted}/{campaignTotal}
+                  </span>
+                  <span>{record?.costUsd == null ? "—" : `$${record.costUsd.toFixed(4)}`}</span>
+                </div>
+                <Progress
+                  className="mt-1.5"
+                  value={campaignTotal ? (campaignCompleted / campaignTotal) * 100 : 0}
+                />
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-xl bg-secondary/20">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <h3 className="text-sm font-semibold">
+            {t("dashboard.evaluation.trialStatus", "Trial 实时状态")}
+          </h3>
+          {loading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        </div>
+        <div className="max-h-[34rem] overflow-auto">
+          {trialRows.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {t("dashboard.evaluation.waitingForTrials", "正在准备 Trial…")}
+            </div>
+          ) : (
+            <div className="min-w-[760px]">
+              <div className="grid grid-cols-[minmax(240px,1fr)_120px_100px_90px_100px_100px] items-center gap-3 px-4 py-2 text-[10px] font-medium text-muted-foreground">
+                <span>{t("dashboard.evaluation.scenario", "场景")}</span>
+                <span className="text-center">{t("dashboard.evaluation.statusLabel", "状态")}</span>
+                <span className="text-center">{t("dashboard.evaluation.duration", "耗时")}</span>
+                <span className="text-center">{t("dashboard.evaluation.toolCalls", "工具调用")}</span>
+                <span className="text-center">{t("dashboard.evaluation.tokens", "Token 数")}</span>
+                <span className="text-center">{t("dashboard.evaluation.cost", "费用")}</span>
+              </div>
+              {trialRows.map((trial) => {
+                const tokenCount = (trial.inputTokens ?? 0) + (trial.outputTokens ?? 0)
+                return (
+                  <button
+                    key={trialProgressKey(trial.campaignId, trial.trialId)}
+                    type="button"
+                    disabled={!trial.persisted || trialLoading}
+                    onClick={() => openTrial(trial)}
+                    className="grid w-full grid-cols-[minmax(240px,1fr)_120px_100px_90px_100px_100px] items-center gap-3 px-4 py-2.5 text-left text-xs transition-colors hover:bg-secondary/40 disabled:pointer-events-none"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">
+                        {trial.caseId ?? trial.trialId}
+                      </span>
+                      <span className="block truncate text-[10px] text-muted-foreground">
+                        {trial.suiteId ?? trial.campaignId} · {trial.arm ?? "—"}
+                      </span>
+                    </span>
+                    <TrialStateBadge status={trial.status} outcome={trial.outcome} />
+                    <span className="text-center tabular-nums">
+                      {trial.durationMs == null ? "—" : formatDuration(trial.durationMs)}
+                    </span>
+                    <span className="text-center tabular-nums">{trial.toolCalls ?? "—"}</span>
+                    <span className="text-center tabular-nums">{tokenCount || "—"}</span>
+                    <span className="text-center tabular-nums">
+                      {trial.costUsd == null ? "—" : `$${trial.costUsd.toFixed(4)}`}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           )}
-          {live.warning && <div className="mt-1 text-[11px] text-amber-600">{live.warning}</div>}
         </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={onCancel}
-          disabled={busy || run.status === "cancelling"}
-        >
-          <Square className="mr-2 h-3.5 w-3.5" />
-          {t("common.cancel")}
-        </Button>
-      </div>
-      <Progress
-        className="mt-3"
-        value={progress}
-        indeterminate={run.status === "planning" && run.totalTrials === 0}
-      />
-    </section>
+      </section>
+
+      {trialDetail &&
+        (trialDetail.result ? (
+          <TrialCausalDetail detail={trialDetail} onClose={() => setTrialDetail(null)} />
+        ) : (
+          <TrialRecordDetail detail={trialDetail} onClose={() => setTrialDetail(null)} />
+        ))}
+    </div>
   )
+}
+
+function RunMetricCard({
+  label,
+  value,
+  hint,
+  tone = "default",
+}: {
+  label: string
+  value: string
+  hint?: string
+  tone?: "default" | "success" | "warning" | "danger"
+}) {
+  return (
+    <div className="rounded-xl bg-secondary/20 p-3">
+      <div
+        className={cn(
+          "text-lg font-semibold tabular-nums",
+          tone === "success" && "text-emerald-600 dark:text-emerald-400",
+          tone === "warning" && "text-amber-600 dark:text-amber-400",
+          tone === "danger" && "text-destructive",
+        )}
+      >
+        {value}
+      </div>
+      <div className="mt-0.5 text-[11px] text-muted-foreground">{label}</div>
+      {hint && <div className="mt-1 text-[10px] text-muted-foreground">{hint}</div>}
+    </div>
+  )
+}
+
+function TrialStateBadge({
+  status,
+  outcome,
+}: {
+  status: MonitorTrialRow["status"]
+  outcome?: string
+}) {
+  const { t } = useTranslation()
+  const label =
+    status === "not_run"
+      ? t("dashboard.evaluation.trialNotRun", "未运行")
+      : status === "aborted"
+        ? t("dashboard.evaluation.trialAborted", "已中止")
+        : status === "queued"
+          ? t("dashboard.evaluation.trialQueued", "等待中")
+          : status === "running"
+            ? t("dashboard.evaluation.trialRunning", "运行中")
+            : outcome === "passed"
+              ? t("dashboard.evaluation.trialPassed", "通过")
+              : outcome === "infra_error"
+                ? t("dashboard.evaluation.trialInfraError", "设施错误")
+                : outcome === "budget_exhausted"
+                  ? t("dashboard.evaluation.trialBudgetExhausted", "预算耗尽")
+                  : (outcome ?? t("dashboard.evaluation.trialCompleted", "已完成"))
+  return (
+    <span
+      className={cn(
+        "inline-flex min-h-5 w-fit items-center justify-center justify-self-center whitespace-nowrap rounded-full px-2 py-0.5 text-[10px]",
+        status === "not_run" && "bg-secondary text-muted-foreground",
+        status === "aborted" && "bg-destructive/10 text-destructive",
+        status === "queued" && "bg-secondary text-muted-foreground",
+        status === "running" && "bg-blue-500/10 text-blue-600 dark:text-blue-300",
+        status === "completed" &&
+          outcome === "passed" &&
+          "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+        status === "completed" &&
+          outcome === "infra_error" &&
+          "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+        status === "completed" &&
+          outcome !== "passed" &&
+          outcome !== "infra_error" &&
+          "bg-destructive/10 text-destructive",
+      )}
+    >
+      {label}
+    </span>
+  )
+}
+
+function monitorTrialFromRecord(trial: EvalTrialRecord): MonitorTrialRow {
+  return {
+    campaignId: trial.campaignId,
+    trialId: trial.id,
+    suiteId: trial.suiteId,
+    caseId: trial.caseId,
+    arm: trial.arm,
+    status: "completed",
+    outcome: trial.outcome,
+    durationMs: trial.durationMs,
+    modelCalls: trial.modelCalls,
+    toolCalls: trial.toolCalls,
+    inputTokens: trial.inputTokens,
+    outputTokens: trial.outputTokens,
+    costUsd: trial.costUsd,
+    persisted: true,
+  }
 }
 
 function HistoryTable({
@@ -1410,21 +2000,29 @@ function ExperimentDetail({
       )}
       {onCreateAnnotation && (
         <div className="mt-4 space-y-2">
-          <div className="flex gap-2">
+          <form
+            className="flex flex-col gap-2 sm:flex-row sm:items-center"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (annotationText.trim()) onCreateAnnotation()
+            }}
+          >
             <Input
+              className="min-w-0 flex-1"
               value={annotationText}
               maxLength={4000}
               placeholder={t("dashboard.evaluation.annotationPlaceholder")}
               onChange={(event) => onAnnotationTextChange(event.target.value)}
             />
             <Button
+              type="submit"
               variant="secondary"
-              onClick={onCreateAnnotation}
+              className="shrink-0 whitespace-nowrap sm:min-w-24"
               disabled={!annotationText.trim()}
             >
               {t("dashboard.evaluation.addAnnotation")}
             </Button>
-          </div>
+          </form>
           {annotations.map((annotation) => (
             <div key={annotation.id} className="rounded bg-background/50 px-3 py-2 text-xs">
               <div>{annotation.text}</div>
@@ -1563,6 +2161,49 @@ function TrialCausalDetail({ detail, onClose }: { detail: EvalTrialDetail; onClo
       {(result.error || result.failureClass || result.warnings.length > 0) && (
         <div className="mt-3 rounded bg-destructive/5 p-2 text-muted-foreground">
           {[result.failureClass, result.error, ...result.warnings].filter(Boolean).join(" · ")}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TrialRecordDetail({ detail, onClose }: { detail: EvalTrialDetail; onClose: () => void }) {
+  const { t } = useTranslation()
+  const record = detail.record
+  const tokens = (record.inputTokens ?? 0) + (record.outputTokens ?? 0)
+  return (
+    <div className="mt-4 rounded-lg bg-background/60 p-3 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-semibold">
+          {record.id} · {t("dashboard.evaluation.trialStatus", "Trial 实时状态")}
+        </div>
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          {t("common.close")}
+        </Button>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <Metric label={t("dashboard.evaluation.trialMetrics.outcome")} value={record.outcome} />
+        <Metric
+          label={t("dashboard.evaluation.duration")}
+          value={formatDuration(record.durationMs)}
+        />
+        <Metric
+          label={t("dashboard.evaluation.modelCalls")}
+          value={String(record.modelCalls)}
+        />
+        <Metric
+          label={t("dashboard.evaluation.toolCalls")}
+          value={String(record.toolCalls)}
+        />
+        <Metric label={t("dashboard.evaluation.tokens")} value={tokens ? String(tokens) : "—"} />
+        <Metric
+          label={t("dashboard.evaluation.cost")}
+          value={record.costUsd == null ? "—" : `$${record.costUsd.toFixed(4)}`}
+        />
+      </div>
+      {record.failureClass && (
+        <div className="mt-3 rounded bg-destructive/5 p-2 text-muted-foreground">
+          {record.failureClass}
         </div>
       )}
     </div>
@@ -2043,7 +2684,7 @@ function SignatureBadge({ status }: { status: string }) {
 
 function StatusBadge({ status }: { status: EvalExperimentRecord["status"] }) {
   return (
-    <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">
+    <span className="inline-flex min-h-5 items-center justify-center whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">
       {status}
     </span>
   )
@@ -2052,8 +2693,21 @@ function StatusBadge({ status }: { status: EvalExperimentRecord["status"] }) {
 function modelKey(model: EvalModelOption) {
   return `${model.providerId}::${model.modelId}`
 }
+function trialProgressKey(campaignId: string, trialId: string) {
+  return `${campaignId}::${trialId}`
+}
 function formatDuration(ms: number) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+}
+function formatLongDuration(ms: number) {
+  if (ms < 60_000) return formatDuration(ms)
+  const totalSeconds = Math.floor(ms / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return hours > 0
+    ? `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`
+    : `${minutes}m ${String(seconds).padStart(2, "0")}s`
 }
 function formatMetric(value?: number) {
   return value == null ? "—" : Math.abs(value) < 10 ? value.toFixed(3) : value.toFixed(1)

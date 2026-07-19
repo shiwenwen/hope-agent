@@ -30,6 +30,10 @@ pub const APP_MAX_TRIALS: usize = 500;
 pub const APP_MAX_CONCURRENCY: u32 = 2;
 pub const APP_MAX_COST_USD: f64 = 100.0;
 
+fn default_trial_attempt() -> u8 {
+    1
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppExecutionProfile {
@@ -110,6 +114,10 @@ pub struct EvalAppProfile {
     pub max_models: u8,
     pub max_concurrency: u8,
     pub max_cost_usd: f64,
+    /// Optional App-only ceiling for one trial. Registered suite/scenario
+    /// limits remain authoritative when they are stricter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_trial_seconds: Option<u64>,
     #[serde(default)]
     pub allow_custom: bool,
 }
@@ -473,6 +481,20 @@ pub enum AppControlEvent {
         output_tokens: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cost_usd: Option<f64>,
+        #[serde(default)]
+        model_calls: u64,
+        #[serde(default)]
+        tool_calls: u64,
+        #[serde(default)]
+        suite_id: String,
+        #[serde(default)]
+        case_id: String,
+        #[serde(default)]
+        arm: String,
+        #[serde(default = "default_trial_attempt")]
+        attempt: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failure_class: Option<String>,
     },
     BudgetWarning {
         experiment_id: String,
@@ -591,6 +613,12 @@ pub fn validate_app_profile(profile: &EvalAppProfile) -> Result<()> {
         .is_some_and(|value| !(1..=5).contains(&value))
     {
         bail!("app profile repetitions must be 1..=5");
+    }
+    if profile
+        .max_trial_seconds
+        .is_some_and(|value| !(30..=900).contains(&value))
+    {
+        bail!("app profile maxTrialSeconds must be 30..=900");
     }
     let mut suites = BTreeSet::new();
     for suite in &profile.suites {
@@ -1121,6 +1149,32 @@ mod tests {
         assert!(request.redacted().models[0]
             .credential_profile_ref
             .is_none());
+    }
+
+    #[test]
+    fn trial_completed_metrics_are_backward_compatible() {
+        let event: AppControlEvent = serde_json::from_value(serde_json::json!({
+            "type": "trial_completed",
+            "experimentId": "experiment",
+            "campaignId": "campaign",
+            "trialId": "trial",
+            "completed": 1,
+            "total": 1,
+            "outcome": "passed",
+            "wallMs": 123
+        }))
+        .unwrap();
+        match event {
+            AppControlEvent::TrialCompleted {
+                model_calls,
+                tool_calls,
+                ..
+            } => {
+                assert_eq!(model_calls, 0);
+                assert_eq!(tool_calls, 0);
+            }
+            _ => panic!("expected trial_completed"),
+        }
     }
 
     #[test]

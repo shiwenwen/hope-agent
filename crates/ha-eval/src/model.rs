@@ -1143,6 +1143,12 @@ pub(crate) fn build_app_plan(
     {
         bail!("App plan contains {total_trials} trials, exceeding profile/global safety limits");
     }
+    apply_app_trial_timeout_limits(
+        &mut campaigns,
+        profile.max_trial_seconds,
+        request.campaign_budget.max_wall_seconds,
+        total_trials,
+    )?;
 
     let profile_digest = app_profile_digest(&profile)?;
     let selection_digest = digest_serializable(&request.redacted())?;
@@ -1394,6 +1400,66 @@ fn preferred_control_arm(arms: &[String]) -> Option<String> {
     .into_iter()
     .find_map(|preferred| arms.iter().find(|arm| arm.as_str() == preferred).cloned())
     .or_else(|| arms.iter().find(|arm| arm.ends_with("_control")).cloned())
+}
+
+/// Keep one slow Provider call from consuming the entire desktop experiment.
+/// The App wall budget is an experiment-wide ceiling, so every immutable child
+/// case receives at most its profile cap and a conservative fair share of the
+/// total wall clock. Ten percent stays reserved for process startup, evidence
+/// writes, cancellation, and Supervisor shutdown.
+fn apply_app_trial_timeout_limits(
+    campaigns: &mut [AppResolvedCampaign],
+    profile_max_trial_seconds: Option<u64>,
+    experiment_max_wall_seconds: Option<u64>,
+    total_trials: usize,
+) -> Result<()> {
+    let fair_share = experiment_max_wall_seconds.map(|seconds| {
+        seconds
+            .saturating_mul(9)
+            .saturating_div(10)
+            .saturating_div(total_trials.max(1) as u64)
+            .max(1)
+    });
+    let ceiling = match (profile_max_trial_seconds, fair_share) {
+        (Some(profile), Some(fair)) => Some(profile.min(fair)),
+        (Some(profile), None) => Some(profile),
+        (None, Some(fair)) => Some(fair),
+        (None, None) => None,
+    };
+    let Some(ceiling) = ceiling else {
+        return Ok(());
+    };
+
+    for campaign in campaigns {
+        for suite in &mut campaign.resolved_plan.suites {
+            for case in &mut suite.cases {
+                case.timeout_seconds = case.timeout_seconds.min(ceiling);
+                case.budget.max_wall_seconds = Some(
+                    case.budget
+                        .max_wall_seconds
+                        .map_or(ceiling, |registered| registered.min(ceiling)),
+                );
+            }
+        }
+        campaign.resolved_plan.plan_digest = immutable_plan_digest(&campaign.resolved_plan)?;
+        campaign.resolved_plan.campaign_id =
+            campaign_id_from_digest(&campaign.resolved_plan.plan_digest);
+        for trial in &mut campaign.resolved_plan.trials {
+            trial
+                .plan_digest
+                .clone_from(&campaign.resolved_plan.plan_digest);
+            trial
+                .campaign_id
+                .clone_from(&campaign.resolved_plan.campaign_id);
+        }
+        campaign
+            .plan_digest
+            .clone_from(&campaign.resolved_plan.plan_digest);
+        campaign
+            .campaign_id
+            .clone_from(&campaign.resolved_plan.campaign_id);
+    }
+    Ok(())
 }
 
 fn partition_budget(budget: &CampaignBudget, parts: usize) -> Result<CampaignBudget> {
@@ -3131,21 +3197,29 @@ fn run_trial_subprocess(
         return Ok(result);
     }
     let completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-    let error = if process_status.is_none() {
-        format!(
-            "model trial timed out after {} seconds",
-            planned_case.timeout_seconds
+    let (outcome, failure_class, error) = if process_status.is_none() {
+        (
+            ModelCampaignOutcome::BudgetExhausted,
+            "trial_wall_timeout",
+            format!(
+                "model trial timed out after {} seconds",
+                planned_case.timeout_seconds
+            ),
         )
     } else {
-        format!("model trial subprocess exited with {process_status:?}")
+        (
+            ModelCampaignOutcome::InfraError,
+            "trial_subprocess_failed",
+            format!("model trial subprocess exited with {process_status:?}"),
+        )
     };
     Ok(failed_trial_result(
         trial,
         attempt,
         &started_at,
         &completed_at,
-        ModelCampaignOutcome::InfraError,
-        "trial_subprocess_failed",
+        outcome,
+        failure_class,
         &error,
         started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
     ))

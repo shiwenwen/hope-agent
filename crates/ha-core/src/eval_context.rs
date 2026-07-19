@@ -13,10 +13,59 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const MAX_RETAINED_TRIALS: usize = 256;
 const MAX_TRIAL_EVENTS: usize = 4_096;
+pub const MODEL_EVAL_SUPERVISOR_PID_ENV: &str = "HA_MODEL_EVAL_SUPERVISOR_PID";
+
+/// Ensure an isolated Hope Server cannot outlive its evaluation Supervisor.
+/// The Supervisor launches Hope as a process-group leader, so an abnormal
+/// parent death terminates the Server and every tool descendant together.
+/// Normal product processes never receive this opt-in environment value.
+pub fn install_supervisor_watchdog_from_env() -> Result<()> {
+    if !model_eval_mode_enabled() {
+        return Ok(());
+    }
+    let Some(value) = std::env::var_os(MODEL_EVAL_SUPERVISOR_PID_ENV) else {
+        return Ok(());
+    };
+    std::env::remove_var(MODEL_EVAL_SUPERVISOR_PID_ENV);
+    let expected_parent = value
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("model evaluation Supervisor PID is not UTF-8"))?
+        .parse::<u32>()
+        .map_err(|_| anyhow::anyhow!("model evaluation Supervisor PID is invalid"))?;
+    if expected_parent == 0 || expected_parent == std::process::id() {
+        bail!("model evaluation Supervisor PID is invalid");
+    }
+
+    #[cfg(unix)]
+    {
+        if unsafe { libc::getppid() } as u32 != expected_parent {
+            bail!("model evaluation Server was not launched by its registered Supervisor");
+        }
+        std::thread::Builder::new()
+            .name("model-eval-supervisor-watchdog".to_string())
+            .spawn(move || loop {
+                let result = unsafe { libc::kill(expected_parent as libc::pid_t, 0) };
+                let permission_denied = result != 0
+                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+                if result != 0 && !permission_denied {
+                    unsafe {
+                        libc::kill(0, libc::SIGKILL);
+                        libc::_exit(137);
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            })
+            .map_err(|error| anyhow::anyhow!("starting model evaluation watchdog: {error}"))?;
+    }
+    #[cfg(not(unix))]
+    let _ = expected_parent;
+
+    Ok(())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

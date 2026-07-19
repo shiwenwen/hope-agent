@@ -258,6 +258,10 @@ fn spawn_server(
     command
         .args(["server", "start", "--bind", bind])
         .env("HA_MODEL_EVAL_MODE", "1")
+        .env(
+            "HA_MODEL_EVAL_SUPERVISOR_PID",
+            std::process::id().to_string(),
+        )
         .env(SERVER_TOKEN_ENV, server_token)
         .env_remove(SUPERVISOR_TOKEN_ENV)
         .stdin(Stdio::null())

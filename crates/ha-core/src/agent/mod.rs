@@ -570,9 +570,10 @@ impl AssistantAgent {
 
     /// Like [`try_new_from_provider_with_profile`] but accepts an in-memory
     /// `(access_token, account_id)` hint that will be used for Codex providers
-    /// when present, before falling back to disk via `load_fresh_codex_token`.
-    /// Used by the desktop entry point so a valid token cached in memory after
-    /// OAuth still works when the on-disk copy could not be written.
+    /// when present, before falling back to the shared
+    /// `load_fresh_codex_token` resolver. In an isolated local evaluation that
+    /// resolver uses only the short-lived process cache; normal runtimes use
+    /// the refreshable on-disk OAuth state.
     pub async fn try_new_from_provider_with_codex_hint(
         config: &ProviderConfig,
         model_id: &str,

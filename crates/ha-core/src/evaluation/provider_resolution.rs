@@ -76,6 +76,10 @@ pub fn resolve_owner_provider_refs(
 
 pub fn list_model_options() -> Result<Vec<EvalModelOption>> {
     let config = crate::config::load_config()?;
+    let codex_authenticated = crate::get_codex_token_cache()
+        .and_then(|cache| cache.try_lock().ok().map(|value| value.is_some()))
+        .unwrap_or(false)
+        || crate::oauth::load_token().ok().flatten().is_some();
     let mut options = Vec::new();
     for provider in config.providers.iter().filter(|provider| provider.enabled) {
         let codex = provider.api_type.is_codex();
@@ -93,6 +97,22 @@ pub fn list_model_options() -> Result<Vec<EvalModelOption>> {
                     .flatten()
                     .all(|price| price.is_finite() && price >= 0.0),
             };
+            let supports_isolated_eval = if codex {
+                codex_authenticated
+            } else {
+                has_credential
+            };
+            let mut warnings = Vec::new();
+            if codex && !codex_authenticated {
+                warnings.push("codex_oauth_missing".to_string());
+            } else if codex {
+                warnings.push("codex_oauth_local_diagnostic_only".to_string());
+            } else if !has_credential {
+                warnings.push("provider_credential_missing".to_string());
+            }
+            if !cost_known {
+                warnings.push("model_price_unknown".to_string());
+            }
             options.push(EvalModelOption {
                 provider_id: provider.id.clone(),
                 model_id: model.id.clone(),
@@ -112,17 +132,9 @@ pub fn list_model_options() -> Result<Vec<EvalModelOption>> {
                         label: profile.label.clone(),
                     })
                     .collect(),
-                supports_isolated_eval: !codex && has_credential,
+                supports_isolated_eval,
                 cost_known,
-                warnings: if codex {
-                    vec!["codex_oauth_isolation_not_supported".to_string()]
-                } else if !has_credential {
-                    vec!["provider_credential_missing".to_string()]
-                } else if !cost_known {
-                    vec!["model_price_unknown".to_string()]
-                } else {
-                    Vec::new()
-                },
+                warnings,
             });
         }
     }
@@ -135,7 +147,7 @@ pub fn list_model_options() -> Result<Vec<EvalModelOption>> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn resolve_local_launch(
+pub async fn resolve_local_launch(
     request: EvalAppRunRequest,
     reference: String,
     dirty: bool,
@@ -150,15 +162,13 @@ pub fn resolve_local_launch(
     let mut models = Vec::with_capacity(request.models.len());
     let mut secrets = BTreeMap::<String, String>::new();
     let mut credential_identity = BTreeMap::<String, String>::new();
+    let mut resolved_codex_token: Option<crate::oauth::CodexEvaluationToken> = None;
     for selection in &request.models {
         let provider = source
             .providers
             .iter()
             .find(|provider| provider.id == selection.provider_id && provider.enabled)
             .ok_or_else(|| anyhow!("selected evaluation Provider is missing or disabled"))?;
-        if provider.api_type.is_codex() {
-            bail!("Codex OAuth is not supported by the isolated evaluation runtime");
-        }
         let model = provider
             .models
             .iter()
@@ -166,8 +176,42 @@ pub fn resolve_local_launch(
             .ok_or_else(|| {
                 anyhow!("selected evaluation model is not registered by its Provider")
             })?;
-        let (secret, credential_metadata, base_url_override) =
-            resolve_credential(provider, selection.credential_profile_ref.as_deref())?;
+        let (secret, credential_metadata, base_url_override) = if provider.api_type.is_codex() {
+            if selection.credential_profile_ref.is_some() {
+                bail!("Codex evaluation models do not accept API-key credential profiles");
+            }
+            if resolved_codex_token.is_none() {
+                let required_validity_secs = request
+                    .campaign_budget
+                    .max_wall_seconds
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Codex evaluation requires maxWallSeconds because the isolated runtime cannot refresh OAuth"
+                        )
+                    })?;
+                resolved_codex_token = Some(
+                    crate::oauth::load_codex_token_for_evaluation(required_validity_secs).await?,
+                );
+            }
+            let token = resolved_codex_token
+                .as_ref()
+                .ok_or_else(|| anyhow!("Codex OAuth credential is unavailable"))?;
+            let secret = crate::config::encode_model_eval_codex_secret(
+                &token.access_token,
+                &token.account_id,
+                token.expires_at_ms,
+            )?;
+            (
+                Some(secret),
+                serde_json::json!({
+                    "kind": "codex_oauth_access_token",
+                    "accountIdDigest": digest_serializable(&token.account_id)?,
+                }),
+                None,
+            )
+        } else {
+            resolve_credential(provider, selection.credential_profile_ref.as_deref())?
+        };
         let credential_digest = digest_serializable(&credential_metadata)?;
         if let Some(existing) =
             credential_identity.insert(provider.id.clone(), credential_digest.clone())

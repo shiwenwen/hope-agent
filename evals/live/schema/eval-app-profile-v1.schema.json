@@ -36,6 +36,7 @@
     "maxModels": { "type": "integer", "minimum": 1, "maximum": 4 },
     "maxConcurrency": { "type": "integer", "minimum": 1, "maximum": 2 },
     "maxCostUsd": { "type": "number", "minimum": 0.01, "maximum": 100 },
+    "maxTrialSeconds": { "type": "integer", "minimum": 30, "maximum": 900 },
     "allowCustom": { "type": "boolean" }
   }
 }

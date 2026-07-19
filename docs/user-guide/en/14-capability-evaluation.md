@@ -52,11 +52,11 @@ It still does not prove that every real-world task is covered. Complete Browser,
 Confirm the following first:
 
 1. Use a desktop build that includes the evaluation Sidecar. The page should show “Sidecar ready” in the upper-right.
-2. In [02 · Models & Providers](02-models-and-providers.md), enable a Provider, register a model, and configure an API key or valid Auth Profile. A configured loopback local model can also be used.
+2. In [02 · Models & Providers](02-models-and-providers.md), enable a Provider, register a model, and configure an API key, a valid Auth Profile, or a signed-in Codex account. A configured loopback local model can also be used.
 3. Make sure the Provider Base URL is reachable and that the computer has enough disk space and network connectivity.
 4. Preferably configure input/output prices for the model so cost budgets and historical cost have meaningful values.
 
-The isolated runtime currently **does not support Codex OAuth models**. Models available only through Codex sign-in do not appear in the selectable list; use an API-key Provider or a configured local loopback model instead.
+Signed-in Codex OAuth models appear in the selectable list with a permanent “Diagnostic only” label. Before startup, the App verifies that the short-lived token covers the configured maximum duration and refreshes it inside the owner App when necessary. The isolated process receives only the access token, account ID, and expiration time; it never receives OAuth files or a refresh token. If a refreshed token still cannot cover the budget, shorten the maximum duration and generate the plan again. A local Codex result cannot be promoted to release evidence, and protected Runners continue to reject personal Codex OAuth credentials.
 
 If a Provider has multiple Auth Profiles, you can choose a credential profile after selecting the model. Within one experiment, all models from the same Provider must use the same credential profile.
 
@@ -70,7 +70,7 @@ A profile determines the scenario scope, comparison arms, repetitions, and budge
 
 | Profile | Best for | Current focus |
 | --- | --- | --- |
-| Quick | Checking a newly configured Provider and the main path | Critical smoke/control cases, one repetition, serial by default |
+| Quick | Checking a newly configured Provider and the main path | Critical smoke/control cases, one repetition, serial by default; three-minute maximum per trial |
 | Standard | Routine version or model preflight | A locally compatible control subset of weekly core cases, with case selection |
 | Reliability | Recovery, stability, and multi-Agent benefit | Fault/comparison arms and manifest-defined repetitions; currently one model per run |
 | Custom | Reproducing one case or narrowing an experiment | Select cases, arms, and 1–5 repetitions from the allowlist; cannot add unregistered tasks |
@@ -109,9 +109,13 @@ Only one local experiment can be active at a time. Wait for the current run to f
 
 ## 14.5 Progress, cancellation, and retries
 
-The active-run card shows the current phase, completed trials, current trial, recorded tokens, and known cost. You can switch to History, Compare, or other tabs while the run continues.
+After startup succeeds, Run automatically becomes the live workspace for that experiment; you do not need to open History to follow progress. It shows overall progress and duration, pass/failure/infrastructure counts, tokens, model/tool calls, cost, and queued/running/completed state for every Campaign and Trial. Persisted trials can be opened directly for their causal trace. You can switch to History, Compare, or other tabs while the run continues.
 
-- **Cancel**: select Cancel on the active-run card. Hope first requests a graceful stop and terminates the entire isolated process tree if needed.
+The configured duration is a hard ceiling for the whole experiment, not a full allowance for every trial. The immutable plan conservatively shares usable wall time across all trials and reserves time for startup, evidence writes, and process cleanup; Quick applies an additional per-trial cap. A per-trial deadline is reported as Budget exhausted and is not automatically retried as an infrastructure error. After experiment failure, cancellation, or interruption, active rows become Aborted and untouched rows become Not run instead of remaining Running; completed partial results remain available in History.
+
+When the evaluation reaches a terminal state, its result remains in Run. Select “Start new evaluation” to return to configuration. History is primarily for finding prior records, annotations, exports, and retries.
+
+- **Cancel**: select Cancel in the live workspace. Hope first requests a graceful stop and terminates the entire isolated process tree if needed.
 - **App closes or the Sidecar exits unexpectedly**: unfinished experiments become `interrupted` and do not resume automatically.
 - **Retry**: select “Retry as new experiment” in History details. A retry creates a new experiment linked to its parent; it never overwrites the original calls, cost, or failure evidence.
 
@@ -198,7 +202,7 @@ Local export is always unsigned. Editing `source` or SHA fields in JSON cannot p
 - **Real charges apply**: requests go directly to the selected Provider. Tokens and estimated cost are bounded by your configured budgets, while the Provider bill remains the cost source of truth.
 - **Synthetic tasks only**: built-in scenarios do not construct tasks from real user business data, and evaluation should not use personal production accounts.
 - **Isolated execution**: each Campaign receives a temporary HOME, data directory, workspace, port, and Hope Server.
-- **Keys stay out of evidence**: the UI sends only Provider/model/credential references. The local backend resolves the actual key, which is not written to plans, databases, command lines, logs, or exports.
+- **Credentials stay out of evidence**: the UI sends only Provider/model/credential references. The local backend resolves the API key or short-lived Codex token, which is not written to plans, databases, command lines, logs, or exports.
 - **Local networking is not release-grade isolation proof**: local evidence marks network enforcement as unverified and is diagnostic only.
 - **Local storage**: evaluation indexes and artifacts live under `~/.hope-agent/evals/`. Ordinary local artifacts follow retention cleanup; manually pinned records are retained.
 
@@ -209,7 +213,8 @@ Local export is always unsigned. Editing `source` or SHA fields in JSON cannot p
 | Symptom | Cause and action |
 | --- | --- |
 | “Sidecar unavailable” | The Sidecar is missing or its version/digest does not match. Upgrade or reinstall the release desktop app; prepare the evaluation Sidecar in development. |
-| No selectable model | The Provider is disabled, the model is not registered, there is no API key/Auth Profile, or only unsupported Codex OAuth is configured. Fix it under Settings → Providers. |
+| No selectable model | The Provider is disabled, the model is not registered, there is no API key/Auth Profile, or Codex is signed out/expired. Fix the configuration or sign in to Codex again under Settings → Providers. |
+| Codex token cannot cover the evaluation duration | The isolated Codex process cannot hold a refresh token. Shorten “Maximum duration” and generate the plan again; if it still fails, sign in to Codex again under Settings → Providers. |
 | Cost appears as “—” | Model pricing is missing or the Provider did not return usable usage. Diagnosis can continue, but cost budgets and comparisons are incomplete. |
 | Start is disabled after a change | The plan is stale. Generate the plan again before starting. |
 | An infra error appears | Check Provider reachability, credentials, quota, rate limits, Sidecar health, and local resources. Do not treat it directly as task failure. |

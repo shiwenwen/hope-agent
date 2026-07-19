@@ -21,12 +21,13 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const SERVER_URL_ENV: &str = "HA_MODEL_EVAL_SERVER_URL";
 const SERVER_TOKEN_ENV: &str = "HA_MODEL_EVAL_SERVER_TOKEN";
 const SUPERVISOR_URL_ENV: &str = "HA_MODEL_EVAL_SUPERVISOR_URL";
 const SUPERVISOR_TOKEN_ENV: &str = "HA_MODEL_EVAL_SUPERVISOR_TOKEN";
+const TRIAL_CLEANUP_GRACE_SECONDS: u64 = 10;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -313,6 +314,33 @@ struct ObservedTrial {
     error: Option<String>,
 }
 
+async fn timed_out_chat_result(
+    client: &Client,
+    server_url: &str,
+    token: Option<&str>,
+    trial: &PlannedModelTrial,
+    stage: &str,
+) -> ObservedTrial {
+    let telemetry = match tokio::time::timeout(
+        Duration::from_secs(TRIAL_CLEANUP_GRACE_SECONDS.saturating_sub(2).max(1)),
+        cleanup_after_failed_chat(client, server_url, token, trial),
+    )
+    .await
+    {
+        Ok(Ok(telemetry)) => telemetry,
+        _ => fallback_telemetry(trial, 0),
+    };
+    ObservedTrial {
+        outcome: ModelCampaignOutcome::BudgetExhausted,
+        failure_class: Some("trial_wall_timeout".to_string()),
+        telemetry,
+        artifacts: Vec::new(),
+        error: Some(format!(
+            "{stage} exceeded the immutable trial wall-clock budget"
+        )),
+    }
+}
+
 async fn run_hope_core_scenario(
     root: &Path,
     scenario_path: &Path,
@@ -360,8 +388,12 @@ async fn run_hope_core_scenario(
         _ => {}
     }
 
+    let request_timeout_seconds = planned_case
+        .timeout_seconds
+        .saturating_sub(TRIAL_CLEANUP_GRACE_SECONDS)
+        .max(1);
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(planned_case.timeout_seconds))
+        .timeout(Duration::from_secs(request_timeout_seconds))
         .build()
         .context("building model eval HTTP client")?;
     let mut required_signals = vec!["model".to_string()];
@@ -485,7 +517,20 @@ async fn run_hope_core_scenario(
         request = request.bearer_auth(token);
     }
     let agent_started = Instant::now();
-    let response = request.send().await.context("calling Hope server chat")?;
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(error) if error.is_timeout() => {
+            return Ok(timed_out_chat_result(
+                &client,
+                server_url,
+                token.as_deref(),
+                trial,
+                "Hope chat",
+            )
+            .await);
+        }
+        Err(error) => return Err(error).context("calling Hope server chat"),
+    };
     let status = response.status();
     let bytes = response
         .bytes()
@@ -590,10 +635,20 @@ async fn run_hope_core_scenario(
             if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
                 request = request.bearer_auth(token);
             }
-            let response = request
-                .send()
-                .await
-                .context("calling Hope scripted user turn")?;
+            let response = match request.send().await {
+                Ok(response) => response,
+                Err(error) if error.is_timeout() => {
+                    return Ok(timed_out_chat_result(
+                        &client,
+                        server_url,
+                        token.as_deref(),
+                        trial,
+                        "Hope scripted user turn",
+                    )
+                    .await);
+                }
+                Err(error) => return Err(error).context("calling Hope scripted user turn"),
+            };
             let status = response.status();
             let bytes = response
                 .bytes()

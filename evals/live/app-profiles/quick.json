@@ -1,7 +1,7 @@
 {
   "schemaVersion": "eval-app-profile.v1",
   "id": "quick",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "title": "Quick diagnosis",
   "description": "One clean/control trial for each critical nightly smoke case.",
   "baseTier": "nightly",
@@ -16,5 +16,6 @@
   "maxModels": 4,
   "maxConcurrency": 1,
   "maxCostUsd": 25,
+  "maxTrialSeconds": 180,
   "allowCustom": false
 }

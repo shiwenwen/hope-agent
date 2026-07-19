@@ -323,13 +323,26 @@ impl EvalRepository {
             EvalExperimentStatus::Planning | EvalExperimentStatus::Running
         );
         let completed = next.is_terminal();
-        self.connection()?.execute(
+        let connection = self.connection()?;
+        connection.execute(
             "UPDATE eval_experiments SET status=?2,
                started_at=CASE WHEN ?3 THEN COALESCE(started_at,?5) ELSE started_at END,
                completed_at=CASE WHEN ?4 THEN ?5 ELSE completed_at END,
                error=?6 WHERE id=?1",
             params![run_id, next.as_str(), started, completed, now, error],
         )?;
+        if matches!(
+            next,
+            EvalExperimentStatus::Failed
+                | EvalExperimentStatus::Cancelled
+                | EvalExperimentStatus::Interrupted
+        ) {
+            connection.execute(
+                "UPDATE eval_campaigns SET status=?2
+                 WHERE experiment_id=?1 AND status!='completed'",
+                params![run_id, next.as_str()],
+            )?;
+        }
         Ok(())
     }
 
@@ -339,6 +352,81 @@ impl EvalRepository {
                total_trials=MAX(total_trials,?3) WHERE id=?1",
             params![run_id, i64::from(completed), i64::from(total)],
         )?;
+        Ok(())
+    }
+
+    pub fn mark_campaign_running(&self, run_id: &str, campaign_id: &str) -> Result<()> {
+        self.connection()?.execute(
+            "UPDATE eval_campaigns SET status='running'
+             WHERE experiment_id=?1 AND id=?2 AND status='queued'",
+            params![run_id, campaign_id],
+        )?;
+        Ok(())
+    }
+
+    /// Persist a completed trial before final campaign evidence exists. This
+    /// keeps timeout/cancellation diagnostics authoritative after an App
+    /// reload; successful aggregation later replaces these rows from the
+    /// verified evidence artifact.
+    pub fn record_trial_progress(&self, run_id: &str, trial: &EvalTrialRecord) -> Result<()> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "INSERT INTO eval_trials(
+               experiment_id,campaign_id,id,suite_id,case_id,arm,outcome,attempt,
+               duration_ms,model_calls,tool_calls,input_tokens,output_tokens,cost_usd,
+               trace_artifact_sha256,failure_class
+             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,NULL,?15)
+             ON CONFLICT(experiment_id,campaign_id,id) DO UPDATE SET
+               suite_id=excluded.suite_id,case_id=excluded.case_id,arm=excluded.arm,
+               outcome=excluded.outcome,attempt=excluded.attempt,
+               duration_ms=excluded.duration_ms,model_calls=excluded.model_calls,
+               tool_calls=excluded.tool_calls,input_tokens=excluded.input_tokens,
+               output_tokens=excluded.output_tokens,cost_usd=excluded.cost_usd,
+               failure_class=excluded.failure_class",
+            params![
+                run_id,
+                trial.campaign_id,
+                trial.id,
+                trial.suite_id,
+                trial.case_id,
+                trial.arm,
+                outcome_str(trial.outcome),
+                i64::from(trial.attempt),
+                i64::try_from(trial.duration_ms)?,
+                i64::from(trial.model_calls),
+                i64::try_from(trial.tool_calls)?,
+                trial
+                    .input_tokens
+                    .and_then(|value| i64::try_from(value).ok()),
+                trial
+                    .output_tokens
+                    .and_then(|value| i64::try_from(value).ok()),
+                trial.cost_usd,
+                trial.failure_class,
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE eval_campaigns SET status=CASE WHEN status='completed' THEN status ELSE 'running' END,
+               passed_trials=(SELECT COUNT(*) FROM eval_trials WHERE experiment_id=?1 AND campaign_id=?2 AND outcome='passed'),
+               infra_error_trials=(SELECT COUNT(*) FROM eval_trials WHERE experiment_id=?1 AND campaign_id=?2 AND outcome IN ('infra_error','simulator_error')),
+               failed_trials=(SELECT COUNT(*) FROM eval_trials WHERE experiment_id=?1 AND campaign_id=?2 AND outcome NOT IN ('passed','infra_error','simulator_error')),
+               duration_ms=(SELECT COALESCE(SUM(duration_ms),0) FROM eval_trials WHERE experiment_id=?1 AND campaign_id=?2),
+               cost_usd=(SELECT CASE WHEN COUNT(*)=COUNT(cost_usd) THEN SUM(cost_usd) END FROM eval_trials WHERE experiment_id=?1 AND campaign_id=?2)
+             WHERE experiment_id=?1 AND id=?2",
+            params![run_id, trial.campaign_id],
+        )?;
+        transaction.execute(
+            "UPDATE eval_experiments SET
+               completed_trials=(SELECT COUNT(*) FROM eval_trials WHERE experiment_id=?1),
+               passed_trials=(SELECT COUNT(*) FROM eval_trials WHERE experiment_id=?1 AND outcome='passed'),
+               infra_error_trials=(SELECT COUNT(*) FROM eval_trials WHERE experiment_id=?1 AND outcome IN ('infra_error','simulator_error')),
+               failed_trials=(SELECT COUNT(*) FROM eval_trials WHERE experiment_id=?1 AND outcome NOT IN ('passed','infra_error','simulator_error')),
+               observed_cost_usd=(SELECT CASE WHEN COUNT(*)=COUNT(cost_usd) THEN SUM(cost_usd) END FROM eval_trials WHERE experiment_id=?1)
+             WHERE id=?1",
+            [run_id],
+        )?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -600,12 +688,28 @@ impl EvalRepository {
     }
 
     pub fn reconcile_interrupted(&self) -> Result<usize> {
-        let changed = self.connection()?.execute(
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        let changed = transaction.execute(
             "UPDATE eval_experiments SET status='interrupted',completed_at=?1,
                error='Evaluation process ended before a terminal event'
              WHERE status IN ('queued','planning','running','cancelling')",
             [now()],
         )?;
+        transaction.execute(
+            "UPDATE eval_campaigns AS campaign
+             SET status=(
+               SELECT experiment.status FROM eval_experiments AS experiment
+               WHERE experiment.id=campaign.experiment_id
+             )
+             WHERE campaign.status!='completed' AND EXISTS (
+               SELECT 1 FROM eval_experiments AS experiment
+               WHERE experiment.id=campaign.experiment_id
+                 AND experiment.status IN ('failed','cancelled','interrupted')
+             )",
+            [],
+        )?;
+        transaction.commit()?;
         Ok(changed)
     }
 
@@ -1702,6 +1806,77 @@ mod tests {
                 .status,
             EvalExperimentStatus::Interrupted
         );
+    }
+
+    #[test]
+    fn partial_trial_progress_survives_terminal_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let repository = EvalRepository::open(temp.path().join("evals.db")).unwrap();
+        let connection = repository.connection().unwrap();
+        connection
+            .execute(
+                "INSERT INTO eval_experiments(
+                   id,kind,profile_id,source,integrity,status,git_ref,dirty,app_version,
+                   created_at,started_at,total_trials
+                 ) VALUES(
+                   'evalrun-partial','hope_core','quick','local_app','local_diagnostic',
+                   'running','abc',1,'0.1.0',?1,?1,2
+                 )",
+                [now()],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO eval_campaigns(
+                   experiment_id,id,model_digest,provider_config_digest,status,total_trials
+                 ) VALUES('evalrun-partial','campaign','model','provider','running',2)",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        repository
+            .record_trial_progress(
+                "evalrun-partial",
+                &EvalTrialRecord {
+                    id: "trial-1".to_string(),
+                    campaign_id: "campaign".to_string(),
+                    suite_id: "suite".to_string(),
+                    case_id: "case".to_string(),
+                    arm: "control".to_string(),
+                    outcome: ModelCampaignOutcome::BudgetExhausted,
+                    attempt: 1,
+                    duration_ms: 180_000,
+                    model_calls: 1,
+                    tool_calls: 2,
+                    input_tokens: Some(100),
+                    output_tokens: Some(20),
+                    cost_usd: Some(0.25),
+                    trace_artifact_sha256: None,
+                    failure_class: Some("trial_wall_timeout".to_string()),
+                },
+            )
+            .unwrap();
+        repository
+            .transition(
+                "evalrun-partial",
+                EvalExperimentStatus::Failed,
+                Some("experiment wall-clock budget exhausted"),
+            )
+            .unwrap();
+
+        let detail = repository.detail("evalrun-partial").unwrap().unwrap();
+        assert_eq!(detail.experiment.status, EvalExperimentStatus::Failed);
+        assert_eq!(detail.experiment.completed_trials, 1);
+        assert_eq!(detail.experiment.failed_trials, 1);
+        assert_eq!(detail.campaigns[0].status, EvalExperimentStatus::Failed);
+        assert_eq!(detail.trials.len(), 1);
+        assert_eq!(
+            detail.trials[0].outcome,
+            ModelCampaignOutcome::BudgetExhausted
+        );
+        assert_eq!(detail.trials[0].model_calls, 1);
+        assert_eq!(detail.trials[0].tool_calls, 2);
     }
 
     #[test]

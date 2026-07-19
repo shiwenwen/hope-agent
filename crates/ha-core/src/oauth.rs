@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,8 @@ pub struct AuthStatus {
 /// JWT payload for extracting chatgpt_account_id
 #[derive(Deserialize)]
 struct JwtPayload {
+    #[serde(default)]
+    exp: Option<u64>,
     #[serde(rename = "https://api.openai.com/auth", default)]
     auth: Option<JwtAuth>,
 }
@@ -51,13 +53,22 @@ struct JwtAuth {
 
 /// Extract chatgpt_account_id from JWT access token (public for use in agent/lib)
 pub fn extract_account_id(token: &str) -> Option<String> {
+    decode_jwt_payload(token)?
+        .auth
+        .and_then(|a| a.chatgpt_account_id)
+}
+
+fn decode_jwt_payload(token: &str) -> Option<JwtPayload> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() < 2 {
         return None;
     }
     let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;
-    let payload: JwtPayload = serde_json::from_slice(&payload_bytes).ok()?;
-    payload.auth.and_then(|a| a.chatgpt_account_id)
+    serde_json::from_slice(&payload_bytes).ok()
+}
+
+fn access_token_expires_at_ms(token: &str) -> Option<u64> {
+    decode_jwt_payload(token)?.exp?.checked_mul(1_000)
 }
 
 /// Margin before absolute expiry to treat the token as expired.
@@ -65,15 +76,144 @@ pub fn extract_account_id(token: &str) -> Option<String> {
 /// don't need a large window — 30s is enough to absorb clock skew and network
 /// jitter without burning the last minute of a still-valid token.
 const REFRESH_MARGIN_MS: u64 = 30_000;
+const EVAL_TOKEN_EXPIRY_MARGIN_MS: u64 = 60_000;
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct CodexEvaluationToken {
+    pub access_token: String,
+    pub account_id: String,
+    pub expires_at_ms: u64,
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn effective_token_expiry(token: &TokenData) -> Option<u64> {
+    match (
+        token.expires_at,
+        access_token_expires_at_ms(&token.access_token),
+    ) {
+        (Some(stored), Some(jwt)) => Some(stored.min(jwt)),
+        (Some(stored), None) => Some(stored),
+        (None, Some(jwt)) => Some(jwt),
+        (None, None) => None,
+    }
+}
+
+fn expiry_covers(expires_at_ms: u64, required_validity_secs: u64) -> bool {
+    let required_ms = required_validity_secs
+        .saturating_mul(1_000)
+        .saturating_add(EVAL_TOKEN_EXPIRY_MARGIN_MS);
+    now_unix_ms().saturating_add(required_ms) < expires_at_ms
+}
+
+fn evaluation_token_from_parts(
+    access_token: String,
+    account_id: String,
+    expires_at_ms: u64,
+    required_validity_secs: u64,
+) -> Result<CodexEvaluationToken> {
+    if account_id.trim().is_empty() {
+        bail!("Codex OAuth account id is unavailable (authentication). Please sign in again.");
+    }
+    if !expiry_covers(expires_at_ms, required_validity_secs) {
+        let available_secs = expires_at_ms
+            .saturating_sub(now_unix_ms())
+            .saturating_sub(EVAL_TOKEN_EXPIRY_MARGIN_MS)
+            / 1_000;
+        bail!(
+            "Codex OAuth access token cannot cover the requested evaluation duration of {required_validity_secs}s (safe remaining lifetime: {available_secs}s). Reduce the evaluation duration or sign in again."
+        );
+    }
+    Ok(CodexEvaluationToken {
+        access_token,
+        account_id,
+        expires_at_ms,
+    })
+}
+
+/// Resolve a Codex access token whose remaining lifetime covers the entire
+/// local evaluation campaign. Refresh happens only in the owner process; the
+/// isolated runtime still receives no refresh token or OAuth file.
+pub(crate) async fn load_codex_token_for_evaluation(
+    required_validity_secs: u64,
+) -> Result<CodexEvaluationToken> {
+    if crate::eval_context::model_eval_mode_enabled() {
+        bail!("Codex evaluation credentials must be resolved by the owner process");
+    }
+
+    let cached = match crate::get_codex_token_cache() {
+        Some(cache) => cache.lock().await.clone(),
+        None => None,
+    };
+    if let Some((access_token, account_id)) = cached {
+        if let Some(expires_at_ms) = access_token_expires_at_ms(&access_token) {
+            if expiry_covers(expires_at_ms, required_validity_secs) {
+                return evaluation_token_from_parts(
+                    access_token,
+                    account_id,
+                    expires_at_ms,
+                    required_validity_secs,
+                );
+            }
+        }
+    }
+
+    let disk = load_token()
+        .context("reading Codex OAuth for local evaluation")?
+        .ok_or_else(|| {
+            anyhow!("Codex OAuth token not found (authentication). Please sign in again.")
+        })?;
+    if let Some(expires_at_ms) = effective_token_expiry(&disk) {
+        if expiry_covers(expires_at_ms, required_validity_secs) {
+            let account_id = disk
+                .account_id
+                .clone()
+                .or_else(|| extract_account_id(&disk.access_token))
+                .unwrap_or_default();
+            return evaluation_token_from_parts(
+                disk.access_token,
+                account_id,
+                expires_at_ms,
+                required_validity_secs,
+            );
+        }
+    }
+
+    let refresh = disk.refresh_token.as_deref().ok_or_else(|| {
+        anyhow!(
+            "Codex OAuth token does not cover the requested evaluation duration and has no refresh token (authentication). Please sign in again."
+        )
+    })?;
+    let refreshed = refresh_access_token(refresh).await.map_err(|error| {
+        anyhow!(
+            "Codex OAuth refresh failed before local evaluation (authentication): {error}. Please sign in again."
+        )
+    })?;
+    let expires_at_ms = effective_token_expiry(&refreshed)
+        .ok_or_else(|| anyhow!("refreshed Codex OAuth token has no verifiable expiration time"))?;
+    let account_id = refreshed
+        .account_id
+        .clone()
+        .or_else(|| extract_account_id(&refreshed.access_token))
+        .unwrap_or_default();
+    evaluation_token_from_parts(
+        refreshed.access_token,
+        account_id,
+        expires_at_ms,
+        required_validity_secs,
+    )
+}
 
 /// Check if token is expired (or within `REFRESH_MARGIN_MS` of expiry).
 pub fn is_token_expired(token: &TokenData) -> bool {
     match token.expires_at {
         Some(expires_at) => {
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
+            let now_ms = now_unix_ms();
             now_ms + REFRESH_MARGIN_MS >= expires_at
         }
         None => false, // If no expiry info, assume valid
@@ -348,12 +488,29 @@ fn exchange_code_for_token(code: &str, code_verifier: &str) -> Result<TokenData>
     Ok(token)
 }
 
-/// Load Codex OAuth token from disk, refreshing if expired.
+/// Load a usable Codex OAuth token, refreshing the on-disk token if expired.
 /// Returns `(access_token, account_id)`.
+///
+/// An isolated local model-evaluation server has no OAuth files or refresh
+/// token by design. In that mode the short-lived pair seeded during process
+/// bootstrap is the only accepted source. This common entry point keeps main
+/// chat, Side Query, automation, and nested Agent paths on the same boundary.
 ///
 /// Error messages embed the literal `authentication` so
 /// [`crate::failover::classify_error`] returns `FailoverReason::Auth`.
 pub async fn load_fresh_codex_token() -> Result<(String, String)> {
+    if crate::eval_context::model_eval_mode_enabled() {
+        let cached = match crate::get_codex_token_cache() {
+            Some(cache) => cache.lock().await.clone(),
+            None => None,
+        };
+        return cached.ok_or_else(|| {
+            anyhow!(
+                "Codex OAuth token is unavailable in the isolated evaluation process (authentication)"
+            )
+        });
+    }
+
     let disk = load_token()
         .map_err(|e| {
             anyhow!(
@@ -477,6 +634,13 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenData> {
         .await
         .map_err(|e| anyhow!("Failed to parse refresh token response: {}", e))?;
 
+    // OAuth providers may rotate the refresh token or omit it when the
+    // existing token remains valid. Never erase the still-usable token when
+    // the response omits a replacement.
+    if token.refresh_token.is_none() {
+        token.refresh_token = Some(refresh_token.to_string());
+    }
+
     // Extract account_id from new JWT and compute absolute expiry
     token.account_id = extract_account_id(&token.access_token);
     if let Some(expires_in) = token.expires_in {
@@ -526,5 +690,43 @@ mod tests {
             inner
         );
         assert_eq!(classify_error(&err.to_string()), FailoverReason::Auth);
+    }
+
+    #[test]
+    fn evaluation_token_must_cover_the_whole_campaign() {
+        let expires_at_ms = now_unix_ms() + 120_000;
+        assert!(evaluation_token_from_parts(
+            "codex-evaluation-access-token".to_string(),
+            "account-eval".to_string(),
+            expires_at_ms,
+            30,
+        )
+        .is_ok());
+
+        let error = evaluation_token_from_parts(
+            "codex-evaluation-access-token".to_string(),
+            "account-eval".to_string(),
+            expires_at_ms,
+            90,
+        )
+        .err()
+        .expect("expiry margin must reject a campaign longer than the token lifetime");
+        assert!(error
+            .to_string()
+            .contains("cannot cover the requested evaluation duration"));
+    }
+
+    #[test]
+    fn effective_expiry_uses_the_earliest_verifiable_boundary() {
+        let payload = URL_SAFE_NO_PAD.encode(br#"{"exp":100}"#);
+        let token = TokenData {
+            access_token: format!("header.{payload}.signature"),
+            refresh_token: None,
+            expires_in: None,
+            token_type: None,
+            account_id: None,
+            expires_at: Some(123_000),
+        };
+        assert_eq!(effective_token_expiry(&token), Some(100_000));
     }
 }

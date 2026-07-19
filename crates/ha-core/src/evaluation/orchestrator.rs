@@ -1,8 +1,8 @@
 use super::artifact_store::EvalArtifactStore;
 use super::store::EvalRepository;
 use super::types::{
-    EvalExperimentStatus, EvalPreview, EvalReadiness, EvalResolvedLaunch, EvalWorkerEvent,
-    EVALUATION_EVENT,
+    EvalExperimentStatus, EvalPreview, EvalReadiness, EvalResolvedLaunch, EvalTrialRecord,
+    EvalWorkerEvent, EVALUATION_EVENT,
 };
 use crate::event_bus::EventBus;
 use anyhow::{anyhow, bail, Result};
@@ -276,6 +276,8 @@ impl<R: EvalWorkerRuntime> EvalOrchestrator<R> {
                 total,
                 ..
             } => {
+                self.repository
+                    .mark_campaign_running(run_id, &campaign_id)?;
                 self.events.emit(
                     EVALUATION_EVENT,
                     serde_json::json!({
@@ -299,8 +301,37 @@ impl<R: EvalWorkerRuntime> EvalOrchestrator<R> {
                 input_tokens,
                 output_tokens,
                 cost_usd,
+                model_calls,
+                tool_calls,
+                suite_id,
+                case_id,
+                arm,
+                attempt,
+                failure_class,
                 ..
             } => {
+                self.repository.record_trial_progress(
+                    run_id,
+                    &EvalTrialRecord {
+                        id: trial_id.clone(),
+                        campaign_id: campaign_id.clone(),
+                        suite_id,
+                        case_id,
+                        arm,
+                        outcome,
+                        attempt,
+                        duration_ms: wall_ms,
+                        model_calls: u32::try_from(model_calls).map_err(|_| {
+                            anyhow!("trial model-call count exceeds storage limits")
+                        })?,
+                        tool_calls,
+                        input_tokens,
+                        output_tokens,
+                        cost_usd,
+                        trace_artifact_sha256: None,
+                        failure_class,
+                    },
+                )?;
                 self.repository.update_progress(run_id, completed, total)?;
                 self.events.emit(
                     EVALUATION_EVENT,
@@ -316,6 +347,8 @@ impl<R: EvalWorkerRuntime> EvalOrchestrator<R> {
                         "inputTokens": input_tokens,
                         "outputTokens": output_tokens,
                         "costUsd": cost_usd,
+                        "modelCalls": model_calls,
+                        "toolCalls": tool_calls,
                     }),
                 );
                 Ok(false)

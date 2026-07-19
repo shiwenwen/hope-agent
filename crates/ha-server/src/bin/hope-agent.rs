@@ -252,6 +252,10 @@ fn run_server(args: &[String]) {
     };
     let model_eval_mode = ha_core::eval_context::model_eval_mode_enabled();
     if model_eval_mode {
+        if let Err(error) = ha_core::eval_context::install_supervisor_watchdog_from_env() {
+            eprintln!("[model-eval] failed to install Supervisor watchdog: {error}");
+            std::process::exit(2);
+        }
         if let Err(error) = ha_core::platform::prevent_process_dumping() {
             eprintln!("[model-eval] failed to harden Provider secret process: {error}");
             std::process::exit(2);
@@ -312,16 +316,30 @@ fn run_server(args: &[String]) {
     // Provider secret overlay before init_runtime snapshots the login-shell
     // environment or starts any background worker. Agent/tool subprocesses
     // therefore cannot inherit the one-shot secret environment variable.
-    if model_eval_mode {
-        if let Err(error) = ha_core::config::initialize_model_eval_provider_secrets() {
-            eprintln!("[model-eval] failed to initialize isolated Provider config: {error:#}");
-            std::process::exit(2);
+    let model_eval_codex_token = if model_eval_mode {
+        match ha_core::config::initialize_model_eval_provider_secrets() {
+            Ok(token) => token,
+            Err(error) => {
+                eprintln!("[model-eval] failed to initialize isolated Provider config: {error:#}");
+                std::process::exit(2);
+            }
         }
     } else {
         let _ = ha_core::config::cached_config();
-    }
+        None
+    };
     ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("server");
+    if let Some(codex_token) = model_eval_codex_token {
+        let cache = match ha_core::require_codex_token_cache() {
+            Ok(cache) => cache,
+            Err(error) => {
+                eprintln!("[model-eval] Codex token cache is unavailable: {error:#}");
+                std::process::exit(2);
+            }
+        };
+        *cache.blocking_lock() = Some((codex_token.access_token, codex_token.account_id));
+    }
     if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
         eprintln!("[server] Warning: failed to ensure default agent: {e}");
     }

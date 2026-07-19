@@ -9,11 +9,13 @@
 
 mod persistence;
 
+pub(crate) use persistence::encode_model_eval_codex_secret;
 #[cfg(test)]
 pub use persistence::replace_cache_for_test;
 pub use persistence::{
     cached_config, config_health, initialize_model_eval_provider_secrets, load_config,
     mutate_config, mutate_config_async, reload_cache_from_disk, save_config, ConfigHealth,
+    ModelEvalCodexCredential,
 };
 
 use serde::{Deserialize, Serialize};
