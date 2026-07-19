@@ -30,7 +30,17 @@ jobs:
       # 仅 release-tag / dispatch 构建串行化 codegen，换取最小 / 最快二进制（叠加
       # 根 Cargo.toml 的 lto="thin" / strip）。Docker（docker.yml 走 Dockerfile，
       # 不读此 env）与日常 dev 不受影响。
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+      #
+      # 按 lane 可覆盖：v0.20.0 发版时 linux-arm64 在 tauri-action 步骤跑到 67 /
+      # 74 分钟被 runner 杀掉两次（GitHub 注解 "lost communication … starves it
+      # for CPU/Memory"）。codegen-units=1 把整个 ha-core（v0.20.0 已 509k 行）
+      # 压成单个 LLVM 单元，峰值超出该 runner 的 15Gi + 3Gi swap，故 arm64 退回
+      # cargo 默认 16，代价是该平台二进制略大、运行略慢。其余 lane 维持 1 不变。
+      #
+      # 磁盘已排除：上面 Report runner resources 实测 145G 盘 / 118G 可用。
+      # macos-arm64 只有 7GB 内存却能扛住 codegen-units=1，推测是靠 macOS 的内存
+      # 压缩与磁盘 swap；别据此以为 arm64 Linux 也该扛得住。
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.codegen_units || '1' }}
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +77,8 @@ jobs:
             os: ubuntu-24.04-arm
             rust_target: ""
             args: ""
+            # 见 job env 的 CARGO_PROFILE_RELEASE_CODEGEN_UNITS 注释。
+            codegen_units: "16"
           # Windows x64 — MSI (wix) + NSIS. Code signing certificate is
           # not wired up yet; bundles are unsigned. See
           # src-tauri/tauri.conf.json `bundle.windows.certificateThumbprint`
@@ -86,6 +98,18 @@ jobs:
           node-version: 20
 
       - uses: pnpm/action-setup@v4
+
+      # 起始资源快照。arm64 lane 曾被 runner 杀掉两次且日志全丢，当时无从判断是
+      # 磁盘还是内存——这一步就是为回答那个问题加的，并已给出答案：ubuntu-24.04-arm
+      # 有 145G 盘 / 118G 可用、15Gi 内存 + 3Gi swap，磁盘绰绰有余，瓶颈在内存。
+      # 保留它，下次资源类失败仍可一眼定位（注意：job 中途被杀时日志多半丢失，
+      # 这份快照只在 job 跑完后可读）。
+      - name: Report runner resources
+        shell: bash
+        run: |
+          echo "--- disk ---"; df -h || true
+          echo "--- memory ---"; (free -h || vm_stat || true)
+          echo "--- cpus ---"; (nproc || sysctl -n hw.ncpu || true)
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
