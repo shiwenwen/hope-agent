@@ -1630,11 +1630,13 @@ sequenceDiagram
 
 ## 内置技能
 
-内置技能（Bundled Skills）随应用发行，位于项目根目录 `skills/`，优先级最低。`discovery.rs` 中的 `resolve_bundled_skills_dir()` 按以下顺序定位内置技能目录：
+内置技能（Bundled Skills）源自项目根目录 `skills/`，优先级最低。该目录经 `rust-embed` 在**编译期整树嵌入 ha-core**（`skills/embedded.rs`），运行期按内容 hash 解压到 `~/.hope-agent/bundled-skills/<hash>/`（tmp 目录 + 原子 rename，并发安全；旧版本 hash 目录自动清理；整个目录是纯缓存，删除后下次启动重建）。因此**所有发行形态**——桌面 bundle、Docker、bare-binary tar.gz、自升级 swap 后的新二进制——天然携带并自动更新内置技能，无需在构建产物里单独拷贝 `skills/` 目录（旧的 Tauri `bundle.resources` 拷贝、Dockerfile `COPY skills` + env 指向、exe 同级目录探测均已退役，勿重新引入）。
 
-1. 环境变量 `HOPE_AGENT_BUNDLED_SKILLS_DIR`
-2. 可执行文件同级 / 上级 `skills/` 目录（release 打包）
-3. `CARGO_MANIFEST_DIR` 向上两级的 `skills/`（仅 debug 构建）
+`discovery.rs` 中的 `resolve_bundled_skills_dir()` 按以下顺序定位内置技能目录：
+
+1. 环境变量 `HOPE_AGENT_BUNDLED_SKILLS_DIR`（显式覆盖）
+2. `CARGO_MANIFEST_DIR` 向上两级的 `skills/`（仅 debug 构建——直接读工作区源目录，技能编辑即时生效、不经解压）
+3. 二进制内嵌技能解压目录（release 主路径）
 
 同名技能会被高优先级来源（extra/managed/project）覆盖。
 

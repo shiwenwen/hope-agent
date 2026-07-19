@@ -190,6 +190,13 @@ pub fn skills_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("skills"))
 }
 
+/// Extraction cache for skills embedded in the binary:
+/// ~/.hope-agent/bundled-skills/<content-hash>/
+/// Safe to delete — rebuilt from the binary on next use.
+pub fn bundled_skills_cache_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("bundled-skills"))
+}
+
 // ── Permission ───────────────────────────────────────────────────
 
 /// Permission system directory: ~/.hope-agent/permission/

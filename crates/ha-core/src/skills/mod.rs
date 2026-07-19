@@ -3,6 +3,7 @@ pub mod author;
 pub mod auto_review;
 pub mod commands;
 mod discovery;
+mod embedded;
 pub mod fork_helper;
 mod frontmatter;
 pub mod mention;

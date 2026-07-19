@@ -3147,6 +3147,7 @@ dependencies = [
  "rquickjs",
  "rquickjs-serde",
  "rusqlite",
+ "rust-embed",
  "scraper",
  "serde",
  "serde_json",
