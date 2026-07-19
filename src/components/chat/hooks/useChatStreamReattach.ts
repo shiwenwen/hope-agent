@@ -301,7 +301,13 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
             handshakeRegistry.delete(sid)
           }
           handshake.deltas
-            .filter((event) => event.seq > snapshot.throughSeq)
+            // Sequence numbers are scoped to a stream. A newer turn may start
+            // while the old stream's snapshot request is still in flight and
+            // restart at seq=1; only apply the old snapshot watermark to
+            // buffered frames from that same stream.
+            .filter(
+              (event) => event.streamId !== streamId || event.seq > snapshot.throughSeq,
+            )
             .sort((a, b) => a.seq - b.seq)
             .forEach(applyStreamPayload)
         } else {

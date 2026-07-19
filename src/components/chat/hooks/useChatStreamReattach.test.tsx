@@ -187,6 +187,50 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
     expect(latest.at(-1)?.content).toBe("ABC")
   })
 
+  test("replays buffered deltas from a newer stream even below the old throughSeq", async () => {
+    let latest: Message[] = []
+    render(<Harness onMessages={(messages) => { latest = messages }} />)
+    const emit = mocks.listeners.get("chat:stream_delta")
+    expect(emit).toBeTruthy()
+
+    await act(async () => {
+      emit?.({
+        sessionId: "s1",
+        streamId: "stream-new",
+        seq: 1,
+        event: JSON.stringify({ type: "text_delta", content: "new first token" }),
+      })
+      mocks.pending.get("get_session_stream_state")?.({
+        active: true,
+        lastSeq: 7,
+        acceptedSeq: 7,
+        durableSeq: 7,
+        committedSeq: 0,
+        persistenceRunId: "run-old",
+        streamId: "stream-old",
+        turnId: "turn-old",
+      })
+      mocks.pending.get("get_session_stream_snapshot")?.({
+        sessionId: "s1",
+        streamId: "stream-old",
+        turnId: "turn-old",
+        persistenceRunId: "run-old",
+        throughSeq: 7,
+        durableSeq: 7,
+        committedSeq: 0,
+        status: "running",
+        events: [
+          { seq: 7, event: JSON.stringify({ type: "text_delta", content: "old durable; " }) },
+        ],
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+      flushAnimationFrames()
+    })
+
+    expect(latest.at(-1)?.content).toBe("old durable; new first token")
+  })
+
   test("does not replay a committed journal over canonical DB messages", async () => {
     mocks.dbMessages = [
       { role: "user", content: "question", dbId: 1 },

@@ -1129,6 +1129,29 @@ impl SessionDB {
         Ok((current_context, checkpoint_seq, context_revision))
     }
 
+    /// Whether the selected journal prefix has a provider-native context
+    /// checkpoint. A run can fail after its attempt row is opened but before
+    /// `run_streaming_chat` writes the seq=0 user-message checkpoint; callers
+    /// must then restore the prompt from their turn input instead of treating
+    /// the pre-turn session context as complete.
+    pub fn stream_context_checkpoint_exists(
+        &self,
+        run_id: &str,
+        attempt_no: u32,
+        through_seq: u64,
+    ) -> Result<bool> {
+        let conn = self.read_conn()?;
+        let exists: i64 = conn.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM chat_stream_context_checkpoints
+                 WHERE run_id = ?1 AND attempt_no = ?2 AND through_seq <= ?3
+             )",
+            params![run_id, attempt_no, through_seq as i64],
+            |row| row.get(0),
+        )?;
+        Ok(exists != 0)
+    }
+
     pub fn recoverable_stream_runs(&self) -> Result<Vec<ChatStreamRun>> {
         let conn = self.read_conn()?;
         let mut stmt = conn.prepare(

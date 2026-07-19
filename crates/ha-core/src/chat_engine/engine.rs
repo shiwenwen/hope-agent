@@ -1999,24 +1999,39 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             message.source = Some(source.as_str().to_string());
             message
         });
-        let (context_json, context_checkpoint_seq, context_revision) = if durability.is_persistent()
-        {
-            let run_id = durability.persistence_run_id().to_string();
-            db.clone()
-                .run(move |db| db.recovery_context_for_prefix(&run_id, attempt_no, commit_seq))
-                .await?
-        } else {
-            let session_id_for_context = session_id.clone();
-            let (context, revision) = db
-                .clone()
-                .run(move |db| db.load_context_with_revision(&session_id_for_context))
-                .await?;
-            (context, 0, revision)
-        };
+        let (context_json, context_checkpoint_seq, context_revision, has_context_checkpoint) =
+            if durability.is_persistent() {
+                let run_id = durability.persistence_run_id().to_string();
+                db.clone()
+                    .run(move |db| {
+                        let (context, checkpoint_seq, revision) =
+                            db.recovery_context_for_prefix(&run_id, attempt_no, commit_seq)?;
+                        let has_checkpoint =
+                            db.stream_context_checkpoint_exists(&run_id, attempt_no, commit_seq)?;
+                        Ok::<_, anyhow::Error>((context, checkpoint_seq, revision, has_checkpoint))
+                    })
+                    .await?
+            } else {
+                let session_id_for_context = session_id.clone();
+                let (context, revision) = db
+                    .clone()
+                    .run(move |db| db.load_context_with_revision(&session_id_for_context))
+                    .await?;
+                (context, 0, revision, false)
+            };
         let mut history: Vec<serde_json::Value> = context_json
             .as_deref()
             .and_then(|json| serde_json::from_str(json).ok())
             .unwrap_or_default();
+        if !has_context_checkpoint {
+            let user_message = message.trim();
+            if !user_message.is_empty() {
+                history.push(serde_json::json!({
+                    "role": "user",
+                    "content": user_message,
+                }));
+            }
+        }
         finalize::rebuild::append_journal_suffix_to_history(
             &mut history,
             &visible_events,
@@ -3164,6 +3179,45 @@ mod stream_lifecycle_tests {
         assert_eq!(assistants.len(), 1);
         assert_eq!(assistants[0].content, "final answer");
         assert!(!messages.iter().any(|msg| msg.content == "failed partial"));
+    }
+
+    #[tokio::test]
+    async fn failure_before_first_context_checkpoint_keeps_user_prompt() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let prompt = "keep this prompt after early provider failure";
+        db.append_message(&session.id, &NewMessage::user(prompt))
+            .unwrap();
+
+        let model = ActiveModel {
+            provider_id: "missing-provider".to_string(),
+            model_id: "missing-model".to_string(),
+        };
+        let mut chat_params = params(db.clone(), session.id.clone(), vec![model], Vec::new());
+        chat_params.message = prompt.to_string();
+
+        let result = run_chat_engine(chat_params).await;
+        assert!(result.is_err());
+
+        let context = db
+            .load_context(&session.id)
+            .unwrap()
+            .expect("terminal context");
+        let history: Vec<serde_json::Value> = serde_json::from_str(&context).unwrap();
+        let prompt_index = history
+            .iter()
+            .position(|item| {
+                item.get("role").and_then(|role| role.as_str()) == Some("user")
+                    && item.get("content").and_then(|content| content.as_str()) == Some(prompt)
+            })
+            .expect("failed turn must retain the user prompt");
+        let marker_index = history
+            .iter()
+            .rposition(|item| item.get("role").and_then(|role| role.as_str()) == Some("assistant"))
+            .expect("terminal marker");
+        assert!(prompt_index < marker_index);
     }
 
     #[tokio::test]
