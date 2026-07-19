@@ -253,6 +253,8 @@ const SECTIONS: SettingsSectionItem[] = [
     : []),
 ]
 
+const DEFAULT_SECTION = SECTIONS[0].id
+
 export default function SettingsView({
   onBack,
   onCodexAuth,
@@ -285,7 +287,7 @@ export default function SettingsView({
   const { draftCount: skillDraftCount } = useDraftSkillsStore()
   const skillDraftBadgeLabel = skillDraftCount > 99 ? "99+" : String(skillDraftCount)
   const [activeSection, setActiveSection] = useState<SettingsSection>(() => {
-    const initial = initialSection ?? "modelConfig"
+    const initial = initialSection ?? DEFAULT_SECTION
     // Release builds don't ship the developer panel; fall back if anything
     // (initialSection prop, settings:navigate event, stale storage) tries
     // to land here so the user doesn't see an empty pane.
