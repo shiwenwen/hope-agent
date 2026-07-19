@@ -362,9 +362,15 @@ describe("KnowledgePanel", () => {
 
     render(<KnowledgePanel />)
 
-    const mediaTitle = await screen.findByText("Original media retention")
-    const mediaSection = mediaTitle.closest(".rounded-lg") as HTMLElement
-    const mediaToggle = within(mediaSection).getByRole("switch")
+    // The panel renders the same title in its loading placeholder, which has
+    // no switch, so `findByText` resolves before the config arrives. Re-query
+    // until the loaded section (a different element) is on screen.
+    const mediaToggle = await waitFor(() => {
+      const section = screen
+        .getByText("Original media retention")
+        .closest(".rounded-lg") as HTMLElement
+      return within(section).getByRole("switch")
+    })
     expect(mediaToggle.getAttribute("aria-checked")).toBe("false")
     fireEvent.click(mediaToggle)
 
