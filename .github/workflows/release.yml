@@ -30,7 +30,14 @@ jobs:
       # 仅 release-tag / dispatch 构建串行化 codegen，换取最小 / 最快二进制（叠加
       # 根 Cargo.toml 的 lto="thin" / strip）。Docker（docker.yml 走 Dockerfile，
       # 不读此 env）与日常 dev 不受影响。
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+      #
+      # 按 lane 可覆盖：v0.20.0 发版时 linux-arm64 在 tauri-action 步骤跑到 67 /
+      # 74 分钟被 runner 杀掉两次（GitHub 注解 "lost communication … starves it
+      # for CPU/Memory"，且两次都没留下任何日志）。codegen-units=1 把整个
+      # ha-core（v0.20.0 已 509k 行）压成单个 LLVM 单元，是该 lane 上内存与耗时
+      # 的主要放大器，故 arm64 退回 cargo 默认 16：峰值内存与墙钟都降，代价是该
+      # 平台二进制略大、运行略慢。其余 lane 维持 1 不变。
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.codegen_units || '1' }}
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +74,8 @@ jobs:
             os: ubuntu-24.04-arm
             rust_target: ""
             args: ""
+            # 见 job env 的 CARGO_PROFILE_RELEASE_CODEGEN_UNITS 注释。
+            codegen_units: "16"
           # Windows x64 — MSI (wix) + NSIS. Code signing certificate is
           # not wired up yet; bundles are unsigned. See
           # src-tauri/tauri.conf.json `bundle.windows.certificateThumbprint`
@@ -86,6 +95,28 @@ jobs:
           node-version: 20
 
       - uses: pnpm/action-setup@v4
+
+      # v0.20.0 发版时 linux-arm64 被 runner 杀掉两次，且两次都没能上传任何日志
+      # （logs API 返回 BlobNotFound）——日志本身写不出来，比起内存压力更像磁盘写
+      # 满。本 workspace 的 release target 目录 20GB 起，托管 runner 可用盘只有十
+      # 几 GB，故先腾掉用不到的预装 SDK。cleanup 必须早于 rust-cache 解包与
+      # cargo build，否则腾出来已经晚了。`|| true`：镜像布局随 runner 版本变，缺
+      # 目录不算失败。
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          sudo apt-get clean || true
+
+      # 起始资源快照。runner 若在构建中途被杀，日志多半丢失，这里留下的基线至少
+      # 能反推是磁盘还是内存不足。
+      - name: Report runner resources
+        shell: bash
+        run: |
+          echo "--- disk ---"; df -h || true
+          echo "--- memory ---"; (free -h || vm_stat || true)
+          echo "--- cpus ---"; (nproc || sysctl -n hw.ncpu || true)
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
