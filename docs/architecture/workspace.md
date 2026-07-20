@@ -208,15 +208,7 @@ V3 strict proof audit：
 - `--write <path>` 可把最新报告写入外部 Plans，例如 `v3-strict-proof-audit-latest.md`。当前 required strict proof 包括真实 restart/resume matrix、真实 wall-clock soak、真实或沙箱 connector read-back、Tauri desktop manual GUI smoke，以及 Hope Agent 与同类工具的对比评测证据。
 - 2026-07-09 V3 关闭证据已归档到外部 Plans 的 V3 closure 目录：5 个 required strict proof 全部 `passed`，最终 audit `14/14 passed`、`blockers=0`。其中 connector read-back 采用 GitHub sandbox branch create/read/delete/reset 路线；Google Drive OAuth scope 失败作为 recovery evidence 保留，不算通过证据。
 
-## 8. 归档与后续
-
-本轮 Workspace UX 过程资料已归档到：
-
-```text
-/Users/shiwenwen/Library/Mobile Documents/com~apple~CloudDocs/HopeAI/Hope Agent/Plans/hope-agent-control-plane-plans-2026-07-05/09-workspace-control-panel-ux
-```
-
-归档包含用户验收截图、工作台信息架构决策、实现范围和验证记录。仓库内最终事实以本文为准。
+## 8. 后续
 
 后续可继续做：
 

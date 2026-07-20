@@ -6,32 +6,6 @@
 
 ---
 
-## 活动规划
-
-当前正在评审的[真实模型与复杂任务评测计划](plan/README.md)覆盖外部 benchmark / Harness 调研、双轨证据完整设计、Goal / Loop / Workflow / 异步任务 / 多 Agent 场景目录和分阶段实施 Roadmap。该目录描述目标方案，不代表已实现的运行时事实；完成的契约仍须迁入 `docs/architecture/`。
-
----
-
-## 规划归档
-
-Memory UX v2 的调研、实施路线与原始召回截图已在 2026-07-13 按任务归档；最终运行时、迁移、Prompt Cache、学习/召回边界和验收契约已沉淀到 [记忆系统架构](architecture/memory.md#memory-ux-v2-最终运行时契约)，并同步更新 Prompt、Project、Agent Config 与 Tool System 文档：
-
-```text
-/Users/shiwenwen/Library/Mobile Documents/com~apple~CloudDocs/HopeAI/Hope Agent/Plans/2026-07-13-memory-ux-v2
-```
-
-历史调研、RFC、计划方案、roadmap、review packet 和原始参考材料已按任务归档到本机 iCloud：
-
-```text
-/Users/shiwenwen/Library/Mobile Documents/com~apple~CloudDocs/HopeAI/Hope Agent/Plans/hope-agent-control-plane-plans-2026-07-05
-```
-
-仓库内 `docs/architecture/` 只保留已经实现并稳定下来的最终技术架构；`docs/plan/` 仅保留仍在评审或实施且需要跨 PR 协作的活动方案。重要设计决策最终沉淀到对应 architecture 文档的实现契约、非目标或后续边界中；完成后的历史规划材料、阶段 roadmap、review packet 和原始参考材料进入外部 Plans 归档。
-
-截至 2026-07-09，Agent Control Plane V3 的 strict proof evidence 也已归档到同一 Plans 目录下的 `11-agent-control-plane-v3-claude-parity/`：5 个 required strict proof 全部 passed，最终 audit `14/14 passed`。后续若继续扩展 Goal / Loop / Workflow，应继续遵循“过程资料进入 Plans，稳定实现事实进入 architecture”的边界。
-
----
-
 ## 系统架构
 
 
