@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **安装包体积大幅缩小**：移除已停用的内嵌 ONNX 推理引擎（旧版本地 embedding 实现的残留），各平台安装包显著瘦身。本地 embedding 功能不受影响，仍由「设置 → 记忆 → 本地 embedding 助手」的 Ollama 方案提供。(#520)
+- **安装包瘦身**：移除已停用的内嵌 ONNX 推理引擎（旧版本地 embedding 实现的残留），内嵌前端资源改用 brotli 压缩，各平台安装包约减小 10MB。本地 embedding 功能不受影响，仍由「设置 → 记忆 → 本地 embedding 助手」的 Ollama 方案提供。(#523)
 
 ### Fixed
 
