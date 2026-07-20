@@ -491,7 +491,7 @@ jobs:
 
       - name: Build & draft release
         if: github.event.inputs.dry_run != 'true'
-        uses: tauri-apps/tauri-action@v0.5.14
+        uses: tauri-apps/tauri-action@v0.6.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
