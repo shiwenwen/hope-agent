@@ -858,6 +858,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 .as_deref()
                 .map(failover::classify_error)
                 .unwrap_or(failover::FailoverReason::Unknown);
+            crate::eval_context::record_model_retry(&session_id, true, reason_str.as_str(), 0);
             let event = serde_json::json!({
                 "type": "model_fallback",
                 "model": display,
@@ -1387,6 +1388,11 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     ledger_event.agent_id = Some(agent_id.clone());
                     ledger_event.duration_ms = Some(duration_ms);
                     ledger_event.ttft_ms = usage.ttft_ms.map(|value| value.max(0) as u64);
+                    // Per-Provider-round accounting is recorded inside the
+                    // streaming adapter. The durable aggregate still carries
+                    // evaluation identity for traceability without counting a
+                    // second model call.
+                    crate::eval_context::enrich_usage_metadata(&mut ledger_event);
 
                     let context_json = serde_json::to_string(&agent.get_conversation_history())
                         .map_err(|error| format!("serialize final context failed: {error}"))?;

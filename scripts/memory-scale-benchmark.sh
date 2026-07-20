@@ -4,12 +4,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "== Retrieval Planner source-fusion benchmark =="
-cargo test -p ha-core --release --lib \
-  agent::retrieval_planner::tests::benchmark_source_fusion_with_one_hundred_thousand_candidates \
-  --locked -- --ignored --nocapture --test-threads=1
+eval_ref="$(git rev-parse HEAD)"
+eval_tmp="$(mktemp -d)"
+trap 'rm -rf "$eval_tmp"' EXIT
 
-echo
-echo "== SQLite memory retrieval benchmark =="
-cargo test -p ha-core --release --test memory_retrieval_scale \
-  --locked -- --ignored --nocapture --test-threads=1
+echo "== Deterministic memory retrieval capability eval =="
+cargo run -p ha-eval --release --locked -- \
+  plan --tier weekly --ref "$eval_ref" --output "$eval_tmp/plan.json"
+cargo run -p ha-eval --release --locked -- \
+  run --plan "$eval_tmp/plan.json" \
+  --suite memory-retrieval-scale --shard 1/1 \
+  --output "$eval_tmp/memory-retrieval.json"
+jq '.cases[] | {caseId, status, durationMs, checks}' "$eval_tmp/memory-retrieval.json"
+jq -e 'all(.cases[]; .status == "passed")' "$eval_tmp/memory-retrieval.json" >/dev/null

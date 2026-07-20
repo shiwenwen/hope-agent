@@ -13,6 +13,7 @@ prost-build = "0.14"
 protoc-bin-vendored = "3"
 
 [dependencies]
+ha-eval-spec = { path = "../ha-eval-spec" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
@@ -27,6 +28,7 @@ futures-util = { workspace = true }
 sse-stream = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
+ring = "0.17"
 # Used by the macOS desktop-updater EXDEV guard (platform::redirect_updater_tmpdir_*)
 # to override the in-process temp dir; the plugin stages via the same `tempfile` crate.
 tempfile = "3"
@@ -122,6 +124,13 @@ rquickjs-serde = "0.6"
 
 [features]
 default = []
+# Heavy deterministic eval-only implementations are compiled by the dedicated
+# `hope-agent-eval` binary, never by the default PR test harness.
+eval-runner = []
+# Legacy internal eval tests remain opt-in while their public-suite coverage is
+# migrated to `hope-agent-eval`. The Capability Evals workflow runs them away
+# from the latency-sensitive PR test jobs.
+eval-internal-tests = []
 # Enables the desktop-only image sources (`clipboard`, `screenshot`) of
 # `tools::image`. The desktop binary (src-tauri) opts in; ha-server's
 # Docker bin leaves the feature off so the runtime doesn't need wayland /

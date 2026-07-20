@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "eval-app-profile.v1",
+  "id": "quick",
+  "version": "1.2.0",
+  "title": "Quick diagnosis",
+  "description": "One clean/control trial for each critical nightly smoke case.",
+  "baseTier": "nightly",
+  "suites": [
+    { "suiteId": "hope-core-orchestration", "caseTags": ["smoke_nightly"] }
+  ],
+  "allowedArms": ["control", "team_full_control", "single_agent_compute_matched_control"],
+  "armMode": "one_control_per_case",
+  "defaultRepetitions": 1,
+  "useSuiteRepetitions": false,
+  "maxTrials": 32,
+  "maxModels": 4,
+  "maxConcurrency": 32,
+  "maxCostUsd": 1000000,
+  "allowCustom": false
+}

@@ -740,6 +740,18 @@ fn build_router_with_cors(
         // Chat
         .route("/chat", post(routes::chat::chat))
         .route(
+            "/eval/model/trials/{trial_id}",
+            get(routes::chat::model_eval_trial_telemetry),
+        )
+        .route(
+            "/eval/model/trials/{trial_id}/cleanup",
+            post(routes::chat::cleanup_model_eval_trial),
+        )
+        .route(
+            "/eval/model/trials/{trial_id}/finish",
+            post(routes::chat::finish_model_eval_trial),
+        )
+        .route(
             "/chat/turn-message",
             post(routes::chat::queue_turn_user_message)
                 .patch(routes::chat::update_queued_turn_user_message),
@@ -1914,6 +1926,74 @@ fn build_router_with_cors(
             "/dashboard/local-model-usage",
             post(routes::dashboard::local_model_usage),
         )
+        // Evaluation Center. History is available in server mode; real-model
+        // execution stays disabled unless a future owner runtime is explicitly
+        // configured, so HTTP can never silently reuse the desktop profile.
+        .route("/evaluation/readiness", get(routes::evaluation::readiness))
+        .route("/evaluation/catalog", get(routes::evaluation::catalog))
+        .route(
+            "/evaluation/model-options",
+            get(routes::evaluation::model_options),
+        )
+        .route("/evaluation/history", post(routes::evaluation::history))
+        .route(
+            "/evaluation/experiments/{experiment_id}",
+            get(routes::evaluation::experiment),
+        )
+        .route(
+            "/evaluation/preview",
+            post(routes::evaluation::remote_run_disabled),
+        )
+        .route(
+            "/evaluation/start",
+            post(routes::evaluation::remote_run_disabled),
+        )
+        .route(
+            "/evaluation/cancel",
+            post(routes::evaluation::remote_run_disabled),
+        )
+        .route(
+            "/evaluation/retry",
+            post(routes::evaluation::remote_run_disabled),
+        )
+        .route("/evaluation/compare", post(routes::evaluation::compare))
+        .route("/evaluation/trends", post(routes::evaluation::trends))
+        .route(
+            "/evaluation/experiments/{experiment_id}/campaigns/{campaign_id}/trials/{trial_id}",
+            get(routes::evaluation::trial),
+        )
+        .route(
+            "/evaluation/pin",
+            post(routes::evaluation::remote_run_disabled),
+        )
+        .route(
+            "/evaluation/baselines",
+            post(routes::evaluation::remote_run_disabled).put(routes::evaluation::list_baselines),
+        )
+        .route(
+            "/evaluation/baselines/{baseline_id}",
+            delete(routes::evaluation::remote_run_disabled),
+        )
+        .route(
+            "/evaluation/annotations",
+            post(routes::evaluation::remote_run_disabled),
+        )
+        .route(
+            "/evaluation/experiments/{experiment_id}/annotations",
+            get(routes::evaluation::list_annotations),
+        )
+        .route(
+            "/evaluation/import",
+            post(routes::evaluation::remote_run_disabled),
+        )
+        .route(
+            "/evaluation/import-unverified",
+            post(routes::evaluation::remote_run_disabled),
+        )
+        .route(
+            "/evaluation/export",
+            post(routes::evaluation::remote_run_disabled),
+        )
         // Recap
         .route("/recap/generate", post(routes::recap::generate))
         .route("/recap/reports", post(routes::recap::list_reports))
@@ -1945,6 +2025,10 @@ fn build_router_with_cors(
         .route(
             "/sessions/{sid}/goal",
             get(routes::goal::get_active_goal).post(routes::goal::create_goal),
+        )
+        .route(
+            "/sessions/{sid}/goal/latest",
+            get(routes::goal::get_latest_goal),
         )
         .route(
             "/sessions/{sid}/activity",

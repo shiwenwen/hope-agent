@@ -597,6 +597,24 @@ impl SessionDB {
         }
         let preview = super::preview::preview_workflow_run(self, &run);
         let _ = self.append_workflow_event(&run.id, "script_permission_preview", json!(preview))?;
+        crate::eval_context::record_lifecycle_event(
+            Some(&run.session_id),
+            "workflow",
+            "workflow.created",
+            Some(&run.id),
+            run.state.as_str(),
+            0,
+        );
+        if run.origin.as_deref() == Some("repair") {
+            crate::eval_context::record_lifecycle_event(
+                Some(&run.session_id),
+                "workflow",
+                "workflow.replanned",
+                Some(&run.id),
+                "created",
+                0,
+            );
+        }
         events::emit_run_changed("workflow:created", &run);
         Ok(run)
     }
@@ -1132,6 +1150,24 @@ impl SessionDB {
                 "reason": reason,
             }),
         )?;
+        crate::eval_context::record_lifecycle_event(
+            Some(&run.session_id),
+            "workflow",
+            "workflow.state_changed",
+            Some(&run.id),
+            next.as_str(),
+            0,
+        );
+        if next == WorkflowRunState::Running && previous == WorkflowRunState::Paused {
+            crate::eval_context::record_lifecycle_event(
+                Some(&run.session_id),
+                "workflow",
+                "workflow.resumed",
+                Some(&run.id),
+                "completed",
+                0,
+            );
+        }
         events::emit_run_changed("workflow:updated", &run);
         if next.is_terminal() {
             if let Some(goal_id) = run.goal_id.as_deref() {
@@ -1813,6 +1849,18 @@ impl SessionDB {
             created_at: now,
         };
         drop(conn);
+        if crate::eval_context::model_eval_mode_enabled() && event_type.contains("checkpoint") {
+            if let Ok(Some(run)) = self.get_workflow_run(run_id) {
+                crate::eval_context::record_lifecycle_event(
+                    Some(&run.session_id),
+                    "workflow",
+                    "workflow.checkpoint",
+                    Some(run_id),
+                    "completed",
+                    0,
+                );
+            }
+        }
         events::emit_event("workflow:event", &event);
         Ok(event)
     }

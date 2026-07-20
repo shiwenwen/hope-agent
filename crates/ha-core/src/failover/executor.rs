@@ -256,6 +256,12 @@ where
                         tried_profiles.push(next.id.clone());
                         current_profile = Some(next);
                         retry_count = 0;
+                        crate::eval_context::record_model_retry(
+                            session_id,
+                            true,
+                            reason.as_str(),
+                            0,
+                        );
                         continue;
                     }
                     // No more profiles to try → fall through to exhausted.
@@ -275,6 +281,12 @@ where
                         return Err(ExecutorError::Cancelled);
                     }
                     retry_count += 1;
+                    crate::eval_context::record_model_retry(
+                        session_id,
+                        false,
+                        reason.as_str(),
+                        delay,
+                    );
                     continue;
                 }
 

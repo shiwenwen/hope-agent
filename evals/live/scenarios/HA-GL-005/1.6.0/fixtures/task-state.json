@@ -1,0 +1,27 @@
+{
+  "scenarioId": "HA-GL-005",
+  "fixtureVersion": "1.6.0",
+  "synthetic": true,
+  "expectedCapabilities": [
+    "goal",
+    "loop",
+    "tool"
+  ],
+  "workItems": [
+    {
+      "id": "HA-GL-005-A",
+      "value": 17,
+      "action": "inspect"
+    },
+    {
+      "id": "HA-GL-005-B",
+      "value": 29,
+      "action": "execute"
+    },
+    {
+      "id": "HA-GL-005-C",
+      "value": 43,
+      "action": "verify"
+    }
+  ]
+}

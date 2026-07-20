@@ -1016,6 +1016,10 @@ pub struct CodingBenchmarkCampaignModel {
     pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    /// Owner-plane reference accepted on create/run requests only. Campaign
+    /// normalization clears it before persistence and responses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_profile_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -1056,6 +1060,8 @@ pub struct CodingBenchmarkCampaignListInput {
 #[serde(rename_all = "camelCase")]
 pub struct CodingBenchmarkCampaignRunInput {
     pub campaign_id: String,
+    /// Deprecated compatibility field. Owner adapters resolve `models` from
+    /// backend configuration and clear this field before persistence.
     #[serde(default)]
     pub providers: Vec<crate::provider::ProviderConfig>,
     #[serde(default)]
@@ -8322,7 +8328,7 @@ fn build_eval_candidate_action_plan(
         },
         "nextSteps": [
             "Fill repo.files and repo.changes with the smallest deterministic reproduction.",
-            "Move this draft into crates/ha-core/tests/fixtures/coding_eval/ when it is review-ready."
+            "Move this draft into evals/suites/coding-control-plane/fixtures/ when it is review-ready."
         ]
     });
     let content = format!("{}\n", serde_json::to_string_pretty(&fixture)?);
@@ -8582,19 +8588,7 @@ fn build_promotion_plan_for_proposal(
     workspace_root: Option<&Path>,
 ) -> Result<CodingImprovementPromotionPlan> {
     match proposal.kind.as_str() {
-        "eval_candidate" => build_file_promotion_plan(
-            proposal,
-            workspace_root,
-            "eval_candidate",
-            "Promote eval candidate into the coding eval fixture suite.",
-            "Promote eval fixture",
-            |root, source| {
-                Ok(root
-                    .join("crates/ha-core/tests/fixtures/coding_eval")
-                    .join(source_file_name(source)?))
-            },
-            None,
-        ),
+        "eval_candidate" => build_eval_candidate_promotion_plan(proposal, workspace_root),
         "workflow_template" => build_file_promotion_plan(
             proposal,
             workspace_root,
@@ -8689,6 +8683,85 @@ fn build_promotion_plan_for_proposal(
         ),
         other => bail!("unsupported coding improvement proposal kind: {other}"),
     }
+}
+
+fn build_eval_candidate_promotion_plan(
+    proposal: CodingImprovementProposal,
+    workspace_root: Option<&Path>,
+) -> Result<CodingImprovementPromotionPlan> {
+    let mut plan = build_file_promotion_plan(
+        proposal,
+        workspace_root,
+        "eval_candidate",
+        "Promote and register an eval candidate in the coding eval fixture suite.",
+        "Promote eval fixture",
+        |root, source| {
+            Ok(root
+                .join("evals/suites/coding-control-plane/fixtures")
+                .join(source_file_name(source)?))
+        },
+        None,
+    )?;
+    let root = workspace_root.ok_or_else(|| {
+        anyhow!("eval fixture promotion requires a session or project working directory")
+    })?;
+    let fixture_path = PathBuf::from(
+        plan.steps
+            .first()
+            .ok_or_else(|| anyhow!("eval promotion plan has no fixture step"))?
+            .target_path
+            .clone(),
+    );
+    let suite_dir = root.join("evals/suites/coding-control-plane");
+    let manifest_path = suite_dir.join("suite.json");
+    let version_lock_path = root.join("evals/version-lock.json");
+    if !manifest_path.is_file() || !version_lock_path.is_file() {
+        bail!(
+            "eval fixture promotion requires {} and {}",
+            manifest_path.display(),
+            version_lock_path.display()
+        );
+    }
+    let file_name = fixture_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            anyhow!(
+                "cannot infer eval fixture name from {}",
+                fixture_path.display()
+            )
+        })?;
+    let case_id = fixture_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .map(sanitize_slug)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("cannot infer eval case id from {}", fixture_path.display()))?;
+    let relative_path = format!("fixtures/{file_name}");
+    let registration = json!({
+        "caseId": case_id,
+        "fixturePath": fixture_path.to_string_lossy(),
+        "relativePath": relative_path,
+        "versionLockPath": version_lock_path.to_string_lossy(),
+        "expectedManifestSha256": ha_eval_spec::digest_file(&manifest_path)?,
+        "expectedVersionLockSha256": ha_eval_spec::digest_file(&version_lock_path)?,
+    });
+    plan.steps.push(CodingImprovementPromotionStep {
+        action: "register_eval_fixture".to_string(),
+        label: "Register fixture and append suite version lock".to_string(),
+        source_path: Some(fixture_path.to_string_lossy().to_string()),
+        target_path: manifest_path.to_string_lossy().to_string(),
+        target_exists: true,
+        source_hash: Some(ha_eval_spec::digest_file(&manifest_path)?),
+        content_preview: Some(format!(
+            "Register case {case_id} at {relative_path}, increment suite version, and append evals/version-lock.json"
+        )),
+        content: Some(serde_json::to_string(&registration)?),
+    });
+    plan.preview["caseId"] = json!(case_id);
+    plan.preview["manifestPath"] = json!(manifest_path.to_string_lossy());
+    plan.preview["versionLockPath"] = json!(version_lock_path.to_string_lossy());
+    Ok(plan)
 }
 
 fn build_file_promotion_plan(
@@ -8965,6 +9038,9 @@ fn apply_promotion_plan(
                     content_hash: Some(short_hash(content)),
                 });
             }
+            "register_eval_fixture" => {
+                artifacts.extend(apply_eval_fixture_registration(step)?);
+            }
             "activate_managed_skill" => {
                 let skill_id = step
                     .content
@@ -8981,6 +9057,167 @@ fn apply_promotion_plan(
         }
     }
     Ok(artifacts)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EvalFixtureRegistrationInput {
+    case_id: String,
+    fixture_path: String,
+    relative_path: String,
+    version_lock_path: String,
+    expected_manifest_sha256: String,
+    expected_version_lock_sha256: String,
+}
+
+fn apply_eval_fixture_registration(
+    step: &CodingImprovementPromotionStep,
+) -> Result<Vec<CodingImprovementActionArtifact>> {
+    let registration: EvalFixtureRegistrationInput = serde_json::from_str(
+        step.content
+            .as_deref()
+            .ok_or_else(|| anyhow!("missing eval fixture registration metadata"))?,
+    )?;
+    let manifest_path = PathBuf::from(&step.target_path);
+    let fixture_path = PathBuf::from(&registration.fixture_path);
+    let version_lock_path = PathBuf::from(&registration.version_lock_path);
+    let manifest_matches_preview =
+        ha_eval_spec::digest_file(&manifest_path)? == registration.expected_manifest_sha256;
+    let version_lock_matches_preview =
+        ha_eval_spec::digest_file(&version_lock_path)? == registration.expected_version_lock_sha256;
+    if !fixture_path.is_file() {
+        bail!(
+            "promoted eval fixture is missing: {}",
+            fixture_path.display()
+        );
+    }
+    let suite_dir = manifest_path
+        .parent()
+        .ok_or_else(|| anyhow!("eval suite manifest has no parent directory"))?;
+    let resolved_fixture = ha_eval_spec::resolve_contained(suite_dir, &registration.relative_path)?;
+    if resolved_fixture != fixture_path.canonicalize()? {
+        bail!("eval fixture registration path does not match promoted artifact");
+    }
+
+    let fixture_raw = std::fs::read_to_string(&fixture_path)?;
+    serde_json::from_str::<crate::coding_eval::CodingEvalFixture>(&fixture_raw)
+        .map_err(|err| anyhow!("promoted eval fixture is invalid: {err}"))?;
+
+    let mut manifest: ha_eval_spec::SuiteManifest = ha_eval_spec::read_json(&manifest_path)?;
+    if manifest.id != "coding-control-plane"
+        || manifest.adapter != ha_eval_spec::EvalAdapter::CodingFixturePatch
+    {
+        bail!("eval candidate can only be registered in coding-control-plane");
+    }
+    let existing_by_id = manifest
+        .cases
+        .iter()
+        .find(|case| case.id == registration.case_id);
+    let manifest_changed = if let Some(existing) = existing_by_id {
+        if existing.path.as_deref() != Some(registration.relative_path.as_str()) {
+            bail!(
+                "eval case {} already targets a different fixture",
+                registration.case_id
+            );
+        }
+        false
+    } else {
+        if !manifest_matches_preview {
+            bail!(
+                "eval suite manifest changed after preview: {}",
+                manifest_path.display()
+            );
+        }
+        if manifest
+            .cases
+            .iter()
+            .any(|case| case.path.as_deref() == Some(registration.relative_path.as_str()))
+        {
+            bail!(
+                "eval fixture {} is already registered under another case id",
+                registration.relative_path
+            );
+        }
+        manifest.version = next_eval_suite_version(&manifest.version)?;
+        manifest.cases.push(ha_eval_spec::EvalCaseSpec {
+            id: registration.case_id.clone(),
+            path: Some(registration.relative_path.clone()),
+            timeout_seconds: None,
+            tags: Vec::new(),
+        });
+        true
+    };
+    ha_eval_spec::validate_suite(&manifest, suite_dir)?;
+    let suite_digest = ha_eval_spec::suite_digest(&manifest, suite_dir)?;
+
+    let mut version_lock: Value = ha_eval_spec::read_json(&version_lock_path)?;
+    if version_lock.get("schemaVersion").and_then(Value::as_str) != Some("eval-version-lock.v1") {
+        bail!("unsupported eval version lock schema");
+    }
+    let suites = version_lock
+        .get_mut("suites")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| anyhow!("eval version lock is missing suites"))?;
+    let versioned_id = format!("{}@{}", manifest.id, manifest.version);
+    if !version_lock_matches_preview
+        && suites.get(&versioned_id).and_then(Value::as_str) != Some(suite_digest.as_str())
+    {
+        bail!(
+            "eval version lock changed after preview: {}",
+            version_lock_path.display()
+        );
+    }
+    let lock_changed = match suites.get(&versioned_id).and_then(Value::as_str) {
+        Some(locked) if locked != suite_digest => {
+            bail!("eval version lock already contains a different digest for {versioned_id}")
+        }
+        Some(_) => false,
+        None => {
+            suites.insert(versioned_id, Value::String(suite_digest));
+            true
+        }
+    };
+    if manifest_changed {
+        let manifest_content = pretty_json_with_newline(&manifest)?;
+        crate::platform::write_atomic(&manifest_path, manifest_content.as_bytes())?;
+    }
+    if lock_changed {
+        let lock_content = pretty_json_with_newline(&version_lock)?;
+        crate::platform::write_atomic(&version_lock_path, lock_content.as_bytes())?;
+    }
+
+    Ok(vec![
+        CodingImprovementActionArtifact {
+            kind: "update_eval_suite_manifest".to_string(),
+            path: manifest_path.to_string_lossy().to_string(),
+            content_hash: Some(ha_eval_spec::digest_file(&manifest_path)?),
+        },
+        CodingImprovementActionArtifact {
+            kind: "append_eval_version_lock".to_string(),
+            path: version_lock_path.to_string_lossy().to_string(),
+            content_hash: Some(ha_eval_spec::digest_file(&version_lock_path)?),
+        },
+    ])
+}
+
+fn next_eval_suite_version(current: &str) -> Result<String> {
+    let parts = current
+        .split('.')
+        .map(str::parse::<u64>)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let [major, minor, patch] = parts.as_slice() else {
+        bail!("eval suite version must use major.minor.patch: {current}");
+    };
+    let patch = patch
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("eval suite patch version overflow"))?;
+    Ok(format!("{major}.{minor}.{patch}"))
+}
+
+fn pretty_json_with_newline(value: &impl Serialize) -> Result<String> {
+    let mut content = serde_json::to_string_pretty(value)?;
+    content.push('\n');
+    Ok(content)
 }
 
 fn ensure_proposal_promotable(proposal: &CodingImprovementProposal) -> Result<()> {
@@ -10367,6 +10604,7 @@ fn normalize_benchmark_campaign_models(
                     provider_id,
                     model_id,
                     label,
+                    credential_profile_ref: None,
                 })
             }
         })
@@ -10376,6 +10614,7 @@ fn normalize_benchmark_campaign_models(
             provider_id: None,
             model_id: None,
             label: Some("deterministic".to_string()),
+            credential_profile_ref: None,
         });
     }
     if out.len() > MAX_BENCHMARK_CAMPAIGN_MODELS {
@@ -11122,7 +11361,7 @@ fn build_workflow_retro(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "eval-internal-tests"))]
 mod tests {
     use super::*;
 
@@ -12796,7 +13035,7 @@ mod tests {
         assert!(applied.applied);
         let draft_path = std::path::PathBuf::from(&applied.artifacts[0].path);
         let target = workspace
-            .join("crates/ha-core/tests/fixtures/coding_eval")
+            .join("evals/suites/coding-control-plane/fixtures")
             .join(draft_path.file_name().unwrap());
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         std::fs::write(&target, "existing fixture").unwrap();
@@ -13005,5 +13244,314 @@ mod tests {
             .distill_coding_improvement_proposals(&session.id, Some(30))
             .unwrap();
         assert_eq!(second.inserted, 0);
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    fn contract_db() -> (tempfile::TempDir, SessionDB) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let conn = db.conn.lock().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS channel_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                thread_id TEXT,
+                session_id TEXT NOT NULL,
+                sender_id TEXT,
+                sender_name TEXT,
+                chat_type TEXT NOT NULL DEFAULT 'dm',
+                source TEXT NOT NULL DEFAULT 'inbound',
+                attached_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );",
+        )
+        .unwrap();
+        drop(conn);
+        (dir, db)
+    }
+
+    fn contract_task_pack(status: &str) -> CodingBenchmarkTaskPackManifest {
+        CodingBenchmarkTaskPackManifest {
+            pack_id: "contract-pack".to_string(),
+            version: "v1".to_string(),
+            name: "Contract pack".to_string(),
+            description: None,
+            status: Some(status.to_string()),
+            source_kind: "fixture_repo".to_string(),
+            source_uri: Some("local://contract-pack".to_string()),
+            repo_template: Some("fixture://contract-repo".to_string()),
+            license_note: "Synthetic fixture".to_string(),
+            privacy_note: "No private content".to_string(),
+            redaction_status: "not_required".to_string(),
+            tasks: vec![CodingBenchmarkTaskPackTaskManifest {
+                task_id: "CONTRACT-001".to_string(),
+                version: "v1".to_string(),
+                title: "Protect active task validation".to_string(),
+                status: Some("active".to_string()),
+                task_type: "bugfix".to_string(),
+                difficulty: "medium".to_string(),
+                language: Some("rust".to_string()),
+                framework: Some("ha-core".to_string()),
+                source_uri: Some("local://contract-pack/001".to_string()),
+                repo_template: Some("fixture://contract-repo".to_string()),
+                tags: vec!["contract".to_string()],
+                success_criteria: vec![
+                    "The behavior is corrected.".to_string(),
+                    "A focused regression remains.".to_string(),
+                ],
+                validation_commands: vec!["cargo check -p ha-core --locked".to_string()],
+                allowed_paths: vec!["crates/ha-core/**".to_string()],
+                forbidden_paths: vec!["src/**".to_string()],
+                calibration_notes: vec!["Reviewed deterministic fixture".to_string()],
+                calibrated_at: Some(now_rfc3339()),
+                license_note: Some("Synthetic fixture".to_string()),
+                privacy_note: Some("No private content".to_string()),
+                redaction_status: Some("not_required".to_string()),
+            }],
+        }
+    }
+
+    #[test]
+    fn benchmark_report_type_and_trigger_kind_fail_closed() {
+        assert_eq!(
+            normalize_benchmark_report_type("campaign").unwrap(),
+            "campaign"
+        );
+        assert!(normalize_benchmark_report_type("external_model").is_err());
+        assert_eq!(
+            normalize_benchmark_trigger_kind(Some("pre_release")).unwrap(),
+            "pre_release"
+        );
+        assert!(normalize_benchmark_trigger_kind(Some("provider")).is_err());
+    }
+
+    #[test]
+    fn infrastructure_failures_are_not_scored_as_model_regressions() {
+        assert_eq!(
+            classify_benchmark_item_failure("failed", Some("Provider config was not supplied")),
+            Some("provider_error".to_string())
+        );
+        assert_eq!(classify_benchmark_item_failure("passed", None), None);
+    }
+
+    #[test]
+    fn promoted_file_creation_never_clobbers_existing_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("existing.json");
+        std::fs::write(&target, "owner content").unwrap();
+
+        assert!(write_new_file_no_clobber(&target, "replacement").is_err());
+        assert_eq!(std::fs::read_to_string(target).unwrap(), "owner content");
+    }
+
+    #[test]
+    fn eval_registration_bumps_manifest_and_appends_version_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let suite_dir = dir.path().join("evals/suites/coding-control-plane");
+        let fixtures_dir = suite_dir.join("fixtures");
+        std::fs::create_dir_all(&fixtures_dir).unwrap();
+        let base_fixture = fixtures_dir.join("base.json");
+        let promoted_fixture = fixtures_dir.join("promoted.json");
+        let fixture = json!({
+            "name": "contract-fixture",
+            "repo": {"files": [], "changes": []}
+        });
+        std::fs::write(&base_fixture, pretty_json_with_newline(&fixture).unwrap()).unwrap();
+        std::fs::write(
+            &promoted_fixture,
+            pretty_json_with_newline(&fixture).unwrap(),
+        )
+        .unwrap();
+
+        let manifest_path = suite_dir.join("suite.json");
+        let manifest = ha_eval_spec::SuiteManifest {
+            schema_version: ha_eval_spec::SUITE_SCHEMA_VERSION.to_string(),
+            id: "coding-control-plane".to_string(),
+            version: "1.0.0".to_string(),
+            capability: "coding".to_string(),
+            adapter: ha_eval_spec::EvalAdapter::CodingFixturePatch,
+            tiers: vec![ha_eval_spec::EvalTier::Weekly],
+            runner_class: "hosted_linux".to_string(),
+            network_policy: "deny".to_string(),
+            shards: 1,
+            timeout_seconds: 180,
+            thresholds: BTreeMap::new(),
+            cases: vec![ha_eval_spec::EvalCaseSpec {
+                id: "base".to_string(),
+                path: Some("fixtures/base.json".to_string()),
+                timeout_seconds: None,
+                tags: Vec::new(),
+            }],
+        };
+        std::fs::write(&manifest_path, pretty_json_with_newline(&manifest).unwrap()).unwrap();
+        let version_lock_path = dir.path().join("evals/version-lock.json");
+        let base_digest = ha_eval_spec::suite_digest(&manifest, &suite_dir).unwrap();
+        std::fs::write(
+            &version_lock_path,
+            pretty_json_with_newline(&json!({
+                "schemaVersion": "eval-version-lock.v1",
+                "suites": {"coding-control-plane@1.0.0": base_digest},
+                "policies": {}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let registration = json!({
+            "caseId": "promoted",
+            "fixturePath": promoted_fixture.to_string_lossy(),
+            "relativePath": "fixtures/promoted.json",
+            "versionLockPath": version_lock_path.to_string_lossy(),
+            "expectedManifestSha256": ha_eval_spec::digest_file(&manifest_path).unwrap(),
+            "expectedVersionLockSha256": ha_eval_spec::digest_file(&version_lock_path).unwrap()
+        });
+        let step = CodingImprovementPromotionStep {
+            action: "register_eval_fixture".to_string(),
+            label: "register".to_string(),
+            source_path: Some(promoted_fixture.to_string_lossy().to_string()),
+            target_path: manifest_path.to_string_lossy().to_string(),
+            target_exists: true,
+            source_hash: None,
+            content_preview: None,
+            content: Some(serde_json::to_string(&registration).unwrap()),
+        };
+
+        let artifacts = apply_eval_fixture_registration(&step).unwrap();
+        let updated: ha_eval_spec::SuiteManifest = ha_eval_spec::read_json(&manifest_path).unwrap();
+        let lock: Value = ha_eval_spec::read_json(&version_lock_path).unwrap();
+        let updated_digest = ha_eval_spec::suite_digest(&updated, &suite_dir).unwrap();
+        let manifest_after_first_apply = std::fs::read(&manifest_path).unwrap();
+        let lock_after_first_apply = std::fs::read(&version_lock_path).unwrap();
+
+        let retry_artifacts = apply_eval_fixture_registration(&step).unwrap();
+
+        assert_eq!(updated.version, "1.0.1");
+        assert!(updated.cases.iter().any(|case| case.id == "promoted"));
+        assert_eq!(
+            lock.pointer("/suites/coding-control-plane@1.0.1")
+                .and_then(Value::as_str),
+            Some(updated_digest.as_str())
+        );
+        assert_eq!(artifacts.len(), 2);
+        assert_eq!(retry_artifacts.len(), 2);
+        assert_eq!(
+            std::fs::read(&manifest_path).unwrap(),
+            manifest_after_first_apply
+        );
+        assert_eq!(
+            std::fs::read(&version_lock_path).unwrap(),
+            lock_after_first_apply
+        );
+    }
+
+    #[test]
+    fn eval_suite_version_requires_semver_and_increments_patch() {
+        assert_eq!(next_eval_suite_version("1.2.3").unwrap(), "1.2.4");
+        assert!(next_eval_suite_version("v1").is_err());
+    }
+
+    #[test]
+    fn applied_proposal_state_cannot_be_reopened() {
+        let (dir, db) = contract_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        db.update_session_working_dir(&session.id, Some(workspace.to_string_lossy().into_owned()))
+            .unwrap();
+        let goal = db
+            .create_goal(crate::goal::CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "finish".to_string(),
+                completion_criteria: "validated".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .unwrap();
+        db.transition_goal(
+            &goal.goal.id,
+            crate::goal::GoalState::Blocked,
+            Some("context miss"),
+        )
+        .unwrap();
+        let proposal = db
+            .generate_coding_improvement_proposals(&session.id, Some(30))
+            .unwrap()
+            .proposals
+            .into_iter()
+            .find(|proposal| proposal.kind == "eval_candidate")
+            .unwrap();
+
+        let applied = db.apply_coding_improvement_proposal(&proposal.id).unwrap();
+
+        assert!(applied.applied);
+        assert!(db
+            .update_coding_improvement_proposal_status(&proposal.id, "draft")
+            .is_err());
+        assert_eq!(
+            db.get_coding_improvement_proposal(&proposal.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "applied"
+        );
+    }
+
+    #[test]
+    fn benchmark_corpus_requires_consent_and_active_task_quality() {
+        let (_dir, db) = contract_db();
+        assert!(db
+            .import_benchmark_task_pack(CodingBenchmarkTaskPackImportInput {
+                manifest: contract_task_pack("draft"),
+                explicit_import_consent: false,
+                imported_from: Some("contract-test".to_string()),
+            })
+            .is_err());
+
+        let mut invalid = contract_task_pack("active");
+        invalid.tasks[0].validation_commands.clear();
+        invalid.tasks[0].success_criteria.truncate(1);
+        assert!(db
+            .import_benchmark_task_pack(CodingBenchmarkTaskPackImportInput {
+                manifest: invalid,
+                explicit_import_consent: true,
+                imported_from: Some("contract-test".to_string()),
+            })
+            .is_err());
+    }
+
+    #[test]
+    fn release_gate_without_evidence_fails_closed() {
+        let (_dir, db) = contract_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+
+        let report = db
+            .evaluate_coding_eval_release_gate(CodingEvalReleaseGateInput {
+                session_id: Some(session.id),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "insufficient_data");
+        assert_eq!(report.summary.pack_runs, 0);
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.name == "pack_run_sample" && check.status == "insufficient_data"));
     }
 }

@@ -1,0 +1,692 @@
+{
+  "schemaVersion": "model-campaign-suite.v1",
+  "id": "hope-core-orchestration",
+  "version": "1.8.0",
+  "capability": "core_orchestration",
+  "adapter": "hope_core_scenario",
+  "tiers": [
+    "nightly",
+    "weekly",
+    "release",
+    "monthly"
+  ],
+  "runnerClass": "dedicated_linux",
+  "networkPolicy": "provider_only",
+  "executionMode": "native_provider",
+  "repetitions": {
+    "nightly": 1,
+    "weekly": 3,
+    "release": 3,
+    "monthly": 1
+  },
+  "timeoutSeconds": 900,
+  "shards": 4,
+  "budget": {
+    "maxWallSeconds": 1800,
+    "maxModelCalls": 60,
+    "maxInputTokens": 200000,
+    "maxOutputTokens": 50000,
+    "maxCostUsd": 5.5,
+    "maxToolCalls": 120,
+    "maxAgents": 8,
+    "maxConcurrency": 4
+  },
+  "scorer": {
+    "hardVerifier": "hope_state_subset",
+    "milestones": true,
+    "trajectoryRules": true,
+    "llmJudge": false
+  },
+  "cases": [
+    {
+      "id": "HA-GL-001",
+      "scenarioPath": "scenarios/HA-GL-001/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_nightly",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-GL-002",
+      "scenarioPath": "scenarios/HA-GL-002/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_nightly",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-GL-003",
+      "scenarioPath": "scenarios/HA-GL-003/1.8.0/scenario.json",
+      "tags": [
+        "weekly",
+        "monthly",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "HA-GL-004",
+      "scenarioPath": "scenarios/HA-GL-004/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-GL-005",
+      "scenarioPath": "scenarios/HA-GL-005/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "smoke_ready",
+        "smoke_nightly",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "HA-GL-006",
+      "scenarioPath": "scenarios/HA-GL-006/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-WF-001",
+      "scenarioPath": "scenarios/HA-WF-001/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "HA-WF-002",
+      "scenarioPath": "scenarios/HA-WF-002/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_nightly",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-WF-003",
+      "scenarioPath": "scenarios/HA-WF-003/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-WF-004",
+      "scenarioPath": "scenarios/HA-WF-004/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-WF-005",
+      "scenarioPath": "scenarios/HA-WF-005/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-WF-006",
+      "scenarioPath": "scenarios/HA-WF-006/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-AJ-001",
+      "scenarioPath": "scenarios/HA-AJ-001/1.8.0/scenario.json",
+      "tags": [
+        "weekly",
+        "monthly",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "HA-AJ-002",
+      "scenarioPath": "scenarios/HA-AJ-002/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_nightly",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-AJ-003",
+      "scenarioPath": "scenarios/HA-AJ-003/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-AJ-004",
+      "scenarioPath": "scenarios/HA-AJ-004/1.8.0/scenario.json",
+      "tags": [
+        "weekly",
+        "monthly",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "HA-AJ-005",
+      "scenarioPath": "scenarios/HA-AJ-005/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-AJ-006",
+      "scenarioPath": "scenarios/HA-AJ-006/1.8.0/scenario.json",
+      "tags": [
+        "monthly",
+        "smoke_ready",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control",
+        "faulted"
+      ],
+      "timeoutSeconds": 1800
+    },
+    {
+      "id": "HA-ST-001",
+      "scenarioPath": "scenarios/HA-ST-001/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "HA-ST-002",
+      "scenarioPath": "scenarios/HA-ST-002/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "smoke_ready",
+        "smoke_nightly",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "HA-ST-003",
+      "scenarioPath": "scenarios/HA-ST-003/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-ST-004",
+      "scenarioPath": "scenarios/HA-ST-004/1.8.0/scenario.json",
+      "tags": [
+        "monthly",
+        "smoke_ready",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 1800
+    },
+    {
+      "id": "HA-ST-005",
+      "scenarioPath": "scenarios/HA-ST-005/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-ST-006",
+      "scenarioPath": "scenarios/HA-ST-006/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-E2E-001",
+      "scenarioPath": "scenarios/HA-E2E-001/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "smoke_ready",
+        "smoke_nightly",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "HA-E2E-002",
+      "scenarioPath": "scenarios/HA-E2E-002/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "smoke_ready",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "HA-E2E-003",
+      "scenarioPath": "scenarios/HA-E2E-003/1.8.0/scenario.json",
+      "tags": [
+        "nightly",
+        "weekly",
+        "release",
+        "monthly",
+        "critical",
+        "smoke_ready",
+        "smoke_nightly",
+        "smoke_weekly",
+        "smoke_release",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 5
+    },
+    {
+      "id": "HA-E2E-004",
+      "scenarioPath": "scenarios/HA-E2E-004/1.8.0/scenario.json",
+      "tags": [
+        "monthly",
+        "smoke_ready",
+        "smoke_monthly"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "team_full_control",
+        "team_full_faulted",
+        "single_agent_compute_matched_control",
+        "single_agent_compute_matched_faulted"
+      ],
+      "timeoutSeconds": 1800
+    }
+  ]
+}

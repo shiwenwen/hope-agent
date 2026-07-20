@@ -1,0 +1,9 @@
+{
+  "signals": [
+    "model",
+    "tool",
+    "workflow",
+    "async_jobs",
+    "subagent"
+  ]
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import { Button } from "@/components/ui/button"
@@ -91,7 +91,16 @@ interface BenchmarkProviderOption {
   id: string
   name: string
   enabled?: boolean
-  models: { id: string; name: string }[]
+  models: { id: string; name: string; credentialProfileRef?: string }[]
+}
+
+interface SafeEvalModelOption {
+  providerId: string
+  modelId: string
+  label: string
+  providerLabel: string
+  supportsIsolatedEval: boolean
+  credentialProfiles: { credentialProfileRef: string; label: string }[]
 }
 
 interface BenchmarkModelOption {
@@ -100,25 +109,37 @@ interface BenchmarkModelOption {
   providerName: string
   modelId: string
   modelName: string
+  credentialProfileRef?: string
 }
 
 const WINDOW_OPTIONS = [7, 14, 30, 60, 90]
 const DAY_MS = 24 * 60 * 60 * 1000
 
-interface LearningTabProps {
-  filter: DashboardFilter
-}
-
 function releaseGateWindowDays(filter: DashboardFilter, fallbackDays: number): number {
   if (!filter.startDate) return fallbackDays
   const start = Date.parse(filter.startDate)
-  if (!Number.isFinite(start)) return fallbackDays
-  return Math.max(1, Math.min(180, Math.ceil((Date.now() - start) / DAY_MS)))
+  const end = filter.endDate ? Date.parse(filter.endDate) : Date.now()
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return fallbackDays
+  return Math.max(1, Math.min(180, Math.ceil((end - start) / DAY_MS)))
 }
 
-export default function LearningTab({ filter }: LearningTabProps) {
+export default function LearningTab() {
   const { t } = useTranslation()
   const [windowDays, setWindowDays] = useState(30)
+  const filter = useMemo<DashboardFilter>(() => {
+    const end = new Date()
+    const start = new Date(end)
+    start.setDate(start.getDate() - windowDays)
+    return {
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+      agentId: null,
+      providerId: null,
+      modelId: null,
+      usageKind: null,
+      operation: null,
+    }
+  }, [windowDays])
   const [loading, setLoading] = useState(false)
   const [overview, setOverview] = useState<LearningOverview | null>(null)
   const [timeline, setTimeline] = useState<TimelinePoint[]>([])
@@ -133,20 +154,22 @@ export default function LearningTab({ filter }: LearningTabProps) {
   const [benchmarkCorpusHealth, setBenchmarkCorpusHealth] =
     useState<CodingBenchmarkCorpusHealthReport | null>(null)
   const [benchmarkReports, setBenchmarkReports] = useState<CodingBenchmarkReport[]>([])
-  const [continuousGate, setContinuousGate] =
-    useState<CodingContinuousBenchmarkGateReport | null>(null)
+  const [continuousGate, setContinuousGate] = useState<CodingContinuousBenchmarkGateReport | null>(
+    null,
+  )
   const [benchmarkBacklog, setBenchmarkBacklog] = useState<CodingBenchmarkBacklogItem[]>([])
   const [benchmarkProviders, setBenchmarkProviders] = useState<BenchmarkProviderOption[]>([])
   const [selectedBenchmarkModels, setSelectedBenchmarkModels] = useState<string[]>([])
   const [benchmarkMaxTasks, setBenchmarkMaxTasks] = useState(3)
   const [benchmarkBudgetUsd, setBenchmarkBudgetUsd] = useState("")
   const [releaseGate, setReleaseGate] = useState<CodingEvalReleaseGateReport | null>(null)
-  const [generalization, setGeneralization] =
-    useState<CodingLearningGeneralizationReport | null>(null)
-  const [domainQualityGate, setDomainQualityGate] =
-    useState<DomainQualityGateReport | null>(null)
-  const [domainReadinessGate, setDomainReadinessGate] =
-    useState<DomainReadinessGateReport | null>(null)
+  const [generalization, setGeneralization] = useState<CodingLearningGeneralizationReport | null>(
+    null,
+  )
+  const [domainQualityGate, setDomainQualityGate] = useState<DomainQualityGateReport | null>(null)
+  const [domainReadinessGate, setDomainReadinessGate] = useState<DomainReadinessGateReport | null>(
+    null,
+  )
   const [domainOperationalGate, setDomainOperationalGate] =
     useState<DomainOperationalGateReport | null>(null)
   const [domainSoakReport, setDomainSoakReport] = useState<DomainSoakReport | null>(null)
@@ -252,18 +275,21 @@ export default function LearningTab({ filter }: LearningTabProps) {
             limit: 6,
           },
         }),
-        getTransport().call<CodingContinuousBenchmarkGateReport>("evaluate_continuous_benchmark_gate", {
-          input: {
-            triggerKind: "manual",
-            windowDays: releaseGateWindowDays(filter, windowDays),
-            maxEvidenceAgeDays: 14,
-            requireReleaseReportEvidence: true,
-            requireRecentCampaign: true,
-            minCampaignItems: 1,
-            minCasePassRate: 1,
-            maxOpenBacklogItems: 0,
+        getTransport().call<CodingContinuousBenchmarkGateReport>(
+          "evaluate_continuous_benchmark_gate",
+          {
+            input: {
+              triggerKind: "manual",
+              windowDays: releaseGateWindowDays(filter, windowDays),
+              maxEvidenceAgeDays: 14,
+              requireReleaseReportEvidence: true,
+              requireRecentCampaign: true,
+              minCampaignItems: 1,
+              minCasePassRate: 1,
+              maxOpenBacklogItems: 0,
+            },
           },
-        }),
+        ),
         getTransport().call<CodingBenchmarkBacklogItem[]>("list_benchmark_backlog", {
           input: {
             status: "open",
@@ -271,7 +297,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
           },
         }),
         getTransport()
-          .call<BenchmarkProviderOption[]>("get_providers")
+          .call<SafeEvalModelOption[]>("eval_list_model_options")
           .catch((error) => {
             logger.warn(
               "dashboard",
@@ -365,12 +391,15 @@ export default function LearningTab({ filter }: LearningTabProps) {
             limit: 6,
           },
         }),
-        getTransport().call<DomainEvalCampaignLeaderboardReport>("get_domain_eval_campaign_leaderboard", {
-          input: {
-            windowDays: releaseGateWindowDays(filter, windowDays),
-            limit: 6,
+        getTransport().call<DomainEvalCampaignLeaderboardReport>(
+          "get_domain_eval_campaign_leaderboard",
+          {
+            input: {
+              windowDays: releaseGateWindowDays(filter, windowDays),
+              limit: 6,
+            },
           },
-        }),
+        ),
         getTransport().call<DomainEvalTask[]>("list_domain_eval_tasks", {
           input: {
             limit: 20,
@@ -390,7 +419,23 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setBenchmarkReports(reports ?? [])
       setContinuousGate(gate)
       setBenchmarkBacklog(backlog ?? [])
-      setBenchmarkProviders(providers ?? [])
+      const groupedProviders = new Map<string, BenchmarkProviderOption>()
+      for (const model of providers ?? []) {
+        if (!model.supportsIsolatedEval) continue
+        const provider = groupedProviders.get(model.providerId) ?? {
+          id: model.providerId,
+          name: model.providerLabel,
+          enabled: true,
+          models: [],
+        }
+        provider.models.push({
+          id: model.modelId,
+          name: model.label,
+          credentialProfileRef: model.credentialProfiles[0]?.credentialProfileRef,
+        })
+        groupedProviders.set(model.providerId, provider)
+      }
+      setBenchmarkProviders([...groupedProviders.values()])
       setReleaseGate(rg)
       setGeneralization(gen)
       setDomainReadinessGate(drg)
@@ -449,6 +494,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         providerName: provider.name,
         modelId: model.id,
         modelName: model.name,
+        credentialProfileRef: model.credentialProfileRef,
       })),
     )
 
@@ -480,8 +526,6 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setBenchmarkError(t("dashboard.learning.selectAtLeastOneModel"))
       return
     }
-    const providerIds = new Set(selected.map((option) => option.providerId))
-    const providers = benchmarkProviders.filter((provider) => providerIds.has(provider.id))
     const parsedBudget = Number(benchmarkBudgetUsd)
     setBenchmarkRunning(true)
     setBenchmarkError(null)
@@ -505,11 +549,11 @@ export default function LearningTab({ filter }: LearningTabProps) {
             evaluateGoal: true,
             autoApproveTools: true,
             maxTasks: Math.max(1, Math.min(20, benchmarkMaxTasks)),
-            providers,
           },
           models: selected.map((option) => ({
             providerId: option.providerId,
             modelId: option.modelId,
+            credentialProfileRef: option.credentialProfileRef,
             label: `${option.providerName}/${option.modelName}`,
           })),
         },
@@ -517,7 +561,12 @@ export default function LearningTab({ filter }: LearningTabProps) {
       await reload()
     } catch (e) {
       setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::runExternalBenchmark", "Failed to run external benchmark", e)
+      logger.error(
+        "dashboard",
+        "LearningTab::runExternalBenchmark",
+        "Failed to run external benchmark",
+        e,
+      )
     } finally {
       setBenchmarkRunning(false)
     }
@@ -525,46 +574,64 @@ export default function LearningTab({ filter }: LearningTabProps) {
     benchmarkBudgetUsd,
     benchmarkMaxTasks,
     benchmarkModelOptions,
-    benchmarkProviders,
     reload,
     selectedBenchmarkModels,
     t,
   ])
 
-  const cancelBenchmarkCampaign = useCallback(async (campaignId: string) => {
-    setCampaignActionId(campaignId)
-    setBenchmarkError(null)
-    try {
-      await getTransport().call<CodingBenchmarkCampaign | null>("cancel_coding_benchmark_campaign", {
-        campaignId,
-      })
-      await reload()
-    } catch (e) {
-      setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::cancelBenchmarkCampaign", "Failed to cancel campaign", e)
-    } finally {
-      setCampaignActionId(null)
-    }
-  }, [reload])
+  const cancelBenchmarkCampaign = useCallback(
+    async (campaignId: string) => {
+      setCampaignActionId(campaignId)
+      setBenchmarkError(null)
+      try {
+        await getTransport().call<CodingBenchmarkCampaign | null>(
+          "cancel_coding_benchmark_campaign",
+          {
+            campaignId,
+          },
+        )
+        await reload()
+      } catch (e) {
+        setBenchmarkError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::cancelBenchmarkCampaign",
+          "Failed to cancel campaign",
+          e,
+        )
+      } finally {
+        setCampaignActionId(null)
+      }
+    },
+    [reload],
+  )
 
-  const retryBenchmarkCampaign = useCallback(async (campaignId: string) => {
-    setCampaignActionId(campaignId)
-    setBenchmarkError(null)
-    try {
-      await getTransport().call<CodingBenchmarkCampaign | null>("run_coding_benchmark_campaign", {
-        input: {
-          campaignId,
-          retryFailedOnly: true,
-        },
-      })
-      await reload()
-    } catch (e) {
-      setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::retryBenchmarkCampaign", "Failed to retry campaign", e)
-    } finally {
-      setCampaignActionId(null)
-    }
-  }, [reload])
+  const retryBenchmarkCampaign = useCallback(
+    async (campaignId: string) => {
+      setCampaignActionId(campaignId)
+      setBenchmarkError(null)
+      try {
+        await getTransport().call<CodingBenchmarkCampaign | null>("run_coding_benchmark_campaign", {
+          input: {
+            campaignId,
+            retryFailedOnly: true,
+          },
+        })
+        await reload()
+      } catch (e) {
+        setBenchmarkError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::retryBenchmarkCampaign",
+          "Failed to retry campaign",
+          e,
+        )
+      } finally {
+        setCampaignActionId(null)
+      }
+    },
+    [reload],
+  )
 
   const runDomainEvalCampaign = useCallback(async () => {
     setDomainCampaignActionId("new")
@@ -582,7 +649,12 @@ export default function LearningTab({ filter }: LearningTabProps) {
       await reload()
     } catch (e) {
       setDomainCampaignError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::runDomainEvalCampaign", "Failed to run domain eval campaign", e)
+      logger.error(
+        "dashboard",
+        "LearningTab::runDomainEvalCampaign",
+        "Failed to run domain eval campaign",
+        e,
+      )
     } finally {
       setDomainCampaignActionId(null)
     }
@@ -596,8 +668,6 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setDomainCampaignError(t("dashboard.learning.selectAtLeastOneModel"))
       return
     }
-    const providerIds = new Set(selected.map((option) => option.providerId))
-    const providers = benchmarkProviders.filter((provider) => providerIds.has(provider.id))
     const parsedBudget = Number(domainCampaignBudgetUsd)
     setDomainCampaignActionId("external")
     setDomainCampaignError(null)
@@ -612,10 +682,10 @@ export default function LearningTab({ filter }: LearningTabProps) {
             domainCampaignBudgetUsd.trim() && Number.isFinite(parsedBudget) && parsedBudget > 0
               ? parsedBudget
               : null,
-          providers,
           models: selected.map((option) => ({
             providerId: option.providerId,
             modelId: option.modelId,
+            credentialProfileRef: option.credentialProfileRef,
             label: `${option.providerName}/${option.modelName}`,
           })),
         },
@@ -634,7 +704,6 @@ export default function LearningTab({ filter }: LearningTabProps) {
     }
   }, [
     benchmarkModelOptions,
-    benchmarkProviders,
     domainCampaignBudgetUsd,
     domainCampaignMaxTasks,
     reload,
@@ -642,74 +711,93 @@ export default function LearningTab({ filter }: LearningTabProps) {
     t,
   ])
 
-  const cancelDomainEvalCampaign = useCallback(async (campaignId: string) => {
-    setDomainCampaignActionId(campaignId)
-    setDomainCampaignError(null)
-    try {
-      await getTransport().call<DomainEvalCampaign | null>("cancel_domain_eval_campaign", {
-        campaignId,
-      })
-      await reload()
-    } catch (e) {
-      setDomainCampaignError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::cancelDomainEvalCampaign", "Failed to cancel domain campaign", e)
-    } finally {
-      setDomainCampaignActionId(null)
-    }
-  }, [reload])
-
-  const retryDomainEvalCampaign = useCallback(async (campaignId: string) => {
-    setDomainCampaignActionId(campaignId)
-    setDomainCampaignError(null)
-    try {
-      await getTransport().call<DomainEvalCampaign | null>("run_domain_eval_campaign", {
-        input: {
+  const cancelDomainEvalCampaign = useCallback(
+    async (campaignId: string) => {
+      setDomainCampaignActionId(campaignId)
+      setDomainCampaignError(null)
+      try {
+        await getTransport().call<DomainEvalCampaign | null>("cancel_domain_eval_campaign", {
           campaignId,
-          retryFailedOnly: true,
-        },
-      })
-      await reload()
-    } catch (e) {
-      setDomainCampaignError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::retryDomainEvalCampaign", "Failed to retry domain campaign", e)
-    } finally {
-      setDomainCampaignActionId(null)
-    }
-  }, [reload])
+        })
+        await reload()
+      } catch (e) {
+        setDomainCampaignError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::cancelDomainEvalCampaign",
+          "Failed to cancel domain campaign",
+          e,
+        )
+      } finally {
+        setDomainCampaignActionId(null)
+      }
+    },
+    [reload],
+  )
 
-  const generateDomainCampaignLearning = useCallback(async (campaign: DomainEvalCampaign) => {
-    if (!campaign.sessionId) {
-      setDomainCampaignError(t("dashboard.learning.domainCampaignNoSession"))
-      return
-    }
-    const campaignId = campaign.id
-    const actionKey = `learn:${campaignId}`
-    setDomainCampaignActionId(actionKey)
-    setDomainCampaignError(null)
-    try {
-      await getTransport().call<GenerateCodingImprovementProposalsResult>(
-        "generate_coding_improvement_proposals",
-        {
-          sessionId: campaign.sessionId,
-          windowDays: releaseGateWindowDays(filter, windowDays),
-          sourceType: "domain_eval_campaign",
-          sourceId: campaignId,
-          proposalKinds: ["domain_eval_case", "domain_guidance"],
-        },
-      )
-      await reload()
-    } catch (e) {
-      setDomainCampaignError(e instanceof Error ? e.message : String(e))
-      logger.error(
-        "dashboard",
-        "LearningTab::generateDomainCampaignLearning",
-        "Failed to generate domain campaign learning proposals",
-        e,
-      )
-    } finally {
-      setDomainCampaignActionId(null)
-    }
-  }, [filter, reload, t, windowDays])
+  const retryDomainEvalCampaign = useCallback(
+    async (campaignId: string) => {
+      setDomainCampaignActionId(campaignId)
+      setDomainCampaignError(null)
+      try {
+        await getTransport().call<DomainEvalCampaign | null>("run_domain_eval_campaign", {
+          input: {
+            campaignId,
+            retryFailedOnly: true,
+          },
+        })
+        await reload()
+      } catch (e) {
+        setDomainCampaignError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::retryDomainEvalCampaign",
+          "Failed to retry domain campaign",
+          e,
+        )
+      } finally {
+        setDomainCampaignActionId(null)
+      }
+    },
+    [reload],
+  )
+
+  const generateDomainCampaignLearning = useCallback(
+    async (campaign: DomainEvalCampaign) => {
+      if (!campaign.sessionId) {
+        setDomainCampaignError(t("dashboard.learning.domainCampaignNoSession"))
+        return
+      }
+      const campaignId = campaign.id
+      const actionKey = `learn:${campaignId}`
+      setDomainCampaignActionId(actionKey)
+      setDomainCampaignError(null)
+      try {
+        await getTransport().call<GenerateCodingImprovementProposalsResult>(
+          "generate_coding_improvement_proposals",
+          {
+            sessionId: campaign.sessionId,
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            sourceType: "domain_eval_campaign",
+            sourceId: campaignId,
+            proposalKinds: ["domain_eval_case", "domain_guidance"],
+          },
+        )
+        await reload()
+      } catch (e) {
+        setDomainCampaignError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::generateDomainCampaignLearning",
+          "Failed to generate domain campaign learning proposals",
+          e,
+        )
+      } finally {
+        setDomainCampaignActionId(null)
+      }
+    },
+    [filter, reload, t, windowDays],
+  )
 
   const importSampleTaskPack = useCallback(async () => {
     setCorpusActionId("import")
@@ -725,111 +813,155 @@ export default function LearningTab({ filter }: LearningTabProps) {
       await reload()
     } catch (e) {
       setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::importSampleTaskPack", "Failed to import corpus pack", e)
+      logger.error(
+        "dashboard",
+        "LearningTab::importSampleTaskPack",
+        "Failed to import corpus pack",
+        e,
+      )
     } finally {
       setCorpusActionId(null)
     }
   }, [reload])
 
-  const updateTaskPackStatus = useCallback(async (pack: CodingBenchmarkTaskPack, status: string) => {
-    const actionKey = `${pack.packId}@${pack.version}:${status}`
-    setCorpusActionId(actionKey)
-    setBenchmarkError(null)
-    try {
-      await getTransport().call<CodingBenchmarkTaskPack>("update_benchmark_task_pack_status", {
-        input: {
-          packId: pack.packId,
-          version: pack.version,
-          status,
-        },
-      })
-      await reload()
-    } catch (e) {
-      setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::updateTaskPackStatus", "Failed to update task pack", e)
-    } finally {
-      setCorpusActionId(null)
-    }
-  }, [reload])
-
-  const validateTaskPack = useCallback(async (pack: CodingBenchmarkTaskPack) => {
-    const actionKey = `${pack.packId}@${pack.version}:validate`
-    setCorpusActionId(actionKey)
-    setBenchmarkError(null)
-    try {
-      const report = await getTransport().call<CodingBenchmarkTaskPackValidationReport>(
-        "validate_benchmark_task_pack",
-        {
+  const updateTaskPackStatus = useCallback(
+    async (pack: CodingBenchmarkTaskPack, status: string) => {
+      const actionKey = `${pack.packId}@${pack.version}:${status}`
+      setCorpusActionId(actionKey)
+      setBenchmarkError(null)
+      try {
+        await getTransport().call<CodingBenchmarkTaskPack>("update_benchmark_task_pack_status", {
           input: {
             packId: pack.packId,
             version: pack.version,
+            status,
           },
-        },
-      )
-      if (report.status !== "passed") {
-        const failed = report.checks.find((check) => check.status !== "passed")
-        setBenchmarkError(
-          failed
-            ? `${failed.name}: ${failed.actual}`
-            : t("dashboard.learning.taskPackValidationFailed"),
+        })
+        await reload()
+      } catch (e) {
+        setBenchmarkError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::updateTaskPackStatus",
+          "Failed to update task pack",
+          e,
         )
+      } finally {
+        setCorpusActionId(null)
       }
-      await reload()
-    } catch (e) {
-      setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::validateTaskPack", "Failed to validate task pack", e)
-    } finally {
-      setCorpusActionId(null)
-    }
-  }, [reload, t])
+    },
+    [reload],
+  )
 
-  const generateBenchmarkReport = useCallback(async (reportType: string, campaignId?: string | null) => {
-    const actionKey = campaignId ? `${reportType}:${campaignId}` : reportType
-    setReportActionId(actionKey)
-    setBenchmarkError(null)
-    try {
-      await getTransport().call<CodingBenchmarkReport>("generate_benchmark_report", {
-        input: {
-          reportType,
-          campaignId: campaignId ?? null,
-          campaignIds: campaignId ? [campaignId] : benchmarkCampaigns.slice(0, 6).map((campaign) => campaign.id),
-          windowDays: releaseGateWindowDays(filter, windowDays),
-          markReleaseEvidence: reportType === "release",
-        },
-      })
-      await reload()
-    } catch (e) {
-      setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::generateBenchmarkReport", "Failed to generate benchmark report", e)
-    } finally {
-      setReportActionId(null)
-    }
-  }, [benchmarkCampaigns, filter, reload, windowDays])
+  const validateTaskPack = useCallback(
+    async (pack: CodingBenchmarkTaskPack) => {
+      const actionKey = `${pack.packId}@${pack.version}:validate`
+      setCorpusActionId(actionKey)
+      setBenchmarkError(null)
+      try {
+        const report = await getTransport().call<CodingBenchmarkTaskPackValidationReport>(
+          "validate_benchmark_task_pack",
+          {
+            input: {
+              packId: pack.packId,
+              version: pack.version,
+            },
+          },
+        )
+        if (report.status !== "passed") {
+          const failed = report.checks.find((check) => check.status !== "passed")
+          setBenchmarkError(
+            failed
+              ? `${failed.name}: ${failed.actual}`
+              : t("dashboard.learning.taskPackValidationFailed"),
+          )
+        }
+        await reload()
+      } catch (e) {
+        setBenchmarkError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::validateTaskPack",
+          "Failed to validate task pack",
+          e,
+        )
+      } finally {
+        setCorpusActionId(null)
+      }
+    },
+    [reload, t],
+  )
 
-  const markBenchmarkReport = useCallback(async (report: CodingBenchmarkReport, releaseEvidence: boolean) => {
-    setReportActionId(`mark:${report.id}`)
-    setBenchmarkError(null)
-    try {
-      await getTransport().call<CodingBenchmarkReport>("mark_benchmark_report_release_evidence", {
-        input: {
-          reportId: report.id,
-          releaseEvidence,
-        },
-      })
-      await reload()
-    } catch (e) {
-      setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::markBenchmarkReport", "Failed to mark benchmark report", e)
-    } finally {
-      setReportActionId(null)
-    }
-  }, [reload])
+  const generateBenchmarkReport = useCallback(
+    async (reportType: string, campaignId?: string | null) => {
+      const actionKey = campaignId ? `${reportType}:${campaignId}` : reportType
+      setReportActionId(actionKey)
+      setBenchmarkError(null)
+      try {
+        await getTransport().call<CodingBenchmarkReport>("generate_benchmark_report", {
+          input: {
+            reportType,
+            campaignId: campaignId ?? null,
+            campaignIds: campaignId
+              ? [campaignId]
+              : benchmarkCampaigns.slice(0, 6).map((campaign) => campaign.id),
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            markReleaseEvidence: reportType === "release",
+          },
+        })
+        await reload()
+      } catch (e) {
+        setBenchmarkError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::generateBenchmarkReport",
+          "Failed to generate benchmark report",
+          e,
+        )
+      } finally {
+        setReportActionId(null)
+      }
+    },
+    [benchmarkCampaigns, filter, reload, windowDays],
+  )
+
+  const markBenchmarkReport = useCallback(
+    async (report: CodingBenchmarkReport, releaseEvidence: boolean) => {
+      setReportActionId(`mark:${report.id}`)
+      setBenchmarkError(null)
+      try {
+        await getTransport().call<CodingBenchmarkReport>("mark_benchmark_report_release_evidence", {
+          input: {
+            reportId: report.id,
+            releaseEvidence,
+          },
+        })
+        await reload()
+      } catch (e) {
+        setBenchmarkError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::markBenchmarkReport",
+          "Failed to mark benchmark report",
+          e,
+        )
+      } finally {
+        setReportActionId(null)
+      }
+    },
+    [reload],
+  )
 
   const copyBenchmarkReportPath = useCallback(async (path: string) => {
     try {
       await navigator.clipboard?.writeText(path)
     } catch (e) {
-      logger.warn("dashboard", "LearningTab::copyBenchmarkReportPath", "Failed to copy report path", e)
+      logger.warn(
+        "dashboard",
+        "LearningTab::copyBenchmarkReportPath",
+        "Failed to copy report path",
+        e,
+      )
     }
   }, [])
 
@@ -837,86 +969,106 @@ export default function LearningTab({ filter }: LearningTabProps) {
     setGateActionId("materialize")
     setBenchmarkError(null)
     try {
-      await getTransport().call<CodingBenchmarkBacklogMaterializeResult>("materialize_benchmark_backlog", {
-        input: {
-          windowDays: releaseGateWindowDays(filter, windowDays),
-          limit: 20,
+      await getTransport().call<CodingBenchmarkBacklogMaterializeResult>(
+        "materialize_benchmark_backlog",
+        {
+          input: {
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            limit: 20,
+          },
         },
-      })
-      await reload()
-    } catch (e) {
-      setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::materializeBenchmarkBacklog", "Failed to materialize benchmark backlog", e)
-    } finally {
-      setGateActionId(null)
-    }
-  }, [filter, reload, windowDays])
-
-  const resolveBenchmarkBacklogItem = useCallback(async (item: CodingBenchmarkBacklogItem) => {
-    setGateActionId(`resolve:${item.id}`)
-    setBenchmarkError(null)
-    try {
-      await getTransport().call<CodingBenchmarkBacklogItem>("update_benchmark_backlog_status", {
-        input: {
-          itemId: item.id,
-          status: "resolved",
-        },
-      })
-      await reload()
-    } catch (e) {
-      setBenchmarkError(e instanceof Error ? e.message : String(e))
-      logger.error("dashboard", "LearningTab::resolveBenchmarkBacklogItem", "Failed to resolve benchmark backlog item", e)
-    } finally {
-      setGateActionId(null)
-    }
-  }, [reload])
-
-  const recordDomainEvalCalibration = useCallback(async (run: DomainEvalRunRecord) => {
-    setDomainCalibrationActionId(run.id)
-    setBenchmarkError(null)
-    try {
-      await getTransport().call<DomainEvalCalibrationRecord>("record_domain_eval_calibration", {
-        input: {
-          taskId: run.taskId,
-          taskVersion: run.taskVersion,
-          projectId: run.projectId ?? null,
-          reviewer: "dashboard",
-          verdict: run.status === "passed" ? "approved" : "needs_revision",
-          sourceRunId: run.id,
-          note:
-            run.status === "passed"
-              ? t("dashboard.learning.calibrationAcceptedNote", {
-                  defaultValue: "Human review accepted {{label}} as calibration evidence.",
-                  label: run.label,
-                })
-              : t("dashboard.learning.calibrationFollowUpNote", {
-                  defaultValue:
-                    "Human review marked {{label}} for calibration follow-up after {{status}}.",
-                  label: run.label,
-                  status: learningStatusLabel(t, run.status),
-                }),
-        },
-      })
+      )
       await reload()
     } catch (e) {
       setBenchmarkError(e instanceof Error ? e.message : String(e))
       logger.error(
         "dashboard",
-        "LearningTab::recordDomainEvalCalibration",
-        "Failed to record domain eval calibration",
+        "LearningTab::materializeBenchmarkBacklog",
+        "Failed to materialize benchmark backlog",
         e,
       )
     } finally {
-      setDomainCalibrationActionId(null)
+      setGateActionId(null)
     }
-  }, [reload, t])
+  }, [filter, reload, windowDays])
+
+  const resolveBenchmarkBacklogItem = useCallback(
+    async (item: CodingBenchmarkBacklogItem) => {
+      setGateActionId(`resolve:${item.id}`)
+      setBenchmarkError(null)
+      try {
+        await getTransport().call<CodingBenchmarkBacklogItem>("update_benchmark_backlog_status", {
+          input: {
+            itemId: item.id,
+            status: "resolved",
+          },
+        })
+        await reload()
+      } catch (e) {
+        setBenchmarkError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::resolveBenchmarkBacklogItem",
+          "Failed to resolve benchmark backlog item",
+          e,
+        )
+      } finally {
+        setGateActionId(null)
+      }
+    },
+    [reload],
+  )
+
+  const recordDomainEvalCalibration = useCallback(
+    async (run: DomainEvalRunRecord) => {
+      setDomainCalibrationActionId(run.id)
+      setBenchmarkError(null)
+      try {
+        await getTransport().call<DomainEvalCalibrationRecord>("record_domain_eval_calibration", {
+          input: {
+            taskId: run.taskId,
+            taskVersion: run.taskVersion,
+            projectId: run.projectId ?? null,
+            reviewer: "dashboard",
+            verdict: run.status === "passed" ? "approved" : "needs_revision",
+            sourceRunId: run.id,
+            note:
+              run.status === "passed"
+                ? t("dashboard.learning.calibrationAcceptedNote", {
+                    defaultValue: "Human review accepted {{label}} as calibration evidence.",
+                    label: run.label,
+                  })
+                : t("dashboard.learning.calibrationFollowUpNote", {
+                    defaultValue:
+                      "Human review marked {{label}} for calibration follow-up after {{status}}.",
+                    label: run.label,
+                    status: learningStatusLabel(t, run.status),
+                  }),
+          },
+        })
+        await reload()
+      } catch (e) {
+        setBenchmarkError(e instanceof Error ? e.message : String(e))
+        logger.error(
+          "dashboard",
+          "LearningTab::recordDomainEvalCalibration",
+          "Failed to record domain eval calibration",
+          e,
+        )
+      } finally {
+        setDomainCalibrationActionId(null)
+      }
+    },
+    [reload, t],
+  )
 
   useEffect(() => {
     reload()
   }, [reload])
 
   const totalRecall = (recall?.hits ?? 0) + (recall?.summarized ?? 0)
-  const summaryPct = totalRecall > 0 ? Math.round(((recall?.summarized ?? 0) / totalRecall) * 100) : 0
+  const summaryPct =
+    totalRecall > 0 ? Math.round(((recall?.summarized ?? 0) / totalRecall) * 100) : 0
 
   return (
     <div className="flex flex-col gap-4 mt-4">
@@ -1058,29 +1210,30 @@ export default function LearningTab({ filter }: LearningTabProps) {
           </div>
         ) : (
           <div className="space-y-1 max-h-[240px] overflow-y-auto">
-            {timeline.slice().reverse().map((p, i) => (
-              <div
-                key={`${p.ts}-${i}`}
-                className="flex items-center gap-2 text-xs py-1 border-b border-border/20 last:border-0"
-              >
-                <span className="text-muted-foreground tabular-nums w-32 shrink-0">
-                  {new Date(p.ts * 1000).toLocaleString()}
-                </span>
-                <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${kindColor(p.kind)}`}
+            {timeline
+              .slice()
+              .reverse()
+              .map((p, i) => (
+                <div
+                  key={`${p.ts}-${i}`}
+                  className="flex items-center gap-2 text-xs py-1 border-b border-border/20 last:border-0"
                 >
-                  {t(`dashboard.learning.kind.${p.kind}`)}
-                </span>
-                {p.skillId && (
-                  <span className="text-foreground font-medium truncate flex-1">
-                    {p.skillId}
+                  <span className="text-muted-foreground tabular-nums w-32 shrink-0">
+                    {new Date(p.ts * 1000).toLocaleString()}
                   </span>
-                )}
-                {p.source && (
-                  <span className="text-[10px] text-muted-foreground">{p.source}</span>
-                )}
-              </div>
-            ))}
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${kindColor(p.kind)}`}
+                  >
+                    {t(`dashboard.learning.kind.${p.kind}`)}
+                  </span>
+                  {p.skillId && (
+                    <span className="text-foreground font-medium truncate flex-1">{p.skillId}</span>
+                  )}
+                  {p.source && (
+                    <span className="text-[10px] text-muted-foreground">{p.source}</span>
+                  )}
+                </div>
+              ))}
           </div>
         )}
       </div>
@@ -1104,7 +1257,8 @@ export default function LearningTab({ filter }: LearningTabProps) {
                 >
                   <span className="flex-1 truncate font-medium">{s.skillId}</span>
                   <span className="text-muted-foreground tabular-nums">
-                    {s.usedCount}× · {s.lastUsedTs ? new Date(s.lastUsedTs * 1000).toLocaleDateString() : "—"}
+                    {s.usedCount}× ·{" "}
+                    {s.lastUsedTs ? new Date(s.lastUsedTs * 1000).toLocaleDateString() : "—"}
                   </span>
                 </div>
               ))}
@@ -1154,15 +1308,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
   )
 }
 
-function OverviewCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: number
-  hint?: string
-}) {
+function OverviewCard({ label, value, hint }: { label: string; value: number; hint?: string }) {
   return (
     <div className="border border-border/60 rounded-lg p-3 flex flex-col gap-1">
       <div className="text-xs text-muted-foreground">{label}</div>
@@ -1472,7 +1618,9 @@ function CodingImprovementSection({
         taskCount={domainEvalTasks.length}
         calibratedTaskCount={
           domainEvalTasks.filter((task) =>
-            task.calibration.some((record) => record.scope === "user" || record.scope === "project"),
+            task.calibration.some(
+              (record) => record.scope === "user" || record.scope === "project",
+            ),
           ).length
         }
         calibrationActionId={domainCalibrationActionId}
@@ -1522,7 +1670,11 @@ function CodingImprovementSection({
               {coding.byProject.map((project) => (
                 <ProjectSignalRow
                   key={project.projectId ?? "__unassigned__"}
-                  name={project.projectName ?? project.projectId ?? t("dashboard.learning.unassignedProject")}
+                  name={
+                    project.projectName ??
+                    project.projectId ??
+                    t("dashboard.learning.unassignedProject")
+                  }
                   projectId={project.projectId}
                   workflowRate={project.workflowCompletionRate}
                   evalRate={project.evalSuccessRate}
@@ -1534,9 +1686,11 @@ function CodingImprovementSection({
               ))}
             </div>
           ) : (
-            <EmptyLine label={t("dashboard.learning.noProjectSignals", {
-              defaultValue: "No coding improvement signals",
-            })} />
+            <EmptyLine
+              label={t("dashboard.learning.noProjectSignals", {
+                defaultValue: "No coding improvement signals",
+              })}
+            />
           )}
         </div>
 
@@ -1558,9 +1712,11 @@ function CodingImprovementSection({
               ))}
             </div>
           ) : (
-            <EmptyLine label={t("dashboard.learning.noFailureModes", {
-              defaultValue: "No failure modes",
-            })} />
+            <EmptyLine
+              label={t("dashboard.learning.noFailureModes", {
+                defaultValue: "No failure modes",
+              })}
+            />
           )}
         </div>
       </div>
@@ -1594,9 +1750,7 @@ function CodingImprovementSection({
                   point.retroRecommendations
                 return (
                   <div key={point.date} className="flex items-center gap-3 text-xs">
-                    <span className="w-20 text-muted-foreground tabular-nums">
-                      {point.date}
-                    </span>
+                    <span className="w-20 text-muted-foreground tabular-nums">{point.date}</span>
                     <div className="h-2 flex-1 bg-secondary/40 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-emerald-500"
@@ -1611,9 +1765,11 @@ function CodingImprovementSection({
               })}
             </div>
           ) : (
-            <EmptyLine label={t("dashboard.learning.noTimeline", {
-              defaultValue: "No timeline data",
-            })} />
+            <EmptyLine
+              label={t("dashboard.learning.noTimeline", {
+                defaultValue: "No timeline data",
+              })}
+            />
           )}
         </div>
 
@@ -1631,7 +1787,9 @@ function CodingImprovementSection({
                   className="text-xs border-b border-border/20 pb-2 last:border-0 last:pb-0"
                 >
                   <div className="flex items-center gap-2 mb-1 min-w-0">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${verdictTone(effect.verdict)}`}>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] ${verdictTone(effect.verdict)}`}
+                    >
                       {strategyVerdictLabel(t, effect.verdict)}
                     </span>
                     <span className="font-medium truncate flex-1">{effect.strategyType}</span>
@@ -1668,9 +1826,11 @@ function CodingImprovementSection({
               ))}
             </div>
           ) : (
-            <EmptyLine label={t("dashboard.learning.noStrategyEffects", {
-              defaultValue: "No strategy effects",
-            })} />
+            <EmptyLine
+              label={t("dashboard.learning.noStrategyEffects", {
+                defaultValue: "No strategy effects",
+              })}
+            />
           )}
         </div>
 
@@ -1686,7 +1846,9 @@ function CodingImprovementSection({
                   className="text-xs border-b border-border/20 pb-2 last:border-0 last:pb-0"
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${stateTone(retro.runState)}`}>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] ${stateTone(retro.runState)}`}
+                    >
                       {retro.runState}
                     </span>
                     <span className="text-muted-foreground tabular-nums">
@@ -1703,9 +1865,11 @@ function CodingImprovementSection({
               ))}
             </div>
           ) : (
-            <EmptyLine label={t("dashboard.learning.noRetros", {
-              defaultValue: "No retros",
-            })} />
+            <EmptyLine
+              label={t("dashboard.learning.noRetros", {
+                defaultValue: "No retros",
+              })}
+            />
           )}
         </div>
       </div>
@@ -1758,7 +1922,11 @@ function BenchmarkReportPanel({
               defaultValue: "Generate comparison report",
             })}
           >
-            {generatingComparison ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+            {generatingComparison ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileText className="h-3.5 w-3.5" />
+            )}
             <span className="text-xs">
               {t("dashboard.learning.reportComparison", {
                 defaultValue: "Comparison",
@@ -1775,7 +1943,11 @@ function BenchmarkReportPanel({
               defaultValue: "Generate release report",
             })}
           >
-            {generatingRelease ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldAlert className="h-3.5 w-3.5" />}
+            {generatingRelease ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ShieldAlert className="h-3.5 w-3.5" />
+            )}
             <span className="text-xs">
               {t("dashboard.learning.reportRelease", {
                 defaultValue: "Release",
@@ -1792,7 +1964,11 @@ function BenchmarkReportPanel({
               defaultValue: "Generate campaign report",
             })}
           >
-            {generatingCampaign ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
+            {generatingCampaign ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Layers3 className="h-3.5 w-3.5" />
+            )}
             <span className="text-xs">
               {t("dashboard.learning.reportCampaign", {
                 defaultValue: "Campaign",
@@ -1807,7 +1983,9 @@ function BenchmarkReportPanel({
           {reports.slice(0, 6).map((report) => (
             <div key={report.id} className="rounded border border-border/40 p-2.5 text-xs">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(report.status)}`}>
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(report.status)}`}
+                >
                   {learningStatusLabel(t, report.status)}
                 </span>
                 <span className="rounded bg-secondary/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -1832,7 +2010,8 @@ function BenchmarkReportPanel({
                     onClick={() => onCopyPath(report.markdownPath)}
                     data-ha-title-tip={t("dashboard.learning.copyReportPath", {
                       defaultValue: "Copy report path",
-                    })} aria-label={t("dashboard.learning.copyReportPath", {
+                    })}
+                    aria-label={t("dashboard.learning.copyReportPath", {
                       defaultValue: "Copy report path",
                     })}
                   >
@@ -1852,7 +2031,8 @@ function BenchmarkReportPanel({
                         : t("dashboard.learning.toggleReleaseEvidenceAdd", {
                             defaultValue: "Mark as release evidence",
                           })
-                    } aria-label={
+                    }
+                    aria-label={
                       report.releaseEvidence
                         ? t("dashboard.learning.toggleReleaseEvidenceRemove", {
                             defaultValue: "Remove release evidence",
@@ -1862,14 +2042,24 @@ function BenchmarkReportPanel({
                           })
                     }
                   >
-                    {actionId === `mark:${report.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {actionId === `mark:${report.id}` ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                 </div>
               </div>
-              <p className="mt-1.5 line-clamp-2 text-[10px] text-muted-foreground" data-ha-title-tip={report.summary}>
+              <p
+                className="mt-1.5 line-clamp-2 text-[10px] text-muted-foreground"
+                data-ha-title-tip={report.summary}
+              >
                 {report.summary}
               </p>
-              <div className="mt-1.5 truncate text-[10px] text-muted-foreground" data-ha-title-tip={report.markdownPath}>
+              <div
+                className="mt-1.5 truncate text-[10px] text-muted-foreground"
+                data-ha-title-tip={report.markdownPath}
+              >
                 {report.markdownPath}
               </div>
             </div>
@@ -1912,7 +2102,9 @@ function ContinuousBenchmarkGatePanel({
               defaultValue: "Continuous gate",
             })}
           </h4>
-          <span className={`rounded px-2 py-1 text-[10px] font-medium ${releaseGateTone(gate?.status)}`}>
+          <span
+            className={`rounded px-2 py-1 text-[10px] font-medium ${releaseGateTone(gate?.status)}`}
+          >
             {learningStatusLabel(t, gate?.status)}
           </span>
         </div>
@@ -1926,7 +2118,11 @@ function ContinuousBenchmarkGatePanel({
             defaultValue: "Create backlog items from failed benchmark cases",
           })}
         >
-          {actionId === "materialize" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileCheck2 className="h-3.5 w-3.5" />}
+          {actionId === "materialize" ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <FileCheck2 className="h-3.5 w-3.5" />
+          )}
           <span className="text-xs">
             {t("dashboard.learning.createBacklog", {
               defaultValue: "Create backlog",
@@ -1939,12 +2135,36 @@ function ContinuousBenchmarkGatePanel({
         <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr] gap-3">
           <div className="space-y-3">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-              <MetricPill label="RC" value={gate.summary.freshCampaigns} tone={gate.summary.freshCampaigns > 0 ? "accent" : "warn"} />
-              <MetricPill label="CP" value={formatPct(gate.summary.casePassRate)} tone={gate.summary.casePassRate === 1 ? "accent" : "warn"} />
-              <MetricPill label="BL" value={gate.summary.openBacklogItems} tone={gate.summary.openBacklogItems > 0 ? "warn" : "muted"} />
-              <MetricPill label="PF" value={gate.summary.pendingFailureItems} tone={gate.summary.pendingFailureItems > 0 ? "warn" : "muted"} />
-              <MetricPill label="INT" value={gate.reliability.interruptedCampaigns} tone={gate.reliability.interruptedCampaigns > 0 ? "warn" : "muted"} />
-              <MetricPill label="PE" value={gate.reliability.providerErrorItems} tone={gate.reliability.providerErrorItems > 0 ? "warn" : "muted"} />
+              <MetricPill
+                label="RC"
+                value={gate.summary.freshCampaigns}
+                tone={gate.summary.freshCampaigns > 0 ? "accent" : "warn"}
+              />
+              <MetricPill
+                label="CP"
+                value={formatPct(gate.summary.casePassRate)}
+                tone={gate.summary.casePassRate === 1 ? "accent" : "warn"}
+              />
+              <MetricPill
+                label="BL"
+                value={gate.summary.openBacklogItems}
+                tone={gate.summary.openBacklogItems > 0 ? "warn" : "muted"}
+              />
+              <MetricPill
+                label="PF"
+                value={gate.summary.pendingFailureItems}
+                tone={gate.summary.pendingFailureItems > 0 ? "warn" : "muted"}
+              />
+              <MetricPill
+                label="INT"
+                value={gate.reliability.interruptedCampaigns}
+                tone={gate.reliability.interruptedCampaigns > 0 ? "warn" : "muted"}
+              />
+              <MetricPill
+                label="PE"
+                value={gate.reliability.providerErrorItems}
+                tone={gate.reliability.providerErrorItems > 0 ? "warn" : "muted"}
+              />
               <MetricPill label="RT" value={formatPct(gate.reliability.retrySuccessRate)} />
               <MetricPill label="RAW" value={`${gate.summary.rawArtifactRetentionDays}d`} />
             </div>
@@ -1954,13 +2174,19 @@ function ContinuousBenchmarkGatePanel({
                 {blockingChecks.map((check) => (
                   <div key={check.name} className="rounded border border-border/40 p-2 text-xs">
                     <div className="flex items-center gap-2">
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(check.status)}`}>
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(check.status)}`}
+                      >
                         {learningStatusLabel(t, check.status)}
                       </span>
                       <span className="font-medium">{check.name}</span>
-                      <span className="ml-auto text-[10px] text-muted-foreground truncate">{check.actual}</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground truncate">
+                        {check.actual}
+                      </span>
                     </div>
-                    <p className="mt-1 text-[10px] text-muted-foreground line-clamp-2">{check.detail}</p>
+                    <p className="mt-1 text-[10px] text-muted-foreground line-clamp-2">
+                      {check.detail}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -2000,12 +2226,17 @@ function ContinuousBenchmarkGatePanel({
                     defaultValue: "Benchmark backlog",
                   })}
                 </span>
-                <span className="text-[10px] tabular-nums text-muted-foreground">{backlog.length}</span>
+                <span className="text-[10px] tabular-nums text-muted-foreground">
+                  {backlog.length}
+                </span>
               </div>
               {backlog.length ? (
                 <div className="space-y-1.5">
                   {backlog.slice(0, 4).map((item) => (
-                    <div key={item.id} className="flex items-start gap-2 rounded bg-secondary/20 p-2">
+                    <div
+                      key={item.id}
+                      className="flex items-start gap-2 rounded bg-secondary/20 p-2"
+                    >
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-medium">{item.title}</div>
                         <div className="truncate text-[10px] text-muted-foreground">
@@ -2020,11 +2251,16 @@ function ContinuousBenchmarkGatePanel({
                         disabled={Boolean(actionId)}
                         data-ha-title-tip={t("dashboard.learning.resolveBacklogItem", {
                           defaultValue: "Resolve backlog item",
-                        })} aria-label={t("dashboard.learning.resolveBacklogItem", {
+                        })}
+                        aria-label={t("dashboard.learning.resolveBacklogItem", {
                           defaultValue: "Resolve backlog item",
                         })}
                       >
-                        {actionId === `resolve:${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                        {actionId === `resolve:${item.id}` ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        )}
                       </Button>
                     </div>
                   ))}
@@ -2079,7 +2315,9 @@ function BenchmarkCorpusPanel({
               defaultValue: "Task corpus",
             })}
           </h4>
-          <span className={`rounded px-2 py-1 text-[10px] font-medium ${releaseGateTone(health?.status)}`}>
+          <span
+            className={`rounded px-2 py-1 text-[10px] font-medium ${releaseGateTone(health?.status)}`}
+          >
             {learningStatusLabel(t, health?.status)}
           </span>
         </div>
@@ -2093,7 +2331,11 @@ function BenchmarkCorpusPanel({
             defaultValue: "Import sample task pack",
           })}
         >
-          {actionId === "import" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          {actionId === "import" ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Upload className="h-3.5 w-3.5" />
+          )}
           <span className="text-xs">
             {t("dashboard.learning.importSample", {
               defaultValue: "Import sample",
@@ -2105,12 +2347,32 @@ function BenchmarkCorpusPanel({
       {health ? (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
-            <MetricPill label="PK" value={`${health.activePacks}/${health.packs}`} tone={health.activePacks > 0 ? "accent" : "muted"} />
-            <MetricPill label="TS" value={`${health.activeTasks}/${health.tasks}`} tone={health.activeTasks > 0 ? "accent" : "muted"} />
+            <MetricPill
+              label="PK"
+              value={`${health.activePacks}/${health.packs}`}
+              tone={health.activePacks > 0 ? "accent" : "muted"}
+            />
+            <MetricPill
+              label="TS"
+              value={`${health.activeTasks}/${health.tasks}`}
+              tone={health.activeTasks > 0 ? "accent" : "muted"}
+            />
             <MetricPill label="DR" value={health.draftTasks} />
-            <MetricPill label="ST" value={health.staleTasks.length} tone={health.staleTasks.length > 0 ? "warn" : "muted"} />
-            <MetricPill label="DP" value={health.duplicateTasks.length} tone={health.duplicateTasks.length > 0 ? "warn" : "muted"} />
-            <MetricPill label="RG" value={health.gamingRiskTasks.length} tone={health.gamingRiskTasks.length > 0 ? "warn" : "muted"} />
+            <MetricPill
+              label="ST"
+              value={health.staleTasks.length}
+              tone={health.staleTasks.length > 0 ? "warn" : "muted"}
+            />
+            <MetricPill
+              label="DP"
+              value={health.duplicateTasks.length}
+              tone={health.duplicateTasks.length > 0 ? "warn" : "muted"}
+            />
+            <MetricPill
+              label="RG"
+              value={health.gamingRiskTasks.length}
+              tone={health.gamingRiskTasks.length > 0 ? "warn" : "muted"}
+            />
           </div>
 
           <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(220px,0.75fr)]">
@@ -2201,17 +2463,21 @@ function BenchmarkTaskPackRow({
   return (
     <div className="rounded border border-border/40 p-2.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(pack.status === "active" ? "passed" : pack.status === "archived" ? "failed" : "insufficient_data")}`}>
+        <span
+          className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(pack.status === "active" ? "passed" : pack.status === "archived" ? "failed" : "insufficient_data")}`}
+        >
           {learningStatusLabel(t, pack.status)}
         </span>
-        <span className="min-w-0 max-w-[280px] truncate font-medium">
-          {pack.name}
-        </span>
+        <span className="min-w-0 max-w-[280px] truncate font-medium">{pack.name}</span>
         <span className="text-[10px] text-muted-foreground tabular-nums">
           {pack.packId}@{pack.version}
         </span>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-          <MetricPill label="TS" value={`${activeTasks}/${pack.tasks.length}`} tone={activeTasks > 0 ? "accent" : "muted"} />
+          <MetricPill
+            label="TS"
+            value={`${activeTasks}/${pack.tasks.length}`}
+            tone={activeTasks > 0 ? "accent" : "muted"}
+          />
           <MetricPill label="RG" value={riskTasks} tone={riskTasks > 0 ? "warn" : "muted"} />
           <Button
             size="sm"
@@ -2221,11 +2487,16 @@ function BenchmarkTaskPackRow({
             disabled={Boolean(busyAction)}
             data-ha-title-tip={t("dashboard.learning.validateTaskPack", {
               defaultValue: "Validate task pack",
-            })} aria-label={t("dashboard.learning.validateTaskPack", {
+            })}
+            aria-label={t("dashboard.learning.validateTaskPack", {
               defaultValue: "Validate task pack",
             })}
           >
-            {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileCheck2 className="h-3.5 w-3.5" />}
+            {validating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileCheck2 className="h-3.5 w-3.5" />
+            )}
           </Button>
           {pack.status !== "active" && (
             <Button
@@ -2236,11 +2507,16 @@ function BenchmarkTaskPackRow({
               disabled={Boolean(busyAction)}
               data-ha-title-tip={t("dashboard.learning.activateTaskPack", {
                 defaultValue: "Activate task pack",
-              })} aria-label={t("dashboard.learning.activateTaskPack", {
+              })}
+              aria-label={t("dashboard.learning.activateTaskPack", {
                 defaultValue: "Activate task pack",
               })}
             >
-              {activating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {activating ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              )}
             </Button>
           )}
           {pack.status !== "archived" && (
@@ -2252,11 +2528,16 @@ function BenchmarkTaskPackRow({
               disabled={Boolean(busyAction)}
               data-ha-title-tip={t("dashboard.learning.archiveTaskPack", {
                 defaultValue: "Archive task pack",
-              })} aria-label={t("dashboard.learning.archiveTaskPack", {
+              })}
+              aria-label={t("dashboard.learning.archiveTaskPack", {
                 defaultValue: "Archive task pack",
               })}
             >
-              {archiving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+              {archiving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Archive className="h-3.5 w-3.5" />
+              )}
             </Button>
           )}
         </div>
@@ -2361,11 +2642,21 @@ function BenchmarkCenterPanel({
               })}
             </span>
           )}
-          <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={onRun} disabled={running}>
-          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-          <span className="text-xs">
-            {t("dashboard.learning.runBenchmark", { defaultValue: "Run" })}
-          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5"
+            onClick={onRun}
+            disabled={running}
+          >
+            {running ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
+            <span className="text-xs">
+              {t("dashboard.learning.runBenchmark", { defaultValue: "Run" })}
+            </span>
           </Button>
         </div>
       </div>
@@ -2397,7 +2688,9 @@ function BenchmarkCenterPanel({
                     key={run.id}
                     className="flex flex-wrap items-center gap-2 text-xs border-b border-border/20 pb-1.5 last:border-0 last:pb-0"
                   >
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${releaseGateTone(run.status)}`}>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] ${releaseGateTone(run.status)}`}
+                    >
                       {learningStatusLabel(t, run.status)}
                     </span>
                     <span className="font-medium truncate max-w-48">
@@ -2464,7 +2757,9 @@ function BenchmarkCenterPanel({
                   defaultValue: "Model leaderboard",
                 })}
               </span>
-              <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(leaderboard?.status)}`}>
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(leaderboard?.status)}`}
+              >
                 {learningStatusLabel(t, leaderboard?.status)}
               </span>
             </div>
@@ -2552,7 +2847,11 @@ function BenchmarkCenterPanel({
                   onClick={onRunExternal}
                   disabled={running || selectedModelKeys.length === 0}
                 >
-                  {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                  {running ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
                   <span className="text-xs">
                     {t("dashboard.learning.runExternalBenchmark", {
                       defaultValue: "Run external",
@@ -2667,7 +2966,9 @@ function BenchmarkCampaignRow({
   return (
     <div className="rounded border border-border/40 p-2.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <span className={`px-1.5 py-0.5 rounded text-[10px] ${benchmarkCampaignTone(campaign.status)}`}>
+        <span
+          className={`px-1.5 py-0.5 rounded text-[10px] ${benchmarkCampaignTone(campaign.status)}`}
+        >
           {learningStatusLabel(t, campaign.status)}
         </span>
         <span className="font-medium truncate max-w-[260px]">{campaign.name}</span>
@@ -2678,12 +2979,24 @@ function BenchmarkCampaignRow({
           <MetricPill
             label="IT"
             value={`${campaign.summary.passedItems}/${campaign.summary.totalItems}`}
-            tone={campaign.summary.failedItems > 0 ? "warn" : campaign.summary.passedItems > 0 ? "accent" : "muted"}
+            tone={
+              campaign.summary.failedItems > 0
+                ? "warn"
+                : campaign.summary.passedItems > 0
+                  ? "accent"
+                  : "muted"
+            }
           />
           <MetricPill
             label="CS"
             value={formatPct(campaign.summary.casePassRate)}
-            tone={campaign.summary.failedCases > 0 ? "warn" : campaign.summary.passedCases > 0 ? "accent" : "muted"}
+            tone={
+              campaign.summary.failedCases > 0
+                ? "warn"
+                : campaign.summary.passedCases > 0
+                  ? "accent"
+                  : "muted"
+            }
           />
           <MetricPill
             label="CK"
@@ -2699,11 +3012,16 @@ function BenchmarkCampaignRow({
               disabled={busy}
               data-ha-title-tip={t("dashboard.learning.retryBenchmarkCampaign", {
                 defaultValue: "Retry failed campaign items",
-              })} aria-label={t("dashboard.learning.retryBenchmarkCampaign", {
+              })}
+              aria-label={t("dashboard.learning.retryBenchmarkCampaign", {
                 defaultValue: "Retry failed campaign items",
               })}
             >
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
             </Button>
           )}
           {canCancel && (
@@ -2715,11 +3033,16 @@ function BenchmarkCampaignRow({
               disabled={busy}
               data-ha-title-tip={t("dashboard.learning.cancelBenchmarkCampaign", {
                 defaultValue: "Cancel campaign",
-              })} aria-label={t("dashboard.learning.cancelBenchmarkCampaign", {
+              })}
+              aria-label={t("dashboard.learning.cancelBenchmarkCampaign", {
                 defaultValue: "Cancel campaign",
               })}
             >
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <XCircle className="h-3.5 w-3.5" />
+              )}
             </Button>
           )}
         </div>
@@ -2743,7 +3066,10 @@ function BenchmarkCampaignRow({
         )}
       </div>
       {(campaign.error || primaryItem?.error) && (
-        <p className="mt-1.5 line-clamp-2 text-[10px] text-destructive" data-ha-title-tip={campaign.error ?? primaryItem?.error ?? undefined}>
+        <p
+          className="mt-1.5 line-clamp-2 text-[10px] text-destructive"
+          data-ha-title-tip={campaign.error ?? primaryItem?.error ?? undefined}
+        >
           {campaign.error ?? primaryItem?.error}
         </p>
       )}
@@ -2751,11 +3077,7 @@ function BenchmarkCampaignRow({
   )
 }
 
-function DomainQualityDashboardPanel({
-  dashboard,
-}: {
-  dashboard: DomainQualityDashboard | null
-}) {
+function DomainQualityDashboardPanel({ dashboard }: { dashboard: DomainQualityDashboard | null }) {
   const { t } = useTranslation()
   const overview = dashboard?.overview
   const timeline = dashboard?.timeline.slice(-8).reverse() ?? []
@@ -2870,8 +3192,7 @@ function DomainQualityDashboardPanel({
                         <div className="truncate font-medium">{domain.domain}</div>
                         <div className="truncate text-[10px] text-muted-foreground">
                           {t("dashboard.learning.domainRunSummary", {
-                            defaultValue:
-                              "{{completed}}/{{total}} quality · {{evalCount}} eval",
+                            defaultValue: "{{completed}}/{{total}} quality · {{evalCount}} eval",
                             completed: domain.completedQualityRuns,
                             total: domain.qualityRuns,
                             evalCount: domain.evalRuns,
@@ -2984,7 +3305,10 @@ function DomainQualityDashboardPanel({
               {dashboard.recentRuns.length ? (
                 <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-2">
                   {dashboard.recentRuns.slice(0, 4).map((run) => (
-                    <div key={run.id} className="rounded border border-border/40 p-2 text-xs min-w-0">
+                    <div
+                      key={run.id}
+                      className="rounded border border-border/40 p-2 text-xs min-w-0"
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate font-medium">{run.domain}</span>
                         <span
@@ -3074,7 +3398,9 @@ function DomainOperationalGatePanel({ report }: { report: DomainOperationalGateR
                 })}
           </p>
         </div>
-        <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
+        <span
+          className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
+        >
           {learningStatusLabel(t, report?.status)}
         </span>
       </div>
@@ -3084,13 +3410,15 @@ function DomainOperationalGatePanel({ report }: { report: DomainOperationalGateR
             <MetricPill
               label="WF"
               value={`${report.summary.completedWorkflowRuns}/${report.summary.workflowRuns}`}
-              tone={workflowBad > 0 ? "warn" : report.summary.completedWorkflowRuns > 0 ? "accent" : "muted"}
+              tone={
+                workflowBad > 0
+                  ? "warn"
+                  : report.summary.completedWorkflowRuns > 0
+                    ? "accent"
+                    : "muted"
+              }
             />
-            <MetricPill
-              label="BAD"
-              value={workflowBad}
-              tone={workflowBad > 0 ? "warn" : "muted"}
-            />
+            <MetricPill label="BAD" value={workflowBad} tone={workflowBad > 0 ? "warn" : "muted"} />
             <MetricPill
               label="ACT"
               value={report.summary.activeWorkflowRuns}
@@ -3099,12 +3427,24 @@ function DomainOperationalGatePanel({ report }: { report: DomainOperationalGateR
             <MetricPill
               label="LP"
               value={`${report.summary.succeededLoopRuns}/${report.summary.loopRuns}`}
-              tone={report.summary.failedLoopRuns > 0 ? "warn" : report.summary.loopRuns > 0 ? "accent" : "muted"}
+              tone={
+                report.summary.failedLoopRuns > 0
+                  ? "warn"
+                  : report.summary.loopRuns > 0
+                    ? "accent"
+                    : "muted"
+              }
             />
             <MetricPill
               label="CP"
               value={`${report.summary.passedCampaignItems}/${report.summary.campaignItems}`}
-              tone={campaignBad > 0 ? "warn" : report.summary.passedCampaignItems > 0 ? "accent" : "muted"}
+              tone={
+                campaignBad > 0
+                  ? "warn"
+                  : report.summary.passedCampaignItems > 0
+                    ? "accent"
+                    : "muted"
+              }
             />
             <MetricPill
               label="RUN"
@@ -3139,7 +3479,10 @@ function DomainOperationalGatePanel({ report }: { report: DomainOperationalGateR
           {recommendations.length > 0 && (
             <div className="space-y-1">
               {recommendations.map((step) => (
-                <div key={step} className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
+                <div
+                  key={step}
+                  className="flex items-start gap-1.5 text-[10px] text-muted-foreground"
+                >
                   <Activity className="mt-0.5 h-3 w-3 shrink-0" />
                   <span className="min-w-0">{step}</span>
                 </div>
@@ -3196,7 +3539,9 @@ function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) 
                 })}
           </p>
         </div>
-        <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
+        <span
+          className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
+        >
           {learningStatusLabel(t, report?.status)}
         </span>
       </div>
@@ -3206,17 +3551,35 @@ function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) 
             <MetricPill
               label="WF"
               value={`${report.summary.completedWorkflowRuns}/${report.summary.workflowRuns}`}
-              tone={workflowBad > 0 ? "warn" : report.summary.completedWorkflowRuns > 0 ? "accent" : "muted"}
+              tone={
+                workflowBad > 0
+                  ? "warn"
+                  : report.summary.completedWorkflowRuns > 0
+                    ? "accent"
+                    : "muted"
+              }
             />
             <MetricPill
               label="LP"
               value={`${report.summary.succeededLoopRuns}/${report.summary.loopRuns}`}
-              tone={report.summary.failedLoopRuns > 0 ? "warn" : report.summary.loopRuns > 0 ? "accent" : "muted"}
+              tone={
+                report.summary.failedLoopRuns > 0
+                  ? "warn"
+                  : report.summary.loopRuns > 0
+                    ? "accent"
+                    : "muted"
+              }
             />
             <MetricPill
               label="CP"
               value={`${report.summary.passedCampaignItems}/${report.summary.campaignItems}`}
-              tone={campaignBad > 0 ? "warn" : report.summary.passedCampaignItems > 0 ? "accent" : "muted"}
+              tone={
+                campaignBad > 0
+                  ? "warn"
+                  : report.summary.passedCampaignItems > 0
+                    ? "accent"
+                    : "muted"
+              }
             />
             <MetricPill
               label="CE"
@@ -3274,8 +3637,8 @@ function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) 
                 report.summary.maxOpenApprovalWaitSecs != null
                   ? formatSecs(report.summary.maxOpenApprovalWaitSecs)
                   : report.summary.maxApprovalWaitSecs != null
-                  ? formatSecs(report.summary.maxApprovalWaitSecs)
-                  : `${report.summary.approvalDecisionEvents}/${report.summary.approvalRequestEvents}`
+                    ? formatSecs(report.summary.maxApprovalWaitSecs)
+                    : `${report.summary.approvalDecisionEvents}/${report.summary.approvalRequestEvents}`
               }
               tone={
                 report.summary.openApprovalWaits > 0 ||
@@ -3363,7 +3726,10 @@ function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) 
           {recommendations.length > 0 && (
             <div className="space-y-1">
               {recommendations.map((step) => (
-                <div key={step} className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
+                <div
+                  key={step}
+                  className="flex items-start gap-1.5 text-[10px] text-muted-foreground"
+                >
                   <FileCheck2 className="mt-0.5 h-3 w-3 shrink-0" />
                   <span className="min-w-0">{step}</span>
                 </div>
@@ -3410,7 +3776,9 @@ function DomainConnectorE2EGatePanel({ report }: { report: DomainConnectorE2EGat
                 })}
           </p>
         </div>
-        <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
+        <span
+          className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
+        >
           {learningStatusLabel(t, report?.status)}
         </span>
       </div>
@@ -3485,7 +3853,10 @@ function DomainConnectorE2EGatePanel({ report }: { report: DomainConnectorE2EGat
           {recommendations.length > 0 && (
             <div className="space-y-1">
               {recommendations.map((step) => (
-                <div key={step} className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
+                <div
+                  key={step}
+                  className="flex items-start gap-1.5 text-[10px] text-muted-foreground"
+                >
                   <ShieldAlert className="mt-0.5 h-3 w-3 shrink-0" />
                   <span className="min-w-0">{step}</span>
                 </div>
@@ -3536,7 +3907,9 @@ function DomainReadinessGatePanel({ report }: { report: DomainReadinessGateRepor
                 })}
           </p>
         </div>
-        <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
+        <span
+          className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
+        >
           {learningStatusLabel(t, report?.status)}
         </span>
       </div>
@@ -3548,11 +3921,20 @@ function DomainReadinessGatePanel({ report }: { report: DomainReadinessGateRepor
               value={learningStatusLabel(t, report.summary.qualityStatus)}
               tone={report.summary.qualityStatus === "passed" ? "accent" : "warn"}
             />
-            <MetricPill label="EV" value={`${report.summary.evalRuns}/${report.summary.qualityRuns}`} />
+            <MetricPill
+              label="EV"
+              value={`${report.summary.evalRuns}/${report.summary.qualityRuns}`}
+            />
             <MetricPill
               label="CP"
               value={`${report.summary.passedCampaignItems}/${report.summary.campaignItems}`}
-              tone={campaignFailures > 0 ? "warn" : report.summary.passedCampaignItems > 0 ? "accent" : "muted"}
+              tone={
+                campaignFailures > 0
+                  ? "warn"
+                  : report.summary.passedCampaignItems > 0
+                    ? "accent"
+                    : "muted"
+              }
             />
             <MetricPill
               label="LD"
@@ -3596,7 +3978,10 @@ function DomainReadinessGatePanel({ report }: { report: DomainReadinessGateRepor
           {recommendations.length > 0 && (
             <div className="space-y-1">
               {recommendations.map((step) => (
-                <div key={step} className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
+                <div
+                  key={step}
+                  className="flex items-start gap-1.5 text-[10px] text-muted-foreground"
+                >
                   <ShieldAlert className="mt-0.5 h-3 w-3 shrink-0" />
                   <span className="min-w-0">{step}</span>
                 </div>
@@ -3660,7 +4045,10 @@ function DomainQualityGatePanel({
       {report ? (
         <div className="space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-            <MetricPill label="EV" value={`${report.summary.passedEvalRuns}/${report.summary.evalRuns}`} />
+            <MetricPill
+              label="EV"
+              value={`${report.summary.passedEvalRuns}/${report.summary.evalRuns}`}
+            />
             <MetricPill label="PR" value={formatPct(report.summary.passRate)} />
             <MetricPill label="SC" value={report.summary.averageScore?.toFixed(2) ?? "n/a"} />
             <MetricPill
@@ -3808,7 +4196,8 @@ function DomainEvalCampaignPanel({
           </h4>
           <p className="text-[10px] text-muted-foreground">
             {t("dashboard.learning.domainCampaignsHint", {
-              defaultValue: "Batch non-coding eval packs with durable status, retry and cancellation",
+              defaultValue:
+                "Batch non-coding eval packs with durable status, retry and cancellation",
             })}
           </p>
         </div>
@@ -3994,7 +4383,9 @@ function DomainCampaignLeaderboard({
             defaultValue: "Domain model leaderboard",
           })}
         </span>
-        <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(leaderboard?.status)}`}>
+        <span
+          className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(leaderboard?.status)}`}
+        >
           {learningStatusLabel(t, leaderboard?.status)}
         </span>
       </div>
@@ -4080,7 +4471,9 @@ function DomainEvalCampaignRow({
   return (
     <div className="rounded border border-border/40 p-2.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <span className={`px-1.5 py-0.5 rounded text-[10px] ${benchmarkCampaignTone(campaign.status)}`}>
+        <span
+          className={`px-1.5 py-0.5 rounded text-[10px] ${benchmarkCampaignTone(campaign.status)}`}
+        >
           {learningStatusLabel(t, campaign.status)}
         </span>
         <span className="font-medium truncate max-w-[260px]">{campaign.name}</span>
@@ -4091,7 +4484,13 @@ function DomainEvalCampaignRow({
           <MetricPill
             label="IT"
             value={`${campaign.summary.passedItems}/${campaign.summary.totalItems}`}
-            tone={campaign.summary.failedItems > 0 ? "warn" : campaign.summary.passedItems > 0 ? "accent" : "muted"}
+            tone={
+              campaign.summary.failedItems > 0
+                ? "warn"
+                : campaign.summary.passedItems > 0
+                  ? "accent"
+                  : "muted"
+            }
           />
           <MetricPill
             label="SC"
@@ -4112,11 +4511,16 @@ function DomainEvalCampaignRow({
               disabled={busy}
               data-ha-title-tip={t("dashboard.learning.generateDomainCampaignLearning", {
                 defaultValue: "Create learning drafts from this domain campaign",
-              })} aria-label={t("dashboard.learning.generateDomainCampaignLearning", {
+              })}
+              aria-label={t("dashboard.learning.generateDomainCampaignLearning", {
                 defaultValue: "Create learning drafts from this domain campaign",
               })}
             >
-              {learningBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {learningBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
             </Button>
           )}
           {canRetry && (
@@ -4128,11 +4532,16 @@ function DomainEvalCampaignRow({
               disabled={busy}
               data-ha-title-tip={t("dashboard.learning.retryDomainCampaign", {
                 defaultValue: "Retry failed domain campaign items",
-              })} aria-label={t("dashboard.learning.retryDomainCampaign", {
+              })}
+              aria-label={t("dashboard.learning.retryDomainCampaign", {
                 defaultValue: "Retry failed domain campaign items",
               })}
             >
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
             </Button>
           )}
           {canCancel && (
@@ -4144,11 +4553,16 @@ function DomainEvalCampaignRow({
               disabled={busy}
               data-ha-title-tip={t("dashboard.learning.cancelDomainCampaign", {
                 defaultValue: "Cancel domain campaign",
-              })} aria-label={t("dashboard.learning.cancelDomainCampaign", {
+              })}
+              aria-label={t("dashboard.learning.cancelDomainCampaign", {
                 defaultValue: "Cancel domain campaign",
               })}
             >
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <XCircle className="h-3.5 w-3.5" />
+              )}
             </Button>
           )}
         </div>
@@ -4160,8 +4574,8 @@ function DomainEvalCampaignRow({
             className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${benchmarkCampaignTone(item.status)}`}
             data-ha-title-tip={item.error ?? item.fixtureRunId ?? item.evalRunId ?? item.id}
           >
-            {item.taskId} · {formatCampaignItemTarget(t, item.providerId, item.modelId, item.label)} ·{" "}
-            {learningStatusLabel(t, item.status)}
+            {item.taskId} · {formatCampaignItemTarget(t, item.providerId, item.modelId, item.label)}{" "}
+            · {learningStatusLabel(t, item.status)}
             {typeof item.score === "number" ? ` · ${formatScore(item.score)}` : ""}
           </span>
         ))}
@@ -4172,7 +4586,10 @@ function DomainEvalCampaignRow({
         )}
       </div>
       {(campaign.error || primaryItem?.error) && (
-        <p className="mt-1.5 line-clamp-2 text-[10px] text-destructive" data-ha-title-tip={campaign.error ?? primaryItem?.error ?? undefined}>
+        <p
+          className="mt-1.5 line-clamp-2 text-[10px] text-destructive"
+          data-ha-title-tip={campaign.error ?? primaryItem?.error ?? undefined}
+        >
           {campaign.error ?? primaryItem?.error}
         </p>
       )}
@@ -4200,11 +4617,14 @@ function DomainFixtureSmokePanel({ runs }: { runs: DomainEvalFixtureRunRecord[] 
           </h4>
           <p className="text-[10px] text-muted-foreground">
             {t("dashboard.learning.domainSmokeCenterHint", {
-              defaultValue: "Synthetic trace and agent fixture runs are isolated from the live quality gate",
+              defaultValue:
+                "Synthetic trace and agent fixture runs are isolated from the live quality gate",
             })}
           </p>
         </div>
-        <span className={`px-2 py-1 rounded text-[10px] font-medium ${failed > 0 ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}`}>
+        <span
+          className={`px-2 py-1 rounded text-[10px] font-medium ${failed > 0 ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}`}
+        >
           {total ? `${passed}/${total}` : t("common.none")}
         </span>
       </div>
@@ -4212,7 +4632,11 @@ function DomainFixtureSmokePanel({ runs }: { runs: DomainEvalFixtureRunRecord[] 
         <div className="space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
             <MetricPill label="SR" value={total} />
-            <MetricPill label="PR" value={formatPct(passRate)} tone={failed > 0 ? "warn" : "accent"} />
+            <MetricPill
+              label="PR"
+              value={formatPct(passRate)}
+              tone={failed > 0 ? "warn" : "accent"}
+            />
             <MetricPill label="AG" value={agentRuns} />
             <MetricPill label="TR" value={traceRuns} />
             <MetricPill label="FL" value={failed} tone={failed > 0 ? "warn" : "muted"} />
@@ -4256,7 +4680,10 @@ function DomainFixtureSmokePanel({ runs }: { runs: DomainEvalFixtureRunRecord[] 
                   />
                 </div>
                 {run.error ? (
-                  <p className="mt-2 truncate text-[10px] text-red-600" data-ha-title-tip={run.error}>
+                  <p
+                    className="mt-2 truncate text-[10px] text-red-600"
+                    data-ha-title-tip={run.error}
+                  >
                     {run.error}
                   </p>
                 ) : null}
@@ -4364,11 +4791,7 @@ function ReleaseGatePanel({ report }: { report: CodingEvalReleaseGateReport | nu
   )
 }
 
-function GeneralizationPanel({
-  report,
-}: {
-  report: CodingLearningGeneralizationReport | null
-}) {
+function GeneralizationPanel({ report }: { report: CodingLearningGeneralizationReport | null }) {
   const { t } = useTranslation()
   const attentionChecks =
     report?.checks.filter((check) => check.status !== "passed").slice(0, 4) ?? []
@@ -4390,7 +4813,10 @@ function GeneralizationPanel({
       {report ? (
         <div className="grid grid-cols-1 xl:grid-cols-[auto_minmax(0,1fr)] gap-3">
           <div className="flex flex-wrap gap-1.5">
-            <MetricPill label="PR" value={`${report.summary.passedProjects}/${report.summary.projectsEvaluated}`} />
+            <MetricPill
+              label="PR"
+              value={`${report.summary.passedProjects}/${report.summary.projectsEvaluated}`}
+            />
             <MetricPill
               label="LR"
               value={report.summary.totalPromotedLearning}
@@ -4518,7 +4944,9 @@ function MetricPill({
         ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
         : "bg-secondary/40 text-muted-foreground"
   return (
-    <span className={`inline-flex min-w-12 justify-center rounded px-1.5 py-0.5 tabular-nums ${toneClass}`}>
+    <span
+      className={`inline-flex min-w-12 justify-center rounded px-1.5 py-0.5 tabular-nums ${toneClass}`}
+    >
       {label}:{value}
     </span>
   )
@@ -4582,9 +5010,7 @@ function inverseDeltaTone(value: number): "muted" | "warn" | "accent" {
 }
 
 function humanizeEnumValue(value: string): string {
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function learningStatusLabel(t: TFunction, status?: string | null): string {
@@ -4633,7 +5059,10 @@ function releaseGateTone(status?: string | null): string {
 }
 
 function sampleBenchmarkTaskPackManifest(): CodingBenchmarkTaskPackManifest {
-  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z")
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z")
   const calibratedAt = new Date().toISOString()
   return {
     packId: "sample-real-project-regression",
@@ -4657,7 +5086,8 @@ function sampleBenchmarkTaskPackManifest(): CodingBenchmarkTaskPackManifest {
         difficulty: "medium",
         language: "typescript",
         framework: "react",
-        sourceUri: "local://hope-agent/examples/benchmark-corpus/sample-real-project-regression/issues/bugfix-001",
+        sourceUri:
+          "local://hope-agent/examples/benchmark-corpus/sample-real-project-regression/issues/bugfix-001",
         repoTemplate: "fixture://react-rust-desktop-app",
         tags: ["dashboard", "async-state"],
         successCriteria: [
@@ -4682,7 +5112,8 @@ function sampleBenchmarkTaskPackManifest(): CodingBenchmarkTaskPackManifest {
         difficulty: "medium",
         language: "typescript",
         framework: "react",
-        sourceUri: "local://hope-agent/examples/benchmark-corpus/sample-real-project-regression/issues/feature-002",
+        sourceUri:
+          "local://hope-agent/examples/benchmark-corpus/sample-real-project-regression/issues/feature-002",
         repoTemplate: "fixture://react-rust-desktop-app",
         tags: ["benchmark", "corpus", "dashboard"],
         successCriteria: [
@@ -4707,7 +5138,8 @@ function sampleBenchmarkTaskPackManifest(): CodingBenchmarkTaskPackManifest {
         difficulty: "hard",
         language: "rust",
         framework: "ha-core",
-        sourceUri: "local://hope-agent/examples/benchmark-corpus/sample-real-project-regression/issues/refactor-003",
+        sourceUri:
+          "local://hope-agent/examples/benchmark-corpus/sample-real-project-regression/issues/refactor-003",
         repoTemplate: "fixture://react-rust-desktop-app",
         tags: ["rust", "benchmark", "validation"],
         successCriteria: [
@@ -4732,7 +5164,8 @@ function sampleBenchmarkTaskPackManifest(): CodingBenchmarkTaskPackManifest {
         difficulty: "easy",
         language: "typescript",
         framework: "i18next",
-        sourceUri: "local://hope-agent/examples/benchmark-corpus/sample-real-project-regression/issues/i18n-004",
+        sourceUri:
+          "local://hope-agent/examples/benchmark-corpus/sample-real-project-regression/issues/i18n-004",
         repoTemplate: "fixture://react-rust-desktop-app",
         tags: ["i18n", "dashboard"],
         successCriteria: [
@@ -4778,11 +5211,9 @@ function formatCampaignItemTarget(
   modelId?: string | null,
   label?: string | null,
 ): string {
-  if (providerId && modelId) return label ? `${label} (${providerId}/${modelId})` : `${providerId}/${modelId}`
-  return (
-    label?.trim() ||
-    t("dashboard.learning.deterministic", { defaultValue: "Deterministic" })
-  )
+  if (providerId && modelId)
+    return label ? `${label} (${providerId}/${modelId})` : `${providerId}/${modelId}`
+  return label?.trim() || t("dashboard.learning.deterministic", { defaultValue: "Deterministic" })
 }
 
 function releaseGateCheckTone(status: string): string {

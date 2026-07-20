@@ -26,6 +26,9 @@ use crate::provider::{AuthProfile, ProviderConfig};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FailoverReason {
+    /// A protected evaluation run reached an immutable trial ceiling. This is
+    /// an application-level terminal outcome, never a Provider retry/failover.
+    EvaluationBudget,
     /// 429 Too Many Requests — retryable on same model
     RateLimit,
     /// 503 Service Unavailable / overloaded — retryable on same model
@@ -45,6 +48,20 @@ pub enum FailoverReason {
 }
 
 impl FailoverReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::EvaluationBudget => "evaluation_budget",
+            Self::RateLimit => "rate_limit",
+            Self::Overloaded => "overloaded",
+            Self::Timeout => "timeout",
+            Self::Auth => "auth",
+            Self::Billing => "billing",
+            Self::ModelNotFound => "model_not_found",
+            Self::ContextOverflow => "context_overflow",
+            Self::Unknown => "unknown",
+        }
+    }
+
     /// Whether this error class should be retried on the **same** model
     /// (with backoff) before moving to the next model in the chain.
     pub fn is_retryable(&self) -> bool {
@@ -55,7 +72,7 @@ impl FailoverReason {
     /// without trying any fallback models.
     /// Note: ContextOverflow is no longer terminal — it triggers compaction first.
     pub fn is_terminal(&self) -> bool {
-        false
+        matches!(self, Self::EvaluationBudget)
     }
 
     /// Whether this error should trigger context compaction before retry.
@@ -96,6 +113,10 @@ impl FailoverReason {
 /// Anthropic, OpenAI, Google, and other LLM APIs.
 pub fn classify_error(error_msg: &str) -> FailoverReason {
     let lower = error_msg.to_lowercase();
+
+    if lower.contains("evaluation budget exhausted") {
+        return FailoverReason::EvaluationBudget;
+    }
 
     // ── Context overflow (terminal — never fallback) ──────────────
     if is_context_overflow(&lower) {
@@ -585,6 +606,13 @@ mod tests {
     #[test]
     fn test_terminal() {
         // ContextOverflow is no longer terminal — it triggers compaction first.
+        assert_eq!(
+            classify_error("evaluation budget exhausted: model_calls"),
+            FailoverReason::EvaluationBudget
+        );
+        assert!(FailoverReason::EvaluationBudget.is_terminal());
+        assert!(!FailoverReason::EvaluationBudget.is_retryable());
+        assert!(!FailoverReason::EvaluationBudget.is_profile_rotatable());
         assert!(!FailoverReason::ContextOverflow.is_terminal());
         assert!(!FailoverReason::RateLimit.is_terminal());
         assert!(!FailoverReason::Unknown.is_terminal());

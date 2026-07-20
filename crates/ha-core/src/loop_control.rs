@@ -1167,6 +1167,14 @@ impl SessionDB {
             );
         }
         emit_loop_event("loop:changed", &schedule);
+        crate::eval_context::record_lifecycle_event(
+            Some(&schedule.session_id),
+            "loop",
+            "loop.schedule.created",
+            Some(&schedule.id),
+            schedule.state.as_str(),
+            0,
+        );
         Ok(schedule)
     }
 
@@ -2208,6 +2216,14 @@ impl SessionDB {
                 Some(&trigger_reason),
             )?;
         }
+        crate::eval_context::record_lifecycle_event(
+            Some(session_id),
+            "loop",
+            "loop.iteration",
+            Some(&run_id),
+            LoopRunState::Running.as_str(),
+            0,
+        );
         Ok(LoopRunDecision::Admit(LoopRunAdmission {
             loop_id: schedule.id,
             run_id,
@@ -2587,6 +2603,14 @@ impl SessionDB {
                 }),
             );
         }
+        crate::eval_context::record_lifecycle_event(
+            Some(&schedule.session_id),
+            "loop",
+            "loop.run.terminal",
+            run_id.as_deref().or(Some(cron_job_id)),
+            state.as_str(),
+            0,
+        );
         let cron_job_disposition = if next_state.is_terminal() {
             LoopCronJobDisposition::Complete
         } else if pause {

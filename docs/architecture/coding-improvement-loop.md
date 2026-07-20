@@ -173,7 +173,7 @@ Phase 4.1 新增确定性 action plan：
 
 | Proposal Kind | Apply 结果 |
 | --- | --- |
-| `eval_candidate` | 在当前 session/project 工作目录下创建 `.hope-agent/coding-improvement/eval-candidates/<slug>.json` 草稿。该 JSON 是可 review 的 eval candidate，不直接写入 `crates/ha-core/tests/fixtures/coding_eval/`。 |
+| `eval_candidate` | 在当前 session/project 工作目录下创建 `.hope-agent/coding-improvement/eval-candidates/<slug>.json` 草稿。该 JSON 是可 review 的 eval candidate，不直接写入 `evals/suites/coding-control-plane/fixtures/`。 |
 | `workflow_template` | 创建 `.hope-agent/coding-improvement/workflows/<slug>.md`，包含 workflow script 草稿和 promotion checklist。 |
 | `guidance_candidate` | 创建 `.hope-agent/coding-improvement/guidance/<slug>.md`，包含信号、建议规则和原始 payload。 |
 | `skill_candidate` | 通过 `skills::author::create_skill` 创建 `~/.hope-agent/skills/ha-learned-*/SKILL.md`，状态为 `draft`，进入既有 Skills 草稿审核流。 |
@@ -206,7 +206,7 @@ Phase 4.2 新增显式 promotion plan：
 
 | Proposal Kind | Promotion 结果 |
 | --- | --- |
-| `eval_candidate` | 把已应用草稿从 `.hope-agent/coding-improvement/eval-candidates/` 晋升到工作目录 `crates/ha-core/tests/fixtures/coding_eval/<slug>.json`。 |
+| `eval_candidate` | 把已应用草稿从 `.hope-agent/coding-improvement/eval-candidates/` 晋升到工作目录 `evals/suites/coding-control-plane/fixtures/<slug>.json`；同一 promotion 自动登记 manifest case、提升 suite patch version，并向 `evals/version-lock.json` 追加新版本 digest。 |
 | `workflow_template` | 把草稿复制到 `.hope-agent/coding-improvement/promoted/workflows/`，并在 `AGENTS.md` managed block 中加入 `@./...` 引用。 |
 | `guidance_candidate` | 把草稿复制到 `.hope-agent/coding-improvement/promoted/guidance/`，并在 `AGENTS.md` managed block 中加入 `@./...` 引用。 |
 | `skill_candidate` | 调 `skills::author::set_skill_status(skill_id, Active)` 激活 managed draft skill。 |
@@ -223,6 +223,7 @@ Phase 4.2 新增显式 promotion plan：
 - 只允许 `applied` / `promotion_failed` proposal 晋升。
 - promotion 先原子 claim 到内部 `promoting`，最终只允许写入 `promoted` / `promotion_failed`。
 - 文件型 promotion 对目标路径 fail-closed：目标不存在时 create-new；目标已存在且内容相同则幂等通过；目标已存在且内容不同则拒绝覆盖。
+- `eval_candidate` 的注册步骤对 preview 时的 manifest/version-lock SHA-256 做 stale-write guard；只允许写 `coding-control-plane`，fixture 必须位于 suite 内且能解析为 `CodingEvalFixture`。manifest 已写但 lock 写入失败时 proposal 保持 `promotion_failed`，重试会识别已登记 case 并只补齐缺失 lock，不能产生第二次版本递增。
 - `AGENTS.md` 只写 managed include block；已有 include 行 no-op，多次 promotion 会插入同一个 managed block。
 - 成功后 `promotion_result_json.artifacts[]` 记录正式产物路径和 hash；失败后 `promotion_result_json.error` 记录原因。
 

@@ -1,0 +1,8 @@
+{
+  "path": "/api/sessions/{sessionId}/goal",
+  "expectedSubset": {
+    "goal": {
+      "state": "completed"
+    }
+  }
+}

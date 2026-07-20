@@ -1,0 +1,9 @@
+{
+  "path": "deliverables/result.json",
+  "expectedSubset": {
+    "scenarioId": "HA-AJ-006",
+    "status": "verified",
+    "inputSha256": "9cbccb9782cf50125aae8b8092691dc0a330bf2333ab2b32d0cc624805099264",
+    "itemCount": 3
+  }
+}

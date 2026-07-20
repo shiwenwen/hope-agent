@@ -1,0 +1,158 @@
+{
+  "schemaVersion": "live-agent-scenario.v1",
+  "id": "HA-AJ-005",
+  "version": "1.5.0",
+  "title": "Incognito purge 后抑制迟到结果和残留",
+  "capabilities": [
+    "async_jobs",
+    "tool"
+  ],
+  "businessDomains": [
+    "control_plane"
+  ],
+  "subject": {
+    "entrypoint": "server",
+    "driver": "async_jobs",
+    "configProfile": "eval-safe-default-v1"
+  },
+  "environment": {
+    "runnerClass": "dedicated_linux",
+    "assets": [
+      "fixtures/task-state.json"
+    ],
+    "services": [],
+    "controlledClock": true
+  },
+  "task": {
+    "promptPath": "fixtures/task.zh-CN.md",
+    "hiddenTruthPath": "verifiers/truth.json",
+    "successSummary": "Incognito purge 后抑制迟到结果和残留"
+  },
+  "userSimulator": {
+    "kind": "scripted_fsm",
+    "scriptPath": "fixtures/user-flow.json",
+    "maxTurns": 2
+  },
+  "milestones": [
+    {
+      "id": "business_artifact",
+      "requires": [],
+      "anyOf": [],
+      "verifier": "business_artifact",
+      "weight": 0.5,
+      "blocking": true
+    },
+    {
+      "id": "terminal_state",
+      "requires": [
+        "business_artifact"
+      ],
+      "anyOf": [],
+      "verifier": "terminal_state",
+      "weight": 0.3,
+      "blocking": true
+    },
+    {
+      "id": "attribution",
+      "requires": [
+        "terminal_state"
+      ],
+      "anyOf": [],
+      "verifier": "required_signals",
+      "weight": 0.2,
+      "blocking": true
+    }
+  ],
+  "faults": [
+    {
+      "id": "primary_fault",
+      "kind": "user_event",
+      "trigger": "purge_before_completion",
+      "params": {
+        "seed": 17,
+        "arm": "faulted"
+      },
+      "maxActivations": 1
+    }
+  ],
+  "verifiers": [
+    {
+      "id": "business_artifact",
+      "kind": "file_assertion",
+      "handler": "file_json_subset",
+      "configPath": "verifiers/output.json",
+      "blocking": true,
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "terminal_state",
+      "kind": "http_assertion",
+      "handler": "hope_state_subset",
+      "configPath": "verifiers/state.json",
+      "blocking": true,
+      "timeoutSeconds": 60
+    },
+    {
+      "id": "required_signals",
+      "kind": "trace_assertion",
+      "handler": "signal_observed",
+      "configPath": "verifiers/signals.json",
+      "blocking": true,
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "trace_closed",
+      "kind": "trace_assertion",
+      "handler": "trace_closed",
+      "blocking": true,
+      "timeoutSeconds": 30
+    }
+  ],
+  "invariants": [
+    {
+      "id": "no_orphan_children",
+      "kind": "parent_child_closed",
+      "blocking": true
+    },
+    {
+      "id": "root_closed_once",
+      "kind": "exactly_once",
+      "event": "session.root.closed",
+      "key": "sessionId",
+      "blocking": true
+    }
+  ],
+  "artifacts": [
+    "deliverables/result.json"
+  ],
+  "budgets": {
+    "maxWallSeconds": 900,
+    "maxModelCalls": 60,
+    "maxInputTokens": 200000,
+    "maxOutputTokens": 50000,
+    "maxCostUsd": 5.5,
+    "maxToolCalls": 120,
+    "maxAgents": 8,
+    "maxConcurrency": 4
+  },
+  "network": {
+    "policy": "provider_only",
+    "allow": []
+  },
+  "privacy": {
+    "classification": "synthetic",
+    "redact": [
+      "authorization",
+      "api_key",
+      "cookie",
+      "tool_arguments.secret"
+    ],
+    "rawTraceRetentionDays": 90
+  },
+  "cadence": [
+    "nightly",
+    "weekly",
+    "release",
+    "monthly"
+  ]
+}

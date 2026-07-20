@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "scripted-user-flow.v1",
+  "turns": [
+    {
+      "message": "我拒绝删除审批。不要删除任何已有文件，请改用非破坏性的输出路径完成任务。",
+      "delayMs": 0
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "scenarioId": "HA-ST-006",
+  "fixtureVersion": "1.7.0",
+  "synthetic": true,
+  "expectedCapabilities": [
+    "subagent",
+    "team",
+    "tool"
+  ],
+  "workItems": [
+    {
+      "id": "HA-ST-006-A",
+      "value": 17,
+      "action": "inspect"
+    },
+    {
+      "id": "HA-ST-006-B",
+      "value": 29,
+      "action": "execute"
+    },
+    {
+      "id": "HA-ST-006-C",
+      "value": 43,
+      "action": "verify"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "eval-suite.v1",
+  "id": "coding-control-plane",
+  "version": "1.0.0",
+  "capability": "coding",
+  "adapter": "coding_fixture_patch",
+  "tiers": ["weekly", "release"],
+  "runnerClass": "hosted_linux",
+  "networkPolicy": "deny",
+  "shards": 2,
+  "timeoutSeconds": 180,
+  "thresholds": { "minPassRate": 1.0 },
+  "cases": [
+    { "id": "coding-control-01", "path": "fixtures/01_rust_control_plane_context.json" },
+    { "id": "coding-control-02", "path": "fixtures/02_docs_sanity_context.json" },
+    { "id": "coding-control-03", "path": "fixtures/03_focused_scope_excludes_unfocused_files.json" },
+    { "id": "coding-control-04", "path": "fixtures/04_workflow_review_verify_host_apis.json" },
+    { "id": "coding-control-05", "path": "fixtures/05_repair_loop_blocks_with_evidence.json" },
+    { "id": "coding-control-06", "path": "fixtures/06_profiles_ide_context_recall.json" },
+    { "id": "coding-control-07", "path": "fixtures/07_improvement_proposal_to_action.json" },
+    { "id": "coding-control-08", "path": "fixtures/08_improvement_retro_and_promotion.json" },
+    { "id": "coding-control-09", "path": "fixtures/09_task_level_eval_runner.json" },
+    { "id": "coding-control-10", "path": "fixtures/10_agent_execution_runner.json" }
+  ]
+}

@@ -15,6 +15,8 @@ pub mod pending;
 pub(crate) mod recall_planner;
 pub mod recall_summary;
 pub mod reembed_job;
+#[cfg(feature = "eval-runner")]
+pub mod retrieval_scale_eval;
 pub mod runtime_config;
 pub(crate) mod selection;
 pub mod sqlite;

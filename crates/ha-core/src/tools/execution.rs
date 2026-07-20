@@ -713,6 +713,11 @@ impl ToolExecContext {
 
     /// Human-readable reason when a tool is blocked by the current restrictions.
     pub async fn tool_visibility_error(&self, name: &str) -> Option<String> {
+        if !crate::eval_context::tool_allowed_for_experiment(self.session_id.as_deref(), name) {
+            return Some(format!(
+                "Evaluation experiment restriction: tool '{name}' is disabled in the compute-matched single-Agent arm."
+            ));
+        }
         if let Some(err) = self.builtin_fate_error(name) {
             return Some(err);
         }

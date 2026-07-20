@@ -552,6 +552,12 @@ pub(crate) async fn inject_and_run_parent(
         }
     };
 
+    // The foreground HTTP turn may already have returned. Keep the dormant
+    // eval root identity alive while this real parent-injection turn runs so
+    // its model/tool calls remain in the originating trial rather than
+    // becoming unattributed background usage.
+    let _eval_injection_guard = crate::eval_context::retain_session(&parent_session_id);
+
     // Write the push user row BEFORE agent.chat() so intermediate rows
     // streamed from the callback land between it and the final assistant
     // row in id order — `parseSessionMessages` on the frontend groups
@@ -678,6 +684,14 @@ pub(crate) async fn inject_and_run_parent(
                     model_label
                 );
                 succeeded = true;
+                crate::eval_context::record_lifecycle_event(
+                    Some(&parent_session_id),
+                    "handoff",
+                    "agent.result_injected",
+                    Some(&run_id),
+                    "completed",
+                    0,
+                );
                 // G1: deliver the mirrored injection turn to IM (per imReplyMode).
                 // Awaited so it completes before this current-thread runtime drops.
                 if let Some(state) = injection_mirror {

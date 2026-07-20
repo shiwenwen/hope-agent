@@ -988,6 +988,118 @@ fn layer_order(layer: &str) -> usize {
     }
 }
 
+#[cfg(feature = "eval-runner")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceFusionScaleEvalReport {
+    pub passed: bool,
+    pub candidates: usize,
+    pub selected: usize,
+    pub unique_selected: usize,
+    pub elapsed_ms: f64,
+    pub failures: Vec<String>,
+}
+
+/// Exercise source-fusion ranking at realistic scale without compiling the
+/// former ignored benchmark into the default test harness.
+#[cfg(feature = "eval-runner")]
+pub fn run_source_fusion_scale_eval() -> SourceFusionScaleEvalReport {
+    let candidate_count = std::env::var("HA_MEMORY_BENCH_CANDIDATES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(100_000)
+        .clamp(10_000, 1_000_000);
+    let origins = ["active_memory", "graph", "experience", "knowledge"];
+    let mut refs = Vec::with_capacity(candidate_count + 2);
+    for (origin, role) in [("static_memory", "injected"), ("active_memory", "selected")] {
+        refs.push(UsedMemoryRef {
+            kind: "memory".to_string(),
+            id: format!("{origin}-fact"),
+            source_type: "benchmark".to_string(),
+            scope: "global".to_string(),
+            origin: origin.to_string(),
+            role: role.to_string(),
+            preview: "already present prompt fact".to_string(),
+            path: None,
+            line: None,
+            col: None,
+            heading_path: None,
+            block_id: None,
+            score: None,
+            confidence: None,
+            salience: None,
+        });
+    }
+    for index in 0..candidate_count {
+        let origin = origins[index % origins.len()];
+        let unique_span = candidate_count.saturating_mul(4).saturating_div(5).max(1);
+        refs.push(UsedMemoryRef {
+            kind: if origin == "experience" && index % 2 == 0 {
+                "procedure"
+            } else {
+                "claim"
+            }
+            .to_string(),
+            id: format!("item-{:08}", index % unique_span),
+            source_type: "benchmark".to_string(),
+            scope: match index % 5 {
+                0 => "project:p1",
+                1 | 2 => "agent:a1",
+                _ => "global",
+            }
+            .to_string(),
+            origin: origin.to_string(),
+            role: "candidate".to_string(),
+            preview: "bounded benchmark preview".to_string(),
+            path: None,
+            line: None,
+            col: None,
+            heading_path: None,
+            block_id: None,
+            score: Some((index % 100) as f32 / 100.0),
+            confidence: Some((index % 97) as f32 / 97.0),
+            salience: Some((index % 89) as f32 / 89.0),
+        });
+    }
+    let context = RetrievalPlannerDecisionContext::for_query(
+        "How do I run the release workflow?",
+        RetrievalPlannerRefBudget::default(),
+        true,
+    );
+    let started = std::time::Instant::now();
+    let selected = select_refs_for_trace_with_context(refs, context);
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    let unique_selected = selected
+        .iter()
+        .map(canonical_item_key)
+        .collect::<HashSet<_>>()
+        .len();
+    let mut failures = Vec::new();
+    if selected.len() > DEFAULT_MAX_TRACE_REFS {
+        failures.push(format!(
+            "selected {} refs, max {DEFAULT_MAX_TRACE_REFS}",
+            selected.len()
+        ));
+    }
+    if unique_selected != selected.len() {
+        failures.push("canonical-dedup left duplicate selected refs".to_string());
+    }
+    if selected.first().is_none_or(|item| item.role != "injected") {
+        failures.push("injected prompt fact was reordered or removed".to_string());
+    }
+    if selected.get(1).is_none_or(|item| item.role != "selected") {
+        failures.push("selected prompt fact was reordered or removed".to_string());
+    }
+    SourceFusionScaleEvalReport {
+        passed: failures.is_empty(),
+        candidates: candidate_count,
+        selected: selected.len(),
+        unique_selected,
+        elapsed_ms,
+        failures,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1486,6 +1598,7 @@ mod tests {
         assert_eq!(layer.skipped_reason, None);
     }
 
+    #[cfg(feature = "eval-internal-tests")]
     #[test]
     #[ignore = "opt-in scale benchmark; run pnpm memory:benchmark"]
     fn benchmark_source_fusion_with_one_hundred_thousand_candidates() {

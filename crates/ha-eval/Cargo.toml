@@ -1,0 +1,48 @@
+[package]
+name = "ha-eval"
+version = "0.20.0"
+description = "Standalone deterministic capability evaluation runner for Hope Agent"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "hope-agent-eval"
+path = "src/main.rs"
+
+[dependencies]
+ha-core = { path = "../ha-core" }
+ha-eval-spec = { path = "../ha-eval-spec" }
+anyhow = { workspace = true }
+axum = "0.8"
+base64 = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+ring = "0.17"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3"
+tokio = { workspace = true }
+zip = "7"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+  "Win32_Foundation",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true
+
+[features]
+# Normal CLI/Sidecar builds contain every deterministic adapter. PR smoke
+# builds disable defaults so they can reuse ha-core's ordinary feature set.
+default = ["full-runner"]
+full-runner = ["ha-core/eval-runner"]

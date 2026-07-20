@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hope-agent.local/evals/model-campaign-plan-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "campaignId",
+    "planDigest",
+    "reference",
+    "tier",
+    "policyId",
+    "policyVersion",
+    "policyDigest",
+    "runnerDigest",
+    "appVersion",
+    "campaignBudget",
+    "models",
+    "suites",
+    "trials"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "model-campaign-plan.v1" },
+    "campaignId": { "type": "string" },
+    "planDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "reference": { "type": "string" },
+    "tier": { "enum": ["nightly", "weekly", "release", "monthly"] },
+    "policyId": { "type": "string" },
+    "policyVersion": { "type": "string" },
+    "policyDigest": { "type": "string" },
+    "runnerDigest": { "type": "string" },
+    "appVersion": { "type": "string" },
+    "campaignBudget": { "type": "object" },
+    "models": { "type": "array", "minItems": 1 },
+    "suites": { "type": "array", "minItems": 1 },
+    "trials": { "type": "array", "minItems": 1 }
+  }
+}

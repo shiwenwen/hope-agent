@@ -34,6 +34,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{LazyLock, Mutex};
+use std::time::Instant;
 
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -58,6 +59,10 @@ pub struct PreparedJob {
     pub max_secs: u64,
     pub preview_bytes: usize,
     pub cancel_token: CancellationToken,
+    pub enqueued_at: Instant,
+    /// Keeps real-model evaluation attribution registered while a queued or
+    /// running job outlives its foreground chat turn.
+    pub eval_guard: Option<crate::eval_context::EvalSessionGuard>,
 }
 
 impl PreparedJob {
@@ -443,6 +448,8 @@ mod tests {
             max_secs: 0,
             preview_bytes: 0,
             cancel_token: CancellationToken::new(),
+            enqueued_at: Instant::now(),
+            eval_guard: None,
         };
         m.queue.push_back(mk("a"));
         m.queue.push_back(mk("b"));

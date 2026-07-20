@@ -1,6 +1,8 @@
 use anyhow::{bail, Result};
 use arc_swap::ArcSwap;
-use serde::Serialize;
+use base64::Engine as _;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -8,6 +10,61 @@ use std::time::{Duration, Instant};
 use crate::paths;
 
 use super::AppConfig;
+
+const MODEL_EVAL_CODEX_OAUTH_ENV: &str = "HA_MODEL_EVAL_LOCAL_CODEX_OAUTH";
+const MODEL_EVAL_CODEX_SECRET_SCHEMA: &str = "model-eval-codex-oauth.v1";
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ModelEvalCodexSecret {
+    schema_version: String,
+    access_token: String,
+    account_id: String,
+    expires_at_ms: u64,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ModelEvalCodexCredential {
+    pub access_token: String,
+    pub account_id: String,
+    pub expires_at_ms: u64,
+}
+
+pub(crate) fn encode_model_eval_codex_secret(
+    access_token: &str,
+    account_id: &str,
+    expires_at_ms: u64,
+) -> Result<String> {
+    validate_model_eval_codex_credential(access_token, account_id, expires_at_ms)?;
+    Ok(serde_json::to_string(&ModelEvalCodexSecret {
+        schema_version: MODEL_EVAL_CODEX_SECRET_SCHEMA.to_string(),
+        access_token: access_token.to_string(),
+        account_id: account_id.to_string(),
+        expires_at_ms,
+    })?)
+}
+
+fn validate_model_eval_codex_credential(
+    access_token: &str,
+    account_id: &str,
+    expires_at_ms: u64,
+) -> Result<()> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    if access_token.len() < 24
+        || access_token.len() > 16 * 1024
+        || account_id.is_empty()
+        || account_id.len() > 512
+        || expires_at_ms <= now_ms
+        || access_token.contains(['\0', '\r', '\n'])
+        || account_id.contains(['\0', '\r', '\n'])
+    {
+        bail!("model evaluation Codex OAuth credential has an invalid shape");
+    }
+    Ok(())
+}
 
 // ── Persistence ───────────────────────────────────────────────────
 
@@ -330,6 +387,137 @@ fn read_from_disk() -> Result<AppConfig> {
     read_from_path_and_persist_migrations(&path)
 }
 
+/// Load the credential-free evaluation config, consume the one-shot Provider
+/// secret bundle, and atomically replace the process-local cache. API keys are
+/// overlaid into the credential-free config; a local-App Codex access token is
+/// returned so the caller can seed the process cache after runtime init. Call
+/// this before runtime initialization starts background workers. Unlike the
+/// normal lazy config loader, errors are returned to the caller and must abort
+/// the isolated evaluation server instead of silently falling back to defaults.
+pub fn initialize_model_eval_provider_secrets() -> Result<Option<ModelEvalCodexCredential>> {
+    if std::env::var("HA_MODEL_EVAL_MODE").as_deref() != Ok("1") {
+        return Ok(None);
+    }
+    let mut config = load_config()?;
+    if config
+        .providers
+        .iter()
+        .any(|provider| !provider.api_key.is_empty() || !provider.auth_profiles.is_empty())
+        || config
+            .server
+            .api_key
+            .as_deref()
+            .is_some_and(|key| !key.is_empty())
+        || config
+            .server
+            .knowledge_agent_read_token
+            .as_deref()
+            .is_some_and(|token| !token.is_empty())
+    {
+        bail!("model evaluation config must not persist Provider or server credentials");
+    }
+    let codex_token = apply_model_eval_provider_secrets(&mut config)?;
+    cache().store(Arc::new(config));
+    Ok(codex_token)
+}
+
+/// Overlay Provider credentials into the in-memory config of an isolated
+/// model-evaluation server. The committed/runtime config must keep `apiKey`
+/// empty; the runner passes a base64-encoded JSON object mapping provider IDs
+/// to API keys. Local App diagnostics may instead use a tagged Codex OAuth
+/// access-token value when the separate local-only opt-in is present. Refresh
+/// tokens are never accepted. The environment values are consumed before any
+/// Agent tool can be spawned, so child processes cannot inherit them.
+///
+/// This path is deliberately unavailable to normal product processes and
+/// never mutates the on-disk config. Evaluation servers also reject config
+/// writes while the overlay is active, preventing an in-memory key from being
+/// persisted accidentally.
+fn apply_model_eval_provider_secrets(
+    config: &mut AppConfig,
+) -> Result<Option<ModelEvalCodexCredential>> {
+    const ENV: &str = "HA_MODEL_EVAL_PROVIDER_SECRETS_B64";
+    if std::env::var("HA_MODEL_EVAL_MODE").as_deref() != Ok("1") {
+        return Ok(None);
+    }
+    let allow_local_codex = std::env::var(MODEL_EVAL_CODEX_OAUTH_ENV).as_deref() == Ok("1");
+    std::env::remove_var(MODEL_EVAL_CODEX_OAUTH_ENV);
+    let Some(encoded) = std::env::var_os(ENV) else {
+        return Ok(None);
+    };
+    std::env::remove_var(ENV);
+    let encoded = encoded
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("model evaluation Provider secret bundle is not UTF-8"))?;
+    if encoded.len() > 128 * 1024 {
+        bail!("model evaluation Provider secret bundle is too large");
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .map_err(|_| anyhow::anyhow!("model evaluation Provider secret bundle is not base64"))?;
+    let secrets: BTreeMap<String, String> = serde_json::from_slice(&bytes).map_err(|_| {
+        anyhow::anyhow!("model evaluation Provider secret bundle is not a JSON object")
+    })?;
+    if secrets.is_empty() || secrets.len() > 16 {
+        bail!("model evaluation Provider secret bundle has an invalid provider count");
+    }
+    let mut codex_token = None;
+    for (provider_id, secret) in secrets {
+        if provider_id.is_empty()
+            || provider_id.len() > 128
+            || secret.trim().is_empty()
+            || secret.len() > 32 * 1024
+        {
+            bail!("model evaluation Provider secret bundle contains an invalid entry");
+        }
+        let provider = config
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == provider_id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "model evaluation Provider secret references an unconfigured provider"
+                )
+            })?;
+        if !provider.api_key.is_empty() || !provider.auth_profiles.is_empty() {
+            bail!("model evaluation config must not persist Provider credentials");
+        }
+        if provider.api_type.is_codex() {
+            if !allow_local_codex {
+                bail!("Codex OAuth credentials are allowed only for local App diagnostics");
+            }
+            let parsed: ModelEvalCodexSecret = serde_json::from_str(&secret)
+                .map_err(|_| anyhow::anyhow!("model evaluation Codex OAuth secret is invalid"))?;
+            if parsed.schema_version != MODEL_EVAL_CODEX_SECRET_SCHEMA {
+                bail!("model evaluation Codex OAuth secret schema is unsupported");
+            }
+            validate_model_eval_codex_credential(
+                &parsed.access_token,
+                &parsed.account_id,
+                parsed.expires_at_ms,
+            )?;
+            let credential = ModelEvalCodexCredential {
+                access_token: parsed.access_token,
+                account_id: parsed.account_id,
+                expires_at_ms: parsed.expires_at_ms,
+            };
+            if codex_token
+                .as_ref()
+                .is_some_and(|current| current != &credential)
+            {
+                bail!("one evaluation process cannot use multiple Codex OAuth identities");
+            }
+            codex_token = Some(credential);
+        } else {
+            if secret.len() > 16 * 1024 {
+                bail!("model evaluation Provider API key is too large");
+            }
+            provider.api_key = secret;
+        }
+    }
+    Ok(codex_token)
+}
+
 fn read_from_path_and_persist_migrations(path: &Path) -> Result<AppConfig> {
     let (config, migrations) = read_from_path_with_migrations(path)?;
     if migrations.changed() {
@@ -485,6 +673,9 @@ fn save_config_with_change(
     change_category: &str,
     change_source: Option<&str>,
 ) -> Result<()> {
+    if std::env::var("HA_MODEL_EVAL_MODE").as_deref() == Ok("1") {
+        bail!("configuration writes are disabled in isolated model evaluation mode");
+    }
     let path = config_path()?;
     ensure_no_initial_load_failure_for_write()?;
     if path.exists() {
@@ -628,6 +819,145 @@ pub fn reload_cache_from_disk() -> Result<()> {
 #[cfg(test)]
 mod parse_tests {
     use super::*;
+
+    #[test]
+    fn model_eval_provider_secret_is_memory_only_and_consumed() {
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(r#"{"eval-anchor":"sk-eval-only"}"#);
+        crate::test_support::with_env_vars(
+            &[
+                ("HA_MODEL_EVAL_MODE", Path::new("1")),
+                ("HA_MODEL_EVAL_PROVIDER_SECRETS_B64", Path::new(&encoded)),
+            ],
+            || {
+                let mut provider = crate::provider::ProviderConfig::new(
+                    "Eval".to_string(),
+                    crate::provider::ApiType::OpenaiResponses,
+                    "https://api.openai.com".to_string(),
+                    String::new(),
+                );
+                provider.id = "eval-anchor".to_string();
+                let mut config = AppConfig {
+                    providers: vec![provider],
+                    ..AppConfig::default()
+                };
+
+                apply_model_eval_provider_secrets(&mut config).expect("apply eval secret");
+
+                assert_eq!(config.providers[0].api_key, "sk-eval-only");
+                assert!(std::env::var_os("HA_MODEL_EVAL_PROVIDER_SECRETS_B64").is_none());
+                assert!(save_config(&config).is_err());
+            },
+        );
+    }
+
+    #[test]
+    fn local_model_eval_codex_secret_returns_only_an_in_memory_access_token() {
+        let access_token = "codex-access-token-for-isolated-local-eval";
+        let account_id = "account-eval-only";
+        let expires_at_ms = (chrono::Utc::now().timestamp_millis() as u64) + 3_600_000;
+        let codex_secret = encode_model_eval_codex_secret(access_token, account_id, expires_at_ms)
+            .expect("encode Codex eval secret");
+        let encoded = base64::engine::general_purpose::STANDARD.encode(
+            serde_json::to_vec(&BTreeMap::from([("eval-codex", codex_secret)]))
+                .expect("encode Provider map"),
+        );
+        crate::test_support::with_env_vars(
+            &[
+                ("HA_MODEL_EVAL_MODE", Path::new("1")),
+                ("HA_MODEL_EVAL_LOCAL_CODEX_OAUTH", Path::new("1")),
+                ("HA_MODEL_EVAL_PROVIDER_SECRETS_B64", Path::new(&encoded)),
+            ],
+            || {
+                let mut provider = crate::provider::ProviderConfig::new(
+                    "Eval Codex".to_string(),
+                    crate::provider::ApiType::Codex,
+                    crate::provider::ApiType::Codex
+                        .default_base_url()
+                        .to_string(),
+                    String::new(),
+                );
+                provider.id = "eval-codex".to_string();
+                let mut config = AppConfig {
+                    providers: vec![provider],
+                    ..AppConfig::default()
+                };
+
+                let resolved = apply_model_eval_provider_secrets(&mut config)
+                    .expect("apply local Codex eval secret");
+
+                assert!(
+                    resolved
+                        == Some(ModelEvalCodexCredential {
+                            access_token: access_token.to_string(),
+                            account_id: account_id.to_string(),
+                            expires_at_ms,
+                        })
+                );
+                assert!(config.providers[0].api_key.is_empty());
+                assert!(config.providers[0].auth_profiles.is_empty());
+                assert!(std::env::var_os("HA_MODEL_EVAL_LOCAL_CODEX_OAUTH").is_none());
+                assert!(std::env::var_os("HA_MODEL_EVAL_PROVIDER_SECRETS_B64").is_none());
+            },
+        );
+    }
+
+    #[test]
+    fn protected_model_eval_rejects_codex_oauth_without_local_opt_in() {
+        let expires_at_ms = (chrono::Utc::now().timestamp_millis() as u64) + 3_600_000;
+        let codex_secret = encode_model_eval_codex_secret(
+            "codex-access-token-for-isolated-local-eval",
+            "account-eval-only",
+            expires_at_ms,
+        )
+        .expect("encode Codex eval secret");
+        let encoded = base64::engine::general_purpose::STANDARD.encode(
+            serde_json::to_vec(&BTreeMap::from([("eval-codex", codex_secret)]))
+                .expect("encode Provider map"),
+        );
+        crate::test_support::with_env_vars(
+            &[
+                ("HA_MODEL_EVAL_MODE", Path::new("1")),
+                ("HA_MODEL_EVAL_PROVIDER_SECRETS_B64", Path::new(&encoded)),
+            ],
+            || {
+                let mut provider = crate::provider::ProviderConfig::new(
+                    "Eval Codex".to_string(),
+                    crate::provider::ApiType::Codex,
+                    crate::provider::ApiType::Codex
+                        .default_base_url()
+                        .to_string(),
+                    String::new(),
+                );
+                provider.id = "eval-codex".to_string();
+                let mut config = AppConfig {
+                    providers: vec![provider],
+                    ..AppConfig::default()
+                };
+
+                let error = apply_model_eval_provider_secrets(&mut config)
+                    .err()
+                    .expect("protected runner must reject Codex OAuth");
+                assert!(error
+                    .to_string()
+                    .contains("allowed only for local App diagnostics"));
+            },
+        );
+    }
+
+    #[test]
+    fn model_eval_codex_secret_rejects_expired_access_token() {
+        let expired_at_ms = (chrono::Utc::now().timestamp_millis() as u64).saturating_sub(1);
+        let error = encode_model_eval_codex_secret(
+            "codex-access-token-for-isolated-local-eval",
+            "account-eval-only",
+            expired_at_ms,
+        )
+        .expect_err("expired Codex access token must fail before process launch");
+        assert!(error
+            .to_string()
+            .contains("credential has an invalid shape"));
+    }
 
     #[test]
     fn plain_json_parses() {

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hope-agent.dev/eval/policy-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "version",
+    "tier",
+    "mode",
+    "allowedAdapters",
+    "suites",
+    "performanceBlocking",
+    "maxDurationSeconds"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "eval-policy.v1" },
+    "id": { "type": "string" },
+    "version": { "type": "string" },
+    "tier": { "enum": ["weekly", "release"] },
+    "mode": { "enum": ["advisory", "enforce"] },
+    "allowedAdapters": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "coding_fixture_patch",
+          "coding_gold_fixture_patch",
+          "domain_trace_fixture",
+          "dreaming_golden",
+          "memory_retrieval_scale"
+        ]
+      }
+    },
+    "suites": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "minPassRate"],
+        "properties": {
+          "id": { "type": "string" },
+          "minPassRate": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "performanceBlocking": { "const": false },
+    "maxDurationSeconds": { "type": "integer", "minimum": 1 }
+  }
+}

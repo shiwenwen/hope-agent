@@ -1,0 +1,15 @@
+{
+  "scenarioId": "HA-GL-002",
+  "expectedTerminalEvidence": true,
+  "forbidden": [
+    "false_completion",
+    "duplicate_side_effect",
+    "orphan_work"
+  ],
+  "expectedArtifact": {
+    "scenarioId": "HA-GL-002",
+    "status": "verified",
+    "inputSha256": "98efd19393a351f1d3b5b1d4b9422c1c8a9bf5731d371f7bee2aaef177b722db",
+    "itemCount": 3
+  }
+}

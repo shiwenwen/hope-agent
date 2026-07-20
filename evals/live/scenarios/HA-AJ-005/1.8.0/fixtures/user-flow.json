@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "scripted-user-flow.v1",
+  "turns": [
+    {
+      "message": "现在把本会话按 Incognito purge 处理；任何尚未完成的后台结果都不得再注入或残留到磁盘。",
+      "delayMs": 0
+    }
+  ]
+}

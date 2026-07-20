@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "eval-suite.v1",
+  "id": "memory-retrieval-scale",
+  "version": "1.0.0",
+  "capability": "memory",
+  "adapter": "memory_retrieval_scale",
+  "tiers": ["weekly", "release"],
+  "runnerClass": "hosted_linux",
+  "networkPolicy": "deny",
+  "shards": 1,
+  "timeoutSeconds": 900,
+  "thresholds": {
+    "qualityBlocking": true,
+    "latencyBlocking": false,
+    "advisoryP95Ms": 250
+  },
+  "cases": [
+    { "id": "source-fusion-scale", "timeoutSeconds": 180 },
+    { "id": "sqlite-hybrid-scale", "timeoutSeconds": 900 }
+  ]
+}

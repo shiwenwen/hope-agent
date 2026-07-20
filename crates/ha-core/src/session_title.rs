@@ -174,9 +174,23 @@ fn maybe_schedule(
     if !claim_title_generation(&session_id) {
         return;
     }
+    let lease = TitleGenerationLease(session_id.clone());
+    let eval_model_guard = match crate::eval_context::retain_model_automation(&session_id) {
+        Ok(guard) => guard,
+        Err(error) => {
+            app_warn!(
+                "session",
+                "title_generate",
+                "Skipping evaluation title generation at its immutable budget: {}",
+                error
+            );
+            return;
+        }
+    };
 
     std::thread::spawn(move || {
-        let _lease = TitleGenerationLease(session_id.clone());
+        let _lease = lease;
+        let _eval_model_guard = eval_model_guard;
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

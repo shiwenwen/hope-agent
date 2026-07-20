@@ -113,6 +113,15 @@ pub(crate) async fn spawn_subagent_with_run_id(
             .await?
     };
     let child_session_id = child_session.id.clone();
+    let eval_child_guard = match crate::eval_context::context_for_session(&params.parent_session_id)
+    {
+        Some(context) => Some(crate::eval_context::register_child_session_from_parent(
+            &params.parent_session_id,
+            &child_session_id,
+            context,
+        )?),
+        None => None,
+    };
 
     // Set a descriptive title for the sub-agent session
     let task_preview = truncate_str(&params.task, 50);
@@ -285,6 +294,8 @@ pub(crate) async fn spawn_subagent_with_run_id(
             run_id: run_id.clone(),
             child_session_id,
             effective_group_id,
+            enqueued_at: std::time::Instant::now(),
+            eval_guard: eval_child_guard,
         }) {
             // Lost the cap race after the earlier check — settle the row and
             // drop the just-registered flag so we never leave a dangling
@@ -310,6 +321,8 @@ pub(crate) async fn spawn_subagent_with_run_id(
         run_id.clone(),
         child_session_id,
         effective_group_id,
+        eval_child_guard,
+        0,
         session_db,
         cancel_registry,
     );
@@ -326,11 +339,18 @@ pub(crate) fn launch_subagent_run(
     run_id: String,
     child_session_id: String,
     effective_group_id: Option<String>,
+    eval_child_guard: Option<crate::eval_context::EvalSessionGuard>,
+    queue_wait_ms: u64,
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
 ) {
     let task_preview = truncate_str(&params.task, 50);
-
+    crate::eval_context::record_queue_wait(
+        Some(&child_session_id),
+        "subagent",
+        &run_id,
+        queue_wait_ms,
+    );
     // 6. Register cancel flag and steer mailbox slot
     let cancel_flag = cancel_registry.register(&run_id);
     SUBAGENT_MAILBOX.register(&run_id);
@@ -399,6 +419,17 @@ pub(crate) fn launch_subagent_run(
     let origin_channel_kb_context = params.origin_channel_kb_context.clone();
 
     tokio::spawn(async move {
+        // Keeps campaign attribution alive across the child task's complete
+        // lifecycle, including timeout/cancel/final injection cleanup.
+        let _eval_child_guard = eval_child_guard;
+        if let Some(fault) = crate::eval_context::scheduler_fault_action(
+            Some(&child_session_id_clone),
+            &run_id_clone,
+        ) {
+            if fault.delay_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(fault.delay_ms)).await;
+            }
+        }
         let start = std::time::Instant::now();
 
         // Update status to Running

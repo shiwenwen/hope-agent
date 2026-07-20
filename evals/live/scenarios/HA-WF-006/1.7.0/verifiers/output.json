@@ -1,0 +1,9 @@
+{
+  "path": "deliverables/result.json",
+  "expectedSubset": {
+    "scenarioId": "HA-WF-006",
+    "status": "verified",
+    "inputSha256": "b10e60df7cf995501022da3b158f1a716c27f4c4bccd8ed4f5750d628911a243",
+    "itemCount": 3
+  }
+}

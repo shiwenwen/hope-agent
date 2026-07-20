@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "scripted-user-flow.v1",
+  "turns": [
+    {
+      "message": "现在暂停这个 Workflow；确认暂停后不要启动新的节点。",
+      "delayMs": 0
+    },
+    {
+      "message": "现在恢复刚才的 Workflow，只继续尚未完成的节点。",
+      "delayMs": 0
+    },
+    {
+      "message": "现在取消整个 Workflow；取消必须传播到仍在运行或排队的后台工作。",
+      "delayMs": 0
+    }
+  ]
+}

@@ -48,8 +48,8 @@ Phase 3.7 先把“可确定性回归”的能力钉住；Phase 3.8 继续把 wo
 | 位置 | 说明 |
 | --- | --- |
 | `crates/ha-core/src/coding_eval.rs` | 确定性 fixture harness，供测试和后续报告复用。 |
-| `crates/ha-core/tests/coding_eval.rs` | 集成测试入口，加载全部 fixture 并聚合失败信息。 |
-| `crates/ha-core/tests/fixtures/coding_eval/*.json` | Phase 3.7-5.2 控制面、执行与任务级 JSON fixture；Phase 5.5+ Gold Task Pack 与 mock tool-call baseline 由 `coding_eval.rs` typed registry / unit fixture 生成。 |
+| `crates/ha-eval` | 独立专项评测入口；完整 fixture/Gold Pack 不进入默认 Cargo test。 |
+| `evals/suites/coding-control-plane/fixtures/*.json` | Phase 3.7-5.2 控制面、执行与任务级 canonical JSON fixture；Phase 5.5+ Gold Task Pack case 由 suite manifest 锁定、typed registry 物化。 |
 | `run_coding_task_eval_fixture` | Owner-plane Tauri command；输入完整 fixture JSON，返回 `FixtureReport`。 |
 | `POST /api/coding-eval/task-fixtures/run` | HTTP owner API；body 为 `{ "fixture": ... }`，返回同一 `FixtureReport`。 |
 | `list_coding_eval_gold_tasks` | Owner-plane Tauri command；返回内置 Gold Task Pack 的 case summary。 |
@@ -94,8 +94,12 @@ Phase 3.7 先把“可确定性回归”的能力钉住；Phase 3.8 继续把 wo
 运行方式：
 
 ```bash
-cargo test -p ha-core --test coding_eval --locked
+cargo run -p ha-eval --locked -- validate
+cargo run -p ha-eval --locked -- plan --tier weekly --ref "$(git rev-parse HEAD)" --output /tmp/hope-agent-eval-plan.json
+cargo run -p ha-eval --locked -- run --plan /tmp/hope-agent-eval-plan.json --suite coding-control-plane --shard 1/2 --output /tmp/coding-control-plane-1.json
 ```
+
+完整 Coding fixture / Gold Tasks 属于专项评测，不再作为 `ha-core` 默认 Cargo test target 编译或运行。
 
 ## Fixture 模型
 

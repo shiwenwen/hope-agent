@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hope-agent.local/evals/model-campaign-suite-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "version",
+    "capability",
+    "adapter",
+    "tiers",
+    "runnerClass",
+    "networkPolicy",
+    "executionMode",
+    "scorer",
+    "cases"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "model-campaign-suite.v1" },
+    "id": { "type": "string" },
+    "version": { "type": "string" },
+    "capability": { "type": "string" },
+    "adapter": {
+      "enum": [
+        "hope_core_scenario",
+        "bfcl_v4",
+        "appworld",
+        "gaia2",
+        "terminal_bench",
+        "tau3",
+        "teambench",
+        "cooperbench",
+        "mcpmark",
+        "osworld"
+      ]
+    },
+    "tiers": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["nightly", "weekly", "release", "monthly"] }
+    },
+    "runnerClass": {
+      "enum": [
+        "hosted_linux",
+        "docker_linux",
+        "dedicated_linux",
+        "desktop_vm",
+        "isolated_external_service"
+      ]
+    },
+    "networkPolicy": {
+      "enum": ["provider_only", "allowlist", "sandbox_local", "live_web"]
+    },
+    "executionMode": { "enum": ["native_provider", "bridged_provider"] },
+    "repetitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nightly": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "weekly": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "release": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "monthly": { "type": "integer", "minimum": 1, "maximum": 20 }
+      }
+    },
+    "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 7200 },
+    "shards": { "type": "integer", "minimum": 1, "maximum": 64 },
+    "budget": { "type": "object" },
+    "scorer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hardVerifier"],
+      "properties": {
+        "hardVerifier": { "type": "string" },
+        "milestones": { "type": "boolean" },
+        "trajectoryRules": { "type": "boolean" },
+        "llmJudge": { "type": "boolean" }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scenarioPath"],
+        "properties": {
+          "id": { "type": "string" },
+          "scenarioPath": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "modelRoles": { "type": "array", "items": { "type": "string" } },
+          "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 7200 },
+          "repetitions": { "type": "integer", "minimum": 1, "maximum": 20 },
+          "arms": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "contains": { "const": "control" },
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

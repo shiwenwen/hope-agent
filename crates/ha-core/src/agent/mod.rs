@@ -18,6 +18,8 @@ mod providers;
 mod related_notes;
 pub mod resolver;
 pub(crate) mod retrieval_planner;
+#[cfg(feature = "eval-runner")]
+pub use retrieval_planner::{run_source_fusion_scale_eval, SourceFusionScaleEvalReport};
 pub(crate) mod runtime_ledger;
 mod side_query;
 mod side_query_stream;
@@ -568,9 +570,10 @@ impl AssistantAgent {
 
     /// Like [`try_new_from_provider_with_profile`] but accepts an in-memory
     /// `(access_token, account_id)` hint that will be used for Codex providers
-    /// when present, before falling back to disk via `load_fresh_codex_token`.
-    /// Used by the desktop entry point so a valid token cached in memory after
-    /// OAuth still works when the on-disk copy could not be written.
+    /// when present, before falling back to the shared
+    /// `load_fresh_codex_token` resolver. In an isolated local evaluation that
+    /// resolver uses only the short-lived process cache; normal runtimes use
+    /// the refreshable on-disk OAuth state.
     pub async fn try_new_from_provider_with_codex_hint(
         config: &ProviderConfig,
         model_id: &str,
@@ -3498,6 +3501,12 @@ impl AssistantAgent {
         if !self.subagent_depth_allows_subagent() {
             schemas.retain(|t| extract_tool_name(t) != tools::TOOL_SUBAGENT);
         }
+        schemas.retain(|schema| {
+            crate::eval_context::tool_allowed_for_experiment(
+                self.session_id.as_deref(),
+                tools::canonical_tool_schema_name(extract_tool_name(schema)),
+            )
+        });
 
         if caps.mcp_enabled && app_config.mcp_global.enabled {
             if let Some(mcp) = crate::mcp::McpManager::global() {

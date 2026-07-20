@@ -4,6 +4,8 @@ members = [
     "crates/ha-core",
     "crates/ha-server",
     "crates/ha-browser-host",
+    "crates/ha-eval-spec",
+    "crates/ha-eval",
 ]
 resolver = "2"
 
@@ -120,6 +122,7 @@ futures-util = "0.3"
 # standalone SSE client, so ha-core owns the handshake.
 sse-stream = "0.2"
 sha2 = "0.10"
+clap = { version = "4", features = ["derive"] }
 base64 = "0.22"
 dirs = "6"
 rand = "0.9"
@@ -166,6 +169,19 @@ strip = "symbols"
 # abort 会让单个 hook / 子 agent 的 panic 直接杀掉整个进程。保持默认 unwind。
 # codegen-units=1 不在此设：只在 release-tag CI 经 CARGO_PROFILE_RELEASE_CODEGEN_UNITS
 # env 覆盖，避免 Docker / 日常 release 构建被串行化拖慢（见 release.yml）。
+
+# The desktop bundle carries `hope-agent-eval` as an isolated Sidecar.  It
+# links ha-core for registered evaluators, while the latency-sensitive Agent
+# itself runs in the separately packaged Hope product binary.  Whole-program
+# size optimization therefore removes otherwise retained ha-core code without
+# slowing the product binary or changing the normal release/CI profile.
+[profile.eval-sidecar]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
 
 [profile.dev]
 # 自身 crate 仍可调试，但 debuginfo 从 full(2) 降到 line-tables-only(1)：

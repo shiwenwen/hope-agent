@@ -17,6 +17,7 @@ const haCoreCargoTomlPath = path.join(rootDir, "crates", "ha-core", "Cargo.toml"
 // ha-browser-host ships in desktop bundles and bare-binary archives
 // (updater extra_binaries) and reports hostVersion from CARGO_PKG_VERSION.
 const browserHostCargoTomlPath = path.join(rootDir, "crates", "ha-browser-host", "Cargo.toml")
+const haEvalCargoTomlPath = path.join(rootDir, "crates", "ha-eval", "Cargo.toml")
 
 const args = process.argv.slice(2)
 let expectedTag = null
@@ -59,10 +60,18 @@ if (!browserHostVersionMatch) {
   process.exit(1)
 }
 
+const haEvalCargoToml = readFileSync(haEvalCargoTomlPath, "utf8")
+const haEvalVersionMatch = haEvalCargoToml.match(/^version = "(.*)"$/m)
+if (!haEvalVersionMatch) {
+  console.error("[release:verify] could not read crates/ha-eval/Cargo.toml version")
+  process.exit(1)
+}
+
 const cargoLock = readFileSync(cargoLockPath, "utf8")
 const cargoLockHopeAgentMatch = cargoLock.match(/name = "hope-agent"\r?\nversion = "(.*)"/)
 const cargoLockHaServerMatch = cargoLock.match(/name = "ha-server"\r?\nversion = "(.*)"/)
 const cargoLockHaCoreMatch = cargoLock.match(/name = "ha-core"\r?\nversion = "(.*)"/)
+const cargoLockHaEvalMatch = cargoLock.match(/name = "ha-eval"\r?\nversion = "(.*)"/)
 
 if (!cargoLockHopeAgentMatch) {
   console.error("[release:verify] could not find hope-agent version in Cargo.lock")
@@ -76,6 +85,10 @@ if (!cargoLockHaCoreMatch) {
   console.error("[release:verify] could not find ha-core version in Cargo.lock")
   process.exit(1)
 }
+if (!cargoLockHaEvalMatch) {
+  console.error("[release:verify] could not find ha-eval version in Cargo.lock")
+  process.exit(1)
+}
 
 const packageVersion = packageJson.version
 const tauriVersion = tauriConfig.version
@@ -86,6 +99,8 @@ const haServerLockVersion = cargoLockHaServerMatch[1]
 const haCoreVersion = haCoreVersionMatch[1]
 const haCoreLockVersion = cargoLockHaCoreMatch[1]
 const browserHostVersion = browserHostVersionMatch[1]
+const haEvalVersion = haEvalVersionMatch[1]
+const haEvalLockVersion = cargoLockHaEvalMatch[1]
 
 const mismatches = [
   ["package.json", packageVersion],
@@ -97,6 +112,8 @@ const mismatches = [
   ["crates/ha-core/Cargo.toml", haCoreVersion],
   ["Cargo.lock (ha-core)", haCoreLockVersion],
   ["crates/ha-browser-host/Cargo.toml", browserHostVersion],
+  ["crates/ha-eval/Cargo.toml", haEvalVersion],
+  ["Cargo.lock (ha-eval)", haEvalLockVersion],
 ].filter(([, value], _, all) => value !== all[0][1])
 
 if (mismatches.length > 0) {
@@ -109,6 +126,8 @@ if (mismatches.length > 0) {
   console.error(`  Cargo.lock (ha-server): ${haServerLockVersion}`)
   console.error(`  crates/ha-core/Cargo.toml: ${haCoreVersion}`)
   console.error(`  Cargo.lock (ha-core): ${haCoreLockVersion}`)
+  console.error(`  crates/ha-eval/Cargo.toml: ${haEvalVersion}`)
+  console.error(`  Cargo.lock (ha-eval): ${haEvalLockVersion}`)
   process.exit(1)
 }
 

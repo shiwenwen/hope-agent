@@ -478,6 +478,37 @@ fn run_server(args: &[String]) {
         println!("  --help, -h                        Print help and exit");
         return;
     };
+    let model_eval_mode = ha_core::eval_context::model_eval_mode_enabled();
+    if model_eval_mode {
+        if let Err(error) = ha_core::eval_context::install_supervisor_watchdog_from_env() {
+            eprintln!("[model-eval] failed to install Supervisor watchdog: {error}");
+            std::process::exit(2);
+        }
+        if let Err(error) = ha_core::platform::prevent_process_dumping() {
+            eprintln!("[model-eval] failed to harden Provider secret process: {error}");
+            std::process::exit(2);
+        }
+    }
+    let model_eval_server_token = if model_eval_mode {
+        if api_key.is_some() {
+            eprintln!(
+                "[model-eval] --api-key is forbidden; pass HA_MODEL_EVAL_SERVER_TOKEN so it can be consumed before tool processes start"
+            );
+            std::process::exit(2);
+        }
+        let token = std::env::var("HA_MODEL_EVAL_SERVER_TOKEN")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        std::env::remove_var("HA_MODEL_EVAL_SERVER_TOKEN");
+        if token.len() < 24 || token.len() > 4_096 {
+            eprintln!("[model-eval] HA_MODEL_EVAL_SERVER_TOKEN is missing or invalid");
+            std::process::exit(2);
+        }
+        Some(token)
+    } else {
+        None
+    };
 
     eprintln!(
         "[server] Starting Hope Agent server v{}",
@@ -522,13 +553,43 @@ fn run_server(args: &[String]) {
     // `"ha-main"` agent-id rename inside `init_runtime` would otherwise
     // race with `ensure_default_agent` pre-creating an empty `agents/ha-main/`
     // template and orphan the user's customised legacy data.
+    // Consume the one-shot Provider bundle before init_runtime snapshots the
+    // environment or starts workers. For a local App Codex evaluation this
+    // returns only a short-lived access token and account id; it never writes
+    // either value into the isolated config.json.
+    let model_eval_codex_token = if model_eval_mode {
+        match ha_core::config::initialize_model_eval_provider_secrets() {
+            Ok(token) => token,
+            Err(error) => {
+                eprintln!("[model-eval] failed to initialize isolated Provider config: {error:#}");
+                std::process::exit(2);
+            }
+        }
+    } else {
+        let _ = ha_core::config::cached_config();
+        None
+    };
     ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("server");
+    if let Some(codex_token) = model_eval_codex_token {
+        let cache = match ha_core::require_codex_token_cache() {
+            Ok(cache) => cache,
+            Err(error) => {
+                eprintln!("[model-eval] Codex token cache is unavailable: {error:#}");
+                std::process::exit(2);
+            }
+        };
+        *cache.blocking_lock() = Some((codex_token.access_token, codex_token.account_id));
+    }
 
     if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
         eprintln!("[server] Warning: failed to ensure default agent: {}", e);
     }
 
+    // The evaluation Server authenticates only with the consumed, one-shot
+    // supervisor token. Normal server launches preserve the existing CLI
+    // `--api-key` behavior.
+    let api_key = model_eval_server_token.or(api_key);
     let knowledge_agent_read_token = std::env::var("HA_KNOWLEDGE_AGENT_READ_TOKEN")
         .ok()
         .map(|v| v.trim().to_string())

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "model-campaign-policy.v1",
+  "version": "1.0.8",
+  "mode": "advisory",
+  "allowedAdapters": [
+    "hope_core_scenario"
+  ],
+  "allowedRunnerClasses": [
+    "dedicated_linux"
+  ],
+  "allowedNetworkPolicies": [
+    "provider_only"
+  ],
+  "allowedExecutionModes": [
+    "native_provider"
+  ],
+  "models": [
+    {
+      "role": "anchor",
+      "providerId": "eval-anchor",
+      "modelId": "configured-anchor-v1",
+      "snapshot": "configured-anchor-v1",
+      "reasoningEffort": "medium",
+      "maxOutputTokens": 16000
+    }
+  ],
+  "budget": {
+    "maxWallSeconds": 1800,
+    "maxModelCalls": 60,
+    "maxInputTokens": 200000,
+    "maxOutputTokens": 50000,
+    "maxCostUsd": 5.5,
+    "maxToolCalls": 120,
+    "maxAgents": 8,
+    "maxConcurrency": 4
+  },
+  "allowLlmJudge": false,
+  "performanceBlocking": false,
+  "requireModelSnapshot": true,
+  "maxInfraErrorRate": 0.05,
+  "id": "live-release",
+  "tier": "release",
+  "allowedSources": [
+    "dedicated_runner",
+    "github_actions"
+  ],
+  "campaignBudget": {
+    "maxWallSeconds": 7200,
+    "maxModelCalls": 6500,
+    "maxInputTokens": 22000000,
+    "maxOutputTokens": 5500000,
+    "maxCostUsd": 550,
+    "maxToolCalls": 13000,
+    "maxAgents": 32,
+    "maxConcurrency": 16
+  },
+  "suites": [
+    {
+      "id": "hope-core-orchestration",
+      "required": true,
+      "caseTags": [
+        "smoke_release"
+      ]
+    }
+  ],
+  "artifactRetentionDays": 90
+}

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "eval-suite.v1",
+  "id": "memory-dreaming",
+  "version": "1.0.0",
+  "capability": "memory",
+  "adapter": "dreaming_golden",
+  "tiers": ["weekly", "release"],
+  "runnerClass": "hosted_linux",
+  "networkPolicy": "deny",
+  "shards": 2,
+  "timeoutSeconds": 180,
+  "thresholds": { "minPassRate": 1.0 },
+  "cases": [
+    { "id": "dreaming-auto-expire", "path": "fixtures/auto_expire_planning.json" },
+    { "id": "dreaming-auto-resolver", "path": "fixtures/auto_resolver_graph_planning.json" },
+    { "id": "dreaming-conflict", "path": "fixtures/conflict_resolution.json" },
+    { "id": "dreaming-incognito", "path": "fixtures/incognito_exclusion.json" },
+    { "id": "dreaming-legacy-sync", "path": "fixtures/legacy_sync.json" },
+    { "id": "dreaming-project-scope", "path": "fixtures/project_scope_isolation.json" },
+    { "id": "dreaming-source-evidence", "path": "fixtures/source_evidence.json" },
+    { "id": "dreaming-temporal", "path": "fixtures/temporal_supersede.json" },
+    { "id": "dreaming-user-preferences", "path": "fixtures/user_preferences.json" }
+  ]
+}

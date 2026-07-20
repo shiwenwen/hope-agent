@@ -70,6 +70,9 @@ pub fn format_im_engine_error(ctx: ImErrorContext<'_>) -> String {
 
 fn headline(reason: FailoverReason, is_codex_auth: bool) -> &'static str {
     match reason {
+        FailoverReason::EvaluationBudget => {
+            "🛑 **Evaluation budget reached** — protected execution has stopped."
+        }
         FailoverReason::Auth if is_codex_auth => {
             "🔐 **Codex session expired** — re-authorize via the desktop app, then retry."
         }

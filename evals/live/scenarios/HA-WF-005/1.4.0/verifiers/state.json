@@ -1,0 +1,6 @@
+{
+  "path": "/api/sessions/{sessionId}/workflow-runs",
+  "anyItemSubset": {
+    "state": "cancelled"
+  }
+}

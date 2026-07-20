@@ -58,6 +58,13 @@ const OLD_DEFAULT_ID: &str = "default";
 /// Both desktop (`src-tauri/src/lib.rs`) and server (`src-tauri/src/main.rs`)
 /// run `init_runtime` before `ensure_default_agent` for this reason.
 pub fn migrate_default_agent_id_to_ha_main() -> Result<()> {
+    // Model campaigns always start from a disposable, current-version
+    // profile and deliberately disable every config write. Running a legacy
+    // user-data migration there would both be meaningless and emit a false
+    // startup error when it tries to persist its sentinel.
+    if crate::eval_context::model_eval_mode_enabled() {
+        return Ok(());
+    }
     let sentinel = paths::root_dir()?.join(".agent-id-renamed");
     if sentinel.exists() {
         return Ok(());

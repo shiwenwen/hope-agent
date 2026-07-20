@@ -482,6 +482,9 @@ pub struct DomainEvalCampaignModel {
     pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    /// Owner-plane request reference; stripped before campaign persistence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_profile_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -547,6 +550,7 @@ pub struct DomainEvalCampaignLeaderboardInput {
 #[serde(rename_all = "camelCase")]
 pub struct RunDomainEvalCampaignInput {
     pub campaign_id: String,
+    /// Deprecated one-cycle compatibility field.
     #[serde(default)]
     pub providers: Vec<ProviderConfig>,
     #[serde(default)]
@@ -5602,6 +5606,7 @@ fn normalize_domain_eval_campaign_models(
             provider_id: provider_id.map(str::to_string),
             model_id: model_id.map(str::to_string),
             label: label.map(str::to_string),
+            credential_profile_ref: None,
         });
     }
     if out.is_empty() {
@@ -5609,6 +5614,7 @@ fn normalize_domain_eval_campaign_models(
             provider_id: None,
             model_id: None,
             label: Some("trace fixture".to_string()),
+            credential_profile_ref: None,
         });
     }
     if out.len() > MAX_DOMAIN_EVAL_CAMPAIGN_MODELS {
@@ -5733,6 +5739,27 @@ fn domain_eval_campaign_fixture(
             confidence: Some(0.95),
         });
     }
+    if task.domain == "meeting_prep"
+        && !evidence
+            .iter()
+            .any(|item| item.evidence_type == "artifact_created")
+    {
+        evidence.push(DomainEvalFixtureEvidence {
+            evidence_type: "artifact_created".to_string(),
+            title: "Synthetic meeting brief artifact".to_string(),
+            summary: Some(
+                "Synthetic campaign artifact used by the meeting-prep quality profile.".to_string(),
+            ),
+            source_metadata: json!({
+                "sourceType": DOMAIN_EVAL_SOURCE_CAMPAIGN,
+                "taskId": task.id,
+                "artifactTitle": task.title,
+                "artifactKind": task.task_type,
+                "artifact": "domain_eval_campaign_fixture",
+            }),
+            confidence: Some(0.95),
+        });
+    }
     let needs_approval = task.required_evidence.iter().any(|req| {
         req.required
             && matches!(
@@ -5779,6 +5806,23 @@ fn domain_eval_campaign_fixture(
     }
 }
 
+/// Build the canonical deterministic trace fixture used by the standalone
+/// capability-eval runner for one built-in domain task.
+///
+/// Provider configuration is deliberately absent and the execution mode is
+/// fixed to `trace_fixture`; callers cannot turn this release adapter into an
+/// external-model run.
+pub fn deterministic_domain_eval_fixture(
+    db: &SessionDB,
+    task_id: &str,
+    label: &str,
+) -> Result<DomainEvalFixture> {
+    let task = db
+        .resolve_domain_eval_task(task_id)?
+        .ok_or_else(|| anyhow!("domain eval task not found: {task_id}"))?;
+    Ok(domain_eval_campaign_fixture(&task, "trace_fixture", label))
+}
+
 fn campaign_evidence_metadata(
     task: &DomainEvalTask,
     req: &DomainEvalEvidenceRequirement,
@@ -5790,6 +5834,12 @@ fn campaign_evidence_metadata(
     metadata.insert("domain".to_string(), json!(task.domain));
     metadata.insert("requirement".to_string(), json!(req.evidence_type));
     metadata.insert("fixtureIndex".to_string(), json!(index + 1));
+    // Domain quality scopes every evidence item to the artifact under review.
+    // Keep the deterministic trace internally consistent by binding all of its
+    // evidence (sources, claim checks, approvals, and artifact events) to the
+    // same synthetic artifact.
+    metadata.insert("artifactTitle".to_string(), json!(task.title));
+    metadata.insert("artifactKind".to_string(), json!(task.task_type));
     for key in &req.metadata_keys {
         metadata.insert(key.clone(), json!(format!("campaign_fixture_{key}")));
     }
@@ -7952,7 +8002,7 @@ fn ensure_domain_eval_column(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "eval-internal-tests"))]
 mod tests {
     use super::*;
     use crate::domain_quality::RunDomainQualityInput;
@@ -9346,6 +9396,7 @@ mod tests {
                     provider_id: Some("missing-provider".to_string()),
                     model_id: Some("missing-model".to_string()),
                     label: Some("Missing Model".to_string()),
+                    credential_profile_ref: None,
                 }],
                 execution_mode: Some("agent".to_string()),
                 providers: vec![mock_responses_provider(
@@ -9889,6 +9940,7 @@ mod tests {
                     provider_id: Some("missing-provider".to_string()),
                     model_id: Some("missing-model".to_string()),
                     label: Some("Missing Model".to_string()),
+                    credential_profile_ref: None,
                 }],
                 execution_mode: Some("agent".to_string()),
                 providers: vec![mock_responses_provider(
@@ -9933,5 +9985,71 @@ mod tests {
             .blockers
             .iter()
             .any(|blocker| blocker == "learning_closure"));
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    #[test]
+    fn built_in_pack_keeps_five_domains_and_fifteen_cases() {
+        let tasks = built_in_domain_eval_tasks();
+        let domains = tasks
+            .iter()
+            .map(|task| task.domain.as_str())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(tasks.len(), 15);
+        assert_eq!(domains.len(), 5);
+    }
+
+    #[test]
+    fn fixture_source_type_never_conflates_trace_and_agent() {
+        assert_eq!(
+            fixture_source_type("trace_fixture"),
+            DOMAIN_EVAL_SOURCE_FIXTURE_TRACE
+        );
+        assert_eq!(
+            fixture_source_type("agent"),
+            DOMAIN_EVAL_SOURCE_FIXTURE_AGENT
+        );
+        assert_eq!(
+            fixture_source_type("unknown"),
+            DOMAIN_EVAL_SOURCE_FIXTURE_UNSUPPORTED
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_fixture_without_provider_configuration_fails_closed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open(&dir.path().join("sessions.db")).expect("open session database"),
+        );
+        let report = SessionDB::run_domain_eval_fixture(
+            db,
+            RunDomainEvalFixtureInput {
+                fixture: DomainEvalFixture {
+                    name: "agent-requires-provider-config".to_string(),
+                    task_id: "research-source-backed-brief".to_string(),
+                    execution_mode: "agent".to_string(),
+                    checks: DomainEvalFixtureChecks {
+                        expected_execution_status: Some("failed".to_string()),
+                        error_contains: vec!["requires providers and modelChain".to_string()],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(!report.passed);
+        assert_eq!(report.status, "failed");
+        assert!(report.eval_run.is_none());
+        assert!(report
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("requires providers and modelChain")));
     }
 }

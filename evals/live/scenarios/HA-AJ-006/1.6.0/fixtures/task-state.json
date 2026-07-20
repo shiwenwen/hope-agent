@@ -1,0 +1,26 @@
+{
+  "scenarioId": "HA-AJ-006",
+  "fixtureVersion": "1.6.0",
+  "synthetic": true,
+  "expectedCapabilities": [
+    "async_jobs",
+    "tool"
+  ],
+  "workItems": [
+    {
+      "id": "HA-AJ-006-A",
+      "value": 17,
+      "action": "inspect"
+    },
+    {
+      "id": "HA-AJ-006-B",
+      "value": 29,
+      "action": "execute"
+    },
+    {
+      "id": "HA-AJ-006-C",
+      "value": 43,
+      "action": "verify"
+    }
+  ]
+}

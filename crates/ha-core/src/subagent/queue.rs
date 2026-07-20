@@ -61,6 +61,10 @@ pub struct PendingSubagentSpawn {
     /// — threaded to `launch_subagent_run` so a promoted grouped child still
     /// suppresses its individual injection.
     pub effective_group_id: Option<String>,
+    pub enqueued_at: std::time::Instant,
+    /// Registered when the child is admitted, not when it is promoted, so a
+    /// queued child keeps the parent trial open for its full queue+run life.
+    pub eval_guard: Option<crate::eval_context::EvalSessionGuard>,
 }
 
 static QUEUE: LazyLock<Mutex<VecDeque<PendingSubagentSpawn>>> =
@@ -237,6 +241,12 @@ fn promote(
         pending.run_id,
         pending.child_session_id,
         pending.effective_group_id,
+        pending.eval_guard,
+        pending
+            .enqueued_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64,
         db.clone(),
         registry.clone(),
     );
@@ -279,6 +289,8 @@ mod tests {
             run_id: run_id.into(),
             child_session_id: format!("child-{run_id}"),
             effective_group_id: None,
+            enqueued_at: std::time::Instant::now(),
+            eval_guard: None,
         }
     }
 
@@ -323,5 +335,54 @@ mod tests {
         let count = keys.iter().filter(|(sess, _)| sess == s).count();
         assert_eq!(count, 1, "one entry per distinct session");
         purge_for_session(s);
+    }
+
+    #[test]
+    fn queued_child_keeps_eval_trace_open_until_removed() {
+        let parent = "queue-eval-parent";
+        let child = "queue-eval-child";
+        let trial = "mtrial_queue_eval";
+        let context = crate::eval_context::EvalRunContext {
+            evidence_kind: "model_campaign".into(),
+            campaign_id: "mcampaign_queue_eval".into(),
+            plan_digest: "1".repeat(64),
+            suite_id: "hope-core".into(),
+            suite_version: "1.0.0".into(),
+            suite_digest: "2".repeat(64),
+            case_id: "HA-QUEUE-EVAL".into(),
+            case_digest: "3".repeat(64),
+            trial_id: trial.into(),
+            trial_index: 0,
+            arm: "control".into(),
+            fault_profile: "clean".into(),
+            orchestration_profile: None,
+            trace_id: "trace_queue_eval".into(),
+            root_span_id: "span_queue_eval".into(),
+            model_role: "anchor".into(),
+            seed: 1,
+            source: "local_cli".into(),
+            commit_sha: "4".repeat(40),
+            dirty: true,
+            app_version: "0.17.0".into(),
+            required_signals: Vec::new(),
+            faults: Vec::new(),
+            budget: crate::eval_context::EvalBudgetLimits::default(),
+        };
+        let root = crate::eval_context::register_root_session(parent, context.clone()).unwrap();
+        let child_guard =
+            crate::eval_context::register_child_session_from_parent(parent, child, context)
+                .unwrap();
+        let mut item = pending("r-eval-queued", parent);
+        item.child_session_id = child.into();
+        item.eval_guard = Some(child_guard);
+        assert!(enqueue(item));
+
+        drop(root);
+        let queued = crate::eval_context::telemetry_snapshot(trial).unwrap();
+        assert_eq!(queued["trace"]["closed"], false);
+
+        drop(remove_for_run("r-eval-queued"));
+        let closed = crate::eval_context::telemetry_snapshot(trial).unwrap();
+        assert_eq!(closed["trace"]["closed"], true);
     }
 }

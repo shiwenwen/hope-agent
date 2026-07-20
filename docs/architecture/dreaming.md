@@ -292,15 +292,15 @@ Dreaming 靠离线 eval 守红线、不靠感觉。三层避免 LLM 非确定性
 
 | 层级 | 内容 | 默认 CI |
 |---|---|---|
-| Deterministic | scope 过滤 / 过期抑制 / 证据可追溯 / 冲突进待审 / legacy-sync 隐藏 / 证据 fail-closed | 是 |
+| Deterministic | scope 过滤 / 过期抑制 / 证据可追溯 / 冲突进待审 / legacy-sync 隐藏 / 证据 fail-closed | weekly / release 专项评测 |
 | Golden LLM fixtures | claim 抽取 / profile 合成 / 冲突 rationale（固定模型或 mock）| 手动 / nightly |
 | Human review set | 真实样本匿名后人工标注 precision/recall | release 前抽样 |
 
 已落地 **deterministic 层**：
 
 - [`memory/dreaming/eval.rs`](../../crates/ha-core/src/memory/dreaming/eval.rs)——fixture 类型 + `load_fixtures()` + `evaluate(backend, fixture)`，经**公共 API 跑真实读路径**（播种 → list / get / 注入候选 / evidence_quote 断言），不重写被测逻辑。
-- [`tests/fixtures/dreaming/*.json`](../../crates/ha-core/tests/fixtures/dreaming/)——9 个 fixture，覆盖基础 claim 红线及 `auto_expire_planning` / `auto_resolver_graph_planning`。每个限定**唯一 scope 命名空间**，故共享一个 DB 也互不串扰；`valid_until` 用 `past` / `future` token 解析为固定远端日期，使 CI 与时钟无关。
-- [`tests/dreaming_eval.rs`](../../crates/ha-core/tests/dreaming_eval.rs)——集成测试（独立进程独占 claim store global），逐 fixture 跑 `evaluate` 并断言全部 check 通过。
+- [`evals/suites/memory-dreaming/fixtures/*.json`](../../evals/suites/memory-dreaming/fixtures/)——9 个 canonical fixture，覆盖基础 claim 红线及 `auto_expire_planning` / `auto_resolver_graph_planning`；`valid_until` 用固定 token 保持与时钟无关。
+- [`ha-eval`](../../crates/ha-eval/)——每个 fixture 在独立子进程和 claim store 中运行，产出可审计 case evidence；不编入默认 Cargo test。
 - **契约**：改动 claim 读路径 / effective-status / hidden-set / scope 过滤 / evidence 授权等安全红线时，须在 fixtures 加 case 或保既有绿。
 
 ## 与现有子系统的关系
@@ -332,4 +332,4 @@ Dreaming 靠离线 eval 守红线、不靠感觉。三层避免 LLM 非确定性
 | [`memory/sqlite/{backend,trait_impl,prompt}.rs`](../../crates/ha-core/src/memory/sqlite/) | schema DDL / hidden-set / sanitize + 快照渲染 |
 | [`agent/active_memory.rs`](../../crates/ha-core/src/agent/active_memory.rs) | V2 Fast/Deep Recall 执行与 legacy Active Memory 兼容链（含 claim 候选）|
 | [`src/components/dashboard/dreaming/`](../../src/components/dashboard/dreaming/) · [`settings/memory-panel/`](../../src/components/settings/memory-panel/) | Dashboard Dreaming Center + Settings 记忆面板 |
-| [`tests/dreaming_eval.rs`](../../crates/ha-core/tests/dreaming_eval.rs) · [`tests/fixtures/dreaming/`](../../crates/ha-core/tests/fixtures/dreaming/) | 确定性评测 + 9 golden fixtures |
+| [`crates/ha-eval`](../../crates/ha-eval/) · [`evals/suites/memory-dreaming/`](../../evals/suites/memory-dreaming/) | 独立确定性评测 + 9 golden fixtures |

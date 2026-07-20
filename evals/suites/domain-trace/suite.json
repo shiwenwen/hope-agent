@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "eval-suite.v1",
+  "id": "domain-trace",
+  "version": "1.0.0",
+  "capability": "domain",
+  "adapter": "domain_trace_fixture",
+  "tiers": ["weekly", "release"],
+  "runnerClass": "hosted_linux",
+  "networkPolicy": "deny",
+  "shards": 3,
+  "timeoutSeconds": 180,
+  "thresholds": { "minPassedCases": 15 },
+  "cases": [
+    { "id": "research-source-backed-brief" },
+    { "id": "research-technical-decision" },
+    { "id": "research-conflict-comparison" },
+    { "id": "writing-decision-memo" },
+    { "id": "writing-prd-brief" },
+    { "id": "writing-executive-summary" },
+    { "id": "data-kpi-readout" },
+    { "id": "data-metric-diagnostic" },
+    { "id": "data-dashboard-qa" },
+    { "id": "meeting-prep-brief" },
+    { "id": "meeting-agenda-risk-review" },
+    { "id": "meeting-follow-up-plan" },
+    { "id": "knowledge-topic-index" },
+    { "id": "knowledge-source-synthesis" },
+    { "id": "knowledge-vault-cleanup" }
+  ]
+}

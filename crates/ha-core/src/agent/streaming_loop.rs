@@ -409,6 +409,22 @@ fn extract_started_job_id(tool_result: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Stable, content-only identifier used by evaluation telemetry to recognize
+/// repeated tool work without retaining potentially sensitive arguments.
+fn eval_tool_arguments_digest(args: &serde_json::Value) -> String {
+    ha_eval_spec::canonical_json(args)
+        .map(|bytes| ha_eval_spec::sha256_bytes(&bytes))
+        .unwrap_or_else(|_| ha_eval_spec::sha256_bytes(args.to_string().as_bytes()))
+}
+
+fn eval_raw_tool_arguments_digest(arguments: &str) -> String {
+    ha_eval_spec::sha256_bytes(arguments.as_bytes())
+}
+
+fn eval_tool_result_digest(result: &str) -> String {
+    ha_eval_spec::sha256_bytes(result.as_bytes())
+}
+
 /// Execute a tool with cancel-flag racing. Returns `(result_string,
 /// elapsed_ms, side_output)`. The side output carries structured metadata
 /// (file change before/after snapshots, line deltas, etc.) emitted by the
@@ -440,9 +456,47 @@ async fn execute_tool_with_cancel(
     let cancellation_token = tokio_util::sync::CancellationToken::new();
     local_ctx.cancellation_token = Some(cancellation_token.clone());
     let tool_start = std::time::Instant::now();
+    if let Err(error) = crate::eval_context::ensure_tool_budget(ctx.session_id.as_deref()) {
+        let elapsed_ms = tool_start.elapsed().as_millis() as u64;
+        let rendered = tools::ToolRejection::render_error(&error);
+        crate::eval_context::record_tool_result_with_digest(
+            ctx.session_id.as_deref(),
+            name,
+            call_id,
+            &eval_tool_arguments_digest(args),
+            Some(&eval_tool_result_digest(&rendered)),
+            crate::eval_context::EvalToolOutcome::Failed,
+            elapsed_ms,
+        );
+        return Ok((rendered, elapsed_ms, Default::default()));
+    }
+    if let Some(fault) = crate::eval_context::tool_fault_action(ctx.session_id.as_deref(), name) {
+        if fault.delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(fault.delay_ms)).await;
+        }
+        if let Some(error_class) = fault.error_class {
+            let elapsed_ms = tool_start.elapsed().as_millis() as u64;
+            let error = anyhow::anyhow!(
+                "controlled evaluation fault {} ({error_class})",
+                fault.fault_id
+            );
+            let rendered = tools::ToolRejection::render_error(&error);
+            crate::eval_context::record_tool_result_with_digest(
+                ctx.session_id.as_deref(),
+                name,
+                call_id,
+                &eval_tool_arguments_digest(args),
+                Some(&eval_tool_result_digest(&rendered)),
+                crate::eval_context::EvalToolOutcome::Failed,
+                elapsed_ms,
+            );
+            return Ok((rendered, elapsed_ms, Default::default()));
+        }
+    }
     let cancel_clone = cancel.clone();
     let mut dispatch = Box::pin(tools::execute_tool_with_context(name, args, &local_ctx));
     let mut effective_arguments = None;
+    let mut eval_outcome = crate::eval_context::EvalToolOutcome::Succeeded;
     let result = loop {
         tokio::select! {
             biased;
@@ -472,7 +526,10 @@ async fn execute_tool_with_cancel(
             res = &mut dispatch => {
                 break match res {
                     Ok(r) => r,
-                    Err(e) => tools::ToolRejection::render_error(&e),
+                    Err(e) => {
+                        eval_outcome = crate::eval_context::EvalToolOutcome::Failed;
+                        tools::ToolRejection::render_error(&e)
+                    }
                 };
             }
             _ = async {
@@ -506,12 +563,27 @@ async fn execute_tool_with_cancel(
                         let _ = crate::async_jobs::JobManager::cancel(&job_id);
                     }
                 }
+                eval_outcome = crate::eval_context::EvalToolOutcome::Cancelled;
                 break tools::ToolRejection::cancelled(name).to_tool_result();
             }
         }
     };
     let elapsed_ms = tool_start.elapsed().as_millis() as u64;
     let metadata = sink.lock().await.take();
+    let arguments_digest = effective_arguments
+        .as_deref()
+        .and_then(|arguments| serde_json::from_str(arguments).ok())
+        .map(|arguments| eval_tool_arguments_digest(&arguments))
+        .unwrap_or_else(|| eval_tool_arguments_digest(args));
+    crate::eval_context::record_tool_result_with_digest(
+        ctx.session_id.as_deref(),
+        name,
+        call_id,
+        &arguments_digest,
+        Some(&eval_tool_result_digest(&result)),
+        eval_outcome,
+        elapsed_ms,
+    );
     Ok((
         result,
         elapsed_ms,
@@ -591,6 +663,50 @@ fn prompt_cache_key(
 }
 
 impl AssistantAgent {
+    fn record_eval_model_attempt(
+        &self,
+        model: &str,
+        provider_label: &str,
+        round: u32,
+        usage: Option<&ChatUsage>,
+        ttft_ms: Option<u64>,
+        duration_ms: u64,
+        error: Option<&anyhow::Error>,
+    ) {
+        let Some(session_id) = self.session_id.as_deref() else {
+            return;
+        };
+        if crate::eval_context::context_for_session(session_id).is_none() {
+            return;
+        }
+        let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT);
+        event.request_key = Some(format!("eval:{session_id}:round:{round}"));
+        event.operation = Some("chat_round".to_string());
+        event.provider_id = self
+            .provider_config
+            .as_deref()
+            .map(|provider| provider.id.clone());
+        event.provider_name = Some(provider_label.to_string());
+        event.model_id = Some(model.to_string());
+        event.session_id = Some(session_id.to_string());
+        event.agent_id = Some(self.agent_id.clone());
+        event.duration_ms = Some(duration_ms);
+        event.ttft_ms = ttft_ms;
+        if let Some(usage) = usage {
+            event.input_tokens = Some(usage.input_tokens);
+            event.output_tokens = Some(usage.output_tokens);
+            event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
+            event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+            event.context_input_tokens = Some(usage.context_input_tokens);
+            event.fresh_input_tokens = Some(usage.fresh_input_tokens);
+        }
+        if let Some(error) = error {
+            event.success = false;
+            event.error = Some(error.to_string());
+        }
+        crate::eval_context::record_model_usage(&event);
+    }
+
     /// Provider-agnostic streaming chat with tool loop.
     ///
     /// All four `chat_<provider>` entry points delegate here, passing a
@@ -901,6 +1017,11 @@ impl AssistantAgent {
             let round_prompt_cache_key =
                 prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
 
+            crate::eval_context::ensure_model_budget(self.session_id.as_deref())?;
+            let eval_max_tokens =
+                crate::eval_context::remaining_output_tokens(self.session_id.as_deref())
+                    .map(|remaining| remaining.clamp(1, u64::from(MAX_OUTPUT_TOKENS)) as u32)
+                    .unwrap_or(MAX_OUTPUT_TOKENS);
             let req = RoundRequest {
                 session_id: self.session_id.as_deref(),
                 system_prompt: round_system_prompt,
@@ -919,7 +1040,7 @@ impl AssistantAgent {
                 history_for_api: &api_messages,
                 reasoning_effort: effort_live.as_deref(),
                 temperature: self.temperature,
-                max_tokens: MAX_OUTPUT_TOKENS,
+                max_tokens: eval_max_tokens,
                 is_final_round,
                 round,
             };
@@ -931,9 +1052,54 @@ impl AssistantAgent {
                 round_system_prompt,
             );
 
-            let mut outcome = adapter
-                .chat_round(&client, req, cancel, on_delta_dyn)
-                .await?;
+            let model_attempt_started = std::time::Instant::now();
+            if let Some(fault) =
+                crate::eval_context::provider_fault_action(self.session_id.as_deref())
+            {
+                if fault.delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(fault.delay_ms)).await;
+                }
+                if let Some(error_class) = fault.error_class {
+                    let error = anyhow::anyhow!(
+                        "controlled evaluation fault {} ({error_class})",
+                        fault.fault_id
+                    );
+                    self.record_eval_model_attempt(
+                        model,
+                        provider_label,
+                        round,
+                        None,
+                        None,
+                        model_attempt_started.elapsed().as_millis() as u64,
+                        Some(&error),
+                    );
+                    return Err(error);
+                }
+            }
+            let mut outcome = match adapter.chat_round(&client, req, cancel, on_delta_dyn).await {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    self.record_eval_model_attempt(
+                        model,
+                        provider_label,
+                        round,
+                        None,
+                        None,
+                        model_attempt_started.elapsed().as_millis() as u64,
+                        Some(&error),
+                    );
+                    return Err(error);
+                }
+            };
+            self.record_eval_model_attempt(
+                model,
+                provider_label,
+                round,
+                Some(&outcome.usage),
+                outcome.ttft_ms,
+                model_attempt_started.elapsed().as_millis() as u64,
+                None,
+            );
 
             // Compact callVariants are a model-facing schema optimization
             // only. Canonicalize before concurrency classification, live
@@ -1078,7 +1244,17 @@ impl AssistantAgent {
                                     .await?
                                 }
                                 Err(e) => (
-                                    invalid_tool_arguments_result(&name, &arguments, e),
+                                    {
+                                        crate::eval_context::record_tool_result(
+                                            tool_ctx.session_id.as_deref(),
+                                            &name,
+                                            &call_id,
+                                            &eval_raw_tool_arguments_digest(&arguments),
+                                            crate::eval_context::EvalToolOutcome::ParseError,
+                                            0,
+                                        );
+                                        invalid_tool_arguments_result(&name, &arguments, e)
+                                    },
                                     0,
                                     Default::default(),
                                 ),
@@ -1208,7 +1384,17 @@ impl AssistantAgent {
                         .await?
                     }
                     Err(e) => (
-                        invalid_tool_arguments_result(&tc.name, &tc.arguments, e),
+                        {
+                            crate::eval_context::record_tool_result(
+                                tool_ctx.session_id.as_deref(),
+                                &tc.name,
+                                &tc.call_id,
+                                &eval_raw_tool_arguments_digest(&tc.arguments),
+                                crate::eval_context::EvalToolOutcome::ParseError,
+                                0,
+                            );
+                            invalid_tool_arguments_result(&tc.name, &tc.arguments, e)
+                        },
                         0,
                         Default::default(),
                     ),

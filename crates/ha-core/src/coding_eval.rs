@@ -923,7 +923,15 @@ pub struct CodingTaskEvalCheckResult {
 }
 
 pub fn fixtures_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coding_eval")
+    let canonical = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../evals/suites/coding-control-plane/fixtures");
+    if canonical.is_dir() {
+        canonical
+    } else {
+        // One-minor source-tree compatibility fallback for downstream forks
+        // that have not moved the fixture pack yet.
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coding_eval")
+    }
 }
 
 pub fn load_fixtures() -> Result<Vec<CodingEvalFixture>> {
@@ -5154,7 +5162,7 @@ fn default_true() -> bool {
     true
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "eval-internal-tests"))]
 mod tests {
     use super::*;
     use crate::provider::{ApiType, ModelConfig};
@@ -5599,6 +5607,7 @@ mod tests {
                         provider_id: Some("missing-provider-for-leaderboard-unit".to_string()),
                         model_id: Some("missing-model-for-leaderboard-unit".to_string()),
                         label: Some("missing provider model".to_string()),
+                        credential_profile_ref: None,
                     }],
                     ..Default::default()
                 },
@@ -5667,6 +5676,7 @@ mod tests {
                         provider_id: Some("secret-provider".to_string()),
                         model_id: Some("secret-model".to_string()),
                         label: Some("secret baseline".to_string()),
+                        credential_profile_ref: None,
                     }],
                     ..Default::default()
                 },
@@ -6074,5 +6084,161 @@ mod tests {
                 format!("{}:{}:{failed_checks:?}", case.case.id, case.status)
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    #[test]
+    fn deterministic_gold_pack_contract_stays_complete() {
+        let summary = gold_task_pack_summary();
+        assert_eq!(summary.total_cases, 20);
+        assert_eq!(summary.automated_cases, 20);
+        assert_eq!(summary.active_cases, 20);
+    }
+
+    #[test]
+    fn release_default_is_fixture_patch_and_external_labels_fail_closed() {
+        let deterministic = GoldTaskPackRunInput::default();
+        assert_eq!(
+            gold_task_pack_execution_mode(&deterministic).unwrap(),
+            "fixture_patch"
+        );
+
+        let external = GoldTaskPackRunInput {
+            baseline_kind: Some("external_model".to_string()),
+            ..Default::default()
+        };
+        let mode = gold_task_pack_execution_mode(&external).unwrap();
+        assert_eq!(mode, "agent");
+        assert!(validate_gold_task_pack_run_input(&external, &mode).is_err());
+    }
+
+    #[test]
+    fn missing_baseline_case_is_a_strategy_regression() {
+        let case = gold_task_pack_summary()
+            .cases
+            .into_iter()
+            .find(|case| case.id == "CE-TEST-004")
+            .expect("gold task case");
+        let baseline = GoldTaskPackReport {
+            pack_id: GOLD_TASK_PACK_ID.to_string(),
+            source_doc: GOLD_TASK_SOURCE_DOC.to_string(),
+            pack_run_id: None,
+            selected_cases: 1,
+            automated_cases: 1,
+            skipped_cases: 0,
+            passed_cases: 1,
+            failed_cases: 0,
+            total_checks: 1,
+            passed: true,
+            cases: vec![GoldTaskCaseRunReport {
+                case,
+                status: "passed".to_string(),
+                fixture_name: Some("gold_task_ce_test_004_repair_loop_stop".to_string()),
+                report: None,
+                error: None,
+            }],
+        };
+        let candidate = GoldTaskPackReport {
+            selected_cases: 0,
+            automated_cases: 0,
+            skipped_cases: 0,
+            passed_cases: 0,
+            failed_cases: 0,
+            total_checks: 0,
+            passed: false,
+            cases: Vec::new(),
+            ..baseline.clone()
+        };
+
+        let effect = evaluate_strategy_effect(StrategyEffectEvalInput {
+            session_id: None,
+            project_id: None,
+            baseline_pack_run_id: None,
+            candidate_pack_run_id: None,
+            record_run: false,
+            source_type: None,
+            source_id: None,
+            strategy_type: None,
+            baseline_label: None,
+            candidate_label: None,
+            baseline,
+            candidate,
+        });
+
+        assert_eq!(effect.verdict, "regressed");
+        assert_eq!(effect.baseline_only_cases, vec!["CE-TEST-004".to_string()]);
+    }
+
+    #[test]
+    fn app_campaign_history_strips_provider_secrets() {
+        use crate::provider::{ApiType, ModelConfig};
+
+        let mut provider = ProviderConfig::new(
+            "Secret provider".to_string(),
+            ApiType::OpenaiResponses,
+            "http://127.0.0.1:9".to_string(),
+            "must-not-persist".to_string(),
+        );
+        provider.id = "secret-provider".to_string();
+        provider.models.push(ModelConfig {
+            id: "secret-model".to_string(),
+            name: "Secret model".to_string(),
+            input_types: vec!["text".to_string()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).unwrap());
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .unwrap();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let campaign = db
+            .create_coding_benchmark_campaign(
+                crate::coding_improvement::CodingBenchmarkCampaignCreateInput {
+                    session_id: Some(session.id),
+                    gold_task_input: GoldTaskPackRunInput {
+                        ids: vec!["CE-TEST-004".to_string()],
+                        providers: vec![provider],
+                        model_chain: vec![ActiveModel {
+                            provider_id: "secret-provider".to_string(),
+                            model_id: "secret-model".to_string(),
+                        }],
+                        execution_mode: Some("agent".to_string()),
+                        baseline_kind: Some("external_model".to_string()),
+                        ..Default::default()
+                    },
+                    models: vec![crate::coding_improvement::CodingBenchmarkCampaignModel {
+                        provider_id: Some("secret-provider".to_string()),
+                        model_id: Some("secret-model".to_string()),
+                        label: Some("secret baseline".to_string()),
+                        credential_profile_ref: None,
+                    }],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let serialized = campaign.task_filter.to_string();
+        assert!(!serialized.contains("must-not-persist"));
+        assert!(!serialized.contains("secret-model"));
+        assert_eq!(
+            campaign
+                .task_filter
+                .get("providers")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(0)
+        );
     }
 }

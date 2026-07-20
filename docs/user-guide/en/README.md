@@ -49,6 +49,7 @@ By default all data is stored on your own computer (`~/.hope-agent/`), and model
 | [11 · Connect & Extend](11-connect-and-extend.md) | The MCP client and platform server, Hooks lifecycle hooks, and the skill system | Connecting external tools and customizing behavior |
 | [12 · Projects & Insights](12-projects-and-insights.md) | Project containers, Agent configuration, Dashboard cost and health, and Recap reports | Organizing work, reviewing, and managing cost |
 | [13 · Settings & Security](13-settings-and-security.md) | The settings navigation map, changing settings by conversation (ha-settings), config backup and rollback, and security and reliability | Finding settings and understanding the security boundaries |
+| [14 · Capability Evaluation](14-capability-evaluation.md) | Run Goal, Workflow, asynchronous-task, and multi-Agent synthetic scenarios with real models; inspect completion, tools, time, tokens, cost, comparisons, and trends | Verifying that a model or core Agent capability remains stable |
 
 ---
 
@@ -94,6 +95,7 @@ Understanding the following groups of concepts will help you quickly make sense 
 | Use it inside Telegram / Feishu | [10 · IM Channels](10-im-channels.md) |
 | Connect external tools (MCP) | [11 · Connect & Extend](11-connect-and-extend.md) |
 | See how much money / how many tokens I've spent | [12 · Projects & Insights · Dashboard](12-projects-and-insights.md) |
+| Test task completion, tool use, and multi-Agent stability with real models | [14 · Capability Evaluation](14-capability-evaluation.md) |
 | Access Hope Agent on my computer from my phone | [01 · Getting Started · Run modes](01-getting-started.md) |
 | Back up / restore my settings | [13 · Settings & Security](13-settings-and-security.md) |
 

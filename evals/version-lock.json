@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "eval-version-lock.v1",
+  "suites": {
+    "coding-control-plane@1.0.0": "3746017b69f49455cee83fadf8c411d2d8bca720afc919f8ba3f6fb323955f0c",
+    "coding-gold@1.0.0": "8a3dc40168bf68d3364384c86cbf006c02c0eeb3ad69171349a57bf798cc8cf8",
+    "domain-trace@1.0.0": "4300435986765211c0c6ebf880116e6c961535bf2b7b02c180a3b9dd646c4ccc",
+    "memory-dreaming@1.0.0": "3353306d3d7cb706aaa540f1dbdcf505081259946bdd0cce55d527b971e04965",
+    "memory-retrieval-scale@1.0.0": "e27851435b10b5395c2c35779791ca6796d182270a30afcfddd640f7c203219b"
+  },
+  "policies": {
+    "hope-agent-release-deterministic@1.0.0": "4e552909cf3a6977884bcdcfacb374369c0cb7d0a2a1fe53d6b240fe8a6e5bcf",
+    "hope-agent-weekly-deterministic@1.0.0": "cbc856bb1f0d8d9b5aa2a2d229ecbbcfc991c45ea839f07baadcb870db00dddd"
+  }
+}

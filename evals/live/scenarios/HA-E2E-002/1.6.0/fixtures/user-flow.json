@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "scripted-user-flow.v1",
+  "turns": [
+    {
+      "message": "请收窄研究范围：只保留冻结语料中 2026-01-01 至 2026-01-15 的材料，并重新验证所有引用。",
+      "delayMs": 0
+    }
+  ]
+}

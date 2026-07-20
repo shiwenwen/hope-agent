@@ -1032,6 +1032,14 @@ impl SessionDB {
                 "modeSnapshot": mode,
             }),
         )?;
+        crate::eval_context::record_lifecycle_event(
+            Some(&snapshot.goal.session_id),
+            "goal",
+            "goal.created",
+            Some(&snapshot.goal.id),
+            snapshot.goal.state.as_str(),
+            0,
+        );
         emit_goal("goal:created", &snapshot.goal);
         Ok(snapshot)
     }
@@ -1221,6 +1229,14 @@ impl SessionDB {
                 },
             }),
         )?;
+        crate::eval_context::record_lifecycle_event(
+            Some(&snapshot.goal.session_id),
+            "goal",
+            "goal.replanned",
+            Some(&snapshot.goal.id),
+            snapshot.goal.state.as_str(),
+            0,
+        );
         emit_goal("goal:updated", &snapshot.goal);
         Ok(snapshot)
     }
@@ -2618,6 +2634,14 @@ impl SessionDB {
         let snapshot = self
             .goal_snapshot(goal_id, 100)?
             .ok_or_else(|| anyhow!("goal {} not found after transition", goal_id))?;
+        crate::eval_context::record_lifecycle_event(
+            Some(&snapshot.goal.session_id),
+            "goal",
+            "goal.state_changed",
+            Some(&snapshot.goal.id),
+            next.as_str(),
+            0,
+        );
         emit_goal("goal:updated", &snapshot.goal);
         Ok(snapshot)
     }

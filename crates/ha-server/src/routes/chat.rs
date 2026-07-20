@@ -47,6 +47,10 @@ pub struct ChatRequest {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub model_override: Option<String>,
+    /// Real-model evaluation attribution. Accepted only by an explicitly
+    /// isolated server started with `HA_MODEL_EVAL_MODE=1`.
+    #[serde(default)]
+    pub eval_context: Option<ha_core::eval_context::EvalRunContext>,
     /// Draft-only defaults consumed when this request creates a Session.
     #[serde(default)]
     pub session_defaults: Option<ha_core::session::SessionDefaultsInput>,
@@ -498,6 +502,12 @@ pub async fn chat(
     Json(mut body): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, AppError> {
     let db = ctx.session_db.clone();
+    let eval_context_pending = body.eval_context.take();
+    if eval_context_pending.is_some() && !ha_core::eval_context::model_eval_mode_enabled() {
+        return Err(AppError::forbidden(
+            "evalContext is accepted only when HA_MODEL_EVAL_MODE=1",
+        ));
+    }
 
     // Per-session mode fields are consumed below after we resolve the
     // session id (we need a session_id to persist).
@@ -621,6 +631,12 @@ pub async fn chat(
             meta.id
         }
     };
+    let _eval_session_guard = eval_context_pending
+        .map(|context| {
+            ha_core::eval_context::register_http_turn_session(&sid, context)
+                .map_err(|error| AppError::bad_request(error.to_string()))
+        })
+        .transpose()?;
 
     // Apply draft working dir picked before the session existed. Mirrors the
     // Tauri `chat` command — explicit-session callers must use the dedicated
@@ -1314,6 +1330,66 @@ pub async fn chat(
         blocked_reason: None,
         session_deleted: false,
     }))
+}
+
+/// Isolated model-evaluation telemetry snapshot. The endpoint is physically
+/// present in the server binary but fails closed unless the process was
+/// explicitly launched in model-eval mode. It returns aggregate counters and
+/// hashes only; prompts, model responses, tool arguments, and secrets are not
+/// retained by the registry.
+pub async fn model_eval_trial_telemetry(
+    Path(trial_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    if !ha_core::eval_context::model_eval_mode_enabled() {
+        return Err(AppError::not_found(
+            "model evaluation telemetry is disabled",
+        ));
+    }
+    let value = ha_core::eval_context::telemetry_snapshot(&trial_id)
+        .ok_or_else(|| AppError::not_found("model evaluation trial was not found"))?;
+    Ok(Json(value))
+}
+
+/// Cancel and delete all synthetic Sessions created under a model-eval trial.
+/// This is intentionally unavailable in normal server mode and remains behind
+/// the owner bearer-token middleware. The Harness calls it after scoring every
+/// attempt so queued jobs/subagents cannot leak into the next trial.
+pub async fn cleanup_model_eval_trial(
+    State(ctx): State<Arc<AppContext>>,
+    Path(trial_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    if !ha_core::eval_context::model_eval_mode_enabled() {
+        return Err(AppError::not_found("model evaluation cleanup is disabled"));
+    }
+    ha_core::eval_context::finish_trial_root(&trial_id)
+        .map_err(|error| AppError::bad_request(error.to_string()))?;
+    let session_ids = ha_core::eval_context::session_ids_for_trial(&trial_id)
+        .ok_or_else(|| AppError::not_found("model evaluation trial was not found"))?;
+    let count = session_ids.len();
+    ctx.session_db
+        .run(move |db| {
+            for session_id in session_ids {
+                db.delete_session(&session_id)?;
+            }
+            anyhow::Ok(())
+        })
+        .await?;
+    Ok(Json(json!({ "cleanedSessions": count })))
+}
+
+/// Mark the final scripted/replay user turn complete without deleting state,
+/// allowing the Harness to inspect terminal owner APIs before cleanup.
+pub async fn finish_model_eval_trial(
+    Path(trial_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    if !ha_core::eval_context::model_eval_mode_enabled() {
+        return Err(AppError::not_found(
+            "model evaluation finalization is disabled",
+        ));
+    }
+    ha_core::eval_context::finish_trial_root(&trial_id)
+        .map_err(|error| AppError::bad_request(error.to_string()))?;
+    Ok(Json(json!({ "finished": true })))
 }
 
 /// `POST /api/chat/turn-message` — queue a user message to be injected at the

@@ -1,0 +1,6 @@
+{
+  "path": "/api/sessions/{sessionId}/background-jobs",
+  "anyItemSubset": {
+    "status": "completed"
+  }
+}

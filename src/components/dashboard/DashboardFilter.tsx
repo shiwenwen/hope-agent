@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,11 @@ import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DashboardFilter as DashboardFilterState } from "./types"
+import {
+  computeDashboardDateRange,
+  type DashboardFilterFields,
+  type DashboardRangeKey,
+} from "./dashboardFilterConfig"
 
 interface Agent {
   id: string
@@ -27,7 +32,6 @@ interface Provider {
   name: string
 }
 
-type RangeKey = "today" | "7d" | "30d" | "90d" | "all" | "custom"
 const USAGE_KIND_VALUES = [
   "__all__",
   "chat",
@@ -43,47 +47,36 @@ const USAGE_KIND_VALUES = [
   "vision",
 ] as const
 
-function computeDateRange(key: RangeKey): { start: string | null; end: string | null } {
-  if (key === "all") return { start: null, end: null }
-  const now = new Date()
-  const end = now.toISOString()
-  const start = new Date(now)
-  switch (key) {
-    case "today":
-      start.setHours(0, 0, 0, 0)
-      break
-    case "7d":
-      start.setDate(start.getDate() - 7)
-      break
-    case "30d":
-      start.setDate(start.getDate() - 30)
-      break
-    case "90d":
-      start.setDate(start.getDate() - 90)
-      break
-    default:
-      return { start: null, end: null }
-  }
-  return { start: start.toISOString(), end }
+function dateInputValue(value: string | null): string {
+  if (!value) return ""
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10)
 }
 
 interface DashboardFilterProps {
   filter: DashboardFilterState
   onChange: (filter: DashboardFilterState) => void
-  controlPlane?: boolean
+  fields: DashboardFilterFields
+  rangeKey: DashboardRangeKey
+  onRangeKeyChange: (rangeKey: DashboardRangeKey) => void
+  children?: ReactNode
+  className?: string
 }
 
 export default function DashboardFilter({
   filter,
   onChange,
-  controlPlane = false,
+  fields,
+  rangeKey,
+  onRangeKeyChange,
+  children,
+  className,
 }: DashboardFilterProps) {
   const { t } = useTranslation()
-  const [rangeKey, setRangeKey] = useState<RangeKey>("30d")
   const [agents, setAgents] = useState<Agent[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
-  const [customStart, setCustomStart] = useState("")
-  const [customEnd, setCustomEnd] = useState("")
+  const [customStart, setCustomStart] = useState(() => dateInputValue(filter.startDate))
+  const [customEnd, setCustomEnd] = useState(() => dateInputValue(filter.endDate))
 
   useEffect(() => {
     let alive = true
@@ -105,14 +98,17 @@ export default function DashboardFilter({
   }, [])
 
   const handleRangeChange = useCallback(
-    (key: RangeKey) => {
-      setRangeKey(key)
-      if (key !== "custom") {
-        const { start, end } = computeDateRange(key)
+    (key: DashboardRangeKey) => {
+      onRangeKeyChange(key)
+      if (key === "custom") {
+        setCustomStart(dateInputValue(filter.startDate))
+        setCustomEnd(dateInputValue(filter.endDate))
+      } else {
+        const { start, end } = computeDashboardDateRange(key)
         onChange({ ...filter, startDate: start, endDate: end })
       }
     },
-    [filter, onChange],
+    [filter, onChange, onRangeKeyChange],
   )
 
   const handleCustomApply = useCallback(() => {
@@ -124,8 +120,8 @@ export default function DashboardFilter({
   }, [filter, onChange, customStart, customEnd])
 
   const handleClearFilters = useCallback(() => {
-    setRangeKey("30d")
-    const { start, end } = computeDateRange("30d")
+    onRangeKeyChange("30d")
+    const { start, end } = computeDashboardDateRange("30d")
     onChange({
       startDate: start,
       endDate: end,
@@ -135,40 +131,55 @@ export default function DashboardFilter({
       usageKind: null,
       operation: null,
     })
-  }, [onChange])
+  }, [onChange, onRangeKeyChange])
 
   const hasActiveFilters = useMemo(
     () =>
-      filter.agentId ||
-      filter.providerId ||
-      filter.modelId ||
-      filter.usageKind ||
+      (fields.agent && filter.agentId) ||
+      (fields.provider && (filter.providerId || filter.modelId)) ||
+      (fields.usageKind && (filter.usageKind || filter.operation)),
+    [
+      fields.agent,
+      fields.provider,
+      fields.usageKind,
+      filter.agentId,
+      filter.modelId,
       filter.operation,
-    [filter.agentId, filter.providerId, filter.modelId, filter.usageKind, filter.operation],
+      filter.providerId,
+      filter.usageKind,
+    ],
   )
   const selectedAgent = agents.find((a) => a.id === filter.agentId)
 
-  const rangeKeys: RangeKey[] = ["today", "7d", "30d", "90d", "all", "custom"]
+  const rangeKeys: DashboardRangeKey[] = ["today", "7d", "30d", "90d", "all", "custom"]
+  const hasDimensionFilters = fields.agent || fields.provider || fields.usageKind
 
   return (
-    <div className="shrink-0 mx-6 mt-3 bg-muted/50 rounded-lg p-3 flex items-center gap-3 flex-wrap">
+    <div
+      className={cn(
+        "shrink-0 rounded-lg bg-muted/50 p-3 flex items-center gap-3 flex-wrap",
+        className,
+      )}
+    >
       {/* Time range quick picks */}
-      <div className="flex gap-1">
-        {rangeKeys.map((key) => (
-          <Button
-            key={key}
-            variant={rangeKey === key ? "secondary" : "ghost"}
-            size="sm"
-            className="text-xs h-7"
-            onClick={() => handleRangeChange(key)}
-          >
-            {t(`dashboard.range.${key}`)}
-          </Button>
-        ))}
-      </div>
+      {fields.date && (
+        <div className="flex gap-1">
+          {rangeKeys.map((key) => (
+            <Button
+              key={key}
+              variant={rangeKey === key ? "secondary" : "ghost"}
+              size="sm"
+              className="text-xs h-7"
+              onClick={() => handleRangeChange(key)}
+            >
+              {t(`dashboard.range.${key}`)}
+            </Button>
+          ))}
+        </div>
+      )}
 
       {/* Custom date inputs */}
-      {rangeKey === "custom" && (
+      {fields.date && rangeKey === "custom" && (
         <div className="flex items-center gap-2">
           <Input
             type="date"
@@ -190,72 +201,73 @@ export default function DashboardFilter({
       )}
 
       {/* Separator */}
-      <div className="w-px h-5 bg-border" />
+      {fields.date && hasDimensionFilters && <div className="w-px h-5 bg-border" />}
 
       {/* Agent filter */}
-      <Select
-        value={filter.agentId ?? "__all__"}
-        onValueChange={(v) => onChange({ ...filter, agentId: v === "__all__" ? null : v })}
-      >
-        <SelectTrigger className="h-7 w-36 text-xs">
-          {selectedAgent ? (
-            <AgentSelectDisplay agent={selectedAgent} size="xs" />
-          ) : (
-            <SelectValue placeholder={t("dashboard.filter.allAgents")} />
-          )}
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">{t("dashboard.filter.allAgents")}</SelectItem>
-          {agents.map((a) => (
-            <SelectItem key={a.id} value={a.id} textValue={a.name}>
-              <AgentSelectDisplay agent={a} size="xs" />
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {fields.agent && (
+        <Select
+          value={filter.agentId ?? "__all__"}
+          onValueChange={(v) => onChange({ ...filter, agentId: v === "__all__" ? null : v })}
+        >
+          <SelectTrigger className="h-7 w-36 text-xs">
+            {selectedAgent ? (
+              <AgentSelectDisplay agent={selectedAgent} size="xs" />
+            ) : (
+              <SelectValue placeholder={t("dashboard.filter.allAgents")} />
+            )}
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{t("dashboard.filter.allAgents")}</SelectItem>
+            {agents.map((a) => (
+              <SelectItem key={a.id} value={a.id} textValue={a.name}>
+                <AgentSelectDisplay agent={a} size="xs" />
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
-      {/* Provider / usage filters do not apply to the control-plane page. */}
-      {!controlPlane && <Select
-        value={filter.providerId ?? "__all__"}
-        onValueChange={(v) =>
-          onChange({ ...filter, providerId: v === "__all__" ? null : v })
-        }
-      >
-        <SelectTrigger className="h-7 w-36 text-xs">
-          <SelectValue placeholder={t("dashboard.filter.allProviders")} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">{t("dashboard.filter.allProviders")}</SelectItem>
-          {providers.map((p) => (
-            <SelectItem key={p.id} value={p.id}>
-              {p.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>}
+      {fields.provider && (
+        <Select
+          value={filter.providerId ?? "__all__"}
+          onValueChange={(v) => onChange({ ...filter, providerId: v === "__all__" ? null : v })}
+        >
+          <SelectTrigger className="h-7 w-36 text-xs">
+            <SelectValue placeholder={t("dashboard.filter.allProviders")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{t("dashboard.filter.allProviders")}</SelectItem>
+            {providers.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
-      {!controlPlane && <Select
-        value={filter.usageKind ?? "__all__"}
-        onValueChange={(v) =>
-          onChange({ ...filter, usageKind: v === "__all__" ? null : v })
-        }
-      >
-        <SelectTrigger className="h-7 w-40 text-xs">
-          <SelectValue placeholder={t("dashboard.usageKind.all")} />
-        </SelectTrigger>
-        <SelectContent>
-          {USAGE_KIND_VALUES.map((value) => (
-            <SelectItem key={value} value={value}>
-              {value === "__all__"
-                ? t("dashboard.usageKind.all")
-                : t(`dashboard.usageKind.${value}`, value)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>}
+      {fields.usageKind && (
+        <Select
+          value={filter.usageKind ?? "__all__"}
+          onValueChange={(v) => onChange({ ...filter, usageKind: v === "__all__" ? null : v })}
+        >
+          <SelectTrigger className="h-7 w-40 text-xs">
+            <SelectValue placeholder={t("dashboard.usageKind.all")} />
+          </SelectTrigger>
+          <SelectContent>
+            {USAGE_KIND_VALUES.map((value) => (
+              <SelectItem key={value} value={value}>
+                {value === "__all__"
+                  ? t("dashboard.usageKind.all")
+                  : t(`dashboard.usageKind.${value}`, value)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       {/* Active model filter indicator */}
-      {!controlPlane && filter.modelId && (
+      {fields.provider && filter.modelId && (
         <div className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs">
           <span className="text-muted-foreground">{t("dashboard.filter.model")}:</span>
           <span className="font-medium">{filter.modelId}</span>
@@ -271,7 +283,7 @@ export default function DashboardFilter({
       {/* Active operation (purpose tag) filter indicator — drill-down only,
           no dropdown; set by clicking a row in the Tokens tab's operation
           table. */}
-      {!controlPlane && filter.operation && (
+      {fields.usageKind && filter.operation && (
         <div className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs">
           <span className="text-muted-foreground">{t("dashboard.token.operation")}:</span>
           <span className="font-mono font-medium">{filter.operation}</span>
@@ -296,6 +308,8 @@ export default function DashboardFilter({
           {t("dashboard.filter.clear")}
         </Button>
       )}
+
+      {children}
     </div>
   )
 }

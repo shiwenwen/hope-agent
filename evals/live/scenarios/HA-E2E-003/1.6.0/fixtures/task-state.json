@@ -1,0 +1,28 @@
+{
+  "scenarioId": "HA-E2E-003",
+  "fixtureVersion": "1.6.0",
+  "synthetic": true,
+  "expectedCapabilities": [
+    "goal",
+    "workflow",
+    "async_jobs",
+    "tool"
+  ],
+  "workItems": [
+    {
+      "id": "HA-E2E-003-A",
+      "value": 17,
+      "action": "inspect"
+    },
+    {
+      "id": "HA-E2E-003-B",
+      "value": 29,
+      "action": "execute"
+    },
+    {
+      "id": "HA-E2E-003-C",
+      "value": 43,
+      "action": "verify"
+    }
+  ]
+}

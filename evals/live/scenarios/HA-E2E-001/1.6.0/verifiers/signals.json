@@ -1,0 +1,11 @@
+{
+  "signals": [
+    "model",
+    "tool",
+    "goal",
+    "workflow",
+    "subagent",
+    "team",
+    "async_jobs"
+  ]
+}

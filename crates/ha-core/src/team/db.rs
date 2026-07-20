@@ -8,28 +8,38 @@ impl SessionDB {
     // ── Teams CRUD ──────────────────────────────────────────────
 
     pub fn insert_team(&self, team: &Team) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let config_json = serde_json::to_string(&team.config)?;
-        conn.execute(
-            "INSERT INTO teams (team_id, name, description, lead_session_id, lead_agent_id,
-             status, created_at, updated_at, template_id, config_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                team.team_id,
-                team.name,
-                team.description,
-                team.lead_session_id,
-                team.lead_agent_id,
-                team.status.as_str(),
-                team.created_at,
-                team.updated_at,
-                team.template_id,
-                config_json,
-            ],
-        )?;
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let config_json = serde_json::to_string(&team.config)?;
+            conn.execute(
+                "INSERT INTO teams (team_id, name, description, lead_session_id, lead_agent_id,
+                 status, created_at, updated_at, template_id, config_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    team.team_id,
+                    team.name,
+                    team.description,
+                    team.lead_session_id,
+                    team.lead_agent_id,
+                    team.status.as_str(),
+                    team.created_at,
+                    team.updated_at,
+                    team.template_id,
+                    config_json,
+                ],
+            )?;
+        }
+        crate::eval_context::record_lifecycle_event(
+            Some(&team.lead_session_id),
+            "team",
+            "team.created",
+            Some(&team.team_id),
+            team.status.as_str(),
+            0,
+        );
         Ok(())
     }
 
@@ -80,14 +90,32 @@ impl SessionDB {
     }
 
     pub fn update_team_status(&self, team_id: &str, status: &TeamStatus) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "UPDATE teams SET status = ?1, updated_at = datetime('now') WHERE team_id = ?2",
-            params![status.as_str(), team_id],
-        )?;
+        let lead_session_id = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let lead_session_id = conn
+                .query_row(
+                    "SELECT lead_session_id FROM teams WHERE team_id = ?1",
+                    params![team_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok();
+            conn.execute(
+                "UPDATE teams SET status = ?1, updated_at = datetime('now') WHERE team_id = ?2",
+                params![status.as_str(), team_id],
+            )?;
+            lead_session_id
+        };
+        crate::eval_context::record_lifecycle_event(
+            lead_session_id.as_deref(),
+            "team",
+            "team.transition",
+            Some(team_id),
+            status.as_str(),
+            0,
+        );
         Ok(())
     }
 

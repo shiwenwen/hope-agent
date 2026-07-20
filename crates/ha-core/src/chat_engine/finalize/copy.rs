@@ -92,6 +92,10 @@ pub fn model_marker(reason: &TerminationReason) -> String {
 fn model_marker_provider_failed(kind: FailoverReason, raw: &str) -> String {
     let msg = sanitize_for_model(raw);
     match kind {
+        FailoverReason::EvaluationBudget => format!(
+            "[系统事件] 本次受保护评测已达到不可变预算上限:{}。不得重试、切换凭据或继续产生外部副作用。",
+            msg
+        ),
         FailoverReason::Auth => format!(
             "[系统事件] 所有已配置模型都认证失败。最后一次错误:{}。请提醒用户检查 \
              API Key 或 OAuth 登录状态。",
@@ -166,6 +170,7 @@ pub fn user_notice(reason: &TerminationReason) -> String {
 fn user_notice_provider_failed(kind: FailoverReason, raw: &str) -> String {
     let msg = sanitize_for_user(raw);
     match kind {
+        FailoverReason::EvaluationBudget => "本次评测已达到预算上限，已停止继续调用".to_string(),
         FailoverReason::Auth => "所有模型认证失败。请检查 API Key 或 OAuth 登录".to_string(),
         FailoverReason::Billing => "所有模型计费/配额问题。请检查订阅或余额".to_string(),
         FailoverReason::RateLimit => "所有模型被上游限流。可稍后重试或切换备用模型".to_string(),

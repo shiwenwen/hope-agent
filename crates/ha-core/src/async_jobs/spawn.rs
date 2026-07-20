@@ -188,6 +188,7 @@ pub(crate) fn spawn_explicit_job_with_id(
     origin: JobOrigin,
     job_id: String,
 ) -> Result<String> {
+    crate::eval_context::ensure_background_work_budget(ctx.session_id.as_deref())?;
     let db = match super::get_async_jobs_db() {
         Some(db) => db.clone(),
         None => {
@@ -268,6 +269,10 @@ pub(crate) fn spawn_explicit_job_with_id(
     );
 
     let clean_args = strip_async_control_args(args);
+    let eval_guard = ctx
+        .session_id
+        .as_deref()
+        .and_then(crate::eval_context::retain_session);
     let prepared = super::slots::PreparedJob {
         job_id: job_id.clone(),
         tool_name: tool_name.to_string(),
@@ -276,6 +281,8 @@ pub(crate) fn spawn_explicit_job_with_id(
         max_secs,
         preview_bytes: preview_byte_budget(),
         cancel_token,
+        enqueued_at: std::time::Instant::now(),
+        eval_guard,
     };
 
     match reservation {
@@ -324,11 +331,27 @@ fn start_runner(
         max_secs,
         preview_bytes,
         cancel_token,
+        enqueued_at,
+        eval_guard,
     } = prepared;
 
     // Run on a dedicated OS thread so we don't constrain the dispatch future to
     // be `Send`. This mirrors `subagent::injection::inject_and_run_parent`.
     std::thread::spawn(move || {
+        let _eval_guard = eval_guard;
+        crate::eval_context::record_queue_wait(
+            ctx.session_id.as_deref(),
+            "async_job",
+            &job_id_owned,
+            enqueued_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+        );
+        if let Some(fault) =
+            crate::eval_context::scheduler_fault_action(ctx.session_id.as_deref(), &job_id_owned)
+        {
+            if fault.delay_ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(fault.delay_ms));
+            }
+        }
         // Hold the slot reservation for the job's whole lifetime; on drop it
         // decrements the running count and wakes the scheduler, so the freed
         // slot immediately promotes the next queued job. Released on every exit
@@ -1107,6 +1130,14 @@ async fn finalize_job(
     // is retained for frontend subscribers only.
     super::wait::notify_completion(job_id);
     emit_completion_event(job_id, tool_name, status.as_str(), session_id);
+    crate::eval_context::record_lifecycle_event(
+        session_id,
+        "async_jobs",
+        "async_job.terminal",
+        Some(job_id),
+        status.as_str(),
+        0,
+    );
 
     // H4: fire the terminal PostToolUse / PostToolUseFailure hook so a
     // backgrounded job is visible to hooks (HOOKS-1) — including cancellation

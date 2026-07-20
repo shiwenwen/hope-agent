@@ -27,8 +27,19 @@ if [[ "${HA_MEMORY_SMOKE_SKIP_RUST:-0}" != "1" ]]; then
   cargo test -p ha-core --lib graph_edges_to_candidate_refs --locked
 
   echo
-  echo "==> Rust Dreaming deterministic golden fixtures"
-  cargo test -p ha-core --test dreaming_eval --locked
+  echo "==> Rust Dreaming deterministic golden fixtures (standalone eval runner)"
+  eval_ref="$(git rev-parse HEAD)"
+  eval_tmp="$(mktemp -d)"
+  cargo run -p ha-eval --locked -- \
+    plan --tier weekly --ref "$eval_ref" --output "$eval_tmp/plan.json"
+  cargo run -p ha-eval --locked -- \
+    run --plan "$eval_tmp/plan.json" --suite memory-dreaming --shard 1/2 \
+    --output "$eval_tmp/dreaming-1.json"
+  cargo run -p ha-eval --locked -- \
+    run --plan "$eval_tmp/plan.json" --suite memory-dreaming --shard 2/2 \
+    --output "$eval_tmp/dreaming-2.json"
+  jq -e 'all(.cases[]; .status == "passed")' \
+    "$eval_tmp/dreaming-1.json" "$eval_tmp/dreaming-2.json" >/dev/null
 
   echo
   echo "==> Rust memory backup/restore safety integration"

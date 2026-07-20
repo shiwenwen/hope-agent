@@ -288,7 +288,9 @@ impl SessionDB {
     }
 }
 
-pub fn record_model_usage_best_effort(event: ModelUsageEvent) {
+pub fn record_model_usage_best_effort(mut event: ModelUsageEvent) {
+    crate::eval_context::enrich_usage_metadata(&mut event);
+    crate::eval_context::record_model_usage(&event);
     match crate::get_session_db() {
         Some(db) => {
             if let Err(e) = db.insert_model_usage_event(&event) {

@@ -70,6 +70,7 @@ The Dashboard aggregates and analyzes data across sessions, logs, and scheduled 
 - **Insights**: period-over-period comparisons, cost curves, an activity heatmap, top sessions, model cost-effectiveness, and a four-dimensional health score.
 - **System metrics, local models, learning records.**
 - **Goal & execution dashboard**: goal acceptance rate, workflow completion rate, strong-progress rate of ongoing advancement, and task and Plan breakdowns.
+- **Capability Evaluation**: run core Agent synthetic scenarios with real models and inspect completion, tools, time, tokens, cost, comparisons, and trends. See [14 · Capability Evaluation](14-capability-evaluation.md) for the complete workflow.
 
 **Model usage ledger**: every call that triggers model inference (chat, background queries, summarization, embedding, speech, judge, search, image generation, audio generation, vision, and so on) is recorded in a unified ledger, and the Dashboard's total tokens / cost are based on it. Calls that return no tokens — local models, speech, embedding — record only the call count and elapsed time; **they never fake accurate token counts with character-based estimates**.
 
@@ -101,3 +102,4 @@ Recap performs a deep analysis of the sessions in a selected time range and gene
 
 - Find settings and understand the security boundaries → [13 · Settings & Security](13-settings-and-security.md)
 - Let the AI advance goals in the background over the long term → [08 · Autonomous Tasks](08-autonomous-tasks.md)
+- Validate Goal, Workflow, asynchronous-task, and multi-Agent stability with real models → [14 · Capability Evaluation](14-capability-evaluation.md)

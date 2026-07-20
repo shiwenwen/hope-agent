@@ -1,0 +1,68 @@
+{
+  "name": "improvement_retro_and_promotion",
+  "description": "Phase 4.2 covers workflow terminal retro generation and draft promotion into a formal eval fixture path.",
+  "repo": {
+    "files": [
+      {
+        "path": "README.md",
+        "text": "# Retro Promotion Fixture\n"
+      }
+    ],
+    "changes": []
+  },
+  "runs": {
+    "workflow": {
+      "kind": "coding.workflow",
+      "executionMode": "guarded",
+      "scriptSource": "export default async function main(workflow) {\n  const task = await workflow.task.create({ title: \"finish focused work\" });\n  await workflow.task.update({ task, status: \"completed\" });\n  await workflow.finish({ summary: \"done\" });\n}\n",
+      "budget": {
+        "maxOps": 8
+      }
+    },
+    "improvement": {
+      "windowDays": 30,
+      "generateProposals": true,
+      "applyFirstProposal": true,
+      "applyProposalKind": "eval_candidate",
+      "promoteAppliedProposal": true,
+      "seedEvalRuns": [
+        {
+          "suite": "coding_control_plane",
+          "name": "retro_promotion_gap",
+          "status": "failed",
+          "metrics": {
+            "fixture": "retro_promotion_gap"
+          },
+          "sourceType": "fixture",
+          "sourceId": "retro_promotion_gap"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "workflow": {
+      "expectedState": "completed",
+      "expectOps": [
+        "task.create",
+        "task.update",
+        "finish"
+      ]
+    },
+    "improvement": {
+      "expectedFailureCategories": [
+        "eval_failed"
+      ],
+      "expectedProposalKinds": [
+        "eval_candidate"
+      ],
+      "minRetros": 1,
+      "minRetroRecommendations": 1,
+      "expectedAppliedStatus": "applied",
+      "expectedAppliedKind": "eval_candidate",
+      "minAppliedArtifacts": 1,
+      "expectedPromotedStatus": "promoted",
+      "minPromotedArtifacts": 1,
+      "expectedPromotionTargetContains": "evals/suites/coding-control-plane/fixtures"
+    }
+  }
+}

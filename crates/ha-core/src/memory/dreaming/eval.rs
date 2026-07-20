@@ -6,15 +6,13 @@
 //! memory states and asserts the safety red-lines from §9.2 against the REAL
 //! read paths (scope filter, effective-status / stale suppression, evidence
 //! coverage, conflict→review, legacy-sync hidden-set, evidence fail-closed). No
-//! LLM is involved, so it runs in the default CI suite. Claim extraction /
+//! LLM is involved. It runs through the standalone capability-eval runner,
+//! outside the default PR test suite. Claim extraction /
 //! profile synthesis (which need a fixed model or mock) are the separate
 //! "Golden LLM fixtures" layer (manual / nightly) and are out of scope here.
 //!
-//! Fixtures live in `crates/ha-core/tests/fixtures/dreaming/*.json` and are
-//! driven by the `tests/dreaming_eval.rs` integration test, which initialises
-//! the claim store global once (process-isolated) and calls [`evaluate`] per
-//! fixture. Each fixture confines its seeds to a unique scope namespace, so a
-//! single shared DB has no cross-fixture interference.
+//! Fixtures live in `evals/suites/memory-dreaming/fixtures/*.json`; the
+//! standalone runner gives each case its own process and claim store.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -278,9 +276,16 @@ impl FixtureReport {
     }
 }
 
-/// Directory holding the golden fixtures (`tests/fixtures/dreaming/`).
+/// Directory holding the canonical standalone eval fixtures.
 pub fn fixtures_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dreaming")
+    let canonical = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../evals/suites/memory-dreaming/fixtures");
+    if canonical.is_dir() {
+        canonical
+    } else {
+        // One-minor source-tree compatibility fallback.
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dreaming")
+    }
 }
 
 /// Load + parse every `*.json` fixture, sorted by filename for stable order.

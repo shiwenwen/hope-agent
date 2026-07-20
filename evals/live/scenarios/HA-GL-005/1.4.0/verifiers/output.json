@@ -1,0 +1,9 @@
+{
+  "path": "deliverables/result.json",
+  "expectedSubset": {
+    "scenarioId": "HA-GL-005",
+    "status": "verified",
+    "inputSha256": "9bbaff4474991afd16d934f3d3fe6afb921236bb0a4a80124ac7990a26271588",
+    "itemCount": 3
+  }
+}

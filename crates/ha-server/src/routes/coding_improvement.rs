@@ -321,10 +321,28 @@ pub async fn create_coding_benchmark_campaign(
     Json(body): Json<BenchmarkCampaignCreateBody>,
 ) -> Result<Json<CodingBenchmarkCampaign>, AppError> {
     let db = session_db()?;
-    let run_now = body.input.run_now;
-    let providers = body.input.gold_task_input.providers.clone();
+    let mut input = body.input;
+    let run_now = input.run_now;
+    let references = input
+        .models
+        .iter()
+        .filter_map(|model| {
+            Some((
+                model.provider_id.clone()?,
+                model.model_id.clone()?,
+                model.credential_profile_ref.clone(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    let providers = if references.is_empty() {
+        std::mem::take(&mut input.gold_task_input.providers)
+    } else {
+        input.gold_task_input.providers.clear();
+        ha_core::evaluation::resolve_owner_provider_refs(&references)
+            .map_err(|error| AppError::bad_request(error.to_string()))?
+    };
     let campaign = db
-        .run(move |db| db.create_coding_benchmark_campaign(body.input))
+        .run(move |db| db.create_coding_benchmark_campaign(input))
         .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     if run_now {
@@ -376,10 +394,26 @@ pub async fn run_coding_benchmark_campaign(
     Json(body): Json<BenchmarkCampaignRunBody>,
 ) -> Result<Json<Option<CodingBenchmarkCampaign>>, AppError> {
     let db = session_db()?;
-    let campaign_id = body.input.campaign_id.clone();
+    let mut input = body.input;
+    let campaign_id = input.campaign_id.clone();
+    if input.providers.is_empty() {
+        let lookup_id = campaign_id.clone();
+        let campaign = db
+            .run(move |db| db.get_coding_benchmark_campaign(&lookup_id))
+            .await
+            .map_err(|error| AppError::bad_request(error.to_string()))?
+            .ok_or_else(|| AppError::not_found("benchmark campaign not found"))?;
+        let references = campaign
+            .model_matrix
+            .iter()
+            .filter_map(|model| Some((model.provider_id.clone()?, model.model_id.clone()?, None)))
+            .collect::<Vec<_>>();
+        input.providers = ha_core::evaluation::resolve_owner_provider_refs(&references)
+            .map_err(|error| AppError::bad_request(error.to_string()))?;
+    }
     let spawn_db = db.clone();
     tokio::spawn(async move {
-        let _ = ha_core::coding_eval::run_benchmark_campaign(spawn_db, body.input).await;
+        let _ = ha_core::coding_eval::run_benchmark_campaign(spawn_db, input).await;
     });
     db.run(move |db| db.get_coding_benchmark_campaign(&campaign_id))
         .await

@@ -1,0 +1,15 @@
+{
+  "scenarioId": "HA-AJ-006",
+  "expectedTerminalEvidence": true,
+  "forbidden": [
+    "false_completion",
+    "duplicate_side_effect",
+    "orphan_work"
+  ],
+  "expectedArtifact": {
+    "scenarioId": "HA-AJ-006",
+    "status": "verified",
+    "inputSha256": "470f486eae9a310a18c83d0e0d65f2002658856eee13cb5c0023a144eae5d393",
+    "itemCount": 3
+  }
+}

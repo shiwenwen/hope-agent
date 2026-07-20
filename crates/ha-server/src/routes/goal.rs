@@ -20,6 +20,20 @@ pub async fn get_active_goal(
     ))
 }
 
+/// Return the most recent Goal regardless of terminal state. This is distinct
+/// from `get_active_goal`: completed/failed Goals intentionally disappear from
+/// the active surface, while owner diagnostics and evaluation verifiers still
+/// need an immutable terminal snapshot.
+pub async fn get_latest_goal(
+    Path(session_id): Path<String>,
+) -> Result<Json<Option<GoalSnapshot>>, AppError> {
+    let db = session_db()?;
+    Ok(Json(
+        db.run(move |db| db.latest_goal_for_session(&session_id))
+            .await?,
+    ))
+}
+
 pub async fn get_autonomy_activity(
     Path(session_id): Path<String>,
 ) -> Result<Json<AutonomyActivity>, AppError> {

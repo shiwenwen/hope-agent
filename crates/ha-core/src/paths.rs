@@ -34,6 +34,20 @@ pub fn stream_spool_path(run_id: &str) -> Result<PathBuf> {
     Ok(stream_spool_dir()?.join(format!("{run_id}.log")))
 }
 
+/// Evaluation Center state. This is deliberately separate from sessions.db:
+/// synthetic trials must never become user conversations or memory input.
+pub fn evals_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("evals"))
+}
+
+pub fn evals_db_path() -> Result<PathBuf> {
+    Ok(evals_dir()?.join("evals.db"))
+}
+
+pub fn eval_artifacts_dir() -> Result<PathBuf> {
+    Ok(evals_dir()?.join("artifacts"))
+}
+
 /// Ephemeral files used while a project chat is preparing a managed worktree.
 pub fn bootstrap_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("bootstrap"))

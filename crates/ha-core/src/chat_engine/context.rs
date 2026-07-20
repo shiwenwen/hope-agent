@@ -221,7 +221,20 @@ pub(super) async fn schedule_memory_extraction_after_turn(
         let agent_id = agent_id.to_string();
         let session_id = session_id.to_string();
         let session_db = agent.session_db.clone();
+        let eval_model_guard = match crate::eval_context::retain_model_automation(&session_id) {
+            Ok(guard) => guard,
+            Err(error) => {
+                app_warn!(
+                    "memory",
+                    "auto_extract",
+                    "Skipping evaluation extraction at its immutable budget: {}",
+                    error
+                );
+                return idle_timeout;
+            }
+        };
         tokio::spawn(async move {
+            let _eval_model_guard = eval_model_guard;
             crate::memory_extract::run_extraction(
                 &history,
                 &agent_id,
