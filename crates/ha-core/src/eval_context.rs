@@ -13,7 +13,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+#[cfg(unix)]
+use std::time::Duration;
+use std::time::Instant;
 
 const MAX_RETAINED_TRIALS: usize = 256;
 const MAX_TRIAL_EVENTS: usize = 4_096;
