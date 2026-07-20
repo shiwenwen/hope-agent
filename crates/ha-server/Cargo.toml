@@ -35,7 +35,6 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 futures-util = { workspace = true }
 
-reqwest = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 base64 = { workspace = true }
@@ -55,6 +54,11 @@ mime_guess = "2"
 # substitute a LAN-reachable IP when the server binds to 0.0.0.0.
 local-ip-address = "0.6"
 tempfile = "3"
+
+# Only the integration tests drive the server over real HTTP; all outbound
+# HTTP in the product lives in ha-core.
+[dev-dependencies]
+reqwest = { workspace = true }
 
 [lints]
 workspace = true
