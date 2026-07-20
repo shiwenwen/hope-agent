@@ -10695,6 +10695,20 @@
     "exitCode": "종료 코드 {{code}}",
     "refCount": "참조 {{count}}개"
   },
+  "help": {
+    "title": "사용자 가이드",
+    "searchPlaceholder": "가이드 검색…",
+    "noResults": "일치하는 결과 없음",
+    "outline": "챕터 개요",
+    "askAi": "AI에게 질문",
+    "askAiSent": "메인 창으로 보냈습니다",
+    "askAiNoMainTab": "먼저 메인 앱 탭을 연 다음 다시 시도하세요",
+    "quoteHeader": "사용자 가이드 · {{chapter}}",
+    "findPlaceholder": "이 챕터에서 찾기",
+    "loading": "불러오는 중…",
+    "loadFailed": "사용자 가이드를 불러오지 못했습니다",
+    "retry": "다시 시도"
+  },
   "knowledge": {
     "picker": {
       "title": "지식 공간",

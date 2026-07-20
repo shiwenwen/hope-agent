@@ -10695,6 +10695,20 @@
     "exitCode": "Mã thoát {{code}}",
     "refCount": "{{count}} tham chiếu"
   },
+  "help": {
+    "title": "Hướng dẫn sử dụng",
+    "searchPlaceholder": "Tìm trong hướng dẫn…",
+    "noResults": "Không có kết quả",
+    "outline": "Dàn ý chương",
+    "askAi": "Hỏi AI",
+    "askAiSent": "Đã gửi đến cửa sổ chính",
+    "askAiNoMainTab": "Hãy mở tab ứng dụng chính trước rồi thử lại",
+    "quoteHeader": "Hướng dẫn sử dụng · {{chapter}}",
+    "findPlaceholder": "Tìm trong chương này",
+    "loading": "Đang tải…",
+    "loadFailed": "Không tải được hướng dẫn sử dụng",
+    "retry": "Thử lại"
+  },
   "knowledge": {
     "picker": {
       "title": "Không gian tri thức",

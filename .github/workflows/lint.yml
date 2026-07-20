@@ -52,6 +52,12 @@ jobs:
       - name: Release workflow path consistency
         run: node scripts/check-release-paths.mjs
 
+      # The user manual (docs/user-guide) is compiled into the app and served
+      # bilingually — zh and en/ must stay chapter- and section-aligned or
+      # one language silently ships stale content.
+      - name: User manual zh/en parity
+        run: node scripts/check-docs-parity.mjs
+
       # Informational only for now: the repo carries ~3.3k historical missing
       # keys across the 10 non-baseline locales (en/zh are the source of truth).
       # Once that backlog is paid down, drop `continue-on-error` to make this

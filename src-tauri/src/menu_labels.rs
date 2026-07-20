@@ -4,6 +4,7 @@ pub(crate) struct TrayLabels {
     pub(crate) quick_chat: &'static str,
     pub(crate) new_session: &'static str,
     pub(crate) settings: &'static str,
+    pub(crate) help: &'static str,
     pub(crate) quit: &'static str,
     pub(crate) quit_confirm_title: &'static str,
     pub(crate) quit_confirm_body: &'static str,
@@ -37,6 +38,9 @@ pub(crate) struct MacosAppMenuLabels {
     pub(crate) check_for_updates: &'static str,
     pub(crate) settings: &'static str,
     pub(crate) hide: &'static str,
+    /// "Help" submenu title + the "User Guide" item inside it.
+    pub(crate) help: &'static str,
+    pub(crate) user_guide: &'static str,
 }
 
 pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
@@ -46,6 +50,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "快捷对话",
             new_session: "新建对话",
             settings: "设置",
+            help: "使用手册",
             quit: "退出 Hope Agent",
             quit_confirm_title: "退出 Hope Agent？",
             quit_confirm_body: "退出后会停止所有后台任务（IM 渠道、定时任务、流式对话）。确定退出？",
@@ -57,6 +62,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "快捷對話",
             new_session: "新建對話",
             settings: "設定",
+            help: "使用手冊",
             quit: "退出 Hope Agent",
             quit_confirm_title: "退出 Hope Agent？",
             quit_confirm_body: "退出後將停止所有後台任務（IM 渠道、定時任務、串流對話）。確定退出？",
@@ -68,6 +74,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "クイックチャット",
             new_session: "新しいセッション",
             settings: "設定",
+            help: "ユーザーガイド",
             quit: "Hope Agent を終了",
             quit_confirm_title: "Hope Agent を終了しますか？",
             quit_confirm_body: "終了するとすべてのバックグラウンドタスク（IM チャネル、スケジュールジョブ、ストリーミングチャット）が停止します。続行しますか？",
@@ -79,6 +86,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "빠른 채팅",
             new_session: "새 세션",
             settings: "설정",
+            help: "사용자 가이드",
             quit: "Hope Agent 종료",
             quit_confirm_title: "Hope Agent을 종료하시겠습니까?",
             quit_confirm_body: "종료하면 모든 백그라운드 작업(IM 채널, 예약 작업, 스트리밍 채팅)이 중지됩니다. 계속하시겠습니까?",
@@ -90,6 +98,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "Chat rápido",
             new_session: "Nueva sesión",
             settings: "Configuración",
+            help: "Guía del usuario",
             quit: "Salir de Hope Agent",
             quit_confirm_title: "¿Salir de Hope Agent?",
             quit_confirm_body: "Al salir se detendrán todas las tareas en segundo plano (canales IM, tareas programadas, chats en streaming). ¿Continuar?",
@@ -101,6 +110,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "Chat rápido",
             new_session: "Nova sessão",
             settings: "Configurações",
+            help: "Guia do usuário",
             quit: "Sair do Hope Agent",
             quit_confirm_title: "Sair do Hope Agent?",
             quit_confirm_body: "Sair encerrará todas as tarefas em segundo plano (canais IM, tarefas agendadas, chats em streaming). Continuar?",
@@ -112,6 +122,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "Быстрый чат",
             new_session: "Новый сеанс",
             settings: "Настройки",
+            help: "Руководство пользователя",
             quit: "Выход из Hope Agent",
             quit_confirm_title: "Выйти из Hope Agent?",
             quit_confirm_body: "Выход остановит все фоновые задачи (каналы IM, запланированные задания, потоковые чаты). Продолжить?",
@@ -123,6 +134,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "محادثة سريعة",
             new_session: "جلسة جديدة",
             settings: "الإعدادات",
+            help: "دليل المستخدم",
             quit: "إنهاء Hope Agent",
             quit_confirm_title: "إنهاء Hope Agent؟",
             quit_confirm_body: "سيؤدي الإنهاء إلى إيقاف جميع المهام في الخلفية (قنوات IM، المهام المجدولة، المحادثات المتدفقة). هل تريد المتابعة؟",
@@ -134,6 +146,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "Hızlı sohbet",
             new_session: "Yeni oturum",
             settings: "Ayarlar",
+            help: "Kullanım Kılavuzu",
             quit: "Hope Agent'dan çık",
             quit_confirm_title: "Hope Agent'tan çıkılsın mı?",
             quit_confirm_body: "Çıkış tüm arka plan görevlerini (IM kanalları, zamanlanmış işler, akışlı sohbetler) durduracak. Devam edilsin mi?",
@@ -145,6 +158,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "Trò chuyện nhanh",
             new_session: "Phiên mới",
             settings: "Cài đặt",
+            help: "Hướng dẫn sử dụng",
             quit: "Thoát Hope Agent",
             quit_confirm_title: "Thoát Hope Agent?",
             quit_confirm_body: "Thoát sẽ dừng tất cả tác vụ chạy nền (kênh IM, tác vụ đã lên lịch, trò chuyện trực tuyến). Tiếp tục?",
@@ -156,6 +170,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "Sembang pantas",
             new_session: "Sesi baharu",
             settings: "Tetapan",
+            help: "Panduan Pengguna",
             quit: "Keluar Hope Agent",
             quit_confirm_title: "Keluar Hope Agent?",
             quit_confirm_body: "Keluar akan menghentikan semua tugasan latar (saluran IM, tugasan berjadual, sembang penstriman). Teruskan?",
@@ -167,6 +182,7 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "Quick Chat",
             new_session: "New Session",
             settings: "Settings",
+            help: "User Guide",
             quit: "Quit Hope Agent",
             quit_confirm_title: "Quit Hope Agent?",
             quit_confirm_body: "Quitting stops all background tasks (IM channels, scheduled jobs, chat streams). Continue?",
@@ -356,72 +372,96 @@ pub(crate) fn macos_app_menu_labels(lang: &str) -> MacosAppMenuLabels {
             check_for_updates: "检查更新...",
             settings: "设置...",
             hide: "隐藏 Hope Agent",
+            help: "帮助",
+            user_guide: "使用手册",
         },
         "zh-TW" => MacosAppMenuLabels {
             about: "關於 Hope Agent",
             check_for_updates: "檢查更新...",
             settings: "設定...",
             hide: "隱藏 Hope Agent",
+            help: "說明",
+            user_guide: "使用手冊",
         },
         "ja" => MacosAppMenuLabels {
             about: "Hope Agent について",
             check_for_updates: "アップデートを確認...",
             settings: "設定...",
             hide: "Hope Agent を非表示",
+            help: "ヘルプ",
+            user_guide: "ユーザーガイド",
         },
         "ko" => MacosAppMenuLabels {
             about: "Hope Agent 정보",
             check_for_updates: "업데이트 확인...",
             settings: "설정...",
             hide: "Hope Agent 숨기기",
+            help: "도움말",
+            user_guide: "사용자 가이드",
         },
         "es" => MacosAppMenuLabels {
             about: "Acerca de Hope Agent",
             check_for_updates: "Buscar actualizaciones...",
             settings: "Configuración...",
             hide: "Ocultar Hope Agent",
+            help: "Ayuda",
+            user_guide: "Guía del usuario",
         },
         "pt" => MacosAppMenuLabels {
             about: "Sobre o Hope Agent",
             check_for_updates: "Verificar atualizações...",
             settings: "Configurações...",
             hide: "Ocultar Hope Agent",
+            help: "Ajuda",
+            user_guide: "Guia do usuário",
         },
         "ru" => MacosAppMenuLabels {
             about: "О Hope Agent",
             check_for_updates: "Проверить обновления...",
             settings: "Настройки...",
             hide: "Скрыть Hope Agent",
+            help: "Справка",
+            user_guide: "Руководство пользователя",
         },
         "ar" => MacosAppMenuLabels {
             about: "حول Hope Agent",
             check_for_updates: "التحقق من التحديثات...",
             settings: "الإعدادات...",
             hide: "إخفاء Hope Agent",
+            help: "مساعدة",
+            user_guide: "دليل المستخدم",
         },
         "tr" => MacosAppMenuLabels {
             about: "Hope Agent Hakkında",
             check_for_updates: "Güncellemeleri kontrol et...",
             settings: "Ayarlar...",
             hide: "Hope Agent'ı Gizle",
+            help: "Yardım",
+            user_guide: "Kullanım Kılavuzu",
         },
         "vi" => MacosAppMenuLabels {
             about: "Giới thiệu Hope Agent",
             check_for_updates: "Kiểm tra cập nhật...",
             settings: "Cài đặt...",
             hide: "Ẩn Hope Agent",
+            help: "Trợ giúp",
+            user_guide: "Hướng dẫn sử dụng",
         },
         "ms" => MacosAppMenuLabels {
             about: "Perihal Hope Agent",
             check_for_updates: "Semak kemas kini...",
             settings: "Tetapan...",
             hide: "Sembunyikan Hope Agent",
+            help: "Bantuan",
+            user_guide: "Panduan Pengguna",
         },
         _ => MacosAppMenuLabels {
             about: "About Hope Agent",
             check_for_updates: "Check for Updates...",
             settings: "Settings...",
             hide: "Hide Hope Agent",
+            help: "Help",
+            user_guide: "User Guide",
         },
     }
 }
@@ -496,6 +536,8 @@ mod tests {
         assert_eq!(labels.check_for_updates, "检查更新...");
         assert_eq!(labels.settings, "设置...");
         assert_eq!(labels.hide, "隐藏 Hope Agent");
+        assert_eq!(labels.help, "帮助");
+        assert_eq!(labels.user_guide, "使用手册");
     }
 
     #[test]
@@ -506,6 +548,8 @@ mod tests {
         assert_eq!(labels.check_for_updates, "Check for Updates...");
         assert_eq!(labels.settings, "Settings...");
         assert_eq!(labels.hide, "Hide Hope Agent");
+        assert_eq!(labels.help, "Help");
+        assert_eq!(labels.user_guide, "User Guide");
     }
 
     #[test]
@@ -516,6 +560,7 @@ mod tests {
         assert_eq!(labels.quick_chat, "Quick Chat");
         assert_eq!(labels.new_session, "New Session");
         assert_eq!(labels.settings, "Settings");
+        assert_eq!(labels.help, "User Guide");
         assert_eq!(labels.quit, "Quit Hope Agent");
     }
 }

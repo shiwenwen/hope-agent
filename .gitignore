@@ -16,6 +16,9 @@ src-tauri/WixTools/
 src-tauri/resources/vc_redist.x64.exe
 src-tauri/resources/browser-host/
 src-tauri/resources/chrome-extension/
+# Eval sidecar staged by scripts/prepare-eval-sidecar.mjs (a ~200MB locally
+# built binary, same class as the browser-host above — never committed).
+src-tauri/binaries/
 
 # Python (skill-creator scripts, eval helpers)
 __pycache__/

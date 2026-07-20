@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { LucideIcon } from "lucide-react"
 import {
+  BookOpenText,
   Brain,
   Check,
   Download,
@@ -19,6 +20,7 @@ import { Switch } from "@/components/ui/switch"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { HOPE_AGENT_URLS, useAppVersion } from "@/lib/appMeta"
+import { openHelpWindow } from "@/lib/manual/openHelpWindow"
 import {
   checkForDesktopUpdate,
   getAutoUpdateConfig,
@@ -410,6 +412,10 @@ export default function AboutPanel({
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
+              <Button variant="outline" onClick={() => void openHelpWindow()}>
+                <BookOpenText className="mr-1.5 h-4 w-4" />
+                {t("help.title")}
+              </Button>
               <Button variant="outline" onClick={() => openExternal(HOPE_AGENT_URLS.github)}>
                 {t("about.github")}
                 <ExternalLink className="ml-1.5 h-4 w-4" />

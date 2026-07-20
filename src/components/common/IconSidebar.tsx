@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils"
 import appLogoUrl from "@/assets/logo.png"
 import {
   MessageSquare,
+  BookOpenText,
   Bot,
   Brain,
   Settings,
@@ -43,6 +44,7 @@ import {
   PackageOpen,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
+import { openHelpWindow } from "@/lib/manual/openHelpWindow"
 import {
   SUPPORTED_LANGUAGES,
   isFollowingSystem,
@@ -553,6 +555,20 @@ export default function IconSidebar({
                     ))}
               </FloatingMenu>
             </div>
+          </div>
+          {/* Help (built-in user manual — opens its own window) */}
+          <div className="relative flex justify-center mt-1">
+            <IconTip label={t("help.title")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("help.title")}
+                className="rounded-xl h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => void openHelpWindow()}
+              >
+                <BookOpenText className="h-4 w-4" />
+              </Button>
+            </IconTip>
           </div>
           {/* Settings */}
           <div className="relative flex justify-center mt-1">

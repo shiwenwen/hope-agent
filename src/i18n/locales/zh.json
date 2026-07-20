@@ -10695,6 +10695,20 @@
     "exitCode": "退出码 {{code}}",
     "refCount": "{{count}} 个引用"
   },
+  "help": {
+    "title": "使用手册",
+    "searchPlaceholder": "搜索手册…",
+    "noResults": "没有匹配结果",
+    "outline": "本章大纲",
+    "askAi": "问 AI",
+    "askAiSent": "已发送到主窗口",
+    "askAiNoMainTab": "请先打开主应用标签页再试",
+    "quoteHeader": "使用手册 · {{chapter}}",
+    "findPlaceholder": "在本章中查找",
+    "loading": "加载中…",
+    "loadFailed": "使用手册加载失败",
+    "retry": "重试"
+  },
   "knowledge": {
     "picker": {
       "title": "知识空间",

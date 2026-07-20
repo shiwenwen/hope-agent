@@ -10695,6 +10695,20 @@
     "exitCode": "Exit {{code}}",
     "refCount": "{{count}} refs"
   },
+  "help": {
+    "title": "User Guide",
+    "searchPlaceholder": "Search the guide…",
+    "noResults": "No matches",
+    "outline": "Outline",
+    "askAi": "Ask AI",
+    "askAiSent": "Sent to the main window",
+    "askAiNoMainTab": "Open the main app tab first, then try again",
+    "quoteHeader": "User Guide · {{chapter}}",
+    "findPlaceholder": "Find in chapter",
+    "loading": "Loading…",
+    "loadFailed": "Failed to load the user guide",
+    "retry": "Retry"
+  },
   "knowledge": {
     "picker": {
       "title": "Knowledge spaces",
