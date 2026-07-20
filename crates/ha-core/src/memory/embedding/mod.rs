@@ -1,7 +1,6 @@
 mod api_provider;
 pub mod config;
 pub mod factory;
-mod fallback_provider;
 pub(crate) mod utils;
 
 // ── Re-exports for backward compatibility ───────────────────────
@@ -18,4 +17,3 @@ pub use factory::create_embedding_provider;
 
 // Also re-export provider structs that were public
 pub use api_provider::ApiEmbeddingProvider;
-pub use fallback_provider::FallbackEmbeddingProvider;

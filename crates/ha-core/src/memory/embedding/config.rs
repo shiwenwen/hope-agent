@@ -43,27 +43,6 @@ pub struct EmbeddingConfig {
     /// Output dimensions (some APIs support specifying this)
     #[serde(default)]
     pub api_dimensions: Option<u32>,
-
-    // ── Fallback provider fields ──
-    /// Fallback provider type (used when primary fails)
-    #[serde(default)]
-    pub fallback_provider_type: Option<EmbeddingProviderType>,
-
-    /// Fallback API Base URL
-    #[serde(default)]
-    pub fallback_api_base_url: Option<String>,
-
-    /// Fallback API Key
-    #[serde(default)]
-    pub fallback_api_key: Option<String>,
-
-    /// Fallback Model name
-    #[serde(default)]
-    pub fallback_api_model: Option<String>,
-
-    /// Fallback Output dimensions
-    #[serde(default)]
-    pub fallback_api_dimensions: Option<u32>,
 }
 
 /// Reusable embedding model configuration managed from the model settings UI.
@@ -139,11 +118,6 @@ impl EmbeddingModelConfig {
             api_key: self.api_key.clone(),
             api_model: self.api_model.clone(),
             api_dimensions: self.api_dimensions,
-            fallback_provider_type: None,
-            fallback_api_base_url: None,
-            fallback_api_key: None,
-            fallback_api_model: None,
-            fallback_api_dimensions: None,
         }
     }
 

@@ -116,11 +116,6 @@ pub fn embedding_config_for_model(model: &OllamaEmbeddingModel) -> EmbeddingConf
         api_key: Some("ollama".to_string()),
         api_model: Some(model.id.clone()),
         api_dimensions: Some(model.dimensions),
-        fallback_provider_type: None,
-        fallback_api_base_url: None,
-        fallback_api_key: None,
-        fallback_api_model: None,
-        fallback_api_dimensions: None,
     }
 }
 
