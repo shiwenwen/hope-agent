@@ -62,11 +62,18 @@ export default function HelpView({ initialTarget, navigateSignal }: HelpViewProp
 
   const effectiveLang: "zh" | "en" = bundle?.effectiveLang === "zh" ? "zh" : "en"
 
+  // Always send an explicit locale: with `language=auto` the backend would
+  // resolve its OWN host locale (a Docker server is typically English) while
+  // the frontend follows `navigator.language`, so a Chinese browser would get
+  // a Chinese UI wrapped around the English manual. `i18n.language` is the
+  // locale actually on screen — that is what the content must match.
+  const requestLang = langOverride ?? i18n.language
+
   // ── Bundle load (once per language choice) ────────────────────────────
   useEffect(() => {
     let cancelled = false
     getTransport()
-      .call<ManualBundle>("get_manual_bundle", langOverride ? { lang: langOverride } : {})
+      .call<ManualBundle>("get_manual_bundle", { lang: requestLang })
       .then((b) => {
         if (cancelled) return
         setBundle(b)
@@ -79,7 +86,7 @@ export default function HelpView({ initialTarget, navigateSignal }: HelpViewProp
     return () => {
       cancelled = true
     }
-  }, [langOverride, i18n.language, reloadNonce])
+  }, [requestLang, reloadNonce])
 
   const current = useMemo(
     () => bundle?.chapters.find((c) => c.number === chapter) ?? bundle?.chapters[0] ?? null,
@@ -148,17 +155,14 @@ export default function HelpView({ initialTarget, navigateSignal }: HelpViewProp
     const seq = ++searchSeq.current
     const timer = setTimeout(() => {
       getTransport()
-        .call<ManualSearchHit[]>(
-          "search_manual",
-          langOverride ? { lang: langOverride, query: q } : { query: q },
-        )
+        .call<ManualSearchHit[]>("search_manual", { lang: requestLang, query: q })
         .then((hits) => {
           if (searchSeq.current === seq) setSearchHits(hits)
         })
         .catch((e) => logger.error("help", "HelpView::search", "Manual search failed", { error: e }))
     }, 200)
     return () => clearTimeout(timer)
-  }, [searchQuery, langOverride])
+  }, [searchQuery, requestLang])
 
   const goTo = useCallback((target: HelpTarget) => {
     setChapter(target.chapter ?? 0)
