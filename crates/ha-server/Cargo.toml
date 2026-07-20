@@ -25,7 +25,9 @@ name = "hope-agent-server"
 path = "src/bin/hope-agent.rs"
 
 [build-dependencies]
-# build.rs only touches std::fs — no deps needed.
+# Pre-compresses the Vite `dist/` output at build time (see build.rs). Doing it
+# here rather than at request time keeps the bytes compressed *in the binary*.
+brotli = "8"
 
 [dependencies]
 ha-core = { path = "../ha-core" }
@@ -44,10 +46,10 @@ axum = { version = "0.8", features = ["ws", "multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
 
-# Static web GUI assets (SPA fallback). `rust-embed` bakes the Vite `dist/`
-# output into the release binary; in debug builds it reads from disk so
-# front-end changes reload instantly.
-rust-embed = { version = "8", features = ["compression", "mime-guess"] }
+# Static web GUI assets (SPA fallback). The bundle itself is built by build.rs
+# (brotli, stored compressed); `brotli` here is only for the decompress path
+# used by the rare client that does not send `Accept-Encoding: br`.
+brotli = "8"
 mime_guess = "2"
 
 # Used by the `/api/server/local-ips` endpoint and the CLI launch banner to
