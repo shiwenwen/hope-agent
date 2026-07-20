@@ -45,10 +45,11 @@ pub enum AppExecutionProfile {
     LocalNativeDiagnostic,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppDebugRetention {
     MetricsOnly,
+    #[default]
     Redacted,
     FullLocal,
 }
@@ -58,12 +59,6 @@ pub enum AppDebugRetention {
 pub enum AppArmMode {
     OneControlPerCase,
     AllAllowed,
-}
-
-impl Default for AppDebugRetention {
-    fn default() -> Self {
-        Self::Redacted
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

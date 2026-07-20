@@ -2274,11 +2274,7 @@ pub fn aggregate_metrics(
             let total = groups.len() as u64;
             let any_pass_groups = groups
                 .iter()
-                .filter(|outcomes| {
-                    outcomes
-                        .iter()
-                        .any(|outcome| *outcome == ModelCampaignOutcome::Passed)
-                })
+                .filter(|outcomes| outcomes.contains(&ModelCampaignOutcome::Passed))
                 .count() as u64;
             let all_pass_groups = groups
                 .iter()
