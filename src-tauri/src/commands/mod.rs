@@ -36,6 +36,7 @@ pub mod local_model_jobs;
 pub mod logging;
 pub mod loop_control;
 pub mod lsp;
+pub mod manual;
 pub mod mcp;
 pub mod media_gen;
 pub mod memory;

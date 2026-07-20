@@ -173,6 +173,11 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     show_main_window(app_handle);
                     let _ = app_handle.emit("open-settings", ());
                 }
+                "open_help" => {
+                    // Frontend get-or-creates + focuses the Help window; the
+                    // hidden main webview still processes events.
+                    let _ = app_handle.emit("open-help", ());
+                }
                 "quit_app" => {
                     let labels = tray_labels(&resolve_language());
                     let app = app_handle.clone();
@@ -775,6 +780,7 @@ fn build_tray_menu<R: Runtime>(
     let new_session = MenuItemBuilder::with_id("new_session", labels.new_session).build(manager)?;
     let open_settings =
         MenuItemBuilder::with_id("open_settings", labels.settings).build(manager)?;
+    let open_help = MenuItemBuilder::with_id("open_help", labels.help).build(manager)?;
     let sep2 = PredefinedMenuItem::separator(manager)?;
     let quit_app = MenuItemBuilder::with_id("quit_app", labels.quit).build(manager)?;
 
@@ -797,6 +803,7 @@ fn build_tray_menu<R: Runtime>(
         .item(&sep1)
         .item(&new_session)
         .item(&open_settings)
+        .item(&open_help)
         .item(&sep2)
         .item(&quit_app);
     builder.build()

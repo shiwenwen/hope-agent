@@ -10695,6 +10695,20 @@
     "exitCode": "Çıkış {{code}}",
     "refCount": "{{count}} referans"
   },
+  "help": {
+    "title": "Kullanım Kılavuzu",
+    "searchPlaceholder": "Kılavuzda ara…",
+    "noResults": "Eşleşme yok",
+    "outline": "Bölüm taslağı",
+    "askAi": "Yapay zekâya sor",
+    "askAiSent": "Ana pencereye gönderildi",
+    "askAiNoMainTab": "Önce ana uygulama sekmesini açın, sonra tekrar deneyin",
+    "quoteHeader": "Kullanım Kılavuzu · {{chapter}}",
+    "findPlaceholder": "Bu bölümde bul",
+    "loading": "Yükleniyor…",
+    "loadFailed": "Kullanım kılavuzu yüklenemedi",
+    "retry": "Yeniden dene"
+  },
   "knowledge": {
     "picker": {
       "title": "Bilgi alanları",

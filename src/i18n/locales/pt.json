@@ -10695,6 +10695,20 @@
     "exitCode": "Saída {{code}}",
     "refCount": "{{count}} referências"
   },
+  "help": {
+    "title": "Guia do usuário",
+    "searchPlaceholder": "Pesquisar no guia…",
+    "noResults": "Nenhum resultado",
+    "outline": "Estrutura do capítulo",
+    "askAi": "Perguntar à IA",
+    "askAiSent": "Enviado para a janela principal",
+    "askAiNoMainTab": "Abra primeiro a aba principal do aplicativo e tente novamente",
+    "quoteHeader": "Guia do usuário · {{chapter}}",
+    "findPlaceholder": "Procurar neste capítulo",
+    "loading": "Carregando…",
+    "loadFailed": "Falha ao carregar o guia do usuário",
+    "retry": "Tentar novamente"
+  },
   "knowledge": {
     "picker": {
       "title": "Espaços de conhecimento",

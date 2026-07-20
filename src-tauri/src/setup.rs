@@ -155,11 +155,16 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             .item(&PredefinedMenuItem::maximize(app, None)?)
             .close_window()
             .build()?;
+        let user_guide = MenuItemBuilder::with_id("open_help", labels.user_guide).build(app)?;
+        let help_submenu = SubmenuBuilder::new(app, labels.help)
+            .item(&user_guide)
+            .build()?;
         let menu = MenuBuilder::new(app)
             .item(&app_submenu)
             .item(&edit_submenu)
             .item(&view_submenu)
             .item(&window_submenu)
+            .item(&help_submenu)
             .build()?;
         app.set_menu(menu)?;
         app.on_menu_event(|app_handle, event| {
@@ -194,6 +199,12 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                     let _ =
                         app_handle.emit("open-settings", serde_json::json!({ "section": "about" }));
                     let _ = app_handle.emit("desktop-update-check", ());
+                }
+                "open_help" => {
+                    // The frontend owns Help-window creation (`openHelpWindow`
+                    // get-or-creates + focuses); the main webview keeps
+                    // processing events even while its window is hidden.
+                    let _ = app_handle.emit("open-help", ());
                 }
                 "hide_quit" => {
                     if let Some(window) = app_handle.get_webview_window("main") {

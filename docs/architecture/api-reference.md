@@ -1366,6 +1366,13 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `local_model_auto_maintenance_disable` | `POST /api/local-model/auto-maintenance/disable` | ✅ |
 | `local_model_auto_maintenance_trigger` | `POST /api/local-model/auto-maintenance/trigger` | ✅ |
 
+### 内置用户手册（帮助中心）
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `get_manual_bundle` | `GET /api/manual/bundle?lang=` | ✅ |
+| `search_manual` | `GET /api/manual/search?lang=&query=` | ✅ |
+
 ### Skills
 
 | Tauri Command | HTTP | 状态 |

@@ -222,6 +222,22 @@ pub fn bundled_skills_cache_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("bundled-skills"))
 }
 
+// ── Manual (built-in user guide) ─────────────────────────────────
+
+/// Stable mirror of the embedded bilingual user manual:
+/// ~/.hope-agent/manual/{zh,en}/NN.md — read/grepped by the `ha-manual`
+/// skill. Safe to delete — rebuilt from the binary on next use.
+pub fn manual_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("manual"))
+}
+
+/// Completion marker for the manual mirror (stores the embedded source-set
+/// fingerprint): ~/.hope-agent/.manual-synced. Lives beside `manual/` (not
+/// inside it) so the mirror's prune never sweeps it.
+pub fn manual_marker() -> Result<PathBuf> {
+    Ok(root_dir()?.join(".manual-synced"))
+}
+
 // ── Permission ───────────────────────────────────────────────────
 
 /// Permission system directory: ~/.hope-agent/permission/

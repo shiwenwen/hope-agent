@@ -2531,6 +2531,9 @@ fn build_router_with_cors(
             post(routes::logging::frontend_log_batch),
         )
         .route("/logs/export", post(routes::logging::export_logs))
+        // Built-in user manual (Help Center)
+        .route("/manual/bundle", get(routes::manual::get_bundle))
+        .route("/manual/search", get(routes::manual::search))
         // Skills
         .route("/skills", get(routes::skills::list_skills))
         .route(

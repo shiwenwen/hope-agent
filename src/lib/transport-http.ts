@@ -1443,6 +1443,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   stt_finalize_session: { method: "POST", path: "/api/stt/sessions/{sessionId}/finalize" },
   stt_cancel_session: { method: "DELETE", path: "/api/stt/sessions/{sessionId}" },
 
+  // -- Built-in user manual (Help Center) --
+  get_manual_bundle: { method: "GET", path: "/api/manual/bundle" },
+  search_manual: { method: "GET", path: "/api/manual/search" },
+
   // -- Skills --
   get_skills: { method: "GET", path: "/api/skills" },
   list_mentionable_skills: { method: "GET", path: "/api/skills/mentionable" },

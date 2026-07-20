@@ -5,6 +5,7 @@ import { parsePayload, TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
+import { subscribeAskAiQuotes } from "@/lib/manual/askAi"
 import type { SettingsSection } from "@/components/settings/types"
 import { requestMemoryFocus } from "@/components/settings/memory-panel/memoryFocus"
 import { memorySourceLabel } from "./message/memoryTraceFormat"
@@ -3111,6 +3112,16 @@ export default function ChatScreen({
       setComposerFocusSignal((prev) => (prev ?? 0) + 1)
     },
     [stream],
+  )
+  // Help window "Ask AI" — manual excerpts arrive through a module-level
+  // queue (App switches to the chat view first; the subscription drains
+  // anything that arrived before this screen mounted).
+  useEffect(
+    () =>
+      subscribeAskAiQuotes((text) => {
+        handleMessageQuote({ role: "assistant", content: text })
+      }),
+    [handleMessageQuote],
   )
   // Reveal a quoted file in the browser: open the files panel + signal target.
   const handleQuoteJump = useCallback(

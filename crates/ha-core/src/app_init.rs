@@ -972,6 +972,15 @@ pub async fn start_background_tasks() {
         // tokio runtime even during a one-off migration.
         tokio::task::spawn_blocking(crate::plan::migrate_flat_plans_to_subdirs);
 
+        // Mirror the embedded user manual to <data-dir>/manual/ for the
+        // `ha-manual` skill's read/grep path. Idempotent (fingerprint marker
+        // short-circuits), primary-only (shared data dir), off-runtime, and
+        // failure is non-fatal — the GUI reads the embedded bytes directly
+        // and the skill re-triggers a lazy ensure on activation.
+        tokio::task::spawn_blocking(|| {
+            crate::manual::ensure_local_manual();
+        });
+
         // Best-effort backfill of hook transcript mirrors (`§10`) for sessions
         // that predate the feature. Primary-only (writes shared session dirs)
         // and off-runtime (blocking fs + sqlite). Idempotent: sessions that
@@ -1328,6 +1337,12 @@ pub async fn start_minimal_background_tasks() {
     crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
 
     if primary {
+        // Manual mirror for the `ha-manual` skill — same as the full-tier
+        // startup (ACP agents activate skills too). Idempotent + non-fatal.
+        tokio::task::spawn_blocking(|| {
+            crate::manual::ensure_local_manual();
+        });
+
         // One-shot ask_user table cleanup. Primary-only because Secondary
         // would expire the desktop's still-live pending questions.
         tokio::spawn(async move {

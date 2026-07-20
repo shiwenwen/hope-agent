@@ -39,6 +39,10 @@ void i18nReady.finally(async () => {
   await loadEnhancedFocusIndicators()
   listenEnhancedFocusIndicators()
 
+  // Dynamic import keeps the Help surface out of the main chunk (same
+  // pattern as the DEV smoke windows below).
+  const HelpWindow = windowType === "help" ? (await import("./HelpWindow.tsx")).default : null
+
   const WorkflowSmokeWindow =
     windowType === "workflow-smoke" && import.meta.env.DEV
       ? (await import("./dev/WorkflowSmokeWindow.tsx")).default
@@ -68,6 +72,8 @@ void i18nReady.finally(async () => {
         <PlanDetachedWindow />
       ) : windowType === "files" ? (
         <FileBrowserDetachedWindow />
+      ) : HelpWindow ? (
+        <HelpWindow />
       ) : WorkflowSmokeWindow ? (
         <WorkflowSmokeWindow />
       ) : LoopSmokeWindow ? (

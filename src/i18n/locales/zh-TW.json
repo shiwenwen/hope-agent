@@ -10695,6 +10695,20 @@
     "exitCode": "結束碼 {{code}}",
     "refCount": "{{count}} 個引用"
   },
+  "help": {
+    "title": "使用手冊",
+    "searchPlaceholder": "搜尋手冊…",
+    "noResults": "沒有符合的結果",
+    "outline": "本章大綱",
+    "askAi": "問 AI",
+    "askAiSent": "已傳送到主視窗",
+    "askAiNoMainTab": "請先開啟主應用分頁再試",
+    "quoteHeader": "使用手冊 · {{chapter}}",
+    "findPlaceholder": "在本章中尋找",
+    "loading": "載入中…",
+    "loadFailed": "使用手冊載入失敗",
+    "retry": "重試"
+  },
   "knowledge": {
     "picker": {
       "title": "知識空間",

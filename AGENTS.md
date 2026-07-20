@@ -408,6 +408,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **ask_user_question**：1–4 题结构化问答（单选/多选/输入）；pending 持久化 SQLite，App 重启 replay 断点续答；IM 按 `supports_buttons` 走按钮或文本。**唯一结构化问答入口**——富输入（`input_kind ∈ text|textarea|direction-cards`）与设计空间视觉风格卡都靠**扩展本工具**实现、**绝不 fork 并行问答机制**；`direction-cards` 是「选项带 `card` 载荷的单选」，**答案仍走 `selected[]`**（Yes/No 门 / IM 协议 / DB 零改动），富卡仅在设计对话 `variant="design"` 渲染、其余降级选项列表，风格卡色值/字体经 sanitize（详见 [`ask-user.md`](docs/architecture/ask-user.md)）
 - **会话级工作目录**：`sessions.working_dir` 注入 system_prompt `# Working Directory` 段，并作为 `exec` 实际 cwd（`execution.rs::default_cwd()`）与 `read` 工具相对路径解析的首选根
 - **桌面专属 markdown 路径链接**：仅 `is_desktop()` 注入 `MARKDOWN_PATH_LINKS_GUIDANCE`，要求 LLM 写 `[名](绝对路径)`；前端按 `localPathFromHref()` + Transport 分流（Tauri 走 `open_directory`；HTTP/server 早返回禁用）。**例外**：anchor `title` 用 native HTML 不用 shadcn Tooltip（一条流式消息可能渲染上百个）
+- **内置用户手册（帮助中心）**：单一来源 `docs/user-guide/` → rust-embed 编进 ha-core（`manual/`）→ 启动期镜像 `<data-dir>/manual/`；GUI 走 Transport（`get_manual_bundle`/`search_manual`）、agent 走 `ha-manual` skill 读镜像。**禁止复制手册正文、禁止往构建产物单独拷贝**（Dockerfile rust 阶段的 `COPY docs/user-guide` 是编译期 embed 依赖、非产物拷贝）；中英须同 PR 对齐（CI `check-docs-parity`）。详见 [`help-center.md`](docs/architecture/help-center.md)
 
 ### 项目（Project）容器
 

@@ -10695,6 +10695,20 @@
     "exitCode": "رمز الخروج {{code}}",
     "refCount": "{{count}} مراجع"
   },
+  "help": {
+    "title": "دليل المستخدم",
+    "searchPlaceholder": "البحث في الدليل…",
+    "noResults": "لا توجد نتائج مطابقة",
+    "outline": "مخطط الفصل",
+    "askAi": "اسأل الذكاء الاصطناعي",
+    "askAiSent": "تم الإرسال إلى النافذة الرئيسية",
+    "askAiNoMainTab": "افتح علامة تبويب التطبيق الرئيسي أولاً ثم أعد المحاولة",
+    "quoteHeader": "دليل المستخدم · {{chapter}}",
+    "findPlaceholder": "البحث في هذا الفصل",
+    "loading": "جارٍ التحميل…",
+    "loadFailed": "فشل تحميل دليل المستخدم",
+    "retry": "إعادة المحاولة"
+  },
   "knowledge": {
     "picker": {
       "title": "مساحات المعرفة",

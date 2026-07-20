@@ -1439,3 +1439,11 @@ pre.hope-shiki-view {
     transform: translateX(calc(100vw + 600px));
   }
 }
+
+/* ── Help window in-chapter find (CSS Custom Highlight API) ── */
+::highlight(help-find) {
+  background-color: rgba(250, 204, 21, 0.35);
+}
+::highlight(help-find-active) {
+  background-color: rgba(249, 115, 22, 0.55);
+}

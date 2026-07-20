@@ -95,13 +95,15 @@ COPY src-tauri/Cargo.toml src-tauri/Cargo.toml
 # Now copy the actual source.
 COPY crates ./crates
 COPY src-tauri ./src-tauri
-# ha-core embeds two trees from outside crates/ via `rust-embed` at compile
+# ha-core embeds three trees from outside crates/ via `rust-embed` at compile
 # time (the derive hard-errors if the folder is missing): the bundled skills
-# (`skills/embedded.rs`) and the Chrome extension runtime files
-# (`browser/extension/embedded.rs`). The binary materializes them under the
-# data dir on first use, so the runtime stage ships no separate copies.
+# (`skills/embedded.rs`), the Chrome extension runtime files
+# (`browser/extension/embedded.rs`), and the bilingual user manual
+# (`manual/embed.rs`). The binary materializes them under the data dir on
+# first use, so the runtime stage ships no separate copies.
 COPY skills ./skills
 COPY extensions ./extensions
+COPY docs/user-guide ./docs/user-guide
 # crates/ha-core/src/agent_loader.rs include_bytes!s the frontend logo at
 # compile time. (skills/ and extensions/ below are the other out-of-crate
 # trees the Rust build embeds.)

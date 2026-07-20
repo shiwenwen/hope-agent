@@ -75,6 +75,7 @@ pub mod local_model_jobs;
 pub mod loop_control;
 pub mod lsp;
 pub mod mac_control;
+pub mod manual;
 
 pub mod mcp;
 pub mod mcp_server;

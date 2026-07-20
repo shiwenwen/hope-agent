@@ -228,6 +228,9 @@ pub fn run() {
             commands::chat::get_system_prompt,
             // Tools info
             commands::chat::list_builtin_tools,
+            // Built-in user manual (Help Center)
+            commands::manual::get_manual_bundle,
+            commands::manual::search_manual,
             // Skills
             commands::skills::get_skills,
             commands::skills::get_skill_detail,

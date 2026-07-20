@@ -19,6 +19,8 @@ import { useDesktopUpdateInstall } from "@/hooks/useDesktopUpdateInstall"
 import { initDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
 import { initCronUnreadStore } from "@/hooks/useCronUnreadStore"
 import { openExternalUrl } from "@/lib/openExternalUrl"
+import { deliverAskAi, listenAskAi } from "@/lib/manual/askAi"
+import { openHelpWindow } from "@/lib/manual/openHelpWindow"
 import { SKILLS_EVENTS } from "@/types/skills"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
@@ -381,6 +383,18 @@ export default function App() {
     const unlistenUpdateCheck = getTransport().listen("desktop-update-check", () => {
       requestManualCheck()
     })
+    // Native menu / tray "Help" entries (Rust side can't create the webview
+    // window with its full config; it asks the frontend to).
+    const unlistenOpenHelp = getTransport().listen("open-help", () => {
+      void openHelpWindow()
+    })
+    // Help window "Ask AI": switch to the chat view and stage the manual
+    // excerpt as a message-quote chip (ChatScreen drains the queue on mount).
+    const unlistenAskAi = listenAskAi(({ text }) => {
+      if (keepConfigRecoveryView()) return
+      setView("chat")
+      deliverAskAi(text)
+    })
     const unlistenLanguage = listenLanguageConfigChange()
     const unlistenTheme = listenThemeConfigChange()
     const unlistenNotification = listenNotificationConfigChange()
@@ -388,6 +402,8 @@ export default function App() {
       unlistenSettings()
       unlistenNewSession()
       unlistenUpdateCheck()
+      unlistenOpenHelp()
+      unlistenAskAi()
       unlistenLanguage()
       unlistenTheme()
       unlistenNotification()

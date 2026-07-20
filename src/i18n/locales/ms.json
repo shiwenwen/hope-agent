@@ -10695,6 +10695,20 @@
     "exitCode": "Kod keluar {{code}}",
     "refCount": "{{count}} rujukan"
   },
+  "help": {
+    "title": "Panduan Pengguna",
+    "searchPlaceholder": "Cari dalam panduan…",
+    "noResults": "Tiada padanan",
+    "outline": "Rangka bab",
+    "askAi": "Tanya AI",
+    "askAiSent": "Dihantar ke tetingkap utama",
+    "askAiNoMainTab": "Buka tab aplikasi utama dahulu, kemudian cuba lagi",
+    "quoteHeader": "Panduan Pengguna · {{chapter}}",
+    "findPlaceholder": "Cari dalam bab ini",
+    "loading": "Memuatkan…",
+    "loadFailed": "Gagal memuatkan panduan pengguna",
+    "retry": "Cuba lagi"
+  },
   "knowledge": {
     "picker": {
       "title": "Ruang pengetahuan",

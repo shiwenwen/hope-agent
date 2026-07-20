@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Bot,
   Brain,
+  CircleHelp,
   Code,
   Compass,
   Library,
@@ -80,8 +81,33 @@ import HooksPanel from "@/components/settings/HooksPanel"
 import BrowserPanel from "@/components/settings/BrowserPanel"
 import FileSettingsPanel from "@/components/settings/FileSettingsPanel"
 import SettingsResetControl from "@/components/settings/SettingsResetControl"
+import { IconTip } from "@/components/ui/tooltip"
+import { openHelpWindow } from "@/lib/manual/openHelpWindow"
 import type { AgentTab } from "./agent-panel/types"
 import type { SettingsSection, SettingsSectionItem } from "./types"
+
+/** High-traffic panels deep-link into the matching user-guide chapter (the
+ *  "?" in the content header). Chapter numbers are the language-independent
+ *  join key — anchors differ per manual language, so v1 links chapters only.
+ *  Source of the mapping: user-guide chapter 13.1 settings navigation map. */
+const HELP_CHAPTER_BY_SECTION: Partial<Record<SettingsSection, number>> = {
+  modelConfig: 2,
+  memory: 4,
+  knowledge: 5,
+  design: 6,
+  tools: 7,
+  permissions: 7,
+  approval: 7,
+  sandbox: 7,
+  browser: 7,
+  cron: 9,
+  channels: 10,
+  mcp: 11,
+  hooks: 11,
+  skills: 11,
+  recap: 12,
+  security: 13,
+}
 
 const SECTIONS: SettingsSectionItem[] = [
   {
@@ -386,11 +412,28 @@ export default function SettingsView({
           <span className="text-sm font-semibold text-foreground pb-1.5">
             {activeSectionLabel}
           </span>
-          <SettingsResetControl
-            section={activeSection}
-            sectionLabel={activeSectionLabel}
-            onReset={() => setResetRevision((value) => value + 1)}
-          />
+          <span className="flex items-center gap-1 pb-1">
+            {HELP_CHAPTER_BY_SECTION[activeSection] !== undefined && (
+              <IconTip label={t("help.title")}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("help.title")}
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    void openHelpWindow({ chapter: HELP_CHAPTER_BY_SECTION[activeSection] })
+                  }
+                >
+                  <CircleHelp className="h-4 w-4" />
+                </Button>
+              </IconTip>
+            )}
+            <SettingsResetControl
+              section={activeSection}
+              sectionLabel={activeSectionLabel}
+              onReset={() => setResetRevision((value) => value + 1)}
+            />
+          </span>
         </div>
 
         {/* Content Area */}

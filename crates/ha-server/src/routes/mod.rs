@@ -43,6 +43,7 @@ pub mod logging;
 pub mod loop_control;
 pub mod lsp;
 pub mod mac_control;
+pub mod manual;
 pub mod mcp;
 pub mod memory;
 pub mod misc;
