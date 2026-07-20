@@ -15,8 +15,11 @@
 #   2. CARGO_PROFILE_RELEASE_CODEGEN_UNITS 必须与 release.yml 同平台取值一致
 #      （落在 rust-cache 的 rust-environment-hash，linux-x64 未设覆盖 = '1'）
 #   3. rust-cache 的 workspaces 参数与 toolchain action 保持一致
-# release.yml 第 386 行的 RUSTFLAGS=-fuse-ld=mold 写在 rust-cache 步骤之后，
-# 不进 env hash，故此处无须复制。
+#   4. RUSTFLAGS 必须与 release.yml 同平台一致。它不进 env hash（release.yml
+#      在 rust-cache 步骤之后才写 $GITHUB_ENV），但 cargo 把 RUSTFLAGS 变化
+#      视为 dirty fingerprint（cargo#8716）——key 对上、缓存恢复了，编译时仍
+#      会因 flag 不符而重编全部依赖，缓存等于白存且不报错。故必须在 rust-cache
+#      之后、cargo build 之前设成同一个值。
 #
 # 当前仅覆盖 linux-x64：先量实际节省再决定是否铺开到另外三个平台。
 name: Warm release cache
@@ -73,6 +76,9 @@ jobs:
             libwayland-dev \
             patchelf \
             mold
+          # 与 release.yml 同一行：写在 rust-cache 之后故不影响 key，但必须设，
+          # 否则产物 fingerprint 与 release 编译环境不符、恢复后照样重编。
+          echo 'RUSTFLAGS=-C link-arg=-fuse-ld=mold' >> "$GITHUB_ENV"
 
       # 只构建 ha-core + ha-server：覆盖绝大多数外部依赖，且不需要前端产物
       # （src-tauri 的 build.rs 要 frontendDist，为它跑一次 pnpm build 不值）。
