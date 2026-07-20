@@ -173,7 +173,6 @@ pub fn run() {
             commands::provider::delete_provider,
             commands::provider::test_provider,
             commands::provider::test_model,
-            commands::provider::test_embedding,
             commands::provider::get_available_models,
             commands::provider::get_active_model,
             commands::provider::set_active_model,
@@ -565,7 +564,6 @@ pub fn run() {
             commands::config::save_awareness_config,
             commands::config::get_session_awareness_override,
             commands::config::set_session_awareness_override,
-            commands::memory::list_local_embedding_models,
             // Theme & Language
             commands::config::get_theme,
             commands::config::set_theme,

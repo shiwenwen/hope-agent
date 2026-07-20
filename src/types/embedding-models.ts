@@ -1,4 +1,4 @@
-export type EmbeddingProviderType = "openai-compatible" | "google" | "local" | "auto"
+export type EmbeddingProviderType = "openai-compatible" | "google"
 
 export interface EmbeddingConfig {
   enabled: boolean
@@ -7,7 +7,6 @@ export interface EmbeddingConfig {
   apiKey?: string | null
   apiModel?: string | null
   apiDimensions?: number | null
-  localModelId?: string | null
 }
 
 export interface EmbeddingModelConfig {

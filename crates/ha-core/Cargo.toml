@@ -45,7 +45,6 @@ http = "1"
 
 # Non-workspace dependencies (core-specific)
 sqlite-vec = "0.1"
-fastembed = "5"
 zerocopy = { version = "0.8", features = ["derive"] }
 cron = "0.13"
 # IANA timezone support for cron schedules (DST-aware). chrono-tz carries the

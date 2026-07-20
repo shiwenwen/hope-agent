@@ -338,16 +338,6 @@ export type {
   MemoryEmbeddingState,
 } from "@/types/embedding-models"
 
-export interface LocalEmbeddingModel {
-  id: string
-  name: string
-  dimensions: number
-  sizeMb: number
-  minRamGb: number
-  languages: string[]
-  downloaded: boolean
-}
-
 export interface OllamaEmbeddingModel {
   id: string
   displayName: string

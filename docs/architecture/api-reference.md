@@ -808,12 +808,10 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `delete_provider` | `DELETE /api/providers/{providerId}` | ✅ |
 | `reorder_providers` | `POST /api/providers/reorder` | ✅ |
 | `test_provider` | `POST /api/providers/test` | ✅ |
-| `test_embedding` | `POST /api/providers/test-embedding` | ✅ |
 | `test_model` | `POST /api/providers/test-model` | ✅ |
 | `test_proxy` | `POST /api/config/proxy/test` | ✅ |
 | `has_providers` | `GET /api/providers/has-any` | ✅ |
 | `get_system_timezone` | `GET /api/system/timezone` | ✅ |
-| `list_local_embedding_models` | `GET /api/memory/local-embedding-models` | ✅ |
 | `check_auth_status` | `GET /api/auth/codex/status` | ✅ |
 | `logout_codex` | `POST /api/auth/codex/logout` | ✅ |
 | `try_restore_session` | `POST /api/auth/session/restore` | ✅ |

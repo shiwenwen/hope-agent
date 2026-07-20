@@ -1163,11 +1163,6 @@ pub async fn get_embedding_presets() -> Result<Vec<memory::EmbeddingPreset>, Cmd
 }
 
 #[tauri::command]
-pub async fn list_local_embedding_models() -> Result<Vec<memory::LocalEmbeddingModel>, CmdError> {
-    Ok(ha_core::blocking::run_blocking(memory::list_local_models_with_status).await)
-}
-
-#[tauri::command]
 pub async fn embedding_model_config_list() -> Result<Vec<memory::EmbeddingModelConfig>, CmdError> {
     Ok(memory::list_embedding_model_configs())
 }

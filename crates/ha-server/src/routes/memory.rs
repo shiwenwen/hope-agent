@@ -1569,14 +1569,3 @@ pub async fn find_similar(
             .await?;
     Ok(Json(results))
 }
-
-/// `GET /api/memory/local-embedding-models` — list the fastembed models
-/// that have been downloaded into the local cache (with their sizes).
-/// Used by Settings → Memory → Embedding provider dropdown. Mirror of the
-/// Tauri `list_local_embedding_models` command.
-pub async fn list_local_embedding_models(
-) -> Result<Json<Vec<ha_core::memory::LocalEmbeddingModel>>, AppError> {
-    Ok(Json(
-        run_blocking(ha_core::memory::list_local_models_with_status).await,
-    ))
-}

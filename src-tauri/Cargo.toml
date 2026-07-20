@@ -56,7 +56,6 @@ tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
 rusqlite = { version = "0.39", features = ["bundled"] }
 sqlite-vec = "0.1"
-fastembed = "5"
 zerocopy = { version = "0.8", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 cron = "0.13"

@@ -5,10 +5,11 @@
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
 
-# aarch64-windows: pyke's prebuilt onnxruntime (via fastembed → ort-sys) is
-# built against the DYNAMIC CRT (/MD). Forcing +crt-static here makes the 42
-# UCRT math/stdio imports (__imp_acoshf, __imp_strftime, …) unresolvable →
-# LNK1120. There is no static-CRT prebuilt for this target, so link the dynamic
-# CRT to match. (x86_64 keeps static CRT above — its onnxruntime prebuilt matches.)
+# aarch64-windows: historically forced to the dynamic CRT because pyke's
+# prebuilt onnxruntime (fastembed → ort-sys) was built against /MD and had no
+# static-CRT variant for this target. That dependency is gone, so the original
+# reason no longer applies — but whether the remaining native deps link cleanly
+# under +crt-static has not been verified on a real aarch64-windows build.
+# Left as-is deliberately; re-test before unifying with the x86_64 branch above.
 [target.aarch64-pc-windows-msvc]
 # intentionally no crt-static

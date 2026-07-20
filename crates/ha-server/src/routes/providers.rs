@@ -110,29 +110,6 @@ pub async fn reorder_providers(Json(body): Json<ReorderBody>) -> Result<Json<Val
     Ok(Json(json!({ "reordered": true })))
 }
 
-/// Body wrapper: matches the Tauri command signature
-/// `test_embedding(config: EmbeddingConfig)`. The frontend ships
-/// `{ config: embeddingConfig }` (the param name is `config`), not the
-/// EmbeddingConfig directly.
-#[derive(Debug, Deserialize)]
-pub struct TestEmbeddingBody {
-    pub config: ha_core::memory::EmbeddingConfig,
-}
-
-/// `POST /api/providers/test-embedding` — ping an embedding provider.
-///
-/// Returns the JSON blob produced by `ha_core::provider::test::test_embedding`.
-/// On error returns 200 with the failure payload (the frontend reads
-/// `success: bool` from the body) so behaviour matches the Tauri command,
-/// which always returns the JSON string.
-pub async fn test_embedding(Json(body): Json<TestEmbeddingBody>) -> Result<Json<Value>, AppError> {
-    let payload = ha_core::provider::test::test_embedding(body.config)
-        .await
-        .unwrap_or_else(|e| e);
-    let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
-    Ok(Json(v))
-}
-
 /// Body for [`test_model`]. Matches Tauri's `test_model(config, modelId)` signature.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

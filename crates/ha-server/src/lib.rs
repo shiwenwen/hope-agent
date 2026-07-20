@@ -873,10 +873,6 @@ fn build_router_with_cors(
             delete(routes::providers::delete_provider),
         )
         .route("/providers/test", post(routes::providers::test_provider))
-        .route(
-            "/providers/test-embedding",
-            post(routes::providers::test_embedding),
-        )
         .route("/providers/test-model", post(routes::providers::test_model))
         .route("/providers/has-any", get(routes::providers::has_providers))
         .route(
@@ -1177,10 +1173,6 @@ fn build_router_with_cors(
         .route(
             "/memory/pending/reject",
             post(routes::memory::pending_memory_reject),
-        )
-        .route(
-            "/memory/local-embedding-models",
-            get(routes::memory::list_local_embedding_models),
         )
         // Local Ollama embedding assistant
         .route(

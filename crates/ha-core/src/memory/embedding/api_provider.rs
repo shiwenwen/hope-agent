@@ -42,8 +42,6 @@ impl ApiEmbeddingProvider {
         match self.provider_type {
             EmbeddingProviderType::OpenaiCompatible => "openai_compatible",
             EmbeddingProviderType::Google => "google",
-            EmbeddingProviderType::Local => "local",
-            EmbeddingProviderType::Auto => "auto",
         }
     }
 
