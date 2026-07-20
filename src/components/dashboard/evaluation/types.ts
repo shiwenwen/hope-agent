@@ -144,7 +144,10 @@ export interface EvalAppPlan {
         arm: string
         trialIndex: number
       }>
-      suites: Array<{ id: string; cases: unknown[] }>
+      suites: Array<{
+        id: string
+        cases: Array<{ id: string; timeoutSeconds: number }>
+      }>
     }
   }>
   campaignBudget: EvalCampaignBudget
@@ -245,6 +248,8 @@ export interface EvalExperimentDetail {
 
 export interface EvalTrialDetail {
   record: EvalTrialRecord
+  budget?: EvalCampaignBudget | null
+  timeoutSeconds?: number | null
   result?: {
     trialId: string
     outcome: string

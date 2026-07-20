@@ -66,11 +66,11 @@ If a Provider has multiple Auth Profiles, you can choose a credential profile af
 
 ## 14.3 Choose a profile
 
-A profile determines the scenario scope, comparison arms, repetitions, and budget ceilings. Versioned assets can change these ceilings, so the values shown on the App cards are authoritative.
+A profile determines scenario scope, comparison arms, repetitions, and the maximum number of trials it can generate. You set cost, total wall time, and scheduling concurrency before every run; Quick and Standard no longer lock them to low profile-specific values.
 
 | Profile | Best for | Current focus |
 | --- | --- | --- |
-| Quick | Checking a newly configured Provider and the main path | Critical smoke/control cases, one repetition, serial by default; three-minute maximum per trial |
+| Quick | Checking a newly configured Provider and the main path | Critical smoke/control cases, one repetition; no additional profile-level per-trial deadline |
 | Standard | Routine version or model preflight | A locally compatible control subset of weekly core cases, with case selection |
 | Reliability | Recovery, stability, and multi-Agent benefit | Fault/comparison arms and manifest-defined repetitions; currently one model per run |
 | Custom | Reproducing one case or narrowing an experiment | Select cases, arms, and 1–5 repetitions from the allowlist; cannot add unregistered tasks |
@@ -95,8 +95,8 @@ In Capability Evaluation → Run:
 3. **Choose real models**. The profile controls the limit, with an App-wide maximum of four. Multiple models become separate Campaigns within one experiment so they can be compared later.
 4. **Set hard budgets**:
    - maximum cost in USD;
-   - maximum wall time in minutes;
-   - concurrency. This controls simultaneous trials; it does not enlarge a scenario's internal Agent or tool budgets.
+   - maximum wall time in minutes, defaulting to 480 minutes with no maximum imposed by the input;
+   - concurrency, defaulting to 4 and adjustable up to every trial the selected profile can generate. This controls simultaneous trials; it does not enlarge a scenario's internal Agent or tool budgets.
 5. Confirm both “I understand this may incur model charges” and “I understand synthetic tool tasks will execute.”
 6. Select **Generate plan**, then check the estimated trial count, model count, cost ceiling, and runtime environment.
 7. Select **Start real evaluation**.
@@ -111,7 +111,7 @@ Only one local experiment can be active at a time. Wait for the current run to f
 
 After startup succeeds, Run automatically becomes the live workspace for that experiment; you do not need to open History to follow progress. It shows overall progress and duration, pass/failure/infrastructure counts, tokens, model/tool calls, cost, and queued/running/completed state for every Campaign and Trial. Persisted trials can be opened directly for their causal trace. You can switch to History, Compare, or other tabs while the run continues.
 
-The configured duration is a hard ceiling for the whole experiment, not a full allowance for every trial. The immutable plan conservatively shares usable wall time across all trials and reserves time for startup, evidence writes, and process cleanup; Quick applies an additional per-trial cap. A per-trial deadline is reported as Budget exhausted and is not automatically retried as an infrastructure error. After experiment failure, cancellation, or interruption, active rows become Aborted and untouched rows become Not run instead of remaining Running; completed partial results remain available in History.
+The configured duration is a hard ceiling for the whole experiment, not a full allowance for every trial. The immutable plan conservatively shares usable wall time across all trials and reserves time for startup, evidence writes, and process cleanup. Built-in Quick no longer tightens individual trials; the resolved deadline comes from the registered scenario and the total duration you entered. A per-trial deadline is classified as a budget outcome, but its details identify it as Scenario time exhausted, show actual wall time and the resolved scenario limit, and state that token, cost, and model-call quotas were not exhausted. Model-call, token, cost, tool, Agent, or concurrency limits are similarly highlighted in the same actual-versus-limit budget panel. Budget outcomes are not automatically retried as infrastructure errors. After experiment failure, cancellation, or interruption, active rows become Aborted and untouched rows become Not run instead of remaining Running; completed partial results remain available in History.
 
 Running scenarios refresh a redacted detail snapshot every second and can be opened to inspect elapsed time, model/tool calls, tokens, cost, loops, agents, and async jobs. This version deliberately does not offer process-freezing Pause: an already-issued Provider request, billing, and external side effects cannot be frozen safely by the local process. Cancelled or interrupted experiments cannot resume in place; Retry creates a new evaluation from the original request while preserving the prior record and its incurred usage.
 
@@ -127,7 +127,7 @@ When a budget is exhausted, the result explicitly records a budget failure/stop.
 
 ## 14.6 Read history and per-task results
 
-History includes Hope Core records, local imports, and read-only indexes of existing Coding / Domain campaigns. Open a Hope Core record to inspect every trial.
+History includes Hope Core records, local imports, and read-only indexes of existing Coding / Domain campaigns. After opening a Hope Core record, every scenario shows its task title, status, and an explicit View run details action. Opening a scenario reveals the result explanation, actual usage, actual-versus-limit budget, verification checks, execution trace, and technical diagnostics. An older abnormal run that never produced complete evidence can only show the summary persisted before exit; the UI labels that view as partial details.
 
 ### Three terminal result classes
 

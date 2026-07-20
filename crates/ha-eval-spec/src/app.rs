@@ -27,8 +27,13 @@ pub const APP_CONTROL_PROTOCOL_VERSION: &str = "eval-app-control.v1";
 
 pub const APP_MAX_MODELS: usize = 4;
 pub const APP_MAX_TRIALS: usize = 500;
-pub const APP_MAX_CONCURRENCY: u32 = 2;
-pub const APP_MAX_COST_USD: f64 = 100.0;
+/// App concurrency is bounded only by the largest supported local plan. A
+/// profile may narrow this to its own maximum trial count, but must not impose
+/// an unrelated low ceiling on a user-controlled diagnostic run.
+pub const APP_MAX_CONCURRENCY: u32 = APP_MAX_TRIALS as u32;
+/// A protocol sanity bound, not a recommended spend. Explicit user consent and
+/// the value entered in the App remain the effective cost guardrail.
+pub const APP_MAX_COST_USD: f64 = 1_000_000.0;
 
 fn default_trial_attempt() -> u8 {
     1
@@ -112,7 +117,7 @@ pub struct EvalAppProfile {
     pub use_suite_repetitions: bool,
     pub max_trials: u16,
     pub max_models: u8,
-    pub max_concurrency: u8,
+    pub max_concurrency: u16,
     pub max_cost_usd: f64,
     /// Optional App-only ceiling for one trial. Registered suite/scenario
     /// limits remain authoritative when they are stricter.
@@ -625,7 +630,7 @@ pub fn validate_app_profile(profile: &EvalAppProfile) -> Result<()> {
     }
     if !(1..=APP_MAX_TRIALS as u16).contains(&profile.max_trials)
         || !(1..=APP_MAX_MODELS as u8).contains(&profile.max_models)
-        || !(1..=APP_MAX_CONCURRENCY as u8).contains(&profile.max_concurrency)
+        || !(1..=APP_MAX_CONCURRENCY as u16).contains(&profile.max_concurrency)
         || !profile.max_cost_usd.is_finite()
         || !(0.0..=APP_MAX_COST_USD).contains(&profile.max_cost_usd)
         || profile.max_cost_usd == 0.0

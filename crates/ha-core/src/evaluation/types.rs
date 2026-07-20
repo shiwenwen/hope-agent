@@ -3,7 +3,8 @@ use ha_eval_spec::app::{
     EvalAppPlan, EvalAppProfile, EvalAppRunRequest, RuntimeEnvironmentSnapshot,
 };
 use ha_eval_spec::model::{
-    ModelCampaignEvidence, ModelCampaignOutcome, ModelCampaignSource, ModelCampaignTier,
+    CampaignBudget, ModelCampaignEvidence, ModelCampaignOutcome, ModelCampaignSource,
+    ModelCampaignTier,
 };
 use serde::{Deserialize, Serialize};
 
@@ -228,6 +229,11 @@ pub struct EvalTrialDetail {
     /// Present for Hope Core evidence. The protocol guarantees this is a
     /// redacted causal/verifier summary with no prompt or tool payloads.
     pub result: Option<ha_eval_spec::model::ModelTrialResult>,
+    /// Immutable per-trial limits resolved into the campaign evidence. These
+    /// let owner UIs explain a budget outcome without exposing prompt or tool
+    /// payloads.
+    pub budget: Option<CampaignBudget>,
+    pub timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -4,6 +4,8 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock3,
   Download,
   FlaskConical,
@@ -158,9 +160,9 @@ export default function EvaluationTab() {
   const [selectedCases, setSelectedCases] = useState<string[]>([])
   const [selectedArms, setSelectedArms] = useState<string[]>(["control"])
   const [repetitions, setRepetitions] = useState(1)
-  const [maxCost, setMaxCost] = useState(5)
-  const [maxWallMinutes, setMaxWallMinutes] = useState(60)
-  const [concurrency, setConcurrency] = useState(1)
+  const [maxCost, setMaxCost] = useState(100)
+  const [maxWallMinutes, setMaxWallMinutes] = useState(480)
+  const [concurrency, setConcurrency] = useState(4)
   const [consentCosts, setConsentCosts] = useState(false)
   const [consentTools, setConsentTools] = useState(false)
   const [preview, setPreview] = useState<EvalPreview | null>(null)
@@ -859,6 +861,7 @@ export default function EvaluationTab() {
                 run={focusedRun}
                 detail={runDetail}
                 plan={focusedRunPlan}
+                catalog={catalog}
                 live={liveProgress}
                 liveTrials={liveTrials}
                 loading={runDetailLoading}
@@ -908,7 +911,6 @@ export default function EvaluationTab() {
                           {t("dashboard.evaluation.profileLimits", {
                             trials: item.maxTrials,
                             models: item.maxModels,
-                            cost: item.maxCostUsd,
                           })}
                         </div>
                       </button>
@@ -1079,7 +1081,7 @@ export default function EvaluationTab() {
                     label={t("dashboard.evaluation.maxCost", "最高费用（USD）")}
                     value={maxCost}
                     min={0.01}
-                    max={profile?.maxCostUsd ?? 100}
+                    max={profile?.maxCostUsd ?? 1_000_000}
                     step={0.5}
                     onChange={(value) => {
                       setPreview(null)
@@ -1090,7 +1092,6 @@ export default function EvaluationTab() {
                     label={t("dashboard.evaluation.maxWall", "最长时间（分钟）")}
                     value={maxWallMinutes}
                     min={1}
-                    max={480}
                     onChange={(value) => {
                       setPreview(null)
                       setMaxWallMinutes(value)
@@ -1100,7 +1101,7 @@ export default function EvaluationTab() {
                     label={t("dashboard.evaluation.concurrency", "并发数")}
                     value={concurrency}
                     min={1}
-                    max={profile?.maxConcurrency ?? 1}
+                    max={profile?.maxConcurrency ?? 500}
                     onChange={(value) => {
                       setPreview(null)
                       setConcurrency(value)
@@ -1132,7 +1133,7 @@ export default function EvaluationTab() {
                   />
                 </div>
                 {preview && (
-                  <div className="mt-3 grid gap-2 rounded-lg bg-secondary/30 p-3 text-sm sm:grid-cols-4">
+                  <div className="mt-3 grid gap-2 rounded-lg bg-secondary/30 p-3 text-sm sm:grid-cols-2 xl:grid-cols-6">
                     <Metric
                       label={t("dashboard.evaluation.trials")}
                       value={String(preview.estimatedTrials)}
@@ -1144,6 +1145,21 @@ export default function EvaluationTab() {
                     <Metric
                       label={t("dashboard.evaluation.maxCost")}
                       value={`$${preview.maxCostUsd?.toFixed(2) ?? "—"}`}
+                    />
+                    <Metric
+                      label={t("dashboard.evaluation.maxWall", "最长时间（分钟）")}
+                      value={
+                        preview.maxWallSeconds == null
+                          ? "—"
+                          : formatLongDuration(preview.maxWallSeconds * 1_000)
+                      }
+                    />
+                    <Metric
+                      label={t(
+                        "dashboard.evaluation.budgetDimensions.wall",
+                        "单场景总时间",
+                      )}
+                      value={formatPlanTrialTimeouts(preview.plan)}
                     />
                     <Metric
                       label={t("dashboard.evaluation.environment")}
@@ -1180,6 +1196,7 @@ export default function EvaluationTab() {
           {detail && (
             <ExperimentDetail
               detail={detail}
+              catalog={catalog}
               annotations={annotations}
               annotationText={annotationText}
               onAnnotationTextChange={setAnnotationText}
@@ -1361,7 +1378,7 @@ function BudgetField({
   label: string
   value: number
   min: number
-  max: number
+  max?: number
   step?: number
   onChange: (value: number) => void
 }) {
@@ -1373,9 +1390,10 @@ function BudgetField({
         min={min}
         max={max}
         step={step}
-        onChange={(event) =>
-          onChange(Math.min(max, Math.max(min, Number(event.target.value) || min)))
-        }
+        onChange={(event) => {
+          const next = Math.max(min, Number(event.target.value) || min)
+          onChange(max === undefined ? next : Math.min(max, next))
+        }}
       />
     </label>
   )
@@ -1410,6 +1428,7 @@ function RunMonitorPanel({
   run,
   detail,
   plan,
+  catalog,
   live,
   liveTrials,
   loading,
@@ -1420,6 +1439,7 @@ function RunMonitorPanel({
   run: EvalExperimentRecord
   detail: EvalExperimentDetail | null
   plan: EvalAppPlan | null
+  catalog: EvalCatalog | null
   live: LiveEvalProgress
   liveTrials: Record<string, LiveTrialProgress>
   loading: boolean
@@ -1524,12 +1544,21 @@ function RunMonitorPanel({
     ...(detail?.campaigns ?? []).map((campaign) => campaign.id),
     ...trialRows.map((trial) => trial.campaignId),
   ])
+  const selectedLiveTrial = selectedLiveTrialKey
+    ? trialRows.find(
+        (trial) => trialProgressKey(trial.campaignId, trial.trialId) === selectedLiveTrialKey,
+      )
+    : undefined
 
   async function openTrial(row: MonitorTrialRow) {
     const key = trialProgressKey(row.campaignId, row.trialId)
     if (!row.persisted) {
       setTrialDetail(null)
-      setSelectedLiveTrialKey(key)
+      setSelectedLiveTrialKey((current) => (current === key ? null : key))
+      return
+    }
+    if (trialDetail?.record.id === row.trialId) {
+      setTrialDetail(null)
       return
     }
     setSelectedLiveTrialKey(null)
@@ -1725,16 +1754,21 @@ function RunMonitorPanel({
             </div>
           ) : (
             <div className="min-w-[760px]">
-              <div className="grid grid-cols-[minmax(240px,1fr)_120px_100px_90px_100px_100px] items-center gap-3 px-4 py-2 text-[10px] font-medium text-muted-foreground">
+              <div className="grid grid-cols-[minmax(280px,1fr)_120px_100px_90px_100px_100px_20px] items-center gap-3 px-4 py-2 text-[10px] font-medium text-muted-foreground">
                 <span>{t("dashboard.evaluation.scenario", "场景")}</span>
                 <span className="text-center">{t("dashboard.evaluation.statusLabel", "状态")}</span>
                 <span className="text-center">{t("dashboard.evaluation.duration", "耗时")}</span>
                 <span className="text-center">{t("dashboard.evaluation.toolCalls", "工具调用")}</span>
                 <span className="text-center">{t("dashboard.evaluation.tokens", "Token 数")}</span>
                 <span className="text-center">{t("dashboard.evaluation.cost", "费用")}</span>
+                <span />
               </div>
               {trialRows.map((trial) => {
+                const key = trialProgressKey(trial.campaignId, trial.trialId)
                 const tokenCount = (trial.inputTokens ?? 0) + (trial.outputTokens ?? 0)
+                const caseTitle = evaluationCaseTitle(catalog, trial.suiteId, trial.caseId)
+                const selected =
+                  selectedLiveTrialKey === key || trialDetail?.record.id === trial.trialId
                 const hasLiveDetail =
                   trial.durationMs != null ||
                   trial.modelCalls != null ||
@@ -1742,18 +1776,23 @@ function RunMonitorPanel({
                   trial.lastEvent != null
                 return (
                   <button
-                    key={trialProgressKey(trial.campaignId, trial.trialId)}
+                    key={key}
                     type="button"
+                    aria-expanded={selected}
                     disabled={(!trial.persisted && !hasLiveDetail) || trialLoading}
                     onClick={() => openTrial(trial)}
-                    className="grid w-full grid-cols-[minmax(240px,1fr)_120px_100px_90px_100px_100px] items-center gap-3 px-4 py-2.5 text-left text-xs transition-colors hover:bg-secondary/40 disabled:pointer-events-none"
+                    className={cn(
+                      "grid w-full grid-cols-[minmax(280px,1fr)_120px_100px_90px_100px_100px_20px] items-center gap-3 px-4 py-2.5 text-left text-xs transition-colors hover:bg-secondary/40 disabled:pointer-events-none",
+                      selected && "bg-secondary/70",
+                    )}
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-medium">
-                        {trial.caseId ?? trial.trialId}
+                        {caseTitle ?? trial.caseId ?? trial.trialId}
                       </span>
                       <span className="block truncate text-[10px] text-muted-foreground">
-                        {trial.suiteId ?? trial.campaignId} · {trial.arm ?? "—"}
+                        {trial.caseId ?? trial.trialId} · {trial.suiteId ?? trial.campaignId} ·{" "}
+                        {trial.arm ?? "—"}
                       </span>
                     </span>
                     <TrialStateBadge status={trial.status} outcome={trial.outcome} />
@@ -1765,6 +1804,11 @@ function RunMonitorPanel({
                     <span className="text-center tabular-nums">
                       {trial.costUsd == null ? "—" : `$${trial.costUsd.toFixed(4)}`}
                     </span>
+                    {selected ? (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    )}
                   </button>
                 )
               })}
@@ -1775,14 +1819,33 @@ function RunMonitorPanel({
 
       {trialDetail &&
         (trialDetail.result ? (
-          <TrialCausalDetail detail={trialDetail} onClose={() => setTrialDetail(null)} />
+          <TrialCausalDetail
+            detail={trialDetail}
+            caseTitle={evaluationCaseTitle(
+              catalog,
+              trialDetail.record.suiteId,
+              trialDetail.record.caseId,
+            )}
+            onClose={() => setTrialDetail(null)}
+          />
         ) : (
-          <TrialRecordDetail detail={trialDetail} onClose={() => setTrialDetail(null)} />
+          <TrialRecordDetail
+            detail={trialDetail}
+            caseTitle={evaluationCaseTitle(
+              catalog,
+              trialDetail.record.suiteId,
+              trialDetail.record.caseId,
+            )}
+            onClose={() => setTrialDetail(null)}
+          />
         ))}
       {!trialDetail && selectedLiveTrialKey && (
         <LiveTrialDetail
-          trial={trialRows.find(
-            (trial) => trialProgressKey(trial.campaignId, trial.trialId) === selectedLiveTrialKey,
+          trial={selectedLiveTrial}
+          caseTitle={evaluationCaseTitle(
+            catalog,
+            selectedLiveTrial?.suiteId,
+            selectedLiveTrial?.caseId,
           )}
           onClose={() => setSelectedLiveTrialKey(null)}
         />
@@ -1886,6 +1949,16 @@ function monitorTrialFromRecord(trial: EvalTrialRecord): MonitorTrialRow {
   }
 }
 
+function evaluationCaseTitle(
+  catalog: EvalCatalog | null,
+  suiteId?: string,
+  caseId?: string,
+): string | undefined {
+  if (!caseId) return undefined
+  const suites = suiteId ? catalog?.suites.filter((suite) => suite.id === suiteId) : catalog?.suites
+  return suites?.flatMap((suite) => suite.cases).find((item) => item.id === caseId)?.title
+}
+
 function HistoryTable({
   rows,
   onOpen,
@@ -1939,6 +2012,7 @@ function HistoryTable({
 
 function ExperimentDetail({
   detail,
+  catalog,
   annotations,
   annotationText,
   onAnnotationTextChange,
@@ -1950,6 +2024,7 @@ function ExperimentDetail({
   onExport,
 }: {
   detail: EvalExperimentDetail
+  catalog: EvalCatalog | null
   annotations: EvalAnnotationRecord[]
   annotationText: string
   onAnnotationTextChange: (value: string) => void
@@ -1966,6 +2041,10 @@ function ExperimentDetail({
 
   async function openTrial(campaignId: string, trialId: string) {
     if (detail.experiment.kind !== "hope_core") return
+    if (trialDetail?.record.id === trialId) {
+      setTrialDetail(null)
+      return
+    }
     setTrialLoading(true)
     try {
       setTrialDetail(
@@ -2048,36 +2127,77 @@ function ExperimentDetail({
           }
         />
       </div>
-      <div className="mt-4 space-y-1">
-        {detail.trials.map((trial) => (
-          <button
-            key={`${trial.campaignId}-${trial.id}`}
-            type="button"
-            onClick={() => openTrial(trial.campaignId, trial.id)}
-            disabled={detail.experiment.kind !== "hope_core" || trialLoading}
-            className="grid w-full grid-cols-[1fr_auto_auto] gap-3 rounded-lg bg-background/50 px-3 py-2 text-left text-xs hover:bg-secondary/40 disabled:pointer-events-none"
-          >
-            <div>
-              <span className="font-medium">{trial.caseId}</span>
-              <span className="ml-2 text-muted-foreground">{trial.arm}</span>
+      {detail.experiment.kind === "hope_core" && (
+        <div className="mt-4 rounded-lg bg-blue-500/10 px-3 py-2 text-xs text-blue-700 dark:text-blue-200">
+          {t(
+            "dashboard.evaluation.historyDetailPrivacy",
+            "点击任一场景可查看脱敏的实际运行详情；历史不会保存 Prompt、模型正文或工具参数与输出。",
+          )}
+        </div>
+      )}
+      <div className="mt-4 space-y-1 overflow-x-auto">
+        {detail.trials.map((trial) => {
+          const selected = trialDetail?.record.id === trial.id
+          const caseTitle = evaluationCaseTitle(catalog, trial.suiteId, trial.caseId)
+          return (
+            <div key={`${trial.campaignId}-${trial.id}`} className="min-w-[760px]">
+              <button
+                type="button"
+                aria-expanded={selected}
+                onClick={() => openTrial(trial.campaignId, trial.id)}
+                disabled={detail.experiment.kind !== "hope_core" || trialLoading}
+                className={cn(
+                  "grid w-full grid-cols-[minmax(260px,1fr)_auto_auto_120px] items-center gap-3 rounded-lg bg-background/50 px-3 py-2 text-left text-xs hover:bg-secondary/40 disabled:pointer-events-none",
+                  selected && "bg-secondary/70",
+                )}
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{caseTitle ?? trial.caseId}</div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    {trial.caseId} · {trial.suiteId} · {trial.arm}
+                  </div>
+                </div>
+                <TrialStateBadge status="completed" outcome={trial.outcome} />
+                <div className="text-muted-foreground">
+                  {formatDuration(trial.durationMs)} ·{" "}
+                  {t("dashboard.evaluation.toolCallsShort", { count: trial.toolCalls })} ·{" "}
+                  {t("dashboard.evaluation.tokensShort", {
+                    count: (trial.inputTokens ?? 0) + (trial.outputTokens ?? 0),
+                  })}
+                </div>
+                <span className="flex items-center justify-end gap-1 text-muted-foreground">
+                  {t(
+                    selected
+                      ? "dashboard.evaluation.hideScenarioDetails"
+                      : "dashboard.evaluation.viewScenarioDetails",
+                    selected ? "收起运行详情" : "查看运行详情",
+                  )}
+                  {selected ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                </span>
+              </button>
+              {selected &&
+                trialDetail &&
+                (trialDetail.result ? (
+                  <TrialCausalDetail
+                    detail={trialDetail}
+                    caseTitle={caseTitle}
+                    onClose={() => setTrialDetail(null)}
+                  />
+                ) : (
+                  <TrialRecordDetail
+                    detail={trialDetail}
+                    caseTitle={caseTitle}
+                    onClose={() => setTrialDetail(null)}
+                  />
+                ))}
             </div>
-            <TrialStateBadge status="completed" outcome={trial.outcome} />
-            <div className="text-muted-foreground">
-              {formatDuration(trial.durationMs)} ·{" "}
-              {t("dashboard.evaluation.toolCallsShort", { count: trial.toolCalls })} ·{" "}
-              {t("dashboard.evaluation.tokensShort", {
-                count: (trial.inputTokens ?? 0) + (trial.outputTokens ?? 0),
-              })}
-            </div>
-          </button>
-        ))}
+          )
+        })}
       </div>
-      {trialDetail &&
-        (trialDetail.result ? (
-          <TrialCausalDetail detail={trialDetail} onClose={() => setTrialDetail(null)} />
-        ) : (
-          <TrialRecordDetail detail={trialDetail} onClose={() => setTrialDetail(null)} />
-        ))}
       {onCreateAnnotation && (
         <div className="mt-4 space-y-2">
           <form
@@ -2117,20 +2237,303 @@ function ExperimentDetail({
   )
 }
 
-function TrialCausalDetail({ detail, onClose }: { detail: EvalTrialDetail; onClose: () => void }) {
+function TrialOutcomeExplanation({ detail }: { detail: EvalTrialDetail }) {
+  const { t, i18n } = useTranslation()
+  const result = detail.result
+  const outcome = result?.outcome ?? detail.record.outcome
+  const failureClass = result?.failureClass ?? detail.record.failureClass
+  const wallMs = result?.timings.wallMs ?? detail.record.durationMs
+  const isWallTimeout = failureClass === "trial_wall_timeout"
+  const missingSignals = result?.warnings
+    .find((warning) => warning.startsWith("missing required signals:"))
+    ?.slice("missing required signals:".length)
+    .trim()
+  const signalLabels: Record<string, string> = {
+    model: t("dashboard.evaluation.signals.model", "模型调用"),
+    goal: t("dashboard.evaluation.signals.goal", "Goal 目标"),
+    loop: t("dashboard.evaluation.signals.loop", "持续推进循环"),
+    workflow: t("dashboard.evaluation.signals.workflow", "工作流"),
+    async_jobs: t("dashboard.evaluation.signals.asyncJobs", "异步任务"),
+    subagent: t("dashboard.evaluation.signals.subagent", "子 Agent"),
+    team: t("dashboard.evaluation.signals.team", "Agent 团队"),
+    tool: t("dashboard.evaluation.signals.tool", "工具调用"),
+    fault: t("dashboard.evaluation.signals.fault", "故障注入"),
+  }
+  const missingSignalLabels = missingSignals
+    ?.split(",")
+    .map((signal) => signal.trim())
+    .filter(Boolean)
+    .map((signal) => signalLabels[signal] ?? signal)
+  const readableMissingSignals = missingSignalLabels?.length
+    ? new Intl.ListFormat(i18n.resolvedLanguage ?? i18n.language, {
+        style: "long",
+        type: "conjunction",
+      }).format(missingSignalLabels)
+    : undefined
+
+  const exhaustionReasons = new Set<string>()
+  for (const warning of result?.warnings ?? []) {
+    const match = warning.match(
+      /^(?:runtime stopped at immutable trial budget|exceeded trial budgets):\s*(.+)$/,
+    )
+    if (!match) continue
+    for (const value of match[1].split(",")) {
+      const reason = value.trim()
+      exhaustionReasons.add(
+        reason === "wall_time" ? "wall" : reason === "cost_unknown" ? "cost" : reason,
+      )
+    }
+  }
+  if (isWallTimeout) {
+    exhaustionReasons.add("wall")
+    exhaustionReasons.add("wall_time")
+  }
+
+  const budget = detail.budget
+  const limitRows: Array<{
+    key: string
+    label: string
+    actual: string
+    limit: string
+    triggered: boolean
+  }> = []
+  const addLimit = (
+    key: string,
+    label: string,
+    actual: number | undefined,
+    limit: number | undefined,
+    format: (value: number) => string = (value) => value.toLocaleString(),
+  ) => {
+    if (limit == null) return
+    limitRows.push({
+      key,
+      label,
+      actual: actual == null ? "—" : format(actual),
+      limit: format(limit),
+      triggered: exhaustionReasons.has(key) || (actual != null && actual >= limit),
+    })
+  }
+  const wallLimitSeconds = detail.timeoutSeconds ?? budget?.maxWallSeconds
+  addLimit(
+    "wall",
+    t("dashboard.evaluation.budgetDimensions.wall", "单场景总时间"),
+    wallMs,
+    wallLimitSeconds == null ? undefined : wallLimitSeconds * 1_000,
+    formatDuration,
+  )
+  addLimit(
+    "model_calls",
+    t("dashboard.evaluation.modelCalls", "模型调用"),
+    result?.orchestration.modelCalls,
+    budget?.maxModelCalls,
+  )
+  addLimit(
+    "input_tokens",
+    t("dashboard.evaluation.budgetDimensions.inputTokens", "输入 Token"),
+    result?.tokens.input,
+    budget?.maxInputTokens,
+  )
+  addLimit(
+    "output_tokens",
+    t("dashboard.evaluation.budgetDimensions.outputTokens", "输出 Token"),
+    result?.tokens.output,
+    budget?.maxOutputTokens,
+  )
+  addLimit(
+    "cost",
+    t("dashboard.evaluation.cost", "费用"),
+    result?.cost.totalUsd,
+    budget?.maxCostUsd,
+    (value) => `$${value.toFixed(4)}`,
+  )
+  addLimit(
+    "tool_calls",
+    t("dashboard.evaluation.toolCalls", "工具调用"),
+    result?.tools.attempted,
+    budget?.maxToolCalls,
+  )
+  addLimit(
+    "agents",
+    t("dashboard.evaluation.spawnedAgents", "已创建 Agent"),
+    result?.orchestration.spawnedAgents,
+    budget?.maxAgents,
+  )
+  addLimit(
+    "concurrency",
+    t("dashboard.evaluation.budgetDimensions.concurrency", "最大并发"),
+    result?.orchestration.maxConcurrency,
+    budget?.maxConcurrency,
+  )
+  if (isWallTimeout) {
+    const wallRow = limitRows.find((row) => row.key === "wall")
+    if (wallRow) wallRow.triggered = true
+  }
+
+  let title = t("dashboard.evaluation.genericFailedTitle", "场景未通过")
+  let summary = t(
+    "dashboard.evaluation.genericFailedSummary",
+    "场景没有得到通过结果，请结合验收结果和技术轨迹定位原因。",
+  )
+  let tone: "success" | "warning" | "danger" = "danger"
+
+  if (outcome === "passed") {
+    title = t("dashboard.evaluation.passExplanationTitle", "场景通过")
+    summary = t(
+      "dashboard.evaluation.passExplanationSummary",
+      "任务已完成，并且所有强制验收项均通过。",
+    )
+    tone = "success"
+  } else if (isWallTimeout) {
+    title = t("dashboard.evaluation.wallTimeoutTitle", "单场景时间耗尽")
+    summary = t("dashboard.evaluation.wallTimeoutSummary", {
+      duration: formatDuration(wallMs),
+      defaultValue:
+        "该场景运行到 {{duration}} 后被停止。耗尽的是允许的运行时间，不是 Token、费用或模型调用额度。",
+    })
+    tone = "warning"
+  } else if (outcome === "budget_exhausted") {
+    title = t("dashboard.evaluation.resourceBudgetTitle", "单场景资源预算耗尽")
+    summary = t(
+      "dashboard.evaluation.resourceBudgetSummary",
+      "场景触及了计划中的模型调用、Token、费用、工具、Agent 或并发上限。",
+    )
+    tone = "warning"
+  } else if (outcome === "task_failed") {
+    title = t("dashboard.evaluation.taskFailedTitle", "任务验收未通过")
+    summary = t(
+      "dashboard.evaluation.taskFailedSummary",
+      "场景已经执行结束，但至少一个强制里程碑或验收条件未通过。",
+    )
+  } else if (outcome === "policy_failed") {
+    title = t("dashboard.evaluation.policyFailedTitle", "安全或策略检查未通过")
+    summary = t(
+      "dashboard.evaluation.policyFailedSummary",
+      "运行被安全策略阻止，或产物不符合评测的安全约束。",
+    )
+  } else if (outcome === "infra_error") {
+    title = t("dashboard.evaluation.infraFailedTitle", "模型或评测服务异常")
+    summary = t(
+      "dashboard.evaluation.infraFailedSummary",
+      "Provider、Hope Server 或隔离运行环境发生异常，结果不代表模型能力。",
+    )
+    tone = "warning"
+  }
+
+  return (
+    <section
+      className={cn(
+        "mt-3 rounded-lg px-3 py-3",
+        tone === "success" && "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
+        tone === "warning" && "bg-amber-500/10 text-amber-900 dark:text-amber-100",
+        tone === "danger" && "bg-destructive/10 text-destructive",
+      )}
+    >
+      <div className="text-[11px] font-medium opacity-75">
+        {t("dashboard.evaluation.resultExplanation", "结果说明")}
+      </div>
+      <div className="mt-0.5 text-sm font-semibold">{title}</div>
+      <p className="mt-1 leading-relaxed opacity-90">{summary}</p>
+      {isWallTimeout && result && (
+        <p className="mt-1 leading-relaxed opacity-90">
+          {t("dashboard.evaluation.wallTimeoutBreakdown", {
+            modelDuration: formatDuration(result.timings.modelActiveMs),
+            wallDuration: formatDuration(result.timings.wallMs),
+            defaultValue:
+              "总耗时 {{wallDuration}}，其中模型活跃时间仅 {{modelDuration}}；其余时间位于 Agent 编排、等待或尚未归因的阶段。",
+          })}
+        </p>
+      )}
+      {readableMissingSignals && (
+        <p className="mt-1 leading-relaxed opacity-90">
+          {t("dashboard.evaluation.missingExpectedSignals", {
+            signals: readableMissingSignals,
+            defaultValue: "结束前没有检测到场景要求的行为：{{signals}}。",
+          })}
+        </p>
+      )}
+      {outcome === "budget_exhausted" && limitRows.length > 0 && (
+        <div className="mt-3 rounded-md bg-background/45 p-2.5 text-foreground">
+          <div className="text-[11px] font-medium text-muted-foreground">
+            {t("dashboard.evaluation.budgetLimits", "本次单场景预算")}
+          </div>
+          <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+            {limitRows.map((row) => (
+              <div
+                key={row.key}
+                className={cn(
+                  "rounded bg-secondary/40 px-2 py-1.5",
+                  row.triggered && "bg-amber-500/15 text-amber-900 dark:text-amber-100",
+                )}
+              >
+                <div className="text-[10px] opacity-70">{row.label}</div>
+                <div className="mt-0.5 font-medium tabular-nums">
+                  {t("dashboard.evaluation.budgetLimitComparison", {
+                    actual: row.actual,
+                    limit: row.limit,
+                    defaultValue: "实际 {{actual}} / 上限 {{limit}}",
+                  })}
+                </div>
+                {row.triggered && (
+                  <div className="mt-0.5 text-[10px] font-medium">
+                    {t("dashboard.evaluation.budgetTriggered", "本次触发项")}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {isWallTimeout && wallLimitSeconds != null && (
+            <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+              {t("dashboard.evaluation.wallTimeoutLimitNote", {
+                limit: formatDuration(wallLimitSeconds * 1_000),
+                defaultValue:
+                  "配置的单场景总时间上限为 {{limit}}；主执行会提前停止，为取消、证据落盘和进程清理保留尾部时间。",
+              })}
+            </p>
+          )}
+        </div>
+      )}
+      {isWallTimeout && (
+        <p className="mt-2 border-t border-current/15 pt-2 leading-relaxed opacity-90">
+          <span className="font-medium">{t("common.nextStep", "下一步")}：</span>
+          {t(
+            "dashboard.evaluation.wallTimeoutNextStep",
+            "先检查模型调用结束后为何没有继续推进；如果任务本身确实需要更久，再使用自定义画像提高单场景和实验总时长。",
+          )}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function TrialCausalDetail({
+  detail,
+  caseTitle,
+  onClose,
+}: {
+  detail: EvalTrialDetail
+  caseTitle?: string
+  onClose: () => void
+}) {
   const { t } = useTranslation()
   const result = detail.result!
   const checks = [...result.milestones, ...result.invariants, ...result.judgeChecks]
   return (
     <div className="mt-4 rounded-lg bg-background/60 p-3 text-xs">
       <div className="flex items-center justify-between gap-2">
-        <div className="font-semibold">
-          {result.trialId} · {t("dashboard.evaluation.causalTrace")}
+        <div className="min-w-0">
+          <div className="truncate font-semibold">{caseTitle ?? detail.record.caseId}</div>
+          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+            {detail.record.caseId} · {detail.record.arm} · {result.trialId}
+          </div>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>
           {t("common.close")}
         </Button>
       </div>
+      <TrialOutcomeExplanation detail={detail} />
+      <h4 className="mb-2 mt-4 font-semibold">
+        {t("dashboard.evaluation.actualUsage", "实际消耗")}
+      </h4>
       <div className="mt-2 grid gap-2 sm:grid-cols-4">
         <Metric
           label={t("dashboard.evaluation.trialMetrics.outcome")}
@@ -2203,6 +2606,9 @@ function TrialCausalDetail({ detail, onClose }: { detail: EvalTrialDetail; onClo
       </div>
       {checks.length > 0 && (
         <div className="mt-3 space-y-1">
+          <h4 className="pb-1 font-semibold">
+            {t("dashboard.evaluation.verificationResults", "验收结果")}
+          </h4>
           {checks.map((check) => (
             <div
               key={check.id}
@@ -2226,6 +2632,9 @@ function TrialCausalDetail({ detail, onClose }: { detail: EvalTrialDetail; onClo
       )}
       {result.traceEvents.length > 0 && (
         <div className="mt-3 space-y-1">
+          <h4 className="pb-1 font-semibold">
+            {t("dashboard.evaluation.executionTrace", "执行轨迹")}
+          </h4>
           {result.traceEvents.map((event) => (
             <div
               key={event.seq}
@@ -2244,28 +2653,54 @@ function TrialCausalDetail({ detail, onClose }: { detail: EvalTrialDetail; onClo
         </div>
       )}
       {(result.error || result.failureClass || result.warnings.length > 0) && (
-        <div className="mt-3 rounded bg-destructive/5 p-2 text-muted-foreground">
-          {[result.failureClass, result.error, ...result.warnings].filter(Boolean).join(" · ")}
-        </div>
+        <details className="mt-3 rounded bg-secondary/20 p-2 text-muted-foreground">
+          <summary className="cursor-pointer font-medium">
+            {t("dashboard.evaluation.technicalDetails", "技术诊断信息")}
+          </summary>
+          <div className="mt-2 break-words font-mono text-[10px] leading-relaxed">
+            {[result.failureClass, result.error, ...result.warnings].filter(Boolean).join(" · ")}
+          </div>
+        </details>
       )}
     </div>
   )
 }
 
-function TrialRecordDetail({ detail, onClose }: { detail: EvalTrialDetail; onClose: () => void }) {
+function TrialRecordDetail({
+  detail,
+  caseTitle,
+  onClose,
+}: {
+  detail: EvalTrialDetail
+  caseTitle?: string
+  onClose: () => void
+}) {
   const { t } = useTranslation()
   const record = detail.record
   const tokens = (record.inputTokens ?? 0) + (record.outputTokens ?? 0)
   return (
     <div className="mt-4 rounded-lg bg-background/60 p-3 text-xs">
       <div className="flex items-center justify-between gap-2">
-        <div className="font-semibold">
-          {record.id} · {t("dashboard.evaluation.trialStatus", "场景实时状态")}
+        <div className="min-w-0">
+          <div className="truncate font-semibold">{caseTitle ?? record.caseId}</div>
+          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+            {record.caseId} · {record.arm} · {record.id}
+          </div>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>
           {t("common.close")}
         </Button>
       </div>
+      <TrialOutcomeExplanation detail={detail} />
+      <div className="mt-3 rounded-lg bg-secondary/20 px-3 py-2 text-muted-foreground">
+        {t(
+          "dashboard.evaluation.partialDetailNotice",
+          "这次运行没有生成完整 evidence，下面显示的是退出前已经持久化的运行摘要。",
+        )}
+      </div>
+      <h4 className="mb-2 mt-4 font-semibold">
+        {t("dashboard.evaluation.actualUsage", "实际消耗")}
+      </h4>
       <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <Metric
           label={t("dashboard.evaluation.trialMetrics.outcome")}
@@ -2302,9 +2737,11 @@ function TrialRecordDetail({ detail, onClose }: { detail: EvalTrialDetail; onClo
 
 function LiveTrialDetail({
   trial,
+  caseTitle,
   onClose,
 }: {
   trial?: MonitorTrialRow
+  caseTitle?: string
   onClose: () => void
 }) {
   const { t } = useTranslation()
@@ -2336,7 +2773,11 @@ function LiveTrialDetail({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="font-semibold">
-            {trial.caseId ?? trial.trialId} · {t("dashboard.evaluation.liveScenarioDetail", "场景运行详情")}
+            {caseTitle ?? trial.caseId ?? trial.trialId}
+          </div>
+          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+            {trial.caseId ?? trial.trialId} · {trial.arm ?? "—"} ·{" "}
+            {t("dashboard.evaluation.liveScenarioDetail", "场景运行详情")}
           </div>
           <div className="mt-1 truncate text-muted-foreground">
             {activity} · {t("dashboard.evaluation.attribution", "归因完整度")}: {attribution}
@@ -2888,6 +3329,20 @@ function formatLongDuration(ms: number) {
   return hours > 0
     ? `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`
     : `${minutes}m ${String(seconds).padStart(2, "0")}s`
+}
+function formatPlanTrialTimeouts(plan: EvalAppPlan) {
+  const values = plan.campaigns.flatMap((campaign) =>
+    campaign.resolvedPlan.suites.flatMap((suite) =>
+      suite.cases.map((plannedCase) => plannedCase.timeoutSeconds),
+    ),
+  )
+  if (values.length === 0) return "—"
+  const minimum = Math.min(...values)
+  const maximum = Math.max(...values)
+  const minimumLabel = formatLongDuration(minimum * 1_000)
+  return minimum === maximum
+    ? minimumLabel
+    : `${minimumLabel} – ${formatLongDuration(maximum * 1_000)}`
 }
 function formatMetric(value?: number) {
   return value == null ? "—" : Math.abs(value) < 10 ? value.toFixed(3) : value.toFixed(1)

@@ -163,21 +163,39 @@ impl EvalQueryService {
             .into_iter()
             .find(|trial| trial.campaign_id == campaign_id && trial.id == trial_id)
             .ok_or_else(|| anyhow!("evaluation trial not found"))?;
-        let result = self
+        let evidence_detail = self
             .repository
             .campaign_evidence_sha256(experiment_id, campaign_id)?
             .map(|digest| -> Result<_> {
                 let evidence: ModelCampaignEvidence =
                     serde_json::from_slice(&self.artifacts.read(&digest, 256 * 1024 * 1024)?)?;
                 ha_eval_spec::model::validate_evidence_shape(&evidence)?;
-                evidence
+                let planned_case = evidence
+                    .suites
+                    .iter()
+                    .find(|suite| suite.id == record.suite_id)
+                    .and_then(|suite| suite.cases.iter().find(|case| case.id == record.case_id));
+                let budget = planned_case.map(|case| case.budget.clone());
+                let timeout_seconds = planned_case.map(|case| case.timeout_seconds);
+                let result = evidence
                     .trial_results
                     .into_iter()
                     .find(|trial| trial.trial_id == trial_id)
-                    .ok_or_else(|| anyhow!("indexed evidence does not contain the selected trial"))
+                    .ok_or_else(|| {
+                        anyhow!("indexed evidence does not contain the selected trial")
+                    })?;
+                Ok((result, budget, timeout_seconds))
             })
             .transpose()?;
-        Ok(EvalTrialDetail { record, result })
+        let (result, budget, timeout_seconds) = evidence_detail
+            .map(|(result, budget, timeout_seconds)| (Some(result), budget, timeout_seconds))
+            .unwrap_or((None, None, None));
+        Ok(EvalTrialDetail {
+            record,
+            result,
+            budget,
+            timeout_seconds,
+        })
     }
 
     fn load_evidences(&self, experiment_id: &str) -> Result<Vec<ModelCampaignEvidence>> {

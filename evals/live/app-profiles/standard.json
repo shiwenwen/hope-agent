@@ -1,7 +1,7 @@
 {
   "schemaVersion": "eval-app-profile.v1",
   "id": "standard",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "title": "Standard core",
   "description": "One clean/control trial for every weekly Hope Core case.",
   "baseTier": "weekly",
@@ -14,7 +14,7 @@
   "useSuiteRepetitions": false,
   "maxTrials": 100,
   "maxModels": 4,
-  "maxConcurrency": 2,
-  "maxCostUsd": 50,
+  "maxConcurrency": 100,
+  "maxCostUsd": 1000000,
   "allowCustom": true
 }

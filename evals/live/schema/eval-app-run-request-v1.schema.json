@@ -61,10 +61,10 @@
         "maxModelCalls": { "type": "integer", "minimum": 1 },
         "maxInputTokens": { "type": "integer", "minimum": 1 },
         "maxOutputTokens": { "type": "integer", "minimum": 1 },
-        "maxCostUsd": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
+        "maxCostUsd": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000000 },
         "maxToolCalls": { "type": "integer", "minimum": 1 },
         "maxAgents": { "type": "integer", "minimum": 1 },
-        "maxConcurrency": { "type": "integer", "minimum": 1, "maximum": 2 }
+        "maxConcurrency": { "type": "integer", "minimum": 1, "maximum": 500 }
       },
       "anyOf": [
         { "required": ["maxCostUsd"] },

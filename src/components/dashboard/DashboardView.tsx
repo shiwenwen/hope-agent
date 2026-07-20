@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ArrowLeft, RefreshCw, Download, Play, Pause } from "lucide-react"
+import { ArrowLeft, RefreshCw, Download, Play, Pause, Settings2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { PANEL_SCROLL_FADE } from "@/components/chat/right-panel/panelFade"
@@ -577,6 +577,19 @@ export default function DashboardView({
             </Button>
           </span>
         </IconTip>
+
+        {onOpenSettings && (
+          <IconTip label={t("dashboard.recapSettings", "复盘报告设置")} side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => onOpenSettings("recap")}
+            >
+              <Settings2 className="h-4 w-4" />
+            </Button>
+          </IconTip>
+        )}
       </div>
 
       <Tabs

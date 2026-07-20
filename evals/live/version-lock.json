@@ -24,10 +24,14 @@
   },
   "appProfiles": {
     "custom@1.0.0": "3aba1ebdf5239b771ae9fdab640ff7641bd43664fe178dcd9c3bf1ca52d40922",
+    "custom@1.1.0": "dd91952275a011b1b24ee3f58f6192a043c12ea631e00dea7c5174e5c0976bf2",
     "quick@1.0.0": "07cdcddbda2b078ca9995e67c3cfcb28bc87d77b526463642d910918740ddf12",
     "quick@1.1.0": "7a65b375d0b16389377b8c1523b8554515f04e1cf6e00a4e05eff9813a88dbf0",
+    "quick@1.2.0": "5f3975876b1e329a924c37a81e4412f9754eca2afe41c2a6690255a6c355b6a9",
     "reliability@1.0.0": "a7a452224564b715028687a41628a8d54b42d6242d7d91c3d6cd749841600adb",
-    "standard@1.0.0": "93647cdc309fb34b80c75ad46f5c1f874a943129f77dd65de098c0ec82c7e51e"
+    "reliability@1.1.0": "3c847d4ff3b3b48017071d1babb81dda60bb5280b8c46bf2b33950b65691fbb1",
+    "standard@1.0.0": "93647cdc309fb34b80c75ad46f5c1f874a943129f77dd65de098c0ec82c7e51e",
+    "standard@1.1.0": "192b7560bae63f73a229ec71ee0894ec27ce05ddc3885c432a9f1719c3ed93db"
   },
   "trustRegistries": {},
   "suites": {
