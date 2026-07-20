@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **安装包瘦身**：移除已停用的内嵌 ONNX 推理引擎（旧版本地 embedding 实现的残留），内嵌前端资源改用 brotli 压缩，各平台安装包约减小 10MB。本地 embedding 功能不受影响，仍由「设置 → 记忆 → 本地 embedding 助手」的 Ollama 方案提供。(#523)
+- **移除已停用的内嵌 ONNX 推理引擎**：清理旧版本地 embedding 实现的残留依赖，内嵌前端资源改用 brotli 压缩，合计为安装包减重约 10MB。本地 embedding 功能不受影响，仍由「设置 → 记忆 → 本地 embedding 助手」的 Ollama 方案提供。注意本版新增的内置手册与能力评测资产体积更大，因此各平台安装包相比 v0.20.1 仍净增约 7–10MB。(#523)
 - **设置页默认打开首个分区**：从侧边栏齿轮进入设置时停在「个人设置」，不再固定跳到「模型设置」；从其它入口显式跳转指定分区的行为不变。(#515)
 
 ### Fixed
