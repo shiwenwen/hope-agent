@@ -1,4 +1,4 @@
-import type { DashboardFilterFields } from "./DashboardFilter"
+import type { DashboardFilterFields } from "./dashboardFilterConfig"
 
 const DASHBOARD_TAB_VALUES = new Set([
   "insights",

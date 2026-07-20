@@ -23,10 +23,11 @@ import { ArrowLeft, RefreshCw, Download, Play, Pause, Settings2 } from "lucide-r
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { PANEL_SCROLL_FADE } from "@/components/chat/right-panel/panelFade"
-import DashboardFilter, {
+import DashboardFilter from "./DashboardFilter"
+import {
   computeDashboardDateRange,
   type DashboardRangeKey,
-} from "./DashboardFilter"
+} from "./dashboardFilterConfig"
 import OverviewCards from "./OverviewCards"
 import type { CardAction } from "./OverviewCards"
 import DetailListPanel from "./DetailListPanel"

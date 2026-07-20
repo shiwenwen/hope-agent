@@ -14,6 +14,11 @@ import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DashboardFilter as DashboardFilterState } from "./types"
+import {
+  computeDashboardDateRange,
+  type DashboardFilterFields,
+  type DashboardRangeKey,
+} from "./dashboardFilterConfig"
 
 interface Agent {
   id: string
@@ -25,15 +30,6 @@ interface Agent {
 interface Provider {
   id: string
   name: string
-}
-
-export type DashboardRangeKey = "today" | "7d" | "30d" | "90d" | "all" | "custom"
-
-export interface DashboardFilterFields {
-  date: boolean
-  agent: boolean
-  provider: boolean
-  usageKind: boolean
 }
 
 const USAGE_KIND_VALUES = [
@@ -50,33 +46,6 @@ const USAGE_KIND_VALUES = [
   "provider_test",
   "vision",
 ] as const
-
-export function computeDashboardDateRange(key: DashboardRangeKey): {
-  start: string | null
-  end: string | null
-} {
-  if (key === "all") return { start: null, end: null }
-  const now = new Date()
-  const end = now.toISOString()
-  const start = new Date(now)
-  switch (key) {
-    case "today":
-      start.setHours(0, 0, 0, 0)
-      break
-    case "7d":
-      start.setDate(start.getDate() - 7)
-      break
-    case "30d":
-      start.setDate(start.getDate() - 30)
-      break
-    case "90d":
-      start.setDate(start.getDate() - 90)
-      break
-    default:
-      return { start: null, end: null }
-  }
-  return { start: start.toISOString(), end }
-}
 
 function dateInputValue(value: string | null): string {
   if (!value) return ""
@@ -106,8 +75,8 @@ export default function DashboardFilter({
   const { t } = useTranslation()
   const [agents, setAgents] = useState<Agent[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
-  const [customStart, setCustomStart] = useState("")
-  const [customEnd, setCustomEnd] = useState("")
+  const [customStart, setCustomStart] = useState(() => dateInputValue(filter.startDate))
+  const [customEnd, setCustomEnd] = useState(() => dateInputValue(filter.endDate))
 
   useEffect(() => {
     let alive = true
@@ -128,16 +97,13 @@ export default function DashboardFilter({
     }
   }, [])
 
-  useEffect(() => {
-    if (rangeKey !== "custom") return
-    setCustomStart(dateInputValue(filter.startDate))
-    setCustomEnd(dateInputValue(filter.endDate))
-  }, [filter.endDate, filter.startDate, rangeKey])
-
   const handleRangeChange = useCallback(
     (key: DashboardRangeKey) => {
       onRangeKeyChange(key)
-      if (key !== "custom") {
+      if (key === "custom") {
+        setCustomStart(dateInputValue(filter.startDate))
+        setCustomEnd(dateInputValue(filter.endDate))
+      } else {
         const { start, end } = computeDashboardDateRange(key)
         onChange({ ...filter, startDate: start, endDate: end })
       }
