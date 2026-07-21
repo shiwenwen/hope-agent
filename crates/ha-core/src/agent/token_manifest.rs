@@ -143,6 +143,7 @@ impl RoundTokenManifest {
             req.coding_profile_suffix,
             req.procedure_memory_suffix,
             req.related_notes_suffix,
+            req.lsp_diagnostics_suffix,
             req.task_reminder_suffix,
         ];
         let mut dynamic_hasher = blake3::Hasher::new();
@@ -425,6 +426,7 @@ mod tests {
                 coding_profile_suffix: None,
                 procedure_memory_suffix: None,
                 related_notes_suffix: None,
+                lsp_diagnostics_suffix: None,
                 task_reminder_suffix: None,
                 tool_schemas: tools,
                 deferred_tool_schemas: &deferred,

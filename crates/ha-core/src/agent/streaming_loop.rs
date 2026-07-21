@@ -805,8 +805,7 @@ impl AssistantAgent {
         // Static system prompt prefix (cache-friendly). Dynamic suffixes are
         // sent as independent provider-level blocks when supported.
         let system_prompt = prepared_system_prompt;
-        let mut system_prompt_for_budget =
-            self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
+        let mut system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
 
         let compaction = self
             .run_compaction(
@@ -896,6 +895,18 @@ impl AssistantAgent {
         };
         let mut vision_notice_sent = false;
 
+        // LSP diagnostics injection. The workspace dir is resolved lazily and
+        // memoized (at most one SQL lookup per turn), but the cheap global gate
+        // `has_any_diagnostics()` is re-checked EVERY round: a diagnostic first
+        // introduced mid-turn by write/edit/apply_patch populates the cache, so a
+        // later round must still surface it — a once-per-turn snapshot taken
+        // before any edit would miss it. `messages` here ends the pre-turn
+        // history; only tool activity appended from now counts as "touched this
+        // turn". Incognito never surfaces diagnostics.
+        let lsp_incognito = self.session_is_incognito();
+        let lsp_turn_start_index = messages.len();
+        let mut lsp_working_dir_memo: Option<Option<String>> = None;
+
         let mut round: u32 = 0;
         let mut effective_max_rounds = max_rounds;
         let mut activation_grace_used = false;
@@ -932,8 +943,7 @@ impl AssistantAgent {
                 deferred_tool_schemas = tool_inventory.deferred_schemas;
                 tool_schemas = tool_inventory.schemas;
                 system_prompt = self.prepare_full_system_prompt(model, provider_label).await;
-                system_prompt_for_budget =
-                    self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
+                system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
                 self.select_memories_if_needed(&mut system_prompt, message)
                     .await;
                 self.apply_engine_prompt_addition(&mut system_prompt);
@@ -1014,6 +1024,37 @@ impl AssistantAgent {
                 (None, Some(h)) => Some(h),
                 (other, None) => other,
             };
+            // Hybrid LSP diagnostics over files touched during THIS turn only
+            // (P2: slice from the turn-start index so prior-turn edits don't
+            // crowd out current global diagnostics). The cheap global gate is
+            // re-checked every round; the working dir is resolved at most once
+            // per turn (memoized) and only once diagnostics exist — so a
+            // diagnostic introduced by an earlier round's edit is picked up on
+            // the next round even if the turn started clean (P1).
+            let lsp_diagnostics_suffix = if !lsp_incognito && crate::lsp::has_any_diagnostics() {
+                let working_dir = lsp_working_dir_memo.get_or_insert_with(|| {
+                    self.lookup_session_meta()
+                        .as_ref()
+                        .and_then(crate::session::effective_working_dir_for_meta)
+                });
+                working_dir.as_deref().and_then(|wd| {
+                    let start = lsp_turn_start_index.min(messages.len());
+                    let touched: Vec<String> =
+                        crate::context_compact::extract_file_touches(&messages[start..])
+                            .into_iter()
+                            .rev()
+                            .take(crate::lsp::MAX_TOUCHED_FILES_FOR_DIAGNOSTICS)
+                            .map(|touch| touch.path)
+                            .collect();
+                    crate::lsp::diagnostics_prompt_suffix_hybrid(
+                        self.session_id.as_deref(),
+                        Some(wd),
+                        &touched,
+                    )
+                })
+            } else {
+                None
+            };
             let round_prompt_cache_key =
                 prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
 
@@ -1030,6 +1071,7 @@ impl AssistantAgent {
                 coding_profile_suffix: coding_profile_suffix.as_deref().map(|s| s.as_str()),
                 procedure_memory_suffix: procedure_suffix.as_deref().map(|s| s.as_str()),
                 related_notes_suffix: related_notes_suffix.as_deref().map(|s| s.as_str()),
+                lsp_diagnostics_suffix: lsp_diagnostics_suffix.as_deref(),
                 task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,
                 deferred_tool_schemas: &deferred_tool_schemas,

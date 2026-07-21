@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **工作台「文件」分区不再把被工具产出的文件误标为「读」**：先读取、之后又被工具（图片生成 / 附件 / exec）产出的文件，在长会话里滚出当前消息窗口后会正确显示为「输出」并按产出时间排到最前，与窗口内的实时显示保持一致。(#527)
+- **AI 现在能看到 LSP 语义诊断**：配置了 language server（rust-analyzer / tsserver / pyright 等）时，AI 每轮会自动收到当前工作区的语义诊断，本轮刚改过的文件优先，帮助它更快发现类型错误与告警。(#530)
 
 ## [0.21.0] - 2026-07-20
 

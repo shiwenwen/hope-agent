@@ -133,7 +133,7 @@ graph LR
 | -- | ---- | ---- | -------- |
 | **Layer 1** | `system_prompt::build()` → `build_with_resolved_session()` | Agent 人格 / 工具 / 技能 / 记忆 / 运行时等基础段 | 静态 prefix 主体；同一会话内除工作目录文件清单外基本字节稳定 |
 | **Layer 2** | `Agent::append_full_system_prompt_extras()`（经 `build_full_system_prompt` / `prepare_full_system_prompt`） | eager 能力补充说明、`# Unconfigured Capabilities`、`extra_system_context`、Plan 段、MCP catalog、`# Knowledge Bases` | 仍在同一 prefix 字符串内，追加在 Layer 1 之后 |
-| **Layer 3** | `RoundRequest` 的各 `*_suffix` 字段（`streaming_adapter::leading_dynamic_suffixes` / `trailing_dynamic_suffixes`） | awareness / active memory（动态召回）/ coding profile / procedure memory / 相关笔记 / task reminder | **不进 prefix**；provider adapter 按固定顺序作为独立 system block 发送，churn 不波及 prefix |
+| **Layer 3** | `RoundRequest` 的各 `*_suffix` 字段（`streaming_adapter::leading_dynamic_suffixes` / `trailing_dynamic_suffixes`） | awareness / active memory（动态召回）/ coding profile / procedure memory / 相关笔记 / LSP 诊断 / task reminder | **不进 prefix**；provider adapter 按固定顺序作为独立 system block 发送，churn 不波及 prefix |
 
 #### Layer 1 — `build_with_resolved_session()` 段序
 
@@ -213,11 +213,12 @@ graph LR
 | leading | `coding_profile_suffix` | Coding Mode 每轮确定性策略块 |
 | leading | `procedure_memory_suffix` | Procedure Memory 软流程指引；无 breakpoint |
 | trailing | `related_notes_suffix` | 被动相关笔记（untrusted，永不作指令） |
+| trailing | `lsp_diagnostics_suffix` | LSP 语义诊断（混合选择：本轮改过的文件优先 + 全局最严重填余位，untrusted） |
 | trailing | `task_reminder_suffix` | 任务追踪提醒（+ 排空的 pending hook context），恒最后 |
 
 leading 组在 Responses 形态 API 上位于会话历史之前，trailing 组紧贴模型的下一次决策。
 
-**`merge_dynamic_system_prompt()` 只服务预算记账**：它把 awareness / coding profile / LSP 诊断后缀并进一份字符串（`system_prompt_for_budget`）供压缩预算计算，**不是发给 Provider 的那一份**——请求体用的是静态 `system_prompt` + `RoundRequest` 上的独立后缀字段。
+**`merge_dynamic_system_prompt()` 只服务预算记账**：它把 awareness / coding profile 后缀并进一份字符串（`system_prompt_for_budget`）供压缩预算计算，**不是发给 Provider 的那一份**——请求体用的是静态 `system_prompt` + `RoundRequest` 上的独立后缀字段（trailing 后缀的 token 记账走 `token_manifest.dynamic_parts`）。（LSP 诊断后缀曾错误地只挂在这条预算字符串上、从不进入实际 `RoundRequest`，故从未到达模型；现已改为 `RoundRequest.lsp_diagnostics_suffix` 每轮真正随请求发送。）
 
 **代码位置**：
 - Layer 1：`crates/ha-core/src/system_prompt/build.rs` — `build_with_resolved_session()`

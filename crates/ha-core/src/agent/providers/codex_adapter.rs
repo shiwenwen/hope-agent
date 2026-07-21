@@ -466,6 +466,7 @@ mod tests {
             coding_profile_suffix: Some("coding"),
             procedure_memory_suffix: Some("procedure"),
             related_notes_suffix: Some("notes"),
+            lsp_diagnostics_suffix: None,
             task_reminder_suffix: Some("task"),
             tool_schemas: &tools,
             deferred_tool_schemas: &deferred,

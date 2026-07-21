@@ -419,7 +419,6 @@ pub(crate) struct TurnPromptCache {
     pub(crate) model: String,
     pub(crate) provider: String,
     pub(crate) base_prompt: std::sync::Arc<String>,
-    pub(crate) lsp_suffix: Option<String>,
 }
 
 /// Cached parameters from the last main chat request.
