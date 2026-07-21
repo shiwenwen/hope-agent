@@ -70,6 +70,17 @@
       "downloadedReady": "İndirildi — anında yüklenir"
     }
   },
+  "terminal": {
+    "title": "Terminal",
+    "show": "Terminali göster",
+    "hide": "Terminali gizle",
+    "new": "Yeni terminal",
+    "closeTab": "Terminali kapat",
+    "resize": "Terminal yüksekliğini ayarla",
+    "maximize": "Terminali büyüt",
+    "restore": "Terminali geri yükle",
+    "exited": "Sonlandı"
+  },
   "approval": {
     "allowAlways": "Her Zaman İzin Ver",
     "allowAlwaysDisabled": "Her zaman izin verilemez — bu onay nedeni her çağrıda doğrulama gerektirir",

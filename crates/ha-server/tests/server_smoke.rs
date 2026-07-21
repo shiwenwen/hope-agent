@@ -40,6 +40,9 @@ async fn server_starts_and_serves_health() {
         session_db,
         project_db,
         event_bus,
+        terminal_manager: ha_core::require_terminal_manager()
+            .expect("init_runtime contract")
+            .clone(),
         chat_cancels: Arc::new(RwLock::new(HashMap::<String, Arc<AtomicBool>>::new())),
         api_key: None,
     });

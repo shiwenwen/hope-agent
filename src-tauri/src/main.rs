@@ -617,6 +617,9 @@ fn run_server(args: &[String]) {
         session_db,
         project_db,
         event_bus,
+        terminal_manager: ha_core::require_terminal_manager()
+            .expect("init_runtime contract")
+            .clone(),
         chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         api_key: api_key.clone(),
     });

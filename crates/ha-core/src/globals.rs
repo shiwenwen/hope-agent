@@ -10,6 +10,7 @@ use crate::oauth::TokenData;
 use crate::project::ProjectDB;
 use crate::session::SessionDB;
 use crate::subagent;
+use crate::terminal::TerminalManager;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -40,6 +41,7 @@ pub static CHANNEL_REGISTRY: std::sync::OnceLock<Arc<channel::ChannelRegistry>> 
     std::sync::OnceLock::new();
 pub static CHANNEL_DB: std::sync::OnceLock<Arc<channel::ChannelDB>> = std::sync::OnceLock::new();
 pub static LOG_DB: std::sync::OnceLock<Arc<LogDB>> = std::sync::OnceLock::new();
+pub static TERMINAL_MANAGER: std::sync::OnceLock<Arc<TerminalManager>> = std::sync::OnceLock::new();
 
 pub static CHANNEL_CANCELS: std::sync::OnceLock<Arc<channel::ChannelCancelRegistry>> =
     std::sync::OnceLock::new();
@@ -141,6 +143,10 @@ pub fn get_log_db() -> Option<&'static Arc<LogDB>> {
     LOG_DB.get()
 }
 
+pub fn get_terminal_manager() -> Option<&'static Arc<TerminalManager>> {
+    TERMINAL_MANAGER.get()
+}
+
 /// Get stored ChannelCancelRegistry for IM-channel stream cancellation
 pub fn get_channel_cancels() -> Option<&'static Arc<channel::ChannelCancelRegistry>> {
     CHANNEL_CANCELS.get()
@@ -199,6 +205,12 @@ require_accessor!(
 require_accessor!(require_cron_db, get_cron_db, Arc<cron::CronDB>, "Cron DB");
 require_accessor!(require_log_db, get_log_db, Arc<LogDB>, "Log DB");
 require_accessor!(
+    require_terminal_manager,
+    get_terminal_manager,
+    Arc<TerminalManager>,
+    "Terminal manager"
+);
+require_accessor!(
     require_subagent_cancels,
     get_subagent_cancels,
     Arc<subagent::SubagentCancelRegistry>,
@@ -254,4 +266,5 @@ pub struct AppState {
     pub cron_db: Arc<cron::CronDB>,
     pub subagent_cancels: Arc<subagent::SubagentCancelRegistry>,
     pub channel_cancels: Arc<channel::ChannelCancelRegistry>,
+    pub terminal_manager: Arc<TerminalManager>,
 }

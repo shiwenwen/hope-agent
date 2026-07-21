@@ -70,6 +70,17 @@
       "downloadedReady": "다운로드 완료 — 즉시 설치 가능"
     }
   },
+  "terminal": {
+    "title": "터미널",
+    "show": "터미널 표시",
+    "hide": "터미널 숨기기",
+    "new": "새 터미널",
+    "closeTab": "터미널 닫기",
+    "resize": "터미널 높이 조절",
+    "maximize": "터미널 최대화",
+    "restore": "터미널 복원",
+    "exited": "종료됨"
+  },
   "approval": {
     "allowAlways": "항상 허용",
     "allowAlwaysDisabled": "항상 허용할 수 없음 — 이 승인 사유는 호출할 때마다 확인해야 합니다",

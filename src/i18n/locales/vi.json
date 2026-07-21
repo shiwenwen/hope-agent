@@ -70,6 +70,17 @@
       "downloadedReady": "Đã tải xong — cài đặt tức thì"
     }
   },
+  "terminal": {
+    "title": "Thiết bị đầu cuối",
+    "show": "Hiện thiết bị đầu cuối",
+    "hide": "Ẩn thiết bị đầu cuối",
+    "new": "Thiết bị đầu cuối mới",
+    "closeTab": "Đóng thiết bị đầu cuối",
+    "resize": "Điều chỉnh chiều cao",
+    "maximize": "Phóng to thiết bị đầu cuối",
+    "restore": "Khôi phục thiết bị đầu cuối",
+    "exited": "Đã thoát"
+  },
   "approval": {
     "allowAlways": "Luôn cho phép",
     "allowAlwaysDisabled": "Không thể luôn cho phép — lý do phê duyệt này yêu cầu xác nhận cho từng lần gọi",

@@ -57,6 +57,7 @@ pub mod stt;
 pub mod subagent;
 pub mod tasks;
 pub mod team;
+pub mod terminal;
 pub mod update_bridge;
 pub mod url_preview;
 pub mod verification;

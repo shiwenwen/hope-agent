@@ -70,6 +70,17 @@
       "downloadedReady": "已在背景下載完成，可立即安裝"
     }
   },
+  "terminal": {
+    "title": "終端機",
+    "show": "顯示終端機",
+    "hide": "隱藏終端機",
+    "new": "新增終端機",
+    "closeTab": "關閉終端機",
+    "resize": "調整終端機高度",
+    "maximize": "最大化終端機",
+    "restore": "還原終端機",
+    "exited": "已結束"
+  },
   "approval": {
     "allowAlways": "始終允許",
     "allowAlwaysDisabled": "此核准原因要求每次確認，無法選擇「一律允許」",

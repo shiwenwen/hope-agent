@@ -722,6 +722,14 @@ fn save_config_with_change(
     cache().store(Arc::new(config.clone()));
     clear_config_load_failure();
 
+    // `allowRemoteWrites` is also a live capability: publishing a disabled
+    // value must immediately revoke remote-created shells, not merely reject
+    // the next HTTP request. The terminal manager serializes this with remote
+    // creation so no shell can slip through the transition.
+    if let Some(manager) = crate::globals::get_terminal_manager() {
+        manager.set_remote_access_allowed(config.filesystem.allow_remote_writes);
+    }
+
     // Notify subscribers (frontend hot-reload hooks, in-process listeners).
     // Best-effort: the bus may not be initialized in tests or CLI-only modes.
     if let Some(bus) = crate::globals::get_event_bus() {
@@ -804,8 +812,12 @@ where
 /// readers don't keep serving the stale snapshot.
 pub fn reload_cache_from_disk() -> Result<()> {
     let fresh = read_from_disk()?;
+    let allow_remote_terminal = fresh.filesystem.allow_remote_writes;
     cache().store(Arc::new(fresh));
     clear_config_load_failure();
+    if let Some(manager) = crate::globals::get_terminal_manager() {
+        manager.set_remote_access_allowed(allow_remote_terminal);
+    }
     // Notify subscribers that the cache was force-reloaded (e.g. rollback).
     if let Some(bus) = crate::globals::get_event_bus() {
         bus.emit(

@@ -324,6 +324,9 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             session_db,
             project_db,
             event_bus,
+            terminal_manager: ha_core::require_terminal_manager()
+                .expect("init_runtime contract")
+                .clone(),
             chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             api_key: api_key.clone(),
         });
@@ -424,6 +427,41 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                         let _ = app_handle
                             .emit("_event_bus_lagged", serde_json::json!({ "missed": n }));
                         continue;
+                    }
+                    Err(RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
+    // Terminal output is intentionally isolated from the process-wide bus so
+    // a noisy command cannot evict chat/approval/session events. Bridge the
+    // dedicated stream to the desktop WebView alongside the main bridge.
+    {
+        use tauri::Emitter;
+        use tokio::sync::broadcast::error::RecvError;
+        let app_handle = app.handle().clone();
+        let terminal_manager = ha_core::get_terminal_manager()
+            .cloned()
+            .expect("TerminalManager must be initialized before bridge spawn");
+        tauri::async_runtime::spawn(async move {
+            let mut rx = terminal_manager.subscribe_output_events();
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let _ = app_handle.emit(&event.name, &event.payload);
+                    }
+                    Err(RecvError::Lagged(n)) => {
+                        app_warn!(
+                            "terminal",
+                            "tauri_bridge",
+                            "Terminal bridge lagged {} output events — requesting a snapshot resync",
+                            n
+                        );
+                        let _ = app_handle.emit(
+                            "terminal:resync_required",
+                            serde_json::json!({ "missed": n, "stream": "terminal" }),
+                        );
                     }
                     Err(RecvError::Closed) => break,
                 }

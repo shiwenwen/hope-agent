@@ -238,6 +238,12 @@ Tab 有独立的层级协议，不套普通列表选中背景：公共 `TabsList
 `SessionSearchBar`、`AllowlistTagInput`、项目指令 / 自动记忆编辑器及各列表行内改名。
 不得在普通表单字段上复用该变体；复合控件仍须保留清晰外壳和统一焦点协议。
 
+内嵌终端是由 xterm.js 管理 canvas、viewport 和输入层的第三方复合控件：允许导入上游
+`xterm.css`，并在 `chat/terminal/terminal.css` 内使用 `.hope-terminal` 作用域补齐内部层尺寸、
+主题 token 和滚动条适配。面板拖拽高度依赖运行时测量，可设置动态像素 `height`；拖拽期间
+也可临时设置 `document.body` 的 `cursor` / `user-select`，结束时必须清理。该例外不允许扩展到
+终端外的业务表面，也不允许在作用域样式中硬编码亮色或暗色。
+
 ## 代码审查清单
 
 - 搜索是否使用 `SearchInput`？

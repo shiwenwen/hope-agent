@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **对话底部新增内嵌终端**：支持多标签交互式 PTY、拖拽高度、最大化、`⌘/Ctrl+J` 快捷开关与有界输出重放；新终端会自动进入当前会话或项目 Worktree 的有效工作目录，并随应用亮色 / 暗色主题切换高对比度配色。桌面与 HTTP/Web 共用同一核心实现，远程终端默认关闭并受 `filesystem.allowRemoteWrites` 实时权限门保护，撤权会立即终止远程创建的 Shell。
+
 ### Fixed
 
 - **工作台「文件」分区不再把被工具产出的文件误标为「读」**：先读取、之后又被工具（图片生成 / 附件 / exec）产出的文件，在长会话里滚出当前消息窗口后会正确显示为「输出」并按产出时间排到最前，与窗口内的实时显示保持一致。(#527)

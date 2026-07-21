@@ -70,6 +70,17 @@
       "downloadedReady": "已后台下载完成，可秒装"
     }
   },
+  "terminal": {
+    "title": "终端",
+    "show": "显示终端",
+    "hide": "隐藏终端",
+    "new": "新建终端",
+    "closeTab": "关闭终端",
+    "resize": "调整终端高度",
+    "maximize": "最大化终端",
+    "restore": "还原终端",
+    "exited": "已退出"
+  },
   "approval": {
     "allowAlways": "始终允许",
     "allowAlwaysDisabled": "该审批原因要求每次确认，无法选择「始终允许」",

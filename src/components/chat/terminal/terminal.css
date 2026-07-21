@@ -1,0 +1,34 @@
+:root {
+  --terminal-background: var(--color-background);
+}
+
+.hope-terminal,
+.hope-terminal .xterm {
+  height: 100%;
+  width: 100%;
+}
+
+.hope-terminal .xterm {
+  padding: 8px 10px;
+}
+
+.hope-terminal .xterm,
+.hope-terminal .xterm-viewport,
+.hope-terminal .composition-view {
+  /* xterm.css hard-codes the viewport to black. Keep every layer on the
+     application's live surface token so light/dark/auto themes stay aligned. */
+  background-color: var(--terminal-background);
+}
+
+.hope-terminal .composition-view {
+  color: var(--color-foreground);
+}
+
+.hope-terminal .xterm-viewport {
+  scrollbar-color: color-mix(in srgb, currentColor 24%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.hope-terminal .xterm-screen canvas {
+  image-rendering: auto;
+}

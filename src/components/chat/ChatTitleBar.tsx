@@ -22,6 +22,7 @@ import {
   Ghost,
   Share2,
   PanelLeftDashed,
+  SquareTerminal,
   type LucideIcon,
 } from "lucide-react"
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
@@ -144,6 +145,9 @@ interface ChatTitleBarProps {
   rightPanelCollapsed?: boolean
   /** Open, select, collapse or expand a right-side panel. */
   onRightPanelAction?: (panelId: string) => void
+  /** Bottom embedded terminal state and toggle. */
+  terminalOpen?: boolean
+  onToggleTerminal?: () => void
 }
 
 export default function ChatTitleBar({
@@ -182,6 +186,8 @@ export default function ChatTitleBar({
   activeRightPanelId,
   rightPanelCollapsed = false,
   onRightPanelAction,
+  terminalOpen = false,
+  onToggleTerminal,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
@@ -954,6 +960,24 @@ export default function ChatTitleBar({
               onClick={() => onOpenHandover(currentSessionId)}
             >
               <Send className="h-4 w-4" />
+            </button>
+          </IconTip>
+        )}
+        {onToggleTerminal && (
+          <IconTip
+            label={`${terminalOpen ? t("terminal.hide", "隐藏终端") : t("terminal.show", "显示终端")} (⌘/Ctrl+J)`}
+          >
+            <button
+              type="button"
+              aria-label={`${terminalOpen ? t("terminal.hide", "隐藏终端") : t("terminal.show", "显示终端")} (⌘/Ctrl+J)`}
+              aria-pressed={terminalOpen}
+              className={cn(
+                "ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground",
+                terminalOpen && "bg-secondary/70 text-foreground hover:bg-secondary/85",
+              )}
+              onClick={onToggleTerminal}
+            >
+              <SquareTerminal className="h-4 w-4" />
             </button>
           </IconTip>
         )}

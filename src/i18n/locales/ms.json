@@ -70,6 +70,17 @@
       "downloadedReady": "Telah dimuat turun — pasang serta-merta"
     }
   },
+  "terminal": {
+    "title": "Terminal",
+    "show": "Tunjukkan terminal",
+    "hide": "Sembunyikan terminal",
+    "new": "Terminal baharu",
+    "closeTab": "Tutup terminal",
+    "resize": "Ubah ketinggian terminal",
+    "maximize": "Maksimumkan terminal",
+    "restore": "Pulihkan terminal",
+    "exited": "Telah keluar"
+  },
   "approval": {
     "allowAlways": "Sentiasa Benarkan",
     "allowAlwaysDisabled": "Tidak boleh sentiasa dibenarkan — sebab kelulusan ini memerlukan pengesahan bagi setiap panggilan",

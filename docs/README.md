@@ -16,6 +16,7 @@
 | [Transport 运行模式](architecture/transport-modes.md) | Tauri / HTTP / ACP 三种入口、Transport 方法差异、chat streaming 路径、EventBus 事件目录 |
 | [命令行接口（CLI）](architecture/cli.md)         | `hope-agent` 二进制运行模式（桌面 / server / knowledge-mcp / acp / auth）的子命令、参数、退出码、环境变量、数据目录速查 |
 | [进程与并发模型](architecture/process-model.md)      | 四层进程清单：二进制运行模式 · 独立 OS 线程 · 长驻 tokio 任务 · 动态子进程；Guardian 父子协议、退出路径、排查指引 |
+| [内嵌终端](architecture/terminal.md) | 底部交互式 PTY、多标签生命周期、Tauri/HTTP 双 Transport、输出重放与安全边界 |
 | [API 参考](architecture/api-reference.md) | Tauri 命令 ↔ HTTP/WS 完整对照表 + EventBus 事件清单 + Transport 方法对照 + 已知不对齐项 + 新增接口 checklist（具体计数以代码为准，文档自带验证脚本） |
 | [Knowledge Agent Access](integrations/knowledge-agent-access.md) | 外部 agent 接入指南：`hope-agent knowledge-mcp`、只读 HTTP token、curl smoke 示例 |
 
