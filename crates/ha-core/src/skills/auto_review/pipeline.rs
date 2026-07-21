@@ -431,7 +431,6 @@ fn apply_create(
         status,
         authored_by: "auto-review".to_string(),
         rationale: d.rationale.clone(),
-        fail_if_exists: true,
     };
 
     let _ = create_skill(&skill_id, &description, &rebody(&body, name), opts)?;

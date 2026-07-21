@@ -198,12 +198,19 @@ fn upsert_write(map: &mut HashMap<String, FileAgg>, seq: &mut u64, c: &Value) {
 /// Upsert a tool-produced file (send_attachment / image_generate / exec via the
 /// `__MEDIA_ITEMS__` header) as a modified artifact. These never go through
 /// write/edit so they carry no diff metadata, but they're still session output.
-/// An existing entry (e.g. a richer `write` diff) is kept untouched — NOT even a
-/// recency bump — to mirror the frontend live tail's `if (!entries.has(path))`
-/// guard in `useSessionFileChanges.ts`. The two aggregators must stay in lockstep
-/// (AGENTS red line: change one, change both).
+/// On an existing entry: upgrade `read` → `modified` (a produced file changed on
+/// disk, which outranks a prior read) and bump recency, but keep the richer
+/// `write` diff / counts / read_lines untouched. Mirrors the frontend live
+/// tail's media branch in `useSessionFileChanges.ts` (`read`→`modified` + touch).
+/// The two aggregators must stay in lockstep (AGENTS red line: change one,
+/// change both).
 fn upsert_media(map: &mut HashMap<String, FileAgg>, seq: &mut u64, path: &str) {
-    if map.contains_key(path) {
+    if let Some(entry) = map.get_mut(path) {
+        if entry.art.kind == "read" {
+            entry.art.kind = "modified".to_string();
+        }
+        entry.order = *seq;
+        *seq += 1;
         return;
     }
     map.insert(
@@ -628,6 +635,66 @@ mod tests {
         assert_eq!(files[1].path, "/a.txt");
         assert_eq!(files[1].kind, "read");
         assert_eq!(files[1].read_lines, Some(10));
+    }
+
+    /// Build a tool message whose result carries one `__MEDIA_ITEMS__` file.
+    fn media_msg(local_path: &str) -> SessionMessage {
+        let result = format!(
+            "__MEDIA_ITEMS__[{{\"url\":\"/api/attachments/s/f.png\",\"localPath\":\"{}\",\"name\":\"f.png\",\"mimeType\":\"image/png\",\"sizeBytes\":1,\"kind\":\"image\"}}]\nproduced",
+            local_path
+        );
+        msg(
+            9,
+            MessageRole::Tool,
+            "",
+            Some("image_generate"),
+            Some(&result),
+            None,
+        )
+    }
+
+    #[test]
+    fn media_after_read_upgrades_to_modified_and_bumps() {
+        // read /a.png, then produce /a.png as a media item → upgrade to modified,
+        // move to front (mirrors useSessionFileChanges.ts media branch).
+        let messages = vec![
+            tool_meta(
+                MessageRole::Tool,
+                r#"{"kind":"file_read","path":"/a.png","lines":10}"#,
+            ),
+            tool_meta(
+                MessageRole::Tool,
+                r#"{"kind":"file_read","path":"/b.txt","lines":5}"#,
+            ),
+            media_msg("/a.png"),
+        ];
+        let (files, _) = aggregate_files(&messages);
+        let a = files.iter().find(|f| f.path == "/a.png").unwrap();
+        assert_eq!(a.kind, "modified");
+        assert_eq!(files[0].path, "/a.png"); // bumped to most-recent
+    }
+
+    #[test]
+    fn media_after_write_keeps_diff_and_bumps() {
+        // write /x.html (rich diff), then produce it as media → kind stays
+        // modified, diff/counts/language survive, recency bumps to front.
+        let messages = vec![
+            tool_meta(
+                MessageRole::Tool,
+                r#"{"kind":"file_change","path":"/x.html","action":"create","linesAdded":7,"linesRemoved":0,"language":"html"}"#,
+            ),
+            tool_meta(
+                MessageRole::Tool,
+                r#"{"kind":"file_read","path":"/y.txt","lines":3}"#,
+            ),
+            media_msg("/x.html"),
+        ];
+        let (files, _) = aggregate_files(&messages);
+        let x = files.iter().find(|f| f.path == "/x.html").unwrap();
+        assert_eq!(x.kind, "modified");
+        assert_eq!(x.lines_added, 7);
+        assert_eq!(x.language.as_deref(), Some("html"));
+        assert_eq!(files[0].path, "/x.html"); // bumped past the later /y.txt read
     }
 
     #[test]

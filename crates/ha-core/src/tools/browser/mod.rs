@@ -2,20 +2,28 @@
 //!
 //! Top-level `action` selects one of:
 //! - `status` — backend / connection / tab snapshot
-//! - `profile` — launch / connect / disconnect / list managed profiles
-//! - `tabs` — list / new / select / close
+//! - `profile` — list / launch / connect / disconnect / install_runtime
+//! - `tabs` — list / new / select / close / open_user_tabs / claim / release /
+//!   finalize
 //! - `navigate` — go / back / forward / reload
 //! - `snapshot` — role-based DOM tree / screenshot / pdf
-//! - `act` — click / type / hover / drag / select / fill / press / upload
-//! - `observe` — console / network / page_errors (ring buffer)
-//! - `control` — resize / scroll / wait_for / handle_dialog / evaluate
+//! - `act` — click / dblclick / fill (alias `type`) / hover / drag / select /
+//!   press / upload
+//! - `observe` — console / network / page_errors (ring buffer) / downloads
+//! - `control` — resize / scroll / wait_for / handle_dialog / evaluate /
+//!   raw_cdp / download_cancel
 //!
 //! Each handler grabs the active [`crate::browser::BrowserBackend`] via
 //! [`crate::browser::acquire_backend`] and formats a string result for the
 //! LLM. High-level URL actions run SSRF checks *before* the backend call.
-//! `control.raw_cdp` is the advanced escape hatch: it goes through normal tool
-//! approval and then forwards well-formed CDP methods to Chrome without payload
-//! scanning.
+//! `control.raw_cdp` is the advanced escape hatch, and it is *not* an unguarded
+//! passthrough: a config kill switch, strict approval (no `Allow Always`),
+//! backend-side method blocklists, and — in this file — per-method payload SSRF
+//! scanning for `Runtime.evaluate` / `Runtime.callFunctionOn` / `Page.navigate`
+//! all apply. Do not drop the scans in `control_raw_cdp` as redundant. The four
+//! gates and their rationale live in `docs/architecture/browser.md`; the method
+//! blocklists, and why `Network.*` is enumerated instead of prefix-blocked, are
+//! documented on `BLOCKED_RAW_CDP_METHODS`.
 
 use std::io::Cursor;
 use std::path::PathBuf;

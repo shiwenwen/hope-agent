@@ -8975,7 +8975,6 @@ fn apply_skill_candidate_plan(
             status: SkillStatus::Draft,
             authored_by: "coding-improvement".to_string(),
             rationale: Some(plan.proposal.title.clone()),
-            fail_if_exists: true,
         },
     )?;
     Ok(vec![CodingImprovementActionArtifact {

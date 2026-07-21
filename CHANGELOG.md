@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **工作台「文件」分区不再把被工具产出的文件误标为「读」**：先读取、之后又被工具（图片生成 / 附件 / exec）产出的文件，在长会话里滚出当前消息窗口后会正确显示为「输出」并按产出时间排到最前，与窗口内的实时显示保持一致。
+
 - **内置技能与浏览器扩展在所有部署形态（桌面 / Docker / 单文件）不再缺失或过时**：两者编译进主程序、随升级自动更新，单文件发布包并附带浏览器扩展桥 `ha-browser-host` 且自升级一并换新。(#506)
   升级后 Chrome 已加载的扩展需在 `chrome://extensions` 手动 reload 一次生效。
 

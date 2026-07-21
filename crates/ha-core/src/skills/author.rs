@@ -29,8 +29,6 @@ pub struct CreateOpts {
     pub authored_by: String,
     /// Free-text rationale (surfaced in draft review UI).
     pub rationale: Option<String>,
-    /// If the target skill directory already exists, fail instead of overwriting.
-    pub fail_if_exists: bool,
 }
 
 impl Default for CreateOpts {
@@ -39,7 +37,6 @@ impl Default for CreateOpts {
             status: SkillStatus::Active,
             authored_by: "user".to_string(),
             rationale: None,
-            fail_if_exists: true,
         }
     }
 }
@@ -95,9 +92,7 @@ pub fn create_skill(
 
     let dir = managed_skill_dir(skill_id)?;
     if dir.exists() {
-        if opts.fail_if_exists {
-            bail!("skill directory already exists: {}", dir.display());
-        }
+        bail!("skill directory already exists: {}", dir.display());
     }
     std::fs::create_dir_all(&dir).with_context(|| format!("create skill dir {}", dir.display()))?;
 
