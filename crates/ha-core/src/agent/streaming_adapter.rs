@@ -55,6 +55,13 @@ pub(crate) struct RoundRequest<'a> {
     /// active_memory, last tool); it changes per user message so caching would
     /// rarely hit anyway. Untrusted (never instructions).
     pub related_notes_suffix: Option<&'a str>,
+    /// Per-round LSP diagnostics block. Hybrid selection: files touched this
+    /// turn (write / edit / apply_patch) come first, then the globally
+    /// most-severe diagnostics fill remaining slots up to a bounded cap.
+    /// Appended as a trailing system block WITHOUT `cache_control` (churns per
+    /// round); untrusted code intelligence, never instructions. `None` when no
+    /// language server is running or the workspace has no diagnostics.
+    pub lsp_diagnostics_suffix: Option<&'a str>,
     /// Per-round task tracker reminder. Appended as the last system block
     /// (without `cache_control` on Anthropic to stay under the 4-breakpoint
     /// cap). Lifecycle differs from awareness/active_memory: cheap pure-DB
@@ -108,11 +115,15 @@ pub(crate) fn leading_dynamic_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<&'a
 }
 
 pub(crate) fn trailing_dynamic_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<&'a str> {
-    [req.related_notes_suffix, req.task_reminder_suffix]
-        .into_iter()
-        .flatten()
-        .filter(|value| !value.is_empty())
-        .collect()
+    [
+        req.related_notes_suffix,
+        req.lsp_diagnostics_suffix,
+        req.task_reminder_suffix,
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|value| !value.is_empty())
+    .collect()
 }
 
 pub(crate) fn all_dynamic_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<&'a str> {
@@ -153,6 +164,7 @@ mod dynamic_context_contract_tests {
             coding_profile_suffix: Some("coding"),
             procedure_memory_suffix: Some("procedure"),
             related_notes_suffix: Some("knowledge"),
+            lsp_diagnostics_suffix: Some("lsp"),
             task_reminder_suffix: Some("task"),
             tool_schemas: &empty,
             deferred_tool_schemas: &empty,
@@ -171,7 +183,10 @@ mod dynamic_context_contract_tests {
             leading_dynamic_suffixes(&req),
             vec!["awareness", "memory", "coding", "procedure"]
         );
-        assert_eq!(trailing_dynamic_suffixes(&req), vec!["knowledge", "task"]);
+        assert_eq!(
+            trailing_dynamic_suffixes(&req),
+            vec!["knowledge", "lsp", "task"]
+        );
         assert_eq!(
             all_dynamic_suffixes(&req),
             vec![
@@ -180,6 +195,7 @@ mod dynamic_context_contract_tests {
                 "coding",
                 "procedure",
                 "knowledge",
+                "lsp",
                 "task"
             ]
         );

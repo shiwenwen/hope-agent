@@ -3856,7 +3856,6 @@ impl AssistantAgent {
         let agent_id = self.agent_id.clone();
         let session_id = self.session_id.clone();
         let session_db = self.session_db.clone();
-        let incognito = self.session_is_incognito();
         let existing_core_snapshot = self
             .core_memory_snapshot
             .lock()
@@ -3864,25 +3863,15 @@ impl AssistantAgent {
             .clone();
         let model_owned = model.to_string();
         let provider_owned = provider.to_string();
-        let (bundle, lsp_suffix) = crate::blocking::run_blocking(move || {
-            let bundle = config::build_system_prompt_bundle_with_session_db(
+        let bundle = crate::blocking::run_blocking(move || {
+            config::build_system_prompt_bundle_with_session_db(
                 &agent_id,
                 &model_owned,
                 &provider_owned,
                 session_id.as_deref(),
                 session_db.as_deref(),
                 existing_core_snapshot.as_deref(),
-            );
-            let lsp = if incognito {
-                None
-            } else {
-                let working_dir =
-                    Self::lookup_session_meta_with(session_db.as_ref(), session_id.as_deref())
-                        .as_ref()
-                        .and_then(crate::session::effective_working_dir_for_meta);
-                crate::lsp::diagnostics_prompt_suffix(session_id.as_deref(), working_dir.as_deref())
-            };
-            (bundle, lsp)
+            )
         })
         .await;
         *self
@@ -3905,7 +3894,6 @@ impl AssistantAgent {
             model: model.to_string(),
             provider: provider.to_string(),
             base_prompt: std::sync::Arc::new(bundle.prompt),
-            lsp_suffix,
         });
     }
 
@@ -4156,19 +4144,10 @@ impl AssistantAgent {
     /// that should count toward compaction budgets). Provider adapters still
     /// send those suffixes as separate system blocks when possible.
     pub(crate) fn build_merged_system_prompt(&self, model: &str, provider: &str) -> String {
-        self.merge_dynamic_system_prompt(
-            self.build_full_system_prompt(model, provider),
-            model,
-            provider,
-        )
+        self.merge_dynamic_system_prompt(self.build_full_system_prompt(model, provider))
     }
 
-    fn merge_dynamic_system_prompt(
-        &self,
-        mut prompt: String,
-        model: &str,
-        provider: &str,
-    ) -> String {
+    fn merge_dynamic_system_prompt(&self, mut prompt: String) -> String {
         if let Some(suffix) = self.current_awareness_suffix() {
             if !suffix.is_empty() {
                 prompt.push_str("\n\n");
@@ -4179,26 +4158,6 @@ impl AssistantAgent {
             if !suffix.is_empty() {
                 prompt.push_str("\n\n");
                 prompt.push_str(&suffix);
-            }
-        }
-        if !self.session_is_incognito() {
-            let suffix = self
-                .cached_turn_prompt(model, provider, |cache| cache.lsp_suffix.clone())
-                .unwrap_or_else(|| {
-                    let working_dir = self
-                        .lookup_session_meta()
-                        .as_ref()
-                        .and_then(crate::session::effective_working_dir_for_meta);
-                    crate::lsp::diagnostics_prompt_suffix(
-                        self.session_id.as_deref(),
-                        working_dir.as_deref(),
-                    )
-                });
-            if let Some(suffix) = suffix {
-                if !suffix.is_empty() {
-                    prompt.push_str("\n\n");
-                    prompt.push_str(&suffix);
-                }
             }
         }
         prompt

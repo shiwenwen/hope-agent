@@ -805,8 +805,7 @@ impl AssistantAgent {
         // Static system prompt prefix (cache-friendly). Dynamic suffixes are
         // sent as independent provider-level blocks when supported.
         let system_prompt = prepared_system_prompt;
-        let mut system_prompt_for_budget =
-            self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
+        let mut system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
 
         let compaction = self
             .run_compaction(
@@ -896,6 +895,19 @@ impl AssistantAgent {
         };
         let mut vision_notice_sent = false;
 
+        // LSP diagnostics injection precondition, resolved once per turn (not
+        // per round). The cheap global gate skips the working-dir lookup
+        // entirely when no language server is running — the common case.
+        // Incognito never surfaces diagnostics.
+        let lsp_working_dir: Option<String> = (!self.session_is_incognito()
+            && crate::lsp::has_any_diagnostics())
+        .then(|| {
+            self.lookup_session_meta()
+                .as_ref()
+                .and_then(crate::session::effective_working_dir_for_meta)
+        })
+        .flatten();
+
         let mut round: u32 = 0;
         let mut effective_max_rounds = max_rounds;
         let mut activation_grace_used = false;
@@ -932,8 +944,7 @@ impl AssistantAgent {
                 deferred_tool_schemas = tool_inventory.deferred_schemas;
                 tool_schemas = tool_inventory.schemas;
                 system_prompt = self.prepare_full_system_prompt(model, provider_label).await;
-                system_prompt_for_budget =
-                    self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
+                system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
                 self.select_memories_if_needed(&mut system_prompt, message)
                     .await;
                 self.apply_engine_prompt_addition(&mut system_prompt);
@@ -1014,6 +1025,22 @@ impl AssistantAgent {
                 (None, Some(h)) => Some(h),
                 (other, None) => other,
             };
+            // Hybrid LSP diagnostics over files touched so far this turn. Only
+            // runs when the turn-level gate resolved a workspace (i.e. a
+            // language server is active and the session is not incognito).
+            let lsp_diagnostics_suffix = lsp_working_dir.as_deref().and_then(|wd| {
+                let touched: Vec<String> = crate::context_compact::extract_file_touches(&messages)
+                    .into_iter()
+                    .rev()
+                    .take(crate::lsp::MAX_TOUCHED_FILES_FOR_DIAGNOSTICS)
+                    .map(|touch| touch.path)
+                    .collect();
+                crate::lsp::diagnostics_prompt_suffix_hybrid(
+                    self.session_id.as_deref(),
+                    Some(wd),
+                    &touched,
+                )
+            });
             let round_prompt_cache_key =
                 prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
 
@@ -1030,6 +1057,7 @@ impl AssistantAgent {
                 coding_profile_suffix: coding_profile_suffix.as_deref().map(|s| s.as_str()),
                 procedure_memory_suffix: procedure_suffix.as_deref().map(|s| s.as_str()),
                 related_notes_suffix: related_notes_suffix.as_deref().map(|s| s.as_str()),
+                lsp_diagnostics_suffix: lsp_diagnostics_suffix.as_deref(),
                 task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,
                 deferred_tool_schemas: &deferred_tool_schemas,
