@@ -1,5 +1,5 @@
 # Cron 定时任务架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-06-24
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-20
 
 ## 概述
 
@@ -22,7 +22,9 @@ Cron 系统提供定时调度能力，支持一次性（At）、固定间隔（E
 | `cron/executor.rs` | `execute_job` 任务执行 + `build_and_run_agent` 含 failover + `record_failure` + 事件发射 |
 | `cron/delivery.rs` | `deliver_results` 把执行结果文本 fan-out 到 IM 渠道会话（每 target 10s 超时保护 + **投递前白名单校验**，详见「投递白名单与 delete 审批门控」）；`deliver_injection_for_session`（G2）按会话反查 `cron_run_logs → job` 后,把**后台 job/subagent 完成的注入 turn** 同样下发到 `delivery_targets`——cron turn 里 spawn 的后台任务稍后完成时不再投递给无人 |
 | `cron/cancel.rs` | 任务级 cancel token 注册 / 触发 / 清理 + §9 claim↔register 窗口的 `PENDING_CANCELS` 占位，供 `cancel_running_job` 取消路径使用 |
-| `cron/db.rs` | `CronDB` SQLite 持久化（CRUD、claim、running 标记、calendar 查询、启动恢复） |
+| `cron/failure.rs` | §5 `CronFailureClass` 纯函数失败分类（`classify` / `run_log_status` / `key`），**只做诊断、不改禁用策略** |
+| `cron/timeline.rs` | `cron_run_timeline` 跨库装配（cron.db run logs + sessions.db title/unread，两库不可 JOIN） |
+| `cron/db.rs` | `CronDB` SQLite 持久化（CRUD、claim、running 标记、run_log 生命周期、calendar 查询、启动恢复、schema 迁移与 backfill） |
 
 ## 数据模型
 
@@ -118,13 +120,25 @@ serde tag 区分，目前仅一种类型：
 | `id` | `i64` | 自增主键 |
 | `job_id` | `String` | 关联的任务 ID（CASCADE 删除） |
 | `session_id` | `String` | 本次执行创建的隔离会话 ID |
-| `status` | `String` | `"running"`（§9 在途）/ `"success"` / `"empty"`（§10 零输出）/ `"error"` / `"timeout"` / `"cancelled"` |
+| `status` | `String` | `"running"`（§9 在途）/ `"success"` / `"empty"`（§10 零输出）/ `"cancelled"` / `"error"` / `"timeout"`（§5 分类）/ `"no_session"`（session 创建失败的 infra 失败字面量，由 `record_failure` 直接写）。**新增 status 前先读下节「run_log status 同步契约」** |
 | `started_at` | `String` | 开始时间（RFC 3339） |
 | `finished_at` | `Option<String>` | 完成时间。§9：在途 run_log 为 NULL，终态由 `finalize_run_log` 写入；`recover_orphaned_runs` 据此判定崩溃留痕 |
 | `duration_ms` | `Option<u64>` | 执行耗时（毫秒） |
 | `result_preview` | `Option<String>` | 结果预览（截断至 500 字节） |
 | `error` | `Option<String>` | 错误信息 |
 | `delivery_status` | `Option<String>` | §8：fan-out 结果——`None`=无目标 / `"delivered"` / `"partial"` / `"failed"`。见「投递健壮性」 |
+
+#### run_log status 同步契约（红线：新增状态必须同步三处）
+
+`cron_run_logs.status` 是自由文本列、没有 Rust enum 把关，所以每加一个新的终态字符串都可能在三个下游被静默误分类。**失败类新状态是免费的**（下游按 denylist 归失败，见下），**非失败类新状态一律要改这三处**——§10 自己声明「错过槽位 `skipped` run_log」为延后项，下一个动它的 PR 就会正面撞上这条契约。
+
+| # | 触点 | 现有三个非成功状态各自怎么被特殊处理 |
+|---|------|--------------------------------------|
+| 1 | **Dashboard 聚合**（[`dashboard/insights.rs`](../../crates/ha-core/src/dashboard/insights.rs) 的 cron 成功率 + [`dashboard/queries.rs`](../../crates/ha-core/src/dashboard/queries.rs) 的 `CronJobStats`） | 两处各有一条 `status NOT IN ('success','running','empty','cancelled')` 的**失败 denylist**（C05）——`running` / `empty` / `cancelled` 靠出现在这份排除名单里才不进失败分母；`queries.rs` 另有 `SUM(CASE WHEN status != 'running' …)` 让**只有 `running`** 被排除在 `total_runs` 之外（在途、非终态），`empty` / `cancelled` 仍计入总数。新非失败状态**不加进这两条 denylist 就会被当失败**、稀释成功率 |
+| 2 | **前端渲染** | ① [`cronHelpers.ts`](../../src/components/cron/cronHelpers.ts) 的 `runLogDotColor`（`running`→蓝 / `empty`·`cancelled`→`bg-muted-foreground` / `success`→绿 / 其余→红）与 `runStatusDisplay`（`running`→蓝无符号 `cron.runStatusRunning` / `empty`→muted `○` `cron.runStatusEmpty` / `cancelled`→muted `○` `common.cancel` / `success`→绿 `✓` / **`default` 分支一律红 `✕` `cron.runStatusError`**），供 `CronCalendarView`（日历圆点 + 当日侧栏）与 `CronConversationsPanel`（历史时间线）共用；② [`CronJobDetail.tsx`](../../src/components/cron/CronJobDetail.tsx) 运行历史列表**另有一套 inline 三元链**（`success`→`CheckCircle2` 绿 / `running`→`Loader2` 蓝转 / `empty`→`CircleSlash` muted / `cancelled`→`XCircle` muted / 其余→`XCircle` 红），与 helper 是两份、必须一起改；③ [`TaskSection.tsx`](../../src/components/dashboard/TaskSection.tsx) 的圆环与中心百分比按 `successRuns + failedRuns` 这个 decided 分母算，随 #1 的后端口径自动生效 |
+| 3 | **通知分支**（[`useChatSession.ts`](../../src/components/chat/hooks/useChatSession.ts) 的 `cron:run_completed` 监听） | `auto_disabled` 优先短路（强制弹 `cronDisabled*`），其后按 `payload.status` 分流：`success`→`cronSuccess` / `empty`→中性 `cronEmpty` / `cancelled`→中性 `cronCancelled` / **`else` 一律 `cronError`**（附 `failure_reason` 本地化）。新非失败状态不加分支就会弹「任务失败」；同时后端 `emit_cron_event` 必须传对应的 `notify` 语义（如 empty 的 `notify_empty = notify_on_complete && At`） |
+
+判定口径由 [`failure::CronFailureClass::run_log_status`](../../crates/ha-core/src/cron/failure.rs) 的 doc 注释锁定：失败侧刻意是 **denylist 而非 allowlist**——恢复成 `IN ('error','timeout')` 会把 `no_session` 这类 infra 失败字面量静默踢出失败分母、虚高成功率（正是 C05 修掉的 bug）。所以新增**失败**状态无需改 #1，但 #2 / #3 的红色 default 分支要确认文案合适。
 
 ### NewCronJob（创建输入）
 
@@ -240,10 +254,14 @@ sequenceDiagram
 3. `available = max - running`（`available_slots` 纯函数，`saturating_sub` 防下溢；不限则 `None`）。
 4. 逐个 claim，**至多 `available` 个**；到上限即 `break`，**剩余到期任务保持 `running_at=NULL` / `next_run_at` 不变**，下个 tick（15s 后）重试——不丢、不跳。
 
+**顺序不可对调（红线）**：这四步是「先 `count_running` → 算 `available` → 逐个 claim」，**绝不能改成「先 claim 再看有没有空位、没空位就丢弃」**。`claim_scheduled_job_for_execution` 的 UPDATE 同时 set `running_at` 和**把 `next_run_at` 推进到下一个 occurrence**（一次性 `At` 则清成 NULL），claim 一旦成功那个执行槽位就在 DB 里被消费掉了；claim 后再放弃执行 = 静默跳过一次触发且无任何留痕。反过来「先抢 slot 后 claim」最坏只是把任务推迟一个 tick（15s）。
+
 边界：
-- **手动「立即运行」(`run now`) 绕过上限**（用户显式操作即时生效），但其 `running_at` 计入 `count_running`，故调度器不会在手动任务在跑时超额 spawn。
+- **手动「立即运行」(`run now`) 绕过上限**（用户显式操作即时生效），但其 `running_at` 计入 `count_running`，故调度器不会在手动任务在跑时超额 spawn。**C12b（K 个 run-now 占满 cap 饿死调度）本期未做**——run-now 是用户手动、次数有界。
 - `count_running()` 失败时**保守跳过本 pass**（fail closed），下个 tick 重试——poisoned lock 下 claim 本也会失败。
 - 计数取 tick 起始快照；pass 内每成功 claim 本地 `available -= 1`，期间完成的任务释放的 slot 留到下个 tick 回收（保守、无害）。
+- **claim 输掉竞态不消耗 slot**：`Ok(None)`（别处已 claim）分支只 `app_debug` 后继续，**不减 `available`**——那个任务本就没占用本进程的预算。
+- **派发顺序是 load-bearing（#10）**：`get_due_jobs` 的 SQL 带 `ORDER BY next_run_at ASC`。有了「至多 claim N 个、到顶 `break`」之后，裸 rowid 序在持续满槽时会让**最逾期的任务每个 tick 都排在后面被跳过（饿死）**；最逾期优先让并发上限对所有任务公平。
 - **泄漏 slot 的 panic 安全兜底（红线）**：因 `count_running` 现在是**全局**配额分母，一个泄漏的 `running_at` marker 会永久占一个 slot——若干次 panic 即可让 `available=0` 永真、整个调度器停摆到重启。故 `execute_claimed_job` 顶部挂一个 RAII `RunningMarkerGuard`：drop 时做 **owner-checked 清除**（`clear_running_if_owner` = `UPDATE … WHERE id=? AND running_at=?` 本次 claimed_at）。正常终态路径已 `clear_running`（running_at=NULL 不匹配 → no-op）；run_chat_engine 任意 await 点 panic 解栈时 guard 释放 slot；被后续 re-claim 的 marker（running_at=新时间戳 ≠ 旧 claimed_at）guard 不动——三种情况都对，happy path 零改动。进程崩溃（非 panic）仍由启动期 `clear_all_running` 兜底。
 
 ### 全局 cron 配置（`CronConfig` / 设置三件套）
@@ -256,8 +274,9 @@ sequenceDiagram
 | `job_timeout_secs` | 0 | `0` = 不加 cron 层超时；正数钳 `[30, 7200]` | 全局 per-run wall-clock 预算（§5）；可被 per-job `CronJob.job_timeout_secs` 覆盖（C19） |
 | `at_grace_secs` | 300 | 仅上限钳 7 天；`0` = 严格不补跑（**不钳地板**） | At 一次性任务 late-fire 补跑窗口（§7） |
 
-- **三件套入口**：GUI = [`CronCalendarView`](../../src/components/cron/CronCalendarView.tsx) cron 头部三个输入框；技能 = [`tools/settings.rs`](../../crates/ha-core/src/tools/settings.rs) `"cron"` category（[`ha-settings` SKILL.md](../../skills/ha-settings/SKILL.md) 风险表已登记）；命令 = `get_cron_config` / `save_cron_config`（Tauri + HTTP `GET` / `PUT /api/config/cron`）。
-- **gotcha（红线）**：`save_cron_config` **替换整个 `CronConfig`**——每次保存必须同时回传全三字段，只传其一会让其余两字段被 serde 默认重置。GUI 已固定一次性带全三字段。
+- **三件套入口**：GUI = 设置页「定时任务」分区 [`CronSettingsPanel`](../../src/components/settings/CronSettingsPanel.tsx)（`SettingsView` 的 `activeSection === "cron"` 挂载）；cron 面板头部的齿轮按钮经 `onOpenSettings("cron")` 深链跳进来，**cron 面板自身不再内嵌配置输入框**。技能 = [`tools/settings.rs`](../../crates/ha-core/src/tools/settings.rs) `"cron"` category（[`ha-settings` SKILL.md](../../skills/ha-settings/SKILL.md) 风险表已登记）；命令 = `get_cron_config` / `save_cron_config`（Tauri + HTTP `GET` / `PUT /api/config/cron`）。
+- **gotcha（红线）**：`save_cron_config` **替换整个 `CronConfig`**——每次保存必须同时回传全三字段，只传其一会让其余两字段被 serde 默认重置。`CronSettingsPanel` 的三个 commit 回调（`commitMaxConcurrent` / `commitJobTimeout` / `commitAtGrace`）都汇入同一个 `persistCron`，固定带全三字段。
+- **加载门（C18）**：面板内部 `loaded` state 在 `get_cron_config` 成功返回前把三个 `NumberInput` 全部 `disabled`——否则加载失败时组件的硬编码初值（5 / 0 / 300）会在用户随手一改时被整体写回，静默覆盖已有配置。
 
 ## 执行流程
 
@@ -343,6 +362,7 @@ cron 执行通过 `run_chat_engine` 起一轮对话，其 `source` 是专属的 
 
 - **可配 per-run timeout**：`CronConfig.job_timeout_secs`（`AppConfig.cron`，与 §4 `max_concurrent` 同属一个 `CronConfig`，默认 **0** = 不加 cron 层超时；`effective_job_timeout_secs()` 对 `0` 原样返回，对正数钳 `[30, 7200]`）。**per-job 覆盖（C19）**：`CronJob.job_timeout_secs`（`Option<u64>`，job 级字段、不走设置三件套）非空时优先（经同款 `clamp_cron_job_timeout_secs` 处理），让一个任务声明自己的预算而不必抬高全局对所有任务的上限；`0` 表示该 job 不加 cron 层超时。正数执行包在 `tokio::time::timeout` 里：超时先置 `cancel_flag` 给 `CRON_TIMEOUT_CANCEL_GRACE_SECS=5s` 协作收尾，**若引擎在宽限期内跑完并返回非空 Ok 则采纳为 Success**（纯函数 `resolve_after_timeout_grace`，C02——否则踩线完成的真实产出被丢、误投 timeout 失败、连续踩线 `max_failures` 次会静默禁用本能跑完的健康任务）——**除非用户在超时触发前就已取消（`user_cancelled_pre_timeout`，C08 优先于 C02），此时宽限期产出被丢弃、归 Cancelled**（用户既已喊停，停止后的产出无意义；合入前 /code-review #4），否则记一条 `timeout` 失败、释放 slot（叠加 §4 panic guard 兜底 panic 路径）。
 - **失败分类**（`cron::failure::CronFailureClass`，纯函数 `classify(error)`）：`Timeout` / `Configuration`（no model / no agent 等重跑也不会好的配置问题）/ `Transient`（默认——未识别错误绝不误判成配置问题）。**只做诊断**：`run_log_status()` 让 timeout 在运行日志里显示 `timeout`（其余仍 `error`，不动既有过滤），`key()` 作为稳定 wire key 喂日志 + 前端本地化。**刻意不改禁用策略**（仍 `max_failures` 连续失败），避免误分类导致过早禁用。
+- **自动禁用触发条件（红线，`update_after_run` 失败分支）**：三个守卫缺一不可——① **`max_failures > 0`**（C26）：`0` = 不限 / **永不自动禁用**，对齐 `max_concurrent` 的 `0`-语义；漏了这条则 `new_failures >= 0` 恒真，模型工具 / HTTP 传 `maxFailures=0`（GUI 的 `|| 5` 掩盖此路径）会在**首次失败**即禁用。② UPDATE 带 `AND status != 'disabled'`：**只有 active→disabled 这一次转换返 `true`**，故 run-now 重跑一个已禁用任务再失败不会重复通知 / 重复 bump（`claim_immediate_job_for_execution` 只查 `running_at`、不看 status）。③ 一次性 `At` 在这之前就已被终态化 `missed` 早退（见「指数退避公式」），根本走不到自动禁用。
 - **自动禁用通知（红线）**：`update_after_run` 现返回 `bool`——失败把 `consecutive_failures` 推到 `max_failures` 翻 `disabled` 时返 `true`。`record_failure` 据此发**一次性** `emit_cron_disabled_event`：复用 `cron:run_completed` 通道但**强制 `notify=true`**（无视 job 的 `notify_on_complete`——任务静默死掉正是要暴露的失效）+ 带 `auto_disabled` / `consecutive_failures` / `failure_reason`。前端 `useChatSession` 监听到 `auto_disabled` 弹专属通知「任务 X 连续失败 N 次已禁用（原因）」。普通失败仍走原 `emit_cron_event`（受 `notify_on_complete` 控制）。
 
 ### At 一次性任务的补跑与终态（§7）
@@ -351,13 +371,14 @@ cron 执行通过 `run_chat_engine` 起一轮对话，其 `source` 是专属的 
 
 - **late-fire grace**：`mark_missed_at_jobs(grace_secs)`（grace = `CronConfig.at_grace_secs`，`AppConfig.cron`、与 §4/§5 同一 `CronConfig`，默认 300s，`effective_at_grace_secs()` 仅上限钳 7 天、`0` = 严格不补跑，由调度器传入）现按 `cutoff = now - grace` 判定：`next_run_at < cutoff`（逾期超过 grace）→ `missed`；`next_run_at ∈ [cutoff, now]`（逾期在 grace 内）→ **保持 active**，紧随其后的 catch-up（`get_due_jobs` 取 `next_run_at <= now`）经 §4 `dispatch_due_jobs` slot-aware 补跑。`grace=0` ⇒ 严格（任何逾期即 missed，pre-§7 行为）。**`mark_missed_at_jobs` 在启动恢复期与每个 tick（dispatch 之前）各跑一次**（合入前 /code-review #5）——一个判定 within-grace 保留为 active 的 `At` 若因并发上限持续抢不到 slot，会被后续每个 tick 重新评估（cutoff 每次从 `now` 重算）：一旦它累计逾期超过 grace，就终态化为 `missed`，而不是永远停在 active 被无限重评。修前 `mark_missed` 仅启动期跑一次，这类抢不到 slot 的 within-grace `At` 会无限滞留 active（grace 管的是逾期时长、不是 slot 争用延迟）。
 - **僵尸终态**：同一 `mark_missed_at_jobs` 把 `next_run_at IS NULL` 的 active `At` 行一并标 `missed`——覆盖「claim 后崩溃」与「以过去时间戳创建」（`compute_next_run` 返 `None`）两种。**一次性任务可能崩溃前已产生副作用，故标 missed 不重跑**（side-effect 安全；用户决策）。
-- **顺序红线**：`mark_missed_at_jobs` 在启动恢复阶段与每个 tick 都必须在该轮 catch-up / dispatch **之前**跑——先把超 grace / 僵尸剔除，dispatch 才不会把已 aging-out 的 `At` 当 due 选中。
+- **`running_at IS NULL` 守卫（红线，与「每 tick 复扫」配套）**：`mark_missed_at_jobs` 的 SQL 谓词是 `status='active' AND running_at IS NULL AND schedule_json LIKE '%"type":"at"%' AND (next_run_at IS NULL OR next_run_at < cutoff)`。少了 `running_at IS NULL` 这一条，**正在执行中的一次性 `At` 会被自己的每 tick 复扫误杀**——`claim_scheduled_job_for_execution` 在 claim 时就把 `At` 的 `next_run_at` 清成 NULL、`status` 仍是 `active`，于是任何跑够一个 tick（≥15s）的 `At` 都会落进上面的 NULL 分支被标 `missed`；随后它成功收尾的 `update_after_run` 因成功分支带 `AND status='active'` 守卫而变成 no-op，最终得到一条 `success` run_log + 一个卡在 `missed` 的任务。**这个守卫不会漏掉真僵尸**：启动恢复顺序是 `clear_all_running`（把崩溃残留的 `running_at` 重置为 NULL）**先于** `mark_missed_at_jobs`，claim-后-崩溃的行照样匹配。
+- **顺序红线**：`mark_missed_at_jobs` 在启动恢复阶段与每个 tick 都必须在该轮 catch-up / dispatch **之前**跑——先把超 grace / 僵尸剔除，dispatch 才不会把已 aging-out 的 `At` 当 due 选中。启动恢复的完整顺序是 `recover_orphaned_runs` → `clear_all_running` → `mark_missed_at_jobs` → catch-up dispatch，三者的先后都是 load-bearing（见上一条）。
 
 ### 崩溃 / 取消 / 接管一致性（§9）
 
 一组并发 / 恢复锐边：
 
-- **取消不丢 / 取消不误判（C4）**：终态判定收敛到纯函数 `classify_cron_terminal(result, was_cancelled)`（可穷举单测）。关键 quirk——cron 跑引擎用 `abort_on_cancel=false`，**取消中断不抛 `Err` 而是返回 `Ok("")`**（引擎吞掉取消、收尾返回空串，见 `engine.rs` 的 `!abort_on_cancel && cancel` 两条收敛路径）。故决策表：`Ok` 空串 + `was_cancelled` → **Cancelled**（中断、不投空消息、不推进排程 / 不清失败计数）；非空 `Ok` → **Success**（含「取消在产出真实结果之后才到」——尊重已完成的工作，C4 本意）；`Err` + `was_cancelled` → Cancelled（防御，仅当未来有调用方翻 `abort_on_cancel=true`）；其它 `Err` → Failure。修正了旧版「`was_cancelled` 先判 → 成功瞬间被取消则结果被当 cancelled 丢弃」与「naïve result-first → 取消中断被当 success 投空消息」两个反向坑。
+- **取消不丢 / 取消不误判（C4）**：终态判定收敛到纯函数 `classify_cron_terminal(result, was_cancelled)`（可穷举单测）。关键 quirk——cron 跑引擎用 `abort_on_cancel=false`，**取消中断不抛 `Err` 而是返回 `Ok("")`**（引擎吞掉取消、收尾返回空串，见 `engine.rs` 的 `!abort_on_cancel && cancel` 两条收敛路径）。故决策表（**match 臂顺序本身 load-bearing**：cancel 分支必须排在 Empty 分支之前，否则被取消的空串会被判成 §10 的 `Empty` 而按非失败推进排程）：`Ok` 空串 + `was_cancelled` → **Cancelled**（中断、不投空消息、不推进排程 / 不清失败计数）；`Ok` 空串 + 未取消 → **Empty**（§10）；非空 `Ok` → **Success**（含「取消在产出真实结果之后才到」——尊重已完成的工作，C4 本意）；`Err` + `was_cancelled` → Cancelled（防御，仅当未来有调用方翻 `abort_on_cancel=true`）；其它 `Err` → Failure。修正了旧版「`was_cancelled` 先判 → 成功瞬间被取消则结果被当 cancelled 丢弃」与「naïve result-first → 取消中断被当 success 投空消息」两个反向坑。**绝不可为了「简化」改回「`Ok` 一律 Success」**：cron 的 `abort_on_cancel=false` 让取消长得和成功一模一样，那一改就是「每次取消都往 IM 投一条空消息 + 推进排程」。
 - **claim↔register 窗口（C7）**：`cancel::register` 提前到 claim 成功后、session 创建 / 任何 await **之前**（job.id 已知即注册），并由 RAII `CancelRegistrationGuard` 在所有退出路径（含 no-session 早退、panic）清理。`cancel.rs` 增 `PENDING_CANCELS`：`cancel()` 在 flag 未注册时（窗口内）落一个 pending 占位（`cancel_running_job` 已先验 `running_at.is_some()`，故占位只对真在飞的 run 成立、绝不误伤未来运行），`register()` drain 占位使 run 起跑即取消，`remove()` 清未消费占位防泄漏到下次运行。
   - **全路径 run-key（审查修复，红线）**：`CANCELS` 的值由裸 `Arc<AtomicBool>` 升为 `(claimed_at, flag)`，**live-flag 分支与 pending 占位分支同样按 `claimed_at` 比对**；`remove(job_id, claimed_at)` 亦 run-keyed。否则一个针对已结束 run A 的迟到取消（`cancel_running_job` 读 `running_at` 与 `cancel()` 之间 A 跑完、循环任务以同 `job_id` 重 claim 成 run B）会误翻 **B** 的 live flag、取消用户从未针对的 B（C7 旧实现只补了占位分支，live 分支裸按 job_id 命中即翻 = 半个洞）。匹配则翻、不匹配返回 `false`（目标 run 已逝、无可取消）。回归测试 `live_flag_for_a_different_run_is_not_cancelled`。
 - **跨进程取消（C5，取舍）**：cancel 注册表是**进程本地** static map，cron 调度仅在 Primary 进程跑。另一实例（Secondary / 远端客户端）对 Primary 在跑的 run 发取消会查无 flag——若用户配置了正数 per-run timeout，则回落到该预算兜底释放；若配置为 `0`，cron 层不额外中断。本期不引入持久化 `cancel_requested` 列（cron 单 Primary、取消多为同进程，跨进程属边缘场景）。
@@ -385,7 +406,7 @@ low 债集中清理：
 - **超时协作取消（#2）**：per-run 超时不再硬 drop 在飞 turn——先置 `cancel_flag` 再给 `CRON_TIMEOUT_CANCEL_GRACE_SECS`（5s，有界）让引擎协作收尾（flush session 行、停止 spawn），而非任意 await 点被腰斩。超时**默认归类 Failure(timeout)**：终态判定走纯函数 `compute_was_cancelled(timed_out, user_cancelled_pre_timeout, flag)`——超时路径忽略我们为 grace 自设的 flag，**但若用户在超时触发前就已取消（`user_cancelled_pre_timeout`，C08）则归 Cancelled**（引擎被用户卡住没到 checkpoint、外层 timeout 兜底 kill，仍尊重取消意图：不计禁用、弹 cronCancelled）；非超时路径任何 flag 都是用户取消。脱钩的子代理 / async job 各有自己的预算与取消路径，本期不强行透传。
 - **infra 失败不计入禁用（#4）**：`record_failure` 增 `count_toward_disable`——session 创建失败这类 **agent turn 从未起跑**的基础设施错误走 `reschedule_without_failure`（推进 `next_run_at`、不 bump `consecutive_failures`、不自动禁用），仅真正的 run 失败计入 `max_failures`。否则连续几次瞬时 DB 抖动就把健康任务禁用。
 - **取消通知不误报错误（#6）**：`record_cancelled` emit `status="cancelled"`，前端 `useChatSession` 新增 `cancelled` 分支弹中性 `notification.cronCancelled`，不再落进 `cronError` 分支（用户主动 / 跨端取消不是失败）。
-- **取消一次性 `At` 标终态（#11）**：`record_cancelled` 对 `At` schedule 调 `terminalize_one_shot_completed`（`status='completed'` + `next_run_at=NULL`）——其 `next_run_at` 已在 claim 时清空，不终态会留个 `active` 僵尸到下次重启才被 `mark_missed_at_jobs` 收。循环任务保持 active（仍按排程触发）。
+- **取消一次性 `At` 标终态（#11）**：`record_cancelled` 对 `At` schedule 调 `CronDB::mark_job_completed`（`status='completed'` + `next_run_at=NULL`；run-now 经 `immediate` 跳过——`claim_immediate_job_for_execution` 没动 `next_run_at`，终态化会误杀真排程）——其 `next_run_at` 已在 claim 时清空，不终态会留个 `active` 僵尸到下次重启才被 `mark_missed_at_jobs` 收。循环任务保持 active（仍按排程触发）。
 - **`get_due_jobs` 公平序（#10）**：SQL 加 `ORDER BY next_run_at ASC`。§4「先抢 slot、claim 至多 N、到顶 break」使派发顺序变得 load-bearing，否则裸 rowid 序下持续满槽时**最逾期的任务可能每个 tick 都被跳过（饿死）**；最逾期优先使并发上限公平。
 - **dashboard 成功率不被新状态污染（#3）**：成功率分母改为 **decided outcomes（success + failed）**，`total_runs` 排除在途 `running`；`'running'` / `'empty'` / `'cancelled'` 既非成功也非失败，不再稀释成功率 / 虚增总数。前端 `TaskSection` 圆环与中心百分比同步按 decided 计算。
 - **时区 fire 时解析失败不再静默（#12）**：`compute_next_cron` 对**非空但解析失败**的时区名（依赖漂移 / 旧二进制 / 篡改行）回退 UTC 前 `app_warn`；空 / 缺省时区仍是静默的 UTC 默认（符合预期）。
@@ -611,4 +632,8 @@ stateDiagram-v2
 | `crates/ha-core/src/cron/schedule.rs` | `compute_next_run`（三种类型）/ `validate_cron_expression` / `backoff_delay_ms`（指数退避）/ `parse_flexible_timestamp`（RFC 3339 + 紧凑偏移） |
 | `crates/ha-core/src/cron/scheduler.rs` | `start_scheduler`：独立 OS 线程 + tokio runtime / 启动恢复（orphaned runs + stale markers + missed At + 追赶执行）/ 15s tick 循环（每 tick 先 `mark_missed_at_jobs` 再 dispatch）+ tick_running 防重入 |
 | `crates/ha-core/src/cron/executor.rs` | `execute_job`：创建隔离 session + 可配 per-run timeout（默认 0 = 不加 cron 层超时）+ 成功/失败分支处理 / `build_and_run_agent`：模型链遍历 + failover 重试 / `record_failure` / `emit_cron_event` |
+| `crates/ha-core/src/cron/delivery.rs` | `deliver_results`（白名单复检 + 有界退避重投 + `DeliveryReport`）/ `deliver_injection_for_session`（G2 注入 turn 也下发 delivery_targets） |
+| `crates/ha-core/src/cron/cancel.rs` | run-keyed 取消注册表：`register` / `cancel`（内层 `cancel_with_pending`，占位分支 `is_primary()` 门）/ `remove`，`CANCELS` 值为 `(claimed_at, flag)` + `PENDING_CANCELS` 占位 |
+| `crates/ha-core/src/cron/failure.rs` | `CronFailureClass::{classify, run_log_status, key}`（§5 诊断分类；`run_log_status` doc 锁定 dashboard 失败 denylist 口径） |
+| `crates/ha-core/src/cron/timeline.rs` | `cron_run_timeline`：`CronDB::list_run_timeline` + `SessionDB::cron_session_read_state` 跨库装配 |
 | `crates/ha-core/src/cron/db.rs` | `CronDB`：SQLite schema 初始化 + 迁移 / CRUD（add/update/delete/get/list）/ `get_due_jobs`（到期查询）/ `claim_scheduled_job_for_execution` + `claim_immediate_job_for_execution`（原子 claim 双路径：定时 / 手动 run-now）/ `clear_running` + `clear_running_if_owner`（owner-checked 释放）/ `add_running_run_log` + `finalize_run_log`（§9 在途 run_log 生命周期）/ `toggle_job`（启用/禁用）/ `update_after_run`（成功重置/失败退避/自动禁用）/ `get_calendar_events`（日历展开）/ `recover_orphaned_runs` + `clear_all_running` + `mark_missed_at_jobs` + `record_scheduler_heartbeat`（启动恢复 + §9 心跳） |

@@ -78,6 +78,33 @@ type CapabilityState = "enabled" | "guided" | "disabled";
 
 主点击默认行为：可预览目标优先 `preview`；没有预览宿主时，本地使用 `open`，远程使用 `download`。文件左键、右键菜单、`⋯` 菜单和预览面板顶部按钮都必须读取同一个 `FileCapabilitySet`。
 
+### 类型判定与可预览集合
+
+文件类型判定的单一来源是 [`src/lib/fileKind.ts`](../../src/lib/fileKind.ts)：`fileKind(name)` 纯按扩展名（含 `Dockerfile` / `README` 这类无扩展名的约定文件名）分桶，`fileKindOf(name, mime, language)` 在有可靠 MIME（附件）时优先按 MIME 判定、再回退扩展名与工具元数据里的语言。输出是 `FileKind` 九元组：`code | markdown | image | pdf | office | text | audio | video | other`。
+
+可预览集合同样只在这里定义：常量 `PREVIEWABLE_KINDS` 与导出函数 `isPreviewableKind(kind)`，当前包含除 `other` 之外的全部八种。它的唯一消费者是 `fileCapabilities.ts` 的 `resolveFileCapabilities`，用来把 `preview` 置为 `enabled` 或 `disabled("not_previewable")`；其余组件不得自行判断"这个类型能不能预览"。
+
+**新增一种可预览类型必须同步四处**，缺任一处都会得到"能力说可以、面板打不开"或"面板能渲染、入口点不出来"的错配：
+
+1. `fileKind.ts` 的 `FileKind` 联合类型加成员。
+2. `fileKind()` / `fileKindOf()` 的扩展名集合与 MIME 分支能把该类型识别出来（否则永远落到 `other`）。
+3. `PREVIEWABLE_KINDS` 加入该 kind，`isPreviewableKind` 才会返回 `true`。
+4. [`FilePreviewPane`](../../src/components/chat/project/file-browser/FilePreviewPane.tsx)（按 `fileKindOf` 结果分派的只读渲染层，注意与外壳 `files/FilePreviewPanel.tsx` 不是同一个文件）增加对应渲染分支，否则 capability 为 `enabled` 但预览面板落到文本尝试或二进制占位。
+
+同时按需在 [`FileTypeIcon`](../../src/components/icons/FileTypeIcon.tsx) 的 `EXT_ICON` / `iconForMime` 补图标，否则新类型只显示默认文件图标。
+
+三类目标不经 `isPreviewableKind`，在 `resolveFileCapabilities` 里无条件把 `preview` 提升为 `enabled`：`clientDraft`（内存 Blob 一律可尝试预览）、`knowledgeNote`、`artifact`。反方向的强制降级是 `workspace` 目录项，它把 `preview` / `open` / `download` / `reveal` 全部关掉。
+
+### 主点击决议的实际位置
+
+`primary` 与 `menu` 在 [`useFileActions.ts`](../../src/components/chat/files/useFileActions.ts) 计算，`useFileResource` 只是它的一层同签名转发：`target && canPreview && capabilities.preview.state === "enabled"` 取 `preview`，否则 `isLocal ? "open" : "download"`。这里的 `isLocal` 取自 `transport.fileRuntime().workspaceHost === "local"`。
+
+`Transport.supportsLocalFileOps()` 是另一个能力位（Tauri `true` / HTTP `false`），**不参与**能力矩阵与主点击决议；它的消费者是设计视图的本机目录选择与 `previewSource.ts` 媒体项的本地路径直读分支。两者不要互相代替。
+
+Markdown 里的本机路径链接不是它的消费者：`MarkdownRenderer` 只用 `localPathFromHref` 判断 href 是否本机路径，命中后交给 `MarkdownFileLink`，由 `useFileResource` 按同一套能力矩阵决议 preview / open / download（该文件内提到 `supportsLocalFileOps()` 的注释已过时）。性能取舍是只有本机路径链接才付 hook + ContextMenu 成本，外链渲染成纯 anchor。
+
+[`src/lib/fileActions.ts`](../../src/lib/fileActions.ts) 只承载 `FILE_ACTION_META`（每个动作的 i18n key、默认标签、lucide 图标）与 `FileAction` 的 re-export，**不含任何决议逻辑**；决议分布在 `fileCapabilities.ts`（纯能力矩阵）与 `useFileActions.ts`（primary / menu / run 派发）。`FILE_ACTION_META` 只被 `FileActionMenu` 与 `FileBrowserTree` 消费，用于渲染菜单项外观。
+
 ## 3. 前端资源层
 
 统一入口位于 [`src/components/chat/files/`](../../src/components/chat/files/)：
@@ -89,6 +116,19 @@ type CapabilityState = "enabled" | "guided" | "disabled";
 - [`FileActionMenu.tsx`](../../src/components/chat/files/FileActionMenu.tsx)：右键与 `⋯` 的统一视图。
 - [`previewSource.ts`](../../src/components/chat/files/previewSource.ts)：将不同存储后端收敛成 `readText` / `extractDoc` / `rawUrl`。
 - [`useObjectUrlLease.ts`](../../src/components/chat/files/useObjectUrlLease.ts)：客户端 Blob URL 的唯一租约；替换、移除、关闭预览及卸载时 revoke。
+
+两个共享模块位于 `src/lib/`，供上述资源层与文件浏览器共用：
+
+- [`fileKind.ts`](../../src/lib/fileKind.ts)：`FileKind` 判定、`isPreviewableKind` 可预览集合、`shikiLang` 高亮语言、`extOf` 扩展名原语。
+- [`fileActions.ts`](../../src/lib/fileActions.ts)：`FILE_ACTION_META` 动作展示元数据，无决议逻辑。
+
+### 文件图标单一来源
+
+所有文件形态图标走 [`FileTypeIcon`](../../src/components/icons/FileTypeIcon.tsx)（vscode-icons 彩色图标集，`unplugin-icons` 在构建期内联为 SVG——离线、CSP 安全，且只有此文件 import 过的图标会进包）。解析顺序是扩展名优先（`EXT_ICON`，复用 `fileKind.ts` 的 `extOf`），MIME 兜底（`iconForMime` 覆盖 image/audio/video/pdf/office/json/text 等大类），最后 `default-file`。
+
+统一消费点：输入框附件栏、消息附件卡（`FileCard.tsx` 导出的 `FileMimeIcon` 是为旧 `(mime, name)` 调用点保留的薄适配器）、文件浏览器树与搜索结果、Markdown 文件链接图标、输入框 mention chip，以及 `SkillMentionIcon` 借用 office 三件套图标。业务组件不得为文件另选图标；新增文件形态只在 `EXT_ICON` / `iconForMime` 补一条。
+
+单色 lucide 图标 `fileKind.ts::iconForEntry` 是有意保留的**非文件**用途：文件浏览器树用它渲染目录的展开/折叠态（文件行仍走 `FileTypeIcon`），二进制占位页用它作大号灰度插图。它不是 `FileTypeIcon` 的替代品。
 
 Transport 在 [`transport.ts`](../../src/lib/transport.ts) 定义：
 
@@ -213,7 +253,32 @@ interface DraftAttachment {
 - 二进制/失败状态：显示原因，并从同一能力层提供打开或下载。
 - 顶部按钮按 capability 显示打开、下载和编辑。
 
-HTTP `sessionPath` 的 read/extract/raw 共用会话授权：路径必须被会话工具消息引用，或 canonical path 位于会话 workspace 内；否则统一 403。不存在的已授权路径可返回 404。Tauri 本地路径由本机 owner 信任边界处理。
+### Office 富渲染与后端提取的边界
+
+Office 预览有两条独立实现，**必须保持分离**：
+
+前端富渲染由 [`OfficeRichPreview`](../../src/components/chat/files/office/OfficeRichPreview.tsx) 编排。`officeFormatOf` 先把泛化的 `office` kind 收窄到真正能在浏览器里渲染的子格式（`docx` / `xlsx` / `pptx`，`.xls` 走 SheetJS；**旧 OLE 二进制 `.doc` / `.ppt` 刻意返回 `null`**），再经 `source.rawUrl(false)` 取原始字节交给懒加载的 docx-preview / SheetJS / pptxviewjs。命中以下任一情况即翻到 `OfficeTextFallback`：子格式不支持、体积超过 `min(30 MiB, filesystem.maxDocumentPreviewMb)`、字节 fetch 失败、渲染库自身报错。
+
+文本提取由 `OfficeTextFallback` 在**真正降级发生时**才调 `source.extractDoc()` 触发，具体落到哪里由 `previewSource.ts` 的目标适配器决定，**不是恒定走后端**：
+
+| 目标 | `extractDoc` 实现 | 提取发生在 |
+|---|---|---|
+| `sessionPath` | `transport.previewExtractDoc` → Tauri `preview_extract` / HTTP `GET /api/sessions/{id}/files/extract` | 后端 |
+| `workspace` | `project_fs_extract`（文件浏览器侧等价于 `useProjectFs.extractDoc`） | 后端 |
+| `media` | `transport.extractMediaDocument` | 后端 |
+| `clientDraft` | `extractOfficeFileInBrowser`（`browserOfficeExtract.ts`） | **浏览器** |
+| `artifact` | 抛错（产物不是文档提取源） | — |
+
+前四行里的后端路径统一进入 `filesystem::ops::extract_at` → [`file_extract::extract`](../../crates/ha-core/src/file_extract.rs)，返回纯文本加内嵌图片，并受 `filesystem.maxDocumentPreviewMb` 约束。`clientDraft` 是唯一例外：尚未发送的草稿在 backend 无对应文件，提取只能在 renderer 里做，因此**改后端 `file_extract` 不会影响草稿预览的降级文本**，反之亦然。
+
+**LLM 注入是第三条路径，与上面两条都不相交**：用户附件在发送期由 `agent/content.rs` 直接调同一个 `file_extract::extract`，把正文包成 `<file name=… path=…>` 文本块、抽出的图片并入多模态内容。它不经 `previewSource`、不经 `OfficeRichPreview`、也不看前端是否降级。
+
+两者必须分开的原因是产物性质不同：前端富渲染产出的是 DOM / canvas **视图**，既不可序列化进 prompt，其渲染库也只存在于 renderer；后端提取产出的是确定性**语义文本**，可入上下文、可复用。由此得到两条方向相反的约束：
+
+- 前端富渲染的成败、降级与 30 MiB 视图预算，**不改变模型看到的内容**——调整渲染库或视图上限时不必担心影响模型输入。
+- 反过来，`file_extract` 是三方共用的（预览回退文本、LLM 注入、知识空间导入 `knowledge/source.rs`），改动它的提取逻辑必须同时评估这三个消费方，不能只按预览效果验收。
+
+HTTP `sessionPath` 的 read / extract / raw 三个端点**必须共用同一个授权 helper** `authorized_canonical_file_path`（`crates/ha-server/src/routes/sessions.rs`），禁止各端点自写谓词：路径必须被会话工具消息引用，或 canonical path 位于会话 workspace 内；两者皆非的主机任意路径一律 403（否则等于开放远程任意文件读）。不存在的已授权路径可返回 404。Tauri 本地路径由本机 owner 信任边界处理。
 
 知识空间文件只统一读侧预览、打开、下载、reveal 与能力展示；编辑仍由 NoteEditor 和 Note service 承担，并保留其 `expectedFileHash` stale-write、外部 root read-only、external/remote write 双闸门。禁止把知识空间 mutation 接到普通 `project_fs_write_text`。
 
@@ -232,5 +297,8 @@ Workspace 上传先完成 `workspace_upload` lease，再由 `project_fs_claim_up
 5. 新 Transport 命令同时实现 Tauri + HTTP，并更新 [`api-reference.md`](api-reference.md)。
 6. mutation 的 UI capability 与 backend guard 必须来自同一后端判定。
 7. 覆盖本地桌面、桌面远程、Web、固有只读、远程写关闭与 transport 切换。
+8. 文件类型判定只调 `fileKind` / `fileKindOf`，图标只用 `FileTypeIcon`，不得自建扩展名表。
+
+新增一种可预览类型时，按「类型判定与可预览集合」一节的四处同步清单逐项确认（`FileKind` 成员 → 分桶识别 → `PREVIEWABLE_KINDS` → `FilePreviewPane` 渲染分支），并在 `FileTypeIcon` 补图标。改动 `file_extract` 的提取逻辑时，同时验证预览回退文本、LLM 附件注入与知识空间导入三个消费方。
 
 最低测试面：能力纯函数矩阵、Tauri/HTTP 适配对齐、路径逃逸/symlink/worktree/archive/远程闸门、CAS 保存与冲突、BOM/换行、脏状态与外部变化、草稿 acquisition/Object URL、upload lease 成功/部分失败回滚/claim/discard/限制/过期清理，以及文件入口不再局部直连系统打开。

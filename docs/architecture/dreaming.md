@@ -127,7 +127,7 @@ erDiagram
 | **Cron** | 6 字段 cron 表达式（监听 `config:changed` 重排） | `cronTrigger.enabled=false`，`cronExpr="0 0 3 * * *"` |
 | **Manual** | Dashboard「Run now」/ owner 命令 | `manualEnabled=true` |
 
-idle / cron 自动周期依次跑 **Light 固化 → 保守自动 Deep sweep → Profile 合成**（后两者各受 `deepResolver.*` / `profileSynthesis.enabled` 门控）。自动 Deep sweep 默认执行确定性过期和最多 8 组 graph-first LLM 分类，但它没有“选一个事实覆盖另一个”的权限：高置信冲突只进待审，近重复只有在高置信且图谱 alias 或词法相似度再次佐证时才合并，任何低置信 / 未知 / 失败都 no-op；`autoSupersede` 固定为 `false`，不是用户旋钮。完整人工 Deep resolver 仍经 `dreaming_run_resolver` 触发。Dashboard 在触发前可通过 owner-only `dreaming_resolver_preflight` / `GET /api/dreaming/resolver/preflight` 做只读预检：统计 active claim、确定性过期候选、冲突候选组、自动阈值、LLM 分组调用上限与配置阻塞原因；预检不调用 LLM、不写 claim、不创建 run。Memory Health 也输出同一组 Deep Resolver backlog 指标，供复制诊断和支持排障；Settings → Memory → Overview 的 Health 卡片必须显示 backlog / blocked / clear 状态，但 backlog 只作为 `info` issue，不改变 health status。手动 resolver 与自动 sweep 都必须在长期记忆总开关关闭时 fail-closed skip，不能继续写 claim 状态。
+idle / cron 自动周期依次跑 **Light 固化 → 保守自动 Deep sweep → Profile 合成**（后两者各受 `deepResolver.*` / `profileSynthesis.enabled` 门控）。自动 Deep sweep 默认执行确定性过期和最多 8 组 graph-first LLM 分类，但它没有“选一个事实覆盖另一个”的权限：高置信冲突只进待审，近重复只有在高置信且图谱 alias 或词法相似度再次佐证时才合并，任何低置信 / 未知 / 失败都 no-op。**`autoSupersede` 不是配置项**——`DeepResolverConfig` 里根本没有这个字段，它只是 `ResolverPreflightReport` 与 auto sweep 审计 `scope_json` 里硬写的常量 `false`，用来对外声明「自动流程无覆盖权限」。完整人工 Deep resolver 仍经 `dreaming_run_resolver` 触发。Dashboard 在触发前可通过 owner-only `dreaming_resolver_preflight` / `GET /api/dreaming/resolver/preflight` 做只读预检：统计 active claim、确定性过期候选、冲突候选组、自动阈值、LLM 分组调用上限与配置阻塞原因；预检不调用 LLM、不写 claim、不创建 run。Memory Health 也输出同一组 Deep Resolver backlog 指标，供复制诊断和支持排障；Settings → Memory → Overview 的 Health 卡片必须显示 backlog / blocked / clear 状态，但 backlog 只作为 `info` issue，不改变 health status。手动 resolver 与自动 sweep 都必须在长期记忆总开关关闭时 fail-closed skip，不能继续写 claim 状态。
 
 两道串行锁：进程内 `AtomicBool DREAMING_RUNNING`（`try_claim` 失败即 skip）+ 跨进程 `dreaming_locks` 租约（被他进程持有则 skip，高频源可入 `dreaming_pending_sources` 队列）。Primary 启动时 `recover_stale_*` 把过期 `running` 行标 `failed`、删过期锁、回收超期 `claimed` 源；每日 retention 复跑并 GC。
 
@@ -145,7 +145,7 @@ Dreaming 以三个独立可运行的 cycle 落地（均写 durable run + decisio
    - **确定性过期**：扫所有 active claim，`valid_until < now` → `Expire` 决策（纯字符串比较，无 LLM）。
    - **统一分组**：按 `(scope_type, scope_id, claim_type, subject, predicate)` 分组，只取 >1 成员且 ≥2 种不同归一化 object 的组；过期候选在分类前剔除。claim 内容、图谱邻边和 LLM rationale 都按 untrusted data 处理，进 prompt 前 sanitize，落审计前脱敏并限长。
    - **自动 graph-first sweep**：已知多值谓词（`uses` / `likes` / `works_on` 等）直接 graph-noop，避免把合法并存事实误判为冲突；其余组携带 alias 连通、对象 degree、邻边、证据数量 / 人工证据 / 最高权重和有效期信号，最多分析 `autoResolveMaxGroups`（默认 8，钳 `[1,20]`）。只有 `confidence >= autoResolveMinConfidence`（默认 0.92）才可写状态：冲突仅 `NeedsReview`；duplicates 还须 alias 连通或词法相似度 ≥ `autoMergeSimilarity`（默认 0.84）才 `Merge`；永不产生 `Supersede`。每组调用经统一 `automation` 模型链，usage operation 为 `dreaming.resolver.auto`，便于单独观察后台治理 token 成本。
-   - **手动完整分析**：每轮最多 `MAX_RESOLVER_GROUPS=50` 组各发一次 `side_query`。LLM 回 `duplicates → Merge`（保留最高置信 + 最新者，存档另一方）/ `conflict → NeedsReview` / `independent → no_op`，同样**绝不自动 supersede**。usage operation 为 `dreaming.resolver.manual`；自动与手动运行都持跨进程 Deep lease，并把 graph-noop / LLM-noop / 截断 / 失败写入 durable run note 与事件。
+   - **手动完整分析**：每轮最多 `MAX_RESOLVER_GROUPS=50` 组，各经 `classify_group` 发一次 `automation::run`（与自动 sweep 同一条 `automation` 模型链，非 `side_query` 模块）。LLM 回 `duplicates → Merge`（保留最高置信 + 最新者，存档另一方）/ `conflict → NeedsReview` / `independent → no_op`，同样**绝不自动 supersede**。usage operation 为 `dreaming.resolver.manual`；自动与手动运行都持跨进程 Deep lease，并把 graph-noop / LLM-noop / 截断 / 失败写入 durable run note 与事件。
 3. **Profile 合成**（`profile.rs`，`dreaming_run_profile`，受 `profileSynthesis.enabled` 门控、默认开）：按 scope 取 active claim、按 `confidence × salience` 排序取前 `maxLinesPerScope`（12，排除 `reference` 类）、规则式渲染 Markdown bullet。Idle/Cron 走规则式零 LLM；Manual 额外对每 scope 发一次 `side_query` 重写求流畅（只压缩重组、不创作）。写入 `memory_profile_snapshots`（version=MAX+1）。
 
 ```mermaid
@@ -164,6 +164,17 @@ graph TD
     P -->|是| PF["Profile 合成 → snapshot"]
     R -.手动.-> D["Manual Deep: expire + 完整冲突 needs_review/merge"]
 ```
+
+### Deep Resolver 自动裁决红线
+
+自动 sweep 与手动 resolver 共用同一套纯函数管线（分组 → 图谱信号 → LLM 裁决 → 映射 → apply）。下列不变量是安全边界而非调优项，改动时须同步 [确定性评测](#确定性评测golden-fixtures) 的 `auto_resolver_graph_planning` fixture：
+
+1. **永不自动 supersede（结构性保证）**：`ResolverDecisionType` 只有 `Expire` / `Merge` / `NeedsReview` 三个 variant，**没有 `Supersede`**——「用一个事实覆盖另一个」在类型层就不可表达。`map_verdict_to_decisions` 对 `conflict` 一律给全组成员 `NeedsReview`；`Merge` 也不改写幸存者，`claims::merge_claims` 只把 drop 方标 `archived`（active-gated，keep 与 drop 都必须仍是 `active`，否则整笔 no-op 且不动 evidence），随后把它的 evidence 改挂到 keep 方。auto sweep 的审计 `scope_json` 与 run note 都硬写 `autoSupersede: false` / `auto_supersede=false`。
+2. **已知多值谓词先 graph-noop**：`plan_auto_resolution_groups` 逐组算 `graph_group_signals`，`predicate_cardinality == MultiValued` 的组直接进 `graph_noop_group_ids`、**不发 LLM**，避免把合法并存的事实误判成冲突。基数判定 `predicate_cardinality` 先过 `normalize_predicate`（小写 + 非 ASCII 字母数字折成 `_` + 压缩分段）再查表：`MULTI_VALUED_PREDICATES`（`uses` / `likes` / `works_on` 等）允许精确、前缀、后缀三种命中（故 `uses_package_manager` 判 MultiValued），`SINGLE_VALUED_PREDICATES`（`timezone` / `preferred_theme` / `email` 等）只允许精确或后缀命中；两表都不中则 `Unknown`。**`Unknown` 仍进 LLM 组**——graph-noop 只对确知多值的谓词生效，不是「不认识就跳过」。
+3. **自动冲突只写 `needs_review`**：`map_auto_verdict_to_decisions` 先以 `verdict.confidence < cfg.auto_min_confidence()`（`auto_resolve_min_confidence`，默认 0.92、读时钳 `[0.75,0.99]`、非有限值回落默认）整组 no-op；通过后 `conflict` 复用 `map_verdict_to_decisions` 得到全员 `NeedsReview`，只在 rationale 前缀补 `auto resolver confidence=…`。
+4. **自动 near-duplicate merge 须二次佐证**：`duplicates` 除高置信外还要 `cfg.auto_merge_near_duplicates` 为真，且 `auto_duplicate_is_corroborated` 通过——要么 `signals.alias_connected`（组内全部归一化 object 经 `ALIAS_PREDICATES`（`alias_of` / `same_as` / `equivalent_to` / `aka`）的同 scope 边彼此连通），要么**每一条** drop→keep 的 `content` 或 `object` 词法相似度（`lexical_similarity`，token 集 Jaccard）≥ `cfg.auto_merge_similarity_threshold()`（`auto_merge_similarity`，默认 0.84、读时钳 `[0.70,0.98]`）。任一条不满足即整组返回空 = no-op，**绝不「大部分像就合」**。
+5. **低置信 / 未知 relation / LLM 失败均 no-op**：`parse_verdict` 只接受 `duplicates` / `conflict` / `independent` 三种 relation，其余（含 JSON 提取或反序列化失败）返 `None`，`confidence` 非有限值丢弃、其余钳 `[0,1]`（缺失按 0.0 参与阈值判定，故必然低置信 no-op）；`classify_group` 的 `automation::run` 报错同样返 `None`。`None` 与 `independent` 都不产生任何 decision，只累加 `llm_noop_groups` / `llm_failed` 写进 run note；`resolve_dreaming_chain` 解析不出模型链时整轮不发 LLM、标 `llm_failed`。仅当 `llm_failed` 且 applied 总数为 0 时 run 才落 `failed`。
+6. **有界 + untrusted**：LLM 组数在 `plan_auto_resolution_groups` 内按 `group_cap.clamp(1,20)` 截断并置 `truncated`（**graph-noop 组不占额度、不被截断**）；手动路径另受 `MAX_RESOLVER_GROUPS=50` 约束。**进 prompt 的两类文本都是 untrusted**：claim 行由 `render_group` 对 `object` / `content` 逐条 `sanitize_for_prompt`，图谱邻边由 `graph_group_signals` 同样逐条 sanitize 且 `neighboring_edges` 上限 12 条；落库 rationale 经 `bounded_rationale`（`redact_sensitive` + 折叠空白 + 截 512 码点）。
 
 ## Claim 写路径与 Backfill
 
@@ -301,7 +312,21 @@ Dreaming 靠离线 eval 守红线、不靠感觉。三层避免 LLM 非确定性
 - [`memory/dreaming/eval.rs`](../../crates/ha-core/src/memory/dreaming/eval.rs)——fixture 类型 + `load_fixtures()` + `evaluate(backend, fixture)`，经**公共 API 跑真实读路径**（播种 → list / get / 注入候选 / evidence_quote 断言），不重写被测逻辑。
 - [`evals/suites/memory-dreaming/fixtures/*.json`](../../evals/suites/memory-dreaming/fixtures/)——9 个 canonical fixture，覆盖基础 claim 红线及 `auto_expire_planning` / `auto_resolver_graph_planning`；`valid_until` 用固定 token 保持与时钟无关。
 - [`ha-eval`](../../crates/ha-eval/)——每个 fixture 在独立子进程和 claim store 中运行，产出可审计 case evidence；不编入默认 Cargo test。
-- **契约**：改动 claim 读路径 / effective-status / hidden-set / scope 过滤 / evidence 授权等安全红线时，须在 fixtures 加 case 或保既有绿。
+
+### 同步契约
+
+- **claim 读路径**：改动 claim 读路径 / effective-status / hidden-set / scope 过滤 / evidence 授权等安全红线时，须在 fixtures 加 case 或保既有绿。
+- **Deep Resolver 规划（`auto_resolver_graph_planning`）**：这条 fixture 是自动 sweep「哪些组进 LLM、哪些直接 graph-noop、何时算截断」的锁。`checks.auto_resolver_graph_plan` 播种 claim 后**直接调纯函数** `plan_auto_resolution_groups(scoped, expiring, group_cap)`（`expiring` 取自 `plan_auto_expiration_sweep`，**不发 LLM**），断言 `llm_group_ids` / `graph_noop_group_ids` / `truncated` 三者。当前 fixture 锁住的行为：单值谓词 `preferred_theme`、`timezone` 两组进 LLM；多值谓词 `uses_package_manager` 组 graph-noop；已过期的 `timezone` 成员先被确定性过期摘走、不进候选图（故该组只剩两成员）；`group_cap=1` 时 LLM 组截到一组且 `truncated=true`，而 graph-noop 组不受 cap 影响。
+
+  **改动下列任一符号，必须同步更新本 fixture 或保既有绿**：
+
+  | 面 | 符号 |
+  |---|---|
+  | 分组 | `group_conflicts` 的分组键 `(scope_type, scope_id, claim_type, subject, predicate)`、「>1 成员且 ≥2 种不同 `claims::normalize_object`」准入、`expiring` 剔除；`plan_auto_resolution_groups` 的截断语义与 `group_cap.clamp(1,20)` |
+  | 基数规则 | `MULTI_VALUED_PREDICATES` / `SINGLE_VALUED_PREDICATES` / `ALIAS_PREDICATES` 三张词表、`normalize_predicate` 归一化、`predicate_cardinality` 的精确 / 前缀 / 后缀匹配规则、`graph_group_signals` 的 `alias_connected` 连通判定 |
+  | 自动决策映射 | `map_auto_verdict_to_decisions` 的 relation→decision 映射与置信门、`auto_duplicate_is_corroborated` 的佐证条件、`parse_verdict` 接受的 relation 集合与 confidence 钳位、`ResolverDecisionType` 的 variant 集合 |
+
+  **覆盖边界要清楚**：fixture 无 LLM，只能直接锁住「分组 / 基数」两面；「自动决策映射」由 `resolver.rs` 的穷举单测把关（`graph_planner_skips_known_multi_value_predicates` / `automatic_conflicts_require_high_confidence_and_only_route_to_review` / `automatic_duplicate_merge_requires_graph_or_lexical_corroboration` / `verdict_parser_rejects_unknown_relations_and_clamps_confidence` / `automatic_group_planning_is_bounded_and_reports_truncation`），映射改动若波及入选组则同时反映到本 fixture。两者须一并保绿——单测绿而 fixture 未跑不算满足本契约。
 
 ## 与现有子系统的关系
 

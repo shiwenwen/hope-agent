@@ -42,5 +42,7 @@ docs/requirements/
 docs/plan/*
 !docs/plan/memory-next-generation-plan.md
 
-# Local assistant state
-.claude/
+# Local assistant state（worktrees / settings.local.json 等）
+# 例外：.claude/rules/ 是团队共享的 path-scoped 规范，必须入库
+.claude/*
+!.claude/rules/

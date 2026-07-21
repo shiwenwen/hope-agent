@@ -10,7 +10,7 @@ requires:
 
 # Hope Agent Logs — Self-Service Diagnostics
 
-Hope Agent persists every log line, every session message, and background job state into local SQLite databases under `~/.hope-agent/`. You can query these directly via `exec` to investigate problems before asking the user. Treat this as your primary evidence source — `AGENTS.md` explicitly designates the log database as "the agent's first source for self-repair".
+Hope Agent persists every log line, every session message, and background job state into local SQLite databases under `~/.hope-agent/`. You can query these directly via `exec` to investigate problems before asking the user. Treat this as your primary evidence source.
 
 ## Iron rule: read-only
 

@@ -548,7 +548,7 @@ const staticPlugins = { code, cjk }
 <Streamdown plugins={staticPlugins}>{body}</Streamdown>
 ```
 
-**关键约定**：这里**只使用 `code` + `cjk` 两个基础插件**，不走 `MarkdownRenderer` 的流式 / rAF 包装层。原因是 preview 是一次性渲染的静态内容，没有增量流式需求，省掉 rAF 调度能显著降低渲染开销。该行为与 `AGENTS.md` "Think / Tool 流式块展示约定" 相辅——前者是流式场景，这里是非流式的轻量渲染。
+**关键约定**：这里**只使用 `code` + `cjk` 两个基础插件**，不走 `MarkdownRenderer` 的流式 / rAF 包装层。原因是 preview 是一次性渲染的静态内容，没有增量流式需求，省掉 rAF 调度能显著降低渲染开销。该行为与 `.claude/rules/frontend.md` 的「Think / Tool 流式块」约定相辅——前者是流式场景，这里是非流式的轻量渲染。
 
 **并排对比布局**（`AskUserQuestionBlock.tsx`）：
 

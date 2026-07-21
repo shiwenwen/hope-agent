@@ -17,7 +17,7 @@
 - **Core::FileSystem** — 文件 / shell / 语义代码智能：`exec`, `process`, `read`, `write`, `edit`, `ls`, `grep`, `find`, `lsp`, `apply_patch`
 - **Core::Interaction** — 交互与控制面：`ask_user_question`, `send_attachment`, `task_create`, `task_update`, `task_list`, `loop_status`, `loop_reschedule`, `loop_stop`, `loop_record_progress`
 - **Core::SessionAware** — 跨会话（用户决定不可配置）：`sessions_list`, `session_status`, `sessions_search`, `sessions_history`, `sessions_send`, `peek_sessions`, `agents_list`
-- **Core::Meta** — 框架元工具：`tool_search`（`deferredTools.enabled=true` 且 `toolNames` 非空，或存在 `McpServerConfig.deferredTools=true` 的 server 时注入）, `job_status`（仅 `asyncTools.enabled` 时注入）, `schedule_wakeup`（agent 自我定时唤醒，一次性 N 秒后注 `<wakeup>`+note 回当前会话续跑，复用注入管线；`internal`=不弹审批，`crate::wakeup` / `wakeups.db`；详见 AGENTS「Subagent / Team / Cron」节）, `runtime_cancel`, `skill`
+- **Core::Meta** — 框架元工具：`tool_search`（`deferredTools.enabled=true` 且 `toolNames` 非空，或存在 `McpServerConfig.deferredTools=true` 的 server 时注入）, `job_status`（仅 `asyncTools.enabled` 时注入）, `schedule_wakeup`（agent 自我定时唤醒，一次性 N 秒后注 `<wakeup>`+note 回当前会话续跑，复用注入管线；`internal`=不弹审批，`crate::wakeup` / `wakeups.db`；详见下「自我定时唤醒（schedule_wakeup）」节）, `runtime_cancel`, `skill`
 - **Core::PlanMode** — Plan Mode 触发：`submit_plan`, `update_plan_step`, `amend_plan`（dispatcher 永远返回 Hidden，由 `apply_plan_tools` 按 PlanAgentMode 单独注入）
 
 ### Tier 2: Standard（标准工具）
@@ -752,15 +752,15 @@ job 结算的终态状态由**类型派生**而非字符串再解析。`async_jo
 | `orphanGraceSecs` | `24 * SECS_PER_HOUR`（24h） | 孤儿 spool 文件 TTL：`~/.hope-agent/background_jobs/` 下名字未被任何 DB 行引用、且 mtime 超过这个 grace 的文件被删（grace 防与新写入 race）。`0` 关闭孤儿清扫 |
 | `jobStatusMaxWaitSecs` | `7200`（2h） | 隐藏 `job_status(block=true)` 兼容路径的运行时上限。`max_job_secs > 0` 时由 `max_job_secs` 取代（`job_status_ceiling_secs()` 解析）；工具实现还会额外套 10s UI-safety cap，模型可见 schema 不暴露阻塞等待 |
 | `outputTailBytes` | `8192`（8KB） | （R9）后台 `exec` **运行时**保留的输出尾环大小（R3 ① tail），供 `job_status(action:status)` 看最新输出判「在跑 / 卡住」、不必等完成。job 启动时快照该值（改值不 resize 已跑 job）；越大越可见、每个在跑 job 占更多 RAM（受并发上限约束）。读时 `configured_bytes()` 钳到 `[256, 1048576]`（256B–1MB）|
+| `maxQueuedJobs` | `256` | （R9）后台 job 内存等待队列（R7.1）硬上限；槽位（`maxConcurrentJobs` / per-session）全满时新 `run_in_background` 入队于此，每个排队 job 钉住 live `ToolExecContext` 故必须有界，超过则硬拒（模型等待 / 同步执行）。读时 `clamp_queued` 钳到 `[1, 4096]`——`0` **不**表示无限，是内存护栏 |
+| `wakeupMaxDelaySecs` | `86400`（24h） | （R9）`schedule_wakeup` 自调度延迟上限（秒）；请求延迟 clamp 到 `[10, wakeupMaxDelaySecs]`（10s 下限是不可配的忙轮询护栏）。防僵尸定时器无限占用会话，更长节律应走 cron。读时钳到 `[10, 604800]`（10s–7d）。见上「自我定时唤醒」节 |
+| `wakeupMaxPendingPerSession` | `5` | （R9）每会话待触发 `schedule_wakeup` 上限；超过是**结构类拒绝**（不排队），防 agent 自调度大量计费回合。读时钳到 `[1, 100]` |
 
 `AppConfig.timeout_policy`（`config.json` → `timeoutPolicy`）只管模型显式传入的**runtime timeout override**：`exec.timeout`、async `job_timeout_secs`、subagent / ACP `timeout_secs`、cron per-job `job_timeout_secs`。不管短等待窗口（如 `job_status.wait`、浏览器 wait、审批等待）和网络连接 timeout。
 
 | 字段 | 默认 | 含义 |
 |------|------|------|
 | `modelRuntimeOverrides` | `warn` | `allow` = 直接接受模型传入值；`warn` = 接受但写日志/metadata；`ignore_when_user_unlimited` = 当对应用户/system runtime 预算为 `0`（不限）时忽略模型传入的正数 timeout，保持不限 |
-| `maxQueuedJobs` | `256` | （R9）后台 job 内存等待队列（R7.1）硬上限；槽位（`maxConcurrentJobs` / per-session）全满时新 `run_in_background` 入队于此，每个排队 job 钉住 live `ToolExecContext` 故必须有界，超过则硬拒（模型等待 / 同步执行）。读时 `clamp_queued` 钳到 `[1, 4096]`——`0` **不**表示无限，是内存护栏 |
-| `wakeupMaxDelaySecs` | `86400`（24h） | （R9）`schedule_wakeup` 自调度延迟上限（秒）；请求延迟 clamp 到 `[10, wakeupMaxDelaySecs]`（10s 下限是不可配的忙轮询护栏）。防僵尸定时器无限占用会话，更长节律应走 cron。读时钳到 `[10, 604800]`（10s–7d）|
-| `wakeupMaxPendingPerSession` | `5` | （R9）每会话待触发 `schedule_wakeup` 上限；超过是**结构类拒绝**（不排队），防 agent 自调度大量计费回合。读时钳到 `[1, 100]` |
 
 `AgentConfig.capabilities.async_tool_policy`（`agent.json`）：
 
@@ -802,6 +802,56 @@ job 结算的终态状态由**类型派生**而非字符串再解析。`async_jo
 | `crates/ha-core/src/config/mod.rs` | `AsyncToolsConfig` |
 | `crates/ha-core/src/agent_config.rs` | `AsyncToolPolicy` 枚举 + `CapabilitiesConfig.async_tool_policy` |
 | `crates/ha-core/src/paths.rs` | `async_jobs_db_path` / `async_jobs_dir` / `async_job_result_path` |
+
+---
+
+## 自我定时唤醒（schedule_wakeup）
+
+`schedule_wakeup` 是 agent 发起的**一次性**「N 秒后把我叫回当前会话续跑」原语，核心在 [`crate::wakeup`](../../crates/ha-core/src/wakeup/)，工具壳在 `tools/schedule_wakeup.rs`。典型用途是等待 runtime 无法通知的外部状态（CI 跑批、远端队列、限流冷却）——agent 排一个 wakeup 后**直接结束回合**，而不是拿 `job_status` 忙轮询或把回合挂住。
+
+**与 cron 是两套东西，刻意不复用入口**：cron 由用户配置、周期触发、可投递到别的会话并 fan-out 到 IM；wakeup 由 agent 自己发起、一次性、续的是发起会话自己的上下文。新增能力不要把二者合并到同一调度面。
+
+### 触发链路
+
+到点后 `wakeup::fire` 走**共享注入管线** `subagent::injection::inject_and_run_parent`（与后台 job 完成注入同源），因此天然继承会话空闲门（`ACTIVE_CHAT_SESSIONS` / `PENDING_INJECTIONS` 重排队）、取消与重试语义，最终起一个**新的 parent turn**。注入的 user 消息形如：
+
+```xml
+<wakeup>
+A wakeup you scheduled earlier has fired. Continue the work you set this timer for. Your note to self:
+<note>
+（agent 当初写给自己的 note，XML 转义后原样带回）
+</note>
+</wakeup>
+```
+
+`build_wakeup_message` 对 note 做 `&` / `<` / `>` 转义；note 为空 / 全空白时整个 `<note>` 块省略。注入用 `WAKEUP_CHILD_AGENT_ID`（`"wakeup"`）走 injection，落库 `attachments_meta` 打的是**专属 `wakeup_trigger` 标记**（不是 `subagent_result`，否则前端会渲染成误导性的"子 Agent 已完成"绿标且丢掉 note）；该 meta 内必须保留 `run_id`，注入去重 `has_injection_user_msg` 按 `run_id` 匹配，丢了就会在唤醒回合被取消并重排队时追加重复 `<wakeup>` 行 + 多计一个回合。
+
+### 边界与配额
+
+- **仅顶层会话**：`subagent_depth > 0` 的 subagent run 直接拒绝；带 `parent_session_id` 的子 / fork 会话同样拒绝。子会话是一次性 worker，既没有后续用户可见回合、也不走 session-cleanup watcher，放行等于日后往一个无人观察的休眠子会话里投一个计费的幽灵回合。
+- **延迟钳制**：`delay_secs` 必须是正整数（`<= 0` 直接报错，不是向上钳），随后 clamp 到 `[MIN_DELAY_SECS, max_delay_secs()]`。`MIN_DELAY_SECS = 10s` 是**不可配的忙轮询护栏**；上界取 `async_tools.wakeup_max_delay_secs`（默认 24h），该配置值本身再被 `clamp_wakeup_delay` 钳到 `[10s, 7d]`——钳制在 `u64` 空间先做、再转 `i64`，所以超过 `i64::MAX` 的值会钉到 7d 上限而不是回绕成负数塌回地板。
+- **每会话 pending 上限**：`async_tools.wakeup_max_pending_per_session`（默认 5，读时钳 `[1, 100]`）。超限是**结构类拒绝**（`ScheduleError::TooManyPending`），**不排队**——排队等于放任 agent 自调度一串计费回合。计数真相源是进程内 `ARMED_TIMERS`（同时覆盖持久化与无痕两类）。
+
+### 持久化与跨进程模型
+
+`~/.hope-agent/wakeups.db`（`paths::wakeups_db_path`）只是**耐久底账**，真正的定时器是进程本地 tokio 任务；DB 与 `background_jobs.db` 同类，是可重建/瞬态缓存，schema 探测失败即 DROP 重建（无迁移）。
+
+- **落库尽力而为**：DB 缺失 / insert 失败时仍然 arm 内存定时器（本会话可用、重启不保），只 `app_warn` 不 hard-fail。
+- **投递即删行**：`on_injected` 回调走 `delete_delivered_with_retry`（固定退避重试若干次），**删行而非翻 `fired` 标志**——这是"重启不重投已送达 wakeup"的唯一耐久保证（进程内去重集 `DELIVERING` 在新进程是空的），顺带 GC 掉无历史价值的行。全部重试失败会 `app_error` 明示"下次 Primary 重启可能重复触发一个计费回合"。
+- **父会话忙 → `Queued`，不是 `Abandoned`**：父会话在 announce 窗口内始终不空闲时，注入**携 `on_injected` 重排队进 `PENDING_INJECTIONS`** 并返回 `InjectionOutcome::Queued`——队列在前台回合结束（`ChatSessionGuard::drop`）时 flush，唤醒在**本进程内**补投，不必等重启。回调未触发，行仍未投递，重启 replay 是二重兜底。
+- **`Abandoned` 只剩三条窄路**：`PENDING_INJECTIONS` 锁 poisoned（空闲超时 / 取消两处重排队失败）、以及 `begin_agent_run` 准入被拒（父 Agent 已禁用 / 进回收站）。三者都**不**回调、行保持未投递，等下次 Primary replay 补投。（注：`wakeup::fire` 的 warn 文案仍写作 "parent never went idle"，是 G3/G5 改造前的遗留措辞，别据此反推语义。）
+- **replay 是 Primary-only（红线）**：`wakeup::replay_pending()` 只在 `app_init::start_background_tasks` / `start_minimal_background_tasks` 的 `is_primary()` 分支里调用——行是共享的，Secondary 一起重 arm 就会双投。replay 按 `fire_at ASC` 重 arm，逾期的立刻触发；同时**在 replay 侧复核每会话 pending 上限**（`Abandoned` 会丢内存定时器却留行，内存计数可能低于持久行数），按 `fire_at` **最早的优先保留**、超出 cap 的行直接 `db.delete` 删掉——这会静默丢弃 agent 已排的 wakeup，改 cap 语义时留意。
+- **投递前重解析 agent**：持久化 wakeup 在 `fire` 时按 id 重读行取 `agent_id`，避免 Agent 生命周期改绑后仍把回合投给一个已进回收站的 Agent；行已不存在（被取消 / 已投递）则静默放弃。
+
+### 无痕与生命周期
+
+- **incognito 只在内存**：`schedule` 收到 `ctx.incognito` 时完全不写行，只 arm 定时器——关闭即焚，重启不留痕。
+- **会话删除 / 焚毁**：`wakeup::purge_for_session` 由 [`session::cleanup_watcher`](session.md) 调用，abort 该会话全部在途定时器并删光对应行（删除与焚毁走同一入口）。已消失的会话绝不能被唤醒回来，无痕会话的内存定时器也在此一并 abort。
+- **Agent 生命周期**：未触发的 wakeup 是 Agent 的"活引用"。[`agent_lifecycle`](../../crates/ha-core/src/agent_lifecycle.rs) 经 `count_pending_for_agent`（去重合并持久行与内存定时器）阻止禁用仍有活路由的 Agent，`count_unpersisted_for_agent` 单独统计**内存态**——它们无法耐久改绑，必须先触发或取消才允许删 Agent。改绑走 `reassign_pending_agent` + `update_armed_agent`（同步内存索引），失败补偿走 `restore_reassigned_agent`（只回滚仍持有改写值的行，避免踩掉并发取消）。
+
+### 工具面标记
+
+`internal: true`（纯控制流原语、无外部副作用，故与 `job_status` 一样不弹审批；`internal` 管审批不管模型可见性）、`concurrent_safe: false`、`async_capable: false`、`ToolTier::Core{Meta}`。`metadata.rs` 里与 `manage_cron` 同组打 `ToolEffect::Scheduling` + `RuntimeControl`，别名 `schedule` / `reminder` / `wakeup`。
 
 ---
 

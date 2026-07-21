@@ -1,566 +1,292 @@
 # Hope Agent
 
-基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，内置丰富 Provider 模板与预设模型，GUI 傻瓜式配置。三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程（`hope-agent server`）、ACP stdio（`hope-agent acp`）。
+基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，内置 Provider 模板与预设模型，GUI 傻瓜式配置。三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程（`hope-agent server`）、ACP stdio（`hope-agent acp`）。技术栈见 `package.json` / `Cargo.toml`。
 
-子系统设计与实现细节见 [`docs/architecture/`](docs/architecture/)；本文只列**影响每个 PR 的契约和红线**，不重复实现细节。
-
-## 开发命令
-
-```bash
-pnpm tauri dev         # 启动开发模式（前端 + Tauri 热重载；beforeDevCommand 会先 dev:browser-host 备好 host）
-pnpm dev               # 仅前端 Vite 开发服务器
-pnpm dev:browser-host  # 仅重建 debug 版 ha-browser-host 并落到 dev 路径（改了 ha-browser-host 后手动刷新用）
-pnpm tauri build       # 构建生产包
-pnpm sync:version      # 以 package.json 为单一来源，同步各 Cargo.toml / tauri.conf.json / Cargo.lock 版本
-pnpm release:verify    # 校验 package.json / src-tauri 版本一致；可附 -- --tag vX.Y.Z
-cargo run -p ha-eval --locked -- validate  # 校验专项评测 schema / policy / suite / fixture
-cargo run -p ha-eval --locked -- model validate  # 校验真实模型 Campaign 资产（不调用模型）
-cargo run -p ha-eval --locked -- model smoke --server-bin target/debug/hope-agent-server --output target/eval-smoke/trial.json  # fake Provider 黑盒 smoke（零费用）
-cargo run -p ha-eval --locked -- model app-smoke --sidecar target/debug/hope-agent-eval --server-bin target/debug/hope-agent-server  # App/Sidecar 全链 fake smoke（零费用）
-pnpm prepare:eval-sidecar  # 为当前 Tauri target 构建并准备 release 版评测 Sidecar
-node scripts/verify-eval-version-lock.mjs --base <base-sha>  # 校验专项评测版本锁只追加、不覆写
-pnpm typecheck         # 前端类型检查（tsc -b）
-pnpm lint              # Lint
-pnpm test              # Vitest（一次性跑完）
-pnpm test:watch        # Vitest watch 模式
-node scripts/sync-i18n.mjs --check   # 检查各语言翻译缺失
-node scripts/sync-i18n.mjs --apply   # 从翻译文件补齐缺失翻译
-
-# Server 模式（HTTP/WS 守护进程）
-hope-agent server start              # 前台启动 HTTP/WS 服务
-hope-agent server install            # 注册系统服务（macOS launchd / Linux systemd）
-hope-agent server uninstall          # 卸载系统服务
-hope-agent server status             # 查看服务运行状态
-hope-agent server stop               # 停止服务
-
-# Docker 自托管（server 模式）—— 完整指南见 docs/deployment/docker.md
-docker compose up -d                          # 起 hope-agent
-docker compose --profile with-ollama up -d    # + Ollama 本地 LLM sidecar
-```
-
-## 提交前检查（强制）
-
-下列命令是 `git push` 的强制门禁（对应 CI 全部 required status check）；`pnpm install` 后 [`.husky/pre-push`](.husky/pre-push) 钩子会在 push 时按此顺序自动跑——**无需在 push 前手动重复执行**：
-
-```bash
-cargo fmt --all --check                                                    # CI: rust.yml fmt
-cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings # CI: rust.yml clippy
-cargo test  -p ha-core -p ha-server --locked                               # CI: rust.yml test
-pnpm typecheck                                                              # CI: lint.yml tsc
-pnpm lint                                                                    # CI: lint.yml ESLint
-pnpm test                                                                    # CI: lint.yml Vitest
-```
-
-- **clippy / test 只覆盖 `ha-core` + `ha-server`**（CI 也是如此）；`src-tauri` 不在钩子内，tauri-specific 问题用 `cargo {clippy,test} --workspace` 自查
-- **完整能力评测不进 PR / pre-push**：Coding / Domain / Dreaming / Memory Retrieval 整包走独立 `hope-agent-eval` 与 `Capability Evals` workflow（weekly + 发版前精确 SHA）；默认 Cargo test 只保留快速契约测试。详见 [`capability-eval.md`](docs/architecture/capability-eval.md)
-- **PR 只跑零费用评测基础设施 smoke**：Linux Rust job 会以本地 fake Provider 驱动真实 Hope Server，校验模型/tool/Goal/Loop 归因与 trial schema；它不使用真实 API Key、不衡量模型能力，也不替代 nightly/weekly/release Campaign
-- **真实模型 Campaign 同样不进 PR / pre-push**：`hope-agent-eval model` 只有显式本地运行或 `Live Model Campaign`（nightly / weekly / pre-release / monthly）才调用 Provider；Dashboard“能力评测”可通过签名 Sidecar 显式运行 Hope Core Quick/Standard/Reliability/Custom，Coding / Domain 原入口与历史继续兼容。App 只传模型/凭据引用，owner 后端解析 Key；已登录 Codex 仅在 App 本机 diagnostic 可选，owner 必须先确保 token 剩余寿命覆盖 `maxWallSeconds + margin`（不足则 owner 内刷新、失败 fail-fast），只向隔离进程传短期 access token + account id + expires-at，禁止传 OAuth 文件/refresh token，受保护 Runner 必须拒绝此凭据类型。本地 source 永远是 diagnostic，不得晋升，发布只接受受保护 Runner 的 clean exact-SHA evidence。详见 [`live-model-evaluation.md`](docs/architecture/live-model-evaluation.md)
-- **Rust 版本**由 [`rust-toolchain.toml`](rust-toolchain.toml) 固定，本地 / CI 共用
-- **应急开关**：`HA_SKIP_PREPUSH=1`（整段跳过，仅限纯 `.md` / 弱网紧急）/ `HA_SKIP_PREPUSH_TEST=1`（只跳 cargo test）。**禁止 `--no-verify`**——会绕过 GPG 等其它钩子
-
-### Agent 开发期检查行为（强制）
-
-上面六条是 push 前兜底，**Agent 在开发过程中不要主动跑全套检查**：
-
-- **改代码过程中**：默认只做单点验证——Rust 用 `cargo check -p <crate>`，TS/TSX 用 `pnpm typecheck`；不要主动跑 clippy / cargo test / pnpm test / pnpm lint
-- **想跑全套必须先问**：判断需要跑这四项之一时，先问用户「是否要跑 X？」并说明原因，等回复再跑
-- **长任务收尾例外**：跨多文件多模块 / 完整 plan / 跨 crate 重构这类阶段性收尾时，可主动跑必要项，跑前说一句"改动较大，跑一下 X 收尾"
-- **push 由钩子兜底**：`git push` 时钩子自动跑全套，**Agent 不要在 push 前手动重复跑一遍**；只有用户明确要求跑某项时才手动跑
-
-## 分支与发布
-
-> 实操流程（PR 工作流、tag 推送、cherry-pick backport、避坑速查）见 [`docs/release-process.md`](docs/release-process.md)。本节仅列契约面。
-
-`main` 承载下一个 minor 版本的开发，已发布的 minor 版本对应一条 `release/vX.Y` 维护分支用于 patch 修复。两条分支之间**只允许 cherry-pick，不允许 merge**——`merge main → release/vX.Y` 会把未发布功能拖入维护分支。
-
-### 工作流
-
-- **修 bug**：从 `release/vX.Y` 切 `fix/vX.Y-<topic>`，PR base 选 `release/vX.Y`；合并并发版后 cherry-pick 回 `main` 再单独发 PR
-- **新功能**：从 `main` 切 `feat/<topic>`，PR base 选 `main`
-- **新 minor 发版**：`main` 上 `pnpm version X.Y.0` 打 tag，再 `git branch release/vX.Y vX.Y.0 && git push -u origin release/vX.Y`，CI 与 protection 通过 ruleset 通配符自动覆盖
-
-### CI 与 branch protection
-
-- [`.github/workflows/lint.yml`](.github/workflows/lint.yml) 与 [`rust.yml`](.github/workflows/rust.yml) 触发条件包含 `[main, "release/**"]`
-- 两个必跑 workflow 必须监听 `merge_group` 的 `checks_requested`，确保 Merge Queue 能在临时合并提交上产出全部 required checks
-- GitHub ruleset `main-branch-protection` 的 `conditions.ref_name.include` 覆盖 `~DEFAULT_BRANCH` + `refs/heads/release/**`：必须 PR、必跑 8 项 status check、禁 force push、禁删分支、`enforce_admins: true`
-- 修改 workflow 的 job 名或 matrix 时需同步通过 `gh api` 更新 ruleset 的 `required_status_checks` context 列表
-- `capability-eval.yml` 不属于 required check；release policy 初始 advisory，达到稳定性条件后只通过配置 PR 切 enforce。发版 evidence 必须来自 GitHub、`dirty=false` 且 SHA/digest 精确匹配；本地结果不得替代
-- `model-campaign.yml` 也不属于 required check；真实模型 evidence 与 deterministic evidence 物理分离、互不替代。隔离 `config.json` 禁止保存 Provider Key，Key 只能通过受保护 `model-eval` environment 的 `MODEL_EVAL_PROVIDER_SECRETS_B64` 注入 Hope Server 内存；Server/Supervisor token 必须独立。只允许评测专用账号、合成/授权脱敏数据及 Provider/suite allowlist 出网，禁止个人生产账号、真实用户数据和不受约束的公网访问。受保护 Runner 必须通过 Bubblewrap mount/PID namespace 只暴露合成数据目录，checkout 禁止持久化 GitHub 凭据，Supervisor 必须回收完整后代树；缺少隔离能力时 fail closed。签名 registry 尚未配置时保留普通 evidence、跳过 bundle 签名；registry 存在后签名链任一错误 fail closed，导入信任刷新必须同时匹配 key id 与公钥 SHA-256。Headless Server 只接受显式绝对 `HA_EVAL_TRUST_REGISTRY_PATH`，禁止 cwd/exe ancestor 搜索。模型轨道转 enforce 只能通过 `evals/live/policy/release.json` 配置 PR
-
-## 项目结构
-
-```
-Cargo.toml              Workspace 根（含产品 crates + ha-eval-spec / ha-eval）
-crates/
-  ha-core/              核心业务逻辑（零 Tauri 依赖，纯 Rust 库）
-  ha-eval-spec/         专项评测 manifest / policy / evidence 协议（不依赖 ha-core）
-  ha-eval/              独立确定性专项评测 + 真实模型 Campaign 控制面 CLI
-  ha-server/            HTTP/WS 服务器（axum，REST API + WebSocket 流式推送）
-  ha-browser-host/      浏览器后端辅助进程（native messaging broker / CDP host）
-src-tauri/              Tauri 桌面 Shell（薄壳，调用 ha-core）
-src/                    前端（React + TypeScript）
-  components/           chat/ settings/ dashboard/ cron/ common/ ui/ 等
-  lib/                  Transport 抽象层：transport.ts + transport-tauri.ts + transport-http.ts
-  i18n/locales/         多语言翻译文件（语言集见 src/i18n/locales/）
-evals/live/             真实模型 scenario/suite/policy/App profile/schema/trust 资产
-skills/                 内置技能（meta / 编程方法论 vendor / 办公方法论原创）
-docs/architecture/      子系统设计文档（跨 PR 必读单一真相源）
-```
-
-ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `knowledge/` `skills/` `tools/` `channel/` `subagent/` `team/` `cron/` `acp/` `dashboard/` `evaluation/` `recap/` `awareness/` `config/` `session/` `project/` `plan/` `goal/` `workflow/` `loop_control.rs` `worktree.rs` `lsp.rs` `review.rs` `verification.rs` `context_retrieval.rs` `coding_eval.rs` `coding_improvement.rs` `domain_workflow.rs` `domain_quality.rs` `domain_eval.rs` `ask_user/` `async_jobs/` `wakeup/` `failover/` `platform/` `security/` `logging/` `local_llm/`。Vendor skill 来源记录在 `THIRD_PARTY_NOTICES.md`。
-
-## 技术栈
-
-| 层     | 技术                                                                 |
-| ------ | -------------------------------------------------------------------- |
-| 前端   | React 19 + TypeScript, Vite 8, Tailwind CSS v4, shadcn/ui (Radix UI) |
-| 桌面   | Tauri 2                                                              |
-| 服务器 | axum (HTTP/WS), clap (CLI)                                           |
-| 后端   | Rust, tokio, reqwest（ha-core 库，零 Tauri 依赖）                    |
-| 渲染   | Streamdown + Shiki + KaTeX + Mermaid                                 |
-| 多语言 | i18next（locale 见 `src/i18n/locales/`）                                                  |
-
-## 架构契约
-
-每个子系统的细节都在对应 `docs/architecture/<name>.md`；本节只列跨 PR 必守的契约和红线。
-
-### UI 表单控件与焦点
-
-详见 [`ui-interaction-system.md`](docs/architecture/ui-interaction-system.md)。
-
-- **组件入口唯一**：搜索用 `SearchInput`；普通文本用 `Input`，多行文本用 `Textarea`；普通下拉
-  用 Radix `Select`；分组模型选择用 `ModelSelector` / `ModelChainEditor`；数字输入用
-  `NumberInput` / `DeferredNumberInput`。业务组件禁止裸 `<select>`、裸 `<input type="number">`、
-  `Input type="number"` 和 `NativeSelect`。
-- **扁平表面单一来源**：`Input`、`Textarea`、选择类控件和数字框必须复用
-  `FLAT_CONTROL_SURFACE_CLASS`；搜索框使用 `SearchInput` 的无边框表面。业务侧只覆盖尺寸、
-  布局与排版，禁止恢复 `shadow-sm`、深色边框或复制背景/边框/圆角整套 class。只有视觉边界
-  由外壳承担的已登记复合控件可用 `surface="embedded"`，禁止手动覆盖默认表面的部分状态；
-  普通 hover / selected / open 只加深背景，不得新增或加深边框、ring、shadow。
-- **焦点与高对比度**：组件不得自行添加 `focus:ring-*` / `focus:border-*`；Pointer、Keyboard、
-  enhanced、`prefers-contrast` 和 `forced-colors` 全部服从全局焦点协议。强制色模式必须保留
-  系统边框，不能只靠半透明背景表达控件边界。
-- **工具栏例外**：聊天输入区的模型/权限入口、设计空间首页生成器 prompt dock 内的模型入口
-  属于 ghost action，可保持无边框紧凑按钮；设置页全尺寸字段不得借此绕过表单控件标准。
-- **空间标题栏统一**：知识空间、设计空间、产物库、仪表盘、Plan、定时任务等一级工作区使用
-  `h-10` 单行标题栏；返回按钮最左，存在侧栏开关时紧随其后；副标题同行截断，不得撑高标题栏。
-- **Tab 选中态例外**：公共 `TabsList` 内的 `TabsTrigger` 选中使用 `bg-background` + 轻阴影，
-  不能改成与 `bg-muted` 容器接近的普通灰色选中；无外壳线型 Tab 可保留持久选中底线。Tab
-  hover 仍不得改变边框。
-- **列表条目状态统一**：普通列表行默认 hover 使用 `bg-secondary/40`，持久选中使用
-  `bg-secondary/70` + 正常前景色；禁止用 `bg-primary/*` 或 `text-primary` 表达普通选中。
-  错误、警告、未读、拖拽落点等明确语义状态可保留各自强调色，但不得污染常规 hover/selected；
-  强互斥分类标签统一使用 `RadioPills variant="strong"`（选中 `bg-primary` + 反白前景，仍无
-  选中边框），只用于“并列标签中确定一个值”；Tab、视图切换、权限等级和多选筛选不得套用。
-
-### 分层 & 运行模式
-
-详见 [`process-model.md`](docs/architecture/process-model.md) / [`backend-separation.md`](docs/architecture/backend-separation.md) / [`transport-modes.md`](docs/architecture/transport-modes.md)。
-
-- **三 Crate 架构**：业务逻辑全进 `ha-core`（**零 Tauri 依赖**），`ha-server` 与 `src-tauri` 只做适配薄壳
-- **EventBus + 共享状态**：核心层用 `ha-core::EventBus` 替代 Tauri `APP_HANDLE`；Tauri 用 `State<AppState>`，server 用 `State<Arc<AppContext>>`
-- **Transport 抽象**：前端走 [`src/lib/transport.ts`](src/lib/transport.ts)，**新 invoke 必须同时实现 Tauri + HTTP 两套适配**
-- **桌面 release 单一来源**：`package.json`，`pnpm version` 钩子（[`scripts/sync-version.mjs`](scripts/sync-version.mjs)）同步 `src-tauri/Cargo.toml` / `tauri.conf.json` / `crates/ha-server/Cargo.toml` / `crates/ha-core/Cargo.toml` / `crates/ha-eval/Cargo.toml`。`ha-server` 承载 Docker headless bin `hope-agent-server` 的 `CARGO_PKG_VERSION`，必须随桌面版本同步——`--version` 与 `app_update` `current_version` 都读它；`ha-core` 与 `ha-eval` 不发布给用户，但跟着 bump 让产品版本和 release evidence 一致。CI tag 构建前跑 `pnpm release:verify -- --tag vX.Y.Z` 校验全部来源 + `Cargo.lock` 一致。Updater 私钥严禁入仓
-- **API Key 鉴权**：HTTP/WS 走 Bearer Token（[`ha-server/middleware.rs`](crates/ha-server/src/middleware.rs)），`/api/health` 免鉴权；浏览器 WS 用 `?token=` 兼容
-- **运行模式 getter**：`ha_core::runtime_role()` / `is_desktop()`，避免给共享函数加 mode 参数
-
-### LLM 主对话
-
-详见 [`provider-system.md`](docs/architecture/provider-system.md) / [`failover.md`](docs/architecture/failover.md) / [`side-query.md`](docs/architecture/side-query.md)。
-
-- **Provider**：4 种（Anthropic / OpenAIChat / OpenAIResponses / Codex）
-- **新会 spawn tool loop 的 chat 路径**走 `chat_engine::run_chat_engine`，不要绕过自包 `on_delta`
-- **failover policy 三档**：`chat_engine_default` / `side_query_default` / `summarize_default`；**Codex 强制不参与 profile 轮换**
-- **温度 / Think 三层覆盖**：会话 > Agent > 全局；`thinking_style` Provider 默认 + 模型级覆盖
-- **Side Query**：复用主对话 system_prompt + history 前缀命中 cache，Tier 3 摘要 / 记忆提取成本降 ~90%
-- **视觉桥（issue #434，`agent/vision_bridge.rs`）**：主模型无视觉能力（`model_supports_vision==false`）且收到图片时，用 `function_models.vision`（`Option<ActiveModel>`，opt-in，未配=关）单独配置的视觉模型把图转文字注入，替代「丢图 + 占位符」。**红线**：① 只在 `run_streaming_chat` **round head** 挂接——对 `prepare_messages_for_api` 产出的**临时 `api_messages` 副本**做「异步 `ensure`（每图转述一次、`(image_hash, vision_model)` memo）+ 同步 `rewrite`（换描述文字）」，**绝不改 `conversation_history`**（`save_agent_context` 原样落库，就地改写=永久丢图不可逆）；② provider 无关（按 content 形态识别 anthropic/openai/responses 三种图片块 + `__IMAGE_*__` 工具 marker，统一降级点，顺带覆盖 Anthropic/Codex 现状不降级的场景）；**只扫 user/tool 消息、跳 assistant**（tool_use/tool_call 参数可能形似图片块，改写会毁 tool 调用）；③ 转述走 `transcribe_images_for_vision_bridge`（单次 one_shot、**超时在其内部**令超时也记账、不走 failover、失败静默回退占位符不 hard-fail），用量记 **`KIND_VISION`**（非 `KIND_SIDE_QUERY`）+ 带 session_id 令 incognito 跳过入账；④ 防递归——转述本身带图调视觉模型，**只在主对话入口 gate，绝不在 side_query 触发**；⑤ **注入即 untrusted**——转录文本（含图片内可见文字，逐字转录）必套 `<untrusted_external_data>` 信封 + 转义 `<`/`&`，**绝不作 system 指令**（防图片藏 `SYSTEM: …` 注入）；⑥ **incognito 缓存隔离**——无痕会话走 per-turn 临时缓存、**绝不写全局共享缓存**（转录含敏感文字，关闭即焚 + 不跨会话/跨租户命中）；全局缓存用有界 `TtlCache`（非无界 HashMap）；⑦ **agent 惰性 + 有界构建**——`prepare` 只解析配置不建 agent，vision agent 在 apply 首个真图 miss 时才 `try_new_from_provider`（免图-free turn 白建）；**惰性单独不够**——含图轮首次构建仍在关键路径跑 Codex OAuth（自身无 timeout），故 build 套 `AGENT_BUILD_TIMEOUT`超时兜底，超时=静默回退占位符、`None`-init **不缓存**（下轮可重试）；⑧ **取消可响应 + 不缓存**——build + 转述整体经 `tokio::select!` 与 `poll_cancel(cancel)` **竞速**，Stop 触发即腰斩在途 build/转述；被取消的图**绝不缓存**（取消非失败，须干净重试）、取消同时抑制误导性 `unavailable` 提示
-- **后台一次性 LLM 调用（非主对话）统一走 `crate::automation`**：Recap / Dreaming / Knowledge Compile / Skills auto_review / Hooks `prompt` handler / Session Title / Awareness 提取（Phase 1）以及图片 OCR / 知识空间维护 4 生成器 / Sprite / 笔记三件套 / Recall Summary / 知识空间 AI 改写（Phase 2）等"用到模型能力但不需要完整 Agent 人格/工具"的消费者，经 `automation::run`（纯文本）或 `automation::run_vision`（带图片，图片 OCR 专用，与视觉桥的 `run_one_shot_with_attachments` 物理隔离）+ `function_models.automation`（`FunctionModelsConfig` 里与 `vision` 平级的新字段，`Option<ModelChain>`）拿到统一的**真跨模型降级**（候选逐个 `try_new_from_provider` + `set_session_id` 走 `execute_with_failover`，不是"构造期选中即不再变"）+ purpose-tagged 用量（`ModelUsageEvent.operation`）。各消费者自己的 `model_override` 字段 > 全局 `function_models.automation` > 聊天全局 `active_model`/`fallback_models`。**例外**：Memory Extract 与 Compact 摘要模型现有执行签名不支持链式循环，只在原有解析优先级链里插入 `model_override` 新字段——不经过 `automation::run`，没有跨模型降级，也不打 purpose 标签（详见 `automation-model.md` §3.2）。Phase 1 消费者的旧字段（`analysis_agent`/`narrative_model`/`review_model`/裸 `provider_id`+`model_id` 等）保留 deprecated、消费点惰性解析，不做物理迁移；Phase 2 消费者此前从无专属配置（隐性继承 `recap.analysis_agent`，一个孤立配置 bug），新字段全部纯增量，无需兼容分支。同类消费者不要再各写一套形状；遗留兜底函数 `recap::report::build_analysis_agent` 家族已随 Phase 2 全部调用点迁移完成而整体删除。详见 [`automation-model.md`](docs/architecture/automation-model.md)
-
-### Chat Engine & Streaming
-
-详见 [`chat-engine.md`](docs/architecture/chat-engine.md)。
-
-- **聊天流双写**：per-call `EventSink`（主路径）+ EventBus `chat:stream_delta`（带 `seq` 去重，重载恢复用）；IM 渠道独立 `channel:stream_delta`
-- **普通未读口径（session 数）**：一个会话不管有多少未读 assistant 消息都只计 `1`。普通域严格白名单为 `kind='regular'` + 顶层 + 非 cron + 非 incognito + 无 `channel_conversations` 绑定，项目会话包含；Knowledge / 未来 Design 等专属空间必须使用独立 `SessionKind`，从而默认排除。只有聊天主视图已选中、窗口聚焦、document 可见且消息列表在最新位置时，当前会话才可从显示聚合排除 / 自动推进水位线，**仅有 currentSessionId 或组件仍挂载不等于已读**。SQL 资格必须复用 `regular_session_scope_sql` / `regular_unread_exists_sql`，Project rollup、全局 aggregate、定位与 mark-all 禁止另写漂移版本；全局角标必须查全库，禁止对 sidebar 分页求和或在分页 Tab 上展示不完整数字。会话行显示点，项目 / 全局 / Dock 显示未读会话数，tray 只显示有无红点；Cron 与 IM 各自独立，普通“全部已读”不得清它们。assistant 落库 / 水位线变化发 `session:unread_changed`，payload 的 `domain=regular|channel|cron` 只作精准失效提示，前端仍重查权威值
-- **API-Round 分组**：assistant + tool_result 通过 `_oc_round` 元数据成对，压缩切割对齐 round 边界；API 调用前 `prepare_messages_for_api()` 剥离元数据
-- **前台 idle guard 单一入口**：前台 turn 的忙/闲标记（`ChatSessionGuard` → `ACTIVE_CHAT_SESSIONS`，后台任务 / subagent 完成注入靠它「忙时排队、空闲再注入」）在 `run_chat_engine` 入口按 `ChatSource::holds_foreground_idle_guard()`（Desktop / Http / Channel）统一创建；ACP 直跑 `AssistantAgent::chat`、在其 turn 边界自建。`ParentInjection`（注入自身会自取消）/ `Subagent`（独立子会话）排除。**新增对话入口不得再各自手搓 per-shell guard**——Tauri 壳保留一个更早的 guard 仅为「用户发消息即取消在途注入」，靠引用计数与引擎 guard 安全重叠
-
-### 上下文压缩
-
-详见 [`context-compact.md`](docs/architecture/context-compact.md)。
-
-- 5 层渐进式 + `ContextEngine` / `CompactionProvider` trait 可插拔
-- `compact.cacheTtlSecs`（默认见 `default_cache_ttl_secs`）节流 Tier 2+，使用率达紧急阈值（见 `CACHE_TTL_EMERGENCY_RATIO`）强制覆盖
-- 反应式微压缩：每轮末尾使用率 ≥ `reactiveTriggerRatio`（默认见 `default_reactive_trigger_ratio`）触发 Tier 0 清旧 tool 结果（cache-safe）
-- Tier 3 摘要后自动注入最近 write/edit/apply_patch 的文件当前内容（上限见 `default_recovery_max_files` / `default_recovery_max_file_bytes`）
-
-### Memory
-
-详见 [`memory.md`](docs/architecture/memory.md)；下一代 Dreaming（结构化 claim 层 / Deep resolver / Memory Profile / Context Pack 注入 / Lucid Review / 确定性评测）的完整架构见 [`dreaming.md`](docs/architecture/dreaming.md)。
-
-- **优先级**：Project > Agent > Global，唯一入口 `effective_memory_budget(agent, global)`；预算只约束 Core system prompt 注入（以及完整 V1 rollback 的 legacy 静态段），`recall_memory` / `memory_get` 工具返回完整原文
-- **项目自动记忆与 SQLite Project scope 分离**：`~/.hope-agent/projects/{projectId}/memory/MEMORY.md` 是有界稳定索引（上限见 `CORE_INDEX_MAX_LINES` / `CORE_INDEX_MAX_BYTES`），主题 `*.md` 只通过 `project_memory` 按需读；项目指令仍是显式固定规则，SQLite Project memory 默认不静态注入，只走显式开启的 V2 Fast/Deep Recall 或 Memory tools。主题正文变化不得改变稳定前缀，只有索引元数据变化才合理 bust cache；全局 memory off / agent memory off / incognito / 非项目会话必须在 schema 与执行层 fail closed。索引注入前必须 XML text escape；所有读写拒绝 project/memory/topic symlink 与 canonical escape；变更持有项目级 OS 独占锁；已有主题更新 / 删除必须携带最近一次 `read` 返回的 raw-file BLAKE3 `expectedFileHash`，陈旧写 fail closed。
-- **Cache 边界**：eligible 的 `CoreMemorySnapshot` 属于会话固定的稳定 prefix；自动 Fast/Deep Recall、按需 Profile / Procedure 与 Awareness 等 turn-dependent 内容各走稳定前缀之后的动态 block，不得重新拼写或更新 Core system string
-- **Dreaming 默认注入边界**：V2 默认不把 Pinned Claims / Profile / legacy SQLite memory 静态塞入 system prompt；claim 仅在用户显式允许自动召回且 `memory.recall.includeClaims=true` 时进入动态候选。只有完整 V1 rollback / `compatibility.legacyStaticMemory=true` 才恢复 `## Pinned Memory` Context Pack；此时 claim 内容进 prompt 前必须 `sanitize_for_prompt`，Profile / Pinned 与 legacy 共用 `effective_memory_budget`（Core > Pinned > Profile+legacy）
-- **legacy dedup 红线**：仅当旧 Context Pack / 静态 SQLite 段恢复时，被 active managed claim 覆盖的 legacy memory 才经单一来源 `covered_by_active_claim_memory_ids` 从 `# Memory` 段排除——**去重阈值必须对齐 Pinned 注入阈值 `PINNED_MIN_SALIENCE`（`context_pack.rs` 单一来源常量），dedup 永不比注入更激进**，否则中等 salience（`[0.5,0.7)`）claim 的影子记忆既被踢出 legacy、又够不到 Pinned = 无 prompt 出口；`user_pinned` link / `memories.pinned=1` 豁免
-- **Deep Resolver 自动裁决红线**：Light 后可跑确定性过期 + 有界 graph-first LLM sweep（默认组数见 `default_auto_resolve_max_groups`）。已知多值谓词先 graph-noop；自动冲突仅在高置信时写 `needs_review`，**永不自动 supersede**；自动 near-duplicate merge 除高置信外还必须有 alias 图边或词法阈值二次佐证。低置信 / 未知 relation / LLM 失败均 no-op。claim / 图谱文本进 prompt 前 sanitize，rationale 落库前脱敏限长；改动分组 / 基数规则 / 自动决策映射时必须更新 `auto_resolver_graph_planning` fixture 或保既有绿
-- **Memory UX v2 自动召回**：全局 `memory.recall.enabled` 默认关；关闭时只自动使用 Core，但模型仍可按需调用 Memory tools。用户显式开启后运行零 LLM 的 Fast Recall，`memory.recall.includeClaims`（默认 true）决定是否纳入 effective-active claims，过期 / superseded / archived / needs_review 不回灌；Deep Recall 独立默认关。旧 `ActiveMemoryConfig.enabled/include_claims` 只保留一个 minor 的 per-agent 兼容 / V1 rollback 语义，不得迁移成全局同意；incognito 全链归零
-- **Lucid Review 用户纠错闭环**：唯一编排入口 `claims::review`——`update_claim`（PATCH 语义：edit / status / move scope / pin-unpin）+ `forget_claim`（archive / permanent）；decision-type 由 `resolve_update` 纯函数从 diff 派生。**红线**：① 每个用户操作落 `dreaming::record_user_action`（完成态 run + 单 decision）；② approve/edit/reject/expire/move_scope 写最高权重 `manual_correction` evidence，pin/unpin/flag 不写；③ content 变更后 `reembed_claim` 使下一轮召回反映新文本；④ forget archive 翻 `archived` + link 转 `managed` + 仅独管的 memory `pinned=0`，permanent 删 claim 图谱 + 仅独管的 orphan memory；⑤ 发 `memory:claim_changed`。owner 平面 `claim_update` / `claim_forget`（对齐 HTTP `PATCH /api/claims/{id}` / `POST /api/claims/{id}/forget`，本机 / API key 信任）**无 agent 工具面**——claim 纠错只对用户开放，模型不能自改
-- **确定性评测**：`memory/dreaming/eval.rs` + `evals/suites/memory-dreaming/fixtures/*.json` 由独立 `hope-agent-eval` 运行（**无 LLM、不进默认 Cargo test**），只测安全红线：作用域隔离 / 过期抑制 / 证据可追溯 / 冲突进待审 / legacy-sync 隐藏 / 证据 fail-closed。**契约**：改动 claim 读路径 / effective-status / hidden-set / scope 过滤 / evidence 授权时，须加 fixture case、提升 suite version，并保专项评测绿
-- **专项评测版本与网络边界**：`evals/version-lock.json` 已有 `id@version` 只许保留原 digest，新内容必须提升版本并追加 key；PR 的 Rust fmt job 对比 base SHA 强制 append-only。GitHub capability eval 的 case 必须在仅 loopback 的 Linux network namespace 中运行，单设环境变量不能作为 `networkPolicy=deny` 证据；App 晋升 `eval_candidate` 必须同时登记 manifest、提升 suite patch version 并追加 lock，任一步失败不得标记 `promoted`
-- **真实模型评测边界**：`evals/live/version-lock.json` 同样 append-only；manifest 只允许注册 adapter / verifier / fault 枚举，禁止 shell。`EvalRunContext` 只在 `HA_MODEL_EVAL_MODE=1` 接受，新增 Goal / Workflow / Async / Agent 执行边界必须传播身份并关闭 guard。专用 Runner 的 Provider-only 外部防火墙才是网络边界，环境变量只能作为部署证明
-- **Retrieval Planner source fusion v2**：`role=injected/selected` 是既成 prompt 事实，跨源排序只能 canonical-dedup / 裁剪 `candidate/considered`，不得重排或丢弃已注入 ref。候选按 Project > Agent > Global、query intent、来源内 rank、score/confidence/salience 排序，origin/kind/id 稳定 tie-break；`memory.retrievalPlanner` 的 `maxTraceRefs` / `maxCandidatesPerOrigin`（钳值见 `RetrievalPlannerConfig::clamped`）只约束 trace 候选预算，不是权限或 prompt token 边界
-- **混合检索规模红线**：legacy / claim 共用 `adaptive_lexical_rrf_weights`，稀疏精确词法命中不得被默认高权重向量挤出 Top-K；CJK / identifier 中段走可重建 trigram shadow，只有短 query / shadow 不可用才 bounded LIKE。claim FTS 必须让虚拟表作为 JOIN 驱动（当前 `CROSS JOIN`），禁止 broad status-first 计划；vec0 先 bounded KNN overfetch 后过滤，不足时保留 prefiltered correctness fallback。改动这些路径须跑 `pnpm memory:benchmark`，需要硬延迟门禁时加 `HA_MEMORY_BENCH_ENFORCE=1`
-- **会话级无痕（`sessions.incognito`）**：单一真相源；不注入 Memory / Active Memory / Awareness、跳过自动提取；**关闭即焚**（不进侧边栏 / 全局 FTS / Dashboard 统计）；**与 Project / IM Channel 互斥**。四旁路守卫红线（Epic E，全貌见 [`session.md`](docs/architecture/session.md#四旁路守卫epic-e)）：`is_session_incognito` fail-closed 三态；大工具结果落盘走内存、异步任务 **占位不 spool**；AllowAlways 经 `choose_scope` 强制内存 `Session` scope 绝不落盘；`session:purged` 焚盘 `tool_results/` + job 行/spool；异步注入与在途回合在会话已删/已焚时跳过
-
-### Knowledge Base（知识空间）
-
-详见 [`knowledge-base.md`](docs/architecture/knowledge-base.md)（实现 + 设计契约 D1–D14 决策账本 + 子系统全貌）。对外名「知识空间」（slogan：你的第二大脑），代码中性（模块 `knowledge/`、工具 `note_*`、作用域 `for_knowledge`）。**本节只列跨 PR 红线，实现细节 / 数据流 / 内部结构一律在架构文档**。
-
-- **两类存储分明（D9）**：注册表 + 访问绑定落 `sessions.db`（真相源）；`note/chunk/link/tag` + FTS5 + vec0 落 `~/.hope-agent/knowledge/index.db`（纯可重建缓存，删了从 `.md` 全量重建）。**笔记 = 真实 `.md` 文件，唯一真相源**
-- **访问默认 deny（D10 + WS8）**：唯一入口 `effective_kb_access`——incognito 归零 → IM 默认归零（除非账号级 `kbAccessOptIn` + 群聊 per-chat 确认 `kbAccessChats`，群内 `/kb`；查不到 / 不匹配 fail closed）→ `max(session_attach, project_attach)` → 滤 archived → 外部只读 root cap `read`。source / origin / channel 经 agent 真接线透传，**subagent 按 origin 血缘判定不洗权限**
-- **两鉴权平面物理隔离（D10）**：owner 平面（HTTP / Tauri，`service.rs`）= 本机 / API key 信任，看全部 KB **不经 attach**；agent 平面（`note_*` 工具）走 `effective_kb_access`。`/api/knowledge/{kb}/files/*` 纯 owner、无 session 参数 / 无 fallback
-- **作用域闭合 + 外部只读（D11 + WS7）**：所有读写经 `WorkspaceScope::for_knowledge`；**外部绑定 root 默认只读（桌面也拒），KB 级 `allow_external_writes` opt-in 才解锁外部写**；HTTP 写再叠 `allow_remote_writes`。**后台自主维护永不写外部**（无视 opt-in）
-- **写盘原子 + stale-write guard**：所有笔记写经 `crate::platform::write_atomic`（temp+fsync+rename，**禁回退 `fs::write`**）；`expected_file_hash` 比**磁盘当前 raw BLAKE3**（不比索引 `content_hash`）；`note_patch` 走 `old/new` 唯一文本命中（0 / 多次都拒）。坐标系 D14 / resolve 确定性 #8 / chunk D12 / 图谱布局 J 细节见架构文档「写盘 / 坐标 / 解析 / 布局契约」节
-- **检索独立旗舰（D7）**：chunk FTS5 + vec0 → RRF → MMR → 回 note，**独立 store 绝不折进 `recall_memory`**；自有 `knowledge_embedding` selector（与 `memory_embedding` 物理隔离、不寄生不回退）；embedding / chunk 重 reindex 故 **GUI-only 不进 `ha-settings`**，纯查询期排序参数 `knowledge_search`（`search.rs::KnowledgeSearchConfig`，`clamped()` 钳值）走正常 MEDIUM
-- **会话感知访问单一入口**：`Agent::resolve_kb_access()`（`agent/mod.rs`）是 agent 侧唯一解析链（按回合 memoize），prompt 段 / 被动召回 / 工具门控三处共用，不得各自重写。**只服务 schema/prompt/召回，绝不 gate 执行**（执行走 live `access_map`）
-- **无 KB 不注入笔记工具**：`is_kb_scoped_tool`（`note_*` + `session_to_note`，**不含 `knowledge_recall`**）schema 构建后过滤——纯 UX / 省 token，**不是安全边界**（执行层兜底）；「# Knowledge Bases」prompt 段同理为空即省略
-- **读取即 untrusted**：`[[note]]` 注入 + 被动召回（`knowledge_passive_recall`，默认关）一律套 `<untrusted_external_data>` 信封、受 `effective_kb_access` 约束、**永不提升为 system 指令**；incognito 零召回、IM 未 opt-in 零访问
-- **`knowledge_recall` 工具（D7）**：一次查 memory + 笔记两 store，**两段独立排序不混排**，薄编排器**绝不折进 / 改动 `recall_memory`**
-- **外部 vault 实时同步（D6）**：`notify` watcher（per-KB 线程 + debounce）+ bind / 启动 reconcile（mtime 增量 + prune）
-- **侧边栏 AI 对话面板**：`kind='knowledge'` 会话，**从主会话列表 / `/sessions` / 全局 FTS 隐藏**；锚定落 `knowledge_chat_threads`（D9，级联删）。复用主对话 `useChatStream`（新增可选 prop，主对话不传 = 行为不变）
-- **工具精简 `ToolScope::Knowledge`（与 D10 正交）**：仅 schema/prompt 可见性收窄到白名单，**绝不动 KB 访问**——访问仍由 `effective_kb_access` 单点裁决
-- **精灵 / 灵感模式（crate 级 `sprite/`，默认关）**：前端多触发源 → owner 命令 `kb_sprite_observe_cmd` → 后端节流 + side_query → emit `sprite:casting` / `sprite:suggestion` → 前端瞬态展示。**incognito 零精灵**（前后端双关卡）。非 agent 工具，设置三件套（MEDIUM）
-- **自主维护（Layer 2，默认全关）**：后台扫内部 KB 产提案进 `sessions.db`（D9，级联删）；落地经 owner 平面（用户已批准故**绕 D10**，但写前重读磁盘 hash 守 stale-write + 跳外部只读）；`ha-settings` 归 **HIGH**
-- **块级引用（仅 Obsidian `^block-id`，Logseq 不做）/ 原生大纲只读视图**：见架构文档；大纲红线**只读、永不替代 CM6 底座**
-- **新增 KB 工具 / 端点**：工具走 `tools/note.rs` + `core_tools.rs` + `execution.rs`；Tauri / HTTP owner 薄壳调 `knowledge::service`；逻辑全在 ha-core（红线）
-
-### 设计空间（Design Space）
-
-详见 [`design-space.md`](docs/architecture/design-space.md)（架构）。对外名「设计空间」（侧边栏「知识空间」正下方），代码标识 `design`（模块 `design/`、agent 工具 `design`、库 `design.db`、视图 `DesignView`）。**本节只列跨 PR 红线，实现细节一律在架构文档**。
-
-- **编译只在后端 / 浏览器零编译（红线，精修自「轻量自包含 HTML」）**：产物 iframe 只加载**已编译落盘的静态产物**，**浏览器端零编译 / 零打包 / 零 JIT**（不引 in-browser Babel / esbuild-wasm / Tailwind JIT——这是旧版 `feat/atelier` 白屏卡顿被推倒重做的根因）。9 个静态 kind（web/mobile/deck/dashboard/poster/document/email/image/motion）+ audio 是纯自包含 HTML；**`component`（交互式 React）kind 走 `design::compile`（纯 Rust `oxc`，进程内编译 JSX/TSX→JS）在 ha-core 后端编译一次**，内联 vendored React 18 UMD（`design/assets/`，锁版本、零网络）+ 编译产物落成静态 `index.html`。**编译失败必降级为静态错误页 / 占位，绝不白屏 / 绝不后端 panic**。Component 编译产物 ≠ 源码故**不支持 oid 可视化微调**（微调仍只归 9 静态 kind）
-- **产物墙非画布（红线）**：主编辑面是产物库缩略图墙 + 单产物稳定 iframe 预览（纯 CSS 缩放），**刻意不做无限画布**（旧版卡顿之源）
-- **可视化微调确定性回写**：纯 HTML → 渲染期注入 `data-ds-oid` + 产出 oidmap（映射源码字节范围），`patch::apply_{style,text}_patch` 走单一命中 + `expected_hash`（磁盘 body BLAKE3）stale-write 守卫；预览态注入 dormant inspector bridge（收 `ds_activate` 才启用），**导出态 `editable=false` 不注入 bridge/oid**（干净产物）
-- **文件即真相源**：产物 `index.html`/`source/`/`versions/`、设计系统 `SYSTEM.md`/`tokens.json` 都是磁盘真实文件；`design.db` 是可重建元数据注册表
-- **内置设计系统两类**：6 套**原创原型语言**（`system.rs::builtins`）+ 一批**品牌风格参考**（`brands.rs` 种子 → `system::expand` 展开为完整 token 契约，对各品牌公开视觉语言的独立再诠释；`build_system_md` 对 `brand_ref=Some(..)` 渲染时**必附免责声明**、非官方）；token 编译注入产物 `:root`，产物 CSS 引用 `var(--ds-*)`
-- **两鉴权平面**：owner 平面（Tauri/HTTP `service.rs`）本机/API key 信任、不经 access 检查；agent 平面（`design` 工具）；写盘走 `platform::write_atomic`，静态托管三闸（id 白名单 + `validate_safe_rest_path` + `contained_canonical`），iframe `sandbox="allow-scripts"`
-- **设置三件套**：`AppConfig.design`（MEDIUM，含 `auto_critique` 成本项）+ `DesignSettingsPanel`（Tools 设置页 tab）+ `ha-settings` `design` category + SKILL.md 登记
-- **每项目 AI 对话（对话改写主入口，复用主对话栈）**：设计视图左栏内嵌 `DesignChatPanel`（`useDesignChat` + 复用 `useChatStream`/`ChatInput`/`MessageList`，同知识空间 `KnowledgeChatPanel` 模式）。会话 = `SessionKind::Design`（从主侧栏/`/sessions`/全局 FTS 隐藏，与 knowledge 同谓词）经 `design_chat_threads`（sessions.db，无跨库 FK）锚到设计项目；`chat` 命令 `tool_scope=design` 新会话提升为 thread（Tauri+HTTP 双写，镜像 KB 分支）。`ToolScope::Design` 白名单收窄注入工具面（`design` + 参考检索 + 框架基础），**纯 schema 可见性、非安全边界**。`design` 工具经 `threads::project_for_session` 从锚定会话解析项目；面板每轮注入当前打开产物为 `<design_context>` 让「改这个」落到正确产物。**incognito 零对话**（design 工具在无痕会话 fail-closed）
-- **发现问卷 + 视觉风格卡（走 `ask_user_question` 扩展）**：设计 Agent 在**需求不清时**先弹结构化发现问卷、**需要定视觉方向时**弹 `direction-cards` 风格卡（选项带调色板/字体/气质/参考），需求写清则直接开做——行为写在 `design` 工具描述里。前端经 `useAskUserPending` 把 `ask_user_question` 接进设计对话（`useDesignChat` → `DesignChatPanel` 传 `askUserVariant="design"` → `MessageList`）。**红线见上「ask_user_question」条**：扩展非 fork、答案走 `selected[]`、富卡仅设计对话渲染其余降级。**首页不再有静态「补充简报」表单**（已删，需求补全交给对话按需追问）
-- **小改就地精改红线**：agent 改已有产物走 `get_artifact`（回 oid 标注源）→ `edit_element(oid)`（复用确定性 `patch_element`、保留其它一切），**绝不为小改 `update_artifact` 整段重造、绝不 `web_fetch`/浏览产物读它**（实测：看不到内容→抓产物失败→凭记忆重造→抹空整页）；仅 `supports_oid_edit` kind（非 image/audio/component）可 `edit_element`；批注带到对话即带 `oid`。详见 [`design-space.md`](docs/architecture/design-space.md) §8
-- **新增 design 工具 action / 端点**：工具全在 `tools/design/mod.rs`（复用 `design::service`）；owner 薄壳 Tauri `commands/design.rs` + HTTP `routes/design.rs`，逻辑全在 ha-core（红线）
-
-### Agent 控制平面 / 通用场景
-
-详见 [`goal.md`](docs/architecture/goal.md) / [`workflow.md`](docs/architecture/workflow.md) / [`loop.md`](docs/architecture/loop.md) / [`context-retrieval.md`](docs/architecture/context-retrieval.md) / [`domain-workflow.md`](docs/architecture/domain-workflow.md) / [`domain-quality.md`](docs/architecture/domain-quality.md) / [`domain-eval.md`](docs/architecture/domain-eval.md)。
-
-- **语义分层**：`/goal` 定义最终目标和完成标准；`/mode` 定义推进强度；`/workflow` 执行一次可观察、可恢复、可审批的动态脚本；`/task` 展示用户可见进度；`/loop` 复用 Cron 可靠调度重复触发；`/worktree` 隔离 coding 改动。新增功能必须落在正确控制面，禁止把持续触发伪装成 workflow，或把一次性脚本伪装成 loop。
-- **Domain Workflow 不是权限**：`domain_workflow_templates` 只描述 required evidence、approval gates、verification policy、stop conditions 和 output contract；`preview_domain_workflow` 只生成 `workflow.js` draft + Script Gate / permission preview，不创建 run、不执行、不访问连接器、不发送或修改外部系统。
-- **General Evidence 是一等证据**：非 coding 任务用 `domain_evidence_items` + Goal link 表达 `source_cited` / `claim_checked` / `user_decision` / `artifact_reviewed` / `data_quality_checked` 等关系，禁止伪装成 diff / validation / file evidence。
-- **Domain Quality 只做复核事实**：`domain_quality_runs/checks/events` 基于 template、evidence 和输入 metadata 做确定性 review / verification；高风险动作只有在 `requestedAction` 命中 approval gate 或 `highRiskAction=true` 时才 `needs_user`，缺确认 fail closed 并阻塞 Goal；模块自身不访问连接器、不发送、不发布、不学习成正式规则。
-- **Domain Learning 只能产草稿**：Phase 7.5 的通用 proposal 复用 Coding Improvement queue，`domain_workflow_template` / `domain_guidance` / `domain_review_profile` / `domain_eval_case` / `connector_usage_pattern` 必须经过 preview → apply draft → explicit promotion，不能直接改生产模板、AGENTS、connector 策略或 eval fixture。
-- **Domain Eval 与 coding benchmark 分离**：`domain_eval_runs` 只读 Goal / Workflow / Domain Evidence / Domain Quality trace 做 deterministic scoring；`evaluate_domain_quality_gate` 只读通用领域历史，输出 `passed|failed|insufficient_data`。不得混用 `coding_eval_runs`、不得用 coding release gate 代替 general domain quality gate。
-- **通用场景同样守无痕**：Domain Workflow preview / evidence、Domain Quality run、Domain Eval run/gate 遇 incognito session 必须 fail closed 或返回空只读结果，不落 durable 数据。
-
-### 工具 & 审批
-
-详见 [`permission-system.md`](docs/architecture/permission-system.md) / [`tool-system.md`](docs/architecture/tool-system.md) / [`sandbox.md`](docs/architecture/sandbox.md) / [`browser.md`](docs/architecture/browser.md)（浏览器 8-action 表面 + 双 backend）。
-
-- **统一权限引擎 v2**：所有调用走 `permission::engine::resolve_async()`，优先级 **Plan > Internal > YOLO > Protected/Dangerous > AllowAlways > Sandbox soft allow > Session 模式 preset > 兜底 Allow**
-- **Session 模式三选一**：`default | smart | yolo`，`PermissionModeSwitcher` / `/permission` 切换；`AgentConfig.capabilities.default_session_permission_mode` 决定新会话初始 mode
-- **Smart 模式忽略 `custom_approval_tools`**——UI 必须显式提示
-- **保护路径 / 危险命令 / 编辑命令**：三独立列表，存 `~/.hope-agent/permission/*.json`；非 YOLO 模式强制弹窗（AllowAlways 按钮置灰），YOLO 只 `app_warn!` 不弹
-- **Global YOLO**：CLI flag `--dangerously-skip-all-approvals` 与 `permission.global_yolo` OR 组合；判定入口 `security::dangerous::is_dangerous_skip_active()`，**与 Plan Mode 正交**
-- **审批超时**：`approval_timeout_secs`（默认见 `default_approval_timeout_secs`，`0` 不限）+ `approval_timeout_action ∈ deny|proceed`。**strict 原因超时永不放行**（红线）：`proceed` 只对非 strict 生效；strict 原因（`forbids_allow_always`：保护路径 / 危险命令 / 高危 macOS 控制 / raw CDP / Plan-ask）超时强制 deny + `app_warn('permission','strict_timeout_deny')`。strict 判定单一真相源 `AskReason::forbids_allow_always`，`ApprovalReasonKind::is_strict()` 镜像（穷举单测断言一致）。超时另发统一 `approval:resolved`（`source=timeout_deny|timeout_proceed`）撤窗
-- **审批授权来源审计**：每个后台 job 的 `background_jobs.approval_origin` 列记录授权方式（`ApprovalOrigin`：user / timeout_proceed / unattended_proceed / yolo / auto_approve / external_pre_approved / policy_allow），由审批闸单点算出写入 spawn ctx（exec + 非 exec 全覆盖）
-- **无人值守审批 fail-closed**（[`permission::approval_surface`](crates/ha-core/src/permission/approval_surface.rs)）：审批阻塞前经单一入口 `check_and_request_approval` 预检 `evaluate_approval_surface(session_id)`——确证无人能批（cron `is_cron` / 无客户端 headless + 无 IM attach / ACP 无 capability / subagent 无父 surface，**含 cron 起的 subagent → `Unattended(Cron)`，C03：子链 root 为 cron 时在 desktop 短路前判**）时按 `permission.unattended_approval_action ∈ deny(默认)|proceed` 处理：deny → `ToolRejection::denied_unattended` 即时拒绝(不再永久挂死)、proceed → 自动放行；emit `approval:unattended` 事件。**保守红线**：任何可能 surface(desktop 窗口 / web 客户端 / IM)即 Attended,唯 cron 例外。判 ACP 必须用 `is_acp()` 非 `ChatSource`(ACP 复用 Http)
-- **浏览器扩展后端 + raw CDP 红线**（详见 [`browser.md`](docs/architecture/browser.md)）：可选 Chrome 扩展后端（MV3 + native messaging broker，`ExtensionBackend` 与隔离 `CdpBackend` 并列实现 `BrowserBackend`），由 `browser.backendPreference`（`extension_first` 默认 / `cdp_only` / `extension_only`）选择，驱动用户已登录的真实 Chrome（含全部 cookie / 会话）。**`control.raw_cdp` 是 strict**：`AskReason::BrowserRawCdp` ∈ `forbids_allow_always`（`ApprovalReasonKind::is_strict()` 镜像），引擎在 `allows_tool_call` **之前**拦截——AllowAlways 规则与 smart 自信都绕不过，**每次调用都审批、永无 Allow Always**。叠加方法黑名单（`BLOCKED_RAW_CDP_METHODS`：`Network.*Cookie*` / `Page.getCookies` 等，因 `Network.` 不在域前缀黑名单）+ 域前缀黑名单 + `Runtime.evaluate` / `callFunctionOn` 走 `security::ssrf::check_url` 扫描。**硬开关 `browser.extension.allow_raw_cdp`**（默认 `true`，置 `false` 在 `control_raw_cdp` 直接拒绝，agent 完全发不出 raw CDP）。`browser` settings category 归 **HIGH**（GUI BrowserPanel「高级」段 + `ha-settings` 可读写、无凭据子字段）
-- **Agent 工具开关**：`AgentConfig.capabilities.tools.allow/deny` 仅表示非 Core 工具的显式开 / 关覆盖；Core 工具不受影响。system_prompt / schemas / tool_search / 执行层统一走 `dispatch::resolve_tool_fate`
-- **工具结果磁盘持久化**：> `toolResultDiskThreshold`（默认 50KB）写盘，上下文留 head+tail 预览
-- **后台任务统一模型**（详见 [`background-jobs.md`](docs/architecture/background-jobs.md)，本组只列红线）：表/文件 `background_jobs`（`JobKind = Tool | Subagent | Group`）+ **单一入口 `async_jobs::JobManager`**——新增后台单元一律加 `JobManager` 方法、**禁起平行 API**。命名分裂（历史契约勿改）：模块名 / log category 是 `async_jobs`，DB 是 `background_jobs`（诊断按 `category='async_jobs'` grep）；EventBus 走 `job:*`（kind-tagged + `session_id`，`subagent` kind 沿用更丰富的 `subagent:*` 不双发）；统一取消 `RuntimeTaskKind::AsyncJob`
-- **异步 Tool 执行**：`exec` / `browser` / `web_search` / `image_generate` / `audio_generate` 标 `async_capable=true`；`job_status` 多作业面（`action ∈ status|list|wait|cancel|result`，`tool_job_status(args, session_id)`，`wait` clamp ≤10s 回 `still_running`）。**长 fan-out 等齐的正道是注入而非 `wait`**（Group 等齐后合并注入一轮）
-- **两层硬配额（R7.1，`async_jobs::slots`）**：全局 `async_tools.max_concurrent_jobs`（默认见 `default_async_max_concurrent_jobs`，`0`=不限）+ 每会话 `max_concurrent_jobs_per_session`（默认见 `default_async_max_concurrent_jobs_per_session`、恒 < 全局、`0`=不限）；`reserve_inner` 两层都要有空位才发 `SlotReservation`，否则**入队**（`Queued`，非拒绝），`pick_fair_index` 跳过已达每会话上限的会话；auto-bg detach 经 `reserve_forced` 强占槽可短暂超 cap。**调度器 / 队列 per-process**（队列持不可持久化 live ctx，与 `replay_pending_jobs` 的 Primary-only 相反）。**per-kind 双域分治勿合并**：tool 池在此，后台 subagent 池在 `subagent::queue`（R7.2，详见 [`subagent.md`](docs/architecture/subagent.md)），结构类（depth/batch/turn）拒绝不排队
-- **后台 job 重试（R7.4，`async_jobs::retry`）**：默认关（opt-in）；纯策略 `decide()` 仅对 `JobError::Failed` + **代码级白名单 `is_retry_eligible` = `web_search`/`web_fetch`**（非用户旋钮）重投，`exec`/`image_generate`/`audio_generate` 及 `Cancelled`/`DeniedByUser`/`TimedOut` 永不重投；`max_job_secs` 是 **per-attempt** 预算、`max_attempts` 钳 10。**新增 async_capable 工具若有副作用或计费，务必不进 `is_retry_eligible`**
-- **后台 exec 审批 park（R8，`async_jobs::approval_bridge`）**：显式后台 exec 命令 gate 落到 job 线程，经 thread-local 桥翻 `Running⇄AwaitingApproval`（桥定义在 `tools::approval`、**tools 零依赖 async_jobs**）；批准续跑、拒绝/超时-deny 终态 `DeniedByUser`、unattended/strict 仍 fail-closed deny **不 park**。**parked 持槽不释放**（防 resume 无空槽死锁）、**job 预算 timer 排除 parked 时长**（`parked_budget_extension`，守 ASYNC-2）、重启 parked→`Interrupted`。后台 subagent 内层审批改由 `approval_projection_watcher`（EventBus）补投影 label——**纯 label、绝不 gate 执行**（gotcha：`approval_required.session_id` snake vs `approval:resolved.sessionId` camel，两者都认）
-- **运行中输出尾巴 `output_tail`（R3①，`async_jobs::output_tail`）**：后台 exec 的 stdout/stderr tee 进进程本地有界 ring，`job_status(status)` 返回。**加法式**：仅 `ctx.output_tail_job_id` 为 Some（exec + 非 incognito）才走，cap 起跑快照（读时钳 `[256,1MB]`，默认见 `default_async_output_tail_bytes`）；**incognito 永不注册**
-- **完成注入合并窗口（R4）**：`async_tools.completionMergeWindowSecs`（默认见 `default_async_completion_merge_window_secs`，`0`=关）缓冲同会话多 tool job 合并一条 `<task-notification-batch>` 一轮注入。**恰好一次**：ghost-turn 闸 + 逐 job claim/release + `on_injected` 逐行恰好一次；崩溃靠 `replay_pending_jobs`（Primary-only）各自补投不合并；Group 预合并绕过。owner 面板读 `list_session_snapshots`→`BackgroundJobSnapshot`（Tauri `list_background_jobs` / HTTP `GET /api/sessions/{id}/background-jobs`、`/api/background-jobs/{id}`），取消复用 `cancel_runtime_task(kind=AsyncJob)`、不新增端点
-- **配置 `AsyncToolsConfig`（`async_tools`，MEDIUM，GUI `save_async_tools_config`）**：默认值单一来源 `impl Default`，读时钳安全 band。**`0` 语义红线**：`max_concurrent_jobs` / `_per_session` 的 `0` = 真不限；其余 bounded-resource 旁钮（`output_tail_bytes` `[256,1MB]`、`max_queued_jobs` `[1,4096]`、`wakeup_max_delay_secs` `[10s,7d]`、`wakeup_max_pending_per_session` `[1,100]`）的 `0` 一律钳到地板、**绝非无限**
-- **SSRF 统一策略**：出站 HTTP 必须走 `security::ssrf::check_url`；**新出站入口严禁自写 IP 校验**
-- **媒体生成统一栈（`media_gen/`，详见 [`media-generation.md`](docs/architecture/media-generation.md)）**：图/音生成走「服务商→多模型→功能默认链」统一配置（`AppConfig.media_gen`，取代旧 `image_generate`/`audio_generate` 固定槽位，无迁移）；聊天 `image_generate`/`audio_generate` 工具与 design 图/音路径**必须走 `media_gen::execute_image/execute_audio` 统一执行器**（解析/能力校验/failover/记账单点），禁止各写 provider 循环；provider 凭据只在 owner UI 可写（ha-settings `media_generation` 只放行 chains/defaults）
-- **文件 Diff 元数据**：`write` / `edit` / `apply_patch` / `read` 通过 `ToolExecContext.metadata_sink` 旁路传出 JSON；持久化到 `messages.tool_metadata` 列；前端右侧 `DiffPanel` 渲染（与 PlanPanel / CanvasPanel 视觉互斥）
-- **工作台面板（Workspace）**：右侧互斥面板（`src/components/chat/workspace/`），聚合任务进度 / 文件（读+改）/ URL 来源。**`useWorkspaceArtifacts` 混合数据**：后端读时聚合（[`session::aggregate_session_artifacts`](crates/ha-core/src/session/artifacts.rs)，只回摘要、每段最近 1000 封顶）+ 当前轮 live tail（带结构化 diff）。**红线**：聚合 dedup/排序规则 TS（live）+ Rust（后端）两份必须同步（注释互指）；**无痕会话跳后端、只用 live tail**（守关闭即焚）
-- **文件操作统一**（详见 [`file-operations.md`](docs/architecture/file-operations.md)）：Markdown 链接 / 下挂文件 / 工作台产物三处**禁止各写 open/download**，统一走 `src/components/chat/files/` 的纯策略 [`fileActions.ts`](src/lib/fileActions.ts)（按 `fileKind` × `supportsLocalFileOps()` 决议）。矩阵：可预览类型→右侧 `FilePreviewPane` 预览、其余本机=打开 / 远端=下载（新增可预览类型改 [`fileKind.ts`](src/lib/fileKind.ts) 的 `isPreviewableKind`）。office 走前端富渲染、失败回退后端 `extractDoc`（**LLM 注入路径 `file_extract` 不受影响**）；文件图标统一走 [`FileTypeIcon`](src/components/icons/FileTypeIcon.tsx)
-- **preview-by-path 鉴权红线**：按绝对路径读取/提取/取流（Tauri `preview_read_text` / `preview_extract`；HTTP `GET /api/sessions/{id}/files/{read,extract,by-path}`）。HTTP 三端点共用 [`authorized_canonical_file_path`](crates/ha-server/src/routes/sessions.rs)（**被会话 tool 消息引用 ∪ 落在会话工作目录内**），二者皆非的主机任意路径一律 403——**远端严禁放行任意主机路径**（= 远程任意文件读）；桌面信任本机
-
-### Hooks
-
-详见 [`hooks.md`](docs/architecture/hooks.md)（hooks 子系统单一真相源：28 事件矩阵 / 数据流 / 5 handler / 四层 scope / 安全 / 测试 / Roadmap）。
-
-- **字段级对齐 Claude Code hooks 协议**；核心全在 `ha-core::hooks`（**零 Tauri 依赖**），desktop / server / ACP 共用
-- **唯一入口 `HookDispatcher::dispatch(event, input)`** + `hooks::fire_*` 助手（内部封装 scope 解析 / matcher / 并发隔离 / 去重 / 超时 / 聚合）；**严禁在业务代码里 match 具体 handler 类型**
-- **28 事件**：24 真触发（阻断型 `UserPromptSubmit`/`PreToolUse`/`PreCompact` + 21 观察型）+ 4 协议保留（无对应概念、不 dispatch）。`is_observation_only` 事件的 `block` 决策降级为非阻断 + log
-- **5 种 handler 全实现**：`command` / `http`（SSRF-gated）/ `mcp_tool` / `prompt`（side-query）/ `agent`（spawn 子 Agent）
-- **四层 scope UNION**（无覆盖）：user + managed 编进全局 registry；project + local 按会话工作目录经 [`scopes::resolve_for_cwd`](crates/ha-core/src/hooks/scopes.rs) 合并。**project/local 默认关**（`hooks_allow_project_scope` opt-in，默认 `false`——供应链防护，`ha-settings` 只读）；`disable_all_hooks` 关所有 scope
-- **配置走 config contract**：读 `cached_config().hooks`，user scope 写 `mutate_config(("hooks", source), …)`。**`ha-settings` 技能只读 hooks**（写被 `BLOCKED_UPDATE_CATEGORIES` 拦截——可写 = 模型给自己装命令执行）
-- **四入口统一 preflight**：Tauri / HTTP / IM / ACP 的 user message 持久化前过 [`agent::preflight::user_prompt_preflight`](crates/ha-core/src/agent/preflight.rs)（`UserPromptSubmit` 阻断点）；**新增 user message 入口必须走它**。block 的 prompt 不入会话/LLM 上下文，落一条 `event` 行
-- **新增 hook 事件须埋点 + 测试**：阻断型构造 `HookInput` 调 `dispatch`，观察型走 `hooks::fire_*`；新事件须同步更新 `types.rs` 的 `common()`/`matcher_target()`/`is_observation_only()` 三处 match；审计统一 `category="hooks"`
-
-### Plan Mode
-
-详见 [`plan-mode.md`](docs/architecture/plan-mode.md)。
-
-- **5 状态机**：`Off / Planning / Review / Executing / Completed`，**没有 Paused**——挂起就 `/plan exit`
-- **进入永远由用户拍板**：UI 按钮 / `/plan enter` / `set_plan_mode` Tauri / HTTP 是用户主动入口直接转 state；模型用 `enter_plan_mode` 工具走 `ask_user_question` Yes/No 审批，**模型不能自己转 state**
-- **plan = 设计契约**（自由 markdown，存 `~/.hope-agent/plans/<agent>/<session>/`）；**task = 唯一进度真相**（`task_create` / `task_update` 三态）；**执行期不改 plan 文件**
-- **Plan 完成自动转 Completed**：plan 期 task 全部终态时 `maybe_complete_plan` 收尾，按 `PlanMeta.executing_started_at` 切片避免误触发
-- **git checkpoint**：审批转 Executing 时建，`Completed` / `Off` 时清（`Completed` 须显式清 `meta.checkpoint_ref`）
-- **Plan 执行层兜底**：`resolve_tool_permission` 入口加 live state fallback，防 mid-turn 调 `enter_plan_mode` 后剩余工具绕过
-
-### Skill 系统
-
-详见 [`skill-system.md`](docs/architecture/skill-system.md)。
-
-- **优先级**：bundled < extra < managed < project
-- **内置技能编译嵌入二进制**（`skills/embedded.rs`，运行期按内容 hash 解压到 `~/.hope-agent/bundled-skills/`）：桌面 / Docker / bare binary 统一携带；**禁止再往构建产物单独拷贝 `skills/`**（Tauri `bundle.resources` / Dockerfile runtime COPY+env / exe 旁目录探测均已退役）
-- **激活入口**：`skill({name, args?})` 工具（`internal + always_load`）；斜杠 `/skillname args` 内联走 `[SYSTEM: ...]` + `display_text`（**当前未应用 `allowed-tools` / `check_requirements`**）；输入框 `@skill` 提及（markdown 链接 token `[@标签](#skill:<name>)`）由后端 send-time 注入到 `extra_system_context`（与 `[[note]]` 平行）
-- **`@skill` 固定 allowlist + 链接 token（红线）**：`@skill` 只对**内置、固定**技能开放，非通用注入入口——`skills/mention.rs::AT_MENTIONABLE_SKILLS`（office 三件套 + `ha-browser` + `ha-mac-control`，后者 macOS-only）；`resolve_inline_skill_mentions` 扫 `[@…](#skill:<name>)` 链接 href、过 allowlist ∩ invocable ∩ OS，越界名静默跳过留原文。token 用 **markdown 链接**（标签本地化 + `#skill:` fragment href，不用 `skill://`——Streamdown 固定 sanitize 会剥自定义 scheme），输入框与历史**同一 token 渲染同一玫瑰粉 chip**（历史经 `MarkdownLink` 按 `#skill:` 派发 `SkillMentionChip`）。菜单走 `list_mentionable_skills`（Tauri / HTTP `GET /api/skills/mentionable`）；`enableSkillMention` 默认关、主对话 opt-in
-- **SKILL.md 字段**：`context: fork` 起子 session（可带 `agent:` / `effort:`）；`allowed-tools:` 白名单工具；`paths:` 条件激活默认不进 catalog；`status: active|draft|archived`，面向模型路径跳过非 active
-- **Draft 审核**：`skills::author` CRUD + Jaccard 模糊 patch（相似度阈值默认见 `FuzzyOpts::default`） + `security_scan`；`auto_review.enabled=true / promotion=draft` 等用户确认
-
-### MCP 客户端
-
-详见 [`mcp.md`](docs/architecture/mcp.md)。
-
-- 4 种 transport（stdio / Streamable HTTP / SSE / WebSocket），网络 transport 必须先过 SSRF 检查
-- 命名空间 `mcp__<server>__<tool>`；工具默认 eager 注入，单个 server opt-in `deferred_tools=true`（默认 `false`）才改走 `tool_search` 发现
-- OAuth 2.1 + PKCE 自实现（不用 `rmcp::auth_client`）；凭据 0600 落 `~/.hope-agent/credentials/mcp/{id}.json`
-- **配置读写 contract**：读 `cached_config().mcp_servers`；写 `mutate_config(("mcp.<op>", source), ...)`，`op ∈ add|update|remove|reorder|global|import`
-- handshake 401/403 → `ServerState::NeedsAuth`（避免 watchdog 死循环）
-
-### 平台 MCP 服务器（`hope-agent mcp`）
-
-详见 [`mcp-server.md`](docs/architecture/mcp-server.md)。**红线**：共享 host 在 `ha-core/src/mcp_server/`（`ToolProvider` 注册表），design 经 `design/mcp_provider.rs` 挂为首个 provider（**不做 provider 专属 host**）；默认只读、`--allow-writes` 才注册写集且 host 层 `!read_only && !allow_writes` 双保险拒；**恒不暴露** implement_to_code / 代码绑定写 / deploy / share / delete / export——外部 agent 不得经 MCP 写用户代码仓库、对外发布或删除；`mcp` 等 stdio interop 角色走 `acquire_or_secondary_for` **被动 Secondary**（永不争 runtime_lock Primary）；`knowledge-mcp` 已发布接口保持原样。
-
-### Subagent / Team / Cron
-
-详见 [`subagent.md`](docs/architecture/subagent.md) / [`agent-team.md`](docs/architecture/agent-team.md) / [`cron.md`](docs/architecture/cron.md)。
-
-- `subagent(action="spawn_and_wait")` 前台等待 `foreground_timeout`（默认见 `subagent.rs` 的 `action_spawn_and_wait`），超时自动转后台
-- **后台 subagent 投影进 Background Job（R6，单向）**：用户委派的后台 subagent run（排除 plan/team/hook 内部 spawn 与 incognito）在 `spawn_subagent` 建一条 `kind=Subagent` 投影，共享 `job_status` / 面板 / 取消。**`subagent_runs` 是执行真相源，投影绝不持有正文、绝不反写**；同步走单一 choke point `SessionDB::update_subagent_status`；取消路由到 `subagent::request_cancel_run`（**不跑工具 job 的 hook/注入**）。详见 [`background-jobs.md`](docs/architecture/background-jobs.md)
-- **`batch_spawn` = Group fan-out（R5，合并注入一轮）**：`kind=Group` 协调行关联 N 个子投影、抑制个体注入，全部子终态时单赢 CAS 发**一条**合并 `<task-notification>`（join-all-settle）。红线：**建 group 前预校验全部 task**（任一非法整体拒，否则漏交付）；**取消先标 group 终态再取消子 run**；group 行**绝不持有 run 正文**（join 真相读 `subagent_runs`）。详见 [`background-jobs.md`](docs/architecture/background-jobs.md)
-- Agent Team 模板 GUI 预配 + 模型按需发现；`TeamTemplateMember.description` 注入子 session 身份段
-- Cron `delivery_targets`：final assistant text fan-out 到 IM；IM 会话内未显式传时自动取当前会话，显式 `[]` 关闭
-- **Cron 时区（红线）**：`CronSchedule::Cron.timezone` 是 IANA 名、**真正生效**——`compute_next_cron` / 日历 `compute_occurrences` 同口径经 `schedule::parse_timezone`（`chrono_tz::Tz`）按该时区墙钟解释、DST-aware，再转 UTC 落库（`cron` 0.13 `after<Z:TimeZone>` 泛型）。**DST 秋退红线（C01）**：`compute_next_cron` 取 `.find(|dt| *dt > *after)` 而非裸 `.next()`——fall-back ambiguous 墙钟（如 01:30 出现两次）下 `cron` 下一个本地 occurrence 换算回 UTC 可能早于 `after`，裸 `.next()` 把过去时刻写进 `next_run_at` 叠加 `get_due_jobs(next_run_at<=now)` → 约 30 分钟窗口内每 tick 重复触发（已实测复现）；跳过非严格未来 occurrence 与 At/Every 的 `> after` 契约一致。校验单一真相源 `parse_timezone` / `validate_timezone`（`cron::validate_timezone` re-export），`parse_schedule` 创建/更新期非法名 `bail!`，**禁止静默回退 UTC**（静默回退正是旧 bug 隐形之因）。`At`/`Every` 无时区（时间戳自带 offset）。`CronDB::open` backfill 把 null 时区 Cron 行回填宿主时区（`iana-time-zone`）+ 重算 `next_run_at`，幂等、宿主不可检测则 no-op；**`cron_meta` sentinel `tz_backfill_done` 门控真·一次性（跑过即短路、不再每 boot 全表扫）——红线：`None` 时区双重语义（迁移前 legacy vs `parse_schedule`「Omit for UTC」故意 UTC），无 sentinel 则每次启动回填会把升级后新建的故意-UTC 任务静默改成宿主时区**；宿主不可检测时不写 sentinel（下次重试）。fire 时**非空但解析失败**的时区名回退 UTC 前 `app_warn`（不再静默；空/缺省仍是静默 UTC 默认）。前端 `CronJobForm` 仅 cron 类型显示 IANA 选择器、默认浏览器时区
-- **Cron 对话集中展示 + 未读聚合**：cron 运行会话（`is_cron=1`）**不再进主侧边栏会话列表 / 搜索**——`list_sessions_paged_for_sidebar` 加 `exclude_cron` 谓词（`list_sessions_paged` 通用查询不受影响）、前端 `SessionList` 去 cron Tab + 搜索结果滤 cron。改在 cron 面板（`CronCalendarView` 第三模式「历史」，与任务详情页的「运行历史」同名）的 master-detail 里整体按时间倒序展示：左栏跨 job 时间线 `cron_run_timeline`（**cron.db 与 sessions.db 两库不可 JOIN，在 ha-core `cron::timeline` 装配**：`CronDB::list_run_timeline` 取 run 行 + `SessionDB::cron_session_read_state` 批量补 title/unread，session 被 purge 回退 job_name/0），右栏复用主聊天 `MessageList` + `parseSessionMessages` 只读渲染（`CronSessionViewer`，无 ChatInput）。侧边栏 cron icon 未读角标走 `cron_unread_total`（`is_cron=1` 的**未读运行会话数，一个 session 最多计 1**）+ 前端 `useCronUnreadStore`（监听 `cron:run_completed` / `cron:unread_changed` / cron 域 `session:unread_changed` 刷新），一键清除 `cron_mark_all_read`。进入历史页可自动展示最新 run，**自动选中不清未读**；只有用户明确点击某条 run，且新切换的详情成功加载后，才经 `mark_session_read_cmd` 标记该运行会话已读。Cron 与普通对话未读域独立，Dock / tray 不计 Cron。视图模式 `localStorage` 持久化（`cron_view_mode`）
-- **Cron 投递白名单（红线）**：`delivery_targets` 的 `(channel,account,chat,thread)` 必须命中 `channel_conversations`（`ChannelDB::conversation_exists`，与 `list_channel_targets` 同源）。创建/更新期对模型**显式提供**的未命中目标 `bail!` 拒绝（从当前会话推断出的目标可信、不校验）；投递期 `deliver_results` 投递前再查一次、未命中或 channel_db 不可用 **fail-closed 跳过 + warn**（`deliver_injection_for_session` 委托它自动继承）。白名单即边界，投递路径不叠加 SSRF。防 prompt 注入把携账号身份的周期投递变定向外泄通道
-- **Cron 投递健壮性（§8）**：`deliver_results` 返回 `DeliveryReport`（attempted/succeeded/failed/skipped），白名单之上叠四项——① 每 target send 超时/报错按指数退避**重投至多 `MAX_SEND_ATTEMPTS` 次**（退避基 `SEND_BACKOFF_BASE_MS`）（IM 不计费故默认开 + 固定次数、**非用户旋钮**，与 `async_jobs::retry` 的 config-gated 计费工具区分；语义 **at-least-once**，重投极少重复一条胜过静默丢结果）；② `cron_run_logs.delivery_status`（`run_log_status()` 派生 `None`/`delivered`/`partial`/`failed`，success 路插入后回写 / failure 路经 `record_failure` 新参带入，GUI run-log 列表展示）；③ 账号删除致目标失效 → `CronDeliveryTarget.stale` 经 **`apply_delivery_target_stale_flags` 单锁 read-modify-write 按 `account_id` 翻转（绝不走 `update_job` 重校验整条 schedule；绝不用 claim 时快照整列覆盖——长任务执行期间用户改投递目标不被回写覆盖）** 持久化，删账号入口 `mark_account_delivery_targets_stale`（幂等、每 job 走同一原子方法）eager 标记，GUI 标红；④ per-job `prefix_delivery_with_name`（opt-in 默认关，成功投递加 `[Cron] {name}` 前缀，job 级字段**不走设置三件套**）。删账号前 owner 平面 `cron_jobs_referencing_account`（Tauri / HTTP `GET /api/cron/jobs-referencing-account/{id}`）反向扫描提醒受影响任务
-- **Cron 崩溃/取消/恢复一致性（§9）**：① **取消不丢 / 不误判（C4，红线）**——纯函数 `classify_cron_terminal(result, was_cancelled)` 裁决终态（穷举单测）。**cron 引擎跑 `abort_on_cancel=false`，取消中断返回 `Ok("")` 不抛 `Err`**：`Ok` 空串 + cancelled → Cancelled（不投空消息 / 不推进排程）；非空 `Ok` → Success（含晚到取消不丢已完成结果）；`Err && was_cancelled` → Cancelled（仅防御）；其它 `Err` → Failure。**绝不可改回 naïve「`Ok` 一律 success」**（会把取消中断当成功投空消息）。② **claim↔register 窗口（C7，红线）**——`cancel::register(&job.id, &claimed_at)` 提前到 claim 后 / 任何 await 前，RAII `CancelRegistrationGuard`（持 `claimed_at`）全路径清理；`cancel.rs` 的 `CANCELS` live flag 与 `PENDING_CANCELS` 占位**全部按 `claimed_at` run-keyed**——`CANCELS` 值为 `(claimed_at, flag)`，**live 分支与占位分支都比对 `claimed_at`**，`remove(job_id, claimed_at)` 亦然。`cancel_running_job` 读 `running_at` 与 `cancel()` 间有 TOCTOU：循环任务可能 A 跑完、以同 `job_id` 重 claim 成 B，**裸 job_id 命中会误翻 B 的 flag 取消 B**（旧实现只补了占位分支、live 分支裸命中即翻 = 半个洞）；run-key 后不匹配返回 `false`（目标 run 已逝、无可取消），`register` 只 drain 本 run 占位。③ **跨进程取消（C5）**——注册表进程本地、cron 仅 Primary 跑，跨实例取消回落 job-timeout 兜底（**不引入持久 `cancel_requested` 列**）；**C09**：`cancel` 占位分支加 `is_primary()` 门（内层 `cancel_with_pending(allow_pending)`，单测传 true），非 Primary 取消无 live flag 的 run 返回 **false** 不留泄漏占位、不骗 UI「已取消」。④ **崩溃留痕（D2）**——run 起跑即 `add_running_run_log`（`status='running'`/`finished_at=NULL`），终态走 `finalize_run_log` 单次 UPDATE（**绝不再为成功/失败/取消各 INSERT**）；**开 run_log 失败 → `run_log_id=None`（不 `unwrap_or(0)`），四条终态路径统一经 `finalize_or_insert_run_log`（`Some` UPDATE / `None` INSERT），否则 `UPDATE WHERE id=0` 匹配 0 行 → 整条审计行静默丢失**（no-session 早退同走 None→INSERT）；`recover_orphaned_runs` 由此真正生效，同进程 panic 由 `RunningMarkerGuard` 兜底 finalize。⑤ **Primary 可观测（C6）**——每 tick UPSERT `cron_meta.scheduler_heartbeat`，启动时陈旧（阈值见 `HEARTBEAT_STALE_WARN_SECS`）`app_warn`；Primary 崩溃非丢任务（catch-up 补跑）故不做接管。⑥ **超时协作取消（审查修复 + 复核 C02）**——per-run 超时不硬 drop：先置 `cancel_flag` 再给 `CRON_TIMEOUT_CANCEL_GRACE_SECS`（有界）让引擎收尾，终态判定纯函数 `compute_was_cancelled(timed_out, user_cancelled_pre_timeout, flag)`（超时路径忽略自设 grace flag，**但超时触发前用户已取消则归 Cancelled，C08**；非超时路径任何 flag=用户取消）。**宽限期结果经纯函数 `resolve_after_timeout_grace`（现收 `user_cancelled_pre_timeout`）判定（C02，红线）：未取消且期内跑完的非空 Ok 采纳为 Success（投递、不计禁用），否则（空 Ok / Err / 未完成）才归 Failure(timeout)；超时触发前用户已取消则丢弃宽限产出、归 Cancelled（C08 优先于 C02，合入前 /code-review #4）**——否则踩线完成的真实产出被丢、误投 timeout 失败、连续踩线 `max_failures` 次静默禁用本能跑完的健康任务。⑦ **infra 失败不计禁用（审查修复，红线）**——`record_failure` 的 `count_toward_disable=false`（session 创建失败这类 turn 未起跑的基础设施错误）走 `reschedule_without_failure`：推进 `next_run_at`、不 bump `consecutive_failures`、不自动禁用，否则几次瞬时 DB 抖动会禁用健康任务。
-- **Cron 可观测性 + 日历精度（§10）**：① 零输出不掩盖——`classify_cron_terminal` 增 `Empty`（非取消的空 `Ok`）→ run_log `status='empty'` + **跳投递（不发空消息）** + 非失败推进排程（**recurring 走 `reschedule_without_failure` 不重置 `consecutive_failures`，C07**——否则偶发空输出抹掉失败计数让病态任务永不禁用；At-Empty 仍终态化 Completed）；`deliver_results` 加空 Success 守卫覆盖 G2 注入。**通知面 emit `status="empty"`（审查修复 #5，不再借 `"success"`）**，前端弹中性 `notification.cronEmpty`（**仅一次性 `At`；循环任务 empty 强制 `notify=false` 不每轮弹，`notify_empty = notify_on_complete && At`，合入前 /code-review #14**——「健康即静默」的监控任务否则每轮刷屏）；**`cancelled` 同样独立分支弹 `notification.cronCancelled`（#6），不落 `cronError`**。② error run 的 `cron:run_completed` 携 `failure_reason`（前端通知附原因）。③ **日历匹配改前向（审查修复 #7，替代旧 `min(±2min, 间隔/2)` 自适应窗口）**——`match_run_logs_to_occurrences` 把每条 log 归到「不晚于 `started_at` 的最近 occurrence」+ 60s 反向 skew 容差；旧对称窗口对秒级 cron 表达式（`validate_cron_expression` 无最小间隔）会压到 tick 延迟以下、**丢掉真跑过的日历圆点**。④ `find_job_by_session` 改 `ORDER BY id DESC`（确定性 tiebreak，防 G2 misroute）。⑤ `mark_missed_at_jobs` 保留 `LIKE '%"type":"at"%'` + 单测锁 serde tag。⑥ **dashboard 成功率不被新状态污染（#3）**——成功率分母改为 decided（`success + failed`）、`total_runs` 排除在途 `running`；`running`/`empty`/`cancelled` 既非成功也非失败，不进分母（`dashboard/{insights,queries}.rs` + 前端 `TaskSection` 同步）。**延后**：错过槽位 `skipped` run_log（心跳已覆盖宕机可观测）
-- **Cron delete 审批（红线）**：`manage_cron action=delete` 是唯一对接权限引擎 v2 的 action（其余维持 internal 免审），delete 分支以 `is_internal=false` 调 `resolve_tool_permission`，引擎 `check_cron_delete`（落 `resolve_soft_approval_layer`，YOLO 短路 + AllowAlways 累加器之后）发**非 strict** `AskReason::CronDelete`：Default 弹 / Smart judge 自决 / YOLO·global-yolo 免 / 无人值守 fail-closed。非 strict 只约束 timeout/unattended 轴（不进 `forbids_allow_always`）；**AllowAlways 刻意抑制**——`gate_cron_delete` 强制 `allow_always_forbidden=true` + 前端 `barsAllowAlways` 禁按钮，因 `manage_cron` allowlist matcher 只按 `action` 不含 `id`，持久化即「删任意任务」id 无关常驻授权且 `allows_tool_call` 先于本门命中。`ApprovalReasonKind::CronDelete` + 前端 `ApprovalDialog.tsx` union + 全部语言 `approval.reasons.cron_delete` 三处同步（一致性单测锁后端两者）。不做 creator 作用域隔离。**删运行中任务先取消（C15）**：`delete_job` 删前对在途 run run-keyed `super::cancel::cancel`（按 `running_at` 比对，不误伤循环任务后续 run），止其白跑完 + 投递到已删任务；在途 run_log 随 `ON DELETE CASCADE` 删（用户主动删，审计行丢失可接受），终态写 no-op 命中已删行。三处 owner delete 入口统一走 `cron::delete_job_and_sessions`，连带清理该 job 的 cron 运行会话（摘出侧栏后否则既不可达又永久 orphan），细节见 [`cron.md`](docs/architecture/cron.md)
-- **Cron 运行身份 `ChatSource::Cron`（红线）**：cron 执行的 `run_chat_engine` turn 背专属 `ChatSource::Cron`（不再复用 `Channel`），语义=「后台、非交互、但 owner-internal 的顶层会话」：`holds_foreground_idle_guard` / `fires_user_lifecycle_hooks` / `tracks_seq` 全真（后台注入须让位、顶层会话照常起 hook、拿并发流守卫），`broadcasts_to_user_ui` 假（不上主 bus，结果走 `delivery_targets`），`active_counts` 不计（与 Subagent/ParentInjection 同属后台）。**KB 访问关键**：`kb_access_source` 映射到 `KbAccessSource::Cron`（`is_im()==false`）→ `effective_kb_access` 不触发 `im_lineage_denied` → cron 走 owner 的 `max(session,project)` 路径，`note_*`/`[[note]]`/`knowledge_recall` 正常可用（旧版背 `Channel`→`Im`→WS8 无 `channel_kb_context` 一律拒，定时任务静默零 KB，本项修复）。**incognito 仍归零**（短路在 IM 门前）；cron 起的 subagent 继承 `origin_source=Cron` 不被 WS8 拒（executor 传 `origin_source:None`，引擎按 source 派生）；owner KB 读与 `delivery_targets` 投递是两道独立门（投递边界仍由 §1 白名单守）。新增 `ChatSource` variant 必须同步 `stream_seq.rs` 全部语义方法 + `active_counts` 穷举 match + `kb_access_source` 映射
-- **Cron per-job 权限/沙箱覆盖 + 意图感知 Smart（红线）**：`CronJob.{permission_mode_override,sandbox_mode_override}: Option<{SessionMode,SandboxMode}>`（job 级字段，**不走设置三件套**，与 `job_timeout_secs` 同类）。`None`=跟随 Agent 默认；非空时 executor 经现成 `update_session_{permission,sandbox}_mode` 回写会话行（**单一真相源**，不碰权限引擎 / 不改无人值守 fail-closed）。**owner 平面专属**：GUI 表单 / Tauri / HTTP 可设，**模型面 `manage_cron` 工具恒 `None`、不进 schema、且 `update` 拒绝任何带 owner 覆盖的 job**（否则注入模型可改写一个 `permission=yolo` job 的 prompt 重置提权——`manage_cron_schema_never_exposes_*` 单测锁 schema、update 分支 `bail!` 锁改写）。**沙箱写入/预检全 fail-closed（不 fail-open）**：① 沙箱 override 写入失败即 fail-closed 终止本次运行（exec 读同一会话行，写丢=裸跑 host）；权限 override 写失败仅 `app_warn`（退回 Agent 默认=更严，安全）；② 预检读 `get_session_sandbox_mode`，**读错回退到 expected（override 或 Agent 默认）而非 `Off`**；③ 有效沙箱 `enabled()` 则 `ensure_sandbox_available()`，失败 run_log `error` + return、**绝不回落宿主机**，但 `count_toward_disable=false`（turn 未跑、无副作用，与 `no_session` 同档——否则瞬时 Docker 抖动 / 根本不调 exec 的任务会被误自动禁用）。**意图感知 Smart（无人值守专属）**：executor 经 `permission::task_intent`（session-keyed，RAII `TaskIntentGuard` 清）记录 cron prompt 为「意图」；`execution.rs` 仅在 **Smart 会话**经 `evaluate_approval_surface`（**单一真相源**，覆盖 cron / cron 血缘 subagent / headless / acp）派生 `ResolveContext.unattended` 并取意图 → `resolve_async` 透传 `judge::JudgeContext` → judge 放行与意图一致的删除/外发、拒越界/被注入的。**红线**：judge 只升降**非 strict** 的 Ask（strict `forbids_allow_always` 在 judge 前已拦、永不放行）；意图经 `<task_intent>` 信封结构隔离、明示「仅作范围参考、不自授权」（防意图自述「全部已授权」击穿）；意图（用户所写=可信）对比 args（模型所发=可能被注入）；**非 unattended/非 Smart 会话 `unattended=false`/`task_intent=None` → judge prompt 与 cache key 与改动前逐字节一致，普通对话 smart 行为零变化**（穷举单测锁）。外发仍叠 cron `delivery_targets` 白名单（§1）。**已知限制**：cron 血缘 subagent 与跨 turn 后台 job 的意图按会话 id 查不到（退化为保守的无意图无人值守框架，安全不越权）
-- **Cron 并发配额 slot-before-claim（红线）**：`CronConfig.max_concurrent`（`AppConfig.cron`，默认见 `default_cron_max_concurrent`，`0`=不限，MEDIUM）给调度器全局并发上限——每个 cron 运行是完整 agent turn，齐发会打满机器 / 触发限流。调度器（catch-up + tick 共用 `dispatch_due_jobs`）**先抢 slot 再 claim**：因 `claim_scheduled_job_for_execution` 副作用是推进 `next_run_at`，必须先 `count_running()`（`COUNT(running_at NOT NULL)`，并发计数单一真相源，覆盖 scheduled/catch-up/手动 run-now 三路）算 `available_slots(max, running)`（纯函数 `saturating_sub`），至多 claim `available` 个，到顶 `break` 让**剩余到期任务保持 `next_run_at` 不变下个 tick 重试**（不跳不丢）。手动 `run now` 绕过上限但 `running_at` 计入占用；`count_running` 失败 fail-closed 跳过本 pass。**run-now Primary-only + 正交（C10/C12a，红线）**：`execute_job_public`（三入口单 chokepoint）顶部 `is_primary()` 门——Secondary 永不跑 cron（避免被 Primary 启动 recover/clear 误清 + recurring 双 claim）；owner 三入口（Tauri `cron_run_now` / HTTP `POST /api/cron/jobs/{id}/run` / `manage_cron action=run_now` 工具）在 spawn 前各自前置 `is_primary()`，非 Primary 返错而非假成功（`{scheduled:true}` / "Triggered immediate execution"）（合入前 /code-review #3 + Codex 复核 P2 补齐工具路径，否则 Secondary 上 run-now 报成功却永不执行）；`ClaimedCronJob.immediate` 让 run-now 与调度/禁用正交——只记 run_log + 投递,**绝不动 status/schedule/consecutive_failures**(不复活 disabled、失败不 bump/不禁用计划任务)。**槽释放时序（合入前 /code-review #6）**：scheduled run 在 `deliver_results` 前即 `clear_running` 释放槽（`next_run_at` 已推进、不会重 claim），挂死/限流的投递目标不占 cap slot 阻塞其它任务；run-now（immediate）保槽穿过投递（next_run_at 未推进，早清会被中途重 claim）。三件套齐全（GUI 在设置页「定时任务」分区 `CronSettingsPanel`——cron 面板头部齿轮按钮经 `onOpenSettings("cron")` 深链进入；`ha-settings` `cron` category + SKILL.md），dedicated `get/save_cron_config`（Tauri + HTTP `/api/config/cron`）
-- **Cron 失败处理 §5（可配 timeout / 分类 / 自动禁用通知）**：① `CronConfig.job_timeout_secs`（默认值以 `default_cron_job_timeout_secs` 为准;**`0` = 不设 cron 级超时(不限),非 0 才经 `effective_job_timeout_secs()` / `clamp_cron_job_timeout_secs` 钳到安全 band**）；**per-job 覆盖（C19）`CronJob.job_timeout_secs: Option<u64>`**（job 级字段不走设置三件套，经同款 `clamp_cron_job_timeout_secs` 钳）非空时优先于全局——让 legit 长任务声明自己预算而不抬全局，卡死任务仍超时+N 次禁用。与 `max_concurrent` 同属 `cron` category（同一 CronConfig，ha-settings 自动覆盖；GUI 在设置页「定时任务」分区，**save 必带全三字段**否则 serde 默认会重置其它）。② `cron::failure::CronFailureClass{Timeout/Configuration/Transient}` 纯函数分类，**只做诊断**（run-log status + 通知 reason，timeout→status=`timeout`），**刻意不改 `max_failures` 禁用策略**（防误分类过早禁用）。③ `update_after_run` 返回 `bool`（失败触顶翻 disabled 时 true，**`max_failures==0` = 不限/永不自动禁用**——判定加 `max_failures>0` 守卫对齐 `max_concurrent` 的 0-语义，否则 `>= 0` 恒真致模型/HTTP 传 0 首次失败即禁用，C26）→ `record_failure` 发**一次性** `emit_cron_disabled_event`：复用 `cron:run_completed` 但**强制 `notify=true`** + `auto_disabled`/`consecutive_failures`/`failure_reason`，前端 `useChatSession` 弹专属「已禁用」通知。`notification.cronDisabled*` + `cronReason.*` 全部语言
-- **Cron 排程校验单一真相源 §6（红线）**：`schedule::validate_schedule(&CronSchedule)` 是「这条排程是否合法」的唯一裁决——At timestamp 可解析、Every `interval_ms ∈ [MIN_EVERY_INTERVAL_MS(60000，1 分钟地板), i64::MAX]`（**上限红线 C13**：超 i64::MAX 在 `as i64`/`try_from` 溢出→`compute_next_run` 返 None→落成 active+next_run=NULL 永不触发/永不回收僵尸，`mark_missed` 只管 At）、Cron expr 合法 + 非空 timezone 是已知 IANA 名（空 / 空白 = UTC 不校验）。三入口统一调用:① 持久化 chokepoint `CronDB::add_job` / `update_job`（**关键**——owner 平面 Tauri `cron_create/update_job` + HTTP `create/update_job` 直接把前端构造的 `CronSchedule` 喂 add/update，此前只校验 Cron expr+tz，At 垃圾时间戳 / Every `interval_ms=0` 永不触发的死任务能绕过）② 模型工具路径 `parse_schedule`（提取 JSON 字段 + 归一化后委托 `validate_schedule`，不再各自内联值校验）。`validate_cron_expression` / `validate_timezone` 仍是 timezone/expr 级原语,被 `validate_schedule` 复用。**`update_job` 系统字段 DB 为准（C04，红线）**：`status` / `next_run_at` / `consecutive_failures` 从 live 行读、**不取 caller 快照**——编辑字段不丢在途退避偏移、不把系统在快照之后改的状态（如自动禁用）复活回 active；仅排程真变且 Active 才重算 `next_run_at`，仅 Active 编成过去 `At` 才 → `missed`，终态/暂停绝不复活
-- **Cron At 补跑/终态 §7（红线，依赖 §4）**：`CronConfig.at_grace_secs`（默认见 `default_cron_at_grace_secs`，`effective_at_grace_secs()` 仅上限钳，**`0` 保留=严格不补跑**，与 timeout 的 `0`-floor 不同；同 `cron` category，GUI 在设置页「定时任务」分区）。`mark_missed_at_jobs(grace_secs)`（调度器传入，**启动恢复期与每个 tick 都必须在该轮 catch-up/dispatch 之前**跑，合入前 /code-review #5——不再仅启动一次，故 within-grace 抢不到 slot 的 `At` 累计逾期超 grace 后会被后续 tick 终态化 `missed`、不无限滞留 active）按 `cutoff=now-grace`：`At` 逾期 `< cutoff` → `missed`；`∈[cutoff,now]` → 保持 active 让 catch-up 经 §4 `dispatch_due_jobs` slot-aware 补跑；`next_run_at IS NULL` 的 active `At`（claim 后崩溃僵尸 / 过去时间戳创建）一并 → `missed`（**一次性可能已产副作用,标 missed 不重跑**，side-effect 安全）。`recover_orphaned_runs` 只修 run_logs、不碰 job 行,故僵尸终态靠 `mark_missed_at_jobs` 的 NULL 分支。**取消的一次性 `At`（审查修复 #11）**：`record_cancelled` 对 `At` 调 `terminalize_one_shot_completed`（`status='completed'`+`next_run_at=NULL`）即刻终态,不再留 `active`+NULL 僵尸等下次重启被 `mark_missed_at_jobs` 收（循环任务保持 active 按排程触发）。**失败/超时的一次性 `At`（复核 Sweep#1，红线）**：`update_after_run` 失败分支对 `At` 终态化 `missed`（`next_run_at=NULL`）、**不退避重试**——其 turn 可能已产生副作用（发邮件/下单），重投会重复副作用最多 `1+max_failures` 次；仅 infra 失败（turn 未起跑、无副作用）经 `reschedule_without_failure` 重试。recurring 仍走退避/自动禁用。**暂停不被成功跑复活（合入前 /code-review #2，红线）**：`update_after_run` 成功分支 UPDATE 加 `AND status='active'`——mid-run 被 `toggle_job` 暂停（不取消在途 run）的循环任务，该次运行成功完成不再被静默改回 `active`（对齐失败-禁用分支 `status != 'disabled'` 守卫；run-now 经 `immediate` 跳过本路径）
-- **`schedule_wakeup`（自我定时唤醒，`crate::wakeup`）≠ cron**：agent 发起的**一次性**「N 秒后把我叫回当前会话续跑」，到点经 `inject_and_run_parent` 注一条 `<wakeup>` 起新 parent turn。`wakeups.db` 持久 + 进程本地定时器；clamp `[10s, async_tools.wakeup_max_delay_secs]`（默认见 `default_wakeup_max_delay_secs`，10s 下限固定不可配）、每会话 pending ≤ `wakeup_max_pending_per_session`（默认见 `default_wakeup_max_pending_per_session`）、**replay Primary-only**（防 Secondary 双投）、incognito 仅内存、会话删/焚经 `wakeup::purge_for_session`（由 `session::cleanup_watcher` 调用）取消。**不与 cron 复用入口**
-
-### IM Channel
-
-详见 [`im-channel.md`](docs/architecture/im-channel.md)。
-
-- 12 个插件，状态文件落 `~/.hope-agent/channels/`；入站媒体走 plug → worker → `Attachment` → `~/.hope-agent/attachments/{session_id}/`
-- 工具审批通过 EventBus `approval_required` 监听，按 `supports_buttons` 走原生按钮或文本；`auto_approve_tools=true` 跳审批（opt-in）。**绕过审计**：`auto_approve_tools` 跳过引擎门时，若被跳过的调用本会命中 strict 原因（`forbids_allow_always`），跑一次 no-enforce 探测并 `app_warn('permission','auto_approve_bypass')`——纯审计不拦截（排除 `external_pre_approved` async 重入防重复告警）
-- **多端审批一致性红线（Epic G）**：所有决议路径(submit / 超时 / 删会话 / eviction)emit `approval:resolved {requestId,sessionId,decision,source}` 统一撤窗(`ApprovalResolutionSource`:gui/http/im/session_deleted/timeout_deny/timeout_proceed/eviction);listener 收到即 `drop_pending_by_request_id` 清 `TEXT_PENDING`。**IM 应答 fail-closed**:按钮回调缺源直接拒(approval 不复用共享 `validate_callback_source_for_session` 的 `None→Ok`,那只留 ask_user)、文本回复 submit 前同样校验 session↔chat(handover 后旧 chat 拒)。**chat 接管**(eviction)在 notify 门前无条件枚举拒决该 session 全部 pending 审批 + `drop_pending_for_chat`
-- **Auto-start 失败统一走 [`channel/start_watchdog.rs`](crates/ha-core/src/channel/start_watchdog.rs)**——指数退避封顶（schedule 见 `backoff_for`），周期 sweep（间隔见 `SWEEP_INTERVAL`），user 操作永远胜过 watchdog；失败日志带 `classify_channel_error` 分类
-- **流式预览 Transport 三选一**（[`worker/streaming.rs`](crates/ha-core/src/channel/worker/streaming.rs) `select_stream_preview_transport`）：`Draft (Telegram DM 专属) > Card (仅飞书 cardkit) > Message (send+edit)`，各级有降级。新增 cardkit 风格靠 `ChannelPlugin` 上 4 个 default-impl=`Err` 的 trait 方法，仅飞书实现（11 个非飞书 channel `supports_card_stream=false` 走旧路径）
-- **`ImReplyMode` 三态对所有渠道生效**（`ChannelAccountConfig.settings.imReplyMode`，默认 `split`，[`channel/types.rs`](crates/ha-core/src/channel/types.rs)）：`split` 每 round narration + 媒体按时序独立消息（流式渠道每 round 真打字机）；`final` 只发最后 round text + 末尾发媒体、不启流式；`preview` 流式渠道渲染合并文本、非流式降级 `final`。实现（round 边界 / per-round finalize / dispatcher `deliver_split`·`deliver_final_only`·`deliver_preview_merged` 三路）见架构文档
-- **配置入口**：GUI `EditAccountDialog` 三选项 + `/imreply [split|final|preview]` 斜杠命令
-- **`ChannelStreamSink` 短路条件用 `contains` 不能用 `starts_with`**：`emit_tool_result` 走 `serde_json::json!({...})` + 默认 `BTreeMap`，键按字母序输出（`call_id` 永远在前），任何 anchor 在 `{"type":...` 的 fast-path 都不会触发。`media_items` / `tool_result` / `text_delta` / `tool_call` 检测都用 `event.contains(...)`，rarer-needle-first
-- **`channel_conversations` 1:1 attach（双向）**：每个 (channel, account, chat, thread) 在任意时刻只关联一个 session（`uq_channel_conv_chat`），且每个 session 在任意时刻只能被一个 IM chat attach（`uq_channel_conv_session`）。新 chat 通过 `/session <id>` 或 handover 接管时，目标 session 上的旧 attach **物理 detach** 并通过 `channel:session_evicted` 事件发"会话被接管"系统消息——不再保留 observer 行。helper 入口 [`channel/db.rs`](crates/ha-core/src/channel/db.rs)：`attach_session` / `detach_session` / `update_session` / `get_conversation_by_session`，**不要直接写 `channel_conversations`**。
-- **`source` 字段**：`inbound`（IM 入站新建）/ `attach`（`/session <id>` 显式接管）/ `handover`（GUI handover 或 `/handover` 推到该 chat）。
-- **GUI ↔ IM live 流式镜像**：desktop / HTTP turn 经 [`chat_engine/im_mirror.rs`](crates/ha-core/src/chat_engine/im_mirror.rs) `attach_im_live_mirror` 注册 `ChannelStreamSink` 到 [`SinkRegistry`](crates/ha-core/src/chat_engine/sink_registry.rs)，收尾 `finalize_im_live_mirror` 按 `ImReplyMode` 渲染——与入站对称。**两通道独立**：GUI 永远走 Tauri / HTTP 流、不受 `imReplyMode` 影响；`imReplyMode` 仅决定 IM 端形态。引擎自动 attach 对 `source ∈ {Subagent, ParentInjection, Channel, Cron}` no-op
-- **后台完成注入回投 IM（G1/G2/G3）**：后台 job / subagent / group 完成的 `ParentInjection` 由 [`subagent::injection::inject_and_run_parent`](crates/ha-core/src/subagent/injection.rs) **自行 attach 注入镜像并在同一 future 内 await finalize**（注入跑短命 runtime，`spawn(finalize)` 会被腰斩）；cron 会话经 `cron::delivery::deliver_injection_for_session` 下发 `delivery_targets`。注入空闲门超时不丢弃，重排队进 `PENDING_INJECTIONS` 待空闲重试（group 合并注入不再永久丢失）
-
-- **新 slash 命令**：`/sessions`（picker 用户对话 session，过滤 cron / subagent / incognito）、`/session [<id>|exit]`（info / attach / detach）、`/projects`（picker）、`/handover <ch:acc:chat[:thread]>`（GUI 端推送，IM 不可见）、`/kb [on|off]`（WS8，群聊 per-chat 确认 KB 访问；DM 仅报状态——账号级 opt-in 在桌面 Settings；无 arg/`status` 报当前生效态）。`IM_DISABLED_COMMANDS` 仅含 `agent` / `handover`。
-- **`channel:session_evicted` 事件**：`attach_session` / `update_session` 在 1:1 接管把旧 chat 物理 detach 之后，对每个被踢的 chat emit 一次此事件，payload `{ channelId, accountId, chatId, threadId, sessionId }`。[`channel/worker/eviction_watcher.rs`](crates/ha-core/src/channel/worker/eviction_watcher.rs) 订阅后调对应 plugin 的 `send_message` 发"this chat has been taken over by another endpoint"通知；`ChannelAccountConfig.notify_session_eviction`（默认 `true`）可静音。
-
-### Dashboard / Recap / Learning
-
-详见 [`dashboard.md`](docs/architecture/dashboard.md) / [`recap.md`](docs/architecture/recap.md)。
-
-- `dashboard/insights.rs`：overview delta / cost trend / heatmap / health score / `query_insights` orchestrator
-- **目标与执行大盘**：`dashboard/control_plane.rs` 是 Goal / Workflow / Loop / Task / Plan 全局只读聚合单一入口；结果、驱动、进度和风险必须分层，Task/Plan 在新增可靠外键前禁止按 session 伪造因果漏斗。窗口比例零分母返回 `null`，当前状态不受起始时间限制；Goal / Workflow / Loop / Task / attention 仅统计非无痕的用户主会话，排除 Cron 与 `parent_session_id` 子会话。旧 `dashboard_tasks`（Cron/Subagent，UI 名“自动化”）与 `dashboard_plan_stats` 只作兼容。
-- **模型用量总账**：所有会触发模型推理 / one-shot / side_query / summarize / embedding / STT / judge / web_search / image_generation / audio_generation（设计空间 TTS/音乐/音效）/ provider_test / vision（视觉桥转述）的新调用入口，必须通过 [`model_usage.rs`](crates/ha-core/src/model_usage.rs) 写入 `session.db.model_usage_events`；Dashboard token / cost 总量以该表为准。**流式生成也要入账**（`automation::run_streaming` 里记 `KIND_SIDE_QUERY`——`side_query_streaming` 自身不记账）。Provider 原始 usage 返回多少就记录多少，未返回 token 的本地模型 / STT / embedding / 生图 / 生音只记录调用次数与耗时，**禁止用字符估算冒充准确 token**。无痕会话不得入账。新增 `KIND_*` 须同步前端 `DashboardFilter` 列表 + `dashboard.usageKind.*` 全部语言标签。
-- Learning Tracker 落 `session.db.learning_events`，目前埋点：`skills::author` CRUD + `tool_recall_memory` 命中 + MCP tool 调用
-- `/recap` 独立 `~/.hope-agent/recap/recap.db` 缓存按 `last_message_ts` 失效；facet/section 提取模型经 `recap.modelOverride`（`ModelChain`，deprecated `analysisAgent` 仍惰性兼容旧值）解析、拿不到再落 `function_models.automation` 全局默认链，与主对话 Agent 解耦
-
-### 跨会话 / 全局
-
-详见 [`session.md`](docs/architecture/session.md) / [`behavior-awareness.md`](docs/architecture/behavior-awareness.md) / [`ask-user.md`](docs/architecture/ask-user.md) / [`prompt-system.md`](docs/architecture/prompt-system.md)。
-
-- **数据存储**：所有数据在 `~/.hope-agent/`，[`paths.rs`](crates/ha-core/src/paths.rs) 集中管理
-- **统一日志**：前后端走 [`logging/mod.rs`](crates/ha-core/src/logging/mod.rs)（SQLite + 文本双写），API 请求体 `redact_sensitive` + 32KB 截断；agent 自主排查入口见 [`skills/ha-logs/SKILL.md`](skills/ha-logs/SKILL.md)（用 `exec` + `sqlite3 -readonly` 直查 `~/.hope-agent/{logs,sessions,background_jobs}.db`）
-- **延迟工具加载**：opt-in `deferredTools.enabled`，只发核心 ~10 个 schema，其余通过 `tool_search` 发现；execution dispatch 不变
-- **会话搜索**：FTS5 + `<mark>` 高亮 + XSS 防御（escape → 白名单反解）；`Cmd+F` 复用同一 `search_messages` + session_id 过滤
-- **ask_user_question**：1–4 题结构化问答（单选/多选/输入）；pending 持久化 SQLite，App 重启 replay 断点续答；IM 按 `supports_buttons` 走按钮或文本。**唯一结构化问答入口**——富输入（`input_kind ∈ text|textarea|direction-cards`）与设计空间视觉风格卡都靠**扩展本工具**实现、**绝不 fork 并行问答机制**；`direction-cards` 是「选项带 `card` 载荷的单选」，**答案仍走 `selected[]`**（Yes/No 门 / IM 协议 / DB 零改动），富卡仅在设计对话 `variant="design"` 渲染、其余降级选项列表，风格卡色值/字体经 sanitize（详见 [`ask-user.md`](docs/architecture/ask-user.md)）
-- **会话级工作目录**：`sessions.working_dir` 注入 system_prompt `# Working Directory` 段，并作为 `exec` 实际 cwd（`execution.rs::default_cwd()`）与 `read` 工具相对路径解析的首选根
-- **桌面专属 markdown 路径链接**：仅 `is_desktop()` 注入 `MARKDOWN_PATH_LINKS_GUIDANCE`，要求 LLM 写 `[名](绝对路径)`；前端按 `localPathFromHref()` + Transport 分流（Tauri 走 `open_directory`；HTTP/server 早返回禁用）。**例外**：anchor `title` 用 native HTML 不用 shadcn Tooltip（一条流式消息可能渲染上百个）
-- **内置用户手册（帮助中心）**：单一来源 `docs/user-guide/` → rust-embed 编进 ha-core（`manual/`）→ 启动期镜像 `<data-dir>/manual/`；GUI 走 Transport（`get_manual_bundle`/`search_manual`）、agent 走 `ha-manual` skill 读镜像。**禁止复制手册正文、禁止往构建产物单独拷贝**（Dockerfile rust 阶段的 `COPY docs/user-guide` 是编译期 embed 依赖、非产物拷贝）；中英须同 PR 对齐（CI `check-docs-parity`）。详见 [`help-center.md`](docs/architecture/help-center.md)
-
-### 项目（Project）容器
-
-详见 [`project.md`](docs/architecture/project.md)。
-
-- **项目文件 = 工作目录里的真实文件**：上传文件直接落项目工作目录（无 `project_files` 表、无独立 `files/`/`extracted/`、无文本提取注入、无 `project_read_file` 工具）；模型靠 `# Working Directory` 段的顶层文件清单 + `read` 工具感知。**`project_files` / `ProjectFile` / `project_read_file` 已删，不要重新引入**
-- **项目会话懒创建（desktop / HTTP 交互入口）**：进项目「新建对话」**不预先 `create_session_cmd` 落库**，停在草稿态，首条消息经 `chat` 的 `projectId` 走 `create_session_with_project` 才落库。`project_id` 与 `incognito` 互斥（后端强制 off）。**仅交互入口懒创建**（IM / cron / subagent 仍 eager）；前端 `effectiveProjectId` 是「当前项目」单一来源。**进项目入口不得再 `create_session_cmd` 预建**
-- 记忆优先级 Project > Agent > Global
-- **工作目录合并（项目会话总有值）**：优先级 `session > project 显式 working_dir > 默认 workspace`；唯一入口 [`session/helpers.rs::effective_session_working_dir`](crates/ha-core/src/session/helpers.rs)，**lazy ensure**（默认 workspace `~/.hope-agent/projects/{id}/workspace/` 首次解析时创建、不写 DB）。`project.working_dir` 留 NULL = 用默认 workspace
-- **文件浏览器作用域**：所有读写经 [`filesystem::WorkspaceScope`](crates/ha-core/src/filesystem/workspace.rs)（canonicalize + 失败闭合），`for_session` / `for_project` / `for_path` 三入口；**`for_path` 是只读 worktree 跳转**（写操作一律拒）。HTTP `/api/fs/*` 写端点受 `filesystem.allow_remote_writes`（默认 false）闸门，桌面 Tauri 不受限
-- 删除级联（三步）：unassign sessions → 删 `projects` 行 → `rm -rf projects/{id}/`（含默认 workspace；用户显式选的外部目录不删）→ 删项目记忆（跨 db 单独执行）
-- **IM 路由（无反向认领）**：项目不再认领 (channel, account)。要把 IM 中的会话归项目，从该 chat 内 `/project <id>`（或 picker）显式触发；`AssignProject` action 在 channel worker 内 UPDATE `sessions.project_id`，不再通过 channel→project 反查。**`Project.bound_channel` 已删除，不要重新引入**。
-
-### Agent 解析链（默认 Agent）
-
-7 级（首个非空胜出）：**显式参数 → `project.default_agent_id` → `topic.agent_id` → `group.agent_id` → `tg_channel.agent_id` → `channel_account.agent_id` → `AppConfig.default_agent_id` → 硬编码 `DEFAULT_AGENT_ID`（`"ha-main"`，定义在 [`agent_loader.rs`](crates/ha-core/src/agent_loader.rs)）**。统一入口 [`agent/resolver.rs::resolve_default_agent_id_full`](crates/ha-core/src/agent/resolver.rs)；无 IM 上下文的 desktop / HTTP 用 `resolve_default_agent_id` 包装（只传 project + channel_account）。**channel worker 不得自写解析链** —— Phase A5 已折叠到 resolver 单一真相源。
-
-**遗留 `"default"` 自动重命名**：升级到使用 `"ha-main"` 的版本时，启动期 [`agent/migration.rs`](crates/ha-core/src/agent/migration.rs) 一次性把磁盘目录（`agents/default/` / `default-home/` / `plans/default/`）、`agents/*/agent.json` 里的 `subagents.allowedAgents` / `deniedAgents`、SQLite agent_id 列（sessions / team_members / teams / subagent_runs / projects / background_jobs / canvas_projects / logs）、`memories.scope_agent_id`（`scope_type='agent'` 的行）、`cron_jobs.payload_json` 内嵌的 agent_id 全部 rename 到 `"ha-main"`，再改写 `config.json`（`default_agent_id` / `recap.analysisAgent` / channel 各级 agent_id），落 sentinel `~/.hope-agent/.agent-id-renamed` 后续启动短路。每步独立 idempotent，崩溃可恢复；当 `agents/default/` 与 `agents/ha-main/` 同时存在（用户手动建过 ha-main）时迁移整体放弃，不写 sentinel、不动 DB / config，下次启动重试。**入口契约**：`init_runtime` 必须早于 `ensure_default_agent()`——后者会预创空 `agents/ha-main/` 模板，吞掉 rename。新增字面量 agent id 一律走 `crate::agent_loader::DEFAULT_AGENT_ID`（前端走 `@/types/tools` 的 `DEFAULT_AGENT_ID` / `isMainAgent`），不要重新引入 `"default"` 硬编码。
-
-### 本地 LLM 助手
-
-详见 [`local-model-loading.md`](docs/architecture/local-model-loading.md)。
-
-- 后端锁 Ollama（OpenAI 兼容端点）；模型目录硬编码 [`local_llm/types.rs::model_catalog`](crates/ha-core/src/local_llm/types.rs)，按预算从大到小取首个 ≤ budget
-- 预算：macOS 统一内存 / Win+Linux dGPU VRAM 优先回落系统内存,按 `RECOMMENDATION_BUDGET_PERCENT` 比例取预算,再扣一段 runtime 缓冲(约 1 GiB)
-- App **不接管** Ollama 进程；安装走官方 `install.sh`（macOS+Linux），Windows 引导用户去官网
-- 后台任务统一走 [`local_model_jobs.rs`](crates/ha-core/src/local_model_jobs.rs) + `~/.hope-agent/local_model_jobs.db`
-- **Provider 写入 contract（强制）**：所有 Provider 列表与 `active_model` 写入必须走 [`provider/crud.rs`](crates/ha-core/src/provider/crud.rs) helper（`add_provider` / `update_provider` / `delete_provider` / `reorder_providers` / `set_active_model` / `add_and_activate_provider` / `add_many_providers` / `ensure_codex_provider_persisted`）；本地 LLM 安装走 `upsert_known_local_provider_model`。**禁止直接 `providers.push` / `retain` / 手写 `active_model`**
-- **Known local backend catalog** 在 [`provider/local.rs`](crates/ha-core/src/provider/local.rs)（ollama / litellm / vllm / lm-studio / sglang）；前端"是否已配本地后端"必须消费 catalog，**禁止硬编码 regex**
-
-### 自升级
-
-详见 [`self-update.md`](docs/architecture/self-update.md)。
-
-- **三档路径**：`Tauri` (desktop bundle 走 tauri-plugin-updater) / `PackageManager` (brew / scoop / aur / apt / dnf) / `SelfContained` (下载 bare binary → minisign 校验 → atomic swap → restart)；不可识别走 `ManualPrompt` 让用户在 `ask_user_question` 里选
-- **Minisign pubkey 单一真相源**：[`ha-core/updater/keys.rs::MINISIGN_PUBKEY_BASE64`](crates/ha-core/src/updater/keys.rs) 与 `src-tauri/tauri.conf.json#plugins.updater.pubkey` 必须字符串相等。三重防线：启动期 `keys::assert_pubkey_matches_tauri_conf` panic / CI `lint.yml` 跑 `scripts/verify-updater-pubkey.mjs` / 本地 `.husky/pre-push` 同脚本拦截
-- **`app_update` 工具**（`tools::app_update`，`async_capable=true`）：4 个 action `check | install | status | rollback`；`install` / `rollback` 工具内用 `ask_user_question` 弹结构化 Yes/No 确认
-- **UpdaterBridge trait**（[`updater::UpdaterBridge`](crates/ha-core/src/updater/mod.rs)）由 src-tauri 注册、ha-core 经 `OnceLock` 反向调用，**严禁 ha-core 直接依赖 tauri-plugin-updater**
-- **Bare-binary release artifact**：`release.yml` 每平台把主二进制 + `ha-browser-host` 打进同一 `tar.gz`(Unix)/`zip`(Windows) 用同一 Minisign 私钥签，`patch-manifest` job 合并写回 `latest.json`（entry 带 `extra_binaries`）；`install` 主二进制自检通过后 best-effort swap sibling，**失败不阻断不回滚主升级**
-- **Binary swap 必须走 [`platform::atomic_replace_binary`](crates/ha-core/src/platform/mod.rs)**（Unix `rename(2)` / Windows `MoveFileExW` rename-aside）——**禁止 `fs::write` 直接覆盖运行中 binary**
-- **自动更新统一配置 `AppConfig.auto_update`**（[`updater::AutoUpdateConfig`](crates/ha-core/src/updater/config.rs)，`ha-settings` 归 **HIGH**）：桌面与 headless 共享开关；后台只做**检查 + 静默预下载 + 校验**到 staging，**绝不自行 swap/restart**——安装走 `app_update install`（headless 审批）或桌面二选一，**桌面绝不无条件自动 relaunch**
-- **下载健壮性红线**：下载走 [`download::download_to`](crates/ha-core/src/updater/download.rs)（重试 + `Range` 续传）；`self_contained::install` swap 后**先 `--version` 冷烟自检、失败自动回滚**再重启
-
-## 编码规范
-
-### 通用
-
-- **性能和用户体验是最高优先级**
-- **核心逻辑必须在 ha-core 实现**：业务、数据、文件 IO、状态管理一律放 `crates/ha-core/`，`src-tauri/` / `crates/ha-server/` 只做薄壳，前端只负责展示和交互
-- 操作即时反馈（乐观更新、loading 态），动效 60fps（优先 CSS transform/opacity）
-
-### 前端
-
-- 函数式组件 + hooks，不用 class 组件
-- UI 组件统一用 `src/components/ui/`（shadcn/ui），不直接用 HTML 原生表单组件
-- 样式只用 Tailwind utility class，不写行内 style 和自定义 CSS
-- 动效优先复用 shadcn/ui / Radix UI / Tailwind 内置 utility，确认不够用才手写
-- 路径别名：`@/` → `src/`
-- 布局避免硬编码过小的 max-width（如 `max-w-md`），用 `max-w-4xl` 以上或弹性伸缩
-- **i18n 当次改动涉及的翻译 key 必须 commit 时所有语言齐全**（存量缺失不强制）
-- 避免不必要的重渲染（`React.memo` / `useMemo` / `useCallback`）
-- **Tooltip 必须用 [`@/components/ui/tooltip`](src/components/ui/tooltip.tsx)**，禁止用 HTML 原生 `title`；优先 `<IconTip label={...}>`
-- **保存按钮统一三态**：`saving`（Loader2 旋转 + disabled）→ `saved`（绿 + Check，2s 恢复）→ `failed`（红，2s 恢复），用 `saveStatus: "idle"|"saved"|"failed"` + `saving: boolean`
-- **Think / Tool 流式块**：必须设合理 `max-height` 内部滚动；流式期间自动滚到底；实时显示耗时（结束保留最终耗时）
-
-### 后端（Rust）
-
-- 新功能放 `crates/ha-core/` 单独模块；Tauri 命令在 `src-tauri/src/lib.rs` 注册，HTTP 路由在 `crates/ha-server/src/lib.rs`（`build_router_with_cors`）注册、handler 在 `routes/*.rs`
-- 内部用 `anyhow::Result`；Tauri 命令边界用 `Result<T, CmdError>`（[`error.rs`](src-tauri/src/commands/error.rs)），`?` 直接传 `anyhow::Error`，不要 `.map_err(|e| e.to_string())`；HTTP 路由按 axum 习惯返 `Result<Json<T>, (StatusCode, String)>`
-- 异步命令加 `async`，不要 `block_on`
-- **阻塞 IO 不占 async worker（红线）**：`src-tauri` 命令 / `ha-server` handler 等 async 上下文里，SQLite（SessionDB/CronDB/ChannelDB/ProjectDB/LogDB 同步方法）与 config 写（`mutate_config` / provider crud 等同步文件 IO）**一律经 [`blocking::run_blocking`](crates/ha-core/src/blocking.rs) / `SessionDB::run` / `config::mutate_config_async` 下放到 blocking 池**，禁止 inline 直调——否则慢盘 / 杀软 / 云同步目录卡住文件 IO 会逐个钉死 worker 直至 runtime 饿死（详见 [`process-model.md` Layer C′](docs/architecture/process-model.md)）。`cached_config()` / `load_config()` 快照读免；已在独立 runtime（Layer B）里的同步代码不重复包
-- **禁止 `log` crate 宏**，必须用 `app_info!` / `app_warn!` / `app_error!` / `app_debug!`（[`logging/mod.rs`](crates/ha-core/src/logging/mod.rs)）。例外：`lib.rs::run()` 中 AppLogger 初始化前 + `main.rs` panic 恢复
-- 用法：`app_info!("category", "source", "message {}", arg)`
-- **核心业务路径必须埋点**（Provider 调用 / tool 执行 / 审批决策 / failover / compaction / channel / 记忆 / cron / 配置变更等）。日志服务人工排查，也是 **agent 自主修复**的首要信息源——带最小复现上下文，`category` / `source` 命名稳定便于 grep
-- **禁止字节索引切片字符串**（如 `&s[..80]`），用 `crate::truncate_utf8(s, max_bytes)`
-- **跨平台分支**：优先 `#[cfg(unix)]` / `#[cfg(windows)]`（macOS+Linux+BSD 共享 Unix 路径）。新跨平台原语统一放 [`platform/`](crates/ha-core/src/platform/)（`mod.rs` 门面 / `unix.rs` / `windows.rs`），调用方走 `crate::platform::xxx()` 单一入口
+**本文只放跨 PR 必守的红线、同步契约与唯一入口**——实现细节、数据结构、迁移逻辑、边角行为一律在 [docs/architecture/](docs/architecture/)（索引 [docs/README.md](docs/README.md)）。加内容前先问：删掉它会让 agent 犯错吗？不会就别加。前端 / UI 风格规范见 [.claude/rules/](.claude/rules/)（按 `paths:` 惰性加载）。
 
 ## 安全红线
 
 - **API Key / OAuth Token 禁止出现在任何日志中**
-- `tauri.conf.json` CSP 当前为 `null`，不要放行外部域名
+- `tauri.conf.json` CSP 不要放行外部域名
 - OAuth token 在 `~/.hope-agent/credentials/auth.json`，登出时必须 `clear_token()`
 
-## 易错提醒
+## 提交前检查（强制）
 
-- 修改 Tauri 命令后须同步更新 `invoke_handler!` 注册列表
-- 新增 HTTP 端点须在 `crates/ha-server/src/lib.rs`（`build_router_with_cors`）注册
-- 新增核心功能须放 `crates/ha-core/`，禁止在 ha-core 中引入 Tauri 依赖
-- Rust 依赖变更后 `cargo check --workspace` 先行验证
-- 前端新增 invoke 调用须同步实现 Transport 的 Tauri + HTTP 两套适配
-- 新增/修改接口须同步更新 [`api-reference.md`](docs/architecture/api-reference.md)（Tauri ↔ HTTP 对齐单一真相源）
-- 新增 hook 事件：埋点（`dispatch` 或 `fire_*`）+ 同步 `types.rs` 三处 match（`common`/`matcher_target`/`is_observation_only`）+ 测试
+[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 只覆盖 `ha-core` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
 
-## 设置（Settings）约定
+- **开发中只单点验证**（`cargo check -p <crate>` / `pnpm typecheck`）；跑 clippy / cargo test / pnpm {test,lint} 须先问用户等回复，例外限跨 crate / 多文件收尾，跑前说明
+- **应急跳过**：`HA_SKIP_PREPUSH=1`（限纯 `.md` / 弱网）/ `HA_SKIP_PREPUSH_TEST=1`（只跳 cargo test）。禁止 `--no-verify`（会绕过 GPG 等钩子）
+- **i18n 无 CI 兜底**：当次改动涉及的 key 提交时须全语言齐全（存量缺失不强制），`node scripts/sync-i18n.mjs --check` 自查
+- **评测不进 PR / pre-push**：默认 `cargo test` 只留快速契约测试；PR 内 fake-Provider smoke 无真实 Key、不替代 Campaign。详见 [capability-eval](docs/architecture/capability-eval.md)
 
-所有用户可操作的配置必须同时具备 **GUI 入口** 和 **`ha-settings` 技能对应能力**，两者零偏差。新增/修改进入 `AppConfig` / `UserConfig` 且用户需要调整的字段时，**同一 PR 内三件事缺一不可**：
+## 分支与发布
 
-1. **GUI 控件**：[`src/components/settings/`](src/components/settings/) 对应面板，shadcn/ui + 三态保存按钮
-2. **技能能力**：[`tools/settings.rs`](crates/ha-core/src/tools/settings.rs) 加读写分支 + 风险分级 + 副作用提示；同步更新 [`core_tools.rs`](crates/ha-core/src/tools/definitions/core_tools.rs) 的 `category` enum；含凭据需 read-only 的，加到 `BLOCKED_UPDATE_CATEGORIES` + `read_category` redact
-3. **技能文档**：在 [`skills/ha-settings/SKILL.md`](skills/ha-settings/SKILL.md) 风险等级表登记
+`main` 开发下个 minor，已发布 minor 各有 `release/vX.Y` 维护分支；跨分支只许 cherry-pick、禁 merge（否则未发布功能漏进维护分支）。
 
-### 风险等级
+- 改 workflow job 名 / matrix 须 `gh api` 同步 ruleset `main-branch-protection` 的 `required_status_checks`；`lint.yml` / `rust.yml` `merge_group: checks_requested` 不可删，否则 Merge Queue 无 required checks
+- deterministic 与真实模型证据链物理分离、互不替代，policy 各一份（`evals/policy/release.json` / `evals/live/policy/release.json`），转 enforce 只走配置 PR；发版 evidence 只认 GitHub，本地不得替代
+- Provider Key 只从受保护 environment 注入内存，缺隔离能力 fail closed；但签名 registry 未配置 = 跳过签名、留普通 evidence 不算失败，registry 存在后签名链任一错误才 fail closed
 
-- **LOW**：UI 偏好、显示配额（theme / language / notification / canvas 等）
-- **MEDIUM**：行为调整，影响上下文 / 成本 / 输出质量（compact / memory_* / web_search / approval / multimodal / dreaming 等）
-- **HIGH**：安全 / 网络暴露 / 全局键位 / 凭据 / 需要重启 / 权限规则 / 审批策略 / MCP 子系统级开关（proxy / shortcuts / server / skill_env / acp_control / `permission.global_yolo` / `smart_mode` / `mcp_global` / `protected_paths` / `dangerous_commands` / `unattended_approval` / `auto_update` 等）——技能在 `update_settings` 前**必须二次确认**（注：`embedding` 已改为只读，见下节「强制留 GUI 的例外」）
+详见 [release-process](docs/release-process.md) / [capability-eval](docs/architecture/capability-eval.md) / [live-model-evaluation](docs/architecture/live-model-evaluation.md)
 
-### 强制留 GUI 的例外（read-only via skill）
+## 设置约定
 
-五类不进 `update_settings`（凭据安全 + 运行时稳定性）：**Provider 列表与 API Key**、**IM Channel 账号（`channels`）**、**MCP 服务器配置（`mcp_servers`）**、**`active_model` / `fallback_models` 写入**、**embedding 模型选择（`embedding`）——携 API Key + 重 reembed 副作用，写入走 Settings → Memory（`embedding_models` + `memory_embedding` owner 命令）**。`get_settings` 仍可读但敏感字段 redact（`channels.accounts[*].credentials/settings`、`mcp_servers.env/headers/oauth`、`embedding.apiKey`；embedding 读经 `resolve_memory_embedding_config` 解析真实启用模型）。
+用户可调配置须同时有 GUI 入口与 `ha-settings` 能力；新增/改 `AppConfig`/`UserConfig` 可调字段**同一 PR 三处缺一不可**：① `src/components/settings/` 面板；② `crates/ha-core/src/tools/settings.rs` 读写分支 + `SETTINGS_CATEGORY_RISKS` 风险级 + `core_tools.rs` `category` enum，**携密只读项还须加 `BLOCKED_UPDATE_CATEGORIES` + `read_category` redact（只加读＝凭据可写）**；③ `skills/ha-settings/SKILL.md` 风险表。
 
-### 含凭据 category 的 read 脱敏（write 仍允许）
+- **漏登记风险级不报错**：`risk_level()` 静默回落 `medium`，HIGH（安全/凭据/权限，全表见 SKILL.md）失去**写前二次确认**。
+- **只读例外双理由（红线）**：凭据安全**或**运行时稳定性——`active_model`/`fallback_models` 不携密、无重副作用仍恒 GUI-only（须与 provider 状态/agent 重建协同），**别当误挡解封**；Provider 列表与 API Key 更严：无 category、禁新增入口。
+- **凭据必脱敏（红线）**：带凭据新字段须接入 `redact_*_value`（否则 LLM 拿 history 当 leak 通道）；只覆盖非空串（保住「未设」vs「已清空」）。
+- **读写 contract（红线）**：读 `cached_config()`、写 `mutate_config((category, source), …)`；禁 `Mutex<AppConfig>` / `load_config()`+`save_config()` 克隆-改-存。详见 [config-system](docs/architecture/config-system.md)。
 
-下列 category 允许 `update_settings`，但 `get_settings` 必须 redact 凭据字段，避免 LLM 把 history 当 leak 通道。**所有新增带凭据子字段的 `AppConfig` field 必须接入 [`tools::settings::redact_*_value`](crates/ha-core/src/tools/settings.rs) 同款 helper**：
+## 易错提醒（新增即同步）
 
-- `web_search` — `providers[*].apiKey` / `apiKey2`
-- `media_generation` — `providers[*]` 逐个 `masked()`（apiKey + extra）；**且 update 只放行 chains/defaults，providers 段整体拒写**（凭据 owner-UI only）
-- `server` — `apiKey`（HTTP/WS Bearer Token）
-- `acp_control` — `backends[*].env` 整张 map
-- `skill_env` — secret 容器，技能层二次确认警示已在 SKILL.md
+Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；两者任一改动 → [api-reference](docs/architecture/api-reference.md)。Rust 依赖变更先 `cargo check --workspace`。
 
-判定规则：read 时仅 `Some(non_empty_string)` 视为 secret 用 `"[REDACTED]"` 覆盖；`None` / 缺字段 / `Some("")` 保留原状（区分"未设"与"已设但被清空"）。
+## 编码规范
 
-### 配置读写 contract（强制）
+前端 / UI 见 [.claude/rules/](.claude/rules/)（path-scoped，改 `src/**` 时自动加载）。
 
-详见 [`config-system.md`](docs/architecture/config-system.md)。
+### 后端（Rust）
 
-- **读** 走 `ha_core::config::cached_config()`（`Arc<AppConfig>` 快照），禁止重新引入 `Mutex<AppConfig>` 或本地克隆
-- **写** 走 `ha_core::config::mutate_config((category, source), |cfg| {...})`，禁止 `load_config()` + `save_config()` 手动克隆-改-存（无法防并发 lost-update）
-- 写路径自动 emit `config:changed` 并落 autosave 备份，不要手动模拟
+- **阻塞 IO 红线**：async 里 SQLite/config 写必经 [`run_blocking`](crates/ha-core/src/blocking.rs)/`SessionDB::run`/`mutate_config_async`，禁 inline / `block_on`（[process-model](docs/architecture/process-model.md) Layer C′）
+- **禁 `log` crate 宏**，用 `app_info!` 系列（例外见 [logging](docs/architecture/logging.md)）
+- **核心业务路径必须埋点**，带最小复现上下文；`category`/`source` 命名稳定便于 grep
+- **禁字节索引切片字符串**，用 `crate::truncate_utf8`
+- 错误：内部 `anyhow::Result`，Tauri 边界 `Result<T, CmdError>` 直接 `?`，禁 `.map_err(|e| e.to_string())`（[backend-separation](docs/architecture/backend-separation.md)）
+- **跨平台原语统一进 [`platform/`](crates/ha-core/src/platform/)**，走 `crate::platform::xxx()`（[platform](docs/architecture/platform.md)）
+
+## 架构契约
+
+子系统细节在对应 `docs/architecture/<name>.md`；本节只列跨 PR 契约与红线。
+
+### 分层 & 运行模式
+
+详见 [backend-separation](docs/architecture/backend-separation.md) / [process-model](docs/architecture/process-model.md) / [transport-modes](docs/architecture/transport-modes.md)；版本发布见 [release-process](docs/release-process.md)。
+
+- **三 Crate**：业务全进 `ha-core`（**零 Tauri 依赖**），`ha-server` / `src-tauri` 只做薄壳；事件走 `ha-core::EventBus`，核心层禁用 `APP_HANDLE`
+- **Transport**：**新 invoke 必须同时实现 Tauri + HTTP 两套适配**（[`transport.ts`](src/lib/transport.ts)）；新 HTTP 端点默认经 Bearer 鉴权
+- **版本单一来源 `package.json`**：只走 `pnpm version` 同步，禁止手改任一 Cargo.toml / tauri.conf.json；**Updater 私钥严禁入仓**
+- **模式判定**用 `ha_core::runtime_role()` / `is_desktop()`，别给共享函数加 mode 参数
+
+### 工具 & 审批
+
+详见 [docs/architecture/](docs/architecture/)：permission-system/tool-system/sandbox/browser/background-jobs/media-generation/file-operations。
+
+- 工具调用唯一入口 `permission::engine::resolve_async()`；Smart 不消费 `custom_approval_tools`，UI 须提示。
+- strict 永不自动放行：超时/无人值守 `proceed` 强制 deny；判定源 `AskReason::forbids_allow_always`，`ApprovalReasonKind::is_strict()` 须镜像。
+- 无人值守 fail-closed：`check_and_request_approval` 预检 `evaluate_approval_surface`，`permission.unattended_approval_action` 默认 deny；可能 surface 即 Attended，唯 cron（含其血缘 subagent）例外；判 ACP 用 `is_acp()` 非 `ChatSource`（复用 Http）。
+- `control.raw_cdp` strict：每调用必审批、永无 Allow Always（规则/smart 均绕不过）；方法/域黑名单 + SSRF 扫描 + 硬开关 `browser.extension.allowRawCdp=false` 三道执行层防御勿削弱。
+- 出站 HTTP 必走 `security::ssrf::check_url`，新入口严禁自写 IP 校验。
+- 可见性与执行层兜底走 `dispatch::resolve_tool_fate`（`tools.allow/deny` 只覆盖非 Core）。
+- 结构化副输出唯一通道：`ToolExecContext.metadata_sink`→`messages.tool_metadata`→工作台；新工具禁自开旁路。
+- 后台单元唯一入口 `async_jobs::JobManager`，禁平行 API；命名分裂勿改：模块/log `async_jobs`、DB `background_jobs`、事件 `job:*`；审批 park 桥在 `tools::approval`（tools 零依赖 async_jobs）。
+- 双域勿合并：tool 池 `async_jobs::slots`，后台 subagent 池 `subagent::queue`；资源类（槽满）入队非拒绝，结构类（depth/batch/turn）硬拒不排队；parked 持槽不释放（否则 resume 无空槽死锁）、预算 timer 排除 parked 时长；`approval_projection_watcher` 只补 label、绝不 gate 执行。
+- 重试白名单代码级：`is_retry_eligible` 仅 `web_search`/`web_fetch`；新 async_capable 工具有副作用/计费就别加。
+- `AsyncToolsConfig` 的 `0`：仅 `max_concurrent_jobs`/`_per_session` 真不限，其余 bounded-resource 旁钮钳到地板、绝非无限（`completion_merge_window_secs` 的 `0`=关，不在此列）。
+- incognito：`output_tail` 永不注册；工作台聚合跳后端、只用 live tail。
+- 图/音生成必走 `media_gen::execute_image`/`execute_audio`，禁各写 provider 循环；凭据只 owner UI 可写。
+- 工作台聚合 dedup/排序 TS 与 Rust（`session::aggregate_session_artifacts`）两份须同步。
+- 文件打开/下载/预览走 `useFileResource`；新可预览类型改 `src/lib/fileKind.ts` `isPreviewableKind`。
+- preview-by-path：HTTP 三端点共用 `authorized_canonical_file_path`（tool 消息引用 ∪ 会话工作目录内），其余 403（远端严禁任意主机路径）；桌面信任本机。
+
+### Memory
+
+详见 [memory](docs/architecture/memory.md)；Dreaming（claim 层 / Deep resolver / Lucid Review / 确定性评测）见 [dreaming](docs/architecture/dreaming.md)。
+
+- **预算唯一入口 `effective_memory_budget(agent, global)`**（Project > Agent > Global）：只约束 Core 静态注入与 V1 rollback legacy 段，`recall_memory` / `memory_get` 回原文。`CoreMemorySnapshot` 是会话固定 prefix，turn-dependent 内容（Recall / Profile / Awareness）走其后动态 block，**不得重拼 Core system string**；项目主题正文变化不得改稳定前缀（否则每轮废 prompt cache）
+- **默认不静态注入**：仅完整 V1 rollback 或 `compatibility.legacyStaticMemory=true` 恢复 `## Pinned Memory` Context Pack——其 claim 进 prompt 前须 `sanitize_for_prompt`（**与动态召回信封是两条独立义务**）、与 Profile / legacy 共预算；legacy dedup 阈值须对齐注入阈值 `PINNED_MIN_SALIENCE`（`context_pack.rs` 单一来源），**dedup 永不比注入更激进**，否则中等 salience claim 两头落空、无 prompt 出口
+- **自动召回默认关**（`memory.recall.enabled`，Deep Recall 独立默认关）：关闭时只自动用 Core，**工具面不得 gate 在此开关**（模型仍可按需调 Memory tools）。开启后**过期 / superseded / archived / needs_review 不回灌**。旧 per-agent `ActiveMemoryConfig` 仅一个 minor 兼容 / rollback，**不得迁成全局同意**
+- **自动流程永不硬改用户记忆**：Deep Resolver 冲突只在高置信写 `needs_review`、**永不自动 supersede**；低置信 / 未知 relation / LLM 失败均 no-op
+- **纠错唯一入口 `claims::review`**：**无 agent 工具面**，只对用户开放、模型不能自改；**改 content 必 `reembed_claim`**，否则下轮召回仍命中旧文本
+- **注入即 untrusted**：召回文本套 `<untrusted_external_data>`，项目索引注入前 XML escape，claim / 图谱文本进 prompt 前 sanitize
+- **fail closed**：全局 / agent memory off、incognito、非项目会话在 schema 与执行层双归零。`sessions.incognito` 是无痕单一真相源（不注入 Memory / Awareness、跳过自动提取、关闭即焚，**与 Project / IM Channel 互斥**，四旁路守卫见 [session](docs/architecture/session.md#四旁路守卫epic-e)）。项目记忆读写拒 symlink 与 canonical escape、变更持项目级 OS 独占锁、更新 / 删除须带上次 `read` 的 BLAKE3 `expectedFileHash`（陈旧写 fail closed）
+- **确定性评测刻意不进默认 Cargo test**：`memory/dreaming/eval.rs` + `evals/suites/memory-dreaming/fixtures/` **无 LLM**，只由 `hope-agent-eval` 跑（进 cargo test 或加 LLM 判分即破坏确定性）
+- **改这些须同步**：claim 读路径 / effective-status / hidden-set / scope 过滤 / evidence 授权 → 加 fixture + 提 suite version + 追加 `evals/version-lock.json` key（已有 `id@version` 不可覆写，CI 强制 append-only）；Deep Resolver 分组 / 基数 / 决策映射 → `auto_resolver_graph_planning` fixture；检索 SQL / RRF / trigram → 跑 `pnpm memory:benchmark`
+- **Retrieval Planner**：`role=injected/selected` 是既成 prompt 事实，跨源只能 canonical-dedup / 裁剪 `candidate/considered`，**不得重排或丢弃已注入 ref**
+- **新增 Goal / Workflow / Async / Agent 执行边界**须传播 `EvalRunContext` 身份并在终态关闭 guard；`evals/live/version-lock.json` 同样 append-only，manifest 禁 shell
+
+### Subagent / Team / Cron
+
+详见 [subagent](docs/architecture/subagent.md) / [agent-team](docs/architecture/agent-team.md) / [cron](docs/architecture/cron.md) / [background-jobs](docs/architecture/background-jobs.md)。
+
+- **后台 subagent / Group 投影单向**：`subagent_runs` 为真相源，投影不持正文、不反写，排除 plan/team/hook 内部 spawn 与 incognito（durable 表，守关闭即焚）；同步只走 `SessionDB::update_subagent_status`，取消走 `subagent::request_cancel_run`（刻意不跑工具 job 的 hook/注入，勿并入统一取消）。`batch_spawn` 建 group 前预校验全部 task（否则漏交付），取消先标 group 终态再取消子 run
+- `TeamTemplateMember.description` 注入子 session 身份段
+- **Cron 投递白名单**：`delivery_targets` 须命中 `channel_conversations`——模型显式给的未命中目标创建期 `bail!`，投递期再查、未命中或 DB 不可用 fail-closed 跳过。白名单即边界（刻意不叠 SSRF）
+- **Cron delete 审批**：`manage_cron action=delete` 唯一非 internal action，刻意抑制 AllowAlways——matcher 只按 `action` 不含 `id`，持久化即「删任意任务」常驻授权。owner 三入口走 `cron::delete_job_and_sessions`；新增审批原因同步 `ApprovalReasonKind` + `ApprovalDialog.tsx` union + 全语言文案
+- **Cron owner-only 覆盖**：`permission_mode_override` / `sandbox_mode_override` 仅 owner 可设，`manage_cron` 恒 `None`、不进 schema、`update` 拒带覆盖的 job（否则注入可排 `permission=yolo` 提权）。沙箱 fail-closed：override 写失败即终止本次运行（写丢=裸跑 host），权限 override 写失败仅 warn（退回更严）——不对称刻意，勿拉平；预检读错回退 expected 而非 `Off`（防 `.unwrap_or(Off)`）；`ensure_sandbox_available()` 失败即终止、不回落宿主机
+- **Cron 排程与时区**：`schedule::validate_schedule` 为合法性唯一裁决（owner/模型共用），非法 IANA 时区 `bail!`、禁止静默回退 UTC；`compute_next_cron` 用 `.find(|dt| *dt > *after)` 非裸 `.next()`（否则 DST 秋退写入过去时刻 → 每 tick 重触发）；时区 backfill 经 `cron_meta` sentinel `tz_backfill_done` 真·一次性（形似性能优化，删掉即把故意-UTC 任务静默改成宿主时区）；`update_job` 系统字段以 DB live 为准、不取 caller 快照
+- **Cron Primary-only + slot-before-claim**：执行与 run-now 三入口前置 `is_primary()`（非 Primary 返错不假成功）；调度器先 `count_running()`（并发计数单一真相源，失败 fail-closed 跳过本 pass）抢槽再 claim——claim 会推进 `next_run_at`，反序即静默丢一轮
+- **`at_grace_secs` 的 `0` 是 async_tools 规则的例外**：`0`=严格不补跑、只钳上限不钳地板，勿套用「bounded-resource 旁钮 `0` 一律钳地板、绝非无限」。`save_cron_config` 替换整个 `CronConfig`——新增字段须同步各 save 调用点，漏传即被 serde 默认静默重置
+- `CronFailureClass` 只做诊断、刻意不改 `max_failures` 禁用策略（防误分类过早禁用）
+- **`ChatSource::Cron`**：`kb_access_source` 映射 `KbAccessSource::Cron`（非 IM → owner KB）、incognito 归零；新增 variant 须同步 `stream_seq.rs` 语义方法 + `active_counts` 穷举 match + `kb_access_source` 映射
+- Cron 终态语义（取消不误判 / 空输出不掩盖 / `At` 失败不重试 / infra 失败不计禁用 / 暂停不复活）互锁，改 `classify_cron_terminal` / `update_after_run` / `mark_missed_at_jobs` 前必读 cron.md；新增 run_log status 须同步 `dashboard/{insights,queries}.rs` 成功率口径 + 前端 `TaskSection` / `cronHelpers`
+- **`schedule_wakeup` ≠ cron、不复用入口**：replay 仅 Primary（防双投）、incognito 仅内存、会话删经 `wakeup::purge_for_session` 取消
+
+### LLM 主对话
+
+详见 [provider-system](docs/architecture/provider-system.md) / [failover](docs/architecture/failover.md) / [side-query](docs/architecture/side-query.md) / [agent-config](docs/architecture/agent-config.md) / [automation-model](docs/architecture/automation-model.md)
+
+- spawn tool loop 的 chat 走 `chat_engine::run_chat_engine`，禁止自包 `on_delta`
+- Codex 不参与 failover profile 轮换（OAuth 无 profile，executor 按 `api_type` 强制关，caller 传 true 也无效）
+- 视觉桥 `agent/vision_bridge.rs`：`function_models.vision` opt-in、未配=关（回退占位符、不自动挑选）。只改 `api_messages` 副本、绝不改 `conversation_history`（就地改=永久丢图）；只扫 user/tool、跳 assistant（改写毁 tool 调用）；转录套 `<untrusted_external_data>`、绝不作 system 指令；绝不在 side_query 触发（防递归）；incognito 走 per-turn 缓存、绝不写全局
+- 后台一次性 LLM 调用走 `automation::run` / `run_vision` + `function_models.automation`，同类消费者勿另写形状。例外：Memory Extract 与 Compact 摘要刻意不接入（签名不支持链式循环；Compact 属 fail-fast 关键路径），只加 `model_override`，勿迁移
+
+### Chat Engine & Streaming
+
+详见 [chat-engine](docs/architecture/chat-engine.md)；未读口径见 [session](docs/architecture/session.md)。
+
+- **未读单一来源**：普通未读计**会话数**，资格只走 `regular_session_scope_sql` / `regular_unread_exists_sql`，禁止分页求和；Regular / Cron / IM 三域互不清除，新专属对话空间须用独立 `SessionKind`
+- **API-Round 分组**：新 Provider adapter 须经 `push_and_stamp` 标 `_oc_round`（否则压缩切割拆散 tool_use / tool_result 配对），请求体构建前统一 `prepare_messages_for_api()` 剥离元数据
+- **前台 idle guard 单一入口**：`run_chat_engine` 按 `ChatSource::holds_foreground_idle_guard()` 统一建 `ChatSessionGuard`（ACP 自建），新增对话入口不得手搓 per-shell guard
+
+### 上下文压缩
+
+5 层渐进式 + `ContextEngine` / `CompactionProvider` 可插拔；阈值、TTL 节流、反应式微压缩、Tier 3 文件恢复详见 [context-compact](docs/architecture/context-compact.md)。
+
+### Knowledge Base（知识空间）
+
+详见 [knowledge-base](docs/architecture/knowledge-base.md)。
+
+- **两类存储（D9）**：笔记 `.md` = 唯一真相源；注册表 + **访问绑定**落 `sessions.db`；`index.db` 仅可重建缓存，**权限绝不落其中**（重建即静默重置授权）
+- **访问默认 deny**：唯一裁决 `effective_kb_access`（incognito / IM 未 opt-in 归零；subagent 按 origin 血缘不洗权限）；owner 平面不经 attach，agent 平面（`note_*`）必过
+- **agent 侧唯一解析链**：`Agent::resolve_kb_access()`，prompt 段 / 被动召回 / 工具门控共用，**不得重写**；**只服务 schema/prompt/召回，绝不 gate 执行**（执行走 live `access_map`）。`is_kb_scoped_tool` / `ToolScope::Knowledge` 仅收窄 schema 可见性，**非安全边界**
+- **写入三闸**：`WorkspaceScope::for_knowledge`（外部 root 只读、**桌面也拒**（刻意反「桌面不受限」通例），须 `allow_external_writes`；HTTP 再叠 `allow_remote_writes`；**后台维护永不写外部**）→ `platform::write_atomic`（**禁回退 `fs::write`**）→ `expected_file_hash` 比磁盘 raw BLAKE3（**非索引 `content_hash`**）
+- **检索独立**：笔记 store **绝不折进 `recall_memory`**（`knowledge_recall` 两段不混排）；`knowledge_embedding` 与 `memory_embedding` 物理隔离、**不寄生不回退**；embedding / chunk 重 reindex 故 **GUI-only 不进 `ha-settings`**（设置三件套例外）
+- **读取即 untrusted**：`[[note]]` 与 `knowledge_passive_recall` 套 `<untrusted_external_data>` 信封，**永不升为 system 指令**；incognito 零召回 / 零精灵
+- **接线**：会话独立 `SessionKind::Knowledge`（主列表 / `/sessions` / 全局 FTS 隐藏，与 design 同谓词）；**新增 KB 工具须同步 `tools/note.rs` + `core_tools.rs`（schema）+ `execution.rs`（dispatch）**
+
+### 设计空间（Design Space）
+
+详见 [design-space](docs/architecture/design-space.md)。**新增 action / 端点：工具进 `tools/design/mod.rs`，Tauri / HTTP 薄壳只调 `design::service`，逻辑全在 ha-core**。
+
+- **浏览器零编译**：iframe 只载后端编译落盘的静态产物（`component` 经 `design::compile`）；**禁 in-browser Babel / esbuild-wasm / Tailwind JIT**（旧版 `feat/atelier` 白屏卡顿根因）；编译失败降错误页，**不白屏 / 不 panic**。**刻意不做无限画布**（同一卡顿根因）
+- **回写确定性**：磁盘即真相源，`design.db` 仅可重建注册表；微调回写单一命中 + `expected_hash` stale-write 守卫，写盘**一律** `platform::write_atomic`。**component 编译产物 ≠ 源码故无 oid 微调**，仅 `supports_oid_edit` kind（非 image/audio/component）可 `edit_element`
+- **边界**：owner（`service.rs`，本机 / API key 信任，**刻意不经 access 检查**）与 agent `design` 工具两平面隔离；iframe 恒 `sandbox="allow-scripts"`；`ToolScope::Design` 仅收窄 schema、**非安全边界**；**incognito 零设计**（fail-closed）；`SessionKind::Design` **与 knowledge 同谓词从主侧栏 / `/sessions` / 全局 FTS 隐藏**，新增专属空间**必须**同步该谓词
+- **小改必须就地精改**（实测曾抹空整页）：`get_artifact` → `edit_element(oid)`，**绝不整段 `update_artifact` 重造、绝不 web_fetch 读产物**
+
+### Agent 控制平面 / 通用场景
+
+详见 [docs/architecture/](docs/architecture/)：goal/workflow/loop/context-retrieval/domain-{workflow,quality,eval}。
+
+- **控制面归位**：`/goal` 目标+完成标准 · `/mode` 强度 · `/workflow` 一次性可恢复可审批脚本 · `/task` 进度 · `/loop` 重复触发（复用 Cron，不另起 scheduler） · `/worktree` 隔离 coding。禁持续触发伪装 workflow、一次性脚本伪装 loop。
+- **领域模块不扩权、不执行**：`domain_workflow_templates` 只述交付契约，不给连接器权限；`preview_domain_workflow` 只出 draft/preview，不建 run 不执行、不碰连接器、不发/改外部系统。Domain Learning 复用 Coding Improvement 同一 proposal queue（禁平行队列），preview → apply → 用户显式 promotion 才落生产，禁直改生产模板/connector 策略/eval fixture。
+- **复核评测**：Domain Quality、`domain_eval_runs`、`evaluate_domain_quality_gate` 确定性只读：不调 LLM、不写状态、不碰连接器、不发送/发布、不自动学成正式规则。证据走 `domain_evidence_items` + Goal link，禁冒充 diff/validation/file evidence；与 `coding_eval_runs` 不混用，coding release gate 不代替 domain quality gate。
+- **两处 fail closed**：只有 `requestedAction` 命中 approval gate 或 `highRiskAction=true` 才 `needs_user`（否则模板带 gate 即阻塞普通复核），缺确认阻塞 Goal；incognito 下 preview/evidence/quality/eval 拒绝或返空只读，不落 durable。
+
+### Hooks
+
+详见 [hooks](docs/architecture/hooks.md)（单一真相源，字段级对齐 Claude Code hooks 协议，`hooks_compat.rs` 硬验收）。
+
+- **唯一入口 `HookDispatcher::dispatch` / `hooks::fire_*`**；调用方只读 `HookOutcome`，严禁 match handler 类型
+- **新 user message 入口须过 `agent::preflight::user_prompt_preflight`**（`UserPromptSubmit` 阻断点）；新 hook 事件须埋点 + 测试 + 同步 `types.rs` 三处 match（`common`/`matcher_target`/`is_observation_only`）——**漏登记 `is_observation_only` 则新观察事件意外可阻断**
+- **project/local scope 默认关**（`hooks_allow_project_scope`，供应链防护：开启即信任所有未来 cwd）；`ha-settings` 对 hooks 只读，可写 = 模型自装命令执行
+
+### Plan Mode
+
+详见 [plan-mode](docs/architecture/plan-mode.md)。
+
+- **进入永远由用户拍板**：模型只能经 `enter_plan_mode` Yes/No 审批，**不能自己转 state**
+- **plan = 设计契约（执行期不改），task = 唯一进度真相**
+- **执行层兜底**：`resolve_tool_permission` 必须查 live plan state，防 mid-turn 进 plan 后剩余工具绕过
+
+### Skill 系统
+
+详见 [skill-system](docs/architecture/skill-system.md)（优先级/激活入口/`allowed-tools` gap/`skills::author` 原语）。
+
+- **内置技能编译期嵌入二进制**（`skills/embedded.rs`）：禁止往构建产物单独拷 `skills/`
+- **`@skill` 固定 allowlist**：非通用注入入口，单一来源 `skills::mention::AT_MENTIONABLE_SKILLS`
+- **`skills::author` 写正文三路径（create/update/patch）全过 `security_scan`，命中即 bail 不降级**；自动**创建**默认落 draft 待用户确认，但 `promotion:"auto"` 直接写 Active；**`patch` 就地改已存在技能——目标 Active 时即刻对模型生效，不落 draft、不经确认**
+
+### MCP 客户端
+
+**配置读写**：读 `cached_config().mcp_servers`，写 `mutate_config(("mcp.<op>", source), …)`；网络 transport 与 OAuth 全路径出站过 SSRF 门，凭据 0600 落 `credentials/mcp/`。详见 [mcp](docs/architecture/mcp.md)。
+
+### 平台 MCP 服务器（`hope-agent mcp`）
+
+**红线**：共享 host `ha-core/src/mcp_server/`（`ToolProvider` 注册表），不做子系统专属 server；默认只读、`--allow-writes` 才注册写集且 host 层双保险再拦；**恒不暴露**写代码仓库 / deploy / share / delete / export 类工具；stdio interop 经 `acquire_or_secondary_for` 恒**被动 Secondary**，永不争 Primary。详见 [mcp-server](docs/architecture/mcp-server.md)。
+
+### IM Channel
+
+详见 [im-channel](docs/architecture/im-channel.md)。
+
+- **审批一致性 + fail-closed（红线）**：所有决议路径（submit/超时/删会话/eviction）必须 emit `approval:resolved` 统一撤窗；按钮回调缺源即拒（**不复用 ask_user 的 `None→Ok`**）、文本回复 submit 前校验 session↔chat、chat 接管在 notify 门**前**拒决该 session 全部 pending；`auto_approve_tools`（opt-in）跳门时命中 strict 须 `app_warn('permission','auto_approve_bypass')`——**纯审计不拦截**
+- **事件匹配用 `contains` 不用 `starts_with`（红线）**：`emit_tool_result` 的 `json!`+`BTreeMap` 键按**字母序**排（`call_id` 恒首位），锚 `{"type":...` 的 fast-path **永不触发**
+- **`channel_conversations` 双向 1:1（红线）**：一 chat ↔ 一 session，接管即物理 detach 旧 attach + emit `channel:session_evicted`；读写一律走 [`channel/db.rs`](crates/ha-core/src/channel/db.rs) helper，**禁止直接写表**
+- **注入回投须在同一 future 内 await finalize**：`inject_and_run_parent` 自驱动镜像（注入跑短命 runtime，`spawn(finalize)` 会被腰斩）；空闲门超时**不丢弃**，重排队进 `PENDING_INJECTIONS`
+- **单一入口勿另起**：流式预览选路走 `select_stream_preview_transport`，新卡片风格靠 `ChannelPlugin` default=`Err` trait 方法扩展；auto-start 失败重试走 [`channel/start_watchdog.rs`](crates/ha-core/src/channel/start_watchdog.rs)（**user 操作永远胜过 watchdog**），勿自写退避
+
+### 跨会话 / 全局
+
+详见 [`docs/architecture/`](docs/architecture/)：session / ask-user / prompt-system / behavior-awareness / help-center
+
+- 数据在 `~/.hope-agent/`，新路径走 `paths.rs`；日志走 `logging/mod.rs`，请求体必经 `redact_sensitive`
+- 唯一结构化问答入口 `ask_user_question`：富输入 / 风格卡只能扩展它（答案仍走 `selected[]`），绝不 fork
+- `sessions.working_dir` 三用：`# Working Directory` 段 + `exec` cwd + `read` 相对根，非纯 prompt 提示
+- 手册单一来源 `docs/user-guide/`（rust-embed）：禁复制正文 / 拷进产物；中英同 PR 对齐（CI `check-docs-parity`）。例外：Dockerfile rust 阶段 `COPY docs/user-guide` 是编译期 embed 依赖，须保留
+- markdown 路径链接仅桌面：`is_desktop()` 才注入 `MARKDOWN_PATH_LINKS_GUIDANCE`；其 `[名](绝对路径)` 格式与前端 `localPathFromHref()` 是同步契约；非桌面靠 `supportsLocalFileOps()` 关入口 + `/api/desktop/open-directory` 返 no-op（**不是**早返回禁用）。例外：anchor `title` 用原生 HTML 非 shadcn Tooltip（一条消息上百个）
+
+### 项目（Project）容器
+
+详见 [project](docs/architecture/project.md)。
+
+- **已删勿引入**：`project_files`/`ProjectFile`/`project_read_file`（项目文件=工作目录真实文件）、`Project.bound_channel`（IM 无反向认领，归属靠 chat 内 `/project <id>`）
+- **交互入口懒创建**：进项目「新建对话」不得 `create_session_cmd` 预建，首条消息经 `chat` 的 `projectId` 落库；`project_id` 与 `incognito` 互斥（**后端强制 incognito off**）；IM/cron/subagent 仍 eager
+- **两个唯一入口**：工作目录 `session::effective_session_working_dir`（session > project > 默认 workspace）；文件读写 `filesystem::WorkspaceScope`（失败闭合，`for_path` 只读，HTTP 写受 `filesystem.allow_remote_writes` 默认 false）
+- **删除级联**：`rm -rf projects/{id}/` **绝不波及用户显式选的外部 working_dir**；跨 db 项目记忆单独删、启动期 reconciler 兜底
+
+### Agent 解析链（默认 Agent）
+
+详见 [agent-config](docs/architecture/agent-config.md)。
+
+- **7 级链唯一入口 [`agent/resolver.rs::resolve_default_agent_id_full`](crates/ha-core/src/agent/resolver.rs)**：顺序固定、首个非空胜出；channel worker 与新会话入口不得自写解析链
+- **禁止裸字面量 agent id / 重新引入 `"default"`**：走 [`agent_loader::DEFAULT_AGENT_ID`](crates/ha-core/src/agent_loader.rs)（当前值 `"ha-main"`；前端走 `@/types/tools` 同名常量 + `isMainAgent`）
+- **启动序**：`init_runtime`（含 legacy `"default"`→`"ha-main"` 一次性迁移）**必须**早于 `ensure_default_agent()`，否则预创空 `agents/ha-main/` 模板会吞掉 rename（迁移整体放弃且静默）
+
+### 自升级
+
+详见 [self-update](docs/architecture/self-update.md)。红线：
+
+- **下载产物必须验签**：更新下载走 `updater::download::download_to`，落地 / swap 前必过 Minisign `signature::verify_bytes`
+- **pubkey 两处必须相等**：`updater::keys::MINISIGN_PUBKEY_BASE64` ↔ `tauri.conf.json#plugins.updater.pubkey`（启动 panic / CI / pre-push 三重校验）
+- **换 binary 只走 `platform::atomic_replace_binary`**（禁 `fs::write` 覆盖运行中 binary）；swap 后冷烟自检失败自动回滚
+- **安装 / 重启必经用户确认**：`auto_update` 后台只检查 + 预下载 staging，`app_update` 的 `install` / `rollback` 弹 `ask_user_question`，**桌面绝不无条件 relaunch**
+- **ha-core 不依赖 tauri-plugin-updater**，桌面路径经 `updater::UpdaterBridge` 反向注册
+
+### Dashboard / Recap / Learning
+
+详见 [dashboard](docs/architecture/dashboard.md) / [recap](docs/architecture/recap.md)。
+
+- **用量总账（红线）**：新增任何触发模型推理 / embedding / STT / judge / `web_search` / 生图生音 / `provider_test` / vision 的入口必须经 [`model_usage.rs`](crates/ha-core/src/model_usage.rs) 入账（无痕不记，**cron / subagent / 后台维护照记**），**禁止字符估算冒充 token**；新增 `KIND_*` 须同步 `DashboardFilter.USAGE_KIND_VALUES` + `dashboard.usageKind.*` 全部语言
+- **大盘只读、不伪造因果（红线）**：`dashboard/control_plane.rs` 是 Goal / Workflow / Loop / Task / Plan 聚合唯一入口；无可靠外键前禁止按 session 拼因果漏斗，零分母返 `null`，Goal / Workflow / Loop / Task / attention 排除 incognito / Cron / 子会话
+
+### 本地 LLM 助手
+
+详见 [local-model-loading](docs/architecture/local-model-loading.md)。
+
+- 后端锁 Ollama（OpenAI 兼容端点），**App 不接管其进程**；模型目录与硬件预算算法见 `local_llm/types.rs::model_catalog` / `RECOMMENDATION_BUDGET_PERCENT`
+- **Provider 写入 contract**：Provider 列表与 `active_model` 一切写入走 [`provider/crud.rs`](crates/ha-core/src/provider/crud.rs) helper（本地安装走 `upsert_known_local_provider_model`），**禁止 `providers.push` / `retain` / 手写 `active_model`**
+- **本地后端判定消费 catalog**（[`provider/local.rs`](crates/ha-core/src/provider/local.rs)），**禁止硬编码 regex**
+
+## 项目结构
+
+六 crate workspace：`ha-core`（核心业务，**零 Tauri 依赖**）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
+
+## 开发命令
+
+```bash
+pnpm tauri dev                        # 开发（改 ha-browser-host 后先 pnpm dev:browser-host）
+node scripts/sync-i18n.mjs --check    # 翻译缺失（--apply 补齐）
+cargo run -p ha-eval --locked -- validate   # 评测资产校验
+```
+
+其余脚本读 `package.json` scripts；CLI / Docker / 评测子命令见 [cli](docs/architecture/cli.md) / [docker](docs/deployment/docker.md) / [capability-eval](docs/architecture/capability-eval.md)。
 
 ## 文档维护
 
-技术文档索引见 [`docs/README.md`](docs/README.md)（`docs/architecture/` 架构）。
+索引 [`docs/README.md`](docs/README.md)。**AGENTS.md 只放跨 PR 红线与入口**，细节下沉 `docs/architecture/`。
 
-| 改动类型                                            | 需更新                                                                |
-| --------------------------------------------------- | --------------------------------------------------------------------- |
-| 新增/删除功能、命令、模块                           | `CHANGELOG.md`、`AGENTS.md`                                           |
-| 技术栈/架构/规范变更                                | `AGENTS.md`                                                           |
-| 已有子系统架构变更                                  | `docs/architecture/` 对应文档                                         |
-| 新增架构级能力                                      | `docs/architecture/` 新建文档 + `docs/README.md` 索引                 |
-| 新增/删除子系统、架构文档、运行时 DB 或稳定 log category | [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/)（`diagnostic-playbook.md` 子系统速查） |
-| 新增/删除 Tauri 命令、HTTP 路由、`COMMAND_MAP` 条目 | [`api-reference.md`](docs/architecture/api-reference.md) 对应表格     |
-| 功能变化导致 README 过时                            | `README.md` + `README.en.md`（同一 PR 双语同步）                      |
-| 新增调研/对比分析 / 阶段 roadmap / review packet      | 归档到本机 iCloud `HopeAI/Hope Agent/Plans/`，不要放入 `docs/architecture/`；最终实现事实落对应 architecture 文档 |
-| 修改 README 任一语言版本                            | 同一 PR 同步另一语言（`README.md` ↔ `README.en.md`）                  |
-| 新增/修改 Release Notes                             | 同一 PR 内中英双份（`docs/release-notes/vX.Y.Z.md` ↔ `vX.Y.Z.en.md`） |
+同 PR 同步：功能/命令/模块增删 → `CHANGELOG.md` + `AGENTS.md`；技术栈/架构/规范/契约 → AGENTS.md；子系统边界/数据流/持久化/跨模块 contract → architecture 文档，新增架构级能力新建文档 + 登记索引；Tauri 命令/HTTP 路由/`COMMAND_MAP` 增删 → `docs/architecture/api-reference.md`；子系统/架构文档/运行时 DB/稳定 log `category` 增删 → `skills/ha-self-diagnosis/references/diagnostic-playbook.md`；README/release notes 任一语言 → 同步 .en.md。
 
-- **AGENTS.md 是契约面**——只放跨 PR 必守的规则、红线、文件入口；**实现细节、内部数据结构、迁移逻辑、边角行为一律下沉到对应 architecture 文档**
-- **架构文档强制**：子系统边界 / 数据流 / 持久化格式 / 跨模块 contract 改动须更新对应 `docs/architecture/`；新增架构级能力（新子系统 / 协议层）须同 PR 新建文档并登记到 `docs/README.md`
-- **规划归档强制**：调研、路线图、阶段计划、review packet 和原始参考材料归外部 iCloud Plans；仓库内不保留已完成 roadmap。落地完成后必须把最终设计决策同步到对应 architecture 文档，确保只看技术文档也能理解最终设计。
-- **ha-self-diagnosis 索引同步**：新增 / 删除子系统、`docs/architecture/` 文档、`~/.hope-agent/` 运行时 DB（`paths.rs`）或稳定 log `category` 时，同步更新 [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/) 的 `diagnostic-playbook.md`（Subsystem Reference：入口模块 / DB·config / log category / 故障 gotcha）。此处是 agent 自查与排障的 fallback 真相源，过时会直接误导诊断；新增的 log `category` 须为稳定字符串便于 grep
-- **README 双语同步**：根目录 `README.md`（中文）+ `README.en.md`（英文），任一改动同次提交同步另一份
-- **Release Notes 双语同步**：每版本 `vX.Y.Z.md` + `vX.Y.Z.en.md`，顶部互加 `简体中文 · English` 切换链接
-- **CHANGELOG entry 单行**：每条 changelog 一句话讲用户感知 + `(#PR)` 引用，**不放**文件路径 / 数据结构 / 单测数 / 实现取舍——那些写 PR description 或 [`docs/architecture/`](docs/architecture/)。涉及契约 / 红线变更可加一行用户操作影响（如「首次启动自动迁移」），仍不展开实现。Release notes 可以稍长一段，但同样面向用户视角而不是实现叙事
+**CHANGELOG 单行**：用户视角一句 + `(#PR)`，不写实现；契约/红线可加一行用户影响。
+
+**规划归档**：调研/roadmap 归外部 iCloud `HopeAI/Hope Agent/Plans/`，**仓库内任何路径不留已完成 roadmap**；落地后须把设计决策同步回架构文档。

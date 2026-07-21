@@ -23,6 +23,7 @@
   - [入站附件 deferred materialize 模式](#入站附件-deferred-materialize-模式)
 - [模块拆分](#模块拆分)
 - [Channel Registry（注册表）](#channel-registry注册表)
+  - [Auto-start 失败重试（start_watchdog）](#auto-start-失败重试start_watchdog)
 - [会话管理](#会话管理)
   - [channel_conversations 表](#channel_conversations-表)
   - [会话映射策略](#会话映射策略)
@@ -242,8 +243,15 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     // 出站
     async fn send_message(&self, account_id, chat_id, payload) -> Result<DeliveryResult>;
     async fn send_typing(&self, account_id, chat_id) -> Result<()>;
+    async fn send_draft(...) -> Result<()>;                  // default: not supported
     async fn edit_message(...) -> Result<DeliveryResult>;   // default: not supported
     async fn delete_message(...) -> Result<()>;              // default: not supported
+
+    // 卡片流式（4 个方法默认实现全返回 Err，仅飞书覆写）
+    async fn create_card_stream(...) -> Result<CardStreamHandle>;
+    async fn send_card_message(...) -> Result<DeliveryResult>;
+    async fn update_card_element(...) -> Result<(), CardStreamError>;
+    async fn close_card_stream(...) -> Result<()>;
 
     // 状态
     async fn probe(&self, account) -> Result<ChannelHealth>;
@@ -296,8 +304,12 @@ pub struct ReplyPayload {
     pub parse_mode: Option<ParseMode>,           // Html / Markdown / Plain
     pub buttons: Vec<Vec<InlineButton>>,         // 内联键盘按钮
     pub thread_id: Option<String>,               // 论坛话题 ID
+    pub draft_id: Option<i64>,                   // 草稿 ID（Draft transport 用，须非零）
 }
 ```
+
+`draft_id` 是 [Draft transport](#流式预览-transport-三级优先级) 的载体：同一 `draft_id` 的连续草稿
+会被客户端渲染成动画式更新，所以整个 turn 复用同一个值。
 
 ### ChannelCapabilities
 
@@ -305,19 +317,33 @@ pub struct ReplyPayload {
 
 ```rust
 pub struct ChannelCapabilities {
-    pub chat_types: Vec<ChatType>,        // 支持的聊天类型
-    pub supports_polls: bool,             // 投票
-    pub supports_reactions: bool,         // 表情回应
-    pub supports_edit: bool,              // 编辑消息
-    pub supports_unsend: bool,            // 撤回消息
-    pub supports_reply: bool,             // 引用回复
-    pub supports_threads: bool,           // 线程/话题
-    pub supports_media: Vec<MediaType>,   // 支持的媒体类型
-    pub supports_typing: bool,            // 输入中指示器
-    pub supports_buttons: bool,           // 交互按钮（审批等）
-    pub max_message_length: Option<usize>,// 单条消息长度限制
+    pub chat_types: Vec<ChatType>,      // 支持的聊天类型
+    pub supports_polls: bool,           // 投票
+    pub supports_reactions: bool,       // 表情回应
+    pub supports_draft: bool,           // 草稿式流式预览（Telegram sendMessageDraft）
+    pub supports_edit: bool,            // 编辑消息
+    pub supports_unsend: bool,          // 撤回消息
+    pub supports_reply: bool,           // 引用回复
+    pub supports_threads: bool,         // 线程/话题
+    pub supports_media: Vec<MediaType>, // 支持的媒体类型
+    pub supports_typing: bool,          // 输入中指示器
+    pub supports_buttons: bool,         // 交互按钮（审批等）
+    pub streaming_preview_max_bytes: Option<usize>, // 流式 preview 的 byte 预算
+    pub supports_card_stream: bool,     // cardkit 卡片流式（仅飞书）
 }
 ```
+
+除 `chat_types` 外全部字段带 `#[serde(default)]`，新增字段不会打破既有插件。
+
+**没有 `max_message_length` 字段** —— 单条消息长度的两个语义完全分离：流式 preview 的 byte 预算是
+`streaming_preview_max_bytes`，chunk-send 的切片尺寸走 `chunk_message`（插件可覆写成平台真实上限，
+未覆写时 trait 默认实现回落到 `streaming_preview_max_bytes`）。`None` 语义上表示"该渠道没有 preview
+byte 闸"，但两个消费点各有兜底：`spawn_stream_pipeline` 与默认 `chunk_message` 都 `unwrap_or(4096)`
+——今天这条路走不到，因为仅有的两个 `None` 渠道（iMessage / Signal）同时 `supports_edit: false`，
+根本选不出 preview transport。两者的区分详见[消息分段（chunking）契约](#消息分段chunking契约)。
+
+`supports_draft` / `supports_card_stream` 是[流式预览 Transport 三级优先级](#流式预览-transport-三级优先级)
+的选择输入，各自只有一个渠道声明 `true`（Telegram / 飞书）。
 
 ### 安全策略（SecurityConfig）
 
@@ -623,6 +649,78 @@ pub struct ChannelWorkerHandle {
 }
 ```
 
+### Auto-start 失败重试（start_watchdog）
+
+渠道的启动握手（Telegram `getMe` / Slack `auth.test` / 飞书 WS endpoint discovery 等）原先是一次性的：
+开机时 VPN / 系统代理 / Wi-Fi 还没就绪导致首次尝试失败，该渠道就一直是死的，直到用户自己发现并点重启。
+[`channel/start_watchdog.rs`](../../crates/ha-core/src/channel/start_watchdog.rs) 在内存里维护一张
+"启动失败待重试"表，按退避计划重投，直到握手成功或用户显式介入。
+
+**公开 API 四个**，调用点全部收敛成一行，日志格式在模块内统一构造，避免 boot / add / update 三条路径漂移：
+
+| API | 作用 |
+|---|---|
+| `register_failure(account, error)` | 打失败日志 + 入队（或刷新）重试条目。失败日志的唯一来源 |
+| `cancel_pending(account_id)` | 丢弃待重试条目 —— **用户意图永远胜过 watchdog** |
+| `mark_success(account_id)` | 丢弃条目并打一条恢复日志（带累计重试次数） |
+| `spawn_loop(registry)` | init 期起一次重试任务，靠 `LOOP_SPAWNED` 幂等 |
+
+**退避计划**（`backoff_for`，attempt 从 1 起）：**30s → 60s → 120s → 240s → 封顶 300s（5 分钟）**。
+实现复用 [`failover::retry_delay_ms`](../../crates/ha-core/src/failover/mod.rs)（base 30_000ms / max 300_000ms），
+因而带同款 **±10% jitter** —— 这里同样必要：一次共享 VPN / 代理抖动会让所有渠道在同一瞬间失败，
+无 jitter 的固定延迟会把它们的重试风暴对齐成同步脉冲。
+
+**Sweep 节奏**：`SWEEP_INTERVAL = 15s`，`MissedTickBehavior::Skip`，首个立即 tick 被跳过。
+每 tick 先看 `PENDING_COUNT`，为 0 直接 continue；否则 `collect_due_ids()` 取 `next_attempt <= now`
+的条目逐个 `retry_one`。**sweep 间隔与 per-entry 退避是两个独立量** —— 15s 只是检查粒度，
+真正的重试间隔由 `backoff_for` 决定。
+
+**`retry_one` 的重读契约**：每次重试前重新读 `cached_config()` 取账号 —— 用户可能在失败与重试之间
+改了凭据、禁用或删除了账号。账号查不到或 `enabled=false` 即 `cancel_pending` 出队；
+`registry.health().is_running` 已为 true 则 `mark_success` 出队（别人已经把它启起来了）。
+
+**"用户操作永远胜过 watchdog"的落地手段**是把出队挂在 registry 的生命周期方法上，而不是靠 watchdog 自己判断：
+
+- [`registry.start_account()`](../../crates/ha-core/src/channel/registry.rs) 成功后调 `mark_success` ——
+  手动 Start / UI Restart 不会和 watchdog 的冗余尝试打架
+- `registry.stop_account()` **进函数第一件事**就是 `cancel_pending`，然后才取消 token ——
+  用户明确停掉的账号绝不会被 watchdog 又拉起来；`restart_account` = `stop_account` + `start_account`，
+  自动继承这对语义
+- `channel/accounts.rs` 的新增 / 更新账号路径在 `start_account` 失败时 `register_failure`，
+  同样进同一个队列
+
+**热路径优化**：`mark_success` / `cancel_pending` 每次 UI Start/Stop 都会调用，而"从来没失败过"是绝对
+常见的情况，所以两者先读无锁的 `PENDING_COUNT`（与 `PENDING` map size 同步维护），为 0 时直接返回，
+不付出一次 mutex acquire 的代价。
+
+#### 失败分类与 `channel:auth_failed`
+
+`classify_channel_error` 把各 SDK（teloxide / serenity / slack-morphism …）形态各异的原始错误链
+小写化后按**子串**匹配成一行面向用户的提示。刻意用子串而非类型枚举 —— 每个渠道 SDK 的报错形态都不同。
+**顺序有意义：更具体的信号排在更宽泛的前面。**
+
+| 匹配信号（按判定顺序） | 提示语义 |
+|---|---|
+| `certificate` / `tls handshake` / `handshake failed` / `self-signed` | TLS/证书错误 —— 代理可能在中间人拦截 HTTPS，或系统 CA 信任配置有误 |
+| `401` / `unauthorized` / `invalid token` | auth/token 被拒 —— 检查凭据是否正确、是否已吊销 |
+| `403` / `forbidden` | forbidden —— bot 可能被封或缺少必要权限 |
+| `404` / `not found` | endpoint 不存在 —— 检查 apiRoot / channel base URL |
+| `connection refused` | 连接被拒 —— 代理/本地服务未启动或端口错误 |
+| `dns` / `name resolution` / `failed to lookup` | DNS 解析失败 —— 大概率没网或 DNS 代理挂了 |
+| `proxy` | 代理错误 —— 检查配置的代理 URL 是否可达 |
+| `timed out` / `timeout` | 请求超时 —— 网络慢、防火墙丢包或代理尚未起来 |
+| `error sending request` / `connect` | 网络不可达 —— 检查 VPN/代理 |
+| （兜底） | unknown —— 看上面完整错误链 |
+
+分类结果还驱动**桌面告警**：`needs_user_action(hint)` 对 `auth/` 或 `forbidden` 前缀返回 true —— 这两类
+watchdog 自己修不好，只有用户能重新提供凭据或解封。命中时 emit 一次 `channel:auth_failed`
+（payload `{ accountId, label, channelId, hint }`），前端
+[`useDesktopAlerts`](../../src/hooks/useDesktopAlerts.ts) 弹系统通知（自带冷却窗口）。
+
+**恰好一次**：`PendingEntry.auth_alerted` 保证同一段 pending 序列只告警一次 —— 即便前几次失败是
+可自愈的网络原因（watchdog 能自己扛），只要 auth/forbidden 第一次浮现就告警，之后整段保持安静不刷屏。
+标志位只在条目被移除（成功 / 取消）时随条目一起消失，下一段失败序列重新获得一次告警额度。
+
 ---
 
 ## 会话管理
@@ -912,6 +1010,76 @@ pub struct RoundTextAccumulator {
 - `tool_result` 携带 `media_items` → 解析后 `on_media(items)` 挂到 `completed.last_mut()`（即刚关闭的那 round）；防御性 fallback 到 `current`。
 
 `run_chat_engine` 返回时 dispatcher 调 `RoundTextAccumulator::drain()` 拿一个时序排好的 `Vec<RoundOutput>`：`current` 非空时附在末尾作为「final round」，否则最后一个 `completed` 即 final。
+
+#### 流式预览 Transport 三级优先级
+
+[`worker/streaming.rs`](../../crates/ha-core/src/channel/worker/streaming.rs) 的
+`select_stream_preview_transport(chat_type, capabilities)` 是"这个 chat 用哪种方式渲染流式预览"的
+**唯一裁决点**，纯函数、只读 `ChatType` + `ChannelCapabilities`，三级择优、首个命中即返回：
+
+| 优先级 | Transport | 命中条件 | 机制 | 副作用 |
+|---|---|---|---|---|
+| 1 | `Draft` | `chat_type == Dm` **且** `supports_draft` | 反复 `send_draft` 复用同一 `draft_id` | 无编辑速率限制、不留"已编辑"标记；**草稿不是真消息** |
+| 2 | `Card` | `supports_card_stream` | cardkit `create_card_stream` + `update_card_element` 原地改单个元素 | 宿主消息从不被 edit，无"已编辑"标记 |
+| 3 | `Message` | `supports_edit` | `send_message` 一次 + 后续 `edit_message` | 多数渠道通用，但宿主消息会被标记为已编辑 |
+| — | `None` | 三者皆不满足 | 不渲染预览 | stream task 只 drain 事件（仍单发系统通知），dispatcher 走一次性 `send_message` |
+
+**Draft 的 DM 限制是平台约束不是偏好**：Telegram 的 `sendMessageDraft` 只在私聊可用，
+所以群聊 / 论坛即使插件声明了 `supports_draft` 也会落到下一级。当前声明 `supports_draft: true` 的
+只有 Telegram，声明 `supports_card_stream: true` 的只有飞书 —— 其余渠道两个标志都是 `false`，
+直接走 `Message`（或无 `supports_edit` 时无预览）。
+
+调用方只有 [`worker/pipeline.rs`](../../crates/ha-core/src/channel/worker/pipeline.rs)（IM 入站与 GUI
+镜像共用同一条装配路径），且只在 `ImReplyMode::Preview | Split` 下调用 —— `Final` 恒 `None`。
+
+##### 新增 cardkit 风格渠道的接线契约（红线）
+
+Card 路径**不是给 streaming.rs 加分支**，而是靠 [`traits.rs`](../../crates/ha-core/src/channel/traits.rs)
+上 **4 个默认实现全返回 `Err` 的 trait 方法** —— 插件覆写它们、并把 `capabilities().supports_card_stream`
+翻成 `true`，就自动进入 Card 分支；不覆写的渠道保持默认 `Err`，`supports_card_stream=false` 让它们
+连分支都不会进，走原有 Draft / Message 路径。**新增此类渠道只实现这 4 个方法，不要改
+`select_stream_preview_transport`。**
+
+| 方法 | 职责 | 失败返回 |
+|---|---|---|
+| `create_card_stream(account_id, initial_text)` | 建可流式的卡片载体，返回 `CardStreamHandle { card_id, element_id }`；应把 `initial_text` 预填进卡片，让卡片一送达就有内容 | `Result<_>`（`anyhow`） |
+| `send_card_message(account_id, chat_id, card_id, reply_to_message_id, thread_id)` | 把已建卡片作为 interactive 消息推进 chat，返回宿主 message id | `Result<DeliveryResult>` |
+| `update_card_element(account_id, card_id, element_id, content, sequence)` | 向流式元素追加文本；`sequence` 在单张卡片生命周期内**必须严格递增** | `Result<(), CardStreamError>`（**唯一用分类错误的**） |
+| `close_card_stream(account_id, card_id, sequence)` | 关掉卡片流式模式，摘掉"输入中"标记。best-effort，报错只 log | `Result<_>`（`anyhow`） |
+
+`update_card_element` 单独返回 [`CardStreamError`](../../crates/ha-core/src/channel/types.rs)
+（`SequenceOutOfOrder` / `Expired` / `TimedOut` / `NotEnabled` / `NoPermission` / `Other(String)`）
+而非裸 `anyhow`，是为了让 stream task 能在**不硬编码平台错误码**的前提下区分"本地恢复 / 立即降级 / 放弃会话"。
+飞书的错误码映射见[流式打字机：cardkit 卡片流式](#流式打字机cardkit-卡片流式无已编辑标记)节。
+
+##### 逐级降级路径
+
+三种 transport 各自的失败都**不冒泡成 turn 失败**，而是就地降级，最坏情况兜底到 chunk-send：
+
+- **Draft → Message（运行期改写 transport）**：`send_draft` 报错时经
+  `should_fallback_from_draft_error` 判定是否属于"这个渠道/这个 chat 根本不支持草稿"
+  （错误串含 `sendmessagedraft` 且同时含 `unknown method` / `not found` / `not available` /
+  `not supported` / `unsupported` / `private chat` / `can be used only` 之一）。**命中才**把
+  `preview_transport` 就地改写为 `Message` 并立刻用同一 payload 重发；不命中只当作瞬时错误 warn，
+  transport 保持 `Draft`。—— 这个白名单是刻意收窄的：网络抖动不该让整条 turn 永久掉出 Draft 路径。
+- **Card → Message（仅创建期）**：`create_card_stream` / `send_card_message` 任一失败即改写
+  `preview_transport = Message` 并用 native payload 重发。此时卡片尚未在用户端出现，降级无痕。
+  **中途 `update_card_element` 失败不走这条路** —— 它翻 `card_session.broken = true` 并返回 `Ok(())`
+  保持循环运行，由定稿阶段处理（见下）。
+- **任意 transport → chunk-send**：预览路径会**静默丢弃**超长文本
+  （`build_stream_preview_payload` 在 `text.len() > max_msg_len` 时返回 `None`），且把发送 / 编辑错误
+  降级成 log-only warning —— 因此"预览跑过"**不能**当作"内容已送达"的证据。
+  纯函数 `preview_carried_full_text` 显式判定这件事，返回 `false` 时调用方必须自己
+  `send_text_chunks(accumulated)`：
+
+  | Transport | 判定为"预览已承载全文" |
+  |---|---|
+  | （任意） | `accumulated` 为空时短路 `true` —— 没有内容可丢，不该逼出一次空 `send_message` |
+  | `Message` | 预览消息 id 存在 **且** `markdown_to_native(accumulated).len() <= max_msg_len` |
+  | `Card` | 卡片会话存在且 `broken == false` **且** 字符数 `<= CARD_ELEMENT_MAX_CHARS` |
+  | `Draft` | 非空文本恒 `false` —— 草稿是输入中指示符不是真消息，永远需要一次真正的 `send_message` |
+
+  这个 `false` 判定直接决定 dispatcher 的 `finalized_rounds` 跳过是否安全，是"内容不丢"的最后一道闸。
 
 #### Dispatcher 分发：mode → transport + delivery
 

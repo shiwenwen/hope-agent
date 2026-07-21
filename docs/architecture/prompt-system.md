@@ -7,6 +7,7 @@
 - [概述](#概述)（含架构总览图）
 - [System Prompt 组装流程](#system-prompt-组装流程)
   - [13 段组装顺序](#13-段组装顺序)
+  - [三层拼接与完整段序](#三层拼接与完整段序)
   - [三种组装模式](#三种组装模式)
   - [Legacy 兼容路径](#legacy-兼容路径)
   - [Agent Home 与 Session Working Directory](#agent-home-与-session-working-directory)
@@ -30,6 +31,7 @@
   - [Execution Mode](#execution-mode)
   - [Sandbox Mode](#sandbox-mode)
   - [ACP External Agents](#acp-external-agents)
+  - [桌面专属 Markdown 路径链接](#桌面专属-markdown-路径链接)
 - [Prompt 缓存优化](#prompt-缓存优化)
 - [关键文件索引](#关键文件索引)
 
@@ -120,6 +122,108 @@ graph LR
 ```
 
 **代码位置**：`crates/ha-core/src/system_prompt/build.rs` — `pub fn build()`
+
+上图是分组示意（沿用历史的「13 段」编号）。**权威顺序以下一节的表格为准**——实际段位数量远多于 13，且编号在代码里带 `⑥b` / `⑥c¹½` 之类的插入后缀。
+
+### 三层拼接与完整段序
+
+发给 Provider 的系统上下文由三层拼起来，**层边界就是缓存边界**：Layer 1 + Layer 2 是同一个静态 prefix 字符串，Layer 3 是每轮重算、由 adapter 作为独立 system block 追加的动态后缀。AGENTS.md 里「稳定前缀 / 动态后缀」「不得重拼或更新 Core system string」这类红线，落脚点就是「谁在 Layer 1/2、谁在 Layer 3」。
+
+| 层 | 入口 | 产物 | 缓存语义 |
+| -- | ---- | ---- | -------- |
+| **Layer 1** | `system_prompt::build()` → `build_with_resolved_session()` | Agent 人格 / 工具 / 技能 / 记忆 / 运行时等基础段 | 静态 prefix 主体；同一会话内除工作目录文件清单外基本字节稳定 |
+| **Layer 2** | `Agent::append_full_system_prompt_extras()`（经 `build_full_system_prompt` / `prepare_full_system_prompt`） | eager 能力补充说明、`# Unconfigured Capabilities`、`extra_system_context`、Plan 段、MCP catalog、`# Knowledge Bases` | 仍在同一 prefix 字符串内，追加在 Layer 1 之后 |
+| **Layer 3** | `RoundRequest` 的各 `*_suffix` 字段（`streaming_adapter::leading_dynamic_suffixes` / `trailing_dynamic_suffixes`） | awareness / active memory（动态召回）/ coding profile / procedure memory / 相关笔记 / task reminder | **不进 prefix**；provider adapter 按固定顺序作为独立 system block 发送，churn 不波及 prefix |
+
+#### Layer 1 — `build_with_resolved_session()` 段序
+
+按 `sections.push()` 的实际调用顺序；空段在最终 `join("\n\n")` 前被过滤掉。
+
+| # | 段 | 恒定 / 条件 | 条件 |
+| - | -- | ----------- | ---- |
+| 1 | Identity 行 | 恒定 | OpenClaw 模式省略 role 后缀；结构化模式在 `PersonaMode::SoulMd` 下同样省略 |
+| 2 | Avatar 行 | 条件 | `AgentConfig.avatar` 非空、非 `data:` URL、长度 ≤ `MAX_AVATAR_LEN` |
+| 3 | `APP_INTRO` | 恒定 | — |
+| 4 | `# Project Context`（4 文件）+ `SOUL_EMBODIMENT_GUIDANCE` | 条件 | 仅 `openclaw_mode`；embodiment 段还需 SOUL.md 非空 |
+| 5 | Personality | 条件 | 仅非 OpenClaw。`SoulMd` 模式注入 soul.md 正文 + embodiment 段；否则 `build_personality_section()` 非空时注入 |
+| 6 | agent.md | 条件 | 非 OpenClaw 且文件非空 |
+| 7 | persona.md | 条件 | 非 OpenClaw 且文件非空 |
+| 8 | User context | 条件 | `load_user_config()` 成功且 `build_user_context()` 返回 `Some` |
+| 9 | tools.md | 条件 | 非 OpenClaw（OpenClaw 已并入 `# Project Context`）且文件存在 |
+| 10 | ⑥ `# Available Tools` | 恒定 | 内容由 `dispatch::resolve_tool_fate` 过滤 |
+| 11 | ⑥b `# Additional Tools`（deferred 目录） | 条件 | 开启 deferred 工具加载 |
+| 12 | ⑥b² 异步工具指南 | 条件 | 异步工具功能启用 |
+| 13 | ⑥c Tool-Call Narration | 条件 | `AppConfig.tool_call_narration_enabled`（默认 `true`） |
+| 14 | ⑥c³ `# File Path Formatting` | 条件 | `app_init::is_desktop()`，见[桌面专属 Markdown 路径链接](#桌面专属-markdown-路径链接) |
+| 15 | ⑥c¹ `# Current Permission Mode` | 恒定 | 内容随 `default` / `smart` / `yolo` 变 |
+| 16 | ⑥c¹½ `# Execution Mode` | 条件 | `execution_mode != off` |
+| 17 | ⑥c¹¾ `# Workflow Mode` | 条件 | `workflow_mode != off` |
+| 18 | `# Active Goal` | 条件 | 非无痕且会话有 active goal |
+| 19 | ⑥c² 工具轮次预算提醒 | 条件 | `capabilities.max_tool_rounds` 有界 |
+| 20 | ⑥d Human-in-the-loop | 恒定 | 编译常量，agent.md 不可覆盖 |
+| 21 | ⑦ Skills | 恒定 | 按 allow/deny 与会话 `paths:` 激活过滤，可能为空串被过滤掉 |
+| 22 | ⑦b `# Current Project` | 条件 | 非 OpenClaw 且会话属于项目 |
+| 23 | ⑦d `# Working Directory`（含 `## Working Directory Instructions`） | 条件 | 会话 `working_dir` 非空 |
+| 24 | ⑦e `# IM Channel Attachment` | 条件 | 会话绑定 IM chat |
+| 25 | ⑧ `# Core Memory`（V2 三作用域） | 条件 | `MemoryPromptRouting.v2_core_enabled` 且渲染结果非空 |
+| 26 | ⑧ legacy Memory 段（Core 文件 / Pinned / Profile / SQLite + Guidelines） | 条件 | `memory_enabled`；内部各子段再受 `legacy_core_enabled` / `legacy_static_enabled` 门控 |
+| 27 | `# Incognito Session` | 条件 | `incognito` |
+| 28 | 项目自动记忆索引 | 条件 | `legacy_core_enabled` 且传入了 `project_auto_memory_index` |
+| 29 | ⑨ `# Runtime` | 恒定 | 含日期（精确到天）、模型 / provider、Agent home |
+| 30 | ⑩ Sub-Agent Delegation | 条件 | subagent capability 开启 **且** `subagent` 工具 eager **且** 段非空 |
+| 31 | ⑩½ Agent Team | 条件 | `team.enabled` 且 `team` 工具 eager 且段非空 |
+| 32 | ⑪ Sandbox Mode | 条件 | 有效 `sandbox_mode.enabled()` |
+| 33 | ⑬ ACP External Agents | 条件 | `acp.enabled` 且 `acp_spawn` 工具 eager 且段非空 |
+| 34 | ⑭ 天气上下文 | 条件 | 缓存中有天气数据 |
+| 35 | ⑮ `# Files in Working Directory` | 条件 | 会话 `working_dir` 非空且清单非空 |
+
+**尾段刻意最后 emit**：⑮ 工作目录顶层文件清单排在所有静态段之后——顶层文件增删只 bust 这一尾块，不波及前面的 prefix。同理，⑥c¹～⑥c¹¾ 这组会话级 mode 段集中放在工具描述之后而非 prompt 头部，`/mode`、`/permission` 翻转只影响较小的一段。
+
+**Memory 的稳定性契约**：25–28 属于 Layer 1 静态 prefix，同一会话的 `CoreMemorySnapshot` 在 reload / Tier 3 compact / 资格变化 / 进程重启前保持字节稳定；自动 Fast/Deep Recall、Profile、Procedure、Awareness 一律走 Layer 3，**不得反向改写这几段**。
+
+#### Layer 2 — `append_full_system_prompt_extras()` 追加顺序
+
+1. eager 能力补充说明：`send_notification` / `image_generate` / `audio_generate` / `canvas`（各自工具 eager 时才追加；`ToolScope` 收窄后按 scope 再过滤一遍）
+2. `# Unconfigured Capabilities`（`ToolFate::HintOnly` 的工具；hints 先 `sort()` 保证顺序稳定以利缓存；`ToolScope` 非 `None` 时整段清空）
+3. `extra_system_context`：调用方注入的一次性任务框架（cron 任务描述、subagent 角色、IM 入站 turn 的 `## IM Channel Context`、send-time 解析的 `[[note]]` 与 `@skill` 注入等）
+4. Plan 段（`plan_extra_context`，`ArcSwap` 存放，便于流式循环 mid-turn 探测后热替换）
+5. MCP catalog 片段（`mcp::catalog::system_prompt_snippet()`；需 agent `mcp_enabled` + 全局 `mcp_global.enabled` + `ToolScope` 允许 MCP 工具，且至少一个 server 到达 `Ready`）
+6. `# Knowledge Bases`（附着的知识空间，经 `Agent::resolve_kb_access()` 与 `note_*` 工具同源；无可达 KB 时整段省略）
+
+5、6 刻意排在最后：它们只在 MCP server 状态或 KB attach/detach 变化时改变，前面的段形状对不用这些功能的用户保持稳定。
+
+#### 每轮再叠加的三处改写
+
+流式循环在发出请求前还会对静态 prompt 做三处就地追加（首轮以及历史被压缩后的重建轮各做一次）：
+
+| 追加 | 入口 | 条件 |
+| ---- | ---- | ---- |
+| Legacy 记忆选择替换 | `select_memories_if_needed()` | 非无痕 **且** 完整 V1 rollback（`legacy_selection_replacer_enabled`）；V2 默认不走 |
+| Context Engine 附加段 | `apply_engine_prompt_addition()` | `ContextEngine::system_prompt_addition()` 返回 `Some` |
+| 末轮交接指引 | `final_round_handoff_guidance()` | 启用轮次上限且当前是最后一轮 |
+
+#### Layer 3 — 每轮动态后缀
+
+顺序由 `streaming_adapter::leading_dynamic_suffixes` / `trailing_dynamic_suffixes` 定义，四个 Provider adapter 共用同一顺序（`dynamic_context_contract_tests` 锁定）：
+
+| 组 | 后缀 | 说明 |
+| -- | ---- | ---- |
+| leading | `awareness_suffix` | 跨会话行为感知；独立 cache breakpoint |
+| leading | `active_memory_suffix` | 动态记忆召回；独立 cache breakpoint |
+| leading | `coding_profile_suffix` | Coding Mode 每轮确定性策略块 |
+| leading | `procedure_memory_suffix` | Procedure Memory 软流程指引；无 breakpoint |
+| trailing | `related_notes_suffix` | 被动相关笔记（untrusted，永不作指令） |
+| trailing | `task_reminder_suffix` | 任务追踪提醒（+ 排空的 pending hook context），恒最后 |
+
+leading 组在 Responses 形态 API 上位于会话历史之前，trailing 组紧贴模型的下一次决策。
+
+**`merge_dynamic_system_prompt()` 只服务预算记账**：它把 awareness / coding profile / LSP 诊断后缀并进一份字符串（`system_prompt_for_budget`）供压缩预算计算，**不是发给 Provider 的那一份**——请求体用的是静态 `system_prompt` + `RoundRequest` 上的独立后缀字段。
+
+**代码位置**：
+- Layer 1：`crates/ha-core/src/system_prompt/build.rs` — `build_with_resolved_session()`
+- Layer 2：`crates/ha-core/src/agent/mod.rs` — `append_full_system_prompt_extras()`
+- Layer 3 顺序契约：`crates/ha-core/src/agent/streaming_adapter.rs` — `RoundRequest` / `leading_dynamic_suffixes` / `trailing_dynamic_suffixes`
+- 每轮组装：`crates/ha-core/src/agent/streaming_loop.rs`
 
 ### 两种组装模式
 
@@ -575,6 +679,35 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 - 异步执行 + check(wait=true) 阻塞等待
 
 **代码位置**：`crates/ha-core/src/system_prompt/sections.rs` — ACP External Agents 段构建
+
+### 桌面专属 Markdown 路径链接
+
+**触发条件**：`crate::app_init::is_desktop()`（即 `runtime_role() == Some("desktop")`）。Server / ACP 模式跳过——server 用户点了也无从响应，ACP 的路径由外部编辑器接管。这是 Layer 1 段序里的 ⑥c³，紧跟 Tool-Call Narration、先于 `# Current Permission Mode`。
+
+**注入内容**（`MARKDOWN_PATH_LINKS_GUIDANCE`，标题 `# File Path Formatting`）：
+
+- 提到本地文件一律写成可点击 markdown 链接：`[file.ext](/absolute/path/file.ext)`，可带行号锚点 `[file.ext:42](/absolute/path/file.ext#L42)`
+- 目标含空格时用尖括号包裹
+- 禁止相对路径、`file://`、裸绝对路径和行内代码包裹的路径
+- 该规则不适用于命令和标识符
+
+**动机**：模型默认会吐 `/Users/.../foo.ts` 或行内代码形式的裸路径，两者都难读且不可点击。Markdown 链接同时解决「显示文本短」和「目标可点击」。
+
+**前端消费路径**：
+
+1. `MarkdownRenderer.tsx` 的 `localPathFromHref()` 判定一个 anchor 是否指向本机路径——接受 `/` 与 `~/` 前缀；也还原 Tauri/WebKit 有时把 `/Users/...` 暴露成同源绝对 URL 的情况（同源 origin 或 `tauri.localhost`，以及 `file:` 协议）。**只承诺 Unix 风格路径**：Streamdown 用固定 `defaultSchema` 的 `rehype-sanitize`，Windows `C:\` 路径的 href 在 sanitize 阶段就被剥掉，根本到不了这里。
+2. `normalizeLocalPath()` 剥掉 GitHub 风格 `#L<line>` 锚点再 `decodeURI`。**当前不接 IDE 协议，行号会被丢弃**——prompt 允许模型写 `:42` / `#L42` 只为可读性，点击后仍按整文件打开。
+3. 命中本地路径的 anchor 交给 `MarkdownFileLink`，走统一文件操作策略（`useFileResource` + `FileContextMenu`，见 [file-operations.md](file-operations.md)）：按 `fileKind` × 运行模式决议预览 / 打开 / 下载。桌面 Transport 的 `openFilePath()` 最终 `invoke("open_directory")`；HTTP Transport 的 `supportsLocalFileOps()` 返回 `false`，且 `/api/desktop/open-directory` 在 server 侧是 no-op（返回 `ok:false` + 说明），避免在 server 主机上误开文件。
+4. **未命中本地路径**的 anchor 不付出任何 hook 与 ContextMenu 代价，直接渲染成普通 `<a>`（或 `MarkdownWebLink`）——一条流式消息可能渲染上百个 anchor，这是该文件的核心性能约束。
+
+**例外（红线）**：这些 anchor 的悬浮提示用原生 HTML `title`，**不用 shadcn Tooltip**。包 `TooltipTrigger` 会在长回复里炸 DOM 并破坏 anchor 的组件签名。这是 AGENTS.md「Tooltip 必须用 `@/components/ui/tooltip`」的一处登记例外。
+
+**代码位置**：
+- 常量：`crates/ha-core/src/system_prompt/constants.rs` — `MARKDOWN_PATH_LINKS_GUIDANCE`
+- 注入：`crates/ha-core/src/system_prompt/build.rs` — ⑥c³ 段
+- 运行模式判定：`crates/ha-core/src/app_init.rs` — `is_desktop()`
+- 前端解析与分流：`src/components/common/MarkdownRenderer.tsx` — `localPathFromHref()` / `normalizeLocalPath()` / `MarkdownLink` / `MarkdownFileLink`
+- Transport：`src/lib/transport-tauri.ts` — `openFilePath()`；`src/lib/transport-http.ts` — `supportsLocalFileOps()`；`crates/ha-server/src/routes/desktop.rs` — `open_directory()`
 
 ---
 
