@@ -2,7 +2,7 @@
 
 基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，内置 Provider 模板与预设模型，GUI 傻瓜式配置。三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程（`hope-agent server`）、ACP stdio（`hope-agent acp`）。技术栈见 `package.json` / `Cargo.toml`。
 
-**本文只放跨 PR 必守的红线、同步契约与唯一入口**——实现细节、数据结构、迁移逻辑、边角行为一律在 [docs/architecture/](docs/architecture/)（索引 [docs/README.md](docs/README.md)）。加内容前先问：删掉它会让 agent 犯错吗？不会就别加。前端 / UI 风格规范见 [.claude/rules/](.claude/rules/)（按 `paths:` 惰性加载）。
+**本文只放跨 PR 必守的红线、同步契约与唯一入口**——实现细节、数据结构、迁移逻辑、边角行为一律在 [docs/architecture/](docs/architecture/)（索引 [docs/README.md](docs/README.md)）。加内容前先问：删掉它会让 agent 犯错吗？不会就别加。前端 / UI 风格规范见 [src/AGENTS.md](src/AGENTS.md)（`src/` 嵌套 AGENTS.md，改前端时自动生效）。
 
 ## 安全红线
 
@@ -44,7 +44,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 ## 编码规范
 
-前端 / UI 见 [.claude/rules/](.claude/rules/)（path-scoped，改 `src/**` 时自动加载）。
+前端 / UI 见 [src/AGENTS.md](src/AGENTS.md)（`src/` 嵌套 AGENTS.md，改前端时自动生效）。
 
 ### 后端（Rust）
 
