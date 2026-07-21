@@ -1,6 +1,6 @@
 # Hope Agent 系统架构总览
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-03
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-21
 
 ## 系统定位
 
@@ -191,31 +191,27 @@ graph LR
 
 ## 项目（Project）与会话工作目录
 
-侧边栏将「会话」和「项目」并列为一等节点，项目是会话分组容器并承载持久化的项目级上下文：
+侧边栏里「会话」和「项目」是并列的一等节点。项目是一组会话的容器，同时承载一份持久的项目级上下文——工作目录、项目记忆、项目指令。
 
-- **项目文件 = 工作目录真实文件**：上传文件直接落项目工作目录（无 `project_files` 表 / 无文本提取注入 / 无 `project_read_file` 工具）；模型靠 `# Working Directory` 段的顶层文件清单 + `read` 工具按需感知
-- **记忆优先级**：Project > Agent > Global，预算紧张时项目记忆最先保留；属项目的会话默认把自动提取的记忆写入 Project scope
-- **默认工作目录**：`Project.working_dir` 是该项目下会话的默认工作目录；运行时合并优先级 `session.working_dir > project.working_dir > 不注入`，**lazy resolve**——改项目工作目录立即对未单独设置的已有会话生效。合并入口 `session::helpers::effective_session_working_dir`，被 system prompt、`exec` / `read` / `write` 的相对路径解析共同消费
-- **IM 路由（无反向认领，Phase A1）**：项目不再认领 channel-account；IM 入站消息默认归 `project_id = NULL`，要归项目从 IM chat 内 `/project <id>` 显式触发，channel worker 调 `set_session_project` 直接改现有 session 不创建新行。Agent 解析按"显式 → 项目 → topic → group → tg-channel → channel-account → AppConfig → 默认"7 级链 (`agent::resolver::resolve_default_agent_id_full`)
-- **`/project [name]` 斜杠命令**：无参列项目选择器，有参直接进入对应项目新会话
-- **删除级联**：unassign 会话 → 删项目行 → `rm -rf projects/{id}/`（含默认 workspace；用户显式选的外部目录不删）→ 删项目记忆（跨 `memory.db` 单独执行）
+一个项目绑定一个工作目录，该目录下的会话默认都在这里读写文件。上传到项目的文件直接落在这个真实目录里，没有单独的文件表，也不做文本提取注入——模型通过工作目录的顶层文件清单加 `read` 工具按需感知。改动项目工作目录会立即对该项目下未单独设置目录的会话生效（延迟解析，不是创建时固化）。
+
+项目记忆的优先级高于 Agent 和全局记忆，预算紧张时最先保留；属于项目的会话默认把自动提取的记忆写进项目作用域。
+
+删除项目会连带删掉它自建的工作目录和项目记忆，但绝不会碰用户显式指定的外部目录。
 
 详见 [Project 系统](project.md)。
 
 ## 知识空间（Knowledge Base）
 
-侧边栏一级导航「知识空间」，是与聊天、Project 平级的**第四种知识容器**——本地优先、AI 原生的双链笔记子系统。笔记是真实 `.md` 文件（唯一真相源），`~/.hope-agent/knowledge/index.db` 只是 chunk 级 FTS5 + 向量的可重建缓存（删了能从 `.md` 全量重建）；KB 注册表与访问绑定落 `sessions.db`（真相源，D9）。
+「知识空间」是与聊天、Project 平级的第四种知识容器：一个本地优先、AI 原生的双链笔记子系统。笔记就是磁盘上真实的 `.md` 文件（唯一真相源），可以直接绑定现成的 Obsidian / Logseq vault（默认只读，可显式放开写），文件层面与它们非破坏性共存。`knowledge/index.db` 只是检索用的缓存，删掉能从 `.md` 全量重建。
 
-- **AI 原生读写**：agent 经 `note_*` 工具对知识库有完整 CRUD / 链接 / 图谱 / 检索 / 自主维护能力，并能把碎片记忆提炼成结构化笔记——区别于 Obsidian / Logseq「AI 是插件」的形态
-- **默认 deny + 显式 attach**：访问唯一经 `effective_kb_access`（source-aware + 调用链 cap），incognito 零访问、IM 默认禁用（账号级 opt-in）；owner 管理平面与 agent 工具平面物理隔离（D10）
-- **本地优先可移植**：可绑定现成 Obsidian / Logseq vault（默认只读，opt-in 放开写）+ `notify` watcher 实时同步；与两者文件级 + 公共语法子集非破坏性共存
-- **检索独立旗舰**：chunk FTS + 向量 RRF + MMR，独立 store、独立 embedding selector，**绝不折进 `recall_memory`**（D7）
+和 Obsidian / Logseq「AI 是插件」的形态相反，这里 AI 是一等公民：agent 通过 `note_*` 工具对笔记有完整的增删改查、双链、图谱、检索能力，还能把零散记忆提炼成结构化笔记。访问默认拒绝、需显式 attach，无痕会话零访问。检索走独立的全文加向量混合链路，和记忆系统物理隔离、互不干扰。
 
 详见 [知识空间（Knowledge Base）](knowledge-base.md)。
 
 ## 本地模型加载
 
-`local_llm/` 模块通过 Ollama 的 OpenAI 兼容端点（`http://127.0.0.1:11434/v1/chat/completions`）将本地模型注册为 Provider，启用 `allow_private_network`。模型目录硬编码 Qwen3.6 / Gemma 4 默认量化的 on-disk 大小，根据可用内存（macOS 统一内存 / Windows + Linux 优先 dGPU VRAM 取所选轴 60%，再扣 1 GiB runtime buffer；常量 `RECOMMENDATION_BUDGET_PERCENT=60`）从大到小推荐适配模型；Ollama 进程不由 app 接管。安装、模型拉取、Embedding 拉取统一走 `local_model_jobs.rs` 后台任务表，事件通道 `local_model_job:created` / `:updated` / `:log` / `:completed`。详见 [本地模型加载](local-model-loading.md)。
+`local_llm/` 模块把本地 Ollama 当作一个 Provider 接入（走 Ollama 的 OpenAI 兼容端点）。它内置一份模型目录，按机器可用内存或显存预留出一定余量后，从大到小推荐能跑得动的模型；Ollama 进程由用户自己管理，app 不接管其生命周期。安装、模型拉取、Embedding 下载都走后台任务表异步执行。详见 [本地模型加载](local-model-loading.md)。
 
 ## 存储架构
 
@@ -236,7 +232,7 @@ graph LR
 | projects/ | `~/.hope-agent/projects/{id}/` | 项目工作目录（默认 workspace；真实文件。项目记忆在 memory.db，不在此） |
 | credentials/ | `~/.hope-agent/credentials/` | OAuth token、MCP server 凭据（0600 原子写） |
 
-所有路径通过 `paths.rs` 集中管理，统一在 `~/.hope-agent/` 目录下。配置读写**强制走** `cached_config()` / `mutate_config()`，禁止重新引入 `Mutex<AppConfig>` 或 load+save 手动克隆模式（详见 [配置系统](config-system.md)）。
+所有路径由 `paths.rs` 集中管理，统一挂在 `~/.hope-agent/` 下。配置的读写都经过一层带缓存的统一入口，避免各处手动加载再保存造成竞争（详见 [配置系统](config-system.md)）。
 
 ## 文档导航
 
