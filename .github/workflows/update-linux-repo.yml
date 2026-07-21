@@ -91,6 +91,7 @@ jobs:
       - name: Resolve R2 endpoint from account id
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
         run: |
           set -euo pipefail
           # Accept either the bare 32-hex Cloudflare account id OR a pasted
@@ -113,10 +114,41 @@ jobs:
               echo "::error::R2_ACCOUNT_ID must be the 32-char hex Cloudflare account id (or the full S3 endpoint host). Got something that normalizes to length ${#id}. Do NOT paste the whole 'https://<id>.r2.cloudflarestorage.com' URL — paste only the account id shown on the R2 overview page. See linux-repo/README.md."
               exit 1
             fi
+            # Common mixup: the R2 API token's Access Key ID is ALSO 32 hex and
+            # sits right next to the Account ID on the token screen. If someone
+            # pasted the Access Key ID into R2_ACCOUNT_ID, the endpoint host is
+            # wrong and Cloudflare rejects it at TLS (handshake failure), not
+            # with a 403. Catch the identical-value case with a clear message.
+            akid="$(printf '%s' "$R2_ACCESS_KEY_ID" | tr -d '[:space:]')"
+            if [[ -n "$akid" && "$id" == "$akid" ]]; then
+              echo "::error::R2_ACCOUNT_ID equals R2_ACCESS_KEY_ID — you pasted the API token's Access Key ID into R2_ACCOUNT_ID. They are DIFFERENT values: the Account ID is the 32-hex id in the dashboard URL dash.cloudflare.com/<ACCOUNT_ID> and in https://<ACCOUNT_ID>.r2.cloudflarestorage.com. Re-set R2_ACCOUNT_ID to the account id. See linux-repo/README.md."
+              exit 1
+            fi
             host="${id}.r2.cloudflarestorage.com"
           fi
           echo "RCLONE_CONFIG_R2_ENDPOINT=https://${host}" >> "$GITHUB_ENV"
           echo "R2 endpoint host: ${host}"
+
+      - name: Probe R2 endpoint (isolate TLS/account vs auth/key failures)
+        run: |
+          set -euo pipefail
+          # Objectively isolate which secret is wrong BEFORE the opaque rclone
+          # error. Hitting the endpoint root with no auth should complete the
+          # TLS handshake and return an HTTP status (400/403) — R2 exists there.
+          #   - No HTTP status (curl 000 / SSL error)  => TLS handshake failed
+          #       => the ENDPOINT HOST is wrong => R2_ACCOUNT_ID is not your
+          #          real Account ID (likely the Access Key ID or a zone id).
+          #   - Any HTTP status                        => TLS + host are fine
+          #       => a subsequent rclone failure is about the KEYS
+          #          (R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY) or R2_BUCKET.
+          host="${RCLONE_CONFIG_R2_ENDPOINT#https://}"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://${host}/" 2>/tmp/curlerr || true)"
+          if [[ -z "$code" || "$code" == "000" ]]; then
+            echo "curl transport error:"; cat /tmp/curlerr || true
+            echo "::error::TLS handshake to the R2 endpoint failed. R2_ACCOUNT_ID is almost certainly NOT your Cloudflare Account ID. Use the 32-hex id from dash.cloudflare.com/<ACCOUNT_ID> (same as https://<ACCOUNT_ID>.r2.cloudflarestorage.com) — NOT the token's Access Key ID. See linux-repo/README.md."
+            exit 1
+          fi
+          echo "TLS + endpoint host OK (HTTP ${code} without auth, as expected). Any auth failure below is about the access key / secret / bucket, not the account id."
 
       - name: Resolve version from tag
         id: ver
