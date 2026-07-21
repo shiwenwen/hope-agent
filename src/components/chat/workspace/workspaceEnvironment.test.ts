@@ -110,8 +110,35 @@ describe("resolveWorkspaceEnvironmentStatus", () => {
 
   it("classifies clean sync states", () => {
     expect(resolveWorkspaceEnvironmentStatus(snapshot(git())).kind).toBe("clean")
+    expect(resolveWorkspaceEnvironmentStatus(snapshot(git({
+      branch: null,
+      detached: true,
+      sync: { upstream: null, remote: null, ahead: 0, behind: 0, state: "noUpstream" },
+    }))).kind).toBe("detached")
+    expect(resolveWorkspaceEnvironmentStatus(snapshot(git({
+      sync: { upstream: null, remote: null, ahead: 0, behind: 0, state: "noUpstream" },
+    }))).kind).toBe("localOnly")
     expect(resolveWorkspaceEnvironmentStatus(snapshot(git({ sync: { upstream: "origin/main", remote: null, ahead: 2, behind: 0, state: "ahead" } }))).kind).toBe("ahead")
     expect(resolveWorkspaceEnvironmentStatus(snapshot(git({ sync: { upstream: "origin/main", remote: null, ahead: 0, behind: 2, state: "behind" } }))).kind).toBe("behind")
     expect(resolveWorkspaceEnvironmentStatus(snapshot(git({ sync: { upstream: "origin/main", remote: null, ahead: 1, behind: 2, state: "diverged" } }))).kind).toBe("diverged")
+  })
+
+  it("keeps local changes above detached and local-only status", () => {
+    const changed = {
+      changedFiles: 1,
+      stagedFiles: 0,
+      unstagedFiles: 1,
+      untrackedFiles: 0,
+      conflictedFiles: 0,
+      linesAdded: 1,
+      linesRemoved: 0,
+      clean: false,
+    }
+    expect(resolveWorkspaceEnvironmentStatus(snapshot(git({
+      branch: null,
+      detached: true,
+      status: changed,
+      sync: { upstream: null, remote: null, ahead: 0, behind: 0, state: "noUpstream" },
+    }))).kind).toBe("dirty")
   })
 })

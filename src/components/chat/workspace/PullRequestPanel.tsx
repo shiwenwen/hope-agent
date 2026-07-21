@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { GitPullRequest, Loader2, X } from "lucide-react"
+import { ExternalLink, GitPullRequest, Loader2, RefreshCw, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -17,6 +17,7 @@ import type {
   SessionGitControlSnapshot,
 } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
+import { openExternalUrl } from "@/lib/openExternalUrl"
 import {
   PullRequestDetailsContent,
 } from "./GitControlCard"
@@ -27,15 +28,22 @@ import {
   buildPullRequestFixPrompt,
   hasPullRequestConflicts,
   isActionableReview,
+  pullRequestUnavailableReason,
 } from "./gitPullRequestUtils"
 
 interface PullRequestPanelProps {
   sessionId: string
+  expectedUrl?: string | null
   onClose: () => void
   onFillInput?: (value: string) => void
 }
 
-export function PullRequestPanel({ sessionId, onClose, onFillInput }: PullRequestPanelProps) {
+export function PullRequestPanel({
+  sessionId,
+  expectedUrl,
+  onClose,
+  onFillInput,
+}: PullRequestPanelProps) {
   const { t } = useTranslation()
   const [feedback, setFeedback] = useState<GitPullRequestFeedback | null>(null)
   const [loading, setLoading] = useState(true)
@@ -48,6 +56,7 @@ export function PullRequestPanel({ sessionId, onClose, onFillInput }: PullReques
     generation: number
     promise: Promise<GitPullRequestFeedback | null>
   } | null>(null)
+  const currentPullRequestNumber = feedback?.preflight.current?.number ?? null
 
   const loadFeedback = useCallback(() => {
     const inFlight = inFlightRequestRef.current
@@ -85,13 +94,19 @@ export function PullRequestPanel({ sessionId, onClose, onFillInput }: PullReques
     setError(null)
     setAutoMergeOpen(false)
     void loadFeedback()
-    const timer = window.setInterval(() => void loadFeedback(), 30_000)
     return () => {
-      window.clearInterval(timer)
       requestGenerationRef.current += 1
       inFlightRequestRef.current = null
     }
   }, [loadFeedback])
+
+  useEffect(() => {
+    if (currentPullRequestNumber === null) return
+    const timer = window.setInterval(() => void loadFeedback(), 30_000)
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [currentPullRequestNumber, loadFeedback])
 
   const fillPrompt = useCallback((prompt: string) => {
     if (!onFillInput) return
@@ -142,6 +157,18 @@ export function PullRequestPanel({ sessionId, onClose, onFillInput }: PullReques
     || comments.length > 0
     || reviews.length > 0
     || mergeConflicts
+  const unavailableReason = feedback && !feedback.preflight.available
+    ? pullRequestUnavailableReason(t, feedback.preflight)
+    : null
+  const emptyMessage = loading
+    ? expectedUrl
+      ? t("workspace.git.prCreatedSyncing", "拉取请求已创建，正在同步详情")
+      : t("workspace.git.findingPullRequest", "查找关联拉取请求")
+    : expectedUrl
+      ? t("workspace.git.prCreatedSyncFailed", "拉取请求已创建，但详情尚未同步")
+      : unavailableReason ?? (error
+        ? t("workspace.git.prFeedbackUnavailable", "PR 检查与评论不可用")
+        : t("workspace.git.prNotFound", "当前分支尚未关联拉取请求"))
 
   return (
     <>
@@ -196,12 +223,29 @@ export function PullRequestPanel({ sessionId, onClose, onFillInput }: PullReques
             </Button>
           </div>
           <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
-            {loading ? (
+            <div className="flex max-w-sm flex-col items-center gap-3">
               <span className="inline-flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {t("workspace.git.loadingPrFeedback", "读取 PR 检查与评论")}
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {emptyMessage}
               </span>
-            ) : error ? error : t("workspace.git.prFeedbackUnavailable", "PR 信息不可用")}
+              {!loading && error ? (
+                <span className="max-w-full break-words text-xs text-destructive">{error}</span>
+              ) : null}
+              {!loading ? (
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => void loadFeedback()}>
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    {t("common.retry", "重试")}
+                  </Button>
+                  {expectedUrl ? (
+                    <Button type="button" size="sm" variant="outline" onClick={() => openExternalUrl(expectedUrl)}>
+                      <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                      {t("workspace.git.openPullRequest", "在 GitHub 打开")}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       )}

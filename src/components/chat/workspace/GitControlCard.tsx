@@ -67,6 +67,7 @@ import {
   buildMergeConflictFixPrompt,
   hasPullRequestConflicts,
   isActionableReview,
+  pullRequestUnavailableReason,
 } from "./gitPullRequestUtils"
 
 interface GitControlCardProps {
@@ -79,7 +80,7 @@ interface GitControlCardProps {
     reviewComments?: GitPullRequestReviewComment[],
   ) => void
   onFillInput?: (value: string) => void
-  onOpenPullRequest?: () => void
+  onOpenPullRequest?: (expectedUrl?: string | null) => void
   managedWorktreeControls?: ReactNode
 }
 
@@ -106,11 +107,15 @@ export function GitControlCard({
 }: GitControlCardProps) {
   const { t } = useTranslation()
   const snapshot = state.snapshot
+  const hasGithubRemote = Boolean(snapshot?.remotes.some((remote) => remote.isGithub))
+  const prContextKey = snapshot && !snapshot.detached && snapshot.branch
+    ? `${sessionId}:${snapshot.head ?? ""}:${snapshot.branch}`
+    : null
   const canLoadPrFeedback = Boolean(
-    snapshot && !snapshot.detached && snapshot.remotes.some((remote) => remote.isGithub),
+    prContextKey && hasGithubRemote && snapshot?.sync.upstream,
   )
   const prFeedbackKey = canLoadPrFeedback && snapshot
-    ? `${sessionId}:${snapshot.head ?? ""}:${snapshot.branch ?? ""}`
+    ? `${prContextKey}:${snapshot.sync.upstream}`
     : null
   const [action, setAction] = useState<string | null>(null)
   const [branchOpen, setBranchOpen] = useState(false)
@@ -127,6 +132,7 @@ export function GitControlCard({
   const [prBase, setPrBase] = useState("")
   const [prDraft, setPrDraft] = useState(true)
   const [prPushFirst, setPrPushFirst] = useState(true)
+  const [prPushRequired, setPrPushRequired] = useState(false)
   const [prPreflight, setPrPreflight] = useState<GitPullRequestPreflight | null>(null)
   const [prPreflightKey, setPrPreflightKey] = useState<string | null>(null)
   const [prFeedbackView, setPrFeedbackView] = useState<PrFeedbackViewState>({
@@ -140,8 +146,10 @@ export function GitControlCard({
   currentPrFeedbackKeyRef.current = prFeedbackKey
   const prFeedback = prFeedbackView.key === prFeedbackKey ? prFeedbackView.feedback : null
   const prFeedbackError = prFeedbackView.key === prFeedbackKey ? prFeedbackView.error : null
-  const prFeedbackLoading = prFeedbackLoadingKey === prFeedbackKey
-  const visiblePrPreflight = prPreflightKey === prFeedbackKey ? prPreflight : null
+  const prFeedbackLoading = prFeedbackKey !== null && prFeedbackLoadingKey === prFeedbackKey
+  const visiblePrPreflight = prContextKey !== null && prPreflightKey === prContextKey
+    ? prPreflight
+    : null
 
   const branches = useMemo(() => {
     const query = branchQuery.trim().toLowerCase()
@@ -186,7 +194,7 @@ export function GitControlCard({
         ) return null
         setPrFeedbackView({ key: requestKey, feedback, error: null })
         setPrPreflight(feedback.preflight)
-        setPrPreflightKey(requestKey)
+        setPrPreflightKey(prContextKey)
         return feedback
       })
       .catch((error) => {
@@ -212,22 +220,27 @@ export function GitControlCard({
       })
     prFeedbackRequestsRef.current.set(requestKey, { key: requestKey, token, promise })
     return promise
-  }, [prFeedbackKey, sessionId])
+  }, [prContextKey, prFeedbackKey, sessionId])
 
   useEffect(() => {
     setPrFeedbackView({ key: prFeedbackKey, feedback: null, error: null })
     setPrPreflight(null)
-    setPrPreflightKey(prFeedbackKey)
+    setPrPreflightKey(prContextKey)
     if (!prFeedbackKey) {
       setPrFeedbackLoadingKey(null)
       return
     }
     void loadPrFeedback()
+  }, [loadPrFeedback, prContextKey, prFeedbackKey])
+
+  const currentPrNumber = prFeedback?.preflight.current?.number ?? null
+  useEffect(() => {
+    if (!prFeedbackKey || currentPrNumber === null) return
     const timer = window.setInterval(() => void loadPrFeedback(), 30_000)
     return () => {
       window.clearInterval(timer)
     }
-  }, [loadPrFeedback, prFeedbackKey])
+  }, [currentPrNumber, loadPrFeedback, prFeedbackKey])
 
   const fillFixPrompt = useCallback(
     (value: string) => {
@@ -379,7 +392,7 @@ export function GitControlCard({
         { sessionId },
       )
       setPrPreflight(preflight)
-      setPrPreflightKey(prFeedbackKey)
+      setPrPreflightKey(prContextKey)
       if (preflight.current) {
         void loadPrFeedback()
         if (onOpenPullRequest) onOpenPullRequest()
@@ -389,6 +402,9 @@ export function GitControlCard({
       if (!preflight.available) throw new Error(preflight.errorMessage || "Pull Request 不可用")
       setPrBase(preflight.defaultBranch || "main")
       setPrTitle(commitSubject || snapshot?.branch || "")
+      const pushRequired = snapshot?.sync.state === "noUpstream"
+      setPrPushRequired(pushRequired)
+      setPrPushFirst(pushRequired || snapshot?.sync.state === "ahead")
       setPrOpen(true)
       return preflight
     })
@@ -406,13 +422,14 @@ export function GitControlCard({
           body: prBody || null,
           baseBranch: prBase,
           draft: prDraft,
-          pushFirst: prPushFirst,
+          pushFirst: prPushRequired || prPushFirst,
           remote: snapshot.remotes.find((remote) => remote.isDefault)?.name ?? null,
         },
       })
       setPrOpen(false)
-      if (result.url) openExternalUrl(result.url)
       toast.success(result.message)
+      if (onOpenPullRequest) onOpenPullRequest(result.url)
+      else if (result.url) openExternalUrl(result.url)
       return result
     })
 
@@ -424,7 +441,17 @@ export function GitControlCard({
   const dirty = snapshot.dirty.changedFiles > 0
   const ahead = snapshot.sync.ahead
   const busy = Boolean(action)
+  const localOnly = !snapshot.detached && snapshot.sync.state === "noUpstream"
+  const hasPushRemote = snapshot.remotes.some((remote) => remote.isDefault)
+    || snapshot.remotes.length === 1
   const currentPr = prFeedback?.preflight.current ?? null
+  const knownPr = currentPr ?? visiblePrPreflight?.current ?? null
+  const preflightUnavailable = Boolean(visiblePrPreflight && !visiblePrPreflight.available)
+  const prUnavailable = preflightUnavailable || Boolean(prFeedbackError)
+  const shouldRetryPrDiscovery = prUnavailable && !knownPr
+  const prUnavailableLabel = preflightUnavailable
+    ? pullRequestUnavailableReason(t, visiblePrPreflight)
+    : t("workspace.git.prFeedbackUnavailable", "PR 检查与评论不可用")
   const unresolvedReviewComments =
     prFeedback?.reviewComments.filter((comment) => !comment.isResolved && !comment.isOutdated) ?? []
   const failedChecks =
@@ -505,19 +532,44 @@ export function GitControlCard({
 
         <GitRow
           icon={GitCommitHorizontal}
-          label={dirty ? t("workspace.git.commit", "提交") : t("workspace.git.push", "推送")}
+          label={dirty
+            ? t("workspace.git.commit", "提交")
+            : localOnly
+              ? t("workspace.git.pushBranch", "推送分支")
+              : t("workspace.git.push", "推送")}
           value={!dirty && ahead > 0 ? t("workspace.git.aheadCount", "{{count}} 个提交", { count: ahead }) : undefined}
           onClick={() => dirty ? setCommitOpen(true) : push()}
-          disabled={busy || snapshot.detached || (!dirty && (!snapshot.capabilities.canPush || ahead === 0))}
+          disabled={busy || snapshot.detached || (!dirty && (
+            !snapshot.capabilities.canPush || (localOnly ? !hasPushRemote : ahead === 0)
+          ))}
           loading={action === "commit" || action === "push"}
         />
 
         <GitRow
           icon={GitPullRequest}
-          label={visiblePrPreflight?.current ? t("workspace.git.viewPr", "查看拉取请求") : t("workspace.git.createPr", "创建拉取请求")}
-          onClick={openPullRequest}
-          disabled={busy || (!visiblePrPreflight?.current && !snapshot.capabilities.canCreatePullRequest)}
-          loading={action === "pr-preflight" || action === "pr-create"}
+          label={prFeedbackLoading && !knownPr
+            ? t("workspace.git.findingPullRequest", "查找关联拉取请求")
+            : knownPr
+              ? t("workspace.git.viewPr", "查看拉取请求")
+              : prUnavailable
+                ? prUnavailableLabel
+                : localOnly && hasGithubRemote
+                  ? t("workspace.git.pushAndCreatePr", "推送并创建拉取请求")
+                  : t("workspace.git.createPr", "创建拉取请求")}
+          value={snapshot.detached
+            ? t("workspace.git.createBranchFirst", "请先创建或切换分支")
+            : !hasGithubRemote
+              ? t("workspace.git.githubRemoteRequired", "需要 GitHub 远端")
+              : shouldRetryPrDiscovery
+                ? t("common.retry", "重试")
+                : undefined}
+          onClick={shouldRetryPrDiscovery
+            ? () => void (prFeedbackKey ? loadPrFeedback() : openPullRequest())
+            : openPullRequest}
+          disabled={busy || snapshot.detached || !hasGithubRemote || prFeedbackLoading
+            || (!knownPr && !snapshot.capabilities.canCreatePullRequest)}
+          loading={action === "pr-preflight" || action === "pr-create"
+            || (prFeedbackLoading && !knownPr)}
         />
 
         {currentPr && prFeedback ? (
@@ -565,19 +617,6 @@ export function GitControlCard({
               }
             />
           </>
-        ) : prFeedbackLoading ? (
-          <GitRow
-            icon={Loader2}
-            label={t("workspace.git.loadingPrFeedback", "读取 PR 检查与评论")}
-            loading
-          />
-        ) : prFeedbackError ? (
-          <GitRow
-            icon={CircleX}
-            label={t("workspace.git.prFeedbackUnavailable", "PR 检查与评论不可用")}
-            value={t("common.retry", "重试")}
-            onClick={() => void loadPrFeedback()}
-          />
         ) : null}
       </div>
       {state.progress ? (
@@ -640,14 +679,33 @@ export function GitControlCard({
 
       <Dialog open={prOpen} onOpenChange={setPrOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{t("workspace.git.createPr", "创建拉取请求")}</DialogTitle><DialogDescription>{t("workspace.git.prHint", "将先推送当前分支；未提交的本地内容不会进入拉取请求。")}</DialogDescription></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>
+              {prPushRequired
+                ? t("workspace.git.pushAndCreatePr", "推送并创建拉取请求")
+                : t("workspace.git.createPr", "创建拉取请求")}
+            </DialogTitle>
+            <DialogDescription>
+              {prPushRequired
+                ? t(
+                    "workspace.git.pushAndCreatePrHint",
+                    "将先推送当前分支并设置 upstream，再创建拉取请求；未提交的本地内容不会进入拉取请求。",
+                  )
+                : t(
+                    "workspace.git.prHint",
+                    "未提交的本地内容不会进入拉取请求；需要时可先推送当前分支。",
+                  )}
+            </DialogDescription>
+          </DialogHeader>
           <Input value={prTitle} onChange={(event) => setPrTitle(event.target.value)} placeholder={t("workspace.git.prTitle", "标题")} />
           <Input value={prBase} onChange={(event) => setPrBase(event.target.value)} placeholder={t("workspace.git.prBase", "目标分支")} />
           <Textarea value={prBody} onChange={(event) => setPrBody(event.target.value)} placeholder={t("workspace.git.prBody", "说明（可选）")} />
           {dirty ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">{t("workspace.git.prDirtyWarning", "当前未提交内容不会进入拉取请求。")}</div> : null}
-          <ToggleRow label={t("workspace.git.pushBeforePr", "先推送当前分支")} checked={prPushFirst} onCheckedChange={setPrPushFirst} />
+          {!prPushRequired && snapshot.sync.state === "ahead" ? (
+            <ToggleRow label={t("workspace.git.pushBeforePr", "先推送当前分支")} checked={prPushFirst} onCheckedChange={setPrPushFirst} />
+          ) : null}
           <ToggleRow label={t("workspace.git.draftPr", "创建为草稿")} checked={prDraft} onCheckedChange={setPrDraft} />
-          <DialogFooter><Button variant="outline" onClick={() => setPrOpen(false)}>{t("common.cancel", "取消")}</Button><Button onClick={submitPullRequest} disabled={!prTitle.trim() || !prBase.trim() || busy}>{t("workspace.git.createPr", "创建拉取请求")}</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setPrOpen(false)}>{t("common.cancel", "取消")}</Button><Button onClick={submitPullRequest} disabled={!prTitle.trim() || !prBase.trim() || busy}>{prPushRequired ? t("workspace.git.pushAndCreatePr", "推送并创建拉取请求") : t("workspace.git.createPr", "创建拉取请求")}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </>

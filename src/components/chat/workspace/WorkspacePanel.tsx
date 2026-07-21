@@ -286,7 +286,7 @@ interface WorkspacePanelProps {
   /** 将 GitHub 检查/评论修复要求填入当前会话输入框，不自动发送。 */
   onFillInput?: (value: string) => void
   /** 打开当前分支关联 PR 的独立右侧面板。 */
-  onOpenPullRequest?: () => void
+  onOpenPullRequest?: (expectedUrl?: string | null) => void
   /** 预览文件 → 右侧预览面板（与下挂文件 / Markdown 链接同一策略）。 */
   onPreviewFile?: (target: PreviewTarget) => void
   /** 当前会话 id,后端聚合 + 文件作用域解析都需要它。 */
@@ -1467,7 +1467,7 @@ function EnvironmentSection({
     reviewComments?: GitPullRequestReviewComment[],
   ) => void
   onFillInput?: (value: string) => void
-  onOpenPullRequest?: () => void
+  onOpenPullRequest?: (expectedUrl?: string | null) => void
 }) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()

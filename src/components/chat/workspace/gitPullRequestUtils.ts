@@ -1,9 +1,31 @@
+import type { TFunction } from "i18next"
 import type {
   GitPullRequestCheck,
+  GitPullRequestPreflight,
   GitPullRequestInfo,
   GitPullRequestReview,
   GitPullRequestReviewComment,
 } from "@/lib/transport"
+
+export function pullRequestUnavailableReason(
+  t: TFunction,
+  preflight: GitPullRequestPreflight | null | undefined,
+): string {
+  switch (preflight?.errorCode) {
+    case "detached_head":
+      return t("workspace.git.createBranchFirst", "请先创建或切换分支")
+    case "not_github_remote":
+      return t("workspace.git.githubRemoteRequired", "需要 GitHub 远端")
+    case "gh_unavailable":
+      return t("workspace.git.ghUnavailable", "未安装 GitHub CLI")
+    case "gh_unauthenticated":
+      return t("workspace.git.ghUnauthenticated", "GitHub CLI 尚未登录")
+    case "gh_repo_unavailable":
+      return t("workspace.git.ghRepoUnavailable", "无法访问 GitHub 仓库")
+    default:
+      return t("workspace.git.prFeedbackUnavailable", "PR 检查与评论不可用")
+  }
+}
 
 export function hasPullRequestConflicts(pullRequest: GitPullRequestInfo): boolean {
   return pullRequest.mergeable === "CONFLICTING" || pullRequest.mergeStateStatus === "DIRTY"

@@ -5,10 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { GitPullRequestFeedback, SessionGitControlSnapshot } from "@/lib/transport"
 import { PullRequestPanel } from "./PullRequestPanel"
 
-const call = vi.fn()
+const { call, openExternalUrl } = vi.hoisted(() => ({
+  call: vi.fn(),
+  openExternalUrl: vi.fn(),
+}))
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => ({ call }),
 }))
+vi.mock("@/lib/openExternalUrl", () => ({ openExternalUrl }))
 
 function feedback(mergeable = "MERGEABLE"): GitPullRequestFeedback {
   return {
@@ -66,6 +70,23 @@ function feedback(mergeable = "MERGEABLE"): GitPullRequestFeedback {
   }
 }
 
+function feedbackWithoutPullRequest(): GitPullRequestFeedback {
+  return {
+    ...feedback(),
+    preflight: {
+      available: true,
+      ghAvailable: true,
+      authenticated: true,
+      host: "github.com",
+      repository: "owner/repo",
+      defaultBranch: "main",
+      current: null,
+    },
+    reviewComments: [],
+    unresolvedComments: 0,
+  }
+}
+
 const snapshot = {
   revision: "rev-1",
 } as SessionGitControlSnapshot
@@ -79,7 +100,10 @@ function deferred<T>() {
 }
 
 describe("PullRequestPanel", () => {
-  beforeEach(() => call.mockReset())
+  beforeEach(() => {
+    call.mockReset()
+    openExternalUrl.mockReset()
+  })
   afterEach(() => {
     vi.useRealTimers()
     cleanup()
@@ -98,7 +122,27 @@ describe("PullRequestPanel", () => {
 
     await act(async () => pending.resolve(feedback()))
     expect(screen.getByText("Lifecycle details")).toBeTruthy()
+    act(() => vi.advanceTimersByTime(30_000))
+    expect(call).toHaveBeenCalledTimes(2)
     vi.useRealTimers()
+  })
+
+  it("keeps a created PR actionable while GitHub details are still syncing", async () => {
+    call.mockResolvedValue(feedbackWithoutPullRequest())
+    const expectedUrl = "https://github.com/owner/repo/pull/42"
+    render(
+      <PullRequestPanel
+        sessionId="session-1"
+        expectedUrl={expectedUrl}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText("拉取请求已创建，正在同步详情")).toBeTruthy()
+    expect(await screen.findByText("拉取请求已创建，但详情尚未同步")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "重试" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "在 GitHub 打开" }))
+    expect(openExternalUrl).toHaveBeenCalledWith(expectedUrl)
   })
 
   it("marks retained feedback as stale and disables state-dependent actions", async () => {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
   GitPullRequestFeedback,
@@ -67,6 +67,24 @@ function pullRequestFeedback(
   }
 }
 
+function emptyPullRequestFeedback(
+  patch: Partial<GitPullRequestFeedback> = {},
+): GitPullRequestFeedback {
+  return {
+    ...pullRequestFeedback("", ""),
+    preflight: {
+      available: true,
+      ghAvailable: true,
+      authenticated: true,
+      host: "github.com",
+      repository: "owner/repo",
+      defaultBranch: "main",
+      current: null,
+    },
+    ...patch,
+  }
+}
+
 const githubRemote = {
   name: "origin",
   fetchUrl: "https://github.com/owner/repo.git",
@@ -74,6 +92,16 @@ const githubRemote = {
   host: "github.com",
   isDefault: true,
   isGithub: true,
+}
+
+function publishedSync(branch: string) {
+  return {
+    upstream: `origin/${branch}`,
+    remote: githubRemote.fetchUrl,
+    ahead: 0,
+    behind: 0,
+    state: "upToDate" as const,
+  }
 }
 
 function snapshot(patch: Partial<SessionGitControlSnapshot> = {}): SessionGitControlSnapshot {
@@ -121,7 +149,10 @@ function snapshot(patch: Partial<SessionGitControlSnapshot> = {}): SessionGitCon
 
 describe("GitControlCard", () => {
   beforeEach(() => call.mockReset())
-  afterEach(cleanup)
+  afterEach(() => {
+    vi.useRealTimers()
+    cleanup()
+  })
 
   it("keeps managed worktree lifecycle controls inside the Git card", () => {
     render(
@@ -226,6 +257,201 @@ describe("GitControlCard", () => {
     expect(
       (screen.getByRole("button", { name: /提交|Commit/i }) as HTMLButtonElement).disabled,
     ).toBe(true)
+    expect(screen.getByText("请先创建或切换分支")).toBeTruthy()
+    expect(screen.queryByText("读取 PR 检查与评论")).toBeNull()
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  it("keeps local-only branches offline and requires push when creating a PR", async () => {
+    const preflight = emptyPullRequestFeedback().preflight
+    const onOpenPullRequest = vi.fn()
+    const refresh = vi.fn()
+    call.mockImplementation((command: string) => {
+      if (command === "session_git_pr_preflight_cmd") return Promise.resolve(preflight)
+      if (command === "create_session_git_pr_cmd") {
+        return Promise.resolve({
+          revision: "rev-2",
+          head: "abc123",
+          branch: "feature",
+          message: "Pull request created",
+          url: "https://github.com/owner/repo/pull/42",
+        })
+      }
+      return Promise.resolve(null)
+    })
+    render(
+      <GitControlCard
+        sessionId="session-1"
+        state={{
+          snapshot: snapshot({
+            branch: "feature",
+            remotes: [githubRemote],
+            dirty: {
+              stagedFiles: 0,
+              unstagedFiles: 0,
+              untrackedFiles: 0,
+              conflictedFiles: 0,
+              changedFiles: 0,
+            },
+            status: {
+              changedFiles: 0,
+              stagedFiles: 0,
+              unstagedFiles: 0,
+              untrackedFiles: 0,
+              conflictedFiles: 0,
+              linesAdded: 0,
+              linesRemoved: 0,
+              clean: true,
+            },
+            capabilities: {
+              canSwitchBranch: true,
+              canCreateBranch: true,
+              canCommit: true,
+              canPush: true,
+              canCreatePullRequest: true,
+              canHandoff: true,
+            },
+          }),
+          loading: false,
+          error: null,
+          refresh,
+        }}
+        managedWorktrees={[]}
+        onOpenGitDiff={vi.fn()}
+        onOpenPullRequest={onOpenPullRequest}
+      />,
+    )
+
+    expect(call).not.toHaveBeenCalled()
+    expect((screen.getByRole("button", { name: "推送分支" }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole("button", { name: "推送并创建拉取请求" }))
+    expect(await screen.findByText(/设置 upstream/)).toBeTruthy()
+    expect(screen.queryByText("先推送当前分支")).toBeNull()
+
+    fireEvent.click(screen.getAllByRole("button", { name: "推送并创建拉取请求" }).at(-1)!)
+    await waitFor(() => expect(call).toHaveBeenCalledWith(
+      "create_session_git_pr_cmd",
+      expect.objectContaining({
+        input: expect.objectContaining({ pushFirst: true }),
+      }),
+    ))
+    expect(onOpenPullRequest).toHaveBeenCalledWith("https://github.com/owner/repo/pull/42")
+  })
+
+  it("disables pushing a clean local-only branch when the repository has no remote", () => {
+    render(
+      <GitControlCard
+        sessionId="session-1"
+        state={{
+          snapshot: snapshot({
+            branch: "feature",
+            dirty: {
+              stagedFiles: 0,
+              unstagedFiles: 0,
+              untrackedFiles: 0,
+              conflictedFiles: 0,
+              changedFiles: 0,
+            },
+            status: {
+              changedFiles: 0,
+              stagedFiles: 0,
+              unstagedFiles: 0,
+              untrackedFiles: 0,
+              conflictedFiles: 0,
+              linesAdded: 0,
+              linesRemoved: 0,
+              clean: true,
+            },
+          }),
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        }}
+        managedWorktrees={[]}
+        onOpenGitDiff={vi.fn()}
+      />,
+    )
+
+    expect((screen.getByRole("button", { name: "推送分支" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  it("discovers a published branch once and stops polling when it has no PR", async () => {
+    vi.useFakeTimers()
+    call.mockResolvedValue(emptyPullRequestFeedback())
+    render(
+      <GitControlCard
+        sessionId="session-1"
+        state={{
+          snapshot: snapshot({
+            branch: "feature",
+            remotes: [githubRemote],
+            sync: {
+              upstream: "origin/feature",
+              remote: githubRemote.fetchUrl,
+              ahead: 0,
+              behind: 0,
+              state: "upToDate",
+            },
+          }),
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        }}
+        managedWorktrees={[]}
+        onOpenGitDiff={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText("查找关联拉取请求")).toBeTruthy()
+    await act(async () => {})
+    expect(screen.getByRole("button", { name: "创建拉取请求" })).toBeTruthy()
+    expect(call).toHaveBeenCalledTimes(1)
+    act(() => vi.advanceTimersByTime(30_000))
+    expect(call).toHaveBeenCalledTimes(1)
+  })
+
+  it("turns GitHub preflight failures into a retry state", async () => {
+    call.mockResolvedValue(emptyPullRequestFeedback({
+      preflight: {
+        available: false,
+        ghAvailable: true,
+        authenticated: false,
+        host: "github.com",
+        repository: null,
+        defaultBranch: null,
+        current: null,
+        errorCode: "gh_unauthenticated",
+        errorMessage: "authentication required",
+      },
+    }))
+    render(
+      <GitControlCard
+        sessionId="session-1"
+        state={{
+          snapshot: snapshot({
+            branch: "feature",
+            remotes: [githubRemote],
+            sync: {
+              upstream: "origin/feature",
+              remote: githubRemote.fetchUrl,
+              ahead: 0,
+              behind: 0,
+              state: "upToDate",
+            },
+          }),
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        }}
+        managedWorktrees={[]}
+        onOpenGitDiff={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText("GitHub CLI 尚未登录")).toBeTruthy()
+    expect(screen.getByText("重试")).toBeTruthy()
+    expect(screen.queryByText("读取 PR 检查与评论")).toBeNull()
   })
 
   it("keeps the create-branch action from shrinking or wrapping", () => {
@@ -281,6 +507,7 @@ describe("GitControlCard", () => {
           snapshot: snapshot({
             branch: "feature",
             remotes: [githubRemote],
+            sync: publishedSync("feature"),
             capabilities: {
               canSwitchBranch: true,
               canCreateBranch: true,
@@ -360,7 +587,7 @@ describe("GitControlCard", () => {
       <GitControlCard
         {...props}
         state={{
-          snapshot: snapshot({ head: "head-a", branch: "branch-a", remotes: [githubRemote] }),
+          snapshot: snapshot({ head: "head-a", branch: "branch-a", remotes: [githubRemote], sync: publishedSync("branch-a") }),
           loading: false,
           error: null,
           refresh: vi.fn(),
@@ -373,7 +600,7 @@ describe("GitControlCard", () => {
       <GitControlCard
         {...props}
         state={{
-          snapshot: snapshot({ head: "head-b", branch: "branch-b", remotes: [githubRemote] }),
+          snapshot: snapshot({ head: "head-b", branch: "branch-b", remotes: [githubRemote], sync: publishedSync("branch-b") }),
           loading: false,
           error: null,
           refresh: vi.fn(),
@@ -407,7 +634,7 @@ describe("GitControlCard", () => {
       <GitControlCard
         {...props}
         state={{
-          snapshot: snapshot({ head: "same-head", branch: "same-branch", remotes: [githubRemote] }),
+          snapshot: snapshot({ head: "same-head", branch: "same-branch", remotes: [githubRemote], sync: publishedSync("same-branch") }),
           loading: false,
           error: null,
           refresh: vi.fn(),
@@ -425,6 +652,7 @@ describe("GitControlCard", () => {
             branch: "same-branch",
             revision: "new-revision-object",
             remotes: [githubRemote],
+            sync: publishedSync("same-branch"),
           }),
           loading: false,
           error: null,
@@ -445,7 +673,7 @@ describe("GitControlCard", () => {
       <GitControlCard
         sessionId="session-1"
         state={{
-          snapshot: snapshot({ branch: "feature", remotes: [githubRemote] }),
+          snapshot: snapshot({ branch: "feature", remotes: [githubRemote], sync: publishedSync("feature") }),
           loading: false,
           error: null,
           refresh: vi.fn(),
@@ -459,6 +687,39 @@ describe("GitControlCard", () => {
     const icon = label.closest("button")?.querySelector("svg")
     expect(icon?.classList.contains("text-muted-foreground")).toBe(true)
     expect(icon?.classList.contains("text-emerald-500")).toBe(false)
+  })
+
+  it("keeps an already loaded PR openable when a background refresh fails", async () => {
+    vi.useFakeTimers()
+    call
+      .mockResolvedValueOnce(pullRequestFeedback("Lifecycle details", "feature"))
+      .mockRejectedValueOnce(new Error("refresh failed"))
+    const onOpenPullRequest = vi.fn()
+    render(
+      <GitControlCard
+        sessionId="session-1"
+        state={{
+          snapshot: snapshot({ branch: "feature", remotes: [githubRemote], sync: publishedSync("feature") }),
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        }}
+        managedWorktrees={[]}
+        onOpenGitDiff={vi.fn()}
+        onOpenPullRequest={onOpenPullRequest}
+      />,
+    )
+
+    await act(async () => {})
+    expect(screen.getByRole("button", { name: "查看拉取请求" })).toBeTruthy()
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+    })
+    expect(screen.getByText("PR 状态刷新失败，当前数据可能已过期")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "查看拉取请求" }))
+    expect(onOpenPullRequest).toHaveBeenCalledTimes(1)
+    expect(call).toHaveBeenCalledTimes(2)
   })
 
   it("shows merge conflicts and opens the dedicated PR panel", async () => {
@@ -514,7 +775,7 @@ describe("GitControlCard", () => {
       <GitControlCard
         sessionId="session-1"
         state={{
-          snapshot: snapshot({ branch: "feature", remotes: [githubRemote] }),
+          snapshot: snapshot({ branch: "feature", remotes: [githubRemote], sync: publishedSync("feature") }),
           loading: false,
           error: null,
           refresh: vi.fn(),
