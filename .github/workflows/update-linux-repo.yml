@@ -60,7 +60,10 @@ env:
   RCLONE_CONFIG_R2_REGION: auto
   RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
   RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-  RCLONE_CONFIG_R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+  # RCLONE_CONFIG_R2_ENDPOINT is derived from R2_ACCOUNT_ID in the
+  # "Resolve R2 endpoint" step (normalized + validated) rather than
+  # interpolated here, so a pasted full endpoint URL / stray whitespace
+  # gives a clear error instead of a cryptic TLS handshake failure.
 
 jobs:
   update-linux-repo:
@@ -84,6 +87,36 @@ jobs:
             echo "::error::missing required R2 secret(s): ${missing[*]} — see linux-repo/README.md"
             exit 1
           fi
+
+      - name: Resolve R2 endpoint from account id
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # Accept either the bare 32-hex Cloudflare account id OR a pasted
+          # full S3 endpoint (host or URL, incl. jurisdiction variants like
+          # <id>.eu.r2.cloudflarestorage.com). Strip whitespace + scheme, then:
+          #   - if it already names the R2 endpoint host, use it verbatim
+          #     (preserves any .eu. jurisdiction label);
+          #   - otherwise treat it as a bare account id and build the host,
+          #     validating it is 32 lowercase hex first.
+          # This turns the common "pasted the whole endpoint URL" mistake —
+          # which otherwise surfaces as an opaque `tls: handshake failure` —
+          # into either a correct endpoint or a clear, actionable error.
+          raw="$(printf '%s' "$R2_ACCOUNT_ID" | tr -d '[:space:]')"
+          raw="${raw#http://}"; raw="${raw#https://}"; raw="${raw%/}"
+          if [[ "$raw" == *".r2.cloudflarestorage.com" ]]; then
+            host="$raw"
+          else
+            id="$raw"
+            if [[ ! "$id" =~ ^[0-9a-f]{32}$ ]]; then
+              echo "::error::R2_ACCOUNT_ID must be the 32-char hex Cloudflare account id (or the full S3 endpoint host). Got something that normalizes to length ${#id}. Do NOT paste the whole 'https://<id>.r2.cloudflarestorage.com' URL — paste only the account id shown on the R2 overview page. See linux-repo/README.md."
+              exit 1
+            fi
+            host="${id}.r2.cloudflarestorage.com"
+          fi
+          echo "RCLONE_CONFIG_R2_ENDPOINT=https://${host}" >> "$GITHUB_ENV"
+          echo "R2 endpoint host: ${host}"
 
       - name: Resolve version from tag
         id: ver
