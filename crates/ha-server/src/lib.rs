@@ -32,6 +32,7 @@ pub struct AppContext {
     pub session_db: Arc<SessionDB>,
     pub project_db: Arc<ProjectDB>,
     pub event_bus: Arc<dyn EventBus>,
+    pub terminal_manager: Arc<ha_core::terminal::TerminalManager>,
     /// Per-session cancel flags. Key = session_id.
     pub chat_cancels: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
     /// API key used by middleware auth, reused by attachment URL rewrite to
@@ -3470,7 +3471,18 @@ fn build_router_with_cors(
         .route(
             "/stt/sessions/{id}",
             delete(routes::stt::stt_cancel_session),
-        );
+        )
+        // Interactive terminal (Bearer-protected owner surface).
+        .route(
+            "/terminals",
+            get(routes::terminal::list).post(routes::terminal::create),
+        )
+        .route(
+            "/terminals/{id}",
+            get(routes::terminal::snapshot).delete(routes::terminal::close),
+        )
+        .route("/terminals/{id}/input", post(routes::terminal::write))
+        .route("/terminals/{id}/resize", post(routes::terminal::resize));
 
     let ws_routes = Router::new().route("/events", get(ws::events::events_ws));
 

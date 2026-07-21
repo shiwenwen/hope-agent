@@ -213,6 +213,13 @@ pub fn run() {
             commands::chat::chat,
             commands::chat::stop_chat,
             commands::runtime_tasks::cancel_runtime_task,
+            // Interactive terminal
+            commands::terminal::terminal_create,
+            commands::terminal::terminal_list,
+            commands::terminal::terminal_snapshot,
+            commands::terminal::terminal_write,
+            commands::terminal::terminal_resize,
+            commands::terminal::terminal_close,
             // Session-scoped task list (user-actionable controls in TaskProgressPanel)
             commands::tasks::list_session_tasks,
             commands::tasks::create_session_task,

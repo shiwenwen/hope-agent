@@ -70,6 +70,17 @@
       "downloadedReady": "Descargada: se instala al instante"
     }
   },
+  "terminal": {
+    "title": "Terminal",
+    "show": "Mostrar terminal",
+    "hide": "Ocultar terminal",
+    "new": "Nueva terminal",
+    "closeTab": "Cerrar terminal",
+    "resize": "Ajustar altura de la terminal",
+    "maximize": "Maximizar terminal",
+    "restore": "Restaurar terminal",
+    "exited": "Finalizada"
+  },
   "approval": {
     "allowAlways": "Permitir siempre",
     "allowAlwaysDisabled": "No se puede permitir siempre: este motivo de aprobación requiere confirmación en cada llamada",

@@ -70,6 +70,17 @@
       "downloadedReady": "ダウンロード済み — 即インストール可能"
     }
   },
+  "terminal": {
+    "title": "ターミナル",
+    "show": "ターミナルを表示",
+    "hide": "ターミナルを隠す",
+    "new": "新しいターミナル",
+    "closeTab": "ターミナルを閉じる",
+    "resize": "ターミナルの高さを変更",
+    "maximize": "ターミナルを最大化",
+    "restore": "ターミナルを元に戻す",
+    "exited": "終了"
+  },
   "approval": {
     "allowAlways": "常に許可する",
     "allowAlwaysDisabled": "常に許可できません — この承認理由では呼び出しごとの確認が必要です",

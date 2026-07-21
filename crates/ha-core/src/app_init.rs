@@ -5,7 +5,7 @@ use crate::globals::AppState;
 use crate::globals::{
     ACP_MANAGER, APP_LOGGER, CACHED_AGENT, CHANNEL_CANCELS, CHANNEL_DB, CHANNEL_REGISTRY,
     CODEX_TOKEN_CACHE, CRON_DB, EVENT_BUS, IDLE_EXTRACT_HANDLES, KNOWLEDGE_DB, LOG_DB,
-    MEMORY_BACKEND, PROJECT_DB, REASONING_EFFORT, SESSION_DB, SUBAGENT_CANCELS,
+    MEMORY_BACKEND, PROJECT_DB, REASONING_EFFORT, SESSION_DB, SUBAGENT_CANCELS, TERMINAL_MANAGER,
 };
 use crate::knowledge::KnowledgeRegistry;
 use crate::logging::{self, AppLogger, LogDB};
@@ -150,6 +150,11 @@ pub fn init_runtime(role: &'static str) {
         let bus: Arc<dyn crate::event_bus::EventBus> =
             Arc::new(crate::event_bus::BroadcastEventBus::new(256));
         let _ = EVENT_BUS.set(bus);
+    }
+
+    if TERMINAL_MANAGER.get().is_none() {
+        let event_bus = EVENT_BUS.get().expect("event bus initialized").clone();
+        let _ = TERMINAL_MANAGER.set(Arc::new(crate::terminal::TerminalManager::new(event_bus)));
     }
 
     // Initialize the SessionDB
@@ -455,6 +460,9 @@ pub fn init_runtime(role: &'static str) {
     // block on the initial disk read. Do not remove without auditing.
     {
         let store = crate::config::cached_config();
+        if let Some(manager) = TERMINAL_MANAGER.get() {
+            manager.set_remote_access_allowed(store.filesystem.allow_remote_writes);
+        }
         if store.acp_control.enabled {
             let registry = Arc::new(acp_control::AcpRuntimeRegistry::new());
             let manager = Arc::new(acp_control::AcpSessionManager::new(registry));
@@ -519,6 +527,9 @@ pub fn build_app_state() -> AppState {
     let logger = crate::require_logger()
         .expect("init_runtime contract")
         .clone();
+    let terminal_manager = crate::require_terminal_manager()
+        .expect("init_runtime contract")
+        .clone();
 
     let state = AppState {
         agent: cached_agent,
@@ -535,6 +546,7 @@ pub fn build_app_state() -> AppState {
         cron_db,
         subagent_cancels,
         channel_cancels,
+        terminal_manager,
     };
 
     // Guardrail: every OnceLock-backed AppState field must share the
@@ -555,6 +567,10 @@ pub fn build_app_state() -> AppState {
     debug_assert!(
         ptr_eq_lock(&CACHED_AGENT, &state.agent),
         "CACHED_AGENT OnceLock and AppState.agent must share the same Arc"
+    );
+    debug_assert!(
+        ptr_eq_lock(&TERMINAL_MANAGER, &state.terminal_manager),
+        "TERMINAL_MANAGER OnceLock and AppState.terminal_manager must share the same Arc"
     );
 
     state

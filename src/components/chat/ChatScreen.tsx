@@ -144,6 +144,7 @@ import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
 import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
+import { TerminalPanel } from "./terminal/TerminalPanel"
 import { useProjects } from "./project/hooks/useProjects"
 import {
   projectFocusLoadErrorToast,
@@ -3019,8 +3020,20 @@ export default function ChatScreen({
   const [activeExclusiveRightPanel, setActiveExclusiveRightPanel] =
     useState<ExclusiveRightPanel | null>(null)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   const [manualRightPanelExpandedOverride, setManualRightPanelExpandedOverride] = useState(false)
   const autoCollapsedRightPanelRef = useRef(false)
+
+  useEffect(() => {
+    const toggleTerminal = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (event.key.toLowerCase() !== "j") return
+      event.preventDefault()
+      setTerminalOpen((value) => !value)
+    }
+    window.addEventListener("keydown", toggleTerminal)
+    return () => window.removeEventListener("keydown", toggleTerminal)
+  }, [])
   // In-app floating windows for the browser / mac-control mirrors. A floating
   // panel leaves the exclusive right-panel slot (visibility below) so the slot
   // falls through to the next open panel; docking re-enters it.
@@ -3954,6 +3967,8 @@ export default function ChatScreen({
           activeRightPanelId={renderedExclusiveRightPanel}
           rightPanelCollapsed={rightPanelCollapsed}
           onRightPanelAction={handleRightPanelAction}
+          terminalOpen={terminalOpen}
+          onToggleTerminal={() => setTerminalOpen((value) => !value)}
         />
 
         <BrowserExtensionNudge
@@ -3961,7 +3976,8 @@ export default function ChatScreen({
           onOpenSettings={onOpenSettings}
         />
 
-        <div className="flex-1 flex min-h-0 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 flex-1 overflow-hidden">
           <div
             className="relative flex-1 flex flex-col min-w-0"
             style={{ minWidth: chatMainMinWidth }}
@@ -4659,6 +4675,12 @@ export default function ChatScreen({
               />
             </RightPanelShell>
           )}
+          </div>
+          <TerminalPanel
+            open={terminalOpen}
+            workingDir={effectiveWorkingDir}
+            onOpenChange={setTerminalOpen}
+          />
         </div>
       </div>
 

@@ -1151,6 +1151,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   handoff_session_git_cmd: { method: "POST", path: "/api/sessions/{sessionId}/git/handoff" },
   get_git_operation_run_cmd: { method: "GET", path: "/api/git-runs/{requestId}" },
 
+  // -- Interactive terminal --
+  terminal_create: { method: "POST", path: "/api/terminals" },
+  terminal_list: { method: "GET", path: "/api/terminals" },
+  terminal_snapshot: { method: "GET", path: "/api/terminals/{terminalId}" },
+  terminal_write: { method: "POST", path: "/api/terminals/{terminalId}/input" },
+  terminal_resize: { method: "POST", path: "/api/terminals/{terminalId}/resize" },
+  terminal_close: { method: "DELETE", path: "/api/terminals/{terminalId}" },
+
   // -- Workflow runs --
   list_workflow_runs: { method: "GET", path: "/api/sessions/{sessionId}/workflow-runs" },
   list_workflow_watchdog_findings: {
@@ -2001,7 +2009,9 @@ export class HttpTransport implements Transport {
       if (!response.ok) {
         const text = await response.text().catch(() => "")
         this.handleAuthFailure(response.status)
-        throw new Error(`[HttpTransport] ${init.method ?? "GET"} ${path} returned ${response.status}: ${text}`)
+        throw new Error(
+          `[HttpTransport] ${init.method ?? "GET"} ${path} returned ${response.status}: ${text}`,
+        )
       }
       return (await response.json()) as T
     }
@@ -2784,10 +2794,11 @@ export class HttpTransport implements Transport {
   ): Promise<ArtifactExportResult | null> {
     const headers: Record<string, string> = { "Content-Type": "application/json" }
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
-    const create = await fetch(
-      `${this.baseUrl}/api/artifacts/${encodeURIComponent(id)}/exports`,
-      { method: "POST", headers, body: JSON.stringify({ format, expectedVersion }) },
-    )
+    const create = await fetch(`${this.baseUrl}/api/artifacts/${encodeURIComponent(id)}/exports`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ format, expectedVersion }),
+    })
     if (!create.ok) {
       const text = await create.text().catch(() => "")
       this.handleAuthFailure(create.status)

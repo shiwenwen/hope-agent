@@ -70,6 +70,17 @@
       "downloadedReady": "Downloaded — installs instantly"
     }
   },
+  "terminal": {
+    "title": "Terminal",
+    "show": "Show terminal",
+    "hide": "Hide terminal",
+    "new": "New terminal",
+    "closeTab": "Close terminal",
+    "resize": "Resize terminal height",
+    "maximize": "Maximize terminal",
+    "restore": "Restore terminal",
+    "exited": "Exited"
+  },
   "approval": {
     "allowAlways": "Always Allow",
     "allowAlwaysDisabled": "Cannot Always-Allow — this approval reason requires per-call confirmation",

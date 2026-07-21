@@ -1,7 +1,7 @@
 [hope-agent]
 name=Hope Agent
-baseurl=https://shiwenwen.github.io/hope-agent-linux-repo/rpm/stable/$basearch/
+baseurl=https://repo.hopeagent.ai/rpm/stable/$basearch/
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1
-gpgkey=https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg
+gpgkey=https://repo.hopeagent.ai/pubkey.gpg

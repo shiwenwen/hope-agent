@@ -192,30 +192,31 @@ Publish Release 后 [`.github/workflows/update-homebrew-tap.yml`](../.github/wor
 
 ### 1.9 Linux apt + dnf/yum 软件源自动同步
 
-托管在 GitHub Pages（[shiwenwen.github.io/hope-agent-linux-repo](https://shiwenwen.github.io/hope-agent-linux-repo/)），用户安装命令见根仓 [`README.md`](../README.md) 「普通用户 → Linux → Debian/Ubuntu」/「Fedora/RHEL/CentOS」段（dnf 与 yum 同 URL 通用，curl 下载 `.repo` 文件方式兼容 dnf4 / dnf5 / yum / zypper）。
+托管在 **Cloudflare R2**，用户经自定义域名 **`https://repo.hopeagent.ai/`** 访问；用户安装命令见根仓 [`README.md`](../README.md) 「普通用户 → Linux → Debian/Ubuntu」/「Fedora/RHEL/CentOS」段（dnf 与 yum 同 URL 通用，curl 下载 `.repo` 文件方式兼容 dnf4 / dnf5 / yum / zypper）。
+
+> **为何 R2 而非 GitHub Pages**：apt/dnf 索引按同一 base URL 引用包文件，故 `.deb`/`.rpm` 必须托管在该 base 下。GitHub 单文件 100MB 硬上限在包体积破百后会整体拒 push（v0.20.1 arm64 `.deb` 首次越界，v0.21.0 四个包全线越界），旧的 git-commit-to-Pages 方案结构性卡死。R2 无单文件上限、**egress 全免**，是高频下载软件源的自然托管。reprepro / createrepo_c / GPG 构建逻辑不变，只换了发布落点。
 
 Release publish 后 [`.github/workflows/update-linux-repo.yml`](../.github/workflows/update-linux-repo.yml) 由 `release.published` 自动触发：
 
-1. `gh release download` 拉本次 release 的 `Hope.Agent_<v>_amd64.deb` + `Hope.Agent-<v>-1.x86_64.rpm`
+1. `gh release download` 拉本次 release 的 `Hope.Agent_<v>_amd64.deb` + `Hope.Agent-<v>-1.x86_64.rpm`（arm64/aarch64 若在则一并）
 2. `gpg --batch --import` 把 `GPG_SIGNING_KEY` secret 导入临时 `GNUPGHOME`，从 imported key 解出 long fingerprint
-3. CI 在 bucket repo 动态渲染 `apt/conf/distributions`，`SignWith:` 填入当前 fingerprint（密钥轮换无需改模板）
-4. `reprepro -b apt includedeb stable …` 重建 apt index 并签 `InRelease` / `Release.gpg`（reprepro 自动用 SignWith 字段指向的 key 签）
-5. `createrepo_c --update rpm/stable/x86_64/` 增量更新 yum index
-6. `gpg --detach-sign --armor` 签 `repomd.xml`（产 `repomd.xml.asc`），让 dnf `repo_gpgcheck=1` 能验签
-7. 同步 [`linux-repo/rpm/hope-agent.repo`](../linux-repo/rpm/hope-agent.repo) 模板到 bucket repo 根 `rpm/hope-agent.repo`
-8. 用 `LINUX_REPO_TOKEN`（fine-grained PAT，仅授 `shiwenwen/hope-agent-linux-repo` 的 `Contents: Read and write`）push 到 bucket repo
-9. GitHub Pages ~1 min 后重新发布
+3. **`rclone copy r2:$R2_BUCKET → ./bucket`** 把当前已发布的整棵树镜像下来（R2 是单一真相源），令 reprepro `apt/db` 与 createrepo_c 既有 repodata 完整、可增量更新；首次 seed 时为空、从零构建
+4. CI 动态渲染 `apt/conf/distributions`（`SignWith:` 填当前 fingerprint，密钥轮换无需改模板），`reprepro -b apt includedeb stable …` 重建 apt index 并签 `InRelease` / `Release.gpg`
+5. `createrepo_c --update rpm/stable/<arch>/` 增量更新 yum index，`gpg --detach-sign --armor` 签 `repomd.xml`（产 `repomd.xml.asc`），让 dnf `repo_gpgcheck=1` 能验签
+6. 同步 [`linux-repo/rpm/hope-agent.repo`](../linux-repo/rpm/hope-agent.repo) 模板到 `rpm/hope-agent.repo`；从私钥导出公钥到 `pubkey.gpg`（不再手动维护）
+7. **`rclone copy ./bucket → r2:$R2_BUCKET`** 非破坏上传（`copy` 非 `sync`）：重生成的索引覆盖、历史包按 checksum 跳过、绝不删除
+8. **回抓校验**：经 `https://repo.hopeagent.ai/…` 拉回 `InRelease` / `repomd.xml` / `pubkey.gpg` 断言 live 且格式正确——坏发布（或自定义域名未接好）在 CI 里失败，而非静默把用户留在陈旧源
 
-手动重跑：`gh workflow run update-linux-repo.yml -f tag=vX.Y.Z`（同 tag 重跑是幂等的——reprepro 先 `remove`，createrepo_c `--update` 覆盖）。
+手动重跑：`gh workflow run update-linux-repo.yml -f tag=vX.Y.Z`（同 tag 重跑幂等——reprepro 先 `remove`，R2 上传非破坏）。
 
-**首次配置 + 密钥轮换流程**：详见 [`linux-repo/README.md`](../linux-repo/README.md)。两个必备 secret：
+**首次配置（建桶 / 连自定义域名 / R2 API Token / GitHub secrets）+ 密钥轮换流程**：详见 [`linux-repo/README.md`](../linux-repo/README.md)。必备 secret：
 
 - `GPG_SIGNING_KEY` — ed25519 私钥（专用密钥，与 maintainer 个人身份独立）
-- `LINUX_REPO_TOKEN` — fine-grained PAT，仅 `Contents: Read and write` on `shiwenwen/hope-agent-linux-repo`
+- `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` — R2 S3 兼容凭据 + 桶名（旧 `LINUX_REPO_TOKEN` 已退役）
 
-**模板单一真相源在主仓 [`linux-repo/`](../linux-repo/)**。不要直接 push bucket repo 的 `apt/` / `rpm/`——下次发版会被 CI 覆盖。**`pubkey.gpg` 和 bucket repo 的 `README.md` 不由 CI 维护**，密钥轮换时手动 PUT。
+**模板单一真相源在主仓 [`linux-repo/`](../linux-repo/)**。不要直接改 R2 上的 `apt/` / `rpm/`——下次发版 CI 会覆盖。`pubkey.gpg` 现由 CI 从 `GPG_SIGNING_KEY` 导出上传，不再手动 PUT。
 
-> reprepro 的 `apt/db/` 是 incremental state（包含 packages 的 sha256 索引），**必须 commit 到 bucket repo**，否则下次跑会丢失历史版本记录、重新生成所有 index。`apt/conf/distributions` 同样 commit（每次 CI 跑会覆盖渲染）。
+> reprepro 的 `apt/db/` 是 incremental state（含 packages 的 sha256 索引）：CI 每次先从 R2 `copy` 下来、改完再 `copy` 回去，故历史版本记录随 R2 持久保存；`apt/conf/distributions` 每次 CI 跑覆盖渲染。R2 上传用 `copy`（非 `sync`）永不删除，一次失败的下载不会误清空。
 
 ---
 
