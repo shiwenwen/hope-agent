@@ -17,15 +17,15 @@
 - **开发中只单点验证**（`cargo check -p <crate>` / `pnpm typecheck`）；跑 clippy / cargo test / pnpm {test,lint} 须先问用户等回复，例外限跨 crate / 多文件收尾，跑前说明
 - **应急跳过**：`HA_SKIP_PREPUSH=1`（限纯 `.md` / 弱网）/ `HA_SKIP_PREPUSH_TEST=1`（只跳 cargo test）。禁止 `--no-verify`（会绕过 GPG 等钩子）
 - **i18n 无 CI 兜底**：当次改动涉及的 key 提交时须全语言齐全（存量缺失不强制），`node scripts/sync-i18n.mjs --check` 自查
-- **评测不进 PR / pre-push**：默认 `cargo test` 只留快速契约测试；PR 内 fake-Provider smoke 无真实 Key、不替代 Campaign。详见 [capability-eval](docs/architecture/capability-eval.md)
+- **评测不进 CI / PR / pre-push**：完整专项评测只本地显式跑（`hope-agent-eval`），默认 `cargo test` 只留快速契约测试；GitHub CI 不构建 ha-eval、不跑评测 smoke。详见 [capability-eval](docs/architecture/capability-eval.md)
 
 ## 分支与发布
 
 `main` 开发下个 minor，已发布 minor 各有 `release/vX.Y` 维护分支；跨分支只许 cherry-pick、禁 merge（否则未发布功能漏进维护分支）。
 
 - 改 workflow job 名 / matrix 须 `gh api` 同步 ruleset `main-branch-protection` 的 `required_status_checks`；`lint.yml` / `rust.yml` `merge_group: checks_requested` 不可删，否则 Merge Queue 无 required checks
-- deterministic 与真实模型证据链物理分离、互不替代，policy 各一份（`evals/policy/release.json` / `evals/live/policy/release.json`），转 enforce 只走配置 PR；发版 evidence 只认 GitHub，本地不得替代
-- Provider Key 只从受保护 environment 注入内存，缺隔离能力 fail closed；但签名 registry 未配置 = 跳过签名、留普通 evidence 不算失败，registry 存在后签名链任一错误才 fail closed
+- **评测 GitHub workflow 当前暂停**：仓库无 capability-eval.yml / model-campaign.yml，release.yml 不校验 / 附加 eval evidence；deterministic 与真实模型证据链仍物理分离（policy 各一份 `evals/policy/release.json` / `evals/live/policy/release.json`），恢复远端评测须配置 PR 显式启用，不能只放回旧 workflow
+- **真实模型评测仅本地 App / CLI**：隔离 `config.json` 禁存 Provider Key，只用合成 / 授权脱敏数据、禁个人生产账号与真实用户数据；当前不配置受保护 Runner / GitHub Provider secrets / 自动 Campaign / 签名发布证据，恢复后 Provider-only 防火墙才是网络边界（环境变量只作部署证明）
 
 详见 [release-process](docs/release-process.md) / [capability-eval](docs/architecture/capability-eval.md) / [live-model-evaluation](docs/architecture/live-model-evaluation.md)
 

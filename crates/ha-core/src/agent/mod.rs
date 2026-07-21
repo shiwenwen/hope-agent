@@ -3040,7 +3040,9 @@ impl AssistantAgent {
             prompt
         };
         // Fire side_query with a hard timeout.
-        let max_tokens = ((cfg.llm_extraction.digest_max_chars / 3) as u32).clamp(256, 2048);
+        let max_tokens = crate::awareness::llm_digest::token_budget_for_chars(
+            cfg.llm_extraction.digest_max_chars,
+        );
 
         // Default (no override): reuse the current agent's cache prefix via
         // `self.side_query` — cheap, and what every existing config gets

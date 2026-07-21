@@ -13,10 +13,6 @@ pub enum EmbeddingProviderType {
     OpenaiCompatible,
     /// Google Gemini Embedding API (different format)
     Google,
-    /// Local ONNX model via fastembed-rs
-    Local,
-    /// Auto-select best available provider (local first, then reuse LLM API keys)
-    Auto,
 }
 
 /// Embedding configuration, stored in AppConfig (config.json).
@@ -47,32 +43,6 @@ pub struct EmbeddingConfig {
     /// Output dimensions (some APIs support specifying this)
     #[serde(default)]
     pub api_dimensions: Option<u32>,
-
-    // ── Local mode fields ──
-    /// Local model ID (e.g. "bge-small-en-v1.5")
-    #[serde(default)]
-    pub local_model_id: Option<String>,
-
-    // ── Fallback provider fields ──
-    /// Fallback provider type (used when primary fails)
-    #[serde(default)]
-    pub fallback_provider_type: Option<EmbeddingProviderType>,
-
-    /// Fallback API Base URL
-    #[serde(default)]
-    pub fallback_api_base_url: Option<String>,
-
-    /// Fallback API Key
-    #[serde(default)]
-    pub fallback_api_key: Option<String>,
-
-    /// Fallback Model name
-    #[serde(default)]
-    pub fallback_api_model: Option<String>,
-
-    /// Fallback Output dimensions
-    #[serde(default)]
-    pub fallback_api_dimensions: Option<u32>,
 }
 
 /// Reusable embedding model configuration managed from the model settings UI.
@@ -137,14 +107,6 @@ impl EmbeddingModelConfig {
         if self.api_model.as_deref().unwrap_or("").trim().is_empty() {
             return Err(anyhow!("Embedding model name is required"));
         }
-        if matches!(
-            self.provider_type,
-            EmbeddingProviderType::Auto | EmbeddingProviderType::Local
-        ) {
-            return Err(anyhow!(
-                "Auto/local embedding providers are no longer configurable"
-            ));
-        }
         Ok(())
     }
 
@@ -156,12 +118,6 @@ impl EmbeddingModelConfig {
             api_key: self.api_key.clone(),
             api_model: self.api_model.clone(),
             api_dimensions: self.api_dimensions,
-            local_model_id: None,
-            fallback_provider_type: None,
-            fallback_api_base_url: None,
-            fallback_api_key: None,
-            fallback_api_model: None,
-            fallback_api_dimensions: None,
         }
     }
 
@@ -238,19 +194,6 @@ pub struct EmbeddingModelTemplate {
     pub default_dimensions: u32,
     #[serde(default)]
     pub models: Vec<EmbeddingModelTemplateModel>,
-}
-
-/// Local embedding model definition (built-in presets).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalEmbeddingModel {
-    pub id: String,
-    pub name: String,
-    pub dimensions: u32,
-    pub size_mb: u32,
-    pub min_ram_gb: u32,
-    pub languages: Vec<String>,
-    pub downloaded: bool,
 }
 
 /// API preset template for frontend dropdown.
@@ -491,57 +434,4 @@ pub fn active_signature_for(
         .ok()
         .flatten()
         .map(|(_, _, signature)| signature)
-}
-
-/// Return built-in local model presets.
-pub fn local_embedding_models() -> Vec<LocalEmbeddingModel> {
-    vec![
-        LocalEmbeddingModel {
-            id: "bge-small-en-v1.5".to_string(),
-            name: "BGE Small English v1.5".to_string(),
-            dimensions: 384,
-            size_mb: 33,
-            min_ram_gb: 4,
-            languages: vec!["en".to_string()],
-            downloaded: false, // filled at runtime
-        },
-        LocalEmbeddingModel {
-            id: "bge-small-zh-v1.5".to_string(),
-            name: "BGE Small Chinese v1.5".to_string(),
-            dimensions: 384,
-            size_mb: 33,
-            min_ram_gb: 4,
-            languages: vec!["zh".to_string()],
-            downloaded: false,
-        },
-        LocalEmbeddingModel {
-            id: "multilingual-e5-small".to_string(),
-            name: "Multilingual E5 Small".to_string(),
-            dimensions: 384,
-            size_mb: 90,
-            min_ram_gb: 8,
-            languages: vec!["multilingual".to_string()],
-            downloaded: false,
-        },
-        LocalEmbeddingModel {
-            id: "bge-large-en-v1.5".to_string(),
-            name: "BGE Large English v1.5".to_string(),
-            dimensions: 1024,
-            size_mb: 335,
-            min_ram_gb: 16,
-            languages: vec!["en".to_string()],
-            downloaded: false,
-        },
-    ]
-}
-
-/// Check which local models are downloaded.
-pub fn list_local_models_with_status() -> Vec<LocalEmbeddingModel> {
-    let cache_dir = crate::paths::models_cache_dir().unwrap_or_default();
-    let mut models = local_embedding_models();
-    for model in &mut models {
-        let model_dir = cache_dir.join(&model.id);
-        model.downloaded = model_dir.exists() && model_dir.is_dir();
-    }
-    models
 }

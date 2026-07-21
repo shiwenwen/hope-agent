@@ -40,10 +40,9 @@ It still does not prove that every real-world task is covered. Complete Browser,
 | --- | --- | --- | --- |
 | Local Hope Core evaluation | Yes | Yes | Local diagnosis and model/version comparison |
 | Legacy Coding / Domain campaigns | Depends on the original task | Existing entry points | Read-only display in unified history |
-| Deterministic capability evaluation | No | No | Weekly and pre-release code-contract validation |
-| Protected Runner evaluation | Yes | No; runs in controlled CI/Runners | Produces signed release evidence |
+| Deterministic capability evaluation | No | No; use the local CLI | Local code-contract validation |
 
-> A local result never becomes release-gate evidence automatically, no matter how well it scores.
+> All evaluations currently run only when explicitly started locally. GitHub Actions and the release workflow neither start evaluations nor consume local results.
 
 ---
 
@@ -56,7 +55,7 @@ Confirm the following first:
 3. Make sure the Provider Base URL is reachable and that the computer has enough disk space and network connectivity.
 4. Preferably configure input/output prices for the model so cost budgets and historical cost have meaningful values.
 
-Signed-in Codex OAuth models appear in the selectable list with a permanent “Diagnostic only” label. Before startup, the App verifies that the short-lived token covers the configured maximum duration and refreshes it inside the owner App when necessary. The isolated process receives only the access token, account ID, and expiration time; it never receives OAuth files or a refresh token. If a refreshed token still cannot cover the budget, shorten the maximum duration and generate the plan again. A local Codex result cannot be promoted to release evidence, and protected Runners continue to reject personal Codex OAuth credentials.
+Signed-in Codex OAuth models appear in the selectable list with a permanent “Diagnostic only” label. Before startup, the App verifies that the short-lived token covers the configured maximum duration and refreshes it inside the owner App when necessary. The isolated process receives only the access token, account ID, and expiration time; it never receives OAuth files or a refresh token. If a refreshed token still cannot cover the budget, shorten the maximum duration and generate the plan again. Codex results, like all current results, are for local diagnosis and comparison only.
 
 If a Provider has multiple Auth Profiles, you can choose a credential profile after selecting the model. Within one experiment, all models from the same Provider must use the same credential profile.
 
@@ -71,7 +70,7 @@ A profile determines scenario scope, comparison arms, repetitions, and the maxim
 | Profile | Best for | Current focus |
 | --- | --- | --- |
 | Quick | Checking a newly configured Provider and the main path | Critical smoke/control cases, one repetition; no additional profile-level per-trial deadline |
-| Standard | Routine version or model preflight | A locally compatible control subset of weekly core cases, with case selection |
+| Standard | Routine version or model preflight | A local control subset of Hope Core cases, with case selection |
 | Reliability | Recovery, stability, and multi-Agent benefit | Fault/comparison arms and manifest-defined repetitions; currently one model per run |
 | Custom | Reproducing one case or narrowing an experiment | Select cases, arms, and 1–5 repetitions from the allowlist; cannot add unregistered tasks |
 
@@ -180,6 +179,8 @@ Task success uses valid trials as its denominator. End-to-end yield uses all sch
 
 ## 14.8 Evidence, imports, and baselines
 
+There is currently no GitHub evaluation workflow or protected organizational Runner producing new evidence. Signed import and protected labels remain for compatibility with existing or externally trusted bundles. Normal use should rely on local History, Compare, and Trends; the release workflow does not consume these records.
+
 The integrity label in History is important:
 
 | Label | Meaning | Can create a protected baseline |
@@ -195,7 +196,7 @@ Baselines provides two import paths:
 - **Import signed bundle**: available only when the application includes a trusted public-key registry;
 - **Import unsigned JSON**: diagnostic only, without a shield or release eligibility.
 
-Local export is always unsigned. Editing `source` or SHA fields in JSON cannot promote it to protected evidence. Protected baselines come from an organization's dedicated Runner, exact commit SHA, and signature chain—not from a local App run.
+Local export is always unsigned. Editing `source` or SHA fields in JSON cannot promote it to protected evidence. This repository currently produces no new protected bundles automatically; only a historical or external bundle from a compatible trust chain can pass import verification, and it still does not participate in the GitHub release gate.
 
 ---
 
@@ -222,7 +223,7 @@ Local export is always unsigned. Editing `source` or SHA fields in JSON cannot p
 | An infra error appears | Check Provider reachability, credentials, quota, rate limits, Sidecar health, and local resources. Do not treat it directly as task failure. |
 | A run is `interrupted` | The App or Sidecar exited. It cannot resume in place; use “Retry as new experiment” from History. |
 | Signed import is unavailable | This build has no usable trust registry, or the signing key/assets are untrusted. You can still import unsigned data for diagnosis. |
-| A fully green local run cannot become a protected baseline | This is intentional: local evidence is always local diagnostic; release baselines must come from a protected Runner. |
+| A fully green local run cannot become a protected baseline | This is the current boundary: local evidence is always diagnostic. Use local History, Compare, and Trends; GitHub releases do not consume evaluation baselines. |
 | Server/Web mode cannot start an evaluation | Real-model run/cancel/retry and local file import/export are desktop-owner operations. HTTP/WS exposes redacted read-only queries only. |
 
 ---

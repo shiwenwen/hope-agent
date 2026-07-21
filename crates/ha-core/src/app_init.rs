@@ -242,9 +242,9 @@ pub fn init_runtime(role: &'static str) {
 
     // Memory embedding provider initialization is DEFERRED to
     // `start_background_tasks` / `start_minimal_background_tasks` (see
-    // `spawn_embedding_init`). Constructing the local ONNX embedder
-    // (`fastembed::TextEmbedding::try_new`) takes 300ms–2s and may download
-    // model weights on first run — far too heavy for this synchronous,
+    // `spawn_embedding_init`). Constructing the provider reaches the network
+    // (API probe, or a local Ollama endpoint that may still be starting) — far
+    // too heavy for this synchronous,
     // pre-window init path. The backend tolerates a missing embedder (recall
     // degrades to FTS-only until it lands) and the config hot-reload path
     // (`tools::settings::trigger_backend_hot_reload`) sets the embedder
@@ -841,19 +841,6 @@ fn spawn_embedding_init() {
                         "memory",
                         "embedding",
                         "Failed to auto-initialize memory embedding provider (deferred): {}",
-                        e
-                    );
-                    None
-                }
-            }
-        } else if store.embedding.enabled {
-            match memory::create_embedding_provider(&store.embedding) {
-                Ok(p) => Some(p),
-                Err(e) => {
-                    app_warn!(
-                        "memory",
-                        "embedding",
-                        "Failed to auto-initialize embedding provider (deferred): {}",
                         e
                     );
                     None

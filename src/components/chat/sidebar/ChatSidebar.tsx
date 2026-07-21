@@ -700,7 +700,12 @@ export default function ChatSidebar({
             <div
               className={cn(
                 "flex-1 overflow-y-auto overflow-x-hidden [overscroll-behavior-y:none]",
-                sidebarMotionDisabled && "[&_*]:!animate-none [&_*]:!transition-none",
+                // Suppress layout/hover transitions until the sidebar has
+                // finished hydrating, but keep semantic activity animations
+                // (loading spinners and pending indicators) alive. Disabling
+                // every descendant animation froze a running session's
+                // Loader2 until the user first interacted with the sidebar.
+                sidebarMotionDisabled && "[&_*]:!transition-none",
               )}
               onScroll={(e) => {
                 if (isHistorySearching) return

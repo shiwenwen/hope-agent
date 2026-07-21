@@ -231,6 +231,15 @@ async fn cleanup_session(
         crate::tool_actions::purge_for_session(child_sid);
     }
 
+    // Conditional-skill activations: the DB rows go with
+    // `cleanup_session_orphan_tables`, but the hot cache is a separate
+    // in-memory map that otherwise keeps the entry for the process lifetime
+    // (skill-system.md "清理时机" requires both halves).
+    crate::skills::activation::clear_session_activation(session_id);
+    for child_sid in &descendant_session_ids {
+        crate::skills::activation::clear_session_activation(child_sid);
+    }
+
     // Browser Extension backend: release user-tab leases and close unkept
     // agent-created tabs owned by this session. This mirrors tool-level
     // `tabs.finalize` so deleting or burning a session cannot leave stale

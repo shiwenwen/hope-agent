@@ -771,6 +771,18 @@ impl TurnDurabilitySink for StreamCoordinator {
         global_writer_notify().notify_one();
         let wait = async {
             loop {
+                // Arm the waiter BEFORE reading the watermark. `durable_notify` is
+                // only ever signalled with `notify_waiters()`, which stores no
+                // permit, so a publish landing between the read and the arming is
+                // lost outright — and nothing re-fires it: once the queue drains,
+                // `take_pending_batch` returns None and `finish_prepared` is never
+                // reached again. The waiter would then burn the full `HARD_LAG`
+                // and `fail_fatal`, skipping the terminal commit that materializes
+                // the turn. Same register-then-recheck shape as `tools::job_status`.
+                let notified = self.durable_notify.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+
                 if let Some(error) = lock_state(&self.state).fatal_error.clone() {
                     anyhow::bail!("persistence unavailable: {error}");
                 }
@@ -778,7 +790,13 @@ impl TurnDurabilitySink for StreamCoordinator {
                 if durable >= target {
                     return Ok(durable);
                 }
-                self.durable_notify.notified().await;
+
+                // Re-poll on a bounded interval so any wakeup we still manage to
+                // miss costs latency rather than the whole turn.
+                tokio::select! {
+                    _ = notified => {}
+                    _ = tokio::time::sleep(FLUSH_INTERVAL) => {}
+                }
             }
         };
         match tokio::time::timeout(HARD_LAG, wait).await {

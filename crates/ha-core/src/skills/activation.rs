@@ -234,4 +234,30 @@ mod tests {
         );
         assert!(activated.is_empty());
     }
+
+    #[test]
+    fn clear_session_activation_drops_only_that_session() {
+        // The cache is process-wide, so use ids no other test touches.
+        let keep = "test-session-clear-keep";
+        let drop = "test-session-clear-drop";
+        {
+            let mut map = cache().lock().expect("activation cache poisoned");
+            map.entry(keep.to_string())
+                .or_default()
+                .insert("a".to_string());
+            map.entry(drop.to_string())
+                .or_default()
+                .insert("b".to_string());
+        }
+
+        clear_session_activation(drop);
+
+        let map = cache().lock().expect("activation cache poisoned");
+        assert!(
+            !map.contains_key(drop),
+            "deleted session must leave no cache entry — the DB rows go with \
+             cleanup_session_orphan_tables, this is the other half"
+        );
+        assert!(map.contains_key(keep), "must not touch unrelated sessions");
+    }
 }

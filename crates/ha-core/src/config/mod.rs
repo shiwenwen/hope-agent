@@ -1291,11 +1291,6 @@ pub struct AppConfig {
     /// Size limits for direct knowledge-source imports.
     #[serde(default)]
     pub knowledge_source_limits: crate::knowledge::KnowledgeSourceLimitsConfig,
-    /// Deprecated legacy embedding config. Kept as a deserialization sink only;
-    /// user-facing embedding config lives in `embedding_models` +
-    /// `memory_embedding`.
-    #[serde(default, skip_serializing)]
-    pub embedding: crate::memory::EmbeddingConfig,
     /// Web search provider configuration
     #[serde(default)]
     pub web_search: crate::tools::web_search::WebSearchConfig,
@@ -1681,7 +1676,6 @@ impl Default for AppConfig {
             knowledge_passive_recall: crate::knowledge::PassiveRecallConfig::default(),
             knowledge_media_retention: crate::knowledge::KnowledgeMediaRetentionConfig::default(),
             knowledge_source_limits: crate::knowledge::KnowledgeSourceLimitsConfig::default(),
-            embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
             memory: crate::memory::MemoryRuntimeConfig::default(),
             memory_selection: crate::memory::MemorySelectionConfig::default(),

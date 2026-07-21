@@ -877,13 +877,9 @@ impl SqliteMemoryBackend {
                     signature,
                 )
             })
-            .unwrap_or_else(|| {
-                (
-                    format!("{:?}", store.embedding.provider_type),
-                    store.embedding.api_model.clone().unwrap_or_default(),
-                    "legacy".to_string(),
-                )
-            });
+            // No resolvable embedding model: use a neutral key so cache reads
+            // miss and writes stay partitioned away from any real model.
+            .unwrap_or_else(|| (String::new(), String::new(), "unset".to_string()));
 
         // Check cache (read-only)
         if let Ok(conn) = self.read_conn() {

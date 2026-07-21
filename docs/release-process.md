@@ -21,10 +21,9 @@
 ```
 PR (含 release notes + CHANGELOG + version bump)
   → 合并到 release/X.Y
-  → 对 release/X.Y HEAD 手动运行 release-tier Capability Evals + Live Model Campaign
   → 在 release/X.Y HEAD 打 tag vX.Y.Z
   → push tag 到 origin
-  → release.yml 分别校验同一 SHA 的两份 eval evidence，再构建 macOS/Windows/Linux 产物 + latest.json
+  → release.yml 构建 macOS/Windows/Linux 产物 + latest.json
   → 自动创建 draft GitHub Release，资产齐全
   → 人工审阅 → publish
   → updater endpoint（latest published release/download/latest.json）开始对外服务
@@ -104,20 +103,9 @@ gh pr create --base release/v0.1 --title "release: v0.1.2" \
 
 PR 合并后，本地：
 
-先在 GitHub Actions 对同一个精确 SHA 手动运行两条互不替代的评测：
+确认 `release/v0.1` 的 HEAD 就是准备发布的提交后直接打 tag。当前阶段 GitHub Actions 不运行 Capability Evals 或 Live Model Campaign，`release.yml` 也不读取 eval evidence，因此评测不会阻断发布。团队如需发版前回归，可在该 SHA 上通过 App 或 `hope-agent-eval` 本地显式运行；本地结果仅用于人工判断，不会上传或附加到 GitHub Release。
 
-1. `Capability Evals`：`tier=release`，生成无模型、确定性的 `eval-evidence.v1.json`；
-2. `Live Model Campaign`：`tier=release`，在受保护 `model-eval` Runner 上调用评测专用真实模型，生成 `eval-model-campaign.v1.json`。
-
-等待两份 evidence 生成后确认分支 HEAD 未变化；若有新提交，必须针对新 SHA 重跑。真实模型 Campaign 会访问所选模型 Provider，但必须使用评测专用账号、合成/授权脱敏数据和 Provider/suite 网络 allowlist；不得使用个人生产账号、真实用户数据或不受约束的公网访问。
-
-首次启用真实模型受保护轨道前，Release Engineering 必须按 [真实模型评测架构 §16](architecture/live-model-evaluation.md#16-运维完成度与启用顺序) 完成 disposable Runner、provider-only egress、专用 Provider 账号/预算以及 `model-eval` environment 配置。`MODEL_EVAL_SERVER_TOKEN` 与 `MODEL_EVAL_SUPERVISOR_TOKEN` 必须分别生成且值不同；它们、Provider Key、evidence 签名 Key 和 updater Key 禁止复用。
-
-普通 `release-model-evidence-<sha>` 是 release preflight 的 JSON 真相源。若已按 [`evals/live/trust/README.md`](../evals/live/trust/README.md) 提交 Ed25519 公钥 registry 并配置 `model-eval-evidence-signing` environment，同一次 workflow 还会生成 `release-signed-model-evidence-<sha>`，供 App 离线验签导入与批准 advisory baseline。registry 尚未配置时签名 job 会跳过，不影响普通 evidence；registry 一旦存在，缺私钥、key id、签名或回验失败都会令签名 job 失败。不得把未签名 JSON、本地导出或 `ProtectedUnknownAssets` 记录设为受保护 baseline。
-
-两条轨道各自有独立 policy，初始均为 advisory；缺失/失败会写入 release workflow summary，但不互相冒充。切到 enforce 后，无合格 evidence 或未覆盖失败 suite 的 release 会直接停止。确定性紧急 waiver 经 `release-eval-waiver`，真实模型 waiver 经 `release-model-eval-waiver` protected environment 审批；二者都必须绑定本次 SHA + tag，安全护栏、超预算和证据完整性问题不可 waiver。
-
-随后只给刚完成评测的同一 SHA 打 tag：
+给该 SHA 打 tag：
 
 ```bash
 git checkout release/v0.1 && git pull
@@ -127,11 +115,10 @@ git push origin v0.1.2
 
 `git push origin v0.1.2` 推送的是 tag ref，**不在 branch protection 管辖内**（仓库未配置 tag protection rule），可直推。tag 一旦上 origin，[release.yml](../.github/workflows/release.yml) 立即触发：
 
-1. `eval-preflight` 与 `model-eval-preflight` 分别查找并校验 tag SHA 对应的两类 release-tier evidence/digest
-2. `release:verify` 校验 `package.json` 版本与 tag 名一致
-3. `Extract release notes` 步骤读取 `docs/release-notes/v0.1.2.md`，缺失则 fallback 为 `See CHANGELOG.md for details.`
-4. `tauri-action` 在 macOS / Windows / Linux runner 上构建产物
-5. 自动创建 draft Release；两类 preflight 摘要作为 workflow artifact 保留，安装产物与 `latest.json` 按现有发布流程生成
+1. `release:verify` 校验 `package.json` 版本与 tag 名一致
+2. `Extract release notes` 步骤读取 `docs/release-notes/v0.1.2.md`，缺失则 fallback 为 `See CHANGELOG.md for details.`
+3. `tauri-action` 在 macOS / Windows / Linux runner 上构建产物
+4. 自动创建 draft Release；安装产物与 `latest.json` 按现有发布流程生成
 
 ### 1.4 审阅 draft Release 并 publish
 
