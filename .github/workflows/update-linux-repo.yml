@@ -340,7 +340,7 @@ jobs:
             n=0
             while IFS= read -r -d '' f; do
               key="${f#./}"
-              if ! wrangler r2 object put "${R2_BUCKET}/${key}" --file="$f" --remote; then
+              if ! wrangler r2 object put "${R2_BUCKET}/${key}" --file="$f"; then
                 echo "::error::wrangler put failed for ${key}"
                 exit 1
               fi
