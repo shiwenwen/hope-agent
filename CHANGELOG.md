@@ -7,18 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-07-21
+
 ### Added
 
-- **对话底部新增内嵌终端**：支持多标签交互式 PTY、拖拽高度、最大化、`⌘/Ctrl+J` 快捷开关与有界输出重放；新终端会自动进入当前会话或项目 Worktree 的有效工作目录，并随应用亮色 / 暗色主题切换高对比度配色。桌面与 HTTP/Web 共用同一核心实现，远程终端默认关闭并受 `filesystem.allowRemoteWrites` 实时权限门保护，撤权会立即终止远程创建的 Shell。
+- **对话底部新增内嵌终端**：支持多标签交互式 PTY、拖拽高度、最大化、`⌘/Ctrl+J` 快捷开关与有界输出重放；新终端会自动进入当前会话或项目 Worktree 的有效工作目录，并随应用亮色 / 暗色主题切换高对比度配色。桌面与 HTTP/Web 共用同一核心实现，远程终端默认关闭并受 `filesystem.allowRemoteWrites` 实时权限门保护，撤权会立即终止远程创建的 Shell。(#531)
+- **Git / PR 面板打通完整交互闭环**：detached HEAD、本地未推送分支、已推送无 PR、已有 PR 与 GitHub 不可用等状态都有明确且可操作的界面；仅本地分支可一键「推送」或「推送并创建 PR」，创建成功后直接在应用内打开 PR 面板；PR 详情同步延迟或失败时保留重试与 GitHub 外链回退。(#533)
 
 ### Changed
 
-- **apt / dnf 软件源迁移到新地址 `https://repo.hopeagent.ai`**：为解决安装包体积超过 GitHub 单文件 100MB 上限导致 Linux 软件源停更的问题，apt / dnf 源改由 Cloudflare R2 托管。**已在用旧源（`shiwenwen.github.io/hope-agent-linux-repo`）的用户需按 README 重新配置一次源地址**才能继续收到更新；直接下载 `.deb` / `.rpm` / AppImage 或桌面版自升级的用户不受影响。
+- **apt / dnf 软件源迁移到新地址 `https://repo.hopeagent.ai`**：为解决安装包体积超过 GitHub 单文件 100MB 上限导致 Linux 软件源停更的问题，apt / dnf 源改由 Cloudflare R2 托管。**已在用旧源（`shiwenwen.github.io/hope-agent-linux-repo`）的用户需按 README 重新配置一次源地址**才能继续收到更新；直接下载 `.deb` / `.rpm` / AppImage 或桌面版自升级的用户不受影响。(#529)
 
 ### Fixed
 
 - **工作台「文件」分区不再把被工具产出的文件误标为「读」**：先读取、之后又被工具（图片生成 / 附件 / exec）产出的文件，在长会话里滚出当前消息窗口后会正确显示为「输出」并按产出时间排到最前，与窗口内的实时显示保持一致。(#527)
 - **AI 现在能看到 LSP 语义诊断**：配置了 language server（rust-analyzer / tsserver / pyright 等）时，AI 每轮会自动收到当前工作区的语义诊断，本轮刚改过的文件优先，帮助它更快发现类型错误与告警。(#530)
+- **Git / PR 面板不再无限转圈**：修复空请求 key 命中 `null === null` 导致的持续加载，网络请求只在具备读取条件时触发，并把 PR 发现与已有 PR 的 30 秒刷新分离。(#533)
 
 ## [0.21.0] - 2026-07-20
 
