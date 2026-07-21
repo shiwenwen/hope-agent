@@ -716,6 +716,7 @@ export default function ChatScreen({
     nonce: number
   } | null>(null)
   const [showPullRequestPanel, setShowPullRequestPanel] = useState(false)
+  const [pullRequestExpectedUrl, setPullRequestExpectedUrl] = useState<string | null>(null)
   const workspacePanelDismissedRef = useRef(false)
   const preserveWorkspaceOnSessionSwitchRef = useRef(false)
 
@@ -3189,7 +3190,8 @@ export default function ChatScreen({
     setWorkspaceFocusRequest((current) => (current?.nonce === nonce ? null : current))
   }, [])
 
-  const openPullRequestPanel = useCallback(() => {
+  const openPullRequestPanel = useCallback((expectedUrl?: string | null) => {
+    setPullRequestExpectedUrl(expectedUrl ?? null)
     setShowPullRequestPanel(true)
     showRightPanelByUser("pull-request")
   }, [showRightPanelByUser])
@@ -3421,6 +3423,7 @@ export default function ChatScreen({
     closeFloatingPanel("mac-control")
     setShowWorkspacePanel(preserveWorkspace)
     setShowPullRequestPanel(false)
+    setPullRequestExpectedUrl(null)
     setShowBackgroundJobsPanel(false)
     setBackgroundJobExpansionOverrides({})
     setShowSubagentPanel(false)
@@ -4373,8 +4376,12 @@ export default function ChatScreen({
               >
                 <PullRequestPanel
                   sessionId={session.currentSessionId}
+                  expectedUrl={pullRequestExpectedUrl}
                   onFillInput={stream.setInput}
-                  onClose={() => setShowPullRequestPanel(false)}
+                  onClose={() => {
+                    setShowPullRequestPanel(false)
+                    setPullRequestExpectedUrl(null)
+                  }}
                 />
               </RightPanelShell>
             )}

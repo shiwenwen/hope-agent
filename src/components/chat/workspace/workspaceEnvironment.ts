@@ -11,6 +11,8 @@ export type WorkspaceEnvironmentKind =
   | "nonGit"
   | "conflicts"
   | "dirty"
+  | "detached"
+  | "localOnly"
   | "ahead"
   | "behind"
   | "diverged"
@@ -85,6 +87,22 @@ export function resolveWorkspaceEnvironmentStatus(
       labelKey: "workspace.environment.status.dirty",
       fallback: "有变更",
       tone: "warn",
+    }
+  }
+  if (git.detached) {
+    return {
+      kind: "detached",
+      labelKey: "workspace.environment.status.detached",
+      fallback: "未建分支",
+      tone: "info",
+    }
+  }
+  if (git.sync.state === "noUpstream") {
+    return {
+      kind: "localOnly",
+      labelKey: "workspace.environment.status.localOnly",
+      fallback: "仅本地",
+      tone: "info",
     }
   }
   if (git.sync.state === "diverged") {

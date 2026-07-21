@@ -157,7 +157,7 @@ Push 规则：
 
 ## 7. GitHub Pull Request
 
-网络访问是显式、按需的。普通 Git snapshot 不调用网络；只有读取 PR preflight、PR feedback、打开/创建 PR 时调用已安装并认证的 `gh`。
+网络访问是显式、按需的。普通 Git snapshot 不调用网络；只有读取 PR preflight、PR feedback、打开/创建 PR 时调用已安装并认证的 `gh`。工作台仅为已附着且配置 upstream 的 GitHub 分支自动发现一次 PR；未发现时停止轮询，发现后才每 30 秒刷新反馈。detached HEAD 与无 upstream 分支只显示下一步操作，不自动访问 GitHub。
 
 ### 7.1 Preflight
 
@@ -178,6 +178,7 @@ Push 规则：
 - 分支未推送时只有用户确认 `pushFirst` 才顺序执行 push → `gh pr create`。
 - 未提交本地内容不会进入 PR，创建对话框必须明确提示。
 - PR 创建使用 `requestId` 幂等保护，不会因重连重复创建。
+- 无 upstream 分支的主操作显示「推送并创建 PR」，确认后固定 `pushFirst=true`；创建成功立即打开应用内 PR 面板，详情尚未同步时保留创建结果 URL 作为重试与 GitHub 外链回退。
 
 ### 7.3 PR 详情
 
