@@ -41,6 +41,12 @@ on:
         description: Release tag to sync / seed (for example v0.21.0)
         required: true
         type: string
+      via:
+        description: "Uploader. rclone = S3 API (default, normal path). wrangler = Cloudflare API bridge — use only to SEED a fresh/empty bucket while a brand-new account's S3-endpoint TLS cert is not yet provisioned. Requires CLOUDFLARE_API_TOKEN."
+        required: false
+        type: choice
+        options: [rclone, wrangler]
+        default: rclone
 
 concurrency:
   group: update-linux-repo
@@ -87,6 +93,10 @@ jobs:
             echo "::error::missing required R2 secret(s): ${missing[*]} — see linux-repo/README.md"
             exit 1
           fi
+          if [[ "${{ github.event.inputs.via }}" == "wrangler" && -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]]; then
+            echo "::error::via=wrangler needs the CLOUDFLARE_API_TOKEN secret (API token with 'Workers R2 Storage: Edit'). See linux-repo/README.md."
+            exit 1
+          fi
 
       - name: Resolve R2 endpoint from account id
         env:
@@ -131,6 +141,9 @@ jobs:
             host="${id}.r2.cloudflarestorage.com"
           fi
           echo "RCLONE_CONFIG_R2_ENDPOINT=https://${host}" >> "$GITHUB_ENV"
+          # Bare 32-hex account id (first label of the host) for Wrangler's
+          # CLOUDFLARE_ACCOUNT_ID on the bridge path.
+          echo "CF_ACCOUNT_ID=${host%%.*}" >> "$GITHUB_ENV"
           echo "R2 endpoint host: ${host}"
 
       - name: Resolve version from tag
@@ -206,16 +219,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p bucket
-          # R2 is the single source of truth. Mirror the current published
-          # tree DOWN so reprepro's apt/db state and createrepo_c's existing
-          # repodata are intact for an incremental update. Empty on the very
-          # first seed run — reprepro/createrepo then build from scratch.
-          # `copy` (never `sync`) so a transient partial download can never
-          # delete anything; egress from R2 is free.
-          rclone copy "r2:${{ secrets.R2_BUCKET }}" bucket \
-            --fast-list --transfers=16 --checkers=32 --stats=0 2>&1 | tail -5
-          echo "--- pulled state ---"
-          find bucket -maxdepth 3 -type d | sort | head -30
+          if [[ "${{ github.event.inputs.via }}" == "wrangler" ]]; then
+            # Bridge path: the pull would use the very S3 endpoint whose cert
+            # isn't provisioned yet. Wrangler is SEED-ONLY (fresh/empty bucket):
+            # build the tree from scratch and push it up via the Cloudflare API.
+            echo "Wrangler bridge: skipping pull, seeding from an empty local tree."
+          else
+            # R2 is the single source of truth. Mirror the current published
+            # tree DOWN so reprepro's apt/db state and createrepo_c's existing
+            # repodata are intact for an incremental update. Empty on the very
+            # first seed run — reprepro/createrepo then build from scratch.
+            # `copy` (never `sync`) so a transient partial download can never
+            # delete anything; egress from R2 is free.
+            rclone copy "r2:${{ secrets.R2_BUCKET }}" bucket \
+              --fast-list --transfers=16 --checkers=32 --stats=0 2>&1 | tail -5
+            echo "--- pulled state ---"
+            find bucket -maxdepth 3 -type d | sort | head -30
+          fi
 
       - name: Build apt index (reprepro)
         run: |
@@ -301,17 +321,42 @@ jobs:
           test -s pubkey.gpg || { echo "::error::pubkey.gpg export is empty"; exit 1; }
 
       - name: Publish to R2
+        env:
+          VIA: ${{ github.event.inputs.via }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           cd bucket
-          # Non-destructive `copy` up: new/changed objects (regenerated
-          # dists/ Packages / InRelease / repomd.xml + new pool file) are
-          # uploaded; unchanged historical packages are skipped by checksum;
-          # nothing is ever deleted. reprepro/createrepo regenerate the
-          # index files with new content, so those DO overwrite.
-          rclone copy . "r2:${{ secrets.R2_BUCKET }}" \
-            --fast-list --transfers=16 --checkers=32 --stats=0 2>&1 | tail -5
-          echo "Published tree to r2:${{ secrets.R2_BUCKET }}"
+          if [[ "$VIA" == "wrangler" ]]; then
+            # Bridge path: upload every built file via the Cloudflare API
+            # (api.cloudflare.com), which has a valid cert — bypassing the
+            # unprovisioned per-account S3-endpoint cert. Seed-only: the bucket
+            # is empty, so a plain per-object put with no delete is complete
+            # and safe. Files are <=110MB, within Wrangler's 315MB put limit.
+            npm install -g wrangler@3 >/dev/null 2>&1
+            wrangler --version
+            n=0
+            while IFS= read -r -d '' f; do
+              key="${f#./}"
+              if ! wrangler r2 object put "${R2_BUCKET}/${key}" --file="$f" --remote; then
+                echo "::error::wrangler put failed for ${key}"
+                exit 1
+              fi
+              n=$((n + 1)); echo "put (${n}) ${key}"
+            done < <(find . -type f -print0)
+            echo "Uploaded ${n} objects to r2://${R2_BUCKET} via the Cloudflare API (Wrangler bridge)."
+          else
+            # Non-destructive `copy` up: new/changed objects (regenerated
+            # dists/ Packages / InRelease / repomd.xml + new pool file) are
+            # uploaded; unchanged historical packages are skipped by checksum;
+            # nothing is ever deleted. reprepro/createrepo regenerate the
+            # index files with new content, so those DO overwrite.
+            rclone copy . "r2:${R2_BUCKET}" \
+              --fast-list --transfers=16 --checkers=32 --stats=0 2>&1 | tail -5
+            echo "Published tree to r2:${R2_BUCKET}"
+          fi
 
       - name: Verify published repo is live and well-formed
         run: |
