@@ -11,6 +11,7 @@ import { basename } from "@/lib/path"
 import { getTransport } from "@/lib/transport-provider"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { logger } from "@/lib/logger"
+import { IconTip } from "@/components/ui/tooltip"
 
 export interface TerminalSummary {
   id: string
@@ -311,7 +312,7 @@ export function TerminalPanel({ open, workingDir, onOpenChange }: TerminalPanelP
                       "group/tab flex h-7 max-w-[220px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground",
                       active && "bg-secondary/70 text-foreground",
                     )}
-                    title={`${terminal.shell} — ${terminal.cwd}`}
+                    data-ha-title-tip={`${terminal.shell} — ${terminal.cwd}`}
                   >
                     <button
                       type="button"
@@ -338,16 +339,17 @@ export function TerminalPanel({ open, workingDir, onOpenChange }: TerminalPanelP
                   </div>
                 )
               })}
-              <button
-                type="button"
-                onClick={() => void createTerminal()}
-                disabled={creating}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground disabled:opacity-40"
-                aria-label={t("terminal.new", "新建终端")}
-                title={t("terminal.new", "新建终端")}
-              >
-                <Plus className={cn("h-4 w-4", creating && "animate-pulse")} />
-              </button>
+              <IconTip label={t("terminal.new", "新建终端")}>
+                <button
+                  type="button"
+                  onClick={() => void createTerminal()}
+                  disabled={creating}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground disabled:opacity-40"
+                  aria-label={t("terminal.new", "新建终端")}
+                >
+                  <Plus className={cn("h-4 w-4", creating && "animate-pulse")} />
+                </button>
+              </IconTip>
             </div>
 
             {activeTerminal?.status === "exited" ? (
@@ -355,32 +357,38 @@ export function TerminalPanel({ open, workingDir, onOpenChange }: TerminalPanelP
                 {t("terminal.exited", "已退出")} {activeTerminal.exitCode ?? ""}
               </span>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setMaximized((value) => !value)}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
-              aria-label={
-                maximized ? t("terminal.restore", "还原终端") : t("terminal.maximize", "最大化终端")
-              }
-              title={
+            <IconTip
+              label={
                 maximized ? t("terminal.restore", "还原终端") : t("terminal.maximize", "最大化终端")
               }
             >
-              {maximized ? (
-                <Minimize2 className="h-3.5 w-3.5" />
-              ) : (
-                <Maximize2 className="h-3.5 w-3.5" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
-              aria-label={t("terminal.hide", "隐藏终端")}
-              title={t("terminal.hide", "隐藏终端")}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+              <button
+                type="button"
+                onClick={() => setMaximized((value) => !value)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+                aria-label={
+                  maximized
+                    ? t("terminal.restore", "还原终端")
+                    : t("terminal.maximize", "最大化终端")
+                }
+              >
+                {maximized ? (
+                  <Minimize2 className="h-3.5 w-3.5" />
+                ) : (
+                  <Maximize2 className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </IconTip>
+            <IconTip label={t("terminal.hide", "隐藏终端")}>
+              <button
+                type="button"
+                onClick={() => onOpenChange(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+                aria-label={t("terminal.hide", "隐藏终端")}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
           </header>
 
           <div className="relative h-[calc(100%-2.25rem)] bg-[color:var(--terminal-background)]">
