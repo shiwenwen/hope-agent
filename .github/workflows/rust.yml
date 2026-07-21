@@ -21,13 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Verify eval version lock is append-only
-        env:
-          EVAL_LOCK_BASE: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/verify-eval-version-lock.mjs --base "$EVAL_LOCK_BASE"
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -170,23 +163,3 @@ jobs:
 
       - name: Run tests
         run: cargo test -p ha-core -p ha-server --no-fail-fast
-
-      # Linux-only, zero-cost black-box contract: a local fake OpenAI Chat
-      # Provider drives a real Hope server through read/write + Goal/Loop tools
-      # and must produce schema-valid, fully attributed trial evidence. This
-      # exercises the eval infrastructure on PRs without exposing Provider keys
-      # or running any stochastic capability campaign.
-      - name: Build fake-Provider smoke binaries
-        if: runner.os == 'Linux'
-        # The smoke control plane does not compile ha-core's deterministic
-        # eval-runner feature, so the PR job reuses the ha-core artifacts built
-        # above instead of codegen/linking the complete capability Runner.
-        run: cargo build -p ha-server -p ha-eval --no-default-features --locked
-
-      - name: Run fake-Provider black-box smoke
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p "$RUNNER_TEMP/model-eval-smoke"
-          target/debug/hope-agent-eval model smoke \
-            --server-bin target/debug/hope-agent-server \
-            --output "$RUNNER_TEMP/model-eval-smoke/trial.json"

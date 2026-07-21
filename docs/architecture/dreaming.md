@@ -288,13 +288,13 @@ UI：
 
 ## 确定性评测（Golden Fixtures）
 
-Dreaming 靠离线 eval 守红线、不靠感觉。三层避免 LLM 非确定性让 CI 变脆：
+Dreaming 靠离线 eval 守红线、不靠感觉。三层把确定性回归与真实模型波动分开：
 
-| 层级 | 内容 | 默认 CI |
+| 层级 | 内容 | 当前运行方式 |
 |---|---|---|
-| Deterministic | scope 过滤 / 过期抑制 / 证据可追溯 / 冲突进待审 / legacy-sync 隐藏 / 证据 fail-closed | weekly / release 专项评测 |
-| Golden LLM fixtures | claim 抽取 / profile 合成 / 冲突 rationale（固定模型或 mock）| 手动 / nightly |
-| Human review set | 真实样本匿名后人工标注 precision/recall | release 前抽样 |
+| Deterministic | scope 过滤 / 过期抑制 / 证据可追溯 / 冲突进待审 / legacy-sync 隐藏 / 证据 fail-closed | 本地显式专项评测 |
+| Golden LLM fixtures | claim 抽取 / profile 合成 / 冲突 rationale（固定模型或 mock）| 本地手动运行 |
+| Human review set | 真实样本匿名后人工标注 precision/recall | 需要时人工抽样 |
 
 已落地 **deterministic 层**：
 
