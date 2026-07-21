@@ -193,9 +193,9 @@ Pre-built binary package (repackaged from the GitHub Release `.deb`) — no sour
 ##### Debian / Ubuntu (apt)
 
 ```bash
-curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg | \
+curl -fsSL https://repo.hopeagent.ai/pubkey.gpg | \
   sudo gpg --dearmor -o /usr/share/keyrings/hope-agent.gpg
-echo "deb [signed-by=/usr/share/keyrings/hope-agent.gpg] https://shiwenwen.github.io/hope-agent-linux-repo/apt stable main" | \
+echo "deb [signed-by=/usr/share/keyrings/hope-agent.gpg] https://repo.hopeagent.ai/apt stable main" | \
   sudo tee /etc/apt/sources.list.d/hope-agent.list
 sudo apt update
 sudo apt install hope-agent
@@ -204,7 +204,7 @@ sudo apt install hope-agent
 ##### Fedora / RHEL / CentOS (dnf / yum)
 
 ```bash
-sudo curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo \
+sudo curl -fsSL https://repo.hopeagent.ai/rpm/hope-agent.repo \
   -o /etc/yum.repos.d/hope-agent.repo
 sudo dnf install hope-agent     # or `sudo yum install hope-agent`
 ```
@@ -214,7 +214,7 @@ sudo dnf install hope-agent     # or `sudo yum install hope-agent`
 openSUSE users:
 
 ```bash
-sudo zypper addrepo https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo
+sudo zypper addrepo https://repo.hopeagent.ai/rpm/hope-agent.repo
 sudo zypper install hope-agent
 ```
 

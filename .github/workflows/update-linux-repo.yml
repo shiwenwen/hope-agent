@@ -1,21 +1,36 @@
 name: Update Linux Repo
 
-# Build & sign the apt + dnf/yum indexes hosted at
-# https://shiwenwen.github.io/hope-agent-linux-repo/, then push them
-# back to the bucket repo whenever a Release is published.
+# Build & sign the apt + dnf/yum indexes, then publish them to the
+# Cloudflare R2 bucket served at https://repo.hopeagent.ai/ whenever a
+# Release is published.
+#
+# WHY R2 (not GitHub Pages): apt/dnf indexes reference the package files by
+# URL under one base, so the .deb/.rpm must live at that base. GitHub's
+# 100 MB per-file limit (and Pages' repo size limits) rejected every
+# .deb/.rpm once the app crossed ~100 MB, so the old git-committed Pages
+# bucket was structurally stuck. R2 has no per-object size limit and zero
+# egress fees — the natural host for a download-heavy package repo. The
+# reprepro / createrepo_c / GPG build logic below is UNCHANGED; only the
+# publish target moved from `git commit + push` to `rclone` against R2.
 #
 # Triggers:
 #   - release.published — auto-fires after a draft Release is manually
 #     published (see docs/release-process.md §1.4).
-#   - workflow_dispatch — manual re-run against an existing tag.
+#   - workflow_dispatch — manual re-run / initial seed against a tag.
 #
 # Required repo secrets:
-#   GPG_SIGNING_KEY    — ASCII-armored ed25519 private key for repo metadata
-#                        signing. Generated 2026-05-11 in a docker container.
-#                        Fingerprint must match the public key published at
-#                        https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg
-#   LINUX_REPO_TOKEN   — fine-grained PAT with `Contents: Read and write`
-#                        on shiwenwen/hope-agent-linux-repo only.
+#   GPG_SIGNING_KEY       — ASCII-armored ed25519 private key for repo
+#                           metadata signing. Its public half is exported
+#                           to pubkey.gpg by this workflow (no longer a
+#                           manual step). Fingerprint must match the key
+#                           advertised at https://repo.hopeagent.ai/pubkey.gpg
+#   R2_ACCOUNT_ID         — Cloudflare account id (the R2 S3 endpoint host).
+#   R2_ACCESS_KEY_ID      — R2 API token access key id (S3-compatible).
+#   R2_SECRET_ACCESS_KEY  — R2 API token secret access key.
+#   R2_BUCKET             — R2 bucket name (e.g. hope-agent-linux-repo).
+#
+# First-time / rotation setup on the Cloudflare side (bucket, custom domain
+# repo.hopeagent.ai, API token) is documented in linux-repo/README.md.
 
 on:
   release:
@@ -23,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to sync (for example v0.1.2)
+        description: Release tag to sync / seed (for example v0.21.0)
         required: true
         type: string
 
@@ -34,16 +49,41 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Public base URL served by the R2 bucket's custom domain. Baked into the
+  # apt sources.list line and the dnf .repo file; keep in lockstep with
+  # README.md / README.en.md / linux-repo/rpm/hope-agent.repo.
+  PUBLIC_BASE: https://repo.hopeagent.ai
+  # rclone remote "r2" configured entirely from env (no rclone.conf file).
+  RCLONE_CONFIG_R2_TYPE: s3
+  RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+  RCLONE_CONFIG_R2_REGION: auto
+  RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  RCLONE_CONFIG_R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+
 jobs:
   update-linux-repo:
     runs-on: ubuntu-latest
     env:
-      LINUX_REPO: shiwenwen/hope-agent-linux-repo
       TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
 
     steps:
       - name: Checkout source repo
         uses: actions/checkout@v6
+
+      - name: Preflight — required R2 secrets present
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -n "${{ secrets.R2_ACCOUNT_ID }}"        ]] || missing+=(R2_ACCOUNT_ID)
+          [[ -n "${{ secrets.R2_ACCESS_KEY_ID }}"     ]] || missing+=(R2_ACCESS_KEY_ID)
+          [[ -n "${{ secrets.R2_SECRET_ACCESS_KEY }}" ]] || missing+=(R2_SECRET_ACCESS_KEY)
+          [[ -n "${{ secrets.R2_BUCKET }}"            ]] || missing+=(R2_BUCKET)
+          if (( ${#missing[@]} )); then
+            echo "::error::missing required R2 secret(s): ${missing[*]} — see linux-repo/README.md"
+            exit 1
+          fi
 
       - name: Resolve version from tag
         id: ver
@@ -55,7 +95,6 @@ jobs:
             echo "::error::tag '$tag' does not look like a release tag (expected vX.Y.Z[-pre])"
             exit 1
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "VERSION=$version" >> "$GITHUB_ENV"
           # All four artefact filenames, by arch. Missing arches are
           # tolerated downstream (e.g. v0.1.0 ~ v0.1.2 had no arm64/aarch64
@@ -65,10 +104,11 @@ jobs:
           echo "RPM_X86_64=Hope.Agent-${version}-1.x86_64.rpm"    >> "$GITHUB_ENV"
           echo "RPM_AARCH64=Hope.Agent-${version}-1.aarch64.rpm"  >> "$GITHUB_ENV"
 
-      - name: Install build dependencies (reprepro + createrepo_c)
+      - name: Install build dependencies (reprepro + createrepo_c + rclone)
         run: |
+          set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq reprepro createrepo-c
+          sudo apt-get install -y -qq reprepro createrepo-c rclone
 
       - name: Download all deb + rpm from release (any arch present)
         env:
@@ -91,7 +131,7 @@ jobs:
           test -f "artifacts/$DEB_AMD64"   || { echo "::error::missing $DEB_AMD64";   exit 1; }
           test -f "artifacts/$RPM_X86_64"  || { echo "::error::missing $RPM_X86_64";  exit 1; }
 
-      - name: Import GPG signing key
+      - name: Import GPG signing key + export public key
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_SIGNING_KEY }}
         run: |
@@ -114,12 +154,20 @@ jobs:
           echo -e "5\ny\n" | gpg --batch --command-fd 0 --edit-key "$KEY_ID" trust 2>&1 | tail -3
           echo "Imported and trusted GPG key: $KEY_ID"
 
-      - name: Checkout linux-repo bucket
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ env.LINUX_REPO }}
-          token: ${{ secrets.LINUX_REPO_TOKEN }}
-          path: bucket
+      - name: Pull existing repo state from R2
+        run: |
+          set -euo pipefail
+          mkdir -p bucket
+          # R2 is the single source of truth. Mirror the current published
+          # tree DOWN so reprepro's apt/db state and createrepo_c's existing
+          # repodata are intact for an incremental update. Empty on the very
+          # first seed run — reprepro/createrepo then build from scratch.
+          # `copy` (never `sync`) so a transient partial download can never
+          # delete anything; egress from R2 is free.
+          rclone copy "r2:${{ secrets.R2_BUCKET }}" bucket \
+            --fast-list --transfers=16 --checkers=32 --stats=0 2>&1 | tail -5
+          echo "--- pulled state ---"
+          find bucket -maxdepth 3 -type d | sort | head -30
 
       - name: Build apt index (reprepro)
         run: |
@@ -131,10 +179,6 @@ jobs:
           # Rebuilding it every run means rotating the GPG key needs no
           # template change — the workflow picks up the new fingerprint
           # automatically from the imported secret.
-          # Architectures: list both amd64 and arm64 even when this release
-          # only has amd64 — reprepro will simply produce an empty
-          # binary-arm64/Packages index when no arm64 deb is included,
-          # and apt clients on the missing arch report "no candidate".
           cat > apt/conf/distributions <<EOF
           Codename: stable
           Suite: stable
@@ -150,10 +194,6 @@ jobs:
           # all architectures because reprepro tracks by source name.
           reprepro -b apt remove stable hope-agent || true
 
-          # `-S utils -P optional` provides default Section + Priority for
-          # the deb. Tauri's bundler historically did not emit a Section
-          # field — for v0.1.3+ the field is set in tauri.conf.json, but
-          # the flag stays as belt-and-braces.
           for deb in "$DEB_AMD64" "$DEB_ARM64"; do
             if [[ -f "$GITHUB_WORKSPACE/artifacts/$deb" ]]; then
               echo "Including $deb"
@@ -201,31 +241,56 @@ jobs:
           done
 
           # Sync the .repo template from the main repo (single source of
-          # truth: linux-repo/rpm/hope-agent.repo). dnf substitutes
-          # $basearch at install time so a single .repo covers both arches.
+          # truth: linux-repo/rpm/hope-agent.repo) to the bucket root.
           cp -f "$GITHUB_WORKSPACE/linux-repo/rpm/hope-agent.repo" rpm/hope-agent.repo
 
-      - name: Commit and push if changed
-        working-directory: bucket
+          # Publish the signing key's PUBLIC half at the bucket root so the
+          # apt `signed-by` keyring and dnf `gpgkey=` can fetch it. Exporting
+          # from the imported private key (rather than committing a static
+          # file) makes rotation self-maintaining: rotate the secret and the
+          # advertised pubkey follows automatically.
+          gpg --armor --export "$GPG_KEY_ID" > pubkey.gpg
+          test -s pubkey.gpg || { echo "::error::pubkey.gpg export is empty"; exit 1; }
+
+      - name: Publish to R2
         run: |
           set -euo pipefail
-          git config user.name  "hope-agent-bot"
-          git config user.email "hope-agent-bot@users.noreply.github.com"
+          cd bucket
+          # Non-destructive `copy` up: new/changed objects (regenerated
+          # dists/ Packages / InRelease / repomd.xml + new pool file) are
+          # uploaded; unchanged historical packages are skipped by checksum;
+          # nothing is ever deleted. reprepro/createrepo regenerate the
+          # index files with new content, so those DO overwrite.
+          rclone copy . "r2:${{ secrets.R2_BUCKET }}" \
+            --fast-list --transfers=16 --checkers=32 --stats=0 2>&1 | tail -5
+          echo "Published tree to r2:${{ secrets.R2_BUCKET }}"
 
-          # Stage everything we touched. Same gotcha as before: `git diff`
-          # alone ignores untracked paths, so stage first and inspect
-          # `git diff --cached`.
-          git add apt rpm
-
-          if git diff --cached --quiet; then
-            echo "No repo changes for $TAG; skipping push."
-            exit 0
-          fi
-
-          git commit -m "hope-agent ${VERSION}
-
-          arches: $(ls "$GITHUB_WORKSPACE/artifacts" | tr '\n' ' ')
-          Source: ${{ github.repository }}@${TAG}
-          GPG key: ${GPG_KEY_ID}
-          "
-          git push origin HEAD
+      - name: Verify published repo is live and well-formed
+        run: |
+          set -euo pipefail
+          # Fetch back over the PUBLIC custom-domain URL that users actually
+          # hit — catches a broken publish (or an unwired custom domain) in
+          # CI instead of leaving users on a silently-stale source. Retries
+          # absorb custom-domain / cache propagation latency.
+          #
+          # NOTE: on the very first seed run this step fails until the R2
+          # bucket's custom domain (repo.hopeagent.ai) is connected. Wire the
+          # domain first (linux-repo/README.md), then re-run — the upload is
+          # idempotent so a re-run just re-verifies.
+          check() {
+            local url="$1" needle="$2" body="" attempt
+            for attempt in 1 2 3 4 5 6; do
+              if body=$(curl -fsSL --max-time 20 "$url" 2>/dev/null) && grep -q "$needle" <<<"$body"; then
+                echo "OK   $url"
+                return 0
+              fi
+              echo "…retry $attempt  $url"
+              sleep $((attempt * 10))
+            done
+            echo "::error::verification failed for $url (expected to contain '$needle')"
+            return 1
+          }
+          check "${PUBLIC_BASE}/apt/dists/stable/InRelease" "Codename: stable"
+          check "${PUBLIC_BASE}/rpm/stable/x86_64/repodata/repomd.xml" "<repomd"
+          check "${PUBLIC_BASE}/pubkey.gpg" "BEGIN PGP PUBLIC KEY"
+          echo "Published repo verified live at ${PUBLIC_BASE}"

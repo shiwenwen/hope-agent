@@ -58,15 +58,15 @@ Native builds are provided for both amd64 (x86_64) and arm64 (aarch64), covering
 - **Arch / Manjaro**: `yay -S hope-agent-bin` (or paru / any AUR helper)
 - **Debian / Ubuntu (apt)**:
   ```bash
-  curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg | \
+  curl -fsSL https://repo.hopeagent.ai/pubkey.gpg | \
     sudo gpg --dearmor -o /usr/share/keyrings/hope-agent.gpg
-  echo "deb [signed-by=/usr/share/keyrings/hope-agent.gpg] https://shiwenwen.github.io/hope-agent-linux-repo/apt stable main" | \
+  echo "deb [signed-by=/usr/share/keyrings/hope-agent.gpg] https://repo.hopeagent.ai/apt stable main" | \
     sudo tee /etc/apt/sources.list.d/hope-agent.list
   sudo apt update && sudo apt install hope-agent
   ```
 - **Fedora / RHEL / CentOS (dnf / yum)**:
   ```bash
-  sudo curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo \
+  sudo curl -fsSL https://repo.hopeagent.ai/rpm/hope-agent.repo \
     -o /etc/yum.repos.d/hope-agent.repo
   sudo dnf install hope-agent
   ```
