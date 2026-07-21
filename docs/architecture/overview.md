@@ -42,12 +42,12 @@ graph TD
     HTTP --> OcServer
 
     subgraph TauriShell["src-tauri (桌面薄壳)"]
-        Commands["~430 Tauri Commands"]
+        Commands["Tauri Commands"]
         TauriSetup["setup.rs<br/>内嵌 HTTP 服务"]
     end
 
     subgraph OcServer["ha-server (HTTP/WS)"]
-        Router["axum Router<br/>~430 REST 端点"]
+        Router["axum Router<br/>REST 端点"]
         WSHandler["WebSocket<br/>/ws/events"]
     end
 
@@ -58,7 +58,7 @@ graph TD
     subgraph OcCore["ha-core (核心业务逻辑，零 Tauri 依赖)"]
         ChatEngine["Chat Engine"]
         ChatEngine --> Agent["Agent (4 种 API)"]
-        ChatEngine --> Tools["Tools (~50 个)"]
+        ChatEngine --> Tools["Tools"]
         ChatEngine --> Memory["Memory"]
         ChatEngine --> Knowledge["Knowledge (知识空间)"]
         ChatEngine --> PlanMode["Plan Mode"]
@@ -103,7 +103,7 @@ flowchart TD
 
     F --> G["解析 tool_calls"]
     G --> H{"有 tool_calls?"}
-    H -- Yes --> I["Tool Loop (默认不限轮次 max_tool_rounds=0，可在 Agent 能力配置上限)"]
+    H -- Yes --> I["Tool Loop (默认不限轮次，可在 Agent 配置里设上限)"]
     I --> J{"concurrent_safe?"}
     J -- Yes --> K["并发安全组<br/>join_all() 并行执行"]
     J -- No --> L["串行组<br/>for loop 逐个执行"]
@@ -146,7 +146,7 @@ graph LR
     Agent --> Provider["Provider (4 种 API)"]
     Provider --> Failover["Failover"]
     Agent --> ToolLoop["Tool Loop"]
-    ToolLoop --> Tools["Tools (~50 个 + MCP 动态)"]
+    ToolLoop --> Tools["Tools (+ MCP 动态)"]
     Agent --> SideQuery["Side Query Cache"]
     Agent --> ContextCompact["Context Compact (5 层)"]
 
@@ -218,7 +218,8 @@ graph LR
 | 数据库 | 路径 | 用途 |
 |--------|------|------|
 | sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、Goal/Event/Link、WorkflowRun/Op/Event、Subagent/ACP/Team 运行记录 |
-| memory.db | `~/.hope-agent/memory.db` | 记忆条目 + FTS5 + vec0 向量 + embedding cache |
+| memory.db | `~/.hope-agent/memory.db` | 记忆条目、Dreaming claim、情节记忆，配 FTS5 + vec0 索引与 embedding 缓存（**Core Memory 正文不在这里**，见下行） |
+| Core Memory `.md` | `~/.hope-agent/memory/`、`agents/{id}/memory/`、`projects/{id}/memory/` | 全局 / Agent / 项目三个作用域各一份 Core Memory：`MEMORY.md` 索引 + `topics/*.md` 主题笔记，磁盘 `.md` 为唯一真相源（不入库） |
 | knowledge/index.db | `~/.hope-agent/knowledge/index.db` | 知识空间 chunk 索引（FTS5 + vec0），可重建缓存；笔记 `.md` 真相在 `knowledge/{id}/notes/` 或外部 vault，registry 在 sessions.db |
 | logs.db | `~/.hope-agent/logs.db` | 结构化日志（可查询/过滤） |
 | cron.db | `~/.hope-agent/cron.db` | 定时任务 + 执行日志 |
@@ -229,92 +230,11 @@ graph LR
 | canvas/canvas.db | `~/.hope-agent/canvas/canvas.db` | Canvas 画布数据 |
 | config.json | `~/.hope-agent/config.json` | Provider 配置、模型链、全局设置 |
 | agent.json | `~/.hope-agent/agents/{id}/agent.json` | 每 Agent 独立配置 |
-| projects/ | `~/.hope-agent/projects/{id}/` | 项目工作目录（默认 workspace；真实文件。项目记忆在 memory.db，不在此） |
+| projects/ | `~/.hope-agent/projects/{id}/` | 项目目录：`workspace/` 默认工作区（真实文件）+ `memory/` 项目记忆（`.md`）。删项目即 `rm -rf` 整个目录，记忆随之删除 |
 | credentials/ | `~/.hope-agent/credentials/` | OAuth token、MCP server 凭据（0600 原子写） |
 
 所有路径由 `paths.rs` 集中管理，统一挂在 `~/.hope-agent/` 下。配置的读写都经过一层带缓存的统一入口，避免各处手动加载再保存造成竞争（详见 [配置系统](config-system.md)）。
 
 ## 文档导航
 
-各模块详细架构见对应文档（与 [文档索引](../README.md) 一致）：
-
-### 系统架构
-
-| 模块 | 文档 |
-|------|------|
-| 三层架构 / EventBus / Transport | [前后端分离架构](backend-separation.md) |
-| Tauri / HTTP / ACP 三种入口 | [Transport 运行模式](transport-modes.md) |
-| 进程清单 / Guardian 协议 | [进程与并发模型](process-model.md) |
-| Tauri ↔ HTTP 命令对照 | [API 参考](api-reference.md) |
-
-### 核心模块
-
-| 模块 | 文档 |
-|------|------|
-| 对话编排 & 流式输出 | [Chat Engine](chat-engine.md) |
-| Provider & Failover | [Provider 系统](provider-system.md) |
-| 本地模型加载（Ollama） | [本地模型加载](local-model-loading.md) |
-| 提示词 13 段组装 | [提示词系统](prompt-system.md) |
-| 工具定义/执行/权限 | [工具系统](tool-system.md) |
-| 表单控件 / 焦点 / 菜单 / Tooltip | [UI 交互与表面设计系统](ui-interaction-system.md) |
-| 上下文压缩 5 层 + mid-loop checkpoint | [上下文压缩](context-compact.md) |
-| 会话 & 消息持久化 | [Session 系统](session.md) |
-| 项目容器 & 默认工作目录 | [Project 系统](project.md) |
-| 记忆检索 & 提取 | [记忆系统](memory.md) |
-| 知识空间双链笔记 & 检索 | [知识空间（Knowledge Base）](knowledge-base.md) |
-
-### 控制平面
-
-| 模块 | 文档 |
-|------|------|
-| Goal 顶层目标与完成审计 | [Goal 控制平面](goal.md) |
-| Workspace / 工作台总览 | [Workspace Control Panel](workspace.md) |
-| Durable Workflow / Execution Mode | [Workflow Mode、Workflow Run 与 Execution Mode](workflow.md) |
-| Loop 持续触发 | [Loop 控制平面](loop.md) |
-| Managed Worktree | [Managed Worktree 控制平面](worktree.md) |
-| LSP / Diagnostics / Symbol Context | [LSP 与语义代码智能](lsp.md) |
-| Review Engine | [Review Engine 控制平面](review-engine.md) |
-| Smart Verification | [Smart Verification 控制平面](verification-engine.md) |
-| Context Retrieval v2 | [Context Retrieval v2](context-retrieval.md) |
-| Coding Eval / Benchmark | [Coding Eval 控制面评测](coding-eval.md) |
-| Coding Improvement / Learning Loop | [Coding Improvement Loop](coding-improvement-loop.md) |
-| Domain Workflow / General Evidence | [Domain Workflow 控制平面](domain-workflow.md) |
-| Domain Quality review / verification | [Domain Quality 控制平面](domain-quality.md) |
-| Domain Eval / General Quality Gate | [Domain Eval 与 Quality Gate 控制平面](domain-eval.md) |
-
-### Agent 能力
-
-| 模块 | 文档 |
-|------|------|
-| Plan 5 态状态机 | [Plan Mode](plan-mode.md) |
-| Ask User 结构化问答 | [Ask User](ask-user.md) |
-| 技能发现 & 隔离 | [技能系统](skill-system.md) |
-| 子 Agent 系统 | [Subagent](subagent.md) |
-| 多 Agent 协作 | [Agent Team](agent-team.md) |
-| Side Query 缓存 | [Side Query](side-query.md) |
-| 跨会话行为感知 | [行为感知](behavior-awareness.md) |
-| 错误分类 & Profile 轮换 | [Failover 系统](failover.md) |
-
-### 接入层
-
-| 模块 | 文档 |
-|------|------|
-| IM 渠道插件 | [IM Channel](im-channel.md) |
-| ACP IDE 直连 | [ACP 协议](acp.md) |
-| 斜杠命令 | [斜杠命令](slash-commands.md) |
-| MCP 客户端 | [MCP 客户端](mcp.md) |
-
-### 基础设施
-
-| 模块 | 文档 |
-|------|------|
-| 媒体生成 | [媒体生成](media-generation.md) |
-| 定时任务 | [Cron 调度](cron.md) |
-| Sandbox 架构 | [Sandbox](sandbox.md) |
-| 数据大盘 / Learning 质量门 | [Dashboard](dashboard.md) |
-| Recap 深度复盘 | [Recap](recap.md) |
-| 日志系统 | [Logging](logging.md) |
-| 可靠性 / Guardian / Crash Journal | [可靠性与崩溃自愈](reliability.md) |
-| 配置读写 contract | [配置系统](config-system.md) |
-| SSRF / Dangerous Mode / 凭据 | [安全子系统](security.md) |
-| 跨平台抽象层 | [跨平台抽象层](platform.md) |
+完整的模块清单与逐篇说明见 [技术文档索引](../README.md)；本篇只负责讲清系统整体如何运转，索引不在此重复维护。
