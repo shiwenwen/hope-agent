@@ -219,7 +219,7 @@ sequenceDiagram
 
 ### 事件都有哪些
 
-事件按用途大致分成这么几类，每类举几个代表，帮你建立"系统会往前端推什么"的整体印象：
+事件按用途分为以下几类，每类列举几个代表：
 
 - **聊天 / 流式**：对话的核心通道。`chat:stream_delta` 逐 token 推送主对话内容，`chat:stream_end` 收尾；IM 渠道有一套平行的 `channel:stream_*`。
 - **工具 / 审批 / 交互**：模型执行需要人介入时发出。`approval_required` 请求用户批准某次工具调用，`ask_user_request` 发起结构化问答，`session_pending_interactions_changed` 让前端知道有多少待响应项。
