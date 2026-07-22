@@ -388,7 +388,7 @@ impl Serialize for CmdError {
 - 用户可见的纯文本错误用 `CmdError::msg("...")` 构造，取代散落的 `Err("msg".to_string())`
 - HTTP 路由侧仍用 axum 习惯的 `Result<Json<T>, (StatusCode, String)>`，错误语义由 `routes/*` 自行映射
 
-为什么这么设计：在 `CmdError` 之前，每个命令都得手写 `.map_err(|e| e.to_string())?`，既不类型安全，又会丢掉 `.context("...")` 累积的错误链。统一收口成 `CmdError` 后，这些样板代码全部消失，错误链也能完整传到前端。
+为什么这么设计：手写 `.map_err(|e| e.to_string())?` 既不类型安全，又会丢掉 `.context("...")` 累积的错误链；`CmdError` 统一收口边界层错误，省去这层样板并把完整错误链传到前端。
 
 ---
 
