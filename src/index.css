@@ -356,10 +356,69 @@ html[data-focus-indicators="enhanced"]
   }
 }
 
+.icon-sidebar-overflow-menu,
+.icon-sidebar-overflow-item {
+  display: none;
+}
+
+@media (max-height: 880px) {
+  .icon-sidebar-overflow-menu,
+  .icon-sidebar-stage-1-menu-item {
+    display: flex;
+  }
+
+  .icon-sidebar-stage-1-source {
+    display: none;
+  }
+}
+
+@media (max-height: 840px) {
+  .icon-sidebar-stage-2-menu-item {
+    display: flex;
+  }
+
+  .icon-sidebar-stage-2-source {
+    display: none;
+  }
+}
+
 @media (max-height: 800px) {
-  .icon-sidebar-settings-shortcuts,
+  .icon-sidebar-stage-3-menu-item {
+    display: flex;
+  }
+
+  .icon-sidebar-stage-3-source {
+    display: none;
+  }
+}
+
+@media (max-height: 760px) {
+  .icon-sidebar-stage-4-menu-item {
+    display: flex;
+  }
+
+  .icon-sidebar-stage-4-source {
+    display: none;
+  }
+}
+
+@media (max-height: 720px) {
+  .icon-sidebar-stage-5-menu-item {
+    display: flex;
+  }
+
   .icon-sidebar-settings-shortcuts-trailing-divider,
-  .icon-sidebar-preference-shortcuts {
+  .icon-sidebar-stage-5-source {
+    display: none;
+  }
+}
+
+@media (max-height: 680px) {
+  .icon-sidebar-stage-6-menu-item {
+    display: flex;
+  }
+
+  .icon-sidebar-stage-6-source {
     display: none;
   }
 }
