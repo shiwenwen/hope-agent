@@ -67,9 +67,11 @@ fn pre_tool_use(cwd: PathBuf, command: &str) -> HookInput {
     HookInput::PreToolUse {
         common: CommonHookInput {
             session_id: "compat-sess".into(),
+            prompt_id: None,
             transcript_path: cwd.join("transcript.jsonl"),
             cwd,
             permission_mode: PermissionMode::Default,
+            effort: None,
             hook_event_name: "PreToolUse".into(),
             agent_id: None,
             agent_type: None,
@@ -87,9 +89,11 @@ fn user_prompt_submit(prompt: &str) -> HookInput {
     HookInput::UserPromptSubmit {
         common: CommonHookInput {
             session_id: "compat-sess".into(),
+            prompt_id: None,
             transcript_path: PathBuf::from("/tmp/compat.jsonl"),
             cwd: std::env::temp_dir(),
             permission_mode: PermissionMode::Default,
+            effort: None,
             hook_event_name: "UserPromptSubmit".into(),
             agent_id: None,
             agent_type: None,

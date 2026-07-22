@@ -488,6 +488,7 @@ impl AssistantAgent {
                     common: self.hook_common_input("PreCompact"),
                     trigger: options.trigger.hook_trigger(),
                     usage_ratio: usage_now.min(1.0),
+                    custom_instructions: None,
                 };
                 let outcome = crate::hooks::HookDispatcher::dispatch(
                     crate::hooks::HookEvent::PreCompact,
@@ -1382,9 +1383,11 @@ impl AssistantAgent {
             .unwrap_or_else(|| std::path::PathBuf::from("."));
         crate::hooks::CommonHookInput {
             session_id,
+            prompt_id: None,
             transcript_path,
             cwd,
             permission_mode: crate::hooks::PermissionMode::Default,
+            effort: None,
             hook_event_name: event.to_string(),
             agent_id: Some(self.agent_id.clone()),
             agent_type: None,
@@ -1439,7 +1442,7 @@ impl AssistantAgent {
             common: self.hook_common_input("SessionStart"),
             source: crate::hooks::SessionStartSource::Compact,
             model: model.to_string(),
-            agent_type: None,
+            session_title: None,
         };
         let out = HookDispatcher::dispatch(HookEvent::SessionStart, start).await;
         if let Some(extra) = out.merged_additional_context() {

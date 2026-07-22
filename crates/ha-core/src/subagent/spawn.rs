@@ -599,6 +599,7 @@ pub(crate) fn launch_subagent_run(
                 &agent_id,
                 &run_id_clone,
                 status.as_str(),
+                result_preview.as_deref(),
             );
         }
 

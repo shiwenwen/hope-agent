@@ -80,6 +80,8 @@ mod tests {
             transcript_path: PathBuf::from("/tmp/t.jsonl"),
             cwd: std::env::temp_dir(),
             permission_mode: PermissionMode::Default,
+            prompt_id: None,
+            effort: None,
             hook_event_name: "PreToolUse".into(),
             agent_id: None,
             agent_type: None,

@@ -921,7 +921,7 @@ pub(crate) async fn check_and_request_approval(
             );
         }
         // Observation hook parity with the user-decline path.
-        crate::hooks::fire_permission_denied(session_id, command, unattended.as_str(), None);
+        crate::hooks::fire_permission_denied(session_id, None, command, unattended.as_str(), None);
         return Err(ApprovalCheckError::Unattended { reason: unattended });
     }
 
@@ -993,7 +993,7 @@ pub(crate) async fn check_and_request_approval(
         );
         // PermissionRequest hook (observation): the structured permission event,
         // matchable on the command. Single chokepoint for every approval prompt.
-        crate::hooks::fire_permission_request(session_id, command, None);
+        crate::hooks::fire_permission_request(session_id, None, command, None);
         app_info!(
             "tool",
             "approval",
@@ -1051,7 +1051,13 @@ pub(crate) async fn check_and_request_approval(
             // PermissionDenied hook (observation): the user declined the prompt.
             // Single chokepoint for every user-facing decline.
             if matches!(response, ApprovalResponse::Deny) {
-                crate::hooks::fire_permission_denied(session_id, command, "user_declined", None);
+                crate::hooks::fire_permission_denied(
+                    session_id,
+                    None,
+                    command,
+                    "user_declined",
+                    None,
+                );
             }
             Ok(response)
         }

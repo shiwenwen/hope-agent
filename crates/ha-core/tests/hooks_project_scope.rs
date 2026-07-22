@@ -23,9 +23,11 @@ fn pre_tool_use(session_id: &str, cwd: PathBuf) -> HookInput {
     HookInput::PreToolUse {
         common: CommonHookInput {
             session_id: session_id.into(),
+            prompt_id: None,
             transcript_path: PathBuf::from("/tmp/proj-scope.jsonl"),
             cwd,
             permission_mode: PermissionMode::Default,
+            effort: None,
             hook_event_name: "PreToolUse".into(),
             agent_id: None,
             agent_type: None,

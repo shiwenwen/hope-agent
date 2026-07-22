@@ -534,9 +534,11 @@ fn observation_common(event: &str, session_id: &str) -> CommonHookInput {
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     CommonHookInput {
         session_id: session_id.to_string(),
+        prompt_id: None,
         transcript_path,
         cwd,
         permission_mode: PermissionMode::Default,
+        effort: None,
         hook_event_name: event.to_string(),
         agent_id: None,
         agent_type: None,
@@ -660,7 +662,7 @@ pub async fn fire_session_start_observation(
         common,
         source,
         model: model.to_string(),
-        agent_type: None,
+        session_title: None,
     };
     HookDispatcher::dispatch(HookEvent::SessionStart, input)
         .await
@@ -699,6 +701,9 @@ pub async fn dispatch_session_end(session_id: &str, source: &str) {
 pub fn fire_subagent_start(session_id: &str, subagent_id: &str, run_id: &str) {
     let input = HookInput::SubagentStart {
         common: observation_common("SubagentStart", session_id),
+        // The passed id is the agent's id/name, which also serves as the
+        // official `agent_type` matcher target.
+        agent_type: subagent_id.to_string(),
         subagent_id: subagent_id.to_string(),
         run_id: run_id.to_string(),
     };
@@ -706,12 +711,21 @@ pub fn fire_subagent_start(session_id: &str, subagent_id: &str, run_id: &str) {
 }
 
 /// Fire a `SubagentStop` observation hook (sub-agent reached a terminal state).
-pub fn fire_subagent_stop(session_id: &str, subagent_id: &str, run_id: &str, status: &str) {
+/// `last_message` is the sub-agent's final assistant text when available.
+pub fn fire_subagent_stop(
+    session_id: &str,
+    subagent_id: &str,
+    run_id: &str,
+    status: &str,
+    last_message: Option<&str>,
+) {
     let input = HookInput::SubagentStop {
         common: observation_common("SubagentStop", session_id),
+        agent_type: subagent_id.to_string(),
         subagent_id: subagent_id.to_string(),
         run_id: run_id.to_string(),
         status: status.to_string(),
+        last_assistant_message: last_message.map(str::to_string),
     };
     fire_and_forget(HookEvent::SubagentStop, input);
 }
@@ -720,12 +734,18 @@ pub fn fire_subagent_stop(session_id: &str, subagent_id: &str, run_id: &str, sta
 /// error (normal completion or a user-initiated stop). `status` is the terminal
 /// turn status (`completed` / `interrupted`). Fire-and-forget; block-to-continue
 /// is not implemented this phase.
-pub fn fire_stop(session_id: &str, agent_id: Option<&str>, status: &str) {
+pub fn fire_stop(
+    session_id: &str,
+    agent_id: Option<&str>,
+    status: &str,
+    last_message: Option<&str>,
+) {
     let mut common = observation_common("Stop", session_id);
     common.agent_id = agent_id.map(|s| s.to_string());
     let input = HookInput::Stop {
         common,
         status: status.to_string(),
+        last_assistant_message: last_message.map(str::to_string),
         stop_hook_active: false,
     };
     fire_and_forget(HookEvent::Stop, input);
@@ -811,9 +831,16 @@ pub fn fire_file_changed(session_id: Option<&str>, path: &str, action: &str) {
 /// `tool_use_id` correlates it with the PreToolUse/PostToolUse for the same
 /// call. `job_id` stays `None` — approval always runs before a call detaches
 /// (B5), so there is never a live job id at this point.
-pub fn fire_permission_request(session_id: Option<&str>, command: &str, tool_use_id: Option<&str>) {
+pub fn fire_permission_request(
+    session_id: Option<&str>,
+    tool_name: Option<&str>,
+    command: &str,
+    tool_use_id: Option<&str>,
+) {
     let input = HookInput::PermissionRequest {
         common: observation_common("PermissionRequest", session_id.unwrap_or("")),
+        tool_name: tool_name.map(str::to_string),
+        tool_input: None,
         command: command.to_string(),
         tool_use_id: tool_use_id.map(str::to_string),
         job_id: None,
@@ -827,12 +854,15 @@ pub fn fire_permission_request(session_id: Option<&str>, command: &str, tool_use
 /// (approval runs before detach, B5).
 pub fn fire_permission_denied(
     session_id: Option<&str>,
+    tool_name: Option<&str>,
     command: &str,
     reason: &str,
     tool_use_id: Option<&str>,
 ) {
     let input = HookInput::PermissionDenied {
         common: observation_common("PermissionDenied", session_id.unwrap_or("")),
+        tool_name: tool_name.map(str::to_string),
+        tool_input: None,
         command: command.to_string(),
         reason: reason.to_string(),
         tool_use_id: tool_use_id.map(str::to_string),
@@ -1014,9 +1044,11 @@ mod tests {
     fn common(event: &str) -> CommonHookInput {
         CommonHookInput {
             session_id: "s1".into(),
+            prompt_id: None,
             transcript_path: PathBuf::from("/tmp/t.jsonl"),
             cwd: PathBuf::from("/tmp"),
             permission_mode: PermissionMode::Default,
+            effort: None,
             hook_event_name: event.into(),
             agent_id: None,
             agent_type: None,

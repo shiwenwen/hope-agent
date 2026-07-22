@@ -1462,7 +1462,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // Stop hook: the agent finished responding (normal
                     // completion, or a user-initiated stop that still drained
                     // to here). Observation-only this phase.
-                    crate::hooks::fire_stop(&session_id, Some(&agent_id), terminal_status.as_str());
+                    crate::hooks::fire_stop(
+                        &session_id,
+                        Some(&agent_id),
+                        terminal_status.as_str(),
+                        None,
+                    );
 
                     if terminal_status == session::ChatTurnStatus::Completed {
                         let continuation = {

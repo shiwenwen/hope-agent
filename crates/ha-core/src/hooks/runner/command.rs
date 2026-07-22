@@ -36,6 +36,11 @@ impl CommandHandler {
 
     /// `(program, args)` for the configured shell.
     fn shell_invocation(&self) -> (String, Vec<String>) {
+        // Official exec form: when `args` is set, spawn `command` directly with
+        // the argv (no shell interpolation); `shell` is ignored.
+        if !self.config.args.is_empty() {
+            return (self.config.command.clone(), self.config.args.clone());
+        }
         match self.config.shell {
             // Resolve `bash` via PATH rather than hardcoding `/bin/bash`, which
             // doesn't exist on NixOS/Guix and some BSDs. The child inherits the
@@ -102,8 +107,9 @@ impl HookHandler for CommandHandler {
         // (`async_rewake` flips whether the detached child's output is captured
         // and injected on exit 2 — a real semantic difference).
         format!(
-            "{}|shell={:?}|timeout={:?}|async={:?}|async_rewake={:?}",
+            "{}|args={:?}|shell={:?}|timeout={:?}|async={:?}|async_rewake={:?}",
             self.config.command,
+            self.config.args,
             self.config.shell,
             self.config.timeout,
             self.config.async_run,
@@ -393,6 +399,8 @@ mod tests {
                 transcript_path: PathBuf::from("/tmp/t.jsonl"),
                 cwd: PathBuf::from("/tmp"),
                 permission_mode: PermissionMode::Default,
+                prompt_id: None,
+                effort: None,
                 hook_event_name: "Notification".into(),
                 agent_id: None,
                 agent_type: None,
@@ -418,6 +426,7 @@ mod tests {
             if_rule: None,
             once: None,
             async_rewake: None,
+            args: Vec::new(),
         });
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
         assert_eq!(r.exit_code, Some(0));
@@ -436,6 +445,7 @@ mod tests {
             if_rule: None,
             once: None,
             async_rewake: None,
+            args: Vec::new(),
         });
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
         assert_eq!(r.exit_code, Some(2));
@@ -454,6 +464,7 @@ mod tests {
             if_rule: None,
             once: None,
             async_rewake: None,
+            args: Vec::new(),
         });
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
         assert_eq!(r.exit_code, Some(0));
@@ -472,6 +483,7 @@ mod tests {
             if_rule: None,
             once: None,
             async_rewake: None,
+            args: Vec::new(),
         });
         // 1s deadline against a 5s sleep.
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(1)).await;
@@ -486,6 +498,8 @@ mod tests {
                 transcript_path: PathBuf::from("/tmp/t.jsonl"),
                 cwd: PathBuf::from("/tmp"),
                 permission_mode: PermissionMode::Default,
+                prompt_id: None,
+                effort: None,
                 hook_event_name: "PreToolUse".into(),
                 agent_id: None,
                 agent_type: None,
@@ -515,6 +529,7 @@ mod tests {
             if_rule: None,
             once: None,
             async_rewake: None,
+            args: Vec::new(),
         });
         let r = h
             .run(&pretooluse_input(), &HookEnv::empty(), deadline(1))
@@ -545,6 +560,7 @@ mod tests {
             if_rule: None,
             once: None,
             async_rewake: None,
+            args: Vec::new(),
         });
         let r = h.run(&dummy_input(), &env, deadline(10)).await;
         let _ = std::fs::remove_dir_all(&dir);
@@ -567,6 +583,7 @@ mod tests {
             if_rule: None,
             once: None,
             async_rewake: None,
+            args: Vec::new(),
         };
         let mut diff_shell = base.clone();
         diff_shell.shell = Some(HookShell::Powershell);
@@ -588,6 +605,7 @@ mod tests {
         // but with no real session the injection is a harmless no-op.
         let h = CommandHandler::new(CommandHookConfig {
             command: "exit 2".into(),
+            args: Vec::new(),
             shell: Some(HookShell::Bash),
             timeout: None,
             async_run: Some(true),
@@ -625,6 +643,7 @@ mod tests {
             if_rule: None,
             once: None,
             async_rewake: None,
+            args: Vec::new(),
         });
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(30)).await;
         assert_eq!(r.exit_code, Some(0));
@@ -664,6 +683,7 @@ mod tests {
             if_rule: None,
             once: None,
             async_rewake: None,
+            args: Vec::new(),
         };
         let mut with_rewake = base.clone();
         with_rewake.async_rewake = Some(true);

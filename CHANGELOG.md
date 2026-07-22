@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Hooks 与 Claude Code 官方协议重新字段级对齐**：官方协议演进后，本项目补齐了大批差异——payload 字段名对齐官方（`SessionEnd.reason` / `Notification.type` / `StopFailure.error_type` / `FileChanged.file_path` / `UserPromptExpansion.command_name`+`raw_input` / `TaskCreated`+`TaskCompleted.task_name` / `WorktreeCreate.worktree_name` / `SubagentStart`+`Stop.agent_type`）、`PostToolBatch` 现携带官方 `tool_calls[]`、`Stop`/`SubagentStop` 携 `last_assistant_message`、`SessionStart` 新增 `fork` 来源与 `session_title`；输出侧 `updatedToolOutput`（可改写工具结果做脱敏）/ `retry` / `decision.behavior` / `suppressOutput` / `terminalSequence` 均已解析生效；`defer` 决策不再被静默放行；command handler 支持官方 `args` exec 形；默认超时对齐官方（http/mcp_tool=600s、prompt=30s、agent=60s）；matcher 支持逗号/空格/连字符分隔并改为**非锚定正则**（对齐官方 unanchored）；新增 `CLAUDE_EFFORT` 环境变量；新增 `Setup` / `MessageDisplay` 协议保留事件（可配置、暂不触发）。**用户影响**：此前 `jq` 读官方字段名（如 `.reason`/`.file_path`/`.type`）落空的社区脚本现可直接命中；含 `^前缀` 正则的 matcher 语义从「整串匹配」变为「前缀匹配」（对齐官方）。可阻断事件集（`Stop`/`ConfigChange`/`PostToolBatch` 等经 `exit 2` 阻断）仍为观察型，落地路线见 hooks 架构文档 §2.4 / Roadmap。
+
 ## [0.22.0] - 2026-07-21
 
 ### Added

@@ -37,9 +37,14 @@ fn parse_stdout(stdout: &str, event: HookEvent) -> HookContribution {
     match serde_json::from_str::<HookOutput>(trimmed) {
         Ok(out) => contribution_from_output(out, event),
         Err(_) => {
-            // Plaintext mode: only SessionStart / UserPromptSubmit treat raw
-            // stdout as additionalContext (§8.5). Others ignore it.
-            if matches!(event, HookEvent::SessionStart | HookEvent::UserPromptSubmit) {
+            // Plaintext mode: SessionStart / UserPromptSubmit / UserPromptExpansion
+            // treat raw stdout as additionalContext (official). Others ignore it.
+            if matches!(
+                event,
+                HookEvent::SessionStart
+                    | HookEvent::UserPromptSubmit
+                    | HookEvent::UserPromptExpansion
+            ) {
                 HookContribution {
                     additional_context: Some(trimmed.to_string()),
                     ..HookContribution::inert()
@@ -69,6 +74,11 @@ fn contribution_from_output(out: HookOutput, event: HookEvent) -> HookContributi
             reason: out.reason.clone().unwrap_or_default(),
         },
         Some("ask") => HookDecision::Ask,
+        // `defer` → defer to the normal permission flow. Downstream
+        // (`execution.rs`) maps `Defer` to a manual prompt like `Ask`; producing
+        // `Defer` here (rather than silently falling through to `Allow`) is what
+        // makes the official `defer` value actually take effect.
+        Some("defer") => HookDecision::Defer,
         _ => HookDecision::Allow,
     };
     let mut permission_allow = false;
@@ -82,6 +92,21 @@ fn contribution_from_output(out: HookOutput, event: HookEvent) -> HookContributi
                     .unwrap_or_default(),
             },
             Some("ask") => HookDecision::Ask,
+            Some("defer") => HookDecision::Defer,
+            Some("allow") => {
+                permission_allow = true;
+                HookDecision::Allow
+            }
+            _ => top_level_decision(),
+        }
+    } else if matches!(event, HookEvent::PermissionRequest) {
+        // PermissionRequest uses the official structured
+        // `hookSpecificOutput.decision.behavior` (allow | deny), taking
+        // precedence over any top-level `decision`.
+        match hso.decision.as_ref().and_then(|d| d.behavior.as_deref()) {
+            Some("deny") => HookDecision::Deny {
+                reason: out.reason.clone().unwrap_or_default(),
+            },
             Some("allow") => {
                 permission_allow = true;
                 HookDecision::Allow
@@ -95,13 +120,16 @@ fn contribution_from_output(out: HookOutput, event: HookEvent) -> HookContributi
         decision,
         permission_allow,
         continue_execution: out.continue_execution,
+        suppress_output: out.suppress_output,
         stop_reason: out.stop_reason,
         system_message: out.system_message,
         additional_context: hso.additional_context,
         session_title: hso.session_title,
         updated_input: hso.updated_input,
-        updated_mcp_output: None,
-        retry: false,
+        // Official `updatedToolOutput` (PostToolUse) — replaces the tool result.
+        updated_mcp_output: hso.updated_tool_output,
+        // Official `retry` (PermissionDenied) — model may retry the denied call.
+        retry: hso.retry.unwrap_or(false),
         worktree_path: hso.worktree_path,
     }
 }
@@ -292,5 +320,104 @@ mod tests {
         );
         assert_eq!(ctx_only.decision, HookDecision::Allow);
         assert!(!ctx_only.permission_allow);
+    }
+
+    #[test]
+    fn pretooluse_permission_decision_defer() {
+        // `defer` must produce a Defer decision (not silently fall through to
+        // Allow) so the official value actually defers to the permission flow.
+        let c = parse(
+            &raw(
+                Some(0),
+                r#"{"hookSpecificOutput":{"permissionDecision":"defer"}}"#,
+                "",
+            ),
+            HookEvent::PreToolUse,
+        );
+        assert_eq!(c.decision, HookDecision::Defer);
+        assert!(!c.permission_allow);
+        // Top-level `decision:"defer"` on a non-PreToolUse event also defers.
+        let c2 = parse(
+            &raw(Some(0), r#"{"decision":"defer"}"#, ""),
+            HookEvent::Stop,
+        );
+        assert_eq!(c2.decision, HookDecision::Defer);
+    }
+
+    #[test]
+    fn updated_tool_output_parsed_into_mcp_output() {
+        // Official `updatedToolOutput` (PostToolUse) is parsed (was a dead
+        // hard-coded None before).
+        let c = parse(
+            &raw(
+                Some(0),
+                r#"{"hookSpecificOutput":{"updatedToolOutput":"REDACTED"}}"#,
+                "",
+            ),
+            HookEvent::PostToolUse,
+        );
+        assert_eq!(
+            c.updated_mcp_output,
+            Some(serde_json::Value::String("REDACTED".into()))
+        );
+    }
+
+    #[test]
+    fn retry_parsed_for_permission_denied() {
+        // Official `retry` (PermissionDenied) is parsed (was a dead hard-coded
+        // false before).
+        let c = parse(
+            &raw(
+                Some(0),
+                r#"{"hookSpecificOutput":{"retry":true}}"#,
+                "",
+            ),
+            HookEvent::PermissionDenied,
+        );
+        assert!(c.retry);
+    }
+
+    #[test]
+    fn suppress_output_propagated() {
+        let c = parse(
+            &raw(Some(0), r#"{"suppressOutput":true}"#, ""),
+            HookEvent::PostToolUse,
+        );
+        assert!(c.suppress_output);
+    }
+
+    #[test]
+    fn permission_request_decision_behavior() {
+        // Official structured `decision.behavior` drives a PermissionRequest
+        // verdict.
+        let deny = parse(
+            &raw(
+                Some(0),
+                r#"{"hookSpecificOutput":{"decision":{"behavior":"deny"}},"reason":"no"}"#,
+                "",
+            ),
+            HookEvent::PermissionRequest,
+        );
+        assert_eq!(
+            deny.decision,
+            HookDecision::Deny { reason: "no".into() }
+        );
+        let allow = parse(
+            &raw(
+                Some(0),
+                r#"{"hookSpecificOutput":{"decision":{"behavior":"allow"}}}"#,
+                "",
+            ),
+            HookEvent::PermissionRequest,
+        );
+        assert!(allow.permission_allow);
+    }
+
+    #[test]
+    fn plaintext_context_includes_user_prompt_expansion() {
+        // Official: UserPromptExpansion (like SessionStart/UserPromptSubmit)
+        // treats non-JSON stdout as additionalContext.
+        let c = parse(&raw(Some(0), "expanded ctx", ""), HookEvent::UserPromptExpansion);
+        assert_eq!(c.additional_context.as_deref(), Some("expanded ctx"));
     }
 }

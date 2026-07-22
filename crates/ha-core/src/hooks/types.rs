@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::permission::SessionMode;
 use crate::plan::PlanModeState;
 
-/// All 28 hook events. Declared in one shot (even those not yet wired) so the
+/// All 30 hook events. Declared in one shot (even those not yet wired) so the
 /// enum never needs a breaking change as later phases light up more events.
 /// See design doc §2 for the per-event landing schedule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -21,6 +21,10 @@ use crate::plan::PlanModeState;
 pub enum HookEvent {
     SessionStart,
     SessionEnd,
+    /// Official `Setup` (`--init`/`--maintenance` in `-p` mode). Hope Agent has
+    /// no headless `-p` setup mode, so it is a protocol-reserved event: it can
+    /// be configured but never fires (see [`Self::is_reserved`]).
+    Setup,
     UserPromptSubmit,
     UserPromptExpansion,
     PreToolUse,
@@ -34,6 +38,10 @@ pub enum HookEvent {
     PreCompact,
     PostCompact,
     Notification,
+    /// Official `MessageDisplay` (assistant text about to be displayed). Hope
+    /// Agent's multi-surface rendering (desktop / IM / ACP) has no single
+    /// display chokepoint, so it is protocol-reserved: configurable, never fires.
+    MessageDisplay,
     SubagentStart,
     SubagentStop,
     TaskCreated,
@@ -56,6 +64,7 @@ impl HookEvent {
         match self {
             Self::SessionStart => "SessionStart",
             Self::SessionEnd => "SessionEnd",
+            Self::Setup => "Setup",
             Self::UserPromptSubmit => "UserPromptSubmit",
             Self::UserPromptExpansion => "UserPromptExpansion",
             Self::PreToolUse => "PreToolUse",
@@ -69,6 +78,7 @@ impl HookEvent {
             Self::PreCompact => "PreCompact",
             Self::PostCompact => "PostCompact",
             Self::Notification => "Notification",
+            Self::MessageDisplay => "MessageDisplay",
             Self::SubagentStart => "SubagentStart",
             Self::SubagentStop => "SubagentStop",
             Self::TaskCreated => "TaskCreated",
@@ -85,6 +95,19 @@ impl HookEvent {
         }
     }
 
+    /// Protocol-reserved events: present in the enum (so a config referencing
+    /// them round-trips) but with no runtime trigger in Hope Agent's
+    /// architecture, so they never dispatch. `Setup` (no headless `-p` setup
+    /// mode), `MessageDisplay` (no single display chokepoint), `TeammateIdle`
+    /// (no team idle detector), `InstructionsLoaded` (needs system-prompt
+    /// assembly instrumentation). Documented in `hooks.md` §2.3.
+    pub fn is_reserved(&self) -> bool {
+        matches!(
+            self,
+            Self::Setup | Self::MessageDisplay | Self::TeammateIdle | Self::InstructionsLoaded
+        )
+    }
+
     /// Whether this event's matcher target is a tool name (so
     /// `matcher::compile_for_event` can normalize Claude Code aliases like
     /// `Bash`/`Write` to Hope Agent's internal `exec`/`write` before compile).
@@ -92,7 +115,11 @@ impl HookEvent {
     pub fn uses_tool_name_matcher(&self) -> bool {
         matches!(
             self,
-            Self::PreToolUse | Self::PostToolUse | Self::PostToolUseFailure
+            Self::PreToolUse
+                | Self::PostToolUse
+                | Self::PostToolUseFailure
+                | Self::PermissionRequest
+                | Self::PermissionDenied
         )
     }
 
@@ -106,6 +133,8 @@ impl HookEvent {
             self,
             Self::SessionStart
                 | Self::SessionEnd
+                | Self::Setup
+                | Self::MessageDisplay
                 | Self::Notification
                 | Self::PostToolUse
                 | Self::PostToolUseFailure
@@ -180,14 +209,29 @@ impl PermissionMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommonHookInput {
     pub session_id: String,
+    /// Per-user-turn correlation id (official `prompt_id`). `None` before the
+    /// first user input of the session — omitted from the payload, matching the
+    /// official "absent until first user input" contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_id: Option<String>,
     pub transcript_path: PathBuf,
     pub cwd: PathBuf,
     pub permission_mode: PermissionMode,
+    /// Current effort level (official `effort: { level }`), when the model
+    /// exposes one. Omitted otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<HookEffort>,
     pub hook_event_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_type: Option<String>,
+}
+
+/// The `effort` object on every hook payload (official `{ "level": "..." }`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookEffort {
+    pub level: String,
 }
 
 /// Source for a `SessionStart` event (design doc §5.1.1 matcher target).
@@ -198,6 +242,8 @@ pub enum SessionStartSource {
     Resume,
     Clear,
     Compact,
+    /// Session forked from an existing one (official `fork`).
+    Fork,
 }
 
 impl SessionStartSource {
@@ -207,8 +253,18 @@ impl SessionStartSource {
             Self::Resume => "resume",
             Self::Clear => "clear",
             Self::Compact => "compact",
+            Self::Fork => "fork",
         }
     }
+}
+
+/// One tool call's summary inside a `PostToolBatch` payload (official
+/// `tool_calls[]`). `tool_response` is `Null` for a call that failed.
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolCallSummary {
+    pub tool_name: String,
+    pub tool_input: serde_json::Value,
+    pub tool_response: serde_json::Value,
 }
 
 /// Trigger for a compaction event (`PreCompact` / `PostCompact`).
@@ -242,12 +298,20 @@ pub enum HookInput {
         common: CommonHookInput,
         source: SessionStartSource,
         model: String,
+        /// Current session title, when one is already set (official
+        /// `session_title`). `agent_type` is NOT re-declared here — it lives in
+        /// the flattened [`CommonHookInput`], so declaring it again emitted a
+        /// duplicate JSON key.
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_type: Option<String>,
+        session_title: Option<String>,
     },
     SessionEnd {
         #[serde(flatten)]
         common: CommonHookInput,
+        /// Why the session ended (matcher target). Serialized as the official
+        /// `reason` key (`clear` / `resume` / `logout` / `prompt_input_exit` /
+        /// `bypass_permissions_disabled` / `other`).
+        #[serde(rename = "reason")]
         source: String,
     },
     UserPromptSubmit {
@@ -296,6 +360,10 @@ pub enum HookInput {
         trigger: CompactTrigger,
         /// Pre-compaction context fill ratio (tokens / window).
         usage_ratio: f64,
+        /// User-configured custom compaction instructions, when set (official
+        /// `custom_instructions`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        custom_instructions: Option<String>,
     },
     PostCompact {
         #[serde(flatten)]
@@ -307,6 +375,9 @@ pub enum HookInput {
     Notification {
         #[serde(flatten)]
         common: CommonHookInput,
+        /// Notification kind (matcher target). Serialized as the official `type`
+        /// key.
+        #[serde(rename = "type")]
         notification_type: String,
         message: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -317,29 +388,45 @@ pub enum HookInput {
         common: CommonHookInput,
         /// Zero-based API round index.
         round: u32,
-        /// Names of every tool that ran in this round.
+        /// Names of every tool that ran in this round (Hope Agent extension,
+        /// retained for back-compat).
         tool_names: Vec<String>,
+        /// Per-call summaries for the round (official `tool_calls[]`).
+        tool_calls: Vec<ToolCallSummary>,
     },
     SubagentStart {
         #[serde(flatten)]
         common: CommonHookInput,
-        /// The spawned sub-agent's id (also the matcher target).
+        /// The spawned sub-agent's id (Hope Agent extension).
         subagent_id: String,
+        /// The spawned sub-agent's type/name (matcher target, official
+        /// `agent_type`).
+        agent_type: String,
         run_id: String,
     },
     SubagentStop {
         #[serde(flatten)]
         common: CommonHookInput,
         subagent_id: String,
+        /// The sub-agent's type/name (matcher target, official `agent_type`).
+        agent_type: String,
         run_id: String,
         /// Terminal status: `completed` / `failed` / `cancelled` / …
         status: String,
+        /// The sub-agent's final assistant text, when available (official
+        /// `last_assistant_message`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_assistant_message: Option<String>,
     },
     Stop {
         #[serde(flatten)]
         common: CommonHookInput,
         /// Terminal turn status: `completed` / `interrupted`.
         status: String,
+        /// The turn's final assistant text, when available (official
+        /// `last_assistant_message`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_assistant_message: Option<String>,
         /// Claude Code's `stop_hook_active` — `true` when a Stop hook is
         /// already in the continue loop. Block-to-continue is not implemented
         /// yet, so always `false`; the field keeps the payload field-aligned.
@@ -350,6 +437,8 @@ pub enum HookInput {
         common: CommonHookInput,
         /// Failure category (matcher target): `provider_failed` /
         /// `compaction_failed` / `shutdown` / `crash` / `no_profile` / `other`.
+        /// Serialized as the official `error_type` key.
+        #[serde(rename = "error_type")]
         reason: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
@@ -357,6 +446,8 @@ pub enum HookInput {
     TaskCreated {
         #[serde(flatten)]
         common: CommonHookInput,
+        /// Task text. Serialized as the official `task_name` key.
+        #[serde(rename = "task_name")]
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         active_form: Option<String>,
@@ -367,6 +458,8 @@ pub enum HookInput {
         #[serde(flatten)]
         common: CommonHookInput,
         task_id: i64,
+        /// Task text. Serialized as the official `task_name` key.
+        #[serde(rename = "task_name")]
         content: String,
     },
     ConfigChange {
@@ -390,7 +483,9 @@ pub enum HookInput {
         #[serde(flatten)]
         common: CommonHookInput,
         /// Absolute path of the changed file (matcher target — a regex matcher
-        /// like `.*\.rs$` scopes the hook to a file pattern).
+        /// like `.*\.rs$` scopes the hook to a file pattern). Serialized as the
+        /// official `file_path` key.
+        #[serde(rename = "file_path")]
         path: String,
         /// `create` / `edit` / `delete` / `patch`.
         action: String,
@@ -398,8 +493,15 @@ pub enum HookInput {
     PermissionRequest {
         #[serde(flatten)]
         common: CommonHookInput,
-        /// The command / tool being approved (matcher target). For `exec` this
-        /// is the shell command; for the tool gate, a `tool: <name> <args>` desc.
+        /// The tool being approved (official `tool_name`, internal name). Matcher
+        /// target when present, falling back to `command`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        /// The tool arguments (official `tool_input`), when available.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_input: Option<serde_json::Value>,
+        /// The command / tool being approved (Hope Agent extension). For `exec`
+        /// this is the shell command; for the tool gate, a `tool: <name> <args>`.
         command: String,
         /// The tool_use this approval belongs to, for correlation with
         /// PreToolUse/PostToolUse. `None` when the call site has no id.
@@ -413,7 +515,14 @@ pub enum HookInput {
     PermissionDenied {
         #[serde(flatten)]
         common: CommonHookInput,
-        /// The command / tool that was denied (matcher target).
+        /// The tool that was denied (official `tool_name`, internal name). Matcher
+        /// target when present, falling back to `command`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        /// The tool arguments (official `tool_input`), when available.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_input: Option<serde_json::Value>,
+        /// The command / tool that was denied (Hope Agent extension).
         command: String,
         /// Why: `user_declined` (the user said no) / `policy` (engine auto-deny).
         reason: String,
@@ -430,8 +539,12 @@ pub enum HookInput {
         #[serde(flatten)]
         common: CommonHookInput,
         /// The slash command name (matcher target, e.g. `plan`, `deploy`).
+        /// Serialized as the official `command_name` key.
+        #[serde(rename = "command_name")]
         command: String,
-        /// The full raw command text including args.
+        /// The full raw command text including args. Serialized as the official
+        /// `raw_input` key.
+        #[serde(rename = "raw_input")]
         command_text: String,
     },
     Elicitation {
@@ -451,7 +564,9 @@ pub enum HookInput {
     WorktreeCreate {
         #[serde(flatten)]
         common: CommonHookInput,
-        /// Stable generated worktree id/name. Matcher target.
+        /// Stable generated worktree id/name. Matcher target. Serialized as the
+        /// official `worktree_name` key.
+        #[serde(rename = "worktree_name")]
         name: String,
     },
     WorktreeRemove {
@@ -554,8 +669,9 @@ impl HookInput {
             Self::Notification {
                 notification_type, ..
             } => Some(notification_type.as_str()),
-            Self::SubagentStart { subagent_id, .. } | Self::SubagentStop { subagent_id, .. } => {
-                Some(subagent_id.as_str())
+            // Subagent events match on the sub-agent type/name (official).
+            Self::SubagentStart { agent_type, .. } | Self::SubagentStop { agent_type, .. } => {
+                Some(agent_type.as_str())
             }
             // StopFailure matches on its failure category (`provider_failed`, …).
             Self::StopFailure { reason, .. } => Some(reason.as_str()),
@@ -563,10 +679,14 @@ impl HookInput {
             Self::ConfigChange { category, .. } => Some(category.as_str()),
             // FileChanged matches on the file path (regex matcher → file pattern).
             Self::FileChanged { path, .. } => Some(path.as_str()),
-            // Permission events match on the command / tool being gated.
-            Self::PermissionRequest { command, .. } | Self::PermissionDenied { command, .. } => {
-                Some(command.as_str())
+            // Permission events match on the tool name (official) when known,
+            // else the command string.
+            Self::PermissionRequest {
+                tool_name, command, ..
             }
+            | Self::PermissionDenied {
+                tool_name, command, ..
+            } => Some(tool_name.as_deref().unwrap_or(command.as_str())),
             // UserPromptExpansion matches on the slash command name.
             Self::UserPromptExpansion { command, .. } => Some(command.as_str()),
             Self::WorktreeCreate { name, .. } => Some(name.as_str()),
@@ -583,6 +703,14 @@ impl HookInput {
             | Self::ElicitationResult { .. } => None,
         }
     }
+}
+
+/// A nested `hookSpecificOutput.decision` object (`{ "behavior": "allow" |
+/// "deny" }`) — the official structured decision for `PermissionRequest`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct HookDecisionBehavior {
+    #[serde(default)]
+    pub behavior: Option<String>,
 }
 
 /// `hookSpecificOutput` object inside a hook's JSON stdout. Field names are
@@ -602,6 +730,33 @@ pub struct HookSpecificOutput {
     pub permission_decision_reason: Option<String>,
     #[serde(default)]
     pub updated_input: Option<serde_json::Value>,
+    /// `PostToolUse` — replaces the tool's result before it re-enters history.
+    #[serde(default)]
+    pub updated_tool_output: Option<serde_json::Value>,
+    /// `PermissionRequest` — structured allow/deny (`{ "behavior": ... }`).
+    #[serde(default)]
+    pub decision: Option<HookDecisionBehavior>,
+    /// `PermissionDenied` — ask the model to retry the denied call.
+    #[serde(default)]
+    pub retry: Option<bool>,
+    /// `Elicitation` / `ElicitationResult` — `accept` / `decline` / `cancel`.
+    #[serde(default)]
+    pub action: Option<String>,
+    /// `Elicitation` / `ElicitationResult` — form values for an `accept`.
+    #[serde(default)]
+    pub content: Option<serde_json::Value>,
+    /// `MessageDisplay` — replaces the text shown on screen (display-only).
+    #[serde(default)]
+    pub display_content: Option<String>,
+    /// `SessionStart` — seed the session's first user message.
+    #[serde(default)]
+    pub initial_user_message: Option<String>,
+    /// `SessionStart` — absolute paths to watch for `FileChanged`.
+    #[serde(default)]
+    pub watch_paths: Option<Vec<String>>,
+    /// `SessionStart` — reload skills after the hook runs.
+    #[serde(default)]
+    pub reload_skills: Option<bool>,
     #[serde(default)]
     pub worktree_path: Option<String>,
 }
@@ -619,6 +774,9 @@ pub struct HookOutput {
     pub suppress_output: bool,
     #[serde(default)]
     pub system_message: Option<String>,
+    /// Terminal escape sequence (OSC / BEL) to emit — official `terminalSequence`.
+    #[serde(default)]
+    pub terminal_sequence: Option<String>,
     /// Top-level `decision` (used by Stop / PostToolUse / ConfigChange / …).
     #[serde(default)]
     pub decision: Option<String>,
@@ -669,6 +827,9 @@ pub struct HookOutcome {
     /// not skip anything.
     pub permission_allow: bool,
     pub continue_execution: bool,
+    /// Any hook asked to suppress its stdout from the transcript
+    /// (official `suppressOutput`).
+    pub suppress_output: bool,
     pub stop_reason: Option<String>,
     pub system_message: Option<String>,
     pub additional_context: Vec<String>,
@@ -693,6 +854,7 @@ impl HookOutcome {
             decision: HookDecision::Allow,
             permission_allow: false,
             continue_execution: true,
+            suppress_output: false,
             stop_reason: None,
             system_message: None,
             additional_context: Vec::new(),
@@ -778,9 +940,11 @@ mod tests {
         let input = HookInput::PostToolUse {
             common: CommonHookInput {
                 session_id: "s1".into(),
+                prompt_id: None,
                 transcript_path: PathBuf::from("/tmp/t.jsonl"),
                 cwd: PathBuf::from("/work"),
                 permission_mode: PermissionMode::Default,
+                effort: None,
                 hook_event_name: "PostToolUse".into(),
                 agent_id: Some("ha-main".into()),
                 agent_type: None,
@@ -806,9 +970,11 @@ mod tests {
     fn matcher_target_per_event() {
         let common = CommonHookInput {
             session_id: "s".into(),
+            prompt_id: None,
             transcript_path: PathBuf::new(),
             cwd: PathBuf::new(),
             permission_mode: PermissionMode::Default,
+            effort: None,
             hook_event_name: "x".into(),
             agent_id: None,
             agent_type: None,
@@ -829,6 +995,7 @@ mod tests {
         let stop = HookInput::Stop {
             common: common.clone(),
             status: "completed".into(),
+            last_assistant_message: None,
             stop_hook_active: false,
         };
         assert_eq!(stop.matcher_target(), None);
@@ -844,9 +1011,11 @@ mod tests {
     fn stop_failure_omits_none_error() {
         let common = CommonHookInput {
             session_id: "s".into(),
+            prompt_id: None,
             transcript_path: PathBuf::new(),
             cwd: PathBuf::new(),
             permission_mode: PermissionMode::Default,
+            effort: None,
             hook_event_name: "StopFailure".into(),
             agent_id: None,
             agent_type: None,
@@ -857,7 +1026,9 @@ mod tests {
             error: None,
         };
         let v = serde_json::to_value(&fail).unwrap();
-        assert_eq!(v["reason"], "shutdown");
+        // `reason` is serialized as the official `error_type` key.
+        assert_eq!(v["error_type"], "shutdown");
+        assert!(v.get("reason").is_none());
         assert!(v.get("error").is_none());
         assert_eq!(v["session_id"], "s");
     }
@@ -891,5 +1062,111 @@ mod tests {
         assert!(n.continue_execution);
         assert!(n.additional_context.is_empty());
         assert!(n.merged_additional_context().is_none());
+    }
+
+    fn common_with(session: &str, event: &str) -> CommonHookInput {
+        CommonHookInput {
+            session_id: session.into(),
+            prompt_id: None,
+            transcript_path: PathBuf::new(),
+            cwd: PathBuf::new(),
+            permission_mode: PermissionMode::Default,
+            effort: None,
+            hook_event_name: event.into(),
+            agent_id: None,
+            agent_type: None,
+        }
+    }
+
+    #[test]
+    fn payload_fields_serialize_to_official_names() {
+        // SessionEnd.reason (not `source`).
+        let v = serde_json::to_value(HookInput::SessionEnd {
+            common: common_with("s", "SessionEnd"),
+            source: "logout".into(),
+        })
+        .unwrap();
+        assert_eq!(v["reason"], "logout");
+        assert!(v.get("source").is_none());
+
+        // Notification.type (not `notification_type`).
+        let v = serde_json::to_value(HookInput::Notification {
+            common: common_with("s", "Notification"),
+            notification_type: "idle_prompt".into(),
+            message: "hi".into(),
+            title: None,
+        })
+        .unwrap();
+        assert_eq!(v["type"], "idle_prompt");
+        assert!(v.get("notification_type").is_none());
+
+        // FileChanged.file_path (not `path`).
+        let v = serde_json::to_value(HookInput::FileChanged {
+            common: common_with("s", "FileChanged"),
+            path: "/a/b.rs".into(),
+            action: "edit".into(),
+        })
+        .unwrap();
+        assert_eq!(v["file_path"], "/a/b.rs");
+        assert!(v.get("path").is_none());
+
+        // UserPromptExpansion.command_name / raw_input.
+        let v = serde_json::to_value(HookInput::UserPromptExpansion {
+            common: common_with("s", "UserPromptExpansion"),
+            command: "deploy".into(),
+            command_text: "/deploy prod".into(),
+        })
+        .unwrap();
+        assert_eq!(v["command_name"], "deploy");
+        assert_eq!(v["raw_input"], "/deploy prod");
+    }
+
+    #[test]
+    fn session_start_has_no_duplicate_agent_type_key() {
+        // agent_type lives only in the flattened common — the SessionStart
+        // variant must not re-emit it (the old duplicate-key bug).
+        let mut common = common_with("s", "SessionStart");
+        common.agent_type = Some("reviewer".into());
+        let input = HookInput::SessionStart {
+            common,
+            source: SessionStartSource::Fork,
+            model: "m".into(),
+            session_title: Some("T".into()),
+        };
+        let text = serde_json::to_string(&input).unwrap();
+        assert_eq!(text.matches("\"agent_type\"").count(), 1);
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["source"], "fork");
+        assert_eq!(v["session_title"], "T");
+    }
+
+    #[test]
+    fn effort_and_prompt_id_serialize_when_set() {
+        let mut common = common_with("s", "PreToolUse");
+        common.prompt_id = Some("p-1".into());
+        common.effort = Some(HookEffort { level: "high".into() });
+        let v = serde_json::to_value(HookInput::PreToolUse {
+            common,
+            tool_name: "exec".into(),
+            tool_input: serde_json::json!({}),
+            tool_use_id: "c".into(),
+        })
+        .unwrap();
+        assert_eq!(v["prompt_id"], "p-1");
+        assert_eq!(v["effort"]["level"], "high");
+    }
+
+    #[test]
+    fn new_events_round_trip_and_are_reserved() {
+        for (event, lit) in [
+            (HookEvent::Setup, "\"Setup\""),
+            (HookEvent::MessageDisplay, "\"MessageDisplay\""),
+        ] {
+            assert_eq!(serde_json::to_string(&event).unwrap(), lit);
+            let back: HookEvent = serde_json::from_str(lit).unwrap();
+            assert_eq!(back, event);
+            assert!(event.is_reserved());
+            assert!(event.is_observation_only());
+        }
     }
 }

@@ -231,6 +231,16 @@ async fn fire_post_tool_use_hook(
         }
     };
     let outcome = HookDispatcher::dispatch(event, input).await;
+    // `updatedToolOutput` (official): a `PostToolUse` hook may rewrite the tool
+    // result before it re-enters history (e.g. redact secrets). Applied on the
+    // success path only. A JSON string replaces verbatim; any other JSON value
+    // is stringified.
+    if let Some(updated) = outcome.updated_mcp_output.as_ref() {
+        *clean_result = match updated {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+    }
     if let Some(extra) = outcome.merged_additional_context() {
         // Frame the injected context so the model can tell hook output apart
         // from the tool's own result.
@@ -1539,6 +1549,15 @@ impl AssistantAgent {
                     common: self.hook_common_input("PostToolBatch"),
                     round,
                     tool_names: executed.iter().map(|e| e.name.clone()).collect(),
+                    tool_calls: executed
+                        .iter()
+                        .map(|e| crate::hooks::types::ToolCallSummary {
+                            tool_name: e.name.clone(),
+                            tool_input: serde_json::from_str(&e.arguments)
+                                .unwrap_or(serde_json::Value::Null),
+                            tool_response: serde_json::Value::String(e.clean_result.clone()),
+                        })
+                        .collect(),
                 };
                 let outcome = crate::hooks::HookDispatcher::dispatch(
                     crate::hooks::HookEvent::PostToolBatch,

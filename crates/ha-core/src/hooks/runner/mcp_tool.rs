@@ -28,8 +28,8 @@ use super::super::env::HookEnv;
 use super::super::types::HookInput;
 use super::{HookHandler, RawHookResult};
 
-/// Default `mcp_tool` hook timeout.
-const DEFAULT_MCP_TIMEOUT_SECS: u64 = 30;
+/// Default `mcp_tool` hook timeout (official 600s).
+const DEFAULT_MCP_TIMEOUT_SECS: u64 = 600;
 
 pub struct McpToolHandler {
     config: McpToolHookConfig,
@@ -285,6 +285,8 @@ mod tests {
             transcript_path: PathBuf::from("/tmp/t.jsonl"),
             cwd: PathBuf::from("/tmp/proj"),
             permission_mode: PermissionMode::Default,
+            prompt_id: None,
+            effort: None,
             hook_event_name: event.into(),
             agent_id: Some("ha-main".into()),
             agent_type: None,

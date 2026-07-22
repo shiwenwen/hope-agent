@@ -21,8 +21,8 @@ use crate::automation::{self, ModelTaskSpec};
 use crate::config::AppConfig;
 use crate::provider::ActiveModel;
 
-/// Default `prompt` hook timeout — LLM calls are slower than shells.
-const DEFAULT_PROMPT_TIMEOUT_SECS: u64 = 60;
+/// Default `prompt` hook timeout (official 30s).
+const DEFAULT_PROMPT_TIMEOUT_SECS: u64 = 30;
 /// Output cap for the side-query.
 const PROMPT_MAX_TOKENS: u32 = 2048;
 

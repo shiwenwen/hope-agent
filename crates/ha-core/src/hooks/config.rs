@@ -21,6 +21,8 @@ pub struct HooksConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub session_end: Vec<HookMatcherGroup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub setup: Vec<HookMatcherGroup>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub user_prompt_submit: Vec<HookMatcherGroup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub user_prompt_expansion: Vec<HookMatcherGroup>,
@@ -46,6 +48,8 @@ pub struct HooksConfig {
     pub post_compact: Vec<HookMatcherGroup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notification: Vec<HookMatcherGroup>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub message_display: Vec<HookMatcherGroup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subagent_start: Vec<HookMatcherGroup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -80,6 +84,7 @@ impl HooksConfig {
         match event {
             HookEvent::SessionStart => &self.session_start,
             HookEvent::SessionEnd => &self.session_end,
+            HookEvent::Setup => &self.setup,
             HookEvent::UserPromptSubmit => &self.user_prompt_submit,
             HookEvent::UserPromptExpansion => &self.user_prompt_expansion,
             HookEvent::PreToolUse => &self.pre_tool_use,
@@ -93,6 +98,7 @@ impl HooksConfig {
             HookEvent::PreCompact => &self.pre_compact,
             HookEvent::PostCompact => &self.post_compact,
             HookEvent::Notification => &self.notification,
+            HookEvent::MessageDisplay => &self.message_display,
             HookEvent::SubagentStart => &self.subagent_start,
             HookEvent::SubagentStop => &self.subagent_stop,
             HookEvent::TaskCreated => &self.task_created,
@@ -124,6 +130,7 @@ impl HooksConfig {
     pub fn merge_from(&mut self, mut other: HooksConfig) {
         self.session_start.append(&mut other.session_start);
         self.session_end.append(&mut other.session_end);
+        self.setup.append(&mut other.setup);
         self.user_prompt_submit
             .append(&mut other.user_prompt_submit);
         self.user_prompt_expansion
@@ -141,6 +148,7 @@ impl HooksConfig {
         self.pre_compact.append(&mut other.pre_compact);
         self.post_compact.append(&mut other.post_compact);
         self.notification.append(&mut other.notification);
+        self.message_display.append(&mut other.message_display);
         self.subagent_start.append(&mut other.subagent_start);
         self.subagent_stop.append(&mut other.subagent_stop);
         self.task_created.append(&mut other.task_created);
@@ -159,9 +167,10 @@ impl HooksConfig {
     }
 }
 
-const HOOK_EVENTS_FOR_EMPTY_CHECK: [HookEvent; 28] = [
+const HOOK_EVENTS_FOR_EMPTY_CHECK: [HookEvent; 30] = [
     HookEvent::SessionStart,
     HookEvent::SessionEnd,
+    HookEvent::Setup,
     HookEvent::UserPromptSubmit,
     HookEvent::UserPromptExpansion,
     HookEvent::PreToolUse,
@@ -175,6 +184,7 @@ const HOOK_EVENTS_FOR_EMPTY_CHECK: [HookEvent; 28] = [
     HookEvent::PreCompact,
     HookEvent::PostCompact,
     HookEvent::Notification,
+    HookEvent::MessageDisplay,
     HookEvent::SubagentStart,
     HookEvent::SubagentStop,
     HookEvent::TaskCreated,
@@ -269,6 +279,11 @@ pub enum HookShell {
 #[serde(rename_all = "camelCase")]
 pub struct CommandHookConfig {
     pub command: String,
+    /// Official exec-form argv. When present the command is spawned directly
+    /// (`command` + these args, no shell) — `shell` is ignored. When absent the
+    /// command runs through the shell (`<shell> -c command`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shell: Option<HookShell>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -529,6 +544,27 @@ mod tests {
         // Sanity: every event maps to an (empty) slice without panicking.
         for e in HOOK_EVENTS_FOR_EMPTY_CHECK {
             assert!(cfg.groups_for(e).is_empty());
+        }
+    }
+
+    #[test]
+    fn new_event_keys_and_args_exec_form_deserialize() {
+        let json = r#"{
+            "Setup": [ { "hooks": [ { "type": "command", "command": "echo setup" } ] } ],
+            "MessageDisplay": [ { "hooks": [ { "type": "command", "command": "echo msg" } ] } ],
+            "PreToolUse": [ { "hooks": [
+                { "type": "command", "command": "/usr/bin/lint", "args": ["--fix", "src"] }
+            ] } ]
+        }"#;
+        let cfg: HooksConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.groups_for(HookEvent::Setup).len(), 1);
+        assert_eq!(cfg.groups_for(HookEvent::MessageDisplay).len(), 1);
+        match &cfg.pre_tool_use[0].hooks[0] {
+            HookHandlerConfig::Command(c) => {
+                assert_eq!(c.command, "/usr/bin/lint");
+                assert_eq!(c.args, vec!["--fix".to_string(), "src".to_string()]);
+            }
+            _ => panic!("expected command"),
         }
     }
 }
