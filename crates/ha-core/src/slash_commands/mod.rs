@@ -165,14 +165,27 @@ pub async fn execute_slash_command(
     // Allow both built-in commands and dynamic skill commands
     // (skill commands are handled in handlers::dispatch fallback)
 
-    // UserPromptExpansion hook (observation): a slash command ran, matchable on
-    // the command name.
-    crate::hooks::fire_user_prompt_expansion(
+    // UserPromptExpansion hook (blocking): a hook may `exit 2` / `decision:block`
+    // to veto the expansion, matchable on the command name. Fired before the
+    // command runs so a block prevents it entirely.
+    let expansion_outcome = crate::hooks::dispatch_user_prompt_expansion(
         session_id.as_deref(),
         &agent_id,
         &name,
         &command_text,
-    );
+    )
+    .await;
+    if let Some(reason) = expansion_outcome.block_reason() {
+        return Err(format!(
+            "/{} blocked by hook{}",
+            name,
+            if reason.trim().is_empty() {
+                String::new()
+            } else {
+                format!(": {}", reason.trim())
+            }
+        ));
+    }
 
     app_info!(
         "slash_cmd",

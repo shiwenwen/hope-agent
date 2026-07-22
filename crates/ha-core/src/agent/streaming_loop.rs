@@ -1537,6 +1537,11 @@ impl AssistantAgent {
             // tool call in the round settles, before the round lands in
             // history. Skipped for pure-text rounds (no tools). Any
             // additionalContext is queued for the next round's reminder.
+            // Set when a PostToolBatch hook `exit 2` / `decision:block`s to stop
+            // the agentic loop (official: "stops agentic loop before next model
+            // call"). Honored at the bottom of the loop body so this round's
+            // results are still persisted first.
+            let mut post_batch_stop: Option<String> = None;
             let post_tool_batch_wd =
                 crate::session::effective_session_working_dir(self.session_id.as_deref());
             if !executed.is_empty()
@@ -1567,6 +1572,7 @@ impl AssistantAgent {
                 if let Some(extra) = outcome.merged_additional_context() {
                     self.push_pending_hook_context(extra);
                 }
+                post_batch_stop = outcome.block_reason();
             }
 
             // A later model round must never observe a tool result which is
@@ -1600,6 +1606,21 @@ impl AssistantAgent {
                 on_delta,
             )
             .await?;
+            // PostToolBatch hook stopped the loop: this round is fully
+            // persisted above, so break before the next model call.
+            if let Some(reason) = post_batch_stop {
+                crate::app_info!(
+                    "hooks",
+                    "post_tool_batch",
+                    "PostToolBatch hook stopped the agentic loop{}",
+                    if reason.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", reason.trim())
+                    }
+                );
+                break;
+            }
             round = round.saturating_add(1);
         }
 

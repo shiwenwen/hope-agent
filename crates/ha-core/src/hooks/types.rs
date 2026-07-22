@@ -139,23 +139,22 @@ impl HookEvent {
                 | Self::PostToolUse
                 | Self::PostToolUseFailure
                 | Self::PostCompact
-                | Self::PostToolBatch
                 | Self::SubagentStart
+                // SubagentStop block-to-continue (re-driving a settled subagent)
+                // is a larger feature — kept observation-only for now (§2.4).
                 | Self::SubagentStop
-                // Stop / StopFailure fire fire-and-forget this phase (no
-                // block-to-continue), so a stray blocking decision is
-                // downgraded + logged like any other observation event. They
-                // move out of this list when block-to-continue lands.
-                | Self::Stop
                 | Self::StopFailure
-                | Self::TaskCreated
-                | Self::TaskCompleted
+                // ConfigChange veto is deliberately NOT honored: vetoing a config
+                // write from `mutate_config` (sync, hot path) risks bricking
+                // recovery — a hook could block disabling hooks or fixing a bad
+                // config. Kept observation-only as a principled safety deviation
+                // (§2.4), analogous to the official `policy_settings` exemption.
                 | Self::ConfigChange
                 | Self::CwdChanged
                 | Self::FileChanged
-                | Self::PermissionRequest
                 | Self::PermissionDenied
-                | Self::UserPromptExpansion
+                // Elicitation* are repurposed for native ask_user_question;
+                // real MCP-elicitation blocking lands with the MCP server (§2.4).
                 | Self::Elicitation
                 | Self::ElicitationResult
                 | Self::WorktreeRemove
@@ -875,6 +874,39 @@ impl HookOutcome {
         }
         Some(self.additional_context.join("\n\n---\n\n"))
     }
+
+    /// For a gate-capable event whose call site vetoes an action on a blocking
+    /// decision (`TaskCreated` / `TaskCompleted` / `UserPromptExpansion` /
+    /// `PermissionRequest` / `PostToolBatch`): the veto reason if this outcome
+    /// blocks, else `None`. A `Deny` / `Block` decision or an explicit
+    /// `continue:false` counts as a veto. **Not** for `Stop`, whose `block`
+    /// semantics are inverted (block = keep going) — that path checks the
+    /// decision directly.
+    pub fn block_reason(&self) -> Option<String> {
+        if !self.continue_execution {
+            return Some(self.stop_reason.clone().unwrap_or_default());
+        }
+        match &self.decision {
+            HookDecision::Deny { reason } | HookDecision::Block { reason } => Some(reason.clone()),
+            _ => None,
+        }
+    }
+
+    /// Whether a `Stop` hook asked to keep going (official `Stop` `decision:
+    /// block` / `exit 2` → "prevent stopping, continue"). Returns the feedback
+    /// reason to inject before the next turn. `continue:false` is the opposite
+    /// (a hard stop) and is intentionally excluded.
+    pub fn stop_wants_continue(&self) -> Option<String> {
+        if !self.continue_execution {
+            return None;
+        }
+        match &self.decision {
+            HookDecision::Deny { reason } | HookDecision::Block { reason } => {
+                Some(reason.clone())
+            }
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1168,5 +1200,54 @@ mod tests {
             assert!(event.is_reserved());
             assert!(event.is_observation_only());
         }
+    }
+
+    #[test]
+    fn blocking_events_are_not_observation_only() {
+        // These now gate their call sites → must NOT be downgraded.
+        for e in [
+            HookEvent::Stop,
+            HookEvent::PostToolBatch,
+            HookEvent::TaskCreated,
+            HookEvent::TaskCompleted,
+            HookEvent::UserPromptExpansion,
+            HookEvent::PermissionRequest,
+        ] {
+            assert!(!e.is_observation_only(), "{e:?} should gate");
+        }
+        // These are deliberately kept observation-only (safety / scope).
+        for e in [
+            HookEvent::ConfigChange,
+            HookEvent::SubagentStop,
+            HookEvent::Elicitation,
+            HookEvent::ElicitationResult,
+            HookEvent::PostToolUse,
+            HookEvent::PermissionDenied,
+        ] {
+            assert!(e.is_observation_only(), "{e:?} should be observation");
+        }
+    }
+
+    #[test]
+    fn block_reason_and_stop_wants_continue() {
+        let mut o = HookOutcome::noop();
+        // Allow / Ask / Defer → no veto.
+        assert!(o.block_reason().is_none());
+        o.decision = HookDecision::Ask;
+        assert!(o.block_reason().is_none());
+        o.decision = HookDecision::Defer;
+        assert!(o.block_reason().is_none());
+        // Deny / Block → veto with reason; Stop reads them as "continue".
+        o.decision = HookDecision::Deny { reason: "no".into() };
+        assert_eq!(o.block_reason().as_deref(), Some("no"));
+        assert_eq!(o.stop_wants_continue().as_deref(), Some("no"));
+        o.decision = HookDecision::Block { reason: "warn".into() };
+        assert_eq!(o.block_reason().as_deref(), Some("warn"));
+        // continue:false → veto, but NOT a Stop-continue (that's a hard stop).
+        let mut c = HookOutcome::noop();
+        c.continue_execution = false;
+        c.stop_reason = Some("halt".into());
+        assert_eq!(c.block_reason().as_deref(), Some("halt"));
+        assert!(c.stop_wants_continue().is_none());
     }
 }

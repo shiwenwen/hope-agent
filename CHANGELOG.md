@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Hooks 可阻断事件落地 6 个**：`Stop`（`exit 2` / `decision:block` 触发 block-to-continue——注入反馈并让 Claude 再工作一轮，带 3 次上限与 `stop_hook_active` 再入标记）、`PostToolBatch`（阻断则本轮结果落盘后停止 agent 循环）、`TaskCreated` / `TaskCompleted`（阻断则否决任务创建 / 完成）、`UserPromptExpansion`（阻断则拒绝 slash 命令展开）、`PermissionRequest`（阻断则自动拒绝审批，仅 deny——hook 的 allow 不会绕过用户 / strict）。**用户影响**：Claude Code 里靠这些事件阻断的社区脚本现在在本项目生效。出于安全考量，`ConfigChange` veto（会让 hook 拦住用户改设置 / 关闭 hooks）、`SubagentStop` 续跑、`Elicitation*` 阻断刻意不做（见 hooks 架构文档 §2.4）。
+
 ### Changed
 
-- **Hooks 与 Claude Code 官方协议重新字段级对齐**：官方协议演进后，本项目补齐了大批差异——payload 字段名对齐官方（`SessionEnd.reason` / `Notification.type` / `StopFailure.error_type` / `FileChanged.file_path` / `UserPromptExpansion.command_name`+`raw_input` / `TaskCreated`+`TaskCompleted.task_name` / `WorktreeCreate.worktree_name` / `SubagentStart`+`Stop.agent_type`）、`PostToolBatch` 现携带官方 `tool_calls[]`、`Stop`/`SubagentStop` 携 `last_assistant_message`、`SessionStart` 新增 `fork` 来源与 `session_title`；输出侧 `updatedToolOutput`（可改写工具结果做脱敏）/ `retry` / `decision.behavior` / `suppressOutput` / `terminalSequence` 均已解析生效；`defer` 决策不再被静默放行；command handler 支持官方 `args` exec 形；默认超时对齐官方（http/mcp_tool=600s、prompt=30s、agent=60s）；matcher 支持逗号/空格/连字符分隔并改为**非锚定正则**（对齐官方 unanchored）；新增 `CLAUDE_EFFORT` 环境变量；新增 `Setup` / `MessageDisplay` 协议保留事件（可配置、暂不触发）。**用户影响**：此前 `jq` 读官方字段名（如 `.reason`/`.file_path`/`.type`）落空的社区脚本现可直接命中；含 `^前缀` 正则的 matcher 语义从「整串匹配」变为「前缀匹配」（对齐官方）。可阻断事件集（`Stop`/`ConfigChange`/`PostToolBatch` 等经 `exit 2` 阻断）仍为观察型，落地路线见 hooks 架构文档 §2.4 / Roadmap。
+- **Hooks 与 Claude Code 官方协议重新字段级对齐**：官方协议演进后，本项目补齐了大批差异——payload 字段名对齐官方（`SessionEnd.reason` / `Notification.type` / `StopFailure.error_type` / `FileChanged.file_path` / `UserPromptExpansion.command_name`+`raw_input` / `TaskCreated`+`TaskCompleted.task_name` / `WorktreeCreate.worktree_name` / `SubagentStart`+`Stop.agent_type`）、`PostToolBatch` 现携带官方 `tool_calls[]`、`Stop`/`SubagentStop` 携 `last_assistant_message`、`SessionStart` 新增 `fork` 来源与 `session_title`；输出侧 `updatedToolOutput`（可改写工具结果做脱敏）/ `retry` / `decision.behavior` / `suppressOutput` / `terminalSequence` 均已解析生效；`defer` 决策不再被静默放行；command handler 支持官方 `args` exec 形；默认超时对齐官方（http/mcp_tool=600s、prompt=30s、agent=60s）；matcher 支持逗号/空格/连字符分隔并改为**非锚定正则**（对齐官方 unanchored）；新增 `CLAUDE_EFFORT` 环境变量；新增 `Setup` / `MessageDisplay` 协议保留事件（可配置、暂不触发）。**用户影响**：此前 `jq` 读官方字段名（如 `.reason`/`.file_path`/`.type`）落空的社区脚本现可直接命中；含 `^前缀` 正则的 matcher 语义从「整串匹配」变为「前缀匹配」（对齐官方）。
 
 ## [0.22.0] - 2026-07-21
 

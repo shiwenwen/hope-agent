@@ -134,6 +134,54 @@ pub fn reset_precompact_blocks(session_id: &str) {
     }
 }
 
+/// Consecutive `Stop`-hook block-to-continue injections per session. Bounds a
+/// Stop hook that keeps blocking (asking Claude to continue) so it can't spin
+/// an unbounded token-burning loop.
+static STOP_CONTINUE_COUNTS: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+
+/// Max consecutive Stop-hook continues honored before forcing the turn to stop.
+const MAX_STOP_CONTINUES: u32 = 3;
+
+/// Record a Stop-hook continue for `session_id` and return whether it should be
+/// HONORED. Returns `false` (force stop, reset the count) once the cap is hit.
+fn honor_stop_continue(session_id: &str) -> bool {
+    let map = STOP_CONTINUE_COUNTS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = map.lock().unwrap_or_else(|e| e.into_inner());
+    let count = guard.entry(session_id.to_string()).or_insert(0);
+    *count += 1;
+    if *count > MAX_STOP_CONTINUES {
+        guard.remove(session_id);
+        false
+    } else {
+        true
+    }
+}
+
+/// Whether a Stop-hook continue loop is currently active for `session_id`
+/// (drives the official `stop_hook_active` field so the hook can detect
+/// re-entrancy and stop blocking).
+fn stop_continue_active(session_id: &str) -> bool {
+    STOP_CONTINUE_COUNTS
+        .get()
+        .map(|m| {
+            m.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(session_id)
+                .copied()
+                .unwrap_or(0)
+                > 0
+        })
+        .unwrap_or(false)
+}
+
+/// Reset the Stop-hook continue counter — called on a normal stop (hook didn't
+/// block) so the next independent stop starts fresh.
+fn reset_stop_continue(session_id: &str) {
+    if let Some(m) = STOP_CONTINUE_COUNTS.get() {
+        m.lock().unwrap_or_else(|e| e.into_inner()).remove(session_id);
+    }
+}
+
 /// Pending `UserPromptSubmit` `additionalContext` per session. The preflight
 /// chokepoint sets this after the hook runs; the turn drains it once at start
 /// and folds it into `extra_system_context` next to `SessionStart`. Keyed by
@@ -730,25 +778,93 @@ pub fn fire_subagent_stop(
     fire_and_forget(HookEvent::SubagentStop, input);
 }
 
-/// Fire the `Stop` observation hook — a turn finished responding without an
-/// error (normal completion or a user-initiated stop). `status` is the terminal
-/// turn status (`completed` / `interrupted`). Fire-and-forget; block-to-continue
-/// is not implemented this phase.
+/// Fire the `Stop` hook — a turn finished responding without an error (normal
+/// completion or a user-initiated stop). `status` is the terminal turn status
+/// (`completed` / `interrupted`).
+///
+/// **Block-to-continue** (official `Stop` `exit 2` / `decision:block` = "prevent
+/// stopping, continue"): if the hook blocks, its reason is injected as a
+/// system-reminder and the session is re-driven for another turn (reusing the
+/// subagent injection pipeline, like `asyncRewake`). Bounded by
+/// [`MAX_STOP_CONTINUES`] and gated by `stop_hook_active` so a hook can detect
+/// re-entrancy. A normal stop (no block) resets the counter.
 pub fn fire_stop(
     session_id: &str,
     agent_id: Option<&str>,
     status: &str,
     last_message: Option<&str>,
 ) {
-    let mut common = observation_common("Stop", session_id);
-    common.agent_id = agent_id.map(|s| s.to_string());
-    let input = HookInput::Stop {
-        common,
-        status: status.to_string(),
-        last_assistant_message: last_message.map(str::to_string),
-        stop_hook_active: false,
+    let wd = crate::session::effective_session_working_dir(Some(session_id));
+    if !scopes::any_handlers_for(HookEvent::Stop, wd.as_deref().map(std::path::Path::new)) {
+        return;
+    }
+    let session_id = session_id.to_string();
+    let agent_id = agent_id.map(|s| s.to_string());
+    let status = status.to_string();
+    let last_message = last_message.map(|s| s.to_string());
+    let run = async move {
+        let mut common = observation_common("Stop", &session_id);
+        common.agent_id = agent_id.clone();
+        let input = HookInput::Stop {
+            common,
+            status,
+            last_assistant_message: last_message,
+            // True when already inside a continue loop, so the hook can stop.
+            stop_hook_active: stop_continue_active(&session_id),
+        };
+        let outcome = HookDispatcher::dispatch(HookEvent::Stop, input).await;
+        match outcome.stop_wants_continue() {
+            Some(reason) if honor_stop_continue(&session_id) => {
+                stop_continue_inject(&session_id, agent_id.as_deref(), &reason).await;
+            }
+            // Normal stop, or the continue cap was hit → let the turn end and
+            // reset so the next independent stop starts fresh.
+            _ => reset_stop_continue(&session_id),
+        }
     };
-    fire_and_forget(HookEvent::Stop, input);
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(run);
+    } else if let Some(rt) = fire_and_forget_runtime() {
+        rt.spawn(run);
+    }
+}
+
+/// Inject a `Stop`-hook block reason as a system-reminder and re-drive the
+/// session for another turn (block-to-continue). Reuses the subagent injection
+/// pipeline (waits for idle, appends a `ParentInjection` user message, runs one
+/// turn) — the same mechanism as `asyncRewake`. No-op without a resolvable
+/// session / agent.
+async fn stop_continue_inject(session_id: &str, agent_id: Option<&str>, reason: &str) {
+    let Some(db) = crate::globals::get_session_db().cloned() else {
+        return;
+    };
+    let agent_id = match agent_id {
+        Some(a) => a.to_string(),
+        None => match crate::session::lookup_session_meta(Some(session_id)).map(|m| m.agent_id) {
+            Some(a) => a,
+            None => return,
+        },
+    };
+    let push = format!(
+        "<stop-hook-feedback>\n{}\n</stop-hook-feedback>",
+        escape_xml_text(reason.trim())
+    );
+    crate::app_info!(
+        "hooks",
+        "stop_continue",
+        "session={} Stop hook requested continue — re-driving with feedback",
+        session_id
+    );
+    let _ = crate::subagent::injection::inject_and_run_parent(
+        session_id.to_string(),
+        agent_id.clone(),
+        agent_id,
+        format!("stop-hook-continue-{}", uuid::Uuid::new_v4()),
+        push,
+        db,
+        None,
+    )
+    .await;
 }
 
 /// Fire the `StopFailure` observation hook — a turn ended because of an error.
@@ -788,6 +904,51 @@ pub fn fire_task_completed(session_id: &str, task_id: i64, content: &str) {
         content: content.to_string(),
     };
     fire_and_forget(HookEvent::TaskCompleted, input);
+}
+
+/// Blocking `TaskCreated` dispatch: returns the aggregated outcome so the
+/// interactive `task_create` tool can veto (roll back) creation on a hook
+/// `exit 2` / `decision:block` (official). `HookOutcome::noop()` fast path when
+/// no TaskCreated hook is configured. The workflow path uses the fire-and-forget
+/// [`fire_task_created`] (a block there has no effect — documented).
+pub async fn dispatch_task_created(
+    session_id: &str,
+    content: &str,
+    active_form: Option<&str>,
+    batch_id: &str,
+) -> HookOutcome {
+    let wd = crate::session::effective_session_working_dir(Some(session_id));
+    if !scopes::any_handlers_for(
+        HookEvent::TaskCreated,
+        wd.as_deref().map(std::path::Path::new),
+    ) {
+        return HookOutcome::noop();
+    }
+    let input = HookInput::TaskCreated {
+        common: observation_common("TaskCreated", session_id),
+        content: content.to_string(),
+        active_form: active_form.map(|s| s.to_string()),
+        batch_id: batch_id.to_string(),
+    };
+    HookDispatcher::dispatch(HookEvent::TaskCreated, input).await
+}
+
+/// Blocking `TaskCompleted` dispatch: returns the outcome so the tool can veto
+/// marking a task complete on a hook block (official). Noop fast path.
+pub async fn dispatch_task_completed(session_id: &str, task_id: i64, content: &str) -> HookOutcome {
+    let wd = crate::session::effective_session_working_dir(Some(session_id));
+    if !scopes::any_handlers_for(
+        HookEvent::TaskCompleted,
+        wd.as_deref().map(std::path::Path::new),
+    ) {
+        return HookOutcome::noop();
+    }
+    let input = HookInput::TaskCompleted {
+        common: observation_common("TaskCompleted", session_id),
+        task_id,
+        content: content.to_string(),
+    };
+    HookDispatcher::dispatch(HookEvent::TaskCompleted, input).await
 }
 
 /// Fire a `ConfigChange` observation hook (app config was written). App-global
@@ -846,6 +1007,39 @@ pub fn fire_permission_request(
         job_id: None,
     };
     fire_and_forget(HookEvent::PermissionRequest, input);
+}
+
+/// Blocking `PermissionRequest` dispatch: returns the outcome so the approval
+/// flow can auto-DENY on a hook `exit 2` / `decision:block` /
+/// `decision.behavior:"deny"` (official). Noop fast path when nothing is
+/// configured. **Deny-only**: an explicit hook `allow` is intentionally NOT
+/// honored as an auto-approve (that would let a hook bypass the user / strict
+/// mode); it falls through to the normal approval prompt.
+pub async fn dispatch_permission_request(
+    session_id: Option<&str>,
+    tool_name: Option<&str>,
+    command: &str,
+    tool_use_id: Option<&str>,
+) -> HookOutcome {
+    let sid = session_id.unwrap_or("");
+    let wd = (!sid.is_empty())
+        .then(|| crate::session::effective_session_working_dir(Some(sid)))
+        .flatten();
+    if !scopes::any_handlers_for(
+        HookEvent::PermissionRequest,
+        wd.as_deref().map(std::path::Path::new),
+    ) {
+        return HookOutcome::noop();
+    }
+    let input = HookInput::PermissionRequest {
+        common: observation_common("PermissionRequest", sid),
+        tool_name: tool_name.map(str::to_string),
+        tool_input: None,
+        command: command.to_string(),
+        tool_use_id: tool_use_id.map(str::to_string),
+        job_id: None,
+    };
+    HookDispatcher::dispatch(HookEvent::PermissionRequest, input).await
 }
 
 /// Fire a `PermissionDenied` observation hook (a tool was denied). `reason` is
@@ -960,6 +1154,35 @@ pub fn fire_user_prompt_expansion(
         command_text: command_text.to_string(),
     };
     fire_and_forget(HookEvent::UserPromptExpansion, input);
+}
+
+/// Blocking `UserPromptExpansion` dispatch: returns the outcome so the slash
+/// command runner can veto expansion (not run the command) on a hook block
+/// (official). Noop fast path when nothing is configured.
+pub async fn dispatch_user_prompt_expansion(
+    session_id: Option<&str>,
+    agent_id: &str,
+    command: &str,
+    command_text: &str,
+) -> HookOutcome {
+    let sid = session_id.unwrap_or("");
+    let wd = (!sid.is_empty())
+        .then(|| crate::session::effective_session_working_dir(Some(sid)))
+        .flatten();
+    if !scopes::any_handlers_for(
+        HookEvent::UserPromptExpansion,
+        wd.as_deref().map(std::path::Path::new),
+    ) {
+        return HookOutcome::noop();
+    }
+    let mut common = observation_common("UserPromptExpansion", sid);
+    common.agent_id = Some(agent_id.to_string());
+    let input = HookInput::UserPromptExpansion {
+        common,
+        command: command.to_string(),
+        command_text: command_text.to_string(),
+    };
+    HookDispatcher::dispatch(HookEvent::UserPromptExpansion, input).await
 }
 
 /// Fire an `Elicitation` observation hook (`ask_user_question` raised a prompt).
@@ -1151,6 +1374,26 @@ mod tests {
                 .await;
         assert_eq!(out.decision, HookDecision::Allow);
         assert!(out.continue_execution);
+    }
+
+    #[tokio::test]
+    async fn task_created_block_survives_dispatch() {
+        // TaskCreated is now gate-capable — an exit-2 Block must survive
+        // aggregation (not be neutralized like an observation event).
+        let reg = registry_from(
+            r#"{"TaskCreated":[{"hooks":[
+                {"type":"command","shell":"bash","command":"echo nope 1>&2; exit 2"}
+            ]}]}"#,
+        );
+        let input = HookInput::TaskCreated {
+            common: common("TaskCreated"),
+            content: "t".into(),
+            active_form: None,
+            batch_id: "b".into(),
+        };
+        let out = HookDispatcher::dispatch_with(&reg, HookEvent::TaskCreated, input).await;
+        assert!(matches!(out.decision, HookDecision::Block { .. }));
+        assert!(out.block_reason().is_some());
     }
 
     #[tokio::test]

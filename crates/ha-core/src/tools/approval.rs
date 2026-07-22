@@ -925,6 +925,31 @@ pub(crate) async fn check_and_request_approval(
         return Err(ApprovalCheckError::Unattended { reason: unattended });
     }
 
+    // PermissionRequest hook (blocking): a hook may `exit 2` / `decision:block`
+    // / `decision.behavior:"deny"` to auto-DENY before any prompt is shown.
+    // Deny-only — a hook `allow` does NOT auto-approve (that would bypass the
+    // user / strict mode); it falls through to the normal prompt. Noop fast path
+    // when no PermissionRequest hook is configured.
+    {
+        let pr_outcome =
+            crate::hooks::dispatch_permission_request(session_id, None, command, None).await;
+        if let Some(reason) = pr_outcome.block_reason() {
+            app_info!(
+                "tool",
+                "approval",
+                "PermissionRequest hook denied approval for '{}'{}",
+                command,
+                if reason.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", reason.trim())
+                }
+            );
+            crate::hooks::fire_permission_denied(session_id, None, command, "policy", None);
+            return Ok(ApprovalResponse::Deny);
+        }
+    }
+
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let timeout_secs = approval_timeout_secs();
@@ -991,9 +1016,8 @@ pub(crate) async fn check_and_request_approval(
             "permission_prompt",
             command,
         );
-        // PermissionRequest hook (observation): the structured permission event,
-        // matchable on the command. Single chokepoint for every approval prompt.
-        crate::hooks::fire_permission_request(session_id, None, command, None);
+        // NOTE: the PermissionRequest hook is dispatched (blocking, deny-capable)
+        // earlier — before this prompt is built — so it is NOT re-fired here.
         app_info!(
             "tool",
             "approval",
