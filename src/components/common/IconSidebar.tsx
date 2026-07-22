@@ -89,6 +89,21 @@ interface IconSidebarProps {
   onMarkAllRead?: () => void
 }
 
+const SIDEBAR_COLLAPSE = {
+  stage1Source: "[@media(max-height:880px)]:hidden",
+  stage1Menu: "[@media(max-height:880px)]:flex",
+  stage2Source: "[@media(max-height:840px)]:hidden",
+  stage2Menu: "[@media(max-height:840px)]:flex",
+  stage3Source: "[@media(max-height:800px)]:hidden",
+  stage3Menu: "[@media(max-height:800px)]:flex",
+  stage4Source: "[@media(max-height:760px)]:hidden",
+  stage4Menu: "[@media(max-height:760px)]:flex",
+  stage5Source: "[@media(max-height:720px)]:hidden",
+  stage5Menu: "[@media(max-height:720px)]:flex",
+  stage6Source: "[@media(max-height:680px)]:hidden",
+  stage6Menu: "[@media(max-height:680px)]:flex",
+} as const
+
 export default function IconSidebar({
   view,
   onOpenSettings,
@@ -129,7 +144,7 @@ export default function IconSidebar({
     id: string
     label: string
     icon: LucideIcon
-    stageClass: string
+    menuClass: string
     active?: boolean
     badge?: string
     onClick: () => void
@@ -138,7 +153,7 @@ export default function IconSidebar({
       id: "agents",
       label: t("settings.agents"),
       icon: Bot,
-      stageClass: "icon-sidebar-stage-5-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage5Menu,
       active: view === "agents",
       onClick: onOpenAgents,
     },
@@ -146,7 +161,7 @@ export default function IconSidebar({
       id: "modelConfig",
       label: t("settings.modelConfig"),
       icon: Server,
-      stageClass: "icon-sidebar-stage-4-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage4Menu,
       active: view === "modelConfig",
       onClick: onOpenModelConfig,
     },
@@ -154,7 +169,7 @@ export default function IconSidebar({
       id: "channels",
       label: t("settings.channels"),
       icon: MessageCircle,
-      stageClass: "icon-sidebar-stage-4-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage4Menu,
       active: view === "channels",
       onClick: onOpenChannels,
     },
@@ -162,7 +177,7 @@ export default function IconSidebar({
       id: "skills",
       label: t("settings.skills"),
       icon: Puzzle,
-      stageClass: "icon-sidebar-stage-4-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage4Menu,
       active: view === "skills",
       badge: skillDraftCount > 0 ? skillDraftBadgeLabel : undefined,
       onClick: onOpenSkills,
@@ -171,7 +186,7 @@ export default function IconSidebar({
       id: "memory",
       label: t("settings.memory"),
       icon: Brain,
-      stageClass: "icon-sidebar-stage-5-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage5Menu,
       active: view === "memory",
       onClick: onOpenMemory,
     },
@@ -179,14 +194,14 @@ export default function IconSidebar({
       id: "browser",
       label: t("settings.browser.title"),
       icon: Monitor,
-      stageClass: "icon-sidebar-stage-2-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage2Menu,
       onClick: () => onOpenSettings("browser"),
     },
     {
       id: "plans",
       label: t("plans.title"),
       icon: ClipboardList,
-      stageClass: "icon-sidebar-stage-2-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage2Menu,
       active: view === "plans",
       onClick: onOpenPlans,
     },
@@ -194,35 +209,35 @@ export default function IconSidebar({
       id: "logs",
       label: t("settings.logs"),
       icon: ScrollText,
-      stageClass: "icon-sidebar-stage-1-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage1Menu,
       onClick: () => onOpenSettings("logs"),
     },
     {
       id: "server",
       label: t("settings.serverRuntimeStatus"),
       icon: Server,
-      stageClass: "icon-sidebar-stage-6-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage6Menu,
       onClick: () => onOpenSettings("server"),
     },
     {
       id: "theme",
       label: `${t("theme.title")}: ${t(`theme.${theme}`)}`,
       icon: theme === "auto" ? SunMoon : theme === "light" ? Sun : Moon,
-      stageClass: "icon-sidebar-stage-3-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage3Menu,
       onClick: cycleTheme,
     },
     {
       id: "language",
       label: t("language.title"),
       icon: Languages,
-      stageClass: "icon-sidebar-stage-3-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage3Menu,
       onClick: () => setShowLangMenu(true),
     },
     {
       id: "help",
       label: t("help.title"),
       icon: CircleHelp,
-      stageClass: "icon-sidebar-stage-1-menu-item",
+      menuClass: SIDEBAR_COLLAPSE.stage1Menu,
       onClick: () => void openHelpWindow(),
     },
   ]
@@ -390,9 +405,9 @@ export default function IconSidebar({
 
       <div className="my-0.5 h-px w-6 bg-border-soft/80" />
 
-      <div className="icon-sidebar-settings-shortcuts flex w-full flex-col items-center">
+      <div className="flex w-full flex-col items-center">
         {/* Agents entry */}
-        <div className="icon-sidebar-stage-5-source w-full flex justify-center mt-0.5">
+        <div className={cn("w-full flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage5Source)}>
           <IconTip label={t("settings.agents")} side="right">
             <Button
               variant="ghost"
@@ -411,7 +426,7 @@ export default function IconSidebar({
         </div>
 
         {/* Model configuration entry */}
-        <div className="icon-sidebar-stage-4-source w-full flex justify-center mt-0.5">
+        <div className={cn("w-full flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage4Source)}>
           <IconTip label={t("settings.modelConfig")} side="right">
             <Button
               variant="ghost"
@@ -430,7 +445,7 @@ export default function IconSidebar({
         </div>
 
         {/* Channels entry */}
-        <div className="icon-sidebar-stage-4-source w-full flex justify-center mt-0.5">
+        <div className={cn("w-full flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage4Source)}>
           <IconTip label={t("settings.channels")} side="right">
             <Button
               variant="ghost"
@@ -449,7 +464,7 @@ export default function IconSidebar({
         </div>
 
         {/* Skills entry */}
-        <div className="icon-sidebar-stage-4-source w-full flex justify-center mt-0.5">
+        <div className={cn("w-full flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage4Source)}>
           <div className="relative">
             <IconTip label={t("settings.skills")} side="right">
               <Button
@@ -475,7 +490,7 @@ export default function IconSidebar({
         </div>
 
         {/* Memory entry */}
-        <div className="icon-sidebar-stage-5-source w-full flex justify-center mt-0.5">
+        <div className={cn("w-full flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage5Source)}>
           <IconTip label={t("settings.memory")} side="right">
             <Button
               variant="ghost"
@@ -494,16 +509,16 @@ export default function IconSidebar({
         </div>
       </div>
 
-      <div className="icon-sidebar-settings-shortcuts-trailing-divider my-0.5 h-px w-6 bg-border-soft/60" />
+      <div className={cn("my-0.5 h-px w-6 bg-border-soft/60", SIDEBAR_COLLAPSE.stage5Source)} />
 
       {/* Browser backend — status indicator + entry to Settings → Browser.
             Green dot when a backend is live; hover shows details. */}
-      <div className="icon-sidebar-stage-2-source w-full flex justify-center mt-0.5">
+      <div className={cn("w-full flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage2Source)}>
         <BrowserStatusIndicator onOpen={() => onOpenSettings("browser")} />
       </div>
 
       {/* Plans (read-only history viewer) entry */}
-      <div className="icon-sidebar-stage-2-source w-full flex justify-center mt-0.5">
+      <div className={cn("w-full flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage2Source)}>
         <IconTip label={t("plans.title")} side="right">
           <Button
             variant="ghost"
@@ -522,7 +537,7 @@ export default function IconSidebar({
       </div>
 
       {/* Logs entry, quick jump to Settings -> Logs near runtime status. */}
-      <div className="icon-sidebar-stage-1-source w-full flex justify-center mt-0.5">
+      <div className={cn("w-full flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage1Source)}>
         <IconTip label={t("settings.logs")} side="right">
           <Button
             variant="ghost"
@@ -535,7 +550,7 @@ export default function IconSidebar({
         </IconTip>
       </div>
 
-      <div className="icon-sidebar-overflow-menu w-full justify-center mt-0.5">
+      <div className={cn("hidden w-full justify-center mt-0.5", SIDEBAR_COLLAPSE.stage1Menu)}>
         <div className="relative">
           <IconTip label={t("common.more")} side="right">
             <Button
@@ -567,8 +582,8 @@ export default function IconSidebar({
                 <button
                   key={item.id}
                   className={cn(
-                    "icon-sidebar-overflow-item ha-focus-item w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground",
-                    item.stageClass,
+                    "ha-focus-item hidden w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground",
+                    item.menuClass,
                     item.active ? "bg-secondary/70 text-foreground" : "text-muted-foreground",
                   )}
                   onClick={() => {
@@ -600,10 +615,15 @@ export default function IconSidebar({
       <div className="py-2.5 flex shrink-0 flex-col items-center gap-1.5">
         {/* Server runtime health — always visible so users can catch port
               conflicts, high WS load, etc. without opening Settings. */}
-        <div className="icon-sidebar-stage-6-source">
+        <div className={SIDEBAR_COLLAPSE.stage6Source}>
           <ServerStatusIndicator onOpen={() => onOpenSettings("server")} />
         </div>
-        <div className="icon-sidebar-stage-3-source icon-sidebar-preference-shortcuts flex flex-col items-center gap-1.5">
+        <div
+          className={cn(
+            "flex flex-col items-center gap-1.5",
+            SIDEBAR_COLLAPSE.stage3Source,
+          )}
+        >
           {/* Theme Toggle */}
           <IconTip label={`${t("theme.title")}: ${t(`theme.${theme}`)}`} side="right">
             <Button
@@ -688,7 +708,9 @@ export default function IconSidebar({
           </div>
         </div>
         {/* Help (built-in user manual — opens its own window) */}
-        <div className="icon-sidebar-stage-1-source relative flex justify-center mt-0.5">
+        <div
+          className={cn("relative flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage1Source)}
+        >
           <IconTip label={t("help.title")} side="right">
             <Button
               variant="ghost"
