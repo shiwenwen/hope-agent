@@ -13,6 +13,21 @@ pub(crate) const WORKFLOW_ISOLATION_ARG: &str = "__hope_workflow_isolation";
 pub(crate) const WORKFLOW_RUN_ID_ARG: &str = "__hope_workflow_run_id";
 pub(crate) const WORKFLOW_DISPATCH_ID_ARG: &str = "__hope_workflow_dispatch_id";
 
+/// Model providers may materialize omitted optional string fields as `""`.
+/// Normalize those placeholders at the tool boundary so compatibility aliases
+/// do not override a valid canonical field and optional overrides do not erase
+/// inherited values.
+fn non_blank_str_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn first_non_blank_str_arg<'a>(args: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| non_blank_str_arg(args, key))
+}
+
 /// Authenticate internal Workflow-only arguments against execution context.
 /// JSON schema omission is not a security boundary: a model can still emit
 /// unknown fields, so ownership must never be inferred from args alone.
@@ -403,21 +418,14 @@ fn subagent_dispatch_handle(run: &crate::subagent::SubagentRun, dispatch_status:
 /// Returns the run_id on success.
 async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let workflow_owner = authenticated_workflow_owner(args, ctx)?;
-    let task = args
-        .get("task")
-        .and_then(|v| v.as_str())
+    let task = non_blank_str_arg(args, "task")
         .ok_or_else(|| anyhow::anyhow!("'task' is required for spawn action"))?;
 
-    let agent_id = args
-        .get("agent_id")
-        .and_then(|v| v.as_str())
+    let agent_id = non_blank_str_arg(args, "agent_id")
         .unwrap_or(DEFAULT_AGENT_ID)
         .to_string();
 
-    let model_override = args
-        .get("model")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let model_override = non_blank_str_arg(args, "model").map(str::to_string);
 
     let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
         anyhow::anyhow!("No session context — cannot spawn sub-agent outside a chat session")
@@ -436,10 +444,7 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     // delegation list). Fail-closed — see `check_subagent_delegation_allowed`.
     check_subagent_delegation_allowed(parent_agent_id, &agent_id)?;
 
-    let label = args
-        .get("label")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let label = non_blank_str_arg(args, "label").map(str::to_string);
     let workflow_preallocated_run_id = args
         .get(WORKFLOW_PREALLOCATED_RUN_ID_ARG)
         .and_then(|v| v.as_str())
@@ -545,15 +550,9 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
 }
 
 async fn action_resume(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let source_run_id = args
-        .get("run_id")
-        .and_then(Value::as_str)
+    let source_run_id = non_blank_str_arg(args, "run_id")
         .ok_or_else(|| anyhow::anyhow!("'run_id' is required for resume action"))?;
-    let task = args
-        .get("task")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|task| !task.is_empty())
+    let task = non_blank_str_arg(args, "task")
         .ok_or_else(|| anyhow::anyhow!("'task' is required for resume action"))?;
     let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
         anyhow::anyhow!("No session context — cannot resume a sub-agent outside a chat session")
@@ -632,13 +631,8 @@ async fn action_resume(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         let args = args.clone();
         crate::blocking::run_blocking(move || parse_subagent_files(&args)).await?
     };
-    let model_override = args
-        .get("model")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let label = args
-        .get("label")
-        .and_then(Value::as_str)
+    let model_override = non_blank_str_arg(args, "model").map(str::to_string);
+    let label = non_blank_str_arg(args, "label")
         .map(str::to_string)
         .or_else(|| source.label.clone());
     let workflow_isolation =
@@ -735,22 +729,17 @@ async fn action_send(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .session_id
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("No session context — cannot send to a sub-agent thread"))?;
-    let mode = args.get("mode").and_then(Value::as_str).unwrap_or("auto");
+    let mode = non_blank_str_arg(args, "mode").unwrap_or("auto");
     if !matches!(mode, "auto" | "steer_only" | "resume_only") {
         return Err(anyhow::anyhow!(
             "'mode' must be one of auto, steer_only, resume_only"
         ));
     }
-    let message = args
-        .get("message")
-        .or_else(|| args.get("task"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|message| !message.is_empty())
+    let message = first_non_blank_str_arg(args, &["message", "task"])
         .ok_or_else(|| anyhow::anyhow!("'message' is required for send action"))?;
     let session_db = get_session_db()?;
 
-    let requested_run = if let Some(run_id) = args.get("run_id").and_then(Value::as_str) {
+    let requested_run = if let Some(run_id) = non_blank_str_arg(args, "run_id") {
         Some(
             load_subagent_run(&session_db, run_id)
                 .await?
@@ -759,9 +748,7 @@ async fn action_send(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     } else {
         None
     };
-    let thread_id = args
-        .get("thread_id")
-        .and_then(Value::as_str)
+    let thread_id = non_blank_str_arg(args, "thread_id")
         .map(str::to_string)
         .or_else(|| requested_run.as_ref().map(|run| run.thread_id.clone()))
         .ok_or_else(|| anyhow::anyhow!("'thread_id' (or compatibility 'run_id') is required"))?;
@@ -910,14 +897,17 @@ async fn action_send(args: &Value, ctx: &ToolExecContext) -> Result<String> {
 }
 
 async fn action_check(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    if args.get("run_id").and_then(Value::as_str).is_none() && args.get("run_ids").is_some() {
+    if non_blank_str_arg(args, "run_id").is_none()
+        && args
+            .get("run_ids")
+            .and_then(Value::as_array)
+            .is_some_and(|run_ids| !run_ids.is_empty())
+    {
         return Err(anyhow::anyhow!(
             "check accepts one 'run_id'; use action='wait_all' for 'run_ids'"
         ));
     }
-    let run_id = args
-        .get("run_id")
-        .and_then(|v| v.as_str())
+    let run_id = non_blank_str_arg(args, "run_id")
         .ok_or_else(|| anyhow::anyhow!("'run_id' is required for check action"))?;
 
     // wait=true: poll until completion (default timeout 60s, max 300s)
@@ -1036,9 +1026,7 @@ async fn action_list(ctx: &ToolExecContext) -> Result<String> {
 }
 
 async fn action_result(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let run_id = args
-        .get("run_id")
-        .and_then(|v| v.as_str())
+    let run_id = non_blank_str_arg(args, "run_id")
         .ok_or_else(|| anyhow::anyhow!("'run_id' is required for result action"))?;
 
     let session_db = get_session_db()?;
@@ -1072,9 +1060,7 @@ async fn action_result(args: &Value, ctx: &ToolExecContext) -> Result<String> {
 }
 
 async fn action_kill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let run_id = args
-        .get("run_id")
-        .and_then(|v| v.as_str())
+    let run_id = non_blank_str_arg(args, "run_id")
         .ok_or_else(|| anyhow::anyhow!("'run_id' is required for kill action"))?;
 
     let cancel_registry = get_cancel_registry()?;
@@ -1273,13 +1259,9 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
     };
     let mut parsed: Vec<BatchTask> = Vec::with_capacity(tasks.len());
     for task_def in tasks {
-        let task = task_def
-            .get("task")
-            .and_then(|v| v.as_str())
+        let task = non_blank_str_arg(task_def, "task")
             .ok_or_else(|| anyhow::anyhow!("Each task in batch_spawn must have a 'task' field"))?;
-        let child_agent_id = task_def
-            .get("agent_id")
-            .and_then(|v| v.as_str())
+        let child_agent_id = non_blank_str_arg(task_def, "agent_id")
             .unwrap_or(DEFAULT_AGENT_ID)
             .to_string();
         // Enforce the delegation gates per child, up front (same as `do_spawn`)
@@ -1304,15 +1286,9 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         parsed.push(BatchTask {
             task: task.to_string(),
             agent_id: child_agent_id,
-            label: task_def
-                .get("label")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
+            label: non_blank_str_arg(task_def, "label").map(str::to_string),
             timeout_secs,
-            model_override: task_def
-                .get("model")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
+            model_override: non_blank_str_arg(task_def, "model").map(str::to_string),
             attachments,
         });
     }
@@ -1677,6 +1653,27 @@ fn get_cancel_registry() -> Result<Arc<subagent::SubagentCancelRegistry>> {
 #[cfg(test)]
 mod delegation_gate_tests {
     use super::*;
+
+    #[test]
+    fn blank_provider_placeholders_do_not_override_send_target_or_aliases() {
+        let args = serde_json::json!({
+            "thread_id": "  thread-1  ",
+            "run_id": "",
+            "message": "   ",
+            "task": "  continue the existing thread  ",
+            "model": "",
+            "label": "",
+        });
+
+        assert_eq!(non_blank_str_arg(&args, "thread_id"), Some("thread-1"));
+        assert_eq!(non_blank_str_arg(&args, "run_id"), None);
+        assert_eq!(non_blank_str_arg(&args, "model"), None);
+        assert_eq!(non_blank_str_arg(&args, "label"), None);
+        assert_eq!(
+            first_non_blank_str_arg(&args, &["message", "task"]),
+            Some("continue the existing thread")
+        );
+    }
 
     #[test]
     fn dispatch_handle_identifies_native_async_lifecycle() {
