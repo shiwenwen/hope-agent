@@ -656,21 +656,14 @@ pub(crate) async fn launch_subagent_run(
     match accepted_dispatches {
         Ok(dispatches) => {
             for (dispatch_id, message) in dispatches {
-                if SUBAGENT_MAILBOX.push(&run_id, message) {
-                    let dispatch_db = session_db.clone();
-                    let delivered_dispatch_id = dispatch_id.clone();
-                    if let Err(error) = dispatch_db
-                        .run(move |db| db.mark_subagent_dispatch_delivered(&delivered_dispatch_id))
-                        .await
-                    {
-                        crate::app_warn!(
-                            "subagent",
-                            "dispatch",
-                            "failed to mark steer dispatch {} delivered: {}",
-                            dispatch_id,
-                            error
-                        );
-                    }
+                if !SUBAGENT_MAILBOX.push_dispatch(&run_id, dispatch_id.clone(), message) {
+                    crate::app_warn!(
+                        "subagent",
+                        "dispatch",
+                        "failed to restore accepted steer dispatch {} into run {} mailbox",
+                        dispatch_id,
+                        run_id
+                    );
                 }
             }
         }

@@ -359,7 +359,11 @@ impl AssistantAgent {
             return Ok(());
         }
 
-        let Some(db) = crate::get_session_db() else {
+        let Some(db) = self
+            .session_db
+            .clone()
+            .or_else(|| crate::get_session_db().cloned())
+        else {
             return Ok(());
         };
         let json = serde_json::to_string(messages)?;

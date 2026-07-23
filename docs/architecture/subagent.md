@@ -384,14 +384,15 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 
 | 方法 | 行为 | 调用方 |
 |------|------|--------|
-| `register(run_id)` | 创建空 `Vec<String>` 队列 | `spawn_subagent` |
-| `push(run_id, msg)` | 推送消息到队列，返回 `false` 若 run_id 不存在 | `subagent_steer` 工具 |
-| `drain(run_id)` | 取出并清空所有待处理消息 | 子 Agent 的 tool loop 每轮 |
+| `register(run_id)` | 创建空 envelope 队列 | `spawn_subagent` |
+| `push(run_id, msg)` | 推送非 durable（Team）消息，返回 `false` 若 run_id 不存在 | Team messaging |
+| `push_dispatch(run_id, dispatch_id, msg)` | 推送 durable steer；仅入 mailbox 不改变 DB 的 `accepted` 状态 | `subagent send/steer` + launcher replay |
+| `drain(run_id)` | 取出 envelope；子会话 checkpoint 成功后才把 durable dispatch 标为 `delivered` | 子 Agent 的 tool loop 每轮 |
 | `remove(run_id)` | 清理队列 | 后台任务完成时 |
 
-全局静态实例 `SUBAGENT_MAILBOX`（`LazyLock<SubagentMailbox>`），底层用 `Mutex<HashMap<String, Vec<String>>>` 保护。
+全局静态实例 `SUBAGENT_MAILBOX`（`LazyLock<SubagentMailbox>`），底层用带可选 `dispatch_id` 的 per-run envelope 队列保护。
 
-消息流向：父 Agent → `steer` action → `SUBAGENT_MAILBOX.push()` → 子 Agent tool loop `drain()` → 消息注入为用户消息继续对话。
+消息流向：父 Agent → durable dispatch `accepted` → `SUBAGENT_MAILBOX.push_dispatch()` → 子 Agent tool loop `drain()` → 注入用户消息并 checkpoint → dispatch `delivered`。checkpoint 前崩溃时 accepted row 会在 launcher 重放；checkpoint 后、ack 前崩溃时，持久化在消息上的内部 dispatch marker 去重（marker 在 `prepare_messages_for_api()` 中剥离，绝不发给 Provider）。续跑事务会把 source attempt 尚未消费的 accepted steer 重定向到新 attempt。
 
 ## ChatSessionGuard（RAII）
 
@@ -466,7 +467,7 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 - **实时安全状态**：续跑重新计算当前父会话的 Plan 限制、Agent `denied_tools`、模型链、timeout 与 KB origin，不复活旧 run 的瞬时执行状态；附件作为新 turn 输入。若 source 仍非终态，调用方必须使用 `steer`。
 - **排队 / 注入不分叉**：新 run 复用既有并发计数、`Queued` 队列、cancel/mailbox 与 Background Job 单向投影。续跑事务同时 suppress source 的 pending parent delivery，避免旧结果晚到重复注入。
 - **恢复建议不等于自动重试**：`process_interrupted`、deadline 和其他允许续跑的错误可由调用者显式 `send`；`user_killed`、`approval_denied`、`parent_cancelled`、`workflow_cancelled` 默认拒绝续跑。V1 只在执行器能确定时写细分 reason，历史/不可判定错误保留 `unknown`，不从自由文本猜测分类。
-- **稳态性能**：async 工具面的 SQLite 访问统一走 `SessionDB::run`；Mailbox 是低延迟通道，dispatch row 是 durable provenance。Queued/Spawning 时接受的 steer 在 launcher 注册 Mailbox 后按序恢复。
+- **稳态性能**：async 工具面的 SQLite 访问统一走 `SessionDB::run`；Mailbox 是低延迟通道，dispatch row 是 durable provenance。Queued/Spawning 时接受的 steer 在 launcher 注册 Mailbox 后按序恢复，直到子会话 checkpoint 成功前始终保持可重放。
 
 **权限校验**（`do_spawn` 内部）：
 - `agent.config.subagents.enabled` 必须为 `true`

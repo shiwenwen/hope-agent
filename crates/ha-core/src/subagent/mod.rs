@@ -216,7 +216,7 @@ fn stamp_run_killed(run_id: &str) {
 pub use cancel::SubagentCancelRegistry;
 pub(crate) use helpers::mark_run_fetched_in_memory;
 pub use helpers::{cleanup_orphan_runs, mark_run_fetched, take_runs_fetched};
-pub use mailbox::{ChatSessionGuard, SUBAGENT_MAILBOX};
+pub use mailbox::{ChatSessionGuard, SubagentMailboxMessage, SUBAGENT_MAILBOX};
 pub(crate) use mention::resolve_inline_agent_mentions;
 pub(crate) use spawn::spawn_subagent_with_run_id;
 pub use spawn::{resume_subagent, spawn_subagent, HOOK_SPAWN_LABEL};

@@ -12,7 +12,13 @@ use super::SESSION_IDLE_NOTIFY;
 /// Per-run message queue for steering running sub-agents.
 /// Parent agents push steer messages; the child agent's tool loop drains them each round.
 pub struct SubagentMailbox {
-    messages: Mutex<HashMap<String, Vec<String>>>,
+    messages: Mutex<HashMap<String, Vec<SubagentMailboxMessage>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubagentMailboxMessage {
+    pub dispatch_id: Option<String>,
+    pub message: String,
 }
 
 impl SubagentMailbox {
@@ -22,8 +28,30 @@ impl SubagentMailbox {
         }
     }
 
-    /// Push a steer message for the given run. Returns Err if run_id not registered.
+    /// Push a steer message for the given run. Returns `false` if run_id is not registered.
     pub fn push(&self, run_id: &str, msg: String) -> bool {
+        self.push_message(
+            run_id,
+            SubagentMailboxMessage {
+                dispatch_id: None,
+                message: msg,
+            },
+        )
+    }
+
+    /// Queue a durable steer dispatch. The dispatch remains `accepted` in
+    /// SQLite until the child loop checkpoints this envelope into its session.
+    pub fn push_dispatch(&self, run_id: &str, dispatch_id: String, msg: String) -> bool {
+        self.push_message(
+            run_id,
+            SubagentMailboxMessage {
+                dispatch_id: Some(dispatch_id),
+                message: msg,
+            },
+        )
+    }
+
+    fn push_message(&self, run_id: &str, msg: SubagentMailboxMessage) -> bool {
         if let Ok(mut map) = self.messages.lock() {
             if let Some(queue) = map.get_mut(run_id) {
                 queue.push(msg);
@@ -34,7 +62,7 @@ impl SubagentMailbox {
     }
 
     /// Drain all pending steer messages for a run (called by the child agent's tool loop).
-    pub fn drain(&self, run_id: &str) -> Vec<String> {
+    pub fn drain(&self, run_id: &str) -> Vec<SubagentMailboxMessage> {
         if let Ok(mut map) = self.messages.lock() {
             if let Some(queue) = map.get_mut(run_id) {
                 return std::mem::take(queue);
@@ -61,6 +89,27 @@ impl SubagentMailbox {
 /// Global steer mailbox — accessible from tools and agent providers.
 pub static SUBAGENT_MAILBOX: std::sync::LazyLock<SubagentMailbox> =
     std::sync::LazyLock::new(SubagentMailbox::new);
+
+#[cfg(test)]
+mod mailbox_tests {
+    use super::*;
+
+    #[test]
+    fn durable_dispatch_keeps_identity_until_child_drain() {
+        let mailbox = SubagentMailbox::new();
+        mailbox.register("run-1");
+        assert!(mailbox.push_dispatch("run-1", "dispatch-1".into(), "continue".into()));
+
+        assert_eq!(
+            mailbox.drain("run-1"),
+            vec![SubagentMailboxMessage {
+                dispatch_id: Some("dispatch-1".into()),
+                message: "continue".into(),
+            }]
+        );
+        assert!(mailbox.drain("run-1").is_empty());
+    }
+}
 
 // ── Chat Session Guard ──────────────────────────────────────────
 

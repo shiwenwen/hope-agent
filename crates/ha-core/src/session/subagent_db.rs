@@ -371,6 +371,19 @@ impl SessionDB {
                 source_run_id
             ));
         }
+        // A steer can be accepted immediately before the source attempt
+        // crashes. It remains replayable until its message is checkpointed,
+        // so transfer any still-accepted envelopes to the continuation rather
+        // than stranding them on the terminal attempt.
+        tx.execute(
+            "UPDATE subagent_dispatches
+                SET target_run_id = ?1
+              WHERE thread_id = ?2
+                AND target_run_id = ?3
+                AND dispatch_kind = 'steer'
+                AND state = 'accepted'",
+            params![run.run_id, run.thread_id, source_run_id],
+        )?;
         if let (Some(dispatch_id), Some(dispatch_message)) = (dispatch_id, dispatch_message) {
             tx.execute(
                 "INSERT INTO subagent_dispatches (
@@ -1556,6 +1569,58 @@ mod tests {
             .unwrap();
         assert_eq!(replay.len(), 1);
         assert_eq!(replay[0].thread_id, child_id);
+    }
+
+    #[test]
+    fn continuation_retargets_unconsumed_steer_dispatch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        let parent = db.create_session("ha-main").unwrap();
+        let child = db
+            .create_session_with_parent("helper", Some(&parent.id))
+            .unwrap();
+        let mut source = run("run-source", &child.id, SubagentStatus::Running);
+        source.parent_session_id = parent.id.clone();
+        source.owner_id = parent.id.clone();
+        db.insert_subagent_run(&source).unwrap();
+        db.insert_subagent_steer_dispatch(
+            "dispatch-pending",
+            &child.id,
+            &source.run_id,
+            crate::subagent::SubagentOwnerKind::ParentSession,
+            &parent.id,
+            "preserve this follow-up",
+        )
+        .unwrap();
+        db.update_subagent_status(
+            &source.run_id,
+            SubagentStatus::Interrupted,
+            None,
+            Some("simulated crash"),
+            None,
+            Some(1),
+        )
+        .unwrap();
+
+        let mut continuation = run("run-next", &child.id, SubagentStatus::Spawning);
+        continuation.parent_session_id = parent.id.clone();
+        continuation.owner_id = parent.id;
+        continuation.continuation_of_run_id = Some(source.run_id.clone());
+        db.insert_resumed_subagent_run(&source.run_id, &continuation, None, None)
+            .unwrap();
+
+        assert!(db
+            .list_accepted_subagent_dispatches(&source.run_id)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            db.list_accepted_subagent_dispatches(&continuation.run_id)
+                .unwrap(),
+            vec![(
+                "dispatch-pending".to_string(),
+                "preserve this follow-up".to_string()
+            )]
+        );
     }
 
     #[test]

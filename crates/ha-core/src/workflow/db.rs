@@ -199,62 +199,74 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             conn.execute_batch(migration)?;
         }
     }
-    // Restore historical Workflow ownership before projecting attempts. Older
-    // `subagent_runs` rows predate owner columns and otherwise look like plain
-    // parent-session children during this migration pass.
-    conn.execute_batch(
-        "UPDATE subagent_runs
-            SET owner_kind = 'workflow',
-                owner_id = (
-                    SELECT wo.run_id
-                      FROM workflow_ops wo
+    let has_subagent_runs: bool = conn.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM sqlite_master
+             WHERE type = 'table' AND name = 'subagent_runs'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_subagent_runs {
+        // Restore historical Workflow ownership before projecting attempts.
+        // Older `subagent_runs` rows predate owner columns and otherwise look
+        // like plain parent-session children during this migration pass.
+        conn.execute_batch(
+            "UPDATE subagent_runs
+                SET owner_kind = 'workflow',
+                    owner_id = (
+                        SELECT wo.run_id
+                          FROM workflow_ops wo
+                         WHERE wo.child_handle = subagent_runs.run_id
+                           AND wo.op_type IN ('spawnAgent','resumeAgent')
+                         ORDER BY wo.started_at ASC, wo.id ASC
+                         LIMIT 1
+                    ),
+                    delivery_kind = 'workflow'
+              WHERE EXISTS (
+                    SELECT 1 FROM workflow_ops wo
                      WHERE wo.child_handle = subagent_runs.run_id
                        AND wo.op_type IN ('spawnAgent','resumeAgent')
-                     ORDER BY wo.started_at ASC, wo.id ASC
-                     LIMIT 1
-                ),
-                delivery_kind = 'workflow'
-          WHERE EXISTS (
-                SELECT 1 FROM workflow_ops wo
-                 WHERE wo.child_handle = subagent_runs.run_id
-                   AND wo.op_type IN ('spawnAgent','resumeAgent')
-          );",
-    )?;
-    // Backfill the initial-attempt projection for existing Workflow children.
-    // Selective-resume imports remain result-only and never gain owner control.
-    conn.execute_batch(
-        "INSERT OR IGNORE INTO workflow_agent_attempts (
-            workflow_run_id, thread_id, run_id, source_op_id,
-            continuation_of_run_id, role, control_mode, resolution_state,
-            created_at
-         )
-         SELECT wo.run_id,
-                sr.child_session_id,
-                sr.run_id,
-                wo.id,
-                sr.continuation_of_run_id,
-                CASE
-                    WHEN sr.owner_kind = 'workflow' AND sr.owner_id = wo.run_id
-                        THEN CASE WHEN sr.continuation_of_run_id IS NULL
-                                  THEN 'initial' ELSE 'continuation' END
-                    ELSE 'imported_read_only'
-                END,
-                CASE
-                    WHEN sr.owner_kind = 'workflow' AND sr.owner_id = wo.run_id
-                        THEN 'control'
-                    ELSE 'result_only'
-                END,
-                CASE
-                    WHEN sr.status = 'completed' THEN 'resolved'
-                    ELSE 'pending'
-                END,
-                wo.started_at
-           FROM workflow_ops wo
-           JOIN subagent_runs sr ON sr.run_id = wo.child_handle
-          WHERE wo.op_type IN ('spawnAgent', 'resumeAgent')
-            AND wo.child_handle IS NOT NULL
-            AND wo.child_handle != '';",
-    )?;
+              );",
+        )?;
+        // Backfill the initial-attempt projection for existing Workflow
+        // children. Selective-resume imports remain result-only and never gain
+        // owner control. `ensure_tables` is also used by narrow migration tests
+        // and tooling, so the optional subagent subsystem cannot be assumed.
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO workflow_agent_attempts (
+                workflow_run_id, thread_id, run_id, source_op_id,
+                continuation_of_run_id, role, control_mode, resolution_state,
+                created_at
+             )
+             SELECT wo.run_id,
+                    sr.child_session_id,
+                    sr.run_id,
+                    wo.id,
+                    sr.continuation_of_run_id,
+                    CASE
+                        WHEN sr.owner_kind = 'workflow' AND sr.owner_id = wo.run_id
+                            THEN CASE WHEN sr.continuation_of_run_id IS NULL
+                                      THEN 'initial' ELSE 'continuation' END
+                        ELSE 'imported_read_only'
+                    END,
+                    CASE
+                        WHEN sr.owner_kind = 'workflow' AND sr.owner_id = wo.run_id
+                            THEN 'control'
+                        ELSE 'result_only'
+                    END,
+                    CASE
+                        WHEN sr.status = 'completed' THEN 'resolved'
+                        ELSE 'pending'
+                    END,
+                    wo.started_at
+               FROM workflow_ops wo
+               JOIN subagent_runs sr ON sr.run_id = wo.child_handle
+              WHERE wo.op_type IN ('spawnAgent', 'resumeAgent')
+                AND wo.child_handle IS NOT NULL
+                AND wo.child_handle != '';",
+        )?;
+    }
     if conn
         .prepare("SELECT origin FROM workflow_runs LIMIT 1")
         .is_err()

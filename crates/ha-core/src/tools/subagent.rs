@@ -845,14 +845,12 @@ async fn action_send(args: &Value, ctx: &ToolExecContext) -> Result<String> {
             })
             .await?;
         }
-        let delivered =
-            crate::subagent::SUBAGENT_MAILBOX.push(&current.run_id, message.to_string());
-        if delivered {
-            let db = session_db.clone();
-            let delivered_dispatch_id = dispatch_id.clone();
-            db.run(move |db| db.mark_subagent_dispatch_delivered(&delivered_dispatch_id))
-                .await?;
-        } else if matches!(current.status, SubagentStatus::Running) {
+        let enqueued = crate::subagent::SUBAGENT_MAILBOX.push_dispatch(
+            &current.run_id,
+            dispatch_id.clone(),
+            message.to_string(),
+        );
+        if !enqueued && matches!(current.status, SubagentStatus::Running) {
             // A Running row without a mailbox normally means it crossed the
             // terminal boundary between the transaction and the push. Refuse
             // this dispatch rather than claiming delivery.
@@ -871,7 +869,7 @@ async fn action_send(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         response["dispatch_id"] = Value::String(dispatch_id);
         response["disposition"] = Value::String("steered".to_string());
         response["delivery"] =
-            Value::String(if delivered { "delivered" } else { "accepted" }.to_string());
+            Value::String(if enqueued { "enqueued" } else { "accepted" }.to_string());
         return Ok(serde_json::to_string_pretty(&response)?);
     }
 
