@@ -294,7 +294,7 @@ export default function ModelPicker({
                   className={cn(
                     "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
                     reasoningEffort === opt.value
-                      ? "bg-secondary text-foreground font-medium shadow-sm"
+                      ? "bg-secondary text-foreground font-medium"
                       : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
                   )}
                   onMouseEnter={() => handleRootItemMouseEnter(null)}
@@ -340,7 +340,7 @@ export default function ModelPicker({
               className={cn(
                 "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
                 openPanel === "model"
-                  ? "bg-secondary text-foreground shadow-sm"
+                  ? "bg-secondary text-foreground"
                   : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
               )}
               onMouseEnter={() => handleRootItemMouseEnter("model")}
@@ -358,7 +358,7 @@ export default function ModelPicker({
             className={cn(
               "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
               openPanel === "temperature"
-                ? "bg-secondary text-foreground shadow-sm"
+                ? "bg-secondary text-foreground"
                 : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
             )}
             onMouseEnter={() => handleRootItemMouseEnter("temperature")}
@@ -441,7 +441,7 @@ export default function ModelPicker({
                           unsupported
                             ? "cursor-not-allowed bg-muted/30 text-muted-foreground/45 opacity-60"
                             : selected
-                              ? "bg-secondary text-foreground font-medium shadow-sm"
+                              ? "bg-secondary text-foreground font-medium"
                               : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
                         )}
                         disabled={unsupported}

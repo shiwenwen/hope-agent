@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
+import { selectionPillStateClass } from "./selection-pill-styles"
 
 type RadioPillsVariant = "subtle" | "strong"
 
@@ -62,13 +63,10 @@ export function RadioPills<V extends string | number>({
               variant === "strong" ? "rounded-full" : "rounded-md",
               variant === "strong"
                 ? isActive
-                  ? "bg-primary font-medium text-primary-foreground"
-                  : cn(
-                      "text-muted-foreground",
-                      !opt.disabled && "hover:bg-secondary/40 hover:text-foreground",
-                    )
+                  ? cn("font-medium", selectionPillStateClass(true, !opt.disabled))
+                  : selectionPillStateClass(false, !opt.disabled)
                 : isActive
-                  ? "bg-secondary/70 text-foreground"
+                  ? "bg-secondary text-foreground"
                   : cn(
                       "bg-secondary/40 text-muted-foreground",
                       !opt.disabled && "hover:bg-secondary/60 hover:text-foreground",

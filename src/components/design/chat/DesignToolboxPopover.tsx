@@ -133,7 +133,7 @@ export function DesignToolboxPopover({ recipes, onPick, kindLabel, systemId }: P
                     className={cn(
                       "flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors",
                       preview?.id === r.id
-                        ? "bg-secondary/70 text-foreground"
+                        ? "bg-secondary text-foreground"
                         : "hover:bg-secondary/40",
                     )}
                   >

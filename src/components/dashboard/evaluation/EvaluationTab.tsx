@@ -892,7 +892,7 @@ export default function EvaluationTab() {
                         onClick={() => setProfileId(item.id)}
                         className={cn(
                           "rounded-lg p-3 text-left transition-colors",
-                          selected ? "bg-secondary/70" : "bg-secondary/30 hover:bg-secondary/40",
+                          selected ? "bg-secondary" : "bg-secondary/30 hover:bg-secondary/40",
                         )}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -934,7 +934,7 @@ export default function EvaluationTab() {
                         className={cn(
                           "rounded-lg p-3 text-left text-sm transition-colors",
                           selectedCases.includes(item.id)
-                            ? "bg-secondary/70"
+                            ? "bg-secondary"
                             : "bg-secondary/30 hover:bg-secondary/40",
                         )}
                       >
@@ -1003,7 +1003,7 @@ export default function EvaluationTab() {
                             className={cn(
                               "rounded-lg p-3 transition-colors",
                               selected
-                                ? "bg-secondary/70"
+                                ? "bg-secondary"
                                 : "bg-secondary/30 hover:bg-secondary/40",
                             )}
                           >
@@ -1415,7 +1415,7 @@ function ConsentButton({
       onClick={onClick}
       className={cn(
         "rounded-lg px-3 py-2 text-xs transition-colors",
-        selected ? "bg-secondary/70" : "bg-secondary/30 hover:bg-secondary/40",
+        selected ? "bg-secondary" : "bg-secondary/30 hover:bg-secondary/40",
       )}
     >
       <span className="mr-2">{selected ? "✓" : "○"}</span>
@@ -1783,7 +1783,7 @@ function RunMonitorPanel({
                     onClick={() => openTrial(trial)}
                     className={cn(
                       "grid w-full grid-cols-[minmax(280px,1fr)_120px_100px_90px_100px_100px_20px] items-center gap-3 px-4 py-2.5 text-left text-xs transition-colors hover:bg-secondary/40 disabled:pointer-events-none",
-                      selected && "bg-secondary/70",
+                      selected && "bg-secondary",
                     )}
                   >
                     <span className="min-w-0">
@@ -2148,7 +2148,7 @@ function ExperimentDetail({
                 disabled={detail.experiment.kind !== "hope_core" || trialLoading}
                 className={cn(
                   "grid w-full grid-cols-[minmax(260px,1fr)_auto_auto_120px] items-center gap-3 rounded-lg bg-background/50 px-3 py-2 text-left text-xs hover:bg-secondary/40 disabled:pointer-events-none",
-                  selected && "bg-secondary/70",
+                  selected && "bg-secondary",
                 )}
               >
                 <div className="min-w-0">

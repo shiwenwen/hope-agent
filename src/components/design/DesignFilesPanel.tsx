@@ -482,7 +482,7 @@ export default function DesignFilesPanel({
                     className={cn(
                       "group/card relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:bg-secondary/40",
                       activeArtifactId === a.id && "bg-secondary/40",
-                      selected.has(a.id) && "bg-secondary/70",
+                      selected.has(a.id) && "bg-secondary",
                     )}
                   >
                     {/* 选择框（Wave 1-③）：悬停显现 / 选中常驻；点它只切选中不打开产物。 */}

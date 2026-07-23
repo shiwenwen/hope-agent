@@ -179,7 +179,7 @@ export function CustomWizard({
                 <div
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors ${
                     i === customStep
-                      ? "bg-secondary/70 text-foreground"
+                      ? "bg-secondary text-foreground"
                       : i < customStep
                         ? "bg-primary/20 text-primary"
                         : "bg-secondary text-muted-foreground"
@@ -212,7 +212,7 @@ export function CustomWizard({
                   onClick={() => setApiType(opt.value)}
                   className={`h-auto justify-start gap-3 rounded-xl p-3.5 text-left font-normal transition-all duration-200 ${
                     apiType === opt.value
-                      ? "border-border bg-secondary/70 hover:bg-secondary/70"
+                      ? "border-border bg-secondary hover:bg-secondary"
                       : "border-border bg-card hover:bg-secondary/50"
                   }`}
                 >

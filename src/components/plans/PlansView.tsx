@@ -469,7 +469,7 @@ function PlanListRow({ entry, agent, active, onSelect }: PlanListRowProps) {
       onClick={onSelect}
       className={cn(
         "mb-1.5 w-full rounded-xl p-3 text-left text-foreground transition-colors",
-        active ? "bg-secondary/70" : "hover:bg-secondary/40",
+        active ? "bg-secondary" : "hover:bg-secondary/40",
       )}
     >
       <div className="flex items-start justify-between gap-2">

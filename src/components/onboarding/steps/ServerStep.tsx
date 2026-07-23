@@ -102,7 +102,7 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
           onClick={() => update({ bindMode: "local" })}
           className={`rounded-lg border-2 px-4 py-3 text-left transition-all ${
             bindMode === "local"
-              ? "border-border bg-secondary/70"
+              ? "border-border bg-secondary"
               : "border-border hover:bg-secondary/40"
           }`}
         >
@@ -117,7 +117,7 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
           onClick={() => update({ bindMode: "lan", apiKeyEnabled: true })}
           className={`rounded-lg border-2 px-4 py-3 text-left transition-all ${
             bindMode === "lan"
-              ? "border-border bg-secondary/70"
+              ? "border-border bg-secondary"
               : "border-border hover:bg-secondary/40"
           }`}
         >

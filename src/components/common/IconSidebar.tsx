@@ -255,7 +255,7 @@ export default function IconSidebar({
                   className={cn(
                     "rounded-xl h-8 w-8",
                     view === "chat"
-                      ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                      ? "bg-secondary text-foreground hover:bg-secondary"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                   onClick={onOpenChat}
@@ -300,7 +300,7 @@ export default function IconSidebar({
               className={cn(
                 "rounded-xl h-8 w-8",
                 view === "knowledge"
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenKnowledge}
@@ -318,7 +318,7 @@ export default function IconSidebar({
               className={cn(
                 "rounded-xl h-8 w-8",
                 view === "design"
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenDesign}
@@ -336,7 +336,7 @@ export default function IconSidebar({
               className={cn(
                 "rounded-xl h-8 w-8",
                 view === "artifacts"
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenArtifacts}
@@ -357,7 +357,7 @@ export default function IconSidebar({
                     className={cn(
                       "rounded-xl h-8 w-8",
                       view === "calendar"
-                        ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                        ? "bg-secondary text-foreground hover:bg-secondary"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                     onClick={onOpenCalendar}
@@ -392,7 +392,7 @@ export default function IconSidebar({
               className={cn(
                 "rounded-xl h-8 w-8",
                 view === "dashboard"
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenDashboard}
@@ -415,7 +415,7 @@ export default function IconSidebar({
               className={cn(
                 "rounded-xl h-8 w-8",
                 view === "agents"
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenAgents}
@@ -434,7 +434,7 @@ export default function IconSidebar({
               className={cn(
                 "rounded-xl h-8 w-8",
                 view === "modelConfig"
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenModelConfig}
@@ -453,7 +453,7 @@ export default function IconSidebar({
               className={cn(
                 "rounded-xl h-8 w-8",
                 view === "channels"
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenChannels}
@@ -473,7 +473,7 @@ export default function IconSidebar({
                 className={cn(
                   "rounded-xl h-8 w-8",
                   view === "skills"
-                    ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                    ? "bg-secondary text-foreground hover:bg-secondary"
                     : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={onOpenSkills}
@@ -498,7 +498,7 @@ export default function IconSidebar({
               className={cn(
                 "rounded-xl h-8 w-8",
                 view === "memory"
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenMemory}
@@ -526,7 +526,7 @@ export default function IconSidebar({
             className={cn(
               "rounded-xl h-8 w-8",
               view === "plans"
-                ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                ? "bg-secondary text-foreground hover:bg-secondary"
                 : "text-muted-foreground hover:text-foreground",
             )}
             onClick={onOpenPlans}
@@ -584,7 +584,7 @@ export default function IconSidebar({
                   className={cn(
                     "ha-focus-item hidden w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground",
                     item.menuClass,
-                    item.active ? "bg-secondary/70 text-foreground" : "text-muted-foreground",
+                    item.active ? "bg-secondary text-foreground" : "text-muted-foreground",
                   )}
                   onClick={() => {
                     item.onClick()
@@ -732,7 +732,7 @@ export default function IconSidebar({
               className={cn(
                 "rounded-xl h-8 w-8",
                 view === "settings"
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={() => onOpenSettings()}

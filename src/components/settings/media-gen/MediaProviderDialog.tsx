@@ -16,6 +16,7 @@ import { RadioPills } from "@/components/ui/radio-pills"
 import { SearchInput } from "@/components/ui/search-input"
 import { SecretInput } from "@/components/ui/secret-input"
 import { Switch } from "@/components/ui/switch"
+import { TogglePills } from "@/components/ui/toggle-pills"
 import {
   Select,
   SelectContent,
@@ -36,7 +37,6 @@ import TestResultDisplay, {
   type TestResult,
 } from "@/components/settings/TestResultDisplay"
 import { getTransport } from "@/lib/transport-provider"
-import { cn } from "@/lib/utils"
 
 import type {
   MediaAudioKind,
@@ -281,28 +281,15 @@ function CustomModelEditor({
         <div className="space-y-2">
           <div className="space-y-1.5">
             <Label className="text-xs">{t("settings.mediaModels.audioKinds")}</Label>
-            <div className="flex flex-wrap gap-1.5" role="group">
-              {AUDIO_KINDS.map((k) => {
-                const active = kinds.includes(k)
-                return (
-                  <button
-                    key={k}
-                    type="button"
-                    role="checkbox"
-                    aria-checked={active}
-                    onClick={() => toggleKind(k)}
-                    className={cn(
-                      "inline-flex items-center rounded-md px-2 py-1.5 text-xs transition-colors",
-                      active
-                        ? "bg-secondary/70 text-foreground"
-                        : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                    )}
-                  >
-                    {t(AUDIO_KIND_LABEL_KEY[k])}
-                  </button>
-                )
-              })}
-            </div>
+            <TogglePills
+              values={new Set(kinds)}
+              onToggle={toggleKind}
+              ariaLabel={t("settings.mediaModels.audioKinds")}
+              options={AUDIO_KINDS.map((kind) => ({
+                value: kind,
+                label: t(AUDIO_KIND_LABEL_KEY[kind]),
+              }))}
+            />
           </div>
           {capRow(
             t("settings.mediaModels.supportsDuration"),

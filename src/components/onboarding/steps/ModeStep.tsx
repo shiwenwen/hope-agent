@@ -191,7 +191,7 @@ export function ModeStep({
           onClick={() => onChange({ mode: "local" })}
           className={`rounded-xl border p-5 text-left transition-colors ${
             mode === "local"
-              ? "border-border bg-secondary/70"
+              ? "border-border bg-secondary"
               : "border-border hover:bg-secondary/40"
           }`}
         >
@@ -211,7 +211,7 @@ export function ModeStep({
           onClick={() => onChange({ mode: "remote" })}
           className={`rounded-xl border p-5 text-left transition-colors ${
             mode === "remote"
-              ? "border-border bg-secondary/70"
+              ? "border-border bg-secondary"
               : "border-border hover:bg-secondary/40"
           }`}
         >

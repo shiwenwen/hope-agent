@@ -107,8 +107,8 @@ export default function PersonalityTab({
               className={cn(
                 "h-auto flex-1 rounded-md px-3 py-2 text-xs",
                 mode === "structured"
-                  ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
-                  : "bg-secondary/40 text-foreground hover:bg-secondary/70",
+                  ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
+                  : "bg-secondary/40 text-foreground hover:bg-secondary",
               )}
             >
               {t("settings.personaModeStructured")}
@@ -119,8 +119,8 @@ export default function PersonalityTab({
               className={cn(
                 "h-auto flex-1 rounded-md px-3 py-2 text-xs",
                 mode === "soulMd"
-                  ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
-                  : "bg-secondary/40 text-foreground hover:bg-secondary/70",
+                  ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
+                  : "bg-secondary/40 text-foreground hover:bg-secondary",
               )}
             >
               {t("settings.personaModeSoulMd")}
@@ -203,7 +203,7 @@ export default function PersonalityTab({
                   className={cn(
                     "h-auto rounded-md px-2.5 py-1.5 text-xs",
                     isSelected
-                      ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
+                      ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
                       : "bg-secondary/30 text-foreground hover:bg-secondary/60",
                   )}
                   onClick={() => {

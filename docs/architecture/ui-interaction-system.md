@@ -30,6 +30,7 @@
 | 普通文本/密码 | `Input` | 普通编辑字段；不要因为视觉相似误用 `SearchInput` |
 | 多行文本 | `Textarea` | 普通多行编辑字段 |
 | 强互斥分类标签 | `RadioPills variant="strong"` | 单选；支持图标、固定网格或自动换行；选中反白 |
+| 多选标签 | `TogglePills` | 多选；选中使用深色反白，未选中保留中性实色底，不使用边框、阴影或额外勾选 |
 
 业务组件不得直接使用裸 `<select>`、裸 `<input type="number">`、`Input type="number"`
 或重新引入 `NativeSelect`。公共入口表达不了新语义时，应先扩展公共组件。
@@ -98,7 +99,11 @@
 - 普通容器、卡片、列表行、分段选择和工具按钮的 hover 只加深背景；禁止新增或加深
   `border` / `ring` / `shadow`，也禁止通过 `group-hover` / `peer-hover` 间接改变子元素边框；
 - 控件原有的静态结构边框可以保留，但 hover、active、selected、checked 和 open 不得用边框
-  变化表达状态；普通持久选中使用 `bg-secondary/70`，未选中 hover 使用 `bg-secondary/40`；
+  变化表达状态；普通持久选中使用 `bg-secondary`，未选中 hover 使用 `bg-secondary/40`；
+- 多选标签必须使用 `TogglePills`，以 `aria-pressed` 和
+  `bg-primary text-primary-foreground` 深色反白表达选中，未选中使用
+  `bg-secondary text-secondary-foreground` 与页面底色分层，hover 使用
+  `bg-foreground/15` 保证明暗两种主题都有反馈；保留原图标，不另加勾选；
 - 小型 checkbox / radio 的内部勾选标记可以使用 `bg-primary`，但选中时不叠加 primary 边框；
 - 键盘焦点、`prefers-contrast` 与 `forced-colors` 的系统轮廓/边框属于可访问性反馈，不受上述
   视觉限制；错误、警告、拖拽落点等语义状态也按各自协议处理；
@@ -110,7 +115,7 @@
 首页聊天会话列表是普通列表行状态的视觉基准：
 
 - 未选中条目 hover 使用 `bg-secondary/40`；
-- 持久选中条目使用 `bg-secondary/70`，文字保持正常 `text-foreground`；
+- 持久选中条目使用 `bg-secondary`，文字保持正常 `text-foreground`；
 - 普通选中禁止使用 `bg-primary/*`、`text-primary` 或硬编码蓝色，避免把“当前项”误读为
   信息提示、链接或主要操作；
 - 文件树中没有持久选中语义的文件夹只应用 hover；当前打开的文件、空间、任务或运行记录
@@ -218,19 +223,20 @@ Web GUI 通过 `/api/config/enhanced-focus-indicators` 读写；两者都通过
 该例外让设置页字段绕过公共表面。
 
 Tab 有独立的层级协议，不套普通列表选中背景：公共 `TabsList` 是 `bg-muted` 容器，
-`TabsTrigger` 选中恢复 `bg-background` + 轻量 `shadow`，形成清晰的前后表面；不得改成与容器
-接近的 `bg-secondary/70`。无外壳的线型 Tab（当前仅 Agent 编辑页）可使用底部 primary 强调线。
+`TabsTrigger` 选中恢复 `bg-background`，依靠轨道与选中面的明度差形成层级，不加阴影；不得改成
+与容器接近的半透明背景。无外壳的线型 Tab（当前仅 Agent 编辑页）可使用底部 primary 强调线。
 两类 Tab 都不得在 hover 时改变边框；线型 Tab 的底线只在持久选中时出现。
 
 `RadioPills variant="strong"` 是强互斥分类标签的唯一入口：选中项使用
 `bg-primary text-primary-foreground`（深色主题下仍使用对应反白 token），图标继承前景色；
-未选中 hover 使用 `bg-secondary/40`，选中前后均不得增加或改变边框。它适用于设计空间产物
+未选中使用 `bg-secondary text-secondary-foreground`，hover 使用 `bg-foreground/15`；
+选中前后均不得增加或改变边框。它适用于设计空间产物
 类型、定时频率、导出格式/倍率、审批策略、Memory 学习模式和模型能力分类等“从并列标签中
 确定一个值”的场景。Tab 使用上面的独立表面协议；页面导航、视图切换、权限等级继续使用
-普通 `bg-secondary/70`；多选筛选继续使用普通选中背景或勾选标记，不能借强标签制造多个
+普通 `bg-secondary`；多选筛选继续使用普通选中背景或勾选标记，不能借强标签制造多个
 并列黑块。
 
-设计空间首页 recipe 模板卡仍按普通卡片选中规则使用 `bg-secondary/70`，并通过
+设计空间首页 recipe 模板卡仍按普通卡片选中规则使用 `bg-secondary`，并通过
 `aria-pressed` 暴露状态；它不是强互斥分类标签。
 
 行内改名、标签输入、复合搜索和整页源码 / 指令编辑器的视觉边界由外壳承担，内部
@@ -259,11 +265,11 @@ Tab 有独立的层级协议，不套普通列表选中背景：公共 `TabsList
 - 复合控件是否只显示一层焦点反馈？
 - 是否误把工具栏 ghost action 当成表单字段，或反过来？
 - 强互斥分类标签是否复用 `RadioPills variant="strong"`，并避免用于 Tab、视图切换或多选？
-- 容器型 Tab 是否使用 `bg-background` + 轻阴影区分选中面，而不是融入 `TabsList` 背景？
+- 容器型 Tab 是否使用 `bg-background` 区分选中面，并保持无阴影？
 - 一级工作区标题栏是否保持 `h-10` 单行，并把返回、侧栏开关按顺序放在最左侧？
 - hover / selected / open 是否只改变背景，没有引入 `hover:border-*`、`hover:ring-*`、
   `group-hover:border-*` 或状态阴影？
-- 普通列表行是否使用 `hover:bg-secondary/40` 和 `bg-secondary/70`，并把语义强调色限制在
+- 普通列表行是否使用 `hover:bg-secondary/40` 和 `bg-secondary`，并把语义强调色限制在
   错误、警告、未读或拖拽等真实状态？
 - 应用内最大化是否复用 `useFullscreenTransition`，并同时覆盖展开与恢复？
 
@@ -286,6 +292,8 @@ pnpm exec vitest run src/components/ui/interaction-border-audit.test.ts
 - `src/components/ui/search-input.tsx`
 - `src/components/ui/input.tsx`
 - `src/components/ui/radio-pills.tsx`
+- `src/components/ui/toggle-pills.tsx`
+- `src/components/ui/selection-pill-styles.ts`
 - `src/components/ui/number-input.tsx`
 - `src/components/ui/deferred-number-input.tsx`
 - `src/components/ui/select.tsx`

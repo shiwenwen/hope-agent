@@ -36,7 +36,7 @@ export default function LanguagePanel() {
           className={cn(
             "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
             followSystem
-              ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
+              ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
               : "text-foreground hover:bg-secondary/60",
           )}
           onClick={handleFollowSystem}
@@ -58,7 +58,7 @@ export default function LanguagePanel() {
             className={cn(
               "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
               isCurrentLang(lang.code)
-                ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
+                ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
                 : "text-foreground hover:bg-secondary/60",
             )}
             onClick={() => handleSelectLanguage(lang.code)}

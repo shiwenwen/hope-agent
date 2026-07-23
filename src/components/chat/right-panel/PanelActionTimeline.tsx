@@ -58,7 +58,7 @@ const TimelineRow = memo(function TimelineRow({
       onClick={() => onSelect(entry)}
       className={cn(
         "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
-        selected ? "bg-secondary/70" : "hover:bg-secondary/40",
+        selected ? "bg-secondary" : "hover:bg-secondary/40",
       )}
     >
       <span className="w-6 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">

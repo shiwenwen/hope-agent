@@ -997,7 +997,7 @@ function FileBrowserSearchResultRow({
       type="button"
       className={cn(
         "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm outline-none transition-colors",
-        selected ? "bg-secondary/70 text-foreground" : "text-foreground/85 hover:bg-secondary/40",
+        selected ? "bg-secondary text-foreground" : "text-foreground/85 hover:bg-secondary/40",
       )}
       onClick={() => {
         onHover(index)

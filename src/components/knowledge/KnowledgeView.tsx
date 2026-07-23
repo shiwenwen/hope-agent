@@ -1743,7 +1743,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             style={pad}
             className={cn(
               "flex w-full items-center gap-2 py-1 pr-2 text-left text-xs hover:bg-secondary/40",
-              openPath === n.relPath && "bg-secondary/70",
+              openPath === n.relPath && "bg-secondary",
               dragItem?.path === n.relPath && "opacity-40",
             )}
           >
@@ -2043,7 +2043,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             <Button
               variant="ghost"
               size="icon"
-              className={cn("h-7 w-7", graphMode && "bg-secondary/70 text-foreground")}
+              className={cn("h-7 w-7", graphMode && "bg-secondary text-foreground")}
               disabled={!activeKbId}
               onClick={() => setGraphMode((g) => !g)}
             >
@@ -2163,7 +2163,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                         }
                         className={cn(
                           "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted/50",
-                          kb.id === activeKbId && "bg-secondary/70 text-foreground",
+                          kb.id === activeKbId && "bg-secondary text-foreground",
                           kb.archived && "opacity-60",
                         )}
                       >
@@ -2247,7 +2247,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   className={cn(
                     "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
                     leftMode === "notes"
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-background text-foreground"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                   onClick={() => setLeftMode("notes")}
@@ -2260,7 +2260,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   className={cn(
                     "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
                     leftMode === "sources"
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-background text-foreground"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                   onClick={() => setLeftMode("sources")}
@@ -3546,7 +3546,7 @@ function ModeSwitch({
           className={cn(
             "whitespace-nowrap px-2 py-0.5 text-[11px]",
             mode === m
-              ? "bg-secondary/70 text-foreground"
+              ? "bg-secondary text-foreground"
               : "text-muted-foreground hover:bg-secondary/40",
           )}
         >

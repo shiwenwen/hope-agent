@@ -1767,7 +1767,7 @@ function ManagedWorktreesMiniPanel({
                 key={worktree.id}
                 className={cn(
                   "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[10px]",
-                  isActive ? "bg-secondary/70" : "bg-background/35",
+                  isActive ? "bg-secondary" : "bg-background/35",
                 )}
                 data-ha-title-tip={worktree.path}
               >
@@ -7209,7 +7209,7 @@ function ReviewSection({
                 className={cn(
                   "h-7 min-w-0 rounded-md border px-1.5 text-[10px] font-medium transition-colors disabled:opacity-55",
                   active
-                    ? "border-border/50 bg-secondary/70 text-foreground"
+                    ? "border-border/50 bg-secondary text-foreground"
                     : "border-border/50 bg-secondary/20 text-muted-foreground hover:bg-secondary/45 hover:text-foreground",
                 )}
               >
@@ -17937,7 +17937,7 @@ function WorkflowCreateComposer({
                     className={cn(
                       "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
                       selected
-                        ? "border-border/45 bg-secondary/70 text-foreground"
+                        ? "border-border/45 bg-secondary text-foreground"
                         : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                     )}
                     disabled={saving || previewLoading}
@@ -17966,7 +17966,7 @@ function WorkflowCreateComposer({
                 className={cn(
                   "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
                   worktreeMode === "session"
-                    ? "border-border/45 bg-secondary/70 text-foreground"
+                    ? "border-border/45 bg-secondary text-foreground"
                     : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                 )}
                 disabled={saving || previewLoading}
@@ -17983,7 +17983,7 @@ function WorkflowCreateComposer({
                 className={cn(
                   "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
                   worktreeMode === "new"
-                    ? "border-border/45 bg-secondary/70 text-foreground"
+                    ? "border-border/45 bg-secondary text-foreground"
                     : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                 )}
                 disabled={saving || previewLoading || !workspaceReady}
@@ -18005,7 +18005,7 @@ function WorkflowCreateComposer({
                     className={cn(
                       "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
                       worktreeMode === worktree.id
-                        ? "border-border/45 bg-secondary/70 text-foreground"
+                        ? "border-border/45 bg-secondary text-foreground"
                         : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                     )}
                     disabled={saving || previewLoading}
@@ -18435,7 +18435,7 @@ function WorkflowAutonomyModeControl({
               className={cn(
                 "min-h-12 rounded-md border px-2 py-1.5 text-left transition-colors disabled:opacity-60",
                 selected
-                  ? "border-border/45 bg-secondary/70 text-foreground"
+                  ? "border-border/45 bg-secondary text-foreground"
                   : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
               )}
               disabled={busy}
@@ -18504,7 +18504,7 @@ function WorkflowExecutionModeControl({
               className={cn(
                 "min-h-12 rounded-md border px-2 py-1.5 text-left transition-colors disabled:opacity-60",
                 selected
-                  ? "border-border/45 bg-secondary/70 text-foreground"
+                  ? "border-border/45 bg-secondary text-foreground"
                   : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
               )}
               disabled={busy}

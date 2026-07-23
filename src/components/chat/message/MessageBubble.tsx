@@ -1128,7 +1128,7 @@ function ActiveMemoryTrace({
                     className={cn(
                       "rounded-lg border px-2.5 py-2",
                       isHighlightedMemoryRef(candidate, selected)
-                        ? "border-border/45 bg-secondary/70"
+                        ? "border-border/45 bg-secondary"
                         : "border-border/45 bg-background/50 dark:bg-background/30",
                     )}
                   >

@@ -21,7 +21,7 @@ describe("Tabs", () => {
 
     expect(selected.getAttribute("data-state")).toBe("active")
     expect(selected.className).toContain("data-[state=active]:bg-background")
-    expect(selected.className).toContain("data-[state=active]:shadow")
-    expect(selected.className).not.toContain("data-[state=active]:bg-secondary/70")
+    expect(selected.className).not.toMatch(/data-\[state=active\]:shadow/)
+    expect(selected.className).not.toContain("data-[state=active]:bg-secondary")
   })
 })

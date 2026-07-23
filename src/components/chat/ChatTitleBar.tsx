@@ -973,7 +973,7 @@ export default function ChatTitleBar({
               aria-pressed={terminalOpen}
               className={cn(
                 "ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground",
-                terminalOpen && "bg-secondary/70 text-foreground hover:bg-secondary/85",
+                terminalOpen && "bg-secondary text-foreground hover:bg-secondary/85",
               )}
               onClick={onToggleTerminal}
             >

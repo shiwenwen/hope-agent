@@ -4190,7 +4190,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                       key={preset.id}
                       className={[
                         "inline-flex max-w-full items-center rounded-md border border-border/70",
-                        active ? "bg-secondary/70 text-foreground" : "bg-background",
+                        active ? "bg-secondary text-foreground" : "bg-background",
                       ].join(" ")}
                     >
                       <Button
@@ -4402,7 +4402,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                             key={preset.id}
                             className={[
                               "inline-flex max-w-full items-center rounded-md border border-border/70",
-                              active ? "bg-secondary/70 text-foreground" : "bg-background",
+                              active ? "bg-secondary text-foreground" : "bg-background",
                             ].join(" ")}
                           >
                             <Button

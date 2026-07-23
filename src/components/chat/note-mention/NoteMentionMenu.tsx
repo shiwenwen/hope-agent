@@ -78,7 +78,7 @@ export default function NoteMentionMenu({
             className={cn(
               "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
               idx === selectedIndex
-                ? "bg-secondary/70 text-foreground"
+                ? "bg-secondary text-foreground"
                 : "text-foreground/80 hover:bg-secondary/40",
             )}
           >

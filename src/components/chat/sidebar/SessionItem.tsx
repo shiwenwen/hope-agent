@@ -169,7 +169,7 @@ export default function SessionItem({
             isCompact && "gap-1.5 px-2 py-[7px] rounded-md",
             revealHighlight && "bg-destructive/10",
             isActive
-              ? "bg-secondary/70"
+              ? "bg-secondary"
               : hasPending
                 ? "bg-amber-500/10 hover:bg-amber-500/15 border-l-2 border-l-amber-500 pl-[8px]"
                 : "hover:bg-secondary/40",

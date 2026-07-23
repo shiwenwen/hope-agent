@@ -372,7 +372,7 @@ export default function SettingsView({
               className={cn(
                 "h-auto w-full justify-start gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors duration-150",
                 activeSection === section.id
-                  ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
+                  ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
                   : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
               )}
               onClick={() => setActiveSection(section.id)}

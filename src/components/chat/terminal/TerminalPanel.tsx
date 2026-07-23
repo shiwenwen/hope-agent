@@ -310,7 +310,7 @@ export function TerminalPanel({ open, workingDir, onOpenChange }: TerminalPanelP
                     key={terminal.id}
                     className={cn(
                       "group/tab flex h-7 max-w-[220px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground",
-                      active && "bg-secondary/70 text-foreground",
+                      active && "bg-secondary text-foreground",
                     )}
                     data-ha-title-tip={`${terminal.shell} — ${terminal.cwd}`}
                   >

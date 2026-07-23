@@ -39,7 +39,7 @@ export function PersonalityStep({ selected, onSelect }: PersonalityStepProps) {
               onClick={() => onSelect(isActive ? "" : preset.id)}
               className={`text-left rounded-lg border-2 px-4 py-3 transition-all ${
                 isActive
-                  ? "border-border bg-secondary/70"
+                  ? "border-border bg-secondary"
                   : "border-border hover:bg-secondary/40"
               }`}
             >

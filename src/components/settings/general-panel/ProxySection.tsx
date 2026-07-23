@@ -88,7 +88,7 @@ export default function ProxySection() {
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors",
                 proxy.mode === opt.value
-                  ? "bg-secondary/70"
+                  ? "bg-secondary"
                   : "hover:bg-secondary/40",
               )}
               onClick={() => setProxy((p) => ({ ...p, mode: opt.value }))}

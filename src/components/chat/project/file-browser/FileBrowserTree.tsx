@@ -373,7 +373,7 @@ function TreeNode({
             ref={rowRef}
             className={cn(
               ROW,
-              selected ? "bg-secondary/70 text-foreground" : "hover:bg-secondary/40",
+              selected ? "bg-secondary text-foreground" : "hover:bg-secondary/40",
               ctx.editable &&
                 entry.isDir &&
                 ctx.dragOverDir === entry.relPath &&
