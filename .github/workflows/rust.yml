@@ -16,36 +16,83 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  fmt:
-    name: cargo fmt --check
+  changes:
+    name: Rust scope
     runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.scope.outputs.rust }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          # pull_request checks out GitHub's merge commit. Two generations keep
+          # both parents available for an exact base-vs-head path diff.
+          fetch-depth: 2
+
+      - name: Classify changed paths
+        id: scope
+        shell: bash
+        run: |
+          node scripts/rust-ci-scope.mjs --self-test
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "rust=$(node scripts/rust-ci-scope.mjs --git-diff HEAD^1 HEAD^2)" >> "$GITHUB_OUTPUT"
+          else
+            # merge queue and main/release pushes always run the full matrix.
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  fmt:
+    name: cargo fmt --check
+    needs: changes
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    env:
+      # Failure/missing output from scope detection must run the full gate.
+      RUN_RUST_CI: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
+    steps:
+      - name: Skip Rust gate for frontend/docs-only PR
+        if: env.RUN_RUST_CI != 'true'
+        run: echo "No Rust-sensitive paths changed; required check preserved."
+
+      - uses: actions/checkout@v6
+        if: env.RUN_RUST_CI == 'true'
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        if: env.RUN_RUST_CI == 'true'
         with:
           cache: false
           rustflags: ""
 
       - name: Check formatting
+        if: env.RUN_RUST_CI == 'true'
         run: cargo fmt --all --check
 
   clippy:
     name: clippy (${{ matrix.os }})
+    needs: changes
+    if: ${{ always() }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
+    env:
+      RUN_RUST_CI: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
     steps:
+      - name: Skip Rust gate for frontend/docs-only PR
+        if: env.RUN_RUST_CI != 'true'
+        run: echo "No Rust-sensitive paths changed; required check preserved."
+
       - uses: actions/checkout@v6
+        if: env.RUN_RUST_CI == 'true'
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        if: env.RUN_RUST_CI == 'true'
         with:
           cache: false
           rustflags: ""
 
       - uses: Swatinem/rust-cache@v2
+        if: env.RUN_RUST_CI == 'true'
         with:
           # Do not restore ~/.cargo/bin after setup-rust-toolchain installs
           # rustup shims. A stale macOS cache can replace `cargo` with the
@@ -61,7 +108,7 @@ jobs:
       # feed, so retry with backoff and fall back to the official NASM
       # Windows archive before giving up.
       - name: Install NASM (Windows only)
-        if: runner.os == 'Windows'
+        if: env.RUN_RUST_CI == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: ./.github/scripts/install-nasm-windows.ps1
 
@@ -69,7 +116,7 @@ jobs:
       # (via its pipewire screen-capture path) on Linux. Ubuntu runners
       # don't ship any of these -dev packages by default.
       - name: Install Linux system deps
-        if: runner.os == 'Linux'
+        if: env.RUN_RUST_CI == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -91,24 +138,36 @@ jobs:
       # warnings are handled (either fixed at the source or allowed in
       # `Cargo.toml`'s `[workspace.lints.clippy]` with a rationale).
       - name: Clippy (deny warnings)
+        if: env.RUN_RUST_CI == 'true'
         run: cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
 
   test:
     name: test (${{ matrix.os }})
+    needs: changes
+    if: ${{ always() }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
+    env:
+      RUN_RUST_CI: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
     steps:
+      - name: Skip Rust gate for frontend/docs-only PR
+        if: env.RUN_RUST_CI != 'true'
+        run: echo "No Rust-sensitive paths changed; required check preserved."
+
       - uses: actions/checkout@v6
+        if: env.RUN_RUST_CI == 'true'
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        if: env.RUN_RUST_CI == 'true'
         with:
           cache: false
           rustflags: ""
 
       - uses: Swatinem/rust-cache@v2
+        if: env.RUN_RUST_CI == 'true'
         with:
           # Do not restore ~/.cargo/bin after setup-rust-toolchain installs
           # rustup shims. A stale macOS cache can replace `cargo` with the
@@ -116,12 +175,12 @@ jobs:
           cache-bin: false
 
       - name: Install NASM (Windows only)
-        if: runner.os == 'Windows'
+        if: env.RUN_RUST_CI == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: ./.github/scripts/install-nasm-windows.ps1
 
       - name: Install Linux system deps
-        if: runner.os == 'Linux'
+        if: env.RUN_RUST_CI == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -143,7 +202,7 @@ jobs:
       # macOS test job if a future image drops it. `brew install` is a no-op
       # (relink) when jq is already present.
       - name: Install jq on macOS (hooks compat suite)
-        if: runner.os == 'macOS'
+        if: env.RUN_RUST_CI == 'true' && runner.os == 'macOS'
         run: command -v jq || brew install jq
 
       # The hooks official-script compatibility suite (`hooks_compat.rs`, Unix
@@ -152,7 +211,7 @@ jobs:
       # is present on the Unix legs so the gate actually runs in CI rather than
       # silently skipping. (Linux installs jq above; macOS installs it above.)
       - name: Verify jq present (hooks compat suite)
-        if: runner.os != 'Windows'
+        if: env.RUN_RUST_CI == 'true' && runner.os != 'Windows'
         run: jq --version
 
       # Only ha-core and ha-server are pure Rust and host tests. The Tauri
@@ -171,17 +230,17 @@ jobs:
       # to 83s at 64 units. Scope the override to ha-core so cached third-party
       # dependencies keep their existing fingerprints.
       - name: Run tests (macOS tuned)
-        if: runner.os == 'macOS'
+        if: env.RUN_RUST_CI == 'true' && runner.os == 'macOS'
         run: >-
           cargo test -p ha-core -p ha-server --locked --no-fail-fast --timings
           --config 'profile.test.package.ha-core.codegen-units=64'
 
       - name: Run tests
-        if: runner.os != 'macOS'
+        if: env.RUN_RUST_CI == 'true' && runner.os != 'macOS'
         run: cargo test -p ha-core -p ha-server --locked --no-fail-fast --timings
 
       - name: Upload Cargo timings
-        if: always()
+        if: always() && env.RUN_RUST_CI == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: rust-test-timings-${{ matrix.os }}
