@@ -32,6 +32,40 @@ pub struct LastAssistantTokens {
 /// Number of read-only connections in the pool (mirrors the memory backend).
 const READ_POOL_SIZE: usize = 4;
 
+#[derive(Clone, Copy)]
+enum SessionDbOpenMode {
+    Durable,
+    #[cfg(test)]
+    EphemeralTest,
+}
+
+impl SessionDbOpenMode {
+    fn configure_writer(self, conn: &Connection) -> Result<()> {
+        match self {
+            Self::Durable => {
+                // Stream journals acknowledge user-visible deltas only after
+                // SQLite reports a durable commit. FULL is required here:
+                // NORMAL may lose the newest WAL frames after an OS/power
+                // failure even though COMMIT returned successfully.
+                conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
+            }
+            #[cfg(test)]
+            Self::EphemeralTest => {
+                // These databases still use a real file so the read-only pool
+                // observes the writer, but their contents are disposable. Keep
+                // journals and temporary tables in memory and skip fsyncs;
+                // persistence/reopen/locking tests deliberately use `open()`.
+                conn.execute_batch(
+                    "PRAGMA journal_mode=MEMORY;
+                     PRAGMA synchronous=OFF;
+                     PRAGMA temp_store=MEMORY;",
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
 pub struct SessionDB {
     /// Exclusive write connection — also the *only* connection used by every
     /// write path, read-write transaction, and external module that touches
@@ -227,6 +261,20 @@ impl SessionDB {
     /// Open (or create) the database at the given path, enable WAL mode,
     /// and ensure tables exist.
     pub fn open(db_path: &PathBuf) -> Result<Self> {
+        Self::open_with_mode(db_path, SessionDbOpenMode::Durable)
+    }
+
+    /// Open a disposable, file-backed database without durability barriers.
+    ///
+    /// Kept test-only so production call sites cannot accidentally opt out of
+    /// WAL + FULL. Tests that exercise reopen, crash recovery, journal mode,
+    /// locking, or durability must continue to call [`Self::open`].
+    #[cfg(test)]
+    pub(crate) fn open_ephemeral_for_test(db_path: &PathBuf) -> Result<Self> {
+        Self::open_with_mode(db_path, SessionDbOpenMode::EphemeralTest)
+    }
+
+    fn open_with_mode(db_path: &PathBuf, mode: SessionDbOpenMode) -> Result<Self> {
         // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -234,13 +282,7 @@ impl SessionDB {
 
         let conn = Connection::open(db_path)?;
 
-        // Enable WAL mode for crash safety and better concurrent read performance
-        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-        // Stream journals acknowledge user-visible deltas only after SQLite
-        // reports a durable commit. FULL is required here: NORMAL may lose the
-        // newest WAL frames after an OS/power failure even though COMMIT
-        // returned successfully.
-        conn.execute_batch("PRAGMA synchronous=FULL;")?;
+        mode.configure_writer(&conn)?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         // Wait up to 5s on a busy lock instead of returning SQLITE_BUSY
         // immediately — removes spurious write failures under WAL contention.
@@ -5894,6 +5936,40 @@ mod tests {
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
         );
         std::env::temp_dir().join(unique)
+    }
+
+    #[test]
+    fn ephemeral_test_open_does_not_change_production_durability() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+
+        {
+            let db = SessionDB::open_ephemeral_for_test(&path).expect("open ephemeral db");
+            let conn = db.conn.lock().expect("lock ephemeral db");
+            let journal: String = conn
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .expect("read journal mode");
+            let synchronous: i64 = conn
+                .query_row("PRAGMA synchronous", [], |row| row.get(0))
+                .expect("read synchronous mode");
+            let temp_store: i64 = conn
+                .query_row("PRAGMA temp_store", [], |row| row.get(0))
+                .expect("read temp store mode");
+            assert_eq!(journal, "memory");
+            assert_eq!(synchronous, 0);
+            assert_eq!(temp_store, 2);
+        }
+
+        let db = SessionDB::open(&path).expect("reopen durable db");
+        let conn = db.conn.lock().expect("lock durable db");
+        let journal: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("read durable journal mode");
+        let synchronous: i64 = conn
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .expect("read durable synchronous mode");
+        assert_eq!(journal, "wal");
+        assert_eq!(synchronous, 2);
     }
 
     fn set_session_updated_at(db: &SessionDB, session_id: &str, updated_at: &str) {

@@ -953,7 +953,7 @@ mod purpose_breakdown_tests {
     #[test]
     fn by_operation_and_by_domain_totals_match_by_kind() {
         let path = temp_db_path("purpose-breakdown");
-        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
 
         insert_event(&db, "recap.facets", "claude-haiku-4-5", 100, 50);
         insert_event(&db, "recap.sections", "claude-haiku-4-5", 200, 80);

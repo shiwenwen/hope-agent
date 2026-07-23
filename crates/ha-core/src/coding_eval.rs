@@ -5226,7 +5226,10 @@ mod tests {
 
     fn temp_session_db() -> (tempfile::TempDir, Arc<SessionDB>) {
         let dir = tempfile::tempdir().expect("temp db dir");
-        let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("session db"));
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("session db"),
+        );
         crate::channel::ChannelDB::new(db.clone())
             .migrate()
             .expect("channel db migration");
@@ -6196,7 +6199,8 @@ mod contract_tests {
             cost_output: Some(0.0),
         });
         let dir = tempfile::tempdir().unwrap();
-        let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).unwrap());
+        let db =
+            Arc::new(SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).unwrap());
         crate::channel::ChannelDB::new(db.clone())
             .migrate()
             .unwrap();
