@@ -4989,6 +4989,8 @@
     "developer": "Pembangun",
     "dockerSetupNotInstalled": "Docker tidak dikesan. Pilih pilihan Docker untuk platform ini.",
     "dockerSetupNotRunning": "Docker dipasang tetapi daemon tidak berjalan. Mulakan Docker dan cuba lagi.",
+    "dockerSetupWslNoDocker": "WSL sudah tersedia. Pasang Docker Engine dalam edaran WSL lalai untuk menggunakan kotak pasir tanpa Docker Desktop.",
+    "dockerSetupWslNotRunning": "Docker Engine dipasang dalam WSL tetapi daemon tidak berjalan. Mulakan Docker dalam WSL dan cuba lagi.",
     "dreaming": {
       "candidateLimit": "Had calon",
       "candidateLimitDesc": "Calon maksimum dihantar ke LLM setiap kitaran.",

@@ -4989,6 +4989,8 @@
     "developer": "Nhà phát triển",
     "dockerSetupNotInstalled": "Docker không được phát hiện. Chọn tùy chọn Docker cho nền tảng này.",
     "dockerSetupNotRunning": "Docker đã được cài đặt nhưng daemon không chạy. Hãy khởi động Docker và thử lại.",
+    "dockerSetupWslNoDocker": "WSL đã sẵn sàng. Hãy cài Docker Engine trong bản phân phối WSL mặc định để dùng hộp cát mà không cần Docker Desktop.",
+    "dockerSetupWslNotRunning": "Docker Engine đã được cài trong WSL nhưng daemon chưa chạy. Hãy khởi động Docker trong WSL rồi thử lại.",
     "dreaming": {
       "candidateLimit": "giới hạn ứng viên",
       "candidateLimitDesc": "Số lượng ứng cử viên tối đa được gửi tới LLM trong mỗi chu kỳ.",

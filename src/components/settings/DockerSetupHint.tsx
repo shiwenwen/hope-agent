@@ -32,7 +32,7 @@ export function DockerSetupHint({
   if (!status || (status.installed && status.running)) return null
 
   const openExt = (url: string) => getTransport().call("open_url", { url })
-  const options = dockerInstallOptions(status.hostOs)
+  const options = dockerInstallOptions(status.hostOs, status.wslDistributionInstalled ?? false)
 
   if (!status.installed) {
     return (
@@ -41,9 +41,14 @@ export function DockerSetupHint({
           {title ?? t("settings.sandboxDockerUnavailable")}
         </div>
         <p className="text-xs text-muted-foreground">
-          {t("settings.dockerSetupNotInstalled", {
-            defaultValue: "Docker was not detected. Choose a Docker option for this platform.",
-          })}
+          {status.hostOs === "windows" && status.wslDistributionInstalled
+            ? t("settings.dockerSetupWslNoDocker", {
+                defaultValue:
+                  "WSL is ready. Install Docker Engine in the default WSL distribution to use the sandbox without Docker Desktop.",
+              })
+            : t("settings.dockerSetupNotInstalled", {
+                defaultValue: "Docker was not detected. Choose a Docker option for this platform.",
+              })}
         </p>
         <Button
           size="sm"
@@ -79,9 +84,15 @@ export function DockerSetupHint({
     <div className={`rounded-md border border-border/50 p-3 space-y-2 ${className}`}>
       <div className="text-xs font-medium">{title ?? t("settings.sandboxDockerUnavailable")}</div>
       <p className="text-xs text-muted-foreground">
-        {t("settings.dockerSetupNotRunning", {
-          defaultValue: "Docker is installed but the daemon is not running. Start Docker and try again.",
-        })}
+        {status.backend === "wsl"
+          ? t("settings.dockerSetupWslNotRunning", {
+              defaultValue:
+                "Docker Engine is installed in WSL but its daemon is not running. Start Docker in WSL and try again.",
+            })
+          : t("settings.dockerSetupNotRunning", {
+              defaultValue:
+                "Docker is installed but the daemon is not running. Start Docker and try again.",
+            })}
       </p>
       {onRefresh && (
         <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onRefresh}>

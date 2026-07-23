@@ -4989,6 +4989,8 @@
     "developer": "Desarrollador",
     "dockerSetupNotInstalled": "No se detectó Docker. Elija una opción Docker para esta plataforma.",
     "dockerSetupNotRunning": "Docker está instalado pero el demonio no se está ejecutando. Inicie Docker y vuelva a intentarlo.",
+    "dockerSetupWslNoDocker": "WSL está listo. Instale Docker Engine en la distribución WSL predeterminada para usar el entorno aislado sin Docker Desktop.",
+    "dockerSetupWslNotRunning": "Docker Engine está instalado en WSL, pero su demonio no se está ejecutando. Inicie Docker en WSL y vuelva a intentarlo.",
     "dreaming": {
       "candidateLimit": "Límite de candidatos",
       "candidateLimitDesc": "Máximo de candidatos enviados al LLM por ciclo.",

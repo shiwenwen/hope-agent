@@ -4,6 +4,10 @@ export interface DockerStatus {
   installed: boolean
   running: boolean
   hostOs?: DockerHostOs
+  backend?: "native" | "wsl" | null
+  wslInstalled?: boolean | null
+  wslDistributionInstalled?: boolean | null
+  wslDockerInstalled?: boolean | null
 }
 
 interface DockerOption {
@@ -11,7 +15,10 @@ interface DockerOption {
   url: string
 }
 
-export function dockerInstallOptions(hostOs?: DockerHostOs): {
+export function dockerInstallOptions(
+  hostOs?: DockerHostOs,
+  wslDistributionInstalled = false,
+): {
   primary: DockerOption
   alternatives: DockerOption[]
 } {
@@ -28,6 +35,21 @@ export function dockerInstallOptions(hostOs?: DockerHostOs): {
         ],
       }
     case "windows":
+      if (wslDistributionInstalled) {
+        return {
+          primary: {
+            label: "Docker Engine on WSL",
+            url: "https://docs.docker.com/engine/install/",
+          },
+          alternatives: [
+            {
+              label: "Docker Desktop + WSL2",
+              url: "https://docs.docker.com/desktop/setup/install/windows-install/",
+            },
+            { label: "Rancher Desktop", url: "https://rancherdesktop.io" },
+          ],
+        }
+      }
       return {
         primary: {
           label: "Docker Desktop + WSL2",
@@ -37,7 +59,7 @@ export function dockerInstallOptions(hostOs?: DockerHostOs): {
           { label: "Rancher Desktop", url: "https://rancherdesktop.io" },
           {
             label: "Docker Engine on WSL",
-            url: "https://docs.docker.com/engine/install/ubuntu/",
+            url: "https://docs.docker.com/engine/install/",
           },
         ],
       }
