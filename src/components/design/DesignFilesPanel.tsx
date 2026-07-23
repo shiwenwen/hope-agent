@@ -481,7 +481,7 @@ export default function DesignFilesPanel({
                     }}
                     className={cn(
                       "group/card relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:bg-secondary/40",
-                      activeArtifactId === a.id && "bg-secondary/40",
+                      activeArtifactId === a.id && "bg-secondary",
                       selected.has(a.id) && "bg-secondary",
                     )}
                   >

@@ -11,7 +11,7 @@ const RADIX_STATE_SHADOW_UTILITY =
 const CONDITIONAL_SELECTION_SHADOW =
   /(?:\?|&&)\s*"[^"\n]*\bbg-(?:background|secondary)(?:\/\d+)?\b[^"\n]*\bshadow(?:-[a-z0-9-]+)?\b[^"\n]*"/g
 const WEAK_SELECTION_BACKGROUND =
-  /(?:\?|&&)\s*"[^"\n]*\bbg-secondary\/70\b[^"\n]*"|data-\[state=(?:active|checked|on|open)\]:bg-secondary\/70\b/g
+  /(?:\?|&&)\s*"[^"\n]*(?<!:)\bbg-secondary\/\d+\b[^"\n]*"|data-\[state=(?:active|checked|on|open)\]:bg-secondary\/\d+\b/g
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

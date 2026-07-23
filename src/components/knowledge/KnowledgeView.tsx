@@ -2241,34 +2241,24 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 ))}
               </div>
 
-              <div className="grid grid-cols-2 border-b border-t border-border-soft/60 p-1">
-                <button
-                  type="button"
-                  className={cn(
-                    "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
-                    leftMode === "notes"
-                      ? "bg-background text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => setLeftMode("notes")}
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  {t("knowledge.notes", "Notes")}
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
-                    leftMode === "sources"
-                      ? "bg-background text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => setLeftMode("sources")}
-                >
-                  <Inbox className="h-3.5 w-3.5" />
-                  {t("knowledge.sources.title", "Sources")}
-                </button>
-              </div>
+              <Tabs
+                value={leftMode}
+                onValueChange={(value) => {
+                  if (value === "notes" || value === "sources") setLeftMode(value)
+                }}
+                className="border-b border-t border-border-soft/60 p-1"
+              >
+                <TabsList className="grid h-8 w-full grid-cols-2 p-0.5">
+                  <TabsTrigger value="notes" className="h-7 gap-1.5 px-2 py-1 text-xs">
+                    <FileText className="h-3.5 w-3.5" />
+                    {t("knowledge.notes", "Notes")}
+                  </TabsTrigger>
+                  <TabsTrigger value="sources" className="h-7 gap-1.5 px-2 py-1 text-xs">
+                    <Inbox className="h-3.5 w-3.5" />
+                    {t("knowledge.sources.title", "Sources")}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
               {leftMode === "notes" ? (
                 <>
                   <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">

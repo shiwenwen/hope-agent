@@ -446,9 +446,9 @@ export default function ChatTitleBar({
                   // Open panels carry a light fill; the active one deepens it.
                   // Background-only so hover/selected never add a border or ring.
                   active
-                    ? "bg-secondary/85 text-foreground hover:bg-secondary"
+                    ? "bg-secondary text-foreground hover:bg-secondary"
                     : panel.open
-                      ? "bg-secondary/40 hover:bg-secondary/60"
+                      ? "bg-muted hover:bg-secondary/60"
                       : "hover:bg-secondary/40",
                 )}
                 onClick={() => onRightPanelAction?.(panel.id)}

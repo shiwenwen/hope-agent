@@ -223,8 +223,9 @@ Web GUI 通过 `/api/config/enhanced-focus-indicators` 读写；两者都通过
 该例外让设置页字段绕过公共表面。
 
 Tab 有独立的层级协议，不套普通列表选中背景：公共 `TabsList` 是 `bg-muted` 容器，
-`TabsTrigger` 选中恢复 `bg-background`，依靠轨道与选中面的明度差形成层级，不加阴影；不得改成
-与容器接近的半透明背景。无外壳的线型 Tab（当前仅 Agent 编辑页）可使用底部 primary 强调线。
+`TabsTrigger` 选中恢复 `bg-background`，依靠轨道与选中面的明度差形成层级，不加阴影；公共选中面
+使用 180ms FLIP 位移动效，并在 `prefers-reduced-motion` 下直接切换。不得改成与容器接近的
+半透明背景。无外壳的线型 Tab（当前仅 Agent 编辑页）可使用底部 primary 强调线。
 两类 Tab 都不得在 hover 时改变边框；线型 Tab 的底线只在持久选中时出现。
 
 `RadioPills variant="strong"` 是强互斥分类标签的唯一入口：选中项使用

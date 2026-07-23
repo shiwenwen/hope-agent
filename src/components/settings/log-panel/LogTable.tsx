@@ -168,7 +168,7 @@ export default function LogTable({
                 onClick={() => onSelectFile(file.name)}
                 className={cn(
                   "h-auto w-full flex-col items-start justify-start rounded-none px-3 py-2 text-left text-xs font-normal hover:bg-secondary/40",
-                  selectedFile === file.name && "bg-secondary/60 hover:bg-secondary/60",
+                  selectedFile === file.name && "bg-secondary hover:bg-secondary",
                 )}
               >
                 <p className="font-medium truncate">{file.name}</p>

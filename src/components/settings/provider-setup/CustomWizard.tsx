@@ -196,7 +196,7 @@ export function CustomWizard({
                       ? "bg-secondary text-foreground"
                       : i < customStep
                         ? "bg-primary/20 text-primary"
-                        : "bg-secondary text-muted-foreground"
+                        : "bg-secondary/40 text-muted-foreground"
                   }`}
                 >
                   {i < customStep ? <Check className="h-3 w-3" /> : i + 1}

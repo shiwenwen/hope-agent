@@ -104,7 +104,7 @@ export default function SlashCommandMenu({
                         isSelected
                           ? "bg-secondary text-foreground"
                           : isExpanded
-                            ? "bg-secondary/40 text-foreground"
+                            ? "bg-secondary text-foreground"
                             : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
                       )}
                       onClick={() => onSelect(cmd)}

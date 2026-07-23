@@ -17119,7 +17119,7 @@ ${repairPrompt}`
                         key={run.id}
                         className={cn(
                           "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-secondary/45",
-                          selected && "bg-secondary/45",
+                          selected && "bg-secondary",
                         )}
                       >
                         <button
