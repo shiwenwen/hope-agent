@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/context-menu"
 import {
   Bot,
-  Trash2,
+  Archive,
   Loader2,
   Timer,
   Pencil,
@@ -55,7 +55,7 @@ interface SessionItemProps {
   renameValue: string
   renameInputRef: React.RefObject<HTMLInputElement | null>
   onSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => void
-  onDeleteClick: (sessionId: string, e: React.MouseEvent) => void
+  onArchiveClick: (sessionId: string, e: React.MouseEvent) => void
   onStartRename: (sessionId: string, currentTitle: string) => void
   onRenameValueChange: (value: string) => void
   onCommitRename: () => void
@@ -86,7 +86,7 @@ export default function SessionItem({
   renameValue,
   renameInputRef,
   onSwitchSession,
-  onDeleteClick,
+  onArchiveClick,
   onStartRename,
   onRenameValueChange,
   onCommitRename,
@@ -430,20 +430,23 @@ export default function SessionItem({
             )}
           </div>
 
-          {/* Delete button (hover) */}
-          <IconTip label={t("common.delete")}>
-            <button
-              className={cn(
-                "shrink-0 transition-colors p-0.5",
-                isCompact
-                  ? "absolute right-2 top-1/2 hidden -translate-y-1/2 text-muted-foreground/50 hover:!text-destructive group-hover:block"
-                  : "text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-destructive",
-              )}
-              onClick={(e) => onDeleteClick(session.id, e)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </IconTip>
+          {/* Incognito conversations intentionally cannot be retained. */}
+          {!session.incognito && (
+            <IconTip label={t("chat.archiveSession")}>
+              <button
+                className={cn(
+                  "shrink-0 transition-colors p-0.5",
+                  isCompact
+                    ? "absolute right-2 top-1/2 hidden -translate-y-1/2 text-muted-foreground/50 hover:!text-foreground group-hover:block"
+                    : "text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-foreground",
+                )}
+                onClick={(e) => onArchiveClick(session.id, e)}
+                aria-label={t("chat.archiveSession")}
+              >
+                <Archive className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          )}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent
@@ -529,14 +532,15 @@ export default function SessionItem({
               </ContextMenuSub>
             </>
           )}
-        <ContextMenuSeparator />
-        <ContextMenuItem
-          onClick={(e) => onDeleteClick(session.id, e)}
-          className="text-destructive focus:text-destructive"
-        >
-          <Trash2 className="h-4 w-4 mr-2" />
-          {t("common.delete")}
-        </ContextMenuItem>
+        {!session.incognito && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={(e) => onArchiveClick(session.id, e)}>
+              <Archive className="h-4 w-4 mr-2" />
+              {t("chat.archiveSession")}
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
       {exportOpen && (
         <ExportSessionDialog

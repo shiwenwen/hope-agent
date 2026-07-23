@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, CheckCheck, Loader2, MessagesSquare } from "lucide-react"
+import { toast } from "sonner"
+import { Archive, Check, CheckCheck, Loader2, MessagesSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
@@ -53,6 +55,7 @@ export default function CronConversationsPanel() {
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
   const [markingRead, setMarkingRead] = useState(false)
   const [markStatus, setMarkStatus] = useState<"idle" | "saved" | "failed">("idle")
+  const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null)
   const markResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const markingSessionIdsRef = useRef(new Set<string>())
   const pendingReadSessionIdRef = useRef<string | null>(null)
@@ -197,6 +200,45 @@ export default function CronConversationsPanel() {
     [markRunRead],
   )
 
+  const handleArchive = useCallback(
+    async (row: CronTimelineRow) => {
+      if (archivingSessionId) return
+      setArchivingSessionId(row.sessionId)
+      try {
+        await getTransport().call("set_session_archived_cmd", {
+          sessionId: row.sessionId,
+          archived: true,
+        })
+        const remaining = rows.filter((candidate) => candidate.sessionId !== row.sessionId)
+        const removedCount = rows.length - remaining.length
+        setRows(remaining)
+        setOffset((current) => Math.max(0, current - removedCount))
+        if (selectedSessionId === row.sessionId) {
+          const next = remaining[0]
+          setSelectedSessionId(next?.sessionId ?? null)
+          setSelectedRunLogId(next?.runLogId ?? null)
+        }
+        window.dispatchEvent(
+          new CustomEvent("hope:session-archive-changed", {
+            detail: { sessionId: row.sessionId, archived: true },
+          }),
+        )
+        toast.success(t("chat.sessionArchived"), { description: row.title || row.jobName })
+      } catch (error) {
+        logger.error(
+          "cron",
+          "CronConversationsPanel::archive",
+          "Failed to archive cron conversation",
+          error,
+        )
+        toast.error(t("chat.archiveSessionFailed"), { description: row.title || row.jobName })
+      } finally {
+        setArchivingSessionId(null)
+      }
+    },
+    [archivingSessionId, rows, selectedSessionId, t],
+  )
+
   return (
     <div className="flex min-h-0 flex-1 px-3 pb-3">
       {/* Left — timeline list */}
@@ -240,51 +282,68 @@ export default function CronConversationsPanel() {
                 const isLoop = row.payloadType === "sessionLoop"
                 const title = cronDisplayTitle(row.title || row.jobName, row.payloadType)
                 return (
-                  <button
-                    type="button"
-                    key={row.runLogId}
-                    onClick={() => handleSelect(row)}
-                    className={cn(
-                      "h-auto min-h-0 w-full rounded-xl px-3 py-3 text-left transition-colors",
-                      isActive ? "bg-secondary" : "hover:bg-secondary/40",
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "h-2 w-2 shrink-0 rounded-full",
-                          runLogDotColor(row.status, "active"),
-                        )}
-                      />
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
-                        {isLoop && <CronLoopBadge />}
-                        <span className="truncate">{title}</span>
-                      </span>
-                      {row.unreadCount > 0 && (
-                        <>
-                          <span
-                            aria-hidden="true"
-                            className="h-2.5 w-2.5 shrink-0 rounded-full bg-destructive"
-                          />
-                          <span className="sr-only">{t("chat.unreadStatus")}</span>
-                        </>
+                  <div key={row.runLogId} className="group/row relative">
+                    <button
+                      type="button"
+                      onClick={() => handleSelect(row)}
+                      className={cn(
+                        "h-auto min-h-0 w-full rounded-xl px-3 py-3 pr-10 text-left transition-colors",
+                        isActive ? "bg-secondary" : "hover:bg-secondary/40",
                       )}
-                    </div>
-                    <div className="mt-1 flex items-center justify-between gap-2 pl-4">
-                      <span className={cn("text-[10px]", display.className)}>
-                        {display.symbol}
-                        {t(display.labelKey)}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {relativeTime(row.startedAt)}
-                      </span>
-                    </div>
-                    {row.resultPreview && (
-                      <p className="mt-1 line-clamp-1 pl-4 text-[11px] text-muted-foreground">
-                        {row.resultPreview}
-                      </p>
-                    )}
-                  </button>
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "h-2 w-2 shrink-0 rounded-full",
+                            runLogDotColor(row.status, "active"),
+                          )}
+                        />
+                        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
+                          {isLoop && <CronLoopBadge />}
+                          <span className="truncate">{title}</span>
+                        </span>
+                        {row.unreadCount > 0 && (
+                          <>
+                            <span
+                              aria-hidden="true"
+                              className="h-2.5 w-2.5 shrink-0 rounded-full bg-destructive"
+                            />
+                            <span className="sr-only">{t("chat.unreadStatus")}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-2 pl-4">
+                        <span className={cn("text-[10px]", display.className)}>
+                          {display.symbol}
+                          {t(display.labelKey)}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {relativeTime(row.startedAt)}
+                        </span>
+                      </div>
+                      {row.resultPreview && (
+                        <p className="mt-1 line-clamp-1 pl-4 text-[11px] text-muted-foreground">
+                          {row.resultPreview}
+                        </p>
+                      )}
+                    </button>
+                    <IconTip label={t("chat.archiveSession")}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1.5 top-1.5 h-7 w-7 opacity-0 transition-opacity group-hover/row:opacity-100"
+                        disabled={archivingSessionId === row.sessionId}
+                        onClick={() => void handleArchive(row)}
+                      >
+                        {archivingSessionId === row.sessionId ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Archive className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </IconTip>
+                  </div>
                 )
               })}
               {hasMore && (

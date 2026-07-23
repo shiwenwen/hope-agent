@@ -33,6 +33,7 @@ The left side of the Settings page is a navigation column. The table below tells
 | **Knowledge** | [Knowledge bases, retrieval, passive recall, autonomous maintenance, Sprite](05-knowledge-space.md) |
 | **Design Space** | [Design Space toggles, auto-preview, export parameters](06-design-space.md#610-settings) |
 | **Chat & Context** | Basic chat behavior, behavior awareness, context compaction |
+| **Archived conversations** | Search, filter by type / project, restore conversations, or permanently delete after confirmation |
 | **Scheduled Tasks** | [Concurrency limit, timeout, catch-up window](09-multi-agent-and-scheduling.md#94-scheduled-tasks-cron) |
 | **Speech-to-Text** | [Speech-to-Text (STT)](02-models-and-providers.md#211-speech-to-text-stt) |
 | **Plan Mode** | The sub-agent and question timeout for [Plan Mode](08-autonomous-tasks.md#85-plan-mode) |

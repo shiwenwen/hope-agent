@@ -112,9 +112,12 @@ pub async fn cron_get_run_logs(
     let limit = limit.unwrap_or(50).min(200);
     let offset = offset.unwrap_or(0);
     let cron_db = state.cron_db.clone();
-    ha_core::blocking::run_blocking(move || cron_db.get_run_logs(&job_id, limit, offset))
-        .await
-        .map_err(Into::into)
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        cron::visible_cron_run_logs(&cron_db, &session_db, &job_id, limit, offset)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 /// Cross-job run timeline for the cron panel's "conversations" view: every cron

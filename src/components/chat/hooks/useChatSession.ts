@@ -95,7 +95,7 @@ export interface UseChatSessionReturn {
     opts?: { targetMessageId?: number; highlightTerms?: string[] },
   ) => Promise<void>
   handleNewChat: (agentId: string) => Promise<void>
-  handleDeleteSession: (sessionId: string) => Promise<void>
+  handleArchiveSession: (sessionId: string) => Promise<void>
   handleLoadMore: () => Promise<void>
   handleLoadMoreAfter: () => Promise<void>
   /** Drop the partial around-window and reload the latest page. */
@@ -1101,13 +1101,13 @@ export function useChatSession({
   // project — on first send via the `chat` command's `projectId`. See the
   // `handleNewChatInProject` wrapper in ChatScreen.tsx.
 
-  // Delete a session
-  const handleDeleteSession = useCallback(
+  // Archive a session without deleting its transcript.
+  const handleArchiveSession = useCallback(
     async (sessionId: string) => {
       const sessionTitle =
         sessions.find((s) => s.id === sessionId)?.title || t("chat.untitledSession")
       try {
-        await getTransport().call("delete_session_cmd", { sessionId })
+        await getTransport().call("set_session_archived_cmd", { sessionId, archived: true })
         evictSessionLocal(sessionId)
         if (currentSessionIdRef.current === sessionId) {
           setMessages([])
@@ -1119,12 +1119,12 @@ export function useChatSession({
         }
         reloadSessions()
         onSidebarAggregatesChanged?.()
-        toast.success(t("common.deleted"), {
+        toast.success(t("chat.sessionArchived"), {
           description: sessionTitle,
         })
       } catch (err) {
-        logger.error("session", "ChatScreen::deleteSession", "Failed to delete session", err)
-        toast.error(t("common.deleteFailed"), {
+        logger.error("session", "ChatScreen::archiveSession", "Failed to archive session", err)
+        toast.error(t("chat.archiveSessionFailed"), {
           description: sessionTitle,
         })
       }
@@ -1182,7 +1182,7 @@ export function useChatSession({
     handleReorderAgents,
     handleSwitchSession,
     handleNewChat,
-    handleDeleteSession,
+    handleArchiveSession,
     handleLoadMore,
     handleLoadMoreAfter,
     resetToLatest,

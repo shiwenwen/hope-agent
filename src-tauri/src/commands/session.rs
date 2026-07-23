@@ -99,6 +99,20 @@ pub async fn list_sessions_cmd(
     Ok((sessions, total))
 }
 
+/// Conversations retained by the user but hidden from active chat surfaces.
+#[tauri::command]
+pub async fn list_archived_sessions_cmd(
+    limit: Option<u32>,
+    offset: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<(Vec<session::SessionMeta>, u32), CmdError> {
+    state
+        .session_db
+        .run(move |db| db.list_archived_sessions_paged(limit, offset))
+        .await
+        .map_err(Into::into)
+}
+
 /// Authoritative count of unread regular conversations. The active session is
 /// treated as read for display purposes without mutating its durable watermark.
 #[tauri::command]
@@ -417,9 +431,24 @@ pub async fn delete_session_cmd(
     session_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_core::cron::delete_conversation_and_run_logs(&cron_db, &session_db, &session_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_session_archived_cmd(
+    session_id: String,
+    archived: bool,
+    state: State<'_, AppState>,
+) -> Result<(), CmdError> {
     state
         .session_db
-        .run(move |db| db.delete_session(&session_id))
+        .run(move |db| db.set_session_archived(&session_id, archived))
         .await
         .map_err(Into::into)
 }

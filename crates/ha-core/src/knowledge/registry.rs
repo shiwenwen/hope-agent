@@ -2786,6 +2786,7 @@ impl KnowledgeRegistry {
                  FROM knowledge_chat_threads t
                  JOIN sessions s ON s.id = t.session_id
                  WHERE t.kb_id = ?1 AND t.anchor_note_path = ?2
+                   AND s.archived_at IS NULL
                  ORDER BY s.updated_at DESC
                  LIMIT 1",
                 params![kb_id, anchor_note_path],
@@ -2859,6 +2860,7 @@ impl KnowledgeRegistry {
                  FROM knowledge_chat_threads t
                  JOIN sessions s ON s.id = t.session_id
                  WHERE t.kb_id = ?1
+                   AND s.archived_at IS NULL
                    AND t.session_id IN (
                        SELECT DISTINCT m.session_id FROM messages_fts fts
                        JOIN messages m ON m.id = fts.rowid
@@ -2875,7 +2877,7 @@ impl KnowledgeRegistry {
                 "SELECT {SELECT}
                  FROM knowledge_chat_threads t
                  JOIN sessions s ON s.id = t.session_id
-                 WHERE t.kb_id = ?1
+                 WHERE t.kb_id = ?1 AND s.archived_at IS NULL
                  ORDER BY s.updated_at DESC
                  LIMIT ?2 OFFSET ?3"
             );

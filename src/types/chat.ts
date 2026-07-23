@@ -517,6 +517,8 @@ export interface SessionMeta {
   createdAt: string
   updatedAt: string
   pinnedAt?: string | null
+  /** Retained but hidden from active chat surfaces until restored. */
+  archivedAt?: string | null
   messageCount: number
   /** Regular-conversation unread flag encoded as 0 or 1. */
   unreadCount: number
@@ -584,7 +586,7 @@ export interface SessionMeta {
     senderName?: string | null
   } | null
   /** Dedicated spaces use non-regular kinds and never enter regular unread. */
-  kind?: "regular" | "knowledge" | "eval_fixture" | string
+  kind?: "regular" | "knowledge" | "design" | "eval_fixture" | string
 }
 
 export interface UnreadSessionTarget {

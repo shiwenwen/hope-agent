@@ -22,7 +22,9 @@ import { useSidebarDisplayMode } from "@/components/chat/sidebar/useSidebarDispl
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
 import { useChatDisplayPreferences } from "@/components/chat/hooks/useChatDisplayPreferences"
 import { useClickOutside } from "@/hooks/useClickOutside"
+import { logger } from "@/lib/logger"
 import type { ChatAttachment } from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
 import type { Message, PendingFileQuote, PendingMessageQuote } from "@/types/chat"
 import type { KbDraftAttachment } from "@/types/knowledge"
 import { useKnowledgeChat } from "./useKnowledgeChat"
@@ -410,6 +412,22 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
               onPick={(sid) => {
                 closeHistory()
                 void session.switchThread(sid)
+              }}
+              onArchive={(sid) => {
+                void getTransport()
+                  .call("set_session_archived_cmd", { sessionId: sid, archived: true })
+                  .then(() => {
+                    window.dispatchEvent(
+                      new CustomEvent("hope:session-archive-changed", {
+                        detail: { sessionId: sid, archived: true },
+                      }),
+                    )
+                    if (session.currentSessionIdRef.current === sid) session.handleNewThread()
+                    return session.reloadThreads("")
+                  })
+                  .catch((error) =>
+                    logger.error("ui", "KnowledgeChat::archive", "archive thread failed", error),
+                  )
               }}
             />
           </div>

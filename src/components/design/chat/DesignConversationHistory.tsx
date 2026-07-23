@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Search, Pencil, Trash2, Check, X } from "lucide-react"
+import { Search, Pencil, Archive, Check, X } from "lucide-react"
 
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Input } from "@/components/ui/input"
@@ -19,8 +19,8 @@ interface Props {
   onPick: (sessionId: string) => void
   /** 重命名线程（= 改会话标题）；父层落库后刷新列表。 */
   onRename: (sessionId: string, title: string) => void
-  /** 删除线程（= 删会话，级联 design_chat_threads 行 + 消息）；父层落库后刷新。 */
-  onDelete: (sessionId: string) => void
+  /** 归档线程（保留会话与消息）；父层落库后刷新。 */
+  onArchive: (sessionId: string) => void
   /** True when more history pages exist beyond the loaded threads. */
   hasMore: boolean
   /** Append the next page (triggered on scroll near the bottom). */
@@ -29,7 +29,7 @@ interface Props {
 
 /**
  * History picker for design-space conversations (project-scoped, newest-active
- * first). 双击标题行内重命名；trash 两步确认删除。搜索框对线程消息跑 FTS
+ * first). 双击标题行内重命名；归档后可从设置恢复。搜索框对线程消息跑 FTS
  * (`design_chat_threads_list_cmd`).
  */
 export function DesignConversationHistory({
@@ -39,7 +39,7 @@ export function DesignConversationHistory({
   onSearch,
   onPick,
   onRename,
-  onDelete,
+  onArchive,
   hasMore,
   onLoadMore,
 }: Props) {
@@ -61,10 +61,8 @@ export function DesignConversationHistory({
   }, [open])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState("")
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const startEdit = (thread: DesignChatThread) => {
-    setConfirmDeleteId(null)
     setEditingId(thread.sessionId)
     setEditValue(thread.title?.trim() || "")
   }
@@ -113,7 +111,6 @@ export function DesignConversationHistory({
         >
           {threads.map((thread) => {
             const editing = editingId === thread.sessionId
-            const confirming = confirmDeleteId === thread.sessionId
             return (
               <div
                 key={thread.sessionId}
@@ -176,56 +173,28 @@ export function DesignConversationHistory({
                         })}
                       </span>
                     </button>
-                    {confirming ? (
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <IconTip label={t("common.confirm", "确认")}>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6 text-destructive"
-                            onClick={() => {
-                              onDelete(thread.sessionId)
-                              setConfirmDeleteId(null)
-                            }}
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                          </Button>
-                        </IconTip>
-                        <IconTip label={t("common.cancel", "取消")}>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6"
-                            onClick={() => setConfirmDeleteId(null)}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </IconTip>
-                      </div>
-                    ) : (
-                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
-                        <IconTip label={t("common.rename", "重命名")}>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6"
-                            onClick={() => startEdit(thread)}
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                        </IconTip>
-                        <IconTip label={t("common.delete", "删除")}>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6 hover:text-destructive"
-                            onClick={() => setConfirmDeleteId(thread.sessionId)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </IconTip>
-                      </div>
-                    )}
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+                      <IconTip label={t("common.rename", "重命名")}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6"
+                          onClick={() => startEdit(thread)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </IconTip>
+                      <IconTip label={t("chat.archiveSession")}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6"
+                          onClick={() => onArchive(thread.sessionId)}
+                        >
+                          <Archive className="h-3 w-3" />
+                        </Button>
+                      </IconTip>
+                    </div>
                   </>
                 )}
               </div>

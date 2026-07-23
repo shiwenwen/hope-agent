@@ -94,7 +94,7 @@ interface ProjectSectionProps {
   onArchiveProject: (projectId: string, archived: boolean) => void
   onReorderProjects?: (projectIds: string[]) => void
   onSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => void
-  onDeleteSession: (sessionId: string, e: React.MouseEvent) => void
+  onArchiveSession: (sessionId: string, e: React.MouseEvent) => void
   onMarkAllRead?: () => void
   renamingSessionId: string | null
   renameValue: string
@@ -422,7 +422,7 @@ function ProjectGroup({
   onNewChatInProject,
   onArchiveProject,
   onSwitchSession,
-  onDeleteSession,
+  onArchiveSession,
   onMarkAllRead,
   renamingSessionId,
   renameValue,
@@ -716,7 +716,7 @@ function ProjectGroup({
                     renameValue={renameValue}
                     renameInputRef={renameInputRef}
                     onSwitchSession={onSwitchSession}
-                    onDeleteClick={onDeleteSession}
+                    onArchiveClick={onArchiveSession}
                     onStartRename={onStartRename}
                     onRenameValueChange={onRenameValueChange}
                     onCommitRename={onCommitRename}

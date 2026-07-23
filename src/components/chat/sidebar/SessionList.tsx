@@ -40,7 +40,7 @@ interface SessionListProps {
     sessionId: string,
     opts?: { targetMessageId?: number; highlightTerms?: string[] },
   ) => void
-  onDeleteClick: (sessionId: string, e: React.MouseEvent) => void
+  onArchiveClick: (sessionId: string, e: React.MouseEvent) => void
   onMarkAllRead?: () => void
   // Rename props
   renamingSessionId: string | null
@@ -85,7 +85,7 @@ export default function SessionList({
   totalUnreadCount,
   loadingMoreSessions,
   onSwitchSession,
-  onDeleteClick,
+  onArchiveClick,
   onMarkAllRead,
   renamingSessionId,
   renameValue,
@@ -287,7 +287,7 @@ export default function SessionList({
                   renameValue={renameValue}
                   renameInputRef={renameInputRef}
                   onSwitchSession={onSwitchSession}
-                  onDeleteClick={onDeleteClick}
+                  onArchiveClick={onArchiveClick}
                   onStartRename={onStartRename}
                   onRenameValueChange={onRenameValueChange}
                   onCommitRename={onCommitRename}

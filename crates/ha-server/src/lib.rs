@@ -127,10 +127,18 @@ fn build_router_with_cors(
         // Sessions
         .route("/sessions", post(routes::sessions::create_session))
         .route("/sessions", get(routes::sessions::list_sessions))
+        .route(
+            "/sessions/archived",
+            get(routes::sessions::list_archived_sessions),
+        )
         .route("/sessions/{id}/fork", post(routes::sessions::fork_session))
         .route("/sessions/{id}", get(routes::sessions::get_session))
         .route("/sessions/{id}", delete(routes::sessions::delete_session))
         .route("/sessions/{id}", patch(routes::sessions::rename_session))
+        .route(
+            "/sessions/{id}/archived",
+            patch(routes::sessions::set_session_archived),
+        )
         .route(
             "/sessions/{id}/pinned",
             patch(routes::sessions::set_session_pinned),

@@ -1743,6 +1743,17 @@ export default function ChatScreen({
     [reloadSessions],
   )
 
+  // Settings can restore an archived conversation while ChatScreen remains
+  // mounted behind the settings view. Refresh both session rows and project
+  // counts so the restored conversation is visible immediately on return.
+  useEffect(() => {
+    const handleArchiveChanged = () => {
+      void Promise.all([reloadSessions(), reloadProjects()])
+    }
+    window.addEventListener("hope:session-archive-changed", handleArchiveChanged)
+    return () => window.removeEventListener("hope:session-archive-changed", handleArchiveChanged)
+  }, [reloadProjects, reloadSessions])
+
   const handleIncognitoChange = useCallback(
     (enabled: boolean) => {
       if (session.currentSessionId) return
@@ -3762,7 +3773,7 @@ export default function ChatScreen({
         onSidebarCollapsedChange={handleSidebarCollapsedChange}
         onSwitchSession={handleSwitchSession}
         onNewChat={handleStartNewChat}
-        onDeleteSession={session.handleDeleteSession}
+        onArchiveSession={session.handleArchiveSession}
         onEditAgent={onOpenAgentSettings}
         onToggleSessionPinned={session.handleToggleSessionPinned}
         onReorderAgents={session.handleReorderAgents}

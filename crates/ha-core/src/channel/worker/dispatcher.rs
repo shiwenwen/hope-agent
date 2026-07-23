@@ -552,15 +552,39 @@ async fn handle_inbound_message(
     let mut user_msg = crate::session::NewMessage::user(&effective_prompt)
         .with_source(crate::chat_engine::ChatSource::Channel);
     user_msg.attachments_meta = Some(attachments_meta_json.clone());
-    let _ = session_db.append_message(&session_id, &user_msg);
-
-    // Auto-generate fallback title from the first real message (same logic as normal chat).
-    let _ = crate::session::ensure_first_message_title(
-        &session_db,
-        &session_id,
-        &effective_prompt,
-        Some(&attachments_meta_json),
-    );
+    // Archive is not a mute boundary. A fresh inbound IM message restores the
+    // attached conversation so it cannot continue accumulating out of sight.
+    // Keep all synchronous SessionDB work off this async dispatcher's Tokio
+    // workers and preserve restore-before-append ordering in one blocking task.
+    let persist_session_id = session_id.clone();
+    let title_prompt = effective_prompt.clone();
+    let title_attachments_meta = attachments_meta_json.clone();
+    let persist_result = session_db
+        .run(move |db| -> anyhow::Result<()> {
+            db.set_session_archived(&persist_session_id, false)?;
+            db.append_message(&persist_session_id, &user_msg)?;
+            // Auto-generate fallback title from the first real message (same
+            // logic as normal chat).
+            let _ = crate::session::ensure_first_message_title(
+                db,
+                &persist_session_id,
+                &title_prompt,
+                Some(&title_attachments_meta),
+            )?;
+            Ok(())
+        })
+        .await;
+    if let Err(error) = persist_result {
+        app_warn!(
+            "channel",
+            "worker",
+            "[{}] Failed to restore/persist inbound conversation {}: {}",
+            channel_id_str,
+            session_id,
+            error
+        );
+        return Err(error);
+    }
 
     // Notify the desktop / web side that a fresh user message landed on
     // this session from IM, so an attached GUI view can pull it into

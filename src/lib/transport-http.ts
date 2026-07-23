@@ -325,6 +325,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Sessions --
   list_sessions_cmd: { method: "GET", path: "/api/sessions" },
+  list_archived_sessions_cmd: { method: "GET", path: "/api/sessions/archived" },
   create_session_cmd: { method: "POST", path: "/api/sessions" },
   fork_session_cmd: { method: "POST", path: "/api/sessions/{sessionId}/fork" },
   get_session_cmd: { method: "GET", path: "/api/sessions/{sessionId}" },
@@ -377,6 +378,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
     path: "/api/sessions/{sessionId}/stream-snapshot",
   },
   delete_session_cmd: { method: "DELETE", path: "/api/sessions/{sessionId}" },
+  set_session_archived_cmd: { method: "PATCH", path: "/api/sessions/{sessionId}/archived" },
   rename_session_cmd: { method: "PATCH", path: "/api/sessions/{sessionId}" },
   mark_session_read_cmd: { method: "POST", path: "/api/sessions/{sessionId}/read" },
   mark_session_read_batch_cmd: { method: "POST", path: "/api/sessions/read-batch" },
@@ -1793,7 +1795,9 @@ function parseDispositionFilename(disposition: string): string | null {
 
 function normalizeCommandResponse(command: string, value: unknown): unknown {
   if (
-    (command === "list_sessions_cmd" || command === "list_project_sessions_cmd") &&
+    (command === "list_sessions_cmd" ||
+      command === "list_archived_sessions_cmd" ||
+      command === "list_project_sessions_cmd") &&
     value &&
     typeof value === "object" &&
     !Array.isArray(value) &&

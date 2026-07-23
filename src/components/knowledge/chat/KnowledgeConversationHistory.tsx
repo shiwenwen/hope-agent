@@ -1,8 +1,10 @@
 import { useTranslation } from "react-i18next"
-import { Search } from "lucide-react"
+import { Archive, Search } from "lucide-react"
 
 import { SearchInput } from "@/components/ui/search-input"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import type { KbChatThread } from "@/types/knowledge"
 import {
@@ -18,6 +20,7 @@ interface Props {
   query: string
   onSearch: (query: string) => void
   onPick: (sessionId: string) => void
+  onArchive: (sessionId: string) => void
   /** True when more history pages exist beyond the loaded threads. */
   hasMore: boolean
   /** Append the next page (triggered on scroll near the bottom). */
@@ -38,14 +41,13 @@ export function KnowledgeConversationHistory({
   query,
   onSearch,
   onPick,
+  onArchive,
   hasMore,
   onLoadMore,
   loadIssue,
 }: Props) {
   const { t } = useTranslation()
-  const issueDescription = loadIssue
-    ? knowledgeChatIssueDescription(loadIssue, t)
-    : null
+  const issueDescription = loadIssue ? knowledgeChatIssueDescription(loadIssue, t) : null
 
   return (
     <FloatingMenu
@@ -93,28 +95,44 @@ export function KnowledgeConversationHistory({
           }}
         >
           {threads.map((thread) => (
-            <button
+            <div
               key={thread.sessionId}
-              onClick={() => onPick(thread.sessionId)}
               className={cn(
-                "flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-secondary/60",
+                "group/row flex items-center gap-1 rounded-lg px-1.5 py-1 transition-colors hover:bg-secondary/60",
                 thread.sessionId === activeSessionId && "bg-secondary",
               )}
             >
-              <span className="truncate text-xs font-medium">
-                {thread.title?.trim() ||
-                  thread.lastSnippet?.trim() ||
-                  t("knowledge.chatPanel.untitled")}
-              </span>
-              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                {thread.anchorNotePath && (
-                  <span className="truncate">{thread.anchorNotePath}</span>
-                )}
-                <span className="ml-auto shrink-0 tabular-nums">
-                  {t("knowledge.chatPanel.messageCount", { count: thread.messageCount })}
+              <button
+                type="button"
+                onClick={() => onPick(thread.sessionId)}
+                className="flex min-w-0 flex-1 flex-col gap-0.5 px-0.5 py-0.5 text-left"
+              >
+                <span className="truncate text-xs font-medium">
+                  {thread.title?.trim() ||
+                    thread.lastSnippet?.trim() ||
+                    t("knowledge.chatPanel.untitled")}
                 </span>
-              </span>
-            </button>
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  {thread.anchorNotePath && (
+                    <span className="truncate">{thread.anchorNotePath}</span>
+                  )}
+                  <span className="ml-auto shrink-0 tabular-nums">
+                    {t("knowledge.chatPanel.messageCount", { count: thread.messageCount })}
+                  </span>
+                </span>
+              </button>
+              <IconTip label={t("chat.archiveSession")}>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover/row:opacity-100"
+                  onClick={() => onArchive(thread.sessionId)}
+                >
+                  <Archive className="h-3 w-3" />
+                </Button>
+              </IconTip>
+            </div>
           ))}
         </div>
       )}

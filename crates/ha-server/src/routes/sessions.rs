@@ -121,6 +121,11 @@ pub struct SessionPinnedBody {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SessionArchivedBody {
+    pub archived: bool,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AwarenessOverrideBody {
     /// JSON string. `None` or empty clears the override.
@@ -703,6 +708,19 @@ pub async fn list_sessions(
     Ok(Json(PaginatedSessions { sessions, total }))
 }
 
+/// `GET /api/sessions/archived` — list retained conversations hidden from
+/// active chat surfaces.
+pub async fn list_archived_sessions(
+    State(ctx): State<Arc<AppContext>>,
+    Query(q): Query<ListSessionsQuery>,
+) -> Result<Json<PaginatedSessions>, AppError> {
+    let (sessions, total) = ctx
+        .session_db
+        .run(move |db| db.list_archived_sessions_paged(q.limit, q.offset))
+        .await?;
+    Ok(Json(PaginatedSessions { sessions, total }))
+}
+
 /// `GET /api/sessions/unread` — authoritative unread regular-conversation
 /// count. Counts sessions rather than assistant message rows.
 pub async fn regular_unread_total(
@@ -747,8 +765,26 @@ pub async fn delete_session(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db.run(move |db| db.delete_session(&id)).await?;
+    let cron_db = crate::routes::helpers::cron_db()?.clone();
+    let session_db = ctx.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_core::cron::delete_conversation_and_run_logs(&cron_db, &session_db, &id)
+    })
+    .await?;
     Ok(Json(json!({ "deleted": true })))
+}
+
+/// `PATCH /api/sessions/:id/archived` — archive or restore a conversation.
+pub async fn set_session_archived(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionArchivedBody>,
+) -> Result<Json<Value>, AppError> {
+    let archived = body.archived;
+    ctx.session_db
+        .run(move |db| db.set_session_archived(&id, archived))
+        .await?;
+    Ok(Json(json!({ "updated": true, "archived": archived })))
 }
 
 /// `PATCH /api/sessions/:id` — rename a session.

@@ -219,6 +219,11 @@ pub struct SessionMeta {
     /// When set, the sidebar sorts this session above unpinned sessions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_at: Option<String>,
+    /// When set, the conversation is retained but hidden from active chat
+    /// surfaces. Restoring clears this timestamp without changing messages or
+    /// project / Agent ownership.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
     pub message_count: i64,
     /// Whether this regular desktop conversation is unread, encoded as `0` or
     /// `1` for transport compatibility. Any number of assistant messages after
@@ -339,6 +344,7 @@ impl SessionMeta {
             && self.parent_session_id.is_none()
             && self.channel_info.is_none()
             && !self.incognito
+            && self.archived_at.is_none()
             && self.kind == SessionKind::Regular
     }
 }
@@ -754,6 +760,7 @@ mod tests {
             created_at: "2026-05-01T00:00:00Z".to_string(),
             updated_at: "2026-05-01T00:00:00Z".to_string(),
             pinned_at: None,
+            archived_at: None,
             message_count: 0,
             unread_count: 0,
             channel_unread_count: 0,

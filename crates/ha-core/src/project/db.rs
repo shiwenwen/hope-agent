@@ -494,7 +494,8 @@ impl ProjectDB {
             "SELECT p.id, p.name, p.description, p.color,
                     p.default_agent_id, p.default_model_id, p.created_at, p.updated_at, p.archived,
                     p.logo, p.working_dir, p.sort_order,
-                    (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count,
+                    (SELECT COUNT(*) FROM sessions s
+                      WHERE s.project_id = p.id AND s.archived_at IS NULL) AS session_count,
                     (SELECT COUNT(*)
                        FROM sessions s
                       WHERE s.project_id = p.id
