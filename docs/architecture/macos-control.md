@@ -177,7 +177,7 @@ Transport 结果类型：
 | `default_deferred` | `true` |
 | `internal` | `false` |
 | `concurrent_safe` | `false` |
-| `async_capable` | `false` |
+| `background_policy` | `ForegroundOnly` |
 
 设计含义：
 

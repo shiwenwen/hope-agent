@@ -68,7 +68,7 @@
 
 #### 异步 job 终局可见性
 
-`async_capable` 工具被后台化后，真实结果在**离开当轮**之后才落地，同步路径的 `fire_post_tool_use_hook` 看不到它。`async_jobs::spawn::finalize_job` 在写完终局后调 `hooks::fire_async_job_terminal` 补发终局 hook，对齐 Claude Code 的 PostToolUse 覆盖面：
+`BackgroundPolicy::GenericJob` 工具被后台化后，真实结果在**离开当轮**之后才落地，同步路径的 `fire_post_tool_use_hook` 看不到它。`async_jobs::spawn::finalize_job` 在写完终局后调 `hooks::fire_async_job_terminal` 补发终局 hook，对齐 Claude Code 的 PostToolUse 覆盖面：
 
 - **事件选择**：`Completed` → `PostToolUse`；`Failed` / `TimedOut` / `Cancelled` / `Interrupted` → `PostToolUseFailure`。映射单点在 `AsyncJobStatus::terminal_hook_flags()`（返回 `(is_error, is_interrupt)`）。
 - **`job_id` 关联（红线）**：一个被后台化的 `tool_use_id` 实际 fire **三次**，不是两次:

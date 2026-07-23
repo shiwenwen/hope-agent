@@ -99,7 +99,7 @@ pub fn get_schedule_wakeup_tool() -> super::definitions::ToolDefinition {
         // `job_status`. `internal` governs approval, not model visibility.
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

@@ -311,15 +311,19 @@ pub fn rmcp_tool_to_definition_with_name(
     // `required` → server mandates task-mode invocation (long-running),
     // `optional` → client chooses, `forbidden` (default) → sync only.
     // We map both `required` and `optional` onto ha-agent's
-    // `async_capable=true`, which lets the existing "sync budget
+    // `BackgroundPolicy::GenericJob`, which lets the existing "sync budget
     // timeout → auto-background" logic in the tool loop kick in when
     // the call takes too long.
-    let async_capable = matches!(
+    let background_policy = if matches!(
         tool.execution
             .as_ref()
             .and_then(|e| e.task_support.as_ref()),
         Some(rmcp::model::TaskSupport::Required | rmcp::model::TaskSupport::Optional)
-    );
+    ) {
+        crate::tools::BackgroundPolicy::GenericJob
+    } else {
+        crate::tools::BackgroundPolicy::ForegroundOnly
+    };
 
     ToolDefinition {
         name,
@@ -328,7 +332,7 @@ pub fn rmcp_tool_to_definition_with_name(
         tier: ToolTier::Mcp,
         internal: false,
         concurrent_safe: false,
-        async_capable,
+        background_policy,
     }
 }
 
@@ -475,33 +479,33 @@ mod tests {
     }
 
     #[test]
-    fn async_capable_tracks_task_support() {
+    fn generic_job_policy_tracks_task_support() {
         let cfg = min_cfg("srv");
         let schema = std::sync::Arc::new(serde_json::Map::new());
 
         // Default (no execution block) → sync-only.
         let default_tool = model::Tool::new("fast", "x", schema.clone());
-        assert!(!rmcp_tool_to_definition(&cfg, &default_tool).async_capable);
+        assert!(!rmcp_tool_to_definition(&cfg, &default_tool).supports_generic_job());
 
-        // `required` or `optional` → async_capable=true so the tool
+        // `required` or `optional` → GenericJob so the tool
         // loop's "sync budget → auto-background" branch can engage.
         let mut required_tool = model::Tool::new("long_required", "x", schema.clone());
         required_tool.execution = Some(model::ToolExecution::from_raw(Some(
             model::TaskSupport::Required,
         )));
-        assert!(rmcp_tool_to_definition(&cfg, &required_tool).async_capable);
+        assert!(rmcp_tool_to_definition(&cfg, &required_tool).supports_generic_job());
 
         let mut optional_tool = model::Tool::new("long_optional", "x", schema.clone());
         optional_tool.execution = Some(model::ToolExecution::from_raw(Some(
             model::TaskSupport::Optional,
         )));
-        assert!(rmcp_tool_to_definition(&cfg, &optional_tool).async_capable);
+        assert!(rmcp_tool_to_definition(&cfg, &optional_tool).supports_generic_job());
 
         // Explicit `forbidden` → sync-only (same as default).
         let mut forbidden_tool = model::Tool::new("short", "x", schema);
         forbidden_tool.execution = Some(model::ToolExecution::from_raw(Some(
             model::TaskSupport::Forbidden,
         )));
-        assert!(!rmcp_tool_to_definition(&cfg, &forbidden_tool).async_capable);
+        assert!(!rmcp_tool_to_definition(&cfg, &forbidden_tool).supports_generic_job());
     }
 }

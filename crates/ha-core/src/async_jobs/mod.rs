@@ -12,7 +12,7 @@
 //! See `docs/architecture/tool-system.md` and AGENTS.md for the higher-level
 //! design. The user-facing entry points are:
 //!
-//! - `run_in_background: true` on any `async_capable` tool
+//! - `run_in_background: true` on any `BackgroundPolicy::GenericJob` tool
 //! - Agent `capabilities.async_tool_policy = "always-background"`
 //! - The auto-background budget (`config.async_tools.auto_background_secs`)
 //!   for sync calls of async-capable tools

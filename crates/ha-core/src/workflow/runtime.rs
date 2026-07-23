@@ -2969,7 +2969,7 @@ impl WorkflowRuntimeHost {
             "args": tool_args.clone(),
             "label": label,
         });
-        if workflow_tool_uses_async_child(&name, &tool_args) {
+        if workflow_tool_uses_generic_job_child(&name, &tool_args) {
             let child_handle = JobManager::new_job_id();
             let recover_name = name.clone();
             let run_name = name.clone();
@@ -5651,6 +5651,11 @@ fn subagent_run_handle(
     let (terminal_reason, resume_allowed, resume_recommended) = subagent_recovery_metadata(run);
     let mut handle = json!({
         "kind": "subagent",
+        "workKind": "subagent_run",
+        "backgroundPolicy": "self_managed",
+        "waitRequired": false,
+        "deliveryMode": run.delivery_kind.as_str(),
+        "resultDelivery": "workflow_controlled",
         "runId": run.run_id,
         "run_id": run.run_id,
         "threadId": run.thread_id,
@@ -6493,8 +6498,8 @@ fn normalize_ask_user_options(value: &Value) -> Result<Value> {
     Ok(Value::Array(normalized))
 }
 
-fn workflow_tool_uses_async_child(name: &str, args: &Value) -> bool {
-    tools::is_async_capable(name)
+fn workflow_tool_uses_generic_job_child(name: &str, args: &Value) -> bool {
+    tools::is_generic_job_capable(name)
         && crate::config::cached_config().async_tools.enabled
         && args
             .get("run_in_background")

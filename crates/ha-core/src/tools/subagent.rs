@@ -367,6 +367,38 @@ fn ensure_ordinary_run_owner(
     Ok(())
 }
 
+/// Return the native durable-work handle for a dispatched sub-agent run.
+///
+/// Keep the legacy snake_case fields and caller-selected `status` for existing
+/// clients, while exposing a uniform contract that distinguishes this handle
+/// from a generic `async_jobs` job. The run store remains authoritative.
+fn subagent_dispatch_handle(run: &crate::subagent::SubagentRun, dispatch_status: &str) -> Value {
+    let result_delivery = match run.delivery_kind {
+        crate::subagent::SubagentDeliveryKind::Parent => "durable_parent_push",
+        crate::subagent::SubagentDeliveryKind::Group => "durable_group_push",
+        crate::subagent::SubagentDeliveryKind::Workflow => "workflow_controlled",
+        crate::subagent::SubagentDeliveryKind::None => "none",
+    };
+    serde_json::json!({
+        "kind": "subagent",
+        "workKind": "subagent_run",
+        "backgroundPolicy": "self_managed",
+        "waitRequired": false,
+        "status": dispatch_status,
+        "runStatus": run.status.as_str(),
+        "threadId": run.thread_id,
+        "thread_id": run.thread_id,
+        "runId": run.run_id,
+        "run_id": run.run_id,
+        "childAgentId": run.child_agent_id,
+        "child_agent_id": run.child_agent_id,
+        "childSessionId": run.child_session_id,
+        "child_session_id": run.child_session_id,
+        "deliveryMode": run.delivery_kind.as_str(),
+        "resultDelivery": result_delivery,
+    })
+}
+
 /// Core spawn logic shared by action_spawn and action_spawn_and_wait.
 /// Returns the run_id on success.
 async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -504,14 +536,12 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let run = load_subagent_run(&session_db, &run_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Sub-agent run '{}' was not persisted", run_id))?;
-    Ok(serde_json::to_string_pretty(&serde_json::json!({
-        "status": "spawned",
-        "thread_id": run.thread_id,
-        "run_id": run_id,
-        "child_agent_id": run.child_agent_id,
-        "child_session_id": run.child_session_id,
-        "message": "Sub-agent spawned. Use subagent(action='check', run_id='...') to poll for completion."
-    }))?)
+    let mut response = subagent_dispatch_handle(&run, "spawned");
+    response["message"] = Value::String(
+        "Sub-agent dispatched asynchronously. Its durable result will be delivered when complete; polling is not required."
+            .to_string(),
+    );
+    Ok(serde_json::to_string_pretty(&response)?)
 }
 
 async fn action_resume(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -677,26 +707,24 @@ async fn action_resume(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         preallocated_run_id,
     )
     .await?;
-    let status = {
+    let run = {
         let db = session_db.clone();
         let new_run_id = run_id.clone();
         db.run(move |db| db.get_subagent_run(&new_run_id)).await?
     }
-    .map(|run| run.status.as_str().to_string())
-    .unwrap_or_else(|| "spawning".to_string());
+    .ok_or_else(|| anyhow::anyhow!("Resumed sub-agent run '{}' was not persisted", run_id))?;
 
-    Ok(serde_json::to_string_pretty(&serde_json::json!({
-        "status": status,
-        "thread_id": source.thread_id,
-        "run_id": run_id,
-        "previous_run_id": source_run_id,
-        "resumed_from_run_id": source_run_id,
-        "dispatch_id": dispatch_id,
-        "disposition": "resumed",
-        "child_agent_id": source.child_agent_id,
-        "child_session_id": source.child_session_id,
-        "message": "Sub-agent resumed in the same child session. The new run keeps the prior conversation and working directory; its result will be injected when complete."
-    }))?)
+    let run_status = run.status.as_str().to_string();
+    let mut response = subagent_dispatch_handle(&run, &run_status);
+    response["previous_run_id"] = Value::String(source_run_id.to_string());
+    response["resumed_from_run_id"] = Value::String(source_run_id.to_string());
+    response["dispatch_id"] = Value::String(dispatch_id);
+    response["disposition"] = Value::String("resumed".to_string());
+    response["message"] = Value::String(
+        "Sub-agent resumed asynchronously in the same child session. The new run keeps the prior conversation and working directory; its durable result will be delivered when complete."
+            .to_string(),
+    );
+    Ok(serde_json::to_string_pretty(&response)?)
 }
 
 /// Canonical thread-aware follow-up. Active attempts are steered; terminal
@@ -850,17 +878,14 @@ async fn action_send(args: &Value, ctx: &ToolExecContext) -> Result<String> {
                 current.run_id
             ));
         }
-        return Ok(serde_json::to_string_pretty(&serde_json::json!({
-            "thread_id": thread_id,
-            "run_id": current.run_id,
-            "previous_run_id": current.run_id,
-            "dispatch_id": dispatch_id,
-            "disposition": "steered",
-            "status": current.status.as_str(),
-            "child_agent_id": current.child_agent_id,
-            "child_session_id": current.child_session_id,
-            "delivery": if delivered { "delivered" } else { "accepted" }
-        }))?);
+        let current_status = current.status.as_str().to_string();
+        let mut response = subagent_dispatch_handle(&current, &current_status);
+        response["previous_run_id"] = Value::String(current.run_id.clone());
+        response["dispatch_id"] = Value::String(dispatch_id);
+        response["disposition"] = Value::String("steered".to_string());
+        response["delivery"] =
+            Value::String(if delivered { "delivered" } else { "accepted" }.to_string());
+        return Ok(serde_json::to_string_pretty(&response)?);
     }
 
     if mode == "steer_only" {
@@ -1344,13 +1369,15 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         match subagent::spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await {
             Ok(run_id) => {
                 let persisted = load_subagent_run(&session_db, &run_id).await.ok().flatten();
-                results.push(serde_json::json!({
-                    "status": "spawned",
-                    "thread_id": persisted.as_ref().map(|run| run.thread_id.as_str()),
-                    "run_id": run_id,
-                    "child_agent_id": persisted.as_ref().map(|run| run.child_agent_id.as_str()),
-                    "child_session_id": persisted.as_ref().map(|run| run.child_session_id.as_str()),
-                }));
+                if let Some(run) = persisted.as_ref() {
+                    results.push(subagent_dispatch_handle(run, "spawned"));
+                } else {
+                    results.push(serde_json::json!({
+                        "status": "error",
+                        "run_id": run_id,
+                        "error": "Sub-agent run was not persisted",
+                    }));
+                }
             }
             Err(e) => results.push(serde_json::json!({"status": "error", "error": e.to_string()})),
         }
@@ -1365,6 +1392,10 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
     }
 
     let mut response = serde_json::json!({
+        "kind": "subagent_batch",
+        "workKind": "subagent_run",
+        "backgroundPolicy": "self_managed",
+        "waitRequired": false,
         "status": "batch_spawned",
         "total": results.len(),
         "runs": results,
@@ -1569,12 +1600,9 @@ async fn action_spawn_and_wait(args: &Value, ctx: &ToolExecContext) -> Result<St
         if run.status.is_terminal() {
             // Completed within foreground timeout — return inline
             consume_subagent_result(&session_db, &run_id).await?;
-            let mut response = serde_json::json!({
-                "status": run.status.as_str(),
-                "mode": "foreground",
-                "thread_id": run.thread_id,
-                "run_id": run_id,
-            });
+            let mut response = subagent_dispatch_handle(&run, run.status.as_str());
+            response["mode"] = Value::String("foreground".to_string());
+            response["resultDelivery"] = Value::String("inline_consumed".to_string());
             if let Some(ref result) = run.result {
                 response["result"] = serde_json::Value::String(result.clone());
             }
@@ -1617,13 +1645,10 @@ async fn action_spawn_and_wait(args: &Value, ctx: &ToolExecContext) -> Result<St
                     ),
                 )
             };
-            return Ok(serde_json::to_string_pretty(&serde_json::json!({
-                "status": status,
-                "mode": "background",
-                "thread_id": run.thread_id,
-                "run_id": run_id,
-                "message": message,
-            }))?);
+            let mut response = subagent_dispatch_handle(&run, status);
+            response["mode"] = Value::String("background".to_string());
+            response["message"] = Value::String(message);
+            return Ok(serde_json::to_string_pretty(&response)?);
         }
 
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -1652,6 +1677,30 @@ fn get_cancel_registry() -> Result<Arc<subagent::SubagentCancelRegistry>> {
 #[cfg(test)]
 mod delegation_gate_tests {
     use super::*;
+
+    #[test]
+    fn dispatch_handle_identifies_native_async_lifecycle() {
+        let run = crate::subagent::SubagentRun {
+            run_id: "run-1".to_string(),
+            thread_id: "thread-1".to_string(),
+            child_agent_id: "researcher".to_string(),
+            child_session_id: "thread-1".to_string(),
+            status: SubagentStatus::Queued,
+            delivery_kind: crate::subagent::SubagentDeliveryKind::Parent,
+            ..Default::default()
+        };
+
+        let handle = subagent_dispatch_handle(&run, "spawned");
+        assert_eq!(handle["kind"], "subagent");
+        assert_eq!(handle["workKind"], "subagent_run");
+        assert_eq!(handle["backgroundPolicy"], "self_managed");
+        assert_eq!(handle["waitRequired"], false);
+        assert_eq!(handle["status"], "spawned");
+        assert_eq!(handle["runStatus"], "queued");
+        assert_eq!(handle["runId"], "run-1");
+        assert_eq!(handle["threadId"], "thread-1");
+        assert_eq!(handle["resultDelivery"], "durable_parent_push");
+    }
 
     #[test]
     fn workflow_shared_read_only_mode_has_no_mutation_or_delegation_tools() {

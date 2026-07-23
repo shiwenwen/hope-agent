@@ -15,7 +15,7 @@ fn goal_core_tool(name: &str, description: &str, parameters: serde_json::Value) 
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters,
     }
 }
@@ -33,7 +33,7 @@ whether to continue, evaluate, finish, or ask the user."
         },
         internal: true,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {},

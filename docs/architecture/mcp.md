@@ -38,7 +38,7 @@ MCP 客户端把 hope-agent 变成一个 **MCP Host**——就像 Claude Desktop
 - **凭据安全**：0600 原子写 + ErrorKind::NotFound 无 TOCTOU；删除 server 自动清理
 - **三种使用形态**：MCP 工具通过 `mcp__<server>__<tool>` 命名空间调度；`mcp_resource(action=list|read)` / `mcp_prompt(action=list|get)` 作为独立 internal tool 访问被动数据
 - **SSRF 全路径硬约束**：所有出站 URL（transport handshake + OAuth discovery/register/token/refresh）都过 `security::ssrf::check_url`
-- **async 后台化**：rmcp `ToolExecution.task_support=Required/Optional` → `async_capable=true`，由主 tool loop 的"同步预算超时自动后台化"接管
+- **async 后台化**：rmcp `ToolExecution.task_support=Required/Optional` → `BackgroundPolicy::GenericJob`，由主 tool loop 的"同步预算超时自动后台化"接管
 - **Dashboard Learning**：每次 MCP 工具调用/失败落 `learning_events`，供 Dashboard Learning Tab 聚合
 
 ---
@@ -182,9 +182,9 @@ stateDiagram-v2
   - 顶层 `anyOf` / `oneOf` of object variants → 合并 `properties`（`required` 取交集）
 - `description` 前缀 `[<server>] ` 方便 LLM 归因
 - `deferredTools` 默认 `false` — 动态 MCP 工具默认直接注入，用户可在单个 server 上开启后改为通过 `tool_search` 按需发现（MCP server 可能暴露几十个工具）
-- `async_capable` 根据 `ToolExecution.task_support` 映射：
-  - `Required` / `Optional` → `true`（让 tool loop 的"同步预算超时自动后台化"分支可触发）
-  - `Forbidden` / 缺省 → `false`
+- `background_policy` 根据 `ToolExecution.task_support` 映射：
+  - `Required` / `Optional` → `GenericJob`（让 tool loop 的"同步预算超时自动后台化"分支可触发）
+  - `Forbidden` / 缺省 → `ForegroundOnly`
 
 ### Dispatch 路径（[`tools/execution.rs`](../../crates/ha-core/src/tools/execution.rs)）
 
@@ -619,6 +619,6 @@ Dashboard Learning Tab → 时间窗口选择（7/14/30/60/90 天）→ 按 `ref
 | 自动重启 | 指数退避 + 熔断 | 无 | 有 |
 | Schema 扁平化 | 顶层 `anyOf` / `oneOf` union 合并 | 有 union 处理 | 有 |
 | WebSocket 帧大小 | 1 MiB frame / 4 MiB message cap | — | — |
-| `ToolExecution.task_support` | 识别并映射到 `async_capable` | — | — |
+| `ToolExecution.task_support` | 识别并映射到 `BackgroundPolicy::GenericJob` | — | — |
 
 **核心区分**：hope-agent 一套原生 Rust 实现 + 零 Tauri 依赖，同时在桌面 + HTTP + ACP 三种运行模式下跑同一代码路径；OAuth 凭据走文件 + 0600（不依赖系统 keychain，便于跨平台统一）；Dashboard Learning 埋点让用户能看到"哪个 MCP server 用得最多、失败率最高"。

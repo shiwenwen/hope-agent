@@ -10,7 +10,7 @@ use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 pub fn get_subagent_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SUBAGENT.into(),
-        description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously and keep a stable thread across immutable run attempts. Use send to follow up: it steers an active attempt or resumes a terminal one in the same child conversation. Results are durably pushed when complete; use check(wait=true) only as a fallback.".into(),
+        description: "Spawn and manage sub-agents to delegate tasks. This tool is self-managed asynchronous work: spawn/resume persist a durable subagent run and return its run/thread handle immediately, so do not pass run_in_background or wrap it in a generic tool job. Use send to follow up: it steers an active attempt or resumes a terminal one in the same child conversation. Results are durably pushed when complete; use check(wait=true) only as a fallback.".into(),
         tier: ToolTier::Configured {
             default_for_main: true,
             default_for_others: true,
@@ -19,7 +19,9 @@ pub fn get_subagent_tool() -> ToolDefinition {
         },
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::SelfManaged {
+            work_kind: crate::tools::definitions::DurableWorkKind::SubagentRun,
+        },
         parameters: json!({
             "type": "object",
             "properties": {
@@ -161,7 +163,9 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
         },
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::SelfManaged {
+            work_kind: crate::tools::definitions::DurableWorkKind::AcpRun,
+        },
         parameters: json!({
             "type": "object",
             "properties": {
@@ -226,7 +230,7 @@ pub fn get_tool_search_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -259,7 +263,9 @@ pub fn get_workflow_tool() -> ToolDefinition {
         },
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::SelfManaged {
+            work_kind: crate::tools::definitions::DurableWorkKind::WorkflowRun,
+        },
         parameters: json!({
             "type": "object",
             "properties": {
@@ -522,7 +528,7 @@ pub fn get_image_generate_tool_dynamic(
         },
         internal: false,
         concurrent_safe: false,
-        async_capable: true,
+        background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -625,7 +631,7 @@ pub fn get_audio_generate_tool_dynamic(
         internal: false,
         concurrent_safe: false,
         // Billed side effect: must stay OUT of `async_jobs::retry::is_retry_eligible`.
-        async_capable: true,
+        background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -674,7 +680,9 @@ pub fn get_team_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::SelfManaged {
+            work_kind: crate::tools::definitions::DurableWorkKind::AgentTeam,
+        },
         parameters: json!({
             "type": "object",
             "properties": {
@@ -738,6 +746,10 @@ pub fn get_team_tool() -> ToolDefinition {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::{
+        BackgroundPolicy, DurableWorkKind, DurableWorkOperation, ToolInvocationSemantics,
+    };
+
     #[test]
     fn subagent_schema_advertises_terminal_resume() {
         let def = super::get_subagent_tool();
@@ -747,6 +759,41 @@ mod tests {
         assert!(actions.iter().any(|action| action == "resume"));
         assert!(def.parameters["properties"].get("task").is_some());
         assert!(def.parameters["properties"].get("run_id").is_some());
+        assert_eq!(
+            def.background_policy,
+            BackgroundPolicy::SelfManaged {
+                work_kind: DurableWorkKind::SubagentRun,
+            }
+        );
+        assert_eq!(
+            def.invocation_semantics(&serde_json::json!({ "action": "spawn" })),
+            ToolInvocationSemantics::SelfManaged {
+                work_kind: DurableWorkKind::SubagentRun,
+                operation: DurableWorkOperation::Dispatch,
+            }
+        );
+        assert_eq!(
+            def.invocation_semantics(&serde_json::json!({ "action": "check", "wait": true })),
+            ToolInvocationSemantics::SelfManaged {
+                work_kind: DurableWorkKind::SubagentRun,
+                operation: DurableWorkOperation::Wait,
+            }
+        );
+        assert!(def.to_openai_schema()["parameters"]["properties"]
+            .get("run_in_background")
+            .is_none());
+    }
+
+    #[test]
+    fn only_generic_job_tools_receive_outer_job_arguments() {
+        let exec = super::super::core_tools::get_available_tools()
+            .into_iter()
+            .find(|definition| definition.name == crate::tools::TOOL_EXEC)
+            .expect("exec definition");
+        assert_eq!(exec.background_policy, BackgroundPolicy::GenericJob);
+        assert!(exec.to_openai_schema()["parameters"]["properties"]
+            .get("run_in_background")
+            .is_some());
     }
 
     #[test]
@@ -785,6 +832,19 @@ mod tests {
                 .filter_map(|value| value.as_str())
                 .collect::<Vec<_>>(),
             vec!["action"]
+        );
+        assert_eq!(
+            def.invocation_semantics(&serde_json::json!({ "action": "create" })),
+            ToolInvocationSemantics::SelfManaged {
+                work_kind: DurableWorkKind::WorkflowRun,
+                operation: DurableWorkOperation::Dispatch,
+            }
+        );
+        assert_eq!(
+            crate::tools::background_policy_for_tool(crate::tools::TOOL_WORKFLOW),
+            Some(BackgroundPolicy::SelfManaged {
+                work_kind: DurableWorkKind::WorkflowRun,
+            })
         );
     }
 }

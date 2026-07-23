@@ -157,11 +157,11 @@ audio 三份重复 failover 是本次重构消灭的对象）：
 
 ## 4. Agent 工具面
 
-- **`image_generate`**（`async_capable`）：args `action(generate|list)/prompt/image(s)/size/
+- **`image_generate`**（`BackgroundPolicy::GenericJob`）：args `action(generate|list)/prompt/image(s)/size/
   aspectRatio/resolution/n/model`。schema 动态（`get_image_generate_tool_dynamic(&MediaGenConfig)`）：
   描述列链感知候选 + 数据 caps 汇总；注入门控 `image_defaults.enabled && has_capable_provider(Image)`
   （无 provider 不注入）。
-- **`audio_generate`**（`async_capable`，本次新增为聊天工具）：args `action/prompt/
+- **`audio_generate`**（`BackgroundPolicy::GenericJob`，本次新增为聊天工具）：args `action/prompt/
   kind(speech|music|sfx 默认 speech)/voice/durationSeconds/model`；显式 kind > `[music]`/`[sfx]`
   prompt 前缀 > speech；产物落 attachments，`__MEDIA_ITEMS__` 携 `MediaItem{kind:"file",
   mimeType:"audio/*"}` 复用现有 FileCard → FilePreviewPane `<audio controls>` 播放通路

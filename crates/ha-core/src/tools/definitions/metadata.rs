@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use super::types::{CoreSubclass, ToolDefinition, ToolTier};
+use super::types::{BackgroundPolicy, CoreSubclass, ToolDefinition, ToolTier};
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -818,9 +818,17 @@ fn add_tier_tags(def: &ToolDefinition, tags: &mut Vec<String>) {
         push_unique_string(tags, "concurrent_safe");
         push_unique_string(tags, "parallel");
     }
-    if def.async_capable {
-        push_unique_string(tags, "async_capable");
-        push_unique_string(tags, "background");
+    match def.background_policy {
+        BackgroundPolicy::GenericJob => {
+            push_unique_string(tags, "generic_job");
+            push_unique_string(tags, "backgroundable");
+        }
+        BackgroundPolicy::SelfManaged { work_kind } => {
+            push_unique_string(tags, "self_managed");
+            push_unique_string(tags, "background");
+            push_unique_string(tags, work_kind.as_str());
+        }
+        BackgroundPolicy::ForegroundOnly => {}
     }
     if def.supports_deferred() {
         push_unique_string(tags, "deferred");
@@ -952,7 +960,7 @@ fn interrupt_behavior_for(
     if name == crate::tools::TOOL_ASK_USER_QUESTION {
         return ToolInterruptBehavior::HumanBlocked;
     }
-    if def.async_capable
+    if !matches!(def.background_policy, BackgroundPolicy::ForegroundOnly)
         || effects.contains(&ToolEffect::AgentDelegation)
         || effects.contains(&ToolEffect::Scheduling)
         || name == crate::tools::TOOL_EXEC
@@ -1092,7 +1100,7 @@ mod tests {
             },
             internal: false,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         }
     }
 

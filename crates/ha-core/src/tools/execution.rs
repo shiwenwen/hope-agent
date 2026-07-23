@@ -926,6 +926,24 @@ fn migrate_exec_process_mode_to_async_job_args(args: &Value) -> Option<Value> {
 }
 
 fn validate_async_background_contract(name: &str, args: &Value) -> anyhow::Result<()> {
+    if explicit_async_job_requested(args) {
+        match super::background_policy_for_tool(name) {
+            Some(super::BackgroundPolicy::GenericJob) => {}
+            Some(super::BackgroundPolicy::SelfManaged { work_kind }) => {
+                anyhow::bail!(
+                    "tool '{}' manages its own {:?} lifecycle and already returns a durable handle; remove `run_in_background` to avoid a nested async job",
+                    name,
+                    work_kind
+                );
+            }
+            Some(super::BackgroundPolicy::ForegroundOnly) | None => {
+                anyhow::bail!(
+                    "tool '{}' does not support generic `run_in_background` execution",
+                    name
+                );
+            }
+        }
+    }
     if name == TOOL_EXEC {
         if let (true, Some(process_mode)) = (
             explicit_async_job_requested(args),
@@ -968,7 +986,7 @@ fn decide_async_path_with_config(
     if ctx.bypass_async_dispatch {
         return AsyncDecision::Sync;
     }
-    if !super::is_async_capable(name) {
+    if !super::is_generic_job_capable(name) {
         return AsyncDecision::Sync;
     }
     if !async_enabled {
@@ -2762,6 +2780,29 @@ export default async function main(workflow) {
         assert!(message.contains("exec background conflict"));
         assert!(message.contains("do not combine `run_in_background`"));
         assert!(message.contains("process session"));
+    }
+
+    #[test]
+    fn explicit_async_job_cannot_wrap_self_managed_work() {
+        for (tool, action) in [
+            (crate::tools::TOOL_SUBAGENT, "spawn"),
+            (crate::tools::TOOL_WORKFLOW, "create"),
+        ] {
+            let err = validate_async_background_contract(
+                tool,
+                &json!({
+                    "action": action,
+                    "task": "inspect the repository",
+                    "run_in_background": true
+                }),
+            )
+            .expect_err("self-managed work must not be nested inside a generic job");
+
+            let message = err.to_string();
+            assert!(message.contains("manages its own"));
+            assert!(message.contains("durable handle"));
+            assert!(message.contains("remove `run_in_background`"));
+        }
     }
 
     #[test]

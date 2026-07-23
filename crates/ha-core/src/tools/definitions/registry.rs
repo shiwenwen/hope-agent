@@ -1,9 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use super::super::ToolProvider;
 use super::core_tools::get_available_tools;
-use super::types::ToolDefinition;
+use super::types::{BackgroundPolicy, ToolDefinition};
 
 /// Cached set of concurrent-safe tool names — derived from
 /// `ToolDefinition.concurrent_safe`. Single source of truth lives at the
@@ -36,19 +36,38 @@ pub fn is_internal_tool(name: &str) -> bool {
     INTERNAL_TOOL_NAMES.contains(name)
 }
 
-/// Cached set of async-capable tool names — derived from
-/// `ToolDefinition.async_capable`.
-static ASYNC_CAPABLE_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
-    super::super::dispatch::all_dispatchable_tools()
+/// Cached background policy registry. Only `GenericJob` tools may enter the
+/// `async_jobs` wrapper; `SelfManaged` tools already own a durable lifecycle.
+static BACKGROUND_POLICIES: LazyLock<HashMap<String, BackgroundPolicy>> = LazyLock::new(|| {
+    let mut policies = super::super::dispatch::all_dispatchable_tools()
         .iter()
-        .filter(|t| t.async_capable)
-        .map(|t| t.name.clone())
-        .collect()
+        .map(|tool| (tool.name.clone(), tool.background_policy))
+        .collect::<HashMap<_, _>>();
+    // Workflow is session-gated and intentionally absent from the static
+    // dispatch catalog, but execution still needs its self-managed contract.
+    let workflow = super::special_tools::get_workflow_tool();
+    policies.insert(workflow.name, workflow.background_policy);
+    policies
 });
 
-/// Check if a tool is async-capable (supports `run_in_background` / auto-background).
-pub fn is_async_capable(name: &str) -> bool {
-    ASYNC_CAPABLE_TOOL_NAMES.contains(name)
+pub fn background_policy_for_tool(name: &str) -> Option<BackgroundPolicy> {
+    BACKGROUND_POLICIES.get(name).copied().or_else(|| {
+        // Dynamic MCP catalogs are refreshed after process startup and cannot
+        // be frozen into the built-in LazyLock. Read their ArcSwap snapshot so
+        // task-support changes take effect without restarting the app.
+        crate::mcp::McpManager::global().and_then(|manager| {
+            manager
+                .mcp_tool_definitions()
+                .iter()
+                .find(|tool| tool.name == name)
+                .map(|tool| tool.background_policy)
+        })
+    })
+}
+
+/// Check whether the generic tool-job executor may wrap this invocation.
+pub fn is_generic_job_capable(name: &str) -> bool {
+    background_policy_for_tool(name).is_some_and(BackgroundPolicy::supports_generic_job)
 }
 
 /// Returns all tool schemas formatted for the given provider.

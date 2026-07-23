@@ -18,7 +18,7 @@ pub fn get_web_search_tool() -> ToolDefinition {
         },
         internal: false,
         concurrent_safe: true,
-        async_capable: true,
+        background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -63,7 +63,7 @@ pub fn get_notification_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -95,7 +95,7 @@ pub fn get_canvas_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -172,7 +172,7 @@ pub fn get_design_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -240,7 +240,7 @@ pub fn get_artifact_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
