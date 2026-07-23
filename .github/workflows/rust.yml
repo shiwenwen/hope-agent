@@ -158,8 +158,19 @@ jobs:
       # Only ha-core and ha-server are pure Rust and host tests. The Tauri
       # shell crate (open-computer) pulls glib/webkit system libs that are
       # expensive to install on Linux runners and carries no tests.
-      - name: Build tests
-        run: cargo test -p ha-core -p ha-server --no-run --locked
-
+      # Build and execute in one Cargo invocation. Running `--no-run` first
+      # caused Cargo to revisit the workspace test targets (and occasionally
+      # relink them) in a second process, which is especially costly on the
+      # Windows and macOS runners. `--timings` keeps the compile breakdown
+      # available without adding another build pass.
       - name: Run tests
-        run: cargo test -p ha-core -p ha-server --no-fail-fast
+        run: cargo test -p ha-core -p ha-server --locked --no-fail-fast --timings
+
+      - name: Upload Cargo timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-test-timings-${{ matrix.os }}
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn
+          retention-days: 7
