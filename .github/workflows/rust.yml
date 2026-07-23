@@ -32,12 +32,25 @@ jobs:
         id: scope
         shell: bash
         run: |
-          node scripts/rust-ci-scope.mjs --self-test
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "rust=$(node scripts/rust-ci-scope.mjs --git-diff HEAD^1 HEAD^2)" >> "$GITHUB_OUTPUT"
+            # Do not let a PR-modified classifier decide whether its own
+            # validation runs. This fixed Git path check executes before the
+            # PR script: changing either scope control file always forces the
+            # complete Rust matrix. The self-test still runs afterward so a
+            # broken classifier also makes this job fail closed.
+            if ! git diff --quiet HEAD^1 HEAD^2 -- \
+              scripts/rust-ci-scope.mjs \
+              .github/workflows/rust.yml; then
+              echo "rust=true" >> "$GITHUB_OUTPUT"
+              node scripts/rust-ci-scope.mjs --self-test
+            else
+              node scripts/rust-ci-scope.mjs --self-test
+              echo "rust=$(node scripts/rust-ci-scope.mjs --git-diff HEAD^1 HEAD^2)" >> "$GITHUB_OUTPUT"
+            fi
           else
             # merge queue and main/release pushes always run the full matrix.
             echo "rust=true" >> "$GITHUB_OUTPUT"
+            node scripts/rust-ci-scope.mjs --self-test
           fi
 
   fmt:
