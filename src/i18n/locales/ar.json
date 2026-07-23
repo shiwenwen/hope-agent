@@ -4989,6 +4989,8 @@
     "developer": "المطور",
     "dockerSetupNotInstalled": "لم يتم الكشف عن Docker. اختر خيار Docker لهذا النظام الأساسي.",
     "dockerSetupNotRunning": "تم تثبيت Docker لكن البرنامج الخفي لا يعمل. ابدأ تشغيل Docker وحاول مرة أخرى.",
+    "dockerSetupWslNoDocker": "WSL جاهز. ثبّت Docker Engine في توزيعة WSL الافتراضية لاستخدام البيئة المعزولة من دون Docker Desktop.",
+    "dockerSetupWslNotRunning": "تم تثبيت Docker Engine في WSL لكن البرنامج الخفي لا يعمل. ابدأ Docker داخل WSL وحاول مرة أخرى.",
     "dreaming": {
       "candidateLimit": "حد المرشح",
       "candidateLimitDesc": "يتم إرسال الحد الأقصى من المرشحين إلى LLM لكل دورة.",

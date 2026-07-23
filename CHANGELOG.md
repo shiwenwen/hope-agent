@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Windows Docker 沙箱可直接使用 WSL 内的 Docker Engine**：宿主机未运行 Docker Desktop 时，Hope Agent 会探测默认 WSL 发行版中的本地 Docker daemon，并自动切换到 WSL 后端执行沙箱命令；设置页同步展示 WSL、发行版、Engine 与 daemon 状态并给出对应安装 / 启动引导。远程 Docker Context 不会被隐式采用，WSL 路径与 Docker Socket 挂载继续 fail-closed，超时或取消也会可靠清理容器。 (#538)
 - **侧边栏在小高度窗口下更稳**：更新提示会贴合底部 Logo 展示，低频入口会按高度逐步收进「更多」菜单，避免窗口缩小时 Logo 被裁剪或入口突然空出大段空间。 (#539)
 
 ## [0.22.0] - 2026-07-21

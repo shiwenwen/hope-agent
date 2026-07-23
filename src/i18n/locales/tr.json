@@ -4989,6 +4989,8 @@
     "developer": "Geliştirici",
     "dockerSetupNotInstalled": "Docker algılanmadı. Bu platform için bir Docker seçeneği seçin.",
     "dockerSetupNotRunning": "Docker kurulu ancak arka plan programı çalışmıyor. Docker'i başlatın ve tekrar deneyin.",
+    "dockerSetupWslNoDocker": "WSL hazır. Docker Desktop olmadan korumalı alanı kullanmak için varsayılan WSL dağıtımına Docker Engine kurun.",
+    "dockerSetupWslNotRunning": "Docker Engine WSL'de kurulu ancak arka plan programı çalışmıyor. WSL'de Docker'ı başlatıp tekrar deneyin.",
     "dreaming": {
       "candidateLimit": "Aday sınırı",
       "candidateLimitDesc": "Döngü başına LLM'e gönderilen maksimum aday.",

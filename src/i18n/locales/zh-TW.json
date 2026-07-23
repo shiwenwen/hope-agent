@@ -4989,6 +4989,8 @@
     "developer": "開發者模式",
     "dockerSetupNotInstalled": "未檢測到 Docker。為此平臺選擇 Docker 選項。",
     "dockerSetupNotRunning": "Docker 已安裝，但守護程式未執行。啟動 Docker 並重試。",
+    "dockerSetupWslNoDocker": "WSL 已就緒。可在預設 WSL 發行版中安裝 Docker Engine，無需安裝 Docker Desktop 即可使用沙箱。",
+    "dockerSetupWslNotRunning": "WSL 中已安裝 Docker Engine，但守護程式未執行。請在 WSL 中啟動 Docker 後重試。",
     "dreaming": {
       "candidateLimit": "候選上限",
       "candidateLimitDesc": "每輪送給 LLM 的最大候選數。",

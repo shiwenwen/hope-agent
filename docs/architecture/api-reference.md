@@ -1270,7 +1270,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `set_shortcuts_paused` | `POST /api/config/shortcuts/pause` | ✅ |
 | `get_sandbox_config` | `GET /api/config/sandbox` | ✅ |
 | `set_sandbox_config` | `PUT /api/config/sandbox` | ✅ |
-| `check_sandbox_available` | `GET /api/config/sandbox/status` | ✅ |
+| `check_sandbox_available` | `GET /api/config/sandbox/status` | ✅ — 返回 `{ installed, running, hostOs, backend, wslInstalled, wslDistributionInstalled, wslDockerInstalled }`；`backend` 为 `native` / `wsl` / `null`。原生 daemon 健康时不唤醒 WSL，三个 WSL 字段为 `null`；实际执行 WSL fallback 探测时才返回布尔值 |
 
 ### Canvas
 
