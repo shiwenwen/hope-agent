@@ -222,21 +222,12 @@ jobs:
       # relink them) in a second process, which is especially costly on the
       # Windows and macOS runners. `--timings` keeps the compile breakdown
       # available without adding another build pass.
-      # ha-core is a ~555k-line crate, so Cargo compiles its normal library and
-      # its 3,700+ test harness as two large units. macos-14 has three cores and
-      # rust-cache disables incremental builds, which otherwise leaves rustc at
-      # the non-incremental default of 16 codegen units. A controlled three-job
-      # A/B on Apple Silicon cut a warm ha-core test-harness rebuild from 175s
-      # to 83s at 64 units. Scope the override to ha-core so cached third-party
-      # dependencies keep their existing fingerprints.
-      - name: Run tests (macOS tuned)
-        if: env.RUN_RUST_CI == 'true' && runner.os == 'macOS'
-        run: >-
-          cargo test -p ha-core -p ha-server --locked --no-fail-fast --timings
-          --config 'profile.test.package.ha-core.codegen-units=64'
-
+      # Keep Cargo's default codegen scheduling on macOS. A single-target local
+      # benchmark favored 64 codegen units, but the full three-core CI graph
+      # compiles ha-core's normal library and 3,700+ test harness concurrently;
+      # the remote A/B regressed Cargo compile time from 1212s to 1323s.
       - name: Run tests
-        if: env.RUN_RUST_CI == 'true' && runner.os != 'macOS'
+        if: env.RUN_RUST_CI == 'true'
         run: cargo test -p ha-core -p ha-server --locked --no-fail-fast --timings
 
       - name: Upload Cargo timings
