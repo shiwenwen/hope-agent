@@ -983,7 +983,7 @@ mod tests {
     async fn handle_status_renders_full_session_panel() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
         ensure_channel_conversations_table(&db);
         let meta = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
@@ -1059,7 +1059,7 @@ mod tests {
     async fn handle_status_skips_token_lines_when_no_assistant_msgs() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
         ensure_channel_conversations_table(&db);
         let meta = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
@@ -1088,7 +1088,7 @@ mod tests {
     async fn handle_status_renders_zero_cache_when_usage_reported() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
         ensure_channel_conversations_table(&db);
         let meta = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)

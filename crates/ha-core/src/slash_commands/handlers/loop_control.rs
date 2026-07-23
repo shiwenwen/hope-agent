@@ -657,8 +657,10 @@ mod tests {
 
     fn temp_dbs() -> (tempfile::TempDir, Arc<SessionDB>, Arc<CronDB>) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let session_db =
-            Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("session db"));
+        let session_db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("session db"),
+        );
         {
             let conn = session_db.conn.lock().expect("lock session db");
             conn.execute_batch(

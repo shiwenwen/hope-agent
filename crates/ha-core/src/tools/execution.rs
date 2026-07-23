@@ -2568,7 +2568,7 @@ mod tests {
     async fn workflow_execution_uses_bound_session_db_and_mode_gate() {
         let dir = tempfile::tempdir().expect("temp session db dir");
         let db = Arc::new(
-            crate::session::SessionDB::open(&dir.path().join("sessions.db"))
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
                 .expect("open session db"),
         );
         let session = db.create_session("ha-main").expect("create session");

@@ -3424,7 +3424,8 @@ mod tests {
 
     fn test_db() -> TestDb {
         let dir = tempdir().expect("tempdir");
-        let db = SessionDB::open(&dir.path().join("sessions.db")).expect("open db");
+        let db =
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).expect("open db");
         ensure_channel_conversations_table(&db);
         TestDb { _dir: dir, db }
     }

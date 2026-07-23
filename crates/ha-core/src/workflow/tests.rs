@@ -30,7 +30,8 @@ use super::{
 
 fn temp_db() -> (tempfile::TempDir, SessionDB) {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = SessionDB::open(&dir.path().join("sessions.db")).expect("open session db");
+    let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+        .expect("open session db");
     ensure_channel_conversations_table(&db);
     (dir, db)
 }
@@ -186,7 +187,7 @@ fn workflow_spawn_global_env() -> (&'static tempfile::TempDir, Arc<SessionDB>) {
             existing.clone()
         } else {
             let db = Arc::new(
-                SessionDB::open(&root.path().join("workflow-spawn-sessions.db"))
+                SessionDB::open_ephemeral_for_test(&root.path().join("workflow-spawn-sessions.db"))
                     .expect("open workflow spawn session db"),
             );
             let _ = crate::SESSION_DB.set(db.clone());
@@ -2032,7 +2033,10 @@ export default async function main(workflow) {
 #[test]
 fn runtime_executes_script_host_apis_and_finishes_run() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
     std::fs::write(workspace.join("src/workflow_runtime.rs"), "runtime").expect("write file");
@@ -2116,7 +2120,10 @@ export default async function main(workflow) {
 #[test]
 fn runtime_records_phase_progress_checkpoint_and_report_events() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let session = db.create_session("ha-main").expect("create session");
 
     let script = r#"
@@ -2263,7 +2270,10 @@ fn workflow_milestone_injection_pending_list_excludes_delivered_events() {
 #[test]
 fn runtime_bridges_read_grep_and_generic_tool_through_tool_dispatch() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
     std::fs::write(
@@ -2474,7 +2484,10 @@ export default async function main(workflow) {
 #[test]
 fn runtime_diff_returns_git_snapshot_for_session_workspace() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
     git(&workspace, &["init"]);
@@ -2579,7 +2592,10 @@ export default async function main(workflow) {
 #[test]
 fn runtime_review_and_verify_create_durable_control_plane_runs() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     ChannelDB::new(db.clone())
         .migrate()
         .expect("migrate channel db");
@@ -2744,7 +2760,10 @@ fn phase2_eval_feature_workflow_writes_diffs_validates_and_finishes() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
     git(&workspace, &["init"]);
@@ -2848,7 +2867,10 @@ fn runtime_repair_loop_completes_after_successful_attempt() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 
@@ -2914,7 +2936,10 @@ fn runtime_repair_loop_blocks_when_attempt_budget_exhausted() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 
@@ -2994,7 +3019,10 @@ fn runtime_validate_runs_targeted_exec_and_returns_structured_result() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 
@@ -3078,7 +3106,10 @@ fn runtime_guarded_repair_blocks_repeated_validation_failure() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 
@@ -3148,7 +3179,10 @@ fn runtime_guarded_repair_blocks_no_effective_diff_progress() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
     git(&workspace, &["init"]);
@@ -3203,7 +3237,10 @@ fn runtime_execution_mode_off_does_not_apply_repair_guard() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 

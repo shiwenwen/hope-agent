@@ -3359,7 +3359,7 @@ mod tests {
     fn registry() -> (tempfile::TempDir, KnowledgeRegistry) {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("sessions.db");
-        let session_db = Arc::new(SessionDB::open(&db_path).unwrap());
+        let session_db = Arc::new(SessionDB::open_ephemeral_for_test(&db_path).unwrap());
         // `project_knowledge_bases` FKs `projects` — created by ProjectDB::migrate,
         // which runs before the registry in production (app_init).
         crate::project::ProjectDB::new(session_db.clone())

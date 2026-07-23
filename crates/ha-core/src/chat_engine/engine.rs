@@ -2369,7 +2369,7 @@ mod stream_lifecycle_tests {
     fn temp_db() -> (TempDir, Arc<SessionDB>) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");
-        let db = Arc::new(SessionDB::open(&path).unwrap());
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).unwrap());
         (dir, db)
     }
 

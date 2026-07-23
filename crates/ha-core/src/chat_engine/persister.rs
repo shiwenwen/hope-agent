@@ -761,7 +761,7 @@ mod tests {
         let path = dir.path().join("sessions.db");
         // Leak tempdir for the test lifetime so SQLite can keep the file open.
         std::mem::forget(dir);
-        Arc::new(SessionDB::open(&path).unwrap())
+        Arc::new(SessionDB::open_ephemeral_for_test(&path).unwrap())
     }
 
     fn session_with_user(db: &SessionDB) -> String {

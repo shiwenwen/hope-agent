@@ -8,20 +8,26 @@
 #                              pushing a WIP branch and don't need the 1–3 min
 #                              test run locally; CI will still catch it)
 
-# Drain the ref list git streams on our stdin — we don't use it, and leaving it
-# unread is untidy. `-t 0` keeps a manual `.husky/pre-push` run from blocking on
-# the terminal.
+# Capture the ref list git streams on stdin so the Rust gate can be omitted for
+# explicitly safe frontend/docs-only pushes. `-t 0` keeps a manual
+# `.husky/pre-push` run from blocking on the terminal; without refs the scope
+# detector fails closed and runs Rust.
 #
-# NOTE: this drain is NOT what protects the push. The "gates pass, then git dies
-# of SIGPIPE (141) and the branch never moves" failure has a different cause:
+# NOTE: this stdin handling is NOT what protects the push. The "gates pass,
+# then git dies of SIGPIPE (141) and the branch never moves" failure has a
+# different cause:
 # git opens the connection to the remote BEFORE running this hook, so the socket
 # sits idle for the 10-15 minutes we spend here and GitHub's SSH server closes
 # it ("Connection to ssh.github.com closed by remote host"). The pack write right
 # after the gates then hits a dead socket. The fix is the SSH keepalive that
 # `scripts/setup-ssh-keepalive.mjs` configures (via `pnpm install`); measured, a
 # 15-minute hook exits 141 without it and 0 with it.
+HA_PREPUSH_REFS=$(mktemp "${TMPDIR:-/tmp}/hope-agent-prepush-refs.XXXXXX")
+trap 'rm -f "$HA_PREPUSH_REFS"' EXIT HUP INT TERM
 if [ ! -t 0 ]; then
-  cat > /dev/null 2>&1 || true
+  cat > "$HA_PREPUSH_REFS" 2>/dev/null || true
+else
+  : > "$HA_PREPUSH_REFS"
 fi
 
 if [ "${HA_SKIP_PREPUSH:-}" = "1" ]; then
@@ -31,11 +37,16 @@ fi
 
 set -e
 
-echo "[pre-push] cargo fmt --all --check"
-cargo fmt --all --check
+HA_RUN_RUST_CI=$(node scripts/rust-ci-scope.mjs --pre-push "$HA_PREPUSH_REFS")
+if [ "$HA_RUN_RUST_CI" = "true" ]; then
+  echo "[pre-push] cargo fmt --all --check"
+  cargo fmt --all --check
 
-echo "[pre-push] cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings"
-cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
+  echo "[pre-push] cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings"
+  cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
+else
+  echo "[pre-push] frontend/docs-only diff — skipping Rust fmt, clippy, and tests"
+fi
 
 echo "[pre-push] pnpm typecheck"
 pnpm typecheck
@@ -49,7 +60,9 @@ node scripts/verify-updater-pubkey.mjs
 echo "[pre-push] vitest run"
 pnpm test
 
-if [ "${HA_SKIP_PREPUSH_TEST:-}" = "1" ]; then
+if [ "$HA_RUN_RUST_CI" != "true" ]; then
+  : # The scope message above already explains why cargo test is omitted.
+elif [ "${HA_SKIP_PREPUSH_TEST:-}" = "1" ]; then
   echo "[pre-push] HA_SKIP_PREPUSH_TEST=1 — skipping cargo test"
 else
   echo "[pre-push] cargo test -p ha-core -p ha-server --locked"

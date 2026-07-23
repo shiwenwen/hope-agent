@@ -4653,7 +4653,7 @@ mod tests {
     fn workflow_schema_is_injected_only_when_workflow_mode_is_enabled() {
         let dir = tempfile::tempdir().expect("temp session db dir");
         let db = Arc::new(
-            crate::session::SessionDB::open(&dir.path().join("sessions.db"))
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
                 .expect("open session db"),
         );
         crate::channel::ChannelDB::new(db.clone())

@@ -517,7 +517,8 @@ mod tests {
     use tempfile::tempdir;
 
     fn project_db(db_dir: &std::path::Path) -> ProjectDB {
-        let session_db = Arc::new(SessionDB::open(&db_dir.join("sessions.db")).unwrap());
+        let session_db =
+            Arc::new(SessionDB::open_ephemeral_for_test(&db_dir.join("sessions.db")).unwrap());
         let project_db = ProjectDB::new(session_db);
         project_db.migrate().unwrap();
         project_db

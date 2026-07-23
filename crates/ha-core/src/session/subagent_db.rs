@@ -452,7 +452,7 @@ mod tests {
         // run whose projection should reflect AwaitingApproval. Terminal runs and
         // other sessions must not match (their projection is already settled).
         let tmp = tempfile::tempdir().unwrap();
-        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        let db = SessionDB::open_ephemeral_for_test(&tmp.path().join("s.db")).unwrap();
         db.insert_subagent_run(&run("run-A", "child-A", SubagentStatus::Running))
             .unwrap();
         db.insert_subagent_run(&run("run-S", "child-S", SubagentStatus::Spawning))
@@ -494,7 +494,7 @@ mod tests {
         // transitive subagent child sessions. root → childA, root → childB;
         // childA → grandchild.
         let tmp = tempfile::tempdir().unwrap();
-        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        let db = SessionDB::open_ephemeral_for_test(&tmp.path().join("s.db")).unwrap();
         let mk = |run_id: &str, parent: &str, child: &str| SubagentRun {
             run_id: run_id.into(),
             parent_session_id: parent.into(),
@@ -535,7 +535,7 @@ mod tests {
         // that fires at most once and NEVER resurrects a row a concurrent cancel
         // already stamped terminal.
         let tmp = tempfile::tempdir().unwrap();
-        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        let db = SessionDB::open_ephemeral_for_test(&tmp.path().join("s.db")).unwrap();
         db.insert_subagent_run(&run("run-q", "child-q", SubagentStatus::Queued))
             .unwrap();
 

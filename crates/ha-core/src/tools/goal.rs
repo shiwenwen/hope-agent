@@ -1138,7 +1138,9 @@ mod tests {
         ToolExecContext,
     ) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open db"));
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).expect("open db"),
+        );
         let session = db.create_session("ha-main").expect("create session");
         let goal = db
             .create_goal(CreateGoalInput {

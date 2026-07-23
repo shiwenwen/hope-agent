@@ -1048,7 +1048,8 @@ mod tests {
             "hope-control-plane-{name}-{}.db",
             uuid::Uuid::new_v4()
         ));
-        let db = Arc::new(SessionDB::open(&path).expect("open dashboard fixture db"));
+        let db =
+            Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open dashboard fixture db"));
         (db, path)
     }
 

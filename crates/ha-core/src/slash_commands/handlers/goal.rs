@@ -697,7 +697,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn slash_goal_upsert_exits_plan_mode() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("session db"));
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("session db"),
+        );
         let session = db.create_session("ha-main").expect("session");
 
         plan::set_plan_state(&session.id, PlanModeState::Planning).await;
