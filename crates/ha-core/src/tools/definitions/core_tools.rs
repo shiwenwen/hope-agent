@@ -26,7 +26,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: false,
-            async_capable: true,
+            background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -74,7 +74,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -110,7 +110,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -134,7 +134,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -161,7 +161,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -184,7 +184,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -211,7 +211,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -234,7 +234,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -286,7 +286,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -329,7 +329,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -356,7 +356,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -375,7 +375,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: false },
             internal: false,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -403,7 +403,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -441,7 +441,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -473,7 +473,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -501,7 +501,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -521,7 +521,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: false },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -630,10 +630,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: false,
             concurrent_safe: false,
-            // async_capable enables `profile.op=install_runtime` to detach
+            // GenericJob enables `profile.op=install_runtime` to detach
             // into an async job; status / tabs / navigate etc. complete
             // synchronously regardless.
-            async_capable: true,
+            background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -798,7 +798,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1212,7 +1212,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1232,7 +1232,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1272,7 +1272,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1302,7 +1302,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1351,7 +1351,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {},
@@ -1366,7 +1366,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1394,7 +1394,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1414,7 +1414,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1459,7 +1459,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1491,7 +1491,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1523,7 +1523,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1590,7 +1590,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1632,7 +1632,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: true,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1656,7 +1656,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1708,7 +1708,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: false },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1728,7 +1728,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: false },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1752,7 +1752,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1778,7 +1778,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1803,7 +1803,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::Interaction },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1837,7 +1837,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Mcp,
             internal: false,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1870,7 +1870,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Mcp,
             internal: false,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1909,7 +1909,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1982,7 +1982,7 @@ fn note_tools() -> Vec<ToolDefinition> {
         tier: interaction(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: params,
     };
     let write_tool = |name: &str, description: &str, params: serde_json::Value| ToolDefinition {
@@ -1991,7 +1991,7 @@ fn note_tools() -> Vec<ToolDefinition> {
         tier: interaction(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: params,
     };
 
@@ -2114,7 +2114,7 @@ fn note_tools() -> Vec<ToolDefinition> {
             },
             internal: false,
             concurrent_safe: true,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
                 "type": "object",
                 "properties": {

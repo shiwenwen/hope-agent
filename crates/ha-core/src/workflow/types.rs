@@ -287,7 +287,7 @@ impl Default for WorkflowRunControlInput {
 }
 
 fn default_workflow_api_version() -> i64 {
-    4
+    5
 }
 
 fn json_object() -> Value {

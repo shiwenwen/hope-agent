@@ -23,11 +23,14 @@ pub use metadata::{
 };
 pub use plan_tools::{get_ask_user_question_tool, get_enter_plan_mode_tool, get_submit_plan_tool};
 pub use registry::{
-    get_core_tools, get_core_tools_for_provider, get_deferred_tools, get_tools_for_provider,
-    is_async_capable, is_concurrent_safe, is_internal_tool,
+    background_policy_for_tool, get_core_tools, get_core_tools_for_provider, get_deferred_tools,
+    get_tools_for_provider, is_concurrent_safe, is_generic_job_capable, is_internal_tool,
 };
 pub use special_tools::{
     get_acp_spawn_tool, get_audio_generate_tool_dynamic, get_image_generate_tool_dynamic,
     get_subagent_tool, get_tool_search_tool, get_workflow_tool,
 };
-pub use types::{CoreSubclass, ToolDefinition, ToolTier};
+pub use types::{
+    BackgroundPolicy, CoreSubclass, DurableWorkKind, DurableWorkOperation, ToolDefinition,
+    ToolInvocationSemantics, ToolTier,
+};

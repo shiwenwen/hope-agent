@@ -4199,6 +4199,7 @@ impl AssistantAgent {
             home_dir: self.agent_home(),
             session_working_dir,
             session_id: self.session_id.clone(),
+            workflow_run_id: None,
             session_db: self
                 .session_db
                 .clone()

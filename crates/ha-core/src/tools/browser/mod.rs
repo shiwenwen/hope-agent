@@ -592,7 +592,7 @@ async fn profile_disconnect() -> Result<String> {
 ///
 /// Progress is emitted on the `browser:chromium_download_progress`
 /// EventBus channel; tool-level callers should treat this as
-/// `async_capable=true` so completion can arrive through async job injection.
+/// `BackgroundPolicy::GenericJob` so completion can arrive through async job injection.
 async fn profile_install_runtime() -> Result<String> {
     use crate::browser::runtime;
 

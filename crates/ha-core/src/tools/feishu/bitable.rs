@@ -51,7 +51,7 @@ pub fn list_records_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -99,7 +99,7 @@ pub fn search_records_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -152,7 +152,7 @@ pub fn create_record_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -183,7 +183,7 @@ pub fn list_views_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -213,7 +213,7 @@ pub fn get_view_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -240,7 +240,7 @@ pub fn list_dashboards_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -267,7 +267,7 @@ pub fn batch_update_records_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

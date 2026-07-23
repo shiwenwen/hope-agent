@@ -28,7 +28,7 @@ settings. Do NOT use this tool to ask 'is my plan ready?' — in Plan Mode use `
         },
         internal: true,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -161,7 +161,7 @@ proceed with the task directly."
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -197,7 +197,7 @@ Progress is tracked separately via the task_create / task_update tools after the
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

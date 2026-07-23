@@ -46,7 +46,7 @@ pub fn create_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -76,7 +76,7 @@ pub fn get_blocks_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -114,7 +114,7 @@ pub fn append_block_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -154,7 +154,7 @@ pub fn update_block_text_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

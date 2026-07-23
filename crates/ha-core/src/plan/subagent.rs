@@ -141,6 +141,9 @@ pub async fn spawn_plan_subagent(
         origin_channel_kb_context: None,
         // Internal plan subagent (skip_parent_injection) — never grouped (R5).
         group_id: None,
+        owner_kind: crate::subagent::SubagentOwnerKind::Internal,
+        owner_id: format!("plan:{}", parent_session_id),
+        delivery_kind: crate::subagent::SubagentDeliveryKind::None,
     };
 
     let run_id =

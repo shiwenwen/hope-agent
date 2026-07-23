@@ -9,7 +9,18 @@ mod types;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
+use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
+
+static SUBAGENT_RUNTIME_OWNER: OnceLock<String> = OnceLock::new();
+
+/// Stable process-instance token used to fence stale sub-agent executors.
+/// A PID is insufficient because it can be reused after restart.
+pub(crate) fn runtime_owner_token() -> &'static str {
+    SUBAGENT_RUNTIME_OWNER
+        .get_or_init(|| uuid::Uuid::new_v4().to_string())
+        .as_str()
+}
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -203,12 +214,16 @@ fn stamp_run_killed(run_id: &str) {
 // ── Re-exports ──────────────────────────────────────────────────
 
 pub use cancel::SubagentCancelRegistry;
+pub(crate) use helpers::mark_run_fetched_in_memory;
 pub use helpers::{cleanup_orphan_runs, mark_run_fetched, take_runs_fetched};
-pub use mailbox::{ChatSessionGuard, SUBAGENT_MAILBOX};
+pub use mailbox::{ChatSessionGuard, SubagentMailboxMessage, SUBAGENT_MAILBOX};
 pub(crate) use mention::resolve_inline_agent_mentions;
 pub(crate) use spawn::spawn_subagent_with_run_id;
-pub use spawn::{spawn_subagent, HOOK_SPAWN_LABEL};
-pub use types::{SpawnParams, SubagentRun, SubagentStatus};
+pub use spawn::{resume_subagent, spawn_subagent, HOOK_SPAWN_LABEL};
+pub use types::{
+    SpawnParams, SubagentDeliveryKind, SubagentOwnerKind, SubagentRun, SubagentStatus,
+    SubagentTerminalReason, SubagentThread, SubagentThreadState,
+};
 
 #[cfg(test)]
 mod concurrency_tests {

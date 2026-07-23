@@ -469,7 +469,7 @@ mod tests {
             tier,
             internal: false,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         }
     }
 
@@ -822,7 +822,7 @@ mod tests {
             },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         };
         assert_eq!(
             resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
@@ -849,7 +849,10 @@ mod tests {
         assert!(*default_deferred);
         assert!(!def.internal);
         assert!(!def.concurrent_safe);
-        assert!(!def.async_capable);
+        assert_eq!(
+            def.background_policy,
+            crate::tools::definitions::BackgroundPolicy::ForegroundOnly
+        );
 
         let actions = def
             .parameters
@@ -1025,7 +1028,7 @@ mod tests {
             },
             internal: true,
             concurrent_safe: false,
-            async_capable: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         };
         let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::InjectEager);

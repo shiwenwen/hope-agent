@@ -79,7 +79,7 @@ camelCase、只读、与 model-facing JSON 物理分离：`jobId` · `kind` · `
 | **显式后台** | `spawn_explicit_job`（spawn.rs，`JobManager::spawn_tool`） | `run_in_background:true` 或 always-background policy。预分配 job_id、注册 cancel token、落行（Running/Queued）、试 `try_reserve` 占槽，满则入队。立即返回 `synthetic_started_result`（`{job_id, status:"started", tool, origin, hint}`），**绝不内联真实结果** |
 | **自动转后台** | `dispatch_with_auto_background`（spawn.rs，`JobManager::dispatch_tool_with_auto_background`） | sync-capable 工具在独立 OS 线程跑、主线程按 `auto_background_secs` 预算计时。预算内完成→内联返回真实结果；超预算→落行、`reserve_forced` 强占槽（任务已在跑、不排队不拒绝）、emit `job:created`、返回 synthetic，worker 自行 finalize |
 
-`async_capable=true` 的工具：`exec` / `browser` / `web_search` / `image_generate`（外加 `app_update`）。
+`BackgroundPolicy::GenericJob` 的工具：`exec` / `browser` / `web_search` / `image_generate`（外加 `app_update`）。`subagent` / `workflow` / `acp_spawn` / `team` 使用 `SelfManaged`，直接返回原生 durable handle，禁止进入本池形成双层 job。
 
 **exec 收敛（process 兼容面）**：普通长跑 exec 统一进 `async_jobs`。当 `exec(background=true)` / `exec(yield_ms=...)` 出现在 async_tools 开启且 agent 未禁用后台的上下文里，执行入口会把它兼容迁移为 `run_in_background=true`，移除 legacy process flags，让 `JobManager` 持有唯一后台生命周期。只有 async_tools 关闭 / agent `never-background` 等兼容场景继续返回 process `session_id`；这些 process session 退出时走 `<process-notification>`，不冒充 async job。
 
@@ -121,7 +121,7 @@ camelCase、只读、与 model-facing JSON 物理分离：`jobId` · `kind` · `
 - `max_retry_attempts` 默认 3，`decide()` 内硬钳 ≤ `MAX_ATTEMPTS_CAP=10`（病态配置不致无限重投计费工具）。
 - `max_job_secs` 是 **per-attempt** 预算（每次 `run_tool_once` 重置计时）；retry-eligible 工具总墙钟可达 `max_job_secs × max_retry_attempts` + 退避。**eligible 工具不得注册 output_tail ring**（`debug_assert` 守，否则重投会看到重复流）。
 
-**新增 async_capable 工具若有副作用或计费，务必不要进 `is_retry_eligible`。**
+**新增 `BackgroundPolicy::GenericJob` 工具若有副作用或计费，务必不要进 `is_retry_eligible`。**
 
 ## 后台审批桥（R8）
 

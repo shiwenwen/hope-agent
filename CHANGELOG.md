@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Windows Docker 沙箱可直接使用 WSL 内的 Docker Engine**：宿主机未运行 Docker Desktop 时，Hope Agent 会探测默认 WSL 发行版中的本地 Docker daemon，并自动切换到 WSL 后端执行沙箱命令；设置页同步展示 WSL、发行版、Engine 与 daemon 状态并给出对应安装 / 启动引导。远程 Docker Context 不会被隐式采用，WSL 路径与 Docker Socket 挂载继续 fail-closed，超时或取消也会可靠清理容器。 (#538)
 - **侧边栏在小高度窗口下更稳**：更新提示会贴合底部 Logo 展示，低频入口会按高度逐步收进「更多」菜单，避免窗口缩小时 Logo 被裁剪或入口突然空出大段空间。 (#539)
+- **子 Agent 支持在同一稳定线程中续跑**：主 Agent 可向运行中的子 Agent 继续发消息，也可在完成、模型失败、超时或进程中断后创建新的 attempt，复用原对话与工作目录；用户停止、审批拒绝等硬终态仍禁止自动恢复。Workflow V5 同步支持显式 `resumeAgent`、失败处理与崩溃恢复，未处理的失败子任务不会再被静默算作 Workflow 成功。
+- **异步 Agent 派发不再与通用后台任务混淆**：subagent、Workflow、ACP 与 Team 直接返回各自的 durable handle，由原生状态机负责排队、取消、恢复和结果投递，不会再套出第二层后台 job；空的可选 `run_id`、`message`、模型或标签参数也不会覆盖有效 thread、兼容字段和继承值，避免 resume 先误报不存在再由主 Agent 重试。
 
 ## [0.22.0] - 2026-07-21
 

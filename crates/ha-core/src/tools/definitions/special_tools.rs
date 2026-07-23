@@ -10,7 +10,7 @@ use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 pub fn get_subagent_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SUBAGENT.into(),
-        description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously — their results are automatically pushed to you when complete. Use steer to redirect a running sub-agent. Use check(wait=true) as fallback if you need to actively wait for a result.".into(),
+        description: "Spawn and manage sub-agents to delegate tasks. This tool is self-managed asynchronous work: spawn/resume persist a durable subagent run and return its run/thread handle immediately, so do not pass run_in_background or wrap it in a generic tool job. Use send to follow up: it steers an active attempt or resumes a terminal one in the same child conversation. Results are durably pushed when complete; use check(wait=true) only as a fallback.".into(),
         tier: ToolTier::Configured {
             default_for_main: true,
             default_for_others: true,
@@ -19,26 +19,37 @@ pub fn get_subagent_tool() -> ToolDefinition {
         },
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::SelfManaged {
+            work_kind: crate::tools::definitions::DurableWorkKind::SubagentRun,
+        },
         parameters: json!({
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["spawn", "check", "list", "result", "kill", "kill_all", "steer", "batch_spawn", "wait_all", "spawn_and_wait"],
-                    "description": "Action: spawn (delegate task), check (poll/wait), list (all runs), result (full output), kill (terminate one), kill_all (terminate all), steer (redirect running sub-agent), batch_spawn (fan out multiple in the background as one group — ALL results arrive together as ONE merged notification when the batch finishes; just end your turn, no need to poll or wait_all), wait_all (wait for multiple), spawn_and_wait (spawn + auto-background on timeout)"
+                    "enum": ["spawn", "send", "resume", "check", "list", "result", "kill", "kill_all", "steer", "batch_spawn", "wait_all", "spawn_and_wait"],
+                    "description": "Action: spawn (delegate task), send (canonical follow-up: steer active or resume terminal), resume/steer (compatibility aliases), check (poll/wait), list (all runs), result (full output), kill/kill_all, batch_spawn, wait_all, spawn_and_wait"
                 },
                 "task": {
                     "type": "string",
-                    "description": "Task description for the sub-agent (required for spawn)"
+                    "description": "Task description for the sub-agent (required for spawn and resume; resume treats it as the follow-up task)"
                 },
                 "agent_id": {
                     "type": "string",
-                    "description": "Agent to delegate to (default: 'default')"
+                    "description": "Agent to delegate to (defaults to the main Agent)"
                 },
                 "run_id": {
                     "type": "string",
-                    "description": "Run ID (for check/result/kill/steer)"
+                    "description": "Run ID (for resume/check/result/kill/steer). Resume accepts only a terminal run owned by the current parent session."
+                },
+                "thread_id": {
+                    "type": "string",
+                    "description": "Stable child-thread ID for send. Compatibility run_id is also accepted, but output always includes thread_id."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "steer_only", "resume_only"],
+                    "description": "For send: auto chooses by current durable state; steer_only or resume_only fail rather than taking the other branch."
                 },
                 "timeout_secs": {
                     "type": "integer",
@@ -69,7 +80,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 },
                 "message": {
                     "type": "string",
-                    "description": "For steer: message to inject into the running sub-agent to redirect its behavior"
+                    "description": "For send/steer: follow-up message delivered to the same child conversation"
                 },
                 "label": {
                     "type": "string",
@@ -116,7 +127,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 },
                 "files": {
                     "type": "array",
-                    "description": "For spawn: attachments for the child. For batch_spawn: shared attachments passed to every child.",
+                    "description": "For spawn/resume: attachments for the child turn. For batch_spawn: shared attachments passed to every child.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -152,7 +163,9 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
         },
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::SelfManaged {
+            work_kind: crate::tools::definitions::DurableWorkKind::AcpRun,
+        },
         parameters: json!({
             "type": "object",
             "properties": {
@@ -217,7 +230,7 @@ pub fn get_tool_search_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -244,13 +257,15 @@ pub fn get_tool_search_tool() -> ToolDefinition {
 pub fn get_workflow_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_WORKFLOW.into(),
-        description: "Create, inspect, trace, and control observable durable workflow runs. Use this only when Workflow Mode is enabled. The assistant writes workflow scripts itself when orchestration helps; do not ask the user to provide a script or enter a coding-only mode first. Workflows are not coding-only: use them for substantial research, writing, data, connector, operations, knowledge, or coding tasks where durable, inspectable orchestration improves reliability. Call action=guide immediately before authoring a script to load the current V4 API without keeping a large guide in the system prompt. Use action=create to start, list/status/trace to inspect, control to pause/resume/cancel, and followup to repair or continue. The model must not approve user permissions; approval remains with the user.".into(),
+        description: "Create, inspect, trace, and control observable durable workflow runs. Use this only when Workflow Mode is enabled. The assistant writes workflow scripts itself when orchestration helps; do not ask the user to provide a script or enter a coding-only mode first. Workflows are not coding-only: use them for substantial research, writing, data, connector, operations, knowledge, or coding tasks where durable, inspectable orchestration improves reliability. Call action=guide immediately before authoring a script to load the current V5 API, including stable Agent threads, resumeAgent, and failure resolution, without keeping a large guide in the system prompt. Use action=create to start, list/status/trace to inspect, control to pause/resume/cancel, and followup to repair or continue. The model must not approve user permissions; approval remains with the user.".into(),
         tier: ToolTier::Core {
             subclass: CoreSubclass::Meta,
         },
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::SelfManaged {
+            work_kind: crate::tools::definitions::DurableWorkKind::WorkflowRun,
+        },
         parameters: json!({
             "type": "object",
             "properties": {
@@ -261,7 +276,7 @@ pub fn get_workflow_tool() -> ToolDefinition {
                 },
                 "script": {
                     "type": "string",
-                    "description": "For action=create/followup: complete JavaScript workflow script. For V4 define `export default async function main(workflow, args) { ... }`, use the workflow host APIs from action=guide, and finish via `workflow.finish(...)`."
+                    "description": "For action=create/followup: complete JavaScript workflow script. For V5 define `export default async function main(workflow, args) { ... }`, use the workflow host APIs from action=guide, and finish via `workflow.finish(...)`."
                 },
                 "kind": {
                     "type": "string",
@@ -278,8 +293,8 @@ pub fn get_workflow_tool() -> ToolDefinition {
                 },
                 "apiVersion": {
                     "type": "integer",
-                    "enum": [4],
-                    "description": "Workflow runtime API version. New scripts should use 4."
+                    "enum": [4, 5],
+                    "description": "Workflow runtime API version. New scripts should use 5; version 4 remains available for explicit replay compatibility."
                 },
                 "meta": {
                     "type": "object",
@@ -513,7 +528,7 @@ pub fn get_image_generate_tool_dynamic(
         },
         internal: false,
         concurrent_safe: false,
-        async_capable: true,
+        background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -616,7 +631,7 @@ pub fn get_audio_generate_tool_dynamic(
         internal: false,
         concurrent_safe: false,
         // Billed side effect: must stay OUT of `async_jobs::retry::is_retry_eligible`.
-        async_capable: true,
+        background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -665,7 +680,9 @@ pub fn get_team_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::SelfManaged {
+            work_kind: crate::tools::definitions::DurableWorkKind::AgentTeam,
+        },
         parameters: json!({
             "type": "object",
             "properties": {
@@ -729,6 +746,56 @@ pub fn get_team_tool() -> ToolDefinition {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::{
+        BackgroundPolicy, DurableWorkKind, DurableWorkOperation, ToolInvocationSemantics,
+    };
+
+    #[test]
+    fn subagent_schema_advertises_terminal_resume() {
+        let def = super::get_subagent_tool();
+        let actions = def.parameters["properties"]["action"]["enum"]
+            .as_array()
+            .expect("subagent action enum");
+        assert!(actions.iter().any(|action| action == "resume"));
+        assert!(def.parameters["properties"].get("task").is_some());
+        assert!(def.parameters["properties"].get("run_id").is_some());
+        assert_eq!(
+            def.background_policy,
+            BackgroundPolicy::SelfManaged {
+                work_kind: DurableWorkKind::SubagentRun,
+            }
+        );
+        assert_eq!(
+            def.invocation_semantics(&serde_json::json!({ "action": "spawn" })),
+            ToolInvocationSemantics::SelfManaged {
+                work_kind: DurableWorkKind::SubagentRun,
+                operation: DurableWorkOperation::Dispatch,
+            }
+        );
+        assert_eq!(
+            def.invocation_semantics(&serde_json::json!({ "action": "check", "wait": true })),
+            ToolInvocationSemantics::SelfManaged {
+                work_kind: DurableWorkKind::SubagentRun,
+                operation: DurableWorkOperation::Wait,
+            }
+        );
+        assert!(def.to_openai_schema()["parameters"]["properties"]
+            .get("run_in_background")
+            .is_none());
+    }
+
+    #[test]
+    fn only_generic_job_tools_receive_outer_job_arguments() {
+        let exec = super::super::core_tools::get_available_tools()
+            .into_iter()
+            .find(|definition| definition.name == crate::tools::TOOL_EXEC)
+            .expect("exec definition");
+        assert_eq!(exec.background_policy, BackgroundPolicy::GenericJob);
+        assert!(exec.to_openai_schema()["parameters"]["properties"]
+            .get("run_in_background")
+            .is_some());
+    }
+
     #[test]
     fn workflow_schema_requires_action_and_supports_control() {
         let def = super::get_workflow_tool();
@@ -765,6 +832,19 @@ mod tests {
                 .filter_map(|value| value.as_str())
                 .collect::<Vec<_>>(),
             vec!["action"]
+        );
+        assert_eq!(
+            def.invocation_semantics(&serde_json::json!({ "action": "create" })),
+            ToolInvocationSemantics::SelfManaged {
+                work_kind: DurableWorkKind::WorkflowRun,
+                operation: DurableWorkOperation::Dispatch,
+            }
+        );
+        assert_eq!(
+            crate::tools::background_policy_for_tool(crate::tools::TOOL_WORKFLOW),
+            Some(BackgroundPolicy::SelfManaged {
+                work_kind: DurableWorkKind::WorkflowRun,
+            })
         );
     }
 }

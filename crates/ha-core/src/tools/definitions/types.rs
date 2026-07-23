@@ -77,6 +77,85 @@ impl CoreSubclass {
     }
 }
 
+// ── Background execution semantics ──────────────────────────────
+
+/// Durable work created and managed outside the generic async tool-job pool.
+///
+/// These kinds may share a read-only projection in the background task UI, but
+/// their native store remains the execution truth and owns cancellation,
+/// recovery, delivery, and concurrency limits.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DurableWorkKind {
+    SubagentRun,
+    WorkflowRun,
+    AcpRun,
+    AgentTeam,
+}
+
+impl DurableWorkKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SubagentRun => "subagent_run",
+            Self::WorkflowRun => "workflow_run",
+            Self::AcpRun => "acp_run",
+            Self::AgentTeam => "agent_team",
+        }
+    }
+}
+
+/// Whether a tool invocation may be wrapped by the generic `async_jobs`
+/// executor or already owns a durable asynchronous lifecycle of its own.
+#[derive(Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum BackgroundPolicy {
+    /// The invocation completes on the normal tool path and cannot opt into a
+    /// generic background job.
+    #[default]
+    ForegroundOnly,
+    /// The generic tool-job layer may detach the entire invocation and return a
+    /// synthetic `job_id`.
+    GenericJob,
+    /// The tool creates or controls its own durable work handle. Wrapping it in
+    /// `async_jobs` would create two IDs, two lifecycles, and duplicate delivery.
+    SelfManaged { work_kind: DurableWorkKind },
+}
+
+impl BackgroundPolicy {
+    pub const fn supports_generic_job(self) -> bool {
+        matches!(self, Self::GenericJob)
+    }
+
+    pub const fn work_kind(self) -> Option<DurableWorkKind> {
+        match self {
+            Self::SelfManaged { work_kind } => Some(work_kind),
+            Self::ForegroundOnly | Self::GenericJob => None,
+        }
+    }
+}
+
+/// Action-level behavior for composite self-managed tools.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DurableWorkOperation {
+    Dispatch,
+    Wait,
+    Observe,
+    Control,
+    Manage,
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ToolInvocationSemantics {
+    Inline,
+    GenericJobEligible,
+    SelfManaged {
+        work_kind: DurableWorkKind,
+        operation: DurableWorkOperation,
+    },
+}
+
 // ── Tool Definition (provider-agnostic) ───────────────────────────
 
 #[derive(Serialize, Clone, Debug)]
@@ -98,19 +177,76 @@ pub struct ToolDefinition {
     /// the old `CONCURRENT_SAFE_TOOL_NAMES` static name list.
     #[serde(default)]
     pub concurrent_safe: bool,
-    /// Async-capable tools may be backgrounded: the model sets `run_in_background: true`
-    /// in the arguments and the tool returns an immediate synthetic job_id. The real
-    /// execution continues in a tokio task and the result is delivered to the parent
-    /// session via the async_jobs injection pipeline when the session becomes idle.
-    /// The model may also pass `job_timeout_secs` to set a per-call async job
-    /// timeout when the user-configured max is unlimited, or to tighten (but
-    /// never loosen) a positive user-configured max. Also participates in the
-    /// sync-execution auto-background budget.
+    /// Background execution contract. Only `GenericJob` receives the
+    /// `run_in_background` / `job_timeout_secs` schema and participates in the
+    /// sync-execution auto-background budget. `SelfManaged` tools return their
+    /// own durable handle and must never be wrapped by `async_jobs`.
     #[serde(default)]
-    pub async_capable: bool,
+    pub background_policy: BackgroundPolicy,
 }
 
 impl ToolDefinition {
+    pub const fn supports_generic_job(&self) -> bool {
+        self.background_policy.supports_generic_job()
+    }
+
+    /// Resolve action-level execution semantics without changing dispatch.
+    /// This is descriptive metadata and an audit/testing contract; native
+    /// executors remain authoritative for the actual lifecycle.
+    pub fn invocation_semantics(&self, args: &Value) -> ToolInvocationSemantics {
+        match self.background_policy {
+            BackgroundPolicy::ForegroundOnly => ToolInvocationSemantics::Inline,
+            BackgroundPolicy::GenericJob => ToolInvocationSemantics::GenericJobEligible,
+            BackgroundPolicy::SelfManaged { work_kind } => ToolInvocationSemantics::SelfManaged {
+                work_kind,
+                operation: self.self_managed_operation(args),
+            },
+        }
+    }
+
+    fn self_managed_operation(&self, args: &Value) -> DurableWorkOperation {
+        let action = args.get("action").and_then(Value::as_str).unwrap_or("");
+        match self.name.as_str() {
+            crate::tools::TOOL_SUBAGENT => match action {
+                "spawn" | "resume" | "batch_spawn" | "spawn_and_wait" => {
+                    DurableWorkOperation::Dispatch
+                }
+                "wait_all" => DurableWorkOperation::Wait,
+                "check" if args.get("wait").and_then(Value::as_bool).unwrap_or(false) => {
+                    DurableWorkOperation::Wait
+                }
+                "check" | "list" | "result" => DurableWorkOperation::Observe,
+                "steer" | "kill" | "kill_all" => DurableWorkOperation::Control,
+                "send" => DurableWorkOperation::Manage,
+                _ => DurableWorkOperation::Manage,
+            },
+            crate::tools::TOOL_ACP_SPAWN => match action {
+                "spawn" => DurableWorkOperation::Dispatch,
+                "check" if args.get("wait").and_then(Value::as_bool).unwrap_or(false) => {
+                    DurableWorkOperation::Wait
+                }
+                "check" | "list" | "result" | "backends" => DurableWorkOperation::Observe,
+                "kill" | "kill_all" | "steer" => DurableWorkOperation::Control,
+                _ => DurableWorkOperation::Manage,
+            },
+            crate::tools::TOOL_WORKFLOW => match action {
+                "create" | "followup" => DurableWorkOperation::Dispatch,
+                "list" | "status" | "trace" | "guide" => DurableWorkOperation::Observe,
+                "control" => DurableWorkOperation::Control,
+                _ => DurableWorkOperation::Manage,
+            },
+            crate::tools::TOOL_TEAM => match action {
+                "create" | "add_member" => DurableWorkOperation::Dispatch,
+                "status" | "list_tasks" | "list_members" | "list_templates" => {
+                    DurableWorkOperation::Observe
+                }
+                "pause" | "resume" | "dissolve" | "remove_member" => DurableWorkOperation::Control,
+                _ => DurableWorkOperation::Manage,
+            },
+            _ => DurableWorkOperation::Manage,
+        }
+    }
+
     /// Actions that can be exposed as compact call variants when this large
     /// composite tool is activated through the client-side deferred path.
     /// The canonical execution entry remains unchanged.
@@ -319,16 +455,17 @@ impl ToolDefinition {
             "config_hint": config_hint,
             "defer_capable": self.supports_deferred(),
             "globally_configured": globally_configured,
+            "background_policy": self.background_policy,
             "metadata": self.v2_metadata(),
         })
     }
 
-    /// When this tool is async-capable, inject optional async-job control
+    /// When this tool accepts generic async jobs, inject optional job control
     /// parameters into the JSON schema so the model can discover background
     /// execution and choose a shorter per-call job timeout when warranted.
     /// Idempotent.
     fn augmented_parameters(&self) -> Value {
-        if !self.async_capable {
+        if !self.supports_generic_job() {
             return self.parameters.clone();
         }
         let mut params = self.parameters.clone();

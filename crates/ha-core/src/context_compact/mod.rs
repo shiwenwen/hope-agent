@@ -128,7 +128,7 @@ pub use recovery::{
 pub const POST_SUMMARY_INSERT_INDEX: usize = 1;
 pub use round_grouping::{
     is_recovered_round, prepare_messages_for_api, push_and_stamp, recovered_round_id, stamp_round,
-    RECOVERED_ROUND_PREFIX,
+    RECOVERED_ROUND_PREFIX, SUBAGENT_DISPATCH_IDS_KEY,
 };
 pub(crate) use summarization::SUMMARIZATION_SYSTEM_PROMPT;
 pub use summarization::{

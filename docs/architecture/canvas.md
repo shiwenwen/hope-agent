@@ -150,7 +150,7 @@ CREATE INDEX idx_canvas_projects_session    ON canvas_projects(session_id, updat
 
 ## 工具入口与 11 个动作
 
-工具定义在 [`crates/ha-core/src/tools/definitions/extra_tools.rs:74-141`](../../crates/ha-core/src/tools/definitions/extra_tools.rs#L74-L141)：`internal: true`（恒不需审批）、`async_capable: false`（同步执行）、`deferred: false`（始终随核心工具集加载）。入口函数 [`tool_canvas`](../../crates/ha-core/src/tools/canvas/mod.rs#L115-L138) 按 `action` 字段路由到 11 个子函数。
+工具定义在 [`crates/ha-core/src/tools/definitions/extra_tools.rs:74-141`](../../crates/ha-core/src/tools/definitions/extra_tools.rs#L74-L141)：`internal: true`（恒不需审批）、`background_policy: ForegroundOnly`（同步执行）、`deferred: false`（始终随核心工具集加载）。入口函数 [`tool_canvas`](../../crates/ha-core/src/tools/canvas/mod.rs#L115-L138) 按 `action` 字段路由到 11 个子函数。
 
 | Action | 必填参数 | 写入 DB / 文件 | 触发事件 | 返回值 |
 | --- | --- | --- | --- | --- |

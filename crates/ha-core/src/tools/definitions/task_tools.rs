@@ -31,7 +31,7 @@ shown in the UI when this task's status is in_progress"
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -72,7 +72,7 @@ Mark completed only when fully done, and call immediately after finishing (do no
         tier: ToolTier::Core { subclass: CoreSubclass::Interaction },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -106,7 +106,7 @@ pub fn get_task_list_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {},

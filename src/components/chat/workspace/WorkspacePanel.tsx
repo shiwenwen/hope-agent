@@ -11779,19 +11779,30 @@ function SubagentsSection({
 }) {
   const { t } = useTranslation()
   const agentsMap = useAgentsMap()
-  const { runs } = runsState
+  const { runs, byChildSessionId } = runsState
   if (runs.length === 0) return null
+  const latestRuns = [...byChildSessionId.values()]
+  const attemptCounts = new Map<string, number>()
+  for (const run of runs) {
+    const threadId = run.threadId || run.childSessionId
+    attemptCounts.set(threadId, (attemptCounts.get(threadId) ?? 0) + 1)
+  }
 
   return (
     // Count is the section's item total (matching 输出 / 来源); a running-only
     // count reads as a confusing "· 0" next to a list of finished runs.
-    <WorkspaceSection title={t("subagentPanel.title", "子智能体")} count={runs.length} icon={Bot}>
+    <WorkspaceSection
+      title={t("subagentPanel.title", "子智能体")}
+      count={latestRuns.length}
+      icon={Bot}
+    >
       <div className="max-h-[32vh] space-y-1 overflow-y-auto pr-0.5">
-        {runs.map((run) => (
+        {latestRuns.map((run) => (
           <SubagentRunRow
             key={run.runId}
             run={run}
             agent={agentsMap.get(run.childAgentId)}
+            attemptCount={attemptCounts.get(run.threadId || run.childSessionId) ?? 1}
             onClick={
               onViewSubagentSession && run.childSessionId
                 ? () => onViewSubagentSession(run.childSessionId)
@@ -13226,9 +13237,13 @@ function workflowOpDetail(op: WorkflowOp): string {
   )
 }
 
+function workflowOpIsAgent(op: WorkflowOp): boolean {
+  return op.opType === "spawnAgent" || op.opType === "resumeAgent"
+}
+
 function workflowOpDetailTab(op: WorkflowOp): WorkflowDetailTab {
   if (op.opType === "validate") return "validation"
-  if (op.opType === "spawnAgent") return "agents"
+  if (workflowOpIsAgent(op)) return "agents"
   return "trace"
 }
 
@@ -13343,7 +13358,7 @@ function workflowInitialDetailTab(
   snapshot: WorkflowRunSnapshot,
 ): "trace" | "validation" | "agents" {
   if (snapshot.ops.some(workflowOpHasValidationFailure)) return "validation"
-  if (snapshot.ops.some((op) => op.opType === "spawnAgent")) return "agents"
+  if (snapshot.ops.some(workflowOpIsAgent)) return "agents"
   return "trace"
 }
 
@@ -13358,6 +13373,8 @@ function workflowEventNeedsAttention(event: WorkflowEvent): boolean {
     event.eventType === "guarded_repair_validation_failed" ||
     event.eventType === "workflow_checkpoint" ||
     event.eventType === "workflow_report" ||
+    event.eventType === "workflow_finish_blocked_unresolved_agent_failures" ||
+    event.eventType === "workflow_agent_failures_accepted_partial" ||
     event.eventType === "workflow_milestone_injection_requested" ||
     event.eventType === "workflow_milestone_injection_delivered" ||
     event.eventType === "run_derived_from" ||
@@ -16913,7 +16930,7 @@ ${repairPrompt}`
   const latestEvent = snapshot?.events.at(-1)
   const detailRun = snapshot?.run ?? selectedRun
   const validationCount = snapshot?.ops.filter((op) => op.opType === "validate").length ?? 0
-  const agentCount = snapshot?.ops.filter((op) => op.opType === "spawnAgent").length ?? 0
+  const agentCount = snapshot?.ops.filter(workflowOpIsAgent).length ?? 0
 
   return (
     <>
@@ -20495,7 +20512,7 @@ function WorkflowRunOverview({
   const completed = ops.filter((op) => op.state === "completed").length
   const failed = ops.filter((op) => op.state === "failed").length
   const validationCount = ops.filter((op) => op.opType === "validate").length
-  const agentCount = ops.filter((op) => op.opType === "spawnAgent").length
+  const agentCount = ops.filter(workflowOpIsAgent).length
   const derivedChildEvents = (snapshot?.events ?? []).filter(
     (event) => event.eventType === "run_derived_child_created",
   )
@@ -21690,7 +21707,7 @@ function WorkflowOpRow({ op, index }: { op: WorkflowOp; index: number }) {
   const Icon =
     op.opType === "validate"
       ? CheckCircle2
-      : op.opType === "spawnAgent"
+      : workflowOpIsAgent(op)
         ? Bot
         : op.opType === "fileSearch"
           ? Search
@@ -22109,10 +22126,12 @@ function workflowAgentStatusInfo(op: WorkflowOp): { status: string; tone: Status
           status === "timeout" ||
           status === "killed" ||
           status === "cancelled" ||
+          status === "interrupted" ||
           status === "not_found" ||
           op.state === "failed"
         ? "danger"
         : status === "queued" ||
+            status === "spawning" ||
             status === "running" ||
             status === "spawned" ||
             op.state === "started"
@@ -22141,6 +22160,8 @@ function workflowAgentStatusLabel(
     case "killed":
     case "cancelled":
       return String(t("workspace.workflow.agentStateCancelled", "已取消"))
+    case "interrupted":
+      return String(t("executionStatus.subagent.status.interrupted", "已中断"))
     case "error":
     case "failed":
       return String(t("workspace.workflow.agentStateFailed", "失败"))
@@ -22157,7 +22178,7 @@ function WorkflowAgentsTab({
   onViewSubagentSession?: (sessionId: string) => void
 }) {
   const { t } = useTranslation()
-  const agentOps = snapshot.ops.filter((op) => op.opType === "spawnAgent")
+  const agentOps = snapshot.ops.filter(workflowOpIsAgent)
   if (agentOps.length === 0) {
     return <EmptyHint>{t("workspace.workflow.noAgents", "暂无子 Agent 记录")}</EmptyHint>
   }
@@ -22194,6 +22215,9 @@ function WorkflowAgentsTab({
         const sessionId = stringField(output, "sessionId")
         const label = stringField(output, "label") ?? stringField(input, "label")
         const task = stringField(output, "task")
+        const threadId = stringField(output, "threadId") ?? stringField(output, "thread_id")
+        const attempt = numberField(output, "attempt")
+        const terminalReason = stringField(output, "terminalReason")
         const { status, tone } = agentStatusInfos[index]
 
         return (
@@ -22213,7 +22237,9 @@ function WorkflowAgentsTab({
                 </div>
                 <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
                   {task ? `${task} · ` : ""}
-                  {runId ? truncateMiddle(runId, 72) : op.opKey}
+                  {attempt ? `#${attempt} · ` : ""}
+                  {threadId ? truncateMiddle(threadId, 52) : runId ? truncateMiddle(runId, 52) : op.opKey}
+                  {terminalReason ? ` · ${terminalReason}` : ""}
                 </div>
               </div>
               {sessionId && onViewSubagentSession ? (

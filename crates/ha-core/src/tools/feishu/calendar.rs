@@ -35,7 +35,7 @@ pub fn list_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -61,7 +61,7 @@ pub fn create_event_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -86,7 +86,7 @@ pub fn list_events_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -115,7 +115,7 @@ pub fn update_event_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -140,7 +140,7 @@ pub fn delete_event_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -166,7 +166,7 @@ pub fn attendees_create_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

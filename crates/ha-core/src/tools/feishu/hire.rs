@@ -52,7 +52,7 @@ pub fn list_jobs_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: pagination_only(&[]),
     }
 }
@@ -68,7 +68,7 @@ pub fn get_job_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -93,7 +93,7 @@ pub fn list_talents_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: pagination_only(&[]),
     }
 }
@@ -110,7 +110,7 @@ pub fn get_talent_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -134,7 +134,7 @@ pub fn list_applications_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: pagination_only(&[]),
     }
 }

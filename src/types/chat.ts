@@ -671,14 +671,32 @@ export interface AgentSummaryForSidebar {
 
 // ── Sub-Agent Types ─────────────────────────────────────────────
 
+export type SubagentStatus =
+  | "queued"
+  | "spawning"
+  | "running"
+  | "completed"
+  | "error"
+  | "timeout"
+  | "killed"
+  | "interrupted"
+
 export interface SubagentEvent {
-  eventType: "spawned" | "running" | "completed" | "error" | "killed" | "timeout" | "steered"
+  eventType:
+    | "spawned"
+    | "running"
+    | "completed"
+    | "error"
+    | "killed"
+    | "timeout"
+    | "interrupted"
+    | "steered"
   runId: string
   parentSessionId: string
   childAgentId: string
   childSessionId: string
   taskPreview: string
-  status: "queued" | "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
+  status: SubagentStatus
   resultPreview?: string
   resultFull?: string
   error?: string
@@ -690,12 +708,14 @@ export interface SubagentEvent {
 
 export interface SubagentRun {
   runId: string
+  /** Stable child-conversation identity shared by every immutable attempt. */
+  threadId: string
   parentSessionId: string
   parentAgentId: string
   childAgentId: string
   childSessionId: string
   task: string
-  status: "queued" | "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
+  status: SubagentStatus
   result?: string
   error?: string
   depth: number
@@ -707,6 +727,16 @@ export interface SubagentRun {
   attachmentCount?: number
   inputTokens?: number
   outputTokens?: number
+  continuationOfRunId?: string
+  triggerKind: string
+  terminalReason?: string
+  runnerOwner?: string
+  leaseEpoch: number
+  lastHeartbeatAt?: string
+  deliveryKind: "parent" | "group" | "workflow" | "none"
+  launchSpecJson?: string
+  ownerKind: "parent_session" | "workflow" | "team" | "internal"
+  ownerId: string
 }
 
 export type TaskStatus = "pending" | "in_progress" | "completed"

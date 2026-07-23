@@ -3,7 +3,7 @@ import { createContext, useCallback, useEffect, useMemo, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import type { SubagentEvent, SubagentRun } from "@/types/chat"
 import { TERMINAL_STATUSES } from "../subagentShared"
-import type { SubagentOpenTarget } from "./subagentRunModel"
+import { indexLatestRunByChildSession, type SubagentOpenTarget } from "./subagentRunModel"
 
 const REFETCH_DEBOUNCE_MS = 200
 
@@ -79,13 +79,10 @@ export function useSubagentRuns(sessionId: string | null | undefined): SubagentR
   const runs = useMemo(() => (state.sid === sid ? state.runs : []), [state, sid])
   const loaded = state.sid === sid && state.loaded
   const byId = useMemo(() => new Map(runs.map((r) => [r.runId, r] as const)), [runs])
-  const byChildSessionId = useMemo(
-    () => new Map(runs.filter((r) => r.childSessionId).map((r) => [r.childSessionId, r] as const)),
-    [runs],
-  )
+  const byChildSessionId = useMemo(() => indexLatestRunByChildSession(runs), [runs])
   const runningCount = useMemo(
-    () => runs.filter((r) => !TERMINAL_STATUSES.has(r.status)).length,
-    [runs],
+    () => [...byChildSessionId.values()].filter((r) => !TERMINAL_STATUSES.has(r.status)).length,
+    [byChildSessionId],
   )
 
   return { sessionId: sid, runs, byId, byChildSessionId, runningCount, loaded, refetch }

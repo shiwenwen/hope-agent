@@ -54,7 +54,8 @@ export default function SkillForkStatusCard({
   }, [safeRunId])
 
   const isRunning = status === "queued" || status === "spawning" || status === "running"
-  const isFailed = status === "error" || status === "timeout" || status === "killed"
+  const isFailed =
+    status === "error" || status === "timeout" || status === "killed" || status === "interrupted"
   const StatusIcon = isRunning ? Loader2 : isFailed ? XCircle : CheckCircle2
 
   if (!safeRunId) {
@@ -137,5 +138,7 @@ function statusText(status: SkillForkStatus, t: ReturnType<typeof useTranslation
       return t("skills.chatFork.timeout", { defaultValue: "Timed out." })
     case "killed":
       return t("skills.chatFork.killed", { defaultValue: "Cancelled." })
+    case "interrupted":
+      return t("executionStatus.subagent.status.interrupted", { defaultValue: "Interrupted." })
   }
 }

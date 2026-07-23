@@ -694,7 +694,11 @@ export function useChatSession({
           setLoadingSessionIds(new Set(loadingSessionsRef.current))
         }
       }
-      if (["completed", "error", "timeout", "killed", "spawning"].includes(payload.status)) {
+      if (
+        ["completed", "error", "timeout", "killed", "interrupted", "spawning"].includes(
+          payload.status,
+        )
+      ) {
         reloadSessions()
       }
     })

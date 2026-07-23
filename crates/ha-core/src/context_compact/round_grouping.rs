@@ -12,6 +12,9 @@ use serde_json::Value;
 
 /// Metadata key for round ID, stamped in tool loops, stripped before API calls.
 pub const ROUND_KEY: &str = "_oc_round";
+/// Durable steer dispatches stamp their ids on the checkpointed user message.
+/// The marker provides replay deduplication and must never reach a provider.
+pub const SUBAGENT_DISPATCH_IDS_KEY: &str = "_ha_subagent_dispatch_ids";
 
 /// Stamp a round ID on a message (in-place).
 pub fn stamp_round(msg: &mut Value, round_id: &str) {
@@ -57,6 +60,14 @@ pub fn strip_round(msg: &mut Value) {
     }
 }
 
+/// Strip all Hope-internal message metadata before provider serialization.
+fn strip_internal_metadata(msg: &mut Value) {
+    if let Some(obj) = msg.as_object_mut() {
+        obj.remove(ROUND_KEY);
+        obj.remove(SUBAGENT_DISPATCH_IDS_KEY);
+    }
+}
+
 /// Strip round metadata from all messages (in-place).
 #[allow(dead_code)]
 pub fn strip_rounds(messages: &mut [Value]) {
@@ -70,14 +81,14 @@ fn get_round(msg: &Value) -> Option<&str> {
     msg.get(ROUND_KEY).and_then(|v| v.as_str())
 }
 
-/// Clone messages and strip round metadata (for API request body construction).
+/// Clone messages and strip internal metadata (for API request body construction).
 /// This avoids modifying the working message vec while producing a clean copy for the API.
 pub fn prepare_messages_for_api(messages: &[Value]) -> Vec<Value> {
     messages
         .iter()
         .map(|m| {
             let mut clean = m.clone();
-            strip_round(&mut clean);
+            strip_internal_metadata(&mut clean);
             clean
         })
         .collect()
@@ -177,10 +188,13 @@ mod tests {
             json!({ "role": "assistant", "content": "hello" }),
         ];
         stamp_round(&mut messages[1], "r0");
+        messages[0][SUBAGENT_DISPATCH_IDS_KEY] = json!(["dispatch-1"]);
         let api = prepare_messages_for_api(&messages);
         assert!(api[1].get(ROUND_KEY).is_none());
+        assert!(api[0].get(SUBAGENT_DISPATCH_IDS_KEY).is_none());
         // Original still has the stamp
         assert!(messages[1].get(ROUND_KEY).is_some());
+        assert!(messages[0].get(SUBAGENT_DISPATCH_IDS_KEY).is_some());
     }
 
     #[test]

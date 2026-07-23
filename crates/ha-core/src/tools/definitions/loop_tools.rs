@@ -20,7 +20,7 @@ fn loop_core_tool(
         },
         internal: true,
         concurrent_safe,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters,
     }
 }
