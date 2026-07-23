@@ -716,7 +716,7 @@ export default function DreamingTab() {
                 key={run.id}
                 onClick={() => setSelectedRunId(run.id)}
                 className={`w-full rounded border border-border/40 px-2 py-1.5 text-left transition-colors hover:bg-secondary/40 ${
-                  selectedRunId === run.id ? "bg-secondary/60" : "bg-background/40"
+                  selectedRunId === run.id ? "bg-secondary" : "bg-background/40"
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -770,7 +770,7 @@ export default function DreamingTab() {
                   key={run.id}
                   onClick={() => setSelectedRunId(run.id)}
                   className={`w-full text-left px-3 py-2 text-xs hover:bg-secondary/40 transition-colors border-b border-border/30 ${
-                    selectedRunId === run.id ? "bg-secondary/60 font-medium" : ""
+                    selectedRunId === run.id ? "bg-secondary font-medium" : ""
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -888,7 +888,7 @@ export default function DreamingTab() {
                   key={entry.filename}
                   onClick={() => setSelected(entry.filename)}
                   className={`w-full text-left px-3 py-2 text-xs hover:bg-secondary/40 transition-colors border-b border-border/30 ${
-                    selected === entry.filename ? "bg-secondary/60 font-medium" : ""
+                    selected === entry.filename ? "bg-secondary font-medium" : ""
                   }`}
                 >
                   <div className="truncate">{entry.filename.replace(/\.md$/, "")}</div>

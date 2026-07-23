@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
+import { TogglePills } from "@/components/ui/toggle-pills"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
@@ -175,30 +176,30 @@ export function ModelEditor({
         <label className="text-[10px] text-muted-foreground">
           {t("model.supportedInputTypes")}
         </label>
-        <div className="flex gap-2">
-          {inputTypes.map((type) => (
-            <Button
-              key={type}
-              variant="outline"
-              size="sm"
-              onClick={() => toggleInput(type)}
-              className={`h-auto gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-normal ${
-                model.inputTypes.includes(type)
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
-                  : "bg-background text-muted-foreground hover:bg-secondary/40 hover:text-foreground"
-              }`}
-            >
-              {type === "text" && <Type className="h-3 w-3" />}
-              {type === "image" && <Image className="h-3 w-3" />}
-              {type === "video" && <Video className="h-3 w-3" />}
-              {type === "text"
+        <TogglePills
+          values={new Set(model.inputTypes)}
+          onToggle={toggleInput}
+          ariaLabel={t("model.supportedInputTypes")}
+          className="gap-2"
+          itemClassName="h-auto px-2.5 py-1 text-[11px]"
+          options={inputTypes.map((type) => ({
+            value: type,
+            label:
+              type === "text"
                 ? t("model.text")
                 : type === "image"
                   ? t("model.image")
-                  : t("model.video")}
-            </Button>
-          ))}
-        </div>
+                  : t("model.video"),
+            icon:
+              type === "text" ? (
+                <Type className="h-3 w-3" />
+              ) : type === "image" ? (
+                <Image className="h-3 w-3" />
+              ) : (
+                <Video className="h-3 w-3" />
+              ),
+          }))}
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-2.5">

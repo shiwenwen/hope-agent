@@ -40,7 +40,7 @@ export default function QuickPromptMenu({
     cn(
       "w-full text-left px-2.5 py-1.5 rounded-md transition-all duration-100 flex min-w-0 items-start gap-2 outline-none",
       selected
-        ? "bg-secondary text-foreground shadow-sm"
+        ? "bg-secondary text-foreground"
         : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
     )
 

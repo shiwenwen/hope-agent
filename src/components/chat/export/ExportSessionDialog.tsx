@@ -221,7 +221,7 @@ function ToggleRow({ checked, onChange, label, hint }: ToggleRowProps) {
       className={cn(
         "w-full flex items-start gap-2 text-left rounded-md px-2 py-1.5 border transition-colors",
         checked
-          ? "border-border/40 bg-secondary/70"
+          ? "border-border/40 bg-secondary"
           : "border-border/40 bg-secondary/30 hover:bg-secondary/50",
       )}
     >

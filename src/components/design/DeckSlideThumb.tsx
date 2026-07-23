@@ -80,7 +80,7 @@ export function DeckSlideThumb({
       aria-label={`${index + 1}`}
       aria-current={active ? "true" : undefined}
       className={`group/slide relative aspect-video w-24 shrink-0 overflow-hidden rounded border bg-muted transition-colors ${
-        active ? "bg-secondary/70" : "hover:bg-secondary/40"
+        active ? "bg-secondary" : "hover:bg-secondary/40"
       }`}
     >
       {live ? (
@@ -98,7 +98,7 @@ export function DeckSlideThumb({
       <span
         aria-hidden="true"
         className={`pointer-events-none absolute inset-0 z-10 transition-colors ${
-          active ? "bg-secondary/70" : "bg-transparent group-hover/slide:bg-secondary/40"
+          active ? "bg-secondary" : "bg-transparent group-hover/slide:bg-secondary/40"
         }`}
       />
       <span className="pointer-events-none absolute bottom-0.5 left-0.5 z-20 rounded bg-background/80 px-1 text-[9px] font-medium tabular-nums text-muted-foreground">

@@ -60,7 +60,7 @@ export function SubagentRunRow({
       disabled={!onClick}
       className={cn(
         "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
-        selected ? "bg-secondary/70" : onClick ? "hover:bg-secondary/40" : "cursor-default",
+        selected ? "bg-secondary" : onClick ? "hover:bg-secondary/40" : "cursor-default",
       )}
     >
       <AgentAvatarBadge

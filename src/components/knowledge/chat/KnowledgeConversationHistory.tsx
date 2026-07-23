@@ -98,7 +98,7 @@ export function KnowledgeConversationHistory({
               onClick={() => onPick(thread.sessionId)}
               className={cn(
                 "flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-secondary/60",
-                thread.sessionId === activeSessionId && "bg-secondary/40",
+                thread.sessionId === activeSessionId && "bg-secondary",
               )}
             >
               <span className="truncate text-xs font-medium">

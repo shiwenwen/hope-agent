@@ -33,7 +33,9 @@ describe("RadioPills", () => {
     expect(selected.className).toContain("bg-primary")
     expect(selected.className).toContain("text-primary-foreground")
     expect(selected.className).not.toMatch(/\bborder(?:-|\b)/)
-    expect(unselected.className).toContain("hover:bg-secondary/40")
+    expect(unselected.className).toContain("bg-secondary")
+    expect(unselected.className).toContain("text-secondary-foreground")
+    expect(unselected.className).toContain("hover:bg-foreground/15")
 
     fireEvent.click(selected)
     expect(onChange).not.toHaveBeenCalled()

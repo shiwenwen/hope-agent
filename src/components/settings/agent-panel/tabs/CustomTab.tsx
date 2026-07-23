@@ -116,7 +116,7 @@ export default function CustomTab({
                 className={cn(
                   "-mb-px h-auto rounded-md px-2.5 py-1.5 text-xs font-normal",
                   activeFile === tab.id
-                    ? "bg-secondary/70 font-medium text-foreground hover:bg-secondary/70 hover:text-foreground"
+                    ? "bg-secondary font-medium text-foreground hover:bg-secondary hover:text-foreground"
                     : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
                 )}
                 onClick={() => setActiveFile(tab.id)}

@@ -124,7 +124,7 @@ export default function AgentSwitcher({
                 className={cn(
                   "flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] rounded-md transition-colors",
                   isCurrent
-                    ? "bg-secondary/70 text-foreground"
+                    ? "bg-secondary text-foreground"
                     : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
                 )}
                 onClick={() => {

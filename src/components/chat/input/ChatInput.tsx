@@ -1558,7 +1558,7 @@ export default function ChatInput({
               className={cn(
                 "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-all duration-150",
                 selected
-                  ? "bg-secondary text-foreground font-medium shadow-sm"
+                  ? "bg-secondary text-foreground font-medium"
                   : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
               )}
               disabled={workflowMenuDisabled}

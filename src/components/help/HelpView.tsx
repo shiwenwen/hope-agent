@@ -292,7 +292,7 @@ export default function HelpView({ initialTarget, navigateSignal }: HelpViewProp
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
                   c.number === current.number
-                    ? "bg-secondary/70 text-foreground"
+                    ? "bg-secondary text-foreground"
                     : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
                 )}
                 onClick={() => goTo({ chapter: c.number })}
@@ -320,7 +320,7 @@ export default function HelpView({ initialTarget, navigateSignal }: HelpViewProp
               className={cn(
                 "h-6 flex-1 text-xs",
                 effectiveLang === lang
-                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                  ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground",
               )}
               onClick={() => setLangOverride(lang)}

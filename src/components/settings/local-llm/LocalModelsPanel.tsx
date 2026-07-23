@@ -1408,7 +1408,7 @@ export default function LocalModelsPanel() {
                       key={model.name}
                       className={cn(
                         "rounded-lg border bg-card p-3",
-                        expanded ? "border-border bg-secondary/70" : "border-border",
+                        expanded ? "border-border bg-secondary" : "border-border",
                       )}
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

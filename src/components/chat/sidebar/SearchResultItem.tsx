@@ -94,7 +94,7 @@ export default function SearchResultItem({
         "flex items-start gap-2.5 w-full px-2.5 py-2 rounded-lg text-left group cursor-pointer",
         displayMode === "compact" && "gap-1.5 px-2 py-1.5 rounded-md",
         isActive
-          ? "bg-secondary/70"
+          ? "bg-secondary"
           : "hover:bg-secondary/40",
       )}
       onClick={onSwitch}

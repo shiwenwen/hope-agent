@@ -545,7 +545,7 @@ export default function LocalEmbeddingAssistantCard({
                     className={cn(
                       "w-full h-auto justify-between px-2 py-1.5 text-left text-[11px]",
                       active
-                        ? "bg-secondary/70 text-foreground"
+                        ? "bg-secondary text-foreground"
                         : "text-muted-foreground hover:bg-secondary/40",
                     )}
                   >

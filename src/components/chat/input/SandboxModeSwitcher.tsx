@@ -107,7 +107,7 @@ export function SandboxModeOptions({
             className={cn(
               "w-full text-left px-2.5 py-2 rounded-md transition-all duration-150 flex items-start gap-2",
               sandboxMode === mode
-                ? "bg-secondary text-foreground font-medium shadow-sm"
+                ? "bg-secondary text-foreground font-medium"
                 : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
             )}
             onClick={() => {

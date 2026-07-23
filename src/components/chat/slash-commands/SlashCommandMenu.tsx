@@ -102,9 +102,9 @@ export default function SlashCommandMenu({
                       className={cn(
                         "w-full text-left px-2.5 py-1.5 rounded-md transition-all duration-100 flex items-center gap-2",
                         isSelected
-                          ? "bg-secondary text-foreground shadow-sm"
+                          ? "bg-secondary text-foreground"
                           : isExpanded
-                            ? "bg-secondary/40 text-foreground"
+                            ? "bg-secondary text-foreground"
                             : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
                       )}
                       onClick={() => onSelect(cmd)}
@@ -169,7 +169,7 @@ function renderOptions(
       className={cn(
         "w-full text-left px-2.5 py-1 rounded-md text-[13px] font-mono transition-all duration-100",
         i === selectedIdx
-          ? "bg-secondary/70 text-foreground"
+          ? "bg-secondary text-foreground"
           : "text-foreground/70 hover:bg-secondary/50 hover:text-foreground",
       )}
       onClick={() => onSelectOption?.(cmd, opt)}

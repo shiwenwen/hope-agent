@@ -120,7 +120,7 @@ export function DesignConversationHistory({
                 className={cn(
                   "group/row flex items-center gap-1 rounded-lg px-1.5 py-1 transition-colors",
                   thread.sessionId === activeSessionId
-                    ? "bg-secondary/70 text-foreground"
+                    ? "bg-secondary text-foreground"
                     : !editing && "hover:bg-secondary/40",
                 )}
               >

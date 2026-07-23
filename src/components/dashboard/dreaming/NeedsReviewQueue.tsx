@@ -102,7 +102,7 @@ export default function NeedsReviewQueue() {
                 <button
                   onClick={() => setExpandedId(expanded ? null : c.id)}
                   className={`w-full text-left px-3 py-2 text-xs hover:bg-secondary/40 transition-colors ${
-                    expanded ? "bg-secondary/40" : ""
+                    expanded ? "bg-secondary" : ""
                   }`}
                 >
                   <div className="flex items-center gap-2">

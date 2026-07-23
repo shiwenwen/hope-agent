@@ -6160,7 +6160,7 @@ export default function MemoryOverviewView({
                           "rounded-md border border-border/50 bg-background/70 px-3 py-2 text-xs transition-colors",
                           experienceFocusHighlight?.kind === "episode" &&
                             experienceFocusHighlight.id === episode.id &&
-                            "bg-secondary/70",
+                            "bg-secondary",
                         )}
                       >
                         <div className="flex min-w-0 items-start justify-between gap-2">
@@ -6269,7 +6269,7 @@ export default function MemoryOverviewView({
                             "rounded-md border border-border/50 bg-background/70 px-3 py-2 text-xs transition-colors",
                             experienceFocusHighlight?.kind === "procedure" &&
                               experienceFocusHighlight.id === procedure.id &&
-                              "bg-secondary/70",
+                              "bg-secondary",
                           )}
                         >
                           <div className="flex min-w-0 items-start justify-between gap-2">
@@ -6662,7 +6662,7 @@ export default function MemoryOverviewView({
                             <span
                               key={preset.id}
                               className={`inline-flex max-w-full items-center rounded-md border border-border/70 ${
-                                active ? "bg-secondary/70 text-foreground" : "bg-background"
+                                active ? "bg-secondary text-foreground" : "bg-background"
                               }`}
                             >
                               <Button

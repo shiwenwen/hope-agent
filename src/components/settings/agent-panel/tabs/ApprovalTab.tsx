@@ -123,7 +123,7 @@ export default function ApprovalTab({ config, updateConfig }: ApprovalTabProps) 
                   "flex items-start gap-2 rounded-lg border p-3 text-left transition-all",
                   "focus:outline-none",
                   isActive
-                    ? "border-border/50 bg-secondary/70"
+                    ? "border-border/50 bg-secondary"
                     : "border-border/50 hover:bg-secondary/40",
                 )}
               >

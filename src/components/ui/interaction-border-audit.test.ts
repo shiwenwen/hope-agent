@@ -6,6 +6,12 @@ const SRC_ROOT = resolve(process.cwd(), "src")
 const SOURCE_FILE = /\.(?:css|ts|tsx)$/
 const TEST_FILE = /\.(?:test|spec)\.(?:ts|tsx)$/
 const HOVER_BORDER_UTILITY = /(?:hover|group-hover|peer-hover):(?:border|ring)(?:-|\b)/g
+const RADIX_STATE_SHADOW_UTILITY =
+  /data-\[state=(?:active|checked|on|open)\]:shadow(?:-[a-z0-9-]+)?\b/g
+const CONDITIONAL_SELECTION_SHADOW =
+  /(?:\?|&&)\s*"[^"\n]*\bbg-(?:background|secondary)(?:\/\d+)?\b[^"\n]*\bshadow(?:-[a-z0-9-]+)?\b[^"\n]*"/g
+const WEAK_SELECTION_BACKGROUND =
+  /(?:\?|&&)\s*"[^"\n]*(?<!:)\bbg-secondary\/\d+\b[^"\n]*"|data-\[state=(?:active|checked|on|open)\]:bg-secondary\/\d+\b/g
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -25,6 +31,26 @@ describe("interaction border audit", () => {
       for (const match of source.matchAll(HOVER_BORDER_UTILITY)) {
         const line = source.slice(0, match.index).split("\n").length
         violations.push(`${relative(process.cwd(), file)}:${line} ${match[0]}`)
+      }
+    }
+
+    expect(violations).toEqual([])
+  })
+
+  it("keeps selected and open states flat and visible", () => {
+    const violations: string[] = []
+
+    for (const file of sourceFiles(SRC_ROOT)) {
+      const source = readFileSync(file, "utf8")
+      for (const pattern of [
+        RADIX_STATE_SHADOW_UTILITY,
+        CONDITIONAL_SELECTION_SHADOW,
+        WEAK_SELECTION_BACKGROUND,
+      ]) {
+        for (const match of source.matchAll(pattern)) {
+          const line = source.slice(0, match.index).split("\n").length
+          violations.push(`${relative(process.cwd(), file)}:${line} ${match[0]}`)
+        }
       }
     }
 

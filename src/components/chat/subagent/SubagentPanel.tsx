@@ -41,8 +41,7 @@ interface NavEntry {
 
 type DetailPane = "result" | "conversation" | "details"
 
-/** Segmented-control tab, mirroring the shared TabsTrigger look (selected =
- *  `bg-background` + light shadow inside a `bg-muted` track). */
+/** Segmented-control tab, mirroring the flat shared TabsTrigger look. */
 function PaneTab({
   active,
   label,
@@ -58,8 +57,8 @@ function PaneTab({
       onClick={onSelect}
       aria-pressed={active}
       className={cn(
-        "inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-2.5 py-1 text-[11px] font-medium transition-all",
-        active ? "bg-background text-foreground shadow" : "hover:text-foreground",
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+        active ? "bg-background text-foreground" : "hover:text-foreground",
       )}
     >
       {label}

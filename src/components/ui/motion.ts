@@ -1,4 +1,5 @@
 export const UI_MOTION = {
+  tabIndicator: 180,
   popover: 220,
   popoverEnter: 220,
   popoverExit: 180,

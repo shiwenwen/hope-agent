@@ -322,7 +322,7 @@ export function DesignSystemPicker({
                 className={cn(
                   "mt-1.5 flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm",
                   value == null
-                    ? "bg-secondary/70 text-foreground"
+                    ? "bg-secondary text-foreground"
                     : "hover:bg-secondary/40",
                 )}
               >
@@ -347,7 +347,7 @@ export function DesignSystemPicker({
                     className={cn(
                       "group/sys flex items-center gap-1 rounded-md pr-1",
                       value === s.id
-                        ? "bg-secondary/70 text-foreground"
+                        ? "bg-secondary text-foreground"
                         : "hover:bg-secondary/40",
                     )}
                   >

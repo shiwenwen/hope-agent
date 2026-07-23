@@ -38,14 +38,14 @@ const itemVariantClass: Record<ContextMenuVariant, string> = {
   default:
     "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
   floating:
-    "relative flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] leading-5 text-foreground/80 outline-none transition-all duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground data-[state=open]:shadow-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:shrink-0",
+    "relative flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] leading-5 text-foreground/80 outline-none transition-colors duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:shrink-0",
 }
 
 const subTriggerVariantClass: Record<ContextMenuVariant, string> = {
   default:
     "flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none focus:bg-accent data-[state=open]:bg-accent",
   floating:
-    "flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] leading-5 text-foreground/80 outline-none transition-all duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground data-[state=open]:shadow-sm [&_svg]:shrink-0",
+    "flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] leading-5 text-foreground/80 outline-none transition-colors duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground [&_svg]:shrink-0",
 }
 
 const separatorVariantClass: Record<ContextMenuVariant, string> = {
