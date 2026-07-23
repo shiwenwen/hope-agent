@@ -131,6 +131,7 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
 
 /// Build the push message text injected into the parent session.
 pub(crate) fn build_subagent_push_message(
+    thread_id: &str,
     run_id: &str,
     agent_id: &str,
     task: &str,
@@ -138,6 +139,7 @@ pub(crate) fn build_subagent_push_message(
     duration_ms: u64,
     result: Option<&str>,
     error: Option<&str>,
+    terminal_reason: Option<crate::subagent::SubagentTerminalReason>,
 ) -> String {
     let duration = format!("{:.1}s", duration_ms as f64 / 1000.0);
     let result_block = result
@@ -159,20 +161,30 @@ pub(crate) fn build_subagent_push_message(
         status.as_str(),
         duration
     );
+    let terminal_reason =
+        terminal_reason.unwrap_or(crate::subagent::SubagentTerminalReason::Unknown);
     format!(
         "<subagent-result>\n\
+         <thread-id>{}</thread-id>\n\
          <run-id>{}</run-id>\n\
          <agent>{}</agent>\n\
          <status>{}</status>\n\
+         <terminal-reason>{}</terminal-reason>\n\
+         <resume-allowed>{}</resume-allowed>\n\
+         <resume-recommended>{}</resume-recommended>\n\
          <duration-ms>{}</duration-ms>\n\
          <duration>{}</duration>\n\
          <task>{}</task>\n\
          {}\
          <summary>{}</summary>\n\
          </subagent-result>",
+        escape_xml_text(thread_id),
         escape_xml_text(run_id),
         escape_xml_text(agent_id),
         escape_xml_text(status.as_str()),
+        escape_xml_text(terminal_reason.as_str()),
+        terminal_reason.resume_allowed(),
+        terminal_reason.resume_recommended(),
         duration_ms,
         escape_xml_text(&duration),
         escape_xml_text(&truncate_str(task, 50)),
@@ -838,6 +850,7 @@ mod tests {
     #[test]
     fn subagent_push_message_uses_xmlish_payload_and_escapes_text() {
         let msg = build_subagent_push_message(
+            "thread<&",
             "run<&",
             "agent>&",
             "read <file> & report",
@@ -845,9 +858,11 @@ mod tests {
             1234,
             Some("ok <done> & safe"),
             None,
+            Some(crate::subagent::SubagentTerminalReason::Success),
         );
 
         assert!(msg.starts_with("<subagent-result>"));
+        assert!(msg.contains("<thread-id>thread&lt;&amp;</thread-id>"));
         assert!(msg.contains("<run-id>run&lt;&amp;</run-id>"));
         assert!(msg.contains("<agent>agent&gt;&amp;</agent>"));
         assert!(msg.contains("<task>read &lt;file&gt; &amp; report</task>"));

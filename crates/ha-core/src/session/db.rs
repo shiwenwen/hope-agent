@@ -391,11 +391,76 @@ impl SessionDB {
                 label TEXT,
                 attachment_count INTEGER DEFAULT 0,
                 input_tokens INTEGER,
-                output_tokens INTEGER
+                output_tokens INTEGER,
+                continuation_of_run_id TEXT,
+                trigger_kind TEXT NOT NULL DEFAULT 'spawn',
+                terminal_reason TEXT,
+                runner_owner TEXT,
+                lease_epoch INTEGER NOT NULL DEFAULT 0,
+                last_heartbeat_at TEXT,
+                delivery_kind TEXT NOT NULL DEFAULT 'parent',
+                launch_spec_json TEXT,
+                owner_kind TEXT NOT NULL DEFAULT 'parent_session',
+                owner_id TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_subagent_parent ON subagent_runs(parent_session_id, started_at DESC);
             CREATE INDEX IF NOT EXISTS idx_subagent_status ON subagent_runs(status);
             CREATE INDEX IF NOT EXISTS idx_subagent_label ON subagent_runs(label);
+
+            -- Stable child-conversation identity and control-plane ownership.
+            -- `subagent_runs` remains the attempt truth source; this table only
+            -- owns serialization, fencing, and lifecycle state for the thread.
+            CREATE TABLE IF NOT EXISTS subagent_threads (
+                thread_id TEXT PRIMARY KEY,
+                parent_session_id TEXT NOT NULL,
+                parent_agent_id TEXT NOT NULL,
+                child_agent_id TEXT NOT NULL,
+                depth INTEGER NOT NULL,
+                owner_kind TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                lifecycle_state TEXT NOT NULL DEFAULT 'open',
+                current_run_id TEXT,
+                lease_epoch INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_subagent_threads_parent
+                ON subagent_threads(parent_session_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_subagent_threads_owner
+                ON subagent_threads(owner_kind, owner_id, updated_at DESC);
+
+            -- Durable parent/workflow dispatch provenance. A replay reuses the
+            -- dispatch id rather than delivering the same child message twice.
+            CREATE TABLE IF NOT EXISTS subagent_dispatches (
+                id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                source_run_id TEXT NOT NULL,
+                target_run_id TEXT,
+                dispatch_kind TEXT NOT NULL,
+                owner_kind TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                message TEXT NOT NULL,
+                state TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                delivered_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_subagent_dispatches_thread
+                ON subagent_dispatches(thread_id, created_at DESC);
+
+            -- Durable ordinary-parent result delivery. Workflow and Group
+            -- children use their own aggregation/checkpoint paths.
+            CREATE TABLE IF NOT EXISTS subagent_result_deliveries (
+                run_id TEXT PRIMARY KEY,
+                parent_session_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                suppress_reason TEXT,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                requested_at TEXT NOT NULL,
+                delivered_at TEXT,
+                last_error TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_subagent_result_deliveries_pending
+                ON subagent_result_deliveries(state, requested_at);
 
             -- Unified model usage ledger. Dashboard token/cost totals read this
             -- table so non-chat model calls (side_query / embedding / STT /
@@ -487,6 +552,95 @@ impl SessionDB {
                     SELECT new.id, new.content
                     WHERE new.role IN ('user', 'assistant') AND length(new.content) > 0;
             END;"
+        )?;
+
+        // Sub-agent Thread/Attempt migration. Keep every addition probe-based:
+        // users can open databases produced by any earlier minor without a
+        // version-table dependency or a destructive rebuild.
+        let subagent_run_columns = [
+            (
+                "continuation_of_run_id",
+                "ALTER TABLE subagent_runs ADD COLUMN continuation_of_run_id TEXT;",
+            ),
+            (
+                "trigger_kind",
+                "ALTER TABLE subagent_runs ADD COLUMN trigger_kind TEXT NOT NULL DEFAULT 'spawn';",
+            ),
+            (
+                "terminal_reason",
+                "ALTER TABLE subagent_runs ADD COLUMN terminal_reason TEXT;",
+            ),
+            (
+                "runner_owner",
+                "ALTER TABLE subagent_runs ADD COLUMN runner_owner TEXT;",
+            ),
+            (
+                "lease_epoch",
+                "ALTER TABLE subagent_runs ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0;",
+            ),
+            (
+                "last_heartbeat_at",
+                "ALTER TABLE subagent_runs ADD COLUMN last_heartbeat_at TEXT;",
+            ),
+            (
+                "delivery_kind",
+                "ALTER TABLE subagent_runs ADD COLUMN delivery_kind TEXT NOT NULL DEFAULT 'parent';",
+            ),
+            (
+                "launch_spec_json",
+                "ALTER TABLE subagent_runs ADD COLUMN launch_spec_json TEXT;",
+            ),
+            (
+                "owner_kind",
+                "ALTER TABLE subagent_runs ADD COLUMN owner_kind TEXT NOT NULL DEFAULT 'parent_session';",
+            ),
+            (
+                "owner_id",
+                "ALTER TABLE subagent_runs ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';",
+            ),
+        ];
+        for (column, migration) in subagent_run_columns {
+            let probe = format!("SELECT {column} FROM subagent_runs LIMIT 1");
+            if conn.prepare(&probe).is_err() {
+                conn.execute_batch(migration)?;
+            }
+        }
+        // Historical ordinary subagents were owned by their parent session.
+        // Workflow/Team ownership is reconciled after those subsystem tables
+        // have been created below.
+        conn.execute(
+            "UPDATE subagent_runs
+                SET owner_id = parent_session_id
+              WHERE owner_id = ''",
+            [],
+        )?;
+        // Older schemas relied only on application-level serialization. If a
+        // crash/race left duplicate live attempts, settle every non-newest row
+        // before installing the database-level invariant; silently refusing to
+        // open the user's database would make recovery strictly worse.
+        let migration_now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "WITH ranked AS (
+                SELECT run_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY child_session_id
+                           ORDER BY started_at DESC, run_id DESC
+                       ) AS position
+                  FROM subagent_runs
+                 WHERE status IN ('queued', 'spawning', 'running')
+             )
+             UPDATE subagent_runs
+                SET status = 'interrupted',
+                    terminal_reason = 'process_interrupted',
+                    error = COALESCE(error, 'Interrupted while repairing duplicate active attempts'),
+                    finished_at = COALESCE(finished_at, ?1)
+              WHERE run_id IN (SELECT run_id FROM ranked WHERE position > 1)",
+            params![migration_now],
+        )?;
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_subagent_one_active_run_per_thread
+                ON subagent_runs(child_session_id)
+                WHERE status IN ('queued', 'spawning', 'running');",
         )?;
 
         // Migration: add is_cron column if missing
@@ -1231,6 +1385,74 @@ impl SessionDB {
                 "ALTER TABLE team_templates ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';",
             )?;
         }
+
+        // Reconstruct control-plane ownership for historical durable children.
+        // Workflow and Team evidence is authoritative; all remaining legacy
+        // rows retain the historical parent-session ownership default.
+        conn.execute_batch(
+            "UPDATE subagent_runs
+                SET owner_kind = 'workflow',
+                    owner_id = (
+                        SELECT wo.run_id
+                          FROM workflow_ops wo
+                         WHERE wo.child_handle = subagent_runs.run_id
+                           AND wo.op_type IN ('spawnAgent','resumeAgent')
+                         ORDER BY wo.started_at ASC, wo.id ASC
+                         LIMIT 1
+                    ),
+                    delivery_kind = 'workflow'
+              WHERE EXISTS (
+                    SELECT 1 FROM workflow_ops wo
+                     WHERE wo.child_handle = subagent_runs.run_id
+                       AND wo.op_type IN ('spawnAgent','resumeAgent')
+              );
+
+             UPDATE subagent_runs
+                SET owner_kind = 'team',
+                    owner_id = (
+                        SELECT tm.team_id
+                          FROM team_members tm
+                         WHERE tm.run_id = subagent_runs.run_id
+                         LIMIT 1
+                    ),
+                    delivery_kind = 'group'
+              WHERE EXISTS (
+                    SELECT 1 FROM team_members tm
+                     WHERE tm.run_id = subagent_runs.run_id
+              );
+
+             INSERT OR IGNORE INTO subagent_threads (
+                 thread_id, parent_session_id, parent_agent_id, child_agent_id,
+                 depth, owner_kind, owner_id, lifecycle_state, current_run_id,
+                 lease_epoch, created_at, updated_at
+             )
+             SELECT latest.child_session_id,
+                    latest.parent_session_id,
+                    latest.parent_agent_id,
+                    latest.child_agent_id,
+                    latest.depth,
+                    latest.owner_kind,
+                    latest.owner_id,
+                    'open',
+                    latest.run_id,
+                    latest.lease_epoch,
+                    first_seen.created_at,
+                    COALESCE(latest.finished_at, latest.started_at)
+               FROM subagent_runs latest
+               JOIN (
+                    SELECT child_session_id, MIN(started_at) AS created_at
+                      FROM subagent_runs
+                     GROUP BY child_session_id
+               ) first_seen
+                 ON first_seen.child_session_id = latest.child_session_id
+              WHERE latest.run_id = (
+                    SELECT candidate.run_id
+                      FROM subagent_runs candidate
+                     WHERE candidate.child_session_id = latest.child_session_id
+                     ORDER BY candidate.started_at DESC, candidate.run_id DESC
+                     LIMIT 1
+              );",
+        )?;
 
         // One-time cleanup: drop legacy builtin templates (design moved to user-managed
         // presets via Settings → Teams panel; see AGENTS.md Team 系统 section).
@@ -4422,8 +4644,8 @@ impl SessionDB {
     }
 
     /// Drain rows that reference `session_id` in tables without FK cascade
-    /// (`session_skill_activation`, `session_tool_activation`, `learning_events`, `subagent_runs`,
-    /// `acp_runs`). Bundled in a single transaction to amortize fsync.
+    /// (`session_skill_activation`, `session_tool_activation`, `learning_events`, subagent control
+    /// tables, `acp_runs`). Bundled in a single transaction to amortize fsync.
     /// Best-effort: failures are logged via `app_warn!` so a corrupted side
     /// table never blocks the primary delete.
     fn cleanup_session_orphan_tables(&self, session_id: &str) {
@@ -4436,7 +4658,14 @@ impl SessionDB {
                 "DELETE FROM session_skill_activation WHERE session_id = ?1",
                 "DELETE FROM session_tool_activation WHERE session_id = ?1",
                 "DELETE FROM learning_events WHERE session_id = ?1",
-                "DELETE FROM subagent_runs WHERE parent_session_id = ?1",
+                "DELETE FROM subagent_result_deliveries WHERE parent_session_id = ?1",
+                "DELETE FROM subagent_dispatches
+                   WHERE thread_id IN (
+                         SELECT thread_id FROM subagent_threads
+                          WHERE parent_session_id = ?1 OR thread_id = ?1
+                   )",
+                "DELETE FROM subagent_threads WHERE parent_session_id = ?1 OR thread_id = ?1",
+                "DELETE FROM subagent_runs WHERE parent_session_id = ?1 OR child_session_id = ?1",
                 "DELETE FROM acp_runs WHERE parent_session_id = ?1",
             ] {
                 conn.execute(sql, params![session_id])?;

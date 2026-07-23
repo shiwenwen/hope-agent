@@ -29,11 +29,13 @@ export function SubagentRunRow({
   run,
   agent,
   selected = false,
+  attemptCount = 1,
   onClick,
 }: {
   run: SubagentRun
   agent?: AgentSelectAgent | null
   selected?: boolean
+  attemptCount?: number
   onClick?: () => void
 }) {
   const { i18n } = useTranslation()
@@ -72,6 +74,11 @@ export function SubagentRunRow({
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="min-w-0 truncate text-xs font-medium text-foreground">{name}</span>
+          {attemptCount > 1 && (
+            <span className="shrink-0 rounded bg-secondary/70 px-1 text-[10px] tabular-nums text-muted-foreground">
+              ×{attemptCount}
+            </span>
+          )}
           <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
             {stamp}
           </span>

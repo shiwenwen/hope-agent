@@ -111,6 +111,23 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             FOREIGN KEY (resume_from_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL
         );
 
+        CREATE TABLE IF NOT EXISTS workflow_agent_attempts (
+            workflow_run_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            source_op_id TEXT NOT NULL,
+            continuation_of_run_id TEXT,
+            role TEXT NOT NULL,
+            control_mode TEXT NOT NULL DEFAULT 'control',
+            resolution_state TEXT NOT NULL DEFAULT 'pending',
+            resolution_reason TEXT,
+            resolved_by_run_id TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(workflow_run_id, run_id),
+            FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE,
+            FOREIGN KEY (source_op_id) REFERENCES workflow_ops(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_workflow_runs_session_updated
             ON workflow_runs(session_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_workflow_runs_state
@@ -125,6 +142,10 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             ON workflow_events(type, id);
         CREATE INDEX IF NOT EXISTS idx_workflow_run_controls_resume
             ON workflow_run_controls(resume_from_run_id);
+        CREATE INDEX IF NOT EXISTS idx_workflow_agent_attempts_thread
+            ON workflow_agent_attempts(workflow_run_id, thread_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_workflow_agent_attempts_run
+            ON workflow_agent_attempts(run_id);
 
         CREATE TABLE IF NOT EXISTS saved_workflow_templates (
             id TEXT PRIMARY KEY,
@@ -155,6 +176,85 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
     {
         conn.execute_batch("ALTER TABLE workflow_runs ADD COLUMN parent_run_id TEXT;")?;
     }
+    for (column, migration) in [
+        (
+            "control_mode",
+            "ALTER TABLE workflow_agent_attempts ADD COLUMN control_mode TEXT NOT NULL DEFAULT 'control';",
+        ),
+        (
+            "resolution_state",
+            "ALTER TABLE workflow_agent_attempts ADD COLUMN resolution_state TEXT NOT NULL DEFAULT 'pending';",
+        ),
+        (
+            "resolution_reason",
+            "ALTER TABLE workflow_agent_attempts ADD COLUMN resolution_reason TEXT;",
+        ),
+        (
+            "resolved_by_run_id",
+            "ALTER TABLE workflow_agent_attempts ADD COLUMN resolved_by_run_id TEXT;",
+        ),
+    ] {
+        let probe = format!("SELECT {column} FROM workflow_agent_attempts LIMIT 1");
+        if conn.prepare(&probe).is_err() {
+            conn.execute_batch(migration)?;
+        }
+    }
+    // Restore historical Workflow ownership before projecting attempts. Older
+    // `subagent_runs` rows predate owner columns and otherwise look like plain
+    // parent-session children during this migration pass.
+    conn.execute_batch(
+        "UPDATE subagent_runs
+            SET owner_kind = 'workflow',
+                owner_id = (
+                    SELECT wo.run_id
+                      FROM workflow_ops wo
+                     WHERE wo.child_handle = subagent_runs.run_id
+                       AND wo.op_type IN ('spawnAgent','resumeAgent')
+                     ORDER BY wo.started_at ASC, wo.id ASC
+                     LIMIT 1
+                ),
+                delivery_kind = 'workflow'
+          WHERE EXISTS (
+                SELECT 1 FROM workflow_ops wo
+                 WHERE wo.child_handle = subagent_runs.run_id
+                   AND wo.op_type IN ('spawnAgent','resumeAgent')
+          );",
+    )?;
+    // Backfill the initial-attempt projection for existing Workflow children.
+    // Selective-resume imports remain result-only and never gain owner control.
+    conn.execute_batch(
+        "INSERT OR IGNORE INTO workflow_agent_attempts (
+            workflow_run_id, thread_id, run_id, source_op_id,
+            continuation_of_run_id, role, control_mode, resolution_state,
+            created_at
+         )
+         SELECT wo.run_id,
+                sr.child_session_id,
+                sr.run_id,
+                wo.id,
+                sr.continuation_of_run_id,
+                CASE
+                    WHEN sr.owner_kind = 'workflow' AND sr.owner_id = wo.run_id
+                        THEN CASE WHEN sr.continuation_of_run_id IS NULL
+                                  THEN 'initial' ELSE 'continuation' END
+                    ELSE 'imported_read_only'
+                END,
+                CASE
+                    WHEN sr.owner_kind = 'workflow' AND sr.owner_id = wo.run_id
+                        THEN 'control'
+                    ELSE 'result_only'
+                END,
+                CASE
+                    WHEN sr.status = 'completed' THEN 'resolved'
+                    ELSE 'pending'
+                END,
+                wo.started_at
+           FROM workflow_ops wo
+           JOIN subagent_runs sr ON sr.run_id = wo.child_handle
+          WHERE wo.op_type IN ('spawnAgent', 'resumeAgent')
+            AND wo.child_handle IS NOT NULL
+            AND wo.child_handle != '';",
+    )?;
     if conn
         .prepare("SELECT origin FROM workflow_runs LIMIT 1")
         .is_err()
@@ -247,9 +347,9 @@ impl SessionDB {
         mut input: CreateWorkflowRunInput,
         control: WorkflowRunControlInput,
     ) -> Result<WorkflowRun> {
-        if control.api_version != 4 {
+        if !matches!(control.api_version, 4 | 5) {
             return Err(anyhow!(
-                "unsupported workflow apiVersion {}; expected 4",
+                "unsupported workflow apiVersion {}; expected 4 or 5",
                 control.api_version
             ));
         }
@@ -286,7 +386,10 @@ impl SessionDB {
             .budget
             .as_object_mut()
             .ok_or_else(|| anyhow!("workflow budget must be a JSON object"))?;
-        budget.insert("__hopeWorkflowApiVersion".to_string(), json!(4));
+        budget.insert(
+            "__hopeWorkflowApiVersion".to_string(),
+            json!(control.api_version),
+        );
         let run = self.create_workflow_run(input)?;
         let meta_hash = blake3_hex(meta_json.as_bytes());
         let args_hash = blake3_hex(args_json.as_bytes());
@@ -316,9 +419,14 @@ impl SessionDB {
             }
             return Err(err);
         }
+        let control_event = if control.api_version == 5 {
+            "workflow_v5_control"
+        } else {
+            "workflow_v4_control"
+        };
         let _ = self.append_workflow_event(
             &run.id,
-            "workflow_v4_control",
+            control_event,
             json!({
                 "apiVersion": control.api_version,
                 "meta": control.meta,
@@ -820,7 +928,7 @@ impl SessionDB {
 
     fn hydrate_workflow_agent_ops(&self, ops: &mut [WorkflowOp]) -> Result<()> {
         for op in ops {
-            if op.op_type != "spawnAgent" {
+            if !matches!(op.op_type.as_str(), "spawnAgent" | "resumeAgent") {
                 continue;
             }
             let Some(run_id) = op.child_handle.as_deref() else {
@@ -833,6 +941,13 @@ impl SessionDB {
             if let Value::Object(ref mut map) = output {
                 map.insert("runId".to_string(), json!(child.run_id));
                 map.insert("run_id".to_string(), json!(child.run_id));
+                map.insert("threadId".to_string(), json!(child.thread_id));
+                map.insert("thread_id".to_string(), json!(child.thread_id));
+                map.insert("attempt".to_string(), json!(child.lease_epoch));
+                map.insert(
+                    "continuationOfRunId".to_string(),
+                    json!(child.continuation_of_run_id),
+                );
                 map.insert("sessionId".to_string(), json!(child.child_session_id));
                 map.insert("session_id".to_string(), json!(child.child_session_id));
                 map.insert("status".to_string(), json!(child.status.as_str()));
@@ -840,6 +955,30 @@ impl SessionDB {
                 map.insert("durationMs".to_string(), json!(child.duration_ms));
                 map.insert("inputTokens".to_string(), json!(child.input_tokens));
                 map.insert("outputTokens".to_string(), json!(child.output_tokens));
+                map.insert(
+                    "terminalReason".to_string(),
+                    json!(child.terminal_reason.map(|reason| reason.as_str())),
+                );
+                let terminal_reason = child
+                    .terminal_reason
+                    .unwrap_or(crate::subagent::SubagentTerminalReason::Unknown);
+                map.insert(
+                    "resumeAllowed".to_string(),
+                    json!(
+                        child.status.is_terminal()
+                            && child.status != crate::subagent::SubagentStatus::Killed
+                            && terminal_reason.resume_allowed()
+                    ),
+                );
+                map.insert(
+                    "resumeRecommended".to_string(),
+                    json!(
+                        child.status.is_terminal()
+                            && child
+                                .terminal_reason
+                                .is_some_and(|reason| reason.resume_recommended())
+                    ),
+                );
                 if let Some(error) = child.error.as_deref() {
                     map.insert("error".to_string(), json!(error));
                 }
@@ -854,46 +993,66 @@ impl SessionDB {
         run_id: &str,
     ) -> Result<WorkflowAgentUsageSnapshot> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-        let mut snapshot = conn.query_row(
+        let api_version: Option<i64> = conn
+            .query_row(
+                "SELECT api_version FROM workflow_run_controls WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let (attempt_source, attribution) = if api_version.is_some_and(|version| version >= 5) {
+            (
+                "FROM workflow_agent_attempts source
+                 LEFT JOIN subagent_runs sr ON sr.run_id = source.run_id
+                 WHERE source.workflow_run_id = ?1
+                   AND source.control_mode = 'control'",
+                "workflow_agent_attempts.run_id=subagent_runs.run_id",
+            )
+        } else {
+            (
+                "FROM workflow_ops source
+                 LEFT JOIN subagent_runs sr ON sr.run_id = source.child_handle
+                 WHERE source.run_id = ?1
+                   AND source.op_type = 'spawnAgent'
+                   AND source.child_handle IS NOT NULL
+                   AND source.child_handle != ''",
+                "workflow_ops.child_handle=subagent_runs.run_id",
+            )
+        };
+        let usage_sql = format!(
             "SELECT
-                COUNT(DISTINCT wo.child_handle),
+                COUNT(DISTINCT sr.run_id),
                 COALESCE(SUM(CASE WHEN sr.status = 'completed' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN sr.status IN ('queued','spawning','running') THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE
                     WHEN sr.run_id IS NULL THEN 1
-                    WHEN sr.status IN ('error','timeout','killed') THEN 1
+                    WHEN sr.status IN ('error','timeout','killed','interrupted') THEN 1
                     ELSE 0
                 END), 0),
                 COALESCE(SUM(CASE WHEN sr.input_tokens IS NOT NULL OR sr.output_tokens IS NOT NULL THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(sr.input_tokens), 0),
                 COALESCE(SUM(sr.output_tokens), 0)
-             FROM workflow_ops wo
-             LEFT JOIN subagent_runs sr ON sr.run_id = wo.child_handle
-             WHERE wo.run_id = ?1
-               AND wo.op_type = 'spawnAgent'
-               AND wo.child_handle IS NOT NULL
-               AND wo.child_handle != ''",
-            params![run_id],
-            |row| {
-                let input_tokens = row.get::<_, i64>(5)?;
-                let output_tokens = row.get::<_, i64>(6)?;
-                Ok(WorkflowAgentUsageSnapshot {
-                    spawned_agents: row.get(0)?,
-                    completed_agents: row.get(1)?,
-                    running_agents: row.get(2)?,
-                    failed_agents: row.get(3)?,
-                    terminal_agents: 0,
-                    consumed_results: 0,
-                    pending_results: 0,
-                    suppressed_results: 0,
-                    attributed_agents: row.get(4)?,
-                    input_tokens,
-                    output_tokens,
-                    total_tokens: input_tokens.saturating_add(output_tokens),
-                    attribution: "workflow_ops.child_handle=subagent_runs.run_id".to_string(),
-                })
-            },
-        )?;
+             {attempt_source}"
+        );
+        let mut snapshot = conn.query_row(&usage_sql, params![run_id], |row| {
+            let input_tokens = row.get::<_, i64>(5)?;
+            let output_tokens = row.get::<_, i64>(6)?;
+            Ok(WorkflowAgentUsageSnapshot {
+                spawned_agents: row.get(0)?,
+                completed_agents: row.get(1)?,
+                running_agents: row.get(2)?,
+                failed_agents: row.get(3)?,
+                terminal_agents: 0,
+                consumed_results: 0,
+                pending_results: 0,
+                suppressed_results: 0,
+                attributed_agents: row.get(4)?,
+                input_tokens,
+                output_tokens,
+                total_tokens: input_tokens.saturating_add(output_tokens),
+                attribution: attribution.to_string(),
+            })
+        })?;
         snapshot.terminal_agents = snapshot
             .completed_agents
             .saturating_add(snapshot.failed_agents);
@@ -1585,7 +1744,7 @@ impl SessionDB {
              WHERE run_id = ?1
                AND (
                  (child_handle IS NOT NULL AND child_handle != '')
-                 OR (op_type = 'spawnAgent' AND state = 'completed' AND output_json IS NOT NULL)
+                 OR (op_type IN ('spawnAgent','resumeAgent') AND state = 'completed' AND output_json IS NOT NULL)
                )
              ORDER BY started_at ASC, id ASC",
         )?;
@@ -1618,13 +1777,167 @@ impl SessionDB {
         Ok(handles)
     }
 
+    /// Record a result-only child imported by selective Workflow resume. This
+    /// projection grants read access to the immutable result, never control of
+    /// the source thread.
+    pub fn record_imported_workflow_agent_attempt(
+        &self,
+        workflow_run_id: &str,
+        child_run_id: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let inserted = conn.execute(
+            "INSERT OR IGNORE INTO workflow_agent_attempts (
+                workflow_run_id, thread_id, run_id, source_op_id,
+                continuation_of_run_id, role, control_mode, resolution_state,
+                created_at
+             )
+             SELECT ?1, sr.child_session_id, sr.run_id, wo.id,
+                    sr.continuation_of_run_id, 'imported_read_only', 'result_only',
+                    CASE WHEN sr.status = 'completed' THEN 'resolved' ELSE 'pending' END,
+                    ?3
+               FROM workflow_ops wo
+               JOIN subagent_runs sr ON sr.run_id = ?2
+              WHERE wo.run_id = ?1
+                AND wo.child_handle = ?2
+                AND wo.op_type = 'spawnAgent'
+              LIMIT 1",
+            params![workflow_run_id, child_run_id, now_rfc3339()],
+        )?;
+        if inserted == 0 {
+            let exists: bool = conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM workflow_agent_attempts
+                     WHERE workflow_run_id = ?1 AND run_id = ?2
+                 )",
+                params![workflow_run_id, child_run_id],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                return Err(anyhow!(
+                    "workflow imported child {} has no matching durable spawnAgent op",
+                    child_run_id
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn accept_workflow_agent_failure(
+        &self,
+        workflow_run_id: &str,
+        run_id: &str,
+        reason: &str,
+    ) -> Result<()> {
+        if reason.trim().is_empty() {
+            return Err(anyhow!("acceptAgentFailure requires a non-empty reason"));
+        }
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "UPDATE workflow_agent_attempts
+                SET resolution_state = 'accepted', resolution_reason = ?1
+              WHERE workflow_run_id = ?2
+                AND run_id = ?3
+                AND control_mode = 'control'
+                AND resolution_state = 'pending'
+                AND (
+                    NOT EXISTS (
+                        SELECT 1 FROM subagent_runs sr
+                         WHERE sr.run_id = workflow_agent_attempts.run_id
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM subagent_runs sr
+                         WHERE sr.run_id = workflow_agent_attempts.run_id
+                           AND sr.status IN ('error', 'timeout', 'killed', 'interrupted')
+                    )
+                )",
+            params![reason.trim(), workflow_run_id, run_id],
+        )?;
+        if changed != 1 {
+            let already_resolved: bool = conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM workflow_agent_attempts
+                     WHERE workflow_run_id = ?1
+                       AND run_id = ?2
+                       AND (
+                            resolution_state = 'resolved'
+                            OR (resolution_state = 'accepted' AND resolution_reason = ?3)
+                       )
+                 )",
+                params![workflow_run_id, run_id, reason.trim()],
+                |row| row.get(0),
+            )?;
+            if already_resolved {
+                return Ok(());
+            }
+            return Err(anyhow!(
+                "workflow attempt {} is not an unresolved terminal failure owned by run {}",
+                run_id,
+                workflow_run_id
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn list_unresolved_workflow_agent_failures(
+        &self,
+        workflow_run_id: &str,
+    ) -> Result<Vec<Value>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT waa.thread_id, waa.run_id, waa.continuation_of_run_id,
+                    waa.role,
+                    COALESCE(sr.status, 'not_found'),
+                    CASE WHEN sr.run_id IS NULL THEN 'not_found' ELSE sr.terminal_reason END,
+                    CASE WHEN sr.run_id IS NULL
+                         THEN 'workflow-owned child run not found'
+                         ELSE sr.error
+                    END,
+                    sr.label
+               FROM workflow_agent_attempts waa
+               LEFT JOIN subagent_runs sr ON sr.run_id = waa.run_id
+              WHERE waa.workflow_run_id = ?1
+                AND waa.control_mode = 'control'
+                AND waa.resolution_state = 'pending'
+                AND (
+                    sr.run_id IS NULL
+                    OR sr.status IN ('error', 'timeout', 'killed', 'interrupted')
+                )
+              ORDER BY waa.created_at, waa.run_id",
+        )?;
+        let rows = stmt.query_map(params![workflow_run_id], |row| {
+            let status = row.get::<_, String>(4)?;
+            let terminal_reason = row.get::<_, Option<String>>(5)?;
+            let recovery_reason = terminal_reason
+                .as_deref()
+                .map(crate::subagent::SubagentTerminalReason::from_str);
+            Ok(json!({
+                "threadId": row.get::<_, String>(0)?,
+                "runId": row.get::<_, String>(1)?,
+                "continuationOfRunId": row.get::<_, Option<String>>(2)?,
+                "role": row.get::<_, String>(3)?,
+                "status": status,
+                "terminalReason": terminal_reason,
+                "resumeAllowed": status != "not_found"
+                    && status != "killed"
+                    && recovery_reason.is_some_and(|reason| reason.resume_allowed()),
+                "resumeRecommended": recovery_reason
+                    .is_some_and(|reason| reason.resume_recommended()),
+                "error": row.get::<_, Option<String>>(6)?,
+                "label": row.get::<_, Option<String>>(7)?,
+            }))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
     pub fn list_workflow_ops_for_child(&self, child_handle: &str) -> Result<Vec<WorkflowOp>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT id, run_id, op_key, op_type, effect_class, input_hash, input_json,
                     state, output_json, error_json, child_handle, started_at, completed_at
              FROM workflow_ops
-             WHERE child_handle = ?1 AND op_type = 'spawnAgent'
+             WHERE child_handle = ?1 AND op_type IN ('spawnAgent','resumeAgent')
              ORDER BY started_at ASC, id ASC",
         )?;
         let rows = stmt.query_map(params![child_handle], row_to_op)?;
@@ -1641,11 +1954,11 @@ impl SessionDB {
              FROM workflow_ops wo
              JOIN workflow_runs wr ON wr.id = wo.run_id
              JOIN subagent_runs sr ON sr.run_id = wo.child_handle
-             WHERE wo.op_type = 'spawnAgent'
+             WHERE wo.op_type IN ('spawnAgent','resumeAgent')
                AND wo.child_handle IS NOT NULL
                AND wo.child_handle != ''
                AND wr.state IN ('running','recovering')
-               AND sr.status IN ('completed','error','timeout','killed')
+               AND sr.status IN ('completed','error','timeout','killed','interrupted')
              ORDER BY wo.started_at ASC
              LIMIT ?1",
         )?;
@@ -1793,8 +2106,10 @@ impl SessionDB {
             WorkflowEffectClass::Pure => StartedOpRecoveryAction::RerunPure,
             WorkflowEffectClass::Idempotent => StartedOpRecoveryAction::RecheckIdempotent,
             WorkflowEffectClass::NonIdempotent => {
-                if matches!(op.op_type.as_str(), "spawnAgent" | "validate")
-                    || op.op_type.starts_with("tool:")
+                if matches!(
+                    op.op_type.as_str(),
+                    "spawnAgent" | "resumeAgent" | "validate"
+                ) || op.op_type.starts_with("tool:")
                 {
                     if let Some(handle) = op.child_handle {
                         StartedOpRecoveryAction::AttachChildHandle(handle)
@@ -2129,7 +2444,14 @@ fn collect_handled_workflow_agent_ids(value: &Value, target: &mut HashSet<String
                 .unwrap_or_else(|| {
                     matches!(
                         map.get("status").and_then(Value::as_str),
-                        Some("completed" | "error" | "timeout" | "killed" | "not_found")
+                        Some(
+                            "completed"
+                                | "error"
+                                | "timeout"
+                                | "killed"
+                                | "interrupted"
+                                | "not_found"
+                        )
                     )
                 });
             if terminal {

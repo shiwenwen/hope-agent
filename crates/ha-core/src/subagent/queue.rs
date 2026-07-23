@@ -123,6 +123,28 @@ pub fn purge_for_session(session_id: &str) -> Vec<String> {
     removed
 }
 
+/// Drop parked spawns controlled by one exact owner. Model-facing `kill_all`
+/// uses this narrower form so sharing a parent chat with Workflow/Team/internal
+/// children never grants authority over their queue entries.
+pub fn purge_for_owner(
+    session_id: &str,
+    owner_kind: super::SubagentOwnerKind,
+    owner_id: &str,
+) -> Vec<String> {
+    let mut q = lock();
+    let mut removed = Vec::new();
+    q.retain(|pending| {
+        let owned = pending.params.parent_session_id == session_id
+            && pending.params.owner_kind == owner_kind
+            && pending.params.owner_id == owner_id;
+        if owned {
+            removed.push(pending.run_id.clone());
+        }
+        !owned
+    });
+    removed
+}
+
 /// Distinct (parent_session_id, parent_agent_id) pairs currently parked. The
 /// scheduler uses these to compute per-session availability without holding the
 /// queue lock across DB calls.
@@ -174,7 +196,12 @@ pub async fn run_subagent_scheduler() {
         };
         for (session, parent_agent_id) in queued_session_keys() {
             let max = super::max_concurrent_for_agent(&parent_agent_id);
-            let active = match db.count_active_subagent_runs(&session) {
+            let active = match {
+                let db = db.clone();
+                let session = session.clone();
+                db.run(move |db| db.count_active_subagent_runs(&session))
+                    .await
+            } {
                 Ok(n) => n,
                 Err(e) => {
                     crate::app_warn!(
@@ -201,7 +228,7 @@ pub async fn run_subagent_scheduler() {
                 // CAS closes the remaining promote-vs-cancel window. This is the
                 // subagent analogue of R7.1's atomic dequeue-claim in
                 // `async_jobs::slots`.
-                if promote(pending, &db, &registry) {
+                if promote(pending, &db, &registry).await {
                     free -= 1;
                 }
             }
@@ -213,16 +240,24 @@ pub async fn run_subagent_scheduler() {
 /// Returns `false` (and does NOT launch) when the row is no longer `Queued` — a
 /// concurrent cancel already stamped it terminal, so launching would run a child
 /// the user already killed. Runs on the scheduler task.
-fn promote(
+async fn promote(
     pending: PendingSubagentSpawn,
     db: &std::sync::Arc<crate::session::SessionDB>,
     registry: &std::sync::Arc<super::SubagentCancelRegistry>,
 ) -> bool {
-    match db.try_transition_subagent_status(
-        &pending.run_id,
-        SubagentStatus::Queued,
-        SubagentStatus::Spawning,
-    ) {
+    let transition = {
+        let db = db.clone();
+        let run_id = pending.run_id.clone();
+        db.run(move |db| {
+            db.try_transition_subagent_status(
+                &run_id,
+                SubagentStatus::Queued,
+                SubagentStatus::Spawning,
+            )
+        })
+        .await
+    };
+    match transition {
         Ok(true) => {}
         Ok(false) => return false, // lost to a concurrent cancel/purge
         Err(e) => {
@@ -249,7 +284,8 @@ fn promote(
             .min(u128::from(u64::MAX)) as u64,
         db.clone(),
         registry.clone(),
-    );
+    )
+    .await;
     true
 }
 
@@ -280,6 +316,9 @@ mod tests {
             origin_source: None,
             origin_channel_kb_context: None,
             group_id: None,
+            owner_kind: crate::subagent::SubagentOwnerKind::ParentSession,
+            owner_id: session.into(),
+            delivery_kind: crate::subagent::SubagentDeliveryKind::Parent,
         }
     }
 
@@ -307,6 +346,31 @@ mod tests {
         let purged = purge_for_session(s);
         assert_eq!(purged, vec!["rA2".to_string()]);
         assert!(purge_for_session(s).is_empty());
+    }
+
+    #[test]
+    fn owner_scoped_purge_preserves_workflow_queue_entries() {
+        let session = "queue-owner-scope";
+        assert!(enqueue(pending("ordinary", session)));
+        let mut workflow = pending("workflow", session);
+        workflow.params.owner_kind = crate::subagent::SubagentOwnerKind::Workflow;
+        workflow.params.owner_id = "workflow-run".into();
+        workflow.params.delivery_kind = crate::subagent::SubagentDeliveryKind::Workflow;
+        assert!(enqueue(workflow));
+
+        assert_eq!(
+            purge_for_owner(
+                session,
+                crate::subagent::SubagentOwnerKind::ParentSession,
+                session,
+            ),
+            vec!["ordinary".to_string()]
+        );
+        assert_eq!(
+            remove_for_run("workflow").map(|pending| pending.run_id),
+            Some("workflow".to_string()),
+            "ordinary kill_all must not take over a Workflow queue entry"
+        );
     }
 
     #[test]

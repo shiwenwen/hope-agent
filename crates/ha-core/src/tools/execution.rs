@@ -267,6 +267,12 @@ pub struct ToolExecContext {
     pub session_working_dir: Option<String>,
     /// Current session ID (for sub-agent spawning context)
     pub session_id: Option<String>,
+    /// Durable Workflow owner identity for tools invoked by the Workflow host.
+    ///
+    /// This is an execution-context capability, not a model argument. Internal
+    /// Workflow fields such as `__hope_workflow_run_id` must match it before a
+    /// tool may control Workflow-owned resources.
+    pub workflow_run_id: Option<String>,
     /// Session DB bound to this agent/runtime path. When absent, tools fall
     /// back to the process-global session DB for legacy callers.
     pub session_db: Option<SessionDbHandle>,

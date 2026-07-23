@@ -1,6 +1,6 @@
 import type React from "react"
 import { useEffect, useState } from "react"
-import { CheckCircle, XCircle, Clock, Loader2, Skull } from "lucide-react"
+import { CheckCircle, XCircle, Clock, Loader2, Skull, CircleSlash2 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 
@@ -76,8 +76,8 @@ export function formatModelLabel(modelUsed?: string | null): string | undefined 
 }
 
 // ── Status classification ──────────────────────────────────────────────
-export const TERMINAL_STATUSES = new Set(["completed", "error", "timeout", "killed"])
-export const FAILED_STATUSES = new Set(["error", "timeout", "killed"])
+export const TERMINAL_STATUSES = new Set(["completed", "error", "timeout", "killed", "interrupted"])
+export const FAILED_STATUSES = new Set(["error", "timeout", "killed", "interrupted"])
 
 export interface StatusDisplay {
   icon: React.ReactNode
@@ -106,4 +106,5 @@ export const statusConfig: Record<string, StatusDisplay> = {
   error: { icon: <XCircle className="h-3 w-3" />, color: "text-red-500" },
   timeout: { icon: <Clock className="h-3 w-3" />, color: "text-orange-500" },
   killed: { icon: <Skull className="h-3 w-3" />, color: "text-gray-500" },
+  interrupted: { icon: <CircleSlash2 className="h-3 w-3" />, color: "text-amber-500" },
 }

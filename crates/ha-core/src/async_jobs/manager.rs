@@ -688,6 +688,7 @@ impl JobManager {
             SubagentStatus::Spawning | SubagentStatus::Running => JobStatus::Running,
             SubagentStatus::Completed => JobStatus::Completed,
             SubagentStatus::Error => JobStatus::Failed,
+            SubagentStatus::Interrupted => JobStatus::Interrupted,
             SubagentStatus::Timeout => JobStatus::TimedOut,
             SubagentStatus::Killed => JobStatus::Cancelled,
         }
@@ -1320,6 +1321,7 @@ mod tests {
             attachment_count: 0,
             input_tokens: None,
             output_tokens: None,
+            ..SubagentRun::default()
         }
     }
 

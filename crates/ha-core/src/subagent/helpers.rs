@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::session::SessionDB;
 
 use super::injection::flush_pending_injections;
@@ -8,7 +10,7 @@ use super::INJECTING_SESSIONS;
 
 /// Clean up orphan sub-agent runs left in non-terminal state (spawning/running)
 /// from a previous app session. Called once at startup.
-pub fn cleanup_orphan_runs(session_db: &SessionDB) {
+pub fn cleanup_orphan_runs(session_db: &Arc<SessionDB>) {
     match session_db.cleanup_orphan_subagent_runs() {
         Ok(affected) if affected > 0 => {
             app_warn!(
@@ -27,6 +29,19 @@ pub fn cleanup_orphan_runs(session_db: &SessionDB) {
             );
         }
         _ => {}
+    }
+    match session_db.reset_and_list_pending_subagent_deliveries() {
+        Ok(runs) => {
+            for run in runs {
+                super::spawn::dispatch_parent_result_delivery(&run.run_id, session_db.clone());
+            }
+        }
+        Err(error) => app_error!(
+            "subagent",
+            "delivery",
+            "Failed to replay pending parent result deliveries: {}",
+            error
+        ),
     }
 }
 
@@ -62,6 +77,25 @@ pub(crate) fn emit_parent_stream_event(event: &ParentAgentStreamEvent) {
 
 /// Mark a run_id as having its result already read by the parent agent.
 pub fn mark_run_fetched(run_id: &str) {
+    if let Some(db) = crate::get_session_db() {
+        if let Err(error) = db.suppress_subagent_result_delivery(run_id, "explicitly_consumed") {
+            app_warn!(
+                "subagent",
+                "delivery",
+                "failed to persist consumed result delivery for run {}: {}",
+                run_id,
+                error
+            );
+        }
+    }
+    mark_run_fetched_in_memory(run_id);
+}
+
+/// Process-local fast path after the durable delivery row was already
+/// suppressed transactionally or through `SessionDB::run`. Async callers must
+/// use this helper instead of [`mark_run_fetched`] so SQLite never blocks a
+/// Tokio worker.
+pub(crate) fn mark_run_fetched_in_memory(run_id: &str) {
     if let Ok(mut set) = super::FETCHED_RUN_IDS.lock() {
         set.insert(run_id.to_string());
     }

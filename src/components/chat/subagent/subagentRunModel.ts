@@ -1,8 +1,8 @@
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { SubagentRun, ToolCall } from "@/types/chat"
 
-/** One sub-agent run derived from a `subagent` spawn tool_call block. A block
- *  can yield 0 items (non-spawn action / parse failure), 1 (spawn / spawn_and_wait),
+/** One sub-agent run derived from a `subagent` spawn-like tool_call block. A block
+ *  can yield 0 items (non-spawn action / parse failure), 1 (spawn / send / resume / spawn_and_wait),
  *  or N (batch_spawn). Before the tool result lands the item is `pending` — it
  *  carries only what the spawn arguments declared and must be aligned to a real
  *  run (see {@link matchPendingRun}) to become clickable. */
@@ -38,12 +38,13 @@ export interface SubagentOpenTarget {
   label?: string
 }
 
-const SPAWN_ACTIONS = new Set(["spawn", "spawn_and_wait", "batch_spawn"])
+const SPAWN_ACTIONS = new Set(["spawn", "send", "resume", "spawn_and_wait", "batch_spawn"])
 
 interface SubagentArgs {
   action?: string
   agent_id?: string
   task?: string
+  message?: string
   label?: string
   tasks?: Array<{ agent_id?: string; task?: string; label?: string }>
 }
@@ -72,16 +73,26 @@ export function extractSubagentChipItems(tool: ToolCall): SubagentChipItem[] {
     }
     if (!result || typeof result !== "object") return []
 
-    if (args.action === "spawn" || args.action === "spawn_and_wait") {
-      const runId = (result as { run_id?: unknown }).run_id
+    if (
+      args.action === "spawn" ||
+      args.action === "send" ||
+      args.action === "resume" ||
+      args.action === "spawn_and_wait"
+    ) {
+      const single = result as { run_id?: unknown; child_agent_id?: unknown }
+      const runId = single.run_id
       if (typeof runId !== "string" || !runId) return []
+      const resultAgentId =
+        typeof single.child_agent_id === "string" && single.child_agent_id
+          ? single.child_agent_id
+          : undefined
       return [
         {
           kind: "resolved",
           key: tool.callId,
           runId,
-          agentId: args.agent_id || DEFAULT_AGENT_ID,
-          task: args.task || "",
+          agentId: resultAgentId || args.agent_id || DEFAULT_AGENT_ID,
+          task: args.task || args.message || "",
           label: args.label,
         },
       ]
@@ -112,9 +123,15 @@ export function extractSubagentChipItems(tool: ToolCall): SubagentChipItem[] {
     return out
   }
 
+  // `send` is state-dependent: it may steer the current attempt without
+  // creating anything, or resume a terminal thread into a fresh attempt. Do
+  // not guess before its result lands; once resolved, link to the authoritative
+  // run_id returned by the backend.
+  if (args.action === "send") return []
+
   // No result yet → pending placeholder(s) from arguments only.
   const startedAtMs = tool.startedAtMs
-  if (args.action === "spawn" || args.action === "spawn_and_wait") {
+  if (args.action === "spawn" || args.action === "resume" || args.action === "spawn_and_wait") {
     return [
       {
         kind: "pending",
@@ -135,6 +152,22 @@ export function extractSubagentChipItems(tool: ToolCall): SubagentChipItem[] {
     label: def.label,
     startedAtMs,
   }))
+}
+
+/** Index a DESC-ordered run list by child session while retaining the newest
+ *  continuation. Resume deliberately creates multiple immutable run rows for
+ *  one child session; `new Map(runs.map(...))` would let the oldest row win
+ *  because later duplicate keys overwrite earlier ones. */
+export function indexLatestRunByChildSession(
+  runs: SubagentRun[],
+): ReadonlyMap<string, SubagentRun> {
+  const indexed = new Map<string, SubagentRun>()
+  for (const run of runs) {
+    if (run.childSessionId && !indexed.has(run.childSessionId)) {
+      indexed.set(run.childSessionId, run)
+    }
+  }
+  return indexed
 }
 
 /**

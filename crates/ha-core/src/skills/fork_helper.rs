@@ -102,6 +102,9 @@ pub async fn spawn_skill_fork(
         origin_channel_kb_context: None,
         // `context: fork` skill subagent (skip_parent_injection) — never grouped (R5).
         group_id: None,
+        owner_kind: crate::subagent::SubagentOwnerKind::Internal,
+        owner_id: format!("skill:{}:{}", parent_session_id, skill.name),
+        delivery_kind: crate::subagent::SubagentDeliveryKind::None,
     };
 
     subagent::spawn_subagent(params, session_db, cancel_registry)
@@ -125,15 +128,26 @@ pub async fn extract_fork_result(run_id: &str, skill_name: &str) -> Result<Strin
     let hard_deadline = Instant::now() + Duration::from_secs(900);
 
     loop {
-        let run = session_db
-            .get_subagent_run(run_id)?
-            .ok_or_else(|| anyhow!("Sub-agent run '{}' not found", run_id))?;
+        let run = {
+            let db = session_db.clone();
+            let run_id = run_id.to_string();
+            db.run(move |db| db.get_subagent_run(&run_id)).await?
+        }
+        .ok_or_else(|| anyhow!("Sub-agent run '{}' not found", run_id))?;
 
         if run.status.is_terminal() {
             // Prevent EventBus injection delivering a duplicate result to the
             // parent conversation. The skill tool path already feeds this
             // string back as a tool_result — no other path should re-inject.
-            subagent::mark_run_fetched(run_id);
+            {
+                let db = session_db.clone();
+                let run_id = run_id.to_string();
+                db.run(move |db| {
+                    db.suppress_subagent_result_delivery(&run_id, "explicitly_consumed")
+                })
+                .await?;
+            }
+            subagent::mark_run_fetched_in_memory(run_id);
 
             let body = match run.status {
                 SubagentStatus::Completed => run
@@ -145,6 +159,7 @@ pub async fn extract_fork_result(run_id: &str, skill_name: &str) -> Result<Strin
                 }
                 SubagentStatus::Timeout => "[Skill timed out]".to_string(),
                 SubagentStatus::Killed => "[Skill cancelled]".to_string(),
+                SubagentStatus::Interrupted => "[Skill interrupted by app restart]".to_string(),
                 // is_terminal() guards against non-terminal variants
                 _ => unreachable!(),
             };

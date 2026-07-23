@@ -89,7 +89,21 @@ export default function SubagentPanel({
   const { t } = useTranslation()
   const agentsMap = useAgentsMap()
   const { runs, byId, byChildSessionId, runningCount, loaded } = runsState
-  const finishedCount = runs.length - runningCount
+  const latestThreadRuns = useMemo(() => [...byChildSessionId.values()], [byChildSessionId])
+  const finishedCount = latestThreadRuns.length - runningCount
+  const attemptsByThread = useMemo(() => {
+    const grouped = new Map<string, SubagentRun[]>()
+    for (const run of runs) {
+      const key = run.threadId || run.childSessionId
+      const attempts = grouped.get(key) ?? []
+      attempts.push(run)
+      grouped.set(key, attempts)
+    }
+    for (const attempts of grouped.values()) {
+      attempts.sort((left, right) => Date.parse(left.startedAt) - Date.parse(right.startedAt))
+    }
+    return grouped
+  }, [runs])
 
   const [stack, setStack] = useState<NavEntry[]>([])
   const [reloadToken, setReloadToken] = useState(0)
@@ -121,9 +135,15 @@ export default function SubagentPanel({
   const [runningRuns, finishedRuns] = useMemo(() => {
     const live: SubagentRun[] = []
     const done: SubagentRun[] = []
-    for (const run of runs) (TERMINAL_STATUSES.has(run.status) ? done : live).push(run)
+    for (const run of latestThreadRuns)
+      (TERMINAL_STATUSES.has(run.status) ? done : live).push(run)
     return [live, done]
-  }, [runs])
+  }, [latestThreadRuns])
+
+  const selectedAttempts = useMemo(() => {
+    if (!detail) return []
+    return attemptsByThread.get(detail.threadId || detail.childSessionId) ?? []
+  }, [attemptsByThread, detail])
 
   const entryTitle = useCallback(
     (entry: NavEntry) =>
@@ -301,6 +321,9 @@ export default function SubagentPanel({
                       key={run.runId}
                       run={run}
                       agent={agentsMap.get(run.childAgentId)}
+                      attemptCount={
+                        attemptsByThread.get(run.threadId || run.childSessionId)?.length ?? 1
+                      }
                       onClick={() => selectRun(run)}
                     />
                   ))}
@@ -319,6 +342,9 @@ export default function SubagentPanel({
                       key={run.runId}
                       run={run}
                       agent={agentsMap.get(run.childAgentId)}
+                      attemptCount={
+                        attemptsByThread.get(run.threadId || run.childSessionId)?.length ?? 1
+                      }
                       onClick={() => selectRun(run)}
                     />
                   ))}
@@ -423,6 +449,28 @@ export default function SubagentPanel({
               {modelLabel && <span className="min-w-0 truncate">{modelLabel}</span>}
             </div>
           )}
+        </div>
+      )}
+
+      {selectedAttempts.length > 1 && (
+        <div className="flex shrink-0 items-center gap-1 overflow-x-auto px-3 pb-2">
+          {selectedAttempts.map((attempt, index) => (
+            <button
+              key={attempt.runId}
+              type="button"
+              onClick={() => selectRun(attempt)}
+              aria-pressed={attempt.runId === selectedRunId}
+              className={cn(
+                "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-[10px] transition-colors",
+                attempt.runId === selectedRunId
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+              )}
+            >
+              <span className="tabular-nums">#{attempt.leaseEpoch || index + 1}</span>
+              <SubagentStatusBadge status={attempt.status} />
+            </button>
+          ))}
         </div>
       )}
 

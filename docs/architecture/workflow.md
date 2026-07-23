@@ -1,6 +1,6 @@
 # Workflow Mode、Workflow Tool、Workflow Run 与 Execution Mode
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-08
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-23
 
 本文记录已经实现的 durable workflow 子系统。Workflow Mode 是会话级“允许模型自主动态编排”的开关；Workflow Run 是一次具体、可观察、可恢复、可审批、可暂停/恢复/取消的脚本执行；Execution Mode 是会话级推进强度策略。Goal 已作为顶层目标与证据链落地，详见 [Goal 控制平面](goal.md)；定时/重复触发由 [Loop 控制平面](loop.md) 承载。
 
@@ -130,6 +130,21 @@ Workflow 数据落在 `sessions.db`，跟随会话级联删除。
 | `payload_json` | 事件载荷，超过 64KB 会被截断成 preview。 |
 | `created_at` | 时间戳。 |
 
+### `workflow_agent_attempts`（V5）
+
+V5 不再把 `workflow_ops.child_handle` 当作“一个 Agent 的永恒身份”。一次 `spawnAgent` / `resumeAgent` 各有不可变 run，而稳定身份是 subagent thread。
+
+| 字段 | 说明 |
+| --- | --- |
+| `workflow_run_id` / `thread_id` / `run_id` | Workflow、稳定 Agent thread、不可变 attempt 三层身份。 |
+| `source_op_id` | 创建该 attempt 的 durable `spawnAgent` / `resumeAgent` op。 |
+| `continuation_of_run_id` / `role` | 前驱 attempt 与 `initial|continuation|imported`。 |
+| `control_mode` | `control` 或 `result_only`；跨 run 选择性复用只可导入结果，不能取得控制权。 |
+| `resolution_state` | `pending|resolved|accepted`；失败必须成功续跑或显式接受后才能完成 V5 run。 |
+| `resolution_reason` / `resolved_by_run_id` | 接受理由或成功 continuation 证据。 |
+
+该表是 Workflow Agent 尝试与失败闭环的真相源；V4 继续从历史 `workflow_ops` 聚合，不改变已发布语义。
+
 ### `saved_workflow_templates`
 
 V3.4 起，成功完成的 workflow run 可以保存为可复用模板。模板不是新的执行器，也不绕过治理：从模板创建 run 时仍调用同一 `create_workflow_run` 链路，写 `origin=template:<template_id>`，并重新经过当前 session 的 Script Gate、permission preview、Goal budget、incognito、project scope 和 worktree 校验。
@@ -215,7 +230,7 @@ Workflow Mode 是 session 级持久开关，入口是输入框 `+` 菜单/工具
 - 模型侧决策规则：请求包含多阶段依赖、宽搜索/比较、connector 或文件证据、长时间运行、独立验证、可恢复后台执行或可审计轨迹时，应自行调用 `workflow(action=create)` 创建 run；tiny 对话、单个显然动作或已验证机械任务保持 inline。这个规则适用于 Research、Writing、Data Analysis、Meeting Prep、Inbox / Project Ops、Knowledge Curation、Coding 等通用场景。
 - 创建或 follow-up workflow 时，模型应传 `sizeGuideline ∈ unrestricted|small|medium|large`：`small` 表示少量有界步骤，`medium` 是普通多阶段编排，`large` 是宽 fan-out / 迁移 / 验证，`unrestricted` 只用于用户明确要求穷尽式覆盖。该字段是 prompt / GUI / 后续模型回合的 advisory，不是硬 cap，也不绕过 runtime budget、权限、审批或安全策略；后端规范化后写入 `budget_json.sizeGuideline`。若模型省略，普通 Workflow Mode 默认 `medium`，Ultracode 默认 `large`；follow-up 默认继承 parent run。
 - 模型侧 `workflow` schema 必须传 `action`。`create` / `followup` 接收 canonical `script`，且不展示 `scriptSource` / `script_source` alias，避免脚本入口分裂；执行层仍兼容这些历史输入别名。其它可选元数据参数为 `kind`、`executionMode`、`budget`、`runImmediately`、`parentRunId`、`origin`、`goalId`、`goalCriterionId`、`worktreeId`，创建层会校验 parent/goal/criteria/worktree 均属于同一 session / Goal revision。
-- `workflow(action=guide)` 是 V4 按需 authoring guide：返回当前 apiVersion、脚本形态、run inputs、Parallel/Pipeline、child/typed result、host API 和 timing contract，不创建 run、不读写外部系统。Workflow Mode 常驻 Prompt 只保留决策与安全策略，写脚本前再调用 guide，避免每轮重复支付完整 API token。
+- `workflow(action=guide)` 是 V5 按需 authoring guide：返回当前 apiVersion、脚本形态、run inputs、Parallel/Pipeline、child/typed result、`resumeAgent`、失败闭环、host API 和 timing contract，不创建 run、不读写外部系统。Workflow Mode 常驻 Prompt 只保留决策与安全策略，写脚本前再调用 guide，避免每轮重复支付完整 API token。
 - `workflow(action=list|status|trace)` 只返回当前模型可见 session 内的 bounded snapshot；不提供跨 session 查询。`status` 在省略 `runId` 时选择当前 active run 或最近 run。
 - `workflow(action=create|list|status|followup)` 返回的 run summary 带 `sizeGuideline` 和 `runtimeCaps`，让模型不用读完整 script/budget 也能理解规模、预算意图和下一步策略。
 - `workflow(action=control)` 只允许 `pause` / `resume` / `cancel`，并写 `run_model_control_action` 审计事件；它故意不支持 `approve`，模型不能代替用户批准权限或外部动作。
@@ -343,6 +358,8 @@ Primary-only 启动：
 | `workflow.read(args)` | pure | `read` 工具快捷入口。 |
 | `workflow.grep(args)` | pure | `grep` 工具快捷入口。 |
 | `workflow.spawnAgent({ task, label?, agent?, model?, timeout?, files?, injectPolicy?, resultMode? })` | non-idempotent | 创建 workflow-owned 子 Agent，预分配 child run id；`injectPolicy=none|checkpoint|final`，`resultMode=summary|full`。 |
+| `workflow.resumeAgent(handle, { task, label?, timeout?, model?, files?, injectPolicy?, resultMode? })` | non-idempotent, V5 | 对当前 Workflow 控制的终态 thread 创建同 child session 的新 attempt；返回新 handle，旧 handle 保持终态。 |
+| `workflow.acceptAgentFailure(handle, { reason })` | idempotent, V5 | 显式接受一个终态失败 attempt；必须提供非空理由并写 durable 审计。 |
 | `workflow.agentStatus(handles, { label? })` | pure | 非阻塞读取一个或多个 workflow-owned 子 Agent 的实时状态与结果可用性。 |
 | `workflow.agentResult(handle, { mode?, label? })` | pure | 读取单个子 Agent 的摘要或完整结果，并把该结果标记为已消费。 |
 | `workflow.waitAny(handles, { min?, timeout?, label? })` | pure | 等待至少 `min` 个子 Agent 进入终态；超时返回已完成与仍在运行的当前快照。 |
@@ -367,10 +384,10 @@ Primary-only 启动：
 
 - Workflow Mode / Ultracode 的多 Agent 工作优先使用 `workflow.spawnAgent`。它把 child run id 写入 `workflow_ops.child_handle`，使状态、token、结果、取消和恢复都能强关联到当前 run；禁止创建“登记型 workflow”后在外部另起 `subagent batch_spawn` 冒充同一工作流。
 - Workflow-owned 子 Agent 一律设置内部 `skip_parent_injection=true`，不再触发普通 subagent 的自动结果回注。结果只由 Workflow 的 `agentResult` / `waitAny` / `waitAll` / checkpoint / finish 路径交付，避免双注入。
-- 所有 Agent 查询与控制 API 在执行前核对 `workflow_ops.spawnAgent.child_handle`；只接受当前 run 拥有的 child handle，跨 Workflow 查询、steer 或 cancel 一律拒绝。
+- 所有 Agent 查询与控制 API 在执行前核对可见 attempt；V5 的 steer/cancel/resume 还必须命中 `workflow_agent_attempts.control_mode=control` 且底层 `owner_kind/owner_id` 等于当前 Workflow。选择性复用导入的 `result_only` handle 可查询/消费，但不能 steer、cancel 或 resume。
 - `SessionDB::update_subagent_status` / guarded transition 是生命周期 choke point：状态变化会刷新 `spawnAgent` op 的 snapshot 视图；终态写 `workflow_agent_terminal`，checkpoint 策略再生成阶段事件。
 - `WorkflowRunSnapshot.agentUsage` 除数量和 token 外，还提供 `terminalAgents`、`consumedResults`、`pendingResults`、`suppressedResults`。UI 只从这些 durable 事实派生“等待子 Agent”或“有阶段结果”，不根据模型文案猜测。
-- `workflow.finish()` 不是提前登记完成：仍有子 Agent 运行时，runtime 在自己的 blocking worker 内等待，不占用主聊天 turn；到预算上限仍未终态则 run 进入 blocked，而不是伪装 completed。全部终态后，finish 会附带 bounded `agentResults` 作为最终兜底，并记录消费状态。
+- `workflow.finish()` 不是提前登记完成：仍有子 Agent 运行时，runtime 在自己的 blocking worker 内等待，不占用主聊天 turn；到预算上限仍未终态则 run 进入 blocked，而不是伪装 completed。V5 在全部终态后还检查 unresolved failures：必须 `resumeAgent` 后成功、`acceptAgentFailure`，或通过 `agentFailurePolicy={mode:"allow_partial", reason}` 明确接受；否则以 `workflow_unresolved_agent_failures` blocked。V4 保持原 finish 语义。完成输出会附带 bounded `agentResults` 并记录消费状态。
 - Workflow launcher 自身用 `tokio::spawn`，QuickJS 运行放入 `spawn_blocking`；异步工具走 `JobManager`，子 Agent 走独立 queue/`tokio::spawn`。因此 waitAny/waitAll/finish 的等待只占 Workflow worker，用户仍可继续主会话。并发任务仍共享 provider 限流、CPU、内存与 DB，达到有界队列上限时显式背压或拒绝，这属于容量治理而非聊天同步阻塞。
 
 身份规则：
@@ -431,7 +448,7 @@ Started op 恢复规则：
 | --- | --- |
 | `pure` | 可重跑。 |
 | `idempotent` | 可重新检查/重跑。 |
-| `non_idempotent` 且 `op_type in spawnAgent / validate / tool:*` 且有 `child_handle` | attach child handle，查询已有 child。 |
+| `non_idempotent` 且 `op_type in spawnAgent / resumeAgent / validate / tool:*` 且有 `child_handle` | attach child handle，校验 owner/continuation provenance 后查询已有 child；不得重复创建 attempt。 |
 | `non_idempotent` 且无法 attach | run 转 `blocked(reason=started_non_idempotent_op:<op_key>)`。 |
 
 这保证了崩溃/重启后不会盲目重复不可判定副作用。
@@ -459,7 +476,7 @@ Output token budget：
 - `waitAll` 后统计 workflow-owned subagent 的 output tokens。
 - 超限后写 `budget_usage` event，并在下一次 LLM op 前 block run，原因 `workflow_budget_output_tokens_exhausted`。
 - `autonomous` run 还必须显式提供 runtime budget 与 output token budget，否则 `Blocked(reason=autonomous_budget_required)`。
-- 这里的 output token budget 是 workflow runtime 自己能证明的 output 汇总，不等于模型账单 token/cost。`WorkflowRunSnapshot.agentUsage` 通过 `workflow_ops.child_handle = subagent_runs.run_id` 强关联聚合 `spawnAgent` 子代理的 input/output token、子代理数量和完成/运行/失败计数；它只代表 workflow-owned subagent usage，不代表主会话、side query、summarize 或完整 provider 成本。V3.6 起 `WorkflowRunSnapshot.usage` 进一步提供窗口 token：父会话 `model_usage_events` 在 `workflow_runs.created_at..completed_at|now` 范围内的 input/output/cache token，加上 `agentUsage` 的强关联子代理 token，GUI 显示为“窗口 Token”。同一 snapshot 还暴露 `parentInjection*` 强归因字段：通过父会话 user message 的 `attachments_meta.workflow_result.run_id` 定位 workflow 完成注入与阶段注入，从该 user row 到下一条 user row 聚合 message token，并用 `model_usage_events.request_key = 'message:' || assistant_message_id` 聚合对应 provider ledger。`usage.totalTokens` 仍保持窗口总览口径；`parentInjection*` 用于解释哪些父会话回复可强关联到 workflow 注入。上述值用于长任务可观察和预算压力判断；它们仍不是 provider call 级完整成本，也不替代未来 `workflow_run_id` 强总归因。后续若接入完整 run attribution，必须以 ledger 强关联字段或等价 trace link 为准。
+- 这里的 output token budget 是 workflow runtime 自己能证明的 output 汇总，不等于模型账单 token/cost。V5 `WorkflowRunSnapshot.agentUsage` 通过 `workflow_agent_attempts` 聚合本 Workflow 控制的所有 spawn/resume attempts，并排除 `result_only` 导入项；V4 继续通过 `workflow_ops.child_handle = subagent_runs.run_id` 聚合，避免迁移改变旧快照口径。它只代表 workflow-owned subagent usage，不代表主会话、side query、summarize 或完整 provider 成本。V3.6 起 `WorkflowRunSnapshot.usage` 进一步提供窗口 token：父会话 `model_usage_events` 在 `workflow_runs.created_at..completed_at|now` 范围内的 input/output/cache token，加上 `agentUsage` 的强关联子代理 token，GUI 显示为“窗口 Token”。同一 snapshot 还暴露 `parentInjection*` 强归因字段：通过父会话 user message 的 `attachments_meta.workflow_result.run_id` 定位 workflow 完成注入与阶段注入，从该 user row 到下一条 user row聚合 message token，并用 `model_usage_events.request_key = 'message:' || assistant_message_id` 聚合对应 provider ledger。`usage.totalTokens` 仍保持窗口总览口径；`parentInjection*` 用于解释哪些父会话回复可强关联到 workflow 注入。上述值用于长任务可观察和预算压力判断；它们仍不是 provider call 级完整成本。
 
 Guarded repair stop guard：
 
@@ -686,3 +703,37 @@ child 最终结果从单一 `<workflow_result>...</workflow_result>` JSON 块解
 首个指纹差异后停止复用。worktree、tool/external side effect、审批、随机或时间相关 op 永不跨 run 复用。复用写入当前 run 的 op/event provenance，不修改 source run。
 
 V4 E2E mock tests 覆盖 schema bounded repair、Parallel barrier、Pipeline 渐进消费、immutable meta/args、read-only prefix resume 和 V4 control marker；V3 tests 继续覆盖旧脚本与 position replay。
+
+## 19. Workflow V5 Agent Continuation
+
+V5 只增量改变 Workflow-owned 子 Agent 的身份、控制与完成契约；V3/V4 run 按其已持久化 `api_version` 原样 replay。新建模型侧 Workflow 默认 V5，saved template 仍保存和恢复原版本，不做静默升级。
+
+### 19.1 稳定 Thread 与不可变 Attempt
+
+- `spawnAgent` 创建 thread 的 initial attempt；`resumeAgent` 在同一 `child_session_id` 新建 continuation attempt。
+- `workflow_agent_attempts` 把每个 attempt 连接到创建它的 durable op，并记录 `initial|continuation|imported` 与 `control|result_only`。
+- 底层 `subagent_threads.current_run_id + lease_epoch` 保证一个 child conversation 同时只有一个写者。恢复 `resumeAgent` op 时必须同时校验预分配 run id、`continuation_of_run_id`、Workflow owner；任一不一致都 fail closed。
+- `resumeAgent` 是 non-idempotent op，但 run id 在 op started 前预分配。崩溃发生在 dispatch 前则可继续创建；发生在创建后则 attach 同一 attempt，不会重复续跑。
+
+### 19.2 Ownership 与 Result-only 导入
+
+底层 thread owner 是 `(workflow, workflow_run_id)`。普通 `subagent.send/resume/kill`、其他 Workflow、Team 即使知道 run id 也不能控制。`workflow.agentSteer` 走 canonical `subagent.send(mode=steer_only)`，`cancelAgent` 与 `resumeAgent` 均携内部 owner id 并在工具层和事务层双重核验。
+
+V4 selective resume 跨 Workflow run 复用只读前缀时，V5 将复用 attempt 记为 `result_only`：允许 `agentStatus/agentResult/wait` 消费历史结果，但不能 steer/cancel/resume，也不计入当前 Workflow 的模型用量。这避免“能看结果”被误解成“接管旧执行体”。
+
+### 19.3 终止分类与失败闭环
+
+`SubagentTerminalReason` 将模型/工具错误、deadline、process interruption、runner panic、审批拒绝、用户/父/Workflow 取消等分开。`process_interrupted` 等可恢复终态可被显式续跑；用户停止与审批拒绝默认不可由脚本自动恢复。
+
+每个失败 control attempt 初始 `resolution_state=pending`：
+
+1. 同 thread 的 continuation 成功完成时，事务内把早先 pending failure 标为 `resolved` 并记录 `resolved_by_run_id`；
+2. `workflow.acceptAgentFailure(handle,{reason})` 将单个失败标为 `accepted`；
+3. `workflow.finish({agentFailurePolicy:{mode:"allow_partial",reason}})` 可批量接受剩余失败并写事件；
+4. 否则 `finish` 写 `workflow_finish_blocked_unresolved_agent_failures`，run 以 `workflow_unresolved_agent_failures` blocked，不能伪装 completed。
+
+### 19.4 启动恢复与交付
+
+上个进程遗留的 queued/spawning/running attempt 在启动事务中变为 `Interrupted(process_interrupted)`，随后同步 Workflow op/attempt 投影。Workflow runtime 的 started-op recovery 重新 attach 已持久化的 `spawnAgent` / `resumeAgent` child；普通父会话结果则通过 `subagent_result_deliveries` 的 pending/injecting CAS 重放。Workflow/Group/result-only attempt 的 `delivery_kind` 不进入普通父注入，避免恢复时跨域双交付。
+
+测试至少覆盖：同 child session 串行 continuation、epoch 迟到写 fence、owner takeover 拒绝、delivery CAS 与启动重放、V5 unresolved finish guard、带理由 allow-partial，以及 V4 finish 兼容性。

@@ -184,11 +184,12 @@ const TOOL_DESC_SEND_NOTIFICATION: &str = "\
 
 const TOOL_DESC_SUBAGENT: &str = "\
 - subagent: Spawn and manage sub-agents to delegate tasks.\n\
-  - Actions: spawn, check, list, result, kill, kill_all, steer, batch_spawn, wait_all, spawn_and_wait\n\
+  - Actions: spawn, send, check, list, result, kill, kill_all, batch_spawn, wait_all, spawn_and_wait; resume/steer are compatibility aliases\n\
   - Sub-agents run asynchronously — results are auto-pushed as `<subagent-result>` user messages when complete\n\
+  - send: canonical thread follow-up; steer the active attempt or create a fresh immutable attempt after terminal completion while preserving prior conversation/workdir\n\
   - spawn/batch_spawn `timeout_secs`: omit by default to use the parent Agent default (default 0/no timeout); set positive values only for explicitly bounded child tasks; 0 = no timeout; positives cap at 1800s\n\
   - spawn_and_wait: spawn + wait up to foreground_timeout (default 30s, max 120s). If completes in time, returns result inline. Otherwise auto-backgrounds — result injected later\n\
-  - Use steer to redirect a running sub-agent without killing it";
+  - Inspect terminal_reason and partial side effects before resuming failures; never retry user-stopped or approval-denied attempts automatically";
 
 const TOOL_DESC_MEMORY_GET: &str = "\
 - memory_get: Retrieve a specific memory entry by ID with full content and metadata.\n\
