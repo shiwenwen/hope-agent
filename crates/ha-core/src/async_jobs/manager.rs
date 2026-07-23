@@ -1357,7 +1357,8 @@ mod tests {
     #[test]
     fn build_group_push_message_includes_every_child_and_escapes() {
         let dir = tempfile::tempdir().unwrap();
-        let sdb = crate::session::SessionDB::open(&dir.path().join("s.db")).unwrap();
+        let sdb =
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("s.db")).unwrap();
         let mut r1 = run(
             "r1",
             "researcher",
@@ -1409,7 +1410,8 @@ mod tests {
     #[test]
     fn build_group_push_message_all_completed_is_status_completed() {
         let dir = tempfile::tempdir().unwrap();
-        let sdb = crate::session::SessionDB::open(&dir.path().join("s.db")).unwrap();
+        let sdb =
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("s.db")).unwrap();
         sdb.insert_subagent_run(&run(
             "r1",
             "w",
@@ -1430,7 +1432,8 @@ mod tests {
     #[test]
     fn build_group_push_message_missing_run_record_is_a_failure() {
         let dir = tempfile::tempdir().unwrap();
-        let sdb = crate::session::SessionDB::open(&dir.path().join("s.db")).unwrap();
+        let sdb =
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("s.db")).unwrap();
         let children = vec![child("c1", "missing_run", "g")];
         let msg = JobManager::build_group_push_message("g", &children, &sdb);
         assert!(msg.contains("<status>error</status>"));

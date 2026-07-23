@@ -956,7 +956,7 @@ mod structural_limit_tests {
     #[tokio::test]
     async fn subagent_depth_overflow_rejects_not_queues() {
         let tmp = tempfile::tempdir().unwrap();
-        let db = Arc::new(SessionDB::open(&tmp.path().join("s.db")).unwrap());
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&tmp.path().join("s.db")).unwrap());
         let registry = Arc::new(SubagentCancelRegistry::new());
         // Default cap is 3 (DEFAULT_MAX_DEPTH); depth 99 is structurally illegal.
         let err = spawn_subagent(params_at_depth(99), db, registry)
@@ -1019,7 +1019,8 @@ mod structural_limit_tests {
             cfg.subagents.max_concurrent = 1;
             std::fs::write(dir.join("agent.json"), serde_json::to_string(&cfg).unwrap()).unwrap();
 
-            let db = Arc::new(SessionDB::open(&root.path().join("s.db")).unwrap());
+            let db =
+                Arc::new(SessionDB::open_ephemeral_for_test(&root.path().join("s.db")).unwrap());
             let registry = Arc::new(SubagentCancelRegistry::new());
             let parent = db.create_session(agent_id).unwrap();
 

@@ -929,7 +929,7 @@ mod build_api_url_tests {
     fn prompt_session_state_reads_bound_database_goal() {
         let dir = tempfile::tempdir().expect("temp session db dir");
         let db = std::sync::Arc::new(
-            crate::session::SessionDB::open(&dir.path().join("sessions.db"))
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
                 .expect("open isolated session db"),
         );
         crate::channel::ChannelDB::new(db.clone())

@@ -674,7 +674,9 @@ mod abandoned_stream_tests {
     #[tokio::test]
     async fn dropped_engine_materializes_only_its_durable_prefix() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = Arc::new(SessionDB::open(&dir.path().join("abandoned.db")).expect("db"));
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("abandoned.db")).expect("db"),
+        );
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .expect("session");
@@ -755,7 +757,9 @@ mod abandoned_stream_tests {
     #[tokio::test]
     async fn dropped_engine_before_first_attempt_still_closes_run_atomically() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = Arc::new(SessionDB::open(&dir.path().join("no-attempt.db")).expect("db"));
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("no-attempt.db")).expect("db"),
+        );
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .expect("session");

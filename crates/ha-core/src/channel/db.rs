@@ -815,7 +815,7 @@ mod recent_active_tests {
 
     fn open_db(name: &str) -> TestDb {
         let path = temp_db_path(name);
-        let session = Arc::new(SessionDB::open(&path).expect("open session db"));
+        let session = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open session db"));
         let channel = ChannelDB::new(session.clone());
         channel.migrate().expect("migrate channel db");
         TestDb {

@@ -10024,7 +10024,8 @@ mod contract_tests {
     async fn agent_fixture_without_provider_configuration_fails_closed() {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
-            SessionDB::open(&dir.path().join("sessions.db")).expect("open session database"),
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("open session database"),
         );
         let report = SessionDB::run_domain_eval_fixture(
             db,

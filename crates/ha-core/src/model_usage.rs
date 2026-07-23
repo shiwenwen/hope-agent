@@ -321,7 +321,7 @@ mod tests {
     fn open_test_db() -> (SessionDB, std::path::PathBuf) {
         let path =
             std::env::temp_dir().join(format!("ha-model-usage-test-{}.db", uuid::Uuid::new_v4()));
-        let db = SessionDB::open(&path).expect("open session db");
+        let db = SessionDB::open_ephemeral_for_test(&path).expect("open session db");
         (db, path)
     }
 

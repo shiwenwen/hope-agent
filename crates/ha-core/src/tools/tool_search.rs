@@ -602,7 +602,8 @@ mod tests {
     async fn project_memory_is_discoverable_with_a_bound_live_project() {
         let dir = tempfile::tempdir().unwrap();
         let session_db = std::sync::Arc::new(
-            crate::session::SessionDB::open(&dir.path().join("sessions.db")).unwrap(),
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .unwrap(),
         );
         let project_db = crate::project::ProjectDB::new(session_db.clone());
         project_db.migrate().unwrap();
