@@ -803,6 +803,10 @@ pub fn fire_stop(
     let status = status.to_string();
     let last_message = last_message.map(|s| s.to_string());
     let run = async move {
+        // Block-to-continue applies ONLY to a natural completion — a
+        // user-initiated interrupt (`status="interrupted"`, fired from the
+        // finalize path) must never be resurrected by a blocking Stop hook.
+        let is_natural_stop = status == "completed";
         let mut common = observation_common("Stop", &session_id);
         common.agent_id = agent_id.clone();
         let input = HookInput::Stop {
@@ -813,12 +817,24 @@ pub fn fire_stop(
             stop_hook_active: stop_continue_active(&session_id),
         };
         let outcome = HookDispatcher::dispatch(HookEvent::Stop, input).await;
-        match outcome.stop_wants_continue() {
+        let wants_continue = if is_natural_stop {
+            outcome.stop_wants_continue()
+        } else {
+            None
+        };
+        match wants_continue {
             Some(reason) if honor_stop_continue(&session_id) => {
-                stop_continue_inject(&session_id, agent_id.as_deref(), &reason).await;
+                // If we can't actually re-drive (no session DB / unresolvable
+                // agent), undo the counter bump so the next independent stop
+                // isn't penalized with a spurious `stop_hook_active` / a shrunk
+                // continue budget.
+                if !stop_continue_inject(&session_id, agent_id.as_deref(), &reason).await {
+                    reset_stop_continue(&session_id);
+                }
             }
-            // Normal stop, or the continue cap was hit → let the turn end and
-            // reset so the next independent stop starts fresh.
+            // Normal stop, a non-natural (interrupted) stop, or the continue cap
+            // was hit → let the turn end and reset so the next independent stop
+            // starts fresh.
             _ => reset_stop_continue(&session_id),
         }
     };
@@ -834,15 +850,15 @@ pub fn fire_stop(
 /// pipeline (waits for idle, appends a `ParentInjection` user message, runs one
 /// turn) — the same mechanism as `asyncRewake`. No-op without a resolvable
 /// session / agent.
-async fn stop_continue_inject(session_id: &str, agent_id: Option<&str>, reason: &str) {
+async fn stop_continue_inject(session_id: &str, agent_id: Option<&str>, reason: &str) -> bool {
     let Some(db) = crate::globals::get_session_db().cloned() else {
-        return;
+        return false;
     };
     let agent_id = match agent_id {
         Some(a) => a.to_string(),
         None => match crate::session::lookup_session_meta(Some(session_id)).map(|m| m.agent_id) {
             Some(a) => a,
-            None => return,
+            None => return false,
         },
     };
     let push = format!(
@@ -865,6 +881,7 @@ async fn stop_continue_inject(session_id: &str, agent_id: Option<&str>, reason: 
         None,
     )
     .await;
+    true
 }
 
 /// Fire the `StopFailure` observation hook — a turn ended because of an error.
@@ -1394,6 +1411,43 @@ mod tests {
         let out = HookDispatcher::dispatch_with(&reg, HookEvent::TaskCreated, input).await;
         assert!(matches!(out.decision, HookDecision::Block { .. }));
         assert!(out.block_reason().is_some());
+    }
+
+    #[tokio::test]
+    async fn permission_request_matches_on_tool_name_alias() {
+        // matcher "Bash" normalizes to internal "exec"; a PermissionRequest
+        // carrying tool_name=Some("exec") must match and (being gate-capable)
+        // yield Block — proving tool-name matching works once the tool name is
+        // threaded through the approval path.
+        let reg = registry_from(
+            r#"{"PermissionRequest":[{"matcher":"Bash","hooks":[
+                {"type":"command","shell":"bash","command":"echo denied 1>&2; exit 2"}
+            ]}]}"#,
+        );
+        let with_name = HookInput::PermissionRequest {
+            common: common("PermissionRequest"),
+            tool_name: Some("exec".into()),
+            tool_input: None,
+            command: "npm test".into(),
+            tool_use_id: None,
+            job_id: None,
+        };
+        let out =
+            HookDispatcher::dispatch_with(&reg, HookEvent::PermissionRequest, with_name).await;
+        assert!(matches!(out.decision, HookDecision::Block { .. }));
+        // Without a tool name, a tool-name matcher falls back to `command`
+        // ("npm test") which "Bash"→"exec" never matches → no veto.
+        let no_name = HookInput::PermissionRequest {
+            common: common("PermissionRequest"),
+            tool_name: None,
+            tool_input: None,
+            command: "npm test".into(),
+            tool_use_id: None,
+            job_id: None,
+        };
+        let out2 =
+            HookDispatcher::dispatch_with(&reg, HookEvent::PermissionRequest, no_name).await;
+        assert_eq!(out2.decision, HookDecision::Allow);
     }
 
     #[tokio::test]

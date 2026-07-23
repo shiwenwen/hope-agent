@@ -65,7 +65,9 @@ pub enum MatcherKind {
 
 /// True when `s` contains only the "literal/pipe-list" character set
 /// (`[A-Za-z0-9_ ,|-]`, per the official rule). Anything else routes the
-/// matcher to the regex branch. Items may be separated by `|` or `,`.
+/// matcher to the regex branch. Items are separated ONLY by `|` or `,`; space
+/// and `-` are within-item characters (so `general-purpose` is one exact item,
+/// not a list) — they are NOT separators.
 fn is_literal_or_pipe(s: &str) -> bool {
     s.chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '|' | ',' | ' ' | '-'))

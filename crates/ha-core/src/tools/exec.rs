@@ -378,6 +378,7 @@ pub(crate) async fn resolve_exec_command_approval(
                 session_cwd,
                 ctx.session_id.as_deref(),
                 reason_payload,
+                Some("exec"),
             )
             .await
             {

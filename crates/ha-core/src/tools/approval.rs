@@ -844,6 +844,10 @@ pub(crate) async fn check_and_request_approval(
     cwd: &str,
     session_id: Option<&str>,
     reason: Option<ApprovalReasonPayload>,
+    // Internal tool name being gated (`exec`, `write`, …), for the
+    // PermissionRequest/PermissionDenied hooks' tool-name matcher. `None` falls
+    // back to matching on `command`.
+    tool_name: Option<&str>,
 ) -> std::result::Result<ApprovalResponse, ApprovalCheckError> {
     // Epic D (DEADLOCK-1..5): an `Ask` was decided, but on some entries no human
     // can ever answer it. Resolve the surface BEFORE registering a pending entry
@@ -921,7 +925,13 @@ pub(crate) async fn check_and_request_approval(
             );
         }
         // Observation hook parity with the user-decline path.
-        crate::hooks::fire_permission_denied(session_id, None, command, unattended.as_str(), None);
+        crate::hooks::fire_permission_denied(
+            session_id,
+            tool_name,
+            command,
+            unattended.as_str(),
+            None,
+        );
         return Err(ApprovalCheckError::Unattended { reason: unattended });
     }
 
@@ -932,7 +942,7 @@ pub(crate) async fn check_and_request_approval(
     // when no PermissionRequest hook is configured.
     {
         let pr_outcome =
-            crate::hooks::dispatch_permission_request(session_id, None, command, None).await;
+            crate::hooks::dispatch_permission_request(session_id, tool_name, command, None).await;
         if let Some(reason) = pr_outcome.block_reason() {
             app_info!(
                 "tool",
@@ -945,7 +955,7 @@ pub(crate) async fn check_and_request_approval(
                     format!(": {}", reason.trim())
                 }
             );
-            crate::hooks::fire_permission_denied(session_id, None, command, "policy", None);
+            crate::hooks::fire_permission_denied(session_id, tool_name, command, "policy", None);
             return Ok(ApprovalResponse::Deny);
         }
     }
@@ -1077,7 +1087,7 @@ pub(crate) async fn check_and_request_approval(
             if matches!(response, ApprovalResponse::Deny) {
                 crate::hooks::fire_permission_denied(
                     session_id,
-                    None,
+                    tool_name,
                     command,
                     "user_declined",
                     None,

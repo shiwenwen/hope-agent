@@ -920,6 +920,10 @@ impl AssistantAgent {
         let mut round: u32 = 0;
         let mut effective_max_rounds = max_rounds;
         let mut activation_grace_used = false;
+        // Set when a PostToolBatch hook stopped the agentic loop (so the
+        // post-loop empty-content guard treats it as a clean stop, not an
+        // API error).
+        let mut post_batch_stopped = false;
         while round < effective_max_rounds {
             if cancel.load(Ordering::SeqCst) {
                 break;
@@ -1619,6 +1623,7 @@ impl AssistantAgent {
                         format!(": {}", reason.trim())
                     }
                 );
+                post_batch_stopped = true;
                 break;
             }
             round = round.saturating_add(1);
@@ -1633,6 +1638,14 @@ impl AssistantAgent {
             collected_text.push_str(&notice);
             final_assistant_text.push_str(&notice);
             emit_round_limit_event(on_delta, max_rounds);
+        }
+        // A PostToolBatch hook that stops the loop after a tool-only round (no
+        // assistant prose) must end cleanly, not via the "no content" API-error
+        // path — synthesize a short terminal notice so the turn finalizes.
+        if post_batch_stopped && collected_text.is_empty() && !cancelled {
+            let notice = "(stopped by PostToolBatch hook)";
+            collected_text.push_str(notice);
+            final_assistant_text.push_str(notice);
         }
         if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!(

@@ -1459,9 +1459,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     stream_lifecycle.finish();
                     schedule_browser_turn_finalize(source, &session_id);
 
-                    // Stop hook: the agent finished responding (normal
-                    // completion, or a user-initiated stop that still drained
-                    // to here). Observation-only this phase.
+                    // Stop hook: the agent finished responding. `terminal_status`
+                    // distinguishes a natural `completed` from an interrupt —
+                    // block-to-continue is honored ONLY on `completed`
+                    // (fire_stop guards on it), never on a user interrupt.
                     crate::hooks::fire_stop(
                         &session_id,
                         Some(&agent_id),

@@ -1311,6 +1311,7 @@ pub(super) async fn run_tool_approval(
         cwd,
         ctx.session_id.as_deref(),
         reason_payload,
+        Some(name),
     )
     .await
     {
