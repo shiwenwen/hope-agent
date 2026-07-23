@@ -4682,41 +4682,46 @@ impl WorkflowRuntimeHost {
                     .map(str::trim)
                     .filter(|reason| !reason.is_empty());
                 let policy_reason_present = reason.is_some();
-                if mode == "allow_partial" && reason.is_some() {
-                    let reason = reason.expect("checked non-empty partial reason");
-                    for failure in &unresolved {
-                        if let Some(run_id) = failure.get("runId").and_then(Value::as_str) {
-                            self.db
-                                .accept_workflow_agent_failure(&self.run_id, run_id, reason)?;
+                match (mode, reason) {
+                    ("allow_partial", Some(reason)) => {
+                        for failure in &unresolved {
+                            if let Some(run_id) = failure.get("runId").and_then(Value::as_str) {
+                                self.db.accept_workflow_agent_failure(
+                                    &self.run_id,
+                                    run_id,
+                                    reason,
+                                )?;
+                            }
                         }
+                        let _ = self.db.append_workflow_event(
+                            &self.run_id,
+                            "workflow_agent_failures_accepted_partial",
+                            json!({
+                                "reason": reason,
+                                "failures": unresolved,
+                            }),
+                        )?;
                     }
-                    let _ = self.db.append_workflow_event(
-                        &self.run_id,
-                        "workflow_agent_failures_accepted_partial",
-                        json!({
-                            "reason": reason,
-                            "failures": unresolved,
-                        }),
-                    )?;
-                } else {
-                    let reason = "workflow_unresolved_agent_failures";
-                    let _ = self.db.append_workflow_event(
-                        &self.run_id,
-                        "workflow_finish_blocked_unresolved_agent_failures",
-                        json!({
-                            "failures": unresolved,
-                            "requestedPolicy": mode,
-                            "policyReasonPresent": policy_reason_present,
-                        }),
-                    )?;
-                    self.db.transition_workflow_run(
-                        &self.run_id,
-                        WorkflowRunState::Blocked,
-                        Some(reason),
-                    )?;
-                    return Err(anyhow!(
-                        "workflow.finish blocked: unresolved child failures remain; call resumeAgent/acceptAgentFailure or provide agentFailurePolicy allow_partial with a reason"
-                    ));
+                    _ => {
+                        let reason = "workflow_unresolved_agent_failures";
+                        let _ = self.db.append_workflow_event(
+                            &self.run_id,
+                            "workflow_finish_blocked_unresolved_agent_failures",
+                            json!({
+                                "failures": unresolved,
+                                "requestedPolicy": mode,
+                                "policyReasonPresent": policy_reason_present,
+                            }),
+                        )?;
+                        self.db.transition_workflow_run(
+                            &self.run_id,
+                            WorkflowRunState::Blocked,
+                            Some(reason),
+                        )?;
+                        return Err(anyhow!(
+                            "workflow.finish blocked: unresolved child failures remain; call resumeAgent/acceptAgentFailure or provide agentFailurePolicy allow_partial with a reason"
+                        ));
+                    }
                 }
             }
         }

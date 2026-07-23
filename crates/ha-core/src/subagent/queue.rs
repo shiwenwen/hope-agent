@@ -196,12 +196,13 @@ pub async fn run_subagent_scheduler() {
         };
         for (session, parent_agent_id) in queued_session_keys() {
             let max = super::max_concurrent_for_agent(&parent_agent_id);
-            let active = match {
+            let active_result = {
                 let db = db.clone();
                 let session = session.clone();
                 db.run(move |db| db.count_active_subagent_runs(&session))
                     .await
-            } {
+            };
+            let active = match active_result {
                 Ok(n) => n,
                 Err(e) => {
                     crate::app_warn!(
