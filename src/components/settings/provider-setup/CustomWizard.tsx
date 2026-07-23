@@ -165,13 +165,27 @@ export function CustomWizard({
     }
   }
 
+  function handleBack() {
+    if (customStep > 0) setCustomStep(customStep - 1)
+    else onBack()
+  }
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div
-        className="h-[4.5rem] flex items-end justify-center pb-2 px-4 border-b border-border shrink-0"
+        className="relative h-[4.5rem] flex items-end justify-center pb-2 px-4 border-b border-border shrink-0"
         data-tauri-drag-region={embedded ? undefined : true}
       >
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleBack}
+          className="absolute bottom-1 left-4 gap-1.5 text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {t("common.back")}
+        </Button>
         <div className="flex items-center gap-2">
           {[t("wizard.apiType"), t("wizard.connectionConfig"), t("wizard.models")].map(
             (label, i) => (
@@ -423,16 +437,7 @@ export function CustomWizard({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border px-6 py-3 flex items-center justify-between gap-2 shrink-0">
-        <Button
-          onClick={() => {
-            if (customStep > 0) setCustomStep(customStep - 1)
-            else onBack()
-          }}
-        >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          {t("common.back")}
-        </Button>
+      <div className="border-t border-border px-6 py-3 flex items-center justify-end gap-2 shrink-0">
         {customStep < 2 ? (
           <Button onClick={() => setCustomStep(customStep + 1)} disabled={!canNext}>
             {t("common.nextStep")}
