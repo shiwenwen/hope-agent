@@ -142,6 +142,8 @@ The sandbox runs `exec` commands inside a Docker container rather than directly 
 
 > **If you pick a sandbox but Docker is unavailable, tool execution fails outright (with an error)—it never silently falls back to running on your computer.** The sandbox does not bypass permissions—the most sensitive operations are still approved every time.
 
+**Windows + WSL**: Docker Desktop is not required. If a local Docker Engine is installed and running in the default WSL distribution, Hope Agent automatically uses the WSL backend. Installing WSL alone is not enough—the distribution still needs Docker Engine and a responsive daemon; after detecting WSL, Settings prioritizes the matching installation guide. To avoid mounting a local workspace on an unrelated host, automatic fallback does not use `ssh://` or `tcp://` remote Docker contexts.
+
 **Container configuration (Settings → Docker Sandbox)**: image (default `debian:bookworm-slim`), memory (512 MB), CPU (1 core), read-only root filesystem (on), network mode (default `none`, no network), and more. The top of the panel shows whether Docker is available; if it's not installed / not running, it gives platform-specific install guidance.
 
 ---

@@ -4989,6 +4989,8 @@
     "developer": "Разработчик",
     "dockerSetupNotInstalled": "Docker не обнаружен. Выберите вариант Docker для этой платформы.",
     "dockerSetupNotRunning": "Docker установлен, но демон не запущен. Запустите Docker и повторите попытку.",
+    "dockerSetupWslNoDocker": "WSL готова к работе. Установите Docker Engine в дистрибутив WSL по умолчанию, чтобы использовать песочницу без Docker Desktop.",
+    "dockerSetupWslNotRunning": "Docker Engine установлен в WSL, но его демон не запущен. Запустите Docker в WSL и повторите попытку.",
     "dreaming": {
       "candidateLimit": "Лимит кандидатов",
       "candidateLimitDesc": "Максимальное количество кандидатов, отправленных на LLM за цикл.",

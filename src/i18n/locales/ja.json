@@ -4989,6 +4989,8 @@
     "developer": "開発者",
     "dockerSetupNotInstalled": "Docker が検出されませんでした。このプラットフォームには Docker オプションを選択してください。",
     "dockerSetupNotRunning": "Docker はインストールされていますが、デーモンが実行されていません。 Docker を起動して、再試行してください。",
+    "dockerSetupWslNoDocker": "WSL は使用可能です。既定の WSL ディストリビューションに Docker Engine をインストールすると、Docker Desktop なしでサンドボックスを使用できます。",
+    "dockerSetupWslNotRunning": "WSL に Docker Engine はインストールされていますが、デーモンが実行されていません。WSL で Docker を起動して再試行してください。",
     "dreaming": {
       "candidateLimit": "候補上限",
       "candidateLimitDesc": "1 サイクルで LLM に渡す候補の最大数。",

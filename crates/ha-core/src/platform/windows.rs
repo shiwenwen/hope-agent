@@ -4,6 +4,7 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -107,6 +108,100 @@ pub(super) fn hide_console(cmd: &mut Command) {
 
 pub(super) fn hide_console_tokio(cmd: &mut tokio::process::Command) {
     cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+pub(super) fn wsl_command() -> Option<tokio::process::Command> {
+    let mut cmd = tokio::process::Command::new("wsl.exe");
+    cmd.creation_flags(CREATE_NO_WINDOW).kill_on_drop(true);
+    Some(cmd)
+}
+
+async fn wsl_command_succeeds(args: &[&str]) -> bool {
+    let Some(mut cmd) = wsl_command() else {
+        return false;
+    };
+    cmd.args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    matches!(
+        tokio::time::timeout(Duration::from_secs(5), cmd.status()).await,
+        Ok(Ok(status)) if status.success()
+    )
+}
+
+pub(super) async fn wsl_status() -> super::WslStatus {
+    let installed = wsl_command_succeeds(&["--status"]).await;
+    if !installed {
+        return super::WslStatus::default();
+    }
+
+    super::WslStatus {
+        installed: true,
+        distribution_installed: wsl_command_succeeds(&["--exec", "true"]).await,
+    }
+}
+
+pub(super) async fn path_to_wsl(path: &Path) -> io::Result<Option<String>> {
+    let Some(mut cmd) = wsl_command() else {
+        return Ok(None);
+    };
+    let path = path.to_string_lossy();
+    // `canonicalize()` commonly returns the extended-length prefix on
+    // Windows, which `wslpath` does not accept. Convert it back to the normal
+    // drive/UNC spelling before crossing the WSL boundary.
+    let normalized = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", rest)
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        path.into_owned()
+    };
+    cmd.args(["--exec", "wslpath", "-a", "-u", &normalized]);
+    let output = tokio::time::timeout(Duration::from_secs(5), cmd.output())
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "wslpath timed out"))??;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "wslpath failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let converted = String::from_utf8(output.stdout)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let converted = converted.trim();
+    if converted.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "wslpath returned an empty path",
+        ));
+    }
+
+    // Resolve Linux-side symlinks before the caller applies its mount
+    // blocklist. Windows canonicalization alone cannot safely classify WSL UNC
+    // paths such as \\wsl.localhost\<distro>\var\run.
+    let Some(mut canonicalizer) = wsl_command() else {
+        return Ok(None);
+    };
+    canonicalizer.args(["--exec", "readlink", "-f", "--", converted]);
+    let output = tokio::time::timeout(Duration::from_secs(5), canonicalizer.output())
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "WSL readlink timed out"))??;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "WSL readlink failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let canonical = String::from_utf8(output.stdout)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let canonical = canonical.trim();
+    if canonical.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "WSL readlink returned an empty path",
+        ));
+    }
+    Ok(Some(canonical.to_string()))
 }
 
 pub(super) fn find_chrome_executable() -> Option<PathBuf> {

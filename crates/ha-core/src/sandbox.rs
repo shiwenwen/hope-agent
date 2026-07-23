@@ -10,7 +10,9 @@ use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
@@ -220,6 +222,7 @@ const BLOCKED_MOUNT_PATHS: &[&str] = &[
     "/var/run/docker",
     "/private/var/run/docker.sock",
     "/run/docker.sock",
+    "/run/docker",
 ];
 
 /// Validate that a host path is safe to bind-mount into the sandbox.
@@ -230,7 +233,7 @@ fn validate_bind_mount(host_path: &std::path::Path) -> Result<()> {
     let path_str = canonical.to_string_lossy();
 
     // Block root filesystem mount
-    if canonical == std::path::Path::new("/") {
+    if canonical == std::path::Path::new("/") || canonical.parent().is_none() {
         return Err(anyhow::anyhow!(
             "Sandbox security: mounting root filesystem is not allowed"
         ));
@@ -250,6 +253,66 @@ fn validate_bind_mount(host_path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+/// Validate a canonical absolute path as interpreted by the WSL distribution.
+///
+/// Windows-side canonicalization cannot apply the Linux mount blocklist to WSL
+/// UNC paths. `platform::path_to_wsl` resolves Linux-side symlinks first, then
+/// this function enforces the same root/sensitive-path boundary on that result.
+fn validate_wsl_bind_mount(wsl_path: &str) -> Result<()> {
+    if !wsl_path.starts_with('/') {
+        anyhow::bail!(
+            "Sandbox security: WSL mount path must be absolute: {}",
+            wsl_path
+        );
+    }
+    if wsl_path == "/"
+        || wsl_path.contains("//")
+        || wsl_path
+            .split('/')
+            .any(|component| component == "." || component == "..")
+    {
+        anyhow::bail!(
+            "Sandbox security: mounting WSL root or a non-canonical path is not allowed: {}",
+            wsl_path
+        );
+    }
+    for blocked in BLOCKED_MOUNT_PATHS {
+        let is_blocked = wsl_path == *blocked
+            || wsl_path
+                .strip_prefix(blocked)
+                .is_some_and(|suffix| suffix.starts_with('/'));
+        if is_blocked {
+            anyhow::bail!(
+                "Sandbox security: mounting sensitive WSL path '{}' is not allowed",
+                wsl_path
+            );
+        }
+    }
+    Ok(())
+}
+
+fn linux_path_is_same_or_descendant(path: &str, ancestor: &str) -> bool {
+    path == ancestor
+        || path
+            .strip_prefix(ancestor)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn validate_wsl_docker_socket_mount(wsl_path: &str, socket_path: &str) -> Result<()> {
+    // Reject mounting the socket itself, any directory containing it, or any
+    // descendant of the socket path. The ancestor check is necessary for
+    // rootless sockets such as /run/user/<uid>/docker.sock.
+    if linux_path_is_same_or_descendant(socket_path, wsl_path)
+        || linux_path_is_same_or_descendant(wsl_path, socket_path)
+    {
+        anyhow::bail!(
+            "Sandbox security: WSL mount '{}' would expose the Docker socket",
+            wsl_path
+        );
+    }
+    Ok(())
+}
+
 // ── Docker Operations ─────────────────────────────────────────────
 
 /// Check if Docker is available and running.
@@ -258,6 +321,188 @@ pub async fn check_docker_available() -> bool {
         Ok(docker) => docker.ping().await.is_ok(),
         Err(_) => false,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DockerBackend {
+    Native,
+    Wsl,
+}
+
+#[derive(Debug, Clone, Default)]
+struct WslDockerProbe {
+    wsl_installed: bool,
+    distribution_installed: bool,
+    docker_installed: bool,
+    daemon_running: bool,
+    local_endpoint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AvailableSandboxBackend {
+    Native,
+    Wsl { endpoint: String },
+}
+
+async fn command_succeeds(command: &mut Command) -> bool {
+    command
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    matches!(
+        tokio::time::timeout(Duration::from_secs(5), command.status()).await,
+        Ok(Ok(status)) if status.success()
+    )
+}
+
+async fn native_docker_cli_installed() -> bool {
+    let mut command = Command::new("docker");
+    command.arg("--version");
+    crate::platform::hide_console_tokio(&mut command);
+    command_succeeds(&mut command).await
+}
+
+fn normalize_local_docker_endpoint(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let socket_path = raw.strip_prefix("unix://")?;
+    if !socket_path.starts_with('/')
+        || socket_path.contains("//")
+        || socket_path.chars().any(char::is_control)
+        || socket_path
+            .split('/')
+            .any(|component| component == "." || component == "..")
+    {
+        return None;
+    }
+    Some(format!("unix://{}", socket_path))
+}
+
+fn wsl_local_docker_command(endpoint: &str) -> Option<Command> {
+    let mut command = crate::platform::wsl_command()?;
+    // Prevent WSLENV-exported Docker variables from overriding the validated
+    // local endpoint. Docker configuration and registry credentials remain
+    // available; only daemon-selection/TLS variables are cleared.
+    command.args([
+        "--exec",
+        "env",
+        "-u",
+        "DOCKER_CONTEXT",
+        "-u",
+        "DOCKER_HOST",
+        "-u",
+        "DOCKER_TLS_VERIFY",
+        "-u",
+        "DOCKER_CERT_PATH",
+        "docker",
+        "--host",
+        endpoint,
+    ]);
+    Some(command)
+}
+
+async fn command_stdout(command: &mut Command) -> Option<String> {
+    command.stderr(Stdio::null()).kill_on_drop(true);
+    let output = tokio::time::timeout(Duration::from_secs(5), command.output())
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
+}
+
+async fn configured_wsl_local_docker_endpoint() -> Option<String> {
+    let mut command = crate::platform::wsl_command()?;
+    // Reading context metadata does not contact the configured daemon. The
+    // returned endpoint is still treated as untrusted and accepted only when
+    // it is a local Unix socket.
+    command.args([
+        "--exec",
+        "docker",
+        "context",
+        "inspect",
+        "--format",
+        "{{.Endpoints.docker.Host}}",
+    ]);
+    normalize_local_docker_endpoint(&command_stdout(&mut command).await?)
+}
+
+async fn canonicalize_wsl_docker_socket_path(endpoint: &str) -> Option<String> {
+    let socket_path = endpoint.strip_prefix("unix://")?;
+    let mut command = crate::platform::wsl_command()?;
+    command.args(["--exec", "readlink", "-f", "--", socket_path]);
+    let canonical = command_stdout(&mut command).await?;
+    let canonical = canonical.trim();
+    if !canonical.starts_with('/')
+        || canonical.contains("//")
+        || canonical.chars().any(char::is_control)
+        || canonical
+            .split('/')
+            .any(|component| component == "." || component == "..")
+    {
+        return None;
+    }
+    Some(canonical.to_string())
+}
+
+async fn find_wsl_local_docker_endpoint() -> Option<String> {
+    let mut candidates = Vec::new();
+    if let Some(endpoint) = configured_wsl_local_docker_endpoint().await {
+        candidates.push(endpoint);
+    }
+    candidates.push("unix:///var/run/docker.sock".to_string());
+    if let Some(uid) = wsl_numeric_id("-u").await {
+        let rootless = format!("unix:///run/user/{}/docker.sock", uid);
+        if !candidates.contains(&rootless) {
+            candidates.push(rootless);
+        }
+    }
+
+    for endpoint in candidates {
+        let mut info = wsl_local_docker_command(&endpoint)?;
+        info.args(["info", "--format", "{{.ServerVersion}}"]);
+        if command_succeeds(&mut info).await {
+            return Some(endpoint);
+        }
+    }
+    None
+}
+
+async fn wsl_docker_probe() -> WslDockerProbe {
+    let status = crate::platform::wsl_status().await;
+    let mut probe = WslDockerProbe {
+        wsl_installed: status.installed,
+        distribution_installed: status.distribution_installed,
+        ..Default::default()
+    };
+    if !status.distribution_installed {
+        return probe;
+    }
+
+    let Some(mut version) = crate::platform::wsl_command() else {
+        return probe;
+    };
+    version.args(["--exec", "docker", "--version"]);
+    probe.docker_installed = command_succeeds(&mut version).await;
+    if !probe.docker_installed {
+        return probe;
+    }
+
+    probe.local_endpoint = find_wsl_local_docker_endpoint().await;
+    probe.daemon_running = probe.local_endpoint.is_some();
+    probe
+}
+
+async fn available_sandbox_backend() -> Option<AvailableSandboxBackend> {
+    if check_docker_available().await {
+        return Some(AvailableSandboxBackend::Native);
+    }
+    wsl_docker_probe()
+        .await
+        .local_endpoint
+        .map(|endpoint| AvailableSandboxBackend::Wsl { endpoint })
 }
 
 /// Ensure the specified image is available locally, pulling if needed.
@@ -301,7 +546,7 @@ async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
 /// Execute a command inside a Docker container.
 ///
 /// Lifecycle: create container → start → wait (with timeout) → collect logs → remove.
-pub async fn exec_in_sandbox(
+async fn exec_in_native_docker(
     command: &str,
     cwd: &str,
     env: Option<&serde_json::Map<String, serde_json::Value>>,
@@ -522,6 +767,325 @@ pub async fn exec_in_sandbox(
         exit_code,
         timed_out,
     })
+}
+
+enum WslRunOutcome {
+    Exited(std::io::Result<ExitStatus>),
+    TimedOut,
+    Cancelled,
+}
+
+async fn wsl_container_exists(endpoint: &str, container_name: &str) -> Option<bool> {
+    let mut inspect = wsl_local_docker_command(endpoint)?;
+    inspect.args(["container", "inspect", container_name]);
+    inspect.stdout(Stdio::null()).stderr(Stdio::null());
+    let inspect_status = tokio::time::timeout(Duration::from_secs(2), inspect.status())
+        .await
+        .ok()?
+        .ok()?;
+    if inspect_status.success() {
+        return Some(true);
+    }
+
+    // `docker inspect` also fails when the daemon is unavailable. Confirm the
+    // endpoint is responsive before treating a non-zero status as "not found".
+    let mut info = wsl_local_docker_command(endpoint)?;
+    info.arg("info");
+    command_succeeds(&mut info).await.then_some(false)
+}
+
+async fn force_remove_wsl_container(endpoint: &str, container_name: &str) {
+    // The docker client is terminated before this function is called, so it
+    // cannot issue a new create request after cleanup. Retry briefly to cover a
+    // create request that was already in flight when the client was killed.
+    for attempt in 0..4 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        let Some(mut command) = wsl_local_docker_command(endpoint) else {
+            return;
+        };
+        command.args(["rm", "--force", container_name]);
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+        if matches!(
+            tokio::time::timeout(Duration::from_secs(2), command.status()).await,
+            Ok(Ok(status)) if status.success()
+        ) {
+            return;
+        }
+    }
+
+    match wsl_container_exists(endpoint, container_name).await {
+        Some(false) => {}
+        Some(true) => app_warn!(
+            "sandbox",
+            "wsl_docker",
+            "WSL sandbox container {} still exists after forced cleanup",
+            container_name
+        ),
+        None => app_warn!(
+            "sandbox",
+            "wsl_docker",
+            "Could not verify cleanup of WSL sandbox container {}",
+            container_name
+        ),
+    }
+}
+
+async fn terminate_wsl_docker_client(child: &mut tokio::process::Child) {
+    let _ = child.start_kill();
+    if tokio::time::timeout(Duration::from_secs(2), child.wait())
+        .await
+        .is_err()
+    {
+        app_warn!(
+            "sandbox",
+            "wsl_docker",
+            "Timed out waiting for the WSL Docker client to terminate"
+        );
+    }
+}
+
+async fn wsl_numeric_id(flag: &str) -> Option<String> {
+    let mut command = crate::platform::wsl_command()?;
+    command.args(["--exec", "id", flag]);
+    let output = tokio::time::timeout(Duration::from_secs(5), command.output())
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8(output.stdout).ok()?;
+    let value = value.trim();
+    value.parse::<u32>().ok().map(|_| value.to_string())
+}
+
+async fn wsl_container_user() -> Option<String> {
+    let (uid, gid) = tokio::join!(wsl_numeric_id("-u"), wsl_numeric_id("-g"));
+    Some(format!("{}:{}", uid?, gid?))
+}
+
+async fn exec_in_wsl_docker(
+    command: &str,
+    cwd: &str,
+    env: Option<&serde_json::Map<String, serde_json::Value>>,
+    config: &SandboxConfig,
+    timeout_secs: u64,
+    cancellation_token: Option<CancellationToken>,
+    docker_endpoint: &str,
+) -> Result<SandboxResult> {
+    let host_cwd = Path::new(cwd).canonicalize().map_err(|e| {
+        anyhow::anyhow!(
+            "Cannot resolve sandbox working directory '{}': {}. Ensure the path exists.",
+            cwd,
+            e
+        )
+    })?;
+    validate_bind_mount(&host_cwd)?;
+    let wsl_cwd = crate::platform::path_to_wsl(&host_cwd)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Cannot translate sandbox working directory '{}' for WSL: {}",
+                host_cwd.display(),
+                e
+            )
+        })?
+        .ok_or_else(|| anyhow::anyhow!("WSL path conversion is unavailable on this host"))?;
+    validate_wsl_bind_mount(&wsl_cwd)?;
+    let docker_socket_path = canonicalize_wsl_docker_socket_path(docker_endpoint)
+        .await
+        .ok_or_else(|| {
+            anyhow::anyhow!("Cannot resolve the selected WSL Docker Unix socket safely")
+        })?;
+    validate_wsl_docker_socket_mount(&wsl_cwd, &docker_socket_path)?;
+
+    let container_name = format!(
+        "hope-agent-sandbox-{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("tmp")
+    );
+    let Some(mut docker) = wsl_local_docker_command(docker_endpoint) else {
+        anyhow::bail!("WSL Docker command is unavailable on this host");
+    };
+    let container_user = wsl_container_user().await;
+    docker.args([
+        "run",
+        "--rm",
+        "--name",
+        &container_name,
+        "--workdir",
+        "/workspace",
+        "--volume",
+        &format!("{}:/workspace", wsl_cwd),
+    ]);
+    if let Some(user) = &container_user {
+        docker.args(["--user", user]);
+    }
+    if config.read_only {
+        docker.arg("--read-only");
+    }
+    docker.args(["--network", &config.network_mode]);
+    if config.cap_drop_all {
+        docker.args(["--cap-drop", "ALL"]);
+    }
+    if config.no_new_privileges {
+        docker.args(["--security-opt", "no-new-privileges"]);
+    }
+    if let Some(limit) = config.pids_limit {
+        docker.args(["--pids-limit", &limit.to_string()]);
+    }
+    if config.read_only {
+        for tmpfs in &config.tmpfs {
+            docker.args(["--tmpfs", tmpfs]);
+        }
+    }
+    if let Some(limit) = config.memory_limit {
+        docker.args(["--memory", &limit.to_string()]);
+    }
+    if let Some(limit) = config.cpu_limit {
+        docker.args(["--cpus", &limit.to_string()]);
+    }
+    if let Some(env_map) = env {
+        for value in sanitize_env(env_map) {
+            docker.args(["--env", &value]);
+        }
+    }
+    docker
+        .arg(&config.image)
+        .args(["sh", "-c", command])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let mut child = docker
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("Failed to start Docker through WSL: {}", e))?;
+    let stdout_task = child.stdout.take().map(|mut pipe| {
+        tokio::spawn(async move {
+            let mut output = Vec::new();
+            pipe.read_to_end(&mut output).await.map(|_| output)
+        })
+    });
+    let stderr_task = child.stderr.take().map(|mut pipe| {
+        tokio::spawn(async move {
+            let mut output = Vec::new();
+            pipe.read_to_end(&mut output).await.map(|_| output)
+        })
+    });
+
+    app_info!(
+        "sandbox",
+        "wsl_docker",
+        "WSL sandbox container starting: {} (image: {}, read_only: {}, network: {}, cap_drop_all: {}, command: {})",
+        container_name,
+        config.image,
+        config.read_only,
+        config.network_mode,
+        config.cap_drop_all,
+        command
+    );
+
+    let outcome = match (timeout_secs, cancellation_token) {
+        (0, None) => WslRunOutcome::Exited(child.wait().await),
+        (0, Some(token)) => tokio::select! {
+            result = child.wait() => WslRunOutcome::Exited(result),
+            _ = token.cancelled() => WslRunOutcome::Cancelled,
+        },
+        (secs, None) => {
+            let timer = tokio::time::sleep(Duration::from_secs(secs));
+            tokio::pin!(timer);
+            tokio::select! {
+                result = child.wait() => WslRunOutcome::Exited(result),
+                _ = &mut timer => WslRunOutcome::TimedOut,
+            }
+        }
+        (secs, Some(token)) => {
+            let timer = tokio::time::sleep(Duration::from_secs(secs));
+            tokio::pin!(timer);
+            tokio::select! {
+                result = child.wait() => WslRunOutcome::Exited(result),
+                _ = &mut timer => WslRunOutcome::TimedOut,
+                _ = token.cancelled() => WslRunOutcome::Cancelled,
+            }
+        }
+    };
+
+    if matches!(outcome, WslRunOutcome::TimedOut | WslRunOutcome::Cancelled) {
+        terminate_wsl_docker_client(&mut child).await;
+        force_remove_wsl_container(docker_endpoint, &container_name).await;
+    }
+
+    let stdout = match stdout_task {
+        Some(task) => task
+            .await
+            .map_err(|e| anyhow::anyhow!("WSL Docker stdout reader failed: {}", e))??,
+        None => Vec::new(),
+    };
+    let stderr = match stderr_task {
+        Some(task) => task
+            .await
+            .map_err(|e| anyhow::anyhow!("WSL Docker stderr reader failed: {}", e))??,
+        None => Vec::new(),
+    };
+    let stdout = String::from_utf8_lossy(&stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&stderr).into_owned();
+
+    match outcome {
+        WslRunOutcome::Exited(Ok(status)) => Ok(SandboxResult {
+            stdout,
+            stderr,
+            exit_code: status.code().map(i64::from).unwrap_or(-1),
+            timed_out: false,
+        }),
+        WslRunOutcome::Exited(Err(error)) => {
+            Err(anyhow::anyhow!("WSL Docker execution failed: {}", error))
+        }
+        WslRunOutcome::TimedOut => Ok(SandboxResult {
+            stdout,
+            stderr,
+            exit_code: -1,
+            timed_out: true,
+        }),
+        WslRunOutcome::Cancelled => Err(anyhow::anyhow!("Sandbox execution cancelled")),
+    }
+}
+
+/// Execute a command through the first responsive Docker-compatible backend.
+/// On Windows this falls back to Docker Engine in the default WSL
+/// distribution when no native Docker daemon is reachable.
+pub async fn exec_in_sandbox(
+    command: &str,
+    cwd: &str,
+    env: Option<&serde_json::Map<String, serde_json::Value>>,
+    config: &SandboxConfig,
+    timeout_secs: u64,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<SandboxResult> {
+    match available_sandbox_backend().await {
+        Some(AvailableSandboxBackend::Native) => {
+            exec_in_native_docker(command, cwd, env, config, timeout_secs, cancellation_token).await
+        }
+        Some(AvailableSandboxBackend::Wsl { endpoint }) => {
+            exec_in_wsl_docker(
+                command,
+                cwd,
+                env,
+                config,
+                timeout_secs,
+                cancellation_token,
+                &endpoint,
+            )
+            .await
+        }
+        None => Err(anyhow::anyhow!(
+            "SandboxUnavailable: no responsive Docker daemon was found on the host or in WSL"
+        )),
+    }
 }
 
 /// Execute a command in the selected sandbox mode. `Isolated` runs against a
@@ -1082,37 +1646,48 @@ pub struct DockerStatus {
     pub installed: bool,
     pub running: bool,
     pub host_os: String,
+    #[serde(default)]
+    pub backend: Option<DockerBackend>,
+    #[serde(default)]
+    pub wsl_installed: Option<bool>,
+    #[serde(default)]
+    pub wsl_distribution_installed: Option<bool>,
+    #[serde(default)]
+    pub wsl_docker_installed: Option<bool>,
 }
 
 pub async fn check_sandbox_available() -> DockerStatus {
-    // Check if docker CLI exists
-    let mut docker_cmd = Command::new("docker");
-    docker_cmd
-        .args(["--version"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    crate::platform::hide_console_tokio(&mut docker_cmd);
-    let cli_installed = docker_cmd
-        .status()
-        .await
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    if !cli_installed {
-        return DockerStatus {
-            installed: false,
-            running: false,
-            host_os: host_os().to_string(),
-        };
-    }
-
-    // Check if daemon is running
-    let daemon_running = check_docker_available().await;
+    let (native_cli_installed, native_daemon_running) =
+        tokio::join!(native_docker_cli_installed(), check_docker_available());
+    // Do not wake a stopped WSL VM merely to enrich status when the preferred
+    // native backend is already healthy. WSL probing is the Windows fallback.
+    let wsl = if native_daemon_running {
+        None
+    } else {
+        Some(wsl_docker_probe().await)
+    };
+    let backend = if native_daemon_running {
+        Some(DockerBackend::Native)
+    } else if wsl.as_ref().is_some_and(|probe| probe.daemon_running) {
+        Some(DockerBackend::Wsl)
+    } else if native_cli_installed {
+        Some(DockerBackend::Native)
+    } else if wsl.as_ref().is_some_and(|probe| probe.docker_installed) {
+        Some(DockerBackend::Wsl)
+    } else {
+        None
+    };
+    let wsl_daemon_running = wsl.as_ref().is_some_and(|probe| probe.daemon_running);
+    let wsl_docker_installed = wsl.as_ref().is_some_and(|probe| probe.docker_installed);
 
     DockerStatus {
-        installed: true,
-        running: daemon_running,
+        installed: native_cli_installed || native_daemon_running || wsl_docker_installed,
+        running: native_daemon_running || wsl_daemon_running,
         host_os: host_os().to_string(),
+        backend,
+        wsl_installed: wsl.as_ref().map(|probe| probe.wsl_installed),
+        wsl_distribution_installed: wsl.as_ref().map(|probe| probe.distribution_installed),
+        wsl_docker_installed: wsl.as_ref().map(|probe| probe.docker_installed),
     }
 }
 
@@ -1121,11 +1696,19 @@ pub async fn ensure_sandbox_available() -> Result<()> {
     if status.installed && status.running {
         return Ok(());
     }
-    let reason = if !status.installed {
+    let reason = if !status.installed
+        && status.host_os == "windows"
+        && status.wsl_distribution_installed == Some(true)
+        && status.wsl_docker_installed != Some(true)
+    {
+        "WSL is available, but Docker Engine is not installed in its default distribution. Install Docker Engine in WSL before using sandbox mode.".to_string()
+    } else if !status.installed {
         format!(
             "Docker is not installed on this {} host. Configure Docker before using sandbox mode.",
             status.host_os
         )
+    } else if status.backend == Some(DockerBackend::Wsl) {
+        "Docker Engine is installed in WSL but its daemon is not running. Start Docker in WSL and retry.".to_string()
     } else {
         format!(
             "Docker is installed on this {} host but the daemon is not running. Start Docker and retry.",
@@ -1133,4 +1716,86 @@ pub async fn ensure_sandbox_available() -> Result<()> {
         )
     };
     Err(anyhow::anyhow!("SandboxUnavailable: {}", reason))
+}
+
+#[cfg(test)]
+mod wsl_security_tests {
+    use super::{
+        normalize_local_docker_endpoint, validate_wsl_bind_mount, validate_wsl_docker_socket_mount,
+    };
+
+    #[test]
+    fn wsl_mount_validation_blocks_linux_sensitive_paths() {
+        for path in [
+            "/",
+            "/etc",
+            "/etc/ssl",
+            "/var/run/docker",
+            "/var/run/docker/plugins",
+            "/run/docker",
+            "/run/docker.sock",
+            "//etc",
+            "/mnt/c/../Windows",
+            "mnt/c/workspace",
+        ] {
+            assert!(
+                validate_wsl_bind_mount(path).is_err(),
+                "expected WSL mount path to be rejected: {path}"
+            );
+        }
+
+        for path in ["/mnt/c/workspace", "/home/user/project", "/etc-project"] {
+            assert!(
+                validate_wsl_bind_mount(path).is_ok(),
+                "expected WSL mount path to be accepted: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn wsl_docker_endpoint_accepts_only_absolute_unix_sockets() {
+        assert_eq!(
+            normalize_local_docker_endpoint("unix:///var/run/docker.sock\n").as_deref(),
+            Some("unix:///var/run/docker.sock")
+        );
+        assert_eq!(
+            normalize_local_docker_endpoint("unix:///run/user/1000/docker.sock").as_deref(),
+            Some("unix:///run/user/1000/docker.sock")
+        );
+
+        for endpoint in [
+            "ssh://docker@example.com",
+            "tcp://127.0.0.1:2375",
+            "npipe:////./pipe/docker_engine",
+            "unix://relative/docker.sock",
+            "unix:////run/docker.sock",
+            "unix:///run/../docker.sock",
+            "unix:///run/docker.sock\nssh://example.com",
+        ] {
+            assert_eq!(
+                normalize_local_docker_endpoint(endpoint),
+                None,
+                "expected Docker endpoint to be rejected: {endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn wsl_mount_validation_blocks_the_selected_docker_socket() {
+        let socket_path = "/run/user/1000/docker.sock";
+        for path in [
+            "/run",
+            "/run/user",
+            "/run/user/1000",
+            "/run/user/1000/docker.sock",
+        ] {
+            assert!(
+                validate_wsl_docker_socket_mount(path, socket_path).is_err(),
+                "expected Docker socket exposure to be rejected: {path}"
+            );
+        }
+        assert!(validate_wsl_docker_socket_mount("/home/user/project", socket_path).is_ok());
+        assert!(validate_wsl_docker_socket_mount("/run/user/1001/project", socket_path).is_ok());
+        assert!(validate_wsl_docker_socket_mount("/run", "/run/docker.sock").is_err());
+    }
 }

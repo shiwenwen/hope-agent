@@ -4989,6 +4989,8 @@
     "developer": "개발자",
     "dockerSetupNotInstalled": "Docker가 감지되지 않았습니다. 이 플랫폼에 대해 Docker 옵션을 선택하십시오.",
     "dockerSetupNotRunning": "Docker가 설치되었지만 데몬이 실행되고 있지 않습니다. Docker를 시작하고 다시 시도하세요.",
+    "dockerSetupWslNoDocker": "WSL을 사용할 수 있습니다. 기본 WSL 배포판에 Docker Engine을 설치하면 Docker Desktop 없이 샌드박스를 사용할 수 있습니다.",
+    "dockerSetupWslNotRunning": "WSL에 Docker Engine이 설치되어 있지만 데몬이 실행 중이 아닙니다. WSL에서 Docker를 시작한 후 다시 시도하세요.",
     "dreaming": {
       "candidateLimit": "후보자 제한",
       "candidateLimitDesc": "사이클당 LLM로 전송되는 최대 후보 수입니다.",

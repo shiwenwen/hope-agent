@@ -4989,6 +4989,8 @@
     "developer": "Desenvolvedor",
     "dockerSetupNotInstalled": "Docker não foi detectado. Escolha uma opção Docker para esta plataforma.",
     "dockerSetupNotRunning": "Docker está instalado, mas o daemon não está em execução. Inicie o Docker e tente novamente.",
+    "dockerSetupWslNoDocker": "O WSL está pronto. Instale o Docker Engine na distribuição WSL padrão para usar o ambiente isolado sem o Docker Desktop.",
+    "dockerSetupWslNotRunning": "O Docker Engine está instalado no WSL, mas o daemon não está em execução. Inicie o Docker no WSL e tente novamente.",
     "dreaming": {
       "candidateLimit": "Limite de candidatos",
       "candidateLimitDesc": "Máximo de candidatos enviados ao LLM por ciclo.",
