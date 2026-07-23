@@ -9,6 +9,7 @@ use std::io::ErrorKind;
 
 use ha_core::platform;
 use ha_core::session::SessionDB;
+use ha_core::workflow_mode::WorkflowMode;
 
 #[test]
 fn atomic_write_and_create_new_preserve_the_publish_contract() {
@@ -111,11 +112,11 @@ fn durable_session_database_survives_reopen() {
     };
 
     let reopened = SessionDB::open(&db_path).expect("reopen durable session database");
-    assert!(
+    assert_eq!(
         reopened
-            .get_session(&session_id)
-            .expect("read persisted session")
-            .is_some(),
-        "a committed production session must survive reopening"
+            .get_session_workflow_mode(&session_id)
+            .expect("read persisted session"),
+        Some(WorkflowMode::Off),
+        "a committed production session must survive reopening",
     );
 }
