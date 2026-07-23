@@ -38,6 +38,7 @@ import {
   Webhook,
   CalendarClock,
   Files,
+  Archive,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -62,6 +63,7 @@ import PermissionsPanel from "@/components/settings/PermissionsPanel"
 import CrashHistoryPanel from "@/components/settings/CrashHistoryPanel"
 import NotificationPanel from "@/components/settings/NotificationPanel"
 import VoicePanel from "@/components/settings/voice-panel/VoicePanel"
+import ArchivedConversationsPanel from "@/components/settings/ArchivedConversationsPanel"
 // Developer-only panel (clears sessions / cron / memory / config). Lazy-loaded
 // behind a `!import.meta.env.PROD` guard so Vite tree-shakes the whole module
 // + its alert-dialog deps out of release bundles, and the entry never appears
@@ -174,6 +176,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "chat",
     icon: <MessageSquare className="h-4 w-4" />,
     labelKey: "settings.chat",
+  },
+  {
+    id: "archives",
+    icon: <Archive className="h-4 w-4" />,
+    labelKey: "settings.conversationArchive.nav",
   },
   {
     id: "cron",
@@ -489,6 +496,7 @@ export default function SettingsView({
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "security" && <SecurityPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}
+            {activeSection === "archives" && <ArchivedConversationsPanel />}
             {activeSection === "cron" && <CronSettingsPanel />}
             {activeSection === "voice" && <VoicePanel />}
             {activeSection === "plan" && <PlanSettingsPanel />}

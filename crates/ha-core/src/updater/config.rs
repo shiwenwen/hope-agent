@@ -104,4 +104,13 @@ mod tests {
         assert!(c.check_enabled);
         assert_eq!(c.check_interval_hours, 0.5);
     }
+
+    #[test]
+    fn integer_and_float_intervals_both_deserialize() {
+        for raw in ["12", "12.0", "0.5"] {
+            let json = format!(r#"{{"checkIntervalHours":{raw}}}"#);
+            let c: AutoUpdateConfig = serde_json::from_str(&json).unwrap();
+            assert_eq!(c.check_interval_hours, raw.parse::<f64>().unwrap());
+        }
+    }
 }

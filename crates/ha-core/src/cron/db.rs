@@ -512,6 +512,20 @@ impl CronDB {
         Ok(ids)
     }
 
+    /// Remove every run-log row that points at a permanently deleted
+    /// conversation. Cron and Session persistence live in separate SQLite
+    /// files, so no foreign-key cascade can enforce this relationship.
+    pub fn delete_run_logs_for_session(&self, session_id: &str) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        Ok(conn.execute(
+            "DELETE FROM cron_run_logs WHERE session_id = ?1",
+            params![session_id],
+        )?)
+    }
+
     /// Get a single job by ID.
     pub fn get_job(&self, id: &str) -> Result<Option<CronJob>> {
         let conn = self
@@ -1976,6 +1990,61 @@ mod tests {
             .find_job_by_session("no-such-session")
             .expect("query ok")
             .is_none());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn delete_run_logs_for_session_removes_only_matching_conversation() {
+        let path = temp_db_path("delete-run-logs-for-session");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "Report".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "x".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+
+        for session_id in ["delete-me", "keep-me"] {
+            db.add_run_log(&crate::cron::CronRunLog {
+                id: 0,
+                job_id: job.id.clone(),
+                session_id: session_id.into(),
+                status: "success".into(),
+                started_at: "2026-01-01T00:00:00Z".into(),
+                finished_at: None,
+                duration_ms: None,
+                result_preview: None,
+                error: None,
+                delivery_status: None,
+            })
+            .expect("add run log");
+        }
+
+        assert_eq!(
+            db.delete_run_logs_for_session("delete-me")
+                .expect("delete matching logs"),
+            1
+        );
+        let remaining = db.get_run_logs(&job.id, 10, 0).expect("remaining logs");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].session_id, "keep-me");
 
         cleanup_db_files(&path);
     }

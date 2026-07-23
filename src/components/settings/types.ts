@@ -33,6 +33,7 @@ export const SETTINGS_SECTION_IDS = [
   "browser",
   "voice",
   "files",
+  "archives",
 ] as const
 
 export type SettingsSection = (typeof SETTINGS_SECTION_IDS)[number]

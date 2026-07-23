@@ -39,7 +39,7 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 
 核心职责：
 
-1. **会话生命周期管理** — 创建、列表（分页）、删除、元数据更新
+1. **会话生命周期管理** — 创建、列表（分页）、归档 / 恢复、删除、元数据更新
 2. **消息持久化** — user / assistant / tool / event / text_block / thinking_block 六种角色
 3. **上下文快照** — conversation_history JSON 序列化存储，支持跨重启恢复
 4. **全文搜索** — FTS5 虚拟表 + unicode61 分词器，自动触发器同步
@@ -65,6 +65,7 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 | `created_at` | `String` | RFC 3339 创建时间 |
 | `updated_at` | `String` | RFC 3339 最后更新时间 |
 | `pinned_at` | `Option<String>` | 置顶时间戳；非空时 sidebar 将该会话排在未置顶会话之上 |
+| `archived_at` | `Option<String>` | 归档时间戳；非空时从活跃列表、全局搜索和未读聚合隐藏，但保留消息与归属关系 |
 | `message_count` | `i64` | 消息总数（子查询计算） |
 | `unread_count` | `i64` | 普通会话未读标记（仅 `0/1`）；普通会话的聚合数按 session 求和，不按消息数 |
 | `channel_unread_count` | `i64` | IM 会话未读标记（仅 `0/1`）；与普通会话分离，非 channel 会话恒 `0` |
@@ -82,7 +83,7 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 | `channel_info` | `Option<ChannelSessionInfo>` | IM Channel 关联信息（LEFT JOIN channel_conversations） |
 | `incognito` | `bool` | 无痕模式开关：true 时不注入被动记忆/awareness、不做自动记忆提取，且关闭即焚 |
 | `working_dir` | `Option<String>` | 会话级工作目录绝对路径（注入 system prompt + 作为 `exec`/`read` 默认 cwd）；server 模式下指 server 机器路径 |
-| `kind` | `SessionKind` | 会话分类：`regular`（普通对话）/ `knowledge`（知识空间侧边栏对话，从主 sidebar / picker 隐藏、精简工具集） |
+| `kind` | `SessionKind` | 会话分类：`regular`（普通对话）/ `knowledge`（知识空间对话）/ `design`（设计空间对话）/ `eval_fixture`（评测夹具）；专属空间会话从主 sidebar / picker 隐藏 |
 
 ### SessionMessage
 
@@ -176,7 +177,8 @@ CREATE TABLE sessions (
     project_id               TEXT,                            -- 所属项目（外部表 projects）
     awareness_config_json    TEXT,                            -- per-session awareness override
     incognito                INTEGER NOT NULL DEFAULT 0,      -- 无痕模式
-    working_dir              TEXT                             -- 会话级工作目录
+    working_dir              TEXT,                            -- 会话级工作目录
+    archived_at              TEXT                             -- 归档时间；NULL 表示活跃
 );
 
 -- 消息表
@@ -296,6 +298,8 @@ CREATE INDEX idx_messages_session_id  ON messages(session_id);
 CREATE INDEX idx_sessions_agent_id    ON sessions(agent_id);
 CREATE INDEX idx_sessions_updated_at  ON sessions(updated_at DESC);
 CREATE INDEX idx_sessions_project_id  ON sessions(project_id);
+CREATE INDEX idx_sessions_archived_at ON sessions(archived_at DESC)
+  WHERE archived_at IS NOT NULL;
 -- 部分索引：仅覆盖 streaming 行，让 mark_orphaned_streaming_rows() 启动扫尾走 O(streaming-count)
 CREATE INDEX idx_messages_stream_active
   ON messages(session_id, stream_status) WHERE stream_status = 'streaming';
@@ -389,6 +393,8 @@ CREATE TABLE acp_runs (
 | `list_sessions(agent_id)` | 列出所有会话（按 updated_at DESC） |
 | `list_sessions_paged(agent_id, project_filter, limit, offset, active_session_id)` | 分页列表，返回 `(Vec<SessionMeta>, total_count)`。**5 参签名**：见下方 `ProjectFilter` 与 incognito 例外 |
 | `list_sessions_paged_for_sidebar(agent_id, project_filter, parent_filter, limit, offset, active_session_id)` | 侧边栏分页列表；在 SQL `LIMIT/OFFSET` 前同时应用项目归属、顶层/子会话与 Agent 过滤，避免项目会话或另一类会话占满页面后再被前端丢弃 |
+| `list_archived_sessions_paged(limit, offset)` | 归档管理分页列表；包含普通、项目、IM、Subagent、Cron、Knowledge、Design 对话，排除 incognito / eval fixture |
+| `set_session_archived(session_id, archived)` | 归档或恢复会话；归档时清除置顶并把当前消息推进为已读，保留 transcript、项目、Agent 与专属空间绑定 |
 | `delete_session(session_id)` | 删除会话：① CASCADE 删消息 → ② 清理 `plans/{id}.md` 与 `attachments/{id}/` → ③ `cleanup_session_orphan_tables` 单独事务清四张无 FK 表（见下） |
 | `purge_session_if_incognito(session_id)` | 仅当会话是无痕态时硬删；前端切走当前无痕会话时调用，实现"关闭即焚" |
 | `purge_orphan_incognito_sessions()` | 启动期兜底清理：遍历 `incognito = 1` 且 `updated_at < (now - 60s)` 的会话调用 `delete_session`；防御 crash / SIGKILL / 物理断电后残留 |
@@ -404,6 +410,8 @@ CREATE TABLE acp_runs (
 **`ParentSessionFilter` 枚举**：`All` 不过滤，`Root` 仅 `parent_session_id IS NULL`，`Child` 仅 `parent_session_id IS NOT NULL`。主侧边栏的「对话 / Subagent」分别使用 `Root / Child`，并与 `ProjectFilter::Unassigned` 组合后再分页。
 
 **`active_session_id` 例外参数**：默认情况下 `incognito = 0` 强制过滤无痕会话出列表（"无痕"语义）。但用户当前正在打开的那个无痕会话仍需出现在 sidebar，该参数提供例外：`Some(sid)` 时 WHERE 子句变为 `(s.incognito = 0 OR s.id = ?)`。`None` 时严格过滤。
+
+**归档可见性契约**：活跃 sidebar、项目计数、Knowledge / Design 历史、Cron / Channel 活跃列表、全局 FTS 与未读聚合都必须过滤 `archived_at IS NULL`；设置中的归档管理页是唯一跨类型归档列表，并以分页方式按需读取，禁止一次性拉取全部历史。直接按 ID 读取仍允许，以便恢复与显式深链操作。无痕会话拒绝归档，因为其生命周期是“关闭即焚”。永久删除只从归档管理页暴露，并要求二次确认；owner Tauri / HTTP 删除入口统一经 `cron::delete_conversation_and_run_logs`，先清理独立 `cron.db` 的引用再删 Session，防止 Cron 时间线把已删除对话作为缺失 Session 的审计空壳重新显示。归档不是 IM 静音边界：已绑定 Channel 收到新的入站用户消息时会自动恢复，且恢复 + 用户消息落库 + 首条标题生成必须在同一个 `SessionDB::run` 阻塞任务中按序执行，避免阻塞异步 dispatcher 或在恢复失败后继续隐藏写入。
 
 **`delete_session` 关联表清理协议**（`cleanup_session_orphan_tables`，`db.rs:1633`）：
 
@@ -547,6 +555,10 @@ stateDiagram-v2
     活跃 --> 活跃: 持续对话
     活跃 --> PlanMode: update_session_plan_mode("planning")
     PlanMode --> 活跃: update_session_plan_mode("off")
+    活跃 --> 已归档: set_session_archived(true)
+    PlanMode --> 已归档: set_session_archived(true)
+    已归档 --> 活跃: set_session_archived(false)
+    已归档 --> 删除: delete_session()
     活跃 --> 删除: delete_session()
     PlanMode --> 删除: delete_session()
     删除 --> [*]

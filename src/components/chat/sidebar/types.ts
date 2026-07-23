@@ -36,7 +36,7 @@ export interface ChatSidebarProps {
     opts?: { targetMessageId?: number; highlightTerms?: string[] },
   ) => void
   onNewChat: (agentId: string, opts?: { incognito?: boolean }) => void
-  onDeleteSession: (sessionId: string) => void | Promise<void>
+  onArchiveSession: (sessionId: string) => void | Promise<void>
   onEditAgent?: (agentId: string) => void
   onToggleSessionPinned?: (sessionId: string, pinned: boolean) => void
   onReorderAgents?: (agentIds: string[]) => void

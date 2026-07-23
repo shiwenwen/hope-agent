@@ -511,6 +511,7 @@ impl ChannelDB {
                    FROM channel_conversations cc \
                    JOIN sessions s ON s.id = cc.session_id \
                    WHERE s.incognito = 0 \
+                     AND s.archived_at IS NULL \
                      AND s.is_cron = 0 \
                      AND s.parent_session_id IS NULL \
                      AND cc.updated_at >= ?1 \

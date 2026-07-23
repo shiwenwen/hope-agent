@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import {
@@ -23,6 +24,7 @@ import {
   Minus,
   ChevronDown,
   Square,
+  Archive,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -80,6 +82,7 @@ export default function CronJobDetail({
   const [logsOffset, setLogsOffset] = useState(0)
   const [logsHasMore, setLogsHasMore] = useState(false)
   const [loadingMoreLogs, setLoadingMoreLogs] = useState(false)
+  const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [loopState, setLoopState] = useState<LoopState | null>(null)
   const pendingReadSessionIdRef = useRef<string | null>(null)
@@ -121,6 +124,42 @@ export default function CronJobDetail({
       markRunRead(sessionId)
     },
     [markRunRead],
+  )
+
+  const handleArchiveRun = useCallback(
+    async (log: CronRunLog) => {
+      if (archivingSessionId) return
+      setArchivingSessionId(log.sessionId)
+      try {
+        await getTransport().call("set_session_archived_cmd", {
+          sessionId: log.sessionId,
+          archived: true,
+        })
+        const remaining = logs.filter((candidate) => candidate.sessionId !== log.sessionId)
+        const removedCount = logs.length - remaining.length
+        setLogs(remaining)
+        setLogsOffset((current) => Math.max(0, current - removedCount))
+        if (selectedSessionId === log.sessionId) {
+          const next = remaining[0]
+          setSelectedSessionId(next?.sessionId ?? null)
+          setSelectedLogId(next?.id ?? null)
+        }
+        window.dispatchEvent(
+          new CustomEvent("hope:session-archive-changed", {
+            detail: { sessionId: log.sessionId, archived: true },
+          }),
+        )
+        toast.success(t("chat.sessionArchived"), {
+          description: log.resultPreview || job?.name,
+        })
+      } catch (error) {
+        logger.error("cron", "CronJobDetail::archive", "Failed to archive cron conversation", error)
+        toast.error(t("chat.archiveSessionFailed"), { description: job?.name })
+      } finally {
+        setArchivingSessionId(null)
+      }
+    },
+    [archivingSessionId, job?.name, logs, selectedSessionId, t],
   )
 
   async function fetchData() {
@@ -562,89 +601,110 @@ export default function CronJobDetail({
               ) : (
                 <div className="grid auto-rows-max gap-1">
                   {logs.map((log) => (
-                    <button
-                      type="button"
-                      key={log.id}
-                      disabled={!log.sessionId}
-                      className={cn(
-                        "block h-auto w-full self-start rounded-lg px-2.5 py-2 text-left text-xs transition-colors disabled:cursor-default",
-                        log.sessionId && "cursor-pointer",
-                        log.sessionId && selectedLogId === log.id
-                          ? "bg-secondary"
-                          : "hover:bg-secondary/40",
-                      )}
-                      onClick={() => handleRunSelect(log)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          {log.status === "success" ? (
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                          ) : log.status === "running" ? (
-                            <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
-                          ) : log.status === "empty" ? (
-                            <CircleSlash className="h-3.5 w-3.5 text-muted-foreground" />
-                          ) : log.status === "cancelled" ? (
-                            <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                          ) : (
-                            <XCircle className="h-3.5 w-3.5 text-red-500" />
-                          )}
-                          <span className="font-medium">
-                            {log.status === "success"
-                              ? t("cron.runStatusSuccess")
-                              : log.status === "running"
-                                ? t("cron.runStatusRunning")
-                                : log.status === "empty"
-                                  ? t("cron.runStatusEmpty")
-                                  : log.status === "cancelled"
-                                    ? t("common.cancel")
-                                    : t("cron.runStatusError")}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-1.5 text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            <span>
-                              {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : "-"}
+                    <div key={log.id} className="group/row relative">
+                      <button
+                        type="button"
+                        disabled={!log.sessionId}
+                        className={cn(
+                          "block h-auto w-full self-start rounded-lg px-2.5 py-2 pr-10 text-left text-xs transition-colors disabled:cursor-default",
+                          log.sessionId && "cursor-pointer",
+                          log.sessionId && selectedLogId === log.id
+                            ? "bg-secondary"
+                            : "hover:bg-secondary/40",
+                        )}
+                        onClick={() => handleRunSelect(log)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            {log.status === "success" ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                            ) : log.status === "running" ? (
+                              <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
+                            ) : log.status === "empty" ? (
+                              <CircleSlash className="h-3.5 w-3.5 text-muted-foreground" />
+                            ) : log.status === "cancelled" ? (
+                              <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5 text-red-500" />
+                            )}
+                            <span className="font-medium">
+                              {log.status === "success"
+                                ? t("cron.runStatusSuccess")
+                                : log.status === "running"
+                                  ? t("cron.runStatusRunning")
+                                  : log.status === "empty"
+                                    ? t("cron.runStatusEmpty")
+                                    : log.status === "cancelled"
+                                      ? t("common.cancel")
+                                      : t("cron.runStatusError")}
                             </span>
                           </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <Clock className="h-3 w-3" />
+                              <span>
+                                {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : "-"}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-muted-foreground mt-1">
-                        {new Date(log.startedAt).toLocaleString()}
-                      </div>
-                      {log.deliveryStatus && (
-                        <div className="mt-1 flex items-center gap-1">
-                          <Send
-                            className={`h-3 w-3 ${
-                              log.deliveryStatus === "delivered"
-                                ? "text-emerald-500"
-                                : log.deliveryStatus === "partial"
-                                  ? "text-amber-500"
-                                  : "text-red-500"
-                            }`}
-                          />
-                          <span
-                            className={
-                              log.deliveryStatus === "delivered"
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : log.deliveryStatus === "partial"
-                                  ? "text-amber-600 dark:text-amber-400"
-                                  : "text-red-500"
-                            }
+                        <div className="text-muted-foreground mt-1">
+                          {new Date(log.startedAt).toLocaleString()}
+                        </div>
+                        {log.deliveryStatus && (
+                          <div className="mt-1 flex items-center gap-1">
+                            <Send
+                              className={`h-3 w-3 ${
+                                log.deliveryStatus === "delivered"
+                                  ? "text-emerald-500"
+                                  : log.deliveryStatus === "partial"
+                                    ? "text-amber-500"
+                                    : "text-red-500"
+                              }`}
+                            />
+                            <span
+                              className={
+                                log.deliveryStatus === "delivered"
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : log.deliveryStatus === "partial"
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : "text-red-500"
+                              }
+                            >
+                              {t(`cron.deliveryStatus.${log.deliveryStatus}`)}
+                            </span>
+                          </div>
+                        )}
+                        {log.error && (
+                          <p className="mt-1.5 line-clamp-2 break-words text-red-500">
+                            {log.error}
+                          </p>
+                        )}
+                        {log.resultPreview && (
+                          <p className="mt-1.5 line-clamp-2 break-words text-muted-foreground">
+                            {log.resultPreview}
+                          </p>
+                        )}
+                      </button>
+                      {log.sessionId && (
+                        <IconTip label={t("chat.archiveSession")}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-1 top-1 h-7 w-7 opacity-0 transition-opacity group-hover/row:opacity-100"
+                            disabled={archivingSessionId === log.sessionId}
+                            onClick={() => void handleArchiveRun(log)}
                           >
-                            {t(`cron.deliveryStatus.${log.deliveryStatus}`)}
-                          </span>
-                        </div>
+                            {archivingSessionId === log.sessionId ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Archive className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </IconTip>
                       )}
-                      {log.error && (
-                        <p className="mt-1.5 line-clamp-2 break-words text-red-500">{log.error}</p>
-                      )}
-                      {log.resultPreview && (
-                        <p className="mt-1.5 line-clamp-2 break-words text-muted-foreground">
-                          {log.resultPreview}
-                        </p>
-                      )}
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}
