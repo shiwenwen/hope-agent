@@ -492,7 +492,9 @@ impl AssistantAgent {
                     common: self.hook_common_input("PreCompact"),
                     trigger: options.trigger.hook_trigger(),
                     usage_ratio: usage_now.min(1.0),
-                    custom_instructions: None,
+                    // Live custom compaction instructions, so a PreCompact hook
+                    // can enforce / audit the active policy (official field).
+                    custom_instructions: compact_config.custom_instructions.clone(),
                 };
                 let outcome = crate::hooks::HookDispatcher::dispatch(
                     crate::hooks::HookEvent::PreCompact,

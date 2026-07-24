@@ -1511,11 +1511,13 @@ pub(crate) async fn run_chat_engine_classified(
                     // distinguishes a natural `completed` from an interrupt —
                     // block-to-continue is honored ONLY on `completed`
                     // (fire_stop guards on it), never on a user interrupt.
+                    // `response` is the turn's final assistant text
+                    // (`last_assistant_message`), so a Stop hook can inspect it.
                     crate::hooks::fire_stop(
                         &session_id,
                         Some(&agent_id),
                         terminal_status.as_str(),
-                        None,
+                        Some(&response),
                     );
 
                     if terminal_status == session::ChatTurnStatus::Completed {
