@@ -53,7 +53,7 @@ export default function ChatSettingsPanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<ChatConfig>({
     autoSendPending: true,
-    autoExpandThinking: true,
+    autoExpandThinking: false,
     autoCollapseCompletedTurns: true,
   })
   const [narrationEnabled, setNarrationEnabled] = useState(false)
@@ -87,7 +87,7 @@ export default function ChatSettingsPanel() {
       ])
       setConfig({
         autoSendPending: cfg.autoSendPending !== false,
-        autoExpandThinking: cfg.autoExpandThinking !== false,
+        autoExpandThinking: cfg.autoExpandThinking === true,
         autoCollapseCompletedTurns: cfg.autoCollapseCompletedTurns !== false,
       })
       setNarrationEnabled(narration === true)

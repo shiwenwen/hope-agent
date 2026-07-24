@@ -1261,7 +1261,7 @@ mod tests {
             remote_server_url: Some("https://remote.example.com".into()),
             remote_api_key: Some("remote-secret".into()),
             auto_send_pending: true,
-            auto_expand_thinking: false,
+            auto_expand_thinking: true,
             auto_collapse_completed_turns: false,
             chat_display_mode: Some("timeline".into()),
             server_mode: Some(crate::user_config::SERVER_MODE_REMOTE.into()),
@@ -1272,7 +1272,7 @@ mod tests {
         assert_eq!(user.name.as_deref(), Some("Ada"));
         assert_eq!(user.weather_city.as_deref(), Some("Shanghai"));
         assert!(!user.auto_send_pending);
-        assert!(user.auto_expand_thinking);
+        assert!(!user.auto_expand_thinking);
         assert!(user.auto_collapse_completed_turns);
         assert_eq!(user.chat_display_mode.as_deref(), Some("timeline"));
 

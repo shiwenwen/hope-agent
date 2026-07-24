@@ -69,8 +69,8 @@ pub struct UserConfig {
     #[serde(default)]
     pub auto_send_pending: bool,
 
-    /// Whether thinking blocks auto-expand in chat bubbles (default: true)
-    #[serde(default = "crate::default_true")]
+    /// Whether thinking blocks auto-expand in chat bubbles (default: false)
+    #[serde(default)]
     pub auto_expand_thinking: bool,
 
     /// Whether completed chat turns collapse their intermediate assistant steps (default: true)
@@ -128,7 +128,7 @@ impl Default for UserConfig {
             response_style: None,
             custom_info: None,
             auto_send_pending: false,
-            auto_expand_thinking: true,
+            auto_expand_thinking: false,
             auto_collapse_completed_turns: true,
             chat_display_mode: None,
             server_mode: None,
@@ -261,19 +261,19 @@ mod tests {
     use super::UserConfig;
 
     #[test]
-    fn default_keeps_default_on_chat_preferences_enabled() {
+    fn default_keeps_chat_preferences_at_their_defaults() {
         let config = UserConfig::default();
 
-        assert!(config.auto_expand_thinking);
+        assert!(!config.auto_expand_thinking);
         assert!(config.auto_collapse_completed_turns);
         assert!(config.weather_enabled);
     }
 
     #[test]
-    fn serde_missing_default_on_preferences_stay_enabled() {
+    fn serde_missing_chat_preferences_use_their_defaults() {
         let config: UserConfig = serde_json::from_str("{}").unwrap();
 
-        assert!(config.auto_expand_thinking);
+        assert!(!config.auto_expand_thinking);
         assert!(config.auto_collapse_completed_turns);
         assert!(config.weather_enabled);
     }

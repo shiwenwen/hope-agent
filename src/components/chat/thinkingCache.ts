@@ -8,12 +8,12 @@ export function getAutoExpandThinking(): Promise<boolean> {
   if (cachePromise) return cachePromise
   cachePromise = getTransport().call<{ autoExpandThinking?: boolean }>("get_user_config")
     .then((cfg) => {
-      cachedAutoExpand = cfg.autoExpandThinking !== false
+      cachedAutoExpand = cfg.autoExpandThinking === true
       return cachedAutoExpand
     })
     .catch(() => {
-      cachedAutoExpand = true
-      return true
+      cachedAutoExpand = false
+      return false
     })
   return cachePromise
 }

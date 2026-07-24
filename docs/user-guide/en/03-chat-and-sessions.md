@@ -85,7 +85,7 @@ Replies support full Markdown, syntax-highlighted code, math formulas (KaTeX), a
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Auto-send queued messages | On | Whether messages you send while the AI is busy are queued and sent automatically |
-| Auto-expand the thinking process | On | Whether Thinking blocks are expanded by default while streaming |
+| Auto-expand the thinking process | Off | Whether Thinking blocks are expanded by default while streaming |
 | Collapse intermediate messages when done | On | Whether completed rounds are collapsed automatically |
 | Progress updates | On | Whether the AI gives brief progress updates at key moments and a short summary at the end of a round |
 | Session title | On | Whether the model automatically titles sessions |
