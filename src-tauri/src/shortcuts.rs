@@ -206,7 +206,10 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
         .min_inner_size(500.0, 420.0)
         .resizable(false)
         .decorations(false)
-        .transparent(true)
+        // Linux（WebKitGTK）上透明面强制 RGBA 合成，滚动文字周期性发虚（#547，
+        // 与 tauri.linux.conf.json 关闭主窗口透明同因）；圆角随之由前端按
+        // isLinuxDesktop() 退化为方角，其余平台保持透明圆角卡片。
+        .transparent(!cfg!(target_os = "linux"))
         .accept_first_mouse(true)
         .always_on_top(true)
         .visible(true)

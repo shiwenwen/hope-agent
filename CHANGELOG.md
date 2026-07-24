@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **异步 Agent 派发不再与通用后台任务混淆**：subagent、Workflow、ACP 与 Team 直接返回各自的 durable handle，由原生状态机负责排队、取消、恢复和结果投递，不会再套出第二层后台 job；空的可选 `run_id`、`message`、模型或标签参数也不会覆盖有效 thread、兼容字段和继承值，避免 resume 先误报不存在再由主 Agent 重试。
 - **侧边栏在小高度窗口下更稳**：更新提示会贴合底部 Logo 展示，低频入口会按高度逐步收进「更多」菜单，避免窗口缩小时 Logo 被裁剪或入口突然空出大段空间。 (#539)
 
+### Fixed
+
+- **Linux 下滚动聊天窗口不再周期性发虚**：主窗口与 QuickChat 窗口在 Linux 关闭透明（Windows 早有同款先例），全部毛玻璃表面在 Linux 统一降级，并补充 Noto 字体栈；Windows 主窗口找回丢失的启动居中。(#547)
+
 ## [0.22.0] - 2026-07-21
 
 ### Added
