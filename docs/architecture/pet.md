@@ -89,7 +89,7 @@ Debug 构建额外注入内置 `builtin:hope-debug`，其 v1 atlas 每格使用�
 
 ## 配置、事件与接口
 
-`AppConfig.pet` 含 `enabled` 与 `selectedPetRef`，默认关闭。它同时有 Settings GUI、`ha-settings` category/risk 和 skill 风险表；HTTP 可以管理宠物库与选择，但不能声称拥有桌面 overlay，改变 `enabled` 或窗口命令返回 desktop-only。
+`AppConfig.pet` 含 `enabled` 与 `selectedPetRef`，默认关闭。它同时有 Settings GUI、侧边栏底部快捷开关、`ha-settings` category/risk 和 skill 风险表；各入口都监听 `pet:config_changed`，不得维护独立可见性状态。HTTP 可以管理宠物库与选择，但不能声称拥有桌面 overlay，改变 `enabled` 或窗口命令返回 desktop-only。
 
 关键事件：
 

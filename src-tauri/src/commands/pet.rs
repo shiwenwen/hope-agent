@@ -47,6 +47,7 @@ pub async fn pet_set_enabled_cmd(
     let source = match source.as_deref() {
         Some("slash-command") => "slash-command",
         Some("pet-window") => "pet-window",
+        Some("sidebar") => "sidebar",
         _ => "settings-ui",
     };
     ha_core::pet::save_config(config.clone(), source).await?;

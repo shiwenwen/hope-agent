@@ -670,7 +670,7 @@ preview 生成 256-bit 随机短期 token，服务端用有界内存表保存已
 - 桌面端切换 `AppConfig.pet.enabled` 并显示/隐藏窗口。
 - IM 菜单隐藏且 handler 再次拒绝；IM 用户不能远程在 owner 桌面弹出置顶窗口。
 - HTTP/ACP 只允许 `status`，其他动作说明 desktop-only。
-- Settings > Pets 提供 Wake / Tuck Away / Open import-create controls；PetWindow hover/focus control 可直接 Tuck Away。仓库当前没有全局 Command palette，因此不为 Pet 单独新建一套命令面。
+- Settings > Pets 提供 Wake / Tuck Away / Open import-create controls；主窗口侧边栏底部提供快捷开关，开启时显示爪印、关闭时显示蛋，不用选中背景表达状态；PetWindow hover/focus control 可直接 Tuck Away。三个 UI 入口都读取同一 `AppConfig.pet.enabled` 并监听 `pet:config_changed`，不维护 localStorage 副本。仓库当前没有全局 Command palette，因此不为 Pet 单独新建一套命令面。
 
 新增命令后同步 `slash_commands/registry.rs`、handler、`IM_DISABLED_COMMANDS`、前端 i18n、`docs/architecture/slash-commands.md` 以及中英文用户手册。
 

@@ -42,9 +42,12 @@ import {
   CheckCheck,
   ScrollText,
   PackageOpen,
+  PawPrint,
+  Egg,
   type LucideIcon,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
+import { usePetSidebarToggle } from "@/components/pet/hooks/usePetSidebarToggle"
 import { openHelpWindow } from "@/lib/manual/openHelpWindow"
 import {
   SUPPORTED_LANGUAGES,
@@ -125,6 +128,7 @@ export default function IconSidebar({
 }: IconSidebarProps) {
   const { t, i18n } = useTranslation()
   const { theme, cycleTheme } = useTheme()
+  const petToggle = usePetSidebarToggle()
   const [showLangMenu, setShowLangMenu] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const { pendingUpdate } = useDesktopUpdateStore()
@@ -618,12 +622,7 @@ export default function IconSidebar({
         <div className={SIDEBAR_COLLAPSE.stage6Source}>
           <ServerStatusIndicator onOpen={() => onOpenSettings("server")} />
         </div>
-        <div
-          className={cn(
-            "flex flex-col items-center gap-1.5",
-            SIDEBAR_COLLAPSE.stage3Source,
-          )}
-        >
+        <div className={cn("flex flex-col items-center gap-1.5", SIDEBAR_COLLAPSE.stage3Source)}>
           {/* Theme Toggle */}
           <IconTip label={`${t("theme.title")}: ${t(`theme.${theme}`)}`} side="right">
             <Button
@@ -708,9 +707,7 @@ export default function IconSidebar({
           </div>
         </div>
         {/* Help (built-in user manual — opens its own window) */}
-        <div
-          className={cn("relative flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage1Source)}
-        >
+        <div className={cn("relative flex justify-center mt-0.5", SIDEBAR_COLLAPSE.stage1Source)}>
           <IconTip label={t("help.title")} side="right">
             <Button
               variant="ghost"
@@ -723,6 +720,35 @@ export default function IconSidebar({
             </Button>
           </IconTip>
         </div>
+        {/* Desktop pet switch — kept near Settings as a persistent utility. */}
+        {petToggle.supported && (
+          <div className="relative flex justify-center mt-0.5">
+            <IconTip
+              label={
+                petToggle.enabled
+                  ? t("pet.window.tuckAway", { defaultValue: "Tuck away pet" })
+                  : t("pet.settings.wake", { defaultValue: "Desktop pet" })
+              }
+              side="right"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("pet.settings.wake", { defaultValue: "Desktop pet" })}
+                aria-pressed={petToggle.enabled}
+                disabled={!petToggle.ready || petToggle.updating}
+                className={cn(
+                  "rounded-xl h-8 w-8 hover:bg-secondary/70 disabled:opacity-45",
+                  petToggle.enabled ? "text-foreground" : "text-muted-foreground",
+                  petToggle.updating && "animate-pulse",
+                )}
+                onClick={() => void petToggle.toggle()}
+              >
+                {petToggle.enabled ? <PawPrint className="h-4 w-4" /> : <Egg className="h-4 w-4" />}
+              </Button>
+            </IconTip>
+          </div>
+        )}
         {/* Settings */}
         <div className="relative flex justify-center mt-0.5">
           <IconTip label={t("chat.settings")} side="right">
