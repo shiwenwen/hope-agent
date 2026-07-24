@@ -1386,8 +1386,8 @@ impl AssistantAgent {
             .or_else(dirs::home_dir)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
         crate::hooks::CommonHookInput {
+            prompt_id: crate::hooks::resolve_prompt_id(&session_id),
             session_id,
-            prompt_id: None,
             transcript_path,
             cwd,
             permission_mode: crate::hooks::PermissionMode::Default,

@@ -557,8 +557,8 @@ impl ToolExecContext {
             crate::hooks::PermissionMode::Default
         };
         crate::hooks::CommonHookInput {
+            prompt_id: crate::hooks::resolve_prompt_id(&session_id),
             session_id,
-            prompt_id: None,
             transcript_path,
             cwd: std::path::PathBuf::from(self.default_cwd()),
             permission_mode,

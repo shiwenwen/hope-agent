@@ -585,6 +585,27 @@ pub(crate) fn resolve_effort() -> Option<types::HookEffort> {
     Some(types::HookEffort { level })
 }
 
+/// The active user turn's id as the hook `prompt_id` (the official per-turn
+/// correlation UUID), or `None` when no turn is active for this session.
+///
+/// Reuses the existing `chat_engine` per-turn UUID rather than minting a second
+/// id: `active_turn::current` is a synchronous in-memory registry lookup keyed
+/// by session, so it fits the (synchronous) hook-input build sites. Every hook
+/// that fires *inside* a turn (`PreToolUse` / `PostToolUse` / `PostToolBatch` /
+/// `Stop` / `PermissionRequest` / …) therefore shares one `prompt_id` and a
+/// script can group them into a single user turn.
+///
+/// **Known gap (§2.4)**: `UserPromptSubmit` fires from the pre-persist
+/// preflight, BEFORE the turn is acquired, so it yields `None`. Non-user turns
+/// (cron / subagent / automation) hold their own active turn and so carry that
+/// turn's id.
+pub(crate) fn resolve_prompt_id(session_id: &str) -> Option<String> {
+    if session_id.is_empty() {
+        return None;
+    }
+    crate::chat_engine::active_turn::current(session_id).map(|snapshot| snapshot.turn_id)
+}
+
 /// Common hook-input fields for app-/session-level (non-tool) observation
 /// hooks. `cwd` is the session working dir (falling back to home);
 /// `agent_id`/`agent_type` unknown at these sites.
@@ -602,7 +623,7 @@ fn observation_common(event: &str, session_id: &str) -> CommonHookInput {
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     CommonHookInput {
         session_id: session_id.to_string(),
-        prompt_id: None,
+        prompt_id: resolve_prompt_id(session_id),
         transcript_path,
         cwd,
         permission_mode: PermissionMode::Default,
@@ -1274,6 +1295,33 @@ mod guard_tests {
         assert!(!claim_compaction_hooks("guard-test-compact-A"));
         // A different session is independent.
         assert!(claim_compaction_hooks("guard-test-compact-B"));
+    }
+
+    #[test]
+    fn prompt_id_reuses_active_turn_id() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let sid = "pid-test-sess";
+        // Empty session id → never a prompt_id.
+        assert!(resolve_prompt_id("").is_none());
+        // No active turn (e.g. UserPromptSubmit fires pre-acquire) → None.
+        assert!(resolve_prompt_id(sid).is_none());
+        // Inside a turn → the turn's UUID, shared by every in-turn hook fire.
+        let turn_id = uuid::Uuid::new_v4().to_string();
+        let guard = crate::chat_engine::active_turn::try_acquire(
+            sid,
+            crate::chat_engine::ChatSource::Desktop,
+            turn_id.clone(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("acquire active turn");
+        assert_eq!(resolve_prompt_id(sid).as_deref(), Some(turn_id.as_str()));
+        // Stable across repeated reads within the same turn.
+        assert_eq!(resolve_prompt_id(sid), resolve_prompt_id(sid));
+        drop(guard);
+        // Turn released → back to None.
+        assert!(resolve_prompt_id(sid).is_none());
     }
 
     #[test]

@@ -102,7 +102,7 @@
 | `tool_name`（payload） | `Bash` / `Write` / `Edit` / `Read` / `WebFetch` … | 内部名 `exec` / `write` / `edit` / `read` / `web_fetch`。**matcher 归一化别名**（写 `matcher:"Bash"` 能命中），但 **payload 的 `.tool_name` 是内部名** | 脚本若 `jq` 判 `.tool_name=="Bash"` 不命中——改判 `.tool_input.*`（已对齐）|
 | `permission_mode` | `default\|plan\|acceptEdits\|auto\|dontAsk\|bypassPermissions` | 仅 `default\|plan\|bypassPermissions`，Smart→`other` | 硬 switch 6 值的脚本需兜底 `other` |
 | **可阻断事件集（部分落地）** | `Stop` / `SubagentStop` / `TaskCreated` / `TaskCompleted` / `ConfigChange` / `PostToolBatch` / `UserPromptExpansion` / `PermissionRequest` / `Elicitation*` 均可 `exit 2` / `decision:block` 阻断 | **已落地 6 个**（§2.1）：`Stop`（block-to-continue，bounded）/ `PostToolBatch`（停循环）/ `TaskCreated` / `TaskCompleted`（否决，仅交互 tool 路径，workflow 路径仍 fire-and-forget）/ `UserPromptExpansion`（否决展开）/ `PermissionRequest`（仅 deny）。**刻意保留观察型**：`ConfigChange`（veto 触 config-system 红线 + kill-switch 保护，类比官方 `policy_settings` 豁免——不让 hook 拦住关闭 hooks / 修复坏配置；且 `mutate_config` 同步热路径不宜嵌异步 veto）；`SubagentStop`（再驱动已终结子 Agent 属较大特性）；`Elicitation*`（复用原生问答，真 MCP 阻断待 server）| 未落地三者的官方阻断脚本仍 no-op（已登记，见 Roadmap）|
-| `prompt_id` | 每 payload 携带（首次用户输入后出现的 per-turn UUID） | 字段已入 `CommonHookInput` schema，但**当前恒 `None`（omit）**——本项目暂无 per-turn UUID 概念 | `jq .prompt_id` 读到缺省；schema 就位，待接入 |
+| `prompt_id` | 每 payload 携带（首次用户输入后出现的 per-turn UUID） | **已填充**：`hooks::resolve_prompt_id()` 复用 `chat_engine` 既有的 per-turn UUID（`active_turn::current(session_id).turn_id`，同步内存注册表），不另造第二个 id | **轮内事件全覆盖**（PreToolUse / PostToolUse / PostToolBatch / Stop / PermissionRequest / Task\* …共享同一 id，可按轮分组）。**缺口**：`UserPromptSubmit` 在 preflight 落库前触发、**早于回合 acquire** → 恒 `None`；非用户回合（cron / subagent）带各自回合 id |
 | `effort` | `effort.level`（`low\|medium\|high\|xhigh\|max`；仅工具上下文事件、模型支持时出现） | **已填充**：`hooks::resolve_effort()` 读**全局** reasoning-effort cell（UI picker / `/thinking` 设的值，provider 每轮采用），`try_lock` 同步安全。取值可含 Hope Agent 专有 `minimal`；`none`/空→omit | **是 hint**：反映**全局**effort，不反映 per-agent 覆盖（`Agent::effective_reasoning_effort` 为 async，同步 build 点取不到）；`$CLAUDE_EFFORT` 同源 |
 | `PermissionRequest`/`Denied` 的 `tool_name`/`tool_input` | 携带结构化 tool_name + tool_input | 字段已入 schema；`tool_name` 仅在 engine policy-deny 有内部名，approval 门 / exec 门恒 `None`（matcher 回退 `command`），`tool_input` 恒 `None` | 审批链未分离出干净 tool_input，部分场景 `.tool_name` 仍缺；`command` 始终可用 |
 | `ConfigChange.source` | 变更的**配置文件 scope**（`user_settings` / `project_settings` / …） | 本项目单 `config.json`，`source` = **触发者**（`user`/`skill`/`reload`），配置**域**在 `category`；matcher 目标 = `category`（非官方 `source`） | 期望 `.source=="project_settings"` 的脚本不命中；按 `.category` 匹配 |
@@ -387,7 +387,8 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR`/`${VAR}` 插
 - **`Elicitation` / `ElicitationResult` 官方 schema**：当前用原生 `ask_user_question` 的非标 payload；MCP server 本体落地后对齐官方 `server_name` / `form_schema` / `form_values` + `action`/`content` 消费。
 
 ### 通用字段接入
-- **`prompt_id` 真值化**：schema 已就位（`CommonHookInput`），待引入 per-turn UUID 概念后填充（当前恒 `None`）。（`effort` 已填充：`hooks::resolve_effort()` 取全局 reasoning-effort cell，见 §2.4；per-agent 精确值待 async build 点。）
+- **`prompt_id` 覆盖 `UserPromptSubmit`**：轮内事件已填充（复用 `turn_id`，§2.4），但 `UserPromptSubmit` 在 preflight 早于回合 acquire 触发故为 `None`。要补齐须在 preflight 预生成 id 并透传进 `create_user_turn` / `try_acquire`（动回合生命周期，风险更高）。
+- **`effort` per-agent 精确值**：当前取全局 reasoning-effort cell（§2.4）；per-agent 覆盖需在 async build 点解析 `Agent::effective_reasoning_effort`。
 - **`PermissionRequest`/`Denied` 的 `tool_input`**：审批链分离出结构化 tool_name + tool_input（当前 approval 门仅 `command`，engine policy-deny 有内部 `tool_name`）。
 
 ### 可观测 / 基础设施
