@@ -6,6 +6,14 @@
 
 ---
 
+## 实施记录与验收设计
+
+| 文档 | 说明 |
+| --- | --- |
+| [桌面宠物（Pet）实施记录](plan/pet.md) | Codex Pets 对齐调研、产品决策、分期与验收历史 |
+
+---
+
 ## 系统架构
 
 
@@ -38,6 +46,7 @@
 | [工具系统](architecture/tool-system.md)            | 工具定义、Tool Loop 并发/串行执行、结果持久化、四维权限控制                 | `tools/`                                       |
 | [文件操作统一](architecture/file-operations.md)     | 三处文件（Markdown 链接 / 下挂文件 / 工作台产物）统一操作策略、本机 vs 远端行为矩阵、右侧内置预览面板、preview-by-path 双壳后端与会话鉴权 | `lib/fileActions.ts`, `lib/fileKind.ts`, `components/chat/files/`, `filesystem/ops.rs` |
 | [UI 交互与表面设计系统](architecture/ui-interaction-system.md) | 搜索、选择、数字输入、模型选择、焦点、菜单、悬浮弹层和 Tooltip 的组件入口、视觉 token、动效与无障碍红线 | `components/ui/`, `lib/input-modality.ts`, `lib/focus-indicator-preference.ts`, `index.css` |
+| [桌面宠物（Pet）](architecture/pet.md) | 主对话 allowlist 四态投影、动态透明窗口、气泡栈/交互卡、Codex v1/v2 导入导出、Creator 与 deep link 安全边界 | `pet/`, `pet_window.rs`, `PetWindow.tsx`, `components/pet/` |
 | [浏览器自动化](architecture/browser.md)            | 8-action 表面、CDP / chrome-devtools-mcp 双 backend、stale-ref 自恢复、BrowserPanel 实时镜像、SSRF 守卫 | `browser/`, `tools/browser/`, `browser_state.rs`, `components/chat/BrowserPanel.tsx` |
 | [macOS 控制](architecture/macos-control.md)        | 原生 macOS GUI 控制子系统：权限 readiness、AX snapshot、display/window 截图、App/窗口/元素/菜单/dialog 操作与审批分类 | `mac_control.rs`, `tools/mac_control.rs`, `src-tauri/src/macos_control.rs` |
 | [上下文压缩](architecture/context-compact.md)       | 5 层渐进式压缩、API-Round 分组保护、mid-loop checkpoint、runtime ledger 与文件恢复 | `context_compact/` / `agent/context.rs`        |

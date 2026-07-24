@@ -52,10 +52,8 @@ import StarrySky from "@/components/common/StarrySky"
 import DangerousModeBanner from "@/components/common/DangerousModeBanner"
 import MissingModelDialog from "@/components/local-model/MissingModelDialog"
 import ChromiumRuntimeDialog from "@/components/common/ChromiumRuntimeDialog"
-import {
-  LOCAL_MODEL_JOB_EVENTS,
-  type LocalModelJobSnapshot,
-} from "@/types/local-model-jobs"
+import { LOCAL_MODEL_JOB_EVENTS, type LocalModelJobSnapshot } from "@/types/local-model-jobs"
+import type { PetNavigationTarget } from "@/types/pet"
 
 // Lazy-loaded views (heavy dependencies: recharts, cron UI, settings 面板群)
 const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
@@ -95,6 +93,20 @@ interface PendingProjectFocus {
   nonce: number
 }
 
+type PendingKnowledgePetFocus = {
+  target: Extract<PetNavigationTarget, { kind: "knowledge" }>
+  nonce: number
+}
+
+type PendingDesignPetFocus = {
+  target: Extract<PetNavigationTarget, { kind: "design" }>
+  nonce: number
+}
+
+type PetInstallLinkEvent = {
+  link: string
+}
+
 export default function App() {
   const { t, i18n } = useTranslation()
   const [view, setView] = useState<AppView>("loading")
@@ -109,6 +121,7 @@ export default function App() {
     undefined,
   )
   const [settingsInitialSectionRequestKey, setSettingsInitialSectionRequestKey] = useState(0)
+  const [pendingPetInstallLink, setPendingPetInstallLink] = useState<string | null>(null)
   // 记住进设置前所在的视图，返回时回到那里（而非硬编码回 chat）。
   const [settingsReturnView, setSettingsReturnView] = useState<AppView>("chat")
   const viewRef = useRef<AppView>(view)
@@ -128,6 +141,11 @@ export default function App() {
   >(undefined)
   const [pendingChatFocus, setPendingChatFocus] = useState<PendingChatFocus | null>(null)
   const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null)
+  const [pendingKnowledgePetFocus, setPendingKnowledgePetFocus] =
+    useState<PendingKnowledgePetFocus | null>(null)
+  const [pendingDesignPetFocus, setPendingDesignPetFocus] = useState<PendingDesignPetFocus | null>(
+    null,
+  )
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
   const [unreadFocusSignal, setUnreadFocusSignal] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
@@ -139,6 +157,7 @@ export default function App() {
   const completedLocalModelJobToasts = useRef<Set<string>>(new Set())
   const chatFocusNonceRef = useRef(0)
   const projectFocusNonceRef = useRef(0)
+  const petFocusNonceRef = useRef(0)
   const lastMemoryFocusHashRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -255,22 +274,20 @@ export default function App() {
   // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
   const handleOpenSettings = useCallback(
     (section?: SettingsSection, modelTab?: string) => {
-    if (keepConfigRecoveryView()) return
-    // 记住来源视图（非 settings 本身），返回时回去。
-    if (viewRef.current !== "settings") setSettingsReturnView(viewRef.current)
-    setSettingsInitialSection(section)
-    setSettingsInitialModelTab(modelTab)
-    setSettingsInitialSectionRequestKey((n) => n + 1)
-    setView("settings")
+      if (keepConfigRecoveryView()) return
+      // 记住来源视图（非 settings 本身），返回时回去。
+      if (viewRef.current !== "settings") setSettingsReturnView(viewRef.current)
+      setSettingsInitialSection(section)
+      setSettingsInitialModelTab(modelTab)
+      setSettingsInitialSectionRequestKey((n) => n + 1)
+      setView("settings")
     },
     [keepConfigRecoveryView],
   )
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{ section?: SettingsSection; modelTab?: string }>
-      ).detail
+      const detail = (event as CustomEvent<{ section?: SettingsSection; modelTab?: string }>).detail
       handleOpenSettings(detail?.section, detail?.modelTab)
     }
     window.addEventListener("settings:navigate", handleNavigate)
@@ -315,10 +332,10 @@ export default function App() {
 
   const handleOpenDashboard = useCallback(
     (tab?: string, reportId?: string | null) => {
-    if (keepConfigRecoveryView()) return
-    setDashboardInitialTab(tab)
-    setDashboardInitialReportId(reportId ?? null)
-    setView("dashboard")
+      if (keepConfigRecoveryView()) return
+      setDashboardInitialTab(tab)
+      setDashboardInitialReportId(reportId ?? null)
+      setView("dashboard")
     },
     [keepConfigRecoveryView],
   )
@@ -347,6 +364,50 @@ export default function App() {
   )
 
   useEffect(() => subscribeChatFocus(handleChatFocus), [handleChatFocus])
+
+  useEffect(() => {
+    const unlisten = getTransport().listen("pet:navigate", (raw) => {
+      const target = parsePayload<PetNavigationTarget>(raw)
+      if (!target || keepConfigRecoveryView()) return
+      if (target.kind === "regular") {
+        handleChatFocus({ sessionId: target.sessionId })
+        return
+      }
+      const nonce = ++petFocusNonceRef.current
+      if (target.kind === "knowledge") {
+        setPendingKnowledgePetFocus({ target, nonce })
+        setView("knowledge")
+        return
+      }
+      setPendingDesignPetFocus({ target, nonce })
+      setView("design")
+    })
+    return unlisten
+  }, [handleChatFocus, keepConfigRecoveryView])
+
+  useEffect(() => {
+    if (!isTauriMode()) return
+    const openInstall = (link: string) => {
+      if (!link.startsWith("hope-agent://pets/install?")) return
+      setPendingPetInstallLink(link)
+      handleOpenSettings("pets")
+    }
+    const unlisten = getTransport().listen("pet:install_link", (raw) => {
+      const payload = parsePayload<PetInstallLinkEvent>(raw)
+      if (!payload || typeof payload.link !== "string") return
+      openInstall(payload.link)
+      void getTransport()
+        .call("pet_take_install_link_cmd")
+        .catch(() => undefined)
+    })
+    void getTransport()
+      .call<string | null>("pet_take_install_link_cmd")
+      .then((link) => {
+        if (link) openInstall(link)
+      })
+      .catch(() => undefined)
+    return unlisten
+  }, [handleOpenSettings])
 
   const handleMemoryScopeFocus = useCallback(
     (target: MemoryScopeFocusTarget) => {
@@ -490,6 +551,39 @@ export default function App() {
   useEffect(() => {
     initDraftSkillsStore()
     initCronUnreadStore()
+  }, [])
+
+  // `ha-settings` can wake/tuck the pet without going through the Settings
+  // panel.  Core emits the config invalidation; the desktop shell owns the
+  // native window lifecycle, so the always-mounted main renderer bridges it.
+  useEffect(() => {
+    if (!isTauriMode()) return
+    let syncTimer: ReturnType<typeof setTimeout> | null = null
+    const unlisten = getTransport().listen("pet:config_changed", (payload) => {
+      if (syncTimer) clearTimeout(syncTimer)
+      const source =
+        typeof payload === "object" && payload !== null && "source" in payload
+          ? String((payload as { source?: unknown }).source ?? "")
+          : ""
+      // Give PetWindow's own tuck command enough time to deliver its invoke
+      // response before destroying that webview. Other config paths sync on
+      // the next task and repeated events are coalesced.
+      syncTimer = setTimeout(
+        () => {
+          syncTimer = null
+          void getTransport()
+            .call("pet_sync_window_cmd")
+            .catch((error) => {
+              logger.warn("pet", "App::syncPetWindow", "Failed to sync pet window", error)
+            })
+        },
+        source === "pet-window" ? 120 : 0,
+      )
+    })
+    return () => {
+      if (syncTimer) clearTimeout(syncTimer)
+      unlisten()
+    }
   }, [])
 
   useEffect(() => {
@@ -764,71 +858,73 @@ export default function App() {
                   </div>
                 }
               >
-              {view === "settings" && (
-                <SettingsView
-                  key={settingsInitialSectionRequestKey}
-                  onBack={() => setView(settingsReturnView)}
-                  onCodexAuth={handleCodexAuth}
-                  onCodexReauth={handleCodexAuth}
-                  initialSection={settingsInitialSection}
-                  initialModelConfigTab={settingsInitialModelTab}
-                />
-              )}
-              {view === "skills" && (
-                <SettingsView
-                  onBack={() => setView("chat")}
-                  onCodexAuth={handleCodexAuth}
-                  onCodexReauth={handleCodexAuth}
-                  initialSection="skills"
-                />
-              )}
-              {view === "memory" && (
-                <SettingsView
-                  onBack={() => setView("chat")}
-                  onCodexAuth={handleCodexAuth}
-                  onCodexReauth={handleCodexAuth}
-                  initialSection="memory"
-                />
-              )}
-              {view === "profile" && (
-                <SettingsView
-                  onBack={() => setView("chat")}
-                  onCodexAuth={handleCodexAuth}
-                  onCodexReauth={handleCodexAuth}
-                  initialSection="profile"
-                  onProfileSaved={() => fetchUserAvatar().then(setUserAvatar)}
-                />
-              )}
-              {view === "agents" && (
-                <SettingsView
-                  onBack={() => {
-                    setView("chat")
-                    setAgentIdForSettings(undefined)
-                    setAgentTabForSettings(undefined)
-                  }}
-                  onCodexAuth={handleCodexAuth}
-                  onCodexReauth={handleCodexAuth}
-                  initialSection="agents"
-                  initialAgentId={agentIdForSettings}
-                  initialAgentTab={agentTabForSettings}
-                />
-              )}
-              {view === "modelConfig" && (
-                <SettingsView
-                  onBack={() => setView("chat")}
-                  onCodexAuth={handleCodexAuth}
-                  onCodexReauth={handleCodexAuth}
-                  initialSection="modelConfig"
-                />
-              )}
-              {view === "channels" && (
-                <SettingsView
-                  onBack={() => setView("chat")}
-                  onCodexAuth={handleCodexAuth}
-                  onCodexReauth={handleCodexAuth}
-                  initialSection="channels"
-                />
-              )}
+                {view === "settings" && (
+                  <SettingsView
+                    key={settingsInitialSectionRequestKey}
+                    onBack={() => setView(settingsReturnView)}
+                    onCodexAuth={handleCodexAuth}
+                    onCodexReauth={handleCodexAuth}
+                    initialSection={settingsInitialSection}
+                    initialModelConfigTab={settingsInitialModelTab}
+                    initialPetInstallLink={pendingPetInstallLink}
+                    onPetInstallLinkConsumed={() => setPendingPetInstallLink(null)}
+                  />
+                )}
+                {view === "skills" && (
+                  <SettingsView
+                    onBack={() => setView("chat")}
+                    onCodexAuth={handleCodexAuth}
+                    onCodexReauth={handleCodexAuth}
+                    initialSection="skills"
+                  />
+                )}
+                {view === "memory" && (
+                  <SettingsView
+                    onBack={() => setView("chat")}
+                    onCodexAuth={handleCodexAuth}
+                    onCodexReauth={handleCodexAuth}
+                    initialSection="memory"
+                  />
+                )}
+                {view === "profile" && (
+                  <SettingsView
+                    onBack={() => setView("chat")}
+                    onCodexAuth={handleCodexAuth}
+                    onCodexReauth={handleCodexAuth}
+                    initialSection="profile"
+                    onProfileSaved={() => fetchUserAvatar().then(setUserAvatar)}
+                  />
+                )}
+                {view === "agents" && (
+                  <SettingsView
+                    onBack={() => {
+                      setView("chat")
+                      setAgentIdForSettings(undefined)
+                      setAgentTabForSettings(undefined)
+                    }}
+                    onCodexAuth={handleCodexAuth}
+                    onCodexReauth={handleCodexAuth}
+                    initialSection="agents"
+                    initialAgentId={agentIdForSettings}
+                    initialAgentTab={agentTabForSettings}
+                  />
+                )}
+                {view === "modelConfig" && (
+                  <SettingsView
+                    onBack={() => setView("chat")}
+                    onCodexAuth={handleCodexAuth}
+                    onCodexReauth={handleCodexAuth}
+                    initialSection="modelConfig"
+                  />
+                )}
+                {view === "channels" && (
+                  <SettingsView
+                    onBack={() => setView("chat")}
+                    onCodexAuth={handleCodexAuth}
+                    onCodexReauth={handleCodexAuth}
+                    initialSection="channels"
+                  />
+                )}
               </Suspense>
               {view === "calendar" && (
                 <Suspense
@@ -903,6 +999,12 @@ export default function App() {
                   <KnowledgeView
                     onBack={() => setView("chat")}
                     onOpenSettings={() => handleOpenSettings("knowledge")}
+                    petFocus={pendingKnowledgePetFocus}
+                    onPetFocusHandled={(nonce) =>
+                      setPendingKnowledgePetFocus((current) =>
+                        current?.nonce === nonce ? null : current,
+                      )
+                    }
                   />
                 </Suspense>
               )}
@@ -917,6 +1019,12 @@ export default function App() {
                   <DesignView
                     onBack={() => setView("chat")}
                     onOpenSettings={() => handleOpenSettings("design")}
+                    petFocus={pendingDesignPetFocus}
+                    onPetFocusHandled={(nonce) =>
+                      setPendingDesignPetFocus((current) =>
+                        current?.nonce === nonce ? null : current,
+                      )
+                    }
                     onImplementToCode={(sessionId, message) => {
                       // 不设 pendingSessionId：auto-send 的 sessionIdOverride 已原子切会话，
                       // 避免与导航半边竞争加载空历史（review F2）。

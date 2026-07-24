@@ -280,6 +280,7 @@ impl SlashCommandDef {
             "usage" => "Token usage",
             "search" => "Search the web",
             "permission" => "Set tool permission mode",
+            "pet" => "Wake, tuck away, or inspect the desktop pet",
             "plan" => "Enter/exit plan mode",
             "prompts" => "View system prompt",
             "recap" => "Generate a deep analysis recap report",

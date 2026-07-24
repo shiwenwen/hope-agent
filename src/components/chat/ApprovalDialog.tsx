@@ -3,6 +3,11 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { useCountdownRemainingSec } from "@/lib/countdown"
 import { ShieldAlert, ShieldCheck, FolderOpen, Clock, EyeOff } from "lucide-react"
+import {
+  approvalBarsAllowAlways,
+  isStrictApprovalReason,
+  type ApprovalReasonKind,
+} from "@/components/chat/approvalPolicy"
 
 export interface ApprovalRequest {
   request_id: string
@@ -16,22 +21,7 @@ export interface ApprovalRequest {
    * the normal approval flow.
    */
   reason?: {
-    kind:
-      | "edit_tool"
-      | "edit_command"
-      | "dangerous_command"
-      | "protected_path"
-      | "agent_custom_list"
-      | "smart_judge"
-      | "browser_evaluate"
-      | "browser_raw_cdp"
-      | "browser_chrome_access"
-      | "browser_download_action"
-      | "mac_control_action"
-      | "mac_control_dangerous_action"
-      | "external_connector_action"
-      | "plan_mode_ask"
-      | "cron_delete"
+    kind: ApprovalReasonKind
     /** Pattern / path / rationale text to display. */
     detail?: string
   }
@@ -49,42 +39,6 @@ export interface ApprovalRequest {
   local_timeout_at_ms?: number | null
   timeout_secs?: number
   timeout_action?: "deny" | "proceed"
-}
-
-/**
- * Reason kinds that bar AllowAlways and render the destructive (red) palette.
- * Single source of truth shared by the dialog header and the ReasonBanner in
- * this file — mirrors the backend `ApprovalReasonKind::is_strict` strict set, so
- * the two never disagree (e.g. on `plan_mode_ask`). File-private: keeping it
- * unexported satisfies react-refresh/only-export-components (a component file
- * must export only components).
- */
-function isStrictReasonKind(
-  kind: NonNullable<ApprovalRequest["reason"]>["kind"] | undefined,
-): boolean {
-  return (
-    kind === "protected_path" ||
-    kind === "dangerous_command" ||
-    kind === "browser_raw_cdp" ||
-    kind === "mac_control_dangerous_action" ||
-    kind === "external_connector_action" ||
-    kind === "plan_mode_ask"
-  )
-}
-
-/**
- * Reason kinds that bar the AllowAlways button. Strict reasons bar it (per-call
- * confirmation), and `cron_delete` also bars it without being strict: the
- * allowlist matcher for `manage_cron` keys on `action` only (not the job id), so
- * a persisted AllowAlways grant would silently authorize deleting ANY scheduled
- * task forever. Cron delete stays non-strict (normal palette + normal
- * timeout/unattended handling) — it just never offers a standing grant. Mirrors
- * the backend `gate_cron_delete` forcing `allow_always_forbidden=true`.
- */
-function barsAllowAlways(
-  kind: NonNullable<ApprovalRequest["reason"]>["kind"] | undefined,
-): boolean {
-  return isStrictReasonKind(kind) || kind === "cron_delete"
 }
 
 interface ApprovalDialogProps {
@@ -108,8 +62,8 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
   // `isStrict` drives the destructive (red) header palette; `allowAlwaysBarred`
   // gates the AllowAlways button. They differ for `cron_delete`: non-strict
   // (amber, normal timeout/unattended) but still bars AllowAlways.
-  const isStrict = isStrictReasonKind(reason?.kind)
-  const allowAlwaysBarred = barsAllowAlways(reason?.kind)
+  const isStrict = isStrictApprovalReason(reason?.kind)
+  const allowAlwaysBarred = approvalBarsAllowAlways(reason?.kind)
   // E5 (INCOG-6): incognito sessions never persist an AllowAlways grant — hide
   // the button entirely and explain why below the actions.
   const incognito = current.incognito === true
@@ -326,7 +280,7 @@ function ReasonBanner({
   detail?: string
   t: ReturnType<typeof useTranslation>["t"]
 }) {
-  const isStrict = isStrictReasonKind(kind)
+  const isStrict = isStrictApprovalReason(kind)
   const palette = isStrict
     ? "border-destructive/40 bg-destructive/10 text-destructive"
     : "border-amber-200/40 bg-amber-50/40 dark:bg-amber-950/10 text-amber-700 dark:text-amber-400"

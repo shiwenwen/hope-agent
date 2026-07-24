@@ -345,6 +345,22 @@ pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     write_replace(path, bytes)
 }
 
+pub(super) fn publish_dir_atomic(source: &Path, target: &Path) -> io::Result<()> {
+    if !source.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "staging source is not a directory",
+        ));
+    }
+    if target.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "target directory already exists",
+        ));
+    }
+    fs::rename(source, target)
+}
+
 /// Atomically create a user document without replacing an existing path.
 /// `hard_link` is the Windows no-clobber publication primitive: it either adds
 /// the destination name for the fully fsynced temp file or fails because that

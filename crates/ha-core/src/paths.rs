@@ -571,6 +571,46 @@ pub fn window_state_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("window-state.json"))
 }
 
+// ── Desktop Pet ───────────────────────────────────────────────────
+
+/// Installed custom pet packages.  Built-in pets remain embedded in the
+/// application binary and never shadow entries in this directory.
+pub fn pets_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("pets"))
+}
+
+pub fn pets_trash_dir() -> Result<PathBuf> {
+    Ok(pets_dir()?.join(".trash"))
+}
+
+pub fn pets_lock_path() -> Result<PathBuf> {
+    Ok(pets_dir()?.join(".library.lock"))
+}
+
+pub fn pet_window_state_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("pet-window-state.json"))
+}
+
+pub fn is_valid_pet_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+pub fn validate_pet_id(id: &str) -> Result<()> {
+    if !is_valid_pet_id(id) {
+        anyhow::bail!("invalid pet id");
+    }
+    Ok(())
+}
+
+pub fn pet_dir(id: &str) -> Result<PathBuf> {
+    validate_pet_id(id)?;
+    Ok(pets_dir()?.join(id))
+}
+
 // ── Self-Update ─────────────────────────────────────────────────────
 
 /// Self-update working directory: ~/.hope-agent/updater/
@@ -832,6 +872,8 @@ pub fn ensure_dirs() -> Result<()> {
         reports_dir()?,
         background_jobs_dir()?,
         knowledge_dir()?,
+        pets_dir()?,
+        pets_trash_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;

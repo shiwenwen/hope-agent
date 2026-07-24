@@ -8517,6 +8517,9 @@
     "permission": {
       "description": "Ajustar el modo de permisos de la sesión (default/smart/yolo)"
     },
+    "pet": {
+      "description": "Despertar, guardar o consultar la mascota de escritorio"
+    },
     "plan": {
       "description": "Entrar/salir del plan mode"
     },
@@ -12207,6 +12210,113 @@
       "checkCleanAll": "Todos los artefactos coinciden con su código",
       "checkStale": "{{n}} artefactos tienen actualizaciones de código",
       "chatPrompt": "El código implementado se ha desviado de este diseño. Actualiza el diseño actual para reflejar los cambios de código referenciados, manteniendo la intención del diseño y todo lo demás sin cambios."
+    }
+  },
+  "pet": {
+    "settings": {
+      "nav": "Mascotas",
+      "wake": "Mascota de escritorio",
+      "wakeDesc": "Muestra tu compañero animado y la actividad de las conversaciones en el escritorio.",
+      "desktopOnly": "Despertar y guardar están disponibles en la aplicación de escritorio.",
+      "choose": "Elige una mascota",
+      "localOnly": "Las mascotas personalizadas permanecen en este dispositivo.",
+      "loadFailed": "No se pudieron cargar las mascotas",
+      "saveFailed": "No se pudo guardar la configuración de mascotas",
+      "cannotDeleteSelected": "Elige otra mascota antes de eliminar esta",
+      "deleted": "Mascota eliminada",
+      "undo": "Deshacer",
+      "deleteFailed": "No se pudo eliminar la mascota",
+      "deleteTitle": "¿Eliminar esta mascota?",
+      "deleteDescription": "¿Eliminar {{name}} de este dispositivo?"
+    },
+    "import": {
+      "action": "Importar",
+      "title": "Importar una mascota",
+      "description": "Previsualiza y valida mascotas compatibles con Codex antes de añadirlas a Hope.",
+      "drop": "Suelta una carpeta, zip, manifiesto + imagen, PNG o WebP",
+      "dropSafety": "Al soltar solo se crea una vista previa. No se instala nada hasta que confirmes.",
+      "chooseFiles": "Elegir archivos",
+      "packageFiles": "Paquetes de mascotas",
+      "fromCodex": "Buscar mascotas de Codex",
+      "found": "{{count}} encontradas",
+      "found_one": "{{count}} encontrada",
+      "found_other": "{{count}} encontradas",
+      "unknownVersion": "versión desconocida",
+      "previewFailed": "No se pudo previsualizar este paquete",
+      "previewFailedCount": "No se pudieron previsualizar {{amount}} paquetes de mascotas",
+      "previewCount": "{{amount}} mascotas listas para revisar",
+      "removePreview": "Quitar de esta importación",
+      "scanFailed": "No se pudieron buscar mascotas de Codex",
+      "uploadFailed": "No se pudo subir el paquete",
+      "duplicate": "Ya importada",
+      "enableAfter": "Usar esta mascota después de importarla",
+      "confirm": "Importar mascota",
+      "imported": "Mascota importada",
+      "importedCount": "Se añadieron {{amount}} mascotas a tu biblioteca",
+      "alreadyImported": "Esta mascota ya está en tu biblioteca",
+      "commitFailed": "No se pudo importar la mascota",
+      "commitFailedCount": "No se pudieron importar {{amount}} mascotas",
+      "linkPlaceholder": "Pega un enlace de instalación codex:// o una URL HTTPS de sprites",
+      "linkLabel": "Enlace de mascota",
+      "previewLink": "Previsualizar enlace"
+    },
+    "creator": {
+      "action": "Crear",
+      "title": "Crear una mascota",
+      "description": "Genera una mascota original y previsualiza la animación compatible con Codex antes de instalarla.",
+      "name": "Nombre",
+      "shortDescription": "Descripción breve (opcional)",
+      "prompt": "¿Qué aspecto debería tener tu mascota?",
+      "generate": "Generar vista previa",
+      "generating": "Creando vista previa…",
+      "failed": "No se pudo crear esta mascota"
+    },
+    "export": {
+      "action": "Exportar para Codex",
+      "saved": "Paquete compatible con Codex exportado",
+      "failed": "No se pudo exportar esta mascota"
+    },
+    "window": {
+      "interact": "Interactuar con la mascota de Hope",
+      "tuckAway": "Guardar mascota"
+    },
+    "bubble": {
+      "needsInput": "{{count}} conversaciones necesitan tu intervención.",
+      "needsInput_one": "Necesito tu intervención.",
+      "needsInput_other": "{{count}} conversaciones necesitan tu intervención.",
+      "blocked": "{{count}} conversaciones están bloqueadas.",
+      "blocked_one": "Una conversación está bloqueada.",
+      "blocked_other": "{{count}} conversaciones están bloqueadas.",
+      "ready": "{{count}} conversaciones están listas.",
+      "ready_one": "Una conversación está lista.",
+      "ready_other": "{{count}} conversaciones están listas.",
+      "open": "Abrir en Hope",
+      "dismiss": "Descartar",
+      "running": "Pensando",
+      "reply": "Responder",
+      "queued": "Respuesta en cola",
+      "sent": "Respuesta enviada",
+      "sendFailed": "No se pudo enviar la respuesta"
+    },
+    "stack": {
+      "expand": "Mostrar {{count}} conversaciones",
+      "collapse": "Contraer conversaciones"
+    },
+    "tray": {
+      "title": "Actividad de conversaciones",
+      "reconnecting": "Actualizando estado…",
+      "count": "{{count}} activas",
+      "count_one": "{{count}} activa",
+      "count_other": "{{count}} activas",
+      "close": "Cerrar actividad",
+      "openRemaining": "Ver {{count}} más en Hope",
+      "openRemaining_one": "Ver {{count}} más en Hope",
+      "openRemaining_other": "Ver {{count}} más en Hope",
+      "incognitoTitle": "Conversación de incógnito",
+      "untitledTitle": "Nueva conversación"
+    },
+    "navigation": {
+      "unavailable": "Esta conversación ya no está disponible."
     }
   },
   "configRecovery": {

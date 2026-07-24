@@ -34,6 +34,20 @@ window.addEventListener("beforeunload", () => {
 
 const windowType = new URLSearchParams(window.location.search).get("window")
 
+// The shared base stylesheet paints `body` with the application background.
+// A transparent native PetWindow must clear that surface before the async i18n
+// bootstrap and React's first render, otherwise the whole WebView appears as a
+// white rectangle behind the sprite.
+if (windowType === "pet") {
+  for (const element of [
+    document.documentElement,
+    document.body,
+    document.getElementById("root"),
+  ]) {
+    element?.style.setProperty("background", "transparent", "important")
+  }
+}
+
 // 首屏前等初始语言 bundle 就位再渲染，避免非英语用户冷启动闪一帧英文（懒加载只
 // await 当前一种 locale，毫秒级本地资源）。i18nReady 内部已 try/catch，chunk 失败
 // 也会 resolve（回退 en），渲染绝不会被卡死。
@@ -44,6 +58,7 @@ void i18nReady.finally(async () => {
   // Dynamic import keeps the Help surface out of the main chunk (same
   // pattern as the DEV smoke windows below).
   const HelpWindow = windowType === "help" ? (await import("./HelpWindow.tsx")).default : null
+  const PetWindow = windowType === "pet" ? (await import("./PetWindow.tsx")).default : null
 
   const WorkflowSmokeWindow =
     windowType === "workflow-smoke" && import.meta.env.DEV
@@ -70,6 +85,8 @@ void i18nReady.finally(async () => {
     <StrictMode>
       {windowType === "quickchat" ? (
         <QuickChatWindow />
+      ) : PetWindow ? (
+        <PetWindow />
       ) : windowType === "plan" ? (
         <PlanDetachedWindow />
       ) : windowType === "files" ? (

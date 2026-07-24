@@ -8517,6 +8517,9 @@
     "permission": {
       "description": "Tetapkan mod kebenaran sesi (default/smart/yolo)"
     },
+    "pet": {
+      "description": "Bangunkan, sorokkan atau semak haiwan peliharaan desktop"
+    },
     "plan": {
       "description": "Masuk/keluar pelan mode"
     },
@@ -12207,6 +12210,113 @@
       "checkCleanAll": "Semua artifak sepadan dengan kodnya",
       "checkStale": "{{n}} artifak mempunyai kemas kini kod",
       "chatPrompt": "Kod yang dilaksanakan telah menyimpang daripada reka bentuk ini. Kemas kini reka bentuk semasa untuk mencerminkan perubahan kod yang dirujuk, sambil mengekalkan niat reka bentuk dan segala yang lain tidak berubah."
+    }
+  },
+  "pet": {
+    "settings": {
+      "nav": "Haiwan peliharaan",
+      "wake": "Haiwan peliharaan desktop",
+      "wakeDesc": "Paparkan teman animasi dan aktiviti perbualan anda pada desktop.",
+      "desktopOnly": "Bangunkan dan sorokkan tersedia dalam aplikasi desktop.",
+      "choose": "Pilih haiwan peliharaan",
+      "localOnly": "Haiwan tersuai kekal pada peranti ini.",
+      "loadFailed": "Tidak dapat memuatkan haiwan peliharaan",
+      "saveFailed": "Tidak dapat menyimpan tetapan haiwan peliharaan",
+      "cannotDeleteSelected": "Pilih haiwan lain sebelum mengalih keluar yang ini",
+      "deleted": "Haiwan peliharaan dialih keluar",
+      "undo": "Buat asal",
+      "deleteFailed": "Tidak dapat mengalih keluar haiwan peliharaan",
+      "deleteTitle": "Alih keluar haiwan ini?",
+      "deleteDescription": "Alih keluar {{name}} daripada peranti ini?"
+    },
+    "import": {
+      "action": "Import",
+      "title": "Import haiwan peliharaan",
+      "description": "Pratonton dan sahkan haiwan serasi Codex sebelum menambahkannya ke Hope.",
+      "drop": "Lepaskan folder, zip, manifes + imej, PNG atau WebP",
+      "dropSafety": "Lepasan hanya mencipta pratonton. Tiada apa dipasang sehingga anda mengesahkan.",
+      "chooseFiles": "Pilih fail",
+      "packageFiles": "Pakej haiwan peliharaan",
+      "fromCodex": "Imbas haiwan Codex",
+      "found": "{{count}} ditemui",
+      "found_one": "{{count}} ditemui",
+      "found_other": "{{count}} ditemui",
+      "unknownVersion": "versi tidak diketahui",
+      "previewFailed": "Pakej ini tidak dapat dipratonton",
+      "previewFailedCount": "{{amount}} pakej haiwan tidak dapat dipratonton",
+      "previewCount": "{{amount}} haiwan sedia untuk disemak",
+      "removePreview": "Alih keluar daripada import ini",
+      "scanFailed": "Tidak dapat mengimbas haiwan Codex",
+      "uploadFailed": "Tidak dapat memuat naik pakej",
+      "duplicate": "Sudah diimport",
+      "enableAfter": "Gunakan haiwan ini selepas import",
+      "confirm": "Import haiwan",
+      "imported": "Haiwan peliharaan diimport",
+      "importedCount": "{{amount}} haiwan ditambah ke pustaka anda",
+      "alreadyImported": "Haiwan ini sudah ada dalam pustaka anda",
+      "commitFailed": "Tidak dapat mengimport haiwan",
+      "commitFailedCount": "{{amount}} haiwan tidak dapat diimport",
+      "linkPlaceholder": "Tampal pautan pemasangan codex:// atau URL helaian sprite HTTPS",
+      "linkLabel": "Pautan haiwan",
+      "previewLink": "Pratonton pautan"
+    },
+    "creator": {
+      "action": "Cipta",
+      "title": "Cipta haiwan peliharaan",
+      "description": "Jana maskot asli dan pratonton animasi serasi Codex sebelum memasangnya.",
+      "name": "Nama",
+      "shortDescription": "Penerangan ringkas (pilihan)",
+      "prompt": "Apakah rupa haiwan peliharaan anda?",
+      "generate": "Jana pratonton",
+      "generating": "Mencipta pratonton…",
+      "failed": "Tidak dapat mencipta haiwan ini"
+    },
+    "export": {
+      "action": "Eksport untuk Codex",
+      "saved": "Pakej serasi Codex dieksport",
+      "failed": "Tidak dapat mengeksport haiwan ini"
+    },
+    "window": {
+      "interact": "Berinteraksi dengan haiwan peliharaan Hope",
+      "tuckAway": "Simpan haiwan"
+    },
+    "bubble": {
+      "needsInput": "{{count}} perbualan memerlukan input anda.",
+      "needsInput_one": "Saya memerlukan input anda.",
+      "needsInput_other": "{{count}} perbualan memerlukan input anda.",
+      "blocked": "{{count}} perbualan tersekat.",
+      "blocked_one": "Satu perbualan tersekat.",
+      "blocked_other": "{{count}} perbualan tersekat.",
+      "ready": "{{count}} perbualan sudah sedia.",
+      "ready_one": "Satu perbualan sudah sedia.",
+      "ready_other": "{{count}} perbualan sudah sedia.",
+      "open": "Buka dalam Hope",
+      "dismiss": "Tutup",
+      "running": "Sedang berfikir",
+      "reply": "Balas",
+      "queued": "Balasan dibariskan",
+      "sent": "Balasan dihantar",
+      "sendFailed": "Tidak dapat menghantar balasan"
+    },
+    "stack": {
+      "expand": "Tunjukkan {{count}} perbualan",
+      "collapse": "Runtuhkan perbualan"
+    },
+    "tray": {
+      "title": "Aktiviti perbualan",
+      "reconnecting": "Menyegarkan status…",
+      "count": "{{count}} aktif",
+      "count_one": "{{count}} aktif",
+      "count_other": "{{count}} aktif",
+      "close": "Tutup aktiviti",
+      "openRemaining": "Lihat {{count}} lagi dalam Hope",
+      "openRemaining_one": "Lihat {{count}} lagi dalam Hope",
+      "openRemaining_other": "Lihat {{count}} lagi dalam Hope",
+      "incognitoTitle": "Perbualan inkognito",
+      "untitledTitle": "Perbualan baharu"
+    },
+    "navigation": {
+      "unavailable": "Perbualan ini tidak lagi tersedia."
     }
   },
   "configRecovery": {

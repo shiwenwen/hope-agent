@@ -43,6 +43,7 @@ pub mod memory;
 pub mod misc;
 pub mod onboarding;
 pub mod permission;
+pub mod pet;
 pub mod plan;
 pub mod plan_index;
 pub mod project;

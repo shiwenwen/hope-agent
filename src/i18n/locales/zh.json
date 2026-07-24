@@ -8517,6 +8517,9 @@
     "permission": {
       "description": "设置会话权限模式（default/smart/yolo）"
     },
+    "pet": {
+      "description": "唤醒、收起或查看桌面宠物状态"
+    },
     "plan": {
       "description": "进入/退出计划模式"
     },
@@ -12207,6 +12210,113 @@
       "checkCleanAll": "所有产物与代码一致",
       "checkStale": "{{n}} 个产物的代码有更新",
       "chatPrompt": "实现代码相对设计稿已变化，请根据引用的代码变更更新当前设计稿，保持设计意图与其余内容不变。"
+    }
+  },
+  "pet": {
+    "settings": {
+      "nav": "宠物",
+      "wake": "桌面宠物",
+      "wakeDesc": "在桌面显示你的动画伙伴和对话动态。",
+      "desktopOnly": "唤醒和收起功能仅在桌面应用中可用。",
+      "choose": "选择宠物",
+      "localOnly": "自定义宠物仅保存在此设备。",
+      "loadFailed": "无法加载宠物",
+      "saveFailed": "无法保存宠物设置",
+      "cannotDeleteSelected": "请先选择另一只宠物再移除",
+      "deleted": "宠物已移除",
+      "undo": "撤销",
+      "deleteFailed": "无法移除宠物",
+      "deleteTitle": "移除这只宠物？",
+      "deleteDescription": "要从此设备移除 {{name}} 吗？"
+    },
+    "import": {
+      "action": "导入",
+      "title": "导入宠物",
+      "description": "加入 Hope 前，先预览并验证兼容 Codex 的宠物。",
+      "drop": "拖入宠物文件夹、zip、清单 + 图片、PNG 或 WebP",
+      "dropSafety": "拖入只会生成预览，确认前不会安装任何内容。",
+      "chooseFiles": "选择文件",
+      "packageFiles": "宠物包",
+      "fromCodex": "扫描 Codex 宠物",
+      "found": "找到 {{count}} 个",
+      "found_one": "找到 {{count}} 个",
+      "found_other": "找到 {{count}} 个",
+      "unknownVersion": "未知版本",
+      "previewFailed": "无法预览此宠物包",
+      "previewFailedCount": "有 {{amount}} 个宠物包无法预览",
+      "previewCount": "{{amount}} 只宠物等待确认",
+      "removePreview": "从本次导入中移除",
+      "scanFailed": "无法扫描 Codex 宠物",
+      "uploadFailed": "无法上传宠物包",
+      "duplicate": "已导入",
+      "enableAfter": "导入后使用这只宠物",
+      "confirm": "导入宠物",
+      "imported": "宠物已导入",
+      "importedCount": "已将 {{amount}} 只宠物加入宠物库",
+      "alreadyImported": "这只宠物已在你的宠物库中",
+      "commitFailed": "无法导入宠物",
+      "commitFailedCount": "有 {{amount}} 只宠物无法导入",
+      "linkPlaceholder": "粘贴 codex:// 安装链接或 HTTPS 精灵图地址",
+      "linkLabel": "宠物链接",
+      "previewLink": "预览链接"
+    },
+    "creator": {
+      "action": "创建",
+      "title": "创建宠物",
+      "description": "生成原创伙伴，预览 Codex 兼容动画后再安装。",
+      "name": "名称",
+      "shortDescription": "简短描述（可选）",
+      "prompt": "希望宠物长什么样？",
+      "generate": "生成预览",
+      "generating": "正在创建预览…",
+      "failed": "无法创建这只宠物"
+    },
+    "export": {
+      "action": "导出给 Codex",
+      "saved": "已导出 Codex 兼容宠物包",
+      "failed": "无法导出这只宠物"
+    },
+    "window": {
+      "interact": "与 Hope 宠物互动",
+      "tuckAway": "收起宠物"
+    },
+    "bubble": {
+      "needsInput": "有 {{count}} 个对话需要你处理。",
+      "needsInput_one": "我需要你的输入。",
+      "needsInput_other": "有 {{count}} 个对话需要你处理。",
+      "blocked": "有 {{count}} 个对话受阻。",
+      "blocked_one": "有一个对话受阻。",
+      "blocked_other": "有 {{count}} 个对话受阻。",
+      "ready": "有 {{count}} 个对话已就绪。",
+      "ready_one": "有一个对话已就绪。",
+      "ready_other": "有 {{count}} 个对话已就绪。",
+      "open": "在 Hope 中打开",
+      "dismiss": "关闭",
+      "running": "正在思考",
+      "reply": "回复",
+      "queued": "回复已排队",
+      "sent": "回复已发送",
+      "sendFailed": "无法发送回复"
+    },
+    "stack": {
+      "expand": "显示 {{count}} 个对话",
+      "collapse": "收起对话"
+    },
+    "tray": {
+      "title": "对话动态",
+      "reconnecting": "正在刷新状态…",
+      "count": "{{count}} 个进行中",
+      "count_one": "{{count}} 个进行中",
+      "count_other": "{{count}} 个进行中",
+      "close": "关闭动态",
+      "openRemaining": "在 Hope 中查看其余 {{count}} 个",
+      "openRemaining_one": "在 Hope 中查看其余 {{count}} 个",
+      "openRemaining_other": "在 Hope 中查看其余 {{count}} 个",
+      "incognitoTitle": "无痕对话",
+      "untitledTitle": "新对话"
+    },
+    "navigation": {
+      "unavailable": "此对话已不可用。"
     }
   },
   "configRecovery": {

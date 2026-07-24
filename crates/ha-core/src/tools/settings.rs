@@ -60,6 +60,7 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("temperature", "low"),
     ("tool_timeout", "low"),
     ("default_agent", "low"),
+    ("pet", "low"),
     ("local_llm_auto_maintenance", "low"),
     ("compact", "medium"),
     ("session_title", "medium"),
@@ -549,6 +550,7 @@ fn read_category(category: &str) -> Result<Value> {
             "enhancedFocusIndicators": cfg.enhanced_focus_indicators,
         })),
         "default_agent" => Ok(json!({ "defaultAgentId": cfg.default_agent_id })),
+        "pet" => Ok(serde_json::to_value(&cfg.pet)?),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
         "prevent_sleep" => Ok(json!({ "preventSleep": cfg.prevent_sleep })),
         "sidebar_ui" => Ok(json!({
@@ -837,6 +839,10 @@ fn get_all_overview() -> Result<String> {
         },
         "knowledgeCompile": {
             "modelOverrideConfigured": cfg.knowledge_compile.model_override.is_some(),
+        },
+        "pet": {
+            "enabled": cfg.pet.enabled,
+            "selectedPetRef": cfg.pet.selected_pet_ref,
         },
         "dreaming": {
             "enabled": cfg.dreaming.enabled,
@@ -1429,6 +1435,12 @@ fn apply_app_config_update(
             // Clamp so a skill write can't hammer the LLM (mirrors `sprite::set_config`).
             store.sprite = store.sprite.clamped();
         }
+        "pet" => {
+            merge_field(&mut store.pet, values)?;
+            if !store.pet.selected_pet_ref.is_well_formed() {
+                anyhow::bail!("pet.selectedPetRef must be a builtin:* or custom:* pet ref");
+            }
+        }
         "knowledge_vision" => {
             merge_field(&mut store.knowledge_vision, values)?;
             // Clamp (mirrors `service::set_vision_config`).
@@ -1454,12 +1466,21 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         return update_team_templates(values);
     }
 
-    let owned_category = category.to_string();
-    let owned_values = values.clone();
-    config::mutate_config_async((category, "skill"), move |store| {
-        apply_app_config_update(store, &owned_category, &owned_values)
-    })
-    .await?;
+    if category == "pet" {
+        // Keep all pet writes on the same validation/event path as Settings,
+        // Wake/Tuck and `/pet`. A merely well-formed custom ref may still have
+        // been deleted by another process between the model's read and write.
+        let mut next = config::cached_config().pet.clone();
+        merge_field(&mut next, values)?;
+        crate::pet::save_config(next, "skill").await?;
+    } else {
+        let owned_category = category.to_string();
+        let owned_values = values.clone();
+        config::mutate_config_async((category, "skill"), move |store| {
+            apply_app_config_update(store, &owned_category, &owned_values)
+        })
+        .await?;
+    }
 
     // The active agent path keeps a process-local copy of the global reasoning
     // setting; mirror the desktop/HTTP owner commands after persistence.
@@ -1565,6 +1586,9 @@ async fn trigger_backend_hot_reload(category: &str) -> Result<()> {
             // Both are consumed lazily by their own pipelines on the next
             // trigger; no cached state to refresh.
         }
+        // Pet writes already use `pet::save_config`, which emits the single
+        // authoritative invalidation event after persistence.
+        "pet" => {}
         _ => {} // Other categories: config cache (ArcSwap) already updated by save_config
     }
     Ok(())

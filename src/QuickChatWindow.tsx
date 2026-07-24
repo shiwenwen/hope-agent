@@ -18,6 +18,7 @@ import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import IncognitoToggle from "@/components/chat/input/IncognitoToggle"
 import { useQuickChatSession } from "@/components/chat/useQuickChatSession"
 import { useChatStream } from "@/components/chat/useChatStream"
+import { useEmbeddedChatReadReceipt } from "@/components/chat/hooks/useEmbeddedChatReadReceipt"
 import type { CommandResult } from "@/components/chat/slash-commands/types"
 import type { AgentSummaryForSidebar, PendingMessageQuote } from "@/types/chat"
 
@@ -30,6 +31,13 @@ export default function QuickChatWindow() {
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
   const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
   const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
+  const [messageTailVisible, setMessageTailVisible] = useState(true)
+  useEmbeddedChatReadReceipt(
+    true,
+    messageTailVisible,
+    session.currentSessionId,
+    session.messages,
+  )
 
   // Effective incognito = persisted session.incognito (continued chat) or
   // draft toggle (new chat). Mirrors `ChatScreen` semantics so the toggle
@@ -46,6 +54,7 @@ export default function QuickChatWindow() {
     : session.draftIncognito
 
   const stream = useChatStream({
+    uiSurface: "quick_chat",
     messages: session.messages,
     setMessages: session.setMessages,
     currentSessionId: session.currentSessionId,
@@ -224,6 +233,7 @@ export default function QuickChatWindow() {
           sessionId={session.currentSessionId}
           incognito={incognitoEnabled}
           onAddMessageQuote={handleMessageQuote}
+          onAtBottomChange={setMessageTailVisible}
         />
 
         {/* ── Approval Dialog ────────────────────── */}

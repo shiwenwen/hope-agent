@@ -40,6 +40,8 @@ pub struct InitialGoalRequest {
 pub struct ChatRequest {
     pub message: String,
     #[serde(default)]
+    pub ui_surface: Option<ha_core::pet::ChatUiSurface>,
+    #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
     pub incognito: Option<bool>,
@@ -500,10 +502,30 @@ pub struct SystemPromptBody {
 
 // ── Handlers ───────────────────────────────────────────────────
 
-/// `POST /api/chat` — run chat engine, streaming events via WebSocket.
+/// Public HTTP chat API. Product UI routing metadata is deliberately ignored:
+/// callers that are not the bundled message-list/composer must never create a
+/// Pet activity merely by sending a `uiSurface` field.
 pub async fn chat(
     State(ctx): State<Arc<AppContext>>,
     Json(mut body): Json<ChatRequest>,
+) -> Result<Json<ChatResponse>, AppError> {
+    body.ui_surface = None;
+    chat_inner(ctx, body).await
+}
+
+/// Bundled first-party HTTP UI chat. `HttpTransport.startChat` uses this route
+/// only when a fixed `ChatUiSurface` was supplied by a first-party product
+/// message-list/composer surface (including Pet quick reply).
+pub async fn ui_chat(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<ChatRequest>,
+) -> Result<Json<ChatResponse>, AppError> {
+    chat_inner(ctx, body).await
+}
+
+async fn chat_inner(
+    ctx: Arc<AppContext>,
+    mut body: ChatRequest,
 ) -> Result<Json<ChatResponse>, AppError> {
     let db = ctx.session_db.clone();
     let eval_context_pending = body.eval_context.take();
@@ -1109,6 +1131,7 @@ pub async fn chat(
         let effective_prompt = effective_prompt.clone();
         let queue_id_for_consume = queued_request_id.clone();
         let edit_message_id = body.edit_message_id;
+        let ui_surface_for_turn = body.ui_surface;
         db.run(move |db| -> anyhow::Result<_> {
             if let Some(message_id) = edit_message_id {
                 let replacement_id = db.replace_last_user_message_for_edit(
@@ -1117,6 +1140,7 @@ pub async fn chat(
                     &user_msg,
                     &turn_id,
                     ha_core::chat_engine::ChatSource::Http.as_str(),
+                    ui_surface_for_turn,
                 )?;
                 let turn = db
                     .get_chat_turn(&turn_id)?
@@ -1128,12 +1152,13 @@ pub async fn chat(
             } else {
                 db.append_message(&sid, &user_msg).ok()
             };
-            let turn = db.create_chat_turn_with_id(
+            let turn = db.create_chat_turn_with_id_surface(
                 &turn_id,
                 &sid,
                 ha_core::chat_engine::ChatSource::Http.as_str(),
                 None,
                 user_message_id,
+                ui_surface_for_turn,
             )?;
             if let Some(request_id) = queue_id_for_consume.as_deref() {
                 db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
@@ -1330,6 +1355,7 @@ pub async fn chat(
         abort_on_cancel: false,
         persist_final_error_event: true,
         source: ha_core::chat_engine::stream_seq::ChatSource::Http,
+        ui_surface: body.ui_surface,
         origin_source: None,
         // HTTP owner turn — KB access via attach, not the IM opt-in gate.
         channel_kb_context: None,

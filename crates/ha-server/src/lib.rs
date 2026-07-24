@@ -748,6 +748,7 @@ fn build_router_with_cors(
         )
         // Chat
         .route("/chat", post(routes::chat::chat))
+        .route("/chat/ui", post(routes::chat::ui_chat))
         .route(
             "/eval/model/trials/{trial_id}",
             get(routes::chat::model_eval_trial_telemetry),
@@ -843,6 +844,42 @@ fn build_router_with_cors(
             "/file-uploads/{upload_id}/complete",
             post(routes::file_upload::complete),
         )
+        // Desktop pet control plane.  The library/import/activity APIs remain
+        // useful in server mode; native overlay operations fail explicitly.
+        .route("/pets", get(routes::pet::list))
+        .route(
+            "/pets/config",
+            get(routes::pet::get_config).put(routes::pet::save_config),
+        )
+        .route("/pets/enabled", post(routes::pet::set_enabled))
+        .route("/pets/asset", get(routes::pet::asset_descriptor))
+        .route("/pets/sprite", get(routes::pet::sprite))
+        .route("/pets/codex-candidates", get(routes::pet::codex_candidates))
+        .route(
+            "/pets/codex-candidates/{candidate_id}/thumbnail",
+            get(routes::pet::candidate_thumbnail),
+        )
+        .route("/pets/import/preview", post(routes::pet::import_preview))
+        .route(
+            "/pets/import/previews/{preview_token}/thumbnail",
+            get(routes::pet::preview_thumbnail),
+        )
+        .route("/pets/create/preview", post(routes::pet::create_preview))
+        .route("/pets/import/commit", post(routes::pet::import_commit))
+        .route("/pets/delete", post(routes::pet::delete))
+        .route("/pets/restore", post(routes::pet::restore))
+        .route("/pets/export", post(routes::pet::export))
+        .route("/pets/activity", get(routes::pet::activity))
+        .route(
+            "/pets/install-link/pending",
+            get(routes::pet::pending_install_link),
+        )
+        .route(
+            "/pets/window/bounds",
+            post(routes::pet::overlay_unsupported),
+        )
+        .route("/pets/window/sync", post(routes::pet::overlay_unsupported))
+        .route("/pets/focus-target", post(routes::pet::overlay_unsupported))
         // Attachment download (serves session-scoped files under
         // ~/.hope-agent/attachments/{session_id}/) — the logical URL
         // form emitted in `__MEDIA_ITEMS__` events.

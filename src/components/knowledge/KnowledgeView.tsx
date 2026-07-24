@@ -90,6 +90,7 @@ import type {
   RenameOutcome,
 } from "@/types/knowledge"
 import type { PendingFileQuote } from "@/types/chat"
+import type { PetNavigationTarget } from "@/types/pet"
 
 import { useKnowledgeReembedJobs } from "@/hooks/useKnowledgeReembedJobs"
 import { useDragWidth } from "@/hooks/useDragWidth"
@@ -127,6 +128,11 @@ interface KnowledgeViewProps {
   onBack: () => void
   /** Jump to Settings → Knowledge (embedding / retrieval config). */
   onOpenSettings?: () => void
+  petFocus?: {
+    target: Extract<PetNavigationTarget, { kind: "knowledge" }>
+    nonce: number
+  } | null
+  onPetFocusHandled?: (nonce: number) => void
 }
 
 interface OpenNoteResult {
@@ -186,7 +192,12 @@ function readStoredWidth(key: string, def: number, min: number, max: number): nu
   }
 }
 
-export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewProps) {
+export default function KnowledgeView({
+  onBack,
+  onOpenSettings,
+  petFocus,
+  onPetFocusHandled,
+}: KnowledgeViewProps) {
   const { t } = useTranslation()
   const tx = useTransport()
   // Desktop can reveal real files in the OS file manager; HTTP/Web cannot.
@@ -263,6 +274,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   // to the open note + bound to the active KB, and is the default right-pane tab.
   const [rightMode, setRightMode] = useState<"links" | "chat">("chat")
   const chatPanelRef = useRef<KnowledgeChatPanelHandle>(null)
+  const [pendingChatThreadFocus, setPendingChatThreadFocus] = useState<{
+    sessionId: string
+    nonce: number
+  } | null>(null)
+  const lastPetFocusNonceRef = useRef<number | null>(null)
   // Live editor text for the chat panel's per-turn current-note context.
   const editorValueRef = useRef("")
   const getEditorValue = useCallback(() => editorValueRef.current, [])
@@ -739,6 +755,26 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     if (pending) setPendingKnowledgeFocus(pending)
     return subscribeKnowledgeFocus(setPendingKnowledgeFocus)
   }, [])
+
+  useEffect(() => {
+    if (!petFocus || lastPetFocusNonceRef.current === petFocus.nonce) return
+    lastPetFocusNonceRef.current = petFocus.nonce
+    setPendingKnowledgeFocus({
+      kbId: petFocus.target.kbId,
+      ...(petFocus.target.anchorNotePath ? { path: petFocus.target.anchorNotePath } : {}),
+      sessionId: petFocus.target.sessionId,
+      petFocusNonce: petFocus.nonce,
+    })
+  }, [petFocus])
+
+  useEffect(() => {
+    if (!pendingChatThreadFocus || rightMode !== "chat" || rightCollapsed) return
+    const panel = chatPanelRef.current
+    if (!panel) return
+    panel.focusThread(pendingChatThreadFocus.sessionId)
+    onPetFocusHandled?.(pendingChatThreadFocus.nonce)
+    setPendingChatThreadFocus(null)
+  }, [onPetFocusHandled, pendingChatThreadFocus, rightCollapsed, rightMode])
 
   useEffect(() => {
     // Clear the previous KB's tree immediately so we never render KB-A's notes/
@@ -1553,6 +1589,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     if (lastKnowledgeFocusKeyRef.current === key) return
     lastKnowledgeFocusKeyRef.current = key
     const target = pendingKnowledgeFocus
+    const targetPath = target.path
     const reveal: KnowledgeFocusRevealRequest = {
       line: target.line,
       col: target.col,
@@ -1566,25 +1603,51 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     )
     guardNavigation(() => {
       setActiveKbId(target.kbId)
+      if (!targetPath) {
+        setPendingKnowledgeFocus((current) =>
+          current && JSON.stringify(current) === key ? null : current,
+        )
+        lastKnowledgeFocusKeyRef.current = null
+        if (target.sessionId && target.petFocusNonce != null) {
+          setRightMode("chat")
+          setRightCollapsed(false)
+          setPendingChatThreadFocus({
+            sessionId: target.sessionId,
+            nonce: target.petFocusNonce,
+          })
+        } else if (target.petFocusNonce != null) {
+          onPetFocusHandled?.(target.petFocusNonce)
+        }
+        return
+      }
       if (hasRevealHint && mode === "outline") handleModeChange("source")
       void (async () => {
-        const opened = await openNote(target.kbId, target.path, reveal)
+        const opened = await openNote(target.kbId, targetPath, reveal)
         setPendingKnowledgeFocus((current) =>
           current && JSON.stringify(current) === key ? null : current,
         )
         lastKnowledgeFocusKeyRef.current = null
         if (opened.ok) {
+          if (target.sessionId && target.petFocusNonce != null) {
+            setRightMode("chat")
+            setRightCollapsed(false)
+            setPendingChatThreadFocus({
+              sessionId: target.sessionId,
+              nonce: target.petFocusNonce,
+            })
+          }
           if (hasRevealHint && !opened.revealResolved) {
             toast.error(
               t(
                 "knowledge.focusLocationUnavailable",
                 "Opened the note, but the exact source location could not be found.",
               ),
-              { description: target.path },
+              { description: targetPath },
             )
           }
           return
         }
+        if (target.petFocusNonce != null) onPetFocusHandled?.(target.petFocusNonce)
         const kbKnown = kbs.some((kb) => kb.id === target.kbId)
         const message =
           kbs.length > 0 && !kbKnown
@@ -1596,10 +1659,19 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   "Couldn't open that knowledge note. It may have moved or access changed.",
               })
         const detail = knowledgeFocusErrorDescription(t, opened.error)
-        toast.error(message, { description: detail ? `${target.path}\n${detail}` : target.path })
+        toast.error(message, { description: detail ? `${targetPath}\n${detail}` : targetPath })
       })()
     })
-  }, [pendingKnowledgeFocus, openNote, kbs, mode, handleModeChange, guardNavigation, t])
+  }, [
+    pendingKnowledgeFocus,
+    openNote,
+    kbs,
+    mode,
+    handleModeChange,
+    guardNavigation,
+    onPetFocusHandled,
+    t,
+  ])
 
   // Whether `path` is (or contains) the currently open note — used to decide if a
   // rename/move would clobber unsaved edits on the open note.
@@ -3449,11 +3521,7 @@ function RightPanelTabs() {
     <div className="flex shrink-0 border-b border-border-soft/60 px-1.5 py-1">
       <TabsList className="grid h-8 w-full grid-cols-2 p-0.5">
         {tabs.map((tab) => (
-          <TabsTrigger
-            key={tab.key}
-            value={tab.key}
-            className="h-7 min-w-0 px-2 py-1 text-[11px]"
-          >
+          <TabsTrigger key={tab.key} value={tab.key} className="h-7 min-w-0 px-2 py-1 text-[11px]">
             <span className="truncate">{tab.label}</span>
           </TabsTrigger>
         ))}

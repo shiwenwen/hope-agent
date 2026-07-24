@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "enables the default permissions",
-  "windows": ["main", "canvas-window", "plan-window", "quickchat", "files-window", "help-window"],
+  "windows": ["main", "canvas-window", "plan-window", "quickchat", "pet", "files-window", "help-window"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -15,6 +15,9 @@
     "core:window:allow-set-size",
     "core:window:allow-set-min-size",
     "core:window:allow-start-dragging",
+    "core:window:allow-outer-position",
+    "core:window:allow-scale-factor",
+    "core:window:allow-current-monitor",
     "core:window:allow-is-visible",
     "core:window:allow-center",
     "core:webview:allow-create-webview-window",

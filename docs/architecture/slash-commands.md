@@ -12,7 +12,7 @@ crates/ha-core/src/slash_commands/
 ├── types.rs        # 数据结构（SlashCommandDef / CommandResult / CommandAction）
 ├── parser.rs       # 解析器（"/" 前缀 → 命令名 + 参数）
 ├── registry.rs     # 命令注册表（所有内置命令定义）
-└── handlers/       # 命令处理器（15 个子文件）
+└── handlers/       # 命令处理器（16 个子文件）
     ├── mod.rs      # dispatch 分发入口
     ├── session.rs  # 会话类命令（含 /sessions / /session / /handover）
     ├── model.rs    # 模型类命令
@@ -28,10 +28,11 @@ crates/ha-core/src/slash_commands/
     ├── review.rs   # /review 本地代码审查控制面
     ├── awareness.rs # /awareness 行为感知开关
     ├── project.rs  # /project / /projects 项目切换 / 选择
+    ├── pet.rs      # /pet 桌面宠物开关与状态（非桌面只读）
     └── utility.rs  # 工具类命令（含 /imreply / /reason）
 ```
 
-> **命令规模**：内置 38 条 + 动态技能命令（运行时合并）。
+> **命令规模**：内置 40 条 + 动态技能命令（运行时合并）。
 
 ### 处理流程
 
@@ -171,6 +172,7 @@ sequenceDiagram
 | `/search` | `<query>` 必需 | 将搜索请求传递给 LLM 处理 | `PassThrough` |
 | `/prompts` | 无 | 查看当前 Agent 的完整 system prompt | `ViewSystemPrompt` |
 | `/context` | 无 | 查看上下文窗口使用明细（分类 token 占比、压缩状态） | `ShowContextBreakdown` |
+| `/pet` | `[on\|off\|toggle\|status]` | 桌面端唤醒/收起宠物；HTTP/ACP 仅 status，IM 禁用 | `DisplayOnly` |
 | `/goal` | `[status\|pause\|resume\|evaluate\|clear]` 或 `<objective> --criteria <criteria>` | 创建、更新、查看、暂停、恢复、审计或清除当前会话的 active Goal；创建/更新后把目标内容作为普通模型 turn 继续执行 | `DisplayOnly` / `PassThrough` |
 | `/workflow` | `[on\|off\|ultracode\|status\|runs\|trace\|approve\|pause\|resume\|cancel] [run_id]` | 开关当前会话的 Workflow Mode，并查看/控制 durable workflow runs；`run_id` 可用唯一短前缀 | `DisplayOnly` / `SetWorkflowMode` |
 | `/review` | `[run\|status\|resolved\|dismissed\|false_positive\|open] [id]` | 对当前会话工作区的未提交改动运行本地 Review Engine；可查看 run/finding 并更新 finding 状态 | `DisplayOnly` |
@@ -559,6 +561,7 @@ Telegram (`setMyCommands`) 和 Discord (Application Commands API) 的命令菜�
 | `/search` | Utility | `<query>` | 否 | 搜索网络 |
 | `/prompts` | Utility | 无 | 否 | 查看系统提示词 |
 | `/context` | Utility | 无 | 是 | 上下文窗口占用明细 |
+| `/pet` | Utility | `[on\|off\|toggle\|status]` | 是（桌面） | 控制或查看桌面宠物；不进入 LLM |
 | `/goal` | Session | `[status\|pause\|resume\|evaluate\|clear]` 或 `<objective>` | 是 | 创建/更新/查看/控制当前会话 active Goal |
 | `/workflow` | Utility | `[on\|off\|ultracode\|status\|runs\|trace\|approve\|pause\|resume\|cancel] [run_id]` | 是 | 开关 Workflow Mode，并查看/控制当前会话 workflow runs |
 | `/review` | Utility | `[run\|status\|resolved\|dismissed\|false_positive\|open] [id]` | 是 | 运行/查看本地代码审查并更新 finding 状态 |

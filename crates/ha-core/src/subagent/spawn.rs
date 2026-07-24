@@ -1330,6 +1330,7 @@ fn execute_subagent(
                 abort_on_cancel: true,
                 persist_final_error_event: false,
                 source: crate::chat_engine::stream_seq::ChatSource::Subagent,
+                ui_surface: None,
                 origin_source,
                 channel_kb_context: origin_channel_kb_context,
                 event_sink: Arc::new(crate::chat_engine::NoopEventSink),

@@ -2063,6 +2063,7 @@ async fn run_agent_execution_eval(
                 abort_on_cancel: false,
                 persist_final_error_event: true,
                 source: ChatSource::Http,
+                ui_surface: None,
                 origin_source: None,
                 channel_kb_context: None,
                 event_sink: Arc::new(NoopEventSink),

@@ -859,6 +859,7 @@ async fn handle_inbound_message(
         abort_on_cancel: false,
         persist_final_error_event: true,
         source: crate::chat_engine::stream_seq::ChatSource::Channel,
+        ui_surface: None,
         origin_source: None,
         // WS8: carry the IM origin identity so `effective_kb_access` can apply the
         // per-account (+ per-group-chat) KB opt-in. `is_group` = any non-DM chat

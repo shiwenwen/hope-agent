@@ -8517,6 +8517,9 @@
     "permission": {
       "description": "Set session permission mode (default/smart/yolo)"
     },
+    "pet": {
+      "description": "Wake, tuck away, or inspect the desktop pet"
+    },
     "plan": {
       "description": "Enter/exit plan mode"
     },
@@ -12207,6 +12210,113 @@
       "checkCleanAll": "All artifacts match their code",
       "checkStale": "{{n}} artifact(s) have code updates",
       "chatPrompt": "The implemented code has diverged from this design. Update the current design to reflect the referenced code changes, keeping the design intent and everything else unchanged."
+    }
+  },
+  "pet": {
+    "settings": {
+      "nav": "Pets",
+      "wake": "Desktop pet",
+      "wakeDesc": "Show your animated companion and conversation activity on the desktop.",
+      "desktopOnly": "Wake and Tuck Away are available in the desktop app.",
+      "choose": "Choose a pet",
+      "localOnly": "Custom pets stay on this device.",
+      "loadFailed": "Could not load pets",
+      "saveFailed": "Could not save pet settings",
+      "cannotDeleteSelected": "Choose another pet before removing this one",
+      "deleted": "Pet removed",
+      "undo": "Undo",
+      "deleteFailed": "Could not remove pet",
+      "deleteTitle": "Remove this pet?",
+      "deleteDescription": "Remove {{name}} from this device?"
+    },
+    "import": {
+      "action": "Import",
+      "title": "Import a pet",
+      "description": "Preview and validate Codex-compatible pets before adding them to Hope.",
+      "drop": "Drop a pet folder, zip, manifest + image, PNG, or WebP",
+      "dropSafety": "Dropping only creates a preview. Nothing is installed until you confirm.",
+      "chooseFiles": "Choose files",
+      "packageFiles": "Pet packages",
+      "fromCodex": "Scan Codex pets",
+      "found": "{{count}} found",
+      "found_one": "{{count}} found",
+      "found_other": "{{count}} found",
+      "unknownVersion": "unknown version",
+      "previewFailed": "This pet package could not be previewed",
+      "previewFailedCount": "{{amount}} pet package(s) could not be previewed",
+      "previewCount": "{{amount}} pets ready to review",
+      "removePreview": "Remove from this import",
+      "scanFailed": "Could not scan Codex pets",
+      "uploadFailed": "Could not upload pet package",
+      "duplicate": "Already imported",
+      "enableAfter": "Use this pet after import",
+      "confirm": "Import pet",
+      "imported": "Pet imported",
+      "importedCount": "{{amount}} pets added to your library",
+      "alreadyImported": "This pet is already in your library",
+      "commitFailed": "Could not import pet",
+      "commitFailedCount": "{{amount}} pet(s) could not be imported",
+      "linkPlaceholder": "Paste a codex:// install link or HTTPS spritesheet URL",
+      "linkLabel": "Pet link",
+      "previewLink": "Preview link"
+    },
+    "creator": {
+      "action": "Create",
+      "title": "Create a pet",
+      "description": "Generate an original mascot, then preview the Codex-compatible animation before installing it.",
+      "name": "Name",
+      "shortDescription": "Short description (optional)",
+      "prompt": "What should your pet look like?",
+      "generate": "Generate preview",
+      "generating": "Creating preview…",
+      "failed": "Could not create this pet"
+    },
+    "export": {
+      "action": "Export for Codex",
+      "saved": "Codex-compatible package exported",
+      "failed": "Could not export this pet"
+    },
+    "window": {
+      "interact": "Interact with Hope pet",
+      "tuckAway": "Tuck away pet"
+    },
+    "bubble": {
+      "needsInput": "{{count}} conversations need your input.",
+      "needsInput_one": "I need your input.",
+      "needsInput_other": "{{count}} conversations need your input.",
+      "blocked": "{{count}} conversations are blocked.",
+      "blocked_one": "A conversation is blocked.",
+      "blocked_other": "{{count}} conversations are blocked.",
+      "ready": "{{count}} conversations are ready.",
+      "ready_one": "A conversation is ready.",
+      "ready_other": "{{count}} conversations are ready.",
+      "open": "Open in Hope",
+      "dismiss": "Dismiss",
+      "running": "Thinking",
+      "reply": "Reply",
+      "queued": "Reply queued",
+      "sent": "Reply sent",
+      "sendFailed": "Could not send reply"
+    },
+    "stack": {
+      "expand": "Show {{count}} conversations",
+      "collapse": "Collapse conversations"
+    },
+    "tray": {
+      "title": "Conversation activity",
+      "reconnecting": "Refreshing status…",
+      "count": "{{count}} active",
+      "count_one": "{{count}} active",
+      "count_other": "{{count}} active",
+      "close": "Close activity",
+      "openRemaining": "View {{count}} more in Hope",
+      "openRemaining_one": "View {{count}} more in Hope",
+      "openRemaining_other": "View {{count}} more in Hope",
+      "incognitoTitle": "Incognito conversation",
+      "untitledTitle": "New conversation"
+    },
+    "navigation": {
+      "unavailable": "This conversation is no longer available."
     }
   },
   "configRecovery": {

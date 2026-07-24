@@ -8517,6 +8517,9 @@
     "permission": {
       "description": "Oturum izin modunu ayarla (default/smart/yolo)"
     },
+    "pet": {
+      "description": "Masaüstü evcil hayvanını uyandır, gizle veya durumunu kontrol et"
+    },
     "plan": {
       "description": "Plan mode'a gir/çık"
     },
@@ -12207,6 +12210,113 @@
       "checkCleanAll": "Tüm çıktılar koduyla eşleşiyor",
       "checkStale": "{{n}} çıktıda kod güncellemesi var",
       "chatPrompt": "Uygulanan kod bu tasarımdan ayrıştı. Referans alınan kod değişikliklerini yansıtacak şekilde mevcut tasarımı güncelleyin; tasarım amacını ve diğer her şeyi değiştirmeyin."
+    }
+  },
+  "pet": {
+    "settings": {
+      "nav": "Evcil hayvanlar",
+      "wake": "Masaüstü evcil hayvanı",
+      "wakeDesc": "Animasyonlu arkadaşınızı ve konuşma etkinliğini masaüstünde gösterin.",
+      "desktopOnly": "Uyandırma ve gizleme masaüstü uygulamasında kullanılabilir.",
+      "choose": "Bir evcil hayvan seçin",
+      "localOnly": "Özel evcil hayvanlar yalnızca bu cihazda kalır.",
+      "loadFailed": "Evcil hayvanlar yüklenemedi",
+      "saveFailed": "Evcil hayvan ayarları kaydedilemedi",
+      "cannotDeleteSelected": "Bunu kaldırmadan önce başka bir evcil hayvan seçin",
+      "deleted": "Evcil hayvan kaldırıldı",
+      "undo": "Geri al",
+      "deleteFailed": "Evcil hayvan kaldırılamadı",
+      "deleteTitle": "Bu evcil hayvan kaldırılsın mı?",
+      "deleteDescription": "{{name}} bu cihazdan kaldırılsın mı?"
+    },
+    "import": {
+      "action": "İçe aktar",
+      "title": "Evcil hayvan içe aktar",
+      "description": "Codex uyumlu evcil hayvanları Hope'a eklemeden önce önizleyin ve doğrulayın.",
+      "drop": "Evcil hayvan klasörü, zip, bildirim + görsel, PNG veya WebP bırakın",
+      "dropSafety": "Bırakma yalnızca önizleme oluşturur. Onaylayana kadar hiçbir şey kurulmaz.",
+      "chooseFiles": "Dosya seç",
+      "packageFiles": "Evcil hayvan paketleri",
+      "fromCodex": "Codex evcil hayvanlarını tara",
+      "found": "{{count}} bulundu",
+      "found_one": "{{count}} bulundu",
+      "found_other": "{{count}} bulundu",
+      "unknownVersion": "bilinmeyen sürüm",
+      "previewFailed": "Bu paket önizlenemedi",
+      "previewFailedCount": "{{amount}} evcil hayvan paketi önizlenemedi",
+      "previewCount": "{{amount}} evcil hayvan incelenmeye hazır",
+      "removePreview": "Bu içe aktarmadan çıkar",
+      "scanFailed": "Codex evcil hayvanları taranamadı",
+      "uploadFailed": "Paket yüklenemedi",
+      "duplicate": "Zaten içe aktarıldı",
+      "enableAfter": "İçe aktardıktan sonra bunu kullan",
+      "confirm": "Evcil hayvanı içe aktar",
+      "imported": "Evcil hayvan içe aktarıldı",
+      "importedCount": "Kitaplığınıza {{amount}} evcil hayvan eklendi",
+      "alreadyImported": "Bu evcil hayvan zaten kitaplığınızda",
+      "commitFailed": "Evcil hayvan içe aktarılamadı",
+      "commitFailedCount": "{{amount}} evcil hayvan içe aktarılamadı",
+      "linkPlaceholder": "codex:// kurulum bağlantısı veya HTTPS sprite sayfası URL'si yapıştırın",
+      "linkLabel": "Evcil hayvan bağlantısı",
+      "previewLink": "Bağlantıyı önizle"
+    },
+    "creator": {
+      "action": "Oluştur",
+      "title": "Evcil hayvan oluştur",
+      "description": "Özgün bir maskot oluşturun ve kurmadan önce Codex uyumlu animasyonu önizleyin.",
+      "name": "Ad",
+      "shortDescription": "Kısa açıklama (isteğe bağlı)",
+      "prompt": "Evcil hayvanınız nasıl görünmeli?",
+      "generate": "Önizleme oluştur",
+      "generating": "Önizleme oluşturuluyor…",
+      "failed": "Bu evcil hayvan oluşturulamadı"
+    },
+    "export": {
+      "action": "Codex için dışa aktar",
+      "saved": "Codex uyumlu paket dışa aktarıldı",
+      "failed": "Bu evcil hayvan dışa aktarılamadı"
+    },
+    "window": {
+      "interact": "Hope evcil hayvanıyla etkileşime geç",
+      "tuckAway": "Evcil hayvanı kaldır"
+    },
+    "bubble": {
+      "needsInput": "{{count}} konuşma girdinize ihtiyaç duyuyor.",
+      "needsInput_one": "Girdinize ihtiyacım var.",
+      "needsInput_other": "{{count}} konuşma girdinize ihtiyaç duyuyor.",
+      "blocked": "{{count}} konuşma engellendi.",
+      "blocked_one": "Bir konuşma engellendi.",
+      "blocked_other": "{{count}} konuşma engellendi.",
+      "ready": "{{count}} konuşma hazır.",
+      "ready_one": "Bir konuşma hazır.",
+      "ready_other": "{{count}} konuşma hazır.",
+      "open": "Hope'ta aç",
+      "dismiss": "Kapat",
+      "running": "Düşünüyor",
+      "reply": "Yanıtla",
+      "queued": "Yanıt sıraya alındı",
+      "sent": "Yanıt gönderildi",
+      "sendFailed": "Yanıt gönderilemedi"
+    },
+    "stack": {
+      "expand": "{{count}} konuşmayı göster",
+      "collapse": "Konuşmaları daralt"
+    },
+    "tray": {
+      "title": "Konuşma etkinliği",
+      "reconnecting": "Durum yenileniyor…",
+      "count": "{{count}} etkin",
+      "count_one": "{{count}} etkin",
+      "count_other": "{{count}} etkin",
+      "close": "Etkinliği kapat",
+      "openRemaining": "{{count}} tane daha Hope'ta görüntüle",
+      "openRemaining_one": "{{count}} tane daha Hope'ta görüntüle",
+      "openRemaining_other": "{{count}} tane daha Hope'ta görüntüle",
+      "incognitoTitle": "Gizli konuşma",
+      "untitledTitle": "Yeni konuşma"
+    },
+    "navigation": {
+      "unavailable": "Bu konuşma artık kullanılamıyor."
     }
   },
   "configRecovery": {

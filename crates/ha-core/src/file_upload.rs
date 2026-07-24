@@ -33,6 +33,7 @@ pub enum FileUploadPurpose {
     WorkspaceUpload,
     KnowledgeSource,
     ArtifactSource,
+    PetPackage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +171,7 @@ pub fn purpose_limit_bytes(purpose: FileUploadPurpose) -> u64 {
             .max_binary_source_bytes()
             .max(config.knowledge_source_limits.max_text_source_bytes()),
         FileUploadPurpose::ArtifactSource => config.filesystem.max_artifact_import_bytes(),
+        FileUploadPurpose::PetPackage => 32 * 1024 * 1024,
     }
 }
 
@@ -184,6 +186,7 @@ pub fn ensure_purpose_size(purpose: FileUploadPurpose, size_bytes: u64) -> Resul
                 FileUploadPurpose::WorkspaceUpload => "workspace uploads",
                 FileUploadPurpose::KnowledgeSource => "knowledge sources",
                 FileUploadPurpose::ArtifactSource => "Artifact sources",
+                FileUploadPurpose::PetPackage => "pet packages",
             }
         );
     }

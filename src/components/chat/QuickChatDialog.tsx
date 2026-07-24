@@ -18,7 +18,7 @@ import type { CommandResult } from "./slash-commands/types"
 import type { AgentSummaryForSidebar, PendingMessageQuote } from "@/types/chat"
 import type { QuickPromptAddResult, QuickPromptConfig, QuickPromptItem } from "@/types/quickPrompts"
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
-import { useReadableSurface } from "@/hooks/useReadableSurface"
+import { useEmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
 
 interface QuickChatDialogProps {
   open: boolean
@@ -42,11 +42,12 @@ export default function QuickChatDialog({
   const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([])
   const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
   const [messageTailVisible, setMessageTailVisible] = useState(true)
-  const activeSessionReadable = useReadableSurface(open) && messageTailVisible
-  const activeSessionReadableRef = useRef(activeSessionReadable)
-  useEffect(() => {
-    activeSessionReadableRef.current = activeSessionReadable
-  }, [activeSessionReadable])
+  useEmbeddedChatReadReceipt(
+    open,
+    messageTailVisible,
+    session.currentSessionId,
+    session.messages,
+  )
 
   // Effective incognito = persisted session.incognito (continued chat) or
   // draft toggle (new chat). Same shape as `ChatScreen` so `useChatStream`
@@ -104,6 +105,7 @@ export default function QuickChatDialog({
 
   // ── Stream Hook ─────────────────────────────────
   const stream = useChatStream({
+    uiSurface: "quick_chat",
     messages: session.messages,
     setMessages: session.setMessages,
     currentSessionId: session.currentSessionId,
@@ -126,7 +128,6 @@ export default function QuickChatDialog({
     lastSeqRef: quickStreamSeqRef,
     endedStreamIdsRef: quickEndedStreamIdsRef,
     incognitoEnabled,
-    activeSessionReadableRef,
   })
   const handleMessageQuote = useCallback(
     (quote: PendingMessageQuote) => {

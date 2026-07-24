@@ -571,6 +571,9 @@ pub struct ChatEngineParams {
     /// Which caller opened this stream. Drives the `activeChatCounts`
     /// breakdown surfaced in `/api/server/status`.
     pub source: ChatSource,
+    /// First-party message-list + composer surface that initiated this turn.
+    /// Product routing metadata only: it is never added to model messages.
+    pub ui_surface: Option<crate::pet::ChatUiSurface>,
     /// Origin of the whole call chain for KB access (design D10). `None` =
     /// top-level (origin == `source`). A subagent sets this to its parent
     /// turn's effective origin so an IM-originated chain can't reacquire KB

@@ -1376,6 +1376,7 @@ pub async fn build_and_run_agent_with_context(
         // engine derive the origin from `source`, so a subagent spawned by this
         // cron run inherits the non-IM `Cron` origin and isn't WS8-denied.
         source: crate::chat_engine::stream_seq::ChatSource::Cron,
+        ui_surface: None,
         origin_source: None,
         channel_kb_context: None,
         event_sink: Arc::new(crate::chat_engine::NoopEventSink),

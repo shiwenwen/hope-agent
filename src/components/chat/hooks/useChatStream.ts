@@ -342,6 +342,9 @@ export interface UseChatStreamOptions {
    * (full tools).
    */
   toolScope?: "knowledge" | "design"
+  /** First-party message-list + composer identity for pet activity routing.
+   * Internal callers and side queries omit this metadata. */
+  uiSurface?: "main_chat" | "quick_chat" | "knowledge_chat" | "design_chat" | "pet_chat"
   /**
    * Design-space per-project chat: the design project open when the conversation
    * started. Sent only on the auto-create send (with `toolScope === "design"`)
@@ -359,11 +362,6 @@ export interface UseChatStreamOptions {
   getExtraAttachments?: () => ChatAttachment[]
   /** Called after a persisted session sandbox-mode update succeeds. */
   onSandboxModeSynced?: (sessionId: string, mode: SandboxMode) => void
-  /**
-   * Main-chat reading predicate. Omitted by transient surfaces whose own mount
-   * lifecycle already guarantees visibility (for example Quick Chat).
-   */
-  activeSessionReadableRef?: React.MutableRefObject<boolean>
   /**
    * When true, this surface has `useChatStreamReattach` mounted and should let
    * ParentInjection deltas arrive through `chat:stream_delta` instead of the
@@ -450,11 +448,11 @@ export function useChatStream({
   draftKbAttachments = [],
   draftKbAnchorNote = null,
   toolScope,
+  uiSurface,
   draftDesignProjectId = null,
   getExtraAttachments,
   onSandboxModeSynced,
   parentInjectionDeltasViaChatStream = false,
-  activeSessionReadableRef,
 }: UseChatStreamOptions): UseChatStreamReturn {
   // Latest draft attaches, snapshotted into the startChat payload at send time
   // (mirrors how draftWorkingDir is baked into the create call) so a later
@@ -1795,6 +1793,7 @@ export function useChatStream({
                   access: a.access,
                 })),
           ...(toolScope ? { toolScope } : {}),
+          ...(uiSurface ? { uiSurface } : {}),
           // Anchor only matters on the auto-create send; mirrors kbAttachments.
           ...(toolScope && !sendSessionId && draftKbAnchorNote
             ? { kbAnchorNote: draftKbAnchorNote }
@@ -2007,22 +2006,10 @@ export function useChatStream({
           }
         }
       }
-      // Mark as read ONLY when the completed turn belongs to the session the
-      // user is actually viewing. A backgrounded turn — the user navigated away
-      // before it finished (including a just-created session they then left), or
-      // it was a background / injected turn — must keep its new assistant reply
-      // unread so the sidebar surfaces it; otherwise the completion is silently
-      // swallowed and the badge never appears. The lazy-create ref lag is
-      // bridged eagerly in handleSessionCreated, so this comparison is accurate.
-      if (
-        targetSessionId &&
-        targetSessionId === currentSessionIdRef.current &&
-        (activeSessionReadableRef?.current ?? true)
-      ) {
-        await getTransport()
-          .call("mark_session_read_cmd", { sessionId: targetSessionId })
-          .catch(() => {})
-      }
+      // Read state is advanced by the owning transcript only after the completed
+      // database row has rendered and the tail is visible. Never mark the whole
+      // session here: stream completion can beat React paint, which would clear
+      // a reply the user has not actually seen yet.
       await reloadSessions()
 
       // SQLite remains authoritative. Reconcile the completed session, then

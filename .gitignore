@@ -42,6 +42,7 @@ docs/requirements/
 docs/plan/*
 !docs/plan/memory-next-generation-plan.md
 !docs/plan/subagent-thread-resume-and-workflow-recovery.md
+!docs/plan/pet.md
 
 # Local assistant state（worktrees / settings.local.json 等）
 .claude/

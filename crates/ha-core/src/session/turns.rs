@@ -113,6 +113,8 @@ pub struct ChatTurn {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<String>,
     pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ui_surface: Option<crate::pet::ChatUiSurface>,
 }
 
 impl SessionDB {
@@ -131,6 +133,7 @@ impl SessionDB {
                 started_at TEXT NOT NULL,
                 ended_at TEXT,
                 updated_at TEXT NOT NULL,
+                ui_surface TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_chat_turns_session_started
@@ -139,6 +142,20 @@ impl SessionDB {
                 ON chat_turns(session_id, status);
             CREATE INDEX IF NOT EXISTS idx_chat_turns_stream_id
                 ON chat_turns(stream_id);",
+        )?;
+        if conn
+            .prepare("SELECT ui_surface FROM chat_turns LIMIT 1")
+            .is_err()
+        {
+            conn.execute_batch("ALTER TABLE chat_turns ADD COLUMN ui_surface TEXT;")?;
+        }
+        // Drop the pre-release draft name once, then keep the final index
+        // stable. Rebuilding a potentially large turn index on every startup
+        // would make Pet's additive migration unnecessarily expensive.
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS idx_chat_turns_ui_surface_session_started;
+             CREATE INDEX IF NOT EXISTS idx_chat_turns_session_surface_started
+                 ON chat_turns(session_id, ui_surface, started_at DESC);",
         )?;
         Ok(())
     }
@@ -162,19 +179,63 @@ impl SessionDB {
         stream_id: Option<&str>,
         user_message_id: Option<i64>,
     ) -> Result<ChatTurn> {
+        self.create_chat_turn_with_id_surface(
+            id,
+            session_id,
+            source,
+            stream_id,
+            user_message_id,
+            None,
+        )
+    }
+
+    pub fn create_chat_turn_with_id_surface(
+        &self,
+        id: &str,
+        session_id: &str,
+        source: &str,
+        stream_id: Option<&str>,
+        user_message_id: Option<i64>,
+        ui_surface: Option<crate::pet::ChatUiSurface>,
+    ) -> Result<ChatTurn> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
+        // A non-UI turn can replace a currently projected UI turn in the same
+        // session. Invalidate only for that transition (or for a new UI turn)
+        // so background-only sessions do not create a pet refresh storm.
+        let pet_relevant = ui_surface.is_some()
+            || conn
+                .query_row(
+                    "SELECT ui_surface IS NOT NULL
+                       FROM chat_turns
+                      WHERE session_id = ?1
+                      ORDER BY started_at DESC, id DESC
+                      LIMIT 1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .unwrap_or(false);
         conn.execute(
             "INSERT INTO chat_turns (
                 id, session_id, source, status, interrupt_reason, stream_id,
-                user_message_id, assistant_message_id, error, started_at, ended_at, updated_at
-             ) VALUES (?1, ?2, ?3, 'running', NULL, ?4, ?5, NULL, NULL, ?6, NULL, ?6)",
-            params![id, session_id, source, stream_id, user_message_id, now],
+                user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
+                ui_surface
+             ) VALUES (?1, ?2, ?3, 'running', NULL, ?4, ?5, NULL, NULL, ?6, NULL, ?6, ?7)",
+            params![
+                id,
+                session_id,
+                source,
+                stream_id,
+                user_message_id,
+                now,
+                ui_surface.map(crate::pet::ChatUiSurface::as_str),
+            ],
         )?;
-        Ok(ChatTurn {
+        let turn = ChatTurn {
             id: id.to_string(),
             session_id: session_id.to_string(),
             source: source.to_string(),
@@ -187,7 +248,13 @@ impl SessionDB {
             started_at: now.clone(),
             ended_at: None,
             updated_at: now,
-        })
+            ui_surface,
+        };
+        drop(conn);
+        if pet_relevant {
+            crate::pet::emit_activity_changed();
+        }
+        Ok(turn)
     }
 
     pub fn get_chat_turn(&self, turn_id: &str) -> Result<Option<ChatTurn>> {
@@ -197,7 +264,8 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.query_row(
             "SELECT id, session_id, source, status, interrupt_reason, stream_id,
-                    user_message_id, assistant_message_id, error, started_at, ended_at, updated_at
+                    user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
+                    ui_surface
              FROM chat_turns WHERE id = ?1",
             params![turn_id],
             Self::row_to_chat_turn,
@@ -213,7 +281,8 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.query_row(
             "SELECT id, session_id, source, status, interrupt_reason, stream_id,
-                    user_message_id, assistant_message_id, error, started_at, ended_at, updated_at
+                    user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
+                    ui_surface
              FROM chat_turns
              WHERE session_id = ?1
              ORDER BY started_at DESC
@@ -241,7 +310,21 @@ impl SessionDB {
              WHERE id = ?3 AND status IN ('running', 'cancelling')",
             params![reason.as_str(), now, turn_id],
         )?;
-        Ok(n > 0)
+        let changed = n > 0;
+        let pet_relevant = if changed {
+            conn.query_row(
+                "SELECT ui_surface IS NOT NULL FROM chat_turns WHERE id = ?1",
+                params![turn_id],
+                |row| row.get(0),
+            )?
+        } else {
+            false
+        };
+        drop(conn);
+        if pet_relevant {
+            crate::pet::emit_activity_changed();
+        }
+        Ok(changed)
     }
 
     pub fn finish_chat_turn_once(
@@ -281,7 +364,21 @@ impl SessionDB {
                 turn_id,
             ],
         )?;
-        Ok(n > 0)
+        let changed = n > 0;
+        let pet_relevant = if changed {
+            conn.query_row(
+                "SELECT ui_surface IS NOT NULL FROM chat_turns WHERE id = ?1",
+                params![turn_id],
+                |row| row.get(0),
+            )?
+        } else {
+            false
+        };
+        drop(conn);
+        if pet_relevant {
+            crate::pet::emit_activity_changed();
+        }
+        Ok(changed)
     }
 
     pub fn finish_chat_turn_after_execution(
@@ -298,7 +395,8 @@ impl SessionDB {
         let current = conn
             .query_row(
                 "SELECT id, session_id, source, status, interrupt_reason, stream_id,
-                        user_message_id, assistant_message_id, error, started_at, ended_at, updated_at
+                        user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
+                        ui_surface
                  FROM chat_turns WHERE id = ?1",
                 params![turn_id],
                 Self::row_to_chat_turn,
@@ -347,15 +445,22 @@ impl SessionDB {
             ],
         )?;
 
-        conn.query_row(
-            "SELECT id, session_id, source, status, interrupt_reason, stream_id,
-                    user_message_id, assistant_message_id, error, started_at, ended_at, updated_at
+        let result = conn
+            .query_row(
+                "SELECT id, session_id, source, status, interrupt_reason, stream_id,
+                    user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
+                    ui_surface
              FROM chat_turns WHERE id = ?1",
-            params![turn_id],
-            Self::row_to_chat_turn,
-        )
-        .optional()
-        .map_err(Into::into)
+                params![turn_id],
+                Self::row_to_chat_turn,
+            )
+            .optional()?;
+        let pet_relevant = current.ui_surface.is_some();
+        drop(conn);
+        if pet_relevant {
+            crate::pet::emit_activity_changed();
+        }
+        Ok(result)
     }
 
     pub fn update_chat_turn_stream_id(&self, turn_id: &str, stream_id: &str) -> Result<bool> {
@@ -403,7 +508,7 @@ impl SessionDB {
         let mut stmt = conn.prepare(
             "SELECT id, session_id, source, status, interrupt_reason, stream_id,
                     user_message_id, assistant_message_id, error,
-                    started_at, ended_at, updated_at
+                    started_at, ended_at, updated_at, ui_surface
              FROM chat_turns
              WHERE status IN ('running', 'cancelling')
              ORDER BY started_at ASC",
@@ -434,6 +539,10 @@ impl SessionDB {
             started_at: row.get(9)?,
             ended_at: row.get(10)?,
             updated_at: row.get(11)?,
+            ui_surface: row
+                .get::<_, Option<String>>(12)?
+                .as_deref()
+                .and_then(crate::pet::ChatUiSurface::from_str),
         })
     }
 }

@@ -53,7 +53,8 @@ export type FileUploadPurpose =
   | "chat_attachment"
   | "workspace_upload"
   | "knowledge_source"
-  | "artifact_source";
+  | "artifact_source"
+  | "pet_package";
 export type FileUploadState = "uploading" | "complete";
 
 export interface FileUploadLease {
@@ -66,6 +67,11 @@ export interface FileUploadLease {
   state: FileUploadState;
   expiresAt: string;
   contentHash?: string;
+}
+
+export interface PetAssetLease {
+  src: string;
+  revoke: () => void;
 }
 
 /**
@@ -141,6 +147,9 @@ export interface ChatStartArgs {
    *  branch (with `toolScope: "design"`) so the backend promotes the new session
    *  into a design chat thread anchored to it. Ignored for existing sessions. */
   designProjectId?: string | null;
+  /** First-party message-list + composer surface. Product routing metadata;
+   * never included in model messages. Internal/side-query callers omit it. */
+  uiSurface?: "main_chat" | "quick_chat" | "knowledge_chat" | "design_chat" | "pet_chat";
   // Tauri's invoke serializes extra unknown fields without complaint, and
   // HTTP's POST body is plain JSON — keep this open so HTTP impl can
   // pass-through without an unsafe `as Record<string, unknown>` cast.
@@ -292,6 +301,9 @@ export interface Transport {
    * rendering when the result is `null`.
    */
   resolveAssetUrl(path: string | null | undefined): string | null;
+
+  /** Resolve an installed pet asset without exposing a server-host path. */
+  loadPetAsset(assetId: string, builtinSrc: string): Promise<PetAssetLease>;
 
   /**
    * Trigger the user-facing "open" action for a media item.

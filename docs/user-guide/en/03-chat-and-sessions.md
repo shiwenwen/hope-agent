@@ -108,7 +108,7 @@ Replies support full Markdown, syntax-highlighted code, math formulas (KaTeX), a
 ### How unread is counted
 
 - **No matter how many unread messages a session has, it counts as just "1 unread session"**. A session row shows a small dot; the numbers shown for projects, globally, and on the Dock are the **count** of unread sessions; the system tray only shows whether there is a red dot at all.
-- A session is considered "read" only when it is selected in the main chat view, the window is in the foreground, the page is visible, and the message list is at the latest position.
+- A session is normally considered read only when it is selected in the main chat view, the window is in the foreground, the page is visible, and the message list is at the latest position. Ready and Blocked previews in Desktop Pet are the explicit exception: only the viewing or actions described below advance through the message boundary actually shown in the bubble.
 - Scheduled tasks and IM channels each keep their own separate unread counts; "Mark all as read" for ordinary conversations does not clear them.
 
 ---
@@ -168,6 +168,20 @@ Compaction starts with "cleaning up stale tool results at zero cost" and works i
 
 ---
 
+## Desktop Pet
+
+In the desktop app, Settings → Pets can wake an animated companion that stays on your desktop. It only reflects product main conversations: main chat, Quick Chat, Knowledge chat, and Design chat. Background jobs, Cron, IM, ACP, sub-agents, Memory, evaluations, summaries, and other extra model requests never light up the pet on their own.
+
+- Bubbles dynamically resize the native window while keeping the pet's feet anchored. Automatic bubbles do not take focus, and the pet and bubble still provide hover feedback while you are working in another app.
+- Running text updates live with a shimmer and changes to a green check when complete. The fixed-height preview shows up to two lines; Markdown headings, emphasis, code, and links become readable plain text instead of exposing `#`, `*`, or backticks. Hover a bubble to dismiss it, reply, or stop that specific conversation.
+- Automatic appearance does not count as read. A Ready or Blocked bubble marks only its displayed message boundary as read after you dwell and move away, open the conversation, submit a quick reply, dismiss it, or deliberately collapse the expanded stack; Running, Ask User, and approval waits are not cleared this way. Unread counts then refresh from the authoritative session state.
+- Clicking the pet brings up the Hope main window; dragging only moves the pet and does not accidentally open the window. Clicking an activity returns to its exact conversation; multiple activities expand into a scrollable bubble stack, with separate compact cards for questions and approvals. Right-click the pet to show a small Close button directly over it. Restart and monitor changes restore it within the visible work area.
+- Import can scan Codex custom pets or accept a dropped folder, zip, `pet.json + image`, PNG, or WebP. Dropping several packages creates a preview for each. You can also paste a `codex://` or HTTPS link, or open a `hope-agent://pets/install?...` link. Every route stops at preview until you confirm installation.
+- The built-in Hope pet and custom pets can be exported as a Codex-compatible zip. Create generates an original pet; this is an explicit image-generation action that counts toward usage, not a background Pet runtime request.
+- `/pet` toggles the window; `/pet on|off|status` controls it explicitly. HTTP, ACP, and IM cannot remotely open the always-on-top desktop window.
+
+With Reduce Motion enabled, the pet stays on a static frame. Custom pets remain on this device. Select another pet before deleting one; the confirmation toast offers Undo.
+
 ## 3.9 Slash command reference
 
 Type `/` in the chat input box or in any IM channel to trigger a slash command. Fuzzy matching is supported. Below is the full set of built-in commands (each installable skill also auto-generates a `/skillname` command).
@@ -185,6 +199,7 @@ Type `/` in the chat input box or in any IM channel to trigger a slash command. 
 | `/status` | View session status (Agent / model / ID / message count) |
 | `/usage` | View the current session's token usage |
 | `/context` | View a breakdown of context-window usage |
+| `/pet [on\|off\|toggle\|status]` | Wake, tuck away, or inspect the desktop pet |
 | `/sessions` | Open the session picker (optionally with a keyword search) |
 | `/session <id>` | Switch to / associate a session |
 

@@ -22,6 +22,7 @@ The left side of the Settings page is a navigation column. The table below tells
 | --- | --- |
 | **Profile** | Avatar, name, time zone, preferred reply language, AI experience level, reply style |
 | **General** | Appearance (theme / interface language / sidebar and chat display mode / background animation), System (launch at startup / prevent sleep / global shortcuts / rerun onboarding), Network (proxy) |
+| **Pets** | Wake, choose, import/export Codex-compatible pets, or create an original [Desktop Pet](03-chat-and-sessions.md#desktop-pet) |
 | **Model Configuration** | [Providers, API keys, primary / fallback models, media generation models](02-models-and-providers.md) |
 | **Agents** | [Creating / editing Agents](12-projects-and-insights.md#122-custom-agents) |
 | **Teams** | [Agent Team templates](09-multi-agent-and-scheduling.md#92-agent-teams) |

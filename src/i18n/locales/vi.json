@@ -8517,6 +8517,9 @@
     "permission": {
       "description": "Đặt chế độ quyền phiên (default/smart/yolo)"
     },
+    "pet": {
+      "description": "Đánh thức, ẩn hoặc xem trạng thái thú cưng trên màn hình"
+    },
     "plan": {
       "description": "Vào/thoát kế hoạch mode"
     },
@@ -12207,6 +12210,113 @@
       "checkCleanAll": "Tất cả sản phẩm khớp với mã của chúng",
       "checkStale": "{{n}} sản phẩm có cập nhật mã",
       "chatPrompt": "Mã đã triển khai đã khác với thiết kế này. Hãy cập nhật thiết kế hiện tại để phản ánh các thay đổi mã được tham chiếu, giữ nguyên ý đồ thiết kế và mọi thứ còn lại."
+    }
+  },
+  "pet": {
+    "settings": {
+      "nav": "Thú cưng",
+      "wake": "Thú cưng trên màn hình",
+      "wakeDesc": "Hiển thị bạn đồng hành hoạt hình và trạng thái hội thoại trên màn hình.",
+      "desktopOnly": "Tính năng đánh thức và ẩn có trong ứng dụng máy tính.",
+      "choose": "Chọn thú cưng",
+      "localOnly": "Thú cưng tùy chỉnh chỉ được lưu trên thiết bị này.",
+      "loadFailed": "Không thể tải thú cưng",
+      "saveFailed": "Không thể lưu cài đặt thú cưng",
+      "cannotDeleteSelected": "Hãy chọn thú cưng khác trước khi xóa",
+      "deleted": "Đã xóa thú cưng",
+      "undo": "Hoàn tác",
+      "deleteFailed": "Không thể xóa thú cưng",
+      "deleteTitle": "Xóa thú cưng này?",
+      "deleteDescription": "Xóa {{name}} khỏi thiết bị này?"
+    },
+    "import": {
+      "action": "Nhập",
+      "title": "Nhập thú cưng",
+      "description": "Xem trước và xác thực thú cưng tương thích Codex trước khi thêm vào Hope.",
+      "drop": "Thả thư mục, zip, tệp kê khai + ảnh, PNG hoặc WebP",
+      "dropSafety": "Thả tệp chỉ tạo bản xem trước. Không có gì được cài đặt trước khi bạn xác nhận.",
+      "chooseFiles": "Chọn tệp",
+      "packageFiles": "Gói thú cưng",
+      "fromCodex": "Quét thú cưng Codex",
+      "found": "Đã tìm thấy {{count}}",
+      "found_one": "Đã tìm thấy {{count}}",
+      "found_other": "Đã tìm thấy {{count}}",
+      "unknownVersion": "phiên bản không rõ",
+      "previewFailed": "Không thể xem trước gói này",
+      "previewFailedCount": "Không thể xem trước {{amount}} gói thú cưng",
+      "previewCount": "{{amount}} thú cưng sẵn sàng để xem lại",
+      "removePreview": "Xóa khỏi lần nhập này",
+      "scanFailed": "Không thể quét thú cưng Codex",
+      "uploadFailed": "Không thể tải gói lên",
+      "duplicate": "Đã nhập",
+      "enableAfter": "Dùng thú cưng này sau khi nhập",
+      "confirm": "Nhập thú cưng",
+      "imported": "Đã nhập thú cưng",
+      "importedCount": "Đã thêm {{amount}} thú cưng vào thư viện",
+      "alreadyImported": "Thú cưng này đã có trong thư viện",
+      "commitFailed": "Không thể nhập thú cưng",
+      "commitFailedCount": "Không thể nhập {{amount}} thú cưng",
+      "linkPlaceholder": "Dán liên kết cài đặt codex:// hoặc URL HTTPS của bảng sprite",
+      "linkLabel": "Liên kết thú cưng",
+      "previewLink": "Xem trước liên kết"
+    },
+    "creator": {
+      "action": "Tạo",
+      "title": "Tạo thú cưng",
+      "description": "Tạo linh vật nguyên bản và xem trước hoạt ảnh tương thích Codex trước khi cài đặt.",
+      "name": "Tên",
+      "shortDescription": "Mô tả ngắn (không bắt buộc)",
+      "prompt": "Bạn muốn thú cưng trông như thế nào?",
+      "generate": "Tạo bản xem trước",
+      "generating": "Đang tạo bản xem trước…",
+      "failed": "Không thể tạo thú cưng này"
+    },
+    "export": {
+      "action": "Xuất cho Codex",
+      "saved": "Đã xuất gói tương thích Codex",
+      "failed": "Không thể xuất thú cưng này"
+    },
+    "window": {
+      "interact": "Tương tác với thú cưng Hope",
+      "tuckAway": "Cất thú cưng"
+    },
+    "bubble": {
+      "needsInput": "{{count}} cuộc hội thoại cần bạn phản hồi.",
+      "needsInput_one": "Tôi cần bạn phản hồi.",
+      "needsInput_other": "{{count}} cuộc hội thoại cần bạn phản hồi.",
+      "blocked": "{{count}} cuộc hội thoại đang bị chặn.",
+      "blocked_one": "Một cuộc hội thoại đang bị chặn.",
+      "blocked_other": "{{count}} cuộc hội thoại đang bị chặn.",
+      "ready": "{{count}} cuộc hội thoại đã sẵn sàng.",
+      "ready_one": "Một cuộc hội thoại đã sẵn sàng.",
+      "ready_other": "{{count}} cuộc hội thoại đã sẵn sàng.",
+      "open": "Mở trong Hope",
+      "dismiss": "Đóng",
+      "running": "Đang suy nghĩ",
+      "reply": "Trả lời",
+      "queued": "Đã xếp hàng phản hồi",
+      "sent": "Đã gửi phản hồi",
+      "sendFailed": "Không thể gửi phản hồi"
+    },
+    "stack": {
+      "expand": "Hiển thị {{count}} cuộc hội thoại",
+      "collapse": "Thu gọn hội thoại"
+    },
+    "tray": {
+      "title": "Hoạt động hội thoại",
+      "reconnecting": "Đang làm mới trạng thái…",
+      "count": "{{count}} đang hoạt động",
+      "count_one": "{{count}} đang hoạt động",
+      "count_other": "{{count}} đang hoạt động",
+      "close": "Đóng hoạt động",
+      "openRemaining": "Xem thêm {{count}} trong Hope",
+      "openRemaining_one": "Xem thêm {{count}} trong Hope",
+      "openRemaining_other": "Xem thêm {{count}} trong Hope",
+      "incognitoTitle": "Hội thoại ẩn danh",
+      "untitledTitle": "Hội thoại mới"
+    },
+    "navigation": {
+      "unavailable": "Cuộc hội thoại này không còn khả dụng."
     }
   },
   "configRecovery": {

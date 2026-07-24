@@ -331,6 +331,9 @@ pub async fn chat(
     // Tool-visibility scope (`"knowledge"`). Set by the knowledge-space sidebar
     // chat to trim the injected tool set; `None` for normal chats.
     tool_scope: Option<String>,
+    // First-party message-list + composer surface. Product metadata only;
+    // persisted on chat_turns and never included in the model request.
+    ui_surface: Option<ha_core::pet::ChatUiSurface>,
     // Knowledge-space sidebar chat: the note open when the conversation started.
     // Only honored on the auto-create branch (mirrors `working_dir` /
     // `kb_attachments`) — promotes the new session into a KB chat thread.
@@ -909,6 +912,7 @@ pub async fn chat(
         let turn_id = turn_id.clone();
         let queue_id_for_consume = queued_request_id.clone();
         let edit_message_id = edit_message_id;
+        let ui_surface_for_turn = ui_surface;
         db.run(move |db| -> anyhow::Result<Option<i64>> {
             if let Some(message_id) = edit_message_id {
                 let replacement_id = db.replace_last_user_message_for_edit(
@@ -917,6 +921,7 @@ pub async fn chat(
                     &user_msg,
                     &turn_id,
                     ha_core::chat_engine::ChatSource::Desktop.as_str(),
+                    ui_surface_for_turn,
                 )?;
                 return Ok(Some(replacement_id));
             }
@@ -925,12 +930,13 @@ pub async fn chat(
             } else {
                 db.append_message(&sid, &user_msg).ok()
             };
-            db.create_chat_turn_with_id(
+            db.create_chat_turn_with_id_surface(
                 &turn_id,
                 &sid,
                 ha_core::chat_engine::ChatSource::Desktop.as_str(),
                 None,
                 user_message_id,
+                ui_surface_for_turn,
             )?;
             if let Some(request_id) = queue_id_for_consume.as_deref() {
                 db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
@@ -1285,6 +1291,7 @@ pub async fn chat(
         abort_on_cancel: false,
         persist_final_error_event: true,
         source: crate::chat_engine::stream_seq::ChatSource::Desktop,
+        ui_surface,
         origin_source: None,
         // Desktop owner turn — KB access via attach, not the IM opt-in gate.
         channel_kb_context: None,

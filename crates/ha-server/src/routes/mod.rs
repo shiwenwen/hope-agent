@@ -50,6 +50,7 @@ pub mod misc;
 pub mod models;
 pub mod onboarding;
 pub mod permission;
+pub mod pet;
 pub mod plan;
 pub mod project_fs;
 pub mod projects;
