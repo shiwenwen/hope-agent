@@ -569,7 +569,7 @@ export default function LocalLlmAssistantCard({
                       className={cn(
                         "h-auto w-full justify-between gap-2 rounded-md px-2 py-1.5 text-[11px] font-normal",
                         isChosen
-                          ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                          ? "bg-secondary text-foreground hover:bg-secondary"
                           : "text-muted-foreground hover:bg-secondary/40",
                       )}
                     >

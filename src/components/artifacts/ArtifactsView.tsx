@@ -220,7 +220,7 @@ function ArtifactListRow({
       <button
         className={cn(
           "mb-1.5 w-full rounded-xl p-3 text-left text-foreground transition-colors",
-          selected ? "bg-secondary/70" : "hover:bg-secondary/40",
+          selected ? "bg-secondary" : "hover:bg-secondary/40",
         )}
         onClick={() => void resource.run(resource.primary)}
       >

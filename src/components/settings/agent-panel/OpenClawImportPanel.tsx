@@ -436,7 +436,7 @@ export function OpenClawImportPanel({ onSkip, onImported, hideSkip }: OpenClawIm
                   key={p.sourceKey}
                   className={cn(
                     "rounded-md border px-3 py-2.5 cursor-pointer hover:bg-accent/40 transition",
-                    checked && "bg-secondary/70",
+                    checked && "bg-secondary",
                   )}
                   onClick={() => {
                     setSelectedProviders((prev) => toggle(prev, p.sourceKey))
@@ -516,7 +516,7 @@ export function OpenClawImportPanel({ onSkip, onImported, hideSkip }: OpenClawIm
                   key={a.id}
                   className={cn(
                     "rounded-md border px-3 py-2.5",
-                    checked && "bg-secondary/70",
+                    checked && "bg-secondary",
                   )}
                 >
                   <div className="flex items-start gap-3">

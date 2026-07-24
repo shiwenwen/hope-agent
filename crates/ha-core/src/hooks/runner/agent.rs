@@ -99,6 +99,9 @@ impl HookHandler for AgentHandler {
             origin_channel_kb_context: None,
             // Internal hook-spawned subagent (skip_parent_injection) — never grouped (R5).
             group_id: None,
+            owner_kind: crate::subagent::SubagentOwnerKind::Internal,
+            owner_id: format!("hook:{}", common.session_id),
+            delivery_kind: crate::subagent::SubagentDeliveryKind::None,
         };
 
         let run_id = match spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await

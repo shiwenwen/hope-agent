@@ -30,7 +30,8 @@ use super::{
 
 fn temp_db() -> (tempfile::TempDir, SessionDB) {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = SessionDB::open(&dir.path().join("sessions.db")).expect("open session db");
+    let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+        .expect("open session db");
     ensure_channel_conversations_table(&db);
     (dir, db)
 }
@@ -102,6 +103,70 @@ fn create_run_with_script(db: &SessionDB, script_source: &str) -> (String, Strin
         })
         .expect("create workflow run");
     (session.id, run.id)
+}
+
+fn create_controlled_run_with_failed_child(
+    db: &SessionDB,
+    api_version: i64,
+    script_source: &str,
+) -> (String, String, String) {
+    let session = db.create_session("ha-main").expect("create session");
+    let run = db
+        .create_workflow_run_with_control(
+            CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: format!("general.v{api_version}-agent-failure"),
+                execution_mode: "guarded".to_string(),
+                script_source: script_source.to_string(),
+                budget: json!({"max_script_secs": 10, "max_ops": 8}),
+                parent_run_id: None,
+                origin: None,
+                goal_id: None,
+                goal_criterion_id: None,
+                worktree_id: None,
+            },
+            WorkflowRunControlInput {
+                api_version,
+                meta: json!({"purpose": "agent failure finish guard"}),
+                args: json!({}),
+                resume_from_run_id: None,
+            },
+        )
+        .expect("create controlled workflow");
+    db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
+        .expect("start workflow");
+
+    let child_run_id = uuid::Uuid::new_v4().to_string();
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run.id.clone(),
+        op_key: "seed/op#0(spawnAgent)".to_string(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({"args": {"action": "spawn", "task": "fail deterministically"}}),
+        child_handle: Some(child_run_id.clone()),
+    })
+    .expect("persist child op");
+    let child_session_id = format!("child-{child_run_id}");
+    db.insert_subagent_run(&SubagentRun {
+        run_id: child_run_id.clone(),
+        thread_id: child_session_id.clone(),
+        parent_session_id: session.id.clone(),
+        parent_agent_id: "ha-main".to_string(),
+        child_agent_id: "ha-review".to_string(),
+        child_session_id,
+        task: "fail deterministically".to_string(),
+        status: SubagentStatus::Error,
+        error: Some("model failed".to_string()),
+        started_at: chrono::Utc::now().to_rfc3339(),
+        finished_at: Some(chrono::Utc::now().to_rfc3339()),
+        terminal_reason: Some(crate::subagent::SubagentTerminalReason::ModelError),
+        delivery_kind: crate::subagent::SubagentDeliveryKind::Workflow,
+        owner_kind: crate::subagent::SubagentOwnerKind::Workflow,
+        owner_id: run.id.clone(),
+        ..SubagentRun::default()
+    })
+    .expect("insert failed workflow child");
+    (session.id, run.id, child_run_id)
 }
 
 #[test]
@@ -186,7 +251,7 @@ fn workflow_spawn_global_env() -> (&'static tempfile::TempDir, Arc<SessionDB>) {
             existing.clone()
         } else {
             let db = Arc::new(
-                SessionDB::open(&root.path().join("workflow-spawn-sessions.db"))
+                SessionDB::open_ephemeral_for_test(&root.path().join("workflow-spawn-sessions.db"))
                     .expect("open workflow spawn session db"),
             );
             let _ = crate::SESSION_DB.set(db.clone());
@@ -409,6 +474,7 @@ fn workflow_snapshot_reports_child_agent_usage_by_handle() {
         attachment_count: 0,
         input_tokens: Some(100),
         output_tokens: Some(25),
+        ..SubagentRun::default()
     })
     .expect("insert completed subagent");
     db.insert_subagent_run(&SubagentRun {
@@ -430,6 +496,7 @@ fn workflow_snapshot_reports_child_agent_usage_by_handle() {
         attachment_count: 0,
         input_tokens: None,
         output_tokens: None,
+        ..SubagentRun::default()
     })
     .expect("insert running subagent");
     db.insert_subagent_run(&SubagentRun {
@@ -451,6 +518,7 @@ fn workflow_snapshot_reports_child_agent_usage_by_handle() {
         attachment_count: 0,
         input_tokens: Some(9_999),
         output_tokens: Some(9_999),
+        ..SubagentRun::default()
     })
     .expect("insert unrelated subagent");
 
@@ -530,6 +598,7 @@ fn workflow_snapshot_reports_window_usage_without_claiming_strong_cost() {
         attachment_count: 0,
         input_tokens: Some(100),
         output_tokens: Some(25),
+        ..SubagentRun::default()
     })
     .expect("insert completed subagent");
     db.insert_subagent_run(&SubagentRun {
@@ -551,6 +620,7 @@ fn workflow_snapshot_reports_window_usage_without_claiming_strong_cost() {
         attachment_count: 0,
         input_tokens: Some(9_999),
         output_tokens: Some(9_999),
+        ..SubagentRun::default()
     })
     .expect("insert unrelated subagent");
 
@@ -2032,7 +2102,10 @@ export default async function main(workflow) {
 #[test]
 fn runtime_executes_script_host_apis_and_finishes_run() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
     std::fs::write(workspace.join("src/workflow_runtime.rs"), "runtime").expect("write file");
@@ -2116,7 +2189,10 @@ export default async function main(workflow) {
 #[test]
 fn runtime_records_phase_progress_checkpoint_and_report_events() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let session = db.create_session("ha-main").expect("create session");
 
     let script = r#"
@@ -2263,7 +2339,10 @@ fn workflow_milestone_injection_pending_list_excludes_delivered_events() {
 #[test]
 fn runtime_bridges_read_grep_and_generic_tool_through_tool_dispatch() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
     std::fs::write(
@@ -2474,7 +2553,10 @@ export default async function main(workflow) {
 #[test]
 fn runtime_diff_returns_git_snapshot_for_session_workspace() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
     git(&workspace, &["init"]);
@@ -2579,7 +2661,10 @@ export default async function main(workflow) {
 #[test]
 fn runtime_review_and_verify_create_durable_control_plane_runs() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     ChannelDB::new(db.clone())
         .migrate()
         .expect("migrate channel db");
@@ -2744,7 +2829,10 @@ fn phase2_eval_feature_workflow_writes_diffs_validates_and_finishes() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
     git(&workspace, &["init"]);
@@ -2848,7 +2936,10 @@ fn runtime_repair_loop_completes_after_successful_attempt() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 
@@ -2914,7 +3005,10 @@ fn runtime_repair_loop_blocks_when_attempt_budget_exhausted() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 
@@ -2994,7 +3088,10 @@ fn runtime_validate_runs_targeted_exec_and_returns_structured_result() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 
@@ -3078,7 +3175,10 @@ fn runtime_guarded_repair_blocks_repeated_validation_failure() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 
@@ -3148,7 +3248,10 @@ fn runtime_guarded_repair_blocks_no_effective_diff_progress() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
     git(&workspace, &["init"]);
@@ -3203,7 +3306,10 @@ fn runtime_execution_mode_off_does_not_apply_repair_guard() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
-    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let db = Arc::new(
+        SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db"),
+    );
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).expect("create workspace");
 
@@ -3750,6 +3856,7 @@ export default async function main(workflow) {
         attachment_count: 0,
         input_tokens: None,
         output_tokens: None,
+        ..SubagentRun::default()
     })
     .expect("insert subagent run");
 
@@ -3818,7 +3925,16 @@ export default async function main(workflow) {
   await workflow.task.update({ task, status: "completed" });
   await workflow.finish({
     status: status.runs[0].status,
+    statusReason: status.runs[0].terminalReason,
+    statusResumeAllowed: status.runs[0].resumeAllowed,
+    statusResumeRecommended: status.runs[0].resumeRecommended,
     ready: ready.terminal,
+    readyReason: ready.runs[0].terminalReason,
+    readyResumeAllowed: ready.runs[0].resumeAllowed,
+    readyResumeRecommended: ready.runs[0].resumeRecommended,
+    resultReason: result.terminalReason,
+    resultResumeAllowed: result.resumeAllowed,
+    resultResumeRecommended: result.resumeRecommended,
     result: result.result
   });
 }
@@ -3873,6 +3989,8 @@ export default async function main(workflow) {
         attachment_count: 0,
         input_tokens: Some(5),
         output_tokens: Some(3),
+        terminal_reason: Some(crate::subagent::SubagentTerminalReason::Success),
+        ..SubagentRun::default()
     })
     .expect("insert child");
     let checkpoint = db
@@ -3901,7 +4019,16 @@ export default async function main(workflow) {
     let result = run_workflow_script(db.clone(), &run_id).expect("run workflow");
     let output = result.output.as_ref().expect("output");
     assert_eq!(output.get("status"), Some(&json!("completed")));
+    assert_eq!(output.get("statusReason"), Some(&json!("success")));
+    assert_eq!(output.get("statusResumeAllowed"), Some(&json!(true)));
+    assert_eq!(output.get("statusResumeRecommended"), Some(&json!(false)));
     assert_eq!(output.get("ready"), Some(&json!(1)));
+    assert_eq!(output.get("readyReason"), Some(&json!("success")));
+    assert_eq!(output.get("readyResumeAllowed"), Some(&json!(true)));
+    assert_eq!(output.get("readyResumeRecommended"), Some(&json!(false)));
+    assert_eq!(output.get("resultReason"), Some(&json!("success")));
+    assert_eq!(output.get("resultResumeAllowed"), Some(&json!(true)));
+    assert_eq!(output.get("resultResumeRecommended"), Some(&json!(false)));
     assert_eq!(output.get("result"), Some(&json!("structured result")));
     assert_eq!(result.snapshot.agent_usage.consumed_results, 1);
     assert_eq!(result.snapshot.agent_usage.pending_results, 0);
@@ -3987,6 +4114,7 @@ export default async function main(workflow) {
         attachment_count: 0,
         input_tokens: None,
         output_tokens: None,
+        ..SubagentRun::default()
     })
     .expect("insert child");
     db.append_workflow_event(
@@ -4080,6 +4208,7 @@ fn startup_reconciliation_restores_a_missing_terminal_child_checkpoint_once() {
         attachment_count: 0,
         input_tokens: Some(2),
         output_tokens: Some(3),
+        ..SubagentRun::default()
     })
     .expect("insert child");
     db.append_workflow_event(
@@ -4203,6 +4332,7 @@ fn workflow_snapshot_keeps_status_only_wait_all_results_pending() {
         attachment_count: 0,
         input_tokens: Some(5),
         output_tokens: Some(3),
+        ..SubagentRun::default()
     })
     .expect("insert failed child");
     db.upsert_workflow_op_started(UpsertWorkflowOpInput {
@@ -4348,6 +4478,7 @@ fn runtime_spawn_agent_dispatches_real_subagent_and_finish_blocks_while_child_is
             attachment_count: 0,
             input_tokens: None,
             output_tokens: None,
+            ..SubagentRun::default()
         })
         .expect("insert active subagent run");
 
@@ -4511,7 +4642,13 @@ export default async function main(workflow) {{
   await workflow.task.update({{ task, status: "completed" }});
   await workflow.finish({{
     allCompleted: waited.allCompleted,
+    allTerminal: waited.allTerminal,
+    allSucceeded: waited.allSucceeded,
+    unresolvedFailures: waited.unresolvedFailures,
     statuses: waited.runs.map((run) => run.status),
+    terminalReasons: waited.runs.map((run) => run.terminalReason),
+    resumeAllowed: waited.runs.map((run) => run.resumeAllowed),
+    resumeRecommended: waited.runs.map((run) => run.resumeRecommended),
     results: waited.runs.map((run) => run.result_preview),
     runIds: waited.runs.map((run) => run.runId)
   }});
@@ -4542,9 +4679,21 @@ export default async function main(workflow) {{
 
         let output = result.output.as_ref().expect("workflow output");
         assert_eq!(output.get("allCompleted"), Some(&json!(true)));
+        assert_eq!(output.get("allTerminal"), Some(&json!(true)));
+        assert_eq!(output.get("allSucceeded"), Some(&json!(true)));
+        assert_eq!(output.get("unresolvedFailures"), Some(&json!([])));
         assert_eq!(
             output.get("statuses"),
             Some(&json!(["completed", "completed"]))
+        );
+        assert_eq!(
+            output.get("terminalReasons"),
+            Some(&json!(["success", "success"]))
+        );
+        assert_eq!(output.get("resumeAllowed"), Some(&json!([true, true])));
+        assert_eq!(
+            output.get("resumeRecommended"),
+            Some(&json!([false, false]))
         );
         assert_eq!(
             output.get("results"),
@@ -4988,6 +5137,295 @@ export default async function main(workflow, args) {
 }
 
 #[test]
+fn workflow_v5_finish_blocks_unresolved_child_failures() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Resolve child attempt outcome" });
+  await workflow.task.update({ task, status: "in_progress" });
+  await workflow.finish({ summary: "must not claim success" });
+}
+"#;
+    let (_session_id, run_id, child_run_id) =
+        create_controlled_run_with_failed_child(&db, 5, script);
+
+    let error = run_workflow_script(db.clone(), &run_id)
+        .expect_err("V5 finish must fail closed while a child failure is unresolved");
+    assert!(error.to_string().contains("unresolved child failures"));
+    let persisted = db
+        .get_workflow_run(&run_id)
+        .expect("load workflow")
+        .expect("workflow exists");
+    assert_eq!(persisted.state, WorkflowRunState::Blocked);
+    assert_eq!(
+        persisted.blocked_reason.as_deref(),
+        Some("workflow_unresolved_agent_failures")
+    );
+    let failures = db
+        .list_unresolved_workflow_agent_failures(&run_id)
+        .expect("list unresolved failures");
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0]["runId"], json!(child_run_id));
+}
+
+#[test]
+fn workflow_v5_finish_blocks_when_owned_child_row_is_missing() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Detect missing child attempt" });
+  await workflow.task.update({ task, status: "in_progress" });
+  await workflow.finish({ summary: "must not claim success" });
+}
+"#;
+    let (_session_id, run_id, child_run_id) =
+        create_controlled_run_with_failed_child(&db, 5, script);
+    db.conn
+        .lock()
+        .expect("lock db")
+        .execute(
+            "DELETE FROM subagent_runs WHERE run_id = ?1",
+            params![&child_run_id],
+        )
+        .expect("delete child run while retaining workflow attempt");
+
+    let error = run_workflow_script(db.clone(), &run_id)
+        .expect_err("V5 finish must fail closed when a controlled child row is missing");
+    assert!(error.to_string().contains("unresolved child failures"));
+    let failures = db
+        .list_unresolved_workflow_agent_failures(&run_id)
+        .expect("list unresolved missing child");
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0]["runId"], json!(child_run_id));
+    assert_eq!(failures[0]["status"], json!("not_found"));
+    assert_eq!(failures[0]["terminalReason"], json!("not_found"));
+    assert_eq!(failures[0]["resumeAllowed"], json!(false));
+    assert_eq!(failures[0]["resumeRecommended"], json!(false));
+}
+
+#[test]
+fn workflow_v5_finish_allows_audited_partial_failure_policy() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Resolve optional child failure" });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    summary: "partial result",
+    agentFailurePolicy: {
+      mode: "allow_partial",
+      reason: "The failed reviewer was optional and the primary evidence is sufficient."
+    }
+  });
+}
+"#;
+    let (_session_id, run_id, _child_run_id) =
+        create_controlled_run_with_failed_child(&db, 5, script);
+
+    let result = run_workflow_script(db.clone(), &run_id).expect("finish partial workflow");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    assert!(db
+        .list_unresolved_workflow_agent_failures(&run_id)
+        .expect("list unresolved failures")
+        .is_empty());
+    assert!(result.snapshot.events.iter().any(|event| {
+        event.event_type == "workflow_agent_failures_accepted_partial"
+            && event.payload["reason"]
+                == json!("The failed reviewer was optional and the primary evidence is sufficient.")
+    }));
+}
+
+#[test]
+fn workflow_v5_partial_policy_can_accept_missing_owned_child() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Audit missing optional child" });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    summary: "partial result",
+    agentFailurePolicy: {
+      mode: "allow_partial",
+      reason: "The optional child session was removed and its evidence is excluded."
+    }
+  });
+}
+"#;
+    let (_session_id, run_id, child_run_id) =
+        create_controlled_run_with_failed_child(&db, 5, script);
+    db.conn
+        .lock()
+        .expect("lock db")
+        .execute(
+            "DELETE FROM subagent_runs WHERE run_id = ?1",
+            params![&child_run_id],
+        )
+        .expect("delete child run while retaining workflow attempt");
+
+    let result = run_workflow_script(db.clone(), &run_id)
+        .expect("audited partial policy accepts a missing optional child");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    assert!(db
+        .list_unresolved_workflow_agent_failures(&run_id)
+        .expect("list unresolved failures")
+        .is_empty());
+    assert!(result.snapshot.events.iter().any(|event| {
+        event.event_type == "workflow_agent_failures_accepted_partial"
+            && event.payload["failures"][0]["runId"] == json!(child_run_id)
+            && event.payload["failures"][0]["status"] == json!("not_found")
+    }));
+}
+
+#[test]
+fn workflow_v4_finish_semantics_remain_unchanged_by_v5_failure_projection() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Preserve V4 completion semantics" });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({ summary: "legacy V4 completion" });
+}
+"#;
+    let (_session_id, run_id, _child_run_id) =
+        create_controlled_run_with_failed_child(&db, 4, script);
+
+    let result = run_workflow_script(db, &run_id).expect("V4 completion remains compatible");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+}
+
+#[test]
+fn workflow_owner_backfill_keeps_original_creator_when_result_was_imported_later() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("sessions.db");
+    let (source_run_id, imported_run_id, child_run_id, child_session_id) = {
+        let db = SessionDB::open(&path).expect("open session db");
+        let session = db.create_session("ha-main").expect("create session");
+        let source = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "owner.source".into(),
+                execution_mode: "guarded".into(),
+                script_source: "export default async function main() {}".into(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: None,
+                goal_id: None,
+                goal_criterion_id: None,
+                worktree_id: None,
+            })
+            .expect("create source workflow");
+        let imported = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "owner.import".into(),
+                execution_mode: "guarded".into(),
+                script_source: "export default async function main() {}".into(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: None,
+                goal_id: None,
+                goal_criterion_id: None,
+                worktree_id: None,
+            })
+            .expect("create importing workflow");
+        let child = db
+            .create_session_with_parent("helper", Some(&session.id))
+            .expect("create child session");
+        let child_run_id = "historical-child".to_string();
+        let mut child_run = SubagentRun {
+            run_id: child_run_id.clone(),
+            thread_id: child.id.clone(),
+            parent_session_id: session.id.clone(),
+            parent_agent_id: "ha-main".into(),
+            child_agent_id: "helper".into(),
+            child_session_id: child.id.clone(),
+            task: "historical".into(),
+            status: SubagentStatus::Completed,
+            result: Some("done".into()),
+            started_at: "2026-01-01T00:00:00Z".into(),
+            finished_at: Some("2026-01-01T00:00:01Z".into()),
+            owner_id: session.id,
+            ..SubagentRun::default()
+        };
+        child_run.delivery_kind = crate::subagent::SubagentDeliveryKind::Parent;
+        db.insert_subagent_run(&child_run)
+            .expect("insert historical child");
+        {
+            let conn = db.conn.lock().expect("lock db");
+            for (id, workflow_run_id, started_at) in [
+                ("op-original", source.id.as_str(), "2026-01-01T00:00:00Z"),
+                ("op-import", imported.id.as_str(), "2026-01-02T00:00:00Z"),
+            ] {
+                conn.execute(
+                    "INSERT INTO workflow_ops (
+                        id, run_id, op_key, op_type, effect_class, input_hash,
+                        input_json, state, output_json, child_handle, started_at, completed_at
+                     ) VALUES (?1, ?2, ?3, 'spawnAgent', 'non_idempotent', ?4,
+                               '{}', 'completed', '{}', ?5, ?6, ?6)",
+                    params![
+                        id,
+                        workflow_run_id,
+                        id,
+                        format!("hash-{id}"),
+                        child_run_id,
+                        started_at
+                    ],
+                )
+                .expect("insert historical workflow op");
+            }
+            // Mimic a pre-Thread schema: reopening must reconstruct the thread
+            // after Workflow ownership has been derived from historical ops.
+            conn.execute(
+                "DELETE FROM subagent_threads WHERE thread_id = ?1",
+                params![child.id],
+            )
+            .expect("remove synthetic current-schema thread");
+        }
+        (source.id, imported.id, child_run_id, child.id)
+    };
+
+    let reopened = SessionDB::open(&path).expect("reopen migrated db");
+    let child = reopened
+        .get_subagent_run(&child_run_id)
+        .expect("load child")
+        .expect("child exists");
+    assert_eq!(
+        child.owner_kind,
+        crate::subagent::SubagentOwnerKind::Workflow
+    );
+    assert_eq!(child.owner_id, source_run_id);
+    let thread = reopened
+        .get_subagent_thread(&child_session_id)
+        .expect("load thread")
+        .expect("thread exists");
+    assert_eq!(thread.owner_id, source_run_id);
+    let conn = reopened.conn.lock().expect("lock reopened db");
+    let source_mode: String = conn
+        .query_row(
+            "SELECT control_mode FROM workflow_agent_attempts
+              WHERE workflow_run_id = ?1 AND run_id = ?2",
+            params![source_run_id, child_run_id],
+            |row| row.get(0),
+        )
+        .expect("source projection");
+    let imported_mode: String = conn
+        .query_row(
+            "SELECT control_mode FROM workflow_agent_attempts
+              WHERE workflow_run_id = ?1 AND run_id = ?2",
+            params![imported_run_id, child_run_id],
+            |row| row.get(0),
+        )
+        .expect("import projection");
+    assert_eq!(source_mode, "control");
+    assert_eq!(imported_mode, "result_only");
+}
+
+#[test]
 fn workflow_v4_migration_backfills_meta_hash_for_early_control_rows() {
     let dir = tempfile::tempdir().expect("tempdir");
     let conn = rusqlite::Connection::open(dir.path().join("early-v4.db")).expect("open db");
@@ -5191,6 +5629,7 @@ export default async function main(workflow) {
         attachment_count: 0,
         input_tokens: Some(2),
         output_tokens: Some(3),
+        ..SubagentRun::default()
     })
     .expect("insert source child");
     let source_input = json!({
@@ -5444,6 +5883,7 @@ export default async function main(workflow) {
         attachment_count: 0,
         input_tokens: Some(7),
         output_tokens: Some(6),
+        ..SubagentRun::default()
     })
     .expect("insert completed subagent run");
 

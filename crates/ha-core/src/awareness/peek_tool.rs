@@ -25,7 +25,7 @@ or you suspect context from other sessions matters. Always read-only."
         },
         internal: true,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

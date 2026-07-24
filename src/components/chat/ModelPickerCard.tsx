@@ -99,7 +99,7 @@ export default function ModelPickerCard({
                       unsupported
                         ? "border-border/60 bg-muted/30 text-muted-foreground/45 cursor-not-allowed opacity-60"
                         : isActive
-                          ? "border-border bg-secondary/70 text-foreground cursor-default"
+                          ? "border-border bg-secondary text-foreground cursor-default"
                           : justSwitched
                             ? "border-border bg-green-500/10 text-green-600 dark:text-green-400"
                             : "border-border bg-background text-foreground hover:bg-secondary/40",

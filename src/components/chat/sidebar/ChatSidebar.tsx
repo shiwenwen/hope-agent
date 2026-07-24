@@ -1,16 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { flushSync } from "react-dom"
 import { useTranslation } from "react-i18next"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { IconTip } from "@/components/ui/tooltip"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { SearchInput } from "@/components/ui/search-input"
@@ -83,7 +73,7 @@ export default function ChatSidebar({
   onSidebarCollapsedChange,
   onSwitchSession,
   onNewChat,
-  onDeleteSession,
+  onArchiveSession,
   onEditAgent,
   onToggleSessionPinned,
   onReorderAgents,
@@ -107,7 +97,6 @@ export default function ChatSidebar({
   )
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
   const newChatMenuRef = useRef<HTMLDivElement>(null)
-  const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null)
   const [sidebarDisplayMode, setSidebarDisplayMode] = useState<SidebarDisplayMode>(
     DEFAULT_SIDEBAR_DISPLAY_MODE,
   )
@@ -425,16 +414,9 @@ export default function ChatSidebar({
     [t],
   )
 
-  function handleDeleteClick(sessionId: string, e: React.MouseEvent) {
+  function handleArchiveClick(sessionId: string, e: React.MouseEvent) {
     e.stopPropagation()
-    setDeleteConfirmSessionId(sessionId)
-  }
-
-  function confirmDelete() {
-    if (!deleteConfirmSessionId) return
-    const sessionId = deleteConfirmSessionId
-    setDeleteConfirmSessionId(null)
-    void Promise.resolve(onDeleteSession(sessionId)).finally(() => reloadSidebarSessions())
+    void Promise.resolve(onArchiveSession(sessionId)).finally(() => reloadSidebarSessions())
   }
 
   const handleSidebarUnreadChanged = useCallback(() => {
@@ -516,7 +498,7 @@ export default function ChatSidebar({
       totalUnreadCount={totalUnreadCount}
       loadingMoreSessions={loadingMoreByFilter[sessionFilter]}
       onSwitchSession={onSwitchSession}
-      onDeleteClick={handleDeleteClick}
+      onArchiveClick={handleArchiveClick}
       onMarkAllRead={handleSidebarUnreadChanged}
       renamingSessionId={renamingSessionId}
       renameValue={renameValue}
@@ -762,7 +744,7 @@ export default function ChatSidebar({
                       onArchiveProject={(pid, archived) => onArchiveProject?.(pid, archived)}
                       onReorderProjects={onReorderProjects}
                       onSwitchSession={onSwitchSession}
-                      onDeleteSession={handleDeleteClick}
+                      onArchiveSession={handleArchiveClick}
                       onMarkAllRead={onMarkAllRead}
                       renamingSessionId={renamingSessionId}
                       renameValue={renameValue}
@@ -803,28 +785,6 @@ export default function ChatSidebar({
           onMouseLeave={() => setIsResizeHandleHovered(false)}
         />
       </div>
-
-      {/* Delete session confirmation dialog */}
-      <AlertDialog
-        open={!!deleteConfirmSessionId}
-        onOpenChange={(open) => !open && setDeleteConfirmSessionId(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("chat.deleteSessionTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("chat.deleteSessionWarning")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={confirmDelete}
-            >
-              {t("common.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   )
 }

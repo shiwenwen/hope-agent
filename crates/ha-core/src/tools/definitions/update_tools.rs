@@ -29,9 +29,9 @@ When any path fails the tool emits a structured error via `ask_user_question` so
         internal: false,
         concurrent_safe: false,
         // `install` is the long-running action — `check` / `status` /
-        // `rollback` return in well under a second. async_capable=true
+        // `rollback` return in well under a second. GenericJob
         // lets the model opt into `run_in_background: true` for install.
-        async_capable: true,
+        background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
         parameters: json!({
             "type": "object",
             "properties": {

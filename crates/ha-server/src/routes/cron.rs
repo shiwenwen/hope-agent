@@ -121,9 +121,16 @@ pub async fn get_run_logs(
     Query(q): Query<LogsQuery>,
 ) -> Result<Json<Vec<cron::CronRunLog>>, AppError> {
     let db = db()?;
+    let sessions = session_db()?;
     Ok(Json(
         run_blocking(move || {
-            db.get_run_logs(&id, q.limit.unwrap_or(50).min(200), q.offset.unwrap_or(0))
+            cron::visible_cron_run_logs(
+                &db,
+                &sessions,
+                &id,
+                q.limit.unwrap_or(50).min(200),
+                q.offset.unwrap_or(0),
+            )
         })
         .await?,
     ))

@@ -96,7 +96,8 @@ Replies support full Markdown, syntax-highlighted code, math formulas (KaTeX), a
 
 - **New conversation**: "New" in the sidebar, or `/new`. When you start a new conversation inside a project, it stays as a draft first and is only saved once you send the first message.
 - **Session list**: the sidebar is sorted by most recently updated and can be pinned. It has two browsing tabs, "Sessions" and "Sub-Agents". Sessions for scheduled tasks, Incognito, the Knowledge Space, and the Design Space **do not appear in the main list**.
-- **Switch / rename / delete**: click to switch; you can rename manually (a manual name won't be overwritten by the auto title); deleting also cleans up the messages, attachments, and so on.
+- **Switch / rename / archive**: click to switch; you can rename manually (a manual name won't be overwritten by the auto title). Archiving hides a conversation from everyday lists and search while retaining its messages, project, and Agent association.
+- **Restore / permanently delete**: in **Settings → Archived conversations**, search or filter by type and project, then restore any conversation. Permanent deletion is available only there and asks for confirmation; it also removes messages and attachments and cannot be undone.
 - **Continue in a new session (Fork)**: copies the current session into a new, independent session (copying the conversation content and configuration, but not any running goal, ongoing progression, or background jobs).
 
 ### Search

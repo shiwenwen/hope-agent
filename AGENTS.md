@@ -81,7 +81,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - 结构化副输出唯一通道：`ToolExecContext.metadata_sink`→`messages.tool_metadata`→工作台；新工具禁自开旁路。
 - 后台单元唯一入口 `async_jobs::JobManager`，禁平行 API；命名分裂勿改：模块/log `async_jobs`、DB `background_jobs`、事件 `job:*`；审批 park 桥在 `tools::approval`（tools 零依赖 async_jobs）。
 - 双域勿合并：tool 池 `async_jobs::slots`，后台 subagent 池 `subagent::queue`；资源类（槽满）入队非拒绝，结构类（depth/batch/turn）硬拒不排队；parked 持槽不释放（否则 resume 无空槽死锁）、预算 timer 排除 parked 时长；`approval_projection_watcher` 只补 label、绝不 gate 执行。
-- 重试白名单代码级：`is_retry_eligible` 仅 `web_search`/`web_fetch`；新 async_capable 工具有副作用/计费就别加。
+- 重试白名单代码级：`is_retry_eligible` 仅 `web_search`/`web_fetch`；新 `BackgroundPolicy::GenericJob` 工具有副作用/计费就别加。
 - `AsyncToolsConfig` 的 `0`：仅 `max_concurrent_jobs`/`_per_session` 真不限，其余 bounded-resource 旁钮钳到地板、绝非无限（`completion_merge_window_secs` 的 `0`=关，不在此列）。
 - incognito：`output_tail` 永不注册；工作台聚合跳后端、只用 live tail。
 - 图/音生成必走 `media_gen::execute_image`/`execute_audio`，禁各写 provider 循环；凭据只 owner UI 可写。

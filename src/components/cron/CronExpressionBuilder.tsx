@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
 import { RadioPills } from "@/components/ui/radio-pills"
+import { TogglePills } from "@/components/ui/toggle-pills"
 import {
   Select,
   SelectContent,
@@ -9,7 +10,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Code2 } from "lucide-react"
-import { cn } from "@/lib/utils"
 import type { CronFrequency } from "./CronJobForm.types"
 import { WEEKDAY_KEYS } from "./cronHelpers"
 
@@ -118,23 +118,17 @@ export default function CronExpressionBuilder({
       {/* Weekly: weekday toggles + time */}
       {cronFreq === "weekly" && (
         <div className="space-y-2">
-          <div className="flex gap-1">
-            {WEEKDAY_KEYS.map((key, i) => (
-              <button
-                key={key}
-                type="button"
-                className={cn(
-                  "flex-1 py-1.5 rounded-md text-xs font-medium transition-colors",
-                  cronWeekdays[i]
-                    ? "bg-secondary/70 text-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-                )}
-                onClick={() => toggleWeekday(i)}
-              >
-                {t(`cron.${key}`)}
-              </button>
-            ))}
-          </div>
+          <TogglePills
+            values={new Set(cronWeekdays.flatMap((enabled, index) => (enabled ? [index] : [])))}
+            onToggle={toggleWeekday}
+            ariaLabel={t("cron.frequency")}
+            className="flex-nowrap gap-1"
+            itemClassName="min-w-0 flex-1 px-1 py-1.5 font-medium"
+            options={WEEKDAY_KEYS.map((key, index) => ({
+              value: index,
+              label: t(`cron.${key}`),
+            }))}
+          />
           <div className="flex items-center gap-2 text-xs">
             <span className="text-muted-foreground">{t("cron.atTime")}</span>
             <Select value={cronHour} onValueChange={setCronHour}>

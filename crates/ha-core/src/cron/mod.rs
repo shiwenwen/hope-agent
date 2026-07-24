@@ -15,7 +15,10 @@ pub use types::{
 };
 
 // Re-export timeline assembly + cross-DB job deletion
-pub use timeline::{cron_run_timeline, delete_job_and_sessions};
+pub use timeline::{
+    cron_run_timeline, delete_conversation_and_run_logs, delete_job_and_sessions,
+    visible_cron_run_logs,
+};
 
 // Re-export DB layer
 pub use db::CronDB;

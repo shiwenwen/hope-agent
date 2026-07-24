@@ -34,11 +34,18 @@ if (build.status !== 0) process.exit(build.status ?? 1)
 
 const targetDirectory = cargoMetadataTargetDir()
 const profile = DEV ? "debug" : "eval-sidecar"
-const source = DEV
+const primarySource = DEV
   ? join(targetDirectory, profile, executableName)
   : join(targetDirectory, targetTriple, profile, executableName)
+const fallbackSource = DEV
+  ? join(repoRoot, "target", profile, executableName)
+  : join(repoRoot, "target", targetTriple, profile, executableName)
+const source = findBuiltSidecar([primarySource, fallbackSource])
 if (!existsSync(source) || !statSync(source).isFile()) {
-  console.error(`[prepare-eval-sidecar] missing built Sidecar: ${source}`)
+  console.error(
+    `[prepare-eval-sidecar] missing built Sidecar. Checked:\n` +
+      [primarySource, fallbackSource].map((p) => `  - ${p}`).join("\n"),
+  )
   process.exit(1)
 }
 
@@ -52,6 +59,13 @@ const destination = join(
 copyFileSync(source, destination)
 if (!targetTriple.includes("windows")) chmodSync(destination, 0o755)
 console.log(`[prepare-eval-sidecar] copied ${source} -> ${destination}`)
+
+function findBuiltSidecar(candidates) {
+  for (const candidate of candidates) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+  }
+  return candidates[0]
+}
 
 function hostTriple() {
   const output = spawnSync("rustc", ["-vV"], { encoding: "utf8" })

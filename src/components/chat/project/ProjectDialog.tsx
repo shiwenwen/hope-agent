@@ -529,7 +529,7 @@ export default function ProjectDialog({
                       onClick={() => setColor(choice.value)}
                       className={cn(
                         "h-9 w-9 rounded-full border border-transparent p-0 transition-colors hover:bg-secondary/40",
-                        color === choice.value && "bg-secondary/70",
+                        color === choice.value && "bg-secondary",
                       )}
                       aria-label={choice.label}
                     >
@@ -543,7 +543,7 @@ export default function ProjectDialog({
                     onClick={() => setColor("")}
                     className={cn(
                       "h-9 w-9 rounded-full border border-dashed border-muted-foreground/40 p-0 text-muted-foreground hover:bg-muted/40",
-                        !color && "bg-secondary/70",
+                        !color && "bg-secondary",
                     )}
                     aria-label={t("common.none")}
                   >

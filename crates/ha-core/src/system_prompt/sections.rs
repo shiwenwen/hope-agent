@@ -464,8 +464,13 @@ pub(super) fn build_subagent_section(
     lines.push("3. When the sub-agent completes, its result is **automatically pushed** to you as a `<subagent-result>` user message".to_string());
     lines.push("4. If you need to actively wait: `subagent(action=\"check\", run_id=\"...\", wait=true)` blocks until done (fallback)".to_string());
     lines.push(String::new());
-    lines.push("## Steer a running sub-agent".to_string());
-    lines.push("- `subagent(action=\"steer\", run_id=\"...\", message=\"...\")` — inject a message to redirect a running sub-agent without killing it".to_string());
+    lines.push("## Follow up with the same sub-agent thread".to_string());
+    lines.push("- `subagent(action=\"send\", thread_id=\"...\", message=\"...\")` is canonical: it steers the current active attempt or creates a new immutable attempt after terminal completion, preserving the child conversation and working directory".to_string());
+    lines.push("- Inspect terminal_reason and possible partial side effects before retrying a failed/interrupted attempt; never mechanically retry. User-stopped, approval-denied, parent-cancelled, and workflow-cancelled attempts require explicit user recovery".to_string());
+    lines.push(
+        "- `steer` and `resume` remain strict compatibility aliases; prefer `send` for new calls"
+            .to_string(),
+    );
     lines.push(String::new());
     lines.push("## Other actions".to_string());
     lines.push(

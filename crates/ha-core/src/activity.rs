@@ -692,7 +692,8 @@ mod tests {
     #[test]
     fn projection_prioritizes_user_wait_over_active_goal() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = SessionDB::open(&dir.path().join("sessions.db")).expect("open db");
+        let db =
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).expect("open db");
         let session = db.create_session("ha-main").expect("create session");
         let goal = db
             .create_goal(CreateGoalInput {
@@ -753,7 +754,8 @@ mod tests {
     #[test]
     fn projection_is_idle_without_control_plane_work() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = SessionDB::open(&dir.path().join("sessions.db")).expect("open db");
+        let db =
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).expect("open db");
         let session = db.create_session("ha-main").expect("create session");
         let projection = db
             .autonomy_activity_for_session(&session.id)
@@ -767,7 +769,8 @@ mod tests {
     #[test]
     fn projection_exposes_standalone_blocked_workflow_instead_of_idle() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = SessionDB::open(&dir.path().join("sessions.db")).expect("open db");
+        let db =
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).expect("open db");
         let session = db.create_session("ha-main").expect("create session");
         let run = db
             .create_workflow_run(CreateWorkflowRunInput {
@@ -808,7 +811,8 @@ mod tests {
     #[test]
     fn projection_distinguishes_pending_acceptance_from_sealed_terminal() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = SessionDB::open(&dir.path().join("sessions.db")).expect("open db");
+        let db =
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).expect("open db");
         let session = db.create_session("ha-main").expect("create session");
         let goal = db
             .create_goal(CreateGoalInput {

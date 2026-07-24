@@ -164,13 +164,15 @@ pub async fn tool_workflow(args: &Value, ctx: &ToolExecContext) -> Result<String
 
 fn workflow_authoring_guide(workflow_mode: crate::workflow_mode::WorkflowMode) -> Value {
     json!({
-        "apiVersion": 4,
+        "apiVersion": 5,
         "workflowMode": workflow_mode.as_str(),
         "contract": [
             "Export default async function main(workflow, args). Use immutable workflow.meta/workflow.args for durable inputs.",
             "Use options objects. Labels are display-only; retain returned task and agent handles.",
             "Use shared_read_only only for analysis that cannot mutate; keep worktree isolation for editing children.",
             "Before finish, consume or cancel every required child. Runtime blocks rather than claiming false completion.",
+            "After waitAny/waitAll, inspect failed status and terminalReason. Use resumeAgent only when continuity is required; use spawnAgent for independent verification.",
+            "Every continuation policy must have a hard attempt bound. resumeRecommended is diagnostic only; never auto-resume user-stopped, approval-denied, or cancelled attempts.",
             "Permission, approval, Goal scope, incognito, connector and browser guards remain authoritative."
         ],
         "scriptShape": "export default async function main(workflow, args) { const task = await workflow.task.create({ title: '...' }); /* work */ await workflow.task.update({ task, status: 'completed' }); await workflow.finish({ summary, verification, residualRisk }); }",
@@ -188,6 +190,8 @@ fn workflow_authoring_guide(workflow_mode: crate::workflow_mode::WorkflowMode) -
         ],
         "children": [
             "workflow.spawnAgent({ task, label?, agent_id?, timeout_secs?, files?, injectPolicy?, resultMode?, isolation?, outputSchema?, schemaRetries?, reserveOutputTokens? })",
+            "workflow.resumeAgent(handle, { task, label?, timeout?, model?, files?, injectPolicy?, resultMode? })",
+            "workflow.acceptAgentFailure(handle, { reason })",
             "workflow.agentStatus(handles, { label? })",
             "workflow.agentResult(handle, { mode?, label? })",
             "workflow.agentSteer(handle, { message, label? })",
@@ -200,7 +204,7 @@ fn workflow_authoring_guide(workflow_mode: crate::workflow_mode::WorkflowMode) -
             "workflow.report({ title?, summary, nextAction?, needsUser?, inject?, payload? })",
             "workflow.fileSearch({ query, limit?, label? }) / read / grep / tool",
             "workflow.validate / review / verify / diff / askUser",
-            "workflow.trace / block / repairLoop / now / random / finish"
+            "workflow.trace / block / repairLoop / now / random / finish; V5 finish blocks unresolved child failures unless an explicit allow_partial policy includes a reason"
         ],
         "typedResults": "For machine-consumed child output, provide a bounded outputSchema and schemaRetries. agentResult validates JSON, applies bounded read-only schema repair, and returns original/resolved run provenance.",
         "timing": "Use checkpoint injection for stage awareness, explicit status/result for coordinator-controlled consumption, waitAny or pipeline for early results, and waitAll only for a deliberate barrier."
@@ -383,7 +387,7 @@ fn create_workflow_run_from_script(
             worktree_id: input.worktree_id.clone(),
         },
         crate::workflow::WorkflowRunControlInput {
-            api_version: input.api_version.unwrap_or(4),
+            api_version: input.api_version.unwrap_or(5),
             meta: input.meta.clone().unwrap_or_else(|| json!({})),
             args: input.args.clone().unwrap_or_else(|| json!({})),
             resume_from_run_id: input.resume_from_run_id.clone(),
@@ -439,7 +443,7 @@ fn create_workflow_run_from_script(
         "goalCriterionId": run.goal_criterion_id,
         "startRequested": start_now,
         "launchAccepted": launch_accepted,
-        "apiVersion": input.api_version.unwrap_or(4),
+        "apiVersion": input.api_version.unwrap_or(5),
         "resumeFromRunId": input.resume_from_run_id,
         "requiresApproval": preview.requires_approval,
         "permissionSummary": preview.permission.summary,
@@ -1009,9 +1013,9 @@ mod tests {
     use crate::workflow_mode::WorkflowMode;
 
     #[test]
-    fn authoring_guide_exposes_v4_contract_on_demand() {
+    fn authoring_guide_exposes_v5_contract_on_demand() {
         let guide = workflow_authoring_guide(WorkflowMode::On);
-        assert_eq!(guide["apiVersion"], 4);
+        assert_eq!(guide["apiVersion"], 5);
         assert!(guide["orchestration"]
             .as_array()
             .is_some_and(|items| items.iter().any(|item| {

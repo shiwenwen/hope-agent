@@ -112,6 +112,7 @@ import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { RadioPills } from "@/components/ui/radio-pills"
+import { TogglePills } from "@/components/ui/toggle-pills"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { SearchInput } from "@/components/ui/search-input"
@@ -4959,7 +4960,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                                     className={cn(
                                       "flex max-w-[180px] items-center gap-1.5 rounded-lg py-1 pl-2.5 pr-7 text-xs transition-colors",
                                       active
-                                        ? "bg-secondary/70 text-foreground"
+                                        ? "bg-secondary text-foreground"
                                         : "text-foreground hover:bg-secondary/40",
                                     )}
                                   >
@@ -5842,8 +5843,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                             ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
                             : // 统一渲染后「适应」也是固定 scaled footprint（非 width:100% 填充），恒 mx-auto
                               "rounded-lg border shadow-sm mx-auto",
-                        !presentMode && editMode && "bg-secondary/70",
-                        !presentMode && drawMode && "bg-secondary/70",
+                        !presentMode && editMode && "bg-secondary",
+                        !presentMode && drawMode && "bg-secondary",
                       )}
                       style={frameWrapStyle}
                     >
@@ -6553,35 +6554,28 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
               "选择要一次生成的形态，它们共用同一设计系统、视觉语言一致（最多 6 个）。",
             )}
           </p>
-          <div className="flex flex-wrap gap-2">
-            {BRAND_PACK_KINDS.map((k) => {
-              const Icon = KIND_ICON[k] ?? Monitor
-              const active = brandPackKinds.has(k)
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() =>
-                    setBrandPackKinds((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(k)) next.delete(k)
-                      else if (next.size < 6) next.add(k)
-                      return next
-                    })
-                  }
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-all duration-150",
-                    active
-                      ? "border-border/60 bg-secondary/70 font-medium text-foreground"
-                      : "border-border/60 text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
-                  )}
-                >
-                  {active ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
-                  {kindLabel(k)}
-                </button>
-              )
+          <TogglePills
+            values={brandPackKinds}
+            ariaLabel={t("design.brandPack.pickTitle", "生成品牌包")}
+            className="gap-2"
+            itemClassName="rounded-full px-3 py-1.5 text-sm font-medium"
+            onToggle={(kind) =>
+              setBrandPackKinds((previous) => {
+                const next = new Set(previous)
+                if (next.has(kind)) next.delete(kind)
+                else if (next.size < 6) next.add(kind)
+                return next
+              })
+            }
+            options={BRAND_PACK_KINDS.map((kind) => {
+              const Icon = KIND_ICON[kind] ?? Monitor
+              return {
+                value: kind,
+                label: kindLabel(kind),
+                icon: <Icon className="h-3.5 w-3.5" />,
+              }
             })}
-          </div>
+          />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setBrandPackOpen(false)}>
               {t("common.cancel", "取消")}
@@ -7546,7 +7540,7 @@ function LaunchHome({
                     data-ha-title-tip={r.summary}
                     className={cn(
                       "group flex flex-col overflow-hidden rounded-xl border border-border/60 text-left transition-colors duration-150",
-                      selected ? "bg-secondary/70" : "bg-card hover:bg-secondary/40",
+                      selected ? "bg-secondary" : "bg-card hover:bg-secondary/40",
                     )}
                   >
                     <div className="border-b border-border/50 p-2">
@@ -7705,7 +7699,7 @@ function LaunchHome({
                     key={p.id}
                     className={cn(
                       "group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-colors hover:bg-secondary/40",
-                      checked && "bg-secondary/70",
+                      checked && "bg-secondary",
                     )}
                   >
                     <button
@@ -7802,7 +7796,7 @@ function LaunchHome({
                     key={p.id}
                     className={cn(
                       "group flex items-center gap-3 rounded-lg border bg-card px-2.5 py-2 transition-colors hover:bg-secondary/40",
-                      checked && "bg-secondary/70",
+                      checked && "bg-secondary",
                     )}
                   >
                     {selectMode && (

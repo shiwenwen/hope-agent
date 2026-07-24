@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
 import SettingsResetControl from "./SettingsResetControl"
@@ -77,11 +77,34 @@ if (!HTMLElement.prototype.releasePointerCapture) {
   })
 }
 
+function createLocalStorage(): Storage {
+  const values = new Map<string, string>()
+  return {
+    get length() {
+      return values.size
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => {
+      values.delete(key)
+    },
+    setItem: (key, value) => {
+      values.set(key, value)
+    },
+  }
+}
+
+beforeEach(() => {
+  vi.stubGlobal("localStorage", createLocalStorage())
+})
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   isTauriModeMock.mockReturnValue(false)
   window.localStorage.clear()
+  vi.unstubAllGlobals()
 })
 
 function openDialog() {

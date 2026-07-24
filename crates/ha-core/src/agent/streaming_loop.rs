@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures_util::future::join_all;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::api_types::FunctionCallItem;
 use super::content::build_user_content_for_provider;
@@ -92,6 +92,31 @@ fn final_round_handoff_guidance(max_rounds: u32) -> String {
          unless every required item has actually been verified.",
         max_rounds
     )
+}
+
+fn has_checkpointed_subagent_dispatch(messages: &[Value], dispatch_id: &str) -> bool {
+    messages.iter().any(|message| {
+        message
+            .get(crate::context_compact::SUBAGENT_DISPATCH_IDS_KEY)
+            .and_then(Value::as_array)
+            .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(dispatch_id)))
+    })
+}
+
+fn stamp_checkpointed_subagent_dispatch(messages: &mut [Value], dispatch_id: &str) -> Result<()> {
+    let message = messages
+        .last_mut()
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| anyhow::anyhow!("steer message was not appended to conversation history"))?;
+    let ids = message
+        .entry(crate::context_compact::SUBAGENT_DISPATCH_IDS_KEY)
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| anyhow::anyhow!("invalid durable steer dispatch metadata"))?;
+    if !ids.iter().any(|id| id.as_str() == Some(dispatch_id)) {
+        ids.push(Value::String(dispatch_id.to_string()));
+    }
+    Ok(())
 }
 
 // ── Tool execution helpers (private to streaming_loop, no other caller).
@@ -963,13 +988,59 @@ impl AssistantAgent {
                 self.apply_engine_prompt_addition(&mut system_prompt);
             }
 
-            // Drain steer mailbox: inject any pending steer messages as user msgs.
+            // Drain steer mailbox and checkpoint the injected user messages
+            // before acknowledging durable dispatches. If the process dies
+            // after the checkpoint but before the acknowledgement, the marker
+            // suppresses duplicate content when the accepted row is replayed.
             if let Some(ref rid) = self.steer_run_id {
-                for msg in crate::subagent::SUBAGENT_MAILBOX.drain(rid) {
-                    Self::push_user_message(
-                        &mut messages,
-                        json!(format!("[Steer from parent agent]: {}", msg)),
-                    );
+                let pending = crate::subagent::SUBAGENT_MAILBOX.drain(rid);
+                if !pending.is_empty() {
+                    let mut durable_dispatch_ids = Vec::new();
+                    for envelope in pending {
+                        let already_checkpointed =
+                            envelope.dispatch_id.as_deref().is_some_and(|dispatch_id| {
+                                has_checkpointed_subagent_dispatch(&messages, dispatch_id)
+                            });
+                        if !already_checkpointed {
+                            Self::push_user_message(
+                                &mut messages,
+                                json!(format!("[Steer from parent agent]: {}", envelope.message)),
+                            );
+                            if let Some(dispatch_id) = envelope.dispatch_id.as_deref() {
+                                stamp_checkpointed_subagent_dispatch(&mut messages, dispatch_id)?;
+                            }
+                        }
+                        if let Some(dispatch_id) = envelope.dispatch_id {
+                            durable_dispatch_ids.push(dispatch_id);
+                        }
+                    }
+                    self.persist_round_context(&messages).await?;
+                    if !durable_dispatch_ids.is_empty() {
+                        let dispatch_count = durable_dispatch_ids.len();
+                        let db = self
+                            .session_db
+                            .clone()
+                            .or_else(|| crate::get_session_db().cloned())
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "session database unavailable while acknowledging steer dispatches"
+                                )
+                            })?;
+                        db.run(move |db| {
+                            for dispatch_id in &durable_dispatch_ids {
+                                db.mark_subagent_dispatch_delivered(dispatch_id)?;
+                            }
+                            Ok::<(), anyhow::Error>(())
+                        })
+                        .await?;
+                        crate::app_info!(
+                            "subagent",
+                            "dispatch",
+                            "checkpointed {} steer dispatch(es) for run {}",
+                            dispatch_count,
+                            rid
+                        );
+                    }
                 }
             }
 
@@ -1734,7 +1805,10 @@ impl AssistantAgent {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_started_job_id, terminal_assistant_text_for_history};
+    use super::{
+        extract_started_job_id, has_checkpointed_subagent_dispatch,
+        stamp_checkpointed_subagent_dispatch, terminal_assistant_text_for_history,
+    };
     use crate::async_jobs::{synthetic_started_result, JobOrigin};
 
     #[test]
@@ -1764,6 +1838,22 @@ mod tests {
             terminal_assistant_text_for_history(false, "", "partial"),
             ""
         );
+    }
+
+    #[test]
+    fn durable_steer_marker_deduplicates_checkpoint_replay() {
+        let mut messages = vec![serde_json::json!({
+            "role": "user",
+            "content": "[Steer from parent agent]: continue"
+        })];
+        stamp_checkpointed_subagent_dispatch(&mut messages, "dispatch-1").unwrap();
+
+        assert!(has_checkpointed_subagent_dispatch(&messages, "dispatch-1"));
+        assert!(!has_checkpointed_subagent_dispatch(&messages, "dispatch-2"));
+        let api = crate::context_compact::prepare_messages_for_api(&messages);
+        assert!(api[0]
+            .get(crate::context_compact::SUBAGENT_DISPATCH_IDS_KEY)
+            .is_none());
     }
 
     #[tokio::test]

@@ -631,7 +631,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");
         std::mem::forget(dir);
-        Arc::new(SessionDB::open(&path).unwrap())
+        Arc::new(SessionDB::open_ephemeral_for_test(&path).unwrap())
     }
 
     fn fresh_session(db: &Arc<SessionDB>) -> (String, String) {

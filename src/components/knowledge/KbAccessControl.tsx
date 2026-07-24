@@ -55,7 +55,7 @@ export function KbAccessControl({
     <div
       role="radiogroup"
       className={cn(
-        "inline-flex shrink-0 items-center rounded-lg border border-border/50 bg-secondary/30 p-0.5",
+        "inline-flex shrink-0 items-center rounded-lg bg-muted/50 p-0.5",
         className,
       )}
     >
@@ -75,7 +75,7 @@ export function KbAccessControl({
               className={cn(
                 "rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                 active
-                  ? "bg-secondary/70 text-foreground"
+                  ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
               )}
             >

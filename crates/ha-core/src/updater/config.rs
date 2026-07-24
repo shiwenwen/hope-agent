@@ -12,14 +12,14 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Lower / upper clamps for the periodic check interval. One hour floor keeps a
-/// misconfigured value from hammering the release server; one week ceiling
-/// keeps "enabled" meaningful.
-pub const MIN_CHECK_INTERVAL_HOURS: u32 = 1;
-pub const MAX_CHECK_INTERVAL_HOURS: u32 = 168;
+/// Lower / upper clamps for the periodic check interval. A half-hour floor
+/// allows quick release pickup without turning a bad value into a tight loop;
+/// one week ceiling keeps "enabled" meaningful.
+pub const MIN_CHECK_INTERVAL_HOURS: f64 = 0.5;
+pub const MAX_CHECK_INTERVAL_HOURS: f64 = 168.0;
 
-fn default_check_interval_hours() -> u32 {
-    12
+fn default_check_interval_hours() -> f64 {
+    MIN_CHECK_INTERVAL_HOURS
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,9 +29,9 @@ pub struct AutoUpdateConfig {
     #[serde(default = "crate::default_true")]
     pub check_enabled: bool,
     /// Hours between background checks. Clamped to
-    /// `[MIN_CHECK_INTERVAL_HOURS, MAX_CHECK_INTERVAL_HOURS]`. Default 12.
+    /// `[MIN_CHECK_INTERVAL_HOURS, MAX_CHECK_INTERVAL_HOURS]`. Default 0.5.
     #[serde(default = "default_check_interval_hours")]
-    pub check_interval_hours: u32,
+    pub check_interval_hours: f64,
     /// Silently pre-download + verify the new build when a check finds one, so
     /// installing is instant. Default `true`.
     #[serde(default = "crate::default_true")]
@@ -55,9 +55,17 @@ impl Default for AutoUpdateConfig {
 
 impl AutoUpdateConfig {
     /// Effective check interval in hours, clamped to the supported range.
-    pub fn clamped_interval_hours(&self) -> u32 {
-        self.check_interval_hours
-            .clamp(MIN_CHECK_INTERVAL_HOURS, MAX_CHECK_INTERVAL_HOURS)
+    pub fn clamped_interval_hours(&self) -> f64 {
+        let hours = if self.check_interval_hours.is_finite() {
+            self.check_interval_hours
+        } else {
+            default_check_interval_hours()
+        };
+        hours.clamp(MIN_CHECK_INTERVAL_HOURS, MAX_CHECK_INTERVAL_HOURS)
+    }
+
+    pub fn clamped_interval_secs(&self) -> u64 {
+        (self.clamped_interval_hours() * 3600.0).round() as u64
     }
 }
 
@@ -71,27 +79,38 @@ mod tests {
         assert!(c.check_enabled);
         assert!(c.auto_download);
         assert!(c.notify);
-        assert_eq!(c.check_interval_hours, 12);
+        assert_eq!(c.check_interval_hours, 0.5);
     }
 
     #[test]
     fn interval_clamps_both_ends() {
-        let mk = |h: u32| AutoUpdateConfig {
+        let mk = |h: f64| AutoUpdateConfig {
             check_interval_hours: h,
             ..Default::default()
         };
-        assert_eq!(mk(0).clamped_interval_hours(), MIN_CHECK_INTERVAL_HOURS);
+        assert_eq!(mk(0.0).clamped_interval_hours(), MIN_CHECK_INTERVAL_HOURS);
         assert_eq!(
-            mk(10_000).clamped_interval_hours(),
+            mk(10_000.0).clamped_interval_hours(),
             MAX_CHECK_INTERVAL_HOURS
         );
-        assert_eq!(mk(6).clamped_interval_hours(), 6);
+        assert_eq!(mk(6.0).clamped_interval_hours(), 6.0);
+        assert_eq!(mk(f64::NAN).clamped_interval_hours(), 0.5);
+        assert_eq!(mk(0.5).clamped_interval_secs(), 1800);
     }
 
     #[test]
     fn empty_object_deserializes_to_defaults() {
         let c: AutoUpdateConfig = serde_json::from_str("{}").unwrap();
         assert!(c.check_enabled);
-        assert_eq!(c.check_interval_hours, 12);
+        assert_eq!(c.check_interval_hours, 0.5);
+    }
+
+    #[test]
+    fn integer_and_float_intervals_both_deserialize() {
+        for raw in ["12", "12.0", "0.5"] {
+            let json = format!(r#"{{"checkIntervalHours":{raw}}}"#);
+            let c: AutoUpdateConfig = serde_json::from_str(&json).unwrap();
+            assert_eq!(c.check_interval_hours, raw.parse::<f64>().unwrap());
+        }
     }
 }

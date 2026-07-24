@@ -102,7 +102,7 @@ export default function EmbeddingActivationDialog({
                   className={cn(
                     "flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
                     active
-                      ? "border-border bg-secondary/70 text-foreground"
+                      ? "border-border bg-secondary text-foreground"
                       : "border-border hover:bg-secondary/40",
                   )}
                 >

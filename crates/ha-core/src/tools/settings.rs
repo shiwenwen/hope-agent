@@ -178,7 +178,7 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              Enabling checkEnabled reaches out to the release server on a timer; autoDownload \
              pre-fetches + verifies the new binary; the actual install / restart always stays \
              behind the user-confirmed `app_update install` (headless) or the GUI restart choice \
-             (desktop). checkIntervalHours is clamped to [1, 168]."
+             (desktop). checkIntervalHours is clamped to [0.5, 168]."
         ),
         "media_generation" => Some(
             "Chains decide which paid model serves image/speech/music/sfx generation — changing \

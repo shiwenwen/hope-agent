@@ -18,6 +18,11 @@ pub enum SubagentStatus {
     Error,
     Timeout,
     Killed,
+    /// The process/runner that owned this attempt disappeared before it could
+    /// produce a trustworthy terminal result. Unlike `Error`, this is an
+    /// infrastructure interruption and may be suitable for an explicit
+    /// continuation in the same thread.
+    Interrupted,
 }
 
 impl SubagentStatus {
@@ -30,6 +35,7 @@ impl SubagentStatus {
             Self::Error => "error",
             Self::Timeout => "timeout",
             Self::Killed => "killed",
+            Self::Interrupted => "interrupted",
         }
     }
 
@@ -42,6 +48,7 @@ impl SubagentStatus {
             "error" => Self::Error,
             "timeout" => Self::Timeout,
             "killed" => Self::Killed,
+            "interrupted" => Self::Interrupted,
             _ => Self::Error,
         }
     }
@@ -50,9 +57,197 @@ impl SubagentStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            Self::Completed | Self::Error | Self::Timeout | Self::Killed
+            Self::Completed | Self::Error | Self::Timeout | Self::Killed | Self::Interrupted
         )
     }
+}
+
+/// Stable control-plane owner for a sub-agent thread.
+///
+/// Ownership is deliberately separate from `parent_session_id`: Workflow,
+/// Team, and internal helper children can share a parent chat while retaining
+/// a narrower control surface. A plain parent-session tool call must never take
+/// over one of those threads merely because it knows a run id.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentOwnerKind {
+    ParentSession,
+    Workflow,
+    Team,
+    Internal,
+}
+
+impl SubagentOwnerKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ParentSession => "parent_session",
+            Self::Workflow => "workflow",
+            Self::Team => "team",
+            Self::Internal => "internal",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "parent_session" => Self::ParentSession,
+            "workflow" => Self::Workflow,
+            "team" => Self::Team,
+            _ => Self::Internal,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentThreadState {
+    Open,
+    UserStopped,
+    Quarantined,
+    Closed,
+}
+
+impl SubagentThreadState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::UserStopped => "user_stopped",
+            Self::Quarantined => "quarantined",
+            Self::Closed => "closed",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "open" => Self::Open,
+            "user_stopped" => Self::UserStopped,
+            "quarantined" => Self::Quarantined,
+            _ => Self::Closed,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentDeliveryKind {
+    Parent,
+    Group,
+    Workflow,
+    None,
+}
+
+impl SubagentDeliveryKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Parent => "parent",
+            Self::Group => "group",
+            Self::Workflow => "workflow",
+            Self::None => "none",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "parent" => Self::Parent,
+            "group" => Self::Group,
+            "workflow" => Self::Workflow,
+            _ => Self::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentTerminalReason {
+    Success,
+    ProviderExhausted,
+    ModelError,
+    ToolError,
+    DeadlineExceeded,
+    ProcessInterrupted,
+    RunnerPanic,
+    InvalidTypedOutput,
+    ApprovalDenied,
+    UserKilled,
+    ParentCancelled,
+    WorkflowCancelled,
+    QueuePayloadUnavailable,
+    Unknown,
+}
+
+impl SubagentTerminalReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::ProviderExhausted => "provider_exhausted",
+            Self::ModelError => "model_error",
+            Self::ToolError => "tool_error",
+            Self::DeadlineExceeded => "deadline_exceeded",
+            Self::ProcessInterrupted => "process_interrupted",
+            Self::RunnerPanic => "runner_panic",
+            Self::InvalidTypedOutput => "invalid_typed_output",
+            Self::ApprovalDenied => "approval_denied",
+            Self::UserKilled => "user_killed",
+            Self::ParentCancelled => "parent_cancelled",
+            Self::WorkflowCancelled => "workflow_cancelled",
+            Self::QueuePayloadUnavailable => "queue_payload_unavailable",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "success" => Self::Success,
+            "provider_exhausted" => Self::ProviderExhausted,
+            "model_error" => Self::ModelError,
+            "tool_error" => Self::ToolError,
+            "deadline_exceeded" => Self::DeadlineExceeded,
+            "process_interrupted" => Self::ProcessInterrupted,
+            "runner_panic" => Self::RunnerPanic,
+            "invalid_typed_output" => Self::InvalidTypedOutput,
+            "approval_denied" => Self::ApprovalDenied,
+            "user_killed" => Self::UserKilled,
+            "parent_cancelled" => Self::ParentCancelled,
+            "workflow_cancelled" => Self::WorkflowCancelled,
+            "queue_payload_unavailable" => Self::QueuePayloadUnavailable,
+            _ => Self::Unknown,
+        }
+    }
+
+    /// Diagnostic hint only. Callers must still re-check ownership, thread
+    /// state, permissions, and their own bounded retry policy.
+    pub fn resume_recommended(self) -> bool {
+        matches!(
+            self,
+            Self::ProviderExhausted | Self::DeadlineExceeded | Self::ProcessInterrupted
+        )
+    }
+
+    pub fn resume_allowed(self) -> bool {
+        !matches!(
+            self,
+            Self::ApprovalDenied
+                | Self::UserKilled
+                | Self::ParentCancelled
+                | Self::WorkflowCancelled
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentThread {
+    pub thread_id: String,
+    pub parent_session_id: String,
+    pub parent_agent_id: String,
+    pub child_agent_id: String,
+    pub depth: u32,
+    pub owner_kind: SubagentOwnerKind,
+    pub owner_id: String,
+    pub lifecycle_state: SubagentThreadState,
+    pub current_run_id: Option<String>,
+    pub lease_epoch: u64,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 /// A sub-agent run record persisted in SQLite.
@@ -60,6 +255,9 @@ impl SubagentStatus {
 #[serde(rename_all = "camelCase")]
 pub struct SubagentRun {
     pub run_id: String,
+    /// Stable public identity for the child conversation. This is equal to
+    /// `child_session_id`; both are returned during the compatibility window.
+    pub thread_id: String,
     pub parent_session_id: String,
     pub parent_agent_id: String,
     pub child_agent_id: String,
@@ -81,6 +279,57 @@ pub struct SubagentRun {
     pub input_tokens: Option<u64>,
     /// Output token usage (if available)
     pub output_tokens: Option<u64>,
+    /// Immutable predecessor in the same thread, if this is a continuation.
+    pub continuation_of_run_id: Option<String>,
+    /// Stable audit source: spawn / parent_followup / workflow_resume / ...
+    pub trigger_kind: String,
+    pub terminal_reason: Option<SubagentTerminalReason>,
+    pub runner_owner: Option<String>,
+    pub lease_epoch: u64,
+    pub last_heartbeat_at: Option<String>,
+    pub delivery_kind: SubagentDeliveryKind,
+    /// Non-sensitive execution recipe used for deterministic continuation and
+    /// recovery. Provider credentials and resolved profile state are never
+    /// persisted here.
+    pub launch_spec_json: Option<String>,
+    pub owner_kind: SubagentOwnerKind,
+    pub owner_id: String,
+}
+
+impl Default for SubagentRun {
+    fn default() -> Self {
+        Self {
+            run_id: String::new(),
+            thread_id: String::new(),
+            parent_session_id: String::new(),
+            parent_agent_id: String::new(),
+            child_agent_id: String::new(),
+            child_session_id: String::new(),
+            task: String::new(),
+            status: SubagentStatus::Error,
+            result: None,
+            error: None,
+            depth: 0,
+            model_used: None,
+            started_at: String::new(),
+            finished_at: None,
+            duration_ms: None,
+            label: None,
+            attachment_count: 0,
+            input_tokens: None,
+            output_tokens: None,
+            continuation_of_run_id: None,
+            trigger_kind: "spawn".to_string(),
+            terminal_reason: None,
+            runner_owner: None,
+            lease_epoch: 1,
+            last_heartbeat_at: None,
+            delivery_kind: SubagentDeliveryKind::Parent,
+            launch_spec_json: None,
+            owner_kind: SubagentOwnerKind::ParentSession,
+            owner_id: String::new(),
+        }
+    }
 }
 
 /// Parameters for spawning a sub-agent.
@@ -146,6 +395,13 @@ pub struct SpawnParams {
     /// **suppressed** — the Group fires ONE merged injection when all children
     /// settle. `None` for a standalone spawn (per-child injection, unchanged).
     pub group_id: Option<String>,
+    /// Durable control-plane owner of the child thread.
+    pub owner_kind: SubagentOwnerKind,
+    pub owner_id: String,
+    /// Durable delivery domain. This is persisted on every attempt and is the
+    /// execution-layer source of truth; `skip_parent_injection` remains only as
+    /// a compatibility input while callers migrate.
+    pub delivery_kind: SubagentDeliveryKind,
 }
 
 /// Event payload for streaming parent agent responses back to frontend.

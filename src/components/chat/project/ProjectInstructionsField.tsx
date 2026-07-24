@@ -60,7 +60,7 @@ export default function ProjectInstructionsField({
             onClick={() => setMode("edit")}
             className={cn(
               "h-7 gap-1.5 px-2.5 text-xs shadow-none",
-              mode === "edit" && "bg-background text-foreground shadow-sm hover:bg-background",
+              mode === "edit" && "bg-background text-foreground hover:bg-background",
             )}
           >
             <FileText className="h-3.5 w-3.5" />
@@ -74,7 +74,7 @@ export default function ProjectInstructionsField({
             onClick={() => setMode("preview")}
             className={cn(
               "h-7 gap-1.5 px-2.5 text-xs shadow-none",
-              mode === "preview" && "bg-background text-foreground shadow-sm hover:bg-background",
+              mode === "preview" && "bg-background text-foreground hover:bg-background",
             )}
           >
             <Eye className="h-3.5 w-3.5" />

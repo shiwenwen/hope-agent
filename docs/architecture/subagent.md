@@ -1,9 +1,9 @@
 # 子 Agent 系统架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-06-17
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-23
 
 ## 概述
 
-子 Agent 系统允许主 Agent 异步调用子 Agent 执行独立任务。子 Agent 运行在隔离会话中，完成后结果自动注入父会话触发父 Agent 继续对话。系统支持多级嵌套（默认最大深度 3，Agent 可覆盖至 5）、并发限制（单会话默认 8 个，可按 Agent 经 `subagents.maxConcurrent` 配置，clamp 1–50）、实时引导（Steer Mailbox）、取消机制、以及前台等待自动转后台的 `spawn_and_wait` 模式。
+子 Agent 系统允许主 Agent 异步调用子 Agent 执行独立任务。子 Agent 运行在隔离会话中，完成后结果自动注入父会话触发父 Agent 继续对话。系统支持多级嵌套（默认最大深度 3，Agent 可覆盖至 5）、并发限制（单会话默认 8 个，可按 Agent 经 `subagents.maxConcurrent` 配置，clamp 1–50）、实时引导（Steer Mailbox）、终态续跑（Resume）、取消机制、以及前台等待自动转后台的 `spawn_and_wait` 模式。
 
 命中单会话并发上限时**不再拒绝而是排队**（R7.2，新增 `Queued` 状态 + 进程级调度器在槽位空出时按会话提升；结构类上限——深度 / Agent 不存在 / batch 大小 / 权限——仍硬拒，排队解决不了），见「[并发排队（R7.2）](#并发排队r72)」。后台 subagent 命中内层审批点时，会把它在统一后台任务表里的投影置为 **AwaitingApproval**（R8 follow-up），见「[Background Job 投影（R6）](#background-job-投影r6)」末「内层审批投影」行。
 
@@ -14,18 +14,18 @@
 | 文件 | 职责 |
 |------|------|
 | `subagent/mod.rs` | 模块入口、常量定义（深度/并发/超时/截断）、7 个全局静态量、re-exports |
-| `subagent/types.rs` | SubagentRun、SpawnParams、SubagentStatus、SubagentEvent、ParentAgentStreamEvent |
+| `subagent/types.rs` | `SubagentThread`、`SubagentRun`、Owner/Delivery/TerminalReason、SpawnParams、SubagentStatus、事件类型 |
 | `subagent/spawn.rs` | `spawn_subagent()` 入口（validate → enqueue \| `launch_subagent_run()`）+ `execute_subagent()` 后台执行逻辑 |
 | `subagent/queue.rs` | （R7.2）并发上限排队：`PendingSubagentSpawn` 队列 + per-session 提升调度器 `run_subagent_scheduler()` |
 | `subagent/injection.rs` | `inject_and_run_parent()` 结果注入 + `PendingInjection` 队列 + `flush_pending_injections()` |
 | `subagent/cancel.rs` | `SubagentCancelRegistry`（AtomicBool cancel flag 注册表） |
 | `subagent/mailbox.rs` | `SubagentMailbox`（per-run 消息队列）+ `ChatSessionGuard`（RAII 守卫） |
 | `subagent/helpers.rs` | 事件发射、字符串截断、`CleanupGuard`、`cleanup_orphan_runs`、`mark_run_fetched` |
-| `tools/subagent.rs` | 工具接口层：10 种 action 的参数解析与调度 |
+| `tools/subagent.rs` | 工具接口层：canonical `send` + spawn/query/cancel/兼容 alias 的参数解析与调度 |
 
 ## 数据模型
 
-### SubagentStatus（七态枚举）
+### SubagentStatus（八态枚举）
 
 ```mermaid
 stateDiagram-v2
@@ -36,17 +36,29 @@ stateDiagram-v2
     Running --> Error
     Running --> Timeout
     Running --> Killed
+    Queued --> Interrupted: process restart
+    Spawning --> Interrupted: process restart
+    Running --> Interrupted: process restart / runner loss
 ```
 
 `Queued`（R7.2）：命中单会话并发上限时入队等待，**非终态、不持槽位**（被 `count_active_subagent_runs` 的 `IN ('spawning','running')` 排除——否则排队项会撑高自己的活跃计数、永不提升，死锁）；调度器在槽位空出时把它提升为 `Spawning` 并真正发射。
 
-终态判定：`Completed | Error | Timeout | Killed` 均为 `is_terminal() = true`（`Queued` / `Spawning` / `Running` 非终态）。
+终态判定：`Completed | Error | Timeout | Killed | Interrupted` 均为 `is_terminal() = true`（`Queued` / `Spawning` / `Running` 非终态）。`Interrupted` 是基础设施终态，不伪装成模型错误；启动恢复把上个进程遗留的 live attempt 原子改为该状态，并保留可续跑建议所需的稳定 `terminal_reason=process_interrupted`。
+
+### Thread / Attempt 身份
+
+- `thread_id` 是稳定子对话身份，当前实现等于 `child_session_id`；同一 thread 复用对话历史与 working dir。
+- `run_id` 是一次不可变 attempt。续跑只新增 attempt，并以 `continuation_of_run_id` 连接前驱，绝不把旧 run 从终态改回 running。
+- `subagent_threads.current_run_id + lease_epoch` 是单写者 fence。所有生命周期写入必须同时命中当前 run 与 epoch；旧 worker 的晚到完成回调是成功 no-op。
+- `owner_kind + owner_id` 是稳定控制域：`parent_session`、`workflow`、`team`、`internal`。知道 run id 不等于获得控制权；普通父 Agent 不能 steer/resume/cancel Workflow 或 Team thread。
+- `lifecycle_state=open|user_stopped|quarantined|closed` 是 thread 控制契约；续跑执行层只接受 `open`。V1 尚不提供模型可调用的 reopen，也不启用 heartbeat watchdog 自动切 quarantine；`Killed` 与不可恢复 `terminal_reason` 已在 run 层 fail closed，未来 owner UI / watchdog 只能通过受控 service 推进 lifecycle。
 
 ### SubagentRun（SQLite 持久化记录）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `run_id` | `String` | UUID v4，运行唯一标识 |
+| `thread_id` | `String` | 稳定子对话标识；多个 continuation attempt 共享 |
 | `parent_session_id` | `String` | 父会话 ID |
 | `parent_agent_id` | `String` | 父 Agent ID |
 | `child_agent_id` | `String` | 子 Agent ID（如 `"ha-main"`） |
@@ -64,6 +76,23 @@ stateDiagram-v2
 | `attachment_count` | `u32` | 传入附件数量 |
 | `input_tokens` | `Option<u64>` | 输入 token 用量（预留，当前为 None） |
 | `output_tokens` | `Option<u64>` | 输出 token 用量（预留，当前为 None） |
+| `continuation_of_run_id` | `Option<String>` | 前一 attempt；初次 spawn 为 None |
+| `trigger_kind` | `String` | `spawn` / `parent_followup` / `workflow_resume` / `internal` 等稳定触发来源 |
+| `terminal_reason` | `Option<SubagentTerminalReason>` | 稳定终止分类，用于恢复建议与审计 |
+| `runner_owner` / `lease_epoch` / `last_heartbeat_at` | runner/epoch/time | 进程与 attempt fencing、恢复诊断；V1 heartbeat 在生命周期转换时刷新，不运行独立轮询 ticker |
+| `delivery_kind` | `parent|group|workflow|none` | 结果交付域，执行层真相源 |
+| `launch_spec_json` | `Option<String>` | 不含凭据/附件正文的续跑规格摘要 |
+| `owner_kind` / `owner_id` | owner tuple | Thread 控制域；普通 session 不得接管 Workflow/Team/internal |
+
+### Durable 控制与交付表
+
+| 表 | 作用 |
+| --- | --- |
+| `subagent_threads` | 稳定 thread、owner、lifecycle、current attempt、lease epoch |
+| `subagent_dispatches` | steer/resume 指令的 accepted/delivered/refused/consumed 审计与排队恢复 |
+| `subagent_result_deliveries` | 普通父会话结果的 pending/injecting/delivered/suppressed CAS；启动时只重放未完成交付 |
+
+run 终态与普通 parent delivery row 在同一事务写入；显式 `check/result/wait` 或续跑会先 durable suppress，再触发进程内取消信号。这样 app 在“子 Agent 已完成但父 Agent 尚未收到”窗口崩溃时可重放，而已经消费的结果不会因重启重复回注。
 
 ### SpawnParams（调用参数）
 
@@ -248,7 +277,9 @@ sequenceDiagram
 
 ### 异步工具任务复用注入管道
 
-异步工具任务（`async_jobs`，覆盖 `exec` / `web_search` / `image_generate` 等被标记 `async_capable=true` 的工具的后台化执行）作为该注入管道的**第二个消费者**：finished tool job 完成后由 `crates/ha-core/src/async_jobs/injection.rs::dispatch_injection` 把任务结果格式化为 push message，并把 `job_id` 当作伪 `run_id` 传给 `subagent::injection::inject_and_run_parent`，复用同一套 idle-wait / 取消 / 重试机制。
+异步工具任务（`async_jobs`，覆盖 `exec` / `web_search` / `image_generate` 等 `BackgroundPolicy::GenericJob` 工具的后台化执行）作为该注入管道的**第二个消费者**：finished tool job 完成后由 `crates/ha-core/src/async_jobs/injection.rs::dispatch_injection` 把任务结果格式化为 push message，并把 `job_id` 当作伪 `run_id` 传给 `subagent::injection::inject_and_run_parent`，复用同一套 idle-wait / 取消 / 重试机制。
+
+`subagent` 工具本身声明为 `BackgroundPolicy::SelfManaged { work_kind: SubagentRun }`，不属于上述通用 job。`spawn` / `resume` 在完成持久化后直接返回 `{workKind:"subagent_run", backgroundPolicy:"self_managed", runId, threadId, waitRequired:false}`，后台 runner、队列、重启恢复、取消与 durable push 均由 `subagent_runs` 状态机负责。执行层拒绝给它传 `run_in_background:true`，避免同时出现外层 `job_id` 与内层 `run_id` 两套状态、取消和投递语义。Workflow 内部 spawn 使用同一 handle 形状，并由 Workflow owner 接管恢复与结果收集。
 
 | 维度 | SubagentRun | 异步工具任务（async_jobs） |
 |------|------|------|
@@ -353,14 +384,15 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 
 | 方法 | 行为 | 调用方 |
 |------|------|--------|
-| `register(run_id)` | 创建空 `Vec<String>` 队列 | `spawn_subagent` |
-| `push(run_id, msg)` | 推送消息到队列，返回 `false` 若 run_id 不存在 | `subagent_steer` 工具 |
-| `drain(run_id)` | 取出并清空所有待处理消息 | 子 Agent 的 tool loop 每轮 |
+| `register(run_id)` | 创建空 envelope 队列 | `spawn_subagent` |
+| `push(run_id, msg)` | 推送非 durable（Team）消息，返回 `false` 若 run_id 不存在 | Team messaging |
+| `push_dispatch(run_id, dispatch_id, msg)` | 推送 durable steer；仅入 mailbox 不改变 DB 的 `accepted` 状态 | `subagent send/steer` + launcher replay |
+| `drain(run_id)` | 取出 envelope；子会话 checkpoint 成功后才把 durable dispatch 标为 `delivered` | 子 Agent 的 tool loop 每轮 |
 | `remove(run_id)` | 清理队列 | 后台任务完成时 |
 
-全局静态实例 `SUBAGENT_MAILBOX`（`LazyLock<SubagentMailbox>`），底层用 `Mutex<HashMap<String, Vec<String>>>` 保护。
+全局静态实例 `SUBAGENT_MAILBOX`（`LazyLock<SubagentMailbox>`），底层用带可选 `dispatch_id` 的 per-run envelope 队列保护。
 
-消息流向：父 Agent → `steer` action → `SUBAGENT_MAILBOX.push()` → 子 Agent tool loop `drain()` → 消息注入为用户消息继续对话。
+消息流向：父 Agent → durable dispatch `accepted` → `SUBAGENT_MAILBOX.push_dispatch()` → 子 Agent tool loop `drain()` → 注入用户消息并 checkpoint → dispatch `delivered`。checkpoint 前崩溃时 accepted row 会在 launcher 重放；checkpoint 后、ack 前崩溃时，持久化在消息上的内部 dispatch marker 去重（marker 在 `prepare_messages_for_api()` 中剥离，绝不发给 Provider）。续跑事务会把 source attempt 尚未消费的 accepted steer 重定向到新 attempt。
 
 ## ChatSessionGuard（RAII）
 
@@ -403,27 +435,39 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 | `ACTIVE_CHAT_SESSIONS` | `LazyLock<Mutex<HashMap<String, usize>>>` | 当前有前台 turn 在跑的会话 → 引用计数（支持同会话多 guard 重叠） |
 | `INJECTING_SESSIONS` | `LazyLock<Mutex<HashSet<String>>>` | 当前正在注入的父会话集合（互斥） |
 | `INJECTION_CANCELS` | `LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>>` | 每会话的注入取消 flag |
-| `FETCHED_RUN_IDS` | `LazyLock<Mutex<HashSet<String>>>` | 已被 check/result 读取的 run_id |
+| `FETCHED_RUN_IDS` | `LazyLock<Mutex<HashSet<String>>>` | 已消费结果的进程内快速取消信号；durable 真相源是 `subagent_result_deliveries` |
 | `PENDING_INJECTIONS` | `LazyLock<Mutex<Vec<PendingInjection>>>` | 被取消的注入重试队列 |
 | `SESSION_IDLE_NOTIFY` | `LazyLock<tokio::sync::Notify>` | 会话空闲通知信号 |
 | `SUBAGENT_MAILBOX` | `LazyLock<SubagentMailbox>` | 全局 steer 邮箱 |
 
 ## 工具接口
 
-`subagent` 工具通过 `action` 字段分发，支持 10 种操作：
+`subagent` 工具通过 `action` 字段分发，支持 12 种操作：
 
 | Action | 必需参数 | 说明 |
 |--------|----------|------|
 | `spawn` | `task` | 异步调用子 Agent，返回 `run_id` |
+| `send` | `thread_id`（兼容 `run_id`）, `message`, `mode?` | canonical follow-up：当前 attempt 活跃时 durable steer，已终态时创建 continuation；`mode=auto|steer_only|resume_only` 可固定分支。返回 `thread_id/run_id/previous_run_id/dispatch_id/disposition`。 |
+| `resume` | `run_id`, `task` | 兼容 alias；只接受当前父会话拥有的终态 attempt。新调用优先 `send(mode=resume_only)`。 |
 | `spawn_and_wait` | `task`, `foreground_timeout`(可选,默认30s,上限120s) | 前台等待，超时自动转后台 |
 | `check` | `run_id`, `wait`(可选), `wait_timeout`(可选,默认60s,上限300s) | 查询运行状态，`wait=true` 轮询等待完成 |
 | `result` | `run_id` | 获取完整结果（终态时标记 fetched 跳过自动注入） |
 | `list` | 无 | 列出当前会话所有子 Agent 运行记录 |
-| `steer` | `run_id`, `message` | 向运行中的子 Agent 推送引导消息 |
+| `steer` | `run_id`, `message` | 兼容 alias，等价 `send(mode=steer_only)` |
 | `kill` | `run_id` | 取消指定子 Agent |
 | `kill_all` | 无 | 取消当前会话所有活跃**及排队中**子 Agent（`cancel_all_for_session` 只覆盖 active，额外 `queue::purge_for_session` + `request_cancel_run` 收掉排队项，否则它们会在 kill_all 腾出槽位后被提升运行）|
 | `batch_spawn` | `tasks`(数组,最多10个), `files`(可选共享附件) | 批量调用子 Agent；每个 task 还可带私有 `files`。作为一个 **Group**（R5）fan-out，全部完成时合并注入一轮，返回 `group_id`。 |
 | `wait_all` | `run_ids`(数组), `wait_timeout`(可选,默认120s,上限600s), `partial?`, `result_mode?` | 等待多个子 Agent；返回 completed/failed/total/timed_out，结果粒度为 status/preview/summary/full。 |
+
+### Send / Resume 续跑语义
+
+- **同 session、新 run**：续跑复用旧 run 的 `child_session_id`，因此 chat engine 会恢复该子会话的完整 `context_json`，文件操作仍落在原 working dir / managed worktree；旧 run 不从终态回滚，新一轮拥有独立状态、取消 flag、用量与后台任务投影。
+- **单 turn 串行**：`insert_resumed_subagent_run` 在同一 SQLite transaction 内校验 source 是 thread 当前终态、owner/lifecycle 一致、该 child session 没有 `queued|spawning|running` run，再递增 epoch、插入新行并切换 current attempt，防止两个续跑并发写同一对话历史。
+- **权限重判**：工具层要求 source 的 `parent_session_id` 等于当前会话，并按当前父 Agent 的 capability / delegation allowlist 重新校验；core 再校验 child session 的 parent / agent 身份。Agent 已禁用或删除时 fail closed。
+- **实时安全状态**：续跑重新计算当前父会话的 Plan 限制、Agent `denied_tools`、模型链、timeout 与 KB origin，不复活旧 run 的瞬时执行状态；附件作为新 turn 输入。若 source 仍非终态，调用方必须使用 `steer`。
+- **排队 / 注入不分叉**：新 run 复用既有并发计数、`Queued` 队列、cancel/mailbox 与 Background Job 单向投影。续跑事务同时 suppress source 的 pending parent delivery，避免旧结果晚到重复注入。
+- **恢复建议不等于自动重试**：`process_interrupted`、deadline 和其他允许续跑的错误可由调用者显式 `send`；`user_killed`、`approval_denied`、`parent_cancelled`、`workflow_cancelled` 默认拒绝续跑。V1 只在执行器能确定时写细分 reason，历史/不可判定错误保留 `unknown`，不从自由文本猜测分类。
+- **稳态性能**：async 工具面的 SQLite 访问统一走 `SessionDB::run`；Mailbox 是低延迟通道，dispatch row 是 durable provenance。Queued/Spawning 时接受的 steer 在 launcher 注册 Mailbox 后按序恢复，直到子会话 checkpoint 成功前始终保持可重放。
 
 **权限校验**（`do_spawn` 内部）：
 - `agent.config.subagents.enabled` 必须为 `true`
@@ -431,7 +475,7 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 
 ### Workflow ownership 与注入去重
 
-- `workflow.spawnAgent` 仍复用 `subagent` 的权限、并发队列、取消和运行引擎，但带预分配 run id 与内部 `skip_parent_injection=true`。普通 subagent/group 行为不变，Workflow child 不走个体或 Group 的通用回注。
+- `workflow.spawnAgent` / V5 `workflow.resumeAgent` 仍复用 `subagent` 的权限、并发队列、取消和运行引擎，但持久化 `owner_kind=workflow`、`owner_id=workflow_run_id`、`delivery_kind=workflow`。普通 subagent/group 行为不变，Workflow child 不走个体或 Group 的通用回注。
 - 子 Agent 终态由 `SessionDB::update_subagent_status` 统一通知 Workflow；Workflow 决定主动查询、checkpoint 或 final 交付。显式读取会调用 `mark_run_fetched` 同时压掉对应待回注 source。
 - `INJECTION_CANCELS` 记录 `{run_id, cancel}`，不再只有 session 级 flag。这样读取某个阶段结果只取消该 source 的活跃注入，不会误伤同会话其他后台结果；用户新发消息仍按 session 取消当前注入并在空闲后重试。
 
@@ -447,4 +491,4 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 | `crates/ha-core/src/subagent/cancel.rs` | `SubagentCancelRegistry`：register / cancel / cancel_all_for_session / remove |
 | `crates/ha-core/src/subagent/mailbox.rs` | `SubagentMailbox`（register / push / drain / remove）、`ChatSessionGuard`（RAII：ACTIVE_CHAT_SESSIONS + INJECTION_CANCELS + flush） |
 | `crates/ha-core/src/subagent/helpers.rs` | `emit_subagent_event` / `emit_parent_stream_event` / `truncate_str` / `CleanupGuard`（RAII：移除 INJECTING_SESSIONS + flush）/ `cleanup_orphan_runs` / `mark_run_fetched` |
-| `crates/ha-core/src/tools/subagent.rs` | 工具接口层：10 种 action（spawn / spawn_and_wait / check / result / list / steer / kill / kill_all / batch_spawn / wait_all）、`do_spawn` 共享逻辑、权限校验 |
+| `crates/ha-core/src/tools/subagent.rs` | 工具接口层：canonical send、spawn / query / cancel / batch / wait 与 resume/steer 兼容 alias、owner 校验、async DB 路由 |

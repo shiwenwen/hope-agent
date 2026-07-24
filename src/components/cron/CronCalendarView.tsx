@@ -510,7 +510,7 @@ export default function CronCalendarView({
                     day
                       ? "cursor-pointer bg-muted/20 hover:bg-muted/45"
                       : "cursor-default bg-transparent",
-                    day && selectedDate?.getDate() === day && "bg-secondary/70 hover:bg-secondary/70",
+                    day && selectedDate?.getDate() === day && "bg-secondary hover:bg-secondary",
                   )}
                   onClick={() => day && handleDayClick(day)}
                   disabled={!day}
@@ -708,7 +708,7 @@ export default function CronCalendarView({
                         onClick={() => setSelectedListJobId(job.id)}
                         className={cn(
                           "w-full rounded-xl px-3 py-3 text-left transition-colors",
-                          isActive ? "bg-secondary/70" : "hover:bg-secondary/40",
+                          isActive ? "bg-secondary" : "hover:bg-secondary/40",
                         )}
                       >
                         <div className="flex items-center gap-2">

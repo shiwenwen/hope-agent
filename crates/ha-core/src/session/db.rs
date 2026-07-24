@@ -32,6 +32,40 @@ pub struct LastAssistantTokens {
 /// Number of read-only connections in the pool (mirrors the memory backend).
 const READ_POOL_SIZE: usize = 4;
 
+#[derive(Clone, Copy)]
+enum SessionDbOpenMode {
+    Durable,
+    #[cfg(test)]
+    EphemeralTest,
+}
+
+impl SessionDbOpenMode {
+    fn configure_writer(self, conn: &Connection) -> Result<()> {
+        match self {
+            Self::Durable => {
+                // Stream journals acknowledge user-visible deltas only after
+                // SQLite reports a durable commit. FULL is required here:
+                // NORMAL may lose the newest WAL frames after an OS/power
+                // failure even though COMMIT returned successfully.
+                conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
+            }
+            #[cfg(test)]
+            Self::EphemeralTest => {
+                // These databases still use a real file so the read-only pool
+                // observes the writer, but their contents are disposable. Keep
+                // journals and temporary tables in memory and skip fsyncs;
+                // persistence/reopen/locking tests deliberately use `open()`.
+                conn.execute_batch(
+                    "PRAGMA journal_mode=MEMORY;
+                     PRAGMA synchronous=OFF;
+                     PRAGMA temp_store=MEMORY;",
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
 pub struct SessionDB {
     /// Exclusive write connection — also the *only* connection used by every
     /// write path, read-write transaction, and external module that touches
@@ -153,6 +187,7 @@ pub(crate) fn regular_session_scope_sql(session_alias: &str) -> String {
         "{session_alias}.is_cron = 0
          AND {session_alias}.parent_session_id IS NULL
          AND {session_alias}.incognito = 0
+         AND {session_alias}.archived_at IS NULL
          AND {session_alias}.kind = 'regular'
          AND NOT EXISTS (
              SELECT 1 FROM channel_conversations cc_regular_scope
@@ -205,6 +240,7 @@ fn session_meta_select() -> String {
            CASE WHEN s.is_cron = 0
                   AND s.parent_session_id IS NULL
                   AND s.incognito = 0
+                  AND s.archived_at IS NULL
                   AND s.kind = 'regular'
                   AND EXISTS (SELECT 1 FROM channel_conversations cc_unread WHERE cc_unread.session_id = s.id)
                 THEN EXISTS(
@@ -217,7 +253,8 @@ fn session_meta_select() -> String {
            s.sandbox_mode, s.temperature, s.runtime_defaults_initialized,
            s.execution_mode, s.workflow_mode,
            s.forked_from_session_id, s.forked_from_message_id,
-           (SELECT p.title FROM sessions p WHERE p.id = s.forked_from_session_id) as forked_from_session_title
+           (SELECT p.title FROM sessions p WHERE p.id = s.forked_from_session_id) as forked_from_session_title,
+           s.archived_at
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id"
     )
@@ -227,6 +264,20 @@ impl SessionDB {
     /// Open (or create) the database at the given path, enable WAL mode,
     /// and ensure tables exist.
     pub fn open(db_path: &PathBuf) -> Result<Self> {
+        Self::open_with_mode(db_path, SessionDbOpenMode::Durable)
+    }
+
+    /// Open a disposable, file-backed database without durability barriers.
+    ///
+    /// Kept test-only so production call sites cannot accidentally opt out of
+    /// WAL + FULL. Tests that exercise reopen, crash recovery, journal mode,
+    /// locking, or durability must continue to call [`Self::open`].
+    #[cfg(test)]
+    pub(crate) fn open_ephemeral_for_test(db_path: &PathBuf) -> Result<Self> {
+        Self::open_with_mode(db_path, SessionDbOpenMode::EphemeralTest)
+    }
+
+    fn open_with_mode(db_path: &PathBuf, mode: SessionDbOpenMode) -> Result<Self> {
         // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -234,13 +285,7 @@ impl SessionDB {
 
         let conn = Connection::open(db_path)?;
 
-        // Enable WAL mode for crash safety and better concurrent read performance
-        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-        // Stream journals acknowledge user-visible deltas only after SQLite
-        // reports a durable commit. FULL is required here: NORMAL may lose the
-        // newest WAL frames after an OS/power failure even though COMMIT
-        // returned successfully.
-        conn.execute_batch("PRAGMA synchronous=FULL;")?;
+        mode.configure_writer(&conn)?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         // Wait up to 5s on a busy lock instead of returning SQLITE_BUSY
         // immediately — removes spurious write failures under WAL contention.
@@ -269,6 +314,7 @@ impl SessionDB {
                 incognito INTEGER NOT NULL DEFAULT 0,
                 title_source TEXT NOT NULL DEFAULT 'manual',
                 pinned_at TEXT,
+                archived_at TEXT,
                 kind TEXT NOT NULL DEFAULT 'regular',
                 execution_mode TEXT NOT NULL DEFAULT 'off',
                 workflow_mode TEXT NOT NULL DEFAULT 'off',
@@ -345,11 +391,76 @@ impl SessionDB {
                 label TEXT,
                 attachment_count INTEGER DEFAULT 0,
                 input_tokens INTEGER,
-                output_tokens INTEGER
+                output_tokens INTEGER,
+                continuation_of_run_id TEXT,
+                trigger_kind TEXT NOT NULL DEFAULT 'spawn',
+                terminal_reason TEXT,
+                runner_owner TEXT,
+                lease_epoch INTEGER NOT NULL DEFAULT 0,
+                last_heartbeat_at TEXT,
+                delivery_kind TEXT NOT NULL DEFAULT 'parent',
+                launch_spec_json TEXT,
+                owner_kind TEXT NOT NULL DEFAULT 'parent_session',
+                owner_id TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_subagent_parent ON subagent_runs(parent_session_id, started_at DESC);
             CREATE INDEX IF NOT EXISTS idx_subagent_status ON subagent_runs(status);
             CREATE INDEX IF NOT EXISTS idx_subagent_label ON subagent_runs(label);
+
+            -- Stable child-conversation identity and control-plane ownership.
+            -- `subagent_runs` remains the attempt truth source; this table only
+            -- owns serialization, fencing, and lifecycle state for the thread.
+            CREATE TABLE IF NOT EXISTS subagent_threads (
+                thread_id TEXT PRIMARY KEY,
+                parent_session_id TEXT NOT NULL,
+                parent_agent_id TEXT NOT NULL,
+                child_agent_id TEXT NOT NULL,
+                depth INTEGER NOT NULL,
+                owner_kind TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                lifecycle_state TEXT NOT NULL DEFAULT 'open',
+                current_run_id TEXT,
+                lease_epoch INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_subagent_threads_parent
+                ON subagent_threads(parent_session_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_subagent_threads_owner
+                ON subagent_threads(owner_kind, owner_id, updated_at DESC);
+
+            -- Durable parent/workflow dispatch provenance. A replay reuses the
+            -- dispatch id rather than delivering the same child message twice.
+            CREATE TABLE IF NOT EXISTS subagent_dispatches (
+                id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                source_run_id TEXT NOT NULL,
+                target_run_id TEXT,
+                dispatch_kind TEXT NOT NULL,
+                owner_kind TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                message TEXT NOT NULL,
+                state TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                delivered_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_subagent_dispatches_thread
+                ON subagent_dispatches(thread_id, created_at DESC);
+
+            -- Durable ordinary-parent result delivery. Workflow and Group
+            -- children use their own aggregation/checkpoint paths.
+            CREATE TABLE IF NOT EXISTS subagent_result_deliveries (
+                run_id TEXT PRIMARY KEY,
+                parent_session_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                suppress_reason TEXT,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                requested_at TEXT NOT NULL,
+                delivered_at TEXT,
+                last_error TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_subagent_result_deliveries_pending
+                ON subagent_result_deliveries(state, requested_at);
 
             -- Unified model usage ledger. Dashboard token/cost totals read this
             -- table so non-chat model calls (side_query / embedding / STT /
@@ -441,6 +552,95 @@ impl SessionDB {
                     SELECT new.id, new.content
                     WHERE new.role IN ('user', 'assistant') AND length(new.content) > 0;
             END;"
+        )?;
+
+        // Sub-agent Thread/Attempt migration. Keep every addition probe-based:
+        // users can open databases produced by any earlier minor without a
+        // version-table dependency or a destructive rebuild.
+        let subagent_run_columns = [
+            (
+                "continuation_of_run_id",
+                "ALTER TABLE subagent_runs ADD COLUMN continuation_of_run_id TEXT;",
+            ),
+            (
+                "trigger_kind",
+                "ALTER TABLE subagent_runs ADD COLUMN trigger_kind TEXT NOT NULL DEFAULT 'spawn';",
+            ),
+            (
+                "terminal_reason",
+                "ALTER TABLE subagent_runs ADD COLUMN terminal_reason TEXT;",
+            ),
+            (
+                "runner_owner",
+                "ALTER TABLE subagent_runs ADD COLUMN runner_owner TEXT;",
+            ),
+            (
+                "lease_epoch",
+                "ALTER TABLE subagent_runs ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0;",
+            ),
+            (
+                "last_heartbeat_at",
+                "ALTER TABLE subagent_runs ADD COLUMN last_heartbeat_at TEXT;",
+            ),
+            (
+                "delivery_kind",
+                "ALTER TABLE subagent_runs ADD COLUMN delivery_kind TEXT NOT NULL DEFAULT 'parent';",
+            ),
+            (
+                "launch_spec_json",
+                "ALTER TABLE subagent_runs ADD COLUMN launch_spec_json TEXT;",
+            ),
+            (
+                "owner_kind",
+                "ALTER TABLE subagent_runs ADD COLUMN owner_kind TEXT NOT NULL DEFAULT 'parent_session';",
+            ),
+            (
+                "owner_id",
+                "ALTER TABLE subagent_runs ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';",
+            ),
+        ];
+        for (column, migration) in subagent_run_columns {
+            let probe = format!("SELECT {column} FROM subagent_runs LIMIT 1");
+            if conn.prepare(&probe).is_err() {
+                conn.execute_batch(migration)?;
+            }
+        }
+        // Historical ordinary subagents were owned by their parent session.
+        // Workflow/Team ownership is reconciled after those subsystem tables
+        // have been created below.
+        conn.execute(
+            "UPDATE subagent_runs
+                SET owner_id = parent_session_id
+              WHERE owner_id = ''",
+            [],
+        )?;
+        // Older schemas relied only on application-level serialization. If a
+        // crash/race left duplicate live attempts, settle every non-newest row
+        // before installing the database-level invariant; silently refusing to
+        // open the user's database would make recovery strictly worse.
+        let migration_now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "WITH ranked AS (
+                SELECT run_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY child_session_id
+                           ORDER BY started_at DESC, run_id DESC
+                       ) AS position
+                  FROM subagent_runs
+                 WHERE status IN ('queued', 'spawning', 'running')
+             )
+             UPDATE subagent_runs
+                SET status = 'interrupted',
+                    terminal_reason = 'process_interrupted',
+                    error = COALESCE(error, 'Interrupted while repairing duplicate active attempts'),
+                    finished_at = COALESCE(finished_at, ?1)
+              WHERE run_id IN (SELECT run_id FROM ranked WHERE position > 1)",
+            params![migration_now],
+        )?;
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_subagent_one_active_run_per_thread
+                ON subagent_runs(child_session_id)
+                WHERE status IN ('queued', 'spawning', 'running');",
         )?;
 
         // Migration: add is_cron column if missing
@@ -578,6 +778,21 @@ impl SessionDB {
         // they can reach these migrations.
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_sessions_forked_from ON sessions(forked_from_session_id);",
+        )?;
+
+        // Migration: reversible conversation archive. NULL means active; a
+        // timestamp retains when the user archived the conversation and powers
+        // the Settings archive manager's recency ordering.
+        let has_archived_at = conn
+            .prepare("SELECT archived_at FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_archived_at {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN archived_at TEXT;")?;
+        }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_archived_at
+               ON sessions(archived_at DESC)
+             WHERE archived_at IS NOT NULL;",
         )?;
 
         Self::ensure_model_usage_table(&conn)?;
@@ -1170,6 +1385,74 @@ impl SessionDB {
                 "ALTER TABLE team_templates ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';",
             )?;
         }
+
+        // Reconstruct control-plane ownership for historical durable children.
+        // Workflow and Team evidence is authoritative; all remaining legacy
+        // rows retain the historical parent-session ownership default.
+        conn.execute_batch(
+            "UPDATE subagent_runs
+                SET owner_kind = 'workflow',
+                    owner_id = (
+                        SELECT wo.run_id
+                          FROM workflow_ops wo
+                         WHERE wo.child_handle = subagent_runs.run_id
+                           AND wo.op_type IN ('spawnAgent','resumeAgent')
+                         ORDER BY wo.started_at ASC, wo.id ASC
+                         LIMIT 1
+                    ),
+                    delivery_kind = 'workflow'
+              WHERE EXISTS (
+                    SELECT 1 FROM workflow_ops wo
+                     WHERE wo.child_handle = subagent_runs.run_id
+                       AND wo.op_type IN ('spawnAgent','resumeAgent')
+              );
+
+             UPDATE subagent_runs
+                SET owner_kind = 'team',
+                    owner_id = (
+                        SELECT tm.team_id
+                          FROM team_members tm
+                         WHERE tm.run_id = subagent_runs.run_id
+                         LIMIT 1
+                    ),
+                    delivery_kind = 'group'
+              WHERE EXISTS (
+                    SELECT 1 FROM team_members tm
+                     WHERE tm.run_id = subagent_runs.run_id
+              );
+
+             INSERT OR IGNORE INTO subagent_threads (
+                 thread_id, parent_session_id, parent_agent_id, child_agent_id,
+                 depth, owner_kind, owner_id, lifecycle_state, current_run_id,
+                 lease_epoch, created_at, updated_at
+             )
+             SELECT latest.child_session_id,
+                    latest.parent_session_id,
+                    latest.parent_agent_id,
+                    latest.child_agent_id,
+                    latest.depth,
+                    latest.owner_kind,
+                    latest.owner_id,
+                    'open',
+                    latest.run_id,
+                    latest.lease_epoch,
+                    first_seen.created_at,
+                    COALESCE(latest.finished_at, latest.started_at)
+               FROM subagent_runs latest
+               JOIN (
+                    SELECT child_session_id, MIN(started_at) AS created_at
+                      FROM subagent_runs
+                     GROUP BY child_session_id
+               ) first_seen
+                 ON first_seen.child_session_id = latest.child_session_id
+              WHERE latest.run_id = (
+                    SELECT candidate.run_id
+                      FROM subagent_runs candidate
+                     WHERE candidate.child_session_id = latest.child_session_id
+                     ORDER BY candidate.started_at DESC, candidate.run_id DESC
+                     LIMIT 1
+              );",
+        )?;
 
         // One-time cleanup: drop legacy builtin templates (design moved to user-managed
         // presets via Settings → Teams panel; see AGENTS.md Team 系统 section).
@@ -1789,6 +2072,7 @@ impl SessionDB {
             created_at: now.clone(),
             updated_at: now,
             pinned_at: None,
+            archived_at: None,
             message_count: 0,
             unread_count: 0,
             channel_unread_count: 0,
@@ -2445,6 +2729,7 @@ impl SessionDB {
         // main session list / picker — hide them unconditionally (no active
         // exception, unlike incognito below).
         where_clauses.push("s.kind NOT IN ('knowledge','design','eval_fixture')".to_string());
+        where_clauses.push("s.archived_at IS NULL".to_string());
 
         // Cron run sessions live in the cron panel's "conversations" timeline,
         // never the main sidebar list — hide them when the sidebar asks.
@@ -2496,6 +2781,36 @@ impl SessionDB {
             sessions.push(row?);
         }
 
+        Ok((sessions, total))
+    }
+
+    /// Paginated archive-manager list. Unlike the main sidebar this includes
+    /// every conversation kind a user may have explicitly archived (regular,
+    /// project, IM, sub-agent, cron, Knowledge, and Design), while retaining
+    /// the incognito / eval-fixture invisibility guarantees.
+    pub fn list_archived_sessions_paged(
+        &self,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<(Vec<SessionMeta>, u32)> {
+        let conn = self.read_conn()?;
+        let where_sql =
+            " WHERE s.archived_at IS NOT NULL AND s.incognito = 0 AND s.kind != 'eval_fixture'";
+        let total: u32 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM sessions s{where_sql}"),
+            [],
+            |row| row.get(0),
+        )?;
+        let pagination = limit
+            .map(|value| format!(" LIMIT {value} OFFSET {}", offset.unwrap_or(0)))
+            .unwrap_or_default();
+        let sql = format!(
+            "{}{where_sql} ORDER BY s.archived_at DESC, s.updated_at DESC, s.id ASC{pagination}",
+            session_meta_select()
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], Self::row_to_session_meta)?;
+        let sessions = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok((sessions, total))
     }
 
@@ -2898,6 +3213,7 @@ impl SessionDB {
             reasoning_effort: row.get(24).ok().flatten(),
             runtime_defaults_initialized: row.get::<_, i64>(30).unwrap_or(0) != 0,
             pinned_at: row.get(25).ok().flatten(),
+            archived_at: row.get(36).ok().flatten(),
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
             message_count: row.get(8)?,
@@ -4328,8 +4644,8 @@ impl SessionDB {
     }
 
     /// Drain rows that reference `session_id` in tables without FK cascade
-    /// (`session_skill_activation`, `session_tool_activation`, `learning_events`, `subagent_runs`,
-    /// `acp_runs`). Bundled in a single transaction to amortize fsync.
+    /// (`session_skill_activation`, `session_tool_activation`, `learning_events`, subagent control
+    /// tables, `acp_runs`). Bundled in a single transaction to amortize fsync.
     /// Best-effort: failures are logged via `app_warn!` so a corrupted side
     /// table never blocks the primary delete.
     fn cleanup_session_orphan_tables(&self, session_id: &str) {
@@ -4342,7 +4658,14 @@ impl SessionDB {
                 "DELETE FROM session_skill_activation WHERE session_id = ?1",
                 "DELETE FROM session_tool_activation WHERE session_id = ?1",
                 "DELETE FROM learning_events WHERE session_id = ?1",
-                "DELETE FROM subagent_runs WHERE parent_session_id = ?1",
+                "DELETE FROM subagent_result_deliveries WHERE parent_session_id = ?1",
+                "DELETE FROM subagent_dispatches
+                   WHERE thread_id IN (
+                         SELECT thread_id FROM subagent_threads
+                          WHERE parent_session_id = ?1 OR thread_id = ?1
+                   )",
+                "DELETE FROM subagent_threads WHERE parent_session_id = ?1 OR thread_id = ?1",
+                "DELETE FROM subagent_runs WHERE parent_session_id = ?1 OR child_session_id = ?1",
                 "DELETE FROM acp_runs WHERE parent_session_id = ?1",
             ] {
                 conn.execute(sql, params![session_id])?;
@@ -4419,6 +4742,74 @@ impl SessionDB {
             session_id,
             crate::session::events::SessionDeleteReason::UserDelete,
         )
+    }
+
+    /// Archive or restore a persisted conversation without deleting any of its
+    /// messages or related records. Archiving clears the pin and advances the
+    /// read watermark so a hidden conversation cannot keep global unread badges
+    /// alive. Incognito conversations are deliberately excluded: their close
+    /// contract is deletion, not durable retention.
+    pub fn set_session_archived(&self, session_id: &str, archived: bool) -> Result<()> {
+        let archived_at = archived.then(|| chrono::Utc::now().to_rfc3339());
+        let changed = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let incognito = conn
+                .query_row(
+                    "SELECT incognito FROM sessions WHERE id = ?1",
+                    params![session_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?;
+            let Some(incognito) = incognito else {
+                anyhow::bail!("session not found: {session_id}");
+            };
+            if incognito != 0 {
+                anyhow::bail!("incognito sessions cannot be archived");
+            }
+            if archived {
+                conn.execute(
+                    "UPDATE sessions
+                        SET archived_at = ?2,
+                            pinned_at = NULL,
+                            last_read_message_id = (
+                                SELECT COALESCE(MAX(id), 0) FROM messages
+                                 WHERE session_id = ?1
+                            )
+                      WHERE id = ?1 AND archived_at IS NULL",
+                    params![session_id, archived_at],
+                )?
+            } else {
+                conn.execute(
+                    "UPDATE sessions SET archived_at = NULL
+                      WHERE id = ?1 AND archived_at IS NOT NULL",
+                    params![session_id],
+                )?
+            }
+        };
+        if changed > 0 {
+            emit_unread_changed(Some(session_id), None);
+            if let Some(bus) = crate::get_event_bus() {
+                bus.emit(
+                    "session:archive_changed",
+                    serde_json::json!({
+                        "sessionId": session_id,
+                        "archived": archived,
+                        "archivedAt": archived_at,
+                    }),
+                );
+            }
+            app_info!(
+                "session",
+                "db::set_session_archived",
+                "session {} archived={}",
+                session_id,
+                archived
+            );
+        }
+        Ok(())
     }
 
     /// Delete a session and all its messages (CASCADE) and attachments, tagging
@@ -4830,6 +5221,7 @@ impl SessionDB {
                         {} AS is_unread
                    FROM sessions s
                   WHERE s.is_cron = 0
+                    AND s.archived_at IS NULL
                     AND s.kind NOT IN ('knowledge', 'eval_fixture')
                     AND (
                         (s.project_id IS NULL
@@ -4985,17 +5377,17 @@ impl SessionDB {
 
     // ── Cron timeline / unread (cron panel "conversations" view) ─────────────
 
-    /// Batch-fetch `(title, unread_flag)` for the given cron session
+    /// Batch-fetch `(title, unread_flag, archived)` for the given cron session
     /// ids — used to hydrate the cross-job run timeline (`cron_run_timeline`).
-    /// Returns a map `session_id -> (title, unread)`; ids whose session row is
-    /// missing (purged) are simply absent, and the caller falls back to the job
-    /// name / 0. The unread predicate mirrors `SESSION_META_SELECT` *minus* the
-    /// `is_cron = 0` clause. Cron owns a separate unread domain, so message
-    /// source does not affect whether a run transcript has been read.
+    /// Returns a map `session_id -> (title, unread, archived)`; ids whose
+    /// session row is missing (purged) are simply absent, and the caller falls
+    /// back to the job name / 0. SessionLoop rows share a regular parent
+    /// session: they participate in archive filtering but keep title / unread
+    /// fallback semantics so the Cron domain never consumes regular unread.
     pub fn cron_session_read_state(
         &self,
         session_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, (Option<String>, i64)>> {
+    ) -> Result<std::collections::HashMap<String, (Option<String>, i64, bool)>> {
         use std::collections::HashMap;
         if session_ids.is_empty() {
             return Ok(HashMap::new());
@@ -5008,13 +5400,17 @@ impl SessionDB {
         // IN-list stays small.
         let placeholders: Vec<String> = (1..=session_ids.len()).map(|i| format!("?{i}")).collect();
         let sql = format!(
-            "SELECT s.id, s.title,
-                    EXISTS(SELECT 1 FROM messages m
-                      WHERE m.session_id = s.id
-                        AND m.id > COALESCE(s.last_read_message_id, 0)
-                        AND m.role = 'assistant') AS unread
+            "SELECT s.id,
+                    CASE WHEN s.is_cron = 1 THEN s.title ELSE NULL END AS title,
+                    CASE WHEN s.is_cron = 1 THEN EXISTS(
+                      SELECT 1 FROM messages m
+                       WHERE m.session_id = s.id
+                         AND m.id > COALESCE(s.last_read_message_id, 0)
+                         AND m.role = 'assistant'
+                    ) ELSE 0 END AS unread,
+                    s.archived_at IS NOT NULL AS archived
              FROM sessions s
-             WHERE s.is_cron = 1 AND s.id IN ({})",
+             WHERE s.id IN ({})",
             placeholders.join(",")
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -5028,7 +5424,8 @@ impl SessionDB {
             let id: String = row.get(0)?;
             let title: Option<String> = row.get(1)?;
             let unread: i64 = row.get(2)?;
-            map.insert(id, (title, unread));
+            let archived = row.get::<_, i64>(3)? != 0;
+            map.insert(id, (title, unread, archived));
         }
         Ok(map)
     }
@@ -5042,8 +5439,9 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let total: i64 = conn.query_row(
             "SELECT COUNT(*)
-               FROM sessions s
+              FROM sessions s
               WHERE s.is_cron = 1
+                AND s.archived_at IS NULL
                 AND EXISTS (
                     SELECT 1 FROM messages m
                      WHERE m.session_id = s.id
@@ -5070,7 +5468,7 @@ impl SessionDB {
                     SELECT COALESCE(MAX(id), 0) FROM messages
                      WHERE messages.session_id = sessions.id
                 )
-              WHERE is_cron = 1",
+              WHERE is_cron = 1 AND archived_at IS NULL",
             [],
         )?;
         drop(conn);
@@ -5190,6 +5588,7 @@ impl SessionDB {
             // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
             where_clauses.push("s.kind NOT IN ('knowledge','design','eval_fixture')".to_string());
+            where_clauses.push("s.archived_at IS NULL".to_string());
         }
 
         // Session type filter — channel presence is detected via LEFT JOIN.
@@ -5517,6 +5916,7 @@ impl SessionDB {
                 "SELECT s.id, COALESCE(s.title, '') AS title
                  FROM sessions s
                  WHERE s.incognito = 0
+                   AND s.archived_at IS NULL
                    AND s.kind NOT IN ('knowledge','design','eval_fixture')
                    AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
                  ORDER BY s.updated_at DESC
@@ -5555,6 +5955,7 @@ impl SessionDB {
                      WHERE messages_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
+                       AND s.archived_at IS NULL
                        AND s.kind NOT IN ('knowledge','design','eval_fixture')
                  ) WHERE rn = 1
                  ORDER BY rank
@@ -5591,6 +5992,7 @@ impl SessionDB {
                      WHERE messages_trigram_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
+                       AND s.archived_at IS NULL
                        AND s.kind NOT IN ('knowledge','design','eval_fixture')
                  ) WHERE rn = 1
                  ORDER BY rank
@@ -5896,6 +6298,40 @@ mod tests {
         std::env::temp_dir().join(unique)
     }
 
+    #[test]
+    fn ephemeral_test_open_does_not_change_production_durability() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+
+        {
+            let db = SessionDB::open_ephemeral_for_test(&path).expect("open ephemeral db");
+            let conn = db.conn.lock().expect("lock ephemeral db");
+            let journal: String = conn
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .expect("read journal mode");
+            let synchronous: i64 = conn
+                .query_row("PRAGMA synchronous", [], |row| row.get(0))
+                .expect("read synchronous mode");
+            let temp_store: i64 = conn
+                .query_row("PRAGMA temp_store", [], |row| row.get(0))
+                .expect("read temp store mode");
+            assert_eq!(journal, "memory");
+            assert_eq!(synchronous, 0);
+            assert_eq!(temp_store, 2);
+        }
+
+        let db = SessionDB::open(&path).expect("reopen durable db");
+        let conn = db.conn.lock().expect("lock durable db");
+        let journal: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("read durable journal mode");
+        let synchronous: i64 = conn
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .expect("read durable synchronous mode");
+        assert_eq!(journal, "wal");
+        assert_eq!(synchronous, 2);
+    }
+
     fn set_session_updated_at(db: &SessionDB, session_id: &str, updated_at: &str) {
         let conn = db.conn.lock().expect("lock connection");
         conn.execute(
@@ -5903,6 +6339,56 @@ mod tests {
             rusqlite::params![updated_at, session_id],
         )
         .expect("update session timestamp");
+    }
+
+    #[test]
+    fn archived_session_leaves_active_surfaces_and_can_be_restored() {
+        let db_path = temp_db_path("session-archive-lifecycle");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let session = db.create_session("ha-main").expect("create session");
+        db.append_message(&session.id, &NewMessage::user("hello"))
+            .expect("append user message");
+        db.append_message(&session.id, &NewMessage::assistant("hi"))
+            .expect("append assistant message");
+        db.set_session_pinned(&session.id, true)
+            .expect("pin session");
+
+        assert_eq!(db.regular_unread_total(None).expect("unread total"), 1);
+        assert_eq!(db.list_sessions(None).expect("active list").len(), 1);
+
+        db.set_session_archived(&session.id, true)
+            .expect("archive session");
+
+        let archived_meta = db
+            .get_session(&session.id)
+            .expect("get archived session")
+            .expect("archived session exists");
+        assert!(archived_meta.archived_at.is_some());
+        assert!(archived_meta.pinned_at.is_none());
+        assert!(db.list_sessions(None).expect("active list").is_empty());
+        assert_eq!(db.regular_unread_total(None).expect("unread total"), 0);
+        let (archived, total) = db
+            .list_archived_sessions_paged(None, None)
+            .expect("archive list");
+        assert_eq!(total, 1);
+        assert_eq!(archived[0].id, session.id);
+
+        db.set_session_archived(&session.id, false)
+            .expect("restore session");
+
+        let restored = db.list_sessions(None).expect("restored active list");
+        assert_eq!(restored.len(), 1);
+        assert!(restored[0].archived_at.is_none());
+        assert_eq!(db.regular_unread_total(None).expect("unread total"), 0);
+        assert!(db
+            .list_archived_sessions_paged(None, None)
+            .expect("archive list")
+            .0
+            .is_empty());
+
+        let _ = std::fs::remove_file(&db_path);
     }
 
     /// Sidebar countdown source: only pending rows with a real, still-future
@@ -7305,6 +7791,11 @@ mod tests {
             "expected pinned_at column to be added before pinned index creation"
         );
         assert!(
+            conn.prepare("SELECT archived_at FROM sessions LIMIT 1")
+                .is_ok(),
+            "expected archived_at column to be added before archived index creation"
+        );
+        assert!(
             conn.prepare("SELECT sandbox_mode FROM sessions LIMIT 1")
                 .is_ok(),
             "expected sandbox_mode column to be added during migration"
@@ -7340,6 +7831,13 @@ mod tests {
                 .iter()
                 .any(|index| index == "idx_sessions_pinned_at"),
             "expected pinned_at index after migration, got {:?}",
+            indexes
+        );
+        assert!(
+            indexes
+                .iter()
+                .any(|index| index == "idx_sessions_archived_at"),
+            "expected archived_at index after migration, got {:?}",
             indexes
         );
         assert!(

@@ -698,7 +698,7 @@ export function DiffPanel({
               </span>
             </>
           )}
-          <span className="inline-flex items-center gap-1 rounded-md border border-border/60 p-0.5">
+          <span className="inline-flex items-center gap-1 rounded-md bg-muted/50 p-0.5">
             <IconTip label={t("diffPanel.layoutUnified", "Unified")}>
               <button
                 type="button"
@@ -762,7 +762,7 @@ export function DiffPanel({
                 type="button"
                 className={cn(
                   "h-6 rounded px-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground",
-                  gitContext.scope === scope && "bg-secondary text-foreground shadow-sm",
+                  gitContext.scope === scope && "bg-secondary text-foreground",
                 )}
                 disabled={Boolean(gitBusy)}
                 onClick={() => void refreshGitScope(scope)}

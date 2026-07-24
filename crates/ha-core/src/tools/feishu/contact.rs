@@ -40,7 +40,7 @@ pub fn get_user_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -65,7 +65,7 @@ pub fn batch_get_users_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -90,7 +90,7 @@ pub fn get_department_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -116,7 +116,7 @@ pub fn search_users_by_department_tool() -> ToolDefinition {
         tier: cfg(),
         internal: false,
         concurrent_safe: true,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

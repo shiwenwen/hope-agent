@@ -534,7 +534,7 @@ pub fn get_job_status_tool() -> super::definitions::ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        async_capable: false,
+        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

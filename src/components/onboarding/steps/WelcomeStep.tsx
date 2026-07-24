@@ -96,7 +96,7 @@ export function WelcomeStep({
             onClick={() => handleSelect("auto")}
             className={`rounded-lg border px-3 py-2.5 text-sm transition-colors ${
               value === "auto"
-                ? "border-border bg-secondary/70 text-foreground"
+                ? "border-border bg-secondary text-foreground"
                 : "border-border hover:bg-secondary/40"
             }`}
           >
@@ -109,7 +109,7 @@ export function WelcomeStep({
               onClick={() => handleSelect(lang.code)}
               className={`rounded-lg border px-3 py-2.5 text-sm transition-colors ${
                 value === lang.code
-                  ? "border-border bg-secondary/70 text-foreground"
+                  ? "border-border bg-secondary text-foreground"
                   : "border-border hover:bg-secondary/40"
               }`}
             >
@@ -138,7 +138,7 @@ export function WelcomeStep({
                 className={cn(
                   "flex items-center gap-3 rounded-lg border px-3 py-3 text-left text-sm transition-colors",
                   active
-                    ? "border-border bg-secondary/70 text-foreground"
+                    ? "border-border bg-secondary text-foreground"
                     : "border-border hover:bg-secondary/40",
                 )}
               >

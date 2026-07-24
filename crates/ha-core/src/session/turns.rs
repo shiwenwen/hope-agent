@@ -447,7 +447,7 @@ mod tests {
         let path = dir.path().join("sessions.db");
         // Leak tempdir for test lifetime so SQLite can keep the file open.
         std::mem::forget(dir);
-        SessionDB::open(&path).unwrap()
+        SessionDB::open_ephemeral_for_test(&path).unwrap()
     }
 
     #[test]

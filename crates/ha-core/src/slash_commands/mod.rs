@@ -719,7 +719,7 @@ mod tests {
     fn slash_history_events_are_event_rows_with_user_display_metadata() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let db = crate::session::SessionDB::open(&path).expect("open");
+        let db = crate::session::SessionDB::open_ephemeral_for_test(&path).expect("open");
         let meta = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .expect("session");
@@ -762,7 +762,7 @@ mod tests {
     fn slash_history_result_events_persist_structured_action_fallback() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let db = crate::session::SessionDB::open(&path).expect("open");
+        let db = crate::session::SessionDB::open_ephemeral_for_test(&path).expect("open");
         let meta = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .expect("session");
@@ -802,7 +802,7 @@ mod tests {
     fn slash_history_loop_create_hides_slash_prefix_and_result() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let db = crate::session::SessionDB::open(&path).expect("open");
+        let db = crate::session::SessionDB::open_ephemeral_for_test(&path).expect("open");
         let meta = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .expect("session");

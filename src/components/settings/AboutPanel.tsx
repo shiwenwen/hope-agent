@@ -464,8 +464,10 @@ export default function AboutPanel({
               <div className="flex items-center justify-between gap-4 py-3">
                 <span className="text-sm text-foreground">{t("about.autoUpdateInterval")}</span>
                 <DeferredNumberInput
-                  min={1}
+                  min={0.5}
                   max={168}
+                  step={0.5}
+                  integer={false}
                   value={autoCfg.checkIntervalHours}
                   disabled={autoSaving || !autoCfg.checkEnabled}
                   className="h-8 w-24"

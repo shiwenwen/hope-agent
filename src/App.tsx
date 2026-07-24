@@ -134,12 +134,7 @@ export default function App() {
   const { pendingUpdate: globalPendingUpdate, downloadStatus } = useDesktopUpdateStore()
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
   const [showIgnoreOptions, setShowIgnoreOptions] = useState(false)
-
-  const ignoredVersion = localStorage.getItem("ignored_update_version")
-  const shouldShowToast =
-    globalPendingUpdate &&
-    globalPendingUpdate.version !== dismissedVersion &&
-    globalPendingUpdate.version !== ignoredVersion
+  const [forceShowUpdatePanel, setForceShowUpdatePanel] = useState(false)
 
   const completedLocalModelJobToasts = useRef<Set<string>>(new Set())
   const chatFocusNonceRef = useRef(0)
@@ -190,8 +185,29 @@ export default function App() {
     onError: (e) => {
       logger.error("update", "App::install", "Failed to install update via toast", e)
       if (globalPendingUpdate?.version) setDismissedVersion(globalPendingUpdate.version)
+      setForceShowUpdatePanel(false)
     },
   })
+
+  const ignoredVersion = localStorage.getItem("ignored_update_version")
+  const shouldAutoShowUpdatePanel =
+    globalPendingUpdate &&
+    globalPendingUpdate.version !== dismissedVersion &&
+    globalPendingUpdate.version !== ignoredVersion
+  const shouldShowUpdatePanel =
+    !!globalPendingUpdate &&
+    (forceShowUpdatePanel || installingUpdate || awaitingRestart || !!shouldAutoShowUpdatePanel)
+
+  useEffect(() => {
+    setForceShowUpdatePanel(false)
+    setShowIgnoreOptions(false)
+  }, [globalPendingUpdate?.version])
+
+  const handleOpenUpdatePanel = useCallback(() => {
+    if (!globalPendingUpdate) return
+    setShowIgnoreOptions(false)
+    setForceShowUpdatePanel(true)
+  }, [globalPendingUpdate])
 
   // Mirror the authoritative regular unread-session total onto native surfaces:
   // Dock shows the exact count while the compact tray icon uses a boolean dot.
@@ -735,6 +751,7 @@ export default function App() {
                 onOpenKnowledge={handleOpenKnowledge}
                 onOpenDesign={() => setView("design")}
                 onOpenArtifacts={() => setView("artifacts")}
+                onOpenUpdatePanel={handleOpenUpdatePanel}
                 userAvatar={userAvatar}
                 totalUnreadCount={totalUnreadCount}
                 onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
@@ -955,8 +972,8 @@ export default function App() {
                 />
               </div>
 
-              {/* In-app update toast */}
-              {shouldShowToast && (
+              {/* In-app update panel */}
+              {globalPendingUpdate && shouldShowUpdatePanel && (
                 <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-top-5 fade-in duration-300">
                   <div className="relative flex flex-col gap-3 rounded-2xl border border-emerald-500/20 bg-card p-4 shadow-xl dark:bg-zinc-900/90 w-[380px]">
                     {/* Close / Ignore button */}
@@ -968,6 +985,7 @@ export default function App() {
                             // "稍后重启": dismiss; the staged binary applies on
                             // the next launch.
                             setDismissedVersion(globalPendingUpdate.version)
+                            setForceShowUpdatePanel(false)
                           } else {
                             setShowIgnoreOptions(true)
                           }
@@ -1002,6 +1020,7 @@ export default function App() {
                             className="flex-1 text-xs font-medium text-muted-foreground bg-secondary hover:bg-secondary/80 px-3 py-2 rounded-lg transition-colors"
                             onClick={() => {
                               setDismissedVersion(globalPendingUpdate.version)
+                              setForceShowUpdatePanel(false)
                               setShowIgnoreOptions(false)
                             }}
                           >
@@ -1015,6 +1034,7 @@ export default function App() {
                                 globalPendingUpdate.version,
                               )
                               setDismissedVersion(globalPendingUpdate.version)
+                              setForceShowUpdatePanel(false)
                               setShowIgnoreOptions(false)
                             }}
                           >
@@ -1083,6 +1103,7 @@ export default function App() {
                         className="flex items-start gap-4 cursor-pointer group"
                         onClick={() => {
                           setDismissedVersion(globalPendingUpdate.version)
+                          setForceShowUpdatePanel(false)
                           handleOpenSettings("about")
                         }}
                       >

@@ -317,7 +317,7 @@ export function DesignVersionHistoryModal({
                       className={cn(
                         "mb-1 flex w-full flex-col gap-1 rounded-lg border px-2.5 py-2 text-left transition-colors",
                         active
-                          ? "border-transparent bg-secondary/70 text-foreground"
+                          ? "border-transparent bg-secondary text-foreground"
                           : "border-transparent hover:bg-secondary/40",
                       )}
                     >
@@ -456,7 +456,7 @@ export function DesignVersionHistoryModal({
 
                 <div className="relative min-h-0 flex-1 bg-muted/30">
                   {/* 视口切换：desktop 全宽 / tablet 820 / mobile 390，非 desktop 居中设备框。 */}
-                  <div className="absolute right-2 top-2 z-10 flex gap-0.5 rounded-md border bg-background/90 p-0.5 shadow-sm">
+                  <div className="absolute right-2 top-2 z-10 flex gap-0.5 rounded-md bg-muted/90 p-0.5 backdrop-blur">
                     {(
                       [
                         ["desktop", Monitor],
@@ -473,7 +473,7 @@ export function DesignVersionHistoryModal({
                         className={cn(
                           "flex h-6 w-6 items-center justify-center rounded",
                           verViewport === v
-                            ? "bg-secondary/70 text-foreground"
+                            ? "bg-background text-foreground"
                             : "text-muted-foreground hover:bg-secondary/40",
                         )}
                       >

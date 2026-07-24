@@ -47,7 +47,7 @@ export default function AppearancePanel() {
             className={cn(
               "h-auto w-full justify-start gap-3 px-3 py-3 rounded-lg text-sm",
               theme === opt.mode
-                ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
+                ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
                 : "text-foreground hover:bg-secondary/60",
             )}
             onClick={() => setTheme(opt.mode)}

@@ -188,7 +188,7 @@ function DirectionCardView({
       className={cn(
         "flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors cursor-pointer",
         selected
-          ? "border-border bg-secondary/70"
+          ? "border-border bg-secondary"
           : "border-border hover:bg-secondary/40"
       )}
     >
@@ -596,7 +596,7 @@ export default function AskUserQuestionBlock({
                       className={cn(
                         "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
                         isSelected
-                          ? "border-border bg-secondary/70 text-foreground"
+                          ? "border-border bg-secondary text-foreground"
                           : opt.recommended
                             ? "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10"
                             : "border-border hover:bg-secondary/40",
@@ -681,7 +681,7 @@ export default function AskUserQuestionBlock({
                       className={cn(
                         "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
                         customSelected
-                          ? "border-border bg-secondary/70 text-foreground"
+                          ? "border-border bg-secondary text-foreground"
                           : "border-border hover:bg-secondary/40",
                       )}
                     >

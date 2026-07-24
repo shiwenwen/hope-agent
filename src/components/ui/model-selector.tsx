@@ -115,7 +115,7 @@ export function ModelSelector({
           )}
           {Object.entries(modelsByProvider).map(([providerName, models]) => (
             <DropdownMenu.Sub key={providerName}>
-              <DropdownMenu.SubTrigger className="flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 outline-none transition-colors duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground data-[state=open]:shadow-sm">
+              <DropdownMenu.SubTrigger className="flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 outline-none transition-colors duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground">
                 {providerName}
                 <ChevronRight className="ml-auto h-4 w-4" />
               </DropdownMenu.SubTrigger>

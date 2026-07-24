@@ -8056,7 +8056,8 @@ mod tests {
 
     fn test_db() -> (tempfile::TempDir, SessionDB) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = SessionDB::open(&dir.path().join("sessions.db")).expect("session db");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("session db");
         ensure_channel_conversations_table(&db);
         (dir, db)
     }
@@ -10023,7 +10024,8 @@ mod contract_tests {
     async fn agent_fixture_without_provider_configuration_fails_closed() {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
-            SessionDB::open(&dir.path().join("sessions.db")).expect("open session database"),
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("open session database"),
         );
         let report = SessionDB::run_domain_eval_fixture(
             db,

@@ -1,6 +1,7 @@
 import { isTauriMode } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { APP_VERSION } from "@/lib/appMeta"
 
 export type DesktopUpdateEvent =
   | { event: "Started"; data: { contentLength: number } }
@@ -33,9 +34,19 @@ export interface AutoUpdateConfig {
 
 const DEFAULT_AUTO_UPDATE_CONFIG: AutoUpdateConfig = {
   checkEnabled: true,
-  checkIntervalHours: 12,
+  checkIntervalHours: 0.5,
   autoDownload: true,
   notify: true,
+}
+
+const MIN_AUTO_UPDATE_INTERVAL_HOURS = 0.5
+const MAX_AUTO_UPDATE_INTERVAL_HOURS = 168
+const DEV_FAKE_UPDATE_FLAG = "hope.devFakeUpdate"
+
+function clampAutoUpdateIntervalHours(value: unknown): number {
+  const hours = Number(value)
+  if (!Number.isFinite(hours)) return MIN_AUTO_UPDATE_INTERVAL_HOURS
+  return Math.min(MAX_AUTO_UPDATE_INTERVAL_HOURS, Math.max(MIN_AUTO_UPDATE_INTERVAL_HOURS, hours))
 }
 
 let _autoUpdateConfig: AutoUpdateConfig | null = null
@@ -70,6 +81,10 @@ export function isDesktopUpdaterAvailable(): boolean {
 export async function checkForDesktopUpdate(): Promise<DesktopUpdate | null> {
   if (!isTauriMode()) return null
   if (!import.meta.env.PROD) {
+    if (isDevFakeUpdateEnabled()) {
+      logger.info("updater", "desktopUpdater::checkForDesktopUpdate", "dev fake update enabled")
+      return createDevFakeUpdate()
+    }
     // Dev builds always report "up to date" — the running binary isn't a
     // .app/.exe the updater can replace, so a real check is meaningless.
     logger.info("updater", "desktopUpdater::checkForDesktopUpdate", "dev mode — skipping real check, reporting up-to-date")
@@ -77,6 +92,44 @@ export async function checkForDesktopUpdate(): Promise<DesktopUpdate | null> {
   }
   const { check } = await import("@tauri-apps/plugin-updater")
   return (await check()) as DesktopUpdate | null
+}
+
+function isDevFakeUpdateEnabled(): boolean {
+  try {
+    return window.localStorage.getItem(DEV_FAKE_UPDATE_FLAG) === "1"
+  } catch {
+    return false
+  }
+}
+
+function createDevFakeUpdate(): DesktopUpdate {
+  return {
+    currentVersion: APP_VERSION,
+    version: "99.99.99",
+    date: new Date().toISOString(),
+    body:
+      "### Dev fake update\n\n" +
+      "- Sidebar update button should appear below the logo.\n" +
+      "- Clicking it should open this update panel.\n" +
+      "- Background pre-download and install controls use the normal UI state.",
+    download: emitDevFakeDownload,
+    install: async () => {},
+    downloadAndInstall: async (onEvent) => {
+      await emitDevFakeDownload(onEvent)
+    },
+    close: async () => {},
+  }
+}
+
+async function emitDevFakeDownload(onEvent?: (event: DesktopUpdateEvent) => void): Promise<void> {
+  const chunkLength = 512 * 1024
+  const chunks = 8
+  onEvent?.({ event: "Started", data: { contentLength: chunkLength * chunks } })
+  for (let i = 0; i < chunks; i += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 80))
+    onEvent?.({ event: "Progress", data: { chunkLength } })
+  }
+  onEvent?.({ event: "Finished" })
 }
 
 export async function disposeDesktopUpdate(
@@ -287,9 +340,10 @@ export function autoCheckForUpdate(force = false): Promise<DesktopUpdate | null>
 
 /**
  * Starts a background interval to check for updates. The cadence follows
- * `auto_update.checkIntervalHours` (clamped to a sane floor) and the loop is a
- * no-op while `checkEnabled` is false — re-evaluated on each tick so config
- * edits take effect without a restart. Returns a cleanup function.
+ * `auto_update.checkIntervalHours` (clamped to the backend-supported range)
+ * and the loop is a no-op while `checkEnabled` is false — re-evaluated on
+ * each tick so config edits take effect without a restart. Returns a cleanup
+ * function.
  */
 export function startPeriodicUpdateCheck(): () => void {
   if (!isDesktopUpdaterAvailable()) return () => {}
@@ -300,8 +354,7 @@ export function startPeriodicUpdateCheck(): () => void {
   const scheduleNext = async () => {
     if (cancelled) return
     const cfg = await getAutoUpdateConfig(true)
-    // Floor at 1h to match the backend clamp; default 12h.
-    const hours = Math.max(1, cfg.checkIntervalHours || 12)
+    const hours = clampAutoUpdateIntervalHours(cfg.checkIntervalHours)
     timerId = setTimeout(async () => {
       if (cancelled) return
       const fresh = await getAutoUpdateConfig(true)

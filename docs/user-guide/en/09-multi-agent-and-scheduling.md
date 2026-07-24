@@ -23,8 +23,9 @@ The main Agent can hand an independent subtask to another Agent (or the same one
 
 **Watching them run**: each Sub-Agent appears in the conversation as a capsule (avatar, name, status, elapsed time); click one to open the "Sub-agents" panel on the right.
 
-- The list is grouped into **running / finished** and covers every Sub-Agent in this session—foreground, background, and the ones a Workflow dispatched.
-- Open one to see its **result**, its **invocation details** (provider, model, thinking level, start/finish time, attachments, nesting depth, and more), and its **live conversation**; finished runs land on the result, running ones land on the conversation.
+- The list is grouped into **running / finished** and covers every Sub-Agent in this session—foreground, background, and the ones a Workflow dispatched. Continuing the same Sub-Agent keeps it as one item and shows its accumulated run count.
+- Open one to see its **result**, its **invocation details** (provider, model, thinking level, start/finish time, attachments, nesting depth, and more), its **live conversation**, and the timeline of all its runs; finished runs land on the result, running ones land on the conversation.
+- If the app exits or its process is interrupted, any Sub-Agent that was running is shown as **Interrupted** instead of being silently restarted. The main Agent or a Workflow can explicitly continue that same Sub-Agent: its existing conversation and working directory are preserved, while a new run is created. A run the user cancelled is not resumed automatically.
 - If a Sub-Agent dispatched its own, you can keep drilling in and walk back up via the breadcrumb.
 - The workspace panel carries the same roster in a "Sub-agents" section.
 

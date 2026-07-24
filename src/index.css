@@ -356,14 +356,6 @@ html[data-focus-indicators="enhanced"]
   }
 }
 
-@media (max-height: 800px) {
-  .icon-sidebar-settings-shortcuts,
-  .icon-sidebar-settings-shortcuts-trailing-divider,
-  .icon-sidebar-preference-shortcuts {
-    display: none;
-  }
-}
-
 /* Streaming bubble floor.
  * `min-width` / `min-height` lock the bubble to a one-line-of-text floor
  * so the dots → first-token transition doesn't shrink the box during the

@@ -8,7 +8,9 @@ use super::cancel::SubagentCancelRegistry;
 use super::helpers::{emit_subagent_event, truncate_str};
 use super::injection::{build_subagent_push_message, inject_and_run_parent};
 use super::mailbox::SUBAGENT_MAILBOX;
-use super::types::{SpawnParams, SubagentEvent, SubagentRun, SubagentStatus};
+use super::types::{
+    SpawnParams, SubagentEvent, SubagentRun, SubagentStatus, SubagentTerminalReason,
+};
 use super::{
     default_timeout_for_agent, max_concurrent_for_agent, max_depth_for_agent, queue,
     MAX_RESULT_CHARS,
@@ -91,7 +93,12 @@ pub(crate) async fn spawn_subagent_with_run_id(
     // it must stay bounded). `Queued` is excluded from `count_active_subagent_runs`
     // so a parked run can't inflate the count and deadlock its own promotion. ──
     let max_concurrent = max_concurrent_for_agent(&params.parent_agent_id);
-    let active_count = session_db.count_active_subagent_runs(&params.parent_session_id)?;
+    let active_count = {
+        let db = session_db.clone();
+        let parent_session_id = params.parent_session_id.clone();
+        db.run(move |db| db.count_active_subagent_runs(&parent_session_id))
+            .await?
+    };
     let should_queue = active_count >= max_concurrent;
     if should_queue && queue::is_full() {
         return Err(anyhow::anyhow!(
@@ -214,11 +221,245 @@ pub(crate) async fn spawn_subagent_with_run_id(
         }
     }
 
-    // 5. Insert run record
+    materialize_and_schedule_run(
+        params,
+        run_id,
+        child_session_id,
+        initial_status,
+        should_queue,
+        None,
+        None,
+        eval_child_guard,
+        session_db,
+        cancel_registry,
+    )
+    .await
+}
+
+/// Continue a terminal sub-agent in its existing child session.
+///
+/// The source run stays immutable and terminal. A fresh run id is created for
+/// the continuation, while the child session (conversation context, working
+/// directory, and nested-session ancestry) is reused. This mirrors a follow-up
+/// turn rather than resurrecting an old lifecycle record.
+pub async fn resume_subagent(
+    source_run_id: &str,
+    params: SpawnParams,
+    session_db: Arc<SessionDB>,
+    cancel_registry: Arc<SubagentCancelRegistry>,
+    dispatch_id: Option<String>,
+    preallocated_run_id: Option<String>,
+) -> Result<String> {
+    let source = {
+        let db = session_db.clone();
+        let source_run_id = source_run_id.to_string();
+        db.run(move |db| db.get_subagent_run(&source_run_id))
+            .await?
+    }
+    .ok_or_else(|| anyhow::anyhow!("Sub-agent run '{}' not found", source_run_id))?;
+    if !source.status.is_terminal() {
+        return Err(anyhow::anyhow!(
+            "Cannot resume sub-agent run '{}': it is still '{}' (use steer instead)",
+            source_run_id,
+            source.status.as_str()
+        ));
+    }
+    if params.parent_session_id != source.parent_session_id {
+        return Err(anyhow::anyhow!(
+            "Cannot resume sub-agent run '{}': it belongs to a different parent session",
+            source_run_id
+        ));
+    }
+    if params.agent_id != source.child_agent_id || params.depth != source.depth {
+        return Err(anyhow::anyhow!(
+            "Cannot resume sub-agent run '{}': child identity does not match",
+            source_run_id
+        ));
+    }
+    if params.owner_kind != source.owner_kind || params.owner_id != source.owner_id {
+        return Err(anyhow::anyhow!(
+            "Cannot resume sub-agent run '{}': control-plane owner does not match",
+            source_run_id
+        ));
+    }
+    if matches!(source.status, SubagentStatus::Killed)
+        || matches!(
+            source.terminal_reason,
+            Some(
+                crate::subagent::SubagentTerminalReason::UserKilled
+                    | crate::subagent::SubagentTerminalReason::ApprovalDenied
+                    | crate::subagent::SubagentTerminalReason::ParentCancelled
+                    | crate::subagent::SubagentTerminalReason::WorkflowCancelled
+            )
+        )
+    {
+        return Err(anyhow::anyhow!(
+            "Cannot resume sub-agent run '{}': its terminal reason requires explicit user recovery",
+            source_run_id
+        ));
+    }
+    if params.group_id.is_some() {
+        return Err(anyhow::anyhow!(
+            "A resumed sub-agent run cannot join a batch group"
+        ));
+    }
+
+    let child_session = {
+        let db = session_db.clone();
+        let child_session_id = source.child_session_id.clone();
+        db.run(move |db| db.get_session(&child_session_id)).await?
+    }
+    .ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cannot resume sub-agent run '{}': child session no longer exists",
+            source_run_id
+        )
+    })?;
+    if child_session.parent_session_id.as_deref() != Some(source.parent_session_id.as_str())
+        || child_session.agent_id != source.child_agent_id
+    {
+        return Err(anyhow::anyhow!(
+            "Cannot resume sub-agent run '{}': child session identity is invalid",
+            source_run_id
+        ));
+    }
+    if let Some(working_dir) = child_session.working_dir.as_deref() {
+        match tokio::fs::metadata(working_dir).await {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(anyhow::anyhow!(
+                    "Cannot resume sub-agent run '{}': continuation workspace '{}' is not a directory",
+                    source_run_id,
+                    working_dir
+                ));
+            }
+            Err(error) => {
+                return Err(anyhow::anyhow!(
+                    "Cannot resume sub-agent run '{}': continuation workspace '{}' is unavailable: {}",
+                    source_run_id,
+                    working_dir,
+                    error
+                ));
+            }
+        }
+    }
+
+    // Re-check Agent lifecycle admission for every continuation. The child may
+    // have been disabled or removed since the source run completed.
+    let _agent_run_admission = crate::agent_lifecycle::begin_agent_run(&params.agent_id)
+        .map_err(|e| anyhow::anyhow!("Agent '{}' is unavailable: {}", params.agent_id, e))?;
+
+    let max_concurrent = max_concurrent_for_agent(&params.parent_agent_id);
+    let active_count = {
+        let db = session_db.clone();
+        let parent_session_id = params.parent_session_id.clone();
+        db.run(move |db| db.count_active_subagent_runs(&parent_session_id))
+            .await?
+    };
+    let should_queue = active_count >= max_concurrent;
+    if should_queue && queue::is_full() {
+        return Err(anyhow::anyhow!(
+            "Sub-agent queue is full. Wait for some to complete or kill them."
+        ));
+    }
+    let initial_status = if should_queue {
+        SubagentStatus::Queued
+    } else {
+        SubagentStatus::Spawning
+    };
+    let run_id = match preallocated_run_id {
+        Some(run_id) => uuid::Uuid::parse_str(&run_id)
+            .map(|id| id.to_string())
+            .map_err(|_| anyhow::anyhow!("preallocated continuation run id must be a UUID"))?,
+        None => uuid::Uuid::new_v4().to_string(),
+    };
+    let eval_child_guard = match crate::eval_context::context_for_session(&params.parent_session_id)
+    {
+        Some(context) => Some(crate::eval_context::register_child_session_from_parent(
+            &params.parent_session_id,
+            &source.child_session_id,
+            context,
+        )?),
+        None => None,
+    };
+
+    let run_id = materialize_and_schedule_run(
+        params,
+        run_id,
+        source.child_session_id,
+        initial_status,
+        should_queue,
+        Some(source_run_id),
+        dispatch_id.as_deref(),
+        eval_child_guard,
+        session_db,
+        cancel_registry,
+    )
+    .await?;
+    // Reading a terminal run in order to continue it also consumes that result;
+    // suppress a late duplicate auto-injection from the source run.
+    if source.delivery_kind == crate::subagent::SubagentDeliveryKind::Parent {
+        // `insert_resumed_subagent_run` suppressed the durable delivery in the
+        // same transaction that created this continuation. Only the in-memory
+        // cancellation signal remains here.
+        super::mark_run_fetched_in_memory(source_run_id);
+    }
+    Ok(run_id)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn materialize_and_schedule_run(
+    mut params: SpawnParams,
+    run_id: String,
+    child_session_id: String,
+    initial_status: SubagentStatus,
+    should_queue: bool,
+    resumed_from_run_id: Option<&str>,
+    resume_dispatch_id: Option<&str>,
+    eval_child_guard: Option<crate::eval_context::EvalSessionGuard>,
+    session_db: Arc<SessionDB>,
+    cancel_registry: Arc<SubagentCancelRegistry>,
+) -> Result<String> {
+    // Insert a fresh immutable run record. Continuations use the transactional
+    // insert variant so two resumes cannot overlap on one child conversation.
     let now = chrono::Utc::now().to_rfc3339();
     let attachment_count = params.attachments.len() as u32;
+    let attachment_refs: Vec<_> = params
+        .attachments
+        .iter()
+        .map(|attachment| {
+            serde_json::json!({
+                "name": &attachment.name,
+                "mimeType": &attachment.mime_type,
+                "filePath": &attachment.file_path,
+                "uploadId": &attachment.upload_id,
+            })
+        })
+        .collect();
+    let plan_agent_mode = params.plan_agent_mode.as_ref().map(|mode| match mode {
+        crate::agent::PlanAgentMode::Off => "off",
+        crate::agent::PlanAgentMode::PlanAgent { .. } => "plan_agent",
+        crate::agent::PlanAgentMode::ExecutingAgent => "executing_agent",
+    });
+    let launch_spec_json = serde_json::json!({
+        "task": &params.task,
+        "timeoutSecs": params.timeout_secs,
+        "requestedModel": &params.model_override,
+        "isolateWorktree": params.isolate_worktree,
+        "attachments": attachment_refs,
+        "planAgentMode": plan_agent_mode,
+        "reasoningEffort": &params.reasoning_effort,
+    })
+    .to_string();
+    let trigger_kind = match (resumed_from_run_id.is_some(), params.owner_kind) {
+        (false, _) => "spawn",
+        (true, crate::subagent::SubagentOwnerKind::Workflow) => "workflow_resume",
+        (true, crate::subagent::SubagentOwnerKind::ParentSession) => "parent_followup",
+        (true, _) => "internal",
+    };
     let run = SubagentRun {
         run_id: run_id.clone(),
+        thread_id: child_session_id.clone(),
         parent_session_id: params.parent_session_id.clone(),
         parent_agent_id: params.parent_agent_id.clone(),
         child_agent_id: params.agent_id.clone(),
@@ -229,15 +470,44 @@ pub(crate) async fn spawn_subagent_with_run_id(
         error: None,
         depth: params.depth,
         model_used: None,
-        started_at: now,
+        started_at: now.clone(),
         finished_at: None,
         duration_ms: None,
         label: params.label.clone(),
         attachment_count,
         input_tokens: None,
         output_tokens: None,
+        continuation_of_run_id: resumed_from_run_id.map(str::to_string),
+        trigger_kind: trigger_kind.to_string(),
+        terminal_reason: None,
+        runner_owner: Some(super::runtime_owner_token().to_string()),
+        lease_epoch: 1,
+        last_heartbeat_at: Some(now.clone()),
+        delivery_kind: params.delivery_kind,
+        launch_spec_json: Some(launch_spec_json),
+        owner_kind: params.owner_kind,
+        owner_id: params.owner_id.clone(),
     };
-    session_db.insert_subagent_run(&run)?;
+    if let Some(source_run_id) = resumed_from_run_id {
+        let db = session_db.clone();
+        let source_run_id = source_run_id.to_string();
+        let run = run.clone();
+        let dispatch_id = resume_dispatch_id.map(str::to_string);
+        let dispatch_message = run.task.clone();
+        db.run(move |db| {
+            db.insert_resumed_subagent_run(
+                &source_run_id,
+                &run,
+                dispatch_id.as_deref(),
+                dispatch_id.as_ref().map(|_| dispatch_message.as_str()),
+            )
+        })
+        .await?;
+    } else {
+        let db = session_db.clone();
+        let run = run.clone();
+        db.run(move |db| db.insert_subagent_run(&run)).await?;
+    }
 
     // R6: project user-delegated background subagent runs into the unified
     // `background_jobs` surface (one-way; `subagent_runs` stays the truth
@@ -277,6 +547,21 @@ pub(crate) async fn spawn_subagent_with_run_id(
             ),
         }
     }
+    if params.group_id.is_some() {
+        let actual_delivery = if effective_group_id.is_some() {
+            crate::subagent::SubagentDeliveryKind::Group
+        } else {
+            crate::subagent::SubagentDeliveryKind::Parent
+        };
+        if params.delivery_kind != actual_delivery {
+            let delivery_db = session_db.clone();
+            let delivery_run_id = run_id.clone();
+            delivery_db
+                .run(move |db| db.set_subagent_delivery_kind(&delivery_run_id, actual_delivery))
+                .await?;
+            params.delivery_kind = actual_delivery;
+        }
+    }
 
     // R7.2: over the concurrency limit → PARK as `Queued`; the subagent
     // scheduler promotes it when a running child settles. Otherwise launch now.
@@ -301,14 +586,20 @@ pub(crate) async fn spawn_subagent_with_run_id(
             // drop the just-registered flag so we never leave a dangling
             // `Queued` run with no queue entry.
             cancel_registry.remove(&run_id);
-            let _ = session_db.update_subagent_status(
-                &run_id,
-                SubagentStatus::Killed,
-                None,
-                Some("Sub-agent queue full"),
-                None,
-                None,
-            );
+            let status_db = session_db.clone();
+            let status_run_id = run_id.clone();
+            let _ = status_db
+                .run(move |db| {
+                    db.update_subagent_status(
+                        &status_run_id,
+                        SubagentStatus::Killed,
+                        None,
+                        Some("Sub-agent queue full"),
+                        None,
+                        None,
+                    )
+                })
+                .await;
             return Err(anyhow::anyhow!(
                 "Sub-agent queue is full. Wait for some to complete or kill them."
             ));
@@ -325,7 +616,8 @@ pub(crate) async fn spawn_subagent_with_run_id(
         0,
         session_db,
         cancel_registry,
-    );
+    )
+    .await;
     Ok(run_id)
 }
 
@@ -334,11 +626,11 @@ pub(crate) async fn spawn_subagent_with_run_id(
 /// row + projection already exist (status `Spawning`). Called directly by
 /// [`spawn_subagent`] for an under-limit spawn, and by the subagent scheduler
 /// ([`super::queue`]) when promoting a previously `Queued` run.
-pub(crate) fn launch_subagent_run(
+pub(crate) async fn launch_subagent_run(
     params: SpawnParams,
     run_id: String,
     child_session_id: String,
-    effective_group_id: Option<String>,
+    _effective_group_id: Option<String>,
     eval_child_guard: Option<crate::eval_context::EvalSessionGuard>,
     queue_wait_ms: u64,
     session_db: Arc<SessionDB>,
@@ -354,6 +646,35 @@ pub(crate) fn launch_subagent_run(
     // 6. Register cancel flag and steer mailbox slot
     let cancel_flag = cancel_registry.register(&run_id);
     SUBAGENT_MAILBOX.register(&run_id);
+    let accepted_dispatches = {
+        let dispatch_db = session_db.clone();
+        let dispatch_run_id = run_id.clone();
+        dispatch_db
+            .run(move |db| db.list_accepted_subagent_dispatches(&dispatch_run_id))
+            .await
+    };
+    match accepted_dispatches {
+        Ok(dispatches) => {
+            for (dispatch_id, message) in dispatches {
+                if !SUBAGENT_MAILBOX.push_dispatch(&run_id, dispatch_id.clone(), message) {
+                    crate::app_warn!(
+                        "subagent",
+                        "dispatch",
+                        "failed to restore accepted steer dispatch {} into run {} mailbox",
+                        dispatch_id,
+                        run_id
+                    );
+                }
+            }
+        }
+        Err(error) => crate::app_warn!(
+            "subagent",
+            "dispatch",
+            "failed to restore accepted steer dispatches for run {}: {}",
+            run_id,
+            error
+        ),
+    }
 
     // 7. Emit spawned event
     emit_subagent_event(&SubagentEvent {
@@ -403,10 +724,6 @@ pub(crate) fn launch_subagent_run(
     let plan_agent_mode = params.plan_agent_mode.clone();
     let plan_mode_allow_paths = params.plan_mode_allow_paths.clone();
     let lock_plan_agent_mode = params.lock_plan_agent_mode;
-    let skip_parent_injection = params.skip_parent_injection;
-    // R5: a grouped child suppresses its individual completion injection — the
-    // Group fires ONE merged injection when every child settles (see below).
-    let grouped = effective_group_id.is_some();
     let extra_system_context = params.extra_system_context.clone();
     let skill_allowed_tools = params.skill_allowed_tools.clone();
     let reasoning_effort = params.reasoning_effort.clone();
@@ -433,14 +750,22 @@ pub(crate) fn launch_subagent_run(
         let start = std::time::Instant::now();
 
         // Update status to Running
-        let _ = db.update_subagent_status(
-            &run_id_clone,
-            SubagentStatus::Running,
-            None,
-            None,
-            None,
-            None,
-        );
+        {
+            let status_db = db.clone();
+            let status_run_id = run_id_clone.clone();
+            let _ = status_db
+                .run(move |db| {
+                    db.update_subagent_status(
+                        &status_run_id,
+                        SubagentStatus::Running,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                })
+                .await;
+        }
 
         // Execute sub-agent with timeout, catch_unwind to guarantee completion event
         let agent_id_exec = agent_id.clone();
@@ -458,14 +783,28 @@ pub(crate) fn launch_subagent_run(
         let reasoning_effort_exec = reasoning_effort.clone();
         let child_session_id_exec = child_session_id_clone.clone();
 
-        let _ = db.append_message(
-            &child_session_id_exec,
-            &crate::session::NewMessage::user(&task)
-                .with_source(crate::chat_engine::ChatSource::Subagent),
-        );
+        {
+            let message_db = db.clone();
+            let message_session_id = child_session_id_exec.clone();
+            let message_task = task.clone();
+            let _ = message_db
+                .run(move |db| {
+                    db.append_message(
+                        &message_session_id,
+                        &crate::session::NewMessage::user(&message_task)
+                            .with_source(crate::chat_engine::ChatSource::Subagent),
+                    )
+                })
+                .await;
+        }
 
         enum ExecutionResult {
-            Finished(Result<(String, Option<String>, crate::chat_engine::CapturedUsage)>),
+            Finished(
+                std::result::Result<
+                    (String, Option<String>, crate::chat_engine::CapturedUsage),
+                    SubagentExecutionFailure,
+                >,
+            ),
             Timeout,
         }
 
@@ -505,14 +844,14 @@ pub(crate) fn launch_subagent_run(
         let result = futures_util::FutureExt::catch_unwind(exec_result).await;
 
         let duration_ms = start.elapsed().as_millis() as u64;
-        let finished_at = chrono::Utc::now().to_rfc3339();
 
         // Determine outcome — handles Ok, Err, Timeout, Cancel, and Panic
-        let (status, result_text, error_text, model_used, usage) = match result {
+        let (status, terminal_reason, result_text, error_text, model_used, usage) = match result {
             Ok(ExecutionResult::Finished(Ok((response, model, usage)))) => {
                 let truncated = truncate_str(&response, MAX_RESULT_CHARS);
                 (
                     SubagentStatus::Completed,
+                    crate::subagent::SubagentTerminalReason::Success,
                     Some(truncated),
                     None,
                     model,
@@ -523,6 +862,7 @@ pub(crate) fn launch_subagent_run(
                 if cancel_flag.load(Ordering::SeqCst) {
                     (
                         SubagentStatus::Killed,
+                        crate::subagent::SubagentTerminalReason::UserKilled,
                         None,
                         Some("Killed by parent".into()),
                         None,
@@ -531,6 +871,7 @@ pub(crate) fn launch_subagent_run(
                 } else {
                     (
                         SubagentStatus::Error,
+                        e.terminal_reason,
                         None,
                         Some(e.to_string()),
                         None,
@@ -542,6 +883,7 @@ pub(crate) fn launch_subagent_run(
                 // Timeout
                 (
                     SubagentStatus::Timeout,
+                    crate::subagent::SubagentTerminalReason::DeadlineExceeded,
                     None,
                     Some(format!("Timed out after {}s", timeout_secs)),
                     None,
@@ -552,6 +894,7 @@ pub(crate) fn launch_subagent_run(
                 // Panic caught — still deliver the event
                 (
                     SubagentStatus::Error,
+                    crate::subagent::SubagentTerminalReason::RunnerPanic,
                     None,
                     Some("Sub-agent panicked unexpectedly".into()),
                     None,
@@ -567,24 +910,43 @@ pub(crate) fn launch_subagent_run(
                 .as_deref()
                 .or(result_text.as_deref())
                 .unwrap_or("(no response)");
-            let _ = db.append_message(
-                &child_session_id,
-                &crate::session::NewMessage::error_event(reply_text)
-                    .with_source(crate::chat_engine::ChatSource::Subagent),
-            );
+            let message_db = db.clone();
+            let message_session_id = child_session_id.clone();
+            let reply_text = reply_text.to_string();
+            let _ = message_db
+                .run(move |db| {
+                    db.append_message(
+                        &message_session_id,
+                        &crate::session::NewMessage::error_event(&reply_text)
+                            .with_source(crate::chat_engine::ChatSource::Subagent),
+                    )
+                })
+                .await;
         }
 
         // Update DB — guaranteed to run even after panic
-        let _ = db.update_subagent_status(
-            &run_id_clone,
-            status.clone(),
-            result_text.as_deref(),
-            error_text.as_deref(),
-            model_used.as_deref(),
-            Some(duration_ms),
-        );
-        let _ = db.set_subagent_usage(&run_id_clone, input_tokens, output_tokens);
-        let _ = db.set_subagent_finished_at(&run_id_clone, &finished_at);
+        {
+            let finalize_db = db.clone();
+            let finalize_run_id = run_id_clone.clone();
+            let finalize_status = status.clone();
+            let finalize_result = result_text.clone();
+            let finalize_error = error_text.clone();
+            let finalize_model = model_used.clone();
+            let _ = finalize_db
+                .run(move |db| {
+                    db.update_subagent_status_with_reason(
+                        &finalize_run_id,
+                        finalize_status,
+                        Some(terminal_reason),
+                        finalize_result.as_deref(),
+                        finalize_error.as_deref(),
+                        finalize_model.as_deref(),
+                        Some(duration_ms),
+                    )?;
+                    db.set_subagent_usage(&finalize_run_id, input_tokens, output_tokens)
+                })
+                .await;
+        }
 
         // Emit completion event — guaranteed to fire
         let result_preview = result_text.as_ref().map(|r| truncate_str(r, 200));
@@ -603,11 +965,6 @@ pub(crate) fn launch_subagent_run(
             );
         }
 
-        let status_for_inject = status.clone();
-        let agent_id_for_inject = agent_id.clone();
-        let result_text_for_inject = result_text.clone();
-        let error_text_for_inject = error_text.clone();
-        let parent_session_id_for_inject = parent_session_id.clone();
         let child_session_id_for_cleanup = child_session_id_clone.clone();
         emit_subagent_event(&SubagentEvent {
             event_type: status.as_str().to_string(),
@@ -642,63 +999,153 @@ pub(crate) fn launch_subagent_run(
         // Cleanup plan subagent registration if applicable
         crate::plan::try_unregister_plan_subagent_sync(&child_session_id_for_cleanup);
 
-        // Backend-driven result injection: push result to parent agent without relying on frontend.
-        // Uses a dedicated OS thread + runtime to avoid the Send cycle:
-        // inject_and_run_parent → agent.chat() → action_spawn → spawn_subagent → tokio::spawn
-        // R5: `grouped` children never inject individually — their Group joins
-        // all child results into ONE merged injection (covering every terminal
-        // status, including Killed, which the per-child path below skips).
-        if !skip_parent_injection
-            && !grouped
-            && matches!(
-                status_for_inject,
-                SubagentStatus::Completed | SubagentStatus::Error | SubagentStatus::Timeout
-            )
-        {
-            let push_msg = build_subagent_push_message(
-                &run_id_clone,
-                &agent_id_for_inject,
-                &task,
-                &status_for_inject,
-                duration_ms,
-                result_text_for_inject.as_deref(),
-                error_text_for_inject.as_deref(),
-            );
-            let db2 = db.clone();
-            let parent_sid2 = parent_session_id_for_inject;
-            let parent_agent_id2 = parent_agent_id.clone();
-            let child_agent_id2 = agent_id_for_inject.clone();
-            let run_id2 = run_id_clone.clone();
-            // Spawn on a separate OS thread so the future doesn't need to be Send
-            std::thread::spawn(move || {
-                match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(rt) => {
-                        // Subagent runs track completion via FETCHED_RUN_IDS /
-                        // subagent_runs status, not an async-job row — no
-                        // on_injected callback, and the outcome is ignored.
-                        let _ = rt.block_on(inject_and_run_parent(
-                            parent_sid2,
-                            parent_agent_id2,
-                            child_agent_id2,
-                            run_id2,
-                            push_msg,
-                            db2,
-                            None,
-                        ));
-                    }
-                    Err(e) => app_error!(
-                        "subagent",
-                        "inject",
-                        "Failed to build runtime for injection: {}",
-                        e
-                    ),
-                }
-            });
-        }
+        // The DB row chooses parent/group/workflow/none delivery and provides
+        // restart replay. This CAS is a no-op for non-parent or consumed runs.
+        // Delivery claiming performs synchronous SQLite work. The dispatcher
+        // moves the complete claim + injection lifecycle to one dedicated OS
+        // thread rather than pinning a runtime worker.
+        let delivery_run_id = run_id_clone.clone();
+        let delivery_db = db.clone();
+        dispatch_parent_result_delivery(&delivery_run_id, delivery_db);
     });
+}
+
+/// Claim and dispatch one durable ordinary-parent result delivery. Safe to call
+/// both on the live completion path and during startup replay; the database CAS
+/// admits exactly one in-flight injector.
+pub(crate) fn dispatch_parent_result_delivery(run_id: &str, db: Arc<SessionDB>) {
+    let run_id = run_id.to_string();
+    std::thread::spawn(move || {
+        dispatch_parent_result_delivery_blocking(&run_id, db);
+    });
+}
+
+fn dispatch_parent_result_delivery_blocking(run_id: &str, db: Arc<SessionDB>) -> bool {
+    let run = match db.get_subagent_run(run_id) {
+        Ok(Some(run)) => run,
+        Ok(None) => return false,
+        Err(error) => {
+            crate::app_warn!(
+                "subagent",
+                "delivery",
+                "failed to load run {} for parent delivery: {}",
+                run_id,
+                error
+            );
+            return false;
+        }
+    };
+    if run.delivery_kind != crate::subagent::SubagentDeliveryKind::Parent
+        || run.owner_kind != crate::subagent::SubagentOwnerKind::ParentSession
+        || !run.status.is_terminal()
+        || matches!(run.status, SubagentStatus::Killed)
+    {
+        return false;
+    }
+    // Incognito deliveries are intentionally process-local: they may notify
+    // the still-open parent now, but must never create a durable row that a
+    // later Primary could replay before close-and-burn cleanup runs.
+    let incognito = matches!(
+        db.get_session(&run.parent_session_id),
+        Ok(Some(ref session)) if session.incognito
+    );
+    if !incognito {
+        match db.claim_subagent_result_delivery(run_id) {
+            Ok(true) => {}
+            Ok(false) => return false,
+            Err(error) => {
+                crate::app_warn!(
+                    "subagent",
+                    "delivery",
+                    "failed to claim parent delivery for run {}: {}",
+                    run_id,
+                    error
+                );
+                return false;
+            }
+        }
+    }
+
+    let push_message = build_subagent_push_message(
+        &run.thread_id,
+        &run.run_id,
+        &run.child_agent_id,
+        &run.task,
+        &run.status,
+        run.duration_ms.unwrap_or(0),
+        run.result.as_deref(),
+        run.error.as_deref(),
+        run.terminal_reason,
+    );
+    let delivery_db = db.clone();
+    let delivery_run_id = run.run_id.clone();
+    let on_injected: Option<super::injection::OnInjected> = (!incognito).then(|| {
+        Arc::new(move || {
+            if let Err(error) = delivery_db.mark_subagent_result_delivered(&delivery_run_id) {
+                crate::app_warn!(
+                    "subagent",
+                    "delivery",
+                    "failed to mark result delivery for run {}: {}",
+                    delivery_run_id,
+                    error
+                );
+            }
+        }) as super::injection::OnInjected
+    });
+    match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => {
+            let _ = runtime.block_on(inject_and_run_parent(
+                run.parent_session_id,
+                run.parent_agent_id,
+                run.child_agent_id,
+                run.run_id,
+                push_message,
+                db,
+                on_injected,
+            ));
+        }
+        Err(error) => crate::app_error!(
+            "subagent",
+            "delivery",
+            "failed to build runtime for result delivery: {}",
+            error
+        ),
+    }
+    true
+}
+
+#[derive(Debug)]
+struct SubagentExecutionFailure {
+    terminal_reason: SubagentTerminalReason,
+    message: String,
+}
+
+impl SubagentExecutionFailure {
+    fn new(terminal_reason: SubagentTerminalReason, message: impl Into<String>) -> Self {
+        Self {
+            terminal_reason,
+            message: message.into(),
+        }
+    }
+
+    fn provider_exhausted(message: impl Into<String>) -> Self {
+        Self::new(SubagentTerminalReason::ProviderExhausted, message)
+    }
+}
+
+impl From<anyhow::Error> for SubagentExecutionFailure {
+    fn from(error: anyhow::Error) -> Self {
+        Self::new(SubagentTerminalReason::ModelError, error.to_string())
+    }
+}
+
+impl std::fmt::Display for SubagentExecutionFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
 }
 
 /// Execute the sub-agent (runs within the spawned tokio task).
@@ -728,7 +1175,10 @@ fn execute_subagent(
     origin_source: Option<crate::knowledge::KbAccessSource>,
     origin_channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 ) -> impl std::future::Future<
-    Output = Result<(String, Option<String>, crate::chat_engine::CapturedUsage)>,
+    Output = std::result::Result<
+        (String, Option<String>, crate::chat_engine::CapturedUsage),
+        SubagentExecutionFailure,
+    >,
 > + Send {
     async move {
         use crate::provider;
@@ -771,9 +1221,7 @@ fn execute_subagent(
         }
 
         if model_chain.is_empty() {
-            return Err(anyhow::anyhow!(
-                "No model configured for sub-agent execution"
-            ));
+            return Err(anyhow::anyhow!("No model configured for sub-agent execution").into());
         }
 
         // Build extra system context for sub-agent
@@ -850,40 +1298,57 @@ fn execute_subagent(
             None
         };
 
-        let result = crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
-            session_id: child_session_id,
-            agent_id: agent_id.clone(),
-            turn_id: None,
-            message: task,
-            display_text: None,
-            attachments,
-            session_db,
-            model_chain,
-            providers: store.providers.clone(),
-            codex_token: None,
-            resolved_temperature: agent_def.config.model.temperature.or(store.temperature),
-            compact_config: store.compact.clone(),
-            extra_system_context,
-            reasoning_effort: effective_reasoning_effort,
-            cancel,
-            plan_context_override,
-            skill_allowed_tools,
-            denied_tools: denied,
-            tool_scope: None,
-            subagent_depth: depth,
-            steer_run_id: Some(run_id),
-            auto_approve_tools: false,
-            follow_global_reasoning_effort: false,
-            post_turn_effects: false,
-            abort_on_cancel: true,
-            persist_final_error_event: false,
-            source: crate::chat_engine::stream_seq::ChatSource::Subagent,
-            origin_source,
-            channel_kb_context: origin_channel_kb_context,
-            event_sink: Arc::new(crate::chat_engine::NoopEventSink),
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("All models failed for sub-agent: {}", e))?;
+        let result =
+            crate::chat_engine::run_chat_engine_classified(crate::chat_engine::ChatEngineParams {
+                session_id: child_session_id,
+                agent_id: agent_id.clone(),
+                turn_id: None,
+                message: task,
+                display_text: None,
+                attachments,
+                session_db,
+                model_chain,
+                providers: store.providers.clone(),
+                codex_token: None,
+                resolved_temperature: agent_def.config.model.temperature.or(store.temperature),
+                compact_config: store.compact.clone(),
+                extra_system_context,
+                reasoning_effort: effective_reasoning_effort,
+                cancel,
+                plan_context_override,
+                skill_allowed_tools,
+                denied_tools: denied,
+                tool_scope: None,
+                subagent_depth: depth,
+                steer_run_id: Some(run_id),
+                auto_approve_tools: false,
+                follow_global_reasoning_effort: false,
+                post_turn_effects: false,
+                abort_on_cancel: true,
+                persist_final_error_event: false,
+                source: crate::chat_engine::stream_seq::ChatSource::Subagent,
+                origin_source,
+                channel_kb_context: origin_channel_kb_context,
+                event_sink: Arc::new(crate::chat_engine::NoopEventSink),
+            })
+            .await
+            .map_err(|error| {
+                let message = format!("Sub-agent chat execution failed: {error}");
+                match error.kind {
+                    crate::chat_engine::ChatEngineFailureKind::ProviderExhausted => {
+                        SubagentExecutionFailure::provider_exhausted(message)
+                    }
+                    crate::chat_engine::ChatEngineFailureKind::Cancelled => {
+                        SubagentExecutionFailure::new(
+                            SubagentTerminalReason::ParentCancelled,
+                            message,
+                        )
+                    }
+                    crate::chat_engine::ChatEngineFailureKind::Infrastructure => {
+                        SubagentExecutionFailure::new(SubagentTerminalReason::ModelError, message)
+                    }
+                }
+            })?;
 
         let model_used = result.model_used.as_ref().map(ToString::to_string);
         Ok((result.response, model_used, result.usage))
@@ -912,6 +1377,18 @@ mod hook_label_tests {
         assert!(!is_hook_spawn(Some("")));
         assert!(!is_hook_spawn(Some("agent-team")));
         assert!(!is_hook_spawn(Some("subagent-tool")));
+    }
+
+    #[test]
+    fn execution_failure_keeps_provider_exhaustion_distinct_from_setup_errors() {
+        let provider = SubagentExecutionFailure::provider_exhausted("providers unavailable");
+        assert_eq!(
+            provider.terminal_reason,
+            SubagentTerminalReason::ProviderExhausted
+        );
+
+        let setup = SubagentExecutionFailure::from(anyhow::anyhow!("agent config invalid"));
+        assert_eq!(setup.terminal_reason, SubagentTerminalReason::ModelError);
     }
 }
 
@@ -951,13 +1428,16 @@ mod structural_limit_tests {
             origin_source: None,
             origin_channel_kb_context: None,
             group_id: None,
+            owner_kind: crate::subagent::SubagentOwnerKind::ParentSession,
+            owner_id: "s".into(),
+            delivery_kind: crate::subagent::SubagentDeliveryKind::Parent,
         }
     }
 
     #[tokio::test]
     async fn subagent_depth_overflow_rejects_not_queues() {
         let tmp = tempfile::tempdir().unwrap();
-        let db = Arc::new(SessionDB::open(&tmp.path().join("s.db")).unwrap());
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&tmp.path().join("s.db")).unwrap());
         let registry = Arc::new(SubagentCancelRegistry::new());
         // Default cap is 3 (DEFAULT_MAX_DEPTH); depth 99 is structurally illegal.
         let err = spawn_subagent(params_at_depth(99), db, registry)
@@ -984,6 +1464,7 @@ mod structural_limit_tests {
     fn active_run(run_id: &str, parent_session: &str, agent: &str) -> SubagentRun {
         SubagentRun {
             run_id: run_id.into(),
+            thread_id: format!("child-{run_id}"),
             parent_session_id: parent_session.into(),
             parent_agent_id: agent.into(),
             child_agent_id: agent.into(),
@@ -1001,6 +1482,16 @@ mod structural_limit_tests {
             attachment_count: 0,
             input_tokens: None,
             output_tokens: None,
+            continuation_of_run_id: None,
+            trigger_kind: "spawn".into(),
+            terminal_reason: None,
+            runner_owner: None,
+            lease_epoch: 1,
+            last_heartbeat_at: None,
+            delivery_kind: crate::subagent::SubagentDeliveryKind::Parent,
+            launch_spec_json: None,
+            owner_kind: crate::subagent::SubagentOwnerKind::ParentSession,
+            owner_id: parent_session.into(),
         }
     }
 
@@ -1020,7 +1511,8 @@ mod structural_limit_tests {
             cfg.subagents.max_concurrent = 1;
             std::fs::write(dir.join("agent.json"), serde_json::to_string(&cfg).unwrap()).unwrap();
 
-            let db = Arc::new(SessionDB::open(&root.path().join("s.db")).unwrap());
+            let db =
+                Arc::new(SessionDB::open_ephemeral_for_test(&root.path().join("s.db")).unwrap());
             let registry = Arc::new(SubagentCancelRegistry::new());
             let parent = db.create_session(agent_id).unwrap();
 
@@ -1050,6 +1542,9 @@ mod structural_limit_tests {
                 origin_source: None,
                 origin_channel_kb_context: None,
                 group_id: None,
+                owner_kind: crate::subagent::SubagentOwnerKind::ParentSession,
+                owner_id: parent.id.clone(),
+                delivery_kind: crate::subagent::SubagentDeliveryKind::Parent,
             };
 
             let rt = tokio::runtime::Builder::new_current_thread()

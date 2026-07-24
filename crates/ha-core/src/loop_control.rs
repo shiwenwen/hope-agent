@@ -5784,7 +5784,8 @@ mod tests {
 
     fn temp_dbs() -> (tempfile::TempDir, SessionDB, CronDB) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let session_db = SessionDB::open(&dir.path().join("sessions.db")).expect("session db");
+        let session_db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("session db");
         {
             let conn = session_db.conn.lock().expect("lock session db");
             conn.execute_batch(

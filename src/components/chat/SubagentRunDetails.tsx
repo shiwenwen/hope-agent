@@ -88,6 +88,17 @@ export default function SubagentRunDetails({
       value: run.attachmentCount ? run.attachmentCount : undefined,
     },
     {
+      key: "attempt",
+      label: t("subagent.attempt", { defaultValue: "Attempt" }),
+      value: run.leaseEpoch ? `#${run.leaseEpoch}` : undefined,
+    },
+    {
+      key: "terminalReason",
+      label: t("subagent.terminalReason", { defaultValue: "Terminal reason" }),
+      value: run.terminalReason,
+      monospace: true,
+    },
+    {
       key: "startedAt",
       label: t("subagent.startedAt", { defaultValue: "Started" }),
       value: formatTimestamp(run.startedAt, i18n.language),
@@ -112,6 +123,12 @@ export default function SubagentRunDetails({
       key: "parentAgent",
       label: t("subagent.parentAgent", { defaultValue: "Parent agent" }),
       value: run.parentAgentId,
+      monospace: true,
+    },
+    {
+      key: "threadId",
+      label: t("subagent.threadId", { defaultValue: "Thread ID" }),
+      value: run.threadId,
       monospace: true,
     },
     {

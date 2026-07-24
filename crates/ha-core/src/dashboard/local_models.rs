@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn empty_local_names_short_circuits_to_zeros() {
         let path = temp_db_path("local-models-empty");
-        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
         let filter = DashboardFilter::default();
         let usage = query_local_model_usage(&db, &filter, &[]).expect("query");
         assert_eq!(usage.local_provider_names.len(), 0);
@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn aggregates_only_local_provider_sessions() {
         let path = temp_db_path("local-models-aggregate");
-        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
 
         // Local provider sessions
         insert_session(&db, "s-local-1", Some("Ollama (local)"), Some("qwen3:8b"));
@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn excludes_incognito_cron_and_subagent_sessions() {
         let path = temp_db_path("local-models-excludes");
-        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
 
         // A normal local session we expect to count
         insert_session(&db, "s-ok", Some("Ollama (local)"), Some("qwen3:8b"));

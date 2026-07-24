@@ -93,11 +93,11 @@ pub fn spawn_auto_update_loop() {
 
             run_check_once(&cfg).await;
 
-            let wait = Duration::from_secs(cfg.clamped_interval_hours() as u64 * 3600);
+            let wait = Duration::from_secs(cfg.clamped_interval_secs());
             app_info!(
                 "self_update",
                 "auto_check",
-                "next auto-update check in {}h",
+                "next auto-update check in {:.1}h",
                 cfg.clamped_interval_hours()
             );
             tokio::select! {

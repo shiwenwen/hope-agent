@@ -93,7 +93,7 @@ export default function PersonalInfoSection({
               className={cn(
                 "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
                 config.aiExperience === level
-                  ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
+                  ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
                   : "bg-secondary/20 text-foreground hover:bg-secondary/60",
               )}
               onClick={() =>
@@ -124,7 +124,7 @@ export default function PersonalInfoSection({
             className={cn(
               "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
               !config.timezone
-                ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
+                ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
                 : "bg-secondary/20 text-foreground hover:bg-secondary/60",
             )}
             onClick={() => update({ timezone: null })}

@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest"
 import type { SubagentRun, ToolCall } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
-import { extractSubagentChipItems, markdownPreview, matchPendingRun } from "./subagentRunModel"
+import {
+  extractSubagentChipItems,
+  indexLatestRunByChildSession,
+  markdownPreview,
+  matchPendingRun,
+} from "./subagentRunModel"
 
 function tool(partial: Partial<ToolCall> & { callId: string }): ToolCall {
   return { name: "subagent", arguments: "{}", ...partial }
@@ -9,6 +14,7 @@ function tool(partial: Partial<ToolCall> & { callId: string }): ToolCall {
 
 function run(partial: Partial<SubagentRun> & { runId: string }): SubagentRun {
   return {
+    threadId: `cs-${partial.runId}`,
     parentSessionId: "p",
     parentAgentId: "pa",
     childAgentId: "a",
@@ -17,6 +23,11 @@ function run(partial: Partial<SubagentRun> & { runId: string }): SubagentRun {
     status: "running",
     depth: 1,
     startedAt: "2026-07-18T00:00:00.000Z",
+    triggerKind: "spawn",
+    leaseEpoch: 1,
+    deliveryKind: "parent",
+    ownerKind: "parent_session",
+    ownerId: "p",
     ...partial,
   }
 }
@@ -45,6 +56,51 @@ describe("extractSubagentChipItems", () => {
     )
     expect(items).toEqual([
       { kind: "pending", key: "c1", agentId: "a", task: "t", label: undefined, startedAtMs: 1000 },
+    ])
+  })
+
+  test("resume result → one resolved item for the fresh run and actual child agent", () => {
+    const items = extractSubagentChipItems(
+      tool({
+        callId: "c-resume",
+        arguments: JSON.stringify({ action: "resume", run_id: "r-old", task: "check again" }),
+        result: JSON.stringify({ run_id: "r-new", child_agent_id: "researcher" }),
+      }),
+    )
+    expect(items).toEqual([
+      {
+        kind: "resolved",
+        key: "c-resume",
+        runId: "r-new",
+        agentId: "researcher",
+        task: "check again",
+        label: undefined,
+      },
+    ])
+  })
+
+  test("send is hidden while pending and resolves to the authoritative current attempt", () => {
+    const args = { action: "send", thread_id: "child-1", message: "continue" }
+    expect(
+      extractSubagentChipItems(tool({ callId: "c-send", arguments: JSON.stringify(args) })),
+    ).toEqual([])
+    expect(
+      extractSubagentChipItems(
+        tool({
+          callId: "c-send",
+          arguments: JSON.stringify(args),
+          result: JSON.stringify({ run_id: "r-current", child_agent_id: "researcher" }),
+        }),
+      ),
+    ).toEqual([
+      {
+        kind: "resolved",
+        key: "c-send",
+        runId: "r-current",
+        agentId: "researcher",
+        task: "continue",
+        label: undefined,
+      },
     ])
   })
 
@@ -118,6 +174,16 @@ describe("extractSubagentChipItems", () => {
     )
     expect(pending[0].key).toBe("c9")
     expect(resolved[0].key).toBe("c9")
+  })
+})
+
+describe("indexLatestRunByChildSession", () => {
+  test("keeps the newest run when resume creates multiple rows for one child session", () => {
+    const runs = [
+      run({ runId: "r-new", childSessionId: "child-1" }),
+      run({ runId: "r-old", childSessionId: "child-1" }),
+    ]
+    expect(indexLatestRunByChildSession(runs).get("child-1")?.runId).toBe("r-new")
   })
 })
 

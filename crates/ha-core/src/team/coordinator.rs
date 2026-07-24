@@ -163,6 +163,9 @@ pub async fn spawn_member(
         origin_channel_kb_context: None,
         // Internal team-member subagent (skip_parent_injection) — never grouped (R5).
         group_id: None,
+        owner_kind: crate::subagent::SubagentOwnerKind::Team,
+        owner_id: team.team_id.clone(),
+        delivery_kind: crate::subagent::SubagentDeliveryKind::None,
     };
 
     let run_id = subagent::spawn_subagent(params, db.clone(), cancel_registry.clone()).await?;

@@ -938,7 +938,8 @@ mod tests {
 
     fn test_db() -> (tempfile::TempDir, SessionDB) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = SessionDB::open(&dir.path().join("sessions.db")).expect("session db");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("session db");
         (dir, db)
     }
 

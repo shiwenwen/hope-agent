@@ -218,7 +218,7 @@ export default function ConfigRecoveryScreen({ health, onRecovered }: ConfigReco
                       key={entry.id}
                       className={cn(
                         "flex items-center gap-3 px-4 py-3 transition-colors",
-                        busy ? "bg-secondary/60" : "hover:bg-secondary/40",
+                        busy ? "bg-muted" : "hover:bg-secondary/40",
                       )}
                     >
                       <div className="min-w-0 flex-1">

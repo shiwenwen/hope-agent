@@ -511,6 +511,7 @@ impl ChannelDB {
                    FROM channel_conversations cc \
                    JOIN sessions s ON s.id = cc.session_id \
                    WHERE s.incognito = 0 \
+                     AND s.archived_at IS NULL \
                      AND s.is_cron = 0 \
                      AND s.parent_session_id IS NULL \
                      AND cc.updated_at >= ?1 \
@@ -815,7 +816,7 @@ mod recent_active_tests {
 
     fn open_db(name: &str) -> TestDb {
         let path = temp_db_path(name);
-        let session = Arc::new(SessionDB::open(&path).expect("open session db"));
+        let session = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open session db"));
         let channel = ChannelDB::new(session.clone());
         channel.migrate().expect("migrate channel db");
         TestDb {

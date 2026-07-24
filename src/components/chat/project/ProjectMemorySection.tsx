@@ -319,7 +319,7 @@ export function ProjectMemorySection({ projectId, readOnly = false }: ProjectMem
                   className={cn(
                     "h-7 gap-1.5 px-2.5 text-xs shadow-none",
                     editorMode === "edit" &&
-                      "bg-background text-foreground shadow-sm hover:bg-background",
+                      "bg-background text-foreground hover:bg-background",
                   )}
                 >
                   <FileText className="h-3.5 w-3.5" />
@@ -334,7 +334,7 @@ export function ProjectMemorySection({ projectId, readOnly = false }: ProjectMem
                   className={cn(
                     "h-7 gap-1.5 px-2.5 text-xs shadow-none",
                     editorMode === "preview" &&
-                      "bg-background text-foreground shadow-sm hover:bg-background",
+                      "bg-background text-foreground hover:bg-background",
                   )}
                 >
                   <Eye className="h-3.5 w-3.5" />
