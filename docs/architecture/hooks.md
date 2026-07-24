@@ -102,9 +102,9 @@
 | `tool_name`（payload） | `Bash` / `Write` / `Edit` / `Read` / `WebFetch` … | 内部名 `exec` / `write` / `edit` / `read` / `web_fetch`。**matcher 归一化别名**（写 `matcher:"Bash"` 能命中），但 **payload 的 `.tool_name` 是内部名** | 脚本若 `jq` 判 `.tool_name=="Bash"` 不命中——改判 `.tool_input.*`（已对齐）|
 | `permission_mode` | `default\|plan\|acceptEdits\|auto\|dontAsk\|bypassPermissions` | 仅 `default\|plan\|bypassPermissions`，Smart→`other` | 硬 switch 6 值的脚本需兜底 `other` |
 | **可阻断事件集（部分落地）** | `Stop` / `SubagentStop` / `TaskCreated` / `TaskCompleted` / `ConfigChange` / `PostToolBatch` / `UserPromptExpansion` / `PermissionRequest` / `Elicitation*` 均可 `exit 2` / `decision:block` 阻断 | **已落地 6 个**（§2.1）：`Stop`（block-to-continue，bounded）/ `PostToolBatch`（停循环）/ `TaskCreated` / `TaskCompleted`（否决，仅交互 tool 路径，workflow 路径仍 fire-and-forget）/ `UserPromptExpansion`（否决展开）/ `PermissionRequest`（仅 deny）。**刻意保留观察型**：`ConfigChange`（veto 触 config-system 红线 + kill-switch 保护，类比官方 `policy_settings` 豁免——不让 hook 拦住关闭 hooks / 修复坏配置；且 `mutate_config` 同步热路径不宜嵌异步 veto）；`SubagentStop`（再驱动已终结子 Agent 属较大特性）；`Elicitation*`（复用原生问答，真 MCP 阻断待 server）| 未落地三者的官方阻断脚本仍 no-op（已登记，见 Roadmap）|
-| `prompt_id` | 每 payload 携带（首次用户输入后出现的 per-turn UUID） | **已填充**：`hooks::resolve_prompt_id()` 复用 `chat_engine` 既有的 per-turn UUID（`active_turn::current(session_id).turn_id`，同步内存注册表），不另造第二个 id | **轮内事件全覆盖**（PreToolUse / PostToolUse / PostToolBatch / Stop / PermissionRequest / Task\* …共享同一 id，可按轮分组）。**缺口**：`UserPromptSubmit` 在 preflight 落库前触发、**早于回合 acquire** → 恒 `None`；非用户回合（cron / subagent）带各自回合 id |
+| `prompt_id` | 每 payload 携带（首次用户输入后出现的 per-turn UUID） | **已填充**，两条路径：轮内事件走 `hooks::resolve_prompt_id()` 读 `active_turn::current(session_id).turn_id`（同步内存注册表，不另造第二个 id）；`UserPromptSubmit` 走**入口直传**——`PreflightArgs.turn_id` 由入口铸造并同时交给 `try_acquire`，覆盖注册表查询 | **轮内事件全覆盖**（PreToolUse / PostToolUse / PostToolBatch / Stop / PermissionRequest / Task\* 共享同一 id，可按轮分组），`UserPromptSubmit` 与之同 id。**残留缺口**：只有 Desktop / HTTP / IM / 手动压缩四处 `try_acquire`，故 **ACP / cron / 后台 subagent / eval 的轮内事件恒 `None`**（ACP 的 `UserPromptSubmit` 因直传而有 id，其余事件没有）——曾误记为「非用户回合带各自回合 id」，实际它们**不持 active turn** |
 | `effort` | `effort.level`（`low\|medium\|high\|xhigh\|max`；仅工具上下文事件、模型支持时出现） | **已填充**：`hooks::resolve_effort()` 读**全局** reasoning-effort cell（UI picker / `/thinking` 设的值，provider 每轮采用），`try_lock` 同步安全。取值可含 Hope Agent 专有 `minimal`；`none`/空→omit | **是 hint**：反映**全局**effort，不反映 per-agent 覆盖（`Agent::effective_reasoning_effort` 为 async，同步 build 点取不到）；`$CLAUDE_EFFORT` 同源 |
-| `PermissionRequest`/`Denied` 的 `tool_name`/`tool_input` | 携带结构化 tool_name + tool_input | 字段已入 schema；`tool_name` 仅在 engine policy-deny 有内部名，approval 门 / exec 门恒 `None`（matcher 回退 `command`），`tool_input` 恒 `None` | 审批链未分离出干净 tool_input，部分场景 `.tool_name` 仍缺；`command` 始终可用 |
+| `PermissionRequest`/`Denied` 的 `tool_name`/`tool_input` | 携带结构化 tool_name + tool_input | **已填充**：`check_and_request_approval` 借用透传 `tool_input: Option<&Value>` + `tool_use_id`，四个 fire 点（unattended / hook-policy / user_declined / engine policy-deny）与 exec 命令级 deny 全带上；engine gate 传的是 PreToolUse `updatedInput` + mac_control sanitize + exec migrate **之后**的影子值——即权限引擎真正评估并拒绝的那份，与 PostToolUse / 历史一致。**刻意与 PreToolUse 不一致**：PreToolUse 正是 `updatedInput` 的生产者，必然早于改写；按 `tool_use_id` 对账的脚本在有 PreToolUse 改写时会看到两份不同的 `tool_input`。`tool_input` 也接进 `HookInput::tool_input()`（`${tool_input.*}` 模板可解析）| 可按 `.tool_input` 判参数、按 `tool_use_id` 与 PreToolUse/PostToolUse 对账。**仍缺**：exec 命令级 deny 刻意传 `tool_name: None`（matcher 须打命令串而非 `"exec"`）；审批**超时**分支不 fire `PermissionDenied`；`tool_name()` 访问器**刻意不**扩到 Permission（扩了会让 `if:` 规则突然命中审批事件）|
 | `ConfigChange.source` | 变更的**配置文件 scope**（`user_settings` / `project_settings` / …） | 本项目单 `config.json`，`source` = **触发者**（`user`/`skill`/`reload`），配置**域**在 `category`；matcher 目标 = `category`（非官方 `source`） | 期望 `.source=="project_settings"` 的脚本不命中；按 `.category` 匹配 |
 | `FileChanged` matcher | 字面文件名精确集（无 regex） | 目标 = 绝对路径，走通用 matcher（含 regex），是**超集** | 官方字面 basename matcher（如 `config.json`）对不上绝对路径；用 `.*config\.json$` |
 | `Elicitation`/`ElicitationResult` | MCP elicitation（`server_name` / `form_schema` / `action`+`content`） | 复用原生 `ask_user_question`（`request_id` / `question_count` / `status`）；输出 `action`/`content` 已可解析但未接 MCP | 读 `.server_name`/`.form_schema` 或回 action/content 无效；MCP server 落地后对齐 |
@@ -140,6 +140,7 @@ crates/ha-core/src/hooks/
 
 ```mermaid
 flowchart TD
+    A0["同步 fire_* → scopes::definitely_no_handlers_for(event)<br/>cwd-free 预闸：省掉建 input 的 session 查库"]
     A["fire 路径 → scopes::any_handlers_for(event, cwd)<br/>fast-path：无 handler 直接 noop"]
     B["scopes::resolve_for_cwd(cwd)<br/>全局(user+managed) ∪ project ∪ local，per-cwd 缓存"]
     C["matcher 过滤（per-event matcher target）"]
@@ -149,8 +150,14 @@ flowchart TD
     G["parse（exit-code + JSON → HookContribution）"]
     H["decision::aggregate → HookOutcome"]
     I["audit（category=hooks）"]
-    A --> B --> C --> D --> E --> F --> G --> H --> I
+    A0 --> A --> B --> C --> D --> E --> F --> G --> H --> I
 ```
+
+**两级 gate（别只记住一级）**：`any_handlers_for` 精确但要 cwd，而 cwd 来自 `sessions.working_dir` 查库（同步 rusqlite，走**独占写连接**）——`fire_*` 必须先建好 input 才拿得到，于是**没配 hook 也照查一次库**（`fire_file_changed` / `fire_stop` / `dispatch_permission_request` 这类每轮或每次审批都跑的路径尤甚）。故各 `fire_*` / `dispatch_*` 先过 cwd-free 的 `definitely_no_handlers_for`：kill switch 开、或（project scope 关 ∧ 全局无 handler）→ 直接返回。project scope 开时它**拒绝作答**（返回 false）落回二级 gate——**只许省事、永不许放行**。
+
+- soundness（预闸不得跳过 project-scope 才有的 handler）由 `scopes::tests::cwd_free_pregate_only_ever_skips_work` 钉住；**该测试曾是恒真式**（project scope 关时两边都归约成 `registry::global().has_handlers_for(e)`），现已改成真正构造带 `.hope-agent/hooks.json` 的 cwd。
+- 正向性（配了 hook 仍能穿过预闸真触发）**不在单测**——它需要改进程全局 registry。由 `hooks_e2e.rs` 的 `fire_*` 存活断言端到端钉住,把预闸改成永真会让它超时失败。
+- **仍未加预闸**：`HookDispatcher::dispatch` 自身与 `fire_and_forget` 内部仍各自解析一次 cwd，故已触发的 hook 每次仍有重复查库（既存，非本次引入）。
 
 **与既有 gate 的关系**：hook 层加在既有 gate **外侧**——先跑 hook，没拦住才走 Plan Mode / Approval / Dangerous 判定。`PostToolUse` 在结果回灌历史**之前**跑。业务代码只读 `HookOutcome`，**严禁 match 具体 handler 类型**。
 
@@ -336,7 +343,9 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR`/`${VAR}` 插
 
 ## 12. 安全 & 审计
 
-- **零 secret 入日志**：审计日志里 `tool_input` / `prompt` 截断（`truncate_utf8`）+ 走 `redact_sensitive`；API Key / OAuth token 禁止进 hook input / env（AGENTS.md 红线）。
+- **零 secret 入日志（机制：根本不记 payload）**：`audit.rs::log_dispatch` 只写 event / handler 数 / 决策 / continue / ctx 块数 / 耗时；`env.rs` 只投 common 字段；`emit_hook_status` 只带 sessionId / event / handlerType。AGENTS.md「Key 禁入日志」红线由**结构**满足——hooks 模块内**没有任何脱敏调用**（`grep redact crates/ha-core/src/hooks/` 为空），别误以为有一层 `redact_sensitive` 兜底。
+- **hook 子进程继承宿主全量环境（比 payload 更大的暴露面）**：`runner/command.rs` **不调用 `.env_clear()`**，`env.rs` 只是在继承的环境上**追加**那 8 个 `CLAUDE_*`/`HOPE_*` 覆盖项。所以 hook 命令能读到 hope-agent 进程的所有环境变量。http handler 另有 `allowedEnvVars` 白名单转发（`X-Hope-Env-*`），其文档用例本身就是转发 `Authorization: Bearer $TOKEN`——即"凭据进 hook env"是**已发布的设计**，不是疏漏。
+- **payload 出站不脱敏（刻意，对齐官方）**：`tool_input` / `prompt` / `tool_response` **原样**进三个出口——command handler stdin、http handler body、prompt handler 拼进 LLM 指令（prompt handler 侧有 `PROMPT_MAX_PAYLOAD_CHARS` 大小上限，防超大 `tool_input` 按文件体积计费，但**不脱敏**）。官方 hooks 同样交付原始 `tool_input`（否则 `block_rm` 这类判 `.tool_input.command` 的脚本无法工作），故这是**对齐决定不是疏漏**；边界由 opt-in + project/local 默认关承担。**含义**：给某工具配 hook＝授权该 hook 读到该工具全部入参（含其中凭据）；`PermissionRequest`/`PermissionDenied` 尤甚——受审批的调用天然偏携密。若日后要脱敏，须**同时**覆盖 `PreToolUse`，只脱一半比两端都不脱更糟。
 - **SSRF 统一**：http hook URL 必走 `security::ssrf::check_url`，不跟随重定向（§7.2）。
 - **阻断事件 fail-closed**：http hook 在 PreToolUse / UserPromptSubmit / PreCompact 上，降级路径一律 Block（§7.2），防鉴权过期静默放行。
 - **供应链防护**：project/local 默认关（§5），仓库 hooks 不因 cwd 指向自动跑。**已知限制**：opt-in 是全局而非按项目——开启后所有 cwd 一律生效（详见 §5「信任是全局而非按项目」），per-cwd 细粒度信任见 Roadmap。
@@ -355,10 +364,18 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR`/`${VAR}` 插
 
 ## 14. 测试 & 验证
 
-- **单元**（inline `#[cfg(test)]`）：matcher / config / parse / condition / decision / 各 runner。
-- **集成**（`crates/ha-core/tests/`）：`hooks_e2e.rs`（config→reload→dispatch 全链）、`hooks_project_scope.rs`（project-scope opt-in 闸）、`hooks_pre_tool_continue_false.rs`（continue:false 聚合）、`hooks_compat.rs`（**§17.4 官方脚本兼容套件**，见下）。
-- **兼容套件**（`hooks_compat.rs` + `tests/fixtures/hooks/claude-code-compat/`）：跑未改动的官方风格 jq 脚本（block_rm / pretooluse_deny / prompt_context / projectdir_env），证明字段级对齐（G1）。`jq` 缺失自动跳过；CI Unix legs 装 jq 确保真跑。
-- 跑：`cargo test -p ha-core --test hooks_compat`（需 jq）。
+- **单元**（inline `#[cfg(test)]`）：matcher / config / parse / condition / decision / 各 runner；另有 `hooks::guard_tests::stop_continue_counter_caps_resets_and_never_leaks`（continue 计数器 cap / reset / 不泄漏，零 IO 确定性）与 `scopes::tests::cwd_free_pregate_only_ever_skips_work`（预闸 soundness）。
+- **集成**（`crates/ha-core/tests/`，各**一个** `#[test]`/binary——`install_hook` 写进程全局 config、`reload_from_config` 换全局 registry，同 binary 两个 test fn 必 flake）：
+  - `hooks_e2e.rs` — config→reload→dispatch 全链 + SessionStart once-per-session + 10k overflow + hot-reload 清除 + **PermissionRequest tool_name matcher 真链路**
+  - `hooks_project_scope.rs` / `hooks_pre_tool_continue_false.rs` — project-scope opt-in 闸 / `continue:false` 聚合
+  - `hooks_compat.rs` — 协议面：exit-2 block / `permissionDecision` JSON / `additionalContext` / `$CLAUDE_PROJECT_DIR`
+  - `hooks_compat_payload.rs` — **字段名面**：每个改名/新增 key 由未改动的官方 jq 脚本读出并回显验证；末两节还走**真 helper**（`fire_user_prompt_submit` / `dispatch_permission_request`）钉住管路而非仅序列化
+  - `hooks_compat_blocking.rs` — 6 个新可阻断事件真吃官方 `exit 2`，含 `Stop` 反转语义，**外加负对照**（同脚本挂 `PostToolUse` 必被降级为 Allow）
+  - `hooks_compat_output.rs` — 输出面：`updatedToolOutput` / `decision.behavior` / `retry` / `suppressOutput` / `defer` / `allow`
+  - `hooks_stop_continue.rs` — **Stop block-to-continue 真链路**：打断的回合不得被复活、自然结束必被再驱动、`stop_hook_active` 真值到达 payload
+- **兼容套件**（`tests/fixtures/hooks/claude-code-compat/`，25+ 个 fixture）：跑**未改动**的官方风格 jq 脚本证明字段级对齐（G1）。脚本一律 `[ -n "$x" ] || exit 1`——字段改名会**大声失败**而非静默回显空串。`jq` 缺失自动跳过；CI Unix legs 装 jq 确保真跑。
+- 跑：`cargo test -p ha-core --test hooks_compat --test hooks_compat_payload --test hooks_compat_blocking --test hooks_compat_output --test hooks_stop_continue`（需 jq）。
+- **加测试请连变异验证一起做**：新断言写完后手工回退它守的那行，确认测试**真的红**——否则只是绿色装饰。本轮 10 条目标行逐条验过。
 
 ---
 
@@ -387,9 +404,10 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR`/`${VAR}` 插
 - **`Elicitation` / `ElicitationResult` 官方 schema**：当前用原生 `ask_user_question` 的非标 payload；MCP server 本体落地后对齐官方 `server_name` / `form_schema` / `form_values` + `action`/`content` 消费。
 
 ### 通用字段接入
-- **`prompt_id` 覆盖 `UserPromptSubmit`**：轮内事件已填充（复用 `turn_id`，§2.4），但 `UserPromptSubmit` 在 preflight 早于回合 acquire 触发故为 `None`。要补齐须在 preflight 预生成 id 并透传进 `create_user_turn` / `try_acquire`（动回合生命周期，风险更高）。
+- **`prompt_id` 覆盖非 acquire 入口**：`UserPromptSubmit` 已由 `PreflightArgs.turn_id` 入口直传补齐（§2.4）。**残留**：ACP / cron / 后台 subagent / eval 不持 `active_turn`，其**轮内**事件仍 `None`。补 ACP 须让它真持一个 active turn——牵动 `all_current` 取消遍历、crash flush、cleanup watcher 与流接受语义，属独立特性。
 - **`effort` per-agent 精确值**：当前取全局 reasoning-effort cell（§2.4）；per-agent 覆盖需在 async build 点解析 `Agent::effective_reasoning_effort`。
-- **`PermissionRequest`/`Denied` 的 `tool_input`**：审批链分离出结构化 tool_name + tool_input（当前 approval 门仅 `command`，engine policy-deny 有内部 `tool_name`）。
+- **`CLAUDE_PROMPT_ID` env**：`common.prompt_id` 已可用，`env.rs` 照 `CLAUDE_EFFORT` 加一行即可——**待确认该 env 名是否为官方**，未确认前不投（投一个非官方 `CLAUDE_*` 名会误导脚本作者）。
+- **审批超时不 fire `PermissionDenied`**：`check_and_request_approval` 的 timeout 分支只发 `approval_timed_out` / `approval:resolved`，没有 hook 出口。补它是**改触发行为**（新增一次 fire），不是补 payload，故单独立项。
 
 ### 可观测 / 基础设施
 - **Dashboard `hooks_health` 区块** + **Learning Tracker `hook_*` 事件** + **metrics rolling-window**（SQLite metrics + 自动清理窗口）。

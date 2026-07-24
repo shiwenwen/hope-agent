@@ -8,7 +8,12 @@ set -euo pipefail
 input=$(cat)
 prompt=$(printf '%s' "$input" | jq -r '.prompt // empty')
 chars=${#prompt}
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"[house-rules] prompt_len=${chars}; follow the project style guide."}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "UserPromptSubmit" \
+  --arg ctx "[house-rules] prompt_len=${chars}; follow the project style guide." \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

@@ -32,6 +32,15 @@ pub struct PreflightArgs<'a> {
     pub agent_id: Option<&'a str>,
     /// The content that is about to be persisted as the user message.
     pub raw_prompt: &'a str,
+    /// The id of the turn this prompt will run as — the same value the entry
+    /// point hands to [`crate::chat_engine::active_turn::try_acquire`], so the
+    /// `UserPromptSubmit` hook carries the same `prompt_id` as every in-turn
+    /// hook that follows (PreToolUse → Stop).
+    ///
+    /// Required rather than `Option`: a new entry point must consciously supply
+    /// one, which is what keeps the field non-null by construction instead of
+    /// by convention. Pass `""` only where no turn will run.
+    pub turn_id: &'a str,
 }
 
 /// Run preflight for a user prompt: fire the `UserPromptSubmit` hook and decide
@@ -45,9 +54,13 @@ pub struct PreflightArgs<'a> {
 /// No-hook fast path: the hook helper returns a no-op outcome, so this is a
 /// pass-through (and `set_user_prompt_context(None)` just clears any stale slot).
 pub async fn user_prompt_preflight(args: PreflightArgs<'_>) -> PreflightOutcome {
-    let outcome =
-        crate::hooks::fire_user_prompt_submit(args.session_id, args.agent_id, args.raw_prompt)
-            .await;
+    let outcome = crate::hooks::fire_user_prompt_submit(
+        args.session_id,
+        args.agent_id,
+        args.raw_prompt,
+        args.turn_id,
+    )
+    .await;
 
     // A blocking decision (or an explicit `continue:false`) stops the prompt
     // before it is persisted or run.
@@ -90,6 +103,7 @@ mod tests {
             session_id: "preflight-test-s1",
             agent_id: None,
             raw_prompt: "hello world",
+            turn_id: "preflight-test-turn-1",
         })
         .await;
         match out {

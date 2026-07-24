@@ -51,6 +51,42 @@ fn terminal_assistant_text_for_history<'a>(
     }
 }
 
+/// Decide how a round that produced no assistant prose must terminate.
+///
+/// `Ok(Some(notice))` — a `PostToolBatch` hook stopped the loop after a
+/// tool-only round: append the notice and finalize cleanly.
+/// `Ok(None)` — nothing to do; the round terminates normally.
+/// `Err(_)` — genuinely empty round: the provider returned nothing.
+///
+/// The two outcomes are decided TOGETHER on purpose. They were previously a
+/// predicate followed by a separate `if collected_text.is_empty() { return
+/// Err(...) }` at the call site, and the only thing linking them was that the
+/// caller pushed the notice into `collected_text` before the check ran. That
+/// coupling was invisible to tests: deleting the push left an intentional
+/// hook-driven stop surfacing to the user as `No content received from
+/// {provider} API`, with an exhaustive truth-table test over the predicate
+/// still green. Folding the error into the same function makes the ordering an
+/// property of one testable unit instead of a call-site convention.
+fn resolve_empty_round_outcome(
+    post_batch_stopped: bool,
+    collected_text: &str,
+    cancelled: bool,
+    provider_label: &str,
+) -> anyhow::Result<Option<&'static str>> {
+    // A cancel wins over both: a cancelled turn must neither synthesize text it
+    // never produced nor be reported as a provider failure.
+    if cancelled || !collected_text.is_empty() {
+        return Ok(None);
+    }
+    if post_batch_stopped {
+        return Ok(Some("(stopped by PostToolBatch hook)"));
+    }
+    Err(anyhow::anyhow!(
+        "No content received from {} API",
+        provider_label
+    ))
+}
+
 async fn wait_for_cancel(cancel: &AtomicBool) {
     while !cancel.load(Ordering::SeqCst) {
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
@@ -316,6 +352,9 @@ async fn drain_queued_turn_user_messages<F>(
                 session_id,
                 agent_id: Some(&agent.agent_id),
                 raw_prompt,
+                // A mid-turn injected prompt deliberately rides the enclosing
+                // turn's id: it is folded into the running turn, not a new one.
+                turn_id: &active.turn_id,
             },
         )
         .await
@@ -1711,18 +1750,16 @@ impl AssistantAgent {
             emit_round_limit_event(on_delta, max_rounds);
         }
         // A PostToolBatch hook that stops the loop after a tool-only round (no
-        // assistant prose) must end cleanly, not via the "no content" API-error
-        // path — synthesize a short terminal notice so the turn finalizes.
-        if post_batch_stopped && collected_text.is_empty() && !cancelled {
-            let notice = "(stopped by PostToolBatch hook)";
+        // assistant prose) must end cleanly rather than as a provider failure.
+        // Both outcomes come from one call so the precedence can't drift.
+        if let Some(notice) = resolve_empty_round_outcome(
+            post_batch_stopped,
+            &collected_text,
+            cancelled,
+            provider_label,
+        )? {
             collected_text.push_str(notice);
             final_assistant_text.push_str(notice);
-        }
-        if collected_text.is_empty() && !cancelled {
-            return Err(anyhow::anyhow!(
-                "No content received from {} API",
-                provider_label
-            ));
         }
 
         // Persist the terminal assistant message in this provider's native
@@ -1806,7 +1843,7 @@ impl AssistantAgent {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_started_job_id, has_checkpointed_subagent_dispatch,
+        extract_started_job_id, has_checkpointed_subagent_dispatch, resolve_empty_round_outcome,
         stamp_checkpointed_subagent_dispatch, terminal_assistant_text_for_history,
     };
     use crate::async_jobs::{synthetic_started_result, JobOrigin};
@@ -1838,6 +1875,42 @@ mod tests {
             terminal_assistant_text_for_history(false, "", "partial"),
             ""
         );
+    }
+
+    #[test]
+    fn post_batch_stop_with_empty_output_yields_clean_notice_not_api_error() {
+        let resolve = |stopped, text: &str, cancelled| {
+            resolve_empty_round_outcome(stopped, text, cancelled, "Anthropic")
+        };
+
+        // THE property: a hook-driven stop after a tool-only round must produce
+        // a notice, NOT the provider error. Both halves are asserted from the
+        // same call, so the precedence cannot be broken at a call site.
+        let notice = resolve(true, "", false)
+            .expect("a hook stop with no prose must not be a provider failure")
+            .expect("...and must synthesize a terminal notice");
+        assert!(
+            !notice.is_empty(),
+            "an empty notice would leave the turn with no assistant text at all"
+        );
+
+        // No hook stop and no prose → this IS a genuine provider failure.
+        let err = resolve(false, "", false).expect_err("an empty non-hook round must error");
+        assert!(
+            err.to_string()
+                .contains("No content received from Anthropic"),
+            "got {err}"
+        );
+
+        // A cancel wins over both: no synthesized text, and no bogus failure.
+        assert_eq!(resolve(true, "", true).unwrap(), None);
+        assert_eq!(resolve(false, "", true).unwrap(), None);
+        // Prose already collected → never double-append, never error.
+        for stopped in [true, false] {
+            for cancelled in [true, false] {
+                assert_eq!(resolve(stopped, "answer", cancelled).unwrap(), None);
+            }
+        }
     }
 
     #[test]

@@ -1158,15 +1158,16 @@ async fn fire_pre_tool_use_hook(name: &str, args: &Value, ctx: &ToolExecContext)
     // live under the session working dir, so this fast-path gate must use
     // `any_handlers_for(event, cwd)` (not the global-only registry) or a
     // project-only `PreToolUse` hook is silently skipped while `dispatch` would
-    // have run it. Mirrors `hooks::session_working_dir` (empty sid → no cwd).
-    let wd = ctx
-        .session_id
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .and_then(|sid| crate::session::effective_session_working_dir(Some(sid)));
+    // have run it.
+    //
+    // Read it off the context rather than re-querying: this fires per TOOL CALL,
+    // and `effective_session_working_dir` is a synchronous `SessionDB::get_session`
+    // on the exclusive writer connection. `ctx.session_working_dir` already holds
+    // the same value (the `PostToolUse` twin in `streaming_loop` uses it), so the
+    // re-query was one blocking DB round-trip per call for nothing.
     if !crate::hooks::scopes::any_handlers_for(
         HookEvent::PreToolUse,
-        wd.as_deref().map(std::path::Path::new),
+        ctx.session_working_dir.as_deref().map(std::path::Path::new),
     ) {
         return PreToolGate::Proceed {
             updated_input: None,
@@ -1336,6 +1337,8 @@ pub(super) async fn run_tool_approval(
         ctx.session_id.as_deref(),
         reason_payload,
         Some(name),
+        Some(args),
+        ctx.tool_call_id.as_deref(),
     )
     .await
     {
@@ -1642,6 +1645,17 @@ pub async fn execute_tool_with_context(
                 crate::hooks::fire_permission_denied(
                     ctx.session_id.as_deref(),
                     Some(name),
+                    // The fully-shadowed args: PreToolUse `updatedInput`, then
+                    // mac_control sanitize, then the exec legacy-background
+                    // migrate. This is what the permission engine actually
+                    // evaluated and denied, and it matches what PostToolUse and
+                    // history report (`emit_effective_args` pushes the same
+                    // value). It deliberately does NOT match the PreToolUse
+                    // payload: that hook is the *producer* of `updatedInput`, so
+                    // it necessarily ran before the rewrite. A script
+                    // reconciling the two on `tool_use_id` will see different
+                    // `tool_input` whenever a PreToolUse hook rewrote the call.
+                    Some(args),
                     name,
                     "policy",
                     ctx.tool_call_id.as_deref(),

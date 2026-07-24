@@ -205,6 +205,45 @@ pub fn any_handlers_for(event: HookEvent, working_dir: Option<&Path>) -> bool {
     resolve_for_cwd(working_dir).has_handlers_for(event)
 }
 
+/// Cwd-free pre-gate: `true` when NO handler can possibly fire for `event`,
+/// answerable without knowing the session working dir.
+///
+/// [`any_handlers_for`] needs a cwd, and getting one costs a
+/// `sessions.working_dir` lookup — which the synchronous `fire_*` helpers pay
+/// *before* they reach the gate, because they must build the hook input (and
+/// its `cwd`) first. That made "hooks cost nothing when none are configured"
+/// only half true: an unconfigured install still did a DB read per
+/// `FileChanged` / `Notification` / `PermissionDenied` / … fire. This gate
+/// restores the promise for the default configuration.
+///
+/// **Exactness**: with project/local scope off (the default) the global
+/// registry *is* the effective registry for every cwd, so the answer is exact.
+/// With it on, a `.hope-agent/hooks.json` under some cwd could still match, so
+/// this conservatively returns `false` and the caller falls through to the real
+/// cwd-aware gate. It is therefore only ever allowed to skip work, never to
+/// decide that a handler runs.
+pub fn definitely_no_handlers_for(event: HookEvent) -> bool {
+    let cfg = crate::config::cached_config();
+    definitely_no_handlers_for_inner(event, cfg.disable_all_hooks, cfg.hooks_allow_project_scope)
+}
+
+/// Inner form with the two config flags injected, so the soundness invariant is
+/// unit-testable without touching the global cached config (mirrors
+/// [`resolve_for_cwd_inner`]).
+fn definitely_no_handlers_for_inner(
+    event: HookEvent,
+    disable_all_hooks: bool,
+    allow_project_scope: bool,
+) -> bool {
+    if disable_all_hooks {
+        return true;
+    }
+    if allow_project_scope {
+        return false;
+    }
+    !resolve_for_cwd_inner(None, false, false).has_handlers_for(event)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +251,59 @@ mod tests {
     #[test]
     fn managed_path_is_absolute() {
         assert!(managed_path().is_absolute());
+    }
+
+    #[test]
+    fn cwd_free_pregate_only_ever_skips_work() {
+        // The pre-gate is an optimization: it may only ever SKIP work, never
+        // decide that a handler runs. There is exactly ONE configuration in
+        // which it could break that — project/local scope ON, where a
+        // `.hope-agent/hooks.json` under some cwd can carry a handler the global
+        // registry has never seen and which the pre-gate deliberately does not
+        // go looking for. So build precisely that state and check both gates.
+        //
+        // (An earlier version of this test looped over events asserting
+        // `pregate(e) => !cwd_gate(e)` with project scope OFF. That is a
+        // TAUTOLOGY: with the flag off `resolve_for_cwd_inner(Some(cwd), …)`
+        // early-returns `registry::global()` before touching the filesystem, so
+        // both sides reduce to `registry::global().has_handlers_for(e)` and the
+        // assertion cannot fail for any registry contents — a mutation making
+        // the pre-gate unconditionally claim "no handlers" left it green.)
+        let dir = std::env::temp_dir().join(format!("ha-hooks-pregate-{}", uuid::Uuid::new_v4()));
+        let proj = dir.join(".hope-agent");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(
+            proj.join("hooks.json"),
+            r#"{"FileChanged":[{"hooks":[{"type":"command","command":"echo hi"}]}]}"#,
+        )
+        .unwrap();
+        // Empty global config, so the only possible match is the project file.
+        set_global_config(HooksConfig::default());
+
+        assert!(
+            resolve_for_cwd_inner(Some(&dir), false, true).has_handlers_for(HookEvent::FileChanged),
+            "setup: the cwd-aware gate must see the project-scope handler"
+        );
+        assert!(
+            !definitely_no_handlers_for_inner(HookEvent::FileChanged, false, true),
+            "UNSOUND: the pre-gate skipped an event that a project-scope handler \
+             would have fired — it must decline to answer whenever project scope is on"
+        );
+
+        // Kill switch → definitely nothing, without consulting the registry.
+        assert!(definitely_no_handlers_for_inner(
+            HookEvent::PreToolUse,
+            true,
+            false
+        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // The remaining property — that a CONFIGURED handler still fires THROUGH
+        // the pre-gate on the default (project-scope-off) config — cannot be
+        // asserted here without mutating the process-shared global registry.
+        // It is pinned end-to-end by the `fire_*` liveness section of
+        // `crates/ha-core/tests/hooks_e2e.rs`, which a broken pre-gate fails.
     }
 
     #[test]

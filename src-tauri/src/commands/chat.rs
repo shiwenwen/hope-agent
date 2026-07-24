@@ -709,6 +709,7 @@ pub async fn chat(
             session_id: &sid,
             agent_id: Some(current_agent_id.as_str()),
             raw_prompt,
+            turn_id: &turn_id,
         },
     )
     .await

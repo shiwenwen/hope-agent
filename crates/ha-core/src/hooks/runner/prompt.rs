@@ -26,6 +26,27 @@ const DEFAULT_PROMPT_TIMEOUT_SECS: u64 = 30;
 /// Output cap for the side-query.
 const PROMPT_MAX_TOKENS: u32 = 2048;
 
+/// INPUT cap for the serialized hook payload spliced into the instruction.
+/// Roughly 8k tokens of JSON — generous for every event's own fields, while
+/// bounding the one field that has no natural size limit (`tool_input`).
+const PROMPT_MAX_PAYLOAD_CHARS: usize = 32_768;
+
+/// Bound the payload spliced into the LLM instruction, keeping a head slice plus
+/// an explicit marker so the model can tell "the rest was cut" from "the field
+/// was empty". Splits on a char boundary via `truncate_utf8` (byte slicing a
+/// multi-byte payload would panic).
+fn truncate_payload_for_prompt(json: &str) -> std::borrow::Cow<'_, str> {
+    if json.len() <= PROMPT_MAX_PAYLOAD_CHARS {
+        return std::borrow::Cow::Borrowed(json);
+    }
+    let head = crate::truncate_utf8(json, PROMPT_MAX_PAYLOAD_CHARS);
+    std::borrow::Cow::Owned(format!(
+        "{head}\n… [truncated: hook payload was {} bytes, capped at {}]",
+        json.len(),
+        PROMPT_MAX_PAYLOAD_CHARS
+    ))
+}
+
 pub struct PromptHandler {
     config: PromptHookConfig,
 }
@@ -93,11 +114,18 @@ impl HookHandler for PromptHandler {
         let app_cfg = crate::config::cached_config();
         let chain = resolve_prompt_hook_chain(&self.config, &app_cfg);
 
-        // Give the model the event context alongside the configured prompt.
+        // Give the model the event context alongside the configured prompt,
+        // BOUNDED. The payload is attacker-shaped in the sense that its size is
+        // set by whatever the tool was called with: `tool_input` on a `write` of
+        // a generated file, or an `apply_patch` diff, is unbounded, and this
+        // instruction is a billed request on the interactive approval path. An
+        // uncapped splice makes token cost and latency proportional to file size
+        // in front of a user-facing dialog.
         let instruction = match serde_json::to_string_pretty(input) {
             Ok(json) => format!(
                 "{}\n\n## Hook event input\n```json\n{}\n```",
-                self.config.prompt, json
+                self.config.prompt,
+                truncate_payload_for_prompt(&json)
             ),
             Err(_) => self.config.prompt.clone(),
         };
@@ -138,6 +166,41 @@ impl HookHandler for PromptHandler {
 mod tests {
     use super::*;
     use crate::provider::ModelChain;
+
+    #[test]
+    fn oversized_payload_is_capped_before_reaching_the_model() {
+        // Under the cap: passed through byte-for-byte, no marker.
+        let small = "{\"a\":1}";
+        assert_eq!(truncate_payload_for_prompt(small), small);
+        assert!(matches!(
+            truncate_payload_for_prompt(small),
+            std::borrow::Cow::Borrowed(_)
+        ));
+
+        // Over the cap: bounded, and the model is told it was cut rather than
+        // being handed a silently short payload it would read as complete.
+        let huge = format!("{{\"tool_input\":\"{}\"}}", "x".repeat(200_000));
+        let out = truncate_payload_for_prompt(&huge);
+        assert!(
+            out.len() < huge.len(),
+            "a 200 KB payload must not reach the billed request verbatim"
+        );
+        assert!(
+            out.contains("truncated: hook payload was"),
+            "the cut must be explicit, got tail {:?}",
+            &out[out.len().saturating_sub(120)..]
+        );
+        assert!(
+            out.starts_with("{\"tool_input\":\"xxx"),
+            "head slice preserved"
+        );
+
+        // A multi-byte payload must be cut on a char boundary, not panic.
+        let cjk = format!("{{\"t\":\"{}\"}}", "工具参数".repeat(20_000));
+        assert!(cjk.len() > PROMPT_MAX_PAYLOAD_CHARS);
+        let out = truncate_payload_for_prompt(&cjk);
+        assert!(out.contains("truncated: hook payload was"));
+    }
 
     fn base_config() -> PromptHookConfig {
         PromptHookConfig {

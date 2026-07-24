@@ -144,10 +144,14 @@ fn input_hash(input: Option<&Value>) -> String {
 /// MCP call seeing `"${tool_response.foo}"` and the caller logs an audit).
 ///
 /// Path roots recognized:
-///   - `tool_input.*` — only on `PreToolUse` / `PostToolUse` / `PostToolUseFailure`
+///   - `tool_input.*` — `PreToolUse` / `PostToolUse` / `PostToolUseFailure`,
+///     plus `PermissionRequest` / `PermissionDenied` when the approval chain
+///     had the structured args (it resolves to nothing when it didn't)
 ///   - `tool_response.*` — only on `PostToolUse` (PostToolUseFailure carries
 ///     `error`, not `tool_response`, by design)
-///   - `tool_name` — same events as `tool_input.*`
+///   - `tool_name` — same events as `tool_input.*` (via
+///     [`HookInput::subject_tool_name`], NOT the narrow `if:`-gating
+///     `tool_name()` — see that method for why the two are split)
 ///   - `session_id`, `cwd`, `agent_id` — common fields, always available
 ///     (`agent_id` resolves to empty when not set)
 ///   - `prompt` — only on `UserPromptSubmit`
@@ -259,7 +263,13 @@ fn root_value(name: &str, input: &HookInput) -> Option<Value> {
         "session_id" => Some(Value::String(common.session_id.clone())),
         "cwd" => Some(Value::String(common.cwd.to_string_lossy().into_owned())),
         "agent_id" => common.agent_id.clone().map(Value::String),
-        "tool_name" => input.tool_name().map(|s| Value::String(s.to_string())),
+        // `subject_tool_name`, not `tool_name`: the latter is the deliberately
+        // narrow `if:`-gating accessor, and using it here left `${tool_name}`
+        // literal on Permission events whose payload carries the name and whose
+        // `${tool_input.*}` resolves fine.
+        "tool_name" => input
+            .subject_tool_name()
+            .map(|s| Value::String(s.to_string())),
         "tool_input" => input.tool_input().cloned(),
         "tool_response" => match input {
             HookInput::PostToolUse { tool_response, .. } => Some(tool_response.clone()),
@@ -300,6 +310,44 @@ mod tests {
             tool_input,
             tool_use_id: "c1".into(),
         }
+    }
+
+    #[test]
+    fn permission_events_resolve_tool_name_and_tool_input_together() {
+        // These two roots must resolve on the SAME set of events. When they
+        // drifted apart, a Permission-event template rendered
+        // `{"tool":"${tool_name}","cmd":"npm test"}` and shipped the literal
+        // placeholder to the MCP server, which only warns and calls anyway.
+        let input = HookInput::PermissionRequest {
+            common: common("PermissionRequest"),
+            tool_name: Some("exec".into()),
+            tool_input: Some(json!({ "command": "npm test" })),
+            command: "tool: exec npm test".into(),
+            tool_use_id: Some("c1".into()),
+            job_id: None,
+        };
+        let template = json!({ "tool": "${tool_name}", "cmd": "${tool_input.command}" });
+        let (out, unresolved) = expand_input_template(&template, &input);
+        assert_eq!(out, json!({ "tool": "exec", "cmd": "npm test" }));
+        assert!(unresolved.is_empty(), "got {unresolved:?}");
+
+        // With no structured args threaded in, BOTH roots stay unresolved —
+        // half-resolution is the failure mode, not absence.
+        let bare = HookInput::PermissionDenied {
+            common: common("PermissionDenied"),
+            tool_name: None,
+            tool_input: None,
+            command: "rm -rf /".into(),
+            reason: "policy".into(),
+            tool_use_id: None,
+            job_id: None,
+        };
+        let (out, unresolved) = expand_input_template(&template, &bare);
+        assert_eq!(
+            out,
+            json!({ "tool": "${tool_name}", "cmd": "${tool_input.command}" })
+        );
+        assert_eq!(unresolved.len(), 2, "got {unresolved:?}");
     }
 
     #[test]
