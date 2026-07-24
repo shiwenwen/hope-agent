@@ -557,10 +557,12 @@ impl ToolExecContext {
             crate::hooks::PermissionMode::Default
         };
         crate::hooks::CommonHookInput {
+            prompt_id: crate::hooks::resolve_prompt_id(&session_id),
             session_id,
             transcript_path,
             cwd: std::path::PathBuf::from(self.default_cwd()),
             permission_mode,
+            effort: crate::hooks::resolve_effort(),
             hook_event_name: event.to_string(),
             agent_id: self.agent_id.clone(),
             // `agent_type` is the agent's *type/role*, which the exec context
@@ -1333,6 +1335,7 @@ pub(super) async fn run_tool_approval(
         cwd,
         ctx.session_id.as_deref(),
         reason_payload,
+        Some(name),
     )
     .await
     {
@@ -1638,6 +1641,7 @@ pub async fn execute_tool_with_context(
                 // approval layer instead).
                 crate::hooks::fire_permission_denied(
                     ctx.session_id.as_deref(),
+                    Some(name),
                     name,
                     "policy",
                     ctx.tool_call_id.as_deref(),

@@ -80,6 +80,24 @@ pub(crate) async fn tool_task_create(args: &Value, session_id: Option<&str>) -> 
     // chat input task panel can render them together (see frontend
     // `taskProgress.ts::batchForAnchor`).
     let batch_id = uuid::Uuid::new_v4().to_string();
+    // TaskCreated hook (blocking): a hook may `exit 2` / `decision:block` to
+    // veto creation. Fired before any DB write so a block rolls back the whole
+    // batch (nothing is created). Noop fast path when no hook is configured.
+    for (content, active_form) in &items {
+        let outcome =
+            crate::hooks::dispatch_task_created(&sid, content, active_form.as_deref(), &batch_id)
+                .await;
+        if let Some(reason) = outcome.block_reason() {
+            return format!(
+                "Task creation blocked by hook: {}",
+                if reason.trim().is_empty() {
+                    "(no reason given)"
+                } else {
+                    reason.trim()
+                }
+            );
+        }
+    }
     for (idx, (content, active_form)) in items.iter().enumerate() {
         if let Err(e) =
             db.create_task_with_batch(&sid, content, active_form.as_deref(), Some(&batch_id))
@@ -95,10 +113,6 @@ pub(crate) async fn tool_task_create(args: &Value, session_id: Option<&str>) -> 
 
     let tasks = db.list_tasks(&sid).unwrap_or_default();
     emit_snapshot(&sid, &tasks);
-    // TaskCreated hook (observation): one per task created in this call.
-    for (content, active_form) in &items {
-        crate::hooks::fire_task_created(&sid, content, active_form.as_deref(), &batch_id);
-    }
     render_snapshot(&tasks)
 }
 
@@ -129,6 +143,28 @@ pub(crate) async fn tool_task_update(args: &Value, session_id: Option<&str>) -> 
         Ok(v) => v,
         Err(e) => return e,
     };
+    // TaskCompleted hook (blocking): fired BEFORE the update so a hook can veto
+    // marking the task complete. Payload content comes from the pre-update row.
+    if matches!(status, Some(TaskStatus::Completed)) {
+        let content = db
+            .list_tasks(&sid)
+            .unwrap_or_default()
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.content.clone())
+            .unwrap_or_default();
+        let outcome = crate::hooks::dispatch_task_completed(&sid, id, &content).await;
+        if let Some(reason) = outcome.block_reason() {
+            return format!(
+                "Task completion blocked by hook: {}",
+                if reason.trim().is_empty() {
+                    "(no reason given)"
+                } else {
+                    reason.trim()
+                }
+            );
+        }
+    }
     if let Err(e) = db.update_task(id, status, content.as_deref(), active_form.as_deref()) {
         return format!("Error: failed to update task #{}: {}", id, e);
     }
@@ -136,14 +172,6 @@ pub(crate) async fn tool_task_update(args: &Value, session_id: Option<&str>) -> 
     emit_snapshot(&sid, &tasks);
 
     if matches!(status, Some(TaskStatus::Completed)) {
-        // TaskCompleted hook (observation). Look up the task's content from the
-        // fresh snapshot so the hook payload carries it.
-        let content = tasks
-            .iter()
-            .find(|t| t.id == id)
-            .map(|t| t.content.clone())
-            .unwrap_or_default();
-        crate::hooks::fire_task_completed(&sid, id, &content);
         crate::plan::maybe_complete_plan(&sid, &tasks).await;
     }
 

@@ -19,6 +19,8 @@ pub struct HookContribution {
     /// deliberate auto-approve is distinguishable from the default `Allow`.
     pub permission_allow: bool,
     pub continue_execution: bool,
+    /// Official `suppressOutput` — hide this hook's stdout from the transcript.
+    pub suppress_output: bool,
     pub stop_reason: Option<String>,
     pub system_message: Option<String>,
     pub additional_context: Option<String>,
@@ -100,6 +102,7 @@ pub fn aggregate(contributions: Vec<HookContribution>) -> HookOutcome {
         }
         outcome.permission_allow = outcome.permission_allow || c.permission_allow;
         outcome.retry = outcome.retry || c.retry;
+        outcome.suppress_output = outcome.suppress_output || c.suppress_output;
     }
 
     outcome

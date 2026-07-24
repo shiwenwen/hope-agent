@@ -44,8 +44,8 @@ fn normalize_tool_aliases(matcher: &str) -> String {
         return matcher.to_string();
     }
     matcher
-        .split('|')
-        .map(tool_alias)
+        .split(['|', ','])
+        .map(|item| tool_alias(item.trim()))
         .collect::<Vec<&str>>()
         .join("|")
 }
@@ -63,11 +63,14 @@ pub enum MatcherKind {
     Never,
 }
 
-/// True when `s` contains only the "literal/pipe-list" character set. Anything
-/// else routes the matcher to the regex branch (official rule).
+/// True when `s` contains only the "literal/pipe-list" character set
+/// (`[A-Za-z0-9_ ,|-]`, per the official rule). Anything else routes the
+/// matcher to the regex branch. Items are separated ONLY by `|` or `,`; space
+/// and `-` are within-item characters (so `general-purpose` is one exact item,
+/// not a list) — they are NOT separators.
 fn is_literal_or_pipe(s: &str) -> bool {
     s.chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '|')
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '|' | ',' | ' ' | '-'))
 }
 
 /// Compile a matcher for a specific event, normalizing Claude Code tool
@@ -98,7 +101,8 @@ pub fn compile(matcher: Option<&str>) -> MatcherKind {
     }
     if is_literal_or_pipe(raw) {
         let items: Vec<String> = raw
-            .split('|')
+            .split(['|', ','])
+            .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
@@ -109,11 +113,11 @@ pub fn compile(matcher: Option<&str>) -> MatcherKind {
         }
         return MatcherKind::ExactOrPipe(items);
     }
-    // Anchor the regex so `Write` doesn't match `WriteFile` unless the author
-    // writes `Write.*`. Official behavior matches the whole tool name; we use
-    // `is_match` against the full string but anchor for parity with exact
-    // semantics on common patterns like `mcp__.*__write.*`.
-    match Regex::new(&format!("^(?:{raw})$")) {
+    // Regex branch: UNANCHORED, matching the official protocol (`^Notebook`
+    // matches any tool whose name starts with `Notebook`; `mcp__memory__.*`
+    // matches all memory-server tools). An author who wants a whole-string
+    // match writes explicit anchors (`^Write$`).
+    match Regex::new(raw) {
         Ok(re) => MatcherKind::Regex(re),
         Err(e) => {
             app_warn!(
@@ -212,11 +216,26 @@ mod tests {
     }
 
     #[test]
-    fn anchored_regex_full_match() {
-        // `Write` as regex would be literal-or-pipe (exact), so use a real
-        // regex pattern to exercise anchoring.
+    fn regex_is_unanchored_like_official() {
+        // Unanchored: a regex matches anywhere in the target (official rule).
         assert!(m("Wr.te", "Write"));
-        assert!(!m("Wr.te", "Writexx"));
+        assert!(m("Wr.te", "Writexx"));
+        // `^Notebook` matches any tool whose name STARTS WITH Notebook.
+        assert!(m("^Notebook", "NotebookEdit"));
+        // Explicit anchors give a whole-string match.
+        assert!(m("^Wr.te$", "Write"));
+        assert!(!m("^Wr.te$", "Writexx"));
+    }
+
+    #[test]
+    fn comma_and_space_and_hyphen_lists() {
+        // `,` is an official separator, and spaces around items are trimmed.
+        assert!(m("Edit, Write", "Edit"));
+        assert!(m("Edit, Write", "Write"));
+        assert!(!m("Edit, Write", "Read"));
+        // Hyphenated names are in the literal charset → exact match.
+        assert!(m("general-purpose", "general-purpose"));
+        assert!(!m("general-purpose", "general"));
     }
 
     fn me(pat: &str, target: &str, event: HookEvent) -> bool {

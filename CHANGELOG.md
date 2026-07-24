@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Windows Docker 沙箱可直接使用 WSL 内的 Docker Engine**：宿主机未运行 Docker Desktop 时，Hope Agent 会探测默认 WSL 发行版中的本地 Docker daemon，并自动切换到 WSL 后端执行沙箱命令；设置页同步展示 WSL、发行版、Engine 与 daemon 状态并给出对应安装 / 启动引导。远程 Docker Context 不会被隐式采用，WSL 路径与 Docker Socket 挂载继续 fail-closed，超时或取消也会可靠清理容器。 (#538)
-- **侧边栏在小高度窗口下更稳**：更新提示会贴合底部 Logo 展示，低频入口会按高度逐步收进「更多」菜单，避免窗口缩小时 Logo 被裁剪或入口突然空出大段空间。 (#539)
+### Added
+
+- **Hooks 可阻断事件落地 6 个**：`Stop`（`exit 2` / `decision:block` 触发 block-to-continue——注入反馈并让 Claude 再工作一轮，带 3 次上限与 `stop_hook_active` 再入标记）、`PostToolBatch`（阻断则本轮结果落盘后停止 agent 循环）、`TaskCreated` / `TaskCompleted`（阻断则否决任务创建 / 完成）、`UserPromptExpansion`（阻断则拒绝 slash 命令展开）、`PermissionRequest`（阻断则自动拒绝审批，仅 deny——hook 的 allow 不会绕过用户 / strict）。**用户影响**：Claude Code 里靠这些事件阻断的社区脚本现在在本项目生效。出于安全考量，`ConfigChange` veto（会让 hook 拦住用户改设置 / 关闭 hooks）、`SubagentStop` 续跑、`Elicitation*` 阻断刻意不做（见 hooks 架构文档 §2.4）。
 - **子 Agent 支持在同一稳定线程中续跑**：主 Agent 可向运行中的子 Agent 继续发消息，也可在完成、模型失败、超时或进程中断后创建新的 attempt，复用原对话与工作目录；用户停止、审批拒绝等硬终态仍禁止自动恢复。Workflow V5 同步支持显式 `resumeAgent`、失败处理与崩溃恢复，未处理的失败子任务不会再被静默算作 Workflow 成功。
+- **Windows Docker 沙箱可直接使用 WSL 内的 Docker Engine**：宿主机未运行 Docker Desktop 时，Hope Agent 会探测默认 WSL 发行版中的本地 Docker daemon，并自动切换到 WSL 后端执行沙箱命令；设置页同步展示 WSL、发行版、Engine 与 daemon 状态并给出对应安装 / 启动引导。远程 Docker Context 不会被隐式采用，WSL 路径与 Docker Socket 挂载继续 fail-closed，超时或取消也会可靠清理容器。 (#538)
+
+### Changed
+
+- **Hooks 与 Claude Code 官方协议重新字段级对齐**：官方协议演进后，本项目补齐了大批差异——payload 字段名对齐官方（`SessionEnd.reason` / `Notification.type` / `StopFailure.error_type` / `FileChanged.file_path` / `UserPromptExpansion.command_name`+`raw_input` / `TaskCreated`+`TaskCompleted.task_name` / `WorktreeCreate.worktree_name` / `SubagentStart`+`Stop.agent_type`）、`PostToolBatch` 现携带官方 `tool_calls[]`、`Stop`/`SubagentStop` 携 `last_assistant_message`、`SessionStart` 新增 `fork` 来源与 `session_title`；输出侧 `updatedToolOutput`（可改写工具结果做脱敏）/ `retry` / `decision.behavior` / `suppressOutput` / `terminalSequence` 均已解析生效；`defer` 决策不再被静默放行；command handler 支持官方 `args` exec 形；默认超时对齐官方（http/mcp_tool=600s、prompt=30s、agent=60s）；matcher 列表分隔符新增 `,`（与 `|` 并列，各项 trim 空格），字面字符集纳入空格 / 连字符（如 `general-purpose` 走精确匹配而非误判正则；空格 / 连字符是**项内字符、非分隔符**），正则改为**非锚定**（对齐官方 unanchored）；payload 新增 `effort.level`（取全局 reasoning-effort，UI picker / `/thinking` 设的值）+ 同源 `CLAUDE_EFFORT` 环境变量；payload 新增 `prompt_id`（复用既有 per-turn UUID，同一轮内的 PreToolUse / PostToolUse / Stop 等共享一个 id，脚本可按轮分组；`UserPromptSubmit` 因早于回合建立仍为空）；新增 `Setup` / `MessageDisplay` 协议保留事件（可配置、暂不触发）。**用户影响**：此前 `jq` 读官方字段名（如 `.reason`/`.file_path`/`.type`）落空的社区脚本现可直接命中；含 `^前缀` 正则的 matcher 语义从「整串匹配」变为「前缀匹配」（对齐官方）。
 - **异步 Agent 派发不再与通用后台任务混淆**：subagent、Workflow、ACP 与 Team 直接返回各自的 durable handle，由原生状态机负责排队、取消、恢复和结果投递，不会再套出第二层后台 job；空的可选 `run_id`、`message`、模型或标签参数也不会覆盖有效 thread、兼容字段和继承值，避免 resume 先误报不存在再由主 Agent 重试。
+- **侧边栏在小高度窗口下更稳**：更新提示会贴合底部 Logo 展示，低频入口会按高度逐步收进「更多」菜单，避免窗口缩小时 Logo 被裁剪或入口突然空出大段空间。 (#539)
 
 ## [0.22.0] - 2026-07-21
 

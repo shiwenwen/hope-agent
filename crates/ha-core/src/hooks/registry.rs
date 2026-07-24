@@ -59,9 +59,10 @@ pub struct HookRegistry {
     by_event: HashMap<HookEvent, Vec<CompiledGroup>>,
 }
 
-const ALL_EVENTS: [HookEvent; 28] = [
+const ALL_EVENTS: [HookEvent; 30] = [
     HookEvent::SessionStart,
     HookEvent::SessionEnd,
+    HookEvent::Setup,
     HookEvent::UserPromptSubmit,
     HookEvent::UserPromptExpansion,
     HookEvent::PreToolUse,
@@ -75,6 +76,7 @@ const ALL_EVENTS: [HookEvent; 28] = [
     HookEvent::PreCompact,
     HookEvent::PostCompact,
     HookEvent::Notification,
+    HookEvent::MessageDisplay,
     HookEvent::SubagentStart,
     HookEvent::SubagentStop,
     HookEvent::TaskCreated,

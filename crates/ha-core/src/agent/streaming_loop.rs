@@ -256,6 +256,16 @@ async fn fire_post_tool_use_hook(
         }
     };
     let outcome = HookDispatcher::dispatch(event, input).await;
+    // `updatedToolOutput` (official): a `PostToolUse` hook may rewrite the tool
+    // result before it re-enters history (e.g. redact secrets). Applied on the
+    // success path only. A JSON string replaces verbatim; any other JSON value
+    // is stringified.
+    if let Some(updated) = outcome.updated_mcp_output.as_ref() {
+        *clean_result = match updated {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+    }
     if let Some(extra) = outcome.merged_additional_context() {
         // Frame the injected context so the model can tell hook output apart
         // from the tool's own result.
@@ -935,6 +945,10 @@ impl AssistantAgent {
         let mut round: u32 = 0;
         let mut effective_max_rounds = max_rounds;
         let mut activation_grace_used = false;
+        // Set when a PostToolBatch hook stopped the agentic loop (so the
+        // post-loop empty-content guard treats it as a clean stop, not an
+        // API error).
+        let mut post_batch_stopped = false;
         while round < effective_max_rounds {
             if cancel.load(Ordering::SeqCst) {
                 break;
@@ -1598,6 +1612,11 @@ impl AssistantAgent {
             // tool call in the round settles, before the round lands in
             // history. Skipped for pure-text rounds (no tools). Any
             // additionalContext is queued for the next round's reminder.
+            // Set when a PostToolBatch hook `exit 2` / `decision:block`s to stop
+            // the agentic loop (official: "stops agentic loop before next model
+            // call"). Honored at the bottom of the loop body so this round's
+            // results are still persisted first.
+            let mut post_batch_stop: Option<String> = None;
             let post_tool_batch_wd =
                 crate::session::effective_session_working_dir(self.session_id.as_deref());
             if !executed.is_empty()
@@ -1610,6 +1629,15 @@ impl AssistantAgent {
                     common: self.hook_common_input("PostToolBatch"),
                     round,
                     tool_names: executed.iter().map(|e| e.name.clone()).collect(),
+                    tool_calls: executed
+                        .iter()
+                        .map(|e| crate::hooks::types::ToolCallSummary {
+                            tool_name: e.name.clone(),
+                            tool_input: serde_json::from_str(&e.arguments)
+                                .unwrap_or(serde_json::Value::Null),
+                            tool_response: serde_json::Value::String(e.clean_result.clone()),
+                        })
+                        .collect(),
                 };
                 let outcome = crate::hooks::HookDispatcher::dispatch(
                     crate::hooks::HookEvent::PostToolBatch,
@@ -1619,6 +1647,7 @@ impl AssistantAgent {
                 if let Some(extra) = outcome.merged_additional_context() {
                     self.push_pending_hook_context(extra);
                 }
+                post_batch_stop = outcome.block_reason();
             }
 
             // A later model round must never observe a tool result which is
@@ -1652,6 +1681,22 @@ impl AssistantAgent {
                 on_delta,
             )
             .await?;
+            // PostToolBatch hook stopped the loop: this round is fully
+            // persisted above, so break before the next model call.
+            if let Some(reason) = post_batch_stop {
+                crate::app_info!(
+                    "hooks",
+                    "post_tool_batch",
+                    "PostToolBatch hook stopped the agentic loop{}",
+                    if reason.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", reason.trim())
+                    }
+                );
+                post_batch_stopped = true;
+                break;
+            }
             round = round.saturating_add(1);
         }
 
@@ -1664,6 +1709,14 @@ impl AssistantAgent {
             collected_text.push_str(&notice);
             final_assistant_text.push_str(&notice);
             emit_round_limit_event(on_delta, max_rounds);
+        }
+        // A PostToolBatch hook that stops the loop after a tool-only round (no
+        // assistant prose) must end cleanly, not via the "no content" API-error
+        // path — synthesize a short terminal notice so the turn finalizes.
+        if post_batch_stopped && collected_text.is_empty() && !cancelled {
+            let notice = "(stopped by PostToolBatch hook)";
+            collected_text.push_str(notice);
+            final_assistant_text.push_str(notice);
         }
         if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!(

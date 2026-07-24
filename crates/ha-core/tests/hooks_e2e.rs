@@ -20,9 +20,11 @@ use ha_core::hooks::{
 fn common(event: &str) -> CommonHookInput {
     CommonHookInput {
         session_id: "e2e-sess".into(),
+        prompt_id: None,
         transcript_path: PathBuf::from("/tmp/e2e.jsonl"),
         cwd: std::env::temp_dir(),
         permission_mode: PermissionMode::Default,
+        effort: None,
         hook_event_name: event.into(),
         agent_id: None,
         agent_type: None,

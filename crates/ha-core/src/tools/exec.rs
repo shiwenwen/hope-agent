@@ -347,6 +347,9 @@ pub(crate) async fn resolve_exec_command_approval(
             // user-decline path fires from `check_and_request_approval`.
             crate::hooks::fire_permission_denied(
                 ctx.session_id.as_deref(),
+                // Keep the command as matcher target (not the internal "exec"),
+                // so a hook can match dangerous command patterns.
+                None,
                 command,
                 "policy",
                 ctx.tool_call_id.as_deref(),
@@ -375,6 +378,7 @@ pub(crate) async fn resolve_exec_command_approval(
                 session_cwd,
                 ctx.session_id.as_deref(),
                 reason_payload,
+                Some("exec"),
             )
             .await
             {

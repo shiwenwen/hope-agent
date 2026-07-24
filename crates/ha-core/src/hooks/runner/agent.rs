@@ -19,8 +19,8 @@ use super::super::types::HookInput;
 use super::{HookHandler, RawHookResult};
 use crate::subagent::{spawn_subagent, SpawnParams, HOOK_SPAWN_LABEL};
 
-/// Default `agent` hook timeout when waiting for a synchronous run.
-const DEFAULT_AGENT_TIMEOUT_SECS: u64 = 120;
+/// Default `agent` hook timeout when waiting for a synchronous run (official 60s).
+const DEFAULT_AGENT_TIMEOUT_SECS: u64 = 60;
 /// Poll interval while waiting for a synchronous sub-agent run.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 

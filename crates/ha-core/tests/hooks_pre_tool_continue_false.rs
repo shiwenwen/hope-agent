@@ -25,9 +25,11 @@ fn pre_tool_use() -> HookInput {
     HookInput::PreToolUse {
         common: CommonHookInput {
             session_id: "cf-sess".into(),
+            prompt_id: None,
             transcript_path: PathBuf::from("/tmp/cf.jsonl"),
             cwd: std::env::temp_dir(),
             permission_mode: PermissionMode::Default,
+            effort: None,
             hook_event_name: "PreToolUse".into(),
             agent_id: None,
             agent_type: None,

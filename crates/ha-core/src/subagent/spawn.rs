@@ -961,6 +961,10 @@ pub(crate) async fn launch_subagent_run(
                 &agent_id,
                 &run_id_clone,
                 status.as_str(),
+                // The hook gets the FULL final answer (`last_assistant_message`),
+                // not the 200-char UI preview — a SubagentStop hook inspecting the
+                // child's answer must not be truncated.
+                result_text.as_deref(),
             );
         }
 

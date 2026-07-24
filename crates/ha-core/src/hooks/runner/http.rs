@@ -31,8 +31,8 @@ use super::super::env::HookEnv;
 use super::super::types::HookInput;
 use super::{HookHandler, RawHookResult};
 
-/// Default http-hook timeout (design §7.3).
-const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
+/// Default http-hook timeout (official 600s — matches command/mcp_tool).
+const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 600;
 /// Response body capture cap (§7.9). Enforced INCREMENTALLY by
 /// [`read_body_bounded`] — the cap is a memory ceiling, not a post-hoc
 /// truncation. An endpoint that streams a multi-GB body is hung up at 1 MiB.
@@ -598,6 +598,8 @@ mod tests {
                 transcript_path: PathBuf::from("/tmp/t.jsonl"),
                 cwd: PathBuf::from("/tmp"),
                 permission_mode: PermissionMode::Default,
+                prompt_id: None,
+                effort: None,
                 hook_event_name: "PreToolUse".into(),
                 agent_id: None,
                 agent_type: None,
@@ -699,6 +701,8 @@ mod tests {
             transcript_path: PathBuf::from("/tmp/t.jsonl"),
             cwd: std::env::temp_dir(),
             permission_mode: PermissionMode::Default,
+            prompt_id: None,
+            effort: None,
             hook_event_name: "PreToolUse".into(),
             agent_id: None,
             agent_type: None,
@@ -734,6 +738,8 @@ mod tests {
                 transcript_path: PathBuf::from("/tmp/t.jsonl"),
                 cwd: PathBuf::from("/tmp"),
                 permission_mode: PermissionMode::Default,
+                prompt_id: None,
+                effort: None,
                 hook_event_name: "Notification".into(),
                 agent_id: None,
                 agent_type: None,
@@ -757,6 +763,8 @@ mod tests {
                 transcript_path: PathBuf::from("/tmp/t.jsonl"),
                 cwd: PathBuf::from("/tmp"),
                 permission_mode: PermissionMode::Default,
+                prompt_id: None,
+                effort: None,
                 hook_event_name: "UserPromptSubmit".into(),
                 agent_id: None,
                 agent_type: None,
@@ -770,12 +778,15 @@ mod tests {
                 transcript_path: PathBuf::from("/tmp/t.jsonl"),
                 cwd: PathBuf::from("/tmp"),
                 permission_mode: PermissionMode::Default,
+                prompt_id: None,
+                effort: None,
                 hook_event_name: "PreCompact".into(),
                 agent_id: None,
                 agent_type: None,
             },
             trigger: crate::hooks::types::CompactTrigger::Auto,
             usage_ratio: 0.5,
+            custom_instructions: None,
         };
         assert!(pre_compact.is_blocking());
         // Notification is observation — keep inert path on degradation.

@@ -55,6 +55,11 @@ impl HookEnv {
             "true"
         };
         vars.insert("CLAUDE_CODE_REMOTE".to_string(), remote.to_string());
+        // Official `CLAUDE_EFFORT` — present only when the session exposes an
+        // effort level.
+        if let Some(effort) = &common.effort {
+            vars.insert("CLAUDE_EFFORT".to_string(), effort.level.clone());
+        }
         // Resolve the login shell PATH so `npm` / `python` are findable
         // (Unix). On Windows this is `None` and we leave PATH inherited.
         if let Some(path) = crate::tools::exec::get_login_shell_path() {
