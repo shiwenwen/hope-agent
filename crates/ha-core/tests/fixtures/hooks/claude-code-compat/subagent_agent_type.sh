@@ -14,7 +14,12 @@ agent_type=$(printf '%s' "$input" | jq -r '.agent_type // empty')
 event=$(printf '%s' "$input" | jq -r '.hook_event_name // empty')
 keys=$(printf '%s' "$input" | { grep -o '"agent_type"' || true; } | wc -l | tr -d '[:space:]')
 [ -n "$agent_type" ] || { echo "${event:-Subagent} payload has no .agent_type key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"${event}","additionalContext":"subagent_event=${event}; subagent_agent_type=${agent_type}; keys=${keys}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "$event" \
+  --arg ctx "subagent_event=${event}; subagent_agent_type=${agent_type}; keys=${keys}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

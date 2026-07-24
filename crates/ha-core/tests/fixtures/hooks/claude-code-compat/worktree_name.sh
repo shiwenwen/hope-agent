@@ -11,7 +11,13 @@ set -euo pipefail
 input=$(cat)
 worktree_name=$(printf '%s' "$input" | jq -r '.worktree_name // empty')
 [ -n "$worktree_name" ] || { echo "WorktreeCreate payload has no .worktree_name key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"WorktreeCreate","additionalContext":"worktree_name=${worktree_name}","worktreePath":"/tmp/worktrees/${worktree_name}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "WorktreeCreate" \
+  --arg ctx "worktree_name=${worktree_name}" \
+  --arg wp "/tmp/worktrees/${worktree_name}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx,worktreePath:$wp}}'
 exit 0

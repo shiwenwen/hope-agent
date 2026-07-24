@@ -137,8 +137,16 @@ fn is_stop_continue_started(ev: &AppEvent, session_id: &str) -> bool {
 }
 
 /// Wait up to `within` for a Stop-continue `"started"` event for `session_id`.
-/// Unrelated bus traffic (`config:changed`, …) is skipped; a lagged receiver
-/// keeps reading rather than aborting the wait.
+/// Unrelated bus traffic (`config:changed`, …) is skipped.
+///
+/// A `Lagged` receiver PANICS rather than resuming. That looks unfriendly but
+/// it is the only sound choice here: section 1 asserts an event is ABSENT, and
+/// `broadcast` reports `Lagged(n)` precisely when it dropped messages the
+/// receiver never saw. Treating that as "keep looking" would turn a real
+/// `is_natural_stop` regression — a re-driven interrupted turn whose event fell
+/// out of the 256-slot ring — into a silent pass, i.e. the guard's only test
+/// would go green while the guard was broken. Failing loudly is recoverable
+/// (drain more often, widen the ring); a false pass is not.
 async fn wait_stop_continue_started(
     rx: &mut broadcast::Receiver<AppEvent>,
     session_id: &str,
@@ -149,7 +157,12 @@ async fn wait_stop_continue_started(
             match rx.recv().await {
                 Ok(ev) if is_stop_continue_started(&ev, session_id) => return Some(ev),
                 Ok(_) => continue,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(n)) => panic!(
+                    "event bus overflowed: {n} message(s) dropped before this receiver read \
+                     them, so neither the presence nor the absence of a stop-hook-continue \
+                     event can be trusted. Drain `rx` more aggressively (or raise the bus \
+                     capacity) rather than ignoring the gap."
+                ),
                 Err(broadcast::error::RecvError::Closed) => return None,
             }
         }

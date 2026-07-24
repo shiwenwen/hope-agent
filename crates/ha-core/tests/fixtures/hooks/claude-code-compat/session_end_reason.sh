@@ -15,7 +15,12 @@ stale=$(printf '%s' "$input" | jq -r '.source // empty')
 [ -n "$reason" ] || { echo "SessionEnd payload has no .reason key" >&2; exit 1; }
 ctx="session_end_reason=${reason}"
 [ -z "$stale" ] || ctx="${ctx}; stale_source=${stale}"
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"SessionEnd","additionalContext":"${ctx}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "SessionEnd" \
+  --arg ctx "$ctx" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

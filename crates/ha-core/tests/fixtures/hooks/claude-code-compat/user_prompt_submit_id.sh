@@ -15,7 +15,12 @@ prompt_id=$(printf '%s' "$input" | jq -r '.prompt_id // empty')
 prompt=$(printf '%s' "$input" | jq -r '.prompt // empty')
 [ -n "$prompt_id" ] || { echo "UserPromptSubmit payload has no .prompt_id key" >&2; exit 1; }
 [ -n "$prompt" ] || { echo "UserPromptSubmit payload has no .prompt key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"prompt_id=${prompt_id}; prompt=${prompt}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "UserPromptSubmit" \
+  --arg ctx "prompt_id=${prompt_id}; prompt=${prompt}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

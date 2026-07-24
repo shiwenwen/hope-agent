@@ -255,26 +255,40 @@ mod tests {
 
     #[test]
     fn cwd_free_pregate_only_ever_skips_work() {
-        // The pre-gate is an optimization, so the only thing that must hold is
-        // soundness: it may never claim "no handlers" for a case the real
-        // cwd-aware gate would have fired. Asserting a concrete bool here would
-        // be flaky (the global registry is process-shared across tests), so
-        // assert the implication instead — it holds whatever the registry
-        // happens to contain.
-        let cwd = std::env::temp_dir();
-        for event in [
-            HookEvent::PreToolUse,
-            HookEvent::FileChanged,
-            HookEvent::Notification,
-            HookEvent::PermissionDenied,
-        ] {
-            if definitely_no_handlers_for_inner(event, false, false) {
-                assert!(
-                    !resolve_for_cwd_inner(Some(&cwd), false, false).has_handlers_for(event),
-                    "pre-gate skipped {event:?} but the cwd-aware gate would have fired it"
-                );
-            }
-        }
+        // The pre-gate is an optimization: it may only ever SKIP work, never
+        // decide that a handler runs. There is exactly ONE configuration in
+        // which it could break that — project/local scope ON, where a
+        // `.hope-agent/hooks.json` under some cwd can carry a handler the global
+        // registry has never seen and which the pre-gate deliberately does not
+        // go looking for. So build precisely that state and check both gates.
+        //
+        // (An earlier version of this test looped over events asserting
+        // `pregate(e) => !cwd_gate(e)` with project scope OFF. That is a
+        // TAUTOLOGY: with the flag off `resolve_for_cwd_inner(Some(cwd), …)`
+        // early-returns `registry::global()` before touching the filesystem, so
+        // both sides reduce to `registry::global().has_handlers_for(e)` and the
+        // assertion cannot fail for any registry contents — a mutation making
+        // the pre-gate unconditionally claim "no handlers" left it green.)
+        let dir = std::env::temp_dir().join(format!("ha-hooks-pregate-{}", uuid::Uuid::new_v4()));
+        let proj = dir.join(".hope-agent");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(
+            proj.join("hooks.json"),
+            r#"{"FileChanged":[{"hooks":[{"type":"command","command":"echo hi"}]}]}"#,
+        )
+        .unwrap();
+        // Empty global config, so the only possible match is the project file.
+        set_global_config(HooksConfig::default());
+
+        assert!(
+            resolve_for_cwd_inner(Some(&dir), false, true).has_handlers_for(HookEvent::FileChanged),
+            "setup: the cwd-aware gate must see the project-scope handler"
+        );
+        assert!(
+            !definitely_no_handlers_for_inner(HookEvent::FileChanged, false, true),
+            "UNSOUND: the pre-gate skipped an event that a project-scope handler \
+             would have fired — it must decline to answer whenever project scope is on"
+        );
 
         // Kill switch → definitely nothing, without consulting the registry.
         assert!(definitely_no_handlers_for_inner(
@@ -282,14 +296,14 @@ mod tests {
             true,
             false
         ));
-        // Project scope on → a `.hope-agent/hooks.json` under some cwd could
-        // still match, and we deliberately do not resolve the cwd here, so the
-        // gate must decline to answer rather than guess.
-        assert!(!definitely_no_handlers_for_inner(
-            HookEvent::PreToolUse,
-            false,
-            true
-        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // The remaining property — that a CONFIGURED handler still fires THROUGH
+        // the pre-gate on the default (project-scope-off) config — cannot be
+        // asserted here without mutating the process-shared global registry.
+        // It is pinned end-to-end by the `fire_*` liveness section of
+        // `crates/ha-core/tests/hooks_e2e.rs`, which a broken pre-gate fails.
     }
 
     #[test]

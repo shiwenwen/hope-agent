@@ -13,7 +13,12 @@ last_message=$(printf '%s' "$input" | jq -r '.last_assistant_message // empty')
 stop_active=$(printf '%s' "$input" | jq -r 'if has("stop_hook_active") then (.stop_hook_active | tostring) else empty end')
 [ -n "$last_message" ] || { echo "Stop payload has no .last_assistant_message key" >&2; exit 1; }
 [ -n "$stop_active" ] || { echo "Stop payload has no .stop_hook_active key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"stop_last_message=${last_message}; stop_hook_active=${stop_active}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "Stop" \
+  --arg ctx "stop_last_message=${last_message}; stop_hook_active=${stop_active}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

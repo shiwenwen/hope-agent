@@ -19,7 +19,12 @@ if [ "${CLAUDE_EFFORT:-}" = "$effort" ]; then
 else
   env_marker="env_mismatch(CLAUDE_EFFORT='${CLAUDE_EFFORT:-unset}')"
 fi
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"prompt_id=${prompt_id}; effort=${effort}; ${env_marker}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "PreToolUse" \
+  --arg ctx "prompt_id=${prompt_id}; effort=${effort}; ${env_marker}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

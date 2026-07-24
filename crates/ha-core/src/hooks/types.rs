@@ -647,12 +647,35 @@ impl HookInput {
     /// The tool name for tool-lifecycle events (`PreToolUse` / `PostToolUse` /
     /// `PostToolUseFailure`); `None` for every other event. Used by the `if`
     /// condition gate — a non-tool event can't satisfy a `ToolName(...)` rule.
+    ///
+    /// Deliberately narrow: widening it would silently start firing
+    /// `if: "Bash(rm *)"` rules on approval events that never matched before.
+    /// For "which tool is this event about, whatever the gate should see", use
+    /// [`Self::subject_tool_name`].
     pub fn tool_name(&self) -> Option<&str> {
         match self {
             Self::PreToolUse { tool_name, .. }
             | Self::PostToolUse { tool_name, .. }
             | Self::PostToolUseFailure { tool_name, .. } => Some(tool_name.as_str()),
             _ => None,
+        }
+    }
+
+    /// The tool this event is *about*, for every event that names one — the
+    /// tool-lifecycle three plus the Permission pair.
+    ///
+    /// Split from [`Self::tool_name`] because the two have different jobs:
+    /// `tool_name` gates the `if:` condition engine (narrow on purpose), while
+    /// this one answers "what should `${tool_name}` render as". Keeping them
+    /// merged forced a choice between widening `if:` semantics and leaving
+    /// `mcp_tool` templates half-resolved on Permission events — emitting a
+    /// literal `${tool_name}` to the MCP server next to a fully-resolved
+    /// `${tool_input.*}`.
+    pub fn subject_tool_name(&self) -> Option<&str> {
+        match self {
+            Self::PermissionRequest { tool_name, .. }
+            | Self::PermissionDenied { tool_name, .. } => tool_name.as_deref(),
+            other => other.tool_name(),
         }
     }
 
@@ -1194,11 +1217,12 @@ mod tests {
 
     #[test]
     fn subagent_events_emit_exactly_one_agent_type_key() {
-        // Subagent* takes the opposite resolution from SessionStart: the variant
-        // field stays (it is the required matcher target) and the flattened
-        // common one must stay `None`. `observation_common` hard-codes it to
-        // `None`, so this pins the production shape — a fire site that ever
-        // populated `common.agent_type` here would emit a duplicate key.
+        // Serialization-only half. NOTE: this pins the SHAPE, not the invariant
+        // — `common_with` hard-codes `agent_type: None`, so setting it in
+        // `hooks::observation_common` (the real builder) would ship a duplicate
+        // key with this test still green. The invariant itself is pinned by
+        // `hooks::guard_tests::observation_common_never_sets_agent_type`, which
+        // drives the production builder.
         for input in [
             HookInput::SubagentStart {
                 common: common_with("s", "SubagentStart"),

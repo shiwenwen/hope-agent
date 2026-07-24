@@ -653,16 +653,29 @@ async fn official_payload_field_names_match_upstream() {
         "the raw user text must still arrive under the official `.prompt` key, got {ctx:?}"
     );
 
-    // An entry point with no turn to run passes `""`, which must leave the key
-    // ABSENT rather than emit an empty string — `skip_serializing_if` keeps
-    // "no turn" distinguishable from "a turn whose id is empty". The fixture's
-    // guard turns that into a non-blocking error with no context injected.
+    // An entry point with no turn to run passes `""`, which must OMIT the key —
+    // unconditionally, NOT "fall back to whatever the active-turn registry
+    // holds". The distinction is only observable while the session HAS a turn,
+    // so acquire an unrelated one first: a fallback would stamp `unrelated-turn`
+    // onto this prompt and silently merge two turns for any correlating script.
+    // (Asserting this without a live turn is vacuous — both spellings yield an
+    // absent key, which is exactly how the bug hid.)
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let guard = ha_core::chat_engine::active_turn::try_acquire(
+        sid,
+        ha_core::chat_engine::stream_seq::ChatSource::Desktop,
+        "unrelated-turn".to_string(),
+        cancel,
+    )
+    .expect("acquire an unrelated active turn");
     let bare = hooks::fire_user_prompt_submit(sid, Some("ha-main"), "no turn", "").await;
+    let leaked = bare.merged_additional_context();
+    drop(guard);
     assert!(
-        bare.merged_additional_context().is_none(),
-        "an empty turn_id must omit `.prompt_id` entirely (the fixture then fails its \
-         guard and injects nothing), got {:?}",
-        bare.merged_additional_context()
+        leaked.is_none(),
+        "an empty turn_id must omit `.prompt_id` entirely — it must NOT fall back to the \
+         session's live turn id. The fixture's `[ -n \"$prompt_id\" ]` guard should have \
+         failed with nothing injected, but it echoed back: {leaked:?}"
     );
 
     // 16. permission_tool_input.sh again — this time through the real

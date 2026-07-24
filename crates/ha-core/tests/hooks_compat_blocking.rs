@@ -27,8 +27,7 @@
 //! Unix-only: the hooks shell out to `bash`.
 #![cfg(unix)]
 
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 
 use ha_core::hooks::{
     self, CommonHookInput, HookDecision, HookDispatcher, HookEvent, HookInput, HooksConfig,
@@ -45,16 +44,6 @@ fn fixture(name: &str) -> String {
     )
 }
 
-/// Whether `jq` is callable. The official scripts depend on it; without it the
-/// suite can't run authentically, so we skip instead of asserting.
-fn jq_available() -> bool {
-    Command::new("jq")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
 /// Install a single-command hook on `event` pointing at fixture `script`, then
 /// reload the registry so the next dispatch picks it up. `bash <path>` form so
 /// the script runs even without the executable bit (and stdin still carries the
@@ -62,6 +51,22 @@ fn jq_available() -> bool {
 fn install_hook(event: &str, script: &str) {
     let cfg: HooksConfig = serde_json::from_str(&format!(
         r#"{{ "{event}": [ {{ "hooks": [ {{ "type": "command", "shell": "bash", "command": "bash {script}" }} ] }} ] }}"#
+    ))
+    .expect("parse hooks config");
+    ha_core::config::mutate_config(("hooks", "test"), |c| {
+        c.hooks = cfg.clone();
+        Ok(())
+    })
+    .expect("write hooks config");
+    hooks::registry::reload_from_config();
+}
+
+/// Same as [`install_hook`] but passes `marker` to the script as `$1`, so a
+/// fixture that produces no parseable output can still prove it executed.
+fn install_hook_marked(event: &str, script: &str, marker: &Path) {
+    let cfg: HooksConfig = serde_json::from_str(&format!(
+        r#"{{ "{event}": [ {{ "hooks": [ {{ "type": "command", "shell": "bash", "command": "bash {script} '{marker}'" }} ] }} ] }}"#,
+        marker = marker.display()
     ))
     .expect("parse hooks config");
     ha_core::config::mutate_config(("hooks", "test"), |c| {
@@ -134,15 +139,12 @@ fn forward_veto_input(event: HookEvent) -> HookInput {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn newly_blocking_events_honor_official_veto() {
-    if !jq_available() {
-        eprintln!(
-            "SKIP hooks_compat_blocking: `jq` not installed — the official-script \
-             compat suites need it. (CI runners ship jq; this skip only affects \
-             jq-less local environments.)"
-        );
-        return;
-    }
-
+    // NOTE: deliberately NO `jq_available()` skip. The sibling compat binaries
+    // need one because their fixtures parse stdin with `jq`; both fixtures here
+    // use only `cat`/`echo`/`printf`. Copying the skip over would have meant
+    // that on a jq-less runner this entire suite — the only end-to-end proof
+    // that the six newly gate-capable events honor an official `exit 2` — passed
+    // green having asserted nothing.
     let tmp = tempfile::tempdir().expect("tempdir");
     std::env::set_var("HA_DATA_DIR", tmp.path());
     ha_core::paths::ensure_dirs().expect("ensure_dirs");
@@ -211,11 +213,19 @@ async fn newly_blocking_events_honor_official_veto() {
         out.decision
     );
 
-    // 3. NEGATIVE CONTROL — the very same veto script on `PostToolUse`, which is
-    //    STILL observation-only, must come back `Allow`:
-    //    `downgrade_block_on_observation` neutralizes it. Without this section a
-    //    build where NOTHING is ever downgraded would pass section 1 vacuously.
-    install_hook("PostToolUse", &fixture("veto_exit2.sh"));
+    // 3. NEGATIVE CONTROL — the same veto, on `PostToolUse`, which is STILL
+    //    observation-only: `downgrade_block_on_observation` must neutralize it to
+    //    `Allow`. Without this section a build where NOTHING is ever downgraded
+    //    would pass section 1 vacuously.
+    //
+    //    The fixture is the MARKED variant, and the marker is load-bearing: on
+    //    exit 2 `parse.rs` discards stdout, so a downgraded veto leaves no trace
+    //    at all — making "the downgrade worked" indistinguishable from "the hook
+    //    was never installed". A mis-wired `install_hook` (event-name drift, a
+    //    dropped group, a matcher regression) would satisfy both assertions
+    //    below. The marker file proves it actually executed.
+    let marker = tmp.path().join("observation-veto-ran.log");
+    install_hook_marked("PostToolUse", &fixture("veto_exit2_marked.sh"), &marker);
     let out = HookDispatcher::dispatch(
         HookEvent::PostToolUse,
         HookInput::PostToolUse {
@@ -228,11 +238,20 @@ async fn newly_blocking_events_honor_official_veto() {
         },
     )
     .await;
+    // Prove the hook RAN before asserting what it did NOT do.
+    let ran = std::fs::read_to_string(&marker).unwrap_or_default();
+    assert!(
+        ran.contains("ran"),
+        "veto_exit2_marked.sh never executed, so the Allow below would prove nothing \
+         about the observation downgrade — check the PostToolUse install. marker={:?}",
+        marker
+    );
     assert_eq!(
         out.decision,
         HookDecision::Allow,
-        "veto_exit2.sh must be downgraded on PostToolUse (still observation-only) — \
-         this is the control proving section 1 measures a real gate, got {:?}",
+        "an official exit-2 veto must be downgraded on PostToolUse (still \
+         observation-only) — this is the control proving section 1 measures a real \
+         gate, got {:?}",
         out.decision
     );
     assert!(

@@ -12,7 +12,12 @@ input=$(cat)
 task_name=$(printf '%s' "$input" | jq -r '.task_name // empty')
 event=$(printf '%s' "$input" | jq -r '.hook_event_name // empty')
 [ -n "$task_name" ] || { echo "${event:-Task} payload has no .task_name key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"${event}","additionalContext":"task_event=${event}; task_name=${task_name}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "$event" \
+  --arg ctx "task_event=${event}; task_name=${task_name}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

@@ -13,7 +13,12 @@ kind=$(printf '%s' "$input" | jq -r '.type // empty')
 message=$(printf '%s' "$input" | jq -r '.message // empty')
 [ -n "$kind" ] || { echo "Notification payload has no .type key" >&2; exit 1; }
 [ -n "$message" ] || { echo "Notification payload has no .message key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"Notification","additionalContext":"notification_type=${kind}; notification_message=${message}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "Notification" \
+  --arg ctx "notification_type=${kind}; notification_message=${message}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

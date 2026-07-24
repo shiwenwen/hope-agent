@@ -16,7 +16,12 @@ tool_command=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 event=$(printf '%s' "$input" | jq -r '.hook_event_name // empty')
 [ -n "$tool_name" ] || { echo "${event:-Permission} payload has no .tool_name key" >&2; exit 1; }
 [ -n "$tool_command" ] || { echo "${event:-Permission} payload has no .tool_input.command key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"${event}","additionalContext":"perm_event=${event}; perm_tool=${tool_name}; perm_command=${tool_command}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "$event" \
+  --arg ctx "perm_event=${event}; perm_tool=${tool_name}; perm_command=${tool_command}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

@@ -13,7 +13,12 @@ trigger=$(printf '%s' "$input" | jq -r '.trigger // empty')
 custom=$(printf '%s' "$input" | jq -r '.custom_instructions // empty')
 [ -n "$trigger" ] || { echo "PreCompact payload has no .trigger key" >&2; exit 1; }
 [ -n "$custom" ] || { echo "PreCompact payload has no .custom_instructions key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"PreCompact","additionalContext":"compact_trigger=${trigger}; compact_instructions=${custom}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "PreCompact" \
+  --arg ctx "compact_trigger=${trigger}; compact_instructions=${custom}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

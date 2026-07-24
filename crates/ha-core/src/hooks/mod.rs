@@ -722,13 +722,23 @@ pub fn fire_notification(session_id: &str, notification_type: &str, message: &st
 /// cannot see the turn yet. Taking the caller's id — rather than a slot in
 /// process-global state — is what makes `UserPromptSubmit` share one
 /// `prompt_id` with the rest of the turn without a way to leak an id across
-/// turns. Pass `""` only where no turn will run.
+/// turns.
+///
+/// Pass `""` only where no turn will run: it means "omit `prompt_id`", and it
+/// means that UNCONDITIONALLY — the caller's id fully replaces the registry
+/// lookup rather than falling back to it. That matters because a caller with no
+/// turn of its own may still be running on a session that has one, and falling
+/// back would silently stamp that unrelated turn's id onto this prompt, merging
+/// two turns for any script correlating on the field.
 pub async fn fire_user_prompt_submit(
     session_id: &str,
     agent_id: Option<&str>,
     prompt: &str,
     turn_id: &str,
 ) -> HookOutcome {
+    if scopes::definitely_no_handlers_for(HookEvent::UserPromptSubmit) {
+        return HookOutcome::noop();
+    }
     let wd = crate::session::effective_session_working_dir(Some(session_id));
     if !scopes::any_handlers_for(
         HookEvent::UserPromptSubmit,
@@ -738,9 +748,8 @@ pub async fn fire_user_prompt_submit(
     }
     let mut common = observation_common("UserPromptSubmit", session_id);
     common.agent_id = agent_id.map(|s| s.to_string());
-    if !turn_id.is_empty() {
-        common.prompt_id = Some(turn_id.to_string());
-    }
+    // Unconditional assignment, NOT `if !is_empty()` — see the doc above.
+    common.prompt_id = (!turn_id.is_empty()).then(|| turn_id.to_string());
     let input = HookInput::UserPromptSubmit {
         common,
         prompt: prompt.to_string(),
@@ -764,6 +773,14 @@ pub async fn fire_session_start_observation(
     agent_id: &str,
     model: &str,
 ) -> Option<String> {
+    // Pre-gate before the input build costs a session lookup. Note this fires
+    // once per TURN (the `claim_session_start` dedup is below), so without it an
+    // unconfigured install paid a `sessions.working_dir` read every turn for a
+    // hook that can run at most once per session.
+    if scopes::definitely_no_handlers_for(HookEvent::SessionStart) {
+        return None;
+    }
+
     let wd = crate::session::effective_session_working_dir(Some(session_id));
     if !scopes::any_handlers_for(
         HookEvent::SessionStart,
@@ -811,6 +828,11 @@ pub fn fire_session_end(session_id: &str, source: &str) {
 /// actually finish before the process exits (e.g. the server's graceful
 /// shutdown). Synchronous, fire-and-forget call sites use [`fire_session_end`].
 pub async fn dispatch_session_end(session_id: &str, source: &str) {
+    // Pre-gate before the input build costs a session lookup.
+    if scopes::definitely_no_handlers_for(HookEvent::SessionEnd) {
+        return;
+    }
+
     let wd = crate::session::effective_session_working_dir(Some(session_id));
     if !scopes::any_handlers_for(
         HookEvent::SessionEnd,
@@ -885,6 +907,11 @@ pub fn fire_stop(
     status: &str,
     last_message: Option<&str>,
 ) {
+    // Pre-gate before the input build costs a session lookup.
+    if scopes::definitely_no_handlers_for(HookEvent::Stop) {
+        return;
+    }
+
     let wd = crate::session::effective_session_working_dir(Some(session_id));
     if !scopes::any_handlers_for(HookEvent::Stop, wd.as_deref().map(std::path::Path::new)) {
         return;
@@ -941,6 +968,20 @@ pub fn fire_stop(
 /// pipeline (waits for idle, appends a `ParentInjection` user message, runs one
 /// turn) — the same mechanism as `asyncRewake`. No-op without a resolvable
 /// session / agent.
+///
+/// Returns whether the continue should COUNT against the session's budget. The
+/// caller undoes its counter bump on `false`, so this must be false exactly when
+/// no re-drive happened and none is pending:
+/// - `Injected` → true. The turn ran, or failed terminally (empty model chain,
+///   deleted session). A terminal failure still consumes an attempt on purpose —
+///   re-driving into a broken config would spin.
+/// - `Queued` → true. The task is in `PENDING_INJECTIONS` and the next flush
+///   owns it, so the continue is merely deferred, not lost.
+/// - `Abandoned` → **false**. Nothing was persisted and nothing in-process will
+///   retry. Counting it would both shrink the budget for a continue that never
+///   happened and leave `stop_hook_active` reporting a loop that isn't running —
+///   which a conforming Stop hook reads as "stop blocking", silently dropping
+///   the next legitimate continue.
 async fn stop_continue_inject(session_id: &str, agent_id: Option<&str>, reason: &str) -> bool {
     let Some(db) = crate::globals::get_session_db().cloned() else {
         return false;
@@ -962,7 +1003,7 @@ async fn stop_continue_inject(session_id: &str, agent_id: Option<&str>, reason: 
         "session={} Stop hook requested continue — re-driving with feedback",
         session_id
     );
-    let _ = crate::subagent::injection::inject_and_run_parent(
+    let outcome = crate::subagent::injection::inject_and_run_parent(
         session_id.to_string(),
         agent_id.clone(),
         agent_id,
@@ -972,7 +1013,19 @@ async fn stop_continue_inject(session_id: &str, agent_id: Option<&str>, reason: 
         None,
     )
     .await;
-    true
+    match outcome {
+        crate::subagent::injection::InjectionOutcome::Abandoned => {
+            crate::app_warn!(
+                "hooks",
+                "stop_continue",
+                "session={} Stop-hook continue was abandoned (nothing persisted) — \
+                 not counting it against the continue budget",
+                session_id
+            );
+            false
+        }
+        _ => true,
+    }
 }
 
 /// Fire the `StopFailure` observation hook — a turn ended because of an error.
@@ -1040,6 +1093,11 @@ pub async fn dispatch_task_created(
     active_form: Option<&str>,
     batch_id: &str,
 ) -> HookOutcome {
+    // Pre-gate before the input build costs a session lookup.
+    if scopes::definitely_no_handlers_for(HookEvent::TaskCreated) {
+        return HookOutcome::noop();
+    }
+
     let wd = crate::session::effective_session_working_dir(Some(session_id));
     if !scopes::any_handlers_for(
         HookEvent::TaskCreated,
@@ -1059,6 +1117,11 @@ pub async fn dispatch_task_created(
 /// Blocking `TaskCompleted` dispatch: returns the outcome so the tool can veto
 /// marking a task complete on a hook block (official). Noop fast path.
 pub async fn dispatch_task_completed(session_id: &str, task_id: i64, content: &str) -> HookOutcome {
+    // Pre-gate before the input build costs a session lookup.
+    if scopes::definitely_no_handlers_for(HookEvent::TaskCompleted) {
+        return HookOutcome::noop();
+    }
+
     let wd = crate::session::effective_session_working_dir(Some(session_id));
     if !scopes::any_handlers_for(
         HookEvent::TaskCompleted,
@@ -1142,6 +1205,11 @@ pub async fn dispatch_permission_request(
     command: &str,
     tool_use_id: Option<&str>,
 ) -> HookOutcome {
+    // Pre-gate before the input build costs a session lookup.
+    if scopes::definitely_no_handlers_for(HookEvent::PermissionRequest) {
+        return HookOutcome::noop();
+    }
+
     let sid = session_id.unwrap_or("");
     let wd = (!sid.is_empty())
         .then(|| crate::session::effective_session_working_dir(Some(sid)))
@@ -1219,6 +1287,11 @@ pub fn fire_async_job_terminal(
     is_interrupt: bool,
     result_or_error: &str,
 ) {
+    // Pre-gate before the input build costs a session lookup.
+    if scopes::definitely_no_handlers_for(HookEvent::PostToolUse) {
+        return;
+    }
+
     let event = if is_error {
         HookEvent::PostToolUseFailure
     } else {
@@ -1297,6 +1370,11 @@ pub async fn dispatch_user_prompt_expansion(
     command: &str,
     command_text: &str,
 ) -> HookOutcome {
+    // Pre-gate before the input build costs a session lookup.
+    if scopes::definitely_no_handlers_for(HookEvent::UserPromptExpansion) {
+        return HookOutcome::noop();
+    }
+
     let sid = session_id.unwrap_or("");
     let wd = (!sid.is_empty())
         .then(|| crate::session::effective_session_working_dir(Some(sid)))
@@ -1426,6 +1504,45 @@ mod guard_tests {
         // Empty string is treated as "no context" → clears.
         set_user_prompt_context("guard-test-ups-C", Some(String::new()));
         assert!(take_user_prompt_context("guard-test-ups-C").is_none());
+    }
+
+    #[test]
+    fn observation_common_never_sets_agent_type() {
+        // `SubagentStart`/`SubagentStop` re-declare `agent_type` alongside the
+        // flattened common block, and both serialize to the same JSON key. The
+        // variant field is kept (it is the required matcher target, and a
+        // `String` can't silently degrade the matcher to wildcard-only the way
+        // an unset `Option` would), so the invariant that keeps the key unique
+        // is: the production builder must never populate `common.agent_type`.
+        //
+        // This drives that builder for real. The sibling test in `types.rs`
+        // hand-builds its common block and is therefore blind here: setting
+        // `agent_type: Some(..)` below ships two `"agent_type"` keys on every
+        // `fire_subagent_start` payload while that test stays green.
+        let common = observation_common("SubagentStart", "agent-type-invariant-sess");
+        assert!(
+            common.agent_type.is_none(),
+            "observation_common must leave agent_type unset — Subagent* re-declares it, \
+             so populating both emits a duplicate JSON key (see HookInput::SubagentStart)"
+        );
+
+        let input = HookInput::SubagentStart {
+            common,
+            subagent_id: "sa-1".into(),
+            agent_type: "code-reviewer".into(),
+            run_id: "r-1".into(),
+        };
+        let text = serde_json::to_string(&input).expect("serialize");
+        assert_eq!(
+            text.matches("\"agent_type\"").count(),
+            1,
+            "duplicate agent_type key in the payload the fire site actually builds: {text}"
+        );
+        // jq silently keeps the LAST of two duplicate keys, so a duplicate would
+        // make an official subagent hook read a different value than the matcher
+        // targeted — assert the survivor is the variant's.
+        let v: serde_json::Value = serde_json::from_str(&text).expect("parse");
+        assert_eq!(v["agent_type"], "code-reviewer");
     }
 
     #[test]

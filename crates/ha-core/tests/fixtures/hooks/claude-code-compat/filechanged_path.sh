@@ -14,7 +14,12 @@ file_path=$(printf '%s' "$input" | jq -r '.file_path // empty')
 action=$(printf '%s' "$input" | jq -r '.action // empty')
 [ -n "$file_path" ] || { echo "FileChanged payload has no .file_path key" >&2; exit 1; }
 [ -n "$action" ] || { echo "FileChanged payload has no .action key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"FileChanged","additionalContext":"changed_file=${file_path}; changed_action=${action}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "FileChanged" \
+  --arg ctx "changed_file=${file_path}; changed_action=${action}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0

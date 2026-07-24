@@ -13,7 +13,12 @@ source_kind=$(printf '%s' "$input" | jq -r '.source // empty')
 session_title=$(printf '%s' "$input" | jq -r '.session_title // empty')
 [ -n "$source_kind" ] || { echo "SessionStart payload has no .source key" >&2; exit 1; }
 [ -n "$session_title" ] || { echo "SessionStart payload has no .session_title key" >&2; exit 1; }
-cat <<JSON
-{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"src=${source_kind}; session_title=${session_title}"}}
-JSON
+# Emit with `jq -nc --arg` rather than a heredoc: payload values are
+# arbitrary text (quotes, newlines, backslashes), and splicing them into
+# a heredoc yields invalid JSON that the host silently treats as "the hook
+# contributed nothing" — indistinguishable from a missing field.
+jq -nc \
+  --arg ev "SessionStart" \
+  --arg ctx "src=${source_kind}; session_title=${session_title}" \
+  '{hookSpecificOutput:{hookEventName:$ev,additionalContext:$ctx}}'
 exit 0
