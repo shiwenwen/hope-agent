@@ -367,11 +367,7 @@ mod tests {
         // Official `retry` (PermissionDenied) is parsed (was a dead hard-coded
         // false before).
         let c = parse(
-            &raw(
-                Some(0),
-                r#"{"hookSpecificOutput":{"retry":true}}"#,
-                "",
-            ),
+            &raw(Some(0), r#"{"hookSpecificOutput":{"retry":true}}"#, ""),
             HookEvent::PermissionDenied,
         );
         assert!(c.retry);
@@ -400,7 +396,9 @@ mod tests {
         );
         assert_eq!(
             deny.decision,
-            HookDecision::Deny { reason: "no".into() }
+            HookDecision::Deny {
+                reason: "no".into()
+            }
         );
         let allow = parse(
             &raw(
@@ -417,7 +415,10 @@ mod tests {
     fn plaintext_context_includes_user_prompt_expansion() {
         // Official: UserPromptExpansion (like SessionStart/UserPromptSubmit)
         // treats non-JSON stdout as additionalContext.
-        let c = parse(&raw(Some(0), "expanded ctx", ""), HookEvent::UserPromptExpansion);
+        let c = parse(
+            &raw(Some(0), "expanded ctx", ""),
+            HookEvent::UserPromptExpansion,
+        );
         assert_eq!(c.additional_context.as_deref(), Some("expanded ctx"));
     }
 }

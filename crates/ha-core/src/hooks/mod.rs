@@ -178,7 +178,9 @@ fn stop_continue_active(session_id: &str) -> bool {
 /// block) so the next independent stop starts fresh.
 fn reset_stop_continue(session_id: &str) {
     if let Some(m) = STOP_CONTINUE_COUNTS.get() {
-        m.lock().unwrap_or_else(|e| e.into_inner()).remove(session_id);
+        m.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(session_id);
     }
 }
 
@@ -1513,8 +1515,7 @@ mod tests {
             tool_use_id: None,
             job_id: None,
         };
-        let out2 =
-            HookDispatcher::dispatch_with(&reg, HookEvent::PermissionRequest, no_name).await;
+        let out2 = HookDispatcher::dispatch_with(&reg, HookEvent::PermissionRequest, no_name).await;
         assert_eq!(out2.decision, HookDecision::Allow);
     }
 

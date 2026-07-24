@@ -901,9 +901,7 @@ impl HookOutcome {
             return None;
         }
         match &self.decision {
-            HookDecision::Deny { reason } | HookDecision::Block { reason } => {
-                Some(reason.clone())
-            }
+            HookDecision::Deny { reason } | HookDecision::Block { reason } => Some(reason.clone()),
             _ => None,
         }
     }
@@ -1176,7 +1174,9 @@ mod tests {
     fn effort_and_prompt_id_serialize_when_set() {
         let mut common = common_with("s", "PreToolUse");
         common.prompt_id = Some("p-1".into());
-        common.effort = Some(HookEffort { level: "high".into() });
+        common.effort = Some(HookEffort {
+            level: "high".into(),
+        });
         let v = serde_json::to_value(HookInput::PreToolUse {
             common,
             tool_name: "exec".into(),
@@ -1238,10 +1238,14 @@ mod tests {
         o.decision = HookDecision::Defer;
         assert!(o.block_reason().is_none());
         // Deny / Block → veto with reason; Stop reads them as "continue".
-        o.decision = HookDecision::Deny { reason: "no".into() };
+        o.decision = HookDecision::Deny {
+            reason: "no".into(),
+        };
         assert_eq!(o.block_reason().as_deref(), Some("no"));
         assert_eq!(o.stop_wants_continue().as_deref(), Some("no"));
-        o.decision = HookDecision::Block { reason: "warn".into() };
+        o.decision = HookDecision::Block {
+            reason: "warn".into(),
+        };
         assert_eq!(o.block_reason().as_deref(), Some("warn"));
         // continue:false → veto, but NOT a Stop-continue (that's a hard stop).
         let mut c = HookOutcome::noop();
