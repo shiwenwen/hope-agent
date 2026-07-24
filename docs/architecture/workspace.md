@@ -247,19 +247,8 @@ Dev-only GUI smoke：
 
 - 开发环境支持 `?window=workspace-smoke`，入口在 `src/main.tsx`，实现为 `src/dev/WorkspaceSmokeWindow.tsx`。
 - 该 smoke 复用真实 `WorkspacePanel`，用固定 fixture 覆盖 active Goal、running Workflow、dynamic Loop、Task 进度、后台任务、输出/来源、Domain Evidence、运行稳定性、长跑审计、交付守门、外部动作守门和连接器端到端（E2E）。
-- 它只作为可重复的人工/浏览器 GUI smoke 入口，用来检查默认状态故事、高级诊断展开、窄/宽响应式布局和 popover/tooltip 裁剪；不替代真实 Tauri 桌面长跑、连接器 E2E、restart/resume 或 V3 strict proof route。
+- 它只作为可重复的人工/浏览器 GUI smoke 入口，用来检查默认状态故事、高级诊断展开、窄/宽响应式布局和 popover/tooltip 裁剪；不替代真实 Tauri 桌面长跑、连接器 E2E 或 restart/resume 验收。
 - 开发环境也支持 `?window=chat-input-smoke`，入口在 `src/main.tsx`，实现为 `src/dev/ChatInputSmokeWindow.tsx`。该 smoke 复用真实 `ChatInput`，用固定 fixture 覆盖 active Goal、Task progress、Workflow Mode、模型选择、权限、沙箱、工作目录、上下文用量、目标模式和 `+` 收纳菜单；用于复现输入框窄/宽布局、菜单裁剪和模式状态条，不替代真实 Tauri 桌面验收。
-
-V3 strict proof audit：
-
-- `node scripts/v3-strict-proof-audit.mjs` 是 V3 关闭前的证据包审计入口。它扫描仓库 architecture 文档、外部 V3 Plans、deterministic evidence 截图和严格证据 manifest，输出 Markdown 或 `--json` 结构化报告。
-- 退出码 `0` 表示 required strict proof artifacts 都存在且 manifest 校验通过；退出码 `2` 表示仍有 V3 closure blocker。该脚本故意不会把 deterministic substitute 当成 strict proof。
-- 严格证据只认外部 Plans 下的 `v3-strict-proof-evidence.json`：每个关闭项必须有 `status: "passed"`、允许的 `evidenceKind`、必需 coverage label、可解析 `performedAt` 和存在于 Plans 目录内的 artifact 路径。文件名匹配只用于 deterministic substitute 和展示上下文，不能满足 strict proof。
-- 模板文件是 `v3-strict-proof-evidence.template.json`，用于记录真实验收后如何填写；模板或 pending 条目不会让审计通过。采集辅助入口是 `node scripts/v3-strict-proof-record.mjs --requirement <name>`：它默认只创建 pending 条目和 artifact 骨架，标记 `passed` 必须显式 `--confirm-reviewed`，artifact 必须已存在，且 artifact 内 `Required Coverage` / `Reviewer Decision` checklist 必须全部勾选；最终是否关闭仍由 audit 脚本决定。
-- 快速状态入口是 `node scripts/v3-strict-proof-record.mjs --list`，下一项入口是 `--next`，机器可读入口是 `--list --json`，退出码门禁是 `--check-ready`（ready 返回 `0`，仍有 open blocker 返回 `2`）。`summary.remaining == 0` / `--check-ready` 只表示五个 strict proof artifact 已按 record 脚本口径准备完毕，最终关闭仍必须以 audit 脚本退出码 `0` 为准。
-- 五个 strict proof requirement 的顺序、coverage、允许证据类型和 reviewer decision 文案以 `scripts/v3-strict-proof-requirements.mjs` 为单一来源；`record` 和 `audit` 都必须引用它，避免“状态列表已 ready 但最终 audit 失败”的定义漂移。
-- `--write <path>` 可把最新报告写入外部 Plans，例如 `v3-strict-proof-audit-latest.md`。当前 required strict proof 包括真实 restart/resume matrix、真实 wall-clock soak、真实或沙箱 connector read-back、Tauri desktop manual GUI smoke，以及 Hope Agent 与同类工具的对比评测证据。
-- 2026-07-09 V3 关闭证据已归档到外部 Plans 的 V3 closure 目录：5 个 required strict proof 全部 `passed`，最终 audit `14/14 passed`、`blockers=0`。其中 connector read-back 采用 GitHub sandbox branch create/read/delete/reset 路线；Google Drive OAuth scope 失败作为 recovery evidence 保留，不算通过证据。
 
 ## 8. 后续
 
