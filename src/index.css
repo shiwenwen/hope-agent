@@ -143,6 +143,21 @@
     -webkit-user-select: none;
     user-select: none;
   }
+  /* ── Linux（WebKitGTK）降级，#547 ──
+   * 标记由 src/lib/platform.ts applyPlatformDocumentMarkers() 在首帧前打上。
+   * WebKitGTK 合成器对 backdrop-filter 层上/内的滚动内容会以错误 scale 光栅化，
+   * 滚动中文字周期性发虚；一条规则全局降级全部 backdrop-blur 表面（sticky 头部 /
+   * 浮层 / 菜单等），代替逐组件条件类。!important 是为压过 Tailwind utility。 */
+  html[data-linux-webkit] * {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* Linux 没有 -apple-system / Segoe UI，显式补 Noto（CJK 需装 noto-fonts-cjk，
+   * 未装时仍走 fontconfig 兜底）。收敛在标记下，避免碰巧装了 Noto 的
+   * macOS / Windows 机器被全局字体栈换字。 */
+  html[data-linux-webkit] body {
+    font-family: "Noto Sans", "Noto Sans CJK SC", sans-serif;
+  }
   /* Allow text selection in chat messages, code blocks, and inputs */
   textarea,
   input,

@@ -40,7 +40,7 @@
 
 ## 易错提醒（新增即同步）
 
-Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；两者任一改动 → [api-reference](docs/architecture/api-reference.md)。Rust 依赖变更先 `cargo check --workspace`。
+Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；两者任一改动 → [api-reference](docs/architecture/api-reference.md)。Rust 依赖变更先 `cargo check --workspace`。改 `tauri.conf.json` 主窗口字段须同步 `tauri.windows/linux.conf.json`（平台 conf 对 `app.windows` **数组整体替换**，漏同步即该平台静默丢字段——Windows 曾因此丢 `center`）。
 
 ## 编码规范
 
