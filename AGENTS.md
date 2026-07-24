@@ -288,5 +288,3 @@ cargo run -p ha-eval --locked -- validate   # 评测资产校验
 同 PR 同步：功能/命令/模块增删 → `CHANGELOG.md` + `AGENTS.md`；技术栈/架构/规范/契约 → AGENTS.md；子系统边界/数据流/持久化/跨模块 contract → architecture 文档，新增架构级能力新建文档 + 登记索引；Tauri 命令/HTTP 路由/`COMMAND_MAP` 增删 → `docs/architecture/api-reference.md`；子系统/架构文档/运行时 DB/稳定 log `category` 增删 → `skills/ha-self-diagnosis/references/diagnostic-playbook.md`；README/release notes 任一语言 → 同步 .en.md。
 
 **CHANGELOG 单行**：用户视角一句 + `(#PR)`，不写实现；契约/红线可加一行用户影响。
-
-**规划归档**：调研/roadmap 归外部 iCloud `HopeAI/Hope Agent/Plans/`，**仓库内任何路径不留已完成 roadmap**；落地后须把设计决策同步回架构文档。
