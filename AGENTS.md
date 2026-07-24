@@ -178,7 +178,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 详见 [hooks](docs/architecture/hooks.md)（单一真相源，字段级对齐 Claude Code hooks 协议，`hooks_compat.rs` 硬验收）。
 
 - **唯一入口 `HookDispatcher::dispatch` / `hooks::fire_*`**；调用方只读 `HookOutcome`，严禁 match handler 类型
-- **新 user message 入口须过 `agent::preflight::user_prompt_preflight`**（`UserPromptSubmit` 阻断点）；新 hook 事件须埋点 + 测试 + 同步 `types.rs` 三处 match（`common`/`matcher_target`/`is_observation_only`）——**漏登记 `is_observation_only` 则新观察事件意外可阻断**
+- **新 user message 入口须过 `agent::preflight::user_prompt_preflight`**（`UserPromptSubmit` 阻断点），并把交给 `active_turn::try_acquire` 的**同一个** `turn_id` 填进 `PreflightArgs`（该字段刻意非 `Option`，否则新入口会静默丢 `prompt_id`）；新 hook 事件须埋点 + 测试 + 同步 `types.rs` 三处 match（`common`/`matcher_target`/`is_observation_only`）——**漏登记 `is_observation_only` 则新观察事件意外可阻断**
 - **project/local scope 默认关**（`hooks_allow_project_scope`，供应链防护：开启即信任所有未来 cwd）；`ha-settings` 对 hooks 只读，可写 = 模型自装命令执行
 
 ### Plan Mode

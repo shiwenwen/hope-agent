@@ -51,6 +51,27 @@ fn terminal_assistant_text_for_history<'a>(
     }
 }
 
+/// The terminal notice to append when a `PostToolBatch` hook stopped the agent
+/// loop after a tool-only round.
+///
+/// Without it, a round that ran tools but produced no assistant prose reaches
+/// the `No content received from {provider} API` error in `run_streaming_chat`
+/// — i.e. an intentional hook-driven stop would surface to the user as a
+/// provider failure. Returning a non-empty notice is load-bearing: it is what
+/// makes `collected_text.is_empty()` false at that check.
+///
+/// A cancel wins over the notice (a cancelled turn must not synthesize text it
+/// never produced), and a round that already has prose is left alone (never
+/// double-append).
+fn post_batch_clean_stop_notice(
+    post_batch_stopped: bool,
+    collected_text: &str,
+    cancelled: bool,
+) -> Option<&'static str> {
+    (post_batch_stopped && collected_text.is_empty() && !cancelled)
+        .then_some("(stopped by PostToolBatch hook)")
+}
+
 async fn wait_for_cancel(cancel: &AtomicBool) {
     while !cancel.load(Ordering::SeqCst) {
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
@@ -316,6 +337,9 @@ async fn drain_queued_turn_user_messages<F>(
                 session_id,
                 agent_id: Some(&agent.agent_id),
                 raw_prompt,
+                // A mid-turn injected prompt deliberately rides the enclosing
+                // turn's id: it is folded into the running turn, not a new one.
+                turn_id: &active.turn_id,
             },
         )
         .await
@@ -1712,9 +1736,10 @@ impl AssistantAgent {
         }
         // A PostToolBatch hook that stops the loop after a tool-only round (no
         // assistant prose) must end cleanly, not via the "no content" API-error
-        // path — synthesize a short terminal notice so the turn finalizes.
-        if post_batch_stopped && collected_text.is_empty() && !cancelled {
-            let notice = "(stopped by PostToolBatch hook)";
+        // path below — synthesize a short terminal notice so the turn finalizes.
+        if let Some(notice) =
+            post_batch_clean_stop_notice(post_batch_stopped, &collected_text, cancelled)
+        {
             collected_text.push_str(notice);
             final_assistant_text.push_str(notice);
         }
@@ -1806,7 +1831,7 @@ impl AssistantAgent {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_started_job_id, has_checkpointed_subagent_dispatch,
+        extract_started_job_id, has_checkpointed_subagent_dispatch, post_batch_clean_stop_notice,
         stamp_checkpointed_subagent_dispatch, terminal_assistant_text_for_history,
     };
     use crate::async_jobs::{synthetic_started_result, JobOrigin};
@@ -1838,6 +1863,29 @@ mod tests {
             terminal_assistant_text_for_history(false, "", "partial"),
             ""
         );
+    }
+
+    #[test]
+    fn post_batch_stop_with_empty_output_yields_clean_notice_not_api_error() {
+        // The whole point: a hook-driven stop after a tool-only round must not
+        // fall through to `No content received from {provider} API`.
+        let notice = post_batch_clean_stop_notice(true, "", false)
+            .expect("a hook stop with no prose must synthesize a terminal notice");
+        assert!(
+            !notice.is_empty(),
+            "the notice is what makes collected_text non-empty at the no-content check"
+        );
+
+        // A cancel wins — a cancelled turn must not gain text it never produced.
+        assert_eq!(post_batch_clean_stop_notice(true, "", true), None);
+        // Prose already collected → never double-append.
+        assert_eq!(post_batch_clean_stop_notice(true, "answer", false), None);
+        assert_eq!(post_batch_clean_stop_notice(true, "answer", true), None);
+        // No hook stop → a genuinely empty round still reaches the API error.
+        assert_eq!(post_batch_clean_stop_notice(false, "", false), None);
+        assert_eq!(post_batch_clean_stop_notice(false, "", true), None);
+        assert_eq!(post_batch_clean_stop_notice(false, "answer", false), None);
+        assert_eq!(post_batch_clean_stop_notice(false, "answer", true), None);
     }
 
     #[test]

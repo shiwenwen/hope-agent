@@ -848,6 +848,12 @@ pub(crate) async fn check_and_request_approval(
     // PermissionRequest/PermissionDenied hooks' tool-name matcher. `None` falls
     // back to matching on `command`.
     tool_name: Option<&str>,
+    // Structured tool args (official `tool_input`) and the tool_use id that
+    // correlates this approval with its PreToolUse/PostToolUse. Both are pure
+    // payload fills for the Permission* hooks — borrowed so an unconfigured
+    // install never clones them (the clone is past `any_handlers_for`).
+    tool_input: Option<&serde_json::Value>,
+    tool_use_id: Option<&str>,
 ) -> std::result::Result<ApprovalResponse, ApprovalCheckError> {
     // Epic D (DEADLOCK-1..5): an `Ask` was decided, but on some entries no human
     // can ever answer it. Resolve the surface BEFORE registering a pending entry
@@ -928,9 +934,10 @@ pub(crate) async fn check_and_request_approval(
         crate::hooks::fire_permission_denied(
             session_id,
             tool_name,
+            tool_input,
             command,
             unattended.as_str(),
-            None,
+            tool_use_id,
         );
         return Err(ApprovalCheckError::Unattended { reason: unattended });
     }
@@ -941,8 +948,14 @@ pub(crate) async fn check_and_request_approval(
     // user / strict mode); it falls through to the normal prompt. Noop fast path
     // when no PermissionRequest hook is configured.
     {
-        let pr_outcome =
-            crate::hooks::dispatch_permission_request(session_id, tool_name, command, None).await;
+        let pr_outcome = crate::hooks::dispatch_permission_request(
+            session_id,
+            tool_name,
+            tool_input,
+            command,
+            tool_use_id,
+        )
+        .await;
         if let Some(reason) = pr_outcome.block_reason() {
             app_info!(
                 "tool",
@@ -955,7 +968,14 @@ pub(crate) async fn check_and_request_approval(
                     format!(": {}", reason.trim())
                 }
             );
-            crate::hooks::fire_permission_denied(session_id, tool_name, command, "policy", None);
+            crate::hooks::fire_permission_denied(
+                session_id,
+                tool_name,
+                tool_input,
+                command,
+                "policy",
+                tool_use_id,
+            );
             return Ok(ApprovalResponse::Deny);
         }
     }
@@ -1088,9 +1108,10 @@ pub(crate) async fn check_and_request_approval(
                 crate::hooks::fire_permission_denied(
                     session_id,
                     tool_name,
+                    tool_input,
                     command,
                     "user_declined",
-                    None,
+                    tool_use_id,
                 );
             }
             Ok(response)

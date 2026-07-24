@@ -205,6 +205,45 @@ pub fn any_handlers_for(event: HookEvent, working_dir: Option<&Path>) -> bool {
     resolve_for_cwd(working_dir).has_handlers_for(event)
 }
 
+/// Cwd-free pre-gate: `true` when NO handler can possibly fire for `event`,
+/// answerable without knowing the session working dir.
+///
+/// [`any_handlers_for`] needs a cwd, and getting one costs a
+/// `sessions.working_dir` lookup — which the synchronous `fire_*` helpers pay
+/// *before* they reach the gate, because they must build the hook input (and
+/// its `cwd`) first. That made "hooks cost nothing when none are configured"
+/// only half true: an unconfigured install still did a DB read per
+/// `FileChanged` / `Notification` / `PermissionDenied` / … fire. This gate
+/// restores the promise for the default configuration.
+///
+/// **Exactness**: with project/local scope off (the default) the global
+/// registry *is* the effective registry for every cwd, so the answer is exact.
+/// With it on, a `.hope-agent/hooks.json` under some cwd could still match, so
+/// this conservatively returns `false` and the caller falls through to the real
+/// cwd-aware gate. It is therefore only ever allowed to skip work, never to
+/// decide that a handler runs.
+pub fn definitely_no_handlers_for(event: HookEvent) -> bool {
+    let cfg = crate::config::cached_config();
+    definitely_no_handlers_for_inner(event, cfg.disable_all_hooks, cfg.hooks_allow_project_scope)
+}
+
+/// Inner form with the two config flags injected, so the soundness invariant is
+/// unit-testable without touching the global cached config (mirrors
+/// [`resolve_for_cwd_inner`]).
+fn definitely_no_handlers_for_inner(
+    event: HookEvent,
+    disable_all_hooks: bool,
+    allow_project_scope: bool,
+) -> bool {
+    if disable_all_hooks {
+        return true;
+    }
+    if allow_project_scope {
+        return false;
+    }
+    !resolve_for_cwd_inner(None, false, false).has_handlers_for(event)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +251,45 @@ mod tests {
     #[test]
     fn managed_path_is_absolute() {
         assert!(managed_path().is_absolute());
+    }
+
+    #[test]
+    fn cwd_free_pregate_only_ever_skips_work() {
+        // The pre-gate is an optimization, so the only thing that must hold is
+        // soundness: it may never claim "no handlers" for a case the real
+        // cwd-aware gate would have fired. Asserting a concrete bool here would
+        // be flaky (the global registry is process-shared across tests), so
+        // assert the implication instead — it holds whatever the registry
+        // happens to contain.
+        let cwd = std::env::temp_dir();
+        for event in [
+            HookEvent::PreToolUse,
+            HookEvent::FileChanged,
+            HookEvent::Notification,
+            HookEvent::PermissionDenied,
+        ] {
+            if definitely_no_handlers_for_inner(event, false, false) {
+                assert!(
+                    !resolve_for_cwd_inner(Some(&cwd), false, false).has_handlers_for(event),
+                    "pre-gate skipped {event:?} but the cwd-aware gate would have fired it"
+                );
+            }
+        }
+
+        // Kill switch → definitely nothing, without consulting the registry.
+        assert!(definitely_no_handlers_for_inner(
+            HookEvent::PreToolUse,
+            true,
+            false
+        ));
+        // Project scope on → a `.hope-agent/hooks.json` under some cwd could
+        // still match, and we deliberately do not resolve the cwd here, so the
+        // gate must decline to answer rather than guess.
+        assert!(!definitely_no_handlers_for_inner(
+            HookEvent::PreToolUse,
+            false,
+            true
+        ));
     }
 
     #[test]

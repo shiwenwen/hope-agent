@@ -419,6 +419,14 @@ impl AcpAgent {
         // `UserPromptSubmit` hook here. `do_prompt` is synchronous, so bridge to
         // the async helper on a short-lived runtime — the same pattern
         // `run_agent_chat` uses below.
+        //
+        // ACP registers no `active_turn` entry (that would pull in the cancel
+        // walks / crash-flush / stream-acceptance semantics the `chat:*` bus
+        // owns), so this id is minted purely to give `UserPromptSubmit` a
+        // `prompt_id`. ACP's *in-turn* hooks still report `None` — closing that
+        // needs ACP to hold a real active turn, tracked as a follow-up in
+        // docs/architecture/hooks.md §2.4.
+        let turn_id = uuid::Uuid::new_v4().to_string();
         let effective_prompt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -428,6 +436,7 @@ impl AcpAgent {
                     session_id: &session_id,
                     agent_id: None,
                     raw_prompt: &text,
+                    turn_id: &turn_id,
                 },
             )) {
                 crate::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {

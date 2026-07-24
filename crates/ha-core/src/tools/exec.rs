@@ -350,6 +350,7 @@ pub(crate) async fn resolve_exec_command_approval(
                 // Keep the command as matcher target (not the internal "exec"),
                 // so a hook can match dangerous command patterns.
                 None,
+                Some(args),
                 command,
                 "policy",
                 ctx.tool_call_id.as_deref(),
@@ -379,6 +380,8 @@ pub(crate) async fn resolve_exec_command_approval(
                 ctx.session_id.as_deref(),
                 reason_payload,
                 Some("exec"),
+                Some(args),
+                ctx.tool_call_id.as_deref(),
             )
             .await
             {

@@ -400,6 +400,16 @@ pub enum HookInput {
         subagent_id: String,
         /// The spawned sub-agent's type/name (matcher target, official
         /// `agent_type`).
+        ///
+        /// **Invariant**: [`CommonHookInput::agent_type`] must stay `None` on
+        /// this variant — both serialize to `agent_type`, so setting each would
+        /// emit a duplicate JSON key (the defect fixed for `SessionStart`
+        /// above). `SessionStart` resolved it by dropping the variant field;
+        /// here the variant field is kept instead, because it is the required
+        /// matcher target and a `String` cannot silently degrade the matcher to
+        /// wildcard-only the way an unset `Option` in the common block would.
+        /// Enforced by construction: every fire site builds its common block
+        /// via `hooks::observation_common`, which hard-codes `agent_type: None`.
         agent_type: String,
         run_id: String,
     },
@@ -408,6 +418,7 @@ pub enum HookInput {
         common: CommonHookInput,
         subagent_id: String,
         /// The sub-agent's type/name (matcher target, official `agent_type`).
+        /// Same duplicate-key invariant as [`Self::SubagentStart::agent_type`].
         agent_type: String,
         run_id: String,
         /// Terminal status: `completed` / `failed` / `cancelled` / …
@@ -426,9 +437,12 @@ pub enum HookInput {
         /// `last_assistant_message`).
         #[serde(skip_serializing_if = "Option::is_none")]
         last_assistant_message: Option<String>,
-        /// Claude Code's `stop_hook_active` — `true` when a Stop hook is
-        /// already in the continue loop. Block-to-continue is not implemented
-        /// yet, so always `false`; the field keeps the payload field-aligned.
+        /// Claude Code's `stop_hook_active` — `true` when this Stop fires on a
+        /// turn that a previous Stop hook already re-drove, so a script can tell
+        /// "the turn ended" from "the turn ended again because I asked for it"
+        /// and avoid an infinite continue loop. Read from the live
+        /// `STOP_CONTINUE_COUNTS` bump in `hooks::fire_stop`; the engine caps the
+        /// loop at `MAX_STOP_CONTINUES` regardless of what the script does.
         stop_hook_active: bool,
     },
     StopFailure {
@@ -643,11 +657,19 @@ impl HookInput {
     }
 
     /// The tool input args for tool-lifecycle events; `None` otherwise.
+    ///
+    /// The Permission arms are included so `${tool_input.*}` templates resolve
+    /// in `mcp_tool` handlers. [`Self::tool_name`] is deliberately **not**
+    /// widened the same way: it gates the `if:` condition engine, so adding the
+    /// Permission arms there would silently start firing `if: "Bash(rm *)"`
+    /// rules on approval events that never matched before.
     pub fn tool_input(&self) -> Option<&serde_json::Value> {
         match self {
             Self::PreToolUse { tool_input, .. }
             | Self::PostToolUse { tool_input, .. }
             | Self::PostToolUseFailure { tool_input, .. } => Some(tool_input),
+            Self::PermissionRequest { tool_input, .. }
+            | Self::PermissionDenied { tool_input, .. } => tool_input.as_ref(),
             _ => None,
         }
     }
@@ -1168,6 +1190,79 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["source"], "fork");
         assert_eq!(v["session_title"], "T");
+    }
+
+    #[test]
+    fn subagent_events_emit_exactly_one_agent_type_key() {
+        // Subagent* takes the opposite resolution from SessionStart: the variant
+        // field stays (it is the required matcher target) and the flattened
+        // common one must stay `None`. `observation_common` hard-codes it to
+        // `None`, so this pins the production shape — a fire site that ever
+        // populated `common.agent_type` here would emit a duplicate key.
+        for input in [
+            HookInput::SubagentStart {
+                common: common_with("s", "SubagentStart"),
+                subagent_id: "sa-1".into(),
+                agent_type: "code-reviewer".into(),
+                run_id: "r-1".into(),
+            },
+            HookInput::SubagentStop {
+                common: common_with("s", "SubagentStop"),
+                subagent_id: "sa-1".into(),
+                agent_type: "code-reviewer".into(),
+                run_id: "r-1".into(),
+                status: "completed".into(),
+                last_assistant_message: Some("done".into()),
+            },
+        ] {
+            let text = serde_json::to_string(&input).unwrap();
+            assert_eq!(
+                text.matches("\"agent_type\"").count(),
+                1,
+                "duplicate agent_type key in {text}"
+            );
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(v["agent_type"], "code-reviewer");
+        }
+    }
+
+    #[test]
+    fn permission_events_carry_tool_input() {
+        // The official `tool_input` must both serialize and be reachable through
+        // the generic accessor (so `${tool_input.*}` templates resolve), while
+        // `tool_name()` stays deliberately narrow — widening it would start
+        // firing `if:` rules on approval events that never matched before.
+        let input = HookInput::PermissionRequest {
+            common: common_with("s", "PermissionRequest"),
+            tool_name: Some("exec".into()),
+            tool_input: Some(serde_json::json!({"command": "npm test"})),
+            command: "tool: exec".into(),
+            tool_use_id: Some("call-1".into()),
+            job_id: None,
+        };
+        assert_eq!(
+            input.tool_input().and_then(|v| v["command"].as_str()),
+            Some("npm test")
+        );
+        assert_eq!(input.tool_name(), None, "tool_name() must stay narrow");
+        let v = serde_json::to_value(&input).unwrap();
+        assert_eq!(v["tool_input"]["command"], "npm test");
+        assert_eq!(v["tool_name"], "exec");
+        assert_eq!(v["tool_use_id"], "call-1");
+
+        // Absent args stay absent (skip_serializing_if) rather than `null`.
+        let bare = HookInput::PermissionDenied {
+            common: common_with("s", "PermissionDenied"),
+            tool_name: None,
+            tool_input: None,
+            command: "rm -rf /".into(),
+            reason: "policy".into(),
+            tool_use_id: None,
+            job_id: None,
+        };
+        assert_eq!(bare.tool_input(), None);
+        let v = serde_json::to_value(&bare).unwrap();
+        assert!(v.get("tool_input").is_none(), "got {v}");
     }
 
     #[test]

@@ -1336,6 +1336,8 @@ pub(super) async fn run_tool_approval(
         ctx.session_id.as_deref(),
         reason_payload,
         Some(name),
+        Some(args),
+        ctx.tool_call_id.as_deref(),
     )
     .await
     {
@@ -1642,6 +1644,10 @@ pub async fn execute_tool_with_context(
                 crate::hooks::fire_permission_denied(
                     ctx.session_id.as_deref(),
                     Some(name),
+                    // The patched/sanitized shadow (PreToolUse `updatedInput` +
+                    // mac_control sanitize), so the payload matches what
+                    // PreToolUse/PostToolUse reported — not the model's raw args.
+                    Some(args),
                     name,
                     "policy",
                     ctx.tool_call_id.as_deref(),
