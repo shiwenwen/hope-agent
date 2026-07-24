@@ -9,6 +9,11 @@ import { subscribeAskAiQuotes } from "@/lib/manual/askAi"
 import type { SettingsSection } from "@/components/settings/types"
 import { requestMemoryFocus } from "@/components/settings/memory-panel/memoryFocus"
 import { memorySourceLabel } from "./message/memoryTraceFormat"
+import {
+  forkComposerDraftForMessage,
+  forkSessionRequestForMessage,
+  type ForkComposerDraft,
+} from "./message/messageFork"
 import { BrowserExtensionNudge } from "./BrowserExtensionNudge"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { useReadableSurface } from "@/hooks/useReadableSurface"
@@ -37,6 +42,7 @@ import type {
   ActiveModel,
   AvailableModel,
   ChatRuntimeDefaults,
+  ForkSessionResult,
   Message,
   PendingMessageQuote,
   SessionMessage,
@@ -748,6 +754,10 @@ export default function ChatScreen({
   const browserPanelDismissedRef = useRef(false)
   const [showFilesPanel, setShowFilesPanel] = useState(false)
   const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
+  const pendingForkComposerRef = useRef<{
+    sessionId: string
+    draft: ForkComposerDraft
+  } | null>(null)
   // Clicking a staged quote chip reveals that file in the browser. The nonce
   // makes each click a fresh signal, even when re-revealing the same path.
   const revealQuoteNonce = useRef(0)
@@ -2052,6 +2062,23 @@ export default function ChatScreen({
     activeSessionReadableRef,
   })
 
+  useEffect(() => {
+    const pending = pendingForkComposerRef.current
+    if (!pending || session.currentSessionId !== pending.sessionId) return
+    pendingForkComposerRef.current = null
+    stream.setInput(pending.draft.text)
+    stream.setAttachedFiles(pending.draft.attachedFiles)
+    stream.setPendingQuotes(pending.draft.pendingQuotes)
+    stream.setPendingMessageQuotes(pending.draft.pendingMessageQuotes)
+    setComposerFocusSignal((value) => (value ?? 0) + 1)
+  }, [
+    session.currentSessionId,
+    stream.setAttachedFiles,
+    stream.setInput,
+    stream.setPendingMessageQuotes,
+    stream.setPendingQuotes,
+  ])
+
   // Ambient file-action wiring for persisted resources and renderer-only drafts.
   const setAttachedFiles = stream.setAttachedFiles
   const replaceDraftAttachment = useCallback(
@@ -2980,15 +3007,19 @@ export default function ChatScreen({
   )
 
   const handleForkFromMessage = useCallback(
-    async (messageId: number) => {
+    async (message: Message) => {
       const sourceSessionId = session.currentSessionId
       if (!sourceSessionId) return
+      const request = forkSessionRequestForMessage(sourceSessionId, message)
+      if (!request) return
       try {
-        const forked = await getTransport().call<SessionMeta>("fork_session_cmd", {
-          sessionId: sourceSessionId,
-          messageId,
+        const forked = await getTransport().call<ForkSessionResult>("fork_session_cmd", {
+          ...request,
         })
+        const composerDraft = await forkComposerDraftForMessage(message, forked)
         await reloadSessions()
+        pendingForkComposerRef.current =
+          composerDraft == null ? null : { sessionId: forked.id, draft: composerDraft }
         await rawHandleSwitchSession(forked.id)
         toast.success(
           t("chat.fork.created", {
@@ -2996,6 +3027,7 @@ export default function ChatScreen({
           }),
         )
       } catch (e) {
+        pendingForkComposerRef.current = null
         logger.error("ui", "ChatScreen::forkSession", "Failed to fork session", e)
         toast.error(
           e instanceof Error

@@ -316,6 +316,30 @@ pub struct SessionMeta {
     pub kind: SessionKind,
 }
 
+/// Result returned by the user-facing fork APIs. The session fields stay
+/// flattened for backwards compatibility with clients that deserialize a
+/// fork response directly as [`SessionMeta`]. When a user prompt is forked,
+/// its attachments are copied into the new session and returned separately so
+/// the client can restore them into the composer without retaining a reference
+/// to the source session's files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkSessionResult {
+    #[serde(flatten)]
+    pub session: SessionMeta,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_attachments_meta: Option<String>,
+}
+
+impl From<SessionMeta> for ForkSessionResult {
+    fn from(session: SessionMeta) -> Self {
+        Self {
+            session,
+            draft_attachments_meta: None,
+        }
+    }
+}
+
 /// The next regular unread conversation that the sidebar should reveal.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

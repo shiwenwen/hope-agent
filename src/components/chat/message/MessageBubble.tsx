@@ -80,6 +80,7 @@ import {
   TOOL_JOB_STATUSES,
 } from "./asyncResultPayload"
 import { isQuickPromptEligibleUserMessage } from "../quick-prompts/messageQuickPrompts"
+import { isForkableConversationMessage } from "./messageFork"
 import { goalCompletionReportFromMessage, type GoalCompletionReport } from "./goalCompletionReport"
 import {
   requestMemoryFocus,
@@ -230,7 +231,7 @@ export interface MessageBubbleProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
-  onForkFromMessage?: (messageId: number) => void
+  onForkFromMessage?: (message: Message) => void
   onOpenMemorySettings?: () => void
   onOpenKnowledge?: () => void
   displayMode?: ChatDisplayMode
@@ -1487,8 +1488,7 @@ function MessageBubbleInner({
     !!onForkFromMessage &&
     !!sessionId &&
     !loading &&
-    typeof msg.dbId === "number" &&
-    (msg.role === "user" || msg.role === "assistant")
+    isForkableConversationMessage(msg)
   const hasToolbarActions = hasTextContent || hasDetails || canAddQuickPrompt || canForkFromMessage
   // Always-visible total turn duration, shown at the message bottom once the
   // assistant turn has finished (the per-step / per-group times live above).
@@ -1587,7 +1587,7 @@ function MessageBubbleInner({
     <IconTip label={t("chat.fork.continueInNewSession", "Continue in new session")}>
       <button
         type="button"
-        onClick={() => onForkFromMessage?.(msg.dbId!)}
+        onClick={() => onForkFromMessage?.(msg)}
         className={toolbarButtonClass}
       >
         <GitFork className="h-3.5 w-3.5" />

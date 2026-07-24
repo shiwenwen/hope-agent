@@ -42,7 +42,17 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ChatAttachment } from "@/lib/transport"
 import { createDraftAttachment } from "@/components/chat/files/types"
-import type { ActiveModel, Message, PendingFileQuote } from "@/types/chat"
+import {
+  forkComposerDraftForMessage,
+  forkSessionRequestForMessage,
+  type ForkComposerDraft,
+} from "@/components/chat/message/messageFork"
+import type {
+  ActiveModel,
+  ForkSessionResult,
+  Message,
+  PendingFileQuote,
+} from "@/types/chat"
 import type { DesignRecipe } from "@/types/design"
 import { useDesignChat } from "./useDesignChat"
 import { DesignConversationHistory } from "./DesignConversationHistory"
@@ -340,6 +350,28 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     draftDesignProjectId: projectId,
     getExtraAttachments,
   })
+  const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
+  const pendingForkComposerRef = useRef<{
+    sessionId: string
+    draft: ForkComposerDraft
+  } | null>(null)
+
+  useEffect(() => {
+    const pending = pendingForkComposerRef.current
+    if (!pending || session.currentSessionId !== pending.sessionId) return
+    pendingForkComposerRef.current = null
+    stream.setInput(pending.draft.text)
+    stream.setAttachedFiles(pending.draft.attachedFiles)
+    stream.setPendingQuotes(pending.draft.pendingQuotes)
+    stream.setPendingMessageQuotes(pending.draft.pendingMessageQuotes)
+    setComposerFocusSignal((value) => (value ?? 0) + 1)
+  }, [
+    session.currentSessionId,
+    stream.setAttachedFiles,
+    stream.setInput,
+    stream.setPendingMessageQuotes,
+    stream.setPendingQuotes,
+  ])
 
   // Live streaming flag for the imperative submitPrompt guard (avoid firing a
   // second turn while one is in flight) without rebuilding the handle each tick.
@@ -490,18 +522,23 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   // 拒进行中流式 / 边界裁剪），产物仍是本项目的设计线程（后端补建 design_chat_threads 锚点）。
   // 切到新线程继续探索另一方向而不丢原线。交互与普通对话「消息下方 fork」一致。
   const handleForkFromMessage = useCallback(
-    async (messageId: number) => {
+    async (message: Message) => {
       const sid = session.currentSessionId
       if (!sid) return
+      const request = forkSessionRequestForMessage(sid, message)
+      if (!request) return
       try {
-        const forked = await getTransport().call<{ id: string }>("fork_session_cmd", {
-          sessionId: sid,
-          messageId,
+        const forked = await getTransport().call<ForkSessionResult>("fork_session_cmd", {
+          ...request,
         })
+        const composerDraft = await forkComposerDraftForMessage(message, forked)
         await session.reloadThreads()
+        pendingForkComposerRef.current =
+          composerDraft == null ? null : { sessionId: forked.id, draft: composerDraft }
         await session.switchThread(forked.id)
         toast.success(t("design.chat.forked", "已分支为新对话"))
       } catch (e) {
+        pendingForkComposerRef.current = null
         logger.error("design", "DesignChatPanel", "fork failed", e)
         toast.error(
           e instanceof Error && e.message ? e.message : t("design.chat.forkFailed", "分支失败"),
@@ -786,6 +823,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             stream.setPendingQuotes((prev) => prev.filter((_, idx) => idx !== i))
           }
           onJumpToQuote={onJumpToQuote}
+          focusSignal={composerFocusSignal}
           pendingMessage={stream.pendingMessage}
           onCancelPending={() => stream.setPendingMessage(null)}
           // 生成中排队多条：接内核已有 pendingSends 队列 UI（逐条编辑/删除/工具边界 force-insert 插队），

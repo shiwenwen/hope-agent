@@ -95,6 +95,8 @@ export interface MessageAttachment {
   localPath?: string
   url?: string
   previewUrl?: string
+  /** Original composer semantics for persisted user files. */
+  semanticSource?: "upload" | "pasted_text"
   /** For `kind === "quote"` (file-browser "quote to chat"): referenced path,
    *  1-based line range (e.g. "12-20"), and the quoted snippet. */
   quotePath?: string
@@ -368,6 +370,9 @@ export interface Message {
   }
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
+  /** Last persisted row that may be used as an inclusive fork boundary when
+   *  an interrupted assistant turn has blocks but no final assistant row. */
+  forkBoundaryId?: number
   /** Durable run which owns this canonical/checkpoint projection. Used only
    *  by the reload handshake to replace an in-flight projection idempotently. */
   persistenceRunId?: string
@@ -587,6 +592,12 @@ export interface SessionMeta {
   } | null
   /** Dedicated spaces use non-regular kinds and never enter regular unread. */
   kind?: "regular" | "knowledge" | "design" | "eval_fixture" | string
+}
+
+/** Fork responses remain SessionMeta-compatible and optionally carry the
+ * selected user prompt's attachments, already copied into the new session. */
+export interface ForkSessionResult extends SessionMeta {
+  draftAttachmentsMeta?: string | null
 }
 
 export interface UnreadSessionTarget {

@@ -1,6 +1,6 @@
 import type { Message } from "@/types/chat"
 
-export function isQuickPromptEligibleUserMessage(msg: Message): boolean {
+export function isHumanAuthoredUserMessage(msg: Message): boolean {
   return (
     msg.role === "user" &&
     !msg.fromAgentId &&
@@ -13,9 +13,12 @@ export function isQuickPromptEligibleUserMessage(msg: Message): boolean {
     !msg.planComment &&
     !msg.isMeta &&
     !msg.slashEvent &&
-    !msg.channelInbound &&
-    msg.content.trim().length > 0
+    !msg.channelInbound
   )
+}
+
+export function isQuickPromptEligibleUserMessage(msg: Message): boolean {
+  return isHumanAuthoredUserMessage(msg) && msg.content.trim().length > 0
 }
 
 export function recentUserInputHistory(messages: Message[], limit = 50): string[] {

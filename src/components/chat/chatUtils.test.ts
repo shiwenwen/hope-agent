@@ -51,6 +51,31 @@ describe("parseSessionMessages events", () => {
       persistenceRunId: "run-1",
       contentBlocks: [{ type: "text", content: "durable prefix" }],
     })
+    expect(parsed.at(-1)?.forkBoundaryId).toBe(2)
+  })
+
+  test("only exposes a fork boundary after an assistant checkpoint is no longer streaming", () => {
+    const streaming = parseSessionMessages([
+      sessionMessage({ id: 1, role: "user", content: "question" }),
+      sessionMessage({
+        id: 2,
+        role: "text_block",
+        content: "partial answer",
+        streamStatus: "streaming",
+      }),
+    ])
+    const interrupted = parseSessionMessages([
+      sessionMessage({ id: 1, role: "user", content: "question" }),
+      sessionMessage({
+        id: 2,
+        role: "text_block",
+        content: "partial answer",
+        streamStatus: "recovered",
+      }),
+    ])
+
+    expect(streaming.at(-1)?.forkBoundaryId).toBeUndefined()
+    expect(interrupted.at(-1)?.forkBoundaryId).toBe(2)
   })
 
   test("only collapses duplicate startup recovery events within one user turn", () => {
