@@ -461,6 +461,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `list_archived_sessions_cmd` | `GET /api/sessions/archived?limit=&offset=` | ✅（跨普通 / 项目 / IM / Subagent / Cron / Knowledge / Design 的归档管理列表） |
 | `create_session_cmd` | `POST /api/sessions` | ✅ |
 | `get_session_cmd` | `GET /api/sessions/{id}` | ✅ |
+| `fork_session_cmd` | `POST /api/sessions/{sessionId}/fork` | ✅（body 的 `messageId` 为含边界；`beforeMessageId` 为不含边界，二者互斥且同时传入返回 400；响应保持 `SessionMeta` 扁平字段，并可附带 `draftAttachmentsMeta`） |
 | `set_session_incognito` | `PATCH /api/sessions/{sessionId}/incognito` | ✅ |
 | `set_session_working_dir` | `PATCH /api/sessions/{sessionId}/working-dir` | ✅ |
 | `update_session_agent_cmd` | `PATCH /api/sessions/{sessionId}/agent` | ✅ |

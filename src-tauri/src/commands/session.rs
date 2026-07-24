@@ -46,11 +46,20 @@ pub async fn create_session_cmd(
 pub async fn fork_session_cmd(
     session_id: String,
     message_id: Option<i64>,
+    before_message_id: Option<i64>,
     state: State<'_, AppState>,
-) -> Result<session::SessionMeta, CmdError> {
+) -> Result<session::ForkSessionResult, CmdError> {
+    if message_id.is_some() && before_message_id.is_some() {
+        return Err(CmdError::from(anyhow::anyhow!(
+            "message_id and before_message_id are mutually exclusive"
+        )));
+    }
     state
         .session_db
-        .run(move |db| db.fork_session(&session_id, message_id))
+        .run(move |db| match before_message_id {
+            Some(boundary) => db.fork_session_before_message_with_draft(&session_id, boundary),
+            None => db.fork_session(&session_id, message_id).map(Into::into),
+        })
         .await
         .map_err(Into::into)
 }

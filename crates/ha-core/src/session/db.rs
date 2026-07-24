@@ -2112,8 +2112,62 @@ impl SessionDB {
         source_session_id: &str,
         source_message_id: Option<i64>,
     ) -> Result<SessionMeta> {
+        self.fork_session_with_boundary(source_session_id, source_message_id, false)
+            .map(|result| result.session)
+    }
+
+    /// Fork a session with a transcript boundary immediately before a source
+    /// message. Unlike a full or inclusive fork, this intentionally permits an
+    /// empty copied transcript when `before_message_id` is the first message.
+    pub fn fork_session_before_message(
+        &self,
+        source_session_id: &str,
+        before_message_id: i64,
+    ) -> Result<SessionMeta> {
+        self.fork_session_before_message_with_draft(source_session_id, before_message_id)
+            .map(|result| result.session)
+    }
+
+    /// Same boundary semantics as [`Self::fork_session_before_message`], plus
+    /// the selected user prompt's attachment metadata rewritten to files owned
+    /// by the new session. This is consumed by GUI transports to reconstruct an
+    /// editable composer draft.
+    pub fn fork_session_before_message_with_draft(
+        &self,
+        source_session_id: &str,
+        before_message_id: i64,
+    ) -> Result<crate::session::ForkSessionResult> {
+        let result =
+            self.fork_session_with_boundary(source_session_id, Some(before_message_id), true);
+        match &result {
+            Ok(forked) => crate::app_info!(
+                "session",
+                "fork",
+                "exclusive fork completed: source_session_id={} before_message_id={} forked_session_id={}",
+                source_session_id,
+                before_message_id,
+                forked.session.id
+            ),
+            Err(error) => crate::app_warn!(
+                "session",
+                "fork",
+                "exclusive fork failed: source_session_id={} before_message_id={} error={}",
+                source_session_id,
+                before_message_id,
+                error
+            ),
+        }
+        result
+    }
+
+    fn fork_session_with_boundary(
+        &self,
+        source_session_id: &str,
+        source_message_id: Option<i64>,
+        exclude_boundary: bool,
+    ) -> Result<crate::session::ForkSessionResult> {
         let new_session_id = uuid::Uuid::new_v4().to_string();
-        let fork_result = (|| -> Result<()> {
+        let fork_result = (|| -> Result<Option<String>> {
             let mut conn = self
                 .conn
                 .lock()
@@ -2214,12 +2268,27 @@ impl SessionDB {
                 }
             }
 
+            let boundary_attachments_meta = if exclude_boundary {
+                let (role, attachments_meta): (String, Option<String>) = tx.query_row(
+                    "SELECT role, attachments_meta FROM messages
+                     WHERE session_id = ?1 AND id = ?2",
+                    params![source_session_id, source_message_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                if role != MessageRole::User.as_str() {
+                    anyhow::bail!("exclusive fork boundary must be a user message");
+                }
+                attachments_meta
+            } else {
+                None
+            };
+
             let active_streaming_rows: i64 = tx.query_row(
                 "SELECT COUNT(*) FROM messages
              WHERE session_id = ?1
-               AND (?2 IS NULL OR id <= ?2)
+               AND (?2 IS NULL OR (?3 = 0 AND id <= ?2) OR (?3 = 1 AND id < ?2))
                AND stream_status = 'streaming'",
-                params![source_session_id, source_message_id],
+                params![source_session_id, source_message_id, exclude_boundary],
                 |row| row.get(0),
             )?;
             if active_streaming_rows > 0 {
@@ -2231,11 +2300,11 @@ impl SessionDB {
             let copied_count: i64 = tx.query_row(
                 "SELECT COUNT(*) FROM messages
              WHERE session_id = ?1
-               AND (?2 IS NULL OR id <= ?2)",
-                params![source_session_id, source_message_id],
+               AND (?2 IS NULL OR (?3 = 0 AND id <= ?2) OR (?3 = 1 AND id < ?2))",
+                params![source_session_id, source_message_id, exclude_boundary],
                 |row| row.get(0),
             )?;
-            if copied_count == 0 {
+            if copied_count == 0 && !exclude_boundary {
                 anyhow::bail!("cannot fork an empty session");
             }
 
@@ -2248,11 +2317,11 @@ impl SessionDB {
                 tx.query_row(
                     "SELECT content FROM messages
                  WHERE session_id = ?1
-                   AND (?2 IS NULL OR id <= ?2)
+                   AND (?2 IS NULL OR (?3 = 0 AND id <= ?2) OR (?3 = 1 AND id < ?2))
                    AND role = 'user'
                    AND length(trim(content)) > 0
                  ORDER BY id ASC LIMIT 1",
-                    params![source_session_id, source_message_id],
+                    params![source_session_id, source_message_id, exclude_boundary],
                     |row| row.get::<_, String>(0),
                 )
                 .optional()?
@@ -2283,6 +2352,18 @@ impl SessionDB {
                 None => None,
             };
 
+            let copied_through_message_id = if source_message_id.is_some() {
+                tx.query_row(
+                    "SELECT MAX(id) FROM messages
+                     WHERE session_id = ?1
+                       AND (?2 IS NULL OR (?3 = 0 AND id <= ?2) OR (?3 = 1 AND id < ?2))",
+                    params![source_session_id, source_message_id, exclude_boundary],
+                    |row| row.get::<_, Option<i64>>(0),
+                )?
+            } else {
+                None
+            };
+
             let now = chrono::Utc::now().to_rfc3339();
             tx.execute(
             "INSERT INTO sessions (
@@ -2311,7 +2392,7 @@ impl SessionDB {
                 working_dir,
                 kind,
                 source_session_id,
-                source_message_id,
+                copied_through_message_id,
             ],
         )?;
 
@@ -2327,25 +2408,33 @@ impl SessionDB {
                 tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name,
                 tool_arguments, tool_result, tool_duration_ms, is_error, thinking,
                 ttft_ms, tokens_in_last, tokens_cache_creation, tokens_cache_read,
-                tool_metadata, stream_status, source
+                tool_metadata,
+                CASE WHEN stream_status = 'orphaned' THEN 'recovered' ELSE stream_status END,
+                source
              FROM messages
              WHERE session_id = ?2
-               AND (?3 IS NULL OR id <= ?3)
+               AND (?3 IS NULL OR (?4 = 0 AND id <= ?3) OR (?4 = 1 AND id < ?3))
              ORDER BY id ASC",
-                params![new_session_id, source_session_id, source_message_id],
+                params![
+                    new_session_id,
+                    source_session_id,
+                    source_message_id,
+                    exclude_boundary
+                ],
             )?;
 
             let attachment_meta_rewrites = {
                 let mut stmt = tx.prepare(
                     "SELECT DISTINCT attachments_meta FROM messages
                  WHERE session_id = ?1
-                   AND (?2 IS NULL OR id <= ?2)
+                   AND (?2 IS NULL OR (?3 = 0 AND id <= ?2) OR (?3 = 1 AND id < ?2))
                    AND attachments_meta IS NOT NULL",
                 )?;
                 let raw_values = stmt
-                    .query_map(params![source_session_id, source_message_id], |row| {
-                        row.get::<_, String>(0)
-                    })?
+                    .query_map(
+                        params![source_session_id, source_message_id, exclude_boundary],
+                        |row| row.get::<_, String>(0),
+                    )?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 raw_values
                     .into_iter()
@@ -2369,6 +2458,17 @@ impl SessionDB {
                     )?;
                 }
             }
+
+            let draft_attachments_meta = boundary_attachments_meta
+                .as_deref()
+                .map(|raw| {
+                    crate::attachments::fork_attachments_meta(
+                        source_session_id,
+                        &new_session_id,
+                        raw,
+                    )
+                })
+                .transpose()?;
 
             // 设计线程 fork：补建 `design_chat_threads` 锚点，让设计工具经
             // `project_for_session` 解析回源设计项目（否则会落到新草稿项目）。以锚表为
@@ -2416,18 +2516,26 @@ impl SessionDB {
             }
 
             tx.commit()?;
-            Ok(())
+            Ok(draft_attachments_meta)
         })();
 
-        if let Err(error) = fork_result {
-            if let Ok(attachments_dir) = crate::paths::attachments_dir(&new_session_id) {
-                let _ = std::fs::remove_dir_all(attachments_dir);
+        let draft_attachments_meta = match fork_result {
+            Ok(meta) => meta,
+            Err(error) => {
+                if let Ok(attachments_dir) = crate::paths::attachments_dir(&new_session_id) {
+                    let _ = std::fs::remove_dir_all(attachments_dir);
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
+        };
 
-        self.get_session(&new_session_id)?
-            .ok_or_else(|| anyhow::anyhow!("forked session disappeared: {}", new_session_id))
+        let session = self
+            .get_session(&new_session_id)?
+            .ok_or_else(|| anyhow::anyhow!("forked session disappeared: {}", new_session_id))?;
+        Ok(crate::session::ForkSessionResult {
+            session,
+            draft_attachments_meta,
+        })
     }
 
     /// Split a session title into its base and optional trailing ` (N)` sequence.
@@ -7464,6 +7572,150 @@ mod tests {
         assert!(
             visible.iter().any(|session| session.id == forked.id),
             "forked session must remain a first-class sidebar session"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn fork_session_before_user_message_excludes_prompt_and_allows_empty_history() {
+        let db_path = temp_db_path("session-fork-before-user");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        db.update_session_title_with_source(
+            &source.id,
+            "Original task",
+            crate::session_title::TITLE_SOURCE_LLM,
+        )
+        .expect("title");
+        let first_user = db
+            .append_message(&source.id, &NewMessage::user("first prompt"))
+            .expect("append first user");
+        let first_answer = db
+            .append_message(&source.id, &NewMessage::assistant("first answer"))
+            .expect("append first answer");
+        let second_user = db
+            .append_message(&source.id, &NewMessage::user("second prompt"))
+            .expect("append second user");
+
+        let from_second = db
+            .fork_session_before_message(&source.id, second_user)
+            .expect("fork before second prompt");
+        let copied = db
+            .load_session_messages(&from_second.id)
+            .expect("load forked messages");
+        assert_eq!(
+            copied
+                .iter()
+                .map(|message| message.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first prompt", "first answer"]
+        );
+        assert_eq!(from_second.forked_from_message_id, Some(first_answer));
+
+        let from_first = db
+            .fork_session_before_message(&source.id, first_user)
+            .expect("fork before first prompt");
+        assert_eq!(from_first.message_count, 0);
+        assert_eq!(from_first.forked_from_message_id, None);
+        assert!(db
+            .load_session_messages(&from_first.id)
+            .expect("load empty fork")
+            .is_empty());
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn fork_session_before_user_message_returns_new_session_owned_draft_attachments() {
+        let db_path = temp_db_path("session-fork-user-draft-attachments");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        let source_dir = crate::paths::attachments_dir(&source.id).expect("source attachments dir");
+        std::fs::create_dir_all(&source_dir).expect("create source attachments dir");
+        let source_path = source_dir.join("prompt-image.png");
+        std::fs::write(&source_path, b"png bytes").expect("write source attachment");
+
+        let mut prompt = NewMessage::user("");
+        prompt.attachments_meta = Some(
+            serde_json::json!([{
+                "name": "prompt-image.png",
+                "mime_type": "image/png",
+                "size": 9,
+                "path": source_path,
+                "source": "upload"
+            }])
+            .to_string(),
+        );
+        let prompt_id = db
+            .append_message(&source.id, &prompt)
+            .expect("append attachment-only prompt");
+
+        let forked = db
+            .fork_session_before_message_with_draft(&source.id, prompt_id)
+            .expect("fork before attachment prompt");
+        assert_eq!(forked.session.message_count, 0);
+        let draft_meta: serde_json::Value = serde_json::from_str(
+            forked
+                .draft_attachments_meta
+                .as_deref()
+                .expect("fork draft attachment metadata"),
+        )
+        .expect("parse fork draft metadata");
+        let forked_path = std::path::PathBuf::from(
+            draft_meta[0]["path"]
+                .as_str()
+                .expect("forked draft attachment path"),
+        );
+        let forked_dir =
+            crate::paths::attachments_dir(&forked.session.id).expect("fork attachments dir");
+        assert!(forked_path.starts_with(&forked_dir));
+        assert_eq!(
+            std::fs::read(&forked_path).expect("read forked draft attachment"),
+            b"png bytes"
+        );
+
+        db.delete_session(&source.id)
+            .expect("delete source session");
+        assert!(
+            forked_path.exists(),
+            "fork draft must not depend on source files"
+        );
+        db.delete_session(&forked.session.id)
+            .expect("delete fork session");
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn fork_session_normalizes_orphaned_assistant_rows_to_recovered() {
+        let db_path = temp_db_path("session-fork-orphaned-status");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        db.append_message(&source.id, &NewMessage::user("prompt"))
+            .expect("append user");
+        let mut interrupted = NewMessage::assistant("partial answer");
+        interrupted.stream_status = Some("orphaned".to_string());
+        let boundary = db
+            .append_message(&source.id, &interrupted)
+            .expect("append interrupted assistant");
+
+        let forked = db
+            .fork_session(&source.id, Some(boundary))
+            .expect("fork interrupted assistant");
+        let messages = db
+            .load_session_messages(&forked.id)
+            .expect("load fork messages");
+        assert_eq!(
+            messages
+                .last()
+                .and_then(|message| message.stream_status.as_deref()),
+            Some("recovered")
         );
 
         let _ = std::fs::remove_file(&db_path);

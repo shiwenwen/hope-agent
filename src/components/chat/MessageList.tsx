@@ -119,7 +119,7 @@ interface MessageListProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
-  onForkFromMessage?: (messageId: number) => void
+  onForkFromMessage?: (message: Message) => void
   onOpenMemorySettings?: () => void
   onOpenKnowledge?: () => void
   onAddQuickPrompt?: (content: string) => void

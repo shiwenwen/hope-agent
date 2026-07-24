@@ -74,7 +74,7 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 | `is_cron` | `bool` | 是否为定时任务创建的会话 |
 | `parent_session_id` | `Option<String>` | 父会话 ID（子 Agent 会话） |
 | `forked_from_session_id` | `Option<String>` | Fork 来源会话 ID；用于“在新会话中继续”的用户可见 lineage，**不得**复用 `parent_session_id` |
-| `forked_from_message_id` | `Option<i64>` | Fork 来源消息边界；复制到该消息（含）为止，`None` 表示复制完整 transcript |
+| `forked_from_message_id` | `Option<i64>` | Fork 实际复制到的末条来源消息；完整 transcript Fork 与首条 user 之前的空 Fork 均为 `None` |
 | `forked_from_session_title` | `Option<String>` | 来源会话当前标题的只读 JOIN 投影；来源删除或无标题时为空 |
 | `plan_mode` | `PlanModeState` | Plan Mode 状态（snake_case 序列化）：`off` / `planning` / `review` / `executing` / `completed`（默认 off） |
 | `permission_mode` | `SessionMode` | 会话级权限模式（snake_case 序列化）：`default` / `smart` / `yolo`（默认 default） |
@@ -579,19 +579,19 @@ Fork 用于把当前会话派生为一个新的、可独立继续的普通会话
 
 ### 数据语义
 
-- `forked_from_session_id` / `forked_from_message_id` 是普通会话 lineage，只用于“接续自”提示和跳转原会话。
+- `forked_from_session_id` / `forked_from_message_id` 是普通会话 lineage，只用于“接续自”提示和跳转原会话；后者记录实际复制到的新末条消息，首条 user 消息之前的空 Fork 为 `None`。
 - `parent_session_id` 仍只表示子 Agent 会话。Fork 出来的会话必须保留 `parent_session_id = NULL`，否则会被 sidebar、未读和子会话 UI 当成隐藏子会话处理。
 - `SESSION_META_SELECT` 追加 `forked_from_session_title` 作为只读来源标题投影；来源会话删除后，fork 会话仍保留来源 ID，但标题为空。
 
 ### 复制范围
 
-`SessionDB::fork_session(source_session_id, source_message_id)` 以数据库事务和失败清理共同保证一致性：
+`SessionDB::fork_session(source_session_id, source_message_id)` 与 `fork_session_before_message(source_session_id, before_message_id)` 以数据库事务和失败清理共同保证一致性：
 
 1. 校验来源是普通顶层会话：非 incognito、非 cron、非 subagent、`kind = regular`。
-2. 校验 `source_message_id` 属于来源会话；为空时复制完整 transcript，非空时复制到该消息 ID（含）为止。
+2. 校验消息边界属于来源会话；`source_message_id` 为空时复制完整 transcript，非空时复制到该消息 ID（含）为止；`before_message_id` 必须指向普通 user 消息，只复制它之前的 transcript，并允许首条消息之前得到空历史。GUI 点 assistant 的 Fork 走含边界；点普通 user 消息走不含边界，再把该 user 的正文、上传/粘贴文件、文件 quote 与消息 quote 恢复成新会话的可编辑 composer 草稿并聚焦输入框；文件先复制进新会话附件目录，远端只返回新会话自己的受控 URL。
 3. 拒绝复制 `stream_status = 'streaming'` 的未完成行，避免派生出半条 assistant/tool 输出。
 4. 创建新 `sessions` 行，复制 agent/model/project/workdir、permission/sandbox/execution/workflow mode 等稳定配置。
-5. 复制 `messages` 行，保留原消息时间戳、tool metadata、token 和 source 字段。普通上传与 `tool_media_items` 引用的会话私有文件会复制到新会话附件目录，并将 `path` / `localPath` / `/api/attachments/{session}/...` URL 改写为新会话；工作区 quote 等外部引用保持原样。这样删除来源会话后，派生会话的附件仍可独立读取。
+5. 复制 `messages` 行，保留原消息时间戳、tool metadata、token 和 source 字段；已终止的 `orphaned` 行在副本中规范化为 `recovered`，避免启动恢复器把静态 fork 误认成待恢复运行。普通上传与 `tool_media_items` 引用的会话私有文件会复制到新会话附件目录，并将 `path` / `localPath` / `/api/attachments/{session}/...` URL 改写为新会话；工作区 quote 等外部引用保持原样。这样删除来源会话后，派生会话的附件仍可独立读取。
 6. 将新会话 `last_read_message_id` 设为复制后的末尾消息，避免复制历史立刻变成未读。
 
 附件复制或写库任一步失败时，数据库事务回滚并删除已创建的新附件目录；提交后先释放 writer mutex，再通过读连接加载新 `SessionMeta`，避免同线程重复获取写锁。

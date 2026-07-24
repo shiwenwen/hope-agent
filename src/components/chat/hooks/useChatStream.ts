@@ -1150,6 +1150,13 @@ export function useChatStream({
 
       if (filesToSend.length > 64)
         throw new Error(t("attachments.tooMany", "A message can contain at most 64 files"))
+      const unavailable = filesToSend.find((draft) => draft.status === "error")
+      if (unavailable) {
+        throw new Error(
+          unavailable.error ||
+            t("attachments.uploadFailedShort", "Upload failed"),
+        )
+      }
       if (filesToSend.length > 0) {
         const filesystemConfig = await readFilesystemConfig(transport).catch(() => null)
         if (filesystemConfig) {
