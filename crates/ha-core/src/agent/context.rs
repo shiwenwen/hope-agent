@@ -1391,7 +1391,7 @@ impl AssistantAgent {
             transcript_path,
             cwd,
             permission_mode: crate::hooks::PermissionMode::Default,
-            effort: None,
+            effort: crate::hooks::resolve_effort(),
             hook_event_name: event.to_string(),
             agent_id: Some(self.agent_id.clone()),
             agent_type: None,

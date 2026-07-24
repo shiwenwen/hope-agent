@@ -562,7 +562,7 @@ impl ToolExecContext {
             transcript_path,
             cwd: std::path::PathBuf::from(self.default_cwd()),
             permission_mode,
-            effort: None,
+            effort: crate::hooks::resolve_effort(),
             hook_event_name: event.to_string(),
             agent_id: self.agent_id.clone(),
             // `agent_type` is the agent's *type/role*, which the exec context

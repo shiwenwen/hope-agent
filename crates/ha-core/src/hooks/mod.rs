@@ -565,6 +565,26 @@ fn session_working_dir(input: &HookInput) -> Option<String> {
     crate::session::effective_session_working_dir(Some(sid))
 }
 
+/// The current reasoning effort as the hook `effort` object (official
+/// `{ level }`), or `None` when unset. Reads the live global reasoning-effort
+/// cell — the value the UI picker / `/thinking` slash set and that provider
+/// loops apply each round. Uses `try_lock` so it stays sync-safe at the
+/// (synchronous) hook-input build sites; a momentarily-contended lock, an
+/// uninitialized cell, or an unset value (`none` / empty) all yield `None`.
+///
+/// It reflects the **global** effort, not a per-agent override
+/// (`Agent::effective_reasoning_effort` is async and per-agent) — a hint, not a
+/// guarantee. `effort.level` may be a Hope Agent value (`minimal`) outside the
+/// official `low|medium|high|xhigh|max` set.
+pub(crate) fn resolve_effort() -> Option<types::HookEffort> {
+    let cell = crate::globals::get_reasoning_effort_cell()?;
+    let level = cell.try_lock().ok()?.clone();
+    if level.is_empty() || level == "none" {
+        return None;
+    }
+    Some(types::HookEffort { level })
+}
+
 /// Common hook-input fields for app-/session-level (non-tool) observation
 /// hooks. `cwd` is the session working dir (falling back to home);
 /// `agent_id`/`agent_type` unknown at these sites.
@@ -586,7 +606,7 @@ fn observation_common(event: &str, session_id: &str) -> CommonHookInput {
         transcript_path,
         cwd,
         permission_mode: PermissionMode::Default,
-        effort: None,
+        effort: resolve_effort(),
         hook_event_name: event.to_string(),
         agent_id: None,
         agent_type: None,
