@@ -2137,7 +2137,27 @@ impl SessionDB {
         source_session_id: &str,
         before_message_id: i64,
     ) -> Result<crate::session::ForkSessionResult> {
-        self.fork_session_with_boundary(source_session_id, Some(before_message_id), true)
+        let result =
+            self.fork_session_with_boundary(source_session_id, Some(before_message_id), true);
+        match &result {
+            Ok(forked) => crate::app_info!(
+                "session",
+                "fork",
+                "exclusive fork completed: source_session_id={} before_message_id={} forked_session_id={}",
+                source_session_id,
+                before_message_id,
+                forked.session.id
+            ),
+            Err(error) => crate::app_warn!(
+                "session",
+                "fork",
+                "exclusive fork failed: source_session_id={} before_message_id={} error={}",
+                source_session_id,
+                before_message_id,
+                error
+            ),
+        }
+        result
     }
 
     fn fork_session_with_boundary(

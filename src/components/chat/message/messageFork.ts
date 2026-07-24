@@ -97,6 +97,30 @@ async function restoreFileAttachment(attachment: MessageAttachment): Promise<Dra
   )
 }
 
+async function restoreFileAttachmentOrError(
+  attachment: MessageAttachment,
+): Promise<DraftAttachment> {
+  try {
+    return await restoreFileAttachment(attachment)
+  } catch (error) {
+    const draft = createDraftAttachment(
+      new File([], attachment.name, {
+        type: attachment.mimeType || "application/octet-stream",
+      }),
+      "picker",
+      attachment.semanticSource === "pasted_text" ? "pasted_text" : "upload",
+    )
+    return {
+      ...draft,
+      status: "error",
+      error:
+        error instanceof Error && error.message
+          ? error.message
+          : `Failed to restore fork attachment: ${attachment.name}`,
+    }
+  }
+}
+
 /** Rebuild the selected user prompt as a real composer draft. File metadata in
  * the fork response points at copies owned by the new session, so loading it
  * cannot make the draft depend on the source session's attachment directory. */
@@ -112,7 +136,7 @@ export async function forkComposerDraftForMessage(
         (attachment): attachment is MessageAttachment & { kind: "file" | "image" } =>
           attachment.kind === "file" || attachment.kind === "image",
       )
-      .map(restoreFileAttachment),
+      .map(restoreFileAttachmentOrError),
   )
   const pendingQuotes = (attachments ?? []).flatMap((attachment): PendingFileQuote[] => {
     if (

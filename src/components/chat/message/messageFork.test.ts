@@ -131,6 +131,48 @@ describe("message fork semantics", () => {
     ])
   })
 
+  test("keeps the fork draft when one copied file cannot be restored", async () => {
+    setTransport({
+      resolveMediaUrl: (item: MediaItem) => item.url || null,
+    } as unknown as Transport)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("available.png")
+          ? new Response(new Blob(["image bytes"], { type: "image/png" }))
+          : new Response("unavailable", { status: 503 }),
+      ),
+    )
+    const message: Message = { role: "user", content: "revise this", dbId: 47 }
+    const forked = {
+      id: "fork-2",
+      draftAttachmentsMeta: JSON.stringify([
+        {
+          name: "available.png",
+          mime_type: "image/png",
+          size: 11,
+          url: "/api/attachments/fork-2/available.png",
+        },
+        {
+          name: "missing.png",
+          mime_type: "image/png",
+          size: 12,
+          url: "/api/attachments/fork-2/missing.png",
+        },
+      ]),
+    } as ForkSessionResult
+
+    const draft = await forkComposerDraftForMessage(message, forked)
+
+    expect(draft?.attachedFiles).toHaveLength(2)
+    expect(draft?.attachedFiles[0]).toMatchObject({ status: "ready" })
+    expect(draft?.attachedFiles[1]).toMatchObject({
+      status: "error",
+      error: "Failed to restore fork attachment: missing.png",
+    })
+    expect(draft?.attachedFiles[1]?.file.name).toBe("missing.png")
+  })
+
   test("rejects in-progress replies and internal user-shaped messages", () => {
     expect(
       isForkableConversationMessage({ role: "assistant", content: "streaming" }),
