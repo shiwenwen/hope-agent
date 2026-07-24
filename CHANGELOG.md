@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **hooks 文档更正：hook 收到的工具参数不脱敏**：架构文档此前称 `tool_input` 会走脱敏，实际并没有——payload 原样进入 command hook 的 stdin、http hook 的请求体，以及 prompt handler 拼给模型的指令。这与官方 Claude Code 行为一致（否则判 `.tool_input.command` 的脚本无法工作），但**给某工具配 hook 就等于授权该 hook 读到该工具的全部入参，包括其中的凭据**；hooks 本身是 opt-in、仓库内 hooks 默认不生效。
 
+### Fixed
+
+- **Linux 下滚动聊天窗口不再周期性发虚**：主窗口与 QuickChat 窗口在 Linux 关闭透明（Windows 早有同款先例），全部毛玻璃表面在 Linux 统一降级，并补充 Noto 字体栈；Windows 主窗口找回丢失的启动居中。(#547)
+
 ## [0.22.0] - 2026-07-21
 
 ### Added

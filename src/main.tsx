@@ -11,6 +11,7 @@ import { captureTokenFromUrl } from "./lib/api-key-storage"
 import { installDesktopContextMenuGuard } from "./lib/contextMenuGuard"
 import { installInvertedClickRecovery } from "./lib/inverted-click-recovery"
 import { installFocusVisibilityTracker } from "./lib/focus-visibility"
+import { applyPlatformDocumentMarkers } from "./lib/platform"
 import {
   listenEnhancedFocusIndicators,
   loadEnhancedFocusIndicators,
@@ -21,6 +22,7 @@ import {
 // proxy without auth header injection) bootstraps the Bearer token this
 // way — see `src/lib/api-key-storage.ts`.
 captureTokenFromUrl()
+applyPlatformDocumentMarkers()
 installDesktopContextMenuGuard()
 installInvertedClickRecovery()
 installFocusVisibilityTracker()
