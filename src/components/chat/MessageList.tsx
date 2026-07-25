@@ -24,6 +24,7 @@ import {
 import { ChatWelcomeHero } from "./ChatWelcomeHero"
 import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import MessageBubble from "./MessageBubble"
+import { assistantTurnHasFileMutations, editableLastUserMessageIndex } from "./message/messageEdit"
 import {
   goalCompletionReportFromMessage,
   type GoalCompletionReport,
@@ -120,6 +121,7 @@ interface MessageListProps {
   ) => void
   onResume?: (message: string) => void
   onForkFromMessage?: (message: Message) => void
+  onEditAndResend?: (message: Message, content: string) => Promise<void>
   onOpenMemorySettings?: () => void
   onOpenKnowledge?: () => void
   onAddQuickPrompt?: (content: string) => void
@@ -701,6 +703,7 @@ export default function MessageList({
   onOpenDiff,
   onResume,
   onForkFromMessage,
+  onEditAndResend,
   onOpenMemorySettings,
   onOpenKnowledge,
   onAddQuickPrompt,
@@ -735,6 +738,20 @@ export default function MessageList({
   const askUserFollowRafRef = useRef<number | null>(null)
   const lastAskUserFollowKeyRef = useRef<string | null>(null)
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
+  const editableUserMessageIndex = useMemo(
+    () =>
+      onEditAndResend
+        ? editableLastUserMessageIndex(messages, loading, executionState, hasMoreAfter)
+        : null,
+    [executionState, hasMoreAfter, loading, messages, onEditAndResend],
+  )
+  const editedTurnHasFileMutations = useMemo(
+    () =>
+      editableUserMessageIndex == null
+        ? false
+        : assistantTurnHasFileMutations(messages, editableUserMessageIndex),
+    [editableUserMessageIndex, messages],
+  )
 
   // Single source of truth: are we at (or following) the bottom?
   // Default true so the first paint after mount/session swap aligns to bottom.
@@ -1712,6 +1729,11 @@ export default function MessageList({
                     onOpenDiff={onOpenDiff}
                     onResume={onResume}
                     onForkFromMessage={onForkFromMessage}
+                    canEditAndResend={editableUserMessageIndex === originalIndex}
+                    editHasFileMutations={
+                      editableUserMessageIndex === originalIndex && editedTurnHasFileMutations
+                    }
+                    onEditAndResend={onEditAndResend}
                     onOpenMemorySettings={onOpenMemorySettings}
                     onOpenKnowledge={onOpenKnowledge}
                     displayMode={displayMode}

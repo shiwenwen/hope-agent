@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Copy,
@@ -30,6 +31,8 @@ import {
   Pencil,
   Pin,
   X,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import {
@@ -232,6 +235,9 @@ export interface MessageBubbleProps {
   ) => void
   onResume?: (message: string) => void
   onForkFromMessage?: (message: Message) => void
+  canEditAndResend?: boolean
+  editHasFileMutations?: boolean
+  onEditAndResend?: (message: Message, content: string) => Promise<void>
   onOpenMemorySettings?: () => void
   onOpenKnowledge?: () => void
   displayMode?: ChatDisplayMode
@@ -1438,6 +1444,9 @@ function MessageBubbleInner({
   onOpenDiff,
   onResume,
   onForkFromMessage,
+  canEditAndResend = false,
+  editHasFileMutations = false,
+  onEditAndResend,
   onOpenMemorySettings,
   onOpenKnowledge,
   displayMode = "bubble",
@@ -1452,6 +1461,9 @@ function MessageBubbleInner({
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
   const [resultExpanded, setResultExpanded] = useState(false)
   const [contentRenderMode, setContentRenderMode] = useState<ContentRenderMode>("markdown")
+  const [editing, setEditing] = useState(false)
+  const [editValue, setEditValue] = useState(msg.content)
+  const [editSaving, setEditSaving] = useState(false)
 
   const ownMessageFiles = useMemo(
     () =>
@@ -1489,7 +1501,8 @@ function MessageBubbleInner({
     !!sessionId &&
     !loading &&
     isForkableConversationMessage(msg)
-  const hasToolbarActions = hasTextContent || hasDetails || canAddQuickPrompt || canForkFromMessage
+  const hasToolbarActions =
+    hasTextContent || hasDetails || canAddQuickPrompt || canForkFromMessage || canEditAndResend
   // Always-visible total turn duration, shown at the message bottom once the
   // assistant turn has finished (the per-step / per-group times live above).
   const totalDurationText =
@@ -1585,12 +1598,23 @@ function MessageBubbleInner({
   ) : null
   const forkButton = canForkFromMessage ? (
     <IconTip label={t("chat.fork.continueInNewSession", "Continue in new session")}>
+      <button type="button" onClick={() => onForkFromMessage?.(msg)} className={toolbarButtonClass}>
+        <GitFork className="h-3.5 w-3.5" />
+      </button>
+    </IconTip>
+  ) : null
+  const editButton = canEditAndResend ? (
+    <IconTip label={t("chat.editMessage.action", { defaultValue: "Edit message" })}>
       <button
         type="button"
-        onClick={() => onForkFromMessage?.(msg)}
+        aria-label={t("chat.editMessage.action", { defaultValue: "Edit message" })}
+        onClick={() => {
+          setEditValue(msg.content)
+          setEditing(true)
+        }}
         className={toolbarButtonClass}
       >
-        <GitFork className="h-3.5 w-3.5" />
+        <Pencil className="h-3.5 w-3.5" />
       </button>
     </IconTip>
   ) : null
@@ -1937,6 +1961,77 @@ function MessageBubbleInner({
     )
   }
 
+  if (editing && canEditAndResend && msg.role === "user") {
+    const canSubmitEdit =
+      !editSaving && (editValue.trim().length > 0 || (msg.attachments?.length ?? 0) > 0)
+    const submitEdit = async () => {
+      if (!canSubmitEdit || !onEditAndResend) return
+      setEditSaving(true)
+      try {
+        await onEditAndResend(msg, editValue.trim())
+        setEditing(false)
+      } catch {
+        // The parent already surfaced the transport error. Keep the editor
+        // open so the user can retry without losing the revised text.
+      } finally {
+        setEditSaving(false)
+      }
+    }
+    return (
+      <div className="w-full max-w-[95%] min-w-0 sm:min-w-[32rem]">
+        <div className="rounded-2xl bg-[var(--color-user-bubble)] px-4 py-3 text-foreground">
+          <UserAttachments attachments={msg.attachments} sessionId={sessionId} />
+          <Textarea
+            autoFocus
+            surface="embedded"
+            value={editValue}
+            disabled={editSaving}
+            aria-label={t("chat.editMessage.inputLabel", {
+              defaultValue: "Edit your message",
+            })}
+            onChange={(event) => setEditValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && !editSaving) {
+                event.preventDefault()
+                setEditing(false)
+              }
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault()
+                void submitEdit()
+              }
+            }}
+            className="min-h-24 resize-none px-0 py-0 text-sm leading-relaxed"
+          />
+          {editHasFileMutations && (
+            <div className="mt-2 flex items-start gap-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                {t("chat.editMessage.fileChangesWarning", {
+                  defaultValue:
+                    "Messages after this one will be removed, but file changes already made will not be undone.",
+                })}
+              </span>
+            </div>
+          )}
+          <div className="mt-3 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={editSaving}
+              onClick={() => setEditing(false)}
+            >
+              {t("common.cancel", { defaultValue: "Cancel" })}
+            </Button>
+            <Button type="button" disabled={!canSubmitEdit} onClick={() => void submitEdit()}>
+              {editSaving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {t("chat.editMessage.send", { defaultValue: "Send" })}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (displayMode === "timeline" && msg.role === "assistant") {
     return (
       <div
@@ -2044,6 +2139,7 @@ function MessageBubbleInner({
                 </button>
               </IconTip>
             )}
+            {editButton}
             {addQuickPromptButton}
             {forkButton}
             {renderToggleButton}
@@ -2217,6 +2313,7 @@ function MessageBubbleInner({
               </button>
             </IconTip>
           )}
+          {editButton}
           {addQuickPromptButton}
           {forkButton}
           {renderToggleButton}

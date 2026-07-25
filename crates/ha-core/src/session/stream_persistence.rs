@@ -192,6 +192,7 @@ impl SessionDB {
                 checkpoint_seq INTEGER NOT NULL DEFAULT 0,
                 committed_seq INTEGER NOT NULL DEFAULT 0,
                 provider_shape TEXT,
+                base_context_json TEXT,
                 started_at TEXT NOT NULL,
                 ended_at TEXT,
                 error TEXT,
@@ -272,6 +273,15 @@ impl SessionDB {
                 [],
             )?;
         }
+        if conn
+            .prepare("SELECT base_context_json FROM chat_stream_runs LIMIT 0")
+            .is_err()
+        {
+            conn.execute(
+                "ALTER TABLE chat_stream_runs ADD COLUMN base_context_json TEXT",
+                [],
+            )?;
+        }
         Ok(())
     }
 
@@ -315,8 +325,8 @@ impl SessionDB {
             "INSERT INTO chat_stream_runs (
                 run_id, session_id, source, stream_id, turn_id, status,
                 accepted_seq, durable_seq, checkpoint_seq, committed_seq, provider_shape,
-                started_at, ended_at, error
-             ) VALUES (?1, ?2, ?3, ?4, ?5, 'running', 0, 0, 0, 0, ?6, ?7, NULL, NULL)",
+                base_context_json, started_at, ended_at, error
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 'running', 0, 0, 0, 0, ?6, ?7, ?8, NULL, NULL)",
             params![
                 input.run_id,
                 input.session_id,
@@ -324,6 +334,7 @@ impl SessionDB {
                 input.stream_id,
                 input.turn_id,
                 input.provider_shape,
+                initial_context_json.as_deref().unwrap_or("null"),
                 now,
             ],
         )?;

@@ -87,6 +87,94 @@ pub struct SessionDB {
 /// deciding when virtual scrolling becomes necessary.
 const LARGE_TURN_EXTENSION_LOG_THRESHOLD: usize = 200;
 
+fn provider_history_item_is_user(value: &serde_json::Value) -> bool {
+    value.get("role").and_then(serde_json::Value::as_str) == Some("user")
+}
+
+fn provider_history_contains_text(value: &serde_json::Value, expected: &str) -> bool {
+    match value {
+        serde_json::Value::String(text) => text == expected,
+        serde_json::Value::Array(items) => items
+            .iter()
+            .any(|item| provider_history_contains_text(item, expected)),
+        serde_json::Value::Object(fields) => fields
+            .values()
+            .any(|item| provider_history_contains_text(item, expected)),
+        _ => false,
+    }
+}
+
+/// Remove only the edited prompt suffix from provider-native history. Some
+/// adapters merge consecutive user prompts into a single top-level user item;
+/// in that case preserve the earlier prefix instead of truncating the whole
+/// item. Ambiguous legacy shapes fail closed.
+fn rewind_provider_context_before_user(
+    context_json: &str,
+    expected_content: &str,
+    require_user_at_end: bool,
+) -> Result<String> {
+    let mut history: Vec<serde_json::Value> =
+        serde_json::from_str(context_json).map_err(|error| {
+            anyhow::anyhow!("cannot parse provider context for message edit: {error}")
+        })?;
+    let Some(user_index) = history.iter().rposition(provider_history_item_is_user) else {
+        anyhow::bail!("provider context has no user boundary for message edit");
+    };
+    if require_user_at_end && user_index + 1 != history.len() {
+        anyhow::bail!("provider context checkpoint is not positioned at the edited user prompt");
+    }
+    let expected = expected_content.trim();
+    if expected.is_empty() {
+        anyhow::bail!("provider context cannot safely rewind an empty edited message");
+    }
+    let user_item = &mut history[user_index];
+    let content = user_item
+        .get_mut("content")
+        .ok_or_else(|| anyhow::anyhow!("provider context user item has no content"))?;
+    let remove_whole_item = match content {
+        serde_json::Value::String(text) => {
+            let exact = text == expected_content || text == expected;
+            if exact {
+                true
+            } else {
+                let raw_suffix = format!("\n\n{expected_content}");
+                let trimmed_suffix = format!("\n\n{expected}");
+                let prefix_len = text
+                    .strip_suffix(&raw_suffix)
+                    .or_else(|| text.strip_suffix(&trimmed_suffix))
+                    .map(str::len)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "provider context user boundary does not match the edited message"
+                        )
+                    })?;
+                text.truncate(prefix_len);
+                false
+            }
+        }
+        serde_json::Value::Array(items) => {
+            if items.len() == 1
+                && (provider_history_contains_text(&items[0], expected_content)
+                    || provider_history_contains_text(&items[0], expected))
+            {
+                true
+            } else {
+                anyhow::bail!(
+                    "provider context has an ambiguous multi-part user boundary for message edit"
+                );
+            }
+        }
+        _ => anyhow::bail!("provider context user content has an unsupported shape"),
+    };
+    history.truncate(if remove_whole_item {
+        user_index
+    } else {
+        user_index + 1
+    });
+    serde_json::to_string(&history)
+        .map_err(|error| anyhow::anyhow!("cannot serialize rewound provider context: {error}"))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UnreadDomain {
     Regular,
@@ -2158,6 +2246,327 @@ impl SessionDB {
             ),
         }
         result
+    }
+
+    /// Atomically replace the latest settled user turn and register its new
+    /// running turn. This is the durable boundary for inline edit + resend:
+    /// callers must never delete the old branch in a separate request.
+    ///
+    /// The target must still be the latest non-queued user row and its prior
+    /// chat turn must be terminal. Callers additionally hold the in-memory
+    /// `active_turn` guard; the SQL checks keep the operation fail-closed
+    /// across process or transport races.
+    pub fn replace_last_user_message_for_edit(
+        &self,
+        session_id: &str,
+        user_message_id: i64,
+        replacement: &NewMessage,
+        new_turn_id: &str,
+        source: &str,
+    ) -> Result<i64> {
+        let result = (|| {
+            if replacement.role != MessageRole::User {
+                anyhow::bail!("message edit replacement must be a user message");
+            }
+            if replacement.queue_request_id.is_some() {
+                anyhow::bail!("message edit cannot be combined with a queued message");
+            }
+
+            let mut conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+            let tx = conn.transaction()?;
+
+            let (target_role, target_content, target_queue_request_id): (
+                String,
+                String,
+                Option<String>,
+            ) = tx
+                .query_row(
+                    "SELECT role, content, queue_request_id
+                     FROM messages WHERE session_id = ?1 AND id = ?2",
+                    params![session_id, user_message_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?
+                .ok_or_else(|| anyhow::anyhow!("user message not found in session"))?;
+            if target_role != MessageRole::User.as_str() {
+                anyhow::bail!("message edit target must be a user message");
+            }
+            if target_queue_request_id.is_some() {
+                anyhow::bail!("queued messages cannot be edited after dispatch");
+            }
+
+            let latest_user_id: Option<i64> = tx.query_row(
+                "SELECT MAX(id) FROM messages WHERE session_id = ?1 AND role = 'user'",
+                params![session_id],
+                |row| row.get(0),
+            )?;
+            if latest_user_id != Some(user_message_id) {
+                anyhow::bail!("only the latest user message can be edited");
+            }
+
+            let queued_count: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM queued_turn_user_messages WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )?;
+            if queued_count > 0 {
+                anyhow::bail!("session has queued messages; wait for them before editing");
+            }
+
+            let active_turn_count: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM chat_turns
+                 WHERE session_id = ?1 AND status IN ('running', 'cancelling')",
+                params![session_id],
+                |row| row.get(0),
+            )?;
+            if active_turn_count > 0 {
+                anyhow::bail!(
+                    "session has an active response; wait for it to finish before editing"
+                );
+            }
+
+            let (turn_id, turn_status, assistant_message_id): (String, String, Option<i64>) = tx
+                .query_row(
+                    "SELECT id, status, assistant_message_id
+                     FROM chat_turns
+                     WHERE session_id = ?1 AND user_message_id = ?2
+                     ORDER BY started_at DESC LIMIT 1",
+                    params![session_id, user_message_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?
+                .ok_or_else(|| anyhow::anyhow!("user message has no completed assistant turn"))?;
+            if !matches!(turn_status.as_str(), "completed" | "interrupted" | "failed") {
+                anyhow::bail!("assistant response must be completed or terminated before editing");
+            }
+
+            let (stored_context, context_run_id): (Option<String>, Option<String>) = tx
+                .query_row(
+                    "SELECT context_json, context_run_id FROM sessions WHERE id = ?1",
+                    params![session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+
+            let persistence_run: Option<(String, Option<String>)> = tx
+                .query_row(
+                    "SELECT run_id, base_context_json FROM chat_stream_runs
+                     WHERE session_id = ?1 AND turn_id = ?2
+                     ORDER BY started_at DESC LIMIT 1",
+                    params![session_id, turn_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            let persistence_run_id = persistence_run.as_ref().map(|(run_id, _)| run_id.as_str());
+
+            // New runs persist the exact provider context from before this user
+            // turn. `"null"` is an explicit sentinel for a genuinely empty
+            // first-turn context; SQL NULL identifies a legacy run that predates
+            // the base-context column and needs the conservative fallback below.
+            let recorded_base_context = persistence_run
+                .as_ref()
+                .and_then(|(_, context)| context.as_deref());
+
+            // Legacy compatibility: older runs only have the seq=0 checkpoint,
+            // recorded after the user item was appended.
+            let checkpoint_context = match persistence_run_id {
+                Some(run_id) => tx
+                    .query_row(
+                        "SELECT context_json FROM chat_stream_context_checkpoints
+                         WHERE run_id = ?1 AND through_seq = 0
+                         ORDER BY attempt_no DESC LIMIT 1",
+                        params![run_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?,
+                None => None,
+            };
+
+            let rewound_context = if let Some(base_context) = recorded_base_context {
+                (base_context != "null").then(|| base_context.to_string())
+            } else if let Some(checkpoint) = checkpoint_context.as_deref() {
+                // The transcript may store a display-only form (for example a
+                // slash-skill label) while the provider checkpoint contains
+                // its expanded prompt. The run/turn foreign keys and the
+                // end-position check establish the boundary without comparing
+                // those intentionally different strings.
+                Some(rewind_provider_context_before_user(
+                    checkpoint,
+                    &target_content,
+                    true,
+                )?)
+            } else if persistence_run_id == context_run_id.as_deref()
+                && persistence_run_id.is_some()
+            {
+                // A terminal convergence may have committed context even when
+                // the provider failed before the seq=0 checkpoint. In that
+                // narrow case the mutable context belongs to this exact run.
+                stored_context
+                    .as_deref()
+                    .map(|context| {
+                        rewind_provider_context_before_user(context, &target_content, false)
+                    })
+                    .transpose()?
+            } else if persistence_run_id.is_none()
+                && assistant_message_id
+                    .and_then(|id| {
+                        tx.query_row(
+                            "SELECT model FROM messages WHERE session_id = ?1 AND id = ?2",
+                            params![session_id, id],
+                            |row| row.get::<_, Option<String>>(0),
+                        )
+                        .optional()
+                        .ok()
+                        .flatten()
+                        .flatten()
+                    })
+                    .is_some()
+            {
+                // Incognito turns intentionally have no durable stream run.
+                // A model-stamped assistant row distinguishes a real provider
+                // turn from local replies whose commit path leaves context
+                // untouched.
+                stored_context
+                    .as_deref()
+                    .map(|context| {
+                        rewind_provider_context_before_user(context, &target_content, false)
+                    })
+                    .transpose()?
+            } else {
+                // Local replies (for example a plan-subagent acknowledgement)
+                // never append this user turn to provider context.
+                stored_context
+            };
+
+            // Remove the journal before its chat_turn FK can be nulled. The
+            // journal represents the discarded assistant execution and must
+            // not become the session's latest reattach snapshot.
+            tx.execute(
+                "DELETE FROM chat_stream_runs WHERE turn_id = ?1 AND session_id = ?2",
+                params![turn_id, session_id],
+            )?;
+            tx.execute(
+                "DELETE FROM chat_turns WHERE id = ?1 AND session_id = ?2",
+                params![turn_id, session_id],
+            )?;
+            let removed = tx.execute(
+                "DELETE FROM messages WHERE session_id = ?1 AND id >= ?2",
+                params![session_id, user_message_id],
+            )?;
+            if removed == 0 {
+                anyhow::bail!("message edit rewind removed no transcript rows");
+            }
+
+            let now = chrono::Utc::now().to_rfc3339();
+            let timestamp = if replacement.timestamp.is_empty() {
+                now.as_str()
+            } else {
+                replacement.timestamp.as_str()
+            };
+            tx.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, source,
+                    queue_request_id, persistence_run_id, logical_block_seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                params![
+                    session_id,
+                    replacement.role.as_str(),
+                    replacement.content,
+                    timestamp,
+                    replacement.attachments_meta,
+                    replacement.model,
+                    replacement.tokens_in,
+                    replacement.tokens_out,
+                    replacement.reasoning_effort,
+                    replacement.tool_call_id,
+                    replacement.tool_name,
+                    replacement.tool_arguments,
+                    replacement.tool_result,
+                    replacement.tool_duration_ms,
+                    replacement.is_error.map(|value| if value { 1i64 } else { 0i64 }),
+                    replacement.thinking,
+                    replacement.ttft_ms,
+                    replacement.tokens_in_last,
+                    replacement.tokens_cache_creation,
+                    replacement.tokens_cache_read,
+                    replacement.tool_metadata,
+                    replacement.stream_status,
+                    replacement.source,
+                    replacement.queue_request_id,
+                    replacement.persistence_run_id,
+                    replacement.logical_block_seq,
+                ],
+            )?;
+            let replacement_message_id = tx.last_insert_rowid();
+
+            tx.execute(
+                "INSERT INTO chat_turns (
+                    id, session_id, source, status, interrupt_reason, stream_id,
+                    user_message_id, assistant_message_id, error, started_at, ended_at, updated_at
+                 ) VALUES (?1, ?2, ?3, 'running', NULL, NULL, ?4, NULL, NULL, ?5, NULL, ?5)",
+                params![new_turn_id, session_id, source, replacement_message_id, now],
+            )?;
+
+            let context_changed = tx.execute(
+                "UPDATE sessions
+                 SET context_json = ?1,
+                     context_revision = context_revision + 1,
+                     context_run_id = NULL,
+                     updated_at = ?2
+                 WHERE id = ?3",
+                params![rewound_context, now, session_id],
+            )?;
+            if context_changed != 1 {
+                anyhow::bail!("session context rewind affected {context_changed} rows");
+            }
+
+            tx.commit()?;
+            Ok((replacement_message_id, removed))
+        })();
+
+        if result.is_ok() {
+            let cwd =
+                crate::session::effective_session_working_dir(Some(session_id)).unwrap_or_default();
+            if let Err(error) =
+                crate::hooks::transcript::TranscriptMirror::rewrite_session(self, session_id, &cwd)
+            {
+                crate::app_warn!(
+                    "hooks",
+                    "transcript",
+                    "failed to rewrite transcript after message edit: session_id={} error={}",
+                    session_id,
+                    error
+                );
+            }
+        }
+
+        match &result {
+            Ok((replacement_message_id, removed)) => crate::app_info!(
+                "session",
+                "edit_resend",
+                "replaced latest user turn atomically: session_id={} user_message_id={} replacement_message_id={} removed_messages={}",
+                session_id,
+                user_message_id,
+                replacement_message_id,
+                removed
+            ),
+            Err(error) => crate::app_warn!(
+                "session",
+                "edit_resend",
+                "failed to rewind latest user turn: session_id={} user_message_id={} error={}",
+                session_id,
+                user_message_id,
+                error
+            ),
+        }
+        result.map(|(replacement_message_id, _)| replacement_message_id)
     }
 
     fn fork_session_with_boundary(
@@ -6355,8 +6764,13 @@ impl SessionDB {
 
 #[cfg(test)]
 mod tests {
-    use super::{SessionDB, SessionTypeFilter, SEARCH_MATCH_KIND_MESSAGE, SEARCH_MATCH_KIND_TITLE};
-    use crate::session::{NewMessage, SessionKind};
+    use super::{
+        rewind_provider_context_before_user, SessionDB, SessionTypeFilter,
+        SEARCH_MATCH_KIND_MESSAGE, SEARCH_MATCH_KIND_TITLE,
+    };
+    use crate::session::{
+        ChatTurnStatus, CommitAssistantTurn, CreateStreamRun, NewMessage, SessionKind,
+    };
     use rusqlite::{Connection, OptionalExtension};
 
     fn ensure_channel_conversations_table(db: &SessionDB) {
@@ -6404,6 +6818,38 @@ mod tests {
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
         );
         std::env::temp_dir().join(unique)
+    }
+
+    #[test]
+    fn provider_context_rewind_removes_the_edited_turn_suffix() {
+        let context = serde_json::json!([
+            {"role": "user", "content": "earlier"},
+            {"role": "assistant", "content": "earlier answer"},
+            {"role": "user", "content": [{"type": "input_text", "text": "edit me"}]},
+            {"role": "assistant", "content": "discard me"}
+        ])
+        .to_string();
+
+        let rewound = rewind_provider_context_before_user(&context, "edit me", false)
+            .expect("rewind context");
+        let value: serde_json::Value = serde_json::from_str(&rewound).expect("parse rewound");
+        assert_eq!(value.as_array().map(Vec::len), Some(2));
+        assert_eq!(value[1]["content"], "earlier answer");
+    }
+
+    #[test]
+    fn provider_context_rewind_preserves_a_merged_previous_user_prompt() {
+        let context = serde_json::json!([
+            {"role": "user", "content": "earlier\n\nedit me"},
+            {"role": "assistant", "content": "discard me"}
+        ])
+        .to_string();
+
+        let rewound = rewind_provider_context_before_user(&context, "edit me", false)
+            .expect("rewind merged context");
+        let value: serde_json::Value = serde_json::from_str(&rewound).expect("parse rewound");
+        assert_eq!(value.as_array().map(Vec::len), Some(1));
+        assert_eq!(value[0]["content"], "earlier");
     }
 
     #[test]
@@ -7573,6 +8019,222 @@ mod tests {
             visible.iter().any(|session| session.id == forked.id),
             "forked session must remain a first-class sidebar session"
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn edit_resend_atomically_replaces_turn_and_restores_exact_base_context() {
+        let db_path = temp_db_path("session-edit-rewind");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let session = db.create_session("ha-main").expect("session");
+        db.append_message(&session.id, &NewMessage::user("earlier prompt"))
+            .expect("append earlier user");
+        // Deliberately end on a user item: provider adapters merge the next
+        // prompt into this item, so stripping the final top-level user would
+        // incorrectly discard "earlier prompt". The run's exact base context
+        // is the safe rewind boundary.
+        let pre_turn_context =
+            serde_json::json!([{"role": "user", "content": "earlier prompt"}]).to_string();
+        db.save_context(&session.id, &pre_turn_context)
+            .expect("save pre-turn context");
+
+        let user_message_id = db
+            .append_message(&session.id, &NewMessage::user("edit this prompt"))
+            .expect("append edited user");
+        let turn_id = "edit-rewind-turn";
+        db.create_chat_turn_with_id(
+            turn_id,
+            &session.id,
+            crate::chat_engine::ChatSource::Desktop.as_str(),
+            None,
+            Some(user_message_id),
+        )
+        .expect("create turn");
+        let run_id = "edit-rewind-run";
+        let registration = db
+            .create_stream_run(&CreateStreamRun {
+                run_id: run_id.to_string(),
+                session_id: session.id.clone(),
+                source: crate::chat_engine::ChatSource::Desktop.as_str().to_string(),
+                stream_id: None,
+                turn_id: Some(turn_id.to_string()),
+                provider_shape: Some("openai_responses".to_string()),
+            })
+            .expect("create stream run");
+        db.begin_stream_attempt(run_id, 1, Some("provider"), Some("model"), None)
+            .expect("begin stream attempt");
+        let checkpoint = serde_json::json!([
+            {"role": "user", "content": "earlier prompt\n\nexpanded provider prompt"}
+        ])
+        .to_string();
+        let checkpoint_revision = db
+            .checkpoint_stream_context(run_id, 1, registration.context_revision, &checkpoint, 0)
+            .expect("checkpoint user boundary");
+        let final_context = serde_json::json!([
+            {"role": "user", "content": "earlier prompt\n\nexpanded provider prompt"},
+            {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "discarded answer"}]}
+        ])
+        .to_string();
+        db.commit_assistant_turn(&CommitAssistantTurn {
+            run_id: Some(run_id.to_string()),
+            attempt_no: 1,
+            session_id: session.id.clone(),
+            assistant: NewMessage::assistant("discarded answer")
+                .with_source(crate::chat_engine::ChatSource::Desktop),
+            trailing_placeholder_id: None,
+            context_json: final_context,
+            expected_context_revision: checkpoint_revision,
+            turn_id: Some(turn_id.to_string()),
+            usage: None,
+            final_seq: 0,
+        })
+        .expect("commit assistant turn");
+        db.append_message(&session.id, &NewMessage::event("discarded trailing event"))
+            .expect("append trailing event");
+
+        let replacement_id = db
+            .replace_last_user_message_for_edit(
+                &session.id,
+                user_message_id,
+                &NewMessage::user("replacement prompt")
+                    .with_source(crate::chat_engine::ChatSource::Desktop),
+                "replacement-turn",
+                crate::chat_engine::ChatSource::Desktop.as_str(),
+            )
+            .expect("replace latest turn");
+        let remaining = db
+            .load_session_messages(&session.id)
+            .expect("load remaining messages");
+        assert_eq!(
+            remaining
+                .iter()
+                .map(|message| message.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["earlier prompt", "replacement prompt"]
+        );
+        assert_eq!(
+            remaining.last().map(|message| message.id),
+            Some(replacement_id)
+        );
+        assert_eq!(
+            db.load_context(&session.id)
+                .expect("load context")
+                .as_deref(),
+            Some(pre_turn_context.as_str())
+        );
+        assert!(db.get_chat_turn(turn_id).expect("load turn").is_none());
+        let replacement_turn = db
+            .get_chat_turn("replacement-turn")
+            .expect("load replacement turn")
+            .expect("replacement turn exists");
+        assert_eq!(replacement_turn.user_message_id, Some(replacement_id));
+        assert_eq!(replacement_turn.status, ChatTurnStatus::Running);
+        assert!(db
+            .latest_stream_run(&session.id)
+            .expect("load latest stream run")
+            .is_none());
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn edit_resend_rejects_non_latest_user_message_without_mutation() {
+        let db_path = temp_db_path("session-edit-rewind-not-latest");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+        let session = db.create_session("ha-main").expect("session");
+        let first = db
+            .append_message(&session.id, &NewMessage::user("first"))
+            .expect("first user");
+        db.append_message(&session.id, &NewMessage::user("second"))
+            .expect("second user");
+
+        let error = db
+            .replace_last_user_message_for_edit(
+                &session.id,
+                first,
+                &NewMessage::user("replacement"),
+                "replacement-turn",
+                crate::chat_engine::ChatSource::Desktop.as_str(),
+            )
+            .expect_err("older user message must be rejected");
+        assert!(error.to_string().contains("latest user message"));
+        assert_eq!(
+            db.load_session_messages(&session.id)
+                .expect("messages remain")
+                .len(),
+            2
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn edit_resend_rolls_back_old_branch_when_replacement_insert_fails() {
+        let db_path = temp_db_path("session-edit-resend-rollback");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let session = db.create_session("ha-main").expect("session");
+        let user_id = db
+            .append_message(&session.id, &NewMessage::user("original prompt"))
+            .expect("append user");
+        let assistant_id = db
+            .append_message(&session.id, &NewMessage::assistant("original answer"))
+            .expect("append assistant");
+        db.create_chat_turn_with_id(
+            "original-turn",
+            &session.id,
+            crate::chat_engine::ChatSource::Desktop.as_str(),
+            None,
+            Some(user_id),
+        )
+        .expect("create original turn");
+        db.finish_chat_turn_once(
+            "original-turn",
+            ChatTurnStatus::Completed,
+            None,
+            None,
+            Some(assistant_id),
+        )
+        .expect("finish original turn");
+
+        let other = db.create_session("ha-main").expect("other session");
+        db.create_chat_turn_with_id(
+            "duplicate-replacement-turn",
+            &other.id,
+            crate::chat_engine::ChatSource::Desktop.as_str(),
+            None,
+            None,
+        )
+        .expect("create conflicting turn id");
+
+        db.replace_last_user_message_for_edit(
+            &session.id,
+            user_id,
+            &NewMessage::user("replacement prompt"),
+            "duplicate-replacement-turn",
+            crate::chat_engine::ChatSource::Desktop.as_str(),
+        )
+        .expect_err("duplicate turn id must fail the transaction");
+
+        let messages = db
+            .load_session_messages(&session.id)
+            .expect("load original transcript");
+        assert_eq!(
+            messages
+                .iter()
+                .map(|message| message.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["original prompt", "original answer"]
+        );
+        assert!(db
+            .get_chat_turn("original-turn")
+            .expect("load original turn")
+            .is_some());
 
         let _ = std::fs::remove_file(&db_path);
     }

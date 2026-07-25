@@ -504,6 +504,13 @@
     "sidebarDetailedMode": "切換到普通模式",
     "copied": "已複製",
     "copy": "複製",
+    "editMessage": {
+      "action": "編輯訊息",
+      "inputLabel": "編輯你的訊息",
+      "fileChangesWarning": "這則訊息之後的對話會被刪除，但已寫入檔案的修改不會復原。",
+      "send": "傳送",
+      "failed": "無法編輯並重新傳送這則訊息"
+    },
     "messageQuote": {
       "addToChat": "新增至對話",
       "assistantMessage": "助理訊息",

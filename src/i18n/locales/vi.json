@@ -504,6 +504,13 @@
     "sidebarDetailedMode": "Chuyển sang chế độ thường",
     "copied": "Đã sao chép",
     "copy": "Sao chép",
+    "editMessage": {
+      "action": "Chỉnh sửa tin nhắn",
+      "inputLabel": "Chỉnh sửa tin nhắn của bạn",
+      "fileChangesWarning": "Cuộc trò chuyện sau tin nhắn này sẽ bị xóa, nhưng các thay đổi đã thực hiện với tệp sẽ không được hoàn tác.",
+      "send": "Gửi",
+      "failed": "Không thể chỉnh sửa và gửi lại tin nhắn này"
+    },
     "messageQuote": {
       "addToChat": "Thêm vào cuộc trò chuyện",
       "assistantMessage": "Tin nhắn của trợ lý",

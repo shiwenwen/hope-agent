@@ -64,6 +64,7 @@ pub struct SessionMemoryPolicy {
 pub const ATTACHMENT_META_KEY_PLAN_TRIGGER: &str = "plan_trigger";
 pub const ATTACHMENT_META_KEY_PLAN_COMMENT: &str = "plan_comment";
 pub const ATTACHMENT_META_KEY_GOAL_TRIGGER: &str = "goal_trigger";
+pub const ATTACHMENT_META_KEY_QUEUED_MESSAGE: &str = "queued_message";
 pub const ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS: &str = "tool_media_items";
 pub const ATTACHMENT_META_KEY_ACTIVE_MEMORY: &str = "active_memory";
 pub const ATTACHMENT_META_KEY_USED_MEMORY_REFS: &str = "used_memory_refs";
@@ -71,16 +72,18 @@ pub const ATTACHMENT_META_KEY_RETRIEVAL_PLANNER: &str = "retrieval_planner";
 
 /// Resolve the `attachments_meta` value for a user-message coming from the
 /// `chat` API surface (Tauri command + HTTP route). Centralizes the
-/// plan_trigger > plan_comment > goal_trigger > user_attachments precedence so
-/// both shells can't silently drift; if the caller sets both `plan_trigger` and
-/// `plan_comment`, plan_trigger wins (a trigger is never also a comment).
+/// plan_trigger > plan_comment > goal_trigger > user_attachments precedence,
+/// then overlays the durable-queue marker so both shells can't silently drift;
+/// if the caller sets both `plan_trigger` and `plan_comment`, plan_trigger wins
+/// (a trigger is never also a comment).
 pub fn build_chat_user_attachments_meta(
     plan_trigger: bool,
     plan_comment: Option<&Value>,
     goal_trigger: bool,
+    queued_message: bool,
     user_attachments: Option<String>,
 ) -> Option<String> {
-    if plan_trigger {
+    let resolved = if plan_trigger {
         Some(json!({ ATTACHMENT_META_KEY_PLAN_TRIGGER: true }).to_string())
     } else if let Some(payload) = plan_comment {
         Some(merge_user_message_meta(
@@ -94,6 +97,14 @@ pub fn build_chat_user_attachments_meta(
         ))
     } else {
         user_attachments
+    };
+    if queued_message {
+        Some(merge_user_message_meta(
+            json!({ ATTACHMENT_META_KEY_QUEUED_MESSAGE: true }),
+            resolved,
+        ))
+    } else {
+        resolved
     }
 }
 

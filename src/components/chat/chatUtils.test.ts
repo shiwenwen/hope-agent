@@ -497,6 +497,19 @@ describe("parseSessionMessages user attachments", () => {
     expect(isUserAlignedMessage(parsed[0]!)).toBe(true)
   })
 
+  test("marks durable queued user rows as non-independent turns", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 19,
+        role: "user",
+        content: "queued follow-up",
+        attachmentsMeta: JSON.stringify({ queued_message: true }),
+      }),
+    ])
+
+    expect(parsed[0]).toMatchObject({ isQueuedMessage: true })
+  })
+
   test("renders display-as-user slash events as user-aligned instead of centered", () => {
     const msg = {
       role: "event",

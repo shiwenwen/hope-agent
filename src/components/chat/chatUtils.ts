@@ -685,6 +685,7 @@ export function parseSessionMessages(
       let isWorkflowResult = false
       let isPlanTrigger = false
       let isGoalTrigger = false
+      let isQueuedMessage = false
       let planComment: { selectedText: string; comment: string } | undefined
       let channelInbound:
         | { channelId: string; accountId?: string; chatId?: string; senderName?: string }
@@ -718,6 +719,9 @@ export function parseSessionMessages(
           }
           if (meta?.goal_trigger) {
             isGoalTrigger = true
+          }
+          if (meta?.queued_message) {
+            isQueuedMessage = true
           }
           if (
             meta?.plan_comment &&
@@ -768,6 +772,7 @@ export function parseSessionMessages(
         isWorkflowResult,
         isPlanTrigger,
         isGoalTrigger,
+        isQueuedMessage,
         planComment,
         channelInbound,
         ...(attachments ? { attachments } : {}),
@@ -1159,6 +1164,7 @@ function messageContentEqual(a: Message, b: Message): boolean {
     a.slashEvent?.command === b.slashEvent?.command &&
     a.slashEvent?.mode === b.slashEvent?.mode &&
     a.isGoalTrigger === b.isGoalTrigger &&
+    a.isQueuedMessage === b.isQueuedMessage &&
     a.isLoopTrigger === b.isLoopTrigger &&
     a.thinking === b.thinking &&
     a.timestamp === b.timestamp &&

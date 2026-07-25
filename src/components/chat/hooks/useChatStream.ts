@@ -32,10 +32,12 @@ import type {
   AgentSummaryForSidebar,
   SandboxMode,
   SessionMeta,
+  SessionMessage,
   SessionMode,
   ChatTurnStatus,
   ChatTurnInterruptReason,
 } from "@/types/chat"
+import { parseSessionMessages } from "../chatUtils"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 import {
   createStreamDeltaBuffers,
@@ -171,6 +173,19 @@ interface SendOptions {
   }
   sessionIdOverride?: string
   queuedRequestId?: string
+  /** Existing latest persisted user message being replaced atomically by the
+   * chat request. Never valid for durable queued sends. */
+  editMessageId?: number
+  /** One-shot attachment/quote payload used by inline message edit + resend.
+   * It bypasses the main composer so an unrelated draft is preserved. */
+  draftOverride?: {
+    attachedFiles: DraftAttachment[]
+    pendingQuotes: PendingFileQuote[]
+    pendingMessageQuotes: PendingMessageQuote[]
+  }
+  /** Resolves inline editing as soon as the replacement turn is durable. */
+  onDispatchAccepted?: () => void
+  onPreparationError?: (error: unknown) => void
   /** Routed through the chat command into `attachments_meta.plan_comment`
    *  so the desktop GUI can render PlanCommentBubble with structured
    *  selection + comment fields. IM channels ignore this and use displayText. */
@@ -1244,13 +1259,22 @@ export function useChatStream({
    */
   async function handleSend(directText?: string, options?: SendOptions) {
     const rawText = directText ?? input
-    const hasAttachedFiles = !directText && attachedFiles.length > 0
-    const hasQuotes = !directText && pendingQuotes.length > 0
-    const hasMessageQuotes = !directText && pendingMessageQuotes.length > 0
+    const usesComposerDraft = directText === undefined && !options?.draftOverride
+    const draftFiles =
+      options?.draftOverride?.attachedFiles ?? (usesComposerDraft ? attachedFiles : [])
+    const draftQuotes =
+      options?.draftOverride?.pendingQuotes ?? (usesComposerDraft ? pendingQuotes : [])
+    const draftMessageQuotes =
+      options?.draftOverride?.pendingMessageQuotes ??
+      (usesComposerDraft ? pendingMessageQuotes : [])
+    const hasAttachedFiles = draftFiles.length > 0
+    const hasQuotes = draftQuotes.length > 0
+    const hasMessageQuotes = draftMessageQuotes.length > 0
     if (
       !hasMessageQuotes &&
       !hasSendableChatPayload(rawText, hasAttachedFiles, hasQuotes, options?.queuedRequestId)
     ) {
+      options?.onPreparationError?.(new Error("Message is empty"))
       return
     }
 
@@ -1260,6 +1284,12 @@ export function useChatStream({
     // triggers carry `isPlanTrigger`, slash-skill expansions carry
     // `displayText`, etc.).
     if (loading) {
+      if (options?.editMessageId != null) {
+        options.onPreparationError?.(
+          new Error("The assistant is already responding; wait for it to finish before editing"),
+        )
+        return
+      }
       const queueSessionId =
         options?.sessionIdOverride ?? currentSessionIdRef.current ?? currentSessionId
       if (!queueSessionId) {
@@ -1270,9 +1300,9 @@ export function useChatStream({
         )
         return
       }
-      const queuedFiles = directText ? [] : [...attachedFiles]
-      const queuedQuotes = directText ? [] : [...pendingQuotes]
-      const queuedMessageQuotes = directText ? [] : [...pendingMessageQuotes]
+      const queuedFiles = [...draftFiles]
+      const queuedQuotes = [...draftQuotes]
+      const queuedMessageQuotes = [...draftMessageQuotes]
       const queueTransport = getTransport()
       let durableAttachments: ChatAttachment[] = []
       const requestId = generateClientId()
@@ -1291,7 +1321,7 @@ export function useChatStream({
           ...(queuedMessageQuotes.length > 0 && { messageQuotes: queuedMessageQuotes }),
         },
       ])
-      if (!directText) {
+      if (usesComposerDraft) {
         setInput("")
         setAttachedFiles([])
         setPendingQuotes([])
@@ -1332,7 +1362,7 @@ export function useChatStream({
         )
         logger.error("chat", "useChatStream::queue", "Failed to persist pending message", error)
         updatePendingSends((prev) => prev.filter((item) => item.id !== requestId))
-        if (!directText) {
+        if (usesComposerDraft) {
           const failedQueuedFiles = queuedFiles.map((draft) => ({
             ...draft,
             status: "error" as const,
@@ -1374,9 +1404,9 @@ export function useChatStream({
     const text = rawText.trim()
     // `text` goes to the LLM; `displayed` is the user bubble. Slash-skill passThrough
     // uses this split so the UI shows "/drawio ..." while the LLM receives the expansion.
-    const filesToSend = directText ? [] : [...attachedFiles]
-    const quotesToSend = directText ? [] : [...pendingQuotes]
-    const messageQuotesToSend = directText ? [] : [...pendingMessageQuotes]
+    const filesToSend = [...draftFiles]
+    const quotesToSend = [...draftQuotes]
+    const messageQuotesToSend = [...draftMessageQuotes]
     const displayed = options?.displayText?.trim() || text
     const sendSessionId = options?.sessionIdOverride ?? currentSessionId
     if (options?.sessionIdOverride) {
@@ -1386,7 +1416,7 @@ export function useChatStream({
     const sendTransport = getTransport()
     let attachments: ChatAttachment[]
     const sendingDraftIds = new Set(filesToSend.map((draft) => draft.id))
-    if (sendingDraftIds.size > 0) {
+    if (usesComposerDraft && sendingDraftIds.size > 0) {
       setAttachedFiles((existing) =>
         existing.map((draft) =>
           sendingDraftIds.has(draft.id)
@@ -1417,17 +1447,20 @@ export function useChatStream({
           error: error instanceof Error ? error.message : String(error),
         }),
       )
-      setAttachedFiles((existing) =>
-        existing.map((draft) =>
-          sendingDraftIds.has(draft.id)
-            ? {
-                ...draft,
-                status: "error",
-                error: error instanceof Error ? error.message : String(error),
-              }
-            : draft,
-        ),
-      )
+      if (usesComposerDraft) {
+        setAttachedFiles((existing) =>
+          existing.map((draft) =>
+            sendingDraftIds.has(draft.id)
+              ? {
+                  ...draft,
+                  status: "error",
+                  error: error instanceof Error ? error.message : String(error),
+                }
+              : draft,
+          ),
+        )
+      }
+      options?.onPreparationError?.(error)
       return
     }
     const optimisticQuoteAttachments: MessageAttachment[] = quotesToSend.map((q) => ({
@@ -1452,12 +1485,14 @@ export function useChatStream({
       ...optimisticQuoteAttachments,
       ...optimisticMessageQuoteAttachments,
     ]
-    setInput("")
-    setAttachedFiles([])
-    setPendingQuotes([])
-    setPendingMessageQuotes([])
+    if (usesComposerDraft) {
+      setInput("")
+      setAttachedFiles([])
+      setPendingQuotes([])
+      setPendingMessageQuotes([])
+    }
     const restoreUnsentDraft = () => {
-      if (directText) return
+      if (!usesComposerDraft) return
       const restoredFiles = filesToSend.map((draft) => ({
         ...draft,
         status: "ready" as const,
@@ -1524,9 +1559,14 @@ export function useChatStream({
       ...(options?.goalTrigger && { isGoalTrigger: true }),
       ...(options?.planComment && { planComment: options.planComment }),
     }
+    const messagesBeforeEditedTurn = (current: Message[]): Message[] => {
+      if (options?.editMessageId == null) return current
+      const boundary = current.findIndex((message) => message.dbId === options.editMessageId)
+      return boundary < 0 ? current : current.slice(0, boundary)
+    }
     const sidForCap = sendSessionId ?? currentSessionIdRef.current
     setMessages((prev) => {
-      const next = [...prev, optimisticUserMessage]
+      const next = [...messagesBeforeEditedTurn(prev), optimisticUserMessage]
       return sidForCap && capMessagesForSession ? capMessagesForSession(sidForCap, next) : next
     })
     setLoading(true)
@@ -1552,6 +1592,12 @@ export function useChatStream({
     let targetSessionId = sendSessionId ?? currentSessionId
     let chatResolved = false
     let keepExistingStreamLoading = false
+    let dispatchAccepted = false
+    const markDispatchAccepted = () => {
+      if (dispatchAccepted) return
+      dispatchAccepted = true
+      options?.onDispatchAccepted?.()
+    }
 
     try {
       const targetSid = () => targetSessionId || "__pending__"
@@ -1599,6 +1645,7 @@ export function useChatStream({
           return false
         }
         handleTurnStarted(event.session_id, event.turn_id)
+        if (options?.editMessageId != null) markDispatchAccepted()
         return true
       }
 
@@ -1670,7 +1717,7 @@ export function useChatStream({
         ? (sessionCacheRef.current.get(sendSessionId) ?? messages)
         : messages
       const freshMessages: Message[] = [
-        ...baseMessagesForSend,
+        ...messagesBeforeEditedTurn(baseMessagesForSend),
         optimisticUserMessage,
         {
           role: "assistant" as const,
@@ -1724,6 +1771,7 @@ export function useChatStream({
           // above so draft choices are consumed only during materialization.
           displayText: options?.displayText?.trim() || undefined,
           queuedRequestId: options?.queuedRequestId,
+          editMessageId: options?.editMessageId,
           isPlanTrigger: options?.isPlanTrigger,
           goalTrigger: options?.goalTrigger,
           initialGoal:
@@ -1758,6 +1806,7 @@ export function useChatStream({
         },
         onEvent,
       )
+      if (options?.editMessageId != null) markDispatchAccepted()
       chatResolved = true
     } catch (e) {
       await Promise.allSettled(
@@ -1861,6 +1910,27 @@ export function useChatStream({
           updated.push({ role: "event", content: `${e}`, isTurnError: true })
           return updated
         })
+      }
+      if (options?.editMessageId != null && sid !== "__pending__") {
+        try {
+          const limit = Math.max(100, sessionCacheRef.current.get(sid)?.length ?? 0)
+          const [rows] = await sendTransport.call<[SessionMessage[], number, boolean]>(
+            "load_session_messages_latest_cmd",
+            { sessionId: sid, limit },
+          )
+          updateSessionMessages(sid, () => parseSessionMessages(rows))
+          if (!rows.some((row) => row.id === options.editMessageId)) {
+            markDispatchAccepted()
+          }
+        } catch (reloadError) {
+          logger.warn(
+            "chat",
+            "useChatStream::editMessage",
+            "Failed to reconcile an edited message after dispatch error",
+            reloadError,
+          )
+        }
+        if (!dispatchAccepted) options.onPreparationError?.(e)
       }
       // Notify on error for non-current sessions
       if (

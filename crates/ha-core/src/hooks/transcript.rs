@@ -210,6 +210,36 @@ impl TranscriptMirror {
         Ok(true)
     }
 
+    /// Rewrite an existing session mirror from SQLite after a destructive
+    /// transcript edit. Unlike the append path this deliberately replaces the
+    /// whole JSONL file so discarded assistant/tool rows cannot remain visible
+    /// to later hook invocations. Incognito sessions are always skipped.
+    pub fn rewrite_session(db: &SessionDB, session_id: &str, cwd: &str) -> anyhow::Result<bool> {
+        if db
+            .get_session(session_id)?
+            .is_none_or(|session| session.incognito)
+        {
+            return Ok(false);
+        }
+        let dir = crate::paths::session_dir(session_id)?;
+        let path = dir.join("transcript.jsonl");
+        let global_has = !crate::hooks::registry::global().is_empty();
+        let project_has = {
+            let config = crate::config::cached_config();
+            config.hooks_allow_project_scope
+                && !config.disable_all_hooks
+                && !crate::hooks::scopes::resolve_for_cwd(Some(std::path::Path::new(cwd)))
+                    .is_empty()
+        };
+        if !path.exists() && !global_has && !project_has {
+            return Ok(false);
+        }
+        let messages = db.load_session_messages(session_id)?;
+        fs::create_dir_all(&dir)?;
+        fs::write(path, messages_to_jsonl(&messages, cwd))?;
+        Ok(true)
+    }
+
     /// Backfill every session missing a transcript. Best-effort: a failing
     /// session is logged and skipped. Returns the number written.
     pub fn backfill_all(db: &SessionDB) -> anyhow::Result<usize> {

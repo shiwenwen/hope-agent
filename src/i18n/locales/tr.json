@@ -504,6 +504,13 @@
     "sidebarDetailedMode": "Normal moda geç",
     "copied": "Kopyalandı",
     "copy": "Kopyala",
+    "editMessage": {
+      "action": "Mesajı düzenle",
+      "inputLabel": "Mesajınızı düzenleyin",
+      "fileChangesWarning": "Bu mesajdan sonraki konuşma kaldırılır, ancak dosyalarda daha önce yapılan değişiklikler geri alınmaz.",
+      "send": "Gönder",
+      "failed": "Bu mesaj düzenlenip yeniden gönderilemedi"
+    },
     "messageQuote": {
       "addToChat": "Sohbete ekle",
       "assistantMessage": "Asistan mesajı",

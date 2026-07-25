@@ -504,6 +504,13 @@
     "sidebarDetailedMode": "일반 모드로 전환",
     "copied": "복사됨",
     "copy": "복사",
+    "editMessage": {
+      "action": "메시지 편집",
+      "inputLabel": "메시지 편집",
+      "fileChangesWarning": "이 메시지 이후의 대화는 삭제되지만 이미 적용된 파일 변경 사항은 되돌아가지 않습니다.",
+      "send": "보내기",
+      "failed": "이 메시지를 편집하여 다시 보낼 수 없습니다"
+    },
     "messageQuote": {
       "addToChat": "채팅에 추가",
       "assistantMessage": "어시스턴트 메시지",

@@ -504,6 +504,13 @@
     "sidebarDetailedMode": "通常表示に切り替え",
     "copied": "コピーしました",
     "copy": "コピー",
+    "editMessage": {
+      "action": "メッセージを編集",
+      "inputLabel": "メッセージを編集",
+      "fileChangesWarning": "このメッセージ以降の会話は削除されますが、すでに行われたファイル変更は元に戻りません。",
+      "send": "送信",
+      "failed": "このメッセージを編集して再送信できませんでした"
+    },
     "messageQuote": {
       "addToChat": "チャットに追加",
       "assistantMessage": "アシスタントのメッセージ",

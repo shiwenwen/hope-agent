@@ -79,6 +79,10 @@ pub struct ChatRequest {
     /// attachments from SQLite before starting the turn.
     #[serde(default)]
     pub queued_request_id: Option<String>,
+    /// Existing latest user-message id being edited. The server atomically
+    /// replaces that settled turn and registers this request's new turn.
+    #[serde(default)]
+    pub edit_message_id: Option<i64>,
     /// When true, persists the user row with
     /// `attachments_meta = {"plan_trigger": true}` so the UI renders it as a
     /// Plan Mode approve/resume chip (mirrors the Tauri `chat` command).
@@ -543,6 +547,16 @@ pub async fn chat(
         .as_ref()
         .map(|bootstrap| bootstrap.request_id.clone());
     let auto_create_session = existing_session_id.is_none();
+    if body.edit_message_id.is_some() && auto_create_session {
+        return Err(AppError::bad_request(
+            "editMessageId requires an existing session",
+        ));
+    }
+    if body.edit_message_id.is_some() && body.queued_request_id.is_some() {
+        return Err(AppError::bad_request(
+            "editMessageId cannot be combined with queuedRequestId",
+        ));
+    }
     if !auto_create_session && body.project_bootstrap.is_some() {
         return Err(AppError::bad_request(
             "projectBootstrap is only valid when creating a new project session",
@@ -906,6 +920,11 @@ pub async fn chat(
             effective_prompt
         }
         ha_core::agent::preflight::PreflightOutcome::Block { reason } => {
+            if body.edit_message_id.is_some() {
+                return Err(AppError::bad_request(format!(
+                    "Message edit was blocked: {reason}"
+                )));
+            }
             if let Some(request_id) = queued_request_id.as_ref() {
                 let sid_for_remove = sid.clone();
                 let request_id_for_remove = request_id.clone();
@@ -1080,6 +1099,7 @@ pub async fn chat(
         body.is_plan_trigger.unwrap_or(false),
         body.plan_comment.as_ref(),
         body.goal_trigger.unwrap_or(false),
+        queued_request_id.is_some(),
         attachments_meta,
     );
     let title_attachments_meta = user_msg.attachments_meta.clone();
@@ -1088,7 +1108,21 @@ pub async fn chat(
         let turn_id = turn_id.clone();
         let effective_prompt = effective_prompt.clone();
         let queue_id_for_consume = queued_request_id.clone();
+        let edit_message_id = body.edit_message_id;
         db.run(move |db| -> anyhow::Result<_> {
+            if let Some(message_id) = edit_message_id {
+                let replacement_id = db.replace_last_user_message_for_edit(
+                    &sid,
+                    message_id,
+                    &user_msg,
+                    &turn_id,
+                    ha_core::chat_engine::ChatSource::Http.as_str(),
+                )?;
+                let turn = db
+                    .get_chat_turn(&turn_id)?
+                    .ok_or_else(|| anyhow::anyhow!("replacement chat turn was not created"))?;
+                return Ok((Some(replacement_id), turn));
+            }
             let user_message_id = if queue_id_for_consume.is_some() {
                 Some(db.append_message(&sid, &user_msg)?)
             } else {

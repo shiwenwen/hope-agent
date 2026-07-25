@@ -225,6 +225,7 @@ CREATE TABLE chat_stream_runs (
     checkpoint_seq           INTEGER NOT NULL DEFAULT 0,
     committed_seq            INTEGER NOT NULL DEFAULT 0,
     provider_shape           TEXT,
+    base_context_json        TEXT,                            -- 本轮 user 注入前的精确 provider context；"null" 表示空上下文
     started_at               TEXT NOT NULL,
     ended_at                 TEXT,
     error                    TEXT
