@@ -12229,6 +12229,11 @@
       "deleteTitle": "Remover este mascote?",
       "deleteDescription": "Remover {{name}} deste dispositivo?"
     },
+    "discovery": {
+      "title": "Conheça seu mascote da área de trabalho",
+      "description": "Acompanhe conversas ativas e responda ou trate pedidos pela área de trabalho.",
+      "action": "Experimentar"
+    },
     "import": {
       "action": "Importar",
       "title": "Importar um mascote",

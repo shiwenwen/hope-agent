@@ -12229,6 +12229,11 @@
       "deleteTitle": "Alih keluar haiwan ini?",
       "deleteDescription": "Alih keluar {{name}} daripada peranti ini?"
     },
+    "discovery": {
+      "title": "Kenali haiwan peliharaan desktop anda",
+      "description": "Ikuti perbualan aktif dan urus balasan atau permintaan terus dari desktop.",
+      "action": "Cuba"
+    },
     "import": {
       "action": "Import",
       "title": "Import haiwan peliharaan",

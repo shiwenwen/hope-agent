@@ -12229,6 +12229,11 @@
       "deleteTitle": "Bu evcil hayvan kaldırılsın mı?",
       "deleteDescription": "{{name}} bu cihazdan kaldırılsın mı?"
     },
+    "discovery": {
+      "title": "Masaüstü evcil hayvanınızla tanışın",
+      "description": "Etkin konuşmaları takip edin, yanıtları ve istekleri masaüstünden yönetin.",
+      "action": "Dene"
+    },
     "import": {
       "action": "İçe aktar",
       "title": "Evcil hayvan içe aktar",

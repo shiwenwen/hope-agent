@@ -12229,6 +12229,11 @@
       "deleteTitle": "¿Eliminar esta mascota?",
       "deleteDescription": "¿Eliminar {{name}} de este dispositivo?"
     },
+    "discovery": {
+      "title": "Conoce a tu mascota de escritorio",
+      "description": "Sigue las conversaciones activas y gestiona respuestas o solicitudes desde el escritorio.",
+      "action": "Probar"
+    },
     "import": {
       "action": "Importar",
       "title": "Importar una mascota",

@@ -12229,6 +12229,11 @@
       "deleteTitle": "이 펫을 삭제할까요?",
       "deleteDescription": "이 기기에서 {{name}}을(를) 삭제할까요?"
     },
+    "discovery": {
+      "title": "데스크톱 펫을 만나보세요",
+      "description": "진행 중인 대화를 확인하고 데스크톱에서 바로 답장하거나 요청을 처리하세요.",
+      "action": "사용해 보기"
+    },
     "import": {
       "action": "가져오기",
       "title": "펫 가져오기",

@@ -91,6 +91,8 @@ Debug 构建额外注入内置 `builtin:hope-debug`，其 v1 atlas 每格使用�
 
 `AppConfig.pet` 含 `enabled` 与 `selectedPetRef`，默认关闭。它同时有 Settings GUI、侧边栏底部快捷开关、`ha-settings` category/risk 和 skill 风险表；各入口都监听 `pet:config_changed`，不得维护独立可见性状态。配置写入是字段级 patch，选择校验与持久化持有宠物库锁，避免并发开关/选择互相回滚或删除/选择 TOCTOU。HTTP 可以管理宠物库与选择，但不能声称拥有桌面 overlay；HTTP/ACP 的 `ha-settings` 也拒绝改变 `enabled`，窗口命令返回 desktop-only。
 
+桌面端在 Pet 配置首次就绪且仍关闭时，于侧边栏蛋图标旁延迟 700ms 显示一次非模态 discovery popover；它不抢焦点，提供直接开启与进入 Pets 设置两个动作。开启过、进入过设置或明确关闭提示后，以版本化 localStorage key `hope-agent.pet-discovery.v1` 记为已发现；outside click / Escape 只 snooze 当前挂载周期，避免误触让用户永久错过。该 key 只记录引导曝光，不复制 `enabled` 或其它 Pet 配置。
+
 关键事件：
 
 | 事件                   | 作用                                              |

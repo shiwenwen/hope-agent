@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { IconTip } from "@/components/ui/tooltip"
 import ServerStatusIndicator from "@/components/common/ServerStatusIndicator"
 import BrowserStatusIndicator from "@/components/common/BrowserStatusIndicator"
@@ -44,9 +45,11 @@ import {
   PackageOpen,
   PawPrint,
   Egg,
+  X,
   type LucideIcon,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
+import { usePetDiscoveryHint } from "@/components/pet/hooks/usePetDiscoveryHint"
 import { usePetSidebarToggle } from "@/components/pet/hooks/usePetSidebarToggle"
 import { openHelpWindow } from "@/lib/manual/openHelpWindow"
 import {
@@ -129,6 +132,7 @@ export default function IconSidebar({
   const { t, i18n } = useTranslation()
   const { theme, cycleTheme } = useTheme()
   const petToggle = usePetSidebarToggle()
+  const petDiscovery = usePetDiscoveryHint(petToggle)
   const [showLangMenu, setShowLangMenu] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const { pendingUpdate } = useDesktopUpdateStore()
@@ -144,6 +148,13 @@ export default function IconSidebar({
           count: totalUnreadCount,
         })}`
       : t("chat.conversations")
+  const togglePet = async () => {
+    if (await petToggle.toggle()) petDiscovery.markDiscovered()
+  }
+  const openPetSettings = () => {
+    petDiscovery.markDiscovered()
+    onOpenSettings("pets")
+  }
   const collapsedItems: Array<{
     id: string
     label: string
@@ -722,32 +733,96 @@ export default function IconSidebar({
         </div>
         {/* Desktop pet switch — kept near Settings as a persistent utility. */}
         {petToggle.supported && (
-          <div className="relative flex justify-center mt-0.5">
-            <IconTip
-              label={
-                petToggle.enabled
-                  ? t("pet.window.tuckAway", { defaultValue: "Tuck away pet" })
-                  : t("pet.settings.wake", { defaultValue: "Desktop pet" })
-              }
+          <Popover open={petDiscovery.open} onOpenChange={petDiscovery.handleOpenChange}>
+            <PopoverAnchor asChild>
+              <div className="relative flex justify-center mt-0.5">
+                <IconTip
+                  label={
+                    petDiscovery.open
+                      ? null
+                      : petToggle.enabled
+                        ? t("pet.window.tuckAway", { defaultValue: "Tuck away pet" })
+                        : t("pet.settings.wake", { defaultValue: "Desktop pet" })
+                  }
+                  side="right"
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("pet.settings.wake", { defaultValue: "Desktop pet" })}
+                    aria-pressed={petToggle.enabled}
+                    disabled={!petToggle.ready || petToggle.updating}
+                    className={cn(
+                      "rounded-xl h-8 w-8 hover:bg-secondary/70 disabled:opacity-45",
+                      petToggle.enabled ? "text-foreground" : "text-muted-foreground",
+                      petToggle.updating && "animate-pulse",
+                    )}
+                    onClick={() => void togglePet()}
+                  >
+                    {petToggle.enabled ? (
+                      <PawPrint className="h-4 w-4" />
+                    ) : (
+                      <Egg className="h-4 w-4" />
+                    )}
+                  </Button>
+                </IconTip>
+              </div>
+            </PopoverAnchor>
+            <PopoverContent
               side="right"
+              align="end"
+              sideOffset={10}
+              onOpenAutoFocus={(event) => event.preventDefault()}
+              onCloseAutoFocus={(event) => event.preventDefault()}
+              className="w-[268px] rounded-xl border-border/70 p-3 shadow-panel"
             >
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label={t("pet.settings.wake", { defaultValue: "Desktop pet" })}
-                aria-pressed={petToggle.enabled}
-                disabled={!petToggle.ready || petToggle.updating}
-                className={cn(
-                  "rounded-xl h-8 w-8 hover:bg-secondary/70 disabled:opacity-45",
-                  petToggle.enabled ? "text-foreground" : "text-muted-foreground",
-                  petToggle.updating && "animate-pulse",
-                )}
-                onClick={() => void petToggle.toggle()}
+                aria-label={t("pet.bubble.dismiss", { defaultValue: "Dismiss" })}
+                className="absolute right-1.5 top-1.5 h-6 w-6 rounded-lg text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+                onClick={petDiscovery.markDiscovered}
               >
-                {petToggle.enabled ? <PawPrint className="h-4 w-4" /> : <Egg className="h-4 w-4" />}
+                <X className="h-3.5 w-3.5" />
               </Button>
-            </IconTip>
-          </div>
+              <div className="flex gap-2.5 pr-5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <PawPrint className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <p className="text-sm font-medium leading-5">
+                    {t("pet.discovery.title", { defaultValue: "Meet your desktop pet" })}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-[18px] text-muted-foreground">
+                    {t("pet.discovery.description", {
+                      defaultValue:
+                        "Follow active conversations and handle replies or requests from your desktop.",
+                    })}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-2.5 flex justify-end gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-lg px-2 text-xs text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+                  onClick={openPetSettings}
+                >
+                  {t("common.settings", { defaultValue: "Settings" })}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!petToggle.ready || petToggle.updating}
+                  className="h-7 rounded-lg px-2.5 text-xs"
+                  onClick={() => void togglePet()}
+                >
+                  {t("pet.discovery.action", { defaultValue: "Try it" })}
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
         )}
         {/* Settings */}
         <div className="relative flex justify-center mt-0.5">

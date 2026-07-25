@@ -12229,6 +12229,11 @@
       "deleteTitle": "このペットを削除しますか？",
       "deleteDescription": "{{name}} をこのデバイスから削除しますか？"
     },
+    "discovery": {
+      "title": "デスクトップペットをご紹介",
+      "description": "進行中の会話を見守り、デスクトップから返信や確認依頼に対応できます。",
+      "action": "試してみる"
+    },
     "import": {
       "action": "インポート",
       "title": "ペットをインポート",

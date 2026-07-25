@@ -12229,6 +12229,11 @@
       "deleteTitle": "移除這隻寵物？",
       "deleteDescription": "要從此裝置移除 {{name}} 嗎？"
     },
+    "discovery": {
+      "title": "認識一下桌面寵物",
+      "description": "它會跟隨進行中的對話，讓你直接在桌面快速回覆或處理請求。",
+      "action": "立即開啟"
+    },
     "import": {
       "action": "匯入",
       "title": "匯入寵物",

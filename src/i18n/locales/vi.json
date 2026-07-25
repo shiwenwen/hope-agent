@@ -12229,6 +12229,11 @@
       "deleteTitle": "Xóa thú cưng này?",
       "deleteDescription": "Xóa {{name}} khỏi thiết bị này?"
     },
+    "discovery": {
+      "title": "Làm quen với thú cưng trên màn hình",
+      "description": "Theo dõi cuộc trò chuyện đang diễn ra và xử lý phản hồi hoặc yêu cầu ngay trên màn hình.",
+      "action": "Dùng thử"
+    },
     "import": {
       "action": "Nhập",
       "title": "Nhập thú cưng",

@@ -12229,6 +12229,11 @@
       "deleteTitle": "Remove this pet?",
       "deleteDescription": "Remove {{name}} from this device?"
     },
+    "discovery": {
+      "title": "Meet your desktop pet",
+      "description": "Follow active conversations and handle replies or requests from your desktop.",
+      "action": "Try it"
+    },
     "import": {
       "action": "Import",
       "title": "Import a pet",

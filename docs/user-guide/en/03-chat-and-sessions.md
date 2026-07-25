@@ -172,6 +172,8 @@ Compaction starts with "cleaning up stale tool results at zero cost" and works i
 
 In the desktop app, Settings → Pets can wake an animated companion that stays on your desktop. It only reflects product main conversations: main chat, Quick Chat, Knowledge chat, and Design chat. Background jobs, Cron, IM, ACP, sub-agents, Memory, evaluations, summaries, and other extra model requests never light up the pet on their own.
 
+The first time the egg appears at the bottom of the sidebar, Hope shows a short introduction. You can turn the pet on immediately or open Pets settings to choose, import, or create one; explicitly dismissing the introduction prevents it from appearing again.
+
 - Bubbles dynamically resize the native window while keeping the pet's feet anchored. Automatic bubbles do not take focus, and the pet and bubble still provide hover feedback while you are working in another app.
 - Running text updates live with a shimmer and changes to a green check when complete. The fixed-height preview shows up to two lines; Markdown headings, emphasis, code, and links become readable plain text instead of exposing `#`, `*`, or backticks. Hover a bubble to dismiss it, reply, or stop that specific conversation.
 - Automatic appearance does not count as read. A Ready or Blocked bubble marks only its displayed message boundary as read after you dwell and move away, open the conversation, submit a quick reply, dismiss it, or deliberately collapse the expanded stack; Running, Ask User, and approval waits are not cleared this way. Unread counts then refresh from the authoritative session state.
