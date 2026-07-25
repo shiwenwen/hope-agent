@@ -100,34 +100,6 @@ impl UiRequestPolicy {
     }
 }
 
-#[cfg(test)]
-mod ui_request_policy_tests {
-    use super::*;
-
-    fn browser_headers(origin: &str, host: &str) -> HeaderMap {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::ORIGIN, origin.parse().unwrap());
-        headers.insert(header::HOST, host.parse().unwrap());
-        headers.insert("sec-fetch-mode", "cors".parse().unwrap());
-        headers.insert("sec-fetch-dest", "empty".parse().unwrap());
-        headers
-    }
-
-    #[test]
-    fn ui_requests_require_browser_metadata_and_an_approved_origin() {
-        let same_origin = browser_headers("http://localhost:8420", "localhost:8420");
-        assert!(UiRequestPolicy::new(&[]).accepts(&same_origin));
-
-        let cross_origin = browser_headers("https://app.example", "agent.example");
-        assert!(!UiRequestPolicy::new(&[]).accepts(&cross_origin));
-        assert!(UiRequestPolicy::new(&["https://app.example".to_string()]).accepts(&cross_origin));
-
-        let mut missing_fetch_metadata = same_origin;
-        missing_fetch_metadata.remove("sec-fetch-mode");
-        assert!(!UiRequestPolicy::new(&[]).accepts(&missing_fetch_metadata));
-    }
-}
-
 // ── Router Builder ──────────────────────────────────────────────
 
 /// Build the full axum `Router` with all API routes and WebSocket endpoints.
@@ -3675,5 +3647,33 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
     } else {
         let parsed: Vec<_> = origins.iter().filter_map(|o| o.parse().ok()).collect();
         cors.allow_origin(parsed)
+    }
+}
+
+#[cfg(test)]
+mod ui_request_policy_tests {
+    use super::*;
+
+    fn browser_headers(origin: &str, host: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ORIGIN, origin.parse().unwrap());
+        headers.insert(header::HOST, host.parse().unwrap());
+        headers.insert("sec-fetch-mode", "cors".parse().unwrap());
+        headers.insert("sec-fetch-dest", "empty".parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn ui_requests_require_browser_metadata_and_an_approved_origin() {
+        let same_origin = browser_headers("http://localhost:8420", "localhost:8420");
+        assert!(UiRequestPolicy::new(&[]).accepts(&same_origin));
+
+        let cross_origin = browser_headers("https://app.example", "agent.example");
+        assert!(!UiRequestPolicy::new(&[]).accepts(&cross_origin));
+        assert!(UiRequestPolicy::new(&["https://app.example".to_string()]).accepts(&cross_origin));
+
+        let mut missing_fetch_metadata = same_origin;
+        missing_fetch_metadata.remove("sec-fetch-mode");
+        assert!(!UiRequestPolicy::new(&[]).accepts(&missing_fetch_metadata));
     }
 }
