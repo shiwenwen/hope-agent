@@ -25,6 +25,14 @@
   <strong>简体中文</strong> · <a href="./README.en.md">English</a>
 </p>
 
+<p align="center">
+  <a href="assets/screenshots/chat-home.png">
+    <img src="assets/screenshots/chat-home.png" alt="Hope Agent 桌面主对话界面" width="100%">
+  </a>
+</p>
+
+<p align="center"><sub>在一个入口中组织项目、目标、工作流与长期任务</sub></p>
+
 ---
 
 **Hope Agent** 是一个本地优先、桌面优先，也能服务化常驻的个人 AI Agent。它像成熟的桌面软件一样打开即用，又真正具备 Agent 的行动力：理解长期上下文、调用工具完成工作，并在你离开后继续可靠地推进目标。
@@ -71,6 +79,19 @@
 <tr><td><b>🧠 知识空间 · 第二大脑</b></td><td>AI 与你共同读写真实 Markdown 笔记，支持资料归档、全文与向量检索、双链、图谱、原子笔记和可审阅的 AI 整理建议。可绑定现有 Obsidian 库，外部改动实时同步；来源与 Evidence 保留回溯。</td></tr>
 </table>
 
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+  <a href="assets/screenshots/design-space.png"><img src="assets/screenshots/design-space.png" alt="Hope Agent 设计空间"></a><br>
+  <sub><b>设计空间</b> · 从一句话生成可交付设计</sub>
+</td>
+<td width="50%" align="center" valign="top">
+  <a href="assets/screenshots/knowledge-space.png"><img src="assets/screenshots/knowledge-space.png" alt="Hope Agent 知识空间"></a><br>
+  <sub><b>知识空间</b> · AI 与你共同维护第二大脑</sub>
+</td>
+</tr>
+</table>
+
 ### 🧭 长期任务与自主执行
 
 <table>
@@ -101,6 +122,14 @@
 <tr><td><b>🔧 工具箱与工作空间</b></td><td>内置 AI 画图、语音与音乐音效生成、Web 搜索、bash、文件操作、Canvas、URL 预览与自诊断；飞书工作空间提供 40+ 工具，覆盖文档、多维表格、云盘、知识库、审批、日历、联系人和招聘。</td></tr>
 <tr><td><b>📊 Dashboard + Recap</b></td><td>统一查看成本、Token、活跃度、健康度、Plan 与长期任务状态；Recap 可复盘一段时间内的会话，生成多章节报告并导出独立 HTML。</td></tr>
 </table>
+
+<p align="center">
+  <a href="assets/screenshots/dashboard.png">
+    <img src="assets/screenshots/dashboard.png" alt="Hope Agent 数据大盘" width="100%">
+  </a>
+</p>
+
+<p align="center"><sub><b>数据大盘</b> · 集中查看用量、健康度和长期任务运行状态</sub></p>
 
 ### 🌐 桌面、服务与跨端
 

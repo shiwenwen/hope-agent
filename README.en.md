@@ -25,6 +25,14 @@
   <a href="./README.md">简体中文</a> · <strong>English</strong>
 </p>
 
+<p align="center">
+  <a href="assets/screenshots/chat-home.png">
+    <img src="assets/screenshots/chat-home.png" alt="Hope Agent desktop conversation workspace" width="100%">
+  </a>
+</p>
+
+<p align="center"><sub>Projects, goals, workflows, and long-running work in one desktop workspace</sub></p>
+
 ---
 
 **Hope Agent** is a local-first, desktop-first personal AI agent that can also run continuously as a service. It opens like mature desktop software while offering real agentic capability: understanding long-term context, using tools to complete work, and reliably pursuing goals even after you step away.
@@ -71,6 +79,19 @@
 <tr><td><b>🧠 Knowledge Space · second brain</b></td><td>You and the AI work on the same real Markdown notes, with source archiving, full-text and vector retrieval, backlinks, graph view, atomic notes, and reviewable AI organization proposals. Existing Obsidian vaults can be attached, external changes sync live, and source Evidence remains traceable.</td></tr>
 </table>
 
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+  <a href="assets/screenshots/design-space.png"><img src="assets/screenshots/design-space.png" alt="Hope Agent Design Space"></a><br>
+  <sub><b>Design Space</b> · Turn an idea into a deliverable design</sub>
+</td>
+<td width="50%" align="center" valign="top">
+  <a href="assets/screenshots/knowledge-space.png"><img src="assets/screenshots/knowledge-space.png" alt="Hope Agent Knowledge Space"></a><br>
+  <sub><b>Knowledge Space</b> · Build a second brain together with AI</sub>
+</td>
+</tr>
+</table>
+
 ### 🧭 Long-running work & autonomy
 
 <table>
@@ -101,6 +122,14 @@
 <tr><td><b>🔧 Toolbox and workspaces</b></td><td>Built-ins include AI image and audio generation (speech, music, and sound effects), web search, bash, file operations, Canvas, URL preview, and self-diagnosis. Deep Feishu / Lark integration adds 40+ tools across documents, bitable, drive, wiki, approvals, calendar, contacts, and recruiting.</td></tr>
 <tr><td><b>📊 Dashboard + Recap</b></td><td>Track cost, tokens, activity, health, Plans, and long-running work in one place. Recap reviews a period of conversation history, produces a multi-section report, and exports standalone HTML.</td></tr>
 </table>
+
+<p align="center">
+  <a href="assets/screenshots/dashboard.png">
+    <img src="assets/screenshots/dashboard.png" alt="Hope Agent dashboard" width="100%">
+  </a>
+</p>
+
+<p align="center"><sub><b>Dashboard</b> · Track usage, health, and long-running work in one place</sub></p>
 
 ### 🌐 Desktop, service & cross-device
 
