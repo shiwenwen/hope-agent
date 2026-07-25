@@ -375,6 +375,46 @@ describe("PetWindow pointer interactions", () => {
     expect(screen.queryByText("Completed task")).not.toBeInTheDocument()
   })
 
+  test("defers the read receipt to the destination after opening a completed bubble", async () => {
+    mocks.petSnapshot = {
+      revision: 7,
+      generatedAt: "2026-07-24T00:00:00Z",
+      stale: false,
+      dominant: "ready",
+      activities: [
+        {
+          activityId: "session-open",
+          status: "ready",
+          title: "Open completed task",
+          titleKind: "session",
+          updatedAt: "2026-07-24T00:00:00Z",
+          boundary: 42,
+          preview: "Finished",
+          target: { kind: "regular", sessionId: "session-open" },
+        },
+      ],
+      total: 1,
+      truncated: false,
+    }
+    render(<PetWindow />)
+
+    const openButton = (await screen.findAllByText("Open completed task"))
+      .map((title) => title.closest("button"))
+      .find(
+        (button): button is HTMLButtonElement =>
+          button instanceof HTMLButtonElement && !button.disabled,
+      )
+    expect(openButton).toBeDefined()
+    fireEvent.click(openButton!)
+
+    await waitFor(() => {
+      expect(mocks.call).toHaveBeenCalledWith("pet_focus_target_cmd", {
+        target: { kind: "regular", sessionId: "session-open" },
+      })
+    })
+    expect(mocks.call).not.toHaveBeenCalledWith("mark_session_read_cmd", expect.anything())
+  })
+
   test("marks only exposed terminal boundaries read when the user collapses the stack", async () => {
     mocks.petSnapshot = {
       revision: 8,

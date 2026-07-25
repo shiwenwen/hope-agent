@@ -37,14 +37,15 @@ const windowType = new URLSearchParams(window.location.search).get("window")
 // The shared base stylesheet paints `body` with the application background.
 // A transparent native PetWindow must clear that surface before the async i18n
 // bootstrap and React's first render, otherwise the whole WebView appears as a
-// white rectangle behind the sprite.
+// white rectangle behind the sprite. Keep the override in the static Tailwind
+// utility system so the renderer does not mutate presentation styles directly.
 if (windowType === "pet") {
   for (const element of [
     document.documentElement,
     document.body,
     document.getElementById("root"),
   ]) {
-    element?.style.setProperty("background", "transparent", "important")
+    element?.classList.add("bg-transparent")
   }
 }
 

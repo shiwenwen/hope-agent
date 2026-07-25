@@ -274,7 +274,6 @@ export default function PetWindow() {
   const openTarget = async (activity: PetActivity) => {
     try {
       await getTransport().call("pet_focus_target_cmd", { target: activity.target })
-      void markActivityRead(activity)
       setStackExpanded(false)
       setExpandedReplyId(null)
       setMenuOpen(false)
