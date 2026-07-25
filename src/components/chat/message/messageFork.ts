@@ -121,6 +121,46 @@ async function restoreFileAttachmentOrError(
   }
 }
 
+async function restoreResendFileAttachment(
+  attachment: MessageAttachment,
+): Promise<DraftAttachment> {
+  try {
+    return await restoreFileAttachment(attachment)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(message.replace("fork attachment", "attachment"), { cause: error })
+  }
+}
+
+function quoteDraftsFromAttachments(attachments: MessageAttachment[]): {
+  pendingQuotes: PendingFileQuote[]
+  pendingMessageQuotes: PendingMessageQuote[]
+} {
+  const pendingQuotes = attachments.flatMap((attachment): PendingFileQuote[] => {
+    if (attachment.kind !== "quote" || !attachment.quotePath || attachment.quoteContent == null) {
+      return []
+    }
+    const range = parseQuoteRange(attachment.quoteLines)
+    return [
+      {
+        path: attachment.quotePath,
+        name: attachment.name,
+        startLine: range.start,
+        endLine: range.end,
+        content: attachment.quoteContent,
+      },
+    ]
+  })
+  const pendingMessageQuotes = attachments.flatMap((attachment): PendingMessageQuote[] =>
+    attachment.kind === "message_quote" &&
+    attachment.messageQuoteRole &&
+    attachment.quoteContent != null
+      ? [{ role: attachment.messageQuoteRole, content: attachment.quoteContent }]
+      : [],
+  )
+  return { pendingQuotes, pendingMessageQuotes }
+}
+
 /** Rebuild the selected user prompt as a real composer draft. File metadata in
  * the fork response points at copies owned by the new session, so loading it
  * cannot make the draft depend on the source session's attachment directory. */
@@ -138,33 +178,31 @@ export async function forkComposerDraftForMessage(
       )
       .map(restoreFileAttachmentOrError),
   )
-  const pendingQuotes = (attachments ?? []).flatMap((attachment): PendingFileQuote[] => {
-    if (
-      attachment.kind !== "quote" ||
-      !attachment.quotePath ||
-      attachment.quoteContent == null
-    ) {
-      return []
-    }
-    const range = parseQuoteRange(attachment.quoteLines)
-    return [
-      {
-        path: attachment.quotePath,
-        name: attachment.name,
-        startLine: range.start,
-        endLine: range.end,
-        content: attachment.quoteContent,
-      },
-    ]
-  })
-  const pendingMessageQuotes = (attachments ?? []).flatMap(
-    (attachment): PendingMessageQuote[] =>
-      attachment.kind === "message_quote" &&
-      attachment.messageQuoteRole &&
-      attachment.quoteContent != null
-        ? [{ role: attachment.messageQuoteRole, content: attachment.quoteContent }]
-        : [],
+  const { pendingQuotes, pendingMessageQuotes } = quoteDraftsFromAttachments(attachments ?? [])
+  return {
+    text: msg.content,
+    attachedFiles,
+    pendingQuotes,
+    pendingMessageQuotes,
+  }
+}
+
+/** Restore the selected prompt before the source transcript is rewound.
+ * Unlike fork restoration this is fail-closed: if a referenced file can no
+ * longer be read, the caller must keep the original turn instead of deleting
+ * it and silently resending without that attachment. */
+export async function resendComposerDraftForMessage(msg: Message): Promise<ForkComposerDraft> {
+  if (msg.role !== "user") throw new Error("Only user messages can be edited")
+  const attachments = msg.attachments ?? []
+  const attachedFiles = await Promise.all(
+    attachments
+      .filter(
+        (attachment): attachment is MessageAttachment & { kind: "file" | "image" } =>
+          attachment.kind === "file" || attachment.kind === "image",
+      )
+      .map(restoreResendFileAttachment),
   )
+  const { pendingQuotes, pendingMessageQuotes } = quoteDraftsFromAttachments(attachments)
   return {
     text: msg.content,
     attachedFiles,

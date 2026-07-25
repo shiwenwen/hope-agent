@@ -12,6 +12,7 @@ import { memorySourceLabel } from "./message/memoryTraceFormat"
 import {
   forkComposerDraftForMessage,
   forkSessionRequestForMessage,
+  resendComposerDraftForMessage,
   type ForkComposerDraft,
 } from "./message/messageFork"
 import { BrowserExtensionNudge } from "./BrowserExtensionNudge"
@@ -3039,6 +3040,59 @@ export default function ChatScreen({
     [rawHandleSwitchSession, reloadSessions, session.currentSessionId, t],
   )
 
+  const handleEditAndResend = useCallback(
+    async (message: Message, content: string) => {
+      const sessionId = session.currentSessionId
+      const messageId = message.dbId
+      if (!sessionId || typeof messageId !== "number") return
+
+      try {
+        // Restore source-owned files before the rewind. If any attachment is
+        // unavailable, keep the original transcript intact rather than
+        // silently resending an incomplete prompt.
+        const draft = await resendComposerDraftForMessage(message)
+        await new Promise<void>((resolve, reject) => {
+          let dispatchSettled = false
+          const rejectDispatch = (error: unknown) => {
+            if (dispatchSettled) return
+            dispatchSettled = true
+            reject(error)
+          }
+          const acceptDispatch = () => {
+            if (dispatchSettled) return
+            dispatchSettled = true
+            resolve()
+          }
+          const goalEdit = message.isGoalTrigger === true
+          void stream
+            .handleSend(goalEdit ? goalTurnPrompt(content) : content, {
+              draftOverride: {
+                attachedFiles: draft.attachedFiles,
+                pendingQuotes: draft.pendingQuotes,
+                pendingMessageQuotes: draft.pendingMessageQuotes,
+              },
+              editMessageId: messageId,
+              displayText: goalEdit ? content : undefined,
+              goalTrigger: goalEdit || undefined,
+              onDispatchAccepted: acceptDispatch,
+              onPreparationError: rejectDispatch,
+            })
+            .catch(rejectDispatch)
+        })
+      } catch (error) {
+        logger.error("ui", "ChatScreen::editMessage", "Failed to edit and resend message", error)
+        toast.error(
+          t("chat.editMessage.failed", {
+            defaultValue: "Could not edit and resend this message",
+          }),
+          { description: error instanceof Error ? error.message : String(error) },
+        )
+        throw error
+      }
+    },
+    [session.currentSessionId, stream, t],
+  )
+
   // ── Plan Request Changes Handler ──────────────────────────────
   // See `planCommentMessage.ts` for the prompt vs displayText vs payload split.
   const handleRequestChanges = useCallback(
@@ -4114,6 +4168,11 @@ export default function ChatScreen({
                   void stream.handleSend(message)
                 }}
                 onForkFromMessage={handleForkFromMessage}
+                onEditAndResend={
+                  !isCronSession && !isSubagentSession && stream.pendingSends.length === 0
+                    ? handleEditAndResend
+                    : undefined
+                }
                 onOpenMemorySettings={onOpenSettings ? () => onOpenSettings("memory") : undefined}
                 onOpenKnowledge={onOpenKnowledge}
                 onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}

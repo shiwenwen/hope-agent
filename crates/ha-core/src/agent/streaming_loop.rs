@@ -417,6 +417,7 @@ async fn drain_queued_turn_user_messages<F>(
             item.is_plan_trigger,
             item.plan_comment.as_ref(),
             item.goal_trigger,
+            true,
             attachment_meta,
         );
         let mut user_msg =

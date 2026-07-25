@@ -504,6 +504,13 @@
     "sidebarDetailedMode": "Tukar ke mod biasa",
     "copied": "Disalin",
     "copy": "Salin",
+    "editMessage": {
+      "action": "Edit mesej",
+      "inputLabel": "Edit mesej anda",
+      "fileChangesWarning": "Perbualan selepas mesej ini akan dialih keluar, tetapi perubahan fail yang telah dibuat tidak akan dibatalkan.",
+      "send": "Hantar",
+      "failed": "Mesej ini tidak dapat diedit dan dihantar semula"
+    },
     "messageQuote": {
       "addToChat": "Tambah ke sembang",
       "assistantMessage": "Mesej pembantu",

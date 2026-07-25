@@ -504,6 +504,13 @@
     "sidebarDetailedMode": "Switch to normal mode",
     "copied": "Copied",
     "copy": "Copy",
+    "editMessage": {
+      "action": "Edit message",
+      "inputLabel": "Edit your message",
+      "fileChangesWarning": "Messages after this one will be removed, but file changes already made will not be undone.",
+      "send": "Send",
+      "failed": "Could not edit and resend this message"
+    },
     "messageQuote": {
       "addToChat": "Add to chat",
       "assistantMessage": "Assistant message",
