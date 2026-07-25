@@ -30,22 +30,13 @@ impl PetRef {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PetConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub selected_pet_ref: PetRef,
-}
-
-impl Default for PetConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            selected_pet_ref: PetRef::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
