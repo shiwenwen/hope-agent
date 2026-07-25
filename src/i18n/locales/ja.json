@@ -8517,6 +8517,9 @@
     "permission": {
       "description": "セッション権限モードを設定 (default/smart/yolo)"
     },
+    "pet": {
+      "description": "デスクトップペットを起こす、しまう、または状態を確認"
+    },
     "plan": {
       "description": "プランモードに入る/終了"
     },
@@ -12207,6 +12210,118 @@
       "checkCleanAll": "すべての成果物がコードと一致しています",
       "checkStale": "{{n}} 件の成果物にコード更新があります",
       "chatPrompt": "実装コードがこのデザインと乖離しています。参照したコード変更に合わせて現在のデザインを更新し、デザインの意図とその他の内容は変えないでください。"
+    }
+  },
+  "pet": {
+    "settings": {
+      "nav": "ペット",
+      "wake": "デスクトップペット",
+      "wakeDesc": "アニメーションする相棒と会話の状況をデスクトップに表示します。",
+      "desktopOnly": "起こす／しまう操作はデスクトップアプリで利用できます。",
+      "choose": "ペットを選択",
+      "localOnly": "カスタムペットはこのデバイスだけに保存されます。",
+      "loadFailed": "ペットを読み込めませんでした",
+      "saveFailed": "ペット設定を保存できませんでした",
+      "cannotDeleteSelected": "削除する前に別のペットを選んでください",
+      "deleted": "ペットを削除しました",
+      "undo": "元に戻す",
+      "deleteFailed": "ペットを削除できませんでした",
+      "deleteTitle": "このペットを削除しますか？",
+      "deleteDescription": "{{name}} をこのデバイスから削除しますか？"
+    },
+    "discovery": {
+      "title": "デスクトップペットをご紹介",
+      "description": "進行中の会話を見守り、デスクトップから返信や確認依頼に対応できます。",
+      "action": "試してみる"
+    },
+    "import": {
+      "action": "インポート",
+      "title": "ペットをインポート",
+      "description": "Codex 互換ペットを Hope に追加する前にプレビューして検証します。",
+      "drop": "ペットフォルダー、zip、マニフェスト + 画像、PNG、WebP をドロップ",
+      "dropSafety": "ドロップではプレビューだけを作成します。確認するまでインストールされません。",
+      "chooseFiles": "ファイルを選択",
+      "packageFiles": "ペットパッケージ",
+      "fromCodex": "Codex ペットをスキャン",
+      "found": "{{count}} 件見つかりました",
+      "found_one": "{{count}} 件見つかりました",
+      "found_other": "{{count}} 件見つかりました",
+      "unknownVersion": "不明なバージョン",
+      "previewFailed": "このペットパッケージをプレビューできませんでした",
+      "previewFailedCount": "{{amount}} 件のペットパッケージをプレビューできませんでした",
+      "previewCount": "{{amount}} 匹のペットを確認できます",
+      "removePreview": "今回のインポートから外す",
+      "scanFailed": "Codex ペットをスキャンできませんでした",
+      "uploadFailed": "ペットパッケージをアップロードできませんでした",
+      "duplicate": "インポート済み",
+      "enableAfter": "インポート後にこのペットを使用",
+      "confirm": "ペットをインポート",
+      "imported": "ペットをインポートしました",
+      "importedCount": "{{amount}} 匹のペットをライブラリに追加しました",
+      "alreadyImported": "このペットはすでにライブラリにあります",
+      "commitFailed": "ペットをインポートできませんでした",
+      "commitFailedCount": "{{amount}} 匹のペットをインポートできませんでした",
+      "linkPlaceholder": "codex:// インストールリンクまたは HTTPS スプライトシート URL を貼り付け",
+      "linkLabel": "ペットリンク",
+      "previewLink": "リンクをプレビュー"
+    },
+    "creator": {
+      "action": "作成",
+      "title": "ペットを作成",
+      "description": "オリジナルのマスコットを生成し、Codex 互換アニメーションを確認してからインストールします。",
+      "name": "名前",
+      "shortDescription": "短い説明（任意）",
+      "prompt": "どんな見た目のペットにしますか？",
+      "generate": "プレビューを生成",
+      "generating": "プレビューを作成中…",
+      "failed": "このペットを作成できませんでした"
+    },
+    "export": {
+      "action": "Codex 用にエクスポート",
+      "saved": "Codex 互換パッケージをエクスポートしました",
+      "failed": "このペットをエクスポートできませんでした"
+    },
+    "window": {
+      "interact": "Hope ペットとふれあう",
+      "tuckAway": "ペットをしまう"
+    },
+    "bubble": {
+      "needsInput": "{{count}} 件の会話で入力が必要です。",
+      "needsInput_one": "入力が必要です。",
+      "needsInput_other": "{{count}} 件の会話で入力が必要です。",
+      "blocked": "{{count}} 件の会話がブロックされています。",
+      "blocked_one": "会話がブロックされています。",
+      "blocked_other": "{{count}} 件の会話がブロックされています。",
+      "ready": "{{count}} 件の会話の準備ができました。",
+      "ready_one": "会話の準備ができました。",
+      "ready_other": "{{count}} 件の会話の準備ができました。",
+      "open": "Hope で開く",
+      "dismiss": "閉じる",
+      "running": "考え中",
+      "reply": "返信",
+      "queued": "返信をキューに追加しました",
+      "sent": "返信を送信しました",
+      "sendFailed": "返信を送信できませんでした"
+    },
+    "stack": {
+      "expand": "{{count}} 件の会話を表示",
+      "collapse": "会話を折りたたむ"
+    },
+    "tray": {
+      "title": "会話アクティビティ",
+      "reconnecting": "状態を更新中…",
+      "count": "{{count}} 件がアクティブ",
+      "count_one": "{{count}} 件がアクティブ",
+      "count_other": "{{count}} 件がアクティブ",
+      "close": "アクティビティを閉じる",
+      "openRemaining": "残り {{count}} 件を Hope で表示",
+      "openRemaining_one": "残り {{count}} 件を Hope で表示",
+      "openRemaining_other": "残り {{count}} 件を Hope で表示",
+      "incognitoTitle": "シークレット会話",
+      "untitledTitle": "新しい会話"
+    },
+    "navigation": {
+      "unavailable": "この会話は利用できなくなりました。"
     }
   },
   "configRecovery": {

@@ -57,6 +57,8 @@ pub fn create_thread(session_id: &str, project_id: &str) -> Result<()> {
          ON CONFLICT(session_id) DO NOTHING",
         params![session_id, project_id, now],
     )?;
+    drop(conn);
+    crate::pet::emit_activity_changed();
     Ok(())
 }
 

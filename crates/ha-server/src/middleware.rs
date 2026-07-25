@@ -153,7 +153,7 @@ fn is_knowledge_agent_read_path(path: &str) -> bool {
 /// `?token=<api-key>` WebSocket auth fallback can't leak into any log stream.
 pub async fn access_log(request: Request, next: Next) -> Response {
     let method = request.method().clone();
-    let path = request.uri().path().to_string();
+    let path = redact_access_path(request.uri().path());
     let start = std::time::Instant::now();
     let response = next.run(request).await;
     ha_core::app_info!(
@@ -166,6 +166,19 @@ pub async fn access_log(request: Request, next: Next) -> Response {
         start.elapsed().as_millis()
     );
     response
+}
+
+fn redact_access_path(path: &str) -> String {
+    const PREFIX: &str = "/api/pets/import/previews/";
+    const SUFFIX: &str = "/thumbnail";
+    if let Some(token_and_suffix) = path.strip_prefix(PREFIX) {
+        if let Some(token) = token_and_suffix.strip_suffix(SUFFIX) {
+            if !token.contains('/') {
+                return format!("{PREFIX}[redacted]{SUFFIX}");
+            }
+        }
+    }
+    path.to_string()
 }
 
 #[cfg(test)]
@@ -222,6 +235,18 @@ mod tests {
         assert!(!is_knowledge_agent_read_path(
             "/api/knowledge/agent/search/extra"
         ));
+    }
+
+    #[test]
+    fn access_log_redacts_pet_preview_capabilities() {
+        assert_eq!(
+            redact_access_path("/api/pets/import/previews/secret-token/thumbnail"),
+            "/api/pets/import/previews/[redacted]/thumbnail"
+        );
+        assert_eq!(
+            redact_access_path("/api/pets/import/preview/cancel"),
+            "/api/pets/import/preview/cancel"
+        );
     }
 
     #[tokio::test]

@@ -533,6 +533,7 @@ async fn run_agent_for_session(
             abort_on_cancel: false,
             persist_final_error_event: true,
             source: crate::chat_engine::ChatSource::Subagent,
+            ui_surface: None,
             origin_source: None,
             channel_kb_context: None,
             event_sink: Arc::new(crate::chat_engine::NoopEventSink),

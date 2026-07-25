@@ -10,7 +10,7 @@ use super::types::{CommandCategory, SlashCommandDef};
 /// has no useful semantics. `/project` is now allowed: it re-points the
 /// current chat's session to a project (replacing the legacy reverse-claim
 /// model that Phase A1 removed).
-pub const IM_DISABLED_COMMANDS: &[&str] = &["agent", "handover"];
+pub const IM_DISABLED_COMMANDS: &[&str] = &["agent", "handover", "pet"];
 
 /// Whether a command is suppressed from the IM channel slash-command menu.
 pub fn is_im_disabled(name: &str) -> bool {
@@ -248,6 +248,21 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             args_optional: false,
             arg_placeholder: Some("<mode>".into()),
             arg_options: Some(vec!["default".into(), "smart".into(), "yolo".into()]),
+            description_raw: None,
+        },
+        SlashCommandDef {
+            name: "pet".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.pet.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[on|off|toggle|status]".into()),
+            arg_options: Some(vec![
+                "on".into(),
+                "off".into(),
+                "toggle".into(),
+                "status".into(),
+            ]),
             description_raw: None,
         },
         SlashCommandDef {

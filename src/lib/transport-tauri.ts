@@ -37,6 +37,7 @@ import type {
   ArtifactListOptions,
   ArtifactExportReceipt,
   DomainArtifactExportGuardReport,
+  PetAssetLease,
 } from "@/lib/transport";
 import { uploadFileInChunks } from "@/lib/fileUpload";
 import type { FileChangesMetadata, MediaItem } from "@/types/chat";
@@ -173,6 +174,12 @@ export class TauriTransport implements Transport {
       return convertFileSrc(path);
     }
     return null;
+  }
+
+  async loadPetAsset(assetId: string, builtinSrc: string): Promise<PetAssetLease> {
+    const descriptor = await invoke<{ path?: string | null }>("pet_asset_path_cmd", { assetId });
+    const src = descriptor.path ? convertFileSrc(descriptor.path) : builtinSrc;
+    return { src, revoke: () => undefined };
   }
 
   async openMedia(item: MediaItem): Promise<void> {

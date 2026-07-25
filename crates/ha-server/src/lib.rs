@@ -1,11 +1,12 @@
 // Hope Agent HTTP/WebSocket Server
 // Depends on ha-core for business logic, uses axum 0.8 for HTTP.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
 use axum::extract::DefaultBodyLimit;
+use axum::http::{header, HeaderMap, Uri};
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -39,6 +40,64 @@ pub struct AppContext {
     /// stamp `?token=` onto `/api/attachments/*` URLs emitted in events.
     /// `None` when server runs in no-auth mode.
     pub api_key: Option<String>,
+}
+
+/// Browser provenance required by the product-UI chat endpoint. Product
+/// surfaces run through Fetch, whose `Sec-Fetch-*` headers cannot be supplied
+/// by page JavaScript; ordinary API/automation callers use `/api/chat` and
+/// therefore cannot opt themselves into Pet activity with request JSON alone.
+#[derive(Clone)]
+pub struct UiRequestPolicy {
+    allowed_origins: Arc<HashSet<String>>,
+}
+
+impl UiRequestPolicy {
+    fn new(origins: &[String]) -> Self {
+        Self {
+            allowed_origins: Arc::new(
+                origins
+                    .iter()
+                    .map(|origin| origin.trim_end_matches('/').to_string())
+                    .collect(),
+            ),
+        }
+    }
+
+    pub(crate) fn accepts(&self, headers: &HeaderMap) -> bool {
+        let header_is = |name: &'static str, expected: &str| {
+            headers
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.eq_ignore_ascii_case(expected))
+        };
+        if !header_is("sec-fetch-mode", "cors") || !header_is("sec-fetch-dest", "empty") {
+            return false;
+        }
+        let Some(origin) = headers
+            .get(header::ORIGIN)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.trim_end_matches('/'))
+        else {
+            return false;
+        };
+        if self.allowed_origins.contains(origin) {
+            return true;
+        }
+        let Some(host) = headers
+            .get(header::HOST)
+            .and_then(|value| value.to_str().ok())
+        else {
+            return false;
+        };
+        origin
+            .parse::<Uri>()
+            .ok()
+            .and_then(|uri| {
+                uri.authority()
+                    .map(|authority| authority.as_str().to_string())
+            })
+            .is_some_and(|authority| authority.eq_ignore_ascii_case(host))
+    }
 }
 
 // ── Router Builder ──────────────────────────────────────────────
@@ -748,6 +807,7 @@ fn build_router_with_cors(
         )
         // Chat
         .route("/chat", post(routes::chat::chat))
+        .route("/chat/ui", post(routes::chat::ui_chat))
         .route(
             "/eval/model/trials/{trial_id}",
             get(routes::chat::model_eval_trial_telemetry),
@@ -843,6 +903,46 @@ fn build_router_with_cors(
             "/file-uploads/{upload_id}/complete",
             post(routes::file_upload::complete),
         )
+        // Desktop pet control plane.  The library/import/activity APIs remain
+        // useful in server mode; native overlay operations fail explicitly.
+        .route("/pets", get(routes::pet::list))
+        .route(
+            "/pets/config",
+            get(routes::pet::get_config).put(routes::pet::save_config),
+        )
+        .route("/pets/enabled", post(routes::pet::set_enabled))
+        .route("/pets/asset", get(routes::pet::asset_descriptor))
+        .route("/pets/sprite", get(routes::pet::sprite))
+        .route("/pets/codex-candidates", get(routes::pet::codex_candidates))
+        .route(
+            "/pets/codex-candidates/{candidate_id}/thumbnail",
+            get(routes::pet::candidate_thumbnail),
+        )
+        .route("/pets/import/preview", post(routes::pet::import_preview))
+        .route(
+            "/pets/import/preview/cancel",
+            post(routes::pet::cancel_import_preview),
+        )
+        .route(
+            "/pets/import/previews/{preview_token}/thumbnail",
+            get(routes::pet::preview_thumbnail),
+        )
+        .route("/pets/create/preview", post(routes::pet::create_preview))
+        .route("/pets/import/commit", post(routes::pet::import_commit))
+        .route("/pets/delete", post(routes::pet::delete))
+        .route("/pets/restore", post(routes::pet::restore))
+        .route("/pets/export", post(routes::pet::export))
+        .route("/pets/activity", get(routes::pet::activity))
+        .route(
+            "/pets/install-link/pending",
+            get(routes::pet::pending_install_link),
+        )
+        .route(
+            "/pets/window/bounds",
+            post(routes::pet::overlay_unsupported),
+        )
+        .route("/pets/window/sync", post(routes::pet::overlay_unsupported))
+        .route("/pets/focus-target", post(routes::pet::overlay_unsupported))
         // Attachment download (serves session-scoped files under
         // ~/.hope-agent/attachments/{session_id}/) — the logical URL
         // form emitted in `__MEDIA_ITEMS__` events.
@@ -3510,6 +3610,7 @@ fn build_router_with_cors(
     let base = Router::new().merge(health).merge(protected);
 
     attach_web_fallback(base)
+        .layer(axum::Extension(UiRequestPolicy::new(cors_origins)))
         .layer(build_cors_layer(cors_origins))
         .layer(axum::middleware::from_fn(middleware::access_log))
         .with_state(ctx)
@@ -3546,5 +3647,33 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
     } else {
         let parsed: Vec<_> = origins.iter().filter_map(|o| o.parse().ok()).collect();
         cors.allow_origin(parsed)
+    }
+}
+
+#[cfg(test)]
+mod ui_request_policy_tests {
+    use super::*;
+
+    fn browser_headers(origin: &str, host: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ORIGIN, origin.parse().unwrap());
+        headers.insert(header::HOST, host.parse().unwrap());
+        headers.insert("sec-fetch-mode", "cors".parse().unwrap());
+        headers.insert("sec-fetch-dest", "empty".parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn ui_requests_require_browser_metadata_and_an_approved_origin() {
+        let same_origin = browser_headers("http://localhost:8420", "localhost:8420");
+        assert!(UiRequestPolicy::new(&[]).accepts(&same_origin));
+
+        let cross_origin = browser_headers("https://app.example", "agent.example");
+        assert!(!UiRequestPolicy::new(&[]).accepts(&cross_origin));
+        assert!(UiRequestPolicy::new(&["https://app.example".to_string()]).accepts(&cross_origin));
+
+        let mut missing_fetch_metadata = same_origin;
+        missing_fetch_metadata.remove("sec-fetch-mode");
+        assert!(!UiRequestPolicy::new(&[]).accepts(&missing_fetch_metadata));
     }
 }

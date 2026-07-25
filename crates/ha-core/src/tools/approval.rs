@@ -703,6 +703,7 @@ pub fn emit_pending_interactions_changed(session_id: Option<&str>) {
         };
         bus.emit("session_pending_interactions_changed", payload);
     }
+    crate::pet::emit_activity_changed();
 }
 
 /// Allowlist: command prefixes that are auto-approved

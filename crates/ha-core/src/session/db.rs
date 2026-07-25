@@ -2263,6 +2263,7 @@ impl SessionDB {
         replacement: &NewMessage,
         new_turn_id: &str,
         source: &str,
+        ui_surface: Option<crate::pet::ChatUiSurface>,
     ) -> Result<i64> {
         let result = (|| {
             if replacement.role != MessageRole::User {
@@ -2328,14 +2329,19 @@ impl SessionDB {
                 );
             }
 
-            let (turn_id, turn_status, assistant_message_id): (String, String, Option<i64>) = tx
+            let (turn_id, turn_status, assistant_message_id, previous_had_ui_surface): (
+                String,
+                String,
+                Option<i64>,
+                bool,
+            ) = tx
                 .query_row(
-                    "SELECT id, status, assistant_message_id
+                    "SELECT id, status, assistant_message_id, ui_surface IS NOT NULL
                      FROM chat_turns
                      WHERE session_id = ?1 AND user_message_id = ?2
                      ORDER BY started_at DESC LIMIT 1",
                     params![session_id, user_message_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .optional()?
                 .ok_or_else(|| anyhow::anyhow!("user message has no completed assistant turn"))?;
@@ -2509,9 +2515,17 @@ impl SessionDB {
             tx.execute(
                 "INSERT INTO chat_turns (
                     id, session_id, source, status, interrupt_reason, stream_id,
-                    user_message_id, assistant_message_id, error, started_at, ended_at, updated_at
-                 ) VALUES (?1, ?2, ?3, 'running', NULL, NULL, ?4, NULL, NULL, ?5, NULL, ?5)",
-                params![new_turn_id, session_id, source, replacement_message_id, now],
+                    user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
+                    ui_surface
+                 ) VALUES (?1, ?2, ?3, 'running', NULL, NULL, ?4, NULL, NULL, ?5, NULL, ?5, ?6)",
+                params![
+                    new_turn_id,
+                    session_id,
+                    source,
+                    replacement_message_id,
+                    now,
+                    ui_surface.map(crate::pet::ChatUiSurface::as_str),
+                ],
             )?;
 
             let context_changed = tx.execute(
@@ -2528,7 +2542,11 @@ impl SessionDB {
             }
 
             tx.commit()?;
-            Ok((replacement_message_id, removed))
+            Ok((
+                replacement_message_id,
+                removed,
+                previous_had_ui_surface || ui_surface.is_some(),
+            ))
         })();
 
         if result.is_ok() {
@@ -2546,9 +2564,12 @@ impl SessionDB {
                 );
             }
         }
+        if matches!(&result, Ok((_, _, true))) {
+            crate::pet::emit_activity_changed();
+        }
 
         match &result {
-            Ok((replacement_message_id, removed)) => crate::app_info!(
+            Ok((replacement_message_id, removed, _)) => crate::app_info!(
                 "session",
                 "edit_resend",
                 "replaced latest user turn atomically: session_id={} user_message_id={} replacement_message_id={} removed_messages={}",
@@ -2566,7 +2587,7 @@ impl SessionDB {
                 error
             ),
         }
-        result.map(|(replacement_message_id, _)| replacement_message_id)
+        result.map(|(replacement_message_id, _, _)| replacement_message_id)
     }
 
     fn fork_session_with_boundary(
@@ -5823,6 +5844,7 @@ impl SessionDB {
         if let Some(domain) = unread_domain {
             emit_unread_changed(Some(session_id), Some(domain));
         }
+        crate::pet::emit_activity_changed();
         Ok(())
     }
 
@@ -5844,6 +5866,7 @@ impl SessionDB {
         drop(stmt);
         drop(conn);
         emit_unread_changed(None, None);
+        crate::pet::emit_activity_changed();
         Ok(())
     }
 
@@ -5866,6 +5889,7 @@ impl SessionDB {
         conn.execute(&sql, params![project_id])?;
         drop(conn);
         emit_unread_changed(None, Some(UnreadDomain::Regular));
+        crate::pet::emit_activity_changed();
         Ok(())
     }
 
@@ -5889,6 +5913,7 @@ impl SessionDB {
         conn.execute(&sql, [])?;
         drop(conn);
         emit_unread_changed(None, Some(UnreadDomain::Regular));
+        crate::pet::emit_activity_changed();
         Ok(())
     }
 
@@ -8103,6 +8128,7 @@ mod tests {
                     .with_source(crate::chat_engine::ChatSource::Desktop),
                 "replacement-turn",
                 crate::chat_engine::ChatSource::Desktop.as_str(),
+                Some(crate::pet::ChatUiSurface::MainChat),
             )
             .expect("replace latest turn");
         let remaining = db
@@ -8132,6 +8158,10 @@ mod tests {
             .expect("replacement turn exists");
         assert_eq!(replacement_turn.user_message_id, Some(replacement_id));
         assert_eq!(replacement_turn.status, ChatTurnStatus::Running);
+        assert_eq!(
+            replacement_turn.ui_surface,
+            Some(crate::pet::ChatUiSurface::MainChat)
+        );
         assert!(db
             .latest_stream_run(&session.id)
             .expect("load latest stream run")
@@ -8159,6 +8189,7 @@ mod tests {
                 &NewMessage::user("replacement"),
                 "replacement-turn",
                 crate::chat_engine::ChatSource::Desktop.as_str(),
+                None,
             )
             .expect_err("older user message must be rejected");
         assert!(error.to_string().contains("latest user message"));
@@ -8218,6 +8249,7 @@ mod tests {
             &NewMessage::user("replacement prompt"),
             "duplicate-replacement-turn",
             crate::chat_engine::ChatSource::Desktop.as_str(),
+            None,
         )
         .expect_err("duplicate turn id must fail the transaction");
 

@@ -122,6 +122,9 @@ export function useDesignChat(
   // Monotonic guards: a late-resolving messages/model fetch must not clobber a
   // newer thread switch (last-writer-by-intent, not by RTT).
   const switchVersionRef = useRef(0)
+  // Exact navigation/history selection must supersede the async default-thread
+  // lookup for a project, regardless of network completion order.
+  const selectionIntentRef = useRef(0)
   const modelLoadVersionRef = useRef(0)
 
   const [hasMore, setHasMore] = useState(false)
@@ -152,63 +155,59 @@ export function useDesignChat(
     }
   }, [])
 
-  const loadModels = useCallback(
-    async (agentId: string): Promise<ModelSnapshot | null> => {
-      const version = ++modelLoadVersionRef.current
-      try {
-        const [models, active, settings, agentConfig] = await Promise.all([
-          getTransport().call<AvailableModel[]>("get_available_models"),
-          getTransport().call<ActiveModel | null>("get_active_model"),
-          getTransport().call<{ reasoning_effort: string }>("get_current_settings"),
-          getTransport()
-            .call<AgentConfig>("get_agent_config", { id: agentId })
-            .catch(() => null),
-        ])
-        if (modelLoadVersionRef.current !== version) return null
-        setAvailableModels(models)
-        let displayModel = active
-        const manualOverride = manualModelOverrideRef.current
-        const manualModel = manualOverride
-          ? models.find(
-              (m) =>
-                m.providerId === manualOverride.providerId && m.modelId === manualOverride.modelId,
-            )
-          : undefined
-        if (manualOverride && !manualModel) manualModelOverrideRef.current = null
-        const projectDefault = projectDefaultModelRef.current
-        const projectDefaultLive = projectDefault
-          ? models.find(
-              (m) =>
-                m.providerId === projectDefault.providerId &&
-                m.modelId === projectDefault.modelId,
-            )
-          : undefined
-        if (manualModel && manualOverride) {
-          displayModel = manualOverride
-        } else if (projectDefault && projectDefaultLive) {
-          // 项目默认（首页所选）胜过 Agent 主模型；弱引用——provider/模型已删则跳过。
-          displayModel = projectDefault
-        } else if (agentConfig?.model.primary) {
-          const [providerId, modelId] = agentConfig.model.primary.split("::")
-          const agentModel = models.find((m) => m.providerId === providerId && m.modelId === modelId)
-          if (agentModel) displayModel = { providerId, modelId }
-        }
-        setActiveModel(displayModel)
-        const currentModel = displayModel
-          ? models.find(
-              (m) => m.providerId === displayModel!.providerId && m.modelId === displayModel!.modelId,
-            )
-          : undefined
-        const effort = agentConfig?.model?.reasoningEffort ?? settings.reasoning_effort
-        setReasoningEffort(normalizeEffortForModel(currentModel, effort, (key) => key))
-        return { models, displayModel, defaultEffort: effort }
-      } catch (e) {
-        logger.error("ui", "DesignChat::loadModels", "Failed to load models", e)
-        return null
+  const loadModels = useCallback(async (agentId: string): Promise<ModelSnapshot | null> => {
+    const version = ++modelLoadVersionRef.current
+    try {
+      const [models, active, settings, agentConfig] = await Promise.all([
+        getTransport().call<AvailableModel[]>("get_available_models"),
+        getTransport().call<ActiveModel | null>("get_active_model"),
+        getTransport().call<{ reasoning_effort: string }>("get_current_settings"),
+        getTransport()
+          .call<AgentConfig>("get_agent_config", { id: agentId })
+          .catch(() => null),
+      ])
+      if (modelLoadVersionRef.current !== version) return null
+      setAvailableModels(models)
+      let displayModel = active
+      const manualOverride = manualModelOverrideRef.current
+      const manualModel = manualOverride
+        ? models.find(
+            (m) =>
+              m.providerId === manualOverride.providerId && m.modelId === manualOverride.modelId,
+          )
+        : undefined
+      if (manualOverride && !manualModel) manualModelOverrideRef.current = null
+      const projectDefault = projectDefaultModelRef.current
+      const projectDefaultLive = projectDefault
+        ? models.find(
+            (m) =>
+              m.providerId === projectDefault.providerId && m.modelId === projectDefault.modelId,
+          )
+        : undefined
+      if (manualModel && manualOverride) {
+        displayModel = manualOverride
+      } else if (projectDefault && projectDefaultLive) {
+        // 项目默认（首页所选）胜过 Agent 主模型；弱引用——provider/模型已删则跳过。
+        displayModel = projectDefault
+      } else if (agentConfig?.model.primary) {
+        const [providerId, modelId] = agentConfig.model.primary.split("::")
+        const agentModel = models.find((m) => m.providerId === providerId && m.modelId === modelId)
+        if (agentModel) displayModel = { providerId, modelId }
       }
-    },
-    [],
-  )
+      setActiveModel(displayModel)
+      const currentModel = displayModel
+        ? models.find(
+            (m) => m.providerId === displayModel!.providerId && m.modelId === displayModel!.modelId,
+          )
+        : undefined
+      const effort = agentConfig?.model?.reasoningEffort ?? settings.reasoning_effort
+      setReasoningEffort(normalizeEffortForModel(currentModel, effort, (key) => key))
+      return { models, displayModel, defaultEffort: effort }
+    } catch (e) {
+      logger.error("ui", "DesignChat::loadModels", "Failed to load models", e)
+      return null
+    }
+  }, [])
 
   // Replace-load for SWITCHING to a thread (clears + repopulates). Version-guarded
   // so a slow A→B→A switch can't let the late A load overwrite B.
@@ -345,12 +344,13 @@ export function useDesignChat(
   useEffect(() => {
     if (!active || !projectId) return
     let cancelled = false
+    const intent = selectionIntentRef.current
     void (async () => {
       try {
         const meta = await getTransport().call<SessionMeta | null>("design_chat_thread_get_cmd", {
           projectId,
         })
-        if (cancelled) return
+        if (cancelled || selectionIntentRef.current !== intent) return
         if (meta) {
           const agentId = meta.agentId || DEFAULT_AGENT_ID
           setCurrentSessionId(meta.id)
@@ -425,6 +425,7 @@ export function useDesignChat(
   const handleSwitchAgent = useCallback(
     (agentId: string) => {
       if (agentId === currentAgentId) return
+      selectionIntentRef.current += 1
       // An agent is baked into a session once it has messages, so switching
       // mid-conversation auto-creates a fresh draft thread (anchored to the same
       // project); the old thread stays retrievable in history.
@@ -442,6 +443,7 @@ export function useDesignChat(
   )
 
   const handleNewThread = useCallback(() => {
+    selectionIntentRef.current += 1
     setCurrentSessionId(null)
     setMessages([])
     setHasMore(false)
@@ -452,15 +454,41 @@ export function useDesignChat(
   const switchThread = useCallback(
     async (sessionId: string) => {
       if (sessionId === currentSessionIdRef.current) return
+      selectionIntentRef.current += 1
       const meta = threads.find((t) => t.sessionId === sessionId)
+      currentSessionIdRef.current = sessionId
       setCurrentSessionId(sessionId)
-      if (meta) {
-        setSessions([{ id: meta.sessionId } as SessionMeta])
-        const agentId = meta.agentId || DEFAULT_AGENT_ID
+      const applyThreadAgent = (agentId: string) => {
         manualModelOverrideRef.current = null
         setCurrentAgentId(agentId)
         void loadModels(agentId)
       }
+      if (meta) {
+        setSessions([{ id: meta.sessionId } as SessionMeta])
+        applyThreadAgent(meta.agentId || DEFAULT_AGENT_ID)
+      } else {
+        // Pet navigation may focus the project before its history page has
+        // loaded. Restore durable metadata so follow-ups use the target
+        // thread's own Agent rather than the previously visible one.
+        try {
+          const durable = await getTransport().call<SessionMeta | null>("get_session_cmd", {
+            sessionId,
+          })
+          if (currentSessionIdRef.current !== sessionId) return
+          if (durable) {
+            setSessions([durable])
+            applyThreadAgent(durable.agentId || DEFAULT_AGENT_ID)
+          }
+        } catch (error) {
+          logger.warn(
+            "design",
+            "DesignChat::focusThreadMeta",
+            "Failed to restore focused thread metadata",
+            error,
+          )
+        }
+      }
+      if (currentSessionIdRef.current !== sessionId) return
       const streaming = loadingSessionsRef.current.has(sessionId)
       setLoading(streaming)
       const cached = sessionCacheRef.current.get(sessionId)

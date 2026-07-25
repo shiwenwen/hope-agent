@@ -52,7 +52,12 @@ function normalizeRequests(requests: ApprovalRequest[]): ApprovalRequest[] {
   })
 }
 
-export function useApprovals(currentSessionId: string | null): UseApprovalsReturn {
+/**
+ * Reconcile approval requests for one session. Passing `undefined` returns the
+ * owner-wide queue so lightweight cross-session surfaces (the desktop Pet)
+ * can filter it against their own authoritative activity allowlist.
+ */
+export function useApprovals(currentSessionId?: string | null): UseApprovalsReturn {
   const { t } = useTranslation()
   const [allApprovalRequests, setAllApprovalRequests] = useState<ApprovalRequest[]>([])
   const allApprovalRequestsRef = useRef<ApprovalRequest[]>([])
@@ -153,6 +158,7 @@ export function useApprovals(currentSessionId: string | null): UseApprovalsRetur
   const approvalRequests = useMemo(
     () =>
       allApprovalRequests.filter((request) => {
+        if (currentSessionId === undefined) return true
         if (!request.session_id) return true
         return request.session_id === currentSessionId
       }),

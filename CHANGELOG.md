@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **新增 Codex 兼容桌面宠物**：可从侧边栏或设置开启，拖入 Codex 宠物直接导入，并通过动态气泡查看主对话进度、快捷回复、停止任务及处理提问与授权；首次使用会显示非模态功能提示。 (#554)
+
 ## [0.23.0] - 2026-07-25
 
 ### Added

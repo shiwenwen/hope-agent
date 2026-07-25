@@ -94,6 +94,7 @@ test("HttpTransport.startChat only bridges session_created and not late turn_sta
   )
 
   expect(response).toBe("assistant reply")
+  expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8420/api/chat/ui")
   expect(events).toEqual([
     JSON.stringify({
       type: "session_created",
@@ -101,6 +102,33 @@ test("HttpTransport.startChat only bridges session_created and not late turn_sta
     }),
   ])
 })
+
+test.each(["knowledge_chat", "pet_chat"] as const)(
+  "HttpTransport carries the %s product surface through the bundled UI endpoint",
+  async (uiSurface) => {
+    const transport = new HttpTransport("http://localhost:8420")
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ sessionId: "session-123", response: "ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    await transport.startChat(
+      {
+        message: "hello",
+        attachments: [],
+        sessionId: "session-123",
+        uiSurface,
+      },
+      () => undefined,
+    )
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8420/api/chat/ui")
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined
+    expect(JSON.parse(String(request?.body))).toMatchObject({ uiSurface })
+  },
+)
 
 test("HttpTransport.save_attachment unwraps path from multipart response", async () => {
   const transport = new HttpTransport("http://localhost:8420")

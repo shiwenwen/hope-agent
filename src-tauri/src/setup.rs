@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 /// Main application setup — called from `.setup()` in the Tauri builder chain.
 pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // A protocol-registration failure must never block the main application.
+    crate::pet_deep_link::setup(app);
+
     // Store global AppHandle for event emission
     let _ = APP_HANDLE.set(app.handle().clone());
 
@@ -273,6 +276,19 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
 
     // Set up system tray icon with context menu
     tray::setup_tray(app)?;
+
+    // The pet renderer is a separate, lightweight webview.  It is created only
+    // when enabled so the default-off feature has no background renderer cost.
+    if ha_core::config::cached_config().pet.enabled {
+        if let Err(error) = crate::pet_window::ensure_window(app.handle()) {
+            app_warn!(
+                "pet",
+                "window_create",
+                "Failed to create pet window: {}",
+                error
+            );
+        }
+    }
 
     // Fix macOS theme-aware background to prevent flash on window resize
     #[cfg(target_os = "macos")]

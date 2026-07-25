@@ -6,6 +6,8 @@ mod commands;
 mod globals;
 mod macos_control;
 mod menu_labels;
+mod pet_deep_link;
+mod pet_window;
 mod setup;
 mod shortcuts;
 mod tauri_wrappers;
@@ -129,14 +131,9 @@ pub fn run() {
     let main_window_resize_save_token = window_state::new_resize_save_token();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
+        // Keep single-instance first: with its `deep-link` feature, Windows and
+        // Linux forward protocol launches into the running process.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // When a second instance is launched, show and focus the existing window
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -144,6 +141,13 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -152,6 +156,7 @@ pub fn run() {
         )
         .on_window_event(move |window, event| {
             window_state::handle_main_window_event(window, event, &main_window_resize_save_token);
+            pet_window::handle_window_event(window, event);
 
             // Intercept window close → hide instead of quit (app stays resident in tray)
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -204,6 +209,27 @@ pub fn run() {
             commands::file_upload::file_upload_chunk,
             commands::file_upload::file_upload_complete,
             commands::file_upload::file_upload_discard,
+            // Desktop pet library, import, activity, and native overlay shell
+            commands::pet::get_pet_config_cmd,
+            commands::pet::save_pet_config_cmd,
+            commands::pet::pet_set_enabled_cmd,
+            commands::pet::pet_sync_window_cmd,
+            commands::pet::pet_list_cmd,
+            commands::pet::pet_asset_path_cmd,
+            commands::pet::pet_codex_candidates_cmd,
+            commands::pet::pet_candidate_thumbnail_cmd,
+            commands::pet::pet_preview_thumbnail_cmd,
+            commands::pet::pet_create_preview_cmd,
+            commands::pet::pet_import_preview_cmd,
+            commands::pet::pet_import_preview_cancel_cmd,
+            commands::pet::pet_import_commit_cmd,
+            commands::pet::pet_delete_cmd,
+            commands::pet::pet_restore_cmd,
+            commands::pet::pet_export_cmd,
+            commands::pet::pet_activity_snapshot_cmd,
+            commands::pet::pet_apply_window_bounds_cmd,
+            commands::pet::pet_focus_target_cmd,
+            commands::pet::pet_take_install_link_cmd,
             commands::chat::queue_turn_user_message,
             commands::chat::list_queued_turn_user_messages,
             commands::chat::update_queued_turn_user_message,

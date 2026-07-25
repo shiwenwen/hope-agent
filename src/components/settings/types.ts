@@ -2,6 +2,7 @@ import type { SandboxMode } from "@/types/chat"
 
 export const SETTINGS_SECTION_IDS = [
   "general",
+  "pets",
   "modelConfig",
   "tools",
   "skills",

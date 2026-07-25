@@ -63,14 +63,8 @@ export interface UseKnowledgeChatReturn {
   sessionTemperature: number | null
   unavailableModelPreference: string | null
   manualModelOverrideRef: React.MutableRefObject<ActiveModel | null>
-  handleModelChange: (
-    key: string,
-    options?: { applyToAgentDefault?: boolean },
-  ) => Promise<void>
-  handleEffortChange: (
-    effort: string,
-    options?: { applyToAgentDefault?: boolean },
-  ) => Promise<void>
+  handleModelChange: (key: string, options?: { applyToAgentDefault?: boolean }) => Promise<void>
+  handleEffortChange: (effort: string, options?: { applyToAgentDefault?: boolean }) => Promise<void>
   handleEffortReset: () => Promise<void>
   handleTemperatureChange: (
     temperature: number | null,
@@ -143,6 +137,11 @@ export function useKnowledgeChat(
   // newer thread switch. Each switch/load bumps the counter; a stale resolve
   // checks its captured version and bails (last-writer-by-intent, not by RTT).
   const switchVersionRef = useRef(0)
+  // User/navigation intent guard for the default-thread lookup. Loading the
+  // note's default thread is async; a pet click or history selection made while
+  // that request is in flight must win even when the default lookup resolves
+  // later.
+  const selectionIntentRef = useRef(0)
   const modelLoadVersionRef = useRef(0)
 
   const [hasMore, setHasMore] = useState(false)
@@ -159,16 +158,10 @@ export function useKnowledgeChat(
     setLoadIssues((prev) => prev.filter((issue) => issue.operation !== operation))
   }, [])
 
-  const recordLoadIssue = useCallback(
-    (operation: KnowledgeChatLoadOperation, error: unknown) => {
-      const next = knowledgeChatLoadIssue(operation, error)
-      setLoadIssues((prev) => [
-        next,
-        ...prev.filter((issue) => issue.operation !== operation),
-      ])
-    },
-    [],
-  )
+  const recordLoadIssue = useCallback((operation: KnowledgeChatLoadOperation, error: unknown) => {
+    const next = knowledgeChatLoadIssue(operation, error)
+    setLoadIssues((prev) => [next, ...prev.filter((issue) => issue.operation !== operation)])
+  }, [])
 
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId
@@ -233,7 +226,8 @@ export function useKnowledgeChat(
         setActiveModel(displayModel)
         const currentModel = displayModel
           ? models.find(
-              (m) => m.providerId === displayModel!.providerId && m.modelId === displayModel!.modelId,
+              (m) =>
+                m.providerId === displayModel!.providerId && m.modelId === displayModel!.modelId,
             )
           : undefined
         const effort = runtimeDefaults.reasoningEffort
@@ -259,32 +253,35 @@ export function useKnowledgeChat(
   // reconciling the CURRENT thread after a turn use `reconcileThread` (merge,
   // no blank-on-error). Version-guarded so a slow A→B→A switch can't let the
   // late A load overwrite B.
-  const loadThreadMessages = useCallback(async (sessionId: string): Promise<boolean> => {
-    const version = ++switchVersionRef.current
-    try {
-      const [rawMsgs, , hasMoreFromApi] = await getTransport().call<
-        [SessionMessage[], number, boolean]
-      >("load_session_messages_latest_cmd", { sessionId, limit: PAGE_SIZE })
-      if (switchVersionRef.current !== version) return false
-      const parsed = parseSessionMessages(rawMsgs)
-      setMessages(parsed)
-      sessionCacheRef.current.set(sessionId, parsed)
-      setHasMore(hasMoreFromApi)
-      setOldestDbId(rawMsgs[0]?.id ?? null)
-      setLoadingMore(false)
-      clearLoadIssue("loadThread")
-      return true
-    } catch (e) {
-      if (switchVersionRef.current !== version) return false
-      logger.error("ui", "KnowledgeChat::loadMessages", "Failed to load messages", e)
-      recordLoadIssue("loadThread", e)
-      const cached = sessionCacheRef.current.get(sessionId)
-      setMessages(cached ?? [])
-      setHasMore(false)
-      setOldestDbId(null)
-      return false
-    }
-  }, [clearLoadIssue, recordLoadIssue])
+  const loadThreadMessages = useCallback(
+    async (sessionId: string): Promise<boolean> => {
+      const version = ++switchVersionRef.current
+      try {
+        const [rawMsgs, , hasMoreFromApi] = await getTransport().call<
+          [SessionMessage[], number, boolean]
+        >("load_session_messages_latest_cmd", { sessionId, limit: PAGE_SIZE })
+        if (switchVersionRef.current !== version) return false
+        const parsed = parseSessionMessages(rawMsgs)
+        setMessages(parsed)
+        sessionCacheRef.current.set(sessionId, parsed)
+        setHasMore(hasMoreFromApi)
+        setOldestDbId(rawMsgs[0]?.id ?? null)
+        setLoadingMore(false)
+        clearLoadIssue("loadThread")
+        return true
+      } catch (e) {
+        if (switchVersionRef.current !== version) return false
+        logger.error("ui", "KnowledgeChat::loadMessages", "Failed to load messages", e)
+        recordLoadIssue("loadThread", e)
+        const cached = sessionCacheRef.current.get(sessionId)
+        setMessages(cached ?? [])
+        setHasMore(false)
+        setOldestDbId(null)
+        return false
+      }
+    },
+    [clearLoadIssue, recordLoadIssue],
+  )
 
   // Reconcile the CURRENT thread with DB truth after a turn ends. Merge-based:
   // preserves paged-in scrollback + optimistic/streamed messages, swallows a
@@ -406,13 +403,14 @@ export function useKnowledgeChat(
   useEffect(() => {
     if (!active || !kbId) return
     let cancelled = false
+    const intent = selectionIntentRef.current
     void (async () => {
       try {
         const meta = await getTransport().call<SessionMeta | null>("kb_chat_thread_get_cmd", {
           kbId,
           note: notePath || undefined,
         })
-        if (cancelled) return
+        if (cancelled || selectionIntentRef.current !== intent) return
         if (meta) {
           const agentId = meta.agentId || DEFAULT_AGENT_ID
           setCurrentSessionId(meta.id)
@@ -526,7 +524,9 @@ export function useKnowledgeChat(
           })
         } catch (e) {
           logger.error("ui", "KnowledgeChat::modelAgentDefault", "Failed to set Agent model", e)
-          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+          toast.error(
+            t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"),
+          )
         }
       }
     },
@@ -560,7 +560,9 @@ export function useKnowledgeChat(
           })
         } catch (e) {
           logger.error("ui", "KnowledgeChat::effortAgentDefault", "Failed to set Agent effort", e)
-          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+          toast.error(
+            t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"),
+          )
         }
       }
     },
@@ -582,10 +584,7 @@ export function useKnowledgeChat(
   }, [currentAgentId, loadModels])
 
   const handleTemperatureChange = useCallback(
-    async (
-      temperature: number | null,
-      options?: { applyToAgentDefault?: boolean },
-    ) => {
+    async (temperature: number | null, options?: { applyToAgentDefault?: boolean }) => {
       const sessionId = currentSessionIdRef.current
       const previous = sessionTemperature
       let resolvedTemperature = temperature
@@ -614,8 +613,15 @@ export function useKnowledgeChat(
             patch: { temperature },
           })
         } catch (e) {
-          logger.error("ui", "KnowledgeChat::temperatureAgentDefault", "Failed to set Agent temperature", e)
-          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+          logger.error(
+            "ui",
+            "KnowledgeChat::temperatureAgentDefault",
+            "Failed to set Agent temperature",
+            e,
+          )
+          toast.error(
+            t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"),
+          )
         }
       }
     },
@@ -625,6 +631,7 @@ export function useKnowledgeChat(
   const handleSwitchAgent = useCallback(
     (agentId: string) => {
       if (agentId === currentAgentId) return
+      selectionIntentRef.current += 1
       // An agent is baked into a session's prompt + history once it has
       // messages, so switching mid-conversation auto-creates a fresh draft
       // thread (anchored to the same note); the old thread stays retrievable
@@ -645,6 +652,7 @@ export function useKnowledgeChat(
   )
 
   const handleNewThread = useCallback(() => {
+    selectionIntentRef.current += 1
     setCurrentSessionId(null)
     setMessages([])
     setHasMore(false)
@@ -656,18 +664,44 @@ export function useKnowledgeChat(
   const switchThread = useCallback(
     async (sessionId: string) => {
       if (sessionId === currentSessionIdRef.current) return
+      selectionIntentRef.current += 1
       const meta = threads.find((t) => t.sessionId === sessionId)
+      currentSessionIdRef.current = sessionId
       setCurrentSessionId(sessionId)
+      const applyThreadAgent = (agentId: string) => {
+        manualModelOverrideRef.current = null
+        setCurrentAgentId(agentId)
+        void loadModels(agentId, sessionId)
+      }
       if (meta) {
         setSessions([{ id: meta.sessionId } as SessionMeta])
         // Restore the thread's baked agent + its model list; otherwise a
         // follow-up would run with whatever agent/model was last active. Drop
         // any manual model pick from the previous thread so it doesn't leak.
-        const agentId = meta.agentId || DEFAULT_AGENT_ID
-        manualModelOverrideRef.current = null
-        setCurrentAgentId(agentId)
-        void loadModels(agentId, sessionId)
+        applyThreadAgent(meta.agentId || DEFAULT_AGENT_ID)
+      } else {
+        // Pet navigation can reach the panel before the destination KB's
+        // history page finishes loading. Resolve durable metadata directly so
+        // the target thread never inherits the previous thread's Agent/model.
+        try {
+          const durable = await getTransport().call<SessionMeta | null>("get_session_cmd", {
+            sessionId,
+          })
+          if (currentSessionIdRef.current !== sessionId) return
+          if (durable) {
+            setSessions([durable])
+            applyThreadAgent(durable.agentId || DEFAULT_AGENT_ID)
+          }
+        } catch (error) {
+          logger.warn(
+            "ui",
+            "KnowledgeChat::focusThreadMeta",
+            "Failed to restore focused thread metadata",
+            error,
+          )
+        }
       }
+      if (currentSessionIdRef.current !== sessionId) return
       // Recompute loading for the target so switching to/from a thread whose
       // turn is still streaming doesn't leave the spinner stuck (mirrors
       // useChatSession). For an in-flight thread restore the cached live view

@@ -1510,6 +1510,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub sprite: crate::sprite::SpriteConfig,
 
+    /// Desktop companion pet.  The runtime is presentation-only and performs
+    /// no model calls; disabled by default.
+    #[serde(default)]
+    pub pet: crate::pet::PetConfig,
+
     /// Offline memory consolidation ("Dreaming", Phase B3).
     /// Controls when cycles run (idle / cron / manual) and how aggressively
     /// they promote candidates into pinned core memory.
@@ -1732,6 +1737,7 @@ impl Default for AppConfig {
             cron: CronConfig::default(),
             awareness: crate::awareness::AwarenessConfig::default(),
             sprite: crate::sprite::SpriteConfig::default(),
+            pet: crate::pet::PetConfig::default(),
             dreaming: crate::memory::dreaming::DreamingConfig::default(),
             skills: crate::skills::SkillsConfig::default(),
             recall_summary: crate::memory::RecallSummaryConfig::default(),

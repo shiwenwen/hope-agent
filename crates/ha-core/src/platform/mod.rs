@@ -264,6 +264,22 @@ pub fn publish_atomic_file(
     imp::publish_atomic_file(source, target, overwrite)
 }
 
+/// Publish a fully prepared sibling directory without exposing a partial
+/// package.  Both paths must share the same parent and `target` must not exist.
+/// The caller is responsible for fsyncing files inside `source` first.
+pub fn publish_dir_atomic(
+    source: &std::path::Path,
+    target: &std::path::Path,
+) -> std::io::Result<()> {
+    if source.parent() != target.parent() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "directory publish requires sibling paths",
+        ));
+    }
+    imp::publish_dir_atomic(source, target)
+}
+
 /// Best-effort search for a Chrome / Chromium / Edge executable when the
 /// user has not configured an explicit path. Mostly used as a safety net
 /// in front of `chromiumoxide`'s own lookup, which is good but can miss

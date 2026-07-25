@@ -667,6 +667,7 @@ pub(crate) async fn inject_and_run_parent(
             abort_on_cancel: true,
             persist_final_error_event: false,
             source: crate::chat_engine::stream_seq::ChatSource::ParentInjection,
+            ui_surface: None,
             origin_source: None,
             // Parent-injection turns are owner-internal, never IM. No opt-in gate.
             channel_kb_context: None,

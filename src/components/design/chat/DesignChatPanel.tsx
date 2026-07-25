@@ -36,6 +36,7 @@ import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import AgentSwitcher from "@/components/chat/AgentSwitcher"
 import { useSidebarDisplayMode } from "@/components/chat/sidebar/useSidebarDisplayMode"
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
+import { useEmbeddedChatReadReceipt } from "@/components/chat/hooks/useEmbeddedChatReadReceipt"
 import { useChatDisplayPreferences } from "@/components/chat/hooks/useChatDisplayPreferences"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { getTransport } from "@/lib/transport-provider"
@@ -167,6 +168,8 @@ export interface DesignChatPanelHandle {
    *  Returns false when a turn is already streaming so the caller can surface a
    *  "busy" hint instead of silently dropping the request. */
   submitPrompt: (text: string) => boolean
+  /** Open an exact design-thread session (pet/history deep navigation). */
+  focusThread: (sessionId: string) => void
 }
 
 interface Props {
@@ -273,6 +276,13 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   const { displayMode, autoCollapseCompletedTurns } = useChatDisplayPreferences()
   const seqRef = useRef<Map<string, number>>(new Map())
   const endedRef = useRef<Map<string, string>>(new Map())
+  const [messageTailVisible, setMessageTailVisible] = useState(true)
+  useEmbeddedChatReadReceipt(
+    isActive,
+    messageTailVisible,
+    session.currentSessionId,
+    session.messages,
+  )
   const [historyOpen, setHistoryOpen] = useState(false)
   const historyRef = useRef<HTMLDivElement>(null)
   useClickOutside(
@@ -325,6 +335,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   )
 
   const stream = useChatStream({
+    uiSurface: "design_chat",
     messages: session.messages,
     setMessages: session.setMessages,
     currentSessionId: session.currentSessionId,
@@ -421,8 +432,9 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         void stream.handleSend(text)
         return true
       },
+      focusThread: (sessionId) => void session.switchThread(sessionId),
     }),
-    [stream, t],
+    [session, stream, t],
   )
 
   // 本轮产物 chip 条（B0-8）：从 assistant 消息的 design 工具调用里提取产/改的产物，
@@ -753,6 +765,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             askUserVariant="design"
             displayMode={displayMode}
             autoCollapseCompletedTurns={autoCollapseCompletedTurns}
+            onAtBottomChange={setMessageTailVisible}
           />
         )}
       </div>

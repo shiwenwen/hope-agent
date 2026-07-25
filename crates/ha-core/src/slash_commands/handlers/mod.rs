@@ -5,6 +5,7 @@ pub mod goal;
 pub mod loop_control;
 pub mod memory;
 pub mod model;
+pub mod pet;
 pub mod plan;
 pub mod project;
 pub mod recap;
@@ -125,6 +126,7 @@ pub async fn dispatch(
         "search" => utility::handle_search(args),
         "prompts" => Ok(utility::handle_prompts()),
         "context" => context::handle_context(session_id, agent_id, args).await,
+        "pet" => pet::handle_pet(session_db()?.clone(), session_id, args).await,
         // `handle_workflow` / `handle_loop` / `handle_mode` are fully synchronous
         // (SessionDB / CronDB reads + writes under the global write lock). Route
         // them through the blocking pool so they never pin the async worker.

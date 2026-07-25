@@ -2023,6 +2023,7 @@ export default function ChatScreen({
 
   // ── Stream Hook ─────────────────────────────────────────────
   const stream = useChatStream({
+    uiSurface: "main_chat",
     messages: session.messages,
     setMessages: session.setMessages,
     currentSessionId: session.currentSessionId,
@@ -2060,7 +2061,6 @@ export default function ChatScreen({
     draftKbAttachments,
     onSandboxModeSynced: handleSandboxModeSynced,
     parentInjectionDeltasViaChatStream: true,
-    activeSessionReadableRef,
   })
 
   useEffect(() => {

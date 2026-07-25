@@ -89,6 +89,7 @@ pub mod openclaw_import;
 pub mod paths;
 pub mod permission;
 pub mod permissions;
+pub mod pet;
 pub mod plan;
 pub mod platform;
 pub mod process_notification;

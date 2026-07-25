@@ -139,6 +139,12 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **API-Round 分组**：新 Provider adapter 须经 `push_and_stamp` 标 `_oc_round`（否则压缩切割拆散 tool_use / tool_result 配对），请求体构建前统一 `prepare_messages_for_api()` 剥离元数据
 - **前台 idle guard 单一入口**：`run_chat_engine` 按 `ChatSource::holds_foreground_idle_guard()` 统一建 `ChatSessionGuard`（ACP 自建），新增对话入口不得手搓 per-shell guard
 
+### 桌面宠物（Pet）
+
+详见 [pet](docs/architecture/pet.md)。
+
+- **主对话投影边界**：只接入显式携带第一方 `ChatUiSurface` 的主动多轮主对话；side query、automation、compact、Memory、Cron、IM、ACP、subagent 与后台 job 等额外 LLM 请求不得接入。Pet 点击气泡只发 typed navigation，**不得提前清未读**；必须由目标消息列表真实加载并渲染后的 read receipt 推进 watermark
+
 ### 上下文压缩
 
 5 层渐进式 + `ContextEngine` / `CompactionProvider` 可插拔；阈值、TTL 节流、反应式微压缩、Tier 3 文件恢复详见 [context-compact](docs/architecture/context-compact.md)。

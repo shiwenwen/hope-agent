@@ -8517,6 +8517,9 @@
     "permission": {
       "description": "세션 권한 모드 설정 (default/smart/yolo)"
     },
+    "pet": {
+      "description": "데스크톱 펫을 깨우거나 숨기고 상태 확인"
+    },
     "plan": {
       "description": "계획 모드 진입/종료"
     },
@@ -12207,6 +12210,118 @@
       "checkCleanAll": "모든 산출물가 코드와 일치합니다",
       "checkStale": "{{n}}개 산출물에 코드 업데이트가 있습니다",
       "chatPrompt": "구현된 코드가 이 디자인과 달라졌습니다. 참조된 코드 변경에 맞춰 현재 디자인을 업데이트하되, 디자인 의도와 나머지 내용은 그대로 유지하세요."
+    }
+  },
+  "pet": {
+    "settings": {
+      "nav": "펫",
+      "wake": "데스크톱 펫",
+      "wakeDesc": "애니메이션 동반자와 대화 상태를 데스크톱에 표시합니다.",
+      "desktopOnly": "깨우기와 숨기기는 데스크톱 앱에서 사용할 수 있습니다.",
+      "choose": "펫 선택",
+      "localOnly": "사용자 지정 펫은 이 기기에만 저장됩니다.",
+      "loadFailed": "펫을 불러올 수 없습니다",
+      "saveFailed": "펫 설정을 저장할 수 없습니다",
+      "cannotDeleteSelected": "삭제하기 전에 다른 펫을 선택하세요",
+      "deleted": "펫을 삭제했습니다",
+      "undo": "실행 취소",
+      "deleteFailed": "펫을 삭제할 수 없습니다",
+      "deleteTitle": "이 펫을 삭제할까요?",
+      "deleteDescription": "이 기기에서 {{name}}을(를) 삭제할까요?"
+    },
+    "discovery": {
+      "title": "데스크톱 펫을 만나보세요",
+      "description": "진행 중인 대화를 확인하고 데스크톱에서 바로 답장하거나 요청을 처리하세요.",
+      "action": "사용해 보기"
+    },
+    "import": {
+      "action": "가져오기",
+      "title": "펫 가져오기",
+      "description": "Codex 호환 펫을 Hope에 추가하기 전에 미리 보고 검증합니다.",
+      "drop": "펫 폴더, zip, 매니페스트 + 이미지, PNG 또는 WebP를 놓으세요",
+      "dropSafety": "드롭하면 미리보기만 생성됩니다. 확인하기 전에는 설치되지 않습니다.",
+      "chooseFiles": "파일 선택",
+      "packageFiles": "펫 패키지",
+      "fromCodex": "Codex 펫 스캔",
+      "found": "{{count}}개 찾음",
+      "found_one": "{{count}}개 찾음",
+      "found_other": "{{count}}개 찾음",
+      "unknownVersion": "알 수 없는 버전",
+      "previewFailed": "이 펫 패키지를 미리 볼 수 없습니다",
+      "previewFailedCount": "펫 패키지 {{amount}}개를 미리 볼 수 없습니다",
+      "previewCount": "검토할 펫 {{amount}}마리",
+      "removePreview": "이번 가져오기에서 제외",
+      "scanFailed": "Codex 펫을 스캔할 수 없습니다",
+      "uploadFailed": "펫 패키지를 업로드할 수 없습니다",
+      "duplicate": "이미 가져옴",
+      "enableAfter": "가져온 후 이 펫 사용",
+      "confirm": "펫 가져오기",
+      "imported": "펫을 가져왔습니다",
+      "importedCount": "펫 {{amount}}마리를 라이브러리에 추가했습니다",
+      "alreadyImported": "이 펫은 이미 라이브러리에 있습니다",
+      "commitFailed": "펫을 가져올 수 없습니다",
+      "commitFailedCount": "펫 {{amount}}마리를 가져올 수 없습니다",
+      "linkPlaceholder": "codex:// 설치 링크 또는 HTTPS 스프라이트시트 URL 붙여넣기",
+      "linkLabel": "펫 링크",
+      "previewLink": "링크 미리보기"
+    },
+    "creator": {
+      "action": "만들기",
+      "title": "펫 만들기",
+      "description": "오리지널 마스코트를 생성하고 Codex 호환 애니메이션을 미리 본 뒤 설치합니다.",
+      "name": "이름",
+      "shortDescription": "짧은 설명(선택 사항)",
+      "prompt": "펫이 어떤 모습이면 좋을까요?",
+      "generate": "미리보기 생성",
+      "generating": "미리보기 만드는 중…",
+      "failed": "이 펫을 만들 수 없습니다"
+    },
+    "export": {
+      "action": "Codex용으로 내보내기",
+      "saved": "Codex 호환 패키지를 내보냈습니다",
+      "failed": "이 펫을 내보낼 수 없습니다"
+    },
+    "window": {
+      "interact": "Hope 펫과 상호작용",
+      "tuckAway": "펫 숨기기"
+    },
+    "bubble": {
+      "needsInput": "{{count}}개 대화에 입력이 필요합니다.",
+      "needsInput_one": "입력이 필요합니다.",
+      "needsInput_other": "{{count}}개 대화에 입력이 필요합니다.",
+      "blocked": "{{count}}개 대화가 차단되었습니다.",
+      "blocked_one": "대화가 차단되었습니다.",
+      "blocked_other": "{{count}}개 대화가 차단되었습니다.",
+      "ready": "{{count}}개 대화가 준비되었습니다.",
+      "ready_one": "대화가 준비되었습니다.",
+      "ready_other": "{{count}}개 대화가 준비되었습니다.",
+      "open": "Hope에서 열기",
+      "dismiss": "닫기",
+      "running": "생각 중",
+      "reply": "답장",
+      "queued": "답장이 대기열에 추가되었습니다",
+      "sent": "답장을 보냈습니다",
+      "sendFailed": "답장을 보낼 수 없습니다"
+    },
+    "stack": {
+      "expand": "대화 {{count}}개 표시",
+      "collapse": "대화 접기"
+    },
+    "tray": {
+      "title": "대화 활동",
+      "reconnecting": "상태 새로 고치는 중…",
+      "count": "{{count}}개 활성",
+      "count_one": "{{count}}개 활성",
+      "count_other": "{{count}}개 활성",
+      "close": "활동 닫기",
+      "openRemaining": "나머지 {{count}}개를 Hope에서 보기",
+      "openRemaining_one": "나머지 {{count}}개를 Hope에서 보기",
+      "openRemaining_other": "나머지 {{count}}개를 Hope에서 보기",
+      "incognitoTitle": "시크릿 대화",
+      "untitledTitle": "새 대화"
+    },
+    "navigation": {
+      "unavailable": "이 대화는 더 이상 사용할 수 없습니다."
     }
   },
   "configRecovery": {

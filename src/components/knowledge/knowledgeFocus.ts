@@ -8,7 +8,12 @@ const BLOCK_ANCHOR_RE = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/
 
 export interface KnowledgeFocusTarget {
   kbId: string
-  path: string
+  /** Optional only for an internal Pet thread focus without a note anchor. */
+  path?: string
+  /** Exact embedded chat thread to open after the note is focused. */
+  sessionId?: string
+  /** Internal App handshake for one-shot pet navigation. */
+  petFocusNonce?: number
   line?: number
   col?: number
   headingPath?: string
@@ -31,18 +36,28 @@ function normalizeTarget(value: unknown): KnowledgeFocusTarget | null {
   if (!value || typeof value !== "object") return null
   const raw = value as Record<string, unknown>
   if (typeof raw.kbId !== "string" || raw.kbId.length === 0) return null
-  if (typeof raw.path !== "string" || raw.path.length === 0) return null
   const line = typeof raw.line === "number" && Number.isFinite(raw.line) ? raw.line : undefined
   const col = typeof raw.col === "number" && Number.isFinite(raw.col) ? raw.col : undefined
   const headingPath = typeof raw.headingPath === "string" ? raw.headingPath : undefined
   const blockId = typeof raw.blockId === "string" ? raw.blockId : undefined
+  const sessionId = typeof raw.sessionId === "string" && raw.sessionId ? raw.sessionId : undefined
+  const petFocusNonce =
+    typeof raw.petFocusNonce === "number" && Number.isSafeInteger(raw.petFocusNonce)
+      ? raw.petFocusNonce
+      : undefined
+  const path = typeof raw.path === "string" && raw.path.length > 0 ? raw.path : undefined
+  // General knowledge-focus requests still require a note. Only the internal
+  // Pet handshake may focus a durable chat thread without one.
+  if (!path && (!sessionId || petFocusNonce == null)) return null
   return {
     kbId: raw.kbId,
-    path: raw.path,
+    ...(path ? { path } : {}),
     ...(line ? { line } : {}),
     ...(col != null ? { col } : {}),
     ...(headingPath ? { headingPath } : {}),
     ...(blockId ? { blockId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(petFocusNonce != null ? { petFocusNonce } : {}),
   }
 }
 
@@ -120,7 +135,13 @@ function findHeadingLine(content: string, headingPath: string): number | null {
   for (const heading of parseHeadings(content)) {
     while (stack.length && stack[stack.length - 1].level >= heading.level) stack.pop()
     stack.push({ level: heading.level, text: heading.text.trim().replace(/\s+/g, " ") })
-    if (stack.map((h) => h.text).filter(Boolean).join(" > ") === wanted) return heading.line
+    if (
+      stack
+        .map((h) => h.text)
+        .filter(Boolean)
+        .join(" > ") === wanted
+    )
+      return heading.line
   }
   return null
 }

@@ -2765,6 +2765,8 @@ impl KnowledgeRegistry {
              ON CONFLICT(session_id) DO NOTHING",
             params![session_id, kb_id, anchor_note_path, now],
         )?;
+        drop(conn);
+        crate::pet::emit_activity_changed();
         Ok(())
     }
 
