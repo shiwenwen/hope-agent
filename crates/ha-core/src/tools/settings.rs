@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use serde_json::{json, Value};
 
 use crate::config;
+use crate::tools::execution::ToolExecContext;
 use crate::user_config;
 
 /// Categories that exist in `read_category` (and the `get_settings` enum) but are
@@ -881,7 +882,7 @@ fn get_all_overview() -> Result<String> {
 
 // ── update_settings ─────────────────────────────────────────────
 
-pub(crate) async fn tool_update_settings(args: &Value) -> Result<String> {
+pub(crate) async fn tool_update_settings(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let category = args
         .get("category")
         .and_then(|v| v.as_str())
@@ -930,7 +931,7 @@ pub(crate) async fn tool_update_settings(args: &Value) -> Result<String> {
         return update_permission_patterns(category, values).await;
     }
 
-    update_app_config(category, values).await
+    update_app_config(category, values, ctx).await
 }
 
 async fn update_external_memory_providers(values: &Value) -> Result<String> {
@@ -1461,7 +1462,11 @@ fn apply_app_config_update(
     Ok(())
 }
 
-async fn update_app_config(category: &str, values: &Value) -> Result<String> {
+async fn update_app_config(
+    category: &str,
+    values: &Value,
+    ctx: &ToolExecContext,
+) -> Result<String> {
     if category == "teams" {
         return update_team_templates(values);
     }
@@ -1470,9 +1475,23 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         // Keep all pet writes on the same validation/event path as Settings,
         // Wake/Tuck and `/pet`. A merely well-formed custom ref may still have
         // been deleted by another process between the model's read and write.
-        let mut next = config::cached_config().pet.clone();
+        let current = config::cached_config().pet.clone();
+        let mut next = current.clone();
         merge_field(&mut next, values)?;
-        crate::pet::save_config(next, "skill").await?;
+        let fields = values
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("settings values must be an object"))?;
+        let enabled_requested = fields.contains_key("enabled");
+        let desktop_owner_turn = crate::app_init::is_desktop()
+            && matches!(ctx.chat_source, Some(crate::knowledge::KbAccessSource::Gui));
+        if enabled_requested && !desktop_owner_turn {
+            bail!("pet.enabled can only be changed by a desktop GUI conversation");
+        }
+        let enabled = enabled_requested.then_some(next.enabled);
+        let selected = fields
+            .contains_key("selectedPetRef")
+            .then_some(next.selected_pet_ref);
+        crate::pet::update_config(enabled, selected, "skill").await?;
     } else {
         let owned_category = category.to_string();
         let owned_values = values.clone();
@@ -1586,7 +1605,7 @@ async fn trigger_backend_hot_reload(category: &str) -> Result<()> {
             // Both are consumed lazily by their own pipelines on the next
             // trigger; no cached state to refresh.
         }
-        // Pet writes already use `pet::save_config`, which emits the single
+        // Pet writes already use `pet::update_config`, which emits the single
         // authoritative invalidation event after persistence.
         "pet" => {}
         _ => {} // Other categories: config cache (ArcSwap) already updated by save_config

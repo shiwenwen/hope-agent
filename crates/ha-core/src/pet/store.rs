@@ -151,7 +151,7 @@ fn builtin_summaries() -> Result<Vec<PetSummary>> {
     Ok(pets)
 }
 
-fn acquire_library_lock() -> Result<std::fs::File> {
+pub(crate) fn acquire_library_lock() -> Result<std::fs::File> {
     let lock_path = crate::paths::pets_lock_path()?;
     if let Some(parent) = lock_path.parent() {
         fs::create_dir_all(parent)?;
@@ -265,6 +265,7 @@ fn custom_summaries() -> Result<Vec<PetSummary>> {
     let root = crate::paths::pets_dir()?;
     fs::create_dir_all(&root)?;
     let mut pets = Vec::new();
+    let mut skipped = 0usize;
     for entry in fs::read_dir(root)? {
         let Ok(entry) = entry else { continue };
         let Ok(file_type) = entry.file_type() else {
@@ -279,14 +280,16 @@ fn custom_summaries() -> Result<Vec<PetSummary>> {
         }
         match read_custom_summary(&name, &entry.path()) {
             Ok(summary) => pets.push(summary),
-            Err(error) => crate::app_warn!(
-                "pet",
-                "library_entry_skipped",
-                "Skipping invalid library entry id={}: {}",
-                name,
-                error
-            ),
+            Err(_) => skipped += 1,
         }
+    }
+    if skipped > 0 {
+        crate::app_warn!(
+            "pet",
+            "library_entry_skipped",
+            "Skipped {} invalid pet library entry or entries",
+            skipped
+        );
     }
     pets.sort_by(|left, right| {
         left.manifest
@@ -468,10 +471,13 @@ pub fn delete_pet(pet_ref: &PetRef, expected_package_hash: &str) -> Result<PetDe
         .custom_id()
         .ok_or_else(|| anyhow::anyhow!("builtin_pet_cannot_be_deleted"))?;
     crate::paths::validate_pet_id(id)?;
+    let _lock = acquire_library_lock()?;
+    // Selection writes hold this same cross-process lock through config
+    // persistence. Recheck only after acquiring it so a concurrent picker
+    // cannot select the package between this guard and the rename below.
     if crate::config::cached_config().pet.selected_pet_ref == *pet_ref {
         anyhow::bail!("selected_pet_cannot_be_deleted");
     }
-    let _lock = acquire_library_lock()?;
     cleanup_private_entries();
     let source = crate::paths::pet_dir(id)?;
     let summary = read_custom_summary(id, &source)?;

@@ -67,6 +67,39 @@ fn previews() -> &'static Mutex<HashMap<String, PreviewEntry>> {
     PREVIEWS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn discard_upload_leases(upload_ids: Vec<String>) {
+    let failure_count = upload_ids
+        .iter()
+        .filter(|upload_id| crate::file_upload::discard_upload(upload_id).is_err())
+        .count();
+    if failure_count > 0 {
+        // Import sources and upload ids may contain user-controlled or
+        // capability-bearing data. Keep this diagnostic aggregate-only.
+        crate::app_warn!(
+            "pet",
+            "upload_cleanup_failed",
+            "Failed to discard {} pet upload lease(s)",
+            failure_count
+        );
+    }
+}
+
+fn prune_expired_previews(
+    entries: &mut HashMap<String, PreviewEntry>,
+    now: Instant,
+) -> Vec<String> {
+    let mut expired_upload_ids = Vec::new();
+    entries.retain(|_, entry| {
+        if entry.expires_at <= now {
+            expired_upload_ids.extend(entry.upload_ids.iter().cloned());
+            false
+        } else {
+            true
+        }
+    });
+    expired_upload_ids
+}
+
 fn random_token() -> String {
     let mut bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut bytes);
@@ -500,22 +533,27 @@ fn register_preview(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let now = Instant::now();
-    entries.retain(|_, entry| entry.expires_at > now);
+    let expired_upload_ids = prune_expired_previews(&mut entries, now);
     let cached_bytes = entries.values().fold(0_usize, |total, entry| {
         total.saturating_add(entry.package.sprite_bytes.len())
     });
-    ensure_preview_capacity(entries.len(), cached_bytes, package.sprite_bytes.len())?;
-    entries.insert(
-        token,
-        PreviewEntry {
-            package,
-            source_kind,
-            source_id,
-            recheck,
-            upload_ids,
-            expires_at: now + PREVIEW_TTL,
-        },
-    );
+    let capacity = ensure_preview_capacity(entries.len(), cached_bytes, package.sprite_bytes.len());
+    if capacity.is_ok() {
+        entries.insert(
+            token,
+            PreviewEntry {
+                package,
+                source_kind,
+                source_id,
+                recheck,
+                upload_ids,
+                expires_at: now + PREVIEW_TTL,
+            },
+        );
+    }
+    drop(entries);
+    discard_upload_leases(expired_upload_ids);
+    capacity?;
     Ok(preview)
 }
 
@@ -695,18 +733,20 @@ pub fn preview_thumbnail(candidate_id: &str) -> Result<Vec<u8>> {
 }
 
 pub fn preview_token_thumbnail(preview_token: &str) -> Result<Vec<u8>> {
-    let package = {
+    let (package, expired_upload_ids) = {
         let mut entries = previews()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let now = Instant::now();
-        entries.retain(|_, entry| entry.expires_at > now);
-        entries
+        let expired_upload_ids = prune_expired_previews(&mut entries, now);
+        let package = entries
             .get(preview_token)
             .map(|entry| entry.package.clone())
-            .ok_or_else(|| anyhow::anyhow!("pet_preview_expired"))?
+            .ok_or_else(|| anyhow::anyhow!("pet_preview_expired"));
+        (package, expired_upload_ids)
     };
-    super::atlas::idle_animation_strip_png(&package)
+    discard_upload_leases(expired_upload_ids);
+    super::atlas::idle_animation_strip_png(&package?)
 }
 
 pub fn preview_import(request: PetImportPreviewRequest) -> Result<PetImportPreview> {
@@ -995,15 +1035,25 @@ fn recheck(entry: &PreviewEntry) -> Result<()> {
 }
 
 pub async fn commit_import(request: PetImportCommitRequest) -> Result<PetImportCommitResult> {
-    let entry = {
+    let (entry, expired_upload_ids) = {
         let mut entries = previews()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let now = Instant::now();
-        entries.retain(|_, entry| entry.expires_at > now);
-        entries.get(&request.preview_token).cloned()
+        let expired_upload_ids = prune_expired_previews(&mut entries, now);
+        (
+            entries.get(&request.preview_token).cloned(),
+            expired_upload_ids,
+        )
+    };
+    if !expired_upload_ids.is_empty() {
+        crate::blocking::run_blocking(move || {
+            discard_upload_leases(expired_upload_ids);
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
     }
-    .ok_or_else(|| anyhow::anyhow!("pet_preview_expired"))?;
+    let entry = entry.ok_or_else(|| anyhow::anyhow!("pet_preview_expired"))?;
     if entry.expires_at <= Instant::now() {
         anyhow::bail!("pet_preview_expired");
     }
@@ -1018,10 +1068,7 @@ pub async fn commit_import(request: PetImportCommitRequest) -> Result<PetImportC
     })
     .await?;
     if request.enable_after_import {
-        let mut config = crate::config::cached_config().pet.clone();
-        config.enabled = true;
-        config.selected_pet_ref = pet.pet_ref.clone();
-        super::save_config(config, "pet-import").await?;
+        super::update_config(Some(true), Some(pet.pet_ref.clone()), "pet-import").await?;
     }
     // Consume the preview only after every requested side effect succeeds. If
     // config persistence fails after the package is installed, the same token
@@ -1030,18 +1077,30 @@ pub async fn commit_import(request: PetImportCommitRequest) -> Result<PetImportC
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(&request.preview_token);
-    for upload_id in entry.upload_ids {
-        if let Err(error) = crate::file_upload::discard_upload(&upload_id) {
-            crate::app_warn!(
-                "pet",
-                "upload_cleanup_failed",
-                "Failed to discard pet upload {}: {}",
-                upload_id,
-                error
-            );
-        }
-    }
+    crate::blocking::run_blocking(move || {
+        discard_upload_leases(entry.upload_ids);
+        Ok::<_, anyhow::Error>(())
+    })
+    .await?;
     Ok(PetImportCommitResult { pet, imported })
+}
+
+/// Cancel a preview and release every upload lease retained by it. The token
+/// is intentionally idempotent so a close racing a successful commit is safe.
+pub async fn cancel_import_preview(preview_token: String) -> Result<bool> {
+    let entry = previews()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&preview_token);
+    let Some(entry) = entry else {
+        return Ok(false);
+    };
+    crate::blocking::run_blocking(move || {
+        discard_upload_leases(entry.upload_ids);
+        Ok::<_, anyhow::Error>(())
+    })
+    .await?;
+    Ok(true)
 }
 
 #[cfg(test)]

@@ -16,7 +16,7 @@ Pet 是一个桌面优先、被动常驻零 LLM 的状态表现层。它把已�
 | DesignChatPanel                   | `design_chat`    | Design             |
 | Pet 快捷回复                      | `pet_chat`       | 沿用原 SessionKind |
 
-这几类表面的共同定义是“产品消息列表 + 产品输入框 + 用户可持续多轮对话”。第一方 HTTP transport 有 surface 时走 `/api/chat/ui`；公共 `/api/chat` 强制清空该字段，因此普通 API 调用不会因误传/伪造 `uiSurface` 被接入。缺少 `ui_surface` 的 side query、automation、compact、Memory、Dreaming、Knowledge Sprite、vision bridge、judge、eval、embedding、STT、媒体生成、Cron、IM、ACP、subagent、ParentInjection 和后台 job 全部排除。Pet 回复对运行中 turn 走既有插话队列，对终态对话以 `pet_chat` 在原 Session 开新主 turn，因此不会创建 Pet 专属会话。内部调用不能继承父 turn 的 surface；未来新增一等对话表面必须显式扩展枚举、固定调用点、Core SQL allowlist 和测试。历史 NULL turn 同样不按 `source` 猜测。Knowledge thread 必须有 `kb_id`，但 `anchor_note_path` 可空：没有打开具体文档的知识空间主对话仍会接入，并通过 KB + session 精确恢复聊天面板。
+这几类表面的共同定义是“产品消息列表 + 产品输入框 + 用户可持续多轮对话”。第一方 HTTP transport 有 surface 时走 `/api/chat/ui`；服务端还要求浏览器 Fetch Metadata，并校验请求 `Origin` 与 `Host` 同源或命中显式 CORS allowlist，不能仅凭 route 名或 JSON 字段认定第一方。公共 `/api/chat` 强制清空该字段，因此普通 API 调用不会因误传/伪造 `uiSurface` 被接入。缺少 `ui_surface` 的 side query、automation、compact、Memory、Dreaming、Knowledge Sprite、vision bridge、judge、eval、embedding、STT、媒体生成、Cron、IM、ACP、subagent、ParentInjection 和后台 job 全部排除。Pet 回复对运行中 turn 走既有插话队列，对终态对话以 `pet_chat` 在原 Session 开新主 turn，因此不会创建 Pet 专属会话。内部调用不能继承父 turn 的 surface；未来新增一等对话表面必须显式扩展枚举、固定调用点、Core SQL allowlist 和测试。历史 NULL turn 同样不按 `source` 猜测。Knowledge thread 必须有 `kb_id`，但 `anchor_note_path` 可空：没有打开具体文档的知识空间主对话仍会接入，并通过 KB + session 精确恢复聊天面板。
 
 每个一等表面只有在窗口/面板可见、文档获得焦点、消息列表尾部可见时推进共享的 `sessions.last_read_message_id`。推进值是 React 已取得并经过两帧绘制的最大 `dbId`，绝不在 stream end 时把整场会话直接标已读。因此隐藏面板、历史上翻、迟到消息和后台完成不会被宠物或流结束事件误清。
 
@@ -60,7 +60,7 @@ macOS 创建窗口时同时启用 WRY `accept_first_mouse` 与原生 `NSWindow.a
 - 收起时宠物右上角以固定 28×28 正圆显示 activity 数量（超过 9 显示 `9+`）；点击展开后同一控件变为向下箭头。若 Ask/审批待处理，收起态数字改为黄色但仍表示 activity 总数；风险等级只在卡片内表达，不把严格审批映射成红色数字。栈按优先级排列并在最大高度内滚动。自动展开本身不推进 read watermark；Ready/Blocked 气泡停留阅读至少 700ms 后移开、点击打开、提交快捷回复、关闭，或用户主动收起已展开的栈，才按该气泡的 `boundary` 标记已读。必须使用 `mark_session_read_cmd(throughMessageId)`，不得无边界清空，确保并发到达但尚未渲染的新消息继续保持未读；Running 与 Ask/审批等待态不因展示被标记已读。成功推进会同时触发 `session:unread_changed` 与 `pet:activity_changed` 失效通知，侧栏未读聚合和 Pet activity 数字都必须重新查询权威值，不能在 renderer 内各减一。
 - hover 单条气泡才显示左上角关闭与右侧快捷动作：Running 同时显示回复与停止，其他可回复状态只显示回复；回复使用不带消息框的单线条箭头，操作按钮常态保持低对比、无阴影，只在 hover 时加深背景。动作覆盖状态位并只改变内部文本截断，不改变气泡外框。停止必须复用 `stop_chat(sessionId, turnId:null)`，只中止该 activity 的权威主 turn，不使用全局 stop 或另造取消通道。点击关闭 Running/NeedsInput 只隐藏当前 activity 投影，状态或 turn boundary 改变后可重新出现，不取消执行或撤销权威交互卡；关闭 Ready/Blocked 则用该 activity 的 terminal boundary 推进共享 read watermark。点击回复后仅展开这一条 composer。运行中回复走 durable turn-message 插话，终态回复以 `pet_chat` 在同 Session 开新主 turn。
 - `ask_user_question`、工具审批和计划确认使用 Pet 专属紧凑卡片，但提交仍复用既有命令与权威 pending queue。Ask group 一次只渲染一道题，答案保存在分页 state，上一题/下一题可往返，最后一题才原子提交完整 `answers[]`；选项只保留标签、单行说明、推荐标记和 Other，不加载消息列表的 Markdown/方向预览。卡片将类型、题号、队列位置和倒计时合并为单行元信息，选项说明同样单行截断，导航使用 28px 紧凑操作区，避免复制消息列表的多层标题与大段留白。审批卡保留 reason、command、cwd、倒计时及 deny/once/always 语义，严格审批与 cron delete 继续禁止 standing grant。用户收起时卡片与普通气泡一起收起；新的 request id 到达才再次自动展开，`ask_user:resolved` / `approval:resolved` 保证跨表面同步撤销。
-- 气泡正文点击按 typed target 打开完整对话；数字/箭头只控制气泡栈；单击 Pet 播放 Jump 并以 `pet_focus_target_cmd(target:null)` 唤起 Hope 主窗口，不擅自切换会话。拖拽超过 4px 时必须抑制同一手势合成的 click，不能误唤起主窗口。右键 Pet 时收起气泡栈，并在宠物本体中心覆盖一个 28px 高的紧凑关闭胶囊，不扩张原生窗口，也不在宠物外另开菜单卡片。
+- 气泡正文点击按 typed target 打开完整对话；数字/箭头只控制气泡栈；单击 Pet 播放 Jump 并以 `pet_focus_target_cmd(target:null)` 唤起 Hope 主窗口，不擅自切换会话。拖拽超过 4px 时必须抑制同一手势合成的 click，不能误唤起主窗口。右键 Pet 时收起气泡栈，并在宠物本体中心覆盖一个紧凑的「设置 / 关闭」胶囊：设置先唤起主窗口，再发出既有 `open-settings(section:pets)` 事件；菜单不扩张原生窗口，也不在宠物外另开卡片。
 - 每个新的 activity 投影（含同一会话的新 turn/状态/boundary）和新的 Ask/审批 request 都自动展开；用户手动收起后，已有内容更新不得反复重开，只有新的稳定 key 才可再次展开。自动出现不抢 OS 焦点；Escape 先关闭回复 composer，再收起整个信息层，不会 Tuck Away。
 
 typed navigation 由主 App 壳消费：Regular 回主聊天 session；Knowledge 恢复知识空间 thread；Design 恢复 design project + thread。PetWindow 不拼 URL，也不把专属对话伪装成 Regular。
@@ -81,7 +81,7 @@ Debug 构建额外注入内置 `builtin:hope-debug`，其 v1 atlas 每格使用�
 
 - manifest/path canonicalize，拒绝 absolute/`..`/symlink escape/设备文件；zip 有 entry、depth、单文件和总展开量限制。
 - 图片按 magic + bounded decode 校验，sprite 上限 20 MiB；URL 仅 HTTPS，每一跳走严格 SSRF 检查，最多 5 次 redirect，流式读取限制解压后 bytes。
-- preview token 为短期随机 capability；本地 commit 重读并检查 hash，URL/upload commit 使用已缓存 bytes，不二次联网。token 只在所有请求副作用成功后消费，失败时可幂等重试。
+- preview token 为短期随机 capability；本地 commit 重读并检查 hash，URL/upload commit 使用已缓存 bytes，不二次联网。token 只在所有请求副作用成功后消费，失败时可幂等重试。Settings 关闭、替换或移除 preview 时调用幂等 cancel，立即释放 cache 与绑定 upload lease；过期清理也执行同一释放逻辑，不能只清 React state 等 1 小时 upload TTL。cancel/commit token 只放 JSON body；thumbnail 因资源 URL 必须带 token，HTTP access log 对该 path segment 固定脱敏。
 - pet root 变更持 OS 独占锁；同 root staging 完整写入后原子发布。删除移动到 `.trash`，expected package hash 防陈旧写，restore token 10 分钟内可撤销。
 - `assetHash` 标识原始 sprite；`packageHash` 标识 canonical manifest + asset。相同 package 幂等，相同名称不同内容不覆盖。
 - 导出生成最小 Codex-compatible zip。Create Pet 走统一 `media_gen::execute_image` 并以 `pet.create` 入账，生成结果仍先经过相同 validator 和人工确认。
@@ -89,7 +89,7 @@ Debug 构建额外注入内置 `builtin:hope-debug`，其 v1 atlas 每格使用�
 
 ## 配置、事件与接口
 
-`AppConfig.pet` 含 `enabled` 与 `selectedPetRef`，默认关闭。它同时有 Settings GUI、侧边栏底部快捷开关、`ha-settings` category/risk 和 skill 风险表；各入口都监听 `pet:config_changed`，不得维护独立可见性状态。HTTP 可以管理宠物库与选择，但不能声称拥有桌面 overlay，改变 `enabled` 或窗口命令返回 desktop-only。
+`AppConfig.pet` 含 `enabled` 与 `selectedPetRef`，默认关闭。它同时有 Settings GUI、侧边栏底部快捷开关、`ha-settings` category/risk 和 skill 风险表；各入口都监听 `pet:config_changed`，不得维护独立可见性状态。配置写入是字段级 patch，选择校验与持久化持有宠物库锁，避免并发开关/选择互相回滚或删除/选择 TOCTOU。HTTP 可以管理宠物库与选择，但不能声称拥有桌面 overlay；HTTP/ACP 的 `ha-settings` 也拒绝改变 `enabled`，窗口命令返回 desktop-only。
 
 关键事件：
 

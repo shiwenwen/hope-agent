@@ -28,7 +28,7 @@ pub async fn save_config(Json(body): Json<PetConfigBody>) -> Result<StatusCode, 
     if body.config.enabled != ha_core::config::cached_config().pet.enabled {
         return Err(overlay_unsupported().await);
     }
-    ha_core::pet::save_config(body.config, "http")
+    ha_core::pet::update_config(None, Some(body.config.selected_pet_ref), "http")
         .await
         .map_err(bad_request)?;
     Ok(StatusCode::NO_CONTENT)
@@ -178,6 +178,21 @@ pub async fn import_preview(
         ));
     }
     ha_core::pet::preview_import_async(body.request)
+        .await
+        .map(Json)
+        .map_err(bad_request)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelPreviewBody {
+    pub preview_token: String,
+}
+
+pub async fn cancel_import_preview(
+    Json(body): Json<CancelPreviewBody>,
+) -> Result<Json<bool>, AppError> {
+    ha_core::pet::cancel_import_preview(body.preview_token)
         .await
         .map(Json)
         .map_err(bad_request)

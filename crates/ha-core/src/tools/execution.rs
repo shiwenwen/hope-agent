@@ -2041,7 +2041,7 @@ pub async fn execute_tool_with_context(
                     .map_err(|e| anyhow::anyhow!(e))
             }
             TOOL_GET_SETTINGS => settings::tool_get_settings(args).await,
-            TOOL_UPDATE_SETTINGS => settings::tool_update_settings(args).await,
+            TOOL_UPDATE_SETTINGS => settings::tool_update_settings(args, dispatch_ctx).await,
             TOOL_LIST_SETTINGS_BACKUPS => settings::tool_list_settings_backups(args).await,
             TOOL_RESTORE_SETTINGS_BACKUP => settings::tool_restore_settings_backup(args).await,
             TOOL_SEND_ATTACHMENT => send_attachment::tool_send_attachment(args, dispatch_ctx).await,

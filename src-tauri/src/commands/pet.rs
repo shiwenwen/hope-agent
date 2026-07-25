@@ -17,40 +17,43 @@ pub async fn get_pet_config_cmd() -> Result<ha_core::pet::PetConfig, CmdError> {
 }
 
 #[tauri::command]
-pub async fn save_pet_config_cmd(
-    app: tauri::AppHandle,
-    config: ha_core::pet::PetConfig,
-) -> Result<(), CmdError> {
-    let previous_enabled = ha_core::config::cached_config().pet.enabled;
-    let lifecycle_changed = previous_enabled != config.enabled;
-    if lifecycle_changed {
-        // Validate the native transition before persisting the switch. This
-        // prevents "enabled" from becoming durable if window creation fails.
-        crate::pet_window::sync_enabled(&app, config.enabled)?;
-    }
-    if let Err(error) = ha_core::pet::save_config(config, "settings-ui").await {
-        if lifecycle_changed {
-            let _ = crate::pet_window::sync_enabled(&app, previous_enabled);
-        }
-        return Err(error.into());
-    }
+pub async fn save_pet_config_cmd(config: ha_core::pet::PetConfig) -> Result<(), CmdError> {
+    // This legacy-shaped command is the selection endpoint. The Settings
+    // switch uses `pet_set_enabled_cmd`; preserving the live enabled field here
+    // prevents the two controls from overwriting each other.
+    ha_core::pet::update_config(None, Some(config.selected_pet_ref), "settings-ui").await?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn pet_set_enabled_cmd(
+    app: tauri::AppHandle,
     enabled: bool,
     source: Option<String>,
 ) -> Result<ha_core::pet::PetConfig, CmdError> {
-    let mut config = ha_core::config::cached_config().pet.clone();
-    config.enabled = enabled;
     let source = match source.as_deref() {
         Some("slash-command") => "slash-command",
         Some("pet-window") => "pet-window",
         Some("sidebar") => "sidebar",
         _ => "settings-ui",
     };
-    ha_core::pet::save_config(config.clone(), source).await?;
+    let previous_enabled = ha_core::config::cached_config().pet.enabled;
+    let sync_before_persist = source != "pet-window" && previous_enabled != enabled;
+    if sync_before_persist {
+        // Validate native window creation/closure before making the desktop
+        // switch durable. PetWindow itself is the exception: it must receive
+        // the command response before the main renderer closes that WebView.
+        crate::pet_window::sync_enabled(&app, enabled)?;
+    }
+    let config = match ha_core::pet::update_config(Some(enabled), None, source).await {
+        Ok(config) => config,
+        Err(error) => {
+            if sync_before_persist {
+                let _ = crate::pet_window::sync_enabled(&app, previous_enabled);
+            }
+            return Err(error.into());
+        }
+    };
     // PetWindow invokes this command itself. Closing that webview before its
     // response is delivered produces a false client error. The always-mounted
     // main renderer consumes pet:config_changed and performs the serialized
@@ -120,6 +123,13 @@ pub async fn pet_import_preview_cmd(
     request: ha_core::pet::PetImportPreviewRequest,
 ) -> Result<ha_core::pet::PetImportPreview, CmdError> {
     ha_core::pet::preview_import_async(request)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn pet_import_preview_cancel_cmd(preview_token: String) -> Result<bool, CmdError> {
+    ha_core::pet::cancel_import_preview(preview_token)
         .await
         .map_err(Into::into)
 }

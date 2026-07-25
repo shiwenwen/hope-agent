@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
+  emit: vi.fn(() => Promise.resolve()),
   listeners: new Map<string, (payload: unknown) => void>(),
   listen: vi.fn((event: string, handler: (payload: unknown) => void) => {
     mocks.listeners.set(event, handler)
@@ -43,6 +44,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ startDragging: mocks.startDragging, onMoved: mocks.onMoved }),
+}))
+
+vi.mock("@tauri-apps/api/event", () => ({
+  emit: mocks.emit,
 }))
 
 vi.mock("react-i18next", () => ({
@@ -127,6 +132,7 @@ function petButton(): HTMLButtonElement {
 
 beforeEach(() => {
   mocks.call.mockReset()
+  mocks.emit.mockClear()
   mocks.listen.mockClear()
   mocks.startChat.mockClear()
   mocks.startDragging.mockClear()
@@ -605,14 +611,24 @@ describe("PetWindow pointer interactions", () => {
     expect(mocks.call).not.toHaveBeenCalledWith("queue_turn_user_message", expect.anything())
   })
 
-  test("offers close from the pet context menu", async () => {
+  test("offers settings and close from the pet context menu", async () => {
     render(<PetWindow />)
     fireEvent.contextMenu(petButton())
 
+    const settings = screen.getByRole("menuitem", { name: "Settings" })
     const close = screen.getByRole("menuitem", { name: "Close" })
-    expect(close).toHaveClass("h-7", "min-w-0", "px-3", "text-[11px]")
+    expect(settings).toHaveClass("h-6", "min-w-0", "px-2", "text-[11px]")
+    expect(close).toHaveClass("h-6", "min-w-0", "px-2", "text-[11px]")
     expect(close.parentElement).toHaveClass("left-1/2", "top-1/2")
-    fireEvent.click(close)
+
+    fireEvent.click(settings)
+    await waitFor(() => {
+      expect(mocks.call).toHaveBeenCalledWith("pet_focus_target_cmd", { target: null })
+      expect(mocks.emit).toHaveBeenCalledWith("open-settings", { section: "pets" })
+    })
+
+    fireEvent.contextMenu(petButton())
+    fireEvent.click(screen.getByRole("menuitem", { name: "Close" }))
     await waitFor(() => {
       expect(mocks.call).toHaveBeenCalledWith("pet_set_enabled_cmd", {
         enabled: false,

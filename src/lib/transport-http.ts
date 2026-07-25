@@ -336,6 +336,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   },
   pet_create_preview_cmd: { method: "POST", path: "/api/pets/create/preview" },
   pet_import_preview_cmd: { method: "POST", path: "/api/pets/import/preview" },
+  pet_import_preview_cancel_cmd: {
+    method: "POST",
+    path: "/api/pets/import/preview/cancel",
+  },
   pet_import_commit_cmd: { method: "POST", path: "/api/pets/import/commit" },
   pet_delete_cmd: { method: "POST", path: "/api/pets/delete" },
   pet_restore_cmd: { method: "POST", path: "/api/pets/restore" },

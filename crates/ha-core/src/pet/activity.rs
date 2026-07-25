@@ -345,8 +345,8 @@ mod tests {
 
     #[test]
     fn title_changes_advance_the_snapshot_revision() {
-        let first = project_row(row(ChatTurnStatus::Running, 10, 0), 0)
-            .expect("project first activity");
+        let first =
+            project_row(row(ChatTurnStatus::Running, 10, 0), 0).expect("project first activity");
         let mut renamed = first.clone();
         renamed.title = Some("a concise generated title".to_string());
 

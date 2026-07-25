@@ -74,9 +74,7 @@ pub async fn handle_pet(
         _ => !current.enabled,
     };
     if current.enabled != enabled {
-        let mut next = current;
-        next.enabled = enabled;
-        crate::pet::save_config(next, "slash-command")
+        crate::pet::update_config(Some(enabled), None, "slash-command")
             .await
             .map_err(|error| error.to_string())?;
     }

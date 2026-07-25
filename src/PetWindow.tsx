@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react"
 import { flushSync } from "react-dom"
+import { emit } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ChevronDown } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -505,6 +506,16 @@ export default function PetWindow() {
     }
   }
 
+  const openPetSettings = async () => {
+    setMenuOpen(false)
+    try {
+      await getTransport().call("pet_focus_target_cmd", { target: null })
+      await emit("open-settings", { section: "pets" })
+    } catch (error) {
+      logger.warn("pet", "open_settings", "Failed to open pet settings", error)
+    }
+  }
+
   const closeMenu = useCallback(() => {
     setMenuOpen(false)
     requestAnimationFrame(() => petButtonRef.current?.focus())
@@ -730,18 +741,29 @@ export default function PetWindow() {
           {menuOpen && (
             <div
               role="menu"
-              aria-label={t("pet.window.tuckAway", { defaultValue: "Close pet" })}
-              className="pointer-events-auto absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2"
+              aria-label={t("pet.window.interact", { defaultValue: "Pet actions" })}
+              className="pointer-events-auto absolute left-1/2 top-1/2 z-20 flex max-w-[116px] -translate-x-1/2 -translate-y-1/2 items-center gap-0.5 rounded-full border border-border/60 bg-popover/90 p-0.5 shadow-md backdrop-blur-md"
             >
               <Button
                 ref={menuItemRef}
                 type="button"
                 role="menuitem"
-                variant="secondary"
-                onClick={() => void tuckAway()}
-                className="h-7 min-w-0 rounded-full border border-border/60 bg-popover/90 px-3 text-[11px] shadow-md backdrop-blur-md hover:bg-muted"
+                variant="ghost"
+                onClick={() => void openPetSettings()}
+                className="h-6 min-w-0 flex-1 rounded-full px-2 text-[11px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
               >
-                {t("common.close", { defaultValue: "Close" })}
+                <span className="truncate">
+                  {t("common.settings", { defaultValue: "Settings" })}
+                </span>
+              </Button>
+              <Button
+                type="button"
+                role="menuitem"
+                variant="ghost"
+                onClick={() => void tuckAway()}
+                className="h-6 min-w-0 flex-1 rounded-full px-2 text-[11px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <span className="truncate">{t("common.close", { defaultValue: "Close" })}</span>
               </Button>
             </div>
           )}

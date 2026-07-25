@@ -104,6 +104,12 @@ interface KeyedOverlaySize {
   size: OverlaySize
 }
 
+interface CommittedPetGeometry {
+  width: number
+  height: number
+  anchor: { x: number; y: number }
+}
+
 function useMeasuredSize(
   ref: RefObject<HTMLElement | null>,
   active: boolean,
@@ -178,7 +184,14 @@ export function usePetWindowLayout(
     committed.mode === desiredMode && committed.visible,
   )
   const committedRef = useRef(committed)
+  const lastStableLayoutRef = useRef(committed)
   const anchorRef = useRef({ x: PET_ANCHOR_X, y: PET_ANCHOR_Y })
+  const geometryRef = useRef<CommittedPetGeometry>({
+    width: PET_WIDTH,
+    height: PET_HEIGHT,
+    anchor: { x: PET_ANCHOR_X, y: PET_ANCHOR_Y },
+  })
+  const lastStableGeometryRef = useRef<CommittedPetGeometry>(geometryRef.current)
   const revisionRef = useRef(0)
   const desiredGenerationRef = useRef(0)
   const previousModeRef = useRef(desiredMode)
@@ -202,6 +215,14 @@ export function usePetWindowLayout(
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let retryCount = 0
     let cancelled = false
+    // This effect owns the whole transition, including retries. Recovery must
+    // return to the last fully committed frame, never the temporary hidden
+    // destination used while a native resize is in flight.
+    const rollbackLayout = lastStableLayoutRef.current
+    const rollbackGeometry = {
+      ...lastStableGeometryRef.current,
+      anchor: { ...lastStableGeometryRef.current.anchor },
+    }
 
     if (suspended) return
 
@@ -291,13 +312,19 @@ export function usePetWindowLayout(
       }
       if (
         cancelled ||
-        generation !== desiredGenerationRef.current ||
-        !result?.applied ||
-        result.layoutRevision !== layoutRevision
+        generation !== desiredGenerationRef.current
       ) {
         return
       }
+      if (!result?.applied || result.layoutRevision !== layoutRevision) {
+        throw new Error("pet_window_bounds_not_applied")
+      }
       anchorRef.current = desiredMode === "none" ? { x: PET_ANCHOR_X, y: PET_ANCHOR_Y } : nextAnchor
+      geometryRef.current = {
+        width,
+        height,
+        anchor: { ...anchorRef.current },
+      }
       const nextCommitted = {
         mode: desiredMode,
         horizontal,
@@ -313,20 +340,63 @@ export function usePetWindowLayout(
         if (cancelled || generation !== desiredGenerationRef.current) return
       }
       committedRef.current = nextCommitted
+      lastStableLayoutRef.current = nextCommitted
+      lastStableGeometryRef.current = geometryRef.current
       setCommitted(nextCommitted)
     }
     const runApply = () => {
-      void apply().catch((error) => {
-        logger.warn("pet", "window_layout", `Failed to apply pet bounds: ${String(error)}`)
+      void apply().catch(async () => {
+        logger.warn("pet", "window_layout", "Failed to apply pet window bounds", {
+          retryCount,
+        })
         if (!cancelled && generation === desiredGenerationRef.current && retryCount < 2) {
           retryCount += 1
           retryTimer = setTimeout(runApply, 120 * retryCount)
           return
         }
         if (!cancelled && generation === desiredGenerationRef.current) {
-          const recovered = { ...committedRef.current, visible: true }
-          committedRef.current = recovered
-          setCommitted(recovered)
+          // A rejected invoke may still have reached the native side. Apply a
+          // newer revision for the old geometry before restoring React state,
+          // so an expanded WebView cannot expose a bubble in PetOnly bounds.
+          try {
+            let restored = false
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+              const layoutRevision = ++revisionRef.current
+              const result = await getTransport().call<{
+                applied: boolean
+                layoutRevision: number
+              }>("pet_apply_window_bounds_cmd", {
+                request: {
+                  layoutRevision,
+                  width: rollbackGeometry.width,
+                  height: rollbackGeometry.height,
+                  previousAnchorX: anchorRef.current.x,
+                  previousAnchorY: anchorRef.current.y,
+                  nextAnchorX: rollbackGeometry.anchor.x,
+                  nextAnchorY: rollbackGeometry.anchor.y,
+                },
+              })
+              if (result.applied && result.layoutRevision === layoutRevision) {
+                restored = true
+                break
+              }
+              revisionRef.current = Math.max(revisionRef.current, result.layoutRevision)
+            }
+            if (!restored) {
+              throw new Error("pet_window_bounds_rollback_not_applied")
+            }
+          } catch {
+            logger.warn(
+              "pet",
+              "window_layout_rollback",
+              "Failed to restore the previous pet window bounds",
+            )
+          }
+          if (cancelled || generation !== desiredGenerationRef.current) return
+          anchorRef.current = { ...rollbackGeometry.anchor }
+          geometryRef.current = rollbackGeometry
+          committedRef.current = rollbackLayout
+          setCommitted(rollbackLayout)
         }
       })
     }

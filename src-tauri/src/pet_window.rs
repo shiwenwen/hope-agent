@@ -195,8 +195,7 @@ fn handle_pointer_monitor_event(app: &tauri::AppHandle, event: &objc2_app_kit::N
     use objc2_app_kit::NSEventType;
 
     forward_inactive_pointer(app, event.timestamp());
-    if event.r#type() == NSEventType::LeftMouseDragged
-        && POINTER_WAS_INSIDE.load(Ordering::Acquire)
+    if event.r#type() == NSEventType::LeftMouseDragged && POINTER_WAS_INSIDE.load(Ordering::Acquire)
     {
         track_native_drag_release(app);
     }
@@ -221,10 +220,9 @@ fn install_inactive_pointer_monitors(app: &tauri::AppHandle) {
         handle_pointer_monitor_event(&global_app, unsafe { event.as_ref() });
     });
     let global_handler: &DynBlock<dyn Fn(NonNull<NSEvent>)> = &global_handler;
-    let Some(global_monitor) = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
-        event_mask,
-        global_handler,
-    ) else {
+    let Some(global_monitor) =
+        NSEvent::addGlobalMonitorForEventsMatchingMask_handler(event_mask, global_handler)
+    else {
         POINTER_MONITORS_INSTALLED.store(false, Ordering::Release);
         ha_core::app_warn!(
             "pet",
@@ -249,12 +247,8 @@ fn install_inactive_pointer_monitors(app: &tauri::AppHandle) {
         event.as_ptr()
     });
     let local_handler: &DynBlock<dyn Fn(NonNull<NSEvent>) -> *mut NSEvent> = &local_handler;
-    let local_monitor = unsafe {
-        NSEvent::addLocalMonitorForEventsMatchingMask_handler(
-            event_mask,
-            local_handler,
-        )
-    };
+    let local_monitor =
+        unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(event_mask, local_handler) };
     if let Some(local_monitor) = local_monitor {
         let _ = Retained::into_raw(local_monitor);
     } else {

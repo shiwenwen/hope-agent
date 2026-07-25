@@ -312,6 +312,7 @@ export default function PetSettingsPanel({
   const dropZoneRef = useRef<HTMLDivElement>(null)
   const previewRequestRevision = useRef(0)
   const creatorRequestRevision = useRef(0)
+  const previewsRef = useRef<PetImportPreview[]>([])
   const consumedInitialLink = useRef<string | null>(null)
   const saveInFlight = useRef(false)
   const saveResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -353,7 +354,7 @@ export default function PetSettingsPanel({
     [],
   )
 
-  const persist = async (next: PetConfig) => {
+  const persist = async (next: PetConfig, field: "enabled" | "selection") => {
     if (saveInFlight.current) return
     saveInFlight.current = true
     if (saveResetTimer.current) clearTimeout(saveResetTimer.current)
@@ -361,7 +362,15 @@ export default function PetSettingsPanel({
     setConfig(next)
     setSaveStatus("saving")
     try {
-      await getTransport().call("save_pet_config_cmd", { config: next })
+      if (field === "enabled") {
+        const saved = await getTransport().call<PetConfig>("pet_set_enabled_cmd", {
+          enabled: next.enabled,
+          source: "settings-ui",
+        })
+        setConfig(saved)
+      } else {
+        await getTransport().call("save_pet_config_cmd", { config: next })
+      }
       setSaveStatus("saved")
       saveResetTimer.current = setTimeout(() => setSaveStatus("idle"), 2_000)
     } catch (error) {
@@ -375,12 +384,64 @@ export default function PetSettingsPanel({
     }
   }
 
+  const replacePreviews = useCallback((next: PetImportPreview[]) => {
+    previewsRef.current = next
+    setPreviews(next)
+  }, [])
+
+  const discardPreviews = useCallback(async (items: PetImportPreview[]) => {
+    if (items.length === 0) return
+    const results = await Promise.allSettled(
+      items.map((item) =>
+        getTransport().call<boolean>("pet_import_preview_cancel_cmd", {
+          previewToken: item.previewToken,
+        }),
+      ),
+    )
+    const failureCount = results.filter((result) => result.status === "rejected").length
+    if (failureCount > 0) {
+      logger.warn(
+        "pet",
+        "PetSettingsPanel::discardPreviews",
+        "Failed to release discarded pet previews",
+        { failureCount },
+      )
+    }
+  }, [])
+
+  const clearPreviews = useCallback(() => {
+    const discarded = previewsRef.current
+    replacePreviews([])
+    void discardPreviews(discarded)
+  }, [discardPreviews, replacePreviews])
+
+  const removePreview = useCallback(
+    (preview: PetImportPreview) => {
+      replacePreviews(
+        previewsRef.current.filter((item) => item.previewToken !== preview.previewToken),
+      )
+      void discardPreviews([preview])
+    },
+    [discardPreviews, replacePreviews],
+  )
+
+  useEffect(
+    () => () => {
+      previewRequestRevision.current += 1
+      creatorRequestRevision.current += 1
+      const discarded = previewsRef.current
+      previewsRef.current = []
+      void discardPreviews(discarded)
+    },
+    [discardPreviews],
+  )
+
   const previewSources = useCallback(
     async (sources: PetImportSource[]) => {
       if (sources.length === 0) return
       const revision = ++previewRequestRevision.current
       setPreviewing(true)
-      setPreviews([])
+      clearPreviews()
       const results = await Promise.allSettled(
         sources.map((source) =>
           getTransport().call<PetImportPreview>("pet_import_preview_cmd", {
@@ -425,14 +486,14 @@ export default function PetSettingsPanel({
           },
         )
       }
+      const next = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      )
       if (revision === previewRequestRevision.current) {
-        const next = results.flatMap((result) =>
-          result.status === "fulfilled" ? [result.value] : [],
-        )
         const failures = results.flatMap((result) =>
           result.status === "rejected" ? [String(result.reason)] : [],
         )
-        setPreviews(next)
+        replacePreviews(next)
         if (failures.length > 0) {
           toast.error(
             t("pet.import.previewFailedCount", {
@@ -443,9 +504,11 @@ export default function PetSettingsPanel({
           )
         }
         setPreviewing(false)
+      } else {
+        await discardPreviews(next)
       }
     },
-    [t],
+    [clearPreviews, discardPreviews, replacePreviews, t],
   )
 
   const previewSource = useCallback(
@@ -550,7 +613,7 @@ export default function PetSettingsPanel({
     if (!createName.trim() || !createPrompt.trim()) return
     const revision = ++creatorRequestRevision.current
     setCreating(true)
-    setPreviews([])
+    clearPreviews()
     try {
       const next = await getTransport().call<PetImportPreview>("pet_create_preview_cmd", {
         request: {
@@ -559,7 +622,8 @@ export default function PetSettingsPanel({
           prompt: createPrompt,
         },
       })
-      if (revision === creatorRequestRevision.current) setPreviews([next])
+      if (revision === creatorRequestRevision.current) replacePreviews([next])
+      else await discardPreviews([next])
     } catch (error) {
       if (revision === creatorRequestRevision.current) {
         toast.error(t("pet.creator.failed", { defaultValue: "Could not create this pet" }), {
@@ -599,7 +663,7 @@ export default function PetSettingsPanel({
     previewRequestRevision.current += 1
     creatorRequestRevision.current += 1
     setDialogMode(mode)
-    setPreviews([])
+    clearPreviews()
     setDropActive(false)
     setImportOpen(true)
   }
@@ -610,7 +674,7 @@ export default function PetSettingsPanel({
     setImportOpen(false)
     setPreviewing(false)
     setCreating(false)
-    setPreviews([])
+    clearPreviews()
     setDropActive(false)
   }
 
@@ -680,7 +744,7 @@ export default function PetSettingsPanel({
       await reload()
     }
     if (failed.length > 0) {
-      setPreviews(failed)
+      replacePreviews(failed)
       toast.error(
         t("pet.import.commitFailedCount", {
           amount: failed.length,
@@ -780,7 +844,7 @@ export default function PetSettingsPanel({
             <Switch
               checked={config.enabled}
               disabled={saveStatus === "saving" || !isTauriMode()}
-              onCheckedChange={(enabled) => void persist({ ...config, enabled })}
+              onCheckedChange={(enabled) => void persist({ ...config, enabled }, "enabled")}
               aria-label={t("pet.settings.wake", { defaultValue: "Desktop pet" })}
             />
           </div>
@@ -845,7 +909,9 @@ export default function PetSettingsPanel({
                     type="button"
                     variant="ghost"
                     disabled={saveStatus === "saving"}
-                    onClick={() => void persist({ ...config, selectedPetRef: pet.petRef })}
+                    onClick={() =>
+                      void persist({ ...config, selectedPetRef: pet.petRef }, "selection")
+                    }
                     className="h-auto w-full justify-start rounded-xl p-0 text-left disabled:cursor-wait disabled:opacity-70"
                     aria-pressed={selected}
                   >
@@ -1200,13 +1266,7 @@ export default function PetSettingsPanel({
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7 text-muted-foreground"
-                                onClick={() =>
-                                  setPreviews((current) =>
-                                    current.filter(
-                                      (item) => item.previewToken !== preview.previewToken,
-                                    ),
-                                  )
-                                }
+                                onClick={() => removePreview(preview)}
                               >
                                 <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                               </Button>

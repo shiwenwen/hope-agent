@@ -1,4 +1,6 @@
 use axum::extract::{Multipart, Path, State};
+use axum::http::HeaderMap;
+use axum::Extension;
 use axum::Json;
 
 use super::helpers::parse_file_upload_to_temp;
@@ -17,7 +19,7 @@ use ha_core::session;
 use ha_core::tools;
 
 use crate::error::AppError;
-use crate::AppContext;
+use crate::{AppContext, UiRequestPolicy};
 
 // ── Request / Response Types ───────────────────────────────────
 //
@@ -518,8 +520,13 @@ pub async fn chat(
 /// message-list/composer surface (including Pet quick reply).
 pub async fn ui_chat(
     State(ctx): State<Arc<AppContext>>,
+    Extension(ui_request_policy): Extension<UiRequestPolicy>,
+    headers: HeaderMap,
     Json(body): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, AppError> {
+    if !ui_request_policy.accepts(&headers) {
+        return Err(AppError::forbidden("ui_chat_browser_proof_required"));
+    }
     chat_inner(ctx, body).await
 }
 

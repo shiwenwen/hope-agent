@@ -226,7 +226,7 @@ PetWindow 的透明矩形仍无法跨平台做到任意形状 hit-test，因此�
 - 开始拖动时保持当前 overlay 与 native bounds 不变并冻结新 layout 请求，避免窗口矩形在 OS drag 中从指针下跳走；drop 后关闭 overlay、基于新 monitor/anchor 收缩，期间到达的活动只更新 snapshot 并排队。
 - 鼠标进入 Pet 连续播放三个完整 `wave` 循环，单击完整播放一次 `jump`，Pet 内部移动不重启；拖拽使用左右 run 循环，并同步提交 run 帧、跨过一次浏览器 paint 后给 macOS WindowServer 留两个显示周期再进入原生拖拽循环，避免原生拖拽抓取旧的 idle 纹理。仲裁优先级固定为 Drag > Click > Hover > 业务状态 > Idle，一次性动作结束后恢复此前业务状态。
 - 原生拖拽开始后持续消费 PetWindow `Moved` 事件；以连续 `x` 差的符号实时切换 `run_left` / `run_right`，同一次手势反向时动画必须同步反向，不能锁定首次越阈值的方向。
-- 单击 Pet 播放 Jump 并唤起 Hope 主窗口，但不切换当前会话；数字/箭头控制气泡栈，气泡正文负责 typed navigation。拖拽超过 4px 后必须抑制同手势 click，不能因移动宠物误唤起主窗口。右键先收起信息层，再在宠物本体中心显示 28px 高的紧凑关闭胶囊；该控件不得触发 overlay 测量或扩窗，也不得在宠物外复制一张菜单卡片。
+- 单击 Pet 播放 Jump 并唤起 Hope 主窗口，但不切换当前会话；数字/箭头控制气泡栈，气泡正文负责 typed navigation。拖拽超过 4px 后必须抑制同手势 click，不能因移动宠物误唤起主窗口。右键先收起信息层，再在宠物本体中心显示紧凑的「设置 / 关闭」胶囊；设置唤起主窗口并直达宠物设置页。该控件不得触发 overlay 测量或扩窗，也不得在宠物外复制一张菜单卡片。
 - 自动气泡不改 active window；用户点击气泡、回复区或交互卡后 PetWindow 才获取交互焦点。Escape 先关闭回复区，再收起整个信息层，不 Tuck Away；收起不 resolve 权威交互，黄色数字持续提示待处理状态。
 - typed navigation 成功前不推进 read watermark；目标失效时保留 activity、关闭 overlay 并由主窗口显示错误。
 - resize、activity invalidation、字体加载、monitor change 和用户 close 可能并发，统一以 `layoutRevision` 与当前 state 检查做 latest-wins；组件 unmount 后不得执行迟到的 setSize/setPosition/reveal。
@@ -295,7 +295,7 @@ AND (
 
 Project、fork 和 incognito 都可以是合格主对话；`SessionMeta::is_regular_chat()` 会刻意排除 incognito/Knowledge/Design，故不得复用或修改它。Knowledge 必须有有效 kb/thread 绑定，但 note path 本来就可选；Design 必须有 project/thread 绑定。必要绑定缺失时 fail closed 排除，避免半创建 session 导航到错误空间。
 
-新增通用 `ChatUiSurface { MainChat, QuickChat, KnowledgeChat, DesignChat, PetChat }`，从 `useChatStream`/Pet 快捷回复请求 → Tauri/HTTP chat adapter → `chat_turns.ui_surface` 全链传播；`ChatEngineParams` 只携带同一元数据以强迫所有 engine caller 显式选择，但投影只读 durable turn。各一等 UI 表面分别传固定枚举；第一方 HTTP transport 有 surface 时走 `/api/chat/ui`，公共 `/api/chat` 即使收到伪造字段也强制清空。Channel/Cron/ACP/Subagent/ParentInjection 和任何 automation/side-query 恒为 `None`。该字段只做产品分类、不是授权边界；它不能写入消息正文、system prompt、Provider 请求或模型可见工具参数。
+新增通用 `ChatUiSurface { MainChat, QuickChat, KnowledgeChat, DesignChat, PetChat }`，从 `useChatStream`/Pet 快捷回复请求 → Tauri/HTTP chat adapter → `chat_turns.ui_surface` 全链传播；`ChatEngineParams` 只携带同一元数据以强迫所有 engine caller 显式选择，但投影只读 durable turn。各一等 UI 表面分别传固定枚举；第一方 HTTP transport 有 surface 时走 `/api/chat/ui`，服务端同时要求浏览器 Fetch Metadata，并校验同源或显式 CORS origin，不能把 route 名本身当来源证明；公共 `/api/chat` 即使收到伪造字段也强制清空。Channel/Cron/ACP/Subagent/ParentInjection 和任何 automation/side-query 恒为 `None`。该字段只做产品分类、不是权限授权；它不能写入消息正文、system prompt、Provider 请求或模型可见工具参数。
 
 迁移后历史 turn 的 `ui_surface` 为 NULL，并保持不接入；不能仅凭旧 `source='desktop'` 猜测它是否真的来自消息列表＋输入框。以后新增一等对话表面必须扩 `ChatUiSurface`、固定调用点、Core SQL allowlist、Pet 矩阵与 read-receipt 测试。
 
@@ -566,7 +566,7 @@ struct PetImportCandidate {
 
 ### 配置同步契约
 
-`AppConfig.pet` 只放真正的用户配置：`enabled`（默认 false）、`selectedPetRef`（默认 `builtin:hope-default`）。窗口坐标属于桌面 UI state，写入独立的 pet window-state 文件，不进入 `ha-settings`。Wake/Tuck、Settings 开关和 `/pet` 都经 `mutate_config_async(("pet", source), …)` 修改同一 `enabled`，不能再维护前端 localStorage 可见性副本。
+`AppConfig.pet` 只放真正的用户配置：`enabled`（默认 false）、`selectedPetRef`（默认 `builtin:hope-default`）。窗口坐标属于桌面 UI state，写入独立的 pet window-state 文件，不进入 `ha-settings`。Wake/Tuck、Settings 开关和 `/pet` 都经 `pet::update_config` 的字段级 patch 修改同一 `enabled`；该入口在 `run_blocking` 内调用共享 `mutate_config(("pet", source), …)`，选择写还与 library lock 保持统一锁序，不能再维护前端 localStorage 可见性副本。
 
 同一 PR 必须同步：
 
@@ -587,6 +587,7 @@ struct PetImportCandidate {
 | candidate thumbnail       | `pet_candidate_thumbnail_cmd` | `GET /api/pets/codex-candidates/{candidateId}/thumbnail` | 惰性解码 idle 动画条；不返回 source path                                     |
 | preview thumbnail         | `pet_preview_thumbnail_cmd`   | `GET /api/pets/import/previews/{previewToken}/thumbnail` | 返回有界的 1536×208 idle 行用于安装前动画预览                                |
 | preview import            | `pet_import_preview_cmd`      | `POST /api/pets/import/preview`                          | link/upload/candidate；不落最终库                                            |
+| cancel preview            | `pet_import_preview_cancel_cmd` | `POST /api/pets/import/preview/cancel`                 | token 只放 JSON body；幂等释放 preview cache 与绑定 upload lease            |
 | commit import             | `pet_import_commit_cmd`       | `POST /api/pets/import/commit`                           | 按 preview token + hash 重验后复制；HTTP 禁止启用桌面浮层                    |
 | delete                    | `pet_delete_cmd`              | `POST /api/pets/delete`                                  | owner-only，带 expected package hash，返回短期 restore token；不能删内置资源 |
 | restore                   | `pet_restore_cmd`             | `POST /api/pets/restore`                                 | token 只放 JSON body；原目标仍空闲且 hash 匹配才恢复                         |
@@ -648,7 +649,7 @@ overlay 展开方向按宠物所在 work area 动态选择向左/右、向上/�
 
 ### TOCTOU 与去重
 
-preview 生成 256-bit 随机短期 token，服务端用有界内存表保存已校验 package、重验来源、upload lease 和 expiry；commit 时重新打开本地文件并比 package hash，任何变化都返回 `stale_preview`，要求刷新。URL/upload preview 缓存已经下载且校验过的 bytes，commit 不二次联网。token 只在安装及所请求的配置副作用全部成功后消费；失败保留用于安全重试，内容寻址安装保证重试幂等。
+preview 生成 256-bit 随机短期 token，服务端用有界内存表保存已校验 package、重验来源、upload lease 和 expiry；commit 时重新打开本地文件并比 package hash，任何变化都返回 `stale_preview`，要求刷新。URL/upload preview 缓存已经下载且校验过的 bytes，commit 不二次联网。token 只在安装及所请求的配置副作用全部成功后消费；失败保留用于安全重试，内容寻址安装保证重试幂等。关闭/替换/逐项移除 preview 必须调用幂等 cancel，服务端同步释放 cache 与绑定 upload lease；过期淘汰也走同一清理，不能只清前端 state。
 
 定义两个不可混用的 hash：`assetHash = BLAKE3(raw sprite bytes)`；`packageHash = BLAKE3(canonical known manifest fields || assetHash)`。精确重复按 packageHash 幂等跳过；同图不同名称/描述允许作为不同 package 导入。稳定碰撞后缀取 packageHash 前缀，目录名/displayName 本身不作为内容相等依据。重新导入同源更新必须是显式动作，默认不静默覆盖。
 

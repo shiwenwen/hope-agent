@@ -192,7 +192,7 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 
 | 事件名 | 触发点 | Payload 关键字段 |
 |---|---|---|
-| `pet:config_changed` | `ha_core::pet::save_config` | `{ enabled, selectedPetRef, source }`（不含素材或路径） |
+| `pet:config_changed` | `ha_core::pet::update_config` | `{ enabled, selectedPetRef, source }`（不含素材或路径） |
 | `pet:library_changed` | pet install/delete/restore | library 失效提示，消费者重拉 |
 | `pet:activity_changed` | 合格 chat turn / pending / read watermark 变化 | activity 失效提示，消费者重拉 snapshot |
 | `pet:navigate` | PetWindow 点击 activity | typed `PetNavigationTarget`；Tauri 直发给主 App |
@@ -273,7 +273,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 |---|---|---|
 | `call<T>(command, args)` | `invoke(command, args)` | REST 查表 + JSON；multipart 走特例分支 |
 | `prepareFileData(buffer, mime)` | `Array.from(Uint8Array)` — JSON 传输（~4× 膨胀） | `new Blob([buffer], {type})` — 零拷贝 |
-| `startChat(args, onEvent)` | `new Channel<string>()` + `invoke("chat", { ...args, onEvent })` | Bundled UI 走 `POST /api/chat/ui`；公共 owner API 保留 `POST /api/chat` 并强制清空 `uiSurface`；流式 delta 走 `/ws/events` 的 `chat:stream_delta`，仅合成 `session_created` 给 `onEvent` 做新会话 cache rename |
+| `startChat(args, onEvent)` | `new Channel<string>()` + `invoke("chat", { ...args, onEvent })` | Bundled UI 走 `POST /api/chat/ui`（服务端要求浏览器 Fetch Metadata + 同源或显式 CORS origin）；公共 owner API 保留 `POST /api/chat` 并强制清空 `uiSurface`；流式 delta 走 `/ws/events` 的 `chat:stream_delta`，仅合成 `session_created` 给 `onEvent` 做新会话 cache rename |
 | `listen(eventName, handler)` | `@tauri-apps/api/event.listen` | 全局 `/ws/events` + name 匹配 + 指数退避重连 |
 | `resolveMediaUrl(item)` | `convertFileSrc(localPath)` → `tauri://` | 仅支持 `/api/` 或 `http(s)://`，本地绝对路径返 `null` |
 | `resolveAssetUrl(path)` | `convertFileSrc` | 正则识别 `avatars`/`image_generate`/`canvas` → `/api/avatars/{n}?token=...` 等 |
@@ -325,6 +325,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `pet_preview_thumbnail_cmd` | `GET /api/pets/import/previews/{previewToken}/thumbnail` | ✅（1536×208 idle 动画条） |
 | `pet_create_preview_cmd` | `POST /api/pets/create/preview` | ✅（显式 media generation） |
 | `pet_import_preview_cmd` | `POST /api/pets/import/preview` | ✅（HTTP 拒绝 LocalPath，只接受 upload/link/candidate capability） |
+| `pet_import_preview_cancel_cmd` | `POST /api/pets/import/preview/cancel` | ✅（token 只放 JSON body；幂等释放 preview cache 与其 upload leases） |
 | `pet_import_commit_cmd` | `POST /api/pets/import/commit` | ✅（HTTP 拒绝 `enableAfterImport=true`，不能启用桌面 overlay） |
 | `pet_delete_cmd` | `POST /api/pets/delete` | ✅（expected package hash） |
 | `pet_restore_cmd` | `POST /api/pets/restore` | ✅（短期 restore token） |
@@ -335,7 +336,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `pet_sync_window_cmd` | `POST /api/pets/window/sync` | ✅（HTTP 明确返回 overlay unsupported） |
 | `pet_focus_target_cmd` | `POST /api/pets/focus-target` | ✅（HTTP 明确返回 overlay unsupported） |
 
-Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns.ui_surface`；缺省值绝不推断为桌面主对话。详见 [Pet 架构](pet.md)。
+Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns.ui_surface`；缺省值绝不推断为桌面主对话。HTTP 只有带浏览器不可由页面脚本伪造的 `Sec-Fetch-Mode: cors`、`Sec-Fetch-Dest: empty`，且 `Origin` 与 `Host` 同源或命中服务端显式 CORS allowlist 时才能进入 `/api/chat/ui`；普通 API、side-query 和 automation 一律走会清空字段的 `/api/chat`。详见 [Pet 架构](pet.md)。
 
 ### Projects
 
@@ -791,7 +792,7 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `chat` | Bundled Transport：`POST /api/chat/ui`；公共 owner API：`POST /api/chat`（忽略 `uiSurface`）；流式输出均经 `/ws/events` 的 `chat:stream_delta` | ✅（已有会话可带 `editMessageId`，仅允许最后一条非排队 user 且旧 turn 已终止；旧分支回退、replacement user 落库、新 turn 登记同一事务提交并保留 Bundled UI surface） |
+| `chat` | Bundled Transport：`POST /api/chat/ui`（浏览器 Fetch Metadata + origin 校验）；公共 owner API：`POST /api/chat`（忽略 `uiSurface`）；流式输出均经 `/ws/events` 的 `chat:stream_delta` | ✅（已有会话可带 `editMessageId`，仅允许最后一条非排队 user 且旧 turn 已终止；旧分支回退、replacement user 落库、新 turn 登记同一事务提交并保留 Bundled UI surface） |
 | `queue_turn_user_message` | `POST /api/chat/turn-message` | ✅ 持久入队，附件在入队时转 session-owned 引用 |
 | `list_queued_turn_user_messages` | `GET /api/chat/turn-message/{sessionId}` | ✅ UI/恢复单一查询入口 |
 | `update_queued_turn_user_message` | `PATCH /api/chat/turn-message` | ✅ CAS 拒绝 inserting/dispatching |
