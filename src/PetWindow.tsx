@@ -151,14 +151,6 @@ export default function PetWindow() {
     return () => clearTimeout(timer)
   }, [initialized, visibleActivities])
 
-  useEffect(() => {
-    const currentKeys = new Set(snapshot.activities.map(activityProjectionKey))
-    setDismissedActivityKeys((current) => {
-      const next = new Set([...current].filter((key) => currentKeys.has(key)))
-      return next.size === current.size ? current : next
-    })
-  }, [snapshot.activities])
-
   const needsInputSessionIds = useMemo(
     () =>
       snapshot.activities
@@ -359,7 +351,12 @@ export default function PetWindow() {
   const dismissActivity = useCallback(
     async (activity: PetActivity) => {
       const key = activityProjectionKey(activity)
-      setDismissedActivityKeys((current) => new Set(current).add(key))
+      const currentKeys = new Set(snapshot.activities.map(activityProjectionKey))
+      setDismissedActivityKeys((current) => {
+        const next = new Set([...current].filter((dismissedKey) => currentKeys.has(dismissedKey)))
+        next.add(key)
+        return next
+      })
       setExpandedReplyId((current) => (current === activity.activityId ? null : current))
       if (!(await markActivityRead(activity))) {
         setDismissedActivityKeys((current) => {
@@ -369,7 +366,7 @@ export default function PetWindow() {
         })
       }
     },
-    [markActivityRead],
+    [markActivityRead, snapshot.activities],
   )
 
   const handlePetClick = () => {
@@ -545,11 +542,14 @@ export default function PetWindow() {
   const action = dragAction ?? pointerAction ?? actionForStatus(snapshot.dominant)
 
   useEffect(() => {
-    if (inactiveHover.pet && !inactivePetWasHovered.current && !dragging && !pointerAction) {
-      setPointerAction("wave")
-    }
+    const shouldWave = inactiveHover.pet && !inactivePetWasHovered.current && !dragging
     inactivePetWasHovered.current = inactiveHover.pet
-  }, [dragging, inactiveHover.pet, pointerAction])
+    if (!shouldWave) return
+    const frame = requestAnimationFrame(() => {
+      setPointerAction((current) => current ?? "wave")
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [dragging, inactiveHover.pet])
 
   useEffect(() => {
     if (!menuOpen) return

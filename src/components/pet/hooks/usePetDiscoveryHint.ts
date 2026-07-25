@@ -30,35 +30,35 @@ interface PetDiscoveryHintOptions {
 export function usePetDiscoveryHint({ supported, ready, enabled }: PetDiscoveryHintOptions) {
   const [discovered, setDiscovered] = useState(hasDiscoveredPet)
   const [snoozed, setSnoozed] = useState(false)
-  const [open, setOpen] = useState(false)
+  const [openRequested, setOpenRequested] = useState(false)
   const eligible = supported && ready && !enabled && !discovered && !snoozed
+  const open = eligible && openRequested
 
   const markDiscovered = useCallback(() => {
     persistPetDiscovery()
     setDiscovered(true)
-    setOpen(false)
+    setOpenRequested(false)
   }, [])
 
   useEffect(() => {
-    if (supported && ready && enabled && !discovered) markDiscovered()
+    if (!(supported && ready && enabled && !discovered)) return
+    const timer = window.setTimeout(markDiscovered, 0)
+    return () => window.clearTimeout(timer)
   }, [discovered, enabled, markDiscovered, ready, supported])
 
   useEffect(() => {
-    if (!eligible) {
-      setOpen(false)
-      return
-    }
-    const timer = window.setTimeout(() => setOpen(true), PET_DISCOVERY_DELAY_MS)
+    if (!eligible) return
+    const timer = window.setTimeout(() => setOpenRequested(true), PET_DISCOVERY_DELAY_MS)
     return () => window.clearTimeout(timer)
   }, [eligible])
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (nextOpen && eligible) {
-        setOpen(true)
+        setOpenRequested(true)
         return
       }
-      setOpen(false)
+      setOpenRequested(false)
       if (!nextOpen) setSnoozed(true)
     },
     [eligible],

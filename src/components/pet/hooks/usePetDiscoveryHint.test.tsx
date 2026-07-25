@@ -48,7 +48,7 @@ describe("usePetDiscoveryHint", () => {
     expect(next.result.current.open).toBe(true)
   })
 
-  test("never returns after explicit dismissal or prior use", async () => {
+  test("never returns after explicit dismissal or prior use", () => {
     const dismissed = renderHook(() =>
       usePetDiscoveryHint({ supported: true, ready: true, enabled: false }),
     )
@@ -60,7 +60,7 @@ describe("usePetDiscoveryHint", () => {
     const alreadyEnabled = renderHook(() =>
       usePetDiscoveryHint({ supported: true, ready: true, enabled: true }),
     )
-    await act(async () => Promise.resolve())
+    act(() => vi.advanceTimersByTime(0))
     expect(alreadyEnabled.result.current.open).toBe(false)
     expect(window.localStorage.getItem(PET_DISCOVERY_STORAGE_KEY)).toBe("seen")
   })
