@@ -145,6 +145,11 @@ jobs:
       # xcap (screen capture) needs the full Wayland screenshot stack:
       # libpipewire-0.3-dev, libgbm-dev, libegl-dev, libwayland-dev
       # (otherwise `-lgbm` link-step fails).
+      # xdg-utils supplies /usr/bin/xdg-mime, which the AppImage bundler shells
+      # out to. It ships preinstalled on the x64 runner image but NOT on
+      # ubuntu-24.04-arm — v0.24.0's first arm64 leg died with "xdg-mime binary
+      # not found" after the .deb / .rpm had already bundled, losing every arm64
+      # Linux asset. Install it explicitly so neither lane depends on image drift.
       - name: Install Linux build deps
         if: runner.os == 'Linux'
         run: |
@@ -159,6 +164,7 @@ jobs:
             libegl-dev \
             libwayland-dev \
             patchelf \
+            xdg-utils \
             mold
           # mold 加速 Linux 桌面 bundle 链接（仅本 Linux leg 生效）。WebKit2GTK
           # 链接量大，已由 release dry-run 验证；若与某 -sys crate 链接脚本冲突，
