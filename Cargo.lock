@@ -3095,7 +3095,7 @@ dependencies = [
 
 [[package]]
 name = "ha-browser-host"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -3106,7 +3106,7 @@ dependencies = [
 
 [[package]]
 name = "ha-core"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -3205,7 +3205,7 @@ dependencies = [
 
 [[package]]
 name = "ha-eval"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3241,7 +3241,7 @@ dependencies = [
 
 [[package]]
 name = "ha-server"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3369,7 +3369,7 @@ checksum = "b0b3ba31f6dc772cc8221ce81dbbbd64fa1e668255a6737d95eeace59b5a8823"
 
 [[package]]
 name = "hope-agent"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "arboard",
