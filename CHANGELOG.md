@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **新增 Codex 兼容桌面宠物**：可从侧边栏或设置开启，拖入 Codex 宠物直接导入，并通过动态气泡查看主对话进度、快捷回复、停止任务及处理提问与授权；首次使用会显示非模态功能提示。 (#554)
 
+### Changed
+
+- **撤回无效的 Linux WebKitGTK 视觉降级**：恢复 Linux 桌面版的毛玻璃效果与系统字体选择。0.23 为滚动文字发虚而全局禁用 `backdrop-filter`、强制 Noto 字体栈，但报告者在 KDE/KWin Wayland、1.0 缩放下复测仍可复现；问题来自 WebKitGTK/wry 的窗口与 WebView 渲染尺寸不同步，并非 CSS 合成层或分数缩放，继续由上游 [wry #1727](https://github.com/tauri-apps/wry/issues/1727) 跟踪。窗口透明度的 Linux 防御与 Windows 启动居中不受影响。 (#547)
+
 ## [0.23.0] - 2026-07-25
 
 ### Added
@@ -39,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **全局选中态更醒目、标签与 Tab 反馈统一**：侧栏视图入口、会话 / 笔记 / 文件列表、卡片、模式切换与运行记录的持久选中改用实色底，不再和悬停态或页面底色糊成一片；单选与多选标签收敛到同一套反白样式，明暗两种主题下都有悬停反馈，选中不再靠边框、阴影或额外勾选表达；Tab 选中面去掉阴影并在切换时平滑滑到新标签（系统开启「减少动态效果」时直接切换）。服务商模板与自定义向导的「返回」同时从底部移到标题栏左上，底部只留「下一步」/「保存」，减少误点。 (#543)
 - **Docker 沙箱不再因为 `docker` 命令不在应用 PATH 里就报「未安装」**：daemon 可直连时即视为可用（执行本身走 Docker API，不需要 CLI），修好 macOS / Linux 上「Docker 明明在跑，沙箱工具却被拒绝执行」的情况。 (#541)
 - **MCP 长任务工具的后台执行现在真的生效**：声明 `taskSupport` 的 MCP 工具此前虽然在 schema 里露出 `run_in_background`，实际调用却被静默同步执行；现在会按服务器声明正确进入后台任务并支持自动后台。 (#545)
-- **Linux 下滚动聊天窗口不再周期性发虚**：主窗口与 QuickChat 窗口在 Linux 关闭透明（Windows 早有同款先例），Linux 桌面版的全部毛玻璃表面统一降级，并补充 Noto 字体栈；QuickChat 窗口随之在 Linux 上改为方角。Windows 主窗口找回丢失的启动居中。 (#548)
+- **尝试缓解 Linux 下滚动聊天窗口周期性发虚（后续确认未解决）**：主窗口与 QuickChat 窗口在 Linux 关闭透明，Linux 桌面版的全部毛玻璃表面统一降级并补充 Noto 字体栈；QuickChat 窗口随之在 Linux 上改为方角。报告者升级 0.23 后仍可复现，CSS 与字体降级已在后续版本撤回；Windows 主窗口找回丢失的启动居中。 (#548)
 - **hooks 文档更正：hook 收到的工具参数不脱敏**：架构文档此前称 `tool_input` 会走脱敏，实际并没有——payload 原样进入 command hook 的 stdin、http hook 的请求体，以及 prompt handler 拼给模型的指令。这与官方 Claude Code 行为一致（否则判 `.tool_input.command` 的脚本无法工作），但**给某工具配 hook 就等于授权该 hook 读到该工具的全部入参，包括其中的凭据**；hooks 本身是 opt-in、仓库内 hooks 默认不生效。 (#549)
 
 ## [0.22.0] - 2026-07-21
