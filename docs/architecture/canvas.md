@@ -97,7 +97,7 @@ graph TD
             └── snapshot_YYYYMMDD_HHMMSS.png   # 每次 snapshot 动作落盘的 PNG
 ```
 
-路径解析入口集中在 [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) 的 `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir`：
+路径解析入口集中在 [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs) 的 `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir`：
 
 - `canvas_dir()` → `~/.hope-agent/canvas/`
 - `canvas_projects_dir()` → `…/canvas/projects/`
@@ -673,7 +673,7 @@ pub async fn serve_canvas_project_file(
 | [`crates/ha-core/src/tools/canvas/renderer.rs`](../../crates/ha-core/src/tools/canvas/renderer.rs) | 7 种 `build_*_page` 模板 + `write_project_files` 分发器 |
 | [`crates/ha-core/src/tools/definitions/extra_tools.rs`](../../crates/ha-core/src/tools/definitions/extra_tools.rs) | `get_canvas_tool()` 工具 schema 定义 |
 | [`crates/ha-core/src/tools/definitions/registry.rs`](../../crates/ha-core/src/tools/definitions/registry.rs) | 注册到 internal / async-capable 集合 |
-| [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) | `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir` |
+| [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs) | `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir` |
 | [`crates/ha-core/src/config/mod.rs`](../../crates/ha-core/src/config/mod.rs) | `AppConfig.canvas` 字段挂载 |
 
 ### 后端（ha-server / src-tauri）

@@ -1,6 +1,6 @@
 # 自升级（Self-Update）
 
-> 关联源码：[`crates/ha-core/src/updater/`](../../crates/ha-core/src/updater) · [`crates/ha-core/src/tools/app_update.rs`](../../crates/ha-core/src/tools/app_update.rs) · [`crates/ha-core/src/tools/definitions/update_tools.rs`](../../crates/ha-core/src/tools/definitions/update_tools.rs) · [`crates/ha-core/src/platform/`](../../crates/ha-core/src/platform) · [`src-tauri/src/commands/update_bridge.rs`](../../src-tauri/src/commands/update_bridge.rs) · [`skills/ha-self-update/SKILL.md`](../../skills/ha-self-update/SKILL.md)
+> 关联源码：[`crates/ha-core/src/updater/`](../../crates/ha-core/src/updater) · [`crates/ha-core/src/tools/app_update.rs`](../../crates/ha-core/src/tools/app_update.rs) · [`crates/ha-core/src/tools/definitions/update_tools.rs`](../../crates/ha-core/src/tools/definitions/update_tools.rs) · [`crates/ha-base/src/platform/`](../../crates/ha-core/src/platform) · [`src-tauri/src/commands/update_bridge.rs`](../../src-tauri/src/commands/update_bridge.rs) · [`skills/ha-self-update/SKILL.md`](../../skills/ha-self-update/SKILL.md)
 
 ## 目的
 
@@ -116,7 +116,7 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 
 ## 跨平台 binary swap
 
-[`crate::platform::atomic_replace_binary`](../../crates/ha-core/src/platform/mod.rs) 暴露统一入口，Unix / Windows 各实现：
+[`crate::platform::atomic_replace_binary`](../../crates/ha-base/src/platform/mod.rs) 暴露统一入口，Unix / Windows 各实现：
 
 - **Unix**：`fs::set_permissions(source, 0o755)` → `fs::rename(source, target)`。Unix `rename(2)` 改 dirent 不动 inode，正在运行的进程继续读旧 inode，新 `exec(2)` 加载新 image。`EXDEV` fallback：sibling tempfile + fsync + rename。
 - **Windows**：先 `MoveFileExW(target → target.old, REPLACE_EXISTING)` 把 in-use binary rename 让出位置（Vista+ 允许），再 `MoveFileExW(source → target, REPLACE_EXISTING | WRITE_THROUGH)` 原子发布新 image，最后 `MoveFileExW(target.old, NULL, DELAY_UNTIL_REBOOT)` 调度旧 image 重启时清理。失败时把 aside 还原回 target 防止留下断片。
@@ -127,7 +127,7 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 
 上面的 `atomic_replace_binary` 只覆盖 **headless `SelfContained`** 路径。**桌面 `Tauri`** 路径的 swap 由 `tauri-plugin-updater` 自己做：它用 `tempfile::Builder` 把新 `.app` 解压进默认临时目录，再用 `std::fs::rename` 把旧 bundle 移到备份、把新 bundle 移到安装位置（`updater.rs::install_inner`）。当应用运行在与临时目录不同的卷（外置 / 独立数据卷等）时，**第一步 rename 就返回 `EXDEV`**（"Cross-device link (os error 18)"）导致更新中断——插件把任何非 `PermissionDenied` 的 rename 错误都当致命错误（`EXDEV` **不会**触发 AppleScript / copy 兜底），且 macOS 路径不像 Linux AppImage 路径那样有「多候选目录 + 同 `dev()` 校验」兜底。
 
-防御在启动早期 `src-tauri/src/lib.rs::run()` 顶部调用 [`platform::redirect_updater_tmpdir_if_cross_volume`](../../crates/ha-core/src/platform/mod.rs)：macOS 上若 `.app` 所在卷（比 `dev()`）≠ 默认临时目录卷，则在 `.app` 父目录下建 `.hope-agent-updater-tmp`、**复核该目录 `dev()` 确实落在 bundle 卷**后，用 [`tempfile::env::override_temp_dir`](https://docs.rs/tempfile) 把 **`tempfile` 库的进程内默认临时目录**改到那里，使插件两次 rename 都留在同卷内。返回三态 `UpdaterTmpdir`：`Redirected`（已改）/ `Unchanged`（同卷 / 非 bundle / 非 macOS）/ `CrossVolumeUnfixable`（跨卷但无法在同卷建临时目录——只读挂载如 DMG、或父目录不可写；此时无能为力，`run()` 落一条 warn 面包屑提示用户装到 `/Applications`）。
+防御在启动早期 `src-tauri/src/lib.rs::run()` 顶部调用 [`platform::redirect_updater_tmpdir_if_cross_volume`](../../crates/ha-base/src/platform/mod.rs)：macOS 上若 `.app` 所在卷（比 `dev()`）≠ 默认临时目录卷，则在 `.app` 父目录下建 `.hope-agent-updater-tmp`、**复核该目录 `dev()` 确实落在 bundle 卷**后，用 [`tempfile::env::override_temp_dir`](https://docs.rs/tempfile) 把 **`tempfile` 库的进程内默认临时目录**改到那里，使插件两次 rename 都留在同卷内。返回三态 `UpdaterTmpdir`：`Redirected`（已改）/ `Unchanged`（同卷 / 非 bundle / 非 macOS）/ `CrossVolumeUnfixable`（跨卷但无法在同卷建临时目录——只读挂载如 DMG、或父目录不可写；此时无能为力，`run()` 落一条 warn 面包屑提示用户装到 `/Applications`）。
 
 **为何用 `tempfile` 覆盖而非改 `$TMPDIR` 环境变量**：`override_temp_dir` 只改 `tempfile` 库在**本进程**内的默认目录（插件正是用 `tempfile::Builder` 暂存，故生效），**不动 `$TMPDIR` 环境变量**——因此 `exec` / hooks / MCP 等**子进程**（会继承、甚至显式 whitelist `$TMPDIR`）仍用每用户系统临时目录，不会把临时文件写到应用旁边。`override_temp_dir` set-once + 线程安全，故 `run()` panic-restart 重入无害。**为何 startup 设而非包在某次更新外**：桌面更新两个入口都独立驱动插件 Rust install——GUI「检查更新」菜单走 JS（[`desktopUpdater.ts`](../../src/lib/desktopUpdater.ts)）、`app_update` 工具走 `update_bridge`；只包一个 call site 覆盖不到另一个。普通装在引导卷（= 临时目录同卷）一律 no-op，进程内 temp 改道的代价只由罕见跨卷用户承担。
 

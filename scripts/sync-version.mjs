@@ -16,6 +16,10 @@ const haServerCargoTomlPath = path.join(rootDir, "crates", "ha-server", "Cargo.t
 // and not a user-facing binary, but kept in lockstep so all crates in
 // the workspace report one coherent product version.
 const haCoreCargoTomlPath = path.join(rootDir, "crates", "ha-core", "Cargo.toml")
+// ha-base is the foundation layer split out of ha-core (paths / logging /
+// platform / security). Same reasoning as ha-core: kept in lockstep so the
+// whole workspace reports one coherent product version.
+const haBaseCargoTomlPath = path.join(rootDir, "crates", "ha-base", "Cargo.toml")
 // ha-browser-host ships inside desktop bundles AND bare-binary archives
 // (updater `extra_binaries`) and reports `hostVersion` from its own
 // CARGO_PKG_VERSION during the broker handshake — a frozen version here
@@ -49,6 +53,7 @@ function bumpCargoTomlVersion(filePath, label) {
 bumpCargoTomlVersion(tauriCargoTomlPath, "src-tauri/Cargo.toml")
 bumpCargoTomlVersion(haServerCargoTomlPath, "crates/ha-server/Cargo.toml")
 bumpCargoTomlVersion(haCoreCargoTomlPath, "crates/ha-core/Cargo.toml")
+bumpCargoTomlVersion(haBaseCargoTomlPath, "crates/ha-base/Cargo.toml")
 bumpCargoTomlVersion(browserHostCargoTomlPath, "crates/ha-browser-host/Cargo.toml")
 bumpCargoTomlVersion(haEvalCargoTomlPath, "crates/ha-eval/Cargo.toml")
 
@@ -79,7 +84,7 @@ if (process.env.npm_lifecycle_event === "version") {
       stdio: "ignore",
     })
     execSync(
-      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json crates/ha-server/Cargo.toml crates/ha-core/Cargo.toml crates/ha-browser-host/Cargo.toml crates/ha-eval/Cargo.toml Cargo.lock",
+      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json crates/ha-server/Cargo.toml crates/ha-core/Cargo.toml crates/ha-base/Cargo.toml crates/ha-browser-host/Cargo.toml crates/ha-eval/Cargo.toml Cargo.lock",
       {
         cwd: rootDir,
         stdio: "ignore",
@@ -92,5 +97,5 @@ if (process.env.npm_lifecycle_event === "version") {
 
 console.log(`[sync-version] synced desktop version to ${version}`)
 console.log(
-  "[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, crates/ha-server/Cargo.toml, crates/ha-core/Cargo.toml, crates/ha-browser-host/Cargo.toml, crates/ha-eval/Cargo.toml, Cargo.lock",
+  "[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, crates/ha-server/Cargo.toml, crates/ha-core/Cargo.toml, crates/ha-base/Cargo.toml, crates/ha-browser-host/Cargo.toml, crates/ha-eval/Cargo.toml, Cargo.lock",
 )

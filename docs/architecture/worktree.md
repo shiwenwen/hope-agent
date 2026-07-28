@@ -33,7 +33,7 @@ session working dir
 | --- | --- | --- |
 | 核心控制面 | `crates/ha-core/src/worktree.rs` | 表结构、创建、归档、恢复、交接、`.worktreeinclude` 复制、EventBus。 |
 | 项目首轮 Bootstrap | `crates/ha-core/src/project_bootstrap.rs` | 首次发送前校验、幂等记录、进度事件、取消与启动恢复。 |
-| 路径 | `crates/ha-core/src/paths.rs` | `worktrees_dir()` 返回 `~/.hope-agent/worktrees`。 |
+| 路径 | `crates/ha-base/src/paths.rs` | `worktrees_dir()` 返回 `~/.hope-agent/worktrees`。 |
 | Hooks | `crates/ha-core/src/hooks/*` | `WorktreeCreate` 阻断/替换默认创建；`WorktreeRemove` 观察清理。 |
 | Workflow | `crates/ha-core/src/workflow/{types,db,runtime}.rs` | `workflow_runs.worktree_id`，运行时自动 restore 并覆盖 execution cwd。 |
 | Goal | `crates/ha-core/src/goal/mod.rs` | 绑定 workflow 后写 `worktree_attached` evidence；生命周期变化刷新 worktree state / path / handoff / dirty snapshot。 |

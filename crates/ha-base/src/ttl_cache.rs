@@ -3,10 +3,10 @@
 //! Two call sites in the codebase wanted a bounded `HashMap` that auto-
 //! expires entries:
 //!
-//! - [`crate::permission::judge`] — process-wide judge verdict cache
+//! - `ha_core::permission::judge` — process-wide judge verdict cache
 //!   (capacity 256, TTL 60 s). Repeat tool calls within a chat turn
 //!   shouldn't trigger a fresh ~5 s LLM call.
-//! - [`crate::agent::active_memory`] — per-agent recall cache (capacity
+//! - `ha_core::agent::active_memory` — per-agent recall cache (capacity
 //!   32, TTL configurable). Re-asking the exact same user phrasing
 //!   inside the cache window reuses the previous recall.
 //!

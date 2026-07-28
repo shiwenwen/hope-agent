@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "src-tauri",
+    "crates/ha-base",
     "crates/ha-core",
     "crates/ha-server",
     "crates/ha-browser-host",

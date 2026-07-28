@@ -25,6 +25,10 @@ use tokio::sync::Mutex;
 /// distinguishable from a successful first run.
 static INIT_DONE: OnceLock<()> = OnceLock::new();
 
+/// ha-base 配置钩子的一次性注册闸。**不能复用 `INIT_DONE`**——那个 OnceLock 直到
+/// `init_runtime` 末尾才置位，函数开头的早退检查并非互斥，并发调用会双双穿过。
+static REGISTER_BASE_HOOKS: std::sync::Once = std::sync::Once::new();
+
 /// Records the runtime role passed to `init_runtime("desktop"|"server"|"acp"|"test")`.
 /// First-write-wins. Tests in the same binary share this `OnceLock` — once
 /// `init_runtime("test")` runs, `is_desktop()` stays `false` for every test.
@@ -110,6 +114,42 @@ pub fn init_runtime(role: &'static str) {
     if INIT_DONE.get().is_some() {
         return;
     }
+
+    // ha-base 的配置读取钩子必须在**任何**业务代码跑之前注册。ha-base 位于依赖
+    // 图最底层、不能反向依赖 `AppConfig`，所以两处配置驱动的行为改由上层注入：
+    //
+    //   · `paths::plans_dir()` 读 `plans_directory`——漏注册会静默回落到
+    //     `~/.hope-agent/plans/`，用户自定义目录失效
+    //   · `security::dangerous` 读 `permission.global_yolo`——漏注册等于该来源
+    //     恒为 false，即权限更严（fail-closed），不会意外放行
+    //
+    // 放在 `INIT_DONE` 早退之后、其余初始化之前：重复调用不重复注册
+    //（`OnceLock` 语义本身也幂等），且首个真正的初始化流程一定先经过这里。
+    // 必须走 `Once` 而不是靠上面的 `INIT_DONE` 早退：`INIT_DONE` 直到本函数
+    // **末尾**才置位，所以两个并发调用者会双双穿过那道守卫（测试 harness 就是
+    // 多线程并行跑 `init_runtime("test")` 的）。没有 `Once` 的话，下面对冲突的
+    // 致命处理会被这种良性竞态误触发。
+    REGISTER_BASE_HOOKS.call_once(|| {
+        // 冲突处置刻意不对称：plans 目录只影响功能，记 error 继续；Dangerous
+        // Mode 来源被顶替意味着全局审批跳过的开关不再是 canonical 配置——宁可
+        // 起不来，也不能带着一个来源不明的安全开关继续跑。走到这里的 `Err`
+        // 只可能是**本函数之外**抢先注册过，那正是要拦的情况。
+        if let Err(e) = ha_base::paths::register_plans_dir_source(|| {
+            crate::config::cached_config().plans_directory.clone()
+        }) {
+            app_error!(
+                "app_init",
+                "plans_dir_source",
+                "plans dir source already registered ({e}); custom plansDirectory will be ignored"
+            );
+        }
+        if let Err(e) = ha_base::security::dangerous::register_config_flag_source(|| {
+            crate::config::cached_config().permission.global_yolo
+        }) {
+            eprintln!("[FATAL] dangerous-mode config source already registered: {e}");
+            panic!("dangerous-mode config source already registered: {e}");
+        }
+    });
 
     /// Unwrap a Result or print a fatal error to stderr and panic.
     fn fatal<T>(result: anyhow::Result<T>, msg: &str) -> T {

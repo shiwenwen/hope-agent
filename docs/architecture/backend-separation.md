@@ -1,10 +1,10 @@
 # 前后端分离架构
 
-> 返回 [文档索引](../README.md) | 关联源码：`Cargo.toml`, `crates/ha-core/`, `crates/ha-server/`, `src-tauri/`
+> 返回 [文档索引](../README.md) | 关联源码：`Cargo.toml`, `crates/ha-base/`, `crates/ha-core/`, `crates/ha-server/`, `src-tauri/`
 
 ## 设计目标
 
-将 Hope Agent 从 Tauri 单体应用重构为三层架构（核心库 / HTTP 服务 / 桌面壳），实现：
+将 Hope Agent 从 Tauri 单体应用重构为分层架构（基础设施 / 核心库 / HTTP 服务 / 桌面壳），实现：
 
 1. **核心逻辑框架无关** — `ha-core` 零 Tauri 依赖，可被任何 Rust 程序引用
 2. **多入口运行** — 桌面 GUI、HTTP 守护进程、CLI stdio 三种模式共享同一核心
@@ -17,18 +17,53 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_CORE["ha-core<br/>(核心业务逻辑)<br/>457 个 .rs 文件<br/>零 Tauri 依赖"]
+        HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
+        HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
     end
 
     HA_TAURI -->|"依赖"| HA_SERVER
     HA_TAURI -->|"依赖"| HA_CORE
     HA_SERVER -->|"依赖"| HA_CORE
+    HA_CORE -->|"依赖"| HA_BASE
 
 ```
 
-**铁律**：`ha-core` 的 `Cargo.toml` 禁止出现 `tauri` 或 Tauri 插件依赖。
+**两条铁律**：
+
+1. `ha-core` 与 `ha-base` 的 `Cargo.toml` 禁止出现 `tauri` 或 Tauri 插件依赖。
+2. `ha-base` 禁止依赖任何 `ha-*` 业务 crate。需要上层数据时**留注册钩子**，
+   由 `ha-core` 在 `init_runtime()` 早期注入（见下方 ha-base 小节）。
 
 ## 各 Crate 职责
+
+### ha-base（基础设施底层）
+
+依赖图最底层。这里只放**与业务无关的原语**：路径解析、日志、跨平台 shim、
+安全守卫、系统权限、内嵌终端、阻塞 IO helper、TTL 缓存、EventBus trait。
+
+| 职责 | 说明 |
+|------|------|
+| 路径单一来源 | `paths.rs` — 所有 `~/.hope-agent/` 下的路径入口 |
+| 日志 | `logging/` — `AppLogger` / `LogDB` / `app_info!` 系列宏 + `APP_LOGGER` / `LOG_DB` 全局 |
+| 跨平台原语 | `platform/` — 进程树终止、代理探测、原子替换、keep-awake、WSL |
+| 安全守卫 | `security/` — SSRF 检查、Dangerous Mode 判定、HTTP 流式读取上限 |
+| 系统权限 | `permissions.rs` — macOS/Windows 系统权限目录与请求 |
+| 其它原语 | `blocking.rs` / `ttl_cache.rs` / `runtime_lock.rs` / `event_bus.rs` / `terminal.rs` / `crash_journal.rs` |
+
+**反向依赖靠注册钩子解决**（ha-base 不能 `use` `AppConfig`）：
+
+| 钩子 | 未注册时的行为 | 冲突（重复注册）时 |
+|------|---------------|------------------|
+| `paths::register_plans_dir_source` | 回落 `~/.hope-agent/plans/` | 记 `app_error!`，继续启动 |
+| `security::dangerous::register_config_flag_source` | 返回 `false`（**fail-closed**，Dangerous Mode 配置来源视为未开启） | **panic**——它控制全局审批跳过，来源被顶替不可接受 |
+
+**`ha-core` 对下游完全透明**：`lib.rs` 用 `pub use ha_base::*` + `#[macro_use]
+extern crate ha_base` 全量再导出，所以 ha-core 内部的 `crate::paths::…` 与下游的
+`ha_core::platform::…` / `ha_core::app_warn` **路径全部不变**。
+
+> `app_info!` 展开为 `$crate::get_logger()`，`$crate` 解析到**定义宏的 crate**，
+> 所以 `APP_LOGGER` / `LOG_DB` 及其 `require_*` 访问器必须与宏同住 ha-base；
+> `globals.rs` 改为再导出以保持 `crate::globals::APP_LOGGER` 等既有路径。
 
 ### ha-core（核心库）
 
@@ -39,7 +74,7 @@ graph TD
 | 状态管理 | `AppState` + `OnceLock` 全局单例 + accessor 函数 |
 | 事件系统 | `EventBus` trait — 替代原 Tauri `APP_HANDLE.emit()` |
 | 接入层 | 12 个 IM 渠道插件、ACP stdio 协议、MCP 客户端（4 种 transport） |
-| 基础设施 | Guardian 保活、Service Install、Crash Journal、Self-Diagnosis、runtime_lock Primary 选举 |
+| 基础设施 | Guardian 保活、Self-Diagnosis（路径 / 日志 / 平台 / 安全 / runtime_lock 等原语已下沉 ha-base）|
 
 **主要模块**（精确清单以 `ls crates/ha-core/src/` 为准，整体 ~50+ 顶层模块）：
 
@@ -70,14 +105,8 @@ recap/             /recap 深度复盘 + 11 个并行 AI 章节
 dashboard/         Insights + Learning Tracker
 awareness/         跨会话行为感知 suffix
 config/            cached_config / mutate_config（详见下文）
-event_bus.rs       EventBus trait + BroadcastEventBus
-globals.rs         OnceLock 全局 + AppState
+globals.rs         OnceLock 全局 + AppState（logger / LogDB 全局已下沉 ha-base 并再导出）
 guardian.rs        进程监护 + 指数退避 + 自修复
-runtime_lock.rs    OS 级 advisory lock + Primary / Secondary 选举
-service_install.rs macOS launchd / Linux systemd / Windows Task Scheduler 注册
-paths.rs           ~/.hope-agent/ 统一路径
-logging/           非阻塞双写 + 脱敏
-platform/          跨平台原语门面（unix.rs / windows.rs）
 ...
 ```
 
@@ -389,7 +418,7 @@ const COMMAND_MAP = {
 
 ## 初始化流程
 
-三种模式共享 `ha_core::init_runtime(role)` 这一个全局单例 setter。它内部第一步就调 [`runtime_lock::acquire_or_secondary`](../../crates/ha-core/src/runtime_lock.rs)，在 `~/.hope-agent/runtime.lock` 上抢一把 OS 级 advisory exclusive lock：第一个抢到的进程是 **Primary**，做所有 startup cleanup + 跑独占性后台循环；其它进程是 **Secondary**，初始化 OnceLock 但跳过这些清扫与循环。后台任务变体按模式选 `start_background_tasks`（桌面 + server）或 `start_minimal_background_tasks`（acp），两个变体内部各自再按 `runtime_lock::is_primary()` gate Primary-only 部分。
+三种模式共享 `ha_core::init_runtime(role)` 这一个全局单例 setter。它内部第一步就调 [`runtime_lock::acquire_or_secondary`](../../crates/ha-base/src/runtime_lock.rs)，在 `~/.hope-agent/runtime.lock` 上抢一把 OS 级 advisory exclusive lock：第一个抢到的进程是 **Primary**，做所有 startup cleanup + 跑独占性后台循环；其它进程是 **Secondary**，初始化 OnceLock 但跳过这些清扫与循环。后台任务变体按模式选 `start_background_tasks`（桌面 + server）或 `start_minimal_background_tasks`（acp），两个变体内部各自再按 `runtime_lock::is_primary()` gate Primary-only 部分。
 
 三种模式的完整启动入口、Primary tier 跑哪些 cleanup、tier-agnostic 与 Primary-only 后台任务清单统一维护在 **[process-model.md](process-model.md)**（重点参考 [§ 启动入口（桌面独占）](process-model.md#启动入口桌面独占)、[§ Primary / Secondary 协作](process-model.md#primary--secondary-协作多进程并存)、[§ 跨模式能力对照](process-model.md#跨模式能力对照)）——本文不再复述以避免双份维护漂移。
 

@@ -90,7 +90,7 @@ autosave 文件名里的 `category` / `source` 来自一个 thread-local 标签�
 
 ## 持久化路径
 
-集中由 [`paths.rs`](../../crates/ha-core/src/paths.rs) 提供（`backups_dir()` / `autosave_dir()`）：
+集中由 [`paths.rs`](../../crates/ha-base/src/paths.rs) 提供（`backups_dir()` / `autosave_dir()`）：
 
 | 路径 | 内容 |
 |---|---|
@@ -163,4 +163,4 @@ autosave 文件名带毫秒（`%3f`），避免同一秒内多次写盘碰撞；
 | [`crates/ha-core/src/user_config.rs`](../../crates/ha-core/src/user_config.rs) | `save_user_config_to_disk` —— `user.json` 写前快照 |
 | [`crates/ha-core/src/guardian.rs`](../../crates/ha-core/src/guardian.rs) | `set_enabled_in_config` raw-JSON 旁路守 rollback 契约 + `run_recovery` 崩溃备份集成 |
 | [`crates/ha-core/src/self_diagnosis.rs`](../../crates/ha-core/src/self_diagnosis.rs) | `try_restore_config_from_backup` 损坏 config 自愈 |
-| [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) | `backups_dir()` / `autosave_dir()` 路径单一来源 |
+| [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs) | `backups_dir()` / `autosave_dir()` 路径单一来源 |

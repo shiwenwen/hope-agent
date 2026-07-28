@@ -60,8 +60,8 @@ Workflow 不是 coding-only。coding 的迁移、审查、验证是重要模板�
 | 持久化 | `crates/ha-core/src/workflow/db.rs` | run/op/event/template 建表、CRUD、状态转换、replay 决策。 |
 | 预检 | `crates/ha-core/src/workflow/preview.rs` | Script Gate + permission preview + create/run 可行性判定。 |
 | runtime | `crates/ha-core/src/workflow/runtime.rs` | QuickJS runtime、host API、durable replay、budget、repair guard、恢复 runner。 |
-| Workflow Mode | `crates/ha-core/src/workflow_mode.rs` | `off` / `on` / `ultracode` 解析、prompt 动态段与 session 开关语义。 |
-| Execution Mode | `crates/ha-core/src/execution_mode.rs` | `off` / `guarded` / `deep` / `autonomous` 解析与 prompt 动态段。 |
+| Workflow Mode | `crates/ha-base/src/workflow_mode.rs` | `off` / `on` / `ultracode` 解析、prompt 动态段与 session 开关语义。 |
+| Execution Mode | `crates/ha-base/src/execution_mode.rs` | `off` / `guarded` / `deep` / `autonomous` 解析与 prompt 动态段。 |
 | 模型工具面 | `crates/ha-core/src/tools/workflow_tool.rs` | `workflow` 控制工具，模型只在 Workflow Mode 开启时可见；支持创建、列出、查询状态、读取 trace、暂停/恢复/取消，以及创建 follow-up run。 |
 | Managed Worktree | `crates/ha-core/src/worktree.rs` | 可选隔离执行目录，run 绑定 `worktree_id` 后 runtime 自动 restore 并切换 cwd。 |
 | Tauri owner API | `src-tauri/src/commands/workflow.rs`、`execution_mode.rs` | 桌面 owner 平面命令，包含 run 管理和 saved workflow template 管理。 |

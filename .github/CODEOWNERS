@@ -31,9 +31,12 @@
 /pnpm-lock.yaml                   @shiwenwen
 
 # === 安全 / 凭据 / 权限引擎 ===
-/crates/ha-core/src/security/     @shiwenwen
+# security/ 与 paths.rs 已随 crate 拆分迁入 ha-base；permission/（审批引擎）
+# 仍在 ha-core。**模块跨 crate 搬迁时必须同步这里**——路径失配不会报错，
+# 只会让新位置的安全代码悄悄失去 code owner 强制评审。
+/crates/ha-base/src/security/     @shiwenwen
+/crates/ha-base/src/paths.rs      @shiwenwen
 /crates/ha-core/src/permission/   @shiwenwen
-/crates/ha-core/src/paths.rs      @shiwenwen
 
 # === 跨 PR 契约：架构文档 ===
 /docs/architecture/               @shiwenwen

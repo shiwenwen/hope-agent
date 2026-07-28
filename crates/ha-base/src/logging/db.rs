@@ -25,11 +25,29 @@ pub(crate) fn should_log(entry_level: &str, config_level: &str) -> bool {
 // ── Database Manager ─────────────────────────────────────────────
 
 pub struct LogDB {
-    pub(crate) conn: Mutex<Connection>,
+    conn: Mutex<Connection>,
     path: PathBuf,
 }
 
 impl LogDB {
+    /// 受控获取日志库连接。
+    ///
+    /// `conn` 字段保持私有：跨 crate 后若升 `pub`，日志库的**结构体布局与加锁
+    /// 纪律**就成了 ha-base 的公共契约，任何下游都能替换或绕过它。这里只交出
+    /// guard，加锁本身仍归 `LogDB`。
+    ///
+    /// 刻意**不**把调用方的 SQL 收敛成 `LogDB` 方法：dashboard 的错误率聚合、
+    /// 健康度分解等分析查询属于业务层，塞进基础层是更严重的分层倒置。
+    ///
+    /// **锁中毒策略统一为容忍**（`into_inner`）。中毒意味着此前有线程持锁
+    /// panic，但 rusqlite `Connection` 本身仍可用。搬迁前 4 个调用点策略不一：
+    /// `agent::migration` 已是容忍，dashboard 三处返回 `"Lock error"`——那条
+    /// 分支只有 panic 之后才可达，统一为容忍不放宽任何边界，只是少一种误导性
+    /// 报错。这是本次搬迁**唯一一处有意的行为归一**。
+    pub fn lock_conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     pub fn open(db_path: &Path) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;

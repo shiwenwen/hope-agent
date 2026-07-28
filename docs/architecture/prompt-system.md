@@ -339,8 +339,8 @@ The following project context files have been loaded:
 
 **代码位置**：
 - Permission mode guidance：`crates/ha-core/src/system_prompt/constants.rs`
-- Execution mode section：`crates/ha-core/src/execution_mode.rs`
-- Workflow mode section：`crates/ha-core/src/workflow_mode.rs`
+- Execution mode section：`crates/ha-base/src/execution_mode.rs`
+- Workflow mode section：`crates/ha-base/src/workflow_mode.rs`
 - 动态注入顺序：`crates/ha-core/src/system_prompt/build.rs`
 - IM attachment section：`crates/ha-core/src/system_prompt/sections.rs`
 - 会话状态解析：`crates/ha-core/src/agent/config.rs`

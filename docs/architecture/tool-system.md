@@ -813,7 +813,7 @@ job 结算的终态状态由**类型派生**而非字符串再解析。`async_jo
 | `crates/ha-core/src/system_prompt/sections.rs` | `build_async_tools_section` 教模型何时使用 async tool / 怎么解析 `<task-notification>` |
 | `crates/ha-core/src/config/mod.rs` | `AsyncToolsConfig` |
 | `crates/ha-core/src/agent_config.rs` | `AsyncToolPolicy` 枚举 + `CapabilitiesConfig.async_tool_policy` |
-| `crates/ha-core/src/paths.rs` | `async_jobs_db_path` / `async_jobs_dir` / `async_job_result_path` |
+| `crates/ha-base/src/paths.rs` | `async_jobs_db_path` / `async_jobs_dir` / `async_job_result_path` |
 
 ---
 

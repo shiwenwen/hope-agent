@@ -304,11 +304,11 @@ pub struct LogConfig {
 
 | 文件 | 路径 | 职责 |
 |------|------|------|
-| 模块入口 | `crates/ha-core/src/logging/mod.rs` | 宏定义、模块 re-export |
-| 数据结构 | `crates/ha-core/src/logging/types.rs` | LogEntry、LogFilter、LogConfig、LogStats、PendingLog |
-| 异步日志器 | `crates/ha-core/src/logging/app_logger.rs` | AppLogger（mpsc channel + writer_loop） |
-| SQLite 管理器 | `crates/ha-core/src/logging/db.rs` | LogDB（insert/batch_insert/query/clear/export/get_stats） |
-| 文件写入器 | `crates/ha-core/src/logging/file_writer.rs` | LogFileWriter（日期 + 大小双轮转） |
-| 文件操作 & 脱敏 | `crates/ha-core/src/logging/file_ops.rs` | list/read/cleanup + redact_sensitive() |
-| 配置持久化 | `crates/ha-core/src/logging/config.rs` | load_log_config / save_log_config / db_path |
+| 模块入口 | `crates/ha-base/src/logging/mod.rs` | 宏定义、模块 re-export |
+| 数据结构 | `crates/ha-base/src/logging/types.rs` | LogEntry、LogFilter、LogConfig、LogStats、PendingLog |
+| 异步日志器 | `crates/ha-base/src/logging/app_logger.rs` | AppLogger（mpsc channel + writer_loop） |
+| SQLite 管理器 | `crates/ha-base/src/logging/db.rs` | LogDB（insert/batch_insert/query/clear/export/get_stats） |
+| 文件写入器 | `crates/ha-base/src/logging/file_writer.rs` | LogFileWriter（日期 + 大小双轮转） |
+| 文件操作 & 脱敏 | `crates/ha-base/src/logging/file_ops.rs` | list/read/cleanup + redact_sensitive() |
+| 配置持久化 | `crates/ha-base/src/logging/config.rs` | load_log_config / save_log_config / db_path |
 | 前端日志工具 | `src/lib/logger.ts` | 前端日志封装 |

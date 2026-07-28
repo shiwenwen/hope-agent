@@ -15,7 +15,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub(crate) mod keep_awake;
+// `pub`（原为 `pub(crate)`）：ha-core 的 `app_init::spawn_keep_awake_listener`
+// 跨 crate 调用 `keep_awake::apply`，搬进 ha-base 后 crate 级可见性不再够用。
+pub mod keep_awake;
 pub(crate) mod service;
 pub(crate) mod system_permissions;
 #[cfg(unix)]
@@ -50,7 +52,7 @@ pub fn send_graceful_stop(pid: u32) {
 
 /// Best-effort: is a process with this pid still running on this host?
 ///
-/// Used by [`crate::browser::singleton_lock`] to detect stale SingletonLock
+/// Used by `ha_core::browser::singleton_lock` to detect stale SingletonLock
 /// files (lock present, but owner crashed without cleanup). False negatives
 /// (live process, reported dead) leave a real Chrome's lock alone — the
 /// worst outcome is a misleading "already in use" error. False positives
@@ -366,7 +368,7 @@ pub fn is_cross_device_rename(err: &std::io::Error) -> bool {
 
 /// Atomically replace the executable at `target` with the one at `source`.
 ///
-/// Used by [`crate::updater`] to swap in a freshly-downloaded `hope-agent`
+/// Used by `ha_core::updater` to swap in a freshly-downloaded `hope-agent`
 /// binary without taking a stop-the-world window. The Unix path relies on
 /// `rename(2)` mutating the directory entry (the running process keeps its
 /// open inode); the Windows path renames the in-use binary aside then

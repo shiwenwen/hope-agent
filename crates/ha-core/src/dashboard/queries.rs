@@ -620,10 +620,7 @@ pub fn query_sessions(
 
 /// Error/warning stats from the logs database.
 pub fn query_errors(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<DashboardErrorData> {
-    let conn = log_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = log_db.lock_conn();
 
     // Daily trend
     let base_filter = build_log_filter(filter);

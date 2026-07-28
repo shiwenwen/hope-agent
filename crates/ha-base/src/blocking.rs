@@ -30,7 +30,7 @@ const SLOW_OP_WARN: Duration = Duration::from_secs(5);
 ///
 /// The slow-op label is `type_name::<F>()`, which embeds `f`'s definition site
 /// (module path + enclosing function). Wrappers that add an indirection layer
-/// (e.g. [`crate::session::SessionDB::run`], `config::mutate_config_async`)
+/// (e.g. `ha_core::session::SessionDB::run`, `config::mutate_config_async`)
 /// would otherwise log their own wrapper closure for every call — they call
 /// [`run_blocking_labeled`] with the *caller's* closure type name instead.
 pub async fn run_blocking<T, F>(f: F) -> T

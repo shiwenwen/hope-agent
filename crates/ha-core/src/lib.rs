@@ -2,23 +2,34 @@
 // All business logic lives here.
 #![recursion_limit = "512"]
 
-// ── Macros must come first ────────────────────────────────────────
+// ── 基础层再导出（ha-base）────────────────────────────────────────
+// glob 再导出让 ha-base 的模块与 util 助手同时出现在 ha-core 根命名空间：
+//   · ha-core 内部 50 万行的 `crate::paths::…` / `crate::truncate_utf8` 照旧解析
+//   · 下游 `ha_core::platform::…` / `ha_core::security::…` 零改动
+// 搬迁对调用方完全透明，这是分期可回滚的前提。
+pub use ha_base::*;
+
+// `app_info!` 系列宏原先靠 `#[macro_use] pub mod logging;` 全 crate 可见。
+// 搬进 ha-base 后必须用 `#[macro_use] extern crate`：`use ha_base::app_info`
+// 只在**声明它的那个模块**内生效，不会让 500 处调用点免限定可用。
 #[macro_use]
-pub mod logging;
+extern crate ha_base;
+
+// 再导出，保证下游 `ha_core::app_warn` 等既有路径不变。
+pub use ha_base::{app_debug, app_error, app_info, app_warn};
+
+// ── Macros must come first ────────────────────────────────────────
 
 // ── New abstractions ──────────────────────────────────────────────
 pub mod eval_context;
 pub mod evaluation;
-pub mod event_bus;
 
 // ── Initialization ────────────────────────────────────────────────
 pub mod app_init;
 pub mod artifacts;
 pub mod async_jobs;
 pub mod attachments;
-pub mod blocking;
 pub mod globals;
-mod util;
 
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -47,7 +58,6 @@ pub mod config;
 pub mod context_compact;
 pub mod context_retrieval;
 pub mod crash_flush;
-pub mod crash_journal;
 pub mod cron;
 pub mod dashboard;
 pub mod design;
@@ -56,7 +66,6 @@ pub mod docker;
 pub mod domain_eval;
 pub mod domain_quality;
 pub mod domain_workflow;
-pub mod execution_mode;
 pub mod failover;
 pub mod ffmpeg;
 pub mod file_extract;
@@ -86,12 +95,9 @@ pub mod model_usage;
 pub mod oauth;
 pub mod onboarding;
 pub mod openclaw_import;
-pub mod paths;
 pub mod permission;
-pub mod permissions;
 pub mod pet;
 pub mod plan;
-pub mod platform;
 pub mod process_notification;
 pub mod process_registry;
 pub mod project;
@@ -99,13 +105,10 @@ pub mod project_bootstrap;
 pub mod provider;
 pub mod recap;
 pub mod review;
-pub mod runtime_lock;
 pub mod runtime_tasks;
 pub mod sandbox;
-pub mod security;
 pub mod self_diagnosis;
 pub mod server_status;
-pub mod service_install;
 pub mod session;
 pub mod session_title;
 pub mod settings_reset;
@@ -116,10 +119,8 @@ pub mod stt;
 pub mod subagent;
 pub mod system_prompt;
 pub mod team;
-pub mod terminal;
 pub mod tool_actions;
 pub mod tools;
-pub mod ttl_cache;
 pub mod turn_durability;
 pub mod updater;
 pub mod url_preview;
@@ -127,10 +128,7 @@ pub mod user_config;
 pub mod verification;
 pub mod wakeup;
 pub mod weather;
-#[cfg(target_os = "macos")]
-pub mod weather_location_macos;
 pub mod workflow;
-pub mod workflow_mode;
 pub mod worktree;
 
 // ── Re-exports ────────────────────────────────────────────────────
@@ -142,13 +140,11 @@ pub use app_init::{
 pub use globals::{
     get_acp_manager, get_app_handle, get_cached_agent, get_channel_cancels, get_channel_db,
     get_channel_registry, get_codex_token_cache, get_cron_db, get_event_bus, get_knowledge_db,
-    get_log_db, get_logger, get_memory_backend, get_project_db, get_reasoning_effort_cell,
-    get_session_db, get_subagent_cancels, get_terminal_manager, require_cached_agent,
-    require_channel_cancels, require_codex_token_cache, require_cron_db, require_knowledge_db,
-    require_log_db, require_logger, require_project_db, require_reasoning_effort_cell,
-    require_session_db, require_subagent_cancels, require_terminal_manager, set_event_bus,
-    AppState, ACP_MANAGER, APP_LOGGER, CACHED_AGENT, CHANNEL_CANCELS, CHANNEL_DB, CHANNEL_REGISTRY,
-    CODEX_TOKEN_CACHE, CRON_DB, EVENT_BUS, KNOWLEDGE_DB, LOG_DB, MEMORY_BACKEND, PROJECT_DB,
-    REASONING_EFFORT, SESSION_DB, SUBAGENT_CANCELS, TERMINAL_MANAGER,
+    get_memory_backend, get_project_db, get_reasoning_effort_cell, get_session_db,
+    get_subagent_cancels, get_terminal_manager, require_cached_agent, require_channel_cancels,
+    require_codex_token_cache, require_cron_db, require_knowledge_db, require_project_db,
+    require_reasoning_effort_cell, require_session_db, require_subagent_cancels,
+    require_terminal_manager, set_event_bus, AppState, ACP_MANAGER, CACHED_AGENT, CHANNEL_CANCELS,
+    CHANNEL_DB, CHANNEL_REGISTRY, CODEX_TOKEN_CACHE, CRON_DB, EVENT_BUS, KNOWLEDGE_DB,
+    MEMORY_BACKEND, PROJECT_DB, REASONING_EFFORT, SESSION_DB, SUBAGENT_CANCELS, TERMINAL_MANAGER,
 };
-pub use util::*;

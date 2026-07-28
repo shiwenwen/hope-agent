@@ -1,6 +1,6 @@
 # 可靠性与崩溃自愈
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-27 | 关联源码：[`guardian.rs`](../../crates/ha-core/src/guardian.rs)、[`crash_journal.rs`](../../crates/ha-core/src/crash_journal.rs)、[`self_diagnosis.rs`](../../crates/ha-core/src/self_diagnosis.rs)、[`backup.rs`](../../crates/ha-core/src/backup.rs)、[`platform/service.rs`](../../crates/ha-core/src/platform/service.rs)、[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-27 | 关联源码：[`guardian.rs`](../../crates/ha-core/src/guardian.rs)、[`crash_journal.rs`](../../crates/ha-base/src/crash_journal.rs)、[`self_diagnosis.rs`](../../crates/ha-core/src/self_diagnosis.rs)、[`backup.rs`](../../crates/ha-core/src/backup.rs)、[`platform/service.rs`](../../crates/ha-base/src/platform/service.rs)、[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)
 
 ## 概述
 
@@ -189,7 +189,7 @@ fn run_child() {
 
 ## 4. Layer 3 · 操作系统服务保活
 
-`hope-agent server install` 把进程登记给操作系统的服务管理器，让 OS 帮忙拉起。这层和 Guardian 是冗余的——即使 Guardian 自己被 `kill -9` 或机器重启后没启动，OS 仍会按规则拉起 server。源码在 [`platform/service.rs`](../../crates/ha-core/src/platform/service.rs)（`service_install.rs` 现仅是转发到该模块的兼容 re-export 薄壳）。
+`hope-agent server install` 把进程登记给操作系统的服务管理器，让 OS 帮忙拉起。这层和 Guardian 是冗余的——即使 Guardian 自己被 `kill -9` 或机器重启后没启动，OS 仍会按规则拉起 server。源码在 [`platform/service.rs`](../../crates/ha-base/src/platform/service.rs)（`service_install.rs` 现仅是转发到该模块的兼容 re-export 薄壳）。
 
 ### 4.1 macOS · launchd LaunchAgent
 
@@ -198,7 +198,7 @@ fn run_child() {
 | Key | Value | 含义 |
 |-----|-------|------|
 | `Label` | `ai.hopeagent.server` | 服务标识，`launchctl` 操作通过它定位 |
-| `ProgramArguments` | `[exe_path, "server", "--bind", addr, ("--api-key", key)?]` | 启动命令；`xml_escape`（[`platform/service.rs`](../../crates/ha-core/src/platform/service.rs)）转义每个值防注入 |
+| `ProgramArguments` | `[exe_path, "server", "--bind", addr, ("--api-key", key)?]` | 启动命令；`xml_escape`（[`platform/service.rs`](../../crates/ha-base/src/platform/service.rs)）转义每个值防注入 |
 | `KeepAlive` | `true` | **进程消失自动拉起**——这是核心保活键 |
 | `RunAtLoad` | `true` | 开机自动启动（用户登录后 LaunchAgent domain 加载） |
 | `StandardOutPath` / `StandardErrorPath` | `~/.hope-agent/logs/server.{stdout,stderr}.log` | 标准流落盘，方便事后排查 |
@@ -231,7 +231,7 @@ WantedBy=default.target
 | `RestartSec=3` | 重启延迟 3 秒，避免崩溃循环打满 CPU |
 | `WantedBy=default.target` | `systemctl --user enable` 后随用户会话启动 |
 
-**ExecStart 转义**（`systemd_escape_arg`，[`platform/service.rs`](../../crates/ha-core/src/platform/service.rs)）：路径和 api_key 都走 `systemd_escape_arg`——双引号 + 反斜杠转义 + `$` → `$$`，防止 systemd 的 `$VAR` / `${VAR}` 展开把环境变量值塞进命令行。
+**ExecStart 转义**（`systemd_escape_arg`，[`platform/service.rs`](../../crates/ha-base/src/platform/service.rs)）：路径和 api_key 都走 `systemd_escape_arg`——双引号 + 反斜杠转义 + `$` → `$$`，防止 systemd 的 `$VAR` / `${VAR}` 展开把环境变量值塞进命令行。
 
 **用户级而不是系统级**：`systemctl --user` 不需要 root，跟着用户会话起停。代价是机器重启后必须有用户登录才会拉起；要"机器开机即起"得另外配 `loginctl enable-linger <user>`，本文档暂不展开。
 
@@ -258,7 +258,7 @@ WantedBy=default.target
 
 ### 5.1 文件 schema
 
-源类型在 [`crash_journal.rs`](../../crates/ha-core/src/crash_journal.rs)：
+源类型在 [`crash_journal.rs`](../../crates/ha-base/src/crash_journal.rs)：
 
 ```jsonc
 {
@@ -286,10 +286,10 @@ WantedBy=default.target
 
 | 不变量 | 实现位置 |
 |--------|----------|
-| `crashes.length <= 50`（`MAX_ENTRIES`），溢出从头部 drain | [`crash_journal.rs:4`](../../crates/ha-core/src/crash_journal.rs#L4) + [`add_crash`](../../crates/ha-core/src/crash_journal.rs#L99) |
-| `total_crashes` 单调递增，**不**因为 trim 减少 | [`add_crash:109`](../../crates/ha-core/src/crash_journal.rs#L109) |
-| 文件读不到 / 解析失败 → 返回空 journal，不报错（[`load:82-87`](../../crates/ha-core/src/crash_journal.rs#L82-L87)） | 防"日志文件本身坏掉拖死 Guardian 主循环" |
-| `diagnosis_result` 总是写到**最后一条** crash 上 | [`set_last_diagnosis`](../../crates/ha-core/src/crash_journal.rs#L119) |
+| `crashes.length <= 50`（`MAX_ENTRIES`），溢出从头部 drain | [`crash_journal.rs:4`](../../crates/ha-base/src/crash_journal.rs#L4) + [`add_crash`](../../crates/ha-base/src/crash_journal.rs#L99) |
+| `total_crashes` 单调递增，**不**因为 trim 减少 | [`add_crash:109`](../../crates/ha-base/src/crash_journal.rs#L109) |
+| 文件读不到 / 解析失败 → 返回空 journal，不报错（[`load:82-87`](../../crates/ha-base/src/crash_journal.rs#L82-L87)） | 防"日志文件本身坏掉拖死 Guardian 主循环" |
+| `diagnosis_result` 总是写到**最后一条** crash 上 | [`set_last_diagnosis`](../../crates/ha-base/src/crash_journal.rs#L119) |
 
 ### 5.2 读写路径
 
@@ -303,7 +303,7 @@ WantedBy=default.target
 
 ### 5.3 信号映射
 
-Unix 上 `wait()` 拿到的 exit code 是 `128 + signal_number`（如 `139 = 128 + 11 = SIGSEGV`）。`signal_name_from_exit_code`（[`crash_journal.rs:44-68`](../../crates/ha-core/src/crash_journal.rs#L44-L68)）维护小型映射，落盘时把人类可读的信号名一起记下：
+Unix 上 `wait()` 拿到的 exit code 是 `128 + signal_number`（如 `139 = 128 + 11 = SIGSEGV`）。`signal_name_from_exit_code`（[`crash_journal.rs:44-68`](../../crates/ha-base/src/crash_journal.rs#L44-L68)）维护小型映射，落盘时把人类可读的信号名一起记下：
 
 | exit_code | signal | 含义 |
 |-----------|--------|------|
@@ -622,5 +622,5 @@ Guardian 处理"整个进程崩了"。下一档是"进程活着但**某个子系
 - [IM 渠道系统](im-channel.md)——12 个 channel worker 的独立失败隔离与重连
 - [Cron 调度](cron.md)——任务级失败退避与 scheduler 自身的 panic 恢复
 - [日志系统](logging.md)——`app_warn!` / `app_error!` 约定（业务路径必须主动记录而非 `unwrap()`）
-- `runtime_lock`（[`crates/ha-core/src/runtime_lock.rs`](../../crates/ha-core/src/runtime_lock.rs)）——Primary/Secondary 选举 + advisory lock，决定哪个进程承担 cron / channel 等单实例后台任务
+- `runtime_lock`（[`crates/ha-base/src/runtime_lock.rs`](../../crates/ha-base/src/runtime_lock.rs)）——Primary/Secondary 选举 + advisory lock，决定哪个进程承担 cron / channel 等单实例后台任务
 - `runtime_tasks`（[`crates/ha-core/src/runtime_tasks.rs`](../../crates/ha-core/src/runtime_tasks.rs)）——`RuntimeTaskKind` 4 类（async_job / subagent / process / cron）统一 cancel 入口，前端 / `runtime_cancel` 工具共享同一 dispatch

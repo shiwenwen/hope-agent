@@ -171,4 +171,4 @@ CLI 一次性入口（`cli_auth.rs`，新建独立 tokio runtime）：
 | [`src-tauri/src/commands/auth.rs`](../../src-tauri/src/commands/auth.rs) | Tauri 命令面（7 命令，unmasked） |
 | [`crates/ha-server/src/routes/auth.rs`](../../crates/ha-server/src/routes/auth.rs) | HTTP 路由面（`/api/auth/codex/*` + `OnceLock<AuthResult>`） |
 | [`src-tauri/src/cli_auth.rs`](../../src-tauri/src/cli_auth.rs) | 终端 `auth codex` 子命令 |
-| [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) | `auth_path()` = `credentials_dir()/auth.json` |
+| [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs) | `auth_path()` = `credentials_dir()/auth.json` |

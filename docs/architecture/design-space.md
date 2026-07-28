@@ -168,7 +168,7 @@ graph TD
 
 内置设计系统与模板随 App 发行，源在仓库 `design-assets/`（`systems/` + `recipes/`），首启复制/懒加载到 managed 目录，用户可覆盖（优先级：project > managed > bundled，对齐技能来源模型）。
 
-路径解析集中在 [`paths.rs`](../../crates/ha-core/src/paths.rs)：`design_dir` / `design_systems_dir` / `design_projects_dir` / `design_project_dir(id)` / `design_artifact_dir(project_id, artifact_id)`。
+路径解析集中在 [`paths.rs`](../../crates/ha-base/src/paths.rs)：`design_dir` / `design_systems_dir` / `design_projects_dir` / `design_project_dir(id)` / `design_artifact_dir(project_id, artifact_id)`。
 
 ### 4.3 SQLite 表（`design.db`，元数据注册表）
 
@@ -760,7 +760,7 @@ brief 缺设计系统时，`design(action="propose_directions", brief)` 返回 N
 | `crates/ha-core/src/mcp_server/mod.rs` | 平台级 MCP server host（stdio + ToolProvider 注册表，见 mcp-server.md） |
 | `crates/ha-core/src/tools/design/mod.rs` | `design` agent 工具（多 action 路由） |
 | `crates/ha-core/src/lib.rs` | `pub mod design;` + `pub mod mcp_server;` |
-| `crates/ha-core/src/paths.rs` | `design_dir` / `design_*_dir` |
+| `crates/ha-base/src/paths.rs` | `design_dir` / `design_*_dir` |
 | `crates/ha-core/src/config/mod.rs` | `AppConfig.design` |
 | `crates/ha-server/src/routes/design.rs`（+ `routes/mod.rs` `pub mod` + `lib.rs` `.route`） | HTTP 薄壳 + 静态托管 |
 | `src-tauri/src/commands/design.rs`（+ `commands/mod.rs` `pub mod` + `lib.rs` `generate_handler!`） | Tauri 薄壳 |

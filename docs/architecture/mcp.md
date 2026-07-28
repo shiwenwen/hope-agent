@@ -290,7 +290,7 @@ MCP 工具的可见性分两层：
 
 ## 凭据存储
 
-[`credentials.rs`](../../crates/ha-core/src/mcp/credentials.rs) + [`platform::write_secure_file`](../../crates/ha-core/src/platform/mod.rs) 配合。
+[`credentials.rs`](../../crates/ha-core/src/mcp/credentials.rs) + [`platform::write_secure_file`](../../crates/ha-base/src/platform/mod.rs) 配合。
 
 ### 文件布局
 

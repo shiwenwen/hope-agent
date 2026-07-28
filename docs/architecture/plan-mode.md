@@ -141,7 +141,7 @@ pub struct PlanMeta {
 ### Plan 文件持久化
 
 - **路径**：`~/.hope-agent/plans/<agent_id>/<session_id>/plan-{YYYYMMDDTHHMMSSZ}-{nano}.md`，按 agent + session 双层子目录物理隔离。模型 ls 自己 session 的目录只看到自己的 plan 文件，跨 session 误读路径堵死（解决"模型 ls /plans 看到所有 session 旧文件，按时间戳挑最新的撞上别 session"的根因）
-- **目录构造**：[`paths::session_plans_dir(agent_id, session_id)`](../../crates/ha-core/src/paths.rs) — `agent_id` 与 `session_id` 都做 alphanum + `-` / `_` sanitize 防御 path traversal（深度防御，本身已是 slug/UUID）；[`file_io::session_plans_dir_for(session_id)`](../../crates/ha-core/src/plan/file_io.rs) 内部查 SessionDB 反查 agent_id，DB 缺失（极罕见 session-create vs first-write race）落 `_unknown_agent` bucket 不让写失败
+- **目录构造**：[`paths::session_plans_dir(agent_id, session_id)`](../../crates/ha-base/src/paths.rs) — `agent_id` 与 `session_id` 都做 alphanum + `-` / `_` sanitize 防御 path traversal（深度防御，本身已是 slug/UUID）；[`file_io::session_plans_dir_for(session_id)`](../../crates/ha-core/src/plan/file_io.rs) 内部查 SessionDB 反查 agent_id，DB 缺失（极罕见 session-create vs first-write race）落 `_unknown_agent` bucket 不让写失败
 - **老文件迁移**：[`plan::migrate_flat_plans_to_subdirs`](../../crates/ha-core/src/plan/file_io.rs) 在 `app_init::start_background_tasks` primary 块通过 `spawn_blocking` 跑——扫 `~/.hope-agent/plans/*.md` flat 文件，按文件名前 8 字符 short_id 反查 [`SessionDB::find_sessions_by_id_prefix`](../../crates/ha-core/src/session/db.rs)；唯一匹配 → mv 到 `<agent>/<session>/`；多重/未知匹配留 flat + warn 等人工核对。幂等可重复跑
 - **版本备份**：覆盖前自动 copy 到 `plan-{...}-v{N}.md`（同 session 子目录内），`N` 在内存 `PlanMeta.version` + 磁盘 `max_disk_version()` 取大者递增（重启后内存计数器重置不会覆盖老备份）
 - **写入入口**：`save_plan_file(session_id, content)` —— 唯一被 `submit_plan` 工具调用 + Tauri 命令 `save_plan_content` + HTTP `PUT /api/plan/{sid}/content`

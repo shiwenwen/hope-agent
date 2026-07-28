@@ -27,7 +27,7 @@ HTTP 入口的 `ChatEngineParams.auto_approve_tools` 在桌面 Web GUI 客户端
 
 **注意：是「全自动放行」，不是「只跳工具确认弹窗」**。`auto_approve_tools=true` 是 IM 账户级语义，会跳过**所有**审批闸门：dangerous-commands 列表、protected-paths 列表、edit-command 审计、Plan Mode ask、Smart 模式 judge —— 全部跳过。LLM 触发的任何 `exec` / `write` / `edit` 都直接执行，没有任何拦截。**不要把这个 flag 用在不可信租户**。
 
-[`security::dangerous`](../../crates/ha-core/src/security/dangerous.rs)（`--dangerously-skip-all-approvals`）是更严格的超集：除了上面的全跳，还会让 dispatcher 层的 `app_warn!` 审计日志静默（也就是说 `~/.hope-agent/logs.db` 看不到「这条危险命令被自动放行」的记录）。常规 headless 推荐 `--auto-approve-tools` 即可——保留 dispatcher 层审计便于事后排查。同时启用两个 flag 不会叠加保护，只是两条 banner 都会打。
+[`security::dangerous`](../../crates/ha-base/src/security/dangerous.rs)（`--dangerously-skip-all-approvals`）是更严格的超集：除了上面的全跳，还会让 dispatcher 层的 `app_warn!` 审计日志静默（也就是说 `~/.hope-agent/logs.db` 看不到「这条危险命令被自动放行」的记录）。常规 headless 推荐 `--auto-approve-tools` 即可——保留 dispatcher 层审计便于事后排查。同时启用两个 flag 不会叠加保护，只是两条 banner 都会打。
 
 进程态、不持久化。启动时 stderr 打一行红字 banner，同时 `init_runtime` 后会再写一条 `app_warn!` 进 `~/.hope-agent/logs.db`，便于事后 agent 自主排查时看到此次启动是否开了 auto-approve。
 

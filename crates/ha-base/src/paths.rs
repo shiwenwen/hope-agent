@@ -482,7 +482,7 @@ pub fn browser_user_attach_dir() -> Result<PathBuf> {
 /// directory which makes SingletonLock observability impossible — a crashed
 /// Chrome leaves a stale lock there and the next launch fails with
 /// `File exists (17)`. Pinning a stable path lets
-/// [`crate::browser::singleton_lock`] detect and clean stale locks.
+/// `ha_core::browser::singleton_lock` detect and clean stale locks.
 pub fn browser_managed_runner_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("browser").join("managed-runner"))
 }
@@ -491,7 +491,7 @@ pub fn browser_managed_runner_dir() -> Result<PathBuf> {
 /// `~/.hope-agent/browser/runtime/`. Holds the unzipped Chromium snapshot
 /// when the system has no Chrome / Edge / Brave / Chromium installed.
 ///
-/// Pinned revisions live in [`crate::browser::runtime`] (per-platform
+/// Pinned revisions live in `ha_core::browser::runtime` (per-platform
 /// constants — Chromium snapshots build each OS independently, so a
 /// single workspace-wide revision isn't representable).
 pub fn browser_runtime_dir() -> Result<PathBuf> {
@@ -779,11 +779,51 @@ pub fn knowledge_kb_sources_dir(kb_id: &str) -> Result<PathBuf> {
 
 // ── Plans ───────────────────────────────────────────────────────
 
+/// 用户自定义 plans 目录的来源钩子。
+///
+/// `plans_dir()` 需要读 `AppConfig.plans_directory`，但 `AppConfig` 住在上层
+/// （ha-core / 将来的 ha-config-schema），ha-base 不能反向依赖它。所以这里留
+/// 一个注册点，由上层在启动时注入「读当前配置」的闭包——保持每次调用都读**实时
+/// 配置**，与原先直接调 `cached_config()` 的语义完全一致。
+///
+/// **未注册时回落到默认目录** `~/.hope-agent/plans/`。上层必须在
+/// `init_runtime()` 早期注册（见 ha-core `app_init`），否则自定义目录静默失效。
+static PLANS_DIR_SOURCE: std::sync::OnceLock<fn() -> Option<String>> = std::sync::OnceLock::new();
+
+/// 注册 plans 目录来源。返回 `Err` 表示已注册过（首次注册胜出）。
+///
+/// 与 [`crate::security::dangerous::register_config_flag_source`] 同样报告冲突，
+/// 但调用方对两者的处置**刻意不同**：这条不涉及安全边界，冲突只会让自定义
+/// plans 目录失效，记 error 日志即可，不必让进程起不来。
+pub fn register_plans_dir_source(
+    f: fn() -> Option<String>,
+) -> Result<(), PlansDirSourceAlreadySet> {
+    PLANS_DIR_SOURCE
+        .set(f)
+        .map_err(|_| PlansDirSourceAlreadySet)
+}
+
+/// [`register_plans_dir_source`] 的冲突标记。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlansDirSourceAlreadySet;
+
+impl std::fmt::Display for PlansDirSourceAlreadySet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "plans dir source already registered")
+    }
+}
+
+impl std::error::Error for PlansDirSourceAlreadySet {}
+
+fn plans_dir_override() -> Option<String> {
+    PLANS_DIR_SOURCE.get().and_then(|f| f())
+}
+
 /// Plans directory: uses custom `plansDirectory` config if set,
 /// otherwise `~/.hope-agent/plans/`.
 pub fn plans_dir() -> Result<PathBuf> {
-    let store = crate::config::cached_config();
-    if let Some(ref custom_dir) = store.plans_directory {
+    let custom = plans_dir_override();
+    if let Some(ref custom_dir) = custom {
         if !custom_dir.is_empty() {
             let expanded = if custom_dir.starts_with('~') {
                 if let Some(home) = dirs::home_dir() {
@@ -833,7 +873,8 @@ pub fn session_plans_dir(agent_id: &str, session_id: &str) -> Result<PathBuf> {
 /// and `tools::image_markers` (materialized vision files) so all three derive
 /// the same `tool_results/<segment>/` directory for a given session — otherwise
 /// materialization and purge can diverge into different directories.
-pub(crate) fn sanitize_path_segment(s: &str) -> String {
+// `pub`（原 `pub(crate)`）：tools/execution 与 image_markers 跨 crate 调用。
+pub fn sanitize_path_segment(s: &str) -> String {
     s.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {

@@ -29,7 +29,7 @@ pub enum HostKind {
     Broadcast,
 }
 
-/// Global SSRF configuration. Lives in [`crate::config::AppConfig::ssrf`].
+/// Global SSRF configuration. Lives in `ha_core::config::AppConfig::ssrf`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SsrfConfig {

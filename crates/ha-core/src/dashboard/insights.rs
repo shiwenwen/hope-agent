@@ -389,10 +389,7 @@ pub fn query_health_score(
     filter: &DashboardFilter,
 ) -> Result<HealthBreakdown> {
     // Log error rate (lower is better)
-    let log_conn = log_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let log_conn = log_db.lock_conn();
     let base = build_log_filter(filter);
     let where_sql = if base.where_sql.is_empty() {
         "WHERE level IN ('error','warn','info')".to_string()

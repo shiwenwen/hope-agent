@@ -141,10 +141,7 @@ pub fn query_error_list(
     log_db: &Arc<LogDB>,
     filter: &DashboardFilter,
 ) -> Result<Vec<DashboardErrorItem>> {
-    let conn = log_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = log_db.lock_conn();
 
     let base = build_log_filter(filter);
     let condition = if base.where_sql.is_empty() {

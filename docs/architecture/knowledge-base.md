@@ -190,7 +190,7 @@ agent 在对话中直接调用，覆盖 CRUD / 链接图谱 / 检索 / 元数据
 
 AGENTS.md 只列这些为单行红线，细节在此。
 
-- **写盘原子化**：所有笔记写经底层 `project_write_text` → [`crate::platform::write_atomic`](../../crates/ha-core/src/platform/mod.rs)（同目录 temp → fsync → 原子 rename，跨平台 rename / 权限处理集中在 `platform/`，与 `write_secure_file` 共用 `write_replace` 核心），崩溃 / 断电不留截断文件，外部库尤其受益。新文件落 0644 / 改写保留原权限（Unix），Windows 走 remove-dest 再 rename。**禁止回退到 `fs::write` 直写笔记**。
+- **写盘原子化**：所有笔记写经底层 `project_write_text` → [`crate::platform::write_atomic`](../../crates/ha-base/src/platform/mod.rs)（同目录 temp → fsync → 原子 rename，跨平台 rename / 权限处理集中在 `platform/`，与 `write_secure_file` 共用 `write_replace` 核心），崩溃 / 断电不留截断文件，外部库尤其受益。新文件落 0644 / 改写保留原权限（Unix），Windows 走 remove-dest 再 rename。**禁止回退到 `fs::write` 直写笔记**。
 - **stale-write guard 真相源**：`expected_file_hash` 比**磁盘当前 raw BLAKE3**（`mod.rs::blake3_hex`，over raw bytes，不归一化换行），**不比 `note.content_hash`**（索引缓存）。`note_patch` 走 `old/new` 唯一文本命中（0 / 多次都拒）。
 - **坐标系契约（D14）**：持久 offset = 码点偏移；跨端定位 = `line`（1-based）+ `col`（0-based 码点列，tab=1），相对原始全文（含 frontmatter / 原 CRLF），`PosMap` 算；`note_patch` 不用坐标寻址。
 - **resolve 确定性（#8）**：`resolver::resolve` 路径式 > 唯一 basename > 最短路径再字典序，NFC + 大小写不敏感、**不用 mtime**；任何 note add / delete 后 `reresolve_kb_links` 全 KB 重解析（broken ↔ resolved 翻转）。

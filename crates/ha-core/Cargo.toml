@@ -13,6 +13,7 @@ prost-build = "0.14"
 protoc-bin-vendored = "3"
 
 [dependencies]
+ha-base = { path = "../ha-base" }
 ha-eval-spec = { path = "../ha-eval-spec" }
 serde = { workspace = true }
 serde_json = { workspace = true }

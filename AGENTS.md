@@ -48,12 +48,12 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 ### 后端（Rust）
 
-- **阻塞 IO 红线**：async 里 SQLite/config 写必经 [`run_blocking`](crates/ha-core/src/blocking.rs)/`SessionDB::run`/`mutate_config_async`，禁 inline / `block_on`（[process-model](docs/architecture/process-model.md) Layer C′）
+- **阻塞 IO 红线**：async 里 SQLite/config 写必经 [`run_blocking`](crates/ha-base/src/blocking.rs)/`SessionDB::run`/`mutate_config_async`，禁 inline / `block_on`（[process-model](docs/architecture/process-model.md) Layer C′）
 - **禁 `log` crate 宏**，用 `app_info!` 系列（例外见 [logging](docs/architecture/logging.md)）
 - **核心业务路径必须埋点**，带最小复现上下文；`category`/`source` 命名稳定便于 grep
 - **禁字节索引切片字符串**，用 `crate::truncate_utf8`
 - 错误：内部 `anyhow::Result`，Tauri 边界 `Result<T, CmdError>` 直接 `?`，禁 `.map_err(|e| e.to_string())`（[backend-separation](docs/architecture/backend-separation.md)）
-- **跨平台原语统一进 [`platform/`](crates/ha-core/src/platform/)**，走 `crate::platform::xxx()`（[platform](docs/architecture/platform.md)）
+- **跨平台原语统一进 [`platform/`](crates/ha-base/src/platform/)**，走 `crate::platform::xxx()`（[platform](docs/architecture/platform.md)）
 
 ## 架构契约
 
@@ -63,7 +63,9 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 详见 [backend-separation](docs/architecture/backend-separation.md) / [process-model](docs/architecture/process-model.md) / [transport-modes](docs/architecture/transport-modes.md)；版本发布见 [release-process](docs/release-process.md)。
 
-- **三 Crate**：业务全进 `ha-core`（**零 Tauri 依赖**），`ha-server` / `src-tauri` 只做薄壳；事件走 `ha-core::EventBus`，核心层禁用 `APP_HANDLE`
+- **分层 Crate**：`ha-base`（基础设施：paths / logging / platform / security / permissions / terminal 等，**不得依赖任何 ha-\* 业务 crate**）← `ha-core`（业务全在此）← `ha-server` / `src-tauri`（薄壳）。**「零 Tauri 依赖」红线适用于 ha-base 与 ha-core**；事件走 `ha-core::EventBus`，核心层禁用 `APP_HANDLE`
+- **ha-base 需要上层数据时留注册钩子、绝不反向依赖**：现有 `paths::register_plans_dir_source`（冲突记 error）与 `security::dangerous::register_config_flag_source`（冲突即 panic——它控制全局审批跳过，来源被顶替不可接受），均在 `init_runtime()` 早期注册。`ha-core` 用 `pub use ha_base::*` + `#[macro_use] extern crate ha_base` 全量再导出，故 `crate::paths::…` / `ha_core::platform::…` / `app_info!` 等既有路径**全部不变**
+- **模块跨 crate 搬迁必须同步 [`.github/CODEOWNERS`](.github/CODEOWNERS)**：路径失配不报错，只会让安全代码悄悄失去强制评审
 - **Transport**：**新 invoke 必须同时实现 Tauri + HTTP 两套适配**（[`transport.ts`](src/lib/transport.ts)）；新 HTTP 端点默认经 Bearer 鉴权
 - **版本单一来源 `package.json`**：只走 `pnpm version` 同步，禁止手改任一 Cargo.toml / tauri.conf.json；**Updater 私钥严禁入仓**
 - **模式判定**用 `ha_core::runtime_role()` / `is_desktop()`，别给共享函数加 mode 参数
@@ -275,7 +277,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 ## 项目结构
 
-六 crate workspace：`ha-core`（核心业务，**零 Tauri 依赖**）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
+七 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
 
 ## 开发命令
 

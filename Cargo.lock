@@ -3094,6 +3094,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-base"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "blake3",
+ "block2",
+ "chrono",
+ "dirs 6.0.0",
+ "futures-util",
+ "libc",
+ "objc2",
+ "objc2-foundation",
+ "portable-pty",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "which",
+ "windows-sys 0.52.0",
+ "winreg 0.52.0",
+]
+
+[[package]]
 name = "ha-browser-host"
 version = "0.24.0"
 dependencies = [
@@ -3129,6 +3158,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "glob",
+ "ha-base",
  "ha-eval-spec",
  "hmac",
  "htmd",
