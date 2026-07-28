@@ -75,8 +75,10 @@ pub async fn transcribe_batch(
 
     // SSRF check and audio load are independent; parallelize to overlap
     // DNS / TCP work with disk I/O for `File` payloads.
-    let (ssrf_result, audio_result) =
-        tokio::join!(provider.check_ssrf(&url), load_batch_audio(audio));
+    let (ssrf_result, audio_result) = tokio::join!(
+        crate::stt::types::check_ssrf(provider, &url),
+        load_batch_audio(audio)
+    );
     ssrf_result?;
     let (bytes, mime_type, _filename) = audio_result?;
     let format = audio_format_hint(&mime_type);

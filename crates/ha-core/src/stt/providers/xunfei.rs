@@ -61,7 +61,7 @@ pub async fn open_stream(
     let signed_url = build_signed_url(base, path, &profile.api_key, &api_secret)?;
 
     let https_twin = super::ws_to_https_twin(&signed_url, "iFlytek")?;
-    provider.check_ssrf(&https_twin).await?;
+    crate::stt::types::check_ssrf(provider, &https_twin).await?;
 
     let request = signed_url
         .as_str()

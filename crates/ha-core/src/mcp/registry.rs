@@ -253,7 +253,7 @@ impl McpManager {
                 if !server_effectively_enabled(&global, &cfg) {
                     continue;
                 }
-                if cfg.validate().is_err() {
+                if crate::mcp::config::validate_server_config(&cfg).is_err() {
                     crate::app_warn!(
                         "mcp",
                         "init",
@@ -401,7 +401,7 @@ impl McpManager {
                     }
                     continue;
                 }
-                if cfg.validate().is_err() {
+                if crate::mcp::config::validate_server_config(&cfg).is_err() {
                     crate::app_warn!(
                         "mcp",
                         "reconcile",

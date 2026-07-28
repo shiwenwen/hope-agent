@@ -54,7 +54,7 @@ pub async fn test_media_provider(input: TestMediaProviderInput) -> Result<String
             provider.kind,
             provider.api_key.clone(),
             provider.effective_base_url().to_string(),
-            provider.ssrf_policy(),
+            crate::media_gen::types::ssrf_policy_for(provider),
         )
     } else {
         let Some(kind) = input.kind else {

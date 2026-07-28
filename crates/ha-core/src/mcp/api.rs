@@ -321,7 +321,7 @@ pub async fn update_global_settings(new_settings: McpGlobalSettings) -> Result<(
 pub async fn add_server(draft: McpServerDraft) -> Result<McpServerSummary> {
     let now = now_secs();
     let cfg = draft.into_config(now, None);
-    cfg.validate().map_err(|e| anyhow!("{e}"))?;
+    crate::mcp::config::validate_server_config(&cfg).map_err(|e| anyhow!("{e}"))?;
 
     let saved = cfg.clone();
     mutate_config(("mcp.add", "settings_panel"), |store| {
@@ -350,7 +350,7 @@ pub async fn update_server(id: &str, draft: McpServerDraft) -> Result<McpServerS
         .ok_or_else(|| anyhow!("MCP server '{id}' not found"))?;
 
     let new_cfg = draft.into_config(now, Some(&existing));
-    new_cfg.validate().map_err(|e| anyhow!("{e}"))?;
+    crate::mcp::config::validate_server_config(&new_cfg).map_err(|e| anyhow!("{e}"))?;
     if new_cfg.name != existing.name {
         return Err(anyhow!(
             "MCP server names are immutable; remove and re-add '{}' to rename it",
@@ -742,7 +742,7 @@ pub async fn import_claude_desktop_config(raw_json: &str) -> Result<ImportSummar
             trust_acknowledged_at: None,
         };
         let cfg = draft.into_config(now, None);
-        if let Err(e) = cfg.validate() {
+        if let Err(e) = crate::mcp::config::validate_server_config(&cfg) {
             skipped.push(ImportSkip {
                 name: raw_name,
                 reason: e.to_string(),

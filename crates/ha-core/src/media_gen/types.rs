@@ -434,13 +434,6 @@ impl MediaProviderConfig {
     }
 
     /// SSRF policy for this provider's outbound requests.
-    pub fn ssrf_policy(&self) -> crate::security::ssrf::SsrfPolicy {
-        if self.allow_private_network {
-            crate::security::ssrf::SsrfPolicy::AllowPrivate
-        } else {
-            crate::config::cached_config().ssrf.default_policy
-        }
-    }
 
     /// Return a copy with all secrets masked for frontend display.
     pub fn masked(&self) -> Self {
@@ -876,5 +869,19 @@ mod tests {
         );
         let k: AudioKind = serde_json::from_str("\"sfx\"").unwrap();
         assert_eq!(k, AudioKind::Sfx);
+    }
+}
+
+/// `MediaProviderConfig` 的出站 SSRF policy。
+///
+/// 原为 `MediaProviderConfig` 的固有方法，因需读**运行时全局配置**
+/// （`cached_config().ssrf.default_policy`）而移出：该类型即将下沉
+/// `ha-config-schema`，而 schema 层是纯数据、不得读运行时状态。
+/// Rust 要求固有 impl 与类型同 crate，所以这类方法一律留在子系统里做自由函数。
+pub fn ssrf_policy_for(provider: &MediaProviderConfig) -> crate::security::ssrf::SsrfPolicy {
+    if provider.allow_private_network {
+        crate::security::ssrf::SsrfPolicy::AllowPrivate
+    } else {
+        crate::config::cached_config().ssrf.default_policy
     }
 }

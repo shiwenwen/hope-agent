@@ -85,7 +85,7 @@ pub async fn open_stream(
     }
 
     let https_twin = super::ws_to_https_twin(&url, "Azure Speech")?;
-    provider.check_ssrf(&https_twin).await?;
+    crate::stt::types::check_ssrf(provider, &https_twin).await?;
 
     let request_id = Uuid::new_v4().simple().to_string();
     let connection_id = Uuid::new_v4().simple().to_string();

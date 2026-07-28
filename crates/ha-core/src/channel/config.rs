@@ -35,14 +35,6 @@ impl ChannelStoreConfig {
     pub fn enabled_accounts(&self) -> Vec<&ChannelAccountConfig> {
         self.accounts.iter().filter(|a| a.enabled).collect()
     }
-
-    /// Legacy effective channel Agent ID when no app-level context is
-    /// available.
-    pub fn agent_id(&self) -> &str {
-        self.default_agent_id
-            .as_deref()
-            .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID)
-    }
 }
 
 /// WS8 — whether an IM turn originating from `(channel_id, account_id, chat_id)`

@@ -282,22 +282,6 @@ impl SttProviderConfig {
             })
     }
 
-    /// Shared SSRF gate for every outbound provider URL. Picks
-    /// `AllowPrivate` when `allow_private_network` is set (used by
-    /// localhost backends), otherwise falls back to the global default.
-    pub async fn check_ssrf(&self, url: &str) -> Result<(), super::SttError> {
-        let cfg = crate::config::cached_config();
-        let policy = if self.allow_private_network {
-            crate::security::ssrf::SsrfPolicy::AllowPrivate
-        } else {
-            cfg.ssrf.default_policy
-        };
-        crate::security::ssrf::check_url(url, policy, &cfg.ssrf.trusted_hosts)
-            .await
-            .map(|_| ())
-            .map_err(|e| super::SttError::SsrfBlocked(e.to_string()))
-    }
-
     /// Return a copy with all secrets masked for frontend display.
     pub fn masked(&self) -> Self {
         Self {
@@ -552,4 +536,22 @@ mod tests {
             "whisper-1".to_string()
         );
     }
+}
+
+/// 每个出站 provider URL 的统一 SSRF 闸。`allow_private_network`（本地后端用）
+/// 选 `AllowPrivate`，否则回落全局默认策略。
+///
+/// 原为 `SttProviderConfig` 的固有方法，因需读**运行时全局配置**而移出——
+/// 该类型即将下沉 `ha-config-schema`，schema 层是纯数据、不得读运行时状态。
+pub async fn check_ssrf(provider: &SttProviderConfig, url: &str) -> Result<(), super::SttError> {
+    let cfg = crate::config::cached_config();
+    let policy = if provider.allow_private_network {
+        crate::security::ssrf::SsrfPolicy::AllowPrivate
+    } else {
+        cfg.ssrf.default_policy
+    };
+    crate::security::ssrf::check_url(url, policy, &cfg.ssrf.trusted_hosts)
+        .await
+        .map(|_| ())
+        .map_err(|e| super::SttError::SsrfBlocked(e.to_string()))
 }

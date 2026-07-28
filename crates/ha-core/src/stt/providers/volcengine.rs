@@ -117,7 +117,7 @@ pub async fn open_stream(
     let url = format!("{}/api/v3/sauc/bigmodel", base);
 
     let https_twin = super::ws_to_https_twin(&url, "Volcengine")?;
-    provider.check_ssrf(&https_twin).await?;
+    crate::stt::types::check_ssrf(provider, &https_twin).await?;
 
     // Volcengine wants the hyphenated UUID form (`xxxxxxxx-xxxx-xxxx-…`),
     // not the compact 32-hex `simple()` form — the latter is silently

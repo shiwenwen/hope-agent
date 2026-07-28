@@ -230,55 +230,7 @@ pub struct McpServerConfig {
     pub trust_acknowledged_at: Option<String>,
 }
 
-impl McpServerConfig {
-    /// Returns `Err(McpError::Config(..))` on any invariant violation. Called
-    /// at save time by the settings panel / import path; `McpManager::init`
-    /// re-runs it defensively on each entry so legacy data can be quarantined.
-    pub fn validate(&self) -> crate::mcp::errors::McpResult<()> {
-        use crate::mcp::errors::McpError;
-        if !is_valid_name(&self.name) {
-            return Err(McpError::Config(format!(
-                "invalid server name '{}': must match ^[a-z0-9_-]{{1,32}}$",
-                self.name
-            )));
-        }
-        if self.id.is_empty() {
-            return Err(McpError::Config("server id must not be empty".into()));
-        }
-        match &self.transport {
-            McpTransportSpec::Stdio { command, .. } if command.trim().is_empty() => {
-                return Err(McpError::Config(format!(
-                    "server '{}': stdio command must not be empty",
-                    self.name
-                )));
-            }
-            McpTransportSpec::StreamableHttp { url }
-            | McpTransportSpec::Sse { url }
-            | McpTransportSpec::WebSocket { url }
-                if url.trim().is_empty() =>
-            {
-                return Err(McpError::Config(format!(
-                    "server '{}': transport URL must not be empty",
-                    self.name
-                )));
-            }
-            _ => {}
-        }
-        if self.auto_approve && matches!(self.trust_level, McpTrustLevel::Untrusted) {
-            return Err(McpError::Config(format!(
-                "server '{}': auto_approve requires trust_level=trusted",
-                self.name
-            )));
-        }
-        if self.oauth.is_some() && !self.transport.is_networked() {
-            return Err(McpError::Config(format!(
-                "server '{}': OAuth is only supported on networked transports",
-                self.name
-            )));
-        }
-        Ok(())
-    }
-}
+impl McpServerConfig {}
 
 /// Name regex: lowercase letters, digits, underscore, hyphen; 1–32 chars.
 /// Hand-rolled to avoid pulling a regex just for one check at save time.
@@ -481,7 +433,7 @@ mod tests {
             updated_at: 0,
             trust_acknowledged_at: None,
         };
-        assert!(cfg.validate().is_err());
+        assert!(crate::mcp::config::validate_server_config(&cfg).is_err());
     }
 
     #[test]
@@ -515,7 +467,7 @@ mod tests {
             updated_at: 0,
             trust_acknowledged_at: None,
         };
-        assert!(cfg.validate().is_ok());
+        assert!(crate::mcp::config::validate_server_config(&cfg).is_ok());
     }
 
     #[test]
@@ -557,7 +509,7 @@ mod tests {
             trust_acknowledged_at: None,
         };
 
-        assert!(cfg.validate().is_err());
+        assert!(crate::mcp::config::validate_server_config(&cfg).is_err());
     }
 
     #[test]
@@ -591,7 +543,7 @@ mod tests {
             updated_at: 0,
             trust_acknowledged_at: None,
         };
-        assert!(cfg.validate().is_err());
+        assert!(crate::mcp::config::validate_server_config(&cfg).is_err());
     }
 
     #[test]
@@ -687,4 +639,55 @@ mod tests {
                 .unwrap();
         assert!(matches!(http, McpTransportSpec::StreamableHttp { .. }));
     }
+}
+
+/// 校验一条 MCP server 配置，任何不变量违规返回 `Err(McpError::Config(..))`。
+/// 设置面板 / 导入路径在保存时调用；`McpManager::init` 对每条记录再防御性跑一遍，
+/// 以便隔离 legacy 数据。
+///
+/// 原为 `McpServerConfig` 的固有方法，因返回 `mcp::errors` 的子系统错误类型而
+/// 移出——该类型即将下沉 `ha-config-schema`，schema 层不得依赖子系统。
+pub fn validate_server_config(cfg: &McpServerConfig) -> crate::mcp::errors::McpResult<()> {
+    use crate::mcp::errors::McpError;
+    if !is_valid_name(&cfg.name) {
+        return Err(McpError::Config(format!(
+            "invalid server name '{}': must match ^[a-z0-9_-]{{1,32}}$",
+            cfg.name
+        )));
+    }
+    if cfg.id.is_empty() {
+        return Err(McpError::Config("server id must not be empty".into()));
+    }
+    match &cfg.transport {
+        McpTransportSpec::Stdio { command, .. } if command.trim().is_empty() => {
+            return Err(McpError::Config(format!(
+                "server '{}': stdio command must not be empty",
+                cfg.name
+            )));
+        }
+        McpTransportSpec::StreamableHttp { url }
+        | McpTransportSpec::Sse { url }
+        | McpTransportSpec::WebSocket { url }
+            if url.trim().is_empty() =>
+        {
+            return Err(McpError::Config(format!(
+                "server '{}': transport URL must not be empty",
+                cfg.name
+            )));
+        }
+        _ => {}
+    }
+    if cfg.auto_approve && matches!(cfg.trust_level, McpTrustLevel::Untrusted) {
+        return Err(McpError::Config(format!(
+            "server '{}': auto_approve requires trust_level=trusted",
+            cfg.name
+        )));
+    }
+    if cfg.oauth.is_some() && !cfg.transport.is_networked() {
+        return Err(McpError::Config(format!(
+            "server '{}': OAuth is only supported on networked transports",
+            cfg.name
+        )));
+    }
+    Ok(())
 }

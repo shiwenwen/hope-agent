@@ -81,7 +81,7 @@ async fn server_handle_transitions_from_idle_to_failed_on_bad_command() {
     // this as a Failed state and bubble up a Transport/Timeout error.
     let cfg = base_cfg("fail-fast", "false", vec![]);
     // Validate config still passes (runtime behavior is separate).
-    cfg.validate().expect("sample config should validate");
+    ha_core::mcp::config::validate_server_config(&cfg).expect("sample config should validate");
 
     let handle = ServerHandle::new(cfg.clone());
     let initial = handle.snapshot().await;

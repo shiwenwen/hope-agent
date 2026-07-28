@@ -90,7 +90,12 @@ async fn list_elevenlabs_voices(provider_id: &str, limit: u32) -> Result<Vec<Voi
     let url = format!("{base}/v2/voices?page_size={page_size}");
     // base_url is owner config (trusted-ish); SSRF still gates intranet /
     // metadata unless the provider opted into private networking.
-    crate::security::ssrf::check_url(&url, provider.ssrf_policy(), &cfg.ssrf.trusted_hosts).await?;
+    crate::security::ssrf::check_url(
+        &url,
+        crate::media_gen::types::ssrf_policy_for(provider),
+        &cfg.ssrf.trusted_hosts,
+    )
+    .await?;
     let client =
         crate::provider::apply_proxy(Client::builder().timeout(Duration::from_secs(15))).build()?;
     let resp = client
@@ -159,7 +164,12 @@ async fn voice_request(provider_id: &str, path: &str) -> Result<(Client, String,
         .trim_end_matches('/')
         .to_string();
     let url = format!("{base}{path}");
-    crate::security::ssrf::check_url(&url, provider.ssrf_policy(), &cfg.ssrf.trusted_hosts).await?;
+    crate::security::ssrf::check_url(
+        &url,
+        crate::media_gen::types::ssrf_policy_for(provider),
+        &cfg.ssrf.trusted_hosts,
+    )
+    .await?;
     let client =
         crate::provider::apply_proxy(Client::builder().timeout(Duration::from_secs(15))).build()?;
     Ok((client, url, key, base))

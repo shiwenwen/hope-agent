@@ -3038,7 +3038,7 @@ export default async function main(workflow) {
     #[test]
     fn untrusted_mcp_auto_approve_is_rejected_and_not_honored() {
         let cfg = mcp_cfg(true, McpTrustLevel::Untrusted);
-        assert!(cfg.validate().is_err());
+        assert!(crate::mcp::config::validate_server_config(&cfg).is_err());
         assert!(!mcp_server_auto_approves_config(&cfg));
     }
 

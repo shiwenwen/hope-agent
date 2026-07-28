@@ -99,7 +99,7 @@ async fn check_candidate_ssrf(provider: &MediaProviderConfig) -> Result<()> {
     let cfg = crate::config::cached_config();
     crate::security::ssrf::check_url(
         provider.effective_base_url(),
-        provider.ssrf_policy(),
+        crate::media_gen::types::ssrf_policy_for(provider),
         &cfg.ssrf.trusted_hosts,
     )
     .await
@@ -211,7 +211,7 @@ pub async fn execute_image(
                 resolution,
                 input_images: req.input_images,
                 mask: req.mask,
-                ssrf: provider.ssrf_policy(),
+                ssrf: crate::media_gen::types::ssrf_policy_for(provider),
             };
             let started = std::time::Instant::now();
             match adapter.generate(params).await {
@@ -351,7 +351,7 @@ pub async fn execute_audio(
                 duration_seconds,
                 voice,
                 extra: &extra,
-                ssrf: provider.ssrf_policy(),
+                ssrf: crate::media_gen::types::ssrf_policy_for(provider),
             };
             let started = std::time::Instant::now();
             match adapter.generate(params).await {
