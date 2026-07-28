@@ -30,24 +30,8 @@ pub use requirements::*;
 pub use slash::*;
 pub use types::*;
 
-use serde::{Deserialize, Serialize};
-
-/// Root `AppConfig.skills` section. Phase B' introduces the `autoReview`
-/// subtree; future Phase B'' work can add more (e.g. `autoPatch`, `sharing`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillsConfig {
-    #[serde(default)]
-    pub auto_review: auto_review::SkillsAutoReviewConfig,
-
-    /// Gate for remote-initiated dependency installs (spawning
-    /// `brew`/`npm -g`/`go install`/`uv tool install`). Off by default —
-    /// with a valid caller key this would be a full RCE primitive. The
-    /// specific transport / UX coupling lives at each caller; ha-core only
-    /// exposes the flag.
-    #[serde(default)]
-    pub allow_remote_install: bool,
-}
+// 类型已下沉 ha-config-schema，原地再导出保持 `crate::skills::SkillsConfig` 路径不变。
+pub use ha_config_schema::skills::SkillsConfig;
 
 /// Wrap SKILL.md content with runtime package metadata so bundled resources can
 /// be used without guessing where the skill lives on disk.

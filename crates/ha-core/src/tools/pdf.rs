@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::browser::IMAGE_BASE64_PREFIX;
@@ -7,12 +6,8 @@ use super::expand_tilde;
 
 /// Default max characters to return from text extraction.
 const DEFAULT_MAX_CHARS: usize = 50_000;
-/// Default maximum number of PDFs per single tool call.
-const DEFAULT_MAX_PDFS: usize = 5;
 /// Hard cap on max PDFs (user cannot exceed this).
 const CAP_MAX_PDFS: usize = 10;
-/// Default maximum pages to render in vision mode.
-const DEFAULT_MAX_VISION_PAGES: usize = 10;
 /// Render width for vision mode (pixels).
 const VISION_RENDER_WIDTH: u32 = 1200;
 /// HTTP timeout for fetching remote PDFs.
@@ -24,33 +19,8 @@ const AUTO_VISION_THRESHOLD: usize = 200;
 
 // ── PDF Tool Config ─────────────────────────────────────────────
 
-/// Persistent PDF tool configuration, stored in config.json
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PdfToolConfig {
-    /// Maximum number of PDFs per single tool call
-    #[serde(default = "default_max_pdfs")]
-    pub max_pdfs: usize,
-    /// Maximum pages to render in vision mode
-    #[serde(default = "default_max_vision_pages")]
-    pub max_vision_pages: usize,
-}
-
-fn default_max_pdfs() -> usize {
-    DEFAULT_MAX_PDFS
-}
-fn default_max_vision_pages() -> usize {
-    DEFAULT_MAX_VISION_PAGES
-}
-
-impl Default for PdfToolConfig {
-    fn default() -> Self {
-        Self {
-            max_pdfs: DEFAULT_MAX_PDFS,
-            max_vision_pages: DEFAULT_MAX_VISION_PAGES,
-        }
-    }
-}
+// 类型已下沉 ha-config-schema：PdfToolConfig 及其 serde default helper。
+pub use ha_config_schema::tools::pdf::PdfToolConfig;
 
 // ── PDF Source Types ────────────────────────────────────────────────
 

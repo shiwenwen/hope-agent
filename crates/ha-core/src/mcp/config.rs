@@ -1,236 +1,15 @@
 //! MCP server configuration schema.
 //!
-//! All types here are pure serde — the runtime state (connection, catalog,
-//! retry counters) lives in `registry.rs`. Keep this file free of rmcp
-//! imports so the config layer can be deserialized in contexts where the
-//! runtime isn't initialized (e.g. unit tests, `ha-settings` read path).
+//! 类型定义（`McpServerConfig` / `McpGlobalSettings` / `McpTransportSpec` /
+//! `McpOAuthConfig` / `McpTrustLevel`）已下沉 [`ha_config_schema::mcp`]，此处
+//! 原地再导出保持 `crate::mcp::config::*` 路径不变。留在本文件的是子系统逻辑：
+//! 保存期校验 `validate_server_config`（返回 `mcp::errors` 错误类型）、名称
+//! 校验、env 占位符展开，以及它们的测试。
 
-use std::collections::BTreeMap;
-
-use serde::{Deserialize, Serialize};
-
-// ── Transport ────────────────────────────────────────────────────
-
-/// Which wire protocol to use when talking to the server.
-///
-/// `Stdio` spawns a local child process and frames JSON-RPC over its
-/// stdin/stdout pipes. `StreamableHttp` is the spec's preferred remote
-/// transport (spec date 2025-03-26). `Sse` is the legacy Server-Sent
-/// Events transport kept for compatibility with servers that haven't
-/// migrated yet. `WebSocket` is non-spec but several deployments use it;
-/// we implement it with a `tokio-tungstenite` wrapper.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum McpTransportSpec {
-    /// Local subprocess. `command` is the executable; we do NOT run it
-    /// through a shell. Args are passed as a separate argv vector.
-    Stdio {
-        command: String,
-        #[serde(default)]
-        args: Vec<String>,
-        /// Working directory; `None` means inherit the app's cwd.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        cwd: Option<String>,
-    },
-    /// Streamable HTTP (POST + optional GET-SSE on the same URL).
-    StreamableHttp { url: String },
-    /// Legacy SSE transport. Prefer `StreamableHttp` for new servers.
-    Sse { url: String },
-    /// WebSocket — custom, matches what claude-code exposes via
-    /// `mcpWebSocketTransport`.
-    WebSocket { url: String },
-}
-
-impl McpTransportSpec {
-    /// Human-readable label used by logs and the GUI badge.
-    pub fn kind_label(&self) -> &'static str {
-        match self {
-            McpTransportSpec::Stdio { .. } => "stdio",
-            McpTransportSpec::StreamableHttp { .. } => "http",
-            McpTransportSpec::Sse { .. } => "sse",
-            McpTransportSpec::WebSocket { .. } => "ws",
-        }
-    }
-
-    /// True iff the transport dials a network endpoint (and therefore must
-    /// pass through SSRF + trust gating before `connect()`).
-    pub fn is_networked(&self) -> bool {
-        !matches!(self, McpTransportSpec::Stdio { .. })
-    }
-}
-
-// ── Trust Level ──────────────────────────────────────────────────
-
-/// Governs default permissions for the server. `Trusted` is a deliberate
-/// acknowledgement by the user that this server is safe to grant auto-approve
-/// / relaxed SSRF; it's not a pre-baked allowlist.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum McpTrustLevel {
-    /// Default for new servers — every tool call runs through the approval
-    /// gate; networked transports use the strict SSRF policy.
-    #[default]
-    Untrusted,
-    /// User has explicitly marked this server as trusted. `auto_approve` may
-    /// now be enabled; networked transports use the default SSRF policy.
-    Trusted,
-}
-
-// ── OAuth ────────────────────────────────────────────────────────
-
-/// Per-server OAuth 2.1 + PKCE configuration. Only populated for networked
-/// transports where the server advertises OAuth; stdio transports reject it.
-/// The discovered endpoints (`.well-known/oauth-authorization-server`) may
-/// override any `None` fields at connect time.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct McpOAuthConfig {
-    /// Pre-registered OAuth client id. `None` triggers Dynamic Client
-    /// Registration (RFC 7591) if the server supports it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_id: Option<String>,
-    /// Optional client secret for confidential clients. Most public MCP
-    /// servers use PKCE without a secret.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_secret: Option<String>,
-    /// Override the authorization endpoint. `None` → discovery.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub authorization_endpoint: Option<String>,
-    /// Override the token endpoint. `None` → discovery.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_endpoint: Option<String>,
-    /// Requested scopes. Empty = server default.
-    #[serde(default)]
-    pub scopes: Vec<String>,
-    /// Extra parameters forwarded on the authorization request (rare —
-    /// e.g. `audience` for some deployments).
-    #[serde(default)]
-    pub extra_params: BTreeMap<String, String>,
-}
-
-// ── Default helpers ──────────────────────────────────────────────
-
-fn default_connect_timeout_secs() -> u64 {
-    30
-}
-
-fn default_call_timeout_secs() -> u64 {
-    0
-}
-
-fn default_health_check_interval_secs() -> u64 {
-    60
-}
-
-fn default_per_server_max_concurrent_calls() -> u32 {
-    4
-}
-
-pub(crate) fn default_true() -> bool {
-    true
-}
-
-// ── Server Config ────────────────────────────────────────────────
-
-/// One entry in `AppConfig.mcp_servers`. Persisted to `config.json`.
-///
-/// Validation (done at save time — see `validate()` below):
-/// * `name` must match `^[a-z0-9_-]{1,32}$` and be unique inside the list.
-/// * `id` must be a UUID v4.
-/// * Networked transports must have a non-empty URL; `Stdio` must have a
-///   non-empty `command`.
-///
-/// Note: `allowed_tools` / `denied_tools` refer to the *original* MCP tool
-/// name (pre-namespace prefix). Catalog generation prefixes them with
-/// `mcp__<server_name>__` before feeding the LLM.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpServerConfig {
-    /// Stable UUID v4. Never renamed; used for credential file names and
-    /// EventBus payloads. If migrating an old config missing `id`, the
-    /// loader assigns a fresh one and writes back.
-    pub id: String,
-    /// User-visible name — forms the `mcp__<name>__<tool>` namespace.
-    /// Immutable after creation (rename requires remove + re-add) to avoid
-    /// invalidating references in agent filters / logs.
-    pub name: String,
-    /// `false` means "disabled — don't connect, don't expose tools".
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    pub transport: McpTransportSpec,
-    /// Environment variables injected into the subprocess (stdio) or sent
-    /// as headers placeholders (http/sse/ws — keys are case-sensitive).
-    /// Values support `${ENV_VAR}` placeholders expanded at connect time.
-    #[serde(default)]
-    pub env: BTreeMap<String, String>,
-    /// HTTP-only: extra request headers. Token-bearing headers (e.g.
-    /// `Authorization`) are redacted in logs via `redact_sensitive`.
-    #[serde(default)]
-    pub headers: BTreeMap<String, String>,
-    /// Optional OAuth config for networked transports. `None` means the
-    /// server is either public or expects a pre-baked header token.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oauth: Option<McpOAuthConfig>,
-    /// Whitelist of *original* MCP tool names. Empty = allow all.
-    #[serde(default)]
-    pub allowed_tools: Vec<String>,
-    /// Blacklist of *original* MCP tool names (takes precedence over
-    /// `allowed_tools`).
-    #[serde(default)]
-    pub denied_tools: Vec<String>,
-    #[serde(default = "default_connect_timeout_secs")]
-    pub connect_timeout_secs: u64,
-    /// Per MCP tool-call timeout in seconds. 0 = no call-level timeout.
-    #[serde(default = "default_call_timeout_secs")]
-    pub call_timeout_secs: u64,
-    #[serde(default = "default_health_check_interval_secs")]
-    pub health_check_interval_secs: u64,
-    /// Per-server semaphore cap; prevents a single slow server from hogging
-    /// the global pool.
-    #[serde(default = "default_per_server_max_concurrent_calls")]
-    pub max_concurrent_calls: u32,
-    /// Opt-in: skip the tool-level approval gate for this server's tools.
-    /// Only honored when `trust_level = Trusted` (defense-in-depth).
-    #[serde(default)]
-    pub auto_approve: bool,
-    #[serde(default)]
-    pub trust_level: McpTrustLevel,
-    /// Eager-connect at app startup. Defaults to lazy (connect on first
-    /// tool call).
-    #[serde(default)]
-    pub eager: bool,
-    /// When true, this server's dynamic MCP tools are not sent eagerly in
-    /// every LLM request. They remain discoverable via `tool_search`.
-    /// Defaults to false: MCP tools are injected eagerly unless the user
-    /// explicitly opts this server into deferred loading.
-    #[serde(default)]
-    pub deferred_tools: bool,
-    /// Only active when the current session's project root matches one of
-    /// these absolute paths. Empty = active everywhere (global scope).
-    #[serde(default)]
-    pub project_paths: Vec<String>,
-    /// Optional free-form description shown in the GUI + mixed into the
-    /// `tool_search` BM25 index. Never injected into the tool schema
-    /// (that's what individual tool descriptions are for).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// Optional user-chosen icon name (Lucide); frontend falls back to a
-    /// default Plug icon when absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
-    /// Seconds since UNIX epoch.
-    #[serde(default)]
-    pub created_at: i64,
-    #[serde(default)]
-    pub updated_at: i64,
-    /// ISO 8601 timestamp of the last time the user ACKed the trust prompt
-    /// on the Add Server dialog. Acts as audit trail; absence means the
-    /// server predates the prompt and the GUI will re-prompt on next edit.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trust_acknowledged_at: Option<String>,
-}
-
-impl McpServerConfig {}
+// 类型已下沉 ha-config-schema
+pub use ha_config_schema::mcp::{
+    McpGlobalSettings, McpOAuthConfig, McpServerConfig, McpTransportSpec, McpTrustLevel,
+};
 
 /// Name regex: lowercase letters, digits, underscore, hyphen; 1–32 chars.
 /// Hand-rolled to avoid pulling a regex just for one check at save time.
@@ -241,73 +20,6 @@ pub fn is_valid_name(s: &str) -> bool {
     }
     s.chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
-}
-
-// ── Global Settings ──────────────────────────────────────────────
-
-fn default_global_max_concurrent_calls() -> u32 {
-    8
-}
-
-fn default_backoff_initial_secs() -> u64 {
-    5
-}
-
-fn default_backoff_max_secs() -> u64 {
-    300
-}
-
-fn default_consecutive_failure_circuit_breaker() -> u32 {
-    10
-}
-
-fn default_auto_reconnect_after_circuit_secs() -> u64 {
-    1800
-}
-
-/// Top-level `AppConfig.mcp_global` — knobs shared by every server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpGlobalSettings {
-    /// Master switch. `false` → the manager is never initialized; the
-    /// dispatch path short-circuits with `NotReady` before spawning any
-    /// connection. Default `true`.
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    /// Global cross-server in-flight call cap.
-    #[serde(default = "default_global_max_concurrent_calls")]
-    pub max_concurrent_calls: u32,
-    /// Initial backoff on reconnect. Doubles each failure up to `backoff_max_secs`.
-    #[serde(default = "default_backoff_initial_secs")]
-    pub backoff_initial_secs: u64,
-    #[serde(default = "default_backoff_max_secs")]
-    pub backoff_max_secs: u64,
-    /// Consecutive failures before tripping the circuit breaker. `0`
-    /// disables the breaker (reconnect forever).
-    #[serde(default = "default_consecutive_failure_circuit_breaker")]
-    pub consecutive_failure_circuit_breaker: u32,
-    /// After circuit-breaker trip, how long until we try again on our own
-    /// (user can still hit Reconnect manually at any time).
-    #[serde(default = "default_auto_reconnect_after_circuit_secs")]
-    pub auto_reconnect_after_circuit_secs: u64,
-    /// Deny list of server names (policy override; predates addition by
-    /// the GUI). Enterprise deployments can ship this pre-populated.
-    #[serde(default)]
-    pub denied_servers: Vec<String>,
-}
-
-impl Default for McpGlobalSettings {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            max_concurrent_calls: default_global_max_concurrent_calls(),
-            backoff_initial_secs: default_backoff_initial_secs(),
-            backoff_max_secs: default_backoff_max_secs(),
-            consecutive_failure_circuit_breaker: default_consecutive_failure_circuit_breaker(),
-            auto_reconnect_after_circuit_secs: default_auto_reconnect_after_circuit_secs(),
-            denied_servers: Vec::new(),
-        }
-    }
 }
 
 // ── Env Placeholder Expansion ────────────────────────────────────
@@ -381,6 +93,57 @@ where
 }
 
 // ── Tests ────────────────────────────────────────────────────────
+
+/// 校验一条 MCP server 配置，任何不变量违规返回 `Err(McpError::Config(..))`。
+/// 设置面板 / 导入路径在保存时调用；`McpManager::init` 对每条记录再防御性跑一遍，
+/// 以便隔离 legacy 数据。
+///
+/// 原为 `McpServerConfig` 的固有方法，因返回 `mcp::errors` 的子系统错误类型而
+/// 移出——类型已下沉 `ha-config-schema`，schema 层不得依赖子系统。
+pub fn validate_server_config(cfg: &McpServerConfig) -> crate::mcp::errors::McpResult<()> {
+    use crate::mcp::errors::McpError;
+    if !is_valid_name(&cfg.name) {
+        return Err(McpError::Config(format!(
+            "invalid server name '{}': must match ^[a-z0-9_-]{{1,32}}$",
+            cfg.name
+        )));
+    }
+    if cfg.id.is_empty() {
+        return Err(McpError::Config("server id must not be empty".into()));
+    }
+    match &cfg.transport {
+        McpTransportSpec::Stdio { command, .. } if command.trim().is_empty() => {
+            return Err(McpError::Config(format!(
+                "server '{}': stdio command must not be empty",
+                cfg.name
+            )));
+        }
+        McpTransportSpec::StreamableHttp { url }
+        | McpTransportSpec::Sse { url }
+        | McpTransportSpec::WebSocket { url }
+            if url.trim().is_empty() =>
+        {
+            return Err(McpError::Config(format!(
+                "server '{}': transport URL must not be empty",
+                cfg.name
+            )));
+        }
+        _ => {}
+    }
+    if cfg.auto_approve && matches!(cfg.trust_level, McpTrustLevel::Untrusted) {
+        return Err(McpError::Config(format!(
+            "server '{}': auto_approve requires trust_level=trusted",
+            cfg.name
+        )));
+    }
+    if cfg.oauth.is_some() && !cfg.transport.is_networked() {
+        return Err(McpError::Config(format!(
+            "server '{}': OAuth is only supported on networked transports",
+            cfg.name
+        )));
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -639,55 +402,4 @@ mod tests {
                 .unwrap();
         assert!(matches!(http, McpTransportSpec::StreamableHttp { .. }));
     }
-}
-
-/// 校验一条 MCP server 配置，任何不变量违规返回 `Err(McpError::Config(..))`。
-/// 设置面板 / 导入路径在保存时调用；`McpManager::init` 对每条记录再防御性跑一遍，
-/// 以便隔离 legacy 数据。
-///
-/// 原为 `McpServerConfig` 的固有方法，因返回 `mcp::errors` 的子系统错误类型而
-/// 移出——该类型即将下沉 `ha-config-schema`，schema 层不得依赖子系统。
-pub fn validate_server_config(cfg: &McpServerConfig) -> crate::mcp::errors::McpResult<()> {
-    use crate::mcp::errors::McpError;
-    if !is_valid_name(&cfg.name) {
-        return Err(McpError::Config(format!(
-            "invalid server name '{}': must match ^[a-z0-9_-]{{1,32}}$",
-            cfg.name
-        )));
-    }
-    if cfg.id.is_empty() {
-        return Err(McpError::Config("server id must not be empty".into()));
-    }
-    match &cfg.transport {
-        McpTransportSpec::Stdio { command, .. } if command.trim().is_empty() => {
-            return Err(McpError::Config(format!(
-                "server '{}': stdio command must not be empty",
-                cfg.name
-            )));
-        }
-        McpTransportSpec::StreamableHttp { url }
-        | McpTransportSpec::Sse { url }
-        | McpTransportSpec::WebSocket { url }
-            if url.trim().is_empty() =>
-        {
-            return Err(McpError::Config(format!(
-                "server '{}': transport URL must not be empty",
-                cfg.name
-            )));
-        }
-        _ => {}
-    }
-    if cfg.auto_approve && matches!(cfg.trust_level, McpTrustLevel::Untrusted) {
-        return Err(McpError::Config(format!(
-            "server '{}': auto_approve requires trust_level=trusted",
-            cfg.name
-        )));
-    }
-    if cfg.oauth.is_some() && !cfg.transport.is_networked() {
-        return Err(McpError::Config(format!(
-            "server '{}': OAuth is only supported on networked transports",
-            cfg.name
-        )));
-    }
-    Ok(())
 }

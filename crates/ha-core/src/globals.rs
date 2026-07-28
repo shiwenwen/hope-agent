@@ -71,7 +71,6 @@ pub static IDLE_EXTRACT_HANDLES: std::sync::OnceLock<
 
 // ── Accessor functions ─────────────────────────────────────────
 
-/// Get stored AppLogger for global logging
 /// Get stored EventBus for global event emission (e.g., command approval)
 pub fn get_event_bus() -> Option<&'static Arc<dyn EventBus>> {
     EVENT_BUS.get()
@@ -136,8 +135,6 @@ pub fn get_channel_db() -> Option<&'static Arc<channel::ChannelDB>> {
     CHANNEL_DB.get()
 }
 
-/// Get stored LogDB for log persistence (separate from the [`AppLogger`]
-/// async writer — routes that page logs need the DB handle directly).
 pub fn get_terminal_manager() -> Option<&'static Arc<TerminalManager>> {
     TERMINAL_MANAGER.get()
 }

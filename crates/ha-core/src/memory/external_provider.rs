@@ -189,7 +189,11 @@ pub async fn execute_external_memory_provider_sync(
     let config =
         crate::blocking::run_blocking(move || hydrate_external_memory_provider_config(config))
             .await;
-    let preflight = config.sync_preflight_with_stats_status(&stats, stats_error);
+    let preflight = super::types::external_memory_sync_preflight_with_stats_status(
+        &config,
+        &stats,
+        stats_error,
+    );
     let preflight_report = preflight.clone();
     let mut results = Vec::with_capacity(preflight.providers.len());
 
@@ -331,7 +335,7 @@ fn has_automatic_provider() -> bool {
     config.memory_providers.enabled
         && config.memory_providers.providers.iter().any(|provider| {
             provider.enabled
-                && provider.kind.capabilities().adapter_available
+                && super::types::external_provider_capabilities(provider.kind).adapter_available
                 && matches!(
                     provider.sync_policy,
                     super::ExternalMemorySyncPolicy::PullOnly

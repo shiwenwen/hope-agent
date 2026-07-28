@@ -1,6 +1,6 @@
 # 自升级（Self-Update）
 
-> 关联源码：[`crates/ha-core/src/updater/`](../../crates/ha-core/src/updater) · [`crates/ha-core/src/tools/app_update.rs`](../../crates/ha-core/src/tools/app_update.rs) · [`crates/ha-core/src/tools/definitions/update_tools.rs`](../../crates/ha-core/src/tools/definitions/update_tools.rs) · [`crates/ha-base/src/platform/`](../../crates/ha-core/src/platform) · [`src-tauri/src/commands/update_bridge.rs`](../../src-tauri/src/commands/update_bridge.rs) · [`skills/ha-self-update/SKILL.md`](../../skills/ha-self-update/SKILL.md)
+> 关联源码：[`crates/ha-core/src/updater/`](../../crates/ha-core/src/updater) · [`crates/ha-core/src/tools/app_update.rs`](../../crates/ha-core/src/tools/app_update.rs) · [`crates/ha-core/src/tools/definitions/update_tools.rs`](../../crates/ha-core/src/tools/definitions/update_tools.rs) · [`crates/ha-base/src/platform/`](../../crates/ha-base/src/platform) · [`src-tauri/src/commands/update_bridge.rs`](../../src-tauri/src/commands/update_bridge.rs) · [`skills/ha-self-update/SKILL.md`](../../skills/ha-self-update/SKILL.md)
 
 ## 目的
 

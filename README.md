@@ -337,12 +337,17 @@ pnpm tauri build       # 打生产包
 
 ## 项目结构
 
-Cargo Workspace 三 Crate 架构，核心业务逻辑全部在 `ha-core`：
+Cargo Workspace 分层多 Crate 架构，核心业务逻辑全部在 `ha-core`：
 
 ```
 crates/
-  ha-core/       Rust 核心库（零 Tauri 依赖）— 所有业务逻辑在这里
-  ha-server/     axum HTTP/WS 守护进程（薄壳）
+  ha-base/           基础设施底层（paths / logging / platform / security）
+  ha-config-schema/  AppConfig 配置 wire 类型（纯数据定义）
+  ha-core/           Rust 核心库（零 Tauri 依赖）— 所有业务逻辑在这里
+  ha-server/         axum HTTP/WS 守护进程（薄壳）
+  ha-browser-host/   浏览器辅助进程
+  ha-eval-spec/      评测协议（不依赖 ha-core）
+  ha-eval/           评测 CLI
 src-tauri/       Tauri 桌面 Shell（薄壳）
 src/             React 19 + TypeScript 前端
 skills/          内置技能（随应用发行）
@@ -364,7 +369,7 @@ skills/          内置技能（随应用发行）
 ```bash
 pnpm tauri dev                    # 桌面开发
 cargo check --workspace              # Rust 依赖 / 类型检查
-cargo test -p ha-core -p ha-server   # 核心测试
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-server   # 核心测试
 node scripts/sync-i18n.mjs --check   # 检查翻译缺失
 ```
 

@@ -37,6 +37,12 @@
 /crates/ha-base/src/security/     @shiwenwen
 /crates/ha-base/src/paths.rs      @shiwenwen
 /crates/ha-core/src/permission/   @shiwenwen
+# permission / hooks 的 config wire 类型（审批超时动作、unattended fail-closed
+# 默认）已下沉 ha-config-schema；AppConfig 本体（含 `disable_all_hooks` /
+# `hooks_allow_project_scope` 供应链开关与 `permission` 字段的默认值）在 config.rs。
+/crates/ha-config-schema/src/permission.rs  @shiwenwen
+/crates/ha-config-schema/src/hooks.rs       @shiwenwen
+/crates/ha-config-schema/src/config.rs      @shiwenwen
 
 # === 跨 PR 契约：架构文档 ===
 /docs/architecture/               @shiwenwen

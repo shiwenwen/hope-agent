@@ -18,21 +18,28 @@ graph TD
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
+        HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
     end
 
     HA_TAURI -->|"依赖"| HA_SERVER
     HA_TAURI -->|"依赖"| HA_CORE
     HA_SERVER -->|"依赖"| HA_CORE
+    HA_CORE -->|"依赖"| HA_SCHEMA
     HA_CORE -->|"依赖"| HA_BASE
+    HA_SCHEMA -->|"依赖"| HA_BASE
 
 ```
 
-**两条铁律**：
+**三条铁律**：
 
-1. `ha-core` 与 `ha-base` 的 `Cargo.toml` 禁止出现 `tauri` 或 Tauri 插件依赖。
+1. `ha-core` / `ha-config-schema` / `ha-base` 的 `Cargo.toml` 禁止出现 `tauri` 或 Tauri 插件依赖。
 2. `ha-base` 禁止依赖任何 `ha-*` 业务 crate。需要上层数据时**留注册钩子**，
    由 `ha-core` 在 `init_runtime()` 早期注入（见下方 ha-base 小节）。
+3. `ha-config-schema` 只放数据定义（类型 + 自包含 impl + serde helper），
+   只准依赖 ha-base 与叶子 crate；任何需要子系统服务的行为
+   （`cached_config` / `mutate_config` / redact / validate / SSRF）留在 ha-core
+   （见下方 ha-config-schema 小节）。
 
 ## 各 Crate 职责
 
@@ -64,6 +71,34 @@ extern crate ha_base` 全量再导出，所以 ha-core 内部的 `crate::paths::
 > `app_info!` 展开为 `$crate::get_logger()`，`$crate` 解析到**定义宏的 crate**，
 > 所以 `APP_LOGGER` / `LOG_DB` 及其 `require_*` 访问器必须与宏同住 ha-base；
 > `globals.rs` 改为再导出以保持 `crate::globals::APP_LOGGER` 等既有路径。
+
+### ha-config-schema（配置 wire 类型）
+
+`AppConfig` 及其全部传递类型闭包（22 个子系统的 `*Config` / 枚举 / serde
+helper / 自包含 impl）。**模块路径镜像 ha-core**（`memory` / `config` /
+`tools::web_search` / `knowledge::maintenance` …），根部 `pub use ha_base::*`
+与 ha-core 同构——因此被搬代码里 `crate::memory::X`、`crate::default_true`、
+`crate::security::ssrf::SsrfConfig` 这类内部引用**原样成立**，`AppConfig::default()`
+的四十余处 `crate::<mod>::XxxConfig::default()` 路径搬入后自然消解。
+
+**再导出契约**：ha-core 各子系统在**原定义文件**里 `pub use
+ha_config_schema::<mod>::{…};` 顶替被搬定义，既有 re-export 链
+（`memory/mod.rs` 的 `pub use types::*` 等）不动，所以全仓
+`crate::config::AppConfig` / `ha_core::mcp::McpServerConfig` 等路径零改动。
+`config/mod.rs` 用 glob `pub use ha_config_schema::config::*;`。
+
+**行为边界**（新增字段时最常踩的线）：
+
+| 归属 | 内容 |
+|------|------|
+| schema | 类型定义、`Default`、clamp/effective 等只碰自身字段的 impl、serde default helper、`DEFAULT_AGENT_ID` 常量 |
+| ha-core | `cached_config` / `mutate_config`（persistence）、redact 脱敏接线、`validate_server_config` / `check_ssrf` / `ssrf_policy_for` 等子系统自由函数、`HooksConfigExt` / `MaintenanceTasksExt` 扩展 trait（方法引用未下沉类型时的 coherence 出口） |
+
+> 例外记录：`context_compact` 的 `default_tool_policies` 在 schema 侧用工具名
+> 字面量（wire 格式 key，schema 不能反向依赖 ha-core 的 `TOOL_*` 常量），由
+> ha-core `default_tool_policies_match_tool_name_constants` 测试锁死一致性；
+> config 模块的纯类型测试（默认值 / 钳制 / serde 兼容）随类型住在 schema，
+> `cargo test -p ha-config-schema` 已进 pre-push / CI 门禁。
 
 ### ha-core（核心库）
 

@@ -3134,6 +3134,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-config-schema"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ha-base",
+ "serde",
+ "serde_json",
+ "sha2",
+ "uuid",
+]
+
+[[package]]
 name = "ha-core"
 version = "0.24.0"
 dependencies = [
@@ -3159,6 +3172,7 @@ dependencies = [
  "futures-util",
  "glob",
  "ha-base",
+ "ha-config-schema",
  "ha-eval-spec",
  "hmac",
  "htmd",

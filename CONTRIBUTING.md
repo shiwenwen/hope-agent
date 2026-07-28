@@ -49,11 +49,11 @@ pnpm tauri dev            # 启动桌面开发模式（前端 + Rust 后端 + �
 
 注意以下契约（详见 AGENTS.md）：
 
-- 核心业务逻辑必须在 `crates/ha-core/`（**零 Tauri 依赖**），`src-tauri/` 和 `crates/ha-server/` 只做适配薄壳
+- 核心业务逻辑必须在 `crates/ha-core/`（**零 Tauri 依赖**），`src-tauri/` 和 `crates/ha-server/` 只做适配薄壳；基础设施原语在 `crates/ha-base/`，`AppConfig` 配置 wire 类型在 `crates/ha-config-schema/`
 - 前端用 React 19 + TypeScript + Tailwind v4 + shadcn/ui
 - 文件路径别名 `@/` → `src/`
-- 禁止 `console.log` / `log::info!` 等原生日志，必须用 [`app_info!`](crates/ha-core/src/logging.rs) 系列宏
-- 跨平台分支优先 `#[cfg(unix)]` / `#[cfg(windows)]`，新原语放 [`crates/ha-core/src/platform/`](crates/ha-core/src/platform/)
+- 禁止 `console.log` / `log::info!` 等原生日志，必须用 [`app_info!`](crates/ha-base/src/logging/mod.rs) 系列宏
+- 跨平台分支优先 `#[cfg(unix)]` / `#[cfg(windows)]`，新原语放 [`crates/ha-base/src/platform/`](crates/ha-base/src/platform/)
 
 ### 4. 提交前自检（强制）
 
@@ -61,8 +61,8 @@ pnpm tauri dev            # 启动桌面开发模式（前端 + Rust 后端 + �
 
 ```bash
 cargo fmt --all --check
-cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
-cargo test  -p ha-core -p ha-server --locked
+cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-server --all-targets --locked -- -D warnings
+cargo test  -p ha-base -p ha-config-schema -p ha-core -p ha-server --locked
 pnpm typecheck
 pnpm lint
 pnpm test
@@ -103,7 +103,7 @@ PR 模板会引导你填写。重点：
 ### 7. CI 通过 + Review
 
 - CI 必须全绿才能 merge（[`lint.yml`](.github/workflows/lint.yml) + [`rust.yml`](.github/workflows/rust.yml)）
-- 关键路径（`.github/`、`tauri.conf.json`、`crates/ha-core/src/security/`、`docs/architecture/`）由 [CODEOWNERS](.github/CODEOWNERS) 强制 maintainer review
+- 关键路径（`.github/`、`tauri.conf.json`、`crates/ha-base/src/security/`、`docs/architecture/`）由 [CODEOWNERS](.github/CODEOWNERS) 强制 maintainer review
 - 一般路径单一非 maintainer 也可 review，但 merge 仍由 maintainer 执行
 
 ### 8. Squash merge

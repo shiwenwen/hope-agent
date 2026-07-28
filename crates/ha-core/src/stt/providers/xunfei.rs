@@ -51,10 +51,9 @@ pub async fn open_stream(
     profile: &AuthProfile,
     options: &TranscriptOptions,
 ) -> SttResult<super::SttStream> {
-    let api_secret = provider
-        .require_extra("api_secret", "APISecret")?
-        .to_string();
-    let app_id = provider.require_extra("app_id", "APPID")?.to_string();
+    let api_secret =
+        crate::stt::types::require_extra(provider, "api_secret", "APISecret")?.to_string();
+    let app_id = crate::stt::types::require_extra(provider, "app_id", "APPID")?.to_string();
 
     let base = provider.resolve_base_url(profile).trim_end_matches('/');
     let path = "/v2/iat";

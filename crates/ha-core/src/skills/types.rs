@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-// ── Default Constants ────────────────────────────────────────────
-
-pub(super) const DEFAULT_MAX_SKILLS_IN_PROMPT: usize = 150;
-pub(super) const DEFAULT_MAX_SKILLS_PROMPT_CHARS: usize = 30_000;
-pub(super) const DEFAULT_MAX_SKILL_FILE_BYTES: u64 = 256 * 1024;
-pub(super) const DEFAULT_MAX_CANDIDATES_PER_ROOT: usize = 300;
+// 类型已下沉 ha-config-schema，原地再导出保持 `crate::skills::SkillPromptBudget` 路径不变；
+// 常量在 schema 侧升为 pub，此处 pub(super) 再导出维持原可见性（skills 模块内测试仍可用）。
+pub use ha_config_schema::skills::SkillPromptBudget;
+#[cfg(test)]
+pub(super) use ha_config_schema::skills::{
+    DEFAULT_MAX_CANDIDATES_PER_ROOT, DEFAULT_MAX_SKILL_FILE_BYTES,
+};
 
 // ── Cache Version ────────────────────────────────────────────────
 
@@ -100,47 +101,6 @@ impl SkillStatus {
     /// Draft/Archived skills are hidden from prompt catalog + tool filtering.
     pub fn is_discoverable(&self) -> bool {
         matches!(self, Self::Active)
-    }
-}
-
-/// Configurable limits for skill prompt generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SkillPromptBudget {
-    /// Maximum number of skills to include in the system prompt.
-    #[serde(default = "default_max_count")]
-    pub max_count: usize,
-    /// Maximum total characters for the skills prompt section.
-    #[serde(default = "default_max_chars")]
-    pub max_chars: usize,
-    /// Maximum size of a SKILL.md file in bytes.
-    #[serde(default = "default_max_file_bytes")]
-    pub max_file_bytes: u64,
-    /// Maximum subdirectories to scan per skills root (DoS prevention).
-    #[serde(default = "default_max_candidates")]
-    pub max_candidates_per_root: usize,
-}
-
-fn default_max_count() -> usize {
-    DEFAULT_MAX_SKILLS_IN_PROMPT
-}
-fn default_max_chars() -> usize {
-    DEFAULT_MAX_SKILLS_PROMPT_CHARS
-}
-fn default_max_file_bytes() -> u64 {
-    DEFAULT_MAX_SKILL_FILE_BYTES
-}
-fn default_max_candidates() -> usize {
-    DEFAULT_MAX_CANDIDATES_PER_ROOT
-}
-
-impl Default for SkillPromptBudget {
-    fn default() -> Self {
-        Self {
-            max_count: DEFAULT_MAX_SKILLS_IN_PROMPT,
-            max_chars: DEFAULT_MAX_SKILLS_PROMPT_CHARS,
-            max_file_bytes: DEFAULT_MAX_SKILL_FILE_BYTES,
-            max_candidates_per_root: DEFAULT_MAX_CANDIDATES_PER_ROOT,
-        }
     }
 }
 

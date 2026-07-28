@@ -179,7 +179,7 @@ pub fn get_external_memory_provider_preflight() -> ExternalMemoryProviderPreflig
         crate::config::cached_config().memory_providers.clone(),
     );
     let (stats, stats_error) = external_memory_provider_stats_for_planning();
-    cfg.sync_preflight_with_stats_status(&stats, stats_error)
+    super::types::external_memory_sync_preflight_with_stats_status(&cfg, &stats, stats_error)
 }
 
 pub async fn run_external_memory_provider_sync() -> ExternalMemoryProviderSyncReport {

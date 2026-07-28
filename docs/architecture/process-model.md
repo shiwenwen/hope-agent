@@ -329,7 +329,7 @@ flowchart TD
 ## 关联文档
 
 - [可靠性与崩溃自愈](reliability.md)——Guardian 三层保活全景、Crash Journal、Self-Diagnosis、Auto-Fix、子系统 watchdog
-- [前后端分离架构](backend-separation.md)——三 crate 职责切分、系统服务安装细节
+- [前后端分离架构](backend-separation.md)——分层 crate 职责切分（ha-base / ha-config-schema / ha-core / 薄壳）、系统服务安装细节
 - [Cron 调度](cron.md)——Layer B 独立线程 + 2 worker threads runtime
 - [IM 渠道系统](im-channel.md)——Layer C worker + Layer D 子进程混合
 - [ACP 协议](acp.md)——Layer A `acp` 模式 + Layer D ACP runtime 上下游

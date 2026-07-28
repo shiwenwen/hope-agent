@@ -14,6 +14,7 @@ protoc-bin-vendored = "3"
 
 [dependencies]
 ha-base = { path = "../ha-base" }
+ha-config-schema = { path = "../ha-config-schema" }
 ha-eval-spec = { path = "../ha-eval-spec" }
 serde = { workspace = true }
 serde_json = { workspace = true }

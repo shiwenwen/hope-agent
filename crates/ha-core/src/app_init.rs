@@ -137,6 +137,11 @@ pub fn init_runtime(role: &'static str) {
         if let Err(e) = ha_base::paths::register_plans_dir_source(|| {
             crate::config::cached_config().plans_directory.clone()
         }) {
+            // 此处 APP_LOGGER 尚未初始化（logger 在 init_runtime 后段才 set），
+            // app_error! 会静默 no-op——stderr 兜底保住冲突分支的可观测性。
+            eprintln!(
+                "[app_init] plans dir source already registered ({e}); custom plansDirectory will be ignored"
+            );
             app_error!(
                 "app_init",
                 "plans_dir_source",

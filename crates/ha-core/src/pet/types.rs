@@ -1,43 +1,10 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-pub const BUILTIN_DEFAULT_PET_REF: &str = "builtin:hope-default";
+// 类型已下沉 ha-config-schema（config.json wire 类型），原地再导出保持路径不变。
+pub use ha_config_schema::pet::{PetConfig, PetRef, BUILTIN_DEFAULT_PET_REF};
+
 #[cfg(debug_assertions)]
 pub const BUILTIN_DEBUG_PET_REF: &str = "builtin:hope-debug";
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PetRef(pub String);
-
-impl Default for PetRef {
-    fn default() -> Self {
-        Self(BUILTIN_DEFAULT_PET_REF.to_string())
-    }
-}
-
-impl PetRef {
-    pub fn builtin_id(&self) -> Option<&str> {
-        self.0.strip_prefix("builtin:")
-    }
-
-    pub fn custom_id(&self) -> Option<&str> {
-        self.0.strip_prefix("custom:")
-    }
-
-    pub fn is_well_formed(&self) -> bool {
-        self.builtin_id()
-            .or_else(|| self.custom_id())
-            .is_some_and(crate::paths::is_valid_pet_id)
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PetConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub selected_pet_ref: PetRef,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PetSpriteVersion {

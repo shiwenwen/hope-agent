@@ -105,7 +105,7 @@ pub async fn open_stream(
     profile: &AuthProfile,
     options: &TranscriptOptions,
 ) -> SttResult<super::SttStream> {
-    let app_key = provider.require_extra("app_key", "AppKey")?.to_string();
+    let app_key = crate::stt::types::require_extra(provider, "app_key", "AppKey")?.to_string();
     let resource_id = provider
         .extra
         .get("resource_id")

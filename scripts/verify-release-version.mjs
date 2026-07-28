@@ -18,6 +18,9 @@ const haCoreCargoTomlPath = path.join(rootDir, "crates", "ha-core", "Cargo.toml"
 // so the release gate must verify it too — otherwise a drifted ha-base manifest
 // or lock entry would sail through `pnpm release:verify`.
 const haBaseCargoTomlPath = path.join(rootDir, "crates", "ha-base", "Cargo.toml")
+// ha-config-schema holds AppConfig's wire-type closure, split out of ha-core.
+// Same rule: sync-version bumps it, the release gate verifies it.
+const haConfigSchemaCargoTomlPath = path.join(rootDir, "crates", "ha-config-schema", "Cargo.toml")
 // ha-browser-host ships in desktop bundles and bare-binary archives
 // (updater extra_binaries) and reports hostVersion from CARGO_PKG_VERSION.
 const browserHostCargoTomlPath = path.join(rootDir, "crates", "ha-browser-host", "Cargo.toml")
@@ -64,6 +67,13 @@ if (!haBaseVersionMatch) {
   process.exit(1)
 }
 
+const haConfigSchemaCargoToml = readFileSync(haConfigSchemaCargoTomlPath, "utf8")
+const haConfigSchemaVersionMatch = haConfigSchemaCargoToml.match(/^version = "(.*)"$/m)
+if (!haConfigSchemaVersionMatch) {
+  console.error("[release:verify] could not read crates/ha-config-schema/Cargo.toml version")
+  process.exit(1)
+}
+
 const browserHostCargoToml = readFileSync(browserHostCargoTomlPath, "utf8")
 const browserHostVersionMatch = browserHostCargoToml.match(/^version = "(.*)"$/m)
 if (!browserHostVersionMatch) {
@@ -84,6 +94,9 @@ const cargoLockHaServerMatch = cargoLock.match(/name = "ha-server"\r?\nversion =
 const cargoLockHaCoreMatch = cargoLock.match(/name = "ha-core"\r?\nversion = "(.*)"/)
 const cargoLockHaEvalMatch = cargoLock.match(/name = "ha-eval"\r?\nversion = "(.*)"/)
 const cargoLockHaBaseMatch = cargoLock.match(/name = "ha-base"\r?\nversion = "(.*)"/)
+const cargoLockHaConfigSchemaMatch = cargoLock.match(
+  /name = "ha-config-schema"\r?\nversion = "(.*)"/,
+)
 
 if (!cargoLockHopeAgentMatch) {
   console.error("[release:verify] could not find hope-agent version in Cargo.lock")
@@ -105,6 +118,10 @@ if (!cargoLockHaBaseMatch) {
   console.error("[release:verify] could not find ha-base version in Cargo.lock")
   process.exit(1)
 }
+if (!cargoLockHaConfigSchemaMatch) {
+  console.error("[release:verify] could not find ha-config-schema version in Cargo.lock")
+  process.exit(1)
+}
 
 const packageVersion = packageJson.version
 const tauriVersion = tauriConfig.version
@@ -116,6 +133,8 @@ const haCoreVersion = haCoreVersionMatch[1]
 const haCoreLockVersion = cargoLockHaCoreMatch[1]
 const haBaseVersion = haBaseVersionMatch[1]
 const haBaseLockVersion = cargoLockHaBaseMatch[1]
+const haConfigSchemaVersion = haConfigSchemaVersionMatch[1]
+const haConfigSchemaLockVersion = cargoLockHaConfigSchemaMatch[1]
 const browserHostVersion = browserHostVersionMatch[1]
 const haEvalVersion = haEvalVersionMatch[1]
 const haEvalLockVersion = cargoLockHaEvalMatch[1]
@@ -131,6 +150,8 @@ const mismatches = [
   ["Cargo.lock (ha-core)", haCoreLockVersion],
   ["crates/ha-base/Cargo.toml", haBaseVersion],
   ["Cargo.lock (ha-base)", haBaseLockVersion],
+  ["crates/ha-config-schema/Cargo.toml", haConfigSchemaVersion],
+  ["Cargo.lock (ha-config-schema)", haConfigSchemaLockVersion],
   ["crates/ha-browser-host/Cargo.toml", browserHostVersion],
   ["crates/ha-eval/Cargo.toml", haEvalVersion],
   ["Cargo.lock (ha-eval)", haEvalLockVersion],

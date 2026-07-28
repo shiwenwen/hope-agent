@@ -30,6 +30,7 @@
     "format:check": "prettier --check 'src/**/*.{ts,tsx,js,jsx,json,css}'",
     "preview": "vite preview",
     "sync:version": "node scripts/sync-version.mjs",
+    "analyze:crate-deps": "node scripts/analyze-crate-deps.mjs",
     "prepare:browser-host": "node scripts/prepare-browser-host.mjs",
     "dev:browser-host": "node scripts/prepare-browser-host.mjs --dev",
     "prepare:eval-sidecar": "node scripts/prepare-eval-sidecar.mjs",

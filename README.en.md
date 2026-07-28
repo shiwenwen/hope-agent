@@ -337,12 +337,17 @@ All three modes share the same `ha-core` core. Config, sessions, and memories li
 
 ## Project Structure
 
-Cargo workspace, three crates; all business logic lives in `ha-core`:
+Layered multi-crate Cargo workspace; all business logic lives in `ha-core`:
 
 ```
 crates/
-  ha-core/       Rust core library (zero Tauri deps) — where the logic lives
-  ha-server/     axum HTTP/WS daemon (thin shell)
+  ha-base/           Infrastructure foundation (paths / logging / platform / security)
+  ha-config-schema/  AppConfig wire types (pure data definitions)
+  ha-core/           Rust core library (zero Tauri deps) — where the logic lives
+  ha-server/         axum HTTP/WS daemon (thin shell)
+  ha-browser-host/   Browser helper process
+  ha-eval-spec/      Evaluation protocol (no ha-core dependency)
+  ha-eval/           Evaluation CLI
 src-tauri/       Tauri desktop shell (thin shell)
 src/             React 19 + TypeScript frontend
 skills/          Bundled skills (ship with the app)
@@ -364,7 +369,7 @@ Common commands:
 ```bash
 pnpm tauri dev                    # desktop dev
 cargo check --workspace              # Rust dep / type check
-cargo test -p ha-core -p ha-server   # core tests
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-server   # core tests
 node scripts/sync-i18n.mjs --check   # i18n completeness check
 ```
 
