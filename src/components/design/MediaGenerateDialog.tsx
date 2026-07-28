@@ -56,6 +56,10 @@ export interface MediaGeneratePayload {
 interface Props {
   open: boolean
   kind: "image" | "audio"
+  /** Optional seed used by the launch-page composer. */
+  initialPrompt?: string
+  /** Reference-image-only generation may intentionally omit a text prompt. */
+  allowEmptyPrompt?: boolean
   onClose: () => void
   onConfirm: (payload: MediaGeneratePayload) => void | Promise<void>
   busy?: boolean
@@ -71,7 +75,15 @@ const DEFAULT_DURATION = "__default__"
 
 const AUDIO_KINDS: MediaAudioKind[] = ["speech", "music", "sfx"]
 
-export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = false }: Props) {
+export function MediaGenerateDialog({
+  open,
+  kind,
+  initialPrompt = "",
+  allowEmptyPrompt = false,
+  onClose,
+  onConfirm,
+  busy = false,
+}: Props) {
   const { t } = useTranslation()
 
   const [overview, setOverview] = useState<MediaGenOverview | null>(null)
@@ -114,7 +126,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
       return
     }
     setOverview(null)
-    setPrompt("")
+    setPrompt(initialPrompt)
     setAspect(AUTO)
     setResolution(AUTO)
     setAudioKind("speech")
@@ -125,7 +137,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
     setVoices(null)
     setVoicesLoading(false)
     void loadOverview(kind === "audio" ? "audio" : undefined)
-  }, [open, kind, loadOverview])
+  }, [open, kind, initialPrompt, loadOverview])
 
   // 当前功能位（image 或所选音频 kind）的首候选 = 「将使用」的模型。
   const fnKey: MediaFunctionKey = kind === "image" ? "image" : audioKind
@@ -195,7 +207,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
 
   const handleConfirm = useCallback(() => {
     const p = prompt.trim()
-    if (!p) return
+    if (!p && !allowEmptyPrompt) return
     const payload: MediaGeneratePayload = { prompt: p }
     if (kind === "image") {
       // Only carry a parameter the resolved model actually supports —
@@ -220,6 +232,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
     void onConfirm(payload)
   }, [
     prompt,
+    allowEmptyPrompt,
     kind,
     aspect,
     resolution,
@@ -516,7 +529,10 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
               <Button variant="ghost" onClick={onClose}>
                 {t("common.cancel", "取消")}
               </Button>
-              <Button onClick={handleConfirm} disabled={busy || !prompt.trim()}>
+              <Button
+                onClick={handleConfirm}
+                disabled={busy || (!allowEmptyPrompt && !prompt.trim())}
+              >
                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t("design.generate", "生成")}
               </Button>

@@ -6,7 +6,16 @@
   var dark =
     t === "dark" ||
     (t === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+  var transparentWindow =
+    new URLSearchParams(window.location.search).get("window") === "pet"
   if (dark) document.documentElement.classList.add("dark")
-  document.documentElement.style.backgroundColor = dark ? "#0f0f0f" : "#ffffff"
+  // PetWindow is a transparent overlay. Seeding its root canvas with the
+  // normal opaque theme color would override the later `bg-transparent`
+  // utility because inline styles win the cascade.
+  document.documentElement.style.backgroundColor = transparentWindow
+    ? "transparent"
+    : dark
+      ? "#0f0f0f"
+      : "#ffffff"
   document.documentElement.style.colorScheme = dark ? "dark" : "light"
 })()
