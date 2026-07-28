@@ -6292,6 +6292,7 @@ export default function DesignView({
         kind={homeMediaGenKind}
         initialPrompt={homePrompt}
         allowEmptyPrompt={homeRefImages.length > 0}
+        referenceImageCount={homeRefImages.length}
         onClose={() => setHomeMediaGenOpen(false)}
         onConfirm={confirmHomeMediaGenerate}
         busy={generatingHome}
