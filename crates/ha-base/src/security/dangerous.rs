@@ -41,23 +41,11 @@ static CONFIG_FLAG_SOURCE: std::sync::OnceLock<fn() -> bool> = std::sync::OnceLo
 /// 若静默吞掉冲突，任何更早的注册都会**永久顶替** canonical 来源，而
 /// `init_runtime` 仍报告初始化成功——控制全局审批跳过的开关被悄悄换掉是不可
 /// 接受的失败模式。
-pub fn register_config_flag_source(f: fn() -> bool) -> Result<(), ConfigFlagSourceAlreadySet> {
+pub fn register_config_flag_source(f: fn() -> bool) -> Result<(), crate::AlreadyRegistered> {
     CONFIG_FLAG_SOURCE
         .set(f)
-        .map_err(|_| ConfigFlagSourceAlreadySet)
+        .map_err(|_| crate::AlreadyRegistered("dangerous-mode config flag source"))
 }
-
-/// `register_config_flag_source` 的冲突标记。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ConfigFlagSourceAlreadySet;
-
-impl std::fmt::Display for ConfigFlagSourceAlreadySet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "dangerous-mode config flag source already registered")
-    }
-}
-
-impl std::error::Error for ConfigFlagSourceAlreadySet {}
 
 fn config_flag_active() -> bool {
     CONFIG_FLAG_SOURCE.get().map(|f| f()).unwrap_or(false)

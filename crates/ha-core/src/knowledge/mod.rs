@@ -24,6 +24,7 @@ pub mod maintenance;
 pub mod parser;
 pub mod reembed;
 pub mod registry;
+pub(crate) use registry::workspace_root;
 pub mod rename;
 pub mod resolver;
 pub mod schema;

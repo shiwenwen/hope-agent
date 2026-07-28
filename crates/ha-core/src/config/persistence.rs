@@ -569,7 +569,7 @@ fn parse_config_str_with_migrations(data: &str) -> Result<(AppConfig, ConfigMigr
     let mut config: AppConfig = serde_json::from_value(raw)?;
     let mut migrations = ConfigMigrationReport::default();
     if !has_memory_v2 {
-        config.memory = crate::memory::MemoryRuntimeConfig::from_legacy(
+        config.memory = ha_config_schema::memory::MemoryRuntimeConfig::from_legacy(
             &config.memory_extract,
             &config.memory_selection,
             &config.memory_budget,
@@ -602,9 +602,11 @@ fn parse_config_str_with_migrations(data: &str) -> Result<(AppConfig, ConfigMigr
 /// write failure never discards the already parsed user config: the migrated
 /// in-memory view remains active and the next startup retries persistence.
 fn persist_config_migrations(path: &Path, config: &AppConfig, migrations: ConfigMigrationReport) {
+    // autosave 必须无条件执行（server setup / 启动迁移都发生在 init_runtime
+    // 之前或之外），故直调 config::autosave，绝不挂注入钩子。
     let _reason_guard =
-        crate::backup::scope_save_reason("memory-recall-opt-in", "startup-migration");
-    crate::backup::snapshot_before_write(path, "config");
+        super::autosave::scope_save_reason("memory-recall-opt-in", "startup-migration");
+    super::autosave::snapshot_before_write(path, "config");
     let result = serde_json::to_string_pretty(config)
         .map_err(std::io::Error::other)
         .and_then(|data| crate::platform::write_secure_file(path, data.as_bytes()));
@@ -613,16 +615,49 @@ fn persist_config_migrations(path: &Path, config: &AppConfig, migrations: Config
             "config",
             "migration",
             "Persisted Memory config contract v{} (implicit recall reset: {})",
-            crate::memory::MEMORY_RUNTIME_CONFIG_VERSION,
+            ha_config_schema::memory::MEMORY_RUNTIME_CONFIG_VERSION,
             migrations.recall_default_reset
         ),
         Err(error) => app_warn!(
             "config",
             "migration",
             "Could not persist Memory config contract v{}; using the migrated in-memory view and retrying next startup: {}",
-            crate::memory::MEMORY_RUNTIME_CONFIG_VERSION,
+            ha_config_schema::memory::MEMORY_RUNTIME_CONFIG_VERSION,
             error
         ),
+    }
+}
+
+// ── 写路径副作用注入（切 config → backup / globals / hooks 环边）────────
+//
+// persistence 是读写 contract 的家（AGENTS.md 红线）。写前 autosave 快照走
+// `config::autosave` **直调**（必须无条件执行，见该模块头注释——server setup
+// 等入口在 init_runtime 之前/之外写 config，注入钩子会静默失效）。这里只注入
+// 「保存后广播 / ConfigChange hook」：它们依赖 globals / hooks（大环成员），
+// 且在 init_runtime 之前本就没有订阅者（bus / terminal manager 均未初始化，
+// hook 注册表未加载），未注册即跳过与旧行为等价。
+
+pub struct ConfigSideEffects {
+    /// 保存并发布新快照后的联动（terminal 远程写开关 + `config:changed` 事件）。
+    pub post_save: fn(&AppConfig, &str, Option<&str>),
+    /// `reload_cache_from_disk` 后的联动（同上，rollback 语义的固定载荷）。
+    pub post_reload: fn(&AppConfig),
+    /// ConfigChange 观察 hook（`hooks::fire_config_change`）。
+    pub config_changed: fn(&str, &str),
+}
+
+static SIDE_EFFECTS: std::sync::OnceLock<ConfigSideEffects> = std::sync::OnceLock::new();
+
+/// 装配期一次性注册（`init_runtime` 内经 `Once` 保证单次调用）。
+///
+/// 冲突即 panic——`post_save` 携带 `allowRemoteWrites` 的远程 shell 即时
+/// 撤销（安全联动），来源被顶替与 dangerous-mode 配置源被顶替同级，宁可
+/// 起不来也不能带着被换掉的撤销逻辑继续跑。crate 内可见（`pub(crate)`），
+/// 外部无从抢注。
+pub(crate) fn register_side_effects(effects: ConfigSideEffects) {
+    if SIDE_EFFECTS.set(effects).is_err() {
+        eprintln!("[FATAL] config side effects already registered");
+        panic!("config side effects already registered");
     }
 }
 
@@ -712,7 +747,7 @@ fn save_config_with_change(
     );
     // Autosave the pre-change file so every settings edit is rollback-able.
     // Failures are logged inside the helper and never block the write.
-    crate::backup::snapshot_before_write(&path, "config");
+    super::autosave::snapshot_before_write(&path, "config");
 
     let data = serde_json::to_string_pretty(config)?;
     std::fs::write(&path, data)?;
@@ -722,22 +757,10 @@ fn save_config_with_change(
     cache().store(Arc::new(config.clone()));
     clear_config_load_failure();
 
-    // `allowRemoteWrites` is also a live capability: publishing a disabled
-    // value must immediately revoke remote-created shells, not merely reject
-    // the next HTTP request. The terminal manager serializes this with remote
-    // creation so no shell can slip through the transition.
-    if let Some(manager) = crate::globals::get_terminal_manager() {
-        manager.set_remote_access_allowed(config.filesystem.allow_remote_writes);
-    }
-
-    // Notify subscribers (frontend hot-reload hooks, in-process listeners).
-    // Best-effort: the bus may not be initialized in tests or CLI-only modes.
-    if let Some(bus) = crate::globals::get_event_bus() {
-        let mut payload = serde_json::json!({ "category": change_category });
-        if let Some(source) = change_source {
-            payload["source"] = serde_json::json!(source);
-        }
-        bus.emit("config:changed", payload);
+    // 保存后联动（terminal 远程写开关 + `config:changed` 广播）经注入的
+    // side effects 执行——best-effort，未注册即跳过（测试 / CLI-only 模式）。
+    if let Some(e) = SIDE_EFFECTS.get() {
+        (e.post_save)(config, change_category, change_source);
     }
     Ok(())
 }
@@ -775,12 +798,14 @@ where
     let _write_guard = write_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
-    let _reason_guard = crate::backup::scope_save_reason(reason.0, reason.1);
+    let _reason_guard = super::autosave::scope_save_reason(reason.0, reason.1);
     let mut snapshot = load_config()?;
     let result = f(&mut snapshot)?;
     save_config_with_change(&snapshot, reason.0, Some(reason.1))?;
     // ConfigChange hook (observation): fire with the real category + source.
-    crate::hooks::fire_config_change(reason.0, reason.1);
+    if let Some(e) = SIDE_EFFECTS.get() {
+        (e.config_changed)(reason.0, reason.1);
+    }
     Ok(result)
 }
 
@@ -812,18 +837,12 @@ where
 /// readers don't keep serving the stale snapshot.
 pub fn reload_cache_from_disk() -> Result<()> {
     let fresh = read_from_disk()?;
-    let allow_remote_terminal = fresh.filesystem.allow_remote_writes;
-    cache().store(Arc::new(fresh));
+    let fresh = Arc::new(fresh);
+    cache().store(fresh.clone());
     clear_config_load_failure();
-    if let Some(manager) = crate::globals::get_terminal_manager() {
-        manager.set_remote_access_allowed(allow_remote_terminal);
-    }
-    // Notify subscribers that the cache was force-reloaded (e.g. rollback).
-    if let Some(bus) = crate::globals::get_event_bus() {
-        bus.emit(
-            "config:changed",
-            serde_json::json!({ "category": "app", "source": "reload" }),
-        );
+    // 重载后联动经注入的 side effects 执行（terminal 开关 + rollback 广播）。
+    if let Some(e) = SIDE_EFFECTS.get() {
+        (e.post_reload)(&fresh);
     }
     Ok(())
 }
@@ -980,7 +999,7 @@ mod parse_tests {
         assert!(!cfg.memory.recall.enabled);
         assert_eq!(
             cfg.memory.config_version,
-            crate::memory::MEMORY_RUNTIME_CONFIG_VERSION
+            ha_config_schema::memory::MEMORY_RUNTIME_CONFIG_VERSION
         );
         assert!(migrations.memory_runtime_contract);
     }
@@ -1002,7 +1021,7 @@ mod parse_tests {
         .expect("parse legacy memory config");
         assert_eq!(
             cfg.memory.learning.mode,
-            crate::memory::MemoryLearningMode::Manual
+            ha_config_schema::memory::MemoryLearningMode::Manual
         );
         assert!(cfg.memory.deep_recall.enabled);
         assert!(cfg.memory.recall.enabled);
@@ -1032,7 +1051,7 @@ mod parse_tests {
         assert!(cfg.memory.core.enabled);
         assert_eq!(
             cfg.memory.learning.mode,
-            crate::memory::MemoryLearningMode::Smart
+            ha_config_schema::memory::MemoryLearningMode::Smart
         );
     }
 
@@ -1066,7 +1085,7 @@ mod parse_tests {
                     "recall": {{ "enabled": true, "userConfigured": true }}
                 }}
             }}"#,
-            crate::memory::MEMORY_RUNTIME_CONFIG_VERSION
+            ha_config_schema::memory::MEMORY_RUNTIME_CONFIG_VERSION
         );
         let (cfg, migrations) = parse_config_str_with_migrations(&input).expect("parse current");
 
@@ -1101,7 +1120,7 @@ mod parse_tests {
             .expect("parse migrated config");
             assert_eq!(
                 persisted["memory"]["configVersion"],
-                crate::memory::MEMORY_RUNTIME_CONFIG_VERSION
+                ha_config_schema::memory::MEMORY_RUNTIME_CONFIG_VERSION
             );
             assert_eq!(persisted["memory"]["recall"]["enabled"], false);
             assert_eq!(persisted["memory"]["recall"]["userConfigured"], false);
@@ -1146,7 +1165,7 @@ mod parse_tests {
         .expect("parse V2 memory config");
         assert_eq!(
             cfg.memory.learning.mode,
-            crate::memory::MemoryLearningMode::Smart
+            ha_config_schema::memory::MemoryLearningMode::Smart
         );
     }
 

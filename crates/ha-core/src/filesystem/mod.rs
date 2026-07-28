@@ -93,6 +93,7 @@ pub use ops::{
     FileTextContent, FileWriteConflictReason, FileWriteOutcome, LineEnding, RenameResult,
     UploadResult, WorkspaceEntry, WorkspaceListing, WriteResult, LEGACY_MAX_WORKSPACE_UPLOAD_BYTES,
 };
+pub(crate) use workspace::{register_root_resolvers, ResolvedRoot};
 pub use workspace::{WorkspaceAccess, WorkspaceScope, WorkspaceWriteState};
 
 // ---- DTOs ------------------------------------------------------------------

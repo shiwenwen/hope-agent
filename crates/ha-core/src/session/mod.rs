@@ -6,6 +6,7 @@ mod environment;
 pub(crate) mod events;
 pub mod export;
 mod helpers;
+pub(crate) use helpers::workspace_root;
 mod ide_context;
 mod pending;
 mod stream_persistence;

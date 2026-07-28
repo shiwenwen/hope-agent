@@ -99,7 +99,6 @@ pub mod permission;
 pub mod pet;
 pub mod plan;
 pub mod process_notification;
-pub mod process_registry;
 pub mod project;
 pub mod project_bootstrap;
 pub mod provider;

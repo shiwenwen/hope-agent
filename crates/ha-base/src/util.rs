@@ -286,3 +286,26 @@ mod tests {
         assert_eq!(mask_secret_middle("密钥🔑abcdef", 2, 2), "密钥...ef");
     }
 }
+
+/// 注册钩子的统一冲突错误：`OnceLock` 首次注册胜出，重复注册返回本错误，
+/// 由调用方决定日志级别（记 error 继续 / panic）。新增注册钩子请复用本
+/// 类型，别再各自铸 12 行的 unit-struct 错误。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AlreadyRegistered(pub &'static str);
+
+impl std::fmt::Display for AlreadyRegistered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} already registered", self.0)
+    }
+}
+
+impl std::error::Error for AlreadyRegistered {}
+
+/// 当前 Unix 时间戳（毫秒）。crate 内唯一的 epoch-millis 时钟入口——别再
+/// 各处手写 `SystemTime::now().duration_since(UNIX_EPOCH)` 副本。
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}

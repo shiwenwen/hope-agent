@@ -797,23 +797,11 @@ static PLANS_DIR_SOURCE: std::sync::OnceLock<fn() -> Option<String>> = std::sync
 /// plans 目录失效，记 error 日志即可，不必让进程起不来。
 pub fn register_plans_dir_source(
     f: fn() -> Option<String>,
-) -> Result<(), PlansDirSourceAlreadySet> {
+) -> Result<(), crate::AlreadyRegistered> {
     PLANS_DIR_SOURCE
         .set(f)
-        .map_err(|_| PlansDirSourceAlreadySet)
+        .map_err(|_| crate::AlreadyRegistered("plans dir source"))
 }
-
-/// [`register_plans_dir_source`] 的冲突标记。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PlansDirSourceAlreadySet;
-
-impl std::fmt::Display for PlansDirSourceAlreadySet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "plans dir source already registered")
-    }
-}
-
-impl std::error::Error for PlansDirSourceAlreadySet {}
 
 fn plans_dir_override() -> Option<String> {
     PLANS_DIR_SOURCE.get().and_then(|f| f())

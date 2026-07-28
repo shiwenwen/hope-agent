@@ -29,60 +29,45 @@ static INIT_DONE: OnceLock<()> = OnceLock::new();
 /// `init_runtime` 末尾才置位，函数开头的早退检查并非互斥，并发调用会双双穿过。
 static REGISTER_BASE_HOOKS: std::sync::Once = std::sync::Once::new();
 
-/// Records the runtime role passed to `init_runtime("desktop"|"server"|"acp"|"test")`.
-/// First-write-wins. Tests in the same binary share this `OnceLock` — once
-/// `init_runtime("test")` runs, `is_desktop()` stays `false` for every test.
-static RUNTIME_ROLE: OnceLock<&'static str> = OnceLock::new();
-
-/// User-facing app version, set by each binary entrypoint via
-/// [`set_app_version`]. Distinct from `env!("CARGO_PKG_VERSION")` in
-/// ha-core — `pnpm sync:version` syncs `package.json` → `src-tauri/Cargo.toml`
-/// + `tauri.conf.json`, but does NOT touch this library crate. So
-/// `ha-core`'s own crate version drifts behind the app version and must
-/// not be used for "current version" comparisons in the updater path.
-static APP_VERSION: OnceLock<&'static str> = OnceLock::new();
-
-/// Register the calling binary's `CARGO_PKG_VERSION` so [`app_version`]
-/// returns the user-facing app version. Idempotent; first call wins.
-pub fn set_app_version(version: &'static str) {
-    let _ = APP_VERSION.set(version);
+/// config 写路径副作用的生产装配（backup 快照 / 写原因作用域 / 保存后
+/// 广播 / ConfigChange hook）。`init_runtime` 与需要真实快照行为的
+/// persistence 测试共用这一份，防止两处漂移。
+pub(crate) fn default_config_side_effects() -> crate::config::ConfigSideEffects {
+    crate::config::ConfigSideEffects {
+        post_save: |config, change_category, change_source| {
+            // `allowRemoteWrites` is a live capability: publishing a
+            // disabled value must immediately revoke remote-created
+            // shells, not merely reject the next HTTP request.
+            if let Some(manager) = crate::globals::get_terminal_manager() {
+                manager.set_remote_access_allowed(config.filesystem.allow_remote_writes);
+            }
+            if let Some(bus) = crate::globals::get_event_bus() {
+                let mut payload = serde_json::json!({ "category": change_category });
+                if let Some(source) = change_source {
+                    payload["source"] = serde_json::json!(source);
+                }
+                bus.emit("config:changed", payload);
+            }
+        },
+        post_reload: |config| {
+            if let Some(manager) = crate::globals::get_terminal_manager() {
+                manager.set_remote_access_allowed(config.filesystem.allow_remote_writes);
+            }
+            if let Some(bus) = crate::globals::get_event_bus() {
+                bus.emit(
+                    "config:changed",
+                    serde_json::json!({ "category": "app", "source": "reload" }),
+                );
+            }
+        },
+        config_changed: |category, source| crate::hooks::fire_config_change(category, source),
+    }
 }
 
-/// Returns the version registered by the binary entrypoint via
-/// [`set_app_version`]. Falls back to `ha-core`'s own crate version when
-/// no entrypoint registered (test harnesses, library consumers). Self-update
-/// callers MUST use this — never `env!("CARGO_PKG_VERSION")` directly.
-pub fn app_version() -> &'static str {
-    APP_VERSION
-        .get()
-        .copied()
-        .unwrap_or(env!("CARGO_PKG_VERSION"))
-}
-
-/// Returns the role string from the first `init_runtime()` call, or `None`
-/// if `init_runtime` hasn't run yet. Most callers want [`is_desktop`] for
-/// readable mode checks instead of comparing the string directly.
-pub fn runtime_role() -> Option<&'static str> {
-    RUNTIME_ROLE.get().copied()
-}
-
-/// True iff the process started as the desktop (Tauri) shell. Used by paths
-/// that need to vary behavior by runtime mode without threading a parameter
-/// through the call stack (e.g. `system_prompt::build` injecting
-/// desktop-only guidance for clickable file paths).
-pub fn is_desktop() -> bool {
-    runtime_role() == Some("desktop")
-}
-
-/// True iff the process started as the ACP stdio bridge (`hope-agent acp`).
-/// ACP runs over stdio for an editor client (Zed etc.); approvals can only
-/// reach a human if that client declared a permission capability (Epic D7).
-/// **Must use this, not `ChatSource`** — ACP turns reuse `ChatSource::Http`
-/// ([`crate::acp`]), so source alone can't distinguish ACP from a real HTTP
-/// client (D1 risk note).
-pub fn is_acp() -> bool {
-    runtime_role() == Some("acp")
-}
+// 运行模式与版本号原语已下沉 ha-base::runtime_role（模式判定是全仓通用
+// 查询，不该背 →app_init 边）；原地再导出保持 `app_init::is_desktop()` 等
+// 既有路径。角色仍由本模块的 `init_runtime` 写入（装配职责不动）。
+pub use ha_base::runtime_role::{app_version, is_acp, is_desktop, runtime_role, set_app_version};
 
 /// Whether an interactive, approval-capable client is attached to this
 /// process. Drives the unattended-approval surface check (Epic D): a headless
@@ -108,45 +93,67 @@ pub fn desktop_client_present() -> bool {
 /// `AppState` and stop here.
 pub fn init_runtime(role: &'static str) {
     // Record role before the idempotent early-return so the first caller's
-    // role wins. Subsequent `OnceLock::set` returns Err and is dropped.
-    let _ = RUNTIME_ROLE.set(role);
+    // role wins. Subsequent sets are dropped (first-write-wins).
+    ha_base::runtime_role::set_runtime_role(role);
 
     if INIT_DONE.get().is_some() {
         return;
     }
 
-    // ha-base 的配置读取钩子必须在**任何**业务代码跑之前注册。ha-base 位于依赖
-    // 图最底层、不能反向依赖 `AppConfig`，所以两处配置驱动的行为改由上层注入：
+    // 装配钩子必须在**任何**业务代码跑之前注册，共五组，两类去向：
     //
-    //   · `paths::plans_dir()` 读 `plans_directory`——漏注册会静默回落到
-    //     `~/.hope-agent/plans/`，用户自定义目录失效
-    //   · `security::dangerous` 读 `permission.global_yolo`——漏注册等于该来源
-    //     恒为 false，即权限更严（fail-closed），不会意外放行
+    //   · ha-base 反向依赖钩子（base 不能 `use AppConfig`）：plans 目录来源、
+    //     Dangerous Mode 配置源、process_registry 通知回调
+    //   · ha-core 内部切边钩子（防止 config / filesystem 焊进大环）：config
+    //     写路径副作用（保存后广播 / ConfigChange hook）、WorkspaceScope 三个
+    //     上下文根解析器。注意 autosave 快照**不走钩子**——它必须无条件执行
+    //     （server setup 等入口在 init_runtime 之前/之外写 config），persistence
+    //     直调 `config::autosave`
     //
-    // 放在 `INIT_DONE` 早退之后、其余初始化之前：重复调用不重复注册
-    //（`OnceLock` 语义本身也幂等），且首个真正的初始化流程一定先经过这里。
-    // 必须走 `Once` 而不是靠上面的 `INIT_DONE` 早退：`INIT_DONE` 直到本函数
-    // **末尾**才置位，所以两个并发调用者会双双穿过那道守卫（测试 harness 就是
-    // 多线程并行跑 `init_runtime("test")` 的）。没有 `Once` 的话，下面对冲突的
-    // 致命处理会被这种良性竞态误触发。
+    // 冲突处置分两级，刻意不对称：
+    //   · 功能级（plans 目录 / 进程通知 / 根解析器）——被顶替只是对应功能
+    //     退化（且根解析器 fail-closed），记 error 继续
+    //   · 安全级（Dangerous Mode 配置源、config 副作用——post_save 携带
+    //     `allowRemoteWrites` 的远程 shell 即时撤销）——来源被顶替不可接受，
+    //     宁可起不来（panic 在各 register 内/此处触发）
+    //
+    // 放在 `INIT_DONE` 早退之后、其余初始化之前。必须走 `Once` 而不是靠
+    // `INIT_DONE` 早退：`INIT_DONE` 直到本函数**末尾**才置位，两个并发调用者
+    // 会双双穿过那道守卫（测试 harness 多线程并行跑 `init_runtime("test")`），
+    // 没有 `Once` 的话安全级的 panic 会被这种良性竞态误触发。
     REGISTER_BASE_HOOKS.call_once(|| {
-        // 冲突处置刻意不对称：plans 目录只影响功能，记 error 继续；Dangerous
-        // Mode 来源被顶替意味着全局审批跳过的开关不再是 canonical 配置——宁可
-        // 起不来，也不能带着一个来源不明的安全开关继续跑。走到这里的 `Err`
-        // 只可能是**本函数之外**抢先注册过，那正是要拦的情况。
+        // 此处 APP_LOGGER 尚未初始化（logger 在 init_runtime 后段才 set），
+        // app_error! 会静默 no-op——stderr 兜底保住冲突分支的可观测性。
+        fn warn_dup(source: &str, e: impl std::fmt::Display) {
+            eprintln!("[app_init] {source}: {e}; keeping first registration");
+            app_error!(
+                "app_init",
+                "register_hooks",
+                "{source}: {e}; keeping first registration"
+            );
+        }
+
         if let Err(e) = ha_base::paths::register_plans_dir_source(|| {
             crate::config::cached_config().plans_directory.clone()
         }) {
-            // 此处 APP_LOGGER 尚未初始化（logger 在 init_runtime 后段才 set），
-            // app_error! 会静默 no-op——stderr 兜底保住冲突分支的可观测性。
-            eprintln!(
-                "[app_init] plans dir source already registered ({e}); custom plansDirectory will be ignored"
+            warn_dup(
+                "plans_dir_source (custom plansDirectory will be ignored)",
+                e,
             );
-            app_error!(
-                "app_init",
-                "plans_dir_source",
-                "plans dir source already registered ({e}); custom plansDirectory will be ignored"
-            );
+        }
+        crate::config::register_side_effects(default_config_side_effects());
+        if let Err(e) = ha_base::process_registry::register_notifiers(
+            crate::process_notification::on_process_exited,
+            crate::process_notification::emit_output,
+        ) {
+            warn_dup("process_notifiers", e);
+        }
+        if let Err(e) = crate::filesystem::register_root_resolvers(
+            crate::knowledge::workspace_root,
+            crate::session::workspace_root,
+            crate::project::workspace_root,
+        ) {
+            warn_dup("workspace_root_resolvers", e);
         }
         if let Err(e) = ha_base::security::dangerous::register_config_flag_source(|| {
             crate::config::cached_config().permission.global_yolo

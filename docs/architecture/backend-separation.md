@@ -55,6 +55,8 @@ graph TD
 | 跨平台原语 | `platform/` — 进程树终止、代理探测、原子替换、keep-awake、WSL |
 | 安全守卫 | `security/` — SSRF 检查、Dangerous Mode 判定、HTTP 流式读取上限 |
 | 系统权限 | `permissions.rs` — macOS/Windows 系统权限目录与请求 |
+| 运行模式与版本 | `runtime_role.rs` — `RUNTIME_ROLE` / `APP_VERSION` 全局 + `is_desktop()` / `is_acp()` / `app_version()`（角色由装配层 `init_runtime` 经 `set_runtime_role` 写入） |
+| 进程簿记 | `process_registry.rs` — 后台进程会话表；退出/输出通知经 `register_notifiers` 由上层注入 |
 | 其它原语 | `blocking.rs` / `ttl_cache.rs` / `runtime_lock.rs` / `event_bus.rs` / `terminal.rs` / `crash_journal.rs` |
 
 **反向依赖靠注册钩子解决**（ha-base 不能 `use` `AppConfig`）：
@@ -62,6 +64,7 @@ graph TD
 | 钩子 | 未注册时的行为 | 冲突（重复注册）时 |
 |------|---------------|------------------|
 | `paths::register_plans_dir_source` | 回落 `~/.hope-agent/plans/` | 记 `app_error!`，继续启动 |
+| `process_registry::register_notifiers` | 不发进程退出/输出通知（簿记不受影响） | 记 `app_error!`，继续启动 |
 | `security::dangerous::register_config_flag_source` | 返回 `false`（**fail-closed**，Dangerous Mode 配置来源视为未开启） | **panic**——它控制全局审批跳过，来源被顶替不可接受 |
 
 **`ha-core` 对下游完全透明**：`lib.rs` 用 `pub use ha_base::*` + `#[macro_use]

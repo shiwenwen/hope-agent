@@ -11,7 +11,6 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
@@ -263,7 +262,7 @@ impl TerminalManager {
             cwd: cwd.to_string_lossy().into_owned(),
             shell,
             title,
-            created_at: now_millis(),
+            created_at: crate::util::now_ms(),
             master: Mutex::new(pair.master),
             writer: Mutex::new(Some(writer)),
             killer: Mutex::new(Some(killer)),
@@ -485,11 +484,4 @@ fn bounded_size(cols: u16, rows: u16) -> PtySize {
         pixel_width: 0,
         pixel_height: 0,
     }
-}
-
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }

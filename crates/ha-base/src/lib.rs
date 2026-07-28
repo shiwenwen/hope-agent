@@ -20,7 +20,9 @@ pub mod execution_mode;
 pub mod paths;
 pub mod permissions;
 pub mod platform;
+pub mod process_registry;
 pub mod runtime_lock;
+pub mod runtime_role;
 pub mod security;
 pub mod service_install;
 pub mod terminal;
@@ -34,6 +36,8 @@ pub mod workflow_mode;
 pub mod weather_location_macos;
 
 pub use util::*;
+// 模式判定与版本号原语在根命名空间可用（`crate::is_desktop()` 等既有路径）。
+pub use runtime_role::{app_version, is_acp, is_desktop, runtime_role, set_app_version};
 
 // ── 日志全局 ──────────────────────────────────────────────────────
 // `app_info!` 等宏展开为 `$crate::get_logger()`，`$crate` 解析到**定义宏的

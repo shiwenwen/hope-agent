@@ -3323,6 +3323,19 @@ pub struct KbRoot {
     pub read_only: bool,
 }
 
+/// `WorkspaceScope::for_knowledge` 的根解析器（经 `app_init` 注册进
+/// `filesystem::workspace` 的钩子；直调会把 filesystem 焊进 knowledge 环）。
+pub(crate) fn workspace_root(
+    kb_id: &str,
+) -> std::result::Result<crate::filesystem::ResolvedRoot, crate::filesystem::FilesystemError> {
+    let root = resolve_kb_dir(kb_id)
+        .map_err(|e| crate::filesystem::FilesystemError::bad_input(e.to_string()))?;
+    Ok(crate::filesystem::ResolvedRoot {
+        dir: root.dir,
+        read_only: root.read_only,
+    })
+}
+
 /// Resolve a KB's notes directory + write posture.
 ///
 /// Internal KBs (NULL `root_dir`) materialize the default

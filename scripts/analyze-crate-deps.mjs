@@ -55,14 +55,14 @@ const WITH_TESTS = argv.has("--tests")
  * 手写清单会腐烂，所以这里只声明目标，干净与否由代码现状决定。
  */
 const BASE = [
-  // 仍留在 ha-core、目标属于基础层的模块（ha-base 已落地部分不再列此）
-  "config",
-  "file_extract",
-  "file_upload",
-  "filesystem",
-  "test_support",
-  "url_preview",
-  "process_registry",
+  // 阶段 2 v2 修正后：**没有**剩余的 ha-base 目标模块——
+  //   · config / filesystem / file_upload / url_preview / test_support 满身
+  //     cached_config() 读取，归属 kernel 层（schema 在 base 之上，base 永远
+  //     见不到 AppConfig）；它们的出环靠切边（已完成），不靠挪 crate
+  //   · file_extract 维持 v1 刻意排除（pdfium / calamine 等重依赖不进基础层）
+  //   · process_registry 已实际迁入 ha-base
+  // 空集时 §Layer 0 输出"无剩余目标"。若未来重新指定目标，成员必须真实存在
+  // ——脚本对不存在的声明节点**直接报错**（防清单腐烂静默失效）。
 ]
 
 /** Layer 2 —— 特征 crate。互相之间只允许单向依赖，成环即需合并或再切。 */
@@ -110,7 +110,8 @@ const FEATURES = {
   "ha-pet": ["pet", "sprite"],
   "ha-local-llm": ["local_llm", "local_model_jobs", "local_embedding"],
   "ha-acp": ["acp", "acp_control", "tools::acp_spawn"],
-  "ha-weather": ["weather", "weather_location_macos", "tools::weather"],
+  // weather_location_macos 已随阶段 2 v1 迁入 ha-base（平台原语），不再是特征成员
+  "ha-weather": ["weather", "tools::weather"],
 }
 
 // 分组必须互斥：同一模块出现在两组会让 featureOwner 静默用后者覆盖前者，
@@ -156,6 +157,20 @@ function collectNodes() {
 }
 
 const nodes = collectNodes()
+
+// 声明分组里的顶层模块必须真实存在于当前代码——静默忽略会让清单腐烂后
+// 输出貌似合理的错误结论（曾把已迁走的 process_registry 继续算作 ha-base
+// 目标）。`tools::x` 形式的 adapter 子路径不在节点表里，另行跳过。
+for (const [g, ms] of [["ha-base", BASE], ...Object.entries(FEATURES)]) {
+  for (const m of ms) {
+    if (!m.includes("::") && !nodes.has(m)) {
+      console.error(
+        `✗ 分组 ${g} 声明的模块 \`${m}\` 不存在于 ha-core/src——清单已过期，请同步方案文档后修正`,
+      )
+      process.exit(1)
+    }
+  }
+}
 const REF = /\bcrate::([a-z_][a-z0-9_]*)(?:::([a-z_][a-z0-9_]*))?/g
 const COMMENT = /^\s*(\/\/\/|\/\/!|\/\/)/
 

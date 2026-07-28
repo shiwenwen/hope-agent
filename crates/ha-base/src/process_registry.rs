@@ -122,7 +122,9 @@ impl ProcessRegistry {
             session.exit_code = exit_code;
             session.exit_signal = exit_signal;
             session.status = status;
-            crate::process_notification::on_process_exited(session.clone());
+            if let Some(n) = NOTIFIERS.get() {
+                (n.on_exit)(session.clone());
+            }
         }
     }
 
@@ -158,7 +160,9 @@ impl ProcessRegistry {
                 "stderr" => session.pending_stderr.push_str(data),
                 _ => {}
             }
-            crate::process_notification::emit_output(session, stream, data);
+            if let Some(n) = NOTIFIERS.get() {
+                (n.on_output)(session, stream, data);
+            }
         }
     }
 
@@ -180,10 +184,7 @@ impl ProcessRegistry {
     /// Cleanup finished sessions older than ttl_ms
     #[allow(dead_code)]
     pub fn cleanup_old_sessions(&mut self, ttl_ms: u64) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = crate::util::now_ms();
 
         let to_remove: Vec<String> = self
             .sessions
@@ -212,6 +213,34 @@ fn drop_prefix_chars(s: &str, count: usize) -> &str {
     }
 }
 
+// ── 退出 / 输出通知钩子 ─────────────────────────────────────────
+//
+// 进程簿记是基础原语，但「进程退出要不要弹通知 / 输出要不要推流」属上层
+// 业务（ha-core `process_notification`，要读配置、发事件）。经装配层注册
+// 反转依赖；未注册时静默跳过通知（簿记本身不受影响）。
+
+type ExitNotifier = fn(ProcessSession);
+type OutputNotifier = fn(&ProcessSession, &str, &str);
+
+/// 两个回调打包成一个 `OnceLock`：注册**原子**——要么整组首次胜出，要么
+/// 整组被拒，绝不出现「退出通知是旧的、输出通知是新的」半套状态。
+struct Notifiers {
+    on_exit: ExitNotifier,
+    on_output: OutputNotifier,
+}
+
+static NOTIFIERS: OnceLock<Notifiers> = OnceLock::new();
+
+/// 装配期一次性注册通知回调（重复注册返回 `Err`，首次注册的整组胜出）。
+pub fn register_notifiers(
+    on_exit: ExitNotifier,
+    on_output: OutputNotifier,
+) -> Result<(), crate::AlreadyRegistered> {
+    NOTIFIERS
+        .set(Notifiers { on_exit, on_output })
+        .map_err(|_| crate::AlreadyRegistered("process notifiers"))
+}
+
 // Global registry
 static REGISTRY: OnceLock<Mutex<ProcessRegistry>> = OnceLock::new();
 
@@ -226,13 +255,7 @@ pub fn create_session_id() -> String {
     Uuid::new_v4().to_string()[..8].to_string()
 }
 
-/// Get current timestamp in milliseconds
-pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
+pub use crate::util::now_ms;
 
 /// Derive a short name from a command for display
 pub fn derive_session_name(command: &str) -> String {

@@ -67,6 +67,26 @@ impl std::fmt::Display for StaleProjectInstructionsError {
 
 impl std::error::Error for StaleProjectInstructionsError {}
 
+/// `WorkspaceScope::for_project` 的根解析器（经 `app_init` 注册进
+/// `filesystem::workspace` 的钩子）。
+pub(crate) fn workspace_root(
+    project_id: &str,
+) -> std::result::Result<crate::filesystem::ResolvedRoot, crate::filesystem::FilesystemError> {
+    use crate::filesystem::{FilesystemError, ResolvedRoot};
+    let db = crate::get_project_db()
+        .ok_or_else(|| FilesystemError::internal("project db not initialized"))?;
+    let project = db
+        .get(project_id)
+        .map_err(|e| FilesystemError::internal(e.to_string()))?
+        .ok_or_else(|| FilesystemError::bad_input("project not found"))?;
+    let dir = resolve_project_dir(project_id, &db)
+        .map_err(|e| FilesystemError::bad_input(e.to_string()))?;
+    Ok(ResolvedRoot {
+        dir,
+        read_only: project.archived,
+    })
+}
+
 /// Resolve the on-disk directory that backs a project: its explicitly-selected
 /// `working_dir` when set, otherwise the default workspace (created on demand).
 ///
