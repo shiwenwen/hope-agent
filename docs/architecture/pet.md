@@ -18,10 +18,13 @@ Pet 是一个桌面优先、被动常驻零 LLM 的状态表现层。它把已�
 | 真相源 | 内容与生命周期 |
 | --- | --- |
 | `config.json` | `pet.enabled`、`pet.selectedPetRef`；所有开关和选择入口都走共享配置 mutation，不维护 localStorage 副本 |
-| `sessions.db` | `chat_turns.ui_surface`、turn 状态与消息边界，`sessions.last_read_message_id`，以及 ask/审批 pending；`ui_surface` 是 additive migration，历史 NULL 永不按 source 猜测，索引随 migration 一次性建立 |
+| `sessions.db` | `chat_turns.ui_surface`、turn 状态与消息边界，`sessions.last_read_message_id`，以及 pending `ask_user_question` groups；只有携带 durable `ownerResponse` 的 owner-plane group 可跨重启保持 pending，普通工具 group 的内存 oneshot 无法恢复，启动时由 `expire_pending_ask_user_groups` 标为 answered；`ui_surface` 是 additive migration，历史 NULL 永不按 source 猜测，索引随 migration 一次性建立 |
 | `~/.hope-agent/pets/` | 自定义包和 `.trash`；磁盘是真相源，库 revision 只是进程内失效版本，不可替代目录扫描与校验 |
 | `pet-window-state.json` | monitor、work area、scale 与宠物脚下归一化锚点；它只属于桌面 UI state，不复制 `enabled` |
+| 进程内 approval registry | `tools::approval::PENDING_APPROVALS` 保存完整 request 与响应 sender，供同一进程内的 reload/transport resync 重建卡片；它不写入 `sessions.db`，进程退出即失效，不能用于跨重启恢复 |
 | 进程内 capability 表 | Codex candidate 30 分钟、import preview 10 分钟、restore token 10 分钟；重启即失效。preview 最多 128 项/64 MiB，restore token 最多 128 项，客户端不能把 token 当持久 ID |
+
+Pet 的 `activity_snapshot` 只把进程内 approval 数与 SQLite pending Ask group 数相加，用“是否大于零”决定运行中 turn 是否投影为 `NeedsInput`；它不返回交互总数或最早倒计时。侧边栏 `SessionMeta.pending_interaction_count` / `pending_countdown` 的数量和 deadline 合并属于 `session::pending::enrich_pending_interactions`。PetWindow 的交互卡则分别读取当前进程内 approval request 与 live Ask group，不能把任一聚合结果回写数据库，也不能据此假设普通 approval/Ask 可跨重启恢复。
 
 `.install-*` staging 超过 24 小时才清理；`.trash` 最长保留 7 天且最多 256 项。清理、导入、删除、恢复与选择校验共享跨进程库锁，任何缓存或 renderer state 都不能成为包、配置、activity 或未读的第二真相源。
 
@@ -143,7 +146,7 @@ Create 是 Settings 内 owner 显式触发的媒体生成，不注册 Agent tool
 | `session:title_updated` | 首消息 fallback 或 LLM 标题回写后立即重查 snapshot |
 | `pet:navigate`         | Tauri-only；PetWindow 请求主 App 做 typed navigation |
 | `pet:install_link`     | Tauri-only；OS `hope-agent://` 路由到 Settings import preview |
-| `pet:inactive_pointer` | macOS Tauri-only；失焦时向 PetWindow 投影 logical pointer，最多 30 Hz |
+| `pet:inactive_pointer` | macOS Tauri-only；`{ inside, x, y }`，进入/移动时为 logical pointer，离开固定发 `{ inside: false, x: 0, y: 0 }`，最多 30 Hz |
 | `pet:native_drag_ended` | macOS Tauri-only；补齐原生拖拽释放，不携带窗口外坐标 |
 
 前三个 `pet:*_changed` 是 Core EventBus 失效通知，Tauri/HTTP 两条桥都会转发；其余四个是桌面壳内部事件，不经过 HTTP bridge。Tauri commands 与 HTTP routes 一一对应，详见 [API 参考](api-reference.md)。只有 `pet_apply_window_bounds_cmd`、`pet_sync_window_cmd`、`pet_focus_target_cmd` 的 HTTP 适配明确返回 overlay unsupported；`pet_take_install_link_cmd` 在 HTTP 恒为 `null`。
