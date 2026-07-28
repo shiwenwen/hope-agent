@@ -197,8 +197,10 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 | `pet:activity_changed` | 合格 chat turn / pending / read watermark 变化 | activity 失效提示，消费者重拉 snapshot |
 | `pet:navigate` | PetWindow 点击 activity | typed `PetNavigationTarget`；Tauri 直发给主 App |
 | `pet:install_link` | OS `hope-agent://pets/install` | `{ link }`；只打开 Settings preview，不自动 commit |
+| `pet:inactive_pointer` | macOS 原生失焦指针桥 | logical `{ x, y }` 或 `null`；最多 30 Hz，仅发给 PetWindow |
+| `pet:native_drag_ended` | macOS 原生拖拽释放桥 | 无 payload；仅发给 PetWindow |
 
-> 这些事件经 EventBus 广播，HTTP / Tauri 两条桥都会转发，前端在 server 模式下也能收到；事件生产者既可位于 Core 状态变更路径，也可位于桌面交互薄壳。
+> `pet:config_changed`、`pet:library_changed`、`pet:activity_changed` 是 Core EventBus 失效通知，经 HTTP / Tauri 两条桥转发，server 模式前端也能收到。`pet:navigate`、`pet:install_link`、`pet:inactive_pointer`、`pet:native_drag_ended` 是桌面壳内部事件，不经过 HTTP EventBus 桥，也不构成远端 API。
 
 ### 配置与系统
 
