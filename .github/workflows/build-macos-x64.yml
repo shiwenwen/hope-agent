@@ -91,7 +91,10 @@ jobs:
           workspaces: ". -> target"
           # 同 release.yml：本 workflow 由 release.published / dispatch 触发，
           # 缓存存在 tag 作用域下后续读不到，只会挤占仓库 10 GB 共享预算。
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # 用 false 而非按 ref 判断——dispatch 时 github.ref 是被派发的分支
+          # （通常是 main），checkout 切到的却是 `tag` 输入，按 ref 判断会把 tag
+          # 代码树的缓存存进 main 作用域。
+          save-if: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

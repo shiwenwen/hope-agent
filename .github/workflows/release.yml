@@ -128,13 +128,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-          # 不在 tag / dry-run 分支存缓存。GitHub 只允许 run 恢复「当前 ref」与
+          # 本 workflow 一律不存缓存。GitHub 只允许 run 恢复「当前 ref」与
           # 「默认分支」的缓存，所以 tag 作用域下存的这份（实测每条 lane
           # 1.55~1.73 GB，四条约 6.5 GB）下次发版打的是新 tag，永远读不到，却会
           # 把仓库 10 GB 预算挤满、连带 LRU 清掉 main 上给所有 PR 用的缓存。
+          #
+          # 刻意用 false 而非 `github.ref == 'refs/heads/main'`：本 workflow 有
+          # workflow_dispatch 入口，dispatch 时 github.ref 是被派发的分支（通常
+          # 就是 main），而 checkout 切到的是 `tag` 输入指定的 tag——按 ref 判断
+          # 会把 tag 代码树的缓存存进 main 作用域，正好吃掉本要省的预算。
+          #
           # 唯一损失是同一 run 内重跑失败 job 时不再有热缓存——v0.24.0 arm64
           # 失败那次实际走的是「修完重新打 tag」，新 ref 本就冷启，没有损失。
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: false
 
       # `ring` (via jsonwebtoken / rustls) assembles its Windows MSVC crypto
       # with NASM. Use Chocolatey instead of ilammy/setup-nasm (upstream still
