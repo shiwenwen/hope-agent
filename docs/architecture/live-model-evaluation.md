@@ -594,4 +594,4 @@ commit SHA 是比较轴，不进入功能 compatibility key。trial seed 因包�
 - 同一 request/资产/runtime/model 生成稳定 plan/digest；本地 App evidence 必须保持 local source，不能通过保留的 release verifier。
 - 比较测试必须覆盖“不同 commit → seed 不同但逻辑 trial identity 相同”，预算测试必须覆盖小于模型数时拒绝且任何切分不增加总量。
 - `cargo test -p ha-core -p ha-server --locked` 仍不链接/运行完整 Runner；普通 PR 和 GitHub Actions 不运行 fake smoke，也不配置 Provider Key。需要时在本地显式运行 smoke。
-- 三平台发布前测量 Sidecar 压缩增量；目标不超过 35 MB。打包脚本使用独立 `eval-sidecar` profile（size opt、fat LTO、单 codegen unit、strip、panic abort）；panic 只终止隔离 Sidecar/worker，不改变产品 Agent 的 unwind 策略。超出时继续做依赖裁剪，不能降级为不校验的在线下载。
+- 三平台发布前测量 Sidecar 压缩增量；目标不超过 35 MB。打包脚本使用独立 `eval-sidecar` profile（size opt、fat LTO、16 codegen units、strip、panic abort；体积靠 fat LTO 的全程序 DCE，codegen units 只影响 LTO 后的机器码分块与发版构建耗时）；panic 只终止隔离 Sidecar/worker，不改变产品 Agent 的 unwind 策略。超出时继续做依赖裁剪，不能降级为不校验的在线下载。
