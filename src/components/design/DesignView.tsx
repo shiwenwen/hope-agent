@@ -1947,75 +1947,116 @@ export default function DesignView({
   // 后端按 (id, kind) 匹配、不匹配即回退，故换 kind 无需清空。
   const [homeRecipeId, setHomeRecipeId] = useState<string | null>(null)
   const [generatingHome, setGeneratingHome] = useState(false)
+  // image / audio 在首屏也先过能力驱动的媒体对话框：无可用模型时给配置入口，
+  // 有模型时收集该模型支持的参数，避免直接建项目后同步失败。
+  const [homeMediaGenOpen, setHomeMediaGenOpen] = useState(false)
+  const [homeMediaGenKind, setHomeMediaGenKind] = useState<"image" | "audio">("image")
 
   // 首屏「一句话 → 生成」：建项目 → 带 prompt 建产物（后端一次模型生成完整自包含设计）→ 打开。
   // 需求补全交给设计 Agent 在对话里按需追问（ask_user_question 的 discovery / direction-cards），
   // 首屏只收一句话，不再叠加静态简报表单。
-  const generateFromHome = useCallback(async () => {
-    const base = homePrompt.trim()
-    // 有图无文也可生成（后端固定「照图复刻」指令）。
-    if ((!base && homeRefImages.length === 0) || generatingHome) return
-    const prompt = base
-    const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
-    let createdProjectId: string | null = null
-    setGeneratingHome(true)
-    try {
-      const project = await tx.call<DesignProject>("create_design_project_cmd", {
-        input: {
-          title: base.slice(0, 40),
-          // 首页选的模型带入项目：作为项目对话的初始模型（会话内切换照常）。
-          defaultModel: genModel ?? undefined,
-        },
-      })
-      createdProjectId = project.id
-      // 首屏一句话 → 流式生成（返回 generating 壳，前端挂稳定 iframe 后逐帧灌入）。
-      // 带参考图时选中的视觉模型**直接看原图**（真多模态）。
-      const artifact = await tx.call<DesignArtifact>("generate_design_artifact_cmd", {
-        input: {
-          projectId: project.id,
-          title: kindLabel(homeKind),
-          kind: homeKind,
-          prompt: prompt || undefined,
-          systemId,
-          recipeId: homeRecipeId ?? undefined,
-          referenceImages: homeRefImages.map((i) => ({ b64: i.b64, mime: i.mime })),
-          modelOverride: genModel ?? undefined,
-        },
-      })
-      setHomePrompt("")
-      setHomeRecipeId(null)
-      setHomeRefImages([])
-      openProject(project)
-      if (artifact) void openArtifact(artifact)
-    } catch (e) {
-      logger.error("design", "DesignView::generateFromHome", "generate failed", e)
-      toast.error(t("design.err.create", "创建失败"))
-      // 回滚：产物没建成，删掉刚建的孤儿空项目（否则每次重试堆积隐藏空项目）。
-      if (createdProjectId) {
-        try {
-          await tx.call("delete_design_project_cmd", { id: createdProjectId })
-        } catch {
-          /* best effort */
+  const generateFromHome = useCallback(
+    async (
+      mediaPayload?: MediaGeneratePayload,
+      kindOverride?: "image" | "audio",
+    ): Promise<boolean> => {
+      const base = (mediaPayload?.prompt ?? homePrompt).trim()
+      const selectedKind = kindOverride ?? homeKind
+      const media = mediaPayload
+        ? {
+            aspectRatio: mediaPayload.aspectRatio,
+            imageSize: mediaPayload.imageSize,
+            imageResolution: mediaPayload.imageResolution,
+            audioKind: mediaPayload.audioKind,
+            audioVoice: mediaPayload.audioVoice,
+            audioDurationSecs: mediaPayload.audioDurationSecs,
+          }
+        : undefined
+      // 有图无文也可生成（后端固定「照图复刻」指令）。
+      if ((!base && homeRefImages.length === 0) || generatingHome) return false
+      const prompt = base
+      const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
+      let createdProjectId: string | null = null
+      setGeneratingHome(true)
+      try {
+        const project = await tx.call<DesignProject>("create_design_project_cmd", {
+          input: {
+            title: base.slice(0, 40),
+            // 首页选的模型带入项目：作为项目对话的初始模型（会话内切换照常）。
+            defaultModel: genModel ?? undefined,
+          },
+        })
+        createdProjectId = project.id
+        // 首屏一句话 → 流式生成（返回 generating 壳，前端挂稳定 iframe 后逐帧灌入）。
+        // 带参考图时选中的视觉模型**直接看原图**（真多模态）。
+        const artifact = await tx.call<DesignArtifact>("generate_design_artifact_cmd", {
+          input: {
+            projectId: project.id,
+            title: kindLabel(selectedKind),
+            kind: selectedKind,
+            prompt: prompt || undefined,
+            systemId,
+            recipeId: homeRecipeId ?? undefined,
+            referenceImages: homeRefImages.map((i) => ({ b64: i.b64, mime: i.mime })),
+            modelOverride: genModel ?? undefined,
+            ...media,
+          },
+        })
+        setHomePrompt("")
+        setHomeRecipeId(null)
+        setHomeRefImages([])
+        openProject(project)
+        if (artifact) void openArtifact(artifact)
+        return true
+      } catch (e) {
+        logger.error("design", "DesignView::generateFromHome", "generate failed", e)
+        toast.error(t("design.err.create", "创建失败"))
+        // 回滚：产物没建成，删掉刚建的孤儿空项目（否则每次重试堆积隐藏空项目）。
+        if (createdProjectId) {
+          try {
+            await tx.call("delete_design_project_cmd", { id: createdProjectId })
+          } catch {
+            /* best effort */
+          }
         }
+        return false
+      } finally {
+        setGeneratingHome(false)
       }
-    } finally {
-      setGeneratingHome(false)
+    },
+    [
+      tx,
+      homePrompt,
+      homeKind,
+      homeSystemId,
+      homeRecipeId,
+      homeRefImages,
+      genModel,
+      generatingHome,
+      designConfig,
+      kindLabel,
+      openProject,
+      openArtifact,
+      t,
+    ],
+  )
+
+  const requestGenerateFromHome = useCallback(() => {
+    if (homeKind === "image" || homeKind === "audio") {
+      setHomeMediaGenKind(homeKind)
+      setHomeMediaGenOpen(true)
+      return
     }
-  }, [
-    tx,
-    homePrompt,
-    homeKind,
-    homeSystemId,
-    homeRecipeId,
-    homeRefImages,
-    genModel,
-    generatingHome,
-    designConfig,
-    kindLabel,
-    openProject,
-    openArtifact,
-    t,
-  ])
+    void generateFromHome()
+  }, [generateFromHome, homeKind])
+
+  const confirmHomeMediaGenerate = useCallback(
+    async (payload: MediaGeneratePayload) => {
+      const generated = await generateFromHome(payload, homeMediaGenKind)
+      if (generated) setHomeMediaGenOpen(false)
+    },
+    [generateFromHome, homeMediaGenKind],
+  )
 
   // 品牌包：一句话 → 建项目 → 批量生成一组共享系统的协调产物（形态由弹窗自选）。
   // 带参考图时每件产物都真看原图（N 件 = N 次带图视觉调用，用户主动选择）。
@@ -4834,7 +4875,7 @@ export default function DesignView({
           systemId={homeSystemId}
           setSystemId={setHomeSystemId}
           generating={generatingHome}
-          onGenerate={() => void generateFromHome()}
+          onGenerate={requestGenerateFromHome}
           onBrandPack={() => setBrandPackOpen(true)}
           kindLabel={kindLabel}
           refImages={homeRefImages}
@@ -6247,6 +6288,17 @@ export default function DesignView({
 
       {/* Image / audio 参数化生成对话框（能力驱动参数区 + 空态引导） */}
       <MediaGenerateDialog
+        open={homeMediaGenOpen}
+        kind={homeMediaGenKind}
+        initialPrompt={homePrompt}
+        allowEmptyPrompt={homeRefImages.length > 0}
+        referenceImageCount={homeRefImages.length}
+        onClose={() => setHomeMediaGenOpen(false)}
+        onConfirm={confirmHomeMediaGenerate}
+        busy={generatingHome}
+      />
+
+      <MediaGenerateDialog
         open={mediaGenOpen}
         kind={mediaGenKind}
         onClose={() => setMediaGenOpen(false)}
@@ -7529,7 +7581,7 @@ function LaunchHome({
                 </span>
               </Button>
               {/* 视觉模型 chip：prompt dock 工具栏 ghost action（已登记例外）；传图态只亮视觉模型。 */}
-              {models.length > 0 && (
+              {models.length > 0 && kind !== "image" && kind !== "audio" && (
                 <ModelSelector
                   value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}
                   onChange={onModelChange}

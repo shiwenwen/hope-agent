@@ -41,6 +41,10 @@ import {
   openMediaModelSettings,
 } from "@/components/settings/media-gen/types"
 import { fetchMediaGenOverview } from "@/components/settings/media-gen/useMediaGenData"
+import {
+  inferAudioKindFromPrompt,
+  resolveImageRequestCapability,
+} from "./MediaGenerateDialog.logic"
 
 /** 确认回调载荷：可选参数只在用户显式选择（非「自动 / 默认」）时携带。 */
 export interface MediaGeneratePayload {
@@ -56,6 +60,12 @@ export interface MediaGeneratePayload {
 interface Props {
   open: boolean
   kind: "image" | "audio"
+  /** Optional seed used by the launch-page composer. */
+  initialPrompt?: string
+  /** Reference-image-only generation may intentionally omit a text prompt. */
+  allowEmptyPrompt?: boolean
+  /** Positive values select image-edit candidates and their narrower capabilities. */
+  referenceImageCount?: number
   onClose: () => void
   onConfirm: (payload: MediaGeneratePayload) => void | Promise<void>
   busy?: boolean
@@ -71,7 +81,16 @@ const DEFAULT_DURATION = "__default__"
 
 const AUDIO_KINDS: MediaAudioKind[] = ["speech", "music", "sfx"]
 
-export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = false }: Props) {
+export function MediaGenerateDialog({
+  open,
+  kind,
+  initialPrompt = "",
+  allowEmptyPrompt = false,
+  referenceImageCount = 0,
+  onClose,
+  onConfirm,
+  busy = false,
+}: Props) {
   const { t } = useTranslation()
 
   const [overview, setOverview] = useState<MediaGenOverview | null>(null)
@@ -92,7 +111,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
 
   // 每次 open 拉一次 overview；「重新检查」复用。fetch 期间关闭 / 重开用代际计数丢弃陈旧结果。
   const loadGen = useRef(0)
-  const loadOverview = useCallback(async (audioTarget?: "audio") => {
+  const loadOverview = useCallback(async (audioTarget?: MediaAudioKind) => {
     const gen = ++loadGen.current
     setOverviewLoading(true)
     const ov = await fetchMediaGenOverview()
@@ -101,10 +120,12 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
     setOverviewLoading(false)
     setVoices(null) // 候选可能已变（重新检查场景），废弃已拉音色
     setVoicesLoading(false)
-    // 默认语音；语音无可用模型时落到首个可用的音频 kind。
-    if (ov && audioTarget === "audio" && !ov.speech.available) {
-      const fallback = (["music", "sfx"] as const).find((k) => ov[k].available)
-      if (fallback) setAudioKind(fallback)
+    // 优先保留 prompt 前缀推断的类型；不可用时才落到首个可用音频功能位。
+    if (ov && audioTarget) {
+      const resolved = ov[audioTarget].available
+        ? audioTarget
+        : AUDIO_KINDS.find((audioKind) => ov[audioKind].available)
+      if (resolved) setAudioKind(resolved)
     }
   }, [])
 
@@ -113,29 +134,35 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
       loadGen.current++ // 丢弃在途 fetch
       return
     }
+    const seededAudioKind = inferAudioKindFromPrompt(initialPrompt) ?? "speech"
     setOverview(null)
-    setPrompt("")
+    setPrompt(initialPrompt)
     setAspect(AUTO)
     setResolution(AUTO)
-    setAudioKind("speech")
+    setAudioKind(seededAudioKind)
     setVoice(DEFAULT_VOICE)
     setCustomVoiceMode(false)
     setCustomVoice("")
     setDuration(DEFAULT_DURATION)
     setVoices(null)
     setVoicesLoading(false)
-    void loadOverview(kind === "audio" ? "audio" : undefined)
-  }, [open, kind, loadOverview])
+    void loadOverview(kind === "audio" ? seededAudioKind : undefined)
+  }, [open, kind, initialPrompt, loadOverview])
 
   // 当前功能位（image 或所选音频 kind）的首候选 = 「将使用」的模型。
   const fnKey: MediaFunctionKey = kind === "image" ? "image" : audioKind
   const fn = overview ? overview[fnKey] : null
-  const cand = fn?.candidates[0] ?? null
+  const imageRequest = useMemo(
+    () => resolveImageRequestCapability(fn?.candidates ?? [], referenceImageCount),
+    [fn, referenceImageCount],
+  )
+  const cand = kind === "image" ? imageRequest.candidate : (fn?.candidates[0] ?? null)
+  const imageCaps = kind === "image" ? imageRequest.caps : null
 
   const audioAllUnavailable =
     overview != null && AUDIO_KINDS.every((k) => !overview[k].available)
   const showEmpty =
-    overview != null && (kind === "image" ? !overview.image.available : audioAllUnavailable)
+    overview != null && (kind === "image" ? cand == null : audioAllUnavailable)
 
   const aspectChoices = useMemo(
     () =>
@@ -163,12 +190,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
     (v: string) => {
       setPrompt(v)
       if (kind !== "audio") return
-      const lead = v.trimStart().toLowerCase()
-      const target: MediaAudioKind | null = lead.startsWith("[music]")
-        ? "music"
-        : lead.startsWith("[sfx]")
-          ? "sfx"
-          : null
+      const target = inferAudioKindFromPrompt(v)
       if (target && target !== audioKind && (!overview || overview[target].available)) {
         setAudioKind(target)
       }
@@ -195,16 +217,16 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
 
   const handleConfirm = useCallback(() => {
     const p = prompt.trim()
-    if (!p) return
+    if (!p && !allowEmptyPrompt) return
     const payload: MediaGeneratePayload = { prompt: p }
     if (kind === "image") {
       // Only carry a parameter the resolved model actually supports —
       // otherwise the backend capability check skips the sole candidate and
       // the whole generation fails.
-      if (cand?.image?.supportsAspectRatio && aspect !== AUTO) {
+      if (imageCaps?.supportsAspectRatio && aspect !== AUTO) {
         payload.aspectRatio = aspect
       }
-      if (cand?.image?.supportsResolution && resolution !== AUTO) {
+      if (imageCaps?.supportsResolution && resolution !== AUTO) {
         payload.imageResolution = resolution
       }
     } else {
@@ -220,10 +242,11 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
     void onConfirm(payload)
   }, [
     prompt,
+    allowEmptyPrompt,
     kind,
     aspect,
     resolution,
-    cand,
+    imageCaps,
     audioKind,
     needsVoice,
     customVoiceMode,
@@ -313,7 +336,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => void loadOverview(kind === "audio" ? "audio" : undefined)}
+                onClick={() => void loadOverview(kind === "audio" ? audioKind : undefined)}
               >
                 {t("design.gen.recheck", "重新检查")}
               </Button>
@@ -372,9 +395,9 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
             />
 
             {kind === "image" &&
-              (cand?.image?.supportsAspectRatio || cand?.image?.supportsResolution) && (
+              (imageCaps?.supportsAspectRatio || imageCaps?.supportsResolution) && (
               <div className="space-y-3">
-                {cand?.image?.supportsAspectRatio && (
+                {imageCaps?.supportsAspectRatio && (
                   <div className="space-y-1.5">
                     <span className="text-sm text-muted-foreground">
                       {t("design.gen.aspectRatio", "宽高比")}
@@ -393,7 +416,7 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
                     />
                   </div>
                 )}
-                {cand?.image?.supportsResolution && (
+                {imageCaps?.supportsResolution && (
                   <div className="space-y-1.5">
                     <span className="text-sm text-muted-foreground">
                       {t("design.gen.resolution", "分辨率")}
@@ -516,7 +539,10 @@ export function MediaGenerateDialog({ open, kind, onClose, onConfirm, busy = fal
               <Button variant="ghost" onClick={onClose}>
                 {t("common.cancel", "取消")}
               </Button>
-              <Button onClick={handleConfirm} disabled={busy || !prompt.trim()}>
+              <Button
+                onClick={handleConfirm}
+                disabled={busy || (!allowEmptyPrompt && !prompt.trim())}
+              >
                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t("design.generate", "生成")}
               </Button>
