@@ -111,6 +111,12 @@ jobs:
           # rustup shims. A stale macOS cache can replace `cargo` with the
           # rustup installer and make `cargo test` fail before compilation.
           cache-bin: false
+          # 只在 main 存缓存。仓库 10 GB 预算是全局共享的，PR / 分支各存一份
+          # 同 key 的缓存纯属重复占用（实测同一 clippy key 曾在 main 与两个 PR
+          # ref 下各存 0.46~0.93 GB），把预算挤满后连发版 lane 的缓存都会被
+          # LRU 清掉。PR 与维护分支仍能读到：GitHub 允许 run 恢复「当前 ref」
+          # 与「默认分支」的缓存，main 这份对它们始终可见。
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # `ring` (pulled in by jsonwebtoken / rustls) assembles its Windows
       # MSVC crypto with NASM. Chocolatey is pre-installed on windows-latest
@@ -186,6 +192,12 @@ jobs:
           # rustup shims. A stale macOS cache can replace `cargo` with the
           # rustup installer and make `cargo test` fail before compilation.
           cache-bin: false
+          # 只在 main 存缓存。仓库 10 GB 预算是全局共享的，PR / 分支各存一份
+          # 同 key 的缓存纯属重复占用（实测同一 clippy key 曾在 main 与两个 PR
+          # ref 下各存 0.46~0.93 GB），把预算挤满后连发版 lane 的缓存都会被
+          # LRU 清掉。PR 与维护分支仍能读到：GitHub 允许 run 恢复「当前 ref」
+          # 与「默认分支」的缓存，main 这份对它们始终可见。
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install NASM (Windows only)
         if: env.RUN_RUST_CI == 'true' && runner.os == 'Windows'

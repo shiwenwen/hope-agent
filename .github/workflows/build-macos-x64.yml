@@ -89,6 +89,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          # 同 release.yml：本 workflow 由 release.published / dispatch 触发，
+          # 缓存存在 tag 作用域下后续读不到，只会挤占仓库 10 GB 共享预算。
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
