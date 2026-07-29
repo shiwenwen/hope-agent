@@ -15,13 +15,12 @@ import {
   MessageSquareQuote,
   Maximize2,
   Minimize2,
-  ExternalLink,
-  PanelLeftClose,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { useTranslation } from "react-i18next"
 import type { PlanModeState } from "./usePlanMode"
@@ -339,9 +338,7 @@ export function PlanPanel({
       <div
         className={cn(
           "flex flex-col shrink-0 animate-in slide-in-from-right-2 duration-200",
-          embedded
-            ? "h-full w-full overflow-hidden"
-            : "w-[200px] bg-surface-panel",
+          embedded ? "h-full w-full overflow-hidden" : "w-[200px] bg-surface-panel",
         )}
       >
         <div
@@ -359,7 +356,7 @@ export function PlanPanel({
                 onClick={handleReattach}
                 className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
               >
-                <PanelLeftClose className="h-3.5 w-3.5" />
+                <WindowModeIcon action="reattach" className="h-3.5 w-3.5" />
               </button>
             </IconTip>
             <IconTip label={t("common.close")}>
@@ -418,7 +415,7 @@ export function PlanPanel({
                 onClick={handleDetach}
                 className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
               >
-                <ExternalLink className="h-3.5 w-3.5" />
+                <WindowModeIcon action="detach" className="h-3.5 w-3.5" />
               </button>
             </IconTip>
           )}
@@ -531,7 +528,9 @@ export function PlanPanel({
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <ClipboardList className="h-8 w-8 mb-3 opacity-30" />
             <span className="text-sm">
-              {planState === "planning" ? t("planMode.planning") : t("planMode.noPlanYet", "No plan yet")}
+              {planState === "planning"
+                ? t("planMode.planning")
+                : t("planMode.noPlanYet", "No plan yet")}
             </span>
           </div>
         )}
@@ -581,7 +580,9 @@ export function PlanPanel({
               ) : (
                 <Play className="h-4 w-4" />
               )}
-              <span>{isExecutionActive ? t("planMode.executing") : t("planMode.executionIdle")}</span>
+              <span>
+                {isExecutionActive ? t("planMode.executing") : t("planMode.executionIdle")}
+              </span>
             </div>
             {!isExecutionActive && onContinue && (
               <Button size="sm" variant="outline" onClick={onContinue} className="gap-1.5">

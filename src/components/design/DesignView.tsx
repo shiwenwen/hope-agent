@@ -15,7 +15,7 @@ import {
   Braces,
   Trash2,
   RefreshCw,
-  Settings2,
+  Settings,
   Palette,
   PanelLeft,
   PanelLeftDashed,
@@ -87,6 +87,7 @@ import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
+import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import DesignChatPanel, {
   type DesignChatPanelHandle,
 } from "@/components/design/chat/DesignChatPanel"
@@ -219,9 +220,15 @@ import DesignFilesPanel from "@/components/design/DesignFilesPanel"
 import DesignSharePanel from "@/components/design/DesignSharePanel"
 import { useTypewriterPlaceholder } from "./useTypewriterPlaceholder"
 import { useClickOutside } from "@/hooks/useClickOutside"
+import {
+  usesSpaceWindowOverlayTitleBar,
+  type DesignSpaceLocation,
+  type SpaceNavigationRequest,
+} from "@/lib/spaceWindow"
 
 interface DesignViewProps {
-  onBack: () => void
+  /** 顶层侧边栏当前是否正在展示设计空间；组件本身会跨视图常驻。 */
+  isViewVisible: boolean
   onOpenSettings: () => void
   /** 「实现到代码」：跳到主对话该会话并把 prompt 作首条消息自动发送（App 层接线）。 */
   onImplementToCode?: (sessionId: string, prompt: string) => void
@@ -230,6 +237,10 @@ interface DesignViewProps {
     nonce: number
   } | null
   onPetFocusHandled?: (nonce: number) => void
+  windowMode?: "docked" | "detached"
+  windowNavigation?: SpaceNavigationRequest<DesignSpaceLocation> | null
+  onWindowLocationChange?: (location: DesignSpaceLocation) => void
+  onToggleWindowMode?: (location: DesignSpaceLocation) => void
 }
 
 const KIND_ICON: Record<ArtifactKind, typeof Monitor> = {
@@ -504,11 +515,15 @@ function writeOpenTabs(projectId: string, ids: string[]): void {
 }
 
 export default function DesignView({
-  onBack,
+  isViewVisible,
   onOpenSettings,
   onImplementToCode,
   petFocus,
   onPetFocusHandled,
+  windowMode = "docked",
+  windowNavigation,
+  onWindowLocationChange,
+  onToggleWindowMode,
 }: DesignViewProps) {
   const { t } = useTranslation()
   const tx = getTransport()
@@ -680,6 +695,7 @@ export default function DesignView({
   }, [chatOpen])
   useEffect(() => {
     if (
+      !isViewVisible ||
       !pendingPetThreadFocus ||
       !chatOpen ||
       activeProject?.id !== pendingPetThreadFocus.projectId ||
@@ -690,7 +706,7 @@ export default function DesignView({
     chatPanelRef.current.focusThread(pendingPetThreadFocus.sessionId)
     onPetFocusHandled?.(pendingPetThreadFocus.nonce)
     setPendingPetThreadFocus(null)
-  }, [activeProject?.id, chatOpen, onPetFocusHandled, pendingPetThreadFocus])
+  }, [activeProject?.id, chatOpen, isViewVisible, onPetFocusHandled, pendingPetThreadFocus])
   // 画框批注合成图作对话图附件（同 quote 缓冲：面板未挂载先缓冲、chatOpen 后 flush 恰好一次）。
   const pendingImagesRef = useRef<File[]>([])
   const enqueueChatImage = useCallback((file: File) => {
@@ -781,9 +797,11 @@ export default function DesignView({
     if (document.fullscreenElement === previewPaneRef.current) {
       // 原生全屏先交还浏览器；fullscreenchange 再启动 CSS FLIP 还原，避免按钮消失后
       // 节点仍被 :fullscreen 强制铺满屏幕。
-      void document.exitFullscreen().catch((e) =>
-        logger.error("design", "DesignView::exitFullscreen", "exit fullscreen failed", e),
-      )
+      void document
+        .exitFullscreen()
+        .catch((e) =>
+          logger.error("design", "DesignView::exitFullscreen", "exit fullscreen failed", e),
+        )
       return
     }
     transitionPresentMode(false)
@@ -794,6 +812,7 @@ export default function DesignView({
   activeProjectRef.current = activeProject
   const activeArtifactRef = useRef<DesignArtifactView | null>(null)
   activeArtifactRef.current = activeArtifact
+  const lastWindowNavigationNonceRef = useRef<number | null>(null)
   const openTabIdsRef = useRef<string[]>([])
   openTabIdsRef.current = openTabIds
   // 顶部标签条渲染的产物（已打开、保序、滤掉已删）；产物库墙里未打开的 = 可重新打开的。
@@ -812,6 +831,12 @@ export default function DesignView({
   // 提前声明（commit handlers 在历史块之前引用；实体在 undo/redo 块内赋值）。
   const pushHistoryRef = useRef<(op: EditOp) => void>(() => {})
   const activeArtifactId = activeArtifact?.id
+  useEffect(() => {
+    onWindowLocationChange?.({
+      projectId: activeProject?.id ?? null,
+      artifactId: activeArtifactId ?? null,
+    })
+  }, [activeArtifactId, activeProject?.id, onWindowLocationChange])
   const postToIframe = useCallback((msg: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(msg, "*")
   }, [])
@@ -824,6 +849,7 @@ export default function DesignView({
   // Deck 宿主级键盘翻页（Wave 2-⑧）：无需先点 iframe 拿焦点。编辑/批注/画框态不劫持方向键；
   // 跳过 input/textarea/contenteditable 焦点；带修饰键放行（避免抢 Cmd+Z 等）。演示态也生效。
   useEffect(() => {
+    if (!isViewVisible) return
     if (activeArtifact?.kind !== "deck") return
     if (!presentMode && (editMode || commentMode || drawMode)) return
     const onKey = (e: KeyboardEvent) => {
@@ -853,7 +879,7 @@ export default function DesignView({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [activeArtifact?.kind, presentMode, editMode, commentMode, drawMode, deckNav])
+  }, [activeArtifact?.kind, presentMode, editMode, commentMode, drawMode, deckNav, isViewVisible])
 
   // ── 画框批注 orchestration（B4-1）──
   // ds_viewport round-trip：跨源无法直接读 iframe 滚动/视口，postMessage 请求 → 回传 resolve。
@@ -1362,6 +1388,7 @@ export default function DesignView({
           id: artifact.id,
         })
         if (view) {
+          activeArtifactRef.current = view
           setActiveArtifact(view)
           setPreviewKey((k) => k + 1)
           ensureTabOpen(view.id)
@@ -1404,7 +1431,7 @@ export default function DesignView({
           setOpenTabIds(restored)
           writeOpenTabs(projectId, restored)
           const first = restored[0] ? all.find((a) => a.id === restored[0]) : undefined
-          if (first) void openArtifact(first)
+          if (first) await openArtifact(first)
         }
       } catch (e) {
         // Wave 2-⑨：置显式 error 态，让产物墙显示「加载失败 + 重试」而非误当空库。
@@ -1607,14 +1634,16 @@ export default function DesignView({
   }, [activeProject?.id, artifacts, loadFolders])
 
   const openProject = useCallback(
-    (project: DesignProject) => {
+    async (project: DesignProject) => {
+      activeProjectRef.current = project
+      activeArtifactRef.current = null
       setActiveProject(project)
       setActiveArtifact(null)
       setShowGrid(false)
       setRenamingProject(false)
       setRenamingArtifactId(null)
       setOpenTabIds([]) // 清上一个项目的标签，随后 loadArtifacts(selectFirst) 恢复本项目的
-      void loadArtifacts(project.id, true)
+      await loadArtifacts(project.id, true)
     },
     [loadArtifacts],
   )
@@ -1636,7 +1665,9 @@ export default function DesignView({
           toast.error(t("pet.navigation.unavailable", "This conversation is no longer available."))
           return
         }
-        if (activeProjectRef.current?.id !== project.id) openProject(project)
+        if (activeProjectRef.current?.id !== project.id) {
+          await openProject(project)
+        }
         setChatOpen(true)
         setPendingPetThreadFocus({
           projectId: project.id,
@@ -1658,11 +1689,52 @@ export default function DesignView({
   }, [onPetFocusHandled, openArtifact, openProject, petFocus, t, tx])
 
   const backToHome = useCallback(() => {
+    activeProjectRef.current = null
+    activeArtifactRef.current = null
     setActiveProject(null)
     setActiveArtifact(null)
     setArtifacts([])
     void loadProjects()
   }, [loadProjects])
+
+  useEffect(() => {
+    if (!windowNavigation || lastWindowNavigationNonceRef.current === windowNavigation.nonce) {
+      return
+    }
+    lastWindowNavigationNonceRef.current = windowNavigation.nonce
+    const { projectId, artifactId } = windowNavigation.location
+    if (!projectId) {
+      backToHome()
+      return
+    }
+
+    void (async () => {
+      try {
+        const project = await tx.call<DesignProject | null>("get_design_project_cmd", {
+          id: projectId,
+        })
+        if (!project) return
+        if (activeProjectRef.current?.id !== project.id) {
+          await openProject(project)
+        } else {
+          activeProjectRef.current = project
+          setActiveProject(project)
+        }
+        if (!artifactId || activeArtifactRef.current?.id === artifactId) return
+        const artifact = await tx.call<DesignArtifact | null>("get_design_artifact_cmd", {
+          id: artifactId,
+        })
+        if (artifact) await openArtifact(artifact)
+      } catch (error) {
+        logger.error(
+          "design",
+          "DesignView::windowNavigation",
+          "navigate detached design window failed",
+          error,
+        )
+      }
+    })()
+  }, [backToHome, openArtifact, openProject, tx, windowNavigation])
 
   // 批量删项目（LaunchHome 内已二次确认；此处 settle-all + 汇总提示 + 重载）。
   const batchDeleteProjects = useCallback(
@@ -2547,6 +2619,7 @@ export default function DesignView({
   }, [activeArtifactId])
   // Cmd/Ctrl+Z 撤销 / Cmd/Ctrl+Shift+Z 重做——但焦点在输入框 / contenteditable 时让位原生撤销。
   useEffect(() => {
+    if (!isViewVisible) return
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return
       // 画框批注期 Cmd/Ctrl+Z 归叠层自己的 mark undo（其监听后注册、无法阻断本 window sibling
@@ -2561,7 +2634,7 @@ export default function DesignView({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [undo, redo])
+  }, [isViewVisible, undo, redo])
 
   // P1-E 键盘体系（宿主聚焦时）：Escape 分级退出 + Cmd/Ctrl+[ ] 切上/下一个产物。镜像 ref 让监听器
   // 不随 state 反复重挂。
@@ -2579,6 +2652,7 @@ export default function DesignView({
     activeChipRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
   }, [activeArtifactId])
   useEffect(() => {
+    if (!isViewVisible) return
     const onKey = (e: KeyboardEvent) => {
       const ae = document.activeElement as HTMLElement | null
       const inField =
@@ -2657,7 +2731,7 @@ export default function DesignView({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [postToIframe, openArtifact])
+  }, [isViewVisible, postToIframe, openArtifact])
 
   // ── B5：链接 / 图片属性编辑 ──
   const handleLiveAttr = useCallback(
@@ -4043,6 +4117,7 @@ export default function DesignView({
   // padding 的盒），frame 里再 `-32` 取内容区。deps 含 showGrid —— 产物墙开关会卸载/重挂预览面，不带
   // 它则监听绑在旧的已卸载节点、paneSize 停更（切产物才自愈）。
   useLayoutEffect(() => {
+    if (!isViewVisible) return
     const el = previewPaneRef.current
     if (!el) return
     const measure = () => setPaneSize({ w: el.clientWidth, h: el.clientHeight })
@@ -4051,11 +4126,12 @@ export default function DesignView({
     const ro = new ResizeObserver(() => measure())
     ro.observe(el)
     return () => ro.disconnect()
-  }, [activeArtifactId, showGrid])
+  }, [activeArtifactId, isViewVisible, showGrid])
   // 父层原生 wheel 监听（预览面 padding 区，光标不在 iframe 上时）：Ctrl·⌘+滚轮 = 缩放。
   // 必须 passive:false 才能 preventDefault 掉 webview 的整页缩放；iframe 上方的手势另由注入桥
   // 转发 ds_zoom（跨源事件不冒泡到父层）。按产物 id 重挂（面随产物条件渲染）。
   useEffect(() => {
+    if (!isViewVisible) return
     const el = previewPaneRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
@@ -4065,24 +4141,24 @@ export default function DesignView({
     }
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
-  }, [activeArtifactId, showGrid])
+  }, [activeArtifactId, isViewVisible, showGrid])
   // Present（本标签无 chrome）：Escape 退出。
   useEffect(() => {
-    if (!presentMode) return
+    if (!isViewVisible || !presentMode) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) exitPresentMode()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [exitPresentMode, presentMode])
+  }, [exitPresentMode, isViewVisible, presentMode])
   useEffect(() => {
-    if (!presentMode) return
+    if (!isViewVisible || !presentMode) return
     const onFullscreenChange = () => {
       if (!document.fullscreenElement) exitPresentMode()
     }
     document.addEventListener("fullscreenchange", onFullscreenChange)
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange)
-  }, [exitPresentMode, presentMode])
+  }, [exitPresentMode, isViewVisible, presentMode])
   // 演讲者备注：随打开产物解析 metadata 同步。
   useEffect(() => {
     setPresenterNotes(parsePresenterNotes(activeArtifact?.metadata))
@@ -4093,9 +4169,10 @@ export default function DesignView({
       setPresentElapsed(0)
       return
     }
+    if (!isViewVisible) return
     const id = window.setInterval(() => setPresentElapsed((s) => s + 1), 1000)
     return () => window.clearInterval(id)
-  }, [presentMode])
+  }, [isViewVisible, presentMode])
   const savePresenterNote = useCallback(
     (slideIndex: number, text: string) => {
       const aid = activeArtifactRef.current?.id
@@ -4643,7 +4720,10 @@ export default function DesignView({
     <div className="flex flex-1 min-h-0 min-w-0 flex-col bg-background">
       {/* Header */}
       <header
-        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
+        className={cn(
+          "flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3",
+          windowMode === "detached" && usesSpaceWindowOverlayTitleBar() && "pl-28",
+        )}
         data-tauri-drag-region
       >
         {activeProject ? (
@@ -4652,13 +4732,7 @@ export default function DesignView({
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </IconTip>
-        ) : (
-          <IconTip label={t("common.back", "返回")} side="bottom">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </IconTip>
-        )}
+        ) : null}
         {activeProject && (
           <IconTip
             label={chatOpen ? t("design.chat.hide", "隐藏对话") : t("design.chat.show", "显示对话")}
@@ -4711,7 +4785,36 @@ export default function DesignView({
             {activeProject ? activeProject.title : t("design.title", "设计空间")}
           </span>
         )}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="min-w-4 flex-1 self-stretch" data-tauri-drag-region />
+        <div className="flex items-center gap-1">
+          {onToggleWindowMode && (
+            <IconTip
+              label={
+                windowMode === "detached"
+                  ? t("fileBrowser.reattach", "收回主窗口")
+                  : t("fileBrowser.openInWindow", "在独立窗口打开")
+              }
+              side="bottom"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() =>
+                  onToggleWindowMode({
+                    projectId: activeProject?.id ?? null,
+                    artifactId: activeArtifact?.id ?? null,
+                  })
+                }
+              >
+                {windowMode === "detached" ? (
+                  <WindowModeIcon action="reattach" className="h-4 w-4" />
+                ) : (
+                  <WindowModeIcon action="detach" className="h-4 w-4" />
+                )}
+              </Button>
+            </IconTip>
+          )}
           {activeProject && (
             <>
               <Button
@@ -4977,7 +5080,7 @@ export default function DesignView({
           )}
           <IconTip label={t("common.settings", "设置")} side="bottom">
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onOpenSettings}>
-              <Settings2 className="h-4 w-4" />
+              <Settings className="h-4 w-4" />
             </Button>
           </IconTip>
         </div>
@@ -5081,7 +5184,7 @@ export default function DesignView({
                   resolveArtifactTitle={(id) => artifacts.find((a) => a.id === id)?.title ?? null}
                   recipes={recipes}
                   kindLabel={(k) => kindLabel(k as ArtifactKind)}
-                  active
+                  active={isViewVisible && chatOpen}
                 />
               )}
             </div>
@@ -6100,7 +6203,7 @@ export default function DesignView({
                             <DesignDrawOverlay
                               key={`${activeArtifact.id}-${previewKey}`}
                               busy={drawBusy}
-                              suspended={presentMode}
+                              suspended={!isViewVisible || presentMode}
                               onExit={() => setDrawMode(false)}
                               onSubmit={handleDrawSubmit}
                               onWheelScroll={forwardScrollToIframe}

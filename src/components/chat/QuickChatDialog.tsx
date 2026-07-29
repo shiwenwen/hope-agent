@@ -7,6 +7,7 @@ import { X, Plus, ChevronDown, Bot, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 import ChatInput from "@/components/chat/ChatInput"
 import MessageList from "@/components/chat/MessageList"
@@ -32,6 +33,8 @@ export default function QuickChatDialog({
   onNavigateToSession,
 }: QuickChatDialogProps) {
   const { t } = useTranslation()
+  const portalScope = usePortalScope()
+  const portalActive = portalScope?.active
   const session = useQuickChatSession(open)
   const agentMenuRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -65,7 +68,7 @@ export default function QuickChatDialog({
   const inputHistory = useMemo(() => recentUserInputHistory(session.messages), [session.messages])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || portalActive === false) return
     let cancelled = false
     getTransport()
       .call<QuickPromptConfig>("get_quick_prompt_config")
@@ -78,7 +81,7 @@ export default function QuickChatDialog({
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, portalActive])
 
   const handleAddQuickPrompt = useCallback(
     async (content: string) => {
@@ -185,7 +188,7 @@ export default function QuickChatDialog({
     [onOpenChange, onNavigateToSession],
   )
 
-  if (!open) return null
+  if (!open || (portalScope && !portalScope.active)) return null
 
   const currentAgent = session.agents.find((a) => a.id === session.currentAgentId)
 
@@ -353,7 +356,7 @@ export default function QuickChatDialog({
         </div>
       </div>
     </div>,
-    document.body,
+    portalScope?.container ?? document.body,
   )
 }
 

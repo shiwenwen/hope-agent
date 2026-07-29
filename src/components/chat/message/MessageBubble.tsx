@@ -89,10 +89,7 @@ import {
   requestMemoryFocus,
   type MemoryFocusTarget,
 } from "@/components/settings/memory-panel/memoryFocus"
-import {
-  requestKnowledgeFocus,
-  type KnowledgeFocusTarget,
-} from "@/components/knowledge/knowledgeFocus"
+import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
 import {
   memoryKindLabel,
   memoryTraceErrorDescription,
@@ -239,7 +236,7 @@ export interface MessageBubbleProps {
   editHasFileMutations?: boolean
   onEditAndResend?: (message: Message, content: string) => Promise<void>
   onOpenMemorySettings?: () => void
-  onOpenKnowledge?: () => void
+  onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
   displayMode?: ChatDisplayMode
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
@@ -726,7 +723,7 @@ function ActiveMemoryTrace({
   usedMemoryRefs?: UsedMemoryRef[]
   retrievalPlanner?: RetrievalPlannerTrace
   onOpenMemorySettings?: () => void
-  onOpenKnowledge?: () => void
+  onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
 }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
@@ -1164,8 +1161,7 @@ function ActiveMemoryTrace({
                             onClick={(e) => {
                               e.stopPropagation()
                               if (knowledgeTarget && onOpenKnowledge) {
-                                requestKnowledgeFocus(knowledgeTarget)
-                                onOpenKnowledge()
+                                onOpenKnowledge(knowledgeTarget)
                                 return
                               }
                               if (focusTarget && onOpenMemorySettings) {

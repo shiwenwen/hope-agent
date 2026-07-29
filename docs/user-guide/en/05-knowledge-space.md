@@ -10,6 +10,10 @@ It differs from the [Memory](04-memory.md) system: memory is one-sentence facts,
 
 **Entry point**: the "Knowledge Space" item in the sidebar (in the top-level navigation).
 
+**Switching and separate windows**: Knowledge Space is a top-level workspace, so its home page has no Back button; use the sidebar to switch destinations in the main window. Switching from Knowledge Space to Chat or another workspace does not unmount it. Returning restores the same knowledge base, note, editor content, and panel state. In the desktop app, right-click the sidebar icon and choose "Open in a separate window," double-click the icon, or use the separate-window button in the title bar. Once detached, clicking the sidebar icon focuses the existing window; "Reattach" in its title bar brings the current knowledge base and note back into the main window.
+
+If the current note or a new-note draft has not been saved, detaching, reattaching, or clicking the detached window's system close button first offers **Save / Discard / Cancel**. Editing content is never discarded silently.
+
 **In this chapter**
 
 - [5.1 Creating a knowledge space](#51-creating-a-knowledge-space)

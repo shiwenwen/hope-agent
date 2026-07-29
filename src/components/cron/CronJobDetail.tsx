@@ -50,6 +50,10 @@ interface CronJobDetailProps {
   /** Agent roster for message-bubble identities, fetched once by the parent
    *  (job-independent) so row-switch remounts don't refetch it. */
   agents: AgentSummaryForSidebar[]
+  /** App-level visibility; returning to the persistent view refreshes run data. */
+  isViewVisible?: boolean
+  /** True only while this transcript is actually visible in the focused app window. */
+  isSurfaceReadable?: boolean
   onBack: () => void
   onEdit: (job: CronJob) => void
   onDelete: (job: CronJob) => void
@@ -62,6 +66,8 @@ interface CronJobDetailProps {
 export default function CronJobDetail({
   jobId,
   agents,
+  isViewVisible = true,
+  isSurfaceReadable = true,
   onBack,
   onEdit,
   onDelete,
@@ -85,7 +91,12 @@ export default function CronJobDetail({
   const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [loopState, setLoopState] = useState<LoopState | null>(null)
+  const [viewerRefreshKey, setViewerRefreshKey] = useState(0)
   const pendingReadSessionIdRef = useRef<string | null>(null)
+  const loadedSessionIdRef = useRef<string | null>(null)
+  const wasViewVisibleRef = useRef(isViewVisible)
+  const surfaceReadableRef = useRef(isSurfaceReadable)
+  surfaceReadableRef.current = isSurfaceReadable
   const markingSessionIdsRef = useRef(new Set<string>())
 
   const markRunRead = useCallback((sessionId: string) => {
@@ -103,27 +114,44 @@ export default function CronJobDetail({
       .finally(() => markingSessionIdsRef.current.delete(sessionId))
   }, [])
 
+  const markPendingRunReadIfReady = useCallback(() => {
+    const pendingSessionId = pendingReadSessionIdRef.current
+    if (
+      !surfaceReadableRef.current ||
+      !pendingSessionId ||
+      loadedSessionIdRef.current !== pendingSessionId
+    ) {
+      return
+    }
+    pendingReadSessionIdRef.current = null
+    markRunRead(pendingSessionId)
+  }, [markRunRead])
+
+  useEffect(() => {
+    markPendingRunReadIfReady()
+  }, [isSurfaceReadable, markPendingRunReadIfReady])
+
   const handleRunSelect = useCallback(
     (log: CronRunLog) => {
       if (!log.sessionId) return
       setSelectedLogId(log.id)
+      pendingReadSessionIdRef.current = log.sessionId
       if (log.sessionId === selectedSessionId) {
-        markRunRead(log.sessionId)
+        markPendingRunReadIfReady()
         return
       }
-      pendingReadSessionIdRef.current = log.sessionId
+      loadedSessionIdRef.current = null
       setSelectedSessionId(log.sessionId)
     },
-    [markRunRead, selectedSessionId],
+    [markPendingRunReadIfReady, selectedSessionId],
   )
 
   const handleViewerLoaded = useCallback(
     (sessionId: string) => {
-      if (pendingReadSessionIdRef.current !== sessionId) return
-      pendingReadSessionIdRef.current = null
-      markRunRead(sessionId)
+      loadedSessionIdRef.current = sessionId
+      markPendingRunReadIfReady()
     },
-    [markRunRead],
+    [markPendingRunReadIfReady],
   )
 
   const handleArchiveRun = useCallback(
@@ -199,11 +227,21 @@ export default function CronJobDetail({
     setSelectedSessionId(null)
     setSelectedLogId(null)
     pendingReadSessionIdRef.current = null
+    loadedSessionIdRef.current = null
     setDetailsOpen(false)
     setLoopState(null)
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId])
+
+  useEffect(() => {
+    const becameVisible = isViewVisible && !wasViewVisibleRef.current
+    wasViewVisibleRef.current = isViewVisible
+    if (!becameVisible) return
+    setViewerRefreshKey((current) => current + 1)
+    void fetchData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isViewVisible])
 
   // Default to the most recent run that has a session, so opening the detail
   // immediately shows its conversation; never overrides an explicit selection.
@@ -733,7 +771,7 @@ export default function CronJobDetail({
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background">
           {selectedSessionId ? (
             <CronSessionViewer
-              key={selectedSessionId}
+              key={`${selectedSessionId}:${viewerRefreshKey}`}
               sessionId={selectedSessionId}
               agents={agents}
               onLoaded={handleViewerLoaded}

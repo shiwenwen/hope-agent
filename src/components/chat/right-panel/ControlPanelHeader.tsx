@@ -1,7 +1,8 @@
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { PictureInPicture2, RefreshCw, X } from "lucide-react"
+import { RefreshCw, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import { IconTip } from "@/components/ui/tooltip"
 
 interface ControlPanelHeaderProps {
@@ -30,25 +31,13 @@ export function ControlPanelHeader({
       {badge}
       {onFloat && (
         <IconTip label={t("chat.controlPanel.floatWindow")}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={onFloat}
-          >
-            <PictureInPicture2 className="h-3.5 w-3.5" />
+          <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onFloat}>
+            <WindowModeIcon action="detach" className="h-3.5 w-3.5" />
           </Button>
         </IconTip>
       )}
       <IconTip label={t("chat.browserPanel.refresh")}>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
-          onClick={onRefresh}
-        >
+        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onRefresh}>
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </IconTip>

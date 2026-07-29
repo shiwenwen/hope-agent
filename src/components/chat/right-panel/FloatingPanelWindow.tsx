@@ -1,9 +1,10 @@
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { PanelRight, X } from "lucide-react"
+import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import { useFloatingWindow, type ResizeEdge } from "@/hooks/useFloatingWindow"
 
 const RESIZE_EDGES: Array<{ edge: ResizeEdge; className: string }> = [
@@ -82,7 +83,7 @@ export function FloatingPanelWindow({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={onDock}
           >
-            <PanelRight className="h-3 w-3" />
+            <WindowModeIcon action="reattach" className="h-3 w-3" />
           </Button>
         </IconTip>
         <IconTip label={t("chat.browserPanel.close")}>

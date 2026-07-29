@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   Archive,
   ArchiveRestore,
-  ArrowLeft,
   Check,
   ChevronDown,
   ChevronRight,
@@ -71,6 +70,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
+import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
 import { useFileResource } from "@/components/chat/files/useFileResource"
@@ -78,6 +78,14 @@ import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 import { logger } from "@/lib/logger"
 import { isTauriMode, parsePayload } from "@/lib/transport"
 import { useTransport } from "@/lib/transport-provider"
+import {
+  usesSpaceWindowOverlayTitleBar,
+  type KnowledgeSpaceLocation,
+  type SpaceKnowledgeFocusRequest,
+  type SpaceNavigationRequest,
+  type SpaceWindowAction,
+  type SpaceWindowActionRequest,
+} from "@/lib/spaceWindow"
 import { cn } from "@/lib/utils"
 import type {
   KnowledgeExternalRawSyncMode,
@@ -125,9 +133,18 @@ import {
 } from "./knowledgeViewFeedback"
 
 interface KnowledgeViewProps {
-  onBack: () => void
+  /** 顶层侧边栏当前是否正在展示知识空间；组件本身会跨视图常驻。 */
+  isViewVisible: boolean
   /** Jump to Settings → Knowledge (embedding / retrieval config). */
   onOpenSettings?: () => void
+  windowMode?: "docked" | "detached"
+  windowNavigation?: SpaceNavigationRequest<KnowledgeSpaceLocation> | null
+  knowledgeFocus?: SpaceKnowledgeFocusRequest | null
+  onKnowledgeFocusHandled?: (nonce: number) => void
+  windowActionRequest?: SpaceWindowActionRequest | null
+  onWindowLocationChange?: (location: KnowledgeSpaceLocation) => void
+  onWindowActionReady?: (action: SpaceWindowAction, location: KnowledgeSpaceLocation) => void
+  onToggleWindowMode?: (location: KnowledgeSpaceLocation) => void
   petFocus?: {
     target: Extract<PetNavigationTarget, { kind: "knowledge" }>
     nonce: number
@@ -193,8 +210,16 @@ function readStoredWidth(key: string, def: number, min: number, max: number): nu
 }
 
 export default function KnowledgeView({
-  onBack,
+  isViewVisible,
   onOpenSettings,
+  windowMode = "docked",
+  windowNavigation,
+  knowledgeFocus,
+  onKnowledgeFocusHandled,
+  windowActionRequest,
+  onWindowLocationChange,
+  onWindowActionReady,
+  onToggleWindowMode,
   petFocus,
   onPetFocusHandled,
 }: KnowledgeViewProps) {
@@ -226,9 +251,18 @@ export default function KnowledgeView({
   const [dirs, setDirs] = useState<string[]>([])
   const [kbTags, setKbTags] = useState<string[]>([])
   const [openPath, setOpenPath] = useState<string | null>(null)
+  const currentWindowLocationRef = useRef<KnowledgeSpaceLocation>({ kbId: null, path: null })
+  currentWindowLocationRef.current = { kbId: activeKbId, path: openPath }
   const [pendingKnowledgeFocus, setPendingKnowledgeFocus] = useState<KnowledgeFocusTarget | null>(
     null,
   )
+  const lastWindowNavigationNonceRef = useRef<number | null>(null)
+  const lastKnowledgeFocusNonceRef = useRef<number | null>(null)
+  const lastWindowActionNonceRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    onWindowLocationChange?.({ kbId: activeKbId, path: openPath })
+  }, [activeKbId, onWindowLocationChange, openPath])
   // Which KB the open note / draft belongs to — guards against the active KB
   // being repicked (archive/delete/external) out from under the editor.
   const [openKbId, setOpenKbId] = useState<string | null>(null)
@@ -645,6 +679,7 @@ export default function KnowledgeView({
         setNoteData(data)
         setEditorValue(data.content)
         setBaseHash(data.contentHash)
+        currentWindowLocationRef.current = { kbId, path }
         setOpenPath(path)
         setOpenKbId(kbId)
         setDirty(false)
@@ -757,6 +792,13 @@ export default function KnowledgeView({
   }, [])
 
   useEffect(() => {
+    if (!knowledgeFocus || lastKnowledgeFocusNonceRef.current === knowledgeFocus.nonce) return
+    lastKnowledgeFocusNonceRef.current = knowledgeFocus.nonce
+    setPendingKnowledgeFocus(knowledgeFocus.target)
+    onKnowledgeFocusHandled?.(knowledgeFocus.nonce)
+  }, [knowledgeFocus, onKnowledgeFocusHandled])
+
+  useEffect(() => {
     if (!petFocus || lastPetFocusNonceRef.current === petFocus.nonce) return
     lastPetFocusNonceRef.current = petFocus.nonce
     setPendingKnowledgeFocus({
@@ -768,13 +810,13 @@ export default function KnowledgeView({
   }, [petFocus])
 
   useEffect(() => {
-    if (!pendingChatThreadFocus || rightMode !== "chat" || rightCollapsed) return
+    if (!isViewVisible || !pendingChatThreadFocus || rightMode !== "chat" || rightCollapsed) return
     const panel = chatPanelRef.current
     if (!panel) return
     panel.focusThread(pendingChatThreadFocus.sessionId)
     onPetFocusHandled?.(pendingChatThreadFocus.nonce)
     setPendingChatThreadFocus(null)
-  }, [onPetFocusHandled, pendingChatThreadFocus, rightCollapsed, rightMode])
+  }, [isViewVisible, onPetFocusHandled, pendingChatThreadFocus, rightCollapsed, rightMode])
 
   useEffect(() => {
     // Clear the previous KB's tree immediately so we never render KB-A's notes/
@@ -1539,6 +1581,7 @@ export default function KnowledgeView({
   // ⌘S / Ctrl+S saves the draft or the open note (intercepts the webview's
   // default "save page" so it never bubbles out of the Knowledge view).
   useEffect(() => {
+    if (!isViewVisible) return
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "s") return
       e.preventDefault()
@@ -1548,7 +1591,17 @@ export default function KnowledgeView({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [namePromptOpen, draftMode, saveDraft, openPath, noteData, dirty, readOnly, handleSave])
+  }, [
+    isViewVisible,
+    namePromptOpen,
+    draftMode,
+    saveDraft,
+    openPath,
+    noteData,
+    dirty,
+    readOnly,
+    handleSave,
+  ])
 
   // ── Unsaved-changes guard (plain closures over current state) ──
   const hasUnsaved = draftMode
@@ -1582,6 +1635,41 @@ export default function KnowledgeView({
     },
     [hasUnsaved],
   )
+
+  useEffect(() => {
+    if (!windowActionRequest || lastWindowActionNonceRef.current === windowActionRequest.nonce) {
+      return
+    }
+    lastWindowActionNonceRef.current = windowActionRequest.nonce
+    guardNavigation(() => {
+      onWindowActionReady?.(windowActionRequest.action, currentWindowLocationRef.current)
+    })
+  }, [guardNavigation, onWindowActionReady, windowActionRequest])
+
+  useEffect(() => {
+    if (!windowNavigation || lastWindowNavigationNonceRef.current === windowNavigation.nonce) {
+      return
+    }
+    lastWindowNavigationNonceRef.current = windowNavigation.nonce
+    const { kbId, path } = windowNavigation.location
+    if (kbId && path) {
+      setPendingKnowledgeFocus({ kbId, path })
+      return
+    }
+    guardNavigation(() => {
+      setActiveKbId(kbId)
+      setOpenPath(null)
+      setOpenKbId(null)
+      setNoteData(null)
+      setEditorValue("")
+      setBaseHash(null)
+      setDirty(false)
+      setDraftMode(false)
+      setTitleEditing(false)
+      setHits([])
+      setQuery("")
+    })
+  }, [guardNavigation, windowNavigation])
 
   useEffect(() => {
     if (!pendingKnowledgeFocus) return
@@ -2031,19 +2119,12 @@ export default function KnowledgeView({
     <div className="flex flex-1 min-h-0 min-w-0 flex-col bg-background">
       {/* Header */}
       <div
-        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
+        className={cn(
+          "flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3",
+          windowMode === "detached" && usesSpaceWindowOverlayTitleBar() && "pl-28",
+        )}
         data-tauri-drag-region
       >
-        <IconTip label={t("common.back", "Back")} side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => guardNavigation(onBack)}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </IconTip>
         <IconTip
           label={
             leftCollapsed
@@ -2103,6 +2184,31 @@ export default function KnowledgeView({
         {/* Right cluster — shrink-0 so it's never clipped; the search input above
             absorbs window shrinkage instead. */}
         <div className="flex shrink-0 items-center gap-2">
+          {onToggleWindowMode && (
+            <IconTip
+              label={
+                windowMode === "detached"
+                  ? t("fileBrowser.reattach", "Reattach")
+                  : t("fileBrowser.openInWindow", "Open in a separate window")
+              }
+              side="bottom"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() =>
+                  guardNavigation(() => onToggleWindowMode(currentWindowLocationRef.current))
+                }
+              >
+                {windowMode === "detached" ? (
+                  <WindowModeIcon action="reattach" className="h-4 w-4" />
+                ) : (
+                  <WindowModeIcon action="detach" className="h-4 w-4" />
+                )}
+              </Button>
+            </IconTip>
+          )}
           {onOpenSettings && <KnowledgeEmbeddingBadge onOpenSettings={onOpenSettings} />}
           {onOpenSettings && (
             <IconTip label={t("knowledge.openSettings", "Knowledge space settings")} side="bottom">
@@ -2746,7 +2852,7 @@ export default function KnowledgeView({
                   >
                     <KnowledgeChatPanel
                       ref={chatPanelRef}
-                      active={rightMode === "chat" && !rightCollapsed}
+                      active={isViewVisible && rightMode === "chat" && !rightCollapsed}
                       kbId={openKbId ?? activeKbId}
                       notePath={openPath}
                       getEditorValue={getEditorValue}

@@ -41,7 +41,15 @@ function useRelativeTime() {
  * jobs. Left = a newest-first timeline (cron_run_timeline, paginated); right =
  * the selected run's conversation rendered read-only via CronSessionViewer.
  */
-export default function CronConversationsPanel() {
+interface CronConversationsPanelProps {
+  isViewVisible?: boolean
+  isSurfaceReadable?: boolean
+}
+
+export default function CronConversationsPanel({
+  isViewVisible = true,
+  isSurfaceReadable = isViewVisible,
+}: CronConversationsPanelProps = {}) {
   const { t } = useTranslation()
   const relativeTime = useRelativeTime()
 
@@ -59,6 +67,9 @@ export default function CronConversationsPanel() {
   const markResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const markingSessionIdsRef = useRef(new Set<string>())
   const pendingReadSessionIdRef = useRef<string | null>(null)
+  const loadedSessionIdRef = useRef<string | null>(null)
+  const surfaceReadableRef = useRef(isSurfaceReadable)
+  surfaceReadableRef.current = isSurfaceReadable
 
   const fetchPage = useCallback(async (pageOffset: number) => {
     const page = await getTransport().call<CronTimelineRow[]>("cron_run_timeline", {
@@ -70,6 +81,7 @@ export default function CronConversationsPanel() {
 
   // Initial load (timeline + agents for message bubbles).
   useEffect(() => {
+    if (!isViewVisible) return
     let cancelled = false
     setLoading(true)
     Promise.all([
@@ -99,7 +111,7 @@ export default function CronConversationsPanel() {
     return () => {
       cancelled = true
     }
-  }, [fetchPage])
+  }, [fetchPage, isViewVisible])
 
   // Keep the timeline live while open: when a cron run completes, refresh the
   // first page so the new run shows up at the top (mirrors CronCalendarView,
@@ -107,6 +119,7 @@ export default function CronConversationsPanel() {
   // new runs sort newest-first; the selected conversation on the right is keyed
   // by sessionId and is unaffected.
   useEffect(() => {
+    if (!isViewVisible) return
     const unlisten = getTransport().listen("cron:run_completed", () => {
       fetchPage(0)
         .then((page) => {
@@ -117,7 +130,7 @@ export default function CronConversationsPanel() {
         .catch(() => {})
     })
     return unlisten
-  }, [fetchPage])
+  }, [fetchPage, isViewVisible])
 
   useEffect(() => {
     return () => {
@@ -144,6 +157,23 @@ export default function CronConversationsPanel() {
       })
       .finally(() => markingSessionIdsRef.current.delete(sessionId))
   }, [])
+
+  const markPendingRunReadIfReady = useCallback(() => {
+    const pendingSessionId = pendingReadSessionIdRef.current
+    if (
+      !surfaceReadableRef.current ||
+      !pendingSessionId ||
+      loadedSessionIdRef.current !== pendingSessionId
+    ) {
+      return
+    }
+    pendingReadSessionIdRef.current = null
+    markRunRead(pendingSessionId)
+  }, [markRunRead])
+
+  useEffect(() => {
+    markPendingRunReadIfReady()
+  }, [isSurfaceReadable, markPendingRunReadIfReady])
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return
@@ -179,25 +209,25 @@ export default function CronConversationsPanel() {
   const handleSelect = useCallback(
     (row: CronTimelineRow) => {
       setSelectedRunLogId(row.runLogId)
+      pendingReadSessionIdRef.current = row.sessionId
       if (row.sessionId === selectedSessionId) {
         // The default-selected transcript may already be loaded; an explicit row
         // click is sufficient user intent even when no remount will occur.
-        markRunRead(row.sessionId)
+        markPendingRunReadIfReady()
         return
       }
-      pendingReadSessionIdRef.current = row.sessionId
+      loadedSessionIdRef.current = null
       setSelectedSessionId(row.sessionId)
     },
-    [markRunRead, selectedSessionId],
+    [markPendingRunReadIfReady, selectedSessionId],
   )
 
   const handleViewerLoaded = useCallback(
     (sessionId: string) => {
-      if (pendingReadSessionIdRef.current !== sessionId) return
-      pendingReadSessionIdRef.current = null
-      markRunRead(sessionId)
+      loadedSessionIdRef.current = sessionId
+      markPendingRunReadIfReady()
     },
-    [markRunRead],
+    [markPendingRunReadIfReady],
   )
 
   const handleArchive = useCallback(

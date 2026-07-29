@@ -539,7 +539,11 @@ owner/GUI 生成走**真 token 流式**——边生成边成形预览，而非�
 
 ### 9.3 侧边栏入口
 
-在 [`IconSidebar.tsx`](../../src/components/common/IconSidebar.tsx) 的「知识空间」入口**正下方**插入「设计空间」入口（lucide 图标，建议 `Palette` / `Shapes` / `PenTool`，`t("design.title")`，`view === "design"` 高亮，`onClick={onOpenDesign}`）。同步 `App.tsx` 的 `view` 联合、`lazy` import、渲染分支、`onOpenDesign` prop。
+[`IconSidebar.tsx`](../../src/components/common/IconSidebar.tsx) 的「设计空间」入口位于「知识空间」正下方。主窗口里的 `DesignView` 属于 `PERSISTENT_APP_VIEWS`：首次访问才挂载，切去其他侧边栏入口只隐藏并设 `inert`，不得卸载；`isViewVisible` 门控快捷键 / 焦点 / 高成本副作用，返回时保留项目、当前产物、已打开标签和布局。
+
+桌面版入口支持三条等价弹出路径：右键图标选择「在独立窗口打开」、双击图标、工作区标题栏按钮。三者都走 [`spaceWindow.ts`](../../src/lib/spaceWindow.ts) 的固定 label 单实例窗口，当前位置载荷为 `{projectId, artifactId}`；已有窗口时只导航 / 聚焦，不创建第二个。独立窗口标题栏「收回主窗口」经 `SPACE_WINDOW_REATTACH_EVENT` 把当前位置交还主 `DesignView` 后关闭。普通点击侧边栏图标时，若独立窗口仍在则聚焦窗口；窗口已失效才回退主窗口视图。
+
+设计空间首页是一级落点，不显示返回按钮；进入项目后才显示「返回项目列表」。标题栏的弹出 / 收回使用 Lucide 原生配对的 `SquareArrowRightExit` / `SquareArrowRightEnter`，tooltip 同步区分动作，不用 CSS 旋转伪造反向图标。macOS 独立窗口的同一行标题栏从交通灯右侧开始，剩余伸缩区显式标记 `data-tauri-drag-region`。
 
 ### 9.4 每项目 AI 对话线程
 

@@ -4,6 +4,8 @@ The Design Space lets you collaborate with AI to **turn a single sentence or a r
 
 **Entry point**: "Design Space" in the sidebar (right below "Knowledge Space").
 
+**Switching and separate windows**: Design Space is a top-level workspace, so its home page has no Back button; a Back-to-projects button appears only after you enter a project. Switching from Design Space to Chat or another workspace in the main window does not unmount it. Returning restores the same project, artifact, open tabs, and workspace layout. In the desktop app, right-click the sidebar icon and choose "Open in a separate window," double-click the icon, or use the separate-window button in the workspace title bar. Once detached, clicking the sidebar icon focuses the existing window; "Reattach" in its title bar brings the current project and artifact back into the main window.
+
 **In this chapter**
 
 - [6.1 Supported artifact types](#61-supported-artifact-types)
