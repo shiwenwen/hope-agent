@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **设计空间设备预览新增主流机型与自定义视口**:桌面、平板和手机改为分组选择器,内置 iPad、Surface、iPhone、Pixel 与 Galaxy 等常用 CSS 逻辑尺寸;自定义模式支持直接输入宽高,或拖动预览框右边、底边和右下角,选择与尺寸按产物记忆。拖拽期间会固定起始显示缩放并锚定左上边,避免居中适配导致手柄与指针脱节。 (#568)
+
 ## [0.25.0] - 2026-07-28
 
 ### Fixed

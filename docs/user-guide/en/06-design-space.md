@@ -63,7 +63,7 @@ Generation is **truly streaming**, taking shape in the preview as it generates. 
 - **Artifact library (thumbnail wall)**: a thumbnail wall of all artifacts, viewable across projects or within a project. Thumbnails are the artifact's real static preview (no scripts run, no lag).
 - **Tab bar**: the top of the workspace lists only the artifacts you've "opened"; tabs can be closed (just removed from view, the file is not deleted), double-clicked to rename, and dragged to reorder. True **permanent deletion** lives in the right-click menu and the artifact library wall (irreversible).
 - **Folder grouping**: artifacts can be sorted into folders, with drag-to-move and rename support (deleting a folder only returns its artifacts to the root—it does not delete them).
-- **Device preview**: switch among `Auto / Desktop / Tablet / Phone` viewports; there is also a full-screen "presentation mode".
+- **Device preview**: the device selector groups desktop, tablet, and phone presets, with mainstream iPad, Surface, iPhone, Pixel, and Galaxy models and their CSS logical viewport sizes. Choose **Custom** to enter a width and height or drag the preview's right edge, bottom edge, or bottom-right corner just like Chrome DevTools; the selected device and custom dimensions are remembered per artifact. **Auto** continues to use the artifact's natural size, and the workspace also provides a full-screen presentation mode.
 
 ---
 
