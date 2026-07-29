@@ -8,7 +8,7 @@
 
 | 模式 | 用户入口 | 前端通信 | 后端入口 | 说明 |
 | --- | --- | --- | --- | --- |
-| Tauri 桌面 GUI | `pnpm tauri dev` / 桌面 App | `TauriTransport` | `src-tauri` 命令薄壳 | React 运行在 Tauri WebView 中，请求走 `invoke()`，流式聊天主路径走 Tauri `Channel<string>`。 |
+| Tauri 桌面 GUI | `pnpm dev:desktop` / 桌面 App | `TauriTransport` | `src-tauri` 命令薄壳 | React 运行在 Tauri WebView 中，请求走 `invoke()`，流式聊天主路径走 Tauri `Channel<string>`。 |
 | HTTP/WS server Web GUI | `hope-agent server start` + 浏览器 | `HttpTransport` | `ha-server` axum 路由 | 请求走 REST，后端事件和聊天流走 `/ws/events`。内嵌 Web GUI 和远程浏览器使用同一套路径。 |
 | ACP stdio | `hope-agent acp` | 不经过前端 `Transport` | `ha-core::acp` | IDE/外部客户端通过 ACP NDJSON over stdio 直连核心协议，不加载 React，也不使用 `src/lib/transport.ts`。 |
 

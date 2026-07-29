@@ -280,7 +280,12 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 ## 开发命令
 
 ```bash
-pnpm tauri dev                        # 开发（改 ha-browser-host 后先 pnpm dev:browser-host）
+pnpm desktop                          # 交互选择下面四种桌面开发模式
+pnpm dev:desktop                      # 默认桌面开发（不构建 Browser Host / Eval Sidecar）
+pnpm dev:desktop:browser              # Chrome 插件联调（仅构建 Browser Host）
+pnpm dev:desktop:eval                 # 评测功能开发（仅构建 Eval Sidecar）
+pnpm dev:desktop:full                 # 完整桌面能力（构建两者）
+pnpm tauri dev                        # 兼容旧入口（等价于完整能力，构建两者）
 node scripts/sync-i18n.mjs --check    # 翻译缺失（--apply 补齐）
 cargo run -p ha-eval --locked -- validate   # 评测资产校验
 ```

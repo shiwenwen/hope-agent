@@ -53,8 +53,10 @@ pnpm install
 cargo check --workspace    # 建议先跑一次，首次编译依赖较多会慢几分钟
 
 # 开发模式（前端热重载 + Tauri 窗口）
-pnpm tauri dev
+pnpm dev:desktop
 ```
+
+也可以运行 `pnpm desktop` 交互选择模式。需要直接指定时，Chrome 插件或评测功能分别使用 `pnpm dev:desktop:browser`、`pnpm dev:desktop:eval`；两者都需要时用 `pnpm dev:desktop:full`。
 
 ### 常见坑
 
