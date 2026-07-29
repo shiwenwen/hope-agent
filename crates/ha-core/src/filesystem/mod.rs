@@ -85,7 +85,7 @@ mod workspace;
 
 pub use git::{git_info, GitBranchInfo, GitBranchKind, GitDirtySummary, GitInfo, WorktreeInfo};
 /// 二进制探测 bytes 版（NUL 或非 UTF-8 前 8 KiB）——design 回灌快照/diff 与文件浏览器同口径。
-pub(crate) use ops::looks_binary_bytes;
+pub use ops::looks_binary_bytes;
 pub use ops::{
     extract_abs, project_claim_upload, project_delete, project_fs_extract, project_list_dir,
     project_mkdir, project_read_text, project_rename, project_upload, project_upload_file,

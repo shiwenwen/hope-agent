@@ -856,7 +856,7 @@ pub async fn chat(
     // design thread anchored to the open project (mirrors the KB branch above).
     if new_session_created.is_some() && tool_scope.as_deref() == Some("design") {
         if let Some(project_id) = design_project_id.as_deref() {
-            ha_core::design::service::mark_session_as_design_thread(&sid, project_id);
+            ha_design::design::service::mark_session_as_design_thread(&sid, project_id);
         }
     }
 

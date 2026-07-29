@@ -46,7 +46,7 @@ fn kind_guidance(kind: ArtifactKind) -> String {
 /// 再按字节安全截断（不切碎 UTF-8）。三反引号间插零宽字符使其无法闭合围栏。
 fn neutralize_fences(s: &str, max_bytes: usize) -> String {
     let safe = s.replace("```", "`\u{200b}`\u{200b}`");
-    crate::truncate_utf8(&safe, max_bytes).to_string()
+    ha_core::truncate_utf8(&safe, max_bytes).to_string()
 }
 
 /// 解析该轮生成用的 KIND-SPECIFIC GUIDANCE：
@@ -213,10 +213,10 @@ fn strip_trailing_partial_marker(buf: &str) -> &str {
 
 /// 把参考图 `(b64, mime)` 列表构成视觉附件（`run_vision` 的 attachments）；选中的视觉模型
 /// 同时看全部原图生成。多图时按序命名，便于模型区分。
-fn reference_attachments(refs: &[(&str, &str)]) -> Vec<crate::agent::Attachment> {
+fn reference_attachments(refs: &[(&str, &str)]) -> Vec<ha_core::agent::Attachment> {
     refs.iter()
         .enumerate()
-        .map(|(i, (b64, mime))| crate::agent::Attachment {
+        .map(|(i, (b64, mime))| ha_core::agent::Attachment {
             name: format!("reference-image-{}", i + 1),
             mime_type: mime.to_string(),
             source: None,
@@ -239,7 +239,7 @@ pub async fn generate_design_parts(
     tokens: &BTreeMap<String, String>,
     recipe_id: Option<&str>,
     reference_images: &[(&str, &str)],
-    model_override: Option<crate::provider::ActiveModel>,
+    model_override: Option<ha_core::provider::ActiveModel>,
 ) -> Result<ArtifactParts> {
     let mut prompt = build_generation_prompt(brief, kind, system_md, tokens, recipe_id)?;
     if !reference_images.is_empty() {
@@ -247,13 +247,13 @@ pub async fn generate_design_parts(
     }
     // 16000：一个完整网页 / 多页 deck / dashboard 的 HTML+CSS 很占 token，预算不足会截断。
     let text = if !reference_images.is_empty() {
-        let config = crate::config::cached_config();
+        let config = ha_core::config::cached_config();
         let chain = match model_override {
             Some(m) => vec![m],
-            None => crate::automation::effective_chain(&config, None),
+            None => ha_core::automation::effective_chain(&config, None),
         };
         let attachments = reference_attachments(reference_images);
-        crate::automation::run_vision(crate::automation::VisionTaskSpec {
+        ha_core::automation::run_vision(ha_core::automation::VisionTaskSpec {
             purpose: "design.generate",
             chain,
             session_key: "automation:design.generate",
@@ -265,7 +265,7 @@ pub async fn generate_design_parts(
         .await?
         .text
     } else if let Some(m) = model_override {
-        crate::automation::run(crate::automation::ModelTaskSpec {
+        ha_core::automation::run(ha_core::automation::ModelTaskSpec {
             purpose: "design.generate",
             chain: vec![m],
             session_key: "automation:design.generate",
@@ -366,7 +366,7 @@ pub async fn stream_design_parts(
     tokens: &BTreeMap<String, String>,
     recipe_id: Option<&str>,
     reference_images: &[(&str, &str)],
-    model_override: Option<crate::provider::ActiveModel>,
+    model_override: Option<ha_core::provider::ActiveModel>,
     cancel: &Arc<AtomicBool>,
     on_snapshot: &(dyn Fn(&ArtifactParts) + Send + Sync),
 ) -> Result<ArtifactParts> {
@@ -374,10 +374,10 @@ pub async fn stream_design_parts(
     if !reference_images.is_empty() {
         prompt.push_str(REFERENCE_IMAGE_GUIDANCE);
     }
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let chain = match model_override {
         Some(m) => vec![m],
-        None => crate::automation::effective_chain(&config, None),
+        None => ha_core::automation::effective_chain(&config, None),
     };
     if chain.is_empty() {
         anyhow::bail!(
@@ -414,8 +414,8 @@ pub async fn stream_design_parts(
     let out = if !reference_images.is_empty() {
         // 真多模态：全部原图作附件随请求上行，选中的视觉模型直接看图生成。
         let attachments = reference_attachments(reference_images);
-        crate::automation::run_vision_streaming(
-            crate::automation::VisionTaskSpec {
+        ha_core::automation::run_vision_streaming(
+            ha_core::automation::VisionTaskSpec {
                 purpose: "design.stream",
                 chain,
                 session_key: "automation:design.stream",
@@ -429,8 +429,8 @@ pub async fn stream_design_parts(
         )
         .await?
     } else {
-        crate::automation::run_streaming(
-            crate::automation::ModelTaskSpec {
+        ha_core::automation::run_streaming(
+            ha_core::automation::ModelTaskSpec {
                 purpose: "design.stream",
                 chain,
                 session_key: "automation:design.stream",

@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use super::db::{DesignDb, DesignSystemMeta};
-use crate::paths;
-use crate::platform::write_atomic;
+use ha_core::paths;
+use ha_core::platform::write_atomic;
 
 /// 完整设计系统（含正文 + token）。
 #[derive(Debug, Clone, Serialize)]
@@ -52,7 +52,7 @@ pub fn write_assets(id: &str, assets: &DesignAssets) -> Result<()> {
     }
     let dir = paths::design_system_dir(id)?;
     std::fs::create_dir_all(&dir).ok();
-    crate::platform::write_atomic(
+    ha_core::platform::write_atomic(
         &dir.join("assets.json"),
         serde_json::to_string(assets)?.as_bytes(),
     )

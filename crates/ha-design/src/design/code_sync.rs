@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use super::db::{DesignArtifact, DesignDb, DesignImplementReceipt};
 use super::service::get_design_db;
-use crate::session::{SessionDB, SessionMessage};
+use ha_core::session::{SessionDB, SessionMessage};
 
 /// 单文件 gzip 快照上限（原文字节）；超限或二进制不存快照（仍标 stale，UI 降级不出内嵌 diff）。
 const SNAPSHOT_MAX: usize = 512 * 1024;
@@ -39,7 +39,7 @@ fn now() -> String {
 }
 
 fn emit(event: &str, payload: Value) {
-    if let Some(bus) = crate::globals::get_event_bus() {
+    if let Some(bus) = ha_core::globals::get_event_bus() {
         bus.emit(event, payload);
     }
 }
@@ -101,7 +101,7 @@ pub(crate) fn create_receipt_for_implement(
     code_dir: &str,
 ) -> Result<()> {
     let db = get_design_db()?;
-    let base_revision = crate::git_control::repository_revision(Path::new(code_dir)).ok();
+    let base_revision = ha_core::git_control::repository_revision(Path::new(code_dir)).ok();
     let r = DesignImplementReceipt {
         id: uuid::Uuid::new_v4().to_string(),
         artifact_id: artifact_id.to_string(),
@@ -276,7 +276,7 @@ fn read_and_snapshot(
         match std::fs::read(&path) {
             // 与文件浏览器同口径判二进制（NUL 或非 UTF-8）——非 UTF-8（如 GBK/Latin-1 源码）不存
             // 快照，否则 diff 回放 `from_utf8_lossy` 会出 U+FFFD 乱码。
-            Ok(bytes) if !crate::filesystem::looks_binary_bytes(&bytes) => gzip(&bytes).ok(),
+            Ok(bytes) if !ha_core::filesystem::looks_binary_bytes(&bytes) => gzip(&bytes).ok(),
             _ => None,
         }
     } else {
@@ -291,7 +291,7 @@ fn harvest_receipt(db: &DesignDb, sdb: &SessionDB, r: &DesignImplementReceipt) -
     if sdb.get_session(&r.session_id)?.is_none() {
         if db.count_links_for_receipt(&r.id)? == 0 {
             db.delete_receipt(&r.id)?;
-            crate::app_warn!(
+            ha_core::app_warn!(
                 "design",
                 "code_sync",
                 "implement session {} gone with no harvested files; dropped receipt {}",
@@ -338,7 +338,7 @@ fn harvest_receipt(db: &DesignDb, sdb: &SessionDB, r: &DesignImplementReceipt) -
                         // 瞬时读失败（权限 / 锁）——不推进游标越过本行，下次收割重试，避免把「读失败」
                         // 误当「文件不存在」而永久漏建 link。代价：极少数**永久**不可读的中段文件会
                         // 把本回执后续收割卡住（有 warn 可诊断），远好于静默丢追踪。
-                        crate::app_warn!(
+                        ha_core::app_warn!(
                             "design",
                             "code_sync",
                             "harvest read failed for {} in receipt {}: {}; holding cursor",
@@ -485,11 +485,11 @@ pub fn check_code_drift(
     }
 
     let mut any_new = false;
-    if let Some(sdb) = crate::globals::get_session_db() {
+    if let Some(sdb) = ha_core::globals::get_session_db() {
         for r in &receipts {
             match harvest_receipt(db, sdb, r) {
                 Ok(new) => any_new |= new,
-                Err(e) => crate::app_warn!(
+                Err(e) => ha_core::app_warn!(
                     "design",
                     "code_sync",
                     "harvest receipt {} failed: {}",
@@ -536,11 +536,11 @@ pub(crate) fn check_drift_for_dir(code_dir: &str) -> Result<()> {
         .into_iter()
         .map(|(_proj, art, _rel)| art)
         .collect();
-    if let Some(sdb) = crate::globals::get_session_db() {
+    if let Some(sdb) = ha_core::globals::get_session_db() {
         for aid in &artifacts {
             for r in &db.list_receipts_for_artifact(aid)? {
                 if let Err(e) = harvest_receipt(db, sdb, r) {
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "design",
                         "code_sync",
                         "watcher harvest receipt {} failed: {}",
@@ -595,7 +595,7 @@ pub struct CodeDriftChanges {
 
 /// 查看代码变更 + 组「带到对话」quote pack。
 pub fn drift_changes(artifact_id: &str) -> Result<CodeDriftChanges> {
-    use crate::tools::diff_util::{compute_line_delta, detect_language, truncate_for_metadata};
+    use ha_core::tools::diff_util::{compute_line_delta, detect_language, truncate_for_metadata};
     let db = get_design_db()?;
     let links = db.list_links_for_artifact(artifact_id)?;
     let mut by_path: BTreeMap<String, (i64, String, String)> = BTreeMap::new(); // rel → (link id, code_dir, hash)
@@ -639,7 +639,7 @@ pub fn drift_changes(artifact_id: &str) -> Result<CodeDriftChanges> {
                 };
                 // 非文本（二进制 / 非 UTF-8 如 GBK）：不做 lossy 文本 diff（会出 U+FFFD 乱码），出
                 // before/after 皆空的占位——DiffPanel 与写工具二进制约定同款渲染。
-                if crate::filesystem::looks_binary_bytes(&bytes) {
+                if ha_core::filesystem::looks_binary_bytes(&bytes) {
                     files.push(DriftFileChange {
                         kind: "file_change".to_string(),
                         path: rel.clone(),
@@ -680,7 +680,7 @@ pub fn drift_changes(artifact_id: &str) -> Result<CodeDriftChanges> {
                     truncated: bt || at || read_trunc,
                 });
                 if total < DRIFT_QUOTE_TOTAL_MAX {
-                    let snippet = crate::util::truncate_utf8(&after_raw, DRIFT_QUOTE_FILE_MAX);
+                    let snippet = ha_core::util::truncate_utf8(&after_raw, DRIFT_QUOTE_FILE_MAX);
                     let block = format!("## {rel} [modified]\n{snippet}\n\n");
                     total += block.len();
                     quote.push_str(&block);
@@ -769,7 +769,7 @@ pub fn mark_synced(artifact_id: &str) -> Result<DesignArtifact> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::MessageRole;
+    use ha_core::session::MessageRole;
 
     fn msg_meta(id: i64, meta: Option<&str>) -> SessionMessage {
         SessionMessage {

@@ -130,7 +130,7 @@ pub async fn canvas_submit_snapshot(
     data_url: Option<String>,
     error: Option<String>,
 ) -> Result<(), String> {
-    ha_core::tools::canvas::canvas_submit_snapshot(request_id, data_url, error).await
+    ha_design::tool_canvas::canvas_submit_snapshot(request_id, data_url, error).await
 }
 
 #[tauri::command]
@@ -139,46 +139,46 @@ pub async fn canvas_submit_eval_result(
     result: Option<String>,
     error: Option<String>,
 ) -> Result<(), String> {
-    ha_core::tools::canvas::canvas_submit_eval_result(request_id, result, error).await
+    ha_design::tool_canvas::canvas_submit_eval_result(request_id, result, error).await
 }
 
 #[tauri::command]
-pub async fn get_canvas_config() -> Result<ha_core::tools::canvas::CanvasConfig, String> {
-    ha_core::tools::canvas::get_canvas_config().await
+pub async fn get_canvas_config() -> Result<ha_design::tool_canvas::CanvasConfig, String> {
+    ha_design::tool_canvas::get_canvas_config().await
 }
 
 #[tauri::command]
 pub async fn save_canvas_config(
-    config: ha_core::tools::canvas::CanvasConfig,
+    config: ha_design::tool_canvas::CanvasConfig,
 ) -> Result<(), String> {
-    ha_core::tools::canvas::save_canvas_config(config).await
+    ha_design::tool_canvas::save_canvas_config(config).await
 }
 
 #[tauri::command]
 pub async fn list_canvas_projects() -> Result<String, String> {
-    ha_core::tools::canvas::list_canvas_projects().await
+    ha_design::tool_canvas::list_canvas_projects().await
 }
 
 #[tauri::command]
 pub async fn list_canvas_projects_by_session(
     session_id: String,
-) -> Result<Vec<ha_core::tools::canvas::CanvasProjectView>, String> {
-    ha_core::tools::canvas::list_canvas_projects_by_session(session_id).await
+) -> Result<Vec<ha_design::tool_canvas::CanvasProjectView>, String> {
+    ha_design::tool_canvas::list_canvas_projects_by_session(session_id).await
 }
 
 #[tauri::command]
 pub async fn get_canvas_project(project_id: String) -> Result<String, String> {
-    ha_core::tools::canvas::get_canvas_project(project_id).await
+    ha_design::tool_canvas::get_canvas_project(project_id).await
 }
 
 #[tauri::command]
 pub async fn delete_canvas_project(project_id: String) -> Result<(), String> {
-    ha_core::tools::canvas::delete_canvas_project(project_id).await
+    ha_design::tool_canvas::delete_canvas_project(project_id).await
 }
 
 #[tauri::command]
 pub async fn show_canvas_panel(project_id: String) -> Result<(), String> {
-    ha_core::tools::canvas::show_canvas_panel(project_id).await
+    ha_design::tool_canvas::show_canvas_panel(project_id).await
 }
 
 // ── Artifacts ────────────────────────────────────────────────────

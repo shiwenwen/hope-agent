@@ -387,6 +387,7 @@ fn runtime_eval_db() -> Result<Arc<SessionDB>> {
     ha_weather::wire();
     ha_acp::wire();
     ha_mac::wire();
+    ha_design::wire();
     ha_core::init_runtime("eval");
     ha_core::get_session_db()
         .cloned()

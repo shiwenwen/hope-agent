@@ -27,7 +27,7 @@ pub struct CloudflareConfig {
 }
 
 fn cf_config_path() -> Result<std::path::PathBuf> {
-    Ok(crate::paths::credentials_dir()?.join("cloudflare.json"))
+    Ok(ha_core::paths::credentials_dir()?.join("cloudflare.json"))
 }
 
 pub fn load_cf_config() -> Result<Option<CloudflareConfig>> {
@@ -53,9 +53,9 @@ pub fn save_cf_config(api_token: &str, account_id: &str) -> Result<()> {
         account_id: account_id.trim().to_string(),
     };
     let bytes = serde_json::to_vec_pretty(&cfg)?;
-    crate::platform::write_secure_file(&cf_config_path()?, &bytes)
+    ha_core::platform::write_secure_file(&cf_config_path()?, &bytes)
         .map_err(|e| anyhow!("write cloudflare.json: {e}"))?;
-    crate::app_info!("design", "deploy", "saved cloudflare deploy config");
+    ha_core::app_info!("design", "deploy", "saved cloudflare deploy config");
     Ok(())
 }
 
@@ -120,9 +120,9 @@ fn asset_hash(b64: &str, ext: &str) -> String {
 
 /// 出站前 SSRF：**只放行 `api.cloudflare.com`**（Strict = 公网 only，再叠 host allowlist）。
 async fn guard(url: &str) -> Result<()> {
-    crate::security::ssrf::check_url(
+    ha_core::security::ssrf::check_url(
         url,
-        crate::security::ssrf::SsrfPolicy::Strict,
+        ha_core::security::ssrf::SsrfPolicy::Strict,
         &[CF_HOST.to_string()],
     )
     .await
@@ -184,7 +184,7 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
     let hash = asset_hash(&b64, ".html");
 
     let http = client()?;
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "deploy",
         "deploying artifact {artifact_id} to CF project {name}"
@@ -297,7 +297,7 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("https://{name}.pages.dev"));
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "deploy",
         "deployed artifact {artifact_id} -> {url}"
@@ -309,7 +309,7 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
         &url,
         &chrono::Utc::now().to_rfc3339(),
     ) {
-        crate::app_warn!("design", "deploy", "record deployment history failed: {e}");
+        ha_core::app_warn!("design", "deploy", "record deployment history failed: {e}");
     }
     Ok(url)
 }
@@ -330,7 +330,7 @@ pub struct DeployReadiness {
 /// （放行公网、拦私网 / 环回 / 元数据），**不复用部署出站的 Strict + API allowlist**。
 /// 网络层错误（DNS 未生效 / 连接被拒）不算硬失败——回 not-ready 让前端继续轮询。
 pub async fn probe_deploy_ready(url: &str) -> Result<DeployReadiness> {
-    crate::security::ssrf::check_url(url, crate::security::ssrf::SsrfPolicy::Default, &[])
+    ha_core::security::ssrf::check_url(url, ha_core::security::ssrf::SsrfPolicy::Default, &[])
         .await
         .with_context(|| format!("SSRF check failed for {url}"))?;
     // **不跟随跳转（红线）**：`check_url` 只校验首个 URL；若跟随默认 10 跳，一个公网 URL 可
@@ -489,7 +489,7 @@ pub async fn bind_custom_domain(artifact_id: &str, domain: &str) -> Result<Custo
         .await
         .context("bind custom domain")?;
     let result = cf_json(resp, "bind custom domain").await?;
-    crate::app_info!("design", "deploy", "bound custom domain {domain} to {name}");
+    ha_core::app_info!("design", "deploy", "bound custom domain {domain} to {name}");
     Ok(parse_domain(&result, domain))
 }
 

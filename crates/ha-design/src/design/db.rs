@@ -50,7 +50,7 @@ pub struct DesignProject {
     /// 项目对话的初始模型（首页生成时由所选模型写入）。弱引用：provider / 模型
     /// 已删则前端回退 agent 缺省；只作对话初始值，会话内切换不回写。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_model: Option<crate::provider::ActiveModel>,
+    pub default_model: Option<ha_core::provider::ActiveModel>,
     /// 代码仓库绑定源之一：本机目录（canonical 绝对路径）。与 `ha_project_id`
     /// 互斥；解析单一入口 `service::resolve_code_dir`（本列 > HA 项目派生）。
     #[serde(default, skip_serializing_if = "Option::is_none")]

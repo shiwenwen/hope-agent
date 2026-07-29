@@ -345,6 +345,7 @@ crates/
   ha-config-schema/  AppConfig 配置 wire 类型（纯数据定义）
   ha-core/           Rust 核心库（零 Tauri 依赖）— kernel 与大部分业务逻辑
   ha-acp/            ACP 特征 crate（stdio server 模式 + 外部 agent 控制面）
+  ha-design/         设计空间特征 crate（artifacts 存储 + 编译/导出 + 三工具）
   ha-mac/            macOS 控制特征 crate（Accessibility / 截屏 / mac_control 工具）
   ha-updater/        自升级特征 crate（依赖 ha-core，壳层 wire() 装配）
   ha-weather/        天气特征 crate（依赖 ha-core，壳层 wire() 装配）
@@ -373,7 +374,7 @@ skills/          内置技能（随应用发行）
 ```bash
 pnpm tauri dev                    # 桌面开发
 cargo check --workspace              # Rust 依赖 / 类型检查
-cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-mac -p ha-updater -p ha-weather -p ha-server   # 核心测试
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-design -p ha-mac -p ha-updater -p ha-weather -p ha-server   # 核心测试
 node scripts/sync-i18n.mjs --check   # 检查翻译缺失
 ```
 

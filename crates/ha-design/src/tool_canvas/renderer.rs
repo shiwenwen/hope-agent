@@ -333,14 +333,14 @@ pub fn write_project_files(
 
     let index_html = render_project_page(content_type, html, css, js, content, language);
 
-    crate::platform::write_atomic(&project_dir.join("index.html"), index_html.as_bytes())?;
+    ha_core::platform::write_atomic(&project_dir.join("index.html"), index_html.as_bytes())?;
 
     // Also save raw source files for reference / version tracking
     if let Some(css_content) = css {
-        crate::platform::write_atomic(&project_dir.join("style.css"), css_content.as_bytes())?;
+        ha_core::platform::write_atomic(&project_dir.join("style.css"), css_content.as_bytes())?;
     }
     if let Some(js_content) = js {
-        crate::platform::write_atomic(&project_dir.join("script.js"), js_content.as_bytes())?;
+        ha_core::platform::write_atomic(&project_dir.join("script.js"), js_content.as_bytes())?;
     }
     if let Some(text_content) = content {
         let ext = match content_type {
@@ -351,7 +351,7 @@ pub fn write_project_files(
             "code" => language.unwrap_or("txt"),
             _ => "txt",
         };
-        crate::platform::write_atomic(
+        ha_core::platform::write_atomic(
             &project_dir.join(format!("content.{}", ext)),
             text_content.as_bytes(),
         )?;

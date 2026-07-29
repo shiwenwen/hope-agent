@@ -12,7 +12,7 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
 use super::service;
-use crate::mcp_server::{McpCtx, ToolDef, ToolProvider};
+use ha_core::mcp_server::{McpCtx, ToolDef, ToolProvider};
 
 /// generating 壳超时判定阈值（与 `reconcile_orphaned_generating` 的 600s grace 对齐）。
 const GENERATING_STALE_SECS: i64 = 600;
@@ -57,7 +57,7 @@ impl ToolProvider for DesignToolProvider {
     }
 
     fn enabled(&self) -> bool {
-        crate::config::cached_config().design.enabled
+        ha_core::config::cached_config().design.enabled
     }
 
     fn instructions(&self) -> Option<&'static str> {

@@ -39,7 +39,7 @@ pub trait ToolProvider: Send + Sync {
 
 工具名前缀约定 `<provider>_`（如 `design_list_projects`）；`enabled()` 双面 fail-closed（disabled 时 tools/list 无 + tools/call 拒）。
 
-## 4. design provider（`crates/ha-core/src/design/mcp_provider.rs`）
+## 4. design provider（`crates/ha-design/src/design/mcp_provider.rs`）
 
 全部薄包 `crate::design::service`（owner 平面），与 HTTP / Tauri 平级复用、零新逻辑。`enabled()` 读 `cached_config().design.enabled`。
 

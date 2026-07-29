@@ -253,6 +253,20 @@ fn emit_unread_changed(session_id: Option<&str>, domain: Option<UnreadDomain>) {
 }
 
 impl SessionDB {
+    /// 锁内闭包连接访问——**crate 内部专用**（design_threads 等 kernel
+    /// 模块的类型化方法实现体）。不对特征 crate 暴露：核心库 schema 不做
+    /// 跨 crate 隐式 API，特征侧一律走类型化方法。
+    pub(crate) fn with_conn_internal<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> anyhow::Result<R>,
+    ) -> anyhow::Result<R> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        f(&conn)
+    }
+
     /// Emit the usual unread invalidation after an assistant row was committed
     /// by a transaction implemented outside `append_message`.
     pub(crate) fn notify_assistant_persisted(&self, session_id: &str) {
@@ -4867,7 +4881,7 @@ impl SessionDB {
     /// messages must not vanish on close.
     pub fn update_session_incognito(&self, session_id: &str, incognito: bool) -> Result<()> {
         let _artifact_privacy_guard = incognito
-            .then(crate::artifacts::lock_privacy_transition)
+            .then(crate::session::privacy::lock_privacy_transition)
             .transpose()?;
         if incognito {
             let meta = self
@@ -4925,7 +4939,16 @@ impl SessionDB {
                 ));
             }
             drop(conn);
-            if crate::artifacts::ArtifactService::open()?.has_for_session(session_id)? {
+            // 特征 crate 钩子——**fail-closed**（incognito 红线）：未 wire 时
+            // 无法验证 durable Artifact 存在性，拒绝开启而不是放行（漏接线
+            // 的二进制静默放行 = 关闭即焚后 design.db 残留孤儿数据）。
+            let Some(hooks) = crate::session::design_hooks::design_session_hooks() else {
+                return Err(anyhow::anyhow!(
+                    "design feature not wired (ha_design::wire() missing in this binary); \
+                     refusing to enable incognito — durable-Artifact guard unavailable"
+                ));
+            };
+            if (hooks.has_durable_artifacts)(session_id)? {
                 return Err(anyhow::anyhow!(
                     "Cannot enable incognito while session has durable Artifacts"
                 ));
@@ -9579,7 +9602,7 @@ fn highlighted_search_snippet(text: &str, query: &str, context_chars: usize) -> 
 }
 
 /// Sanitize query for FTS5 MATCH: wrap each token in double quotes for exact matching.
-pub(crate) fn sanitize_fts_query(query: &str) -> String {
+pub fn sanitize_fts_query(query: &str) -> String {
     let tokens: Vec<String> = query
         .split_whitespace()
         .filter(|t| !t.is_empty())

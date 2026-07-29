@@ -324,7 +324,7 @@ CLI 直接消费或路径相关的环境变量。完整跨子系统列表分散�
 | `node scripts/sync-i18n.mjs --check`       | 检查各语言翻译缺失                                       | [`scripts/sync-i18n.mjs`](../../scripts/sync-i18n.mjs)               |
 | `node scripts/sync-i18n.mjs --apply`       | 从基础语言补齐缺失翻译                                   | 同上                                                                 |
 
-提交前自查脚本（[`AGENTS.md`](../../AGENTS.md) 强制）由 [`.husky/pre-push`](../../.husky/pre-push) 钩子在 `git push` 时跑：`cargo fmt --all --check`、`cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings`、`cargo test -p ha-core -p ha-server --locked`、`pnpm typecheck`、`pnpm lint`、`pnpm test`。
+提交前自查脚本（[`AGENTS.md`](../../AGENTS.md) 强制）由 [`.husky/pre-push`](../../.husky/pre-push) 钩子在 `git push` 时跑：`cargo fmt --all --check`、clippy / cargo test（覆盖全部非 Tauri Rust crate——kernel 四个 + 阶段 3 特征 crate，精确清单以 [.husky/pre-push](../../.husky/pre-push) 为单一真相源，新增 crate 只改那里）、`pnpm typecheck`、`pnpm lint`、`pnpm test`。
 
 ## 已知边界
 

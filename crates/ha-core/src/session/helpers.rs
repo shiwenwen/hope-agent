@@ -573,8 +573,11 @@ pub fn effective_working_dir_for_meta(meta: &SessionMeta) -> Option<String> {
     // 无绑定则继续走下面的 project 分支（通常 None → 无工作目录段）。design 库句柄缓存，
     // 非设计会话经 kind 短路零成本（review F3/F5/F6：拆事件拷贝、改实时派生）。
     if meta.kind == crate::session::SessionKind::Design {
-        if let Some(dir) = crate::design::service::session_bound_code_dir(&meta.id) {
-            return Some(dir);
+        // 特征 crate 钩子（未 wire＝无绑定，走下方 project 分支）。
+        if let Some(hooks) = crate::session::design_hooks::design_session_hooks() {
+            if let Some(dir) = (hooks.bound_code_dir)(&meta.id) {
+                return Some(dir);
+            }
         }
     }
     let pid = meta.project_id.as_deref()?;

@@ -207,7 +207,7 @@ match，而是查表：
 
 **外部注册者**（特征 crate，壳二进制在 `init_runtime` 前调 `<crate>::wire()`
 ——src-tauri main 与 mobile entry / hope-agent-server / ha-eval runner 四处）：
-`ha-updater` 的 `app_update`、`ha-weather` 的 `get_weather`、`ha-acp` 的 `acp_spawn`、`ha-mac` 的 `mac_control`。
+`ha-updater` 的 `app_update`、`ha-weather` 的 `get_weather`、`ha-acp` 的 `acp_spawn`、`ha-mac` 的 `mac_control`、`ha-design` 的 `design` / `canvas` / `artifact`。
 `freeze_now` 的反向守卫对「有 `ToolDefinition` 无 handler」记 warn（症状＝二进制
 忘调某特征 crate 的 `wire()`：schema 照常广告、dispatch 报 Unknown tool）。
 
@@ -392,7 +392,7 @@ Path-aware 工具统一使用 `ToolExecContext` 解析默认路径：显式绝�
 |------|------|------|
 | `canvas` | 条件注入, internal | 在沙箱预览面板创建/管理可视化项目。`action`：`create` / `update` / `show` / `hide` / `snapshot`（截图当前渲染状态供模型分析）/ `eval_js`（执行 JS）/ `list` / `delete` / `versions` / `restore` / `export`。`content_type`：`html` / `markdown` / `code` / `svg` / `mermaid` / `chart`（Chart.js）/ `slides`。支持 `html` / `css` / `js` / `content` / `language` / `version_id` / `version_message` / 导出 `format`（`html`/`markdown`/`png`）。Plan Mode 默认禁用（在 `PLAN_MODE_DENIED_TOOLS`）。 |
 
-持久化：[`crates/ha-core/src/canvas_db.rs`](../../crates/ha-core/src/canvas_db.rs)（`Versions` 表 + `restore` 走版本历史）。
+持久化：[`crates/ha-design/src/canvas_db.rs`](../../crates/ha-design/src/canvas_db.rs)（`Versions` 表 + `restore` 走版本历史）。
 
 ### 14. 桌面集成
 

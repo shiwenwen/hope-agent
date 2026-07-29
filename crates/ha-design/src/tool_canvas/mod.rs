@@ -2,8 +2,8 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::canvas_db::{CanvasDB, CanvasProject};
-use crate::paths;
-use crate::tools::browser::IMAGE_BASE64_PREFIX;
+use ha_core::paths;
+use ha_core::tools::browser::IMAGE_BASE64_PREFIX;
 
 pub(crate) mod project;
 pub(crate) mod renderer;
@@ -16,7 +16,7 @@ pub use ha_config_schema::tools::canvas::CanvasConfig;
 /// Check if canvas is enabled in config.
 #[allow(dead_code)]
 pub fn is_canvas_enabled() -> bool {
-    crate::config::cached_config().canvas.enabled
+    ha_core::config::cached_config().canvas.enabled
 }
 
 // ── Helper: get or init canvas DB ──────────────────────────────────
@@ -33,7 +33,7 @@ pub(crate) fn get_canvas_db() -> Result<CanvasDB> {
 // ── Helper: emit canvas events ─────────────────────────────────────
 
 pub(crate) fn emit_canvas_event(event_name: &str, payload: &Value) {
-    if let Some(bus) = crate::globals::get_event_bus() {
+    if let Some(bus) = ha_core::globals::get_event_bus() {
         bus.emit(event_name, payload.clone());
     }
 }
@@ -66,7 +66,7 @@ fn build_show_payload(
 
 pub(crate) async fn tool_canvas(
     args: &Value,
-    ctx: &super::execution::ToolExecContext,
+    ctx: &ha_core::tools::ToolExecContext,
 ) -> Result<String> {
     let action = args
         .get("action")
@@ -101,7 +101,7 @@ pub(crate) async fn tool_canvas(
 
 // ── Actions ────────────────────────────────────────────────────────
 
-async fn action_create(args: &Value, ctx: &super::execution::ToolExecContext) -> Result<String> {
+async fn action_create(args: &Value, ctx: &ha_core::tools::ToolExecContext) -> Result<String> {
     let db = get_canvas_db()?;
 
     let title = args.get("title").and_then(|v| v.as_str());
@@ -138,7 +138,7 @@ async fn action_create(args: &Value, ctx: &super::execution::ToolExecContext) ->
     );
 
     // Emit show event so frontend opens the panel
-    if crate::config::cached_config().canvas.auto_show {
+    if ha_core::config::cached_config().canvas.auto_show {
         emit_canvas_event(
             "canvas_show",
             &build_show_payload(
@@ -177,7 +177,7 @@ async fn action_update(args: &Value) -> Result<String> {
     let language = args.get("language").and_then(|v| v.as_str());
     let version_message = args.get("version_message").and_then(|v| v.as_str());
 
-    let max_versions = crate::config::cached_config()
+    let max_versions = ha_core::config::cached_config()
         .canvas
         .max_versions_per_project;
 
@@ -607,13 +607,13 @@ pub async fn canvas_submit_eval_result(
 }
 
 pub async fn get_canvas_config() -> Result<CanvasConfig, String> {
-    Ok(crate::config::cached_config().canvas.clone())
+    Ok(ha_core::config::cached_config().canvas.clone())
 }
 
 pub async fn save_canvas_config(config: CanvasConfig) -> Result<(), String> {
-    let mut store = crate::config::load_config().map_err(|e| e.to_string())?;
+    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
     store.canvas = config;
-    crate::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 pub async fn list_canvas_projects() -> Result<String, String> {

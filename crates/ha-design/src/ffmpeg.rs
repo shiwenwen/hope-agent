@@ -4,7 +4,7 @@
 //! works out of the box instead of silently degrading to the lower-fidelity
 //! client-side WebCodecs encoder.
 //!
-//! Mirrors [`crate::browser::runtime`] (Chromium on-demand fetch): same trust
+//! Mirrors [`ha_core::browser::runtime`] (Chromium on-demand fetch): same trust
 //! model — HTTPS from a fixed static-build host + SSRF check + zip extract +
 //! `-version` smoke test + ready marker. No hash pin (consistent with the
 //! Chromium runtime, which also trusts HTTPS + fixed host + smoke test).
@@ -20,7 +20,7 @@ use futures_util::StreamExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::paths;
+use ha_core::paths;
 
 const READY_MARKER: &str = ".hope-agent-ready";
 
@@ -186,7 +186,7 @@ pub async fn doctor() -> FfmpegStatus {
 async fn path_ffmpeg_works() -> bool {
     let mut cmd = tokio::process::Command::new("ffmpeg");
     cmd.arg("-version").kill_on_drop(true);
-    crate::platform::hide_console_tokio(&mut cmd);
+    ha_core::platform::hide_console_tokio(&mut cmd);
     matches!(cmd.output().await, Ok(o) if o.status.success())
 }
 
@@ -205,7 +205,7 @@ pub async fn install_with_event_bus_progress() -> Result<PathBuf> {
         let prev = progress_last_percent.load(Ordering::Relaxed);
         if prev == u64::MAX || (report_pct != u64::MAX && report_pct != prev) {
             progress_last_percent.store(report_pct, Ordering::Relaxed);
-            if let Some(bus) = crate::globals::EVENT_BUS.get() {
+            if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
                 bus.emit(
                     PROGRESS_EVENT,
                     serde_json::json!({
@@ -219,7 +219,7 @@ pub async fn install_with_event_bus_progress() -> Result<PathBuf> {
         }
     };
     let binary = ensure_ffmpeg(progress).await?;
-    if let Some(bus) = crate::globals::EVENT_BUS.get() {
+    if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
         bus.emit(
             PROGRESS_EVENT,
             serde_json::json!({
@@ -260,8 +260,9 @@ where
 
     // SSRF: fixed static-build host; the default outbound policy lets it
     // through, but stay consistent with every other outbound call.
-    let ssrf_cfg = &crate::config::cached_config().ssrf;
-    crate::security::ssrf::check_url(spec.url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts).await?;
+    let ssrf_cfg = &ha_core::config::cached_config().ssrf;
+    ha_core::security::ssrf::check_url(spec.url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
+        .await?;
 
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -348,7 +349,7 @@ async fn download_archive<F>(url: &str, dest: &Path, progress: &F) -> Result<()>
 where
     F: Fn(u64, Option<u64>) + Send + Sync,
 {
-    let client = crate::provider::apply_proxy_for_url(reqwest::Client::builder(), url).build()?;
+    let client = ha_core::provider::apply_proxy_for_url(reqwest::Client::builder(), url).build()?;
     let mut attempt: u32 = 0;
     loop {
         attempt += 1;
@@ -368,7 +369,7 @@ where
                     )));
                 }
                 let backoff = Duration::from_secs(1u64 << (attempt - 1));
-                crate::app_warn!(
+                ha_core::app_warn!(
                     "design",
                     "ffmpeg",
                     "download attempt {}/{} for {} failed ({}); retrying in {}s (resume from {} bytes)",
@@ -579,7 +580,7 @@ fn chmod_executable(binary: &Path) -> Result<()> {
 async fn smoke_test_binary(binary: &Path) -> Result<()> {
     let mut cmd = tokio::process::Command::new(binary);
     cmd.arg("-version").kill_on_drop(true);
-    crate::platform::hide_console_tokio(&mut cmd);
+    ha_core::platform::hide_console_tokio(&mut cmd);
     let output = cmd
         .output()
         .await

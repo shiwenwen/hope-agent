@@ -26,7 +26,7 @@ pub async fn canvas_submit_snapshot(
     Path(request_id): Path<String>,
     Json(body): Json<SnapshotBody>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::tools::canvas::canvas_submit_snapshot(request_id, body.data_url, body.error)
+    ha_design::tool_canvas::canvas_submit_snapshot(request_id, body.data_url, body.error)
         .await
         .map_err(AppError::internal)?;
     Ok(Json(json!({ "ok": true })))
@@ -43,7 +43,7 @@ pub async fn canvas_submit_eval_result(
     Path(request_id): Path<String>,
     Json(body): Json<EvalBody>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::tools::canvas::canvas_submit_eval_result(request_id, body.result, body.error)
+    ha_design::tool_canvas::canvas_submit_eval_result(request_id, body.result, body.error)
         .await
         .map_err(AppError::internal)?;
     Ok(Json(json!({ "ok": true })))
@@ -59,8 +59,8 @@ pub async fn show_canvas_panel(Json(_body): Json<Value>) -> Result<Json<Value>, 
 /// `GET /api/canvas/by-session/{session_id}` — list canvas projects bound to a session.
 pub async fn list_canvas_projects_by_session(
     Path(session_id): Path<String>,
-) -> Result<Json<Vec<ha_core::tools::canvas::CanvasProjectView>>, AppError> {
-    let projects = ha_core::tools::canvas::list_canvas_projects_by_session(session_id)
+) -> Result<Json<Vec<ha_design::tool_canvas::CanvasProjectView>>, AppError> {
+    let projects = ha_design::tool_canvas::list_canvas_projects_by_session(session_id)
         .await
         .map_err(AppError::internal)?;
     Ok(Json(projects))
@@ -70,7 +70,7 @@ pub async fn list_canvas_projects_by_session(
 
 /// `GET /api/canvas/projects` — list all canvas projects.
 pub async fn list_canvas_projects() -> Result<Json<Value>, AppError> {
-    let raw = ha_core::tools::canvas::list_canvas_projects()
+    let raw = ha_design::tool_canvas::list_canvas_projects()
         .await
         .map_err(AppError::internal)?;
     let parsed: Value =
@@ -81,7 +81,7 @@ pub async fn list_canvas_projects() -> Result<Json<Value>, AppError> {
 /// `GET /api/canvas/projects/{project_id}` — fetch a single canvas project.
 pub async fn get_canvas_project(Path(project_id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_canvas_project_id(&project_id)?;
-    let raw = ha_core::tools::canvas::get_canvas_project(project_id)
+    let raw = ha_design::tool_canvas::get_canvas_project(project_id)
         .await
         .map_err(AppError::internal)?;
     let parsed: Value =
@@ -95,7 +95,7 @@ pub async fn delete_canvas_project(
     Path(project_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
     validate_canvas_project_id(&project_id)?;
-    ha_core::tools::canvas::delete_canvas_project(project_id)
+    ha_design::tool_canvas::delete_canvas_project(project_id)
         .await
         .map_err(AppError::internal)?;
     Ok(Json(json!({ "ok": true })))

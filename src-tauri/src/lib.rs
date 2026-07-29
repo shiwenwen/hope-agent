@@ -24,11 +24,9 @@ pub use ha_acp::acp_control::get_acp_manager;
 pub use ha_core::agent;
 pub use ha_core::agent_config;
 pub use ha_core::agent_loader;
-pub use ha_core::artifacts;
 pub use ha_core::backup;
 pub use ha_core::browser_state;
 pub use ha_core::browser_ui;
-pub use ha_core::canvas_db;
 pub use ha_core::channel;
 pub use ha_core::chat_engine;
 pub use ha_core::context_compact;
@@ -65,6 +63,8 @@ pub use ha_core::url_preview;
 pub use ha_core::user_config;
 #[cfg(target_os = "macos")]
 pub use ha_core::weather_location_macos;
+pub use ha_design::artifacts;
+pub use ha_design::canvas_db;
 pub use ha_mac as mac_control;
 pub use ha_weather as weather;
 
@@ -96,6 +96,7 @@ pub fn run() {
     ha_weather::wire();
     ha_acp::wire();
     ha_mac::wire();
+    ha_design::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when

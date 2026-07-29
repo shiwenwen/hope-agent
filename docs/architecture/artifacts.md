@@ -14,7 +14,7 @@ Artifacts 是 Canvas 之上的持久化控制面。Canvas 继续负责项目目�
 flowchart LR
     Producer["Agent / ha-data-analytics / Owner import"]
     File["workspace 中的 HTML / Markdown / artifact.json"]
-    Service["ha-core::artifacts::ArtifactService"]
+    Service["ha-design::artifacts::ArtifactService"]
     Canvas["Canvas DB + managed project directory"]
     Evidence["Domain Evidence"]
     Viewer["ArtifactViewer"]
@@ -31,7 +31,7 @@ flowchart LR
 
 架构不变量：
 
-- 业务逻辑全部位于 `ha-core::artifacts`；Tauri 与 HTTP 只做薄壳和文件交付。
+- 业务逻辑全部位于 `ha_design::artifacts`（特征 crate，依赖 ha-core）；Tauri 与 HTTP 只做薄壳和文件交付。
 - 旧 `canvas` 工具与 `/api/canvas/*` 保持兼容。旧记录惰性登记为 `kind=custom`、`privacy=local_private`、`producer=legacy_canvas`。
 - Artifact 版本不可变；update 必须携带 `expected_version`，restore 生成新版本。
 - 模型工具只有 create/update/show/list/versions/restore/verify。导出、脱敏复核、归档和删除只在 owner 平面。
@@ -380,7 +380,7 @@ Canvas renderer 本身也已经离线化：不再加载 marked、highlight、Mer
 - PDF receipt 和基础文件 QA；
 - incognito fail-closed 与 session cleanup。
 
-数据分析 fixtures 位于 `crates/ha-core/tests/fixtures/artifacts/`，同时提供 CSV/XLSX、ready/blocked JSON、独立重算脚本和 schema validator。前端通过 typecheck 与 panel/skill mention 单测覆盖 Gallery transport、`@数据分析` token 渲染、统一 Viewer 和自动展开 iframe 交互状态。
+数据分析 fixtures 位于 `crates/ha-design/tests/fixtures/artifacts/`，同时提供 CSV/XLSX、ready/blocked JSON、独立重算脚本和 schema validator。前端通过 typecheck 与 panel/skill mention 单测覆盖 Gallery transport、`@数据分析` token 渲染、统一 Viewer 和自动展开 iframe 交互状态。
 
 ## 当前限制与后续阶段
 
@@ -396,9 +396,9 @@ Canvas renderer 本身也已经离线化：不再加载 marked、highlight、Mer
 
 | 文件 | 角色 |
 | --- | --- |
-| `crates/ha-core/src/artifacts/mod.rs` | 数据模型、迁移、service、验证、证据、导出与 PDF |
-| `crates/ha-core/src/artifacts/analysis_renderer.rs` | Analysis 确定性离线阅读器 |
-| `crates/ha-core/src/tools/artifact.rs` | 非破坏性模型工具 |
+| `crates/ha-design/src/artifacts/mod.rs` | 数据模型、迁移、service、验证、证据、导出与 PDF |
+| `crates/ha-design/src/artifacts/analysis_renderer.rs` | Analysis 确定性离线阅读器 |
+| `crates/ha-design/src/tool_artifact.rs` | 非破坏性模型工具 |
 | `crates/ha-server/src/routes/artifacts.rs` | HTTP owner API 与流式下载 |
 | `src-tauri/src/tauri_wrappers.rs` | Tauri owner API 与保存路径复制 |
 | `src/lib/transport*.ts` | Tauri/HTTP 统一前端契约 |

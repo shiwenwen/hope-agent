@@ -51,7 +51,7 @@ pub use ha_config_schema::design::{clamp_export_jpeg_quality, clamp_export_scale
 /// 设计空间是否启用。
 #[allow(dead_code)]
 pub fn is_design_enabled() -> bool {
-    crate::config::cached_config().design.enabled
+    ha_core::config::cached_config().design.enabled
 }
 
 /// One-shot background model call for design generation / analysis / critique.
@@ -69,14 +69,14 @@ pub(crate) async fn run_design_task(
     prompt: &str,
     max_tokens: u32,
 ) -> anyhow::Result<String> {
-    let config = crate::config::cached_config();
-    let chain = crate::automation::effective_chain(&config, None);
+    let config = ha_core::config::cached_config();
+    let chain = ha_core::automation::effective_chain(&config, None);
     if chain.is_empty() {
         anyhow::bail!(
             "no LLM provider configured — set a default model in Settings before generating designs"
         );
     }
-    let out = crate::automation::run(crate::automation::ModelTaskSpec {
+    let out = ha_core::automation::run(ha_core::automation::ModelTaskSpec {
         purpose,
         chain,
         session_key,

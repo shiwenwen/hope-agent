@@ -1432,14 +1432,14 @@ pub struct VoicesQuery {
 }
 
 /// `GET /api/config/canvas` -- get canvas tool config.
-pub async fn get_canvas_config() -> Result<Json<ha_core::tools::canvas::CanvasConfig>, AppError> {
+pub async fn get_canvas_config() -> Result<Json<ha_design::tool_canvas::CanvasConfig>, AppError> {
     let store = load_config()?;
     Ok(Json(store.canvas))
 }
 
 /// `PUT /api/config/canvas` -- save canvas tool config.
 pub async fn save_canvas_config(
-    Json(body): Json<ConfigBody<ha_core::tools::canvas::CanvasConfig>>,
+    Json(body): Json<ConfigBody<ha_design::tool_canvas::CanvasConfig>>,
 ) -> Result<Json<Value>, AppError> {
     ha_core::config::mutate_config_async(("canvas", "http"), move |store| {
         store.canvas = body.config;
@@ -1450,14 +1450,14 @@ pub async fn save_canvas_config(
 }
 
 /// `GET /api/config/design` -- get Design Space config.
-pub async fn get_design_config() -> Result<Json<ha_core::design::DesignConfig>, AppError> {
+pub async fn get_design_config() -> Result<Json<ha_design::design::DesignConfig>, AppError> {
     let store = load_config()?;
     Ok(Json(store.design))
 }
 
 /// `PUT /api/config/design` -- save Design Space config.
 pub async fn save_design_config(
-    Json(body): Json<ConfigBody<ha_core::design::DesignConfig>>,
+    Json(body): Json<ConfigBody<ha_design::design::DesignConfig>>,
 ) -> Result<Json<Value>, AppError> {
     ha_core::config::mutate_config(("design", "http"), |store| {
         store.design = body.config;

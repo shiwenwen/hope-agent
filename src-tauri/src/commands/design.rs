@@ -1,24 +1,24 @@
 //! Tauri commands for the Design Space feature.
 //!
-//! Thin wrappers around `ha_core::design` — all logic lives in ha-core. These
+//! Thin wrappers around `ha_design::design::service` — all logic lives in the ha-design feature crate. These
 //! run on the **owner plane** (desktop = trusted local machine): the operator
 //! sees all their design projects/artifacts, not gated by any agent access
 //! check (that is for the agent `design` tool).
 
 use crate::commands::CmdError;
-use ha_core::design::extract::Direction;
-use ha_core::design::service::BindingSyncReport;
-use ha_core::design::service::{
+use ha_core::session::SessionMeta;
+use ha_design::design::extract::Direction;
+use ha_design::design::service::BindingSyncReport;
+use ha_design::design::service::{
     self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
     ExtractSystemInput, ReferenceImageInput, RemoveElementResult, SaveSystemInput,
     UpdateProjectInput,
 };
-use ha_core::design::token_export::TokenExport;
-use ha_core::design::{
+use ha_design::design::token_export::TokenExport;
+use ha_design::design::{
     CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignChatThread, DesignCodeBinding,
     DesignComment, DesignConfig, DesignProject, DesignSystemFull, DesignSystemMeta,
 };
-use ha_core::session::SessionMeta;
 
 // ── Projects ────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ pub async fn create_design_artifact_cmd(
 #[tauri::command]
 pub async fn review_design_artifact_cmd(
     id: String,
-) -> Result<Vec<ha_core::design::selfcheck::ReviewFinding>, CmdError> {
+) -> Result<Vec<ha_design::design::selfcheck::ReviewFinding>, CmdError> {
     ha_core::blocking::run_blocking(move || service::quality_review_artifact(&id))
         .await
         .map_err(Into::into)
@@ -362,7 +362,7 @@ pub async fn save_cf_deploy_config_cmd(
     account_id: String,
 ) -> Result<(), CmdError> {
     ha_core::blocking::run_blocking(move || {
-        ha_core::design::deploy::save_cf_config(&api_token, &account_id)
+        ha_design::design::deploy::save_cf_config(&api_token, &account_id)
     })
     .await
     .map_err(Into::into)
@@ -370,9 +370,9 @@ pub async fn save_cf_deploy_config_cmd(
 
 /// 读 CF 部署配置（**token 脱敏**：只回 hasToken + mask 哨兵）。
 #[tauri::command]
-pub async fn get_cf_deploy_config_cmd() -> Result<ha_core::design::deploy::CfConfigPublic, CmdError>
-{
-    ha_core::blocking::run_blocking(ha_core::design::deploy::public_cf_config)
+pub async fn get_cf_deploy_config_cmd(
+) -> Result<ha_design::design::deploy::CfConfigPublic, CmdError> {
+    ha_core::blocking::run_blocking(ha_design::design::deploy::public_cf_config)
         .await
         .map_err(Into::into)
 }
@@ -384,15 +384,15 @@ pub struct DeployUrl {
 }
 #[tauri::command]
 pub async fn deploy_design_artifact_cmd(artifact_id: String) -> Result<DeployUrl, CmdError> {
-    let url = ha_core::design::deploy::deploy_artifact(&artifact_id).await?;
+    let url = ha_design::design::deploy::deploy_artifact(&artifact_id).await?;
     Ok(DeployUrl { url })
 }
 /// 探测部署 URL 是否已生效（部署后 pages.dev/vercel.app 边缘传播延迟，前端轮询显示就绪徽章）。
 #[tauri::command]
 pub async fn probe_design_deploy_cmd(
     url: String,
-) -> Result<ha_core::design::deploy::DeployReadiness, CmdError> {
-    ha_core::design::deploy::probe_deploy_ready(&url)
+) -> Result<ha_design::design::deploy::DeployReadiness, CmdError> {
+    ha_design::design::deploy::probe_deploy_ready(&url)
         .await
         .map_err(Into::into)
 }
@@ -400,16 +400,16 @@ pub async fn probe_design_deploy_cmd(
 pub async fn bind_design_domain_cmd(
     artifact_id: String,
     domain: String,
-) -> Result<ha_core::design::deploy::CustomDomain, CmdError> {
-    ha_core::design::deploy::bind_custom_domain(&artifact_id, &domain)
+) -> Result<ha_design::design::deploy::CustomDomain, CmdError> {
+    ha_design::design::deploy::bind_custom_domain(&artifact_id, &domain)
         .await
         .map_err(Into::into)
 }
 #[tauri::command]
 pub async fn list_design_domains_cmd(
     artifact_id: String,
-) -> Result<Vec<ha_core::design::deploy::CustomDomain>, CmdError> {
-    ha_core::design::deploy::list_custom_domains(&artifact_id)
+) -> Result<Vec<ha_design::design::deploy::CustomDomain>, CmdError> {
+    ha_design::design::deploy::list_custom_domains(&artifact_id)
         .await
         .map_err(Into::into)
 }
@@ -418,7 +418,7 @@ pub async fn list_design_domains_cmd(
 #[tauri::command]
 pub async fn list_design_deployments_cmd(
     artifact_id: String,
-) -> Result<Vec<ha_core::design::db::DeploymentRecord>, CmdError> {
+) -> Result<Vec<ha_design::design::db::DeploymentRecord>, CmdError> {
     ha_core::blocking::run_blocking(move || service::list_deployments(&artifact_id))
         .await
         .map_err(Into::into)
@@ -428,9 +428,9 @@ pub async fn list_design_deployments_cmd(
 #[tauri::command]
 pub async fn preflight_design_deploy_cmd(
     artifact_id: String,
-) -> Result<ha_core::design::deploy::PreflightReport, CmdError> {
+) -> Result<ha_design::design::deploy::PreflightReport, CmdError> {
     ha_core::blocking::run_blocking(move || {
-        ha_core::design::deploy::preflight_artifact(&artifact_id)
+        ha_design::design::deploy::preflight_artifact(&artifact_id)
     })
     .await
     .map_err(Into::into)
@@ -445,7 +445,7 @@ pub async fn save_vercel_deploy_config_cmd(
     team_id: String,
 ) -> Result<(), CmdError> {
     ha_core::blocking::run_blocking(move || {
-        ha_core::design::deploy_vercel::save_vercel_config(&api_token, &team_id)
+        ha_design::design::deploy_vercel::save_vercel_config(&api_token, &team_id)
     })
     .await
     .map_err(Into::into)
@@ -454,8 +454,8 @@ pub async fn save_vercel_deploy_config_cmd(
 /// 读 Vercel 部署配置（**token 脱敏**：只回 hasToken + mask 哨兵）。
 #[tauri::command]
 pub async fn get_vercel_deploy_config_cmd(
-) -> Result<ha_core::design::deploy_vercel::VercelConfigPublic, CmdError> {
-    ha_core::blocking::run_blocking(ha_core::design::deploy_vercel::public_vercel_config)
+) -> Result<ha_design::design::deploy_vercel::VercelConfigPublic, CmdError> {
+    ha_core::blocking::run_blocking(ha_design::design::deploy_vercel::public_vercel_config)
         .await
         .map_err(Into::into)
 }
@@ -463,7 +463,7 @@ pub async fn get_vercel_deploy_config_cmd(
 /// 部署产物到 Vercel，返回 `{ url }`（与 CF 同形，前端统一读 `res.url`）。
 #[tauri::command]
 pub async fn deploy_design_artifact_vercel_cmd(artifact_id: String) -> Result<DeployUrl, CmdError> {
-    let url = ha_core::design::deploy_vercel::deploy_artifact(&artifact_id).await?;
+    let url = ha_design::design::deploy_vercel::deploy_artifact(&artifact_id).await?;
     Ok(DeployUrl { url })
 }
 
@@ -598,9 +598,9 @@ pub async fn design_implement_to_code_cmd(
 pub async fn design_check_code_drift_cmd(
     project_id: String,
     artifact_id: Option<String>,
-) -> Result<Vec<ha_core::design::code_sync::ArtifactDriftStatus>, CmdError> {
+) -> Result<Vec<ha_design::design::code_sync::ArtifactDriftStatus>, CmdError> {
     ha_core::blocking::run_blocking(move || {
-        ha_core::design::code_sync::check_code_drift(&project_id, artifact_id.as_deref())
+        ha_design::design::code_sync::check_code_drift(&project_id, artifact_id.as_deref())
     })
     .await
     .map_err(Into::into)
@@ -610,18 +610,20 @@ pub async fn design_check_code_drift_cmd(
 #[tauri::command]
 pub async fn design_code_drift_changes_cmd(
     artifact_id: String,
-) -> Result<ha_core::design::code_sync::CodeDriftChanges, CmdError> {
-    ha_core::blocking::run_blocking(move || ha_core::design::code_sync::drift_changes(&artifact_id))
-        .await
-        .map_err(Into::into)
+) -> Result<ha_design::design::code_sync::CodeDriftChanges, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_design::design::code_sync::drift_changes(&artifact_id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 /// 标为已同步：重置基线为当前磁盘态 + 清 drift 标记。
 #[tauri::command]
 pub async fn design_code_drift_sync_cmd(
     artifact_id: String,
-) -> Result<ha_core::design::DesignArtifact, CmdError> {
-    ha_core::blocking::run_blocking(move || ha_core::design::code_sync::mark_synced(&artifact_id))
+) -> Result<ha_design::design::DesignArtifact, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_design::design::code_sync::mark_synced(&artifact_id))
         .await
         .map_err(Into::into)
 }
@@ -694,15 +696,15 @@ pub async fn restore_design_version_cmd(
 
 /// 导出强路依赖预检：ffmpeg（MP4 编码器）三态状态。导出面板在走 MP4 强路前调它。
 #[tauri::command]
-pub async fn design_ffmpeg_doctor_cmd() -> Result<ha_core::ffmpeg::FfmpegStatus, CmdError> {
-    Ok(ha_core::ffmpeg::doctor().await)
+pub async fn design_ffmpeg_doctor_cmd() -> Result<ha_design::ffmpeg::FfmpegStatus, CmdError> {
+    Ok(ha_design::ffmpeg::doctor().await)
 }
 
 /// 导出强路依赖预检：浏览器引擎（PDF/PNG 矢量/全保真捕获）三态状态。
 #[tauri::command]
 pub async fn design_browser_doctor_cmd(
-) -> Result<ha_core::design::render_native::BrowserExportStatus, CmdError> {
-    Ok(ha_core::design::render_native::browser_export_status())
+) -> Result<ha_design::design::render_native::BrowserExportStatus, CmdError> {
+    Ok(ha_design::design::render_native::browser_export_status())
 }
 
 /// 按需下载 Chromium runtime（PDF/PNG 强路引擎）。进度经 `browser:chromium_download_progress`。
@@ -718,7 +720,7 @@ pub async fn design_install_browser_cmd() -> Result<FfmpegRuntimeResult, CmdErro
 /// `design:ffmpeg_download_progress` 事件推给导出面板渲染进度条。
 #[tauri::command]
 pub async fn design_install_ffmpeg_cmd() -> Result<FfmpegRuntimeResult, CmdError> {
-    let binary = ha_core::ffmpeg::install_with_event_bus_progress().await?;
+    let binary = ha_design::ffmpeg::install_with_event_bus_progress().await?;
     Ok(FfmpegRuntimeResult {
         binary_path: binary.display().to_string(),
     })
@@ -889,8 +891,8 @@ pub async fn save_design_config_cmd(config: DesignConfig) -> Result<(), CmdError
 // ── Recipes（设计模板目录，供 GUI 首屏模板快选）─────────────────────
 
 #[tauri::command]
-pub async fn list_design_recipes_cmd() -> Result<Vec<ha_core::design::recipe::Recipe>, CmdError> {
-    Ok(ha_core::design::recipe::builtin_recipes())
+pub async fn list_design_recipes_cmd() -> Result<Vec<ha_design::design::recipe::Recipe>, CmdError> {
+    Ok(ha_design::design::recipe::builtin_recipes())
 }
 
 /// Recipe 骨架 demo HTML（工具箱 hover 预览；`system_id` 注入该设计系统配色）。
@@ -899,7 +901,7 @@ pub async fn get_design_recipe_demo_cmd(
     id: String,
     system_id: Option<String>,
 ) -> Result<String, CmdError> {
-    Ok(ha_core::design::service::get_recipe_demo_html(
+    Ok(ha_design::design::service::get_recipe_demo_html(
         &id,
         system_id.as_deref(),
     )?)
@@ -913,7 +915,7 @@ pub async fn export_design_native_cmd(
     id: String,
     format: String,
 ) -> Result<serde_json::Value, CmdError> {
-    let (data, mime) = ha_core::design::render_native::capture_artifact_b64(&id, &format).await?;
+    let (data, mime) = ha_design::design::render_native::capture_artifact_b64(&id, &format).await?;
     Ok(serde_json::json!({ "data": data, "mime": mime }))
 }
 

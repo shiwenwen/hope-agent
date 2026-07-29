@@ -1,6 +1,6 @@
 //! 绑定代码目录的文件监听（code→design 回灌的实时触发）。
 //!
-//! 蓝本 [`crate::knowledge::watcher`]，但两点分歧：① **只 watch 已收割「产物落地文件」的父目录**
+//! 蓝本 [`ha_core::knowledge::watcher`]，但两点分歧：① **只 watch 已收割「产物落地文件」的父目录**
 //! （`NonRecursive`），不递归仓库根——避免 `node_modules`/`target` 事件洪泛与 Linux inotify 配额；
 //! ② 事件按**关联绝对路径集**精确过滤。索引变化（收割/同步/建回执/删产物/绑定变更）后经
 //! [`refresh_all`] 全量重建（简单可靠）。父目录整体被删 → watch 静默失效，由打开项目时的
@@ -40,7 +40,7 @@ pub(crate) fn refresh_all() {
     let dirs = match db.list_linked_dirs() {
         Ok(d) => d,
         Err(e) => {
-            crate::app_warn!("design", "code_watcher", "list linked dirs failed: {}", e);
+            ha_core::app_warn!("design", "code_watcher", "list linked dirs failed: {}", e);
             return;
         }
     };
@@ -72,7 +72,7 @@ pub(crate) fn refresh_all() {
             continue;
         }
         if let Err(e) = start_watcher(&dir, abs_paths) {
-            crate::app_warn!("design", "code_watcher", "watch {} failed: {}", dir, e);
+            ha_core::app_warn!("design", "code_watcher", "watch {} failed: {}", dir, e);
         }
     }
 }
@@ -160,7 +160,7 @@ fn debounce_loop(dir: String, rx: std::sync::mpsc::Receiver<()>, stop: Arc<Atomi
                     break;
                 }
                 if let Err(e) = super::code_sync::check_drift_for_dir(&dir) {
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "design",
                         "code_watcher",
                         "drift check for {} failed: {}",

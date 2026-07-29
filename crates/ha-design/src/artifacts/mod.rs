@@ -20,24 +20,20 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use zip::write::SimpleFileOptions;
 
-use crate::domain_workflow::{
+use ha_core::domain_workflow::{
     DomainArtifactExportGuardInput, DomainArtifactExportGuardReport, ListDomainEvidenceInput,
     RecordDomainEvidenceInput,
 };
-use crate::file_upload::FileUploadPurpose;
-use crate::paths;
+use ha_core::file_upload::FileUploadPurpose;
+use ha_core::paths;
 
 pub const ARTIFACT_SCHEMA_VERSION: &str = "hope.artifact.v1";
 pub const ANALYSIS_SCHEMA_VERSION: &str = "hope.analysis-artifact.v1";
 pub const EXPORT_GENERATOR_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-static ARTIFACT_PRIVACY_TRANSITION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-pub(crate) fn lock_privacy_transition() -> Result<std::sync::MutexGuard<'static, ()>> {
-    ARTIFACT_PRIVACY_TRANSITION_LOCK
-        .lock()
-        .map_err(|_| anyhow!("Artifact privacy transition lock is poisoned"))
-}
+// 隐私切换锁已下沉 kernel（`session::privacy`——incognito 切换与 durable
+// 写入共享同一把锁，锁必须留 kernel），原路径再导出。
+pub(crate) use ha_core::session::privacy::lock_privacy_transition;
 
 pub(crate) fn ensure_durable_session_allowed(session_id: Option<&str>) -> Result<()> {
     if request_is_incognito(false, session_id)? {
@@ -478,7 +474,7 @@ impl PendingPayloadBlob {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
-        crate::platform::write_atomic(&self.path, &self.bytes)?;
+        ha_core::platform::write_atomic(&self.path, &self.bytes)?;
         Ok(true)
     }
 }
@@ -513,7 +509,7 @@ impl ManagedFilesSnapshot {
     fn restore(&self) -> Result<()> {
         for (path, contents) in &self.files {
             match contents {
-                Some(contents) => crate::platform::write_atomic(path, contents)?,
+                Some(contents) => ha_core::platform::write_atomic(path, contents)?,
                 None if path.exists() => fs::remove_file(path)?,
                 None => {}
             }
@@ -735,7 +731,7 @@ impl ArtifactService {
             [id],
         )?;
         tx.commit()?;
-        crate::platform::write_atomic(&path, html.as_bytes())?;
+        ha_core::platform::write_atomic(&path, html.as_bytes())?;
         Ok(true)
     }
 
@@ -1199,7 +1195,7 @@ impl ArtifactService {
                 "content": source.content,
             });
             let canonical_bytes = serde_json::to_vec(&payload)?;
-            let index_html = crate::tools::canvas::renderer::render_project_page(
+            let index_html = crate::tool_canvas::renderer::render_project_page(
                 &source.content_type,
                 source.html.as_deref(),
                 source.css.as_deref(),
@@ -1517,7 +1513,7 @@ impl ArtifactService {
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| anyhow!("artifact export review requires a session-scoped Artifact"))?;
-        let db = crate::globals::get_session_db()
+        let db = ha_core::globals::get_session_db()
             .ok_or_else(|| anyhow!("session database is unavailable"))?;
         db.record_domain_evidence(RecordDomainEvidenceInput {
             goal_id: artifact.goal_id.clone(),
@@ -1553,7 +1549,7 @@ impl ArtifactService {
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| anyhow!("guarded export requires a session-scoped Artifact"))?;
-        let db = crate::globals::get_session_db()
+        let db = ha_core::globals::get_session_db()
             .ok_or_else(|| anyhow!("session database is unavailable"))?;
         db.evaluate_domain_artifact_export_guard(DomainArtifactExportGuardInput {
             goal_id: artifact.goal_id.clone(),
@@ -1598,7 +1594,7 @@ impl ArtifactService {
         let Some(session_id) = artifact.session_id.as_deref() else {
             return Ok(false);
         };
-        let db = crate::globals::get_session_db()
+        let db = ha_core::globals::get_session_db()
             .ok_or_else(|| anyhow!("session database is unavailable"))?;
         let evidence = db.list_domain_evidence(ListDomainEvidenceInput {
             goal_id: artifact.goal_id.clone(),
@@ -1736,7 +1732,7 @@ impl ArtifactService {
         let export_dir = paths::canvas_dir()?.join("exports");
         fs::create_dir_all(&export_dir)?;
         let output_path = export_dir.join(format!("{export_id}.{extension}"));
-        crate::platform::write_atomic(&output_path, &bytes)?;
+        ha_core::platform::write_atomic(&output_path, &bytes)?;
         let receipt = ArtifactExportReceipt {
             id: export_id,
             artifact_id: artifact_id.to_string(),
@@ -1877,7 +1873,7 @@ impl ArtifactService {
         let export_dir = paths::canvas_dir()?.join("exports");
         fs::create_dir_all(&export_dir)?;
         let output_path = export_dir.join(format!("{export_id}.pdf"));
-        crate::platform::write_atomic(&output_path, &bytes)?;
+        ha_core::platform::write_atomic(&output_path, &bytes)?;
         let receipt = ArtifactExportReceipt {
             id: export_id,
             artifact_id: artifact.id.clone(),
@@ -2402,7 +2398,7 @@ fn record_artifact_evidence(
             summary: json!({}),
         };
     };
-    let Some(db) = crate::globals::get_session_db() else {
+    let Some(db) = ha_core::globals::get_session_db() else {
         return RecordedEvidence {
             ids: Vec::new(),
             summary: json!({}),
@@ -2591,7 +2587,7 @@ fn request_is_incognito(explicit: bool, session_id: Option<&str>) -> Result<bool
     let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) else {
         return Ok(false);
     };
-    let db = crate::globals::get_session_db().ok_or_else(|| {
+    let db = ha_core::globals::get_session_db().ok_or_else(|| {
         anyhow!("cannot verify session privacy while the session database is unavailable")
     })?;
     match db.get_session(session_id) {
@@ -2841,7 +2837,7 @@ fn validate_source_path(path: &Path, roots: Option<&[PathBuf]>) -> Result<PathBu
 struct ResolvedArtifactSource {
     file_path: PathBuf,
     allowed_roots: Option<Vec<PathBuf>>,
-    upload_claim: Option<crate::file_upload::FileUploadClaim>,
+    upload_claim: Option<ha_core::file_upload::FileUploadClaim>,
     _temp_dir: Option<tempfile::TempDir>,
 }
 
@@ -2850,7 +2846,7 @@ impl ResolvedArtifactSource {
         let Some(claim) = self.upload_claim.take() else {
             return;
         };
-        if let Err(error) = crate::file_upload::consume_upload_claim(&claim) {
+        if let Err(error) = ha_core::file_upload::consume_upload_claim(&claim) {
             app_warn!(
                 "artifact",
                 "upload_consume",
@@ -2866,7 +2862,7 @@ impl Drop for ResolvedArtifactSource {
         let Some(claim) = self.upload_claim.take() else {
             return;
         };
-        if let Err(error) = crate::file_upload::release_upload_claim(&claim) {
+        if let Err(error) = ha_core::file_upload::release_upload_claim(&claim) {
             app_warn!(
                 "artifact",
                 "upload_release",
@@ -2889,7 +2885,7 @@ fn resolve_artifact_source(source: ArtifactImportSource) -> Result<ResolvedArtif
             _temp_dir: None,
         }),
         ArtifactImportSource::Upload { upload_id } => {
-            let lease = crate::file_upload::upload_status(&upload_id)?;
+            let lease = ha_core::file_upload::upload_status(&upload_id)?;
             if lease.purpose != FileUploadPurpose::ArtifactSource {
                 bail!("file upload purpose mismatch");
             }
@@ -2903,7 +2899,7 @@ fn resolve_artifact_source(source: ArtifactImportSource) -> Result<ResolvedArtif
                 .tempdir()
                 .context("create Artifact source staging directory")?;
             let file_path = temp_dir.path().join(format!("source.{extension}"));
-            let upload_claim = crate::file_upload::claim_completed_upload_create_new(
+            let upload_claim = ha_core::file_upload::claim_completed_upload_create_new(
                 &upload_id,
                 FileUploadPurpose::ArtifactSource,
                 &file_path,
@@ -2919,7 +2915,10 @@ fn resolve_artifact_source(source: ArtifactImportSource) -> Result<ResolvedArtif
 }
 
 fn prepare_payload(path: &Path) -> Result<PreparedPayload> {
-    let filesystem = crate::config::cached_config().filesystem.clone().clamped();
+    let filesystem = ha_core::config::cached_config()
+        .filesystem
+        .clone()
+        .clamped();
     let max_bytes = filesystem.max_artifact_import_bytes();
     let metadata = fs::metadata(path)?;
     if metadata.len() > max_bytes {
@@ -3020,16 +3019,16 @@ fn prepare_payload(path: &Path) -> Result<PreparedPayload> {
 
 fn write_payload_files(project_dir: &Path, prepared: &PreparedPayload) -> Result<()> {
     fs::create_dir_all(project_dir)?;
-    crate::platform::write_atomic(
+    ha_core::platform::write_atomic(
         &project_dir.join("index.html"),
         prepared.index_html.as_bytes(),
     )?;
-    crate::platform::write_atomic(
+    ha_core::platform::write_atomic(
         &project_dir.join("artifact.json"),
         prepared.payload_json.as_bytes(),
     )?;
     if let Some(markdown) = prepared.markdown.as_deref() {
-        crate::platform::write_atomic(&project_dir.join("content.md"), markdown.as_bytes())?;
+        ha_core::platform::write_atomic(&project_dir.join("content.md"), markdown.as_bytes())?;
     } else {
         let markdown_path = project_dir.join("content.md");
         if markdown_path.exists() {
@@ -3568,18 +3567,18 @@ async fn render_pdf_with_isolated_chromium(index_html: &[u8], export_id: &str) -
     use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
 
     let resolved =
-        crate::browser::profile::resolve_profile(crate::browser::profile::BUILTIN_MANAGED)?;
-    let executable = crate::browser::spawn::resolve_chrome_executable_for(
+        ha_core::browser::profile::resolve_profile(ha_core::browser::profile::BUILTIN_MANAGED)?;
+    let executable = ha_core::browser::spawn::resolve_chrome_executable_for(
         resolved.executable.as_deref(),
         "artifact_pdf",
     )?;
     let runtime_root = paths::canvas_dir()?.join("pdf-runtime");
     fs::create_dir_all(&runtime_root)?;
     let user_data_dir = runtime_root.join(export_id);
-    let port = crate::browser::spawn::pick_managed_port().await?;
+    let port = ha_core::browser::spawn::pick_managed_port().await?;
     fs::create_dir_all(&user_data_dir)?;
     let index_path = user_data_dir.join("artifact.html");
-    if let Err(error) = crate::platform::write_atomic(&index_path, index_html) {
+    if let Err(error) = ha_core::platform::write_atomic(&index_path, index_html) {
         let _ = fs::remove_dir_all(&user_data_dir);
         return Err(error.into());
     }
@@ -3593,9 +3592,9 @@ async fn render_pdf_with_isolated_chromium(index_html: &[u8], export_id: &str) -
         })
         .cloned()
         .collect::<Vec<_>>();
-    let mut state = crate::browser_state::BrowserState::new();
+    let mut state = ha_core::browser_state::BrowserState::new();
     let render_result = async {
-        let spec = crate::browser::spawn::LaunchSpec {
+        let spec = ha_core::browser::spawn::LaunchSpec {
             profile: "artifact_pdf",
             executable: Some(executable.as_str()),
             user_data_dir: &user_data_dir,
@@ -3827,7 +3826,7 @@ fn verify_zip_manifest(bytes: &[u8]) -> std::result::Result<(), String> {
 }
 
 fn emit_artifact_event(name: &str, artifact_id: &str, version: i64, detail: Option<&str>) {
-    if let Some(bus) = crate::globals::get_event_bus() {
+    if let Some(bus) = ha_core::globals::get_event_bus() {
         bus.emit(
             name,
             json!({
@@ -4021,16 +4020,16 @@ mod tests {
         crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
             let body = b"# Uploaded report\n\nVerified content.";
             let lease =
-                crate::file_upload::start_upload(crate::file_upload::FileUploadStartInput {
+                ha_core::file_upload::start_upload(ha_core::file_upload::FileUploadStartInput {
                     purpose: FileUploadPurpose::ArtifactSource,
                     file_name: "report.md".to_string(),
                     mime_type: "text/markdown".to_string(),
                     size_bytes: body.len() as u64,
                 })
                 .expect("start Artifact upload");
-            crate::file_upload::upload_chunk(&lease.upload_id, 0, body)
+            ha_core::file_upload::upload_chunk(&lease.upload_id, 0, body)
                 .expect("upload Artifact source");
-            crate::file_upload::complete_upload(&lease.upload_id)
+            ha_core::file_upload::complete_upload(&lease.upload_id)
                 .expect("complete Artifact upload");
 
             let mut service = ArtifactService::open().expect("open Artifact service");
@@ -4052,7 +4051,7 @@ mod tests {
                 .expect("import Artifact upload");
 
             assert_eq!(artifact.title, "Uploaded report");
-            assert!(crate::file_upload::upload_status(&lease.upload_id).is_err());
+            assert!(ha_core::file_upload::upload_status(&lease.upload_id).is_err());
         });
     }
 }

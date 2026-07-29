@@ -1,4 +1,4 @@
-//! `audio` 形态：接线统一媒体生成栈（`crate::media_gen`），生成音频并内嵌进
+//! `audio` 形态：接线统一媒体生成栈（`ha_core::media_gen`），生成音频并内嵌进
 //! **自包含产物**（data-uri `<audio>` 播放器，守「轻量自包含 HTML」红线——纯静态
 //! 元素、零运行时、零网络，浏览器原生解码，比 motion 还轻）。
 //!
@@ -9,7 +9,7 @@ use anyhow::Result;
 use base64::Engine;
 
 use super::renderer::{html_escape, ArtifactParts};
-use crate::media_gen::{execute_audio, AudioKind, AudioRequest, UsageMeta};
+use ha_core::media_gen::{execute_audio, AudioKind, AudioRequest, UsageMeta};
 
 /// 从 prompt 推断音频子能力（含 `[music]` / `[sfx]` 前缀提示，默认语音旁白）。
 /// 显式 kind（`AudioGenPartsOptions.kind`）优先，本函数只是兼容回退。
@@ -87,7 +87,7 @@ async fn generate_audio_bytes(
         trimmed
     };
 
-    let app_cfg = crate::config::cached_config();
+    let app_cfg = ha_core::config::cached_config();
     let outcome = execute_audio(
         &app_cfg.media_gen,
         AudioRequest {
@@ -106,7 +106,7 @@ async fn generate_audio_bytes(
     )
     .await?;
 
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "audio",
         "generated {} audio {} bytes via {}/{}",

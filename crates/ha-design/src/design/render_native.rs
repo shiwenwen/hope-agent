@@ -2,7 +2,7 @@
 //! （**矢量、文字可选可搜**），PNG 走 `captureScreenshot`（**全保真**，彻底摆脱 html2canvas
 //! 的 CSS 子集天花板）。
 //!
-//! 复用现有 CDP 浏览器后端（`crate::browser`）：Chromium **按需下载、不打进安装包**，
+//! 复用现有 CDP 浏览器后端（`ha_core::browser`）：Chromium **按需下载、不打进安装包**，
 //! CDP + `save_pdf` + `take_screenshot` 都是浏览器工具已在用的成熟能力。后端不可用时上层
 //! 回退客户端 html2canvas / jsPDF 路径（见 `src/lib/designExport.ts`）。
 //!
@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result};
 
-use crate::browser::{ImageFormat, PdfParams, ScreenshotParams};
+use ha_core::browser::{ImageFormat, PdfParams, ScreenshotParams};
 
 /// 原生捕获格式。
 #[derive(Clone, Copy, Debug)]
@@ -53,8 +53,8 @@ pub struct BrowserExportStatus {
 /// 探测导出强路可用的浏览器引擎：系统 Chrome/Edge/Brave/Chromium → 已下载的 Chromium runtime
 /// → 缺失。`can_auto_install` = 本平台有 Chromium 按需下载源。
 pub fn browser_export_status() -> BrowserExportStatus {
-    let can_auto_install = crate::browser::runtime::spec_for_current_platform().is_some();
-    if let Some(p) = crate::platform::find_chrome_executable() {
+    let can_auto_install = ha_core::browser::runtime::spec_for_current_platform().is_some();
+    if let Some(p) = ha_core::platform::find_chrome_executable() {
         return BrowserExportStatus {
             ready: true,
             source: "system".into(),
@@ -62,7 +62,7 @@ pub fn browser_export_status() -> BrowserExportStatus {
             can_auto_install,
         };
     }
-    if let Some(p) = crate::browser::runtime::cached_binary_path() {
+    if let Some(p) = ha_core::browser::runtime::cached_binary_path() {
         return BrowserExportStatus {
             ready: true,
             source: "runtime".into(),
@@ -86,7 +86,7 @@ pub async fn capture_artifact(artifact_id: &str, kind: CaptureKind) -> Result<Ve
     let a = db
         .get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
-    let dir = crate::paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let dir = ha_core::paths::design_artifact_dir(&a.project_id, &a.id)?;
     let index = dir.join("index.html");
     if !index.exists() {
         anyhow::bail!("artifact has no rendered index.html to capture");
@@ -94,7 +94,7 @@ pub async fn capture_artifact(artifact_id: &str, kind: CaptureKind) -> Result<Ve
     // file:// URL——自包含产物的相对 CSS/JS/图片都在同目录，可直接加载。
     let url = format!("file://{}", index.to_string_lossy());
 
-    let backend = crate::browser::acquire_backend()
+    let backend = ha_core::browser::acquire_backend()
         .await
         .context("no browser backend available for native export")?;
 
@@ -114,7 +114,7 @@ pub async fn capture_artifact(artifact_id: &str, kind: CaptureKind) -> Result<Ve
                 .context("failed to navigate export page")?;
         }
         // 等字体 / 布局稳定后再捕获。
-        crate::app_info!(
+        ha_core::app_info!(
             "design",
             "render_native",
             "native capture {kind:?} for {artifact_id}"
@@ -214,7 +214,7 @@ pub async fn capture_video(artifact_id: &str, fps: u32, max_secs: u32) -> Result
     let a = db
         .get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
-    let dir = crate::paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let dir = ha_core::paths::design_artifact_dir(&a.project_id, &a.id)?;
     let index = dir.join("index.html");
     let html = std::fs::read_to_string(&index).context("artifact has no index.html to capture")?;
     // 注入 harness（在 </head> 前，保证先于产物脚本），落成产物目录内的临时 HTML——同目录
@@ -247,7 +247,7 @@ async fn capture_video_inner(
     max_secs: u32,
     work: &std::path::Path,
 ) -> Result<Vec<u8>> {
-    let backend = crate::browser::acquire_backend()
+    let backend = ha_core::browser::acquire_backend()
         .await
         .context("no browser backend available for native video export")?;
     let tab = backend
@@ -274,7 +274,7 @@ async fn capture_video_inner(
         let max_ms = (max_secs.clamp(1, 300) as f64) * 1000.0;
         dur_ms = dur_ms.clamp(1000.0, max_ms);
         let total = (((dur_ms / 1000.0) * fps as f64).round() as u32).max(1);
-        crate::app_info!(
+        ha_core::app_info!(
             "design",
             "render_native",
             "video capture {total} frames @ {fps}fps ({dur_ms}ms)"

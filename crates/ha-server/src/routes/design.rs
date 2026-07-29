@@ -1,4 +1,4 @@
-//! 设计空间 HTTP 路由（owner 平面薄壳，逻辑全在 `ha_core::design::service`）。
+//! 设计空间 HTTP 路由（owner 平面薄壳，逻辑全在 `ha_design::design::service`）。
 //!
 //! Body 方法（POST/PUT）接收 wrapper（`{ input }`），与前端 transport-http 把整个
 //! remaining args 作 body 的行为对齐（同 knowledge `CreateKbBody`）；GET/DELETE 用
@@ -12,18 +12,18 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
-use ha_core::design::extract::Direction;
-use ha_core::design::service::{
+use ha_core::paths;
+use ha_core::session::SessionMeta;
+use ha_design::design::extract::Direction;
+use ha_design::design::service::{
     self, BindingSyncReport, CreateArtifactInput, CreateProjectInput, ElementPatch,
     ExtractSystemInput, ReferenceImageInput, RemoveElementResult, SaveSystemInput,
     UpdateProjectInput,
 };
-use ha_core::design::{
+use ha_design::design::{
     DesignArtifact, DesignArtifactVersion, DesignChatThread, DesignCodeBinding, DesignComment,
     DesignProject, DesignSystemMeta,
 };
-use ha_core::paths;
-use ha_core::session::SessionMeta;
 
 use crate::error::AppError;
 use crate::routes::file_serve::{
@@ -656,7 +656,7 @@ pub async fn get_code_binding(
 pub async fn set_code_binding(
     Path(id): Path<String>,
     Json(body): Json<SetCodeBindingBody>,
-) -> Result<Json<ha_core::design::DesignProject>, AppError> {
+) -> Result<Json<ha_design::design::DesignProject>, AppError> {
     validate_id(&id)?;
     let p = ha_core::blocking::run_blocking(move || {
         service::set_project_code_binding(&id, body.code_dir, body.ha_project_id)
@@ -692,10 +692,10 @@ pub struct CheckDriftBody {
 pub async fn check_code_drift(
     Path(id): Path<String>,
     Json(body): Json<CheckDriftBody>,
-) -> Result<Json<Vec<ha_core::design::code_sync::ArtifactDriftStatus>>, AppError> {
+) -> Result<Json<Vec<ha_design::design::code_sync::ArtifactDriftStatus>>, AppError> {
     validate_id(&id)?;
     let out = ha_core::blocking::run_blocking(move || {
-        ha_core::design::code_sync::check_code_drift(&id, body.artifact_id.as_deref())
+        ha_design::design::code_sync::check_code_drift(&id, body.artifact_id.as_deref())
     })
     .await
     .map_err(|e| AppError::internal(e.to_string()))?;
@@ -705,10 +705,10 @@ pub async fn check_code_drift(
 /// `GET /api/design/artifacts/{id}/code-drift` — 逐 stale 文件的 diff（喂 DiffPanel）+ 带到对话 quote。
 pub async fn code_drift_changes(
     Path(id): Path<String>,
-) -> Result<Json<ha_core::design::code_sync::CodeDriftChanges>, AppError> {
+) -> Result<Json<ha_design::design::code_sync::CodeDriftChanges>, AppError> {
     validate_id(&id)?;
     let out =
-        ha_core::blocking::run_blocking(move || ha_core::design::code_sync::drift_changes(&id))
+        ha_core::blocking::run_blocking(move || ha_design::design::code_sync::drift_changes(&id))
             .await
             .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(out))
@@ -717,11 +717,12 @@ pub async fn code_drift_changes(
 /// `POST /api/design/artifacts/{id}/code-drift/sync` — 重置基线为当前磁盘态 + 清 drift 标记。
 pub async fn code_drift_sync(
     Path(id): Path<String>,
-) -> Result<Json<ha_core::design::DesignArtifact>, AppError> {
+) -> Result<Json<ha_design::design::DesignArtifact>, AppError> {
     validate_id(&id)?;
-    let out = ha_core::blocking::run_blocking(move || ha_core::design::code_sync::mark_synced(&id))
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let out =
+        ha_core::blocking::run_blocking(move || ha_design::design::code_sync::mark_synced(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(out))
 }
 
@@ -1001,7 +1002,7 @@ pub struct CfConfigBody {
 /// `PUT /api/design/deploy/config` — 保存 CF token（0600）+ account。
 pub async fn save_deploy_config(Json(body): Json<CfConfigBody>) -> Result<Json<Value>, AppError> {
     ha_core::blocking::run_blocking(move || {
-        ha_core::design::deploy::save_cf_config(&body.api_token, &body.account_id)
+        ha_design::design::deploy::save_cf_config(&body.api_token, &body.account_id)
     })
     .await
     .map_err(|e| AppError::internal(e.to_string()))?;
@@ -1010,7 +1011,7 @@ pub async fn save_deploy_config(Json(body): Json<CfConfigBody>) -> Result<Json<V
 
 /// `GET /api/design/deploy/config` — 读配置（**token 脱敏**）。
 pub async fn get_deploy_config() -> Result<Json<Value>, AppError> {
-    let cfg = ha_core::blocking::run_blocking(ha_core::design::deploy::public_cf_config)
+    let cfg = ha_core::blocking::run_blocking(ha_design::design::deploy::public_cf_config)
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(cfg).unwrap_or(Value::Null)))
@@ -1019,7 +1020,7 @@ pub async fn get_deploy_config() -> Result<Json<Value>, AppError> {
 /// `POST /api/design/artifacts/{id}/deploy` — 部署到 CF Pages，返回 `{ url }`。
 pub async fn deploy_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let url = ha_core::design::deploy::deploy_artifact(&id)
+    let url = ha_design::design::deploy::deploy_artifact(&id)
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "url": url })))
@@ -1031,7 +1032,7 @@ pub async fn probe_deploy(Json(body): Json<Value>) -> Result<Json<Value>, AppErr
         .get("url")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::bad_request("missing url"))?;
-    let r = ha_core::design::deploy::probe_deploy_ready(url)
+    let r = ha_design::design::deploy::probe_deploy_ready(url)
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ready": r.ready, "status": r.status })))
@@ -1047,7 +1048,7 @@ pub async fn bind_domain(
         .get("domain")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::bad_request("missing domain"))?;
-    let d = ha_core::design::deploy::bind_custom_domain(&id, domain)
+    let d = ha_design::design::deploy::bind_custom_domain(&id, domain)
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "name": d.name, "status": d.status })))
@@ -1056,7 +1057,7 @@ pub async fn bind_domain(
 /// `GET /api/design/artifacts/{id}/domains` — 列出已绑定的自定义域名及验证状态。
 pub async fn list_domains(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let list = ha_core::design::deploy::list_custom_domains(&id)
+    let list = ha_design::design::deploy::list_custom_domains(&id)
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!(list
@@ -1078,7 +1079,7 @@ pub async fn quality_review_artifact(Path(id): Path<String>) -> Result<Json<Valu
 pub async fn list_deployments(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
     let list =
-        ha_core::blocking::run_blocking(move || ha_core::design::service::list_deployments(&id))
+        ha_core::blocking::run_blocking(move || ha_design::design::service::list_deployments(&id))
             .await
             .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(list).unwrap_or(Value::Null)))
@@ -1088,7 +1089,7 @@ pub async fn list_deployments(Path(id): Path<String>) -> Result<Json<Value>, App
 pub async fn preflight_deploy(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
     let report =
-        ha_core::blocking::run_blocking(move || ha_core::design::deploy::preflight_artifact(&id))
+        ha_core::blocking::run_blocking(move || ha_design::design::deploy::preflight_artifact(&id))
             .await
             .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(report).unwrap_or(Value::Null)))
@@ -1107,7 +1108,7 @@ pub async fn save_vercel_config(
     Json(body): Json<VercelConfigBody>,
 ) -> Result<Json<Value>, AppError> {
     ha_core::blocking::run_blocking(move || {
-        ha_core::design::deploy_vercel::save_vercel_config(&body.api_token, &body.team_id)
+        ha_design::design::deploy_vercel::save_vercel_config(&body.api_token, &body.team_id)
     })
     .await
     .map_err(|e| AppError::internal(e.to_string()))?;
@@ -1116,16 +1117,17 @@ pub async fn save_vercel_config(
 
 /// `GET /api/design/deploy/vercel/config` — 读配置（**token 脱敏**）。
 pub async fn get_vercel_config() -> Result<Json<Value>, AppError> {
-    let cfg = ha_core::blocking::run_blocking(ha_core::design::deploy_vercel::public_vercel_config)
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let cfg =
+        ha_core::blocking::run_blocking(ha_design::design::deploy_vercel::public_vercel_config)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(cfg).unwrap_or(Value::Null)))
 }
 
 /// `POST /api/design/artifacts/{id}/deploy/vercel` — 部署到 Vercel，返回 `{ url }`。
 pub async fn deploy_artifact_vercel(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let url = ha_core::design::deploy_vercel::deploy_artifact(&id)
+    let url = ha_design::design::deploy_vercel::deploy_artifact(&id)
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "url": url })))
@@ -1310,7 +1312,7 @@ pub async fn export_design_md(
 /// developer formats (CSS/SCSS/TS/Swift/Android/DTCG).
 pub async fn export_design_tokens(
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Json<Vec<ha_core::design::token_export::TokenExport>>, AppError> {
+) -> Result<Json<Vec<ha_design::design::token_export::TokenExport>>, AppError> {
     let out = ha_core::blocking::run_blocking(move || service::export_tokens(&id))
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -1329,8 +1331,8 @@ pub async fn propose_directions(
 }
 
 /// `GET /api/design/recipes` — built-in design template (recipe) catalog.
-pub async fn list_recipes() -> Result<Json<Vec<ha_core::design::recipe::Recipe>>, AppError> {
-    Ok(Json(ha_core::design::recipe::builtin_recipes()))
+pub async fn list_recipes() -> Result<Json<Vec<ha_design::design::recipe::Recipe>>, AppError> {
+    Ok(Json(ha_design::design::recipe::builtin_recipes()))
 }
 
 #[derive(Deserialize)]
@@ -1361,21 +1363,21 @@ pub async fn export_native(
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
     let format = q.format.as_deref().unwrap_or("pdf");
-    let (data, mime) = ha_core::design::render_native::capture_artifact_b64(&id, format)
+    let (data, mime) = ha_design::design::render_native::capture_artifact_b64(&id, format)
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "data": data, "mime": mime })))
 }
 
 /// `GET /api/design/ffmpeg/doctor` — MP4-export ffmpeg encoder three-state probe.
-pub async fn ffmpeg_doctor() -> Result<Json<ha_core::ffmpeg::FfmpegStatus>, AppError> {
-    Ok(Json(ha_core::ffmpeg::doctor().await))
+pub async fn ffmpeg_doctor() -> Result<Json<ha_design::ffmpeg::FfmpegStatus>, AppError> {
+    Ok(Json(ha_design::ffmpeg::doctor().await))
 }
 
 /// `POST /api/design/ffmpeg/install` — on-demand download the static ffmpeg
 /// encoder (progress on `design:ffmpeg_download_progress` WS event).
 pub async fn install_ffmpeg() -> Result<Json<Value>, AppError> {
-    let binary = ha_core::ffmpeg::install_with_event_bus_progress()
+    let binary = ha_design::ffmpeg::install_with_event_bus_progress()
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "binaryPath": binary.display().to_string() })))
@@ -1383,8 +1385,10 @@ pub async fn install_ffmpeg() -> Result<Json<Value>, AppError> {
 
 /// `GET /api/design/browser/doctor` — PDF/PNG-export browser-engine three-state probe.
 pub async fn browser_doctor(
-) -> Result<Json<ha_core::design::render_native::BrowserExportStatus>, AppError> {
-    Ok(Json(ha_core::design::render_native::browser_export_status()))
+) -> Result<Json<ha_design::design::render_native::BrowserExportStatus>, AppError> {
+    Ok(Json(
+        ha_design::design::render_native::browser_export_status(),
+    ))
 }
 
 /// `POST /api/design/browser/install` — on-demand download the Chromium runtime

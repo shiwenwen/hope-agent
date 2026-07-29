@@ -11,7 +11,7 @@ use crate::design::{recipe, ArtifactKind};
 
 pub(crate) async fn tool_design(
     args: &Value,
-    ctx: &super::execution::ToolExecContext,
+    ctx: &ha_core::tools::ToolExecContext,
 ) -> Result<String> {
     let action = args
         .get("action")
@@ -23,7 +23,7 @@ pub(crate) async fn tool_design(
 
     // 无痕会话 fail-closed：设计空间产物 / 系统落盘落库（session_id 键），与「关闭即焚」冲突，
     // 且 design 是 project 类持久容器、本就与 incognito 互斥（对齐 AGENTS incognito 红线）。
-    if crate::session::is_session_incognito(session_id) {
+    if ha_core::session::is_session_incognito(session_id) {
         anyhow::bail!(
             "设计空间在无痕会话中不可用——产物会落盘持久化，与无痕「关闭即焚」冲突。请在普通会话中使用。"
         );
@@ -180,12 +180,12 @@ fn scoped_local_path(session_id: Option<&str>, raw: &str) -> Result<std::path::P
     // ∪ the design project's bound code repo (explicit user authorization via the
     // owner-plane code binding — the model cannot set that binding itself).
     let mut roots: Vec<std::path::PathBuf> = Vec::new();
-    if let Some(wd) = crate::session::effective_session_working_dir(Some(sid)) {
+    if let Some(wd) = ha_core::session::effective_session_working_dir(Some(sid)) {
         if let Ok(c) = std::path::Path::new(&wd).canonicalize() {
             roots.push(c);
         }
     }
-    if let Ok(c) = crate::paths::attachments_dir(sid).and_then(|d| Ok(d.canonicalize()?)) {
+    if let Ok(c) = ha_core::paths::attachments_dir(sid).and_then(|d| Ok(d.canonicalize()?)) {
         roots.push(c);
     }
     if let Some(dir) = service::session_bound_code_dir(sid) {
@@ -253,7 +253,7 @@ fn scoped_reference_image_paths(session_id: Option<&str>, raw: Vec<String>) -> V
             match scoped_local_path(session_id, &normalized) {
                 Ok(canon) => Some(canon.to_string_lossy().into_owned()),
                 Err(e) => {
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "design",
                         "reference_image",
                         "dropping out-of-scope reference image path: {e}"
@@ -489,17 +489,14 @@ async fn action_critique(args: &Value) -> Result<String> {
     ok(serde_json::to_value(result)?)
 }
 
-fn action_save_to_knowledge(
-    args: &Value,
-    ctx: &super::execution::ToolExecContext,
-) -> Result<String> {
+fn action_save_to_knowledge(args: &Value, ctx: &ha_core::tools::ToolExecContext) -> Result<String> {
     let id = require_str(args, "artifact_id")?;
     // Agent-plane KB write gate (D10): resolve the target KB (explicit arg or the
     // default) and require write access for THIS session before touching the
     // owner-plane save path, so a prompt-injected model cannot write an artifact
     // note into a KB that was never attached / opted in for the session.
     let kb = service::resolve_save_kb(str_arg(args, "kb_id"))?;
-    super::note::require_write(ctx, &kb)?;
+    ha_core::tools::note::require_write(ctx, &kb)?;
     let path = service::save_to_knowledge(id, Some(&kb))?;
     ok(json!({ "status": "saved", "artifactId": id, "note": path }))
 }
@@ -508,7 +505,7 @@ fn action_show(args: &Value, session_id: Option<&str>) -> Result<String> {
     let id = require_str(args, "artifact_id")?;
     let view =
         service::get_artifact_view(id)?.with_context(|| format!("artifact not found: {id}"))?;
-    if let Some(bus) = crate::globals::get_event_bus() {
+    if let Some(bus) = ha_core::globals::get_event_bus() {
         bus.emit(
             "design:show",
             json!({

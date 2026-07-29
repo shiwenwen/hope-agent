@@ -12,7 +12,7 @@
 
 ## 提交前检查（强制）
 
-[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 覆盖 `ha-base` + `ha-config-schema` + `ha-core` + `ha-acp` + `ha-mac` + `ha-updater` + `ha-weather` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
+[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 覆盖 `ha-base` + `ha-config-schema` + `ha-core` + `ha-acp` + `ha-design` + `ha-mac` + `ha-updater` + `ha-weather` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
 
 - **开发中只单点验证**（`cargo check -p <crate>` / `pnpm typecheck`）；跑 clippy / cargo test / pnpm {test,lint} 须先问用户等回复，例外限跨 crate / 多文件收尾，跑前说明
 - **应急跳过**：`HA_SKIP_PREPUSH=1`（限纯 `.md` / 弱网）/ `HA_SKIP_PREPUSH_TEST=1`（只跳 cargo test）。禁止 `--no-verify`（会绕过 GPG 等钩子）
@@ -165,7 +165,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 ### 设计空间（Design Space）
 
-详见 [design-space](docs/architecture/design-space.md)。**新增 action / 端点：工具进 `tools/design/mod.rs`，Tauri / HTTP 薄壳只调 `design::service`，逻辑全在 ha-core**。
+详见 [design-space](docs/architecture/design-space.md)。**新增 action / 端点：工具进 `crates/ha-design/src/tool_design/mod.rs`，Tauri / HTTP 薄壳只调 `design::service`，逻辑全在 ha-design 特征 crate（阶段 3 自 ha-core 迁出，与 artifacts 合并）**。
 
 - **浏览器零编译**：iframe 只载后端编译落盘的静态产物（`component` 经 `design::compile`）；**禁 in-browser Babel / esbuild-wasm / Tailwind JIT**（旧版 `feat/atelier` 白屏卡顿根因）；编译失败降错误页，**不白屏 / 不 panic**。**刻意不做无限画布**（同一卡顿根因）
 - **回写确定性**：磁盘即真相源，`design.db` 仅可重建注册表；微调回写单一命中 + `expected_hash` stale-write 守卫，写盘**一律** `platform::write_atomic`。**component 编译产物 ≠ 源码故无 oid 微调**，仅 `supports_oid_edit` kind（非 image/audio/component）可 `edit_element`
@@ -278,7 +278,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 ## 项目结构
 
-十二 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-config-schema`（`AppConfig` wire 类型闭包，**只依赖 ha-base 与叶子 crate、零行为逻辑**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ 特征 crate `ha-acp`·`ha-mac`·`ha-updater`·`ha-weather`（依赖 ha-core，壳层 `wire()` 装配，**同守零 Tauri 红线**）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
+十三 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-config-schema`（`AppConfig` wire 类型闭包，**只依赖 ha-base 与叶子 crate、零行为逻辑**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ 特征 crate `ha-acp`·`ha-design`·`ha-mac`·`ha-updater`·`ha-weather`（依赖 ha-core，壳层 `wire()` 装配，**同守零 Tauri 红线**）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
 
 ## 开发命令
 

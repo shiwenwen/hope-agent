@@ -3185,7 +3185,6 @@ dependencies = [
  "chrono-tz",
  "cron",
  "dirs 6.0.0",
- "encoding_rs",
  "fancy-regex",
  "flate2",
  "futures-util",
@@ -3212,12 +3211,6 @@ dependencies = [
  "once_cell",
  "open",
  "openssl",
- "oxc_allocator",
- "oxc_codegen",
- "oxc_parser",
- "oxc_semantic",
- "oxc_span",
- "oxc_transformer",
  "pdf-extract",
  "pdfium-render",
  "portable-pty",
@@ -3265,6 +3258,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-design"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "blake3",
+ "chromiumoxide",
+ "chrono",
+ "dirs 6.0.0",
+ "encoding_rs",
+ "flate2",
+ "futures-util",
+ "ha-base",
+ "ha-config-schema",
+ "ha-core",
+ "htmd",
+ "image",
+ "notify",
+ "oxc_allocator",
+ "oxc_codegen",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
+ "oxc_transformer",
+ "pdf-extract",
+ "pulldown-cmark",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "scraper",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "zip 7.2.0",
+]
+
+[[package]]
 name = "ha-eval"
 version = "0.24.0"
 dependencies = [
@@ -3275,6 +3308,7 @@ dependencies = [
  "clap",
  "ha-acp",
  "ha-core",
+ "ha-design",
  "ha-eval-spec",
  "ha-mac",
  "ha-updater",
@@ -3333,6 +3367,7 @@ dependencies = [
  "futures-util",
  "ha-acp",
  "ha-core",
+ "ha-design",
  "ha-mac",
  "ha-updater",
  "ha-weather",
@@ -3507,6 +3542,7 @@ dependencies = [
  "dirs 6.0.0",
  "ha-acp",
  "ha-core",
+ "ha-design",
  "ha-mac",
  "ha-server",
  "ha-updater",

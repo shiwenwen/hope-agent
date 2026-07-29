@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-mac · ha-updater · ha-weather<br/>随 crate 拆分阶段 3 逐个迁出"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-design · ha-mac · ha-updater · ha-weather<br/>随 crate 拆分阶段 3 逐个迁出"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -150,7 +150,7 @@ guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
 
-### 特征 crate（ha-acp / ha-mac / ha-updater / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-design / ha-mac / ha-updater / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -185,6 +185,14 @@ guardian.rs        进程监护 + 指数退避 + 自修复
   的 dangerous 判定消费）下沉 `tools/`；审批焦点 capture/restore 与 args
   sanitize/preflight 经 `tools::register_mac_control_exec_hooks` 四件套
   **原子注册**（部分注册＝防御残缺，不允许）。
+- **ha-design**（设计空间，与 artifacts 合并——artifacts 是 design 的存储
+  层，2-crate 环随合并消解）：design 服务层 / durable Artifact 注册表 /
+  canvas_db / ffmpeg / `design`·`canvas`·`artifact` 三工具。session 边界
+  经 `session::design_hooks` 三钩子原子注册（Design 线程工作目录派生 /
+  会话清理级联 / incognito 开启守卫）；Artifact 隐私切换锁下沉
+  `session::privacy`（incognito 切换与 durable 写入共享同一把锁，kernel
+  持有）；design_chat_threads 自有表经 `SessionDB::with_raw_conn` 受控
+  闭包访问（锁封装不外泄）。
 - **ha-acp**（ACP）：`acp`（Hope 自身作 ACP stdio server，`hope-agent acp`
   模式）+ `acp_control`（外部 ACP agent 控制面：注册表 / 健康探测 /
   SessionManager / `acp_spawn` 工具）。`ACP_MANAGER` 全局随迁特征侧
@@ -346,7 +354,7 @@ sequenceDiagram
 
 ### 事件清单
 
-> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`docker/mod.rs`、`tools/ask_user_question.rs`、`tools/canvas/mod.rs`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
+> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`docker/mod.rs`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
 
 #### 聊天 / 流式
 
@@ -429,9 +437,9 @@ sequenceDiagram
 | 事件名 | 来源 | 用途 |
 |--------|------|------|
 | `slash:effort_changed` / `slash:plan_changed` / `slash:session_cleared` / `slash:model_switched` | channel/worker/slash.rs, slash_commands | 斜杠命令副作用通知 |
-| `canvas_show` / `canvas_hide` / `canvas_reload` / `canvas_deleted` / `canvas_snapshot_request` / `canvas_eval_request` | tools/canvas/mod.rs | Canvas 面板控制 |
-| `artifact:created` / `:updated` / `:verified` / `:archived` / `:deleted` | artifacts/mod.rs | Artifact 当前版本、验证和生命周期刷新 |
-| `artifact:export_running` / `:export_ready` / `:export_failed` | artifacts/mod.rs | owner 导出 receipt 生命周期；PDF 缺 runtime 时另发 `browser:runtime_required` |
+| `canvas_show` / `canvas_hide` / `canvas_reload` / `canvas_deleted` / `canvas_snapshot_request` / `canvas_eval_request` | ha-design (tool_canvas/mod.rs) | Canvas 面板控制 |
+| `artifact:created` / `:updated` / `:verified` / `:archived` / `:deleted` | ha-design (artifacts/mod.rs) | Artifact 当前版本、验证和生命周期刷新 |
+| `artifact:export_running` / `:export_ready` / `:export_failed` | ha-design (artifacts/mod.rs) | owner 导出 receipt 生命周期；PDF 缺 runtime 时另发 `browser:runtime_required` |
 | `session_message_injected` | sessions / subagent | 子任务结果注入主会话消息流 |
 
 #### 桌面专属（Tauri 直发，不进 EventBus 抽象层）

@@ -110,7 +110,8 @@ pub enum BrowserReadyMode {
 }
 
 impl BrowserState {
-    pub(crate) fn new() -> Self {
+    // pub：ha-design 的 PDF 导出复用 BrowserState 构造。
+    pub fn new() -> Self {
         Self {
             browser: None,
             handler_task: None,

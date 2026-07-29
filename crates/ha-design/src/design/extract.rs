@@ -379,10 +379,10 @@ fn dedup_keep_order(v: Vec<String>) -> Vec<String> {
 /// 抓取单个资产字节 + mime（SSRF-gated，size-cap）。失败/越界返回 None（调用方跳过）。
 async fn fetch_asset(url: &str) -> Option<(Vec<u8>, String)> {
     use futures_util::StreamExt;
-    let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+    let ssrf_cfg = ha_core::config::cached_config().ssrf.clone();
     let policy = ssrf_cfg.web_fetch();
     let trusted = ssrf_cfg.trusted_hosts.clone();
-    let parsed = crate::security::ssrf::check_url(url, policy, &trusted)
+    let parsed = ha_core::security::ssrf::check_url(url, policy, &trusted)
         .await
         .ok()?;
 
@@ -392,20 +392,20 @@ async fn fetch_asset(url: &str) -> Option<(Vec<u8>, String)> {
             return attempt.error("too many redirects");
         }
         if let Some(host) = attempt.url().host_str() {
-            if crate::security::ssrf::check_host_blocking_sync(host, policy, &redirect_hosts) {
+            if ha_core::security::ssrf::check_host_blocking_sync(host, policy, &redirect_hosts) {
                 return attempt.stop();
             }
         }
         attempt.follow()
     });
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(20))
             .redirect(redirect_policy),
     )
     .build()
     .ok()?;
-    let resp = crate::tools::web_fetch_common::apply_browser_headers(client.get(parsed))
+    let resp = ha_core::tools::web_fetch_common::apply_browser_headers(client.get(parsed))
         .send()
         .await
         .ok()?;
@@ -482,10 +482,10 @@ async fn harvest_fonts(base_url: &str, html: &str) -> Vec<String> {
 /// 抓字体字节（SSRF-gated，不限 content-type——字体 mime 各家不一，靠扩展名判定）。
 async fn fetch_font(url: &str) -> Option<Vec<u8>> {
     use futures_util::StreamExt;
-    let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+    let ssrf_cfg = ha_core::config::cached_config().ssrf.clone();
     let policy = ssrf_cfg.web_fetch();
     let trusted = ssrf_cfg.trusted_hosts.clone();
-    let parsed = crate::security::ssrf::check_url(url, policy, &trusted)
+    let parsed = ha_core::security::ssrf::check_url(url, policy, &trusted)
         .await
         .ok()?;
     let redirect_hosts = trusted.clone();
@@ -494,20 +494,20 @@ async fn fetch_font(url: &str) -> Option<Vec<u8>> {
             return attempt.error("too many redirects");
         }
         if let Some(host) = attempt.url().host_str() {
-            if crate::security::ssrf::check_host_blocking_sync(host, policy, &redirect_hosts) {
+            if ha_core::security::ssrf::check_host_blocking_sync(host, policy, &redirect_hosts) {
                 return attempt.stop();
             }
         }
         attempt.follow()
     });
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(20))
             .redirect(redirect_policy),
     )
     .build()
     .ok()?;
-    let resp = crate::tools::web_fetch_common::apply_browser_headers(client.get(parsed))
+    let resp = ha_core::tools::web_fetch_common::apply_browser_headers(client.get(parsed))
         .send()
         .await
         .ok()?;
@@ -689,10 +689,10 @@ async fn fetch_raw_html(url: &str) -> Result<String> {
     use futures_util::StreamExt;
 
     const MAX_BYTES: usize = 2 * 1024 * 1024;
-    let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+    let ssrf_cfg = ha_core::config::cached_config().ssrf.clone();
     let policy = ssrf_cfg.web_fetch();
     let trusted = ssrf_cfg.trusted_hosts.clone();
-    let parsed = crate::security::ssrf::check_url(url, policy, &trusted).await?;
+    let parsed = ha_core::security::ssrf::check_url(url, policy, &trusted).await?;
 
     let redirect_hosts = trusted.clone();
     let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
@@ -700,14 +700,14 @@ async fn fetch_raw_html(url: &str) -> Result<String> {
             return attempt.error("too many redirects");
         }
         if let Some(host) = attempt.url().host_str() {
-            if crate::security::ssrf::check_host_blocking_sync(host, policy, &redirect_hosts) {
+            if ha_core::security::ssrf::check_host_blocking_sync(host, policy, &redirect_hosts) {
                 return attempt.stop();
             }
         }
         attempt.follow()
     });
 
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .redirect(redirect_policy),
@@ -715,7 +715,7 @@ async fn fetch_raw_html(url: &str) -> Result<String> {
     .build()
     .map_err(|e| anyhow::anyhow!("http client error: {e}"))?;
 
-    let rb = crate::tools::web_fetch_common::apply_browser_headers(client.get(parsed));
+    let rb = ha_core::tools::web_fetch_common::apply_browser_headers(client.get(parsed));
     let resp = rb
         .send()
         .await
@@ -792,15 +792,15 @@ async fn figma_get(url: &str, token: &str) -> Result<serde_json::Value> {
     use futures_util::StreamExt;
     const MAX_BYTES: usize = 12 * 1024 * 1024; // Figma 文件 JSON 可能较大
 
-    let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+    let ssrf_cfg = ha_core::config::cached_config().ssrf.clone();
     let policy = ssrf_cfg.web_fetch();
     let trusted = ssrf_cfg.trusted_hosts.clone();
-    let parsed = crate::security::ssrf::check_url(url, policy, &trusted).await?;
+    let parsed = ha_core::security::ssrf::check_url(url, policy, &trusted).await?;
 
     // 禁跟随重定向：本请求携带 Figma 凭据（X-Figma-Token 是自定义 header，reqwest 跨主机
     // 重定向只剥 Authorization/Cookie 等、不剥自定义 header），若跟随 3xx 会把令牌重发到未经
     // SSRF 复检的主机。Figma REST 端点不合法重定向，3xx 直接落到下面 !is_success 分支报错。
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none()),
@@ -1037,11 +1037,11 @@ to follow.";
 /// 与普通对话的视觉桥（`function_models.vision`）解耦。
 pub async fn from_image(
     path: &Path,
-    model_override: Option<crate::provider::ActiveModel>,
+    model_override: Option<ha_core::provider::ActiveModel>,
 ) -> Result<ExtractedSystem> {
     // Size cap (config `design.maxExtractImageMb`, default 24, `0` = unlimited).
     // Checked via metadata *before* reading so an oversized file never loads.
-    let limit_mb = crate::config::cached_config().design.max_extract_image_mb;
+    let limit_mb = ha_core::config::cached_config().design.max_extract_image_mb;
     if limit_mb > 0 {
         let meta = std::fs::metadata(path)
             .with_context(|| format!("failed to stat image {}", path.display()))?;
@@ -1068,18 +1068,18 @@ pub async fn from_image(
         "screenshot/design image",
         "(the design to analyze is provided as the attached image)",
     );
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let chain = match model_override {
         Some(m) => vec![m],
-        None => crate::automation::effective_chain(&config, None),
+        None => ha_core::automation::effective_chain(&config, None),
     };
-    let out = crate::automation::run_vision(crate::automation::VisionTaskSpec {
+    let out = ha_core::automation::run_vision(ha_core::automation::VisionTaskSpec {
         purpose: "design.extract_vision",
         chain,
         session_key: "automation:design.extract",
         system: VISION_UNTRUSTED_SYSTEM,
         instruction: &prompt,
-        attachments: &[crate::agent::Attachment {
+        attachments: &[ha_core::agent::Attachment {
             name: "design-screenshot".to_string(),
             mime_type: mime.to_string(),
             source: None,
@@ -1099,7 +1099,7 @@ pub async fn from_image(
 /// 返回可直接作视觉附件的 `(b64, mime)`。真多模态改造后**不再产出文字转述**——原图直接
 /// 随生成请求上行，替代旧「describe→generate」两阶段。
 pub(crate) fn prepare_reference_image(b64: &str) -> Result<(String, &'static str)> {
-    let limit_mb = crate::config::cached_config().design.max_extract_image_mb;
+    let limit_mb = ha_core::config::cached_config().design.max_extract_image_mb;
     let trimmed = b64.trim();
     // **解码前**按 b64 长度估算拦截，避免超大输入在 decode 时先分配 ~0.75× 才被拒（与 from_image
     // 走 metadata 先查同理）。

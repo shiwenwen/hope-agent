@@ -7,7 +7,7 @@ use crate::artifacts::{
     UpdateArtifactInput,
 };
 
-use super::execution::ToolExecContext;
+use ha_core::tools::ToolExecContext;
 
 pub(crate) async fn tool_artifact(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     if ctx.incognito {
@@ -172,7 +172,7 @@ fn verify(args: &Value) -> Result<String> {
 }
 
 fn emit_show(artifact: &crate::artifacts::ArtifactRecord) {
-    super::canvas::emit_canvas_event(
+    crate::tool_canvas::emit_canvas_event(
         "canvas_show",
         &json!({
             "projectId": artifact.id,

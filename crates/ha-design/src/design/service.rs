@@ -14,8 +14,8 @@ use super::db::{
 use super::patch;
 use super::renderer::{self, ArtifactKind, ArtifactParts};
 use super::system::{self, DesignSystemFull};
-use crate::paths;
-use crate::platform::write_atomic;
+use ha_core::paths;
+use ha_core::platform::write_atomic;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -54,7 +54,7 @@ pub fn get_design_db() -> Result<&'static DesignDb> {
 }
 
 fn emit(event: &str, payload: serde_json::Value) {
-    if let Some(bus) = crate::globals::get_event_bus() {
+    if let Some(bus) = ha_core::globals::get_event_bus() {
         bus.emit(event, payload);
     }
 }
@@ -171,7 +171,7 @@ fn render(
         let html = match super::compile::compile_component(&parts.body_html) {
             Ok(js) => renderer::build_component_html(title, &js, &parts.css, tokens),
             Err(e) => {
-                crate::app_warn!("design", "compile", "component compile failed: {e}");
+                ha_core::app_warn!("design", "compile", "component compile failed: {e}");
                 renderer::build_component_error_html(title, &e.to_string())
             }
         };
@@ -235,7 +235,7 @@ fn render_clean(
         let html = match super::compile::compile_component(&parts.body_html) {
             Ok(js) => renderer::build_component_html(title, &js, &parts.css, tokens),
             Err(e) => {
-                crate::app_warn!("design", "compile", "component export compile failed: {e}");
+                ha_core::app_warn!("design", "compile", "component export compile failed: {e}");
                 renderer::build_component_error_html(title, &e.to_string())
             }
         };
@@ -271,7 +271,7 @@ pub struct CreateProjectInput {
     pub agent_id: Option<String>,
     /// 项目对话初始模型（首页所选模型带入）。弱引用，缺省 = agent 缺省。
     #[serde(default)]
-    pub default_model: Option<crate::provider::ActiveModel>,
+    pub default_model: Option<ha_core::provider::ActiveModel>,
 }
 
 pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
@@ -309,7 +309,7 @@ pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
         serde_json::to_string_pretty(&project)?.as_bytes(),
     )?;
     db.create_project(&project)?;
-    crate::app_info!("design", "service", "create project {}", project.id);
+    ha_core::app_info!("design", "service", "create project {}", project.id);
     emit("design:project_changed", json!({ "projectId": project.id }));
     Ok(project)
 }
@@ -426,7 +426,7 @@ pub fn duplicate_project(id: &str) -> Result<DesignProject> {
         return Err(e);
     }
 
-    crate::app_info!("design", "service", "duplicate project {id} -> {new_pid}");
+    ha_core::app_info!("design", "service", "duplicate project {id} -> {new_pid}");
     emit("design:project_changed", json!({ "projectId": new_pid }));
     // 重读以带回聚合列（artifact_count / needs_review_count）。
     db.get_project(&new_pid)?
@@ -517,7 +517,7 @@ pub fn duplicate_artifact(id: &str) -> Result<DesignArtifact> {
         return Err(e);
     }
     db.touch_project(&src.project_id, &ts)?;
-    crate::app_info!("design", "service", "duplicate artifact {id} -> {new_aid}");
+    ha_core::app_info!("design", "service", "duplicate artifact {id} -> {new_aid}");
     db.get_artifact(&new_aid)?
         .with_context(|| "duplicated artifact vanished".to_string())
 }
@@ -654,11 +654,11 @@ pub fn get_or_create_session_project(
 /// created FIRST so a failure leaves a usable (if unlisted) regular session
 /// rather than a row-less hidden zombie.
 pub fn mark_session_as_design_thread(session_id: &str, project_id: &str) {
-    let Some(db) = crate::globals::get_session_db() else {
+    let Some(db) = ha_core::globals::get_session_db() else {
         return;
     };
     if let Err(e) = crate::design::threads::create_thread(session_id, project_id) {
-        crate::app_warn!(
+        ha_core::app_warn!(
             "design",
             "thread_mint",
             "create_thread failed for {}: {}",
@@ -667,8 +667,8 @@ pub fn mark_session_as_design_thread(session_id: &str, project_id: &str) {
         );
         return;
     }
-    if let Err(e) = db.set_session_kind(session_id, crate::session::SessionKind::Design) {
-        crate::app_warn!(
+    if let Err(e) = db.set_session_kind(session_id, ha_core::session::SessionKind::Design) {
+        ha_core::app_warn!(
             "design",
             "thread_mint",
             "set_session_kind failed for {} (thread row kept): {}",
@@ -685,11 +685,13 @@ pub fn mark_session_as_design_thread(session_id: &str, project_id: &str) {
 /// Default-load target: `SessionMeta` of the most-recently-active chat thread for
 /// a design project. `None` when the project has no prior conversation (panel
 /// shows the empty starter state).
-pub fn design_chat_thread_latest(project_id: &str) -> Result<Option<crate::session::SessionMeta>> {
+pub fn design_chat_thread_latest(
+    project_id: &str,
+) -> Result<Option<ha_core::session::SessionMeta>> {
     let Some(sid) = crate::design::threads::latest_thread_for_project(project_id)? else {
         return Ok(None);
     };
-    let Some(db) = crate::globals::get_session_db() else {
+    let Some(db) = ha_core::globals::get_session_db() else {
         return Ok(None);
     };
     db.get_session(&sid)
@@ -763,7 +765,7 @@ pub fn resolve_code_dir(project: &DesignProject) -> Option<String> {
         match std::path::Path::new(dir).canonicalize() {
             Ok(c) if c.is_dir() => return Some(c.to_string_lossy().into_owned()),
             _ => {
-                crate::app_warn!(
+                ha_core::app_warn!(
                     "design",
                     "code_binding",
                     "bound code_dir missing for project {}: {dir}",
@@ -777,7 +779,7 @@ pub fn resolve_code_dir(project: &DesignProject) -> Option<String> {
         .ha_project_id
         .as_deref()
         .filter(|s| !s.trim().is_empty())?;
-    let db = crate::get_project_db()?;
+    let db = ha_core::get_project_db()?;
     match db.get(pid) {
         Ok(Some(ha)) => {
             if let Some(wd) = ha.working_dir.filter(|s| !s.trim().is_empty()) {
@@ -787,7 +789,7 @@ pub fn resolve_code_dir(project: &DesignProject) -> Option<String> {
                 return match std::path::Path::new(&wd).canonicalize() {
                     Ok(c) if c.is_dir() => Some(c.to_string_lossy().into_owned()),
                     _ => {
-                        crate::app_warn!(
+                        ha_core::app_warn!(
                             "design",
                             "code_binding",
                             "ha_project {} working_dir missing: {wd} (project {})",
@@ -799,11 +801,11 @@ pub fn resolve_code_dir(project: &DesignProject) -> Option<String> {
                 };
             }
             // 无显式 working_dir → lazy 默认 workspace（与会话工作目录合并同款）。
-            let ws = crate::paths::project_workspace_dir(pid).ok()?;
-            crate::util::ensure_dir_canonical(&ws).ok()
+            let ws = ha_core::paths::project_workspace_dir(pid).ok()?;
+            ha_core::util::ensure_dir_canonical(&ws).ok()
         }
         Ok(None) => {
-            crate::app_warn!(
+            ha_core::app_warn!(
                 "design",
                 "code_binding",
                 "bound ha_project {} no longer exists (project {})",
@@ -813,7 +815,7 @@ pub fn resolve_code_dir(project: &DesignProject) -> Option<String> {
             None
         }
         Err(e) => {
-            crate::app_warn!(
+            ha_core::app_warn!(
                 "design",
                 "code_binding",
                 "ha_project {} lookup failed for project {}: {}",
@@ -843,7 +845,7 @@ pub fn session_bound_code_dir(session_id: &str) -> Option<String> {
             0 => return None,
             1 => candidates.remove(0),
             n => {
-                crate::app_warn!(
+                ha_core::app_warn!(
                     "design",
                     "code_binding",
                     "session {} sources {} design projects with no thread anchor — \
@@ -1059,7 +1061,7 @@ pub fn set_project_code_binding(
     };
     // HA 项目源：项目必须存在（目录派生留到解析期，允许 working_dir 后设）。
     if let Some(pid) = ha_project_id.as_deref() {
-        let ha_db = crate::get_project_db().context("project db unavailable")?;
+        let ha_db = ha_core::get_project_db().context("project db unavailable")?;
         ha_db
             .get(pid)?
             .with_context(|| format!("hope-agent project not found: {pid}"))?;
@@ -1086,7 +1088,7 @@ pub fn set_project_code_binding(
             serde_json::to_string_pretty(&project)?.as_bytes(),
         );
     }
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "code_binding",
         "project {} bound: code_dir={:?} ha_project={:?}",
@@ -1099,7 +1101,7 @@ pub fn set_project_code_binding(
     // 仍按旧 links 去读已撤销授权的目录，授权撤销形同虚设），再重建 watcher。幂等重设同目录不清。
     if old_code_dir != project.code_dir || old_ha != project.ha_project_id {
         if let Err(e) = db.delete_receipts_for_project(project_id) {
-            crate::app_warn!(
+            ha_core::app_warn!(
                 "design",
                 "code_binding",
                 "failed to clear implement receipts on rebind for {}: {}",
@@ -1120,7 +1122,7 @@ pub fn delete_project(id: &str) -> Result<()> {
     // each session (which cascades its `design_chat_threads` row + messages).
     // The anchor table lives in sessions.db (no cross-db FK), so this cleanup is
     // explicit rather than an ON DELETE CASCADE.
-    if let Some(sdb) = crate::globals::get_session_db() {
+    if let Some(sdb) = ha_core::globals::get_session_db() {
         if let Ok(session_ids) = crate::design::threads::thread_session_ids(id) {
             for sid in session_ids {
                 let _ = sdb.delete_session(&sid);
@@ -1133,7 +1135,7 @@ pub fn delete_project(id: &str) -> Result<()> {
             let _ = std::fs::remove_dir_all(&dir);
         }
     }
-    crate::app_info!("design", "service", "delete project {}", id);
+    ha_core::app_info!("design", "service", "delete project {}", id);
     emit("design:project_changed", json!({ "projectId": id }));
     // 回执/links 随产物级联删除；重建 watcher 撤销该项目目录的监听。
     super::code_sync::refresh_watchers();
@@ -1186,7 +1188,7 @@ pub struct CreateArtifactInput {
     /// 用户在 GUI 显式选的生成模型（单模型、失败即报错不降级）；涉图时须视觉合格。
     /// 缺省 = `effective_chain` 默认链。
     #[serde(default)]
-    pub model_override: Option<crate::provider::ActiveModel>,
+    pub model_override: Option<ha_core::provider::ActiveModel>,
     /// image 形态：参考图路径 / URL（agent 面图生图入口）。每项经 `media_gen::load_input_images`
     /// 加载（本地路径 / data: / http(s) 走 SSRF），≤5 张，坏项跳过不阻断。与 `reference_image_b64`
     /// 叠加（owner 面用 b64、agent 面用 paths）。
@@ -1258,7 +1260,7 @@ fn prepare_reference_images(raw: &[String]) -> Vec<(String, String)> {
         }
         match super::extract::prepare_reference_image(b64) {
             Ok((b64, mime)) => out.push((b64, mime.to_string())),
-            Err(e) => crate::app_warn!(
+            Err(e) => ha_core::app_warn!(
                 "design",
                 "generate",
                 "reference image prepare failed ({e}), skipping this image"
@@ -1296,14 +1298,14 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .filter(|s| !s.trim().is_empty())
         {
             match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
-                Ok(data) => input_images.push(crate::media_gen::adapters::InputImage {
+                Ok(data) => input_images.push(ha_core::media_gen::adapters::InputImage {
                     data,
                     mime: input
                         .reference_image_mime
                         .clone()
                         .unwrap_or_else(|| "image/png".to_string()),
                 }),
-                Err(e) => crate::app_warn!(
+                Err(e) => ha_core::app_warn!(
                     "design",
                     "image",
                     "reference image base64 decode failed, ignoring: {e}"
@@ -1323,7 +1325,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
                     continue;
                 }
                 match base64::engine::general_purpose::STANDARD.decode(b64) {
-                    Ok(data) => input_images.push(crate::media_gen::adapters::InputImage {
+                    Ok(data) => input_images.push(ha_core::media_gen::adapters::InputImage {
                         data,
                         mime: r
                             .mime
@@ -1331,7 +1333,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
                             .filter(|m| !m.trim().is_empty())
                             .unwrap_or_else(|| "image/png".to_string()),
                     }),
-                    Err(e) => crate::app_warn!(
+                    Err(e) => ha_core::app_warn!(
                         "design",
                         "image",
                         "reference image base64 decode failed, ignoring: {e}"
@@ -1346,13 +1348,13 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .as_deref()
             .filter(|p| !p.is_empty())
         {
-            match crate::media_gen::load_input_images(paths).await {
+            match ha_core::media_gen::load_input_images(paths).await {
                 Ok(mut loaded) => {
                     let room = 5usize.saturating_sub(input_images.len());
                     loaded.truncate(room);
                     input_images.append(&mut loaded);
                 }
-                Err(e) => crate::app_warn!(
+                Err(e) => ha_core::app_warn!(
                     "design",
                     "image",
                     "reference image paths load failed, ignoring: {e}"
@@ -1382,7 +1384,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             kind: input
                 .audio_kind
                 .as_deref()
-                .and_then(crate::media_gen::AudioKind::parse),
+                .and_then(ha_core::media_gen::AudioKind::parse),
             voice: input.audio_voice.clone().filter(|v| !v.trim().is_empty()),
             duration_seconds: input.audio_duration_secs,
         };
@@ -1396,7 +1398,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             match super::generate::generate_component_source(&brief, &system_md, &tokens).await {
                 Ok(src) => input.body_html = Some(src),
                 Err(e) => {
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "design",
                         "generate",
                         "component generation failed, blank shell: {e}"
@@ -1443,7 +1445,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
                     input.js = Some(parts.js);
                 }
                 Err(e) => {
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "design",
                         "generate",
                         "brief→design generation failed ({}), creating shell: {e}",
@@ -1489,7 +1491,7 @@ pub async fn generate_brand_pack(
     system_id: Option<String>,
     folder: Option<String>,
     reference_images: Vec<ReferenceImageInput>,
-    model_override: Option<crate::provider::ActiveModel>,
+    model_override: Option<ha_core::provider::ActiveModel>,
 ) -> Result<Vec<DesignArtifact>> {
     let brief = brief.trim();
     let has_ref = reference_images.iter().any(|r| !r.b64.trim().is_empty());
@@ -1537,7 +1539,7 @@ pub async fn generate_brand_pack(
         match create_artifact_generating(input).await {
             Ok(a) => out.push(a),
             Err(e) => {
-                crate::app_warn!("design", "generate", "brand pack kind {kind} failed: {e}");
+                ha_core::app_warn!("design", "generate", "brand pack kind {kind} failed: {e}");
                 last_err = Some(e);
             }
         }
@@ -1549,7 +1551,7 @@ pub async fn generate_brand_pack(
     if out.is_empty() {
         return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("品牌包生成全部失败")));
     }
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "generate",
         "brand pack generated {}/{} artifacts for project {project_id}",
@@ -1573,7 +1575,7 @@ fn resolve_system_for_generation(
         .flatten()
         .and_then(|p| p.default_system_id);
     let system_id = input.system_id.clone().or(project_default).or_else(|| {
-        crate::config::cached_config()
+        ha_core::config::cached_config()
             .design
             .default_system_id
             .clone()
@@ -1608,14 +1610,14 @@ fn resolve_self_check(
     body_html: &str,
     css: &str,
 ) -> (String, Option<String>) {
-    let enabled = crate::config::cached_config().design.self_check;
+    let enabled = ha_core::config::cached_config().design.self_check;
     let verdict = if enabled {
         super::selfcheck::evaluate(body_html, css)
     } else {
         None
     };
     if let Some(v) = &verdict {
-        crate::app_info!(
+        ha_core::app_info!(
             "design",
             "selfcheck",
             "artifact flagged needs_review: {} ({})",
@@ -1646,7 +1648,7 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
         .clone()
         .or(project.default_system_id.clone())
         .or_else(|| {
-            crate::config::cached_config()
+            ha_core::config::cached_config()
                 .design
                 .default_system_id
                 .clone()
@@ -1740,7 +1742,7 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
         return Err(e);
     }
 
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "service",
         "create artifact {} kind={} project={}",
@@ -1899,7 +1901,7 @@ fn reconcile_orphaned_generating(rows: &[DesignArtifact]) -> bool {
         match degrade_to_placeholder(&id, "failed") {
             Ok(true) => {
                 degraded_any = true;
-                crate::app_warn!(
+                ha_core::app_warn!(
                     "design",
                     "generate",
                     "recovered orphaned generating artifact {}",
@@ -1907,7 +1909,7 @@ fn reconcile_orphaned_generating(rows: &[DesignArtifact]) -> bool {
                 );
             }
             Ok(false) => {}
-            Err(e) => crate::app_warn!(
+            Err(e) => ha_core::app_warn!(
                 "design",
                 "generate",
                 "reconcile orphan {} failed: {}",
@@ -2001,7 +2003,7 @@ pub async fn inpaint_image_artifact(
         aspect_ratio: None,
         size: None,
         resolution: None,
-        input_images: vec![crate::media_gen::adapters::InputImage {
+        input_images: vec![ha_core::media_gen::adapters::InputImage {
             data: img_bytes,
             mime: img_mime,
         }],
@@ -2040,10 +2042,10 @@ pub async fn inpaint_image_artifact(
         message: Some("Inpaint".to_string()),
         critique_score: None,
         origin: Some("ai".to_string()),
-        prompt_summary: Some(crate::truncate_utf8(&prompt, 120).to_string()),
+        prompt_summary: Some(ha_core::truncate_utf8(&prompt, 120).to_string()),
         created_at: ts.clone(),
     })?;
-    let keep = crate::config::cached_config()
+    let keep = ha_core::config::cached_config()
         .design
         .max_versions_per_artifact
         .max(1);
@@ -2222,7 +2224,7 @@ pub fn patch_page_style(id: &str, props: Vec<(String, String)>) -> Result<Design
         prompt_summary: None,
         created_at: ts.clone(),
     })?;
-    let keep = crate::config::cached_config()
+    let keep = ha_core::config::cached_config()
         .design
         .max_versions_per_artifact
         .max(1);
@@ -2293,7 +2295,7 @@ pub fn create_artifact_shell(input: &CreateArtifactInput) -> Result<DesignArtifa
         .clone()
         .or(project.default_system_id.clone())
         .or_else(|| {
-            crate::config::cached_config()
+            ha_core::config::cached_config()
                 .design
                 .default_system_id
                 .clone()
@@ -2392,7 +2394,7 @@ pub fn review_artifact(id: &str, action: &str) -> Result<DesignArtifact> {
         resolve_self_check(a.metadata.as_deref(), &parts.body_html, &parts.css)
     };
     db.update_artifact_review(id, None, &status, None, metadata.as_deref(), &now())?;
-    crate::app_info!("design", "service", "review artifact {} -> {}", id, status);
+    ha_core::app_info!("design", "service", "review artifact {} -> {}", id, status);
     emit(
         "design:artifact_ready",
         json!({ "projectId": a.project_id, "artifactId": id }),
@@ -2452,7 +2454,7 @@ pub fn finalize_generating_artifact(
         message: Some("Generated".to_string()),
         critique_score: None,
         origin: Some("ai".to_string()),
-        prompt_summary: prompt_summary.map(|s| crate::truncate_utf8(s, 2000).to_string()),
+        prompt_summary: prompt_summary.map(|s| ha_core::truncate_utf8(s, 2000).to_string()),
         created_at: ts.clone(),
     })?;
     db.touch_project(&a.project_id, &ts)?;
@@ -2477,7 +2479,7 @@ pub async fn stream_generate_artifact(
     tokens: BTreeMap<String, String>,
     recipe_id: Option<String>,
     reference_images: Vec<(String, String)>,
-    model_override: Option<crate::provider::ActiveModel>,
+    model_override: Option<ha_core::provider::ActiveModel>,
     cancel: Arc<AtomicBool>,
 ) {
     // 本流唯一 id + 单调 seq：前端按 streamId 变化重置累积、按 seq 丢乱序帧（EventBus 无 seq）。
@@ -2538,7 +2540,7 @@ pub async fn stream_generate_artifact(
                         "design:generate_error",
                         json!({ "projectId": project_id, "artifactId": artifact_id, "reason": e.to_string() }),
                     );
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "design",
                         "generate",
                         "finalize streaming artifact {} failed: {}",
@@ -2555,7 +2557,7 @@ pub async fn stream_generate_artifact(
                     "design:generate_error",
                     json!({ "projectId": project_id, "artifactId": artifact_id, "reason": e.to_string() }),
                 );
-                crate::app_warn!(
+                ha_core::app_warn!(
                     "design",
                     "generate",
                     "streaming generation for {} failed, degraded to placeholder: {}",
@@ -2638,7 +2640,7 @@ pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<Desi
                 "design:generate_error",
                 json!({ "projectId": project_id, "artifactId": artifact_id, "reason": "internal panic" }),
             );
-            crate::app_warn!(
+            ha_core::app_warn!(
                 "design",
                 "generate",
                 "streaming generation for {} panicked, degraded to placeholder",
@@ -2732,7 +2734,7 @@ pub fn create_share(artifact_id: &str) -> Result<String> {
     db.get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     let token = db.upsert_share(artifact_id, &new_share_token(), &now())?;
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "share",
         "created share for artifact {artifact_id}"
@@ -2758,7 +2760,7 @@ pub fn revoke_share_for_artifact(artifact_id: &str) -> Result<bool> {
         Some(tok) => {
             let ok = db.delete_share(&tok)?;
             if ok {
-                crate::app_info!(
+                ha_core::app_info!(
                     "design",
                     "share",
                     "revoked share for artifact {artifact_id}"
@@ -2942,7 +2944,7 @@ pub fn ensure_artifact_render_fresh(id: &str) -> Result<bool> {
     )?;
     write_atomic(&index_path, html.as_bytes())?;
     write_atomic(&dir.join("oidmap.json"), oidmap_json.as_bytes())?;
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "service",
         "self-healed stale render (bridge v{}) for artifact {}",
@@ -3299,7 +3301,7 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
         prompt_summary: input.prompt_summary,
         created_at: ts.clone(),
     })?;
-    let keep = crate::config::cached_config()
+    let keep = ha_core::config::cached_config()
         .design
         .max_versions_per_artifact
         .max(1);
@@ -3373,7 +3375,7 @@ pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<De
         prompt_summary: None,
         created_at: ts.clone(),
     })?;
-    let keep = crate::config::cached_config()
+    let keep = ha_core::config::cached_config()
         .design
         .max_versions_per_artifact
         .max(1);
@@ -3393,14 +3395,14 @@ pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<De
 
 /// Resolve which knowledge base an artifact save targets: the explicit `kb_id`
 /// when non-empty, otherwise the default KB (created on demand). Shared so the
-/// agent-plane write gate ([`crate::tools::note::require_write`]) and the actual
+/// agent-plane write gate ([`ha_core::tools::note::require_write`]) and the actual
 /// save agree on exactly which KB is written.
 pub fn resolve_save_kb(kb_id: Option<&str>) -> Result<String> {
     match kb_id.map(str::trim).filter(|s| !s.is_empty()) {
         Some(k) => Ok(k.to_string()),
         None => {
-            crate::knowledge::service::ensure_default_knowledge_base();
-            crate::knowledge::service::list_kb_meta(false)?
+            ha_core::knowledge::service::ensure_default_knowledge_base();
+            ha_core::knowledge::service::list_kb_meta(false)?
                 .into_iter()
                 .next()
                 .map(|m| m.kb.id)
@@ -3413,7 +3415,7 @@ pub fn resolve_save_kb(kb_id: Option<&str>) -> Result<String> {
 ///
 /// 这是 owner 平面写入（本机 / API key 信任，不经会话访问裁决）。agent 平面
 /// (`design` 工具 `save_to_knowledge`) 必须先经 [`resolve_save_kb`] +
-/// `crate::tools::note::require_write` 门控 `effective_kb_access` 才可到达这里。
+/// `ha_core::tools::note::require_write` 门控 `effective_kb_access` 才可到达这里。
 pub fn save_to_knowledge(artifact_id: &str, kb_id: Option<&str>) -> Result<String> {
     let db = open_db()?;
     let a = db
@@ -3440,8 +3442,8 @@ pub fn save_to_knowledge(artifact_id: &str, kb_id: Option<&str>) -> Result<Strin
         aid = a.id,
         body = parts.body_html,
     );
-    let hash = crate::knowledge::service::note_save(&kb, &rel, &content, None, false)?;
-    crate::app_info!(
+    let hash = ha_core::knowledge::service::note_save(&kb, &rel, &content, None, false)?;
+    ha_core::app_info!(
         "design",
         "service",
         "saved artifact {} to knowledge base {}",
@@ -4005,7 +4007,7 @@ const IMPLEMENT_PART_MAX: usize = 24 * 1024;
 const IMPLEMENT_DESIGN_MD_MAX: usize = 8 * 1024;
 
 fn pack_code_block(s: &mut String, lang: &str, content: &str) {
-    let truncated = crate::util::truncate_utf8(content, IMPLEMENT_PART_MAX);
+    let truncated = ha_core::util::truncate_utf8(content, IMPLEMENT_PART_MAX);
     s.push_str(&format!("```{lang}\n{truncated}\n```\n"));
     if truncated.len() < content.len() {
         s.push_str("（超长已截断——完整源码可用「代码交付包 (ZIP)」导出查看）\n");
@@ -4078,8 +4080,8 @@ fn build_implement_pack(
             let anchor = c.snippet.as_deref().or(c.tag.as_deref()).unwrap_or("画布");
             s.push_str(&format!(
                 "- [{}] {}\n",
-                crate::util::truncate_utf8(anchor, 120),
-                crate::util::truncate_utf8(&c.body, 500)
+                ha_core::util::truncate_utf8(anchor, 120),
+                ha_core::util::truncate_utf8(&c.body, 500)
             ));
         }
         s.push('\n');
@@ -4088,7 +4090,7 @@ fn build_implement_pack(
     if let Some(id) = a.system_id.as_deref() {
         if let Ok(md) = export_design_md(id) {
             s.push_str("## 设计系统摘要（DESIGN.md）\n\n");
-            let truncated = crate::util::truncate_utf8(&md, IMPLEMENT_DESIGN_MD_MAX);
+            let truncated = ha_core::util::truncate_utf8(&md, IMPLEMENT_DESIGN_MD_MAX);
             s.push_str(truncated);
             if truncated.len() < md.len() {
                 s.push_str("\n（超长已截断）");
@@ -4125,11 +4127,11 @@ pub fn implement_to_code(artifact_id: &str) -> Result<ImplementToCodeResult> {
         .context("design project has no (valid) bound code repository — bind one first")?;
     let prompt = build_implement_pack(&db, &a, &project)?;
 
-    let session_db = crate::globals::get_session_db().context("session db unavailable")?;
+    let session_db = ha_core::globals::get_session_db().context("session db unavailable")?;
     let agent_id = project
         .agent_id
         .clone()
-        .unwrap_or_else(|| crate::agent::resolver::resolve_default_agent_id(None, None));
+        .unwrap_or_else(|| ha_core::agent::resolver::resolve_default_agent_id(None, None));
 
     // HA 项目源：把实现会话 attach 到该 HA 项目——工作目录经 effective_working_dir_for_meta
     // 的 project 分支**实时派生**（HA 项目 working_dir 变更自动跟随），并顺带获得 Project scope
@@ -4150,9 +4152,9 @@ pub fn implement_to_code(artifact_id: &str) -> Result<ImplementToCodeResult> {
     };
     let title = format!("实现设计：{}", a.title);
     if let Err(e) =
-        session_db.update_session_title(&meta.id, crate::util::truncate_utf8(&title, 120))
+        session_db.update_session_title(&meta.id, ha_core::util::truncate_utf8(&title, 120))
     {
-        crate::app_warn!(
+        ha_core::app_warn!(
             "design",
             "implement",
             "set title failed for {}: {}",
@@ -4160,7 +4162,7 @@ pub fn implement_to_code(artifact_id: &str) -> Result<ImplementToCodeResult> {
             e
         );
     }
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "implement",
         "artifact {} -> session {} (cwd {})",
@@ -4174,7 +4176,7 @@ pub fn implement_to_code(artifact_id: &str) -> Result<ImplementToCodeResult> {
     // 代码仓库的孤儿会话，每次重试再多一个。失败落 warn 可诊断；用户重跑 implement 会补建回执。
     if let Err(e) = super::code_sync::create_receipt_for_implement(artifact_id, &meta.id, &code_dir)
     {
-        crate::app_warn!(
+        ha_core::app_warn!(
             "design",
             "implement",
             "failed to record implement receipt for artifact {} session {}: {}",
@@ -4349,7 +4351,7 @@ pub fn sync_code_binding(id: i64) -> Result<BindingSyncReport> {
         if !binding.formats.contains(&e.format) {
             continue;
         }
-        crate::platform::write_atomic(&dir.join(&e.filename), e.content.as_bytes())?;
+        ha_core::platform::write_atomic(&dir.join(&e.filename), e.content.as_bytes())?;
         written.push(e.filename.clone());
     }
     // 溯源清单（specific 文件名，避免撞项目 README）。
@@ -4358,11 +4360,11 @@ pub fn sync_code_binding(id: i64) -> Result<BindingSyncReport> {
         binding.system_id,
         written.iter().map(|f| format!("- `{f}`")).collect::<Vec<_>>().join("\n")
     );
-    crate::platform::write_atomic(&dir.join("DESIGN_TOKENS.md"), manifest.as_bytes())?;
+    ha_core::platform::write_atomic(&dir.join("DESIGN_TOKENS.md"), manifest.as_bytes())?;
 
     let synced_at = now();
     db.mark_binding_synced(id, &synced_at)?;
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "binding_sync",
         "synced {} token files to {}",
@@ -4587,7 +4589,7 @@ pub struct ExtractSystemInput {
     /// `from=image` 专用：用户在 GUI 选的视觉模型（单模型、失败即报错不降级）。
     /// 缺省 = 默认链里首个视觉合格候选（`automation::run_vision` skip 语义）。
     #[serde(default)]
-    pub model_override: Option<crate::provider::ActiveModel>,
+    pub model_override: Option<ha_core::provider::ActiveModel>,
 }
 
 /// 设计方向选择器：为无品牌 brief 提 N 个候选方向（不落盘）。
@@ -4755,7 +4757,7 @@ pub fn add_comment(
     db.get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     // `truncate_utf8` 返回借用切片，故 snippet_owned 已是 Option<&str>（无需 as_deref）。
-    let snippet_owned = snippet.map(|s| crate::truncate_utf8(s, SNIPPET_MAX_BYTES));
+    let snippet_owned = snippet.map(|s| ha_core::truncate_utf8(s, SNIPPET_MAX_BYTES));
     let comment = db.add_comment(
         artifact_id,
         sanitize_oid(oid),
@@ -4763,10 +4765,10 @@ pub fn add_comment(
         clamp_rel(rel_y),
         tag.filter(|s| !s.is_empty()),
         snippet_owned,
-        crate::truncate_utf8(body, BODY_MAX_BYTES),
+        ha_core::truncate_utf8(body, BODY_MAX_BYTES),
         &now(),
     )?;
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "comment",
         "add comment {} on artifact {} oid={:?}",
@@ -4808,7 +4810,7 @@ pub fn update_comment_body(artifact_id: &str, comment_id: i64, body: &str) -> Re
     open_db()?.update_comment_body(
         artifact_id,
         comment_id,
-        crate::truncate_utf8(body, BODY_MAX_BYTES),
+        ha_core::truncate_utf8(body, BODY_MAX_BYTES),
     )
 }
 
@@ -4886,7 +4888,7 @@ pub async fn refine_artifact_with_comment(
     };
     let (system_md, tokens) = resolve_system_for_generation(&sys_input);
     let instruction = compose_refine_instruction(&comment);
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "comment",
         "refine artifact {} per comment {}",
@@ -4907,13 +4909,13 @@ pub async fn refine_artifact_with_comment(
         js: Some(parts.js),
         message: Some(format!("按批注 #{comment_id} 精修")),
         origin: Some("ai".to_string()),
-        prompt_summary: Some(crate::truncate_utf8(&comment.body, 2000).to_string()),
+        prompt_summary: Some(ha_core::truncate_utf8(&comment.body, 2000).to_string()),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })?;
     // 精修成功 → 自动标该批注已解决（W3-J 生命周期闭环：此前 refine 后批注仍 open，用户分不清哪些已让
     // AI 处理过、批注越攒越多）。best-effort：resolve 失败不回滚已成功的精修。
     if let Err(e) = set_comment_resolved(artifact_id, comment_id, true) {
-        crate::app_warn!("design", "comment", "auto-resolve after refine failed: {e}");
+        ha_core::app_warn!("design", "comment", "auto-resolve after refine failed: {e}");
     }
     Ok(refined)
 }

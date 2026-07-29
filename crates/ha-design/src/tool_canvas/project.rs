@@ -3,7 +3,7 @@ use chrono::Local;
 use uuid::Uuid;
 
 use crate::canvas_db::{CanvasDB, CanvasProject, CanvasVersion};
-use crate::paths;
+use ha_core::paths;
 
 use super::renderer;
 

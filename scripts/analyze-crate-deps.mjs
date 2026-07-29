@@ -68,8 +68,6 @@ const BASE = [
 /** Layer 2 —— 特征 crate。互相之间只允许单向依赖，成环即需合并或再切。
  * 已迁出成真 crate 的分组（ha-updater / ha-weather / ha-acp / ha-mac）一律删除。 */
 const FEATURES = {
-  "ha-design": ["design", "ffmpeg", "canvas_db", "tools::design", "tools::canvas"],
-  "ha-artifacts": ["artifacts", "tools::artifact"],
   "ha-mcp": ["mcp", "mcp_server"],
   // ha-updater：阶段 3 首个特征 crate，已实际迁出（crates/ha-updater/），
   // 不再是 ha-core 内的分组。已拆出的 crate 一律从本表删除——留着会以

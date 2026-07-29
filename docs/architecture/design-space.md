@@ -4,7 +4,7 @@
 >
 > 设计空间是 Hope Agent 的 **agent 原生设计工作空间**：用户与模型协作，从一句话或参考图产出**自包含、可交付的设计产物**（网页 / 移动原型 / 演示文稿 / 仪表盘 / 海报 / 文档 / 邮件 / 图像 / 动效 / 音频 / 交互组件），以可复用的**品牌设计系统**为底座，在沙盒面板实时预览、可视化直接微调、版本管理、一键导出，并可经**工程轴**把设计系统一路交付到代码（多平台 Token 导出 / Figma 导入 / 代码交付包 / 绑定代码工程同步），与[知识空间](knowledge-base.md)、[项目](project.md)深度联动。侧边栏入口紧贴「知识空间」下方。
 >
-> 产品名 **设计空间**；代码标识 `design`（模块 `crates/ha-core/src/design/`、agent 工具 `design`、数据库 `design.db`、前端视图 `DesignView`、右侧面板与 i18n 命名空间 `design`）。产品名与代码标识**均不引用任何外部参考实现的名称**（品牌产品名仅作设计数据出现在品牌参考系统里，见 §6.3）。
+> 产品名 **设计空间**；代码标识 `design`（模块 `crates/ha-design/src/design/`（阶段 3 与 artifacts 合并迁出为特征 crate）、agent 工具 `design`、数据库 `design.db`、前端视图 `DesignView`、右侧面板与 i18n 命名空间 `design`）。产品名与代码标识**均不引用任何外部参考实现的名称**（品牌产品名仅作设计数据出现在品牌参考系统里，见 §6.3）。
 >
 > 本文是子系统设计与实现的单一真相源；跨 PR 必守的红线摘要另见 [AGENTS.md](../../AGENTS.md)。
 
@@ -44,7 +44,7 @@
 2. **产物为中心的稳定工作台，拒绝脆弱无限画布（对症"画布卡/不稳"）**：主编辑面是**单产物聚焦预览**（一个稳定 iframe + fit/百分比缩放下拉，纯 CSS 缩放，无自研 transform）；多产物概览用**纯 CSS grid 缩略图墙**（无平移 / 无自研缩放 / 无 pointer capture 逻辑）。从架构上根除卡顿与指针捕获泄漏类 bug。
 3. **可视化微调建立在纯 HTML 的确定性映射之上（对症"微调不好用"）**：产物是纯 HTML，渲染 DOM ≈ 源码结构，因此"选中元素→改属性→回写源码"是**确定性字节范围 patch**（渲染期注入稳定 `data-ds-oid`，回写走单一命中 + `expected` stale-write 守卫 + 撤销/重做）。旧版败在 JSX→React→DOM 的有损编译映射上，本版从源头绕开。
 4. **文件即真相源**：产物（`index.html` + 版本快照）与设计系统（`DESIGN.md` + `tokens.json`）都是磁盘上的真实文件；`design.db` 是**可重建的元数据注册表 / 索引**（删了能从磁盘全量重建）。对齐 [知识空间 D9](knowledge-base.md) 与 [项目](project.md) 既有红线。
-5. **核心逻辑全进 ha-core**（零 Tauri 依赖）：业务、渲染编排、token 编译、oid 回写、索引全在 `crates/ha-core/src/design/`；`src-tauri` / `ha-server` 只做薄壳。
+5. **核心逻辑全进后端特征 crate**（零 Tauri 依赖）：业务、渲染编排、token 编译、oid 回写、索引全在 `crates/ha-design/src/design/`（特征 crate，依赖 ha-core、壳层 `ha_design::wire()` 装配）；`src-tauri` / `ha-server` 只做薄壳。
 6. **Transport 双实现**：每个新 invoke 同时实现 Tauri + HTTP（见 [transport-modes.md](transport-modes.md)）。
 7. **设置三件套**：新增用户可调字段必须同 PR 具备 GUI 控件 + `ha-settings` 分支 + SKILL.md 登记（见 [AGENTS.md 设置约定](../../AGENTS.md)）。
 8. **安全等价于 Canvas**：iframe `sandbox="allow-scripts"`（无 same-origin）、静态托管三道闸、`eval`/脚本只在沙盒内、写盘走 `write_atomic` + 作用域闭合、出站走 `security::ssrf`。
@@ -94,8 +94,8 @@ graph TD
         TX["getTransport()<br/>Tauri invoke / HTTP COMMAND_MAP"]
     end
 
-    subgraph ha-core（零 Tauri 依赖）
-        TOOL["tools/design/<br/>agent 工具 design（多 action）"]
+    subgraph 后端（ha-design 特征 crate + ha-core kernel，零 Tauri 依赖）
+        TOOL["ha-design tool_design/<br/>agent 工具 design（多 action）"]
         SVC["design/service.rs<br/>owner 平面业务入口"]
         RENDER["design/renderer.rs<br/>自包含 HTML 编译 + inspector bridge 注入"]
         SYS["design/system.rs<br/>DESIGN.md 解析 → tokens.json → :root CSS 变量"]
@@ -285,7 +285,7 @@ planned ──→ generating ──→ ready
 
 ### 5.4 事件目录（as-built）
 
-后端 emit 7 个 `design:*` 事件（`design/service.rs` + `tools/design/mod.rs`），前端 `DesignView` 全部订阅；HTTP/WS 模式经 `WS /ws/events` 全量透传，两运行模式一致送达。payload 字段均 camelCase。
+后端 emit 7 个 `design:*` 事件（`design/service.rs` + `tool_design/mod.rs`），前端 `DesignView` 全部订阅；HTTP/WS 模式经 `WS /ws/events` 全量透传，两运行模式一致送达。payload 字段均 camelCase。
 
 | 事件 | 触发 | Payload | 前端反应 |
 | --- | --- | --- | --- |
@@ -714,7 +714,7 @@ brief 缺设计系统时，`design(action="propose_directions", brief)` 返回 N
 
 ## 15. HTTP 路由与 Tauri 命令对照
 
-每个能力同时暴露 Tauri IPC 与 HTTP，业务逻辑统一在 `ha_core::design::service`。（详表随实现填入 [api-reference.md](api-reference.md)。）
+每个能力同时暴露 Tauri IPC 与 HTTP，业务逻辑统一在 `ha_design::design::service`。（详表随实现填入 [api-reference.md](api-reference.md)。）
 
 | 能力 | Tauri 命令 | HTTP 路由 | Transport key |
 | --- | --- | --- | --- |
@@ -754,12 +754,12 @@ brief 缺设计系统时，`design(action="propose_directions", brief)` 返回 N
 
 | 文件 | 角色 |
 | --- | --- |
-| `crates/ha-core/src/design/{mod,service,db,renderer,system,patch,critique,export,recipe}.rs` | 核心：注册表 + 业务 + 渲染 + token 编译 + oid 回写 + 质量门 + 导出 + 模板 |
-| `crates/ha-core/src/design/{code_sync,code_watcher}.rs` | code→design 回灌：回执/收割/漂移检测 + notify 文件监听 |
-| `crates/ha-core/src/design/mcp_provider.rs` | design 的 MCP `ToolProvider`（平台 `hope-agent mcp` 首个 provider） |
+| `crates/ha-design/src/design/{mod,service,db,renderer,system,patch,critique,export,recipe}.rs` | 核心：注册表 + 业务 + 渲染 + token 编译 + oid 回写 + 质量门 + 导出 + 模板 |
+| `crates/ha-design/src/design/{code_sync,code_watcher}.rs` | code→design 回灌：回执/收割/漂移检测 + notify 文件监听 |
+| `crates/ha-design/src/design/mcp_provider.rs` | design 的 MCP `ToolProvider`（平台 `hope-agent mcp` 首个 provider） |
 | `crates/ha-core/src/mcp_server/mod.rs` | 平台级 MCP server host（stdio + ToolProvider 注册表，见 mcp-server.md） |
-| `crates/ha-core/src/tools/design/mod.rs` | `design` agent 工具（多 action 路由） |
-| `crates/ha-core/src/lib.rs` | `pub mod design;` + `pub mod mcp_server;` |
+| `crates/ha-design/src/tool_design/mod.rs` | `design` agent 工具（多 action 路由） |
+| `crates/ha-design/src/lib.rs`（`pub mod design;`）+ `crates/ha-core/src/lib.rs`（`pub mod mcp_server;`） |
 | `crates/ha-base/src/paths.rs` | `design_dir` / `design_*_dir` |
 | `crates/ha-core/src/config/mod.rs` | `AppConfig.design` |
 | `crates/ha-server/src/routes/design.rs`（+ `routes/mod.rs` `pub mod` + `lib.rs` `.route`） | HTTP 薄壳 + 静态托管 |

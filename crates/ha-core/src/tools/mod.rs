@@ -3,20 +3,19 @@ use serde_json::{json, Value};
 mod agents;
 mod apply_patch;
 pub(crate) mod approval;
-mod artifact;
 // pub：`ask_user_question::execute` 是结构化问答唯一入口（AGENTS.md 红线），
 // 特征 crate 的工具 adapter（如 ha-updater 的 `app_update` install/rollback
 // 确认）从 crate 外复用同一入口，不 fork。
 pub mod ask_user_question;
 pub mod audio_generate;
-pub(crate) mod browser;
+// pub：ha-design 的 canvas 工具复用 IMAGE_BASE64_PREFIX 等浏览器辅助常量。
+pub mod browser;
 mod builtin_registry;
-pub mod canvas;
 mod core_memory;
 mod cron;
 mod definitions;
-pub mod design;
-pub(crate) mod diff_util;
+// pub：ha-design 的 code_sync 复用 diff 摘要工具（不 fork）。
+pub mod diff_util;
 pub mod dispatch;
 mod edit;
 mod enter_plan_mode;
@@ -36,7 +35,9 @@ mod loop_tool;
 mod ls;
 mod lsp;
 mod memory;
-pub(crate) mod note;
+// pub：ha-design 的 design 工具写 KB 时复用同一写门（require_write），
+// 不 fork KB 访问检查。
+pub mod note;
 mod notification;
 pub(crate) mod pdf;
 mod process;

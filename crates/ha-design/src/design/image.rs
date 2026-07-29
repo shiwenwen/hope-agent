@@ -1,4 +1,4 @@
-//! `image` 形态：接线统一媒体生成栈（`crate::media_gen`），生成图片并内嵌进
+//! `image` 形态：接线统一媒体生成栈（`ha_core::media_gen`），生成图片并内嵌进
 //! **自包含产物**（data-uri，守「轻量自包含 HTML」红线）。
 //!
 //! 不复用 `tool_image_generate`（它解析 JSON args、落 attachments 目录、返回带
@@ -9,8 +9,8 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 
 use super::renderer::{html_escape, ArtifactParts};
-use crate::media_gen::adapters::InputImage;
-use crate::media_gen::{execute_image, ImageRequest, UsageMeta};
+use ha_core::media_gen::adapters::InputImage;
+use ha_core::media_gen::{execute_image, ImageRequest, UsageMeta};
 
 /// 生图可选项（B0-4 + 参数透传）：几何参数 + 参考图（图生图/编辑）。默认空 =
 /// 纯文生图、几何全落 `media_gen.image_defaults`。
@@ -64,7 +64,7 @@ async fn generate_image_bytes(prompt: &str, opts: &ImageGenOptions) -> Result<(V
     if prompt.trim().is_empty() {
         anyhow::bail!("image prompt is empty");
     }
-    let app_cfg = crate::config::cached_config();
+    let app_cfg = ha_core::config::cached_config();
     let outcome = execute_image(
         &app_cfg.media_gen,
         ImageRequest {
@@ -93,7 +93,7 @@ async fn generate_image_bytes(prompt: &str, opts: &ImageGenOptions) -> Result<(V
         .into_iter()
         .next()
         .ok_or_else(|| anyhow!("image provider '{provider_name}' returned no images"))?;
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "image",
         "generated image {} bytes mime={} via {}/{}",

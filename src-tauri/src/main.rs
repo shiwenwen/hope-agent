@@ -17,6 +17,7 @@ fn main() {
     ha_weather::wire();
     ha_acp::wire();
     ha_mac::wire();
+    ha_design::wire();
 
     // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,
     // NOT persisted). Skips every tool-level approval gate for THIS launch only.
@@ -184,8 +185,9 @@ fn run_mcp(args: &[String]) {
     ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("mcp");
 
-    let providers: Vec<Box<dyn ha_core::mcp_server::ToolProvider>> =
-        vec![Box::new(ha_core::design::mcp_provider::DesignToolProvider)];
+    let providers: Vec<Box<dyn ha_core::mcp_server::ToolProvider>> = vec![Box::new(
+        ha_design::design::mcp_provider::DesignToolProvider,
+    )];
     if let Err(e) = ha_core::mcp_server::run_stdio(options, providers) {
         eprintln!("[mcp] Server error: {}", e);
         std::process::exit(1);

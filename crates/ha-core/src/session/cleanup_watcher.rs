@@ -274,11 +274,21 @@ async fn cleanup_session(
     }
     let artifact_session_id = session_id.to_string();
     let artifact_result = crate::blocking::run_blocking(move || {
-        let service = crate::artifacts::ArtifactService::open()?;
-        if is_purge {
-            service.purge_for_session(&artifact_session_id)
-        } else {
-            service.detach_from_session(&artifact_session_id)
+        // 特征 crate 钩子。未 wire 时无法级联清理 durable Artifact——记
+        // warn 留审计信号（生产四入口全 wire 不可达；漏接线时 purge 语义
+        // 缺口必须可见，不能静默当 0 条成功）。
+        match crate::session::design_hooks::design_session_hooks() {
+            Some(hooks) => (hooks.cleanup_artifacts)(&artifact_session_id, is_purge),
+            None => {
+                app_warn!(
+                    "session",
+                    "cleanup_watcher",
+                    "design hooks not wired — durable Artifacts (if any) were NOT {} for {}",
+                    if is_purge { "purged" } else { "detached" },
+                    artifact_session_id
+                );
+                Ok(0)
+            }
         }
     })
     .await;

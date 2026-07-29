@@ -27,7 +27,7 @@ pub struct VercelConfig {
 }
 
 fn vercel_config_path() -> Result<std::path::PathBuf> {
-    Ok(crate::paths::credentials_dir()?.join("vercel.json"))
+    Ok(ha_core::paths::credentials_dir()?.join("vercel.json"))
 }
 
 pub fn load_vercel_config() -> Result<Option<VercelConfig>> {
@@ -55,9 +55,9 @@ pub fn save_vercel_config(api_token: &str, team_id: &str) -> Result<()> {
         team_id: team_id.trim().to_string(),
     };
     let bytes = serde_json::to_vec_pretty(&cfg)?;
-    crate::platform::write_secure_file(&vercel_config_path()?, &bytes)
+    ha_core::platform::write_secure_file(&vercel_config_path()?, &bytes)
         .map_err(|e| anyhow!("write vercel.json: {e}"))?;
-    crate::app_info!("design", "deploy", "saved vercel deploy config");
+    ha_core::app_info!("design", "deploy", "saved vercel deploy config");
     Ok(())
 }
 
@@ -81,9 +81,9 @@ pub fn public_vercel_config() -> Result<VercelConfigPublic> {
 
 /// 出站前 SSRF：**只放行 `api.vercel.com`**（Strict = 公网 only，再叠 host allowlist）。
 async fn guard(url: &str) -> Result<()> {
-    crate::security::ssrf::check_url(
+    ha_core::security::ssrf::check_url(
         url,
-        crate::security::ssrf::SsrfPolicy::Strict,
+        ha_core::security::ssrf::SsrfPolicy::Strict,
         &[VERCEL_HOST.to_string()],
     )
     .await
@@ -151,7 +151,7 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
     let url = format!("{VERCEL_API}/v13/deployments{team_q}");
     guard(&url).await?;
 
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "deploy",
         "deploying artifact {artifact_id} to vercel project {name}"
@@ -182,7 +182,7 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
         bail!("vercel deploy failed (HTTP {status}): {msg}");
     }
     let out = pick_url(&body, &name);
-    crate::app_info!(
+    ha_core::app_info!(
         "design",
         "deploy",
         "deployed artifact {artifact_id} -> {out}"
@@ -194,7 +194,7 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
         &out,
         &chrono::Utc::now().to_rfc3339(),
     ) {
-        crate::app_warn!("design", "deploy", "record deployment history failed: {e}");
+        ha_core::app_warn!("design", "deploy", "record deployment history failed: {e}");
     }
     Ok(out)
 }

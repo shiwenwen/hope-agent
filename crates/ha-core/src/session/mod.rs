@@ -1,4 +1,8 @@
 mod acp_db;
+pub mod design_hooks;
+mod design_threads;
+pub use design_threads::DesignChatThread;
+pub mod privacy;
 // ACP run 行类型（表随 kernel、类型随表）：供 ha-acp 特征 crate 原路径再导出
 pub use acp_db::{AcpRun, AcpRunStatus};
 mod artifacts;
@@ -21,8 +25,8 @@ mod types;
 pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts, UrlSource};
 pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
-    LastAssistantTokens, ParentSessionFilter, ProjectFilter, SessionDB, SessionSearchResult,
-    SessionTypeFilter,
+    sanitize_fts_query, LastAssistantTokens, ParentSessionFilter, ProjectFilter, SessionDB,
+    SessionSearchResult, SessionTypeFilter,
 };
 pub(crate) use environment::{build_git_snapshot, load_git_diff_for_root};
 pub use environment::{
