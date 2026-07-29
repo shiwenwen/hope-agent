@@ -7,7 +7,7 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import type { CSSProperties, ReactNode } from "react"
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ArrowLeft,
@@ -61,7 +61,6 @@ import {
   Check,
   CheckSquare,
   FolderOpen,
-  Tablet,
   Maximize2,
   Undo2,
   Redo2,
@@ -94,6 +93,22 @@ import DesignChatPanel, {
 import type { PendingFileQuote } from "@/types/chat"
 import type { PetNavigationTarget } from "@/types/pet"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
+import {
+  DesignViewportControl,
+  DesignViewportResizeHandles,
+} from "@/components/design/DesignViewportControl"
+import {
+  DEFAULT_CUSTOM_VIEWPORT,
+  clampCustomViewport,
+  findDeviceViewportPreset,
+  isPreviewDevice,
+  offsetAnchoredCustomViewport,
+  resizeCustomViewport,
+  type PreviewDevice,
+  type ViewportOffset,
+  type ViewportResizeAxis,
+  type ViewportSize,
+} from "@/components/design/designViewport"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { ModelSelector, type AvailableModel } from "@/components/ui/model-selector"
 import type { ActiveModel } from "@/types/chat"
@@ -267,15 +282,6 @@ const RIGHT_PANEL_WIDTH_PX = 288
 function normalizeWheelDelta(deltaY: number, deltaMode: number): number {
   const px = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 400 : deltaY
   return Math.sign(px) * Math.min(Math.abs(px), 60)
-}
-
-// 预览设备视口（B4-3，源码级对标参照 PREVIEW_VIEWPORT_PRESETS）。`auto` = 沿用产物自然
-// viewportW/H（默认，零回归）；其余固定逻辑宽高、居中缩放适配 + 设备框。
-type PreviewDevice = "auto" | "desktop" | "tablet" | "mobile"
-const DEVICE_PRESETS: Record<Exclude<PreviewDevice, "auto">, { w: number; h: number | null }> = {
-  desktop: { w: 1440, h: null },
-  tablet: { w: 820, h: 1180 },
-  mobile: { w: 390, h: 844 },
 }
 
 /** 可视化编辑 undo/redo 的 inverse-patch 载荷 / 记录（B5）。
@@ -618,6 +624,16 @@ export default function DesignView({
   deckStateRef.current = deckState
   // 预览设备视口（B4-3）+ 演示态（B4-4）。
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("auto")
+  const [customViewport, setCustomViewport] = useState<ViewportSize>(DEFAULT_CUSTOM_VIEWPORT)
+  const customViewportRef = useRef(customViewport)
+  customViewportRef.current = customViewport
+  // 自定义视口拖拽开始后冻结屏上 scale，避免 contain 重算把增长抵消；offset 补偿 flex 居中，
+  // 让左/上边保持原位、右/下手柄逐像素跟随指针。
+  const [customDisplayScale, setCustomDisplayScale] = useState<number | null>(null)
+  const [customFrameOffset, setCustomFrameOffset] = useState<ViewportOffset>({ x: 0, y: 0 })
+  const customFrameOffsetRef = useRef(customFrameOffset)
+  customFrameOffsetRef.current = customFrameOffset
+  const customResizeCleanupRef = useRef<(() => void) | null>(null)
   const [presentMode, setPresentMode] = useState(false) // 本标签无 chrome 演示
   const presentModeRef = useRef(false)
   presentModeRef.current = presentMode
@@ -630,6 +646,13 @@ export default function DesignView({
   // 手势缩放入口（渲染期赋值，收 iframe 桥 ds_zoom 与父层原生 wheel 两路）。用 ref 避免
   // 让常驻消息/滚轮监听随 zoom/设备/模式频繁重挂。
   const applyZoomDeltaRef = useRef<(deltaY: number, deltaMode: number) => void>(() => {})
+
+  useEffect(
+    () => () => {
+      customResizeCleanupRef.current?.()
+    },
+    [],
+  )
 
   // 设计系统套件（Kit）预览模态：选择器行内「预览套件」触发（B1-1）。
   const [kitSystem, setKitSystem] = useState<{ id: string; name: string } | null>(null)
@@ -3960,21 +3983,56 @@ export default function DesignView({
   }, [refreshView, activeProject]) // loadArtifacts/setPreviewKey stable
 
   // ── 设备视口 (B4-3) + 演示态 (B4-4) ───────────────────────────
-  // per-artifact 记忆（localStorage）：切产物时载回上次的设备选择。
+  // per-artifact 记忆（localStorage）：切产物时载回上次的设备选择与自定义尺寸。
   useEffect(() => {
     if (!activeArtifactId) return
     let saved: string | null = null
+    let savedCustom: ViewportSize = DEFAULT_CUSTOM_VIEWPORT
     try {
       saved = localStorage.getItem(`design:device:${activeArtifactId}`)
+      const rawCustom = localStorage.getItem(`design:custom-viewport:${activeArtifactId}`)
+      if (rawCustom) {
+        const parsed = JSON.parse(rawCustom) as Partial<ViewportSize>
+        savedCustom = clampCustomViewport({
+          width: Number(parsed.width),
+          height: Number(parsed.height),
+        })
+      }
     } catch {
       /* localStorage 不可用 */
     }
-    setPreviewDevice(
-      saved === "desktop" || saved === "tablet" || saved === "mobile" ? saved : "auto",
-    )
+    customResizeCleanupRef.current?.()
+    customViewportRef.current = savedCustom
+    setCustomViewport(savedCustom)
+    customFrameOffsetRef.current = { x: 0, y: 0 }
+    setCustomFrameOffset({ x: 0, y: 0 })
+    setCustomDisplayScale(null)
+    setPreviewDevice(isPreviewDevice(saved) ? saved : "auto")
   }, [activeArtifactId])
+
+  const commitCustomViewport = useCallback(
+    (size: ViewportSize) => {
+      const next = clampCustomViewport(size)
+      customViewportRef.current = next
+      setCustomViewport(next)
+      if (!activeArtifactId) return
+      try {
+        localStorage.setItem(`design:custom-viewport:${activeArtifactId}`, JSON.stringify(next))
+      } catch {
+        /* localStorage 不可用 → 仅本次会话生效 */
+      }
+    },
+    [activeArtifactId],
+  )
+
   const changeDevice = useCallback(
     (d: PreviewDevice) => {
+      if (d !== previewDevice) {
+        customResizeCleanupRef.current?.()
+        customFrameOffsetRef.current = { x: 0, y: 0 }
+        setCustomFrameOffset({ x: 0, y: 0 })
+        setCustomDisplayScale(null)
+      }
       setPreviewDevice(d)
       if (!activeArtifactId) return
       try {
@@ -3984,7 +4042,7 @@ export default function DesignView({
         /* localStorage 不可用 → 仅本次会话生效 */
       }
     },
-    [activeArtifactId],
+    [activeArtifactId, previewDevice],
   )
   // 测量预览面尺寸（统一渲染的「适应」缩放 + 设备模式都依赖）。useLayoutEffect：paint 前先同步量
   // 一次，令首帧「适应」即按面板尺寸精确缩放、无 natural→fit 跳一下。用 clientWidth/Height（含 p-4
@@ -4448,13 +4506,23 @@ export default function DesignView({
   const naturalH =
     activeArtifact?.viewportH && activeArtifact.viewportH > 0 ? activeArtifact.viewportH : 768
 
-  const devicePreset = previewDevice === "auto" ? null : DEVICE_PRESETS[previewDevice]
+  const selectedDevicePreset = findDeviceViewportPreset(previewDevice)
+  const devicePreset =
+    previewDevice === "custom"
+      ? { w: customViewport.width, h: customViewport.height }
+      : selectedDevicePreset
+        ? { w: selectedDevicePreset.width, h: selectedDevicePreset.height }
+        : null
   const frame = (() => {
     const availW = Math.max(0, paneSize.w - 32) // p-4 两侧
     const availH = Math.max(0, paneSize.h - 32)
     if (devicePreset) {
       const sw = devicePreset.w > 0 ? availW / devicePreset.w : 1
-      const scale = devicePreset.h ? Math.min(1, sw, availH / devicePreset.h) : Math.min(1, sw)
+      const fittedScale = devicePreset.h
+        ? Math.min(1, sw, availH / devicePreset.h)
+        : Math.min(1, sw)
+      const scale =
+        previewDevice === "custom" && customDisplayScale != null ? customDisplayScale : fittedScale
       const h = devicePreset.h ?? Math.max(400, Math.round(availH / (scale || 1)))
       return { w: devicePreset.w, h, scale }
     }
@@ -4501,13 +4569,87 @@ export default function DesignView({
         transform: `scale(${frame.scale})`,
         transformOrigin: "top left",
       }
-  const frameWrapStyle: CSSProperties = presentMode
+  const previewFootprintStyle: CSSProperties = presentMode
     ? { width: "100%", minHeight: 0 }
     : {
         width: `${frame.w * frame.scale}px`,
         height: `${frame.h * frame.scale}px`,
       }
-  const overlayFrameStyle: CSSProperties = frameWrapStyle
+  const frameWrapStyle: CSSProperties =
+    previewDevice === "custom" && !presentMode
+      ? {
+          ...previewFootprintStyle,
+          transform: `translate(${customFrameOffset.x}px, ${customFrameOffset.y}px)`,
+        }
+      : previewFootprintStyle
+  // DrawOverlay 只需屏上 footprint；外层锚点 transform 已由共同父节点承载，不能重复应用。
+  const overlayFrameStyle: CSSProperties = previewFootprintStyle
+
+  const startCustomViewportResize = (
+    axis: ViewportResizeAxis,
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (event.button !== 0 || previewDevice !== "custom" || presentMode) return
+    event.preventDefault()
+    event.stopPropagation()
+    customResizeCleanupRef.current?.()
+
+    const startX = event.clientX
+    const startY = event.clientY
+    const startSize = customViewportRef.current
+    const renderedScale = frame.scale
+    const startOffset = customFrameOffsetRef.current
+    setCustomDisplayScale(renderedScale)
+    const iframe = iframeRef.current
+    const previousPointerEvents = iframe?.style.pointerEvents ?? ""
+    if (iframe) iframe.style.pointerEvents = "none"
+
+    const cursor = axis === "width" ? "ew-resize" : axis === "height" ? "ns-resize" : "nwse-resize"
+    document.body.style.cursor = cursor
+    document.body.style.userSelect = "none"
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const next = resizeCustomViewport(
+        startSize,
+        moveEvent.clientX - startX,
+        moveEvent.clientY - startY,
+        renderedScale,
+        axis,
+      )
+      const nextOffset = offsetAnchoredCustomViewport(
+        startSize,
+        next,
+        renderedScale,
+        axis,
+        startOffset,
+      )
+      customViewportRef.current = next
+      customFrameOffsetRef.current = nextOffset
+      setCustomViewport(next)
+      setCustomFrameOffset(nextOffset)
+    }
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", finish)
+      window.removeEventListener("pointercancel", finish)
+      window.removeEventListener("blur", finish)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      if (iframe) iframe.style.pointerEvents = previousPointerEvents
+      customResizeCleanupRef.current = null
+    }
+    const finish = () => {
+      cleanup()
+      commitCustomViewport(customViewportRef.current)
+    }
+
+    customResizeCleanupRef.current = cleanup
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", finish)
+    window.addEventListener("pointercancel", finish)
+    window.addEventListener("blur", finish)
+  }
 
   // ── Render ───────────────────────────────────────────────────
 
@@ -5385,48 +5527,13 @@ export default function DesignView({
                           </IconTip>
                         </div>
                       )}
-                      {/* 设备视口切换（B4-3） */}
-                      <div className="flex items-center rounded-md border border-border/60 p-0.5">
-                        {(
-                          [
-                            {
-                              id: "auto" as const,
-                              label: t("design.deviceAuto", "自动"),
-                              icon: null,
-                            },
-                            {
-                              id: "desktop" as const,
-                              label: t("design.deviceDesktop", "桌面"),
-                              icon: Monitor,
-                            },
-                            {
-                              id: "tablet" as const,
-                              label: t("design.deviceTablet", "平板"),
-                              icon: Tablet,
-                            },
-                            {
-                              id: "mobile" as const,
-                              label: t("design.deviceMobile", "手机"),
-                              icon: Smartphone,
-                            },
-                          ] as const
-                        ).map((d) => (
-                          <IconTip key={d.id} label={d.label} side="bottom">
-                            <button
-                              type="button"
-                              onClick={() => changeDevice(d.id)}
-                              className={cn(
-                                "flex h-5 items-center justify-center rounded px-1.5 text-[11px] transition-colors",
-                                previewDevice === d.id
-                                  ? "bg-secondary text-foreground"
-                                  : "text-muted-foreground hover:text-foreground",
-                              )}
-                            >
-                              {d.icon ? <d.icon className="h-3.5 w-3.5" /> : d.label}
-                            </button>
-                          </IconTip>
-                        ))}
-                      </div>
+                      {/* 设备视口（B4-3）：主流机型预设 + Chrome DevTools 式自定义尺寸。 */}
+                      <DesignViewportControl
+                        value={previewDevice}
+                        customSize={customViewport}
+                        onValueChange={changeDevice}
+                        onCustomSizeCommit={commitCustomViewport}
+                      />
                       {/* zoom 仅在自动视口下有意义（设备模式整体缩放适配） */}
                       {previewDevice === "auto" && (
                         <Select
@@ -5946,58 +6053,77 @@ export default function DesignView({
                     )}
                     <div
                       className={cn(
-                        "relative overflow-hidden bg-white",
+                        "relative",
                         presentMode
-                          ? "min-h-0 w-full flex-1 rounded-none border-0"
+                          ? "min-h-0 w-full flex-1"
                           : devicePreset
-                            ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
-                            : // 统一渲染后「适应」也是固定 scaled footprint（非 width:100% 填充），恒 mx-auto
-                              "rounded-lg border shadow-sm mx-auto",
-                        !presentMode && editMode && "bg-secondary",
-                        !presentMode && drawMode && "bg-secondary",
+                            ? "shrink-0"
+                            : "mx-auto",
                       )}
                       style={frameWrapStyle}
                     >
-                      {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
+                      <div
+                        className={cn(
+                          "relative h-full w-full overflow-hidden bg-white",
+                          presentMode
+                            ? "rounded-none border-0"
+                            : previewDevice === "custom"
+                              ? "rounded-lg border border-border/80 shadow-lg"
+                              : devicePreset
+                                ? "rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
+                                : "rounded-lg border shadow-sm",
+                          !presentMode && editMode && "bg-secondary",
+                          !presentMode && drawMode && "bg-secondary",
+                        )}
+                      >
+                        {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
                         旧帧垫底直到新帧首绘，消除 React 卸载重建的白闪。key 仅保留在下方 DrawOverlay
                         （其坐标须随内容重排复位）。滚动保温 + spinner 见 handleIframeLoad / previewLoading。 */}
-                      <iframe
-                        ref={iframeRef}
-                        src={iframeSrc}
-                        sandbox="allow-scripts"
-                        title={activeArtifact.title}
-                        onLoad={handleIframeLoad}
-                        className="border-0"
-                        style={scaleStyle}
-                      />
-                      {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
-                      {previewLoading && (
-                        <div
-                          role="status"
-                          aria-live="polite"
-                          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
-                        >
-                          <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
-                            <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
+                        <iframe
+                          ref={iframeRef}
+                          src={iframeSrc}
+                          sandbox="allow-scripts"
+                          title={activeArtifact.title}
+                          onLoad={handleIframeLoad}
+                          className="border-0"
+                          style={scaleStyle}
+                        />
+                        {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
+                        {previewLoading && (
+                          <div
+                            role="status"
+                            aria-live="polite"
+                            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+                          >
+                            <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
+                              <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
+                            </div>
+                            <span className="sr-only">{t("common.loading", "加载中...")}</span>
                           </div>
-                          <span className="sr-only">{t("common.loading", "加载中...")}</span>
-                        </div>
-                      )}
-                      {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
+                        )}
+                        {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
                         pane。drawMode 期保持挂载；演示时只暂停并隐藏，退出后保留 marks/note。 */}
-                      {drawMode && (
-                        // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
-                        // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
-                        //（review MED：同产物 previewKey 变而叠层不重置会把 v1 marks 合成到 v2 布局）。
-                        <DesignDrawOverlay
-                          key={`${activeArtifact.id}-${previewKey}`}
-                          busy={drawBusy}
-                          suspended={presentMode}
-                          onExit={() => setDrawMode(false)}
-                          onSubmit={handleDrawSubmit}
-                          onWheelScroll={forwardScrollToIframe}
-                          toolbarHost={previewPaneRef.current}
-                          frameStyle={overlayFrameStyle}
+                        {drawMode && (
+                          // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
+                          // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
+                          //（review MED：同产物 previewKey 变而叠层不重置会把 v1 marks 合成到 v2 布局）。
+                          <DesignDrawOverlay
+                            key={`${activeArtifact.id}-${previewKey}`}
+                            busy={drawBusy}
+                            suspended={presentMode}
+                            onExit={() => setDrawMode(false)}
+                            onSubmit={handleDrawSubmit}
+                            onWheelScroll={forwardScrollToIframe}
+                            toolbarHost={previewPaneRef.current}
+                            frameStyle={overlayFrameStyle}
+                          />
+                        )}
+                      </div>
+                      {previewDevice === "custom" && !presentMode && (
+                        <DesignViewportResizeHandles
+                          size={customViewport}
+                          onResizeStart={startCustomViewportResize}
+                          onSizeCommit={commitCustomViewport}
                         />
                       )}
                     </div>
