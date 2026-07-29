@@ -58,12 +58,32 @@ mod submit_plan;
 mod task;
 pub(crate) mod team;
 pub(crate) mod tool_search;
-mod weather;
 pub mod web_fetch;
 pub mod web_fetch_common;
 pub mod web_search;
 mod workflow_tool;
 mod write;
+
+// ── 特征 crate 钩子：天气设置热刷新 ──────────────────────────────
+//
+// weather 迁出为特征 crate 后，settings 写路径命中天气相关 key 时经此钩子
+// 触发即时刷新：未装配（未 wire）＝不刷——此时天气特征整体不存在（后台
+// 循环也是 wire() 注册的），fail-soft 语义自洽。注意 server 形态本钩子是
+// **唯一**刷新路径（周期循环带 desktop 门），与迁移前行为一致。钩子是纯
+// `fn()`——spawn 与错误日志由注册方（ha-weather）自带，与迁移前
+// settings.rs 内联的 tokio::spawn + app_warn 逐字等价。
+static WEATHER_SETTINGS_REFRESH: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+/// 特征 crate 装配期注册天气设置热刷新回调。重复注册返回 `Err`。
+pub fn register_weather_settings_refresh(hook: fn()) -> Result<(), crate::AlreadyRegistered> {
+    WEATHER_SETTINGS_REFRESH
+        .set(hook)
+        .map_err(|_| crate::AlreadyRegistered("weather settings refresh hook"))
+}
+
+pub(crate) fn weather_settings_refresh_hook() -> Option<fn()> {
+    WEATHER_SETTINGS_REFRESH.get().copied()
+}
 
 // ── Public Re-exports ─────────────────────────────────────────────
 

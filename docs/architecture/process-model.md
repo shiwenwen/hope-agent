@@ -67,7 +67,7 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 |------|------|------|
 | **AppLogger writer** | [`logging/app_logger.rs`](../../crates/ha-base/src/logging/app_logger.rs) | mpsc channel 收 `PendingLog` → 批量写 SQLite + 纯文本文件。cleanup_loop 作为同 runtime 内 `tokio::spawn` 任务附着 |
 | **Cron 调度器** | [`cron/scheduler.rs`](../../crates/ha-core/src/cron/scheduler.rs) | 独立线程 `cron-scheduler` + `new_multi_thread` runtime（2 worker threads）跑 tick 循环 |
-| **Weather 后台刷新** | [`weather.rs::start_background_refresh`](../../crates/ha-core/src/weather.rs) | 定时拉取天气 API 注入 system prompt |
+| **Weather 后台刷新** | [`ha_weather::start_background_refresh`](../../crates/ha-weather/src/lib.rs) | 定时拉取天气 API 注入 system prompt |
 | **Guardian Windows 信号监听** | [`guardian.rs`](../../crates/ha-core/src/guardian.rs) | Windows 无 POSIX 信号，用一条迷你线程跑 current-thread runtime 接 `ctrl_c` / `ctrl_break`（仅 `#[cfg(windows)]`） |
 
 ### 每次调用 spawn 一次（任务完成线程即回收）

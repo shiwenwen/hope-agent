@@ -1627,16 +1627,11 @@ fn trigger_weather_refresh_if_needed(values: &Value) {
     ];
     let needs_refresh = dominated_keys.iter().any(|k| values.get(k).is_some());
     if needs_refresh {
-        tokio::spawn(async {
-            if let Err(e) = crate::weather::force_refresh_weather().await {
-                app_warn!(
-                    "settings",
-                    "hot_reload",
-                    "Failed to refresh weather after user config change: {}",
-                    e
-                );
-            }
-        });
+        // 特征 crate 钩子：spawn 与错误日志在 ha-weather 注册的回调内，
+        // 未 wire 时不即时刷新（后台循环仍按周期刷）。
+        if let Some(refresh) = crate::tools::weather_settings_refresh_hook() {
+            refresh();
+        }
     }
 }
 

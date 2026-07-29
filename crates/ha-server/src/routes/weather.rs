@@ -2,7 +2,7 @@ use axum::extract::Query;
 use axum::Json;
 use serde::Deserialize;
 
-use ha_core::weather;
+use ha_weather as weather;
 
 use crate::error::AppError;
 

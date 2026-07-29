@@ -112,8 +112,8 @@ const FEATURES = {
   "ha-pet": ["pet", "sprite"],
   "ha-local-llm": ["local_llm", "local_model_jobs", "local_embedding"],
   "ha-acp": ["acp", "acp_control", "tools::acp_spawn"],
-  // weather_location_macos 已随阶段 2 v1 迁入 ha-base（平台原语），不再是特征成员
-  "ha-weather": ["weather", "tools::weather"],
+  // weather_location_macos 已随阶段 2 v1 迁入 ha-base（平台原语）；
+  // ha-weather 本体已实际迁出（crates/ha-weather/），同 ha-updater 从本表删除。
 }
 
 // 分组必须互斥：同一模块出现在两组会让 featureOwner 静默用后者覆盖前者，

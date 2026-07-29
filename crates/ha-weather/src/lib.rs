@@ -1,7 +1,77 @@
+//! 天气特征 crate（阶段 3 自 ha-core 迁出）：Open-Meteo 取数 / 缓存 /
+//! 后台刷新 / `get_weather` 工具 / system prompt 天气段。
+//!
+//! 装配契约与 ha-updater 相同：每个调 `ha_core::init_runtime` 的二进制
+//! 必须先调 [`wire()`]（工具注册表 init 尾部冻结，晚了 panic）。
+
+// `app_warn!` 系宏由 ha-base 导出（与 ha-core / ha-updater 同一接法）。
+#[macro_use]
+extern crate ha_base;
+
+mod tool;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use tokio::sync::Mutex;
+
+/// 装配入口（幂等）：
+/// 1. `get_weather` 分发条目 → 工具注册表；
+/// 2. 后台缓存刷新 → `EveryProcess` 档启动任务（原 `app_init` 调用位在
+///    primary 门外、只带 desktop 门——desktop 判定进闭包，行为逐位一致）；
+/// 3. system prompt 天气段来源钩子；
+/// 4. settings 天气 key 热刷新钩子（spawn 与错误日志在本 crate 内，与迁移
+///    前 settings.rs 内联版逐字等价）。
+pub fn wire() {
+    static WIRED: std::sync::Once = std::sync::Once::new();
+    WIRED.call_once(|| {
+        fn get_weather_handler<'a>(
+            args: &'a serde_json::Value,
+            _ctx: &'a ha_core::tools::ToolExecContext,
+        ) -> ha_core::tools::registry::BuiltinToolFuture<'a> {
+            Box::pin(tool::tool_get_weather(args))
+        }
+        ha_core::tools::registry::register_external_tools(vec![
+            ha_core::tools::registry::BuiltinToolEntry {
+                name: ha_core::tools::TOOL_GET_WEATHER,
+                aliases: &[],
+                handler: get_weather_handler,
+            },
+        ])
+        .expect(
+            "ha_weather::wire() must run before ha_core::init_runtime freezes the tool registry",
+        );
+
+        fn start_refresh_if_desktop() {
+            if ha_core::is_desktop() {
+                crate::start_background_refresh();
+            }
+        }
+        ha_core::app_init::register_startup_task(
+            ha_core::app_init::StartupStage::EveryProcess,
+            start_refresh_if_desktop,
+        )
+        .expect("ha_weather::wire() must run before start_background_tasks consumes startup tasks");
+
+        ha_core::system_prompt::register_weather_prompt_source(crate::get_weather_for_prompt)
+            .expect("ha_weather::wire() registers the weather prompt source exactly once");
+
+        fn refresh_after_settings_change() {
+            tokio::spawn(async {
+                if let Err(e) = crate::force_refresh_weather().await {
+                    app_warn!(
+                        "settings",
+                        "hot_reload",
+                        "Failed to refresh weather after user config change: {}",
+                        e
+                    );
+                }
+            });
+        }
+        ha_core::tools::register_weather_settings_refresh(refresh_after_settings_change)
+            .expect("ha_weather::wire() registers the settings refresh hook exactly once");
+    });
+}
 
 // ── Weather Data Structures ──────────────────────────────────────
 
@@ -266,7 +336,7 @@ pub async fn fetch_weather(
         lat, lon, forecast_days,
     );
 
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .connect_timeout(std::time::Duration::from_secs(10)),
@@ -324,7 +394,7 @@ pub async fn geocode_search(query: &str, language: &str) -> Result<Vec<GeoResult
         lang,
     );
 
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .connect_timeout(std::time::Duration::from_secs(5)),
@@ -355,7 +425,7 @@ pub async fn geocode_search(query: &str, language: &str) -> Result<Vec<GeoResult
 /// Returns None if no weather data is available or weather is disabled.
 pub fn get_weather_for_prompt() -> Option<String> {
     // Check if weather is enabled in user config
-    let user_cfg = crate::user_config::load_user_config().ok()?;
+    let user_cfg = ha_core::user_config::load_user_config().ok()?;
     if !user_cfg.weather_enabled {
         return None;
     }
@@ -371,7 +441,7 @@ pub fn get_weather_for_prompt() -> Option<String> {
 /// Refresh the weather cache. Called periodically by background task.
 /// Only updates prompt text when weather actually changes.
 pub async fn refresh_weather_cache() {
-    let user_cfg = match crate::user_config::load_user_config() {
+    let user_cfg = match ha_core::user_config::load_user_config() {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -419,7 +489,7 @@ pub async fn refresh_weather_cache() {
                 cache.prompt_text = Some(prompt);
                 cache.data_hash = Some(new_hash);
 
-                if let Some(logger) = crate::get_logger() {
+                if let Some(logger) = ha_core::get_logger() {
                     logger.log(
                         "info",
                         "weather",
@@ -439,7 +509,7 @@ pub async fn refresh_weather_cache() {
             cache.last_fetched = Some(std::time::Instant::now());
 
             // Notify frontend about weather cache update
-            if let Some(bus) = crate::get_event_bus() {
+            if let Some(bus) = ha_core::get_event_bus() {
                 bus.emit(
                     "weather-cache-updated",
                     serde_json::to_value(&resp.current).unwrap_or_default(),
@@ -447,7 +517,7 @@ pub async fn refresh_weather_cache() {
             }
         }
         Err(e) => {
-            if let Some(logger) = crate::get_logger() {
+            if let Some(logger) = ha_core::get_logger() {
                 logger.log(
                     "warn",
                     "weather",
@@ -470,7 +540,7 @@ pub async fn get_cached_weather() -> Option<WeatherData> {
 
 /// Force refresh weather cache, ignoring the time check.
 pub async fn force_refresh_weather() -> Result<Option<WeatherData>> {
-    let user_cfg = crate::user_config::load_user_config()?;
+    let user_cfg = ha_core::user_config::load_user_config()?;
 
     if !user_cfg.weather_enabled {
         return Ok(None);
@@ -495,7 +565,7 @@ pub async fn force_refresh_weather() -> Result<Option<WeatherData>> {
     cache.last_fetched = Some(std::time::Instant::now());
 
     // Notify frontend about weather cache update
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "weather-cache-updated",
             serde_json::to_value(&resp.current).unwrap_or_default(),
@@ -572,7 +642,7 @@ pub fn weather_code_description(code: i32) -> &'static str {
 /// Detect location via IP geolocation (ip-api.com).
 /// Returns city-level accuracy, no permissions needed.
 async fn ip_geolocate() -> Result<DetectedLocation> {
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .connect_timeout(std::time::Duration::from_secs(5)),
@@ -612,7 +682,7 @@ async fn reverse_geocode(
     lat: f64,
     lon: f64,
 ) -> Result<(Option<String>, Option<String>, Option<String>)> {
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .connect_timeout(std::time::Duration::from_secs(5)),
@@ -644,13 +714,13 @@ async fn reverse_geocode(
 /// Tries OS precise location first, falls back to IP geolocation (city-level).
 /// Reverse geocodes to get a city name when using system location.
 pub async fn detect_location() -> Result<DetectedLocation> {
-    crate::app_info!("weather", "detect_location", "Starting location detection");
+    ha_core::app_info!("weather", "detect_location", "Starting location detection");
 
     // Step 1: Try OS-backed precise location (macOS CoreLocation today).
-    let system_result = crate::platform::current_location().await;
+    let system_result = ha_core::platform::current_location().await;
 
     if let Some((lat, lon)) = system_result {
-        crate::app_info!(
+        ha_core::app_info!(
             "weather",
             "detect_location",
             "System location obtained, reverse geocoding lat={:.4}, lon={:.4}",
@@ -660,7 +730,7 @@ pub async fn detect_location() -> Result<DetectedLocation> {
         let (city, admin1, country) = reverse_geocode(lat, lon)
             .await
             .unwrap_or((None, None, None));
-        crate::app_info!(
+        ha_core::app_info!(
             "weather",
             "detect_location",
             "Result: source=system, city={:?}",
@@ -677,14 +747,14 @@ pub async fn detect_location() -> Result<DetectedLocation> {
     }
 
     // Step 2: Fall back to IP geolocation
-    crate::app_info!(
+    ha_core::app_info!(
         "weather",
         "detect_location",
         "System location unavailable, falling back to IP geolocation"
     );
     let result = ip_geolocate().await;
     match &result {
-        Ok(loc) => crate::app_info!(
+        Ok(loc) => ha_core::app_info!(
             "weather",
             "detect_location",
             "Result: source=ip, city={:?}, lat={:.4}, lon={:.4}",
@@ -692,7 +762,7 @@ pub async fn detect_location() -> Result<DetectedLocation> {
             loc.latitude,
             loc.longitude
         ),
-        Err(e) => crate::app_error!(
+        Err(e) => ha_core::app_error!(
             "weather",
             "detect_location",
             "IP geolocation also failed: {}",

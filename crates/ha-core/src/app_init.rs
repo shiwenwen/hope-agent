@@ -29,23 +29,39 @@ static INIT_DONE: OnceLock<()> = OnceLock::new();
 /// `init_runtime` 末尾才置位，函数开头的早退检查并非互斥，并发调用会双双穿过。
 static REGISTER_BASE_HOOKS: std::sync::Once = std::sync::Once::new();
 
-/// 特征 crate 装配期登记的启动任务队列。`None` = 已被 `init_runtime` 消费——
-/// 与工具注册表同款「开闸判定与队列消费同一把锁」语义（见
-/// `tools/registry.rs::PENDING_EXTERNAL` 的 TOCTOU 说明）。
-static PENDING_STARTUP_TASKS: std::sync::Mutex<Option<Vec<fn()>>> =
-    std::sync::Mutex::new(Some(Vec::new()));
+/// 特征 crate 启动任务的执行档位。两个消费点都在 `start_background_tasks`
+/// 内（即只有 desktop-GUI / server 形态会跑；acp / mcp / eval 注册了也不
+/// 消费），差别只在 Primary 门：
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartupStage {
+    /// 每个跑 `start_background_tasks` 的进程都执行（原 weather 刷新调用位，
+    /// desktop 等更细的门由任务自己判）。
+    EveryProcess,
+    /// 仅 Primary 进程执行（原 `spawn_auto_update_loop` 调用位）。
+    PrimaryOnly,
+}
 
-/// 特征 crate（如 ha-updater）在装配期登记启动任务（后台循环等）。消费点
-/// **不在 `init_runtime` 内**，而在 `start_background_tasks` 的 primary-gated
-/// 块（原 `spawn_auto_update_loop` 调用位，tokio runtime 内、核心子系统已
-/// 初始化）——即只有 desktop-GUI / server 形态、且 Primary 进程才执行；
-/// acp / mcp / eval 等角色注册了也不跑（与迁移前 `spawn_auto_update_loop`
-/// 只在此块被调的行为逐位一致）。消费后再注册返回 `Err`：fail-loud，静默
-/// 丢弃＝该特征的后台行为在运行期直接消失。
-pub fn register_startup_task(task: fn()) -> Result<(), crate::AlreadyRegistered> {
-    let mut pending = PENDING_STARTUP_TASKS
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+/// 特征 crate 装配期登记的启动任务队列。`None` = 已被消费——与工具注册表
+/// 同款「开闸判定与队列消费同一把锁」语义（见
+/// `tools/registry.rs::PENDING_EXTERNAL` 的 TOCTOU 说明）。
+type StartupQueue = std::sync::Mutex<Option<Vec<fn()>>>;
+static PENDING_STARTUP_EVERY: StartupQueue = std::sync::Mutex::new(Some(Vec::new()));
+static PENDING_STARTUP_PRIMARY: StartupQueue = std::sync::Mutex::new(Some(Vec::new()));
+
+/// 特征 crate（如 ha-updater / ha-weather）在装配期登记启动任务（后台循环
+/// 等）。消费点**不在 `init_runtime` 内**，而在 `start_background_tasks` 的
+/// 对应档位调用位（tokio runtime 内、核心子系统已初始化），时序与各特征
+/// 迁出前的原调用点逐位一致。消费后再注册返回 `Err`：fail-loud，静默丢弃
+/// ＝该特征的后台行为在运行期直接消失。
+pub fn register_startup_task(
+    stage: StartupStage,
+    task: fn(),
+) -> Result<(), crate::AlreadyRegistered> {
+    let queue = match stage {
+        StartupStage::EveryProcess => &PENDING_STARTUP_EVERY,
+        StartupStage::PrimaryOnly => &PENDING_STARTUP_PRIMARY,
+    };
+    let mut pending = queue.lock().unwrap_or_else(|p| p.into_inner());
     match pending.as_mut() {
         Some(queue) => {
             queue.push(task);
@@ -57,10 +73,14 @@ pub fn register_startup_task(task: fn()) -> Result<(), crate::AlreadyRegistered>
     }
 }
 
-/// 消费并执行全部登记的启动任务（按注册序）。take() 置 `None`：从这一刻起
-/// 注册通道关闭。
-fn run_registered_startup_tasks() {
-    let tasks = PENDING_STARTUP_TASKS
+/// 消费并执行指定档位全部登记的启动任务（按注册序）。take() 置 `None`：
+/// 从这一刻起该档位注册通道关闭。
+fn run_registered_startup_tasks(stage: StartupStage) {
+    let queue = match stage {
+        StartupStage::EveryProcess => &PENDING_STARTUP_EVERY,
+        StartupStage::PrimaryOnly => &PENDING_STARTUP_PRIMARY,
+    };
+    let tasks = queue
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .take()
@@ -1019,13 +1039,9 @@ pub async fn start_background_tasks() {
         }
     });
 
-    // Background weather cache refresh — desktop UI only. Moved here from
-    // src-tauri setup.rs so it shares the ambient runtime instead of spawning
-    // its own OS thread + tokio Runtime. Gated on desktop to skip the loop
-    // entirely in server / ACP (refresh also self-checks weather_enabled).
-    if is_desktop() {
-        crate::weather::start_background_refresh();
-    }
+    // 特征 crate 的 EveryProcess 档启动任务（原 weather 后台刷新调用位——
+    // 不设 Primary 门，desktop 等更细的门由任务闭包自己判）。
+    run_registered_startup_tasks(StartupStage::EveryProcess);
 
     // R7.1 background-job scheduler: promotes queued jobs (status `Queued`) into
     // free slots, per-session round-robin, as running jobs finish. Tier-agnostic
@@ -1059,10 +1075,11 @@ pub async fn start_background_tasks() {
         }
         crate::loop_control::spawn_loop_event_trigger_watcher();
 
-        // 特征 crate 的启动任务（装配期经 `register_startup_task` 登记，如
-        // ha-updater 的 headless 自动更新循环）。在此消费保持原调用点的时序
-        // 与条件（primary-gated、tokio runtime 内）；消费后注册通道关闭。
-        run_registered_startup_tasks();
+        // 特征 crate 的 PrimaryOnly 档启动任务（装配期经 `register_startup_task`
+        // 登记，如 ha-updater 的 headless 自动更新循环）。在此消费保持原调用
+        // 点的时序与条件（primary-gated、tokio runtime 内）；消费后注册通道
+        // 关闭。
+        run_registered_startup_tasks(StartupStage::PrimaryOnly);
 
         // One-time migration: legacy flat-layout plan files
         // (`<plans>/plan-{short_id}-...md`) → per-session subdirs

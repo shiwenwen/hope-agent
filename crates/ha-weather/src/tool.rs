@@ -1,8 +1,6 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::weather;
-
 /// Agent tool: get_weather
 /// Fetches current weather and optional forecast for a location.
 pub(crate) async fn tool_get_weather(args: &Value) -> Result<String> {
@@ -15,7 +13,7 @@ pub(crate) async fn tool_get_weather(args: &Value) -> Result<String> {
         .unwrap_or(1)
         .clamp(1, 16);
 
-    let resp = weather::fetch_weather(lat, lon, &city, forecast_days).await?;
+    let resp = crate::fetch_weather(lat, lon, &city, forecast_days).await?;
 
     // Format response as structured JSON
     let result = serde_json::to_string_pretty(&resp)?;
@@ -34,7 +32,7 @@ async fn resolve_location(args: &Value) -> Result<(f64, f64, String)> {
                 return Ok((lat, lon, format!("{:.2},{:.2}", lat, lon)));
             }
             // Otherwise treat as city name — geocode it
-            let results = weather::geocode_search(location, "en").await?;
+            let results = crate::geocode_search(location, "en").await?;
             if let Some(first) = results.first() {
                 return Ok((first.latitude, first.longitude, first.name.clone()));
             }
@@ -46,7 +44,7 @@ async fn resolve_location(args: &Value) -> Result<(f64, f64, String)> {
     }
 
     // Fall back to user config
-    let cfg = crate::user_config::load_user_config()?;
+    let cfg = ha_core::user_config::load_user_config()?;
     match (cfg.weather_latitude, cfg.weather_longitude) {
         (Some(lat), Some(lon)) => {
             let city = cfg.weather_city.unwrap_or_else(|| "Unknown".to_string());

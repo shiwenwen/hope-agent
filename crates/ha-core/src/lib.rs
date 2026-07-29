@@ -125,7 +125,6 @@ pub mod url_preview;
 pub mod user_config;
 pub mod verification;
 pub mod wakeup;
-pub mod weather;
 pub mod workflow;
 pub mod worktree;
 

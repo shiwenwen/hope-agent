@@ -46,7 +46,7 @@ fn tracker() -> &'static Mutex<HashMap<String, InstallJobState>> {
     T.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub async fn tool_app_update(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+pub(crate) async fn tool_app_update(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let action = args.get("action").and_then(|v| v.as_str()).ok_or_else(|| {
         anyhow::anyhow!("`action` is required (check | install | status | rollback)")
     })?;

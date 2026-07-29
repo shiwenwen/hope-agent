@@ -25,6 +25,7 @@ fn main() {
     // 特征 crate 装配：必须先于任何 `init_runtime` 路径（server / acp / mcp
     // 各分支）——init 尾部冻结工具注册表，之后再挂 `app_update` 会 panic。
     ha_updater::wire();
+    ha_weather::wire();
 
     if matches!(
         args.get(1).map(String::as_str),

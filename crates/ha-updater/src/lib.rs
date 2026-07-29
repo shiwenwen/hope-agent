@@ -48,7 +48,7 @@ pub mod service_control;
 pub mod signature;
 pub mod source_detector;
 pub mod staging;
-pub mod tool;
+mod tool;
 
 use std::sync::{Arc, OnceLock};
 
@@ -85,9 +85,12 @@ pub fn wire() {
         // 的 primary-gated 块执行（原 spawn_auto_update_loop 调用位），故
         // 仅 desktop-GUI / server 形态且 Primary 进程才真正运行 loop，与
         // 迁移前逐位一致（acp / mcp / eval 注册了也不消费）。
-        ha_core::app_init::register_startup_task(|| {
-            auto_check::spawn_auto_update_loop();
-        })
+        ha_core::app_init::register_startup_task(
+            ha_core::app_init::StartupStage::PrimaryOnly,
+            || {
+                auto_check::spawn_auto_update_loop();
+            },
+        )
         .expect("ha_updater::wire() must run before start_background_tasks consumes startup tasks");
     });
 }

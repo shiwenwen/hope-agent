@@ -1,0 +1,24 @@
+[package]
+name = "ha-weather"
+version = "0.24.0"
+description = "Hope Agent weather feature — Open-Meteo fetch/cache, get_weather tool, prompt section"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+ha-base = { path = "../ha-base" }
+ha-core = { path = "../ha-core" }
+
+anyhow = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+# geocode / API query 组装（与 ha-core 原依赖同版本线）
+urlencoding = "2"
+
+[lints]
+workspace = true

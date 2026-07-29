@@ -3257,6 +3257,7 @@ dependencies = [
  "ha-core",
  "ha-eval-spec",
  "ha-updater",
+ "ha-weather",
  "libc",
  "rand 0.9.2",
  "reqwest 0.12.28",
@@ -3294,6 +3295,7 @@ dependencies = [
  "futures-util",
  "ha-core",
  "ha-updater",
+ "ha-weather",
  "local-ip-address",
  "mime_guess",
  "reqwest 0.12.28",
@@ -3330,6 +3332,20 @@ dependencies = [
  "uuid",
  "wiremock",
  "zip 7.2.0",
+]
+
+[[package]]
+name = "ha-weather"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "ha-base",
+ "ha-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "urlencoding",
 ]
 
 [[package]]
@@ -3452,6 +3468,7 @@ dependencies = [
  "ha-core",
  "ha-server",
  "ha-updater",
+ "ha-weather",
  "image",
  "libc",
  "log",

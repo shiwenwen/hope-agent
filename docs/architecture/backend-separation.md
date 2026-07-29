@@ -17,18 +17,18 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_UPDATER["ha-updater<br/>(自升级特征 crate)<br/>manifest · 验签 · swap · app_update 工具"]
+        HA_FEAT["特征 crate<br/>ha-updater（自升级）· ha-weather（天气）<br/>随 crate 拆分阶段 3 逐个迁出"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
     end
 
     HA_TAURI -->|"依赖"| HA_SERVER
-    HA_TAURI -->|"依赖 + wire()"| HA_UPDATER
+    HA_TAURI -->|"依赖 + wire()"| HA_FEAT
     HA_TAURI -->|"依赖"| HA_CORE
-    HA_SERVER -->|"依赖 + wire()"| HA_UPDATER
+    HA_SERVER -->|"依赖 + wire()"| HA_FEAT
     HA_SERVER -->|"依赖"| HA_CORE
-    HA_UPDATER -->|"依赖"| HA_CORE
+    HA_FEAT -->|"依赖"| HA_CORE
     HA_CORE -->|"依赖"| HA_SCHEMA
     HA_CORE -->|"依赖"| HA_BASE
     HA_SCHEMA -->|"依赖"| HA_BASE
@@ -152,20 +152,32 @@ guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
 
-### ha-updater（自升级特征 crate）
+### 特征 crate（ha-updater / ha-weather，阶段 3 起逐个迁出）
 
-首个自 ha-core 迁出的特征 crate（crate 拆分阶段 3）。持有自升级全部行为：
-manifest 检查 / 签名校验（Minisign 信任根 `keys.rs`，CODEOWNERS 强制评审）/
-下载续传 / atomic swap / 服务重启 / `app_update` 工具 adapter（`tool.rs`）。
+共同契约（对全部特征 crate 生效）：
 
-- **依赖方向**：ha-updater → ha-core（借用 tools registry / config / EventBus /
-  ask_user）；ha-core **不知道** ha-updater 存在。
-- **装配**：壳层二进制在 `init_runtime` 前调 `ha_updater::wire()`——经
-  `register_external_tools` 挂 `app_update` 分发条目、经 `register_startup_task`
-  登记 headless 自动更新循环。`app_update` 的 `ToolDefinition` 仍在 ha-core
-  （schema 目录阶段 4 才动），漏 wire 由 `registry_freeze` warn 兜底。
-- 红线见 [self-update](self-update.md)（验签 / pubkey 双处一致 / 用户确认 /
-  零 Tauri——桌面路径经 `UpdaterBridge` 反向注册）。
+- **依赖方向**：特征 crate → ha-core（借用 tools registry / config / EventBus
+  等 kernel 服务）；ha-core **不知道**任何特征 crate 存在——kernel 需要特征
+  行为的点全部倒转为注册钩子（工具分发条目 / 启动任务 / 专用 fn-pointer 钩子）。
+- **装配**：每个调 `init_runtime` 的二进制在 init 前调 `<crate>::wire()`
+  （幂等）。工具 `ToolDefinition` 仍在 ha-core（schema 目录阶段 4 才动），
+  漏 wire 由 `registry_freeze` warn 兜底（有 definition 无 handler）。
+- **启动任务两档**：`register_startup_task(StartupStage, fn)` ——
+  `PrimaryOnly`（原 primary-gated 块，如 updater 自动更新循环）与
+  `EveryProcess`（primary 门外，如 weather 桌面刷新——desktop 判定在任务
+  闭包内）。消费点都在 `start_background_tasks`，时序与迁出前逐位一致。
+
+各 crate：
+
+- **ha-updater**（自升级）：manifest 检查 / 签名校验（Minisign 信任根
+  `keys.rs`，CODEOWNERS 强制评审）/ 下载续传 / atomic swap / 服务重启 /
+  `app_update` 工具（`tool.rs`）。红线见 [self-update](self-update.md)
+  （验签 / pubkey 双处一致 / 用户确认 / 零 Tauri——桌面路径经
+  `UpdaterBridge` 反向注册）。
+- **ha-weather**（天气）：Open-Meteo 取数 / 缓存 / 桌面后台刷新 /
+  `get_weather` 工具 / system prompt 天气段（经
+  `system_prompt::register_weather_prompt_source` 钩子）/ settings 天气 key
+  热刷新（经 `tools::register_weather_settings_refresh` 钩子）。
 
 ### ha-server（HTTP/WS 服务）
 
@@ -383,7 +395,7 @@ sequenceDiagram
 | `project:file_uploaded` / `project:file_deleted` | projects 路由 | 项目附件变更 |
 | `agents:changed` | agent_mgmt | Agent 列表变更 |
 | `config:changed` | config/persistence.rs, tools/settings.rs, backup.rs | 任何 `mutate_config` 写入路径自动 emit，`{category, source}` 元数据 |
-| `weather-cache-updated` | weather.rs | 天气缓存刷新 |
+| `weather-cache-updated` | ha-weather (lib.rs) | 天气缓存刷新 |
 | `searxng:deploy_progress` (`EVENT_SEARXNG_DEPLOY_PROGRESS`) | docker/deploy.rs | SearXNG Docker 部署进度，前端 progress UI 消费 |
 | `acp_control_event` | acp_control/events.rs | ACP 运行生命周期 |
 | `cron:run_completed` | cron/executor.rs | 定时任务完成 |

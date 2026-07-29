@@ -88,7 +88,7 @@ Windows 上用 `std::process::Command` / `tokio::process::Command` spawn 一个*
 | `terminate_process_tree` | [`tools/process.rs`](../../crates/ha-core/src/tools/process.rs) 强杀工具子进程 |
 | `send_graceful_stop` | [`channel/process_manager.rs`](../../crates/ha-core/src/channel/process_manager.rs) IM 渠道进程优雅退出；[`acp_control/runtime_stdio.rs`](../../crates/ha-core/src/acp_control/runtime_stdio.rs) ACP runtime 关闭；[`service_install.rs`](../../crates/ha-base/src/service_install.rs) 系统服务卸载 |
 | `detect_system_proxy` | [`provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs) LLM 出站代理；[`docker/proxy.rs`](../../crates/ha-core/src/docker/proxy.rs) Docker 容器代理注入 |
-| `current_location` | [`weather.rs`](../../crates/ha-core/src/weather.rs) 天气自动定位：系统精确定位失败后降级 IP 定位 |
+| `current_location` | [`ha-weather`](../../crates/ha-weather/src/lib.rs) 天气自动定位：系统精确定位失败后降级 IP 定位 |
 | `pdfium_library_candidates` | [`file_extract.rs`](../../crates/ha-core/src/file_extract.rs) PDF 渲染 fallback 动态库查找 |
 | `system_permissions_*` | [`permissions.rs`](../../crates/ha-base/src/permissions.rs) v2 系统权限目录的 OS 原生检查 / 请求入口 |
 | `service::{install_service, uninstall_service, service_status, stop_server}` | [`service_install.rs`](../../crates/ha-base/src/service_install.rs) 保持历史 public API，CLI / updater / Tauri 继续从该 wrapper 进入系统服务管理 |

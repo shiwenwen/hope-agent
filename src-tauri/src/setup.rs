@@ -504,7 +504,8 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     // Auto-start Docker SearXNG if previously configured
     auto_start_searxng_docker();
 
-    // Background weather refresh moved into ha-core `start_background_tasks`
+    // Background weather refresh runs as a ha-weather EveryProcess startup task
+    // consumed by `start_background_tasks`
     // (shares the ambient runtime; desktop-gated there).
 
     // Register global shortcuts from config (chord-aware: only first parts for chords)

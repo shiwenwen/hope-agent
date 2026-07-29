@@ -476,8 +476,8 @@ pub(crate) fn build_with_resolved_session(
         }
     }
 
-    // ⑭ Weather context (from cached weather data)
-    if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
+    // ⑭ Weather context（特征 crate 钩子：未 wire ＝ 无天气段）
+    if let Some(weather_text) = super::weather_prompt_text() {
         sections.push(weather_text);
     }
 
@@ -1400,8 +1400,8 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool
         sections.push(skills_section);
     }
 
-    // Weather context
-    if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
+    // Weather context（特征 crate 钩子：未 wire ＝ 无天气段）
+    if let Some(weather_text) = super::weather_prompt_text() {
         sections.push(weather_text);
     }
 

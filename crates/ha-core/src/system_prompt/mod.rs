@@ -52,3 +52,27 @@ pub(crate) fn build_tool_activation_guidance_packages(
 
     packages
 }
+
+// ── 特征 crate 钩子：天气 prompt 段 ──────────────────────────────
+//
+// weather 已迁出为特征 crate（依赖方向 ha-weather → ha-core），kernel 构建
+// system prompt 时经此钩子取天气段：未装配（未 wire）＝ None ＝ 无天气段，
+// 与「特征不存在」语义一致，fail-soft。装配在 `ha_weather::wire()`。
+
+static WEATHER_PROMPT_SOURCE: std::sync::OnceLock<fn() -> Option<String>> =
+    std::sync::OnceLock::new();
+
+/// 特征 crate 装配期注册天气 prompt 段来源。重复注册返回 `Err`（fail-loud，
+/// 静默顶替＝来源不可预测）。
+pub fn register_weather_prompt_source(
+    source: fn() -> Option<String>,
+) -> Result<(), crate::AlreadyRegistered> {
+    WEATHER_PROMPT_SOURCE
+        .set(source)
+        .map_err(|_| crate::AlreadyRegistered("system_prompt weather source"))
+}
+
+/// 当前天气 prompt 段（未注册来源即 `None`）。
+pub(crate) fn weather_prompt_text() -> Option<String> {
+    WEATHER_PROMPT_SOURCE.get().and_then(|f| f())
+}

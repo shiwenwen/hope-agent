@@ -205,8 +205,9 @@ match，而是查表：
 不是一回事**：后者是 `is_internal_tool` 等 ToolDefinition 元数据缓存；本表只管
 「名字 → 执行 handler」。
 
-**首个外部注册者**：`ha-updater` 的 `app_update`（`ha_updater::wire()`，三个壳
-二进制在 `init_runtime` 前调用——src-tauri / hope-agent-server / ha-eval runner）。
+**外部注册者**（特征 crate，壳二进制在 `init_runtime` 前调 `<crate>::wire()`
+——src-tauri main 与 mobile entry / hope-agent-server / ha-eval runner 四处）：
+`ha-updater` 的 `app_update`、`ha-weather` 的 `get_weather`。
 `freeze_now` 的反向守卫对「有 `ToolDefinition` 无 handler」记 warn（症状＝二进制
 忘调某特征 crate 的 `wire()`：schema 照常广告、dispatch 报 Unknown tool）。
 

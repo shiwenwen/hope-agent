@@ -76,7 +76,6 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_CANVAS, aliases: &[], handler: tool_handler!(|args, ctx| super::canvas::tool_canvas(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_DESIGN, aliases: &[], handler: tool_handler!(|args, ctx| super::design::tool_design(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_ARTIFACT, aliases: &[], handler: tool_handler!(|args, ctx| super::artifact::tool_artifact(args, ctx).await) },
-        BuiltinToolEntry { name: super::TOOL_GET_WEATHER, aliases: &[], handler: tool_handler!(|args, ctx| super::weather::tool_get_weather(args).await) },
         BuiltinToolEntry { name: super::TOOL_ASK_USER_QUESTION, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::ask_user_question::execute(args, ctx.session_id.as_deref()).await)) },
         BuiltinToolEntry { name: super::TOOL_ENTER_PLAN_MODE, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::enter_plan_mode::execute(args, ctx.session_id.as_deref()).await)) },
         BuiltinToolEntry { name: super::TOOL_SUBMIT_PLAN, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::submit_plan::execute(args, ctx.session_id.as_deref()).await)) },

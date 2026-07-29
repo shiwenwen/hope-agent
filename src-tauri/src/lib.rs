@@ -63,9 +63,9 @@ pub use ha_core::system_prompt;
 pub use ha_core::tools;
 pub use ha_core::url_preview;
 pub use ha_core::user_config;
-pub use ha_core::weather;
 #[cfg(target_os = "macos")]
 pub use ha_core::weather_location_macos;
+pub use ha_weather as weather;
 
 // Re-export ha-core utility functions (truncate_utf8, default_true, etc.)
 pub use ha_core::{default_true, sql_opt_u64, sql_u64, truncate_utf8};
@@ -92,6 +92,7 @@ pub fn run() {
     // mobile entry point（`app_lib::run()` 不经 main.rs）——漏 wire 的症状是
     // `app_update` 有 schema 无 handler + registry_freeze warn。
     ha_updater::wire();
+    ha_weather::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when
