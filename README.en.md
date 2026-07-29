@@ -345,6 +345,7 @@ crates/
   ha-config-schema/  AppConfig wire types (pure data definitions)
   ha-core/           Rust core library (zero Tauri deps) — kernel + most business logic
   ha-acp/            ACP feature crate (stdio server mode + external agent control plane)
+  ha-mac/            macOS control feature crate (Accessibility / screenshot / mac_control tool)
   ha-updater/        Self-update feature crate (depends on ha-core, wired by shells)
   ha-weather/        Weather feature crate (depends on ha-core, wired by shells)
   ha-server/         axum HTTP/WS daemon (thin shell)
@@ -372,7 +373,7 @@ Common commands:
 ```bash
 pnpm tauri dev                    # desktop dev
 cargo check --workspace              # Rust dep / type check
-cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-updater -p ha-weather -p ha-server   # core tests
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-mac -p ha-updater -p ha-weather -p ha-server   # core tests
 node scripts/sync-i18n.mjs --check   # i18n completeness check
 ```
 

@@ -27,6 +27,7 @@ fn main() {
     ha_updater::wire();
     ha_weather::wire();
     ha_acp::wire();
+    ha_mac::wire();
 
     if matches!(
         args.get(1).map(String::as_str),

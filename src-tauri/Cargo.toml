@@ -23,6 +23,7 @@ tauri-build = { version = "2.5.6", features = [] }
 # associated system-lib dependencies.
 ha-core = { path = "../crates/ha-core", features = ["desktop-tools"] }
 ha-acp = { path = "../crates/ha-acp" }
+ha-mac = { path = "../crates/ha-mac" }
 ha-updater = { path = "../crates/ha-updater" }
 ha-weather = { path = "../crates/ha-weather" }
 ha-server = { path = "../crates/ha-server" }

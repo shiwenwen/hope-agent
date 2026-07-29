@@ -1210,7 +1210,7 @@ fn mac_control_dangerous_label(
 fn mac_control_ax_action_is_dangerous(args: &Value) -> bool {
     args.get("axAction")
         .and_then(|value| value.as_str())
-        .and_then(crate::mac_control::normalize_perform_ax_action)
+        .and_then(crate::tools::normalize_perform_ax_action)
         .is_some_and(|action| action == "AXConfirm")
 }
 

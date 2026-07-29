@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-updater · ha-weather<br/>随 crate 拆分阶段 3 逐个迁出"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-mac · ha-updater · ha-weather<br/>随 crate 拆分阶段 3 逐个迁出"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -150,7 +150,7 @@ guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
 
-### 特征 crate（ha-acp / ha-updater / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-mac / ha-updater / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -179,6 +179,12 @@ guardian.rs        进程监护 + 指数退避 + 自修复
   `get_weather` 工具 / system prompt 天气段（经
   `system_prompt::register_weather_prompt_source` 钩子）/ settings 天气 key
   热刷新（经 `tools::register_weather_settings_refresh` 钩子）。
+- **ha-mac**（macOS 控制）：Accessibility / 截屏 / 焦点 / `mac_control`
+  工具。执行层安全代码留 kernel：`MacControlFocusAnchor`（审批焦点快照
+  类型）与 `normalize_perform_ax_action`（AX 动作规范化，permission engine
+  的 dangerous 判定消费）下沉 `tools/`；审批焦点 capture/restore 与 args
+  sanitize/preflight 经 `tools::register_mac_control_exec_hooks` 四件套
+  **原子注册**（部分注册＝防御残缺，不允许）。
 - **ha-acp**（ACP）：`acp`（Hope 自身作 ACP stdio server，`hope-agent acp`
   模式）+ `acp_control`（外部 ACP agent 控制面：注册表 / 健康探测 /
   SessionManager / `acp_spawn` 工具）。`ACP_MANAGER` 全局随迁特征侧
@@ -340,7 +346,7 @@ sequenceDiagram
 
 ### 事件清单
 
-> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`docker/mod.rs`、`tools/ask_user_question.rs`、`tools/canvas/mod.rs`、`ha-acp (acp_control/events.rs)`。
+> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`docker/mod.rs`、`tools/ask_user_question.rs`、`tools/canvas/mod.rs`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
 
 #### 聊天 / 流式
 
@@ -405,6 +411,8 @@ sequenceDiagram
 | `agents:changed` | agent_mgmt | Agent 列表变更 |
 | `config:changed` | config/persistence.rs, tools/settings.rs, backup.rs | 任何 `mutate_config` 写入路径自动 emit，`{category, source}` 元数据 |
 | `weather-cache-updated` | ha-weather (lib.rs) | 天气缓存刷新 |
+| `mac_control:frame` (`EVENT_MAC_CONTROL_FRAME`) | ha-mac (lib.rs) | mutating 动作后的屏幕帧关联（actionId 缩略图，见 [macos-control](macos-control.md)） |
+| `mac_control:action` (`EVENT_MAC_CONTROL_ACTION`) | tool_actions.rs | mac_control 动作时间线事件 |
 | `searxng:deploy_progress` (`EVENT_SEARXNG_DEPLOY_PROGRESS`) | docker/deploy.rs | SearXNG Docker 部署进度，前端 progress UI 消费 |
 | `acp_control_event` | ha-acp (acp_control/events.rs) | ACP 运行生命周期 |
 | `cron:run_completed` | cron/executor.rs | 定时任务完成 |

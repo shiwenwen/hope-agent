@@ -65,9 +65,9 @@ const BASE = [
   // ——脚本对不存在的声明节点**直接报错**（防清单腐烂静默失效）。
 ]
 
-/** Layer 2 —— 特征 crate。互相之间只允许单向依赖，成环即需合并或再切。 */
+/** Layer 2 —— 特征 crate。互相之间只允许单向依赖，成环即需合并或再切。
+ * 已迁出成真 crate 的分组（ha-updater / ha-weather / ha-acp / ha-mac）一律删除。 */
 const FEATURES = {
-  "ha-mac": ["mac_control", "tools::mac_control"],
   "ha-design": ["design", "ffmpeg", "canvas_db", "tools::design", "tools::canvas"],
   "ha-artifacts": ["artifacts", "tools::artifact"],
   "ha-mcp": ["mcp", "mcp_server"],

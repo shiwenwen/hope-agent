@@ -31,7 +31,6 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_PROJECT_MEMORY, aliases: &[], handler: tool_handler!(|args, ctx| super::project_memory::tool_project_memory(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_MANAGE_CRON, aliases: &[], handler: tool_handler!(|args, ctx| super::cron::tool_manage_cron(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_BROWSER, aliases: &[], handler: tool_handler!(|args, ctx| super::browser::tool_browser(args, ctx).await) },
-        BuiltinToolEntry { name: super::TOOL_MAC_CONTROL, aliases: &[], handler: tool_handler!(|args, ctx| super::mac_control::tool_mac_control(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SEND_NOTIFICATION, aliases: &[], handler: tool_handler!(|args, ctx| super::notification::tool_send_notification(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SUBAGENT, aliases: &[], handler: tool_handler!(|args, ctx| super::subagent::tool_subagent(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_TEAM, aliases: &[], handler: tool_handler!(|args, ctx| super::team::tool_team(args, ctx).await) },

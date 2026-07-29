@@ -32,6 +32,7 @@ brotli = "8"
 [dependencies]
 ha-core = { path = "../ha-core" }
 ha-acp = { path = "../ha-acp" }
+ha-mac = { path = "../ha-mac" }
 ha-updater = { path = "../ha-updater" }
 ha-weather = { path = "../ha-weather" }
 serde = { workspace = true }

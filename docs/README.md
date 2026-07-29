@@ -48,7 +48,7 @@
 | [UI 交互与表面设计系统](architecture/ui-interaction-system.md) | 搜索、选择、数字输入、模型选择、焦点、菜单、悬浮弹层和 Tooltip 的组件入口、视觉 token、动效与无障碍红线 | `components/ui/`, `lib/input-modality.ts`, `lib/focus-indicator-preference.ts`, `index.css` |
 | [桌面宠物（Pet）](architecture/pet.md) | 主对话 allowlist 四态投影、动态透明窗口、气泡栈/交互卡、Codex v1/v2 导入导出、Creator 与 deep link 安全边界 | `pet/`, `pet_window.rs`, `PetWindow.tsx`, `components/pet/` |
 | [浏览器自动化](architecture/browser.md)            | 8-action 表面、CDP / chrome-devtools-mcp 双 backend、stale-ref 自恢复、BrowserPanel 实时镜像、SSRF 守卫 | `browser/`, `tools/browser/`, `browser_state.rs`, `components/chat/BrowserPanel.tsx` |
-| [macOS 控制](architecture/macos-control.md)        | 原生 macOS GUI 控制子系统：权限 readiness、AX snapshot、display/window 截图、App/窗口/元素/菜单/dialog 操作与审批分类 | `mac_control.rs`, `tools/mac_control.rs`, `src-tauri/src/macos_control.rs` |
+| [macOS 控制](architecture/macos-control.md)        | 原生 macOS GUI 控制子系统：权限 readiness、AX snapshot、display/window 截图、App/窗口/元素/菜单/dialog 操作与审批分类 | `crates/ha-mac/`, `src-tauri/src/macos_control.rs` |
 | [上下文压缩](architecture/context-compact.md)       | 5 层渐进式压缩、API-Round 分组保护、mid-loop checkpoint、runtime ledger 与文件恢复 | `context_compact/` / `agent/context.rs`        |
 | [Session 系统](architecture/session.md)          | 会话 + 消息持久化、FTS5 搜索、无痕会话关闭即焚、会话级工作目录、自动会话标题、Subagent/ACP 运行记录 | `session/`, `session_title.rs`                 |
 | [Project 系统](architecture/project.md)          | 会话分组容器、项目记忆/工作目录/指令、7 级 Agent 解析、`/project` 命令、侧边栏树状渲染 | `project/`                                     |

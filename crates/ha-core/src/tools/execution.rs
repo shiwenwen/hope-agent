@@ -1089,21 +1089,26 @@ fn needs_permission_engine(
 
 async fn capture_mac_control_approval_focus_anchor(
     name: &str,
-) -> Option<crate::mac_control::MacControlFocusAnchor> {
+) -> Option<super::MacControlFocusAnchor> {
+    // 特征 crate 钩子：未 wire（无 ha-mac）恒 None——此时 mac_control 也
+    // 不可分发，焦点保护无对象。
     if name == TOOL_MAC_CONTROL {
-        crate::mac_control::capture_focus_anchor().await
+        let hooks = super::mac_control_exec_hooks()?;
+        (hooks.capture_focus)().await
     } else {
         None
     }
 }
 
-async fn restore_mac_control_approval_focus_anchor(
-    anchor: Option<crate::mac_control::MacControlFocusAnchor>,
-) {
+async fn restore_mac_control_approval_focus_anchor(anchor: Option<super::MacControlFocusAnchor>) {
     let Some(anchor) = anchor else {
         return;
     };
-    if let Err(error) = crate::mac_control::restore_focus_anchor(&anchor).await {
+    // anchor 只在钩子已注册时产生，此处必有钩子；防御式再取一次。
+    let Some(hooks) = super::mac_control_exec_hooks() else {
+        return;
+    };
+    if let Err(error) = (hooks.restore_focus)(anchor).await {
         app_warn!(
             "tool",
             "approval_focus",
@@ -1522,11 +1527,17 @@ pub async fn execute_tool_with_context(
     // mac_control (#247): sanitize + preflight the (possibly hook-patched) args.
     let sanitized_args;
     let args = if name == TOOL_MAC_CONTROL {
-        sanitized_args = crate::mac_control::sanitize_tool_args(args);
-        if let Some(error) = crate::mac_control::preflight_tool_args(&sanitized_args) {
-            return Err(anyhow::anyhow!(error));
+        // 特征 crate 钩子：未 wire 时直通——mac_control 彼时不可分发，
+        // sanitize/preflight 防御无对象。
+        if let Some(hooks) = super::mac_control_exec_hooks() {
+            sanitized_args = (hooks.sanitize_args)(args);
+            if let Some(error) = (hooks.preflight_args)(&sanitized_args) {
+                return Err(anyhow::anyhow!(error));
+            }
+            &sanitized_args
+        } else {
+            args
         }
-        &sanitized_args
     } else {
         args
     };

@@ -42,7 +42,6 @@ pub use ha_core::file_extract;
 pub use ha_core::guardian;
 pub use ha_core::local_embedding;
 pub use ha_core::logging;
-pub use ha_core::mac_control;
 pub use ha_core::memory;
 pub use ha_core::memory_extract;
 pub use ha_core::oauth;
@@ -66,6 +65,7 @@ pub use ha_core::url_preview;
 pub use ha_core::user_config;
 #[cfg(target_os = "macos")]
 pub use ha_core::weather_location_macos;
+pub use ha_mac as mac_control;
 pub use ha_weather as weather;
 
 // Re-export ha-core utility functions (truncate_utf8, default_true, etc.)
@@ -95,6 +95,7 @@ pub fn run() {
     ha_updater::wire();
     ha_weather::wire();
     ha_acp::wire();
+    ha_mac::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when

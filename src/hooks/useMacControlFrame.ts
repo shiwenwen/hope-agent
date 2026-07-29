@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { createFrameStore } from "@/lib/frame-store"
 
-// ── Types (mirror ha_core::mac_control::MacControlFramePayload) ─────────
+// ── Types (mirror ha_mac::MacControlFramePayload) ─────────
 
 export interface MacControlAppSummary {
   pid: number

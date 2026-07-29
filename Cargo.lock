@@ -3276,6 +3276,7 @@ dependencies = [
  "ha-acp",
  "ha-core",
  "ha-eval-spec",
+ "ha-mac",
  "ha-updater",
  "ha-weather",
  "libc",
@@ -3304,6 +3305,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-mac"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "ha-base",
+ "ha-core",
+ "image",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "ha-server"
 version = "0.24.0"
 dependencies = [
@@ -3315,6 +3333,7 @@ dependencies = [
  "futures-util",
  "ha-acp",
  "ha-core",
+ "ha-mac",
  "ha-updater",
  "ha-weather",
  "local-ip-address",
@@ -3488,6 +3507,7 @@ dependencies = [
  "dirs 6.0.0",
  "ha-acp",
  "ha-core",
+ "ha-mac",
  "ha-server",
  "ha-updater",
  "ha-weather",

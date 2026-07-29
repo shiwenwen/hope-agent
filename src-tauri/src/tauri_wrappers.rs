@@ -33,39 +33,37 @@ pub async fn request_system_permission(id: String) -> ha_core::permissions::Syst
 // ── macOS Control ────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn mac_control_status() -> ha_core::mac_control::MacControlStatus {
-    ha_core::mac_control::status().await
+pub async fn mac_control_status() -> ha_mac::MacControlStatus {
+    ha_mac::status().await
 }
 
 #[tauri::command]
-pub async fn mac_control_permissions() -> ha_core::mac_control::MacControlPermissionsResponse {
-    ha_core::mac_control::permissions().await
+pub async fn mac_control_permissions() -> ha_mac::MacControlPermissionsResponse {
+    ha_mac::permissions().await
 }
 
 #[tauri::command]
 pub async fn mac_control_snapshot(
-    options: Option<ha_core::mac_control::MacControlSnapshotRequest>,
-) -> ha_core::mac_control::MacControlSnapshotResponse {
-    ha_core::mac_control::snapshot(options.unwrap_or_default()).await
+    options: Option<ha_mac::MacControlSnapshotRequest>,
+) -> ha_mac::MacControlSnapshotResponse {
+    ha_mac::snapshot(options.unwrap_or_default()).await
 }
 
 #[tauri::command]
 pub async fn mac_control_elements(
-    options: Option<ha_core::mac_control::MacControlElementsRequest>,
-) -> ha_core::mac_control::MacControlElementsResponse {
-    ha_core::mac_control::elements(options.unwrap_or_default()).await
+    options: Option<ha_mac::MacControlElementsRequest>,
+) -> ha_mac::MacControlElementsResponse {
+    ha_mac::elements(options.unwrap_or_default()).await
 }
 
 #[tauri::command]
-pub async fn mac_control_capture_frame(
-    display_id: Option<u32>,
-) -> ha_core::mac_control::MacControlFrameResponse {
-    ha_core::mac_control::capture_frame(display_id).await
+pub async fn mac_control_capture_frame(display_id: Option<u32>) -> ha_mac::MacControlFrameResponse {
+    ha_mac::capture_frame(display_id).await
 }
 
 #[tauri::command]
-pub async fn mac_control_list_displays() -> ha_core::mac_control::MacControlDisplaysResponse {
-    ha_core::mac_control::list_displays().await
+pub async fn mac_control_list_displays() -> ha_mac::MacControlDisplaysResponse {
+    ha_mac::list_displays().await
 }
 
 // ── Panel action timeline ────────────────────────────────────────

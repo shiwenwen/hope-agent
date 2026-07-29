@@ -28,13 +28,13 @@ mod goal;
 mod grep;
 pub(crate) mod image;
 pub mod image_generate;
-pub(crate) mod image_markers;
+// pub：ha-mac 的截图结果复用 image marker 构建（工具结果图片标记契约）。
+pub mod image_markers;
 mod issue_report;
 pub(crate) mod job_status;
 mod loop_tool;
 mod ls;
 mod lsp;
-mod mac_control;
 mod memory;
 pub(crate) mod note;
 mod notification;
@@ -82,6 +82,87 @@ pub fn register_weather_settings_refresh(hook: fn()) -> Result<(), crate::Alread
 
 pub(crate) fn weather_settings_refresh_hook() -> Option<fn()> {
     WEATHER_SETTINGS_REFRESH.get().copied()
+}
+
+// ── mac_control 下沉类型与纯函数（阶段 3：随审批/执行层安全逻辑留 kernel）──
+//
+// `MacControlFocusAnchor`：审批弹窗前后焦点保护的快照类型（execution.rs 持有
+// 跨 await 的 Option<Anchor>，类型必须在 kernel）；
+// `normalize_perform_ax_action`：AX 动作规范化——permission engine 的
+// dangerous 判定消费（审批分类代码不外迁红线）。ha-mac 原路径再导出。
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlFocusAnchor {
+    pub pid: i32,
+    pub bundle_id: Option<String>,
+    pub name: Option<String>,
+    pub focused_window_id: Option<String>,
+    pub focused_window_title: Option<String>,
+}
+
+pub fn normalize_perform_ax_action(action: &str) -> Option<String> {
+    let action = action.trim();
+    if action.is_empty() {
+        return None;
+    }
+    if action.len() > 128
+        || !action
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        return None;
+    }
+    let canonical = match action.to_ascii_lowercase().as_str() {
+        "press" | "axpress" => Some("AXPress"),
+        "show_menu" | "showmenu" | "axshowmenu" => Some("AXShowMenu"),
+        "confirm" | "axconfirm" => Some("AXConfirm"),
+        "cancel" | "axcancel" => Some("AXCancel"),
+        "increment" | "axincrement" => Some("AXIncrement"),
+        "decrement" | "axdecrement" => Some("AXDecrement"),
+        "pick" | "axpick" => Some("AXPick"),
+        "raise" | "axraise" => Some("AXRaise"),
+        "show_default_ui" | "showdefaultui" | "axshowdefaultui" => Some("AXShowDefaultUI"),
+        "show_alternate_ui" | "showalternateui" | "axshowalternateui" => Some("AXShowAlternateUI"),
+        _ => None,
+    };
+    Some(canonical.unwrap_or(action).to_string())
+}
+
+// ── 特征 crate 钩子：mac_control 执行层 ──────────────────────────
+//
+// 四件套原子注册（部分注册＝执行层防御残缺，不允许）：审批焦点 capture/
+// restore（macOS AX 调用在 ha-mac）+ 工具参数 sanitize/preflight（#247
+// 执行层防御）。未装配（未 wire）＝anchor 恒 None、args 原样直通——此时
+// mac_control handler 也不存在（dispatch 报 Unknown tool），防御无对象，
+// fail-soft 自洽。
+pub struct MacControlExecHooks {
+    pub capture_focus: fn() -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Option<MacControlFocusAnchor>> + Send>,
+    >,
+    pub restore_focus: fn(
+        MacControlFocusAnchor,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), String>> + Send>,
+    >,
+    pub sanitize_args: fn(&Value) -> Value,
+    pub preflight_args: fn(&Value) -> Option<String>,
+}
+
+static MAC_CONTROL_EXEC_HOOKS: std::sync::OnceLock<MacControlExecHooks> =
+    std::sync::OnceLock::new();
+
+/// 特征 crate 装配期注册 mac_control 执行层钩子。重复注册返回 `Err`。
+pub fn register_mac_control_exec_hooks(
+    hooks: MacControlExecHooks,
+) -> Result<(), crate::AlreadyRegistered> {
+    MAC_CONTROL_EXEC_HOOKS
+        .set(hooks)
+        .map_err(|_| crate::AlreadyRegistered("mac_control exec hooks"))
+}
+
+pub(crate) fn mac_control_exec_hooks() -> Option<&'static MacControlExecHooks> {
+    MAC_CONTROL_EXEC_HOOKS.get()
 }
 
 // ── Public Re-exports ─────────────────────────────────────────────

@@ -1,8 +1,11 @@
 use anyhow::{bail, Result};
 use serde_json::Value;
 
-pub(crate) async fn tool_mac_control(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
-    let args = crate::mac_control::sanitize_tool_args(args);
+pub(crate) async fn tool_mac_control(
+    args: &Value,
+    ctx: &ha_core::tools::ToolExecContext,
+) -> Result<String> {
+    let args = crate::sanitize_tool_args(args);
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
@@ -12,118 +15,118 @@ pub(crate) async fn tool_mac_control(args: &Value, ctx: &super::ToolExecContext)
 
     let result = match action {
         "status" => Ok(serde_json::to_string_pretty(
-            &crate::mac_control::status().await,
+            &crate::status().await,
         )?),
         "permissions" => Ok(serde_json::to_string_pretty(
-            &crate::mac_control::permissions().await,
+            &crate::permissions().await,
         )?),
         "diagnostics" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlDiagnosticsRequest>(
+                serde_json::from_value::<crate::MacControlDiagnosticsRequest>(
                     args.clone(),
                 )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::diagnostics(request).await,
+                &crate::diagnostics(request).await,
             )?)
         }
         "snapshot" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlSnapshotRequest>(
+                serde_json::from_value::<crate::MacControlSnapshotRequest>(
                     args.clone(),
                 )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::snapshot(request).await,
+                &crate::snapshot(request).await,
             )?)
         }
         "elements" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlElementsRequest>(
+                serde_json::from_value::<crate::MacControlElementsRequest>(
                     args.clone(),
                 )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::elements(request).await,
+                &crate::elements(request).await,
             )?)
         }
         "wait" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlWaitRequest>(
+                serde_json::from_value::<crate::MacControlWaitRequest>(
                     args.clone(),
                 )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::wait(request).await,
+                &crate::wait(request).await,
             )?)
         }
         "apps" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlAppsRequest>(
+                serde_json::from_value::<crate::MacControlAppsRequest>(
                     args.clone(),
                 )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::apps(request).await,
+                &crate::apps(request).await,
             )?)
         }
         "dock" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlDockRequest>(
+                serde_json::from_value::<crate::MacControlDockRequest>(
                     args.clone(),
                 )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::dock(request).await,
+                &crate::dock(request).await,
             )?)
         }
         "spaces" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlSpacesRequest>(
+                serde_json::from_value::<crate::MacControlSpacesRequest>(
                     args.clone(),
                 )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::spaces(request).await,
+                &crate::spaces(request).await,
             )?)
         }
         "windows" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlWindowsRequest>(
+                serde_json::from_value::<crate::MacControlWindowsRequest>(
                     args.clone(),
                 )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::windows(request).await,
+                &crate::windows(request).await,
             )?)
         }
         "act" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlActRequest>(args.clone())?;
+                serde_json::from_value::<crate::MacControlActRequest>(args.clone())?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::act(request).await,
+                &crate::act(request).await,
             )?)
         }
         "menu" => {
             let request =
-                serde_json::from_value::<crate::mac_control::MacControlMenuRequest>(args.clone())?;
+                serde_json::from_value::<crate::MacControlMenuRequest>(args.clone())?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::menu(request).await,
+                &crate::menu(request).await,
             )?)
         }
         "clipboard" => {
-            let request = serde_json::from_value::<crate::mac_control::MacControlClipboardRequest>(
+            let request = serde_json::from_value::<crate::MacControlClipboardRequest>(
                 args.clone(),
             )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::clipboard(request).await,
+                &crate::clipboard(request).await,
             )?)
         }
         "dialog" => {
-            let request = serde_json::from_value::<crate::mac_control::MacControlDialogRequest>(
+            let request = serde_json::from_value::<crate::MacControlDialogRequest>(
                 args.clone(),
             )?;
             Ok(serde_json::to_string_pretty(
-                &crate::mac_control::dialog(request).await,
+                &crate::dialog(request).await,
             )?)
         }
         "visual" => {
-            let request = serde_json::from_value::<crate::mac_control::MacControlVisualRequest>(
+            let request = serde_json::from_value::<crate::MacControlVisualRequest>(
                 args.clone(),
             )?;
-            let response = crate::mac_control::visual(request).await;
+            let response = crate::visual(request).await;
             Ok(format_visual_response(&response)?)
         }
         other => bail!(
@@ -183,7 +186,7 @@ fn mac_action_summary(
     let text_summary = |key: &str| {
         args.get(key)
             .and_then(|v| v.as_str())
-            .map(crate::tool_actions::redacted_text_summary)
+            .map(ha_core::tool_actions::redacted_text_summary)
     };
     let detail = match (action, op) {
         ("act", Some("type" | "paste")) => text_summary("text"),
@@ -221,7 +224,7 @@ fn mac_action_summary(
 /// capture (mutating success, plus `act` failure — screen may have changed).
 fn record_mac_control_action(
     args: &Value,
-    ctx: &super::ToolExecContext,
+    ctx: &ha_core::tools::ToolExecContext,
     action: &str,
     result: &Result<String>,
     started: std::time::Instant,
@@ -256,13 +259,13 @@ fn record_mac_control_action(
         .err()
         .map(|e| e.to_string())
         .or(response_error)
-        .map(|e| crate::tool_actions::clamp_error(&e));
+        .map(|e| ha_core::tool_actions::clamp_error(&e));
     let emit_frame = ok || action == "act";
-    let action_id = crate::tool_actions::new_action_id();
+    let action_id = ha_core::tool_actions::new_action_id();
     let (target, detail) = mac_action_summary(args, action, op);
-    crate::tool_actions::record_action(crate::tool_actions::ToolActionEvent {
+    ha_core::tool_actions::record_action(ha_core::tool_actions::ToolActionEvent {
         action_id: action_id.clone(),
-        source: crate::tool_actions::ToolActionSource::MacControl,
+        source: ha_core::tool_actions::ToolActionSource::MacControl,
         session_id: ctx.session_id.clone(),
         action: action.to_string(),
         op: op.map(str::to_string),
@@ -278,17 +281,15 @@ fn record_mac_control_action(
         has_frame: emit_frame,
     });
     if emit_frame {
-        crate::mac_control::capture_frame_for_action(action_id, ctx.session_id.clone());
+        crate::capture_frame_for_action(action_id, ctx.session_id.clone());
     }
 }
 
-fn format_visual_response(
-    response: &crate::mac_control::MacControlVisualResponse,
-) -> Result<String> {
+fn format_visual_response(response: &crate::MacControlVisualResponse) -> Result<String> {
     let Some(result) = &response.result else {
         return Ok(serde_json::to_string_pretty(response)?);
     };
-    if result.op != crate::mac_control::MacControlVisualOp::Observe {
+    if result.op != crate::MacControlVisualOp::Observe {
         return Ok(serde_json::to_string_pretty(response)?);
     }
     let Some(screenshot) = &result.screenshot else {
@@ -296,8 +297,8 @@ fn format_visual_response(
     };
     let marker_screenshot = result.annotated_screenshot.as_ref().unwrap_or(screenshot);
     let target = match screenshot.target {
-        crate::mac_control::MacControlScreenshotTarget::Display => "display",
-        crate::mac_control::MacControlScreenshotTarget::Window => "window",
+        crate::MacControlScreenshotTarget::Display => "display",
+        crate::MacControlScreenshotTarget::Window => "window",
     };
     let snapshot = result.snapshot.as_ref();
     let compact = serde_json::json!({
@@ -330,7 +331,7 @@ fn format_visual_response(
         marker_screenshot.height_px,
         annotation_hint
     );
-    let marker = crate::tools::image_markers::build_image_file_marker(
+    let marker = ha_core::tools::image_markers::build_image_file_marker(
         "image/jpeg",
         &marker_screenshot.path,
         &format!("{caption}\n{compact_json}"),
@@ -341,7 +342,7 @@ fn format_visual_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mac_control::{
+    use crate::{
         MacControlBounds, MacControlReadiness, MacControlRuntimeStats, MacControlScreenshotSummary,
         MacControlScreenshotTarget, MacControlStatus, MacControlVisualOp, MacControlVisualResponse,
         MacControlVisualResult, MacControlWindowSummary,
@@ -367,7 +368,7 @@ mod tests {
             result: Some(MacControlVisualResult {
                 op: MacControlVisualOp::Observe,
                 snapshot_id: Some("macsnap_test".to_string()),
-                snapshot: Some(crate::mac_control::MacControlSnapshot {
+                snapshot: Some(crate::MacControlSnapshot {
                     snapshot_id: "macsnap_test".to_string(),
                     created_at: "2026-05-23T00:00:00Z".to_string(),
                     frontmost_app: None,
@@ -445,38 +446,14 @@ mod tests {
         }
         let empty = serde_json::json!({});
         let cases: &[(&str, String)] = &[
-            (
-                "act",
-                serde_default::<crate::mac_control::MacControlActOp>(),
-            ),
-            (
-                "windows",
-                serde_default::<crate::mac_control::MacControlWindowsOp>(),
-            ),
-            (
-                "menu",
-                serde_default::<crate::mac_control::MacControlMenuOp>(),
-            ),
-            (
-                "dock",
-                serde_default::<crate::mac_control::MacControlDockOp>(),
-            ),
-            (
-                "spaces",
-                serde_default::<crate::mac_control::MacControlSpacesOp>(),
-            ),
-            (
-                "apps",
-                serde_default::<crate::mac_control::MacControlAppsOp>(),
-            ),
-            (
-                "dialog",
-                serde_default::<crate::mac_control::MacControlDialogOp>(),
-            ),
-            (
-                "clipboard",
-                serde_default::<crate::mac_control::MacControlClipboardOp>(),
-            ),
+            ("act", serde_default::<crate::MacControlActOp>()),
+            ("windows", serde_default::<crate::MacControlWindowsOp>()),
+            ("menu", serde_default::<crate::MacControlMenuOp>()),
+            ("dock", serde_default::<crate::MacControlDockOp>()),
+            ("spaces", serde_default::<crate::MacControlSpacesOp>()),
+            ("apps", serde_default::<crate::MacControlAppsOp>()),
+            ("dialog", serde_default::<crate::MacControlDialogOp>()),
+            ("clipboard", serde_default::<crate::MacControlClipboardOp>()),
         ];
         for (action, expected) in cases {
             assert_eq!(

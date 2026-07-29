@@ -207,7 +207,7 @@ match，而是查表：
 
 **外部注册者**（特征 crate，壳二进制在 `init_runtime` 前调 `<crate>::wire()`
 ——src-tauri main 与 mobile entry / hope-agent-server / ha-eval runner 四处）：
-`ha-updater` 的 `app_update`、`ha-weather` 的 `get_weather`、`ha-acp` 的 `acp_spawn`。
+`ha-updater` 的 `app_update`、`ha-weather` 的 `get_weather`、`ha-acp` 的 `acp_spawn`、`ha-mac` 的 `mac_control`。
 `freeze_now` 的反向守卫对「有 `ToolDefinition` 无 handler」记 warn（症状＝二进制
 忘调某特征 crate 的 `wire()`：schema 照常广告、dispatch 报 Unknown tool）。
 
@@ -1012,7 +1012,7 @@ Screenshot captured (...)
 | `crates/ha-core/src/tools/execution.rs` | 大工具结果落盘；普通会话内联图片 marker 物化；对图片 marker 做完整性保护，避免截断后继续作为图片发送 |
 | `crates/ha-core/src/context_compact/truncation.rs` | Tier 1 截断时保护图片 marker，避免压缩阶段制造半截图片载荷 |
 | `crates/ha-core/src/tools/browser/snapshot.rs` | browser 截图保存为 session attachment，并用 `__MEDIA_ITEMS__` + `__IMAGE_FILE__` 同时服务 UI 和模型视觉 |
-| `crates/ha-core/src/tools/mac_control.rs` | `visual.observe` 把 macOS 受管截图包装为 `__IMAGE_FILE__`，供模型视觉定位 |
+| `crates/ha-mac/src/tool.rs` | `visual.observe` 把 macOS 受管截图包装为 `__IMAGE_FILE__`，供模型视觉定位 |
 
 ### 端到端流程图
 

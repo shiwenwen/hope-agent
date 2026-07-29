@@ -16,6 +16,7 @@ fn main() {
     ha_updater::wire();
     ha_weather::wire();
     ha_acp::wire();
+    ha_mac::wire();
 
     // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,
     // NOT persisted). Skips every tool-level approval gate for THIS launch only.

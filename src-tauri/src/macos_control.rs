@@ -20,7 +20,7 @@ mod imp {
 
     use async_trait::async_trait;
     use base64::Engine;
-    use ha_core::mac_control::{
+    use ha_mac::{
         mac_control_act_preview, normalize_perform_ax_action, MacControlActOp,
         MacControlActRequest, MacControlActResult, MacControlAppNameMatch, MacControlAppSummary,
         MacControlAppsOp, MacControlAppsRequest, MacControlAppsResult, MacControlBounds,
@@ -180,7 +180,7 @@ mod imp {
 
     pub fn register() {
         let bridge: Arc<dyn MacControlBridge> = Arc::new(TauriMacControlBridge);
-        ha_core::mac_control::set_mac_control_bridge(bridge);
+        ha_mac::set_mac_control_bridge(bridge);
     }
 
     type AXError = i32;
@@ -483,7 +483,7 @@ mod imp {
             match capture_desktop_frame_with_id(&snapshot, &request) {
                 Ok((frame, screenshot)) => {
                     snapshot.screenshot = Some(screenshot);
-                    ha_core::mac_control::emit_frame(&frame);
+                    ha_mac::emit_frame(&frame);
                 }
                 Err(error) => snapshot.warnings.push(format!(
                     "Screenshot capture failed; returning AX-only snapshot: {error}"
@@ -2859,7 +2859,7 @@ mod imp {
             ..Default::default()
         })?;
         let mut warnings = snapshot.warnings.clone();
-        ha_core::mac_control::record_snapshot(snapshot.clone());
+        ha_mac::record_snapshot(snapshot.clone());
         let (total_matches, elements) = if frontmost_app_matches_act_target(
             &snapshot,
             &request.target,
@@ -3768,8 +3768,8 @@ mod imp {
                 return (None, Vec::new());
             }
         };
-        let snapshot_id = ha_core::mac_control::new_snapshot_id();
-        let mut screenshot = match ha_core::mac_control::store_screenshot_jpeg(
+        let snapshot_id = ha_mac::new_snapshot_id();
+        let mut screenshot = match ha_mac::store_screenshot_jpeg(
             &snapshot_id,
             &captured.jpeg,
             captured.width_px,
@@ -5829,7 +5829,7 @@ mod imp {
         else {
             return Ok(None);
         };
-        let previous = ha_core::mac_control::cached_snapshot(snapshot_id).ok_or_else(|| {
+        let previous = ha_mac::cached_snapshot(snapshot_id).ok_or_else(|| {
             format!(
                 "{op_label} target.snapshotId '{snapshot_id}' was not found or expired; take a fresh snapshot or visual.observe before acting."
             )
@@ -8020,7 +8020,7 @@ mod imp {
     }
 
     fn capture_desktop_frame(display_id: Option<u32>) -> Result<MacControlFramePayload, String> {
-        let snapshot_id = ha_core::mac_control::new_snapshot_id();
+        let snapshot_id = ha_mac::new_snapshot_id();
         let frontmost_app = focused_app_summary();
         let captured = capture_display_frame_bytes(display_id)?;
         Ok(build_frame_payload(
@@ -8114,7 +8114,7 @@ mod imp {
                 capture_window_frame_bytes(request.window_id.as_deref(), snapshot)?
             }
         };
-        let mut screenshot = ha_core::mac_control::store_screenshot_jpeg(
+        let mut screenshot = ha_mac::store_screenshot_jpeg(
             &snapshot.snapshot_id,
             &captured.jpeg,
             captured.width_px,

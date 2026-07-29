@@ -61,8 +61,8 @@ pnpm tauri dev            # 启动桌面开发模式（前端 + Rust 后端 + �
 
 ```bash
 cargo fmt --all --check
-cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-updater -p ha-weather -p ha-server --all-targets --locked -- -D warnings
-cargo test  -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-updater -p ha-weather -p ha-server --locked
+cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-mac -p ha-updater -p ha-weather -p ha-server --all-targets --locked -- -D warnings
+cargo test  -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-mac -p ha-updater -p ha-weather -p ha-server --locked
 pnpm typecheck
 pnpm lint
 pnpm test

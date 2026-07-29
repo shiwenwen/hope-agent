@@ -1,9 +1,67 @@
+//! macOS 控制特征 crate（阶段 3 自 ha-core 迁出）：Accessibility / 截屏 /
+//! 窗口焦点 / `mac_control` 工具。非 macOS 平台编译为桩（cfg 分支原样保留）。
+//!
+//! 装配契约与其它特征 crate 相同：每个调 `ha_core::init_runtime` 的二进制
+//! 必须先调 [`wire()`]。
+//!
 //! macOS desktop control bridge and readiness model.
 //!
 //! Exposes status / permissions, Accessibility snapshots, scored element
 //! search, display/window screenshot frames, wait/target matching, app
 //! focus/launch, Dock and Spaces helpers, window operations, AX-first element
 //! actions, clipboard text, dialogs, and menu inspection/clicks.
+
+// `app_*!` 系宏由 ha-base 导出（与 ha-core 同一接法）。
+#[macro_use]
+extern crate ha_base;
+
+mod tool;
+
+/// 装配入口（幂等）：
+/// 1. `mac_control` 分发条目 → 工具注册表（ToolDefinition 留 ha-core）；
+/// 2. 执行层四件套钩子（审批焦点 capture/restore + args sanitize/preflight）
+///    → `tools::register_mac_control_exec_hooks`（原子注册，防御不可残缺）。
+pub fn wire() {
+    static WIRED: std::sync::Once = std::sync::Once::new();
+    WIRED.call_once(|| {
+        fn mac_control_handler<'a>(
+            args: &'a serde_json::Value,
+            ctx: &'a ha_core::tools::ToolExecContext,
+        ) -> ha_core::tools::registry::BuiltinToolFuture<'a> {
+            Box::pin(tool::tool_mac_control(args, ctx))
+        }
+        ha_core::tools::registry::register_external_tools(vec![
+            ha_core::tools::registry::BuiltinToolEntry {
+                name: ha_core::tools::TOOL_MAC_CONTROL,
+                aliases: &[],
+                handler: mac_control_handler,
+            },
+        ])
+        .expect("ha_mac::wire() must run before ha_core::init_runtime freezes the tool registry");
+
+        fn capture_focus_boxed() -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Option<ha_core::tools::MacControlFocusAnchor>>
+                    + Send,
+            >,
+        > {
+            Box::pin(crate::capture_focus_anchor())
+        }
+        fn restore_focus_boxed(
+            anchor: ha_core::tools::MacControlFocusAnchor,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
+        {
+            Box::pin(async move { crate::restore_focus_anchor(&anchor).await })
+        }
+        ha_core::tools::register_mac_control_exec_hooks(ha_core::tools::MacControlExecHooks {
+            capture_focus: capture_focus_boxed,
+            restore_focus: restore_focus_boxed,
+            sanitize_args: crate::sanitize_tool_args,
+            preflight_args: crate::preflight_tool_args,
+        })
+        .expect("ha_mac::wire() registers the mac_control exec hooks exactly once");
+    });
+}
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -18,7 +76,14 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::permissions::{SystemPermissionItem, SystemPermissionStatus, SystemPermissionsResponse};
+use ha_core::permissions::{
+    SystemPermissionItem, SystemPermissionStatus, SystemPermissionsResponse,
+};
+
+// 已下沉 kernel `tools/`（审批焦点保护的 anchor 类型 + 审批分类的 AX 动作
+// 规范化——permission engine 的 danger 判定消费它们，安全判定代码留 kernel）。
+// 原路径再导出，内部调用点与外部引用均不变。
+pub use ha_core::tools::{normalize_perform_ax_action, MacControlFocusAnchor};
 
 const REQUIRED_PERMISSION_IDS: &[&str] = &["accessibility", "screen_recording"];
 const OPTIONAL_PERMISSION_IDS: &[&str] = &[
@@ -170,16 +235,6 @@ pub struct MacControlRuntimeStats {
     pub snapshot_cache_limit: usize,
     pub screenshot_file_limit: usize,
     pub recent_errors: Vec<MacControlErrorStat>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MacControlFocusAnchor {
-    pub pid: i32,
-    pub bundle_id: Option<String>,
-    pub name: Option<String>,
-    pub focused_window_id: Option<String>,
-    pub focused_window_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1632,34 +1687,6 @@ pub enum MacControlActOp {
     Scroll,
     Drag,
     Swipe,
-}
-
-pub fn normalize_perform_ax_action(action: &str) -> Option<String> {
-    let action = action.trim();
-    if action.is_empty() {
-        return None;
-    }
-    if action.len() > 128
-        || !action
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
-    {
-        return None;
-    }
-    let canonical = match action.to_ascii_lowercase().as_str() {
-        "press" | "axpress" => Some("AXPress"),
-        "show_menu" | "showmenu" | "axshowmenu" => Some("AXShowMenu"),
-        "confirm" | "axconfirm" => Some("AXConfirm"),
-        "cancel" | "axcancel" => Some("AXCancel"),
-        "increment" | "axincrement" => Some("AXIncrement"),
-        "decrement" | "axdecrement" => Some("AXDecrement"),
-        "pick" | "axpick" => Some("AXPick"),
-        "raise" | "axraise" => Some("AXRaise"),
-        "show_default_ui" | "showdefaultui" | "axshowdefaultui" => Some("AXShowDefaultUI"),
-        "show_alternate_ui" | "showalternateui" | "axshowalternateui" => Some("AXShowAlternateUI"),
-        _ => None,
-    };
-    Some(canonical.unwrap_or(action).to_string())
 }
 
 pub fn mac_control_act_preview(
@@ -3564,9 +3591,10 @@ pub fn capture_frame_for_action(action_id: String, session_id: Option<String>) {
                         &base64::engine::general_purpose::STANDARD,
                         &jpeg_base64,
                     ) {
-                        if let Some(thumb) = crate::tool_actions::encode_thumbnail_from_jpeg(&bytes)
+                        if let Some(thumb) =
+                            ha_core::tool_actions::encode_thumbnail_from_jpeg(&bytes)
                         {
-                            crate::tool_actions::attach_thumbnail(
+                            ha_core::tool_actions::attach_thumbnail(
                                 session_id.as_deref(),
                                 &action_id,
                                 thumb,
@@ -3594,7 +3622,7 @@ pub fn store_screenshot_jpeg(
     height_px: u32,
 ) -> Result<MacControlScreenshotSummary, String> {
     let media_id = sanitize_media_id(media_id)?;
-    let dir = crate::paths::mac_control_snapshots_dir()
+    let dir = ha_core::paths::mac_control_snapshots_dir()
         .map_err(|e| format!("Unable to resolve macOS control snapshots directory: {e}"))?;
     fs::create_dir_all(&dir).map_err(|e| {
         format!(
@@ -3626,7 +3654,7 @@ pub fn store_screenshot_jpeg(
 }
 
 pub fn emit_frame(payload: &MacControlFramePayload) {
-    if let Some(bus) = crate::globals::get_event_bus() {
+    if let Some(bus) = ha_core::globals::get_event_bus() {
         match serde_json::to_value(payload) {
             Ok(value) => bus.emit(EVENT_MAC_CONTROL_FRAME, value),
             Err(e) => app_warn!(
@@ -3640,7 +3668,7 @@ pub fn emit_frame(payload: &MacControlFramePayload) {
 }
 
 fn available_bridge() -> Option<Arc<dyn MacControlBridge>> {
-    if !cfg!(target_os = "macos") || !crate::app_init::is_desktop() {
+    if !cfg!(target_os = "macos") || !ha_core::app_init::is_desktop() {
         return None;
     }
     get_mac_control_bridge()
@@ -3649,7 +3677,7 @@ fn available_bridge() -> Option<Arc<dyn MacControlBridge>> {
 fn unsupported_reason() -> &'static str {
     if !cfg!(target_os = "macos") {
         "macOS control is only supported on macOS."
-    } else if !crate::app_init::is_desktop() {
+    } else if !ha_core::app_init::is_desktop() {
         "macOS control is only available from the desktop app."
     } else {
         "macOS control bridge is not registered."
@@ -3660,7 +3688,7 @@ pub fn unsupported_status(message: &str) -> MacControlStatus {
     MacControlStatus {
         platform: platform_name().to_string(),
         supported: false,
-        desktop: crate::app_init::is_desktop(),
+        desktop: ha_core::app_init::is_desktop(),
         bridge_registered: get_mac_control_bridge().is_some(),
         readiness: MacControlReadiness::Unsupported,
         core_ready: false,
@@ -4451,7 +4479,7 @@ struct MacControlDiagnosticsBundle<'a> {
 }
 
 fn create_diagnostics_export_path() -> Result<PathBuf, String> {
-    let dir = crate::paths::mac_control_diagnostics_dir()
+    let dir = ha_core::paths::mac_control_diagnostics_dir()
         .map_err(|e| format!("Unable to resolve macOS control diagnostics directory: {e}"))?;
     fs::create_dir_all(&dir).map_err(|e| {
         format!(
@@ -4783,7 +4811,7 @@ fn store_annotated_screenshot_jpeg(
     bytes: &[u8],
 ) -> Result<MacControlScreenshotSummary, String> {
     let media_id = sanitize_media_id(&format!("{}_annotated", original.media_id))?;
-    let dir = crate::paths::mac_control_snapshots_dir()
+    let dir = ha_core::paths::mac_control_snapshots_dir()
         .map_err(|e| format!("Unable to resolve macOS control snapshots directory: {e}"))?;
     fs::create_dir_all(&dir).map_err(|e| {
         format!(
@@ -5728,7 +5756,7 @@ fn prune_screenshot_files(dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permissions::{SystemPermissionGroup, SystemPermissionRequestMode};
+    use ha_core::permissions::{SystemPermissionGroup, SystemPermissionRequestMode};
 
     fn item(id: &str, status: SystemPermissionStatus) -> SystemPermissionItem {
         SystemPermissionItem {

@@ -28,6 +28,7 @@ const haEvalCargoTomlPath = path.join(rootDir, "crates", "ha-eval", "Cargo.toml"
 const haUpdaterCargoTomlPath = path.join(rootDir, "crates", "ha-updater", "Cargo.toml")
 const haWeatherCargoTomlPath = path.join(rootDir, "crates", "ha-weather", "Cargo.toml")
 const haAcpCargoTomlPath = path.join(rootDir, "crates", "ha-acp", "Cargo.toml")
+const haMacCargoTomlPath = path.join(rootDir, "crates", "ha-mac", "Cargo.toml")
 
 const args = process.argv.slice(2)
 let expectedTag = null
@@ -112,6 +113,13 @@ if (!haAcpVersionMatch) {
   process.exit(1)
 }
 
+const haMacCargoToml = readFileSync(haMacCargoTomlPath, "utf8")
+const haMacVersionMatch = haMacCargoToml.match(/^version = "(.*)"$/m)
+if (!haMacVersionMatch) {
+  console.error("[release:verify] could not read crates/ha-mac/Cargo.toml version")
+  process.exit(1)
+}
+
 const cargoLock = readFileSync(cargoLockPath, "utf8")
 const cargoLockHopeAgentMatch = cargoLock.match(/name = "hope-agent"\r?\nversion = "(.*)"/)
 const cargoLockHaServerMatch = cargoLock.match(/name = "ha-server"\r?\nversion = "(.*)"/)
@@ -120,6 +128,7 @@ const cargoLockHaEvalMatch = cargoLock.match(/name = "ha-eval"\r?\nversion = "(.
 const cargoLockHaUpdaterMatch = cargoLock.match(/name = "ha-updater"\r?\nversion = "(.*)"/)
 const cargoLockHaWeatherMatch = cargoLock.match(/name = "ha-weather"\r?\nversion = "(.*)"/)
 const cargoLockHaAcpMatch = cargoLock.match(/name = "ha-acp"\r?\nversion = "(.*)"/)
+const cargoLockHaMacMatch = cargoLock.match(/name = "ha-mac"\r?\nversion = "(.*)"/)
 const cargoLockHaBaseMatch = cargoLock.match(/name = "ha-base"\r?\nversion = "(.*)"/)
 const cargoLockHaConfigSchemaMatch = cargoLock.match(
   /name = "ha-config-schema"\r?\nversion = "(.*)"/,
@@ -165,8 +174,8 @@ const haConfigSchemaLockVersion = cargoLockHaConfigSchemaMatch[1]
 const browserHostVersion = browserHostVersionMatch[1]
 const haEvalVersion = haEvalVersionMatch[1]
 const haEvalLockVersion = cargoLockHaEvalMatch[1]
-if (!cargoLockHaUpdaterMatch || !cargoLockHaWeatherMatch || !cargoLockHaAcpMatch) {
-  console.error("[release:verify] Cargo.lock is missing the ha-updater / ha-weather / ha-acp entry")
+if (!cargoLockHaUpdaterMatch || !cargoLockHaWeatherMatch || !cargoLockHaAcpMatch || !cargoLockHaMacMatch) {
+  console.error("[release:verify] Cargo.lock is missing a feature-crate entry (ha-updater / ha-weather / ha-acp / ha-mac)")
   process.exit(1)
 }
 const haUpdaterVersion = haUpdaterVersionMatch[1]
@@ -175,6 +184,8 @@ const haWeatherVersion = haWeatherVersionMatch[1]
 const haWeatherLockVersion = cargoLockHaWeatherMatch[1]
 const haAcpVersion = haAcpVersionMatch[1]
 const haAcpLockVersion = cargoLockHaAcpMatch[1]
+const haMacVersion = haMacVersionMatch[1]
+const haMacLockVersion = cargoLockHaMacMatch[1]
 
 const mismatches = [
   ["package.json", packageVersion],
@@ -198,6 +209,8 @@ const mismatches = [
   ["Cargo.lock (ha-weather)", haWeatherLockVersion],
   ["crates/ha-acp/Cargo.toml", haAcpVersion],
   ["Cargo.lock (ha-acp)", haAcpLockVersion],
+  ["crates/ha-mac/Cargo.toml", haMacVersion],
+  ["Cargo.lock (ha-mac)", haMacLockVersion],
 ].filter(([, value], _, all) => value !== all[0][1])
 
 if (mismatches.length > 0) {
@@ -218,6 +231,8 @@ if (mismatches.length > 0) {
   console.error(`  Cargo.lock (ha-weather): ${haWeatherLockVersion}`)
   console.error(`  crates/ha-acp/Cargo.toml: ${haAcpVersion}`)
   console.error(`  Cargo.lock (ha-acp): ${haAcpLockVersion}`)
+  console.error(`  crates/ha-mac/Cargo.toml: ${haMacVersion}`)
+  console.error(`  Cargo.lock (ha-mac): ${haMacLockVersion}`)
   process.exit(1)
 }
 

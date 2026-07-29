@@ -135,7 +135,7 @@ pub(crate) fn encode_marker_image(marker: &ImageMarker) -> anyhow::Result<String
     }
 }
 
-pub(crate) fn build_image_file_marker(mime: &str, path: &str, text: &str) -> String {
+pub fn build_image_file_marker(mime: &str, path: &str, text: &str) -> String {
     let spec = serde_json::json!({
         "mime": mime,
         "path": path,
