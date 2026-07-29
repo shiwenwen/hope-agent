@@ -229,7 +229,7 @@ impl BrowserExtensionBroker {
 
     #[cfg(unix)]
     async fn run_unix(self: Arc<Self>) {
-        let socket_path = match crate::paths::browser_extension_broker_socket_path() {
+        let socket_path = match ha_core::paths::browser_extension_broker_socket_path() {
             Ok(path) => path,
             Err(e) => {
                 self.set_error(format!("broker socket path failed: {e:#}"))
@@ -456,7 +456,7 @@ impl BrowserExtensionBroker {
     }
 
     async fn publish_discovery(&self, endpoint: String) -> Result<()> {
-        let path = crate::paths::browser_extension_broker_discovery_path()?;
+        let path = ha_core::paths::browser_extension_broker_discovery_path()?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -472,7 +472,7 @@ impl BrowserExtensionBroker {
         // write_secure_file rather than the world-readable-by-default
         // write_atomic. The 0700 dir is the practical barrier, but a
         // token-bearing file must not rely on the dir mode alone.
-        crate::platform::write_secure_file(&path, &bytes)
+        ha_core::platform::write_secure_file(&path, &bytes)
             .with_context(|| format!("writing browser broker discovery {}", path.display()))?;
         Ok(())
     }
@@ -1381,7 +1381,7 @@ struct CompletedBlob {
 
 impl Default for BlobStore {
     fn default() -> Self {
-        let root_dir = crate::paths::browser_extension_blobs_dir()
+        let root_dir = ha_core::paths::browser_extension_blobs_dir()
             .unwrap_or_else(|_| std::env::temp_dir().join("hope-agent-browser-extension-blobs"));
         Self::new(root_dir)
     }

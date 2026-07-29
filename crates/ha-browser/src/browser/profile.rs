@@ -71,20 +71,20 @@ pub fn deployment_is_docker() -> bool {
 ///    fields; for unknown names, default to `~/.hope-agent/browser-profiles/<name>/`
 ///    with OS-picked port.
 pub fn resolve_profile(name: &str) -> Result<ResolvedProfile> {
-    let cfg_entry = crate::config::cached_config()
+    let cfg_entry = ha_core::config::cached_config()
         .browser
         .as_ref()
         .and_then(|b| b.profiles.get(name).cloned())
         .unwrap_or_default();
 
     let (default_udd, default_port, default_persistent): (PathBuf, Option<u16>, bool) = match name {
-        BUILTIN_MANAGED => (crate::paths::browser_managed_runner_dir()?, None, false),
-        BUILTIN_USER_ATTACH => (crate::paths::browser_user_attach_dir()?, Some(9222), true),
-        other => (crate::paths::browser_profile_dir(other)?, None, true),
+        BUILTIN_MANAGED => (ha_core::paths::browser_managed_runner_dir()?, None, false),
+        BUILTIN_USER_ATTACH => (ha_core::paths::browser_user_attach_dir()?, Some(9222), true),
+        other => (ha_core::paths::browser_profile_dir(other)?, None, true),
     };
 
     let user_data_dir = match cfg_entry.user_data_dir.as_deref() {
-        Some(s) => PathBuf::from(crate::tools::expand_tilde(s)),
+        Some(s) => PathBuf::from(ha_core::tools::expand_tilde(s)),
         None => default_udd,
     };
 
@@ -110,14 +110,14 @@ pub fn resolve_profile(name: &str) -> Result<ResolvedProfile> {
 /// Each entry is a fully resolved [`ResolvedProfile`].
 pub fn list_profiles() -> Vec<ResolvedProfile> {
     let mut names: Vec<String> = vec![BUILTIN_MANAGED.into(), BUILTIN_USER_ATTACH.into()];
-    if let Some(b) = crate::config::cached_config().browser.as_ref() {
+    if let Some(b) = ha_core::config::cached_config().browser.as_ref() {
         for key in b.profiles.keys() {
             if !names.iter().any(|n| n == key) {
                 names.push(key.clone());
             }
         }
     }
-    if let Ok(root) = crate::paths::browser_profiles_dir() {
+    if let Ok(root) = ha_core::paths::browser_profiles_dir() {
         if let Ok(entries) = std::fs::read_dir(root) {
             for entry in entries.flatten() {
                 if !entry.file_type().is_ok_and(|ft| ft.is_dir()) {
@@ -153,7 +153,7 @@ fn looks_like_profile_name(name: &str) -> bool {
 /// The default profile name to use when `profile.op=launch` is called with
 /// no `profile=` argument. Respects `AppConfig.browser.default_profile`.
 pub fn default_profile_name() -> String {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .browser
         .as_ref()
         .and_then(|b| b.default_profile.clone())

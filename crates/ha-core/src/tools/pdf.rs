@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use super::browser::IMAGE_BASE64_PREFIX;
 use super::expand_tilde;
+use super::IMAGE_BASE64_PREFIX;
 
 /// Default max characters to return from text extraction.
 const DEFAULT_MAX_CHARS: usize = 50_000;

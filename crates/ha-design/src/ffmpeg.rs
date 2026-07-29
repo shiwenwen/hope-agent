@@ -4,7 +4,7 @@
 //! works out of the box instead of silently degrading to the lower-fidelity
 //! client-side WebCodecs encoder.
 //!
-//! Mirrors [`ha_core::browser::runtime`] (Chromium on-demand fetch): same trust
+//! Mirrors [`ha_browser::browser::runtime`] (Chromium on-demand fetch): same trust
 //! model — HTTPS from a fixed static-build host + SSRF check + zip extract +
 //! `-version` smoke test + ready marker. No hash pin (consistent with the
 //! Chromium runtime, which also trusts HTTPS + fixed host + smoke test).

@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-design · ha-mac · ha-updater · ha-weather<br/>随 crate 拆分阶段 3 逐个迁出"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-mac<br/>ha-updater · ha-weather（阶段 3-4 逐个迁出）"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -150,12 +150,14 @@ guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
 
-### 特征 crate（ha-acp / ha-design / ha-mac / ha-updater / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-updater / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
 - **依赖方向**：特征 crate → ha-core（借用 tools registry / config / EventBus
-  等 kernel 服务）；ha-core **不知道**任何特征 crate 存在——kernel 需要特征
+  等 kernel 服务）；**特征之间允许单向依赖**（无环即可——现有一条：
+  ha-design → ha-browser，render_native 复用 Chrome PDF/截图 backend）；
+  ha-core **不知道**任何特征 crate 存在——kernel 需要特征
   行为的点全部倒转为注册钩子（工具分发条目 / 启动任务 / 专用 fn-pointer 钩子）。
 - **装配**：每个调 `init_runtime` 的二进制在 init 前调 `<crate>::wire()`
   （幂等）。工具 `ToolDefinition` 仍在 ha-core（schema 目录阶段 4 才动），
@@ -193,6 +195,14 @@ guardian.rs        进程监护 + 指数退避 + 自修复
   `session::privacy`（incognito 切换与 durable 写入共享同一把锁，kernel
   持有）；design_chat_threads 自有表经 `SessionDB::with_raw_conn` 受控
   闭包访问（锁封装不外泄）。
+- **ha-browser**（浏览器）：Chrome Extension backend / CDP backend /
+  loopback broker / 观察缓冲 / `browser` 工具。kernel 边界经
+  `browser_hooks` 四件套原子注册（broker spawn——minimal/ACP 也起故走
+  专用钩子而非 startup 档 / 轮结束 finalize / 会话清理级联 / knowledge
+  网页捕获——抓取脚本与 backend 协商在特征侧，kernel 只拿最终
+  `BrowserTabCapture`）；`IMAGE_BASE64_PREFIX` 与 `MEDIA_ITEMS_PREFIX`
+  等结果格式契约常量留 kernel；Chrome 扩展 rust-embed 及其
+  rerun-if-changed 随迁 ha-browser build.rs。
 - **ha-acp**（ACP）：`acp`（Hope 自身作 ACP stdio server，`hope-agent acp`
   模式）+ `acp_control`（外部 ACP agent 控制面：注册表 / 健康探测 /
   SessionManager / `acp_spawn` 工具）。`ACP_MANAGER` 全局随迁特征侧
@@ -354,7 +364,7 @@ sequenceDiagram
 
 ### 事件清单
 
-> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`docker/mod.rs`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
+> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`docker/mod.rs`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
 
 #### 聊天 / 流式
 

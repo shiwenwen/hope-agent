@@ -83,7 +83,7 @@ pub fn is_lock_stale(user_data_dir: &Path) -> bool {
         return false;
     }
     match read_lock_owner_pid(user_data_dir) {
-        Some(pid) => !crate::platform::pid_alive(pid),
+        Some(pid) => !ha_core::platform::pid_alive(pid),
         None => {
             app_warn!(
                 "browser",

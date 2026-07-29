@@ -2314,8 +2314,8 @@ mod tests {
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
-    use crate::tools::browser::IMAGE_BASE64_PREFIX;
     use crate::tools::image_markers::IMAGE_FILE_PREFIX;
+    use crate::tools::IMAGE_BASE64_PREFIX;
     use base64::Engine as _;
     use serde_json::json;
     use std::collections::BTreeMap;

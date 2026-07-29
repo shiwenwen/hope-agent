@@ -2287,7 +2287,7 @@ async fn hide_overlay_with_broker(broker: &BrowserExtensionBroker, tab_id: i64) 
 }
 
 fn control_overlay_enabled() -> bool {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .browser
         .as_ref()
         .and_then(|browser| browser.extension.as_ref())

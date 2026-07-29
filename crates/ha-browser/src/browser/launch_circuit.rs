@@ -34,7 +34,7 @@ const DEFAULT_FAILURE_THRESHOLD: u32 = 3;
 const DEFAULT_COOLDOWN_SECS: u64 = 60;
 
 fn read_config() -> (u32, u64) {
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let lc = cfg.browser.as_ref().and_then(|b| b.launch_circuit.as_ref());
     let threshold = lc
         .and_then(|c| c.failure_threshold)

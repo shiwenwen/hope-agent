@@ -87,8 +87,8 @@ pub fn authorise_upload_path(raw: &str) -> anyhow::Result<std::path::PathBuf> {
     }
     let canonical = std::fs::canonicalize(trimmed)
         .map_err(|e| anyhow!("act.upload: cannot resolve file path '{}': {}", trimmed, e))?;
-    let patterns = crate::permission::protected_paths::current_patterns();
-    if let Some(matched) = crate::permission::protected_paths::matches(&canonical, &patterns) {
+    let patterns = ha_core::permission::protected_paths::current_patterns();
+    if let Some(matched) = ha_core::permission::protected_paths::matches(&canonical, &patterns) {
         return Err(anyhow!(
             "act.upload: refusing to upload protected path {} (matches pattern '{}'). \
              Adjust `permission.protected_paths` in settings if this is intentional.",
@@ -113,10 +113,11 @@ pub fn authorise_pdf_output_path(raw: &str) -> anyhow::Result<std::path::PathBuf
     if trimmed.is_empty() {
         return Err(anyhow!("snapshot.pdf: output_path is empty"));
     }
-    let target = std::path::PathBuf::from(crate::tools::expand_tilde(trimmed));
-    let lexical_target = crate::permission::rules::normalize_lexical(&target);
-    let patterns = crate::permission::protected_paths::current_patterns();
-    if let Some(matched) = crate::permission::protected_paths::matches(&lexical_target, &patterns) {
+    let target = std::path::PathBuf::from(ha_core::tools::expand_tilde(trimmed));
+    let lexical_target = ha_core::permission::rules::normalize_lexical(&target);
+    let patterns = ha_core::permission::protected_paths::current_patterns();
+    if let Some(matched) = ha_core::permission::protected_paths::matches(&lexical_target, &patterns)
+    {
         return Err(anyhow!(
             "snapshot.pdf: refusing to write to protected path {} (matches pattern '{}'). \
              Adjust `permission.protected_paths` in settings if this is intentional.",
@@ -167,7 +168,8 @@ pub fn authorise_pdf_output_path(raw: &str) -> anyhow::Result<std::path::PathBuf
         resolved_parent.push(component);
     }
     let resolved_target = resolved_parent.join(file_name);
-    if let Some(matched) = crate::permission::protected_paths::matches(&resolved_target, &patterns)
+    if let Some(matched) =
+        ha_core::permission::protected_paths::matches(&resolved_target, &patterns)
     {
         return Err(anyhow!(
             "snapshot.pdf: refusing to write to protected path {} (matches pattern '{}'). \
@@ -192,7 +194,7 @@ pub fn authorise_pdf_output_path(raw: &str) -> anyhow::Result<std::path::PathBuf
         )
     })?;
     let canonical = canonical_parent.join(file_name);
-    if let Some(matched) = crate::permission::protected_paths::matches(&canonical, &patterns) {
+    if let Some(matched) = ha_core::permission::protected_paths::matches(&canonical, &patterns) {
         return Err(anyhow!(
             "snapshot.pdf: refusing to write to protected path {} (matches pattern '{}'). \
              Adjust `permission.protected_paths` in settings if this is intentional.",
@@ -224,7 +226,8 @@ pub async fn validate_cdp_endpoint_url(url: &str) -> anyhow::Result<()> {
     if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
         return Err(anyhow!("Debug URL must start with http:// or https://"));
     }
-    let ssrf_cfg = &crate::config::cached_config().ssrf;
-    crate::security::ssrf::check_url(trimmed, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts).await?;
+    let ssrf_cfg = &ha_core::config::cached_config().ssrf;
+    ha_core::security::ssrf::check_url(trimmed, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
+        .await?;
     Ok(())
 }

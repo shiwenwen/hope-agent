@@ -8,7 +8,6 @@
 use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose, Engine as _};
 use futures_util::StreamExt;
-use serde::Deserialize;
 use serde_json::Value;
 use similar::{ChangeTag, TextDiff};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -51,84 +50,6 @@ const SOURCE_CHUNK_CHARS: usize = 4_000;
 const MAX_SOURCE_DIFF_LINES: usize = 240;
 const USER_AGENT: &str =
     "HopeAgent/KnowledgeSourceImporter (+https://github.com/shiwenwen/hope-agent)";
-const BROWSER_CAPTURE_JS: &str = r#"(() => {
-  const MAX_TEXT = 220000;
-  const BLOCK_TAGS = new Set(['ADDRESS','ARTICLE','ASIDE','BLOCKQUOTE','BR','CAPTION','DIV','DL','FIELDSET','FIGCAPTION','FIGURE','FOOTER','FORM','H1','H2','H3','H4','H5','H6','HEADER','HR','LI','MAIN','NAV','OL','P','PRE','SECTION','TABLE','TD','TH','TR','UL']);
-  const DROP_SELECTORS = 'script,style,noscript,template,svg,canvas,iframe,button,input,select,textarea,[hidden],[aria-hidden="true"]';
-  function cleanText(value) {
-    return String(value || '').replace(/\u00a0/g, ' ').replace(/[ \t\r\f\v]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
-  }
-  function isHidden(el) {
-    if (!el || !el.getBoundingClientRect) return false;
-    const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden') return true;
-    const rect = el.getBoundingClientRect();
-    return rect.width === 0 && rect.height === 0;
-  }
-  function appendLine(lines, value) {
-    const text = cleanText(value);
-    if (!text) return;
-    if (lines.join('\n').length + text.length > MAX_TEXT) return;
-    lines.push(text);
-  }
-  function walk(node, lines, depth) {
-    if (!node || lines.join('\n').length > MAX_TEXT) return;
-    if (node.nodeType === Node.TEXT_NODE) {
-      appendLine(lines, node.nodeValue);
-      return;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return;
-    const el = node;
-    if (el.matches && el.matches(DROP_SELECTORS)) return;
-    if (isHidden(el)) return;
-    const tag = el.tagName;
-    if (/^H[1-6]$/.test(tag)) {
-      appendLine(lines, `${'#'.repeat(Number(tag.slice(1)))} ${el.innerText || el.textContent || ''}`);
-      return;
-    }
-    if (tag === 'LI') {
-      appendLine(lines, `- ${el.innerText || el.textContent || ''}`);
-      return;
-    }
-    if (tag === 'A') {
-      const text = cleanText(el.innerText || el.textContent || '');
-      const href = el.href || '';
-      appendLine(lines, href && text && href !== text ? `[${text}](${href})` : text);
-      return;
-    }
-    if (tag === 'PRE' || tag === 'CODE') {
-      appendLine(lines, el.innerText || el.textContent || '');
-      return;
-    }
-    const before = lines.length;
-    for (const child of Array.from(el.childNodes)) walk(child, lines, depth + 1);
-    if (BLOCK_TAGS.has(tag) && lines.length > before) lines.push('');
-  }
-  function readableRoot() {
-    return document.querySelector('article')
-      || document.querySelector('main')
-      || document.querySelector('[role="main"]')
-      || document.querySelector('.article')
-      || document.querySelector('.post')
-      || document.body;
-  }
-  function pageMarkdown() {
-    const root = readableRoot();
-    const lines = [];
-    walk(root, lines, 0);
-    const markdown = cleanText(lines.join('\n'));
-    return markdown || cleanText(document.body && document.body.innerText);
-  }
-  const selection = window.getSelection && window.getSelection();
-  const selectionText = cleanText(selection ? selection.toString() : '');
-  return {
-    url: location.href,
-    title: document.title || '',
-    selectionText,
-    pageText: pageMarkdown()
-  };
-})()"#;
-
 fn registry() -> Result<&'static std::sync::Arc<super::KnowledgeRegistry>> {
     crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
 }
@@ -1242,37 +1163,15 @@ enum NormalizedImport {
     },
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BrowserCapturePayload {
-    #[serde(default)]
-    url: String,
-    #[serde(default)]
-    title: String,
-    #[serde(default)]
-    selection_text: String,
-    #[serde(default)]
-    page_text: String,
-}
-
 async fn capture_browser_snapshot(
     input: KnowledgeBrowserSourceImportInput,
 ) -> Result<SourceSnapshotDraft> {
-    let backend = crate::browser::acquire_backend_for(
-        crate::browser::BrowserBackendContext::default(),
-        crate::browser::BrowserBackendRequirement::ExtensionPreferred,
-    )
-    .await?;
-    let active = backend
-        .active_tab_info()
-        .await?
-        .ok_or_else(|| anyhow!("no active browser tab to capture"))?;
-    if !active.target_id.trim().is_empty() {
-        backend.select_page(&active.target_id).await?;
-    }
-    let raw = backend.evaluate(BROWSER_CAPTURE_JS).await?;
-    let capture: BrowserCapturePayload = serde_json::from_value(raw)
-        .map_err(|e| anyhow!("browser capture returned invalid payload: {e}"))?;
+    // 特征钩子（fail-explicit：网页捕获是用户显式动作，未 wire 报错优于
+    // 静默）。backend 选择、select_page 与抓取脚本都在 ha-browser 侧。
+    let Some(hooks) = crate::browser_hooks::browser_hooks() else {
+        anyhow::bail!("browser feature not wired; browser capture unavailable in this binary");
+    };
+    let capture: crate::browser_hooks::BrowserTabCapture = (hooks.capture_active_tab)().await?;
     let selected = !capture.selection_text.trim().is_empty();
     let (capture_mode, text) = match input.mode {
         KnowledgeBrowserCaptureMode::Selection => {
@@ -1291,12 +1190,13 @@ async fn capture_browser_snapshot(
         }
     };
     let text = normalize_capture_text(&text)?;
+    // url / title 的 active-tab 兜底已并入 ha-browser 的 capture 闭包
+    // （BrowserTabCapture 即最终值）。
     let url = normalize_optional_owned(Some(capture.url))
-        .unwrap_or_else(|| active.url.clone())
+        .unwrap_or_default()
         .trim()
         .to_string();
-    let extracted_title = normalize_optional_owned(Some(capture.title))
-        .or_else(|| normalize_optional_owned(Some(active.title.clone())));
+    let extracted_title = normalize_optional_owned(Some(capture.title));
     let title = choose_title(input.title, None, extracted_title.as_deref());
     let captured_at = chrono::Utc::now().to_rfc3339();
     let mut snapshot = format!(

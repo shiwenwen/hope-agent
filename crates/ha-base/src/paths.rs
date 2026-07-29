@@ -482,7 +482,7 @@ pub fn browser_user_attach_dir() -> Result<PathBuf> {
 /// directory which makes SingletonLock observability impossible — a crashed
 /// Chrome leaves a stale lock there and the next launch fails with
 /// `File exists (17)`. Pinning a stable path lets
-/// `ha_core::browser::singleton_lock` detect and clean stale locks.
+/// `ha_browser::browser::singleton_lock` detect and clean stale locks.
 pub fn browser_managed_runner_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("browser").join("managed-runner"))
 }
@@ -491,7 +491,7 @@ pub fn browser_managed_runner_dir() -> Result<PathBuf> {
 /// `~/.hope-agent/browser/runtime/`. Holds the unzipped Chromium snapshot
 /// when the system has no Chrome / Edge / Brave / Chromium installed.
 ///
-/// Pinned revisions live in `ha_core::browser::runtime` (per-platform
+/// Pinned revisions live in `ha_browser::browser::runtime` (per-platform
 /// constants — Chromium snapshots build each OS independently, so a
 /// single workspace-wide revision isn't representable).
 pub fn browser_runtime_dir() -> Result<PathBuf> {

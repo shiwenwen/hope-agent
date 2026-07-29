@@ -75,7 +75,7 @@ const DEFAULT_HEARTBEAT_INTERVAL_SECS: u64 = 120;
 
 /// Long-lived runtime dedicated to browser background tasks (CDP handler
 /// loop + heartbeat). The reason this exists is subtle but critical: tool
-/// calls run via [`crate::async_jobs::spawn::dispatch_with_auto_background`],
+/// calls run via [`ha_core::async_jobs::spawn::dispatch_with_auto_background`],
 /// which spawns a fresh `current_thread` tokio runtime per tool invocation
 /// and drops it the moment the tool returns. If `Browser::connect`'s handler
 /// task is `tokio::spawn`'d from that ephemeral runtime, the runtime drop
@@ -697,7 +697,7 @@ pub async fn fetch_chrome_json_version(
     timeout_secs: u64,
 ) -> anyhow::Result<serde_json::Value> {
     let version_url = format!("{}/json/version", base_url.trim_end_matches('/'));
-    let client = crate::provider::apply_proxy_for_url(
+    let client = ha_core::provider::apply_proxy_for_url(
         reqwest::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs)),
         &version_url,
     )
@@ -717,7 +717,7 @@ pub async fn fetch_chrome_json_version(
 /// Read the heartbeat interval from `AppConfig.browser.heartbeatIntervalSecs`,
 /// clamped to a sane range. `0` and absent both yield the default.
 fn heartbeat_interval_from_config() -> u64 {
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let raw = cfg
         .browser
         .as_ref()
@@ -853,7 +853,7 @@ fn wipe_dir_contents(dir: &std::path::Path) -> std::io::Result<()> {
 fn refocus_hope_agent_after_spawn() {
     #[cfg(target_os = "macos")]
     {
-        if !crate::app_init::is_desktop() {
+        if !ha_core::app_init::is_desktop() {
             // Headless server mode has no GUI to refocus.
             return;
         }

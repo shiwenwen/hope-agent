@@ -1394,7 +1394,7 @@ pub async fn browser_doctor(
 /// `POST /api/design/browser/install` — on-demand download the Chromium runtime
 /// (progress on `browser:chromium_download_progress` WS event).
 pub async fn install_browser() -> Result<Json<Value>, AppError> {
-    let binary = ha_core::browser::runtime::install_with_event_bus_progress()
+    let binary = ha_browser::browser::runtime::install_with_event_bus_progress()
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "binaryPath": binary.display().to_string() })))

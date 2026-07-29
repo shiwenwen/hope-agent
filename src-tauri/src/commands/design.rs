@@ -710,7 +710,7 @@ pub async fn design_browser_doctor_cmd(
 /// 按需下载 Chromium runtime（PDF/PNG 强路引擎）。进度经 `browser:chromium_download_progress`。
 #[tauri::command]
 pub async fn design_install_browser_cmd() -> Result<FfmpegRuntimeResult, CmdError> {
-    let binary = ha_core::browser::runtime::install_with_event_bus_progress().await?;
+    let binary = ha_browser::browser::runtime::install_with_event_bus_progress().await?;
     Ok(FfmpegRuntimeResult {
         binary_path: binary.display().to_string(),
     })

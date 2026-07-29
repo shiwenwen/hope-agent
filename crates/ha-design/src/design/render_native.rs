@@ -2,7 +2,7 @@
 //! （**矢量、文字可选可搜**），PNG 走 `captureScreenshot`（**全保真**，彻底摆脱 html2canvas
 //! 的 CSS 子集天花板）。
 //!
-//! 复用现有 CDP 浏览器后端（`ha_core::browser`）：Chromium **按需下载、不打进安装包**，
+//! 复用现有 CDP 浏览器后端（`ha_browser::browser`）：Chromium **按需下载、不打进安装包**，
 //! CDP + `save_pdf` + `take_screenshot` 都是浏览器工具已在用的成熟能力。后端不可用时上层
 //! 回退客户端 html2canvas / jsPDF 路径（见 `src/lib/designExport.ts`）。
 //!
@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result};
 
-use ha_core::browser::{ImageFormat, PdfParams, ScreenshotParams};
+use ha_browser::browser::{ImageFormat, PdfParams, ScreenshotParams};
 
 /// 原生捕获格式。
 #[derive(Clone, Copy, Debug)]
@@ -53,7 +53,7 @@ pub struct BrowserExportStatus {
 /// 探测导出强路可用的浏览器引擎：系统 Chrome/Edge/Brave/Chromium → 已下载的 Chromium runtime
 /// → 缺失。`can_auto_install` = 本平台有 Chromium 按需下载源。
 pub fn browser_export_status() -> BrowserExportStatus {
-    let can_auto_install = ha_core::browser::runtime::spec_for_current_platform().is_some();
+    let can_auto_install = ha_browser::browser::runtime::spec_for_current_platform().is_some();
     if let Some(p) = ha_core::platform::find_chrome_executable() {
         return BrowserExportStatus {
             ready: true,
@@ -62,7 +62,7 @@ pub fn browser_export_status() -> BrowserExportStatus {
             can_auto_install,
         };
     }
-    if let Some(p) = ha_core::browser::runtime::cached_binary_path() {
+    if let Some(p) = ha_browser::browser::runtime::cached_binary_path() {
         return BrowserExportStatus {
             ready: true,
             source: "runtime".into(),
@@ -94,7 +94,7 @@ pub async fn capture_artifact(artifact_id: &str, kind: CaptureKind) -> Result<Ve
     // file:// URL——自包含产物的相对 CSS/JS/图片都在同目录，可直接加载。
     let url = format!("file://{}", index.to_string_lossy());
 
-    let backend = ha_core::browser::acquire_backend()
+    let backend = ha_browser::browser::acquire_backend()
         .await
         .context("no browser backend available for native export")?;
 
@@ -247,7 +247,7 @@ async fn capture_video_inner(
     max_secs: u32,
     work: &std::path::Path,
 ) -> Result<Vec<u8>> {
-    let backend = ha_core::browser::acquire_backend()
+    let backend = ha_browser::browser::acquire_backend()
         .await
         .context("no browser backend available for native video export")?;
     let tab = backend

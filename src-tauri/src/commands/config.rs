@@ -44,7 +44,7 @@ pub async fn reset_settings_section(
     .await?;
 
     if scope == ha_core::settings_reset::SettingsResetScope::Browser {
-        ha_core::browser::reset_backend().await;
+        ha_browser::browser::reset_backend().await;
     }
 
     if scope == ha_core::settings_reset::SettingsResetScope::General

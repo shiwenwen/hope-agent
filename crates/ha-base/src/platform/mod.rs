@@ -52,7 +52,7 @@ pub fn send_graceful_stop(pid: u32) {
 
 /// Best-effort: is a process with this pid still running on this host?
 ///
-/// Used by `ha_core::browser::singleton_lock` to detect stale SingletonLock
+/// Used by `ha_browser::browser::singleton_lock` to detect stale SingletonLock
 /// files (lock present, but owner crashed without cleanup). False negatives
 /// (live process, reported dead) leave a real Chrome's lock alone — the
 /// worst outcome is a misleading "already in use" error. False positives

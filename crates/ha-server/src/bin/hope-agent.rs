@@ -29,6 +29,7 @@ fn main() {
     ha_acp::wire();
     ha_mac::wire();
     ha_design::wire();
+    ha_browser::wire();
 
     if matches!(
         args.get(1).map(String::as_str),

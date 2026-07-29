@@ -8,8 +8,6 @@ pub(crate) mod approval;
 // 确认）从 crate 外复用同一入口，不 fork。
 pub mod ask_user_question;
 pub mod audio_generate;
-// pub：ha-design 的 canvas 工具复用 IMAGE_BASE64_PREFIX 等浏览器辅助常量。
-pub mod browser;
 mod builtin_registry;
 mod core_memory;
 mod cron;
@@ -194,6 +192,11 @@ pub use execution::{
     ToolExecContext,
 };
 pub use rejection::{ToolRejection, TOOL_ERROR_PREFIX};
+
+/// 工具结果里内联 base64 图片的标记前缀（browser 截图 / canvas 快照 /
+/// mac_control 帧共用的结果格式契约——kernel 的图片抽取与压缩管线按它
+/// 识别，特征 crate 只消费不重定义）。
+pub const IMAGE_BASE64_PREFIX: &str = "__IMAGE_BASE64__";
 
 // ── Tool Name Constants ──────────────────────────────────────────
 

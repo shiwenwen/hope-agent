@@ -1,7 +1,8 @@
 //! Browser configuration (`AppConfig.browser`).
 //!
-//! Wire 类型自 ha-core `browser/mod.rs`（含 `browser/extension/mod.rs`）下沉；
-//! 运行时逻辑（backend / profile / launch 等）仍留在 ha-core。
+//! Wire 类型自原 ha-core `browser/mod.rs`（含 `browser/extension/mod.rs`）
+//! 下沉；运行时逻辑（backend / profile / launch 等）现在特征 crate
+//! `ha-browser`（阶段 4 自 ha-core 迁出）。
 
 use std::collections::BTreeMap;
 

@@ -382,8 +382,8 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     // the stable copy's id. Both are desktop-only, idempotent, and no-ops when
     // there is no extension source / known extension id.
     tauri::async_runtime::spawn_blocking(|| {
-        ha_core::browser::ensure_local_unpacked_extension();
-        ha_core::browser::ensure_native_host_registered();
+        ha_browser::browser::ensure_local_unpacked_extension();
+        ha_browser::browser::ensure_native_host_registered();
     });
 
     // Bridge ha-core EventBus → Tauri frontend (app_handle.emit).

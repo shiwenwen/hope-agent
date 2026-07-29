@@ -3142,6 +3142,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-browser"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "blake3",
+ "chromiumoxide",
+ "chrono",
+ "dirs 6.0.0",
+ "futures-util",
+ "ha-base",
+ "ha-config-schema",
+ "ha-core",
+ "image",
+ "libc",
+ "regex",
+ "reqwest 0.12.28",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "zip 7.2.0",
+]
+
+[[package]]
 name = "ha-browser-host"
 version = "0.24.0"
 dependencies = [
@@ -3180,7 +3209,6 @@ dependencies = [
  "block2",
  "bollard",
  "calamine",
- "chromiumoxide",
  "chrono",
  "chrono-tz",
  "cron",
@@ -3271,6 +3299,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "ha-base",
+ "ha-browser",
  "ha-config-schema",
  "ha-core",
  "htmd",
@@ -3307,6 +3336,7 @@ dependencies = [
  "chrono",
  "clap",
  "ha-acp",
+ "ha-browser",
  "ha-core",
  "ha-design",
  "ha-eval-spec",
@@ -3366,6 +3396,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "ha-acp",
+ "ha-browser",
  "ha-core",
  "ha-design",
  "ha-mac",
@@ -3541,6 +3572,7 @@ dependencies = [
  "cron",
  "dirs 6.0.0",
  "ha-acp",
+ "ha-browser",
  "ha-core",
  "ha-design",
  "ha-mac",

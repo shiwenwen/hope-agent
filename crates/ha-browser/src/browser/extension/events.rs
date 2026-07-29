@@ -82,7 +82,7 @@ pub fn scope_for_context(ctx: &BrowserBackendContext) -> String {
 }
 
 pub fn emit_control_stopped(payload: BrowserControlStoppedPayload) {
-    let Some(bus) = crate::globals::get_event_bus() else {
+    let Some(bus) = ha_core::globals::get_event_bus() else {
         return;
     };
     match serde_json::to_value(&payload) {
@@ -113,7 +113,7 @@ pub fn emit_extension_required(
     reason: &str,
     status: &BrowserExtensionStatus,
 ) {
-    let Some(bus) = crate::globals::get_event_bus() else {
+    let Some(bus) = ha_core::globals::get_event_bus() else {
         return;
     };
     let payload = BrowserExtensionRequiredPayload {
@@ -142,7 +142,7 @@ pub fn emit_extension_required(
 /// in the UI — distinct from [`EVENT_BROWSER_EXTENSION_REQUIRED`], which is a
 /// hard blocker for operations that cannot run without the user's real Chrome.
 pub fn emit_extension_fallback(ctx: &BrowserBackendContext, status: &BrowserExtensionStatus) {
-    let Some(bus) = crate::globals::get_event_bus() else {
+    let Some(bus) = ha_core::globals::get_event_bus() else {
         return;
     };
     let payload = BrowserExtensionRequiredPayload {

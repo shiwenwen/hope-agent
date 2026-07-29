@@ -62,12 +62,13 @@ pub(super) fn emit_tool_call_args_rewritten(
 /// Carries filename, MIME, size, kind, `local_path`, and optional caption
 /// so all downstream consumers (Tauri FileCard, HTTP download route, IM
 /// dispatcher) share one shape.
-pub(crate) const MEDIA_ITEMS_PREFIX: &str = "__MEDIA_ITEMS__";
+// pub：ha-browser 的 browser 工具结果媒体标记复用（与 mac/canvas 同一结果格式契约）。
+pub const MEDIA_ITEMS_PREFIX: &str = "__MEDIA_ITEMS__";
 
 /// Extract structured media items from a tool result string.
 /// Returns (clean_result, media_items).
 /// If the result starts with `__MEDIA_ITEMS__[...]`, the JSON array is parsed and removed.
-pub(crate) fn extract_media_items(result: &str) -> (String, Vec<MediaItem>) {
+pub fn extract_media_items(result: &str) -> (String, Vec<MediaItem>) {
     if let Some(rest) = result.strip_prefix(MEDIA_ITEMS_PREFIX) {
         if let Some((json_line, text)) = rest.split_once('\n') {
             if let Ok(items) = serde_json::from_str::<Vec<MediaItem>>(json_line) {
@@ -514,7 +515,7 @@ mod tests {
         expand_openai_chat_image_markers_for_api, expand_responses_image_markers_for_api,
         openai_chat_history_has_images,
     };
-    use crate::tools::browser::IMAGE_BASE64_PREFIX;
+    use crate::tools::IMAGE_BASE64_PREFIX;
     use serde_json::json;
 
     #[test]

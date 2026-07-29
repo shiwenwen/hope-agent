@@ -11,7 +11,7 @@ use anyhow::{anyhow, bail, Result};
 use futures_util::StreamExt;
 use std::path::{Path, PathBuf};
 
-use crate::paths;
+use ha_core::paths;
 
 const READY_MARKER: &str = ".hope-agent-ready";
 
@@ -99,7 +99,7 @@ pub fn spec_for_current_platform() -> Option<RuntimeSpec> {
 
 /// Event bus channel for Chromium runtime download progress.
 ///
-/// Three callsites publish here ([`tools::browser::profile_install_runtime`],
+/// Three callsites publish here (`tool::profile_install_runtime`,
 /// the Tauri `browser_install_chromium_runtime` command, and the HTTP
 /// `/api/browser/install-chromium-runtime` route) — all funnel through
 /// [`install_with_event_bus_progress`] so the wire format and throttle
@@ -113,7 +113,7 @@ pub const PROGRESS_EVENT: &str = "browser:chromium_download_progress";
 /// language. Emitting is best-effort: headless/CLI callers still receive the
 /// original error from the operation.
 pub fn emit_runtime_required(context: &str, reason: &str) {
-    if let Some(bus) = crate::globals::EVENT_BUS.get() {
+    if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
         bus.emit(
             REQUIRED_EVENT,
             serde_json::json!({
@@ -152,7 +152,7 @@ pub async fn install_with_event_bus_progress() -> Result<PathBuf> {
         let prev = progress_last_percent.load(Ordering::Relaxed);
         if prev == u64::MAX || (report_pct != u64::MAX && report_pct != prev) {
             progress_last_percent.store(report_pct, Ordering::Relaxed);
-            if let Some(bus) = crate::globals::EVENT_BUS.get() {
+            if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
                 bus.emit(
                     PROGRESS_EVENT,
                     serde_json::json!({
@@ -166,7 +166,7 @@ pub async fn install_with_event_bus_progress() -> Result<PathBuf> {
         }
     };
     let binary = ensure_chromium(progress).await?;
-    if let Some(bus) = crate::globals::EVENT_BUS.get() {
+    if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
         bus.emit(
             PROGRESS_EVENT,
             serde_json::json!({
@@ -214,8 +214,8 @@ where
 
     // SSRF: this is a fixed Google CDN host so the default policy lets it
     // through, but stay consistent with every other outbound call.
-    let ssrf_cfg = &crate::config::cached_config().ssrf;
-    crate::security::ssrf::check_url(&archive_url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
+    let ssrf_cfg = &ha_core::config::cached_config().ssrf;
+    ha_core::security::ssrf::check_url(&archive_url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
         .await?;
 
     let nonce = std::time::SystemTime::now()
@@ -274,7 +274,7 @@ where
     F: Fn(u64, Option<u64>) + Send + Sync,
 {
     use std::io::Write;
-    let client = crate::provider::apply_proxy_for_url(reqwest::Client::builder(), url).build()?;
+    let client = ha_core::provider::apply_proxy_for_url(reqwest::Client::builder(), url).build()?;
     let resp = client
         .get(url)
         .send()
@@ -360,7 +360,7 @@ fn chmod_executable(binary: &Path) -> Result<()> {
 async fn smoke_test_binary(binary: &Path) -> Result<()> {
     let mut cmd = tokio::process::Command::new(binary);
     cmd.arg("--version").kill_on_drop(true);
-    crate::platform::hide_console_tokio(&mut cmd);
+    ha_core::platform::hide_console_tokio(&mut cmd);
     let output = cmd
         .output()
         .await

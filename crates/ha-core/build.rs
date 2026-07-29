@@ -8,7 +8,6 @@ fn main() {
     // invisible to cargo's fingerprint without these (a warm-target release
     // rebuild would silently ship the previous file set).
     println!("cargo:rerun-if-changed=../../skills");
-    println!("cargo:rerun-if-changed=../../extensions/chrome");
     println!("cargo:rerun-if-changed=../../docs/user-guide");
     println!("cargo:rerun-if-env-changed=PROTOC");
 

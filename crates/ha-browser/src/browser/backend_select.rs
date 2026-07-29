@@ -95,7 +95,7 @@ pub async fn acquire_backend_for(
         }
     }
 
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let browser_cfg = cfg.browser.as_ref();
     let preference = browser_cfg
         .and_then(|b| b.backend_preference)
@@ -215,7 +215,7 @@ pub async fn peek_active() -> Option<Arc<dyn BrowserBackend>> {
 /// process is launched, unlike the CDP backend). Falls back to whatever is
 /// cached (CDP) when the extension is not the effective backend.
 pub async fn status_backend() -> Option<Arc<dyn BrowserBackend>> {
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let browser_cfg = cfg.browser.as_ref();
     let preference = browser_cfg
         .and_then(|b| b.backend_preference)

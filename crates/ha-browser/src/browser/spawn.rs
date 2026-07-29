@@ -43,7 +43,7 @@ const MANAGED_BROWSER_WINDOW_HEIGHT: u32 = 960;
 
 /// Resolve the Chrome / Chromium binary path. Tries (in order):
 /// 1. caller override
-/// 2. platform probe ([`crate::platform::find_chrome_executable`])
+/// 2. platform probe ([`ha_core::platform::find_chrome_executable`])
 /// 3. downloaded Chromium runtime ([`crate::browser::runtime::cached_binary_path`])
 ///
 /// Returns a friendly error with remediation when none of the three hits.
@@ -60,7 +60,7 @@ pub fn resolve_chrome_executable_for(override_path: Option<&str>, context: &str)
             return Ok(trimmed.to_string());
         }
     }
-    if let Some(probed) = crate::platform::find_chrome_executable() {
+    if let Some(probed) = ha_core::platform::find_chrome_executable() {
         app_debug!(
             "browser",
             "spawn",
@@ -115,7 +115,7 @@ pub fn open_url_in_chrome(url: &str) -> Result<()> {
     }
 
     let mut cmd = Command::new(&exec);
-    crate::platform::hide_console(&mut cmd);
+    ha_core::platform::hide_console(&mut cmd);
     cmd.arg(url);
     cmd.spawn()
         .with_context(|| format!("launching Chrome ({exec}) to open {url}"))?;
@@ -139,7 +139,7 @@ pub fn build_chrome_argv(spec: &LaunchSpec<'_>, exec: &str) -> Command {
     let mut cmd = Command::new(exec);
     // Suppress the transient console window on Windows; Chrome's own window
     // (headed) or nothing (headless) is unaffected.
-    crate::platform::hide_console(&mut cmd);
+    ha_core::platform::hide_console(&mut cmd);
     cmd.arg(format!("--remote-debugging-port={}", spec.port));
     cmd.arg("--remote-debugging-address=127.0.0.1");
 

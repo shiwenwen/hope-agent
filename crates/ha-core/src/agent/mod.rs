@@ -9,7 +9,7 @@ mod event_rewrite;
 mod events;
 
 pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http};
-pub(crate) use events::{extract_media_items, MEDIA_ITEMS_PREFIX};
+pub use events::{extract_media_items, MEDIA_ITEMS_PREFIX};
 mod llm_adapter;
 pub mod migration;
 mod plan_context;

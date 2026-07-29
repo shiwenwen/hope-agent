@@ -21,12 +21,12 @@ mod window_state;
 pub use ha_acp::acp;
 pub use ha_acp::acp_control;
 pub use ha_acp::acp_control::get_acp_manager;
+pub use ha_browser::browser_state;
+pub use ha_browser::browser_ui;
 pub use ha_core::agent;
 pub use ha_core::agent_config;
 pub use ha_core::agent_loader;
 pub use ha_core::backup;
-pub use ha_core::browser_state;
-pub use ha_core::browser_ui;
 pub use ha_core::channel;
 pub use ha_core::chat_engine;
 pub use ha_core::context_compact;
@@ -97,6 +97,7 @@ pub fn run() {
     ha_acp::wire();
     ha_mac::wire();
     ha_design::wire();
+    ha_browser::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when

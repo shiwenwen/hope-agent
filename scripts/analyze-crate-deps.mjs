@@ -94,7 +94,6 @@ const FEATURES = {
     "tools::image",
     "tools::image_markers",
   ],
-  "ha-browser": ["browser", "browser_state", "browser_ui", "tools::browser"],
   "ha-knowledge": ["knowledge", "tools::note"],
   "ha-channel": ["channel", "tools::feishu", "tools::send_attachment", "tools::notification"],
   "ha-cron": [

@@ -31,20 +31,20 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
-use crate::agent::MEDIA_ITEMS_PREFIX;
-use crate::attachments::{self, MediaItem, MediaKind};
 use crate::browser::{
     self, acquire_backend_for, reset_backend, ActKind, ActParams, BrowserBackend,
     BrowserBackendContext, BrowserBackendRequirement, DialogAction, ImageFormat, ObserveKind,
     PdfParams, RawCdpParams, ScreenshotParams, ScrollDirection, ScrollParams, Snapshot,
     SnapshotFormat, WaitParams,
 };
-use crate::tools::image_markers;
+use ha_core::agent::MEDIA_ITEMS_PREFIX;
+use ha_core::attachments::{self, MediaItem, MediaKind};
+use ha_core::tools::image_markers;
 
-/// Image base64 prefix marker — detected by `agent.rs` for multimodal content.
-pub const IMAGE_BASE64_PREFIX: &str = "__IMAGE_BASE64__";
-
-pub(crate) async fn tool_browser(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
+pub(crate) async fn tool_browser(
+    args: &Value,
+    ctx: &ha_core::tools::ToolExecContext,
+) -> Result<String> {
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
@@ -137,7 +137,7 @@ fn browser_action_summary(
     let url = get_str(args, "url").map(str::to_string);
     let detail = match (action, op) {
         ("act", Some("fill")) => {
-            get_str_any(args, "text").map(crate::tool_actions::redacted_text_summary)
+            get_str_any(args, "text").map(ha_core::tool_actions::redacted_text_summary)
         }
         ("act", Some("press")) => get_str(args, "key").map(|k| format!("key={k}")),
         ("act", Some("select")) => {
@@ -159,7 +159,7 @@ fn browser_action_summary(
 /// backfills the thumbnail via `action_id`.
 fn record_browser_action(
     args: &Value,
-    ctx: &super::ToolExecContext,
+    ctx: &ha_core::tools::ToolExecContext,
     action: &str,
     result: &Result<String>,
     started: std::time::Instant,
@@ -172,12 +172,12 @@ fn record_browser_action(
     if !emit_frame && !recordable {
         return;
     }
-    let action_id = crate::tool_actions::new_action_id();
+    let action_id = ha_core::tool_actions::new_action_id();
     if recordable {
         let (target, detail, url) = browser_action_summary(args, action, op);
-        crate::tool_actions::record_action(crate::tool_actions::ToolActionEvent {
+        ha_core::tool_actions::record_action(ha_core::tool_actions::ToolActionEvent {
             action_id: action_id.clone(),
-            source: crate::tool_actions::ToolActionSource::Browser,
+            source: ha_core::tool_actions::ToolActionSource::Browser,
             session_id: ctx.session_id.clone(),
             action: action.to_string(),
             op: op.map(str::to_string),
@@ -189,7 +189,7 @@ fn record_browser_action(
             error: result
                 .as_ref()
                 .err()
-                .map(|e| crate::tool_actions::clamp_error(&e.to_string())),
+                .map(|e| ha_core::tool_actions::clamp_error(&e.to_string())),
             duration_ms: started.elapsed().as_millis() as u64,
             started_at,
             tool_call_id: ctx.tool_call_id.clone(),
@@ -204,7 +204,11 @@ fn record_browser_action(
     }
 }
 
-async fn emit_browser_activity_metadata(ctx: &super::ToolExecContext, args: &Value, action: &str) {
+async fn emit_browser_activity_metadata(
+    ctx: &ha_core::tools::ToolExecContext,
+    args: &Value,
+    action: &str,
+) {
     if ctx.metadata_sink.is_none() {
         return;
     }
@@ -291,8 +295,8 @@ fn get_str_array(args: &Value, key: &str) -> Option<Vec<String>> {
 }
 
 async fn check_url_via_ssrf(url: &str) -> Result<()> {
-    let ssrf_cfg = &crate::config::cached_config().ssrf;
-    crate::security::ssrf::check_url(url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts).await?;
+    let ssrf_cfg = &ha_core::config::cached_config().ssrf;
+    ha_core::security::ssrf::check_url(url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts).await?;
     Ok(())
 }
 
@@ -609,7 +613,7 @@ async fn profile_install_runtime() -> Result<String> {
              Install Google Chrome system-wide instead."
         )
     })?;
-    crate::app_info!(
+    ha_core::app_info!(
         "browser",
         "install_runtime",
         "downloading Chromium runtime rev={} for {}",
@@ -618,7 +622,7 @@ async fn profile_install_runtime() -> Result<String> {
     );
 
     let binary = runtime::install_with_event_bus_progress().await?;
-    crate::app_info!(
+    ha_core::app_info!(
         "browser",
         "install_runtime",
         "Chromium runtime ready at {}",
@@ -1173,7 +1177,7 @@ async fn snapshot_pdf(args: &Value, backend: &dyn BrowserBackend) -> Result<Stri
     let output_path: PathBuf = if let Some(path) = get_str(args, "output_path") {
         browser::authorise_pdf_output_path(path)?
     } else {
-        let share_dir = crate::paths::share_dir()?;
+        let share_dir = ha_core::paths::share_dir()?;
         std::fs::create_dir_all(&share_dir)?;
         let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
         share_dir.join(format!("page_{}.pdf", ts))
@@ -1354,7 +1358,7 @@ async fn control_download_cancel(args: &Value, session_id: Option<&str>) -> Resu
 async fn control_raw_cdp(args: &Value, session_id: Option<&str>) -> Result<String> {
     // Honor the kill switch: browser.extension.allowRawCdp = false disables the
     // raw CDP escape hatch entirely (defaults to enabled when unset).
-    let raw_cdp_enabled = crate::config::cached_config()
+    let raw_cdp_enabled = ha_core::config::cached_config()
         .browser
         .as_ref()
         .and_then(|b| b.extension.as_ref())
@@ -1462,13 +1466,13 @@ async fn evaluate_with_ssrf_scan(script: &str) -> Result<()> {
     }
     let re = regex::Regex::new(r#"(?i)["'`](https?://[^"'`\s]+)["'`]"#)
         .expect("static regex must compile");
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     for cap in re.captures_iter(script) {
         let url = match cap.get(1) {
             Some(m) => m.as_str(),
             None => continue,
         };
-        crate::security::ssrf::check_url(url, cfg.ssrf.browser(), &cfg.ssrf.trusted_hosts)
+        ha_core::security::ssrf::check_url(url, cfg.ssrf.browser(), &cfg.ssrf.trusted_hosts)
             .await
             .map_err(|e| {
                 anyhow!(

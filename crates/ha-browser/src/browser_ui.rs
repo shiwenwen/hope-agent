@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::browser_state::get_browser_state;
-use crate::paths::{browser_profile_dir, browser_profiles_dir};
+use ha_core::paths::{browser_profile_dir, browser_profiles_dir};
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -440,8 +440,8 @@ pub async fn panel_navigate(op: &str, url: Option<&str>, session_id: Option<&str
             } else {
                 format!("https://{raw}")
             };
-            let ssrf_cfg = &crate::config::cached_config().ssrf;
-            crate::security::ssrf::check_url(&url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
+            let ssrf_cfg = &ha_core::config::cached_config().ssrf;
+            ha_core::security::ssrf::check_url(&url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
                 .await?;
             backend.navigate(&url).await?;
         }

@@ -163,7 +163,7 @@ async fn capture_backend(
 }
 
 fn extension_capture_backend(session_id: &str) -> Option<Arc<dyn BrowserBackend>> {
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let browser_cfg = cfg.browser.as_ref();
     let preference = browser_cfg
         .and_then(|b| b.backend_preference)
@@ -200,7 +200,7 @@ pub fn emit_frame_async(session_id: Option<String>, action_id: Option<String>) {
         match capture_frame(session_id.as_deref()).await {
             Ok(Some(mut payload)) => {
                 payload.action_id = action_id.clone();
-                if let Some(bus) = crate::globals::get_event_bus() {
+                if let Some(bus) = ha_core::globals::get_event_bus() {
                     match serde_json::to_value(&payload) {
                         Ok(value) => bus.emit(EVENT_BROWSER_FRAME, value),
                         Err(e) => app_warn!(
@@ -224,9 +224,9 @@ pub fn emit_frame_async(session_id: Option<String>, action_id: Option<String>) {
                             &jpeg_base64,
                         ) {
                             if let Some(thumb) =
-                                crate::tool_actions::encode_thumbnail_from_jpeg(&bytes)
+                                ha_core::tool_actions::encode_thumbnail_from_jpeg(&bytes)
                             {
-                                crate::tool_actions::attach_thumbnail(
+                                ha_core::tool_actions::attach_thumbnail(
                                     session_id.as_deref(),
                                     &action_id,
                                     thumb,

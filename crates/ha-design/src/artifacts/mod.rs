@@ -3566,16 +3566,17 @@ fn sha256_hex(bytes: &[u8]) -> String {
 async fn render_pdf_with_isolated_chromium(index_html: &[u8], export_id: &str) -> Result<Vec<u8>> {
     use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
 
-    let resolved =
-        ha_core::browser::profile::resolve_profile(ha_core::browser::profile::BUILTIN_MANAGED)?;
-    let executable = ha_core::browser::spawn::resolve_chrome_executable_for(
+    let resolved = ha_browser::browser::profile::resolve_profile(
+        ha_browser::browser::profile::BUILTIN_MANAGED,
+    )?;
+    let executable = ha_browser::browser::spawn::resolve_chrome_executable_for(
         resolved.executable.as_deref(),
         "artifact_pdf",
     )?;
     let runtime_root = paths::canvas_dir()?.join("pdf-runtime");
     fs::create_dir_all(&runtime_root)?;
     let user_data_dir = runtime_root.join(export_id);
-    let port = ha_core::browser::spawn::pick_managed_port().await?;
+    let port = ha_browser::browser::spawn::pick_managed_port().await?;
     fs::create_dir_all(&user_data_dir)?;
     let index_path = user_data_dir.join("artifact.html");
     if let Err(error) = ha_core::platform::write_atomic(&index_path, index_html) {
@@ -3592,9 +3593,9 @@ async fn render_pdf_with_isolated_chromium(index_html: &[u8], export_id: &str) -
         })
         .cloned()
         .collect::<Vec<_>>();
-    let mut state = ha_core::browser_state::BrowserState::new();
+    let mut state = ha_browser::browser_state::BrowserState::new();
     let render_result = async {
-        let spec = ha_core::browser::spawn::LaunchSpec {
+        let spec = ha_browser::browser::spawn::LaunchSpec {
             profile: "artifact_pdf",
             executable: Some(executable.as_str()),
             user_data_dir: &user_data_dir,

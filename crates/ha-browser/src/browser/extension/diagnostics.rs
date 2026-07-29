@@ -64,7 +64,7 @@ pub struct NativeHostInstallResult {
 }
 
 pub fn current_status() -> BrowserExtensionStatus {
-    let cfg = crate::config::cached_config()
+    let cfg = ha_core::config::cached_config()
         .browser
         .as_ref()
         .and_then(|b| b.extension.clone())
@@ -187,7 +187,7 @@ pub fn install_native_host_manifest(
         "allowed_origins": [allowed_origin.clone()],
     });
     let bytes = serde_json::to_vec_pretty(&manifest)?;
-    crate::platform::write_atomic(&manifest_path, &bytes).with_context(|| {
+    ha_core::platform::write_atomic(&manifest_path, &bytes).with_context(|| {
         format!(
             "writing native host manifest {}",
             manifest_path.to_string_lossy()
@@ -221,7 +221,7 @@ pub const KNOWN_STORE_EXTENSION_IDS: &[&str] = &[];
 /// known yet (alpha / unpacked with an unstable id and nothing configured), or
 /// when the host binary can't be resolved.
 pub fn ensure_native_host_registered() -> usize {
-    let cfg = crate::config::cached_config()
+    let cfg = ha_core::config::cached_config()
         .browser
         .as_ref()
         .and_then(|b| b.extension.clone())
@@ -444,7 +444,7 @@ fn write_manifest_if_changed(
         "allowed_origins": origins,
     });
     let bytes = serde_json::to_vec_pretty(&manifest)?;
-    crate::platform::write_atomic(manifest_path, &bytes)
+    ha_core::platform::write_atomic(manifest_path, &bytes)
         .with_context(|| format!("writing native host manifest {}", manifest_path.display()))?;
     Ok(true)
 }
@@ -505,8 +505,8 @@ fn unpacked_extension_path() -> Option<PathBuf> {
     // presence-only marker would pin the mirror to the first version forever.
     let fingerprint = extension_source_fingerprint();
     if let (Ok(stable), Ok(marker)) = (
-        crate::paths::browser_extension_unpacked_dir(),
-        crate::paths::browser_extension_unpacked_marker(),
+        ha_core::paths::browser_extension_unpacked_dir(),
+        ha_core::paths::browser_extension_unpacked_marker(),
     ) {
         if stable_copy_is_complete(&stable, &marker, fingerprint.as_deref()) {
             return Some(stable);
@@ -569,7 +569,7 @@ fn extension_source_fingerprint() -> Option<String> {
     static FINGERPRINT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     FINGERPRINT
         .get_or_init(|| {
-            let dest = crate::paths::browser_extension_unpacked_dir().ok()?;
+            let dest = ha_core::paths::browser_extension_unpacked_dir().ok()?;
             let files = extension_source_files(&dest)?;
             Some(fingerprint_files(&files))
         })
@@ -608,8 +608,8 @@ pub fn ensure_local_unpacked_extension() -> Option<PathBuf> {
     static ENSURE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = ENSURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-    let dest = crate::paths::browser_extension_unpacked_dir().ok()?;
-    let marker = crate::paths::browser_extension_unpacked_marker().ok()?;
+    let dest = ha_core::paths::browser_extension_unpacked_dir().ok()?;
+    let marker = ha_core::paths::browser_extension_unpacked_marker().ok()?;
     let files = match extension_source_files(&dest) {
         Some(files) if !files.is_empty() => files,
         _ => return None,
@@ -625,7 +625,7 @@ pub fn ensure_local_unpacked_extension() -> Option<PathBuf> {
             // fingerprint) so the stable copy becomes the preferred path. If
             // the marker write fails, report failure so callers keep using
             // the source rather than a copy we can't vouch for.
-            if let Err(e) = crate::platform::write_atomic(&marker, fingerprint.as_bytes()) {
+            if let Err(e) = ha_core::platform::write_atomic(&marker, fingerprint.as_bytes()) {
                 app_warn!(
                     "browser",
                     "unpacked_copy",
@@ -741,7 +741,7 @@ fn mirror_extension_files(files: &[(String, Vec<u8>)], dst: &Path) -> Result<()>
             .map(|cur| cur != *bytes)
             .unwrap_or(true);
         if differs {
-            crate::platform::write_atomic(&dest, bytes)
+            ha_core::platform::write_atomic(&dest, bytes)
                 .with_context(|| format!("writing {}", dest.display()))?;
         }
     }

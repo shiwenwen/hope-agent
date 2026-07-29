@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::canvas_db::{CanvasDB, CanvasProject};
 use ha_core::paths;
-use ha_core::tools::browser::IMAGE_BASE64_PREFIX;
+use ha_core::tools::IMAGE_BASE64_PREFIX;
 
 pub(crate) mod project;
 pub(crate) mod renderer;

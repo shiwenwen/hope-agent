@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { createFrameStore } from "@/lib/frame-store"
 
-// ── Types (mirror ha_core::browser::frame::BrowserFramePayload) ─────────
+// ── Types (mirror ha_browser::browser::frame::BrowserFramePayload) ─────────
 
 export interface BrowserFramePayload {
   sessionId?: string | null
@@ -16,7 +16,7 @@ export interface BrowserFramePayload {
   actionId?: string | null
 }
 
-/** Backend-emitted event name (see `crates/ha-core/src/browser/frame.rs`). */
+/** Backend-emitted event name (see `crates/ha-browser/src/browser/frame.rs`). */
 export const BROWSER_FRAME_EVENT = "browser:frame"
 
 const store = createFrameStore<BrowserFramePayload>({

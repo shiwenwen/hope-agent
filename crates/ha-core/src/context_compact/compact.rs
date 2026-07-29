@@ -537,7 +537,7 @@ mod tests {
     fn manual_recovered_cleanup_clears_truncated_image_markers() {
         let truncated_marker = format!(
             "{}image/png__{}",
-            crate::tools::browser::IMAGE_BASE64_PREFIX,
+            crate::tools::IMAGE_BASE64_PREFIX,
             "a".repeat(12_000)
         );
         let mut messages = vec![json!({

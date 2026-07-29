@@ -2,6 +2,7 @@
 members = [
     "src-tauri",
     "crates/ha-base",
+    "crates/ha-browser",
     "crates/ha-config-schema",
     "crates/ha-design",
     "crates/ha-core",

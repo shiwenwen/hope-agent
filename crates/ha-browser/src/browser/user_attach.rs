@@ -11,7 +11,7 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::platform;
+use ha_core::platform;
 
 /// Default remote-debugging port we hand to user-attach Chrome.
 pub const DEFAULT_USER_ATTACH_PORT: u16 = 9222;
@@ -59,7 +59,7 @@ pub struct BrowserDoctorReport {
     pub chrome_already_running: bool,
     /// Path to a Chrome / Chromium / Edge / Brave binary discovered by the
     /// platform probe — populated whenever
-    /// [`crate::platform::find_chrome_executable`] returns a path. Lets the
+    /// [`ha_core::platform::find_chrome_executable`] returns a path. Lets the
     /// settings UI distinguish "system Chrome present" from "needs runtime
     /// download" without the `runtime_chromium` field falsely implying the
     /// host has no browser.
@@ -85,10 +85,10 @@ pub struct RuntimeChromiumReport {
 pub async fn browser_doctor() -> BrowserDoctorReport {
     let (probe, chrome_already_running, system_chrome_path, runtime_chromium) = tokio::join!(
         probe_user_chrome(DEFAULT_USER_ATTACH_PORT),
-        crate::platform::chrome_already_running(),
+        ha_core::platform::chrome_already_running(),
         async {
             tokio::task::spawn_blocking(|| {
-                crate::platform::find_chrome_executable().map(|p| p.display().to_string())
+                ha_core::platform::find_chrome_executable().map(|p| p.display().to_string())
             })
             .await
             .unwrap_or(None)
@@ -219,7 +219,7 @@ pub async fn spawn_user_chrome(args: SpawnUserChromeArgs) -> Result<SpawnUserChr
 mod tests {
     #[test]
     fn user_attach_dir_under_root() {
-        let p = crate::paths::browser_user_attach_dir().expect("user attach dir");
+        let p = ha_core::paths::browser_user_attach_dir().expect("user attach dir");
         let s = p.to_string_lossy();
         assert!(s.contains("browser"));
         assert!(s.ends_with("user-attach") || s.ends_with("user-attach/"));

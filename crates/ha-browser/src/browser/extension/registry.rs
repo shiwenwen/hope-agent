@@ -168,7 +168,7 @@ fn load_persisted_registry() -> Registry {
 fn load_persisted_registry_inner() -> Result<Registry> {
     use anyhow::Context as _;
 
-    let path = crate::paths::browser_extension_registry_path()?;
+    let path = ha_core::paths::browser_extension_registry_path()?;
     let raw = match std::fs::read_to_string(&path) {
         Ok(raw) => raw,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Registry::default()),
@@ -200,7 +200,7 @@ fn persist_registry(registry: &Registry) {
 
 #[cfg(not(test))]
 fn persist_registry_inner(registry: &Registry) -> Result<()> {
-    let path = crate::paths::browser_extension_registry_path()?;
+    let path = ha_core::paths::browser_extension_registry_path()?;
     let snapshot = snapshot_from_registry(registry, now_unix_secs());
     let bytes = serde_json::to_vec_pretty(&snapshot)?;
     // Offload the fsync off the registry mutex: serialize under the caller's
@@ -218,7 +218,7 @@ fn spawn_registry_write(path: std::path::PathBuf, bytes: Vec<u8>) {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if let Err(e) = crate::platform::write_atomic(&path, &bytes) {
+        if let Err(e) = ha_core::platform::write_atomic(&path, &bytes) {
             app_warn!(
                 "browser",
                 "extension_registry",
