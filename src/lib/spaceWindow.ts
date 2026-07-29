@@ -70,14 +70,23 @@ export interface SpaceWindowImplementRequest {
 }
 
 export const SPACE_WINDOW_NAVIGATE_EVENT = "space-window:navigate"
+export const SPACE_WINDOW_READY_EVENT = "space-window:ready"
 export const SPACE_WINDOW_REATTACH_EVENT = "space-window:reattach"
 export const SPACE_WINDOW_OPEN_SETTINGS_EVENT = "space-window:open-settings"
 export const SPACE_WINDOW_IMPLEMENT_EVENT = "space-window:implement-to-code"
+
+export interface SpaceWindowReadyPayload {
+  space: DetachableSpace
+  readyToken: string
+}
 
 const SPACE_WINDOW_LABELS: Record<DetachableSpace, string> = {
   knowledge: "knowledge-space-window",
   design: "design-space-window",
 }
+
+const SPACE_WINDOW_READY_TIMEOUT_MS = 15_000
+const openingSpaceWindows: Partial<Record<DetachableSpace, Promise<WebviewWindow | null>>> = {}
 
 export function usesSpaceWindowOverlayTitleBar(): boolean {
   return (
@@ -87,8 +96,9 @@ export function usesSpaceWindowOverlayTitleBar(): boolean {
   )
 }
 
-function spaceWindowUrl(target: SpaceWindowLocation): string {
+function spaceWindowUrl(target: SpaceWindowLocation, readyToken: string): string {
   const params = new URLSearchParams({ window: "space", space: target.space })
+  params.set("readyToken", readyToken)
   if (target.space === "knowledge") {
     if (target.location.kbId) params.set("kbId", target.location.kbId)
     if (target.location.path) params.set("path", target.location.path)
@@ -128,7 +138,9 @@ export async function navigateDetachedSpaceWindow(
   if (!isTauriMode()) return false
   try {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow")
-    const existing = await WebviewWindow.getByLabel(SPACE_WINDOW_LABELS[payload.space])
+    const existing =
+      (await openingSpaceWindows[payload.space]) ??
+      (await WebviewWindow.getByLabel(SPACE_WINDOW_LABELS[payload.space]))
     if (!existing) return false
     await existing.emit(SPACE_WINDOW_NAVIGATE_EVENT, payload)
     await focusWindow(existing)
@@ -142,15 +154,18 @@ export async function navigateDetachedSpaceWindow(
   }
 }
 
-export async function openDetachedSpaceWindow(
+async function createDetachedSpaceWindow(
   target: SpaceWindowLocation,
   title: string,
 ): Promise<WebviewWindow | null> {
   if (!isTauriMode()) return null
+  let stopReadyListener: (() => void) | null = null
+  let readyTimeout: ReturnType<typeof setTimeout> | null = null
   try {
-    const [{ WebviewWindow }, { LogicalPosition }] = await Promise.all([
+    const [{ WebviewWindow }, { LogicalPosition }, { listen }] = await Promise.all([
       import("@tauri-apps/api/webviewWindow"),
       import("@tauri-apps/api/dpi"),
+      import("@tauri-apps/api/event"),
     ])
     const label = SPACE_WINDOW_LABELS[target.space]
     const existing = await WebviewWindow.getByLabel(label)
@@ -160,8 +175,25 @@ export async function openDetachedSpaceWindow(
       return existing
     }
 
+    const readyToken = `${target.space}:${Date.now()}:${Math.random()}`
+    let resolveRendererReady: (ready: boolean) => void = () => {}
+    const rendererReadyPromise = new Promise<boolean>((resolve) => {
+      resolveRendererReady = resolve
+    })
+    stopReadyListener = await listen<SpaceWindowReadyPayload>(
+      SPACE_WINDOW_READY_EVENT,
+      (event) => {
+        if (
+          event.payload?.space === target.space &&
+          event.payload.readyToken === readyToken
+        ) {
+          resolveRendererReady(true)
+        }
+      },
+    )
+
     const webview = new WebviewWindow(label, {
-      url: spaceWindowUrl(target),
+      url: spaceWindowUrl(target, readyToken),
       title,
       width: 1320,
       height: 860,
@@ -195,14 +227,66 @@ export async function openDetachedSpaceWindow(
         settle(false)
       })
     })
-    return created ? webview : null
+    if (!created) {
+      stopReadyListener()
+      stopReadyListener = null
+      return null
+    }
+
+    const rendererReady = await Promise.race([
+      rendererReadyPromise,
+      new Promise<boolean>((resolve) => {
+        readyTimeout = setTimeout(() => resolve(false), SPACE_WINDOW_READY_TIMEOUT_MS)
+      }),
+    ])
+    if (readyTimeout) clearTimeout(readyTimeout)
+    readyTimeout = null
+    stopReadyListener()
+    stopReadyListener = null
+    if (!rendererReady) {
+      logger.error(
+        "ui",
+        "spaceWindow::open",
+        "Detached space renderer did not become ready",
+        { space: target.space },
+      )
+      await webview.close().catch(() => undefined)
+      return null
+    }
+    return webview
   } catch (error) {
+    if (readyTimeout) clearTimeout(readyTimeout)
+    stopReadyListener?.()
     logger.error("ui", "spaceWindow::open", "Failed to open detached space window", {
       space: target.space,
       error,
     })
     return null
   }
+}
+
+export function openDetachedSpaceWindow(
+  target: SpaceWindowLocation,
+  title: string,
+): Promise<WebviewWindow | null> {
+  const opening = openingSpaceWindows[target.space]
+  if (opening) {
+    return opening.then(async (webview) => {
+      if (!webview) return null
+      await webview.emit(SPACE_WINDOW_NAVIGATE_EVENT, target)
+      await focusWindow(webview)
+      return webview
+    })
+  }
+
+  const request = createDetachedSpaceWindow(target, title)
+  openingSpaceWindows[target.space] = request
+  void request.finally(() => {
+    if (openingSpaceWindows[target.space] === request) {
+      delete openingSpaceWindows[target.space]
+    }
+  })
+  return request
 }
 
 export function readSpaceWindowLocation(params: URLSearchParams): SpaceWindowLocation {

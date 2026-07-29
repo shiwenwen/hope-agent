@@ -1710,15 +1710,15 @@ export default function DesignView({
 
     void (async () => {
       try {
-        let project = activeProjectRef.current
-        if (project?.id !== projectId) {
-          project = await tx.call<DesignProject | null>("get_design_project_cmd", {
-            id: projectId,
-          })
-        }
+        const project = await tx.call<DesignProject | null>("get_design_project_cmd", {
+          id: projectId,
+        })
         if (!project) return
         if (activeProjectRef.current?.id !== project.id) {
           await openProject(project)
+        } else {
+          activeProjectRef.current = project
+          setActiveProject(project)
         }
         if (!artifactId || activeArtifactRef.current?.id === artifactId) return
         const artifact = await tx.call<DesignArtifact | null>("get_design_artifact_cmd", {

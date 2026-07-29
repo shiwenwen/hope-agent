@@ -15,6 +15,7 @@ import {
   SPACE_WINDOW_IMPLEMENT_EVENT,
   SPACE_WINDOW_NAVIGATE_EVENT,
   SPACE_WINDOW_OPEN_SETTINGS_EVENT,
+  SPACE_WINDOW_READY_EVENT,
   SPACE_WINDOW_REATTACH_EVENT,
   focusMainWindow,
   readSpaceWindowLocation,
@@ -27,6 +28,7 @@ import {
   type SpaceWindowImplementRequest,
   type SpaceWindowLocation,
   type SpaceWindowNavigationPayload,
+  type SpaceWindowReadyPayload,
   type SpaceWindowSettingsRequest,
 } from "@/lib/spaceWindow"
 import type { PetNavigationTarget } from "@/types/pet"
@@ -37,6 +39,9 @@ const DesignView = lazy(() => import("@/components/design/DesignView"))
 export default function SpaceDetachedWindow() {
   const [initialTarget] = useState<SpaceWindowLocation>(() =>
     readSpaceWindowLocation(new URLSearchParams(window.location.search)),
+  )
+  const [readyToken] = useState(() =>
+    new URLSearchParams(window.location.search).get("readyToken"),
   )
   const space = initialTarget.space
   const locationRef = useRef(initialTarget.location)
@@ -82,36 +87,56 @@ export default function SpaceDetachedWindow() {
   useEffect(() => {
     let cancelled = false
     let unlisten: (() => void) | null = null
-    void listen<SpaceWindowNavigationPayload>(SPACE_WINDOW_NAVIGATE_EVENT, (event) => {
-      const payload = event.payload
-      if (!payload || payload.space !== space) return
-      if ("petFocus" in payload) {
-        if (payload.space === "knowledge") setKnowledgePetFocus(payload.petFocus)
-        else setDesignPetFocus(payload.petFocus)
+    void (async () => {
+      const stop = await listen<SpaceWindowNavigationPayload>(
+        SPACE_WINDOW_NAVIGATE_EVENT,
+        (event) => {
+          const payload = event.payload
+          if (!payload || payload.space !== space) return
+          if ("petFocus" in payload) {
+            if (payload.space === "knowledge") setKnowledgePetFocus(payload.petFocus)
+            else setDesignPetFocus(payload.petFocus)
+            return
+          }
+          if ("knowledgeFocus" in payload) {
+            setKnowledgeFocus({
+              nonce: ++navigationNonceRef.current,
+              target: payload.knowledgeFocus,
+            })
+            return
+          }
+          const nonce = ++navigationNonceRef.current
+          if (payload.space === "knowledge") {
+            setKnowledgeNavigation({ nonce, location: payload.location })
+          } else {
+            setDesignNavigation({ nonce, location: payload.location })
+          }
+        },
+      )
+      if (cancelled) {
+        stop()
         return
       }
-      if ("knowledgeFocus" in payload) {
-        setKnowledgeFocus({
-          nonce: ++navigationNonceRef.current,
-          target: payload.knowledgeFocus,
+      unlisten = stop
+      if (readyToken) {
+        await emitTo<SpaceWindowReadyPayload>("main", SPACE_WINDOW_READY_EVENT, {
+          space,
+          readyToken,
         })
-        return
       }
-      const nonce = ++navigationNonceRef.current
-      if (payload.space === "knowledge") {
-        setKnowledgeNavigation({ nonce, location: payload.location })
-      } else {
-        setDesignNavigation({ nonce, location: payload.location })
-      }
-    }).then((stop) => {
-      if (cancelled) stop()
-      else unlisten = stop
+    })().catch((error) => {
+      logger.error(
+        "ui",
+        "SpaceDetachedWindow::ready",
+        "Failed to register detached space navigation",
+        { space, error },
+      )
     })
     return () => {
       cancelled = true
       unlisten?.()
     }
-  }, [space])
+  }, [readyToken, space])
 
   useEffect(() => {
     if (space !== "knowledge") return
