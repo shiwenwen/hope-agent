@@ -10,6 +10,7 @@ import { createPortal } from "react-dom"
 
 import { AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { UI_EASING, UI_MOTION } from "@/components/ui/motion"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 
 interface FloatingMenuProps {
@@ -64,8 +65,9 @@ export function FloatingMenu({
   portal = false,
   elementRef,
 }: FloatingMenuProps) {
+  const portalScope = usePortalScope()
   useEffect(() => {
-    if (!open || !onEscapeKeyDown) return
+    if (!open || !onEscapeKeyDown || (portalScope && !portalScope.active)) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       event.stopPropagation()
@@ -73,7 +75,7 @@ export function FloatingMenu({
     }
     document.addEventListener("keydown", onKeyDown)
     return () => document.removeEventListener("keydown", onKeyDown)
-  }, [open, onEscapeKeyDown])
+  }, [open, onEscapeKeyDown, portalScope])
 
   const content = (
     <AnimatedPresenceBox
@@ -103,5 +105,8 @@ export function FloatingMenu({
     </AnimatedPresenceBox>
   )
 
-  return portal && typeof document !== "undefined" ? createPortal(content, document.body) : content
+  if (portal && portalScope && !portalScope.active) return null
+  return portal && typeof document !== "undefined"
+    ? createPortal(content, portalScope?.container ?? document.body)
+    : content
 }

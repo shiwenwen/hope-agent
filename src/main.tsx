@@ -58,6 +58,8 @@ void i18nReady.finally(async () => {
   // pattern as the DEV smoke windows below).
   const HelpWindow = windowType === "help" ? (await import("./HelpWindow.tsx")).default : null
   const PetWindow = windowType === "pet" ? (await import("./PetWindow.tsx")).default : null
+  const SpaceDetachedWindow =
+    windowType === "space" ? (await import("./SpaceDetachedWindow.tsx")).default : null
 
   const WorkflowSmokeWindow =
     windowType === "workflow-smoke" && import.meta.env.DEV
@@ -90,6 +92,8 @@ void i18nReady.finally(async () => {
         <PlanDetachedWindow />
       ) : windowType === "files" ? (
         <FileBrowserDetachedWindow />
+      ) : SpaceDetachedWindow ? (
+        <SpaceDetachedWindow />
       ) : HelpWindow ? (
         <HelpWindow />
       ) : WorkflowSmokeWindow ? (

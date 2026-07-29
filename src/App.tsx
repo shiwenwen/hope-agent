@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
+import { useState, useEffect, useCallback, useRef, lazy, Suspense, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
+import { listen } from "@tauri-apps/api/event"
 import { getTransport, setDirtyTransportConfirmText } from "@/lib/transport-provider"
 import { parsePayload, isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
@@ -25,6 +26,7 @@ import { SKILLS_EVENTS } from "@/types/skills"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { PortalScopeProvider } from "@/components/ui/portal-scope"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -39,6 +41,7 @@ import ConfigRecoveryScreen, { type ConfigHealth } from "@/components/config/Con
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen, { type ChatInsert } from "@/components/chat/ChatScreen"
 import { subscribeChatFocus, type ChatFocusTarget } from "@/components/chat/chatFocus"
+import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
 import {
   parseMemoryFocusFromLocation,
   requestMemoryFocus,
@@ -54,6 +57,24 @@ import MissingModelDialog from "@/components/local-model/MissingModelDialog"
 import ChromiumRuntimeDialog from "@/components/common/ChromiumRuntimeDialog"
 import { LOCAL_MODEL_JOB_EVENTS, type LocalModelJobSnapshot } from "@/types/local-model-jobs"
 import type { PetNavigationTarget } from "@/types/pet"
+import {
+  SPACE_WINDOW_IMPLEMENT_EVENT,
+  SPACE_WINDOW_OPEN_SETTINGS_EVENT,
+  SPACE_WINDOW_REATTACH_EVENT,
+  focusDetachedSpaceWindow,
+  navigateDetachedSpaceWindow,
+  openDetachedSpaceWindow,
+  type DesignSpaceLocation,
+  type DetachableSpace,
+  type KnowledgeSpaceLocation,
+  type SpaceNavigationRequest,
+  type SpaceKnowledgeFocusRequest,
+  type SpaceWindowAction,
+  type SpaceWindowActionRequest,
+  type SpaceWindowImplementRequest,
+  type SpaceWindowLocation,
+  type SpaceWindowSettingsRequest,
+} from "@/lib/spaceWindow"
 
 // Lazy-loaded views (heavy dependencies: recharts, cron UI, settings 面板群)
 const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
@@ -83,6 +104,32 @@ type AppView =
   | "knowledge"
   | "design"
   | "artifacts"
+
+const PERSISTENT_APP_VIEWS: ReadonlySet<AppView> = new Set([
+  "chat",
+  "calendar",
+  "dashboard",
+  "plans",
+  "knowledge",
+  "design",
+  "artifacts",
+])
+
+function PersistentViewSurface({ active, children }: { active: boolean; children: ReactNode }) {
+  const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null)
+  return (
+    <div
+      ref={setPortalContainer}
+      aria-hidden={!active}
+      inert={active ? undefined : true}
+      className={active ? "flex min-h-0 min-w-0 flex-1 overflow-hidden" : "hidden"}
+    >
+      <PortalScopeProvider active={active} container={portalContainer}>
+        {children}
+      </PortalScopeProvider>
+    </div>
+  )
+}
 
 interface PendingChatFocus extends ChatFocusTarget {
   nonce: number
@@ -128,6 +175,7 @@ export default function App() {
   viewRef.current = view
   const [dashboardInitialTab, setDashboardInitialTab] = useState<string | undefined>(undefined)
   const [dashboardInitialReportId, setDashboardInitialReportId] = useState<string | null>(null)
+  const [dashboardNavigationRequestKey, setDashboardNavigationRequestKey] = useState(0)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
   const [currentChatProjectId, setCurrentChatProjectId] = useState<string | null>(null)
@@ -146,6 +194,27 @@ export default function App() {
   const [pendingDesignPetFocus, setPendingDesignPetFocus] = useState<PendingDesignPetFocus | null>(
     null,
   )
+  const [detachedSpaces, setDetachedSpaces] = useState<Record<DetachableSpace, boolean>>({
+    knowledge: false,
+    design: false,
+  })
+  const detachedSpacesRef = useRef(detachedSpaces)
+  const detachedSpaceGenerationRef = useRef<Record<DetachableSpace, number>>({
+    knowledge: 0,
+    design: 0,
+  })
+  const knowledgeLocationRef = useRef<KnowledgeSpaceLocation>({ kbId: null, path: null })
+  const designLocationRef = useRef<DesignSpaceLocation>({ projectId: null, artifactId: null })
+  const spaceNavigationNonceRef = useRef(0)
+  const knowledgeWindowActionNonceRef = useRef(0)
+  const [knowledgeWindowNavigation, setKnowledgeWindowNavigation] =
+    useState<SpaceNavigationRequest<KnowledgeSpaceLocation> | null>(null)
+  const [pendingKnowledgeFocus, setPendingKnowledgeFocus] =
+    useState<SpaceKnowledgeFocusRequest | null>(null)
+  const [knowledgeWindowActionRequest, setKnowledgeWindowActionRequest] =
+    useState<SpaceWindowActionRequest | null>(null)
+  const [designWindowNavigation, setDesignWindowNavigation] =
+    useState<SpaceNavigationRequest<DesignSpaceLocation> | null>(null)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
   const [unreadFocusSignal, setUnreadFocusSignal] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
@@ -158,7 +227,31 @@ export default function App() {
   const chatFocusNonceRef = useRef(0)
   const projectFocusNonceRef = useRef(0)
   const petFocusNonceRef = useRef(0)
+  const knowledgeFocusNonceRef = useRef(0)
   const lastMemoryFocusHashRef = useRef<string | null>(null)
+  // 侧边栏工作区首次访问时才挂载；之后只隐藏顶层容器，不销毁组件树与 Effects。
+  // 需要区分可见性的行为（快捷键、轮询、已读回执）由各工作区的 isViewVisible 明确门控。
+  const [mountedViews, setMountedViews] = useState<Set<AppView>>(() => new Set(["chat"]))
+
+  const setSpaceDetached = useCallback((space: DetachableSpace, detached: boolean) => {
+    detachedSpacesRef.current = { ...detachedSpacesRef.current, [space]: detached }
+    setDetachedSpaces(detachedSpacesRef.current)
+  }, [])
+
+  useEffect(() => {
+    if (!PERSISTENT_APP_VIEWS.has(view)) return
+    setMountedViews((current) => {
+      if (current.has(view)) return current
+      const next = new Set(current)
+      next.add(view)
+      return next
+    })
+  }, [view])
+
+  const shouldMountView = useCallback(
+    (candidate: AppView) => view === candidate || mountedViews.has(candidate),
+    [mountedViews, view],
+  )
 
   useEffect(() => {
     setDirtyTransportConfirmText(
@@ -335,14 +428,117 @@ export default function App() {
       if (keepConfigRecoveryView()) return
       setDashboardInitialTab(tab)
       setDashboardInitialReportId(reportId ?? null)
+      if (tab !== undefined || reportId !== undefined) {
+        setDashboardNavigationRequestKey((n) => n + 1)
+      }
       setView("dashboard")
     },
     [keepConfigRecoveryView],
   )
-  const handleOpenKnowledge = useCallback(() => {
+
+  const handleOpenDetachedSpace = useCallback(
+    async (target: SpaceWindowLocation) => {
+      if (keepConfigRecoveryView()) return
+      if (detachedSpacesRef.current[target.space]) {
+        const focused = await focusDetachedSpaceWindow(target.space)
+        if (focused) return
+        detachedSpaceGenerationRef.current[target.space] += 1
+        setSpaceDetached(target.space, false)
+      }
+      const title =
+        target.space === "knowledge"
+          ? t("knowledge.title", "Knowledge Space")
+          : t("design.title", "Design Space")
+      const webview = await openDetachedSpaceWindow(target, title)
+      if (!webview) return
+      const generation = ++detachedSpaceGenerationRef.current[target.space]
+      setSpaceDetached(target.space, true)
+      void webview.once("tauri://destroyed", () => {
+        if (detachedSpaceGenerationRef.current[target.space] === generation) {
+          setSpaceDetached(target.space, false)
+        }
+      })
+      if (viewRef.current === target.space) setView("chat")
+    },
+    [keepConfigRecoveryView, setSpaceDetached, t],
+  )
+
+  const handleOpenKnowledgeWindow = useCallback(() => {
     if (keepConfigRecoveryView()) return
-    setView("knowledge")
-  }, [keepConfigRecoveryView])
+
+    const requestDetach = () => {
+      const nonce = ++knowledgeWindowActionNonceRef.current
+      setKnowledgeWindowActionRequest({ nonce, action: "detach" })
+      setView("knowledge")
+    }
+
+    if (detachedSpacesRef.current.knowledge) {
+      void focusDetachedSpaceWindow("knowledge").then((focused) => {
+        if (focused) return
+        detachedSpaceGenerationRef.current.knowledge += 1
+        setSpaceDetached("knowledge", false)
+        requestDetach()
+      })
+      return
+    }
+
+    requestDetach()
+  }, [keepConfigRecoveryView, setSpaceDetached])
+
+  const handleKnowledgeWindowActionReady = useCallback(
+    (action: SpaceWindowAction, location: KnowledgeSpaceLocation) => {
+      if (action === "detach") {
+        void handleOpenDetachedSpace({ space: "knowledge", location })
+      }
+    },
+    [handleOpenDetachedSpace],
+  )
+
+  const handleOpenKnowledge = useCallback(
+    (target?: KnowledgeFocusTarget) => {
+      if (keepConfigRecoveryView()) return
+      const focusRequest = target ? { nonce: ++knowledgeFocusNonceRef.current, target } : null
+      if (detachedSpacesRef.current.knowledge) {
+        const openDetached = target
+          ? navigateDetachedSpaceWindow({ space: "knowledge", knowledgeFocus: target })
+          : focusDetachedSpaceWindow("knowledge")
+        void openDetached.then((focused) => {
+          if (!focused) {
+            detachedSpaceGenerationRef.current.knowledge += 1
+            setSpaceDetached("knowledge", false)
+            if (focusRequest) setPendingKnowledgeFocus(focusRequest)
+            setView("knowledge")
+          }
+        })
+        return
+      }
+      if (focusRequest) setPendingKnowledgeFocus(focusRequest)
+      setView("knowledge")
+    },
+    [keepConfigRecoveryView, setSpaceDetached],
+  )
+
+  const handleOpenDesign = useCallback(() => {
+    if (keepConfigRecoveryView()) return
+    if (detachedSpacesRef.current.design) {
+      void focusDetachedSpaceWindow("design").then((focused) => {
+        if (!focused) {
+          detachedSpaceGenerationRef.current.design += 1
+          setSpaceDetached("design", false)
+          setView("design")
+        }
+      })
+      return
+    }
+    setView("design")
+  }, [keepConfigRecoveryView, setSpaceDetached])
+
+  const handleDesignImplementToCode = useCallback((sessionId: string, message: string) => {
+    // 不设 pendingSessionId：auto-send 的 sessionIdOverride 已原子切会话，
+    // 避免与导航半边竞争加载空历史（review F2）。
+    setPendingAutoSend({ sessionId, message, nonce: Date.now() })
+    setView("chat")
+  }, [])
 
   const handleOpenChat = useCallback(() => {
     if (keepConfigRecoveryView()) return
@@ -366,6 +562,48 @@ export default function App() {
   useEffect(() => subscribeChatFocus(handleChatFocus), [handleChatFocus])
 
   useEffect(() => {
+    if (!isTauriMode()) return
+    let cancelled = false
+    let unlisteners: Array<() => void> = []
+
+    void Promise.all([
+      listen<SpaceWindowLocation>(SPACE_WINDOW_REATTACH_EVENT, (event) => {
+        const payload = event.payload
+        if (!payload || (payload.space !== "knowledge" && payload.space !== "design")) return
+        detachedSpaceGenerationRef.current[payload.space] += 1
+        setSpaceDetached(payload.space, false)
+        const nonce = ++spaceNavigationNonceRef.current
+        if (payload.space === "knowledge") {
+          knowledgeLocationRef.current = payload.location
+          setKnowledgeWindowNavigation({ nonce, location: payload.location })
+          if (!keepConfigRecoveryView()) setView("knowledge")
+        } else {
+          designLocationRef.current = payload.location
+          setDesignWindowNavigation({ nonce, location: payload.location })
+          if (!keepConfigRecoveryView()) setView("design")
+        }
+      }),
+      listen<SpaceWindowSettingsRequest>(SPACE_WINDOW_OPEN_SETTINGS_EVENT, (event) => {
+        if (event.payload?.section) handleOpenSettings(event.payload.section)
+      }),
+      listen<SpaceWindowImplementRequest>(SPACE_WINDOW_IMPLEMENT_EVENT, (event) => {
+        const payload = event.payload
+        if (!payload?.sessionId || !payload.message) return
+        handleDesignImplementToCode(payload.sessionId, payload.message)
+      }),
+    ]).then((stops) => {
+      if (cancelled) stops.forEach((stop) => stop())
+      else unlisteners = stops
+    })
+
+    return () => {
+      cancelled = true
+      unlisteners.forEach((stop) => stop())
+      unlisteners = []
+    }
+  }, [handleDesignImplementToCode, handleOpenSettings, keepConfigRecoveryView, setSpaceDetached])
+
+  useEffect(() => {
     const unlisten = getTransport().listen("pet:navigate", (raw) => {
       const target = parsePayload<PetNavigationTarget>(raw)
       if (!target || keepConfigRecoveryView()) return
@@ -375,15 +613,40 @@ export default function App() {
       }
       const nonce = ++petFocusNonceRef.current
       if (target.kind === "knowledge") {
+        if (detachedSpacesRef.current.knowledge) {
+          void navigateDetachedSpaceWindow({
+            space: "knowledge",
+            petFocus: { target, nonce },
+          }).then((navigated) => {
+            if (navigated) return
+            detachedSpaceGenerationRef.current.knowledge += 1
+            setSpaceDetached("knowledge", false)
+            setPendingKnowledgePetFocus({ target, nonce })
+            setView("knowledge")
+          })
+          return
+        }
         setPendingKnowledgePetFocus({ target, nonce })
         setView("knowledge")
+        return
+      }
+      if (detachedSpacesRef.current.design) {
+        void navigateDetachedSpaceWindow({ space: "design", petFocus: { target, nonce } }).then(
+          (navigated) => {
+            if (navigated) return
+            detachedSpaceGenerationRef.current.design += 1
+            setSpaceDetached("design", false)
+            setPendingDesignPetFocus({ target, nonce })
+            setView("design")
+          },
+        )
         return
       }
       setPendingDesignPetFocus({ target, nonce })
       setView("design")
     })
     return unlisten
-  }, [handleChatFocus, keepConfigRecoveryView])
+  }, [handleChatFocus, keepConfigRecoveryView, setSpaceDetached])
 
   useEffect(() => {
     if (!isTauriMode()) return
@@ -843,14 +1106,23 @@ export default function App() {
                 onOpenDashboard={() => handleOpenDashboard()}
                 onOpenPlans={() => setView("plans")}
                 onOpenKnowledge={handleOpenKnowledge}
-                onOpenDesign={() => setView("design")}
+                onOpenKnowledgeWindow={handleOpenKnowledgeWindow}
+                onOpenDesign={handleOpenDesign}
+                onOpenDesignWindow={() =>
+                  void handleOpenDetachedSpace({
+                    space: "design",
+                    location: designLocationRef.current,
+                  })
+                }
+                knowledgeDetached={detachedSpaces.knowledge}
+                designDetached={detachedSpaces.design}
                 onOpenArtifacts={() => setView("artifacts")}
                 onOpenUpdatePanel={handleOpenUpdatePanel}
                 userAvatar={userAvatar}
                 totalUnreadCount={totalUnreadCount}
                 onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
               />
-              {/* SettingsView 现在懒加载；7 个互斥分支共用一个 Suspense 边界。 */}
+              {/* 侧边栏工作区按需首次挂载，之后仅切换顶层可见性，保留完整运行状态。 */}
               <Suspense
                 fallback={
                   <div className="flex-1 flex items-center justify-center">
@@ -858,194 +1130,244 @@ export default function App() {
                   </div>
                 }
               >
-                {view === "settings" && (
-                  <SettingsView
-                    key={settingsInitialSectionRequestKey}
-                    onBack={() => setView(settingsReturnView)}
-                    onCodexAuth={handleCodexAuth}
-                    onCodexReauth={handleCodexAuth}
-                    initialSection={settingsInitialSection}
-                    initialModelConfigTab={settingsInitialModelTab}
-                    initialPetInstallLink={pendingPetInstallLink}
-                    onPetInstallLinkConsumed={() => setPendingPetInstallLink(null)}
-                  />
+                {shouldMountView("settings") && (
+                  <PersistentViewSurface active={view === "settings"}>
+                    <SettingsView
+                      key={settingsInitialSectionRequestKey}
+                      onBack={() => setView(settingsReturnView)}
+                      onCodexAuth={handleCodexAuth}
+                      onCodexReauth={handleCodexAuth}
+                      initialSection={settingsInitialSection}
+                      initialModelConfigTab={settingsInitialModelTab}
+                      initialPetInstallLink={pendingPetInstallLink}
+                      onPetInstallLinkConsumed={() => setPendingPetInstallLink(null)}
+                    />
+                  </PersistentViewSurface>
                 )}
-                {view === "skills" && (
-                  <SettingsView
-                    onBack={() => setView("chat")}
-                    onCodexAuth={handleCodexAuth}
-                    onCodexReauth={handleCodexAuth}
-                    initialSection="skills"
-                  />
+                {shouldMountView("skills") && (
+                  <PersistentViewSurface active={view === "skills"}>
+                    <SettingsView
+                      onBack={() => setView("chat")}
+                      onCodexAuth={handleCodexAuth}
+                      onCodexReauth={handleCodexAuth}
+                      initialSection="skills"
+                    />
+                  </PersistentViewSurface>
                 )}
-                {view === "memory" && (
-                  <SettingsView
-                    onBack={() => setView("chat")}
-                    onCodexAuth={handleCodexAuth}
-                    onCodexReauth={handleCodexAuth}
-                    initialSection="memory"
-                  />
+                {shouldMountView("memory") && (
+                  <PersistentViewSurface active={view === "memory"}>
+                    <SettingsView
+                      onBack={() => setView("chat")}
+                      onCodexAuth={handleCodexAuth}
+                      onCodexReauth={handleCodexAuth}
+                      initialSection="memory"
+                    />
+                  </PersistentViewSurface>
                 )}
-                {view === "profile" && (
-                  <SettingsView
-                    onBack={() => setView("chat")}
-                    onCodexAuth={handleCodexAuth}
-                    onCodexReauth={handleCodexAuth}
-                    initialSection="profile"
-                    onProfileSaved={() => fetchUserAvatar().then(setUserAvatar)}
-                  />
+                {shouldMountView("profile") && (
+                  <PersistentViewSurface active={view === "profile"}>
+                    <SettingsView
+                      onBack={() => setView("chat")}
+                      onCodexAuth={handleCodexAuth}
+                      onCodexReauth={handleCodexAuth}
+                      initialSection="profile"
+                      onProfileSaved={() => fetchUserAvatar().then(setUserAvatar)}
+                    />
+                  </PersistentViewSurface>
                 )}
-                {view === "agents" && (
-                  <SettingsView
-                    onBack={() => {
-                      setView("chat")
-                      setAgentIdForSettings(undefined)
-                      setAgentTabForSettings(undefined)
-                    }}
-                    onCodexAuth={handleCodexAuth}
-                    onCodexReauth={handleCodexAuth}
-                    initialSection="agents"
-                    initialAgentId={agentIdForSettings}
-                    initialAgentTab={agentTabForSettings}
-                  />
+                {shouldMountView("agents") && (
+                  <PersistentViewSurface active={view === "agents"}>
+                    <SettingsView
+                      onBack={() => {
+                        setView("chat")
+                        setAgentIdForSettings(undefined)
+                        setAgentTabForSettings(undefined)
+                      }}
+                      onCodexAuth={handleCodexAuth}
+                      onCodexReauth={handleCodexAuth}
+                      initialSection="agents"
+                      initialAgentId={agentIdForSettings}
+                      initialAgentTab={agentTabForSettings}
+                    />
+                  </PersistentViewSurface>
                 )}
-                {view === "modelConfig" && (
-                  <SettingsView
-                    onBack={() => setView("chat")}
-                    onCodexAuth={handleCodexAuth}
-                    onCodexReauth={handleCodexAuth}
-                    initialSection="modelConfig"
-                  />
+                {shouldMountView("modelConfig") && (
+                  <PersistentViewSurface active={view === "modelConfig"}>
+                    <SettingsView
+                      onBack={() => setView("chat")}
+                      onCodexAuth={handleCodexAuth}
+                      onCodexReauth={handleCodexAuth}
+                      initialSection="modelConfig"
+                    />
+                  </PersistentViewSurface>
                 )}
-                {view === "channels" && (
-                  <SettingsView
-                    onBack={() => setView("chat")}
-                    onCodexAuth={handleCodexAuth}
-                    onCodexReauth={handleCodexAuth}
-                    initialSection="channels"
-                  />
+                {shouldMountView("channels") && (
+                  <PersistentViewSurface active={view === "channels"}>
+                    <SettingsView
+                      onBack={() => setView("chat")}
+                      onCodexAuth={handleCodexAuth}
+                      onCodexReauth={handleCodexAuth}
+                      initialSection="channels"
+                    />
+                  </PersistentViewSurface>
                 )}
               </Suspense>
-              {view === "calendar" && (
-                <Suspense
-                  fallback={
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
-                    </div>
-                  }
-                >
-                  <CronCalendarView
-                    defaultProjectId={currentChatProjectId}
-                    onBack={() => setView("chat")}
-                    onOpenSettings={handleOpenSettings}
-                  />
-                </Suspense>
-              )}
-              {view === "dashboard" && (
-                <Suspense
-                  fallback={
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
-                    </div>
-                  }
-                >
-                  <DashboardView
-                    onBack={() => setView("chat")}
-                    onOpenSettings={handleOpenSettings}
-                    initialTab={dashboardInitialTab}
-                    initialRecapReportId={dashboardInitialReportId}
-                    onOpenPlanHistory={() => setView("plans")}
-                    onOpenControlItem={(item) => {
-                      handleChatFocus({
-                        sessionId: item.sessionId,
-                        controlTarget: {
-                          kind: item.kind,
-                          itemId: item.id,
-                        },
-                      })
-                    }}
-                  />
-                </Suspense>
-              )}
-              {view === "plans" && (
-                <Suspense
-                  fallback={
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
-                    </div>
-                  }
-                >
-                  <PlansView
-                    onBack={() => setView("chat")}
-                    onJumpToSession={(sessionId) => {
-                      setPendingSessionId(sessionId)
-                      setView("chat")
-                    }}
-                    onInsertMention={(token) => {
-                      setPendingChatInsert({ token })
-                      setView("chat")
-                    }}
-                  />
-                </Suspense>
-              )}
-              {view === "knowledge" && (
-                <Suspense
-                  fallback={
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
-                    </div>
-                  }
-                >
-                  <KnowledgeView
-                    onBack={() => setView("chat")}
-                    onOpenSettings={() => handleOpenSettings("knowledge")}
-                    petFocus={pendingKnowledgePetFocus}
-                    onPetFocusHandled={(nonce) =>
-                      setPendingKnowledgePetFocus((current) =>
-                        current?.nonce === nonce ? null : current,
-                      )
+              {shouldMountView("calendar") && (
+                <PersistentViewSurface active={view === "calendar"}>
+                  <Suspense
+                    fallback={
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                      </div>
                     }
-                  />
-                </Suspense>
+                  >
+                    <CronCalendarView
+                      isViewVisible={view === "calendar"}
+                      defaultProjectId={currentChatProjectId}
+                      onOpenSettings={handleOpenSettings}
+                    />
+                  </Suspense>
+                </PersistentViewSurface>
               )}
-              {view === "design" && (
-                <Suspense
-                  fallback={
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
-                    </div>
-                  }
-                >
-                  <DesignView
-                    onBack={() => setView("chat")}
-                    onOpenSettings={() => handleOpenSettings("design")}
-                    petFocus={pendingDesignPetFocus}
-                    onPetFocusHandled={(nonce) =>
-                      setPendingDesignPetFocus((current) =>
-                        current?.nonce === nonce ? null : current,
-                      )
+              {shouldMountView("dashboard") && (
+                <PersistentViewSurface active={view === "dashboard"}>
+                  <Suspense
+                    fallback={
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                      </div>
                     }
-                    onImplementToCode={(sessionId, message) => {
-                      // 不设 pendingSessionId：auto-send 的 sessionIdOverride 已原子切会话，
-                      // 避免与导航半边竞争加载空历史（review F2）。
-                      setPendingAutoSend({ sessionId, message, nonce: Date.now() })
-                      setView("chat")
-                    }}
-                  />
-                </Suspense>
+                  >
+                    <DashboardView
+                      key={dashboardNavigationRequestKey}
+                      isViewVisible={view === "dashboard"}
+                      onOpenSettings={handleOpenSettings}
+                      initialTab={dashboardInitialTab}
+                      initialRecapReportId={dashboardInitialReportId}
+                      onOpenPlanHistory={() => setView("plans")}
+                      onOpenControlItem={(item) => {
+                        handleChatFocus({
+                          sessionId: item.sessionId,
+                          controlTarget: {
+                            kind: item.kind,
+                            itemId: item.id,
+                          },
+                        })
+                      }}
+                    />
+                  </Suspense>
+                </PersistentViewSurface>
               )}
-              {view === "artifacts" && (
-                <Suspense
-                  fallback={
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
-                    </div>
-                  }
-                >
-                  <ArtifactsView onBack={() => setView("chat")} />
-                </Suspense>
+              {shouldMountView("plans") && (
+                <PersistentViewSurface active={view === "plans"}>
+                  <Suspense
+                    fallback={
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                      </div>
+                    }
+                  >
+                    <PlansView
+                      isViewVisible={view === "plans"}
+                      onJumpToSession={(sessionId) => {
+                        setPendingSessionId(sessionId)
+                        setView("chat")
+                      }}
+                      onInsertMention={(token) => {
+                        setPendingChatInsert({ token })
+                        setView("chat")
+                      }}
+                    />
+                  </Suspense>
+                </PersistentViewSurface>
               )}
-              <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>
+              {shouldMountView("knowledge") && (
+                <PersistentViewSurface active={view === "knowledge"}>
+                  <Suspense
+                    fallback={
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                      </div>
+                    }
+                  >
+                    <KnowledgeView
+                      isViewVisible={view === "knowledge"}
+                      windowNavigation={knowledgeWindowNavigation}
+                      knowledgeFocus={pendingKnowledgeFocus}
+                      onKnowledgeFocusHandled={(nonce) =>
+                        setPendingKnowledgeFocus((current) =>
+                          current?.nonce === nonce ? null : current,
+                        )
+                      }
+                      windowActionRequest={knowledgeWindowActionRequest}
+                      onWindowLocationChange={(location) => {
+                        knowledgeLocationRef.current = location
+                      }}
+                      onWindowActionReady={handleKnowledgeWindowActionReady}
+                      onToggleWindowMode={
+                        isTauriMode()
+                          ? (location) =>
+                              void handleOpenDetachedSpace({ space: "knowledge", location })
+                          : undefined
+                      }
+                      onOpenSettings={() => handleOpenSettings("knowledge")}
+                      petFocus={pendingKnowledgePetFocus}
+                      onPetFocusHandled={(nonce) =>
+                        setPendingKnowledgePetFocus((current) =>
+                          current?.nonce === nonce ? null : current,
+                        )
+                      }
+                    />
+                  </Suspense>
+                </PersistentViewSurface>
+              )}
+              {shouldMountView("design") && (
+                <PersistentViewSurface active={view === "design"}>
+                  <Suspense
+                    fallback={
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                      </div>
+                    }
+                  >
+                    <DesignView
+                      isViewVisible={view === "design"}
+                      windowNavigation={designWindowNavigation}
+                      onWindowLocationChange={(location) => {
+                        designLocationRef.current = location
+                      }}
+                      onToggleWindowMode={
+                        isTauriMode()
+                          ? (location) =>
+                              void handleOpenDetachedSpace({ space: "design", location })
+                          : undefined
+                      }
+                      onOpenSettings={() => handleOpenSettings("design")}
+                      petFocus={pendingDesignPetFocus}
+                      onPetFocusHandled={(nonce) =>
+                        setPendingDesignPetFocus((current) =>
+                          current?.nonce === nonce ? null : current,
+                        )
+                      }
+                      onImplementToCode={handleDesignImplementToCode}
+                    />
+                  </Suspense>
+                </PersistentViewSurface>
+              )}
+              {shouldMountView("artifacts") && (
+                <PersistentViewSurface active={view === "artifacts"}>
+                  <Suspense
+                    fallback={
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                      </div>
+                    }
+                  >
+                    <ArtifactsView isViewVisible={view === "artifacts"} />
+                  </Suspense>
+                </PersistentViewSurface>
+              )}
+              <PersistentViewSurface active={view === "chat"}>
                 <ChatScreen
                   isViewVisible={view === "chat"}
                   onOpenAgentSettings={(agentId) => {
@@ -1078,7 +1400,7 @@ export default function App() {
                   onOpenSettings={handleOpenSettings}
                   onOpenKnowledge={handleOpenKnowledge}
                 />
-              </div>
+              </PersistentViewSurface>
 
               {/* In-app update panel */}
               {globalPendingUpdate && shouldShowUpdatePanel && (

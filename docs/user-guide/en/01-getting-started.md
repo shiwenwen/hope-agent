@@ -93,6 +93,12 @@ The desktop wizard is actually 6 steps (the X in the top-right of each step exit
 
 All data — configuration, sessions, memory, and so on — is stored in the `~/.hope-agent/` directory on your own machine (use the `HA_DATA_DIR` environment variable to change the location).
 
+### Switching sidebar workspaces
+
+Main Chat, Scheduled Tasks, Dashboard, Plans, Knowledge Space, Design Space, and Artifacts are **persistent workspaces**. After you open one for the first time, switching to another sidebar destination does not unmount it; returning preserves the current conversation, project, note, artifact, filters, and panel layout. Lists and run history refresh when you return, so preserving the workspace does not mean keeping stale data forever. These top-level workspace home pages do not show a Back-to-Chat button; switch destinations with the sidebar. A Back button appears only after you enter a real subpage such as a project or task detail.
+
+Settings and configuration pages for Agents, models, Skills, Memory, and Channels are short-lived navigation screens and may reload after you leave. Do not treat an unsubmitted form draft as saved configuration. In the desktop app, Knowledge Space and Design Space can also open in separate windows by right-clicking or double-clicking their sidebar icons; see their respective chapters for details.
+
 ---
 
 ## 1.3 Three run modes

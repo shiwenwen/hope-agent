@@ -7,6 +7,7 @@ import {
   FLOATING_MENU_SURFACE_CLASS,
 } from "@/components/ui/floating-menu"
 import { FLAT_CONTROL_SURFACE_CLASS } from "@/components/ui/control-surface"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 
 export interface AvailableModel {
@@ -41,6 +42,16 @@ export interface ModelSelectorProps {
    *  calls `onClear`. Omitting keeps behavior byte-identical. */
   clearLabel?: string
   onClear?: () => void
+}
+
+function ModelSelectorPortal({ children }: { children: React.ReactNode }) {
+  const portalScope = usePortalScope()
+  if (portalScope && !portalScope.active) return null
+  return (
+    <DropdownMenu.Portal container={portalScope?.container ?? undefined}>
+      {children}
+    </DropdownMenu.Portal>
+  )
 }
 
 export function ModelSelector({
@@ -92,7 +103,7 @@ export function ModelSelector({
         </span>
         <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/70" />
       </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
+      <ModelSelectorPortal>
         <DropdownMenu.Content
           className={cn(
             "z-50 min-w-[12rem] overflow-hidden p-1.5",
@@ -119,7 +130,7 @@ export function ModelSelector({
                 {providerName}
                 <ChevronRight className="ml-auto h-4 w-4" />
               </DropdownMenu.SubTrigger>
-              <DropdownMenu.Portal>
+              <ModelSelectorPortal>
                 <DropdownMenu.SubContent
                   className={cn(
                     "z-50 min-w-[8rem] overflow-hidden p-1.5",
@@ -161,11 +172,11 @@ export function ModelSelector({
                     )
                   })}
                 </DropdownMenu.SubContent>
-              </DropdownMenu.Portal>
+              </ModelSelectorPortal>
             </DropdownMenu.Sub>
           ))}
         </DropdownMenu.Content>
-      </DropdownMenu.Portal>
+      </ModelSelectorPortal>
     </DropdownMenu.Root>
   )
 }

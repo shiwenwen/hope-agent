@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslation } from "react-i18next"
 import {
   Archive,
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -48,7 +47,8 @@ import type { FileTarget } from "@/components/chat/files/types"
 import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
 
 interface ArtifactsViewProps {
-  onBack: () => void
+  /** 顶层侧边栏当前是否正在展示产物空间；组件本身会跨视图常驻。 */
+  isViewVisible: boolean
 }
 
 const PAGE_SIZE = 30
@@ -138,9 +138,7 @@ const KINDS = [
 ]
 
 function humanizeArtifactValue(value: string): string {
-  return value
-    .replace(/[._-]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+  return value.replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function readStoredBoolean(key: string): boolean {
@@ -246,7 +244,7 @@ function ArtifactListRow({
   )
 }
 
-export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
+export default function ArtifactsView({ isViewVisible }: ArtifactsViewProps) {
   const { t } = useTranslation()
   const enumLabel = (value: string | null | undefined): string => {
     const normalized = value?.trim().toLowerCase() || "unknown"
@@ -360,7 +358,7 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
   }, [detailsWidth])
 
   useEffect(() => {
-    if (!viewerMaximized) return
+    if (!isViewVisible || !viewerMaximized) return
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || viewerAnimating) return
       event.preventDefault()
@@ -368,7 +366,7 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [transitionViewerMaximized, viewerAnimating, viewerMaximized])
+  }, [isViewVisible, transitionViewerMaximized, viewerAnimating, viewerMaximized])
 
   const onDragList = useDragWidth({
     width: listWidth,
@@ -414,11 +412,12 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
   }, [clearSelectedArtifact, kind, offset, state, t])
 
   useEffect(() => {
+    if (!isViewVisible) return
     void loadList()
-  }, [loadList])
+  }, [isViewVisible, loadList])
 
   useEffect(() => {
-    if (!selectedId) return
+    if (!isViewVisible || !selectedId) return
     let cancelled = false
     Promise.all([
       getTransport().getArtifact(selectedId),
@@ -435,7 +434,7 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
     return () => {
       cancelled = true
     }
-  }, [selectedId, refreshKey])
+  }, [isViewVisible, selectedId, refreshKey])
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
@@ -575,17 +574,6 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
         className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
         data-tauri-drag-region
       >
-        <IconTip label={t("common.back", "Back")} side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={onBack}
-            aria-label={t("common.back", "Back")}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </IconTip>
         <IconTip
           label={
             listCollapsed

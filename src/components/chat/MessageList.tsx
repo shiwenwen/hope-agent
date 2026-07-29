@@ -49,6 +49,7 @@ import { PANEL_SCROLL_FADE } from "./right-panel/panelFade"
 import { SubagentRunsProvider } from "./subagent/SubagentRunsProvider"
 import type { SubagentRunsSnapshot } from "./subagent/useSubagentRuns"
 import type { SubagentOpenTarget } from "./subagent/subagentRunModel"
+import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
 
 interface MessageListProps {
   messages: Message[]
@@ -123,7 +124,7 @@ interface MessageListProps {
   onForkFromMessage?: (message: Message) => void
   onEditAndResend?: (message: Message, content: string) => Promise<void>
   onOpenMemorySettings?: () => void
-  onOpenKnowledge?: () => void
+  onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
   onAddQuickPrompt?: (content: string) => void
   onAddMessageQuote?: (quote: PendingMessageQuote) => void
   renderMessageActions?: (msg: Message, index: number) => ReactNode

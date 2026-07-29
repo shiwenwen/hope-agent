@@ -327,7 +327,7 @@ HTTP 鉴权：全局 `server.apiKey` 仍是 owner token，可访问所有受保�
 
 **精确跳转**：反链点击 → `openNote(kb, srcRelPath, {line, col})`；搜索命中 → `openNote(kb, relPath, {line})`。`openNote` 设 `revealTarget`（每次新对象身份，重复点同位置也重触发）→ `NoteEditor` reveal effect（声明在 value-sync effect 之后）`scrollIntoView` + `EditorSelection.cursor` 滚到行 / 列。
 
-**笔记交互**：新建走 Notion 式草稿态（标题框 + 空白正文，保存时命名回退链=标题框 → 首个 H1 → 弹窗）；全局 ⌘S / Ctrl+S；右键菜单（重命名 / 在文件夹中打开〔桌面专属 `supportsLocalFileOps` 闸门，复用 `reveal_in_folder`〕/ 删除）；header 文件名点击 inline 改名。**未保存保护**：切换笔记 / 空间 / 新建 / 返回，以及改名 / 移动当前脏笔记时先弹「保存 / 丢弃 / 取消」（`guardNavigation` 通用导航 + `guardEdit` 仅影响打开的脏笔记时拦截）；`openKbId` 跟踪笔记归属 + `handleSave` 闸门 + 协调 effect 防活动空间被换走后存错 KB。
+**笔记交互**：新建走 Notion 式草稿态（标题框 + 空白正文，保存时命名回退链=标题框 → 首个 H1 → 弹窗）；全局 ⌘S / Ctrl+S；右键菜单（重命名 / 在文件夹中打开〔桌面专属 `supportsLocalFileOps` 闸门，复用 `reveal_in_folder`〕/ 删除）；header 文件名点击 inline 改名。知识空间首页不显示返回按钮，主窗口导航统一走侧边栏。**未保存保护**：切换笔记 / 空间 / 新建、侧边栏或标题栏弹出独立窗口、从独立窗口收回、独立窗口原生关闭，以及改名 / 移动当前脏笔记时先弹「保存 / 丢弃 / 取消」（`guardNavigation` 通用导航 + `windowActionRequest` 外部窗口动作桥 + `guardEdit` 仅影响打开的脏笔记时拦截）；`openKbId` 跟踪笔记归属 + `handleSave` 闸门 + 协调 effect 防活动空间被换走后存错 KB。主窗口中的知识空间首次访问后常驻但按 `isViewVisible` 门控可见面副作用；独立窗口以 `{kbId,path}` 传递当前位置，同一时刻只允许一个知识空间窗口。对话来源跳转必须把完整 `KnowledgeFocusTarget`（含行号 / 标题路径 / block）经 `SPACE_WINDOW_NAVIGATE_EVENT` 发给独立 renderer，不能只发主 renderer 的 `window` event 后聚焦独立窗口。
 
 **文件夹 = 真实目录**：索引只存 `.md`，空目录另走 `kb_list_dirs_cmd`（读盘 walk）补进 `buildNoteTree(notes, dirs)`；「新建文件夹」= `kb_mkdir_cmd`（不开草稿）；重命名 / 移动 / 拖拽 = `kb_rename_dir_cmd`（单次 fs rename 整目录 + `reindex_kb` 重对账）；删除 = `kb_delete_dir_cmd`（rm -rf + prune）。笔记拖拽 = `kb_note_rename_cmd`。
 

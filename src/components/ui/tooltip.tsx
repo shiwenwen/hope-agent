@@ -4,6 +4,7 @@ import {
   FLOATING_MENU_RADIX_MOTION_CLASS,
   FLOATING_MENU_SURFACE_CLASS,
 } from "@/components/ui/floating-menu"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 
 const ATTRIBUTE_TOOLTIP_SELECTOR = "[data-ha-title-tip], [data-ha-tip]"
@@ -369,21 +370,25 @@ function hasAccessibleText(node: React.ReactNode): boolean {
 const TooltipContent = React.forwardRef<
   React.ComponentRef<typeof TooltipPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(({ className, sideOffset = 6, ...props }, ref) => (
-  <TooltipPrimitive.Portal>
-    <TooltipPrimitive.Content
-      ref={ref}
-      sideOffset={sideOffset}
-      className={cn(
-        FLOATING_MENU_SURFACE_CLASS,
-        FLOATING_MENU_RADIX_MOTION_CLASS,
-        "z-50 rounded-md px-2.5 py-1 text-xs pointer-events-none [--ha-presence-enter-duration:120ms] [--ha-presence-exit-duration:100ms]",
-        className,
-      )}
-      {...props}
-    />
-  </TooltipPrimitive.Portal>
-))
+>(({ className, sideOffset = 6, ...props }, ref) => {
+  const portalScope = usePortalScope()
+  if (portalScope && !portalScope.active) return null
+  return (
+    <TooltipPrimitive.Portal container={portalScope?.container ?? undefined}>
+      <TooltipPrimitive.Content
+        ref={ref}
+        sideOffset={sideOffset}
+        className={cn(
+          FLOATING_MENU_SURFACE_CLASS,
+          FLOATING_MENU_RADIX_MOTION_CLASS,
+          "z-50 rounded-md px-2.5 py-1 text-xs pointer-events-none [--ha-presence-enter-duration:120ms] [--ha-presence-exit-duration:100ms]",
+          className,
+        )}
+        {...props}
+      />
+    </TooltipPrimitive.Portal>
+  )
+})
 TooltipContent.displayName = TooltipPrimitive.Content.displayName
 
 /** Lightweight wrapper: wraps children in a tooltip. Renders inline to avoid layout shifts. */
