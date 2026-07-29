@@ -47,7 +47,7 @@ Full command list in [AGENTS.md "开发命令"](AGENTS.md#开发命令).
 
 Key contracts (full list in AGENTS.md):
 
-- Core business logic must live in `crates/ha-core/` (**zero Tauri dependency**); `src-tauri/` and `crates/ha-server/` are thin adapters; infrastructure primitives live in `crates/ha-base/`, `AppConfig` wire types in `crates/ha-config-schema/`
+- Core business logic must live in `crates/ha-core/` or a feature crate (e.g. `crates/ha-updater/`, depending on ha-core and wired by the shells via `wire()`; **all zero Tauri dependency**); `src-tauri/` and `crates/ha-server/` are thin adapters; infrastructure primitives live in `crates/ha-base/`, `AppConfig` wire types in `crates/ha-config-schema/`
 - Frontend: React 19 + TypeScript + Tailwind v4 + shadcn/ui
 - Path alias `@/` → `src/`
 - No native logging (`console.log` / `log::info!`); use [`app_info!`](crates/ha-base/src/logging/mod.rs) family macros
@@ -59,8 +59,8 @@ The [`.husky/pre-push`](.husky/pre-push) hook runs these six checks before `git 
 
 ```bash
 cargo fmt --all --check
-cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-server --all-targets --locked -- -D warnings
-cargo test  -p ha-base -p ha-config-schema -p ha-core -p ha-server --locked
+cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-updater -p ha-server --all-targets --locked -- -D warnings
+cargo test  -p ha-base -p ha-config-schema -p ha-core -p ha-updater -p ha-server --locked
 pnpm typecheck
 pnpm lint
 pnpm test

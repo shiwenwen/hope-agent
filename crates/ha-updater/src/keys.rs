@@ -3,7 +3,7 @@
 //! `src-tauri/tauri.conf.json#updater.pubkey` carries the same value in
 //! base64-of-the-full-pubkey-file form so `tauri-plugin-updater` keeps
 //! working in the desktop path. The startup sanity check
-//! [`assert_pubkey_matches_tauri_conf`] (wired from `init_runtime`) refuses
+//! [`assert_pubkey_matches_tauri_conf`] (wired from the desktop shell's `app_setup`) refuses
 //! to boot if the two ever drift — without that gate, a desktop release and
 //! a `hope-agent server` self-update could verify against different keys.
 
@@ -34,14 +34,14 @@ pub fn pubkey() -> Result<PublicKey> {
 }
 
 /// Boot-time guard: refuse to start if `tauri.conf.json#updater.pubkey`
-/// and [`MINISIGN_PUBKEY_BASE64`] have drifted. Called by `init_runtime`;
+/// and [`MINISIGN_PUBKEY_BASE64`] have drifted. Called by src-tauri `app_setup`;
 /// also exposed as a public function so the CI verifier script can replay
 /// the same comparison without spawning a full binary.
 pub fn assert_pubkey_matches_tauri_conf(tauri_conf_pubkey: &str) -> Result<()> {
     if tauri_conf_pubkey.trim() != MINISIGN_PUBKEY_BASE64.trim() {
         bail!(
             "Minisign pubkey drift between tauri.conf.json#updater.pubkey \
-             and ha-core::updater::keys::MINISIGN_PUBKEY_BASE64 — desktop \
+             and ha_updater::keys::MINISIGN_PUBKEY_BASE64 — desktop \
              updater and self-update would verify against different keys. \
              Re-sync both literals (or regenerate the key, then update them \
              together) before booting."

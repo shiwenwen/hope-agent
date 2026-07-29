@@ -22,7 +22,8 @@ export interface DesktopUpdate {
 }
 
 // ─── Auto-update config (shared single source of truth) ─────
-// Mirrors `AppConfig.auto_update` (crates/ha-core/src/updater/config.rs). Read
+// Mirrors `AppConfig.auto_update`（wire 类型在 crates/ha-config-schema/src/updater.rs，
+// 行为侧 crates/ha-updater/src/config.rs）. Read
 // via the `get_auto_update_config` command; cached after first fetch.
 
 export interface AutoUpdateConfig {

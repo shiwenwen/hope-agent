@@ -88,6 +88,11 @@ pub(crate) use shortcuts::toggle_quickchat_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 特征 crate 装配（幂等）。桌面路径已在 main.rs 顶部 wire 过，这里兜底
+    // mobile entry point（`app_lib::run()` 不经 main.rs）——漏 wire 的症状是
+    // `app_update` 有 schema 无 handler + registry_freeze warn。
+    ha_updater::wire();
+
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when
     // the app runs from a different volume than the temp dir that rename fails

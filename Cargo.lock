@@ -3185,7 +3185,6 @@ dependencies = [
  "log",
  "lru",
  "md-5",
- "minisign-verify",
  "native-tls",
  "notify",
  "objc2",
@@ -3227,7 +3226,6 @@ dependencies = [
  "sqlite-vec",
  "sse-stream",
  "sysinfo",
- "tar",
  "teloxide",
  "tempfile",
  "tiny_http",
@@ -3258,6 +3256,7 @@ dependencies = [
  "clap",
  "ha-core",
  "ha-eval-spec",
+ "ha-updater",
  "libc",
  "rand 0.9.2",
  "reqwest 0.12.28",
@@ -3294,6 +3293,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "ha-core",
+ "ha-updater",
  "local-ip-address",
  "mime_guess",
  "reqwest 0.12.28",
@@ -3304,6 +3304,32 @@ dependencies = [
  "tower",
  "tower-http",
  "uuid",
+]
+
+[[package]]
+name = "ha-updater"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "flate2",
+ "futures-util",
+ "ha-base",
+ "ha-config-schema",
+ "ha-core",
+ "libc",
+ "minisign-verify",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tar",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "wiremock",
+ "zip 7.2.0",
 ]
 
 [[package]]
@@ -3425,6 +3451,7 @@ dependencies = [
  "dirs 6.0.0",
  "ha-core",
  "ha-server",
+ "ha-updater",
  "image",
  "libc",
  "log",

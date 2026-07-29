@@ -10,11 +10,11 @@
 //! restart) is intentionally NOT exercised end-to-end — it would
 //! require a real Minisign signing key plus a service-control sandbox.
 //! The signing test lives close to the verifier in
-//! `crates/ha-core/src/updater/signature.rs` (smoke) and the install
+//! `crates/ha-updater/src/signature.rs` (smoke) and the install
 //! pipeline itself is covered by the manual end-to-end matrix in
 //! `docs/architecture/self-update.md`.
 
-use ha_core::updater::manifest::{self, ArchiveKind};
+use ha_updater::manifest::{self, ArchiveKind};
 use std::fs;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -103,7 +103,7 @@ async fn download_to_writes_full_body_on_200() {
     let dir = tempfile::tempdir().unwrap();
     let dest = dir.path().join("archive.bin");
     let url = format!("{}/bin", server.uri());
-    let n = ha_core::updater::download::download_to(&url, &dest, "test_job", "archive")
+    let n = ha_updater::download::download_to(&url, &dest, "test_job", "archive")
         .await
         .unwrap();
     assert_eq!(n, 6);
@@ -131,7 +131,7 @@ async fn download_to_resumes_from_partial_with_range() {
     fs::write(&dest, b"AAA").unwrap();
 
     let url = format!("{}/bin", server.uri());
-    let n = ha_core::updater::download::download_to(&url, &dest, "test_job", "archive")
+    let n = ha_updater::download::download_to(&url, &dest, "test_job", "archive")
         .await
         .unwrap();
     assert_eq!(n, 6, "resume should report full size");

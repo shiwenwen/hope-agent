@@ -7,7 +7,7 @@
 //! and — when `auto_download` is on — silently pre-stages the verified build so
 //! the eventual install is a no-network swap.
 //!
-//! Mirrors the dreaming cron loop ([`crate::memory::dreaming::cron_loop`]):
+//! Mirrors the dreaming cron loop (`ha_core::memory::dreaming` 的 cron loop):
 //! spawned once at startup behind `runtime_lock::is_primary`, re-reads
 //! `cached_config().auto_update` on every wake, and reschedules itself when the
 //! user edits the config (it wakes on `config:changed`).
@@ -48,12 +48,12 @@ fn state() -> &'static Mutex<AutoCheckState> {
 /// that path) and intended to be called only when this process is the runtime
 /// primary.
 pub fn spawn_auto_update_loop() {
-    if crate::app_init::is_desktop() {
+    if ha_core::app_init::is_desktop() {
         return;
     }
 
     let notify = Arc::new(Notify::new());
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let mut rx = bus.subscribe();
         let notify_for_sub = notify.clone();
         // Wake on any config:changed — `mutate_config` emits `{category:"app"}`
@@ -84,7 +84,7 @@ pub fn spawn_auto_update_loop() {
         }
 
         loop {
-            let cfg = crate::config::cached_config().auto_update.clone();
+            let cfg = ha_core::config::cached_config().auto_update.clone();
             if !cfg.check_enabled {
                 // Disabled: sleep until the config changes.
                 notify.notified().await;
@@ -147,7 +147,7 @@ async fn run_check_once(cfg: &AutoUpdateConfig) {
             }
         };
         if fresh {
-            if let Some(bus) = crate::get_event_bus() {
+            if let Some(bus) = ha_core::get_event_bus() {
                 bus.emit(
                     "app_update:available",
                     json!({
@@ -185,7 +185,7 @@ async fn run_check_once(cfg: &AutoUpdateConfig) {
                     "pre-staged {} for instant install",
                     staged_version
                 );
-                if let Some(bus) = crate::get_event_bus() {
+                if let Some(bus) = ha_core::get_event_bus() {
                     bus.emit("app_update:staged", json!({ "version": staged_version }));
                 }
             }

@@ -244,15 +244,13 @@ pub async fn save_notification_config(
 }
 
 #[tauri::command]
-pub async fn get_auto_update_config() -> Result<ha_core::updater::AutoUpdateConfig, CmdError> {
+pub async fn get_auto_update_config() -> Result<ha_updater::AutoUpdateConfig, CmdError> {
     let store = ha_core::config::cached_config();
     Ok(store.auto_update.clone())
 }
 
 #[tauri::command]
-pub async fn set_auto_update_config(
-    config: ha_core::updater::AutoUpdateConfig,
-) -> Result<(), CmdError> {
+pub async fn set_auto_update_config(config: ha_updater::AutoUpdateConfig) -> Result<(), CmdError> {
     ha_core::config::mutate_config_async(("auto_update", "settings-ui"), move |store| {
         store.auto_update = config;
         // Clamp the interval to the supported range on write so the stored

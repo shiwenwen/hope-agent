@@ -25,6 +25,7 @@ const haConfigSchemaCargoTomlPath = path.join(rootDir, "crates", "ha-config-sche
 // (updater extra_binaries) and reports hostVersion from CARGO_PKG_VERSION.
 const browserHostCargoTomlPath = path.join(rootDir, "crates", "ha-browser-host", "Cargo.toml")
 const haEvalCargoTomlPath = path.join(rootDir, "crates", "ha-eval", "Cargo.toml")
+const haUpdaterCargoTomlPath = path.join(rootDir, "crates", "ha-updater", "Cargo.toml")
 
 const args = process.argv.slice(2)
 let expectedTag = null
@@ -88,11 +89,19 @@ if (!haEvalVersionMatch) {
   process.exit(1)
 }
 
+const haUpdaterCargoToml = readFileSync(haUpdaterCargoTomlPath, "utf8")
+const haUpdaterVersionMatch = haUpdaterCargoToml.match(/^version = "(.*)"$/m)
+if (!haUpdaterVersionMatch) {
+  console.error("[release:verify] could not read crates/ha-updater/Cargo.toml version")
+  process.exit(1)
+}
+
 const cargoLock = readFileSync(cargoLockPath, "utf8")
 const cargoLockHopeAgentMatch = cargoLock.match(/name = "hope-agent"\r?\nversion = "(.*)"/)
 const cargoLockHaServerMatch = cargoLock.match(/name = "ha-server"\r?\nversion = "(.*)"/)
 const cargoLockHaCoreMatch = cargoLock.match(/name = "ha-core"\r?\nversion = "(.*)"/)
 const cargoLockHaEvalMatch = cargoLock.match(/name = "ha-eval"\r?\nversion = "(.*)"/)
+const cargoLockHaUpdaterMatch = cargoLock.match(/name = "ha-updater"\r?\nversion = "(.*)"/)
 const cargoLockHaBaseMatch = cargoLock.match(/name = "ha-base"\r?\nversion = "(.*)"/)
 const cargoLockHaConfigSchemaMatch = cargoLock.match(
   /name = "ha-config-schema"\r?\nversion = "(.*)"/,
@@ -138,6 +147,8 @@ const haConfigSchemaLockVersion = cargoLockHaConfigSchemaMatch[1]
 const browserHostVersion = browserHostVersionMatch[1]
 const haEvalVersion = haEvalVersionMatch[1]
 const haEvalLockVersion = cargoLockHaEvalMatch[1]
+const haUpdaterVersion = haUpdaterVersionMatch[1]
+const haUpdaterLockVersion = cargoLockHaUpdaterMatch[1]
 
 const mismatches = [
   ["package.json", packageVersion],
@@ -155,6 +166,8 @@ const mismatches = [
   ["crates/ha-browser-host/Cargo.toml", browserHostVersion],
   ["crates/ha-eval/Cargo.toml", haEvalVersion],
   ["Cargo.lock (ha-eval)", haEvalLockVersion],
+  ["crates/ha-updater/Cargo.toml", haUpdaterVersion],
+  ["Cargo.lock (ha-updater)", haUpdaterLockVersion],
 ].filter(([, value], _, all) => value !== all[0][1])
 
 if (mismatches.length > 0) {
@@ -169,6 +182,8 @@ if (mismatches.length > 0) {
   console.error(`  Cargo.lock (ha-core): ${haCoreLockVersion}`)
   console.error(`  crates/ha-eval/Cargo.toml: ${haEvalVersion}`)
   console.error(`  Cargo.lock (ha-eval): ${haEvalLockVersion}`)
+  console.error(`  crates/ha-updater/Cargo.toml: ${haUpdaterVersion}`)
+  console.error(`  Cargo.lock (ha-updater): ${haUpdaterLockVersion}`)
   process.exit(1)
 }
 

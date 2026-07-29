@@ -121,7 +121,6 @@ pub mod team;
 pub mod tool_actions;
 pub mod tools;
 pub mod turn_durability;
-pub mod updater;
 pub mod url_preview;
 pub mod user_config;
 pub mod verification;

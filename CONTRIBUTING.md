@@ -49,7 +49,7 @@ pnpm tauri dev            # 启动桌面开发模式（前端 + Rust 后端 + �
 
 注意以下契约（详见 AGENTS.md）：
 
-- 核心业务逻辑必须在 `crates/ha-core/`（**零 Tauri 依赖**），`src-tauri/` 和 `crates/ha-server/` 只做适配薄壳；基础设施原语在 `crates/ha-base/`，`AppConfig` 配置 wire 类型在 `crates/ha-config-schema/`
+- 核心业务逻辑必须在 `crates/ha-core/` 或特征 crate（如 `crates/ha-updater/`，依赖 ha-core、壳层 `wire()` 装配；**均零 Tauri 依赖**），`src-tauri/` 和 `crates/ha-server/` 只做适配薄壳；基础设施原语在 `crates/ha-base/`，`AppConfig` 配置 wire 类型在 `crates/ha-config-schema/`
 - 前端用 React 19 + TypeScript + Tailwind v4 + shadcn/ui
 - 文件路径别名 `@/` → `src/`
 - 禁止 `console.log` / `log::info!` 等原生日志，必须用 [`app_info!`](crates/ha-base/src/logging/mod.rs) 系列宏
@@ -61,8 +61,8 @@ pnpm tauri dev            # 启动桌面开发模式（前端 + Rust 后端 + �
 
 ```bash
 cargo fmt --all --check
-cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-server --all-targets --locked -- -D warnings
-cargo test  -p ha-base -p ha-config-schema -p ha-core -p ha-server --locked
+cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-updater -p ha-server --all-targets --locked -- -D warnings
+cargo test  -p ha-base -p ha-config-schema -p ha-core -p ha-updater -p ha-server --locked
 pnpm typecheck
 pnpm lint
 pnpm test

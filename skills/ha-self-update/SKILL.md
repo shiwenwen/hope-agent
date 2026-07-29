@@ -126,6 +126,6 @@ Same Yes/No confirmation as install. The tool restores the most recent backup, r
 ## What this skill cannot do
 
 - **Skip the user confirmation.** `install` and `rollback` always pop the Yes/No dialog. Trying to bypass it would defeat the whole point of HIGH-risk gating.
-- **Change the update endpoint.** `latest.json` lives at the URL hardcoded in `ha_core::updater::manifest::UPDATE_MANIFEST_URL` and pinned by both the desktop bundle and `ha-core/updater/keys.rs` pubkey.
+- **Change the update endpoint.** `latest.json` lives at the URL hardcoded in `ha_updater::manifest::UPDATE_MANIFEST_URL` and pinned by both the desktop bundle and `ha-updater/src/keys.rs` pubkey.
 - **Switch release channels.** Only the stable channel is supported today. Beta/nightly is on the roadmap but not yet wired up.
 - **Restart the desktop app for the user.** After the binary swap completes, the user has to quit and relaunch the desktop GUI themselves — this is intentional so they don't lose in-flight chat state.

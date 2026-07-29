@@ -344,6 +344,7 @@ crates/
   ha-base/           基础设施底层（paths / logging / platform / security）
   ha-config-schema/  AppConfig 配置 wire 类型（纯数据定义）
   ha-core/           Rust 核心库（零 Tauri 依赖）— 所有业务逻辑在这里
+  ha-updater/        自升级特征 crate（依赖 ha-core，壳层 wire() 装配）
   ha-server/         axum HTTP/WS 守护进程（薄壳）
   ha-browser-host/   浏览器辅助进程
   ha-eval-spec/      评测协议（不依赖 ha-core）
@@ -369,7 +370,7 @@ skills/          内置技能（随应用发行）
 ```bash
 pnpm tauri dev                    # 桌面开发
 cargo check --workspace              # Rust 依赖 / 类型检查
-cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-server   # 核心测试
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-updater -p ha-server   # 核心测试
 node scripts/sync-i18n.mjs --check   # 检查翻译缺失
 ```
 

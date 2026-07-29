@@ -111,8 +111,6 @@ jsonwebtoken = "9"
 axum = "0.8"
 prost = "0.14"
 lru = "0.12"
-minisign-verify = { workspace = true }
-tar = "0.4"
 flate2 = "1"
 blake3 = "1.8.5"
 rust-embed = { version = "8", features = ["include-exclude"] }

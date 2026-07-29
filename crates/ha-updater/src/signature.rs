@@ -1,7 +1,7 @@
 //! Minisign signature verification for downloaded update artifacts.
 //!
 //! Reuses the Ed25519 pubkey that `tauri-plugin-updater` already verifies
-//! desktop releases against ([`crate::updater::keys`]) so we don't need a
+//! desktop releases against ([`crate::keys`]) so we don't need a
 //! second key in the secret store. The signature blob format is the same
 //! one tauri-action writes — `signature: <base64-minisign-blob>` inside
 //! `latest.json` for both the desktop installers and the bare-binary

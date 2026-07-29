@@ -344,6 +344,7 @@ crates/
   ha-base/           Infrastructure foundation (paths / logging / platform / security)
   ha-config-schema/  AppConfig wire types (pure data definitions)
   ha-core/           Rust core library (zero Tauri deps) — where the logic lives
+  ha-updater/        Self-update feature crate (depends on ha-core, wired by shells)
   ha-server/         axum HTTP/WS daemon (thin shell)
   ha-browser-host/   Browser helper process
   ha-eval-spec/      Evaluation protocol (no ha-core dependency)
@@ -369,7 +370,7 @@ Common commands:
 ```bash
 pnpm tauri dev                    # desktop dev
 cargo check --workspace              # Rust dep / type check
-cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-server   # core tests
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-updater -p ha-server   # core tests
 node scripts/sync-i18n.mjs --check   # i18n completeness check
 ```
 

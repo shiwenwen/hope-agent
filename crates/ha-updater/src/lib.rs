@@ -4,7 +4,7 @@
 //!
 //! 1. **Desktop bundle** (DMG / MSI / NSIS / AppImage) — keep the existing
 //!    `tauri-plugin-updater` path. The tool layer routes here when
-//!    [`crate::is_desktop`] is true; this module exposes only the manifest
+//!    [`ha_core::is_desktop`] is true; this module exposes only the manifest
 //!    fetch / version compare helpers in that case.
 //! 2. **Package manager** (`brew` / `scoop` / `apt` / `dnf` / `pacman`) —
 //!    detect the install source ([`source_detector`]) and run the matching
@@ -25,11 +25,16 @@
 //!   before it's allowed to overwrite anything. No exceptions, no
 //!   "trust the SHA from the manifest" shortcut — the Minisign pubkey
 //!   is the single root of trust shared with `tauri-plugin-updater`.
-//! - Binary swap goes through [`crate::platform::atomic_replace_binary`].
+//! - Binary swap goes through [`ha_core::platform::atomic_replace_binary`].
 //!   Plain `fs::write` over the live image is forbidden — even on Unix
 //!   where it would "work" it leaves the file half-written if we crash.
 //! - Downloads are byte-capped at [`download::MAX_DOWNLOAD_BYTES`] so a
 //!   tampered manifest can't fill `~/.hope-agent/updater/staging/`.
+
+// `app_info!` 系宏由 ha-base 导出（宏体经 `$crate::` 解析回 ha-base，与
+// 调用方无关）——与 ha-core 同一接法。
+#[macro_use]
+extern crate ha_base;
 
 pub mod auto_check;
 pub mod backup;
@@ -43,11 +48,49 @@ pub mod service_control;
 pub mod signature;
 pub mod source_detector;
 pub mod staging;
+pub mod tool;
 
 use std::sync::{Arc, OnceLock};
 
 use anyhow::Result;
 use async_trait::async_trait;
+
+/// 装配入口：把 `app_update` 工具分发条目挂进 ha-core 注册表，并把 headless
+/// 自动更新循环登记为 init 启动任务。**每个会调 `ha_core::init_runtime` 的
+/// 二进制（`hope-agent` 桌面壳 / `hope-agent-server` / ha-eval runner）必须
+/// 在 init 之前调用一次**——init 尾部冻结注册表，晚了直接 panic（fail-loud，
+/// 静默漏接＝`app_update` 有 schema 无 handler，模型调用报 Unknown tool）。
+/// 幂等，重复调用 no-op。
+pub fn wire() {
+    static WIRED: std::sync::Once = std::sync::Once::new();
+    WIRED.call_once(|| {
+        fn app_update_handler<'a>(
+            args: &'a serde_json::Value,
+            ctx: &'a ha_core::tools::ToolExecContext,
+        ) -> ha_core::tools::registry::BuiltinToolFuture<'a> {
+            Box::pin(tool::tool_app_update(args, ctx))
+        }
+        ha_core::tools::registry::register_external_tools(vec![
+            ha_core::tools::registry::BuiltinToolEntry {
+                name: ha_core::tools::TOOL_APP_UPDATE,
+                aliases: &[],
+                handler: app_update_handler,
+            },
+        ])
+        .expect(
+            "ha_updater::wire() must run before ha_core::init_runtime freezes the tool registry",
+        );
+        // 桌面 no-op 判定在 spawn_auto_update_loop 内部（`is_desktop`）；
+        // Primary 门由消费点保证——startup task 在 `start_background_tasks`
+        // 的 primary-gated 块执行（原 spawn_auto_update_loop 调用位），故
+        // 仅 desktop-GUI / server 形态且 Primary 进程才真正运行 loop，与
+        // 迁移前逐位一致（acp / mcp / eval 注册了也不消费）。
+        ha_core::app_init::register_startup_task(|| {
+            auto_check::spawn_auto_update_loop();
+        })
+        .expect("ha_updater::wire() must run before start_background_tasks consumes startup tasks");
+    });
+}
 
 pub use config::AutoUpdateConfig;
 use serde::Serialize;
@@ -130,7 +173,7 @@ pub async fn check_update_full() -> Result<(CheckOutcome, manifest::Manifest)> {
 }
 
 fn build_check_outcome(manifest: &manifest::Manifest) -> CheckOutcome {
-    let current_version = crate::app_init::app_version().to_string();
+    let current_version = ha_core::app_init::app_version().to_string();
     let latest_version = manifest.version.clone();
     let has_update = manifest::is_newer(&latest_version, &current_version);
     let platform_target = manifest::current_platform_key();
@@ -160,7 +203,7 @@ fn build_check_outcome(manifest: &manifest::Manifest) -> CheckOutcome {
 /// 4. Nothing applies → `ManualPrompt` (the tool layer prompts the user via
 ///    `ask_user_question` to download manually).
 pub fn recommend_path(source: &InstallSource, bare_binary_available: bool) -> RecommendedPath {
-    if crate::app_init::is_desktop() && matches!(source, InstallSource::TauriBundle) {
+    if ha_core::app_init::is_desktop() && matches!(source, InstallSource::TauriBundle) {
         return RecommendedPath::Tauri;
     }
     match source {

@@ -205,6 +205,11 @@ match，而是查表：
 不是一回事**：后者是 `is_internal_tool` 等 ToolDefinition 元数据缓存；本表只管
 「名字 → 执行 handler」。
 
+**首个外部注册者**：`ha-updater` 的 `app_update`（`ha_updater::wire()`，三个壳
+二进制在 `init_runtime` 前调用——src-tauri / hope-agent-server / ha-eval runner）。
+`freeze_now` 的反向守卫对「有 `ToolDefinition` 无 handler」记 warn（症状＝二进制
+忘调某特征 crate 的 `wire()`：schema 照常广告、dispatch 报 Unknown tool）。
+
 **外部注册契约（阶段 3 落地前必须遵守）**：注册 handler 必须同步提供
 `ToolDefinition`（schema / fate 元数据），否则 `resolve_tool_fate` 可见性兜底
 对该工具 no-op（`builtin_fate_error` 对无 definition 的名字返 `None`）——工具

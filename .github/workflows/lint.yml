@@ -38,7 +38,7 @@ jobs:
         run: pnpm test
 
       # Refuse the PR if the Minisign pubkey in `tauri.conf.json` drifts
-      # from the literal embedded in `ha-core/updater/keys.rs` — either
+      # from the literal embedded in `ha-updater/keys.rs` — either
       # one can be edited independently and the resulting self-update path
       # mismatch only surfaces at install time.
       - name: Updater pubkey sync check

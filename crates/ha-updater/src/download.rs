@@ -5,7 +5,7 @@
 //!
 //! - Hard byte ceiling [`MAX_DOWNLOAD_BYTES`] so a tampered manifest can't
 //!   make us stream a multi-GB URL into the user's home directory.
-//! - Proxy resolution via [`crate::provider::apply_proxy_for_url`] so users
+//! - Proxy resolution via [`ha_core::provider::apply_proxy_for_url`] so users
 //!   behind a corporate / system / custom proxy reach the release server.
 //!
 //! EventBus emit is throttled (5% / 1s, whichever fires first) so a multi-MB
@@ -43,7 +43,7 @@ pub const MAX_DOWNLOAD_BYTES: u64 = 256 * 1024 * 1024;
 pub async fn download_text(url: &str) -> Result<String> {
     ssrf_check(url).await?;
     let builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
-    let client = crate::provider::apply_proxy_for_url(builder, url)
+    let client = ha_core::provider::apply_proxy_for_url(builder, url)
         .build()
         .context("reqwest client build failed")?;
     let resp = client
@@ -85,7 +85,7 @@ pub async fn download_to(
     // minutes. The byte ceiling caps the worst case; stalled connections
     // surface as per-read I/O errors and trip the retry loop below.
     let builder = reqwest::Client::builder();
-    let client = crate::provider::apply_proxy_for_url(builder, url)
+    let client = ha_core::provider::apply_proxy_for_url(builder, url)
         .build()
         .context("reqwest client build failed")?;
 
@@ -269,10 +269,10 @@ fn parse_total_from_content_range(v: &str) -> Option<u64> {
 /// ha-core's outbound HTTP and keeps local mirrors / test wiremock
 /// servers usable without explicit trusted-hosts entries.
 async fn ssrf_check(url: &str) -> Result<()> {
-    let ssrf_cfg = &crate::config::cached_config().ssrf;
-    crate::security::ssrf::check_url(
+    let ssrf_cfg = &ha_core::config::cached_config().ssrf;
+    ha_core::security::ssrf::check_url(
         url,
-        crate::security::ssrf::SsrfPolicy::Default,
+        ha_core::security::ssrf::SsrfPolicy::Default,
         &ssrf_cfg.trusted_hosts,
     )
     .await
@@ -281,7 +281,7 @@ async fn ssrf_check(url: &str) -> Result<()> {
 }
 
 fn emit_progress(job_id: &str, label: &str, written: u64, total: Option<u64>, phase: &str) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "app_update:progress",
             json!({

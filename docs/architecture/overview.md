@@ -4,9 +4,9 @@
 
 ## 系统定位
 
-基于 Rust 的本地 AI 助手，支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio。核心设计目标：**一切复杂逻辑在 ha-core**（零 Tauri 依赖），前端只负责展示和交互，Tauri 和 HTTP 服务都是薄壳。
+基于 Rust 的本地 AI 助手，支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio。核心设计目标：**复杂逻辑全部在后端分层 crate**（ha-base 基础设施 ← ha-config-schema 配置 wire 类型 ← ha-core 核心业务 ← 特征 crate（`ha-updater` 起，随 crate 拆分逐个迁出、壳层 `wire()` 装配）——全部零 Tauri 依赖），前端只负责展示和交互，Tauri 和 HTTP 服务都是薄壳。
 
-> 三层架构详细设计见 [前后端分离架构](backend-separation.md)
+> 分层 crate 架构详细设计见 [前后端分离架构](backend-separation.md)
 
 ## 技术栈
 
@@ -16,7 +16,7 @@
 | 前端通信 | Transport 抽象层（Tauri IPC 或 HTTP/WebSocket 双模式） |
 | 桌面 | Tauri 2（薄壳，调用 ha-core） |
 | 服务器 | axum 0.8（HTTP REST API + WebSocket 流式） |
-| 核心 | ha-core（Rust, tokio, reqwest，零 Tauri 依赖） |
+| 核心 | ha-core + 特征 crate（ha-updater 等；Rust, tokio, reqwest，零 Tauri 依赖） |
 | 渲染 | Streamdown + Shiki + KaTeX + Mermaid |
 | 存储 | SQLite (WAL) + FTS5 + vec0 向量扩展 |
 | 多语言 | i18next (12 种语言) |
@@ -81,6 +81,11 @@ graph TD
         Channel & Cron & ACP --> ChatEngine
         LocalLLM -.->|"Provider 注册"| Agent
     end
+
+    subgraph OcUpdater["ha-updater (自升级特征 crate)"]
+        Updater["manifest / 验签 / swap<br/>+ app_update 工具"]
+    end
+    Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
 
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler

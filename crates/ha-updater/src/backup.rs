@@ -28,7 +28,7 @@ const RETAINED_BACKUPS: usize = 2;
 /// overwrites the prior copy (which is fine: the most recent restorable
 /// image is what we care about).
 pub fn store(current_exe: &Path, current_version: &str) -> Result<PathBuf> {
-    let dir = crate::paths::updater_backup_dir(current_version)?;
+    let dir = ha_core::paths::updater_backup_dir(current_version)?;
     fs::create_dir_all(&dir).with_context(|| format!("create backup dir {}", dir.display()))?;
     let dest = dir.join(binary_name());
     fs::copy(current_exe, &dest).with_context(|| {
@@ -45,7 +45,7 @@ pub fn store(current_exe: &Path, current_version: &str) -> Result<PathBuf> {
 /// (sorted by directory mtime). Best-effort — any pruning IO error is
 /// logged but does not fail the upgrade itself.
 pub fn prune() {
-    let root = match crate::paths::updater_dir() {
+    let root = match ha_core::paths::updater_dir() {
         Ok(p) => p.join("backup"),
         Err(_) => return,
     };
@@ -83,7 +83,7 @@ pub fn prune() {
 
 /// Most-recent backup binary path, if any. Used by `app_update rollback`.
 pub fn most_recent() -> Option<PathBuf> {
-    let root = crate::paths::updater_dir().ok()?.join("backup");
+    let root = ha_core::paths::updater_dir().ok()?.join("backup");
     if !root.is_dir() {
         return None;
     }

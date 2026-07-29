@@ -368,7 +368,7 @@ pub fn is_cross_device_rename(err: &std::io::Error) -> bool {
 
 /// Atomically replace the executable at `target` with the one at `source`.
 ///
-/// Used by `ha_core::updater` to swap in a freshly-downloaded `hope-agent`
+/// Used by `ha_updater` to swap in a freshly-downloaded `hope-agent`
 /// binary without taking a stop-the-world window. The Unix path relies on
 /// `rename(2)` mutating the directory entry (the running process keeps its
 /// open inode); the Windows path renames the in-use binary aside then

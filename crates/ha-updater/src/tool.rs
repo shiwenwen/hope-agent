@@ -25,9 +25,9 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::updater::{self, source_detector::InstallSource, RecommendedPath};
+use crate::{self as updater, source_detector::InstallSource, RecommendedPath};
 
-use super::ToolExecContext;
+use ha_core::tools::ToolExecContext;
 
 #[derive(Debug, Clone, Serialize)]
 struct InstallJobState {
@@ -286,7 +286,7 @@ async fn action_rollback(args: &Value, ctx: &ToolExecContext) -> Result<String> 
             "default_values": ["cancel"]
         }]
     });
-    let raw_answer = super::ask_user_question::execute(&ask_args, Some(session_id)).await;
+    let raw_answer = ha_core::tools::ask_user_question::execute(&ask_args, Some(session_id)).await;
     if !is_confirm(&raw_answer) {
         return Ok(json!({
             "status": "cancelled_by_user",
@@ -321,7 +321,7 @@ fn path_label(path: RecommendedPath) -> &'static str {
 }
 
 fn ask_i18n(key: &str, params: Value, fallback: impl Into<String>) -> Value {
-    super::ask_user_question::i18n_text(key, params, fallback)
+    ha_core::tools::ask_user_question::i18n_text(key, params, fallback)
 }
 
 async fn ask_install_confirmation(
@@ -354,7 +354,7 @@ async fn ask_install_confirmation(
     let notes_line = snapshot
         .notes
         .as_deref()
-        .map(|n| format!("\n\n{}", crate::truncate_utf8(n, 512)))
+        .map(|n| format!("\n\n{}", ha_core::truncate_utf8(n, 512)))
         .unwrap_or_default();
     let text = format!(
         "Upgrade Hope Agent {} → {}?\n{}{}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
@@ -417,7 +417,7 @@ async fn ask_install_confirmation(
             "default_values": ["cancel"]
         }]
     });
-    let raw = super::ask_user_question::execute(&ask_args, Some(session_id)).await;
+    let raw = ha_core::tools::ask_user_question::execute(&ask_args, Some(session_id)).await;
     Ok(is_confirm(&raw))
 }
 
@@ -543,7 +543,7 @@ async fn prompt_manual_install(
             }]
         })
     };
-    let raw = super::ask_user_question::execute(&ask_args, Some(session_id)).await;
+    let raw = ha_core::tools::ask_user_question::execute(&ask_args, Some(session_id)).await;
     Ok(json!({
         "status": "manual_prompt_emitted",
         "user_response": raw,
@@ -602,7 +602,7 @@ async fn run_self_contained(
 async fn run_tauri_bridge(job_id: &str) -> Result<Value> {
     let bridge = updater::get_updater_bridge().ok_or_else(|| {
         anyhow::anyhow!(
-            "Tauri path requested but no updater bridge registered — call `updater::set_updater_bridge` from src-tauri startup"
+            "Tauri path requested but no updater bridge registered — call `ha_updater::set_updater_bridge` from src-tauri startup"
         )
     })?;
     updater::self_contained::emit_phase(job_id, updater::self_contained::Phase::Downloading);
@@ -619,7 +619,7 @@ async fn run_package_manager(job_id: &str) -> Result<Value> {
         anyhow::bail!(
             "package manager upgrade failed: {}\nstderr: {}",
             outcome.command,
-            crate::truncate_utf8(&outcome.stderr, 1024)
+            ha_core::truncate_utf8(&outcome.stderr, 1024)
         );
     }
     updater::self_contained::emit_phase(job_id, updater::self_contained::Phase::Restarting);
@@ -628,8 +628,8 @@ async fn run_package_manager(job_id: &str) -> Result<Value> {
     Ok(json!({
         "path": "package_manager",
         "command": outcome.command,
-        "stdout": crate::truncate_utf8(&outcome.stdout, 4096),
-        "stderr": crate::truncate_utf8(&outcome.stderr, 4096),
+        "stdout": ha_core::truncate_utf8(&outcome.stdout, 4096),
+        "stderr": ha_core::truncate_utf8(&outcome.stderr, 4096),
         "service_restart": restart,
     }))
 }
@@ -652,7 +652,7 @@ fn finalize_ok(job_id: &str, outcome: Value) {
         }
         prune_completed_locked(&mut g, now);
     }
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "app_update:completed",
             json!({"job_id": job_id, "status": "done", "outcome": outcome}),
@@ -672,7 +672,7 @@ fn finalize_failed(job_id: &str, err: String) {
         prune_completed_locked(&mut g, now);
     }
     app_warn!("self_update", "install", "job {} failed: {}", job_id, err);
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "app_update:completed",
             json!({"job_id": job_id, "status": "failed", "error": err}),

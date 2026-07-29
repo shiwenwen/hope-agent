@@ -31,6 +31,7 @@ brotli = "8"
 
 [dependencies]
 ha-core = { path = "../ha-core" }
+ha-updater = { path = "../ha-updater" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

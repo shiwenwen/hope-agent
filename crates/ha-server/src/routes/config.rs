@@ -612,15 +612,14 @@ pub async fn save_notification_config(
 // ── Auto-update Config ──────────────────────────────────────────
 
 /// `GET /api/config/auto-update` -- get auto-update config.
-pub async fn get_auto_update_config() -> Result<Json<ha_core::updater::AutoUpdateConfig>, AppError>
-{
+pub async fn get_auto_update_config() -> Result<Json<ha_updater::AutoUpdateConfig>, AppError> {
     let store = ha_core::config::cached_config();
     Ok(Json(store.auto_update.clone()))
 }
 
 /// `PUT /api/config/auto-update` -- save auto-update config (interval clamped).
 pub async fn set_auto_update_config(
-    Json(body): Json<ConfigBody<ha_core::updater::AutoUpdateConfig>>,
+    Json(body): Json<ConfigBody<ha_updater::AutoUpdateConfig>>,
 ) -> Result<Json<Value>, AppError> {
     ha_core::config::mutate_config_async(("auto_update", "http"), move |store| {
         store.auto_update = body.config;

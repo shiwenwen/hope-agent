@@ -11,7 +11,7 @@ Backup / Autosave 是**配置安全网**：它不持有任何业务数据，只�
 
 两套机制全部落在 `~/.hope-agent/` 下、全部以"失败永不阻塞合法写"为铁律实现，所有逻辑集中在 ha-core 的 `backup.rs`（零 Tauri 依赖），桌面 / server 只做薄壳转发。
 
-> **勿混淆**：self-update 子系统另有一个完全独立的 [`updater/backup.rs`](../../crates/ha-core/src/updater/backup.rs)，负责 bare-binary 的 store / prune / restore，与本文的配置备份**毫无关系**。见 [自升级](self-update.md)。
+> **勿混淆**：self-update 子系统另有一个完全独立的 [`ha-updater/src/backup.rs`](../../crates/ha-updater/src/backup.rs)，负责 bare-binary 的 store / prune / restore，与本文的配置备份**毫无关系**。见 [自升级](self-update.md)。
 
 ## 子系统定位与两套备份分工
 
@@ -142,7 +142,7 @@ autosave 文件名带毫秒（`%3f`），避免同一秒内多次写盘碰撞；
 - **guardian.enabled 刻意绕过 mutate_config**：它是 `AppConfig` schema 之外的 raw JSON 字段，故意直接读写，但写前仍手动 `scope_save_reason` + `snapshot_before_write` 守 rollback 契约——**不要把它塞回 `mutate_config`**。
 - **预算分离有意为之**：`MAX_BACKUPS` / `MAX_AUTOSAVES` 各算各的，防一阵设置编辑的 autosave 洪水把最后一次用户手动全量备份挤掉。
 - **轮转依赖时间序前缀**：轮转判"最旧"靠文件名 / 目录名字典序 == 时间序（时间戳前缀），改时间戳格式会破坏这一前提。
-- **与 updater 备份隔离**：[`updater/backup.rs`](../../crates/ha-core/src/updater/backup.rs)（self-update 的 bare-binary store / most_recent / prune / restore）是另一个完全独立的模块，与本配置备份子系统无关，勿混淆。
+- **与 updater 备份隔离**：[`ha-updater/src/backup.rs`](../../crates/ha-updater/src/backup.rs)（self-update 的 bare-binary store / most_recent / prune / restore）是另一个完全独立的模块，与本配置备份子系统无关，勿混淆。
 
 ## 与相邻子系统的关系
 
@@ -151,7 +151,7 @@ autosave 文件名带毫秒（`%3f`），避免同一秒内多次写盘碰撞；
 | [配置系统](config-system.md) | `mutate_config` 写盘前经 `snapshot_before_write` 落旧文件；`scope_save_reason` 提供 `(category, source)` 人类可读标签；回滚经 `reload_cache_from_disk` + `config:changed` 生效 |
 | [可靠性 / 崩溃恢复](reliability.md) | `guardian::run_recovery` 崩溃阈值命中调 `create_backup`；`self_diagnosis::try_restore_config_from_backup` 用最新全量备份自愈损坏 config |
 | [工具系统](tool-system.md) | `list_settings_backups` / `restore_settings_backup` 作 `Standard` tier `internal` 工具，主 Agent 默认加载（`default_deferred: true`，延迟加载模式下为 `tool_search` 可发现的 deferred 候选） |
-| [自升级](self-update.md) | 独立的 `updater/backup.rs` 负责 binary 备份，与本子系统无关 |
+| [自升级](self-update.md) | 独立的 `ha-updater/src/backup.rs` 负责 binary 备份，与本子系统无关 |
 | `ha-settings` 技能 | SKILL.md 登记 autosave 自动快照说明 + 两个 settings-backup 工具用法 + "Rollback is built-in" 指引 |
 
 ## 关键文件索引

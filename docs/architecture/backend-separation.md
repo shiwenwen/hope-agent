@@ -17,14 +17,18 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
+        HA_UPDATER["ha-updater<br/>(自升级特征 crate)<br/>manifest · 验签 · swap · app_update 工具"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
     end
 
     HA_TAURI -->|"依赖"| HA_SERVER
+    HA_TAURI -->|"依赖 + wire()"| HA_UPDATER
     HA_TAURI -->|"依赖"| HA_CORE
+    HA_SERVER -->|"依赖 + wire()"| HA_UPDATER
     HA_SERVER -->|"依赖"| HA_CORE
+    HA_UPDATER -->|"依赖"| HA_CORE
     HA_CORE -->|"依赖"| HA_SCHEMA
     HA_CORE -->|"依赖"| HA_BASE
     HA_SCHEMA -->|"依赖"| HA_BASE
@@ -33,7 +37,7 @@ graph TD
 
 **三条铁律**：
 
-1. `ha-core` / `ha-config-schema` / `ha-base` 的 `Cargo.toml` 禁止出现 `tauri` 或 Tauri 插件依赖。
+1. `ha-core` / `ha-config-schema` / `ha-base` 与全部特征 crate（`ha-updater` 起）的 `Cargo.toml` 禁止出现 `tauri` 或 Tauri 插件依赖。
 2. `ha-base` 禁止依赖任何 `ha-*` 业务 crate。需要上层数据时**留注册钩子**，
    由 `ha-core` 在 `init_runtime()` 早期注入（见下方 ha-base 小节）。
 3. `ha-config-schema` 只放数据定义（类型 + 自包含 impl + serde helper），
@@ -147,6 +151,21 @@ globals.rs         OnceLock 全局 + AppState（logger / LogDB 全局已下沉 h
 guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
+
+### ha-updater（自升级特征 crate）
+
+首个自 ha-core 迁出的特征 crate（crate 拆分阶段 3）。持有自升级全部行为：
+manifest 检查 / 签名校验（Minisign 信任根 `keys.rs`，CODEOWNERS 强制评审）/
+下载续传 / atomic swap / 服务重启 / `app_update` 工具 adapter（`tool.rs`）。
+
+- **依赖方向**：ha-updater → ha-core（借用 tools registry / config / EventBus /
+  ask_user）；ha-core **不知道** ha-updater 存在。
+- **装配**：壳层二进制在 `init_runtime` 前调 `ha_updater::wire()`——经
+  `register_external_tools` 挂 `app_update` 分发条目、经 `register_startup_task`
+  登记 headless 自动更新循环。`app_update` 的 `ToolDefinition` 仍在 ha-core
+  （schema 目录阶段 4 才动），漏 wire 由 `registry_freeze` warn 兜底。
+- 红线见 [self-update](self-update.md)（验签 / pubkey 双处一致 / 用户确认 /
+  零 Tauri——桌面路径经 `UpdaterBridge` 反向注册）。
 
 ### ha-server（HTTP/WS 服务）
 

@@ -1,7 +1,7 @@
 //! Auto-update configuration (`AppConfig.auto_update`).
 //!
 //! 类型定义已下沉 [`ha_config_schema::updater`]，此处原地再导出保持
-//! `crate::updater::config::*` 路径不变；测试留在本 crate。
+//! `crate::config::*` 路径不变；测试留在本 crate。
 
 pub use ha_config_schema::updater::{
     AutoUpdateConfig, MAX_CHECK_INTERVAL_HOURS, MIN_CHECK_INTERVAL_HOURS,

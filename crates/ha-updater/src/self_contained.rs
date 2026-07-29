@@ -14,7 +14,7 @@
 //! 5. Extract the named binary out of the archive.
 //! 6. Back the current binary up under `~/.hope-agent/updater/backup/<old>/`.
 //! 7. Atomically swap the new binary into place via
-//!    [`crate::platform::atomic_replace_binary`].
+//!    [`ha_core::platform::atomic_replace_binary`].
 //! 8. Trigger `service restart` via [`super::service_control`].
 //! 9. Prune backups so disk usage stays bounded.
 
@@ -71,7 +71,7 @@ impl Phase {
 }
 
 pub fn emit_phase(job_id: &str, phase: Phase) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "app_update:progress",
             serde_json::json!({
@@ -110,7 +110,7 @@ async fn download_and_extract(
     preloaded_manifest: Option<Manifest>,
 ) -> Result<StagedBuild> {
     emit_phase(job_id, Phase::Checking);
-    let from_version = crate::app_init::app_version().to_string();
+    let from_version = ha_core::app_init::app_version().to_string();
 
     let manifest = match preloaded_manifest {
         Some(m) => m,
@@ -137,7 +137,7 @@ async fn download_and_extract(
     // Drop staging dirs for other versions before we (re)stage this one.
     super::staging::prune(Some(&to_version));
 
-    let staging = crate::paths::updater_staging_dir(&to_version)?;
+    let staging = ha_core::paths::updater_staging_dir(&to_version)?;
     fs::create_dir_all(&staging)
         .with_context(|| format!("create staging dir {}", staging.display()))?;
 
@@ -243,7 +243,7 @@ pub async fn install(
     backup::store(&current_exe, &from_version)?;
 
     emit_phase(job_id, Phase::Swapping);
-    crate::platform::atomic_replace_binary(&current_exe, &extracted).with_context(|| {
+    ha_core::platform::atomic_replace_binary(&current_exe, &extracted).with_context(|| {
         format!(
             "atomic swap {} → {}",
             extracted.display(),
@@ -263,7 +263,7 @@ pub async fn install(
             "new binary failed smoke test: {e}; rolling back"
         );
         if let Some(backup_path) = backup::most_recent() {
-            if let Err(re) = crate::platform::atomic_replace_binary(&current_exe, &backup_path) {
+            if let Err(re) = ha_core::platform::atomic_replace_binary(&current_exe, &backup_path) {
                 anyhow::bail!(
                     "new binary failed smoke test ({e}) AND rollback failed ({re}) — \
                      manual recovery required: restore {} from {}",
@@ -287,7 +287,7 @@ pub async fn install(
     if let Some(exe_dir) = current_exe.parent() {
         for (file_name, staged_path) in &extras {
             let target = exe_dir.join(file_name);
-            match crate::platform::atomic_replace_binary(&target, staged_path) {
+            match ha_core::platform::atomic_replace_binary(&target, staged_path) {
                 Ok(()) => extra_binaries_swapped += 1,
                 Err(e) => {
                     app_warn!(
@@ -334,7 +334,7 @@ async fn smoke_test(exe: &Path, expected_version: &str) -> Result<()> {
     use std::time::Duration;
     let mut cmd = tokio::process::Command::new(exe);
     cmd.arg("--version");
-    crate::platform::hide_console_tokio(&mut cmd);
+    ha_core::platform::hide_console_tokio(&mut cmd);
     let output = tokio::time::timeout(Duration::from_secs(5), cmd.output())
         .await
         .context("smoke test `--version` timed out after 5s")?
@@ -396,13 +396,13 @@ fn semver_core(s: &str) -> String {
 pub fn rollback(job_id: &str) -> Result<InstallOutcome> {
     emit_phase(job_id, Phase::Staging);
     let current_exe = std::env::current_exe().context("resolve current_exe")?;
-    let from_version = crate::app_init::app_version().to_string();
+    let from_version = ha_core::app_init::app_version().to_string();
     let backup_path = backup::most_recent().ok_or_else(|| {
         anyhow::anyhow!("no backup binary found under ~/.hope-agent/updater/backup/")
     })?;
 
     emit_phase(job_id, Phase::Swapping);
-    crate::platform::atomic_replace_binary(&current_exe, &backup_path)?;
+    ha_core::platform::atomic_replace_binary(&current_exe, &backup_path)?;
     warn_sibling_skew_after_rollback();
 
     emit_phase(job_id, Phase::Restarting);

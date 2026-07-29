@@ -20,7 +20,7 @@
 | 文档                                            | 说明                                                                                     |
 | --------------------------------------------- | -------------------------------------------------------------------------------------- |
 | [系统架构总览](architecture/overview.md)            | 技术栈、架构全景图、核心数据流、模块依赖、存储架构                                                              |
-| [前后端分离架构](architecture/backend-separation.md) | 三层架构设计（核心库/HTTP 服务/桌面壳）、运行模式、EventBus、Transport 层、Guardian 保活、HTTP API 端点、初始化流程、多客户端支持 |
+| [前后端分离架构](architecture/backend-separation.md) | 分层 crate 架构（ha-base / ha-config-schema / ha-core / 特征 crate / 薄壳）、运行模式、EventBus、Transport 层、Guardian 保活、HTTP API 端点、初始化流程、多客户端支持 |
 | [Transport 运行模式](architecture/transport-modes.md) | Tauri / HTTP / ACP 三种入口、Transport 方法差异、chat streaming 路径、EventBus 事件目录 |
 | [命令行接口（CLI）](architecture/cli.md)         | `hope-agent` 二进制运行模式（桌面 / server / knowledge-mcp / acp / auth）的子命令、参数、退出码、环境变量、数据目录速查 |
 | [进程与并发模型](architecture/process-model.md)      | 四层进程清单：二进制运行模式 · 独立 OS 线程 · 长驻 tokio 任务 · 动态子进程；Guardian 父子协议、退出路径、排查指引 |
@@ -129,7 +129,7 @@
 | [安全子系统](architecture/security.md)         | SSRF 三档 policy、`trusted_hosts`、Metadata IP 硬拒、Dangerous Mode (YOLO)、HTTP 响应封顶 | `security/`             |
 | [跨平台抽象层](architecture/platform.md)       | OS 适配入口集合（进程组 kill、安全文件写、shell 命令、系统代理探测、Chrome 定位、advisory lock、GPU 探测、原子 binary swap 等）、Unix/Windows 双实现 | `platform/`             |
 | [系统权限（macOS TCC）](architecture/macos-permissions.md) | TCC 权限探测/请求（辅助功能/录屏/自动化/麦克风/相机/文件夹）、catalog 元数据、按 id 派发原生 prompt 或设置跳转、跨平台 cfg 桩 | `permissions.rs`        |
-| [自升级](architecture/self-update.md)        | 三档路径（Tauri bundle / 包管理器 / 自包含 binary swap）、Minisign 单一 pubkey、`app_update` 工具 + `ha-self-update` skill、bare-binary 发布产物 | `updater/`, `tools/app_update.rs`, `src-tauri/src/commands/update_bridge.rs` |
+| [自升级](architecture/self-update.md)        | 三档路径（Tauri bundle / 包管理器 / 自包含 binary swap）、Minisign 单一 pubkey、`app_update` 工具 + `ha-self-update` skill、bare-binary 发布产物 | `crates/ha-updater/`, `src-tauri/src/commands/update_bridge.rs` |
 
 
 ## 平台支持

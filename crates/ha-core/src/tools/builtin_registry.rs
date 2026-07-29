@@ -96,7 +96,6 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_LOOP_RECORD_PROGRESS, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::loop_tool::tool_loop_record_progress(args, ctx).await)) },
         BuiltinToolEntry { name: super::TOOL_LOOP_WATCH, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::loop_tool::tool_loop_watch(args, ctx).await)) },
         BuiltinToolEntry { name: super::TOOL_LOOP_UNWATCH, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::loop_tool::tool_loop_unwatch(args, ctx).await)) },
-        BuiltinToolEntry { name: super::TOOL_APP_UPDATE, aliases: &[], handler: tool_handler!(|args, ctx| super::app_update::tool_app_update(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_JOB_STATUS, aliases: &[], handler: tool_handler!(|args, ctx| super::job_status::tool_job_status(args, ctx.session_id.as_deref()).await) },
         BuiltinToolEntry { name: super::TOOL_SCHEDULE_WAKEUP, aliases: &[], handler: tool_handler!(|args, ctx| super::schedule_wakeup::tool_schedule_wakeup(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_RUNTIME_CANCEL, aliases: &[], handler: tool_handler!(|args, ctx| super::runtime_cancel::tool_runtime_cancel(args).await) },

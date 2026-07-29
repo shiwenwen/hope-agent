@@ -1,5 +1,5 @@
 //! Desktop bridge wiring `tauri-plugin-updater` into
-//! `ha_core::updater::UpdaterBridge`.
+//! `ha_updater::UpdaterBridge`.
 //!
 //! Registered at startup ([`super::super::setup`]) so the `app_update`
 //! tool transparently routes desktop installs through the same signed
@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ha_core::updater::UpdaterBridge;
+use ha_updater::UpdaterBridge;
 use serde_json::json;
 use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
@@ -88,5 +88,5 @@ impl UpdaterBridge for TauriUpdaterBridge {
 /// Install the bridge into the global registry. Idempotent.
 pub fn register(handle: AppHandle) {
     let bridge: Arc<dyn UpdaterBridge> = Arc::new(TauriUpdaterBridge::new(handle));
-    ha_core::updater::set_updater_bridge(bridge);
+    ha_updater::set_updater_bridge(bridge);
 }

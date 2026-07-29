@@ -71,7 +71,9 @@ const FEATURES = {
   "ha-design": ["design", "ffmpeg", "canvas_db", "tools::design", "tools::canvas"],
   "ha-artifacts": ["artifacts", "tools::artifact"],
   "ha-mcp": ["mcp", "mcp_server"],
-  "ha-updater": ["updater", "tools::app_update"],
+  // ha-updater：阶段 3 首个特征 crate，已实际迁出（crates/ha-updater/），
+  // 不再是 ha-core 内的分组。已拆出的 crate 一律从本表删除——留着会以
+  // LOC 0 的幽灵行出现在报表里。
   "ha-vcs": ["git_control", "worktree", "project_bootstrap", "sandbox", "docker"],
   "ha-improve": [
     "coding_improvement",

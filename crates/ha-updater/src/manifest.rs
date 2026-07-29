@@ -89,17 +89,17 @@ pub async fn fetch_manifest_from(url: &str) -> Result<Manifest> {
     // the connection. `Default` policy blocks private / link-local /
     // metadata IPs (the real SSRF concerns) but still allows loopback so
     // local mirrors / test wiremock servers work without ceremony.
-    let ssrf_cfg = &crate::config::cached_config().ssrf;
-    crate::security::ssrf::check_url(
+    let ssrf_cfg = &ha_core::config::cached_config().ssrf;
+    ha_core::security::ssrf::check_url(
         url,
-        crate::security::ssrf::SsrfPolicy::Default,
+        ha_core::security::ssrf::SsrfPolicy::Default,
         &ssrf_cfg.trusted_hosts,
     )
     .await
     .with_context(|| format!("SSRF check failed for manifest URL {url}"))?;
     let builder =
         reqwest::Client::builder().timeout(Duration::from_secs(MANIFEST_FETCH_TIMEOUT_SECS));
-    let client = crate::provider::apply_proxy_for_url(builder, url)
+    let client = ha_core::provider::apply_proxy_for_url(builder, url)
         .build()
         .context("reqwest client build failed")?;
     let resp = client
@@ -117,7 +117,7 @@ pub async fn fetch_manifest_from(url: &str) -> Result<Manifest> {
         .with_context(|| format!("read manifest body from {url}"))?;
     serde_json::from_slice(&bytes).with_context(|| {
         let preview = String::from_utf8_lossy(&bytes);
-        let head = crate::truncate_utf8(&preview, 256);
+        let head = ha_core::truncate_utf8(&preview, 256);
         format!("parse manifest JSON ({head})")
     })
 }

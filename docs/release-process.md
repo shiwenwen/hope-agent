@@ -36,7 +36,7 @@ PR (含 release notes + CHANGELOG + version bump)
 
 ### 0.4 版本号单一来源
 
-`package.json` 是版本号唯一真相源，[scripts/sync-version.mjs](../scripts/sync-version.mjs) 把它同步到 [src-tauri/Cargo.toml](../src-tauri/Cargo.toml)、[src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json)、`ha-base`、`ha-config-schema`、`ha-core`、`ha-server`、`ha-browser-host`、`ha-eval` 及 `Cargo.lock`。CI 入口 [scripts/verify-release-version.mjs](../scripts/verify-release-version.mjs) 在 tag 触发后校验所有产品版本来源一致且与 tag 名匹配。
+`package.json` 是版本号唯一真相源，[scripts/sync-version.mjs](../scripts/sync-version.mjs) 把它同步到 [src-tauri/Cargo.toml](../src-tauri/Cargo.toml)、[src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json)、`ha-base`、`ha-config-schema`、`ha-core`、`ha-updater`、`ha-server`、`ha-browser-host`、`ha-eval` 及 `Cargo.lock`。CI 入口 [scripts/verify-release-version.mjs](../scripts/verify-release-version.mjs) 在 tag 触发后校验所有产品版本来源一致且与 tag 名匹配。
 
 ### 0.5 macOS 代码签名
 

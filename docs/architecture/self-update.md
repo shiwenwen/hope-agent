@@ -1,20 +1,28 @@
 # 自升级（Self-Update）
 
-> 关联源码：[`crates/ha-core/src/updater/`](../../crates/ha-core/src/updater) · [`crates/ha-core/src/tools/app_update.rs`](../../crates/ha-core/src/tools/app_update.rs) · [`crates/ha-core/src/tools/definitions/update_tools.rs`](../../crates/ha-core/src/tools/definitions/update_tools.rs) · [`crates/ha-base/src/platform/`](../../crates/ha-base/src/platform) · [`src-tauri/src/commands/update_bridge.rs`](../../src-tauri/src/commands/update_bridge.rs) · [`skills/ha-self-update/SKILL.md`](../../skills/ha-self-update/SKILL.md)
+> 关联源码：[`crates/ha-updater/src/`](../../crates/ha-updater/src) · [`crates/ha-updater/src/tool.rs`](../../crates/ha-updater/src/tool.rs) · [`crates/ha-core/src/tools/definitions/update_tools.rs`](../../crates/ha-core/src/tools/definitions/update_tools.rs) · [`crates/ha-base/src/platform/`](../../crates/ha-base/src/platform) · [`src-tauri/src/commands/update_bridge.rs`](../../src-tauri/src/commands/update_bridge.rs) · [`skills/ha-self-update/SKILL.md`](../../skills/ha-self-update/SKILL.md)
 
 ## 目的
 
 Hope Agent 是单 binary 多形态产品（桌面 GUI / `hope-agent server` 守护进程 / `hope-agent acp`），首装渠道多（DMG / MSI / NSIS / AppImage / Homebrew cask / Scoop / AUR / 自建 apt+dnf repo）。自升级子系统让模型在任意形态下，按对话指令完成「检查 → 确认 → 下载 → 校验 → 替换 → 重启」全流程；不可恢复时通过 `ask_user_question` 让用户在对话里选路径。
 
+## Crate 边界与装配（阶段 3 起）
+
+自升级是**独立特征 crate `ha-updater`**（首个自 ha-core 迁出的特征，依赖 ha-core，零 Tauri 依赖）。装配契约：
+
+- **每个调 `ha_core::init_runtime` 的二进制必须先调 [`ha_updater::wire()`](../../crates/ha-updater/src/lib.rs)**（当前三处：`src-tauri/src/main.rs`、`crates/ha-server/src/bin/hope-agent.rs`、`crates/ha-eval/src/adapters.rs`）。`wire()` 做两件事：把 `app_update` 分发条目经 `register_external_tools` 挂进工具注册表（init 尾部冻结，晚了 panic）；把 `auto_check::spawn_auto_update_loop` 登记为 `register_startup_task` 启动任务（在 init 原时序点执行）。幂等。
+- **漏接的症状与兜底**：`app_update` 的 `ToolDefinition` 留在 ha-core（`definitions/update_tools.rs`），漏 wire 时 schema 照常广告、dispatch 报 Unknown tool——`freeze_now` 对「有 definition 无 handler」记 `registry_freeze` warn（启动期信号，见 [tool-system](tool-system.md)）。
+- `AutoUpdateConfig` wire 类型在 ha-config-schema（`AppConfig.auto_update`），`ha_updater::AutoUpdateConfig` 再导出；`ha-settings` 读写分支留在 ha-core（只碰 config，不碰 updater 行为）。
+
 ## 三档升级路径
 
-`ha_core::updater::recommend_path` 在 [`crates/ha-core/src/updater/mod.rs`](../../crates/ha-core/src/updater/mod.rs) 按运行形态 + install source 路由：
+`ha_updater::recommend_path` 在 [`crates/ha-updater/src/lib.rs`](../../crates/ha-updater/src/lib.rs) 按运行形态 + install source 路由：
 
 | 路径               | 触发条件                                                 | 实现层                                                                                                                    |
 | ------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `Tauri`            | `is_desktop() && InstallSource::TauriBundle` 且 bridge 已注册 | `src-tauri/src/commands/update_bridge.rs` 调 [`tauri-plugin-updater`](https://github.com/tauri-apps/plugins-workspace)；未注册时降级 `SelfContained` |
-| `PackageManager`   | install source ∈ {brew, scoop, aur, apt, dnf}             | [`package_manager::upgrade`](../../crates/ha-core/src/updater/package_manager.rs) 执行渠道命令；命令模板固定，无 shell 拼接 |
-| `SelfContained`    | 装法不可识别 + manifest 提供 bare-binary archive          | [`self_contained::install`](../../crates/ha-core/src/updater/self_contained.rs) 下载 → minisign 校验 → atomic swap → restart |
+| `PackageManager`   | install source ∈ {brew, scoop, aur, apt, dnf}             | [`package_manager::upgrade`](../../crates/ha-updater/src/package_manager.rs) 执行渠道命令；命令模板固定，无 shell 拼接 |
+| `SelfContained`    | 装法不可识别 + manifest 提供 bare-binary archive          | [`self_contained::install`](../../crates/ha-updater/src/self_contained.rs) 下载 → minisign 校验 → atomic swap → restart |
 | `ManualPrompt` (Docker) | `InstallSource::Docker`（`HA_DEPLOYMENT=docker` env，Docker 镜像 `ENV` 烧死） | `app_update` 工具用 Docker 专属 `ask_user_question` 文案引导 `docker pull ghcr.io/.../hope-agent:vX.Y.Z`；**永远**走 manual prompt 而不是 binary swap —— 容器内 binary swap 会被下次 `docker pull` 覆盖 |
 | `ManualPrompt` (其它) | 其它三档都不适用                                       | `app_update` 工具调 `ask_user_question` 让用户选 (open releases / force self_contained / abort)                          |
 
@@ -22,30 +30,30 @@ Hope Agent 是单 binary 多形态产品（桌面 GUI / `hope-agent server` 守�
 
 ## 后台自动检查 + 静默下载（`auto_update`）
 
-配置单一真相源 [`AutoUpdateConfig`](../../crates/ha-core/src/updater/config.rs)（`AppConfig.auto_update`，camelCase）：`checkEnabled` / `checkIntervalHours`（钳到 `[0.5,168]`）/ `autoDownload` / `notify`，全部默认开。桌面与 headless **共享同一份配置**：
+配置单一真相源 [`AutoUpdateConfig`](../../crates/ha-config-schema/src/updater.rs)（wire 类型在 ha-config-schema，`ha_updater::config` 再导出）（`AppConfig.auto_update`，camelCase）：`checkEnabled` / `checkIntervalHours`（钳到 `[0.5,168]`）/ `autoDownload` / `notify`，全部默认开。桌面与 headless **共享同一份配置**：
 
-- **headless / server**（`hope-agent server`）：[`updater::auto_check::spawn_auto_update_loop`](../../crates/ha-core/src/updater/auto_check.rs) 在 [`app_init::start_background_tasks`](../../crates/ha-core/src/app_init.rs) 的 **primary-gated** 区块 spawn（仿 dreaming cron loop），`!is_desktop()` 才起（桌面用 JS 链路，避免双检查）。每 `checkIntervalHours` 调 `check_update_full()`；发现新版 emit `app_update:available` + 日志（按版本去重）；`autoDownload && recommended_path==SelfContained` 时调 `self_contained::stage_only` 静默下载 + Minisign 校验到 staging（**不 swap**），emit `app_update:staged`。loop 永不自行替换 binary——install 始终走用户确认的 `app_update install`。
+- **headless / server**（`hope-agent server`）：[`ha_updater::auto_check::spawn_auto_update_loop`](../../crates/ha-updater/src/auto_check.rs) 在 [`app_init::start_background_tasks`](../../crates/ha-core/src/app_init.rs) 的 **primary-gated** 区块 spawn（仿 dreaming cron loop），`!is_desktop()` 才起（桌面用 JS 链路，避免双检查）。每 `checkIntervalHours` 调 `check_update_full()`；发现新版 emit `app_update:available` + 日志（按版本去重）；`autoDownload && recommended_path==SelfContained` 时调 `self_contained::stage_only` 静默下载 + Minisign 校验到 staging（**不 swap**），emit `app_update:staged`。loop 永不自行替换 binary——install 始终走用户确认的 `app_update install`。
 - **桌面**：[`desktopUpdater.ts`](../../src/lib/desktopUpdater.ts) 仍走 `@tauri-apps/plugin-updater`，但读 `auto_update` 配置驱动周期检查；命中后 `autoDownload` 时后台 `update.download()` 预下载（plugin-updater 2.10.1 的 `Update` 支持 download/install 分离）。GUI 入口在「设置 → 关于 → 自动更新」+ 命令 `get_auto_update_config` / `set_auto_update_config`（Tauri + HTTP `GET|PUT /api/config/auto-update`，写时钳 interval）。`ha-settings` 技能侧 `auto_update` 为 **HIGH** 风险（网络 + 重启），写前须二次确认。
 
 **桌面重启选择前置**：发现新版后 UI 提供「更新并重启」（装完自动 `relaunch()`）与「仅更新（稍后重启）」（装完停在「已就绪」态，等用户显式点重启）两选项——**绝不无条件自动重启**，避免打断进行中的对话。`app_update install`（headless）的用户审批契约不变。
 
 ## 下载健壮性（重试 + 断点续传）
 
-[`download::download_to`](../../crates/ha-core/src/updater/download.rs) 内置重试 + 断点续传：最多 `MAX_ATTEMPTS=3` 次，指数退避 1s/2s；retry 前读 `dest` 已写字节带 `Range: bytes=<n>-` 续传，服务端 `206` 续写 / `200` truncate 重来 / `416` 删档重来；网络 / IO / 5xx 才重试，SSRF / 4xx / 超 `MAX_DOWNLOAD_BYTES` 直接 bail；完成后比对总字节防短读。`Content-Range` 解析全量大小用于进度与上限校验。
+[`download::download_to`](../../crates/ha-updater/src/download.rs) 内置重试 + 断点续传：最多 `MAX_ATTEMPTS=3` 次，指数退避 1s/2s；retry 前读 `dest` 已写字节带 `Range: bytes=<n>-` 续传，服务端 `206` 续写 / `200` truncate 重来 / `416` 删档重来；网络 / IO / 5xx 才重试，SSRF / 4xx / 超 `MAX_DOWNLOAD_BYTES` 直接 bail；完成后比对总字节防短读。`Content-Range` 解析全量大小用于进度与上限校验。
 
 ## 冷烟自检 + 自动回滚
 
-[`self_contained::install`](../../crates/ha-core/src/updater/self_contained.rs) 在 `atomic_replace_binary` 之后、`restart_service` 之前跑 `smoke_test`：spawn `current_exe --version`（5s 超时），校验输出含目标版本。失败立即用 `backup::most_recent()` + `atomic_replace_binary` **还原旧 binary** 并 `bail!`（还原也失败则明确提示手动恢复路径）。仅冷烟通过才重启服务。
+[`self_contained::install`](../../crates/ha-updater/src/self_contained.rs) 在 `atomic_replace_binary` 之后、`restart_service` 之前跑 `smoke_test`：spawn `current_exe --version`（5s 超时），校验输出含目标版本。失败立即用 `backup::most_recent()` + `atomic_replace_binary` **还原旧 binary** 并 `bail!`（还原也失败则明确提示手动恢复路径）。仅冷烟通过才重启服务。
 
 下载 + 校验 + 解压抽成 `download_and_extract`：已存在且**仍能通过签名校验**的 staging 归档会被复用（静默预下载因此真正省掉 install 时的网络往返）；校验失败的归档立即删除不留作"复用"。
 
 ## staging 垃圾回收
 
-[`staging::prune`](../../crates/ha-core/src/updater/staging.rs)：启动时（auto loop init）+ 每次重新 stage 前 + install 成功后调用，清掉非目标版本 / 早于 7 天的 staging 子目录（best-effort，仅 log 不 fail）。backup 树独立，永不被此清理触及。
+[`staging::prune`](../../crates/ha-updater/src/staging.rs)：启动时（auto loop init）+ 每次重新 stage 前 + install 成功后调用，清掉非目标版本 / 早于 7 天的 staging 子目录（best-effort，仅 log 不 fail）。backup 树独立，永不被此清理触及。
 
 ## 签名信任根（单一 Minisign Pubkey）
 
-[`ha-core/src/updater/keys.rs::MINISIGN_PUBKEY_BASE64`](../../crates/ha-core/src/updater/keys.rs) 与 `src-tauri/tauri.conf.json#plugins.updater.pubkey` 必须**字符串相等**——否则桌面 `tauri-plugin-updater` 和 headless `ha_core::updater::signature::verify_bytes` 会用不同 pubkey，一边静默坏掉。三重防线：
+[`ha-updater/src/keys.rs::MINISIGN_PUBKEY_BASE64`](../../crates/ha-updater/src/keys.rs) 与 `src-tauri/tauri.conf.json#plugins.updater.pubkey` 必须**字符串相等**——否则桌面 `tauri-plugin-updater` 和 headless `ha_updater::signature::verify_bytes` 会用不同 pubkey，一边静默坏掉。三重防线：
 
 1. 启动期（仅桌面）：`src-tauri/src/setup.rs` 用 `include_str!("../tauri.conf.json")` 拿 pubkey → 调 `keys::assert_pubkey_matches_tauri_conf`，drift 直接 panic 退出。
 2. CI / PR：`.github/workflows/lint.yml` 跑 `scripts/verify-updater-pubkey.mjs`。
@@ -62,7 +70,7 @@ Hope Agent 是单 binary 多形态产品（桌面 GUI / `hope-agent server` 守�
 - **manifest 合并**：`patch-manifest` job（`needs: build`）下载所有 `bare-binary-*` artifact + release 上的 `latest.json`，跑 `scripts/patch-latest-json.mjs` 注入 `bare_binary.platforms.<plat>.{url, signature, archive, binary_path, extra_binaries}` 后重新上传。
 - **sibling swap 语义**：`self_contained::install` 主二进制 swap + 冷烟自检通过后，把归档内 `extra_binaries` 声明的附带可执行文件（当前即 `ha-browser-host`）逐个 `atomic_replace_binary` 到主二进制同目录——**best-effort**：单个 sibling 失败只 `app_warn` 不阻断也不回滚主升级——host 是薄帧转发桥，broker 连接期只硬校验手工维护的 `PROTOCOL_VERSION`（`hostVersion` 上报但不 enforce），版本偏斜降级可容忍；`app_update rollback` 只还原主二进制、sibling 保持新版并 `app_warn` 记录偏斜（sibling 从不进 backup，回归匹配只能靠下次升级）。`ha-browser-host` 版本随 `sync-version.mjs` 与整个产品同步 bump，令 `hostVersion` 能真实区分新旧。旧 manifest 无 `extra_binaries` 字段 → serde 默认空数组，行为与从前一致。
 
-Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updater/manifest.rs)）：
+Manifest 结构（[`ha_updater::manifest::Manifest`](../../crates/ha-updater/src/manifest.rs)）：
 
 ```json
 {
@@ -86,7 +94,7 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 }
 ```
 
-平台 key 与 tauri-action 一致：`{darwin,linux,windows}-{x86_64,aarch64}`，由 [`manifest::current_platform_key`](../../crates/ha-core/src/updater/manifest.rs) 在运行时返回当前平台串。
+平台 key 与 tauri-action 一致：`{darwin,linux,windows}-{x86_64,aarch64}`，由 [`manifest::current_platform_key`](../../crates/ha-updater/src/manifest.rs) 在运行时返回当前平台串。
 
 ## 用户审批契约
 
@@ -133,7 +141,7 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 
 ## Service restart 契约
 
-binary 换好后 [`service_control::restart_service`](../../crates/ha-core/src/updater/service_control.rs) 跑：
+binary 换好后 [`service_control::restart_service`](../../crates/ha-updater/src/service_control.rs) 跑：
 
 - macOS：`launchctl kickstart -k gui/$UID/ai.hopeagent.server`
 - Linux：`systemctl --user restart hope-agent.service`
@@ -145,7 +153,7 @@ binary 换好后 [`service_control::restart_service`](../../crates/ha-core/src/u
 
 ## Backup / rollback
 
-升级前 [`backup::store`](../../crates/ha-core/src/updater/backup.rs) 把当前 binary 复制到 `~/.hope-agent/updater/backup/<old_version>/hope-agent[.exe]`。保留最近 **2 个**版本，再多自动 prune。
+升级前 [`backup::store`](../../crates/ha-updater/src/backup.rs) 把当前 binary 复制到 `~/.hope-agent/updater/backup/<old_version>/hope-agent[.exe]`。保留最近 **2 个**版本，再多自动 prune。
 
 `app_update rollback` 取 `backup::most_recent`（按 mtime 排序）→ 调 `atomic_replace_binary` 还原 → restart service。同样需要 Yes/No 确认。
 
@@ -159,7 +167,7 @@ binary 换好后 [`service_control::restart_service`](../../crates/ha-core/src/u
 
 ## 失败路径 → 兜底 `ask_user_question`
 
-工具内部失败处理参考 [`tools/app_update.rs::prompt_manual_install`](../../crates/ha-core/src/tools/app_update.rs) 模板。Skill [`ha-self-update`](../../skills/ha-self-update/SKILL.md) "When things fail" 章节列了每种错误关键字的兜底方案——模型按该决策树触发兜底 prompt 而不是自己 retry。
+工具内部失败处理参考 [`tool.rs::prompt_manual_install`](../../crates/ha-updater/src/tool.rs) 模板。Skill [`ha-self-update`](../../skills/ha-self-update/SKILL.md) "When things fail" 章节列了每种错误关键字的兜底方案——模型按该决策树触发兜底 prompt 而不是自己 retry。
 
 ## 不在 MVP 范围
 
@@ -172,5 +180,5 @@ binary 换好后 [`service_control::restart_service`](../../crates/ha-core/src/u
 ## 测试矩阵
 
 - 单元：每个 sub-module 内部 `#[cfg(test)] mod tests`（keys / manifest / signature / source_detector / backup / package_manager / app_update）
-- 集成：[`tests/updater_e2e.rs`](../../crates/ha-core/tests/updater_e2e.rs) 用 wiremock 测 manifest fetch + binary_swap roundtrip
+- 集成：[`tests/updater_e2e.rs`](../../crates/ha-updater/tests/updater_e2e.rs) 用 wiremock 测 manifest fetch + binary_swap roundtrip
 - 手动端到端：见本文档"三档升级路径"——每个 path × 每个平台至少跑一次 release 验证

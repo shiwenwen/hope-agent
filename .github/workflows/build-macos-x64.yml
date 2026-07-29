@@ -95,8 +95,8 @@ jobs:
 
       # Same Minisign pubkey guard as release.yml — refuse to build if
       # the desktop bundle (`tauri-plugin-updater`) and headless
-      # self-update (`ha_core::updater`) disagree.
-      - name: Verify updater pubkey sync (tauri.conf.json ↔ ha-core)
+      # self-update (`ha_updater`) disagree.
+      - name: Verify updater pubkey sync (tauri.conf.json ↔ ha-updater)
         run: node scripts/verify-updater-pubkey.mjs
 
       # Sanity-check that the tag we're backfilling actually matches
@@ -134,8 +134,8 @@ jobs:
       # Bundle + sign bare binary for headless self-update (Intel Mac
       # users running `hope-agent server` or `hope-agent acp` on Intel
       # hardware need this to receive updates). Same Minisign keypair
-      # as release.yml — `ha_core::updater` verifies against the
-      # pubkey in `ha-core/updater/keys.rs`.
+      # as release.yml — `ha_updater` verifies against the
+      # pubkey in `ha-updater/keys.rs`.
       - name: Bundle + sign bare binary
         id: bare_binary
         env:

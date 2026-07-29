@@ -343,7 +343,7 @@ enum DlAttempt {
 /// mid-download resumes from the partial file instead of restarting (matters
 /// most for the ~170 MB Windows archive on flaky networks). `progress` gets
 /// `(downloaded, total)`. Mirrors the robustness of
-/// [`crate::updater::download::download_to`] but keeps the ffmpeg progress event.
+/// `ha_updater::download::download_to` but keeps the ffmpeg progress event.
 async fn download_archive<F>(url: &str, dest: &Path, progress: &F) -> Result<()>
 where
     F: Fn(u64, Option<u64>) + Send + Sync,

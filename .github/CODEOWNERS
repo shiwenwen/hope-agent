@@ -37,6 +37,11 @@
 /crates/ha-base/src/security/     @shiwenwen
 /crates/ha-base/src/paths.rs      @shiwenwen
 /crates/ha-core/src/permission/   @shiwenwen
+# 自升级信任根（Minisign pubkey）与验签实现（阶段 3 自 ha-core 迁入
+# ha-updater）：pubkey 或验签被改 = 供应链攻击面，与 tauri.conf.json 的
+# updater 公钥同级别把关。
+/crates/ha-updater/src/keys.rs      @shiwenwen
+/crates/ha-updater/src/signature.rs @shiwenwen
 # permission / hooks 的 config wire 类型（审批超时动作、unattended fail-closed
 # 默认）已下沉 ha-config-schema；AppConfig 本体（含 `disable_all_hooks` /
 # `hooks_allow_project_scope` 供应链开关与 `permission` 字段的默认值）在 config.rs。

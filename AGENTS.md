@@ -12,7 +12,7 @@
 
 ## 提交前检查（强制）
 
-[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 覆盖 `ha-base` + `ha-config-schema` + `ha-core` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
+[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 覆盖 `ha-base` + `ha-config-schema` + `ha-core` + `ha-updater` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
 
 - **开发中只单点验证**（`cargo check -p <crate>` / `pnpm typecheck`）；跑 clippy / cargo test / pnpm {test,lint} 须先问用户等回复，例外限跨 crate / 多文件收尾，跑前说明
 - **应急跳过**：`HA_SKIP_PREPUSH=1`（限纯 `.md` / 弱网）/ `HA_SKIP_PREPUSH_TEST=1`（只跳 cargo test）。禁止 `--no-verify`（会绕过 GPG 等钩子）
@@ -63,7 +63,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 详见 [backend-separation](docs/architecture/backend-separation.md) / [process-model](docs/architecture/process-model.md) / [transport-modes](docs/architecture/transport-modes.md)；版本发布见 [release-process](docs/release-process.md)。
 
-- **分层 Crate**：`ha-base`（基础设施：paths / logging / platform / security / permissions / terminal 等，**不得依赖任何 ha-\* 业务 crate**）← `ha-config-schema`（`AppConfig` 全部 wire 类型 + 自包含 impl，**只准依赖 ha-base 与叶子 crate、零行为逻辑**——`cached_config`/`mutate_config`/redact/validate 等需要子系统服务的行为一律留在 ha-core，需要行为的方法改子系统自由函数或 extension trait，禁止把子系统依赖拖进 schema）← `ha-core`（业务全在此）← `ha-server` / `src-tauri`（薄壳）。**「零 Tauri 依赖」红线适用于 ha-base / ha-config-schema / ha-core**；事件走 `ha-core::EventBus`，核心层禁用 `APP_HANDLE`。新增 `AppConfig` 可达类型定义进 ha-config-schema、ha-core 原地 `pub use` 再导出（既有 `crate::config::…` 路径不变）
+- **分层 Crate**：`ha-base`（基础设施：paths / logging / platform / security / permissions / terminal 等，**不得依赖任何 ha-\* 业务 crate**）← `ha-config-schema`（`AppConfig` 全部 wire 类型 + 自包含 impl，**只准依赖 ha-base 与叶子 crate、零行为逻辑**——`cached_config`/`mutate_config`/redact/validate 等需要子系统服务的行为一律留在 ha-core，需要行为的方法改子系统自由函数或 extension trait，禁止把子系统依赖拖进 schema）← `ha-core`（业务全在此）← 特征 crate（`ha-updater` 起，依赖 ha-core、壳层 `wire()` 装配）← `ha-server` / `src-tauri`（薄壳）。**「零 Tauri 依赖」红线适用于 ha-base / ha-config-schema / ha-core 与全部特征 crate**；事件走 `ha-core::EventBus`，核心层禁用 `APP_HANDLE`。新增 `AppConfig` 可达类型定义进 ha-config-schema、ha-core 原地 `pub use` 再导出（既有 `crate::config::…` 路径不变）
 - **ha-base 需要上层数据时留注册钩子、绝不反向依赖**：现有 `paths::register_plans_dir_source`（冲突记 error）、`security::dangerous::register_config_flag_source`（冲突即 panic——它控制全局审批跳过，来源被顶替不可接受）与 `process_registry::register_notifiers`（未注册＝不通知，簿记不受影响），均在 `init_runtime()` 早期注册；同模式的 ha-core 内部装配钩子（filesystem 根解析器、config 写路径副作用）也在同处注册。`ha-core` 用 `pub use ha_base::*` + `#[macro_use] extern crate ha_base` 全量再导出，故 `crate::paths::…` / `ha_core::platform::…` / `app_info!` 等既有路径**全部不变**
 - **模块跨 crate 搬迁必须同步 [`.github/CODEOWNERS`](.github/CODEOWNERS)**：路径失配不报错，只会让安全代码悄悄失去强制评审
 - **Transport**：**新 invoke 必须同时实现 Tauri + HTTP 两套适配**（[`transport.ts`](src/lib/transport.ts)）；新 HTTP 端点默认经 Bearer 鉴权
@@ -254,11 +254,12 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 详见 [self-update](docs/architecture/self-update.md)。红线：
 
-- **下载产物必须验签**：更新下载走 `updater::download::download_to`，落地 / swap 前必过 Minisign `signature::verify_bytes`
-- **pubkey 两处必须相等**：`updater::keys::MINISIGN_PUBKEY_BASE64` ↔ `tauri.conf.json#plugins.updater.pubkey`（启动 panic / CI / pre-push 三重校验）
+- **下载产物必须验签**：更新下载走 `ha_updater::download::download_to`，落地 / swap 前必过 Minisign `signature::verify_bytes`
+- **pubkey 两处必须相等**：`ha_updater::keys::MINISIGN_PUBKEY_BASE64` ↔ `tauri.conf.json#plugins.updater.pubkey`（启动 panic / CI / pre-push 三重校验）
 - **换 binary 只走 `platform::atomic_replace_binary`**（禁 `fs::write` 覆盖运行中 binary）；swap 后冷烟自检失败自动回滚
 - **安装 / 重启必经用户确认**：`auto_update` 后台只检查 + 预下载 staging，`app_update` 的 `install` / `rollback` 弹 `ask_user_question`，**桌面绝不无条件 relaunch**
-- **ha-core 不依赖 tauri-plugin-updater**，桌面路径经 `updater::UpdaterBridge` 反向注册
+- **ha-updater 不依赖 tauri-plugin-updater**（自升级独立 crate，阶段 3 迁出 ha-core），桌面路径经 `ha_updater::UpdaterBridge` 反向注册
+- **壳层装配契约**：每个调 `ha_core::init_runtime` 的二进制（src-tauri / hope-agent-server / ha-eval runner）必须先调 `ha_updater::wire()`（挂 `app_update` 分发条目 + 自动更新启动任务）；漏接＝`app_update` 有 schema 无 handler，启动期有 `registry_freeze` warn 兜底
 
 ### Dashboard / Recap / Learning
 
@@ -277,7 +278,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 ## 项目结构
 
-八 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-config-schema`（`AppConfig` wire 类型闭包，**只依赖 ha-base 与叶子 crate、零行为逻辑**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
+九 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-config-schema`（`AppConfig` wire 类型闭包，**只依赖 ha-base 与叶子 crate、零行为逻辑**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ `ha-updater`（自升级特征 crate，依赖 ha-core，壳层 `ha_updater::wire()` 装配，**同守零 Tauri 红线**）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
 
 ## 开发命令
 

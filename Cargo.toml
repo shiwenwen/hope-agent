@@ -5,6 +5,7 @@ members = [
     "crates/ha-config-schema",
     "crates/ha-core",
     "crates/ha-server",
+    "crates/ha-updater",
     "crates/ha-browser-host",
     "crates/ha-eval-spec",
     "crates/ha-eval",
@@ -152,7 +153,7 @@ rmcp = { version = "1.5", default-features = false, features = [
     "auth",
 ] }
 # Minisign signature verification (Ed25519). Used by the self-update path in
-# `ha-core/updater` to verify the same `.sig` files tauri-plugin-updater
+# the `ha-updater` crate to verify the same `.sig` files tauri-plugin-updater
 # already consumes, so a headless `hope-agent server` can self-update without
 # pulling the Tauri runtime.
 minisign-verify = "0.2"

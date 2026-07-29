@@ -63,7 +63,7 @@ fn build_command(source: &InstallSource) -> Option<Command> {
             // `scoop` on Windows is a Powershell shim — `platform`'s
             // `default_shell_command` already wraps `cmd /C` correctly so
             // we don't have to locate scoop.ps1 ourselves.
-            Some(crate::platform::default_shell_command(
+            Some(ha_core::platform::default_shell_command(
                 "scoop update hope-agent",
             ))
         }
@@ -79,11 +79,11 @@ fn build_command(source: &InstallSource) -> Option<Command> {
             // `apt update` then `install --only-upgrade` so we don't
             // accidentally pull a fresh install onto a system where the
             // package was removed mid-session.
-            Some(crate::platform::default_shell_command(
+            Some(ha_core::platform::default_shell_command(
                 "sudo apt-get update && sudo apt-get install --only-upgrade -y hope-agent",
             ))
         }
-        InstallSource::Dnf => Some(crate::platform::default_shell_command(
+        InstallSource::Dnf => Some(ha_core::platform::default_shell_command(
             "sudo dnf upgrade -y hope-agent",
         )),
         InstallSource::TauriBundle | InstallSource::Docker | InstallSource::Manual => None,

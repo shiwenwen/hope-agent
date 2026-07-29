@@ -1,7 +1,7 @@
 //! Staging-directory garbage collection for the self-contained updater.
 //!
 //! Downloads land in `~/.hope-agent/updater/staging/<version>/` (see
-//! [`crate::paths::updater_staging_dir`]). A download that crashes mid-flight,
+//! [`ha_core::paths::updater_staging_dir`]). A download that crashes mid-flight,
 //! a verify failure, or a swap failure all leave a half-written archive behind.
 //! Nothing cleaned these up before, so a daemon that retried failed upgrades
 //! would slowly accumulate dead staging dirs.
@@ -22,7 +22,7 @@ use std::time::{Duration, SystemTime};
 const STALE_AFTER: Duration = Duration::from_secs(7 * 24 * 3600);
 
 fn staging_root() -> Option<PathBuf> {
-    let root = crate::paths::updater_dir().ok()?.join("staging");
+    let root = ha_core::paths::updater_dir().ok()?.join("staging");
     root.is_dir().then_some(root)
 }
 

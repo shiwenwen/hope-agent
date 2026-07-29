@@ -3,7 +3,7 @@
 // Patch `latest.json` (the Tauri updater manifest) with a `bare_binary`
 // section that maps each platform to a tar.gz / zip archive + its
 // Minisign signature. The headless self-update path in
-// `ha_core::updater::self_contained` consumes that section.
+// `ha_updater::self_contained` consumes that section.
 //
 // Usage:
 //   node scripts/patch-latest-json.mjs <latest.json> <artifacts-dir> <version>

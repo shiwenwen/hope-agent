@@ -2,11 +2,13 @@ use serde_json::{json, Value};
 
 pub(crate) mod acp_spawn;
 mod agents;
-mod app_update;
 mod apply_patch;
 pub(crate) mod approval;
 mod artifact;
-pub(crate) mod ask_user_question;
+// pub：`ask_user_question::execute` 是结构化问答唯一入口（AGENTS.md 红线），
+// 特征 crate 的工具 adapter（如 ha-updater 的 `app_update` install/rollback
+// 确认）从 crate 外复用同一入口，不 fork。
+pub mod ask_user_question;
 pub mod audio_generate;
 pub(crate) mod browser;
 mod builtin_registry;

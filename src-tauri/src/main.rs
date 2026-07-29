@@ -11,6 +11,10 @@ const MAX_CHILD_PANICS: u32 = 3;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    // 特征 crate 装配：必须先于任何 `init_runtime` 路径（GUI / server / acp /
+    // mcp 各分支）——init 尾部冻结工具注册表，之后再挂 `app_update` 会 panic。
+    ha_updater::wire();
+
     // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,
     // NOT persisted). Skips every tool-level approval gate for THIS launch only.
     // Applied before subcommand dispatch so GUI, server, and ACP modes all see it.

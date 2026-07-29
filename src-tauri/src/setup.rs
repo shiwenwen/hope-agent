@@ -62,7 +62,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     //
     // For the same reason, before registering the bridge that lets
     // `app_update` route through this plugin, assert the embedded
-    // `ha_core::updater::keys::MINISIGN_PUBKEY_BASE64` still matches the
+    // `ha_updater::keys::MINISIGN_PUBKEY_BASE64` still matches the
     // value the plugin will consume — otherwise headless self-update and
     // desktop self-update would verify against different keys and one of
     // the two would silently break.
@@ -81,7 +81,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                     .map(|s| s.to_string())
             });
         if let Some(pk) = conf_pubkey {
-            if let Err(e) = ha_core::updater::keys::assert_pubkey_matches_tauri_conf(&pk) {
+            if let Err(e) = ha_updater::keys::assert_pubkey_matches_tauri_conf(&pk) {
                 app_error!("self_update", "boot", "{e}");
                 return Err(format!("{e}").into());
             }

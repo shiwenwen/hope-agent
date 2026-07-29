@@ -126,6 +126,26 @@ pub fn freeze_now() {
             canonical
         );
     }
+    // 反向守卫：有 ToolDefinition 却无 handler ＝ schema 会把该工具广告给
+    // 模型、dispatch 却报 Unknown tool。特征 crate 拆出后（阶段 3 起）这
+    // 正是「二进制忘调 <feature>::wire()」的症状——builtin 时代不可能发生，
+    // 现在必须有启动期信号。ha-core 自身的集成测试进程（init_runtime("test")）
+    // 无法 wire 特征 crate（会构成循环依赖），必然触发此 warn——test role
+    // 直接跳过，防止「已知噪音」把真实漏接淹掉（警报疲劳比没警报更糟）。
+    if crate::runtime_role() == Some("test") {
+        return;
+    }
+    let table = frozen();
+    for def in super::dispatch::all_dispatchable_tools() {
+        if !table.contains_key(def.name.as_str()) {
+            app_warn!(
+                "tools",
+                "registry_freeze",
+                "tool `{}` has a ToolDefinition but no dispatch handler — did this binary forget to wire() its feature crate?",
+                def.name
+            );
+        }
+    }
 }
 
 /// 拥有 `ToolDefinition` 的工具名全集：静态 catalog + 条件注入的
