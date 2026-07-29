@@ -5,44 +5,10 @@ use tokio::sync::{oneshot, Mutex as AsyncMutex, Notify};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-use super::app_update;
-use super::issue_report;
-use super::send_attachment;
-use super::skill;
+use super::exec;
 use super::{
-    acp_spawn, browser, core_memory, cron, goal, loop_tool, mac_control, memory, note,
-    notification, project_memory, settings, subagent, team, weather, web_fetch, web_search,
-    workflow_tool,
-};
-use super::{
-    agents, artifact, ask_user_question, audio_generate, canvas, design, enter_plan_mode, image,
-    image_generate, job_status, pdf, runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
-};
-use super::{apply_patch, edit, exec, find, grep, ls, lsp, process, read, write};
-use super::{
-    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ARTIFACT,
-    TOOL_ASK_USER_QUESTION, TOOL_AUDIO_GENERATE, TOOL_BROWSER, TOOL_CANVAS, TOOL_CORE_MEMORY,
-    TOOL_DELETE_MEMORY, TOOL_DESIGN, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC, TOOL_FIND,
-    TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT,
-    TOOL_GOAL_EVALUATE, TOOL_GOAL_FINISH_REQUEST, TOOL_GOAL_PREPARE_CONTRACT,
-    TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
-    TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LOOP_RECORD_PROGRESS,
-    TOOL_LOOP_RESCHEDULE, TOOL_LOOP_STATUS, TOOL_LOOP_STOP, TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH,
-    TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
-    TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
-    TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND,
-    TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST,
-    TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
-    TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WORKFLOW, TOOL_WRITE,
-};
-use super::{
-    TOOL_KNOWLEDGE_RECALL, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK, TOOL_NOTE_BACKLINKS,
-    TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG, TOOL_NOTE_CREATE, TOOL_NOTE_DELETE,
-    TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOC, TOOL_NOTE_MOVE,
-    TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RELATED, TOOL_NOTE_RENAME,
-    TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR, TOOL_NOTE_SUGGEST_LINKS,
-    TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_SESSION_TO_NOTE,
+    approval, TOOL_APPLY_PATCH, TOOL_EDIT, TOOL_EXEC, TOOL_LS, TOOL_MAC_CONTROL, TOOL_READ,
+    TOOL_WORKFLOW, TOOL_WRITE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -721,7 +687,12 @@ impl ToolExecContext {
 
     /// Human-readable reason when a tool is blocked by the current restrictions.
     pub async fn tool_visibility_error(&self, name: &str) -> Option<String> {
-        if !crate::eval_context::tool_allowed_for_experiment(self.session_id.as_deref(), name) {
+        // 执行门统一先归一规范名（注册表驱动，别名不得以「无 definition
+        // 的名字」滑过任何一道门）；`builtin_fate_error` /
+        // `workflow_visibility_error` 内部各自也走同一入口。
+        let canonical = canonical_builtin_tool_name(name);
+        if !crate::eval_context::tool_allowed_for_experiment(self.session_id.as_deref(), canonical)
+        {
             return Some(format!(
                 "Evaluation experiment restriction: tool '{name}' is disabled in the compute-matched single-Agent arm."
             ));
@@ -732,14 +703,24 @@ impl ToolExecContext {
         if let Some(err) = self.workflow_visibility_error(name).await {
             return Some(err);
         }
-        if self.denied_tools.iter().any(|t| t == name) {
+        // 名单类门按「原名或规范名」双判：deny 了 `read` 的策略不能被
+        // `read_file` 别名绕开；allowlist 侧则保持写别名或规范名均命中
+        // （只收紧、不放松——两名皆不在 allowlist 才拒）。
+        if self
+            .denied_tools
+            .iter()
+            .any(|t| t == name || t == canonical)
+        {
             return Some(format!(
                 "Tool policy restriction: tool '{}' is denied in the current agent context.",
                 name
             ));
         }
         if !self.skill_allowed_tools.is_empty()
-            && !self.skill_allowed_tools.iter().any(|t| t == name)
+            && !self
+                .skill_allowed_tools
+                .iter()
+                .any(|t| t == name || t == canonical)
         {
             return Some(format!(
                 "Skill restriction: tool '{}' is not allowed by the active skill.",
@@ -747,7 +728,10 @@ impl ToolExecContext {
             ));
         }
         if !self.plan_mode_allowed_tools.is_empty()
-            && !self.plan_mode_allowed_tools.iter().any(|t| t == name)
+            && !self
+                .plan_mode_allowed_tools
+                .iter()
+                .any(|t| t == name || t == canonical)
         {
             return Some(format!(
                 "Plan Mode restriction: tool '{}' is not allowed during planning. Allowed: {}",
@@ -829,13 +813,12 @@ impl ToolExecContext {
     }
 }
 
+/// 别名 → 规范名，事实源是分发注册表（别名与规范名共 handler 的唯一登记
+/// 处）。此前这里硬编码 3 个别名，漏了 `list_dir` / `note_move`——fate
+/// 兜底对漏网别名是 no-op；注册表驱动后阶段 3 外部注册的别名也自动归一。
+/// 未注册的名字（MCP / 未知）原样返回。
 fn canonical_builtin_tool_name(name: &str) -> &str {
-    match name {
-        "read_file" => TOOL_READ,
-        "write_file" => TOOL_WRITE,
-        "patch_file" => TOOL_EDIT,
-        _ => name,
-    }
+    super::registry::canonical_name(name).unwrap_or(name)
 }
 
 // ── Tool Execution (provider-agnostic) ────────────────────────────
@@ -1917,240 +1900,16 @@ pub async fn execute_tool_with_context(
     let timeout_cancel_token = dispatch_ctx.cancellation_token.clone();
 
     let dispatch = async {
-        match name {
-            TOOL_EXEC => exec::tool_exec(args, dispatch_ctx).await,
-            TOOL_PROCESS => process::tool_process(args).await,
-            TOOL_READ | "read_file" => read::tool_read_file(args, dispatch_ctx).await,
-            TOOL_WRITE | "write_file" => write::tool_write_file(args, dispatch_ctx).await,
-            TOOL_EDIT | "patch_file" => edit::tool_edit(args, dispatch_ctx).await,
-            TOOL_LS | "list_dir" => ls::tool_ls(args, dispatch_ctx).await,
-            TOOL_LSP => lsp::tool_lsp(args, dispatch_ctx).await,
-            TOOL_GREP => grep::tool_grep(args, dispatch_ctx).await,
-            TOOL_FIND => find::tool_find(args, dispatch_ctx).await,
-            TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args, dispatch_ctx).await,
-            TOOL_WEB_SEARCH => web_search::tool_web_search(args, dispatch_ctx).await,
-            TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
-            TOOL_SAVE_MEMORY => memory::tool_save_memory(args, dispatch_ctx).await,
-            TOOL_RECALL_MEMORY => memory::tool_recall_memory(args, dispatch_ctx).await,
-            TOOL_UPDATE_MEMORY => memory::tool_update_memory(args, dispatch_ctx).await,
-            TOOL_DELETE_MEMORY => memory::tool_delete_memory(args, dispatch_ctx).await,
-            TOOL_UPDATE_CORE_MEMORY => memory::tool_update_core_memory(args, dispatch_ctx).await,
-            TOOL_CORE_MEMORY => core_memory::tool_core_memory(args, dispatch_ctx).await,
-            TOOL_PROJECT_MEMORY => project_memory::tool_project_memory(args, dispatch_ctx).await,
-            TOOL_MANAGE_CRON => cron::tool_manage_cron(args, dispatch_ctx).await,
-            TOOL_BROWSER => browser::tool_browser(args, dispatch_ctx).await,
-            TOOL_MAC_CONTROL => mac_control::tool_mac_control(args, dispatch_ctx).await,
-            TOOL_SEND_NOTIFICATION => {
-                notification::tool_send_notification(args, dispatch_ctx).await
-            }
-            TOOL_SUBAGENT => subagent::tool_subagent(args, dispatch_ctx).await,
-            TOOL_TEAM => team::tool_team(args, dispatch_ctx).await,
-            TOOL_ACP_SPAWN => acp_spawn::tool_acp_spawn(args, dispatch_ctx).await,
-            TOOL_WORKFLOW => workflow_tool::tool_workflow(args, dispatch_ctx).await,
-            TOOL_MEMORY_GET => memory::tool_memory_get(args, dispatch_ctx).await,
-            // Knowledge base (note_*) tools.
-            TOOL_NOTE_CREATE => note::tool_note_create(args, dispatch_ctx).await,
-            TOOL_NOTE_READ => note::tool_note_read(args, dispatch_ctx).await,
-            TOOL_NOTE_UPDATE => note::tool_note_update(args, dispatch_ctx).await,
-            TOOL_NOTE_PATCH => note::tool_note_patch(args, dispatch_ctx).await,
-            TOOL_NOTE_APPEND => note::tool_note_append(args, dispatch_ctx).await,
-            TOOL_NOTE_DELETE => note::tool_note_delete(args, dispatch_ctx).await,
-            TOOL_NOTE_SEARCH => note::tool_note_search(args, dispatch_ctx).await,
-            TOOL_NOTE_LINK => note::tool_note_link(args, dispatch_ctx).await,
-            TOOL_NOTE_BACKLINKS => note::tool_note_backlinks(args, dispatch_ctx).await,
-            TOOL_NOTE_BY_TAG => note::tool_note_by_tag(args, dispatch_ctx).await,
-            TOOL_NOTE_TAGS => note::tool_note_tags(args, dispatch_ctx).await,
-            TOOL_NOTE_RENAME | TOOL_NOTE_MOVE => note::tool_note_rename(args, dispatch_ctx).await,
-            TOOL_NOTE_SET_FRONTMATTER => note::tool_note_set_frontmatter(args, dispatch_ctx).await,
-            TOOL_NOTE_ASSIGN_BLOCK => note::tool_note_assign_block(args, dispatch_ctx).await,
-            TOOL_NOTE_BROKEN_LINKS => note::tool_note_broken_links(args, dispatch_ctx).await,
-            TOOL_NOTE_ORPHANS => note::tool_note_orphans(args, dispatch_ctx).await,
-            TOOL_NOTE_GRAPH => note::tool_note_graph(args, dispatch_ctx).await,
-            TOOL_NOTE_SIMILAR => note::tool_note_similar(args, dispatch_ctx).await,
-            TOOL_NOTE_RELATED => note::tool_note_related(args, dispatch_ctx).await,
-            TOOL_NOTE_SUGGEST_LINKS => note::tool_note_suggest_links(args, dispatch_ctx).await,
-            TOOL_NOTE_DISTILL => note::tool_note_distill(args, dispatch_ctx).await,
-            TOOL_NOTE_MOC => note::tool_note_moc(args, dispatch_ctx).await,
-            TOOL_KNOWLEDGE_RECALL => note::tool_knowledge_recall(args, dispatch_ctx).await,
-            TOOL_SESSION_TO_NOTE => note::tool_session_to_note(args, dispatch_ctx).await,
-            TOOL_AGENTS_LIST => agents::tool_agents_list(args).await,
-            TOOL_SESSIONS_LIST => sessions::tool_sessions_list(args).await,
-            TOOL_SESSION_STATUS => sessions::tool_session_status(args).await,
-            TOOL_SESSIONS_SEARCH => sessions::tool_sessions_search(args, dispatch_ctx).await,
-            TOOL_SESSIONS_HISTORY => sessions::tool_sessions_history(args).await,
-            TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, dispatch_ctx)).await,
-            TOOL_IMAGE => image::tool_image(args, dispatch_ctx).await,
-            TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args, dispatch_ctx).await,
-            TOOL_AUDIO_GENERATE => audio_generate::tool_audio_generate(args, dispatch_ctx).await,
-            TOOL_ISSUE_REPORT => issue_report::tool_issue_report(args, dispatch_ctx).await,
-            TOOL_PDF => pdf::tool_pdf(args).await,
-            TOOL_CANVAS => canvas::tool_canvas(args, dispatch_ctx).await,
-            TOOL_DESIGN => design::tool_design(args, dispatch_ctx).await,
-            TOOL_ARTIFACT => artifact::tool_artifact(args, dispatch_ctx).await,
-            TOOL_GET_WEATHER => weather::tool_get_weather(args).await,
-            TOOL_ASK_USER_QUESTION => {
-                Ok(ask_user_question::execute(args, dispatch_ctx.session_id.as_deref()).await)
-            }
-            TOOL_ENTER_PLAN_MODE => {
-                Ok(enter_plan_mode::execute(args, dispatch_ctx.session_id.as_deref()).await)
-            }
-            TOOL_SUBMIT_PLAN => {
-                Ok(submit_plan::execute(args, dispatch_ctx.session_id.as_deref()).await)
-            }
-            TOOL_TASK_CREATE => {
-                Ok(task::tool_task_create(args, dispatch_ctx.session_id.as_deref()).await)
-            }
-            TOOL_TASK_UPDATE => {
-                Ok(task::tool_task_update(args, dispatch_ctx.session_id.as_deref()).await)
-            }
-            TOOL_TASK_LIST => {
-                Ok(task::tool_task_list(args, dispatch_ctx.session_id.as_deref()).await)
-            }
-            TOOL_GOAL_STATUS => Ok(goal::tool_goal_status(args, dispatch_ctx).await),
-            TOOL_GOAL_PREPARE_CONTRACT => {
-                Ok(goal::tool_goal_prepare_contract(args, dispatch_ctx).await)
-            }
-            TOOL_GOAL_CHECKPOINT => Ok(goal::tool_goal_checkpoint(args, dispatch_ctx).await),
-            TOOL_GOAL_RECORD_EVIDENCE => {
-                Ok(goal::tool_goal_record_evidence(args, dispatch_ctx).await)
-            }
-            TOOL_GOAL_EVALUATE => Ok(goal::tool_goal_evaluate(args, dispatch_ctx).await),
-            TOOL_GOAL_FINISH_REQUEST => {
-                Ok(goal::tool_goal_finish_request(args, dispatch_ctx).await)
-            }
-            TOOL_GOAL_BLOCK_REQUEST => Ok(goal::tool_goal_block_request(args, dispatch_ctx).await),
-            TOOL_LOOP_STATUS => Ok(loop_tool::tool_loop_status(args, dispatch_ctx).await),
-            TOOL_LOOP_RESCHEDULE => Ok(loop_tool::tool_loop_reschedule(args, dispatch_ctx).await),
-            TOOL_LOOP_STOP => Ok(loop_tool::tool_loop_stop(args, dispatch_ctx).await),
-            TOOL_LOOP_RECORD_PROGRESS => {
-                Ok(loop_tool::tool_loop_record_progress(args, dispatch_ctx).await)
-            }
-            TOOL_LOOP_WATCH => Ok(loop_tool::tool_loop_watch(args, dispatch_ctx).await),
-            TOOL_LOOP_UNWATCH => Ok(loop_tool::tool_loop_unwatch(args, dispatch_ctx).await),
-            super::TOOL_APP_UPDATE => app_update::tool_app_update(args, dispatch_ctx).await,
-            TOOL_JOB_STATUS => {
-                job_status::tool_job_status(args, dispatch_ctx.session_id.as_deref()).await
-            }
-            super::TOOL_SCHEDULE_WAKEUP => {
-                schedule_wakeup::tool_schedule_wakeup(args, dispatch_ctx).await
-            }
-            TOOL_RUNTIME_CANCEL => runtime_cancel::tool_runtime_cancel(args).await,
-            super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, dispatch_ctx).await,
-            super::TOOL_PEEK_SESSIONS => {
-                crate::awareness::run_peek_sessions(args, dispatch_ctx.session_id.as_deref())
-                    .map_err(|e| anyhow::anyhow!(e))
-            }
-            TOOL_GET_SETTINGS => settings::tool_get_settings(args).await,
-            TOOL_UPDATE_SETTINGS => settings::tool_update_settings(args, dispatch_ctx).await,
-            TOOL_LIST_SETTINGS_BACKUPS => settings::tool_list_settings_backups(args).await,
-            TOOL_RESTORE_SETTINGS_BACKUP => settings::tool_restore_settings_backup(args).await,
-            TOOL_SEND_ATTACHMENT => send_attachment::tool_send_attachment(args, dispatch_ctx).await,
-            super::TOOL_SKILL => skill::tool_skill(args, dispatch_ctx).await,
-            super::TOOL_MCP_RESOURCE => crate::mcp::resources::tool_mcp_resource(args).await,
-            super::TOOL_MCP_PROMPT => crate::mcp::prompts::tool_mcp_prompt(args).await,
-            super::feishu::TOOL_DOCX_CREATE => super::feishu::docx::execute_create(args).await,
-            super::feishu::TOOL_DOCX_GET_BLOCKS => {
-                super::feishu::docx::execute_get_blocks(args).await
-            }
-            super::feishu::TOOL_DOCX_APPEND_BLOCK => {
-                super::feishu::docx::execute_append_block(args).await
-            }
-            super::feishu::TOOL_DOCX_UPDATE_BLOCK_TEXT => {
-                super::feishu::docx::execute_update_block_text(args).await
-            }
-            super::feishu::TOOL_BITABLE_LIST_RECORDS => {
-                super::feishu::bitable::execute_list_records(args).await
-            }
-            super::feishu::TOOL_BITABLE_SEARCH_RECORDS => {
-                super::feishu::bitable::execute_search_records(args).await
-            }
-            super::feishu::TOOL_BITABLE_CREATE_RECORD => {
-                super::feishu::bitable::execute_create_record(args).await
-            }
-            super::feishu::TOOL_BITABLE_BATCH_UPDATE_RECORDS => {
-                super::feishu::bitable::execute_batch_update_records(args).await
-            }
-            super::feishu::TOOL_BITABLE_LIST_VIEWS => {
-                super::feishu::bitable::execute_list_views(args).await
-            }
-            super::feishu::TOOL_BITABLE_GET_VIEW => {
-                super::feishu::bitable::execute_get_view(args).await
-            }
-            super::feishu::TOOL_BITABLE_LIST_DASHBOARDS => {
-                super::feishu::bitable::execute_list_dashboards(args).await
-            }
-            super::feishu::TOOL_DRIVE_LIST_FILES => {
-                super::feishu::drive::execute_list_files(args).await
-            }
-            super::feishu::TOOL_DRIVE_UPLOAD_MEDIA => {
-                super::feishu::drive::execute_upload_media(args).await
-            }
-            super::feishu::TOOL_DRIVE_DOWNLOAD_MEDIA => {
-                super::feishu::drive::execute_download_media(args).await
-            }
-            super::feishu::TOOL_WIKI_GET_NODE => super::feishu::wiki::execute_get_node(args).await,
-            super::feishu::TOOL_APPROVAL_CREATE_INSTANCE => {
-                super::feishu::approval::execute_create_instance(args).await
-            }
-            super::feishu::TOOL_APPROVAL_GET_INSTANCE => {
-                super::feishu::approval::execute_get_instance(args).await
-            }
-            super::feishu::TOOL_APPROVAL_CANCEL_INSTANCE => {
-                super::feishu::approval::execute_cancel_instance(args).await
-            }
-            super::feishu::TOOL_APPROVAL_LIST_INSTANCES => {
-                super::feishu::approval::execute_list_instances(args).await
-            }
-            super::feishu::TOOL_APPROVAL_SUBSCRIBE => {
-                super::feishu::approval::execute_subscribe(args).await
-            }
-            super::feishu::TOOL_CALENDAR_LIST => super::feishu::calendar::execute_list(args).await,
-            super::feishu::TOOL_CALENDAR_CREATE_EVENT => {
-                super::feishu::calendar::execute_create_event(args).await
-            }
-            super::feishu::TOOL_CALENDAR_LIST_EVENTS => {
-                super::feishu::calendar::execute_list_events(args).await
-            }
-            super::feishu::TOOL_CALENDAR_UPDATE_EVENT => {
-                super::feishu::calendar::execute_update_event(args).await
-            }
-            super::feishu::TOOL_CALENDAR_DELETE_EVENT => {
-                super::feishu::calendar::execute_delete_event(args).await
-            }
-            super::feishu::TOOL_CALENDAR_ATTENDEES_CREATE => {
-                super::feishu::calendar::execute_attendees_create(args).await
-            }
-            super::feishu::TOOL_CONTACT_GET_USER => {
-                super::feishu::contact::execute_get_user(args).await
-            }
-            super::feishu::TOOL_CONTACT_BATCH_GET_USERS => {
-                super::feishu::contact::execute_batch_get_users(args).await
-            }
-            super::feishu::TOOL_CONTACT_GET_DEPARTMENT => {
-                super::feishu::contact::execute_get_department(args).await
-            }
-            super::feishu::TOOL_CONTACT_SEARCH_USERS_BY_DEPARTMENT => {
-                super::feishu::contact::execute_search_users_by_department(args).await
-            }
-            super::feishu::TOOL_HIRE_LIST_JOBS => {
-                super::feishu::hire::execute_list_jobs(args).await
-            }
-            super::feishu::TOOL_HIRE_GET_JOB => super::feishu::hire::execute_get_job(args).await,
-            super::feishu::TOOL_HIRE_LIST_TALENTS => {
-                super::feishu::hire::execute_list_talents(args).await
-            }
-            super::feishu::TOOL_HIRE_GET_TALENT => {
-                super::feishu::hire::execute_get_talent(args).await
-            }
-            super::feishu::TOOL_HIRE_LIST_APPLICATIONS => {
-                super::feishu::hire::execute_list_applications(args).await
-            }
-            // MCP-sourced tools all share the `mcp__<server>__<tool>`
-            // prefix; dispatch them through the dedicated subsystem.
-            n if crate::mcp::catalog::is_mcp_tool_name(n) => {
-                crate::mcp::invoke::call_tool(n, args, dispatch_ctx).await
-            }
-            _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
+        // 阶段 2.5：静态 match 已反转为注册表查表（builtin_registry.rs 持有
+        // 全部内置条目，特征 crate 经 registry::register_external_tools 在
+        // 装配期追加）。MCP 逃逸口保持原位：`mcp__<server>__<tool>` 前缀走
+        // 专属子系统，不进注册表。
+        if let Some(tool) = super::registry::lookup(name) {
+            (tool.handler)(args, dispatch_ctx).await
+        } else if crate::mcp::catalog::is_mcp_tool_name(name) {
+            crate::mcp::invoke::call_tool(name, args, dispatch_ctx).await
+        } else {
+            Err(anyhow::anyhow!("Unknown tool: {}", name))
         }
     };
 

@@ -177,6 +177,47 @@ impl ToolDefinition {
 
 ---
 
+## 分发注册表（阶段 2.5：静态 match 反转）
+
+`execute_tool_with_context` 的内置工具分发不再是 `execution.rs` 里的静态
+match，而是查表：
+
+- [`tools/registry.rs`](../../crates/ha-core/src/tools/registry.rs) —— 注册表
+  本体。`BuiltinToolHandler` = 无捕获 fn 指针 + boxed future；**冻结语义**：
+  `register_external_tools`（特征 crate 装配期注册）只允许在冻结前调用，
+  `init_runtime` 尾部 `freeze_now()` 主动冻结——冻结判定与注册队列消费在
+  **同一把锁下**（`Mutex<Option<Vec>>` 的 `take()`），杜绝「注册被静默吞掉
+  还返回 Ok」的 TOCTOU；冻结后注册返回 `Err`，重名在冻结时 panic（fail-loud）。
+- [`tools/builtin_registry.rs`](../../crates/ha-core/src/tools/builtin_registry.rs)
+  —— 全部内置条目（原 match 臂逐字迁移，含 `read_file`/`list_dir` 等历史
+  别名）。**新增内置工具在此加条目**，不要回填 match。
+- **规范名随条目冻结**：冻结表存 `(canonical_name, handler)`，执行门的
+  别名归一唯一入口是 `registry::canonical_name`（`execution.rs::
+  canonical_builtin_tool_name` 只是它的薄封装，**禁止再硬编码别名清单**
+  ——旧硬编码漏了 `list_dir`/`note_move`，漏网别名会以「无 ToolDefinition
+  的名字」滑过 fate 兜底）。deny / Skill / Plan allowlist 按「原名或规范名」
+  双判：deny 规范名即封其全部别名；allowlist 写别名或规范名均命中。
+- dispatch 顺序不变：查注册表 → `mcp__` 前缀走 MCP 子系统（逃逸口原位保留）
+  → Unknown tool。lookup 位于可见性 fate 兜底 / PreToolUse hook / 审批门
+  **之后**——注册表只是查表，不是新的执行入口。
+
+**与 [`tools/definitions/registry.rs`](../../crates/ha-core/src/tools/definitions/registry.rs)
+不是一回事**：后者是 `is_internal_tool` 等 ToolDefinition 元数据缓存；本表只管
+「名字 → 执行 handler」。
+
+**外部注册契约（阶段 3 落地前必须遵守）**：注册 handler 必须同步提供
+`ToolDefinition`（schema / fate 元数据），否则 `resolve_tool_fate` 可见性兜底
+对该工具 no-op（`builtin_fate_error` 对无 definition 的名字返 `None`）——工具
+可执行但不受 `tools.allow/deny` 约束。`freeze_now` 对缺 definition 的规范名
+记 warn（`category="tools", source="registry_freeze"`），校验遍历**冻结后的
+全表**——外部注册项同样覆盖，不只查 builtin；builtin 侧另有测试强制
+（`registry::tests::every_builtin_canonical_name_has_a_definition`）。
+`workflow` 是唯一豁免：session-gated 注入、刻意不进 `all_dispatchable_tools`，
+但有独立 definition（`get_workflow_tool`）与专属可见性门。
+
+**刻意不反转**：`async_jobs::retry::is_retry_eligible`（代码级重试白名单红线）、
+`resolve_tool_fate` 决策表、审批 category 枚举、schema 定义——保持静态。
+
 ## 内置工具清单
 
 本节枚举 Hope Agent 当前内置的全部工具（源码：`crates/ha-core/src/tools/definitions/`）。

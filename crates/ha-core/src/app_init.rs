@@ -531,6 +531,10 @@ pub fn init_runtime(role: &'static str) {
 
     // Mark init complete only after every fallible step has succeeded. Any
     // earlier `fatal()` panic kills the process before this set runs.
+    // 工具注册表在装配收尾时主动冻结：外部条目（特征 crate）必须已在上面
+    // 注册完毕；重名等装配 bug 现在就 panic，不留到首次工具分发。
+    crate::tools::registry::freeze_now();
+
     let _ = INIT_DONE.set(());
 }
 

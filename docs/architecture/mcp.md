@@ -189,8 +189,11 @@ stateDiagram-v2
 ### Dispatch 路径（[`tools/execution.rs`](../../crates/ha-core/src/tools/execution.rs)）
 
 ```rust
-name if crate::mcp::catalog::is_mcp_tool_name(n) => {
-    crate::mcp::invoke::call_tool(n, args, ctx).await
+// 内置工具先查注册表；MCP 逃逸口在其后（`mcp__` 前缀不进注册表）
+if let Some(handler) = super::registry::lookup(name) {
+    handler(args, ctx).await
+} else if crate::mcp::catalog::is_mcp_tool_name(name) {
+    crate::mcp::invoke::call_tool(name, args, ctx).await
 }
 ```
 
