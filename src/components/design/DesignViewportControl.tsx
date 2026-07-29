@@ -166,6 +166,7 @@ export function DesignViewportResizeHandles({
     }
     if (!next) return
     event.preventDefault()
+    event.stopPropagation()
     onSizeCommit(next)
   }
   const handleCornerKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -188,6 +189,7 @@ export function DesignViewportResizeHandles({
     }
     if (!next) return
     event.preventDefault()
+    event.stopPropagation()
     onSizeCommit(next)
   }
 

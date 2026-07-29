@@ -42,11 +42,6 @@ export interface ViewportSize {
   height: number
 }
 
-export interface ViewportOffset {
-  x: number
-  y: number
-}
-
 export type ViewportResizeAxis = "width" | "height" | "both"
 
 export const DEFAULT_CUSTOM_VIEWPORT: ViewportSize = { width: 390, height: 844 }
@@ -97,27 +92,4 @@ export function resizeCustomViewport(
     width: axis === "height" ? start.width : start.width + deltaX / safeScale,
     height: axis === "width" ? start.height : start.height + deltaY / safeScale,
   })
-}
-
-/**
- * The custom frame is centered by its flex parent. Moving its center by half of
- * the rendered size delta keeps the opposite (left/top) edge fixed while the
- * right/bottom resize handles follow the pointer one-for-one.
- */
-export function offsetAnchoredCustomViewport(
-  startSize: ViewportSize,
-  nextSize: ViewportSize,
-  renderedScale: number,
-  axis: ViewportResizeAxis,
-  startOffset: ViewportOffset,
-): ViewportOffset {
-  const safeScale = Number.isFinite(renderedScale) && renderedScale > 0 ? renderedScale : 1
-  return {
-    x:
-      startOffset.x +
-      (axis === "height" ? 0 : ((nextSize.width - startSize.width) * safeScale) / 2),
-    y:
-      startOffset.y +
-      (axis === "width" ? 0 : ((nextSize.height - startSize.height) * safeScale) / 2),
-  }
 }

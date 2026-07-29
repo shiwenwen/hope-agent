@@ -51,8 +51,9 @@ describe("DesignViewportControl", () => {
 
   it("keeps resize handles keyboard accessible", () => {
     const onSizeCommit = vi.fn()
+    const onParentKeyDown = vi.fn()
     render(
-      <div className="relative">
+      <div className="relative" onKeyDown={onParentKeyDown}>
         <DesignViewportResizeHandles
           size={{ width: 390, height: 844 }}
           onResizeStart={vi.fn()}
@@ -65,5 +66,12 @@ describe("DesignViewportControl", () => {
       key: "ArrowRight",
     })
     expect(onSizeCommit).toHaveBeenCalledWith({ width: 400, height: 844 })
+    expect(onParentKeyDown).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "自定义 · 宽 × 自定义 · 高" }), {
+      key: "End",
+    })
+    expect(onSizeCommit).toHaveBeenLastCalledWith({ width: 2560, height: 2560 })
+    expect(onParentKeyDown).not.toHaveBeenCalled()
   })
 })

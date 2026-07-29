@@ -102,10 +102,8 @@ import {
   clampCustomViewport,
   findDeviceViewportPreset,
   isPreviewDevice,
-  offsetAnchoredCustomViewport,
   resizeCustomViewport,
   type PreviewDevice,
-  type ViewportOffset,
   type ViewportResizeAxis,
   type ViewportSize,
 } from "@/components/design/designViewport"
@@ -627,12 +625,12 @@ export default function DesignView({
   const [customViewport, setCustomViewport] = useState<ViewportSize>(DEFAULT_CUSTOM_VIEWPORT)
   const customViewportRef = useRef(customViewport)
   customViewportRef.current = customViewport
-  // 自定义视口拖拽开始后冻结屏上 scale，避免 contain 重算把增长抵消；offset 补偿 flex 居中，
-  // 让左/上边保持原位、右/下手柄逐像素跟随指针。
-  const [customDisplayScale, setCustomDisplayScale] = useState<number | null>(null)
-  const [customFrameOffset, setCustomFrameOffset] = useState<ViewportOffset>({ x: 0, y: 0 })
-  const customFrameOffsetRef = useRef(customFrameOffset)
-  customFrameOffsetRef.current = customFrameOffset
+  // 拖拽时冻结起始屏上 scale 与外层占位：居中的外层不改尺寸，内层只向右/下增长，因而无需
+  // 动态 translate 就能锚定左/上边；松手即清空，恢复随预览面实时 contain 适配。
+  const [customResizeAnchor, setCustomResizeAnchor] = useState<{
+    size: ViewportSize
+    scale: number
+  } | null>(null)
   const customResizeCleanupRef = useRef<(() => void) | null>(null)
   const [presentMode, setPresentMode] = useState(false) // 本标签无 chrome 演示
   const presentModeRef = useRef(false)
@@ -4004,9 +4002,7 @@ export default function DesignView({
     customResizeCleanupRef.current?.()
     customViewportRef.current = savedCustom
     setCustomViewport(savedCustom)
-    customFrameOffsetRef.current = { x: 0, y: 0 }
-    setCustomFrameOffset({ x: 0, y: 0 })
-    setCustomDisplayScale(null)
+    setCustomResizeAnchor(null)
     setPreviewDevice(isPreviewDevice(saved) ? saved : "auto")
   }, [activeArtifactId])
 
@@ -4029,9 +4025,7 @@ export default function DesignView({
     (d: PreviewDevice) => {
       if (d !== previewDevice) {
         customResizeCleanupRef.current?.()
-        customFrameOffsetRef.current = { x: 0, y: 0 }
-        setCustomFrameOffset({ x: 0, y: 0 })
-        setCustomDisplayScale(null)
+        setCustomResizeAnchor(null)
       }
       setPreviewDevice(d)
       if (!activeArtifactId) return
@@ -4522,7 +4516,9 @@ export default function DesignView({
         ? Math.min(1, sw, availH / devicePreset.h)
         : Math.min(1, sw)
       const scale =
-        previewDevice === "custom" && customDisplayScale != null ? customDisplayScale : fittedScale
+        previewDevice === "custom" && customResizeAnchor != null
+          ? customResizeAnchor.scale
+          : fittedScale
       const h = devicePreset.h ?? Math.max(400, Math.round(availH / (scale || 1)))
       return { w: devicePreset.w, h, scale }
     }
@@ -4576,13 +4572,12 @@ export default function DesignView({
         height: `${frame.h * frame.scale}px`,
       }
   const frameWrapStyle: CSSProperties =
-    previewDevice === "custom" && !presentMode
+    previewDevice === "custom" && customResizeAnchor != null && !presentMode
       ? {
-          ...previewFootprintStyle,
-          transform: `translate(${customFrameOffset.x}px, ${customFrameOffset.y}px)`,
+          width: `${customResizeAnchor.size.width * customResizeAnchor.scale}px`,
+          height: `${customResizeAnchor.size.height * customResizeAnchor.scale}px`,
         }
       : previewFootprintStyle
-  // DrawOverlay 只需屏上 footprint；外层锚点 transform 已由共同父节点承载，不能重复应用。
   const overlayFrameStyle: CSSProperties = previewFootprintStyle
 
   const startCustomViewportResize = (
@@ -4598,8 +4593,7 @@ export default function DesignView({
     const startY = event.clientY
     const startSize = customViewportRef.current
     const renderedScale = frame.scale
-    const startOffset = customFrameOffsetRef.current
-    setCustomDisplayScale(renderedScale)
+    setCustomResizeAnchor({ size: startSize, scale: renderedScale })
     const iframe = iframeRef.current
     const previousPointerEvents = iframe?.style.pointerEvents ?? ""
     if (iframe) iframe.style.pointerEvents = "none"
@@ -4616,17 +4610,8 @@ export default function DesignView({
         renderedScale,
         axis,
       )
-      const nextOffset = offsetAnchoredCustomViewport(
-        startSize,
-        next,
-        renderedScale,
-        axis,
-        startOffset,
-      )
       customViewportRef.current = next
-      customFrameOffsetRef.current = nextOffset
       setCustomViewport(next)
-      setCustomFrameOffset(nextOffset)
     }
 
     const cleanup = () => {
@@ -4642,6 +4627,7 @@ export default function DesignView({
     const finish = () => {
       cleanup()
       commitCustomViewport(customViewportRef.current)
+      setCustomResizeAnchor(null)
     }
 
     customResizeCleanupRef.current = cleanup
@@ -6063,69 +6049,74 @@ export default function DesignView({
                       style={frameWrapStyle}
                     >
                       <div
-                        className={cn(
-                          "relative h-full w-full overflow-hidden bg-white",
-                          presentMode
-                            ? "rounded-none border-0"
-                            : previewDevice === "custom"
-                              ? "rounded-lg border border-border/80 shadow-lg"
-                              : devicePreset
-                                ? "rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
-                                : "rounded-lg border shadow-sm",
-                          !presentMode && editMode && "bg-secondary",
-                          !presentMode && drawMode && "bg-secondary",
-                        )}
+                        className={cn("relative", presentMode && "h-full w-full")}
+                        style={previewFootprintStyle}
                       >
-                        {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
-                        旧帧垫底直到新帧首绘，消除 React 卸载重建的白闪。key 仅保留在下方 DrawOverlay
-                        （其坐标须随内容重排复位）。滚动保温 + spinner 见 handleIframeLoad / previewLoading。 */}
-                        <iframe
-                          ref={iframeRef}
-                          src={iframeSrc}
-                          sandbox="allow-scripts"
-                          title={activeArtifact.title}
-                          onLoad={handleIframeLoad}
-                          className="border-0"
-                          style={scaleStyle}
-                        />
-                        {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
-                        {previewLoading && (
-                          <div
-                            role="status"
-                            aria-live="polite"
-                            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
-                          >
-                            <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
-                              <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
+                        <div
+                          className={cn(
+                            "relative h-full w-full overflow-hidden bg-white",
+                            presentMode
+                              ? "rounded-none border-0"
+                              : previewDevice === "custom"
+                                ? "rounded-lg border border-border/80 shadow-lg"
+                                : devicePreset
+                                  ? "rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
+                                  : "rounded-lg border shadow-sm",
+                            !presentMode && editMode && "bg-secondary",
+                            !presentMode && drawMode && "bg-secondary",
+                          )}
+                        >
+                          {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
+                          旧帧垫底直到新帧首绘，消除 React 卸载重建的白闪。key 仅保留在下方 DrawOverlay
+                          （其坐标须随内容重排复位）。滚动保温 + spinner 见 handleIframeLoad / previewLoading。 */}
+                          <iframe
+                            ref={iframeRef}
+                            src={iframeSrc}
+                            sandbox="allow-scripts"
+                            title={activeArtifact.title}
+                            onLoad={handleIframeLoad}
+                            className="border-0"
+                            style={scaleStyle}
+                          />
+                          {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
+                          {previewLoading && (
+                            <div
+                              role="status"
+                              aria-live="polite"
+                              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+                            >
+                              <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
+                                <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
+                              </div>
+                              <span className="sr-only">{t("common.loading", "加载中...")}</span>
                             </div>
-                            <span className="sr-only">{t("common.loading", "加载中...")}</span>
-                          </div>
-                        )}
-                        {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
-                        pane。drawMode 期保持挂载；演示时只暂停并隐藏，退出后保留 marks/note。 */}
-                        {drawMode && (
-                          // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
-                          // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
-                          //（review MED：同产物 previewKey 变而叠层不重置会把 v1 marks 合成到 v2 布局）。
-                          <DesignDrawOverlay
-                            key={`${activeArtifact.id}-${previewKey}`}
-                            busy={drawBusy}
-                            suspended={presentMode}
-                            onExit={() => setDrawMode(false)}
-                            onSubmit={handleDrawSubmit}
-                            onWheelScroll={forwardScrollToIframe}
-                            toolbarHost={previewPaneRef.current}
-                            frameStyle={overlayFrameStyle}
+                          )}
+                          {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
+                          pane。drawMode 期保持挂载；演示时只暂停并隐藏，退出后保留 marks/note。 */}
+                          {drawMode && (
+                            // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
+                            // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
+                            //（review MED：同产物 previewKey 变而叠层不重置会把 v1 marks 合成到 v2 布局）。
+                            <DesignDrawOverlay
+                              key={`${activeArtifact.id}-${previewKey}`}
+                              busy={drawBusy}
+                              suspended={presentMode}
+                              onExit={() => setDrawMode(false)}
+                              onSubmit={handleDrawSubmit}
+                              onWheelScroll={forwardScrollToIframe}
+                              toolbarHost={previewPaneRef.current}
+                              frameStyle={overlayFrameStyle}
+                            />
+                          )}
+                        </div>
+                        {previewDevice === "custom" && !presentMode && (
+                          <DesignViewportResizeHandles
+                            size={customViewport}
+                            onResizeStart={startCustomViewportResize}
+                            onSizeCommit={commitCustomViewport}
                           />
                         )}
                       </div>
-                      {previewDevice === "custom" && !presentMode && (
-                        <DesignViewportResizeHandles
-                          size={customViewport}
-                          onResizeStart={startCustomViewportResize}
-                          onSizeCommit={commitCustomViewport}
-                        />
-                      )}
                     </div>
                     {presentMode &&
                       activeArtifact.kind === "deck" &&

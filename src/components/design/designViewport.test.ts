@@ -5,7 +5,6 @@ import {
   clampCustomViewport,
   findDeviceViewportPreset,
   isPreviewDevice,
-  offsetAnchoredCustomViewport,
   resizeCustomViewport,
 } from "@/components/design/designViewport"
 
@@ -54,19 +53,6 @@ describe("design viewport presets", () => {
     expect(resizeCustomViewport({ width: 390, height: 844 }, 40, 60, 0.5, "height")).toEqual({
       width: 390,
       height: 964,
-    })
-  })
-
-  it("offsets a centered frame so its left and top edges stay anchored", () => {
-    const start = { width: 390, height: 844 }
-    const next = resizeCustomViewport(start, 40, 60, 0.5, "both")
-    expect(offsetAnchoredCustomViewport(start, next, 0.5, "both", { x: 0, y: 0 })).toEqual({
-      x: 20,
-      y: 30,
-    })
-    expect(offsetAnchoredCustomViewport(start, next, 0.5, "width", { x: 8, y: 12 })).toEqual({
-      x: 28,
-      y: 12,
     })
   })
 })
