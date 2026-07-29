@@ -557,7 +557,7 @@ pub(super) fn build_acp_section() -> String {
         let available = if std::path::Path::new(&b.binary).is_absolute() {
             std::path::Path::new(&b.binary).exists()
         } else {
-            crate::acp_control::registry::resolve_binary(&b.binary).is_some()
+            super::acp_binary_resolvable(&b.binary)
         };
         if available {
             backend_lines.push(format!("- {}: {} (binary: {})", b.id, b.name, b.binary));

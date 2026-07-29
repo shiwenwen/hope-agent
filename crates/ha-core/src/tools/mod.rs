@@ -1,6 +1,5 @@
 use serde_json::{json, Value};
 
-pub(crate) mod acp_spawn;
 mod agents;
 mod apply_patch;
 pub(crate) mod approval;
@@ -262,9 +261,7 @@ pub const ASYNC_JOB_TIMEOUT_ARG: &str = "job_timeout_secs";
 
 // ── Runtime Timeout Policy Helpers ───────────────────────────────
 
-pub(crate) fn should_ignore_model_runtime_timeout_when_user_unlimited(
-    user_limit_secs: u64,
-) -> bool {
+pub fn should_ignore_model_runtime_timeout_when_user_unlimited(user_limit_secs: u64) -> bool {
     matches!(
         crate::config::cached_config()
             .timeout_policy
@@ -273,7 +270,7 @@ pub(crate) fn should_ignore_model_runtime_timeout_when_user_unlimited(
     ) && user_limit_secs == 0
 }
 
-pub(crate) fn audit_model_runtime_timeout_override(
+pub fn audit_model_runtime_timeout_override(
     ctx: Option<&ToolExecContext>,
     tool: &str,
     parameter: &str,
@@ -324,7 +321,7 @@ pub(crate) fn audit_model_runtime_timeout_override(
     }
 }
 
-pub(crate) async fn emit_model_runtime_timeout_metadata(
+pub async fn emit_model_runtime_timeout_metadata(
     ctx: &ToolExecContext,
     tool: &str,
     parameter: &str,

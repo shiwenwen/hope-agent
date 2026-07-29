@@ -85,9 +85,11 @@ graph TD
     subgraph OcFeat["特征 crate（阶段 3 起逐个迁出）"]
         Updater["ha-updater<br/>manifest / 验签 / swap + app_update 工具"]
         Weather["ha-weather<br/>Open-Meteo / 缓存 + get_weather 工具"]
+        AcpFeat["ha-acp<br/>ACP stdio server + acp_spawn 控制面"]
     end
     Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     Weather -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    AcpFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
 
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler

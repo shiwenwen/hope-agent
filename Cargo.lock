@@ -3094,6 +3094,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-acp"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "ha-base",
+ "ha-config-schema",
+ "ha-core",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "which",
+]
+
+[[package]]
 name = "ha-base"
 version = "0.24.0"
 dependencies = [
@@ -3254,6 +3273,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap",
+ "ha-acp",
  "ha-core",
  "ha-eval-spec",
  "ha-updater",
@@ -3293,6 +3313,7 @@ dependencies = [
  "brotli",
  "chrono",
  "futures-util",
+ "ha-acp",
  "ha-core",
  "ha-updater",
  "ha-weather",
@@ -3465,6 +3486,7 @@ dependencies = [
  "chrono",
  "cron",
  "dirs 6.0.0",
+ "ha-acp",
  "ha-core",
  "ha-server",
  "ha-updater",

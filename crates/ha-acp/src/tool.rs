@@ -4,8 +4,8 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::ToolExecContext;
 use crate::acp_control::types::AcpCreateParams;
+use ha_core::tools::ToolExecContext;
 
 pub(crate) async fn tool_acp_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
@@ -35,9 +35,9 @@ async fn resolve_acp_timeout_secs(
     let effective_secs = requested_secs.min(3600);
 
     if default_timeout_secs > 0 && (requested_secs == 0 || effective_secs > default_timeout_secs) {
-        super::audit_model_runtime_timeout_override(
+        ha_core::tools::audit_model_runtime_timeout_override(
             Some(ctx),
-            super::TOOL_ACP_SPAWN,
+            ha_core::tools::TOOL_ACP_SPAWN,
             "timeout_secs",
             requested_secs,
             default_timeout_secs,
@@ -45,9 +45,9 @@ async fn resolve_acp_timeout_secs(
             true,
             "model supplied ACP run timeout would relax ACP default timeout",
         );
-        super::emit_model_runtime_timeout_metadata(
+        ha_core::tools::emit_model_runtime_timeout_metadata(
             ctx,
-            super::TOOL_ACP_SPAWN,
+            ha_core::tools::TOOL_ACP_SPAWN,
             "timeout_secs",
             requested_secs,
             default_timeout_secs,
@@ -60,11 +60,13 @@ async fn resolve_acp_timeout_secs(
     }
 
     if requested_secs > 0
-        && super::should_ignore_model_runtime_timeout_when_user_unlimited(default_timeout_secs)
+        && ha_core::tools::should_ignore_model_runtime_timeout_when_user_unlimited(
+            default_timeout_secs,
+        )
     {
-        super::audit_model_runtime_timeout_override(
+        ha_core::tools::audit_model_runtime_timeout_override(
             Some(ctx),
-            super::TOOL_ACP_SPAWN,
+            ha_core::tools::TOOL_ACP_SPAWN,
             "timeout_secs",
             requested_secs,
             default_timeout_secs,
@@ -72,9 +74,9 @@ async fn resolve_acp_timeout_secs(
             true,
             "ACP default timeout is unlimited",
         );
-        super::emit_model_runtime_timeout_metadata(
+        ha_core::tools::emit_model_runtime_timeout_metadata(
             ctx,
-            super::TOOL_ACP_SPAWN,
+            ha_core::tools::TOOL_ACP_SPAWN,
             "timeout_secs",
             requested_secs,
             default_timeout_secs,
@@ -86,9 +88,9 @@ async fn resolve_acp_timeout_secs(
         return None;
     }
 
-    super::audit_model_runtime_timeout_override(
+    ha_core::tools::audit_model_runtime_timeout_override(
         Some(ctx),
-        super::TOOL_ACP_SPAWN,
+        ha_core::tools::TOOL_ACP_SPAWN,
         "timeout_secs",
         requested_secs,
         effective_secs,
@@ -96,9 +98,9 @@ async fn resolve_acp_timeout_secs(
         false,
         "model supplied ACP run timeout",
     );
-    super::emit_model_runtime_timeout_metadata(
+    ha_core::tools::emit_model_runtime_timeout_metadata(
         ctx,
-        super::TOOL_ACP_SPAWN,
+        ha_core::tools::TOOL_ACP_SPAWN,
         "timeout_secs",
         requested_secs,
         effective_secs,
@@ -129,8 +131,8 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let parent_agent_id = ctx
         .agent_id
         .as_deref()
-        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
-    if let Ok(def) = crate::agent_loader::load_agent(parent_agent_id) {
+        .unwrap_or(ha_core::agent_loader::DEFAULT_AGENT_ID);
+    if let Ok(def) = ha_core::agent_loader::load_agent(parent_agent_id) {
         if !def.config.acp.enabled {
             return Err(anyhow::anyhow!(
                 "ACP external agent delegation is disabled for this agent"
@@ -144,11 +146,11 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         }
     }
 
-    let manager = crate::get_acp_manager()
+    let manager = crate::acp_control::get_acp_manager()
         .ok_or_else(|| anyhow::anyhow!("ACP control plane not initialized"))?;
 
     // Check global config
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     if !store.acp_control.enabled {
         return Err(anyhow::anyhow!(
             "ACP control plane is disabled. Enable it in Settings → ACP."
@@ -197,7 +199,7 @@ async fn action_check(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("'run_id' is required for check action"))?;
 
-    let manager = crate::get_acp_manager()
+    let manager = crate::acp_control::get_acp_manager()
         .ok_or_else(|| anyhow::anyhow!("ACP control plane not initialized"))?;
 
     let wait = args.get("wait").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -211,7 +213,7 @@ async fn action_check(args: &Value) -> Result<String> {
                 }
             } else {
                 // Try DB fallback
-                if let Some(db) = crate::get_session_db() {
+                if let Some(db) = ha_core::get_session_db() {
                     if let Ok(Some(run)) = db.get_acp_run(run_id) {
                         return Ok(serde_json::to_string_pretty(&run)?);
                     }
@@ -230,7 +232,7 @@ async fn action_check(args: &Value) -> Result<String> {
         Ok(serde_json::to_string(&run)?)
     } else {
         // Fallback to DB for finished runs
-        if let Some(db) = crate::get_session_db() {
+        if let Some(db) = ha_core::get_session_db() {
             if let Ok(Some(run)) = db.get_acp_run(run_id) {
                 return Ok(serde_json::to_string_pretty(&run)?);
             }
@@ -240,7 +242,7 @@ async fn action_check(args: &Value) -> Result<String> {
 }
 
 async fn action_list(ctx: &ToolExecContext) -> Result<String> {
-    let manager = crate::get_acp_manager()
+    let manager = crate::acp_control::get_acp_manager()
         .ok_or_else(|| anyhow::anyhow!("ACP control plane not initialized"))?;
 
     let runs = manager.list_runs(ctx.session_id.as_deref()).await;
@@ -254,7 +256,7 @@ async fn action_result(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("'run_id' is required for result action"))?;
 
-    let manager = crate::get_acp_manager()
+    let manager = crate::acp_control::get_acp_manager()
         .ok_or_else(|| anyhow::anyhow!("ACP control plane not initialized"))?;
 
     manager.get_result(run_id).await
@@ -266,7 +268,7 @@ async fn action_kill(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("'run_id' is required for kill action"))?;
 
-    let manager = crate::get_acp_manager()
+    let manager = crate::acp_control::get_acp_manager()
         .ok_or_else(|| anyhow::anyhow!("ACP control plane not initialized"))?;
 
     manager.kill_run(run_id).await?;
@@ -279,7 +281,7 @@ async fn action_kill_all(ctx: &ToolExecContext) -> Result<String> {
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("No session context"))?;
 
-    let manager = crate::get_acp_manager()
+    let manager = crate::acp_control::get_acp_manager()
         .ok_or_else(|| anyhow::anyhow!("ACP control plane not initialized"))?;
 
     let count = manager.kill_all(parent_session_id).await?;
@@ -297,7 +299,7 @@ async fn action_steer(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("'message' is required for steer action"))?;
 
-    let manager = crate::get_acp_manager()
+    let manager = crate::acp_control::get_acp_manager()
         .ok_or_else(|| anyhow::anyhow!("ACP control plane not initialized"))?;
 
     manager.steer_run(run_id, message).await?;
@@ -305,7 +307,7 @@ async fn action_steer(args: &Value) -> Result<String> {
 }
 
 async fn action_backends() -> Result<String> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     if !store.acp_control.enabled {
         return Ok(serde_json::json!({
             "enabled": false,
@@ -315,7 +317,7 @@ async fn action_backends() -> Result<String> {
     }
 
     // Use registry if available, otherwise build from config
-    if let Some(manager) = crate::get_acp_manager() {
+    if let Some(manager) = crate::acp_control::get_acp_manager() {
         // Registry is initialized — list from it
         // For now, build info from config + health checks
         let config = &store.acp_control;

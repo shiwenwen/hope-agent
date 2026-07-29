@@ -36,7 +36,7 @@ pub use config::{
     VALID_REASONING_EFFORTS,
 };
 pub use config::{build_system_prompt, build_system_prompt_with_session};
-pub(crate) use context::build_compaction_provider;
+pub use context::build_compaction_provider;
 pub use plan_context::{
     merge_extra_system_context, resolve_plan_context_for_session, PlanResolvedContext,
 };
@@ -714,7 +714,8 @@ impl AssistantAgent {
     ///
     /// Internally wraps the config in `Arc` so callers don't have to. Pass a
     /// borrow; the one clone happens here, once per agent build.
-    pub(crate) fn with_failover_context(mut self, provider_config: &ProviderConfig) -> Self {
+    // pub：ha-acp 的 ACP stdio server 构建 agent 链时复用 failover 语境。
+    pub fn with_failover_context(mut self, provider_config: &ProviderConfig) -> Self {
         self.provider_config = Some(std::sync::Arc::new(provider_config.clone()));
         self
     }
@@ -852,7 +853,7 @@ impl AssistantAgent {
     /// Bind this agent to the session database used by the active chat-engine
     /// turn. This is usually the global DB, but eval/headless callers can pass
     /// an isolated DB and still get correct working-dir / permission metadata.
-    pub(crate) fn set_session_db(&mut self, db: Arc<crate::session::SessionDB>) {
+    pub fn set_session_db(&mut self, db: Arc<crate::session::SessionDB>) {
         self.session_db = Some(db);
         *self
             .kb_access_cache
@@ -867,7 +868,7 @@ impl AssistantAgent {
         }
     }
 
-    pub(crate) fn set_turn_durability(
+    pub fn set_turn_durability(
         &mut self,
         sink: Arc<dyn crate::turn_durability::TurnDurabilitySink>,
     ) {

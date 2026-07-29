@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::acp::types::ClientCapabilities;
-use crate::agent::AssistantAgent;
+use ha_core::agent::AssistantAgent;
 
 /// A single ACP session tracked by the server
 pub struct AcpSession {

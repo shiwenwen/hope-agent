@@ -105,7 +105,7 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 | Recap facet retention 轮询 | 启动一次 + 每日 | [`recap::spawn_facet_retention_loop`](../../crates/ha-core/src/recap/) |
 | Dreaming 空闲触发 | 每 60s 检查（`MissedTickBehavior::Skip`） | [`app_init.rs`](../../crates/ha-core/src/app_init.rs) → [`memory::dreaming`](../../crates/ha-core/src/memory/dreaming/) |
 | **Channel worker 主循环**（每账户一条） | 轮询 / 长连接取决于渠道协议 | [`channel/worker/`](../../crates/ha-core/src/channel/worker/) |
-| **ACP 健康检查**（仅内嵌 ACP runtime） | 周期 ping | [`acp_control/health.rs`](../../crates/ha-core/src/acp_control/health.rs) |
+| **ACP 健康检查**（仅内嵌 ACP runtime） | 周期 ping | [`acp_control/health.rs`](../../crates/ha-acp/src/acp_control/health.rs) |
 
 模式无关的两类：
 
@@ -213,7 +213,7 @@ Layer A–D 之外的一条横切约定，专治「同步阻塞把 async runtime
 
 | 场景 | 位置 | 生命周期 |
 |------|------|----------|
-| **ACP 运行时**（Codex CLI / Claude Code 等） | [`acp_control/runtime_stdio.rs`](../../crates/ha-core/src/acp_control/runtime_stdio.rs) | 会话存活期间，配 [`acp_control/health.rs`](../../crates/ha-core/src/acp_control/health.rs) 健康检查 |
+| **ACP 运行时**（Codex CLI / Claude Code 等） | [`acp_control/runtime_stdio.rs`](../../crates/ha-acp/src/acp_control/runtime_stdio.rs) | 会话存活期间，配 [`acp_control/health.rs`](../../crates/ha-acp/src/acp_control/health.rs) 健康检查 |
 | **IM Channel 子进程**（部分协议实现） | [`channel/process_manager.rs`](../../crates/ha-core/src/channel/process_manager.rs) | 账户启用期间 |
 | **Docker 容器**（SearXNG / 部署目标） | [`docker/lifecycle.rs`](../../crates/ha-core/src/docker/lifecycle.rs), [`docker/deploy.rs`](../../crates/ha-core/src/docker/deploy.rs) | 容器自身生命周期；Hope Agent 退出不一定 kill |
 

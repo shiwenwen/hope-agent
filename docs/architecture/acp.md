@@ -669,7 +669,7 @@ hope-agent acp --help
 ## 文件索引
 
 ```
-crates/ha-core/src/acp/
+crates/ha-acp/src/acp/
 ├── mod.rs              # 模块声明 + pub re-export
 ├── types.rs            # JSON-RPC 2.0 + ACP 全量类型定义
 ├── protocol.rs         # NDJSON stdio 传输层
@@ -679,5 +679,10 @@ crates/ha-core/src/acp/
 └── server.rs           # 启动入口函数
 
 src-tauri/src/main.rs        # acp 子命令入口 (run_acp_server)
-crates/ha-core/src/lib.rs    # pub mod acp 注册
+crates/ha-acp/src/lib.rs     # 特征 crate 根：pub mod acp / acp_control + wire()
+                             #（壳层 init 前调 wire() 挂 acp_spawn 分发条目、
+                             #  SessionManager init 任务、backend 自动发现、
+                             #  prompt binary resolver；src-tauri 经
+                             #  pub use ha_acp::acp 保住 app_lib::acp:: 路径）
+crates/ha-acp/src/tool.rs    # acp_spawn 工具 adapter（ToolDefinition 留 ha-core）
 ```

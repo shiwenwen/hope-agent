@@ -13,12 +13,12 @@ use crate::acp::event_mapper;
 use crate::acp::protocol::NdJsonTransport;
 use crate::acp::session::{now_epoch_secs, AcpSession, AcpSessionStore};
 use crate::acp::types::*;
-use crate::agent::AssistantAgent;
-use crate::chat_engine::EventSink;
-use crate::failover;
-use crate::provider;
-use crate::session::{self, SessionDB, SessionIdeContext};
-use crate::turn_durability::{FlushReason, TurnDurabilitySink};
+use ha_core::agent::AssistantAgent;
+use ha_core::chat_engine::EventSink;
+use ha_core::failover;
+use ha_core::provider;
+use ha_core::session::{self, SessionDB, SessionIdeContext};
+use ha_core::turn_durability::{FlushReason, TurnDurabilitySink};
 
 /// ACP protocol version we advertise
 const ACP_PROTOCOL_VERSION: &str = "0.2";
@@ -68,7 +68,7 @@ fn persist_acp_ide_context(db: &Arc<SessionDB>, session_id: &str, meta: &Option<
     match serde_json::from_value::<SessionIdeContext>(value) {
         Ok(context) => {
             if let Err(err) = db.save_session_ide_context(session_id, context) {
-                crate::app_warn!(
+                ha_core::app_warn!(
                     "acp",
                     "ide_context",
                     "failed to persist ACP IDE context for session {}: {}",
@@ -78,7 +78,7 @@ fn persist_acp_ide_context(db: &Arc<SessionDB>, session_id: &str, meta: &Option<
             }
         }
         Err(err) => {
-            crate::app_warn!(
+            ha_core::app_warn!(
                 "acp",
                 "ide_context",
                 "invalid ACP ideContext for session {}: {}",
@@ -255,7 +255,7 @@ impl AcpAgent {
         // ACP does not use the shared chat engine. Reserve the Agent before
         // creating the durable session so deletion cannot slip between
         // validation and session construction.
-        let _agent_admission = match crate::agent_lifecycle::begin_agent_run(&agent_id) {
+        let _agent_admission = match ha_core::agent_lifecycle::begin_agent_run(&agent_id) {
             Ok(guard) => guard,
             Err(e) => {
                 return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
@@ -431,18 +431,18 @@ impl AcpAgent {
             .enable_all()
             .build()
         {
-            Ok(rt) => match rt.block_on(crate::agent::preflight::user_prompt_preflight(
-                crate::agent::preflight::PreflightArgs {
+            Ok(rt) => match rt.block_on(ha_core::agent::preflight::user_prompt_preflight(
+                ha_core::agent::preflight::PreflightArgs {
                     session_id: &session_id,
                     agent_id: None,
                     raw_prompt: &text,
                     turn_id: &turn_id,
                 },
             )) {
-                crate::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
+                ha_core::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
                     effective_prompt
                 }
-                crate::agent::preflight::PreflightOutcome::Block { reason } => {
+                ha_core::agent::preflight::PreflightOutcome::Block { reason } => {
                     // A UserPromptSubmit hook blocked the prompt: record a
                     // UI-only event marker (excluded from LLM context), surface
                     // the reason as an agent message, and return without
@@ -483,7 +483,7 @@ impl AcpAgent {
         if let Err(error) = self.session_db.append_message(
             &session_id,
             &session::NewMessage::user(&effective_prompt)
-                .with_source(crate::chat_engine::ChatSource::Acp),
+                .with_source(ha_core::chat_engine::ChatSource::Acp),
         ) {
             if let Some(session) = self.sessions.get_mut(&session_id) {
                 session.active_prompt = false;
@@ -674,9 +674,9 @@ impl AcpAgent {
 
     /// Build an AssistantAgent from provider config (mirrors cron::build_and_run_agent)
     fn build_agent(&self, agent_id: &str, session_id: &str) -> Result<AssistantAgent> {
-        let _agent_admission = crate::agent_lifecycle::begin_agent_run(agent_id)?;
-        let store = crate::config::cached_config();
-        let agent_model_config = crate::agent_loader::load_agent(agent_id)
+        let _agent_admission = ha_core::agent_lifecycle::begin_agent_run(agent_id)?;
+        let store = ha_core::config::cached_config();
+        let agent_model_config = ha_core::agent_loader::load_agent(agent_id)
             .map(|def| def.config.model)
             .unwrap_or_default();
 
@@ -750,14 +750,14 @@ impl AcpAgent {
 
         if let Some(model_ref) = store.compact.effective_summarization_model_ref() {
             if let Some(cp) =
-                crate::agent::build_compaction_provider(&model_ref, &store.providers, session_id)
+                ha_core::agent::build_compaction_provider(&model_ref, &store.providers, session_id)
             {
                 agent.set_compaction_provider(Some(std::sync::Arc::new(cp)));
             }
         }
 
         // Resolve temperature: agent > global
-        let agent_temp = crate::agent_loader::load_agent(agent_id)
+        let agent_temp = ha_core::agent_loader::load_agent(agent_id)
             .ok()
             .and_then(|def| def.config.model.temperature);
         agent.set_temperature(agent_temp.or(store.temperature));
@@ -770,7 +770,7 @@ impl AcpAgent {
         &mut self,
         session_id: &str,
         text: &str,
-        attachments: &[crate::agent::Attachment],
+        attachments: &[ha_core::agent::Attachment],
     ) -> Result<String> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -795,18 +795,18 @@ impl AcpAgent {
         // `rt.block_on` turns complete; the guard's `Drop` (idle notify +
         // pending-injection flush) uses `std::thread::spawn`, so dropping it
         // outside the local runtime is safe.
-        let _idle_guard = crate::subagent::ChatSessionGuard::new(&session_id_owned);
+        let _idle_guard = ha_core::subagent::ChatSessionGuard::new(&session_id_owned);
 
         // Build model chain for failover
-        let store = crate::config::cached_config();
+        let store = ha_core::config::cached_config();
         let agent_id = self
             .sessions
             .get(session_id)
             .map(|s| s.agent_id.clone())
             .unwrap_or_else(|| self.default_agent_id.clone());
-        let _agent_run_guard = crate::agent_lifecycle::begin_agent_run(&agent_id)?;
+        let _agent_run_guard = ha_core::agent_lifecycle::begin_agent_run(&agent_id)?;
 
-        let agent_model_config = crate::agent_loader::load_agent(&agent_id)
+        let agent_model_config = ha_core::agent_loader::load_agent(&agent_id)
             .map(|def| def.config.model)
             .unwrap_or_default();
         let (primary, fallbacks) = provider::resolve_model_chain(&agent_model_config, &store);
@@ -837,12 +837,12 @@ impl AcpAgent {
 
         // Build CompactionProvider once, reuse across retries
         let compaction_provider: Option<
-            std::sync::Arc<dyn crate::context_compact::CompactionProvider>,
+            std::sync::Arc<dyn ha_core::context_compact::CompactionProvider>,
         > = store
             .compact
             .effective_summarization_model_ref()
             .and_then(|mr| {
-                crate::agent::build_compaction_provider(&mr, &store.providers, &session_id_owned)
+                ha_core::agent::build_compaction_provider(&mr, &store.providers, &session_id_owned)
                     .map(|cp| std::sync::Arc::new(cp) as _)
             });
 
@@ -853,7 +853,7 @@ impl AcpAgent {
         // only releases once); the resulting additionalContext is re-applied to
         // each rebuilt agent so it survives retries, mirroring how the engine
         // threads it through `extra_system_context`.
-        let mut session_start_ctx = rt.block_on(crate::hooks::fire_session_start_observation(
+        let mut session_start_ctx = rt.block_on(ha_core::hooks::fire_session_start_observation(
             &session_id_owned,
             &agent_id,
             model_chain
@@ -865,24 +865,25 @@ impl AcpAgent {
         // stashed for this turn, so the ACP entry injects it identically to
         // `run_chat_engine`. Drained once; re-applied to each rebuilt agent
         // below alongside the SessionStart context.
-        if let Some(extra) = crate::hooks::take_user_prompt_context(&session_id_owned) {
+        if let Some(extra) = ha_core::hooks::take_user_prompt_context(&session_id_owned) {
             session_start_ctx = Some(match session_start_ctx.take() {
                 Some(e) => format!("{e}\n\n{extra}"),
                 None => extra,
             });
         }
 
-        let durability = rt.block_on(crate::chat_engine::durability::StreamCoordinator::create(
-            db_clone.clone(),
-            session_id_owned.clone(),
-            crate::chat_engine::ChatSource::Acp,
-            None,
-            None,
-            Arc::new(AcpDurableEventSink {
-                session_id: session_id_owned.clone(),
-            }),
-            cancel.clone(),
-        ))?;
+        let durability =
+            rt.block_on(ha_core::chat_engine::durability::StreamCoordinator::create(
+                db_clone.clone(),
+                session_id_owned.clone(),
+                ha_core::chat_engine::ChatSource::Acp,
+                None,
+                None,
+                Arc::new(AcpDurableEventSink {
+                    session_id: session_id_owned.clone(),
+                }),
+                cancel.clone(),
+            ))?;
 
         for model_ref in &model_chain {
             let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
@@ -893,10 +894,10 @@ impl AcpAgent {
             let mut retry_count: u32 = 0;
             loop {
                 let provider_shape = match &prov.api_type {
-                    crate::provider::ApiType::Anthropic => "anthropic",
-                    crate::provider::ApiType::OpenaiChat => "openai_chat",
-                    crate::provider::ApiType::OpenaiResponses => "openai_responses",
-                    crate::provider::ApiType::Codex => "codex",
+                    ha_core::provider::ApiType::Anthropic => "anthropic",
+                    ha_core::provider::ApiType::OpenaiChat => "openai_chat",
+                    ha_core::provider::ApiType::OpenaiResponses => "openai_responses",
+                    ha_core::provider::ApiType::Codex => "codex",
                 };
                 rt.block_on(durability.begin_attempt(
                     Some(&model_ref.provider_id),
@@ -991,7 +992,7 @@ impl AcpAgent {
                             }
                         };
                         let mut assistant_msg = session::NewMessage::assistant(&trailing)
-                            .with_source(crate::chat_engine::ChatSource::Acp);
+                            .with_source(ha_core::chat_engine::ChatSource::Acp);
                         let usage = durability.usage();
                         assistant_msg.tokens_in = usage.input_tokens;
                         assistant_msg.tokens_out = usage.output_tokens;
@@ -1005,8 +1006,9 @@ impl AcpAgent {
                         assistant_msg.tokens_cache_read = usage
                             .last_cache_read_input_tokens
                             .or(usage.cache_read_input_tokens);
-                        let mut usage_event =
-                            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT);
+                        let mut usage_event = ha_core::model_usage::ModelUsageEvent::new(
+                            ha_core::model_usage::KIND_CHAT,
+                        );
                         usage_event = usage_event.with_usage(
                             usage.input_tokens.unwrap_or(0) as u64,
                             usage.output_tokens.unwrap_or(0) as u64,
@@ -1065,7 +1067,7 @@ impl AcpAgent {
                             let committed = db_clone.commit_assistant_turn(&commit)?;
                             durability.mark_committed(committed.committed_seq);
                         }
-                        crate::session_title::maybe_schedule_after_success(
+                        ha_core::session_title::maybe_schedule_after_success(
                             db_clone.clone(),
                             session_id_owned.clone(),
                             agent_id.clone(),
@@ -1130,7 +1132,7 @@ impl AcpAgent {
                     .find(|attempt| attempt.attempt_no == attempt_no)
                     .and_then(|attempt| attempt.provider_shape.as_deref())
                     .or(snapshot.run.provider_shape.as_deref())
-                    .and_then(crate::chat_engine::finalize::ProviderApiKind::from_shape);
+                    .and_then(ha_core::chat_engine::finalize::ProviderApiKind::from_shape);
                 (
                     attempt_no,
                     final_seq,
@@ -1148,7 +1150,7 @@ impl AcpAgent {
                     durability
                         .current_provider_shape()
                         .as_deref()
-                        .and_then(crate::chat_engine::finalize::ProviderApiKind::from_shape),
+                        .and_then(ha_core::chat_engine::finalize::ProviderApiKind::from_shape),
                 )
             };
         let trailing = session::trailing_text_from_journal_events(&visible_events);
@@ -1169,7 +1171,7 @@ impl AcpAgent {
             .as_deref()
             .and_then(|json| serde_json::from_str(json).ok())
             .unwrap_or_default();
-        crate::chat_engine::finalize::rebuild::append_journal_suffix_to_history(
+        ha_core::chat_engine::finalize::rebuild::append_journal_suffix_to_history(
             &mut history,
             &visible_events,
             context_checkpoint_seq,
@@ -1177,8 +1179,8 @@ impl AcpAgent {
         )?;
         history.push(serde_json::json!({
             "role": "assistant",
-            "content": crate::chat_engine::finalize::copy::model_marker(
-                &crate::chat_engine::finalize::TerminationReason::ProviderFailed {
+            "content": ha_core::chat_engine::finalize::copy::model_marker(
+                &ha_core::chat_engine::finalize::TerminationReason::ProviderFailed {
                     last_kind: failover::classify_error(&final_error),
                     last_message: final_error.clone(),
                     is_codex_auth: false,
@@ -1188,7 +1190,7 @@ impl AcpAgent {
         let context_json = serde_json::to_string(&history)?;
         let assistant = session::journal_events_have_assistant_output(&visible_events).then(|| {
             session::NewMessage::assistant(&trailing)
-                .with_source(crate::chat_engine::ChatSource::Acp)
+                .with_source(ha_core::chat_engine::ChatSource::Acp)
         });
         let commit = session::CommitInterruptedTurn {
             run_id: durability
@@ -1210,7 +1212,7 @@ impl AcpAgent {
             ),
             recovery_event: Some(
                 session::NewMessage::error_event(&final_error)
-                    .with_source(crate::chat_engine::ChatSource::Acp),
+                    .with_source(ha_core::chat_engine::ChatSource::Acp),
             ),
         };
         if let Err(error) = db_clone.commit_interrupted_turn(&commit) {
@@ -1230,7 +1232,7 @@ impl AcpAgent {
 
     /// Build session modes from available agents
     fn build_modes(&self, current_agent_id: &str) -> SessionModeState {
-        let agents = crate::agent_loader::list_agents().unwrap_or_default();
+        let agents = ha_core::agent_loader::list_agents().unwrap_or_default();
         let modes: Vec<SessionMode> = agents
             .iter()
             .map(|a| SessionMode {
@@ -1329,7 +1331,7 @@ impl AcpAgent {
 
                     if let Some(ref result) = msg.tool_result {
                         let truncated = if result.len() > 8192 {
-                            format!("{}...(truncated)", crate::truncate_utf8(result, 8192))
+                            format!("{}...(truncated)", ha_core::truncate_utf8(result, 8192))
                         } else {
                             result.clone()
                         };

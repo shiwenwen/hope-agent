@@ -18,8 +18,9 @@ mod window_state;
 // This makes `crate::agent`, `crate::session`, etc. resolve to ha-core's modules,
 // eliminating the need for duplicate local copies.
 
-pub use ha_core::acp;
-pub use ha_core::acp_control;
+pub use ha_acp::acp;
+pub use ha_acp::acp_control;
+pub use ha_acp::acp_control::get_acp_manager;
 pub use ha_core::agent;
 pub use ha_core::agent_config;
 pub use ha_core::agent_loader;
@@ -74,12 +75,12 @@ pub use ha_core::{default_true, sql_opt_u64, sql_u64, truncate_utf8};
 pub use ha_core::event_bus;
 pub use ha_core::init_app_state;
 pub use ha_core::{
-    get_acp_manager, get_channel_db, get_channel_registry, get_cron_db, get_event_bus, get_logger,
+    get_channel_db, get_channel_registry, get_cron_db, get_event_bus, get_logger,
     get_memory_backend, get_session_db, get_subagent_cancels, set_event_bus,
 };
 pub use ha_core::{
-    AppState, ACP_MANAGER, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
-    MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS,
+    AppState, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS, MEMORY_BACKEND,
+    SESSION_DB, SUBAGENT_CANCELS,
 };
 
 // ── Local re-exports ─────────────────────────────────────────────
@@ -93,6 +94,7 @@ pub fn run() {
     // `app_update` 有 schema 无 handler + registry_freeze warn。
     ha_updater::wire();
     ha_weather::wire();
+    ha_acp::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when

@@ -92,7 +92,7 @@ impl StdioAcpRuntime {
         }
 
         // Never flash a console window when launching the ACP backend on Windows.
-        crate::platform::hide_console_tokio(&mut cmd);
+        ha_core::platform::hide_console_tokio(&mut cmd);
 
         let child = cmd.spawn().map_err(|e| {
             anyhow::anyhow!(
@@ -191,7 +191,7 @@ impl AcpRuntime for StdioAcpRuntime {
     async fn get_version(&self) -> anyhow::Result<String> {
         let mut cmd = tokio::process::Command::new(&self.binary_path);
         cmd.arg("--version");
-        crate::platform::hide_console_tokio(&mut cmd);
+        ha_core::platform::hide_console_tokio(&mut cmd);
         let output = cmd.output().await?;
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(text)
@@ -200,7 +200,7 @@ impl AcpRuntime for StdioAcpRuntime {
     async fn create_session(&self, params: AcpCreateParams) -> anyhow::Result<AcpExternalSession> {
         let session_id = uuid::Uuid::new_v4().to_string();
         let timeout_secs = params.timeout_secs.unwrap_or_else(|| {
-            crate::config::cached_config()
+            ha_core::config::cached_config()
                 .acp_control
                 .default_timeout_secs
         });
@@ -477,7 +477,7 @@ impl AcpRuntime for StdioAcpRuntime {
                                     .and_then(|item| item.get("content"))
                                     .and_then(|c| c.get("text"))
                                     .and_then(|t| t.as_str())
-                                    .map(|s| crate::truncate_utf8(s, 2048).to_string());
+                                    .map(|s| ha_core::truncate_utf8(s, 2048).to_string());
 
                                 let _ = event_tx
                                     .send(AcpStreamEvent::ToolResult {
@@ -538,7 +538,7 @@ impl AcpRuntime for StdioAcpRuntime {
                 }
                 #[cfg(not(unix))]
                 {
-                    crate::platform::send_graceful_stop(pid);
+                    ha_core::platform::send_graceful_stop(pid);
                 }
             }
         }

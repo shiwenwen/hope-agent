@@ -2016,7 +2016,7 @@ pub(crate) async fn summarize_direct(
 /// own auth profiles. Profile rotation is intentionally **disabled** by
 /// [`FailoverPolicy::summarize_default`] — Tier 3 must fail fast so the
 /// caller can drop to side_query / emergency_compact.
-pub(crate) struct DedicatedModelProvider {
+pub struct DedicatedModelProvider {
     provider_config: std::sync::Arc<crate::provider::ProviderConfig>,
     model_id: String,
     session_id: String,
@@ -2098,7 +2098,9 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
 /// `session_id` is used as the failover sticky/cooldown key so summarize
 /// cooldowns are scoped to one session (and inherit cross-call sticky
 /// affinity within that session).
-pub(crate) fn build_compaction_provider(
+// pub：ha-acp 特征 crate 的 ACP stdio server（acp/agent.rs）复用同一
+// compaction provider 构建路径，不 fork。
+pub fn build_compaction_provider(
     model_ref: &str,
     providers: &[crate::provider::ProviderConfig],
     session_id: &str,

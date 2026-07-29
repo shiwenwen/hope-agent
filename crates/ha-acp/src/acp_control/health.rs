@@ -24,7 +24,7 @@ pub async fn probe_binary(binary_path: &str) -> AcpHealthStatus {
     cmd.arg("--version")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    crate::platform::hide_console_tokio(&mut cmd);
+    ha_core::platform::hide_console_tokio(&mut cmd);
     match cmd.spawn() {
         Ok(child) => {
             match tokio::time::timeout(std::time::Duration::from_secs(10), child.wait_with_output())

@@ -10,7 +10,7 @@
 | --- | --- | --- | --- | --- |
 | Tauri 桌面 GUI | `pnpm tauri dev` / 桌面 App | `TauriTransport` | `src-tauri` 命令薄壳 | React 运行在 Tauri WebView 中，请求走 `invoke()`，流式聊天主路径走 Tauri `Channel<string>`。 |
 | HTTP/WS server Web GUI | `hope-agent server start` + 浏览器 | `HttpTransport` | `ha-server` axum 路由 | 请求走 REST，后端事件和聊天流走 `/ws/events`。内嵌 Web GUI 和远程浏览器使用同一套路径。 |
-| ACP stdio | `hope-agent acp` | 不经过前端 `Transport` | `ha-core::acp` | IDE/外部客户端通过 ACP NDJSON over stdio 直连核心协议，不加载 React，也不使用 `src/lib/transport.ts`。 |
+| ACP stdio | `hope-agent acp` | 不经过前端 `Transport` | ha-acp（`ha_acp::acp`） | IDE/外部客户端通过 ACP NDJSON over stdio 直连核心协议，不加载 React，也不使用 `src/lib/transport.ts`。 |
 
 三种模式共享 `ha-core` 业务逻辑和 `EventBus` 抽象。Tauri 与 HTTP 只是把同一批核心能力分别桥接成 IPC 或 REST/WS；ACP 是另一条协议入口，不参与前端 Transport 选择。
 

@@ -1,4 +1,3 @@
-use crate::acp_control;
 use crate::agent::AssistantAgent;
 use crate::channel;
 use crate::cron;
@@ -38,8 +37,6 @@ pub static PROJECT_DB: std::sync::OnceLock<Arc<ProjectDB>> = std::sync::OnceLock
 /// Truth source lives in `sessions.db`; shares the `SessionDB` connection.
 pub static KNOWLEDGE_DB: std::sync::OnceLock<Arc<KnowledgeRegistry>> = std::sync::OnceLock::new();
 pub static SUBAGENT_CANCELS: std::sync::OnceLock<Arc<subagent::SubagentCancelRegistry>> =
-    std::sync::OnceLock::new();
-pub static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>> =
     std::sync::OnceLock::new();
 pub static CHANNEL_REGISTRY: std::sync::OnceLock<Arc<channel::ChannelRegistry>> =
     std::sync::OnceLock::new();
@@ -118,11 +115,6 @@ pub fn get_knowledge_db() -> Option<&'static Arc<KnowledgeRegistry>> {
 /// Get stored SubagentCancelRegistry for sub-agent cancellation
 pub fn get_subagent_cancels() -> Option<&'static Arc<subagent::SubagentCancelRegistry>> {
     SUBAGENT_CANCELS.get()
-}
-
-/// Get stored AcpSessionManager for ACP control plane operations
-pub fn get_acp_manager() -> Option<&'static Arc<acp_control::AcpSessionManager>> {
-    ACP_MANAGER.get()
 }
 
 /// Get stored ChannelRegistry for IM channel operations

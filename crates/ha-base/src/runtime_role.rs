@@ -62,7 +62,7 @@ pub fn is_desktop() -> bool {
 /// ACP runs over stdio for an editor client (Zed etc.); approvals can only
 /// reach a human if that client declared a permission capability (Epic D7).
 /// **Must use this, not `ChatSource`** — ACP turns reuse `ChatSource::Http`
-/// (`ha_core::acp`), so source alone can't distinguish ACP from a real HTTP
+/// (`ha_acp::acp`), so source alone can't distinguish ACP from a real HTTP
 /// client (D1 risk note).
 pub fn is_acp() -> bool {
     runtime_role() == Some("acp")

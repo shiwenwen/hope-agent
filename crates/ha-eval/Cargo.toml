@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 ha-core = { path = "../ha-core" }
+ha-acp = { path = "../ha-acp" }
 ha-updater = { path = "../ha-updater" }
 ha-weather = { path = "../ha-weather" }
 ha-eval-spec = { path = "../ha-eval-spec" }

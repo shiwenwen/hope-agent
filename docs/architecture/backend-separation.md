@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-updater（自升级）· ha-weather（天气）<br/>随 crate 拆分阶段 3 逐个迁出"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-updater · ha-weather<br/>随 crate 拆分阶段 3 逐个迁出"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -137,8 +137,6 @@ session/           会话 + 消息持久化 + FTS5 搜索
 project/           Project 容器（工作目录即真实文件，无独立 project_files；无反向 channel 认领）
 mcp/               MCP 客户端（stdio / Streamable HTTP / SSE / WebSocket）
 cron/              定时任务 + Agent 执行
-acp/               stdio JSON-RPC 服务器
-acp_control/       ACP 控制面 + Runtime 发现
 local_llm/         Ollama 集成 + 模型目录 + 硬件预算
 local_model_jobs/  本地模型后台任务（安装 / pull / 加载）
 async_jobs/        异步工具后台执行 + 重启回放
@@ -152,7 +150,7 @@ guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
 
-### 特征 crate（ha-updater / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-updater / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -162,10 +160,13 @@ guardian.rs        进程监护 + 指数退避 + 自修复
 - **装配**：每个调 `init_runtime` 的二进制在 init 前调 `<crate>::wire()`
   （幂等）。工具 `ToolDefinition` 仍在 ha-core（schema 目录阶段 4 才动），
   漏 wire 由 `registry_freeze` warn 兜底（有 definition 无 handler）。
-- **启动任务两档**：`register_startup_task(StartupStage, fn)` ——
-  `PrimaryOnly`（原 primary-gated 块，如 updater 自动更新循环）与
-  `EveryProcess`（primary 门外，如 weather 桌面刷新——desktop 判定在任务
-  闭包内）。消费点都在 `start_background_tasks`，时序与迁出前逐位一致。
+- **装配任务三档**：`register_init_task(fn)`（`init_runtime` 主体内消费，
+  **所有 role** 执行、tokio runtime 不保证存在——无条件子系统装配，如 acp
+  的 SessionManager 创建）；`register_startup_task(StartupStage, fn)` 两档
+  ——`PrimaryOnly`（原 primary-gated 块，如 updater 自动更新循环、acp
+  backend 自动发现）与 `EveryProcess`（primary 门外，如 weather 桌面刷新
+  ——desktop 判定在任务闭包内）。startup 两档消费点都在
+  `start_background_tasks`，时序与各特征迁出前逐位一致。
 
 各 crate：
 
@@ -178,6 +179,14 @@ guardian.rs        进程监护 + 指数退避 + 自修复
   `get_weather` 工具 / system prompt 天气段（经
   `system_prompt::register_weather_prompt_source` 钩子）/ settings 天气 key
   热刷新（经 `tools::register_weather_settings_refresh` 钩子）。
+- **ha-acp**（ACP）：`acp`（Hope 自身作 ACP stdio server，`hope-agent acp`
+  模式）+ `acp_control`（外部 ACP agent 控制面：注册表 / 健康探测 /
+  SessionManager / `acp_spawn` 工具）。`ACP_MANAGER` 全局随迁特征侧
+  （`acp_control::get_acp_manager`，kernel 的 globals 不再持有）；
+  `AgentAcpConfig`（agent.json wire 类型）下沉 `agent_config.rs`、
+  `AcpRun`/`AcpRunStatus`（acp_runs 表行类型）下沉 `session/acp_db.rs`，
+  特征侧原路径再导出；prompt 段 binary 可用性经
+  `system_prompt::register_acp_binary_resolver` 钩子。
 
 ### ha-server（HTTP/WS 服务）
 
@@ -331,7 +340,7 @@ sequenceDiagram
 
 ### 事件清单
 
-> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`docker/mod.rs`、`tools/ask_user_question.rs`、`tools/canvas/mod.rs`、`acp_control/events.rs`。
+> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`docker/mod.rs`、`tools/ask_user_question.rs`、`tools/canvas/mod.rs`、`ha-acp (acp_control/events.rs)`。
 
 #### 聊天 / 流式
 
@@ -397,7 +406,7 @@ sequenceDiagram
 | `config:changed` | config/persistence.rs, tools/settings.rs, backup.rs | 任何 `mutate_config` 写入路径自动 emit，`{category, source}` 元数据 |
 | `weather-cache-updated` | ha-weather (lib.rs) | 天气缓存刷新 |
 | `searxng:deploy_progress` (`EVENT_SEARXNG_DEPLOY_PROGRESS`) | docker/deploy.rs | SearXNG Docker 部署进度，前端 progress UI 消费 |
-| `acp_control_event` | acp_control/events.rs | ACP 运行生命周期 |
+| `acp_control_event` | ha-acp (acp_control/events.rs) | ACP 运行生命周期 |
 | `cron:run_completed` | cron/executor.rs | 定时任务完成 |
 
 #### 异步任务 / 本地模型

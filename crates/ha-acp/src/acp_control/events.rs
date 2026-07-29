@@ -23,7 +23,7 @@ pub fn emit_acp_event(
         data,
     };
 
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         if let Ok(payload) = serde_json::to_value(&event) {
             bus.emit(ACP_CONTROL_EVENT, payload);
         }

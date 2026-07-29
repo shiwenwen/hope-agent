@@ -26,6 +26,7 @@ fn main() {
     // 各分支）——init 尾部冻结工具注册表，之后再挂 `app_update` 会 panic。
     ha_updater::wire();
     ha_weather::wire();
+    ha_acp::wire();
 
     if matches!(
         args.get(1).map(String::as_str),

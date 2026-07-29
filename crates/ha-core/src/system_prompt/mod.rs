@@ -76,3 +76,28 @@ pub fn register_weather_prompt_source(
 pub(crate) fn weather_prompt_text() -> Option<String> {
     WEATHER_PROMPT_SOURCE.get().and_then(|f| f())
 }
+
+// ── 特征 crate 钩子：ACP backend binary 可用性 ───────────────────
+//
+// acp 迁出为特征 crate 后，ACP prompt 段判断「相对路径 binary 是否可解析」
+// 经此钩子（PATH / 注册表探测在 ha-acp）。未装配（未 wire）＝一律不可用
+// ＝相对路径 backend 不进清单——绝对路径分支不受影响；backends 清单为空
+// 时整段为空，与特征不存在语义一致。
+
+static ACP_BINARY_RESOLVER: std::sync::OnceLock<fn(&str) -> bool> = std::sync::OnceLock::new();
+
+/// 特征 crate 装配期注册 ACP binary 解析器。重复注册返回 `Err`。
+pub fn register_acp_binary_resolver(
+    resolver: fn(&str) -> bool,
+) -> Result<(), crate::AlreadyRegistered> {
+    ACP_BINARY_RESOLVER
+        .set(resolver)
+        .map_err(|_| crate::AlreadyRegistered("system_prompt acp binary resolver"))
+}
+
+pub(crate) fn acp_binary_resolvable(binary: &str) -> bool {
+    ACP_BINARY_RESOLVER
+        .get()
+        .map(|f| f(binary))
+        .unwrap_or(false)
+}

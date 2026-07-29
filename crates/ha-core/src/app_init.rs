@@ -1,11 +1,10 @@
-use crate::acp_control;
 use crate::channel;
 use crate::cron;
 use crate::globals::AppState;
 use crate::globals::{
-    ACP_MANAGER, APP_LOGGER, CACHED_AGENT, CHANNEL_CANCELS, CHANNEL_DB, CHANNEL_REGISTRY,
-    CODEX_TOKEN_CACHE, CRON_DB, EVENT_BUS, IDLE_EXTRACT_HANDLES, KNOWLEDGE_DB, LOG_DB,
-    MEMORY_BACKEND, PROJECT_DB, REASONING_EFFORT, SESSION_DB, SUBAGENT_CANCELS, TERMINAL_MANAGER,
+    APP_LOGGER, CACHED_AGENT, CHANNEL_CANCELS, CHANNEL_DB, CHANNEL_REGISTRY, CODEX_TOKEN_CACHE,
+    CRON_DB, EVENT_BUS, IDLE_EXTRACT_HANDLES, KNOWLEDGE_DB, LOG_DB, MEMORY_BACKEND, PROJECT_DB,
+    REASONING_EFFORT, SESSION_DB, SUBAGENT_CANCELS, TERMINAL_MANAGER,
 };
 use crate::knowledge::KnowledgeRegistry;
 use crate::logging::{self, AppLogger, LogDB};
@@ -47,6 +46,36 @@ pub enum StartupStage {
 type StartupQueue = std::sync::Mutex<Option<Vec<fn()>>>;
 static PENDING_STARTUP_EVERY: StartupQueue = std::sync::Mutex::new(Some(Vec::new()));
 static PENDING_STARTUP_PRIMARY: StartupQueue = std::sync::Mutex::new(Some(Vec::new()));
+static PENDING_INIT_TASKS: StartupQueue = std::sync::Mutex::new(Some(Vec::new()));
+
+/// 特征 crate 的 **init 期**装配任务：在 `init_runtime` 主体内、子系统装配
+/// 段消费（cached_config / 各 DB 全局已就绪，tokio runtime **不保证**存在，
+/// 任务内禁 spawn——需要后台循环用 [`register_startup_task`]）。与 startup
+/// 两档的差别：**所有 role**（含 acp / mcp / eval）都执行——原 ACP manager
+/// 创建等「无条件装配」类代码的原时序点。同款同锁消费语义。
+pub fn register_init_task(task: fn()) -> Result<(), crate::AlreadyRegistered> {
+    let mut pending = PENDING_INIT_TASKS.lock().unwrap_or_else(|p| p.into_inner());
+    match pending.as_mut() {
+        Some(queue) => {
+            queue.push(task);
+            Ok(())
+        }
+        None => Err(crate::AlreadyRegistered(
+            "init tasks (already consumed — register before init_runtime)",
+        )),
+    }
+}
+
+fn run_registered_init_tasks() {
+    let tasks = PENDING_INIT_TASKS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take()
+        .unwrap_or_default();
+    for task in tasks {
+        task();
+    }
+}
 
 /// 特征 crate（如 ha-updater / ha-weather）在装配期登记启动任务（后台循环
 /// 等）。消费点**不在 `init_runtime` 内**，而在 `start_background_tasks` 的
@@ -576,11 +605,9 @@ pub fn init_runtime(role: &'static str) {
         if let Some(manager) = TERMINAL_MANAGER.get() {
             manager.set_remote_access_allowed(store.filesystem.allow_remote_writes);
         }
-        if store.acp_control.enabled {
-            let registry = Arc::new(acp_control::AcpRuntimeRegistry::new());
-            let manager = Arc::new(acp_control::AcpSessionManager::new(registry));
-            let _ = ACP_MANAGER.set(manager);
-        }
+        // 特征 crate 的 init 期装配任务（如 ha-acp 的 SessionManager 创建
+        // ——原 ACP manager 创建位，所有 role 执行）。
+        run_registered_init_tasks();
     }
 
     // Install a panic hook that flushes any in-flight stream persisters
@@ -1369,17 +1396,8 @@ pub async fn start_background_tasks() {
         // low-frequency, so a startup sweep is enough — no periodic timer.
         crate::project::reconcile::spawn_startup_reconciler();
 
-        // Auto-discover ACP backends
-        if let Some(acp_mgr) = ACP_MANAGER.get() {
-            let store = crate::config::cached_config();
-            if store.acp_control.enabled {
-                let registry = acp_mgr.runtime_registry().clone();
-                let acp_config = store.acp_control.clone();
-                tokio::spawn(async move {
-                    acp_control::registry::auto_discover_and_register(&registry, &acp_config).await;
-                });
-            }
-        }
+        // ACP backend 自动发现已随 ha-acp 迁出：wire() 注册为 PrimaryOnly
+        // startup task（本块原位在 primary 块内，档位语义一致）。
     }
 
     // Initialize the MCP subsystem. `init_global` is idempotent and the

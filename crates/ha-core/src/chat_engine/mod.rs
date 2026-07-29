@@ -1,7 +1,8 @@
 pub mod active_persisters;
 pub mod active_turn;
 pub mod context;
-pub(crate) mod durability;
+// pub：ha-acp 的 ACP stdio server 复用 StreamCoordinator（流持久化协调）。
+pub mod durability;
 mod engine;
 pub mod finalize;
 pub(crate) mod im_error_message;

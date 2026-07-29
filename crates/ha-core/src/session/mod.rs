@@ -1,4 +1,6 @@
 mod acp_db;
+// ACP run 行类型（表随 kernel、类型随表）：供 ha-acp 特征 crate 原路径再导出
+pub use acp_db::{AcpRun, AcpRunStatus};
 mod artifacts;
 pub(crate) mod cleanup_watcher;
 pub(crate) mod db;

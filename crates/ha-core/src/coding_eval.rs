@@ -4730,7 +4730,7 @@ fn gold_task_cases() -> Vec<GoldTaskCase> {
             &[
                 "docs/architecture/acp.md",
                 "docs/architecture/prompt-system.md",
-                "crates/ha-core/src/acp",
+                "crates/ha-acp/src",
             ],
             &["navigation_report"],
             false,

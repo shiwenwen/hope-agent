@@ -537,7 +537,7 @@ pub fn extract_text_from_prompt(prompt: &[ContentBlock]) -> anyhow::Result<Strin
 }
 
 /// Extract image attachments from ACP prompt content blocks
-pub fn extract_images_from_prompt(prompt: &[ContentBlock]) -> Vec<crate::agent::Attachment> {
+pub fn extract_images_from_prompt(prompt: &[ContentBlock]) -> Vec<ha_core::agent::Attachment> {
     let mut attachments = Vec::new();
     for block in prompt {
         if let ContentBlock::Image {
@@ -545,7 +545,7 @@ pub fn extract_images_from_prompt(prompt: &[ContentBlock]) -> Vec<crate::agent::
             mime_type,
         } = block
         {
-            attachments.push(crate::agent::Attachment {
+            attachments.push(ha_core::agent::Attachment {
                 name: "image".to_string(),
                 mime_type: mime_type.clone().unwrap_or_else(|| "image/png".to_string()),
                 source: None,

@@ -97,7 +97,7 @@ impl AcpSessionManager {
         );
 
         // Persist to DB
-        if let Some(db) = crate::get_session_db() {
+        if let Some(db) = ha_core::get_session_db() {
             let _ = db.insert_acp_run(
                 &run_id,
                 parent_session_id,
@@ -158,7 +158,7 @@ impl AcpSessionManager {
                 .await
                 .insert(run_id_clone.clone(), session.clone());
 
-            if let Some(db) = crate::get_session_db() {
+            if let Some(db) = ha_core::get_session_db() {
                 let _ = db.update_acp_run_status(
                     &run_id_clone,
                     "running",
@@ -222,7 +222,7 @@ impl AcpSessionManager {
             match turn_result {
                 Ok(result) => {
                     let truncated = if result.response_text.len() > MAX_RESULT_CHARS {
-                        crate::truncate_utf8(&result.response_text, MAX_RESULT_CHARS).to_string()
+                        ha_core::truncate_utf8(&result.response_text, MAX_RESULT_CHARS).to_string()
                     } else {
                         result.response_text.clone()
                     };
@@ -338,7 +338,7 @@ impl AcpSessionManager {
             }
         }
 
-        if let Some(db) = crate::get_session_db() {
+        if let Some(db) = ha_core::get_session_db() {
             let _ = db.finish_acp_run(run_id, "killed", None, None, None, None);
         }
 
@@ -432,7 +432,7 @@ impl AcpSessionManager {
         cancels.write().await.remove(run_id);
 
         // Persist
-        if let Some(db) = crate::get_session_db() {
+        if let Some(db) = ha_core::get_session_db() {
             let _ = db.finish_acp_run(
                 run_id,
                 status.as_str(),

@@ -5,6 +5,7 @@ members = [
     "crates/ha-config-schema",
     "crates/ha-core",
     "crates/ha-server",
+    "crates/ha-acp",
     "crates/ha-updater",
     "crates/ha-weather",
     "crates/ha-browser-host",

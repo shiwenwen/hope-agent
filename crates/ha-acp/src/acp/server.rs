@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::acp::agent::AcpAgent;
-use crate::session::SessionDB;
+use ha_core::session::SessionDB;
 
 /// Start the ACP server, blocking on stdin/stdout.
 pub fn start(session_db: Arc<SessionDB>, agent_id: String, verbose: bool) -> Result<()> {

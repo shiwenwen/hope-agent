@@ -3,8 +3,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use ha_core::acp_control::config::AcpControlConfig;
-use ha_core::acp_control::types::{AcpBackendInfo, AcpRun};
+use ha_acp::acp_control::config::AcpControlConfig;
+use ha_acp::acp_control::types::{AcpBackendInfo, AcpRun};
 
 use crate::error::AppError;
 
@@ -23,12 +23,12 @@ pub async fn list_backends() -> Result<Json<Vec<AcpBackendInfo>>, AppError> {
                 None
             }
         } else {
-            ha_core::acp_control::registry::resolve_binary(&b.binary)
+            ha_acp::acp_control::registry::resolve_binary(&b.binary)
         };
         let health = if let Some(path) = &binary_path {
-            ha_core::acp_control::health::probe_binary(path).await
+            ha_acp::acp_control::health::probe_binary(path).await
         } else {
-            ha_core::acp_control::health::build_health_status(
+            ha_acp::acp_control::health::build_health_status(
                 false,
                 None,
                 None,
@@ -40,7 +40,7 @@ pub async fn list_backends() -> Result<Json<Vec<AcpBackendInfo>>, AppError> {
             name: b.name.clone(),
             enabled: b.enabled,
             health,
-            capabilities: ha_core::acp_control::types::AcpRuntimeCapabilities::default(),
+            capabilities: ha_acp::acp_control::types::AcpRuntimeCapabilities::default(),
         });
     }
     Ok(Json(backends))
@@ -57,10 +57,10 @@ pub async fn health_check() -> Result<Json<Vec<AcpBackendInfo>>, AppError> {
 
 /// `POST /api/acp/refresh`
 pub async fn refresh_backends() -> Result<Json<Value>, AppError> {
-    if let Some(_manager) = ha_core::get_acp_manager() {
+    if let Some(_manager) = ha_acp::acp_control::get_acp_manager() {
         let store = ha_core::config::cached_config();
-        let registry = std::sync::Arc::new(ha_core::acp_control::AcpRuntimeRegistry::new());
-        ha_core::acp_control::registry::auto_discover_and_register(&registry, &store.acp_control)
+        let registry = std::sync::Arc::new(ha_acp::acp_control::AcpRuntimeRegistry::new());
+        ha_acp::acp_control::registry::auto_discover_and_register(&registry, &store.acp_control)
             .await;
     }
     Ok(Json(json!({ "ok": true })))
@@ -74,7 +74,7 @@ pub struct ListRunsQuery {
 
 /// `GET /api/acp/runs?parent_session_id=...`
 pub async fn list_runs(Query(q): Query<ListRunsQuery>) -> Result<Json<Vec<AcpRun>>, AppError> {
-    if let Some(manager) = ha_core::get_acp_manager() {
+    if let Some(manager) = ha_acp::acp_control::get_acp_manager() {
         Ok(Json(
             manager.list_runs(q.parent_session_id.as_deref()).await,
         ))
@@ -91,7 +91,7 @@ pub async fn list_runs(Query(q): Query<ListRunsQuery>) -> Result<Json<Vec<AcpRun
 
 /// `POST /api/acp/runs/{run_id}/kill`
 pub async fn kill_run(Path(run_id): Path<String>) -> Result<Json<Value>, AppError> {
-    let manager = ha_core::get_acp_manager()
+    let manager = ha_acp::acp_control::get_acp_manager()
         .ok_or_else(|| AppError::internal("ACP control plane not initialized"))?;
     manager
         .kill_run(&run_id)
@@ -102,7 +102,7 @@ pub async fn kill_run(Path(run_id): Path<String>) -> Result<Json<Value>, AppErro
 
 /// `GET /api/acp/runs/{run_id}/result`
 pub async fn get_run_result(Path(run_id): Path<String>) -> Result<Json<Value>, AppError> {
-    let manager = ha_core::get_acp_manager()
+    let manager = ha_acp::acp_control::get_acp_manager()
         .ok_or_else(|| AppError::internal("ACP control plane not initialized"))?;
     let result = manager
         .get_result(&run_id)

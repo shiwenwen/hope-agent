@@ -61,7 +61,7 @@ pub fn map_agent_event(session_id: &str, event_json: &str) -> Option<JsonRpcNoti
 
             // Truncate tool result for ACP notifications (max 8KB)
             let truncated = if result.len() > 8192 {
-                let s = crate::truncate_utf8(&result, 8192);
+                let s = ha_core::truncate_utf8(&result, 8192);
                 format!("{}...(truncated)", s)
             } else {
                 result

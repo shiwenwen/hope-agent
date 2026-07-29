@@ -15,6 +15,7 @@ fn main() {
     // mcp 各分支）——init 尾部冻结工具注册表，之后再挂 `app_update` 会 panic。
     ha_updater::wire();
     ha_weather::wire();
+    ha_acp::wire();
 
     // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,
     // NOT persisted). Skips every tool-level approval gate for THIS launch only.

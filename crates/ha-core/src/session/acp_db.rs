@@ -4,7 +4,93 @@ use anyhow::Result;
 use rusqlite::params;
 
 use super::db::SessionDB;
-use crate::acp_control::types::AcpRun;
+
+use serde::{Deserialize, Serialize};
+
+// ── ACP run 行类型（自 acp_control/types.rs 下沉：本文件持有 acp_runs 表，
+// 行类型随表走；ha-acp 特征 crate 在原路径再导出）────────────────────
+
+/// Persistent record of an ACP spawn run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpRun {
+    /// Unique run identifier (UUID).
+    pub run_id: String,
+    /// Parent session that spawned this run.
+    pub parent_session_id: String,
+    /// Backend used.
+    pub backend_id: String,
+    /// External session ID on the agent side.
+    #[serde(default)]
+    pub external_session_id: Option<String>,
+    /// Task description given to the agent.
+    pub task: String,
+    /// Current status.
+    pub status: AcpRunStatus,
+    /// Accumulated result text (truncated).
+    #[serde(default)]
+    pub result: Option<String>,
+    /// Error message (if status is Error).
+    #[serde(default)]
+    pub error: Option<String>,
+    /// Model actually used by the external agent.
+    #[serde(default)]
+    pub model_used: Option<String>,
+    /// ISO-8601 timestamp.
+    pub started_at: String,
+    #[serde(default)]
+    pub finished_at: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub input_tokens: Option<u64>,
+    #[serde(default)]
+    pub output_tokens: Option<u64>,
+    /// Optional user-facing label.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Child process PID.
+    #[serde(default)]
+    pub pid: Option<u32>,
+}
+
+/// Status of an ACP run.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AcpRunStatus {
+    Starting,
+    Running,
+    Completed,
+    Error,
+    Timeout,
+    Killed,
+}
+
+impl AcpRunStatus {
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::Completed | Self::Error | Self::Timeout | Self::Killed
+        )
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Starting => "starting",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Error => "error",
+            Self::Timeout => "timeout",
+            Self::Killed => "killed",
+        }
+    }
+}
+
+impl std::fmt::Display for AcpRunStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 impl SessionDB {
     // ── ACP Run Table Creation ──────────────────────────────────
@@ -185,8 +271,6 @@ impl SessionDB {
 
 /// Convert a rusqlite Row to AcpRun.
 fn row_to_acp_run(row: &rusqlite::Row) -> AcpRun {
-    use crate::acp_control::types::AcpRunStatus;
-
     let status_str: String = row.get::<_, String>(5).unwrap_or_default();
     let status = match status_str.as_str() {
         "starting" => AcpRunStatus::Starting,
