@@ -315,7 +315,12 @@ CLI 直接消费或路径相关的环境变量。完整跨子系统列表分散�
 
 | 命令                                       | 用途                                                     | 来源                                                                 |
 | ------------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------- |
-| `pnpm tauri dev`                           | 桌面 dev（前端 + Tauri 热重载）                          | [`package.json`](../../package.json)                                 |
+| `pnpm desktop`                            | 交互选择下面四种桌面 dev 模式                            | [`package.json`](../../package.json)                                 |
+| `pnpm dev:desktop`                         | 默认桌面 dev，不构建 Browser Host / Eval Sidecar         | 同上                                                                 |
+| `pnpm dev:desktop:browser`                 | Chrome 插件联调，仅构建 Browser Host                     | 同上                                                                 |
+| `pnpm dev:desktop:eval`                    | 评测功能开发，仅构建 Eval Sidecar                        | 同上                                                                 |
+| `pnpm dev:desktop:full`                    | 完整桌面能力验证，构建 Browser Host 与 Eval Sidecar      | 同上                                                                 |
+| `pnpm tauri dev`                           | 兼容旧入口；构建两个可选二进制后启动桌面 dev             | 同上                                                                 |
 | `pnpm dev`                                 | 仅前端 Vite 开发服务器                                   | 同上                                                                 |
 | `pnpm tauri build`                         | 构建桌面生产包                                           | 同上                                                                 |
 | `pnpm sync:version`                        | 把 `package.json` 版本同步到 `src-tauri`                 | [`scripts/sync-version.mjs`](../../scripts/sync-version.mjs)         |

@@ -293,7 +293,7 @@ For docker-compose, the optional Ollama sidecar for local LLMs, LAN exposure, re
 git clone https://github.com/shiwenwen/hope-agent.git
 cd hope-agent
 pnpm install
-pnpm tauri dev         # desktop dev (frontend + Rust hot reload)
+pnpm dev:desktop       # default desktop dev (frontend + Rust hot reload)
 
 # Other useful commands
 pnpm typecheck         # frontend typecheck (tsc -b)
@@ -301,13 +301,25 @@ pnpm lint              # lint
 pnpm tauri build       # production build
 ```
 
-For local Web GUI development with live reload, run `pnpm tauri dev` and open `http://localhost:1420` in your browser. That is the Vite dev server, sharing the same frontend HMR as the Tauri window. `http://localhost:8420` is the embedded HTTP/WS server's static Web GUI entry, served from `dist/` / the embedded bundle, so it behaves like the packaged browser entry and does not HMR with source changes. If your local server has an API key enabled, the `1420` page may get 401s from `8420`; for development, temporarily clear the Server API Key in Settings and restart.
+Desktop development enables extra binaries only when they are needed, so ordinary UI and business-logic work does not wait for unrelated Rust crates:
+
+| Command                    | Browser Host | Eval Sidecar | Use case                         |
+| -------------------------- | ------------ | ------------ | -------------------------------- |
+| `pnpm desktop`             | As selected  | As selected  | Interactively choose a mode      |
+| `pnpm dev:desktop`         | Not built    | Not built    | Default UI / business development |
+| `pnpm dev:desktop:browser` | Built        | Not built    | Chrome extension integration     |
+| `pnpm dev:desktop:eval`    | Not built    | Built        | Evaluation feature development   |
+| `pnpm dev:desktop:full`    | Built        | Built        | Full desktop capability check    |
+
+The default command delegates to `pnpm exec tauri dev --config src-tauri/tauri.dev.conf.json`. Prefer the scripts above so startup flags and optional-component conventions stay aligned. Production `pnpm tauri build` still builds and bundles both the Browser Host and Eval Sidecar.
+
+For local Web GUI development with live reload, run `pnpm dev:desktop` and open `http://localhost:1420` in your browser. That is the Vite dev server, sharing the same frontend HMR as the Tauri window. `http://localhost:8420` is the embedded HTTP/WS server's static Web GUI entry, served from `dist/` / the embedded bundle, so it behaves like the packaged browser entry and does not HMR with source changes. If your local server has an API key enabled, the `1420` page may get 401s from `8420`; for development, temporarily clear the Server API Key in Settings and restart.
 
 ## Run Modes
 
 | Mode             | How to start                                                                      | When to use                                                                       |
 | ---------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Desktop GUI      | Double-click the app / `pnpm tauri dev`                                        | The most complete entry point: full GUI plus an embedded HTTP/WS server, so the desktop can serve remote clients while you use it |
+| Desktop GUI      | Double-click the app / `pnpm dev:desktop`                                      | The most complete entry point: full GUI plus an embedded HTTP/WS server, so the desktop can serve remote clients while you use it |
 | Server + Web GUI (HTTP/WS) | `server start` subcommand; `server install` registers a launchd / systemd service | Headless always-on daemon for IM channels and cron jobs; **the React frontend is `rust-embed`-baked into the server binary, so opening `http://<server>:port` in any browser gives you the full Web GUI** — phone, tablet, any computer can connect directly without installing a client |
 | ACP (stdio)      | `acp` subcommand                                                                  | IDE integration — any ACP-capable editor can call Hope Agent as its agent backend |
 
@@ -362,7 +374,7 @@ The main branch is under active development — issues and PRs are welcome. Plea
 Common commands:
 
 ```bash
-pnpm tauri dev                    # desktop dev
+pnpm dev:desktop                  # default desktop dev
 cargo check --workspace              # Rust dep / type check
 cargo test -p ha-core -p ha-server   # core tests
 node scripts/sync-i18n.mjs --check   # i18n completeness check

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **设计空间设备预览新增主流机型与自定义视口**:桌面、平板和手机改为分组选择器,内置 iPad、Surface、iPhone、Pixel 与 Galaxy 等常用 CSS 逻辑尺寸;自定义模式支持直接输入宽高,或拖动预览框右边、底边和右下角,选择与尺寸按产物记忆。拖拽期间会固定起始显示缩放并锚定左上边,避免居中适配导致手柄与指针脱节。 (#568)
 
+### Changed
+
+- **桌面开发按需构建 Browser Host 与 Eval Sidecar**：可通过 `pnpm desktop` 交互选择模式；默认 `pnpm dev:desktop` 不再等待两个可选二进制，Chrome 插件、评测与完整能力开发分别使用 `pnpm dev:desktop:browser`、`pnpm dev:desktop:eval`、`pnpm dev:desktop:full`；生产构建与兼容旧入口 `pnpm tauri dev` 仍会构建两者。
+
 ## [0.25.0] - 2026-07-28
 
 ### Fixed

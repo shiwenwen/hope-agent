@@ -293,7 +293,7 @@ docker run -d \
 git clone https://github.com/shiwenwen/hope-agent.git
 cd hope-agent
 pnpm install
-pnpm tauri dev         # 桌面开发模式（前端 + Rust 热重载）
+pnpm dev:desktop       # 默认桌面开发（前端 + Rust 热重载）
 
 # 其他常用命令
 pnpm typecheck         # 前端类型检查（tsc -b）
@@ -301,13 +301,25 @@ pnpm lint              # Lint
 pnpm tauri build       # 打生产包
 ```
 
-本地开发时如果想在浏览器里看“网页版”并实时刷新，运行 `pnpm tauri dev` 后打开 `http://localhost:1420`。这是 Vite dev server，和 Tauri 窗口共用前端热更新；`http://localhost:8420` 是内嵌 HTTP/WS 服务提供的静态 Web GUI（来自 `dist/` / embedded bundle），用于模拟打包后的浏览器入口，不会跟随源码 HMR。若本地 Server 开了 API Key，`1420` 页面请求 `8420` 可能返回 401，开发时可先在设置里临时清空 Server API Key 后重启。
+桌面开发按需启用额外二进制，避免普通 UI / 业务开发等待不相关的 Rust crate：
+
+| 命令                       | Browser Host | Eval Sidecar | 用途              |
+| -------------------------- | ------------ | ------------ | ----------------- |
+| `pnpm desktop`             | 按选择       | 按选择       | 交互选择以下模式   |
+| `pnpm dev:desktop`         | 不构建       | 不构建       | 默认 UI / 业务开发 |
+| `pnpm dev:desktop:browser` | 构建         | 不构建       | Chrome 插件联调    |
+| `pnpm dev:desktop:eval`    | 不构建       | 构建         | 评测功能开发       |
+| `pnpm dev:desktop:full`    | 构建         | 构建         | 完整桌面能力验证   |
+
+默认命令底层执行 `pnpm exec tauri dev --config src-tauri/tauri.dev.conf.json`；一般使用上面的脚本，避免启动参数与可选组件约定漂移。生产 `pnpm tauri build` 仍会构建并打包 Browser Host 和 Eval Sidecar。
+
+本地开发时如果想在浏览器里看“网页版”并实时刷新，运行 `pnpm dev:desktop` 后打开 `http://localhost:1420`。这是 Vite dev server，和 Tauri 窗口共用前端热更新；`http://localhost:8420` 是内嵌 HTTP/WS 服务提供的静态 Web GUI（来自 `dist/` / embedded bundle），用于模拟打包后的浏览器入口，不会跟随源码 HMR。若本地 Server 开了 API Key，`1420` 页面请求 `8420` 可能返回 401，开发时可先在设置里临时清空 Server API Key 后重启。
 
 ## 运行模式
 
 | 模式                        | 启动方式                                                                         | 场景                                                                                                                                                                                              |
 | --------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 桌面 GUI                    | 双击图标 / `pnpm tauri dev`                                                      | 功能最全的入口：完整 GUI 体验，并内嵌 HTTP/WS 服务，桌面在用的同时可对外提供接入                                                                                                                  |
+| 桌面 GUI                    | 双击图标 / `pnpm dev:desktop`                                                    | 功能最全的入口：完整 GUI 体验，并内嵌 HTTP/WS 服务，桌面在用的同时可对外提供接入                                                                                                                  |
 | Server + Web GUI（HTTP/WS） | 通过 `server start` 子命令；`server install` 可注册成 launchd / systemd 开机自启 | 无 GUI 守护进程，24 小时在线，IM 渠道 / Cron 不断线；**前端 React UI 通过 `rust-embed` 内嵌进 server 二进制，浏览器打开 `http://<server>:port` 即得完整 Web GUI**，手机 / 平板 / 任意电脑都能直连 |
 | ACP（stdio）                | 通过 `acp` 子命令                                                                | IDE 直连，兼容 ACP 协议的编辑器把 Hope Agent 当 agent 后端调                                                                                                                                      |
 
@@ -362,7 +374,7 @@ skills/          内置技能（随应用发行）
 常用命令：
 
 ```bash
-pnpm tauri dev                    # 桌面开发
+pnpm dev:desktop                  # 默认桌面开发
 cargo check --workspace              # Rust 依赖 / 类型检查
 cargo test -p ha-core -p ha-server   # 核心测试
 node scripts/sync-i18n.mjs --check   # 检查翻译缺失

@@ -38,7 +38,7 @@ git checkout -b feat/xxx   # or fix/xxx, docs/xxx
 
 ```bash
 pnpm install              # frontend deps + Husky pre-push hooks
-pnpm tauri dev            # desktop dev mode (frontend + Rust backend hot-reload)
+pnpm dev:desktop          # default desktop dev (frontend + Rust backend hot-reload)
 ```
 
 Full command list in [AGENTS.md "开发命令"](AGENTS.md#开发命令).
@@ -121,7 +121,7 @@ Translation files in [`src/i18n/locales/`](src/i18n/locales/). PR guidelines:
 
 - One PR covers one or a few related languages
 - Key paths must match `zh` exactly
-- Verify by running `pnpm tauri dev` and switching the UI language
+- Verify by running `pnpm dev:desktop` and switching the UI language
 
 ## Plugin-style contributions (Skill / Provider / Channel)
 
