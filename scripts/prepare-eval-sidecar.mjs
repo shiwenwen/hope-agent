@@ -49,11 +49,6 @@ if (!existsSync(source) || !statSync(source).isFile()) {
   process.exit(1)
 }
 
-if (DEV) {
-  console.log(`[prepare-eval-sidecar] built ${source}`)
-  process.exit(0)
-}
-
 const binariesDirectory = join(repoRoot, "src-tauri", "binaries")
 mkdirSync(binariesDirectory, { recursive: true })
 const suffix = targetTriple.includes("windows") ? ".exe" : ""

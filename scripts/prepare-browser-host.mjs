@@ -3,9 +3,9 @@ import { basename, dirname, join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
-// `--dev` only builds the debug host. The dev app resolves it from Cargo's
-// target directory, while `tauri build` still copies the release host into
-// src-tauri/resources for packaging.
+// `--dev` builds the debug host and stages the resource required by the legacy
+// `pnpm tauri dev` entrypoint. The optimized dev config clears bundle resources,
+// while `tauri build` stages the release host here for packaging.
 const DEV = process.argv.includes("--dev")
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -51,12 +51,6 @@ if (!existsSync(source) || !statSync(source).isFile()) {
   process.exit(1)
 }
 
-if (DEV) {
-  console.log(`[prepare-browser-host] built ${source}`)
-  process.exit(0)
-}
-
-// Release: bundle into Tauri resources for packaging.
 const resourcesDir = join(repoRoot, "src-tauri", "resources", "browser-host")
 mkdirSync(resourcesDir, { recursive: true })
 const dest = join(resourcesDir, basename(hostName))
