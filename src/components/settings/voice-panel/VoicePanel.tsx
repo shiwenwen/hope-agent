@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import { Check, Loader2, Mic, Plus, Server, Trash2, X } from "lucide-react"
@@ -98,6 +98,15 @@ interface SttProviderConfig {
   enabled: boolean
   allowPrivateNetwork?: boolean
   extra?: Record<string, string>
+}
+
+interface TranscriptOptions {
+  language?: string
+  prompt?: string
+  punctuation?: boolean
+  diarization?: boolean
+  timestamps?: boolean
+  sampleRateHz?: number
 }
 
 interface KnownLocalSttBackend {
@@ -280,6 +289,12 @@ export default function VoicePanel() {
   const [providers, setProviders] = useState<SttProviderConfig[]>([])
   const [activeModel, setActiveModel] = useState<ActiveSttModel | null>(null)
   const [imFallback, setImFallback] = useState<ActiveSttModel | null>(null)
+  const [defaultOptions, setDefaultOptions] = useState<TranscriptOptions>({})
+  const [defaultOptionsSaveState, setDefaultOptionsSaveState] = useState<
+    "idle" | "saving" | "saved" | "failed"
+  >("idle")
+  const defaultOptionsDirtyRef = useRef(false)
+  const defaultOptionsSaveRequestRef = useRef(0)
   const [backends, setBackends] = useState<KnownLocalSttBackend[]>([])
   const [probes, setProbes] = useState<Record<string, boolean | null>>({})
   const [loading, setLoading] = useState(true)
@@ -291,15 +306,17 @@ export default function VoicePanel() {
     setError(null)
     try {
       const transport = getTransport()
-      const [list, active, im, cat] = await Promise.all([
+      const [list, active, im, defaults, cat] = await Promise.all([
         transport.call<SttProviderConfig[]>("get_stt_providers", {}),
         transport.call<unknown>("get_active_stt_model", {}),
         transport.call<unknown>("get_im_fallback_stt_model", {}),
+        transport.call<TranscriptOptions>("get_stt_default_options", {}),
         transport.call<KnownLocalSttBackend[]>("list_known_local_stt_backends", {}),
       ])
       setProviders(list ?? [])
       setActiveModel(unwrapActiveSttModel(active, "activeModel"))
       setImFallback(unwrapActiveSttModel(im, "imFallbackModel"))
+      if (!defaultOptionsDirtyRef.current) setDefaultOptions(defaults ?? {})
       setBackends(cat ?? [])
     } catch (e) {
       setError(String(e))
@@ -311,6 +328,31 @@ export default function VoicePanel() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    if (defaultOptionsSaveState !== "saved" && defaultOptionsSaveState !== "failed") return
+    const timeout = window.setTimeout(() => setDefaultOptionsSaveState("idle"), 2_000)
+    return () => window.clearTimeout(timeout)
+  }, [defaultOptionsSaveState])
+
+  const saveDefaultOptions = useCallback(async () => {
+    const requestId = ++defaultOptionsSaveRequestRef.current
+    setDefaultOptionsSaveState("saving")
+    setError(null)
+    try {
+      const saved = await getTransport().call<TranscriptOptions>("set_stt_default_options", {
+        options: defaultOptions,
+      })
+      if (requestId !== defaultOptionsSaveRequestRef.current) return
+      defaultOptionsDirtyRef.current = false
+      setDefaultOptions(saved ?? {})
+      setDefaultOptionsSaveState("saved")
+    } catch (e) {
+      if (requestId !== defaultOptionsSaveRequestRef.current) return
+      setError(String(e))
+      setDefaultOptionsSaveState("failed")
+    }
+  }, [defaultOptions])
 
   const probeBackend = useCallback(async (key: string) => {
     setProbes((p) => ({ ...p, [key]: null }))
@@ -428,6 +470,13 @@ export default function VoicePanel() {
     return out
   }, [providers, t])
 
+  const activeProvider = useMemo(
+    () => providers.find((provider) => provider.id === activeModel?.providerId),
+    [activeModel?.providerId, providers],
+  )
+  const azureLanguageMissing =
+    activeProvider?.kind === "azure-ws" && !defaultOptions.language?.trim()
+
   const installHint = useCallback(
     (b: KnownLocalSttBackend) =>
       i18n.language && i18n.language.startsWith("zh") ? b.installHintZh : b.installHintEn,
@@ -496,6 +545,62 @@ export default function VoicePanel() {
             </Select>
             <p className="text-xs text-muted-foreground">
               {t("voice.settings.batchOnlyHint")}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("voice.settings.defaultLanguage")}</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                value={defaultOptions.language ?? ""}
+                placeholder="zh-CN"
+                disabled={defaultOptionsSaveState === "saving"}
+                onChange={(event) => {
+                  const language = event.target.value
+                  defaultOptionsDirtyRef.current = true
+                  setDefaultOptions((current) => ({
+                    ...current,
+                    language: language || undefined,
+                  }))
+                  setDefaultOptionsSaveState("idle")
+                }}
+              />
+              <Button
+                variant="outline"
+                disabled={defaultOptionsSaveState === "saving"}
+                className={cn(
+                  "shrink-0",
+                  defaultOptionsSaveState === "saved" && "text-emerald-600",
+                  defaultOptionsSaveState === "failed" && "text-destructive",
+                )}
+                onClick={() => void saveDefaultOptions()}
+              >
+                {defaultOptionsSaveState === "saving" && (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                )}
+                {defaultOptionsSaveState === "saved" && (
+                  <Check className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {defaultOptionsSaveState === "failed" && (
+                  <X className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {defaultOptionsSaveState === "saving"
+                  ? t("common.saving")
+                  : defaultOptionsSaveState === "saved"
+                    ? t("common.saved")
+                    : defaultOptionsSaveState === "failed"
+                      ? t("common.saveFailed")
+                      : t("common.save")}
+              </Button>
+            </div>
+            <p
+              className={cn(
+                "text-xs text-muted-foreground",
+                azureLanguageMissing && "text-destructive",
+              )}
+            >
+              {azureLanguageMissing
+                ? t("voice.settings.defaultLanguageAzureRequired")
+                : t("voice.settings.defaultLanguageHint")}
             </p>
           </div>
           <div className="space-y-2">

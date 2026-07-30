@@ -1472,6 +1472,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_stt_fallback_models: { method: "PUT", path: "/api/stt/fallback-models" },
   get_im_fallback_stt_model: { method: "GET", path: "/api/stt/im-fallback-model" },
   set_im_fallback_stt_model: { method: "PUT", path: "/api/stt/im-fallback-model" },
+  get_stt_default_options: { method: "GET", path: "/api/stt/default-options" },
+  set_stt_default_options: { method: "PUT", path: "/api/stt/default-options" },
   list_known_local_stt_backends: { method: "GET", path: "/api/stt/local-backends" },
   probe_local_stt_backend: { method: "GET", path: "/api/stt/local-backends/{key}/probe" },
   upsert_known_local_stt_provider_cmd: {

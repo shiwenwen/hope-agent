@@ -125,6 +125,23 @@ pub async fn set_im_fallback_stt_model(
     ha_core::stt::set_im_fallback_stt_model(selection, "ui").map_err(Into::into)
 }
 
+#[tauri::command]
+pub async fn get_stt_default_options(
+    _state: State<'_, AppState>,
+) -> Result<TranscriptOptions, CmdError> {
+    Ok(ha_core::config::cached_config().stt.default_options.clone())
+}
+
+#[tauri::command]
+pub async fn set_stt_default_options(
+    options: TranscriptOptions,
+    _state: State<'_, AppState>,
+) -> Result<TranscriptOptions, CmdError> {
+    ha_core::stt::set_stt_default_options_async(options, "ui")
+        .await
+        .map_err(Into::into)
+}
+
 // ── Local backend catalog ─────────────────────────────────────────
 
 #[tauri::command]

@@ -3544,6 +3544,10 @@ fn build_router_with_cors(
             get(routes::stt::get_im_fallback_stt_model).put(routes::stt::set_im_fallback_stt_model),
         )
         .route(
+            "/stt/default-options",
+            get(routes::stt::get_stt_default_options).put(routes::stt::set_stt_default_options),
+        )
+        .route(
             "/stt/local-backends",
             get(routes::stt::list_local_stt_backends),
         )
