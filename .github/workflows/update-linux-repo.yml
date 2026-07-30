@@ -102,49 +102,11 @@ jobs:
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-        run: |
-          set -euo pipefail
-          # Accept either the bare 32-hex Cloudflare account id OR a pasted
-          # full S3 endpoint (host or URL, incl. jurisdiction variants like
-          # <id>.eu.r2.cloudflarestorage.com). Strip whitespace + scheme, then:
-          #   - if it already names the R2 endpoint host, use it verbatim
-          #     (preserves any .eu. jurisdiction label);
-          #   - otherwise treat it as a bare account id and build the host,
-          #     validating it is 32 lowercase hex first.
-          # This turns the common "pasted the whole endpoint URL" mistake —
-          # which otherwise surfaces as an opaque `tls: handshake failure` —
-          # into either a correct endpoint or a clear, actionable error.
-          raw="$(printf '%s' "$R2_ACCOUNT_ID" | tr -d '[:space:]')"
-          raw="${raw#http://}"; raw="${raw#https://}"
-          # Cloudflare's bucket "S3 API" panel shows the endpoint WITH the
-          # bucket path (…r2.cloudflarestorage.com/<bucket>). Strip any path
-          # so pasting that whole string resolves to the endpoint host.
-          raw="${raw%%/*}"
-          if [[ "$raw" == *".r2.cloudflarestorage.com" ]]; then
-            host="$raw"
-          else
-            id="$raw"
-            if [[ ! "$id" =~ ^[0-9a-f]{32}$ ]]; then
-              echo "::error::R2_ACCOUNT_ID must be the 32-char hex Cloudflare account id (or the full S3 endpoint host). Got something that normalizes to length ${#id}. Do NOT paste the whole 'https://<id>.r2.cloudflarestorage.com' URL — paste only the account id shown on the R2 overview page. See linux-repo/README.md."
-              exit 1
-            fi
-            # Common mixup: the R2 API token's Access Key ID is ALSO 32 hex and
-            # sits right next to the Account ID on the token screen. If someone
-            # pasted the Access Key ID into R2_ACCOUNT_ID, the endpoint host is
-            # wrong and Cloudflare rejects it at TLS (handshake failure), not
-            # with a 403. Catch the identical-value case with a clear message.
-            akid="$(printf '%s' "$R2_ACCESS_KEY_ID" | tr -d '[:space:]')"
-            if [[ -n "$akid" && "$id" == "$akid" ]]; then
-              echo "::error::R2_ACCOUNT_ID equals R2_ACCESS_KEY_ID — you pasted the API token's Access Key ID into R2_ACCOUNT_ID. They are DIFFERENT values: the Account ID is the 32-hex id in the dashboard URL dash.cloudflare.com/<ACCOUNT_ID> and in https://<ACCOUNT_ID>.r2.cloudflarestorage.com. Re-set R2_ACCOUNT_ID to the account id. See linux-repo/README.md."
-              exit 1
-            fi
-            host="${id}.r2.cloudflarestorage.com"
-          fi
-          echo "RCLONE_CONFIG_R2_ENDPOINT=https://${host}" >> "$GITHUB_ENV"
-          # Bare 32-hex account id (first label of the host) for Wrangler's
-          # CLOUDFLARE_ACCOUNT_ID on the bridge path.
-          echo "CF_ACCOUNT_ID=${host%%.*}" >> "$GITHUB_ENV"
-          echo "R2 endpoint host: ${host}"
+        # Shared with mirror-release-r2.yml — the validation exists to turn
+        # Cloudflare's opaque `tls: handshake failure` into an actionable
+        # message, and two copies drift into two different sets of half-right
+        # hints. Writes RCLONE_CONFIG_R2_ENDPOINT + CF_ACCOUNT_ID to $GITHUB_ENV.
+        run: bash scripts/r2-endpoint.sh
 
       - name: Resolve version from tag
         id: ver
@@ -231,7 +193,16 @@ jobs:
             # first seed run — reprepro/createrepo then build from scratch.
             # `copy` (never `sync`) so a transient partial download can never
             # delete anything; egress from R2 is free.
+            #
+            # --include is LOAD-BEARING, not an optimization: the same bucket
+            # also holds mirror-release-r2.yml's `download/` tree (~1.5 GB of
+            # installers per release, kept forever). Without the filter this
+            # pull drags every historical installer down on every Linux-repo
+            # publish, growing without bound until the job times out. Only
+            # apt/ + rpm/ + pubkey.gpg are inputs to the index rebuild.
+            # Adding a new top-level path this job owns? Add it here too.
             rclone copy "r2:${{ secrets.R2_BUCKET }}" bucket \
+              --include "/apt/**" --include "/rpm/**" --include "/pubkey.gpg" \
               --fast-list --transfers=16 --checkers=32 --stats=0 2>&1 | tail -5
             echo "--- pulled state ---"
             find bucket -maxdepth 3 -type d | sort | head -30

@@ -24,7 +24,7 @@ See [`../docs/release-process.md`](../docs/release-process.md) §1.9 for the ful
 
 1. `gh release download` pulls every deb + rpm whose filename matches the release version — both amd64 / x86_64 and arm64 / aarch64 when present. Only the amd64 deb + x86_64 rpm are required as the minimum baseline.
 2. Import `GPG_SIGNING_KEY` into a fresh `GNUPGHOME`.
-3. **`rclone copy r2:$R2_BUCKET → ./bucket`** — mirror the currently-published tree DOWN so reprepro's `apt/db` state and createrepo_c's existing repodata are intact for an incremental update. Empty on the very first seed run.
+3. **`rclone copy r2:$R2_BUCKET → ./bucket --include /apt/** --include /rpm/** --include /pubkey.gpg`** — mirror the currently-published tree DOWN so reprepro's `apt/db` state and createrepo_c's existing repodata are intact for an incremental update. Empty on the very first seed run. The `--include` filter is **load-bearing, not tuning**: [`mirror-release-r2.yml`](../.github/workflows/mirror-release-r2.yml) shares this bucket and writes ~1.5 GB of installers per release under `download/`, kept forever — an unfiltered pull would drag every historical installer down on every Linux-repo publish and grow without bound. Adding a new top-level path this job owns? Add it to the filter too.
 4. `reprepro -b apt includedeb stable …` files each deb into the right `binary-<arch>` index and signs `InRelease` / `Release.gpg` via `SignWith:`.
 5. `createrepo_c --update rpm/stable/<arch>/` + `gpg --detach-sign --armor` on each `repodata/repomd.xml`. Per-arch subdirs (`x86_64` + `aarch64`); dnf picks via `$basearch`.
 6. Export `pubkey.gpg` from the imported key.
@@ -32,6 +32,8 @@ See [`../docs/release-process.md`](../docs/release-process.md) §1.9 for the ful
 8. **Verify** — fetch `InRelease`, `repomd.xml` and `pubkey.gpg` back over `https://repo.hopeagent.ai/…` and assert they are live and well-formed. A broken publish (or an unwired custom domain) fails the job here instead of silently leaving users on a stale source.
 
 `rpm --addsign` is **not** used — reprepro/createrepo only require *repo metadata* signatures; the rpm is trusted via repo-level `repo_gpgcheck=1`.
+
+> **This bucket has a second tenant.** [`mirror-release-r2.yml`](../.github/workflows/mirror-release-r2.yml) publishes the raw installer mirror plus the updater manifest under `download/` (`download/v<version>/`, `download/latest/`, `download/latest.json`) on the same bucket and custom domain. The two workflows write disjoint prefixes and are safe to run concurrently, but anything that touches the whole bucket — a pull, a lifecycle rule, a cleanup script — has to account for both. See [`../docs/release-process.md`](../docs/release-process.md) §1.10.
 
 ## R2 first-time setup (one-time, on the Cloudflare side)
 

@@ -218,6 +218,54 @@ Release publish 后 [`.github/workflows/update-linux-repo.yml`](../.github/workf
 
 > reprepro 的 `apt/db/` 是 incremental state（含 packages 的 sha256 索引）：CI 每次先从 R2 `copy` 下来、改完再 `copy` 回去，故历史版本记录随 R2 持久保存；`apt/conf/distributions` 每次 CI 跑覆盖渲染。R2 上传用 `copy`（非 `sync`）永不删除，一次失败的下载不会误清空。
 
+### 1.10 R2 安装包镜像自动同步
+
+与 §1.6~§1.9 同模式，Release publish 后 [`.github/workflows/mirror-release-r2.yml`](../.github/workflows/mirror-release-r2.yml) 由 `release.published` 自动触发，把**全部安装包**镜像到 §1.9 那个同一个 R2 bucket（同域名 `https://repo.hopeagent.ai/`）。
+
+**为什么要有它**：有一部分用户根本访问不了 `github.com`。apt / dnf 用户从 Linux 源迁到 R2 之后已经不受影响，但 DMG / setup.exe / AppImage / tar.gz 手动下载、以及应用内自动更新仍然只有 GitHub 一条路。这条 workflow 补掉那个缺口。
+
+**bucket 布局**（`apt/` `rpm/` `pubkey.gpg` 是 §1.9 的，互不重叠）：
+
+```
+download/
+  v0.26.0/                     ← 不可变，长 TTL，永久保留
+    Hope.Agent_0.26.0_aarch64.dmg  …（全部 25 个资产 + .sig）
+    CHANGELOG.md                   ← text/plain，供 notes 链接
+    docs/release-notes/v0.26.0.md
+    docs/release-notes/v0.26.0.en.md
+  latest/                      ← 版本无关别名，max-age=300
+    Hope.Agent_aarch64.dmg  Hope.Agent_x64-setup.exe  …
+  latest.json                  ← 唯一可变 manifest，max-age=60
+```
+
+**执行顺序即安全性质**，改这个 workflow 前必须理解：
+
+1. 资产 + 文档 + `latest/` 别名先上传
+2. **硬门禁**：把每一个上传的对象都经**公开域名**回抓，比对 `Content-Length` 与本地文件——只判 200 会让截断/零长对象过关。同时结构性断言 manifest 里每个 URL 都落在本次镜像前缀内且有本地对应文件
+3. 只有 ② 全过，才改写 `latest.json` 的 16 个 URL（12 个 `platforms` + 4 个 `bare_binary`）并发布
+
+所以**可变的 manifest 绝不会指向不存在的字节**。② 失败则 job 失败、`latest.json` 保持原样——意味着 R2 上一份陈旧 manifest 必然描述一个真实且已完整镜像的版本，绝不会是残缺版本。修好后重跑：`gh workflow run mirror-release-r2.yml -f tag=vX.Y.Z`（幂等）。
+
+**可变面有门控**。`download/latest/` 与 `download/latest.json` 是全局共享的，给**非当前稳定版**写它们就是一次降级广播——R2 是 endpoint[0] 且首个成功者胜，全体客户端会被告知那个旧版本才是最新，从而看不到真正的新版。有两条日常路径会踩到：手动回填旧 tag（就是本节文档的那条命令），以及**发布 prerelease**（同样触发 `release.published`）。
+
+所以只有当该 tag 恰好就是 GitHub 自己认定的 latest release、且非 prerelease 时才推进可变面；其余情况只镜像到自己的不可变前缀然后停下（日志里给 `::notice::`，不算失败——回填旧版本到它自己的前缀本身是有用且无害的）。
+
+**工具取默认分支、文档取 tag**（`actions/checkout` 的 `ref:` **显式**指向默认分支，随后 `git fetch --depth=1` 单独取该 tag 再 `git show <tag>:<path>` 抽文档）。**`ref:` 必须显式写**：`release.published` 事件下 `github.ref` 就是 `refs/tags/vX.Y.Z`，不写 `ref:` 的 `actions/checkout` 会**静默取那个 tag**。取 tag 会坏两件事：
+
+- **能回填历史版本**。用 tag 那棵树会跑 tag 自带的镜像脚本，于是本 workflow 落地**之前**发布的所有 tag 永远无法镜像（那些树里根本没有 `scripts/mirror-*.mjs`），整个历史目录就此不可镜像，README 的 `download/latest/` 链接要等到下一次发版才不是 404。取默认分支后可以直接补：`gh workflow run mirror-release-r2.yml -f tag=v0.26.0`。回填旧版本时上面那道门控生效——只写它自己的不可变前缀，不会抢走 `latest`。
+- **工具应当是当前版本**。改写器里修掉的 bug 应该在下次重镜像任何 tag 时生效，而不是冻结在那个版本发布时的样子。
+
+而**文档必须是该版本实际发布的那一份**，所以单独从 tag 取，不用工作树里的。
+
+**几条容易踩的**：
+
+- **`latest/` 别名不能带 immutable 头**。那些文件名每版复用，长 TTL 会让边缘把旧安装包钉住一年。别名由 [`scripts/mirror-latest-aliases.mjs`](../scripts/mirror-latest-aliases.mjs) 按规则剥版本号派生，但 README 实际链接的 8 个名字在 `REQUIRED_ALIASES` 里**硬登记**——规则失灵时报错，而不是发布一堆 404。两侧对齐由 `check-release-paths.mjs` 在 PR 时守。
+- **`update-linux-repo.yml` 的整桶 pull 必须带 `--include`**。它把 bucket 镜像下来重建索引；本 workflow 每版往同一个 bucket 放约 1.5 GB 且永久保留，不过滤会让那个 pull 无界增长直到超时。新增本 job 独占的顶层路径时，同步加进那个过滤列表。
+- **`notes` 里的 GitHub 链接会被改写**（改写发生在 R2 那份 manifest 上，仓库源文件不动，§1.1(a) 的「链接一律用完整 GitHub URL」规则不变）。`notes` 是应用内「发现新版」弹窗的正文且按 markdown 渲染，中英切换与 CHANGELOG 两条链接对目标用户就是死链。链到 `REQUIRED` 之外的文档时 workflow 会 fail-closed。
+- **签名原样复制、绝不重算**。理由与端点链的信任模型见 [self-update](architecture/self-update.md#manifest-端点链r2-镜像优先github-兜底)。
+
+存储成本：一版约 1.5 GB，R2 存储 $0.015/GB·月、egress 免费，按每月 3 版算一年累积约 55 GB（每月 < $1）。刻意全部保留而不做清理——现有 R2 发布路径全程只用 `copy` 不用 `sync` 就是为了「绝不删除」，加删除逻辑要单独定义失败语义。
+
 ---
 
 ## 2. 新 minor 发版差异

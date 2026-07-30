@@ -1,0 +1,478 @@
+name: Mirror Release to R2
+
+# Mirror every published Release's assets to the Cloudflare R2 bucket served
+# at https://repo.hopeagent.ai/, then publish an R2-hosted `latest.json`
+# whose download URLs point at the mirror.
+#
+# WHY: a real population of users cannot reach github.com at all. For them
+# this is not a latency optimization — it is whether the app can be
+# installed or updated. apt/dnf users have been served from R2 since the
+# Linux repo moved there; DMG / setup.exe / AppImage / tar.gz users and the
+# in-app updater were still GitHub-only. This closes that gap.
+#
+# ORDERING IS THE SAFETY PROPERTY. Assets go up first, every URL the
+# manifest references is fetched back over the PUBLIC domain and size-checked,
+# and only then is `download/latest.json` written. So the mutable manifest
+# never advertises bytes that aren't there. If verification fails the job
+# fails with the previous manifest untouched — meaning a stale R2 manifest
+# always describes a real, fully-mirrored release, never a broken one.
+#
+# THE MUTABLE SURFACE IS GATED. `download/latest/` and `download/latest.json`
+# are global and shared; writing them for anything but the current stable
+# release is a downgrade broadcast, because R2 is endpoint[0] and
+# first-success-wins. Backfilling an old tag by hand and publishing a
+# prerelease both reach this workflow, so promotion is conditional on
+# `PROMOTE` (see the step that computes it). Everything else always mirrors
+# to its own immutable `download/<tag>/` prefix, which harms nothing.
+#
+# RESIDUAL RISK (documented, accepted): `endpoints` is first-success-wins in
+# both tauri-plugin-updater and ha_core::updater, so a stale-but-200 R2
+# manifest reports "no update" without falling through to GitHub. Mitigated
+# by the short Cache-Control on latest.json (below) and by this job failing
+# loudly. If it fails, re-run it — `gh workflow run mirror-release-r2.yml
+# -f tag=vX.Y.Z` — and the staleness window closes. Uploads are idempotent.
+#
+# SECURITY: signatures in the manifest are copied verbatim, never
+# recomputed, and are verified client-side against the Minisign public key
+# compiled into the binary. A tampered mirror cannot install a malicious
+# build — worst case is denial of service or a stale version advertisement.
+# See docs/architecture/self-update.md.
+#
+# Triggers:
+#   - release.published — auto-fires after a draft Release is manually
+#     published (see docs/release-process.md §1.4).
+#   - workflow_dispatch — manual re-run against a tag (idempotent).
+#
+# Required repo secrets: R2_ACCOUNT_ID / R2_ACCESS_KEY_ID /
+# R2_SECRET_ACCESS_KEY / R2_BUCKET. Cloudflare-side setup (bucket, custom
+# domain, API token) is documented in linux-repo/README.md — this workflow
+# reuses that same bucket and domain.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to mirror (for example v0.26.0)
+        required: true
+        type: string
+
+concurrency:
+  # Separate from update-linux-repo: the two write disjoint prefixes
+  # (download/ vs apt/ + rpm/) so they are safe to run at the same time.
+  group: mirror-release-r2
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Public base URL served by the R2 bucket's custom domain. Keep in lockstep
+  # with update-linux-repo.yml, README.md / README.en.md,
+  # linux-repo/rpm/hope-agent.repo, and the R2 entry in
+  # src-tauri/tauri.conf.json#plugins.updater.endpoints — that last one is
+  # enforced by scripts/verify-updater-endpoints.mjs.
+  PUBLIC_BASE: https://repo.hopeagent.ai
+  # rclone remote "r2" configured entirely from env (no rclone.conf file).
+  RCLONE_CONFIG_R2_TYPE: s3
+  RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+  RCLONE_CONFIG_R2_REGION: auto
+  RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  # RCLONE_CONFIG_R2_ENDPOINT is derived by scripts/r2-endpoint.sh.
+
+jobs:
+  mirror-release-r2:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+
+    steps:
+      - name: Resolve version from tag
+        run: |
+          set -euo pipefail
+          tag="${TAG}"
+          version="${tag#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::tag '$tag' does not look like a release tag (expected vX.Y.Z[-pre])"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Decide whether this tag owns the mutable surface
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The tree has two kinds of object and only one of them is safe to
+          # write unconditionally:
+          #
+          #   download/<tag>/   immutable, always written — a backfill of an
+          #                     old release belongs here and harms nothing.
+          #   download/latest/  + download/latest.json — MUTABLE and global.
+          #
+          # Writing the mutable pair for anything other than the current
+          # stable release is a downgrade broadcast: R2 is endpoint[0] and
+          # first-success-wins, so clients would be told the older version is
+          # current and would stop seeing the real latest release. That is
+          # reachable two ordinary ways — backfilling an old tag by hand
+          # (documented in release-process §1.10), and a published
+          # PRERELEASE, which also fires release.published.
+          #
+          # So: promote only when this tag is exactly what GitHub itself
+          # considers the latest release, and is not a prerelease. Anything
+          # else mirrors to its immutable prefix and stops there.
+          promote=false
+          reason=""
+          is_pre=$(gh release view "$TAG" --repo "${{ github.repository }}" --json isPrerelease --jq .isPrerelease 2>/dev/null || echo "unknown")
+          # `releases/latest` is GitHub's own definition: newest non-draft,
+          # non-prerelease release — the exact thing the GitHub updater
+          # endpoint resolves to, so the mirror stays consistent with it.
+          latest_tag=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name 2>/dev/null || echo "")
+          if [[ "$is_pre" == "true" ]]; then
+            reason="$TAG is a prerelease"
+          elif [[ "$is_pre" == "unknown" ]]; then
+            reason="could not read release metadata for $TAG"
+          elif [[ -z "$latest_tag" ]]; then
+            reason="could not resolve the repository's latest release"
+          elif [[ "$latest_tag" != "$TAG" ]]; then
+            reason="the current latest release is $latest_tag, not $TAG"
+          else
+            promote=true
+          fi
+          echo "PROMOTE=$promote" >> "$GITHUB_ENV"
+          if [[ "$promote" == "true" ]]; then
+            echo "$TAG is the current stable release — will publish download/latest/ and download/latest.json"
+          else
+            # A notice, not a failure: mirroring an old tag to its immutable
+            # prefix is a legitimate, useful operation on its own.
+            echo "::notice::Mirroring $TAG to its immutable prefix only — NOT touching download/latest/ or download/latest.json ($reason)."
+          fi
+
+      - name: Checkout source repo
+        # `ref` is EXPLICIT and must stay that way. On a `release.published`
+        # event `github.ref` is `refs/tags/vX.Y.Z`, so a bare checkout would
+        # silently take the TAG, not the default branch. Two things break if
+        # it does:
+        #
+        #  - Backfill stops working. The tag's tree would supply the mirror
+        #    scripts, so any release tagged BEFORE this workflow landed could
+        #    never be mirrored — those trees have no scripts/mirror-*.mjs at
+        #    all. The whole back catalogue becomes permanently unmirrorable
+        #    and README's download/latest/ links stay 404 until the next
+        #    release ships.
+        #  - Tooling freezes. A bug fixed in the rewriter would only apply to
+        #    releases tagged after the fix, never to a re-mirror of an older
+        #    one.
+        #
+        # The DOCS we mirror still come from the tag — fetched explicitly
+        # below — because those must be what the release actually shipped.
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Fetch the release's docs from its tag
+        run: |
+          set -euo pipefail
+          # Shallow single-tag fetch: cheap, and keeps the working tree on the
+          # default branch so the scripts above stay current.
+          # Leading `+` forces the update: on a re-run the local tag ref may
+          # already exist, and a non-forced fetch refuses to clobber it.
+          git fetch --depth=1 origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+          mkdir -p docs-upload
+          # Always mirror both release-note languages plus the CHANGELOG: the
+          # notes body links to the sibling language, so mirroring only the
+          # linked one leaves the language switch a dead end.
+          #
+          # This list is the mirror's public doc surface — the "Stage docs"
+          # step below fails closed if the notes link anything outside it.
+          {
+            echo "CHANGELOG.md"
+            echo "docs/release-notes/${TAG}.md"
+            echo "docs/release-notes/${TAG}.en.md"
+          } > allowed-docs.txt
+          while IFS= read -r p; do
+            if ! git cat-file -e "${TAG}:${p}" 2>/dev/null; then
+              echo "::error::${TAG} does not contain ${p} — a release must ship its own notes (see docs/release-process.md §1.1a)"
+              exit 1
+            fi
+            mkdir -p "docs-upload/$(dirname "$p")"
+            git show "${TAG}:${p}" > "docs-upload/${p}"
+          done < allowed-docs.txt
+          echo "--- docs fetched from ${TAG} ---"
+          find docs-upload -type f | sort
+
+      - name: Preflight — required R2 secrets present
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -n "${{ secrets.R2_ACCOUNT_ID }}"        ]] || missing+=(R2_ACCOUNT_ID)
+          [[ -n "${{ secrets.R2_ACCESS_KEY_ID }}"     ]] || missing+=(R2_ACCESS_KEY_ID)
+          [[ -n "${{ secrets.R2_SECRET_ACCESS_KEY }}" ]] || missing+=(R2_SECRET_ACCESS_KEY)
+          [[ -n "${{ secrets.R2_BUCKET }}"            ]] || missing+=(R2_BUCKET)
+          if (( ${#missing[@]} )); then
+            echo "::error::missing required R2 secret(s): ${missing[*]} — see linux-repo/README.md"
+            exit 1
+          fi
+
+      - name: Resolve R2 endpoint from account id
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        # Shared with update-linux-repo.yml — see that workflow's note.
+        run: bash scripts/r2-endpoint.sh
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Install rclone
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone jq
+
+      - name: Download release assets + manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets manifest
+          gh release download "$TAG" --repo "${{ github.repository }}" --dir assets
+          # latest.json is handled separately: the mirror's copy lives at the
+          # stable, mutable download/latest.json — not inside the immutable
+          # per-version prefix — so move it out of the asset set.
+          test -f assets/latest.json || { echo "::error::release $TAG has no latest.json"; exit 1; }
+          mv assets/latest.json manifest/latest.json
+          echo "--- assets to mirror ---"
+          ls -la assets/
+          count=$(find assets -type f | wc -l | tr -d ' ')
+          echo "asset count: $count"
+          # A release with almost nothing in it means tauri-action failed or
+          # the operator published an empty draft; mirroring that would
+          # advertise a mostly-404 tree.
+          if (( count < 20 )); then
+            echo "::error::only $count assets found (expected 25+ across 4 platforms) — refusing to mirror an incomplete release"
+            exit 1
+          fi
+
+      - name: Rewrite manifest for the mirror
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          node scripts/rewrite-manifest-for-mirror.mjs \
+            manifest/latest.json "$TAG" "$PUBLIC_BASE" \
+            --out=upload/latest.json --docs-out=upload/notes-docs.txt
+
+      - name: Assert the notes link only mirrored docs
+        run: |
+          set -euo pipefail
+          # Fail closed if a release note grew a link to something outside the
+          # mirrored set — better a failed mirror than a published dead link
+          # for the users who cannot fall back to github.com.
+          while IFS= read -r linked; do
+            [[ -z "$linked" ]] && continue
+            if ! grep -qxF "$linked" allowed-docs.txt; then
+              echo "::error::notes link an un-mirrored doc: $linked — add it to allowed-docs.txt in the 'Fetch the release's docs' step (and confirm it should be public)"
+              exit 1
+            fi
+          done < upload/notes-docs.txt
+          echo "notes link only mirrored docs"
+
+      - name: Stage version-less latest/ aliases
+        if: env.PROMOTE == 'true'
+        run: |
+          set -euo pipefail
+          # README cannot hardcode a version, so every documented download
+          # link points at download/latest/<version-less name>. Staged here,
+          # verified by the same gate below, published only after it passes.
+          node scripts/mirror-latest-aliases.mjs assets "$VERSION" latest-upload
+
+      - name: Upload assets (immutable)
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          # Immutable per-version prefix, so a long edge TTL is correct and
+          # every historical download link keeps working forever.
+          rclone copy assets "r2:${R2_BUCKET}/download/${TAG}" \
+            --header-upload "Cache-Control: public, max-age=31536000, immutable" \
+            --transfers=8 --checkers=16 --stats=30s --stats-one-line 2>&1 | tail -10
+          # Raw markdown as text/plain so a browser DISPLAYS it instead of
+          # downloading an opaque .md — these are read, not installed.
+          rclone copy docs-upload "r2:${R2_BUCKET}/download/${TAG}" \
+            --header-upload "Cache-Control: public, max-age=31536000, immutable" \
+            --header-upload "Content-Type: text/plain; charset=utf-8" \
+            --transfers=4 --stats=0 2>&1 | tail -5
+          echo "Uploaded to r2:${R2_BUCKET}/download/${TAG}"
+
+      - name: Upload latest/ aliases (mutable, short TTL)
+        if: env.PROMOTE == 'true'
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          # These names are reused every release, so they must NOT carry the
+          # immutable header the pinned copies get — an installer pinned for a
+          # year at the edge would hand out an old build forever. 5 minutes is
+          # long enough to absorb a download burst, short enough that a new
+          # release is picked up promptly.
+          #
+          # --ignore-times is deliberate. rclone's default skip is size +
+          # modtime, and these destination names are REUSED every release. An
+          # asset that happens to land on the same byte size as the previous
+          # release's same-named alias could be skipped, leaving
+          # download/latest/ serving the OLD installer while latest.json
+          # advertises the new version — a silent, hard-to-spot mismatch.
+          # Re-uploading ~25 objects per release costs nothing worth saving.
+          rclone copy latest-upload "r2:${R2_BUCKET}/download/latest" \
+            --header-upload "Cache-Control: public, max-age=300, must-revalidate" \
+            --ignore-times \
+            --transfers=8 --checkers=16 --stats=30s --stats-one-line 2>&1 | tail -10
+          echo "Uploaded to r2:${R2_BUCKET}/download/latest"
+
+      - name: Verify every mirrored URL is live with the right size
+        run: |
+          set -euo pipefail
+          # HARD GATE before latest.json is written. Fetch back over the
+          # PUBLIC custom-domain URL users actually hit, and compare
+          # Content-Length to the local file — a 200 alone would pass a
+          # truncated or zero-length object.
+          fail=0
+
+          head_len() {
+            local url="$1" attempt hdr len
+            for attempt in 1 2 3 4 5; do
+              if hdr=$(curl -fsSL -I --max-time 30 "$url" 2>/dev/null); then
+                len=$(grep -i '^content-length:' <<<"$hdr" | tail -1 | tr -dc '0-9')
+                if [[ -n "$len" ]]; then printf '%s' "$len"; return 0; fi
+              fi
+              sleep $((attempt * 5))
+            done
+            return 1
+          }
+
+          check_one() {
+            local url="$1" local_file="$2" expect actual
+            expect=$(stat -c%s "$local_file")
+            if ! actual=$(head_len "$url"); then
+              echo "  FAIL (unreachable)  $url"
+              fail=1; return
+            fi
+            if [[ "$actual" != "$expect" ]]; then
+              echo "  FAIL (size $actual != $expect)  $url"
+              fail=1; return
+            fi
+            echo "  ok  ${actual}B  $url"
+          }
+
+          prefix="${PUBLIC_BASE}/download/${TAG}/"
+
+          # ── (a) structural: every manifest URL must point into this
+          # mirror prefix AND have a local counterpart. Derived from the
+          # manifest itself, never a hardcoded platform list, so a new
+          # platform key is covered the day it appears. No network yet.
+          #
+          # `while read` over process substitution (not a pipeline) so the
+          # loop runs in THIS shell and `fail` survives; and no `mapfile`, so
+          # the gate does not depend on a bash-4-only builtin.
+          n=0
+          while IFS= read -r url; do
+            [[ -z "$url" ]] && continue
+            n=$((n + 1))
+            case "$url" in
+              "$prefix"*) ;;
+              *) echo "  FAIL (not a mirror URL)  $url"; fail=1; continue ;;
+            esac
+            f="assets/${url#"$prefix"}"
+            [[ -f "$f" ]] || { echo "  FAIL (manifest references a file this release did not ship)  $url"; fail=1; }
+          done < <(jq -r '[.platforms[].url] + [.bare_binary.platforms[]?.url] | unique | .[]' upload/latest.json)
+          echo "manifest references $n download URL(s), all inside the mirror prefix"
+          # Zero URLs would sail through every check above and publish a
+          # manifest nobody verified.
+          if (( n == 0 )); then
+            echo "::error::manifest yielded no download URLs to verify"
+            exit 1
+          fi
+
+          # ── (b) live: HEAD every object we uploaded — not just the ones the
+          # manifest names. The macOS DMG is deliberately absent from the
+          # manifest (updates ship as .app.tar.gz) but README links it
+          # directly, so a manifest-only gate would leave the most-clicked
+          # download unverified.
+          echo "checking every uploaded object"
+          while IFS= read -r p; do
+            check_one "${prefix}${p}" "assets/${p}"
+          done < <(find assets -type f -printf '%P\n' | sort)
+          while IFS= read -r p; do
+            check_one "${prefix}${p}" "docs-upload/${p}"
+          done < <(find docs-upload -type f -printf '%P\n' | sort)
+          # The version-less aliases README links — same gate, because a 404
+          # here is a broken install page for exactly the users the mirror
+          # exists to serve. Only present when this tag owns the mutable
+          # surface; a backfill of an older tag skips staging them entirely,
+          # and must NOT assert against whatever the current release left
+          # there.
+          if [[ "$PROMOTE" == "true" ]]; then
+            while IFS= read -r p; do
+              check_one "${PUBLIC_BASE}/download/latest/${p}" "latest-upload/${p}"
+            done < <(find latest-upload -type f -printf '%P\n' | sort)
+          else
+            echo "  (skipping download/latest/ — this tag does not own the mutable surface)"
+          fi
+
+          if (( fail )); then
+            echo "::error::mirror verification failed — NOT publishing download/latest.json. R2's existing manifest is untouched (it still describes the last fully-mirrored release). Fix and re-run: gh workflow run mirror-release-r2.yml -f tag=$TAG"
+            exit 1
+          fi
+          echo "All mirrored URLs verified live at ${PUBLIC_BASE}"
+
+      - name: Publish download/latest.json (short TTL)
+        if: env.PROMOTE == 'true'
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          # The ONE mutable object in the tree, and written last. Short TTL is
+          # load-bearing, not tuning: with a long TTL Cloudflare's edge would
+          # pin an old manifest for hours and every user behind that PoP would
+          # be told "you're up to date" after a release shipped.
+          # --ignore-times for the same reason as the aliases above: this is a
+          # fixed destination name, and a corrected manifest that happens to
+          # be the same size as the one already up there must not be skipped.
+          rclone copyto upload/latest.json "r2:${R2_BUCKET}/download/latest.json" \
+            --header-upload "Cache-Control: public, max-age=60, must-revalidate" \
+            --ignore-times \
+            --stats=0
+          echo "Published r2:${R2_BUCKET}/download/latest.json"
+
+      - name: Verify the published manifest serves this release
+        if: env.PROMOTE == 'true'
+        run: |
+          set -euo pipefail
+          url="${PUBLIC_BASE}/download/latest.json"
+          for attempt in 1 2 3 4 5 6; do
+            if body=$(curl -fsSL --max-time 20 "$url" 2>/dev/null); then
+              got=$(jq -r '.version' <<<"$body")
+              if [[ "$got" == "$VERSION" ]]; then
+                echo "OK   $url serves version $got"
+                # Spot-check that a URL inside the served manifest resolves,
+                # so a manifest that is itself fine but points at a prefix
+                # that isn't cannot pass.
+                spot=$(jq -r '.platforms | to_entries | .[0].value.url' <<<"$body")
+                curl -fsSL -I --max-time 30 "$spot" >/dev/null
+                echo "OK   spot-checked $spot"
+                cc=$(curl -fsSI --max-time 20 "$url" | grep -i '^cache-control:' | tr -d '\r')
+                echo "     $cc"
+                exit 0
+              fi
+              echo "…retry $attempt  served version '$got', want '$VERSION'"
+            else
+              echo "…retry $attempt  $url unreachable"
+            fi
+            sleep $((attempt * 10))
+          done
+          echo "::error::published manifest at $url did not settle on version $VERSION"
+          exit 1

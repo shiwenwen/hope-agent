@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **安装包与自动更新新增 Cloudflare R2 镜像，不再必须能访问 GitHub**：所有平台安装包同时发布到 `https://repo.hopeagent.ai/download/`（与 apt / dnf 软件源同域名），README 每个手动下载入口都给了固定镜像直链，历史版本按版本号长期保留。桌面自动更新改为优先读镜像、GitHub 兜底——此前访问不了 GitHub 的用户既装不上也更新不了。安装包一律经内置公钥验签，镜像与 GitHub 走完全相同的校验，镜像被篡改也装不进非官方构建。 (#580)
+
 ### Fixed
 
 - **修复 Markdown 外链图标需悬停后才加载站点 favicon**：网页链接进入视口附近时会自动加载站点图标，不再需要先把鼠标移到链接上或聚焦链接；屏幕外的历史消息保持懒加载，请求仍复用现有缓存、并发与数量限制，加载失败时继续显示网页占位图标。

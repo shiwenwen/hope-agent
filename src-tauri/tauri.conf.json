@@ -105,6 +105,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMxNjgyN0E5ODY0MzM4RDIKUldUU09FT0dxU2RvTVRGWW5IN3lkMkE2b05mRW4wUk0wak5yUHQvMjNNaTdXYVR6RjlxbmVUcC8K",
       "endpoints": [
+        "https://repo.hopeagent.ai/download/latest.json",
         "https://github.com/shiwenwen/hope-agent/releases/latest/download/latest.json"
       ],
       "windows": {

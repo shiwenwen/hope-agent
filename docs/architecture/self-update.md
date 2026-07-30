@@ -51,6 +51,8 @@ Hope Agent 是单 binary 多形态产品（桌面 GUI / `hope-agent server` 守�
 2. CI / PR：`.github/workflows/lint.yml` 跑 `scripts/verify-updater-pubkey.mjs`。
 3. 本地 `.husky/pre-push`：同一脚本拦在 push 前。
 
+> `endpoints` 是同类的双处契约，但**校验脚本不同**（`verify-updater-endpoints.mjs`），且没有启动期 panic —— 端点写错只会拉不到 manifest，不会用错密钥验签。详见下面「Manifest 端点链」。
+
 私钥（`TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`）只存 GitHub Secrets，CI release.yml 调 `pnpm tauri signer sign` 同时签桌面 installer 和 bare binary archive。私钥严禁入仓。
 
 ## 发布产物（latest.json 扩展）
@@ -87,6 +89,26 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 ```
 
 平台 key 与 tauri-action 一致：`{darwin,linux,windows}-{x86_64,aarch64}`，由 [`manifest::current_platform_key`](../../crates/ha-core/src/updater/manifest.rs) 在运行时返回当前平台串。
+
+## Manifest 端点链（R2 镜像优先，GitHub 兜底）
+
+端点列表在两处，**必须逐项逐序相等**：`src-tauri/tauri.conf.json#plugins.updater.endpoints`（桌面，`tauri-plugin-updater` 读）与 [`manifest.rs::UPDATE_MANIFEST_URLS`](../../crates/ha-core/src/updater/manifest.rs)（headless / CLI）。当前顺序：
+
+1. `https://repo.hopeagent.ai/download/latest.json` —— Cloudflare R2 镜像
+2. `https://github.com/shiwenwen/hope-agent/releases/latest/download/latest.json` —— GitHub
+
+**镜像排第一不是延迟优化，是可达性**：有一部分用户根本访问不了 `github.com`，对他们而言 manifest 拉不到就等于自动更新整条链断掉——里面的安装包 URL 连被读到的机会都没有。GitHub 排第二，保证 Cloudflare / R2 整体故障时其余用户仍能更新。
+
+**两条约束**：
+
+- **首个成功者胜**，与 `tauri-plugin-updater` 自身行为一致——刻意不做「比较版本取新者」，否则桌面与 headless 两条路径会对「当前是哪个版本」产生分歧。代价是**一份 stale-but-200 的镜像 manifest 会报「已是最新」而不会 fallback**。这条残留风险由三件事兜住：镜像 manifest 的 `Cache-Control: max-age=60`、镜像 workflow 只在全部 URL 回抓校验通过后才写 manifest（所以 stale 的那份必然描述一个真实且已完整镜像的版本，绝不会是残缺版本）、以及该 workflow 失败即报错。
+- **两处漂移会被拦**：[`scripts/verify-updater-endpoints.mjs`](../../scripts/verify-updater-endpoints.mjs) 在 CI（`lint.yml`）与 `pre-push` 双处校验，且同时校验镜像 endpoint 的域名与 [`mirror-release-r2.yml`](../../.github/workflows/mirror-release-r2.yml) 的 `PUBLIC_BASE` 一致——否则所有客户端会去问一个没有发布任何东西的主机。
+
+**镜像不削弱签名信任根**：manifest 自身不签名，但里面的 `signature` 要用编译进二进制的 `MINISIGN_PUBKEY_BASE64` 验（见上节）。所以被污染的镜像**无法让恶意二进制装进去**，最坏只能拒绝服务或谎报版本。镜像 workflow 因此原样复制 `signature`、**绝不重算**。
+
+**「谎报版本」不只是被攻击才会发生**——正常运维就能踩到。`download/latest.json` 是全局共享的可变对象，一旦给**非当前稳定版**写它（手动回填旧 tag、或发布 prerelease，两者都会触发镜像 workflow），配合上面「首个成功者胜」，全体客户端会被告知那个旧版本才是最新，从而看不到真正的新版。因此镜像 workflow 只在该 tag 恰好是 GitHub 认定的 latest release 且非 prerelease 时才写可变面（`PROMOTE` 门控），其余情况只写自己的不可变 `download/<tag>/` 前缀。
+
+镜像的 bucket 布局与发布顺序见 [release-process §1.10](../release-process.md#110-r2-安装包镜像自动同步)。
 
 ## 用户审批契约
 
