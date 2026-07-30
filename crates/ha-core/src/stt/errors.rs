@@ -8,6 +8,8 @@ pub enum SttError {
     NotFound(String),
     /// No STT model is configured for the requested path (active / im fallback).
     NoActiveModel,
+    /// Provider/request configuration is incomplete or malformed.
+    Config(String),
     /// Authentication failed (invalid key / expired token).
     Auth(String),
     /// Provider rate-limited the request.
@@ -28,8 +30,8 @@ pub enum SttError {
 
 impl SttError {
     /// Whether failover should try the next model on this kind of error.
-    /// Hard input errors (`UnsupportedAudio`) are not retriable — the audio
-    /// itself is the problem.
+    /// Hard input/configuration errors (`UnsupportedAudio`, `Config`) are not
+    /// retriable because the same request would fail again.
     pub fn is_retriable(&self) -> bool {
         matches!(
             self,
@@ -46,6 +48,7 @@ impl SttError {
         match self {
             Self::NotFound(_) => "not_found",
             Self::NoActiveModel => "no_active_model",
+            Self::Config(_) => "config",
             Self::Auth(_) => "auth",
             Self::RateLimit(_) => "rate_limit",
             Self::Network(_) => "network",
@@ -68,6 +71,7 @@ impl fmt::Display for SttError {
         let body = match self {
             Self::NotFound(id) => format!("STT provider/model not found: {id}"),
             Self::NoActiveModel => "No STT model configured".into(),
+            Self::Config(msg) => format!("STT configuration error: {msg}"),
             Self::Auth(msg) => format!("STT auth failure: {msg}"),
             Self::RateLimit(msg) => format!("STT rate-limited: {msg}"),
             Self::Network(msg) => format!("STT network error: {msg}"),
@@ -90,3 +94,19 @@ impl From<std::io::Error> for SttError {
 }
 
 pub type SttResult<T> = Result<T, SttError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configuration_errors_are_stable_and_not_retriable() {
+        let error = SttError::Config("language is required".into());
+        assert_eq!(error.code(), "config");
+        assert!(!error.is_retriable());
+        assert_eq!(
+            error.to_string(),
+            "stt:config: STT configuration error: language is required"
+        );
+    }
+}

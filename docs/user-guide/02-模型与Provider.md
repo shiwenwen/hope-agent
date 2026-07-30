@@ -232,6 +232,7 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 **入口**:设置 → **语音识别** 面板。
 
 - **主模型**:桌面语音输入首选的转写模型(流式模型会标注 `streaming`,可边说边出字)。
+- **默认识别语言**:可填写 `zh-CN`、`en-US` 等 BCP-47 标签;Azure Speech 必填,其他支持自动识别的服务商可留空。
 - **IM 兜底模型**:IM 自动转写专用(只能选非流式模型);不设则用主模型。
 - **服务商**:「添加服务商」支持 OpenAI、Groq、ElevenLabs、xAI、DashScope(百炼)、Deepgram、AssemblyAI、Azure、讯飞、火山等 10 种协议;本地后端(whisper.cpp / faster-whisper / FunASR / sherpa-onnx)可一键探测接入。
 

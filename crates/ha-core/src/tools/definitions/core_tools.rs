@@ -2402,12 +2402,14 @@ mod tests {
             "active_stt_model",
             "stt_fallback_models",
             "im_auto_transcribe",
+            "stt_language",
         ] {
             assert!(crate::tools::settings::get_settings_categories().contains(&category));
         }
         assert!(
             crate::tools::settings::update_settings_categories().contains(&"im_auto_transcribe")
         );
+        assert!(crate::tools::settings::update_settings_categories().contains(&"stt_language"));
     }
 
     #[test]

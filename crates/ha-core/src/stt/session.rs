@@ -102,6 +102,7 @@ impl SttSessionManager {
         let cfg = crate::config::cached_config();
         let (provider, model, profile) =
             resolve_active(&cfg, &active).ok_or_else(|| SttError::NotFound(active.to_string()))?;
+        let options = options.with_defaults(&cfg.stt.default_options);
 
         let session_id = format!("stt_{}", uuid::Uuid::new_v4().simple());
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));

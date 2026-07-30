@@ -63,6 +63,7 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("default_agent", "low"),
     ("pet", "low"),
     ("local_llm_auto_maintenance", "low"),
+    ("stt_language", "low"),
     ("compact", "medium"),
     ("session_title", "medium"),
     ("memory_runtime", "medium"),
@@ -306,6 +307,9 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              Enabling auto-transcribe consumes STT API quota for every inbound voice message; \
              without `imFallbackModel` (or `stt.activeModel` as fallback), the dispatcher logs a warning per message and forwards the original audio unchanged. \
              Original audio is always kept as an attachment alongside the transcript prefix."
+        ),
+        "stt_language" => Some(
+            "Default BCP-47 recognition language used when an STT request does not provide one. Azure Speech requires a non-empty value such as zh-CN or en-US; other providers may auto-detect when it is null."
         ),
         "browser" => Some(
             "Browser backend config. extension.enabled + backendPreference decide whether browser \
@@ -716,6 +720,7 @@ fn read_category(category: &str) -> Result<Value> {
         )?)),
         "active_stt_model" => Ok(json!({ "activeSttModel": cfg.stt.active_model })),
         "stt_fallback_models" => Ok(json!({ "fallbackModels": cfg.stt.fallback_models })),
+        "stt_language" => Ok(json!({ "language": cfg.stt.default_options.language })),
         "im_auto_transcribe" => {
             let accounts: Vec<Value> = cfg
                 .channels
@@ -859,6 +864,7 @@ fn get_all_overview() -> Result<String> {
             "activeModel": cfg.stt.active_model,
             "fallbackCount": cfg.stt.fallback_models.len(),
             "imFallbackConfigured": cfg.stt.im_fallback_model.is_some(),
+            "defaultLanguage": cfg.stt.default_options.language,
             "imAutoTranscribeAccountCount":
                 cfg.channels.accounts.iter().filter(|a| a.auto_transcribe_voice()).count(),
         },
@@ -918,6 +924,10 @@ pub(crate) async fn tool_update_settings(args: &Value, ctx: &ToolExecContext) ->
 
     if category == "im_auto_transcribe" {
         return update_im_auto_transcribe(values).await;
+    }
+
+    if category == "stt_language" {
+        return update_stt_language(values).await;
     }
 
     if category == "external_memory_providers" {
@@ -1030,6 +1040,38 @@ async fn update_im_auto_transcribe(values: &Value) -> Result<String> {
     Ok(serde_json::to_string_pretty(&json!({
         "category": "im_auto_transcribe",
         "riskLevel": risk_level("im_auto_transcribe"),
+        "updated": true,
+        "settings": updated_value,
+    }))?)
+}
+
+async fn update_stt_language(values: &Value) -> Result<String> {
+    let object = values
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("stt_language values must be an object"))?;
+    if object.keys().any(|key| key != "language") {
+        bail!("stt_language only accepts `language`");
+    }
+
+    if let Some(value) = object.get("language") {
+        let language = if value.is_null() {
+            None
+        } else if let Some(language) = value.as_str() {
+            let language = language.trim();
+            (!language.is_empty()).then(|| language.to_string())
+        } else {
+            bail!("stt_language.language must be a string or null");
+        };
+
+        crate::stt::set_stt_default_language_async(language, "skill")
+            .await
+            .map_err(|err| anyhow::anyhow!("{err}"))?;
+    }
+
+    let updated_value = read_category("stt_language")?;
+    Ok(serde_json::to_string_pretty(&json!({
+        "category": "stt_language",
+        "riskLevel": risk_level("stt_language"),
         "updated": true,
         "settings": updated_value,
     }))?)

@@ -398,6 +398,39 @@ pub struct TranscriptOptions {
     pub sample_rate_hz: Option<u32>,
 }
 
+impl TranscriptOptions {
+    /// Merge per-request overrides on top of the configured defaults.
+    ///
+    /// String fields containing only whitespace are treated as absent so
+    /// callers that serialize empty form inputs still inherit the default.
+    /// Every other field uses `Some` as the explicit override signal.
+    pub fn with_defaults(&self, defaults: &Self) -> Self {
+        let normalize_string = |value: &Option<String>| {
+            value
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        };
+
+        Self {
+            language: normalize_string(&self.language)
+                .or_else(|| normalize_string(&defaults.language)),
+            prompt: normalize_string(&self.prompt).or_else(|| normalize_string(&defaults.prompt)),
+            punctuation: self.punctuation.or(defaults.punctuation),
+            diarization: self.diarization.or(defaults.diarization),
+            timestamps: self.timestamps.or(defaults.timestamps),
+            sample_rate_hz: self.sample_rate_hz.or(defaults.sample_rate_hz),
+        }
+    }
+
+    /// Canonicalize user-saved options without introducing provider-specific
+    /// defaults. This keeps an empty language/prompt serialized as `None`.
+    pub fn normalized(&self) -> Self {
+        self.with_defaults(&Self::default())
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Transcript {
@@ -551,5 +584,45 @@ mod tests {
             parsed.active_model.unwrap().model_id,
             "whisper-1".to_string()
         );
+    }
+
+    #[test]
+    fn transcript_options_merge_request_overrides_over_defaults() {
+        let defaults = TranscriptOptions {
+            language: Some("zh-CN".into()),
+            prompt: Some("product names".into()),
+            punctuation: Some(true),
+            diarization: Some(false),
+            timestamps: Some(true),
+            sample_rate_hz: Some(44_100),
+        };
+        let request = TranscriptOptions {
+            language: Some(" en-US ".into()),
+            prompt: Some("   ".into()),
+            punctuation: Some(false),
+            sample_rate_hz: Some(16_000),
+            ..TranscriptOptions::default()
+        };
+
+        let merged = request.with_defaults(&defaults);
+        assert_eq!(merged.language.as_deref(), Some("en-US"));
+        assert_eq!(merged.prompt.as_deref(), Some("product names"));
+        assert_eq!(merged.punctuation, Some(false));
+        assert_eq!(merged.diarization, Some(false));
+        assert_eq!(merged.timestamps, Some(true));
+        assert_eq!(merged.sample_rate_hz, Some(16_000));
+    }
+
+    #[test]
+    fn transcript_options_normalize_empty_strings() {
+        let options = TranscriptOptions {
+            language: Some("  ".into()),
+            prompt: Some(" hint ".into()),
+            ..TranscriptOptions::default()
+        }
+        .normalized();
+
+        assert_eq!(options.language, None);
+        assert_eq!(options.prompt.as_deref(), Some("hint"));
     }
 }

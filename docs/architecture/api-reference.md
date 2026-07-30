@@ -6,13 +6,13 @@
 
 Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运行环境自动在 Tauri IPC 和 HTTP/WebSocket 之间切换。本文档把两条通道上的**每一条接口**列成一一对应的表格，并标记对齐状态。
 
-## 数据来源（截至 2026-07-22）
+## 数据来源（截至 2026-07-29）
 
 | 源 | 位置 | 数量 |
 |---|---|---|
-| Tauri 命令 | `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` | **1122** |
-| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **1035** |
-| 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **1101** |
+| Tauri 命令 | `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` | **1127** |
+| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **1039** |
+| 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **1106** |
 | WebSocket 端点 | `crates/ha-server/src/ws/` | **1** |
 | EventBus 事件 | 全代码 `emit_event` 调用 | **59+** |
 
@@ -20,7 +20,7 @@ Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运�
 
 | 分类 | 数量 | 说明 |
 |---|---|---|
-| ✅ 两端完全对齐（在 COMMAND_MAP 中） | 1101 | 常规请求/响应命令（所有顶层 COMMAND_MAP 条目都有 Tauri 命令对应） |
+| ✅ 两端完全对齐（在 COMMAND_MAP 中） | 1106 | 常规请求/响应命令（所有顶层 COMMAND_MAP 条目都有 Tauri 命令对应） |
 | 🔧 特殊处理（不在 COMMAND_MAP 但 HTTP 已实现，走专用 Transport 方法） | 12 | multipart/二进制流/保存对话框类接口：avatar、filesystem、session export、Artifact export 和 memory backup archive |
 | 🖥️ Desktop-only / Tauri-only（HTTP 无对应） | 10 | macOS / legacy 系统权限探测（5 条）+ `project_fs_resolve` / `kb_file_resolve_cmd`（`convertFileSrc`）+ Dock / tray 未读提示 + browser-side save-as |
 | ❌ HTTP 路由存在但 COMMAND_MAP 漏写 | 0 | — |
@@ -864,6 +864,33 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `list_canvas_projects` | `GET /api/canvas/projects` | ✅ |
 | `get_canvas_project` | `GET /api/canvas/projects/{projectId}` | ✅ |
 | `delete_canvas_project` | `DELETE /api/canvas/projects/{projectId}` | ✅ |
+
+### Speech-to-Text
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `get_stt_providers` | `GET /api/stt/providers` | ✅（HTTP 响应脱敏） |
+| `add_stt_provider` | `POST /api/stt/providers` | ✅ |
+| `update_stt_provider` | `PUT /api/stt/providers/{providerId}` | ✅ |
+| `delete_stt_provider` | `DELETE /api/stt/providers/{providerId}` | ✅ |
+| `reorder_stt_providers` | `POST /api/stt/providers/reorder` | ✅ |
+| `get_active_stt_model` | `GET /api/stt/active-model` | ✅ |
+| `set_active_stt_model` | `PUT /api/stt/active-model` | ✅ |
+| `clear_active_stt_model` | `DELETE /api/stt/active-model` | ✅ |
+| `get_stt_fallback_models` | `GET /api/stt/fallback-models` | ✅ |
+| `set_stt_fallback_models` | `PUT /api/stt/fallback-models` | ✅ |
+| `get_im_fallback_stt_model` | `GET /api/stt/im-fallback-model` | ✅ |
+| `set_im_fallback_stt_model` | `PUT /api/stt/im-fallback-model` | ✅ |
+| `get_stt_default_options` | `GET /api/stt/default-options` | ✅ |
+| `set_stt_default_options` | `PUT /api/stt/default-options` | ✅ |
+| `list_known_local_stt_backends` | `GET /api/stt/local-backends` | ✅ |
+| `probe_local_stt_backend` | `GET /api/stt/local-backends/{key}/probe` | ✅ |
+| `upsert_known_local_stt_provider_cmd` | `POST /api/stt/local-backends/{backendKey}/upsert` | ✅ |
+| `stt_transcribe_blob` | `POST /api/stt/transcribe` | ✅ |
+| `stt_start_session` | `POST /api/stt/sessions` | ✅ |
+| `stt_push_chunk` | `POST /api/stt/sessions/{sessionId}/chunk` | ✅ |
+| `stt_finalize_session` | `POST /api/stt/sessions/{sessionId}/finalize` | ✅ |
+| `stt_cancel_session` | `DELETE /api/stt/sessions/{sessionId}` | ✅ |
 
 ### Design Space（设计空间）
 
@@ -1795,15 +1822,15 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 以下 shell 段落可在项目根运行，本文档对照表的数据正确性依赖它们：
 
 ```bash
-# 1. Tauri 命令总数（截至 2026-07-22：1122）
+# 1. Tauri 命令总数（截至 2026-07-29：1127）
 awk 'BEGIN{flag=0} /tauri::generate_handler!\[/{flag=1;next} flag&&/^[[:space:]]*\]\)/{flag=0} flag' \
     src-tauri/src/lib.rs | grep -vE '^[[:space:]]*//|^[[:space:]]*$' | \
     grep -oE '::[a-z_][a-zA-Z0-9_]*,?[[:space:]]*$' | tr -d ':, ' | sort -u | wc -l
 
-# 2. HTTP 路由总数（截至 2026-07-22：1035）
+# 2. HTTP 路由总数（截至 2026-07-29：1039）
 grep -cE '^[[:space:]]+\.route\(' crates/ha-server/src/lib.rs
 
-# 3. COMMAND_MAP 条目数（截至 2026-07-22：1101，不含闭合 `}` 的行）
+# 3. COMMAND_MAP 条目数（截至 2026-07-29：1106，不含闭合 `}` 的行）
 awk '/^const COMMAND_MAP/,/^};/' src/lib/transport-http.ts | \
     grep -cE '^[[:space:]]+[a-z_][a-zA-Z0-9_]*:[[:space:]]*\{'
 

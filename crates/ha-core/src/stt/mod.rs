@@ -48,8 +48,9 @@ pub fn voice_prefix_for_locale(locale: &str, text: &str) -> String {
 
 pub use crud::{
     add_stt_provider, clear_active_stt_model, delete_stt_provider, reorder_stt_providers,
-    set_active_stt_model, set_im_fallback_stt_model, set_stt_fallback_models, update_stt_provider,
-    upsert_known_local_stt_provider, SttWriteError, SttWriteResult,
+    set_active_stt_model, set_im_fallback_stt_model, set_stt_default_language_async,
+    set_stt_default_options, set_stt_default_options_async, set_stt_fallback_models,
+    update_stt_provider, upsert_known_local_stt_provider, SttWriteError, SttWriteResult,
 };
 pub use engine::{
     current_desktop_chain, current_im_chain, failover_transcribe_batch, resolve_active,

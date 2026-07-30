@@ -513,6 +513,8 @@ pub fn run() {
             commands::stt::set_stt_fallback_models,
             commands::stt::get_im_fallback_stt_model,
             commands::stt::set_im_fallback_stt_model,
+            commands::stt::get_stt_default_options,
+            commands::stt::set_stt_default_options,
             commands::stt::list_known_local_stt_backends,
             commands::stt::probe_local_stt_backend,
             commands::stt::upsert_known_local_stt_provider_cmd,
