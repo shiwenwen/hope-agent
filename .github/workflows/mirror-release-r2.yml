@@ -81,6 +81,27 @@ env:
   RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
   RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
   # RCLONE_CONFIG_R2_ENDPOINT is derived by scripts/r2-endpoint.sh.
+  #
+  # Shared robustness flags for every upload. R2 intermittently answers
+  # `501 NotImplemented` mid-transfer: the first backfill run saw attempt 1
+  # fail wholesale on all three upload steps, two of them recovering on
+  # attempt 2 and the third exhausting rclone's default 3 retries. Root cause
+  # is NOT established yet — the long-stable update-linux-repo.yml writes the
+  # same bucket without trouble, and the one flag it does not use is
+  # --header-upload. Until that is pinned down, give transfers real retry
+  # headroom and stop swallowing the errors that would identify it.
+  #   --retries / --low-level-retries: headroom over the defaults (3 / 10).
+  #   --s3-no-check-bucket: skips the bucket-existence probe, one of the calls
+  #     R2 is known to answer NotImplemented for. The bucket is created and
+  #     managed out of band (linux-repo/README.md).
+  #   --transfers/--checkers: lower concurrency, less pressure per burst.
+  # Expanded UNQUOTED at each call site — word splitting is the point.
+  RCLONE_FLAGS: >-
+    --retries 10
+    --low-level-retries 20
+    --s3-no-check-bucket
+    --transfers=4
+    --checkers=8
 
 jobs:
   mirror-release-r2:
@@ -297,15 +318,18 @@ jobs:
           set -euo pipefail
           # Immutable per-version prefix, so a long edge TTL is correct and
           # every historical download link keeps working forever.
+          # stderr is NOT piped through `tail`: the first backfill run was
+          # diagnosable only from the per-object error lines, and truncating
+          # them threw away exactly what was needed.
           rclone copy assets "r2:${R2_BUCKET}/download/${TAG}" \
             --header-upload "Cache-Control: public, max-age=31536000, immutable" \
-            --transfers=8 --checkers=16 --stats=30s --stats-one-line 2>&1 | tail -10
+            $RCLONE_FLAGS --stats=30s --stats-one-line
           # Raw markdown as text/plain so a browser DISPLAYS it instead of
           # downloading an opaque .md — these are read, not installed.
           rclone copy docs-upload "r2:${R2_BUCKET}/download/${TAG}" \
             --header-upload "Cache-Control: public, max-age=31536000, immutable" \
             --header-upload "Content-Type: text/plain; charset=utf-8" \
-            --transfers=4 --stats=0 2>&1 | tail -5
+            $RCLONE_FLAGS --stats=0
           echo "Uploaded to r2:${R2_BUCKET}/download/${TAG}"
 
       - name: Upload latest/ aliases (mutable, short TTL)
@@ -330,7 +354,7 @@ jobs:
           rclone copy latest-upload "r2:${R2_BUCKET}/download/latest" \
             --header-upload "Cache-Control: public, max-age=300, must-revalidate" \
             --ignore-times \
-            --transfers=8 --checkers=16 --stats=30s --stats-one-line 2>&1 | tail -10
+            $RCLONE_FLAGS --stats=30s --stats-one-line
           echo "Uploaded to r2:${R2_BUCKET}/download/latest"
 
       - name: Verify every mirrored URL is live with the right size
@@ -445,7 +469,7 @@ jobs:
           rclone copyto upload/latest.json "r2:${R2_BUCKET}/download/latest.json" \
             --header-upload "Cache-Control: public, max-age=60, must-revalidate" \
             --ignore-times \
-            --stats=0
+            $RCLONE_FLAGS --stats=0
           echo "Published r2:${R2_BUCKET}/download/latest.json"
 
       - name: Verify the published manifest serves this release
