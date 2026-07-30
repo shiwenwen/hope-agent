@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { logger } from "@/lib/logger"
+import { normalizeAudioCaptureError } from "./audioCaptureError"
 import { useAnalyserLevels } from "./useAnalyserLevels"
 
 /**
@@ -41,48 +43,10 @@ export interface UsePcm16StreamerResult {
   cancel: () => void
 }
 
-
-// 16 kHz target rate / 1600 sample-per-frame contract is hard-coded into
-// the worklet processor (sample rates are immutable once the AudioContext
-// is created, so there's no reason to template these on the TS side).
 const MAX_RECORD_MS = 5 * 60 * 1000
-
-// AudioWorklet processor that downsamples to 16 kHz mono and emits PCM16
-// frames of `FRAME_SAMPLES` samples each. Lives in a separate global scope
-// (worklet thread) — `sampleRate` and `registerProcessor` are worklet
-// globals so we ship this as a string and load via Blob URL.
-const WORKLET_SOURCE = `
-class Pcm16Downsampler extends AudioWorkletProcessor {
-  constructor() {
-    super()
-    this.targetRate = 16000
-    this.frameSamples = 1600
-    this.buffer = new Int16Array(this.frameSamples)
-    this.write = 0
-    this.sourceCursor = 0
-    this.step = sampleRate / this.targetRate
-  }
-  process(inputs) {
-    const input = inputs[0]
-    if (!input || !input[0]) return true
-    const ch = input[0]
-    for (let i = 0; i < ch.length; i++) {
-      this.sourceCursor += 1
-      if (this.sourceCursor >= this.step) {
-        this.sourceCursor -= this.step
-        const f = Math.max(-1, Math.min(1, ch[i]))
-        this.buffer[this.write++] = f < 0 ? f * 0x8000 : f * 0x7FFF
-        if (this.write >= this.frameSamples) {
-          this.port.postMessage(this.buffer.slice(0))
-          this.write = 0
-        }
-      }
-    }
-    return true
-  }
-}
-registerProcessor("pcm16-downsampler", Pcm16Downsampler)
-`
+// Keep executable worklet code in a same-origin static asset. Loading it from
+// a Blob URL would require widening Tauri's `script-src` to include `blob:`.
+const WORKLET_MODULE_PATH = "/pcm16-downsampler.worklet.js"
 
 export function usePcm16Streamer(): UsePcm16StreamerResult {
   const [state, setState] = useState<Pcm16StreamerState>("idle")
@@ -94,11 +58,14 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const workletRef = useRef<AudioWorkletNode | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
-  const { audioLevel, levels, start: startLevels, stop: stopLevels } =
-    useAnalyserLevels(analyserRef)
+  const {
+    audioLevel,
+    levels,
+    start: startLevels,
+    stop: stopLevels,
+  } = useAnalyserLevels(analyserRef)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const startedAtRef = useRef<number>(0)
-  const workletBlobUrlRef = useRef<string | null>(null)
 
   const cleanup = useCallback(() => {
     if (intervalRef.current !== null) clearInterval(intervalRef.current)
@@ -129,10 +96,6 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
     audioCtxRef.current = null
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
-    if (workletBlobUrlRef.current) {
-      URL.revokeObjectURL(workletBlobUrlRef.current)
-      workletBlobUrlRef.current = null
-    }
   }, [stopLevels])
 
   const start = useCallback(
@@ -157,10 +120,7 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
         const ctx = new AudioCtxCtor()
         audioCtxRef.current = ctx
 
-        const workletBlob = new Blob([WORKLET_SOURCE], { type: "application/javascript" })
-        const workletUrl = URL.createObjectURL(workletBlob)
-        workletBlobUrlRef.current = workletUrl
-        await ctx.audioWorklet.addModule(workletUrl)
+        await ctx.audioWorklet.addModule(WORKLET_MODULE_PATH)
 
         const source = ctx.createMediaStreamSource(stream)
         sourceRef.current = source
@@ -170,12 +130,24 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
         analyserRef.current = analyser
 
         const worklet = new AudioWorkletNode(ctx, "pcm16-downsampler")
+        workletRef.current = worklet
         worklet.port.onmessage = (e) => {
           // Worklet posts Int16Array slices; pass straight through.
           const data = e.data as Int16Array | undefined
           if (data && data.length > 0) onChunk(data)
         }
-        workletRef.current = worklet
+        worklet.onprocessorerror = () => {
+          const processorError = new Error("AudioWorklet processor failed")
+          processorError.name = "AudioWorkletProcessorError"
+          cleanup()
+          setError(processorError)
+          setState("error")
+          logger.error(
+            "voice",
+            "usePcm16Streamer::processor",
+            `capture runtime failed name=${processorError.name} raw=${processorError.message}`,
+          )
+        }
 
         // Source feeds both the analyser (level meter, no downsample) and
         // the worklet (downsamples + emits PCM16). Worklet output is NOT
@@ -202,9 +174,16 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
         startLevels()
         setState("streaming")
       } catch (e) {
+        const captureError = normalizeAudioCaptureError(e)
         cleanup()
-        setError(e instanceof Error ? e : new Error(String(e)))
+        setError(captureError)
         setState("error")
+        logger.error(
+          "voice",
+          "usePcm16Streamer::start",
+          `capture setup failed name=${captureError.name} raw=${captureError.message}`,
+        )
+        throw captureError
       }
     },
     [state, cleanup, startLevels],

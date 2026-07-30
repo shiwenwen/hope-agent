@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **修复 Markdown 外链图标需悬停后才加载站点 favicon**：网页链接进入视口附近时会自动加载站点图标，不再需要先把鼠标移到链接上或聚焦链接；屏幕外的历史消息保持懒加载，请求仍复用现有缓存、并发与数量限制，加载失败时继续显示网页占位图标。
+- **修复桌面端流式语音输入被 CSP 拦截**：PCM16 AudioWorklet 改为从同源静态资源加载，不再依赖被 Tauri `script-src` 禁止的 Blob URL；采集启动或运行失败、用户取消及组件卸载时会同步清理后端 STT 会话，并统一显示麦克风权限错误。 (#576)
 
 ## [0.26.0] - 2026-07-30
 
