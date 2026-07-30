@@ -155,6 +155,8 @@
 ### 下载安装
 
 > 📦 各平台完整安装包列表：[Releases](https://github.com/shiwenwen/hope-agent/releases)
+>
+> 🌏 **访问不了 GitHub？** 所有安装包同时镜像在 <https://repo.hopeagent.ai/download/latest/>（Cloudflare R2，与 apt / dnf 软件源同域名），下面每个手动安装入口都给了镜像直链。桌面应用的自动更新也优先走这个镜像，GitHub 作为兜底。历史版本按 `https://repo.hopeagent.ai/download/v<版本>/` 长期保留。
 
 #### macOS
 
@@ -169,7 +171,7 @@ brew install --cask hope-agent
 
 ##### 手动安装（DMG）
 
-到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载 `Hope.Agent_*.dmg`，拖到「应用程序」即可。
+到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载 `Hope.Agent_*.dmg`，拖到「应用程序」即可。镜像直链：[Hope.Agent_aarch64.dmg](https://repo.hopeagent.ai/download/latest/Hope.Agent_aarch64.dmg)。
 
 > 若启动时提示"已损坏"或"无法验证开发者"，请在终端执行：
 >
@@ -197,7 +199,7 @@ scoop install hope-agent
 
 ##### 手动安装（installer）
 
-到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载 `Hope.Agent_*-setup.exe` 双击安装。**Windows 端尚未完成充分测试**，欢迎反馈问题。
+到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载 `Hope.Agent_*-setup.exe` 双击安装。镜像直链：[Hope.Agent_x64-setup.exe](https://repo.hopeagent.ai/download/latest/Hope.Agent_x64-setup.exe)。**Windows 端尚未完成充分测试**，欢迎反馈问题。
 
 > 若启动时提示"由于找不到 MSVCP140_1.dll，无法继续执行代码"或类似缺失 `VCRUNTIME140.dll` / `MSVCP140.dll`，请安装 [Microsoft Visual C++ 2015–2022 运行库（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)后重启应用。
 
@@ -251,9 +253,9 @@ sudo zypper install hope-agent
 
 到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载（包名含架构后缀，按你的机器选 `_amd64` / `_arm64` 或 `.x86_64` / `.aarch64`）：
 
-- AppImage：`Hope.Agent_*.AppImage` —— `chmod +x` 后直接运行
-- Debian / Ubuntu：`Hope.Agent_*.deb` —— `sudo dpkg -i Hope.Agent_*.deb`
-- Fedora / RHEL：`Hope.Agent_*.rpm` —— `sudo rpm -i Hope.Agent_*.rpm`
+- AppImage：`Hope.Agent_*.AppImage` —— `chmod +x` 后直接运行。镜像：[amd64](https://repo.hopeagent.ai/download/latest/Hope.Agent_amd64.AppImage) · [aarch64](https://repo.hopeagent.ai/download/latest/Hope.Agent_aarch64.AppImage)
+- Debian / Ubuntu：`Hope.Agent_*.deb` —— `sudo dpkg -i Hope.Agent_*.deb`。镜像：[amd64](https://repo.hopeagent.ai/download/latest/Hope.Agent_amd64.deb) · [arm64](https://repo.hopeagent.ai/download/latest/Hope.Agent_arm64.deb)
+- Fedora / RHEL：`Hope.Agent_*.rpm` —— `sudo rpm -i Hope.Agent_*.rpm`。镜像：[x86_64](https://repo.hopeagent.ai/download/latest/Hope.Agent.x86_64.rpm) · [aarch64](https://repo.hopeagent.ai/download/latest/Hope.Agent.aarch64.rpm)
 
 提供 amd64 (x86_64) 与 arm64 (aarch64) 两种原生构建，覆盖普通 PC、树莓派 4/5、Apple Silicon 跑 Asahi Linux、Graviton / Ampere 云主机。apt 与 dnf 都会按 `dpkg --print-architecture` / `$basearch` 自动选对版本。
 
@@ -266,7 +268,7 @@ sudo zypper install hope-agent
 #### 首次启动 & 自动更新
 
 1. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
-2. 桌面应用内置 GitHub Releases 自动更新，应用内 **设置 → 关于** 检查更新并一键安装；或者直接在对话里说「升级」或「检查更新」
+2. 桌面应用内置自动更新（优先读 `repo.hopeagent.ai` 镜像，GitHub Releases 兜底），应用内 **设置 → 关于** 检查更新并一键安装；或者直接在对话里说「升级」或「检查更新」。安装包一律经内置公钥验签，镜像与 GitHub 走同一套校验
 3. 通过 Homebrew / AUR / Scoop 装的版本同样走应用内置 updater；包管理器视角的版本号会保持初装时的，不影响功能
 
 > 要从手机或另一台电脑访问，在「设置 → 服务器」中设置 API Key，并把监听地址改为 `0.0.0.0:8420`；重启后访问 `http://<运行 Hope Agent 的设备 IP>:8420`。不要在没有鉴权的情况下把端口暴露到局域网或公网；公网使用请前置 HTTPS 反向代理，详见 [Docker 部署指南](docs/deployment/docker.md)。

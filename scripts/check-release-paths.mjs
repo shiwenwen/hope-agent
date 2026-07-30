@@ -202,6 +202,47 @@ for (const template of ["hope-agent.rb.tmpl", "hope-agent-arm-only.rb.tmpl"]) {
   }
 }
 
+// ─── Check 7 ─────────────────────────────────────────────────────────
+// Every `download/latest/<name>` link in either README must be a name the
+// mirror actually publishes, i.e. present in REQUIRED_ALIASES — that list is
+// what mirror-release-r2.yml verifies is live before it publishes anything.
+// A README link outside the list is a documented download that nothing
+// guarantees exists, which lands as a 404 for precisely the users who cannot
+// fall back to GitHub. Checked both ways: an unused entry means the list
+// still pins a name no one links, usually a half-finished rename.
+{
+  const aliasSrc = readFileSync(
+    path.join(repoRoot, "scripts/mirror-latest-aliases.mjs"),
+    "utf8",
+  )
+  const block = aliasSrc.match(/const REQUIRED_ALIASES = \[([\s\S]*?)\]/)
+  if (!block) {
+    errors.push("scripts/mirror-latest-aliases.mjs: REQUIRED_ALIASES literal not found.")
+  } else {
+    const required = new Set([...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]))
+    const linked = new Set()
+    for (const readme of ["README.md", "README.en.md"]) {
+      const text = readFileSync(path.join(repoRoot, readme), "utf8")
+      const names = [...text.matchAll(/download\/latest\/([A-Za-z0-9._-]+)/g)].map((m) => m[1])
+      for (const n of names) {
+        linked.add(n)
+        if (!required.has(n)) {
+          errors.push(
+            `${readme}: links download/latest/${n}, which is not in REQUIRED_ALIASES (scripts/mirror-latest-aliases.mjs) — the mirror never verifies it, so the link can 404 silently.`,
+          )
+        }
+      }
+    }
+    for (const r of required) {
+      if (!linked.has(r)) {
+        errors.push(
+          `scripts/mirror-latest-aliases.mjs: REQUIRED_ALIASES pins "${r}" but neither README links it — drop it or add the link.`,
+        )
+      }
+    }
+  }
+}
+
 // ─── Report ──────────────────────────────────────────────────────────
 if (warnings.length > 0) {
   console.warn("[check-release-paths] warnings:")

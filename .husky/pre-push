@@ -57,6 +57,9 @@ pnpm lint
 echo "[pre-push] verify-updater-pubkey (tauri.conf.json ↔ ha-core)"
 node scripts/verify-updater-pubkey.mjs
 
+echo "[pre-push] verify-updater-endpoints (tauri.conf.json ↔ ha-core ↔ mirror PUBLIC_BASE)"
+node scripts/verify-updater-endpoints.mjs
+
 echo "[pre-push] vitest run"
 pnpm test
 
