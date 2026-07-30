@@ -4,6 +4,10 @@ import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { useAudioRecorder } from "@/hooks/useAudioRecorder"
 import type { RecorderState } from "@/hooks/useAudioRecorder"
+import {
+  isAudioCapturePermissionError,
+  normalizeAudioCaptureError,
+} from "@/hooks/audioCaptureError"
 import { usePcm16Streamer, pcm16ToBase64 } from "@/hooks/usePcm16Streamer"
 import { logger } from "@/lib/logger"
 import {
@@ -33,10 +37,7 @@ interface SessionErrorPayload {
   message: string
 }
 
-export type VoiceInputState =
-  | RecorderState
-  | "transcribing"
-  | "ready"
+export type VoiceInputState = RecorderState | "transcribing" | "ready"
 
 export interface UseVoiceInputResult {
   state: VoiceInputState
@@ -135,6 +136,25 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
     setPartialText("")
   }, [])
 
+  const cancelSessionBestEffort = useCallback(
+    async (
+      sessionId: string,
+      reason: "capture-start-failed" | "capture-runtime-failed" | "user-cancel" | "unmount",
+    ) => {
+      try {
+        await getTransport().call("stt_cancel_session", { sessionId })
+      } catch (e) {
+        const error = normalizeAudioCaptureError(e)
+        logger.warn(
+          "voice",
+          "useVoiceInput::cancelSession",
+          `session cancel failed sessionId=${sessionId} reason=${reason} name=${error.name} raw=${error.message}`,
+        )
+      }
+    },
+    [],
+  )
+
   const subscribeSessionEvents = useCallback((sessionId: string) => {
     const transport = getTransport()
     const onPartial = (payload: unknown) => {
@@ -174,15 +194,12 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
     try {
       await recorder.start()
     } catch (e) {
-      const m = e instanceof Error ? e.message : String(e)
-      const n = e instanceof Error ? e.name : "?"
-      logger.error(
-        "voice",
-        "useVoiceInput::start",
-        `recorder.start failed name=${n} raw=${m}`,
+      const error = normalizeAudioCaptureError(e)
+      setErrorMessage(
+        isAudioCapturePermissionError(error) ? t("voice.permissionDenied") : t("voice.failed"),
       )
     }
-  }, [recorder])
+  }, [recorder, t])
 
   const startStreaming = useCallback(
     async (providerId: string, modelId: string, kind: SttProviderKind) => {
@@ -224,18 +241,30 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
           })
         })
       } catch (e) {
-        const m = e instanceof Error ? e.message : String(e)
+        const error = normalizeAudioCaptureError(e)
         logger.error(
           "voice",
           "useVoiceInput::start",
-          `streaming start failed raw=${m}`,
+          `streaming start failed name=${error.name} raw=${error.message}`,
         )
+        const openedSessionId = sessionIdRef.current
         teardownSession()
-        setMode(null)
-        setErrorMessage(t("voice.failed"))
+        if (openedSessionId) {
+          await cancelSessionBestEffort(openedSessionId, "capture-start-failed")
+        }
+        setErrorMessage(
+          isAudioCapturePermissionError(error) ? t("voice.permissionDenied") : t("voice.failed"),
+        )
       }
     },
-    [streamer, subscribeSessionEvents, teardownSession, t, currentSessionId],
+    [
+      streamer,
+      subscribeSessionEvents,
+      cancelSessionBestEffort,
+      teardownSession,
+      t,
+      currentSessionId,
+    ],
   )
 
   const start = useCallback(async () => {
@@ -251,11 +280,7 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
       active = meta.active
       kind = meta.kind
       if (!active) {
-        logger.warn(
-          "voice",
-          "useVoiceInput::start",
-          "preflight: no active STT model configured",
-        )
+        logger.warn("voice", "useVoiceInput::start", "preflight: no active STT model configured")
         setErrorMessage(t("voice.noProvider"))
         return
       }
@@ -275,6 +300,20 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
     }
   }, [t, startStreaming, startBatch])
 
+  useEffect(() => {
+    if (mode !== "streaming" || streamer.state !== "error") return
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    teardownSession()
+    void cancelSessionBestEffort(sessionId, "capture-runtime-failed")
+    const error = streamer.error
+    setErrorMessage(
+      error && isAudioCapturePermissionError(error)
+        ? t("voice.permissionDenied")
+        : t("voice.failed"),
+    )
+  }, [mode, streamer.state, streamer.error, cancelSessionBestEffort, teardownSession, t])
+
   const finalizeStreaming = useCallback(async (): Promise<string> => {
     const sessionId = sessionIdRef.current
     if (!sessionId) return ""
@@ -285,10 +324,9 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
       // actually land on the server side. Errors already swallowed
       // inside the chain — settling is the only guarantee we need.
       await pushChainRef.current
-      const transcript = await getTransport().call<Transcript>(
-        "stt_finalize_session",
-        { sessionId },
-      )
+      const transcript = await getTransport().call<Transcript>("stt_finalize_session", {
+        sessionId,
+      })
       setTranscribing(false)
       logger.info(
         "voice",
@@ -395,11 +433,7 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
       const sessionId = sessionIdRef.current
       streamer.cancel()
       if (sessionId) {
-        void getTransport()
-          .call("stt_cancel_session", { sessionId })
-          .catch(() => {
-            // best-effort; backend GC will reap idle sessions anyway
-          })
+        void cancelSessionBestEffort(sessionId, "user-cancel")
       }
       teardownSession()
       setMode(null)
@@ -407,7 +441,7 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
       recorder.cancel()
       setMode(null)
     }
-  }, [mode, streamer, recorder, teardownSession])
+  }, [mode, streamer, recorder, cancelSessionBestEffort, teardownSession])
 
   const clearError = useCallback(() => setErrorMessage(null), [])
 
@@ -432,10 +466,7 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
       : baseState
 
   // Surface getUserMedia denial via i18n.
-  const surfacedError =
-    mode === "streaming"
-      ? streamer.error
-      : recorder.error
+  const surfacedError = mode === "streaming" ? streamer.error : recorder.error
   const surfacedErrorMessage =
     surfacedError && !errorMessage
       ? (() => {
@@ -451,9 +482,11 @@ export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputRe
   // doesn't keep firing into a dead component.
   useEffect(() => {
     return () => {
+      const sessionId = sessionIdRef.current
+      if (sessionId) void cancelSessionBestEffort(sessionId, "unmount")
       teardownSession()
     }
-  }, [teardownSession])
+  }, [cancelSessionBestEffort, teardownSession])
 
   const durationMs = mode === "streaming" ? streamer.durationMs : recorder.durationMs
   const audioLevel = mode === "streaming" ? streamer.audioLevel : recorder.audioLevel

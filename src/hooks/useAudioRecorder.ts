@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { logger } from "@/lib/logger"
+import { normalizeAudioCaptureError } from "./audioCaptureError"
 import { useAnalyserLevels } from "./useAnalyserLevels"
 
 /**
@@ -10,12 +12,7 @@ import { useAnalyserLevels } from "./useAnalyserLevels"
  * with the final Blob so the caller can ship it to STT. `audioLevel`
  * (0-1 RMS) feeds the on-screen waveform / red-dot pulse.
  */
-export type RecorderState =
-  | "idle"
-  | "requesting-permission"
-  | "recording"
-  | "stopped"
-  | "error"
+export type RecorderState = "idle" | "requesting-permission" | "recording" | "stopped" | "error"
 
 export interface UseAudioRecorderResult {
   state: RecorderState
@@ -25,7 +22,7 @@ export interface UseAudioRecorderResult {
    * Oldest first; newest at the end. Zero-padded when not recording. */
   levels: number[]
   error: Error | null
-  /** Begin a new recording. Throws via `error` state if permission is denied. */
+  /** Begin a new recording. Rejects after updating `error` state on failure. */
   start: () => Promise<void>
   /** Stop and return the recorded Blob. */
   stop: () => Promise<{ blob: Blob; mimeType: string; durationMs: number }>
@@ -63,8 +60,12 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const streamRef = useRef<MediaStream | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
-  const { audioLevel, levels, start: startLevels, stop: stopLevels } =
-    useAnalyserLevels(analyserRef)
+  const {
+    audioLevel,
+    levels,
+    start: startLevels,
+    stop: stopLevels,
+  } = useAnalyserLevels(analyserRef)
   const startedAtRef = useRef<number>(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const cancelledRef = useRef<boolean>(false)
@@ -145,11 +146,18 @@ export function useAudioRecorder(): UseAudioRecorderResult {
         }
       }
       recorder.onerror = (e) => {
-        const err = (e as ErrorEvent).error ?? new Error("MediaRecorder error")
-        setError(err instanceof Error ? err : new Error(String(err)))
+        const recorderError = normalizeAudioCaptureError(
+          (e as ErrorEvent).error ?? new Error("MediaRecorder error"),
+        )
+        setError(recorderError)
         cleanup()
         setState("error")
-        stopPromiseRef.current?.reject(err instanceof Error ? err : new Error(String(err)))
+        logger.error(
+          "voice",
+          "useAudioRecorder::recording",
+          `capture runtime failed name=${recorderError.name} raw=${recorderError.message}`,
+        )
+        stopPromiseRef.current?.reject(recorderError)
         stopPromiseRef.current = null
       }
 
@@ -179,32 +187,37 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       }, 100)
       setState("recording")
     } catch (e) {
+      const captureError = normalizeAudioCaptureError(e)
       cleanup()
-      setError(e instanceof Error ? e : new Error(String(e)))
+      setError(captureError)
       setState("error")
+      logger.error(
+        "voice",
+        "useAudioRecorder::start",
+        `capture setup failed name=${captureError.name} raw=${captureError.message}`,
+      )
+      throw captureError
     }
   }, [state, cleanup, startLevels])
 
   const stop = useCallback(() => {
-    return new Promise<{ blob: Blob; mimeType: string; durationMs: number }>(
-      (resolve, reject) => {
-        // Watchdog (MAX_RECORD_MS) may have already stopped the recorder
-        // and cached its result. Drain that first so the audio isn't lost.
-        if (lastResultRef.current) {
-          const cached = lastResultRef.current
-          lastResultRef.current = null
-          resolve(cached)
-          return
-        }
-        const recorder = recorderRef.current
-        if (!recorder || recorder.state === "inactive") {
-          reject(new Error("Not recording"))
-          return
-        }
-        stopPromiseRef.current = { resolve, reject }
-        recorder.stop()
-      },
-    )
+    return new Promise<{ blob: Blob; mimeType: string; durationMs: number }>((resolve, reject) => {
+      // Watchdog (MAX_RECORD_MS) may have already stopped the recorder
+      // and cached its result. Drain that first so the audio isn't lost.
+      if (lastResultRef.current) {
+        const cached = lastResultRef.current
+        lastResultRef.current = null
+        resolve(cached)
+        return
+      }
+      const recorder = recorderRef.current
+      if (!recorder || recorder.state === "inactive") {
+        reject(new Error("Not recording"))
+        return
+      }
+      stopPromiseRef.current = { resolve, reject }
+      recorder.stop()
+    })
   }, [])
 
   const cancel = useCallback(() => {
