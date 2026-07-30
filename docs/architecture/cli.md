@@ -10,7 +10,7 @@ Hope Agent 的所有运行模式共享同一个二进制 `hope-agent`。CLI 是�
 hope-agent [GLOBAL_FLAGS] [SUBCOMMAND] [OPTIONS]
 ```
 
-主分发顺序：**全局 flag → `knowledge-mcp` → `mcp` → `acp` → `server` → `auth` → 桌面 / Guardian / 子进程**。匹配到任何子命令就 return，不再继续往下；未知子命令静默落到桌面入口。
+主分发顺序：**全局 flag → `--tcc-probe` → `knowledge-mcp` → `mcp` → `acp` → `server` → `auth` → 桌面 / Guardian / 子进程**。匹配到任何子命令就 return，不再继续往下；未知子命令静默落到桌面入口。
 
 | 子命令         | 性质         | 触发                                  | 入口函数 / 模块               | 说明                                                                                       |
 | -------------- | ------------ | ------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
@@ -74,6 +74,7 @@ hope-agent mcp [--allow-writes]
 | ------------------------------------- | ---- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--dangerously-skip-all-approvals`    | flag | off  | 跳过所有工具审批（**仅本次启动**，不写 config）。在每个子命令解析器里被静默 consume。会经 `ha_core::security::dangerous::set_cli_flag(true)` 落到进程内 `AtomicBool`，并向 stderr 打一行 warning。与 `AppConfig.permission.global_yolo` 是 OR 关系，详见 [权限/审批系统](permission-system.md) |
 | `--version` / `-V`                    | flag | —    | `hope-agent --version`（或 `-V`，不带子命令）在子命令分发前打印 `hope-agent X.Y.Z`（取自 `CARGO_PKG_VERSION`）后退出，**不会**落到桌面启动路径。子命令各自的 `acp --version` / `server --version` 走自己的解析器（在此分支之前先被匹配） |
+| `--tcc-probe <permission-id>`          | flag | —    | **内部用**：macOS TCC 探针进程模式。打印一行 `hope-agent-tcc-probe:granted=1\|0\|unknown` 后退出，由 [系统权限](macos-permissions.md) 子系统 spawn（新进程才能看到运行期新授的录屏权限）。**判据是 stdout token 而非退出码**；此分支**必须早于 guardian / `--child-mode` 分派**（否则每次探针会拉起一个完整 GUI），且不初始化任何运行时状态 |
 
 > 注意：Plan Mode 仍然能压过 YOLO 限制工具集；YOLO 只跳审批门控，不放行 protected paths / dangerous commands 之外的禁用工具。
 

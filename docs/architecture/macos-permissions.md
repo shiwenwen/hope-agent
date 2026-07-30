@@ -8,7 +8,7 @@
 
 定位上有三条边界要先讲清楚：
 
-- **只读探测 + 引导，不持久化、不缓存**：TCC 同意状态由 macOS 系统按进程 + bundle 身份持有，本子系统**每次实时查询**，自己不落任何库、不写 `AppConfig`/`UserConfig`。
+- **只读探测 + 引导，不持久化**：TCC 同意状态由 macOS 系统按进程 + bundle 身份持有，本子系统自己不落任何库、不写 `AppConfig`/`UserConfig`。除**录屏的「待重启」进程内探针记忆**（下节，纯内存、随进程消亡）外一律实时查询。
 - **Tauri-only**：能力仅经 **5 条 Tauri 命令**暴露给桌面 Shell，**无 HTTP 路由**、不进 `transport.ts` 的 `COMMAND_MAP`——HTTP/server 模式没有系统托盘进程，TCC 概念不适用。
 - **非 macOS 严禁伪造 granted**：Windows / Linux / 其它平台一律收敛到 `unsupported` / `NotApplicable`，绝不假装已授权（单测红线，见安全章节）。
 
@@ -20,7 +20,7 @@
 |---|---|
 | [`permissions.rs`](../../crates/ha-core/src/permissions.rs) | 子系统根：`PermissionDef` 静态目录 `PERMISSION_DEFS`（28 项）、v2/v1 双层 API、数据类型枚举、v1↔v2 legacy 映射纯函数、`blocking_with_timeout` 超时包装 |
 | [`platform/system_permissions.rs`](../../crates/ha-core/src/platform/system_permissions.rs) | 按 `target_os` 分 `macos` / `windows` / `linux` / `other` 四套 `mod imp`，仅 macOS 给出 framework 原生实现；非 macOS 的 `imp` 一律 `supported()=false` |
-| [`platform/mod.rs`](../../crates/ha-core/src/platform/mod.rs) | facade（`pub(crate)`）：`system_permissions_supported` / `system_permissions_platform_name` / `check_system_permission_item` / `request_system_permission_item`，把上层 `permissions.rs` 与平台 `imp` 解耦 |
+| [`platform/mod.rs`](../../crates/ha-core/src/platform/mod.rs) | facade（`pub(crate)`）：`system_permissions_supported` / `system_permissions_platform_name` / `check_system_permission_item` / `request_system_permission_item` / `system_permission_raw_probe`（探针答复侧），把上层 `permissions.rs` 与平台 `imp` 解耦 |
 
 `permissions.rs` 是领域层（权限目录 + 状态语义 + API），`platform/system_permissions.rs` 是平台原生实现层（framework 链接 + 探测）。上层永远经 `platform/mod.rs` 的 facade 调下层，不直接 `cfg` 进 imp。
 
@@ -37,13 +37,14 @@
 | `request_mode` | 请求时的引导方式 `SystemPermissionRequestMode` |
 | `settings_pane` | 对应的「系统设置」面板锚点（`x-apple.systempreferences:` 深链） |
 | `usage` / `note` | 面向 UI 的用途说明与备注 |
+| `troubleshoot_note` | 请求后仍 `NotGranted` 时**替换** `note` 的排障文案（附带 `SystemPermissionItem.troubleshoot=true` 标志）。挂在 def 上而非另开 id-match，避免第二张注册表静默漏挂；前端用**独立** i18n key `permissionItems.<id>.troubleshootNote`（复用 `note` key 会显示语义完全不同的译文） |
 
 新增权限项是有契约的：**新增项须同步 `platform` 层 `check_item` / `request_item` 的 `match` 分支**，否则该 id 落 `NotApplicable`；并须考虑 v1 兼容层映射（见 v1 章节）。
 
 ### 分组 / 状态 / 请求模式枚举
 
 - **`SystemPermissionGroup`**（snake_case 序列化，5 分组）：`ControlCapture`（控制与采集）/ `FileAccess`（文件访问）/ `PersonalData`（个人数据）/ `DeviceNetwork`（设备与网络）/ `SystemServices`（系统服务）。
-- **`SystemPermissionStatus`**（7 态）：`Granted` / `NotGranted` / `NotDetermined` / `Restricted` / `ManualCheck` / `NotApplicable` / `NotUsed`。`ManualCheck` 表示「无可靠原生 API、需用户自查或探测式判定」，`NotApplicable` 表示「本平台不适用」，`NotUsed` 表示「这项被定义但当前不实际使用」。
+- **`SystemPermissionStatus`**（8 态）：`Granted` / `GrantedPendingRestart` / `NotGranted` / `NotDetermined` / `Restricted` / `ManualCheck` / `NotApplicable` / `NotUsed`。`ManualCheck` 表示「无可靠原生 API、需用户自查或探测式判定」，`NotApplicable` 表示「本平台不适用」，`NotUsed` 表示「这项被定义但当前不实际使用」。`GrantedPendingRestart` 表示「TCC 已授权、但本进程要重启才能用」（见下「录屏待重启探针」）——**它对一切能力门控等价于未授权**（`legacy_state_for_status` 映射 `not_granted`、`mac_control` 全部 `== Granted` 比较），只影响给用户/模型的措辞。
 - **`SystemPermissionRequestMode`**（4 态）：`NativePrompt`（弹系统原生授权框）/ `OpenSettings`（跳转系统设置面板）/ `TriggerProbe`（触发一次探测以诱发同意弹窗）/ `None`（不主动请求）。
 
 ### v2 响应类型
@@ -62,7 +63,7 @@
 
 桌面面板加载时调 `check_system_permissions`（v2 查询入口）：
 
-1. 经 `blocking_with_timeout` 进 `spawn_blocking`，挂 **3 秒 `CHECK_TIMEOUT`**——framework 查询偶发卡顿不阻塞 UI，超时回 fallback。
+1. 经 `blocking_with_timeout` 进 `spawn_blocking`，挂 **6 秒 `CHECK_TIMEOUT`**——framework 查询偶发卡顿不阻塞 UI，超时回 fallback。**这一预算被 28 项串行共享**，须同时容纳最慢两项（录屏探针 ≤1.5s + `notifications` XPC ≤2s）；曾为 3s 会被击穿，而超时 fallback 是 `unsupported_response()`——真 Mac 上整个面板会退化成「仅支持 macOS」页、`mac_control` 误报 unsupported。**新增慢检查项须重算此预算**。
 2. 先看 `system_permissions_supported()`：非 macOS 直接回 `supported=false` + 空 `items`。
 3. macOS 下遍历 `PERMISSION_DEFS`，逐项调 `platform::check_system_permission_item`，下沉到 `imp::check_item`。
 4. `imp::check_item` 按 `id` `match` 派发到对应 framework 的 `authorizationStatus` 查询，把原生枚举映射成 `SystemPermissionStatus`。
@@ -73,6 +74,19 @@
 - `full_disk_access` / `desktop_folder` / `documents_folder` / `downloads_folder`：**无原生 API，走文件系统探测式检测**（`full_disk_access` 读 `~/Library/Safari/Bookmarks.plist` / `~/Library/Messages/chat.db`；folder 三项 `read_dir ~/Desktop` 等）——成功 = `Granted`、失败 = `ManualCheck`（注意**不是** `NotGranted`，因为探测失败可能是别的原因）。
 - `system_audio_capture` / `homekit`：返回 `NotUsed`。
 - `notifications`：非 bundle 进程查询会抛 `NSException`（Rust 无法 catch），故在非 bundle 进程**降级 `ManualCheck`**（见红线）。
+- `screen_recording`：进程内 preflight 为假时**再经新进程探针**判定是否「已授权待重启」，见下节。
+
+### 录屏「待重启」探针（`--tcc-probe`）
+
+macOS 把录屏能力**固定在进程启动时建立的 WindowServer 连接上**：应用运行期间用户在系统设置里打开开关，本进程 `CGPreflightScreenCaptureAccess()` 仍恒为假，直到重启。为区分「已授权待重启」与「真未授权」，`screen_recording_status` 在 preflight 为假时 spawn **同一 exe 的短命子进程** `hope-agent --tcc-probe screen_recording`（新进程 → 看到实时 TCC 状态），据其结果回 `GrantedPendingRestart` 或 `NotGranted`。
+
+契约与红线：
+
+- **判据是 stdout token 而非退出码**：子进程打印一行 `hope-agent-tcc-probe:granted=1|0|unknown`（前缀常量 `permissions::TCC_PROBE_OUTPUT_PREFIX` 为跨 crate 单一真相源）。**不认 token 一律 unknown、绝不当已授权**——自升级回滚后磁盘上的旧二进制不认识该 flag，会落到别的分派路径，其退出码含义完全不同（single-instance 转发即 exit 0）。
+- **`--tcc-probe` 分派必须早于 guardian / child 分派**（`src-tauri/src/main.rs`，另见 [cli](cli.md)）：落到 guardian 会**每次探针拉起一个完整 GUI**，且 1.5s 超时 kill 只杀直接子进程、孙进程成孤儿。探针分支也**不得初始化任何运行时状态**（无 `ensure_dirs` / `init_runtime` / 日志）。
+- **答复侧 `raw_probe` 永不再走探针**（只调 preflight），否则子进程再 spawn 子进程无限递归。
+- **进程内记忆（非 keyed TTL 缓存，故刻意不用 `ttl_cache`）**：`SCREEN_PROBE` 持锁**跨越** spawn 实现单飞行——面板 `Promise.all` 会并发触发两次全目录检查，否则各 spawn 一个子进程；**正向结果（待重启）进程内终身有效**（该事实到重启前不可逆，故不再探测、也不被后续瞬时失败覆盖），**只有负向结果**按 `PROBE_RETRY_TTL`（5s）防抖，代价是用户开完开关后最多 5 秒盲窗（点「去授权」绕过防抖）。
+- **仅桌面**（`is_desktop()`）：其余运行模式的宿主二进制未必实现该 flag。
 
 ### v2 请求：`request_system_permission`
 
@@ -84,11 +98,13 @@
 
 | 行为 | 哪些 id 走这条 |
 |---|---|
-| 触发原生授权框（framework `request*` 调用，内部多含 60s `wait_for_prompt` 等待用户决策；已非 `NotDetermined` 的项先 `open_settings_pane` 跳过弹框） | `screen_recording` / `input_monitoring` / `camera` / `microphone` / `location` / `contacts` / `calendar` / `reminders` / `photos` / `bluetooth` / `speech_recognition` / `notifications`（即 catalog 里 `NativePrompt` 那批） |
+| 触发原生授权框（framework `request*` 调用，内部多含 60s `wait_for_prompt` 等待用户决策；已非 `NotDetermined` 的项先 `open_settings_pane` 跳过弹框） | `accessibility` / `screen_recording` / `input_monitoring` / `camera` / `microphone` / `location` / `contacts` / `calendar` / `reminders` / `photos` / `bluetooth` / `speech_recognition` / `notifications`（即 catalog 里 `NativePrompt` 那批） |
 | `trigger_automation_probe`：`osascript` 触发一次 Apple Events 诱发「自动化」同意弹窗 → `open_settings_pane` 打开设置 → re-check（`check_item`） | `automation_system_events` / `automation_messages` |
 | `_` 兜底分支：`open_settings_pane`（用 `open` 跳 `x-apple.systempreferences:` 深链）→ re-check（`check_item`） | 其余全部 id（catalog 里 `OpenSettings` 与 `None` 那批，含 `system_audio_capture`） |
 
 automation 两项的 request 路径：osascript 触发同意 → 打开设置 → re-check（因为 check 永远 `ManualCheck`，request 后也只能让用户在设置里确认）。
+
+`accessibility` 的 request 路径特殊：走 **`AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: YES})`**——**这个调用本身才是把应用注册进「系统设置 → 隐私与安全性 → 辅助功能」列表的动作**（此前只 `open_settings_pane`，用户跳过去发现列表里根本没有 Hope Agent 这一行、无从开启）。两点须知：① 该调用**同步返回当前（仍为假的）信任状态**、弹窗异步等用户操作，且 macOS 每应用只弹一次，故失败分支**照常 `open_settings_pane`**——刻意双 UI，因为反面（信这个同步 false 而不做事）就是「点了没反应」的死路；② 运行在 tokio blocking 线程上**须套 `objc2::rc::autoreleasepool`**（否则 autoreleased 字典无池可归、泄漏并打 runtime 警告）。
 
 ### v1 兼容包装
 
@@ -104,7 +120,7 @@ automation 两项的 request 路径：osascript 触发同意 → 打开设置 �
 
 本子系统**不落任何库、不占任何配置字段、不写 `~/.hope-agent`**：
 
-- **无 DB 表**——TCC 状态实时查询，不缓存。
+- **无 DB 表**——TCC 状态实时查询；唯一例外是录屏探针的**进程内内存记忆**（`SCREEN_PROBE`，随进程消亡，见上），不落盘。
 - **无 config 字段**——不进 `AppConfig` / `UserConfig`，每次面板加载现查。
 - **无 `~/.hope-agent` 文件**——注意 `paths.rs::permission_dir`（`~/.hope-agent/permission/`）持有的是**权限引擎 v2**（`protected_paths` / `dangerous_commands`，见 [`permission-system.md`](permission-system.md)）的列表，**与本子系统无关**，两者只是名字里都有「permission」。
 - **TCC 同意状态由 macOS TCC 数据库按进程 + bundle 身份持有**，属系统外部状态，非本仓库管理。
@@ -154,7 +170,9 @@ automation 两项的 request 路径：osascript 触发同意 → 打开设置 �
 - **非 macOS 严禁伪造 granted**（单测 `non_macos_system_permissions_are_not_fake_granted` 锁此红线）：Windows / Linux / other 的 `imp::supported()=false`，`check_item` / `request_item` 返回 `NotApplicable`；`check_system_permissions` 在 `supported=false` 时回空 `items`；v1 包装回 `AllPermissions::default()`（全 `unknown`）。**绝不假装已授权**。
 - **Tauri-only 边界**：5 条命令仅在 src-tauri `invoke_handler` 注册（经 `tauri_wrappers` 薄壳），无 HTTP 路由、不进 `COMMAND_MAP`，是 [`api-reference.md`](api-reference.md) §7.3 Desktop-only 之一。
 - **TCC 绑定进程 + bundle 身份**：开发期 bare binary（`target/debug/hope-agent`）与正式 `.app` 的授权**不是同一份**——`running_from_app_bundle` 判定身份；`notifications` 在非 bundle 进程查询会抛 `NSException`（Rust 无法 catch），故**降级 `ManualCheck`**。
-- **两层超时**：`request_system_permission` 的 **65s `REQUEST_TIMEOUT`** 是外层，macOS 原生回调内部 `wait_for_prompt` 是 **60s** 内层——**外层须 > 内层**，否则外层先超时、内层等待白做。查询侧 `CHECK_TIMEOUT` 为 3s。
+- **两层超时**：`request_system_permission` 的 **65s `REQUEST_TIMEOUT`** 是外层，macOS 原生回调内部 `wait_for_prompt` 是 **60s** 内层——**外层须 > 内层**，否则外层先超时、内层等待白做。查询侧 `CHECK_TIMEOUT` 为 **6s，被 28 项串行共享**（须容纳录屏探针 1.5s + notifications 2s，超时即整目录退化 `unsupported`，见 v2 查询节）。
+- **`GrantedPendingRestart` 对门控等价未授权**：`legacy_state_for_status` / `legacy_files_and_folders` 映射 `not_granted`，`mac_control` 一切判定用 `== Granted`——**新增消费 `SystemPermissionStatus` 的分支须显式处理该变体**，只在文案层区分「重启生效」与「去授权」。
+- **探针 token 不可退化为退出码**：见「录屏待重启探针」节；`--tcc-probe` 分派须早于 guardian/child，答复侧 `raw_probe` 永不递归。
 - **`request_mode=None`**：此类项（如 `system_audio_capture`）在 v2 请求时**不触发原生 prompt**，只走 fallback（`open_settings` / re-check）。
 - **automation 永远 `ManualCheck`**：`automation_system_events` / `automation_messages` 无可靠 per-target 状态 API——`check_item` 恒回 `ManualCheck`，`request` 经 `osascript` 触发同意弹窗 + 打开设置后让用户自查。
 - **探测式检测的状态语义**：`full_disk_access` / `desktop_folder` / `documents_folder` / `downloads_folder` 走文件系统探测，**失败 = `ManualCheck` 而非 `NotGranted`**（探测失败有多种原因，不能武断判成「未授权」）。

@@ -5625,14 +5625,16 @@
     "logsStructured": "结构化",
     "logsTotal": "总计",
     "macControl": {
-      "missingRequired": "需要：{{items}}",
       "messages": {
         "blocked": "macOS 控制需要辅助功能和屏幕录制权限。",
+        "blockedPendingRestart": "macOS 控制所需权限已在系统设置中开启，重启 Hope Agent 后生效。",
         "limited": "核心 macOS 控制已就绪；仍有可选权限待确认。",
         "ready": "macOS 控制已就绪。",
         "unsupported": "当前运行环境不支持 macOS 控制。"
       },
+      "missingRequired": "需要：{{items}}",
       "optionalPending": "可选待确认：{{items}}",
+      "pendingRestartRequired": "重启后生效：{{items}}",
       "readiness": {
         "blocked": "受阻",
         "limited": "核心已就绪",
@@ -6139,7 +6141,7 @@
       },
       "input_monitoring": {
         "label": "输入监控",
-        "note": "若未弹出系统授权窗且输入监控列表中没有 Hope Agent：在系统设置中手动添加，或移除失效的旧条目后重试。",
+        "troubleshootNote": "若未弹出系统授权窗且输入监控列表中没有 Hope Agent：在系统设置中手动添加，或移除失效的旧条目后重试。",
         "usage": "监听桌面自动化所需的键盘和指针事件。"
       },
       "local_network": {
@@ -6185,7 +6187,7 @@
       },
       "screen_recording": {
         "label": "屏幕录制",
-        "note": "若系统设置中已开启但此处仍显示未授权：先重启应用；仍无效时，在系统设置的录屏列表中移除 Hope Agent 后重新授权（旧版本残留的授权记录会失效）。",
+        "troubleshootNote": "若系统设置中已开启但此处仍显示未授权：先重启应用；仍无效时，在系统设置的录屏列表中移除 Hope Agent 后重新授权（旧版本残留的授权记录会失效）。",
         "usage": "截取屏幕内容，用于视觉理解和界面自动化。"
       },
       "speech_recognition": {

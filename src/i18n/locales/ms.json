@@ -5625,14 +5625,16 @@
     "logsStructured": "Berstruktur",
     "logsTotal": "Jumlah",
     "macControl": {
-      "missingRequired": "Diperlukan: {{items}}",
       "messages": {
         "blocked": "Kawalan macOS memerlukan kebenaran Kebolehcapaian dan Rakaman Skrin.",
+        "blockedPendingRestart": "Kebenaran kawalan macOS telah diberikan dalam Tetapan Sistem — mulakan semula Hope Agent untuk berkuat kuasa.",
         "limited": "Kawalan macOS teras sudah sedia; kebenaran pilihan masih belum selesai.",
         "ready": "Kawalan macOS sudah sedia.",
         "unsupported": "Kawalan macOS tidak tersedia dalam persekitaran masa jalan ini."
       },
+      "missingRequired": "Diperlukan: {{items}}",
       "optionalPending": "Pilihan belum selesai: {{items}}",
+      "pendingRestartRequired": "Mulakan semula untuk berkuat kuasa: {{items}}",
       "readiness": {
         "blocked": "Disekat",
         "limited": "Teras sedia",
@@ -6139,7 +6141,7 @@
       },
       "input_monitoring": {
         "label": "Pemantauan Input",
-        "note": "Jika tiada dialog sistem muncul dan Hope Agent tiada dalam senarai Pemantauan Input, tambahkannya secara manual dalam Tetapan Sistem (atau keluarkan entri lama) dan cuba lagi.",
+        "troubleshootNote": "Jika tiada dialog sistem muncul dan Hope Agent tiada dalam senarai Pemantauan Input, tambahkannya secara manual dalam Tetapan Sistem (atau keluarkan entri lama) dan cuba lagi.",
         "usage": "Dengar peristiwa papan kekunci dan penuding yang diperlukan oleh automasi desktop."
       },
       "local_network": {
@@ -6185,7 +6187,7 @@
       },
       "screen_recording": {
         "label": "Rakaman Skrin",
-        "note": "Jika Tetapan Sistem sudah menunjukkan Hope Agent dibenarkan tetapi di sini masih belum diberikan: mulakan semula apl dahulu; jika berterusan, keluarkan Hope Agent daripada senarai Rakaman Skrin dan berikan semula (rekod daripada versi lama menjadi tidak sah).",
+        "troubleshootNote": "Jika Tetapan Sistem sudah menunjukkan Hope Agent dibenarkan tetapi di sini masih belum diberikan: mulakan semula apl dahulu; jika berterusan, keluarkan Hope Agent daripada senarai Rakaman Skrin dan berikan semula (rekod daripada versi lama menjadi tidak sah).",
         "usage": "Tangkap kandungan skrin untuk pemahaman visual dan automasi UI."
       },
       "speech_recognition": {

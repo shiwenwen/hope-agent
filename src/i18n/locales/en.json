@@ -5625,14 +5625,16 @@
     "logsStructured": "Structured",
     "logsTotal": "Total",
     "macControl": {
-      "missingRequired": "Needs: {{items}}",
       "messages": {
         "blocked": "macOS control needs Accessibility and Screen Recording permissions.",
+        "blockedPendingRestart": "macOS control permissions are allowed in System Settings — restart Hope Agent to apply them.",
         "limited": "Core macOS control is ready; optional permissions are still pending.",
         "ready": "macOS control is ready.",
         "unsupported": "macOS control is unavailable in this runtime."
       },
+      "missingRequired": "Needs: {{items}}",
       "optionalPending": "Optional pending: {{items}}",
+      "pendingRestartRequired": "Restart to apply: {{items}}",
       "readiness": {
         "blocked": "Blocked",
         "limited": "Core ready",
@@ -6139,7 +6141,7 @@
       },
       "input_monitoring": {
         "label": "Input Monitoring",
-        "note": "If no system dialog appeared and Hope Agent is missing from the Input Monitoring list, add it manually in System Settings (or remove a stale entry) and try again.",
+        "troubleshootNote": "If no system dialog appeared and Hope Agent is missing from the Input Monitoring list, add it manually in System Settings (or remove a stale entry) and try again.",
         "usage": "Listen for keyboard and pointer events needed by desktop automation."
       },
       "local_network": {
@@ -6185,7 +6187,7 @@
       },
       "screen_recording": {
         "label": "Screen Recording",
-        "note": "If System Settings already shows Hope Agent as allowed but it stays not granted here: restart the app; if that persists, remove Hope Agent from the Screen Recording list and grant it again (entries left by old versions go stale).",
+        "troubleshootNote": "If System Settings already shows Hope Agent as allowed but it stays not granted here: restart the app; if that persists, remove Hope Agent from the Screen Recording list and grant it again (entries left by old versions go stale).",
         "usage": "Capture screen contents for visual understanding and UI automation."
       },
       "speech_recognition": {

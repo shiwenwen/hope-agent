@@ -5625,14 +5625,16 @@
     "logsStructured": "Yapılandırılmış",
     "logsTotal": "Toplam",
     "macControl": {
-      "missingRequired": "Gerekli: {{items}}",
       "messages": {
         "blocked": "macOS kontrolü için Erişilebilirlik ve Ekran Kaydı izinleri gerekir.",
+        "blockedPendingRestart": "macOS denetimi izinleri Sistem Ayarları'nda verilmiş — uygulanması için Hope Agent'ı yeniden başlatın.",
         "limited": "Temel macOS kontrolü hazır; isteğe bağlı izinler hâlâ bekliyor.",
         "ready": "macOS kontrolü hazır.",
         "unsupported": "macOS kontrolü bu çalışma ortamında kullanılamaz."
       },
+      "missingRequired": "Gerekli: {{items}}",
       "optionalPending": "İsteğe bağlı bekliyor: {{items}}",
+      "pendingRestartRequired": "Uygulamak için yeniden başlatın: {{items}}",
       "readiness": {
         "blocked": "Engellendi",
         "limited": "Temel hazır",
@@ -6139,7 +6141,7 @@
       },
       "input_monitoring": {
         "label": "Giriş İzleme",
-        "note": "Sistem iletişim kutusu görünmediyse ve Hope Agent Giriş İzleme listesinde yoksa, Sistem Ayarları'nda elle ekleyin (veya eski girdiyi kaldırın) ve yeniden deneyin.",
+        "troubleshootNote": "Sistem iletişim kutusu görünmediyse ve Hope Agent Giriş İzleme listesinde yoksa, Sistem Ayarları'nda elle ekleyin (veya eski girdiyi kaldırın) ve yeniden deneyin.",
         "usage": "Masaüstü otomasyonu için gereken klavye ve işaretçi olaylarını dinle."
       },
       "local_network": {
@@ -6185,7 +6187,7 @@
       },
       "screen_recording": {
         "label": "Ekran Kaydı",
-        "note": "Sistem Ayarları Hope Agent'ı izinli gösterdiği hâlde burada hâlâ verilmedi görünüyorsa: önce uygulamayı yeniden başlatın; sorun sürerse Hope Agent'ı Ekran Kaydı listesinden kaldırıp izni yeniden verin (eski sürümlerden kalan kayıtlar geçersizleşir).",
+        "troubleshootNote": "Sistem Ayarları Hope Agent'ı izinli gösterdiği hâlde burada hâlâ verilmedi görünüyorsa: önce uygulamayı yeniden başlatın; sorun sürerse Hope Agent'ı Ekran Kaydı listesinden kaldırıp izni yeniden verin (eski sürümlerden kalan kayıtlar geçersizleşir).",
         "usage": "Görsel anlama ve UI otomasyonu için ekran içeriklerini yakala."
       },
       "speech_recognition": {

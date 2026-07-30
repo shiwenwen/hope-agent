@@ -37,23 +37,32 @@ fn main() {
         return;
     }
 
-    // TCC probe mode: `hope-agent --tcc-probe <permission-id>` prints nothing
-    // and exits 0 (granted) / 1 (not granted) / 2 (unknown). The permissions
-    // catalog spawns this as a short-lived FRESH process because macOS fixes
-    // Screen Recording capability per window-server connection at launch —
-    // only a new process can see a grant made while the app was running.
-    // Must stay ahead of the guardian/child dispatch below and must not
-    // initialize any runtime state (no ensure_dirs / init_runtime / logging).
+    // TCC probe mode: `hope-agent --tcc-probe <permission-id>` prints one
+    // handshake line (`hope-agent-tcc-probe:granted=1|0|unknown`) and exits.
+    // The permissions catalog spawns this as a short-lived FRESH process
+    // because macOS fixes Screen Recording capability per window-server
+    // connection at launch — only a new process can see a grant made while
+    // the app was running.
+    //
+    // The stdout token, not the exit code, is the contract: a binary that
+    // predates this flag falls through to other dispatch paths whose exit
+    // codes mean something else entirely (a single-instance forward exits 0),
+    // and the parent must read that as "unknown", never as "granted".
+    //
+    // Must stay ahead of the guardian/child dispatch below — a fallthrough
+    // would launch a whole second GUI per probe — and must not initialize any
+    // runtime state (no ensure_dirs / init_runtime / logging).
     if args.get(1).map(String::as_str) == Some("--tcc-probe") {
-        let code = match args
+        let value = match args
             .get(2)
             .and_then(|id| ha_core::permissions::raw_system_permission_probe(id))
         {
-            Some(true) => 0,
-            Some(false) => 1,
-            None => 2,
+            Some(true) => "1",
+            Some(false) => "0",
+            None => "unknown",
         };
-        std::process::exit(code);
+        println!("{}{}", ha_core::permissions::TCC_PROBE_OUTPUT_PREFIX, value);
+        return;
     }
 
     // Knowledge MCP subcommand: `hope-agent knowledge-mcp` — exposes the

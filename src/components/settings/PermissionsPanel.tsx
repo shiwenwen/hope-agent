@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { isTauriMode } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
@@ -68,6 +68,8 @@ interface SystemPermissionItem {
   settingsPane?: string | null
   usage: string
   note?: string | null
+  /** `note` carries post-request troubleshooting text, not the static catalog note. */
+  troubleshoot?: boolean
 }
 
 interface SystemPermissionsResponse {
@@ -237,18 +239,19 @@ function isActionable(state: PermissionStatus) {
 }
 
 function canRequest(item: SystemPermissionItem) {
+  // granted_pending_restart deliberately keeps its button: a restart is what
+  // applies the grant, but the documented remedy for a stale TCC entry is to
+  // remove and re-add it in System Settings, and this button is the only jump
+  // there.
   return (
     item.requestMode !== "none" &&
     item.status !== "granted" &&
-    // Already granted in TCC — requesting again cannot help; only an app
-    // restart applies it.
-    item.status !== "granted_pending_restart" &&
     item.status !== "not_applicable" &&
     item.status !== "not_used"
   )
 }
 
-function itemTextKey(id: string, field: "label" | "usage" | "note") {
+function itemTextKey(id: string, field: "label" | "usage" | "note" | "troubleshootNote") {
   return `settings.permissionItems.${id}.${field}`
 }
 
@@ -289,6 +292,28 @@ export default function PermissionsPanel() {
   const [macStatus, setMacStatus] = useState<MacControlStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [requesting, setRequesting] = useState<string | null>(null)
+  // Monotonic ticket for state-mutating calls. A refetch started before a
+  // request (window focus fires when the settings pane steals focus) must not
+  // land after it and overwrite the fresher per-item result.
+  const writeTicket = useRef(0)
+  // Troubleshooting notes only exist on request responses; a plain re-check
+  // cannot reproduce them. Keep them per item so the guidance survives the
+  // focus refetch that happens the moment the user returns from System
+  // Settings — exactly when they need to read it. Cleared once the item is
+  // granted or the user requests again.
+  const troubleshootNotes = useRef<Record<string, string>>({})
+
+  const applyTroubleshootNotes = useCallback((items: SystemPermissionItem[]) => {
+    const pinned = troubleshootNotes.current
+    return items.map((item) => {
+      if (item.troubleshoot || !pinned[item.id]) return item
+      if (item.status === "granted" || item.status === "granted_pending_restart") {
+        delete pinned[item.id]
+        return item
+      }
+      return { ...item, note: pinned[item.id], troubleshoot: true }
+    })
+  }, [])
 
   const fetchPermissions = useCallback(async () => {
     if (!isTauriMode()) {
@@ -296,6 +321,7 @@ export default function PermissionsPanel() {
       return
     }
 
+    const ticket = ++writeTicket.current
     try {
       setLoading(true)
       const [permissionsResult, macStatusResult] = await Promise.all([
@@ -307,16 +333,18 @@ export default function PermissionsPanel() {
             return null
           }),
       ])
-      setResponse(permissionsResult)
+      if (ticket !== writeTicket.current) return
+      setResponse({ ...permissionsResult, items: applyTroubleshootNotes(permissionsResult.items) })
       setMacStatus(macStatusResult)
     } catch (e) {
       logger.error("settings", "PermissionsPanel::fetch", "Failed to check permissions", e)
+      if (ticket !== writeTicket.current) return
       setResponse({ platform: "unknown", supported: false, items: [] })
       setMacStatus(null)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [applyTroubleshootNotes])
 
   useEffect(() => {
     fetchPermissions()
@@ -330,8 +358,14 @@ export default function PermissionsPanel() {
 
   const handleRequest = async (id: string) => {
     setRequesting(id)
+    delete troubleshootNotes.current[id]
+    const ticket = ++writeTicket.current
     try {
       const result = await getTransport().call<SystemPermissionItem>("request_system_permission", { id })
+      if (result.troubleshoot && result.note) {
+        troubleshootNotes.current[result.id] = result.note
+      }
+      if (ticket !== writeTicket.current) return
       setResponse((prev) =>
         prev
           ? {
@@ -346,6 +380,7 @@ export default function PermissionsPanel() {
           logger.error("settings", "PermissionsPanel::request", "Failed to refresh mac control status", e)
           return null
         })
+      if (ticket !== writeTicket.current) return
       setMacStatus(nextMacStatus)
     } catch (e) {
       logger.error("settings", "PermissionsPanel::request", `Failed to request ${id}`, e)
@@ -378,6 +413,15 @@ export default function PermissionsPanel() {
   const macMissing = macStatus?.missingRequired.map((id) => t(itemTextKey(id, "label"), fallbackLabel(id))) ?? []
   const macOptional =
     macStatus?.optionalPending.map((id) => t(itemTextKey(id, "label"), fallbackLabel(id))) ?? []
+  // The readiness message is keyed by readiness alone, so "blocked" would tell
+  // the user to grant a permission the item card below reports as already
+  // granted. Detect the restart-only case and say that instead.
+  const macBlockedByRestartOnly =
+    macStatus?.readiness === "blocked" &&
+    (macStatus?.missingRequired.length ?? 0) > 0 &&
+    (macStatus?.missingRequired ?? []).every(
+      (id) => items.find((item) => item.id === id)?.status === "granted_pending_restart",
+    )
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -430,14 +474,21 @@ export default function PermissionsPanel() {
                 </span>
               </div>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                {t(`settings.macControl.messages.${macStatus.readiness}`, macStatus.message)}
+                {macBlockedByRestartOnly
+                  ? t("settings.macControl.messages.blockedPendingRestart", macStatus.message)
+                  : t(`settings.macControl.messages.${macStatus.readiness}`, macStatus.message)}
               </p>
               {macMissing.length > 0 && (
                 <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                  {t("settings.macControl.missingRequired", {
-                    defaultValue: "Needs: {{items}}",
-                    items: macMissing.join(", "),
-                  })}
+                  {macBlockedByRestartOnly
+                    ? t("settings.macControl.pendingRestartRequired", {
+                        defaultValue: "Restart to apply: {{items}}",
+                        items: macMissing.join(", "),
+                      })
+                    : t("settings.macControl.missingRequired", {
+                        defaultValue: "Needs: {{items}}",
+                        items: macMissing.join(", "),
+                      })}
                 </p>
               )}
               {macMissing.length === 0 && macOptional.length > 0 && (
@@ -478,7 +529,12 @@ export default function PermissionsPanel() {
                   const isRequesting = requesting === item.id
                   const label = t(itemTextKey(item.id, "label"), fallbackLabel(item.id))
                   const usage = t(itemTextKey(item.id, "usage"), item.usage)
-                  const note = item.note ? t(itemTextKey(item.id, "note"), item.note) : null
+                  // Troubleshooting notes get their own key: the static
+                  // `note` key's translations say something else entirely, so
+                  // reusing it would show the wrong text in every locale.
+                  const note = item.note
+                    ? t(itemTextKey(item.id, item.troubleshoot ? "troubleshootNote" : "note"), item.note)
+                    : null
 
                   return (
                     <div

@@ -6,8 +6,22 @@
 use serde::Serialize;
 use std::time::Duration;
 
-const CHECK_TIMEOUT: Duration = Duration::from_secs(3);
+/// Catalog-wide budget for one full check pass. Must absorb the worst-case
+/// slow items IN SERIES: the screen-recording fresh-process probe (≤1.5s in
+/// the platform layer) plus the notifications XPC query (≤2s) plus ~26 fast
+/// items. 3s was breachable, and the timeout fallback degrades the whole
+/// catalog to `unsupported_response()` — the panel would render the
+/// "macOS-only" page on a real Mac.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(6);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(65);
+
+/// Stdout handshake prefix of the `--tcc-probe` process mode — the contract
+/// between the spawning side (`platform/system_permissions.rs`) and the
+/// answering side (src-tauri `main.rs`). The child prints
+/// `{PREFIX}1|0|unknown`; the parent trusts ONLY this token, never the bare
+/// exit code (a stale on-disk binary that predates the flag can exit 0 via
+/// unrelated dispatch paths, e.g. a single-instance forward).
+pub const TCC_PROBE_OUTPUT_PREFIX: &str = "hope-agent-tcc-probe:granted=";
 
 // ── Public data types ────────────────────────────────────────────
 
@@ -118,6 +132,11 @@ pub struct SystemPermissionItem {
     pub settings_pane: Option<String>,
     pub usage: String,
     pub note: Option<String>,
+    /// True when `note` carries the post-request troubleshooting text rather
+    /// than the static catalog note. The frontend keys its translation off
+    /// this flag and keeps such notes pinned across refetches (a plain
+    /// re-check cannot reproduce them).
+    pub troubleshoot: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,6 +155,13 @@ pub(crate) struct PermissionDef {
     pub(crate) settings_pane: Option<&'static str>,
     usage: &'static str,
     note: Option<&'static str>,
+    /// Shown in place of `note` when a request attempt still ends up
+    /// `NotGranted`. Lives on the def (not a separate id-match) so the
+    /// pairing is compile-time visible next to the permission it describes.
+    /// The frontend translates it under a distinct
+    /// `permissionItems.<id>.troubleshootNote` key — it must never reuse the
+    /// static `note` key, whose translations say something else.
+    troubleshoot_note: Option<&'static str>,
 }
 
 impl PermissionDef {
@@ -148,9 +174,33 @@ impl PermissionDef {
             settings_pane: self.settings_pane.map(str::to_string),
             usage: self.usage.to_string(),
             note: self.note.map(str::to_string),
+            troubleshoot: false,
         }
     }
+
+    /// Item shaped for a request response: swaps in the troubleshooting note
+    /// when the attempt left the permission ungranted.
+    fn request_item(self, status: SystemPermissionStatus) -> SystemPermissionItem {
+        let mut item = self.item(status);
+        if status == SystemPermissionStatus::NotGranted {
+            if let Some(note) = self.troubleshoot_note {
+                item.note = Some(note.to_string());
+                item.troubleshoot = true;
+            }
+        }
+        item
+    }
 }
+
+/// Post-request troubleshooting hints, wired to their permission through
+/// `PermissionDef::troubleshoot_note` and attached only when a request still
+/// ends up NotGranted. English fallbacks — the frontend translates them via
+/// `settings.permissionItems.<id>.troubleshootNote`. They exist because a TCC
+/// record created by an old build (pre-stable-signing) keeps the System
+/// Settings toggle visible yet permanently denies the current binary, which
+/// is indistinguishable from "not granted" on our side.
+const SCREEN_RECORDING_TROUBLESHOOT_NOTE: &str = "If System Settings already shows Hope Agent as allowed but it stays not granted here: restart the app; if that persists, remove Hope Agent from the Screen Recording list and grant it again (entries left by old versions go stale).";
+const INPUT_MONITORING_TROUBLESHOOT_NOTE: &str = "If no system dialog appeared and Hope Agent is missing from the Input Monitoring list, add it manually in System Settings (or remove a stale entry) and try again.";
 
 const PERMISSION_DEFS: &[PermissionDef] = &[
     PermissionDef {
@@ -164,6 +214,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Accessibility"),
         usage: "Control the mouse, keyboard, and other application windows.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "screen_recording",
@@ -172,6 +223,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_ScreenCapture"),
         usage: "Capture screen contents for visual understanding and UI automation.",
         note: None,
+        troubleshoot_note: Some(SCREEN_RECORDING_TROUBLESHOOT_NOTE),
     },
     PermissionDef {
         id: "system_audio_capture",
@@ -180,6 +232,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_AudioCapture"),
         usage: "Capture system audio when a future workflow explicitly needs it.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "input_monitoring",
@@ -188,6 +241,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_ListenEvent"),
         usage: "Listen for keyboard and pointer events needed by desktop automation.",
         note: None,
+        troubleshoot_note: Some(INPUT_MONITORING_TROUBLESHOOT_NOTE),
     },
     PermissionDef {
         id: "automation_system_events",
@@ -196,6 +250,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Automation"),
         usage: "Allow Apple Events automation of System Events.",
         note: Some("Per-target Automation consent is best confirmed in System Settings."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "automation_messages",
@@ -204,6 +259,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Automation"),
         usage: "Allow Apple Events automation of Messages when messaging workflows need it.",
         note: Some("Per-target Automation consent is best confirmed in System Settings."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "app_management",
@@ -212,6 +268,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_AppBundles"),
         usage: "Manage or update other applications when a tool explicitly needs it.",
         note: Some("No reliable public per-app status API is available."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "developer_tools",
@@ -220,6 +277,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_DevTools"),
         usage: "Use developer tooling that macOS protects behind Developer Tools consent.",
         note: Some("No reliable public per-app status API is available."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "full_disk_access",
@@ -228,6 +286,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_AllFiles"),
         usage: "Read protected files that normal Files & Folders consent does not cover.",
         note: Some("Detected with a conservative filesystem probe; absence is shown as manual confirmation."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "desktop_folder",
@@ -236,6 +295,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_FilesAndFolders"),
         usage: "Read and write files on the Desktop when requested by the user.",
         note: Some("macOS exposes this through Files & Folders; status is probed."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "documents_folder",
@@ -244,6 +304,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_FilesAndFolders"),
         usage: "Read and write files in Documents when requested by the user.",
         note: Some("macOS exposes this through Files & Folders; status is probed."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "downloads_folder",
@@ -252,6 +313,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_FilesAndFolders"),
         usage: "Read and write files in Downloads when requested by the user.",
         note: Some("macOS exposes this through Files & Folders; status is probed."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "removable_volumes",
@@ -260,6 +322,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_RemovableVolumes"),
         usage: "Access removable drives when the user asks the app to work there.",
         note: Some("No reliable public per-volume status API is available."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "network_volumes",
@@ -268,6 +331,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_NetworkVolumes"),
         usage: "Access mounted network volumes when the user asks the app to work there.",
         note: Some("No reliable public per-volume status API is available."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "location",
@@ -276,6 +340,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_LocationServices"),
         usage: "Use device location for local weather and location-aware workflows.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "contacts",
@@ -284,6 +349,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Contacts"),
         usage: "Read contacts only when a user workflow explicitly asks for it.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "calendar",
@@ -292,6 +358,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Calendars"),
         usage: "Read or write calendar events when scheduling workflows need it.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "reminders",
@@ -300,6 +367,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Reminders"),
         usage: "Read or write reminders when planning workflows need it.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "photos",
@@ -308,6 +376,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Photos"),
         usage: "Access the Photos library only when the user asks for photo workflows.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "media_library",
@@ -316,6 +385,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Media"),
         usage: "Access the media library only when a media workflow explicitly needs it.",
         note: Some("No reliable public status API is available for this app surface."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "speech_recognition",
@@ -324,6 +394,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_SpeechRecognition"),
         usage: "Use speech recognition when a voice workflow asks for transcription.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "focus_status",
@@ -332,6 +403,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Focus"),
         usage: "Read Focus status only for workflows that adapt notifications or interruptions.",
         note: Some("No reliable public per-app status API is available."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "homekit",
@@ -340,6 +412,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_HomeKit"),
         usage: "Access Home data only if future HomeKit workflows are enabled.",
         note: Some("Hope Agent does not currently use HomeKit workflows."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "camera",
@@ -348,6 +421,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Camera"),
         usage: "Use the camera for visual input only when explicitly requested.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "microphone",
@@ -356,6 +430,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Microphone"),
         usage: "Use the microphone for voice input only when explicitly requested.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "bluetooth",
@@ -364,6 +439,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_Bluetooth"),
         usage: "Discover and connect to Bluetooth devices when a workflow needs it.",
         note: None,
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "local_network",
@@ -372,6 +448,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Privacy_LocalNetwork"),
         usage: "Discover and connect to devices on the local network.",
         note: Some("macOS Local Network privacy has no reliable public status API."),
+        troubleshoot_note: None,
     },
     PermissionDef {
         id: "notifications",
@@ -380,6 +457,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
         settings_pane: Some("Notifications"),
         usage: "Show system notifications. Delivery preferences remain in Notification settings.",
         note: Some("Notification configuration stays on the Notifications settings page."),
+        troubleshoot_note: None,
     },
 ];
 
@@ -429,18 +507,7 @@ pub async fn request_system_permission(id: String) -> SystemPermissionItem {
         } else {
             SystemPermissionStatus::NotApplicable
         };
-        let mut item = def.item(status);
-        if status == SystemPermissionStatus::NotGranted {
-            let troubleshoot = match def.id {
-                "screen_recording" => Some(SCREEN_RECORDING_TROUBLESHOOT_NOTE),
-                "input_monitoring" => Some(INPUT_MONITORING_TROUBLESHOOT_NOTE),
-                _ => None,
-            };
-            if let Some(note) = troubleshoot {
-                item.note = Some(note.to_string());
-            }
-        }
-        item
+        def.request_item(status)
     })
     .await
 }
@@ -451,15 +518,6 @@ pub async fn request_system_permission(id: String) -> SystemPermissionItem {
 pub fn raw_system_permission_probe(id: &str) -> Option<bool> {
     crate::platform::system_permission_raw_probe(id)
 }
-
-/// Post-request troubleshooting hints, attached only when a request still
-/// ends up NotGranted. English fallbacks — the frontend translates them via
-/// `settings.permissionItems.<id>.note`. They exist because a TCC record
-/// created by an old build (pre-stable-signing) keeps the System Settings
-/// toggle visible yet permanently denies the current binary, which is
-/// indistinguishable from "not granted" on our side.
-const SCREEN_RECORDING_TROUBLESHOOT_NOTE: &str = "If System Settings already shows Hope Agent as allowed but it stays not granted here: restart the app; if that persists, remove Hope Agent from the Screen Recording list and grant it again (entries left by old versions go stale).";
-const INPUT_MONITORING_TROUBLESHOOT_NOTE: &str = "If no system dialog appeared and Hope Agent is missing from the Input Monitoring list, add it manually in System Settings (or remove a stale entry) and try again.";
 
 fn unsupported_response() -> SystemPermissionsResponse {
     SystemPermissionsResponse {
@@ -482,6 +540,7 @@ fn unknown_item(id: String) -> SystemPermissionItem {
         settings_pane: None,
         usage: "This permission is not known by this version of Hope Agent.".to_string(),
         note: Some("Unknown permission id.".to_string()),
+        troubleshoot: false,
     }
 }
 
@@ -603,6 +662,9 @@ fn legacy_files_and_folders(response: &SystemPermissionsResponse) -> PermState {
             SystemPermissionStatus::NotGranted
                 | SystemPermissionStatus::NotDetermined
                 | SystemPermissionStatus::Restricted
+                // Mirrors `legacy_state_for_status`: unusable by this
+                // process, so it must not read as `unknown` here either.
+                | SystemPermissionStatus::GrantedPendingRestart
         )
     }) {
         not_granted()
@@ -670,6 +732,7 @@ mod tests {
                     settings_pane: None,
                     usage: "",
                     note: None,
+                    troubleshoot_note: None,
                 }
                 .item(SystemPermissionStatus::Granted),
                 PermissionDef {
@@ -679,6 +742,7 @@ mod tests {
                     settings_pane: None,
                     usage: "",
                     note: None,
+                    troubleshoot_note: None,
                 }
                 .item(SystemPermissionStatus::Granted),
                 PermissionDef {
@@ -688,6 +752,7 @@ mod tests {
                     settings_pane: None,
                     usage: "",
                     note: None,
+                    troubleshoot_note: None,
                 }
                 .item(SystemPermissionStatus::Granted),
                 PermissionDef {
@@ -697,6 +762,7 @@ mod tests {
                     settings_pane: None,
                     usage: "",
                     note: None,
+                    troubleshoot_note: None,
                 }
                 .item(SystemPermissionStatus::Granted),
             ],

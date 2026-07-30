@@ -5625,14 +5625,16 @@
     "logsStructured": "Có cấu trúc",
     "logsTotal": "Tổng",
     "macControl": {
-      "missingRequired": "Cần: {{items}}",
       "messages": {
         "blocked": "Điều khiển macOS cần quyền Trợ năng và Ghi màn hình.",
+        "blockedPendingRestart": "Các quyền điều khiển macOS đã được cấp trong Cài đặt Hệ thống — khởi động lại Hope Agent để áp dụng.",
         "limited": "Điều khiển macOS cốt lõi đã sẵn sàng; các quyền tùy chọn vẫn đang chờ.",
         "ready": "Điều khiển macOS đã sẵn sàng.",
         "unsupported": "Điều khiển macOS không khả dụng trong môi trường chạy này."
       },
+      "missingRequired": "Cần: {{items}}",
       "optionalPending": "Tùy chọn đang chờ: {{items}}",
+      "pendingRestartRequired": "Khởi động lại để áp dụng: {{items}}",
       "readiness": {
         "blocked": "Bị chặn",
         "limited": "Lõi sẵn sàng",
@@ -6139,7 +6141,7 @@
       },
       "input_monitoring": {
         "label": "Giám sát đầu vào",
-        "note": "Nếu không thấy hộp thoại hệ thống và Hope Agent không có trong danh sách Giám sát đầu vào, hãy thêm thủ công trong Cài đặt Hệ thống (hoặc xóa mục cũ) rồi thử lại.",
+        "troubleshootNote": "Nếu không thấy hộp thoại hệ thống và Hope Agent không có trong danh sách Giám sát đầu vào, hãy thêm thủ công trong Cài đặt Hệ thống (hoặc xóa mục cũ) rồi thử lại.",
         "usage": "Lắng nghe sự kiện bàn phím và con trỏ cần cho tự động hóa desktop."
       },
       "local_network": {
@@ -6185,7 +6187,7 @@
       },
       "screen_recording": {
         "label": "Ghi màn hình",
-        "note": "Nếu Cài đặt Hệ thống đã bật cho Hope Agent nhưng ở đây vẫn hiển thị chưa cấp: hãy khởi động lại ứng dụng; nếu vẫn không được, hãy xóa Hope Agent khỏi danh sách Ghi màn hình rồi cấp lại (bản ghi do phiên bản cũ để lại sẽ mất hiệu lực).",
+        "troubleshootNote": "Nếu Cài đặt Hệ thống đã bật cho Hope Agent nhưng ở đây vẫn hiển thị chưa cấp: hãy khởi động lại ứng dụng; nếu vẫn không được, hãy xóa Hope Agent khỏi danh sách Ghi màn hình rồi cấp lại (bản ghi do phiên bản cũ để lại sẽ mất hiệu lực).",
         "usage": "Chụp nội dung màn hình để hiểu hình ảnh và tự động hóa UI."
       },
       "speech_recognition": {
