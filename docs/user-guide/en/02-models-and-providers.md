@@ -232,6 +232,7 @@ A "speech-to-text" engine independent of the main model, used for: desktop micro
 **Where**: Settings → **Speech-to-Text** panel.
 
 - **Primary model**: the preferred transcription model for desktop voice input (streaming models are marked `streaming` and produce text as you speak).
+- **Default recognition language**: an optional BCP-47 tag such as `zh-CN` or `en-US`; Azure Speech requires it, while providers with automatic language detection can leave it blank.
 - **IM fallback model**: dedicated to IM auto-transcription (only non-streaming models can be selected); if unset, the primary model is used.
 - **Providers**: "Add Provider" supports 10 protocols including OpenAI, Groq, ElevenLabs, xAI, DashScope (Bailian), Deepgram, AssemblyAI, Azure, iFlytek, and Volcano; local backends (whisper.cpp / faster-whisper / FunASR / sherpa-onnx) can be detected and connected in one click.
 

@@ -2,18 +2,20 @@
 //!
 //! Single entry-point for mutating `AppConfig.stt`. Every callsite —
 //! Tauri, HTTP, settings tool, onboarding — must come through here so that
-//! all writes are serialized through `mutate_config` and emit
+//! all writes are serialized through `mutate_config` / `mutate_config_async` and emit
 //! `config:changed`. Mirrors `provider::crud` shape.
 
 use std::fmt;
 
-use crate::config::{mutate_config, AppConfig};
+use crate::config::{mutate_config, mutate_config_async, AppConfig};
 use crate::provider::{is_masked_key, merge_profile_keys};
 
 use super::local::{
     known_local_stt_backend, known_local_stt_backend_matches, KnownLocalSttBackend,
 };
-use super::types::{ActiveSttModel, SttModelConfig, SttProviderConfig, SttProviderKind};
+use super::types::{
+    ActiveSttModel, SttModelConfig, SttProviderConfig, SttProviderKind, TranscriptOptions,
+};
 
 pub type SttWriteResult<T> = Result<T, SttWriteError>;
 
@@ -161,6 +163,38 @@ pub fn set_im_fallback_stt_model(
     .map_err(map_config_error)
 }
 
+pub fn set_stt_default_options(
+    options: TranscriptOptions,
+    source: &'static str,
+) -> SttWriteResult<TranscriptOptions> {
+    mutate_config(("stt.default-options", source), move |store| {
+        Ok(set_stt_default_options_in_config(store, options))
+    })
+    .map_err(map_config_error)
+}
+
+pub async fn set_stt_default_options_async(
+    options: TranscriptOptions,
+    source: &'static str,
+) -> SttWriteResult<TranscriptOptions> {
+    mutate_config_async(("stt.default-options", source), move |store| {
+        Ok(set_stt_default_options_in_config(store, options))
+    })
+    .await
+    .map_err(map_config_error)
+}
+
+pub async fn set_stt_default_language_async(
+    language: Option<String>,
+    source: &'static str,
+) -> SttWriteResult<Option<String>> {
+    mutate_config_async(("stt.default-options", source), move |store| {
+        Ok(set_stt_default_language_in_config(store, language))
+    })
+    .await
+    .map_err(map_config_error)
+}
+
 /// Upsert a single model into a known local backend provider.
 ///
 /// Returns `(provider_id, model_id)`. When the provider already exists
@@ -186,6 +220,29 @@ pub fn upsert_known_local_stt_provider(
 }
 
 // ── In-config helpers (pure, easy to unit-test) ───────────────────
+
+pub(crate) fn set_stt_default_options_in_config(
+    store: &mut AppConfig,
+    options: TranscriptOptions,
+) -> TranscriptOptions {
+    let options = options.normalized();
+    store.stt.default_options = options.clone();
+    options
+}
+
+pub(crate) fn set_stt_default_language_in_config(
+    store: &mut AppConfig,
+    language: Option<String>,
+) -> Option<String> {
+    let language = TranscriptOptions {
+        language,
+        ..TranscriptOptions::default()
+    }
+    .normalized()
+    .language;
+    store.stt.default_options.language = language.clone();
+    language
+}
 
 pub(crate) fn add_stt_provider_in_config(
     store: &mut AppConfig,
@@ -427,6 +484,46 @@ mod tests {
         assert_eq!(stored.name, "Renamed");
         assert_eq!(stored.api_key, "sk-real");
         assert_eq!(stored.auth_profiles[0].api_key, "real-profile-key");
+    }
+
+    #[test]
+    fn set_default_options_normalizes_saved_strings() {
+        let mut cfg = AppConfig::default();
+        let saved = set_stt_default_options_in_config(
+            &mut cfg,
+            TranscriptOptions {
+                language: Some(" zh-CN ".into()),
+                prompt: Some("   ".into()),
+                punctuation: Some(true),
+                ..TranscriptOptions::default()
+            },
+        );
+
+        assert_eq!(saved.language.as_deref(), Some("zh-CN"));
+        assert_eq!(saved.prompt, None);
+        assert_eq!(cfg.stt.default_options, saved);
+    }
+
+    #[test]
+    fn set_default_language_preserves_other_options() {
+        let mut cfg = AppConfig::default();
+        cfg.stt.default_options = TranscriptOptions {
+            prompt: Some("product names".into()),
+            timestamps: Some(true),
+            sample_rate_hz: Some(16_000),
+            ..TranscriptOptions::default()
+        };
+
+        let saved = set_stt_default_language_in_config(&mut cfg, Some(" zh-CN ".to_string()));
+
+        assert_eq!(saved.as_deref(), Some("zh-CN"));
+        assert_eq!(cfg.stt.default_options.language.as_deref(), Some("zh-CN"));
+        assert_eq!(
+            cfg.stt.default_options.prompt.as_deref(),
+            Some("product names")
+        );
+        assert_eq!(cfg.stt.default_options.timestamps, Some(true));
+        assert_eq!(cfg.stt.default_options.sample_rate_hz, Some(16_000));
     }
 
     #[test]

@@ -107,8 +107,8 @@ pub struct AttemptedModel {
 }
 
 /// Try `primary`, then each entry in `fallback`, until one succeeds or the
-/// chain is exhausted. Hard errors (`UnsupportedAudio`) short-circuit — no
-/// point retrying when the audio itself is the problem.
+/// chain is exhausted. Hard input/configuration errors short-circuit — no
+/// point retrying when the audio or request configuration is the problem.
 pub async fn failover_transcribe_batch(
     primary: Option<ActiveSttModel>,
     fallback: Vec<ActiveSttModel>,
@@ -125,6 +125,7 @@ pub async fn failover_transcribe_batch(
     }
 
     let cfg = cached_config();
+    let options = options.with_defaults(&cfg.stt.default_options);
     let mut attempts = Vec::new();
     let mut last_error: Option<SttError> = None;
     let last_idx = chain.len() - 1;
@@ -156,7 +157,7 @@ pub async fn failover_transcribe_batch(
             &model,
             &profile,
             audio_for_attempt,
-            options,
+            &options,
             session_id,
         )
         .await
