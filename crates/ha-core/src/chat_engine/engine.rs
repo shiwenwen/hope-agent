@@ -5,7 +5,7 @@ use crate::failover::{
     self,
     executor::{execute_with_failover_observed, ExecutorError, FailoverPolicy, RetryProgress},
 };
-use crate::provider::{ApiType, AuthProfile};
+use crate::provider::{ActiveModel, ApiType, AuthProfile, ProviderConfig};
 use crate::session;
 use crate::turn_durability::{FlushReason, TurnDurabilitySink};
 
@@ -63,6 +63,25 @@ fn chain_reason_after_missing_provider(
         }
         _ => failover::FailoverReason::ModelNotFound,
     }
+}
+
+fn has_resolvable_fallback(
+    model_chain: &[ActiveModel],
+    providers: &[ProviderConfig],
+    current_index: usize,
+) -> bool {
+    let Some(remaining) = current_index
+        .checked_add(1)
+        .and_then(|next_index| model_chain.get(next_index..))
+    else {
+        return false;
+    };
+
+    remaining.iter().any(|candidate| {
+        providers
+            .iter()
+            .any(|provider| provider.id == candidate.provider_id)
+    })
 }
 
 fn terminal_turn_state(
@@ -1088,6 +1107,7 @@ pub(crate) async fn run_chat_engine_classified(
                 };
 
             let retry_model_display = format!("{} / {}", prov.name, model_ref.model_id);
+            let can_switch_model = has_resolvable_fallback(&model_chain, &providers, idx);
             let on_retry = |progress: &RetryProgress| {
                 app_info!(
                     "provider",
@@ -1110,7 +1130,7 @@ pub(crate) async fn run_chat_engine_classified(
                     "total": progress.max_attempts,
                     "delay_ms": progress.delay_ms,
                     "recovery_id": progress.recovery_id,
-                    "can_switch_model": idx + 1 < total_models,
+                    "can_switch_model": can_switch_model,
                 })) {
                     emit_stream_event(
                         &db,
@@ -2707,6 +2727,38 @@ mod stream_lifecycle_tests {
             chain_reason_after_missing_provider(None),
             failover::FailoverReason::ModelNotFound
         );
+    }
+
+    #[test]
+    fn switch_model_requires_a_remaining_resolvable_provider() {
+        let current_provider = openai_provider("http://current.invalid".to_string(), "m1");
+        let fallback_provider = openai_provider("http://fallback.invalid".to_string(), "m3");
+        let chain = vec![
+            ActiveModel {
+                provider_id: current_provider.id.clone(),
+                model_id: "m1".to_string(),
+            },
+            ActiveModel {
+                provider_id: "deleted-provider".to_string(),
+                model_id: "m2".to_string(),
+            },
+            ActiveModel {
+                provider_id: fallback_provider.id.clone(),
+                model_id: "m3".to_string(),
+            },
+        ];
+
+        assert!(!has_resolvable_fallback(
+            &chain[..2],
+            std::slice::from_ref(&current_provider),
+            0,
+        ));
+        assert!(has_resolvable_fallback(
+            &chain,
+            &[current_provider, fallback_provider],
+            0,
+        ));
+        assert!(!has_resolvable_fallback(&chain, &[], 2));
     }
 
     fn temp_db() -> (TempDir, Arc<SessionDB>) {
