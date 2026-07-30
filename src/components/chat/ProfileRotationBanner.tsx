@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 import { RotateCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ProfileRotationEvent } from "@/types/chat"
+import { failoverReasonKey } from "./failoverReason"
 
 /** Inline auth-profile rotation banner — compact amber chip. Mirrors the
  *  visual language of {@link FallbackBanner} (same provider-failover family)
@@ -10,7 +11,9 @@ import type { ProfileRotationEvent } from "@/types/chat"
 export default function ProfileRotationBanner({ event }: { event: ProfileRotationEvent }) {
   const { t } = useTranslation()
   const toLabel = event.to_profile?.trim() || "—"
-  const reason = event.reason?.trim() || ""
+  const reason = event.reason?.trim()
+    ? t(`chat.${failoverReasonKey(event.reason)}`)
+    : ""
 
   return (
     <div

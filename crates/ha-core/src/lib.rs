@@ -98,6 +98,7 @@ pub mod project;
 pub mod project_bootstrap;
 pub mod provider;
 pub mod recap;
+pub mod recovery_control;
 pub mod review;
 pub mod runtime_lock;
 pub mod runtime_tasks;

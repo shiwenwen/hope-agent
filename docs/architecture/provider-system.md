@@ -413,7 +413,7 @@ Hope Agent 始终用 `store: false` 调 Responses API。在这一模式下，服
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` header
 - **终端登录入口**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，登录成功后写 `~/.hope-agent/credentials/auth.json` 并调用 `ensure_codex_provider_persisted(Always(DEFAULT_CODEX_MODEL_ID))`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>` 使用
 - **内置模型目录**：`agent::config::get_codex_models()` / `provider::helpers::default_codex_models()` / `provider::crud::default_codex_model_ids()` 三份列表必须同步（id 集合 + 顺序一致，后两者靠 `codex_noop_detects_existing_provider_and_active_model` 单测锁长度）；`DEFAULT_CODEX_MODEL_ID` 当前是 `gpt-5.6-terra`——不是列表里的旗舰 `gpt-5.6-sol`，因为 GPT-5.6 按 ChatGPT 套餐分级（Free/Go 只有 Terra，Sol 需付费套餐/workspace），而这个常量会通过 `ActiveModelUpdate::Always` 套到每个新登录账号，必须选所有 Codex 账号都有的那一档
-- **重试 / 降级**：Codex 调用同样走 `failover::executor::execute_with_failover` + `chat_engine_default` policy（max_retries=2，退避基数与上限统一），不再有 Codex 自管的「3 次 1s/2s/4s」逻辑
+- **重试 / 降级**：Codex adapter 保留 3 次 transport retry（1s/2s/4s），每次通过流式 `model_retry` 提示用户，并注册精确 `recovery_id` 允许 GUI 跳过本次等待；adapter 不掌握外层模型链，故不提供“立即换模型”。executor 不再对 Codex 的 retryable 错误（含 Unknown）叠加同模型 retry，裸 500 / 504 也统一分类为 Overloaded，避免 adapter × executor 放大。executor 仍负责错误分类、上下文压缩、模型链降级与安全的整链恢复轮次；工具执行后所有会重放 operation 的恢复动作均 fail closed。OAuth 无 profile，恒不做 Key 轮换
 - **不参与 auth profile 轮换**：executor 内部硬编码 Codex Provider 跳过 profile 选择/轮换；Codex 凭据失败直接经标准失败路径走下一模型
 - **构造期失败保活**：Codex Provider 在 `crates/ha-core/src/provider/crud.rs::ensure_codex_provider_persisted`（commit `99bc84a7`）保证 token 缺失或构造异常时配置仍持久化，下次手动登录补回即可，不会被静默移除
 - **共享 SSE 解析**：调用 `parse_openai_sse()`（与 Responses API 共享）
@@ -560,7 +560,7 @@ flowchart TD
   R -->|"401/403"| AU["Auth<br/>跳下一模型"]
   R -->|"402"| BI["Billing<br/>跳下一模型"]
   R -->|"404"| NF["ModelNotFound<br/>跳下一模型"]
-  R -->|"其他"| UK["Unknown<br/>跳下一模型"]
+  R -->|"其他"| UK["Unknown<br/>谨慎重试 2 次后跳下一模型"]
 ```
 
 ### 7.2 模型链解析

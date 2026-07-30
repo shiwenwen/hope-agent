@@ -234,6 +234,24 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
 
                     if attempt < MAX_RETRIES && is_retryable_error(status, &error_text) {
                         let delay = BASE_DELAY_MS * 2u64.pow(attempt);
+                        let reason = crate::failover::classify_error(&format!(
+                            "Codex API error {status}: {error_text}"
+                        ));
+                        let recovery_wait = req.session_id.map(crate::recovery_control::register);
+                        on_delta(
+                            &serde_json::json!({
+                                "type": "model_retry",
+                                "model_id": self.model,
+                                "model": self.model,
+                                "reason": reason,
+                                "attempt": attempt + 1,
+                                "total": MAX_RETRIES,
+                                "delay_ms": delay,
+                                "recovery_id": recovery_wait.as_ref().map(|wait| wait.id()),
+                                "can_switch_model": false,
+                            })
+                            .to_string(),
+                        );
                         app_warn!(
                             "agent",
                             "codex",
@@ -249,12 +267,20 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                                 Some(json!({"status": status, "attempt": attempt + 1, "delay_ms": delay, "error": &error_text}).to_string()),
                                 None, None);
                         }
-                        if super::cancel::sleep_or_cancel(
-                            std::time::Duration::from_millis(delay),
-                            cancel,
-                        )
-                        .await
-                        {
+                        let cancelled = if let Some(wait) = recovery_wait {
+                            matches!(
+                                wait.wait(std::time::Duration::from_millis(delay), Some(cancel),)
+                                    .await,
+                                crate::recovery_control::RecoveryWaitOutcome::Cancelled
+                            )
+                        } else {
+                            super::cancel::sleep_or_cancel(
+                                std::time::Duration::from_millis(delay),
+                                cancel,
+                            )
+                            .await
+                        };
+                        if cancelled {
                             return Ok(super::cancel::cancelled_round_outcome());
                         }
                         last_error = Some(error_text);
@@ -289,6 +315,21 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                 Err(e) => {
                     if attempt < MAX_RETRIES {
                         let delay = BASE_DELAY_MS * 2u64.pow(attempt);
+                        let recovery_wait = req.session_id.map(crate::recovery_control::register);
+                        on_delta(
+                            &serde_json::json!({
+                                "type": "model_retry",
+                                "model_id": self.model,
+                                "model": self.model,
+                                "reason": crate::failover::FailoverReason::Timeout,
+                                "attempt": attempt + 1,
+                                "total": MAX_RETRIES,
+                                "delay_ms": delay,
+                                "recovery_id": recovery_wait.as_ref().map(|wait| wait.id()),
+                                "can_switch_model": false,
+                            })
+                            .to_string(),
+                        );
                         app_warn!(
                             "agent",
                             "codex",
@@ -304,12 +345,20 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                                 Some(json!({"attempt": attempt + 1, "delay_ms": delay, "error": e.to_string()}).to_string()),
                                 None, None);
                         }
-                        if super::cancel::sleep_or_cancel(
-                            std::time::Duration::from_millis(delay),
-                            cancel,
-                        )
-                        .await
-                        {
+                        let cancelled = if let Some(wait) = recovery_wait {
+                            matches!(
+                                wait.wait(std::time::Duration::from_millis(delay), Some(cancel),)
+                                    .await,
+                                crate::recovery_control::RecoveryWaitOutcome::Cancelled
+                            )
+                        } else {
+                            super::cancel::sleep_or_cancel(
+                                std::time::Duration::from_millis(delay),
+                                cancel,
+                            )
+                            .await
+                        };
+                        if cancelled {
                             return Ok(super::cancel::cancelled_round_outcome());
                         }
                         last_error = Some(e.to_string());

@@ -8,15 +8,15 @@ LLM 调用统一的错误分类、同 Provider 多 Key 轮换、退避重试与 
 
 `FailoverPolicy` 控制每个调用点的重试 / 轮换激进程度。三档预设由 `FailoverPolicy::chat_engine_default()` / `side_query_default()` / `summarize_default()` 暴露：
 
-| Policy | `max_retries` | `allow_profile_rotation` | 退避基准 / 上限 | 调用方 |
-|---|---|---|---|---|
-| `chat_engine_default` | 2 | true | 1000 / 10000 ms | [`chat_engine::engine`](../../crates/ha-core/src/chat_engine/engine.rs) 主对话 |
-| `side_query_default` | 1 | true | 1000 / 10000 ms | [`agent::side_query`](../../crates/ha-core/src/agent/side_query.rs) 一次性侧查询 |
-| `summarize_default` | 2 | **false** | 1000 / 10000 ms | [`agent::context::summarize_direct`](../../crates/ha-core/src/agent/context.rs) Tier 3 摘要 |
+| Policy | 已知瞬时错误 `max_retries` | 未知错误 `max_unknown_retries` | `allow_profile_rotation` | 退避基准 / 上限 | 调用方 |
+|---|---:|---:|---|---|---|
+| `chat_engine_default` | 3 | 2 | true | 1000 / 10000 ms | [`chat_engine::engine`](../../crates/ha-core/src/chat_engine/engine.rs) 主对话 |
+| `side_query_default` | 1 | 1 | true | 1000 / 10000 ms | [`agent::side_query`](../../crates/ha-core/src/agent/side_query.rs) 一次性侧查询 |
+| `summarize_default` | 2 | 1 | **false** | 1000 / 10000 ms | [`agent::context::summarize_direct`](../../crates/ha-core/src/agent/context.rs) Tier 3 摘要 |
 
 为什么 summarize 关掉 profile 轮换：`DedicatedModelProvider` 已经绑定到一个具体 `provider:model`，用户正在等本轮主对话的回复——这时候为了换 key 多花几秒不如直接 fail 让上层降级到 side_query fallback / emergency compaction。
 
-**Codex 强制不参与 profile 轮换**：executor 内部 `allow_rotation = policy.allow_profile_rotation && provider.api_type != ApiType::Codex`，即使 caller 传 `chat_engine_default()` 也会被强制 false。Codex 走 OAuth out-of-band，`effective_profiles()` 永远空，没有可轮换的目标。
+**Codex 强制不参与 profile 轮换**：executor 内部 `allow_rotation = policy.allow_profile_rotation && provider.api_type != ApiType::Codex`，即使 caller 传 `chat_engine_default()` 也会被强制 false。Codex 走 OAuth out-of-band，`effective_profiles()` 永远空，没有可轮换的目标。Codex adapter 自己的 3 次 transport retry 会逐次发 `model_retry` 进度；executor 对 Codex 的所有 retryable 分类（含 Unknown）不再叠加第二层同模型 retry，避免乘法放大。裸 HTTP 500 / 504 统一归为 `Overloaded`，不会以 Unknown 绕过该闸门。
 
 ## 错误分类（FailoverReason）
 
@@ -31,13 +31,13 @@ LLM 调用统一的错误分类、同 Provider 多 Key 轮换、退避重试与 
 | `Auth` | `401` / `unauthorized` / `invalid api key` / `invalid_api_key` / `authentication` / `403` / `forbidden` / `permission denied` | 触发 profile 轮换；Codex 时直接 emit `codex_auth_expired` 让前端引导重授权 |
 | `Billing` | `402` / `payment required` / `billing` / `quota` / `insufficient_quota` / `exceeded your current quota` | 触发 profile 轮换 |
 | `ModelNotFound` | `404` / `model not found` / `model_not_found` / `does not exist` / `not_found_error` | **不**重试 / **不**轮换，直接跳下一个 fallback model |
-| `Unknown` | 上面都不命中 | **不**重试 / **不**轮换，直接跳下一个 fallback model |
+| `Unknown` | 上面都不命中 | 谨慎重试 2 次；仍失败则跳下一个 fallback model |
 
-判定顺序见 `classify_error()` 实现：`ContextOverflow → RateLimit → Overloaded → Timeout → Auth → Billing → ModelNotFound → Unknown`。前置匹配优先于后置——例如 OpenAI 5xx 文案 "An error occurred while processing your request" 被映射到 `Overloaded` 而不是 `Unknown`，是为了享受 retry-with-backoff。
+判定顺序见 `classify_error()` 实现：`ContextOverflow → RateLimit → Overloaded → Timeout → Auth → Billing → ModelNotFound → Unknown`。前置匹配优先于后置——例如 OpenAI 5xx 文案 "An error occurred while processing your request" 与裸 HTTP 500 / 504 都映射到 `Overloaded` 而不是 `Unknown`，是为了享受一致的 retry-with-backoff，并避免 Codex adapter / executor 双层重试。
 
 `Timeout` 故意不算 `is_profile_rotatable`：传输层错误换 key 也救不了，应该退避后重试同一 key（避免一阵抽风把所有 key 全打入 cooldown）。
 
-`is_terminal()` 方法当前永远返回 `false`——历史上 `ContextOverflow` 是 terminal，现在升级为 `NeedsCompaction` 信号让 `chat_engine` 跑紧急压缩后重试，所以 terminal 概念事实上已经废弃。
+`EvaluationBudget` 是唯一 terminal：评测预算耗尽后不再发 Provider 请求。`ContextOverflow` 不是 terminal，而是 `NeedsCompaction` 信号，让 `chat_engine` 跑紧急压缩后重试。
 
 ## 决策流程
 
@@ -51,22 +51,23 @@ flowchart TD
     Classify --> Compaction{"needs_compaction?"}
     Compaction -- "Yes (ContextOverflow)" --> NeedsCompact["return NeedsCompaction<br/>{ last_profile }"]
 
-    Compaction -- "No" --> Rotatable{"is_profile_rotatable<br/>&& allow_rotation?"}
+    Compaction -- "No" --> Retryable{"retry budget<br/>remaining?"}
+    Retryable -- "Yes" --> Backoff["注册 recovery_id<br/>on_retry progress<br/>等待退避或 UI 控制"]
+    Backoff -- "超时 / 跳过等待" --> Op
+    Backoff -- "立即换模型" --> SwitchModel["return SwitchModel<br/>{ reason, error }"]
+    Retryable -- "No" --> Rotatable{"is_profile_rotatable<br/>&& allow_rotation?"}
     Rotatable -- "Yes" --> MarkCooldown["PROFILE_COOLDOWNS<br/>.mark_cooldown(profile, reason)"]
     MarkCooldown --> NextProfile{"next_profile(<br/>tried)?"}
     NextProfile -- "Some" --> Rotate["on_profile_rotation cb<br/>tried.push(next.id)<br/>retry_count = 0"]
     Rotate --> Op
     NextProfile -- "None" --> Exhausted["return Exhausted<br/>{ reason, error }"]
 
-    Rotatable -- "No" --> Retryable{"is_retryable<br/>&& retry_count<br/>< max_retries?"}
-    Retryable -- "Yes" --> Backoff["sleep(retry_delay_ms)<br/>retry_count += 1"]
-    Backoff --> Op
-    Retryable -- "No" --> Exhausted
+    Rotatable -- "No" --> Exhausted
 ```
 
-## 三种 Executor 出口
+## Executor 出口
 
-`execute_with_failover` 返回 `Result<T, ExecutorError>`，三种失败枚举：
+`execute_with_failover` 返回 `Result<T, ExecutorError>`，失败出口如下：
 
 | 出口 | 何时触发 | Caller 行为 |
 |---|---|---|
@@ -74,6 +75,8 @@ flowchart TD
 | `Exhausted { last_reason, last_error }` | 所有 retry / 所有 profile 都试过了 / 不可重试错误 | chat_engine 跳到 fallback chain 下一个 model；side_query / summarize 直接返回 |
 | `NeedsCompaction { last_profile }` | 任意一次 attempt 命中 ContextOverflow | chat_engine 跑 `emergency_compact()` 后**写回 sticky 同 profile** 再调一次 executor；side_query / summarize 直接报错（无主对话上下文可压） |
 | `NoProfileAvailable` | 当前未使用，保留供未来在 attempt 前置 cooldown 检查 | — |
+| `SwitchModel { last_reason, last_error }` | 用户在可见退避期点击“立即换模型” | chat_engine 跳过当前模型剩余重试，进入下一个 fallback model；没有下一个模型时终止，不重启同一条链 |
+| `Cancelled` | 用户停止本轮对话 | chat_engine 进入统一取消收尾 |
 
 ### chat_engine 的 compaction-retry 闭环
 
@@ -143,11 +146,22 @@ jitter = rand_in(-delay/10, delay/10)
 return max(delay + jitter, 0)
 ```
 
-三档默认 policy 都用 `base=1000ms` / `max=10000ms`，但实际 sleep 次数受 `max_retries` 约束：`chat_engine_default` / `summarize_default` `max_retries=2` 跑两次 sleep（实测约 `1s ±10%` 然后 `2s ±10%`），`side_query_default` `max_retries=1` 只跑一次（约 `1s ±10%`）。`max_ms=10000` 是给"caller 自定义高 `max_retries`"留的安全 clamp——`retry_delay_ms(10, 1000, 10000)` 才会触发这条上限，default policy 都到不了。`rand_simple()` 用 `SystemTime::now().subsec_nanos() XOR (thread_local_counter * 6364136223846793005)`，避免连续调用同纳秒位时全输出相同抖动值。
+三档默认 policy 都用 `base=1000ms` / `max=10000ms`。主对话已知瞬时错误最多 sleep 3 次（约 `1s ±10%`、`2s ±10%`、`4s ±10%`），未知错误 sleep 2 次（约 `1s ±10%`、`2s ±10%`）；side query 仍只 sleep 1 次，避免一次性辅助请求拖得过久。每次 sleep 前调用 `on_retry`，前台据此发友好进度提示。`max_ms=10000` 是 caller 自定义更高预算时的安全 clamp。
+
+### 可控等待与 UI 恢复动作
+
+主对话每段可见退避会通过 [`recovery_control`](../../crates/ha-core/src/recovery_control.rs) 注册一个进程内一次性等待，并把随机 `recovery_id` 放进 `model_retry` / `model_chain_retry` 事件。GUI 用同一段 `delay_ms` 显示真实倒计时和递减进度条：
+
+- 同模型等待提供“跳过等待”；确有后续 fallback model 时再提供“立即换模型”
+- 整链恢复等待只提供“立即开始”，不会把“换模型”误用于重启链
+- 控制请求必须同时精确匹配 `session_id + recovery_id`，且只接受第一个动作；旧卡片、重复点击和已过期等待均返回 `applied=false`
+- 控制状态不持久化，进程重启或等待结束即失效；它只缩短等待或沿既有 fallback 链前进，不修改配置、不扩大重试预算
+
+桌面走 `control_model_recovery` Tauri command，HTTP/Web UI 走 `POST /api/chat/recovery/control`，两端调用同一个 `recovery_control::request`。Codex adapter 的内部 transport retry 也注册同类等待，但它不知道外层模型链，因此只允许跳过等待，不显示“立即换模型”。
 
 ## EventBus 信号
 
-profile 轮换由 caller 提供 `on_profile_rotation: Option<&Fn(from, to, reason)>` 回调消费——executor 不直接接触 EventBus / Tauri，保持 ha-core 零依赖。
+profile 轮换由 caller 提供 `on_profile_rotation` 回调，重试提示由 `execute_with_failover_observed` 的 `on_retry` 回调提供；`can_replay_operation` 则由主对话接入 `had_tool_activity`，任意工具边界后不再在 executor 内重启同模型 / profile operation，保住已完成的工具上下文。Chat Engine 的 forward-only 模型 fallback 另查 `had_non_replayable_tool_activity`：并发安全的只读工具会在 `tool_call` / `tool_result` 标记 `replay_safe=true`，仍可切到本轮尚未尝试的下一模型；可变更状态的工具与缺少元数据的旧事件则 fail closed。整链第二轮仍查 `had_tool_activity`，不会在任何工具完成后回到主模型。executor 不直接接触 EventBus / Tauri，保持 ha-core 零依赖。Chat Engine 将重试编码为 `model_retry`，全链额外恢复轮次编码为 `model_chain_retry`；GUI 与 IM 均展示独立友好提示。可交互事件额外携带 `recovery_id` 与 `can_switch_model`，HTTP/Tauri 边界只转交精确匹配的动作。
 
 `chat_engine` 的 callback 行为：
 
@@ -193,7 +207,10 @@ Codex Auth 失败由 chat_engine 在 `Exhausted { last_reason: Auth }` 出口额
 - 所有 profile Auth 全失败 → Exhausted
 - ModelNotFound 不重试不轮换
 - Codex 即使 caller 传 `allow_profile_rotation=true` 也不轮换
-- Unknown 立即 Exhausted
+- 主对话 Unknown 重试两次后 Exhausted
+- retry progress callback 的 attempt / max / delay 正确
+- recovery id 精确匹配、旧 id 失效，以及“立即换模型”不等待退避
+- retryable 错误先重试当前 profile，再轮换 profile
 - Timeout 重试后成功
 - Billing 轮换两个 profile 后 Exhausted + 双方都进 cooldown
 - Sticky 在后续调用上被命中
@@ -204,6 +221,7 @@ Codex Auth 失败由 chat_engine 在 `Exhausted { last_reason: Auth }` 出口额
 |---|---|
 | [`crates/ha-core/src/failover/mod.rs`](../../crates/ha-core/src/failover/mod.rs) | `FailoverReason` 枚举 + `classify_error` + `retry_delay_ms` + `ProfileCooldownTracker` + `ProfileStickyMap` + `select_profile` / `next_profile` |
 | [`crates/ha-core/src/failover/executor.rs`](../../crates/ha-core/src/failover/executor.rs) | `FailoverPolicy` 三档预设 + `ExecutorError` + `execute_with_failover<T, F, Fut>` 泛型执行器 |
+| [`crates/ha-core/src/recovery_control.rs`](../../crates/ha-core/src/recovery_control.rs) | session-scoped 一次性恢复等待、精确 ID 校验与 UI 动作唤醒 |
 | [`crates/ha-core/src/chat_engine/engine.rs`](../../crates/ha-core/src/chat_engine/engine.rs) | 主对话 fallback chain + compaction-retry 闭环 + `profile_rotation` / `codex_auth_expired` 事件 emit |
 | [`crates/ha-core/src/agent/side_query.rs`](../../crates/ha-core/src/agent/side_query.rs) | side_query 接入 executor 的 fast/slow path 切换 |
 | [`crates/ha-core/src/agent/context.rs`](../../crates/ha-core/src/agent/context.rs) | `summarize_direct()` 接入 executor 的 `summarize_default` policy |

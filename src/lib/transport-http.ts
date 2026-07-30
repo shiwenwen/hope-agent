@@ -440,6 +440,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   },
   insert_queued_turn_user_message: { method: "POST", path: "/api/chat/turn-message/insert" },
   cancel_queued_turn_user_message: { method: "POST", path: "/api/chat/turn-message/cancel" },
+  control_model_recovery: { method: "POST", path: "/api/chat/recovery/control" },
   stop_chat: { method: "POST", path: "/api/chat/stop" },
   cancel_runtime_task: { method: "POST", path: "/api/runtime-tasks/cancel" },
 

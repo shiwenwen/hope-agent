@@ -1436,7 +1436,7 @@ impl AssistantAgent {
                 // Emit all tool_call events before parallel execution starts so
                 // the UI shows the in-flight set immediately.
                 for tc in &concurrent_tcs {
-                    emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
+                    emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments, true);
                     log_tool_input(tc, round);
                 }
 
@@ -1476,6 +1476,7 @@ impl AssistantAgent {
                         is_error,
                         &media_items,
                         side.metadata.as_ref(),
+                        true,
                     );
                     // PostToolUse / PostToolUseFailure (observation): fold any
                     // hook additionalContext into the result so the LLM sees it
@@ -1531,7 +1532,7 @@ impl AssistantAgent {
                 let _plan_changed = self.maybe_resync_plan_mode_from_backend().await;
                 let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
 
-                emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
+                emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments, false);
                 log_tool_input(tc, round);
 
                 self.flush_turn_durability(crate::turn_durability::FlushReason::ToolBoundary)
@@ -1589,6 +1590,7 @@ impl AssistantAgent {
                     is_error,
                     &media_items,
                     side.metadata.as_ref(),
+                    false,
                 );
                 // PostToolUse / PostToolUseFailure (observation): fold any hook
                 // additionalContext into the result so the LLM sees it attached

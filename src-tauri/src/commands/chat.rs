@@ -1313,6 +1313,19 @@ pub async fn chat(
 }
 
 #[tauri::command]
+pub async fn control_model_recovery(
+    session_id: String,
+    recovery_id: String,
+    action: ha_core::recovery_control::RecoveryAction,
+) -> Result<ha_core::recovery_control::RecoveryControlResult, CmdError> {
+    Ok(ha_core::recovery_control::request(
+        &session_id,
+        &recovery_id,
+        action,
+    ))
+}
+
+#[tauri::command]
 pub async fn stop_chat(
     session_id: Option<String>,
     turn_id: Option<String>,
