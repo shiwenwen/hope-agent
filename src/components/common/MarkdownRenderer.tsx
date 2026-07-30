@@ -5,6 +5,7 @@ import {
   useState,
   useEffect,
   useMemo,
+  useRef,
   type AnchorHTMLAttributes,
   type ComponentProps,
   type ImgHTMLAttributes,
@@ -121,7 +122,51 @@ const streamingAnimation: AnimateOptions = {
 // 保留 incomplete-markdown 处理，只是不再逐字渐显，长回复换来平滑出字。
 const ANIMATE_MAX_CHARS = 4000
 const MARKDOWN_FAVICON_MAX_REQUESTS = 48
+const MARKDOWN_FAVICON_ROOT_MARGIN = "160px"
 const MarkdownFaviconBudgetContext = createContext<SafeFaviconBudget | null>(null)
+const markdownFaviconVisibilityCallbacks = new Map<Element, () => void>()
+let markdownFaviconVisibilityObserver: IntersectionObserver | null = null
+
+function disconnectMarkdownFaviconObserverIfIdle(observer: IntersectionObserver) {
+  if (markdownFaviconVisibilityCallbacks.size > 0) return
+  observer.disconnect()
+  if (markdownFaviconVisibilityObserver === observer) {
+    markdownFaviconVisibilityObserver = null
+  }
+}
+
+function observeMarkdownFaviconVisibility(element: Element, onVisible: () => void) {
+  if (typeof IntersectionObserver === "undefined") return () => undefined
+
+  if (!markdownFaviconVisibilityObserver) {
+    markdownFaviconVisibilityObserver = new IntersectionObserver(
+      (entries) => {
+        const observer = markdownFaviconVisibilityObserver
+        if (!observer) return
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          const callback = markdownFaviconVisibilityCallbacks.get(entry.target)
+          if (!callback) continue
+          markdownFaviconVisibilityCallbacks.delete(entry.target)
+          observer.unobserve(entry.target)
+          callback()
+        }
+        disconnectMarkdownFaviconObserverIfIdle(observer)
+      },
+      { rootMargin: MARKDOWN_FAVICON_ROOT_MARGIN },
+    )
+  }
+
+  const observer = markdownFaviconVisibilityObserver
+  markdownFaviconVisibilityCallbacks.set(element, onVisible)
+  observer.observe(element)
+
+  return () => {
+    markdownFaviconVisibilityCallbacks.delete(element)
+    observer.unobserve(element)
+    disconnectMarkdownFaviconObserverIfIdle(observer)
+  }
+}
 
 // Streamdown 默认 linkSafety 弹窗的 "Open link" 按钮调用 window.open，
 // Tauri webview 不支持该行为（点击无反应），改走 open_url 命令调起系统浏览器。
@@ -319,9 +364,10 @@ function MarkdownFileTypeIcon({ name }: { name: string }) {
   return <FileTypeIcon name={name} className="markdown-link-icon markdown-link-file-type-icon" />
 }
 
-function MarkdownWebLinkIcon({ href }: { href: string | undefined }) {
+function MarkdownWebLinkIcon({ href, enabled }: { href: string | undefined; enabled: boolean }) {
   const faviconBudget = useContext(MarkdownFaviconBudgetContext)
   const faviconDataUrl = useSafeFavicon(href, {
+    enabled,
     budget: faviconBudget,
     maxRequests: MARKDOWN_FAVICON_MAX_REQUESTS,
   })
@@ -346,9 +392,20 @@ function MarkdownWebLink({
   isIncomplete,
   ...rest
 }: MarkdownAnchorProps & { linkIcon: LinkIconInfo; isIncomplete: boolean }) {
+  const linkRef = useRef<HTMLAnchorElement>(null)
+  const [faviconArmedHref, setFaviconArmedHref] = useState<string>()
+  const faviconArmed = Boolean(href && faviconArmedHref === href)
+
+  useEffect(() => {
+    const element = linkRef.current
+    if (!element || !href || faviconArmed) return
+    return observeMarkdownFaviconVisibility(element, () => setFaviconArmedHref(href))
+  }, [faviconArmed, href])
+
   return (
     <a
       {...rest}
+      ref={linkRef}
       href={href}
       className={cn("wrap-anywhere markdown-link", className)}
       data-incomplete={isIncomplete || undefined}
@@ -359,8 +416,16 @@ function MarkdownWebLink({
         event.preventDefault()
         openExternalUrl(href)
       }}
+      onFocus={(event) => {
+        setFaviconArmedHref(href)
+        rest.onFocus?.(event)
+      }}
+      onMouseEnter={(event) => {
+        setFaviconArmedHref(href)
+        rest.onMouseEnter?.(event)
+      }}
     >
-      <MarkdownWebLinkIcon href={href} />
+      <MarkdownWebLinkIcon href={href} enabled={faviconArmed} />
       <span className="markdown-link-label">{children}</span>
     </a>
   )
