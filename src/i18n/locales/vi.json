@@ -6048,6 +6048,7 @@
     "permPhotosDesc": "Truy cập thư viện ảnh",
     "permRefresh": "Làm mới",
     "permRefreshHint": "Sau khi cấp trong Cài đặt hệ thống, nhấn làm mới hoặc chuyển cửa sổ để tự động phát hiện",
+    "permRestartPendingHint": "Đã cấp trong Cài đặt Hệ thống — khởi động lại Hope Agent để áp dụng.",
     "permReminders": "Lời nhắc",
     "permRemindersDesc": "Đọc và ghi lời nhắc",
     "permScreenRecording": "Ghi màn hình",
@@ -6138,6 +6139,7 @@
       },
       "input_monitoring": {
         "label": "Giám sát đầu vào",
+        "note": "Nếu không thấy hộp thoại hệ thống và Hope Agent không có trong danh sách Giám sát đầu vào, hãy thêm thủ công trong Cài đặt Hệ thống (hoặc xóa mục cũ) rồi thử lại.",
         "usage": "Lắng nghe sự kiện bàn phím và con trỏ cần cho tự động hóa desktop."
       },
       "local_network": {
@@ -6183,6 +6185,7 @@
       },
       "screen_recording": {
         "label": "Ghi màn hình",
+        "note": "Nếu Cài đặt Hệ thống đã bật cho Hope Agent nhưng ở đây vẫn hiển thị chưa cấp: hãy khởi động lại ứng dụng; nếu vẫn không được, hãy xóa Hope Agent khỏi danh sách Ghi màn hình rồi cấp lại (bản ghi do phiên bản cũ để lại sẽ mất hiệu lực).",
         "usage": "Chụp nội dung màn hình để hiểu hình ảnh và tự động hóa UI."
       },
       "speech_recognition": {
@@ -6197,6 +6200,7 @@
     },
     "permissionStatuses": {
       "granted": "Đã cấp",
+      "grantedPendingRestart": "Đã cấp · khởi động lại để áp dụng",
       "manualCheck": "Kiểm tra thủ công",
       "notApplicable": "Không áp dụng",
       "notDetermined": "Chưa xác định",

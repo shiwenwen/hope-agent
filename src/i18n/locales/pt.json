@@ -6048,6 +6048,7 @@
     "permPhotosDesc": "Acessar a biblioteca de fotos",
     "permRefresh": "Atualizar",
     "permRefreshHint": "Após conceder nas Configurações do sistema, clique em atualizar ou alterne para detectar automaticamente",
+    "permRestartPendingHint": "Concedido nos Ajustes do Sistema; reinicie o Hope Agent para aplicar.",
     "permReminders": "Lembretes",
     "permRemindersDesc": "Ler e escrever lembretes",
     "permScreenRecording": "Gravação de tela",
@@ -6138,6 +6139,7 @@
       },
       "input_monitoring": {
         "label": "Monitoramento de entrada",
+        "note": "Se nenhum diálogo do sistema apareceu e o Hope Agent não está na lista de Monitoramento de Entrada, adicione-o manualmente nos Ajustes do Sistema (ou remova uma entrada obsoleta) e tente novamente.",
         "usage": "Escutar eventos de teclado e ponteiro necessários para automação de desktop."
       },
       "local_network": {
@@ -6183,6 +6185,7 @@
       },
       "screen_recording": {
         "label": "Gravação de tela",
+        "note": "Se os Ajustes do Sistema já mostram o Hope Agent como permitido mas aqui continua não concedido: reinicie o app; se persistir, remova o Hope Agent da lista de Gravação de Tela e conceda novamente (registros deixados por versões antigas ficam obsoletos).",
         "usage": "Capturar conteúdo da tela para compreensão visual e automação de UI."
       },
       "speech_recognition": {
@@ -6197,6 +6200,7 @@
     },
     "permissionStatuses": {
       "granted": "Concedido",
+      "grantedPendingRestart": "Concedido · reinicie para aplicar",
       "manualCheck": "Verificação manual",
       "notApplicable": "Não aplicável",
       "notDetermined": "Não determinado",

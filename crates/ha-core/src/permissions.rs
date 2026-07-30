@@ -87,6 +87,10 @@ pub enum SystemPermissionGroup {
 #[serde(rename_all = "snake_case")]
 pub enum SystemPermissionStatus {
     Granted,
+    /// TCC has granted the permission, but this running process cannot use
+    /// it yet — macOS fixes Screen Recording capability per window-server
+    /// connection at launch, so the app must be relaunched to pick it up.
+    GrantedPendingRestart,
     NotGranted,
     NotDetermined,
     Restricted,
@@ -152,7 +156,11 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
     PermissionDef {
         id: "accessibility",
         group: SystemPermissionGroup::ControlCapture,
-        request_mode: SystemPermissionRequestMode::OpenSettings,
+        // NativePrompt: the request path calls the prompting AX trust check,
+        // which is what registers the app in the Accessibility pane. A bare
+        // OpenSettings jump lands the user on a list without any Hope Agent
+        // row to toggle.
+        request_mode: SystemPermissionRequestMode::NativePrompt,
         settings_pane: Some("Privacy_Accessibility"),
         usage: "Control the mouse, keyboard, and other application windows.",
         note: None,
@@ -421,10 +429,37 @@ pub async fn request_system_permission(id: String) -> SystemPermissionItem {
         } else {
             SystemPermissionStatus::NotApplicable
         };
-        def.item(status)
+        let mut item = def.item(status);
+        if status == SystemPermissionStatus::NotGranted {
+            let troubleshoot = match def.id {
+                "screen_recording" => Some(SCREEN_RECORDING_TROUBLESHOOT_NOTE),
+                "input_monitoring" => Some(INPUT_MONITORING_TROUBLESHOOT_NOTE),
+                _ => None,
+            };
+            if let Some(note) = troubleshoot {
+                item.note = Some(note.to_string());
+            }
+        }
+        item
     })
     .await
 }
+
+/// Raw single-permission preflight backing the `--tcc-probe` process mode
+/// (`hope-agent --tcc-probe <id>`): synchronous, no catalog shaping, and it
+/// never spawns further probe processes.
+pub fn raw_system_permission_probe(id: &str) -> Option<bool> {
+    crate::platform::system_permission_raw_probe(id)
+}
+
+/// Post-request troubleshooting hints, attached only when a request still
+/// ends up NotGranted. English fallbacks — the frontend translates them via
+/// `settings.permissionItems.<id>.note`. They exist because a TCC record
+/// created by an old build (pre-stable-signing) keeps the System Settings
+/// toggle visible yet permanently denies the current binary, which is
+/// indistinguishable from "not granted" on our side.
+const SCREEN_RECORDING_TROUBLESHOOT_NOTE: &str = "If System Settings already shows Hope Agent as allowed but it stays not granted here: restart the app; if that persists, remove Hope Agent from the Screen Recording list and grant it again (entries left by old versions go stale).";
+const INPUT_MONITORING_TROUBLESHOOT_NOTE: &str = "If no system dialog appeared and Hope Agent is missing from the Input Monitoring list, add it manually in System Settings (or remove a stale entry) and try again.";
 
 fn unsupported_response() -> SystemPermissionsResponse {
     SystemPermissionsResponse {
@@ -579,7 +614,10 @@ fn legacy_files_and_folders(response: &SystemPermissionsResponse) -> PermState {
 fn legacy_state_for_status(status: SystemPermissionStatus) -> PermState {
     match status {
         SystemPermissionStatus::Granted => granted(),
-        SystemPermissionStatus::NotGranted
+        // Pending-restart means this process still cannot use the permission,
+        // so every capability gate must keep treating it as not granted.
+        SystemPermissionStatus::GrantedPendingRestart
+        | SystemPermissionStatus::NotGranted
         | SystemPermissionStatus::NotDetermined
         | SystemPermissionStatus::Restricted => not_granted(),
         SystemPermissionStatus::ManualCheck
@@ -608,6 +646,13 @@ mod tests {
         );
         assert_eq!(
             legacy_state_for_status(SystemPermissionStatus::Restricted),
+            "not_granted"
+        );
+        // A grant pending relaunch is unusable by this process, so legacy
+        // consumers (mac_control gates, automation preflights) must not see
+        // it as granted.
+        assert_eq!(
+            legacy_state_for_status(SystemPermissionStatus::GrantedPendingRestart),
             "not_granted"
         );
     }

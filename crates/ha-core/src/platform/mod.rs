@@ -126,6 +126,12 @@ pub(crate) fn request_system_permission_item(
     system_permissions::request_item(def)
 }
 
+/// Raw single-permission preflight for the `--tcc-probe` process mode.
+/// Synchronous and spawn-free — see `system_permissions::raw_probe`.
+pub(crate) fn system_permission_raw_probe(id: &str) -> Option<bool> {
+    system_permissions::raw_probe(id)
+}
+
 /// Build a `std::process::Command` that runs `cmdline` through the
 /// platform default shell.
 ///

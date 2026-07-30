@@ -6048,6 +6048,7 @@
     "permPhotosDesc": "Access the photo library",
     "permRefresh": "Refresh",
     "permRefreshHint": "After granting in System Settings, click refresh or switch back to auto-detect",
+    "permRestartPendingHint": "Granted in System Settings — restart Hope Agent to apply.",
     "permReminders": "Reminders",
     "permRemindersDesc": "Read and write reminders",
     "permScreenRecording": "Screen Recording",
@@ -6138,6 +6139,7 @@
       },
       "input_monitoring": {
         "label": "Input Monitoring",
+        "note": "If no system dialog appeared and Hope Agent is missing from the Input Monitoring list, add it manually in System Settings (or remove a stale entry) and try again.",
         "usage": "Listen for keyboard and pointer events needed by desktop automation."
       },
       "local_network": {
@@ -6183,6 +6185,7 @@
       },
       "screen_recording": {
         "label": "Screen Recording",
+        "note": "If System Settings already shows Hope Agent as allowed but it stays not granted here: restart the app; if that persists, remove Hope Agent from the Screen Recording list and grant it again (entries left by old versions go stale).",
         "usage": "Capture screen contents for visual understanding and UI automation."
       },
       "speech_recognition": {
@@ -6197,6 +6200,7 @@
     },
     "permissionStatuses": {
       "granted": "Granted",
+      "grantedPendingRestart": "Granted · restart to apply",
       "manualCheck": "Manual check",
       "notApplicable": "Not applicable",
       "notDetermined": "Not determined",

@@ -6048,6 +6048,7 @@
     "permPhotosDesc": "Fotoğraf kütüphanesine eriş",
     "permRefresh": "Yenile",
     "permRefreshHint": "Sistem Ayarlarında verdikten sonra, otomatik algılama için yenile veya geri dön",
+    "permRestartPendingHint": "Sistem Ayarları'nda izin verildi — uygulanması için Hope Agent'ı yeniden başlatın.",
     "permReminders": "Hatırlatıcılar",
     "permRemindersDesc": "Hatırlatıcıları oku ve yaz",
     "permScreenRecording": "Ekran kaydı",
@@ -6138,6 +6139,7 @@
       },
       "input_monitoring": {
         "label": "Giriş İzleme",
+        "note": "Sistem iletişim kutusu görünmediyse ve Hope Agent Giriş İzleme listesinde yoksa, Sistem Ayarları'nda elle ekleyin (veya eski girdiyi kaldırın) ve yeniden deneyin.",
         "usage": "Masaüstü otomasyonu için gereken klavye ve işaretçi olaylarını dinle."
       },
       "local_network": {
@@ -6183,6 +6185,7 @@
       },
       "screen_recording": {
         "label": "Ekran Kaydı",
+        "note": "Sistem Ayarları Hope Agent'ı izinli gösterdiği hâlde burada hâlâ verilmedi görünüyorsa: önce uygulamayı yeniden başlatın; sorun sürerse Hope Agent'ı Ekran Kaydı listesinden kaldırıp izni yeniden verin (eski sürümlerden kalan kayıtlar geçersizleşir).",
         "usage": "Görsel anlama ve UI otomasyonu için ekran içeriklerini yakala."
       },
       "speech_recognition": {
@@ -6197,6 +6200,7 @@
     },
     "permissionStatuses": {
       "granted": "Verildi",
+      "grantedPendingRestart": "İzin verildi · uygulamak için yeniden başlatın",
       "manualCheck": "Manuel kontrol",
       "notApplicable": "Geçerli değil",
       "notDetermined": "Belirlenmedi",

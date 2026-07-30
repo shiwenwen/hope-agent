@@ -41,6 +41,7 @@ import {
 
 type PermissionStatus =
   | "granted"
+  | "granted_pending_restart"
   | "not_granted"
   | "not_determined"
   | "restricted"
@@ -156,6 +157,7 @@ const ITEM_ICONS: Record<string, LucideIcon> = {
 
 const STATUS_LABEL_KEYS: Record<PermissionStatus, string> = {
   granted: "settings.permissionStatuses.granted",
+  granted_pending_restart: "settings.permissionStatuses.grantedPendingRestart",
   not_granted: "settings.permissionStatuses.notGranted",
   not_determined: "settings.permissionStatuses.notDetermined",
   restricted: "settings.permissionStatuses.restricted",
@@ -166,6 +168,7 @@ const STATUS_LABEL_KEYS: Record<PermissionStatus, string> = {
 
 const STATUS_FALLBACKS: Record<PermissionStatus, string> = {
   granted: "Granted",
+  granted_pending_restart: "Granted · restart to apply",
   not_granted: "Not granted",
   not_determined: "Not determined",
   restricted: "Restricted",
@@ -183,21 +186,22 @@ const MAC_READINESS_FALLBACKS: Record<MacControlReadiness, string> = {
 
 function stateBorder(state: PermissionStatus) {
   if (state === "granted") return "border-green-500/20 bg-green-500/5"
-  if (state === "manual_check") return "border-sky-500/20 bg-sky-500/5"
+  if (state === "manual_check" || state === "granted_pending_restart") return "border-sky-500/20 bg-sky-500/5"
   if (state === "not_applicable" || state === "not_used") return "border-muted-foreground/15 bg-muted/20"
   return "border-amber-500/20 bg-amber-500/5"
 }
 
 function stateIconColor(state: PermissionStatus) {
   if (state === "granted") return "text-green-500"
-  if (state === "manual_check") return "text-sky-500"
+  if (state === "manual_check" || state === "granted_pending_restart") return "text-sky-500"
   if (state === "not_applicable" || state === "not_used") return "text-muted-foreground"
   return "text-amber-500"
 }
 
 function stateBadgeClass(state: PermissionStatus) {
   if (state === "granted") return "bg-green-500/15 text-green-600 dark:text-green-400"
-  if (state === "manual_check") return "bg-sky-500/15 text-sky-600 dark:text-sky-400"
+  if (state === "manual_check" || state === "granted_pending_restart")
+    return "bg-sky-500/15 text-sky-600 dark:text-sky-400"
   if (state === "not_applicable" || state === "not_used") return "bg-muted text-muted-foreground"
   return "bg-amber-500/15 text-amber-600 dark:text-amber-400"
 }
@@ -224,13 +228,21 @@ function macReadinessBadgeClass(readiness: MacControlReadiness) {
 }
 
 function isActionable(state: PermissionStatus) {
-  return state === "not_granted" || state === "not_determined" || state === "restricted"
+  return (
+    state === "not_granted" ||
+    state === "not_determined" ||
+    state === "restricted" ||
+    state === "granted_pending_restart"
+  )
 }
 
 function canRequest(item: SystemPermissionItem) {
   return (
     item.requestMode !== "none" &&
     item.status !== "granted" &&
+    // Already granted in TCC — requesting again cannot help; only an app
+    // restart applies it.
+    item.status !== "granted_pending_restart" &&
     item.status !== "not_applicable" &&
     item.status !== "not_used"
   )
@@ -494,6 +506,14 @@ export default function PermissionsPanel() {
                         </div>
                         <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{usage}</p>
                         {note && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{note}</p>}
+                        {item.status === "granted_pending_restart" && (
+                          <p className="mt-1 text-[11px] leading-4 text-sky-600 dark:text-sky-400">
+                            {t(
+                              "settings.permRestartPendingHint",
+                              "Granted in System Settings — restart Hope Agent to apply.",
+                            )}
+                          </p>
+                        )}
                       </div>
 
                       {canRequest(item) && !loading && (
@@ -518,6 +538,9 @@ export default function PermissionsPanel() {
                       )}
 
                       {item.status === "granted" && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />}
+                      {item.status === "granted_pending_restart" && (
+                        <RefreshCw className="h-4 w-4 shrink-0 text-sky-500" />
+                      )}
                       {(item.status === "not_applicable" || item.status === "not_used") && (
                         <HelpCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
                       )}

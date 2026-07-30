@@ -11,10 +11,10 @@ mod imp {
     use super::*;
     use std::ffi::CStr;
     use std::path::Path;
-    use std::process::Command;
+    use std::process::{Command, Stdio};
     use std::ptr;
-    use std::sync::mpsc;
-    use std::time::Duration;
+    use std::sync::{mpsc, Mutex, OnceLock};
+    use std::time::{Duration, Instant};
 
     use block2::RcBlock;
     use objc2::msg_send;
@@ -25,6 +25,8 @@ mod imp {
     #[link(name = "ApplicationServices", kind = "framework")]
     unsafe extern "C" {
         fn AXIsProcessTrusted() -> bool;
+        fn AXIsProcessTrustedWithOptions(options: *const AnyObject) -> bool;
+        static kAXTrustedCheckOptionPrompt: *const AnyObject;
     }
 
     #[link(name = "CoreGraphics", kind = "framework")]
@@ -70,7 +72,7 @@ mod imp {
     pub fn check_item(id: &str) -> SystemPermissionStatus {
         match id {
             "accessibility" => bool_status(unsafe { AXIsProcessTrusted() }),
-            "screen_recording" => bool_status(unsafe { CGPreflightScreenCaptureAccess() }),
+            "screen_recording" => screen_recording_status(false),
             "input_monitoring" => bool_status(unsafe { CGPreflightListenEventAccess() }),
             "camera" => av_media_status("vide"),
             "microphone" => av_media_status("soun"),
@@ -103,12 +105,25 @@ mod imp {
 
     pub fn request_item(def: PermissionDef) -> SystemPermissionStatus {
         match def.id {
-            "screen_recording" => {
-                let ok = unsafe { CGRequestScreenCaptureAccess() };
+            "accessibility" => {
+                let ok = request_accessibility_trust();
                 if !ok {
                     open_settings_pane(def.settings_pane);
                 }
                 bool_status(ok)
+            }
+            "screen_recording" => {
+                if unsafe { CGRequestScreenCaptureAccess() } {
+                    return SystemPermissionStatus::Granted;
+                }
+                // Bypass the probe cache: the user may have just flipped the
+                // toggle in System Settings, which this running process
+                // cannot observe on its own.
+                let status = screen_recording_status(true);
+                if status != SystemPermissionStatus::GrantedPendingRestart {
+                    open_settings_pane(def.settings_pane);
+                }
+                status
             }
             "input_monitoring" => {
                 let ok = unsafe { CGRequestListenEventAccess() };
@@ -149,6 +164,137 @@ mod imp {
             SystemPermissionStatus::Granted
         } else {
             SystemPermissionStatus::NotGranted
+        }
+    }
+
+    /// Ask for Accessibility trust with the system consent prompt enabled.
+    ///
+    /// Unlike the plain `AXIsProcessTrusted` preflight, the prompting variant
+    /// registers this app in System Settings → Privacy & Security →
+    /// Accessibility. Without that registration the pane simply has no row
+    /// for the app and the user has nothing to toggle.
+    fn request_accessibility_trust() -> bool {
+        let (Some(dict_cls), Some(number_cls)) =
+            (objc_class(c"NSDictionary"), objc_class(c"NSNumber"))
+        else {
+            return unsafe { AXIsProcessTrusted() };
+        };
+        unsafe {
+            let prompt_key = kAXTrustedCheckOptionPrompt;
+            if prompt_key.is_null() {
+                return AXIsProcessTrusted();
+            }
+            let yes: Retained<AnyObject> = msg_send![number_cls, numberWithBool: Bool::YES];
+            let options: Retained<AnyObject> =
+                msg_send![dict_cls, dictionaryWithObject: &*yes, forKey: prompt_key];
+            AXIsProcessTrustedWithOptions(Retained::as_ptr(&options))
+        }
+    }
+
+    /// Screen Recording capability is fixed on this process's window-server
+    /// connection at launch: a grant made while the app is running keeps
+    /// preflighting `false` until relaunch, while a freshly launched process
+    /// sees the live TCC state. When the in-process preflight is negative,
+    /// probe from a short-lived child (same executable → same TCC identity
+    /// through the responsible process) to distinguish "granted, needs an
+    /// app restart" from "really not granted".
+    fn screen_recording_status(bypass_probe_cache: bool) -> SystemPermissionStatus {
+        if unsafe { CGPreflightScreenCaptureAccess() } {
+            return SystemPermissionStatus::Granted;
+        }
+        match cached_fresh_process_probe("screen_recording", bypass_probe_cache) {
+            Some(true) => SystemPermissionStatus::GrantedPendingRestart,
+            _ => SystemPermissionStatus::NotGranted,
+        }
+    }
+
+    /// `check_item` runs on every panel fetch (including window-focus
+    /// re-checks) and mac_control preflights run per tool call — cache the
+    /// probe so a stuck-at-not-granted state does not spawn a process each
+    /// time.
+    const PROBE_CACHE_TTL: Duration = Duration::from_secs(5);
+    /// Kept well under the 3s catalog check budget in `permissions.rs`.
+    const PROBE_WAIT: Duration = Duration::from_millis(1500);
+
+    static PROBE_CACHE: OnceLock<Mutex<Option<(String, Instant, Option<bool>)>>> = OnceLock::new();
+
+    fn cached_fresh_process_probe(id: &str, bypass_cache: bool) -> Option<bool> {
+        let cache = PROBE_CACHE.get_or_init(|| Mutex::new(None));
+        if !bypass_cache {
+            if let Ok(guard) = cache.lock() {
+                if let Some((cached_id, at, result)) = guard.as_ref() {
+                    if cached_id == id && at.elapsed() < PROBE_CACHE_TTL {
+                        return *result;
+                    }
+                }
+            }
+        }
+        let result = fresh_process_probe(id);
+        crate::app_info!(
+            "permissions",
+            "tcc_probe",
+            "{} fresh-process probe → {:?}",
+            id,
+            result
+        );
+        if let Ok(mut guard) = cache.lock() {
+            *guard = Some((id.to_string(), Instant::now(), result));
+        }
+        result
+    }
+
+    /// Spawn this same executable with `--tcc-probe <id>` and map its exit
+    /// code (0 granted / 1 not granted / other unknown). Desktop-only:
+    /// other runtimes may embed ha-core in binaries that do not implement
+    /// the probe argument.
+    fn fresh_process_probe(id: &str) -> Option<bool> {
+        if !crate::app_init::is_desktop() {
+            return None;
+        }
+        let exe = std::env::current_exe().ok()?;
+        let mut child = Command::new(exe)
+            .args(["--tcc-probe", id])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let deadline = Instant::now() + PROBE_WAIT;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    return match status.code() {
+                        Some(0) => Some(true),
+                        Some(1) => Some(false),
+                        _ => None,
+                    };
+                }
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return None;
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
+        }
+    }
+
+    /// Raw, spawn-free preflight backing the `--tcc-probe` process mode.
+    /// MUST never route through the fresh-process probe above — a probe
+    /// child answering via another probe would recurse forever.
+    pub fn raw_probe(id: &str) -> Option<bool> {
+        match id {
+            "accessibility" => Some(unsafe { AXIsProcessTrusted() }),
+            "screen_recording" => Some(unsafe { CGPreflightScreenCaptureAccess() }),
+            "input_monitoring" => Some(unsafe { CGPreflightListenEventAccess() }),
+            _ => None,
         }
     }
 
@@ -618,6 +764,10 @@ mod imp {
     pub fn request_item(_def: PermissionDef) -> SystemPermissionStatus {
         SystemPermissionStatus::NotApplicable
     }
+
+    pub fn raw_probe(_id: &str) -> Option<bool> {
+        None
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -638,6 +788,10 @@ mod imp {
 
     pub fn request_item(_def: PermissionDef) -> SystemPermissionStatus {
         SystemPermissionStatus::NotApplicable
+    }
+
+    pub fn raw_probe(_id: &str) -> Option<bool> {
+        None
     }
 }
 
@@ -660,6 +814,10 @@ mod imp {
     pub fn request_item(_def: PermissionDef) -> SystemPermissionStatus {
         SystemPermissionStatus::NotApplicable
     }
+
+    pub fn raw_probe(_id: &str) -> Option<bool> {
+        None
+    }
 }
 
 pub(crate) fn platform_name() -> &'static str {
@@ -676,4 +834,8 @@ pub(crate) fn check_item(id: &str) -> SystemPermissionStatus {
 
 pub(crate) fn request_item(def: PermissionDef) -> SystemPermissionStatus {
     imp::request_item(def)
+}
+
+pub(crate) fn raw_probe(id: &str) -> Option<bool> {
+    imp::raw_probe(id)
 }

@@ -6048,6 +6048,7 @@
     "permPhotosDesc": "Akses pustaka foto",
     "permRefresh": "Muat semula",
     "permRefreshHint": "Selepas memberi dalam Tetapan Sistem, klik muat semula atau tukar kembali untuk auto-kesan",
+    "permRestartPendingHint": "Telah diberikan dalam Tetapan Sistem — mulakan semula Hope Agent untuk berkuat kuasa.",
     "permReminders": "Peringatan",
     "permRemindersDesc": "Baca dan tulis peringatan",
     "permScreenRecording": "Rakaman skrin",
@@ -6138,6 +6139,7 @@
       },
       "input_monitoring": {
         "label": "Pemantauan Input",
+        "note": "Jika tiada dialog sistem muncul dan Hope Agent tiada dalam senarai Pemantauan Input, tambahkannya secara manual dalam Tetapan Sistem (atau keluarkan entri lama) dan cuba lagi.",
         "usage": "Dengar peristiwa papan kekunci dan penuding yang diperlukan oleh automasi desktop."
       },
       "local_network": {
@@ -6183,6 +6185,7 @@
       },
       "screen_recording": {
         "label": "Rakaman Skrin",
+        "note": "Jika Tetapan Sistem sudah menunjukkan Hope Agent dibenarkan tetapi di sini masih belum diberikan: mulakan semula apl dahulu; jika berterusan, keluarkan Hope Agent daripada senarai Rakaman Skrin dan berikan semula (rekod daripada versi lama menjadi tidak sah).",
         "usage": "Tangkap kandungan skrin untuk pemahaman visual dan automasi UI."
       },
       "speech_recognition": {
@@ -6197,6 +6200,7 @@
     },
     "permissionStatuses": {
       "granted": "Diberikan",
+      "grantedPendingRestart": "Diberikan · mulakan semula untuk berkuat kuasa",
       "manualCheck": "Semakan manual",
       "notApplicable": "Tidak berkenaan",
       "notDetermined": "Belum ditentukan",

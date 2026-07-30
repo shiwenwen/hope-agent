@@ -6048,6 +6048,7 @@
     "permPhotosDesc": "允许访问照片图库",
     "permRefresh": "刷新状态",
     "permRefreshHint": "在系统设置中授权后，点击刷新或切回窗口自动检测",
+    "permRestartPendingHint": "系统设置中已授权，重启 Hope Agent 后生效。",
     "permReminders": "提醒事项",
     "permRemindersDesc": "允许读写提醒事项",
     "permScreenRecording": "屏幕录制",
@@ -6138,6 +6139,7 @@
       },
       "input_monitoring": {
         "label": "输入监控",
+        "note": "若未弹出系统授权窗且输入监控列表中没有 Hope Agent：在系统设置中手动添加，或移除失效的旧条目后重试。",
         "usage": "监听桌面自动化所需的键盘和指针事件。"
       },
       "local_network": {
@@ -6183,6 +6185,7 @@
       },
       "screen_recording": {
         "label": "屏幕录制",
+        "note": "若系统设置中已开启但此处仍显示未授权：先重启应用；仍无效时，在系统设置的录屏列表中移除 Hope Agent 后重新授权（旧版本残留的授权记录会失效）。",
         "usage": "截取屏幕内容，用于视觉理解和界面自动化。"
       },
       "speech_recognition": {
@@ -6197,6 +6200,7 @@
     },
     "permissionStatuses": {
       "granted": "已授权",
+      "grantedPendingRestart": "已授权 · 重启生效",
       "manualCheck": "手动确认",
       "notApplicable": "不适用",
       "notDetermined": "未决定",

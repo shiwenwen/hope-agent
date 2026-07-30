@@ -37,6 +37,25 @@ fn main() {
         return;
     }
 
+    // TCC probe mode: `hope-agent --tcc-probe <permission-id>` prints nothing
+    // and exits 0 (granted) / 1 (not granted) / 2 (unknown). The permissions
+    // catalog spawns this as a short-lived FRESH process because macOS fixes
+    // Screen Recording capability per window-server connection at launch —
+    // only a new process can see a grant made while the app was running.
+    // Must stay ahead of the guardian/child dispatch below and must not
+    // initialize any runtime state (no ensure_dirs / init_runtime / logging).
+    if args.get(1).map(String::as_str) == Some("--tcc-probe") {
+        let code = match args
+            .get(2)
+            .and_then(|id| ha_core::permissions::raw_system_permission_probe(id))
+        {
+            Some(true) => 0,
+            Some(false) => 1,
+            None => 2,
+        };
+        std::process::exit(code);
+    }
+
     // Knowledge MCP subcommand: `hope-agent knowledge-mcp` — exposes the
     // Knowledge Space Agent Access API as a small stdio MCP server.
     if args.len() >= 2 && args[1] == "knowledge-mcp" {
