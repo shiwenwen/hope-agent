@@ -25,6 +25,7 @@ ha-core = { path = "../crates/ha-core", features = ["desktop-tools"] }
 ha-acp = { path = "../crates/ha-acp" }
 ha-browser = { path = "../crates/ha-browser" }
 ha-mcp = { path = "../crates/ha-mcp" }
+ha-pet = { path = "../crates/ha-pet" }
 ha-vcs = { path = "../crates/ha-vcs" }
 ha-design = { path = "../crates/ha-design" }
 ha-mac = { path = "../crates/ha-mac" }

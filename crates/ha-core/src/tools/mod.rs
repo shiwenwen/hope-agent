@@ -3,6 +3,9 @@ use serde_json::{json, Value};
 mod agents;
 mod apply_patch;
 pub(crate) mod approval;
+// pub：ha-pet 活动快照消费（pending 审批聚合只读面；approval 模块本体保持
+// crate 内私有）。
+pub use approval::{pending_approvals_per_session, SessionApprovalAgg};
 // pub：`ask_user_question::execute` 是结构化问答唯一入口（AGENTS.md 红线），
 // 特征 crate 的工具 adapter（如 ha-updater 的 `app_update` install/rollback
 // 确认）从 crate 外复用同一入口，不 fork。

@@ -104,7 +104,6 @@ const FEATURES = {
   ],
   "ha-skills": ["skills", "slash_commands", "tools::skill"],
   "ha-dash": ["dashboard", "recap", "activity"],
-  "ha-pet": ["pet", "sprite"],
   "ha-local-llm": ["local_llm", "local_model_jobs", "local_embedding"],
   // ha-acp 已实际迁出（crates/ha-acp/），同 ha-updater / ha-weather 从本表删除。
   // weather_location_macos 已随阶段 2 v1 迁入 ha-base（平台原语）；

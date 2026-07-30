@@ -59,8 +59,8 @@ The [`.husky/pre-push`](.husky/pre-push) hook runs these six checks before `git 
 
 ```bash
 cargo fmt --all --check
-cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings
-cargo test  -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked
+cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings
+cargo test  -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked
 pnpm typecheck
 pnpm lint
 pnpm test

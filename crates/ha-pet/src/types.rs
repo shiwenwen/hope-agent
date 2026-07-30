@@ -265,38 +265,9 @@ pub struct PetRestoreRequest {
     pub restore_token: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatUiSurface {
-    MainChat,
-    QuickChat,
-    KnowledgeChat,
-    DesignChat,
-    PetChat,
-}
-
-impl ChatUiSurface {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::MainChat => "main_chat",
-            Self::QuickChat => "quick_chat",
-            Self::KnowledgeChat => "knowledge_chat",
-            Self::DesignChat => "design_chat",
-            Self::PetChat => "pet_chat",
-        }
-    }
-
-    pub fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "main_chat" => Some(Self::MainChat),
-            "quick_chat" => Some(Self::QuickChat),
-            "knowledge_chat" => Some(Self::KnowledgeChat),
-            "design_chat" => Some(Self::DesignChat),
-            "pet_chat" => Some(Self::PetChat),
-            _ => None,
-        }
-    }
-}
+// `ChatUiSurface` 是 chat_turns 表列 wire 类型，随表下沉 kernel
+// （`ha_core::pet::ChatUiSurface`）；这里再导出保持既有路径。
+pub use ha_core::pet::ChatUiSurface;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -36,9 +36,9 @@ static DEBUG_BUILTIN_PACKAGE: OnceLock<ValidatedPetPackage> = OnceLock::new();
 
 // The project-bound asset is generated specifically for Hope Agent and is not
 // copied from Codex.  It is validated by the same atlas code as custom pets.
-const BUILTIN_SPRITE: &[u8] = include_bytes!("../../../../src/assets/pets/hope-default.png");
+const BUILTIN_SPRITE: &[u8] = include_bytes!("../../../src/assets/pets/hope-default.png");
 #[cfg(debug_assertions)]
-const DEBUG_BUILTIN_SPRITE: &[u8] = include_bytes!("../../../../src/assets/pets/hope-debug.png");
+const DEBUG_BUILTIN_SPRITE: &[u8] = include_bytes!("../../../src/assets/pets/hope-debug.png");
 
 #[derive(Debug, Clone)]
 struct RestoreEntry {
@@ -152,11 +152,11 @@ fn builtin_summaries() -> Result<Vec<PetSummary>> {
 }
 
 pub(crate) fn acquire_library_lock() -> Result<std::fs::File> {
-    let lock_path = crate::paths::pets_lock_path()?;
+    let lock_path = ha_core::paths::pets_lock_path()?;
     if let Some(parent) = lock_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    crate::platform::try_acquire_exclusive_lock(&lock_path)?
+    ha_core::platform::try_acquire_exclusive_lock(&lock_path)?
         .ok_or_else(|| anyhow::anyhow!("pet_library_busy"))
 }
 
@@ -180,7 +180,7 @@ fn read_bounded(path: &Path, limit: usize, code: &'static str) -> Result<Vec<u8>
 /// Only private dot-prefixed staging entries and the dedicated trash root are
 /// ever removed; installed package directories are never cleanup targets.
 fn cleanup_private_entries() {
-    if let Ok(root) = crate::paths::pets_dir() {
+    if let Ok(root) = ha_core::paths::pets_dir() {
         if let Ok(entries) = fs::read_dir(&root) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
@@ -200,7 +200,7 @@ fn cleanup_private_entries() {
         .filter(|entry| entry.expires_at > Instant::now())
         .map(|entry| entry.trash_path.clone())
         .collect::<std::collections::HashSet<_>>();
-    let Ok(trash_root) = crate::paths::pets_trash_dir() else {
+    let Ok(trash_root) = ha_core::paths::pets_trash_dir() else {
         return;
     };
     let Ok(entries) = fs::read_dir(&trash_root) else {
@@ -228,7 +228,7 @@ fn cleanup_private_entries() {
 }
 
 fn read_custom_summary(dir_id: &str, dir: &Path) -> Result<PetSummary> {
-    crate::paths::validate_pet_id(dir_id)?;
+    ha_core::paths::validate_pet_id(dir_id)?;
     let manifest_bytes = read_bounded(
         &dir.join("pet.json"),
         MAX_MANIFEST_BYTES,
@@ -262,7 +262,7 @@ fn read_custom_summary(dir_id: &str, dir: &Path) -> Result<PetSummary> {
 }
 
 fn custom_summaries() -> Result<Vec<PetSummary>> {
-    let root = crate::paths::pets_dir()?;
+    let root = ha_core::paths::pets_dir()?;
     fs::create_dir_all(&root)?;
     let mut pets = Vec::new();
     let mut skipped = 0usize;
@@ -275,7 +275,7 @@ fn custom_summaries() -> Result<Vec<PetSummary>> {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') || !crate::paths::is_valid_pet_id(&name) {
+        if name.starts_with('.') || !ha_core::paths::is_valid_pet_id(&name) {
             continue;
         }
         match read_custom_summary(&name, &entry.path()) {
@@ -284,7 +284,7 @@ fn custom_summaries() -> Result<Vec<PetSummary>> {
         }
     }
     if skipped > 0 {
-        crate::app_warn!(
+        ha_core::app_warn!(
             "pet",
             "library_entry_skipped",
             "Skipped {} invalid pet library entry or entries",
@@ -313,7 +313,7 @@ fn fingerprint(pets: &[PetSummary], selected: &PetRef) -> u64 {
 }
 
 pub fn list_pets() -> Result<PetLibrarySnapshot> {
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let selected = config.pet.selected_pet_ref.clone();
     let mut pets = builtin_summaries()?;
     pets.extend(custom_summaries()?);
@@ -344,8 +344,8 @@ fn package_for_export(pet_ref: &PetRef) -> Result<ValidatedPetPackage> {
     let id = pet_ref
         .custom_id()
         .ok_or_else(|| anyhow::anyhow!("pet_ref_invalid"))?;
-    crate::paths::validate_pet_id(id)?;
-    let root = crate::paths::pet_dir(id)?;
+    ha_core::paths::validate_pet_id(id)?;
+    let root = ha_core::paths::pet_dir(id)?;
     let summary = read_custom_summary(id, &root)?;
     let sprite_path = root.join(&summary.manifest.spritesheet_path);
     let sprite = fs::read(sprite_path)?;
@@ -386,21 +386,21 @@ fn collision_safe_id(base: &str, package_hash: &str) -> Result<String> {
     }
 
     let base = portable_pet_id(base);
-    if !crate::paths::pet_dir(&base)?.exists() {
+    if !ha_core::paths::pet_dir(&base)?.exists() {
         return Ok(base);
     }
     let hash = package_hash.strip_prefix("blake3:").unwrap_or(package_hash);
     let hash = prefix(hash, 8);
     let stem_len = 64usize.saturating_sub(hash.len() + 1);
     let mut candidate = format!("{}-{hash}", prefix(&base, stem_len));
-    if !crate::paths::pet_dir(&candidate)?.exists() {
+    if !ha_core::paths::pet_dir(&candidate)?.exists() {
         return Ok(candidate);
     }
     for suffix in 2..=999u16 {
         let tail = format!("-{hash}-{suffix}");
         let keep = 64usize.saturating_sub(tail.len());
         candidate = format!("{}{tail}", prefix(&base, keep));
-        if !crate::paths::pet_dir(&candidate)?.exists() {
+        if !ha_core::paths::pet_dir(&candidate)?.exists() {
             return Ok(candidate);
         }
     }
@@ -426,7 +426,7 @@ pub(crate) fn install_validated(
     }
 
     let dir_id = collision_safe_id(&package.manifest.id, &package.package_hash)?;
-    let root = crate::paths::pets_dir()?;
+    let root = ha_core::paths::pets_dir()?;
     let staging_id = format!(".install-{}", uuid::Uuid::new_v4());
     let staging = root.join(staging_id);
     fs::create_dir(&staging)?;
@@ -442,20 +442,20 @@ pub(crate) fn install_validated(
             asset_hash: package.asset_hash.clone(),
             imported_at: chrono::Utc::now().to_rfc3339(),
         };
-        crate::platform::write_atomic(&staging.join("pet.json"), &manifest_bytes)?;
-        crate::platform::write_atomic(
+        ha_core::platform::write_atomic(&staging.join("pet.json"), &manifest_bytes)?;
+        ha_core::platform::write_atomic(
             &staging.join("hope.json"),
             &serde_json::to_vec_pretty(&metadata)?,
         )?;
-        crate::platform::write_atomic(
+        ha_core::platform::write_atomic(
             &staging.join(&manifest.spritesheet_path),
             &package.sprite_bytes,
         )?;
         if let Ok(dir) = fs::File::open(&staging) {
             let _ = dir.sync_all();
         }
-        let target = crate::paths::pet_dir(&dir_id)?;
-        crate::platform::publish_dir_atomic(&staging, &target)?;
+        let target = ha_core::paths::pet_dir(&dir_id)?;
+        ha_core::platform::publish_dir_atomic(&staging, &target)?;
         read_custom_summary(&dir_id, &target)
     })();
     if result.is_err() {
@@ -470,21 +470,21 @@ pub fn delete_pet(pet_ref: &PetRef, expected_package_hash: &str) -> Result<PetDe
     let id = pet_ref
         .custom_id()
         .ok_or_else(|| anyhow::anyhow!("builtin_pet_cannot_be_deleted"))?;
-    crate::paths::validate_pet_id(id)?;
+    ha_core::paths::validate_pet_id(id)?;
     let _lock = acquire_library_lock()?;
     // Selection writes hold this same cross-process lock through config
     // persistence. Recheck only after acquiring it so a concurrent picker
     // cannot select the package between this guard and the rename below.
-    if crate::config::cached_config().pet.selected_pet_ref == *pet_ref {
+    if ha_core::config::cached_config().pet.selected_pet_ref == *pet_ref {
         anyhow::bail!("selected_pet_cannot_be_deleted");
     }
     cleanup_private_entries();
-    let source = crate::paths::pet_dir(id)?;
+    let source = ha_core::paths::pet_dir(id)?;
     let summary = read_custom_summary(id, &source)?;
     if summary.package_hash != expected_package_hash {
         anyhow::bail!("stale_pet_package");
     }
-    let trash_root = crate::paths::pets_trash_dir()?;
+    let trash_root = ha_core::paths::pets_trash_dir()?;
     fs::create_dir_all(&trash_root)?;
     let trash_path = trash_root.join(format!("{}-{id}", uuid::Uuid::new_v4()));
     fs::rename(&source, &trash_path)?;
@@ -536,7 +536,7 @@ pub fn restore_pet(token: &str) -> Result<PetSummary> {
             .remove(token);
         anyhow::bail!("pet_restore_token_expired");
     }
-    let target = crate::paths::pet_dir(&entry.target_id)?;
+    let target = ha_core::paths::pet_dir(&entry.target_id)?;
     if target.exists() {
         anyhow::bail!("pet_restore_target_occupied");
     }
@@ -556,7 +556,7 @@ pub fn restore_pet(token: &str) -> Result<PetSummary> {
 
 pub(crate) fn emit_library_changed() {
     let revision = LIBRARY_REVISION.fetch_add(1, Ordering::Relaxed) + 1;
-    if let Some(bus) = crate::globals::get_event_bus() {
+    if let Some(bus) = ha_core::globals::get_event_bus() {
         bus.emit(
             "pet:library_changed",
             serde_json::json!({ "revision": revision }),

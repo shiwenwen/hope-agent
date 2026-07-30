@@ -34,6 +34,7 @@ ha-core = { path = "../ha-core" }
 ha-acp = { path = "../ha-acp" }
 ha-browser = { path = "../ha-browser" }
 ha-mcp = { path = "../ha-mcp" }
+ha-pet = { path = "../ha-pet" }
 ha-vcs = { path = "../ha-vcs" }
 ha-design = { path = "../ha-design" }
 ha-mac = { path = "../ha-mac" }

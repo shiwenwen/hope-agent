@@ -67,6 +67,16 @@
 /crates/ha-mcp/src/config.rs      @shiwenwen
 /crates/ha-core/src/mcp/          @shiwenwen
 /crates/ha-core/src/mcp_hooks.rs  @shiwenwen
+# Pet 特征（阶段 4 自 ha-core 迁入 ha-pet）：导入链 SSRF / ZIP·路径逃逸·
+# symlink 校验（import/atlas）、库原子发布与删除恢复（store/asset）；
+# kernel 侧活动行查询在边界脱敏 incognito（pet_activity）与 ChatUiSurface/
+# 配置 trampoline（pet.rs）同级把关。
+/crates/ha-pet/src/import.rs      @shiwenwen
+/crates/ha-pet/src/atlas.rs       @shiwenwen
+/crates/ha-pet/src/store.rs       @shiwenwen
+/crates/ha-pet/src/asset.rs       @shiwenwen
+/crates/ha-core/src/pet.rs        @shiwenwen
+/crates/ha-core/src/session/pet_activity.rs @shiwenwen
 
 # === 跨 PR 契约：架构文档 ===
 /docs/architecture/               @shiwenwen

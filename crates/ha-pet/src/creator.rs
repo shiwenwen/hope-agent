@@ -233,10 +233,10 @@ pub async fn create_preview(request: PetCreateRequest) -> Result<PetImportPrevie
     let generation_prompt = format!(
         "Create one original full-body desktop mascot character on a transparent background. Center it, keep the entire character visible with generous padding, use a clear readable silhouette at tiny size, no text, no frame, no props cut off, no sprite grid. Neutral friendly three-quarter pose. Character direction: {prompt}"
     );
-    let media_config = crate::config::cached_config().media_gen.clone();
-    let outcome = crate::media_gen::execute_image(
+    let media_config = ha_core::config::cached_config().media_gen.clone();
+    let outcome = ha_core::media_gen::execute_image(
         &media_config,
-        crate::media_gen::ImageRequest {
+        ha_core::media_gen::ImageRequest {
             prompt: &generation_prompt,
             size: None,
             n: 1,
@@ -246,7 +246,7 @@ pub async fn create_preview(request: PetCreateRequest) -> Result<PetImportPrevie
             mask: None,
             explicit_model: None,
         },
-        crate::media_gen::UsageMeta {
+        ha_core::media_gen::UsageMeta {
             operation: "pet.create",
             source: "pet.creator",
             session_id: None,
@@ -260,7 +260,7 @@ pub async fn create_preview(request: PetCreateRequest) -> Result<PetImportPrevie
         .into_iter()
         .next()
         .ok_or_else(|| anyhow::anyhow!("pet_creator_no_image"))?;
-    let atlas = crate::blocking::run_blocking(move || build_atlas(&generated.data)).await?;
+    let atlas = ha_core::blocking::run_blocking(move || build_atlas(&generated.data)).await?;
     let manifest = PetManifest {
         id: portable_pet_id(&display_name),
         display_name,
@@ -268,8 +268,9 @@ pub async fn create_preview(request: PetCreateRequest) -> Result<PetImportPrevie
         sprite_version_number: PetSpriteVersion::V1,
         spritesheet_path: "spritesheet.png".to_string(),
     };
-    let package = crate::blocking::run_blocking(move || validate_package(manifest, atlas)).await?;
-    crate::blocking::run_blocking(move || super::import::register_created_preview(package)).await
+    let package =
+        ha_core::blocking::run_blocking(move || validate_package(manifest, atlas)).await?;
+    ha_core::blocking::run_blocking(move || super::import::register_created_preview(package)).await
 }
 
 #[cfg(test)]

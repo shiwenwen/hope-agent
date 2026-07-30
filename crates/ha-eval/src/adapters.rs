@@ -391,6 +391,7 @@ fn runtime_eval_db() -> Result<Arc<SessionDB>> {
     ha_browser::wire();
     ha_vcs::wire();
     ha_mcp::wire();
+    ha_pet::wire();
     ha_core::init_runtime("eval");
     ha_core::get_session_db()
         .cloned()

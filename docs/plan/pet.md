@@ -489,7 +489,7 @@ flowchart LR
 建议模块：
 
 ```text
-crates/ha-core/src/pet/
+crates/ha-core/src/pet/（注：阶段 4 已迁 crates/ha-pet/src/，kernel 留 pet.rs 面）
 ├── mod.rs          # owner service 门面
 ├── types.rs        # manifest/config/activity/import DTO
 ├── atlas.rs        # v1/v2 descriptor、帧表和校验

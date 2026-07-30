@@ -70,12 +70,12 @@ fn previews() -> &'static Mutex<HashMap<String, PreviewEntry>> {
 fn discard_upload_leases(upload_ids: Vec<String>) {
     let failure_count = upload_ids
         .iter()
-        .filter(|upload_id| crate::file_upload::discard_upload(upload_id).is_err())
+        .filter(|upload_id| ha_core::file_upload::discard_upload(upload_id).is_err())
         .count();
     if failure_count > 0 {
         // Import sources and upload ids may contain user-controlled or
         // capability-bearing data. Keep this diagnostic aggregate-only.
-        crate::app_warn!(
+        ha_core::app_warn!(
             "pet",
             "upload_cleanup_failed",
             "Failed to discard {} pet upload lease(s)",
@@ -423,11 +423,11 @@ fn package_from_uploaded(
     let mut uploaded = Vec::with_capacity(upload_ids.len());
     let mut total_declared_bytes = 0_u64;
     for id in upload_ids {
-        let lease = crate::file_upload::upload_status(id)?;
-        if lease.purpose != crate::file_upload::FileUploadPurpose::PetPackage {
+        let lease = ha_core::file_upload::upload_status(id)?;
+        if lease.purpose != ha_core::file_upload::FileUploadPurpose::PetPackage {
             anyhow::bail!("file upload purpose mismatch");
         }
-        if lease.state != crate::file_upload::FileUploadState::Complete
+        if lease.state != ha_core::file_upload::FileUploadState::Complete
             || lease.received_bytes != lease.size_bytes
         {
             anyhow::bail!("file upload is not complete");
@@ -440,18 +440,18 @@ fn package_from_uploaded(
             .pop()
             .ok_or_else(|| anyhow::anyhow!("pet_upload_missing"))?;
         let package = if name.to_ascii_lowercase().ends_with(".zip") {
-            let (_, bytes) = crate::file_upload::read_completed_upload_with_limit(
+            let (_, bytes) = ha_core::file_upload::read_completed_upload_with_limit(
                 &id,
-                crate::file_upload::FileUploadPurpose::PetPackage,
+                ha_core::file_upload::FileUploadPurpose::PetPackage,
                 MAX_ARCHIVE_BYTES as u64,
             )?;
             package_from_zip(bytes)?
         } else if name.to_ascii_lowercase().ends_with(".png")
             || name.to_ascii_lowercase().ends_with(".webp")
         {
-            let (_, bytes) = crate::file_upload::read_completed_upload_with_limit(
+            let (_, bytes) = ha_core::file_upload::read_completed_upload_with_limit(
                 &id,
-                crate::file_upload::FileUploadPurpose::PetPackage,
+                ha_core::file_upload::FileUploadPurpose::PetPackage,
                 MAX_SPRITE_BYTES as u64,
             )?;
             let manifest = generated_manifest(&name, &bytes, display_name)?;
@@ -476,9 +476,9 @@ fn package_from_uploaded(
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or("pet");
-    let (_, manifest_bytes) = crate::file_upload::read_completed_upload_with_limit(
+    let (_, manifest_bytes) = ha_core::file_upload::read_completed_upload_with_limit(
         &uploaded[manifest_index].0,
-        crate::file_upload::FileUploadPurpose::PetPackage,
+        ha_core::file_upload::FileUploadPurpose::PetPackage,
         MAX_MANIFEST_BYTES as u64,
     )?;
     let mut manifest = parse_manifest(&manifest_bytes, fallback)?;
@@ -499,9 +499,9 @@ fn package_from_uploaded(
     }
     let sprite_name = uploaded[sprite_index[0]].1.clone();
     manifest.spritesheet_path = sprite_name;
-    let (_, sprite_bytes) = crate::file_upload::read_completed_upload_with_limit(
+    let (_, sprite_bytes) = ha_core::file_upload::read_completed_upload_with_limit(
         &uploaded[sprite_index[0]].0,
-        crate::file_upload::FileUploadPurpose::PetPackage,
+        ha_core::file_upload::FileUploadPurpose::PetPackage,
         MAX_SPRITE_BYTES as u64,
     )?;
     infer_missing_manifest_version(&manifest_bytes, &mut manifest, &sprite_bytes);
@@ -918,12 +918,12 @@ fn parse_link_spec(raw: &str, display_name: Option<&str>) -> Result<LinkSpec> {
 
 async fn download_link_image(raw: &str) -> Result<Vec<u8>> {
     let mut next =
-        crate::security::ssrf::check_url(raw, crate::security::ssrf::SsrfPolicy::Strict, &[])
+        ha_core::security::ssrf::check_url(raw, ha_core::security::ssrf::SsrfPolicy::Strict, &[])
             .await?;
     if next.scheme() != "https" {
         anyhow::bail!("pet_link_https_required");
     }
-    let client = crate::provider::apply_proxy_for_url(
+    let client = ha_core::provider::apply_proxy_for_url(
         reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30)),
@@ -942,9 +942,9 @@ async fn download_link_image(raw: &str) -> Result<Vec<u8>> {
             if redirected.scheme() != "https" {
                 anyhow::bail!("pet_link_https_required");
             }
-            next = crate::security::ssrf::check_url(
+            next = ha_core::security::ssrf::check_url(
                 redirected.as_str(),
-                crate::security::ssrf::SsrfPolicy::Strict,
+                ha_core::security::ssrf::SsrfPolicy::Strict,
                 &[],
             )
             .await?;
@@ -968,7 +968,8 @@ async fn download_link_image(raw: &str) -> Result<Vec<u8>> {
             }
         }
         let bytes =
-            crate::security::http_stream::read_bytes_capped(response, MAX_SPRITE_BYTES + 1).await?;
+            ha_core::security::http_stream::read_bytes_capped(response, MAX_SPRITE_BYTES + 1)
+                .await?;
         if bytes.is_empty() || bytes.len() > MAX_SPRITE_BYTES {
             anyhow::bail!("pet_sprite_too_large");
         }
@@ -993,7 +994,7 @@ pub async fn preview_import_async(request: PetImportPreviewRequest) -> Result<Pe
                 manifest.sprite_version_number = version;
             }
             let package = validate_package(manifest, bytes)?;
-            crate::blocking::run_blocking(move || {
+            ha_core::blocking::run_blocking(move || {
                 register_preview(
                     package,
                     PetSourceKind::Url,
@@ -1005,7 +1006,7 @@ pub async fn preview_import_async(request: PetImportPreviewRequest) -> Result<Pe
             .await
         }
         source => {
-            crate::blocking::run_blocking(move || {
+            ha_core::blocking::run_blocking(move || {
                 preview_import(PetImportPreviewRequest {
                     source,
                     display_name,
@@ -1047,7 +1048,7 @@ pub async fn commit_import(request: PetImportCommitRequest) -> Result<PetImportC
         )
     };
     if !expired_upload_ids.is_empty() {
-        crate::blocking::run_blocking(move || {
+        ha_core::blocking::run_blocking(move || {
             discard_upload_leases(expired_upload_ids);
             Ok::<_, anyhow::Error>(())
         })
@@ -1058,7 +1059,7 @@ pub async fn commit_import(request: PetImportCommitRequest) -> Result<PetImportC
         anyhow::bail!("pet_preview_expired");
     }
     let install_entry = entry.clone();
-    let (pet, imported) = crate::blocking::run_blocking(move || -> Result<_> {
+    let (pet, imported) = ha_core::blocking::run_blocking(move || -> Result<_> {
         recheck(&install_entry)?;
         super::store::install_validated(
             &install_entry.package,
@@ -1077,7 +1078,7 @@ pub async fn commit_import(request: PetImportCommitRequest) -> Result<PetImportC
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(&request.preview_token);
-    crate::blocking::run_blocking(move || {
+    ha_core::blocking::run_blocking(move || {
         discard_upload_leases(entry.upload_ids);
         Ok::<_, anyhow::Error>(())
     })
@@ -1095,7 +1096,7 @@ pub async fn cancel_import_preview(preview_token: String) -> Result<bool> {
     let Some(entry) = entry else {
         return Ok(false);
     };
-    crate::blocking::run_blocking(move || {
+    ha_core::blocking::run_blocking(move || {
         discard_upload_leases(entry.upload_ids);
         Ok::<_, anyhow::Error>(())
     })

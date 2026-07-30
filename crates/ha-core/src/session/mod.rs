@@ -15,6 +15,7 @@ mod helpers;
 pub(crate) use helpers::workspace_root;
 mod ide_context;
 mod pending;
+pub mod pet_activity;
 mod stream_persistence;
 mod subagent_db;
 mod tasks;

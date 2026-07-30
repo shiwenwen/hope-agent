@@ -15,20 +15,20 @@ fn bad_request(error: anyhow::Error) -> AppError {
     AppError::bad_request(error.to_string())
 }
 
-pub async fn get_config() -> Json<ha_core::pet::PetConfig> {
+pub async fn get_config() -> Json<ha_pet::PetConfig> {
     Json(ha_core::config::cached_config().pet.clone())
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PetConfigBody {
-    pub config: ha_core::pet::PetConfig,
+    pub config: ha_pet::PetConfig,
 }
 
 pub async fn save_config(Json(body): Json<PetConfigBody>) -> Result<StatusCode, AppError> {
     if body.config.enabled != ha_core::config::cached_config().pet.enabled {
         return Err(overlay_unsupported().await);
     }
-    ha_core::pet::update_config(None, Some(body.config.selected_pet_ref), "http")
+    ha_pet::update_config(None, Some(body.config.selected_pet_ref), "http")
         .await
         .map_err(bad_request)?;
     Ok(StatusCode::NO_CONTENT)
@@ -42,12 +42,12 @@ pub struct PetEnabledBody {
 
 pub async fn set_enabled(
     Json(_body): Json<PetEnabledBody>,
-) -> Result<Json<ha_core::pet::PetConfig>, AppError> {
+) -> Result<Json<ha_pet::PetConfig>, AppError> {
     Err(overlay_unsupported().await)
 }
 
-pub async fn list() -> Result<Json<ha_core::pet::PetLibrarySnapshot>, AppError> {
-    ha_core::blocking::run_blocking(ha_core::pet::list_pets)
+pub async fn list() -> Result<Json<ha_pet::PetLibrarySnapshot>, AppError> {
+    ha_core::blocking::run_blocking(ha_pet::list_pets)
         .await
         .map(Json)
         .map_err(bad_request)
@@ -73,7 +73,7 @@ pub async fn asset_descriptor(
 ) -> Result<Json<AssetDescriptor>, AppError> {
     let asset_id = query.asset_id.clone();
     let descriptor =
-        ha_core::blocking::run_blocking(move || ha_core::pet::resolve_installed_sprite(&asset_id))
+        ha_core::blocking::run_blocking(move || ha_pet::resolve_installed_sprite(&asset_id))
             .await
             .map_err(bad_request)?;
     Ok(Json(AssetDescriptor {
@@ -91,11 +91,10 @@ pub async fn sprite(
     Query(query): Query<AssetQuery>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let (bytes, descriptor) = ha_core::blocking::run_blocking(move || {
-        ha_core::pet::read_installed_sprite(&query.asset_id)
-    })
-    .await
-    .map_err(bad_request)?;
+    let (bytes, descriptor) =
+        ha_core::blocking::run_blocking(move || ha_pet::read_installed_sprite(&query.asset_id))
+            .await
+            .map_err(bad_request)?;
     let etag = format!("\"{}\"", descriptor.etag);
     if headers
         .get(IF_NONE_MATCH)
@@ -121,8 +120,8 @@ pub async fn sprite(
         .map_err(|error| AppError::internal(error.to_string()))
 }
 
-pub async fn codex_candidates() -> Result<Json<ha_core::pet::PetCandidatePage>, AppError> {
-    ha_core::blocking::run_blocking(ha_core::pet::discover_codex_candidates)
+pub async fn codex_candidates() -> Result<Json<ha_pet::PetCandidatePage>, AppError> {
+    ha_core::blocking::run_blocking(ha_pet::discover_codex_candidates)
         .await
         .map(Json)
         .map_err(bad_request)
@@ -131,7 +130,7 @@ pub async fn codex_candidates() -> Result<Json<ha_core::pet::PetCandidatePage>, 
 pub async fn candidate_thumbnail(
     Path(candidate_id): Path<String>,
 ) -> Result<Json<Vec<u8>>, AppError> {
-    ha_core::blocking::run_blocking(move || ha_core::pet::preview_thumbnail(&candidate_id))
+    ha_core::blocking::run_blocking(move || ha_pet::preview_thumbnail(&candidate_id))
         .await
         .map(Json)
         .map_err(bad_request)
@@ -140,7 +139,7 @@ pub async fn candidate_thumbnail(
 pub async fn preview_thumbnail(
     Path(preview_token): Path<String>,
 ) -> Result<Json<Vec<u8>>, AppError> {
-    ha_core::blocking::run_blocking(move || ha_core::pet::preview_token_thumbnail(&preview_token))
+    ha_core::blocking::run_blocking(move || ha_pet::preview_token_thumbnail(&preview_token))
         .await
         .map(Json)
         .map_err(bad_request)
@@ -148,13 +147,13 @@ pub async fn preview_thumbnail(
 
 #[derive(Debug, Deserialize)]
 pub struct CreatePreviewBody {
-    pub request: ha_core::pet::PetCreateRequest,
+    pub request: ha_pet::PetCreateRequest,
 }
 
 pub async fn create_preview(
     Json(body): Json<CreatePreviewBody>,
-) -> Result<Json<ha_core::pet::PetImportPreview>, AppError> {
-    ha_core::pet::create_preview(body.request)
+) -> Result<Json<ha_pet::PetImportPreview>, AppError> {
+    ha_pet::create_preview(body.request)
         .await
         .map(Json)
         .map_err(bad_request)
@@ -162,22 +161,21 @@ pub async fn create_preview(
 
 #[derive(Debug, Deserialize)]
 pub struct PreviewBody {
-    pub request: ha_core::pet::PetImportPreviewRequest,
+    pub request: ha_pet::PetImportPreviewRequest,
 }
 
 pub async fn import_preview(
     Json(body): Json<PreviewBody>,
-) -> Result<Json<ha_core::pet::PetImportPreview>, AppError> {
+) -> Result<Json<ha_pet::PetImportPreview>, AppError> {
     if matches!(
         &body.request.source,
-        ha_core::pet::PetImportSource::LocalPath { .. }
-            | ha_core::pet::PetImportSource::LocalPaths { .. }
+        ha_pet::PetImportSource::LocalPath { .. } | ha_pet::PetImportSource::LocalPaths { .. }
     ) {
         return Err(AppError::bad_request(
             "pet_local_paths_desktop_only".to_string(),
         ));
     }
-    ha_core::pet::preview_import_async(body.request)
+    ha_pet::preview_import_async(body.request)
         .await
         .map(Json)
         .map_err(bad_request)
@@ -192,7 +190,7 @@ pub struct CancelPreviewBody {
 pub async fn cancel_import_preview(
     Json(body): Json<CancelPreviewBody>,
 ) -> Result<Json<bool>, AppError> {
-    ha_core::pet::cancel_import_preview(body.preview_token)
+    ha_pet::cancel_import_preview(body.preview_token)
         .await
         .map(Json)
         .map_err(bad_request)
@@ -200,16 +198,16 @@ pub async fn cancel_import_preview(
 
 #[derive(Debug, Deserialize)]
 pub struct CommitBody {
-    pub request: ha_core::pet::PetImportCommitRequest,
+    pub request: ha_pet::PetImportCommitRequest,
 }
 
 pub async fn import_commit(
     Json(body): Json<CommitBody>,
-) -> Result<Json<ha_core::pet::PetImportCommitResult>, AppError> {
+) -> Result<Json<ha_pet::PetImportCommitResult>, AppError> {
     if body.request.enable_after_import {
         return Err(overlay_unsupported().await);
     }
-    ha_core::pet::commit_import(body.request)
+    ha_pet::commit_import(body.request)
         .await
         .map(Json)
         .map_err(bad_request)
@@ -218,15 +216,15 @@ pub async fn import_commit(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteBody {
-    pub pet_ref: ha_core::pet::PetRef,
+    pub pet_ref: ha_pet::PetRef,
     pub expected_package_hash: String,
 }
 
 pub async fn delete(
     Json(body): Json<DeleteBody>,
-) -> Result<Json<ha_core::pet::PetDeleteResult>, AppError> {
+) -> Result<Json<ha_pet::PetDeleteResult>, AppError> {
     ha_core::blocking::run_blocking(move || {
-        ha_core::pet::delete_pet(&body.pet_ref, &body.expected_package_hash)
+        ha_pet::delete_pet(&body.pet_ref, &body.expected_package_hash)
     })
     .await
     .map(Json)
@@ -235,13 +233,11 @@ pub async fn delete(
 
 #[derive(Debug, Deserialize)]
 pub struct RestoreBody {
-    pub request: ha_core::pet::PetRestoreRequest,
+    pub request: ha_pet::PetRestoreRequest,
 }
 
-pub async fn restore(
-    Json(body): Json<RestoreBody>,
-) -> Result<Json<ha_core::pet::PetSummary>, AppError> {
-    ha_core::blocking::run_blocking(move || ha_core::pet::restore_pet(&body.request.restore_token))
+pub async fn restore(Json(body): Json<RestoreBody>) -> Result<Json<ha_pet::PetSummary>, AppError> {
+    ha_core::blocking::run_blocking(move || ha_pet::restore_pet(&body.request.restore_token))
         .await
         .map(Json)
         .map_err(bad_request)
@@ -250,13 +246,13 @@ pub async fn restore(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportBody {
-    pub pet_ref: ha_core::pet::PetRef,
+    pub pet_ref: ha_pet::PetRef,
 }
 
 pub async fn export(
     Json(body): Json<ExportBody>,
-) -> Result<Json<ha_core::pet::PetExportResult>, AppError> {
-    ha_core::blocking::run_blocking(move || ha_core::pet::export_codex_package(&body.pet_ref))
+) -> Result<Json<ha_pet::PetExportResult>, AppError> {
+    ha_core::blocking::run_blocking(move || ha_pet::export_codex_package(&body.pet_ref))
         .await
         .map(Json)
         .map_err(bad_request)
@@ -264,8 +260,8 @@ pub async fn export(
 
 pub async fn activity(
     State(ctx): State<Arc<AppContext>>,
-) -> Result<Json<ha_core::pet::PetActivitySnapshot>, AppError> {
-    ha_core::pet::activity_snapshot(ctx.session_db.clone())
+) -> Result<Json<ha_pet::PetActivitySnapshot>, AppError> {
+    ha_pet::activity_snapshot(ctx.session_db.clone())
         .await
         .map(Json)
         .map_err(AppError::from)

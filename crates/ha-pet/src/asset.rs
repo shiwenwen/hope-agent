@@ -21,8 +21,8 @@ fn read_bounded(path: &std::path::Path, limit: usize, code: &'static str) -> Res
 }
 
 fn custom_sprite(id: &str) -> Result<(PathBuf, &'static str, String)> {
-    crate::paths::validate_pet_id(id)?;
-    let dir = crate::paths::pet_dir(id)?;
+    ha_core::paths::validate_pet_id(id)?;
+    let dir = ha_core::paths::pet_dir(id)?;
     let canonical_dir = dir.canonicalize().context("pet_package_missing")?;
     let manifest: PetManifest = serde_json::from_slice(&read_bounded(
         &dir.join("pet.json"),

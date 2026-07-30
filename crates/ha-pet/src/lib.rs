@@ -1,9 +1,16 @@
-//! Desktop Pet core.
+//! 桌面宠物特征 crate（阶段 4 第四刀，自 ha-core 迁出）：包格式与校验 /
+//! sprite 库 store / 导入（含 Codex 兼容）/ creator / 活动投影。
 //!
-//! The module owns the transport-neutral package format, validation, library
-//! store and activity projection. It deliberately contains no Tauri types. The
-//! activity projection reads only a bounded terminal-assistant preview for an
-//! unread Ready turn; all other overlay state remains structured metadata.
+//! kernel 侧留存（`ha_core::pet`）：`ChatUiSurface`（chat_turns 表列
+//! wire 类型）、`emit_activity_changed` + 活动修订计数、`update_config`
+//! trampoline；活动候选行查询随表下沉
+//! `ha_core::session::pet_activity`（特征侧不持 raw conn）。
+//!
+//! 装配契约与其它特征 crate 相同：每个调 `ha_core::init_runtime` 的二进
+//! 制必须先调 [`wire()`]。The crate deliberately contains no Tauri
+//! types. The activity projection reads only a bounded terminal-assistant
+//! preview for an unread Ready turn; all other overlay state remains
+//! structured metadata.
 
 pub mod activity;
 pub mod asset;
@@ -14,9 +21,10 @@ pub mod store;
 pub mod types;
 
 pub use activity::activity_snapshot;
-pub use activity::emit_activity_changed;
+// kernel 持有（写路径在 kernel），再导出保持既有路径。
 pub use asset::{read_installed_sprite, resolve_installed_sprite};
 pub use creator::create_preview;
+pub use ha_core::pet::emit_activity_changed;
 pub use import::{
     cancel_import_preview, commit_import, discover_codex_candidates, preview_import,
     preview_import_async, preview_thumbnail, preview_token_thumbnail,
@@ -43,7 +51,7 @@ pub async fn update_config(
     {
         anyhow::bail!("pet_ref_invalid");
     }
-    let event_config = crate::blocking::run_blocking(move || {
+    let event_config = ha_core::blocking::run_blocking(move || {
         let _library_guard = selected_pet_ref
             .as_ref()
             .map(|_| store::acquire_library_lock())
@@ -54,7 +62,7 @@ pub async fn update_config(
                 anyhow::bail!("pet_not_found");
             }
         }
-        crate::config::mutate_config(("pet", source), move |store| {
+        ha_core::config::mutate_config(("pet", source), move |store| {
             if let Some(enabled) = enabled {
                 store.pet.enabled = enabled;
             }
@@ -65,7 +73,7 @@ pub async fn update_config(
         })
     })
     .await?;
-    if let Some(bus) = crate::globals::get_event_bus() {
+    if let Some(bus) = ha_core::globals::get_event_bus() {
         bus.emit(
             "pet:config_changed",
             serde_json::json!({
@@ -76,4 +84,23 @@ pub async fn update_config(
         );
     }
     Ok(event_config)
+}
+
+/// 幂等装配：注册 kernel 的 pet 配置更新钩子（`ha_core::pet::update_config`
+/// trampoline 的真实现）。
+pub fn wire() {
+    static WIRED: std::sync::Once = std::sync::Once::new();
+    WIRED.call_once(|| {
+        fn config_updater(
+            enabled: Option<bool>,
+            selected_pet_ref: Option<PetRef>,
+            source: &'static str,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = anyhow::Result<PetConfig>> + Send + 'static>,
+        > {
+            Box::pin(update_config(enabled, selected_pet_ref, source))
+        }
+        ha_core::pet::register_pet_config_updater(config_updater)
+            .expect("ha_pet::wire() registers the pet config updater exactly once");
+    });
 }

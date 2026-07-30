@@ -192,7 +192,7 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 
 | 事件名 | 触发点 | Payload 关键字段 |
 |---|---|---|
-| `pet:config_changed` | `ha_core::pet::update_config` | `{ enabled, selectedPetRef, source }`（不含素材或路径） |
+| `pet:config_changed` | `ha_pet::update_config` | `{ enabled, selectedPetRef, source }`（不含素材或路径） |
 | `pet:library_changed` | pet install/delete/restore | library 失效提示，消费者重拉 |
 | `pet:activity_changed` | 合格 chat turn / pending / read watermark 变化 | activity 失效提示，消费者重拉 snapshot |
 | `pet:navigate` | PetWindow 点击 activity | typed `PetNavigationTarget`；Tauri 直发给主 App |

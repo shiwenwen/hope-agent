@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn portable_ids_never_become_paths() {
         assert_eq!(portable_pet_id("Hope Pet"), "hope-pet");
-        assert!(crate::paths::is_valid_pet_id(&portable_pet_id("../宠物")));
+        assert!(ha_core::paths::is_valid_pet_id(&portable_pet_id("../宠物")));
     }
 
     #[test]
