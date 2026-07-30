@@ -53,6 +53,7 @@ import { AgentMentionChip } from "@/components/chat/agent-mention/AgentMentionCh
 import { agentIdFromHref } from "@/components/chat/agent-mention/agentTokens"
 import { SkillMentionChip } from "@/components/chat/skill-mention/SkillMentionChip"
 import { isSkillMentionName, skillNameFromHref } from "@/components/chat/skill-mention/skillTokens"
+import { observeMarkdownFaviconVisibility } from "./markdownFaviconVisibility"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
 // KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
@@ -122,51 +123,7 @@ const streamingAnimation: AnimateOptions = {
 // 保留 incomplete-markdown 处理，只是不再逐字渐显，长回复换来平滑出字。
 const ANIMATE_MAX_CHARS = 4000
 const MARKDOWN_FAVICON_MAX_REQUESTS = 48
-const MARKDOWN_FAVICON_ROOT_MARGIN = "160px"
 const MarkdownFaviconBudgetContext = createContext<SafeFaviconBudget | null>(null)
-const markdownFaviconVisibilityCallbacks = new Map<Element, () => void>()
-let markdownFaviconVisibilityObserver: IntersectionObserver | null = null
-
-function disconnectMarkdownFaviconObserverIfIdle(observer: IntersectionObserver) {
-  if (markdownFaviconVisibilityCallbacks.size > 0) return
-  observer.disconnect()
-  if (markdownFaviconVisibilityObserver === observer) {
-    markdownFaviconVisibilityObserver = null
-  }
-}
-
-function observeMarkdownFaviconVisibility(element: Element, onVisible: () => void) {
-  if (typeof IntersectionObserver === "undefined") return () => undefined
-
-  if (!markdownFaviconVisibilityObserver) {
-    markdownFaviconVisibilityObserver = new IntersectionObserver(
-      (entries) => {
-        const observer = markdownFaviconVisibilityObserver
-        if (!observer) return
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue
-          const callback = markdownFaviconVisibilityCallbacks.get(entry.target)
-          if (!callback) continue
-          markdownFaviconVisibilityCallbacks.delete(entry.target)
-          observer.unobserve(entry.target)
-          callback()
-        }
-        disconnectMarkdownFaviconObserverIfIdle(observer)
-      },
-      { rootMargin: MARKDOWN_FAVICON_ROOT_MARGIN },
-    )
-  }
-
-  const observer = markdownFaviconVisibilityObserver
-  markdownFaviconVisibilityCallbacks.set(element, onVisible)
-  observer.observe(element)
-
-  return () => {
-    markdownFaviconVisibilityCallbacks.delete(element)
-    observer.unobserve(element)
-    disconnectMarkdownFaviconObserverIfIdle(observer)
-  }
-}
 
 // Streamdown 默认 linkSafety 弹窗的 "Open link" 按钮调用 window.open，
 // Tauri webview 不支持该行为（点击无反应），改走 open_url 命令调起系统浏览器。
