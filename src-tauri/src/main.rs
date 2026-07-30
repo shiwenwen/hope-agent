@@ -19,6 +19,7 @@ fn main() {
     ha_mac::wire();
     ha_design::wire();
     ha_browser::wire();
+    ha_vcs::wire();
 
     // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,
     // NOT persisted). Skips every tool-level approval gate for THIS launch only.

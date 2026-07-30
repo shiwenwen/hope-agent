@@ -337,7 +337,7 @@ pnpm tauri build       # 打生产包
 
 ## 项目结构
 
-Cargo Workspace 分层多 Crate 架构：kernel 能力在 `ha-core`，独立特征业务在特征 crate（`ha-updater` / `ha-weather`，随 crate 拆分继续迁出）：
+Cargo Workspace 分层多 Crate 架构：kernel 能力在 `ha-core`，独立特征业务在特征 crate（`ha-acp` / `ha-browser` / `ha-design` / `ha-mac` / `ha-updater` / `ha-vcs` / `ha-weather`，随 crate 拆分继续迁出）：
 
 ```
 crates/
@@ -349,6 +349,7 @@ crates/
   ha-design/         设计空间特征 crate（artifacts 存储 + 编译/导出 + 三工具）
   ha-mac/            macOS 控制特征 crate（Accessibility / 截屏 / mac_control 工具）
   ha-updater/        自升级特征 crate（依赖 ha-core，壳层 wire() 装配）
+  ha-vcs/            VCS/本地执行特征 crate（git 控制平面操作 + Docker 沙箱机器 + SearxNG 部署）
   ha-weather/        天气特征 crate（依赖 ha-core，壳层 wire() 装配）
   ha-server/         axum HTTP/WS 守护进程（薄壳）
   ha-browser-host/   浏览器辅助进程
@@ -375,7 +376,7 @@ skills/          内置技能（随应用发行）
 ```bash
 pnpm tauri dev                    # 桌面开发
 cargo check --workspace              # Rust 依赖 / 类型检查
-cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-updater -p ha-weather -p ha-server   # 核心测试
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-updater -p ha-vcs -p ha-weather -p ha-server   # 核心测试
 node scripts/sync-i18n.mjs --check   # 检查翻译缺失
 ```
 

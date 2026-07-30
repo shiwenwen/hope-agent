@@ -187,7 +187,7 @@ where
         anyhow::bail!("docker run failed: {}", stderr);
     }
     let container_id = String::from_utf8_lossy(&run.stdout).trim().to_string();
-    let short_id = crate::truncate_utf8(&container_id, 12);
+    let short_id = ha_core::truncate_utf8(&container_id, 12);
     log(&format!("Container started ({})", short_id));
 
     // 7. Health check (up to 30s)

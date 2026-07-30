@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::error::AppError;
 use crate::AppContext;
-use ha_core::git_control::{
+use ha_vcs::git_control::{
     self, GitCommitInput, GitCreateBranchInput, GitCreatePullRequestInput, GitDiffScope,
     GitEnablePullRequestAutoMergeInput, GitHandoffInput, GitIndexMutationInput, GitPushInput,
     GitSwitchBranchInput,

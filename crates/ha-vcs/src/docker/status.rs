@@ -63,7 +63,7 @@ async fn status_inner() -> SearxngDockerStatus {
     let empty_status = SearxngDockerStatus {
         docker_installed: false,
         docker_not_running: false,
-        host_os: crate::sandbox::host_os().to_string(),
+        host_os: ha_core::sandbox::host_os().to_string(),
         container_exists: false,
         container_running: false,
         port: None,
@@ -116,7 +116,7 @@ async fn status_inner() -> SearxngDockerStatus {
 
     SearxngDockerStatus {
         docker_installed: true,
-        host_os: crate::sandbox::host_os().to_string(),
+        host_os: ha_core::sandbox::host_os().to_string(),
         docker_not_running: false,
         container_exists,
         container_running,

@@ -27,7 +27,7 @@ Hope Agent 的 Sandbox 子系统有两条相互独立但共享 Docker 状态引�
 | `DockerStatus` | Docker CLI/daemon 状态；Windows 额外报告 WSL / 默认发行版 / WSL Docker Engine 探测结果与选中的 backend |
 | strict 原因 | `AskReason::forbids_allow_always()` 为 true 的审批原因，不能 AllowAlways、不能超时 proceed、不能被沙箱软放行 |
 | soft approval | Default/Smart 层的普通编辑类审批、编辑命令审批等，沙箱可在特定模式下放松 |
-| SearXNG Docker | `crates/ha-core/src/docker/` 下的 Web Search 托管容器子系统 |
+| SearXNG Docker | `crates/ha-vcs/src/docker/` 下的 Web Search 托管容器子系统 |
 
 ## 模块与源码
 
@@ -35,7 +35,8 @@ Hope Agent 的 Sandbox 子系统有两条相互独立但共享 Docker 状态引�
 |------|------|------|
 | Sandbox mode 类型 | `crates/ha-core/src/permission/mode.rs` | 定义 `SandboxMode`、serde wire 值、默认值和软审批放松判定 |
 | 权限引擎 | `crates/ha-core/src/permission/engine.rs` | 读取 `ResolveContext.sandbox_mode`，在 strict/AllowAlways 后执行 sandbox soft allow |
-| 执行沙箱 runtime | `crates/ha-core/src/sandbox.rs` | Docker 执行、状态检测、配置持久化、隔离副本、容器清理 |
+| 沙箱配置面 + trampoline | `crates/ha-core/src/sandbox.rs` | `SandboxConfig` 持久化、`DockerStatus`/`DockerBackend` wire 类型、`ensure`/`exec`/`check` 三个 hook trampoline（未接线 fail-closed，绝不回落宿主机） |
+| 执行沙箱机器 | `crates/ha-vcs/src/sandbox.rs` | Docker/WSL 执行、状态检测、隔离副本、容器清理（经 `ha_core::vcs_hooks` 注册） |
 | exec 工具 | `crates/ha-core/src/tools/exec.rs` | 根据会话/legacy 参数决定执行位置，调用 `ensure_sandbox_available()` 和 `exec_in_sandbox_mode()` |
 | Tool context | `crates/ha-core/src/tools/execution.rs` | 将 `ToolExecContext.sandbox_mode` 传给权限引擎 |
 | Agent 配置 | `crates/ha-core/src/agent_config.rs` | `CapabilitiesConfig.default_sandbox_mode` + legacy `sandbox` 兼容 |
@@ -47,7 +48,7 @@ Hope Agent 的 Sandbox 子系统有两条相互独立但共享 Docker 状态引�
 | Chat UI | `src/components/chat/input/PermissionModeSwitcher.tsx` + `SandboxModeSwitcher.tsx` | 权限弹层内默认折叠的会话级沙箱选择和 Docker 引导 |
 | Settings UI | `src/components/settings/agent-panel/tabs/CapabilitiesTab.tsx` / `SandboxPanel.tsx` | Agent 默认沙箱模式、Docker 执行沙箱配置 |
 | Docker 引导 | `src/components/settings/DockerSetupHint.tsx` | 平台化安装/启动提示，供多处复用 |
-| SearXNG Docker | `crates/ha-core/src/docker/*` | Web Search 本地 SearXNG 容器管理 |
+| SearXNG Docker | `crates/ha-vcs/src/docker/*` | Web Search 本地 SearXNG 容器管理 |
 
 ## 数据模型
 
@@ -553,7 +554,7 @@ HTTP `PUT` body：
 
 ## SearXNG Docker 子系统
 
-SearXNG Docker 是 Web Search 的本地搜索引擎部署能力，源码在 `crates/ha-core/src/docker/`。它复用 Docker 平台引导，但不是工具执行沙箱。
+SearXNG Docker 是 Web Search 的本地搜索引擎部署能力，源码在 `crates/ha-vcs/src/docker/`。它复用 Docker 平台引导，但不是工具执行沙箱。
 
 ### 模块结构
 

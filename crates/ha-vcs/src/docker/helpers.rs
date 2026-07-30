@@ -11,7 +11,7 @@ use super::{app_log, info, CONTAINER_NAME, DEFAULT_HOST_PORT, SEARXNG_DIR_NAME};
 /// in this module go through it.
 pub(super) fn docker_command() -> Command {
     let mut cmd = Command::new("docker");
-    crate::platform::hide_console_tokio(&mut cmd);
+    ha_core::platform::hide_console_tokio(&mut cmd);
     cmd
 }
 
@@ -109,7 +109,7 @@ fn generate_secret_key() -> String {
 
 /// SearXNG config directory under ~/.hope-agent/searxng/
 fn searxng_config_dir() -> Result<PathBuf> {
-    let dir = crate::paths::root_dir()?.join(SEARXNG_DIR_NAME);
+    let dir = ha_core::paths::root_dir()?.join(SEARXNG_DIR_NAME);
     Ok(dir)
 }
 

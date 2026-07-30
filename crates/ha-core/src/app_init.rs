@@ -1933,18 +1933,29 @@ fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runti
         ),
     }
 
-    match session_db.reconcile_interrupted_git_operations() {
-        Ok(0) => {}
-        Ok(count) => app_info!(
+    // git 操作对账在 ha-vcs（handoff 回滚需要 git 机器），经 vcs_hooks 同步
+    // 内联回调——本函数的 ordering invariant（先于 replay_pending_jobs）对
+    // 它同样成立，不得改为后台任务。未接线：簿记行保持 running 原状（接线
+    // 进程接手时补账），但 handoff 中断的源 checkout 不会被恢复，故 warn。
+    match crate::vcs_hooks::vcs_hooks() {
+        Some(hooks) => match (hooks.git_ops_reconciler)(session_db) {
+            Ok(0) => {}
+            Ok(count) => app_info!(
+                "git_control",
+                "startup_recovery",
+                "reconciled {} interrupted Git operation(s)",
+                count
+            ),
+            Err(error) => app_warn!(
+                "git_control",
+                "startup_recovery",
+                "failed to reconcile interrupted Git operations: {error:#}"
+            ),
+        },
+        None => app_warn!(
             "git_control",
             "startup_recovery",
-            "reconciled {} interrupted Git operation(s)",
-            count
-        ),
-        Err(error) => app_warn!(
-            "git_control",
-            "startup_recovery",
-            "failed to reconcile interrupted Git operations: {error:#}"
+            "ha-vcs not wired; skipping interrupted Git operation reconciliation"
         ),
     }
 

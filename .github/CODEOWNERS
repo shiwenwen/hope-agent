@@ -48,6 +48,15 @@
 /crates/ha-config-schema/src/permission.rs  @shiwenwen
 /crates/ha-config-schema/src/hooks.rs       @shiwenwen
 /crates/ha-config-schema/src/config.rs      @shiwenwen
+# VCS/沙箱特征（阶段 4 自 ha-core 迁入 ha-vcs）：sandbox mount 黑名单 /
+# env 脱敏 / WSL socket 守卫、git mutation·handoff（写用户仓库）、Docker
+# 容器执行与部署；kernel 侧 sandbox trampoline 的 fail-closed 语义
+# （未接线即 Err、绝不回落宿主机）与 vcs_hooks 注册面同级别把关。
+/crates/ha-vcs/src/sandbox.rs     @shiwenwen
+/crates/ha-vcs/src/git_control.rs @shiwenwen
+/crates/ha-vcs/src/docker/        @shiwenwen
+/crates/ha-core/src/sandbox.rs    @shiwenwen
+/crates/ha-core/src/vcs_hooks.rs  @shiwenwen
 
 # === 跨 PR 契约：架构文档 ===
 /docs/architecture/               @shiwenwen

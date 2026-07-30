@@ -33,6 +33,7 @@ brotli = "8"
 ha-core = { path = "../ha-core" }
 ha-acp = { path = "../ha-acp" }
 ha-browser = { path = "../ha-browser" }
+ha-vcs = { path = "../ha-vcs" }
 ha-design = { path = "../ha-design" }
 ha-mac = { path = "../ha-mac" }
 ha-updater = { path = "../ha-updater" }

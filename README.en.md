@@ -337,7 +337,7 @@ All three modes share the same `ha-core` core. Config, sessions, and memories li
 
 ## Project Structure
 
-Layered multi-crate Cargo workspace: kernel capabilities live in `ha-core`; self-contained feature domains live in feature crates (`ha-updater` / `ha-weather`, with more moving out as the split continues):
+Layered multi-crate Cargo workspace: kernel capabilities live in `ha-core`; self-contained feature domains live in feature crates (`ha-acp` / `ha-browser` / `ha-design` / `ha-mac` / `ha-updater` / `ha-vcs` / `ha-weather`, with more moving out as the split continues):
 
 ```
 crates/
@@ -349,6 +349,7 @@ crates/
   ha-design/         Design space feature crate (artifacts store + compile/export + 3 tools)
   ha-mac/            macOS control feature crate (Accessibility / screenshot / mac_control tool)
   ha-updater/        Self-update feature crate (depends on ha-core, wired by shells)
+  ha-vcs/            VCS & local-exec feature crate (git control-plane ops + Docker sandbox machinery + SearXNG deploy)
   ha-weather/        Weather feature crate (depends on ha-core, wired by shells)
   ha-server/         axum HTTP/WS daemon (thin shell)
   ha-browser-host/   Browser helper process
@@ -375,7 +376,7 @@ Common commands:
 ```bash
 pnpm tauri dev                    # desktop dev
 cargo check --workspace              # Rust dep / type check
-cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-updater -p ha-weather -p ha-server   # core tests
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-updater -p ha-vcs -p ha-weather -p ha-server   # core tests
 node scripts/sync-i18n.mjs --check   # i18n completeness check
 ```
 

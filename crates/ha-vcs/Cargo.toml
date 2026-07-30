@@ -1,0 +1,33 @@
+[package]
+name = "ha-vcs"
+version = "0.24.0"
+description = "Hope Agent VCS & local-exec feature — git control plane operations, Docker/WSL sandbox machinery, SearxNG Docker deploy"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+ha-base = { path = "../ha-base" }
+ha-core = { path = "../ha-core" }
+
+anyhow = { workspace = true }
+futures-util = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+# 与 ha-core 原依赖同版本线
+blake3 = "1.8.5"
+bollard = "0.20"
+ignore = "0.4.25"
+tempfile = "3"
+libc = "0.2"
+tokio-util = { version = "0.7", features = ["rt"] }
+which = "8"
+
+[lints]
+workspace = true

@@ -215,17 +215,17 @@ Layer A–D 之外的一条横切约定，专治「同步阻塞把 async runtime
 |------|------|----------|
 | **ACP 运行时**（Codex CLI / Claude Code 等） | [`acp_control/runtime_stdio.rs`](../../crates/ha-acp/src/acp_control/runtime_stdio.rs) | 会话存活期间，配 [`acp_control/health.rs`](../../crates/ha-acp/src/acp_control/health.rs) 健康检查 |
 | **IM Channel 子进程**（部分协议实现） | [`channel/process_manager.rs`](../../crates/ha-core/src/channel/process_manager.rs) | 账户启用期间 |
-| **Docker 容器**（SearXNG / 部署目标） | [`docker/lifecycle.rs`](../../crates/ha-core/src/docker/lifecycle.rs), [`docker/deploy.rs`](../../crates/ha-core/src/docker/deploy.rs) | 容器自身生命周期；Hope Agent 退出不一定 kill |
+| **Docker 容器**（SearXNG / 部署目标） | [`docker/lifecycle.rs`](../../crates/ha-vcs/src/docker/lifecycle.rs), [`docker/deploy.rs`](../../crates/ha-vcs/src/docker/deploy.rs) | 容器自身生命周期；Hope Agent 退出不一定 kill |
 
 ### D2 · 单次调用型（短命，完成即回收）
 
 | 场景 | 位置 |
 |------|------|
 | `exec` 工具（用户命令执行 + PTY） | [`tools/exec.rs`](../../crates/ha-core/src/tools/exec.rs) |
-| Sandbox 隔离执行 | [`sandbox.rs`](../../crates/ha-core/src/sandbox.rs) |
+| Sandbox 隔离执行 | [`sandbox.rs`](../../crates/ha-vcs/src/sandbox.rs) |
 | Plan Mode git 调用 | [`plan/git.rs`](../../crates/ha-core/src/plan/git.rs) |
 | Skill 依赖安装（brew / npm / go / uv） | [`skills/commands.rs`](../../crates/ha-core/src/skills/commands.rs) |
-| Provider / Docker 代理探测 | [`provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs), [`docker/proxy.rs`](../../crates/ha-core/src/docker/proxy.rs) |
+| Provider / Docker 代理探测 | [`provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs), [`docker/proxy.rs`](../../crates/ha-vcs/src/docker/proxy.rs) |
 | 跨平台原语（打开终端 / 检测环境） | [`platform/mod.rs`](../../crates/ha-base/src/platform/) |
 | Agent loader 初始化（git clone 默认模板） | [`agent_loader.rs`](../../crates/ha-core/src/agent_loader.rs) |
 | 托盘（macOS 打开 URL / 通知） | [`src-tauri/src/tray.rs`](../../src-tauri/src/tray.rs) |

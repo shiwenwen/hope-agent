@@ -57,7 +57,7 @@ const LOG_SRC: &str = "SearXNG";
 
 /// Write to AppLogger (SQLite + file). Falls back to log::info! if logger unavailable.
 pub(crate) fn app_log(level: &str, message: &str, details: Option<String>) {
-    if let Some(logger) = crate::get_logger() {
+    if let Some(logger) = ha_core::get_logger() {
         logger.log(level, LOG_CAT, LOG_SRC, message, details, None, None);
     }
 }

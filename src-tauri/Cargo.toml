@@ -24,6 +24,7 @@ tauri-build = { version = "2.5.6", features = [] }
 ha-core = { path = "../crates/ha-core", features = ["desktop-tools"] }
 ha-acp = { path = "../crates/ha-acp" }
 ha-browser = { path = "../crates/ha-browser" }
+ha-vcs = { path = "../crates/ha-vcs" }
 ha-design = { path = "../crates/ha-design" }
 ha-mac = { path = "../crates/ha-mac" }
 ha-updater = { path = "../crates/ha-updater" }

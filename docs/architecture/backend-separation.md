@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-mac<br/>ha-updater · ha-weather（阶段 3-4 逐个迁出）"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-mac<br/>ha-updater · ha-vcs · ha-weather（阶段 3-4 逐个迁出）"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -150,7 +150,7 @@ guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
 
-### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-updater / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -203,6 +203,23 @@ guardian.rs        进程监护 + 指数退避 + 自修复
   `BrowserTabCapture`）；`IMAGE_BASE64_PREFIX` 与 `MEDIA_ITEMS_PREFIX`
   等结果格式契约常量留 kernel；Chrome 扩展 rust-embed 及其
   rerun-if-changed 随迁 ha-browser build.rs。
+- **ha-vcs**（VCS / 本地执行基建）：git 控制平面操作面（index/branch/
+  commit/push/PR/handoff + 启动期对账）/ Docker·WSL 沙箱执行机器 /
+  SearXNG Docker 部署。**类型随表下沉**：`git_operation_runs` 簿记
+  （DDL / `GitOperationRun` / 类型化查询）与 `repository_revision`
+  git 指纹小簇留 kernel `git_control.rs`（ha-design code_sync 同时消费）；
+  沙箱配置面（`SandboxConfig` 持久化 + `DockerStatus` wire 类型 +
+  调用方 trampoline）留 kernel `sandbox.rs`，调用方（tools::exec / cron /
+  settings_reset / system_prompt / 壳层）签名与路径不变。kernel 边界经
+  `vcs_hooks` 四件套原子注册（沙箱 check/ensure/exec 三口 + git 操作
+  对账），未接线 fail-closed：ensure/exec 即 Err（沙箱红线「不可用即
+  终止、绝不回落宿主机」）、对账 app_warn 跳过。**对账钩子由
+  `recover_startup_session_state` 同步内联调用**（Primary 启动期，
+  `init_runtime` 内唯一生产调用点；进程 tier 固定无晋升。ordering
+  invariant 见 app_init——须先于 `replay_pending_jobs` 完成），不得改为
+  后台任务。`worktree` / `project_bootstrap` 是 session 生命周期簿记
+  （goal / workflow / subagent / 启动 reconciler 深度消费、git 与 DB
+  写交织），**整体留 kernel**——分析器分组仅供参考，切割以边界成本为准。
 - **ha-acp**（ACP）：`acp`（Hope 自身作 ACP stdio server，`hope-agent acp`
   模式）+ `acp_control`（外部 ACP agent 控制面：注册表 / 健康探测 /
   SessionManager / `acp_spawn` 工具）。`ACP_MANAGER` 全局随迁特征侧
@@ -364,7 +381,7 @@ sequenceDiagram
 
 ### 事件清单
 
-> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`docker/mod.rs`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
+> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/` / `crates/ha-vcs/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`ha-vcs (docker/mod.rs · git_control.rs EVENT_GIT_*)`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
 
 #### 聊天 / 流式
 
@@ -431,7 +448,9 @@ sequenceDiagram
 | `weather-cache-updated` | ha-weather (lib.rs) | 天气缓存刷新 |
 | `mac_control:frame` (`EVENT_MAC_CONTROL_FRAME`) | ha-mac (lib.rs) | mutating 动作后的屏幕帧关联（actionId 缩略图，见 [macos-control](macos-control.md)） |
 | `mac_control:action` (`EVENT_MAC_CONTROL_ACTION`) | tool_actions.rs | mac_control 动作时间线事件 |
-| `searxng:deploy_progress` (`EVENT_SEARXNG_DEPLOY_PROGRESS`) | docker/deploy.rs | SearXNG Docker 部署进度，前端 progress UI 消费 |
+| `session:git_progress` / `session:git_completed` (`EVENT_GIT_PROGRESS` / `EVENT_GIT_COMPLETED`) | ha-vcs (git_control.rs) | 长 Git 操作（push/PR/handoff）阶段进度与完结 |
+| `session:git_changed` (`EVENT_GIT_CHANGED`) | ha-vcs (git_control.rs) | Git 状态变更后前端刷新 snapshot |
+| `searxng:deploy_progress` (`EVENT_SEARXNG_DEPLOY_PROGRESS`) | ha-vcs (docker/mod.rs) | SearXNG Docker 部署进度，前端 progress UI 消费 |
 | `acp_control_event` | ha-acp (acp_control/events.rs) | ACP 运行生命周期 |
 | `cron:run_completed` | cron/executor.rs | 定时任务完成 |
 
