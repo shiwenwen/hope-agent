@@ -48,8 +48,8 @@ use super::config::McpOAuthConfig;
 use super::credentials::{self, McpCredentials};
 use super::errors::{McpError, McpResult};
 use super::events::{emit_auth_completed, emit_auth_required};
-use crate::logging::redact_sensitive;
-use crate::security::ssrf::{check_url, SsrfPolicy};
+use ha_core::logging::redact_sensitive;
+use ha_core::security::ssrf::{check_url, SsrfPolicy};
 
 /// How long we wait for the user to finish the browser flow before
 /// tearing down the callback listener and surfacing a timeout. Ten
@@ -203,7 +203,7 @@ fn http_client() -> McpResult<reqwest::Client> {
     let builder = reqwest::Client::builder()
         .timeout(HTTP_REQUEST_TIMEOUT)
         .redirect(reqwest::redirect::Policy::limited(5));
-    crate::provider::apply_proxy(builder)
+    ha_core::provider::apply_proxy(builder)
         .build()
         .map_err(|e| McpError::Transport {
             server: "oauth".into(),
@@ -216,7 +216,7 @@ fn http_client() -> McpResult<reqwest::Client> {
 /// through here so a rogue authorization-server URL cannot punch through
 /// to metadata IPs or arbitrary local services.
 async fn guard_url(server_name: &str, url: &str) -> McpResult<url::Url> {
-    let app_cfg = crate::config::cached_config();
+    let app_cfg = ha_core::config::cached_config();
     let trusted = app_cfg.ssrf.trusted_hosts.clone();
     // Always use `Default` for OAuth endpoints — they're public
     // internet services by definition. `Strict` would reject every
@@ -278,7 +278,7 @@ pub async fn discover_metadata(
             message: "server does not support S256 code_challenge_method".into(),
         });
     }
-    crate::app_info!(
+    ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
         "Discovered OAuth endpoints: authorize={}, token={}",
@@ -336,7 +336,7 @@ pub async fn register_dynamic_client(
         server: server_name.to_string(),
         message: format!("DCR response parse: {e}"),
     })?;
-    crate::app_info!(
+    ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
         "Dynamic client registration succeeded (client_id length={})",
@@ -707,7 +707,7 @@ async fn handle_callback_connection(
     if state != expected_state {
         // Almost always CSRF — but a browser preload could have queued
         // a stale URL. Ignore rather than abort the whole flow.
-        crate::app_warn!(
+        ha_core::app_warn!(
             "mcp",
             "oauth:callback",
             "state mismatch on /callback; ignoring (possible CSRF or stale prefetch)"
@@ -735,7 +735,7 @@ pub async fn authorize_server(
     server_url: &str,
     oauth_cfg: &McpOAuthConfig,
 ) -> McpResult<McpCredentials> {
-    crate::app_info!(
+    ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
         "Starting OAuth authorization for MCP server"
@@ -794,7 +794,7 @@ pub async fn authorize_server(
         &oauth_cfg.extra_params,
     )?;
     emit_auth_required(server_id, server_name, &auth_url);
-    crate::app_info!(
+    ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
         "Awaiting user authorization at {}",
@@ -806,7 +806,7 @@ pub async fn authorize_server(
     // never blocks the flow — a failure here just means the user has to
     // click the URL from the `mcp:auth_required` event payload.
     if let Err(e) = open::that(&auth_url) {
-        crate::app_warn!(
+        ha_core::app_warn!(
             "mcp",
             &format!("{server_name}:oauth"),
             "Failed to auto-open browser; user must open the URL manually: {e}"
@@ -863,7 +863,7 @@ pub async fn authorize_server(
         err
     })?;
     emit_auth_completed(server_id, server_name, true, None);
-    crate::app_info!(
+    ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
         "OAuth authorization succeeded; credentials persisted"
@@ -887,7 +887,7 @@ pub async fn refresh_if_stale(
     let refreshed = refresh_access_token(server_name, current)
         .await
         .map_err(|e| {
-            crate::app_warn!(
+            ha_core::app_warn!(
                 "mcp",
                 &format!("{server_name}:oauth"),
                 "refresh_access_token failed: {e}"
@@ -898,7 +898,7 @@ pub async fn refresh_if_stale(
         server: server_name.to_string(),
         message: format!("persist refreshed credentials: {e}"),
     })?;
-    crate::app_info!(
+    ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
         "Refreshed access token (expires_at={})",

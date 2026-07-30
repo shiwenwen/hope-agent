@@ -27,7 +27,6 @@ uuid = { workspace = true }
 rusqlite = { workspace = true }
 reqwest = { workspace = true }
 futures-util = { workspace = true }
-sse-stream = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
 ring = "0.17"
@@ -42,7 +41,6 @@ url = { workspace = true }
 once_cell = { workspace = true }
 signal-hook = { workspace = true }
 arc-swap = { workspace = true }
-rmcp = { workspace = true }
 http = "1"
 
 # Non-workspace dependencies (core-specific)

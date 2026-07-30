@@ -55,13 +55,10 @@ pub fn background_policy_for_tool(name: &str) -> Option<BackgroundPolicy> {
         // Dynamic MCP catalogs are refreshed after process startup and cannot
         // be frozen into the built-in LazyLock. Read their ArcSwap snapshot so
         // task-support changes take effect without restarting the app.
-        crate::mcp::McpManager::global().and_then(|manager| {
-            manager
-                .mcp_tool_definitions()
-                .iter()
-                .find(|tool| tool.name == name)
-                .map(|tool| tool.background_policy)
-        })
+        crate::mcp::tool_definitions()
+            .iter()
+            .find(|tool| tool.name == name)
+            .map(|tool| tool.background_policy)
     })
 }
 

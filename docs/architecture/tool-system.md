@@ -207,7 +207,7 @@ match，而是查表：
 
 **外部注册者**（特征 crate，壳二进制在 `init_runtime` 前调 `<crate>::wire()`
 ——src-tauri main 与 mobile entry / hope-agent-server / ha-eval runner 四处）：
-`ha-updater` 的 `app_update`、`ha-weather` 的 `get_weather`、`ha-acp` 的 `acp_spawn`、`ha-mac` 的 `mac_control`、`ha-design` 的 `design` / `canvas` / `artifact`、`ha-browser` 的 `browser`。
+`ha-updater` 的 `app_update`、`ha-weather` 的 `get_weather`、`ha-acp` 的 `acp_spawn`、`ha-mac` 的 `mac_control`、`ha-design` 的 `design` / `canvas` / `artifact`、`ha-browser` 的 `browser`、`ha-mcp` 的 `mcp_resource` / `mcp_prompt`。
 `freeze_now` 的反向守卫对「有 `ToolDefinition` 无 handler」记 warn（症状＝二进制
 忘调某特征 crate 的 `wire()`：schema 照常广告、dispatch 报 Unknown tool）。
 

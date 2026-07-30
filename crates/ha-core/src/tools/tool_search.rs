@@ -88,15 +88,13 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // Dynamic MCP tools (`mcp__<server>__<tool>`) — gated by agent.mcp_enabled
     // and the global MCP kill switch.
     if agent_cfg.capabilities.mcp_enabled && app_config.mcp_global.enabled {
-        if let Some(mcp) = crate::mcp::McpManager::global() {
-            for def in mcp.mcp_tool_definitions().iter() {
-                if !candidates.iter().any(|c| c.name == def.name) {
-                    if super::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
-                        total_deferred += 1;
-                        deferred_names.insert(def.name.clone());
-                    }
-                    candidates.push(def.clone());
+        for def in crate::mcp::tool_definitions().iter() {
+            if !candidates.iter().any(|c| c.name == def.name) {
+                if super::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
+                    total_deferred += 1;
+                    deferred_names.insert(def.name.clone());
                 }
+                candidates.push(def.clone());
             }
         }
     }

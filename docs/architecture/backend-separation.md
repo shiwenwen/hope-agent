@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-mac<br/>ha-updater · ha-vcs · ha-weather（阶段 3-4 逐个迁出）"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-mac<br/>ha-mcp · ha-updater · ha-vcs · ha-weather（阶段 3-4 逐个迁出）"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -150,7 +150,7 @@ guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
 
-### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-mcp / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -220,6 +220,18 @@ guardian.rs        进程监护 + 指数退避 + 自修复
   后台任务。`worktree` / `project_bootstrap` 是 session 生命周期簿记
   （goal / workflow / subagent / 启动 reconciler 深度消费、git 与 DB
   写交织），**整体留 kernel**——分析器分组仅供参考，切割以边界成本为准。
+- **ha-mcp**（MCP 客户端）：McpManager 注册表 / client / 四种 transport /
+  OAuth（独立实现 + PKCE，凭据 0600）/ watchdog / `mcp_resource`·
+  `mcp_prompt` 两工具 / owner API。kernel 侧留存 `ha_core::mcp` facade：
+  wire 类型再导出（定义在 ha-config-schema）、`mcp__` 命名约定单一来源
+  （`catalog::is_mcp_tool_name` 等，**特征侧不得另写前缀判定**）、
+  auto-approve 信任谓词 `server_auto_approves_config`（安全语义留
+  kernel，钩子只做运行时查表）。kernel 边界经 `mcp_hooks` 七件套原子
+  注册（init/watchdog 两档起动面——minimal/ACP 也 init，与 browser
+  broker 同型 / 工具定义快照 / server 配置查表 / call_tool 分发 /
+  prompt 段 / settings 热更 reconcile），**未接线语义逐项镜像
+  manager-None 的既有行为**（工具缺席 / auto-approve 恒 false /
+  call_tool Err / reconcile Ok+warn）。
 - **ha-acp**（ACP）：`acp`（Hope 自身作 ACP stdio server，`hope-agent acp`
   模式）+ `acp_control`（外部 ACP agent 控制面：注册表 / 健康探测 /
   SessionManager / `acp_spawn` 工具）。`ACP_MANAGER` 全局随迁特征侧
@@ -381,7 +393,7 @@ sequenceDiagram
 
 ### 事件清单
 
-> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/` / `crates/ha-vcs/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`mcp/events.rs`、`ha-vcs (docker/mod.rs · git_control.rs EVENT_GIT_*)`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
+> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/` / `crates/ha-vcs/src/` / `crates/ha-mcp/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`ha-mcp (events.rs)`、`ha-vcs (docker/mod.rs · git_control.rs EVENT_GIT_*)`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
 
 #### 聊天 / 流式
 
@@ -430,12 +442,12 @@ sequenceDiagram
 | `skill_activated` / `skill_used` / `skill_created` / `skill_patched` / `skill_discarded` | skills/* | Skill 生命周期与 Learning 埋点 |
 | `skills:auto_review_complete` | skills/* | Draft 审核完成 |
 | `skills:curator_proposals_ready` | skills/auto_review/curator.rs | Auto-curator 周期扫描产出草稿合并建议 |
-| `mcp:servers_changed` (`EV_SERVERS_CHANGED`) | mcp/events.rs | MCP 服务器列表变更 |
-| `mcp:server_status_changed` | mcp/events.rs | MCP 单个 server 状态切换（Ready / NeedsAuth / Failed 等） |
-| `mcp:catalog_refreshed` | mcp/events.rs | MCP tool catalog 重建 |
-| `mcp:server_log` | mcp/events.rs | MCP server 日志推送 |
-| `mcp:auth_required` / `mcp:auth_completed` | mcp/events.rs | MCP OAuth 流程信号 |
-| `mcp_tool_called` / `mcp_tool_failed` (`EVT_MCP_*`) | mcp/* | Dashboard Learning 埋点 |
+| `mcp:servers_changed` (`EV_SERVERS_CHANGED`) | ha-mcp (events.rs) | MCP 服务器列表变更 |
+| `mcp:server_status_changed` | ha-mcp (events.rs) | MCP 单个 server 状态切换（Ready / NeedsAuth / Failed 等） |
+| `mcp:catalog_refreshed` | ha-mcp (events.rs) | MCP tool catalog 重建 |
+| `mcp:server_log` | ha-mcp (events.rs) | MCP server 日志推送 |
+| `mcp:auth_required` / `mcp:auth_completed` | ha-mcp (events.rs) | MCP OAuth 流程信号 |
+| `mcp_tool_called` / `mcp_tool_failed` (`EVT_MCP_*`) | 常量 ha-core (dashboard/learning.rs)，emit ha-mcp (invoke.rs) | Dashboard Learning 埋点 |
 
 #### 项目 / Channel / 系统
 

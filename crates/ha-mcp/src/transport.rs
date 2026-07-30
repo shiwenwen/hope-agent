@@ -115,7 +115,7 @@ fn build_stdio_command(cfg: &McpServerConfig) -> McpResult<Command> {
     }
     // Stdio MCP servers (node/npx/python/uvx…) are real console processes on
     // Windows — suppress the console window so connecting one never flashes.
-    crate::platform::hide_console_tokio(&mut cmd);
+    ha_core::platform::hide_console_tokio(&mut cmd);
     Ok(cmd)
 }
 
@@ -158,13 +158,13 @@ pub async fn build_stdio_client(cfg: &McpServerConfig) -> McpResult<ConnectedCli
 /// `ws(s)://` to the `http(s)://` equivalent first, because
 /// `security::ssrf` only classifies those schemes.
 async fn ssrf_gate_url(cfg: &McpServerConfig, http_equiv_url: &str) -> McpResult<()> {
-    let app_cfg = crate::config::cached_config();
+    let app_cfg = ha_core::config::cached_config();
     let trusted_hosts = app_cfg.ssrf.trusted_hosts.clone();
     let policy = match cfg.trust_level {
         McpTrustLevel::Trusted => app_cfg.ssrf.default_policy,
-        McpTrustLevel::Untrusted => crate::security::ssrf::SsrfPolicy::Strict,
+        McpTrustLevel::Untrusted => ha_core::security::ssrf::SsrfPolicy::Strict,
     };
-    crate::security::ssrf::check_url(http_equiv_url, policy, &trusted_hosts)
+    ha_core::security::ssrf::check_url(http_equiv_url, policy, &trusted_hosts)
         .await
         .map_err(|e| McpError::Blocked {
             server: cfg.name.clone(),
@@ -221,14 +221,14 @@ async fn authorized_headers(cfg: &McpServerConfig) -> McpResult<HashMap<HeaderNa
                 headers.insert(http::header::AUTHORIZATION, value);
             }
             Ok(None) => {
-                crate::app_info!(
+                ha_core::app_info!(
                     "mcp",
                     &format!("{}:oauth", cfg.name),
                     "No stored OAuth credentials; handshake will trigger NeedsAuth on 401"
                 );
             }
             Err(e) => {
-                crate::app_warn!(
+                ha_core::app_warn!(
                     "mcp",
                     &format!("{}:oauth", cfg.name),
                     "Failed to load stored OAuth credentials: {e}"
@@ -693,7 +693,7 @@ pub async fn build_sse_client(cfg: &McpServerConfig, url: &str) -> McpResult<Con
             match serde_json::from_str::<rmcp::service::RxJsonRpcMessage<RoleClient>>(&data) {
                 Ok(message) => Some(message),
                 Err(e) => {
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "mcp",
                         &format!("{server}:sse"),
                         "dropping unparseable SSE message frame: {e}"
@@ -722,7 +722,7 @@ pub async fn build_sse_client(cfg: &McpServerConfig, url: &str) -> McpResult<Con
             let body = match serde_json::to_vec(&message) {
                 Ok(body) => body,
                 Err(e) => {
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "mcp",
                         &format!("{post_server}:sse"),
                         "failed to serialize outbound SSE message: {e}"
@@ -739,13 +739,13 @@ pub async fn build_sse_client(cfg: &McpServerConfig, url: &str) -> McpResult<Con
                 .await;
             match result {
                 Ok(response) if response.status().is_success() => {}
-                Ok(response) => crate::app_warn!(
+                Ok(response) => ha_core::app_warn!(
                     "mcp",
                     &format!("{post_server}:sse"),
                     "SSE message POST rejected with HTTP {}",
                     response.status()
                 ),
-                Err(e) => crate::app_warn!(
+                Err(e) => ha_core::app_warn!(
                     "mcp",
                     &format!("{post_server}:sse"),
                     "SSE message POST failed: {e}"
@@ -781,7 +781,7 @@ pub async fn build_transport_for(cfg: &McpServerConfig) -> McpResult<ConnectedCl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mcp::config::{McpServerConfig, McpTransportSpec, McpTrustLevel};
+    use crate::config::{McpServerConfig, McpTransportSpec, McpTrustLevel};
 
     fn stdio_cfg(command: &str) -> McpServerConfig {
         McpServerConfig {

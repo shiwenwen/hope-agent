@@ -2,7 +2,7 @@
 //!
 //! Tokens live at `~/.hope-agent/credentials/mcp/{server_id}.json` with
 //! file mode `0600` on Unix (best-effort ACL on Windows). The file is
-//! written via [`crate::platform::write_secure_file`] which creates the
+//! written via [`ha_core::platform::write_secure_file`] which creates the
 //! directory, writes to a temp file, and atomically renames into place.
 //!
 //! Shape is intentionally minimal — just enough to reconnect the
@@ -17,8 +17,8 @@ use std::io;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::paths::{mcp_credential_path, mcp_credentials_dir};
-use crate::platform::write_secure_file;
+use ha_core::paths::{mcp_credential_path, mcp_credentials_dir};
+use ha_core::platform::write_secure_file;
 
 /// Persisted OAuth credentials for a single MCP server. Populated at the
 /// end of the PKCE flow and rewritten on each refresh.

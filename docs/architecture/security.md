@@ -192,8 +192,8 @@ pub fn status() -> DangerousModeStatus;
 | `image_generate` URL 下载 | `ssrf_cfg.image_generate()`，封顶 10 MB | [`tools/image_generate/helpers.rs:98,128`](../../crates/ha-core/src/tools/image_generate/helpers.rs) |
 | `url_preview` | `ssrf_cfg.url_preview()` | [`url_preview.rs:252`](../../crates/ha-core/src/url_preview.rs) |
 | `web_search` (Bocha / Brave / Google / Grok / SearXNG) | `ssrf_cfg.default_policy`（无 per-tool override） | [`tools/web_search/helpers.rs:16`](../../crates/ha-core/src/tools/web_search/helpers.rs) |
-| MCP transport (Streamable HTTP / SSE / WebSocket) | 调用方传入的 policy（默认 `Default`）；ws/wss 先 rewrite 成 http/https 再分类 | [`mcp/transport.rs:164,307,604`](../../crates/ha-core/src/mcp/transport.rs) |
-| MCP OAuth (discovery / DCR / token / refresh) | 固定 `SsrfPolicy::Default`，走 `provider::apply_proxy` | [`mcp/oauth.rs`](../../crates/ha-core/src/mcp/oauth.rs) |
+| MCP transport (Streamable HTTP / SSE / WebSocket) | 调用方传入的 policy（默认 `Default`）；ws/wss 先 rewrite 成 http/https 再分类 | [`transport.rs` `ssrf_gate_url`（SSE/WS/Streamable 三入口 331/382/609）](../../crates/ha-mcp/src/transport.rs) |
+| MCP OAuth (discovery / DCR / token / refresh) | 固定 `SsrfPolicy::Default`，走 `provider::apply_proxy` | [`oauth.rs`](../../crates/ha-mcp/src/oauth.rs) |
 
 **LLM Provider 出站**：当前不走 SSRF 检查。`ProviderConfig.allow_private_network` 字段仅做 round-trip 配置，不影响后端拦截——后续如果加入强制策略，应在 [`provider/`](../../crates/ha-core/src/provider/) 内部统一插桩，而不是散落到 4 个 Provider adapter。
 

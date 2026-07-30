@@ -20,7 +20,7 @@ use tokio::sync::{Mutex, RwLock, Semaphore};
 
 use super::config::{McpGlobalSettings, McpServerConfig};
 use super::errors::McpResult;
-use crate::tools::ToolDefinition;
+use ha_core::tools::ToolDefinition;
 
 // ── Server State ─────────────────────────────────────────────────
 
@@ -253,8 +253,8 @@ impl McpManager {
                 if !server_effectively_enabled(&global, &cfg) {
                     continue;
                 }
-                if crate::mcp::config::validate_server_config(&cfg).is_err() {
-                    crate::app_warn!(
+                if crate::config::validate_server_config(&cfg).is_err() {
+                    ha_core::app_warn!(
                         "mcp",
                         "init",
                         "Skipping invalid server config: name={}",
@@ -401,8 +401,8 @@ impl McpManager {
                     }
                     continue;
                 }
-                if crate::mcp::config::validate_server_config(&cfg).is_err() {
-                    crate::app_warn!(
+                if crate::config::validate_server_config(&cfg).is_err() {
+                    ha_core::app_warn!(
                         "mcp",
                         "reconcile",
                         "Skipping invalid config: name={}",
@@ -520,7 +520,7 @@ fn connection_rebuild_required(old: &McpServerConfig, new: &McpServerConfig) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mcp::config::{McpServerConfig, McpTransportSpec, McpTrustLevel};
+    use crate::config::{McpServerConfig, McpTransportSpec, McpTrustLevel};
 
     fn sample_stdio_cfg(id: &str, name: &str) -> McpServerConfig {
         McpServerConfig {

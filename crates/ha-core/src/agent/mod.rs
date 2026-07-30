@@ -3512,13 +3512,11 @@ impl AssistantAgent {
         });
 
         if caps.mcp_enabled && app_config.mcp_global.enabled {
-            if let Some(mcp) = crate::mcp::McpManager::global() {
-                for def in mcp.mcp_tool_definitions().iter() {
-                    if tools::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
-                        continue;
-                    }
-                    schemas.push(def.to_provider_schema(provider));
+            for def in crate::mcp::tool_definitions().iter() {
+                if tools::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
+                    continue;
                 }
+                schemas.push(def.to_provider_schema(provider));
             }
         }
 
@@ -3615,11 +3613,9 @@ impl AssistantAgent {
         }
 
         if caps.mcp_enabled && app_config.mcp_global.enabled {
-            if let Some(mcp) = crate::mcp::McpManager::global() {
-                for def in mcp.mcp_tool_definitions().iter() {
-                    if tools::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
-                        deferred_schemas.push(def.to_provider_schema(provider));
-                    }
+            for def in crate::mcp::tool_definitions().iter() {
+                if tools::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
+                    deferred_schemas.push(def.to_provider_schema(provider));
                 }
             }
         }

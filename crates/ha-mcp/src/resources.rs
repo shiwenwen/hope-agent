@@ -82,7 +82,7 @@ pub async fn list_resources(server_name_or_id: &str) -> Result<Vec<ResourceSumma
 
 /// Call `resources/read` on the live connection and normalize the
 /// response. Mirrors the content-block handling in
-/// [`crate::mcp::invoke`] so a resource read looks identical to a
+/// [`crate::invoke`] so a resource read looks identical to a
 /// `tool_call` that happened to return a `RawContent::Resource`.
 pub async fn read_resource(server_name_or_id: &str, uri: &str) -> Result<Vec<ReadResourcePart>> {
     let handle = super::locate_server(server_name_or_id).await?;

@@ -118,7 +118,7 @@ fn project_prompt(p: model::Prompt) -> PromptSummary {
 
 /// Flatten an rmcp prompt message to `{role, text}`. Non-text content
 /// (images, embedded resources) reduces to a short bracketed placeholder
-/// — same convention as [`crate::mcp::invoke`]'s tool-result
+/// — same convention as [`crate::invoke`]'s tool-result
 /// normalization so the two paths behave identically for the LLM.
 fn project_message(m: model::PromptMessage) -> PromptMessage {
     let role = match m.role {

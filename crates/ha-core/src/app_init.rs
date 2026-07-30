@@ -1403,7 +1403,7 @@ pub async fn start_background_tasks() {
     // MCP-namespaced tools. Watchdog (long-running reconnect loop) is
     // Primary-only — Secondary's idle catalog is enough.
     if init_mcp_subsystem() && primary {
-        crate::mcp::watchdog::spawn_watchdog_loop();
+        crate::mcp::spawn_watchdog();
     }
 
     // Default-model auto-maintenance watchdog. Self-heals stale Ollama
@@ -1539,27 +1539,9 @@ pub async fn start_minimal_background_tasks() {
 /// and `init_global` was called — the caller decides whether to also
 /// spawn the long-running watchdog.
 fn init_mcp_subsystem() -> bool {
-    let store = crate::config::cached_config();
-    let global = store.mcp_global.clone();
-    let servers = store.mcp_servers.clone();
-    if global.enabled {
-        let enabled_count = servers.iter().filter(|s| s.enabled).count();
-        crate::mcp::McpManager::init_global(global, servers);
-        app_info!(
-            "mcp",
-            "init",
-            "MCP subsystem initialized ({} enabled server(s))",
-            enabled_count
-        );
-        true
-    } else {
-        app_info!(
-            "mcp",
-            "init",
-            "MCP subsystem disabled via mcpGlobal.enabled=false"
-        );
-        false
-    }
+    // 实现在 ha-mcp（读 cached_config + 幂等 init_global + 日志），经
+    // mcp_hooks 回调；未接线返 false 并留审计（观感等价于未启用）。
+    crate::mcp::init_subsystem()
 }
 
 fn recover_durable_chat_streams(

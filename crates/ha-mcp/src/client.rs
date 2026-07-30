@@ -125,7 +125,7 @@ async fn connect_now_inner(manager: &McpManager, handle: Arc<ServerHandle>) -> M
                 record_failure(&handle, &cfg.name, &e).await;
                 return Err(e);
             }
-            crate::app_info!(
+            ha_core::app_info!(
                 "mcp",
                 &format!("{}:connect", cfg.name),
                 "Connected to MCP server '{}' via {}",
@@ -187,7 +187,7 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
         .await
         .map_err(|e| rmcp_service_err(&cfg.name, "list_tools", e))?;
     if tools.len() > TOOLS_PER_SERVER_CAP {
-        crate::app_warn!(
+        ha_core::app_warn!(
             "mcp",
             &format!("{}:catalog", cfg.name),
             "Server advertised {} tools; truncating to the per-server cap of {}",
@@ -228,7 +228,7 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
 
     emit_server_status(&cfg.id, &cfg.name, "ready", None);
     emit_catalog_refreshed(&cfg.id, &cfg.name, tool_count, resource_count, prompt_count);
-    crate::app_info!(
+    ha_core::app_info!(
         "mcp",
         &format!("{}:catalog", cfg.name),
         "MCP '{}' catalog: {} tools / {} resources / {} prompts",
@@ -297,7 +297,7 @@ async fn rebuild_tool_index_for(
     //    without awaiting — it must be kept atomic with the reverse
     //    lookup so a dispatch never finds a name that isn't in the
     //    schema list, or vice versa.
-    let defs_for_server: Vec<crate::tools::ToolDefinition> = tools
+    let defs_for_server: Vec<ha_core::tools::ToolDefinition> = tools
         .iter()
         .zip(super::catalog::assign_namespaced_tool_names(
             &cfg.name,
@@ -313,7 +313,7 @@ async fn rebuild_tool_index_for(
     // `mcp__<cfg.name>__` prefix as the ownership test.
     let prefix = format!("{}{}{}", super::catalog::MCP_TOOL_PREFIX, cfg.name, "__");
     let prior = manager.mcp_tool_definitions();
-    let mut next: Vec<crate::tools::ToolDefinition> = prior
+    let mut next: Vec<ha_core::tools::ToolDefinition> = prior
         .iter()
         .filter(|d| !d.name.starts_with(&prefix))
         .cloned()
@@ -357,7 +357,7 @@ async fn record_failure(handle: &ServerHandle, server_name: &str, err: &McpError
         )
         .await;
         emit_server_status(&cfg_id, server_name, "needsAuth", Some(&err.to_string()));
-        crate::app_warn!(
+        ha_core::app_warn!(
             "mcp",
             &format!("{server_name}:auth"),
             "MCP server requires re-authorization: {err}"
@@ -378,7 +378,7 @@ async fn record_failure(handle: &ServerHandle, server_name: &str, err: &McpError
     )
     .await;
     emit_server_status(&cfg_id, server_name, "failed", Some(&err.to_string()));
-    crate::app_warn!(
+    ha_core::app_warn!(
         "mcp",
         &format!("{server_name}:connect"),
         "MCP connect/refresh failed: {err}"
@@ -415,7 +415,7 @@ fn spawn_stderr_tailer(server_name: String, stderr: tokio::process::ChildStderr)
             let now = std::time::Instant::now();
             if now.duration_since(window_start).as_secs() >= STDERR_RATE_LIMIT_WINDOW_SECS {
                 if suppressed_in_window > 0 {
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "mcp",
                         &source,
                         "[suppressed {suppressed_in_window} lines over {STDERR_RATE_LIMIT_WINDOW_SECS}s]"
@@ -433,13 +433,13 @@ fn spawn_stderr_tailer(server_name: String, stderr: tokio::process::ChildStderr)
             let trimmed = if line.len() > STDERR_LINE_TRUNCATE_BYTES {
                 format!(
                     "{}… [truncated {} bytes]",
-                    crate::truncate_utf8(&line, STDERR_LINE_TRUNCATE_BYTES),
+                    ha_core::truncate_utf8(&line, STDERR_LINE_TRUNCATE_BYTES),
                     line.len().saturating_sub(STDERR_LINE_TRUNCATE_BYTES)
                 )
             } else {
                 line
             };
-            crate::app_warn!("mcp", &source, "{}", trimmed);
+            ha_core::app_warn!("mcp", &source, "{}", trimmed);
         }
     });
 }

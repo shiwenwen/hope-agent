@@ -54,7 +54,7 @@ pub fn spawn_watchdog_loop() {
         loop {
             tick.tick().await;
             if let Err(e) = run_tick().await {
-                crate::app_warn!("mcp", "watchdog", "Tick failed: {}", e);
+                ha_core::app_warn!("mcp", "watchdog", "Tick failed: {}", e);
             }
         }
     });
@@ -100,7 +100,7 @@ async fn run_tick() -> anyhow::Result<()> {
             let h = handle.clone();
             tokio::spawn(async move {
                 if let Err(e) = client::connect_now(mgr, h).await {
-                    crate::app_warn!(
+                    ha_core::app_warn!(
                         "mcp",
                         "watchdog:eager_connect",
                         "Eager connect failed: {}",
@@ -120,7 +120,7 @@ async fn run_tick() -> anyhow::Result<()> {
                 guard.as_ref().map(|s| s.is_closed()).unwrap_or(true)
             };
             if closed {
-                crate::app_warn!(
+                ha_core::app_warn!(
                     "mcp",
                     &format!("{}:watchdog", cfg.name),
                     "Detected closed rmcp service; forcing disconnect + reconnect"

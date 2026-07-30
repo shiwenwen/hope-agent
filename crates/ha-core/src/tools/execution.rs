@@ -1046,25 +1046,16 @@ fn is_skill_read(name: &str, args: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn mcp_server_auto_approves_config(cfg: &crate::mcp::McpServerConfig) -> bool {
-    cfg.auto_approve && matches!(cfg.trust_level, crate::mcp::McpTrustLevel::Trusted)
-}
-
 async fn mcp_tool_auto_approves(name: &str) -> bool {
     if !crate::mcp::catalog::is_mcp_tool_name(name) {
         return false;
     }
-    let Some(manager) = crate::mcp::McpManager::global() else {
+    // 运行时查表在 ha-mcp（未接线 None → 恒 false）；信任谓词
+    // `server_auto_approves_config` 留 kernel（安全语义单一来源）。
+    let Some(cfg) = crate::mcp::tool_server_config(name).await else {
         return false;
     };
-    let Some(entry) = manager.lookup_tool(name).await else {
-        return false;
-    };
-    let Some(handle) = manager.get_by_id(&entry.server_id).await else {
-        return false;
-    };
-    let cfg = handle.config.read().await;
-    mcp_server_auto_approves_config(&cfg)
+    crate::mcp::server_auto_approves_config(&cfg)
 }
 
 fn needs_permission_engine(
@@ -2307,10 +2298,10 @@ mod tests {
     use super::{
         build_persisted_large_result_preview, decide_async_path_with_config,
         exec_process_background_mode, execute_tool_with_context, maybe_persist_large_tool_result,
-        mcp_server_auto_approves_config, migrate_exec_process_mode_to_async_job_args,
-        needs_permission_engine, should_migrate_exec_process_mode_to_async_job_with_config,
-        should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
-        AsyncDecision, EffectiveArgsSink, JobOrigin, SessionDbHandle, ToolExecContext,
+        migrate_exec_process_mode_to_async_job_args, needs_permission_engine,
+        should_migrate_exec_process_mode_to_async_job_with_config, should_run_exec_reorder_gate,
+        tool_timeout, validate_async_background_contract, AsyncDecision, EffectiveArgsSink,
+        JobOrigin, SessionDbHandle, ToolExecContext,
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
@@ -2802,14 +2793,15 @@ export default async function main(workflow) {
     #[test]
     fn trusted_mcp_auto_approve_config_skips_regular_approval() {
         let cfg = mcp_cfg(true, McpTrustLevel::Trusted);
-        assert!(mcp_server_auto_approves_config(&cfg));
+        assert!(crate::mcp::server_auto_approves_config(&cfg));
     }
 
     #[test]
     fn untrusted_mcp_auto_approve_is_rejected_and_not_honored() {
+        // 保存期校验（Untrusted+auto_approve 拒绝）随 validate_server_config
+        // 迁 ha-mcp，其 config 测试覆盖；这里守执行层第二道防线。
         let cfg = mcp_cfg(true, McpTrustLevel::Untrusted);
-        assert!(crate::mcp::config::validate_server_config(&cfg).is_err());
-        assert!(!mcp_server_auto_approves_config(&cfg));
+        assert!(!crate::mcp::server_auto_approves_config(&cfg));
     }
 
     #[test]

@@ -34,7 +34,7 @@ pub const EV_SERVER_LOG: &str = "mcp:server_log";
 /// Helper: emit a server status event through the global bus (no-op if the
 /// bus isn't initialized yet — e.g. during unit tests).
 pub fn emit_server_status(id: &str, name: &str, state: &str, reason: Option<&str>) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             EV_SERVER_STATUS_CHANGED,
             json!({
@@ -49,7 +49,7 @@ pub fn emit_server_status(id: &str, name: &str, state: &str, reason: Option<&str
 
 /// Helper: emit the "servers list shape changed" event. Call after CRUD.
 pub fn emit_servers_changed() {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(EV_SERVERS_CHANGED, json!({}));
     }
 }
@@ -62,7 +62,7 @@ pub fn emit_catalog_refreshed(
     resources: usize,
     prompts: usize,
 ) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             EV_CATALOG_REFRESHED,
             json!({
@@ -78,7 +78,7 @@ pub fn emit_catalog_refreshed(
 
 /// Helper: OAuth authorize URL ready.
 pub fn emit_auth_required(id: &str, name: &str, auth_url: &str) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             EV_AUTH_REQUIRED,
             json!({
@@ -92,7 +92,7 @@ pub fn emit_auth_required(id: &str, name: &str, auth_url: &str) {
 
 /// Helper: OAuth flow concluded.
 pub fn emit_auth_completed(id: &str, name: &str, ok: bool, error: Option<&str>) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             EV_AUTH_COMPLETED,
             json!({

@@ -14,8 +14,8 @@
 
 use std::collections::BTreeMap;
 
-use ha_core::mcp::config::{McpGlobalSettings, McpServerConfig, McpTransportSpec, McpTrustLevel};
-use ha_core::mcp::{catalog, invoke, registry::ServerHandle, McpManager};
+use ha_mcp::config::{McpGlobalSettings, McpServerConfig, McpTransportSpec, McpTrustLevel};
+use ha_mcp::{catalog, invoke, registry::ServerHandle, McpManager};
 use serde_json::json;
 
 fn base_cfg(name: &str, command: &str, args: Vec<&str>) -> McpServerConfig {
@@ -81,7 +81,7 @@ async fn server_handle_transitions_from_idle_to_failed_on_bad_command() {
     // this as a Failed state and bubble up a Transport/Timeout error.
     let cfg = base_cfg("fail-fast", "false", vec![]);
     // Validate config still passes (runtime behavior is separate).
-    ha_core::mcp::config::validate_server_config(&cfg).expect("sample config should validate");
+    ha_mcp::config::validate_server_config(&cfg).expect("sample config should validate");
 
     let handle = ServerHandle::new(cfg.clone());
     let initial = handle.snapshot().await;
@@ -153,7 +153,7 @@ async fn server_memory_handshake_and_tool_call() {
 
     let handle = mgr.get_by_id(&cfg.id).await.expect("server registered");
     // Lazy-connect + list_tools round.
-    ha_core::mcp::client::ensure_connected(mgr, handle.clone())
+    ha_mcp::client::ensure_connected(mgr, handle.clone())
         .await
         .expect("connect + catalog succeed");
 
@@ -181,7 +181,7 @@ async fn server_memory_handshake_and_tool_call() {
         auto_approve_tools: true, // test context — skip the approval gate
         ..Default::default()
     };
-    let out = ha_core::mcp::invoke::call_tool(&read_graph_tool.name, &json!({}), &ctx)
+    let out = ha_mcp::invoke::call_tool(&read_graph_tool.name, &json!({}), &ctx)
         .await
         .expect("call_tool should succeed on read_graph");
     // The empty graph result for a fresh server is a JSON object with

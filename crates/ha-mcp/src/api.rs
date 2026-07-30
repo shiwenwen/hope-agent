@@ -3,8 +3,8 @@
 //! These are the "what the user clicked in the GUI / hit via REST" entry
 //! points. Both the `invoke_handler!` macro in `src-tauri/src/lib.rs` and
 //! the axum router in `crates/ha-server/src/routes/mcp.rs` delegate
-//! straight through — keeping the business logic in ha-core per the
-//! project's three-crate rule.
+//! straight through to `ha_mcp::api` — the shells stay thin, and the
+//! kernel (`ha_core::mcp`) keeps only the facade + hook trampolines.
 //!
 //! Every function here returns something that serializes cleanly with
 //! serde: the Tauri side re-wraps `Result<T, String>` for IPC, the HTTP
@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::config::{cached_config, mutate_config};
+use ha_core::config::{cached_config, mutate_config};
 
 use super::client;
 use super::config::{
@@ -149,7 +149,7 @@ pub struct McpServerDraft {
     #[serde(default)]
     pub id: Option<String>,
     pub name: String,
-    #[serde(default = "crate::default_true")]
+    #[serde(default = "ha_core::default_true")]
     pub enabled: bool,
     pub transport: McpTransportSpec,
     #[serde(default)]
@@ -321,7 +321,7 @@ pub async fn update_global_settings(new_settings: McpGlobalSettings) -> Result<(
 pub async fn add_server(draft: McpServerDraft) -> Result<McpServerSummary> {
     let now = now_secs();
     let cfg = draft.into_config(now, None);
-    crate::mcp::config::validate_server_config(&cfg).map_err(|e| anyhow!("{e}"))?;
+    crate::config::validate_server_config(&cfg).map_err(|e| anyhow!("{e}"))?;
 
     let saved = cfg.clone();
     mutate_config(("mcp.add", "settings_panel"), |store| {
@@ -350,7 +350,7 @@ pub async fn update_server(id: &str, draft: McpServerDraft) -> Result<McpServerS
         .ok_or_else(|| anyhow!("MCP server '{id}' not found"))?;
 
     let new_cfg = draft.into_config(now, Some(&existing));
-    crate::mcp::config::validate_server_config(&new_cfg).map_err(|e| anyhow!("{e}"))?;
+    crate::config::validate_server_config(&new_cfg).map_err(|e| anyhow!("{e}"))?;
     if new_cfg.name != existing.name {
         return Err(anyhow!(
             "MCP server names are immutable; remove and re-add '{}' to rename it",
@@ -400,7 +400,7 @@ pub async fn remove_server(id: &str) -> Result<()> {
         Ok(())
     })?;
     if let Err(e) = credentials::clear(id) {
-        crate::app_warn!(
+        ha_core::app_warn!(
             "mcp",
             "credentials:cleanup",
             "Failed to remove credentials for deleted server '{id}': {e}"
@@ -512,7 +512,7 @@ pub async fn start_oauth(id: &str) -> Result<()> {
                 }
             }
             Err(e) => {
-                crate::app_warn!(
+                ha_core::app_warn!(
                     "mcp",
                     &format!("{server_name}:oauth"),
                     "OAuth flow ended with error: {e}"
@@ -537,7 +537,7 @@ pub async fn sign_out(id: &str) -> Result<()> {
     // Drop the in-memory connection so the stale Bearer isn't reused on
     // the next tool call.
     client::disconnect(&handle).await.ok();
-    crate::app_info!(
+    ha_core::app_info!(
         "mcp",
         &format!("{}:oauth", handle.config.read().await.name),
         "Revoked stored OAuth credentials (sign out)"
@@ -603,13 +603,13 @@ pub async fn get_recent_logs(id: &str, limit: usize) -> Result<Vec<McpLogLine>> 
         return Ok(Vec::new());
     };
     let name_prefix = format!("{}:", handle.config.read().await.name);
-    let Some(db) = crate::globals::get_log_db() else {
+    let Some(db) = ha_core::globals::get_log_db() else {
         return Ok(Vec::new());
     };
 
     // Pull a slightly larger page than `limit` to absorb the other-server
     // rows that share the `mcp` category; clamp tightly afterwards.
-    let filter = crate::logging::LogFilter {
+    let filter = ha_core::logging::LogFilter {
         categories: Some(vec!["mcp".to_string()]),
         ..Default::default()
     };
@@ -742,7 +742,7 @@ pub async fn import_claude_desktop_config(raw_json: &str) -> Result<ImportSummar
             trust_acknowledged_at: None,
         };
         let cfg = draft.into_config(now, None);
-        if let Err(e) = crate::mcp::config::validate_server_config(&cfg) {
+        if let Err(e) = crate::config::validate_server_config(&cfg) {
             skipped.push(ImportSkip {
                 name: raw_name,
                 reason: e.to_string(),

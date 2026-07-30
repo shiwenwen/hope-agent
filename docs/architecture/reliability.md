@@ -503,7 +503,7 @@ Guardian 处理"整个进程崩了"。下一档是"进程活着但**某个子系
 
 | 行为 | 实现 |
 |------|------|
-| 每个 server 一个 watchdog 任务（Primary-only） | [`mcp/watchdog.rs`](../../crates/ha-core/src/mcp/watchdog.rs) |
+| 每个 server 一个 watchdog 任务（Primary-only） | [`watchdog.rs`](../../crates/ha-mcp/src/watchdog.rs) |
 | `Disconnected` / `Failed` 状态指数退避重连 | watchdog tick 检查 `ServerState`，触发 `connect_server` |
 | `NeedsAuth`（401/403）**不**重试 | 避免死循环烧 OAuth quota；用户需在设置里重新授权 |
 | WebSocket 4 MiB / 每 frame 1 MiB 硬上限 | 防恶意 peer 把 axum 任务饿死（`tungstenite` 默认 64/16 MiB 太宽松） |

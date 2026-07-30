@@ -77,6 +77,7 @@ pub mod lsp;
 pub mod manual;
 
 pub mod mcp;
+pub mod mcp_hooks;
 pub mod mcp_server;
 pub mod media_gen;
 pub mod memory;

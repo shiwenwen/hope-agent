@@ -9,6 +9,7 @@ members = [
     "crates/ha-server",
     "crates/ha-acp",
     "crates/ha-mac",
+    "crates/ha-mcp",
     "crates/ha-updater",
     "crates/ha-vcs",
     "crates/ha-weather",

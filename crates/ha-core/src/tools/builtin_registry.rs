@@ -100,8 +100,6 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_RESTORE_SETTINGS_BACKUP, aliases: &[], handler: tool_handler!(|args, ctx| super::settings::tool_restore_settings_backup(args).await) },
         BuiltinToolEntry { name: super::TOOL_SEND_ATTACHMENT, aliases: &[], handler: tool_handler!(|args, ctx| super::send_attachment::tool_send_attachment(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SKILL, aliases: &[], handler: tool_handler!(|args, ctx| super::skill::tool_skill(args, ctx).await) },
-        BuiltinToolEntry { name: super::TOOL_MCP_RESOURCE, aliases: &[], handler: tool_handler!(|args, ctx| crate::mcp::resources::tool_mcp_resource(args).await) },
-        BuiltinToolEntry { name: super::TOOL_MCP_PROMPT, aliases: &[], handler: tool_handler!(|args, ctx| crate::mcp::prompts::tool_mcp_prompt(args).await) },
         BuiltinToolEntry { name: super::feishu::TOOL_DOCX_CREATE, aliases: &[], handler: tool_handler!(|args, ctx| super::feishu::docx::execute_create(args).await) },
         BuiltinToolEntry { name: super::feishu::TOOL_DOCX_GET_BLOCKS, aliases: &[], handler: tool_handler!(|args, ctx| super::feishu::docx::execute_get_blocks(args).await) },
         BuiltinToolEntry { name: super::feishu::TOOL_DOCX_APPEND_BLOCK, aliases: &[], handler: tool_handler!(|args, ctx| super::feishu::docx::execute_append_block(args).await) },
