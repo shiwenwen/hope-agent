@@ -237,6 +237,7 @@ pub fn run() {
             commands::chat::insert_queued_turn_user_message,
             commands::chat::cancel_queued_turn_user_message,
             commands::chat::chat,
+            commands::chat::control_model_recovery,
             commands::chat::stop_chat,
             commands::runtime_tasks::cancel_runtime_task,
             // Interactive terminal

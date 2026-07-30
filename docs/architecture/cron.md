@@ -487,8 +487,9 @@ backoff_delay_ms = base_ms * 2^min(consecutive_failures, 20)
 | 错误分类 | 处理方式 |
 |----------|----------|
 | ContextOverflow | 不再是 terminal——经 `needs_compaction()` 触发上下文压缩后重试（`is_terminal()` 恒返回 `false`，无错误立即终止其他模型尝试的情形） |
-| Retryable（RateLimit / Overloaded / Timeout） | 同模型重试最多 `MAX_RETRIES=2` 次，指数退避 `retry_delay_ms(attempt, 1000, 10000)` |
-| Non-retryable（Auth / Billing / ModelNotFound / Unknown） | 跳过当前模型，尝试链中下一个 |
+| Retryable（RateLimit / Overloaded / Timeout） | 同模型最多重试 3 次，指数退避 `retry_delay_ms(attempt, 1000, 10000)`；当前 Key 耗尽后再轮换 Key / 模型 |
+| Unknown | 谨慎重试 2 次；仍失败则尝试链中下一个模型 |
+| Non-retryable（Auth / Billing / ModelNotFound） | 不原地重试，直接轮换 Key / 模型 |
 
 模型链构建：`resolve_model_chain(agent_model_config, store)` → primary + fallbacks（去重）。
 

@@ -843,6 +843,10 @@ fn build_router_with_cors(
         )
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
+            "/chat/recovery/control",
+            post(routes::chat::control_model_recovery),
+        )
+        .route(
             "/chat/approvals/pending",
             get(routes::chat::list_pending_approvals),
         )

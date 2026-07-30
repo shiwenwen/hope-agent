@@ -2,18 +2,7 @@ import { useTranslation } from "react-i18next"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { cn } from "@/lib/utils"
 import type { FallbackEvent } from "@/types/chat"
-
-/** Map backend FailoverReason snake_case to i18n key suffix */
-const REASON_KEYS: Record<string, string> = {
-  rate_limit: "reasonRateLimit",
-  overloaded: "reasonOverloaded",
-  timeout: "reasonTimeout",
-  auth: "reasonAuth",
-  billing: "reasonBilling",
-  model_not_found: "reasonModelNotFound",
-  context_overflow: "reasonContextOverflow",
-  unknown: "reasonUnknown",
-}
+import { failoverReasonKey } from "./failoverReason"
 
 export default function FallbackDetailsPopover({
   event,
@@ -24,7 +13,7 @@ export default function FallbackDetailsPopover({
 }) {
   const { t } = useTranslation()
 
-  const reasonKey = event.reason ? REASON_KEYS[event.reason] || REASON_KEYS["unknown"] : null
+  const reasonKey = event.reason ? failoverReasonKey(event.reason) : null
   const reasonText = reasonKey ? t(`chat.${reasonKey}`) : null
 
   return (

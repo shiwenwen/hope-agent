@@ -6,13 +6,13 @@
 
 Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运行环境自动在 Tauri IPC 和 HTTP/WebSocket 之间切换。本文档把两条通道上的**每一条接口**列成一一对应的表格，并标记对齐状态。
 
-## 数据来源（截至 2026-07-29）
+## 数据来源（截至 2026-07-30）
 
 | 源 | 位置 | 数量 |
 |---|---|---|
-| Tauri 命令 | `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` | **1127** |
-| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **1039** |
-| 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **1106** |
+| Tauri 命令 | `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` | **1128** |
+| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **1040** |
+| 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **1107** |
 | WebSocket 端点 | `crates/ha-server/src/ws/` | **1** |
 | EventBus 事件 | 全代码 `emit_event` 调用 | **59+** |
 
@@ -20,7 +20,7 @@ Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运�
 
 | 分类 | 数量 | 说明 |
 |---|---|---|
-| ✅ 两端完全对齐（在 COMMAND_MAP 中） | 1106 | 常规请求/响应命令（所有顶层 COMMAND_MAP 条目都有 Tauri 命令对应） |
+| ✅ 两端完全对齐（在 COMMAND_MAP 中） | 1107 | 常规请求/响应命令（所有顶层 COMMAND_MAP 条目都有 Tauri 命令对应） |
 | 🔧 特殊处理（不在 COMMAND_MAP 但 HTTP 已实现，走专用 Transport 方法） | 12 | multipart/二进制流/保存对话框类接口：avatar、filesystem、session export、Artifact export 和 memory backup archive |
 | 🖥️ Desktop-only / Tauri-only（HTTP 无对应） | 10 | macOS / legacy 系统权限探测（5 条）+ `project_fs_resolve` / `kb_file_resolve_cmd`（`convertFileSrc`）+ Dock / tray 未读提示 + browser-side save-as |
 | ❌ HTTP 路由存在但 COMMAND_MAP 漏写 | 0 | — |
@@ -801,6 +801,7 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `delete_queued_turn_user_message` | `DELETE /api/chat/turn-message/{sessionId}/{requestId}` | ✅ CAS 拒绝 inserting/dispatching |
 | `insert_queued_turn_user_message` | `POST /api/chat/turn-message/insert` | ✅ 绑定活跃 turn 的工具边界 |
 | `cancel_queued_turn_user_message` | `POST /api/chat/turn-message/cancel` | ✅ 仅 waiting_tool_boundary 可撤销 |
+| `control_model_recovery` | `POST /api/chat/recovery/control` | ✅ 精确匹配 `sessionId + recoveryId`；`action=skip_wait\|switch_model` |
 | `stop_chat` | `POST /api/chat/stop` | ✅ |
 | `set_permission_mode` | `POST /api/chat/permission-mode` | ✅ 替代旧 `set_tool_permission_mode` |
 | `respond_to_approval` | `POST /api/chat/approval` | ✅ |
@@ -1822,15 +1823,15 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 以下 shell 段落可在项目根运行，本文档对照表的数据正确性依赖它们：
 
 ```bash
-# 1. Tauri 命令总数（截至 2026-07-29：1127）
+# 1. Tauri 命令总数（截至 2026-07-30：1128）
 awk 'BEGIN{flag=0} /tauri::generate_handler!\[/{flag=1;next} flag&&/^[[:space:]]*\]\)/{flag=0} flag' \
     src-tauri/src/lib.rs | grep -vE '^[[:space:]]*//|^[[:space:]]*$' | \
     grep -oE '::[a-z_][a-zA-Z0-9_]*,?[[:space:]]*$' | tr -d ':, ' | sort -u | wc -l
 
-# 2. HTTP 路由总数（截至 2026-07-29：1039）
+# 2. HTTP 路由总数（截至 2026-07-30：1040）
 grep -cE '^[[:space:]]+\.route\(' crates/ha-server/src/lib.rs
 
-# 3. COMMAND_MAP 条目数（截至 2026-07-29：1106，不含闭合 `}` 的行）
+# 3. COMMAND_MAP 条目数（截至 2026-07-30：1107，不含闭合 `}` 的行）
 awk '/^const COMMAND_MAP/,/^};/' src/lib/transport-http.ts | \
     grep -cE '^[[:space:]]+[a-z_][a-zA-Z0-9_]*:[[:space:]]*\{'
 

@@ -1,6 +1,6 @@
 //! Friendly IM system-event notices.
 //!
-//! Mirrors the GUI's inline status banners (model fallback, profile
+//! Mirrors the GUI's inline status banners (model retry/fallback, profile
 //! rotation, context compaction, thinking auto-disabled, vision
 //! auto-disabled) onto IM as
 //! short standalone markdown messages. Format: emoji prefix +
@@ -22,6 +22,8 @@ pub fn format_im_system_event(event: &Value) -> Option<String> {
     let obj = event.as_object()?;
     let kind = obj.get("type").and_then(Value::as_str)?;
     match kind {
+        "model_retry" => Some(format_model_retry(obj)),
+        "model_chain_retry" => Some(format_model_chain_retry(obj)),
         "model_fallback" => Some(format_model_fallback(obj)),
         "profile_rotation" => Some(format_profile_rotation(obj)),
         "context_compacted" => format_context_compacted(obj),
@@ -30,6 +32,50 @@ pub fn format_im_system_event(event: &Value) -> Option<String> {
         "vision_bridge" => Some(format_vision_bridge(obj)),
         _ => None,
     }
+}
+
+fn retry_progress(obj: &serde_json::Map<String, Value>, label: &str) -> String {
+    match (
+        obj.get("attempt").and_then(Value::as_u64),
+        obj.get("total").and_then(Value::as_u64),
+    ) {
+        (Some(attempt), Some(total)) => format!(", {label} {attempt}/{total}"),
+        _ => String::new(),
+    }
+}
+
+fn retry_delay(obj: &serde_json::Map<String, Value>) -> String {
+    let Some(delay_ms) = obj.get("delay_ms").and_then(Value::as_u64) else {
+        return String::new();
+    };
+    let seconds = delay_ms.saturating_add(999) / 1000;
+    format!(" in {seconds}s")
+}
+
+fn format_model_retry(obj: &serde_json::Map<String, Value>) -> String {
+    let model = obj
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or("current model");
+    let reason = obj
+        .get("reason")
+        .and_then(Value::as_str)
+        .map(friendly_reason)
+        .unwrap_or("error");
+    let progress = retry_progress(obj, "retry");
+    let delay = retry_delay(obj);
+    format!("🔁 _Retrying **{model}** — {reason}{progress}{delay}_")
+}
+
+fn format_model_chain_retry(obj: &serde_json::Map<String, Value>) -> String {
+    let reason = obj
+        .get("reason")
+        .and_then(Value::as_str)
+        .map(friendly_reason)
+        .unwrap_or("error");
+    let progress = retry_progress(obj, "round");
+    let delay = retry_delay(obj);
+    format!("🔄 _Starting another model recovery round — {reason}{progress}{delay}_")
 }
 
 fn format_model_fallback(obj: &serde_json::Map<String, Value>) -> String {
@@ -164,6 +210,37 @@ mod tests {
         assert_eq!(
             format_im_system_event(&event).as_deref(),
             Some("⤵️ _Switching to **OpenAI / gpt-4o** — auth issue, attempt 2/3_"),
+        );
+    }
+
+    #[test]
+    fn model_retry_full_payload() {
+        let event = json!({
+            "type": "model_retry",
+            "model": "OpenAI / gpt-4o",
+            "reason": "timeout",
+            "attempt": 2,
+            "total": 3,
+            "delay_ms": 2000,
+        });
+        assert_eq!(
+            format_im_system_event(&event).as_deref(),
+            Some("🔁 _Retrying **OpenAI / gpt-4o** — network, retry 2/3 in 2s_"),
+        );
+    }
+
+    #[test]
+    fn model_chain_retry_full_payload() {
+        let event = json!({
+            "type": "model_chain_retry",
+            "reason": "unknown",
+            "attempt": 2,
+            "total": 2,
+            "delay_ms": 4100,
+        });
+        assert_eq!(
+            format_im_system_event(&event).as_deref(),
+            Some("🔄 _Starting another model recovery round — error, round 2/2 in 5s_"),
         );
     }
 

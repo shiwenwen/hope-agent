@@ -316,8 +316,8 @@ pub struct ChannelStreamSink {
     pub session_id: String,
     /// Forwards raw events to the channel streaming background task.
     pub event_tx: tokio::sync::mpsc::UnboundedSender<String>,
-    /// Pre-formatted IM-side system notices (model_fallback /
-    /// profile_rotation / context_compacted / thinking_auto_disabled). The
+    /// Pre-formatted IM-side system notices (model retry/fallback /
+    /// profile rotation / context compaction / thinking auto-disabled). The
     /// streaming task receives them and ships each as its own `send_message`
     /// — kept off `event_tx` and out of the round accumulator so they don't
     /// tangle with the per-round LLM text in `Split` mode.
@@ -427,7 +427,9 @@ impl EventSink for ChannelStreamSink {
             if closed_thinking {
                 self.forward_thinking_close_separator();
             }
-        } else if event.contains("\"type\":\"model_fallback\"")
+        } else if event.contains("\"type\":\"model_retry\"")
+            || event.contains("\"type\":\"model_chain_retry\"")
+            || event.contains("\"type\":\"model_fallback\"")
             || event.contains("\"type\":\"profile_rotation\"")
             || event.contains("\"type\":\"context_compacted\"")
             || event.contains("\"type\":\"thinking_auto_disabled\"")
@@ -1005,6 +1007,39 @@ mod tests {
         let notice = notice_rx.try_recv().expect("notice should be queued");
         assert!(notice.contains("Switching to"));
         assert!(notice.contains("auth issue"));
+    }
+
+    #[test]
+    fn model_recovery_events_route_to_notice_channel() {
+        let (sink, mut notice_rx) = mk_sink_with_notice_rx();
+        emit(
+            &sink,
+            json!({
+                "type": "model_retry",
+                "model": "OpenAI / gpt-4o",
+                "reason": "timeout",
+                "attempt": 1,
+                "total": 3,
+                "delay_ms": 1000,
+            }),
+        );
+        emit(
+            &sink,
+            json!({
+                "type": "model_chain_retry",
+                "reason": "unknown",
+                "attempt": 2,
+                "total": 2,
+                "delay_ms": 4000,
+            }),
+        );
+
+        let retry_notice = notice_rx.try_recv().expect("retry notice should be queued");
+        assert!(retry_notice.contains("Retrying"));
+        let chain_notice = notice_rx
+            .try_recv()
+            .expect("chain recovery notice should be queued");
+        assert!(chain_notice.contains("recovery round"));
     }
 
     #[test]

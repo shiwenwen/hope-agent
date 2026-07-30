@@ -285,6 +285,42 @@ describe("handleStreamEvent context compaction notices", () => {
   })
 })
 
+describe("handleStreamEvent model recovery notices", () => {
+  test("shows every retry before the assistant placeholder", () => {
+    const messagesRef = {
+      current: [
+        { role: "user", content: "continue" },
+        { role: "assistant", content: "" },
+      ] satisfies Message[],
+    }
+    const deps = createDeps(messagesRef)
+
+    for (const attempt of [1, 2]) {
+      handleStreamEvent(
+        {
+          type: "model_retry",
+          model: "Provider / model",
+          reason: "timeout",
+          attempt,
+          total: 3,
+          delay_ms: attempt * 1000,
+        },
+        "s1",
+        deps,
+      )
+    }
+
+    expect(messagesRef.current.map((m) => m.role)).toEqual([
+      "user",
+      "event",
+      "event",
+      "assistant",
+    ])
+    expect(parseEvent(messagesRef.current[1]).attempt).toBe(1)
+    expect(parseEvent(messagesRef.current[2]).attempt).toBe(2)
+  })
+})
+
 describe("handleStreamEvent durable attempt replacement", () => {
   test("discards the superseded tail before replaying the replacement attempt", () => {
     const messagesRef = {

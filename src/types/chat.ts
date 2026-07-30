@@ -427,6 +427,22 @@ export interface ProfileRotationEvent {
   reason?: string
 }
 
+/** Live progress emitted before a same-model retry or a bounded restart of
+ *  the complete model fallback chain. These notices are intentionally not
+ *  materialized into conversation history after the turn settles. */
+export interface ModelRecoveryEvent {
+  type: "model_retry" | "model_chain_retry"
+  provider_id?: string
+  model_id?: string
+  model?: string
+  reason?: string
+  attempt?: number
+  total?: number
+  delay_ms?: number
+  recovery_id?: string
+  can_switch_model?: boolean
+}
+
 /** Context window compaction event. Tier 0/1 reactive micro-compactions are
  *  filtered out at persist time (see chat_engine/persister.rs); the GUI banner
  *  only sees Tier ≥ 2 events. */
