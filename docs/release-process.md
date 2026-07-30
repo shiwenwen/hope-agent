@@ -263,6 +263,7 @@ download/
 - **`update-linux-repo.yml` 的整桶 pull 必须带 `--include`**。它把 bucket 镜像下来重建索引；本 workflow 每版往同一个 bucket 放约 1.5 GB 且永久保留，不过滤会让那个 pull 无界增长直到超时。新增本 job 独占的顶层路径时，同步加进那个过滤列表。
 - **`notes` 里的 GitHub 链接会被改写**（改写发生在 R2 那份 manifest 上，仓库源文件不动，§1.1(a) 的「链接一律用完整 GitHub URL」规则不变）。`notes` 是应用内「发现新版」弹窗的正文且按 markdown 渲染，中英切换与 CHANGELOG 两条链接对目标用户就是死链。链到 `REQUIRED` 之外的文档时 workflow 会 fail-closed。
 - **签名原样复制、绝不重算**。理由与端点链的信任模型见 [self-update](architecture/self-update.md#manifest-端点链r2-镜像优先github-兜底)。
+- **R2 会间歇性返回 `501 NotImplemented`**。首次回填时三个上传步骤的 attempt 1 全部大面积失败，两个在 attempt 2 自愈、第三个耗尽 rclone 默认的 3 次重试而告败。**根因尚未定位**——长期稳定的 `update-linux-repo.yml` 往同一个 bucket 传同量级文件从不出这个，而它与这三步唯一的差别是没有 `--header-upload`。当前对策是给足重试余量并跳过 R2 已知会 501 的 bucket 探测（见 `RCLONE_FLAGS`）。**rclone 的 stderr 不要再用 `tail` 截断**——首次失败时正是被截掉的逐对象错误行才能定位问题，别再为了日志好看把它们丢掉。
 
 存储成本：一版约 1.5 GB，R2 存储 $0.015/GB·月、egress 免费，按每月 3 版算一年累积约 55 GB（每月 < $1）。刻意全部保留而不做清理——现有 R2 发布路径全程只用 `copy` 不用 `sync` 就是为了「绝不删除」，加删除逻辑要单独定义失败语义。
 
