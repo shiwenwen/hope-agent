@@ -77,6 +77,14 @@
 /crates/ha-pet/src/asset.rs       @shiwenwen
 /crates/ha-core/src/pet.rs        @shiwenwen
 /crates/ha-core/src/session/pet_activity.rs @shiwenwen
+# 媒体特征（阶段 4 自 ha-core 迁入 ha-media）：23 个生成 adapters 与 9 个
+# STT provider 的全部出站 HTTP/WS（SSRF 门调用点）；kernel 侧
+# media_gen/types.rs（ssrf_policy_for 策略映射）与 stt/types.rs
+# （check_ssrf）是策略单一来源，同级把关。
+/crates/ha-media/src/media_gen/  @shiwenwen
+/crates/ha-media/src/stt/        @shiwenwen
+/crates/ha-core/src/media_gen/types.rs   @shiwenwen
+/crates/ha-core/src/stt/types.rs         @shiwenwen
 
 # === 跨 PR 契约：架构文档 ===
 /docs/architecture/               @shiwenwen

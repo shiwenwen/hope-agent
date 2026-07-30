@@ -131,7 +131,7 @@ reqwest `redirect::Policy::custom` 的 callback 是同步上下文，没法 `.aw
 | 调用方 | 上限 | 文件 |
 |---|---|---|
 | `web_search/*`（Bocha / Brave / Google / Grok / SearXNG / 通用 helper） | `JSON_RESPONSE_BYTE_CAP = 1_000_000`（1 MB） | [`tools/web_search/helpers.rs`](../../crates/ha-core/src/tools/web_search/helpers.rs) |
-| `image_generate` URL 下载 | `MAX_IMAGE_DOWNLOAD_BYTES = 10_485_760`（10 MB） | [`tools/image_generate/helpers.rs`](../../crates/ha-core/src/tools/image_generate/helpers.rs) |
+| `image_generate` URL 下载 | `MAX_IMAGE_DOWNLOAD_BYTES = 10_485_760`（10 MB） | [`ha-media media_gen/input.rs`](../../crates/ha-media/src/media_gen/input.rs) |
 
 新增"会从外部下载内容"的工具时，**默认走 `read_*_capped`**，不要用 `resp.text()` / `resp.bytes()`。封顶值按业务合理上限选——JSON API 1 MB 已远超合理 payload，图片 10 MB 覆盖 4K 大图。
 
@@ -189,7 +189,7 @@ pub fn status() -> DangerousModeStatus;
 | `web_fetch` | `ssrf_cfg.web_fetch()`；`ssrf_protection: false` legacy 字段降级到 `AllowPrivate`；redirect callback 走 `check_host_blocking_sync` | [`tools/web_fetch.rs:382-411`](../../crates/ha-core/src/tools/web_fetch.rs) |
 | `browser` 高层 URL 操作（`navigate.go` / `tabs.new` / `profile.connect` / `control.evaluate` 字面量） | `ssrf_cfg.browser()`；`raw_cdp` 不做 payload SSRF 扫描，风险交给统一 tool approval | [`tools/browser/mod.rs`](../../crates/ha-browser/src/tool/mod.rs)、[`browser/mod.rs::validate_cdp_endpoint_url`](../../crates/ha-browser/src/browser/mod.rs) |
 | `browser` Chromium runtime 下载 | `ssrf_cfg.browser()`，固定 Google Chromium snapshots host，下载后 zip-slip 防护 + smoke test | [`browser/runtime.rs`](../../crates/ha-browser/src/browser/runtime.rs) |
-| `image_generate` URL 下载 | `ssrf_cfg.image_generate()`，封顶 10 MB | [`tools/image_generate/helpers.rs:98,128`](../../crates/ha-core/src/tools/image_generate/helpers.rs) |
+| `image_generate` URL 下载 | `ssrf_cfg.image_generate()`，封顶 10 MB | [`ha-media media_gen/input.rs`（逐跳 SSRF 经 adapters::fetch）](../../crates/ha-media/src/media_gen/input.rs) |
 | `url_preview` | `ssrf_cfg.url_preview()` | [`url_preview.rs:252`](../../crates/ha-core/src/url_preview.rs) |
 | `web_search` (Bocha / Brave / Google / Grok / SearXNG) | `ssrf_cfg.default_policy`（无 per-tool override） | [`tools/web_search/helpers.rs:16`](../../crates/ha-core/src/tools/web_search/helpers.rs) |
 | MCP transport (Streamable HTTP / SSE / WebSocket) | 调用方传入的 policy（默认 `Default`）；ws/wss 先 rewrite 成 http/https 再分类 | [`transport.rs` `ssrf_gate_url`（SSE/WS/Streamable 三入口 331/382/609）](../../crates/ha-mcp/src/transport.rs) |

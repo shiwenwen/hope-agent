@@ -6,7 +6,7 @@
 //! helpers (serialized `mutate_config`) on the blocking pool.
 
 use crate::commands::CmdError;
-use ha_core::media_gen::{
+use ha_media::media_gen::{
     AudioGenDefaults, ImageGenDefaults, MediaFunction, MediaGenOverview, MediaModelChain,
     MediaProviderConfig, MediaProviderTemplate,
 };
@@ -105,7 +105,7 @@ pub async fn update_media_gen_defaults(
 /// Built-in vendor templates + preset models (GUI-only catalog).
 #[tauri::command]
 pub async fn get_media_provider_templates() -> Result<Vec<MediaProviderTemplate>, CmdError> {
-    Ok(ha_core::media_gen::media_provider_templates())
+    Ok(ha_media::media_gen::media_provider_templates())
 }
 
 /// Voice catalog for one configured provider (ElevenLabs live fetch with a
@@ -115,8 +115,8 @@ pub async fn get_media_provider_templates() -> Result<Vec<MediaProviderTemplate>
 pub async fn list_media_voices(
     provider_id: String,
     limit: Option<u32>,
-) -> Result<Vec<ha_core::media_gen::voices::VoiceOption>, CmdError> {
-    ha_core::media_gen::voices::list_media_voices(&provider_id, limit.unwrap_or(100))
+) -> Result<Vec<ha_media::media_gen::voices::VoiceOption>, CmdError> {
+    ha_media::media_gen::voices::list_media_voices(&provider_id, limit.unwrap_or(100))
         .await
         .map_err(Into::into)
 }
@@ -133,8 +133,8 @@ pub async fn test_media_provider(
     base_url: Option<String>,
     allow_private_network: Option<bool>,
 ) -> Result<String, String> {
-    ha_core::media_gen::probe::test_media_provider(
-        ha_core::media_gen::probe::TestMediaProviderInput {
+    ha_media::media_gen::probe::test_media_provider(
+        ha_media::media_gen::probe::TestMediaProviderInput {
             provider_id,
             kind,
             api_key,
@@ -150,5 +150,5 @@ pub async fn test_media_provider(
 #[tauri::command]
 pub async fn get_media_gen_overview() -> Result<MediaGenOverview, CmdError> {
     let cfg = ha_core::config::cached_config();
-    Ok(ha_core::media_gen::media_gen_overview(&cfg.media_gen))
+    Ok(ha_media::media_gen::media_gen_overview(&cfg.media_gen))
 }

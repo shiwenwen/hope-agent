@@ -10,7 +10,6 @@ pub use approval::{pending_approvals_per_session, SessionApprovalAgg};
 // 特征 crate 的工具 adapter（如 ha-updater 的 `app_update` install/rollback
 // 确认）从 crate 外复用同一入口，不 fork。
 pub mod ask_user_question;
-pub mod audio_generate;
 mod builtin_registry;
 mod core_memory;
 mod cron;
@@ -27,7 +26,6 @@ mod find;
 mod goal;
 mod grep;
 pub(crate) mod image;
-pub mod image_generate;
 // pub：ha-mac 的截图结果复用 image marker 构建（工具结果图片标记契约）。
 pub mod image_markers;
 mod issue_report;

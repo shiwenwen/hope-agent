@@ -10,6 +10,7 @@ members = [
     "crates/ha-acp",
     "crates/ha-mac",
     "crates/ha-mcp",
+    "crates/ha-media",
     "crates/ha-pet",
     "crates/ha-updater",
     "crates/ha-vcs",

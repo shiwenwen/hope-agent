@@ -12,6 +12,7 @@ ha-base = { path = "../ha-base" }
 ha-config-schema = { path = "../ha-config-schema" }
 ha-browser = { path = "../ha-browser" }
 ha-core = { path = "../ha-core" }
+ha-media = { path = "../ha-media" }
 
 anyhow = { workspace = true }
 base64 = { workspace = true }

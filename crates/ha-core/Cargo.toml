@@ -108,6 +108,8 @@ rquickjs-serde = "0.6"
 
 [features]
 default = []
+# 跨 crate 测试设施（test_support 模块）；仅特征 crate dev-dependencies 使用。
+test-support = []
 # Heavy deterministic eval-only implementations are compiled by the dedicated
 # `hope-agent-eval` binary, never by the default PR test harness.
 eval-runner = []

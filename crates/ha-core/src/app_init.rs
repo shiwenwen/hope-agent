@@ -1360,26 +1360,8 @@ pub async fn start_background_tasks() {
         // auto-review config after every interval or config change.
         crate::skills::auto_review::curator::spawn_auto_curator_loop();
 
-        // STT streaming-session GC. Sweeps abandoned sessions every 5
-        // minutes — a front-end crash / lost connection between `start`
-        // and `finalize` would otherwise leak the upstream WS forever.
-        tokio::spawn(async {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(300));
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            ticker.tick().await;
-            loop {
-                ticker.tick().await;
-                let evicted = crate::stt::SttSessionManager::global().gc_idle();
-                if evicted > 0 {
-                    app_info!(
-                        "stt",
-                        "session-gc",
-                        "evicted {} idle STT session(s)",
-                        evicted
-                    );
-                }
-            }
-        });
+        // STT 流式会话 GC 已随 ha-media 迁出：wire() 注册为 PrimaryOnly
+        // startup task（本块原位在 primary 块内，档位语义一致）。
 
         // Knowledge base index: reconcile every KB against disk (catches edits
         // made while the app was off) and start a live watcher per KB root so

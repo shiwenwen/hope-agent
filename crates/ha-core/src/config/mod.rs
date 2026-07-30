@@ -11,7 +11,7 @@ pub(crate) mod autosave;
 mod persistence;
 
 pub(crate) use persistence::encode_model_eval_codex_secret;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use persistence::replace_cache_for_test;
 pub use persistence::{
     cached_config, config_health, initialize_model_eval_provider_secrets, load_config,

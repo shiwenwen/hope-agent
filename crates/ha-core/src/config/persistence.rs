@@ -675,7 +675,7 @@ pub fn cached_config() -> Arc<AppConfig> {
 /// of inheriting the developer's `~/.hope-agent/config.json` (which would
 /// otherwise leak provider lists, active models, etc. into tests on the
 /// developer machine).
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn replace_cache_for_test(config: AppConfig) {
     cache().store(Arc::new(config));
     clear_config_load_failure();

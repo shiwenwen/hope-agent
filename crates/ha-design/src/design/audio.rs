@@ -9,7 +9,7 @@ use anyhow::Result;
 use base64::Engine;
 
 use super::renderer::{html_escape, ArtifactParts};
-use ha_core::media_gen::{execute_audio, AudioKind, AudioRequest, UsageMeta};
+use ha_media::media_gen::{execute_audio, AudioKind, AudioRequest, UsageMeta};
 
 /// 从 prompt 推断音频子能力（含 `[music]` / `[sfx]` 前缀提示，默认语音旁白）。
 /// 显式 kind（`AudioGenPartsOptions.kind`）优先，本函数只是兼容回退。

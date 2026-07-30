@@ -1298,7 +1298,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .filter(|s| !s.trim().is_empty())
         {
             match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
-                Ok(data) => input_images.push(ha_core::media_gen::adapters::InputImage {
+                Ok(data) => input_images.push(ha_media::media_gen::adapters::InputImage {
                     data,
                     mime: input
                         .reference_image_mime
@@ -1325,7 +1325,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
                     continue;
                 }
                 match base64::engine::general_purpose::STANDARD.decode(b64) {
-                    Ok(data) => input_images.push(ha_core::media_gen::adapters::InputImage {
+                    Ok(data) => input_images.push(ha_media::media_gen::adapters::InputImage {
                         data,
                         mime: r
                             .mime
@@ -1348,7 +1348,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .as_deref()
             .filter(|p| !p.is_empty())
         {
-            match ha_core::media_gen::load_input_images(paths).await {
+            match ha_media::media_gen::load_input_images(paths).await {
                 Ok(mut loaded) => {
                     let room = 5usize.saturating_sub(input_images.len());
                     loaded.truncate(room);
@@ -2003,7 +2003,7 @@ pub async fn inpaint_image_artifact(
         aspect_ratio: None,
         size: None,
         resolution: None,
-        input_images: vec![ha_core::media_gen::adapters::InputImage {
+        input_images: vec![ha_media::media_gen::adapters::InputImage {
             data: img_bytes,
             mime: img_mime,
         }],

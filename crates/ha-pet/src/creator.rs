@@ -234,9 +234,9 @@ pub async fn create_preview(request: PetCreateRequest) -> Result<PetImportPrevie
         "Create one original full-body desktop mascot character on a transparent background. Center it, keep the entire character visible with generous padding, use a clear readable silhouette at tiny size, no text, no frame, no props cut off, no sprite grid. Neutral friendly three-quarter pose. Character direction: {prompt}"
     );
     let media_config = ha_core::config::cached_config().media_gen.clone();
-    let outcome = ha_core::media_gen::execute_image(
+    let outcome = ha_media::media_gen::execute_image(
         &media_config,
-        ha_core::media_gen::ImageRequest {
+        ha_media::media_gen::ImageRequest {
             prompt: &generation_prompt,
             size: None,
             n: 1,
@@ -246,7 +246,7 @@ pub async fn create_preview(request: PetCreateRequest) -> Result<PetImportPrevie
             mask: None,
             explicit_model: None,
         },
-        ha_core::media_gen::UsageMeta {
+        ha_media::media_gen::UsageMeta {
             operation: "pet.create",
             source: "pet.creator",
             session_id: None,

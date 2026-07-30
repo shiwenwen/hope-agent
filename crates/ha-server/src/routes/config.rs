@@ -1384,8 +1384,8 @@ pub async fn update_media_gen_defaults(
 
 /// `GET /api/config/media-gen/templates` -- built-in vendor templates (GUI-only catalog).
 pub async fn get_media_provider_templates(
-) -> Result<Json<Vec<ha_core::media_gen::MediaProviderTemplate>>, AppError> {
-    Ok(Json(ha_core::media_gen::media_provider_templates()))
+) -> Result<Json<Vec<ha_media::media_gen::MediaProviderTemplate>>, AppError> {
+    Ok(Json(ha_media::media_gen::media_provider_templates()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1399,9 +1399,9 @@ pub struct MediaVoicesQuery {
 /// `GET /api/config/media-gen/voices?providerId=..&limit=..` -- voice catalog.
 pub async fn list_media_voices(
     axum::extract::Query(q): axum::extract::Query<MediaVoicesQuery>,
-) -> Result<Json<Vec<ha_core::media_gen::voices::VoiceOption>>, AppError> {
+) -> Result<Json<Vec<ha_media::media_gen::voices::VoiceOption>>, AppError> {
     let voices =
-        ha_core::media_gen::voices::list_media_voices(&q.provider_id, q.limit.unwrap_or(100))
+        ha_media::media_gen::voices::list_media_voices(&q.provider_id, q.limit.unwrap_or(100))
             .await
             .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(voices))
@@ -1410,9 +1410,9 @@ pub async fn list_media_voices(
 /// `POST /api/config/media-gen/test` -- connectivity probe (saved provider
 /// by id, or a pre-save draft by kind + apiKey + baseUrl).
 pub async fn test_media_provider(
-    Json(body): Json<ha_core::media_gen::probe::TestMediaProviderInput>,
+    Json(body): Json<ha_media::media_gen::probe::TestMediaProviderInput>,
 ) -> Result<Json<Value>, AppError> {
-    let payload = ha_core::media_gen::probe::test_media_provider(body)
+    let payload = ha_media::media_gen::probe::test_media_provider(body)
         .await
         .unwrap_or_else(|e| e);
     let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
@@ -1420,10 +1420,12 @@ pub async fn test_media_provider(
 }
 
 /// `GET /api/config/media-gen/overview` -- sanitized availability/caps view.
-pub async fn get_media_gen_overview() -> Result<Json<ha_core::media_gen::MediaGenOverview>, AppError>
-{
+pub async fn get_media_gen_overview(
+) -> Result<Json<ha_media::media_gen::MediaGenOverview>, AppError> {
     let cfg = ha_core::config::cached_config();
-    Ok(Json(ha_core::media_gen::media_gen_overview(&cfg.media_gen)))
+    Ok(Json(ha_media::media_gen::media_gen_overview(
+        &cfg.media_gen,
+    )))
 }
 
 #[derive(serde::Deserialize)]

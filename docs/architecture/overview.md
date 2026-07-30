@@ -92,6 +92,7 @@ graph TD
         VcsFeat["ha-vcs<br/>git 操作面 + Docker 沙箱机器 + SearXNG"]
         McpFeat["ha-mcp<br/>McpManager / transport / OAuth + 两工具"]
         PetFeat["ha-pet<br/>sprite 库 / 导入 / 活动投影"]
+        MediaFeat["ha-media<br/>图/音生成 adapters + STT 引擎 + 两工具"]
     end
     Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     Weather -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
@@ -101,6 +102,9 @@ graph TD
     VcsFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     McpFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     PetFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    MediaFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    DesignFeat -.->|"特征间单向依赖<br/>（execute_image/audio）"| MediaFeat
+    PetFeat -.->|"特征间单向依赖<br/>（creator 生图）"| MediaFeat
     BrowserFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     DesignFeat -.->|"特征间单向依赖<br/>（Chrome PDF/截图）"| BrowserFeat
 

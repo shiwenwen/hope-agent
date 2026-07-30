@@ -32,6 +32,7 @@ const browserHostCargoTomlPath = path.join(rootDir, "crates", "ha-browser-host",
 const haEvalCargoTomlPath = path.join(rootDir, "crates", "ha-eval", "Cargo.toml")
 const haUpdaterCargoTomlPath = path.join(rootDir, "crates", "ha-updater", "Cargo.toml")
 const haMcpCargoTomlPath = path.join(rootDir, "crates", "ha-mcp", "Cargo.toml")
+const haMediaCargoTomlPath = path.join(rootDir, "crates", "ha-media", "Cargo.toml")
 const haPetCargoTomlPath = path.join(rootDir, "crates", "ha-pet", "Cargo.toml")
 const haVcsCargoTomlPath = path.join(rootDir, "crates", "ha-vcs", "Cargo.toml")
 const haWeatherCargoTomlPath = path.join(rootDir, "crates", "ha-weather", "Cargo.toml")
@@ -71,6 +72,7 @@ bumpCargoTomlVersion(browserHostCargoTomlPath, "crates/ha-browser-host/Cargo.tom
 bumpCargoTomlVersion(haEvalCargoTomlPath, "crates/ha-eval/Cargo.toml")
 bumpCargoTomlVersion(haUpdaterCargoTomlPath, "crates/ha-updater/Cargo.toml")
 bumpCargoTomlVersion(haMcpCargoTomlPath, "crates/ha-mcp/Cargo.toml")
+bumpCargoTomlVersion(haMediaCargoTomlPath, "crates/ha-media/Cargo.toml")
 bumpCargoTomlVersion(haPetCargoTomlPath, "crates/ha-pet/Cargo.toml")
 bumpCargoTomlVersion(haVcsCargoTomlPath, "crates/ha-vcs/Cargo.toml")
 bumpCargoTomlVersion(haWeatherCargoTomlPath, "crates/ha-weather/Cargo.toml")
@@ -86,7 +88,7 @@ bumpCargoTomlVersion(haBrowserCargoTomlPath, "crates/ha-browser/Cargo.toml")
 // commit.
 try {
   execSync(
-    "cargo update -p hope-agent -p ha-server -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-browser-host -p ha-eval --offline --quiet",
+    "cargo update -p hope-agent -p ha-server -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-browser-host -p ha-eval --offline --quiet",
     {
       cwd: rootDir,
       stdio: "inherit",
@@ -94,7 +96,7 @@ try {
   )
 } catch {
   console.error(
-    "[sync-version] failed to sync Cargo.lock; ensure Rust toolchain is installed, or run `cargo update -p hope-agent -p ha-server -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-browser-host -p ha-eval` manually",
+    "[sync-version] failed to sync Cargo.lock; ensure Rust toolchain is installed, or run `cargo update -p hope-agent -p ha-server -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-browser-host -p ha-eval` manually",
   )
   process.exit(1)
 }
@@ -106,7 +108,7 @@ if (process.env.npm_lifecycle_event === "version") {
       stdio: "ignore",
     })
     execSync(
-      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json crates/ha-server/Cargo.toml crates/ha-core/Cargo.toml crates/ha-base/Cargo.toml crates/ha-config-schema/Cargo.toml crates/ha-browser-host/Cargo.toml crates/ha-eval/Cargo.toml crates/ha-mcp/Cargo.toml crates/ha-pet/Cargo.toml crates/ha-updater/Cargo.toml crates/ha-vcs/Cargo.toml crates/ha-weather/Cargo.toml crates/ha-acp/Cargo.toml crates/ha-mac/Cargo.toml crates/ha-design/Cargo.toml crates/ha-browser/Cargo.toml Cargo.lock",
+      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json crates/ha-server/Cargo.toml crates/ha-core/Cargo.toml crates/ha-base/Cargo.toml crates/ha-config-schema/Cargo.toml crates/ha-browser-host/Cargo.toml crates/ha-eval/Cargo.toml crates/ha-mcp/Cargo.toml crates/ha-media/Cargo.toml crates/ha-pet/Cargo.toml crates/ha-updater/Cargo.toml crates/ha-vcs/Cargo.toml crates/ha-weather/Cargo.toml crates/ha-acp/Cargo.toml crates/ha-mac/Cargo.toml crates/ha-design/Cargo.toml crates/ha-browser/Cargo.toml Cargo.lock",
       {
         cwd: rootDir,
         stdio: "ignore",
@@ -119,5 +121,5 @@ if (process.env.npm_lifecycle_event === "version") {
 
 console.log(`[sync-version] synced desktop version to ${version}`)
 console.log(
-  "[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, crates/ha-server/Cargo.toml, crates/ha-core/Cargo.toml, crates/ha-base/Cargo.toml, crates/ha-config-schema/Cargo.toml, crates/ha-browser-host/Cargo.toml, crates/ha-eval/Cargo.toml, crates/ha-mcp/Cargo.toml, crates/ha-pet/Cargo.toml, crates/ha-updater/Cargo.toml, crates/ha-vcs/Cargo.toml, crates/ha-weather/Cargo.toml, crates/ha-acp/Cargo.toml, crates/ha-mac/Cargo.toml, crates/ha-design/Cargo.toml, crates/ha-browser/Cargo.toml, Cargo.lock",
+  "[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, crates/ha-server/Cargo.toml, crates/ha-core/Cargo.toml, crates/ha-base/Cargo.toml, crates/ha-config-schema/Cargo.toml, crates/ha-browser-host/Cargo.toml, crates/ha-eval/Cargo.toml, crates/ha-mcp/Cargo.toml, crates/ha-media/Cargo.toml, crates/ha-pet/Cargo.toml, crates/ha-updater/Cargo.toml, crates/ha-vcs/Cargo.toml, crates/ha-weather/Cargo.toml, crates/ha-acp/Cargo.toml, crates/ha-mac/Cargo.toml, crates/ha-design/Cargo.toml, crates/ha-browser/Cargo.toml, Cargo.lock",
 )

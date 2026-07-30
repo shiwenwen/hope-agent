@@ -22,6 +22,7 @@ fn main() {
     ha_vcs::wire();
     ha_mcp::wire();
     ha_pet::wire();
+    ha_media::wire();
 
     // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,
     // NOT persisted). Skips every tool-level approval gate for THIS launch only.

@@ -66,8 +66,6 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_SESSIONS_HISTORY, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_history(args).await) },
         BuiltinToolEntry { name: super::TOOL_SESSIONS_SEND, aliases: &[], handler: tool_handler!(|args, ctx| Box::pin(super::sessions::tool_sessions_send(args, ctx)).await) },
         BuiltinToolEntry { name: super::TOOL_IMAGE, aliases: &[], handler: tool_handler!(|args, ctx| super::image::tool_image(args, ctx).await) },
-        BuiltinToolEntry { name: super::TOOL_IMAGE_GENERATE, aliases: &[], handler: tool_handler!(|args, ctx| super::image_generate::tool_image_generate(args, ctx).await) },
-        BuiltinToolEntry { name: super::TOOL_AUDIO_GENERATE, aliases: &[], handler: tool_handler!(|args, ctx| super::audio_generate::tool_audio_generate(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_ISSUE_REPORT, aliases: &[], handler: tool_handler!(|args, ctx| super::issue_report::tool_issue_report(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_PDF, aliases: &[], handler: tool_handler!(|args, ctx| super::pdf::tool_pdf(args).await) },
         BuiltinToolEntry { name: super::TOOL_ASK_USER_QUESTION, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::ask_user_question::execute(args, ctx.session_id.as_deref()).await)) },

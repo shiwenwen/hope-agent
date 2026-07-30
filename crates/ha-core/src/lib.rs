@@ -30,8 +30,10 @@ pub mod async_jobs;
 pub mod attachments;
 pub mod globals;
 
-#[cfg(test)]
-pub(crate) mod test_support;
+// test-support feature：跨 crate 测试设施（ha-media 等特征 crate 的
+// dev-dependencies 开启；生产构建不编译，生产代码禁调）。
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 
 // ── Core modules (migrated from src-tauri) ────────────────────────
 pub mod activity;

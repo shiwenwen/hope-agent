@@ -41,7 +41,7 @@
 | [模型 vs Agent 统一配置](architecture/automation-model.md) | 后台一次性 LLM 调用的统一执行原语 `crate::automation`（纯文本 `run` + 带图片 `run_vision`）、`function_models.automation` 全局默认链、真跨模型降级 + purpose 用量标签、15 个消费者字段对照（Phase 1 的 9 个 + Phase 2 的图片 OCR/知识空间维护/Sprite/笔记三件套/Recall Summary/AI 改写） | `automation/`, `recap/`, `memory/{dreaming,recall_summary}.rs`, `knowledge/{compile,source,service,types}.rs`, `knowledge/maintenance/`, `skills/auto_review/`, `hooks/runner/prompt.rs`, `sprite/`, `tools/note.rs`, `agent/mod.rs`（awareness 提取） |
 | [主 LLM OAuth](architecture/llm-oauth.md) | Codex 主对话 OAuth 登录（PKCE + 本地回调）、token 刷新与并发去抖、凭据落 `auth.json`、登出清理、与 MCP OAuth 隔离 | `oauth.rs` |
 | [本地模型加载](architecture/local-model-loading.md) | Ollama 本地模型搜索/下载/加载/删除、后台任务、Provider 注册、Embedding 配置与记忆向量重建 | `local_llm/`, `local_model_jobs.rs`, `local_embedding.rs`, `memory/embedding/` |
-| [语音转写（STT）](architecture/stt.md)             | 独立配置语音转写引擎：8 wire 协议（OpenAI multipart / chat-completions ASR / 5 种 WebSocket）、桌面 batch + 流式会话、IM 自动转写、4 本地后端一键接入、Failover 链与 size/SSRF 红线 | `stt/`, `commands/stt.rs`, `routes/stt.rs` |
+| [语音转写（STT）](architecture/stt.md)             | 独立配置语音转写引擎：8 wire 协议（OpenAI multipart / chat-completions ASR / 5 种 WebSocket）、桌面 batch + 流式会话、IM 自动转写、4 本地后端一键接入、Failover 链与 size/SSRF 红线 | `ha-core/src/stt/`（配置面）, `crates/ha-media/src/stt/`（执行机器）, `commands/stt.rs`, `routes/stt.rs` |
 | [提示词系统](architecture/prompt-system.md)         | System Prompt 多段组装、工具描述、行为指导                        | `system_prompt/`                               |
 | [工具系统](architecture/tool-system.md)            | 工具定义、Tool Loop 并发/串行执行、结果持久化、四维权限控制                 | `tools/`                                       |
 | [文件操作统一](architecture/file-operations.md)     | 三处文件（Markdown 链接 / 下挂文件 / 工作台产物）统一操作策略、本机 vs 远端行为矩阵、右侧内置预览面板、preview-by-path 双壳后端与会话鉴权 | `lib/fileActions.ts`, `lib/fileKind.ts`, `components/chat/files/`, `filesystem/ops.rs` |
@@ -111,7 +111,7 @@
 
 | 文档                                        | 说明                                 | 关联源码                    |
 | ----------------------------------------- | ---------------------------------- | ----------------------- |
-| [媒体生成](architecture/media-generation.md)  | 统一图/音生成服务商体系：服务商→多模型→功能默认链、数据驱动能力、统一 failover 执行器（video 模态预留） | `media_gen/` |
+| [媒体生成](architecture/media-generation.md)  | 统一图/音生成服务商体系：服务商→多模型→功能默认链、数据驱动能力、统一 failover 执行器（video 模态预留） | `ha-core/src/media_gen/`（配置面）, `crates/ha-media/src/`（执行机器+两工具） |
 | [Canvas 子系统](architecture/canvas.md)     | 7 种内容类型沙盒预览、版本快照、snapshot/eval 双向通道、独立窗口、HTTP 静态托管 | `crates/ha-design/`（tool_canvas / canvas_db） |
 | [设计空间（Design Space）](architecture/design-space.md) | agent 原生设计工作空间：11 类自包含产物（web/mobile/deck/dashboard/poster/document/email/image/motion/audio/component）、品牌设计系统 + token 编译、稳定单产物预览（无画布）、oid 确定性可视化微调、一键导出 HTML/PNG/PDF/PPTX/MP4/ZIP、5 维质量门 + 反 slop 自查、**工程轴**（多平台 Token 导出 / Figma 导入 / 代码交付包 / 绑定代码工程同步）、与知识空间/项目联动 | `crates/ha-design/`, `components/design/` |
 | [Artifacts 产物平台](architecture/artifacts.md) | Canvas façade、不可变版本、Gallery、Data Analytics、离线本地导出与未来 Publisher Guard | `crates/ha-design/`（artifacts / tool_artifact）, `components/artifacts/` |

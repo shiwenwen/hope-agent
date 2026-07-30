@@ -101,6 +101,7 @@ pub fn run() {
     ha_vcs::wire();
     ha_mcp::wire();
     ha_pet::wire();
+    ha_media::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when

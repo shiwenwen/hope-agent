@@ -9,8 +9,8 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 
 use super::renderer::{html_escape, ArtifactParts};
-use ha_core::media_gen::adapters::InputImage;
-use ha_core::media_gen::{execute_image, ImageRequest, UsageMeta};
+use ha_media::media_gen::adapters::InputImage;
+use ha_media::media_gen::{execute_image, ImageRequest, UsageMeta};
 
 /// 生图可选项（B0-4 + 参数透传）：几何参数 + 参考图（图生图/编辑）。默认空 =
 /// 纯文生图、几何全落 `media_gen.image_defaults`。

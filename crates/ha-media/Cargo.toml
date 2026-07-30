@@ -1,0 +1,43 @@
+[package]
+name = "ha-media"
+version = "0.24.0"
+description = "Hope Agent media feature — image/audio generation adapters, STT provider engines, image_generate/audio_generate tools"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+ha-base = { path = "../ha-base" }
+ha-config-schema = { path = "../ha-config-schema" }
+ha-core = { path = "../ha-core" }
+
+anyhow = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+futures-util = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+# 与 ha-core 原依赖同版本线
+blake3 = "1.8.5"
+dirs = { workspace = true }
+flate2 = "1"
+hmac = "0.12"
+http = "1"
+image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+urlencoding = "2"
+
+[dev-dependencies]
+ha-core = { path = "../ha-core", features = ["test-support"] }
+
+[lints]
+workspace = true

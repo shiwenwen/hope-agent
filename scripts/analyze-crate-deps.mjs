@@ -84,14 +84,6 @@ const FEATURES = {
     "evaluation",
     "tools::lsp",
   ],
-  "ha-media": [
-    "media_gen",
-    "stt",
-    "tools::image_generate",
-    "tools::audio_generate",
-    "tools::image",
-    "tools::image_markers",
-  ],
   "ha-knowledge": ["knowledge", "tools::note"],
   "ha-channel": ["channel", "tools::feishu", "tools::send_attachment", "tools::notification"],
   "ha-cron": [

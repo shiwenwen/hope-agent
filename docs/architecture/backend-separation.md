@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-mac<br/>ha-mcp · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-4 逐个迁出）"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-mac<br/>ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-4 逐个迁出）"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -150,13 +150,15 @@ guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
 
-### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-mcp / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
 - **依赖方向**：特征 crate → ha-core（借用 tools registry / config / EventBus
-  等 kernel 服务）；**特征之间允许单向依赖**（无环即可——现有一条：
-  ha-design → ha-browser，render_native 复用 Chrome PDF/截图 backend）；
+  等 kernel 服务）；**特征之间允许单向依赖**（无环即可——现有三条：
+  ha-design → ha-browser（render_native 复用 Chrome PDF/截图 backend）、
+  ha-design → ha-media（图/音 artifact 表单走 execute_image/execute_audio
+  唯一入口）、ha-pet → ha-media（creator 生成 sprite）；
   ha-core **不知道**任何特征 crate 存在——kernel 需要特征
   行为的点全部倒转为注册钩子（工具分发条目 / 启动任务 / 专用 fn-pointer 钩子）。
 - **装配**：每个调 `init_runtime` 的二进制在 init 前调 `<crate>::wire()`
@@ -232,6 +234,17 @@ guardian.rs        进程监护 + 指数退避 + 自修复
   prompt 段 / settings 热更 reconcile），**未接线语义逐项镜像
   manager-None 的既有行为**（工具缺席 / auto-approve 恒 false /
   call_tool Err / reconcile Ok+warn）。
+- **ha-media**（媒体）：图/音生成执行机器（23 个 provider adapters /
+  execute / probe / catalog / voices）、STT 执行机器（9 个 provider 协议 /
+  流式会话 / failover 转写）、`image_generate`·`audio_generate` 两工具。
+  kernel 侧留存：`ha_core::media_gen`（crud / resolve 纯配置面 + wire
+  类型与 SSRF 策略映射）与 `ha_core::stt`（crud / 链解析 / types /
+  errors / 本地 catalog）。kernel 边界：单钩子
+  `stt::register_stt_transcriber`（channel 语音 / knowledge 音频收集消
+  费；未接线返 NoActiveModel 终态 + app_warn，调用方既有降级路径生效）；
+  两工具 wire() 注册；STT 流式会话 GC 经 startup task（PrimaryOnly，档
+  位与迁移前一致）。`execute_image`/`execute_audio` 唯一入口红线随机器
+  在特征侧（ha-design / ha-pet 直接依赖）。
 - **ha-pet**（桌面宠物）：sprite 包格式与校验 / 库 store / 导入（含
   Codex 兼容）/ creator / 活动投影。**类型随表下沉**：`ChatUiSurface`
   （chat_turns 表列 wire 类型，主对话投影边界的第一方 surface 标记）与
@@ -403,7 +416,7 @@ sequenceDiagram
 
 ### 事件清单
 
-> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/` / `crates/ha-vcs/src/` / `crates/ha-mcp/src/` / `crates/ha-pet/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`ha-mcp (events.rs)`、`ha-vcs (docker/mod.rs · git_control.rs EVENT_GIT_*)`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
+> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/` / `crates/ha-vcs/src/` / `crates/ha-mcp/src/` / `crates/ha-pet/src/` / `crates/ha-media/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`ha-mcp (events.rs)`、`ha-vcs (docker/mod.rs · git_control.rs EVENT_GIT_*)`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
 
 #### 聊天 / 流式
 

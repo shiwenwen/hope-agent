@@ -187,7 +187,8 @@ pub fn upsert_known_local_stt_provider(
 
 // ── In-config helpers (pure, easy to unit-test) ───────────────────
 
-pub(crate) fn add_stt_provider_in_config(
+// pub：ha-media stt 测试与 session 装配消费。
+pub fn add_stt_provider_in_config(
     store: &mut AppConfig,
     mut config: SttProviderConfig,
 ) -> SttProviderConfig {
