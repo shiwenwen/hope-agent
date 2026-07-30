@@ -1,10 +1,10 @@
 use serde_json::json;
 
-use super::super::{
+use super::types::{CoreSubclass, ToolDefinition, ToolTier};
+use super::{
     TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT, TOOL_GOAL_EVALUATE, TOOL_GOAL_FINISH_REQUEST,
     TOOL_GOAL_PREPARE_CONTRACT, TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS,
 };
-use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
 fn goal_core_tool(name: &str, description: &str, parameters: serde_json::Value) -> ToolDefinition {
     ToolDefinition {
@@ -15,7 +15,7 @@ fn goal_core_tool(name: &str, description: &str, parameters: serde_json::Value) 
         },
         internal: true,
         concurrent_safe: false,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters,
     }
 }
@@ -33,7 +33,7 @@ whether to continue, evaluate, finish, or ask the user."
         },
         internal: true,
         concurrent_safe: true,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {},

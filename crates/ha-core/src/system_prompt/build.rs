@@ -424,7 +424,7 @@ pub(crate) fn build_with_resolved_session(
             &definition.id,
             &definition.config,
             incognito,
-            crate::tools::TOOL_SUBAGENT,
+            crate::tool_defs::TOOL_SUBAGENT,
         )
     {
         let subagent_section =
@@ -440,7 +440,7 @@ pub(crate) fn build_with_resolved_session(
             &definition.id,
             &definition.config,
             incognito,
-            crate::tools::TOOL_TEAM,
+            crate::tool_defs::TOOL_TEAM,
         )
     {
         let team_section = build_team_section();
@@ -467,7 +467,7 @@ pub(crate) fn build_with_resolved_session(
             &definition.id,
             &definition.config,
             incognito,
-            crate::tools::TOOL_ACP_SPAWN,
+            crate::tool_defs::TOOL_ACP_SPAWN,
         )
     {
         let acp_section = build_acp_section();
@@ -2016,7 +2016,7 @@ mod memory_section_tests {
         };
         let eager_schema_tokens: u32 = crate::tools::dispatch::all_dispatchable_tools()
             .iter()
-            .filter(|tool| !crate::tools::is_kb_scoped_tool(&tool.name))
+            .filter(|tool| !crate::tool_defs::is_kb_scoped_tool(&tool.name))
             .filter(|tool| {
                 matches!(
                     crate::tools::dispatch::resolve_tool_fate(tool, &dispatch_ctx),
@@ -2025,7 +2025,7 @@ mod memory_section_tests {
             })
             .map(|tool| {
                 crate::context_compact::estimate_tokens(
-                    &tool.to_provider_schema(crate::tools::ToolProvider::OpenAI),
+                    &tool.to_provider_schema(crate::tool_defs::ToolProvider::OpenAI),
                 )
             })
             .sum();

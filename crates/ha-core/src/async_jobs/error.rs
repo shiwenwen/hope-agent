@@ -8,7 +8,7 @@
 //! [`JobStatus`] comes from a type rather than re-parsing a message.
 
 use super::types::JobStatus;
-use crate::tools::rejection::ToolRejection;
+use crate::tool_defs::rejection::ToolRejection;
 
 /// Why an async tool job ended without a successful result.
 #[derive(Debug)]

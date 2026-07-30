@@ -21,7 +21,7 @@ Goal 不直接执行工具，不替代 Workflow，也不表示重复调度。Wor
 | 层 | 代码 | 责任 |
 | --- | --- | --- |
 | 核心模型 | `crates/ha-core/src/goal/mod.rs` | Goal/GoalEvent/GoalLink 类型、状态机、建表、CRUD、criteria parser、审计器、closure decision、Goal Watchdog 只读诊断。 |
-| Agent Goal 工具 | `crates/ha-core/src/tools/goal.rs`、`tools/definitions/goal_tools.rs` | 模型侧 Goal Runtime：状态读取、checkpoint、通用证据、审计、完成请求、阻塞请求。 |
+| Agent Goal 工具 | `crates/ha-core/src/tools/goal.rs`、`tool_defs/goal_tools.rs` | 模型侧 Goal Runtime：状态读取、checkpoint、通用证据、审计、完成请求、阻塞请求。 |
 | Chat Engine 集成 | `crates/ha-core/src/chat_engine/engine.rs` | 成功回合后根据 active Goal 状态排自动 continuation wakeup。 |
 | Workflow 集成 | `crates/ha-core/src/workflow/db.rs` | `workflow_runs.goal_id`、自动绑定 active Goal、终态后自动 link + audit。 |
 | 斜杠命令 | `crates/ha-core/src/slash_commands/handlers/goal.rs` | `/goal` 文本控制面。 |

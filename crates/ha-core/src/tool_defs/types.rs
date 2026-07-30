@@ -1,8 +1,8 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use super::super::{ToolProvider, ASYNC_JOB_TIMEOUT_ARG};
 use super::metadata::ToolMetadata;
+use super::{ToolProvider, ASYNC_JOB_TIMEOUT_ARG};
 
 // ── Tool Tier (single source of truth for visibility / injection) ──
 
@@ -207,7 +207,7 @@ impl ToolDefinition {
     fn self_managed_operation(&self, args: &Value) -> DurableWorkOperation {
         let action = args.get("action").and_then(Value::as_str).unwrap_or("");
         match self.name.as_str() {
-            crate::tools::TOOL_SUBAGENT => match action {
+            crate::tool_defs::TOOL_SUBAGENT => match action {
                 "spawn" | "resume" | "batch_spawn" | "spawn_and_wait" => {
                     DurableWorkOperation::Dispatch
                 }
@@ -220,7 +220,7 @@ impl ToolDefinition {
                 "send" => DurableWorkOperation::Manage,
                 _ => DurableWorkOperation::Manage,
             },
-            crate::tools::TOOL_ACP_SPAWN => match action {
+            crate::tool_defs::TOOL_ACP_SPAWN => match action {
                 "spawn" => DurableWorkOperation::Dispatch,
                 "check" if args.get("wait").and_then(Value::as_bool).unwrap_or(false) => {
                     DurableWorkOperation::Wait
@@ -229,13 +229,13 @@ impl ToolDefinition {
                 "kill" | "kill_all" | "steer" => DurableWorkOperation::Control,
                 _ => DurableWorkOperation::Manage,
             },
-            crate::tools::TOOL_WORKFLOW => match action {
+            crate::tool_defs::TOOL_WORKFLOW => match action {
                 "create" | "followup" => DurableWorkOperation::Dispatch,
                 "list" | "status" | "trace" | "guide" => DurableWorkOperation::Observe,
                 "control" => DurableWorkOperation::Control,
                 _ => DurableWorkOperation::Manage,
             },
-            crate::tools::TOOL_TEAM => match action {
+            crate::tool_defs::TOOL_TEAM => match action {
                 "create" | "add_member" => DurableWorkOperation::Dispatch,
                 "status" | "list_tasks" | "list_members" | "list_templates" => {
                     DurableWorkOperation::Observe
@@ -252,10 +252,10 @@ impl ToolDefinition {
     /// The canonical execution entry remains unchanged.
     pub fn call_variant_actions(&self) -> &'static [&'static str] {
         match self.name.as_str() {
-            crate::tools::TOOL_BROWSER => &[
+            crate::tool_defs::TOOL_BROWSER => &[
                 "status", "profile", "tabs", "navigate", "snapshot", "act", "observe", "control",
             ],
-            crate::tools::TOOL_MAC_CONTROL => &[
+            crate::tool_defs::TOOL_MAC_CONTROL => &[
                 "status",
                 "permissions",
                 "diagnostics",
@@ -272,7 +272,7 @@ impl ToolDefinition {
                 "clipboard",
                 "dialog",
             ],
-            crate::tools::TOOL_MANAGE_CRON => &[
+            crate::tool_defs::TOOL_MANAGE_CRON => &[
                 "create",
                 "update",
                 "list",
@@ -284,7 +284,7 @@ impl ToolDefinition {
                 "list_channel_targets",
                 "list_projects",
             ],
-            crate::tools::TOOL_APP_UPDATE => &["check", "install", "status", "rollback"],
+            crate::tool_defs::TOOL_APP_UPDATE => &["check", "install", "status", "rollback"],
             _ => &[],
         }
     }
@@ -356,10 +356,10 @@ impl ToolDefinition {
                 !matches!(subclass, CoreSubclass::PlanMode)
                     && !matches!(
                         self.name.as_str(),
-                        crate::tools::TOOL_TOOL_SEARCH
-                            | crate::tools::TOOL_ASK_USER_QUESTION
-                            | crate::tools::TOOL_RUNTIME_CANCEL
-                            | crate::tools::TOOL_SKILL
+                        crate::tool_defs::TOOL_TOOL_SEARCH
+                            | crate::tool_defs::TOOL_ASK_USER_QUESTION
+                            | crate::tool_defs::TOOL_RUNTIME_CANCEL
+                            | crate::tool_defs::TOOL_SKILL
                     )
             }
             ToolTier::Memory => true,
@@ -391,73 +391,6 @@ impl ToolDefinition {
     /// churn or changing execution/permission behavior.
     pub fn v2_metadata(&self) -> ToolMetadata {
         ToolMetadata::for_definition(self)
-    }
-
-    /// Render this tool as a JSON metadata payload for `list_builtin_tools`
-    /// (Tauri command + `GET /api/chat/tools`). Single source of truth so
-    /// both transports return identically-shaped objects to the frontend.
-    ///
-    /// `app_config` is consulted only for Tier 3 (`Configured`) tools to
-    /// probe whether the global provider/feature is provisioned. The
-    /// returned `globally_configured` field is `Some(bool)` for Tier 3 and
-    /// `null` for every other tier — letting the frontend decide whether to
-    /// show the "未配置" hint without re-implementing the probe matrix.
-    pub fn to_api_metadata(&self, app_config: &crate::config::AppConfig) -> Value {
-        let (
-            tier_label,
-            core_subclass,
-            default_for_main,
-            default_for_others,
-            config_hint,
-            globally_configured,
-        ) = match &self.tier {
-            ToolTier::Core { subclass } => {
-                ("core", Some(subclass.as_str()), None, None, None, None)
-            }
-            ToolTier::Standard {
-                default_for_main,
-                default_for_others,
-                ..
-            } => (
-                "standard",
-                None,
-                Some(*default_for_main),
-                Some(*default_for_others),
-                None,
-                None,
-            ),
-            ToolTier::Configured {
-                default_for_main,
-                default_for_others,
-                config_hint,
-                ..
-            } => (
-                "configured",
-                None,
-                Some(*default_for_main),
-                Some(*default_for_others),
-                Some(*config_hint),
-                Some(super::super::dispatch::is_globally_configured(
-                    &self.name, app_config,
-                )),
-            ),
-            ToolTier::Memory => ("memory", None, None, None, None, None),
-            ToolTier::Mcp => ("mcp", None, None, None, None, None),
-        };
-        json!({
-            "name": self.name,
-            "description": self.description,
-            "internal": self.internal,
-            "tier": tier_label,
-            "core_subclass": core_subclass,
-            "default_for_main": default_for_main,
-            "default_for_others": default_for_others,
-            "config_hint": config_hint,
-            "defer_capable": self.supports_deferred(),
-            "globally_configured": globally_configured,
-            "background_policy": self.background_policy,
-            "metadata": self.v2_metadata(),
-        })
     }
 
     /// When this tool accepts generic async jobs, inject optional job control
@@ -527,8 +460,8 @@ impl ToolDefinition {
 
 fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
     match (tool, action) {
-        (crate::tools::TOOL_BROWSER, "status") => Some(&[]),
-        (crate::tools::TOOL_BROWSER, "profile") => Some(&[
+        (crate::tool_defs::TOOL_BROWSER, "status") => Some(&[]),
+        (crate::tool_defs::TOOL_BROWSER, "profile") => Some(&[
             "op",
             "url",
             "executable_path",
@@ -537,9 +470,11 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "run_in_background",
             "job_timeout_secs",
         ]),
-        (crate::tools::TOOL_BROWSER, "tabs") => Some(&["op", "target_id", "url", "steal", "keep"]),
-        (crate::tools::TOOL_BROWSER, "navigate") => Some(&["op", "url", "target_id"]),
-        (crate::tools::TOOL_BROWSER, "snapshot") => Some(&[
+        (crate::tool_defs::TOOL_BROWSER, "tabs") => {
+            Some(&["op", "target_id", "url", "steal", "keep"])
+        }
+        (crate::tool_defs::TOOL_BROWSER, "navigate") => Some(&["op", "url", "target_id"]),
+        (crate::tool_defs::TOOL_BROWSER, "snapshot") => Some(&[
             "format",
             "ref",
             "target_id",
@@ -551,7 +486,7 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "landscape",
             "print_background",
         ]),
-        (crate::tools::TOOL_BROWSER, "act") => Some(&[
+        (crate::tool_defs::TOOL_BROWSER, "act") => Some(&[
             "kind",
             "ref",
             "target_ref",
@@ -561,8 +496,8 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "values",
             "target_id",
         ]),
-        (crate::tools::TOOL_BROWSER, "observe") => Some(&["kind", "target_id", "since"]),
-        (crate::tools::TOOL_BROWSER, "control") => Some(&[
+        (crate::tool_defs::TOOL_BROWSER, "observe") => Some(&["kind", "target_id", "since"]),
+        (crate::tool_defs::TOOL_BROWSER, "control") => Some(&[
             "op",
             "target_id",
             "text",
@@ -578,10 +513,10 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "accept",
             "dialog_text",
         ]),
-        (crate::tools::TOOL_MAC_CONTROL, "status")
-        | (crate::tools::TOOL_MAC_CONTROL, "permissions") => Some(&[]),
-        (crate::tools::TOOL_MAC_CONTROL, "diagnostics") => Some(&["op", "limit", "path"]),
-        (crate::tools::TOOL_MAC_CONTROL, "snapshot") => Some(&[
+        (crate::tool_defs::TOOL_MAC_CONTROL, "status")
+        | (crate::tool_defs::TOOL_MAC_CONTROL, "permissions") => Some(&[]),
+        (crate::tool_defs::TOOL_MAC_CONTROL, "diagnostics") => Some(&["op", "limit", "path"]),
+        (crate::tool_defs::TOOL_MAC_CONTROL, "snapshot") => Some(&[
             "windowId",
             "includeScreenshot",
             "screenshotTarget",
@@ -589,7 +524,7 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "maxElements",
             "maxDepth",
         ]),
-        (crate::tools::TOOL_MAC_CONTROL, "visual") => Some(&[
+        (crate::tool_defs::TOOL_MAC_CONTROL, "visual") => Some(&[
             "op",
             "snapshotId",
             "coordinateSpace",
@@ -610,9 +545,11 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "maxElements",
             "maxDepth",
         ]),
-        (crate::tools::TOOL_MAC_CONTROL, "elements") => Some(&["op", "target", "limit"]),
-        (crate::tools::TOOL_MAC_CONTROL, "wait") => Some(&["op", "target", "timeoutMs", "pollMs"]),
-        (crate::tools::TOOL_MAC_CONTROL, "apps") => Some(&[
+        (crate::tool_defs::TOOL_MAC_CONTROL, "elements") => Some(&["op", "target", "limit"]),
+        (crate::tool_defs::TOOL_MAC_CONTROL, "wait") => {
+            Some(&["op", "target", "timeoutMs", "pollMs"])
+        }
+        (crate::tool_defs::TOOL_MAC_CONTROL, "apps") => Some(&[
             "op",
             "appName",
             "appNameMatch",
@@ -621,7 +558,7 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "limit",
             "force",
         ]),
-        (crate::tools::TOOL_MAC_CONTROL, "dock") => Some(&[
+        (crate::tool_defs::TOOL_MAC_CONTROL, "dock") => Some(&[
             "op",
             "appName",
             "appNameMatch",
@@ -631,13 +568,13 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "menuIndex",
             "menuItem",
         ]),
-        (crate::tools::TOOL_MAC_CONTROL, "spaces") => {
+        (crate::tool_defs::TOOL_MAC_CONTROL, "spaces") => {
             Some(&["op", "spaceId", "spaceIndex", "direction", "windowId"])
         }
-        (crate::tools::TOOL_MAC_CONTROL, "windows") => {
+        (crate::tool_defs::TOOL_MAC_CONTROL, "windows") => {
             Some(&["op", "windowScope", "windowId", "x", "y", "width", "height"])
         }
-        (crate::tools::TOOL_MAC_CONTROL, "act") => Some(&[
+        (crate::tool_defs::TOOL_MAC_CONTROL, "act") => Some(&[
             "op",
             "target",
             "x",
@@ -667,7 +604,7 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "motionProfile",
             "verify",
         ]),
-        (crate::tools::TOOL_MAC_CONTROL, "menu") => Some(&[
+        (crate::tool_defs::TOOL_MAC_CONTROL, "menu") => Some(&[
             "op",
             "scope",
             "path",
@@ -679,8 +616,8 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "recognitionLevel",
             "limit",
         ]),
-        (crate::tools::TOOL_MAC_CONTROL, "clipboard") => Some(&["op", "text", "maxChars"]),
-        (crate::tools::TOOL_MAC_CONTROL, "dialog") => Some(&[
+        (crate::tool_defs::TOOL_MAC_CONTROL, "clipboard") => Some(&["op", "text", "maxChars"]),
+        (crate::tool_defs::TOOL_MAC_CONTROL, "dialog") => Some(&[
             "op",
             "path",
             "buttonText",
@@ -694,7 +631,7 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "ensureExpanded",
             "force",
         ]),
-        (crate::tools::TOOL_MANAGE_CRON, "create") => Some(&[
+        (crate::tool_defs::TOOL_MANAGE_CRON, "create") => Some(&[
             "name",
             "description",
             "schedule_type",
@@ -712,7 +649,7 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "prefix_delivery_with_name",
             "delivery_targets",
         ]),
-        (crate::tools::TOOL_MANAGE_CRON, "update") => Some(&[
+        (crate::tool_defs::TOOL_MANAGE_CRON, "update") => Some(&[
             "id",
             "name",
             "description",
@@ -731,24 +668,23 @@ fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
             "prefix_delivery_with_name",
             "delivery_targets",
         ]),
-        (crate::tools::TOOL_MANAGE_CRON, "list")
-        | (crate::tools::TOOL_MANAGE_CRON, "list_channel_targets") => Some(&[]),
-        (crate::tools::TOOL_MANAGE_CRON, "list_projects") => Some(&["include_archived"]),
-        (crate::tools::TOOL_MANAGE_CRON, "get")
-        | (crate::tools::TOOL_MANAGE_CRON, "delete")
-        | (crate::tools::TOOL_MANAGE_CRON, "pause")
-        | (crate::tools::TOOL_MANAGE_CRON, "resume")
-        | (crate::tools::TOOL_MANAGE_CRON, "run_now") => Some(&["id"]),
-        (crate::tools::TOOL_APP_UPDATE, "check") | (crate::tools::TOOL_APP_UPDATE, "rollback") => {
-            Some(&[])
-        }
-        (crate::tools::TOOL_APP_UPDATE, "install") => Some(&[
+        (crate::tool_defs::TOOL_MANAGE_CRON, "list")
+        | (crate::tool_defs::TOOL_MANAGE_CRON, "list_channel_targets") => Some(&[]),
+        (crate::tool_defs::TOOL_MANAGE_CRON, "list_projects") => Some(&["include_archived"]),
+        (crate::tool_defs::TOOL_MANAGE_CRON, "get")
+        | (crate::tool_defs::TOOL_MANAGE_CRON, "delete")
+        | (crate::tool_defs::TOOL_MANAGE_CRON, "pause")
+        | (crate::tool_defs::TOOL_MANAGE_CRON, "resume")
+        | (crate::tool_defs::TOOL_MANAGE_CRON, "run_now") => Some(&["id"]),
+        (crate::tool_defs::TOOL_APP_UPDATE, "check")
+        | (crate::tool_defs::TOOL_APP_UPDATE, "rollback") => Some(&[]),
+        (crate::tool_defs::TOOL_APP_UPDATE, "install") => Some(&[
             "target_version",
             "prefer_path",
             "run_in_background",
             "job_timeout_secs",
         ]),
-        (crate::tools::TOOL_APP_UPDATE, "status") => Some(&["job_id"]),
+        (crate::tool_defs::TOOL_APP_UPDATE, "status") => Some(&["job_id"]),
         _ => None,
     }
 }
@@ -791,7 +727,7 @@ mod call_variant_tests {
             &serde_json::json!({ "action": "act", "format": "role" }),
         )
         .expect("known variant");
-        assert_eq!(name, crate::tools::TOOL_BROWSER);
+        assert_eq!(name, crate::tool_defs::TOOL_BROWSER);
         assert_eq!(args["action"], "snapshot");
         assert_eq!(args["format"], "role");
     }

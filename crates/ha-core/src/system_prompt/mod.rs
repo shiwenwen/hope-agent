@@ -34,19 +34,19 @@ pub(crate) fn build_tool_activation_guidance_packages(
             subagent_depth,
         );
         if !section.is_empty() {
-            packages.insert(crate::tools::TOOL_SUBAGENT.to_string(), section);
+            packages.insert(crate::tool_defs::TOOL_SUBAGENT.to_string(), section);
         }
     }
     if definition.config.team.enabled {
         let section = sections::build_team_section();
         if !section.is_empty() {
-            packages.insert(crate::tools::TOOL_TEAM.to_string(), section);
+            packages.insert(crate::tool_defs::TOOL_TEAM.to_string(), section);
         }
     }
     if definition.config.acp.enabled {
         let section = sections::build_acp_section();
         if !section.is_empty() {
-            packages.insert(crate::tools::TOOL_ACP_SPAWN.to_string(), section);
+            packages.insert(crate::tool_defs::TOOL_ACP_SPAWN.to_string(), section);
         }
     }
 

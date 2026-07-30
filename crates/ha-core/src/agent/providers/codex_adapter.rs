@@ -28,7 +28,7 @@ use super::super::streaming_adapter::{
 };
 use super::super::types::{AssistantAgent, ProviderFormat};
 use super::openai_responses_adapter::{parse_openai_sse, push_responses_assistant_message};
-use crate::tools::ToolProvider;
+use crate::tool_defs::ToolProvider;
 
 /// Process-stable User-Agent for Codex requests.
 pub(in crate::agent) fn codex_user_agent() -> &'static str {

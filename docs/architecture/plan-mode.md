@@ -350,7 +350,7 @@ Hope 的 Git Checkpoint + 通用任务覆盖是相对 claude-code/opencode 的�
 
 **工具实现**（`crates/ha-core/src/tools/`）：
 - `enter_plan_mode.rs` / `submit_plan.rs` / `ask_user_question.rs` / `task.rs`
-- 工具定义：`definitions/plan_tools.rs` / `definitions/task_tools.rs`
+- 工具定义：`tool_defs/plan_tools.rs` / `tool_defs/task_tools.rs`
 
 **斜杠命令**：
 - `crates/ha-core/src/slash_commands/handlers/plan.rs`

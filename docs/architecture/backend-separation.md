@@ -124,6 +124,8 @@ ha_config_schema::<mod>::{…};` 顶替被搬定义，既有 re-export 链
 agent/             AssistantAgent + 4 种 Provider + Side Query
 chat_engine/       ChatEngineParams → EventSink 流式输出
 memory/            SQLite + FTS5 + vec0 向量 + 多种 Embedding（含 dreaming）
+tool_defs/         工具契约层：TOOL_* 名字常量 / ToolDefinition 家族 /
+                   ToolExecContext / ToolScope / ToolRejection（详见下文）
 tools/             内置工具集 + 并发/串行执行引擎（具体工具数量以 tools/ 子模块为准）
 channel/           12 个 IM 插件（telegram / wechat / slack / feishu / discord / qqbot /
                    irc / signal / imessage / whatsapp / googlechat / line）+ Worker 分发 + 媒体管道
@@ -149,6 +151,70 @@ globals.rs         OnceLock 全局 + AppState（logger / LogDB 全局已下沉 h
 guardian.rs        进程监护 + 指数退避 + 自修复
 ...
 ```
+
+#### tool_defs（工具契约层）vs tools（分发注册表）
+
+`tools/` 是**分发注册表 + adapter 目录**：它按名字认识每个工具实现，未来
+随特征 crate 继续上浮。但 kernel 的 agent / async_jobs / permission /
+system_prompt / context_compact 等模块只需要**契约物**——工具名常量、
+schema 类型、执行上下文——把它们放在 `tools/` 会让「人人依赖的中间层」
+同时指向全部特征，一个模块就把依赖图焊死（crate-split 方案 §3.2）。
+
+因此契约物归位 [`tool_defs/`](../../crates/ha-core/src/tool_defs/)：
+
+| 落点 | 内容 |
+|------|------|
+| `tool_defs/names.rs` | 全部内置工具的 `TOOL_*` 名字常量 + `IMAGE_BASE64_PREFIX` / `ASYNC_JOB_TIMEOUT_ARG`（纯字面量、零依赖）。`feishu_*` 名字例外，见下 |
+| `tool_defs/types.rs` · `metadata.rs` | `ToolDefinition` / `ToolTier` / `CoreSubclass` / `BackgroundPolicy` + v2 sidecar metadata |
+| `tool_defs/context.rs` | `ToolExecContext` 本体与卫星类型（`SessionDbHandle` / `PidSink` / `EffectiveArgsSink` / `ApprovalOrigin`）+ 与分发无关的纯方法 + runtime-timeout 策略三函数 |
+| `tool_defs/scope.rs` | `ToolScope` 与 `is_memory_tool` / `is_kb_scoped_tool` / `is_*_scope_tool` / `tool_visible_with_filters` 可见性谓词 |
+| `tool_defs/rejection.rs` | `ToolRejection` / `TOOL_ERROR_PREFIX` |
+| `tool_defs/mac_control.rs` | `MacControlFocusAnchor` + `normalize_perform_ax_action`（审批分类代码不外迁红线） |
+| `tool_defs/{extra,goal,loop,plan,task,update}_tools.rs` | 零外部依赖的单工具 schema 构造器 |
+| `tool_defs/mod.rs` | 门面 `pub use` + `ToolProvider`（provider schema 适配枚举）+ `expand_tilde` |
+
+`feishu_*` 名字常量**刻意不下沉**：`permission::engine` 的
+`classify_external_connector_action` 精确匹配 13 个，但它们与 adapter 同文件、
+整组随 ha-channel 上浮，拆一半只会制造两处名字表。这条 kernel → adapter 边
+留给 ha-channel 那刀连同 `channel/` 一起破。
+
+**方向红线**：`tool_defs` 的**生产代码绝不**依赖 `tools::dispatch` /
+`tools::registry` / 任何 adapter。需要分发层行为的方法一律改 extension
+trait 挂在分发侧——`ToolDefinition::to_api_metadata` 因为要读
+`is_globally_configured`（web_search / media_gen / feishu 配置态探测）
+而成为
+[`tools::dispatch::ToolDefinitionApiExt`](../../crates/ha-core/src/tools/dispatch.rs)，
+与 ha-config-schema 的同名出口模式一致。**注意这条 trait 不在
+`crate::tools` 门面 glob 里**：调用方须显式
+`use ha_core::tools::dispatch::ToolDefinitionApiExt`（两个壳层的
+`list_builtin_tools` 已接）。
+
+> 遗留测试边（已知、刻意保留）：`tool_defs/types.rs` 与 `metadata.rs` 的
+> `#[cfg(test)]` 里有 3 处 `crate::tools::dispatch::all_dispatchable_tools()`
+> / `normalize_call_variant` 全表遍历断言。`cfg(test)` 不进 release 依赖图，
+> 但 `tools/` 真正上浮为特征 crate 时 `cargo test` 仍要编——届时随
+> crate-split 方案 §6 的通用做法挪进 `tests/` 集成测试。
+
+**自动守卫**：同 crate 内加一条回边照样编译，光靠 review 守不住——
+[`scripts/analyze-crate-deps.mjs`](../../scripts/analyze-crate-deps.mjs)
+默认模式对 `tool_defs → tools::*` 生产边**零容忍**（非零退出），`--tests`
+只放行上面登记的 3 条遗留测试边、多一条即失败。已接入 `.husky/pre-push`
+与 `lint.yml` 的 frontend job（未新增 job 名，不涉 ruleset 同步）。
+
+**公共面不放宽**：契约层子模块一律 `pub(crate) mod`，对外只暴露
+`tool_defs/mod.rs` 显式 `pub use` 的 item，经 `crate::tools` glob 后
+crate 外符号集与归位前**逐字相同**（`get_design_tool` 因迁移前就不在
+`ha_core::tools::` 上而保持 `pub(crate) use`）。
+
+反过来，**认识全表**的 schema 汇编留在 `tools/definitions/`：`core_tools`
+（Core 总表，读 `tools::image` / `tools::settings` / `attachments` /
+`awareness`）、`special_tools`（动态 schema，读 `media_gen` facade）、
+`definitions/registry`（从 ToolDefinition 派生的只读查询缓存，读
+`dispatch` 与 `mcp::tool_definitions`）。
+
+kernel 新代码一律 `crate::tool_defs::…`；`crate::tools` 门面
+`pub use crate::tool_defs::*` 全量再导出，故特征 crate 与壳层的
+`ha_core::tools::…` 既有路径全部不变。
 
 ### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 

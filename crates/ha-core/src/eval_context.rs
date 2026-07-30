@@ -1046,7 +1046,7 @@ pub fn tool_allowed_for_experiment(session_id: Option<&str>, tool_name: &str) ->
     {
         !matches!(
             tool_name,
-            crate::tools::TOOL_SUBAGENT | crate::tools::TOOL_TEAM
+            crate::tool_defs::TOOL_SUBAGENT | crate::tool_defs::TOOL_TEAM
         )
     } else {
         true

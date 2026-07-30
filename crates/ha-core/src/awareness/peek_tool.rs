@@ -8,13 +8,13 @@
 use serde_json::{json, Value};
 
 use super::config::AwarenessConfig;
-use crate::tools::{CoreSubclass, ToolDefinition, ToolTier};
+use crate::tool_defs::{CoreSubclass, ToolDefinition, ToolTier};
 
 /// Construct the `peek_sessions` tool definition. Registered as `deferred=true`
 /// so it only shows up via `tool_search` unless explicitly loaded.
 pub fn peek_sessions_schema() -> ToolDefinition {
     ToolDefinition {
-        name: crate::tools::TOOL_PEEK_SESSIONS.into(),
+        name: crate::tool_defs::TOOL_PEEK_SESSIONS.into(),
         description: "Inspect what the user is doing in other sessions right now. \
 Returns a compact markdown list of peer sessions (title, agent, kind, relative time, \
 goal/summary). Use this when the user references \"the other thing\", \"last time\", \
@@ -25,7 +25,7 @@ or you suspect context from other sessions matters. Always read-only."
         },
         internal: true,
         concurrent_safe: true,
-        background_policy: crate::tools::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

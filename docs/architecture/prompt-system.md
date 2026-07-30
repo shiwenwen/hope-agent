@@ -749,4 +749,4 @@ OpenAI 官方端点使用包含 provider、model、prompt contract version、age
 | `crates/ha-core/src/context_compact/`           | 上下文压缩（5 层渐进式压缩 + 摘要 system prompt + 标识符保留）                      |
 | `crates/ha-core/src/user_config.rs`             | 用户上下文构建（name/role/birthday/timezone/...）                         |
 | `crates/ha-core/src/skills/`                    | 技能加载 + prompt 构建 + budget 管理                                      |
-| `crates/ha-core/src/tools/definitions/`         | 工具 JSON Schema 定义（发送给 LLM 的 function calling schema）            |
+| `crates/ha-core/src/tools/definitions/` + `tool_defs/` | 工具 JSON Schema 定义（发送给 LLM 的 function calling schema；前者全表汇编，后者单工具构造器与共享类型） |

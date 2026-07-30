@@ -90,7 +90,7 @@ impl HookHandler for McpToolHandler {
         // A minimal tool context — `call_tool` only reads session/agent ids for
         // logging; the MCP registry resolves the server + concurrency itself.
         let common = input.common();
-        let ctx = crate::tools::ToolExecContext {
+        let ctx = crate::tool_defs::ToolExecContext {
             session_id: (!common.session_id.is_empty()).then(|| common.session_id.clone()),
             agent_id: common.agent_id.clone(),
             ..Default::default()

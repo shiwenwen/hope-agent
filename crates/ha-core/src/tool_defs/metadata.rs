@@ -229,7 +229,7 @@ impl ToolMetadata {
         let lower = name.to_ascii_lowercase();
 
         match name {
-            crate::tools::TOOL_READ => {
+            crate::tool_defs::TOOL_READ => {
                 push_all(
                     &mut aliases,
                     &["cat", "view file", "open file", "inspect file"],
@@ -242,7 +242,7 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::FileContent;
                 render.primary_resource = Some("path".to_string());
             }
-            crate::tools::TOOL_WRITE => {
+            crate::tool_defs::TOOL_WRITE => {
                 push_all(
                     &mut aliases,
                     &["create file", "overwrite file", "save file", "write file"],
@@ -255,7 +255,7 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::FileDiff;
                 render.primary_resource = Some("path".to_string());
             }
-            crate::tools::TOOL_EDIT => {
+            crate::tool_defs::TOOL_EDIT => {
                 push_all(
                     &mut aliases,
                     &["modify file", "replace text", "old string", "targeted edit"],
@@ -268,7 +268,7 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::FileDiff;
                 render.primary_resource = Some("path".to_string());
             }
-            crate::tools::TOOL_APPLY_PATCH => {
+            crate::tool_defs::TOOL_APPLY_PATCH => {
                 push_all(
                     &mut aliases,
                     &["patch", "diff", "apply diff", "delete file", "move file"],
@@ -284,7 +284,7 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::FileDiff;
                 render.primary_resource = Some("input".to_string());
             }
-            crate::tools::TOOL_EXEC => {
+            crate::tool_defs::TOOL_EXEC => {
                 push_all(
                     &mut aliases,
                     &["bash", "shell", "terminal", "command", "run command"],
@@ -298,7 +298,7 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::Text;
                 render.primary_resource = Some("command".to_string());
             }
-            crate::tools::TOOL_PROCESS => {
+            crate::tool_defs::TOOL_PROCESS => {
                 push_all(
                     &mut aliases,
                     &["poll process", "kill process", "exec session"],
@@ -315,25 +315,25 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::Status;
                 render.primary_resource = Some("session_id".to_string());
             }
-            crate::tools::TOOL_LS => {
+            crate::tool_defs::TOOL_LS => {
                 push_all(&mut aliases, &["list directory", "dir", "files"]);
                 push_unique(&mut effects, ToolEffect::ReadFileSystem);
                 render.result_kind = ToolResultKind::SearchResults;
                 render.primary_resource = Some("path".to_string());
             }
-            crate::tools::TOOL_GREP => {
+            crate::tool_defs::TOOL_GREP => {
                 push_all(&mut aliases, &["rg", "search text", "search contents"]);
                 push_unique(&mut effects, ToolEffect::ReadFileSystem);
                 render.result_kind = ToolResultKind::SearchResults;
                 render.primary_resource = Some("pattern".to_string());
             }
-            crate::tools::TOOL_FIND => {
+            crate::tool_defs::TOOL_FIND => {
                 push_all(&mut aliases, &["glob", "file search", "find files"]);
                 push_unique(&mut effects, ToolEffect::ReadFileSystem);
                 render.result_kind = ToolResultKind::SearchResults;
                 render.primary_resource = Some("pattern".to_string());
             }
-            crate::tools::TOOL_LSP => {
+            crate::tool_defs::TOOL_LSP => {
                 push_all(
                     &mut aliases,
                     &[
@@ -346,13 +346,13 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::Json;
                 render.primary_resource = Some("path".to_string());
             }
-            crate::tools::TOOL_WEB_FETCH => {
+            crate::tool_defs::TOOL_WEB_FETCH => {
                 push_all(&mut aliases, &["fetch url", "read webpage", "web page"]);
                 push_unique(&mut effects, ToolEffect::NetworkAccess);
                 render.result_kind = ToolResultKind::UrlContent;
                 render.primary_resource = Some("url".to_string());
             }
-            crate::tools::TOOL_WEB_SEARCH => {
+            crate::tool_defs::TOOL_WEB_SEARCH => {
                 push_all(
                     &mut aliases,
                     &["search web", "internet search", "current info"],
@@ -361,14 +361,14 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::SearchResults;
                 render.primary_resource = Some("query".to_string());
             }
-            crate::tools::TOOL_BROWSER => {
+            crate::tool_defs::TOOL_BROWSER => {
                 push_all(&mut aliases, &["chrome", "browser automation", "web ui"]);
                 push_unique(&mut effects, ToolEffect::BrowserAutomation);
                 push_unique(&mut effects, ToolEffect::NetworkAccess);
                 render.result_kind = ToolResultKind::Json;
                 render.primary_resource = Some("action".to_string());
             }
-            crate::tools::TOOL_MAC_CONTROL => {
+            crate::tool_defs::TOOL_MAC_CONTROL => {
                 push_all(
                     &mut aliases,
                     &["macos control", "desktop ui", "accessibility"],
@@ -377,37 +377,37 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::Json;
                 render.primary_resource = Some("action".to_string());
             }
-            crate::tools::TOOL_SUBAGENT
-            | crate::tools::TOOL_TEAM
-            | crate::tools::TOOL_ACP_SPAWN => {
+            crate::tool_defs::TOOL_SUBAGENT
+            | crate::tool_defs::TOOL_TEAM
+            | crate::tool_defs::TOOL_ACP_SPAWN => {
                 push_all(&mut aliases, &["delegate", "worker", "agent"]);
                 push_unique(&mut effects, ToolEffect::AgentDelegation);
                 push_unique(&mut effects, ToolEffect::RuntimeControl);
                 render.result_kind = ToolResultKind::ExternalRun;
                 render.primary_resource = Some("task".to_string());
             }
-            crate::tools::TOOL_IMAGE | crate::tools::TOOL_PDF => {
+            crate::tool_defs::TOOL_IMAGE | crate::tool_defs::TOOL_PDF => {
                 push_unique(&mut effects, ToolEffect::MediaRead);
-                render.result_kind = if name == crate::tools::TOOL_IMAGE {
+                render.result_kind = if name == crate::tool_defs::TOOL_IMAGE {
                     ToolResultKind::Image
                 } else {
                     ToolResultKind::Pdf
                 };
             }
-            crate::tools::TOOL_IMAGE_GENERATE => {
+            crate::tool_defs::TOOL_IMAGE_GENERATE => {
                 push_all(&mut aliases, &["generate image", "create image"]);
                 push_unique(&mut effects, ToolEffect::MediaWrite);
                 push_unique(&mut effects, ToolEffect::NetworkAccess);
                 render.result_kind = ToolResultKind::Image;
                 render.primary_resource = Some("prompt".to_string());
             }
-            crate::tools::TOOL_CANVAS => {
+            crate::tool_defs::TOOL_CANVAS => {
                 push_all(&mut aliases, &["preview", "artifact", "html app", "visual"]);
                 push_unique(&mut effects, ToolEffect::MediaWrite);
                 render.result_kind = ToolResultKind::Canvas;
                 render.primary_resource = Some("project_id".to_string());
             }
-            crate::tools::TOOL_ARTIFACT => {
+            crate::tool_defs::TOOL_ARTIFACT => {
                 push_all(
                     &mut aliases,
                     &["artifact", "report", "dashboard", "deliverable"],
@@ -416,35 +416,35 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::Canvas;
                 render.primary_resource = Some("artifact_id".to_string());
             }
-            crate::tools::TOOL_ASK_USER_QUESTION => {
+            crate::tool_defs::TOOL_ASK_USER_QUESTION => {
                 push_all(&mut aliases, &["ask user", "clarify", "question"]);
                 push_unique(&mut effects, ToolEffect::UserInteraction);
                 render.result_kind = ToolResultKind::UserQuestion;
             }
-            crate::tools::TOOL_SEND_NOTIFICATION | crate::tools::TOOL_SEND_ATTACHMENT => {
+            crate::tool_defs::TOOL_SEND_NOTIFICATION | crate::tool_defs::TOOL_SEND_ATTACHMENT => {
                 push_unique(&mut effects, ToolEffect::UserInteraction);
                 render.result_kind = ToolResultKind::Notification;
             }
-            crate::tools::TOOL_TASK_CREATE | crate::tools::TOOL_TASK_UPDATE => {
+            crate::tool_defs::TOOL_TASK_CREATE | crate::tool_defs::TOOL_TASK_UPDATE => {
                 push_all(&mut aliases, &["todo", "task list", "progress"]);
                 push_unique(&mut effects, ToolEffect::TaskWrite);
                 render.result_kind = ToolResultKind::TaskList;
             }
-            crate::tools::TOOL_TASK_LIST => {
+            crate::tool_defs::TOOL_TASK_LIST => {
                 push_all(&mut aliases, &["todo", "task list", "progress"]);
                 push_unique(&mut effects, ToolEffect::TaskRead);
                 render.result_kind = ToolResultKind::TaskList;
             }
-            crate::tools::TOOL_GOAL_STATUS => {
+            crate::tool_defs::TOOL_GOAL_STATUS => {
                 push_all(&mut aliases, &["goal", "objective", "completion", "audit"]);
                 push_unique(&mut effects, ToolEffect::GoalRead);
                 render.result_kind = ToolResultKind::Status;
             }
-            crate::tools::TOOL_GOAL_CHECKPOINT
-            | crate::tools::TOOL_GOAL_RECORD_EVIDENCE
-            | crate::tools::TOOL_GOAL_EVALUATE
-            | crate::tools::TOOL_GOAL_FINISH_REQUEST
-            | crate::tools::TOOL_GOAL_BLOCK_REQUEST => {
+            crate::tool_defs::TOOL_GOAL_CHECKPOINT
+            | crate::tool_defs::TOOL_GOAL_RECORD_EVIDENCE
+            | crate::tool_defs::TOOL_GOAL_EVALUATE
+            | crate::tool_defs::TOOL_GOAL_FINISH_REQUEST
+            | crate::tool_defs::TOOL_GOAL_BLOCK_REQUEST => {
                 push_all(
                     &mut aliases,
                     &["goal", "objective", "checkpoint", "completion", "evidence"],
@@ -452,31 +452,31 @@ impl ToolMetadata {
                 push_unique(&mut effects, ToolEffect::GoalWrite);
                 render.result_kind = ToolResultKind::Status;
             }
-            crate::tools::TOOL_MANAGE_CRON | crate::tools::TOOL_SCHEDULE_WAKEUP => {
+            crate::tool_defs::TOOL_MANAGE_CRON | crate::tool_defs::TOOL_SCHEDULE_WAKEUP => {
                 push_all(&mut aliases, &["schedule", "reminder", "wakeup"]);
                 push_unique(&mut effects, ToolEffect::Scheduling);
                 push_unique(&mut effects, ToolEffect::RuntimeControl);
                 render.result_kind = ToolResultKind::Status;
             }
-            crate::tools::TOOL_JOB_STATUS | crate::tools::TOOL_RUNTIME_CANCEL => {
+            crate::tool_defs::TOOL_JOB_STATUS | crate::tool_defs::TOOL_RUNTIME_CANCEL => {
                 push_all(&mut aliases, &["job", "background task", "runtime"]);
                 push_unique(&mut effects, ToolEffect::RuntimeControl);
                 render.result_kind = ToolResultKind::Status;
             }
-            crate::tools::TOOL_TOOL_SEARCH | crate::tools::TOOL_SKILL => {
+            crate::tool_defs::TOOL_TOOL_SEARCH | crate::tool_defs::TOOL_SKILL => {
                 push_all(&mut aliases, &["discover tools", "load tool", "capability"]);
                 push_unique(&mut effects, ToolEffect::RuntimeControl);
                 render.result_kind = ToolResultKind::Json;
             }
-            crate::tools::TOOL_ENTER_PLAN_MODE | crate::tools::TOOL_SUBMIT_PLAN => {
+            crate::tool_defs::TOOL_ENTER_PLAN_MODE | crate::tool_defs::TOOL_SUBMIT_PLAN => {
                 push_all(&mut aliases, &["plan", "planning", "design contract"]);
                 push_unique(&mut effects, ToolEffect::UserInteraction);
                 render.result_kind = ToolResultKind::Status;
             }
-            crate::tools::TOOL_GET_SETTINGS
-            | crate::tools::TOOL_LIST_SETTINGS_BACKUPS
-            | crate::tools::TOOL_RESTORE_SETTINGS_BACKUP
-            | crate::tools::TOOL_UPDATE_SETTINGS => {
+            crate::tool_defs::TOOL_GET_SETTINGS
+            | crate::tool_defs::TOOL_LIST_SETTINGS_BACKUPS
+            | crate::tool_defs::TOOL_RESTORE_SETTINGS_BACKUP
+            | crate::tool_defs::TOOL_UPDATE_SETTINGS => {
                 if name.contains("get") || name.contains("list") {
                     push_unique(&mut effects, ToolEffect::SettingsRead);
                 } else {
@@ -484,17 +484,17 @@ impl ToolMetadata {
                 }
                 render.result_kind = ToolResultKind::Json;
             }
-            crate::tools::TOOL_APP_UPDATE => {
+            crate::tool_defs::TOOL_APP_UPDATE => {
                 push_unique(&mut effects, ToolEffect::AppUpdate);
                 push_unique(&mut effects, ToolEffect::NetworkAccess);
                 render.result_kind = ToolResultKind::Status;
             }
-            crate::tools::TOOL_GET_WEATHER => {
+            crate::tool_defs::TOOL_GET_WEATHER => {
                 push_unique(&mut effects, ToolEffect::NetworkAccess);
                 render.result_kind = ToolResultKind::Json;
                 render.primary_resource = Some("location".to_string());
             }
-            crate::tools::TOOL_ISSUE_REPORT => {
+            crate::tool_defs::TOOL_ISSUE_REPORT => {
                 push_unique(&mut effects, ToolEffect::ExternalService);
                 render.result_kind = ToolResultKind::Status;
             }
@@ -608,7 +608,7 @@ fn apply_prefix_rules(
     aliases: &mut Vec<String>,
     render: &mut ToolRenderMetadata,
 ) {
-    if name.starts_with("note_") || name == crate::tools::TOOL_SESSION_TO_NOTE {
+    if name.starts_with("note_") || name == crate::tool_defs::TOOL_SESSION_TO_NOTE {
         push_all(aliases, &["knowledge", "note", "second brain"]);
         if name.contains("read")
             || name.contains("search")
@@ -628,7 +628,7 @@ fn apply_prefix_rules(
         return;
     }
 
-    if name == crate::tools::TOOL_KNOWLEDGE_RECALL {
+    if name == crate::tool_defs::TOOL_KNOWLEDGE_RECALL {
         push_all(aliases, &["knowledge recall", "memory and notes"]);
         push_unique(effects, ToolEffect::KnowledgeRead);
         push_unique(effects, ToolEffect::MemoryRead);
@@ -648,9 +648,9 @@ fn apply_prefix_rules(
     }
 
     if name.starts_with("sessions_")
-        || name == crate::tools::TOOL_SESSION_STATUS
-        || name == crate::tools::TOOL_PEEK_SESSIONS
-        || name == crate::tools::TOOL_AGENTS_LIST
+        || name == crate::tool_defs::TOOL_SESSION_STATUS
+        || name == crate::tool_defs::TOOL_PEEK_SESSIONS
+        || name == crate::tool_defs::TOOL_AGENTS_LIST
     {
         if name.ends_with("_send") {
             push_unique(effects, ToolEffect::SessionWrite);
@@ -838,9 +838,9 @@ fn add_tier_tags(def: &ToolDefinition, tags: &mut Vec<String>) {
 
 fn is_destructive_tool(name: &str, effects: &[ToolEffect]) -> bool {
     if effects.contains(&ToolEffect::ExecuteProcess)
-        || name == crate::tools::TOOL_WRITE
-        || name == crate::tools::TOOL_EDIT
-        || name == crate::tools::TOOL_APPLY_PATCH
+        || name == crate::tool_defs::TOOL_WRITE
+        || name == crate::tool_defs::TOOL_EDIT
+        || name == crate::tool_defs::TOOL_APPLY_PATCH
     {
         return true;
     }
@@ -860,12 +860,12 @@ fn may_trigger_strict_approval(name: &str, effects: &[ToolEffect]) -> bool {
     effects.contains(&ToolEffect::ExecuteProcess)
         || effects.contains(&ToolEffect::BrowserAutomation)
         || effects.contains(&ToolEffect::DesktopAutomation)
-        || name == crate::tools::TOOL_WRITE
-        || name == crate::tools::TOOL_EDIT
-        || name == crate::tools::TOOL_APPLY_PATCH
-        || name == crate::tools::TOOL_UPDATE_SETTINGS
-        || name == crate::tools::TOOL_RESTORE_SETTINGS_BACKUP
-        || name == crate::tools::TOOL_APP_UPDATE
+        || name == crate::tool_defs::TOOL_WRITE
+        || name == crate::tool_defs::TOOL_EDIT
+        || name == crate::tool_defs::TOOL_APPLY_PATCH
+        || name == crate::tool_defs::TOOL_UPDATE_SETTINGS
+        || name == crate::tool_defs::TOOL_RESTORE_SETTINGS_BACKUP
+        || name == crate::tool_defs::TOOL_APP_UPDATE
 }
 
 fn is_open_world(effects: &[ToolEffect]) -> bool {
@@ -957,14 +957,14 @@ fn interrupt_behavior_for(
     effects: &[ToolEffect],
     name: &str,
 ) -> ToolInterruptBehavior {
-    if name == crate::tools::TOOL_ASK_USER_QUESTION {
+    if name == crate::tool_defs::TOOL_ASK_USER_QUESTION {
         return ToolInterruptBehavior::HumanBlocked;
     }
     if !matches!(def.background_policy, BackgroundPolicy::ForegroundOnly)
         || effects.contains(&ToolEffect::AgentDelegation)
         || effects.contains(&ToolEffect::Scheduling)
-        || name == crate::tools::TOOL_EXEC
-        || name == crate::tools::TOOL_PROCESS
+        || name == crate::tool_defs::TOOL_EXEC
+        || name == crate::tool_defs::TOOL_PROCESS
     {
         return ToolInterruptBehavior::LongRunning;
     }
@@ -1079,7 +1079,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::tools::definitions::{CoreSubclass, ToolTier};
+    use crate::tool_defs::{CoreSubclass, ToolTier};
 
     fn def(name: &str) -> ToolDefinition {
         ToolDefinition {
@@ -1100,13 +1100,13 @@ mod tests {
             },
             internal: false,
             concurrent_safe: false,
-            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         }
     }
 
     #[test]
     fn read_is_read_only_filesystem() {
-        let md = ToolMetadata::for_definition(&def(crate::tools::TOOL_READ));
+        let md = ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_READ));
         assert!(md.read_only);
         assert!(md.effects.contains(&ToolEffect::ReadFileSystem));
         assert_eq!(md.risk, ToolRisk::Low);
@@ -1115,7 +1115,7 @@ mod tests {
 
     #[test]
     fn exec_is_strict_open_world_process() {
-        let md = ToolMetadata::for_definition(&def(crate::tools::TOOL_EXEC));
+        let md = ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_EXEC));
         assert!(!md.read_only);
         assert!(md.open_world);
         assert!(md.strict);
@@ -1126,22 +1126,23 @@ mod tests {
 
     #[test]
     fn note_update_is_knowledge_write() {
-        let md = ToolMetadata::for_definition(&def(crate::tools::TOOL_NOTE_UPDATE));
+        let md = ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_NOTE_UPDATE));
         assert!(!md.read_only);
         assert!(md.effects.contains(&ToolEffect::KnowledgeWrite));
     }
 
     #[test]
     fn runtime_status_tools_remain_read_only() {
-        let tool_search = ToolMetadata::for_definition(&def(crate::tools::TOOL_TOOL_SEARCH));
+        let tool_search = ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_TOOL_SEARCH));
         assert!(tool_search.read_only);
         assert!(tool_search.effects.contains(&ToolEffect::RuntimeControl));
 
-        let job_status = ToolMetadata::for_definition(&def(crate::tools::TOOL_JOB_STATUS));
+        let job_status = ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_JOB_STATUS));
         assert!(job_status.read_only);
         assert!(job_status.effects.contains(&ToolEffect::RuntimeControl));
 
-        let runtime_cancel = ToolMetadata::for_definition(&def(crate::tools::TOOL_RUNTIME_CANCEL));
+        let runtime_cancel =
+            ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_RUNTIME_CANCEL));
         assert!(!runtime_cancel.read_only);
         assert!(runtime_cancel.destructive);
     }
@@ -1162,12 +1163,12 @@ mod tests {
 
     #[test]
     fn task_tools_distinguish_read_and_write() {
-        let list = ToolMetadata::for_definition(&def(crate::tools::TOOL_TASK_LIST));
+        let list = ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_TASK_LIST));
         assert!(list.read_only);
         assert!(list.effects.contains(&ToolEffect::TaskRead));
         assert!(!list.effects.contains(&ToolEffect::TaskWrite));
 
-        let update = ToolMetadata::for_definition(&def(crate::tools::TOOL_TASK_UPDATE));
+        let update = ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_TASK_UPDATE));
         assert!(!update.read_only);
         assert!(update.effects.contains(&ToolEffect::TaskWrite));
     }

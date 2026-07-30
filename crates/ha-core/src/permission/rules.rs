@@ -119,7 +119,7 @@ impl ArgMatcher {
         match self {
             Self::PathPrefix { prefix } => {
                 let resolved_prefix = normalize_lexical(prefix);
-                if tool == crate::tools::TOOL_APPLY_PATCH {
+                if tool == crate::tool_defs::TOOL_APPLY_PATCH {
                     let Some(patch) = args.get("input").and_then(|v| v.as_str()) else {
                         return false;
                     };
@@ -185,7 +185,7 @@ pub fn extract_path_arg(tool: &str, args: &serde_json::Value) -> Option<PathBuf>
         {
             args.get("path").and_then(|v| v.as_str())
         }
-        n if n == crate::tools::TOOL_LOOP_WATCH => args
+        n if n == crate::tool_defs::TOOL_LOOP_WATCH => args
             .get("spec")
             .and_then(|spec| spec.get("path"))
             .and_then(|value| value.as_str()),
@@ -210,11 +210,11 @@ pub fn extract_domain_arg(args: &serde_json::Value) -> Option<String> {
     parsed.host_str().map(|h| h.to_lowercase())
 }
 
-/// `~`-expansion wrapper around the canonical [`crate::tools::expand_tilde`].
+/// `~`-expansion wrapper around the canonical [`crate::tool_defs::expand_tilde`].
 /// We need a `PathBuf` for matcher comparisons, while the canonical helper
 /// returns `String` for tool-arg parsing.
 pub fn expand_tilde(s: &str) -> PathBuf {
-    PathBuf::from(crate::tools::expand_tilde(s))
+    PathBuf::from(crate::tool_defs::expand_tilde(s))
 }
 
 /// Resolve a possibly-relative path against the current tool default path,
@@ -507,8 +507,8 @@ mod tests {
             "kind": "file",
             "spec": { "path": "~/.ssh/config" }
         });
-        let path =
-            extract_path_arg(crate::tools::TOOL_LOOP_WATCH, &args).expect("nested file watch path");
+        let path = extract_path_arg(crate::tool_defs::TOOL_LOOP_WATCH, &args)
+            .expect("nested file watch path");
         assert!(path.ends_with(".ssh/config"));
     }
 

@@ -1,7 +1,7 @@
 use serde_json::json;
 
-use super::super::{TOOL_ASK_USER_QUESTION, TOOL_ENTER_PLAN_MODE, TOOL_SUBMIT_PLAN};
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
+use super::{TOOL_ASK_USER_QUESTION, TOOL_ENTER_PLAN_MODE, TOOL_SUBMIT_PLAN};
 
 /// Tool for asking the user structured questions at any point in a conversation.
 ///
@@ -28,7 +28,7 @@ settings. Do NOT use this tool to ask 'is my plan ready?' — in Plan Mode use `
         },
         internal: true,
         concurrent_safe: true,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -161,7 +161,7 @@ proceed with the task directly."
         },
         internal: true,
         concurrent_safe: false,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -197,7 +197,7 @@ Progress is tracked separately via the task_create / task_update tools after the
         },
         internal: true,
         concurrent_safe: false,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

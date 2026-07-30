@@ -724,7 +724,7 @@ fn resolve_soft_approval_layer(ctx: &ResolveContext<'_>) -> Decision {
 /// an unattended surface fail-closes downstream. Every other `manage_cron`
 /// action keeps the internal-tool exemption and never reaches here.
 fn check_cron_delete(ctx: &ResolveContext<'_>) -> Option<AskReason> {
-    if ctx.tool_name != crate::tools::TOOL_MANAGE_CRON {
+    if ctx.tool_name != crate::tool_defs::TOOL_MANAGE_CRON {
         return None;
     }
     let is_delete = ctx
@@ -973,7 +973,7 @@ fn check_edit_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
 }
 
 fn check_browser_evaluate(ctx: &ResolveContext<'_>) -> Option<AskReason> {
-    if ctx.tool_name != crate::tools::TOOL_BROWSER {
+    if ctx.tool_name != crate::tool_defs::TOOL_BROWSER {
         return None;
     }
     let action = json_string_or_text(ctx.args.get("action"))?;
@@ -999,7 +999,7 @@ fn check_browser_evaluate(ctx: &ResolveContext<'_>) -> Option<AskReason> {
 }
 
 fn check_browser_raw_cdp(ctx: &ResolveContext<'_>) -> Option<AskReason> {
-    if ctx.tool_name != crate::tools::TOOL_BROWSER {
+    if ctx.tool_name != crate::tool_defs::TOOL_BROWSER {
         return None;
     }
     let action = json_string_or_text(ctx.args.get("action"))?;
@@ -1030,7 +1030,7 @@ fn check_browser_raw_cdp(ctx: &ResolveContext<'_>) -> Option<AskReason> {
 }
 
 fn check_browser_chrome_access(ctx: &ResolveContext<'_>) -> Option<AskReason> {
-    if ctx.tool_name != crate::tools::TOOL_BROWSER {
+    if ctx.tool_name != crate::tool_defs::TOOL_BROWSER {
         return None;
     }
     let action = json_string_or_text(ctx.args.get("action"))?;
@@ -1090,7 +1090,7 @@ fn check_browser_chrome_access(ctx: &ResolveContext<'_>) -> Option<AskReason> {
 }
 
 fn check_browser_download_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
-    if ctx.tool_name != crate::tools::TOOL_BROWSER {
+    if ctx.tool_name != crate::tool_defs::TOOL_BROWSER {
         return None;
     }
     let action = json_string_or_text(ctx.args.get("action"))?;
@@ -1124,7 +1124,7 @@ fn json_string_or_text(value: Option<&Value>) -> Option<&str> {
 }
 
 fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
-    if ctx.tool_name != crate::tools::TOOL_MAC_CONTROL {
+    if ctx.tool_name != crate::tool_defs::TOOL_MAC_CONTROL {
         return None;
     }
     let action = ctx.args.get("action").and_then(|v| v.as_str())?;
@@ -1210,7 +1210,7 @@ fn mac_control_dangerous_label(
 fn mac_control_ax_action_is_dangerous(args: &Value) -> bool {
     args.get("axAction")
         .and_then(|value| value.as_str())
-        .and_then(crate::tools::normalize_perform_ax_action)
+        .and_then(crate::tool_defs::normalize_perform_ax_action)
         .is_some_and(|action| action == "AXConfirm")
 }
 
@@ -1381,7 +1381,7 @@ mod tests {
         let plan: Vec<String> = vec![];
         let custom: Vec<String> = vec![];
         let c = ctx(
-            crate::tools::TOOL_MANAGE_CRON,
+            crate::tool_defs::TOOL_MANAGE_CRON,
             &args,
             SessionMode::Default,
             &plan,
@@ -1404,7 +1404,7 @@ mod tests {
         for action in ["create", "update", "list", "pause", "resume", "run_now"] {
             let args = json!({ "action": action, "id": "job-1" });
             let c = ctx(
-                crate::tools::TOOL_MANAGE_CRON,
+                crate::tool_defs::TOOL_MANAGE_CRON,
                 &args,
                 SessionMode::Default,
                 &plan,
@@ -1421,7 +1421,7 @@ mod tests {
         let plan: Vec<String> = vec![];
         let custom: Vec<String> = vec![];
         let c = ctx(
-            crate::tools::TOOL_MANAGE_CRON,
+            crate::tool_defs::TOOL_MANAGE_CRON,
             &args,
             SessionMode::Yolo,
             &plan,
@@ -2280,7 +2280,7 @@ mod tests {
         let plan: Vec<String> = vec![];
         let custom: Vec<String> = vec![];
         let c = ctx(
-            crate::tools::TOOL_LOOP_WATCH,
+            crate::tool_defs::TOOL_LOOP_WATCH,
             &args,
             SessionMode::Default,
             &plan,
@@ -2598,7 +2598,7 @@ mod tests {
         let plan: Vec<String> = vec![];
         let custom: Vec<String> = vec![];
         let mut c = ctx(
-            crate::tools::TOOL_MAC_CONTROL,
+            crate::tool_defs::TOOL_MAC_CONTROL,
             &args,
             SessionMode::Default,
             &plan,
@@ -2610,7 +2610,7 @@ mod tests {
         crate::test_support::with_env_vars(&[("HA_DATA_DIR", tmp.path())], || {
             super::super::allowlist::clear_caches_for_tests();
             super::super::allowlist::add_allow_always_for_call(
-                crate::tools::TOOL_MAC_CONTROL,
+                crate::tool_defs::TOOL_MAC_CONTROL,
                 &args,
                 super::super::allowlist::GrantContext {
                     session_id: c.session_id,

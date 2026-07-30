@@ -270,7 +270,7 @@ async fn handle_skill_command(
             // `auto_approve_tools` rather than the (now-removed) `require_approval`
             // tool list — the legacy field was unread after the permission v2
             // refactor.
-            let ctx = crate::tools::ToolExecContext {
+            let ctx = crate::tool_defs::ToolExecContext {
                 session_id: session_id.map(String::from),
                 agent_id: Some(agent_id.to_string()),
                 home_dir: dirs::home_dir().map(|p| p.to_string_lossy().to_string()),

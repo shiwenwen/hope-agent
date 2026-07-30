@@ -28,7 +28,7 @@ mod tests {
     /// 增删默认策略工具，这里立刻红。
     #[test]
     fn default_tool_policies_match_tool_name_constants() {
-        use crate::tools::{
+        use crate::tool_defs::{
             TOOL_AGENTS_LIST, TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_LS, TOOL_MEMORY_GET,
             TOOL_PROCESS, TOOL_RECALL_MEMORY, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
             TOOL_TOOL_SEARCH, TOOL_WEB_FETCH, TOOL_WEB_SEARCH,

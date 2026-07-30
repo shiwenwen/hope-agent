@@ -1,9 +1,7 @@
 use serde_json::json;
 
-use super::super::{
-    TOOL_ARTIFACT, TOOL_CANVAS, TOOL_DESIGN, TOOL_SEND_NOTIFICATION, TOOL_WEB_SEARCH,
-};
 use super::types::{ToolDefinition, ToolTier};
+use super::{TOOL_ARTIFACT, TOOL_CANVAS, TOOL_DESIGN, TOOL_SEND_NOTIFICATION, TOOL_WEB_SEARCH};
 
 /// Returns the web_search tool definition (conditionally injected when enabled).
 pub fn get_web_search_tool() -> ToolDefinition {
@@ -18,7 +16,7 @@ pub fn get_web_search_tool() -> ToolDefinition {
         },
         internal: false,
         concurrent_safe: true,
-        background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
+        background_policy: crate::tool_defs::BackgroundPolicy::GenericJob,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -63,7 +61,7 @@ pub fn get_notification_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -95,7 +93,7 @@ pub fn get_canvas_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -172,7 +170,7 @@ pub fn get_design_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -240,7 +238,7 @@ pub fn get_artifact_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: false,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {

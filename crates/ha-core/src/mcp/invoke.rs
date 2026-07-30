@@ -12,7 +12,7 @@ use serde_json::Value;
 pub async fn call_tool(
     name: &str,
     args: &Value,
-    ctx: &crate::tools::ToolExecContext,
+    ctx: &crate::tool_defs::ToolExecContext,
 ) -> anyhow::Result<String> {
     let Some(hooks) = crate::mcp_hooks::mcp_hooks() else {
         anyhow::bail!(

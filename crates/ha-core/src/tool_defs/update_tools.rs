@@ -1,7 +1,7 @@
 use serde_json::json;
 
-use super::super::TOOL_APP_UPDATE;
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
+use super::TOOL_APP_UPDATE;
 
 pub fn get_app_update_tool() -> ToolDefinition {
     ToolDefinition {
@@ -31,7 +31,7 @@ When any path fails the tool emits a structured error via `ask_user_question` so
         // `install` is the long-running action — `check` / `status` /
         // `rollback` return in well under a second. GenericJob
         // lets the model opt into `run_in_background: true` for install.
-        background_policy: crate::tools::definitions::BackgroundPolicy::GenericJob,
+        background_policy: crate::tool_defs::BackgroundPolicy::GenericJob,
         parameters: json!({
             "type": "object",
             "properties": {

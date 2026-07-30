@@ -1,7 +1,7 @@
 use serde_json::json;
 
-use super::super::{TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE};
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
+use super::{TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE};
 
 pub fn get_task_create_tool() -> ToolDefinition {
     ToolDefinition {
@@ -31,7 +31,7 @@ shown in the UI when this task's status is in_progress"
         },
         internal: true,
         concurrent_safe: false,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -72,7 +72,7 @@ Mark completed only when fully done, and call immediately after finishing (do no
         tier: ToolTier::Core { subclass: CoreSubclass::Interaction },
         internal: true,
         concurrent_safe: false,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -106,7 +106,7 @@ pub fn get_task_list_tool() -> ToolDefinition {
         },
         internal: true,
         concurrent_safe: true,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters: json!({
             "type": "object",
             "properties": {},

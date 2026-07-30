@@ -150,69 +150,67 @@ pub(crate) fn install(
     let resume_job = job_id.clone();
     let resume_tool = tool_name;
     let resume_session = session_id;
-    let on_resume = Box::new(
-        move |origin: Option<crate::tools::approval::ApprovalOrigin>| {
-            // Stop excluding (fold this park's duration into the accumulated total
-            // the budget timer adds to the deadline).
-            park_timing_exit();
-            // Take the recorded request id (also the cancel-dismiss key below).
-            let request_id = PARKED_JOB_REQUESTS
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .remove(&resume_job);
-            // Revert to Running ONLY on a proceed outcome (`origin = Some`: approve /
-            // timeout-proceed) — that is when the dispatch actually continues and the
-            // row should show Running again. On deny / timeout-deny / cancel-drop
-            // (`origin = None`) the dispatch does NOT continue: leave the row
-            // `awaiting_approval` and let the terminal settle take it straight to its
-            // terminal state (`update_terminal` accepts `awaiting_approval`). Emitting
-            // a `job:updated(Running)` here would broadcast a spurious "running" for a
-            // job that never resumed (UI flicker + wrong event for raw `job:*`
-            // consumers). Guarded `awaiting_approval → running` is also a no-op if a
-            // concurrent cancel already moved the row to cancelling/terminal.
-            //
-            // Accepted limitation (audit): a DENIED / timeout-denied parked job keeps
-            // the spawn-time placeholder `approval_origin` (e.g. `policy_allow`) — the
-            // F6 correction only runs on a proceed. The denial is authoritative in the
-            // terminal `error` column (DeniedByUser → "denied by user"), and the job
-            // never ran, so the audit origin of a non-executed Failed job is moot.
-            if let Some(o) = origin {
-                match resume_db.resume_from_awaiting_approval(&resume_job) {
-                    Ok(true) => {
-                        // F6 audit: correct the placeholder origin recorded at spawn
-                        // (the command gate had not run yet) with the real decision.
-                        let _ = resume_db.set_approval_origin(&resume_job, o.as_str());
-                        super::events::emit_updated(
-                            &resume_job,
-                            JobKind::Tool,
-                            &resume_tool,
-                            super::types::JobStatus::Running.as_str(),
-                            resume_session.as_deref(),
-                        );
-                    }
-                    Ok(false) => {}
-                    Err(e) => app_warn!(
-                        "async_jobs",
-                        "approval",
-                        "Failed to resume job {} after approval: {}",
-                        resume_job,
-                        e
-                    ),
+    let on_resume = Box::new(move |origin: Option<crate::tool_defs::ApprovalOrigin>| {
+        // Stop excluding (fold this park's duration into the accumulated total
+        // the budget timer adds to the deadline).
+        park_timing_exit();
+        // Take the recorded request id (also the cancel-dismiss key below).
+        let request_id = PARKED_JOB_REQUESTS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&resume_job);
+        // Revert to Running ONLY on a proceed outcome (`origin = Some`: approve /
+        // timeout-proceed) — that is when the dispatch actually continues and the
+        // row should show Running again. On deny / timeout-deny / cancel-drop
+        // (`origin = None`) the dispatch does NOT continue: leave the row
+        // `awaiting_approval` and let the terminal settle take it straight to its
+        // terminal state (`update_terminal` accepts `awaiting_approval`). Emitting
+        // a `job:updated(Running)` here would broadcast a spurious "running" for a
+        // job that never resumed (UI flicker + wrong event for raw `job:*`
+        // consumers). Guarded `awaiting_approval → running` is also a no-op if a
+        // concurrent cancel already moved the row to cancelling/terminal.
+        //
+        // Accepted limitation (audit): a DENIED / timeout-denied parked job keeps
+        // the spawn-time placeholder `approval_origin` (e.g. `policy_allow`) — the
+        // F6 correction only runs on a proceed. The denial is authoritative in the
+        // terminal `error` column (DeniedByUser → "denied by user"), and the job
+        // never ran, so the audit origin of a non-executed Failed job is moot.
+        if let Some(o) = origin {
+            match resume_db.resume_from_awaiting_approval(&resume_job) {
+                Ok(true) => {
+                    // F6 audit: correct the placeholder origin recorded at spawn
+                    // (the command gate had not run yet) with the real decision.
+                    let _ = resume_db.set_approval_origin(&resume_job, o.as_str());
+                    super::events::emit_updated(
+                        &resume_job,
+                        JobKind::Tool,
+                        &resume_tool,
+                        super::types::JobStatus::Running.as_str(),
+                        resume_session.as_deref(),
+                    );
                 }
+                Ok(false) => {}
+                Err(e) => app_warn!(
+                    "async_jobs",
+                    "approval",
+                    "Failed to resume job {} after approval: {}",
+                    resume_job,
+                    e
+                ),
             }
-            // R8: dismiss the orphaned dialog IFF the job was cancelled while parked
-            // — `dismiss_parked_job_approval` removes the pending entry only if it is
-            // still present (a no-op + no broadcast for approve/deny/timeout, which
-            // already cleared it). Runs after the dispatch future was dropped by the
-            // cancel, so it cannot race the `select!` into a spurious completion.
-            if let Some(request_id) = request_id {
-                crate::tools::approval::dismiss_parked_job_approval(
-                    &request_id,
-                    resume_session.as_deref(),
-                );
-            }
-        },
-    );
+        }
+        // R8: dismiss the orphaned dialog IFF the job was cancelled while parked
+        // — `dismiss_parked_job_approval` removes the pending entry only if it is
+        // still present (a no-op + no broadcast for approve/deny/timeout, which
+        // already cleared it). Runs after the dispatch future was dropped by the
+        // cancel, so it cannot race the `select!` into a spurious completion.
+        if let Some(request_id) = request_id {
+            crate::tools::approval::dismiss_parked_job_approval(
+                &request_id,
+                resume_session.as_deref(),
+            );
+        }
+    });
 
     BackgroundApprovalScope::new(BackgroundApprovalBridge { on_park, on_resume })
 }

@@ -24,7 +24,8 @@ use super::events::{
 };
 use super::streaming_adapter::{ExecutedTool, RoundRequest, StreamingChatAdapter};
 use super::types::{AssistantAgent, ChatUsage};
-use crate::tools::{self, ToolExecContext};
+use crate::tool_defs::ToolExecContext;
+use crate::tools;
 
 /// All four providers share the same max_tokens budget: it caps Anthropic's
 /// `max_tokens` request field and feeds the compaction / microcompact token
@@ -523,7 +524,7 @@ async fn execute_tool_with_cancel(
     // Handshake sink for effective arguments. Tool execution pauses at the
     // rewrite point until this task journals and flushes the update, so a
     // side effect can never race ahead of its durable invocation record.
-    let effective_args_sink = Arc::new(tools::EffectiveArgsSink::default());
+    let effective_args_sink = Arc::new(crate::tool_defs::EffectiveArgsSink::default());
     let mut local_ctx = ctx.clone();
     local_ctx.metadata_sink = Some(sink.clone());
     local_ctx.effective_args_sink = Some(effective_args_sink.clone());
@@ -533,7 +534,7 @@ async fn execute_tool_with_cancel(
     let tool_start = std::time::Instant::now();
     if let Err(error) = crate::eval_context::ensure_tool_budget(ctx.session_id.as_deref()) {
         let elapsed_ms = tool_start.elapsed().as_millis() as u64;
-        let rendered = tools::ToolRejection::render_error(&error);
+        let rendered = crate::tool_defs::ToolRejection::render_error(&error);
         crate::eval_context::record_tool_result_with_digest(
             ctx.session_id.as_deref(),
             name,
@@ -555,7 +556,7 @@ async fn execute_tool_with_cancel(
                 "controlled evaluation fault {} ({error_class})",
                 fault.fault_id
             );
-            let rendered = tools::ToolRejection::render_error(&error);
+            let rendered = crate::tool_defs::ToolRejection::render_error(&error);
             crate::eval_context::record_tool_result_with_digest(
                 ctx.session_id.as_deref(),
                 name,
@@ -603,7 +604,7 @@ async fn execute_tool_with_cancel(
                     Ok(r) => r,
                     Err(e) => {
                         eval_outcome = crate::eval_context::EvalToolOutcome::Failed;
-                        tools::ToolRejection::render_error(&e)
+                        crate::tool_defs::ToolRejection::render_error(&e)
                     }
                 };
             }
@@ -639,7 +640,7 @@ async fn execute_tool_with_cancel(
                     }
                 }
                 eval_outcome = crate::eval_context::EvalToolOutcome::Cancelled;
-                break tools::ToolRejection::cancelled(name).to_tool_result();
+                break crate::tool_defs::ToolRejection::cancelled(name).to_tool_result();
             }
         }
     };
@@ -685,7 +686,7 @@ fn invalid_tool_arguments_result(
     };
     format!(
         "{}Invalid JSON arguments for tool '{}': {}. Raw arguments: {}",
-        tools::TOOL_ERROR_PREFIX,
+        crate::tool_defs::TOOL_ERROR_PREFIX,
         name,
         err,
         preview

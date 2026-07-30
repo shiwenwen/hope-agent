@@ -1,10 +1,10 @@
 use serde_json::json;
 
-use super::super::{
+use super::types::{CoreSubclass, ToolDefinition, ToolTier};
+use super::{
     TOOL_LOOP_RECORD_PROGRESS, TOOL_LOOP_RESCHEDULE, TOOL_LOOP_STATUS, TOOL_LOOP_STOP,
     TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH,
 };
-use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
 fn loop_core_tool(
     name: &str,
@@ -20,7 +20,7 @@ fn loop_core_tool(
         },
         internal: true,
         concurrent_safe,
-        background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+        background_policy: crate::tool_defs::BackgroundPolicy::ForegroundOnly,
         parameters,
     }
 }

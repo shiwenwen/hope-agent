@@ -60,7 +60,7 @@ Agent 层有开关，但即使开了，全局 provider 没配也不真正注入�
 
 ## 工具定义
 
-每个工具由 `ToolDefinition` 结构体定义（[`tools/definitions/types.rs`](../../crates/ha-core/src/tools/definitions/types.rs)）：
+每个工具由 `ToolDefinition` 结构体定义（[`tool_defs/types.rs`](../../crates/ha-core/src/tool_defs/types.rs)）：
 
 ```rust
 pub struct ToolDefinition {
@@ -86,7 +86,7 @@ pub struct ToolDefinition {
 
 ### ToolDefinition v2 元数据
 
-`ToolDefinition` 结构体本身保持小而稳定；v2 元数据通过 [`tools/definitions/metadata.rs`](../../crates/ha-core/src/tools/definitions/metadata.rs) 作为 sidecar 派生：
+`ToolDefinition` 结构体本身保持小而稳定；v2 元数据通过 [`tool_defs/metadata.rs`](../../crates/ha-core/src/tool_defs/metadata.rs) 作为 sidecar 派生：
 
 ```rust
 impl ToolDefinition {
@@ -226,7 +226,7 @@ match，而是查表：
 
 ## 内置工具清单
 
-本节枚举 Hope Agent 当前内置的全部工具（源码：`crates/ha-core/src/tools/definitions/`）。
+本节枚举 Hope Agent 当前内置的全部工具（schema 源码：全表汇编在 `crates/ha-core/src/tools/definitions/`，单工具构造器与共享类型在 `crates/ha-core/src/tool_defs/`）。
 
 标记含义：
 
@@ -856,7 +856,7 @@ job 结算的终态状态由**类型派生**而非字符串再解析。`async_jo
 | `crates/ha-core/src/async_jobs/retention.rs` | `run_once` 单次清扫 + `spawn_background_loop` daily ticker，删 terminal 行 + 孤儿 spool 文件，`MAX_ORPHANS_PER_SWEEP=10_000` 兜底 |
 | `crates/ha-core/src/tools/job_status.rs` | `job_status` 工具实现（模型可见 snapshot；隐藏短 blocking 兼容路径走 `wait::register_waiter`） |
 | `crates/ha-core/src/tools/execution.rs` | `decide_async_path` + 三道闸路由 + `bypass_async_dispatch` 递归保护 |
-| `crates/ha-core/src/tools/definitions/types.rs` | `BackgroundPolicy` / action-level `ToolInvocationSemantics` + GenericJob schema 自动注入 |
+| `crates/ha-core/src/tool_defs/types.rs` | `BackgroundPolicy` / action-level `ToolInvocationSemantics` + GenericJob schema 自动注入 |
 | `crates/ha-core/src/system_prompt/sections.rs` | `build_async_tools_section` 教模型何时使用 async tool / 怎么解析 `<task-notification>` |
 | `crates/ha-core/src/config/mod.rs` | `AsyncToolsConfig` |
 | `crates/ha-core/src/agent_config.rs` | `AsyncToolPolicy` 枚举 + `CapabilitiesConfig.async_tool_policy` |
@@ -1255,7 +1255,7 @@ flowchart TD
 |------|------|
 | **允许一次**（AllowOnce） | 本次放行，下次同样弹出 |
 | **始终允许**（AllowAlways） | Auto 模式：写入 `exec-approvals.json` allowlist；AskEveryTime 模式：等同于 AllowOnce（不写 allowlist） |
-| **拒绝**（Deny） | 工具返回类型化错误 [`ToolRejection::DeniedByUser`](../../crates/ha-core/src/tools/rejection.rs)，由 [`streaming_loop`](../../crates/ha-core/src/agent/streaming_loop.rs) 出口渲染为 `Tool error: Tool '<name>' execution denied by user. The tool did not execute and no side effects occurred. STOP what you are doing and wait for the user to tell you how to proceed.`；带 `Tool error:` 前缀触发 `is_error` 通道（UI 标红、warn 日志）|
+| **拒绝**（Deny） | 工具返回类型化错误 [`ToolRejection::DeniedByUser`](../../crates/ha-core/src/tool_defs/rejection.rs)，由 [`streaming_loop`](../../crates/ha-core/src/agent/streaming_loop.rs) 出口渲染为 `Tool error: Tool '<name>' execution denied by user. The tool did not execute and no side effects occurred. STOP what you are doing and wait for the user to tell you how to proceed.`；带 `Tool error:` 前缀触发 `is_error` 通道（UI 标红、warn 日志）|
 
 审批等待超时默认 5 分钟，可通过 `config.json` 的 `approvalTimeoutSecs` 配置，`0` 表示不限时。超时后的行为由 `approvalTimeoutAction` 控制：默认 `deny`，阻止工具执行；可选 `proceed`，记录 warning 后继续执行工具。
 
@@ -1530,8 +1530,8 @@ C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/
 | `crates/ha-core/src/tools/execution.rs` | 统一审批门（`execute_tool_with_context`）、Plan Mode 路径检查 |
 | `crates/ha-core/src/tools/exec.rs` | exec 独立命令级审批逻辑 |
 | `crates/ha-core/src/tools/dispatch.rs` | **注入决策单一入口**：`resolve_tool_fate()` / `DispatchContext` / `ToolFate`、`all_dispatchable_tools()` LazyLock 静态目录、`is_globally_configured()` Tier 3 配置探针 |
-| `crates/ha-core/src/tools/definitions/types.rs` | `ToolDefinition` / `ToolTier` / `CoreSubclass` 定义；`to_api_metadata()` 渲染前端 settings UI 元数据 |
-| `crates/ha-core/src/tools/definitions/metadata.rs` | ToolDefinition v2 sidecar metadata：aliases/search_hints/effects/risk/input/render/permission/classifier |
+| `crates/ha-core/src/tool_defs/types.rs` | `ToolDefinition` / `ToolTier` / `CoreSubclass` 定义（契约层；`to_api_metadata()` 为 dispatch 层 extension trait `ToolDefinitionApiExt`，在 `tools/dispatch.rs`） |
+| `crates/ha-core/src/tool_defs/metadata.rs` | ToolDefinition v2 sidecar metadata：aliases/search_hints/effects/risk/input/render/permission/classifier |
 | `crates/ha-core/src/tools/definitions/registry.rs` | `is_internal_tool()` / `background_policy_for_tool()` / `is_generic_job_capable()` / `is_concurrent_safe()` —— 由 `dispatch::all_dispatchable_tools()` 派生的 LazyLock 缓存 |
 | `crates/ha-core/src/async_jobs/` | 异步 Tool 执行（types/db/spawn/injection），独立 `~/.hope-agent/background_jobs.db` |
 | `crates/ha-core/src/tools/job_status.rs` | `job_status` 工具：snapshot / 阻塞等待 per-job `Notify` + 100ms→×1.5→2s 退避轮询兜底 |

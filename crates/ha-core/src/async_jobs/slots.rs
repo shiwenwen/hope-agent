@@ -39,7 +39,7 @@ use std::time::Instant;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::tools::ToolExecContext;
+use crate::tool_defs::ToolExecContext;
 
 /// Safe band for the configurable wait-queue ceiling (R9). Each queued job pins
 /// its `ToolExecContext` in RAM, so the queue MUST stay bounded — the configured

@@ -27,8 +27,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::tools::ToolDefinition;
-use crate::tools::ToolExecContext;
+use crate::tool_defs::ToolDefinition;
+use crate::tool_defs::ToolExecContext;
 use ha_config_schema::mcp::McpServerConfig;
 
 type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

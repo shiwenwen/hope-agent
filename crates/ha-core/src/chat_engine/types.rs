@@ -546,10 +546,10 @@ pub struct ChatEngineParams {
     pub skill_allowed_tools: Vec<String>,
     /// Tools denied by the caller's execution policy.
     pub denied_tools: Vec<String>,
-    /// Optional tool-visibility scope (see [`crate::tools::ToolScope`]). The
+    /// Optional tool-visibility scope (see [`crate::tool_defs::ToolScope`]). The
     /// knowledge-space sidebar chat passes `Some(Knowledge)` to trim the tool
     /// set to the note/recall white-list. `None` for every other caller.
-    pub tool_scope: Option<crate::tools::ToolScope>,
+    pub tool_scope: Option<crate::tool_defs::ToolScope>,
     /// Current sub-agent nesting depth for tool schema filtering and child spawns.
     pub subagent_depth: u32,
     /// Sub-agent run id whose steer mailbox should be drained each tool round.

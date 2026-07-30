@@ -4518,7 +4518,7 @@ fn gold_task_cases() -> Vec<GoldTaskCase> {
             ],
             &["不绕过现有 permission::engine"],
             &[
-                "crates/ha-core/src/tools/definitions/types.rs",
+                "crates/ha-core/src/tool_defs/types.rs",
                 "crates/ha-core/src/tools/execution.rs",
                 "docs/architecture/tool-system.md",
             ],

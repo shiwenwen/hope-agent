@@ -19,6 +19,8 @@
 
 use std::sync::LazyLock;
 
+use serde_json::{json, Value};
+
 use crate::agent_config::FilterConfig;
 use crate::agent_loader::is_main_agent;
 use crate::config::AppConfig;
@@ -69,6 +71,82 @@ pub enum ToolFate {
     /// - Plan-mode tool is requested but PlanAgentMode is Off
     /// - User explicitly disabled a non-Core tool via `capabilities.tools.deny`
     Hidden,
+}
+
+/// `ToolDefinition::to_api_metadata` 的落点（extension trait）。方法需要
+/// `is_globally_configured`（读 web_search / media_gen / feishu 配置态，
+/// 属分发层），而 `ToolDefinition` 本体在 `crate::tool_defs`（契约层不
+/// 得反向依赖分发层）——同 ha-config-schema 的「需要行为的方法改子系统
+/// 自由函数或 extension trait」模式。
+pub trait ToolDefinitionApiExt {
+    fn to_api_metadata(&self, app_config: &crate::config::AppConfig) -> serde_json::Value;
+}
+
+impl ToolDefinitionApiExt for ToolDefinition {
+    /// Render this tool as a JSON metadata payload for `list_builtin_tools`
+    /// (Tauri command + `GET /api/chat/tools`). Single source of truth so
+    /// both transports return identically-shaped objects to the frontend.
+    ///
+    /// `app_config` is consulted only for Tier 3 (`Configured`) tools to
+    /// probe whether the global provider/feature is provisioned. The
+    /// returned `globally_configured` field is `Some(bool)` for Tier 3 and
+    /// `null` for every other tier — letting the frontend decide whether to
+    /// show the "未配置" hint without re-implementing the probe matrix.
+    fn to_api_metadata(&self, app_config: &crate::config::AppConfig) -> Value {
+        let (
+            tier_label,
+            core_subclass,
+            default_for_main,
+            default_for_others,
+            config_hint,
+            globally_configured,
+        ) = match &self.tier {
+            ToolTier::Core { subclass } => {
+                ("core", Some(subclass.as_str()), None, None, None, None)
+            }
+            ToolTier::Standard {
+                default_for_main,
+                default_for_others,
+                ..
+            } => (
+                "standard",
+                None,
+                Some(*default_for_main),
+                Some(*default_for_others),
+                None,
+                None,
+            ),
+            ToolTier::Configured {
+                default_for_main,
+                default_for_others,
+                config_hint,
+                ..
+            } => (
+                "configured",
+                None,
+                Some(*default_for_main),
+                Some(*default_for_others),
+                Some(*config_hint),
+                Some(is_globally_configured(&self.name, app_config)),
+            ),
+            ToolTier::Memory => ("memory", None, None, None, None, None),
+            ToolTier::Mcp => ("mcp", None, None, None, None, None),
+        };
+        json!({
+            "name": self.name,
+            "description": self.description,
+            "internal": self.internal,
+            "tier": tier_label,
+            "core_subclass": core_subclass,
+            "default_for_main": default_for_main,
+            "default_for_others": default_for_others,
+            "config_hint": config_hint,
+            "defer_capable": self.supports_deferred(),
+            "globally_configured": globally_configured,
+            "background_policy": self.background_policy,
+            "metadata": self.v2_metadata(),
+        })
+    }
 }
 
 /// Probe whether the global side of a Tier 3 tool's provisioning is ready

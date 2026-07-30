@@ -2358,7 +2358,7 @@ fn configure_agent(
     extra_system_context: Option<&str>,
     skill_allowed_tools: &[String],
     denied_tools: &[String],
-    tool_scope: Option<crate::tools::ToolScope>,
+    tool_scope: Option<crate::tool_defs::ToolScope>,
     subagent_depth: u32,
     steer_run_id: Option<String>,
     plan_resolved: crate::agent::PlanResolvedContext,

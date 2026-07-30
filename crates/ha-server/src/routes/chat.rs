@@ -17,6 +17,7 @@ use ha_core::permission::{SandboxMode, SessionMode};
 use ha_core::provider::{self, ActiveModel};
 use ha_core::session;
 use ha_core::tools;
+use ha_core::tools::dispatch::ToolDefinitionApiExt;
 
 use crate::error::AppError;
 use crate::{AppContext, UiRequestPolicy};

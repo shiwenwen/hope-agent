@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
+use super::dispatch::ToolDefinitionApiExt;
+
 use super::{
     definitions::ToolDefinition,
     dispatch::{all_dispatchable_tools, resolve_tool_fate, DispatchContext, ToolFate},
@@ -618,7 +620,7 @@ mod tests {
             .unwrap();
         let ctx = ToolExecContext {
             project_id: Some(project.id),
-            session_db: Some(crate::tools::execution::SessionDbHandle(session_db)),
+            session_db: Some(crate::tool_defs::SessionDbHandle(session_db)),
             ..ToolExecContext::default()
         };
 

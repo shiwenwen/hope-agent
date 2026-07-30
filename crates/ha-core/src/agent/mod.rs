@@ -803,10 +803,10 @@ impl AssistantAgent {
     /// flag to skip auto-extraction for this round.
     pub(crate) fn check_manual_memory_save(&self, tool_calls: &[api_types::FunctionCallItem]) {
         if tool_calls.iter().any(|tc| {
-            tc.name == crate::tools::TOOL_SAVE_MEMORY
-                || tc.name == crate::tools::TOOL_UPDATE_CORE_MEMORY
-                || tc.name == crate::tools::TOOL_CORE_MEMORY
-                || tc.name == crate::tools::TOOL_PROJECT_MEMORY
+            tc.name == crate::tool_defs::TOOL_SAVE_MEMORY
+                || tc.name == crate::tool_defs::TOOL_UPDATE_CORE_MEMORY
+                || tc.name == crate::tool_defs::TOOL_CORE_MEMORY
+                || tc.name == crate::tool_defs::TOOL_PROJECT_MEMORY
         }) {
             self.manual_memory_saved
                 .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -3183,10 +3183,10 @@ impl AssistantAgent {
         self.denied_tools = tools;
     }
 
-    /// Set the per-turn tool-visibility scope (see [`crate::tools::ToolScope`]).
+    /// Set the per-turn tool-visibility scope (see [`crate::tool_defs::ToolScope`]).
     /// `Some(Knowledge)` trims the injected tool set to the knowledge-space
     /// white-list; `None` (default) applies no extra narrowing.
-    pub fn set_tool_scope(&mut self, scope: Option<crate::tools::ToolScope>) {
+    pub fn set_tool_scope(&mut self, scope: Option<crate::tool_defs::ToolScope>) {
         self.tool_scope = scope;
     }
 
@@ -3409,7 +3409,7 @@ impl AssistantAgent {
     pub(crate) fn apply_plan_tools(
         &self,
         tool_schemas: &mut Vec<serde_json::Value>,
-        provider: tools::ToolProvider,
+        provider: crate::tool_defs::ToolProvider,
     ) {
         let plan_mode = self.plan_agent_mode.load();
         match &**plan_mode {
@@ -3418,7 +3418,8 @@ impl AssistantAgent {
                 // get_available_tools), so we only need to add the plan-specific
                 // submit tool here. The allow-list filter then drops anything
                 // outside the Plan Agent toolset.
-                tool_schemas.push(tools::get_submit_plan_tool().to_provider_schema(provider));
+                tool_schemas
+                    .push(crate::tool_defs::get_submit_plan_tool().to_provider_schema(provider));
                 tool_schemas.retain(|t| {
                     let name = extract_tool_name(t);
                     allowed_tools.iter().any(|a| a == name)
@@ -3434,7 +3435,9 @@ impl AssistantAgent {
                 // can proactively suggest entering Plan Mode. The tool itself
                 // triggers a user-facing Yes/No prompt and never transitions
                 // state on its own — sovereignty stays with the user.
-                tool_schemas.push(tools::get_enter_plan_mode_tool().to_provider_schema(provider));
+                tool_schemas.push(
+                    crate::tool_defs::get_enter_plan_mode_tool().to_provider_schema(provider),
+                );
             }
         }
     }
@@ -3445,7 +3448,7 @@ impl AssistantAgent {
     /// next call — no `_with_mode` override needed.
     pub(crate) fn build_tool_schemas(
         &self,
-        provider: tools::ToolProvider,
+        provider: crate::tool_defs::ToolProvider,
     ) -> Vec<serde_json::Value> {
         let app_config = crate::config::cached_config();
         let caps = self.agent_caps();
@@ -3473,10 +3476,10 @@ impl AssistantAgent {
             ) {
                 continue;
             }
-            let schema = if def.name == tools::TOOL_IMAGE_GENERATE {
+            let schema = if def.name == crate::tool_defs::TOOL_IMAGE_GENERATE {
                 tools::get_image_generate_tool_dynamic(&app_config.media_gen)
                     .to_provider_schema(provider)
-            } else if def.name == tools::TOOL_AUDIO_GENERATE {
+            } else if def.name == crate::tool_defs::TOOL_AUDIO_GENERATE {
                 tools::get_audio_generate_tool_dynamic(&app_config.media_gen)
                     .to_provider_schema(provider)
             } else {
@@ -3496,13 +3499,13 @@ impl AssistantAgent {
             && self.session_has_active_background_job()
             && !schemas
                 .iter()
-                .any(|schema| extract_tool_name(schema) == tools::TOOL_JOB_STATUS)
+                .any(|schema| extract_tool_name(schema) == crate::tool_defs::TOOL_JOB_STATUS)
         {
             schemas.push(tools::job_status::get_job_status_tool().to_provider_schema(provider));
         }
 
         if !self.subagent_depth_allows_subagent() {
-            schemas.retain(|t| extract_tool_name(t) != tools::TOOL_SUBAGENT);
+            schemas.retain(|t| extract_tool_name(t) != crate::tool_defs::TOOL_SUBAGENT);
         }
         schemas.retain(|schema| {
             crate::eval_context::tool_allowed_for_experiment(
@@ -3544,7 +3547,7 @@ impl AssistantAgent {
     /// through the same final visibility and scope gates as eager tools.
     pub(crate) fn build_tool_inventory(
         &self,
-        provider: tools::ToolProvider,
+        provider: crate::tool_defs::ToolProvider,
         requested_activations: &[String],
     ) -> ToolInventory {
         let mut schemas = self.build_tool_schemas(provider);
@@ -3590,10 +3593,10 @@ impl AssistantAgent {
                 continue;
             }
             deferred_builtin_names.insert(def.name.clone());
-            let mut schema = if def.name == tools::TOOL_IMAGE_GENERATE {
+            let mut schema = if def.name == crate::tool_defs::TOOL_IMAGE_GENERATE {
                 tools::get_image_generate_tool_dynamic(&app_config.media_gen)
                     .to_provider_schema(provider)
-            } else if def.name == tools::TOOL_AUDIO_GENERATE {
+            } else if def.name == crate::tool_defs::TOOL_AUDIO_GENERATE {
                 tools::get_audio_generate_tool_dynamic(&app_config.media_gen)
                     .to_provider_schema(provider)
             } else {
@@ -3777,7 +3780,7 @@ impl AssistantAgent {
     fn finalize_tool_schemas(&self, schemas: &mut Vec<serde_json::Value>) {
         let caps = self.agent_caps();
         if !self.subagent_depth_allows_subagent() {
-            schemas.retain(|t| extract_tool_name(t) != tools::TOOL_SUBAGENT);
+            schemas.retain(|t| extract_tool_name(t) != crate::tool_defs::TOOL_SUBAGENT);
         }
         // Final filter pipeline (skill / denied / plan-allowed) — defense
         // in depth on top of dispatcher visibility.
@@ -3788,7 +3791,7 @@ impl AssistantAgent {
         };
         schemas.retain(|t| {
             let name = tools::canonical_tool_schema_name(extract_tool_name(t));
-            tools::tool_visible_with_filters(
+            crate::tool_defs::tool_visible_with_filters(
                 name,
                 &caps.agent_tool_filter,
                 &self.denied_tools,
@@ -3804,11 +3807,15 @@ impl AssistantAgent {
         // see, so a hidden tool can never still be reachable (or vice-versa).
         // `knowledge_recall` is deferred + cross-store and is intentionally kept.
         if schemas.iter().any(|t| {
-            tools::is_kb_scoped_tool(tools::canonical_tool_schema_name(extract_tool_name(t)))
+            crate::tool_defs::is_kb_scoped_tool(tools::canonical_tool_schema_name(
+                extract_tool_name(t),
+            ))
         }) && self.resolve_kb_access().is_empty()
         {
             schemas.retain(|t| {
-                !tools::is_kb_scoped_tool(tools::canonical_tool_schema_name(extract_tool_name(t)))
+                !crate::tool_defs::is_kb_scoped_tool(tools::canonical_tool_schema_name(
+                    extract_tool_name(t),
+                ))
             });
         }
 
@@ -3822,7 +3829,7 @@ impl AssistantAgent {
         {
             schemas.retain(|schema| {
                 tools::canonical_tool_schema_name(extract_tool_name(schema))
-                    != tools::TOOL_PROJECT_MEMORY
+                    != crate::tool_defs::TOOL_PROJECT_MEMORY
             });
         }
 
@@ -3992,16 +3999,16 @@ impl AssistantAgent {
             hints.clear();
         }
 
-        if eager.contains(tools::TOOL_SEND_NOTIFICATION) {
+        if eager.contains(crate::tool_defs::TOOL_SEND_NOTIFICATION) {
             prompt.push_str("\n\n- **send_notification**: Send a native desktop notification to alert the user about important events, task completions, or findings that need their attention. Parameters: title (optional), body (required).");
         }
-        if eager.contains(tools::TOOL_IMAGE_GENERATE) {
+        if eager.contains(crate::tool_defs::TOOL_IMAGE_GENERATE) {
             prompt.push_str("\n\n- **image_generate**: Generate images from text descriptions. Parameters: prompt (required), size (optional), aspectRatio, resolution, n, model (optional, default auto with failover). Generated images are saved to disk.");
         }
-        if eager.contains(tools::TOOL_AUDIO_GENERATE) {
+        if eager.contains(crate::tool_defs::TOOL_AUDIO_GENERATE) {
             prompt.push_str("\n\n- **audio_generate**: Generate audio from text — speech narration (TTS), music, or sound effects. Parameters: prompt (required), kind (speech|music|sfx, default speech), voice, durationSeconds, model (optional, default auto with failover). Generated audio is saved to disk.");
         }
-        if eager.contains(tools::TOOL_CANVAS) {
+        if eager.contains(crate::tool_defs::TOOL_CANVAS) {
             prompt.push_str("\n\n# Canvas\n\nYou have a `canvas` tool for creating interactive visual content rendered in a preview panel visible to the user.\n\n## Content Types\n- **html**: Full HTML/CSS/JS — web apps, games, animations, interactive demos\n- **markdown**: Rich documents with live preview\n- **code**: Syntax-highlighted code with line numbers\n- **svg**: Scalable vector graphics\n- **mermaid**: Diagrams (flowchart, sequence, class, gantt, etc.)\n- **chart**: Data visualizations (Chart.js JSON config in `content` field)\n- **slides**: Presentation slides (HTML `<section>` tags, arrow key navigation)\n\n## Workflow\n1. `canvas(action=\"create\", content_type=\"html\", title=\"...\", html=\"...\", css=\"...\", js=\"...\")` — create project\n2. Content appears in the user's preview panel immediately\n3. `canvas(action=\"snapshot\", project_id=\"...\")` — capture screenshot to verify visual output\n4. `canvas(action=\"update\", project_id=\"...\", html=\"...\")` — iterate based on screenshot feedback\n5. `canvas(action=\"export\", project_id=\"...\", format=\"html\")` — export when done\n\n## Best Practices\n- Always use snapshot after create/update to verify the visual result\n- For complex UIs, build incrementally — skeleton first, then add features\n- Use semantic HTML and responsive CSS\n- For charts, use Chart.js config JSON format in the `content` field\n- For slides, use `<section>` tags to separate slides");
         }
 
@@ -4041,7 +4048,8 @@ impl AssistantAgent {
         let mcp_scope_allows_prompt = self
             .tool_scope
             .map(|scope| {
-                scope.allows(tools::TOOL_MCP_RESOURCE) || scope.allows(tools::TOOL_MCP_PROMPT)
+                scope.allows(crate::tool_defs::TOOL_MCP_RESOURCE)
+                    || scope.allows(crate::tool_defs::TOOL_MCP_PROMPT)
             })
             .unwrap_or(true);
         if caps.mcp_enabled && app_config.mcp_global.enabled && mcp_scope_allows_prompt {
@@ -4172,7 +4180,7 @@ impl AssistantAgent {
     pub(crate) fn tool_context_with_usage(
         &self,
         used_tokens: Option<u32>,
-    ) -> tools::ToolExecContext {
+    ) -> crate::tool_defs::ToolExecContext {
         let caps = self.agent_caps();
         let agent_tool_filter = caps.agent_tool_filter.clone();
         // Pull working_dir / permission_mode / project_id from a single
@@ -4190,7 +4198,7 @@ impl AssistantAgent {
             .map(|m| m.sandbox_mode)
             .unwrap_or(caps.sandbox_mode);
         let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
-        tools::ToolExecContext {
+        crate::tool_defs::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             used_tokens,
             home_dir: self.agent_home(),
@@ -4201,7 +4209,7 @@ impl AssistantAgent {
                 .session_db
                 .clone()
                 .or_else(|| crate::get_session_db().cloned())
-                .map(tools::SessionDbHandle),
+                .map(crate::tool_defs::SessionDbHandle),
             tool_call_id: None,
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,
@@ -4254,7 +4262,7 @@ impl AssistantAgent {
 
     /// Build a ToolExecContext without token usage info (backward-compatible wrapper).
     #[allow(dead_code)]
-    pub(crate) fn tool_context(&self) -> tools::ToolExecContext {
+    pub(crate) fn tool_context(&self) -> crate::tool_defs::ToolExecContext {
         self.tool_context_with_usage(None)
     }
 
@@ -4596,7 +4604,7 @@ mod tests {
     #[test]
     fn incognito_tool_activations_survive_agent_rebuild_and_burn_on_purge() {
         let session_id = format!("incognito-{}", uuid::Uuid::new_v4());
-        let activated = vec![crate::tools::TOOL_BROWSER.to_string()];
+        let activated = vec![crate::tool_defs::TOOL_BROWSER.to_string()];
 
         let mut first = AssistantAgent::new_anthropic("test-key");
         first.set_session_id(&session_id);
@@ -4687,12 +4695,14 @@ mod tests {
             agent.set_session_id(session_id);
             let meta = agent.lookup_session_meta().expect("session meta");
             let names: Vec<String> = agent
-                .build_tool_schemas(crate::tools::ToolProvider::Anthropic)
+                .build_tool_schemas(crate::tool_defs::ToolProvider::Anthropic)
                 .iter()
                 .map(|schema| extract_tool_name(schema).to_string())
                 .collect();
             (
-                names.iter().any(|name| name == crate::tools::TOOL_WORKFLOW),
+                names
+                    .iter()
+                    .any(|name| name == crate::tool_defs::TOOL_WORKFLOW),
                 meta,
                 names,
             )

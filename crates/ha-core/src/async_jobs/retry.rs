@@ -95,7 +95,7 @@ pub enum RetryDecision {
 pub fn is_retry_eligible(tool_name: &str) -> bool {
     matches!(
         tool_name,
-        crate::tools::TOOL_WEB_SEARCH | crate::tools::TOOL_WEB_FETCH
+        crate::tool_defs::TOOL_WEB_SEARCH | crate::tool_defs::TOOL_WEB_FETCH
     )
 }
 
@@ -189,7 +189,7 @@ mod tests {
             RetryDecision::Stop
         );
         let denied = JobError::DeniedByUser {
-            rejection: crate::tools::rejection::ToolRejection::DeniedByUser {
+            rejection: crate::tool_defs::rejection::ToolRejection::DeniedByUser {
                 name: "web_search".into(),
             },
         };

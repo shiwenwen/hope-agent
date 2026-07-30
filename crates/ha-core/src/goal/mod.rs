@@ -5039,7 +5039,7 @@ mod tests {
             group_id: None,
             session_id: Some(session_id.to_string()),
             agent_id: Some("ha-main".to_string()),
-            tool_name: crate::tools::TOOL_EXEC.to_string(),
+            tool_name: crate::tool_defs::TOOL_EXEC.to_string(),
             tool_call_id: None,
             args_json: "{}".to_string(),
             status: crate::async_jobs::JobStatus::Running,

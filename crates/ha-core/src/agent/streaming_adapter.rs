@@ -20,7 +20,7 @@ use serde_json::Value;
 
 use super::api_types::FunctionCallItem;
 use super::types::{ChatUsage, ProviderFormat};
-use crate::tools::ToolProvider;
+use crate::tool_defs::ToolProvider;
 
 /// Provider-agnostic request payload for one tool-loop round.
 ///

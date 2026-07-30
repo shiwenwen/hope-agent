@@ -54,7 +54,7 @@
 两者是不同的列，勿混：
 
 - `origin`（`JobOrigin`，types.rs）：`Explicit`（`run_in_background:true`）/ `PolicyForced`（agent 强制后台）/ `AutoBackgrounded`（超同步预算自动转后台）。
-- `approval_origin`：授权方式审计（F6），类型 `ApprovalOrigin`（[`tools/approval.rs`](../../crates/ha-core/src/tools/approval.rs)，7 变体：`user` / `timeout_proceed` / `unattended_proceed` / `yolo` / `auto_approve` / `external_pre_approved` / `policy_allow`）。spawn 时写占位（命令 gate 还没跑），审批 resolve（proceed）经 `set_approval_origin` 修正；终态冻结。
+- `approval_origin`：授权方式审计（F6），类型 `ApprovalOrigin`（[`tool_defs/context.rs`](../../crates/ha-core/src/tool_defs/context.rs)，`tools::approval` 原路径再导出，7 变体：`user` / `timeout_proceed` / `unattended_proceed` / `yolo` / `auto_approve` / `external_pre_approved` / `policy_allow`）。spawn 时写占位（命令 gate 还没跑），审批 resolve（proceed）经 `set_approval_origin` 修正；终态冻结。
 
 ### `JobError`
 

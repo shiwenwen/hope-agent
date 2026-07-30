@@ -37,6 +37,13 @@
 /crates/ha-base/src/security/     @shiwenwen
 /crates/ha-base/src/paths.rs      @shiwenwen
 /crates/ha-core/src/permission/   @shiwenwen
+# 工具契约层里的审批面（阶段 4「tools 类型归位」自 tools/ 迁入）：
+# context.rs 是 ApprovalOrigin（审批来源审计枚举）与 auto_approve_tools /
+# external_pre_approved / exec_pre_approved 三个旁路 flag 契约的唯一定义处
+# （其 doc 自述「改读取点不同步文档即安全回归」）；mac_control.rs 是
+# permission engine dangerous 判定消费的 AX 动作规范化入口。
+/crates/ha-core/src/tool_defs/context.rs     @shiwenwen
+/crates/ha-core/src/tool_defs/mac_control.rs @shiwenwen
 # 自升级信任根（Minisign pubkey）与验签实现（阶段 3 自 ha-core 迁入
 # ha-updater）：pubkey 或验签被改 = 供应链攻击面，与 tauri.conf.json 的
 # updater 公钥同级别把关。

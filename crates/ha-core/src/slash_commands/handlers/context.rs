@@ -45,9 +45,9 @@ pub async fn handle_context(
     // a chat round, including deferred tools already activated for the session.
     let (provider_key, model_id) = agent.current_model_for_compaction();
     let tool_provider = if provider_key == "Anthropic" {
-        crate::tools::ToolProvider::Anthropic
+        crate::tool_defs::ToolProvider::Anthropic
     } else {
-        crate::tools::ToolProvider::OpenAI
+        crate::tool_defs::ToolProvider::OpenAI
     };
     let activated = agent.load_activated_tool_names();
     let inventory = agent.build_tool_inventory(tool_provider, &activated);

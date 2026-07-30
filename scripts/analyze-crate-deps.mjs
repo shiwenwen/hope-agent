@@ -298,6 +298,40 @@ if (WITH_TESTS) {
   }
 }
 
+// ── 红线守卫：tool_defs（工具契约层）单向依赖 tools（分发注册表）──────────
+//
+// 阶段 4「类型归位」的全部价值在这条方向上：契约物下沉后 kernel 不再经
+// `tools/` 中转，`tools/` 才能随特征 crate 上浮。**同 crate 内加一条回边照样
+// 编译通过**，所以只靠 review 守不住——这里断言到底，回归即非零退出。
+// 契约见 AGENTS.md「工具契约层 tool_defs 与分发层 tools 单向」与
+// docs/architecture/backend-separation.md 的 tool_defs 小节。
+//
+// 默认（生产边）：零容忍。`--tests`：只放行文档登记的 3 条遗留测试边
+// （types.rs / metadata.rs 的全表断言），多一条就报错——新增测试边请直接
+// 写进 `tests/` 集成测试，别在这里加白名单。
+const TOOL_DEFS_TEST_EDGE_BUDGET = { "tools::dispatch": 2, "tools::mod": 1 }
+
+{
+  const offenders = [...(deps.get("tool_defs") ?? new Map())].filter(([t]) =>
+    t.startsWith("tools::"),
+  )
+  const budget = WITH_TESTS ? TOOL_DEFS_TEST_EDGE_BUDGET : {}
+  const violations = offenders.filter(([t, c]) => c > (budget[t] ?? 0))
+  if (violations.length) {
+    console.error(
+      `✗ 红线违规：tool_defs（契约层）依赖 tools（分发层）——` +
+        violations.map(([t, c]) => `${t}(${c}/${budget[t] ?? 0})`).join(" "),
+    )
+    console.error(
+      WITH_TESTS
+        ? "  超出已登记的 3 条遗留测试边。新测试请放 tests/ 集成测试，不要扩白名单。"
+        : "  契约层不得反向依赖分发层：需要分发行为的方法改 extension trait 挂 tools/ 侧" +
+            "（现有 dispatch::ToolDefinitionApiExt）。",
+    )
+    process.exit(1)
+  }
+}
+
 const rev = new Map([...nodes.keys()].map((n) => [n, new Map()]))
 for (const [m, d] of deps) for (const [t, c] of d) rev.get(t).set(m, c)
 
@@ -398,6 +432,8 @@ const report = {
     members: [...cycle].sort((a, b) => loc.get(b) - loc.get(a)),
   },
   // `tools/` 是分发注册表：core 侧对它的引用量决定了它能否随特征上浮（见方案 §3.2）。
+  // 阶段 4「类型归位」后共享契约物已迁 `tool_defs/`（独立节点、不计入本指标），
+  // 所以这里剩下的才是真正指向分发层/adapter 的引用。
   toolsPressure: cutCost([...nodes.keys()].filter((n) => n.startsWith("tools::"))),
   deps: Object.fromEntries([...deps].map(([m, d]) => [m, Object.fromEntries(d)])),
   base: cutCost(BASE),

@@ -57,6 +57,9 @@ pnpm lint
 echo "[pre-push] verify-updater-pubkey (tauri.conf.json ↔ ha-updater)"
 node scripts/verify-updater-pubkey.mjs
 
+echo "[pre-push] crate layering red line (tool_defs → tools)"
+node scripts/analyze-crate-deps.mjs > /dev/null
+
 echo "[pre-push] vitest run"
 pnpm test
 

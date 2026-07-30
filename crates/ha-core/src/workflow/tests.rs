@@ -359,7 +359,7 @@ fn insert_async_job_row(
         group_id: None,
         session_id: Some(session_id.to_string()),
         agent_id: Some("ha-main".to_string()),
-        tool_name: crate::tools::TOOL_EXEC.to_string(),
+        tool_name: crate::tool_defs::TOOL_EXEC.to_string(),
         tool_call_id: None,
         args_json: "{}".to_string(),
         status,
@@ -3161,7 +3161,7 @@ export default async function main(workflow) {
         .expect("list validation jobs");
     let validation_job = jobs
         .iter()
-        .find(|job| job.tool_name == crate::tools::TOOL_EXEC)
+        .find(|job| job.tool_name == crate::tool_defs::TOOL_EXEC)
         .expect("validation exec job");
     assert_eq!(validation_job.status, JobStatus::Completed);
     assert!(

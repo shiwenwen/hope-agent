@@ -2429,7 +2429,7 @@ mod mid_loop_compaction_tests {
                     "id": "call_1",
                     "type": "function",
                     "function": {
-                        "name": crate::tools::TOOL_WRITE,
+                        "name": crate::tool_defs::TOOL_WRITE,
                         "arguments": write_args,
                     }
                 }]

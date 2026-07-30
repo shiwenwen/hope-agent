@@ -18,7 +18,7 @@ pub use config::{
 
 use std::sync::Arc;
 
-use crate::tools::ToolDefinition;
+use crate::tool_defs::ToolDefinition;
 
 /// settings 热更（`mcp_global` 类目）：从 config cache 重协调（含冷启
 /// 用）。未接线 `Ok(())` + `app_warn` 审计——设置写路径不因特征缺席硬

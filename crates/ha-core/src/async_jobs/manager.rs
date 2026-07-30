@@ -23,7 +23,7 @@ use tokio::sync::Notify;
 
 use super::types::{BackgroundJob, BackgroundJobSnapshot, JobKind, JobOrigin, JobStatus};
 use crate::subagent::SubagentStatus;
-use crate::tools::ToolExecContext;
+use crate::tool_defs::ToolExecContext;
 
 const TERMINAL_WAIT_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
 const TERMINAL_WAIT_MAX_BACKOFF: Duration = Duration::from_secs(2);

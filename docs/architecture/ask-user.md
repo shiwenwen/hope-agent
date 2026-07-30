@@ -172,13 +172,13 @@ pub struct AskUserQuestionAnswer {
 
 ### 工具注册与描述
 
-**工具常量**：`crates/ha-core/src/tools/mod.rs`
+**工具常量**：`crates/ha-core/src/tool_defs/names.rs`
 
 ```rust
 pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 ```
 
-**Schema 定义**：`crates/ha-core/src/tools/definitions/plan_tools.rs` 中的 `get_ask_user_question_tool()`。关键声明：
+**Schema 定义**：`crates/ha-core/src/tool_defs/plan_tools.rs` 中的 `get_ask_user_question_tool()`。关键声明：
 
 | 字段 | 值 | 含义 |
 |------|-----|------|
@@ -186,7 +186,7 @@ pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 | `internal` | `true` | 系统工具，不可被 Agent `denied_tools` 关闭 |
 | `concurrent_safe` | `true` | 允许并发调度 |
 
-旧的 `deferred` / `always_load` 两个布尔字段已从 `ToolDefinition` 删除——三个旧 bool 现统一由 tier 派生（`is_always_load()` / `is_deferred_default()` 基于 `supports_deferred()`，定义在 `tools/definitions/types.rs`）。
+旧的 `deferred` / `always_load` 两个布尔字段已从 `ToolDefinition` 删除——三个旧 bool 现统一由 tier 派生（`is_always_load()` / `is_deferred_default()` 基于 `supports_deferred()`，定义在 `tool_defs/types.rs`）。
 
 工具在 `core_tools.rs` 通过 `tools.push(super::plan_tools::get_ask_user_question_tool())` 统一注入（schema 定义仍在 `plan_tools.rs` 因为工具在 Plan Mode 中也被使用，但工具本身不依赖 plan 模块）。dispatch 条目在 `tools/builtin_registry.rs`（静态 match 已反转为注册表，见 [tool-system](tool-system.md)）：
 
@@ -872,7 +872,7 @@ ask_user_question_timeout_enabled
 - `crates/ha-core/src/ask_user/types.rs` — `AskUserQuestion*` 数据结构
 - `crates/ha-core/src/ask_user/questions.rs` — 内存 pending registry、持久化 helper、事件常量
 - `crates/ha-core/src/tools/ask_user_question.rs` — 工具执行入口、超时处理、结果格式化
-- `crates/ha-core/src/tools/definitions/plan_tools.rs` — 工具 schema 定义
+- `crates/ha-core/src/tool_defs/plan_tools.rs` — 工具 schema 定义
 - `crates/ha-core/src/tools/builtin_registry.rs` — dispatch 条目（execution.rs 查表分发）
 - `crates/ha-core/src/tools/definitions/registry.rs` — 并发安全标记
 - `crates/ha-core/src/session/db.rs` — `ask_user_questions` 表 CRUD

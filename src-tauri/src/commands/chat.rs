@@ -7,6 +7,7 @@ use crate::session::{self, SessionDB};
 use crate::tools;
 use crate::truncate_utf8;
 use crate::AppState;
+use ha_core::tools::dispatch::ToolDefinitionApiExt;
 use ha_core::{app_error, app_info, app_warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

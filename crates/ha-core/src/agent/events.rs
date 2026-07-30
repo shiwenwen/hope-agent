@@ -515,7 +515,7 @@ mod tests {
         expand_openai_chat_image_markers_for_api, expand_responses_image_markers_for_api,
         openai_chat_history_has_images,
     };
-    use crate::tools::IMAGE_BASE64_PREFIX;
+    use crate::tool_defs::IMAGE_BASE64_PREFIX;
     use serde_json::json;
 
     #[test]

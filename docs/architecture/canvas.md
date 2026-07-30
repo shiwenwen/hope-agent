@@ -150,7 +150,7 @@ CREATE INDEX idx_canvas_projects_session    ON canvas_projects(session_id, updat
 
 ## 工具入口与 11 个动作
 
-工具定义在 [`crates/ha-core/src/tools/definitions/extra_tools.rs:74-141`](../../crates/ha-core/src/tools/definitions/extra_tools.rs#L74-L141)：`internal: true`（恒不需审批）、`background_policy: ForegroundOnly`（同步执行）、`deferred: false`（始终随核心工具集加载）。入口函数 [`tool_canvas`](../../crates/ha-design/src/tool_canvas/mod.rs#L115-L138) 按 `action` 字段路由到 11 个子函数。
+工具定义在 [`crates/ha-core/src/tool_defs/extra_tools.rs`](../../crates/ha-core/src/tool_defs/extra_tools.rs)：`internal: true`（恒不需审批）、`background_policy: ForegroundOnly`（同步执行）、`deferred: false`（始终随核心工具集加载）。入口函数 [`tool_canvas`](../../crates/ha-design/src/tool_canvas/mod.rs#L115-L138) 按 `action` 字段路由到 11 个子函数。
 
 | Action | 必填参数 | 写入 DB / 文件 | 触发事件 | 返回值 |
 | --- | --- | --- | --- | --- |
@@ -170,7 +170,7 @@ CREATE INDEX idx_canvas_projects_session    ON canvas_projects(session_id, updat
 
 - **content_type 不可变**：`update` / `restore` 不接受 `content_type` 参数，强制沿用 `create` 时的设置（[`tool_canvas/project.rs:84-92`](../../crates/ha-design/src/tool_canvas/project.rs#L84-L92)）。如果 LLM 要换类型只能 `delete` + `create`
 - **restore 不是回退**：是从历史版本生成一个**新**的 v(N+1)，原版本 1..N 都不动；这样 prune 只看 `version_number` 倒序数 N，不会因为 restore 把"曾经的最新版"挤出窗口
-- **snapshot 的返回值**走 [`IMAGE_BASE64_PREFIX`](../../crates/ha-core/src/tools/mod.rs)（与 browser 截图共用）；工具执行层会在普通会话里把内联图片 marker 物化为受管 `__IMAGE_FILE__`，Provider 请求前再作为多模态 image 输入
+- **snapshot 的返回值**走 [`IMAGE_BASE64_PREFIX`](../../crates/ha-core/src/tool_defs/names.rs)（与 browser 截图共用）；工具执行层会在普通会话里把内联图片 marker 物化为受管 `__IMAGE_FILE__`，Provider 请求前再作为多模态 image 输入
 - **export 的 PNG 格式**未实现：tool schema 列了 `enum: ["html", "markdown", "png"]` 但 `action_export` 只处理 html / markdown 两个分支，传 png 会 `Unsupported export format` 报错
 
 ### 创建路径详解
@@ -671,7 +671,7 @@ pub async fn serve_canvas_project_file(
 | [`crates/ha-design/src/tool_canvas/mod.rs`](../../crates/ha-design/src/tool_canvas/mod.rs) | 工具入口 `tool_canvas`、11 个 `action_*`、Pending channel 注册表、对外 API |
 | [`crates/ha-design/src/tool_canvas/project.rs`](../../crates/ha-design/src/tool_canvas/project.rs) | `create_project` / `update_project` / `delete_project` / `restore_version` 业务逻辑 |
 | [`crates/ha-design/src/tool_canvas/renderer.rs`](../../crates/ha-design/src/tool_canvas/renderer.rs) | 7 种 `build_*_page` 模板 + `write_project_files` 分发器 |
-| [`crates/ha-core/src/tools/definitions/extra_tools.rs`](../../crates/ha-core/src/tools/definitions/extra_tools.rs) | `get_canvas_tool()` 工具 schema 定义 |
+| [`crates/ha-core/src/tool_defs/extra_tools.rs`](../../crates/ha-core/src/tool_defs/extra_tools.rs) | `get_canvas_tool()` 工具 schema 定义 |
 | [`crates/ha-core/src/tools/definitions/registry.rs`](../../crates/ha-core/src/tools/definitions/registry.rs) | 注册到 internal / async-capable 集合 |
 | [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs) | `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir` |
 | [`crates/ha-core/src/config/mod.rs`](../../crates/ha-core/src/config/mod.rs) | `AppConfig.canvas` 字段挂载 |
