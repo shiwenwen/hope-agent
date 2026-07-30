@@ -319,10 +319,9 @@ function MarkdownFileTypeIcon({ name }: { name: string }) {
   return <FileTypeIcon name={name} className="markdown-link-icon markdown-link-file-type-icon" />
 }
 
-function MarkdownWebLinkIcon({ href, enabled }: { href: string | undefined; enabled: boolean }) {
+function MarkdownWebLinkIcon({ href }: { href: string | undefined }) {
   const faviconBudget = useContext(MarkdownFaviconBudgetContext)
   const faviconDataUrl = useSafeFavicon(href, {
-    enabled,
     budget: faviconBudget,
     maxRequests: MARKDOWN_FAVICON_MAX_REQUESTS,
   })
@@ -347,7 +346,6 @@ function MarkdownWebLink({
   isIncomplete,
   ...rest
 }: MarkdownAnchorProps & { linkIcon: LinkIconInfo; isIncomplete: boolean }) {
-  const [faviconArmed, setFaviconArmed] = useState(false)
   return (
     <a
       {...rest}
@@ -361,16 +359,8 @@ function MarkdownWebLink({
         event.preventDefault()
         openExternalUrl(href)
       }}
-      onFocus={(event) => {
-        setFaviconArmed(true)
-        rest.onFocus?.(event)
-      }}
-      onMouseEnter={(event) => {
-        setFaviconArmed(true)
-        rest.onMouseEnter?.(event)
-      }}
     >
-      <MarkdownWebLinkIcon href={href} enabled={faviconArmed} />
+      <MarkdownWebLinkIcon href={href} />
       <span className="markdown-link-label">{children}</span>
     </a>
   )
