@@ -43,6 +43,7 @@ import ChatScreen, { type ChatInsert } from "@/components/chat/ChatScreen"
 import { subscribeChatFocus, type ChatFocusTarget } from "@/components/chat/chatFocus"
 import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
 import {
+  clearMemoryFocusUrl,
   parseMemoryFocusFromLocation,
   requestMemoryFocus,
 } from "@/components/settings/memory-panel/memoryFocus"
@@ -113,6 +114,16 @@ const PERSISTENT_APP_VIEWS: ReadonlySet<AppView> = new Set([
   "knowledge",
   "design",
   "artifacts",
+])
+
+const SETTINGS_APP_VIEWS: ReadonlySet<AppView> = new Set([
+  "settings",
+  "skills",
+  "profile",
+  "agents",
+  "modelConfig",
+  "memory",
+  "channels",
 ])
 
 function PersistentViewSurface({ active, children }: { active: boolean; children: ReactNode }) {
@@ -229,6 +240,7 @@ export default function App() {
   const petFocusNonceRef = useRef(0)
   const knowledgeFocusNonceRef = useRef(0)
   const lastMemoryFocusHashRef = useRef<string | null>(null)
+  const previousViewRef = useRef<AppView>(view)
   // 侧边栏工作区首次访问时才挂载；之后只隐藏顶层容器，不销毁组件树与 Effects。
   // 需要区分可见性的行为（快捷键、轮询、已读回执）由各工作区的 isViewVisible 明确门控。
   const [mountedViews, setMountedViews] = useState<Set<AppView>>(() => new Set(["chat"]))
@@ -386,6 +398,16 @@ export default function App() {
     window.addEventListener("settings:navigate", handleNavigate)
     return () => window.removeEventListener("settings:navigate", handleNavigate)
   }, [handleOpenSettings])
+
+  // Memory panels keep their current subview in the hash with replaceState.
+  // Consume that internal URL state before the view-change deep-link effect below,
+  // otherwise an intentional top-level navigation is interpreted as a fresh deep link.
+  useEffect(() => {
+    const previousView = previousViewRef.current
+    previousViewRef.current = view
+    if (previousView === view || !SETTINGS_APP_VIEWS.has(previousView)) return
+    if (clearMemoryFocusUrl()) lastMemoryFocusHashRef.current = null
+  }, [view])
 
   const handleMemoryFocusDeepLink = useCallback(() => {
     if (typeof window === "undefined") return false
