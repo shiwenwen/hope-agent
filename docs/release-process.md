@@ -246,9 +246,13 @@ download/
 
 所以**可变的 manifest 绝不会指向不存在的字节**。② 失败则 job 失败、`latest.json` 保持原样——意味着 R2 上一份陈旧 manifest 必然描述一个真实且已完整镜像的版本，绝不会是残缺版本。修好后重跑：`gh workflow run mirror-release-r2.yml -f tag=vX.Y.Z`（幂等）。
 
-**工具取默认分支、文档取 tag**（`actions/checkout` 不带 `ref:`，随后 `git fetch --depth=1` 单独取该 tag 再 `git show <tag>:<path>` 抽文档）。这条**刻意不写成 `ref: $TAG`**，两个理由：
+**可变面有门控**。`download/latest/` 与 `download/latest.json` 是全局共享的，给**非当前稳定版**写它们就是一次降级广播——R2 是 endpoint[0] 且首个成功者胜，全体客户端会被告知那个旧版本才是最新，从而看不到真正的新版。有两条日常路径会踩到：手动回填旧 tag（就是本节文档的那条命令），以及**发布 prerelease**（同样触发 `release.published`）。
 
-- **能回填历史版本**。用 tag 那棵树会跑 tag 自带的镜像脚本，于是本 workflow 落地**之前**发布的所有 tag 永远无法镜像（那些树里根本没有 `scripts/mirror-*.mjs`），整个历史目录就此不可镜像，README 的 `download/latest/` 链接要等到下一次发版才不是 404。取默认分支后可以直接补：`gh workflow run mirror-release-r2.yml -f tag=v0.26.0`。
+所以只有当该 tag 恰好就是 GitHub 自己认定的 latest release、且非 prerelease 时才推进可变面；其余情况只镜像到自己的不可变前缀然后停下（日志里给 `::notice::`，不算失败——回填旧版本到它自己的前缀本身是有用且无害的）。
+
+**工具取默认分支、文档取 tag**（`actions/checkout` 的 `ref:` **显式**指向默认分支，随后 `git fetch --depth=1` 单独取该 tag 再 `git show <tag>:<path>` 抽文档）。**`ref:` 必须显式写**：`release.published` 事件下 `github.ref` 就是 `refs/tags/vX.Y.Z`，不写 `ref:` 的 `actions/checkout` 会**静默取那个 tag**。取 tag 会坏两件事：
+
+- **能回填历史版本**。用 tag 那棵树会跑 tag 自带的镜像脚本，于是本 workflow 落地**之前**发布的所有 tag 永远无法镜像（那些树里根本没有 `scripts/mirror-*.mjs`），整个历史目录就此不可镜像，README 的 `download/latest/` 链接要等到下一次发版才不是 404。取默认分支后可以直接补：`gh workflow run mirror-release-r2.yml -f tag=v0.26.0`。回填旧版本时上面那道门控生效——只写它自己的不可变前缀，不会抢走 `latest`。
 - **工具应当是当前版本**。改写器里修掉的 bug 应该在下次重镜像任何 tag 时生效，而不是冻结在那个版本发布时的样子。
 
 而**文档必须是该版本实际发布的那一份**，所以单独从 tag 取，不用工作树里的。

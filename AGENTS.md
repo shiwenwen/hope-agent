@@ -256,7 +256,8 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **下载产物必须验签**：更新下载走 `updater::download::download_to`，落地 / swap 前必过 Minisign `signature::verify_bytes`
 - **pubkey 两处必须相等**：`updater::keys::MINISIGN_PUBKEY_BASE64` ↔ `tauri.conf.json#plugins.updater.pubkey`（启动 panic / CI / pre-push 三重校验）
 - **manifest endpoints 两处逐项逐序相等**：`manifest::UPDATE_MANIFEST_URLS` ↔ `tauri.conf.json#plugins.updater.endpoints`（`verify-updater-endpoints.mjs`，CI + pre-push，另校验镜像域名 ↔ `mirror-release-r2.yml` 的 `PUBLIC_BASE`）。R2 镜像恒排第一——**是可达性不是延迟**（部分用户访问不了 github.com）；**刻意维持「首个成功者胜」**、不做比版本取新，否则桌面与 headless 会对「当前哪个版本」分歧
-- **镜像 manifest 是派生物、GitHub 那份权威**：`mirror-release-r2.yml` 只改 URL 与 `notes` 链接，`signature` 原样复制**绝不重算**（验签用编译期嵌入 pubkey，故污染镜像装不进恶意二进制，最坏只能拒服务/谎报版本）；必须**先回抓校验全部对象再写 `latest.json`**，顺序反了可变 manifest 就会指向不存在的字节。`latest/` 别名**禁带 immutable 头**（文件名每版复用）；`update-linux-repo.yml` 整桶 pull 的 `--include` 过滤是 load-bearing，新增本 job 顶层路径须同步
+- **镜像 manifest 是派生物、GitHub 那份权威**：`mirror-release-r2.yml` 只改 URL 与 `notes` 链接，`signature` 原样复制**绝不重算**（验签用编译期嵌入 pubkey，故污染镜像装不进恶意二进制，最坏只能拒服务/谎报版本）；必须**先回抓校验全部对象再写 `latest.json`**，顺序反了可变 manifest 就会指向不存在的字节
+- **可变面只许当前稳定版写（红线）**：`download/latest/` 与 `download/latest.json` 全局共享，给非 latest / prerelease 写＝降级广播（R2 是 endpoint[0] 且首个成功者胜，全体客户端从此看不到真新版）——回填旧 tag 与发 prerelease 都会触发本 workflow，故推进可变面须过 `PROMOTE` 门控；不可变 `download/<tag>/` 永远照写。`latest/` 别名**禁带 immutable 头**（文件名每版复用）、可变上传须 `--ignore-times`（同名同大小会被静默跳过）；`checkout` 的 `ref:` **必须显式**指默认分支（`release.published` 下 `github.ref` 是 tag，裸 checkout 会取 tag，历史版本从此不可回填）；`update-linux-repo.yml` 整桶 pull 的 `--include` 过滤是 load-bearing，新增本 job 顶层路径须同步
 - **换 binary 只走 `platform::atomic_replace_binary`**（禁 `fs::write` 覆盖运行中 binary）；swap 后冷烟自检失败自动回滚
 - **安装 / 重启必经用户确认**：`auto_update` 后台只检查 + 预下载 staging，`app_update` 的 `install` / `rollback` 弹 `ask_user_question`，**桌面绝不无条件 relaunch**
 - **ha-core 不依赖 tauri-plugin-updater**，桌面路径经 `updater::UpdaterBridge` 反向注册

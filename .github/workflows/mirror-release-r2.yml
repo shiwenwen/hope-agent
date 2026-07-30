@@ -17,6 +17,14 @@ name: Mirror Release to R2
 # fails with the previous manifest untouched — meaning a stale R2 manifest
 # always describes a real, fully-mirrored release, never a broken one.
 #
+# THE MUTABLE SURFACE IS GATED. `download/latest/` and `download/latest.json`
+# are global and shared; writing them for anything but the current stable
+# release is a downgrade broadcast, because R2 is endpoint[0] and
+# first-success-wins. Backfilling an old tag by hand and publishing a
+# prerelease both reach this workflow, so promotion is conditional on
+# `PROMOTE` (see the step that computes it). Everything else always mirrors
+# to its own immutable `download/<tag>/` prefix, which harms nothing.
+#
 # RESIDUAL RISK (documented, accepted): `endpoints` is first-success-wins in
 # both tauri-plugin-updater and ha_core::updater, so a stale-but-200 R2
 # manifest reports "no update" without falling through to GitHub. Mitigated
@@ -92,22 +100,77 @@ jobs:
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
+      - name: Decide whether this tag owns the mutable surface
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The tree has two kinds of object and only one of them is safe to
+          # write unconditionally:
+          #
+          #   download/<tag>/   immutable, always written — a backfill of an
+          #                     old release belongs here and harms nothing.
+          #   download/latest/  + download/latest.json — MUTABLE and global.
+          #
+          # Writing the mutable pair for anything other than the current
+          # stable release is a downgrade broadcast: R2 is endpoint[0] and
+          # first-success-wins, so clients would be told the older version is
+          # current and would stop seeing the real latest release. That is
+          # reachable two ordinary ways — backfilling an old tag by hand
+          # (documented in release-process §1.10), and a published
+          # PRERELEASE, which also fires release.published.
+          #
+          # So: promote only when this tag is exactly what GitHub itself
+          # considers the latest release, and is not a prerelease. Anything
+          # else mirrors to its immutable prefix and stops there.
+          promote=false
+          reason=""
+          is_pre=$(gh release view "$TAG" --repo "${{ github.repository }}" --json isPrerelease --jq .isPrerelease 2>/dev/null || echo "unknown")
+          # `releases/latest` is GitHub's own definition: newest non-draft,
+          # non-prerelease release — the exact thing the GitHub updater
+          # endpoint resolves to, so the mirror stays consistent with it.
+          latest_tag=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name 2>/dev/null || echo "")
+          if [[ "$is_pre" == "true" ]]; then
+            reason="$TAG is a prerelease"
+          elif [[ "$is_pre" == "unknown" ]]; then
+            reason="could not read release metadata for $TAG"
+          elif [[ -z "$latest_tag" ]]; then
+            reason="could not resolve the repository's latest release"
+          elif [[ "$latest_tag" != "$TAG" ]]; then
+            reason="the current latest release is $latest_tag, not $TAG"
+          else
+            promote=true
+          fi
+          echo "PROMOTE=$promote" >> "$GITHUB_ENV"
+          if [[ "$promote" == "true" ]]; then
+            echo "$TAG is the current stable release — will publish download/latest/ and download/latest.json"
+          else
+            # A notice, not a failure: mirroring an old tag to its immutable
+            # prefix is a legitimate, useful operation on its own.
+            echo "::notice::Mirroring $TAG to its immutable prefix only — NOT touching download/latest/ or download/latest.json ($reason)."
+          fi
+
       - name: Checkout source repo
-        # DEFAULT BRANCH, deliberately not `ref: $TAG`. Two reasons:
+        # `ref` is EXPLICIT and must stay that way. On a `release.published`
+        # event `github.ref` is `refs/tags/vX.Y.Z`, so a bare checkout would
+        # silently take the TAG, not the default branch. Two things break if
+        # it does:
         #
-        #  - Backfill has to work. Checking out the tag would run the tag's
-        #    copy of the mirror scripts, so any release tagged BEFORE this
-        #    workflow landed could never be mirrored — its tree has no
-        #    scripts/mirror-*.mjs at all. The whole existing back catalogue
-        #    would be permanently unmirrorable, and README's download/latest/
-        #    links would 404 until the next release shipped.
-        #  - Tooling should be current. A bug fixed in the rewriter should
-        #    apply the next time any tag is re-mirrored, not stay frozen at
-        #    whatever shipped with that release.
+        #  - Backfill stops working. The tag's tree would supply the mirror
+        #    scripts, so any release tagged BEFORE this workflow landed could
+        #    never be mirrored — those trees have no scripts/mirror-*.mjs at
+        #    all. The whole back catalogue becomes permanently unmirrorable
+        #    and README's download/latest/ links stay 404 until the next
+        #    release ships.
+        #  - Tooling freezes. A bug fixed in the rewriter would only apply to
+        #    releases tagged after the fix, never to a re-mirror of an older
+        #    one.
         #
         # The DOCS we mirror still come from the tag — fetched explicitly
         # below — because those must be what the release actually shipped.
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Fetch the release's docs from its tag
         run: |
@@ -219,6 +282,7 @@ jobs:
           echo "notes link only mirrored docs"
 
       - name: Stage version-less latest/ aliases
+        if: env.PROMOTE == 'true'
         run: |
           set -euo pipefail
           # README cannot hardcode a version, so every documented download
@@ -245,6 +309,7 @@ jobs:
           echo "Uploaded to r2:${R2_BUCKET}/download/${TAG}"
 
       - name: Upload latest/ aliases (mutable, short TTL)
+        if: env.PROMOTE == 'true'
         env:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
@@ -346,10 +411,17 @@ jobs:
           done < <(find docs-upload -type f -printf '%P\n' | sort)
           # The version-less aliases README links — same gate, because a 404
           # here is a broken install page for exactly the users the mirror
-          # exists to serve.
-          while IFS= read -r p; do
-            check_one "${PUBLIC_BASE}/download/latest/${p}" "latest-upload/${p}"
-          done < <(find latest-upload -type f -printf '%P\n' | sort)
+          # exists to serve. Only present when this tag owns the mutable
+          # surface; a backfill of an older tag skips staging them entirely,
+          # and must NOT assert against whatever the current release left
+          # there.
+          if [[ "$PROMOTE" == "true" ]]; then
+            while IFS= read -r p; do
+              check_one "${PUBLIC_BASE}/download/latest/${p}" "latest-upload/${p}"
+            done < <(find latest-upload -type f -printf '%P\n' | sort)
+          else
+            echo "  (skipping download/latest/ — this tag does not own the mutable surface)"
+          fi
 
           if (( fail )); then
             echo "::error::mirror verification failed — NOT publishing download/latest.json. R2's existing manifest is untouched (it still describes the last fully-mirrored release). Fix and re-run: gh workflow run mirror-release-r2.yml -f tag=$TAG"
@@ -358,6 +430,7 @@ jobs:
           echo "All mirrored URLs verified live at ${PUBLIC_BASE}"
 
       - name: Publish download/latest.json (short TTL)
+        if: env.PROMOTE == 'true'
         env:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
@@ -376,6 +449,7 @@ jobs:
           echo "Published r2:${R2_BUCKET}/download/latest.json"
 
       - name: Verify the published manifest serves this release
+        if: env.PROMOTE == 'true'
         run: |
           set -euo pipefail
           url="${PUBLIC_BASE}/download/latest.json"

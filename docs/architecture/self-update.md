@@ -106,6 +106,8 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 
 **镜像不削弱签名信任根**：manifest 自身不签名，但里面的 `signature` 要用编译进二进制的 `MINISIGN_PUBKEY_BASE64` 验（见上节）。所以被污染的镜像**无法让恶意二进制装进去**，最坏只能拒绝服务或谎报版本。镜像 workflow 因此原样复制 `signature`、**绝不重算**。
 
+**「谎报版本」不只是被攻击才会发生**——正常运维就能踩到。`download/latest.json` 是全局共享的可变对象，一旦给**非当前稳定版**写它（手动回填旧 tag、或发布 prerelease，两者都会触发镜像 workflow），配合上面「首个成功者胜」，全体客户端会被告知那个旧版本才是最新，从而看不到真正的新版。因此镜像 workflow 只在该 tag 恰好是 GitHub 认定的 latest release 且非 prerelease 时才写可变面（`PROMOTE` 门控），其余情况只写自己的不可变 `download/<tag>/` 前缀。
+
 镜像的 bucket 布局与发布顺序见 [release-process §1.10](../release-process.md#110-r2-安装包镜像自动同步)。
 
 ## 用户审批契约
