@@ -3617,6 +3617,8 @@
       "emptyPreview": "Подробностей в Markdown пока нет. Переключитесь в режим редактирования, чтобы добавить содержимое."
     },
     "createFirstProject": "Создайте свой первый проект",
+    "createAgentsFile": "Создать AGENTS.md",
+    "createAgentsFileHint": "В этой папке нет AGENTS.md. Отключите этот параметр, чтобы добавить проект без создания файла.",
     "defaultAgent": "Agent по умолчанию",
     "defaultModel": "Модель по умолчанию",
     "deleteConfirm": {

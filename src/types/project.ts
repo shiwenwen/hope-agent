@@ -47,7 +47,7 @@ export interface ProjectOverviewSummary {
   autoMemoryTopicCount?: number | null
   /** Effective-active structured memories in this project scope; null when unavailable. */
   activeClaimCount?: number | null
-  /** null when AGENTS.md could not be inspected or re-created. */
+  /** null when AGENTS.md is absent or could not be inspected. */
   instructions?: ProjectInstructionsStats | null
 }
 
@@ -56,6 +56,7 @@ export interface ProjectInstructionsFile {
   path: string
   content: string
   contentHash: string
+  exists: boolean
   created: boolean
 }
 
@@ -63,6 +64,7 @@ export interface ProjectInstructionsFile {
 export interface ProjectInstructionsDraft {
   content: string
   expectedFileHash: string
+  expectedExists: boolean
 }
 
 export interface CreateProjectInput {

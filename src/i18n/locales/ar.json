@@ -3617,6 +3617,8 @@
       "emptyPreview": "لا توجد تفاصيل Markdown بعد. انتقل إلى وضع التحرير لإضافة محتوى."
     },
     "createFirstProject": "أنشئ مشروعك الأول",
+    "createAgentsFile": "إنشاء AGENTS.md",
+    "createAgentsFileHint": "لا يحتوي هذا المجلد على AGENTS.md. عطّل هذا الخيار لإضافة المشروع من دون إنشاء الملف.",
     "defaultAgent": "الوكيل الافتراضي",
     "defaultModel": "النموذج الافتراضي",
     "deleteConfirm": {

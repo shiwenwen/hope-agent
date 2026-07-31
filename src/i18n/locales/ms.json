@@ -3617,6 +3617,8 @@
       "emptyPreview": "Belum ada butiran Markdown. Tukar ke mod Edit untuk menambah kandungan."
     },
     "createFirstProject": "Cipta projek pertama anda",
+    "createAgentsFile": "Cipta AGENTS.md",
+    "createAgentsFileHint": "Direktori ini tidak mengandungi AGENTS.md. Matikan pilihan ini untuk menambah projek tanpa mencipta fail tersebut.",
     "defaultAgent": "Agent lalai",
     "defaultModel": "Model Lalai",
     "deleteConfirm": {

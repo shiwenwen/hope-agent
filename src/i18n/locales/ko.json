@@ -3617,6 +3617,8 @@
       "emptyPreview": "아직 Markdown 상세 내용이 없습니다. 편집 모드로 전환해 내용을 추가하세요."
     },
     "createFirstProject": "첫 프로젝트 만들기",
+    "createAgentsFile": "AGENTS.md 만들기",
+    "createAgentsFileHint": "이 디렉터리에 AGENTS.md가 없습니다. 파일을 만들지 않고 프로젝트만 추가하려면 끄세요.",
     "defaultAgent": "기본 Agent",
     "defaultModel": "기본 모델",
     "deleteConfirm": {
