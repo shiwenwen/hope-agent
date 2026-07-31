@@ -5625,14 +5625,16 @@
     "logsStructured": "Có cấu trúc",
     "logsTotal": "Tổng",
     "macControl": {
-      "missingRequired": "Cần: {{items}}",
       "messages": {
         "blocked": "Điều khiển macOS cần quyền Trợ năng và Ghi màn hình.",
+        "blockedPendingRestart": "Các quyền điều khiển macOS đã được cấp trong Cài đặt Hệ thống — khởi động lại Hope Agent để áp dụng.",
         "limited": "Điều khiển macOS cốt lõi đã sẵn sàng; các quyền tùy chọn vẫn đang chờ.",
         "ready": "Điều khiển macOS đã sẵn sàng.",
         "unsupported": "Điều khiển macOS không khả dụng trong môi trường chạy này."
       },
+      "missingRequired": "Cần: {{items}}",
       "optionalPending": "Tùy chọn đang chờ: {{items}}",
+      "pendingRestartRequired": "Khởi động lại để áp dụng: {{items}}",
       "readiness": {
         "blocked": "Bị chặn",
         "limited": "Lõi sẵn sàng",
@@ -6048,6 +6050,19 @@
     "permPhotosDesc": "Truy cập thư viện ảnh",
     "permRefresh": "Làm mới",
     "permRefreshHint": "Sau khi cấp trong Cài đặt hệ thống, nhấn làm mới hoặc chuyển cửa sổ để tự động phát hiện",
+    "permRestartPendingHint": "Đã cấp trong Cài đặt Hệ thống — khởi động lại Hope Agent để áp dụng.",
+    "permReset": "Đặt lại bản ghi",
+    "permResetTooltip": "Xóa bản ghi quyền đã lưu để macOS hỏi lại",
+    "permResetTitle": "Đặt lại bản ghi quyền {{name}}?",
+    "permResetDescription": "Việc này xóa quyết định mà macOS đã lưu cho Hope Agent, nên lần sau sẽ hỏi lại. Dùng khi Cài đặt Hệ thống hiển thị đã cho phép nhưng Hope Agent vẫn báo chưa được cấp.",
+    "permResetWarning": "Mọi phê duyệt hiện có của quyền này sẽ bị xóa — bạn cần cấp lại và khởi động lại ứng dụng.",
+    "permResetConfirm": "Đặt lại bản ghi",
+    "permResetting": "Đang đặt lại...",
+    "permResetDone": "Đã xóa bản ghi quyền. Hãy khởi động lại Hope Agent rồi cấp lại.",
+    "permResetFailed": "Không thể xóa bản ghi quyền.",
+    "permRestartAfterReset": "Hãy khởi động lại Hope Agent để macOS có thể hỏi lại quyền này.",
+    "permRestartNow": "Khởi động lại ngay",
+    "permRestartFailed": "Không thể khởi động lại tự động — vui lòng thoát và mở lại ứng dụng.",
     "permReminders": "Lời nhắc",
     "permRemindersDesc": "Đọc và ghi lời nhắc",
     "permScreenRecording": "Ghi màn hình",
@@ -6138,6 +6153,7 @@
       },
       "input_monitoring": {
         "label": "Giám sát đầu vào",
+        "troubleshootNote": "Nếu không thấy hộp thoại hệ thống và Hope Agent không có trong danh sách Giám sát đầu vào, hãy thêm thủ công trong Cài đặt Hệ thống (hoặc xóa mục cũ) rồi thử lại.",
         "usage": "Lắng nghe sự kiện bàn phím và con trỏ cần cho tự động hóa desktop."
       },
       "local_network": {
@@ -6183,6 +6199,7 @@
       },
       "screen_recording": {
         "label": "Ghi màn hình",
+        "troubleshootNote": "Nếu Cài đặt Hệ thống đã bật cho Hope Agent nhưng ở đây vẫn hiển thị chưa cấp: hãy khởi động lại ứng dụng; nếu vẫn không được, hãy xóa Hope Agent khỏi danh sách Ghi màn hình rồi cấp lại (bản ghi do phiên bản cũ để lại sẽ mất hiệu lực).",
         "usage": "Chụp nội dung màn hình để hiểu hình ảnh và tự động hóa UI."
       },
       "speech_recognition": {
@@ -6197,6 +6214,7 @@
     },
     "permissionStatuses": {
       "granted": "Đã cấp",
+      "grantedPendingRestart": "Đã cấp · khởi động lại để áp dụng",
       "manualCheck": "Kiểm tra thủ công",
       "notApplicable": "Không áp dụng",
       "notDetermined": "Chưa xác định",

@@ -1,9 +1,20 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { isTauriMode } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import {
@@ -32,6 +43,7 @@ import {
   Monitor,
   Music,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
   ShieldCheck,
   Volume2,
@@ -41,6 +53,7 @@ import {
 
 type PermissionStatus =
   | "granted"
+  | "granted_pending_restart"
   | "not_granted"
   | "not_determined"
   | "restricted"
@@ -67,6 +80,10 @@ interface SystemPermissionItem {
   settingsPane?: string | null
   usage: string
   note?: string | null
+  /** `note` carries post-request troubleshooting text, not the static catalog note. */
+  troubleshoot?: boolean
+  /** This build can drop the OS permission record so the OS asks again. */
+  resettable?: boolean
 }
 
 interface SystemPermissionsResponse {
@@ -156,6 +173,7 @@ const ITEM_ICONS: Record<string, LucideIcon> = {
 
 const STATUS_LABEL_KEYS: Record<PermissionStatus, string> = {
   granted: "settings.permissionStatuses.granted",
+  granted_pending_restart: "settings.permissionStatuses.grantedPendingRestart",
   not_granted: "settings.permissionStatuses.notGranted",
   not_determined: "settings.permissionStatuses.notDetermined",
   restricted: "settings.permissionStatuses.restricted",
@@ -166,6 +184,7 @@ const STATUS_LABEL_KEYS: Record<PermissionStatus, string> = {
 
 const STATUS_FALLBACKS: Record<PermissionStatus, string> = {
   granted: "Granted",
+  granted_pending_restart: "Granted · restart to apply",
   not_granted: "Not granted",
   not_determined: "Not determined",
   restricted: "Restricted",
@@ -183,21 +202,22 @@ const MAC_READINESS_FALLBACKS: Record<MacControlReadiness, string> = {
 
 function stateBorder(state: PermissionStatus) {
   if (state === "granted") return "border-green-500/20 bg-green-500/5"
-  if (state === "manual_check") return "border-sky-500/20 bg-sky-500/5"
+  if (state === "manual_check" || state === "granted_pending_restart") return "border-sky-500/20 bg-sky-500/5"
   if (state === "not_applicable" || state === "not_used") return "border-muted-foreground/15 bg-muted/20"
   return "border-amber-500/20 bg-amber-500/5"
 }
 
 function stateIconColor(state: PermissionStatus) {
   if (state === "granted") return "text-green-500"
-  if (state === "manual_check") return "text-sky-500"
+  if (state === "manual_check" || state === "granted_pending_restart") return "text-sky-500"
   if (state === "not_applicable" || state === "not_used") return "text-muted-foreground"
   return "text-amber-500"
 }
 
 function stateBadgeClass(state: PermissionStatus) {
   if (state === "granted") return "bg-green-500/15 text-green-600 dark:text-green-400"
-  if (state === "manual_check") return "bg-sky-500/15 text-sky-600 dark:text-sky-400"
+  if (state === "manual_check" || state === "granted_pending_restart")
+    return "bg-sky-500/15 text-sky-600 dark:text-sky-400"
   if (state === "not_applicable" || state === "not_used") return "bg-muted text-muted-foreground"
   return "bg-amber-500/15 text-amber-600 dark:text-amber-400"
 }
@@ -224,10 +244,32 @@ function macReadinessBadgeClass(readiness: MacControlReadiness) {
 }
 
 function isActionable(state: PermissionStatus) {
-  return state === "not_granted" || state === "not_determined" || state === "restricted"
+  return (
+    state === "not_granted" ||
+    state === "not_determined" ||
+    state === "restricted" ||
+    state === "granted_pending_restart"
+  )
+}
+
+/// Whether to offer "reset the OS record" for this item.
+///
+/// Only for states where the record is plausibly broken. Never when granted —
+/// the button would destroy a working grant — and never for
+/// granted_pending_restart, where the record is healthy and only a relaunch is
+/// missing (resetting there would throw away the grant the user just made).
+function canReset(item: SystemPermissionItem) {
+  return (
+    item.resettable === true &&
+    (item.status === "not_granted" || item.status === "not_determined" || item.status === "restricted")
+  )
 }
 
 function canRequest(item: SystemPermissionItem) {
+  // granted_pending_restart deliberately keeps its button: a restart is what
+  // applies the grant, but the documented remedy for a stale TCC entry is to
+  // remove and re-add it in System Settings, and this button is the only jump
+  // there.
   return (
     item.requestMode !== "none" &&
     item.status !== "granted" &&
@@ -236,7 +278,7 @@ function canRequest(item: SystemPermissionItem) {
   )
 }
 
-function itemTextKey(id: string, field: "label" | "usage" | "note") {
+function itemTextKey(id: string, field: "label" | "usage" | "note" | "troubleshootNote") {
   return `settings.permissionItems.${id}.${field}`
 }
 
@@ -277,6 +319,34 @@ export default function PermissionsPanel() {
   const [macStatus, setMacStatus] = useState<MacControlStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [requesting, setRequesting] = useState<string | null>(null)
+  const [resetTarget, setResetTarget] = useState<SystemPermissionItem | null>(null)
+  const [resetting, setResetting] = useState(false)
+  // Set once a reset succeeds: the OS re-prompt and (for screen recording) the
+  // capability itself only take effect in a fresh process, so surface the
+  // restart affordance instead of letting the user retry in vain.
+  const [restartSuggested, setRestartSuggested] = useState(false)
+  // Monotonic ticket for state-mutating calls. A refetch started before a
+  // request (window focus fires when the settings pane steals focus) must not
+  // land after it and overwrite the fresher per-item result.
+  const writeTicket = useRef(0)
+  // Troubleshooting notes only exist on request responses; a plain re-check
+  // cannot reproduce them. Keep them per item so the guidance survives the
+  // focus refetch that happens the moment the user returns from System
+  // Settings — exactly when they need to read it. Cleared once the item is
+  // granted or the user requests again.
+  const troubleshootNotes = useRef<Record<string, string>>({})
+
+  const applyTroubleshootNotes = useCallback((items: SystemPermissionItem[]) => {
+    const pinned = troubleshootNotes.current
+    return items.map((item) => {
+      if (item.troubleshoot || !pinned[item.id]) return item
+      if (item.status === "granted" || item.status === "granted_pending_restart") {
+        delete pinned[item.id]
+        return item
+      }
+      return { ...item, note: pinned[item.id], troubleshoot: true }
+    })
+  }, [])
 
   const fetchPermissions = useCallback(async () => {
     if (!isTauriMode()) {
@@ -284,6 +354,7 @@ export default function PermissionsPanel() {
       return
     }
 
+    const ticket = ++writeTicket.current
     try {
       setLoading(true)
       const [permissionsResult, macStatusResult] = await Promise.all([
@@ -295,16 +366,18 @@ export default function PermissionsPanel() {
             return null
           }),
       ])
-      setResponse(permissionsResult)
+      if (ticket !== writeTicket.current) return
+      setResponse({ ...permissionsResult, items: applyTroubleshootNotes(permissionsResult.items) })
       setMacStatus(macStatusResult)
     } catch (e) {
       logger.error("settings", "PermissionsPanel::fetch", "Failed to check permissions", e)
+      if (ticket !== writeTicket.current) return
       setResponse({ platform: "unknown", supported: false, items: [] })
       setMacStatus(null)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [applyTroubleshootNotes])
 
   useEffect(() => {
     fetchPermissions()
@@ -316,10 +389,56 @@ export default function PermissionsPanel() {
     return () => window.removeEventListener("focus", onFocus)
   }, [fetchPermissions])
 
+  const handleReset = async (id: string) => {
+    setResetting(true)
+    // The stale-record note is what led the user here; the reset supersedes it.
+    delete troubleshootNotes.current[id]
+    const ticket = ++writeTicket.current
+    try {
+      const result = await getTransport().call<SystemPermissionItem>("reset_system_permission", { id })
+      if (ticket === writeTicket.current) {
+        setResponse((prev) =>
+          prev
+            ? { ...prev, items: prev.items.map((item) => (item.id === result.id ? result : item)) }
+            : prev,
+        )
+      }
+      setResetTarget(null)
+      setRestartSuggested(true)
+      toast.success(t("settings.permResetDone", "Permission record cleared. Restart Hope Agent, then grant again."))
+    } catch (e) {
+      logger.error("settings", "PermissionsPanel::reset", `Failed to reset ${id}`, e)
+      toast.error(
+        t("settings.permResetFailed", "Could not clear the permission record.") +
+          (e instanceof Error && e.message ? ` ${e.message}` : ""),
+      )
+    } finally {
+      setResetting(false)
+    }
+  }
+
+  const handleRestart = async () => {
+    try {
+      await getTransport().call("request_app_restart")
+    } catch (e) {
+      logger.error("settings", "PermissionsPanel::restart", "Failed to request app restart", e)
+      toast.error(t("settings.permRestartFailed", "Could not restart automatically — please quit and reopen the app."))
+    }
+  }
+
   const handleRequest = async (id: string) => {
     setRequesting(id)
+    delete troubleshootNotes.current[id]
+    const ticket = ++writeTicket.current
     try {
       const result = await getTransport().call<SystemPermissionItem>("request_system_permission", { id })
+      if (result.troubleshoot && result.note) {
+        troubleshootNotes.current[result.id] = result.note
+      }
+      // A grant that took effect immediately makes the post-reset restart
+      // banner stale. Pending-restart keeps it: that one really does need one.
+      if (result.status === "granted") setRestartSuggested(false)
+      if (ticket !== writeTicket.current) return
       setResponse((prev) =>
         prev
           ? {
@@ -334,6 +453,7 @@ export default function PermissionsPanel() {
           logger.error("settings", "PermissionsPanel::request", "Failed to refresh mac control status", e)
           return null
         })
+      if (ticket !== writeTicket.current) return
       setMacStatus(nextMacStatus)
     } catch (e) {
       logger.error("settings", "PermissionsPanel::request", `Failed to request ${id}`, e)
@@ -366,6 +486,15 @@ export default function PermissionsPanel() {
   const macMissing = macStatus?.missingRequired.map((id) => t(itemTextKey(id, "label"), fallbackLabel(id))) ?? []
   const macOptional =
     macStatus?.optionalPending.map((id) => t(itemTextKey(id, "label"), fallbackLabel(id))) ?? []
+  // The readiness message is keyed by readiness alone, so "blocked" would tell
+  // the user to grant a permission the item card below reports as already
+  // granted. Detect the restart-only case and say that instead.
+  const macBlockedByRestartOnly =
+    macStatus?.readiness === "blocked" &&
+    (macStatus?.missingRequired.length ?? 0) > 0 &&
+    (macStatus?.missingRequired ?? []).every(
+      (id) => items.find((item) => item.id === id)?.status === "granted_pending_restart",
+    )
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -418,14 +547,21 @@ export default function PermissionsPanel() {
                 </span>
               </div>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                {t(`settings.macControl.messages.${macStatus.readiness}`, macStatus.message)}
+                {macBlockedByRestartOnly
+                  ? t("settings.macControl.messages.blockedPendingRestart", macStatus.message)
+                  : t(`settings.macControl.messages.${macStatus.readiness}`, macStatus.message)}
               </p>
               {macMissing.length > 0 && (
                 <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                  {t("settings.macControl.missingRequired", {
-                    defaultValue: "Needs: {{items}}",
-                    items: macMissing.join(", "),
-                  })}
+                  {macBlockedByRestartOnly
+                    ? t("settings.macControl.pendingRestartRequired", {
+                        defaultValue: "Restart to apply: {{items}}",
+                        items: macMissing.join(", "),
+                      })
+                    : t("settings.macControl.missingRequired", {
+                        defaultValue: "Needs: {{items}}",
+                        items: macMissing.join(", "),
+                      })}
                 </p>
               )}
               {macMissing.length === 0 && macOptional.length > 0 && (
@@ -466,7 +602,12 @@ export default function PermissionsPanel() {
                   const isRequesting = requesting === item.id
                   const label = t(itemTextKey(item.id, "label"), fallbackLabel(item.id))
                   const usage = t(itemTextKey(item.id, "usage"), item.usage)
-                  const note = item.note ? t(itemTextKey(item.id, "note"), item.note) : null
+                  // Troubleshooting notes get their own key: the static
+                  // `note` key's translations say something else entirely, so
+                  // reusing it would show the wrong text in every locale.
+                  const note = item.note
+                    ? t(itemTextKey(item.id, item.troubleshoot ? "troubleshootNote" : "note"), item.note)
+                    : null
 
                   return (
                     <div
@@ -494,7 +635,35 @@ export default function PermissionsPanel() {
                         </div>
                         <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{usage}</p>
                         {note && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{note}</p>}
+                        {item.status === "granted_pending_restart" && (
+                          <p className="mt-1 text-[11px] leading-4 text-sky-600 dark:text-sky-400">
+                            {t(
+                              "settings.permRestartPendingHint",
+                              "Granted in System Settings — restart Hope Agent to apply.",
+                            )}
+                          </p>
+                        )}
                       </div>
+
+                      {canReset(item) && !loading && (
+                        <IconTip
+                          label={t(
+                            "settings.permResetTooltip",
+                            "Clear the saved system permission record so macOS asks again",
+                          )}
+                        >
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isRequesting || resetting}
+                            onClick={() => setResetTarget(item)}
+                            className="shrink-0 gap-1.5 text-muted-foreground"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            {t("settings.permReset", "Reset record")}
+                          </Button>
+                        </IconTip>
+                      )}
 
                       {canRequest(item) && !loading && (
                         <IconTip label={t("settings.permGrantTooltip")}>
@@ -518,6 +687,9 @@ export default function PermissionsPanel() {
                       )}
 
                       {item.status === "granted" && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />}
+                      {item.status === "granted_pending_restart" && (
+                        <RefreshCw className="h-4 w-4 shrink-0 text-sky-500" />
+                      )}
                       {(item.status === "not_applicable" || item.status === "not_used") && (
                         <HelpCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
                       )}
@@ -543,6 +715,72 @@ export default function PermissionsPanel() {
         </Button>
         <span className="text-xs text-muted-foreground">{t("settings.permRefreshHint")}</span>
       </div>
+
+      {restartSuggested && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 px-4 py-3">
+          <RefreshCw className="h-4 w-4 shrink-0 text-sky-500" />
+          <span className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+            {t(
+              "settings.permRestartAfterReset",
+              "Restart Hope Agent so macOS can ask for the permission again.",
+            )}
+          </span>
+          <Button variant="outline" size="sm" onClick={handleRestart} className="shrink-0 gap-1.5">
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t("settings.permRestartNow", "Restart now")}
+          </Button>
+        </div>
+      )}
+
+      <AlertDialog
+        open={resetTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !resetting) setResetTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("settings.permResetTitle", {
+                defaultValue: "Reset the {{name}} permission record?",
+                name: resetTarget
+                  ? t(itemTextKey(resetTarget.id, "label"), fallbackLabel(resetTarget.id))
+                  : "",
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  {t(
+                    "settings.permResetDescription",
+                    "This clears the decision macOS saved for Hope Agent, so it will ask again the next time. Use it when System Settings shows the permission as allowed but Hope Agent still reports it as missing.",
+                  )}
+                </p>
+                <p className="text-amber-600 dark:text-amber-400">
+                  {t(
+                    "settings.permResetWarning",
+                    "Any existing approval for this permission is removed — you will need to grant it again, and restart the app.",
+                  )}
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resetting}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={resetting}
+              onClick={(event) => {
+                event.preventDefault()
+                if (resetTarget) void handleReset(resetTarget.id)
+              }}
+            >
+              {resetting
+                ? t("settings.permResetting", "Resetting...")
+                : t("settings.permResetConfirm", "Reset record")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

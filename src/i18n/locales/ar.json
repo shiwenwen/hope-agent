@@ -5625,14 +5625,16 @@
     "logsStructured": "مهيكل",
     "logsTotal": "الإجمالي",
     "macControl": {
-      "missingRequired": "مطلوب: {{items}}",
       "messages": {
         "blocked": "يحتاج التحكم في macOS إلى إذني تسهيلات الاستخدام وتسجيل الشاشة.",
+        "blockedPendingRestart": "أذونات التحكم في macOS ممنوحة في إعدادات النظام — أعد تشغيل Hope Agent لتفعيلها.",
         "limited": "التحكم الأساسي في macOS جاهز؛ ما زالت الأذونات الاختيارية معلقة.",
         "ready": "التحكم في macOS جاهز.",
         "unsupported": "التحكم في macOS غير متاح في بيئة التشغيل هذه."
       },
+      "missingRequired": "مطلوب: {{items}}",
       "optionalPending": "اختياري معلق: {{items}}",
+      "pendingRestartRequired": "أعد التشغيل للتفعيل: {{items}}",
       "readiness": {
         "blocked": "محظور",
         "limited": "النواة جاهزة",
@@ -6048,6 +6050,19 @@
     "permPhotosDesc": "الوصول إلى مكتبة الصور",
     "permRefresh": "تحديث",
     "permRefreshHint": "بعد المنح في إعدادات النظام، انقر على تحديث أو عُد للكشف التلقائي",
+    "permRestartPendingHint": "تم المنح في إعدادات النظام — أعد تشغيل Hope Agent ليسري التغيير.",
+    "permReset": "إعادة تعيين السجل",
+    "permResetTooltip": "يمحو سجل الإذن المحفوظ في النظام ليسأل macOS مرة أخرى",
+    "permResetTitle": "إعادة تعيين سجل إذن «{{name}}»؟",
+    "permResetDescription": "سيمحو هذا القرار الذي حفظه macOS لـ Hope Agent، فيسأل مرة أخرى في المرة القادمة. استخدمه عندما تُظهر إعدادات النظام الإذن ممنوحًا لكن Hope Agent لا يزال يبلّغ بعدم وجوده.",
+    "permResetWarning": "ستُزال أي موافقة حالية على هذا الإذن — ستحتاج إلى منحه مرة أخرى وإعادة تشغيل التطبيق.",
+    "permResetConfirm": "إعادة تعيين السجل",
+    "permResetting": "جارٍ إعادة التعيين…",
+    "permResetDone": "تم محو سجل الإذن. أعد تشغيل Hope Agent ثم امنح الإذن مرة أخرى.",
+    "permResetFailed": "تعذّر محو سجل الإذن.",
+    "permRestartAfterReset": "أعد تشغيل Hope Agent ليتمكن macOS من طلب الإذن مرة أخرى.",
+    "permRestartNow": "أعد التشغيل الآن",
+    "permRestartFailed": "تعذّرت إعادة التشغيل تلقائيًا — أغلق التطبيق وافتحه من جديد.",
     "permReminders": "التذكيرات",
     "permRemindersDesc": "قراءة وكتابة التذكيرات",
     "permScreenRecording": "تسجيل الشاشة",
@@ -6138,6 +6153,7 @@
       },
       "input_monitoring": {
         "label": "مراقبة الإدخال",
+        "troubleshootNote": "إذا لم يظهر مربع حوار النظام ولم يكن Hope Agent موجودًا في قائمة مراقبة الإدخال، فأضِفه يدويًا في إعدادات النظام (أو أزل الإدخال القديم) ثم حاول مرة أخرى.",
         "usage": "الاستماع إلى أحداث لوحة المفاتيح والمؤشر اللازمة لأتمتة سطح المكتب."
       },
       "local_network": {
@@ -6183,6 +6199,7 @@
       },
       "screen_recording": {
         "label": "تسجيل الشاشة",
+        "troubleshootNote": "إذا كانت إعدادات النظام تُظهر أن Hope Agent مسموح له بالفعل لكنه لا يزال غير ممنوح هنا: أعد تشغيل التطبيق أولًا؛ وإذا استمرت المشكلة، فأزل Hope Agent من قائمة تسجيل الشاشة ثم امنح الإذن من جديد (السجلات المتبقية من الإصدارات القديمة تصبح لاغية).",
         "usage": "التقاط محتوى الشاشة للفهم البصري وأتمتة الواجهة."
       },
       "speech_recognition": {
@@ -6197,6 +6214,7 @@
     },
     "permissionStatuses": {
       "granted": "ممنوح",
+      "grantedPendingRestart": "تم المنح · أعد التشغيل للتفعيل",
       "manualCheck": "فحص يدوي",
       "notApplicable": "غير منطبق",
       "notDetermined": "غير محدد",

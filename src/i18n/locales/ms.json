@@ -5625,14 +5625,16 @@
     "logsStructured": "Berstruktur",
     "logsTotal": "Jumlah",
     "macControl": {
-      "missingRequired": "Diperlukan: {{items}}",
       "messages": {
         "blocked": "Kawalan macOS memerlukan kebenaran Kebolehcapaian dan Rakaman Skrin.",
+        "blockedPendingRestart": "Kebenaran kawalan macOS telah diberikan dalam Tetapan Sistem — mulakan semula Hope Agent untuk berkuat kuasa.",
         "limited": "Kawalan macOS teras sudah sedia; kebenaran pilihan masih belum selesai.",
         "ready": "Kawalan macOS sudah sedia.",
         "unsupported": "Kawalan macOS tidak tersedia dalam persekitaran masa jalan ini."
       },
+      "missingRequired": "Diperlukan: {{items}}",
       "optionalPending": "Pilihan belum selesai: {{items}}",
+      "pendingRestartRequired": "Mulakan semula untuk berkuat kuasa: {{items}}",
       "readiness": {
         "blocked": "Disekat",
         "limited": "Teras sedia",
@@ -6048,6 +6050,19 @@
     "permPhotosDesc": "Akses pustaka foto",
     "permRefresh": "Muat semula",
     "permRefreshHint": "Selepas memberi dalam Tetapan Sistem, klik muat semula atau tukar kembali untuk auto-kesan",
+    "permRestartPendingHint": "Telah diberikan dalam Tetapan Sistem — mulakan semula Hope Agent untuk berkuat kuasa.",
+    "permReset": "Set semula rekod",
+    "permResetTooltip": "Membersihkan rekod kebenaran sistem yang disimpan supaya macOS bertanya lagi",
+    "permResetTitle": "Set semula rekod kebenaran {{name}}?",
+    "permResetDescription": "Ini membersihkan keputusan yang disimpan macOS untuk Hope Agent, jadi ia akan bertanya lagi kali seterusnya. Gunakan apabila Tetapan Sistem menunjukkan kebenaran telah diberikan tetapi Hope Agent masih melaporkan ia tiada.",
+    "permResetWarning": "Sebarang kebenaran sedia ada untuk ini akan dibuang — anda perlu memberikannya semula dan mulakan semula apl.",
+    "permResetConfirm": "Set semula rekod",
+    "permResetting": "Menetapkan semula...",
+    "permResetDone": "Rekod kebenaran dibersihkan. Mulakan semula Hope Agent, kemudian berikan semula.",
+    "permResetFailed": "Tidak dapat membersihkan rekod kebenaran.",
+    "permRestartAfterReset": "Mulakan semula Hope Agent supaya macOS boleh meminta kebenaran itu lagi.",
+    "permRestartNow": "Mulakan semula sekarang",
+    "permRestartFailed": "Tidak dapat mulakan semula secara automatik — sila keluar dan buka apl semula.",
     "permReminders": "Peringatan",
     "permRemindersDesc": "Baca dan tulis peringatan",
     "permScreenRecording": "Rakaman skrin",
@@ -6138,6 +6153,7 @@
       },
       "input_monitoring": {
         "label": "Pemantauan Input",
+        "troubleshootNote": "Jika tiada dialog sistem muncul dan Hope Agent tiada dalam senarai Pemantauan Input, tambahkannya secara manual dalam Tetapan Sistem (atau keluarkan entri lama) dan cuba lagi.",
         "usage": "Dengar peristiwa papan kekunci dan penuding yang diperlukan oleh automasi desktop."
       },
       "local_network": {
@@ -6183,6 +6199,7 @@
       },
       "screen_recording": {
         "label": "Rakaman Skrin",
+        "troubleshootNote": "Jika Tetapan Sistem sudah menunjukkan Hope Agent dibenarkan tetapi di sini masih belum diberikan: mulakan semula apl dahulu; jika berterusan, keluarkan Hope Agent daripada senarai Rakaman Skrin dan berikan semula (rekod daripada versi lama menjadi tidak sah).",
         "usage": "Tangkap kandungan skrin untuk pemahaman visual dan automasi UI."
       },
       "speech_recognition": {
@@ -6197,6 +6214,7 @@
     },
     "permissionStatuses": {
       "granted": "Diberikan",
+      "grantedPendingRestart": "Diberikan · mulakan semula untuk berkuat kuasa",
       "manualCheck": "Semakan manual",
       "notApplicable": "Tidak berkenaan",
       "notDetermined": "Belum ditentukan",

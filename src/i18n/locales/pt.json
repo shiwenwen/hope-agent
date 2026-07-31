@@ -5625,14 +5625,16 @@
     "logsStructured": "Estruturado",
     "logsTotal": "Total",
     "macControl": {
-      "missingRequired": "Necessário: {{items}}",
       "messages": {
         "blocked": "O controle do macOS precisa das permissões de Acessibilidade e Gravação de Tela.",
+        "blockedPendingRestart": "As permissões de controle do macOS estão concedidas nos Ajustes do Sistema; reinicie o Hope Agent para aplicá-las.",
         "limited": "O controle principal do macOS está pronto; permissões opcionais ainda estão pendentes.",
         "ready": "O controle do macOS está pronto.",
         "unsupported": "O controle do macOS não está disponível neste ambiente."
       },
+      "missingRequired": "Necessário: {{items}}",
       "optionalPending": "Opcional pendente: {{items}}",
+      "pendingRestartRequired": "Reinicie para aplicar: {{items}}",
       "readiness": {
         "blocked": "Bloqueado",
         "limited": "Núcleo pronto",
@@ -6048,6 +6050,19 @@
     "permPhotosDesc": "Acessar a biblioteca de fotos",
     "permRefresh": "Atualizar",
     "permRefreshHint": "Após conceder nas Configurações do sistema, clique em atualizar ou alterne para detectar automaticamente",
+    "permRestartPendingHint": "Concedido nos Ajustes do Sistema; reinicie o Hope Agent para aplicar.",
+    "permReset": "Redefinir registro",
+    "permResetTooltip": "Limpa o registro de permissão salvo para que o macOS pergunte novamente",
+    "permResetTitle": "Redefinir o registro da permissão {{name}}?",
+    "permResetDescription": "Isso limpa a decisão que o macOS salvou para o Hope Agent, então ele perguntará novamente na próxima vez. Use quando os Ajustes do Sistema mostrarem a permissão como concedida mas o Hope Agent continuar relatando que falta.",
+    "permResetWarning": "Qualquer aprovação existente desta permissão será removida — você precisará concedê-la novamente e reiniciar o app.",
+    "permResetConfirm": "Redefinir registro",
+    "permResetting": "Redefinindo...",
+    "permResetDone": "Registro de permissão limpo. Reinicie o Hope Agent e conceda novamente.",
+    "permResetFailed": "Não foi possível limpar o registro da permissão.",
+    "permRestartAfterReset": "Reinicie o Hope Agent para que o macOS possa pedir a permissão novamente.",
+    "permRestartNow": "Reiniciar agora",
+    "permRestartFailed": "Não foi possível reiniciar automaticamente — feche e abra o app novamente.",
     "permReminders": "Lembretes",
     "permRemindersDesc": "Ler e escrever lembretes",
     "permScreenRecording": "Gravação de tela",
@@ -6138,6 +6153,7 @@
       },
       "input_monitoring": {
         "label": "Monitoramento de entrada",
+        "troubleshootNote": "Se nenhum diálogo do sistema apareceu e o Hope Agent não está na lista de Monitoramento de Entrada, adicione-o manualmente nos Ajustes do Sistema (ou remova uma entrada obsoleta) e tente novamente.",
         "usage": "Escutar eventos de teclado e ponteiro necessários para automação de desktop."
       },
       "local_network": {
@@ -6183,6 +6199,7 @@
       },
       "screen_recording": {
         "label": "Gravação de tela",
+        "troubleshootNote": "Se os Ajustes do Sistema já mostram o Hope Agent como permitido mas aqui continua não concedido: reinicie o app; se persistir, remova o Hope Agent da lista de Gravação de Tela e conceda novamente (registros deixados por versões antigas ficam obsoletos).",
         "usage": "Capturar conteúdo da tela para compreensão visual e automação de UI."
       },
       "speech_recognition": {
@@ -6197,6 +6214,7 @@
     },
     "permissionStatuses": {
       "granted": "Concedido",
+      "grantedPendingRestart": "Concedido · reinicie para aplicar",
       "manualCheck": "Verificação manual",
       "notApplicable": "Não aplicável",
       "notDetermined": "Não determinado",

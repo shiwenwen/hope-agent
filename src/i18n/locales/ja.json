@@ -5625,14 +5625,16 @@
     "logsStructured": "構造化",
     "logsTotal": "合計",
     "macControl": {
-      "missingRequired": "必要: {{items}}",
       "messages": {
         "blocked": "macOS 制御にはアクセシビリティと画面収録の権限が必要です。",
+        "blockedPendingRestart": "macOS 制御に必要な権限はシステム設定で許可済みです。Hope Agent を再起動すると有効になります。",
         "limited": "macOS 制御のコア機能は準備完了です。任意の権限がまだ未確認です。",
         "ready": "macOS 制御は準備完了です。",
         "unsupported": "この実行環境では macOS 制御を利用できません。"
       },
+      "missingRequired": "必要: {{items}}",
       "optionalPending": "任意項目が未確認: {{items}}",
+      "pendingRestartRequired": "再起動後に有効：{{items}}",
       "readiness": {
         "blocked": "ブロック中",
         "limited": "コア準備完了",
@@ -6048,6 +6050,19 @@
     "permPhotosDesc": "写真ライブラリにアクセス",
     "permRefresh": "更新",
     "permRefreshHint": "システム設定で許可後、更新するかウィンドウを切り替えると自動検出されます",
+    "permRestartPendingHint": "システム設定で許可済みです。Hope Agent を再起動すると有効になります。",
+    "permReset": "記録をリセット",
+    "permResetTooltip": "保存されたシステム許可の記録を消去し、macOS に再度確認させます",
+    "permResetTitle": "「{{name}}」の許可記録をリセットしますか？",
+    "permResetDescription": "macOS が Hope Agent について保存した許可の決定を消去し、次回改めて確認されるようにします。システム設定では許可済みなのに Hope Agent が未許可と報告する場合に使用してください。",
+    "permResetWarning": "この許可の既存の承認は削除されます——再度許可し、アプリを再起動する必要があります。",
+    "permResetConfirm": "記録をリセット",
+    "permResetting": "リセット中…",
+    "permResetDone": "許可記録を消去しました。Hope Agent を再起動してから再度許可してください。",
+    "permResetFailed": "許可記録を消去できませんでした。",
+    "permRestartAfterReset": "macOS が再度許可を確認できるよう、Hope Agent を再起動してください。",
+    "permRestartNow": "今すぐ再起動",
+    "permRestartFailed": "自動で再起動できませんでした——アプリを終了して開き直してください。",
     "permReminders": "リマインダー",
     "permRemindersDesc": "リマインダーの読み書き",
     "permScreenRecording": "画面収録",
@@ -6138,6 +6153,7 @@
       },
       "input_monitoring": {
         "label": "入力監視",
+        "troubleshootNote": "システムダイアログが表示されず、入力監視リストに Hope Agent がない場合は、システム設定で手動で追加するか、古い項目を削除してからやり直してください。",
         "usage": "デスクトップ自動化に必要なキーボードとポインタイベントを監視します。"
       },
       "local_network": {
@@ -6183,6 +6199,7 @@
       },
       "screen_recording": {
         "label": "画面収録",
+        "troubleshootNote": "システム設定で許可済みなのにここで未許可のままの場合：まずアプリを再起動してください。解決しない場合は、システム設定の画面収録リストから Hope Agent を削除して再度許可してください（旧バージョンが残した記録は無効になります）。",
         "usage": "視覚理解と UI 自動化のために画面内容をキャプチャします。"
       },
       "speech_recognition": {
@@ -6197,6 +6214,7 @@
     },
     "permissionStatuses": {
       "granted": "許可済み",
+      "grantedPendingRestart": "許可済み · 再起動後に有効",
       "manualCheck": "手動確認",
       "notApplicable": "該当なし",
       "notDetermined": "未判定",

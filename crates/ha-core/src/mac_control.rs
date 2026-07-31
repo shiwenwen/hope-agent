@@ -2410,7 +2410,10 @@ pub async fn snapshot(request: MacControlSnapshotRequest) -> MacControlSnapshotR
         return MacControlSnapshotResponse {
             status,
             snapshot: None,
-            error: Some("Screenshot snapshots require Screen Recording permission.".to_string()),
+            error: Some(format!(
+                "Screenshot snapshots require Screen Recording permission.{}",
+                pending_restart_suffix(&system_permissions, "screen_recording")
+            )),
         };
     }
 
@@ -3229,9 +3232,10 @@ async fn visual_point(request: MacControlVisualRequest) -> MacControlVisualRespo
         return MacControlVisualResponse {
             status,
             result: None,
-            error: Some(
-                "mac_control visual.point requires Screen Recording permission.".to_string(),
-            ),
+            error: Some(format!(
+                "mac_control visual.point requires Screen Recording permission.{}",
+                pending_restart_suffix(&system_permissions, "screen_recording")
+            )),
         };
     }
 
@@ -3325,7 +3329,10 @@ async fn visual_ocr_or_find_text(
         return MacControlVisualResponse {
             status,
             result: None,
-            error: Some("mac_control visual OCR requires Screen Recording permission.".to_string()),
+            error: Some(format!(
+                "mac_control visual OCR requires Screen Recording permission.{}",
+                pending_restart_suffix(&system_permissions, "screen_recording")
+            )),
         };
     }
     if find_text && !permission_granted(&system_permissions, "accessibility") {
@@ -3504,9 +3511,10 @@ pub async fn capture_frame(display_id: Option<u32>) -> MacControlFrameResponse {
         return MacControlFrameResponse {
             status,
             frame: None,
-            error: Some(
-                "Mac Control frame capture requires Screen Recording permission.".to_string(),
-            ),
+            error: Some(format!(
+                "Mac Control frame capture requires Screen Recording permission.{}",
+                pending_restart_suffix(&system_permissions, "screen_recording")
+            )),
         };
     }
 
@@ -4298,10 +4306,21 @@ fn status_from_system_permissions(
     } else {
         MacControlReadiness::Ready
     };
+    // When every missing required permission is merely pending a relaunch,
+    // telling the user to grant it contradicts the panel item right below
+    // ("Granted · restart to apply") and sends the agent down the wrong path.
+    let blocked_only_by_restart = !missing_required.is_empty()
+        && required_permissions
+            .iter()
+            .filter(|item| item.status != SystemPermissionStatus::Granted)
+            .all(|item| item.status == SystemPermissionStatus::GrantedPendingRestart);
     let message = match readiness {
         MacControlReadiness::Ready => "macOS control is ready.".to_string(),
         MacControlReadiness::Limited => {
             "Core macOS control is ready; optional permissions are still pending.".to_string()
+        }
+        MacControlReadiness::Blocked if blocked_only_by_restart => {
+            "macOS control permissions are allowed in System Settings — restart Hope Agent to apply them.".to_string()
         }
         MacControlReadiness::Blocked => {
             "macOS control needs Accessibility and Screen Recording permissions.".to_string()
@@ -4380,6 +4399,27 @@ fn permission_granted(response: &SystemPermissionsResponse, id: &str) -> bool {
         .items
         .iter()
         .any(|item| item.id == id && item.status == SystemPermissionStatus::Granted)
+}
+
+/// True when TCC grants `id` but this process cannot use it until relaunch.
+/// Gating still treats it as ungranted (`permission_granted` compares against
+/// `Granted` only) — this exists so the *message* says "restart" instead of
+/// telling the user to grant something they already granted.
+fn permission_pending_restart(response: &SystemPermissionsResponse, id: &str) -> bool {
+    response
+        .items
+        .iter()
+        .any(|item| item.id == id && item.status == SystemPermissionStatus::GrantedPendingRestart)
+}
+
+/// Sentence appended to a permission error when the only thing missing is a
+/// relaunch. Empty when the permission is genuinely ungranted.
+fn pending_restart_suffix(response: &SystemPermissionsResponse, id: &str) -> &'static str {
+    if permission_pending_restart(response, id) {
+        " It is already allowed in System Settings — restart Hope Agent to apply it."
+    } else {
+        ""
+    }
 }
 
 pub fn new_snapshot_id() -> String {
@@ -5739,6 +5779,8 @@ mod tests {
             settings_pane: None,
             usage: String::new(),
             note: None,
+            troubleshoot: false,
+            resettable: false,
         }
     }
 
@@ -5896,6 +5938,56 @@ mod tests {
         assert_eq!(status.readiness, MacControlReadiness::Blocked);
         assert!(!status.core_ready);
         assert_eq!(status.missing_required, vec!["screen_recording"]);
+    }
+
+    #[test]
+    fn pending_restart_blocks_but_says_restart_instead_of_grant() {
+        let status = status_from_system_permissions(
+            true,
+            true,
+            response(vec![
+                item("accessibility", SystemPermissionStatus::Granted),
+                item(
+                    "screen_recording",
+                    SystemPermissionStatus::GrantedPendingRestart,
+                ),
+            ]),
+        );
+
+        // Gating must stay fail-closed: this process still cannot capture.
+        assert_eq!(status.readiness, MacControlReadiness::Blocked);
+        assert!(!status.core_ready);
+        assert_eq!(status.missing_required, vec!["screen_recording"]);
+        // ...but telling the user to grant an already-granted permission
+        // contradicts the panel item and sends the agent down the wrong path.
+        assert!(
+            status.message.contains("restart"),
+            "expected a restart hint, got: {}",
+            status.message
+        );
+        assert!(!status.message.contains("needs"));
+    }
+
+    #[test]
+    fn pending_restart_mixed_with_real_denial_still_says_grant() {
+        let status = status_from_system_permissions(
+            true,
+            true,
+            response(vec![
+                item("accessibility", SystemPermissionStatus::NotGranted),
+                item(
+                    "screen_recording",
+                    SystemPermissionStatus::GrantedPendingRestart,
+                ),
+            ]),
+        );
+
+        assert_eq!(status.readiness, MacControlReadiness::Blocked);
+        assert!(
+            status.message.contains("needs"),
+            "a genuinely ungranted permission must keep the grant wording, got: {}",
+            status.message
+        );
     }
 
     #[test]

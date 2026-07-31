@@ -691,6 +691,7 @@ pub fn run() {
             tauri_wrappers::check_permission,
             tauri_wrappers::request_permission,
             tauri_wrappers::request_system_permission,
+            tauri_wrappers::reset_system_permission,
             tauri_wrappers::mac_control_status,
             tauri_wrappers::mac_control_permissions,
             tauri_wrappers::mac_control_snapshot,

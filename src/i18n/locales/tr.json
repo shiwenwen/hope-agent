@@ -5625,14 +5625,16 @@
     "logsStructured": "Yapılandırılmış",
     "logsTotal": "Toplam",
     "macControl": {
-      "missingRequired": "Gerekli: {{items}}",
       "messages": {
         "blocked": "macOS kontrolü için Erişilebilirlik ve Ekran Kaydı izinleri gerekir.",
+        "blockedPendingRestart": "macOS denetimi izinleri Sistem Ayarları'nda verilmiş — uygulanması için Hope Agent'ı yeniden başlatın.",
         "limited": "Temel macOS kontrolü hazır; isteğe bağlı izinler hâlâ bekliyor.",
         "ready": "macOS kontrolü hazır.",
         "unsupported": "macOS kontrolü bu çalışma ortamında kullanılamaz."
       },
+      "missingRequired": "Gerekli: {{items}}",
       "optionalPending": "İsteğe bağlı bekliyor: {{items}}",
+      "pendingRestartRequired": "Uygulamak için yeniden başlatın: {{items}}",
       "readiness": {
         "blocked": "Engellendi",
         "limited": "Temel hazır",
@@ -6048,6 +6050,19 @@
     "permPhotosDesc": "Fotoğraf kütüphanesine eriş",
     "permRefresh": "Yenile",
     "permRefreshHint": "Sistem Ayarlarında verdikten sonra, otomatik algılama için yenile veya geri dön",
+    "permRestartPendingHint": "Sistem Ayarları'nda izin verildi — uygulanması için Hope Agent'ı yeniden başlatın.",
+    "permReset": "Kaydı sıfırla",
+    "permResetTooltip": "Kaydedilmiş sistem izni kaydını temizler, böylece macOS yeniden sorar",
+    "permResetTitle": "{{name}} izin kaydı sıfırlansın mı?",
+    "permResetDescription": "Bu, macOS'un Hope Agent için kaydettiği kararı temizler; bir sonraki seferde yeniden sorulur. Sistem Ayarları izni verilmiş gösterdiği hâlde Hope Agent hâlâ eksik bildiriyorsa kullanın.",
+    "permResetWarning": "Bu izne ait mevcut onay kaldırılır — izni yeniden vermeniz ve uygulamayı yeniden başlatmanız gerekir.",
+    "permResetConfirm": "Kaydı sıfırla",
+    "permResetting": "Sıfırlanıyor...",
+    "permResetDone": "İzin kaydı temizlendi. Hope Agent'ı yeniden başlatıp izni yeniden verin.",
+    "permResetFailed": "İzin kaydı temizlenemedi.",
+    "permRestartAfterReset": "macOS izni yeniden isteyebilsin diye Hope Agent'ı yeniden başlatın.",
+    "permRestartNow": "Şimdi yeniden başlat",
+    "permRestartFailed": "Otomatik yeniden başlatılamadı — uygulamayı kapatıp yeniden açın.",
     "permReminders": "Hatırlatıcılar",
     "permRemindersDesc": "Hatırlatıcıları oku ve yaz",
     "permScreenRecording": "Ekran kaydı",
@@ -6138,6 +6153,7 @@
       },
       "input_monitoring": {
         "label": "Giriş İzleme",
+        "troubleshootNote": "Sistem iletişim kutusu görünmediyse ve Hope Agent Giriş İzleme listesinde yoksa, Sistem Ayarları'nda elle ekleyin (veya eski girdiyi kaldırın) ve yeniden deneyin.",
         "usage": "Masaüstü otomasyonu için gereken klavye ve işaretçi olaylarını dinle."
       },
       "local_network": {
@@ -6183,6 +6199,7 @@
       },
       "screen_recording": {
         "label": "Ekran Kaydı",
+        "troubleshootNote": "Sistem Ayarları Hope Agent'ı izinli gösterdiği hâlde burada hâlâ verilmedi görünüyorsa: önce uygulamayı yeniden başlatın; sorun sürerse Hope Agent'ı Ekran Kaydı listesinden kaldırıp izni yeniden verin (eski sürümlerden kalan kayıtlar geçersizleşir).",
         "usage": "Görsel anlama ve UI otomasyonu için ekran içeriklerini yakala."
       },
       "speech_recognition": {
@@ -6197,6 +6214,7 @@
     },
     "permissionStatuses": {
       "granted": "Verildi",
+      "grantedPendingRestart": "İzin verildi · uygulamak için yeniden başlatın",
       "manualCheck": "Manuel kontrol",
       "notApplicable": "Geçerli değil",
       "notDetermined": "Belirlenmedi",

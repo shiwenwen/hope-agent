@@ -126,6 +126,23 @@ pub(crate) fn request_system_permission_item(
     system_permissions::request_item(def)
 }
 
+/// Raw single-permission preflight for the `--tcc-probe` process mode.
+/// Synchronous and spawn-free — see `system_permissions::raw_probe`.
+pub(crate) fn system_permission_raw_probe(id: &str) -> Option<bool> {
+    system_permissions::raw_probe(id)
+}
+
+/// Whether this platform/build can reset the OS permission record for `id`
+/// (macOS `tccutil`, packaged app only).
+pub(crate) fn system_permission_supports_reset(id: &str) -> bool {
+    system_permissions::supports_reset(id)
+}
+
+/// Reset the OS permission record for `id` so the OS prompts again.
+pub(crate) fn reset_system_permission_item(id: &str) -> Result<(), String> {
+    system_permissions::reset_item(id)
+}
+
 /// Build a `std::process::Command` that runs `cmdline` through the
 /// platform default shell.
 ///

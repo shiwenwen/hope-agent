@@ -5625,14 +5625,16 @@
     "logsStructured": "Structured",
     "logsTotal": "Total",
     "macControl": {
-      "missingRequired": "Needs: {{items}}",
       "messages": {
         "blocked": "macOS control needs Accessibility and Screen Recording permissions.",
+        "blockedPendingRestart": "macOS control permissions are allowed in System Settings — restart Hope Agent to apply them.",
         "limited": "Core macOS control is ready; optional permissions are still pending.",
         "ready": "macOS control is ready.",
         "unsupported": "macOS control is unavailable in this runtime."
       },
+      "missingRequired": "Needs: {{items}}",
       "optionalPending": "Optional pending: {{items}}",
+      "pendingRestartRequired": "Restart to apply: {{items}}",
       "readiness": {
         "blocked": "Blocked",
         "limited": "Core ready",
@@ -6048,6 +6050,19 @@
     "permPhotosDesc": "Access the photo library",
     "permRefresh": "Refresh",
     "permRefreshHint": "After granting in System Settings, click refresh or switch back to auto-detect",
+    "permRestartPendingHint": "Granted in System Settings — restart Hope Agent to apply.",
+    "permReset": "Reset record",
+    "permResetTooltip": "Clear the saved system permission record so macOS asks again",
+    "permResetTitle": "Reset the {{name}} permission record?",
+    "permResetDescription": "This clears the decision macOS saved for Hope Agent, so it will ask again the next time. Use it when System Settings shows the permission as allowed but Hope Agent still reports it as missing.",
+    "permResetWarning": "Any existing approval for this permission is removed — you will need to grant it again, and restart the app.",
+    "permResetConfirm": "Reset record",
+    "permResetting": "Resetting...",
+    "permResetDone": "Permission record cleared. Restart Hope Agent, then grant again.",
+    "permResetFailed": "Could not clear the permission record.",
+    "permRestartAfterReset": "Restart Hope Agent so macOS can ask for the permission again.",
+    "permRestartNow": "Restart now",
+    "permRestartFailed": "Could not restart automatically — please quit and reopen the app.",
     "permReminders": "Reminders",
     "permRemindersDesc": "Read and write reminders",
     "permScreenRecording": "Screen Recording",
@@ -6138,6 +6153,7 @@
       },
       "input_monitoring": {
         "label": "Input Monitoring",
+        "troubleshootNote": "If no system dialog appeared and Hope Agent is missing from the Input Monitoring list, add it manually in System Settings (or remove a stale entry) and try again.",
         "usage": "Listen for keyboard and pointer events needed by desktop automation."
       },
       "local_network": {
@@ -6183,6 +6199,7 @@
       },
       "screen_recording": {
         "label": "Screen Recording",
+        "troubleshootNote": "If System Settings already shows Hope Agent as allowed but it stays not granted here: restart the app; if that persists, remove Hope Agent from the Screen Recording list and grant it again (entries left by old versions go stale).",
         "usage": "Capture screen contents for visual understanding and UI automation."
       },
       "speech_recognition": {
@@ -6197,6 +6214,7 @@
     },
     "permissionStatuses": {
       "granted": "Granted",
+      "grantedPendingRestart": "Granted · restart to apply",
       "manualCheck": "Manual check",
       "notApplicable": "Not applicable",
       "notDetermined": "Not determined",

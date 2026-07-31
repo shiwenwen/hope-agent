@@ -11,10 +11,10 @@ mod imp {
     use super::*;
     use std::ffi::CStr;
     use std::path::Path;
-    use std::process::Command;
+    use std::process::{Command, Stdio};
     use std::ptr;
-    use std::sync::mpsc;
-    use std::time::Duration;
+    use std::sync::{mpsc, Mutex};
+    use std::time::{Duration, Instant};
 
     use block2::RcBlock;
     use objc2::msg_send;
@@ -25,6 +25,8 @@ mod imp {
     #[link(name = "ApplicationServices", kind = "framework")]
     unsafe extern "C" {
         fn AXIsProcessTrusted() -> bool;
+        fn AXIsProcessTrustedWithOptions(options: *const AnyObject) -> bool;
+        static kAXTrustedCheckOptionPrompt: *const AnyObject;
     }
 
     #[link(name = "CoreGraphics", kind = "framework")]
@@ -70,7 +72,7 @@ mod imp {
     pub fn check_item(id: &str) -> SystemPermissionStatus {
         match id {
             "accessibility" => bool_status(unsafe { AXIsProcessTrusted() }),
-            "screen_recording" => bool_status(unsafe { CGPreflightScreenCaptureAccess() }),
+            "screen_recording" => screen_recording_status(false),
             "input_monitoring" => bool_status(unsafe { CGPreflightListenEventAccess() }),
             "camera" => av_media_status("vide"),
             "microphone" => av_media_status("soun"),
@@ -103,12 +105,26 @@ mod imp {
 
     pub fn request_item(def: PermissionDef) -> SystemPermissionStatus {
         match def.id {
-            "screen_recording" => {
-                let ok = unsafe { CGRequestScreenCaptureAccess() };
+            "accessibility" => {
+                let ok = request_accessibility_trust();
                 if !ok {
                     open_settings_pane(def.settings_pane);
                 }
                 bool_status(ok)
+            }
+            "screen_recording" => {
+                if unsafe { CGRequestScreenCaptureAccess() } {
+                    return SystemPermissionStatus::Granted;
+                }
+                // Bypass the negative-probe debounce: the user may have just
+                // flipped the toggle in System Settings, which this running
+                // process cannot observe on its own.
+                let status = screen_recording_status(true);
+                // Open the pane even for pending-restart: the documented
+                // remediation for a stale TCC entry is to remove and re-add
+                // it there, so the jump must stay available.
+                open_settings_pane(def.settings_pane);
+                status
             }
             "input_monitoring" => {
                 let ok = unsafe { CGRequestListenEventAccess() };
@@ -149,6 +165,292 @@ mod imp {
             SystemPermissionStatus::Granted
         } else {
             SystemPermissionStatus::NotGranted
+        }
+    }
+
+    /// Ask for Accessibility trust with the system consent prompt enabled.
+    ///
+    /// Unlike the plain `AXIsProcessTrusted` preflight, the prompting variant
+    /// registers this app in System Settings → Privacy & Security →
+    /// Accessibility. Without that registration the pane simply has no row
+    /// for the app and the user has nothing to toggle.
+    ///
+    /// Note the asymmetry with the other NativePrompt permissions: this call
+    /// returns the CURRENT (still-false) trust state synchronously while the
+    /// consent dialog it posts is answered asynchronously, and macOS shows
+    /// that dialog at most once per app. So the caller also opens the
+    /// settings pane on `false` — a deliberate double surface, because the
+    /// alternative (trusting the synchronous `false` and doing nothing) is
+    /// the "clicked Grant, nothing happened" dead end this fix exists to
+    /// remove.
+    fn request_accessibility_trust() -> bool {
+        let (Some(dict_cls), Some(number_cls)) =
+            (objc_class(c"NSDictionary"), objc_class(c"NSNumber"))
+        else {
+            return unsafe { AXIsProcessTrusted() };
+        };
+        // Runs on a tokio blocking-pool thread, which has no autorelease
+        // pool of its own; the autoreleased dictionary would leak (and log
+        // "autoreleased with no pool in place") without this.
+        objc2::rc::autoreleasepool(|_| unsafe {
+            let prompt_key = kAXTrustedCheckOptionPrompt;
+            if prompt_key.is_null() {
+                return AXIsProcessTrusted();
+            }
+            let yes: Retained<AnyObject> = msg_send![number_cls, numberWithBool: Bool::YES];
+            let options: Retained<AnyObject> =
+                msg_send![dict_cls, dictionaryWithObject: &*yes, forKey: prompt_key];
+            AXIsProcessTrustedWithOptions(Retained::as_ptr(&options))
+        })
+    }
+
+    /// Screen Recording capability is fixed on this process's window-server
+    /// connection at launch: a grant made while the app is running keeps
+    /// preflighting `false` until relaunch, while a freshly launched process
+    /// sees the live TCC state. When the in-process preflight is negative,
+    /// probe from a short-lived child (same executable → same TCC identity
+    /// through the responsible process) to distinguish "granted, needs an
+    /// app restart" from "really not granted".
+    fn screen_recording_status(bypass_probe_debounce: bool) -> SystemPermissionStatus {
+        if unsafe { CGPreflightScreenCaptureAccess() } {
+            return SystemPermissionStatus::Granted;
+        }
+        if screen_probe_pending_restart(bypass_probe_debounce) {
+            SystemPermissionStatus::GrantedPendingRestart
+        } else {
+            SystemPermissionStatus::NotGranted
+        }
+    }
+
+    /// How long a *negative* probe result suppresses re-spawning. `check_item`
+    /// runs on every panel fetch (window-focus re-checks included) and every
+    /// mac_control preflight — a stuck-at-not-granted state must not spawn a
+    /// child process per call. Short, because this is the state the user is
+    /// actively trying to change.
+    const PROBE_RETRY_TTL: Duration = Duration::from_secs(5);
+    /// How long a *positive* (pending-restart) result is trusted. Longer than
+    /// the negative TTL because the expected next step is a relaunch, so
+    /// re-probing buys little — but NOT unbounded: the user can revoke the
+    /// grant in System Settings while the app runs, and a permanently sticky
+    /// positive would keep claiming "granted, restart to apply" when a
+    /// restart would in fact come up without permission.
+    const PROBE_POSITIVE_TTL: Duration = Duration::from_secs(30);
+    /// Must stay comfortably under the catalog-wide `CHECK_TIMEOUT` in
+    /// `permissions.rs` together with the other slow items (the notifications
+    /// query alone can take 2s).
+    const PROBE_WAIT: Duration = Duration::from_millis(1500);
+
+    /// Screen-recording probe bookkeeping. Deliberately NOT
+    /// `crate::ttl_cache::TtlCache`: this is not a keyed TTL map but
+    /// single-permission state whose defining property is single-flight — the
+    /// lock is held ACROSS the child probe, so concurrent catalog passes share
+    /// one spawn instead of each launching their own.
+    ///
+    /// Both outcomes expire, on different clocks (see the two TTLs above);
+    /// `forget_screen_probe_memory` additionally drops it outright after a
+    /// reset, which invalidates any earlier observation immediately.
+    struct ScreenProbeState {
+        last: Option<(Instant, bool)>,
+    }
+
+    static SCREEN_PROBE: Mutex<ScreenProbeState> = Mutex::new(ScreenProbeState { last: None });
+
+    fn screen_probe_pending_restart(bypass_debounce: bool) -> bool {
+        let Ok(mut state) = SCREEN_PROBE.lock() else {
+            return false;
+        };
+        if !bypass_debounce {
+            if let Some((at, cached)) = state.last {
+                let ttl = if cached {
+                    PROBE_POSITIVE_TTL
+                } else {
+                    PROBE_RETRY_TTL
+                };
+                if at.elapsed() < ttl {
+                    return cached;
+                }
+            }
+        }
+        let result = fresh_process_probe("screen_recording");
+        crate::app_info!(
+            "permissions",
+            "tcc_probe",
+            "screen_recording fresh-process probe → {:?}",
+            result
+        );
+        let pending = result == Some(true);
+        state.last = Some((Instant::now(), pending));
+        pending
+    }
+
+    /// Spawn this same executable with `--tcc-probe <id>` and parse its
+    /// stdout handshake (`hope-agent-tcc-probe:granted=1|0`); anything else
+    /// is unknown. Desktop-only: other runtimes may embed ha-core in
+    /// binaries that do not implement the probe argument.
+    fn fresh_process_probe(id: &str) -> Option<bool> {
+        if !crate::app_init::is_desktop() {
+            return None;
+        }
+        let exe = std::env::current_exe().ok()?;
+        let mut child = Command::new(exe)
+            .args(["--tcc-probe", id])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let deadline = Instant::now() + PROBE_WAIT;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return None;
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
+        }
+        // The child has exited (single-line output well under the pipe
+        // buffer), so this read cannot block.
+        let mut output = String::new();
+        use std::io::Read as _;
+        child.stdout.take()?.read_to_string(&mut output).ok()?;
+        parse_probe_output(&output)
+    }
+
+    /// Decode the child's handshake line. Anything without the exact token —
+    /// empty output from a binary that predates the flag, GUI/other-mode
+    /// chatter, a malformed value — is `None` (unknown), never a grant.
+    fn parse_probe_output(output: &str) -> Option<bool> {
+        let value = output.lines().find_map(|line| {
+            line.trim()
+                .strip_prefix(crate::permissions::TCC_PROBE_OUTPUT_PREFIX)
+        })?;
+        match value {
+            "1" => Some(true),
+            "0" => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Drop the remembered probe result. MUST be called after a TCC reset:
+    /// the observation is otherwise trusted for up to `PROBE_POSITIVE_TTL`,
+    /// and a reset invalidates it immediately — without this the panel would
+    /// keep reporting "granted, restart to apply" for a grant just wiped.
+    fn forget_screen_probe_memory() {
+        if let Ok(mut state) = SCREEN_PROBE.lock() {
+            state.last = None;
+        }
+    }
+
+    /// `tccutil` service name for the permissions whose TCC record the user
+    /// may reset from the UI. Deliberately a closed whitelist compiled into
+    /// the binary: the service string must never originate outside this
+    /// module, or the reset action would become "wipe any TCC service".
+    fn tcc_reset_service(id: &str) -> Option<&'static str> {
+        match id {
+            "accessibility" => Some("Accessibility"),
+            "screen_recording" => Some("ScreenCapture"),
+            "input_monitoring" => Some("ListenEvent"),
+            _ => None,
+        }
+    }
+
+    pub fn supports_reset(id: &str) -> bool {
+        tcc_reset_service(id).is_some() && bundle_identifier().is_some()
+    }
+
+    /// This app's `CFBundleIdentifier`, or `None` when the process is not
+    /// running from a bundle (bare `target/debug/hope-agent`). Read from the
+    /// running bundle rather than hardcoded, and the `None` case is load
+    /// bearing: an unbundled process has no stable TCC identity, so there is
+    /// nothing meaningful to reset and `tccutil` would either fail or hit
+    /// some other bundle.
+    fn bundle_identifier() -> Option<String> {
+        let cls = objc_class(c"NSBundle")?;
+        objc2::rc::autoreleasepool(|pool| unsafe {
+            let bundle: *mut AnyObject = msg_send![cls, mainBundle];
+            if bundle.is_null() {
+                return None;
+            }
+            let identifier: *mut NSString = msg_send![bundle, bundleIdentifier];
+            if identifier.is_null() {
+                return None;
+            }
+            Some((*identifier).to_str(pool).to_owned())
+        })
+    }
+
+    /// Reset this app's TCC record for `id` via `tccutil`, so macOS asks
+    /// again on the next request. There is no public API for this — `tccutil`
+    /// is the only supported route — but it needs no elevation for these
+    /// services. Spawned with separate args (never a shell string).
+    pub fn reset_item(id: &str) -> Result<(), String> {
+        let Some(service) = tcc_reset_service(id) else {
+            return Err(format!("Permission '{}' does not support reset.", id));
+        };
+        let Some(bundle_id) = bundle_identifier() else {
+            return Err(
+                "Resetting system permissions requires the packaged app (a bare development \
+                 binary has no stable TCC identity)."
+                    .to_string(),
+            );
+        };
+
+        let output = Command::new("tccutil")
+            .args(["reset", service, &bundle_id])
+            .output()
+            .map_err(|e| format!("Failed to run tccutil: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let detail = stderr.trim();
+            crate::app_warn!(
+                "permissions",
+                "tcc_reset",
+                "{} reset failed: status={:?} stderr={}",
+                id,
+                output.status.code(),
+                detail
+            );
+            return Err(if detail.is_empty() {
+                format!("tccutil exited with status {:?}.", output.status.code())
+            } else {
+                detail.to_string()
+            });
+        }
+
+        if id == "screen_recording" {
+            forget_screen_probe_memory();
+        }
+        crate::app_info!(
+            "permissions",
+            "tcc_reset",
+            "{} ({}) reset for {}",
+            id,
+            service,
+            bundle_id
+        );
+        Ok(())
+    }
+
+    /// Raw, spawn-free preflight backing the `--tcc-probe` process mode.
+    /// MUST never route through the fresh-process probe above — a probe
+    /// child answering via another probe would recurse forever.
+    pub fn raw_probe(id: &str) -> Option<bool> {
+        match id {
+            "accessibility" => Some(unsafe { AXIsProcessTrusted() }),
+            "screen_recording" => Some(unsafe { CGPreflightScreenCaptureAccess() }),
+            "input_monitoring" => Some(unsafe { CGPreflightListenEventAccess() }),
+            _ => None,
         }
     }
 
@@ -577,8 +879,72 @@ mod imp {
 
     #[cfg(test)]
     mod tests {
-        use super::path_is_in_app_bundle;
+        use super::{parse_probe_output, path_is_in_app_bundle};
         use std::path::Path;
+
+        #[test]
+        fn bundle_identifier_is_absent_outside_an_app_bundle() {
+            // Exercises the NSBundle FFI (must not panic) and pins the
+            // load-bearing None: the test harness is an unbundled binary, so
+            // reset must be unavailable rather than aimed at some other
+            // bundle's TCC record.
+            assert_eq!(super::bundle_identifier(), None);
+            assert!(!super::supports_reset("screen_recording"));
+            assert!(super::reset_item("screen_recording").is_err());
+        }
+
+        #[test]
+        fn only_whitelisted_permissions_map_to_a_tcc_service() {
+            assert_eq!(
+                super::tcc_reset_service("accessibility"),
+                Some("Accessibility")
+            );
+            assert_eq!(
+                super::tcc_reset_service("screen_recording"),
+                Some("ScreenCapture")
+            );
+            assert_eq!(
+                super::tcc_reset_service("input_monitoring"),
+                Some("ListenEvent")
+            );
+            // Everything else — including real catalog ids and anything a
+            // caller might inject — has no service and cannot be reset.
+            for id in ["full_disk_access", "camera", "All", "", "ScreenCapture"] {
+                assert_eq!(
+                    super::tcc_reset_service(id),
+                    None,
+                    "unexpected mapping for {id:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn parses_probe_handshake_values() {
+            assert_eq!(
+                parse_probe_output("hope-agent-tcc-probe:granted=1\n"),
+                Some(true)
+            );
+            assert_eq!(
+                parse_probe_output("hope-agent-tcc-probe:granted=0\n"),
+                Some(false)
+            );
+            assert_eq!(
+                parse_probe_output("hope-agent-tcc-probe:granted=unknown\n"),
+                None
+            );
+        }
+
+        #[test]
+        fn output_without_the_token_is_never_granted() {
+            // A binary predating `--tcc-probe` prints nothing on this path
+            // (or unrelated chatter) and can still exit 0 — e.g. a
+            // single-instance forward. That must decode as unknown, never as
+            // a grant, or the panel would claim a permission the user never
+            // gave.
+            assert_eq!(parse_probe_output(""), None);
+            assert_eq!(parse_probe_output("Unknown arguments: --tcc-probe"), None);
+            assert_eq!(parse_probe_output("granted=1"), None);
+        }
 
         #[test]
         fn detects_executable_inside_app_bundle() {
@@ -618,6 +984,18 @@ mod imp {
     pub fn request_item(_def: PermissionDef) -> SystemPermissionStatus {
         SystemPermissionStatus::NotApplicable
     }
+
+    pub fn raw_probe(_id: &str) -> Option<bool> {
+        None
+    }
+
+    pub fn supports_reset(_id: &str) -> bool {
+        false
+    }
+
+    pub fn reset_item(_id: &str) -> Result<(), String> {
+        Err("Resetting system permissions is only supported on macOS.".to_string())
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -638,6 +1016,18 @@ mod imp {
 
     pub fn request_item(_def: PermissionDef) -> SystemPermissionStatus {
         SystemPermissionStatus::NotApplicable
+    }
+
+    pub fn raw_probe(_id: &str) -> Option<bool> {
+        None
+    }
+
+    pub fn supports_reset(_id: &str) -> bool {
+        false
+    }
+
+    pub fn reset_item(_id: &str) -> Result<(), String> {
+        Err("Resetting system permissions is only supported on macOS.".to_string())
     }
 }
 
@@ -660,6 +1050,18 @@ mod imp {
     pub fn request_item(_def: PermissionDef) -> SystemPermissionStatus {
         SystemPermissionStatus::NotApplicable
     }
+
+    pub fn raw_probe(_id: &str) -> Option<bool> {
+        None
+    }
+
+    pub fn supports_reset(_id: &str) -> bool {
+        false
+    }
+
+    pub fn reset_item(_id: &str) -> Result<(), String> {
+        Err("Resetting system permissions is only supported on macOS.".to_string())
+    }
 }
 
 pub(crate) fn platform_name() -> &'static str {
@@ -676,4 +1078,16 @@ pub(crate) fn check_item(id: &str) -> SystemPermissionStatus {
 
 pub(crate) fn request_item(def: PermissionDef) -> SystemPermissionStatus {
     imp::request_item(def)
+}
+
+pub(crate) fn raw_probe(id: &str) -> Option<bool> {
+    imp::raw_probe(id)
+}
+
+pub(crate) fn supports_reset(id: &str) -> bool {
+    imp::supports_reset(id)
+}
+
+pub(crate) fn reset_item(id: &str) -> Result<(), String> {
+    imp::reset_item(id)
 }
