@@ -58,7 +58,7 @@ on:
         required: true
         type: string
       force:
-        description: "Re-upload objects even when their content already matches. Needed once to repair objects that landed WITHOUT their Cache-Control (see the RCLONE_FLAGS note); --checksum alone skips them because the bytes are already correct."
+        description: "Re-upload objects even when their content already matches. Needed once to repair objects that landed WITHOUT their Cache-Control (see the R2_UPLOAD_FLAGS note); --checksum alone skips them because the bytes are already correct."
         required: false
         type: boolean
         default: false
@@ -94,6 +94,13 @@ env:
   RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
   # RCLONE_CONFIG_R2_ENDPOINT is derived by scripts/r2-endpoint.sh.
   #
+  # NAMING TRAP: rclone reads ANY `RCLONE_<FLAG>` environment variable as a
+  # value for the flag of that name. The `RCLONE_CONFIG_R2_*` vars above are
+  # the documented remote-config form and are fine, but a helper variable
+  # named RCLONE_FORCE becomes `--force`, RCLONE_VERSION becomes `--version`,
+  # and rclone dies on the first invocation with a bool-parse error. Hence the
+  # `R2_` prefix on everything below — do NOT rename them back.
+  #
   # Shared robustness flags for every upload. R2 answers `501 NotImplemented`
   # on the call rclone made to apply `--header-upload` headers AFTER a
   # successful PUT. Measured consequence: the object landed byte-correct but
@@ -109,7 +116,7 @@ env:
   #     managed out of band (linux-repo/README.md).
   #   --transfers/--checkers: lower concurrency, less pressure per burst.
   # Expanded UNQUOTED at each call site — word splitting is the point.
-  RCLONE_FLAGS: >-
+  R2_UPLOAD_FLAGS: >-
     --retries 10
     --low-level-retries 20
     --s3-no-check-bucket
@@ -140,10 +147,10 @@ jobs:
           # normal runs must NOT set it, since re-uploading every object each
           # release is pure waste.
           if [[ "${{ github.event.inputs.force }}" == "true" ]]; then
-            echo "RCLONE_FORCE=--ignore-times" >> "$GITHUB_ENV"
+            echo "R2_FORCE_FLAG=--ignore-times" >> "$GITHUB_ENV"
             echo "force: re-uploading even content-identical objects"
           else
-            echo "RCLONE_FORCE=" >> "$GITHUB_ENV"
+            echo "R2_FORCE_FLAG=" >> "$GITHUB_ENV"
           fi
           work="${RUNNER_TEMP}/mirror"
           # Start from empty: a leftover from an earlier run on a warm runner
@@ -300,16 +307,16 @@ jobs:
           # flags this workflow depends on would silently change with the
           # image. A release-critical publish path must not inherit its tool
           # version from the base image.
-          RCLONE_VERSION: v1.74.4
+          R2_RCLONE_PIN: v1.74.4
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq jq unzip
           tmp="$(mktemp -d)"
           curl -fsSL -o "$tmp/rclone.zip" \
-            "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.zip"
+            "https://downloads.rclone.org/${R2_RCLONE_PIN}/rclone-${R2_RCLONE_PIN}-linux-amd64.zip"
           unzip -q "$tmp/rclone.zip" -d "$tmp"
-          sudo install -m 755 "$tmp/rclone-${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/rclone
+          sudo install -m 755 "$tmp/rclone-${R2_RCLONE_PIN}-linux-amd64/rclone" /usr/local/bin/rclone
           rm -rf "$tmp"
           rclone version | head -1
 
@@ -317,13 +324,13 @@ jobs:
           # this, an unsupported flag surfaces as an opaque failure partway
           # through the first upload; here it is one clear line before any
           # bytes move. --metadata-set is what applies Cache-Control during the
-          # PUT (see the RCLONE_FLAGS note on why --header-upload was dropped).
+          # PUT (see the R2_UPLOAD_FLAGS note on why --header-upload was dropped).
           missing=()
           for flag in --metadata --metadata-set --checksum --s3-no-check-bucket; do
             rclone help flags 2>/dev/null | grep -q -- "$flag" || missing+=("$flag")
           done
           if (( ${#missing[@]} )); then
-            echo "::error::rclone ${RCLONE_VERSION} does not support: ${missing[*]} — pin a version that does"
+            echo "::error::rclone ${R2_RCLONE_PIN} does not support: ${missing[*]} — pin a version that does"
             exit 1
           fi
           echo "rclone flag support OK: --metadata --metadata-set --checksum --s3-no-check-bucket"
@@ -396,14 +403,14 @@ jobs:
           # them threw away exactly what was needed.
           rclone copy "$WORK/assets" "r2:${R2_BUCKET}/download/${TAG}" \
             --metadata --metadata-set "cache-control=${CC_IMMUTABLE}" \
-            $RCLONE_FLAGS $RCLONE_FORCE --stats=30s --stats-one-line
+            $R2_UPLOAD_FLAGS $R2_FORCE_FLAG --stats=30s --stats-one-line
           # Raw markdown as text/plain so a browser DISPLAYS it instead of
           # downloading an opaque .md — these are read, not installed.
           rclone copy "$WORK/docs" "r2:${R2_BUCKET}/download/${TAG}" \
             --metadata \
             --metadata-set "cache-control=${CC_IMMUTABLE}" \
             --metadata-set "content-type=text/plain; charset=utf-8" \
-            $RCLONE_FLAGS $RCLONE_FORCE --stats=0
+            $R2_UPLOAD_FLAGS $R2_FORCE_FLAG --stats=0
           echo "Uploaded to r2:${R2_BUCKET}/download/${TAG}"
 
       - name: Upload latest/ aliases (mutable, short TTL)
@@ -436,7 +443,7 @@ jobs:
           rclone copy "$WORK/latest" "r2:${R2_BUCKET}/download/latest" \
             --metadata --metadata-set "cache-control=${CC_LATEST}" \
             --checksum \
-            $RCLONE_FLAGS $RCLONE_FORCE --stats=30s --stats-one-line
+            $R2_UPLOAD_FLAGS $R2_FORCE_FLAG --stats=30s --stats-one-line
           echo "Uploaded to r2:${R2_BUCKET}/download/latest"
 
       - name: Verify every mirrored URL is live with the right size
@@ -571,7 +578,7 @@ jobs:
           rclone copyto "$WORK/out/latest.json" "r2:${R2_BUCKET}/download/latest.json" \
             --metadata --metadata-set "cache-control=${CC_MANIFEST}" \
             --checksum \
-            $RCLONE_FLAGS $RCLONE_FORCE --stats=0
+            $R2_UPLOAD_FLAGS $R2_FORCE_FLAG --stats=0
           echo "Published r2:${R2_BUCKET}/download/latest.json"
 
       - name: Verify the published manifest serves this release
