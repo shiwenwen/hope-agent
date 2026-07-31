@@ -284,10 +284,10 @@ fn read_project_instructions_at_root(
     })
 }
 
-/// Atomically replace the project root's `AGENTS.md` with the exact Markdown
-/// source supplied by the user. A missing file is first established with
-/// create-new semantics, so the empty-file hash returned by inspection remains
-/// a stale-write guard. Whitespace is preserved byte-for-byte.
+/// Atomically write the project root's `AGENTS.md` with the exact Markdown
+/// source supplied by the user. Missing files are published directly with
+/// create-new semantics, so a failed write cannot leave an empty placeholder
+/// behind. Whitespace is preserved byte-for-byte.
 pub fn save_project_instructions(
     project_id: &str,
     content: &str,
@@ -319,10 +319,23 @@ pub fn save_project_instructions(
             if expected_file_hash != empty_hash {
                 return Err(StaleProjectInstructionsError.into());
             }
-            if !ensure_instructions_at_root(&root)? {
-                return Err(StaleProjectInstructionsError.into());
+            match crate::platform::write_atomic_create_new(&path, content.as_bytes()) {
+                Ok(()) => {
+                    return Ok(ProjectInstructionsFile {
+                        path: path.to_string_lossy().to_string(),
+                        content: content.to_string(),
+                        content_hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
+                        exists: true,
+                        created: true,
+                    });
+                }
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    return Err(StaleProjectInstructionsError.into());
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| format!("write {}", path.display()));
+                }
             }
-            true
         }
         Err(error) => return Err(error).with_context(|| format!("stat {}", path.display())),
     };
@@ -728,6 +741,31 @@ mod tests {
             .downcast_ref::<StaleProjectInstructionsError>()
             .is_some());
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn stale_missing_save_does_not_overwrite_an_external_creation() {
+        let db_dir = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        let db = project_db(db_dir.path());
+        let project = db.create(input("Docs", root.path())).unwrap();
+        let loaded = read_project_instructions(&project.id, &db).unwrap();
+        let path = root.path().join(PROJECT_INSTRUCTIONS_FILE);
+        std::fs::write(&path, "external creation").unwrap();
+
+        let error = save_project_instructions(
+            &project.id,
+            "editor draft",
+            &loaded.content_hash,
+            loaded.exists,
+            &db,
+        )
+        .unwrap_err();
+
+        assert!(error
+            .downcast_ref::<StaleProjectInstructionsError>()
+            .is_some());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "external creation");
     }
 
     #[test]
