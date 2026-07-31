@@ -25,7 +25,7 @@ pub(crate) use crate::tool_defs::ToolExecContext;
 /// `AppConfig.permission.smart`; non-Smart skips the config load to keep
 /// the per-dispatch hot path at one ArcSwap::load() (or zero, for the
 /// Default/YOLO majority).
-pub(super) async fn resolve_tool_permission(
+pub async fn resolve_tool_permission(
     tool_name: &str,
     args: &Value,
     ctx: &ToolExecContext,
@@ -801,7 +801,7 @@ mod pre_tool_gate_tests {
 /// the call. `reason_payload` drives the dialog's reason banner (`None` =
 /// no banner, used for a hook-forced prompt); `allow_always_forbidden` reflects
 /// whether the reason bars an "Allow Always".
-pub(super) async fn run_tool_approval(
+pub async fn run_tool_approval(
     name: &str,
     args: &Value,
     ctx: &ToolExecContext,
@@ -809,6 +809,16 @@ pub(super) async fn run_tool_approval(
     allow_always_forbidden: bool,
     desc_override: Option<String>,
 ) -> anyhow::Result<approval::ApprovalOrigin> {
+    // `allow_always_forbidden` 由调用方传入，而本函数自阶段 5 起是 `pub`
+    // （迁出的 adapter 如 ha-cron 的 `manage_cron` 要用）。参数因此**只允许
+    // 收紧、不允许放松**：与 payload 自带的 strict 位取 `||`，否则 crate 外
+    // 的调用方对一个 strict reason 传 `false`，就能给它开出 AllowAlways 持久
+    // 化——而 AGENTS 明写判定源是 `AskReason::forbids_allow_always`
+    // （`ApprovalReasonKind::is_strict` 是它的镜像，两者有断言守着）。
+    let allow_always_forbidden = allow_always_forbidden
+        || reason_payload
+            .as_ref()
+            .is_some_and(|payload| payload.kind.is_strict());
     let desc = desc_override.unwrap_or_else(|| {
         format!("tool: {} {}", name, {
             let s = args.to_string();

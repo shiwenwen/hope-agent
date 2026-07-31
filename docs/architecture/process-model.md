@@ -1,6 +1,6 @@
 # 进程与并发模型
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-25 | 关联源码：[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)、[`guardian.rs`](../../crates/ha-core/src/guardian.rs)、[`app_init.rs`](../../crates/ha-core/src/app_init.rs)、[`logging/app_logger.rs`](../../crates/ha-base/src/logging/app_logger.rs)、[`cron/scheduler.rs`](../../crates/ha-core/src/cron/scheduler.rs)
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-25 | 关联源码：[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)、[`guardian.rs`](../../crates/ha-core/src/guardian.rs)、[`app_init.rs`](../../crates/ha-core/src/app_init.rs)、[`logging/app_logger.rs`](../../crates/ha-base/src/logging/app_logger.rs)、[`cron/scheduler.rs`](../../crates/ha-cron/src/cron/scheduler.rs)
 
 Hope Agent 的后台工作单元分四层。工程排查常见问题（"为什么重启才生效"、"哪个任务挂了但日志看不出来"）多半落在某一层。
 
@@ -66,7 +66,7 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 | 线程 | 位置 | 职责 |
 |------|------|------|
 | **AppLogger writer** | [`logging/app_logger.rs`](../../crates/ha-base/src/logging/app_logger.rs) | mpsc channel 收 `PendingLog` → 批量写 SQLite + 纯文本文件。cleanup_loop 作为同 runtime 内 `tokio::spawn` 任务附着 |
-| **Cron 调度器** | [`cron/scheduler.rs`](../../crates/ha-core/src/cron/scheduler.rs) | 独立线程 `cron-scheduler` + `new_multi_thread` runtime（2 worker threads）跑 tick 循环 |
+| **Cron 调度器** | [`cron/scheduler.rs`](../../crates/ha-cron/src/cron/scheduler.rs) | 独立线程 `cron-scheduler` + `new_multi_thread` runtime（2 worker threads）跑 tick 循环 |
 | **Weather 后台刷新** | [`ha_weather::start_background_refresh`](../../crates/ha-weather/src/lib.rs) | 定时拉取天气 API 注入 system prompt |
 | **Guardian Windows 信号监听** | [`guardian.rs`](../../crates/ha-core/src/guardian.rs) | Windows 无 POSIX 信号，用一条迷你线程跑 current-thread runtime 接 `ctrl_c` / `ctrl_break`（仅 `#[cfg(windows)]`） |
 

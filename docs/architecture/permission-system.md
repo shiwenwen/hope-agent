@@ -484,7 +484,7 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 
 - **Default** 弹标准审批；**Smart** 交 judge 模型自决；**YOLO / global-yolo** 免审；**无人值守**（cron 自身 turn 内调用、无 surface）按 `unattended_approval_action` **fail-closed**（默认 deny）。
 - **非 strict**（刻意 NOT in `forbids_allow_always`）：只约束 timeout / unattended 轴——超时不强制 deny、可按配置 proceed，Smart 可降级 judge。这与 ProtectedPath / DangerousCommand / BrowserRawCdp 等 strict 原因不同。
-- **但仍抑制 AllowAlways（红线）**：[`gate_cron_delete`](../../crates/ha-core/src/tools/cron.rs) 对该审批单独强制 `allow_always_forbidden=true`，前端 `barsAllowAlways`（[`ApprovalDialog.tsx`](../../src/components/chat/ApprovalDialog.tsx)）同步禁用按钮。原因：`manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**，一旦 AllowAlways 持久化便是「静默删除任意定时任务」的 id 无关常驻授权，且 `allows_tool_call` 会先于 `check_cron_delete` 命中而绕过本门。故每次 delete 都逐次确认、永不留常驻 grant——这是「非 strict 但 bars AllowAlways」的唯一案例。
+- **但仍抑制 AllowAlways（红线）**：[`gate_cron_delete`](../../crates/ha-cron/src/tools/cron.rs) 对该审批单独强制 `allow_always_forbidden=true`，前端 `barsAllowAlways`（[`ApprovalDialog.tsx`](../../src/components/chat/ApprovalDialog.tsx)）同步禁用按钮。原因：`manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**，一旦 AllowAlways 持久化便是「静默删除任意定时任务」的 id 无关常驻授权，且 `allows_tool_call` 会先于 `check_cron_delete` 命中而绕过本门。故每次 delete 都逐次确认、永不留常驻 grant——这是「非 strict 但 bars AllowAlways」的唯一案例。
 - `ApprovalReasonKind::CronDelete` + `ApprovalDialog.tsx` union + 12 语言 `approval.reasons.cron_delete` 三处同步（一致性单测锁后端两者）。完整 cron 侧逻辑（先取消在途 run 再删等）见 [`cron.md`](cron.md)「delete 审批」。
 
 ### 可审批（出现在 Agent「自定义工具审批」勾选清单）

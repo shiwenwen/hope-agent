@@ -145,7 +145,7 @@ pub fn spawn_loop_schedule_run_now(
     let job = cron_db
         .get_job(&schedule.cron_job_id)?
         .ok_or_else(|| anyhow!("Cron job not found"))?;
-    crate::cron::spawn_job_execution(cron_db.clone(), session_db.clone(), job);
+    crate::cron_hooks::spawn_job_execution(cron_db.clone(), session_db.clone(), job);
     Ok(())
 }
 
@@ -5210,7 +5210,7 @@ fn spawn_loop_monitor_run(
             return true;
         }
     };
-    crate::cron::spawn_job_execution(cron_db, session_db, job);
+    crate::cron_hooks::spawn_job_execution(cron_db, session_db, job);
     true
 }
 
@@ -5748,7 +5748,7 @@ pub fn spawn_loop_event_trigger_watcher() {
                                     continue;
                                 }
                             };
-                            crate::cron::spawn_job_execution(
+                            crate::cron_hooks::spawn_job_execution(
                                 cron_db.clone(),
                                 session_db.clone(),
                                 job,

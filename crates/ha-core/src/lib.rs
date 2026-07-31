@@ -70,6 +70,8 @@ pub mod context_compact;
 pub mod context_retrieval;
 pub mod crash_flush;
 pub mod cron;
+pub mod cron_defs;
+pub mod cron_hooks;
 pub mod dev_tools;
 pub mod domain_eval;
 pub mod domain_quality;

@@ -13,14 +13,15 @@ mod apply_patch;
 pub(crate) mod approval;
 // pub：ha-pet 活动快照消费（pending 审批聚合只读面；approval 模块本体保持
 // crate 内私有）。
-pub use approval::{pending_approvals_per_session, SessionApprovalAgg};
+pub use approval::{pending_approvals_per_session, ApprovalReasonPayload, SessionApprovalAgg};
 // pub：`ask_user_question::execute` 是结构化问答唯一入口（AGENTS.md 红线），
 // 特征 crate 的工具 adapter（如 ha-updater 的 `app_update` install/rollback
 // 确认）从 crate 外复用同一入口，不 fork。
 pub mod ask_user_question;
 mod builtin_registry;
 mod core_memory;
-mod cron;
+// `manage_cron` adapter 已随 ha-cron 迁出（§3.2 adapter 随特征走）；
+// schema 仍在 definitions::core_tools，handler 由 ha_cron::wire() 注册。
 mod definitions;
 // pub：ha-design 的 code_sync 复用 diff 摘要工具（不 fork）。
 pub mod diff_util;
@@ -151,7 +152,14 @@ pub use definitions::{
     get_audio_generate_tool_dynamic, get_image_generate_tool_dynamic, get_subagent_tool,
     get_tool_search_tool, get_workflow_tool,
 };
-pub use execution::{execute_tool_with_context, purge_tool_results_for_session};
+pub use execution::{
+    execute_tool_with_context,
+    purge_tool_results_for_session,
+    // 迁出的 adapter（ha-cron 的 manage_cron）经门面取审批裁决，
+    // 不直接 use 私有的 `execution` 模块。
+    resolve_tool_permission,
+    run_tool_approval,
+};
 
 /// Parse a model-facing compact call variant such as `browser__snapshot`.
 /// Only explicitly registered composite tools are accepted, so arbitrary

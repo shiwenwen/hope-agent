@@ -443,7 +443,7 @@ pub async fn delete_session_cmd(
     let cron_db = state.cron_db.clone();
     let session_db = state.session_db.clone();
     ha_core::blocking::run_blocking(move || {
-        ha_core::cron::delete_conversation_and_run_logs(&cron_db, &session_db, &session_id)
+        ha_cron::cron::delete_conversation_and_run_logs(&cron_db, &session_db, &session_id)
     })
     .await
     .map_err(Into::into)

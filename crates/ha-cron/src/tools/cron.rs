@@ -4,7 +4,7 @@ use std::pin::Pin;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::cron::{self, CronDeliveryTarget, CronPayload, CronSchedule, NewCronJob};
+use ha_core::cron::{self, CronDeliveryTarget, CronPayload, CronSchedule, NewCronJob};
 
 /// Tool: manage_cron — create, list, get, update, delete, and trigger scheduled tasks,
 /// and discover IM channel delivery targets.
@@ -15,14 +15,14 @@ use crate::cron::{self, CronDeliveryTarget, CronPayload, CronSchedule, NewCronJo
 /// cannot compute the infinite recursive future type to verify `Send`.
 pub(crate) fn tool_manage_cron<'a>(
     args: &'a Value,
-    ctx: &'a super::ToolExecContext,
+    ctx: &'a ha_core::tools::ToolExecContext,
 ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
     // Own the session_id so the returned future doesn't borrow from the caller;
     // `ctx` itself is only needed by the `delete` approval gate below.
     let session_id = ctx.session_id.clone();
     Box::pin(async move {
-        let cron_db =
-            crate::get_cron_db().ok_or_else(|| anyhow::anyhow!("Cron service not initialized"))?;
+        let cron_db = ha_core::get_cron_db()
+            .ok_or_else(|| anyhow::anyhow!("Cron service not initialized"))?;
 
         let action = args
             .get("action")
@@ -245,7 +245,7 @@ pub(crate) fn tool_manage_cron<'a>(
                         .unwrap_or_default();
                     lines.push(format!(
                         "  - [{}] {} ({}) | Next: {} | Status: {}{}{}",
-                        crate::truncate_utf8(&job.id, 8),
+                        ha_core::truncate_utf8(&job.id, 8),
                         job.name,
                         schedule_summary(&job.schedule),
                         next,
@@ -288,7 +288,7 @@ pub(crate) fn tool_manage_cron<'a>(
                 // (every other action stays internal-exempt). `?` aborts with an
                 // already-rendered rejection on deny / unattended / timeout.
                 gate_cron_delete(args, ctx, desc).await?;
-                match crate::get_session_db() {
+                match ha_core::get_session_db() {
                     Some(session_db) => {
                         crate::cron::delete_job_and_sessions(cron_db, session_db, id)?
                     }
@@ -342,7 +342,7 @@ pub(crate) fn tool_manage_cron<'a>(
                 // preflight, spawning on a Secondary would return "Triggered
                 // immediate execution" to the model while nothing claims, runs,
                 // logs, or delivers. Fail loudly instead of reporting a fake success.
-                if !crate::runtime_lock::is_primary() {
+                if !ha_core::runtime_lock::is_primary() {
                     anyhow::bail!(
                         "run_now is unavailable on this instance: scheduled jobs only run on the primary"
                     );
@@ -350,26 +350,26 @@ pub(crate) fn tool_manage_cron<'a>(
                 let job = {
                     let cron_db = cron_db.clone();
                     let id = id.to_string();
-                    crate::blocking::run_blocking(move || cron_db.get_job(&id)).await?
+                    ha_core::blocking::run_blocking(move || cron_db.get_job(&id)).await?
                 }
                 .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
 
                 // Prefer the global SessionDB (Tauri app); fall back to opening a fresh
                 // connection (ACP mode where SESSION_DB OnceLock is never populated).
-                let session_db = match crate::get_session_db() {
+                let session_db = match ha_core::get_session_db() {
                     Some(db) => db.clone(),
                     None => {
-                        crate::blocking::run_blocking(move || {
-                            let path = crate::session::db_path()?;
+                        ha_core::blocking::run_blocking(move || {
+                            let path = ha_core::session::db_path()?;
                             Ok::<_, anyhow::Error>(std::sync::Arc::new(
-                                crate::session::SessionDB::open(&path)?,
+                                ha_core::session::SessionDB::open(&path)?,
                             ))
                         })
                         .await?
                     }
                 };
 
-                cron::spawn_job_execution(cron_db.clone(), session_db, job);
+                crate::cron::spawn_job_execution(cron_db.clone(), session_db, job);
                 Ok(format!("Triggered immediate execution of '{}'.", id))
             }
 
@@ -412,15 +412,23 @@ fn reject_loop_managed_job(job: &cron::CronJob, id: &str, action: &str) -> Resul
 /// `run_tool_approval` keeps the strict-timeout / unattended / AllowAlways
 /// handling in one place. Returns `Ok(())` to proceed or an already-rendered
 /// `ToolRejection` to abort the delete.
-async fn gate_cron_delete(args: &Value, ctx: &super::ToolExecContext, desc: String) -> Result<()> {
+async fn gate_cron_delete(
+    args: &Value,
+    ctx: &ha_core::tools::ToolExecContext,
+    desc: String,
+) -> Result<()> {
     let decision =
-        super::execution::resolve_tool_permission(super::TOOL_MANAGE_CRON, args, ctx, false).await;
+        ha_core::tools::resolve_tool_permission(ha_core::tools::TOOL_MANAGE_CRON, args, ctx, false)
+            .await;
     match decision {
-        crate::permission::Decision::Allow => Ok(()),
-        crate::permission::Decision::Deny { reason } => Err(
-            super::rejection::ToolRejection::denied_by_policy(super::TOOL_MANAGE_CRON, reason),
-        ),
-        crate::permission::Decision::Ask { reason } => {
+        ha_core::permission::Decision::Allow => Ok(()),
+        ha_core::permission::Decision::Deny { reason } => {
+            Err(ha_core::tools::ToolRejection::denied_by_policy(
+                ha_core::tools::TOOL_MANAGE_CRON,
+                reason,
+            ))
+        }
+        ha_core::permission::Decision::Ask { reason } => {
             // Force `allow_always_forbidden=true`: a one-off "Allow Always" on a
             // cron delete must NOT persist a standing grant. The allowlist matcher
             // for `manage_cron` keys on `action` only (not the job `id`), so a
@@ -429,11 +437,11 @@ async fn gate_cron_delete(args: &Value, ctx: &super::ToolExecContext, desc: Stri
             // would bypass the prompt on every future delete. CronDelete stays
             // non-strict for the timeout / unattended axis (this flag only governs
             // AllowAlways persistence); the frontend likewise disables the button.
-            super::execution::run_tool_approval(
-                super::TOOL_MANAGE_CRON,
+            ha_core::tools::run_tool_approval(
+                ha_core::tools::TOOL_MANAGE_CRON,
                 args,
                 ctx,
-                Some(super::approval::ApprovalReasonPayload::from(&reason)),
+                Some(ha_core::tools::ApprovalReasonPayload::from(&reason)),
                 true,
                 Some(desc),
             )
@@ -451,7 +459,7 @@ enum CronTimeoutArg {
 
 async fn resolve_cron_job_timeout_secs_arg(
     args: &Value,
-    ctx: &super::ToolExecContext,
+    ctx: &ha_core::tools::ToolExecContext,
 ) -> CronTimeoutArg {
     let Some(value) = args.get("job_timeout_secs") else {
         return CronTimeoutArg::Absent;
@@ -463,15 +471,15 @@ async fn resolve_cron_job_timeout_secs_arg(
         return CronTimeoutArg::Set(None);
     };
 
-    let effective_secs = crate::config::clamp_cron_job_timeout_secs(requested_secs);
-    let user_limit_secs = crate::config::cached_config()
+    let effective_secs = ha_core::config::clamp_cron_job_timeout_secs(requested_secs);
+    let user_limit_secs = ha_core::config::cached_config()
         .cron
         .effective_job_timeout_secs();
 
     if user_limit_secs > 0 && (requested_secs == 0 || effective_secs > user_limit_secs) {
-        super::audit_model_runtime_timeout_override(
+        ha_core::tools::audit_model_runtime_timeout_override(
             Some(ctx),
-            super::TOOL_MANAGE_CRON,
+            ha_core::tools::TOOL_MANAGE_CRON,
             "job_timeout_secs",
             requested_secs,
             user_limit_secs,
@@ -479,9 +487,9 @@ async fn resolve_cron_job_timeout_secs_arg(
             true,
             "model supplied cron per-job timeout would relax global cron timeout",
         );
-        super::emit_model_runtime_timeout_metadata(
+        ha_core::tools::emit_model_runtime_timeout_metadata(
             ctx,
-            super::TOOL_MANAGE_CRON,
+            ha_core::tools::TOOL_MANAGE_CRON,
             "job_timeout_secs",
             requested_secs,
             user_limit_secs,
@@ -494,11 +502,11 @@ async fn resolve_cron_job_timeout_secs_arg(
     }
 
     if requested_secs > 0
-        && super::should_ignore_model_runtime_timeout_when_user_unlimited(user_limit_secs)
+        && ha_core::tools::should_ignore_model_runtime_timeout_when_user_unlimited(user_limit_secs)
     {
-        super::audit_model_runtime_timeout_override(
+        ha_core::tools::audit_model_runtime_timeout_override(
             Some(ctx),
-            super::TOOL_MANAGE_CRON,
+            ha_core::tools::TOOL_MANAGE_CRON,
             "job_timeout_secs",
             requested_secs,
             user_limit_secs,
@@ -506,9 +514,9 @@ async fn resolve_cron_job_timeout_secs_arg(
             true,
             "global cron job timeout is unlimited",
         );
-        super::emit_model_runtime_timeout_metadata(
+        ha_core::tools::emit_model_runtime_timeout_metadata(
             ctx,
-            super::TOOL_MANAGE_CRON,
+            ha_core::tools::TOOL_MANAGE_CRON,
             "job_timeout_secs",
             requested_secs,
             user_limit_secs,
@@ -520,9 +528,9 @@ async fn resolve_cron_job_timeout_secs_arg(
         return CronTimeoutArg::Ignored;
     }
 
-    super::audit_model_runtime_timeout_override(
+    ha_core::tools::audit_model_runtime_timeout_override(
         Some(ctx),
-        super::TOOL_MANAGE_CRON,
+        ha_core::tools::TOOL_MANAGE_CRON,
         "job_timeout_secs",
         requested_secs,
         effective_secs,
@@ -530,9 +538,9 @@ async fn resolve_cron_job_timeout_secs_arg(
         false,
         "model supplied cron per-job timeout",
     );
-    super::emit_model_runtime_timeout_metadata(
+    ha_core::tools::emit_model_runtime_timeout_metadata(
         ctx,
-        super::TOOL_MANAGE_CRON,
+        ha_core::tools::TOOL_MANAGE_CRON,
         "job_timeout_secs",
         requested_secs,
         effective_secs,
@@ -552,7 +560,7 @@ fn resolve_project_id_for_create(args: &Value, session_id: Option<&str>) -> Resu
     }
 
     let project_id = session_id
-        .and_then(|sid| crate::session::lookup_session_meta(Some(sid)))
+        .and_then(|sid| ha_core::session::lookup_session_meta(Some(sid)))
         .and_then(|meta| meta.project_id);
     validate_project_id(project_id.as_deref())?;
     Ok(project_id)
@@ -579,7 +587,7 @@ fn validate_project_id(project_id: Option<&str>) -> Result<()> {
     let Some(project_id) = project_id else {
         return Ok(());
     };
-    let project_db = crate::require_project_db()?;
+    let project_db = ha_core::require_project_db()?;
     if project_db.get(project_id)?.is_none() {
         anyhow::bail!("Project '{}' not found", project_id);
     }
@@ -587,7 +595,7 @@ fn validate_project_id(project_id: Option<&str>) -> Result<()> {
 }
 
 fn project_label(project_id: &str) -> String {
-    crate::get_project_db()
+    ha_core::get_project_db()
         .and_then(|db| db.get(project_id).ok().flatten())
         .map(|project| format!("{} ({})", project.display_label(), project.id))
         .unwrap_or_else(|| format!("{} (missing)", project_id))
@@ -696,7 +704,7 @@ fn resolve_delivery_targets_for_create(
     match args.get("delivery_targets") {
         None | Some(Value::Null) => {
             // Try to infer from current channel session.
-            if let (Some(sid), Some(db)) = (session_id, crate::get_channel_db()) {
+            if let (Some(sid), Some(db)) = (session_id, ha_core::get_channel_db()) {
                 if let Ok(Some(conv)) = db.get_conversation_by_session(sid) {
                     let label = conv
                         .sender_name
@@ -739,7 +747,7 @@ fn validate_delivery_targets(targets: &[CronDeliveryTarget]) -> Result<()> {
     if targets.is_empty() {
         return Ok(());
     }
-    let Some(db) = crate::get_channel_db() else {
+    let Some(db) = ha_core::get_channel_db() else {
         anyhow::bail!(
             "Cannot validate delivery_targets: the IM channel subsystem is not available. \
              Configure an IM channel account first."
@@ -788,8 +796,8 @@ fn format_targets_inline(targets: &[CronDeliveryTarget]) -> String {
 /// copy-pasteable — the model can read the `channel_id=... account_id=... chat_id=...`
 /// fields straight into a subsequent `create` / `update` call.
 fn list_channel_targets_text() -> String {
-    let store = crate::config::cached_config();
-    let channel_db = crate::get_channel_db();
+    let store = ha_core::config::cached_config();
+    let channel_db = ha_core::get_channel_db();
 
     let enabled: Vec<_> = store
         .channels
@@ -861,7 +869,7 @@ fn list_channel_targets_text() -> String {
 }
 
 fn list_projects_text(include_archived: bool) -> String {
-    let project_db = match crate::require_project_db() {
+    let project_db = match ha_core::require_project_db() {
         Ok(db) => db,
         Err(e) => return format!("Project service not initialized: {}", e),
     };
@@ -888,7 +896,7 @@ fn list_projects_text(include_archived: bool) -> String {
             .description
             .as_deref()
             .filter(|s| !s.trim().is_empty())
-            .map(|s| format!(" — {}", crate::truncate_utf8(s, 120)))
+            .map(|s| format!(" — {}", ha_core::truncate_utf8(s, 120)))
             .unwrap_or_default();
         lines.push(format!(
             "  - {} | project_id=\"{}\"{}{}{}",

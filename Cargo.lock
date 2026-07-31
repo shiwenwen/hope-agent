@@ -3282,6 +3282,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-cron"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "futures-util",
+ "ha-base",
+ "ha-core",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "ha-dash"
 version = "0.24.0"
 dependencies = [
@@ -3354,6 +3370,7 @@ dependencies = [
  "ha-acp",
  "ha-browser",
  "ha-core",
+ "ha-cron",
  "ha-dash",
  "ha-design",
  "ha-eval-spec",
@@ -3526,6 +3543,7 @@ dependencies = [
  "ha-acp",
  "ha-browser",
  "ha-core",
+ "ha-cron",
  "ha-dash",
  "ha-design",
  "ha-local-llm",
@@ -3731,6 +3749,7 @@ dependencies = [
  "ha-acp",
  "ha-browser",
  "ha-core",
+ "ha-cron",
  "ha-dash",
  "ha-design",
  "ha-local-llm",

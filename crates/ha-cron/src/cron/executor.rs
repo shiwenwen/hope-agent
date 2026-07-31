@@ -3,9 +3,9 @@ use chrono::Utc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 
-use super::db::CronDB;
-use super::delivery::{deliver_results, DeliveryOutcome};
-use super::types::*;
+use crate::cron::delivery::{deliver_results, DeliveryOutcome};
+use ha_core::cron::CronDB;
+use ha_core::cron_defs::*;
 
 /// Grace window after a per-run timeout: the cooperative cancel flag is set and
 /// the engine turn is awaited this much longer so it can unwind cleanly (flush
@@ -38,7 +38,7 @@ fn cron_dispatch_runtime() -> &'static tokio::runtime::Handle {
 /// not a valid home for a cron turn's synchronous DB call chain.
 pub fn spawn_job_execution(
     cron_db: Arc<CronDB>,
-    session_db: Arc<crate::session::SessionDB>,
+    session_db: Arc<ha_core::session::SessionDB>,
     job: CronJob,
 ) {
     cron_dispatch_runtime().spawn(async move {
@@ -49,7 +49,7 @@ pub fn spawn_job_execution(
 /// Public wrapper for execute_job, callable from Tauri commands.
 pub async fn execute_job_public(
     cron_db: &Arc<CronDB>,
-    session_db: &Arc<crate::session::SessionDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
     job: &CronJob,
 ) {
     // C10: cron executes only on the Primary instance (like the scheduler). A
@@ -59,7 +59,7 @@ pub async fn execute_job_public(
     // concurrency cap, and letting a recurring job be double-claimed). Refuse a
     // run-now off-Primary — the single chokepoint for all three run-now entries
     // (Tauri command / HTTP route / `manage_cron` tool).
-    if !crate::runtime_lock::is_primary() {
+    if !ha_core::runtime_lock::is_primary() {
         app_warn!(
             "cron",
             "executor",
@@ -69,7 +69,7 @@ pub async fn execute_job_public(
         );
         return;
     }
-    match crate::agent_lifecycle::with_lifecycle_gate(|| {
+    match ha_core::agent_lifecycle::with_lifecycle_gate(|| {
         cron_db.claim_immediate_job_for_execution(job)
     }) {
         Ok(Some(claimed)) => execute_claimed_job(cron_db, session_db, claimed).await,
@@ -167,14 +167,14 @@ struct CancelRegistrationGuard {
 
 impl Drop for CancelRegistrationGuard {
     fn drop(&mut self) {
-        super::cancel::remove(&self.job_id, &self.claimed_at);
+        ha_core::cron::cancel::remove(&self.job_id, &self.claimed_at);
     }
 }
 
 /// Execute a job whose running marker was already claimed by the DB.
 pub(crate) async fn execute_claimed_job(
     cron_db: &Arc<CronDB>,
-    session_db: &Arc<crate::session::SessionDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
     claimed: ClaimedCronJob,
 ) {
     let start_time = std::time::Instant::now();
@@ -199,7 +199,7 @@ pub(crate) async fn execute_claimed_job(
     // window isn't silently dropped. Keyed by `started_at` (this run's
     // claimed_at) so `register` only honors a placeholder targeting THIS run;
     // the guard clears it on every exit path.
-    let cancel_flag = super::cancel::register(&job.id, &started_at);
+    let cancel_flag = ha_core::cron::cancel::register(&job.id, &started_at);
     let _cancel_guard = CancelRegistrationGuard {
         job_id: job.id.clone(),
         claimed_at: started_at.clone(),
@@ -277,7 +277,7 @@ pub(crate) async fn execute_claimed_job(
     // Acquire before the isolated session and run metadata are persisted.
     // The engine retains its own guard as a shared backstop; this outer guard
     // closes the shell-side create/delete race.
-    let _agent_admission = match crate::agent_lifecycle::begin_agent_run(&agent_id) {
+    let _agent_admission = match ha_core::agent_lifecycle::begin_agent_run(&agent_id) {
         Ok(guard) => guard,
         Err(error) => {
             record_failure(
@@ -361,8 +361,8 @@ pub(crate) async fn execute_claimed_job(
 
     // Persist the cron prompt before execution so `run_chat_engine` can reuse
     // the same DB contract as interactive chat without duplicating user rows.
-    let mut user_msg =
-        crate::session::NewMessage::user(&prompt).with_source(crate::chat_engine::ChatSource::Cron);
+    let mut user_msg = ha_core::session::NewMessage::user(&prompt)
+        .with_source(ha_core::chat_engine::ChatSource::Cron);
     user_msg.attachments_meta = Some(
         serde_json::json!({
             "cron_trigger": {
@@ -379,7 +379,8 @@ pub(crate) async fn execute_claimed_job(
     // sends the task explicitly asks for — and deny out-of-scope / injected
     // ones. Owner-internal and unattended; the guard clears it on every exit
     // path (success / failure / timeout / cancel / panic-unwind).
-    let _intent_guard = crate::permission::task_intent::TaskIntentGuard::new(&session_id, &prompt);
+    let _intent_guard =
+        ha_core::permission::task_intent::TaskIntentGuard::new(&session_id, &prompt);
 
     // Apply per-job permission / sandbox overrides (owner-set; `None` = follow the
     // agent default already seeded at session creation). The session row is the
@@ -446,13 +447,13 @@ pub(crate) async fn execute_claimed_job(
         Ok(Some(mode)) => mode,
         Ok(None) | Err(_) => match job.sandbox_mode_override {
             Some(mode) => mode,
-            None => crate::agent_loader::load_agent(&agent_id)
+            None => ha_core::agent_loader::load_agent(&agent_id)
                 .map(|def| def.config.capabilities.effective_default_sandbox_mode())
                 .unwrap_or_default(),
         },
     };
     if effective_sandbox.enabled() {
-        if let Err(e) = crate::sandbox::ensure_sandbox_available().await {
+        if let Err(e) = ha_core::sandbox::ensure_sandbox_available().await {
             let err_text = format!("sandbox unavailable: {e}");
             app_error!(
                 "cron",
@@ -492,8 +493,8 @@ pub(crate) async fn execute_claimed_job(
     // global CronConfig default, so a legitimately long task can declare its own
     // budget without raising the cap for every job.
     let timeout_secs = match job.job_timeout_secs {
-        Some(secs) => crate::config::clamp_cron_job_timeout_secs(secs),
-        None => crate::config::cached_config()
+        Some(secs) => ha_core::config::clamp_cron_job_timeout_secs(secs),
+        None => ha_core::config::cached_config()
             .cron
             .effective_job_timeout_secs(),
     };
@@ -617,7 +618,7 @@ pub(crate) async fn execute_claimed_job(
             );
 
             let preview = if response.len() > 500 {
-                Some(crate::truncate_utf8(&response, 500).to_string())
+                Some(ha_core::truncate_utf8(&response, 500).to_string())
             } else {
                 Some(response.clone())
             };
@@ -717,7 +718,7 @@ pub(crate) async fn execute_claimed_job(
                 .err()
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "unknown error".to_string());
-            let class = super::failure::CronFailureClass::classify(&err_text);
+            let class = crate::cron::failure::CronFailureClass::classify(&err_text);
             app_error!(
                 "cron",
                 "executor",
@@ -751,7 +752,7 @@ pub(crate) async fn execute_claimed_job(
 #[allow(clippy::too_many_arguments)]
 async fn execute_session_loop_payload(
     cron_db: &Arc<CronDB>,
-    session_db: &Arc<crate::session::SessionDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
     job: &CronJob,
     payload_loop_id: &str,
     parent_session_id: &str,
@@ -801,7 +802,7 @@ async fn execute_session_loop_payload(
     };
 
     let admission = match admission {
-        crate::loop_control::LoopRunDecision::NotLoop => {
+        ha_core::loop_control::LoopRunDecision::NotLoop => {
             let err_text = "cron job is not linked to a loop schedule";
             record_failure(
                 cron_db,
@@ -818,7 +819,7 @@ async fn execute_session_loop_payload(
             );
             return;
         }
-        crate::loop_control::LoopRunDecision::Reject(rejection) => {
+        ha_core::loop_control::LoopRunDecision::Reject(rejection) => {
             let finished_at = Utc::now().to_rfc3339();
             let duration_ms = start_time.elapsed().as_millis() as u64;
             let _ = cron_db.finalize_or_insert_run_log(
@@ -835,11 +836,11 @@ async fn execute_session_loop_payload(
             );
             let _ = cron_db.clear_running(&job.id);
             match rejection.cron_job_disposition {
-                crate::loop_control::LoopCronJobDisposition::Keep => {}
-                crate::loop_control::LoopCronJobDisposition::Pause => {
+                ha_core::loop_control::LoopCronJobDisposition::Keep => {}
+                ha_core::loop_control::LoopCronJobDisposition::Pause => {
                     let _ = cron_db.toggle_job(&job.id, false);
                 }
-                crate::loop_control::LoopCronJobDisposition::Complete => {
+                ha_core::loop_control::LoopCronJobDisposition::Complete => {
                     let _ = cron_db.mark_job_completed(&job.id);
                 }
             }
@@ -847,7 +848,7 @@ async fn execute_session_loop_payload(
                 &job.id,
                 None,
                 run_log_id,
-                crate::loop_control::LoopRunState::Skipped,
+                ha_core::loop_control::LoopRunState::Skipped,
                 None,
                 Some(&rejection.reason),
                 &finished_at,
@@ -855,7 +856,7 @@ async fn execute_session_loop_payload(
             emit_cron_event(&job.id, &job.name, "cancelled", false, None);
             return;
         }
-        crate::loop_control::LoopRunDecision::Admit(admission) => admission,
+        ha_core::loop_control::LoopRunDecision::Admit(admission) => admission,
     };
 
     if admission.loop_id != payload_loop_id {
@@ -876,7 +877,7 @@ async fn execute_session_loop_payload(
     };
     let mut extra_trace: Option<serde_json::Value> = None;
     let (cron_status, loop_state, summary, error) =
-        if admission.execution_strategy == crate::loop_control::LoopExecutionStrategy::Workflow {
+        if admission.execution_strategy == ha_core::loop_control::LoopExecutionStrategy::Workflow {
             app_info!(
                 "cron",
                 "executor",
@@ -885,11 +886,11 @@ async fn execute_session_loop_payload(
                 admission.run_id,
                 parent_session_id
             );
-            match crate::workflow::ensure_workflow_launcher_primary()
+            match ha_core::workflow::ensure_workflow_launcher_primary()
                 .and_then(|_| session_db.create_loop_workflow_run(&admission))
             {
                 Ok(launch) => {
-                    let accepted = crate::workflow::spawn_workflow_run_if_primary(
+                    let accepted = ha_core::workflow::spawn_workflow_run_if_primary(
                         session_db.clone(),
                         launch.run_id.clone(),
                         format!(
@@ -911,7 +912,7 @@ async fn execute_session_loop_payload(
                         }));
                         (
                             "success",
-                            crate::loop_control::LoopRunState::Succeeded,
+                            ha_core::loop_control::LoopRunState::Succeeded,
                             Some(format!(
                                 "Workflow run {} launched from loop {}",
                                 launch.run_id, admission.loop_id
@@ -926,7 +927,7 @@ async fn execute_session_loop_payload(
                         }));
                         (
                             "error",
-                            crate::loop_control::LoopRunState::Failed,
+                            ha_core::loop_control::LoopRunState::Failed,
                             None,
                             Some(
                                 "workflow launch was rejected because this process is not primary"
@@ -942,7 +943,7 @@ async fn execute_session_loop_payload(
                     }));
                     (
                         "error",
-                        crate::loop_control::LoopRunState::Failed,
+                        ha_core::loop_control::LoopRunState::Failed,
                         None,
                         Some(format!("loop workflow launch failed: {err:#}")),
                     )
@@ -954,7 +955,7 @@ async fn execute_session_loop_payload(
                 .unwrap_or(admission.agent_id.as_str())
                 .to_string();
             let goal_id = admission.goal_id.as_deref().or(payload_goal_id);
-            let push_message = crate::loop_control::build_loop_trigger_message(
+            let push_message = ha_core::loop_control::build_loop_trigger_message(
                 &admission.loop_id,
                 &admission.run_id,
                 goal_id,
@@ -975,10 +976,10 @@ async fn execute_session_loop_payload(
                 parent_session_id
             );
 
-            let outcome = crate::subagent::injection::inject_and_run_parent(
+            let outcome = ha_core::subagent::injection::inject_and_run_parent(
                 parent_session_id.to_string(),
                 parent_agent_id,
-                crate::subagent::injection::LOOP_CHILD_AGENT_ID.to_string(),
+                ha_core::subagent::injection::LOOP_CHILD_AGENT_ID.to_string(),
                 admission.run_id.clone(),
                 push_message,
                 session_db.clone(),
@@ -987,17 +988,17 @@ async fn execute_session_loop_payload(
             .await;
 
             let (cron_status, loop_state, error) = match outcome {
-                crate::subagent::injection::InjectionOutcome::Injected => (
+                ha_core::subagent::injection::InjectionOutcome::Injected => (
                     "success",
-                    crate::loop_control::LoopRunState::Succeeded,
+                    ha_core::loop_control::LoopRunState::Succeeded,
                     None,
                 ),
-                crate::subagent::injection::InjectionOutcome::Queued => {
-                    ("queued", crate::loop_control::LoopRunState::Queued, None)
+                ha_core::subagent::injection::InjectionOutcome::Queued => {
+                    ("queued", ha_core::loop_control::LoopRunState::Queued, None)
                 }
-                crate::subagent::injection::InjectionOutcome::Abandoned => (
+                ha_core::subagent::injection::InjectionOutcome::Abandoned => (
                     "error",
-                    crate::loop_control::LoopRunState::Failed,
+                    ha_core::loop_control::LoopRunState::Failed,
                     Some("loop injection abandoned before it could be queued".to_string()),
                 ),
             };
@@ -1049,28 +1050,29 @@ async fn execute_session_loop_payload(
             &finished_at,
             extra_trace,
         )
-        .unwrap_or(crate::loop_control::LoopAfterRunAction {
+        .unwrap_or(ha_core::loop_control::LoopAfterRunAction {
             loop_id: Some(admission.loop_id.clone()),
-            cron_job_disposition: crate::loop_control::LoopCronJobDisposition::Keep,
+            cron_job_disposition: ha_core::loop_control::LoopCronJobDisposition::Keep,
             backoff_secs: None,
         });
     if let Some(delay) = action.backoff_secs {
         let _ = cron_db.delay_next_run(&job.id, delay);
     }
     match action.cron_job_disposition {
-        crate::loop_control::LoopCronJobDisposition::Keep => {}
-        crate::loop_control::LoopCronJobDisposition::Pause => {
+        ha_core::loop_control::LoopCronJobDisposition::Keep => {}
+        ha_core::loop_control::LoopCronJobDisposition::Pause => {
             let _ = cron_db.toggle_job(&job.id, false);
         }
-        crate::loop_control::LoopCronJobDisposition::Complete => {
+        ha_core::loop_control::LoopCronJobDisposition::Complete => {
             let _ = cron_db.mark_job_completed(&job.id);
         }
     }
     let drain_next_event = matches!(
         admission.trigger_kind,
-        crate::loop_control::LoopTriggerKind::Event | crate::loop_control::LoopTriggerKind::Dynamic
+        ha_core::loop_control::LoopTriggerKind::Event
+            | ha_core::loop_control::LoopTriggerKind::Dynamic
     ) && action.cron_job_disposition
-        == crate::loop_control::LoopCronJobDisposition::Keep
+        == ha_core::loop_control::LoopCronJobDisposition::Keep
         && session_db
             .loop_has_pending_event_ticks(&admission.loop_id)
             .unwrap_or(false);
@@ -1192,7 +1194,7 @@ pub(crate) fn resolve_execution_context(
     let project = job
         .project_id
         .as_deref()
-        .and_then(|pid| match crate::get_project_db() {
+        .and_then(|pid| match ha_core::get_project_db() {
             Some(db) => match db.get(pid) {
                 Ok(Some(project)) => Some(project),
                 Ok(None) => {
@@ -1233,28 +1235,14 @@ pub(crate) fn resolve_execution_context(
             }
         });
 
-    let agent_id = resolve_agent_id_for_execution(trimmed_explicit, project.as_ref());
+    let agent_id =
+        ha_core::cron::resolve_agent_id_for_execution(trimmed_explicit, project.as_ref());
 
     CronExecutionContext {
         agent_id,
         project_id: project.map(|p| p.id),
         cleared_missing_project,
     }
-}
-
-pub(crate) fn resolve_agent_id_for_execution(
-    explicit_agent_id: Option<&str>,
-    project: Option<&crate::project::Project>,
-) -> String {
-    crate::agent::resolver::resolve_default_agent_id_full(
-        explicit_agent_id,
-        project,
-        None,
-        None,
-        None,
-        None,
-    )
-    .0
 }
 
 /// Build an AssistantAgent and run a chat message with full failover logic.
@@ -1265,7 +1253,7 @@ pub async fn build_and_run_agent_with_cancel(
     agent_id: &str,
     message: &str,
     session_id: &str,
-    session_db: &Arc<crate::session::SessionDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
     cancel: Arc<AtomicBool>,
 ) -> Result<String> {
     build_and_run_agent_with_context(
@@ -1285,17 +1273,17 @@ pub async fn build_and_run_agent_with_context(
     agent_id: &str,
     message: &str,
     session_id: &str,
-    session_db: &Arc<crate::session::SessionDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
     extra_system_context: Option<&str>,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<String> {
-    use crate::provider;
+    use ha_core::provider;
 
     // Load app config from disk
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
 
     // Load agent config for model resolution
-    let agent_model_config = crate::agent_loader::load_agent(agent_id)
+    let agent_model_config = ha_core::agent_loader::load_agent(agent_id)
         .map(|def| def.config.model)
         .unwrap_or_default();
 
@@ -1321,8 +1309,8 @@ pub async fn build_and_run_agent_with_context(
         ));
     }
 
-    let agent_def = crate::agent_loader::load_agent(agent_id).ok();
-    let engine_params = crate::chat_engine::ChatEngineParams {
+    let agent_def = ha_core::agent_loader::load_agent(agent_id).ok();
+    let engine_params = ha_core::chat_engine::ChatEngineParams {
         session_id: session_id.to_string(),
         agent_id: agent_id.to_string(),
         turn_id: None,
@@ -1357,7 +1345,7 @@ pub async fn build_and_run_agent_with_context(
         reasoning_effort: agent_def
             .as_ref()
             .and_then(|def| def.config.model.reasoning_effort.clone())
-            .or(crate::agent::live_reasoning_effort(None).await),
+            .or(ha_core::agent::live_reasoning_effort(None).await),
         cancel: cancel.unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
         plan_context_override: None,
         skill_allowed_tools: Vec::new(),
@@ -1375,21 +1363,21 @@ pub async fn build_and_run_agent_with_context(
         // `KbAccessSource::Cron`, NOT the IM cap). `origin_source: None` lets the
         // engine derive the origin from `source`, so a subagent spawned by this
         // cron run inherits the non-IM `Cron` origin and isn't WS8-denied.
-        source: crate::chat_engine::stream_seq::ChatSource::Cron,
+        source: ha_core::chat_engine::stream_seq::ChatSource::Cron,
         ui_surface: None,
         origin_source: None,
         channel_kb_context: None,
-        event_sink: Arc::new(crate::chat_engine::NoopEventSink),
+        event_sink: Arc::new(ha_core::chat_engine::NoopEventSink),
     };
 
-    match crate::chat_engine::run_chat_engine(engine_params).await {
+    match ha_core::chat_engine::run_chat_engine(engine_params).await {
         Ok(result) => Ok(result.response),
         Err(e) => Err(anyhow::anyhow!("{}", e)),
     }
 }
 
 pub fn cancel_running_job(job_id: &str) -> Result<Option<bool>> {
-    let Some(cron_db) = crate::get_cron_db() else {
+    let Some(cron_db) = ha_core::get_cron_db() else {
         return Ok(None);
     };
     let Some(job) = cron_db.get_job(job_id)? else {
@@ -1401,11 +1389,11 @@ pub fn cancel_running_job(job_id: &str) -> Result<Option<bool>> {
     // §9 (C7): key the cancel to this run's claim timestamp so a placeholder
     // left in the claim→register window can't leak onto a later run (see
     // `cancel.rs`). `running_at` IS the in-flight run's `claimed_at`.
-    Ok(Some(super::cancel::cancel(job_id, running_at)))
+    Ok(Some(ha_core::cron::cancel::cancel(job_id, running_at)))
 }
 
 fn persist_failure_message_if_missing(
-    session_db: &Arc<crate::session::SessionDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
     session_id: &str,
     err_text: &str,
 ) {
@@ -1420,8 +1408,8 @@ fn persist_failure_message_if_missing(
         return;
     }
 
-    let mut err_msg = crate::session::NewMessage::assistant(err_text)
-        .with_source(crate::chat_engine::ChatSource::Cron);
+    let mut err_msg = ha_core::session::NewMessage::assistant(err_text)
+        .with_source(ha_core::chat_engine::ChatSource::Cron);
     err_msg.is_error = Some(true);
     let _ = session_db.append_message(session_id, &err_msg);
 }
@@ -1467,7 +1455,7 @@ pub(crate) fn record_failure(
         // C12a: run-now is a one-off test — record the failure run log but do NOT
         // bump the failure count, auto-disable, or reschedule the job.
         let _ = cron_db.clear_running(&job.id);
-        let reason = super::failure::CronFailureClass::classify(error).key();
+        let reason = crate::cron::failure::CronFailureClass::classify(error).key();
         emit_cron_event(
             &job.id,
             &job.name,
@@ -1484,7 +1472,7 @@ pub(crate) fn record_failure(
         // counter — never auto-disable a healthy job for a transient hiccup.
         let _ = cron_db.reschedule_without_failure(&job.id, &job.schedule);
         let _ = cron_db.clear_running(&job.id);
-        let reason = super::failure::CronFailureClass::classify(error).key();
+        let reason = crate::cron::failure::CronFailureClass::classify(error).key();
         emit_cron_event(
             &job.id,
             &job.name,
@@ -1505,7 +1493,7 @@ pub(crate) fn record_failure(
         // Always notify (overriding notify_on_complete) — a silently dead
         // scheduled task is exactly the failure mode this surfaces (§5).
         let consecutive = job.consecutive_failures.saturating_add(1);
-        let reason = super::failure::CronFailureClass::classify(error).key();
+        let reason = crate::cron::failure::CronFailureClass::classify(error).key();
         app_warn!(
             "cron",
             "executor",
@@ -1517,7 +1505,7 @@ pub(crate) fn record_failure(
         );
         emit_cron_disabled_event(&job.id, &job.name, consecutive, reason);
     } else {
-        let reason = super::failure::CronFailureClass::classify(error).key();
+        let reason = crate::cron::failure::CronFailureClass::classify(error).key();
         emit_cron_event(
             &job.id,
             &job.name,
@@ -1585,7 +1573,7 @@ pub(crate) fn emit_cron_event(
     // — not just the job name. `None` for success / cancelled / empty.
     failure_reason: Option<&str>,
 ) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let payload = serde_json::json!({
             "job_id": job_id,
             "job_name": job_name,
@@ -1608,7 +1596,7 @@ pub(crate) fn emit_cron_disabled_event(
     consecutive_failures: u32,
     reason_key: &str,
 ) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let payload = serde_json::json!({
             "job_id": job_id,
             "job_name": job_name,
@@ -1625,8 +1613,7 @@ pub(crate) fn emit_cron_disabled_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cron::{CronPayload, CronSchedule, NewCronJob};
-    use crate::project::Project;
+    use ha_core::cron::{CronPayload, CronSchedule, NewCronJob};
     use rusqlite::params;
     use std::path::{Path, PathBuf};
     use uuid::Uuid;
@@ -1736,44 +1723,6 @@ mod tests {
         let _ = std::fs::remove_file(format!("{}-shm", path.display()));
     }
 
-    fn project_with_default_agent(agent_id: Option<&str>) -> Project {
-        Project {
-            id: "project-1".into(),
-            name: "Project One".into(),
-            description: None,
-            logo: None,
-            color: None,
-            default_agent_id: agent_id.map(str::to_string),
-            default_model_id: None,
-            working_dir: None,
-            created_at: 0,
-            updated_at: 0,
-            sort_order: 0,
-            archived: false,
-        }
-    }
-
-    #[test]
-    fn resolve_agent_id_for_execution_prefers_explicit_agent() {
-        let project = project_with_default_agent(Some("project-agent"));
-        let resolved = resolve_agent_id_for_execution(Some("explicit-agent"), Some(&project));
-        assert_eq!(resolved, "explicit-agent");
-    }
-
-    #[test]
-    fn resolve_agent_id_for_execution_uses_project_default_agent() {
-        let project = project_with_default_agent(Some("project-agent"));
-        let resolved = resolve_agent_id_for_execution(None, Some(&project));
-        assert_eq!(resolved, "project-agent");
-    }
-
-    #[test]
-    fn resolve_agent_id_for_execution_falls_back_without_project_default() {
-        let project = project_with_default_agent(None);
-        let resolved = resolve_agent_id_for_execution(None, Some(&project));
-        assert!(!resolved.trim().is_empty());
-    }
-
     #[test]
     fn record_cancelled_writes_log_clears_running_and_preserves_failures() {
         let path = temp_db_path("cancelled-log");
@@ -1801,7 +1750,9 @@ mod tests {
             })
             .expect("add job");
         {
-            let conn = db.conn.lock().expect("lock");
+            // `CronDB.conn` 是 kernel 侧私有字段（台账留 kernel）——测试自开一条
+            // 连接到同一个临时库播种，不为测试放宽 kernel 的封装。
+            let conn = rusqlite::Connection::open(&path).expect("open fixture cron.db");
             conn.execute(
                 "UPDATE cron_jobs SET consecutive_failures=2 WHERE id=?1",
                 params![job.id],

@@ -2,9 +2,9 @@ use chrono::Utc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use super::db::CronDB;
-use super::executor::execute_claimed_job;
-use super::types::CronJob;
+use crate::cron::executor::execute_claimed_job;
+use ha_core::cron::CronDB;
+use ha_core::cron_defs::CronJob;
 
 /// §9 (C6): if the previous scheduler's last heartbeat is older than this at
 /// startup, warn that the (Primary-only) scheduler was offline for a stretch —
@@ -31,13 +31,13 @@ fn available_slots(max: Option<usize>, running: usize) -> Option<usize> {
 /// number of jobs actually dispatched.
 fn dispatch_due_jobs(
     cron_db: &Arc<CronDB>,
-    session_db: &Arc<crate::session::SessionDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
     due_jobs: Vec<CronJob>,
 ) -> usize {
     if due_jobs.is_empty() {
         return 0;
     }
-    let max = crate::config::cached_config()
+    let max = ha_core::config::cached_config()
         .cron
         .effective_max_concurrent();
     // Fail closed on a count error: skip this pass rather than risk an unbounded
@@ -68,7 +68,7 @@ fn dispatch_due_jobs(
             );
             break;
         }
-        match crate::agent_lifecycle::with_lifecycle_gate(|| {
+        match ha_core::agent_lifecycle::with_lifecycle_gate(|| {
             cron_db.claim_scheduled_job_for_execution(&job)
         }) {
             Ok(Some(claimed)) => {
@@ -111,7 +111,7 @@ fn dispatch_due_jobs(
 /// This avoids requiring an existing tokio runtime at call time (e.g. during Tauri .setup()).
 pub fn start_scheduler(
     cron_db: Arc<CronDB>,
-    session_db: Arc<crate::session::SessionDB>,
+    session_db: Arc<ha_core::session::SessionDB>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new()
         .name("cron-scheduler".into())
@@ -171,7 +171,7 @@ pub fn start_scheduler(
                 // Mark un-fireable At jobs missed BEFORE catch-up: those past the
                 // late-fire grace window (or claimed-then-crashed) are taken out
                 // so catch-up only late-fires At jobs still within grace (§7).
-                let at_grace_secs = crate::config::cached_config()
+                let at_grace_secs = ha_core::config::cached_config()
                     .cron
                     .effective_at_grace_secs();
                 if let Err(e) = cron_db.mark_missed_at_jobs(at_grace_secs) {
@@ -234,7 +234,7 @@ pub fn start_scheduler(
                     // forever instead of terminalizing to `missed`. Cheap UPDATE;
                     // the cutoff is recomputed from `now` each call, and it must run
                     // before dispatch so an aged-out `At` isn't picked as due.
-                    let at_grace_secs = crate::config::cached_config()
+                    let at_grace_secs = ha_core::config::cached_config()
                         .cron
                         .effective_at_grace_secs();
                     if let Err(e) = cron_db.mark_missed_at_jobs(at_grace_secs) {

@@ -86,14 +86,20 @@ const FEATURES = {
   ],
   "ha-knowledge": ["knowledge", "tools::note"],
   "ha-channel": ["channel", "tools::feishu", "tools::send_attachment", "tools::notification"],
-  "ha-cron": [
-    "cron",
-    "loop_control",
-    "wakeup",
-    "tools::cron",
-    "tools::loop_tool",
-    "tools::schedule_wakeup",
-  ],
+  // `wakeup` **不在本组**（阶段 5 第三刀重新分组）：它对 cron / loop_control
+  // 零引用、反向也零——两者只是「都跟排程有关」的主题相似，AGENTS 本身就写着
+  // 「`schedule_wakeup` ≠ cron、不复用入口」。它的消费者全在 kernel（goal 的
+  // 目标唤醒排程 / agent_lifecycle / session::cleanup_watcher），归 ha-cron 会
+  // 凭空给这一刀记上 11 条并不存在的切边。`tools::schedule_wakeup` 同理随之留下。
+  // ha-cron 已实际迁出（crates/ha-cron/，阶段 5 第三刀）——但**只迁走了机器**：
+  // 调度器 / 执行器 / 投递 / 时间线 + `manage_cron` adapter。台账 `cron/db.rs`
+  // 与排程算术 `cron/schedule.rs`、内存取消注册表 `cron/cancel.rs`、wire 类型
+  // `cron_defs` 全部**留 kernel**——`loop_control` 的托管 `/loop` 全程持
+  // `&CronDB`（20+ 处签名）、`agent_lifecycle` 改名时重写 payload，台账不是
+  // cron 调度专属。同破环那刀对 `local_model_jobs` 的分法。
+  // `loop_control` 与 `tools::loop_tool` 也留 kernel：前者有一个 58 方法、
+  // 2673 行的 `impl SessionDB` 块，固有 impl 只能待在定义 `SessionDB` 的
+  // crate 里，改扩展 trait 会让 kernel 的 15+ 处调用点反向 use ha-cron。
   // slash_commands 已移出：它是**装配层**（handler 逐个调 skills / channel /
   // cron / dash / improve，出度 30 模块、入度 2），与 app_init / globals 同型，
   // 见下方 ASSEMBLY。契约物在 kernel 的 slash_defs，分发经 slash_hooks 三槽。

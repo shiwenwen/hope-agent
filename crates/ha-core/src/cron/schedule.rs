@@ -4,7 +4,7 @@ use chrono_tz::Tz;
 use cron::Schedule as CronExpression;
 use std::str::FromStr;
 
-use super::types::CronSchedule;
+use super::CronSchedule;
 
 // ── Timestamp Parsing ──────────────────────────────────────────
 
@@ -190,7 +190,7 @@ pub const MIN_EVERY_INTERVAL_MS: u64 = 60_000;
 /// Validate a fully-constructed [`CronSchedule`]. **Single source of truth** for
 /// "is this schedule legal", shared by the agent `manage_cron` tool path
 /// ([`crate::tools`]'s `parse_schedule`) and the persistence chokepoint
-/// ([`super::db::CronDB::add_job`] / `update_job`). Centralizing it here means the
+/// ([`crate::cron::CronDB::add_job`] / `update_job`). Centralizing it here means the
 /// owner-plane HTTP/Tauri create/update paths — which hand a frontend-built
 /// `CronSchedule` straight to `add_job`/`update_job` — can no longer persist a
 /// schedule the agent path would have rejected: an `At` with an unparseable

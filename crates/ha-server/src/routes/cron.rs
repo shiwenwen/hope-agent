@@ -56,7 +56,7 @@ pub async fn update_job(
 /// `DELETE /api/cron/jobs/{id}`
 pub async fn delete_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     let (cdb, sdb) = (db()?, session_db()?);
-    run_blocking(move || cron::delete_job_and_sessions(cdb, sdb, &id)).await?;
+    run_blocking(move || ha_cron::cron::delete_job_and_sessions(cdb, sdb, &id)).await?;
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -94,7 +94,7 @@ pub async fn run_now(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
         run_blocking(move || db.get_job(&id)).await?
     }
     .ok_or_else(|| AppError::not_found(format!("job not found: {}", id)))?;
-    cron::spawn_job_execution(db()?.clone(), session_db()?.clone(), job);
+    ha_cron::cron::spawn_job_execution(db()?.clone(), session_db()?.clone(), job);
     Ok(Json(json!({ "scheduled": true })))
 }
 
@@ -124,7 +124,7 @@ pub async fn get_run_logs(
     let sessions = session_db()?;
     Ok(Json(
         run_blocking(move || {
-            cron::visible_cron_run_logs(
+            ha_cron::cron::visible_cron_run_logs(
                 &db,
                 &sessions,
                 &id,
@@ -151,7 +151,7 @@ pub async fn run_timeline(
     let offset = q.offset.unwrap_or(0);
     let (cdb, sdb) = (db()?, session_db()?);
     Ok(Json(
-        run_blocking(move || cron::cron_run_timeline(cdb, sdb, limit, offset)).await?,
+        run_blocking(move || ha_cron::cron::cron_run_timeline(cdb, sdb, limit, offset)).await?,
     ))
 }
 

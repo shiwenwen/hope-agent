@@ -807,7 +807,7 @@ pub async fn delete_session(
     let cron_db = crate::routes::helpers::cron_db()?.clone();
     let session_db = ctx.session_db.clone();
     ha_core::blocking::run_blocking(move || {
-        ha_core::cron::delete_conversation_and_run_logs(&cron_db, &session_db, &id)
+        ha_cron::cron::delete_conversation_and_run_logs(&cron_db, &session_db, &id)
     })
     .await?;
     Ok(Json(json!({ "deleted": true })))

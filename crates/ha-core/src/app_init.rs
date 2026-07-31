@@ -1128,8 +1128,14 @@ pub async fn start_background_tasks() {
         // tick's `claim_scheduled_job_for_execution` would double-claim
         // jobs across processes; manual run-now uses an atomic SQL claim
         // that's still safe in any tier.
+        // 调度器机器已随 ha-cron 迁出，但**调用位不动**——经 `cron_hooks` 转发，
+        // 迁移前后时序逐位相同。**刻意不做成 startup task**：那会把它排到
+        // PrimaryOnly 队列里、落在下面的 `spawn_loop_event_trigger_watcher()`
+        // 之后，而调度器启动要跑 `clear_all_running()`（无差别清 running 标记），
+        // 窗口内被 watcher claim 的合法在途任务会被当成遗留清掉 → 重复执行。
+        // 顺序约束见 `cron_hooks::start_scheduler` 的文档。
         if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
-            let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
+            crate::cron_hooks::start_scheduler(cron_db.clone(), session_db.clone());
         }
         crate::loop_control::spawn_loop_event_trigger_watcher();
 

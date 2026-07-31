@@ -1,6 +1,8 @@
 mod cancel;
 mod helpers;
-pub(crate) mod injection;
+// cron 执行器（ha-cron）经此注入托管 /loop 的父会话轮次——`inject_and_run_parent`
+// 是「注入回投须在同一 future 内 await finalize」那条红线的唯一入口，不另开旁路。
+pub mod injection;
 mod mailbox;
 mod mention;
 pub(crate) mod queue;

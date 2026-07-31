@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 
-use crate::cron::{CronDB, CronRunLog, CronTimelineRow};
-use crate::session::SessionDB;
+use ha_core::cron::{CronDB, CronRunLog, CronTimelineRow};
+use ha_core::session::SessionDB;
 
 /// Assemble the global cron-run timeline: pull run rows from `CronDB`, filter
 /// archived conversations using `SessionDB`, then paginate the visible rows.
@@ -127,7 +127,7 @@ pub fn delete_job_and_sessions(
     cron_db.delete_job(id)?;
     for sid in session_ids {
         if let Err(e) = session_db.delete_session(&sid) {
-            crate::app_warn!(
+            app_warn!(
                 "cron",
                 "delete",
                 "failed to delete cron run session {} of job {}: {:#}",

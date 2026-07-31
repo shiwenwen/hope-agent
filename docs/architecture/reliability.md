@@ -520,7 +520,7 @@ Guardian 处理"整个进程崩了"。下一档是"进程活着但**某个子系
 
 ### 8.3 Cron 任务
 
-[`cron/scheduler.rs`](../../crates/ha-core/src/cron/scheduler.rs) 跑在独立 OS 线程 + 独立 tokio runtime（2 worker）。约定：
+[`cron/scheduler.rs`](../../crates/ha-cron/src/cron/scheduler.rs) 跑在独立 OS 线程 + 独立 tokio runtime（2 worker）。约定：
 
 - **幂等 claim**：原子 SQL `UPDATE ... WHERE status='active' AND running_at IS NULL AND next_run_at <= now`，多 tick 撞同一 job 只有一个能 claim 成功
 - **执行失败 → 任务级指数退避**，连续失败 N 次自动 disable 任务（不是 disable 整个 scheduler）

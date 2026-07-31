@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use futures_util::future::join_all;
 
-use crate::channel::ReplyPayload;
+use ha_core::channel::ReplyPayload;
 
-use super::types::CronJob;
+use ha_core::cron_defs::CronJob;
 
 #[derive(Debug, Clone, Copy)]
 pub enum DeliveryOutcome<'a> {
@@ -13,7 +13,7 @@ pub enum DeliveryOutcome<'a> {
 }
 
 fn cron_failure_delivery_text(locale: &str, name: &str, error: &str) -> String {
-    match crate::i18n::normalize_locale(locale).unwrap_or(crate::i18n::DEFAULT_LOCALE) {
+    match ha_core::i18n::normalize_locale(locale).unwrap_or(ha_core::i18n::DEFAULT_LOCALE) {
         "zh" => format!("⚠️ [Cron] {name} 失败：{error}"),
         "zh-TW" => format!("⚠️ [Cron] {name} 失敗：{error}"),
         "ja" => format!("⚠️ [Cron] {name} が失敗しました: {error}"),
@@ -104,7 +104,7 @@ enum TargetResult {
 /// and fan its result out the same way the inline run does. No-op when the
 /// session isn't a cron run, the job is gone, or it has no delivery targets.
 pub async fn deliver_injection_for_session(session_id: &str, text: &str) {
-    let Some(cron_db) = crate::globals::get_cron_db() else {
+    let Some(cron_db) = ha_core::globals::get_cron_db() else {
         return;
     };
     let job = match cron_db.find_job_by_session(session_id) {
@@ -152,10 +152,10 @@ pub async fn deliver_results(job: &CronJob, outcome: DeliveryOutcome<'_>) -> Del
             return report;
         }
     }
-    let Some(registry) = crate::get_channel_registry() else {
+    let Some(registry) = ha_core::get_channel_registry() else {
         return report;
     };
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
 
     let text = match outcome {
         DeliveryOutcome::Success { text } => {
@@ -166,7 +166,7 @@ pub async fn deliver_results(job: &CronJob, outcome: DeliveryOutcome<'_>) -> Del
             }
         }
         DeliveryOutcome::Failure { error } => {
-            cron_failure_delivery_text(crate::i18n::effective_ui_locale(&store), &job.name, error)
+            cron_failure_delivery_text(ha_core::i18n::effective_ui_locale(&store), &job.name, error)
         }
     };
 
@@ -190,7 +190,7 @@ pub async fn deliver_results(job: &CronJob, outcome: DeliveryOutcome<'_>) -> Del
                 // an arbitrary URL), delivery intentionally does not go through an
                 // SSRF check — this whitelist *is* the boundary. Unknown or
                 // unverifiable target → skip + audit warn (fail-closed per target).
-                let whitelisted = crate::get_channel_db()
+                let whitelisted = ha_core::get_channel_db()
                     .map(|db| {
                         db.conversation_exists(
                             &target.channel_id,
@@ -326,7 +326,7 @@ pub async fn deliver_results(job: &CronJob, outcome: DeliveryOutcome<'_>) -> Del
     // account_id (never re-validates the schedule; never overwrites the whole
     // target list from a stale snapshot — see set construction above).
     if !mark_stale.is_empty() || !clear_stale.is_empty() {
-        if let Some(cron_db) = crate::globals::get_cron_db() {
+        if let Some(cron_db) = ha_core::globals::get_cron_db() {
             if let Err(e) =
                 cron_db.apply_delivery_target_stale_flags(&job.id, &mark_stale, &clear_stale)
             {

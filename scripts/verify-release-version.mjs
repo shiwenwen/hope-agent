@@ -253,6 +253,64 @@ const haPetLockVersion = cargoLockHaPetMatch[1]
 const haMediaVersion = haMediaVersionMatch[1]
 const haMediaLockVersion = cargoLockHaMediaMatch[1]
 
+// ── 防漏登记：从 workspace 成员派生，不依赖上面那份手抄清单 ───────────
+//
+// 上面每个 crate 三处样板（路径常量 / 版本读取 / Cargo.lock 匹配 / mismatch
+// 条目）纯靠人工抄，新 crate 落地时**极易漏**——ha-local-llm / ha-dash /
+// ha-cron 三刀连续漏了三次，而版本当时恰好一致，`release:verify` 照样绿。
+// 这一段以 `Cargo.toml` 的 `[workspace] members` 为唯一真相源重新核一遍：
+// 任何成员的 manifest 版本或其 Cargo.lock 条目与 package.json 不一致都失败。
+// 上面的手抄清单因此变成冗余（保留是为了错误信息更具体），漏抄不再等于漏检。
+{
+  const workspaceToml = readFileSync(path.join(rootDir, "Cargo.toml"), "utf8")
+  const membersBlock = workspaceToml.match(/\[workspace\][\s\S]*?members = \[([\s\S]*?)\]/)
+  if (!membersBlock) {
+    console.error("[release:verify] could not parse [workspace] members from Cargo.toml")
+    process.exit(1)
+  }
+  const members = [...membersBlock[1].matchAll(/"([^"]+)"/g)].map((m) => m[1])
+  if (members.length === 0) {
+    console.error("[release:verify] [workspace] members is empty — refusing to verify")
+    process.exit(1)
+  }
+  // **豁免要写理由，且默认极性是「必须同步」**——新 crate 不登记 sync-version
+  // 就会在这里失败，而不是静默放行。
+  const INDEPENDENT_VERSION = new Map([
+    // 评测协议 crate，不依赖 ha-core、自带协议 semver（0.1.x），刻意不随
+    // 应用版本走；`sync-version.mjs` 同样不 bump 它。
+    ["crates/ha-eval-spec", "protocol crate with its own semver"],
+  ])
+  const derived = []
+  for (const member of members) {
+    if (INDEPENDENT_VERSION.has(member)) continue
+    const manifestPath = path.join(rootDir, member, "Cargo.toml")
+    const manifest = readFileSync(manifestPath, "utf8")
+    const nameMatch = manifest.match(/^name = "(.*)"$/m)
+    const versionMatch = manifest.match(/^version = "(.*)"$/m)
+    if (!nameMatch || !versionMatch) {
+      console.error(`[release:verify] could not read name/version from ${member}/Cargo.toml`)
+      process.exit(1)
+    }
+    const [, name] = nameMatch
+    derived.push([`${member}/Cargo.toml`, versionMatch[1]])
+    const lockMatch = cargoLock.match(
+      new RegExp(`name = "${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\r?\\nversion = "(.*)"`),
+    )
+    if (!lockMatch) {
+      console.error(`[release:verify] Cargo.lock is missing an entry for workspace member ${name}`)
+      process.exit(1)
+    }
+    derived.push([`Cargo.lock (${name})`, lockMatch[1]])
+  }
+  const bad = derived.filter(([, v]) => v !== packageVersion)
+  if (bad.length > 0) {
+    console.error("[release:verify] workspace member version mismatch:")
+    console.error(`  package.json: ${packageVersion}`)
+    for (const [label, v] of bad) console.error(`  ${label}: ${v}`)
+    process.exit(1)
+  }
+}
+
 const mismatches = [
   ["package.json", packageVersion],
   ["src-tauri/tauri.conf.json", tauriVersion],

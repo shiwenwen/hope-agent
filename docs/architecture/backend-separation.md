@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-dash · ha-design · ha-local-llm<br/>ha-mac · ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-cron · ha-dash · ha-design · ha-local-llm<br/>ha-mac · ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -138,7 +138,12 @@ context_compact/   5 层渐进式压缩 + API-Round 分组
 session/           会话 + 消息持久化 + FTS5 搜索
 project/           Project 容器（工作目录即真实文件，无独立 project_files；无反向 channel 认领）
 mcp/               MCP 客户端（stdio / Streamable HTTP / SSE / WebSocket）
-cron/              定时任务 + Agent 执行
+cron/              **台账**：CronDB + 排程算术 + 内存取消注册表（调度器 /
+                   执行器 / 投递已随 ha-cron 迁出，见下文特征 crate 一节）
+cron_defs/         cron_jobs / cron_run_logs 的 wire 类型（契约层）
+cron_hooks.rs      cron 机器的反向钩子（起任务 / 取消 / 注入回投）
+loop_control.rs    托管 /loop（复用 cron 持久化调度；**整体留 kernel**——
+                   有 58 方法的 impl SessionDB 块）
 local_model_jobs.rs 通用后台任务台账（DB / 快照 / spawn / finish / 进度；
                    memory reembed 与知识库 reembed 共用。Ollama 执行器已随
                    ha-local-llm 迁出，见下文特征 crate 一节）
@@ -306,7 +311,7 @@ skills**。ha-local-llm 之所以能不排在这条序列里先走，正是因�
 入边（需切 0）——它只依赖别人，不被别人依赖。**新增任何特征间边前先跑
 一次脚本**——成环会让后续拆分整个卡住。
 
-### 特征 crate（ha-acp / ha-browser / ha-dash / ha-design / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-cron / ha-dash / ha-design / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -411,6 +416,28 @@ skills**。ha-local-llm 之所以能不排在这条序列里先走，正是因�
   侧。kernel 边界单钩子 `register_pet_config_updater`（选择校验 + 跨进
   程库锁 + mutate_config；未接线 Err fail-explicit——消费入口均为用户
   显式动作）。
+- **ha-cron**（排程，阶段 5 第三刀）：cron 的调度器 / 执行器 / 投递 /
+  失败分类 / 时间线，以及 `manage_cron` 工具 adapter。
+  **分法是「台账 vs 机器」，与破环那刀对 `local_model_jobs` 的处理同型**：
+  `cron/db.rs` 的 `CronDB`、`cron/schedule.rs` 的排程算术（`validate_schedule`
+  是合法性**唯一裁决**，owner 与模型共用）、`cron/cancel.rs` 的内存取消注册表
+  与 `cron_defs` wire 类型**全部留 kernel**——台账被 kernel 侧深度消费：
+  `loop_control` 的托管 `/loop` 全程持 `&CronDB`（20+ 处签名）、
+  `agent_lifecycle` 改名 / 删除时重写 `cron_jobs.payload_json`、
+  `agent::migration` 的启动期迁移。因此 `CRON_DB` 全局与 `AppState.cron_db`
+  **不动**，壳层的 22 处 `state.cron_db` 一处未改。
+  **`loop_control` 与 `tools::loop_tool` 也整体留 kernel**：前者有一个 58
+  方法、2673 行的 `impl SessionDB` 块——固有 impl 只能待在定义 `SessionDB`
+  的 crate 里，搬出去直接编译不过；改扩展 trait 也不行，kernel 有 15+ 处
+  调用点，那会变成 kernel `use ha_cron::…` 的反向依赖。它对本 crate 的耦合
+  极窄（3 处 `spawn_job_execution`），走钩子即可。
+  **`wakeup` 同样留 kernel**：`schedule_wakeup` 不是 cron（AGENTS 明写
+  「不复用入口」），对 cron 零引用、消费者全在 kernel（goal 的目标唤醒排程 /
+  agent_lifecycle / session::cleanup_watcher）。分析器早先把它归进 cron 组
+  纯属主题相似，本刀一并纠正——那 11 条「切边」是分组错误凭空记的。
+  kernel 边界：`cron_hooks` 三槽原子注册（起任务 / 取消在跑任务 / subagent
+  注入后按白名单回投，未装配语义逐项镜像迁移前「cron db 缺席」分支）+
+  `manage_cron` 分发条目 + 调度器 PrimaryOnly startup task。
 - **ha-dash**（大盘，阶段 5 第二刀）：用量总账聚合与 Insights、控制面
   （Goal / Workflow / Loop / Task / Plan）只读聚合、Coding Improvement 学习
   聚合、`/recap` 深度复盘（facets / 章节 / 渲染 / 保留期）。
@@ -706,7 +733,7 @@ sequenceDiagram
 | `session:git_changed` (`EVENT_GIT_CHANGED`) | ha-vcs (git_control.rs) | Git 状态变更后前端刷新 snapshot |
 | `searxng:deploy_progress` (`EVENT_SEARXNG_DEPLOY_PROGRESS`) | ha-vcs (docker/mod.rs) | SearXNG Docker 部署进度，前端 progress UI 消费 |
 | `acp_control_event` | ha-acp (acp_control/events.rs) | ACP 运行生命周期 |
-| `cron:run_completed` | cron/executor.rs | 定时任务完成 |
+| `cron:run_completed` | ha-cron (cron/executor.rs) | 定时任务完成 |
 
 #### 异步任务 / 本地模型
 
