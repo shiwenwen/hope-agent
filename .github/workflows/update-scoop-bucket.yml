@@ -15,6 +15,12 @@ name: Update Scoop Bucket
 #   SCOOP_BUCKET_TOKEN — fine-grained PAT with `Contents: Read and write`
 #                        on shiwenwen/scoop-hope-agent only.
 
+# run-name puts the tag in the run's display title. Without it every run
+# is called "Update Scoop Bucket" and `gh run list` cannot tell which release a run
+# belongs to — a manual re-run for an older tag looks identical to this
+# release's own run. See docs/release-process.md §1.4.
+run-name: Scoop bucket ${{ inputs.tag || github.event.release.tag_name }}
+
 on:
   release:
     types: [published]

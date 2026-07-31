@@ -158,14 +158,26 @@ Releases 页找到 `Hope Agent v0.1.2` draft，确认：
 **publish 之后必须逐条确认五条渠道都 success**，不要默认它们成了：
 
 ```bash
+TAG=v0.1.2
 for wf in update-homebrew-tap update-aur update-scoop-bucket update-linux-repo mirror-release-r2; do
-  printf '%-24s ' "$wf"
-  gh run list --workflow="$wf.yml" --limit 1 --json status,conclusion,databaseId \
-    --jq '.[0] | "\(.status)/\(.conclusion // "-")  \(.databaseId)"'
+  printf '%-22s ' "$wf"
+  gh run list --workflow="$wf.yml" --limit 20 \
+    --json displayTitle,conclusion,status,databaseId \
+  | jq -r --arg tag "$TAG" '
+      [.[] | select(.displayTitle | endswith(" " + $tag))] as $mine
+      | ($mine | map(select(.conclusion == "success"))) as $ok
+      | if   ($mine | length) == 0 then "本 tag 尚无 run（刚 publish 的话等几秒重查）"
+        elif ($ok   | length) >  0 then "OK  run \($ok[0].databaseId)"
+        else "未成功  \($mine[0].status)/\($mine[0].conclusion // "-")  run \($mine[0].databaseId)"
+        end'
 done
 ```
 
-`mirror-release-r2` 失败最常见，两种成因与补救见 §1.10（多数情况是 `-f force=true` 重跑）。它失败时 `download/latest.json` 保持旧版本——由于端点是首个成功者胜，**全体客户端会一直被告知「已是最新」**，所以这条不能放着不管。
+**必须按 tag 认 run，不能用 `--limit 1`**：那条可能是上一版的 run（本版的还没出现），也可能是某次与本版无关的手动补跑，两种情况都会让清单显示绿而本版根本没跑。五个 workflow 都设了 `run-name: <渠道> <tag>`，所以 `displayTitle` 结尾就是 tag，可以直接匹配。
+
+判定口径是「**本 tag 存在一条 success 的 run**」，不是「最新那条 success」——publish 触发的那条失败、随后手动补跑成功，是正常且完整的结果（v0.27.0 就是这样）。
+
+`mirror-release-r2` 失败最常见，成因与补救见 §1.10（多数情况是 `-f force=true` 重跑）。它失败时 `download/latest.json` 保持旧版本——由于端点是首个成功者胜，**全体客户端会一直被告知「已是最新」**，所以这条不能放着不管。
 
 ### 1.5 backport 到 main
 
