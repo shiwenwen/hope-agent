@@ -11,11 +11,11 @@ export function skillMentionToneClass(kind: SkillIconKind): string {
     case "docx":
       return "text-blue-600 dark:text-blue-400"
     case "pptx":
-      return "text-orange-600 dark:text-orange-400"
+      return "text-orange-700 dark:text-orange-400"
     case "xlsx":
       return "text-emerald-700 dark:text-emerald-400"
     case "analytics":
-      return "text-sky-600 dark:text-sky-400"
+      return "text-sky-700 dark:text-sky-400"
     case "browser":
     case "mac":
       return "text-foreground/85"
