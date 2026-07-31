@@ -418,11 +418,24 @@ jobs:
           set -euo pipefail
           # Immutable per-version prefix, so a long edge TTL is correct and
           # every historical download link keeps working forever.
+          #
+          # --checksum IS LOAD-BEARING, not an optimization. Without it rclone
+          # compares size+modtime, decides the already-correct object needs its
+          # metadata refreshed, and does a metadata-only server-side copy — and
+          # that copy lands WITHOUT Cache-Control. Measured on v0.27.0: a force
+          # run wrote the header on all 28 objects and verification passed; the
+          # next ordinary re-run "uploaded" in 3 seconds (no bytes moved) and
+          # every immutable object came back with no Cache-Control at all. So
+          # each ordinary re-run was undoing the previous repair. The
+          # latest/ upload below always had --checksum, which is exactly why
+          # its objects kept their header through the same re-runs.
+          #
           # stderr is NOT piped through `tail`: the first backfill run was
           # diagnosable only from the per-object error lines, and truncating
           # them threw away exactly what was needed.
           rclone copy "$WORK/assets" "r2:${R2_BUCKET}/download/${TAG}" \
             --metadata --metadata-set "cache-control=${CC_IMMUTABLE}" \
+            --checksum \
             $R2_UPLOAD_FLAGS $R2_FORCE_FLAG --stats=30s --stats-one-line
           # Raw markdown as text/plain so a browser DISPLAYS it instead of
           # downloading an opaque .md — these are read, not installed.
@@ -430,6 +443,7 @@ jobs:
             --metadata \
             --metadata-set "cache-control=${CC_IMMUTABLE}" \
             --metadata-set "content-type=text/plain; charset=utf-8" \
+            --checksum \
             $R2_UPLOAD_FLAGS $R2_FORCE_FLAG --stats=0
           echo "Uploaded to r2:${R2_BUCKET}/download/${TAG}"
 
