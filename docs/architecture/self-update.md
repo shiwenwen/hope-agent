@@ -104,7 +104,9 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 - **首个成功者胜**，与 `tauri-plugin-updater` 自身行为一致——刻意不做「比较版本取新者」，否则桌面与 headless 两条路径会对「当前是哪个版本」产生分歧。代价是**一份 stale-but-200 的镜像 manifest 会报「已是最新」而不会 fallback**。这条残留风险由三件事兜住：镜像 manifest 的 `Cache-Control: max-age=60`、镜像 workflow 只在全部 URL 回抓校验通过后才写 manifest（所以 stale 的那份必然描述一个真实且已完整镜像的版本，绝不会是残缺版本）、以及该 workflow 失败即报错。
 - **两处漂移会被拦**：[`scripts/verify-updater-endpoints.mjs`](../../scripts/verify-updater-endpoints.mjs) 在 CI（`lint.yml`）与 `pre-push` 双处校验，且同时校验镜像 endpoint 的域名与 [`mirror-release-r2.yml`](../../.github/workflows/mirror-release-r2.yml) 的 `PUBLIC_BASE` 一致——否则所有客户端会去问一个没有发布任何东西的主机。
 
-**镜像不削弱签名信任根**：manifest 自身不签名，但里面的 `signature` 要用编译进二进制的 `MINISIGN_PUBKEY_BASE64` 验（见上节）。所以被污染的镜像**无法让恶意二进制装进去**，最坏只能拒绝服务或谎报版本。镜像 workflow 因此原样复制 `signature`、**绝不重算**。
+**镜像不削弱签名信任根**：manifest 自身不签名，但里面的 `signature` 要用编译进二进制的 `MINISIGN_PUBKEY_BASE64` 验（见上节）。所以被污染的镜像**无法通过自动更新把恶意二进制装进去**，最坏只能拒绝服务或谎报版本。镜像 workflow 因此原样复制 `signature`、**绝不重算**。
+
+**这条保证只覆盖 updater 路径**。`verify_bytes` 的调用点只有 [`self_contained.rs`](../../crates/ha-core/src/updater/self_contained.rs)；README 上的手动下载链接指向同一个镜像，但那些安装包由系统安装、不经这道验签——与从 GitHub 手动下载的情况相同。对外描述镜像安全性时不要把范围写成「安装包一律验签」。
 
 **「谎报版本」不只是被攻击才会发生**——正常运维就能踩到。`download/latest.json` 是全局共享的可变对象，一旦给**非当前稳定版**写它（手动回填旧 tag、或发布 prerelease，两者都会触发镜像 workflow），配合上面「首个成功者胜」，全体客户端会被告知那个旧版本才是最新，从而看不到真正的新版。因此镜像 workflow 只在该 tag 恰好是 GitHub 认定的 latest release 且非 prerelease 时才写可变面（`PROMOTE` 门控），其余情况只写自己的不可变 `download/<tag>/` 前缀。
 

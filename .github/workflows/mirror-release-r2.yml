@@ -34,8 +34,11 @@ name: Mirror Release to R2
 #
 # SECURITY: signatures in the manifest are copied verbatim, never
 # recomputed, and are verified client-side against the Minisign public key
-# compiled into the binary. A tampered mirror cannot install a malicious
-# build — worst case is denial of service or a stale version advertisement.
+# compiled into the binary. A tampered mirror therefore cannot push a
+# malicious build through the UPDATER — worst case there is denial of service
+# or a stale version advertisement. This says nothing about the manual
+# download links: those installers are run by OS tooling and never reach that
+# verifier, exactly as with manual downloads from GitHub.
 # See docs/architecture/self-update.md.
 #
 # Triggers:
