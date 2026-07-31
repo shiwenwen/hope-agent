@@ -318,16 +318,28 @@ jobs:
           unzip -q "$tmp/rclone.zip" -d "$tmp"
           sudo install -m 755 "$tmp/rclone-${R2_RCLONE_PIN}-linux-amd64/rclone" /usr/local/bin/rclone
           rm -rf "$tmp"
-          rclone version | head -1
+          rclone version | head -1 || true
 
           # Assert the flags this workflow depends on actually exist. Without
           # this, an unsupported flag surfaces as an opaque failure partway
           # through the first upload; here it is one clear line before any
           # bytes move. --metadata-set is what applies Cache-Control during the
           # PUT (see the R2_UPLOAD_FLAGS note on why --header-upload was dropped).
+          # Capture once, then match against the captured text. Do NOT pipe
+          # rclone into `grep -q`: grep exits on first match and closes the
+          # pipe, rclone dies of SIGPIPE, and `set -o pipefail` turns that
+          # into a failed pipeline — so a flag that EXISTS gets reported
+          # missing. It bites exactly the flags that appear early in the
+          # output (the global ones) while late backend flags pass, which is
+          # what made the first failure look like a version problem.
+          flags_help="$(rclone help flags 2>/dev/null || true)"
+          if [[ -z "$flags_help" ]]; then
+            echo "::error::\`rclone help flags\` produced no output — cannot verify flag support"
+            exit 1
+          fi
           missing=()
           for flag in --metadata --metadata-set --checksum --s3-no-check-bucket; do
-            rclone help flags 2>/dev/null | grep -q -- "$flag" || missing+=("$flag")
+            grep -q -- "$flag" <<<"$flags_help" || missing+=("$flag")
           done
           if (( ${#missing[@]} )); then
             echo "::error::rclone ${R2_RCLONE_PIN} does not support: ${missing[*]} — pin a version that does"
@@ -481,18 +493,23 @@ jobs:
               echo "  FAIL (unreachable)  $url"
               fail=1; return
             fi
-            actual=$(grep -i '^content-length:' <<<"$HDR" | tail -1 | tr -dc '0-9')
+            # `|| true` on every extraction below: with pipefail a grep that
+            # matches nothing fails the pipeline, and `set -e` would abort the
+            # whole step instead of reaching the FAIL branch — for the very
+            # case this check exists to catch (a response with no
+            # cache-control at all, which is exactly what the R2 bug produced).
+            actual=$(grep -i '^content-length:' <<<"$HDR" | tail -1 | tr -dc '0-9' || true)
             if [[ "$actual" != "$expect" ]]; then
               echo "  FAIL (size $actual != $expect)  $url"
               fail=1; return
             fi
             if [[ -n "$want_cc" ]]; then
-              cc=$(grep -i '^cache-control:' <<<"$HDR" | tail -1 | tr -d '\r')
+              cc=$(grep -i '^cache-control:' <<<"$HDR" | tail -1 | tr -d '\r' || true)
               # Compare max-age only, not the whole string: directive order
               # and casing are not ours to control, but the TTL is the thing
               # that actually matters and the thing that silently regressed.
-              got_age=$(grep -oE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9')
-              want_age=$(grep -oE 'max-age=[0-9]+' <<<"$want_cc" | head -1 | tr -dc '0-9')
+              got_age=$(grep -oE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9' || true)
+              want_age=$(grep -oE 'max-age=[0-9]+' <<<"$want_cc" | head -1 | tr -dc '0-9' || true)
               if [[ "$got_age" != "$want_age" ]]; then
                 echo "  FAIL (cache-control max-age=${got_age:-none}, want $want_age)  $url"
                 fail=1; return
@@ -599,8 +616,8 @@ jobs:
                 echo "OK   spot-checked $spot"
                 cc=$(curl -fsSI --max-time 20 "$url" | grep -i '^cache-control:' | tr -d '\r')
                 echo "     $cc"
-                got=$(grep -oE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9')
-                want=$(grep -oE 'max-age=[0-9]+' <<<"$CC_MANIFEST" | head -1 | tr -dc '0-9')
+                got=$(grep -oE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9' || true)
+                want=$(grep -oE 'max-age=[0-9]+' <<<"$CC_MANIFEST" | head -1 | tr -dc '0-9' || true)
                 if [[ "$got" != "$want" ]]; then
                   # The manifest is the one object where a long TTL is a real
                   # problem: a pinned stale copy tells clients "no update".
