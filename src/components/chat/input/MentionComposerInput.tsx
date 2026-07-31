@@ -92,7 +92,7 @@ const FILE_CHIP_CLASS =
 const NOTE_CHIP_CLASS =
   "cm-mention-chip cm-mention-note mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center rounded-md border border-violet-500/20 bg-violet-500/10 px-1.5 text-sm font-medium text-violet-600 shadow-sm dark:border-violet-300/20 dark:bg-violet-300/15 dark:text-violet-200"
 const SKILL_CHIP_CLASS =
-  "cm-mention-chip cm-mention-skill mx-0.5 inline-flex h-6 max-w-[16rem] items-center gap-1 whitespace-nowrap align-baseline text-sm font-normal"
+  "cm-mention-chip cm-mention-skill mx-0.5 inline-flex max-w-[16rem] items-baseline gap-1 whitespace-nowrap align-baseline text-sm font-normal"
 const AGENT_CHIP_CLASS =
   "cm-mention-chip cm-mention-agent mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-teal-500/20 bg-teal-500/10 px-1.5 text-sm font-medium text-teal-700 shadow-sm dark:border-teal-300/20 dark:bg-teal-300/15 dark:text-teal-200"
 const CHIP_ICON_CLASS = "h-4 w-4 shrink-0"
@@ -176,9 +176,9 @@ function appendText(parent: HTMLElement, className: string, text: string) {
   parent.appendChild(el)
 }
 
-function appendIcon(parent: HTMLElement, icon: React.ReactNode) {
+function appendIcon(parent: HTMLElement, icon: React.ReactNode, className?: string) {
   const mount = document.createElement("span")
-  mount.className = "inline-flex shrink-0 items-center justify-center"
+  mount.className = cn("inline-flex shrink-0 items-center justify-center", className)
   parent.appendChild(mount)
   const root = createRoot(mount)
   root.render(icon)
@@ -244,6 +244,7 @@ class MentionWidget extends WidgetType {
         appendIcon(
           root,
           createElement(SkillMentionIcon, { kind: meta.iconKind, className: CHIP_ICON_CLASS }),
+          "self-center",
         )
       }
       appendText(root, CHIP_LABEL_CLASS, this.skillLabel(this.span.name))

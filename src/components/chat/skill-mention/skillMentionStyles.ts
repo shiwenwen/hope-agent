@@ -17,7 +17,8 @@ export function skillMentionToneClass(kind: SkillIconKind): string {
     case "analytics":
       return "text-sky-700 dark:text-sky-400"
     case "browser":
+      return "text-blue-600 dark:text-blue-400"
     case "mac":
-      return "text-foreground/85"
+      return "text-foreground"
   }
 }
