@@ -410,7 +410,7 @@ async fn handle_inbound_message(
     // For PassThrough commands (e.g. skill invocations), use the transformed message as the
     // engine input so the LLM receives the skill instruction rather than the raw "/" text.
     let engine_message: String;
-    if crate::slash_commands::parser::is_command(user_text) {
+    if crate::slash_defs::parser::is_command(user_text) {
         // Channels without inline-button support get the handler's verbose
         // no-arg text response instead of the (un-tappable) `Select an
         // option for /xxx:` shortcut.
@@ -439,7 +439,7 @@ async fn handle_inbound_message(
             }) => {
                 let effective_sid = new_session_id.as_deref().unwrap_or(&session_id);
                 if new_session_id.is_none() {
-                    if let Err(e) = crate::slash_commands::append_slash_history_events(
+                    if let Err(e) = crate::slash_defs::append_slash_history_events(
                         &session_db,
                         effective_sid,
                         user_text,

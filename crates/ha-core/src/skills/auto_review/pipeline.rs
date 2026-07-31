@@ -21,7 +21,7 @@ use serde_json::Value;
 
 use crate::agent::AssistantAgent;
 use crate::config::cached_config;
-use crate::dashboard::{emit_learning_event, EVT_SKILL_DISCARDED};
+use crate::learning_events::{emit as emit_learning_event, EVT_SKILL_DISCARDED};
 use crate::skills::author::{
     create_skill, patch_skill_fuzzy, security_scan, CreateOpts, FuzzyOpts, PatchResult,
 };

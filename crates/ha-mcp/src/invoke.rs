@@ -142,7 +142,7 @@ fn emit_learning(
     // the null sentinel.
     let (kind, meta) = match result {
         Ok(_) => (
-            ha_core::dashboard::learning::EVT_MCP_TOOL_CALLED,
+            ha_core::learning_events::EVT_MCP_TOOL_CALLED,
             serde_json::json!({
                 "server": entry.server_name,
                 "tool": entry.original_tool_name,
@@ -150,7 +150,7 @@ fn emit_learning(
             }),
         ),
         Err(e) => (
-            ha_core::dashboard::learning::EVT_MCP_TOOL_FAILED,
+            ha_core::learning_events::EVT_MCP_TOOL_FAILED,
             serde_json::json!({
                 "server": entry.server_name,
                 "tool": entry.original_tool_name,
@@ -159,7 +159,7 @@ fn emit_learning(
             }),
         ),
     };
-    ha_core::dashboard::learning::emit(
+    ha_core::learning_events::emit(
         kind,
         ctx.session_id.as_deref(),
         Some(namespaced_name),

@@ -1205,7 +1205,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 
 #### Dashboard Learning
 
-`session.db.learning_events` 表 + `dashboard::learning` 查询，支持 7/14/30/60/90 天窗口。埋点来自 `skills::author` CRUD 与 `tool_recall_memory` 命中等。前端 Dashboard "Learning" Tab 消费。
+`session.db.learning_events` 表 + `dashboard::learning` 只读聚合查询（写入面 `learning_events::emit`），支持 7/14/30/60/90 天窗口。埋点来自 `skills::author` CRUD 与 `tool_recall_memory` 命中等。前端 Dashboard "Learning" Tab 消费。
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|

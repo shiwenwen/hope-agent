@@ -147,6 +147,11 @@ recap/             /recap 深度复盘 + 11 个并行 AI 章节
 dashboard/         Insights + Learning Tracker
 awareness/         跨会话行为感知 suffix
 config/            cached_config / mutate_config（详见下文）
+learning_events.rs Learning 埋点**发布面**（kernel 事件通道，见下文）
+slash_defs/        Slash 命令契约层：命令表 / wire 类型 / parser / fuzzy /
+                   转录落库 / 选择器渲染（详见下文）
+slash_hooks.rs     Slash 分发三槽（装配层 → kernel / IM 渠道的唯一回调面）
+slash_commands/    Slash **装配层**（handler 调各特征，位置在依赖图顶端）
 globals.rs         OnceLock 全局 + AppState（logger / LogDB 全局已下沉 ha-base 并再导出）
 guardian.rs        进程监护 + 指数退避 + 自修复
 ...
@@ -215,6 +220,47 @@ crate 外符号集与归位前**逐字相同**（`get_design_tool` 因迁移前�
 kernel 新代码一律 `crate::tool_defs::…`；`crate::tools` 门面
 `pub use crate::tool_defs::*` 全量再导出，故特征 crate 与壳层的
 `ha_core::tools::…` 既有路径全部不变。
+
+#### 装配层（composition root）：app_init · globals · slash_commands
+
+分析器 `ASSEMBLY` 名单里的三个模块。名单的语义**只有一条**：以它们为
+**源**的边不计入切割成本——目标形态里它们随门面 ha-core 落在特征 crate
+之上，向下依赖任意特征都合法。
+
+> 名单不等于「这三个都已经站在顶端」。实测入向：`slash_commands` 1 个模块
+> （`app_init` 的钩子注册），`app_init` 5 个（裸 `is_desktop()` / `is_acp()`
+> 判定），**`globals` 30 个模块 / 89 处**——它是 §3.3 记的 god registry，
+> 阶段 5 才解构，现在只享受出边豁免。下面这条契约当前**只对
+> `slash_commands` 成立**。
+
+**`slash_commands` 的入向必须为零或走钩子**——否则下层模块反向依赖顶端，
+拆 crate 时立刻成环。它因此拆成三块：
+
+| 落点 | 内容 | 谁在用 |
+|------|------|--------|
+| [`slash_defs/`](../../crates/ha-core/src/slash_defs/)（契约层，kernel） | `registry`（内置命令静态表 + `IM_DISABLED_COMMANDS`）· `types`（`CommandAction` / `CommandResult` / 各 PickerItem）· `parser`（`is_command` / 文本→命令）· `fuzzy` · `history`（slash 转录落库 + 命令显示文本）· `canonical_builtin_command_name` · `format_session_picker_line` · `truncate_description` | IM 渠道与 kernel 直接用（对特征组零引用） |
+| [`slash_hooks.rs`](../../crates/ha-core/src/slash_hooks.rs)（kernel 回调面） | 三槽原子注册：`dispatch`（执行命令）· `menu_entries`（IM 菜单同步）· `skill_command_help`（技能命令参数元数据） | 未装配语义：dispatch → `Err`（无装配的进程本就不跑 IM worker，调用方走既有错误分支、**不会**把命令喂给模型）、menu_entries → **内置命令表**（经同一 `im_menu_filter_and_cap` 收口，与装配层「`list_slash_commands` 失败回退内置表」同方向；**刻意不返回空表**——Telegram `set_my_commands` / Discord `bulk_overwrite_global_commands` 都是覆盖写，空表会抹掉平台已注册的命令，降级不该产生破坏性远端副作用）、skill_command_help → `None`（等价「不是技能命令」） |
+| `slash_commands/`（装配层） | `handlers/` 全部命令实现 + 命令清单汇编 + 技能命令名冲突解析 | 只被壳层与钩子调用；`pub use` 再导出 slash_defs，既有 `slash_commands::{types,parser,registry,fuzzy}::…` 路径不变 |
+
+钩子在 `init_runtime` 的 `REGISTER_BASE_HOOKS` 里注册（与 filesystem 根解析器、
+config 写路径副作用同处）。**分析器 `ASSEMBLY` 名单与这条契约是同步关系**：
+名单说「它的出边不算成本」，前提是入边已经清零或走钩子；哪天又出现特征模块
+直接 `use crate::slash_commands::…`，名单就在说谎，应先把那条边改成钩子。
+
+#### learning 事件：发布在 kernel、消费在 dashboard
+
+`learning_events` 表的生产者遍布四层——kernel（`tools::memory` 的 recall
+埋点）、未来的 ha-skills（skill CRUD）、ha-knowledge（维护调度）、以及
+**已经独立的特征 crate ha-mcp**（工具调用成败）。发布面若留在 dashboard，
+这些生产者全要反向依赖 ha-dash（ha-mcp 那条尤其荒谬：一个已拆出的 crate
+为打点去依赖另一个特征 crate）。
+
+发布与消费之间本就没有代码耦合，只共享表名与 kind 字符串：DDL / INSERT /
+prune / 会话级联删除都在 `SessionDB`，dashboard 侧只有 4 个只读聚合。所以
+`emit` + `EVT_*` 归位 [`learning_events.rs`](../../crates/ha-core/src/learning_events.rs)，
+`dashboard::learning` 退化为纯订阅方并保留原路径再导出。**新增事件种类由
+生产者侧声明**，dashboard 不需要预先认识——聚合按 kind 过滤，未知 kind 只是
+不出现在现有卡片里。
 
 ### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
@@ -536,7 +582,7 @@ sequenceDiagram
 | `mcp:catalog_refreshed` | ha-mcp (events.rs) | MCP tool catalog 重建 |
 | `mcp:server_log` | ha-mcp (events.rs) | MCP server 日志推送 |
 | `mcp:auth_required` / `mcp:auth_completed` | ha-mcp (events.rs) | MCP OAuth 流程信号 |
-| `mcp_tool_called` / `mcp_tool_failed` (`EVT_MCP_*`) | 常量 ha-core (dashboard/learning.rs)，emit ha-mcp (invoke.rs) | Dashboard Learning 埋点 |
+| `mcp_tool_called` / `mcp_tool_failed` (`EVT_MCP_*`) | 常量 ha-core (learning_events.rs)，emit ha-mcp (invoke.rs) | Dashboard Learning 埋点 |
 
 #### 项目 / Channel / 系统
 

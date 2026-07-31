@@ -1,12 +1,13 @@
-//! Learning analytics queries + event emission helpers (Phase B'4).
+//! Learning analytics **消费面**——Dashboard「Learning」标签页的只读聚合。
 //!
-//! The DDL + insert/prune helpers live on `SessionDB` (so `learning_events`
-//! shares the session DB connection). This module wraps them with:
-//!   - `emit(kind, session_id, ref_id, meta)` — cheap fire-and-forget
-//!     call used by skill CRUD / recall summary / auto-review pipelines.
-//!     Resolves the global SessionDB lazily so callers don't have to plumb
-//!     an Arc through their signatures.
-//!   - Aggregate queries that power the Dashboard "Learning" tab.
+//! 事件**发布面**（`emit` + `EVT_*` 常量）在 [`crate::learning_events`]
+//! （crate-split 破环：生产者遍布 kernel / skills / knowledge / ha-mcp
+//! 四层，发布面留这里会让它们全部反向依赖 dashboard）。本模块与发布面
+//! 之间没有代码耦合，只共享 `learning_events` 表名与 kind 字符串；DDL /
+//! INSERT / prune / 会话级联删除都在 [`crate::session::SessionDB`]。
+//!
+//! 原路径 `dashboard::{emit_learning_event, EVT_*}` 保留再导出，调用点
+//! 不受影响。
 
 use anyhow::Result;
 use rusqlite::params;
@@ -14,57 +15,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::SessionDB;
 
-// ── Event kinds (stable strings stored in learning_events.kind) ──
-pub const EVT_SKILL_CREATED: &str = "skill_created";
-pub const EVT_SKILL_PATCHED: &str = "skill_patched";
-pub const EVT_SKILL_ACTIVATED: &str = "skill_activated";
-pub const EVT_SKILL_DISCARDED: &str = "skill_discarded";
-pub const EVT_SKILL_USED: &str = "skill_used";
-pub const EVT_RECALL_HIT: &str = "recall_hit";
-pub const EVT_RECALL_SUMMARY_USED: &str = "recall_summary_used";
-/// An MCP tool call returned a result (success path). `ref_id` is the
-/// namespaced name `mcp__<server>__<tool>`; `meta` carries `server`,
-/// `tool`, `durationMs`.
-pub const EVT_MCP_TOOL_CALLED: &str = "mcp_tool_called";
-/// An MCP tool call produced an error (protocol / timeout / tool-side
-/// `isError=true`). `meta` carries the same fields plus `error`.
-pub const EVT_MCP_TOOL_FAILED: &str = "mcp_tool_failed";
-
-/// Best-effort emitter. Silently no-ops if the session DB hasn't been
-/// initialized (e.g. in unit tests for subsystems that don't need one).
-///
-/// Dispatches the INSERT onto `spawn_blocking` when we're inside a Tokio
-/// runtime so the caller (often a hot path like `tool_recall_memory` or a
-/// skill CRUD op) doesn't wait on the SessionDB writer Mutex. Falls back to
-/// a sync call outside an async context (e.g. from a blocking worker).
-pub fn emit(
-    kind: &str,
-    session_id: Option<&str>,
-    ref_id: Option<&str>,
-    meta: Option<&serde_json::Value>,
-) {
-    let Some(db) = crate::get_session_db().cloned() else {
-        return;
-    };
-    let kind = kind.to_string();
-    let session_id = session_id.map(str::to_string);
-    let ref_id = ref_id.map(str::to_string);
-    let meta = meta.cloned();
-    let write = move || {
-        db.record_learning_event(
-            &kind,
-            session_id.as_deref(),
-            ref_id.as_deref(),
-            meta.as_ref(),
-        );
-    };
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => {
-            handle.spawn_blocking(write);
-        }
-        Err(_) => write(),
-    }
-}
+// 发布面原路径兼容再导出（定义处 `crate::learning_events`）。
+pub use crate::learning_events::{
+    emit, EVT_MCP_TOOL_CALLED, EVT_MCP_TOOL_FAILED, EVT_RECALL_HIT, EVT_RECALL_SUMMARY_USED,
+    EVT_SKILL_ACTIVATED, EVT_SKILL_CREATED, EVT_SKILL_DISCARDED, EVT_SKILL_PATCHED, EVT_SKILL_USED,
+};
 
 // ── Aggregate queries ───────────────────────────────────────────
 

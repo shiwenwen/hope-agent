@@ -354,7 +354,7 @@ Hope 的 Git Checkpoint + 通用任务覆盖是相对 claude-code/opencode 的�
 
 **斜杠命令**：
 - `crates/ha-core/src/slash_commands/handlers/plan.rs`
-- `crates/ha-core/src/slash_commands/types.rs`（CommandAction::EnterPlanMode / ExitPlanMode / ApprovePlan / ShowPlan）
+- `crates/ha-core/src/slash_defs/types.rs`（CommandAction::EnterPlanMode / ExitPlanMode / ApprovePlan / ShowPlan）
 
 **Tauri 命令**：
 - `src-tauri/src/commands/plan.rs`：`get_plan_mode` / `set_plan_mode` / `get_plan_content` / `save_plan_content` / `respond_ask_user_question` / `get_pending_ask_user_group` / `get_plan_versions` / `load_plan_version_content` / `restore_plan_version` / `plan_rollback` / `get_plan_checkpoint` / `get_plan_file_path` / `cancel_plan_subagent`

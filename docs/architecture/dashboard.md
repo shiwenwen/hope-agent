@@ -23,7 +23,7 @@ Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）
 | `filters.rs` | 筛选器构建（session / model_usage / log 三套） |
 | `cost.rs` | 模型定价表与成本计算引擎 |
 | `insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
-| `learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（埋点写入 `session.db.learning_events`） |
+| `learning.rs` | Learning Tracker 4 个只读聚合查询（消费面；发布面 `emit` + 9 个事件常量在 kernel `learning_events.rs`，此处原路径再导出） |
 | `coding_improvement.rs` | Coding Improvement 全局 / 项目级学习聚合：workflow、eval、review、verification、proposal、retro 只读 rollup |
 | `plan_stats.rs` | Plan 统计聚合：Dashboard "Plans" tab 数据源（详见下文） |
 | `control_plane.rs` | “目标与执行”聚合：Goal / Workflow / Loop / Task / Plan 指标、P50、覆盖率和 attention 明细 |
@@ -282,11 +282,13 @@ fn build_session_filter(
 
 `query_insights` 是面向前端的统一入口，避免单 Tab 多次 invoke；其余 7 个查询在 Recap 模块复用为 `QuantitativeStats` 的数据源（详见 [recap.md](recap.md)）。
 
-## Learning Tracker（learning.rs）
+## Learning Tracker（learning_events.rs 发布 · dashboard/learning.rs 聚合）
 
-Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 的 `learning_events` 表，再由 `learning.rs` 提供时间窗口聚合查询，对应前端 Dashboard Learning Tab。
+Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 的 `learning_events` 表，再由 `dashboard/learning.rs` 提供时间窗口聚合查询，对应前端 Dashboard Learning Tab。
 
-### 事件常量（9 个）
+**发布与消费分层**：`emit` 与 9 个事件常量在 kernel 的 [`learning_events.rs`](../../crates/ha-core/src/learning_events.rs)（生产者遍布 kernel / skills / knowledge / 已独立的 ha-mcp 四层，发布面留 dashboard 会让它们反向依赖 ha-dash）；`dashboard/learning.rs` 只做只读聚合并保留原路径再导出。详见 [backend-separation](backend-separation.md)。
+
+### 事件常量（9 个，定义在 `learning_events.rs`）
 
 | 类别 | 常量 | 触发埋点 |
 |------|------|----------|
@@ -305,7 +307,7 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 
 ### 数据源
 
-- 写：`learning::emit(kind, session_id, ref_id, meta)` 单点入口（懒解析全局 SessionDB，无需 caller 透传 `db`），所有埋点经此写入 `session.db.learning_events` 表，schema 含 `(id, ts, kind, session_id, ref_id, meta_json)`
+- 写：`learning_events::emit(kind, session_id, ref_id, meta)` 单点入口（kernel 事件通道，`dashboard::emit_learning_event` 为原路径再导出；懒解析全局 SessionDB，无需 caller 透传 `db`），所有埋点经此写入 `session.db.learning_events` 表，schema 含 `(id, ts, kind, session_id, ref_id, meta_json)`
 - 读：上述 4 个查询函数按 `kind IN (...)` + `ts >= now - window_days` 做窗口聚合
 - 表归属在 `session.db` 而非独立库，避免新增 SQLite 文件；与 sessions / messages 共享连接池
 
@@ -558,7 +560,8 @@ sequenceDiagram
 | `crates/ha-core/src/dashboard/detail_queries.rs` | 5 个详情列表查询（session / message / tool_call / error / agent） |
 | `crates/ha-core/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
 | `crates/ha-core/src/dashboard/insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
-| `crates/ha-core/src/dashboard/learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（`EVT_SKILL_*` / `EVT_RECALL_*` / `EVT_MCP_*`） + `emit` 写入 `session.db.learning_events` |
+| `crates/ha-core/src/dashboard/learning.rs` | Learning Tracker 4 个只读聚合查询（**消费面**；发布面已下沉，原路径 `dashboard::{emit_learning_event, EVT_*}` 保留再导出） |
+| `crates/ha-core/src/learning_events.rs` | **发布面**：9 个事件常量（`EVT_SKILL_*` / `EVT_RECALL_*` / `EVT_MCP_*`）+ `emit` 写 `session.db.learning_events`。生产者遍布 kernel / skills / knowledge / ha-mcp 四层，故通道在 kernel、dashboard 只订阅 |
 | `crates/ha-core/src/dashboard/coding_improvement.rs` | Coding Improvement 全局 / 项目级只读学习聚合 |
 | `crates/ha-core/src/dashboard/control_plane.rs` | Goal / Workflow / Loop / Task / Plan 统一推进指标与 attention 聚合 |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |

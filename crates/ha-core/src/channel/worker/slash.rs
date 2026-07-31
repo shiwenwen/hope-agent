@@ -53,7 +53,7 @@ pub(super) async fn dispatch_slash_for_channel(
     sender_id: &str,
     supports_buttons: bool,
 ) -> Result<ChannelSlashOutcome, anyhow::Error> {
-    use crate::slash_commands::{handlers, parser};
+    use crate::slash_defs::parser;
 
     let (name, args) = parser::parse(text).map_err(|e| anyhow::anyhow!(e))?;
 
@@ -109,11 +109,11 @@ pub(super) async fn dispatch_slash_for_channel(
         }
     }
 
-    let result = handlers::dispatch(Some(session_id), agent_id, &name, &args)
+    let result = crate::slash_hooks::dispatch(Some(session_id), agent_id, &name, &args)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    use crate::slash_commands::types::CommandAction;
+    use crate::slash_defs::types::CommandAction;
     match result.action {
         // Pass transformed message to the LLM (skill commands, /search, etc.)
         Some(CommandAction::PassThrough { message }) => {
@@ -729,7 +729,7 @@ async fn compact_context_now_core(
 }
 
 fn is_model_active(
-    item: &crate::slash_commands::types::ModelPickerItem,
+    item: &crate::slash_defs::types::ModelPickerItem,
     active_provider_id: &Option<String>,
     active_model_id: &Option<String>,
 ) -> bool {
@@ -745,7 +745,7 @@ fn is_model_active(
 /// Telegram limits callback_data to 64 bytes, so we use model_name
 /// (the display name the fuzzy matcher accepts) rather than model_id.
 pub(super) fn build_model_buttons_from_items(
-    models: &[crate::slash_commands::types::ModelPickerItem],
+    models: &[crate::slash_defs::types::ModelPickerItem],
     active_provider_id: &Option<String>,
     active_model_id: &Option<String>,
 ) -> Vec<Vec<crate::channel::types::InlineButton>> {
@@ -811,7 +811,7 @@ fn build_picker_buttons(
 /// + same model_name preference as `build_model_buttons_from_items` so
 /// the button and text paths look identical.
 pub(super) fn render_model_picker_text(
-    models: &[crate::slash_commands::types::ModelPickerItem],
+    models: &[crate::slash_defs::types::ModelPickerItem],
     active_provider_id: &Option<String>,
     active_model_id: &Option<String>,
 ) -> String {
@@ -847,12 +847,12 @@ const SESSION_PICKER_TEXT_BODY_LIMIT: usize = 12;
 /// first `SESSION_PICKER_BUTTONS_BODY_LIMIT` rows with chips. Sessions
 /// past the cap stay reachable via the inline buttons rendered alongside.
 fn render_session_picker_buttons_body(
-    sessions: &[crate::slash_commands::types::SessionPickerItem],
+    sessions: &[crate::slash_defs::types::SessionPickerItem],
 ) -> String {
     let total = sessions.len();
     let mut lines: Vec<String> = vec![format!("Pick a session ({}):", total)];
     for s in sessions.iter().take(SESSION_PICKER_BUTTONS_BODY_LIMIT) {
-        lines.push(crate::slash_commands::handlers::session::format_session_picker_line(s));
+        lines.push(crate::slash_defs::format_session_picker_line(s));
     }
     if total > SESSION_PICKER_BUTTONS_BODY_LIMIT {
         lines.push(format!(
@@ -867,9 +867,7 @@ fn render_session_picker_buttons_body(
 /// buttons. `handle_session` accepts either a full id or a unique prefix,
 /// so users on WeChat / iMessage / IRC / Signal / WhatsApp copy the short
 /// id and type `/session <short>` to attach.
-fn render_session_picker_text(
-    sessions: &[crate::slash_commands::types::SessionPickerItem],
-) -> String {
+fn render_session_picker_text(sessions: &[crate::slash_defs::types::SessionPickerItem]) -> String {
     let total = sessions.len();
     let mut lines = Vec::with_capacity(total.min(SESSION_PICKER_TEXT_BODY_LIMIT) + 2);
     lines.push(
@@ -878,7 +876,7 @@ fn render_session_picker_text(
             .to_string(),
     );
     for s in sessions.iter().take(SESSION_PICKER_TEXT_BODY_LIMIT) {
-        lines.push(crate::slash_commands::handlers::session::format_session_picker_line(s));
+        lines.push(crate::slash_defs::format_session_picker_line(s));
     }
     if total > SESSION_PICKER_TEXT_BODY_LIMIT {
         lines.push(format!(
@@ -906,7 +904,7 @@ struct CommandHelp {
 /// Returns `None` only when `name` matches neither — in that case the handler
 /// will reject it and we don't want to short-circuit.
 fn lookup_command_help(name: &str) -> Option<CommandHelp> {
-    use crate::slash_commands::{canonical_builtin_command_name, registry};
+    use crate::slash_defs::{canonical_builtin_command_name, registry};
 
     let lookup_name = canonical_builtin_command_name(name);
     if let Some(def) = registry::all_commands()
@@ -920,14 +918,12 @@ fn lookup_command_help(name: &str) -> Option<CommandHelp> {
         });
     }
 
-    let store = crate::config::cached_config();
-    let skill =
-        crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills)
-            .into_iter()
-            .find(|s| crate::skills::normalize_skill_command_name(&s.name) == name)?;
+    // 技能命令元数据经装配层钩子取（skills 是未来的 ha-skills crate，
+    // channel 不得直接引）。未装配 → None，与「不是技能命令」同分支。
+    let skill = crate::slash_hooks::skill_command_help(name)?;
     Some(CommandHelp {
-        arg_options: skill.command_arg_options,
-        arg_placeholder: skill.command_arg_placeholder,
+        arg_options: skill.arg_options,
+        arg_placeholder: skill.arg_placeholder,
         args_optional: true,
     })
 }
@@ -958,9 +954,7 @@ pub(super) fn render_options_help_text(
 /// Lists up to 20 projects with their name + session count.
 /// `handle_project` already does fuzzy match on name, so the prompt
 /// instructs users to type `/project <name>`.
-fn render_project_picker_text(
-    projects: &[crate::slash_commands::types::ProjectPickerItem],
-) -> String {
+fn render_project_picker_text(projects: &[crate::slash_defs::types::ProjectPickerItem]) -> String {
     let mut lines = Vec::with_capacity(projects.len().min(20) + 2);
     lines.push("**Projects** (use `/project <name>` to switch):".to_string());
     for p in projects.iter().take(20) {

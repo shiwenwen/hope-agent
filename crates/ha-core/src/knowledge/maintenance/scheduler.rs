@@ -237,7 +237,7 @@ async fn run_cycle(trigger: MaintenanceTrigger) -> MaintenanceReport {
             serde_json::to_value(&report).unwrap_or(serde_json::Value::Null),
         );
     }
-    crate::dashboard::learning::emit(
+    crate::learning_events::emit(
         "kb_maintenance_cycle",
         None,
         None,

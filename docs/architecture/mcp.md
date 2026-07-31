@@ -392,7 +392,7 @@ stdio server 是任意 binary，潜在命令执行入口：
 - `EVT_MCP_TOOL_CALLED`（成功）
 - `EVT_MCP_TOOL_FAILED`（失败 / 超时 / `isError=true` / 协议错误）
 
-定义在 [`dashboard/learning.rs`](../../crates/ha-core/src/dashboard/learning.rs)。
+定义在 [`learning_events.rs`](../../crates/ha-core/src/learning_events.rs)（kernel 事件通道；`dashboard::learning` 保留原路径再导出）。
 
 ### Payload 约定
 
@@ -416,7 +416,7 @@ stdio server 是任意 binary，潜在命令执行入口：
 
 ### emit 语义
 
-- 通过 `dashboard::learning::emit` 的 `spawn_blocking` 路径写 SessionDB —— 不阻塞调用方
+- 通过 `learning_events::emit` 的 `spawn_blocking` 路径写 SessionDB —— 不阻塞调用方
 - 按 `session_id` 过滤后在 Dashboard Learning Tab 的"MCP 工具使用"卡片展示 Top-N server / tool / 平均 duration / 失败率
 - 无 session（e.g. cron 触发）事件仍落盘，只是 `session_id=NULL`
 

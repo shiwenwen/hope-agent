@@ -94,7 +94,10 @@ const FEATURES = {
     "tools::loop_tool",
     "tools::schedule_wakeup",
   ],
-  "ha-skills": ["skills", "slash_commands", "tools::skill"],
+  // slash_commands 已移出：它是**装配层**（handler 逐个调 skills / channel /
+  // cron / dash / improve，出度 30 模块、入度 2），与 app_init / globals 同型，
+  // 见下方 ASSEMBLY。契约物在 kernel 的 slash_defs，分发经 slash_hooks 三槽。
+  "ha-skills": ["skills", "tools::skill"],
   "ha-dash": ["dashboard", "recap", "activity"],
   "ha-local-llm": ["local_llm", "local_model_jobs", "local_embedding"],
   // ha-acp 已实际迁出（crates/ha-acp/），同 ha-updater / ha-weather 从本表删除。
@@ -332,6 +335,43 @@ const TOOL_DEFS_TEST_EDGE_BUDGET = { "tools::dispatch": 2, "tools::mod": 1 }
   }
 }
 
+// ── 红线守卫：slash 三层单向（契约层 → 装配层 方向禁止）─────────────────
+//
+// 阶段 4 破环把 slash 拆成 slash_defs（契约层，kernel）/ slash_hooks（回调
+// 面）/ slash_commands（装配层）。装配层进了下面的 `ASSEMBLY` 名单，而名单
+// **只对「以它为源的边」豁免**——指向它的边不进任何分组指标（它不属任何
+// FEATURES 组），所以将来某个特征模块加一条 `use crate::slash_commands::…`，
+// 四个头条指标会纹丝不动。那正是名单开始说谎的时刻，只能靠断言兜住。
+//
+// 两条：① 除装配层自身与 app_init（钩子注册点）外，任何模块不得依赖
+// slash_commands；② slash_defs 不得反向依赖 slash_commands。
+// 契约见 AGENTS.md 与 backend-separation.md 的装配层小节。
+{
+  const ALLOWED_INBOUND = new Set(["app_init"])
+  const inbound = [...deps]
+    .filter(([m]) => m !== "slash_commands" && !ALLOWED_INBOUND.has(m))
+    .map(([m, d]) => [m, d.get("slash_commands") ?? 0])
+    .filter(([, c]) => c > 0)
+  if (inbound.length) {
+    console.error(
+      `✗ 红线违规：模块直接依赖装配层 slash_commands——` +
+        inbound.map(([m, c]) => `${m}(${c})`).join(" "),
+    )
+    console.error(
+      "  装配层入向必须为零或走钩子：契约物请用 crate::slash_defs::…，" +
+        "真分发请走 crate::slash_hooks 三槽（dispatch / menu_entries / skill_command_help）。",
+    )
+    process.exit(1)
+  }
+  const backEdge = (deps.get("slash_defs") ?? new Map()).get("slash_commands") ?? 0
+  if (backEdge > 0) {
+    console.error(
+      `✗ 红线违规：slash_defs（契约层）依赖 slash_commands（装配层）——${backEdge} 处`,
+    )
+    process.exit(1)
+  }
+}
+
 const rev = new Map([...nodes.keys()].map((n) => [n, new Map()]))
 for (const [m, d] of deps) for (const [t, c] of d) rev.get(t).set(m, c)
 
@@ -396,9 +436,16 @@ const cycle = comps[0].length > 1 ? new Set(comps[0]) : new Set()
 
 // ── 分组切割成本 ─────────────────────────────────────────────────────────
 
-// 装配层（composition root）：目标形态里 app_init / globals 随门面 ha-core 落在
-// 最顶层，向下依赖任何特征都合法——它们指向特征的边不是切割成本，单独归类。
-const ASSEMBLY = new Set(["app_init", "globals"])
+// 装配层（composition root）：目标形态里 app_init / globals / slash_commands 随
+// 门面 ha-core 落在最顶层，向下依赖任何特征都合法——它们指向特征的边不是切割
+// 成本，单独归类。
+//
+// slash_commands 入列的判据（阶段 4 破环）：出度 30 个模块、入度只有 2 个，
+// 且入向已全部改走 kernel——契约物（命令表 / wire 类型 / parser / fuzzy /
+// 转录落库 / 选择器渲染）归位 `slash_defs`，真正的分发经 `slash_hooks` 三槽
+// 回调。**这两条是它算装配层的前提**：若哪天又出现「特征模块直接
+// `use crate::slash_commands::…`」，本表就在说谎，应当先把那条边改成钩子。
+const ASSEMBLY = new Set(["app_init", "globals", "slash_commands"])
 
 function cutCost(members) {
   const S = new Set(members.filter((m) => nodes.has(m)))

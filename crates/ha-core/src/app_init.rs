@@ -190,19 +190,21 @@ pub fn init_runtime(role: &'static str) {
         return;
     }
 
-    // 装配钩子必须在**任何**业务代码跑之前注册，共五组，两类去向：
+    // 装配钩子必须在**任何**业务代码跑之前注册，共六组，两类去向：
     //
     //   · ha-base 反向依赖钩子（base 不能 `use AppConfig`）：plans 目录来源、
     //     Dangerous Mode 配置源、process_registry 通知回调
     //   · ha-core 内部切边钩子（防止 config / filesystem 焊进大环）：config
     //     写路径副作用（保存后广播 / ConfigChange hook）、WorkspaceScope 三个
-    //     上下文根解析器。注意 autosave 快照**不走钩子**——它必须无条件执行
+    //     上下文根解析器、slash 命令分发三槽（channel 不得反向 use 装配层）。
+    //     注意 autosave 快照**不走钩子**——它必须无条件执行
     //     （server setup 等入口在 init_runtime 之前/之外写 config），persistence
     //     直调 `config::autosave`
     //
     // 冲突处置分两级，刻意不对称：
-    //   · 功能级（plans 目录 / 进程通知 / 根解析器）——被顶替只是对应功能
-    //     退化（且根解析器 fail-closed），记 error 继续
+    //   · 功能级（plans 目录 / 进程通知 / 根解析器 / slash 三槽）——被顶替
+    //     只是对应功能退化（根解析器 fail-closed；slash 未装配只是命令不可
+    //     用、无权限语义），记 error 继续
     //   · 安全级（Dangerous Mode 配置源、config 副作用——post_save 携带
     //     `allowRemoteWrites` 的远程 shell 即时撤销）——来源被顶替不可接受，
     //     宁可起不来（panic 在各 register 内/此处触发）
@@ -250,6 +252,34 @@ pub fn init_runtime(role: &'static str) {
         }) {
             eprintln!("[FATAL] dangerous-mode config source already registered: {e}");
             panic!("dangerous-mode config source already registered: {e}");
+        }
+        // slash 分发三槽（装配层 → kernel / IM 渠道的唯一回调面）。功能级：
+        // 被顶替只会让 slash 命令走到另一份装配，记 error 继续。
+        if let Err(e) = crate::slash_hooks::register_slash_hooks(crate::slash_hooks::SlashHooks {
+            dispatch: |session_id, agent_id, command, args| {
+                Box::pin(crate::slash_commands::handlers::dispatch(
+                    session_id, agent_id, command, args,
+                ))
+            },
+            menu_entries: || Box::pin(crate::slash_commands::im_menu_entries()),
+            skill_command_help: |name| {
+                let store = crate::config::cached_config();
+                let skill = crate::skills::get_invocable_skills(
+                    &store.extra_skills_dirs,
+                    &store.disabled_skills,
+                )
+                .into_iter()
+                .find(|s| crate::skills::normalize_skill_command_name(&s.name) == name)?;
+                Some(crate::slash_hooks::SkillCommandHelp {
+                    arg_placeholder: skill.command_arg_placeholder,
+                    arg_options: skill.command_arg_options,
+                })
+            },
+        }) {
+            warn_dup(
+                "slash_hooks (slash commands may dispatch to a stale assembly)",
+                e,
+            );
         }
     });
 

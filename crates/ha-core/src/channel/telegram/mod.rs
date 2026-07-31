@@ -63,7 +63,7 @@ impl TelegramPlugin {
     /// — the bot remains usable, just with a stale menu until the next
     /// successful sync.
     async fn sync_commands_to_menu(api: &TelegramBotApi) {
-        let entries = crate::slash_commands::im_menu_entries().await;
+        let entries = crate::slash_hooks::im_menu_entries().await;
 
         let bot_commands: Vec<teloxide::types::BotCommand> = entries
             .iter()

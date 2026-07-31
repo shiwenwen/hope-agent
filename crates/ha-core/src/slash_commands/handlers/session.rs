@@ -204,7 +204,7 @@ fn render_picker_content(items: &[SessionPickerItem], query: &str, total: usize)
     };
     let mut lines = vec![header];
     for s in items.iter().take(10) {
-        lines.push(format_session_picker_line(s));
+        lines.push(crate::slash_defs::format_session_picker_line(s));
     }
     if total > 10 {
         lines.push(format!("…and {} more", total - 10));
@@ -261,34 +261,6 @@ fn session_matches_query(s: &SessionPickerItem, needle_lower: &str) -> bool {
     haystacks
         .iter()
         .any(|h| !h.is_empty() && h.to_lowercase().contains(needle_lower))
-}
-
-/// Format one session row for the markdown body of `/sessions`. Shared by
-/// the slash handler (GUI markdown) and the channel text-fallback so the
-/// two surfaces stay aligned. When the session was matched via message-body
-/// FTS, a second indented line shows the matched snippet.
-pub(crate) fn format_session_picker_line(s: &SessionPickerItem) -> String {
-    let id_short: String = s.id.chars().take(8).collect();
-    let mut chips: Vec<String> = Vec::with_capacity(3);
-    if !s.agent_label.is_empty() {
-        chips.push(format!("agent: {}", s.agent_label));
-    }
-    if let Some(pl) = s.project_label.as_deref() {
-        chips.push(format!("project: {}", pl));
-    }
-    if let Some(cl) = s.channel_label.as_deref() {
-        chips.push(cl.to_string());
-    }
-    let suffix = if chips.is_empty() {
-        String::new()
-    } else {
-        format!(" · _{}_", chips.join(" · "))
-    };
-    let head = format!("- `{}` · {}{}", id_short, s.title, suffix);
-    match s.snippet.as_deref() {
-        Some(sn) if !sn.is_empty() => format!("{}\n  > {}", head, sn),
-        _ => head,
-    }
 }
 
 /// /session — show / attach / exit. Sub-actions:

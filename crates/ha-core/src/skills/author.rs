@@ -102,8 +102,8 @@ pub fn create_skill(
         .with_context(|| format!("write {}", file_path.display()))?;
 
     super::types::bump_skill_version();
-    crate::dashboard::emit_learning_event(
-        crate::dashboard::EVT_SKILL_CREATED,
+    crate::learning_events::emit(
+        crate::learning_events::EVT_SKILL_CREATED,
         None,
         Some(skill_id),
         Some(&serde_json::json!({
@@ -147,8 +147,8 @@ pub fn set_skill_status(skill_id: &str, status: SkillStatus) -> Result<()> {
 
     super::types::bump_skill_version();
     if status == SkillStatus::Active {
-        crate::dashboard::emit_learning_event(
-            crate::dashboard::EVT_SKILL_ACTIVATED,
+        crate::learning_events::emit(
+            crate::learning_events::EVT_SKILL_ACTIVATED,
             None,
             Some(skill_id),
             None,
@@ -190,8 +190,8 @@ pub fn delete_skill(skill_id: &str) -> Result<()> {
     let meta = description
         .as_ref()
         .map(|desc| serde_json::json!({ "description": desc }));
-    crate::dashboard::emit_learning_event(
-        crate::dashboard::EVT_SKILL_DISCARDED,
+    crate::learning_events::emit(
+        crate::learning_events::EVT_SKILL_DISCARDED,
         None,
         Some(skill_id),
         meta.as_ref(),
@@ -242,8 +242,8 @@ pub fn patch_skill_fuzzy(
         std::fs::write(&file_path, updated)
             .with_context(|| format!("write {}", file_path.display()))?;
         super::types::bump_skill_version();
-        crate::dashboard::emit_learning_event(
-            crate::dashboard::EVT_SKILL_PATCHED,
+        crate::learning_events::emit(
+            crate::learning_events::EVT_SKILL_PATCHED,
             None,
             Some(skill_id),
             Some(&serde_json::json!({ "match": "exact" })),
@@ -276,8 +276,8 @@ pub fn patch_skill_fuzzy(
     std::fs::write(&file_path, replaced)
         .with_context(|| format!("write {}", file_path.display()))?;
     super::types::bump_skill_version();
-    crate::dashboard::emit_learning_event(
-        crate::dashboard::EVT_SKILL_PATCHED,
+    crate::learning_events::emit(
+        crate::learning_events::EVT_SKILL_PATCHED,
         None,
         Some(skill_id),
         Some(&serde_json::json!({

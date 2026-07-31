@@ -673,7 +673,7 @@ preview 生成 256-bit 随机短期 token，服务端用有界内存表保存已
 - HTTP/ACP 只允许 `status`，其他动作说明 desktop-only。
 - Settings > Pets 提供 Wake / Tuck Away / Open import-create controls；主窗口侧边栏底部提供快捷开关，开启时显示爪印、关闭时显示蛋，不用选中背景表达状态；PetWindow hover/focus control 可直接 Tuck Away。三个 UI 入口都读取同一 `AppConfig.pet.enabled` 并监听 `pet:config_changed`，不维护 localStorage 副本。首次发现引导在配置 ready 且关闭时延迟 700ms 锚定蛋图标出现，不抢焦点；提供直接开启与进入 Pets 设置，明确关闭/成功开启/进入设置后用版本化 localStorage key 仅记录 discovery，outside click / Escape 只在本次挂载 snooze。仓库当前没有全局 Command palette，因此不为 Pet 单独新建一套命令面。
 
-新增命令后同步 `slash_commands/registry.rs`、handler、`IM_DISABLED_COMMANDS`、前端 i18n、`docs/architecture/slash-commands.md` 以及中英文用户手册。
+新增命令后同步 `slash_defs/registry.rs`、handler、`IM_DISABLED_COMMANDS`、前端 i18n、`docs/architecture/slash-commands.md` 以及中英文用户手册。
 
 ## 验证计划
 

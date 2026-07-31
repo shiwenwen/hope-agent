@@ -237,7 +237,7 @@ session.working_dir 非空？      → 用之（会话级）
 | `/project <name>`（desktop / HTTP） | fuzzy 匹配 → `EnterProject` action → 前端创建项目作用域新会话 |
 | `/project <name>`（IM 会话） | fuzzy 匹配 → `AssignProject` action → channel worker 调 `set_session_project` 直接 UPDATE 现有 `sessions.project_id`，**不创建新 session** |
 
-> **IM 可用**：`/project` 在 IM 渠道**不再禁用**（早期曾因「IM 每条消息重算归属会拉回切换」而禁用，现已通过 `AssignProject` 真正落地到现有 session 解决）。当前 `IM_DISABLED_COMMANDS = ["agent", "handover"]`（[`slash_commands/registry.rs`](../../crates/ha-core/src/slash_commands/registry.rs)），不含 `project`。
+> **IM 可用**：`/project` 在 IM 渠道**不再禁用**（早期曾因「IM 每条消息重算归属会拉回切换」而禁用，现已通过 `AssignProject` 真正落地到现有 session 解决）。当前 `IM_DISABLED_COMMANDS = ["agent", "handover"]`（[`slash_defs/registry.rs`](../../crates/ha-core/src/slash_defs/registry.rs)），不含 `project`。
 
 ## System Prompt 注入
 

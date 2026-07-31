@@ -157,7 +157,7 @@ gotcha that most often explains a failure. Open every DB read-only.
 
 ### ACP / CLI / Slash commands / Config / Self-update — `acp.md`, `cli.md`, `slash-commands.md`, `config-system.md`, `self-update.md`
 
-- Entry: `ha-acp/src/acp/agent.rs`, `slash_commands/handlers/`, `config/persistence.rs`, `ha-updater/src/self_contained.rs`, `ha-updater/src/tool.rs`, `src-tauri/src/main.rs`.
+- Entry: `ha-acp/src/acp/agent.rs`, `slash_commands/handlers/` (assembly layer), `slash_defs/` (command table / wire types / parser / transcript rows), `slash_hooks.rs` (dispatch trampoline — IM goes through here, unregistered → `Err`), `config/persistence.rs`, `ha-updater/src/self_contained.rs`, `ha-updater/src/tool.rs`, `src-tauri/src/main.rs`.
 - State: `sessions.db` (ACP shares SessionDB), `config.json`, `credentials/auth.json`. Config: `auto_update.*`, `permission.global_yolo`.
 - Grep: `category IN ('self_update','acp','slash_cmd')`; config writes emit no log but fire the `config:changed` event.
 - Gotcha: "UI save not taking effect until restart" class bugs ← a write that bypassed `mutate_config`. Binary swap must use `platform::atomic_replace_binary` + `--version` smoke test + auto-rollback. `MINISIGN_PUBKEY_BASE64` must equal `tauri.conf.json#plugins.updater.pubkey` or desktop startup panics. Headless auto-update loop only runs when `!is_desktop()`.
