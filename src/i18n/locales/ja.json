@@ -4042,6 +4042,7 @@
     "resetDefaultsAlreadyDefault": "「{{section}}」はすでにデフォルト設定です",
     "resetDefaultsTitle": "「{{section}}」をデフォルトに戻しますか？",
     "resetDefaultsDescription": "「{{section}}」をこのバージョンのデフォルトに直ちに戻します。未保存の変更は破棄されます。",
+    "agentResetDefaultsDescription": "「{{section}}」の未保存の設定をこのバージョンのデフォルトに置き換えます。変更を適用するには「保存」をクリックしてください。",
     "resetDefaultsPreserve": "Provider、認証情報、メモリ、ナレッジベース、タスク、成果物は削除されません。",
     "resetDefaultsKnowledgeWarning": "ナレッジ設定を戻すと、バックグラウンドでインデックス再構築が始まる場合があります。",
     "resetDefaultsSuccess": "「{{section}}」をデフォルトに戻しました",

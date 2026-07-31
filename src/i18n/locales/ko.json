@@ -4042,6 +4042,7 @@
     "resetDefaultsAlreadyDefault": "‘{{section}}’ 설정은 이미 기본값입니다",
     "resetDefaultsTitle": "‘{{section}}’ 설정을 기본값으로 복원할까요?",
     "resetDefaultsDescription": "‘{{section}}’ 설정을 현재 버전의 기본값으로 즉시 복원합니다. 저장하지 않은 변경 사항은 사라집니다.",
+    "agentResetDefaultsDescription": "‘{{section}}’의 저장되지 않은 설정을 현재 버전의 기본값으로 바꿉니다. 변경 사항을 적용하려면 ‘저장’을 클릭하세요.",
     "resetDefaultsPreserve": "Provider, 자격 증명, 메모리, 지식 베이스, 작업 및 결과물은 삭제되지 않습니다.",
     "resetDefaultsKnowledgeWarning": "지식 설정을 복원하면 백그라운드 인덱스 재구축이 시작될 수 있습니다.",
     "resetDefaultsSuccess": "‘{{section}}’ 설정을 기본값으로 복원했습니다",

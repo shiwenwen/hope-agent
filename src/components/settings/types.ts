@@ -351,8 +351,10 @@ export interface AgentConfig {
     deniedAgents: string[]
     maxConcurrent: number
     defaultTimeoutSecs: number
+    deniedTools?: string[]
     maxSpawnDepth?: number | null
     maxBatchSize?: number | null
+    archiveAfterMinutes?: number | null
     announceTimeoutSecs?: number | null
     model?: string | null
   }
