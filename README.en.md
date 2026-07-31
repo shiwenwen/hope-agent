@@ -268,7 +268,7 @@ Both amd64 (x86_64) and arm64 (aarch64) native builds are published, covering de
 #### First launch & auto-update
 
 1. First launch wizard: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
-2. Desktop builds ship with a built-in auto-updater (it reads the `repo.hopeagent.ai` mirror first and falls back to GitHub Releases). Go to **Settings → About** in-app to check for and install updates, or just tell the model "upgrade" / "check for updates" in chat. Every installer is signature-verified against the built-in public key — the mirror and GitHub go through the identical check.
+2. Desktop builds ship with a built-in auto-updater (it reads the `repo.hopeagent.ai` mirror first and falls back to GitHub Releases). Go to **Settings → About** in-app to check for and install updates, or just tell the model "upgrade" / "check for updates" in chat. Installers fetched by the updater are signature-verified against the built-in public key — the mirror and GitHub go through the identical check. (Manual downloads are installed by your OS and do not pass through it.)
 3. Versions installed via Homebrew / AUR / Scoop also receive updates through the built-in updater; the package manager's recorded version stays pinned to the initial install version and does not affect functionality.
 
 > To connect from a phone or another computer, set an API key under **Settings → Server** and change the bind address to `0.0.0.0:8420`. After restarting, open `http://<IP of the device running Hope Agent>:8420`. Never expose the port to a LAN or the public internet without authentication; for public access, put it behind an HTTPS reverse proxy. See the [Docker deployment guide](docs/deployment/docker.en.md).
