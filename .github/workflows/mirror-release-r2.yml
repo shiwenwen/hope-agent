@@ -293,11 +293,40 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install rclone
+      - name: Install rclone (pinned) + jq
+        env:
+          # Pinned deliberately. `apt-get install rclone` gives whatever the
+          # runner image's distro ships — Ubuntu 24.04 is on 1.60.1 — so the
+          # flags this workflow depends on would silently change with the
+          # image. A release-critical publish path must not inherit its tool
+          # version from the base image.
+          RCLONE_VERSION: v1.74.4
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq rclone jq
+          sudo apt-get install -y -qq jq unzip
+          tmp="$(mktemp -d)"
+          curl -fsSL -o "$tmp/rclone.zip" \
+            "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.zip"
+          unzip -q "$tmp/rclone.zip" -d "$tmp"
+          sudo install -m 755 "$tmp/rclone-${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/rclone
+          rm -rf "$tmp"
+          rclone version | head -1
+
+          # Assert the flags this workflow depends on actually exist. Without
+          # this, an unsupported flag surfaces as an opaque failure partway
+          # through the first upload; here it is one clear line before any
+          # bytes move. --metadata-set is what applies Cache-Control during the
+          # PUT (see the RCLONE_FLAGS note on why --header-upload was dropped).
+          missing=()
+          for flag in --metadata --metadata-set --checksum --s3-no-check-bucket; do
+            rclone help flags 2>/dev/null | grep -q -- "$flag" || missing+=("$flag")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::rclone ${RCLONE_VERSION} does not support: ${missing[*]} — pin a version that does"
+            exit 1
+          fi
+          echo "rclone flag support OK: --metadata --metadata-set --checksum --s3-no-check-bucket"
 
       - name: Download release assets + manifest
         env:
