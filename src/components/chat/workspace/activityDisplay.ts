@@ -17,10 +17,10 @@ export function autonomyActivitySourceLabel(
   if (!value || !activity || !JOB_ACTIVITY_HEADLINES.has(activity.headlineCode)) return value
 
   if (value === "subagent:batch") {
-    return String(t("backgroundJobs.kindGroup", "任务组"))
+    return String(t("backgroundJobs.kindGroup", { defaultValue: "任务组" }))
   }
   if (value === "subagent" || value.startsWith("subagent:")) {
-    return String(t("backgroundJobs.kindSubagent", "子 Agent"))
+    return String(t("backgroundJobs.kindSubagent", { defaultValue: "子 Agent" }))
   }
 
   return String(t(`tools.${value}`, { defaultValue: value }))
