@@ -155,6 +155,18 @@ Releases 页找到 `Hope Agent v0.1.2` draft，确认：
 
 确认后点 **Publish release**。draft 状态 updater 抓不到 `latest.json`，不 publish 等于没发。publish 会同时触发 §1.6~§1.10 五条下游渠道。
 
+**publish 之后必须逐条确认五条渠道都 success**，不要默认它们成了：
+
+```bash
+for wf in update-homebrew-tap update-aur update-scoop-bucket update-linux-repo mirror-release-r2; do
+  printf '%-24s ' "$wf"
+  gh run list --workflow="$wf.yml" --limit 1 --json status,conclusion,databaseId \
+    --jq '.[0] | "\(.status)/\(.conclusion // "-")  \(.databaseId)"'
+done
+```
+
+`mirror-release-r2` 失败最常见，两种成因与补救见 §1.10（多数情况是 `-f force=true` 重跑）。它失败时 `download/latest.json` 保持旧版本——由于端点是首个成功者胜，**全体客户端会一直被告知「已是最新」**，所以这条不能放着不管。
+
 ### 1.5 backport 到 main
 
 见 [§3 backport 策略](#3-backport-策略)。
@@ -231,13 +243,19 @@ download/
 
 **可变面有 `PROMOTE` 门控**。`download/latest/` 与 `download/latest.json` 全局共享，给非当前稳定版写它们就是一次降级广播——R2 是 endpoint[0] 且首个成功者胜，全体客户端会被告知那个旧版本是最新。两条日常路径会踩到：手动回填旧 tag、发布 prerelease（同样触发 `release.published`）。所以只有该 tag 恰好是 GitHub 认定的 latest release 且非 prerelease 时才推进可变面；其余情况只写自己的不可变前缀然后停下（给 `::notice::`，不算失败）。
 
-**`actions/checkout` 的 `ref:` 必须显式指默认分支**。`release.published` 下 `github.ref` 就是 `refs/tags/vX.Y.Z`，不写 `ref:` 会静默取那个 tag，两个后果：① 本 workflow 落地**之前**发布的 tag 永远无法镜像（那些树里没有 `scripts/mirror-*.mjs`），整个历史目录不可镜像；② 改写器里修掉的 bug 会冻结在 tag 发布时的样子。文档则相反——必须是该版本实际发布的那一份，所以单独 `git fetch --depth=1` 该 tag 再 `git show <tag>:<path>` 取。
+**改了 `mirror-release-r2.yml`，本次发版用不上，要下一次才生效**。`release.published` 触发的 run 用的是 **tag 那棵树的 workflow YAML**（`headSha` = 被打 tag 的 commit，`headBranch` = tag 名），哪怕修复早已合进 main。所以：
+
+- 想让修复对**当前这次**发版生效，publish 之后手动补跑一次 `gh workflow run mirror-release-r2.yml --ref main -f tag=vX.Y.Z`——dispatch 用的是 `--ref` 指定分支的 YAML。补跑是幂等的，且此时该 tag 已是 `releases/latest`，`PROMOTE` 会算 true、可变面照常推进。
+- 顺序反过来也不行：先合修复再打 tag 才能让 `release.published` 那一轮就带上修复。
+
+**`actions/checkout` 的 `ref:` 是另一回事，必须显式指默认分支**。它决定的是 `scripts/*.mjs` 从哪来，与上面 YAML 的来源无关。`release.published` 下 `github.ref` 就是 `refs/tags/vX.Y.Z`，不写 `ref:` 会静默取那个 tag，两个后果：① 本 workflow 落地**之前**发布的 tag 永远无法镜像（那些树里没有 `scripts/mirror-*.mjs`），整个历史目录不可镜像；② 改写器里修掉的 bug 会冻结在 tag 发布时的样子。文档则相反——必须是该版本实际发布的那一份，所以单独 `git fetch --depth=1` 该 tag 再 `git show <tag>:<path>` 取。
 
 **其余规则**：
 
 - **Cache-Control 用 `--metadata-set` 随 PUT 写入，禁用 `--header-upload`**。`--header-upload` 是 PUT 成功之后的另一次调用，R2 对它返回 501，结果是对象字节正确、Cache-Control 缺失。三档值单一定义在 workflow 的 `CC_IMMUTABLE` / `CC_LATEST` / `CC_MANIFEST`。
-- **排查 `max-age=14400`：看指令，不看数字**。别用"是否全体对象都不对"判因，两种成因都只命中一部分对象。
-  - 裸 `max-age=14400`（无 `public`、无 `must-revalidate`）＝ 头没写上。用 `workflow_dispatch` 的 `force` 强制重传补写（`--checksum` 因内容一致不会自己重传）。
+- **`--metadata-set` 只是降低概率，不保证头一定落地**。v0.27.0 那批就有一部分对象仍然缺 Cache-Control。**所以「校验报头缺失 → 带 `force` 重跑一次」是常规补救，不是一次性修复**：`gh workflow run mirror-release-r2.yml --ref main -f tag=vX.Y.Z -f force=true`。普通重跑没用——`--checksum` 看内容一致就跳过，metadata 根本不会被重写。
+- **排查 Cache-Control 异常：看指令，不看数字**。别用"是否全体对象都不对"判因，几种成因都只命中一部分对象。
+  - **无 Cache-Control**，或裸 `max-age=14400`（无 `public`、无 `must-revalidate`）＝ 头没写上，走上一条的 `force` 重传。两种表现取决于 Cloudflare 那时是否在替源站补默认值，同一个问题。
   - `public, max-age=14400, must-revalidate` ＝ 对象正常，是 Cloudflare Browser Cache TTL 抬高了值。只命中 CF 默认缓存的扩展名（`.dmg` `.exe` `.zip` `.tar.gz`；`.deb` `.rpm` `.AppImage` `.sig` `.json` 走 `DYNAMIC` 不中），且只上调不下调（`download/<tag>/` 的 31536000 不受影响）。要让 `latest/` 的 300s 到达浏览器，Caching → Configuration → Browser Cache TTL 改成 **Respect Existing Headers**。
   - 校验只断言 `immutable` / `must-revalidate` 是否存在，不断言 TTL 数值；TTL 低于设定值才算错误。边缘设置 CI 控制不了，不该卡住发版。
 - **rclone 退出码不代表成败，以本 workflow 的回抓校验为准**。R2 会在 PUT 成功之后的某次调用上返回 `501 NotImplemented`，rclone 因此把已经写好的对象报成 `Failed to copy`（实测：报错对象经公开域名 HEAD 全部 200、`Content-Length` 与源文件逐字节一致）。用 `--checksum`，禁用 `--ignore-times`——`--checksum` 发现哈希一致就跳过、整轮自愈；`--ignore-times` 每次强制重传因而每次重报失败，会烧完 10 次重试变成永久失败。
