@@ -581,7 +581,7 @@ html[data-focus-indicators="enhanced"]
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent !important;
-  animation: text-shimmer 2.5s ease-in-out infinite;
+  animation: text-shimmer 4s ease-in-out infinite;
 }
 
 @keyframes tool-count-number-change {
