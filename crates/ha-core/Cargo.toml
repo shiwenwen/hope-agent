@@ -56,7 +56,6 @@ pdfium-render = "0.9"
 calamine = "0.34"
 zip = "7"
 quick-xml = "0.39"
-scraper = "0.26.0"
 # default-features=false 砍掉 readability 的 reqwest(0.11)抓取特性——只用它的纯
 # 离线正文抽取 extractor::extract()（web_fetch.rs，HTTP 我们自己用 reqwest 0.12）。
 # 连带消除整条重复的旧 HTTP 栈：reqwest 0.11 + hyper 0.14 + h2 0.3 + http 0.2 +

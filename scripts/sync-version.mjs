@@ -40,6 +40,7 @@ const haAcpCargoTomlPath = path.join(rootDir, "crates", "ha-acp", "Cargo.toml")
 const haMacCargoTomlPath = path.join(rootDir, "crates", "ha-mac", "Cargo.toml")
 const haDesignCargoTomlPath = path.join(rootDir, "crates", "ha-design", "Cargo.toml")
 const haBrowserCargoTomlPath = path.join(rootDir, "crates", "ha-browser", "Cargo.toml")
+const haLocalLlmCargoTomlPath = path.join(rootDir, "crates", "ha-local-llm", "Cargo.toml")
 
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"))
 const version = packageJson.version
@@ -80,6 +81,7 @@ bumpCargoTomlVersion(haAcpCargoTomlPath, "crates/ha-acp/Cargo.toml")
 bumpCargoTomlVersion(haMacCargoTomlPath, "crates/ha-mac/Cargo.toml")
 bumpCargoTomlVersion(haDesignCargoTomlPath, "crates/ha-design/Cargo.toml")
 bumpCargoTomlVersion(haBrowserCargoTomlPath, "crates/ha-browser/Cargo.toml")
+bumpCargoTomlVersion(haLocalLlmCargoTomlPath, "crates/ha-local-llm/Cargo.toml")
 
 // All product binaries and shared crates are workspace packages; cargo update
 // only bumps the Cargo.lock entries to match the new manifest version.
@@ -108,7 +110,7 @@ if (process.env.npm_lifecycle_event === "version") {
       stdio: "ignore",
     })
     execSync(
-      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json crates/ha-server/Cargo.toml crates/ha-core/Cargo.toml crates/ha-base/Cargo.toml crates/ha-config-schema/Cargo.toml crates/ha-browser-host/Cargo.toml crates/ha-eval/Cargo.toml crates/ha-mcp/Cargo.toml crates/ha-media/Cargo.toml crates/ha-pet/Cargo.toml crates/ha-updater/Cargo.toml crates/ha-vcs/Cargo.toml crates/ha-weather/Cargo.toml crates/ha-acp/Cargo.toml crates/ha-mac/Cargo.toml crates/ha-design/Cargo.toml crates/ha-browser/Cargo.toml Cargo.lock",
+      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json crates/ha-server/Cargo.toml crates/ha-core/Cargo.toml crates/ha-base/Cargo.toml crates/ha-config-schema/Cargo.toml crates/ha-browser-host/Cargo.toml crates/ha-eval/Cargo.toml crates/ha-mcp/Cargo.toml crates/ha-media/Cargo.toml crates/ha-pet/Cargo.toml crates/ha-updater/Cargo.toml crates/ha-vcs/Cargo.toml crates/ha-weather/Cargo.toml crates/ha-acp/Cargo.toml crates/ha-mac/Cargo.toml crates/ha-design/Cargo.toml crates/ha-browser/Cargo.toml crates/ha-local-llm/Cargo.toml Cargo.lock",
       {
         cwd: rootDir,
         stdio: "ignore",
@@ -121,5 +123,5 @@ if (process.env.npm_lifecycle_event === "version") {
 
 console.log(`[sync-version] synced desktop version to ${version}`)
 console.log(
-  "[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, crates/ha-server/Cargo.toml, crates/ha-core/Cargo.toml, crates/ha-base/Cargo.toml, crates/ha-config-schema/Cargo.toml, crates/ha-browser-host/Cargo.toml, crates/ha-eval/Cargo.toml, crates/ha-mcp/Cargo.toml, crates/ha-media/Cargo.toml, crates/ha-pet/Cargo.toml, crates/ha-updater/Cargo.toml, crates/ha-vcs/Cargo.toml, crates/ha-weather/Cargo.toml, crates/ha-acp/Cargo.toml, crates/ha-mac/Cargo.toml, crates/ha-design/Cargo.toml, crates/ha-browser/Cargo.toml, Cargo.lock",
+  "[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, crates/ha-server/Cargo.toml, crates/ha-core/Cargo.toml, crates/ha-base/Cargo.toml, crates/ha-config-schema/Cargo.toml, crates/ha-browser-host/Cargo.toml, crates/ha-eval/Cargo.toml, crates/ha-mcp/Cargo.toml, crates/ha-media/Cargo.toml, crates/ha-pet/Cargo.toml, crates/ha-updater/Cargo.toml, crates/ha-vcs/Cargo.toml, crates/ha-weather/Cargo.toml, crates/ha-acp/Cargo.toml, crates/ha-mac/Cargo.toml, crates/ha-design/Cargo.toml, crates/ha-browser/Cargo.toml, crates/ha-local-llm/Cargo.toml, Cargo.lock",
 )

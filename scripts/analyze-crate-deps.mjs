@@ -99,11 +99,11 @@ const FEATURES = {
   // 见下方 ASSEMBLY。契约物在 kernel 的 slash_defs，分发经 slash_hooks 三槽。
   "ha-skills": ["skills", "tools::skill"],
   "ha-dash": ["dashboard", "recap", "activity"],
-  // local_model_jobs 已移出：它是**通用后台任务台账**（DB / 快照类型 / spawn /
-  // finish / 进度写入），kernel 的 memory::reembed_job 与 ha-knowledge 的
-  // reembed 都靠它记账；Ollama 专属执行器已迁 `local_llm/jobs.rs`。合在一起
-  // 会让 knowledge 为了记账而依赖 local-llm（7-环最后一条边）。
-  "ha-local-llm": ["local_llm", "local_embedding"],
+  // ha-local-llm 已实际迁出（crates/ha-local-llm/，阶段 5 首刀），同
+  // ha-updater / ha-acp / ha-weather 从本表删除。留在 kernel 的
+  // `local_model_jobs` 是**通用后台任务台账**（DB / 快照类型 / spawn /
+  // finish / 进度写入）：memory::reembed_job 与知识库 reembed 都靠它记账，
+  // 合进 local-llm 会让 knowledge 为了记账而依赖它（7-环最后一条边）。
   // ha-acp 已实际迁出（crates/ha-acp/），同 ha-updater / ha-weather 从本表删除。
   // weather_location_macos 已随阶段 2 v1 迁入 ha-base（平台原语）；
   // ha-weather 本体已实际迁出（crates/ha-weather/），同 ha-updater 从本表删除。

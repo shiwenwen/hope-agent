@@ -1,5 +1,5 @@
 use crate::commands::CmdError;
-use ha_core::local_llm::auto_maintainer;
+use ha_local_llm::local_llm::auto_maintainer;
 
 #[tauri::command]
 pub async fn local_model_alert_dismiss_temporary(model_id: String) -> Result<(), CmdError> {

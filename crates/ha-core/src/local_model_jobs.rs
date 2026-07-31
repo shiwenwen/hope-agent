@@ -6,8 +6,25 @@
 //! [`crate::memory::reembed_job`] 与知识库 reembed 都靠它记账，`ProgressThrottle`
 //! / `update_job_with_bytes` / `spawn_job_with_target_kb_ids` 等都是通用件。
 //! Ollama 专属的**执行器**（安装 / 拉取 / 预载 / 嵌入下载 / retry 分派）在
-//! [`crate::local_llm::jobs`]——两者分家是 crate-split 破环的一步：台账留
+//! `ha_local_llm::local_llm::jobs`——两者分家是 crate-split 破环的一步：台账留
 //! kernel，否则 knowledge 为了记账就得依赖 ha-local-llm。
+//!
+//! ## 台账 API 是**跨 crate 公开契约**（阶段 5 首刀转正）
+//!
+//! `spawn_job` / `update_job(_with_bytes)` / `append_log` / `finish_job` /
+//! `emit_snapshot` / `require_db` / [`ProgressThrottle`] / `LocalModelJobsDB`
+//! 的 `load` · `mark_cancelled` 原为 `pub(crate)`。执行器迁出 ha-core 后它们
+//! 必须公开——**这不是顺手放宽可见性，而是本模块定位的直接结果**：台账在
+//! kernel、执行器在特征 crate，注册-记账-收尾这条链天然跨 crate。
+//!
+//! **只放宽当前真有跨 crate 调用者的那些**：`spawn_job_with_successor`
+//! （memory reembed）与 `spawn_job_with_target_kb_ids`（知识库 reembed）的
+//! 调用方都还在 kernel 内，故仍是 `pub(crate)`；等 ha-knowledge 拆出时再随
+//! 那一刀放宽，别提前。
+//!
+//! 对新执行器的约束：**只经这组入口记账**，不要自开 `local_model_jobs.db`
+//! 连接、也不要绕过 `spawn_job` 自己 spawn——`finish_job` 的取消判定、
+//! 进度节流与 `local_model_job:*` 事件面都挂在这条链上。
 //!
 //! This is intentionally separate from `async_jobs`: those rows are tool-call
 //! results that get injected back into chat sessions, while local model jobs
@@ -416,7 +433,7 @@ impl LocalModelJobsDB {
         self.load(job_id)
     }
 
-    pub(crate) fn mark_cancelled(&self, job_id: &str) -> Result<Option<LocalModelJobSnapshot>> {
+    pub fn mark_cancelled(&self, job_id: &str) -> Result<Option<LocalModelJobSnapshot>> {
         let now = now_secs();
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         conn.execute(
@@ -429,7 +446,7 @@ impl LocalModelJobsDB {
         self.load(job_id)
     }
 
-    pub(crate) fn load(&self, job_id: &str) -> Result<Option<LocalModelJobSnapshot>> {
+    pub fn load(&self, job_id: &str) -> Result<Option<LocalModelJobSnapshot>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let result = conn
             .prepare(
@@ -722,7 +739,7 @@ pub fn pause_job(job_id: &str) -> Result<LocalModelJobSnapshot> {
     Ok(snapshot)
 }
 
-pub(crate) fn spawn_job<F, Fut>(
+pub fn spawn_job<F, Fut>(
     kind: LocalModelJobKind,
     model_id: String,
     display_name: String,
@@ -840,7 +857,7 @@ where
 }
 
 #[derive(Default)]
-pub(crate) struct ProgressThrottle {
+pub struct ProgressThrottle {
     last_emit: Option<Instant>,
     last_phase: Option<String>,
     last_percent: Option<u8>,
@@ -848,7 +865,7 @@ pub(crate) struct ProgressThrottle {
 }
 
 impl ProgressThrottle {
-    pub(crate) fn should_emit(
+    pub fn should_emit(
         &mut self,
         phase: &str,
         percent: Option<u8>,
@@ -883,7 +900,7 @@ impl ProgressThrottle {
     }
 }
 
-pub(crate) fn finish_job(job_id: &str, result: Result<Value>, cancel_token: &CancellationToken) {
+pub fn finish_job(job_id: &str, result: Result<Value>, cancel_token: &CancellationToken) {
     let job_before = get_job(job_id).ok().flatten();
     let status_before = job_before.as_ref().map(|job| job.status);
     let paused = matches!(status_before, Some(LocalModelJobStatus::Paused));
@@ -952,7 +969,7 @@ pub(crate) fn finish_job(job_id: &str, result: Result<Value>, cancel_token: &Can
     );
 }
 
-pub(crate) fn update_job(
+pub fn update_job(
     job_id: &str,
     status: LocalModelJobStatus,
     phase: &str,
@@ -972,7 +989,7 @@ pub(crate) fn update_job(
     );
 }
 
-pub(crate) fn update_job_with_bytes(
+pub fn update_job_with_bytes(
     job_id: &str,
     status: LocalModelJobStatus,
     phase: &str,
@@ -1045,7 +1062,7 @@ pub(crate) fn update_job_with_bytes(
     }
 }
 
-pub(crate) fn append_log(job_id: &str, kind: &str, message: &str) {
+pub fn append_log(job_id: &str, kind: &str, message: &str) {
     let Some(db) = get_local_model_jobs_db() else {
         return;
     };
@@ -1074,13 +1091,13 @@ pub(crate) fn append_log(job_id: &str, kind: &str, message: &str) {
     }
 }
 
-pub(crate) fn emit_snapshot(event: &str, snapshot: &LocalModelJobSnapshot) {
+pub fn emit_snapshot(event: &str, snapshot: &LocalModelJobSnapshot) {
     if let Some(bus) = crate::get_event_bus() {
         bus.emit(event, json!(snapshot));
     }
 }
 
-pub(crate) fn require_db() -> Result<&'static Arc<LocalModelJobsDB>> {
+pub fn require_db() -> Result<&'static Arc<LocalModelJobsDB>> {
     get_local_model_jobs_db().ok_or_else(|| anyhow!("Local model jobs DB is not initialized"))
 }
 

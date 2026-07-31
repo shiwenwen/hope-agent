@@ -72,8 +72,10 @@ pub mod i18n;
 pub mod issue_reporting;
 pub mod knowledge;
 pub mod learning_events;
-pub mod local_embedding;
-pub mod local_llm;
+// `local_embedding` / `local_llm` 已随阶段 5 首刀迁出 ha-local-llm——特征
+// crate 在 ha-core 之上，此处**不能**再导出（会构成循环依赖）。台账面
+// `local_model_jobs` 留 kernel：它是通用后台任务台账，memory reembed 与
+// 知识库 reembed 同样靠它记账。
 pub mod local_model_jobs;
 pub mod loop_control;
 pub mod lsp;

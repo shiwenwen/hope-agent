@@ -39,6 +39,7 @@ ha-pet = { path = "../ha-pet" }
 ha-vcs = { path = "../ha-vcs" }
 ha-design = { path = "../ha-design" }
 ha-mac = { path = "../ha-mac" }
+ha-local-llm = { path = "../ha-local-llm" }
 ha-updater = { path = "../ha-updater" }
 ha-weather = { path = "../ha-weather" }
 serde = { workspace = true }

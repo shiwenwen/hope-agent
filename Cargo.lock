@@ -3255,7 +3255,6 @@ dependencies = [
  "rquickjs-serde",
  "rusqlite",
  "rust-embed",
- "scraper",
  "serde",
  "serde_json",
  "sha2",
@@ -3338,6 +3337,7 @@ dependencies = [
  "ha-core",
  "ha-design",
  "ha-eval-spec",
+ "ha-local-llm",
  "ha-mac",
  "ha-mcp",
  "ha-media",
@@ -3368,6 +3368,30 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "sha2",
+]
+
+[[package]]
+name = "ha-local-llm"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "futures-util",
+ "ha-base",
+ "ha-core",
+ "libc",
+ "once_cell",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "scraper",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tokio",
+ "tokio-util",
+ "urlencoding",
+ "uuid",
+ "which",
 ]
 
 [[package]]
@@ -3483,6 +3507,7 @@ dependencies = [
  "ha-browser",
  "ha-core",
  "ha-design",
+ "ha-local-llm",
  "ha-mac",
  "ha-mcp",
  "ha-media",
@@ -3686,6 +3711,7 @@ dependencies = [
  "ha-browser",
  "ha-core",
  "ha-design",
+ "ha-local-llm",
  "ha-mac",
  "ha-mcp",
  "ha-media",

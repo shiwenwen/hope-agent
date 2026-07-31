@@ -9,9 +9,9 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use crate::memory::{EmbeddingModelConfig, EmbeddingProviderType};
-use crate::provider::{self, ModelConfig};
-use crate::security::ssrf::{check_url, SsrfPolicy};
+use ha_core::memory::{EmbeddingModelConfig, EmbeddingProviderType};
+use ha_core::provider::{self, ModelConfig};
+use ha_core::security::ssrf::{check_url, SsrfPolicy};
 
 use super::{ensure_ollama_provider_with_model_config, start_ollama, OLLAMA_BASE_URL};
 
@@ -197,7 +197,7 @@ fn now_secs() -> i64 {
 }
 
 fn ollama_client(timeout: Duration) -> Result<reqwest::Client> {
-    crate::provider::apply_proxy_for_url(
+    ha_core::provider::apply_proxy_for_url(
         reqwest::Client::builder().timeout(timeout),
         OLLAMA_BASE_URL,
     )
@@ -206,7 +206,7 @@ fn ollama_client(timeout: Duration) -> Result<reqwest::Client> {
 }
 
 fn log_ollama_request_error(method: &str, path: &str, error: &reqwest::Error) {
-    crate::app_warn!(
+    app_warn!(
         "local_llm",
         "ollama_api",
         "Ollama {} {} request failed: {}",
@@ -217,19 +217,19 @@ fn log_ollama_request_error(method: &str, path: &str, error: &reqwest::Error) {
 }
 
 fn log_ollama_status_error(method: &str, path: &str, status: StatusCode, body: &str) {
-    crate::app_warn!(
+    app_warn!(
         "local_llm",
         "ollama_api",
         "Ollama {} {} returned {}: {}",
         method,
         path,
         status,
-        crate::truncate_utf8(body, 2048)
+        ha_core::truncate_utf8(body, 2048)
     );
 }
 
 fn log_ollama_parse_error(method: &str, path: &str, error: &reqwest::Error) {
-    crate::app_warn!(
+    app_warn!(
         "local_llm",
         "ollama_api",
         "Ollama {} {} response parse failed: {}",
@@ -460,7 +460,7 @@ pub async fn register_ollama_model_as_provider(
     display_name: Option<String>,
     activate: bool,
 ) -> Result<OllamaModelRegistration> {
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "register_provider",
         "Register Ollama model as provider model: model={} activate={}",
@@ -469,7 +469,7 @@ pub async fn register_ollama_model_as_provider(
     );
     let show = show_ollama_model(model_id).await?;
     if !completion_capable(&show.capabilities) {
-        crate::app_warn!(
+        app_warn!(
             "local_llm",
             "register_provider",
             "Skip Ollama provider registration for non-completion model: {} capabilities={:?}",
@@ -485,7 +485,7 @@ pub async fn register_ollama_model_as_provider(
     }
     let model_cfg = model_config_from_show(model_id, display_name, &show);
     let (provider_id, model_id) = ensure_ollama_provider_with_model_config(model_cfg, activate)?;
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "register_provider",
         "Ollama provider model registered: provider={} model={} active={}",
@@ -515,7 +515,7 @@ pub async fn list_local_ollama_models() -> Result<Vec<LocalOllamaModel>> {
         .into_iter()
         .filter_map(|m| m.model.clone().or(m.name.clone()).map(|id| (id, m)))
         .collect();
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let usage_index = UsageIndex::build(&config);
 
     // Concurrent /api/show fan-out — Ollama serves these from a local index,
@@ -592,7 +592,7 @@ struct UsageIndex<'a> {
 }
 
 impl<'a> UsageIndex<'a> {
-    fn build(config: &'a crate::config::AppConfig) -> Self {
+    fn build(config: &'a ha_core::config::AppConfig) -> Self {
         let provider = config
             .providers
             .iter()
@@ -651,7 +651,7 @@ impl<'a> UsageIndex<'a> {
 }
 
 pub async fn preload_ollama_model(model_id: &str) -> Result<OllamaModelActionResult> {
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "preload",
         "Preload Ollama model requested: {}",
@@ -662,7 +662,7 @@ pub async fn preload_ollama_model(model_id: &str) -> Result<OllamaModelActionRes
     // 用户主动启动 = 撤回之前的 stop 意图。auto_maintainer 后续不再跳过它。
     // 安装新模型链路上的 preload 同样命中——符合"安装即用"语义。
     if let Err(e) = clear_user_stopped(model_id) {
-        crate::app_warn!(
+        app_warn!(
             "local_llm",
             "user_stopped",
             "Failed to clear user_stopped flag for {}: {:#}",
@@ -671,7 +671,7 @@ pub async fn preload_ollama_model(model_id: &str) -> Result<OllamaModelActionRes
         );
     }
     super::auto_maintainer::trigger();
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "preload",
         "Ollama model preloaded: {}",
@@ -684,7 +684,7 @@ pub async fn preload_ollama_model(model_id: &str) -> Result<OllamaModelActionRes
 }
 
 pub async fn stop_ollama_model(model_id: &str) -> Result<OllamaModelActionResult> {
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "stop_model",
         "Stop Ollama model requested: {}",
@@ -695,7 +695,7 @@ pub async fn stop_ollama_model(model_id: &str) -> Result<OllamaModelActionResult
     // 记下用户主动 stop 的意图。auto_maintainer 看到该 tag 会跳过自启动，避免
     // 把用户的 stop 操作秒吃。
     if let Err(e) = mark_user_stopped(model_id) {
-        crate::app_warn!(
+        app_warn!(
             "local_llm",
             "user_stopped",
             "Failed to mark user_stopped flag for {}: {:#}",
@@ -704,7 +704,7 @@ pub async fn stop_ollama_model(model_id: &str) -> Result<OllamaModelActionResult
         );
     }
     super::auto_maintainer::trigger();
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "stop_model",
         "Ollama model stopped: {}",
@@ -732,7 +732,7 @@ fn update_user_stopped_models<F>(f: F) -> Result<()>
 where
     F: FnOnce(&mut Vec<String>),
 {
-    crate::config::mutate_config(("local_llm.user_stopped", "ollama_action"), |cfg| {
+    ha_core::config::mutate_config(("local_llm.user_stopped", "ollama_action"), |cfg| {
         f(&mut cfg.local_llm.user_stopped_models);
         Ok(())
     })
@@ -744,7 +744,7 @@ async fn keep_alive_ollama_model(model_id: &str, intent: KeepAliveIntent) -> Res
     let endpoint = keep_alive_endpoint_for_capabilities(&show.capabilities);
     let timeout = intent.request_timeout();
     let keep_alive = intent.keep_alive_value();
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "keep_alive",
         "Apply Ollama keep_alive: model={} endpoint={} keep_alive={} timeout_secs={} capabilities={:?}",
@@ -776,7 +776,7 @@ async fn keep_alive_ollama_model(model_id: &str, intent: KeepAliveIntent) -> Res
 }
 
 pub async fn add_ollama_model_as_embedding_config(model_id: &str) -> Result<EmbeddingModelConfig> {
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "add_embedding_config",
         "Add Ollama model as embedding config requested: {}",
@@ -794,11 +794,11 @@ pub async fn add_ollama_model_as_embedding_config(model_id: &str) -> Result<Embe
         api_dimensions: embedding_dimensions_from_show(&show),
         source: Some("ollama".to_string()),
     };
-    let config = crate::blocking::run_blocking(move || {
-        crate::memory::save_embedding_model_config(config, PROVIDER_SOURCE)
+    let config = ha_core::blocking::run_blocking(move || {
+        ha_core::memory::save_embedding_model_config(config, PROVIDER_SOURCE)
     })
     .await?;
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "add_embedding_config",
         "Ollama embedding model config saved: model={} dimensions={:?}",
@@ -809,7 +809,7 @@ pub async fn add_ollama_model_as_embedding_config(model_id: &str) -> Result<Embe
 }
 
 pub async fn delete_ollama_model(model_id: &str) -> Result<LocalModelDeleteResult> {
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "delete_model",
         "Delete Ollama model requested: {}",
@@ -818,7 +818,7 @@ pub async fn delete_ollama_model(model_id: &str) -> Result<LocalModelDeleteResul
     start_ollama().await?;
     match keep_alive_ollama_model(model_id, KeepAliveIntent::Unload).await {
         Ok(()) => {
-            crate::app_info!(
+            app_info!(
                 "local_llm",
                 "delete_model",
                 "Ollama model unloaded before delete: {}",
@@ -826,7 +826,7 @@ pub async fn delete_ollama_model(model_id: &str) -> Result<LocalModelDeleteResul
             );
         }
         Err(e) => {
-            crate::app_warn!(
+            app_warn!(
                 "local_llm",
                 "delete_model",
                 "Failed to unload Ollama model before delete, continuing with delete: model={} error={}",
@@ -854,7 +854,7 @@ pub async fn delete_ollama_model(model_id: &str) -> Result<LocalModelDeleteResul
             log_ollama_status_error("DELETE", "/api/delete", status, &body);
             return Err(anyhow!("Ollama /api/delete returned {status}: {body}"));
         }
-        crate::app_info!(
+        app_info!(
             "local_llm",
             "delete_model",
             "Ollama model was already absent during delete: {}",
@@ -873,7 +873,7 @@ pub async fn delete_ollama_model(model_id: &str) -> Result<LocalModelDeleteResul
         removed_fallback_models: removal.removed_fallback_models,
         removed_embedding_model,
     };
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "delete_model",
         "Ollama model deleted: model={} removed_provider_model={} removed_provider={} removed_active_model={} removed_fallback_models={} removed_embedding_model={}",
@@ -891,7 +891,7 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
     let mut removed_current = false;
     let mut removed_current_kb = false;
     let model_id = model_id.to_string();
-    crate::config::mutate_config(
+    ha_core::config::mutate_config(
         ("embedding_models.remove_ollama", PROVIDER_SOURCE),
         |store| {
             let removed_ids: std::collections::HashSet<String> = store
@@ -914,7 +914,7 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
                 .unwrap_or(false)
             {
                 removed_current = true;
-                store.memory_embedding = crate::memory::EmbeddingSelection::default();
+                store.memory_embedding = ha_core::memory::EmbeddingSelection::default();
             }
             // Shared model library (D7): the same Ollama model may be the active
             // knowledge embedding model too — reset that selection independently.
@@ -926,7 +926,7 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
                 .unwrap_or(false)
             {
                 removed_current_kb = true;
-                store.knowledge_embedding = crate::memory::EmbeddingSelection::default();
+                store.knowledge_embedding = ha_core::memory::EmbeddingSelection::default();
             }
             store
                 .embedding_models
@@ -935,7 +935,7 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
         },
     )?;
     if removed_current {
-        if let Some(backend) = crate::get_memory_backend() {
+        if let Some(backend) = ha_core::get_memory_backend() {
             backend.clear_embedder();
         }
     }
@@ -943,8 +943,8 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
         // Cancel any in-flight reembed before clearing the embedder, so an orphan
         // job can't keep running with a captured signature for the just-deleted
         // model and stamp it back into the now-default selection.
-        crate::knowledge::cancel_active_knowledge_reembed_jobs(None);
-        if let Some(db) = crate::knowledge::index::get_index_db() {
+        ha_core::knowledge::cancel_active_knowledge_reembed_jobs(None);
+        if let Some(db) = ha_core::knowledge::index::get_index_db() {
             db.clear_embedder();
         }
     }
@@ -952,7 +952,7 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
 }
 
 fn library_cache_conn() -> Result<Connection> {
-    let path = crate::paths::local_llm_library_cache_db_path()?;
+    let path = ha_core::paths::local_llm_library_cache_db_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
@@ -1006,11 +1006,11 @@ where
 
 async fn fetch_library_html(path_and_query: &str) -> Result<String> {
     let url = format!("{OLLAMA_LIBRARY_ORIGIN}{path_and_query}");
-    let trusted = crate::config::cached_config().ssrf.trusted_hosts.clone();
+    let trusted = ha_core::config::cached_config().ssrf.trusted_hosts.clone();
     check_url(&url, SsrfPolicy::Default, &trusted)
         .await
         .with_context(|| format!("SSRF blocked {url}"))?;
-    let client = crate::provider::apply_proxy_for_url(
+    let client = ha_core::provider::apply_proxy_for_url(
         reqwest::Client::builder().timeout(Duration::from_secs(20)),
         &url,
     )

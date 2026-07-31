@@ -98,7 +98,7 @@ Windows 上用 `std::process::Command` / `tokio::process::Command` spawn 一个*
 | `write_secure_file` | 多处 0600 原子落盘：[`mcp credentials.rs`](../../crates/ha-mcp/src/credentials.rs) MCP OAuth token 凭据、[`channel/worker/startup_state.rs`](../../crates/ha-core/src/channel/worker/startup_state.rs) IM 渠道启动状态、[`browser/extension/broker.rs`](../../crates/ha-browser/src/browser/extension/broker.rs) 浏览器扩展 broker、[`permission/allowlist.rs`](../../crates/ha-core/src/permission/allowlist.rs) 权限 allowlist、[`issue_reporting.rs`](../../crates/ha-core/src/issue_reporting.rs) issue 上报等。注意：主 LLM OAuth `oauth.rs::save_token()` 当前直接用 `std::fs::write` 写 `~/.hope-agent/credentials/auth.json`，**未走** `write_secure_file`——见下文「已知缺口」 |
 | `try_acquire_exclusive_lock` | `runtime_lock.rs` 全局单实例守门：桌面 / `hope-agent server` / `hope-agent acp` 三种运行模式启动时拿同一把锁，防止启动恢复 / "global only-one" 后台循环跑两份 |
 | `find_chrome_executable` | [`browser_state.rs`](../../crates/ha-browser/src/browser_state.rs) Browser 工具自动定位 Chrome / Edge |
-| `detect_dedicated_gpu` | [`local_llm/`](../../crates/ha-core/src/local_llm/) 本地 LLM 选模型预算：Windows / Linux 优先 dGPU VRAM 的 60%，探测失败回落系统内存的 60%（`RECOMMENDATION_BUDGET_PERCENT`） |
+| `detect_dedicated_gpu` | [`local_llm/`](../../crates/ha-local-llm/src/local_llm/) 本地 LLM 选模型预算：Windows / Linux 优先 dGPU VRAM 的 60%，探测失败回落系统内存的 60%（`RECOMMENDATION_BUDGET_PERCENT`） |
 
 ## 已知缺口（技术债）
 

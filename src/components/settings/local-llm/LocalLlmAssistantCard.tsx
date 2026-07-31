@@ -33,7 +33,7 @@ import {
 } from "@/types/local-model-jobs"
 import type { LocalOllamaModel } from "@/types/local-llm"
 
-// ── Wire types (mirror ha_core::local_llm::types) ─────────────────
+// ── Wire types (mirror ha_local_llm::local_llm::types) ────────────
 
 type BudgetSource = "unified-memory" | "dedicated-vram" | "system-memory"
 type OllamaPhase = "not-installed" | "installed" | "running"

@@ -77,9 +77,7 @@ graph TD
         Channel["Channel (12 渠道)"]
         Cron["Cron"]
         ACP["ACP (stdio)"]
-        LocalLLM["Local LLM<br/>(Ollama backend)"]
         Channel & Cron & ACP --> ChatEngine
-        LocalLLM -.->|"Provider 注册"| Agent
     end
 
     subgraph OcFeat["特征 crate（阶段 3 起逐个迁出）"]
@@ -93,6 +91,7 @@ graph TD
         McpFeat["ha-mcp<br/>McpManager / transport / OAuth + 两工具"]
         PetFeat["ha-pet<br/>sprite 库 / 导入 / 活动投影"]
         MediaFeat["ha-media<br/>图/音生成 adapters + STT 引擎 + 两工具"]
+        LocalLlmFeat["ha-local-llm<br/>Ollama 生命周期 / 模型目录 / 本地 embedding"]
     end
     Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     Weather -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
@@ -107,6 +106,8 @@ graph TD
     PetFeat -.->|"特征间单向依赖<br/>（creator 生图）"| MediaFeat
     BrowserFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     DesignFeat -.->|"特征间单向依赖<br/>（Chrome PDF/截图）"| BrowserFeat
+    LocalLlmFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    LocalLlmFeat -.->|"Provider 注册"| Agent
 
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler
@@ -241,7 +242,7 @@ graph LR
 
 ## 本地模型加载
 
-`local_llm/` 模块通过 Ollama 的 OpenAI 兼容端点（`http://127.0.0.1:11434/v1/chat/completions`）将本地模型注册为 Provider，启用 `allow_private_network`。模型目录硬编码 Qwen3.6 / Gemma 4 默认量化的 on-disk 大小，根据可用内存（macOS 统一内存 / Windows + Linux 优先 dGPU VRAM 取所选轴 60%，再扣 1 GiB runtime buffer；常量 `RECOMMENDATION_BUDGET_PERCENT=60`）从大到小推荐适配模型；Ollama 进程不由 app 接管。安装、模型拉取、Embedding 拉取统一走 `local_model_jobs.rs` 后台任务表，事件通道 `local_model_job:created` / `:updated` / `:log` / `:completed`。详见 [本地模型加载](local-model-loading.md)。
+ha-local-llm 的 `local_llm/` 模块（阶段 5 自 ha-core 迁出）通过 Ollama 的 OpenAI 兼容端点（`http://127.0.0.1:11434/v1/chat/completions`）将本地模型注册为 Provider，启用 `allow_private_network`。模型目录硬编码 Qwen3.6 / Gemma 4 默认量化的 on-disk 大小，根据可用内存（macOS 统一内存 / Windows + Linux 优先 dGPU VRAM 取所选轴 60%，再扣 1 GiB runtime buffer；常量 `RECOMMENDATION_BUDGET_PERCENT=60`）从大到小推荐适配模型；Ollama 进程不由 app 接管。安装、模型拉取、Embedding 拉取统一走 **kernel 侧**的 `local_model_jobs.rs` 通用后台任务台账（执行器在特征 crate，台账留 ha-core——memory / 知识库 reembed 共用），事件通道 `local_model_job:created` / `:updated` / `:log` / `:completed`。详见 [本地模型加载](local-model-loading.md)。
 
 ## 存储架构
 

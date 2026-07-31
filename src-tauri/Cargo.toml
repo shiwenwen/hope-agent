@@ -30,6 +30,7 @@ ha-pet = { path = "../crates/ha-pet" }
 ha-vcs = { path = "../crates/ha-vcs" }
 ha-design = { path = "../crates/ha-design" }
 ha-mac = { path = "../crates/ha-mac" }
+ha-local-llm = { path = "../crates/ha-local-llm" }
 ha-updater = { path = "../crates/ha-updater" }
 ha-weather = { path = "../crates/ha-weather" }
 ha-server = { path = "../crates/ha-server" }

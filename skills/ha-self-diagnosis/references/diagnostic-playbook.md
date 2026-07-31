@@ -85,7 +85,7 @@ gotcha that most often explains a failure. Open every DB read-only.
 
 ### Provider / Failover / Side-query / Local LLM — `provider-system.md`, `failover.md`, `side-query.md`, `local-model-loading.md`
 
-- Entry: `failover/executor.rs` (`execute_with_failover`), `chat_engine/engine.rs`, `agent/side_query.rs`, `provider/crud.rs`, `local_llm/management.rs`.
+- Entry: `failover/executor.rs` (`execute_with_failover`), `chat_engine/engine.rs`, `agent/side_query.rs`, `provider/crud.rs`, ha-local-llm 的 `local_llm/management.rs`（阶段 5 自 ha-core 迁出；任务台账 `local_model_jobs.rs` 仍在 ha-core）.
 - State: `config.json` (`providers` / `active_model` / `fallback_models`); `sessions.db` (`provider_id` / `model_id` pin, `context_json`); `local_model_jobs.db`, `local_llm_library_cache.db`; `credentials/auth.json` (Codex OAuth).
 - Grep: `source='failover'` (profile_rotation / codex_auth_expired / model_fallback); `category IN ('local_llm','local_model_jobs')`.
 - Gotcha: model precedence is `plan_model > model_override > session pin > agent.primary > active_model`. Codex is force-excluded from profile rotation. OpenAIResponses must use `store:false` and never replay reasoning items (`rs_*` 404s) — check `context_json` for leaked `type:reasoning` items.

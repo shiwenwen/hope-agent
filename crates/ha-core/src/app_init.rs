@@ -1418,15 +1418,18 @@ pub async fn start_background_tasks() {
         crate::mcp::spawn_watchdog();
     }
 
-    // Default-model auto-maintenance watchdog. Self-heals stale Ollama
-    // models (cold-started after `ollama stop`, OS reboot, daemon restart)
-    // and surfaces missing-file alerts via `local_model:missing_alert`.
-    // Primary-only because two processes preloading the same model would
-    // wastefully race; secondaries see the same `running` state through
-    // the shared Ollama daemon anyway.
-    if primary {
-        crate::local_llm::auto_maintainer::spawn_loop();
-    }
+    // 默认模型自维护 watchdog（自愈冷启的 Ollama 模型 + `local_model:missing_alert`）
+    // 已随 ha-local-llm 迁出：`wire()` 注册为 PrimaryOnly startup task。
+    //
+    // **与 ha-media / ha-acp 那两处不同**：它们原本就在上面那个 primary 块里，
+    // 位置没动；本块原是函数末尾**独立的一个** `if primary { … }`，改注册后
+    // 执行点前移到上面的 `run_registered_startup_tasks(PrimaryOnly)`。等价性
+    // 不靠「原位」，靠两条事实：① primary 门相同（消费点同在 primary 块内，
+    // 且 PrimaryOnly 档只此一处消费，ACP 路径不消费——与原先 ACP 不调
+    // `spawn_loop` 一致）；② `spawn_loop` 先 sleep 一个 `SWEEP_INTERVAL`（60s）
+    // 才跑第一轮，而这中间的二百多行在本函数自身层面无 `.await`（全是
+    // spawn），微秒级即走完。primary-only 的理由不变：两个进程同时预载同一
+    // 模型只会白白互抢，secondary 透过共享 Ollama 守护进程看到同一份 running。
 }
 
 /// ACP-shaped background tasks. ACP is a single-conversation-per-process

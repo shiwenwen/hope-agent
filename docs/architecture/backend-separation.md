@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-mac<br/>ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-4 逐个迁出）"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-local-llm · ha-mac<br/>ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -139,9 +139,9 @@ session/           会话 + 消息持久化 + FTS5 搜索
 project/           Project 容器（工作目录即真实文件，无独立 project_files；无反向 channel 认领）
 mcp/               MCP 客户端（stdio / Streamable HTTP / SSE / WebSocket）
 cron/              定时任务 + Agent 执行
-local_llm/         Ollama 集成 + 模型目录 + 硬件预算
 local_model_jobs.rs 通用后台任务台账（DB / 快照 / spawn / finish / 进度；
-                   Ollama 执行器在 local_llm/jobs.rs，见下文）
+                   memory reembed 与知识库 reembed 共用。Ollama 执行器已随
+                   ha-local-llm 迁出，见下文特征 crate 一节）
 async_jobs/        异步工具后台执行 + 重启回放
 team/              Agent Team 模板 + 实例 + 任务
 recap/             /recap 深度复盘 + 11 个并行 AI 章节
@@ -275,7 +275,7 @@ dash / skills / improve）原本构成一个强连通分量——**环内任何�
 | A | `slash_commands` 三分（见上「装配层」小节） | channel→skills 17 · skills→{cron 4, channel 3, improve 2, dash 2} |
 | B | learning 事件发布面下沉 kernel（见上小节） | skills→dash 11 · knowledge→dash 1 |
 | C | `im_kb_access_allowed` 随 `effective_kb_access` 归位 `knowledge::access`（纯谓词 `ChannelAccountConfig::kb_access_allowed_for` 进 ha-config-schema）——它是 KB 闸门本身、不是渠道行为 | knowledge→channel 1 |
-| D | `local_model_jobs` 只留**通用后台任务台账**（DB / 快照类型 / spawn / finish / 进度写入 / 取消暂停），Ollama 执行器迁 `local_llm/jobs.rs`——台账被 kernel 的 `memory::reembed_job` 与知识库 reembed 共用，本就是 kernel 设施 | knowledge→local-llm 1 |
+| D | `local_model_jobs` 只留**通用后台任务台账**（DB / 快照类型 / spawn / finish / 进度写入 / 取消暂停），Ollama 执行器迁 `local_llm/jobs.rs`（阶段 5 已随 ha-local-llm 实际迁出 crate）——台账被 kernel 的 `memory::reembed_job` 与知识库 reembed 共用，本就是 kernel 设施 | knowledge→local-llm 1 |
 
 > **已知取舍**：`retry_job` 按 kind 分派，其中 `MemoryReembed`（→ kernel）与
 > `KnowledgeReembed`（→ 特征）并不是本地模型任务——它本质是任务中心「重试」
@@ -287,13 +287,25 @@ dash / skills / improve）原本构成一个强连通分量——**环内任何�
 
 `node scripts/analyze-crate-deps.mjs` 现在输出「✅ 无环 —— 存在可行的拓扑
 拆分顺序」。**无环 ≠ 任意顺序**：它保证的是存在一个可行顺序，而剩下的单向
-边就是这个顺序的约束——被依赖方先拆。当前单向边：dash→cron 4 ·
-improve→skills 4 · local-llm→knowledge 3 · channel→knowledge 2 · 另 4 条
-1 度边；一个可行顺序是 knowledge → skills → channel → improve → cron →
-dash（local-llm 需切已归零、随时可走）。**新增任何特征间边前先跑一次
-脚本**——成环会让后续拆分整个卡住。
+边就是这个顺序的约束。当前单向边：dash→cron 4 · improve→skills 4 ·
+channel→knowledge 2 · 另 4 条 1 度边（ha-local-llm 已于阶段 5 首刀实际
+拆出，它的 local-llm→knowledge 3 现在是 crate 间依赖，不再进本表）。
 
-### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
+**方向：`A→B` 则 A（依赖方）先拆**，与直觉相反，理由是
+`ha-core` 不依赖任何特征 crate（见下节共同契约）：
+
+- 先拆 A：A 成为 ha-core 之上的 crate，它引用的 B 还在残留 blob 里 ⇒
+  `A → ha-core`，合法；等 B 也拆出来，改成 `A → B` 仍合法。
+- 先拆 B：残留 blob 里的 A 要引用已拆出的 B ⇒ `ha-core → B`，而
+  `B → ha-core`，**Cargo 直接拒绝**——只能再花一轮把这条边改成钩子。
+  这与「环内成员不能先于破环单独成 crate」是同一条约束的两种形态。
+
+据此的一个可行顺序：**dash → cron → improve → channel → knowledge →
+skills**。ha-local-llm 之所以能不排在这条序列里先走，正是因为它没有任何
+入边（需切 0）——它只依赖别人，不被别人依赖。**新增任何特征间边前先跑
+一次脚本**——成环会让后续拆分整个卡住。
+
+### 特征 crate（ha-acp / ha-browser / ha-design / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -398,6 +410,39 @@ dash（local-llm 需切已归零、随时可走）。**新增任何特征间边�
   侧。kernel 边界单钩子 `register_pet_config_updater`（选择校验 + 跨进
   程库锁 + mutate_config；未接线 Err fail-explicit——消费入口均为用户
   显式动作）。
+- **ha-local-llm**（本地模型，阶段 5 首刀——原 7-环成员出栈第一个）：
+  Ollama 生命周期（检测 / 安装 / 启动 / 拉取 / 预载）、模型目录与硬件
+  预算推荐、Ollama Library 元数据抓取、默认模型自维护 watchdog、本地
+  embedding 后端与其模型下载执行器。**kernel 侧留存
+  `ha_core::local_model_jobs`**：它是**通用后台任务台账**（DB / 快照
+  类型 / spawn / finish / 进度写入 / 取消暂停 / replay），memory reembed
+  与知识库 reembed 同样靠它记账——留 kernel 才不会让 knowledge 为了记账
+  而依赖本 crate（阶段 4 破环第 D 步）。台账那组入口（`spawn_job` /
+  `update_job(_with_bytes)` / `append_log` / `finish_job` /
+  `emit_snapshot` / `require_db` / `ProgressThrottle` / `LocalModelJobsDB`
+  的 `load`·`mark_cancelled`）**随本刀由 `pub(crate)` 转正为跨 crate 公开
+  契约**；`spawn_job_with_successor` / `spawn_job_with_target_kb_ids` 的
+  调用方仍在 kernel 内，故保持 `pub(crate)`，等 ha-knowledge 那刀再放宽。
+  kernel 边界只有一处：自维护 watchdog 经 `wire()` 注册为 PrimaryOnly
+  startup task。**primary 门保持一致，但执行点前移**——与 ha-media 的
+  STT GC / ha-acp 的 backend 自动发现不同（那两处原本就在中段的 primary
+  块里、位置没动），本块原是 `start_background_tasks` **末尾独立的**一个
+  `if primary { … }`，现改由函数中段的
+  `run_registered_startup_tasks(PrimaryOnly)` 消费，提前约 290 行。
+  等价性不靠「原位」，靠两条：① primary 门相同（该档只此一处消费，ACP
+  路径不消费，与原先 ACP 不调 `spawn_loop` 一致）；② watchdog 先 sleep
+  一个 60s 的 `SWEEP_INTERVAL` 才跑第一轮，而中间那二百多行在
+  `start_background_tasks` 自身层面无 `.await`（全是 spawn）。
+  **后续装配重构不要反过来依赖这个新执行序**。
+  `scraper`（Library 页面解析）随迁后离开 ha-core 的依赖树（它原是
+  ha-core 内唯一使用者；ha-design 另有自己的一份声明）。
+  **需切边为 0**——残留 core 对它零引用，是唯一一个不需要任何钩子倒转的
+  特征。它自身对 knowledge 有 3 处引用（embedding 模型就位后触发知识库
+  reembed），knowledge 尚在 ha-core 内，故现表现为普通 `ha_core::knowledge`
+  调用；ha-knowledge 拆出后变为 crate 间单向边，方向不变。
+  **已知取舍延续（`retry_job`）**：按 kind 分派的重试随执行器在本 crate，
+  故壳层的通用「重试」端点会经本 crate 分派回 kernel 的 memory reembed /
+  knowledge reembed。彻底解法是「kind → starter」注册表，留待装配层重整。
 - **ha-acp**（ACP）：`acp`（Hope 自身作 ACP stdio server，`hope-agent acp`
   模式）+ `acp_control`（外部 ACP agent 控制面：注册表 / 健康探测 /
   SessionManager / `acp_spawn` 工具）。`ACP_MANAGER` 全局随迁特征侧
@@ -559,7 +604,7 @@ sequenceDiagram
 
 ### 事件清单
 
-> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/` / `crates/ha-vcs/src/` / `crates/ha-mcp/src/` / `crates/ha-pet/src/` / `crates/ha-media/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`ha-mcp (events.rs)`、`ha-vcs (docker/mod.rs · git_control.rs EVENT_GIT_*)`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
+> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/` / `crates/ha-vcs/src/` / `crates/ha-mcp/src/` / `crates/ha-pet/src/` / `crates/ha-media/src/` / `crates/ha-local-llm/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`ha-mcp (events.rs)`、`ha-vcs (docker/mod.rs · git_control.rs EVENT_GIT_*)`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
 
 #### 聊天 / 流式
 
@@ -637,7 +682,7 @@ sequenceDiagram
 | 事件名 | 来源 | 用途 |
 |--------|------|------|
 | `job:created` / `job:updated` / `job:progress` / `job:completed` / `job:mark_injected_failed` | async_jobs/* | 后台工具与 group 任务生命周期；subagent 仍走 `subagent:*` 流 |
-| `local_model_job:created` / `:updated` / `:log` / `:completed` (`EVENT_LOCAL_MODEL_JOB_*`) | local_model_jobs.rs（台账，常量与 emit）· local_llm/jobs.rs（执行器发进度） | Ollama 安装 / pull / 模型加载等后台任务，进度自带 250 ms / phase-change 节流 |
+| `local_model_job:created` / `:updated` / `:log` / `:completed` (`EVENT_LOCAL_MODEL_JOB_*`) | local_model_jobs.rs（台账，常量与 emit）· ha-local-llm 的 local_llm/jobs.rs（执行器发进度） | Ollama 安装 / pull / 模型加载等后台任务，进度自带 250 ms / phase-change 节流 |
 
 #### 斜杠 / Canvas / Session
 

@@ -41,9 +41,9 @@ use tokio::sync::{Mutex, Notify};
 
 use super::management::{list_local_ollama_models, preload_ollama_model, LocalOllamaModel};
 use super::types::model_catalog;
-use crate::config::{cached_config, AppConfig};
 use crate::local_embedding::embedding_model_catalog;
-use crate::provider::provider_matches_known_local_backend;
+use ha_core::config::{cached_config, AppConfig};
+use ha_core::provider::provider_matches_known_local_backend;
 
 /// Watchdog sweep cadence. Per-cycle work is one `/api/tags` + `/api/ps`
 /// fan-out (already concurrent) plus at most two `/api/embed|generate`
@@ -102,7 +102,7 @@ pub struct MissingAlertAlternative {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     /// Set for embedding alternatives — the `embedding_models[*].id` to
-    /// pass into [`crate::memory::set_memory_embedding_default`].
+    /// pass into [`ha_core::memory::set_memory_embedding_default`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding_config_id: Option<String>,
 }
@@ -114,7 +114,7 @@ pub fn spawn_loop() {
         return;
     }
     tokio::spawn(async move {
-        crate::app_info!(
+        app_info!(
             "local_llm",
             "auto_maintainer",
             "Auto-maintenance watchdog started (sweep every {}s)",
@@ -140,7 +140,7 @@ pub fn trigger() {
 pub async fn dismiss_alert_temporary(model_id: &str) {
     let mut cooldown = ALERT_COOLDOWN.lock().await;
     cooldown.insert(model_id.to_string(), Instant::now());
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "auto_maintainer",
         "Missing alert cooldown bumped: tag={} duration={}s",
@@ -152,7 +152,7 @@ pub async fn dismiss_alert_temporary(model_id: &str) {
 pub async fn silence_for_session(model_id: &str) {
     let mut silenced = SESSION_SILENCED.lock().await;
     silenced.insert(model_id.to_string());
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "auto_maintainer",
         "Missing alert silenced for this session: tag={}",
@@ -177,7 +177,7 @@ pub fn disable_via_alert_dialog() -> Result<()> {
 }
 
 fn write_auto_maintenance_enabled(enabled: bool, source: &'static str) -> Result<()> {
-    crate::config::mutate_config(("local_llm.auto_maintenance", source), |cfg| {
+    ha_core::config::mutate_config(("local_llm.auto_maintenance", source), |cfg| {
         cfg.local_llm.auto_maintenance.enabled = enabled;
         Ok(())
     })
@@ -209,7 +209,7 @@ async fn run_one_pass() {
         // Only warn on the transition into unreachable. Subsequent ticks stay
         // quiet until a sweep succeeds (which clears the gate below).
         if !UNREACHABLE_LOGGED.swap(true, Ordering::SeqCst) {
-            crate::app_warn!(
+            app_warn!(
                 "local_llm",
                 "auto_maintainer",
                 "Skipping pass — Ollama is unreachable and could not be auto-started (further occurrences suppressed until reachable): {:#}",
@@ -222,7 +222,7 @@ async fn run_one_pass() {
     let installed = match list_local_ollama_models().await {
         Ok(v) => v,
         Err(e) => {
-            crate::app_warn!(
+            app_warn!(
                 "local_llm",
                 "auto_maintainer",
                 "list_local_ollama_models failed: {:#}",
@@ -292,14 +292,14 @@ async fn run_check(kind: ModelKind, cfg: &AppConfig, installed: &[LocalOllamaMod
                 return;
             }
             match preload_ollama_model(&tag).await {
-                Ok(_) => crate::app_info!(
+                Ok(_) => app_info!(
                     "local_llm",
                     "auto_maintainer",
                     "Auto-preloaded default {} model: {}",
                     kind.as_log_label(),
                     tag
                 ),
-                Err(e) => crate::app_warn!(
+                Err(e) => app_warn!(
                     "local_llm",
                     "auto_maintainer",
                     "Auto-preload {} model failed: tag={} error={:#}",
@@ -370,7 +370,7 @@ async fn maybe_emit_missing_alert(
         can_disable_embedding: matches!(kind, ModelKind::Embedding),
     };
 
-    crate::app_info!(
+    app_info!(
         "local_llm",
         "auto_maintainer",
         "Emitting missing_alert: kind={} tag={} alternatives={} canRedownload={}",
@@ -380,7 +380,7 @@ async fn maybe_emit_missing_alert(
         alert.can_redownload
     );
 
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let payload = serde_json::to_value(&alert).unwrap_or(serde_json::Value::Null);
         bus.emit("local_model:missing_alert", payload);
     }

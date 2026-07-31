@@ -1,7 +1,7 @@
 //! 本地模型任务的**执行器**——Ollama 安装 / 拉取 / 预载 / 嵌入模型下载的
 //! 实际跑批逻辑与进度处理，以及按 kind 分派的 retry。
 //!
-//! 与 [`crate::local_model_jobs`]（任务簿记面：DB / 快照类型 / spawn /
+//! 与 [`ha_core::local_model_jobs`]（任务簿记面：DB / 快照类型 / spawn /
 //! finish / 进度写入 / 取消暂停）分家的理由（crate-split 破环）：簿记面被
 //! kernel 的 `memory::reembed_job` 与未来的 ha-knowledge 共用——它是通用的
 //! 后台任务台账，不是 Ollama 专属；执行器才是 ha-local-llm 的本体。合在
@@ -18,7 +18,7 @@ use crate::local_llm::{
     self, install_ollama_via_script_cancellable, start_ollama, InstallScriptKind,
     InstallScriptProgress, ModelCandidate, OllamaPhase, OllamaPullRequest, PullProgress,
 };
-use crate::local_model_jobs::{
+use ha_core::local_model_jobs::{
     append_log, emit_snapshot, finish_job, require_db, spawn_job, update_job,
     update_job_with_bytes, ChatCompletionHook, LocalModelJobKind, LocalModelJobSnapshot,
     LocalModelJobStatus, ProgressThrottle, EVENT_LOCAL_MODEL_JOB_UPDATED,
@@ -134,9 +134,9 @@ pub fn retry_job(
             // already cleared the rows, so KeepExisting reembeds the same
             // empty vectors. The chat-completion hook is irrelevant here.
             let _ = on_chat_complete;
-            crate::memory::reembed_job::start_memory_reembed_job(
+            ha_core::memory::reembed_job::start_memory_reembed_job(
                 &job.model_id,
-                crate::memory::reembed_job::ReembedMode::KeepExisting,
+                ha_core::memory::reembed_job::ReembedMode::KeepExisting,
                 // Retry 路径里没有可跟踪的发起者任务（用户从历史任务卡片重启
                 // 一次失败的 reembed），故不传 successor 链路。
                 None,
@@ -148,7 +148,7 @@ pub fn retry_job(
             // bind-scan failure must retry just that KB, not escalate into a
             // full-app rebuild. The chat-completion hook is irrelevant here.
             let _ = on_chat_complete;
-            crate::knowledge::reembed::start_knowledge_reembed_job(
+            ha_core::knowledge::reembed::start_knowledge_reembed_job(
                 job.target_kb_ids.clone(),
                 "retry",
             )
@@ -373,7 +373,7 @@ async fn unload_after_preload_cancel(job_id: &str, model_id: &str, observed_runn
         "Cancellation observed; unloading model from Ollama",
     );
     if let Err(e) = local_llm::stop_ollama_model(model_id).await {
-        crate::app_warn!(
+        app_warn!(
             "local_model_jobs",
             "preload_cancel",
             "Failed to unload model {} after preload cancellation: {}",

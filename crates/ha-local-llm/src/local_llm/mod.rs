@@ -17,11 +17,11 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::{
+use ha_core::provider::{
     upsert_known_local_provider_model, ModelConfig, ProviderConfig, ThinkingStyle,
 };
 #[cfg(unix)]
-use crate::security::ssrf::{check_url, SsrfPolicy};
+use ha_core::security::ssrf::{check_url, SsrfPolicy};
 
 pub mod types;
 pub use types::*;
@@ -30,7 +30,7 @@ pub use management::*;
 pub mod auto_maintainer;
 pub mod jobs;
 
-pub use crate::provider::LOCAL_OLLAMA_BASE_URL as OLLAMA_BASE_URL;
+pub use ha_core::provider::LOCAL_OLLAMA_BASE_URL as OLLAMA_BASE_URL;
 #[cfg(unix)]
 const OLLAMA_INSTALL_URL: &str = "https://ollama.com/install.sh";
 const PROVIDER_SOURCE: &str = "local-llm-wizard";
@@ -70,7 +70,7 @@ fn static_hardware() -> &'static StaticHardware {
         StaticHardware {
             os: std::env::consts::OS.to_string(),
             total_memory_mb: sys.total_memory() / (1024 * 1024),
-            gpu: crate::platform::detect_dedicated_gpu().map(|g| GpuInfo {
+            gpu: ha_core::platform::detect_dedicated_gpu().map(|g| GpuInfo {
                 name: g.name,
                 vram_mb: g.vram_mb,
             }),
@@ -216,7 +216,7 @@ async fn ollama_binary_responds(path: &Path) -> bool {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    crate::platform::hide_console_tokio(&mut cmd);
+    ha_core::platform::hide_console_tokio(&mut cmd);
     let status = cmd.status();
 
     matches!(
@@ -230,7 +230,7 @@ async fn ollama_binary_responds(path: &Path) -> bool {
 fn ping_client() -> &'static reqwest::Client {
     static CACHE: OnceLock<reqwest::Client> = OnceLock::new();
     CACHE.get_or_init(|| {
-        crate::provider::apply_proxy_for_url(
+        ha_core::provider::apply_proxy_for_url(
             reqwest::Client::builder().timeout(Duration::from_secs(1)),
             OLLAMA_BASE_URL,
         )
@@ -439,14 +439,14 @@ fn emit_install_progress(
 async fn download_ollama_install_script(emit: &InstallProgressEmitter) -> Result<String> {
     // Public HTTPS — must pass through SSRF + global proxy like every
     // other outbound hop. Loopback bypass doesn't apply (this is ollama.com).
-    let trusted = crate::config::cached_config().ssrf.trusted_hosts.clone();
+    let trusted = ha_core::config::cached_config().ssrf.trusted_hosts.clone();
     check_url(OLLAMA_INSTALL_URL, SsrfPolicy::Default, &trusted)
         .await
         .with_context(|| format!("SSRF blocked {OLLAMA_INSTALL_URL}"))?;
 
     emit_install_progress(emit, InstallScriptKind::Step, INSTALL_PHASE_DOWNLOAD);
 
-    let client = crate::provider::apply_proxy_for_url(
+    let client = ha_core::provider::apply_proxy_for_url(
         reqwest::Client::builder().timeout(Duration::from_secs(60)),
         OLLAMA_INSTALL_URL,
     )
@@ -906,9 +906,10 @@ where
 
     // Pulls run for many minutes — no outer timeout. The peer closes the
     // stream at end-of-pull; reqwest's TCP keepalive notices a dead peer.
-    let client = crate::provider::apply_proxy_for_url(reqwest::Client::builder(), OLLAMA_BASE_URL)
-        .build()
-        .context("build pull client")?;
+    let client =
+        ha_core::provider::apply_proxy_for_url(reqwest::Client::builder(), OLLAMA_BASE_URL)
+            .build()
+            .context("build pull client")?;
 
     let resp = client
         .post(format!("{OLLAMA_BASE_URL}/api/pull"))
@@ -989,7 +990,7 @@ pub fn ensure_ollama_provider_with_model_config(
 ) -> Result<(String, String)> {
     let mut provider = ProviderConfig::new(
         OLLAMA_PROVIDER_NAME.into(),
-        crate::provider::ApiType::OpenaiChat,
+        ha_core::provider::ApiType::OpenaiChat,
         OLLAMA_BASE_URL.into(),
         String::new(),
     );
@@ -1043,7 +1044,7 @@ where
         bytes_total: None,
     });
     if let Err(e) = preload_ollama_model(&model.id).await {
-        crate::app_warn!(
+        app_warn!(
             "local_llm",
             "preload",
             "Failed to preload Ollama chat model after install: model={} error={:#}",

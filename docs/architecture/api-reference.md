@@ -1397,7 +1397,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 
 ### Local model auto-maintenance
 
-后台 watchdog（[`crates/ha-core/src/local_llm/auto_maintainer.rs`](../../crates/ha-core/src/local_llm/auto_maintainer.rs)）监测默认 chat / embedding 模型。模型停止时自动 preload；模型文件丢失时 emit `local_model:missing_alert` 事件，前端顶层 `MissingModelDialog` 弹窗。
+后台 watchdog（[`crates/ha-local-llm/src/local_llm/auto_maintainer.rs`](../../crates/ha-local-llm/src/local_llm/auto_maintainer.rs)）监测默认 chat / embedding 模型。模型停止时自动 preload；模型文件丢失时 emit `local_model:missing_alert` 事件，前端顶层 `MissingModelDialog` 弹窗。
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|

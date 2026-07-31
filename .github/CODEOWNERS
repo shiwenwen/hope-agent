@@ -98,6 +98,12 @@
 /crates/ha-media/src/stt/        @shiwenwen
 /crates/ha-core/src/media_gen/types.rs   @shiwenwen
 /crates/ha-core/src/stt/types.rs         @shiwenwen
+# 本地模型特征（阶段 5 自 ha-core 迁入 ha-local-llm）：`local_llm/mod.rs` 从
+# ollama.com 下载 install.sh 并以 pkexec / sudo 提权执行——供应链 + 提权双重
+# 面（出站 SSRF 门 `check_url` 与 trusted-host 判定也在同一文件），与
+# ha-updater 的验签同级别把关。**迁出前本路径无 owner 条目**，此处是顺手
+# 闭合的既有缺口，不是搬迁导致的覆盖丢失。
+/crates/ha-local-llm/src/local_llm/mod.rs @shiwenwen
 
 # === 跨 PR 契约：架构文档 ===
 /docs/architecture/               @shiwenwen

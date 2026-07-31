@@ -10,7 +10,7 @@ use crate::local_llm::{
     detect_ollama_version, list_ollama_model_names, pull_model_cancellable, PullProgress,
     OLLAMA_BASE_URL,
 };
-use crate::memory::{
+use ha_core::memory::{
     EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, EmbeddingSetDefaultResult,
 };
 use tokio_util::sync::CancellationToken;
@@ -196,7 +196,7 @@ pub fn save_embedding_config_for_model(model: &OllamaEmbeddingModel) -> Result<E
 pub fn save_embedding_model_config_for_model(
     model: &OllamaEmbeddingModel,
 ) -> Result<EmbeddingModelConfig> {
-    crate::memory::save_embedding_model_config(
+    ha_core::memory::save_embedding_model_config(
         embedding_model_config_for_model(model),
         PROVIDER_SOURCE,
     )
@@ -207,9 +207,9 @@ pub fn save_and_set_default_for_model(
     parent_job_id: Option<&str>,
 ) -> Result<EmbeddingSetDefaultResult> {
     let config = save_embedding_model_config_for_model(model)?;
-    crate::memory::set_memory_embedding_default(
+    ha_core::memory::set_memory_embedding_default(
         &config.id,
-        crate::memory::ReembedMode::KeepExisting,
+        ha_core::memory::ReembedMode::KeepExisting,
         PROVIDER_SOURCE,
         parent_job_id,
     )
@@ -242,7 +242,7 @@ where
         bytes_total: None,
     });
     let model_for_switch = model.clone();
-    let result = crate::blocking::run_blocking(move || {
+    let result = ha_core::blocking::run_blocking(move || {
         save_and_set_default_for_model(&model_for_switch, parent_job_id.as_deref())
     })
     .await?;
@@ -260,7 +260,7 @@ where
         bytes_total: None,
     });
     if let Err(e) = crate::local_llm::preload_ollama_model(&model.id).await {
-        crate::app_warn!(
+        app_warn!(
             "local_embedding",
             "preload",
             "Failed to preload Ollama embedding model after install: model={} error={:#}",
