@@ -86,7 +86,7 @@ macOS 把录屏能力**固定在进程启动时建立的 WindowServer 连接上*
 - **判据是 stdout token 而非退出码**：子进程打印一行 `hope-agent-tcc-probe:granted=1|0|unknown`（前缀常量 `permissions::TCC_PROBE_OUTPUT_PREFIX` 为跨 crate 单一真相源）。**不认 token 一律 unknown、绝不当已授权**——自升级回滚后磁盘上的旧二进制不认识该 flag，会落到别的分派路径，其退出码含义完全不同（single-instance 转发即 exit 0）。
 - **`--tcc-probe` 分派必须早于 guardian / child 分派**（`src-tauri/src/main.rs`，另见 [cli](cli.md)）：落到 guardian 会**每次探针拉起一个完整 GUI**，且 1.5s 超时 kill 只杀直接子进程、孙进程成孤儿。探针分支也**不得初始化任何运行时状态**（无 `ensure_dirs` / `init_runtime` / 日志）。
 - **答复侧 `raw_probe` 永不再走探针**（只调 preflight），否则子进程再 spawn 子进程无限递归。
-- **进程内记忆（非 keyed TTL 缓存，故刻意不用 `ttl_cache`）**：`SCREEN_PROBE` 持锁**跨越** spawn 实现单飞行——面板 `Promise.all` 会并发触发两次全目录检查，否则各 spawn 一个子进程；**正向结果（待重启）进程内终身有效**（该事实到重启前不可逆，故不再探测、也不被后续瞬时失败覆盖），**只有负向结果**按 `PROBE_RETRY_TTL`（5s）防抖，代价是用户开完开关后最多 5 秒盲窗（点「去授权」绕过防抖）。
+- **进程内记忆（非 keyed TTL 缓存，故刻意不用 `ttl_cache`）**：`SCREEN_PROBE` 持锁**跨越** spawn 实现单飞行——面板 `Promise.all` 会并发触发两次全目录检查，否则各 spawn 一个子进程。**正负结果都会过期，但用两套时钟**：负向 `PROBE_RETRY_TTL`（5s，用户正在改这个状态，代价是开完开关后最多 5 秒盲窗；点「去授权」绕过防抖），正向 `PROBE_POSITIVE_TTL`（30s——预期下一步就是重启、复探收益低，但**绝不可无限 sticky**：用户可以在运行期于系统设置**关掉**开关，永久 sticky 会一直声称「已授权 · 重启生效」，而重启后其实没有权限）。重置路径另经 `forget_screen_probe_memory()` 立即失效，不等 TTL。
 - **仅桌面**（`is_desktop()`）：其余运行模式的宿主二进制未必实现该 flag。
 
 ### v2 请求：`request_system_permission`

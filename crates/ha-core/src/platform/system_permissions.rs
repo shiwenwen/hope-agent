@@ -222,11 +222,19 @@ mod imp {
         }
     }
 
-    /// How long a negative probe result suppresses re-spawning. `check_item`
+    /// How long a *negative* probe result suppresses re-spawning. `check_item`
     /// runs on every panel fetch (window-focus re-checks included) and every
     /// mac_control preflight — a stuck-at-not-granted state must not spawn a
-    /// child process per call.
+    /// child process per call. Short, because this is the state the user is
+    /// actively trying to change.
     const PROBE_RETRY_TTL: Duration = Duration::from_secs(5);
+    /// How long a *positive* (pending-restart) result is trusted. Longer than
+    /// the negative TTL because the expected next step is a relaunch, so
+    /// re-probing buys little — but NOT unbounded: the user can revoke the
+    /// grant in System Settings while the app runs, and a permanently sticky
+    /// positive would keep claiming "granted, restart to apply" when a
+    /// restart would in fact come up without permission.
+    const PROBE_POSITIVE_TTL: Duration = Duration::from_secs(30);
     /// Must stay comfortably under the catalog-wide `CHECK_TIMEOUT` in
     /// `permissions.rs` together with the other slow items (the notifications
     /// query alone can take 2s).
@@ -234,34 +242,32 @@ mod imp {
 
     /// Screen-recording probe bookkeeping. Deliberately NOT
     /// `crate::ttl_cache::TtlCache`: this is not a keyed TTL map but
-    /// single-permission state needing (a) single-flight — the lock is held
-    /// ACROSS the child probe so concurrent catalog passes share one spawn —
-    /// and (b) a sticky positive: once a fresh process has observed the
-    /// grant, that fact cannot regress until relaunch, so it is kept for the
-    /// process lifetime and never re-probed (nor overwritten by a later
-    /// transient probe failure). Only the negative result is retried, at
-    /// most once per `PROBE_RETRY_TTL`.
+    /// single-permission state whose defining property is single-flight — the
+    /// lock is held ACROSS the child probe, so concurrent catalog passes share
+    /// one spawn instead of each launching their own.
+    ///
+    /// Both outcomes expire, on different clocks (see the two TTLs above);
+    /// `forget_screen_probe_memory` additionally drops it outright after a
+    /// reset, which invalidates any earlier observation immediately.
     struct ScreenProbeState {
-        pending_restart_confirmed: bool,
-        last_negative_at: Option<Instant>,
+        last: Option<(Instant, bool)>,
     }
 
-    static SCREEN_PROBE: Mutex<ScreenProbeState> = Mutex::new(ScreenProbeState {
-        pending_restart_confirmed: false,
-        last_negative_at: None,
-    });
+    static SCREEN_PROBE: Mutex<ScreenProbeState> = Mutex::new(ScreenProbeState { last: None });
 
     fn screen_probe_pending_restart(bypass_debounce: bool) -> bool {
         let Ok(mut state) = SCREEN_PROBE.lock() else {
             return false;
         };
-        if state.pending_restart_confirmed {
-            return true;
-        }
         if !bypass_debounce {
-            if let Some(at) = state.last_negative_at {
-                if at.elapsed() < PROBE_RETRY_TTL {
-                    return false;
+            if let Some((at, cached)) = state.last {
+                let ttl = if cached {
+                    PROBE_POSITIVE_TTL
+                } else {
+                    PROBE_RETRY_TTL
+                };
+                if at.elapsed() < ttl {
+                    return cached;
                 }
             }
         }
@@ -272,13 +278,9 @@ mod imp {
             "screen_recording fresh-process probe → {:?}",
             result
         );
-        if result == Some(true) {
-            state.pending_restart_confirmed = true;
-            true
-        } else {
-            state.last_negative_at = Some(Instant::now());
-            false
-        }
+        let pending = result == Some(true);
+        state.last = Some((Instant::now(), pending));
+        pending
     }
 
     /// Spawn this same executable with `--tcc-probe <id>` and parse its
@@ -339,15 +341,13 @@ mod imp {
         }
     }
 
-    /// Drop the sticky pending-restart memory. MUST be called after a TCC
-    /// reset: the positive is kept for the process lifetime on the premise
-    /// that a grant cannot regress before relaunch, and a reset breaks
-    /// exactly that premise — without this the panel would keep reporting
-    /// "granted, restart to apply" for a grant that was just wiped.
+    /// Drop the remembered probe result. MUST be called after a TCC reset:
+    /// the observation is otherwise trusted for up to `PROBE_POSITIVE_TTL`,
+    /// and a reset invalidates it immediately — without this the panel would
+    /// keep reporting "granted, restart to apply" for a grant just wiped.
     fn forget_screen_probe_memory() {
         if let Ok(mut state) = SCREEN_PROBE.lock() {
-            state.pending_restart_confirmed = false;
-            state.last_negative_at = None;
+            state.last = None;
         }
     }
 
