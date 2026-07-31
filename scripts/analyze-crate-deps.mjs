@@ -99,7 +99,11 @@ const FEATURES = {
   // 见下方 ASSEMBLY。契约物在 kernel 的 slash_defs，分发经 slash_hooks 三槽。
   "ha-skills": ["skills", "tools::skill"],
   "ha-dash": ["dashboard", "recap", "activity"],
-  "ha-local-llm": ["local_llm", "local_model_jobs", "local_embedding"],
+  // local_model_jobs 已移出：它是**通用后台任务台账**（DB / 快照类型 / spawn /
+  // finish / 进度写入），kernel 的 memory::reembed_job 与 ha-knowledge 的
+  // reembed 都靠它记账；Ollama 专属执行器已迁 `local_llm/jobs.rs`。合在一起
+  // 会让 knowledge 为了记账而依赖 local-llm（7-环最后一条边）。
+  "ha-local-llm": ["local_llm", "local_embedding"],
   // ha-acp 已实际迁出（crates/ha-acp/），同 ha-updater / ha-weather 从本表删除。
   // weather_location_macos 已随阶段 2 v1 迁入 ha-base（平台原语）；
   // ha-weather 本体已实际迁出（crates/ha-weather/），同 ha-updater 从本表删除。
@@ -548,6 +552,32 @@ report.siblingEdges.sort((x, y) => y.refs - x.refs)
   )
 }
 
+// ── 红线守卫：特征分组图必须保持无环 ──────────────────────────────────────
+//
+// 阶段 4 破环（A slash 三分 / B learning 事件下沉 / C KB 闸门归位 /
+// D 任务台账留 kernel）把 7-环打成 DAG。**这个状态不能回退**：环内任何成员
+// 都不能先于破环单独成 crate——已拆出的会依赖仍在残留 blob 里的环友，blob
+// 又依赖已拆出者，Cargo 直接拒绝。一条随手加的特征间反向边就能把后续所有
+// 拆分卡死，而它在编译期完全无感。
+//
+// 兄弟间**单向**边仍然合法（只约束拆分顺序），成环才拒。
+if (report.featureScc.length) {
+  console.error("✗ 红线违规：特征分组图重新成环——阶段 4 的破环成果被回退")
+  for (const c of report.featureScc) {
+    console.error(`  环: ${c.join(" ↔ ")}`)
+    for (const e of report.siblingEdges) {
+      if (c.includes(e.from) && c.includes(e.to)) {
+        console.error(`    ${e.from} -> ${e.to}  ${e.refs}`)
+      }
+    }
+  }
+  console.error(
+    "  兄弟间单向边合法、成环不合法：把回边下沉 kernel typed port / 注册钩子，" +
+      "或重新分组。详见 docs/architecture/backend-separation.md「破环完成」小节。",
+  )
+  process.exit(1)
+}
+
 // ── 输出 ─────────────────────────────────────────────────────────────────
 
 if (AS_JSON) {
@@ -617,7 +647,8 @@ console.log(`\n  特征层合计 ${featLoc} 行 (${((featLoc / report.totalLoc) 
 console.log(`  残留 core   ${report.totalLoc - featLoc - report.base.loc} 行`)
 
 console.log(`\n特征分组图的强连通分量（环内成员必须先破环才能各自成 crate）:`)
-if (!report.featureScc.length) console.log(`  ✅ 无环 —— 全部特征可按任意顺序拆出`)
+if (!report.featureScc.length)
+  console.log(`  ✅ 无环 —— 存在可行的拓扑拆分顺序（下方单向边即该顺序的约束）`)
 const inScc = new Set(report.featureScc.flat())
 for (const c of report.featureScc) {
   console.log(`  ⚠️  ${c.length}-crate 环: ${c.join(" ↔ ")}`)

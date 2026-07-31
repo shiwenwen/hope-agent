@@ -414,6 +414,27 @@ impl ChannelAccountConfig {
         }
     }
 
+    /// WS8 全判定：本账号是否允许 `(channel_id, chat_id)` 这一路 IM 会话访问
+    /// 知识库。**Fails closed** —— 携带的 channel id 与账号自身不符（伪造 /
+    /// 陈旧身份）直接拒；群聊还须该 chat 单独确认，DM 只看账号级 opt-in。
+    ///
+    /// 自包含 impl（只读自身字段），故住在 schema；读全局 config 解析账号的
+    /// 那一层在 ha-core 的 `knowledge::access`（KB 门的判定处）。
+    pub fn kb_access_allowed_for(&self, channel_id: &str, chat_id: &str, is_group: bool) -> bool {
+        // Defense in depth: the carried channel id must match the account's channel.
+        if self.channel_id.to_string() != channel_id {
+            return false;
+        }
+        if !self.kb_access_opt_in() {
+            return false;
+        }
+        if is_group {
+            self.kb_access_chat_confirmed(chat_id)
+        } else {
+            true
+        }
+    }
+
     /// Whether a specific group/non-DM `chat_id` is confirmed for KB access
     /// (WS8). DMs ignore this list (the account opt-in alone suffices).
     pub fn kb_access_chat_confirmed(&self, chat_id: &str) -> bool {
@@ -485,5 +506,62 @@ impl ChannelStoreConfig {
     /// List all enabled accounts.
     pub fn enabled_accounts(&self) -> Vec<&ChannelAccountConfig> {
         self.accounts.iter().filter(|a| a.enabled).collect()
+    }
+}
+
+#[cfg(test)]
+mod kb_access_tests {
+    use super::{ChannelAccountConfig, ChannelId};
+
+    fn account(settings: serde_json::Value) -> ChannelAccountConfig {
+        ChannelAccountConfig {
+            id: "acc1".into(),
+            channel_id: ChannelId::WeChat,
+            label: "Test".into(),
+            enabled: true,
+            agent_id: None,
+            credentials: serde_json::Value::Null,
+            settings,
+            security: Default::default(),
+            auto_approve_tools: false,
+            notify_session_eviction: true,
+            notify_startup: true,
+        }
+    }
+
+    #[test]
+    fn deny_without_opt_in() {
+        let acc = account(serde_json::Value::Null);
+        assert!(!acc.kb_access_allowed_for("wechat", "dm1", false));
+        assert!(!acc.kb_access_allowed_for("wechat", "g1", true));
+    }
+
+    #[test]
+    fn dm_granted_with_opt_in() {
+        let acc = account(serde_json::json!({"kbAccessOptIn": true}));
+        // DM: account opt-in alone suffices.
+        assert!(acc.kb_access_allowed_for("wechat", "dm1", false));
+    }
+
+    #[test]
+    fn group_needs_per_chat_confirm() {
+        let acc = account(serde_json::json!({"kbAccessOptIn": true}));
+        // Group: opt-in alone is NOT enough.
+        assert!(!acc.kb_access_allowed_for("wechat", "g1", true));
+
+        let acc = account(serde_json::json!({
+            "kbAccessOptIn": true,
+            "kbAccessChats": ["g1"],
+        }));
+        assert!(acc.kb_access_allowed_for("wechat", "g1", true));
+        // A different, unconfirmed group stays denied.
+        assert!(!acc.kb_access_allowed_for("wechat", "g2", true));
+    }
+
+    #[test]
+    fn channel_id_mismatch_fails_closed() {
+        let acc = account(serde_json::json!({"kbAccessOptIn": true}));
+        // Even fully opted in, a mismatched channel id denies (fail closed).
+        assert!(!acc.kb_access_allowed_for("telegram", "dm1", false));
     }
 }

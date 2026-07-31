@@ -684,7 +684,7 @@ pub async fn handle_kb(session_id: Option<&str>, args: &str) -> Result<CommandRe
     };
 
     let effective =
-        crate::channel::im_kb_access_allowed(&channel_id, &account_id, &chat_id, is_group);
+        crate::knowledge::im_kb_access_allowed(&channel_id, &account_id, &chat_id, is_group);
 
     let arg = args.trim().to_lowercase();
 

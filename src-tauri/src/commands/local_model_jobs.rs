@@ -11,26 +11,26 @@ pub async fn local_model_job_start_chat_model(
     state: State<'_, AppState>,
 ) -> Result<LocalModelJobSnapshot, CmdError> {
     let hook = local_model_jobs::rebuild_active_agent_hook(state.agent.clone());
-    local_model_jobs::start_chat_model_job(model, Some(hook)).map_err(Into::into)
+    ha_core::local_llm::jobs::start_chat_model_job(model, Some(hook)).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn local_model_job_start_embedding(
     model: OllamaEmbeddingModel,
 ) -> Result<LocalModelJobSnapshot, CmdError> {
-    local_model_jobs::start_embedding_job(model).map_err(Into::into)
+    ha_core::local_llm::jobs::start_embedding_job(model).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn local_model_job_start_ollama_install() -> Result<LocalModelJobSnapshot, CmdError> {
-    local_model_jobs::start_ollama_install_job().map_err(Into::into)
+    ha_core::local_llm::jobs::start_ollama_install_job().map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn local_model_job_start_ollama_pull(
     request: OllamaPullRequest,
 ) -> Result<LocalModelJobSnapshot, CmdError> {
-    local_model_jobs::start_ollama_pull_job(request).map_err(Into::into)
+    ha_core::local_llm::jobs::start_ollama_pull_job(request).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -38,7 +38,7 @@ pub async fn local_model_job_start_ollama_preload(
     model_id: String,
     display_name: Option<String>,
 ) -> Result<LocalModelJobSnapshot, CmdError> {
-    local_model_jobs::start_ollama_preload_job(model_id, display_name).map_err(Into::into)
+    ha_core::local_llm::jobs::start_ollama_preload_job(model_id, display_name).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -77,7 +77,7 @@ pub async fn local_model_job_retry(
     state: State<'_, AppState>,
 ) -> Result<LocalModelJobSnapshot, CmdError> {
     let hook = local_model_jobs::rebuild_active_agent_hook(state.agent.clone());
-    local_model_jobs::retry_job(&job_id, Some(hook)).map_err(Into::into)
+    ha_core::local_llm::jobs::retry_job(&job_id, Some(hook)).map_err(Into::into)
 }
 
 #[tauri::command]

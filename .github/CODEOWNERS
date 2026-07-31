@@ -44,6 +44,12 @@
 # permission engine dangerous 判定消费的 AX 动作规范化入口。
 /crates/ha-core/src/tool_defs/context.rs     @shiwenwen
 /crates/ha-core/src/tool_defs/mac_control.rs @shiwenwen
+# KB 访问的唯一裁决点与其 IM 闸门（AGENTS「访问默认 deny，唯一裁决
+# effective_kb_access」）：判定住 knowledge/access.rs（阶段 4 破环自
+# channel/config.rs 迁入），它委托的 fail-closed 纯谓词
+# kb_access_allowed_for 在 ha-config-schema 的 channel wire 类型上。
+/crates/ha-core/src/knowledge/access.rs      @shiwenwen
+/crates/ha-config-schema/src/channel.rs      @shiwenwen
 # 自升级信任根（Minisign pubkey）与验签实现（阶段 3 自 ha-core 迁入
 # ha-updater）：pubkey 或验签被改 = 供应链攻击面，与 tauri.conf.json 的
 # updater 公钥同级别把关。

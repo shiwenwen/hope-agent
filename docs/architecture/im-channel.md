@@ -874,7 +874,7 @@ mirror 与入站共享同一份 chunk 管道(`send_text_chunks` → `markdown_to
 
 `/status` 末尾追加 **Attached IM Channel** 段,显示该 session 的 IM attach 行(1:1,0 或 1 行) —— channel / chat 标识 + `attached_at`。
 
-**知识空间访问(WS8)**:IM 默认零 KB 访问(D10)。放开走两层——账号级 `ChannelAccountConfig.settings.kbAccessOptIn`(桌面 Settings → 渠道,owner-only,默认关)开私聊;群聊还需 `kbAccessChats` 含该 chat(群内 `/kb on`)。判定 `crate::channel::im_kb_access_allowed`,账号查不到 / channel_id 不匹配 fail closed。即便开启,仍受 attach / incognito / 外部只读 cap 约束,且 IM-origin 子代理按 origin 账号判(不洗权限)。
+**知识空间访问(WS8)**:IM 默认零 KB 访问(D10)。放开走两层——账号级 `ChannelAccountConfig.settings.kbAccessOptIn`(桌面 Settings → 渠道,owner-only,默认关)开私聊;群聊还需 `kbAccessChats` 含该 chat(群内 `/kb on`)。判定 `crate::knowledge::im_kb_access_allowed`（它是 KB 闸门本身、不是渠道行为，随 `effective_kb_access` 住在 `knowledge::access`；`crate::channel::` 原路径再导出保 owner `/kb` 调用点），账号查不到 / channel_id 不匹配 fail closed。即便开启,仍受 attach / incognito / 外部只读 cap 约束,且 IM-origin 子代理按 origin 账号判(不洗权限)。
 
 ### 按钮回调路由(7 渠道单一真相源)
 

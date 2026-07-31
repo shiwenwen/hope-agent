@@ -87,12 +87,7 @@ impl KnowledgeAccessContext {
         // — a stray context shouldn't grant anything for non-IM turns.
         let im_access_allowed = match &channel_info {
             Some(ch) if source.is_im() || origin_source.is_im() => {
-                crate::channel::im_kb_access_allowed(
-                    &ch.channel_id,
-                    &ch.account_id,
-                    &ch.chat_id,
-                    ch.is_group,
-                )
+                im_kb_access_allowed(&ch.channel_id, &ch.account_id, &ch.chat_id, ch.is_group)
             }
             _ => false,
         };
@@ -112,6 +107,28 @@ impl KnowledgeAccessContext {
 /// A lineage with no IM hop is never denied here (returns `false`).
 fn im_lineage_denied(ctx: &KnowledgeAccessContext) -> bool {
     (ctx.source.is_im() || ctx.origin_source.is_im()) && !ctx.im_access_allowed
+}
+
+/// WS8 —— 一条源自 `(channel_id, account_id, chat_id)` 的 IM 回合是否允许
+/// 访问知识库。读 live 账号配置解析出账号后，交给自包含谓词
+/// `ha_config_schema::channel::ChannelAccountConfig::kb_access_allowed_for`
+/// 判定：账号级 `kbAccessOptIn` 必须开；群聊 / 非 DM 还须该 `chat_id` 单独
+/// 确认；未知账号或 channel id 不匹配一律 **fail closed**。
+///
+/// 住在这里而不是 `channel/`：它是 [`effective_kb_access`] 的 IM 闸门本身
+/// （KB 访问唯一裁决点的一部分），不是渠道行为；放 channel 会让
+/// ha-knowledge 反向依赖 ha-channel（crate-split 破环）。
+pub fn im_kb_access_allowed(
+    channel_id: &str,
+    account_id: &str,
+    chat_id: &str,
+    is_group: bool,
+) -> bool {
+    let cfg = crate::config::cached_config();
+    let Some(account) = cfg.channels.find_account(account_id) else {
+        return false;
+    };
+    account.kb_access_allowed_for(channel_id, chat_id, is_group)
 }
 
 /// Compute the effective `kb_id → access` map for a context.
@@ -205,7 +222,8 @@ mod tests {
     // and (2) short-circuit before any registry hit, so no global `KNOWLEDGE_DB`
     // is touched. The registry-backed rules (max / archived / external cap) are
     // exercised by `registry.rs`'s attach/list tests; the WS8 opt-in *resolution*
-    // (config read) is exercised by `channel`'s `im_kb_access_allowed` tests.
+    // (config read) has no direct test; the pure predicate it delegates to is
+    // covered by ha-config-schema's `channel::kb_access_tests`.
     fn ctx(
         source: KbAccessSource,
         origin: KbAccessSource,

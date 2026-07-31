@@ -140,7 +140,8 @@ project/           Project 容器（工作目录即真实文件，无独立 proj
 mcp/               MCP 客户端（stdio / Streamable HTTP / SSE / WebSocket）
 cron/              定时任务 + Agent 执行
 local_llm/         Ollama 集成 + 模型目录 + 硬件预算
-local_model_jobs/  本地模型后台任务（安装 / pull / 加载）
+local_model_jobs.rs 通用后台任务台账（DB / 快照 / spawn / finish / 进度；
+                   Ollama 执行器在 local_llm/jobs.rs，见下文）
 async_jobs/        异步工具后台执行 + 重启回放
 team/              Agent Team 模板 + 实例 + 任务
 recap/             /recap 深度复盘 + 11 个并行 AI 章节
@@ -261,6 +262,36 @@ prune / 会话级联删除都在 `SessionDB`，dashboard 侧只有 4 个只读�
 `dashboard::learning` 退化为纯订阅方并保留原路径再导出。**新增事件种类由
 生产者侧声明**，dashboard 不需要预先认识——聚合按 kind 过滤，未知 kind 只是
 不出现在现有卡片里。
+
+#### 未迁出特征的依赖图：已无环（阶段 4 破环完成）
+
+尚在 ha-core 里的 7 个候选特征（local-llm / knowledge / channel / cron /
+dash / skills / improve）原本构成一个强连通分量——**环内任何成员都不能先于
+破环单独成 crate**（已拆出的会依赖仍在残留 blob 里的环友，blob 又依赖已拆
+出者，Cargo 直接拒绝）。四步破完：
+
+| 步 | 手法 | 断掉的边 |
+|----|------|---------|
+| A | `slash_commands` 三分（见上「装配层」小节） | channel→skills 17 · skills→{cron 4, channel 3, improve 2, dash 2} |
+| B | learning 事件发布面下沉 kernel（见上小节） | skills→dash 11 · knowledge→dash 1 |
+| C | `im_kb_access_allowed` 随 `effective_kb_access` 归位 `knowledge::access`（纯谓词 `ChannelAccountConfig::kb_access_allowed_for` 进 ha-config-schema）——它是 KB 闸门本身、不是渠道行为 | knowledge→channel 1 |
+| D | `local_model_jobs` 只留**通用后台任务台账**（DB / 快照类型 / spawn / finish / 进度写入 / 取消暂停），Ollama 执行器迁 `local_llm/jobs.rs`——台账被 kernel 的 `memory::reembed_job` 与知识库 reembed 共用，本就是 kernel 设施 | knowledge→local-llm 1 |
+
+> **已知取舍**：`retry_job` 按 kind 分派，其中 `MemoryReembed`（→ kernel）与
+> `KnowledgeReembed`（→ 特征）并不是本地模型任务——它本质是任务中心「重试」
+> 的**台账级**操作。但它同时要认识 5 个 Ollama kind，留 kernel 就成了
+> kernel→特征 非法边，故随执行器走。后果：ha-local-llm 拆出后，壳层的通用
+> retry 端点要经特征 crate 分派回 knowledge。彻底解法是「kind → starter」
+> 注册表（各方装配期注册自己的 kind，与 tool registry 同型），留到阶段 5
+> 装配层重整时一并做。
+
+`node scripts/analyze-crate-deps.mjs` 现在输出「✅ 无环 —— 存在可行的拓扑
+拆分顺序」。**无环 ≠ 任意顺序**：它保证的是存在一个可行顺序，而剩下的单向
+边就是这个顺序的约束——被依赖方先拆。当前单向边：dash→cron 4 ·
+improve→skills 4 · local-llm→knowledge 3 · channel→knowledge 2 · 另 4 条
+1 度边；一个可行顺序是 knowledge → skills → channel → improve → cron →
+dash（local-llm 需切已归零、随时可走）。**新增任何特征间边前先跑一次
+脚本**——成环会让后续拆分整个卡住。
 
 ### 特征 crate（ha-acp / ha-browser / ha-design / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
@@ -606,7 +637,7 @@ sequenceDiagram
 | 事件名 | 来源 | 用途 |
 |--------|------|------|
 | `job:created` / `job:updated` / `job:progress` / `job:completed` / `job:mark_injected_failed` | async_jobs/* | 后台工具与 group 任务生命周期；subagent 仍走 `subagent:*` 流 |
-| `local_model_job:created` / `:updated` / `:log` / `:completed` (`EVENT_LOCAL_MODEL_JOB_*`) | local_model_jobs.rs | Ollama 安装 / pull / 模型加载等后台任务，进度自带 250 ms / phase-change 节流 |
+| `local_model_job:created` / `:updated` / `:log` / `:completed` (`EVENT_LOCAL_MODEL_JOB_*`) | local_model_jobs.rs（台账，常量与 emit）· local_llm/jobs.rs（执行器发进度） | Ollama 安装 / pull / 模型加载等后台任务，进度自带 250 ms / phase-change 节流 |
 
 #### 斜杠 / Canvas / Session
 

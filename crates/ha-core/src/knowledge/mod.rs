@@ -34,7 +34,10 @@ pub mod source;
 pub mod types;
 pub mod watcher;
 
-pub use access::{effective_kb_access, ChannelKbContext, KbAccessSource, KnowledgeAccessContext};
+pub use access::{
+    effective_kb_access, im_kb_access_allowed, ChannelKbContext, KbAccessSource,
+    KnowledgeAccessContext,
+};
 pub use chunker::ChunkConfig;
 pub use db::IndexDb;
 pub use embedding::{

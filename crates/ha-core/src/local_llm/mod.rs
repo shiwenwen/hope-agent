@@ -28,6 +28,7 @@ pub use types::*;
 mod management;
 pub use management::*;
 pub mod auto_maintainer;
+pub mod jobs;
 
 pub use crate::provider::LOCAL_OLLAMA_BASE_URL as OLLAMA_BASE_URL;
 #[cfg(unix)]

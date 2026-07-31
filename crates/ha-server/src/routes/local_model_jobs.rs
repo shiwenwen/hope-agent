@@ -46,7 +46,8 @@ pub async fn start_chat_model(
     Json(body): Json<StartChatBody>,
 ) -> Result<Json<LocalModelJobSnapshot>, AppError> {
     Ok(Json(
-        run_blocking(move || local_model_jobs::start_chat_model_job(body.model, None)).await?,
+        run_blocking(move || ha_core::local_llm::jobs::start_chat_model_job(body.model, None))
+            .await?,
     ))
 }
 
@@ -55,14 +56,14 @@ pub async fn start_embedding(
     Json(body): Json<StartEmbeddingBody>,
 ) -> Result<Json<LocalModelJobSnapshot>, AppError> {
     Ok(Json(
-        run_blocking(move || local_model_jobs::start_embedding_job(body.model)).await?,
+        run_blocking(move || ha_core::local_llm::jobs::start_embedding_job(body.model)).await?,
     ))
 }
 
 /// `POST /api/local-model-jobs/ollama-install`
 pub async fn start_ollama_install() -> Result<Json<LocalModelJobSnapshot>, AppError> {
     Ok(Json(
-        run_blocking(local_model_jobs::start_ollama_install_job).await?,
+        run_blocking(ha_core::local_llm::jobs::start_ollama_install_job).await?,
     ))
 }
 
@@ -71,7 +72,7 @@ pub async fn start_ollama_pull(
     Json(body): Json<StartOllamaPullBody>,
 ) -> Result<Json<LocalModelJobSnapshot>, AppError> {
     Ok(Json(
-        run_blocking(move || local_model_jobs::start_ollama_pull_job(body.request)).await?,
+        run_blocking(move || ha_core::local_llm::jobs::start_ollama_pull_job(body.request)).await?,
     ))
 }
 
@@ -81,7 +82,7 @@ pub async fn start_ollama_preload(
 ) -> Result<Json<LocalModelJobSnapshot>, AppError> {
     Ok(Json(
         run_blocking(move || {
-            local_model_jobs::start_ollama_preload_job(body.model_id, body.display_name)
+            ha_core::local_llm::jobs::start_ollama_preload_job(body.model_id, body.display_name)
         })
         .await?,
     ))
@@ -129,7 +130,7 @@ pub async fn pause_job(Path(id): Path<String>) -> Result<Json<LocalModelJobSnaps
 /// `POST /api/local-model-jobs/{id}/retry`
 pub async fn retry_job(Path(id): Path<String>) -> Result<Json<LocalModelJobSnapshot>, AppError> {
     Ok(Json(
-        run_blocking(move || local_model_jobs::retry_job(&id, None)).await?,
+        run_blocking(move || ha_core::local_llm::jobs::retry_job(&id, None)).await?,
     ))
 }
 
