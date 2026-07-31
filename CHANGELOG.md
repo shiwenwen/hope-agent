@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **安装包与自动更新新增 Cloudflare R2 镜像，不再必须能访问 GitHub**：所有平台安装包同时发布到 `https://repo.hopeagent.ai/download/`（与 apt / dnf 软件源同域名），README 每个手动下载入口都给了固定镜像直链，历史版本按版本号长期保留。桌面自动更新改为优先读镜像、GitHub 兜底——此前访问不了 GitHub 的用户既装不上也更新不了。安装包一律经内置公钥验签，镜像与 GitHub 走完全相同的校验，镜像被篡改也装不进非官方构建。 (#580)
+- **安装包与自动更新新增 Cloudflare R2 镜像，不再必须能访问 GitHub**：所有平台安装包同时发布到 `https://repo.hopeagent.ai/download/`（与 apt / dnf 软件源同域名），README 每个手动下载入口都给了固定镜像直链，历史版本按版本号长期保留。桌面自动更新改为优先读镜像、GitHub 兜底——此前访问不了 GitHub 的用户既装不上也更新不了。自动更新下载的安装包一律经内置公钥验签，镜像与 GitHub 走完全相同的校验，镜像被篡改也无法通过自动更新装进非官方构建；手动下载的安装包由系统安装、不经这道验签，这一点镜像与 GitHub 相同。 (#580)
 - **Agent 设置页支持一键恢复默认值**：Agent 标签页（模型、子 Agent、审批）以及「工具」「技能」两个能力子页各新增「恢复默认值」，二次确认后把当前页恢复为随版本内置的默认配置，结果先落成草稿供检查，点保存才真正生效。服务商与凭据、记忆、知识空间、任务与产物不受影响。 (#593)
 
 ### Changed

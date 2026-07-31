@@ -268,7 +268,7 @@ sudo zypper install hope-agent
 #### 首次启动 & 自动更新
 
 1. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
-2. 桌面应用内置自动更新（优先读 `repo.hopeagent.ai` 镜像，GitHub Releases 兜底），应用内 **设置 → 关于** 检查更新并一键安装；或者直接在对话里说「升级」或「检查更新」。安装包一律经内置公钥验签，镜像与 GitHub 走同一套校验
+2. 桌面应用内置自动更新（优先读 `repo.hopeagent.ai` 镜像，GitHub Releases 兜底），应用内 **设置 → 关于** 检查更新并一键安装；或者直接在对话里说「升级」或「检查更新」。自动更新下载的安装包一律经内置公钥验签，镜像与 GitHub 走同一套校验（手动下载的安装包由系统安装，不经这道验签）
 3. 通过 Homebrew / AUR / Scoop 装的版本同样走应用内置 updater；包管理器视角的版本号会保持初装时的，不影响功能
 
 > 要从手机或另一台电脑访问，在「设置 → 服务器」中设置 API Key，并把监听地址改为 `0.0.0.0:8420`；重启后访问 `http://<运行 Hope Agent 的设备 IP>:8420`。不要在没有鉴权的情况下把端口暴露到局域网或公网；公网使用请前置 HTTPS 反向代理，详见 [Docker 部署指南](docs/deployment/docker.md)。
