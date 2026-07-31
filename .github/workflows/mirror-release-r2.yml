@@ -325,9 +325,21 @@ jobs:
           # through the first upload; here it is one clear line before any
           # bytes move. --metadata-set is what applies Cache-Control during the
           # PUT (see the R2_UPLOAD_FLAGS note on why --header-upload was dropped).
+          # Capture once, then match against the captured text. Do NOT pipe
+          # rclone into `grep -q`: grep exits on first match and closes the
+          # pipe, rclone dies of SIGPIPE, and `set -o pipefail` turns that
+          # into a failed pipeline — so a flag that EXISTS gets reported
+          # missing. It bites exactly the flags that appear early in the
+          # output (the global ones) while late backend flags pass, which is
+          # what made the first failure look like a version problem.
+          flags_help="$(rclone help flags 2>/dev/null || true)"
+          if [[ -z "$flags_help" ]]; then
+            echo "::error::\`rclone help flags\` produced no output — cannot verify flag support"
+            exit 1
+          fi
           missing=()
           for flag in --metadata --metadata-set --checksum --s3-no-check-bucket; do
-            rclone help flags 2>/dev/null | grep -q -- "$flag" || missing+=("$flag")
+            grep -q -- "$flag" <<<"$flags_help" || missing+=("$flag")
           done
           if (( ${#missing[@]} )); then
             echo "::error::rclone ${R2_RCLONE_PIN} does not support: ${missing[*]} — pin a version that does"
