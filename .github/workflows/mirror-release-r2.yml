@@ -108,8 +108,29 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+      # WORK (the scratch root) is set by the first step from $RUNNER_TEMP.
+      # It cannot be defined here: the `runner` context is not available in a
+      # job-level `env:` block, so `${{ runner.temp }}` would not resolve.
 
     steps:
+      - name: Prepare a clean scratch tree
+        run: |
+          set -euo pipefail
+          # Every scratch dir lives OUTSIDE the checkout, under the runner's
+          # own temp. `assets/` used to be a bare relative path, so it silently
+          # merged with the repo's top-level assets/ directory and mirrored
+          # alpha-logo.png + transparency-logo.png as if they were release
+          # artifacts. Any bare name can collide with a future repo directory;
+          # $RUNNER_TEMP cannot.
+          work="${RUNNER_TEMP}/mirror"
+          # Start from empty: a leftover from an earlier run on a warm runner
+          # would be mirrored as a release artifact too — same failure mode,
+          # different source.
+          rm -rf "$work"
+          mkdir -p "$work"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          echo "scratch: $work"
+
       - name: Resolve version from tag
         run: |
           set -euo pipefail
@@ -201,7 +222,7 @@ jobs:
           # Leading `+` forces the update: on a re-run the local tag ref may
           # already exist, and a non-forced fetch refuses to clobber it.
           git fetch --depth=1 origin "+refs/tags/${TAG}:refs/tags/${TAG}"
-          mkdir -p docs-upload
+          mkdir -p "$WORK/docs"
           # Always mirror both release-note languages plus the CHANGELOG: the
           # notes body links to the sibling language, so mirroring only the
           # linked one leaves the language switch a dead end.
@@ -212,17 +233,17 @@ jobs:
             echo "CHANGELOG.md"
             echo "docs/release-notes/${TAG}.md"
             echo "docs/release-notes/${TAG}.en.md"
-          } > allowed-docs.txt
+          } > "$WORK/allowed-docs.txt"
           while IFS= read -r p; do
             if ! git cat-file -e "${TAG}:${p}" 2>/dev/null; then
               echo "::error::${TAG} does not contain ${p} — a release must ship its own notes (see docs/release-process.md §1.1a)"
               exit 1
             fi
-            mkdir -p "docs-upload/$(dirname "$p")"
-            git show "${TAG}:${p}" > "docs-upload/${p}"
-          done < allowed-docs.txt
+            mkdir -p "$WORK/docs/$(dirname "$p")"
+            git show "${TAG}:${p}" > "$WORK/docs/${p}"
+          done < "$WORK/allowed-docs.txt"
           echo "--- docs fetched from ${TAG} ---"
-          find docs-upload -type f | sort
+          find "$WORK/docs" -type f | sort
 
       - name: Preflight — required R2 secrets present
         run: |
@@ -260,16 +281,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          mkdir -p assets manifest
-          gh release download "$TAG" --repo "${{ github.repository }}" --dir assets
+          mkdir -p "$WORK/assets" "$WORK/manifest"
+          gh release download "$TAG" --repo "${{ github.repository }}" --dir "$WORK/assets"
           # latest.json is handled separately: the mirror's copy lives at the
           # stable, mutable download/latest.json — not inside the immutable
           # per-version prefix — so move it out of the asset set.
-          test -f assets/latest.json || { echo "::error::release $TAG has no latest.json"; exit 1; }
-          mv assets/latest.json manifest/latest.json
+          test -f "$WORK/assets/latest.json" || { echo "::error::release $TAG has no latest.json"; exit 1; }
+          mv "$WORK/assets/latest.json" "$WORK/manifest/latest.json"
           echo "--- assets to mirror ---"
-          ls -la assets/
-          count=$(find assets -type f | wc -l | tr -d ' ')
+          ls -la "$WORK/assets/"
+          count=$(find "$WORK/assets" -type f | wc -l | tr -d ' ')
           echo "asset count: $count"
           # A release with almost nothing in it means tauri-action failed or
           # the operator published an empty draft; mirroring that would
@@ -282,10 +303,10 @@ jobs:
       - name: Rewrite manifest for the mirror
         run: |
           set -euo pipefail
-          mkdir -p upload
+          mkdir -p "$WORK/out"
           node scripts/rewrite-manifest-for-mirror.mjs \
-            manifest/latest.json "$TAG" "$PUBLIC_BASE" \
-            --out=upload/latest.json --docs-out=upload/notes-docs.txt
+            "$WORK/manifest/latest.json" "$TAG" "$PUBLIC_BASE" \
+            --out="$WORK/out/latest.json" --docs-out="$WORK/out/notes-docs.txt"
 
       - name: Assert the notes link only mirrored docs
         run: |
@@ -295,11 +316,11 @@ jobs:
           # for the users who cannot fall back to github.com.
           while IFS= read -r linked; do
             [[ -z "$linked" ]] && continue
-            if ! grep -qxF "$linked" allowed-docs.txt; then
+            if ! grep -qxF "$linked" "$WORK/allowed-docs.txt"; then
               echo "::error::notes link an un-mirrored doc: $linked — add it to allowed-docs.txt in the 'Fetch the release's docs' step (and confirm it should be public)"
               exit 1
             fi
-          done < upload/notes-docs.txt
+          done < "$WORK/out/notes-docs.txt"
           echo "notes link only mirrored docs"
 
       - name: Stage version-less latest/ aliases
@@ -309,7 +330,7 @@ jobs:
           # README cannot hardcode a version, so every documented download
           # link points at download/latest/<version-less name>. Staged here,
           # verified by the same gate below, published only after it passes.
-          node scripts/mirror-latest-aliases.mjs assets "$VERSION" latest-upload
+          node scripts/mirror-latest-aliases.mjs "$WORK/assets" "$VERSION" "$WORK/latest"
 
       - name: Upload assets (immutable)
         env:
@@ -321,12 +342,12 @@ jobs:
           # stderr is NOT piped through `tail`: the first backfill run was
           # diagnosable only from the per-object error lines, and truncating
           # them threw away exactly what was needed.
-          rclone copy assets "r2:${R2_BUCKET}/download/${TAG}" \
+          rclone copy "$WORK/assets" "r2:${R2_BUCKET}/download/${TAG}" \
             --header-upload "Cache-Control: public, max-age=31536000, immutable" \
             $RCLONE_FLAGS --stats=30s --stats-one-line
           # Raw markdown as text/plain so a browser DISPLAYS it instead of
           # downloading an opaque .md — these are read, not installed.
-          rclone copy docs-upload "r2:${R2_BUCKET}/download/${TAG}" \
+          rclone copy "$WORK/docs" "r2:${R2_BUCKET}/download/${TAG}" \
             --header-upload "Cache-Control: public, max-age=31536000, immutable" \
             --header-upload "Content-Type: text/plain; charset=utf-8" \
             $RCLONE_FLAGS --stats=0
@@ -344,16 +365,24 @@ jobs:
           # long enough to absorb a download burst, short enough that a new
           # release is picked up promptly.
           #
-          # --ignore-times is deliberate. rclone's default skip is size +
-          # modtime, and these destination names are REUSED every release. An
-          # asset that happens to land on the same byte size as the previous
-          # release's same-named alias could be skipped, leaving
-          # download/latest/ serving the OLD installer while latest.json
-          # advertises the new version — a silent, hard-to-spot mismatch.
-          # Re-uploading ~25 objects per release costs nothing worth saving.
-          rclone copy latest-upload "r2:${R2_BUCKET}/download/latest" \
+          # --checksum, NOT --ignore-times. These destination names are REUSED
+          # every release, and rclone's default skip is size + modtime — an
+          # asset landing on the same byte size as the previous release's
+          # same-named alias could be skipped, leaving download/latest/
+          # serving the OLD installer while latest.json advertises the new
+          # version. Comparing content hashes closes that hole.
+          #
+          # --ignore-times would close it too, but it deadlocks against an R2
+          # quirk: R2 answers `501 NotImplemented` on a call rclone makes
+          # AFTER a successful PUT, so rclone reports "Failed to copy" for an
+          # object that did in fact land correctly (verified byte-for-byte
+          # over the public domain). With --checksum the retry sees matching
+          # hashes and skips, so the run self-heals; with --ignore-times every
+          # retry re-uploads and re-fails, forever — that is exactly how the
+          # first two backfill attempts burned all 10 retries.
+          rclone copy "$WORK/latest" "r2:${R2_BUCKET}/download/latest" \
             --header-upload "Cache-Control: public, max-age=300, must-revalidate" \
-            --ignore-times \
+            --checksum \
             $RCLONE_FLAGS --stats=30s --stats-one-line
           echo "Uploaded to r2:${R2_BUCKET}/download/latest"
 
@@ -410,9 +439,9 @@ jobs:
               "$prefix"*) ;;
               *) echo "  FAIL (not a mirror URL)  $url"; fail=1; continue ;;
             esac
-            f="assets/${url#"$prefix"}"
+            f="$WORK/assets/${url#"$prefix"}"
             [[ -f "$f" ]] || { echo "  FAIL (manifest references a file this release did not ship)  $url"; fail=1; }
-          done < <(jq -r '[.platforms[].url] + [.bare_binary.platforms[]?.url] | unique | .[]' upload/latest.json)
+          done < <(jq -r '[.platforms[].url] + [.bare_binary.platforms[]?.url] | unique | .[]' "$WORK/out/latest.json")
           echo "manifest references $n download URL(s), all inside the mirror prefix"
           # Zero URLs would sail through every check above and publish a
           # manifest nobody verified.
@@ -428,11 +457,11 @@ jobs:
           # download unverified.
           echo "checking every uploaded object"
           while IFS= read -r p; do
-            check_one "${prefix}${p}" "assets/${p}"
-          done < <(find assets -type f -printf '%P\n' | sort)
+            check_one "${prefix}${p}" "$WORK/assets/${p}"
+          done < <(find "$WORK/assets" -type f -printf '%P\n' | sort)
           while IFS= read -r p; do
-            check_one "${prefix}${p}" "docs-upload/${p}"
-          done < <(find docs-upload -type f -printf '%P\n' | sort)
+            check_one "${prefix}${p}" "$WORK/docs/${p}"
+          done < <(find "$WORK/docs" -type f -printf '%P\n' | sort)
           # The version-less aliases README links — same gate, because a 404
           # here is a broken install page for exactly the users the mirror
           # exists to serve. Only present when this tag owns the mutable
@@ -441,8 +470,8 @@ jobs:
           # there.
           if [[ "$PROMOTE" == "true" ]]; then
             while IFS= read -r p; do
-              check_one "${PUBLIC_BASE}/download/latest/${p}" "latest-upload/${p}"
-            done < <(find latest-upload -type f -printf '%P\n' | sort)
+              check_one "${PUBLIC_BASE}/download/latest/${p}" "$WORK/latest/${p}"
+            done < <(find "$WORK/latest" -type f -printf '%P\n' | sort)
           else
             echo "  (skipping download/latest/ — this tag does not own the mutable surface)"
           fi
@@ -463,12 +492,12 @@ jobs:
           # load-bearing, not tuning: with a long TTL Cloudflare's edge would
           # pin an old manifest for hours and every user behind that PoP would
           # be told "you're up to date" after a release shipped.
-          # --ignore-times for the same reason as the aliases above: this is a
+          # --checksum for the same reason as the aliases above: this is a
           # fixed destination name, and a corrected manifest that happens to
           # be the same size as the one already up there must not be skipped.
-          rclone copyto upload/latest.json "r2:${R2_BUCKET}/download/latest.json" \
+          rclone copyto "$WORK/out/latest.json" "r2:${R2_BUCKET}/download/latest.json" \
             --header-upload "Cache-Control: public, max-age=60, must-revalidate" \
-            --ignore-times \
+            --checksum \
             $RCLONE_FLAGS --stats=0
           echo "Published r2:${R2_BUCKET}/download/latest.json"
 
