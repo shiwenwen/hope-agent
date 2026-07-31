@@ -58,28 +58,40 @@ All of this is done in the Cloudflare dashboard + `gh` CLI; none of it is in cod
    ```
    The verify step confirms `https://repo.hopeagent.ai/apt/dists/stable/InRelease` etc. are live. From then on it auto-fires on every `release.published`.
 
-> **New-account gotcha — `tls: handshake failure` on the first seed.** Cloudflare
-> provisions the **per-account TLS certificate for the S3 API endpoint**
-> (`<account_id>.r2.cloudflarestorage.com`) with a delay on **brand-new R2
-> accounts** — often ~20 minutes, sometimes a few hours (Cloudflare-side, see
+> **Resolved for this account (2026-07-31).** The S3 API endpoint's certificate
+> is provisioned and every workflow now talks to it directly over rclone. The
+> note below applies only to a **brand-new Cloudflare account**; nothing here
+> needs doing on the current one.
+>
+> <details>
+> <summary><b>New-account gotcha — <code>tls: handshake failure</code> on the first seed</b></summary>
+>
+> Cloudflare provisions the **per-account TLS certificate for the S3 API
+> endpoint** (`<account_id>.r2.cloudflarestorage.com`) with a delay on brand-new
+> R2 accounts — often ~20 minutes, sometimes a few hours (Cloudflare-side, see
 > cloudflare/cloudflare-docs#6252). Until it lands, rclone/aws-cli/curl all fail
 > at the TLS handshake (`alert 40`, no peer certificate) **even though the
 > account id, keys, bucket, and custom domain are all correct** — the custom
 > domain works immediately because it uses a different (Universal SSL) cert
-> path. This is not a misconfiguration: **wait and re-run the seed.** A quick way
-> to check readiness from a clean network: `curl -sS -o /dev/null -w '%{http_code}\n'
-> https://<account_id>.r2.cloudflarestorage.com/` — once it returns an HTTP status
-> (e.g. 400) instead of an SSL error, the endpoint is ready.
+> path. This is not a misconfiguration: **wait and re-run the seed.** Readiness
+> check: `curl -sS -o /dev/null -w '%{http_code}\n'
+> https://<account_id>.r2.cloudflarestorage.com/` — an HTTP status (e.g. 400)
+> instead of an SSL error means the endpoint is ready.
 >
-> **Can't wait? Seed via the Wrangler bridge.** The workflow accepts a
-> `via` input: `gh workflow run update-linux-repo.yml -f tag=vX.Y.Z -f via=wrangler`.
-> This uploads the built tree through the **Cloudflare API** (`api.cloudflare.com`,
-> which has a valid cert) with `wrangler r2 object put` instead of the S3
-> endpoint, bypassing the unprovisioned cert entirely. It is **seed-only** (a
-> fresh/empty bucket, no pull) and needs a `CLOUDFLARE_API_TOKEN` secret — an API
-> token with **Account → Workers R2 Storage → Edit**. Once the S3-endpoint cert
-> provisions, drop the flag; normal releases go back to the default rclone path
-> (which does the efficient incremental pull+push the bridge can't).
+> **Can't wait? Seed via the Wrangler bridge.** `gh workflow run
+> update-linux-repo.yml -f tag=vX.Y.Z -f via=wrangler` uploads the built tree
+> through the **Cloudflare API** (`api.cloudflare.com`, which has a valid cert)
+> with `wrangler r2 object put` instead of the S3 endpoint. It is **seed-only**
+> (fresh/empty bucket, no pull) and needs a `CLOUDFLARE_API_TOKEN` secret — an
+> API token with **Account → Workers R2 Storage → Edit**. Once the cert
+> provisions, drop the flag; normal releases use the default rclone path, which
+> does the incremental pull+push the bridge can't.
+>
+> The bridge is kept as a standby for that scenario. **A new bucket in the
+> existing account does not need it** — the certificate is per-account, not
+> per-bucket. `CLOUDFLARE_API_TOKEN` is currently unused; it can be deleted and
+> re-created if the bridge is ever needed again.
+> </details>
 
 ### Signing key info
 
