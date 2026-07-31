@@ -1,9 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from "react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { isTauriMode } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import {
@@ -32,6 +43,7 @@ import {
   Monitor,
   Music,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
   ShieldCheck,
   Volume2,
@@ -70,6 +82,8 @@ interface SystemPermissionItem {
   note?: string | null
   /** `note` carries post-request troubleshooting text, not the static catalog note. */
   troubleshoot?: boolean
+  /** This build can drop the OS permission record so the OS asks again. */
+  resettable?: boolean
 }
 
 interface SystemPermissionsResponse {
@@ -238,6 +252,19 @@ function isActionable(state: PermissionStatus) {
   )
 }
 
+/// Whether to offer "reset the OS record" for this item.
+///
+/// Only for states where the record is plausibly broken. Never when granted —
+/// the button would destroy a working grant — and never for
+/// granted_pending_restart, where the record is healthy and only a relaunch is
+/// missing (resetting there would throw away the grant the user just made).
+function canReset(item: SystemPermissionItem) {
+  return (
+    item.resettable === true &&
+    (item.status === "not_granted" || item.status === "not_determined" || item.status === "restricted")
+  )
+}
+
 function canRequest(item: SystemPermissionItem) {
   // granted_pending_restart deliberately keeps its button: a restart is what
   // applies the grant, but the documented remedy for a stale TCC entry is to
@@ -292,6 +319,12 @@ export default function PermissionsPanel() {
   const [macStatus, setMacStatus] = useState<MacControlStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [requesting, setRequesting] = useState<string | null>(null)
+  const [resetTarget, setResetTarget] = useState<SystemPermissionItem | null>(null)
+  const [resetting, setResetting] = useState(false)
+  // Set once a reset succeeds: the OS re-prompt and (for screen recording) the
+  // capability itself only take effect in a fresh process, so surface the
+  // restart affordance instead of letting the user retry in vain.
+  const [restartSuggested, setRestartSuggested] = useState(false)
   // Monotonic ticket for state-mutating calls. A refetch started before a
   // request (window focus fires when the settings pane steals focus) must not
   // land after it and overwrite the fresher per-item result.
@@ -356,6 +389,43 @@ export default function PermissionsPanel() {
     return () => window.removeEventListener("focus", onFocus)
   }, [fetchPermissions])
 
+  const handleReset = async (id: string) => {
+    setResetting(true)
+    // The stale-record note is what led the user here; the reset supersedes it.
+    delete troubleshootNotes.current[id]
+    const ticket = ++writeTicket.current
+    try {
+      const result = await getTransport().call<SystemPermissionItem>("reset_system_permission", { id })
+      if (ticket === writeTicket.current) {
+        setResponse((prev) =>
+          prev
+            ? { ...prev, items: prev.items.map((item) => (item.id === result.id ? result : item)) }
+            : prev,
+        )
+      }
+      setResetTarget(null)
+      setRestartSuggested(true)
+      toast.success(t("settings.permResetDone", "Permission record cleared. Restart Hope Agent, then grant again."))
+    } catch (e) {
+      logger.error("settings", "PermissionsPanel::reset", `Failed to reset ${id}`, e)
+      toast.error(
+        t("settings.permResetFailed", "Could not clear the permission record.") +
+          (e instanceof Error && e.message ? ` ${e.message}` : ""),
+      )
+    } finally {
+      setResetting(false)
+    }
+  }
+
+  const handleRestart = async () => {
+    try {
+      await getTransport().call("request_app_restart")
+    } catch (e) {
+      logger.error("settings", "PermissionsPanel::restart", "Failed to request app restart", e)
+      toast.error(t("settings.permRestartFailed", "Could not restart automatically — please quit and reopen the app."))
+    }
+  }
+
   const handleRequest = async (id: string) => {
     setRequesting(id)
     delete troubleshootNotes.current[id]
@@ -365,6 +435,9 @@ export default function PermissionsPanel() {
       if (result.troubleshoot && result.note) {
         troubleshootNotes.current[result.id] = result.note
       }
+      // A grant that took effect immediately makes the post-reset restart
+      // banner stale. Pending-restart keeps it: that one really does need one.
+      if (result.status === "granted") setRestartSuggested(false)
       if (ticket !== writeTicket.current) return
       setResponse((prev) =>
         prev
@@ -572,6 +645,26 @@ export default function PermissionsPanel() {
                         )}
                       </div>
 
+                      {canReset(item) && !loading && (
+                        <IconTip
+                          label={t(
+                            "settings.permResetTooltip",
+                            "Clear the saved system permission record so macOS asks again",
+                          )}
+                        >
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isRequesting || resetting}
+                            onClick={() => setResetTarget(item)}
+                            className="shrink-0 gap-1.5 text-muted-foreground"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            {t("settings.permReset", "Reset record")}
+                          </Button>
+                        </IconTip>
+                      )}
+
                       {canRequest(item) && !loading && (
                         <IconTip label={t("settings.permGrantTooltip")}>
                           <Button
@@ -622,6 +715,72 @@ export default function PermissionsPanel() {
         </Button>
         <span className="text-xs text-muted-foreground">{t("settings.permRefreshHint")}</span>
       </div>
+
+      {restartSuggested && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 px-4 py-3">
+          <RefreshCw className="h-4 w-4 shrink-0 text-sky-500" />
+          <span className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+            {t(
+              "settings.permRestartAfterReset",
+              "Restart Hope Agent so macOS can ask for the permission again.",
+            )}
+          </span>
+          <Button variant="outline" size="sm" onClick={handleRestart} className="shrink-0 gap-1.5">
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t("settings.permRestartNow", "Restart now")}
+          </Button>
+        </div>
+      )}
+
+      <AlertDialog
+        open={resetTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !resetting) setResetTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("settings.permResetTitle", {
+                defaultValue: "Reset the {{name}} permission record?",
+                name: resetTarget
+                  ? t(itemTextKey(resetTarget.id, "label"), fallbackLabel(resetTarget.id))
+                  : "",
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  {t(
+                    "settings.permResetDescription",
+                    "This clears the decision macOS saved for Hope Agent, so it will ask again the next time. Use it when System Settings shows the permission as allowed but Hope Agent still reports it as missing.",
+                  )}
+                </p>
+                <p className="text-amber-600 dark:text-amber-400">
+                  {t(
+                    "settings.permResetWarning",
+                    "Any existing approval for this permission is removed — you will need to grant it again, and restart the app.",
+                  )}
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resetting}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={resetting}
+              onClick={(event) => {
+                event.preventDefault()
+                if (resetTarget) void handleReset(resetTarget.id)
+              }}
+            >
+              {resetting
+                ? t("settings.permResetting", "Resetting...")
+                : t("settings.permResetConfirm", "Reset record")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

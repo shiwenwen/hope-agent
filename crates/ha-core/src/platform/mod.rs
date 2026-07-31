@@ -132,6 +132,17 @@ pub(crate) fn system_permission_raw_probe(id: &str) -> Option<bool> {
     system_permissions::raw_probe(id)
 }
 
+/// Whether this platform/build can reset the OS permission record for `id`
+/// (macOS `tccutil`, packaged app only).
+pub(crate) fn system_permission_supports_reset(id: &str) -> bool {
+    system_permissions::supports_reset(id)
+}
+
+/// Reset the OS permission record for `id` so the OS prompts again.
+pub(crate) fn reset_system_permission_item(id: &str) -> Result<(), String> {
+    system_permissions::reset_item(id)
+}
+
 /// Build a `std::process::Command` that runs `cmdline` through the
 /// platform default shell.
 ///

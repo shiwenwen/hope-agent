@@ -339,6 +339,109 @@ mod imp {
         }
     }
 
+    /// Drop the sticky pending-restart memory. MUST be called after a TCC
+    /// reset: the positive is kept for the process lifetime on the premise
+    /// that a grant cannot regress before relaunch, and a reset breaks
+    /// exactly that premise — without this the panel would keep reporting
+    /// "granted, restart to apply" for a grant that was just wiped.
+    fn forget_screen_probe_memory() {
+        if let Ok(mut state) = SCREEN_PROBE.lock() {
+            state.pending_restart_confirmed = false;
+            state.last_negative_at = None;
+        }
+    }
+
+    /// `tccutil` service name for the permissions whose TCC record the user
+    /// may reset from the UI. Deliberately a closed whitelist compiled into
+    /// the binary: the service string must never originate outside this
+    /// module, or the reset action would become "wipe any TCC service".
+    fn tcc_reset_service(id: &str) -> Option<&'static str> {
+        match id {
+            "accessibility" => Some("Accessibility"),
+            "screen_recording" => Some("ScreenCapture"),
+            "input_monitoring" => Some("ListenEvent"),
+            _ => None,
+        }
+    }
+
+    pub fn supports_reset(id: &str) -> bool {
+        tcc_reset_service(id).is_some() && bundle_identifier().is_some()
+    }
+
+    /// This app's `CFBundleIdentifier`, or `None` when the process is not
+    /// running from a bundle (bare `target/debug/hope-agent`). Read from the
+    /// running bundle rather than hardcoded, and the `None` case is load
+    /// bearing: an unbundled process has no stable TCC identity, so there is
+    /// nothing meaningful to reset and `tccutil` would either fail or hit
+    /// some other bundle.
+    fn bundle_identifier() -> Option<String> {
+        let cls = objc_class(c"NSBundle")?;
+        objc2::rc::autoreleasepool(|pool| unsafe {
+            let bundle: *mut AnyObject = msg_send![cls, mainBundle];
+            if bundle.is_null() {
+                return None;
+            }
+            let identifier: *mut NSString = msg_send![bundle, bundleIdentifier];
+            if identifier.is_null() {
+                return None;
+            }
+            Some((*identifier).to_str(pool).to_owned())
+        })
+    }
+
+    /// Reset this app's TCC record for `id` via `tccutil`, so macOS asks
+    /// again on the next request. There is no public API for this — `tccutil`
+    /// is the only supported route — but it needs no elevation for these
+    /// services. Spawned with separate args (never a shell string).
+    pub fn reset_item(id: &str) -> Result<(), String> {
+        let Some(service) = tcc_reset_service(id) else {
+            return Err(format!("Permission '{}' does not support reset.", id));
+        };
+        let Some(bundle_id) = bundle_identifier() else {
+            return Err(
+                "Resetting system permissions requires the packaged app (a bare development \
+                 binary has no stable TCC identity)."
+                    .to_string(),
+            );
+        };
+
+        let output = Command::new("tccutil")
+            .args(["reset", service, &bundle_id])
+            .output()
+            .map_err(|e| format!("Failed to run tccutil: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let detail = stderr.trim();
+            crate::app_warn!(
+                "permissions",
+                "tcc_reset",
+                "{} reset failed: status={:?} stderr={}",
+                id,
+                output.status.code(),
+                detail
+            );
+            return Err(if detail.is_empty() {
+                format!("tccutil exited with status {:?}.", output.status.code())
+            } else {
+                detail.to_string()
+            });
+        }
+
+        if id == "screen_recording" {
+            forget_screen_probe_memory();
+        }
+        crate::app_info!(
+            "permissions",
+            "tcc_reset",
+            "{} ({}) reset for {}",
+            id,
+            service,
+            bundle_id
+        );
+        Ok(())
+    }
+
     /// Raw, spawn-free preflight backing the `--tcc-probe` process mode.
     /// MUST never route through the fresh-process probe above — a probe
     /// child answering via another probe would recurse forever.
@@ -780,6 +883,42 @@ mod imp {
         use std::path::Path;
 
         #[test]
+        fn bundle_identifier_is_absent_outside_an_app_bundle() {
+            // Exercises the NSBundle FFI (must not panic) and pins the
+            // load-bearing None: the test harness is an unbundled binary, so
+            // reset must be unavailable rather than aimed at some other
+            // bundle's TCC record.
+            assert_eq!(super::bundle_identifier(), None);
+            assert!(!super::supports_reset("screen_recording"));
+            assert!(super::reset_item("screen_recording").is_err());
+        }
+
+        #[test]
+        fn only_whitelisted_permissions_map_to_a_tcc_service() {
+            assert_eq!(
+                super::tcc_reset_service("accessibility"),
+                Some("Accessibility")
+            );
+            assert_eq!(
+                super::tcc_reset_service("screen_recording"),
+                Some("ScreenCapture")
+            );
+            assert_eq!(
+                super::tcc_reset_service("input_monitoring"),
+                Some("ListenEvent")
+            );
+            // Everything else — including real catalog ids and anything a
+            // caller might inject — has no service and cannot be reset.
+            for id in ["full_disk_access", "camera", "All", "", "ScreenCapture"] {
+                assert_eq!(
+                    super::tcc_reset_service(id),
+                    None,
+                    "unexpected mapping for {id:?}"
+                );
+            }
+        }
+
+        #[test]
         fn parses_probe_handshake_values() {
             assert_eq!(
                 parse_probe_output("hope-agent-tcc-probe:granted=1\n"),
@@ -849,6 +988,14 @@ mod imp {
     pub fn raw_probe(_id: &str) -> Option<bool> {
         None
     }
+
+    pub fn supports_reset(_id: &str) -> bool {
+        false
+    }
+
+    pub fn reset_item(_id: &str) -> Result<(), String> {
+        Err("Resetting system permissions is only supported on macOS.".to_string())
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -873,6 +1020,14 @@ mod imp {
 
     pub fn raw_probe(_id: &str) -> Option<bool> {
         None
+    }
+
+    pub fn supports_reset(_id: &str) -> bool {
+        false
+    }
+
+    pub fn reset_item(_id: &str) -> Result<(), String> {
+        Err("Resetting system permissions is only supported on macOS.".to_string())
     }
 }
 
@@ -899,6 +1054,14 @@ mod imp {
     pub fn raw_probe(_id: &str) -> Option<bool> {
         None
     }
+
+    pub fn supports_reset(_id: &str) -> bool {
+        false
+    }
+
+    pub fn reset_item(_id: &str) -> Result<(), String> {
+        Err("Resetting system permissions is only supported on macOS.".to_string())
+    }
 }
 
 pub(crate) fn platform_name() -> &'static str {
@@ -919,4 +1082,12 @@ pub(crate) fn request_item(def: PermissionDef) -> SystemPermissionStatus {
 
 pub(crate) fn raw_probe(id: &str) -> Option<bool> {
     imp::raw_probe(id)
+}
+
+pub(crate) fn supports_reset(id: &str) -> bool {
+    imp::supports_reset(id)
+}
+
+pub(crate) fn reset_item(id: &str) -> Result<(), String> {
+    imp::reset_item(id)
 }

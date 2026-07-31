@@ -5780,6 +5780,7 @@ mod tests {
             usage: String::new(),
             note: None,
             troubleshoot: false,
+            resettable: false,
         }
     }
 

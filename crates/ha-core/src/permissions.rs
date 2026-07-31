@@ -14,6 +14,9 @@ use std::time::Duration;
 /// "macOS-only" page on a real Mac.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(6);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(65);
+/// `tccutil` is a short-lived local process; it either answers quickly or is
+/// wedged, and the user is waiting on a button press.
+const RESET_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Stdout handshake prefix of the `--tcc-probe` process mode — the contract
 /// between the spawning side (`platform/system_permissions.rs`) and the
@@ -137,6 +140,11 @@ pub struct SystemPermissionItem {
     /// this flag and keeps such notes pinned across refetches (a plain
     /// re-check cannot reproduce them).
     pub troubleshoot: bool,
+    /// True when this build can reset the OS permission record for this item
+    /// (macOS `tccutil`, packaged app only). Drives whether the panel offers
+    /// the reset action — it is NOT a security boundary: `reset_system_permission`
+    /// re-validates against the same whitelist.
+    pub resettable: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -175,6 +183,7 @@ impl PermissionDef {
             usage: self.usage.to_string(),
             note: self.note.map(str::to_string),
             troubleshoot: false,
+            resettable: crate::platform::system_permission_supports_reset(self.id),
         }
     }
 
@@ -519,6 +528,44 @@ pub fn raw_system_permission_probe(id: &str) -> Option<bool> {
     crate::platform::system_permission_raw_probe(id)
 }
 
+/// Drop this app's OS permission record for `id` so the OS asks again on the
+/// next request (macOS `tccutil reset`). Remedies a record created by an older
+/// build, which keeps the System Settings toggle visible while permanently
+/// denying the current binary.
+///
+/// **Owner/GUI-only by design.** This is deliberately not a config field and
+/// has no `ha-settings` category or model-facing tool: a model able to reset
+/// TCC could strip the user's granted permissions at will, or farm fresh
+/// consent prompts. It stays on the same footing as Provider credentials —
+/// no agent surface, no new entry points.
+pub async fn reset_system_permission(id: String) -> Result<SystemPermissionItem, String> {
+    let Some(def) = find_def(&id) else {
+        return Err(format!("Unknown permission id '{}'.", id));
+    };
+    if !crate::platform::system_permissions_supported() {
+        return Err("System permissions are not supported on this platform.".to_string());
+    }
+
+    let reset_id = id.clone();
+    let outcome = blocking_with_timeout(
+        RESET_TIMEOUT,
+        Err("Reset timed out.".to_string()),
+        move || crate::platform::reset_system_permission_item(&reset_id),
+    )
+    .await;
+    outcome?;
+
+    // Re-check so the caller sees the post-reset state (typically
+    // NotGranted/NotDetermined) instead of a stale pre-reset one.
+    let status = blocking_with_timeout(CHECK_TIMEOUT, SystemPermissionStatus::NotGranted, {
+        let id = id.clone();
+        move || crate::platform::check_system_permission_item(&id)
+    })
+    .await;
+    crate::app_info!("permissions", "reset", "{} → {:?}", id, status);
+    Ok(def.item(status))
+}
+
 fn unsupported_response() -> SystemPermissionsResponse {
     SystemPermissionsResponse {
         platform: crate::platform::system_permissions_platform_name().to_string(),
@@ -541,6 +588,7 @@ fn unknown_item(id: String) -> SystemPermissionItem {
         usage: "This permission is not known by this version of Hope Agent.".to_string(),
         note: Some("Unknown permission id.".to_string()),
         troubleshoot: false,
+        resettable: false,
     }
 }
 
@@ -691,6 +739,32 @@ fn legacy_state_for_status(status: SystemPermissionStatus) -> PermState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn reset_rejects_unknown_permission_id() {
+        // The id comes from the UI; it must be validated against the catalog
+        // before any platform call, so no caller can steer the reset at an
+        // arbitrary target.
+        let err = reset_system_permission("../../etc".to_string())
+            .await
+            .expect_err("unknown id must be rejected");
+        assert!(err.contains("Unknown permission id"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn reset_rejects_permissions_outside_the_whitelist() {
+        // A real catalog id that has no tccutil service mapping: known to the
+        // catalog, still not resettable.
+        let err = reset_system_permission("full_disk_access".to_string())
+            .await
+            .expect_err("non-whitelisted permission must be rejected");
+        assert!(
+            err.contains("does not support reset") || err.contains("packaged app"),
+            "unexpected error: {}",
+            err
+        );
+    }
 
     #[test]
     fn legacy_manual_check_maps_to_unknown() {

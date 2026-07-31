@@ -1762,14 +1762,15 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 
 ## 已知不对齐项
 
-截至 2026-07-22 三端差集为 22 条：§7.3 的 5 条 Desktop-only 系统权限命令、§7.3.1 的 12 条 HTTP 已实现但走专用 Transport 方法，以及 `project_fs_resolve` / `kb_file_resolve_cmd` / `set_dock_badge_cmd` / `set_tray_unread_cmd` / `save_exported_file` 5 条 Tauri-only 命令。没有“HTTP 漏写 COMMAND_MAP”或“HTTP 路由缺失”的破口；COMMAND_MAP 每一条顶层命令都能在 `tauri::generate_handler!` 找到对应命令。
+截至 2026-07-31 三端差集为 23 条：§7.3 的 6 条 Desktop-only 系统权限命令、§7.3.1 的 12 条 HTTP 已实现但走专用 Transport 方法，以及 `project_fs_resolve` / `kb_file_resolve_cmd` / `set_dock_badge_cmd` / `set_tray_unread_cmd` / `save_exported_file` 5 条 Tauri-only 命令。没有“HTTP 漏写 COMMAND_MAP”或“HTTP 路由缺失”的破口；COMMAND_MAP 每一条顶层命令都能在 `tauri::generate_handler!` 找到对应命令。
 
-### §7.3 Desktop-only（Tauri 专属，合法缺失，5 条）
+### §7.3 Desktop-only（Tauri 专属，合法缺失，6 条）
 
 | Tauri Command | 说明 |
 |---|---|
 | `check_system_permissions` | macOS 系统权限 v2 目录与状态查询 |
 | `request_system_permission` | macOS 系统权限 v2 请求/跳转 |
+| `reset_system_permission` | macOS 系统权限 v2 重置 TCC 记录（`tccutil`，白名单 3 项、仅打包应用；**owner/GUI-only，刻意无模型工具面**） |
 | `check_all_permissions` | 权限 v1 兼容包装 |
 | `check_permission` | 权限 v1 兼容包装 |
 | `request_permission` | 权限 v1 兼容包装 |
@@ -1842,8 +1843,8 @@ comm -23 \
       grep -oE '::[a-z_][a-zA-Z0-9_]*,?[[:space:]]*$' | tr -d ':, ' | sort -u) \
   <(awk '/^const COMMAND_MAP/,/^};/' src/lib/transport-http.ts | \
       grep -oE '^[[:space:]]+[a-z_][a-zA-Z0-9_]*:' | tr -d ': ' | sort -u)
-# 期望：22 行
-#   check_system_permissions / request_system_permission
+# 期望：23 行
+#   check_system_permissions / request_system_permission / reset_system_permission
 #   / check_all_permissions / check_permission / request_permission  （§7.3 Desktop-only）
 #   / save_avatar / fs_list_dir / fs_search_files / fs_create_dir / project_fs_upload / export_session_cmd
 #   / export_artifact / memory_backup_*_archive  （§7.3.1 HTTP 已实现走专用方法）
