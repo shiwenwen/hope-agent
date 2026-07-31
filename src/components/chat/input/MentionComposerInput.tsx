@@ -36,6 +36,7 @@ import { parseAgentMentions } from "../agent-mention/agentTokens"
 import { parseMentions, parseNoteRefs } from "../file-mention/mentionTokens"
 import { joinAbs } from "../file-mention/types"
 import { SkillMentionIcon } from "../skill-mention/SkillMentionIcon"
+import { skillMentionToneClass } from "../skill-mention/skillMentionStyles"
 import {
   isSkillMentionName,
   parseSkillMentions,
@@ -91,7 +92,7 @@ const FILE_CHIP_CLASS =
 const NOTE_CHIP_CLASS =
   "cm-mention-chip cm-mention-note mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center rounded-md border border-violet-500/20 bg-violet-500/10 px-1.5 text-sm font-medium text-violet-600 shadow-sm dark:border-violet-300/20 dark:bg-violet-300/15 dark:text-violet-200"
 const SKILL_CHIP_CLASS =
-  "cm-mention-chip cm-mention-skill mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-rose-500/20 bg-rose-500/10 px-1.5 text-sm font-medium text-rose-600 shadow-sm dark:border-rose-300/20 dark:bg-rose-300/15 dark:text-rose-200"
+  "cm-mention-chip cm-mention-skill mx-0.5 inline-flex h-6 max-w-[16rem] items-center gap-1 whitespace-nowrap align-baseline text-sm font-normal"
 const AGENT_CHIP_CLASS =
   "cm-mention-chip cm-mention-agent mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-teal-500/20 bg-teal-500/10 px-1.5 text-sm font-medium text-teal-700 shadow-sm dark:border-teal-300/20 dark:bg-teal-300/15 dark:text-teal-200"
 const CHIP_ICON_CLASS = "h-4 w-4 shrink-0"
@@ -234,7 +235,10 @@ class MentionWidget extends WidgetType {
 
     if (this.span.kind === "skill") {
       const meta = skillMentionMeta(this.span.name)
-      root.className = SKILL_CHIP_CLASS
+      root.className = cn(
+        SKILL_CHIP_CLASS,
+        meta ? skillMentionToneClass(meta.iconKind) : "text-foreground/85",
+      )
       root.title = this.span.raw
       if (meta) {
         appendIcon(
