@@ -48,6 +48,16 @@ import {
   agentLoadOperationErrorToast,
   agentOperationErrorToast,
 } from "./agentLoadOperationFeedback"
+import AgentTabResetControl from "./AgentTabResetControl"
+import {
+  agentApprovalUsesDefaults,
+  agentModelUsesDefaults,
+  createDefaultAgentModelConfig,
+  createDefaultApprovalTabPatch,
+  createDefaultSubagentConfig,
+  createDefaultSubagentTabPatch,
+  subagentTabUsesDefaults,
+} from "./agentTabDefaults"
 
 interface AgentEditViewProps {
   agentId: string
@@ -190,13 +200,7 @@ export default function AgentEditView({ agentId, initialTab, onBack }: AgentEdit
         }
         // Ensure subagents config exists
         if (!cfg.subagents) {
-          cfg.subagents = {
-            allowedAgents: [],
-            deniedAgents: [],
-            maxConcurrent: 8,
-            defaultTimeoutSecs: 0,
-            model: null,
-          }
+          cfg.subagents = createDefaultSubagentConfig()
         }
         setConfig(cfg)
         setAgentMd(md ?? "")
@@ -522,6 +526,27 @@ export default function AgentEditView({ agentId, initialTab, onBack }: AgentEdit
     )
   }
 
+  const tabReset =
+    activeTab === "model"
+      ? {
+          sectionLabel: t("settings.agentModel"),
+          disabled: agentModelUsesDefaults(config.model),
+          onReset: () => updateConfig({ model: createDefaultAgentModelConfig() }),
+        }
+      : activeTab === "subagent"
+        ? {
+            sectionLabel: t("settings.subagentTitle"),
+            disabled: subagentTabUsesDefaults(config),
+            onReset: () => updateConfig(createDefaultSubagentTabPatch(config)),
+          }
+        : activeTab === "approval"
+          ? {
+              sectionLabel: t("settings.agentApprovalTab"),
+              disabled: agentApprovalUsesDefaults(config),
+              onReset: () => updateConfig(createDefaultApprovalTabPatch(config)),
+            }
+          : null
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
@@ -592,6 +617,8 @@ export default function AgentEditView({ agentId, initialTab, onBack }: AgentEdit
               </Button>
             ))}
           </div>
+
+          {tabReset && <AgentTabResetControl {...tabReset} />}
 
           {/* Tab content */}
           {activeTab === "identity" && (

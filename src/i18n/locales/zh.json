@@ -4044,6 +4044,7 @@
     "resetDefaultsAlreadyDefault": "“{{section}}”已经是默认设置",
     "resetDefaultsTitle": "恢复“{{section}}”的默认设置？",
     "resetDefaultsDescription": "将立即把“{{section}}”恢复到当前版本的默认值，未保存的修改会丢失。",
+    "agentResetDefaultsDescription": "这会将“{{section}}”中未保存的设置替换为当前版本的默认值；点击“保存”后才会生效。",
     "resetDefaultsPreserve": "Provider、凭据以及关联的记忆、知识库、任务和产物不会被删除。",
     "resetDefaultsKnowledgeWarning": "恢复知识设置可能会启动后台索引重建。",
     "resetDefaultsSuccess": "“{{section}}”已恢复默认设置",

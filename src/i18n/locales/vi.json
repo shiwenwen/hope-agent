@@ -4044,6 +4044,7 @@
     "resetDefaultsAlreadyDefault": "{{section}} đã dùng cài đặt mặc định",
     "resetDefaultsTitle": "Khôi phục mặc định cho {{section}}?",
     "resetDefaultsDescription": "Thao tác này khôi phục ngay {{section}} về mặc định của phiên bản hiện tại. Các thay đổi chưa lưu sẽ bị hủy.",
+    "agentResetDefaultsDescription": "Thao tác này thay các giá trị chưa lưu trong {{section}} bằng mặc định của phiên bản hiện tại. Nhấp Lưu để áp dụng thay đổi.",
     "resetDefaultsPreserve": "Provider, thông tin xác thực, bộ nhớ, kho tri thức, tác vụ và sản phẩm sẽ không bị xóa.",
     "resetDefaultsKnowledgeWarning": "Khôi phục cài đặt tri thức có thể bắt đầu xây dựng lại chỉ mục trong nền.",
     "resetDefaultsSuccess": "Đã khôi phục {{section}} về mặc định",

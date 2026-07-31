@@ -6,6 +6,7 @@ import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Button } from "@/components/ui/button"
 import { Check, Bot } from "lucide-react"
 import type { AgentConfig, AgentSummary } from "./types"
+import { DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_SECS } from "./agent-panel/agentTabDefaults"
 
 interface SubagentPanelProps {
   config: AgentConfig["subagents"]
@@ -26,7 +27,8 @@ export default function SubagentPanel({
   const [agents, setAgents] = useState<AgentSummary[]>([])
 
   useEffect(() => {
-    getTransport().call<AgentSummary[]>("list_agents")
+    getTransport()
+      .call<AgentSummary[]>("list_agents")
       .then((list) => {
         // Exclude self from the list
         setAgents(list.filter((a) => a.id !== currentAgentId))
@@ -237,7 +239,7 @@ export default function SubagentPanel({
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <DeferredNumberInput
-                  value={config.announceTimeoutSecs ?? 120}
+                  value={config.announceTimeoutSecs ?? DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_SECS}
                   onValueCommit={(value) =>
                     onChange({
                       ...config,
