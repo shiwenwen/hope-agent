@@ -419,8 +419,9 @@ export function MarkdownLink({
   ...rest
 }: MarkdownAnchorProps) {
   const isIncomplete = href === "streamdown:incomplete-link"
-  // `@skill` mentions are `[@label](#skill:<name>)` links — render the same rose
-  // chip the composer shows, not the raw link. Fragment href survives sanitize.
+  // `@skill` mentions are `[@label](#skill:<name>)` links — render the same
+  // lightweight inline treatment as the composer, not the raw link. Fragment
+  // href survives sanitize.
   const skillName = isIncomplete ? null : skillNameFromHref(href)
   if (skillName && isSkillMentionName(skillName)) {
     return <SkillMentionChip name={skillName} />

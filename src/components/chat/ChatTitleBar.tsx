@@ -404,7 +404,7 @@ export default function ChatTitleBar({
   const rightPanelControls = rightPanels.length > 0 ? (
     <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
       <div
-        className="flex h-8 max-w-[248px] items-center gap-0.5 overflow-x-auto p-0.5"
+        className="flex h-9 max-w-[248px] items-center gap-0.5 overflow-x-auto pb-0.5 pl-0.5 pr-1.5 pt-1.5"
         role="toolbar"
         aria-label={t("chat.rightPanel.dock")}
       >
