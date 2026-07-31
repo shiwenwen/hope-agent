@@ -105,6 +105,7 @@ import { contextUsageBarClass } from "../contextUsageColor"
 import type { AgentConfig } from "@/components/settings/types"
 import type { QuickPromptItem } from "@/types/quickPrompts"
 import type { AutonomyActivity, GoalSnapshot } from "../workspace/useGoal"
+import { autonomyActivitySourceLabel } from "../workspace/activityDisplay"
 import { parseGoalCriteriaDraft, type DraftGoalCriterionKind } from "../workspace/goalCriteriaDraft"
 import { parseGoalUpsertSlashCommand } from "../goalSlashCommand"
 import { parseLoopCreateSlashCommand } from "../loopSlashCommand"
@@ -1417,13 +1418,21 @@ export default function ChatInput({
         return activeGoalStateLabel
     }
   })()
-  const activityDetail = [
-    activityHeadlineLabel,
+  const activityCurrentStepLabel = autonomyActivitySourceLabel(
+    t,
+    autonomyActivity,
     autonomyActivity?.currentStep,
+  )
+  const activityWaitingOnLabel = autonomyActivitySourceLabel(
+    t,
+    autonomyActivity,
     autonomyActivity?.waitingOn?.label,
-  ]
-    .filter(Boolean)
-    .join(" · ")
+  )
+  const activityDetail = Array.from(
+    new Set(
+      [activityHeadlineLabel, activityCurrentStepLabel, activityWaitingOnLabel].filter(Boolean),
+    ),
+  ).join(" · ")
   const activeGoalCriteria = goalSnapshot?.criteria ?? []
   const activeGoalRequiredTotal = activeGoalCriteria.filter(
     (criterion) => (criterion.kind ?? "required") === "required",
@@ -2604,10 +2613,10 @@ export default function ChatInput({
                   data-ha-title-tip={activityDetail || undefined}
                 >
                   {activityHeadlineLabel}
-                  {autonomyActivity.currentStep ? (
+                  {activityCurrentStepLabel ? (
                     <span className="font-normal text-foreground/70">
                       {" "}
-                      {autonomyActivity.currentStep}
+                      {activityCurrentStepLabel}
                     </span>
                   ) : null}
                 </button>
