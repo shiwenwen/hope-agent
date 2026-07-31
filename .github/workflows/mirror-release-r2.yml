@@ -57,6 +57,11 @@ on:
         description: Release tag to mirror (for example v0.26.0)
         required: true
         type: string
+      force:
+        description: "Re-upload objects even when their content already matches. Needed once to repair objects that landed WITHOUT their Cache-Control (see the RCLONE_FLAGS note); --checksum alone skips them because the bytes are already correct."
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   # Separate from update-linux-repo: the two write disjoint prefixes
@@ -74,6 +79,13 @@ env:
   # src-tauri/tauri.conf.json#plugins.updater.endpoints — that last one is
   # enforced by scripts/verify-updater-endpoints.mjs.
   PUBLIC_BASE: https://repo.hopeagent.ai
+  # The three Cache-Control tiers, defined ONCE: the upload steps set them and
+  # the verify step asserts the served value's max-age against them. Two
+  # copies would drift, and drift here is invisible — the bytes stay correct
+  # while the caching behaviour silently becomes something else.
+  CC_IMMUTABLE: "public, max-age=31536000, immutable"
+  CC_LATEST: "public, max-age=300, must-revalidate"
+  CC_MANIFEST: "public, max-age=60, must-revalidate"
   # rclone remote "r2" configured entirely from env (no rclone.conf file).
   RCLONE_CONFIG_R2_TYPE: s3
   RCLONE_CONFIG_R2_PROVIDER: Cloudflare
@@ -82,14 +94,15 @@ env:
   RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
   # RCLONE_CONFIG_R2_ENDPOINT is derived by scripts/r2-endpoint.sh.
   #
-  # Shared robustness flags for every upload. R2 intermittently answers
-  # `501 NotImplemented` mid-transfer: the first backfill run saw attempt 1
-  # fail wholesale on all three upload steps, two of them recovering on
-  # attempt 2 and the third exhausting rclone's default 3 retries. Root cause
-  # is NOT established yet — the long-stable update-linux-repo.yml writes the
-  # same bucket without trouble, and the one flag it does not use is
-  # --header-upload. Until that is pinned down, give transfers real retry
-  # headroom and stop swallowing the errors that would identify it.
+  # Shared robustness flags for every upload. R2 answers `501 NotImplemented`
+  # on the call rclone made to apply `--header-upload` headers AFTER a
+  # successful PUT. Measured consequence: the object landed byte-correct but
+  # WITHOUT its Cache-Control, so Cloudflare served its own 4h default — and
+  # it hit only some objects, which is what made it look like a Cloudflare
+  # override rather than our bug. Headers are now set with --metadata-set,
+  # which applies them as part of the upload instead of a follow-up call, and
+  # the verify step below asserts the served Cache-Control so a silent
+  # regression cannot happen again. Retry headroom is kept as a backstop.
   #   --retries / --low-level-retries: headroom over the defaults (3 / 10).
   #   --s3-no-check-bucket: skips the bucket-existence probe, one of the calls
   #     R2 is known to answer NotImplemented for. The bucket is created and
@@ -122,6 +135,16 @@ jobs:
           # alpha-logo.png + transparency-logo.png as if they were release
           # artifacts. Any bare name can collide with a future repo directory;
           # $RUNNER_TEMP cannot.
+          # `force` re-uploads content-identical objects. Only needed to
+          # repair metadata (Cache-Control) on objects already in place —
+          # normal runs must NOT set it, since re-uploading every object each
+          # release is pure waste.
+          if [[ "${{ github.event.inputs.force }}" == "true" ]]; then
+            echo "RCLONE_FORCE=--ignore-times" >> "$GITHUB_ENV"
+            echo "force: re-uploading even content-identical objects"
+          else
+            echo "RCLONE_FORCE=" >> "$GITHUB_ENV"
+          fi
           work="${RUNNER_TEMP}/mirror"
           # Start from empty: a leftover from an earlier run on a warm runner
           # would be mirrored as a release artifact too — same failure mode,
@@ -343,14 +366,15 @@ jobs:
           # diagnosable only from the per-object error lines, and truncating
           # them threw away exactly what was needed.
           rclone copy "$WORK/assets" "r2:${R2_BUCKET}/download/${TAG}" \
-            --header-upload "Cache-Control: public, max-age=31536000, immutable" \
-            $RCLONE_FLAGS --stats=30s --stats-one-line
+            --metadata --metadata-set "cache-control=${CC_IMMUTABLE}" \
+            $RCLONE_FLAGS $RCLONE_FORCE --stats=30s --stats-one-line
           # Raw markdown as text/plain so a browser DISPLAYS it instead of
           # downloading an opaque .md — these are read, not installed.
           rclone copy "$WORK/docs" "r2:${R2_BUCKET}/download/${TAG}" \
-            --header-upload "Cache-Control: public, max-age=31536000, immutable" \
-            --header-upload "Content-Type: text/plain; charset=utf-8" \
-            $RCLONE_FLAGS --stats=0
+            --metadata \
+            --metadata-set "cache-control=${CC_IMMUTABLE}" \
+            --metadata-set "content-type=text/plain; charset=utf-8" \
+            $RCLONE_FLAGS $RCLONE_FORCE --stats=0
           echo "Uploaded to r2:${R2_BUCKET}/download/${TAG}"
 
       - name: Upload latest/ aliases (mutable, short TTL)
@@ -381,9 +405,9 @@ jobs:
           # retry re-uploads and re-fails, forever — that is exactly how the
           # first two backfill attempts burned all 10 retries.
           rclone copy "$WORK/latest" "r2:${R2_BUCKET}/download/latest" \
-            --header-upload "Cache-Control: public, max-age=300, must-revalidate" \
+            --metadata --metadata-set "cache-control=${CC_LATEST}" \
             --checksum \
-            $RCLONE_FLAGS --stats=30s --stats-one-line
+            $RCLONE_FLAGS $RCLONE_FORCE --stats=30s --stats-one-line
           echo "Uploaded to r2:${R2_BUCKET}/download/latest"
 
       - name: Verify every mirrored URL is live with the right size
@@ -395,28 +419,48 @@ jobs:
           # truncated or zero-length object.
           fail=0
 
-          head_len() {
-            local url="$1" attempt hdr len
+          # Fetch headers once per object into HDR; retries absorb edge
+          # propagation.
+          fetch_headers() {
+            local url="$1" attempt
             for attempt in 1 2 3 4 5; do
-              if hdr=$(curl -fsSL -I --max-time 30 "$url" 2>/dev/null); then
-                len=$(grep -i '^content-length:' <<<"$hdr" | tail -1 | tr -dc '0-9')
-                if [[ -n "$len" ]]; then printf '%s' "$len"; return 0; fi
+              if HDR=$(curl -fsSL -I --max-time 30 "$url" 2>/dev/null) \
+                 && grep -qi '^content-length:' <<<"$HDR"; then
+                return 0
               fi
               sleep $((attempt * 5))
             done
             return 1
           }
 
+          # $3 = expected max-age. Asserting it is not belt-and-braces: R2
+          # once answered 501 on the header-application call, so objects landed
+          # byte-correct but WITHOUT Cache-Control and Cloudflare served its own
+          # 4h default. Size checks pass right through that — only reading back
+          # the served header catches it.
           check_one() {
-            local url="$1" local_file="$2" expect actual
+            local url="$1" local_file="$2" want_cc="$3" expect actual cc got_age want_age
             expect=$(stat -c%s "$local_file")
-            if ! actual=$(head_len "$url"); then
+            if ! fetch_headers "$url"; then
               echo "  FAIL (unreachable)  $url"
               fail=1; return
             fi
+            actual=$(grep -i '^content-length:' <<<"$HDR" | tail -1 | tr -dc '0-9')
             if [[ "$actual" != "$expect" ]]; then
               echo "  FAIL (size $actual != $expect)  $url"
               fail=1; return
+            fi
+            if [[ -n "$want_cc" ]]; then
+              cc=$(grep -i '^cache-control:' <<<"$HDR" | tail -1 | tr -d '\r')
+              # Compare max-age only, not the whole string: directive order
+              # and casing are not ours to control, but the TTL is the thing
+              # that actually matters and the thing that silently regressed.
+              got_age=$(grep -oE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9')
+              want_age=$(grep -oE 'max-age=[0-9]+' <<<"$want_cc" | head -1 | tr -dc '0-9')
+              if [[ "$got_age" != "$want_age" ]]; then
+                echo "  FAIL (cache-control max-age=${got_age:-none}, want $want_age)  $url"
+                fail=1; return
+              fi
             fi
             echo "  ok  ${actual}B  $url"
           }
@@ -457,10 +501,10 @@ jobs:
           # download unverified.
           echo "checking every uploaded object"
           while IFS= read -r p; do
-            check_one "${prefix}${p}" "$WORK/assets/${p}"
+            check_one "${prefix}${p}" "$WORK/assets/${p}" "$CC_IMMUTABLE"
           done < <(find "$WORK/assets" -type f -printf '%P\n' | sort)
           while IFS= read -r p; do
-            check_one "${prefix}${p}" "$WORK/docs/${p}"
+            check_one "${prefix}${p}" "$WORK/docs/${p}" "$CC_IMMUTABLE"
           done < <(find "$WORK/docs" -type f -printf '%P\n' | sort)
           # The version-less aliases README links — same gate, because a 404
           # here is a broken install page for exactly the users the mirror
@@ -470,7 +514,7 @@ jobs:
           # there.
           if [[ "$PROMOTE" == "true" ]]; then
             while IFS= read -r p; do
-              check_one "${PUBLIC_BASE}/download/latest/${p}" "$WORK/latest/${p}"
+              check_one "${PUBLIC_BASE}/download/latest/${p}" "$WORK/latest/${p}" "$CC_LATEST"
             done < <(find "$WORK/latest" -type f -printf '%P\n' | sort)
           else
             echo "  (skipping download/latest/ — this tag does not own the mutable surface)"
@@ -496,9 +540,9 @@ jobs:
           # fixed destination name, and a corrected manifest that happens to
           # be the same size as the one already up there must not be skipped.
           rclone copyto "$WORK/out/latest.json" "r2:${R2_BUCKET}/download/latest.json" \
-            --header-upload "Cache-Control: public, max-age=60, must-revalidate" \
+            --metadata --metadata-set "cache-control=${CC_MANIFEST}" \
             --checksum \
-            $RCLONE_FLAGS --stats=0
+            $RCLONE_FLAGS $RCLONE_FORCE --stats=0
           echo "Published r2:${R2_BUCKET}/download/latest.json"
 
       - name: Verify the published manifest serves this release
@@ -519,6 +563,14 @@ jobs:
                 echo "OK   spot-checked $spot"
                 cc=$(curl -fsSI --max-time 20 "$url" | grep -i '^cache-control:' | tr -d '\r')
                 echo "     $cc"
+                got=$(grep -oE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9')
+                want=$(grep -oE 'max-age=[0-9]+' <<<"$CC_MANIFEST" | head -1 | tr -dc '0-9')
+                if [[ "$got" != "$want" ]]; then
+                  # The manifest is the one object where a long TTL is a real
+                  # problem: a pinned stale copy tells clients "no update".
+                  echo "::error::manifest Cache-Control max-age=${got:-none}, want $want — the mirror manifest would be cached far longer than intended"
+                  exit 1
+                fi
                 exit 0
               fi
               echo "…retry $attempt  served version '$got', want '$VERSION'"
