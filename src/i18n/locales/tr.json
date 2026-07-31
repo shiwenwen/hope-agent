@@ -3617,6 +3617,8 @@
       "emptyPreview": "Henüz Markdown ayrıntısı yok. İçerik eklemek için Düzenle moduna geçin."
     },
     "createFirstProject": "İlk projenizi oluşturun",
+    "createAgentsFile": "AGENTS.md oluştur",
+    "createAgentsFileHint": "Bu dizinde AGENTS.md yok. Dosyayı oluşturmadan projeyi eklemek için bu seçeneği kapatın.",
     "defaultAgent": "Varsayılan Agent",
     "defaultModel": "Varsayılan model",
     "deleteConfirm": {

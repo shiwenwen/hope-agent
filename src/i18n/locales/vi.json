@@ -3617,6 +3617,8 @@
       "emptyPreview": "Chưa có nội dung chi tiết Markdown. Chuyển sang chế độ Chỉnh sửa để thêm nội dung."
     },
     "createFirstProject": "Tạo dự án đầu tiên",
+    "createAgentsFile": "Tạo AGENTS.md",
+    "createAgentsFileHint": "Thư mục này chưa có AGENTS.md. Tắt tùy chọn này để thêm dự án mà không tạo tệp.",
     "defaultAgent": "Agent mặc định",
     "defaultModel": "Mô hình mặc định",
     "deleteConfirm": {

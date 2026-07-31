@@ -3617,6 +3617,8 @@
       "emptyPreview": "暂无 Markdown 详细内容。切换到编辑模式即可添加。"
     },
     "createFirstProject": "创建第一个项目",
+    "createAgentsFile": "创建 AGENTS.md",
+    "createAgentsFileHint": "此目录中尚无 AGENTS.md。关闭后将只添加项目，不创建该文件。",
     "defaultAgent": "默认助手",
     "defaultModel": "默认模型",
     "deleteConfirm": {

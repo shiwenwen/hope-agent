@@ -3617,6 +3617,8 @@
       "emptyPreview": "Aún no hay detalles en Markdown. Cambia a Editar para añadir contenido."
     },
     "createFirstProject": "Crea tu primer proyecto",
+    "createAgentsFile": "Crear AGENTS.md",
+    "createAgentsFileHint": "Este directorio no contiene AGENTS.md. Desactiva esta opción para añadir el proyecto sin crear el archivo.",
     "defaultAgent": "Agent por defecto",
     "defaultModel": "Modelo por defecto",
     "deleteConfirm": {

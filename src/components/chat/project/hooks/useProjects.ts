@@ -29,7 +29,8 @@ export interface UseProjectsReturn {
   reloadProjects: () => Promise<void>
   createProject: (
     input: CreateProjectInput,
-    instructions: ProjectInstructionsDraft,
+    instructions: ProjectInstructionsDraft | undefined,
+    createInstructionsIfMissing: boolean,
   ) => Promise<Project | null>
   updateProject: (
     id: string,
@@ -126,12 +127,14 @@ export function useProjects(
   const createProject = useCallback(
     async (
       input: CreateProjectInput,
-      instructions: ProjectInstructionsDraft,
+      instructions: ProjectInstructionsDraft | undefined,
+      createInstructionsIfMissing: boolean,
     ): Promise<Project | null> => {
       try {
         const created = await getTransport().call<Project>("create_project_cmd", {
           input,
           instructions,
+          createInstructionsIfMissing,
         })
         await reloadProjects()
         return created
