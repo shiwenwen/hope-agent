@@ -266,6 +266,8 @@ download/
 - **签名原样复制、绝不重算**。理由与端点链的信任模型见 [self-update](architecture/self-update.md#manifest-端点链r2-镜像优先github-兜底)。
 - **rclone 报的 `501 NotImplemented` 是假失败——对象其实已经正确落地**。R2 在 rclone 于 PUT **成功之后**发出的某个调用上返回 501，于是 rclone 把一个已经写好的对象报成 `Failed to copy`。实测确认：报错的那批对象经公开域名 HEAD 全部 200 且 `Content-Length` 与源文件逐字节一致。**所以判断成败要看本 workflow 自己的回抓校验，不要只看 rclone 退出码。** 用 `--checksum` 而非 `--ignore-times`：前者在重试时发现哈希一致就跳过，整轮能自愈；后者每次强制重传、每次重报失败，会把这个噪声变成永久失败（前两次回填就是这么烧完 10 次重试的）。**根因已定位**：501 出在 `--header-upload` 那次事后调用上，改用 `--metadata-set` 后 header 随 PUT 一次写入（见上一条）。修好之前落地的对象缺 header，`--checksum` 因内容一致不会重传，需用 `workflow_dispatch` 的 `force` 开关强制重传一次补上。
 - **rclone 的 stderr 不要用 `tail` 截断**。第一次失败时能定位问题的正是那些被截掉的逐对象错误行，为了日志好看丢掉它们，代价是再跑一整轮。
+- **给 rclone 传参的辅助变量不能用 `RCLONE_` 前缀**。rclone 会把**任何** `RCLONE_<FLAG>` 环境变量当成同名 flag 的值：`RCLONE_FORCE` 变成 `--force`、`RCLONE_VERSION` 变成 `--version`，rclone 在第一次调用就以 bool 解析错误退出。`RCLONE_CONFIG_R2_*` 是文档化的 remote 配置写法，不受影响；其余一律用 `R2_` 前缀（`R2_UPLOAD_FLAGS` / `R2_FORCE_FLAG` / `R2_RCLONE_PIN`）。
+- **rclone 版本要钉住，别用 `apt-get install rclone`**。发版关键路径不该从基础镜像继承工具版本（Ubuntu 24.04 自带 1.60.1）。安装步骤同时断言所需 flag 存在，不支持时在动任何字节之前给一行明确错误。
 - **所有临时目录必须落在 `$RUNNER_TEMP` 下，不要用裸相对路径**。`assets/` 曾经就是裸路径，于是和仓库自带的 `assets/` 目录合并，把 `alpha-logo.png`、`transparency-logo.png` 当作发布产物镜像了上去。任何裸名字都可能和将来某个仓库目录撞车。
 
 存储成本：一版约 1.5 GB，R2 存储 $0.015/GB·月、egress 免费，按每月 3 版算一年累积约 55 GB（每月 < $1）。刻意全部保留而不做清理——现有 R2 发布路径全程只用 `copy` 不用 `sync` 就是为了「绝不删除」，加删除逻辑要单独定义失败语义。
