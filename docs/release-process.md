@@ -259,12 +259,16 @@ download/
 
 **几条容易踩的**：
 
-- **Cache-Control 由 `--metadata-set` 随 PUT 一次写入，不要用 `--header-upload`**。后者是事后单独一次调用，而 R2 恰好对那次调用返回 501——对象本体正确落地、Cache-Control 却没写上，Cloudflare 于是按自己的默认 4 小时服。这个坑的隐蔽之处在于它**只命中一部分对象**（同一次上传里有的对、有的不对），看起来极像 Cloudflare 在覆盖源站头，实际是我们自己漏写。**判据：如果只有部分对象的 TTL 不对，那就是写入问题，不是覆盖问题**——覆盖不可能只覆盖一半。三档值在 workflow 的 `CC_IMMUTABLE` / `CC_LATEST` / `CC_MANIFEST` 单一定义，上传设、校验断言，两边不会漂。
+- **Cache-Control 用 `--metadata-set` 随 PUT 写入，禁用 `--header-upload`**。`--header-upload` 是 PUT 成功之后的另一次调用，R2 对它返回 501，结果是对象字节正确、Cache-Control 缺失。三档值单一定义在 workflow 的 `CC_IMMUTABLE` / `CC_LATEST` / `CC_MANIFEST`，上传设、校验读回。
+- **排查 `max-age=14400`：看指令，不看数字**。别用「是否全体对象都不对」判因，两种成因都只命中一部分对象。
+  - 裸 `max-age=14400`（无 `public`、无 `must-revalidate`）＝ 头没写上。用 `workflow_dispatch` 的 `force` 强制重传补写（`--checksum` 因内容一致不会自己重传）。
+  - `public, max-age=14400, must-revalidate` ＝ 对象正常，是 Cloudflare Browser Cache TTL 抬高了值。只命中 CF 默认缓存的扩展名（`.dmg` `.exe` `.zip` `.tar.gz`；`.deb` `.rpm` `.AppImage` `.sig` `.json` 走 `DYNAMIC` 不中），且只上调不下调（`download/<tag>/` 的 31536000 不受影响）。要让 `latest/` 的 300s 到达浏览器，Caching → Configuration → Browser Cache TTL 改成 **Respect Existing Headers**。
+  - 校验只断言 `immutable` / `must-revalidate` 是否存在，不断言 TTL 数值；TTL 低于设定值才算错误。边缘设置 CI 控制不了，不该卡住发版。
 - **`latest/` 别名不能带 immutable 头**。那些文件名每版复用，长 TTL 会让边缘把旧安装包钉住一年。别名由 [`scripts/mirror-latest-aliases.mjs`](../scripts/mirror-latest-aliases.mjs) 按规则剥版本号派生，但 README 实际链接的 8 个名字在 `REQUIRED_ALIASES` 里**硬登记**——规则失灵时报错，而不是发布一堆 404。两侧对齐由 `check-release-paths.mjs` 在 PR 时守。
 - **`update-linux-repo.yml` 的整桶 pull 必须带 `--include`**。它把 bucket 镜像下来重建索引；本 workflow 每版往同一个 bucket 放约 1.5 GB 且永久保留，不过滤会让那个 pull 无界增长直到超时。新增本 job 独占的顶层路径时，同步加进那个过滤列表。
 - **`notes` 里的 GitHub 链接会被改写**（改写发生在 R2 那份 manifest 上，仓库源文件不动，§1.1(a) 的「链接一律用完整 GitHub URL」规则不变）。`notes` 是应用内「发现新版」弹窗的正文且按 markdown 渲染，中英切换与 CHANGELOG 两条链接对目标用户就是死链。链到 `REQUIRED` 之外的文档时 workflow 会 fail-closed。
 - **签名原样复制、绝不重算**。理由与端点链的信任模型见 [self-update](architecture/self-update.md#manifest-端点链r2-镜像优先github-兜底)。
-- **rclone 报的 `501 NotImplemented` 是假失败——对象其实已经正确落地**。R2 在 rclone 于 PUT **成功之后**发出的某个调用上返回 501，于是 rclone 把一个已经写好的对象报成 `Failed to copy`。实测确认：报错的那批对象经公开域名 HEAD 全部 200 且 `Content-Length` 与源文件逐字节一致。**所以判断成败要看本 workflow 自己的回抓校验，不要只看 rclone 退出码。** 用 `--checksum` 而非 `--ignore-times`：前者在重试时发现哈希一致就跳过，整轮能自愈；后者每次强制重传、每次重报失败，会把这个噪声变成永久失败（前两次回填就是这么烧完 10 次重试的）。**根因已定位**：501 出在 `--header-upload` 那次事后调用上，改用 `--metadata-set` 后 header 随 PUT 一次写入（见上一条）。修好之前落地的对象缺 header，`--checksum` 因内容一致不会重传，需用 `workflow_dispatch` 的 `force` 开关强制重传一次补上。
+- **rclone 退出码不代表成败，以本 workflow 的回抓校验为准**。R2 会在 PUT 成功之后的某次调用上返回 `501 NotImplemented`，rclone 因此把已经写好的对象报成 `Failed to copy`（实测：报错对象经公开域名 HEAD 全部 200、`Content-Length` 与源文件逐字节一致）。用 `--checksum`，禁用 `--ignore-times`——`--checksum` 发现哈希一致就跳过、整轮自愈；`--ignore-times` 每次强制重传因而每次重报失败，会烧完 10 次重试变成永久失败。
 - **rclone 的 stderr 不要用 `tail` 截断**。第一次失败时能定位问题的正是那些被截掉的逐对象错误行，为了日志好看丢掉它们，代价是再跑一整轮。
 - **给 rclone 传参的辅助变量不能用 `RCLONE_` 前缀**。rclone 会把**任何** `RCLONE_<FLAG>` 环境变量当成同名 flag 的值：`RCLONE_FORCE` 变成 `--force`、`RCLONE_VERSION` 变成 `--version`，rclone 在第一次调用就以 bool 解析错误退出。`RCLONE_CONFIG_R2_*` 是文档化的 remote 配置写法，不受影响；其余一律用 `R2_` 前缀（`R2_UPLOAD_FLAGS` / `R2_FORCE_FLAG` / `R2_RCLONE_PIN`）。
 - **rclone 版本要钉住，别用 `apt-get install rclone`**。发版关键路径不该从基础镜像继承工具版本（Ubuntu 24.04 自带 1.60.1）。安装步骤同时断言所需 flag 存在，不支持时在动任何字节之前给一行明确错误。

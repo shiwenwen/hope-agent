@@ -101,15 +101,14 @@ env:
   # and rclone dies on the first invocation with a bool-parse error. Hence the
   # `R2_` prefix on everything below — do NOT rename them back.
   #
-  # Shared robustness flags for every upload. R2 answers `501 NotImplemented`
-  # on the call rclone made to apply `--header-upload` headers AFTER a
-  # successful PUT. Measured consequence: the object landed byte-correct but
-  # WITHOUT its Cache-Control, so Cloudflare served its own 4h default — and
-  # it hit only some objects, which is what made it look like a Cloudflare
-  # override rather than our bug. Headers are now set with --metadata-set,
-  # which applies them as part of the upload instead of a follow-up call, and
-  # the verify step below asserts the served Cache-Control so a silent
-  # regression cannot happen again. Retry headroom is kept as a backstop.
+  # Shared robustness flags for every upload. Set Cache-Control with
+  # --metadata-set, never --header-upload: R2 answers 501 on the separate
+  # post-PUT call --header-upload makes, leaving the object byte-correct but
+  # header-less. Retry headroom is a backstop.
+  #
+  # Two things produce `max-age=14400`: a missing header (bare value, no
+  # directives) and Cloudflare's Browser Cache TTL (keeps our directives,
+  # raises the value). Tell them apart by the directives, not the number.
   #   --retries / --low-level-retries: headroom over the defaults (3 / 10).
   #   --s3-no-check-bucket: skips the bucket-existence probe, one of the calls
   #     R2 is known to answer NotImplemented for. The bucket is created and
@@ -481,13 +480,21 @@ jobs:
             return 1
           }
 
-          # $3 = expected max-age. Asserting it is not belt-and-braces: R2
-          # once answered 501 on the header-application call, so objects landed
-          # byte-correct but WITHOUT Cache-Control and Cloudflare served its own
-          # 4h default. Size checks pass right through that — only reading back
-          # the served header catches it.
+          # $3 = the Cache-Control we uploaded. Read it back: the 501 bug (see
+          # R2_UPLOAD_FLAGS) landed objects byte-correct but header-less, which
+          # a size check cannot see.
+          #
+          # Asserts the marker directive, NOT the max-age value. `immutable` /
+          # `must-revalidate` are ours, mutually exclusive across the tiers,
+          # and absent from Cloudflare's default — so a missing header and a
+          # wrong-tier header both still fail. The value is not ours to assert:
+          # Cloudflare's Browser Cache TTL raises max-age on cached responses
+          # (4h floor, hits `latest/*.dmg|exe|zip|tar.gz` as REVALIDATED,
+          # leaves DYNAMIC ones and the immutable prefix alone). Only a value
+          # BELOW what we uploaded is an error.
           check_one() {
-            local url="$1" local_file="$2" want_cc="$3" expect actual cc got_age want_age
+            local url="$1" local_file="$2" want_cc="$3"
+            local expect actual cc marker got_age want_age cf
             expect=$(stat -c%s "$local_file")
             if ! fetch_headers "$url"; then
               echo "  FAIL (unreachable)  $url"
@@ -505,14 +512,29 @@ jobs:
             fi
             if [[ -n "$want_cc" ]]; then
               cc=$(grep -i '^cache-control:' <<<"$HDR" | tail -1 | tr -d '\r' || true)
-              # Compare max-age only, not the whole string: directive order
-              # and casing are not ours to control, but the TTL is the thing
-              # that actually matters and the thing that silently regressed.
-              got_age=$(grep -oE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9' || true)
-              want_age=$(grep -oE 'max-age=[0-9]+' <<<"$want_cc" | head -1 | tr -dc '0-9' || true)
-              if [[ "$got_age" != "$want_age" ]]; then
-                echo "  FAIL (cache-control max-age=${got_age:-none}, want $want_age)  $url"
+              cf=$(grep -i '^cf-cache-status:' <<<"$HDR" | tail -1 | tr -d '\r' \
+                   | sed 's/^[^:]*: *//' || true)
+              if grep -qi 'immutable' <<<"$want_cc"; then marker=immutable; else marker=must-revalidate; fi
+              if ! grep -qi -- "$marker" <<<"$cc"; then
+                echo "  FAIL (cache-control '${cc:-none}' is missing '$marker' — the header we uploaded did not land)  $url"
                 fail=1; return
+              fi
+              got_age=$(grep -oiE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9' || true)
+              want_age=$(grep -oiE 'max-age=[0-9]+' <<<"$want_cc" | head -1 | tr -dc '0-9' || true)
+              if [[ -z "$got_age" ]]; then
+                echo "  FAIL (cache-control '$cc' has no max-age)  $url"
+                fail=1; return
+              fi
+              if (( got_age < want_age )); then
+                echo "  FAIL (cache-control max-age=$got_age is BELOW the $want_age we uploaded)  $url"
+                fail=1; return
+              fi
+              if (( got_age > want_age )); then
+                echo "  ok  ${actual}B  $url"
+                echo "      note: edge serves max-age=$got_age (we set $want_age, cf-cache-status=${cf:-unknown})."
+                echo "      Cloudflare Browser Cache TTL raises max-age on cached responses; set it to"
+                echo "      'Respect Existing Headers' if the shorter TTL should reach browsers."
+                return
               fi
             fi
             echo "  ok  ${actual}B  $url"
@@ -616,13 +638,26 @@ jobs:
                 echo "OK   spot-checked $spot"
                 cc=$(curl -fsSI --max-time 20 "$url" | grep -i '^cache-control:' | tr -d '\r')
                 echo "     $cc"
-                got=$(grep -oE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9' || true)
-                want=$(grep -oE 'max-age=[0-9]+' <<<"$CC_MANIFEST" | head -1 | tr -dc '0-9' || true)
-                if [[ "$got" != "$want" ]]; then
-                  # The manifest is the one object where a long TTL is a real
-                  # problem: a pinned stale copy tells clients "no update".
-                  echo "::error::manifest Cache-Control max-age=${got:-none}, want $want — the mirror manifest would be cached far longer than intended"
+                # Same reasoning as check_one: `must-revalidate` proves OUR
+                # header landed (Cloudflare's own default carries neither
+                # marker), while the max-age value can be raised by the edge's
+                # Browser Cache TTL and is not ours to assert. Too SHORT is
+                # still an error — the manifest is the one object where a long
+                # TTL genuinely hurts, since a pinned stale copy tells clients
+                # "no update", so a value above what we set is called out loudly
+                # even though it does not fail the release.
+                if ! grep -qi -- 'must-revalidate' <<<"$cc"; then
+                  echo "::error::manifest Cache-Control '${cc:-none}' is missing 'must-revalidate' — the header we uploaded did not land"
                   exit 1
+                fi
+                got=$(grep -oiE 'max-age=[0-9]+' <<<"$cc" | head -1 | tr -dc '0-9' || true)
+                want=$(grep -oiE 'max-age=[0-9]+' <<<"$CC_MANIFEST" | head -1 | tr -dc '0-9' || true)
+                if [[ -z "$got" ]] || (( got < want )); then
+                  echo "::error::manifest Cache-Control max-age=${got:-none} is below the $want we uploaded"
+                  exit 1
+                fi
+                if (( got > want )); then
+                  echo "::warning::manifest is served with max-age=$got (we set $want). Cloudflare Browser Cache TTL raises max-age on cached responses; clients may see this manifest up to $got s stale. Set Browser Cache TTL to 'Respect Existing Headers' to fix."
                 fi
                 exit 0
               fi
