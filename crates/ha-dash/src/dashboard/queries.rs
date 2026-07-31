@@ -4,9 +4,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use sysinfo::{ProcessesToUpdate, System};
 
-use crate::cron::CronDB;
-use crate::logging::LogDB;
-use crate::session::SessionDB;
+use ha_core::logging::LogDB;
 
 use super::cost::resolve_cost;
 use super::filters::{
@@ -15,22 +13,14 @@ use super::filters::{
 use super::types::*;
 
 /// Overview stats: session/message/token counts, tool calls, errors, active agents/cron.
-pub fn query_overview(
-    session_db: &Arc<SessionDB>,
-    _log_db: &Arc<LogDB>,
-    cron_db: &Arc<CronDB>,
-    filter: &DashboardFilter,
-) -> Result<OverviewStats> {
-    let sess_conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_overview(_log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<OverviewStats> {
+    let sess_conn = crate::db::read_conn()?;
 
     // Session count
     let f = build_session_filter(filter, "s", None);
     let sql = format!("SELECT COUNT(*) FROM sessions s {}", f.where_sql);
     let total_sessions: u64 = sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| {
-        crate::sql_u64(r, 0)
+        ha_core::sql_u64(r, 0)
     })?;
 
     // Message count + tool calls + errors. Token/cost totals come from the
@@ -49,9 +39,9 @@ pub fn query_overview(
     let (total_messages, total_tool_calls, total_errors): (u64, u64, u64) =
         sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| {
             Ok((
-                crate::sql_u64(r, 0)?,
-                crate::sql_u64(r, 1)?,
-                crate::sql_u64(r, 2)?,
+                ha_core::sql_u64(r, 0)?,
+                ha_core::sql_u64(r, 1)?,
+                ha_core::sql_u64(r, 2)?,
             ))
         })?;
 
@@ -65,7 +55,7 @@ pub fn query_overview(
     );
     let (total_input_tokens, total_output_tokens): (u64, u64) =
         sess_conn.query_row(&sql, params_ref(&f_usage.params).as_slice(), |r| {
-            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
+            Ok((ha_core::sql_u64(r, 0)?, ha_core::sql_u64(r, 1)?))
         })?;
 
     // Active agents (distinct agent_ids in sessions within filter period)
@@ -75,7 +65,7 @@ pub fn query_overview(
         f.where_sql
     );
     let active_agents: u64 = sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| {
-        crate::sql_u64(r, 0)
+        ha_core::sql_u64(r, 0)
     })?;
 
     // Query average TTFT from the usage ledger.
@@ -97,22 +87,16 @@ pub fn query_overview(
     drop(sess_conn);
 
     // Active cron jobs
-    let cron_conn = cron_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let cron_conn = crate::db::read_cron_conn()?;
     let active_cron_jobs: u64 = cron_conn.query_row(
         "SELECT COUNT(*) FROM cron_jobs WHERE status = 'active'",
         [],
-        |r| crate::sql_u64(r, 0),
+        |r| ha_core::sql_u64(r, 0),
     )?;
     drop(cron_conn);
 
     // Estimate cost by querying per-model token usage
-    let sess_conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let sess_conn = crate::db::read_conn()?;
     let f = build_model_usage_filter(filter, "u");
     // 按 provider_id 一并分组，成本才能按各渠道自己的配置单价结算（见 cost::resolve_cost）。
     // 分组更细只是多几行，求和后总额不变。
@@ -131,8 +115,8 @@ pub fn query_overview(
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, Option<String>>(1)?,
-            crate::sql_u64(r, 2)?,
-            crate::sql_u64(r, 3)?,
+            ha_core::sql_u64(r, 2)?,
+            ha_core::sql_u64(r, 3)?,
         ))
     })?;
     let mut estimated_cost_usd = 0.0;
@@ -192,14 +176,8 @@ fn merge_weighted_avg(
 }
 
 /// Token usage: daily trend and breakdown by model.
-pub fn query_token_usage(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<DashboardTokenData> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_token_usage(filter: &DashboardFilter) -> Result<DashboardTokenData> {
+    let conn = crate::db::read_conn()?;
 
     // Daily trend (with avg TTFT)
     let f = build_model_usage_filter(filter, "u");
@@ -218,8 +196,8 @@ pub fn query_token_usage(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(TokenUsageTrend {
             date: r.get(0)?,
-            input_tokens: crate::sql_u64(r, 1)?,
-            output_tokens: crate::sql_u64(r, 2)?,
+            input_tokens: ha_core::sql_u64(r, 1)?,
+            output_tokens: ha_core::sql_u64(r, 2)?,
             avg_ttft_ms: r.get(3)?,
         })
     })?;
@@ -244,8 +222,8 @@ pub fn query_token_usage(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         let model_id: String = r.get(0)?;
         let provider_name: String = r.get(1)?;
-        let input_tokens: u64 = crate::sql_u64(r, 2)?;
-        let output_tokens: u64 = crate::sql_u64(r, 3)?;
+        let input_tokens: u64 = ha_core::sql_u64(r, 2)?;
+        let output_tokens: u64 = ha_core::sql_u64(r, 3)?;
         let avg_ttft_ms: Option<f64> = r.get(4)?;
         let provider_id: Option<String> = r.get(5)?;
         Ok(TokenByModel {
@@ -290,13 +268,13 @@ pub fn query_token_usage(
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
-            crate::sql_u64(r, 2)?,
-            crate::sql_u64(r, 3)?,
-            crate::sql_u64(r, 4)?,
-            crate::sql_u64(r, 5)?,
-            crate::sql_u64(r, 6)?,
-            crate::sql_u64(r, 7)?,
-            crate::sql_u64(r, 8)?,
+            ha_core::sql_u64(r, 2)?,
+            ha_core::sql_u64(r, 3)?,
+            ha_core::sql_u64(r, 4)?,
+            ha_core::sql_u64(r, 5)?,
+            ha_core::sql_u64(r, 6)?,
+            ha_core::sql_u64(r, 7)?,
+            ha_core::sql_u64(r, 8)?,
             r.get::<_, Option<f64>>(9)?,
             r.get::<_, Option<f64>>(10)?,
             r.get::<_, Option<String>>(11)?,
@@ -390,11 +368,11 @@ pub fn query_token_usage(
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
-            crate::sql_u64(r, 2)?,
-            crate::sql_u64(r, 3)?,
-            crate::sql_u64(r, 4)?,
-            crate::sql_u64(r, 5)?,
-            crate::sql_u64(r, 6)?,
+            ha_core::sql_u64(r, 2)?,
+            ha_core::sql_u64(r, 3)?,
+            ha_core::sql_u64(r, 4)?,
+            ha_core::sql_u64(r, 5)?,
+            ha_core::sql_u64(r, 6)?,
             r.get::<_, Option<f64>>(7)?,
             r.get::<_, Option<f64>>(8)?,
             r.get::<_, Option<String>>(9)?,
@@ -519,14 +497,8 @@ pub fn query_token_usage(
 }
 
 /// Tool usage stats: call counts, errors, durations grouped by tool name.
-pub fn query_tool_usage(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<Vec<ToolUsageStats>> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_tool_usage(filter: &DashboardFilter) -> Result<Vec<ToolUsageStats>> {
+    let conn = crate::db::read_conn()?;
 
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
@@ -547,10 +519,10 @@ pub fn query_tool_usage(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(ToolUsageStats {
             tool_name: r.get(0)?,
-            call_count: crate::sql_u64(r, 1)?,
-            error_count: crate::sql_u64(r, 2)?,
+            call_count: ha_core::sql_u64(r, 1)?,
+            error_count: ha_core::sql_u64(r, 2)?,
             avg_duration_ms: r.get(3)?,
-            total_duration_ms: crate::sql_u64(r, 4)?,
+            total_duration_ms: ha_core::sql_u64(r, 4)?,
         })
     })?;
     rows.collect::<std::result::Result<_, _>>()
@@ -558,14 +530,8 @@ pub fn query_tool_usage(
 }
 
 /// Session stats: daily trend and breakdown by agent.
-pub fn query_sessions(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<DashboardSessionData> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_sessions(filter: &DashboardFilter) -> Result<DashboardSessionData> {
+    let conn = crate::db::read_conn()?;
 
     // Daily trend (join-based for performance)
     let f = build_session_filter(filter, "s", None);
@@ -584,8 +550,8 @@ pub fn query_sessions(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(SessionTrend {
             date: r.get(0)?,
-            session_count: crate::sql_u64(r, 1)?,
-            message_count: crate::sql_u64(r, 2)?,
+            session_count: ha_core::sql_u64(r, 1)?,
+            message_count: ha_core::sql_u64(r, 2)?,
         })
     })?;
     let trend: Vec<SessionTrend> = rows.collect::<std::result::Result<_, _>>()?;
@@ -608,9 +574,9 @@ pub fn query_sessions(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(SessionByAgent {
             agent_id: r.get(0)?,
-            session_count: crate::sql_u64(r, 1)?,
-            message_count: crate::sql_u64(r, 2)?,
-            total_tokens: crate::sql_u64(r, 3)?,
+            session_count: ha_core::sql_u64(r, 1)?,
+            message_count: ha_core::sql_u64(r, 2)?,
+            total_tokens: ha_core::sql_u64(r, 3)?,
         })
     })?;
     let by_agent: Vec<SessionByAgent> = rows.collect::<std::result::Result<_, _>>()?;
@@ -643,8 +609,8 @@ pub fn query_errors(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<Das
     let rows = stmt.query_map(params_ref(&base_filter.params).as_slice(), |r| {
         Ok(ErrorTrend {
             date: r.get(0)?,
-            error_count: crate::sql_u64(r, 1)?,
-            warn_count: crate::sql_u64(r, 2)?,
+            error_count: ha_core::sql_u64(r, 1)?,
+            warn_count: ha_core::sql_u64(r, 2)?,
         })
     })?;
     let trend: Vec<ErrorTrend> = rows.collect::<std::result::Result<_, _>>()?;
@@ -668,7 +634,7 @@ pub fn query_errors(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<Das
     let rows = stmt.query_map(params_ref(&base_filter.params).as_slice(), |r| {
         Ok(ErrorByCategory {
             category: r.get(0)?,
-            count: crate::sql_u64(r, 1)?,
+            count: ha_core::sql_u64(r, 1)?,
         })
     })?;
     let by_category: Vec<ErrorByCategory> = rows.collect::<std::result::Result<_, _>>()?;
@@ -689,7 +655,7 @@ pub fn query_errors(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<Das
     );
     let (total_errors, total_warnings): (u64, u64) =
         conn.query_row(&sql, params_ref(&base_filter.params).as_slice(), |r| {
-            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
+            Ok((ha_core::sql_u64(r, 0)?, ha_core::sql_u64(r, 1)?))
         })?;
 
     Ok(DashboardErrorData {
@@ -701,24 +667,17 @@ pub fn query_errors(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<Das
 }
 
 /// Task stats: cron jobs and subagent runs.
-pub fn query_tasks(
-    session_db: &Arc<SessionDB>,
-    cron_db: &Arc<CronDB>,
-    filter: &DashboardFilter,
-) -> Result<DashboardTaskData> {
+pub fn query_tasks(filter: &DashboardFilter) -> Result<DashboardTaskData> {
     // ── Cron stats ──
-    let cron_conn = cron_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let cron_conn = crate::db::read_cron_conn()?;
 
     let total_jobs: u64 = cron_conn.query_row("SELECT COUNT(*) FROM cron_jobs", [], |r| {
-        crate::sql_u64(r, 0)
+        ha_core::sql_u64(r, 0)
     })?;
     let active_jobs: u64 = cron_conn.query_row(
         "SELECT COUNT(*) FROM cron_jobs WHERE status = 'active'",
         [],
-        |r| crate::sql_u64(r, 0),
+        |r| ha_core::sql_u64(r, 0),
     )?;
 
     // Run logs with optional date filter
@@ -764,9 +723,9 @@ pub fn query_tasks(
     let (total_runs, success_runs, failed_runs, avg_duration_ms): (u64, u64, u64, f64) = cron_conn
         .query_row(&sql, params_ref(&cron_params).as_slice(), |r| {
             Ok((
-                crate::sql_u64(r, 0)?,
-                crate::sql_u64(r, 1)?,
-                crate::sql_u64(r, 2)?,
+                ha_core::sql_u64(r, 0)?,
+                ha_core::sql_u64(r, 1)?,
+                ha_core::sql_u64(r, 2)?,
                 r.get(3)?,
             ))
         })?;
@@ -783,10 +742,7 @@ pub fn query_tasks(
     };
 
     // ── Subagent stats ──
-    let sess_conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let sess_conn = crate::db::read_conn()?;
 
     let mut clauses: Vec<String> = Vec::new();
     let mut sub_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -822,7 +778,7 @@ pub fn query_tasks(
     );
     let (total_runs, completed, failed, killed, total_input_tokens, total_output_tokens, avg_dur): (u64, u64, u64, u64, u64, u64, f64) =
         sess_conn.query_row(&sql, params_ref(&sub_params).as_slice(), |r| {
-            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?, crate::sql_u64(r, 2)?, crate::sql_u64(r, 3)?, crate::sql_u64(r, 4)?, crate::sql_u64(r, 5)?, r.get(6)?))
+            Ok((ha_core::sql_u64(r, 0)?, ha_core::sql_u64(r, 1)?, ha_core::sql_u64(r, 2)?, ha_core::sql_u64(r, 3)?, ha_core::sql_u64(r, 4)?, ha_core::sql_u64(r, 5)?, r.get(6)?))
         })?;
 
     let subagent = SubagentStats {
@@ -912,8 +868,8 @@ pub fn query_system_metrics() -> Result<SystemMetrics> {
 #[cfg(test)]
 mod purpose_breakdown_tests {
     use super::*;
-    use crate::model_usage::ModelUsageEvent;
-    use crate::session::SessionDB;
+    use ha_core::model_usage::ModelUsageEvent;
+    use ha_core::session::SessionDB;
 
     #[test]
     fn operation_domain_splits_on_first_dot() {
@@ -951,6 +907,8 @@ mod purpose_breakdown_tests {
     fn by_operation_and_by_domain_totals_match_by_kind() {
         let path = temp_db_path("purpose-breakdown");
         let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        let _dash_guard = crate::db::lock_dash_db();
+        crate::db::point_at_test_db(&path);
 
         insert_event(&db, "recap.facets", "claude-haiku-4-5", 100, 50);
         insert_event(&db, "recap.sections", "claude-haiku-4-5", 200, 80);
@@ -964,7 +922,7 @@ mod purpose_breakdown_tests {
             .expect("insert event");
 
         let filter = DashboardFilter::default();
-        let data = query_token_usage(&db, &filter).expect("query");
+        let data = query_token_usage(&filter).expect("query");
 
         let by_operation_total: u64 = data
             .by_operation

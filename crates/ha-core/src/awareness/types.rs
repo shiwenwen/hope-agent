@@ -91,3 +91,19 @@ impl RefreshReason {
         }
     }
 }
+
+/// `recap_facets` 里被 awareness 候选行富化用到的**那四个字段**的只读视图。
+///
+/// 刻意不是 `SessionFacet` 本体：facet 的完整结构（满意度 / 摩擦计数 /
+/// 用户指令等十余项）是 recap 报告的领域模型，awareness 只读这四项。让
+/// kernel 认识一个窄视图，比把整张表的 wire 类型拖下来更省，也不会在
+/// ha-dash 演进 facet 结构时反复牵动 kernel。
+#[derive(Debug, Clone, Default)]
+pub struct SessionFacetView {
+    pub brief_summary: String,
+    pub underlying_goal: String,
+    /// `Outcome` 的小写 Debug 名（与迁移前 `format!("{:?}", …).to_lowercase()`
+    /// 逐字相同）——kernel 不认识 `Outcome` 枚举本体。
+    pub outcome: String,
+    pub goal_categories: Vec<String>,
+}

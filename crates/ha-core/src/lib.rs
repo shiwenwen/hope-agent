@@ -36,13 +36,28 @@ pub mod globals;
 pub mod test_support;
 
 // ── Core modules (migrated from src-tauri) ────────────────────────
-pub mod activity;
 pub mod agent;
 pub mod agent_config;
 pub mod agent_lifecycle;
 pub mod agent_loader;
 pub mod ask_user;
 pub mod automation;
+// `activity`（autonomy 活动快照）**刻意留 kernel**：它是 `impl SessionDB` 的
+// 一个扩展方法，唯一 kernel 消费者是 Core 工具 `tools::goal`（无条件注册）——
+// Core 工具在每种运行形态下都必须可用，把数据源放到特征钩子后面会让
+// minimal / ACP **静默**缺数据（调用点是 `.ok().and_then(..).unwrap_or(Null)`，
+// 只会让 activity 字段变 null，不报错）。
+//
+// **代价如实登记，别当零成本**：它 `use crate::loop_control::{LoopSchedule,
+// LoopState}`，而 loop_control 属 ha-cron 组——留 kernel 把原本合法的
+// `ha-dash → ha-cron` 兄弟边变成了 **kernel→特征** 边。这与 ha-vcs 把
+// worktree / project_bootstrap 留 kernel **不同**（那两个没造出反向边），
+// 别拿它当先例。更硬的一点：`list_loop_schedules_for_session(_with_cron)` 是
+// 写在 `loop_control.rs` 里的 `impl SessionDB` 方法（同样是分析器不计的方法
+// 语法边），ha-cron 迁出时随之走人，本文件立刻调不到。**ha-cron 那一刀必须
+// 先解这条**，三选一：`LoopSchedule`/`LoopState` 与两个 impl 下沉 kernel、给
+// activity 加钩子、或届时把 activity 一并迁走。
+pub mod activity;
 pub mod awareness;
 pub mod backup;
 pub mod browser_hooks;
@@ -55,7 +70,6 @@ pub mod context_compact;
 pub mod context_retrieval;
 pub mod crash_flush;
 pub mod cron;
-pub mod dashboard;
 pub mod dev_tools;
 pub mod domain_eval;
 pub mod domain_quality;
@@ -98,7 +112,10 @@ pub mod process_notification;
 pub mod project;
 pub mod project_bootstrap;
 pub mod provider;
-pub mod recap;
+// `dashboard` / `recap` 已随阶段 5 第二刀迁出 ha-dash（特征 crate
+// 在 ha-core 之上，**不能**再导出）。kernel 侧只留 `/recap` 的分发钩子；
+// Learning 埋点发布面在 `learning_events`，成本折算常量在 `provider`。
+pub mod recap_hooks;
 pub mod review;
 pub mod runtime_tasks;
 pub mod sandbox;

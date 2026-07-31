@@ -101,7 +101,7 @@ pub fn reconcile_against(backend: &dyn MemoryBackend, alive: &HashSet<String>) -
 }
 
 /// Spawn the startup orphan-memory reconciler as a one-shot blocking task.
-/// Mirrors [`crate::recap::spawn_facet_retention_loop`]'s pattern so the spawn
+/// Mirrors `ha_dash::recap::spawn_facet_retention_loop`'s pattern so the spawn
 /// site stays in the module that owns the work, not in `app_init`.
 pub fn spawn_startup_reconciler() {
     tokio::task::spawn_blocking(|| {

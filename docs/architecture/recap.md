@@ -14,7 +14,7 @@ Recap 模块基于 `side_query` 对每个会话做 LLM 语义 facet 提取（目
 ## 模块结构
 
 ```
-crates/ha-core/src/recap/
+crates/ha-dash/src/recap/
 ├── mod.rs          # 模块入口，facet retention 生命周期
 ├── types.rs        # 类型定义与 JSON schema
 ├── db.rs           # SQLite 持久化（session_facets, recap_reports）
@@ -24,6 +24,7 @@ crates/ha-core/src/recap/
 ├── report.rs       # 报告生成编排
 ├── renderer.rs     # HTML 导出（inline CSS，零 JS 依赖）
 └── api.rs          # 命令 API（Tauri/HTTP 共享）
+slash.rs        `/recap` 的实际 handler（装配层只留 recap_hooks trampoline）
 ```
 
 ## 数据流
@@ -341,7 +342,13 @@ pub struct RecapConfig {
 
 ### 输出语言（i18n）
 
-输出语言由 [`recap::i18n::effective_recap_locale`](../../crates/ha-core/src/recap/i18n.rs) 解析，优先级 `config.recap.language`（显式）> `AppConfig.language`（界面语言）> 系统 locale（`agent_loader::detect_system_locale`）；空 / `"auto"` 逐级回落，结果经**大小写不敏感**归一化到支持的 12 种语言，不支持则落英文（避免发出自相矛盾的「用英文写」指令）。
+> **kernel 边界（阶段 5 迁出后）**：recap 住在 ha-dash。kernel 侧只留两处——
+> `recap_hooks`（`/recap` 分发 trampoline，未装配即 `Err`）与
+> `awareness::register_session_facet_lookup`（awareness 候选行富化只读 facet
+> 的四个字段，经窄视图 `SessionFacetView` 回传；未装配即 `None`，调用方走既有
+> fallback preview）。两者都由 `ha_dash::wire()` 注册。
+
+输出语言由 [`recap::i18n::effective_recap_locale`](../../crates/ha-dash/src/recap/i18n.rs) 解析，优先级 `config.recap.language`（显式）> `AppConfig.language`（界面语言）> 系统 locale（`agent_loader::detect_system_locale`）；空 / `"auto"` 逐级回落，结果经**大小写不敏感**归一化到支持的 12 种语言，不支持则落英文（避免发出自相矛盾的「用英文写」指令）。
 
 该 locale 一路透传：
 

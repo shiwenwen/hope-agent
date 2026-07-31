@@ -7,9 +7,7 @@
 use anyhow::Result;
 use std::sync::Arc;
 
-use crate::cron::CronDB;
-use crate::logging::LogDB;
-use crate::session::SessionDB;
+use ha_core::logging::LogDB;
 
 use super::cost::resolve_cost;
 use super::filters::{
@@ -47,14 +45,12 @@ fn shift_filter_backward(filter: &DashboardFilter) -> Option<DashboardFilter> {
 
 /// Overview stats with previous-period baseline for delta display.
 pub fn query_overview_with_delta(
-    session_db: &Arc<SessionDB>,
     log_db: &Arc<LogDB>,
-    cron_db: &Arc<CronDB>,
     filter: &DashboardFilter,
 ) -> Result<OverviewStatsWithDelta> {
-    let current = query_overview(session_db, log_db, cron_db, filter)?;
+    let current = query_overview(log_db, filter)?;
     let previous = if let Some(prev_filter) = shift_filter_backward(filter) {
-        query_overview(session_db, log_db, cron_db, &prev_filter).ok()
+        query_overview(log_db, &prev_filter).ok()
     } else {
         None
     };
@@ -62,14 +58,8 @@ pub fn query_overview_with_delta(
 }
 
 /// Daily cost trend derived from the unified model usage ledger + per-model pricing.
-pub fn query_cost_trend(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<DashboardCostTrend> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_cost_trend(filter: &DashboardFilter) -> Result<DashboardCostTrend> {
+    let conn = crate::db::read_conn()?;
 
     let f = build_model_usage_filter(filter, "u");
     let sql = format!(
@@ -89,8 +79,8 @@ pub fn query_cost_trend(
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
-            crate::sql_u64(r, 2)?,
-            crate::sql_u64(r, 3)?,
+            ha_core::sql_u64(r, 2)?,
+            ha_core::sql_u64(r, 3)?,
             r.get::<_, Option<String>>(4)?,
         ))
     })?;
@@ -142,14 +132,8 @@ pub fn query_cost_trend(
 }
 
 /// 7×24 activity heatmap: message counts per (weekday, hour-of-day).
-pub fn query_activity_heatmap(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<DashboardHeatmap> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_activity_heatmap(filter: &DashboardFilter) -> Result<DashboardHeatmap> {
+    let conn = crate::db::read_conn()?;
 
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
@@ -168,7 +152,7 @@ pub fn query_activity_heatmap(
         Ok(HeatmapCell {
             weekday: r.get::<_, i64>(0)? as u8,
             hour: r.get::<_, i64>(1)? as u8,
-            message_count: crate::sql_u64(r, 2)?,
+            message_count: ha_core::sql_u64(r, 2)?,
         })
     })?;
     let cells: Vec<HeatmapCell> = rows.collect::<std::result::Result<_, _>>()?;
@@ -183,14 +167,8 @@ pub fn query_activity_heatmap(
 }
 
 /// Hourly distribution (0..23) of messages and distinct sessions.
-pub fn query_hourly_distribution(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<DashboardHourlyDistribution> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_hourly_distribution(filter: &DashboardFilter) -> Result<DashboardHourlyDistribution> {
+    let conn = crate::db::read_conn()?;
 
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
@@ -208,8 +186,8 @@ pub fn query_hourly_distribution(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok((
             r.get::<_, i64>(0)? as u8,
-            crate::sql_u64(r, 1)?,
-            crate::sql_u64(r, 2)?,
+            ha_core::sql_u64(r, 1)?,
+            ha_core::sql_u64(r, 2)?,
         ))
     })?;
 
@@ -245,15 +223,8 @@ pub fn query_hourly_distribution(
 }
 
 /// Top sessions ranked by total token consumption.
-pub fn query_top_sessions(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-    limit: usize,
-) -> Result<Vec<TopSession>> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_top_sessions(filter: &DashboardFilter, limit: usize) -> Result<Vec<TopSession>> {
+    let conn = crate::db::read_conn()?;
 
     let mut f = build_model_usage_filter(filter, "u");
     // Append the limit as a bound parameter so we avoid string interpolation.
@@ -284,10 +255,10 @@ pub fn query_top_sessions(
         let title: Option<String> = r.get(1)?;
         let agent_id: String = r.get(2)?;
         let model_id: Option<String> = r.get(3)?;
-        let message_count: u64 = crate::sql_u64(r, 4)?;
-        let total_tokens: u64 = crate::sql_u64(r, 5)?;
-        let tokens_in: u64 = crate::sql_u64(r, 6)?;
-        let tokens_out: u64 = crate::sql_u64(r, 7)?;
+        let message_count: u64 = ha_core::sql_u64(r, 4)?;
+        let total_tokens: u64 = ha_core::sql_u64(r, 5)?;
+        let tokens_in: u64 = ha_core::sql_u64(r, 6)?;
+        let tokens_out: u64 = ha_core::sql_u64(r, 7)?;
         let updated_at: String = r.get(8)?;
         // `GROUP BY s.id` 下 model_id / provider_id 都是 bare column，SQLite 取任意一行；
         // 二者若来自不同行则配置查不到，`resolve_cost` 自动回退估算表——退化即现状，安全。
@@ -312,14 +283,8 @@ pub fn query_top_sessions(
 }
 
 /// Per-model efficiency: tokens, cost, speed, and derived ratios.
-pub fn query_model_efficiency(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<Vec<ModelEfficiency>> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_model_efficiency(filter: &DashboardFilter) -> Result<Vec<ModelEfficiency>> {
+    let conn = crate::db::read_conn()?;
 
     let f = build_model_usage_filter(filter, "u");
     let sql = format!(
@@ -340,9 +305,9 @@ pub fn query_model_efficiency(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         let model_id: String = r.get(0)?;
         let provider_name: String = r.get(1)?;
-        let message_count: u64 = crate::sql_u64(r, 2)?;
-        let input_tokens: u64 = crate::sql_u64(r, 3)?;
-        let output_tokens: u64 = crate::sql_u64(r, 4)?;
+        let message_count: u64 = ha_core::sql_u64(r, 2)?;
+        let input_tokens: u64 = ha_core::sql_u64(r, 3)?;
+        let output_tokens: u64 = ha_core::sql_u64(r, 4)?;
         let avg_ttft_ms: Option<f64> = r.get(5)?;
         let provider_id: Option<String> = r.get(6)?;
         let total_tokens = input_tokens + output_tokens;
@@ -383,9 +348,7 @@ pub fn query_model_efficiency(
 /// - cron success rate — 25%
 /// - subagent success rate — 25%
 pub fn query_health_score(
-    session_db: &Arc<SessionDB>,
     log_db: &Arc<LogDB>,
-    cron_db: &Arc<CronDB>,
     filter: &DashboardFilter,
 ) -> Result<HealthBreakdown> {
     // Log error rate (lower is better)
@@ -404,7 +367,7 @@ pub fn query_health_score(
     );
     let (log_errors, log_total): (u64, u64) =
         log_conn.query_row(&sql, params_ref(&base.params).as_slice(), |r| {
-            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
+            Ok((ha_core::sql_u64(r, 0)?, ha_core::sql_u64(r, 1)?))
         })?;
     drop(log_conn);
 
@@ -415,7 +378,7 @@ pub fn query_health_score(
     };
 
     // Tool error rate
-    let tools = query_tool_usage(session_db, filter)?;
+    let tools = query_tool_usage(filter)?;
     let total_tool_calls: u64 = tools.iter().map(|t| t.call_count).sum();
     let total_tool_errors: u64 = tools.iter().map(|t| t.error_count).sum();
     let tool_error_rate_percent = if total_tool_calls > 0 {
@@ -425,10 +388,7 @@ pub fn query_health_score(
     };
 
     // Cron success rate
-    let cron_conn = cron_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let cron_conn = crate::db::read_cron_conn()?;
     let mut clauses: Vec<String> = Vec::new();
     let mut cron_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
     if let Some(ref s) = filter.start_date {
@@ -464,7 +424,7 @@ pub fn query_health_score(
     );
     let (cron_success, cron_failed): (u64, u64) =
         cron_conn.query_row(&sql, params_ref(&cron_params).as_slice(), |r| {
-            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
+            Ok((ha_core::sql_u64(r, 0)?, ha_core::sql_u64(r, 1)?))
         })?;
     drop(cron_conn);
     let cron_decided = cron_success + cron_failed;
@@ -475,10 +435,7 @@ pub fn query_health_score(
     };
 
     // Subagent success rate
-    let sess_conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let sess_conn = crate::db::read_conn()?;
     let mut clauses: Vec<String> = Vec::new();
     let mut sub_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
     if let Some(ref s) = filter.start_date {
@@ -506,7 +463,7 @@ pub fn query_health_score(
     );
     let (sub_total, sub_completed): (u64, u64) =
         sess_conn.query_row(&sql, params_ref(&sub_params).as_slice(), |r| {
-            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
+            Ok((ha_core::sql_u64(r, 0)?, ha_core::sql_u64(r, 1)?))
         })?;
     drop(sess_conn);
     let subagent_success_rate_percent = if sub_total > 0 {
@@ -542,18 +499,13 @@ pub fn query_health_score(
 }
 
 /// One-shot aggregated insights query powering the Insights tab.
-pub fn query_insights(
-    session_db: &Arc<SessionDB>,
-    log_db: &Arc<LogDB>,
-    cron_db: &Arc<CronDB>,
-    filter: &DashboardFilter,
-) -> Result<DashboardInsights> {
-    let health = query_health_score(session_db, log_db, cron_db, filter)?;
-    let cost_trend = query_cost_trend(session_db, filter)?;
-    let heatmap = query_activity_heatmap(session_db, filter)?;
-    let hourly = query_hourly_distribution(session_db, filter)?;
-    let top_sessions = query_top_sessions(session_db, filter, 10)?;
-    let model_efficiency = query_model_efficiency(session_db, filter)?;
+pub fn query_insights(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<DashboardInsights> {
+    let health = query_health_score(log_db, filter)?;
+    let cost_trend = query_cost_trend(filter)?;
+    let heatmap = query_activity_heatmap(filter)?;
+    let hourly = query_hourly_distribution(filter)?;
+    let top_sessions = query_top_sessions(filter, 10)?;
+    let model_efficiency = query_model_efficiency(filter)?;
     Ok(DashboardInsights {
         health,
         cost_trend,

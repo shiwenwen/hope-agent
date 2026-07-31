@@ -35,6 +35,7 @@ fn main() {
     ha_pet::wire();
     ha_media::wire();
     ha_local_llm::wire();
+    ha_dash::wire();
 
     if matches!(
         args.get(1).map(String::as_str),

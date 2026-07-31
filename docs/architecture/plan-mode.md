@@ -405,7 +405,7 @@ Hope 的 Git Checkpoint + 通用任务覆盖是相对 claude-code/opencode 的�
 - 解析端：[`src/components/chat/plan-mention/parsePlanMentions.ts`](../../src/components/chat/plan-mention/parsePlanMentions.ts) 正则 `/@plan:([0-9a-f]{4,16})(?::v(\d+))?/gi`，与现有 file-mention 不冲突（首 token `plan:` 前缀消歧）
 - 展开端：[`expandPlanMentions.ts`](../../src/components/chat/plan-mention/expandPlanMentions.ts) 调 `resolve_plan_mention` → 把 plan 文件作为 `text/markdown` attachment append 到 `attachments[]`，与 `expandMentionsToAttachments` 共用 dedup-by-file_path 路径
 
-**Dashboard Plan stats**：Plan 指标已并入“目标与执行 → Plan 与 Task”，由 [`dashboard/control_plane.rs`](../../crates/ha-core/src/dashboard/control_plane.rs) 按 created cohort 统计完成率、activeNow、状态/Agent/项目/趋势与精确 P50。旧 [`dashboard/plan_stats.rs`](../../crates/ha-core/src/dashboard/plan_stats.rs) 命令和 API 保留兼容。独立 Plans View 继续是只读历史页，负责正文、版本、`@plan` 引用与跳回会话，不重复承担统计。
+**Dashboard Plan stats**：Plan 指标已并入“目标与执行 → Plan 与 Task”，由 [`dashboard/control_plane.rs`](../../crates/ha-dash/src/dashboard/control_plane.rs) 按 created cohort 统计完成率、activeNow、状态/Agent/项目/趋势与精确 P50。旧 [`dashboard/plan_stats.rs`](../../crates/ha-dash/src/dashboard/plan_stats.rs) 命令和 API 保留兼容。独立 Plans View 继续是只读历史页，负责正文、版本、`@plan` 引用与跳回会话，不重复承担统计。
 
 ## 变更历史
 

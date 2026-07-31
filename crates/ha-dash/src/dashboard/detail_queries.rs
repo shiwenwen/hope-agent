@@ -3,21 +3,14 @@
 use anyhow::Result;
 use std::sync::Arc;
 
-use crate::logging::LogDB;
-use crate::session::SessionDB;
+use ha_core::logging::LogDB;
 
 use super::filters::{build_log_filter, build_session_filter, params_ref};
 use super::types::*;
 
 /// List sessions with message count and token totals.
-pub fn query_session_list(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<Vec<DashboardSessionItem>> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_session_list(filter: &DashboardFilter) -> Result<Vec<DashboardSessionItem>> {
+    let conn = crate::db::read_conn()?;
 
     let f = build_session_filter(filter, "s", None);
     let sql = format!(
@@ -38,8 +31,8 @@ pub fn query_session_list(
             title: r.get(1)?,
             agent_id: r.get(2)?,
             model_id: r.get(3)?,
-            message_count: crate::sql_u64(r, 4)?,
-            total_tokens: crate::sql_u64(r, 5)?,
+            message_count: ha_core::sql_u64(r, 4)?,
+            total_tokens: ha_core::sql_u64(r, 5)?,
             created_at: r.get(6)?,
             updated_at: r.get(7)?,
         })
@@ -49,14 +42,8 @@ pub fn query_session_list(
 }
 
 /// List recent messages across all sessions.
-pub fn query_message_list(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<Vec<DashboardMessageItem>> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_message_list(filter: &DashboardFilter) -> Result<Vec<DashboardMessageItem>> {
+    let conn = crate::db::read_conn()?;
 
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
@@ -80,8 +67,8 @@ pub fn query_message_list(
             session_title: r.get(2)?,
             role: r.get(3)?,
             content_preview: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            tokens_in: crate::sql_u64(r, 5)?,
-            tokens_out: crate::sql_u64(r, 6)?,
+            tokens_in: ha_core::sql_u64(r, 5)?,
+            tokens_out: ha_core::sql_u64(r, 6)?,
             timestamp: r.get(7)?,
         })
     })?;
@@ -90,14 +77,8 @@ pub fn query_message_list(
 }
 
 /// List recent tool calls across all sessions.
-pub fn query_tool_call_list(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<Vec<DashboardToolCallItem>> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_tool_call_list(filter: &DashboardFilter) -> Result<Vec<DashboardToolCallItem>> {
+    let conn = crate::db::read_conn()?;
 
     let f = build_session_filter(filter, "s", Some("m"));
     let extra = if f.where_sql.is_empty() {
@@ -174,14 +155,8 @@ pub fn query_error_list(
 }
 
 /// List agents with session counts and token totals.
-pub fn query_agent_list(
-    session_db: &Arc<SessionDB>,
-    filter: &DashboardFilter,
-) -> Result<Vec<DashboardAgentItem>> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_agent_list(filter: &DashboardFilter) -> Result<Vec<DashboardAgentItem>> {
+    let conn = crate::db::read_conn()?;
 
     let f = build_session_filter(filter, "s", None);
     let sql = format!(
@@ -201,9 +176,9 @@ pub fn query_agent_list(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(DashboardAgentItem {
             agent_id: r.get(0)?,
-            session_count: crate::sql_u64(r, 1)?,
-            message_count: crate::sql_u64(r, 2)?,
-            total_tokens: crate::sql_u64(r, 3)?,
+            session_count: ha_core::sql_u64(r, 1)?,
+            message_count: ha_core::sql_u64(r, 2)?,
+            total_tokens: ha_core::sql_u64(r, 3)?,
             last_active_at: r.get(4)?,
         })
     })?;

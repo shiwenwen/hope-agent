@@ -1,6 +1,6 @@
 // ── Plan Statistics Queries ─────────────────────────────────────
 //
-// Aggregates the plan index (see `crate::plan::list_all_plans`) into the
+// Aggregates the plan index (see `ha_core::plan::list_all_plans`) into the
 // dashboard widgets: state distribution, completion rate, per-agent and
 // per-project breakdowns, 30-day creation trend, and average execution
 // duration. Pure in-memory aggregation — no extra SQL — since plan totals
@@ -10,7 +10,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
-use crate::plan::{list_all_plans, PlanIndexFilter, PlanModeState};
+use ha_core::plan::{list_all_plans, PlanIndexFilter, PlanModeState};
 
 use super::types::*;
 

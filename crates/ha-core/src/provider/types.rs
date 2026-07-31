@@ -27,6 +27,17 @@ pub struct AvailableModel {
     pub thinking_style: ThinkingStyle,
 }
 
+/// 人民币兑美元换算率。粗粒度常量、只服务成本展示（非交易汇率），随大幅波动手动
+/// 调（2026-07 现汇约 6.8–7.2 区间，取整数中值）。单价按厂商价目页原文录入
+/// （[`ProviderConfig.currency`] 标注币种），换算集中在这一处——大盘成本聚合、
+/// 估算表里人民币计价厂商的臂、self_diagnosis 与 eval_context 的折算都写成
+/// `¥价 / CNY_PER_USD`，全部路径口径一致。
+///
+/// **住在 kernel 而不是 ha-dash**：三个消费者里有两个（`self_diagnosis` /
+/// `eval_context`）是 kernel 模块，且都与 [`Currency`] 配对使用——常量跟着
+/// `Currency` 走才不会让 kernel 反向依赖大盘。
+pub const CNY_PER_USD: f64 = 7.0;
+
 #[cfg(test)]
 mod tests {
     use super::{ApiType, AuthProfile, ModelConfig, ProviderConfig, ThinkingStyle};

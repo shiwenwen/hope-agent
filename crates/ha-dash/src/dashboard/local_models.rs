@@ -8,10 +8,8 @@
 
 use anyhow::Result;
 use rusqlite::types::ToSql;
-use std::sync::Arc;
 
-use crate::provider::{known_local_backend_matches, known_local_backends, ProviderConfig};
-use crate::session::SessionDB;
+use ha_core::provider::{known_local_backend_matches, known_local_backends, ProviderConfig};
 
 use super::filters::{build_session_filter, params_ref, FilterClause};
 use super::types::*;
@@ -36,7 +34,7 @@ pub fn local_provider_names_from(providers: &[ProviderConfig]) -> Vec<String> {
 /// snapshot. Use this from Tauri / HTTP entry points; the test-friendly form
 /// above lets unit tests bypass the global config singleton.
 pub fn local_provider_names() -> Vec<String> {
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     local_provider_names_from(&cfg.providers)
 }
 
@@ -45,7 +43,6 @@ pub fn local_provider_names() -> Vec<String> {
 /// `local_provider_names = []` so the UI can render an "configure a local
 /// backend first" empty state without spurious queries.
 pub fn query_local_model_usage(
-    session_db: &Arc<SessionDB>,
     filter: &DashboardFilter,
     local_provider_names: &[String],
 ) -> Result<LocalModelUsage> {
@@ -61,10 +58,7 @@ pub fn query_local_model_usage(
         });
     }
 
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = crate::db::read_conn()?;
 
     let in_placeholders = vec!["?"; local_provider_names.len()].join(", ");
     let in_clause = format!("s.provider_name IN ({in_placeholders})");
@@ -87,8 +81,8 @@ pub fn query_local_model_usage(
     let rows = stmt.query_map(params_slice.as_slice(), |r| {
         Ok(TokenUsageTrend {
             date: r.get(0)?,
-            input_tokens: crate::sql_u64(r, 1)?,
-            output_tokens: crate::sql_u64(r, 2)?,
+            input_tokens: ha_core::sql_u64(r, 1)?,
+            output_tokens: ha_core::sql_u64(r, 2)?,
             avg_ttft_ms: r.get(3)?,
         })
     })?;
@@ -115,11 +109,11 @@ pub fn query_local_model_usage(
         Ok(LocalModelUsageRow {
             model_id: r.get(0)?,
             provider_name: r.get(1)?,
-            call_count: crate::sql_u64(r, 2)?,
-            input_tokens: crate::sql_u64(r, 3)?,
-            output_tokens: crate::sql_u64(r, 4)?,
+            call_count: ha_core::sql_u64(r, 2)?,
+            input_tokens: ha_core::sql_u64(r, 3)?,
+            output_tokens: ha_core::sql_u64(r, 4)?,
             avg_ttft_ms: r.get(5)?,
-            error_count: crate::sql_u64(r, 6)?,
+            error_count: ha_core::sql_u64(r, 6)?,
         })
     })?;
     let by_model: Vec<LocalModelUsageRow> = rows.collect::<std::result::Result<_, _>>()?;
@@ -138,9 +132,9 @@ pub fn query_local_model_usage(
     let (total_calls, total_input_tokens, total_output_tokens, avg_ttft_ms) =
         conn.query_row(&totals_sql, params_slice.as_slice(), |r| {
             Ok((
-                crate::sql_u64(r, 0)?,
-                crate::sql_u64(r, 1)?,
-                crate::sql_u64(r, 2)?,
+                ha_core::sql_u64(r, 0)?,
+                ha_core::sql_u64(r, 1)?,
+                ha_core::sql_u64(r, 2)?,
                 r.get::<_, Option<f64>>(3)?,
             ))
         })?;
@@ -182,10 +176,11 @@ fn local_where_clause(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{ApiType, ProviderConfig};
-    use crate::session::SessionDB;
     use chrono::Utc;
+    use ha_core::provider::{ApiType, ProviderConfig};
+    use ha_core::session::SessionDB;
     use rusqlite::params;
+    use std::sync::Arc;
 
     fn make_provider(name: &str, base_url: &str, api: ApiType) -> ProviderConfig {
         ProviderConfig::new(name.into(), api, base_url.into(), String::new())
@@ -236,12 +231,12 @@ mod tests {
     }
 
     fn insert_session(
-        db: &SessionDB,
+        path: &std::path::Path,
         id: &str,
         provider_name: Option<&str>,
         model_id: Option<&str>,
     ) {
-        let conn = db.conn.lock().expect("lock");
+        let conn = rusqlite::Connection::open(path).expect("open fixture db");
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, created_at, updated_at, is_cron, parent_session_id, incognito, title_source)
@@ -252,7 +247,7 @@ mod tests {
     }
 
     fn insert_message(
-        db: &SessionDB,
+        path: &std::path::Path,
         session_id: &str,
         role: &str,
         tokens_in: Option<u64>,
@@ -260,7 +255,7 @@ mod tests {
         ttft_ms: Option<u64>,
         is_error: bool,
     ) {
-        let conn = db.conn.lock().expect("lock");
+        let conn = rusqlite::Connection::open(path).expect("open fixture db");
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO messages (session_id, role, content, timestamp, tokens_in, tokens_out, ttft_ms, is_error)
@@ -281,9 +276,13 @@ mod tests {
     #[test]
     fn empty_local_names_short_circuits_to_zeros() {
         let path = temp_db_path("local-models-empty");
-        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        // 建库只为落 schema——数据由下面的 fixture 连接写入；`_db` 须持活，
+        // 否则库文件随 Drop 关闭。
+        let _db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        let _dash_guard = crate::db::lock_dash_db();
+        crate::db::point_at_test_db(&path);
         let filter = DashboardFilter::default();
-        let usage = query_local_model_usage(&db, &filter, &[]).expect("query");
+        let usage = query_local_model_usage(&filter, &[]).expect("query");
         assert_eq!(usage.local_provider_names.len(), 0);
         assert_eq!(usage.total_calls, 0);
         assert!(usage.trend.is_empty());
@@ -293,13 +292,17 @@ mod tests {
     #[test]
     fn aggregates_only_local_provider_sessions() {
         let path = temp_db_path("local-models-aggregate");
-        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        // 建库只为落 schema——数据由下面的 fixture 连接写入；`_db` 须持活，
+        // 否则库文件随 Drop 关闭。
+        let _db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        let _dash_guard = crate::db::lock_dash_db();
+        crate::db::point_at_test_db(&path);
 
         // Local provider sessions
-        insert_session(&db, "s-local-1", Some("Ollama (local)"), Some("qwen3:8b"));
-        insert_message(&db, "s-local-1", "user", Some(0), Some(0), None, false);
+        insert_session(&path, "s-local-1", Some("Ollama (local)"), Some("qwen3:8b"));
+        insert_message(&path, "s-local-1", "user", Some(0), Some(0), None, false);
         insert_message(
-            &db,
+            &path,
             "s-local-1",
             "assistant",
             Some(100),
@@ -308,7 +311,7 @@ mod tests {
             false,
         );
         insert_message(
-            &db,
+            &path,
             "s-local-1",
             "assistant",
             Some(80),
@@ -317,9 +320,9 @@ mod tests {
             true,
         );
 
-        insert_session(&db, "s-local-2", Some("LM Studio"), Some("gemma4:e4b"));
+        insert_session(&path, "s-local-2", Some("LM Studio"), Some("gemma4:e4b"));
         insert_message(
-            &db,
+            &path,
             "s-local-2",
             "assistant",
             Some(200),
@@ -329,9 +332,14 @@ mod tests {
         );
 
         // Non-local session that should NOT show up
-        insert_session(&db, "s-remote", Some("Anthropic"), Some("claude-opus-4-7"));
+        insert_session(
+            &path,
+            "s-remote",
+            Some("Anthropic"),
+            Some("claude-opus-4-7"),
+        );
         insert_message(
-            &db,
+            &path,
             "s-remote",
             "assistant",
             Some(1_000),
@@ -341,8 +349,7 @@ mod tests {
         );
 
         let names = vec!["Ollama (local)".to_string(), "LM Studio".to_string()];
-        let usage =
-            query_local_model_usage(&db, &DashboardFilter::default(), &names).expect("query");
+        let usage = query_local_model_usage(&DashboardFilter::default(), &names).expect("query");
 
         assert_eq!(usage.local_provider_names, names);
         assert_eq!(usage.total_calls, 3, "3 assistant rows from local sessions");
@@ -367,12 +374,16 @@ mod tests {
     #[test]
     fn excludes_incognito_cron_and_subagent_sessions() {
         let path = temp_db_path("local-models-excludes");
-        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        // 建库只为落 schema——数据由下面的 fixture 连接写入；`_db` 须持活，
+        // 否则库文件随 Drop 关闭。
+        let _db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        let _dash_guard = crate::db::lock_dash_db();
+        crate::db::point_at_test_db(&path);
 
         // A normal local session we expect to count
-        insert_session(&db, "s-ok", Some("Ollama (local)"), Some("qwen3:8b"));
+        insert_session(&path, "s-ok", Some("Ollama (local)"), Some("qwen3:8b"));
         insert_message(
-            &db,
+            &path,
             "s-ok",
             "assistant",
             Some(100),
@@ -383,7 +394,7 @@ mod tests {
 
         // is_cron = 1 — excluded
         {
-            let conn = db.conn.lock().expect("lock");
+            let conn = rusqlite::Connection::open(&path).expect("open fixture db");
             let now = Utc::now().to_rfc3339();
             conn.execute(
                 "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, created_at, updated_at, is_cron, parent_session_id, incognito, title_source)
@@ -401,7 +412,7 @@ mod tests {
 
         // parent_session_id set — subagent, excluded
         {
-            let conn = db.conn.lock().expect("lock");
+            let conn = rusqlite::Connection::open(&path).expect("open fixture db");
             let now = Utc::now().to_rfc3339();
             conn.execute(
                 "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, created_at, updated_at, is_cron, parent_session_id, incognito, title_source)
@@ -419,7 +430,7 @@ mod tests {
 
         // incognito = 1 — excluded
         {
-            let conn = db.conn.lock().expect("lock");
+            let conn = rusqlite::Connection::open(&path).expect("open fixture db");
             let now = Utc::now().to_rfc3339();
             conn.execute(
                 "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, created_at, updated_at, is_cron, parent_session_id, incognito, title_source)
@@ -436,8 +447,7 @@ mod tests {
         }
 
         let names = vec!["Ollama (local)".to_string()];
-        let usage =
-            query_local_model_usage(&db, &DashboardFilter::default(), &names).expect("query");
+        let usage = query_local_model_usage(&DashboardFilter::default(), &names).expect("query");
 
         assert_eq!(usage.total_calls, 1);
         assert_eq!(usage.total_input_tokens, 100);

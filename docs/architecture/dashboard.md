@@ -390,7 +390,7 @@ Tauri `dashboard_control_plane` 与 HTTP `POST /api/dashboard/control-plane` 接
 | `byAgent[]` | groupBy `agent_id`，top 10，按总数降序 | 同时给出 `completed` 子计数供完成率对比 |
 | `byProject[]` | groupBy `project_id`（含 `null` 桶），top 10 | "无项目"桶用 `projectId: null` 标识 |
 | `creationTrend[]` | 文件 ctime / mtime 按日聚合，最近 30 天 | 缺失日期填 0，保证 LineChart 连续 |
-| `avgExecutionDurationSecs` | `(updated_at - executing_started_at)` 均值 | 仅对 `state = completed` 且 `executing_started_at` 非空 的样本计算；剔除 `>= 7 天` outlier，[`MAX_EXECUTION_DURATION_SECS`](../../crates/ha-core/src/dashboard/plan_stats.rs) |
+| `avgExecutionDurationSecs` | `(updated_at - executing_started_at)` 均值 | 仅对 `state = completed` 且 `executing_started_at` 非空 的样本计算；剔除 `>= 7 天` outlier，[`MAX_EXECUTION_DURATION_SECS`](../../crates/ha-dash/src/dashboard/plan_stats.rs) |
 | `sampledDurationCount` | 上一指标贡献的样本数 | 让 UI 能展示"n = 12"避免误以为是稳定均值 |
 
 **性能**：纯内存聚合，复用 `list_all_plans` 的单次扫盘。预期 < 5000 plan 时 < 100ms。如果未来超过该量级，再引入 `plans` 事件表。
@@ -419,7 +419,7 @@ flowchart TD
 
 匹配规则使用 `model_id.contains()` 子串匹配，按优先级从上到下首次命中。
 
-> 下表为**示例节选**，与代码存在滞后；权威定价以 [`cost.rs`](../../crates/ha-core/src/dashboard/cost.rs) 内联表及其单测为准。
+> 下表为**示例节选**，与代码存在滞后；权威定价以 [`cost.rs`](../../crates/ha-dash/src/dashboard/cost.rs) 内联表及其单测为准。
 
 | 厂商 | 模型 | Input ($/1M) | Output ($/1M) |
 |------|------|-------------|---------------|
@@ -551,18 +551,31 @@ sequenceDiagram
 
 ## 关键源文件
 
+> **取数方式（阶段 5 迁出后）**：大盘住在特征 crate **ha-dash**，不再借 kernel
+> 的 `SessionDB` 连接——它用 `SQLITE_OPEN_READ_ONLY` 自开 sessions.db 与 cron.db
+> 两条只读连接（[`db.rs`](../../crates/ha-dash/src/db.rs)）。kernel 的
+> `with_conn_internal` 是 `pub(crate)`、刻意不对特征 crate 暴露，而把七十多条
+> 只读聚合逐一包成 kernel 类型化方法等于把 7k 行 SQL 搬回 kernel。只读句柄
+> **物理上写不了**，比暴露可写连接更贴合「大盘只读」红线。sessions.db 是 WAL，
+> 读不被写者阻塞、看到最近一次提交的快照——大盘本就是最终一致的报表视图。
+> 代价：连接是进程级全局、指向真实库路径，故 fixture 测试必须经
+> `db::lock_dash_db()` + `point_at_test_db()` 注入并串行。
+
+
 | 文件 | 职责 |
 |------|------|
-| `crates/ha-core/src/dashboard/mod.rs` | 模块入口，re-export 公开 API |
-| `crates/ha-core/src/dashboard/types.rs` | 20 个数据结构（Filter + Stats + Detail Items + SystemMetrics） |
-| `crates/ha-core/src/dashboard/filters.rs` | build_session_filter / build_log_filter 筛选器构建 |
-| `crates/ha-core/src/dashboard/queries.rs` | 7 个聚合查询（overview / token / tool / session / error / task / system） |
-| `crates/ha-core/src/dashboard/detail_queries.rs` | 5 个详情列表查询（session / message / tool_call / error / agent） |
-| `crates/ha-core/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
-| `crates/ha-core/src/dashboard/insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
-| `crates/ha-core/src/dashboard/learning.rs` | Learning Tracker 4 个只读聚合查询（**消费面**；发布面已下沉，原路径 `dashboard::{emit_learning_event, EVT_*}` 保留再导出） |
+| `crates/ha-dash/src/lib.rs` | crate 入口与 `wire()`（facet 查询钩子 / `/recap` 分发钩子 / retention startup task） |
+| `crates/ha-dash/src/db.rs` | **只读**连接对（sessions.db + cron.db，`SQLITE_OPEN_READ_ONLY` + 5s `busy_timeout`）与测试注入口 |
+| `crates/ha-dash/src/dashboard/mod.rs` | 模块入口，re-export 公开 API |
+| `crates/ha-dash/src/dashboard/types.rs` | 20 个数据结构（Filter + Stats + Detail Items + SystemMetrics） |
+| `crates/ha-dash/src/dashboard/filters.rs` | build_session_filter / build_log_filter 筛选器构建 |
+| `crates/ha-dash/src/dashboard/queries.rs` | 7 个聚合查询（overview / token / tool / session / error / task / system） |
+| `crates/ha-dash/src/dashboard/detail_queries.rs` | 5 个详情列表查询（session / message / tool_call / error / agent） |
+| `crates/ha-dash/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
+| `crates/ha-dash/src/dashboard/insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
+| `crates/ha-dash/src/dashboard/learning.rs` | Learning Tracker 4 个只读聚合查询（**消费面**；发布面已下沉，原路径 `dashboard::{emit_learning_event, EVT_*}` 保留再导出） |
 | `crates/ha-core/src/learning_events.rs` | **发布面**：9 个事件常量（`EVT_SKILL_*` / `EVT_RECALL_*` / `EVT_MCP_*`）+ `emit` 写 `session.db.learning_events`。生产者遍布 kernel / skills / knowledge / ha-mcp 四层，故通道在 kernel、dashboard 只订阅 |
-| `crates/ha-core/src/dashboard/coding_improvement.rs` | Coding Improvement 全局 / 项目级只读学习聚合 |
-| `crates/ha-core/src/dashboard/control_plane.rs` | Goal / Workflow / Loop / Task / Plan 统一推进指标与 attention 聚合 |
+| `crates/ha-dash/src/dashboard/coding_improvement.rs` | Coding Improvement 全局 / 项目级只读学习聚合 |
+| `crates/ha-dash/src/dashboard/control_plane.rs` | Goal / Workflow / Loop / Task / Plan 统一推进指标与 attention 聚合 |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |
 | `src/components/dashboard/` | - | 前端 recharts 图表组件 |

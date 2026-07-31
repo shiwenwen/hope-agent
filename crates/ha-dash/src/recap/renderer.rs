@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use super::types::{FacetSummary, QuantitativeStats, RecapReport};
-use crate::util::html_escape as escape;
+use ha_core::util::html_escape as escape;
 
 const STYLE: &str = r#"
 :root {

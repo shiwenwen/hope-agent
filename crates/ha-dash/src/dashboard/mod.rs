@@ -8,7 +8,10 @@
 mod coding_improvement;
 mod control_plane;
 mod cost;
-pub(crate) use cost::CNY_PER_USD;
+// `CNY_PER_USD` 随 `provider::Currency` 归位 kernel（kernel 的 self_diagnosis /
+// eval_context 也用它折算）。**不在这里再导出**：迁移前它是 `pub(crate)`，
+// 没有 crate 外消费者，`cost.rs` 直接 `use ha_core::provider::CNY_PER_USD`
+// 即可——顺手改成 `pub` 只会平白多一块公共面。
 mod detail_queries;
 mod filters;
 mod insights;

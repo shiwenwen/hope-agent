@@ -32,7 +32,6 @@ pub use ha_core::chat_engine;
 pub use ha_core::context_compact;
 pub use ha_core::crash_journal;
 pub use ha_core::cron;
-pub use ha_core::dashboard;
 pub use ha_core::dev_tools;
 pub use ha_core::failover;
 pub use ha_core::file_extract;
@@ -61,6 +60,7 @@ pub use ha_core::url_preview;
 pub use ha_core::user_config;
 #[cfg(target_os = "macos")]
 pub use ha_core::weather_location_macos;
+pub use ha_dash::dashboard;
 pub use ha_design::artifacts;
 pub use ha_design::canvas_db;
 pub use ha_local_llm::local_embedding;
@@ -103,6 +103,7 @@ pub fn run() {
     ha_pet::wire();
     ha_media::wire();
     ha_local_llm::wire();
+    ha_dash::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when

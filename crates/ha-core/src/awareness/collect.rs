@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 
 use super::config::AwarenessConfig;
 use super::types::{ActivityState, AwarenessEntry, AwarenessSnapshot, SessionKind};
-use crate::recap::types::SessionFacet;
 use crate::session::{SessionDB, SessionMeta};
 
 /// Collect candidate entries for the current session. Never triggers LLM calls.
@@ -49,15 +48,6 @@ pub fn collect_entries(
     let active_ids: HashSet<String> = super::registry::active_since(active_cutoff)
         .into_iter()
         .collect();
-
-    // Lazily-cached RecapDb connection. If the first open failed (e.g. file
-    // lock), retry on subsequent calls so we don't permanently degrade.
-    static RECAP_DB: Lazy<Mutex<Option<crate::recap::db::RecapDb>>> =
-        Lazy::new(|| Mutex::new(crate::recap::db::RecapDb::open_default().ok()));
-    let mut recap_lock = RECAP_DB.lock().unwrap_or_else(|e| e.into_inner());
-    if recap_lock.is_none() {
-        *recap_lock = crate::recap::db::RecapDb::open_default().ok();
-    }
 
     // Build candidate entries.
     let mut entries: Vec<AwarenessEntry> = Vec::new();
@@ -113,10 +103,10 @@ pub fn collect_entries(
             ActivityState::Older
         };
 
-        // Facet enrichment.
-        let facet: Option<SessionFacet> = recap_lock
-            .as_ref()
-            .and_then(|r| r.get_latest_facet(&meta.id).ok().flatten());
+        // Facet enrichment. recap 已随 ha-dash 迁出，经 kernel 钩子回查；
+        // 未装配（或该会话无 facet）返回 None，走下面的 fallback preview——
+        // 与迁移前 RecapDb 打不开时的行为相同。
+        let facet = super::session_facet_view(&meta.id);
 
         // Fallback preview if no facet.
         let fallback_preview = if facet.is_none() {
@@ -137,9 +127,8 @@ pub fn collect_entries(
 
         let brief_summary = facet.as_ref().map(|f| f.brief_summary.clone());
         let underlying_goal = facet.as_ref().map(|f| f.underlying_goal.clone());
-        let outcome = facet
-            .as_ref()
-            .map(|f| format!("{:?}", f.outcome).to_lowercase());
+        // 视图里的 outcome 已是小写 Debug 名（ha-dash 侧按迁移前同一表达式生成）。
+        let outcome = facet.as_ref().map(|f| f.outcome.clone());
         let goal_categories = facet
             .as_ref()
             .map(|f| f.goal_categories.clone())

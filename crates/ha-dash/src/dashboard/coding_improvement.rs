@@ -6,16 +6,14 @@
 //! improvement proposals.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use rusqlite::params_from_iter;
 use serde::{Deserialize, Serialize};
 
 use super::types::DashboardFilter;
-use crate::coding_improvement::CodingRetroRecommendation;
-use crate::session::SessionDB;
-use crate::util::now_rfc3339;
+use ha_core::coding_improvement::CodingRetroRecommendation;
+use ha_core::util::now_rfc3339;
 
 const MAX_LIMIT: usize = 50;
 
@@ -298,12 +296,11 @@ struct DomainAccumulator {
 }
 
 pub fn query_coding_improvement_dashboard(
-    db: &Arc<SessionDB>,
     filter: &DashboardFilter,
     limit: usize,
 ) -> Result<CodingImprovementDashboard> {
     let limit = limit.clamp(1, MAX_LIMIT);
-    let conn = db.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+    let conn = crate::db::read_conn()?;
 
     let overview = query_overview(&conn, filter)?;
     let timeline = query_timeline(&conn, filter)?;
@@ -1925,18 +1922,27 @@ fn domain_quality_blocker_label(check_type: &str, status: &str) -> &'static str 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_loader::DEFAULT_AGENT_ID;
+    use ha_core::agent_loader::DEFAULT_AGENT_ID;
+    use ha_core::session::SessionDB;
     use rusqlite::params;
     use serde_json::json;
+    use std::sync::Arc;
 
-    fn test_db() -> (tempfile::TempDir, Arc<SessionDB>) {
+    /// 同 control_plane 的同名助手：建 fixture 库 + 指向全局只读连接，
+    /// 返回的 guard 必须由测试持住。
+    fn test_db() -> (
+        tempfile::TempDir,
+        Arc<SessionDB>,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
             SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
                 .expect("session db"),
         );
         {
-            let conn = db.conn.lock().expect("lock");
+            let conn = rusqlite::Connection::open(dir.path().join("sessions.db"))
+                .expect("open fixture db");
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS projects (
                     id TEXT PRIMARY KEY,
@@ -1946,12 +1952,14 @@ mod tests {
             )
             .expect("projects table");
         }
-        (dir, db)
+        let guard = crate::db::lock_dash_db();
+        crate::db::point_at_test_db(&dir.path().join("sessions.db"));
+        (dir, db, guard)
     }
 
     #[test]
     fn dashboard_rolls_up_project_learning_signals() {
-        let (_dir, db) = test_db();
+        let (dir, db, _dash_guard) = test_db();
         let now = now_rfc3339();
         let project_id = "proj-dashboard";
         let session = db
@@ -1959,7 +1967,8 @@ mod tests {
             .unwrap();
 
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = rusqlite::Connection::open(dir.path().join("sessions.db"))
+                .expect("open fixture db");
             conn.execute(
                 "INSERT INTO projects (id, name, archived) VALUES (?1, ?2, 0)",
                 params![project_id, "Dashboard Project"],
@@ -2213,8 +2222,7 @@ mod tests {
             .unwrap();
         }
 
-        let dashboard =
-            query_coding_improvement_dashboard(&db, &DashboardFilter::default(), 8).unwrap();
+        let dashboard = query_coding_improvement_dashboard(&DashboardFilter::default(), 8).unwrap();
 
         assert_eq!(dashboard.overview.total_sessions, 1);
         assert_eq!(dashboard.overview.completed_workflows, 1);
@@ -2290,7 +2298,7 @@ mod tests {
 
     #[test]
     fn dashboard_excludes_incognito_sessions() {
-        let (_dir, db) = test_db();
+        let (dir, db, _dash_guard) = test_db();
         let now = now_rfc3339();
         let regular = db.create_session(DEFAULT_AGENT_ID).unwrap();
         let incognito = db
@@ -2298,7 +2306,8 @@ mod tests {
             .unwrap();
 
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = rusqlite::Connection::open(dir.path().join("sessions.db"))
+                .expect("open fixture db");
             for (id, session_id) in [
                 ("wfr_regular", regular.id.as_str()),
                 ("wfr_incognito", incognito.id.as_str()),
@@ -2315,8 +2324,7 @@ mod tests {
             }
         }
 
-        let dashboard =
-            query_coding_improvement_dashboard(&db, &DashboardFilter::default(), 8).unwrap();
+        let dashboard = query_coding_improvement_dashboard(&DashboardFilter::default(), 8).unwrap();
         assert_eq!(dashboard.overview.total_sessions, 1);
         assert_eq!(dashboard.overview.workflow_runs, 1);
         assert_eq!(dashboard.overview.completed_workflows, 1);

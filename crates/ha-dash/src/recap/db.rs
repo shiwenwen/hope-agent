@@ -69,7 +69,7 @@ impl RecapDb {
     }
 
     pub fn open_default() -> Result<Self> {
-        let path = crate::paths::recap_db_path()?;
+        let path = ha_core::paths::recap_db_path()?;
         Self::open(&path)
     }
 

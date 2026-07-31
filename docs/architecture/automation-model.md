@@ -302,7 +302,7 @@ interface ModelChainEditorProps {
 | 全局配置 | `crates/ha-core/src/config/mod.rs` | `FunctionModelsConfig.automation` |
 | 执行原语 | `crates/ha-core/src/automation/mod.rs` | `effective_chain` / `run` / `resolve_legacy_agent_chain` / `parse_legacy_model_string` / `model_label` |
 | Purpose 记账 | `crates/ha-core/src/agent/side_query.rs` | `side_query_with_purpose` / `side_query_tagged` |
-| Recap | `crates/ha-core/src/recap/{report,facets,sections}.rs` | `resolve_recap_chain` + facet/section 生成 |
+| Recap | `crates/ha-dash/src/recap/{report,facets,sections}.rs` | `resolve_recap_chain` + facet/section 生成 |
 | Knowledge Compile | `crates/ha-core/src/knowledge/compile.rs` | `generate_summary` |
 | Dreaming | `crates/ha-core/src/memory/dreaming/{pipeline,narrative,profile,resolver}.rs` | `resolve_dreaming_chain` + 叙事/Profile/resolver 三处调用 |
 | Skills auto_review | `crates/ha-core/src/skills/auto_review/pipeline.rs` | `query_review_agent` |
@@ -323,8 +323,8 @@ interface ModelChainEditorProps {
 | Recall Summary（Phase 2） | `crates/ha-core/src/memory/recall_summary.rs` | `RecallSummaryConfig.model_override`、`run_summary` |
 | AI 改写（Phase 2） | `crates/ha-core/src/knowledge/service.rs` | `ai_rewrite`、`resolve_rewrite_chain`（`build_rewrite_agent` 已删除） |
 | Phase 2 GUI | `src/components/settings/KnowledgePanel.tsx`（`KnowledgeVisionSection`/`NoteToolsSection`）、`KnowledgeMaintenanceSection.tsx`、`SpriteSection.tsx`、`src/components/settings/memory-panel/RecallSummarySection.tsx`（新文件） | 见 §4.4 |
-| 遗留函数删除 | `crates/ha-core/src/recap/report.rs` + `recap/mod.rs` | `build_analysis_agent` 家族已整体删除（Phase 2 收尾），确认全仓库零残留调用 |
-| Dashboard purpose 拆分（Phase 3） | `crates/ha-core/src/dashboard/{types,queries,filters}.rs` | `TokenByOperation`/`TokenByDomain`、`operation_domain`、`DashboardFilter.operation` |
+| 遗留函数删除 | `crates/ha-dash/src/recap/report.rs` + `recap/mod.rs` | `build_analysis_agent` 家族已整体删除（Phase 2 收尾），确认全仓库零残留调用 |
+| Dashboard purpose 拆分（Phase 3） | `crates/ha-dash/src/dashboard/{types,queries,filters}.rs` | `TokenByOperation`/`TokenByDomain`、`operation_domain`、`DashboardFilter.operation` |
 | 扫描版 PDF OCR 兜底（Phase 3） | `crates/ha-core/src/file_extract.rs`、`crates/ha-core/src/knowledge/{types,registry,source,service}.rs`、`crates/ha-core/src/async_jobs/manager.rs` | `render_pdf_bytes_isolated`、`knowledge_source_ocr_pages` 表、`import_pdf_ocr_fallback`/`retry_source_ocr_pages`，详见 [`knowledge-base.md`](knowledge-base.md#扫描版-pdf-ocr-兜底逐页追踪) |
 
 ---

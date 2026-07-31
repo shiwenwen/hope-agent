@@ -104,6 +104,9 @@
 # ha-updater 的验签同级别把关。**迁出前本路径无 owner 条目**，此处是顺手
 # 闭合的既有缺口，不是搬迁导致的覆盖丢失。
 /crates/ha-local-llm/src/local_llm/mod.rs @shiwenwen
+# 大盘特征（阶段 5 自 ha-core 迁入 ha-dash）：**迁出前 dashboard/ 与 recap/ 就没有
+# owner 条目**，本刀不新增——它是纯只读聚合，连接是 SQLITE_OPEN_READ_ONLY，
+# 不碰凭据 / 权限 / 写路径。此处留记录，免得后来者以为是搬迁时漏同步。
 
 # === 跨 PR 契约：架构文档 ===
 /docs/architecture/               @shiwenwen

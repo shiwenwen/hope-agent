@@ -102,7 +102,7 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 | Channel 自动启动已启用账户 | 启动一次 | [`app_init.rs`](../../crates/ha-core/src/app_init.rs) |
 | Async Jobs 残留回放 | 启动一次 | [`async_jobs::replay_pending_jobs`](../../crates/ha-core/src/async_jobs/) |
 | Async Jobs retention 轮询 | 启动一次 + 每日 | [`async_jobs::spawn_retention_loop`](../../crates/ha-core/src/async_jobs/retention.rs) |
-| Recap facet retention 轮询 | 启动一次 + 每日 | [`recap::spawn_facet_retention_loop`](../../crates/ha-core/src/recap/) |
+| Recap facet retention 轮询（ha-dash `wire()` 注册的 PrimaryOnly startup task） | 启动一次 + 每日 | [`recap::spawn_facet_retention_loop`](../../crates/ha-dash/src/recap/) |
 | Dreaming 空闲触发 | 每 60s 检查（`MissedTickBehavior::Skip`） | [`app_init.rs`](../../crates/ha-core/src/app_init.rs) → [`memory::dreaming`](../../crates/ha-core/src/memory/dreaming/) |
 | **Channel worker 主循环**（每账户一条） | 轮询 / 长连接取决于渠道协议 | [`channel/worker/`](../../crates/ha-core/src/channel/worker/) |
 | **ACP 健康检查**（仅内嵌 ACP runtime） | 周期 ping | [`acp_control/health.rs`](../../crates/ha-acp/src/acp_control/health.rs) |

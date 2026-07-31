@@ -1905,8 +1905,8 @@ fn configured_eval_cost(event: &ModelUsageEvent) -> Option<(f64, String)> {
         return None;
     }
     if matches!(provider.currency, Some(crate::provider::Currency::Cny)) {
-        input_price /= crate::dashboard::CNY_PER_USD;
-        output_price /= crate::dashboard::CNY_PER_USD;
+        input_price /= crate::provider::CNY_PER_USD;
+        output_price /= crate::provider::CNY_PER_USD;
     }
     let cost =
         (input_tokens as f64 * input_price + output_tokens as f64 * output_price) / 1_000_000.0;

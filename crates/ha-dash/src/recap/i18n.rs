@@ -7,21 +7,21 @@
 //! directive built from [`language_name`]; section *titles* are fixed strings
 //! translated here.
 
-use crate::{config::AppConfig, i18n::SUPPORTED_LOCALES};
+use ha_core::{config::AppConfig, i18n::SUPPORTED_LOCALES};
 
 /// Resolve the effective output locale for recap generation.
 ///
 /// Precedence: explicit `recap.language` > global `AppConfig.language` >
 /// system locale. Empty / `"auto"` at any level falls through to the next.
 pub(super) fn effective_recap_locale(config: &AppConfig) -> String {
-    crate::i18n::effective_locale(config.recap.language.as_deref(), &config.language).to_string()
+    ha_core::i18n::effective_locale(config.recap.language.as_deref(), &config.language).to_string()
 }
 
 /// Human-readable language name (with native script hint) for a locale code,
 /// used to instruct the LLM which language to write in. Unknown codes fall
 /// back to English.
 pub(super) fn language_name(locale: &str) -> &'static str {
-    crate::i18n::language_name(locale)
+    ha_core::i18n::language_name(locale)
 }
 
 /// Localized report list title, e.g. `复盘 2024-01-01 → 2024-02-01 (12 个会话)`.

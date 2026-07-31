@@ -42,8 +42,8 @@ if [ "$HA_RUN_RUST_CI" = "true" ]; then
   echo "[pre-push] cargo fmt --all --check"
   cargo fmt --all --check
 
-  echo "[pre-push] cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings"
-  cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings
+  echo "[pre-push] cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-dash -p ha-design -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings"
+  cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-dash -p ha-design -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings
 else
   echo "[pre-push] frontend/docs-only diff — skipping Rust fmt, clippy, and tests"
 fi
@@ -68,8 +68,8 @@ if [ "$HA_RUN_RUST_CI" != "true" ]; then
 elif [ "${HA_SKIP_PREPUSH_TEST:-}" = "1" ]; then
   echo "[pre-push] HA_SKIP_PREPUSH_TEST=1 — skipping cargo test"
 else
-  echo "[pre-push] cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked"
-  cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked
+  echo "[pre-push] cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-dash -p ha-design -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked"
+  cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-dash -p ha-design -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked
 fi
 
 echo "[pre-push] all checks passed"

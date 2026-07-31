@@ -1,5 +1,7 @@
 // ── Cost Estimation ─────────────────────────────────────────────
 
+use ha_core::provider::CNY_PER_USD;
+
 /// 结算一次用量的成本。
 ///
 /// 用户可以在设置里逐个模型改单价（`ModelEditor` 的输入/输出成本），所以**用户配置才是
@@ -31,7 +33,7 @@ pub(super) fn resolve_cost(
 ///
 /// 输入/输出任一有值即视为已标价，缺的那侧按 0 计（如只标了输入价）。
 fn configured_price(provider_id: &str, model_id: &str) -> Option<(f64, f64)> {
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let provider = cfg.providers.iter().find(|p| p.id == provider_id)?;
     let model = provider.models.iter().find(|m| m.id == model_id)?;
     match (model.cost_input, model.cost_output) {
@@ -44,16 +46,10 @@ fn configured_price(provider_id: &str, model_id: &str) -> Option<(f64, f64)> {
     }
 }
 
-/// 人民币兑美元换算率。粗粒度常量、只服务大盘成本展示（非交易汇率），随大幅波动手动调
-/// （2026-07 现汇约 6.8–7.2 区间，取整数中值）。单价按厂商价目页原文录入
-/// （`ProviderConfig.currency` 标注币种），换算集中在这一处——估算表里人民币计价厂商的
-/// 臂也统一写成 `¥价 / CNY_PER_USD`，两条路径口径一致。
-pub(crate) const CNY_PER_USD: f64 = 7.0;
-
-fn to_usd(currency: Option<crate::provider::Currency>, ci: f64, co: f64) -> (f64, f64) {
+fn to_usd(currency: Option<ha_core::provider::Currency>, ci: f64, co: f64) -> (f64, f64) {
     match currency {
-        Some(crate::provider::Currency::Cny) => (ci / CNY_PER_USD, co / CNY_PER_USD),
-        Some(crate::provider::Currency::Usd) | None => (ci, co),
+        Some(ha_core::provider::Currency::Cny) => (ci / CNY_PER_USD, co / CNY_PER_USD),
+        Some(ha_core::provider::Currency::Usd) | None => (ci, co),
     }
 }
 
@@ -228,10 +224,11 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
 
 #[cfg(test)]
 mod tests {
-    use super::{estimate_cost, resolve_cost, CNY_PER_USD};
-    use crate::config::AppConfig;
-    use crate::provider::{ApiType, ModelConfig, ProviderConfig};
-    use crate::test_support::replace_config_cache;
+    use super::{estimate_cost, resolve_cost};
+    use ha_core::config::AppConfig;
+    use ha_core::provider::CNY_PER_USD;
+    use ha_core::provider::{ApiType, ModelConfig, ProviderConfig};
+    use ha_core::test_support::replace_config_cache;
 
     fn model(id: &str, cost_input: Option<f64>, cost_output: Option<f64>) -> ModelConfig {
         ModelConfig {
@@ -269,7 +266,7 @@ mod tests {
 
     fn config_with_currency(
         provider_id: &str,
-        currency: crate::provider::Currency,
+        currency: ha_core::provider::Currency,
         models: Vec<ModelConfig>,
     ) -> AppConfig {
         let mut cfg = config_with(provider_id, models);
@@ -285,7 +282,7 @@ mod tests {
     fn cny_provider_prices_convert_to_usd() {
         let guard = replace_config_cache(config_with_currency(
             "qwen",
-            crate::provider::Currency::Cny,
+            ha_core::provider::Currency::Cny,
             vec![priced("qwen-max", 2.4, 9.6)],
         ));
         assert_eq!(
@@ -298,7 +295,7 @@ mod tests {
         // 显式 USD 与缺省（None）行为一致：原值入账。
         let _guard = replace_config_cache(config_with_currency(
             "p-usd",
-            crate::provider::Currency::Usd,
+            ha_core::provider::Currency::Usd,
             vec![priced("claude-opus-4-8", 5.0, 25.0)],
         ));
         assert_eq!(
@@ -313,7 +310,7 @@ mod tests {
     fn cny_currency_does_not_disturb_free_or_unpriced_semantics() {
         let _guard = replace_config_cache(config_with_currency(
             "volcengine",
-            crate::provider::Currency::Cny,
+            ha_core::provider::Currency::Cny,
             vec![
                 model("some-free-model", Some(0.0), Some(0.0)),
                 model("kimi-k2-5-260127", None, None),

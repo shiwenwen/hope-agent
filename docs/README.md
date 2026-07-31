@@ -38,7 +38,7 @@
 | ---------------------------------------------- | --------------------------------------------------- | ---------------------------------------------- |
 | [Chat Engine](architecture/chat-engine.md)     | 对话编排入口、流式事件协议、Failover 集成、记忆提取门控                    | `chat_engine/`                                 |
 | [Provider 系统](architecture/provider-system.md) | 4 种 API 类型、Provider 模板、Failover 策略、Thinking 系统、Provider Write Contract、Local Backend Catalog | `provider/`, `failover/`, `agent/providers/` |
-| [模型 vs Agent 统一配置](architecture/automation-model.md) | 后台一次性 LLM 调用的统一执行原语 `crate::automation`（纯文本 `run` + 带图片 `run_vision`）、`function_models.automation` 全局默认链、真跨模型降级 + purpose 用量标签、15 个消费者字段对照（Phase 1 的 9 个 + Phase 2 的图片 OCR/知识空间维护/Sprite/笔记三件套/Recall Summary/AI 改写） | `automation/`, `recap/`, `memory/{dreaming,recall_summary}.rs`, `knowledge/{compile,source,service,types}.rs`, `knowledge/maintenance/`, `skills/auto_review/`, `hooks/runner/prompt.rs`, `sprite/`, `tools/note.rs`, `agent/mod.rs`（awareness 提取） |
+| [模型 vs Agent 统一配置](architecture/automation-model.md) | 后台一次性 LLM 调用的统一执行原语 `crate::automation`（纯文本 `run` + 带图片 `run_vision`）、`function_models.automation` 全局默认链、真跨模型降级 + purpose 用量标签、15 个消费者字段对照（Phase 1 的 9 个 + Phase 2 的图片 OCR/知识空间维护/Sprite/笔记三件套/Recall Summary/AI 改写） | `automation/`, ha-dash 的 `recap/`, `memory/{dreaming,recall_summary}.rs`, `knowledge/{compile,source,service,types}.rs`, `knowledge/maintenance/`, `skills/auto_review/`, `hooks/runner/prompt.rs`, `sprite/`, `tools/note.rs`, `agent/mod.rs`（awareness 提取） |
 | [主 LLM OAuth](architecture/llm-oauth.md) | Codex 主对话 OAuth 登录（PKCE + 本地回调）、token 刷新与并发去抖、凭据落 `auth.json`、登出清理、与 MCP OAuth 隔离 | `oauth.rs` |
 | [本地模型加载](architecture/local-model-loading.md) | Ollama 本地模型搜索/下载/加载/删除、后台任务、Provider 注册、Embedding 配置与记忆向量重建 | ha-local-llm 的 `local_llm/`·`local_embedding.rs`, ha-core 的 `local_model_jobs.rs`·`memory/embedding/` |
 | [语音转写（STT）](architecture/stt.md)             | 独立配置语音转写引擎：8 wire 协议（OpenAI multipart / chat-completions ASR / 5 种 WebSocket）、桌面 batch + 流式会话、IM 自动转写、4 本地后端一键接入、Failover 链与 size/SSRF 红线 | `ha-core/src/stt/`（配置面）, `crates/ha-media/src/stt/`（执行机器）, `commands/stt.rs`, `routes/stt.rs` |
@@ -117,7 +117,7 @@
 | [Artifacts 产物平台](architecture/artifacts.md) | Canvas façade、不可变版本、Gallery、Data Analytics、离线本地导出与未来 Publisher Guard | `crates/ha-design/`（artifacts / tool_artifact）, `components/artifacts/` |
 | [Cron 调度](architecture/cron.md)           | 定时任务调度、Agent 执行、Failover、指数退避      | `cron/`                 |
 | [Sandbox 架构](architecture/sandbox.md) | 会话级 Docker 执行沙箱、权限放松矩阵、Docker 平台引导、SearXNG 容器管理 | `ha-vcs (sandbox.rs · docker/)`, `ha-core (sandbox.rs 配置面)`, `permission/` |
-| [Dashboard](architecture/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标、Learning Tab、coding release/generalization gate 与 general domain quality gate | `dashboard/`, `components/dashboard/learning/` |
+| [Dashboard](architecture/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标、Learning Tab、coding release/generalization gate 与 general domain quality gate | ha-dash 的 `dashboard/`, `components/dashboard/learning/` |
 | [Recap 深度复盘](architecture/recap.md)      | 逐会话 LLM facet 提取、量化+语义融合报告、HTML 导出 | `recap/`                |
 | [日志系统](architecture/logging.md)           | 非阻塞双写、敏感数据脱敏、文件轮转                  | `logging/`              |
 | [可靠性与崩溃自愈](architecture/reliability.md) | Guardian 父子三层保活、退出码协议、Crash Journal、Self-Diagnosis prompt + Auto-Fix 覆盖范围、子系统 watchdog | `guardian.rs`, `crash_journal.rs`, `self_diagnosis.rs`, `service_install.rs` |

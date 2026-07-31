@@ -1,9 +1,9 @@
 use anyhow::Result;
 use serde_json::json;
 
-use crate::automation::{self, ModelTaskSpec};
-use crate::provider::ActiveModel;
-use crate::truncate_utf8;
+use ha_core::automation::{self, ModelTaskSpec};
+use ha_core::provider::ActiveModel;
+use ha_core::truncate_utf8;
 
 use super::types::{AiSection, FacetSummary, QuantitativeStats, RecapProgress};
 

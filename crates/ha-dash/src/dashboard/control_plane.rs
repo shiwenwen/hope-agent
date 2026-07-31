@@ -6,7 +6,6 @@
 //! foreign keys.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -14,8 +13,7 @@ use rusqlite::{params_from_iter, types::Value as SqlValue, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::plan::{list_all_plans, PlanIndexFilter, PlanModeState};
-use crate::session::SessionDB;
+use ha_core::plan::{list_all_plans, PlanIndexFilter, PlanModeState};
 
 /// Wire value used by the project picker for sessions without a project.
 pub const CONTROL_PLANE_UNASSIGNED_PROJECT: &str = "__unassigned__";
@@ -249,7 +247,7 @@ fn count_groups(
     let rows = stmt.query_map(params_from_iter(scope.params.iter()), |row| {
         Ok(NamedCount {
             key: row.get(0)?,
-            count: crate::sql_u64(row, 1)?,
+            count: ha_core::sql_u64(row, 1)?,
         })
     })?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -554,7 +552,7 @@ fn query_workflows(
     let (failed_ops, decided_ops): (u64, u64) = conn.query_row(
         &op_sql,
         params_from_iter(terminal_scope.params.iter()),
-        |row| Ok((crate::sql_u64(row, 0)?, crate::sql_u64(row, 1)?)),
+        |row| Ok((ha_core::sql_u64(row, 0)?, ha_core::sql_u64(row, 1)?)),
     )?;
     let sample_count = durations.len() as u64;
     let p50_secs = median(&mut durations);
@@ -737,7 +735,7 @@ fn query_tasks(
 }
 
 fn matches_plan_scope(
-    plan: &crate::plan::PlanIndexEntry,
+    plan: &ha_core::plan::PlanIndexEntry,
     filter: &ControlPlaneDashboardFilter,
 ) -> bool {
     if let Some(agent_id) = present(filter.agent_id.as_deref()) {
@@ -758,7 +756,7 @@ fn matches_plan_scope(
 }
 
 fn aggregate_plans(
-    all: Vec<crate::plan::PlanIndexEntry>,
+    all: Vec<ha_core::plan::PlanIndexEntry>,
     filter: &ControlPlaneDashboardFilter,
 ) -> Result<(PlanDashboardStats, Vec<AttentionItem>)> {
     let all = all
@@ -1003,13 +1001,9 @@ fn finalize_attention(mut items: Vec<AttentionItem>) -> AttentionDashboard {
 /// under one SessionDB read lock, then released before scanning Plan files
 /// because the Plan index consults SessionDB metadata itself.
 pub fn query_control_plane_dashboard(
-    session_db: &Arc<SessionDB>,
     filter: &ControlPlaneDashboardFilter,
 ) -> Result<ControlPlaneDashboard> {
-    let conn = session_db
-        .conn
-        .lock()
-        .map_err(|error| anyhow::anyhow!("Lock error: {error}"))?;
+    let conn = crate::db::read_conn()?;
     let goals = query_goals(&conn, filter)?;
     let workflows = query_workflows(&conn, filter)?;
     let loops = query_loops(&conn, filter)?;
@@ -1041,16 +1035,28 @@ pub fn query_control_plane_dashboard(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::TaskStatus;
+    use ha_core::session::SessionDB;
+    use ha_core::session::TaskStatus;
+    use std::sync::Arc;
 
-    fn test_db(name: &str) -> (Arc<SessionDB>, std::path::PathBuf) {
+    /// 建 fixture 库并把大盘的全局只读连接指向它。返回的 guard 必须由测试
+    /// 持住——全局只有一条连接，两个测试同时改指向会互相踩。
+    fn test_db(
+        name: &str,
+    ) -> (
+        Arc<SessionDB>,
+        std::path::PathBuf,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
         let path = std::env::temp_dir().join(format!(
             "hope-control-plane-{name}-{}.db",
             uuid::Uuid::new_v4()
         ));
         let db =
             Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open dashboard fixture db"));
-        (db, path)
+        let guard = crate::db::lock_dash_db();
+        crate::db::point_at_test_db(&path);
+        (db, path, guard)
     }
 
     fn plan_entry(
@@ -1062,8 +1068,8 @@ mod tests {
         executing_started_at: Option<&str>,
         completed_at: Option<&str>,
         orphan: bool,
-    ) -> crate::plan::PlanIndexEntry {
-        crate::plan::PlanIndexEntry {
+    ) -> ha_core::plan::PlanIndexEntry {
+        ha_core::plan::PlanIndexEntry {
             session_id: session_id.into(),
             session_short_id: session_id.chars().take(8).collect(),
             session_title: Some(format!("Session {session_id}")),
@@ -1141,9 +1147,9 @@ mod tests {
 
     #[test]
     fn fixture_respects_terminal_denominators_and_excludes_non_user_sessions() {
-        let (db, path) = test_db("metrics");
+        let (db, path, _dash_guard) = test_db("metrics");
         {
-            let conn = db.conn.lock().expect("lock fixture db");
+            let conn = rusqlite::Connection::open(&path).expect("open fixture db");
             conn.execute_batch(
                 "INSERT INTO sessions
                     (id, title, agent_id, created_at, updated_at, incognito, is_cron, parent_session_id)
@@ -1213,7 +1219,7 @@ mod tests {
             agent_id: Some("agent-a".into()),
             project_id: Some(CONTROL_PLANE_UNASSIGNED_PROJECT.into()),
         };
-        let conn = db.conn.lock().expect("lock fixture for assertions");
+        let conn = rusqlite::Connection::open(&path).expect("open fixture db");
         let goals = query_goals(&conn, &filter).expect("goal metrics");
         assert_eq!(
             (goals.acceptance.numerator, goals.acceptance.denominator),
@@ -1260,9 +1266,9 @@ mod tests {
 
     #[test]
     fn task_cohort_is_separate_from_current_backlog_and_reports_coverage() {
-        let (db, path) = test_db("task-cohort");
+        let (db, path, _dash_guard) = test_db("task-cohort");
         {
-            let conn = db.conn.lock().expect("lock task cohort db");
+            let conn = rusqlite::Connection::open(&path).expect("open fixture db");
             conn.execute_batch(
                 "INSERT INTO sessions
                     (id, title, agent_id, project_id, created_at, updated_at, incognito)
@@ -1460,9 +1466,9 @@ mod tests {
 
     #[test]
     fn exact_task_and_plan_completion_timestamps_follow_lifecycle() {
-        let (db, path) = test_db("timestamps");
+        let (db, path, _dash_guard) = test_db("timestamps");
         {
-            let conn = db.conn.lock().expect("lock timestamp db");
+            let conn = rusqlite::Connection::open(&path).expect("open fixture db");
             conn.execute(
                 "INSERT INTO sessions (id, title, agent_id, created_at, updated_at)
                  VALUES ('session', 'Session', 'agent-a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",

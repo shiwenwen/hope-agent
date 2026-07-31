@@ -1297,9 +1297,10 @@ pub async fn start_background_tasks() {
         // touching canonical messages/context.
         spawn_chat_stream_journal_gc(true);
 
-        // Retention sweep for recap session facets. Runs once at startup and
-        // then once per day. Disabled when `recap.cache_retention_days == 0`.
-        crate::recap::spawn_facet_retention_loop();
+        // recap facet 保留期清理已随 ha-dash 迁出：`wire()` 注册为 PrimaryOnly
+        // startup task（原位就在本 primary 块内，档位一致；执行点前移到本函数
+        // 中段的 run_registered_startup_tasks，该循环本就启动即扫一次再进 24h
+        // 周期，前移只是让首次清理更早）。
 
         // Retention sweep for the Dreaming pending-source queue + expired
         // locks (next-gen Dreaming Phase 0). Runs once at startup, then daily.

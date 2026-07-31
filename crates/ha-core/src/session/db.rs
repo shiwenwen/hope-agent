@@ -35,7 +35,7 @@ const READ_POOL_SIZE: usize = 4;
 #[derive(Clone, Copy)]
 enum SessionDbOpenMode {
     Durable,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     EphemeralTest,
 }
 
@@ -49,7 +49,7 @@ impl SessionDbOpenMode {
                 // failure even though COMMIT returned successfully.
                 conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Self::EphemeralTest => {
                 // These databases still use a real file so the read-only pool
                 // observes the writer, but their contents are disposable. Keep
@@ -374,8 +374,14 @@ impl SessionDB {
     /// Kept test-only so production call sites cannot accidentally opt out of
     /// WAL + FULL. Tests that exercise reopen, crash recovery, journal mode,
     /// locking, or durability must continue to call [`Self::open`].
-    #[cfg(test)]
-    pub(crate) fn open_ephemeral_for_test(db_path: &PathBuf) -> Result<Self> {
+    ///
+    /// 门控是 `cfg(any(test, feature = "test-support"))` 而不是裸 `cfg(test)`：
+    /// 已迁出的特征 crate（ha-dash 的大盘查询测试）要建同构的 fixture 库，而
+    /// `cfg(test)` 只在 ha-core 自己编测试时成立。**「生产调用点碰不到它」这条
+    /// 意图没有削弱**——`test-support` 与 `crate::test_support` 模块同一档门控，
+    /// 生产构建不开启，开了也只有 dev-dependencies 能看见。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn open_ephemeral_for_test(db_path: &PathBuf) -> Result<Self> {
         Self::open_with_mode(db_path, SessionDbOpenMode::EphemeralTest)
     }
 

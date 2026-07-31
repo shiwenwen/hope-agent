@@ -6,6 +6,7 @@ members = [
     "crates/ha-config-schema",
     "crates/ha-design",
     "crates/ha-core",
+    "crates/ha-dash",
     "crates/ha-local-llm",
     "crates/ha-server",
     "crates/ha-acp",

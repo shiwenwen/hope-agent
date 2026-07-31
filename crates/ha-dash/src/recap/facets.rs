@@ -3,10 +3,10 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
-use crate::automation::{self, ModelTaskSpec};
-use crate::provider::ActiveModel;
-use crate::session::{MessageRole, SessionDB, SessionMessage};
-use crate::truncate_utf8;
+use ha_core::automation::{self, ModelTaskSpec};
+use ha_core::provider::ActiveModel;
+use ha_core::session::{MessageRole, SessionDB, SessionMessage};
+use ha_core::truncate_utf8;
 
 use super::db::RecapDb;
 use super::types::{

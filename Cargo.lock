@@ -3282,6 +3282,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-dash"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "futures-util",
+ "ha-base",
+ "ha-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
 name = "ha-design"
 version = "0.24.0"
 dependencies = [
@@ -3335,6 +3354,7 @@ dependencies = [
  "ha-acp",
  "ha-browser",
  "ha-core",
+ "ha-dash",
  "ha-design",
  "ha-eval-spec",
  "ha-local-llm",
@@ -3506,6 +3526,7 @@ dependencies = [
  "ha-acp",
  "ha-browser",
  "ha-core",
+ "ha-dash",
  "ha-design",
  "ha-local-llm",
  "ha-mac",
@@ -3710,6 +3731,7 @@ dependencies = [
  "ha-acp",
  "ha-browser",
  "ha-core",
+ "ha-dash",
  "ha-design",
  "ha-local-llm",
  "ha-mac",

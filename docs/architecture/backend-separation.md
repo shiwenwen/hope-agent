@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-design · ha-local-llm · ha-mac<br/>ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-dash · ha-design · ha-local-llm<br/>ha-mac · ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -112,7 +112,7 @@ ha_config_schema::<mod>::{…};` 顶替被搬定义，既有 re-export 链
 | 职责 | 说明 |
 |------|------|
 | 业务逻辑 | Agent、Chat Engine、Tool Loop、Plan Mode、Memory、Subagent、MCP、Project、Local LLM 等全部核心能力 |
-| 数据存储 | SessionDB、MemoryDB、LogDB、CronDB、ChannelDB、ProjectDB、AsyncJobDB、LocalModelJobDB、RecapDB — 全部 SQLite |
+| 数据存储 | SessionDB、MemoryDB、LogDB、CronDB、ChannelDB、ProjectDB、AsyncJobDB、LocalModelJobDB — 全部 SQLite（RecapDB 已随 ha-dash 迁出；大盘另有一条 `SQLITE_OPEN_READ_ONLY` 的 sessions/cron 读连接，见特征 crate 一节） |
 | 状态管理 | `AppState` + `OnceLock` 全局单例 + accessor 函数 |
 | 事件系统 | `EventBus` trait — 替代原 Tauri `APP_HANDLE.emit()` |
 | 接入层 | 12 个 IM 渠道插件、ACP stdio 协议、MCP 客户端（4 种 transport） |
@@ -144,8 +144,9 @@ local_model_jobs.rs 通用后台任务台账（DB / 快照 / spawn / finish / �
                    ha-local-llm 迁出，见下文特征 crate 一节）
 async_jobs/        异步工具后台执行 + 重启回放
 team/              Agent Team 模板 + 实例 + 任务
-recap/             /recap 深度复盘 + 11 个并行 AI 章节
-dashboard/         Insights + Learning Tracker
+recap_hooks.rs     `/recap` 分发钩子（正文随 ha-dash 迁出，装配层只留 trampoline）
+activity.rs        autonomy 活动快照（`impl SessionDB` 扩展，Core 工具 tools::goal 消费——
+                   **刻意留 kernel**，代价见特征 crate 一节的 ha-dash 条目）
 awareness/         跨会话行为感知 suffix
 config/            cached_config / mutate_config（详见下文）
 learning_events.rs Learning 埋点**发布面**（kernel 事件通道，见下文）
@@ -305,7 +306,7 @@ skills**。ha-local-llm 之所以能不排在这条序列里先走，正是因�
 入边（需切 0）——它只依赖别人，不被别人依赖。**新增任何特征间边前先跑
 一次脚本**——成环会让后续拆分整个卡住。
 
-### 特征 crate（ha-acp / ha-browser / ha-design / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-dash / ha-design / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -410,6 +411,36 @@ skills**。ha-local-llm 之所以能不排在这条序列里先走，正是因�
   侧。kernel 边界单钩子 `register_pet_config_updater`（选择校验 + 跨进
   程库锁 + mutate_config；未接线 Err fail-explicit——消费入口均为用户
   显式动作）。
+- **ha-dash**（大盘，阶段 5 第二刀）：用量总账聚合与 Insights、控制面
+  （Goal / Workflow / Loop / Task / Plan）只读聚合、Coding Improvement 学习
+  聚合、`/recap` 深度复盘（facets / 章节 / 渲染 / 保留期）。
+  **`activity.rs` 刻意留 kernel**：它是 `impl SessionDB` 的扩展方法，唯一
+  kernel 消费者是 **Core 工具** `tools::goal`——Core 工具在每种运行形态下都
+  必须可用，把它的数据源放到特征钩子后面等于让 minimal / ACP 静默缺数据。
+  分析器把它聚进 dash 组只是文本相邻（**方法语法调用边分析器不计**，同
+  ha-vcs 记过的那个盲区），切割以边界成本为准。
+  **取数方式是本刀的关键决定**：大盘原本直取 `SessionDB` 的私有 `conn`
+  字段（38 处）。kernel 的 `with_conn_internal` 是 `pub(crate)`、**刻意不对
+  特征 crate 暴露**（「核心库 schema 不做跨 crate 隐式 API」），而把七十多条
+  只读聚合逐一包成 kernel 类型化方法等于把 7k 行 SQL 搬回 kernel。故 ha-dash
+  用 `SQLITE_OPEN_READ_ONLY` **自开连接**（`db.rs`，sessions.db + cron.db 各
+  一条）——**比暴露 `with_conn_internal` 更强**：那个拿到的 `&Connection` 仍
+  能执行写语句、只读全靠约定，这里的句柄物理上写不了，正好把「大盘只读」
+  红线落成强制。sessions.db 是 WAL，读不被写者阻塞、看到最近一次提交的
+  快照；大盘本就是最终一致的报表视图。代价是**全局连接指向真实库路径**，
+  fixture 测试必须经 `db::lock_dash_db()` + `point_at_test_db()` 注入并串行。
+  kernel 边界三处：`awareness::register_session_facet_lookup`（awareness 只读
+  facet 四个字段，故经窄视图 `SessionFacetView` 回传；**未装配即 None**，
+  走 `collect_entries` 既有的 fallback_preview 分支——与迁移前 `RecapDb`
+  打不开时逐位相同）、`recap_hooks::run_slash_recap`（`/recap` 的参数解析 /
+  后台 spawn / 进度事件全在特征侧，装配层只留一行 trampoline；未装配即
+  `Err`，同 `slash_hooks::dispatch`）、facet 保留期清理经 `wire()` 注册
+  `PrimaryOnly` startup task（原位在 primary 块内，**但执行点前移**——该档
+  在函数中段消费，早于原位约 160 行；该循环本就启动即扫一次再进 24h 周期）。
+  `CNY_PER_USD` 随 `provider::Currency` **下沉 kernel**（两个 kernel 消费者
+  self_diagnosis / eval_context 与 `Currency` 配对使用）。
+  剩余对 cron / coding_improvement 的引用现为普通 `ha_core::…` 调用，等那
+  两家拆出后成为特征间单向边——**ha-dash 排在拓扑序第一正是为此**。
 - **ha-local-llm**（本地模型，阶段 5 首刀——原 7-环成员出栈第一个）：
   Ollama 生命周期（检测 / 安装 / 启动 / 拉取 / 预载）、模型目录与硬件
   预算推荐、Ollama Library 元数据抓取、默认模型自维护 watchdog、本地
@@ -604,7 +635,7 @@ sequenceDiagram
 
 ### 事件清单
 
-> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/` / `crates/ha-vcs/src/` / `crates/ha-mcp/src/` / `crates/ha-pet/src/` / `crates/ha-media/src/` / `crates/ha-local-llm/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`ha-mcp (events.rs)`、`ha-vcs (docker/mod.rs · git_control.rs EVENT_GIT_*)`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
+> 字面量来源：`grep -rE 'bus\.emit\(' crates/ha-core/src/` + 同 grep 在 `crates/ha-acp/src/` / `crates/ha-mac/src/` / `crates/ha-design/src/` / `crates/ha-browser/src/` / `crates/ha-vcs/src/` / `crates/ha-mcp/src/` / `crates/ha-pet/src/` / `crates/ha-media/src/` / `crates/ha-local-llm/src/` / `crates/ha-dash/src/`（及后续特征 crate）/ `crates/ha-server/src/` / `src-tauri/src/`；常量定义集中在 `chat_engine/stream_broadcast.rs`、`local_model_jobs.rs`、`ha-mcp (events.rs)`、`ha-vcs (docker/mod.rs · git_control.rs EVENT_GIT_*)`、`tools/ask_user_question.rs`、`ha-design (tool_canvas/mod.rs)`、`ha-acp (acp_control/events.rs)`、`ha-mac (lib.rs EVENT_MAC_CONTROL_FRAME / ha-core tool_actions.rs EVENT_MAC_CONTROL_ACTION)`。
 
 #### 聊天 / 流式
 
@@ -641,9 +672,9 @@ sequenceDiagram
 |--------|------|------|
 | `core_memory_updated` | tools/memory.rs | 记忆变更（save / update / delete） |
 | `memory_extracted` | memory_extract.rs | 自动提取写库后通知前端 |
-| `recall_hit` / `recall_summary_used` | tools/memory.rs / dashboard | Learning 埋点 |
+| `recall_hit` / `recall_summary_used` | tools/memory.rs（发布面 kernel `learning_events.rs`）· ha-dash 的 dashboard/learning.rs（只读消费） | Learning 埋点 |
 | `dreaming:cycle_complete` | memory/dreaming/pipeline.rs | Dreaming 离线固化完成 |
-| `recap_progress` | recap/api.rs, slash_commands/handlers/recap.rs | /recap 章节进度 |
+| `recap_progress` | ha-dash 的 recap/api.rs · recap/slash.rs（装配层 handler 只是 `recap_hooks` trampoline） | /recap 章节进度 |
 | `session:title_updated` | session_title.rs | 会话标题生成完毕 |
 
 #### Skills / MCP

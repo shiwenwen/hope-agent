@@ -1,22 +1,20 @@
 //! Learning analytics **消费面**——Dashboard「Learning」标签页的只读聚合。
 //!
-//! 事件**发布面**（`emit` + `EVT_*` 常量）在 [`crate::learning_events`]
+//! 事件**发布面**（`emit` + `EVT_*` 常量）在 [`ha_core::learning_events`]
 //! （crate-split 破环：生产者遍布 kernel / skills / knowledge / ha-mcp
 //! 四层，发布面留这里会让它们全部反向依赖 dashboard）。本模块与发布面
 //! 之间没有代码耦合，只共享 `learning_events` 表名与 kind 字符串；DDL /
-//! INSERT / prune / 会话级联删除都在 [`crate::session::SessionDB`]。
+//! INSERT / prune / 会话级联删除都在 [`ha_core::session::SessionDB`]。
 //!
-//! 原路径 `dashboard::{emit_learning_event, EVT_*}` 保留再导出，调用点
+//! 原路径 `dashboard::learning::{emit, EVT_*}` 保留再导出，调用点
 //! 不受影响。
 
 use anyhow::Result;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
-use crate::session::SessionDB;
-
-// 发布面原路径兼容再导出（定义处 `crate::learning_events`）。
-pub use crate::learning_events::{
+// 发布面原路径兼容再导出（定义处 `ha_core::learning_events`）。
+pub use ha_core::learning_events::{
     emit, EVT_MCP_TOOL_CALLED, EVT_MCP_TOOL_FAILED, EVT_RECALL_HIT, EVT_RECALL_SUMMARY_USED,
     EVT_SKILL_ACTIVATED, EVT_SKILL_CREATED, EVT_SKILL_DISCARDED, EVT_SKILL_PATCHED, EVT_SKILL_USED,
 };
@@ -61,9 +59,9 @@ pub struct SkillUsage {
     pub created_source: Option<String>,
 }
 
-pub fn query_learning_overview(db: &SessionDB, window_days: u32) -> Result<LearningOverview> {
-    let cutoff = crate::util::epoch_cutoff_secs(window_days);
-    let conn = db.conn.lock().map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
+pub fn query_learning_overview(window_days: u32) -> Result<LearningOverview> {
+    let cutoff = ha_core::util::epoch_cutoff_secs(window_days);
+    let conn = crate::db::read_conn()?;
 
     let mut overview = LearningOverview {
         window_days,
@@ -125,9 +123,9 @@ pub fn query_learning_overview(db: &SessionDB, window_days: u32) -> Result<Learn
 
 /// Skill-lifecycle timeline for the given window, newest last for easy
 /// charting.
-pub fn query_skill_timeline(db: &SessionDB, window_days: u32) -> Result<Vec<TimelinePoint>> {
-    let cutoff = crate::util::epoch_cutoff_secs(window_days);
-    let conn = db.conn.lock().map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
+pub fn query_skill_timeline(window_days: u32) -> Result<Vec<TimelinePoint>> {
+    let cutoff = ha_core::util::epoch_cutoff_secs(window_days);
+    let conn = crate::db::read_conn()?;
     let mut stmt = conn.prepare(
         "SELECT ts, kind, ref_id, meta_json FROM learning_events
          WHERE ts >= ?1 AND kind IN (
@@ -159,9 +157,9 @@ pub fn query_skill_timeline(db: &SessionDB, window_days: u32) -> Result<Vec<Time
 }
 
 /// Top skills by `skill_used` count within the window.
-pub fn query_top_skills(db: &SessionDB, window_days: u32, limit: usize) -> Result<Vec<SkillUsage>> {
-    let cutoff = crate::util::epoch_cutoff_secs(window_days);
-    let conn = db.conn.lock().map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
+pub fn query_top_skills(window_days: u32, limit: usize) -> Result<Vec<SkillUsage>> {
+    let cutoff = ha_core::util::epoch_cutoff_secs(window_days);
+    let conn = crate::db::read_conn()?;
     let mut stmt = conn.prepare(
         "SELECT ref_id, COUNT(*) AS c, MAX(ts) AS last_ts
          FROM learning_events
@@ -199,9 +197,9 @@ pub struct RecallStats {
     pub window_days: u32,
 }
 
-pub fn query_recall_stats(db: &SessionDB, window_days: u32) -> Result<RecallStats> {
-    let cutoff = crate::util::epoch_cutoff_secs(window_days);
-    let conn = db.conn.lock().map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
+pub fn query_recall_stats(window_days: u32) -> Result<RecallStats> {
+    let cutoff = ha_core::util::epoch_cutoff_secs(window_days);
+    let conn = crate::db::read_conn()?;
     let hits: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM learning_events WHERE ts >= ?1 AND kind = ?2",
@@ -227,6 +225,6 @@ pub fn query_recall_stats(db: &SessionDB, window_days: u32) -> Result<RecallStat
 /// memories SQLite directly via the backend; gracefully returns None when
 /// the backend isn't initialized.
 fn profile_memory_count(window_days: u32) -> Option<u64> {
-    let backend = crate::get_memory_backend()?;
+    let backend = ha_core::get_memory_backend()?;
     backend.count_profile_memories(window_days).ok()
 }

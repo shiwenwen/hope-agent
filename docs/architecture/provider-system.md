@@ -991,7 +991,7 @@ flowchart TD
 | Chat 路由（HTTP） | `crates/ha-server/src/routes/chat.rs` | HTTP/WS 入口：REST API + WebSocket 流式推送 |
 | 前端模板 | `src/components/settings/provider-setup/templates/` | 44 个 Provider 模板（335 个预设模型） |
 | 前端 Hook | `src/components/chat/useChatStream.ts` | 事件处理、delta 批量刷新 |
-| Dashboard 定价 | `crates/ha-core/src/dashboard/` | `estimate_cost()` 50+ 模型定价规则 |
+| Dashboard 定价 | `crates/ha-dash/src/dashboard/` | `estimate_cost()` 50+ 模型定价规则 |
 
 ## 12. 视觉桥（Vision Bridge，issue #434）
 

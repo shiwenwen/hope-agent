@@ -92,6 +92,7 @@ graph TD
         PetFeat["ha-pet<br/>sprite 库 / 导入 / 活动投影"]
         MediaFeat["ha-media<br/>图/音生成 adapters + STT 引擎 + 两工具"]
         LocalLlmFeat["ha-local-llm<br/>Ollama 生命周期 / 模型目录 / 本地 embedding"]
+        DashFeat["ha-dash<br/>用量 Insights / 控制面聚合 / recap 报告<br/>(只读：SQLITE_OPEN_READ_ONLY)"]
     end
     Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     Weather -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
@@ -108,6 +109,7 @@ graph TD
     DesignFeat -.->|"特征间单向依赖<br/>（Chrome PDF/截图）"| BrowserFeat
     LocalLlmFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     LocalLlmFeat -.->|"Provider 注册"| Agent
+    DashFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
 
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler

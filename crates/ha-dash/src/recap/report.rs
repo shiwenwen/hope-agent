@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
-use crate::config::AppConfig;
-use crate::cron;
 use crate::dashboard::{
     query_activity_heatmap, query_cost_trend, query_health_score, query_hourly_distribution,
     query_model_efficiency, query_overview_with_delta, query_top_sessions,
 };
-use crate::logging::LogDB;
-use crate::provider::ActiveModel;
-use crate::session::SessionDB;
 use anyhow::{anyhow, Result};
+use ha_core::config::AppConfig;
+use ha_core::cron;
+use ha_core::logging::LogDB;
+use ha_core::provider::ActiveModel;
+use ha_core::session::SessionDB;
 use tokio_util::sync::CancellationToken;
 
 use super::aggregate::roll_up;
@@ -28,7 +28,7 @@ pub struct RecapContext {
     pub cron_db: Arc<cron::CronDB>,
     pub recap_db: Arc<RecapDb>,
     /// Resolved model chain for facet extraction + section generation. See
-    /// `crate::automation`.
+    /// `ha_core::automation`.
     pub chain: Arc<Vec<ActiveModel>>,
     pub analysis_model: String,
     /// Resolved output language (locale code) for this report run.
@@ -43,12 +43,12 @@ impl RecapContext {
     /// OnceLock singletons — recap is driven from slash commands / HTTP
     /// routes that all share the same process-level state.
     pub async fn from_globals(cancel: CancellationToken) -> Result<Self> {
-        let config = (*crate::config::cached_config()).clone();
+        let config = (*ha_core::config::cached_config()).clone();
         let recap_db = super::api::recap_db()?;
         let (chain, analysis_model) = resolve_recap_chain(&config)?;
-        let session_db = crate::require_session_db()?.clone();
-        let log_db = crate::require_log_db()?.clone();
-        let cron_db = crate::require_cron_db()?.clone();
+        let session_db = ha_core::require_session_db()?.clone();
+        let log_db = ha_core::require_log_db()?.clone();
+        let cron_db = ha_core::require_cron_db()?.clone();
         let locale = super::i18n::effective_recap_locale(&config);
         Ok(Self {
             session_db,
@@ -80,9 +80,9 @@ fn resolve_recap_chain(config: &AppConfig) -> Result<(Vec<ActiveModel>, String)>
             .recap
             .analysis_agent
             .as_deref()
-            .and_then(|id| crate::automation::resolve_legacy_agent_chain(config, id))
+            .and_then(|id| ha_core::automation::resolve_legacy_agent_chain(config, id))
     });
-    let chain = crate::automation::effective_chain(config, override_chain);
+    let chain = ha_core::automation::effective_chain(config, override_chain);
     if chain.is_empty() {
         return Err(anyhow!(
             "no LLM provider available — configure a provider before running analysis tasks"
@@ -94,7 +94,7 @@ fn resolve_recap_chain(config: &AppConfig) -> Result<(Vec<ActiveModel>, String)>
     // report may actually have been produced by a fallback if the primary
     // was transiently unavailable — a label naming only `chain[0]` would
     // claim a certainty the chain's whole design contract doesn't provide.
-    let primary_label = crate::automation::model_label(config, &chain[0]);
+    let primary_label = ha_core::automation::model_label(config, &chain[0]);
     let label = if chain.len() > 1 {
         format!(
             "{primary_label} (+{} fallback{})",
@@ -215,18 +215,18 @@ where
 }
 
 fn compute_quantitative(
-    session_db: &Arc<SessionDB>,
+    _session_db: &Arc<SessionDB>,
     log_db: &Arc<LogDB>,
-    cron_db: &Arc<cron::CronDB>,
+    _cron_db: &Arc<cron::CronDB>,
     filter: &RecapFilters,
 ) -> Result<QuantitativeStats> {
-    let overview = query_overview_with_delta(session_db, log_db, cron_db, filter)?;
-    let health = query_health_score(session_db, log_db, cron_db, filter)?;
-    let cost_trend = query_cost_trend(session_db, filter)?;
-    let heatmap = query_activity_heatmap(session_db, filter)?;
-    let hourly = query_hourly_distribution(session_db, filter)?;
-    let top_sessions = query_top_sessions(session_db, filter, 10)?;
-    let model_efficiency = query_model_efficiency(session_db, filter)?;
+    let overview = query_overview_with_delta(log_db, filter)?;
+    let health = query_health_score(log_db, filter)?;
+    let cost_trend = query_cost_trend(filter)?;
+    let heatmap = query_activity_heatmap(filter)?;
+    let hourly = query_hourly_distribution(filter)?;
+    let top_sessions = query_top_sessions(filter, 10)?;
+    let model_efficiency = query_model_efficiency(filter)?;
     Ok(QuantitativeStats {
         overview,
         health,

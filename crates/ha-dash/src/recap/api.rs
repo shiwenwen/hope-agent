@@ -30,7 +30,7 @@ pub fn recap_db() -> Result<Arc<RecapDb>> {
 pub async fn generate(mode: GenerateMode) -> Result<RecapReport> {
     let cancel = CancellationToken::new();
     let ctx = RecapContext::from_globals(cancel).await?;
-    let event_bus = crate::get_event_bus().cloned();
+    let event_bus = ha_core::get_event_bus().cloned();
     let report_id = uuid::Uuid::new_v4().to_string();
     let report_id_for_events = report_id.clone();
 
@@ -78,7 +78,7 @@ pub fn export_html(id: &str, output_path: Option<String>) -> Result<String> {
     let path = match output_path {
         Some(p) if !p.is_empty() => PathBuf::from(p),
         _ => {
-            let dir = crate::paths::reports_dir()?;
+            let dir = ha_core::paths::reports_dir()?;
             std::fs::create_dir_all(&dir)?;
             dir.join(format!(
                 "recap-{}.html",

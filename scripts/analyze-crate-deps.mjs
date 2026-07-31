@@ -98,7 +98,14 @@ const FEATURES = {
   // cron / dash / improve，出度 30 模块、入度 2），与 app_init / globals 同型，
   // 见下方 ASSEMBLY。契约物在 kernel 的 slash_defs，分发经 slash_hooks 三槽。
   "ha-skills": ["skills", "tools::skill"],
-  "ha-dash": ["dashboard", "recap", "activity"],
+  // ha-dash 已实际迁出（crates/ha-dash/，阶段 5 第二刀）。`activity` **留在
+  // kernel**：它是 `impl SessionDB` 的扩展方法，唯一 kernel 消费者是 Core
+  // 工具 tools::goal（无条件注册，放钩子后面会静默缺数据）。
+  // **代价**：activity.rs 的 `use crate::loop_control::…` 因此从
+  // `ha-dash → ha-cron` 兄弟边变成 kernel→ha-cron，现计入 ha-cron 的需切列，
+  // 且它调的两个 `impl SessionDB` 方法就写在 loop_control.rs 里——ha-cron 那
+  // 刀必须先解这条。**这与 ha-vcs 的 worktree / project_bootstrap 不是一回事**
+  // （那两个没造出反向边），别拿来当先例。
   // ha-local-llm 已实际迁出（crates/ha-local-llm/，阶段 5 首刀），同
   // ha-updater / ha-acp / ha-weather 从本表删除。留在 kernel 的
   // `local_model_jobs` 是**通用后台任务台账**（DB / 快照类型 / spawn /
