@@ -23,13 +23,13 @@ export function SkillMentionChip({ name }: { name: string }) {
       data-skill-mention={name}
       data-ha-title-tip={label}
       className={cn(
-        "mx-0.5 inline-flex max-w-[16rem] items-center gap-1 whitespace-nowrap align-baseline",
+        "mx-0.5 inline-flex max-w-[16rem] items-baseline gap-1 whitespace-nowrap align-baseline",
         "text-[0.95em] font-normal leading-snug",
         skillMentionToneClass(meta.iconKind),
       )}
     >
-      <SkillMentionIcon kind={meta.iconKind} className="h-3.5 w-3.5 shrink-0" />
-      {label}
+      <SkillMentionIcon kind={meta.iconKind} className="h-3.5 w-3.5 shrink-0 self-center" />
+      <span className="min-w-0 truncate">{label}</span>
     </span>
   )
 }
