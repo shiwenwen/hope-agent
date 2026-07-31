@@ -265,7 +265,8 @@ download/
 **其余规则**：
 
 - **Cache-Control 用 `--metadata-set` 随 PUT 写入，禁用 `--header-upload`**。`--header-upload` 是 PUT 成功之后的另一次调用，R2 对它返回 501，结果是对象字节正确、Cache-Control 缺失。三档值单一定义在 workflow 的 `CC_IMMUTABLE` / `CC_LATEST` / `CC_MANIFEST`。
-- **`--metadata-set` 只是降低概率，不保证头一定落地**。v0.27.0 那批就有一部分对象仍然缺 Cache-Control。**所以「校验报头缺失 → 带 `force` 重跑一次」是常规补救，不是一次性修复**：`gh workflow run mirror-release-r2.yml --ref main -f tag=vX.Y.Z -f force=true`。普通重跑没用——`--checksum` 看内容一致就跳过，metadata 根本不会被重写。
+- **三条 `rclone copy` 都必须带 `--checksum`，这是正确性不是优化**。少了它 rclone 按 size+modtime 比对，认为已经正确的对象需要刷新 metadata，于是做一次纯 metadata 的服务端 copy——**而那次 copy 落地时没有 Cache-Control**。v0.27.0 实测：force 跑给 28 个对象写上头、校验通过；紧接着一次普通重跑「上传」只花 3 秒（没搬字节），所有不可变对象的 Cache-Control 全部消失。也就是**每次普通重跑都在撤销上一次的修复**。`download/latest/` 那条一直带 `--checksum`，所以它的头在同样的重跑里毫发无损——这个不对称就是判据。
+- **头已经丢了要用 `force` 补**：`gh workflow run mirror-release-r2.yml --ref main -f tag=vX.Y.Z -f force=true`。普通重跑修不回来——`--checksum` 看哈希一致就整个跳过，不会重写 metadata。
 - **排查 Cache-Control 异常：看指令，不看数字**。别用"是否全体对象都不对"判因，几种成因都只命中一部分对象。
   - **无 Cache-Control**，或裸 `max-age=14400`（无 `public`、无 `must-revalidate`）＝ 头没写上，走上一条的 `force` 重传。两种表现取决于 Cloudflare 那时是否在替源站补默认值，同一个问题。
   - `public, max-age=14400, must-revalidate` ＝ 对象正常，是 Cloudflare Browser Cache TTL 抬高了值。只命中 CF 默认缓存的扩展名（`.dmg` `.exe` `.zip` `.tar.gz`；`.deb` `.rpm` `.AppImage` `.sig` `.json` 走 `DYNAMIC` 不中），且只上调不下调（`download/<tag>/` 的 31536000 不受影响）。要让 `latest/` 的 300s 到达浏览器，Caching → Configuration → Browser Cache TTL 改成 **Respect Existing Headers**。
