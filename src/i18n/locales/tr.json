@@ -4042,6 +4042,7 @@
     "resetDefaultsAlreadyDefault": "{{section}} zaten varsayılan ayarları kullanıyor",
     "resetDefaultsTitle": "{{section}} varsayılanları geri yüklensin mi?",
     "resetDefaultsDescription": "{{section}} hemen bu sürümün varsayılanlarına döner. Kaydedilmemiş değişiklikler silinir.",
+    "agentResetDefaultsDescription": "Bu işlem, {{section}} bölümündeki kaydedilmemiş değerleri bu sürümün varsayılanlarıyla değiştirir. Değişikliği uygulamak için Kaydet'e tıklayın.",
     "resetDefaultsPreserve": "Provider'lar, kimlik bilgileri, anılar, bilgi tabanları, görevler ve yapıtlar silinmez.",
     "resetDefaultsKnowledgeWarning": "Bilgi ayarlarını geri yüklemek arka planda dizin yeniden oluşturmayı başlatabilir.",
     "resetDefaultsSuccess": "{{section}} varsayılanlara döndürüldü",
