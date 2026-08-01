@@ -121,3 +121,71 @@ pub const TOOL_MCP_PROMPT: &str = "mcp_prompt";
 /// user's `asyncTools.maxJobSecs` is unlimited, and can only tighten a positive
 /// user-configured boundary.
 pub const ASYNC_JOB_TIMEOUT_ARG: &str = "job_timeout_secs";
+
+/// 飞书业务工具的名字常量。
+///
+/// # 为什么在契约层而不是 adapter 旁边
+///
+/// 迁移前这 35 个常量与 adapter 同在 `tools/feishu/`，AGENTS 把它记为
+/// **刻意的例外**（「拆一半只会制造两处名字表」），并写明「这条 kernel →
+/// adapter 边留给 ha-channel 那刀连同 `channel/` 一起破」。本刀兑现：adapter
+/// 整组随 ha-channel 上浮，而 kernel 侧仍要按名字裁决——
+/// `permission::engine::classify_external_connector_action` 精确匹配其中 13 个
+/// 来判定「改动了另一个记录系统」，`EDIT_TOOLS` / `permission::rules` /
+/// `hooks::condition` 还要认 `TOOL_DRIVE_{UPLOAD,DOWNLOAD}_MEDIA`。
+///
+/// **整组下沉、不拆一半**：`ha_channel::tools::feishu` 对本模块 glob 再导出，
+/// 故 `feishu::TOOL_*` 的既有写法在 adapter 侧逐字不变。
+pub mod feishu_names {
+    // ── approval ──
+    pub const TOOL_APPROVAL_CREATE_INSTANCE: &str = "feishu_approval_create_instance";
+    pub const TOOL_APPROVAL_GET_INSTANCE: &str = "feishu_approval_get_instance";
+    pub const TOOL_APPROVAL_CANCEL_INSTANCE: &str = "feishu_approval_cancel_instance";
+    pub const TOOL_APPROVAL_LIST_INSTANCES: &str = "feishu_approval_list_instances";
+    pub const TOOL_APPROVAL_SUBSCRIBE: &str = "feishu_approval_subscribe";
+
+    // ── bitable ──
+    pub const TOOL_BITABLE_LIST_RECORDS: &str = "feishu_bitable_list_records";
+    pub const TOOL_BITABLE_SEARCH_RECORDS: &str = "feishu_bitable_search_records";
+    pub const TOOL_BITABLE_CREATE_RECORD: &str = "feishu_bitable_create_record";
+    pub const TOOL_BITABLE_BATCH_UPDATE_RECORDS: &str = "feishu_bitable_batch_update_records";
+    pub const TOOL_BITABLE_LIST_VIEWS: &str = "feishu_bitable_list_views";
+    pub const TOOL_BITABLE_GET_VIEW: &str = "feishu_bitable_get_view";
+    pub const TOOL_BITABLE_LIST_DASHBOARDS: &str = "feishu_bitable_list_dashboards";
+
+    // ── calendar ──
+    pub const TOOL_CALENDAR_LIST: &str = "feishu_calendar_list";
+    pub const TOOL_CALENDAR_CREATE_EVENT: &str = "feishu_calendar_create_event";
+    pub const TOOL_CALENDAR_LIST_EVENTS: &str = "feishu_calendar_list_events";
+    pub const TOOL_CALENDAR_UPDATE_EVENT: &str = "feishu_calendar_update_event";
+    pub const TOOL_CALENDAR_DELETE_EVENT: &str = "feishu_calendar_delete_event";
+    pub const TOOL_CALENDAR_ATTENDEES_CREATE: &str = "feishu_calendar_attendees_create";
+
+    // ── contact ──
+    pub const TOOL_CONTACT_GET_USER: &str = "feishu_contact_get_user";
+    pub const TOOL_CONTACT_BATCH_GET_USERS: &str = "feishu_contact_batch_get_users";
+    pub const TOOL_CONTACT_GET_DEPARTMENT: &str = "feishu_contact_get_department";
+    pub const TOOL_CONTACT_SEARCH_USERS_BY_DEPARTMENT: &str =
+        "feishu_contact_search_users_by_department";
+
+    // ── docx ──
+    pub const TOOL_DOCX_CREATE: &str = "feishu_docx_create";
+    pub const TOOL_DOCX_GET_BLOCKS: &str = "feishu_docx_get_blocks";
+    pub const TOOL_DOCX_APPEND_BLOCK: &str = "feishu_docx_append_block";
+    pub const TOOL_DOCX_UPDATE_BLOCK_TEXT: &str = "feishu_docx_update_block_text";
+
+    // ── drive ──
+    pub const TOOL_DRIVE_LIST_FILES: &str = "feishu_drive_list_files";
+    pub const TOOL_DRIVE_UPLOAD_MEDIA: &str = "feishu_drive_upload_media";
+    pub const TOOL_DRIVE_DOWNLOAD_MEDIA: &str = "feishu_drive_download_media";
+
+    // ── hire ──
+    pub const TOOL_HIRE_LIST_JOBS: &str = "feishu_hire_list_jobs";
+    pub const TOOL_HIRE_GET_JOB: &str = "feishu_hire_get_job";
+    pub const TOOL_HIRE_LIST_TALENTS: &str = "feishu_hire_list_talents";
+    pub const TOOL_HIRE_GET_TALENT: &str = "feishu_hire_get_talent";
+    pub const TOOL_HIRE_LIST_APPLICATIONS: &str = "feishu_hire_list_applications";
+
+    // ── wiki ──
+    pub const TOOL_WIKI_GET_NODE: &str = "feishu_wiki_get_node";
+}

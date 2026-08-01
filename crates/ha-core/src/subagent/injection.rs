@@ -631,7 +631,7 @@ pub async fn inject_and_run_parent(
         // a short-lived current-thread runtime whose drop would cancel a spawned
         // finalize. `None` when there's no IM attach (desktop-only / no channel).
         let injection_mirror =
-            crate::chat_engine::im_mirror::attach_im_injection_mirror(&parent_session_id).await;
+            crate::channel_hooks::attach_injection_mirror(&parent_session_id).await;
 
         match crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
             session_id: parent_session_id.clone(),
@@ -708,8 +708,7 @@ pub async fn inject_and_run_parent(
                 // G1: deliver the mirrored injection turn to IM (per imReplyMode).
                 // Awaited so it completes before this current-thread runtime drops.
                 if let Some(state) = injection_mirror {
-                    crate::chat_engine::im_mirror::finalize_im_live_mirror(state, &result.response)
-                        .await;
+                    state.finalize(&result.response).await;
                 }
                 // G2: if this is a cron run session, fan the injected result out to
                 // the cron job's delivery_targets (the inline run delivered its own
@@ -736,8 +735,7 @@ pub async fn inject_and_run_parent(
                 // injection sent no user-quote, so there's nothing orphaned; a
                 // cancel re-queues and re-delivers on the next idle attempt).
                 if let Some(state) = injection_mirror {
-                    crate::chat_engine::im_mirror::abort_im_live_mirror_with_body(state, None)
-                        .await;
+                    state.abort(None).await;
                 }
             }
         }

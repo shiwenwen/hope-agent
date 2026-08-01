@@ -27,6 +27,8 @@ pub use ha_core::agent;
 pub use ha_core::agent_config;
 pub use ha_core::agent_loader;
 pub use ha_core::backup;
+// 台账 + 契约在 kernel，机器在 ha-channel（阶段 5 第五刀）。命令层同时用到
+// 两侧，故 `crate::channel` 保留指向 kernel，机器面显式走 `ha_channel::`。
 pub use ha_core::channel;
 pub use ha_core::chat_engine;
 pub use ha_core::context_compact;
@@ -104,6 +106,7 @@ pub fn run() {
     ha_media::wire();
     ha_local_llm::wire();
     ha_dash::wire();
+    ha_channel::wire();
     ha_cron::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new

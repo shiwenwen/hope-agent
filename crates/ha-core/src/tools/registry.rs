@@ -89,6 +89,49 @@ pub fn register_external_tools(
     }
 }
 
+/// 特征 crate 在装配期注册**工具 schema 提供者**。
+///
+/// 与 [`register_external_tools`] 配对使用：那个注册 handler，这个补上
+/// `ToolDefinition`。缺了它，`resolve_tool_fate` 的可见性兜底对该工具
+/// no-op（见上方契约），`freeze_now` 也会记 warn。
+///
+/// 传的是**函数指针而非现成 Vec**：schema 构造要读 `cached_config()`
+/// （飞书工具的 tier 取决于是否配了账号），而 `wire()` 跑在配置缓存建立
+/// 之前；延迟到目录首次汇编时再调即可。
+/// **冻结后返回 `Err`**，与 [`register_external_tools`] 同一档：工具目录
+/// （`dispatch::ALL_DISPATCHABLE_TOOLS`）是个 `LazyLock`，一旦被
+/// `all_dispatchable_tools` / `is_internal_tool` 等入口先行实体化，之后再注册
+/// 的 provider **永远进不去那份已缓存的目录**。而 handler 走的是另一套队列、
+/// 照样注册成功——结果就是「工具能执行，却因为查不到 `ToolDefinition` 而滑过
+/// `resolve_tool_fate` 的 `tools.allow/deny` 可见性兜底」。这正是上面那条契约
+/// 要防的失效模式，所以它必须 fail loud 而不是静默 `Ok`。
+pub fn register_external_tool_definitions(
+    provider: fn() -> Vec<crate::tool_defs::ToolDefinition>,
+) -> Result<(), crate::AlreadyRegistered> {
+    if CATALOG_REALIZED.load(std::sync::atomic::Ordering::Acquire) {
+        return Err(crate::AlreadyRegistered(
+            "external tool definitions (tool catalog already realized — register during wire(), before any tool listing)",
+        ));
+    }
+    EXTERNAL_DEFS
+        .set(provider)
+        .map_err(|_| crate::AlreadyRegistered("external tool definitions provider"))
+}
+
+static EXTERNAL_DEFS: OnceLock<fn() -> Vec<crate::tool_defs::ToolDefinition>> = OnceLock::new();
+static CATALOG_REALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 工具目录开始汇编——此后任何 provider 注册都太晚了。由
+/// `dispatch::ALL_DISPATCHABLE_TOOLS` 的初始化闭包**在读 provider 之前**调用。
+pub(crate) fn mark_catalog_realized() {
+    CATALOG_REALIZED.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// 外部特征 crate 提供的工具 schema。未注册即空表（该特征不在本构建里）。
+pub(crate) fn external_tool_definitions() -> Vec<crate::tool_defs::ToolDefinition> {
+    EXTERNAL_DEFS.get().map(|f| f()).unwrap_or_default()
+}
+
 /// 查规范名或别名对应的条目（含规范名 + handler）。首次调用冻结注册表。
 pub(crate) fn lookup(name: &str) -> Option<RegisteredTool> {
     frozen().get(name).copied()
@@ -201,6 +244,7 @@ fn frozen() -> &'static HashMap<&'static str, RegisteredTool> {
 /// 把 match 臂表达式包成注册项 handler 的样板宏。`$body` 是在 async 块内
 /// 求值的**完整表达式**（含 `.await` / `Ok(...)`，与原 match 臂逐字一致）：
 /// `tool_handler!(|args, ctx| exec::tool_exec(args, ctx).await)`。
+#[macro_export]
 macro_rules! tool_handler {
     (|$args:ident, $ctx:ident| $body:expr) => {{
         fn handler<'a>(
@@ -215,7 +259,11 @@ macro_rules! tool_handler {
         handler as $crate::tools::registry::BuiltinToolHandler
     }};
 }
-pub(crate) use tool_handler;
+// `#[macro_export]` + 此处再导出：特征 crate（ha-channel 的 35 条飞书条目）
+// 在自己的 `wire()` 里建注册项，需要同一个样板宏——否则每条都要手写一遍
+// `fn handler<'a>(...)`。`macro_export` 把它挂到 crate 根，这行让
+// `ha_core::tools::registry::tool_handler!` 的就近路径也可用。
+pub use crate::tool_handler;
 
 #[cfg(test)]
 mod tests {

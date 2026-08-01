@@ -11,7 +11,6 @@ use crate::turn_durability::{FlushReason, TurnDurabilitySink};
 
 use super::context::*;
 use super::finalize::{self, PartialMeta, TerminationReason};
-use super::im_mirror::{attach_im_live_mirror, finalize_im_live_mirror};
 use super::sink_registry;
 use super::stream_broadcast;
 use super::stream_seq;
@@ -821,10 +820,10 @@ pub(crate) async fn run_chat_engine_classified(
     // IM-mirror prefers the friendly `display_text` (e.g. `Using skill **X**...`
     // rendered for `/skill` invocations) so attached IM chats see what the
     // desktop user saw, not the raw `[SYSTEM:...]` prompt fed to the model.
-    let mut im_mirror = attach_im_live_mirror(
+    let mut im_mirror = crate::channel_hooks::attach_live_mirror(
         &session_id,
         source,
-        Some(crate::chat_engine::im_mirror::LastUserSnapshot {
+        Some(crate::channel_hooks::LastUserSnapshot {
             source: source.as_str().to_string(),
             text: crate::util::non_empty_trim_or(display_text.as_deref(), &message).to_owned(),
             attachment_count: attachments.len(),
@@ -1494,7 +1493,7 @@ pub(crate) async fn run_chat_engine_classified(
                     if let Some(state) = im_mirror.take() {
                         let mirror_response = response.clone();
                         tokio::spawn(async move {
-                            finalize_im_live_mirror(state, &mirror_response).await;
+                            state.finalize(&mirror_response).await;
                         });
                     }
 
@@ -2156,7 +2155,7 @@ pub(crate) async fn run_chat_engine_classified(
     }
     if let Some(state) = im_mirror.take() {
         tokio::spawn(async move {
-            finalize_im_live_mirror(state, "").await;
+            state.finalize("").await;
         });
     }
     stream_lifecycle.set_terminal(

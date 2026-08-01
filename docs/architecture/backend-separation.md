@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-cron · ha-dash · ha-design · ha-eval-runtime<br/>ha-local-llm · ha-mac · ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-channel · ha-cron · ha-dash · ha-design<br/>ha-eval-runtime · ha-local-llm · ha-mac · ha-mcp · ha-media · ha-pet<br/>ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -187,10 +187,17 @@ schema 类型、执行上下文——把它们放在 `tools/` 会让「人人依
 | `tool_defs/{extra,goal,loop,plan,task,update}_tools.rs` | 零外部依赖的单工具 schema 构造器 |
 | `tool_defs/mod.rs` | 门面 `pub use` + `ToolProvider`（provider schema 适配枚举）+ `expand_tilde` |
 
-`feishu_*` 名字常量**刻意不下沉**：`permission::engine` 的
-`classify_external_connector_action` 精确匹配 13 个，但它们与 adapter 同文件、
-整组随 ha-channel 上浮，拆一半只会制造两处名字表。这条 kernel → adapter 边
-留给 ha-channel 那刀连同 `channel/` 一起破。
+`feishu_*` 名字常量已下沉 `tool_defs/names.rs` 的 `feishu_names` 子模块
+（阶段 5 第五刀兑现——此前那条「刻意不下沉、留给 ha-channel 那刀一起破」的
+例外就此关闭）。**整组 35 个一起下沉、不拆一半**：`permission::engine` 的
+`classify_external_connector_action` 精确匹配其中 13 个，`EDIT_TOOLS` /
+`permission::rules` / `hooks::condition` 另外要认
+`TOOL_DRIVE_{UPLOAD,DOWNLOAD}_MEDIA`，而 adapter 整组随 ha-channel 上浮——
+拆一半只会制造两处名字表。`ha_channel::tools::feishu` 对它 glob 再导出，
+adapter 侧 `feishu::TOOL_*` 写法逐字不变；kernel 调用点用
+`use crate::tool_defs::feishu_names as feishu;` 别名，13 个 match 分支一个字没动。
+子模块名带 `_names` 后缀是**必须的**：叫 `feishu` 会与 `tools::feishu` 在
+`tools/mod.rs` 的 glob 里撞名（rustc `private_item_shadows_public_glob_reexport`）。
 
 **方向红线**：`tool_defs` 的**生产代码绝不**依赖 `tools::dispatch` /
 `tools::registry` / 任何 adapter。需要分发层行为的方法一律改 extension
@@ -295,9 +302,8 @@ dash / skills / improve）原本构成一个强连通分量——**环内任何�
 
 `node scripts/analyze-crate-deps.mjs` 现在输出「✅ 无环 —— 存在可行的拓扑
 拆分顺序」。**无环 ≠ 任意顺序**：它保证的是存在一个可行顺序，而剩下的单向
-边就是这个顺序的约束。当前单向边：dash→cron 4 · improve→skills 4 ·
-channel→knowledge 2 · 另 4 条 1 度边（ha-local-llm 已于阶段 5 首刀实际
-拆出，它的 local-llm→knowledge 3 现在是 crate 间依赖，不再进本表）。
+边就是这个顺序的约束。当前单向边：**只剩 improve→skills 4**——dash / cron / channel 都已实际
+拆出（它们的边现在是 crate 间依赖，不再进本表；ha-local-llm 同理）。
 
 **方向：`A→B` 则 A（依赖方）先拆**，与直觉相反，理由是
 `ha-core` 不依赖任何特征 crate（见下节共同契约）：
@@ -308,12 +314,14 @@ channel→knowledge 2 · 另 4 条 1 度边（ha-local-llm 已于阶段 5 首刀
   `B → ha-core`，**Cargo 直接拒绝**——只能再花一轮把这条边改成钩子。
   这与「环内成员不能先于破环单独成 crate」是同一条约束的两种形态。
 
-据此的一个可行顺序：**dash → cron → improve → channel → knowledge →
-skills**。ha-local-llm 之所以能不排在这条序列里先走，正是因为它没有任何
-入边（需切 0）——它只依赖别人，不被别人依赖。**新增任何特征间边前先跑
+据此的可行顺序原为 **dash → cron → improve → channel → knowledge →
+skills**；dash / cron / channel 已落地（improve 只拆出了 ha-eval-runtime
+那一半，见该小节），**剩余约束只有 improve 先于 skills**。ha-local-llm
+之所以能不排在这条序列里先走，正是因为它没有任何入边（需切 0）——它只依赖
+别人，不被别人依赖。**新增任何特征间边前先跑
 一次脚本**——成环会让后续拆分整个卡住。
 
-### 特征 crate（ha-acp / ha-browser / ha-cron / ha-dash / ha-design / ha-eval-runtime / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-channel / ha-cron / ha-dash / ha-design / ha-eval-runtime / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -418,6 +426,40 @@ skills**。ha-local-llm 之所以能不排在这条序列里先走，正是因�
   侧。kernel 边界单钩子 `register_pet_config_updater`（选择校验 + 跨进
   程库锁 + mutate_config；未接线 Err fail-explicit——消费入口均为用户
   显式动作）。
+- **ha-channel**（IM 渠道，阶段 5 第五刀）：12 个聊天平台插件、入站 worker
+  分发与媒体管道、账号生命周期与启动重试 watchdog、主对话 IM 实时镜像
+  （`im_mirror`，自 `chat_engine/` 迁出）、飞书业务 API 与 35 个工具 adapter。
+  **本阶段最大一刀（约 4.5 万行）**。
+  **分法同「台账 vs 机器」，但 kernel 侧多留了一层「契约与持有者」**：
+  - `channel/db.rs`——`ChannelDB` 持 `SessionDB` 连接直接读写
+    `channel_conversations`（表在 kernel 的 `sessions.db` 里），更是红线
+    「一 chat ↔ 一 session **双向 1:1**、读写一律走 `channel/db.rs` helper」的
+    **执行点**。同 `CronDB`。
+  - `channel/cancel.rs`——绑着 `CHANNEL_CANCELS` 全局、`AppState.channel_cancels`
+    与 `app_init` 里「两者必须共享同一 `Arc`」的 `ptr_eq_lock` 断言。
+  - `channel/traits.rs` + `channel/registry.rs`——**契约与持有者，不是机器**：
+    trait 零实现，registry 只按 `ChannelId` 存 `Arc<dyn ChannelPlugin>` 并转发
+    start/stop/restart。这条判断是本刀的关键：**正因为它们留下，
+    `CHANNEL_REGISTRY` 全局、`AppState` 字段与 src-tauri（9 处）/ ha-server
+    （3 处）/ ha-cron（1 处）的全部调用点一处未改**——原计划照 `ACP_MANAGER`
+    先例把全局迁出，那才是这一刀风险最高的部分，判断改了之后整块消失。
+  - `channel/types.rs` / `config.rs`——`AppConfig` 可达 wire 类型，本就转发
+    ha-config-schema。
+  kernel 边界：[`channel_hooks`](../../crates/ha-core/src/channel_hooks.rs)
+  **十六槽原子注册**——撤窗 5（`ask_user`/审批的决议路径遍布 kernel，红线要求
+  每条都撤窗，部分注册＝部分路径留僵尸卡片，故与 `cron_hooks` 同样原子）、
+  IM 实时镜像 2（`chat_engine` 只 attach→持有→收尾、从不读状态字段，故以
+  `ImLiveMirror` trait object 过边界）、账号开关 1、watchdog 2、装配 6
+  （插件装入 / dispatcher / 四个监听器 / watchdog 循环 / 失败登记）。
+  未装配语义**刻意不统一**：撤窗一族 no-op（无窗可撤不是错误，fail loud 会让
+  headless / ACP 的每次审批决议都告警），镜像一族 `None`（本会话未 attach），
+  账号开关 `Err`（写入不能静默失败）。
+  `InlineButton::callback_id` 的固有 impl 随类型留 kernel（孤儿规则）；
+  菜单重同步 `spawn_channel_menu_resync_listener` 也留 kernel——它只用 registry
+  的公开 `sync_commands_for_all()` 与 EventBus，不碰任何插件实现。
+  **构建依赖同步拆分**：`protoc` / `prost` 只服务飞书长连接的 pbbp2 帧，
+  `build.rs` 与 `proto/` 随本 crate 迁出，**ha-core 因此甩掉
+  `prost-build` + `protoc-bin-vendored` 两个构建依赖**。
 - **ha-cron**（排程，阶段 5 第三刀）：cron 的调度器 / 执行器 / 投递 /
   失败分类 / 时间线，以及 `manage_cron` 工具 adapter。
   **分法是「台账 vs 机器」，与破环那刀对 `local_model_jobs` 的处理同型**：

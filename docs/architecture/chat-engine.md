@@ -82,10 +82,10 @@ pub trait EventSink: Send + Sync + 'static {
 
 ### GUI ↔ IM live 流式镜像 (SinkRegistry fan-out)
 
-GUI / HTTP 入口的 turn 在 IM attach 那一侧走 live 流式镜像：IM 用户实时看到 typewriter / per-round 边界 finalize / 媒体投递,与 IM 入站 turn 对称。实现走 [`crates/ha-core/src/chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs):
+GUI / HTTP 入口的 turn 在 IM attach 那一侧走 live 流式镜像：IM 用户实时看到 typewriter / per-round 边界 finalize / 媒体投递,与 IM 入站 turn 对称。实现走 [`crates/ha-channel/src/im_mirror.rs`](../../crates/ha-channel/src/im_mirror.rs):
 
-- `attach_im_live_mirror(session_id, source)` —— `Desktop` / `Http` source 才返非空 state；通过 `channel_db.get_conversation_by_session(session_id)` 拿到 1:1 attach 行,获取对应 `ChannelAccountConfig.im_reply_mode()` / `show_thinking()` + plugin `capabilities()`,spawn `channel::worker::streaming::spawn_channel_stream_task`,把 `ChannelStreamSink` 注册到 [`SinkRegistry`](../../crates/ha-core/src/chat_engine/sink_registry.rs)。`emit_stream_event` 末尾的 `sink_registry().emit(session_id, &payload)` fan-out 把每帧 streaming event 转发到 IM 流式预览任务。
-- `finalize_im_live_mirror(state, response)` —— drop SinkHandle(RAII 卸载 sink → 关闭 event_tx → stream task drain 后 EOF),`.await` stream task 拿 `StreamPreviewOutcome`(含 `PreviewHandle` + `finalized_rounds`),drain `RoundTextAccumulator`,按 `ImReplyMode` 复用 dispatcher 的 [`deliver_split` / `deliver_final_only` / `deliver_preview_merged`](../../crates/ha-core/src/channel/worker/dispatcher.rs)(已解耦 `MsgContext`,接受 `chat_id / thread_id / reply_to_message_id: Option<&str>` 三参显式形态)。
+- `attach_im_live_mirror(session_id, source)` —— `Desktop` / `Http` source 才返非空 state；通过 `channel_db.get_conversation_by_session(session_id)` 拿到 1:1 attach 行,获取对应 `ChannelAccountConfig.im_reply_mode()` / `show_thinking()` + plugin `capabilities()`,spawn ha-channel 的 `channel::worker::streaming::spawn_channel_stream_task`,把 `ChannelStreamSink` 注册到 [`SinkRegistry`](../../crates/ha-core/src/chat_engine/sink_registry.rs)。`emit_stream_event` 末尾的 `sink_registry().emit(session_id, &payload)` fan-out 把每帧 streaming event 转发到 IM 流式预览任务。
+- `finalize_im_live_mirror(state, response)` —— drop SinkHandle(RAII 卸载 sink → 关闭 event_tx → stream task drain 后 EOF),`.await` stream task 拿 `StreamPreviewOutcome`(含 `PreviewHandle` + `finalized_rounds`),drain `RoundTextAccumulator`,按 `ImReplyMode` 复用 dispatcher 的 [`deliver_split` / `deliver_final_only` / `deliver_preview_merged`](../../crates/ha-channel/src/channel/worker/dispatcher.rs)(已解耦 `MsgContext`,接受 `chat_id / thread_id / reply_to_message_id: Option<&str>` 三参显式形态)。
 
 **两个通道独立走自己的发送通路**:GUI 永远走 Tauri IPC stream / HTTP `chat:stream_delta` 广播,不受 `imReplyMode` 影响;`imReplyMode` 仅决定 IM 端的呈现形态。
 

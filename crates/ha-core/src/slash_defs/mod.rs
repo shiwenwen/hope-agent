@@ -43,7 +43,7 @@ pub fn canonical_builtin_command_name(name: &str) -> &str {
 /// the slash handler (GUI markdown) and the channel text-fallback so the
 /// two surfaces stay aligned. When the session was matched via message-body
 /// FTS, a second indented line shows the matched snippet.
-pub(crate) fn format_session_picker_line(s: &SessionPickerItem) -> String {
+pub fn format_session_picker_line(s: &SessionPickerItem) -> String {
     let id_short: String = s.id.chars().take(8).collect();
     let mut chips: Vec<String> = Vec::with_capacity(3);
     if !s.agent_label.is_empty() {

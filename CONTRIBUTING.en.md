@@ -139,7 +139,7 @@ New providers integrate with [`crates/ha-core/src/provider/`](crates/ha-core/src
 
 ### Add an IM channel
 
-[`crates/ha-core/src/channel/`](crates/ha-core/src/channel/) already contains 12 channels (Telegram, Slack, Feishu, WeCom, ...) as references. Each implements the `ChannelPlugin` trait + event callbacks. Easiest starting point: a webhook-based channel (see LINE / Discord).
+[`crates/ha-channel/src/channel/`](crates/ha-channel/src/channel/) already contains 12 channels (Telegram, Slack, Feishu, WeCom, ...) as references. Each implements the `ChannelPlugin` trait + event callbacks. Easiest starting point: a webhook-based channel (see LINE / Discord).
 
 ## CHANGELOG maintenance
 

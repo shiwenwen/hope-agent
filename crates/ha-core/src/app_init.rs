@@ -583,19 +583,10 @@ pub fn init_runtime(role: &'static str) {
         // non-Message variants log-only so per-event work is < 1ms.
         let (mut registry, inbound_rx) = channel::ChannelRegistry::new(1024);
 
-        // Register built-in channel plugins
-        registry.register_plugin(Arc::new(channel::telegram::TelegramPlugin::new()));
-        registry.register_plugin(Arc::new(channel::wechat::WeChatPlugin::new()));
-        registry.register_plugin(Arc::new(channel::slack::SlackPlugin::new()));
-        registry.register_plugin(Arc::new(channel::feishu::FeishuPlugin::new()));
-        registry.register_plugin(Arc::new(channel::discord::DiscordPlugin::new()));
-        registry.register_plugin(Arc::new(channel::qqbot::QqBotPlugin::new()));
-        registry.register_plugin(Arc::new(channel::irc::IrcPlugin::new()));
-        registry.register_plugin(Arc::new(channel::signal::SignalPlugin::new()));
-        registry.register_plugin(Arc::new(channel::imessage::IMessagePlugin::new()));
-        registry.register_plugin(Arc::new(channel::whatsapp::WhatsAppPlugin::new()));
-        registry.register_plugin(Arc::new(channel::googlechat::GoogleChatPlugin::new()));
-        registry.register_plugin(Arc::new(channel::line::LinePlugin::new()));
+        // 12 个内置插件的实现随 ha-channel 上浮，由它在 `wire()` 注册的
+        // 装配槽装入——registry 本体与 `ChannelId` 键仍是 kernel 契约，
+        // 故 `CHANNEL_REGISTRY` 全局与 `AppState` 字段一处未改。
+        crate::channel_hooks::install_plugins(&mut registry);
 
         let registry = Arc::new(registry);
         let channel_db = Arc::new(channel::ChannelDB::new(session_db.clone()));
@@ -614,7 +605,7 @@ pub fn init_runtime(role: &'static str) {
         // OS thread with its own tokio runtime, so it's safe to call from
         // sync init regardless of which mode (desktop / server / acp) is
         // bringing up the runtime.
-        channel::worker::spawn_dispatcher(registry.clone(), channel_db.clone(), inbound_rx);
+        crate::channel_hooks::spawn_dispatcher(registry.clone(), channel_db.clone(), inbound_rx);
 
         // NOTE: approval / ask_user listeners use bare `tokio::spawn` and
         // require an ambient tokio runtime. They moved to
@@ -772,21 +763,15 @@ fn ptr_eq_lock<T>(lock: &std::sync::OnceLock<Arc<T>>, field: &Arc<T>) -> bool {
 /// channel registry isn't initialised yet.
 fn spawn_channel_listeners() {
     if let (Some(channel_db), Some(registry)) = (CHANNEL_DB.get(), CHANNEL_REGISTRY.get()) {
-        channel::worker::approval::spawn_channel_approval_listener(
-            channel_db.clone(),
-            registry.clone(),
-        );
-        channel::worker::ask_user::spawn_channel_ask_user_listener(
-            channel_db.clone(),
-            registry.clone(),
-        );
-        channel::worker::spawn_channel_eviction_watcher(registry.clone());
+        // approval / ask_user / eviction 随 ha-channel 上浮。
+        crate::channel_hooks::spawn_listeners(channel_db.clone(), registry.clone());
+        // 菜单重同步**留 kernel**：它只用 registry 的公开 `sync_commands_for_all()`
+        // 与 EventBus，订阅的是 skills / config 事件，不碰任何插件实现。
         spawn_channel_menu_resync_listener(registry.clone());
-        // Send a single "back online" notice to recently-active IM
-        // conversations after a fresh process boot. Self-gates on
-        // runtime_lock::is_primary() + AppConfig.startup_notification.enabled
-        // and is a no-op otherwise.
-        channel::worker::spawn_startup_notifier(registry.clone());
+        // startup notifier 排在菜单重同步**之后**——与迁移前逐位一致，故它
+        // 单独占一槽而不并进 `spawn_listeners`。自带 is_primary +
+        // startup_notification.enabled 双重自门控，语义不变。
+        crate::channel_hooks::spawn_startup_notifier(registry.clone());
     }
 }
 
@@ -1260,12 +1245,12 @@ pub async fn start_background_tasks() {
         // background until success or user action.
         if let Some(registry) = CHANNEL_REGISTRY.get() {
             let registry = registry.clone();
-            channel::start_watchdog::spawn_loop(registry.clone());
+            crate::channel_hooks::spawn_start_watchdog_loop(registry.clone());
             let store = crate::config::cached_config();
             tokio::spawn(async move {
                 for account in store.channels.enabled_accounts() {
                     if let Err(e) = registry.start_account(account).await {
-                        channel::start_watchdog::register_failure(account, &e).await;
+                        crate::channel_hooks::start_watchdog_register_failure(account, &e).await;
                     }
                 }
             });

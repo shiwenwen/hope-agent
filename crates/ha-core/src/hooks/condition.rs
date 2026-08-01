@@ -57,8 +57,8 @@ pub fn if_matches(rule: &str, input: &HookInput) -> bool {
         }
         // Feishu drive upload/download touch local paths — same family as
         // read/write, mirrored from `permission::rules::extract_path_arg`.
-        n if n == crate::tools::feishu::TOOL_DRIVE_UPLOAD_MEDIA
-            || n == crate::tools::feishu::TOOL_DRIVE_DOWNLOAD_MEDIA =>
+        n if n == crate::tool_defs::feishu_names::TOOL_DRIVE_UPLOAD_MEDIA
+            || n == crate::tool_defs::feishu_names::TOOL_DRIVE_DOWNLOAD_MEDIA =>
         {
             extract_path_arg(tool, args).map(|p| p.to_string_lossy().into_owned())
         }

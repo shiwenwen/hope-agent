@@ -2343,7 +2343,7 @@ export default async function main(workflow) {
             ..ToolExecContext::default()
         };
         assert!(needs_permission_engine(
-            crate::tools::feishu::TOOL_CALENDAR_CREATE_EVENT,
+            crate::tool_defs::feishu_names::TOOL_CALENDAR_CREATE_EVENT,
             &json!({"summary": "Customer call"}),
             &ctx,
             ctx.local_auto_approve()
@@ -2363,7 +2363,7 @@ export default async function main(workflow) {
             ..ToolExecContext::default()
         };
         assert!(!needs_permission_engine(
-            crate::tools::feishu::TOOL_CALENDAR_CREATE_EVENT,
+            crate::tool_defs::feishu_names::TOOL_CALENDAR_CREATE_EVENT,
             &json!({"summary": "Customer call"}),
             &ctx,
             ctx.local_auto_approve()

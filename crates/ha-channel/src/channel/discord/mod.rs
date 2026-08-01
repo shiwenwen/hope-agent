@@ -1,0 +1,561 @@
+//! Discord Bot channel.
+//!
+//! - **Official API**: <https://discord.com/developers/docs/intro>
+//! - **SDK / Reference**: <https://github.com/discord/discord-api-docs>
+//!   (canonical), gateway opcode 列表
+//!   <https://discord.com/developers/docs/topics/opcodes-and-status-codes>
+//! - **Protocol**: WebSocket Gateway v10 + REST + multipart file upload
+//! - **Last reviewed**: 2026-05-05
+
+pub mod api;
+pub mod format;
+pub mod gateway;
+pub mod inbound_media;
+pub mod media;
+
+use anyhow::Result;
+use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
+
+use api::DiscordApi;
+use ha_core::channel::traits::{chunk_text, ChannelPlugin};
+use ha_core::channel::types::*;
+
+/// Running account state for a Discord bot.
+struct RunningAccount {
+    api: Arc<DiscordApi>,
+    // Diagnostics-only — retained for future filtering of bot-authored events.
+    #[allow(dead_code)]
+    bot_id: String,
+    #[allow(dead_code)]
+    bot_username: String,
+    /// Discord application id, needed to re-sync slash commands without
+    /// re-fetching `/users/@me`.
+    application_id: String,
+}
+
+/// Discord channel plugin implementation.
+pub struct DiscordPlugin {
+    /// Running accounts keyed by account_id.
+    accounts: Mutex<HashMap<String, RunningAccount>>,
+}
+
+impl DiscordPlugin {
+    pub fn new() -> Self {
+        Self {
+            accounts: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Extract bot token from credentials JSON.
+    fn extract_token(credentials: &serde_json::Value) -> Result<String> {
+        credentials
+            .get("token")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("Missing 'token' in Discord credentials"))
+    }
+
+    /// Extract optional proxy URL from settings or global config.
+    fn extract_proxy(settings: &serde_json::Value) -> Option<String> {
+        if let Some(proxy) = settings.get("proxy").and_then(|v| v.as_str()) {
+            if !proxy.is_empty() {
+                return Some(proxy.to_string());
+            }
+        }
+        ha_core::provider::active_custom_proxy_url()
+    }
+
+    /// Sync slash commands to Discord's Application Commands API.
+    ///
+    /// Called from `start_account` (first-time install) and from the trait
+    /// `sync_commands` impl (driven by skill / config changes — see
+    /// `ChannelRegistry::sync_commands_for_account`). Non-fatal on failure
+    /// — the bot remains usable, just with a stale menu until the next
+    /// successful sync.
+    async fn sync_commands_to_discord(api: &DiscordApi, application_id: &str) {
+        // Single source of truth for the IM-bot catalog (filter, cap, fallback);
+        // Discord just projects each entry into its CHAT_INPUT JSON below.
+        // Skill names already pass Discord's `^[-_\p{L}\p{N}]{1,32}$` rule via
+        // `skills::normalize_skill_command_name`, so no re-sanitisation needed.
+        let entries = ha_core::slash_hooks::im_menu_entries().await;
+
+        let discord_commands: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|cmd| {
+                let description = cmd.description_en();
+                let mut command = serde_json::json!({
+                    "name": cmd.name,
+                    "description": description,
+                    "type": 1, // CHAT_INPUT
+                });
+
+                if cmd.has_args {
+                    if let Some(ref options) = cmd.arg_options {
+                        let choices: Vec<serde_json::Value> = options
+                            .iter()
+                            .map(|opt| serde_json::json!({ "name": opt, "value": opt }))
+                            .collect();
+                        command["options"] = serde_json::json!([{
+                            "name": "value",
+                            "description": description,
+                            "type": 3, // STRING
+                            "required": !cmd.args_optional,
+                            "choices": choices
+                        }]);
+                    } else {
+                        command["options"] = serde_json::json!([{
+                            "name": "value",
+                            "description": cmd.arg_placeholder.as_deref().unwrap_or("value"),
+                            "type": 3, // STRING
+                            "required": !cmd.args_optional,
+                        }]);
+                    }
+                }
+
+                command
+            })
+            .collect();
+
+        let count = discord_commands.len();
+        match api
+            .bulk_overwrite_global_commands(application_id, discord_commands)
+            .await
+        {
+            Ok(()) => {
+                app_info!(
+                    "channel",
+                    "discord",
+                    "Synced {} commands to Discord application",
+                    count
+                );
+            }
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "discord",
+                    "Failed to sync Discord application commands: {}",
+                    e
+                );
+            }
+        }
+    }
+
+    /// Get the API for a running account.
+    async fn get_api(&self, account_id: &str) -> Result<Arc<DiscordApi>> {
+        let accounts = self.accounts.lock().await;
+        accounts
+            .get(account_id)
+            .map(|a| a.api.clone())
+            .ok_or_else(|| anyhow::anyhow!("Discord account '{}' is not running", account_id))
+    }
+}
+
+#[async_trait]
+impl ChannelPlugin for DiscordPlugin {
+    fn meta(&self) -> ChannelMeta {
+        ChannelMeta {
+            id: ChannelId::Discord,
+            display_name: "Discord".to_string(),
+            description: "Discord Bot channel".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
+
+    fn capabilities(&self) -> ChannelCapabilities {
+        ChannelCapabilities {
+            chat_types: vec![
+                ChatType::Dm,
+                ChatType::Group,
+                ChatType::Forum,
+                ChatType::Channel,
+            ],
+            supports_polls: false,
+            supports_reactions: true,
+            supports_draft: false,
+            supports_edit: true,
+            supports_unsend: true,
+            supports_reply: true,
+            supports_threads: true,
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Document,
+            ],
+            supports_typing: true,
+            supports_buttons: true,
+            // Discord 官方上限是 2000 字符；UTF-8 字节计算下 emoji surrogate
+            // pair 等多字节字符会顶到 6+ bytes，留 25% 余量到 1500 字节避免触发
+            // "Invalid Form Body" content_too_long
+            streaming_preview_max_bytes: Some(1500),
+            supports_card_stream: false,
+        }
+    }
+
+    async fn start_account(
+        &self,
+        account: &ChannelAccountConfig,
+        inbound_tx: mpsc::Sender<InboundEvent>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        let token = Self::extract_token(&account.credentials)?;
+        let proxy = Self::extract_proxy(&account.settings);
+
+        let api = DiscordApi::new(&token, proxy.as_deref());
+
+        // Validate token by calling GET /users/@me
+        let me = api.get_current_user().await?;
+        let bot_id = me["id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing 'id' in Discord user response"))?
+            .to_string();
+        let bot_username = me["username"].as_str().unwrap_or("unknown").to_string();
+
+        // Get application ID from the bot user object
+        // The bot's user ID is also the application ID for bot applications
+        let application_id = me
+            .get("application")
+            .and_then(|a| a.get("id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            // Fallback: for bots, application_id typically matches bot_id
+            .unwrap_or_else(|| bot_id.clone());
+
+        app_info!(
+            "channel",
+            "discord",
+            "Bot authenticated: {} (id={})",
+            bot_username,
+            bot_id
+        );
+
+        // Sync slash commands to Discord
+        Self::sync_commands_to_discord(&api, &application_id).await;
+
+        let api = Arc::new(api);
+
+        // Store running account state
+        {
+            let mut accounts = self.accounts.lock().await;
+            accounts.insert(
+                account.id.clone(),
+                RunningAccount {
+                    api: api.clone(),
+                    bot_id: bot_id.clone(),
+                    bot_username: bot_username.clone(),
+                    application_id,
+                },
+            );
+        }
+
+        // Spawn gateway WebSocket loop
+        let account_id = account.id.clone();
+        tokio::spawn(gateway::run_gateway_loop(
+            api,
+            account_id,
+            bot_id,
+            bot_username,
+            inbound_tx,
+            cancel,
+        ));
+
+        Ok(())
+    }
+
+    async fn stop_account(&self, account_id: &str) -> Result<()> {
+        let mut accounts = self.accounts.lock().await;
+        accounts.remove(account_id);
+        Ok(())
+    }
+
+    async fn materialize_pending_media(
+        &self,
+        account: &ChannelAccountConfig,
+        msg: &mut MsgContext,
+    ) -> Result<()> {
+        let pending = crate::channel::inbound_media_common::take_pending_refs::<
+            inbound_media::ParsedMediaRef,
+        >(msg);
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let api = self.get_api(&account.id).await?;
+        let results = futures_util::future::join_all(
+            pending
+                .iter()
+                .map(|p| inbound_media::materialize_inbound(&api, p, &account.id)),
+        )
+        .await;
+        for m in results.into_iter().flatten() {
+            msg.media.push(m);
+        }
+        Ok(())
+    }
+
+    async fn send_message(
+        &self,
+        account_id: &str,
+        chat_id: &str,
+        payload: &ReplyPayload,
+    ) -> Result<DeliveryResult> {
+        let api = self.get_api(account_id).await?;
+
+        let reply_to = payload.reply_to_message_id.as_deref();
+        let thread_id = payload.thread_id.as_deref();
+
+        // Convert buttons to Discord components format
+        let components: Option<Vec<serde_json::Value>> = if payload.buttons.is_empty() {
+            None
+        } else {
+            Some(vec![serde_json::json!({
+                "type": 1, // ACTION_ROW
+                "components": payload.buttons.iter().flatten().map(|b| {
+                    if let Some(ref url) = b.url {
+                        // Link button (style=5)
+                        serde_json::json!({
+                            "type": 2,
+                            "style": 5,
+                            "label": b.text,
+                            "url": url,
+                        })
+                    } else {
+                        // Interactive button (style=1 PRIMARY)
+                        let custom_id = b.callback_data.clone().unwrap_or_else(|| b.text.clone());
+                        serde_json::json!({
+                            "type": 2,
+                            "style": 1,
+                            "label": b.text,
+                            "custom_id": custom_id,
+                        })
+                    }
+                }).collect::<Vec<_>>()
+            })])
+        };
+
+        if !payload.media.is_empty() {
+            let files = media::build_discord_files(&payload.media).await?;
+            let content = media::merge_captions(payload.text.as_deref(), &payload.media);
+            let msg = api
+                .create_message_with_attachments(
+                    chat_id,
+                    content.as_deref(),
+                    reply_to,
+                    thread_id,
+                    components.as_deref(),
+                    files,
+                )
+                .await?;
+            let msg_id = msg["id"].as_str().unwrap_or("unknown").to_string();
+            return Ok(DeliveryResult::ok(msg_id));
+        }
+
+        // Send text
+        if let Some(ref text) = payload.text {
+            if text.is_empty() {
+                return Ok(DeliveryResult::ok("empty"));
+            }
+
+            let msg = api
+                .create_message(chat_id, text, reply_to, thread_id, components.as_deref())
+                .await?;
+
+            let msg_id = msg["id"].as_str().unwrap_or("unknown").to_string();
+            return Ok(DeliveryResult::ok(msg_id));
+        }
+
+        Ok(DeliveryResult::ok("no_content"))
+    }
+
+    async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()> {
+        let api = self.get_api(account_id).await?;
+        api.trigger_typing(chat_id).await
+    }
+
+    async fn edit_message(
+        &self,
+        account_id: &str,
+        chat_id: &str,
+        message_id: &str,
+        payload: &ReplyPayload,
+    ) -> Result<DeliveryResult> {
+        let api = self.get_api(account_id).await?;
+
+        if let Some(ref text) = payload.text {
+            api.edit_message(chat_id, message_id, text).await?;
+        }
+
+        Ok(DeliveryResult::ok(message_id.to_string()))
+    }
+
+    async fn delete_message(
+        &self,
+        account_id: &str,
+        chat_id: &str,
+        message_id: &str,
+    ) -> Result<()> {
+        let api = self.get_api(account_id).await?;
+        api.delete_message(chat_id, message_id).await
+    }
+
+    async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {
+        let token = Self::extract_token(&account.credentials)?;
+        let proxy = Self::extract_proxy(&account.settings);
+        let api = DiscordApi::new(&token, proxy.as_deref());
+
+        match api.get_current_user().await {
+            Ok(me) => {
+                let name = me["username"].as_str().unwrap_or("unknown");
+                Ok(ChannelHealth {
+                    is_running: false,
+                    last_probe: Some(chrono::Utc::now().to_rfc3339()),
+                    probe_ok: Some(true),
+                    error: None,
+                    uptime_secs: None,
+                    bot_name: Some(name.to_string()),
+                })
+            }
+            Err(e) => Ok(ChannelHealth {
+                is_running: false,
+                last_probe: Some(chrono::Utc::now().to_rfc3339()),
+                probe_ok: Some(false),
+                error: Some(e.to_string()),
+                uptime_secs: None,
+                bot_name: None,
+            }),
+        }
+    }
+
+    fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool {
+        let security = &account.security;
+
+        match msg.chat_type {
+            ChatType::Dm => match security.dm_policy {
+                DmPolicy::Open => true,
+                DmPolicy::Allowlist => {
+                    security.user_allowlist.contains(&msg.sender_id)
+                        || security.admin_ids.contains(&msg.sender_id)
+                }
+                DmPolicy::Pairing => {
+                    // Pairing not yet implemented — fall back to allowlist
+                    security.user_allowlist.contains(&msg.sender_id)
+                        || security.admin_ids.contains(&msg.sender_id)
+                }
+            },
+            ChatType::Group | ChatType::Forum => {
+                // 1. Check group_policy: disabled → deny all
+                if security.group_policy == GroupPolicy::Disabled {
+                    return false;
+                }
+
+                // 2. Resolve group config: exact match → wildcard "*" → None
+                let group_config = security.groups.get(&msg.chat_id);
+                let wildcard_config = security.groups.get("*");
+                let effective_group_config = group_config.or(wildcard_config);
+
+                // 3. Allowlist mode: group must be explicitly configured (or have wildcard)
+                if security.group_policy == GroupPolicy::Allowlist {
+                    if security.groups.is_empty() {
+                        if !security.group_allowlist.is_empty()
+                            && !security.group_allowlist.contains(&msg.chat_id)
+                        {
+                            return false;
+                        }
+                    } else if effective_group_config.is_none() {
+                        return false;
+                    }
+                }
+
+                // Legacy group_allowlist backward compatibility
+                if !security.group_allowlist.is_empty()
+                    && security.groups.is_empty()
+                    && !security.group_allowlist.contains(&msg.chat_id)
+                {
+                    return false;
+                }
+
+                // 4. Check group-level enabled flag
+                if let Some(cfg) = effective_group_config {
+                    if cfg.enabled == Some(false) {
+                        return false;
+                    }
+
+                    // 5. Check topic-level enabled flag (if thread_id present)
+                    if let Some(ref thread_id) = msg.thread_id {
+                        if let Some(topic_cfg) = cfg.topics.get(thread_id) {
+                            if topic_cfg.enabled == Some(false) {
+                                return false;
+                            }
+                            if !topic_cfg.allow_from.is_empty()
+                                && !topic_cfg.allow_from.contains(&msg.sender_id)
+                                && !security.admin_ids.contains(&msg.sender_id)
+                            {
+                                return false;
+                            }
+                        }
+                    }
+
+                    // 6. Group-level sender allowlist
+                    if !cfg.allow_from.is_empty()
+                        && !cfg.allow_from.contains(&msg.sender_id)
+                        && !security.admin_ids.contains(&msg.sender_id)
+                    {
+                        return false;
+                    }
+                }
+
+                // 7. Account-level user allowlist (if set)
+                if !security.user_allowlist.is_empty()
+                    && !security.user_allowlist.contains(&msg.sender_id)
+                    && !security.admin_ids.contains(&msg.sender_id)
+                {
+                    return false;
+                }
+
+                true
+            }
+            ChatType::Channel => {
+                // Channels default to disabled unless explicitly configured
+                let channel_config = security.channels.get(&msg.chat_id);
+                match channel_config {
+                    Some(cfg) => cfg.enabled != Some(false),
+                    None => false,
+                }
+            }
+        }
+    }
+
+    fn markdown_to_native(&self, markdown: &str) -> String {
+        format::markdown_to_discord(markdown)
+    }
+
+    fn chunk_message(&self, text: &str) -> Vec<String> {
+        chunk_text(text, 2000)
+    }
+
+    async fn validate_credentials(&self, credentials: &serde_json::Value) -> Result<String> {
+        let token = Self::extract_token(credentials)?;
+        let api = DiscordApi::new(&token, None);
+        let me = api.get_current_user().await?;
+        let username = me["username"].as_str().unwrap_or("unknown");
+        Ok(username.to_string())
+    }
+
+    async fn sync_commands(&self, account: &ChannelAccountConfig) -> Result<()> {
+        // Pull api + application_id together under a single lock so we don't
+        // race a concurrent stop_account that would leave us with a stale api.
+        let (api, application_id) = {
+            let accounts = self.accounts.lock().await;
+            let acc = accounts.get(&account.id).ok_or_else(|| {
+                anyhow::anyhow!("Discord account '{}' is not running", account.id)
+            })?;
+            (acc.api.clone(), acc.application_id.clone())
+        };
+        Self::sync_commands_to_discord(&api, &application_id).await;
+        Ok(())
+    }
+}

@@ -12,7 +12,7 @@
 
 ## 提交前检查（强制）
 
-[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 覆盖 `ha-base` + `ha-config-schema` + `ha-core` + `ha-acp` + `ha-browser` + `ha-cron` + `ha-dash` + `ha-design` + `ha-eval-runtime` + `ha-mac` + `ha-local-llm` + `ha-mcp` + `ha-media` + `ha-pet` + `ha-updater` + `ha-vcs` + `ha-weather` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
+[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 覆盖 `ha-base` + `ha-config-schema` + `ha-core` + `ha-acp` + `ha-browser` + `ha-channel` + `ha-cron` + `ha-dash` + `ha-design` + `ha-eval-runtime` + `ha-mac` + `ha-local-llm` + `ha-mcp` + `ha-media` + `ha-pet` + `ha-updater` + `ha-vcs` + `ha-weather` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
 
 - **开发中只单点验证**（`cargo check -p <crate>` / `pnpm typecheck`）；跑 clippy / cargo test / pnpm {test,lint} 须先问用户等回复，例外限跨 crate / 多文件收尾，跑前说明
 - **应急跳过**：`HA_SKIP_PREPUSH=1`（限纯 `.md` / 弱网）/ `HA_SKIP_PREPUSH_TEST=1`（只跳 cargo test）。禁止 `--no-verify`（会绕过 GPG 等钩子）
@@ -226,7 +226,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **事件匹配用 `contains` 不用 `starts_with`（红线）**：`emit_tool_result` 的 `json!`+`BTreeMap` 键按**字母序**排（`call_id` 恒首位），锚 `{"type":...` 的 fast-path **永不触发**
 - **`channel_conversations` 双向 1:1（红线）**：一 chat ↔ 一 session，接管即物理 detach 旧 attach + emit `channel:session_evicted`；读写一律走 [`channel/db.rs`](crates/ha-core/src/channel/db.rs) helper，**禁止直接写表**
 - **注入回投须在同一 future 内 await finalize**：`inject_and_run_parent` 自驱动镜像（注入跑短命 runtime，`spawn(finalize)` 会被腰斩）；空闲门超时**不丢弃**，重排队进 `PENDING_INJECTIONS`
-- **单一入口勿另起**：流式预览选路走 `select_stream_preview_transport`，新卡片风格靠 `ChannelPlugin` default=`Err` trait 方法扩展；auto-start 失败重试走 [`channel/start_watchdog.rs`](crates/ha-core/src/channel/start_watchdog.rs)（**user 操作永远胜过 watchdog**），勿自写退避
+- **单一入口勿另起**：流式预览选路走 `select_stream_preview_transport`，新卡片风格靠 `ChannelPlugin` default=`Err` trait 方法扩展；auto-start 失败重试走 [`channel/start_watchdog.rs`](crates/ha-channel/src/channel/start_watchdog.rs)（**user 操作永远胜过 watchdog**），勿自写退避
 
 ### 跨会话 / 全局
 
@@ -283,7 +283,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 ## 项目结构
 
-二十二 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-config-schema`（`AppConfig` wire 类型闭包，**只依赖 ha-base 与叶子 crate、零行为逻辑**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ 特征 crate `ha-acp`·`ha-browser`·`ha-cron`·`ha-dash`·`ha-design`·`ha-eval-runtime`·`ha-local-llm`·`ha-mac`·`ha-mcp`·`ha-media`·`ha-pet`·`ha-updater`·`ha-vcs`·`ha-weather`（依赖 ha-core，壳层 `wire()` 装配，**同守零 Tauri 红线**；`ha-eval-runtime` 是唯一无 `wire()` 者——kernel 对它零引用）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
+二十三 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-config-schema`（`AppConfig` wire 类型闭包，**只依赖 ha-base 与叶子 crate、零行为逻辑**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ 特征 crate `ha-acp`·`ha-browser`·`ha-channel`·`ha-cron`·`ha-dash`·`ha-design`·`ha-eval-runtime`·`ha-local-llm`·`ha-mac`·`ha-mcp`·`ha-media`·`ha-pet`·`ha-updater`·`ha-vcs`·`ha-weather`（依赖 ha-core，壳层 `wire()` 装配，**同守零 Tauri 红线**；`ha-eval-runtime` 是唯一无 `wire()` 者——kernel 对它零引用）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
 
 ## 开发命令
 

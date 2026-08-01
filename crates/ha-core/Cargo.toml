@@ -8,10 +8,6 @@ repository.workspace = true
 edition.workspace = true
 build = "build.rs"
 
-[build-dependencies]
-prost-build = "0.14"
-protoc-bin-vendored = "3"
-
 [dependencies]
 ha-base = { path = "../ha-base" }
 ha-config-schema = { path = "../ha-config-schema" }
@@ -80,21 +76,14 @@ xcap = { version = "0.9", optional = true }
 ignore = "0.4.25"
 glob = "0.3.3"
 similar = "2"
-teloxide = { version = "0.17", features = ["macros", "throttle"], default-features = false }
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
-native-tls = "0.2"
-tokio-native-tls = "0.3"
 hmac = "0.12"
-# WeChat iLink media CDN crypto — AES-128-ECB + MD5, pure Rust. Replaces the
-# former `openssl` dependency so openssl-sys is no longer compiled on Windows /
-# macOS (see the Linux-only `openssl` target dep below, kept solely to vendor
-# native-tls's OpenSSL on Linux).
+# `memory/backup.rs` 的备份加密。（WeChat iLink 媒体 CDN 的 AES-128-ECB + MD5
+# 已随 ha-channel 迁出，`md-5` / `teloxide` / `native-tls` / `tokio-native-tls`
+# / `jsonwebtoken` 一并从 kernel 移除——它们迁出后在 ha-core 里零引用。）
 aes = "0.8"
-md-5 = "0.10"
-jsonwebtoken = "9"
 axum = "0.8"
-prost = "0.14"
 lru = "0.12"
 flate2 = "1"
 blake3 = "1.8.5"
@@ -138,8 +127,8 @@ windows-sys = { version = "0.52", features = [
     "Win32_System_Threading",
 ] }
 
-# Not a code dependency — the WeChat media crypto moved to the pure-Rust `aes`
-# + `md-5` crates above. On Linux, `native-tls` (reqwest / tokio-tungstenite)
+# Not a code dependency — the WeChat media crypto (pure-Rust `aes` + `md-5`)
+# moved out with ha-channel. On Linux, `native-tls` (reqwest / tokio-tungstenite)
 # links openssl-sys; the `vendored` feature here statically bundles OpenSSL so
 # the headless server bin (Docker image + bare Linux release) needs no system
 # libssl at runtime. Windows uses SChannel and macOS uses Security.framework,

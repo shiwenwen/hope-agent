@@ -1,0 +1,861 @@
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
+use tokio::time::{Duration, Instant};
+
+use super::dispatcher::deliver_media_to_chat;
+use ha_core::channel::traits::ChannelPlugin;
+use ha_core::channel::types::*;
+use ha_core::chat_engine::RoundTextAccumulator;
+
+/// Cardkit single-element character ceiling, per Feishu docs (100,000
+/// characters per markdown element). Counted in `chars()` not bytes —
+/// CJK glyphs are 3 bytes UTF-8, so a byte-based limit would silently
+/// truncate at ~33k Chinese characters. Independent of IM-text
+/// `streaming_preview_max_bytes` (cardkit elements aren't subject to
+/// that gate) so streaming previews keep flowing on responses larger
+/// than the channel's text-message cap.
+pub(super) const CARD_ELEMENT_MAX_CHARS: usize = 100_000;
+pub(super) const STREAM_PREVIEW_FIRST_FLUSH_DELAY: Duration = Duration::from_millis(300);
+pub(super) const STREAM_PREVIEW_FLUSH_INTERVAL: Duration = Duration::from_millis(1000);
+
+#[derive(Debug)]
+pub(super) struct StreamPreviewFlushSchedule {
+    next_at: Instant,
+}
+
+impl StreamPreviewFlushSchedule {
+    pub(super) fn new(now: Instant) -> Self {
+        Self {
+            next_at: now + STREAM_PREVIEW_FIRST_FLUSH_DELAY,
+        }
+    }
+
+    pub(super) fn next_at(&self) -> Instant {
+        self.next_at
+    }
+
+    pub(super) fn should_flush(&self, dirty: bool, has_text: bool, now: Instant) -> bool {
+        dirty && has_text && now >= self.next_at
+    }
+
+    pub(super) fn mark_flushed(&mut self, now: Instant) {
+        self.next_at = now + STREAM_PREVIEW_FLUSH_INTERVAL;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum StreamPreviewTransport {
+    /// Telegram-style draft API: `send_draft` repeatedly with the same
+    /// `draft_id`. Free of edit-rate limits, leaves no "edited" marker.
+    Draft,
+    /// Standard `send_message` + `edit_message` cycle. Works on most
+    /// channels but typically flags the host message as edited.
+    Message,
+    /// Card-streaming API (currently Feishu cardkit). Creates an
+    /// interactive card and updates a single element in place — the host
+    /// message is never edited, so no "edited" marker appears.
+    Card,
+}
+
+/// Persistent identity for the rendered preview, returned to the caller so
+/// `send_final_reply` can finalize using the matching path.
+///
+/// Visibility is `pub(crate)` so reused-by-attach-sync helpers in the
+/// dispatcher can take an `Option<&PreviewHandle>` parameter without
+/// dragging the worker's internal types into the public API surface.
+#[derive(Debug, Clone)]
+pub(crate) enum PreviewHandle {
+    /// `edit_message` rewrites this message_id at finalization.
+    Message { message_id: String },
+    /// Card-stream session. `broken=true` means an irrecoverable update
+    /// error occurred mid-stream — finalization should fall back to a new
+    /// `send_message` rather than continuing the cardkit dance.
+    Card {
+        card_id: String,
+        element_id: String,
+        sequence: i64,
+        broken: bool,
+    },
+}
+
+#[derive(Debug, Default)]
+pub(super) struct StreamPreviewOutcome {
+    pub preview: Option<PreviewHandle>,
+    /// Number of LLM rounds the stream task already finalized inline (only
+    /// non-zero under `ImReplyMode::Split` on streaming-capable channels).
+    /// The dispatcher must skip these in `deliver_split` to avoid sending
+    /// duplicate text or media; the caller's `drained_rounds[finalized_rounds..]`
+    /// slice is what's left for it to deliver.
+    pub finalized_rounds: usize,
+}
+
+pub(super) fn append_preview_round_text(accumulated: &mut String, text: &str, new_round: bool) {
+    if text.is_empty() {
+        return;
+    }
+    if new_round
+        && !accumulated.is_empty()
+        && !accumulated.ends_with('\n')
+        && !text.starts_with('\n')
+    {
+        accumulated.push('\n');
+    }
+    accumulated.push_str(text);
+}
+
+/// Spawn a background task that receives streaming events from the chat engine
+/// and sends progressive previews to the IM channel.
+///
+/// Two distinct preview behaviors driven by `reply_mode`:
+///
+/// - **`Preview` mode**: legacy single-growing-message behavior. Text deltas
+///   from every round accumulate into one buffer that the preview transport
+///   keeps re-rendering. Caller commits via `send_final_reply` using the
+///   `PreviewHandle` returned in `StreamPreviewOutcome`.
+///
+/// - **`Split` mode + streaming-capable channel**: per-round preview. Each
+///   round gets its own preview message that streams typewriter-style; on
+///   round boundary (next round's first `text_delta` after a `tool_call`)
+///   the task finalizes the current preview, delivers that round's media,
+///   and resets state for the next round. The final round's preview is left
+///   open so the caller can finalize it via `send_final_reply` (matching
+///   the canonical chunk-or-card path). `finalized_rounds` reports how many
+///   rounds the task already shipped, so the dispatcher only delivers the
+///   trailing round.
+///
+/// - **`Final` / `Split` mode + non-streaming channel**: events are drained
+///   without rendering any preview. Dispatcher then ships rounds as one-shot
+///   `send_message` calls.
+///
+/// Preview transport selection (when active):
+/// - **Draft**: `send_draft` for Telegram private chats (no rate limit)
+/// - **Card**: cardkit `create_card_stream` + `update_card_element` for
+///   Feishu (host message never marked as edited)
+/// - **Message**: `send_message` + `edit_message` for channels that only
+///   support message edits (host message ends up showing "edited" badge)
+#[allow(clippy::too_many_arguments)]
+pub(super) fn spawn_channel_stream_task(
+    mut event_rx: mpsc::UnboundedReceiver<String>,
+    mut system_notice_rx: mpsc::UnboundedReceiver<String>,
+    plugin: Arc<dyn ChannelPlugin>,
+    account_id: String,
+    chat_id: String,
+    // Mutable: the reply quote belongs to the first message of the turn only.
+    // After round 0 ships, this is cleared so later rounds reply un-quoted (see
+    // the round-boundary finalize below).
+    mut reply_to_message_id: Option<String>,
+    thread_id: Option<String>,
+    preview_transport: Option<StreamPreviewTransport>,
+    max_msg_len: usize,
+    reply_mode: ImReplyMode,
+    round_texts: Arc<Mutex<RoundTextAccumulator>>,
+    capabilities: ChannelCapabilities,
+) -> tokio::task::JoinHandle<StreamPreviewOutcome> {
+    tokio::spawn(async move {
+        let Some(mut preview_transport) = preview_transport else {
+            // No preview transport (Final mode or non-streaming channel):
+            // drain `event_rx` while still shipping system notices as their
+            // own one-shot messages, so the IM user still sees fallback /
+            // compaction / thinking-auto-disabled notices.
+            loop {
+                tokio::select! {
+                    notice = system_notice_rx.recv() => match notice {
+                        Some(body) => send_system_notice_now(
+                            &plugin, &account_id, &chat_id, thread_id.as_deref(), &body
+                        ).await,
+                        None => break,
+                    },
+                    event = event_rx.recv() => {
+                        if event.is_none() { break; }
+                    }
+                }
+            }
+            // Drain anything still buffered after either channel closed.
+            drain_system_notices(
+                &mut system_notice_rx,
+                &plugin,
+                &account_id,
+                &chat_id,
+                thread_id.as_deref(),
+            )
+            .await;
+            while event_rx.recv().await.is_some() {}
+            return StreamPreviewOutcome::default();
+        };
+
+        let split_streaming = matches!(reply_mode, ImReplyMode::Split);
+
+        // Telegram animates draft updates that share the same `draft_id`.
+        // Inbound turns reuse the user's incoming message id; live mirror
+        // (no inbound to anchor against) falls back to the current
+        // millisecond timestamp. Must be non-zero.
+        let draft_id: i64 = reply_to_message_id
+            .as_deref()
+            .and_then(|s| s.parse::<i64>().ok())
+            .filter(|n| *n != 0)
+            .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(1)
+            });
+
+        let mut accumulated = String::new();
+        let mut preview_message_id: Option<String> = None;
+        let mut card_session: Option<CardSession> = None;
+        let mut dirty = false;
+        // Tracks "saw a tool_call but not yet the next text_delta" — the
+        // signal that the current round has closed and the next text_delta
+        // (under split-streaming) must finalize this round before starting
+        // the next preview.
+        let mut in_tool_phase = false;
+        // Number of rounds we've already shipped via per-round finalize.
+        let mut finalized_rounds: usize = 0;
+        let mut flush_schedule = StreamPreviewFlushSchedule::new(Instant::now());
+
+        loop {
+            // Check the clock before polling the receiver. If model deltas
+            // arrive continuously, this prevents the preview flush from being
+            // starved until EOF.
+            if flush_schedule.should_flush(dirty, !accumulated.is_empty(), Instant::now()) {
+                send_stream_preview(
+                    &plugin,
+                    &account_id,
+                    &chat_id,
+                    reply_to_message_id.as_deref(),
+                    thread_id.as_deref(),
+                    max_msg_len,
+                    &accumulated,
+                    draft_id,
+                    &mut preview_transport,
+                    &mut preview_message_id,
+                    &mut card_session,
+                )
+                .await;
+                dirty = false;
+                flush_schedule.mark_flushed(Instant::now());
+                continue;
+            }
+
+            tokio::select! {
+                notice = system_notice_rx.recv() => {
+                    if let Some(body) = notice {
+                        // Ship the notice as its own IM message — outside
+                        // the per-round preview pipeline so it doesn't
+                        // collide with `accumulated` / `preview_message_id`.
+                        // Closed channel just means the engine dropped its
+                        // sender; keep the loop running on `event_rx`.
+                        send_system_notice_now(
+                            &plugin, &account_id, &chat_id, thread_id.as_deref(), &body
+                        ).await;
+                    }
+                }
+                event = event_rx.recv() => {
+                    match event {
+                        Some(event_str) => {
+                            // Detect round boundaries on the same cheap-string
+                            // contract the sink uses (BTreeMap key order
+                            // means `"type":"…"` lands mid-string). Order
+                            // checks rarer-needle-first.
+                            if event_str.contains("\"type\":\"tool_call\"") {
+                                in_tool_phase = true;
+                            } else if let Some(text) = extract_text_delta(&event_str) {
+                                if in_tool_phase && split_streaming {
+                                    // Round just ended: flush + close current
+                                    // preview, deliver this round's media,
+                                    // then start a fresh preview for the new
+                                    // round's first chunk.
+                                    //
+                                    // A round only *ships* a (quoted) message
+                                    // when it had text — an empty round 0
+                                    // (model calls a tool with no preamble)
+                                    // sends nothing, so it must NOT spend the
+                                    // quote, or the turn's first real message
+                                    // (round 1+) would lose it.
+                                    let round_shipped_text = !accumulated.is_empty();
+                                    finalize_split_round(
+                                        &plugin, &account_id, &chat_id,
+                                        reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
+                                        &accumulated, draft_id, &mut preview_transport,
+                                        &mut preview_message_id, &mut card_session,
+                                        finalized_rounds, &round_texts, &capabilities,
+                                    ).await;
+                                    flush_schedule.mark_flushed(Instant::now());
+                                    accumulated.clear();
+                                    finalized_rounds += 1;
+                                    // Quote belongs to the turn's first shipped
+                                    // message; once a round with text sends it,
+                                    // later rounds reply un-quoted so a single
+                                    // response doesn't stack a reply marker on
+                                    // every round (Telegram / Feishu otherwise
+                                    // quote each round's preview).
+                                    if round_shipped_text {
+                                        reply_to_message_id = None;
+                                    }
+                                }
+                                let new_preview_round = in_tool_phase && !split_streaming;
+                                in_tool_phase = false;
+                                append_preview_round_text(&mut accumulated, &text, new_preview_round);
+                                dirty = true;
+                            }
+                        }
+                        None => {
+                            if dirty && !accumulated.is_empty() {
+                                send_stream_preview(
+                                    &plugin, &account_id, &chat_id,
+                                    reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
+                                    &accumulated, draft_id, &mut preview_transport,
+                                    &mut preview_message_id, &mut card_session,
+                                ).await;
+                            }
+                            // Split mode + model ended on a tool_call: the
+                            // last "round" has narration in `accumulated`
+                            // and no further text will ever come. Finalize
+                            // it inline so the dispatcher has nothing left
+                            // to do.
+                            if in_tool_phase && split_streaming {
+                                finalize_split_round(
+                                    &plugin, &account_id, &chat_id,
+                                    reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
+                                    &accumulated, draft_id, &mut preview_transport,
+                                    &mut preview_message_id, &mut card_session,
+                                    finalized_rounds, &round_texts, &capabilities,
+                                ).await;
+                                accumulated.clear();
+                                preview_message_id = None;
+                                card_session = None;
+                                finalized_rounds += 1;
+                            }
+                            drain_system_notices(
+                                &mut system_notice_rx, &plugin, &account_id, &chat_id,
+                                thread_id.as_deref(),
+                            ).await;
+                            break;
+                        }
+                    }
+                }
+
+                _ = tokio::time::sleep_until(flush_schedule.next_at()), if dirty && !accumulated.is_empty() => {
+                    if dirty && !accumulated.is_empty() {
+                        send_stream_preview(
+                            &plugin, &account_id, &chat_id,
+                            reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
+                            &accumulated, draft_id, &mut preview_transport,
+                            &mut preview_message_id, &mut card_session,
+                        ).await;
+                        dirty = false;
+                        flush_schedule.mark_flushed(Instant::now());
+                    }
+                }
+            }
+        }
+
+        let preview = match (&card_session, &preview_message_id) {
+            (Some(session), _) => Some(PreviewHandle::Card {
+                card_id: session.card_id.clone(),
+                element_id: session.element_id.clone(),
+                sequence: session.sequence,
+                broken: session.broken,
+            }),
+            (None, Some(message_id)) => Some(PreviewHandle::Message {
+                message_id: message_id.clone(),
+            }),
+            _ => None,
+        };
+
+        StreamPreviewOutcome {
+            preview,
+            finalized_rounds,
+        }
+    })
+}
+
+/// Ship a friendly system notice (model_fallback / profile_rotation /
+/// context_compacted / thinking_auto_disabled) to the IM chat as its own
+/// standalone message. Bypasses the per-round preview pipeline so notices
+/// don't tangle with `accumulated` / `preview_message_id`. Failures only
+/// log — system notices are best-effort UX, not data integrity.
+async fn send_system_notice_now(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+    body: &str,
+) {
+    let target = super::pipeline::DeliveryTarget {
+        account_id,
+        chat_id,
+        thread_id,
+        reply_to_message_id: None,
+    };
+    super::dispatcher::send_text_chunks(plugin, &target, body, None, &[]).await;
+}
+
+/// Drain any system notices buffered when `event_rx` closed in the same
+/// tick. Called from both the no-preview branch and the main loop's EOF
+/// arm so a late notice still reaches the user.
+async fn drain_system_notices(
+    rx: &mut mpsc::UnboundedReceiver<String>,
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+) {
+    while let Ok(body) = rx.try_recv() {
+        send_system_notice_now(plugin, account_id, chat_id, thread_id, &body).await;
+    }
+}
+
+/// Close the current round's preview and deliver its media. Called from
+/// inside the stream task at split-streaming round boundaries (and at end
+/// of stream when the model finished on a tool_call).
+///
+/// Delivery contract: always either ships the round's full narration via
+/// the preview transport, or falls back to chunked `send_text_chunks`. The
+/// preview path silently drops oversized text (`build_stream_preview_payload`
+/// returns `None` when `text.len() > max_msg_len`) and turns transient
+/// send/edit errors into log-only warnings, so the stream task can NOT
+/// trust "preview ran" as proof of delivery. We detect that case explicitly
+/// and fall back to chunked send so the dispatcher's `finalized_rounds`
+/// skip is safe to act on.
+///
+/// Per transport:
+/// - **Message**: if `accumulated` fits and the preview message exists,
+///   the preview already wrote the final text; just drop `preview_message_id`.
+///   Otherwise (oversized, or initial send never succeeded), chunk-send.
+/// - **Card**: cardkit elements hold ~100k chars (`CARD_ELEMENT_MAX_CHARS`),
+///   normally enough; if the session was never created or went broken,
+///   chunk-send; either way close the card best-effort.
+/// - **Draft**: drafts are typing-indicators, not real messages. Always
+///   chunk-send (handles oversized text correctly via `chunk_message`).
+///
+/// Then deliver this round's media items (read from `round_texts.completed`,
+/// where the sink stashed them on tool_result events).
+#[allow(clippy::too_many_arguments)]
+async fn finalize_split_round(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    reply_to_message_id: Option<&str>,
+    thread_id: Option<&str>,
+    max_msg_len: usize,
+    accumulated: &str,
+    draft_id: i64,
+    preview_transport: &mut StreamPreviewTransport,
+    preview_message_id: &mut Option<String>,
+    card_session: &mut Option<CardSession>,
+    round_idx: usize,
+    round_texts: &Arc<Mutex<RoundTextAccumulator>>,
+    capabilities: &ChannelCapabilities,
+) {
+    if !accumulated.is_empty() {
+        send_stream_preview(
+            plugin,
+            account_id,
+            chat_id,
+            reply_to_message_id,
+            thread_id,
+            max_msg_len,
+            accumulated,
+            draft_id,
+            preview_transport,
+            preview_message_id,
+            card_session,
+        )
+        .await;
+    }
+
+    let preview_carried_text = preview_carried_full_text(
+        *preview_transport,
+        accumulated,
+        plugin.markdown_to_native(accumulated).len(),
+        preview_message_id.as_deref(),
+        card_session.as_ref().map(|s| s.broken),
+        max_msg_len,
+    );
+
+    if !preview_carried_text {
+        let target = super::pipeline::DeliveryTarget {
+            account_id,
+            chat_id,
+            thread_id,
+            reply_to_message_id,
+        };
+        super::dispatcher::send_text_chunks(plugin, &target, accumulated, None, &[]).await;
+    }
+
+    // 3. Transport-specific close. Best-effort: any error here is
+    //    cosmetic (the text is already delivered above), so log + continue.
+    if let StreamPreviewTransport::Card = preview_transport {
+        if let Some(session) = card_session.take() {
+            if !session.broken {
+                if let Err(e) = plugin
+                    .close_card_stream(account_id, &session.card_id, session.sequence)
+                    .await
+                {
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "split-streaming close_card_stream failed (seq={}): {}",
+                        session.sequence,
+                        e
+                    );
+                }
+            }
+        }
+    }
+    *preview_message_id = None;
+    *card_session = None;
+
+    // 3. Deliver this round's media. The sink attached items to
+    //    `round_texts.completed[round_idx]` on `tool_result` arrival.
+    //    Dispatcher's end-of-turn `deliver_split` only iterates rounds
+    //    past `finalized_rounds`, so this round's media won't be redelivered.
+    let medias = {
+        let guard = round_texts.lock().unwrap_or_else(|e| {
+            app_warn!(
+                "channel",
+                "worker",
+                "round_texts mutex poisoned in stream task: {}",
+                e
+            );
+            e.into_inner()
+        });
+        guard.round_medias(round_idx)
+    };
+    if !medias.is_empty() {
+        deliver_media_to_chat(
+            plugin,
+            account_id,
+            chat_id,
+            thread_id,
+            &medias,
+            capabilities,
+        )
+        .await;
+    }
+}
+
+/// Pure helper for the split-streaming round-finalize delivery decision.
+///
+/// `accumulated_native_len` is the length of `markdown_to_native(accumulated)`
+/// in bytes (matches what `build_stream_preview_payload` checks against
+/// `max_msg_len`). `card_session_broken` is `Some(broken_flag)` if a card
+/// session exists, `None` otherwise.
+///
+/// Returns `true` when the existing preview state has demonstrably carried
+/// the full round narration — caller can stop. `false` means caller must
+/// chunk-and-send `accumulated` itself; the preview either silently dropped
+/// oversized content or never opened (initial send/edit error, oversized
+/// from the first delta).
+pub(super) fn preview_carried_full_text(
+    transport: StreamPreviewTransport,
+    accumulated: &str,
+    accumulated_native_len: usize,
+    preview_message_id: Option<&str>,
+    card_session_broken: Option<bool>,
+    max_msg_len: usize,
+) -> bool {
+    if accumulated.is_empty() {
+        return true;
+    }
+    match transport {
+        StreamPreviewTransport::Message => {
+            preview_message_id.is_some() && accumulated_native_len <= max_msg_len
+        }
+        StreamPreviewTransport::Card => {
+            // `Some(false)` = card exists and isn't broken
+            matches!(card_session_broken, Some(false))
+                && accumulated.chars().count() <= CARD_ELEMENT_MAX_CHARS
+        }
+        // Drafts are typing indicators, not real messages — always need a
+        // real `send_message` (which the chunk fallback does, correctly
+        // splitting oversized text).
+        StreamPreviewTransport::Draft => false,
+    }
+}
+
+/// Mutable state for an active card-streaming session. Only used inside
+/// `spawn_channel_stream_task`; finalization-time fields are exported via
+/// `PreviewHandle::Card`.
+#[derive(Debug)]
+struct CardSession {
+    card_id: String,
+    element_id: String,
+    /// Next sequence number to use on `update_card_element`. Strictly
+    /// monotonic per cardkit's contract.
+    sequence: i64,
+    /// True once an `update_card_element` failure made further preview
+    /// updates pointless. Finalization should switch to `send_message`.
+    broken: bool,
+}
+
+/// Extract text from a `text_delta` event JSON string.
+pub(super) fn extract_text_delta(event_str: &str) -> Option<String> {
+    let event: serde_json::Value = serde_json::from_str(event_str).ok()?;
+    if event.get("type")?.as_str()? != "text_delta" {
+        return None;
+    }
+    event
+        .get("content")
+        .or_else(|| event.get("text"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+pub(super) fn select_stream_preview_transport(
+    chat_type: &ChatType,
+    capabilities: &ChannelCapabilities,
+) -> Option<StreamPreviewTransport> {
+    if matches!(chat_type, ChatType::Dm) && capabilities.supports_draft {
+        return Some(StreamPreviewTransport::Draft);
+    }
+    if capabilities.supports_card_stream {
+        return Some(StreamPreviewTransport::Card);
+    }
+    if capabilities.supports_edit {
+        return Some(StreamPreviewTransport::Message);
+    }
+    None
+}
+
+pub(super) fn should_fallback_from_draft_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("sendmessagedraft")
+        && (lower.contains("unknown method")
+            || lower.contains("not found")
+            || lower.contains("not available")
+            || lower.contains("not supported")
+            || lower.contains("unsupported")
+            || lower.contains("private chat")
+            || lower.contains("can be used only"))
+}
+
+pub(super) fn build_stream_preview_payload(
+    plugin: &Arc<dyn ChannelPlugin>,
+    reply_to_message_id: Option<&str>,
+    thread_id: Option<&str>,
+    text: &str,
+    draft_id: i64,
+    max_msg_len: usize,
+) -> Option<ReplyPayload> {
+    let native_text = plugin.markdown_to_native(text);
+    let text = native_text.trim_end();
+    if text.is_empty() || text.len() > max_msg_len {
+        return None;
+    }
+
+    Some(ReplyPayload {
+        text: Some(text.to_string()),
+        reply_to_message_id: reply_to_message_id.map(str::to_string),
+        thread_id: thread_id.map(|s| s.to_string()),
+        parse_mode: Some(ParseMode::Html),
+        draft_id: Some(draft_id),
+        ..ReplyPayload::text("")
+    })
+}
+
+async fn send_message_preview(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    payload: &ReplyPayload,
+    preview_message_id: &mut Option<String>,
+) {
+    if let Some(message_id) = preview_message_id.as_deref() {
+        if let Err(e) = plugin
+            .edit_message(account_id, chat_id, message_id, payload)
+            .await
+        {
+            app_warn!("channel", "worker", "stream preview edit failed: {}", e);
+        }
+        return;
+    }
+
+    match plugin.send_message(account_id, chat_id, payload).await {
+        Ok(result) => {
+            if result.success {
+                *preview_message_id = result.message_id;
+            } else {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "stream preview send failed: {}",
+                    result.error.unwrap_or_default()
+                );
+            }
+        }
+        Err(e) => {
+            app_warn!("channel", "worker", "stream preview send failed: {}", e);
+        }
+    }
+}
+
+/// Lazy-create the card on first preview, then update its single
+/// element on subsequent ticks. Returns `Err(_)` only when the create
+/// phase fails — caller should switch transport to `Message` and retry.
+/// Mid-stream `update_card_element` errors flip `broken=true` but return
+/// `Ok(())` to keep the loop running (final delivery handles broken cards).
+async fn send_card_preview(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    reply_to_message_id: Option<&str>,
+    thread_id: Option<&str>,
+    raw_text: &str,
+    card_session: &mut Option<CardSession>,
+) -> Result<(), String> {
+    if raw_text.is_empty() || raw_text.chars().count() > CARD_ELEMENT_MAX_CHARS {
+        return Ok(());
+    }
+
+    if let Some(session) = card_session.as_mut() {
+        if session.broken {
+            return Ok(());
+        }
+        let next_seq = session.sequence;
+        match plugin
+            .update_card_element(
+                account_id,
+                &session.card_id,
+                &session.element_id,
+                raw_text,
+                next_seq,
+            )
+            .await
+        {
+            Ok(()) => {
+                session.sequence = next_seq + 1;
+            }
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "card stream update failed (seq={}): {} — marking broken",
+                    next_seq,
+                    e
+                );
+                session.broken = true;
+            }
+        }
+        return Ok(());
+    }
+
+    let handle = plugin
+        .create_card_stream(account_id, raw_text)
+        .await
+        .map_err(|e| format!("create_card_stream: {}", e))?;
+    let delivery = plugin
+        .send_card_message(
+            account_id,
+            chat_id,
+            &handle.card_id,
+            reply_to_message_id,
+            thread_id,
+        )
+        .await
+        .map_err(|e| format!("send_card_message: {}", e))?;
+    if !delivery.success {
+        return Err(format!(
+            "send_card_message failed: {}",
+            delivery.error.unwrap_or_default()
+        ));
+    }
+    *card_session = Some(CardSession {
+        card_id: handle.card_id,
+        element_id: handle.element_id,
+        // Initial content was set during create. First explicit update
+        // starts at sequence=1 (cardkit treats create as sequence-less).
+        sequence: 1,
+        broken: false,
+    });
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_stream_preview(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    reply_to_message_id: Option<&str>,
+    thread_id: Option<&str>,
+    max_msg_len: usize,
+    text: &str,
+    draft_id: i64,
+    preview_transport: &mut StreamPreviewTransport,
+    preview_message_id: &mut Option<String>,
+    card_session: &mut Option<CardSession>,
+) {
+    // Lazy native-format payload for Draft / Message paths. The Card path
+    // sends the raw markdown directly (cardkit markdown elements don't
+    // want HTML conversion), so it skips this builder unless it has to
+    // degrade to Message mid-flight.
+    let build_payload = || {
+        build_stream_preview_payload(
+            plugin,
+            reply_to_message_id,
+            thread_id,
+            text,
+            draft_id,
+            max_msg_len,
+        )
+    };
+
+    match preview_transport {
+        StreamPreviewTransport::Draft => {
+            let Some(payload) = build_payload() else {
+                return;
+            };
+            if let Err(e) = plugin.send_draft(account_id, chat_id, &payload).await {
+                if should_fallback_from_draft_error(&e.to_string()) {
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "send_draft unavailable, falling back to send/edit preview: {}",
+                        e
+                    );
+                    *preview_transport = StreamPreviewTransport::Message;
+                    send_message_preview(plugin, account_id, chat_id, &payload, preview_message_id)
+                        .await;
+                } else {
+                    app_warn!("channel", "worker", "send_draft failed: {}", e);
+                }
+            }
+        }
+        StreamPreviewTransport::Card => {
+            if let Err(e) = send_card_preview(
+                plugin,
+                account_id,
+                chat_id,
+                reply_to_message_id,
+                thread_id,
+                text,
+                card_session,
+            )
+            .await
+            {
+                // Any create/attach error → degrade to Message. The card
+                // hasn't been shown yet, so degrading is harmless. Mid-stream
+                // update errors are handled via card_session.broken instead
+                // and never bubble here.
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "card stream create failed, falling back to message edit: {}",
+                    e
+                );
+                *preview_transport = StreamPreviewTransport::Message;
+                if let Some(payload) = build_payload() {
+                    send_message_preview(plugin, account_id, chat_id, &payload, preview_message_id)
+                        .await;
+                }
+            }
+        }
+        StreamPreviewTransport::Message => {
+            let Some(payload) = build_payload() else {
+                return;
+            };
+            send_message_preview(plugin, account_id, chat_id, &payload, preview_message_id).await;
+        }
+    }
+}

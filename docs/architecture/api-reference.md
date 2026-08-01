@@ -252,8 +252,8 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 
 | 事件名 | 触发点 | Payload |
 |---|---|---|
-| `slash:effort_changed` / `slash:plan_changed` / `slash:session_cleared` | `crates/ha-core/src/channel/worker/slash.rs` 经 `bus.emit(...)` | effort 字段 / sessionId 等（具体见各调用点） |
-| `session:model_updated` | `crates/ha-core/src/channel/worker/slash.rs` (IM `/model`)、`src-tauri/src/commands/session.rs::set_session_model`、`crates/ha-server/src/routes/sessions.rs::set_session_model` | `{ sessionId, providerId, modelId }` — 桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 ModelPicker UI |
+| `slash:effort_changed` / `slash:plan_changed` / `slash:session_cleared` | `crates/ha-channel/src/channel/worker/slash.rs` 经 `bus.emit(...)` | effort 字段 / sessionId 等（具体见各调用点） |
+| `session:model_updated` | `crates/ha-channel/src/channel/worker/slash.rs` (IM `/model`)、`src-tauri/src/commands/session.rs::set_session_model`、`crates/ha-server/src/routes/sessions.rs::set_session_model` | `{ sessionId, providerId, modelId }` — 桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 ModelPicker UI |
 | `terminal:created` / `output` / `exit` / `closed` | `ha_core::terminal::TerminalManager` | created 带 snapshot；output 为 `{ terminalId, seq, dataBase64 }`；exit 为 `{ terminalId, exitCode, error }`；closed 带 terminalId |
 
 > 这些事件经 EventBus 广播，HTTP / Tauri 两条桥都会转发。

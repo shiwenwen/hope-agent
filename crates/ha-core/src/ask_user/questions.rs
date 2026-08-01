@@ -380,7 +380,7 @@ pub fn schedule_owner_question_timeout(group: AskUserQuestionGroup) {
             }
         };
         if did_expire {
-            crate::channel::worker::ask_user::drop_pending_by_request_id(&task_request_id).await;
+            crate::channel_hooks::drop_ask_user_by_request_id(&task_request_id).await;
             crate::tools::approval::emit_pending_interactions_changed(Some(&group.session_id));
             crate::hooks::fire_elicitation_result(&group.session_id, &task_request_id, "timeout");
             emit_ask_user_resolved(&task_request_id, &group.session_id, "timed_out", "timeout");
@@ -609,7 +609,7 @@ async fn submit_owner_question_response(
     };
     cancel_owner_timeout_task(request_id);
     forget_owner_terminal_gate(request_id);
-    crate::channel::worker::ask_user::drop_pending_by_request_id(request_id).await;
+    crate::channel_hooks::drop_ask_user_by_request_id(request_id).await;
     crate::hooks::fire_elicitation_result(&session_id, request_id, "answered");
     emit_ask_user_resolved(request_id, &session_id, "answered", "response");
     crate::tools::approval::emit_pending_interactions_changed(Some(&session_id));

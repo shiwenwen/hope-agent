@@ -97,7 +97,7 @@ const EDIT_TOOLS: &[&str] = &[
     "write",
     "edit",
     "apply_patch",
-    crate::tools::feishu::TOOL_DRIVE_DOWNLOAD_MEDIA,
+    crate::tool_defs::feishu_names::TOOL_DRIVE_DOWNLOAD_MEDIA,
 ];
 
 fn is_edit_tool(name: &str) -> bool {
@@ -113,7 +113,7 @@ pub fn classify_external_connector_action(
     tool_name: &str,
     args: &Value,
 ) -> Option<(String, String)> {
-    use crate::tools::feishu;
+    use crate::tool_defs::feishu_names as feishu;
 
     let exact = match tool_name {
         feishu::TOOL_DOCX_CREATE => Some(("feishu_docx", "create document")),
@@ -2908,7 +2908,7 @@ mod tests {
         let plan: Vec<String> = vec![];
         let custom: Vec<String> = vec![];
         let calendar_ctx = ctx(
-            crate::tools::feishu::TOOL_CALENDAR_CREATE_EVENT,
+            crate::tool_defs::feishu_names::TOOL_CALENDAR_CREATE_EVENT,
             &args,
             SessionMode::Default,
             &plan,

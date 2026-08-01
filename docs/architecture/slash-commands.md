@@ -403,7 +403,7 @@ stateDiagram-v2
 
 | 命令 | 禁用原因 |
 |---|---|
-| `/agent` | IM dispatcher 每条入站消息从 channel-account / topic / group 配置重算 agent_id（[`channel/worker/dispatcher.rs::resolved_agent_id`](../../crates/ha-core/src/channel/worker/dispatcher.rs)），不读 `sessions.agent_id`。允许 `/agent` 会让会话标签和实际运行 agent 永久漂移——`/agent` 切完后回复「Switched to X」，下一轮入站消息又被 channel-account 配置拉回原 agent，是幻觉切换。改 IM agent 应去「设置 → IM Channel → account → Agent」或 topic/group override |
+| `/agent` | IM dispatcher 每条入站消息从 channel-account / topic / group 配置重算 agent_id（[`channel/worker/dispatcher.rs::resolved_agent_id`](../../crates/ha-channel/src/channel/worker/dispatcher.rs)），不读 `sessions.agent_id`。允许 `/agent` 会让会话标签和实际运行 agent 永久漂移——`/agent` 切完后回复「Switched to X」，下一轮入站消息又被 channel-account 配置拉回原 agent，是幻觉切换。改 IM agent 应去「设置 → IM Channel → account → Agent」或 topic/group override |
 | `/handover` | 「把当前 session 推到 IM chat」是 GUI 专属语义。在 IM 内部触发只会把 chat 自己的 session 推回自己，无意义。IM 端要切会话用 `/session <id>`（attach 已存在 session）或 `/sessions` 选择 |
 
 > **`/project` 已不在此列**——Phase A1 把 Project ↔ IM 反向认领删除后，IM 内 `/project <id>` 改走 `AssignProject` action 直接 UPDATE 当前 session 的 `project_id`，语义合理因此放行。
@@ -507,7 +507,7 @@ Telegram (`setMyCommands`) 和 Discord (Application Commands API) 的命令菜�
 
 ### IM 渠道（按 `supports_buttons` 分流）
 
-入口 [`channel/worker/slash.rs::dispatch_slash_for_channel`](../../crates/ha-core/src/channel/worker/slash.rs)，无参短路按 `supports_buttons × args_optional` 矩阵分流：
+入口 [`channel/worker/slash.rs::dispatch_slash_for_channel`](../../crates/ha-channel/src/channel/worker/slash.rs)，无参短路按 `supports_buttons × args_optional` 矩阵分流：
 
 **支持按钮的 7 个渠道**（Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat）—— inline keyboard：
 

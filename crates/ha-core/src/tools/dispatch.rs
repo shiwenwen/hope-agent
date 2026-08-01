@@ -180,7 +180,15 @@ pub fn is_globally_configured(name: &str, app_config: &AppConfig) -> bool {
         // All `feishu_*` tools share the same provisioning gate — at least
         // one Feishu channel account configured. Falls to HintOnly when the
         // user enabled the agent capability but hasn't added an account.
-        n if n.starts_with("feishu_") => crate::tools::feishu::has_any_account_configured(),
+        //
+        // 判定就地做（而不是调 adapter 的 `has_any_account_configured`）：它是
+        // 纯 `AppConfig` 读取，与本函数其余分支同型；adapter 随 ha-channel 上浮
+        // 后，为这 5 行开一个钩子只会凭空增加一个未装配语义要论证的槽。
+        n if n.starts_with("feishu_") => app_config
+            .channels
+            .accounts
+            .iter()
+            .any(|a| a.channel_id == ha_config_schema::channel::ChannelId::Feishu),
         _ => true,
     }
 }
@@ -457,6 +465,10 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
 /// today) substitute via `get_image_generate_tool_dynamic` at injection
 /// time. Every other consumer reads tier metadata only and doesn't care.
 static ALL_DISPATCHABLE_TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| {
+    // 目录一旦开始汇编，之后注册的外部 provider 就进不来了——先立标志，让
+    // 迟到的 `register_external_tool_definitions` fail loud 而不是静默丢 schema
+    // （详见该函数文档）。必须在读 provider **之前**。
+    super::registry::mark_catalog_realized();
     use super::definitions::{
         get_acp_spawn_tool, get_artifact_tool, get_audio_generate_tool_dynamic,
         get_available_tools, get_canvas_tool, get_design_tool, get_enter_plan_mode_tool,
@@ -480,7 +492,8 @@ static ALL_DISPATCHABLE_TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| 
         super::job_status::get_job_status_tool(),
         super::schedule_wakeup::get_schedule_wakeup_tool(),
     ]);
-    tools.extend(super::feishu::get_feishu_tools());
+    // 特征 crate（ha-channel 的飞书工具族）在 `wire()` 里注册的 schema。
+    tools.extend(super::registry::external_tool_definitions());
     tools
 });
 

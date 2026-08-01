@@ -61,6 +61,7 @@ pub mod awareness;
 pub mod backup;
 pub mod browser_hooks;
 pub mod channel;
+pub mod channel_hooks;
 pub mod chat_engine;
 // `coding_eval` / `context_retrieval` / `evaluation` 已随阶段 5 第四刀迁出
 // ha-eval-runtime——特征 crate 在 ha-core 之上，此处**不能**再导出。评测 wire

@@ -3812,7 +3812,9 @@ mod tests {
             .evaluate_domain_connector_action_guard(DomainConnectorActionGuardInput {
                 session_id: Some(session_id),
                 domain: Some("meeting_prep".to_string()),
-                tool_name: Some(crate::tools::feishu::TOOL_CALENDAR_CREATE_EVENT.to_string()),
+                tool_name: Some(
+                    crate::tool_defs::feishu_names::TOOL_CALENDAR_CREATE_EVENT.to_string(),
+                ),
                 ..Default::default()
             })
             .expect("evaluate connector guard");

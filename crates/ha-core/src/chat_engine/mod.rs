@@ -5,11 +5,12 @@ pub mod context;
 pub mod durability;
 mod engine;
 pub mod finalize;
-pub(crate) mod im_error_message;
-pub(crate) mod im_mirror;
+// `im_error_message`：IM 侧引擎错误文案，dispatcher（ha-channel）渲染用。
+pub mod im_error_message;
 pub(crate) mod im_system_message;
 pub(crate) mod persister;
-pub(crate) mod quote;
+// `quote`：IM 引用前缀渲染，主对话镜像（ha-channel）与 kernel 共用。
+pub mod quote;
 pub mod sink_registry;
 pub(crate) mod spool;
 pub mod stream_broadcast;

@@ -102,7 +102,16 @@ const FEATURES = {
     "verification",
   ],
   "ha-knowledge": ["knowledge", "tools::note"],
-  "ha-channel": ["channel", "tools::feishu", "tools::send_attachment", "tools::notification"],
+  // ha-channel 已实际迁出（crates/ha-channel/，阶段 5 第五刀）——**台账与契约
+  // 留 kernel**：`channel/db.rs`（红线「一 chat ↔ 一 session 双向 1:1、读写一律走
+  // db.rs helper」的执行点，且它持 SessionDB 连接）、`cancel.rs`（绑
+  // CHANNEL_CANCELS 全局与 AppState 的 ptr_eq_lock 不变量）、`traits.rs` +
+  // `registry.rs`（契约与持有者，不是机器——正因它们留下，CHANNEL_REGISTRY
+  // 全局与全部壳层调用点一处未改）、`types.rs` / `config.rs`（AppConfig wire
+  // 类型）。35 个 `feishu_*` 名字常量下沉 `tool_defs::feishu_names`，兑现了
+  // AGENTS 里那条「留给 ha-channel 那刀连同 channel/ 一起破」的欠账。
+  // `tools::send_attachment` / `tools::notification` **留 kernel**：它们不是
+  // IM 渠道专属（桌面通知 / 通用附件发送），归进本组只是主题相似。
   // `wakeup` **不在本组**（阶段 5 第三刀重新分组）：它对 cron / loop_control
   // 零引用、反向也零——两者只是「都跟排程有关」的主题相似，AGENTS 本身就写着
   // 「`schedule_wakeup` ≠ cron、不复用入口」。它的消费者全在 kernel（goal 的

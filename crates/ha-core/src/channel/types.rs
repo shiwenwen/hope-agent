@@ -435,6 +435,15 @@ impl DeliveryResult {
     }
 }
 
+// `InlineButton` 的固有 impl 必须待在定义它的 crate 里（Rust 孤儿规则）。
+// IM 侧的 approval / ask_user 卡片按这个值匹配回调，故随类型留 kernel。
+impl InlineButton {
+    /// Returns the effective callback identifier: `callback_data` if set, otherwise `text`.
+    pub fn callback_id(&self) -> &str {
+        self.callback_data.as_deref().unwrap_or(&self.text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

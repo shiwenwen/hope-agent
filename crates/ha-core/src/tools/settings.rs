@@ -1019,7 +1019,7 @@ async fn update_im_auto_transcribe(values: &Value) -> Result<String> {
                 let Some(on) = entry.get("autoTranscribeVoice").and_then(|v| v.as_bool()) else {
                     continue;
                 };
-                crate::channel::accounts::set_account_auto_transcribe_voice(id, on, "skill")?;
+                crate::channel_hooks::set_account_auto_transcribe_voice(id, on, "skill")?;
             }
         }
         Ok(())

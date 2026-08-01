@@ -141,7 +141,7 @@ node scripts/sync-i18n.mjs --apply   # 从模板补齐
 
 ### 加新 IM Channel
 
-[`crates/ha-core/src/channel/`](crates/ha-core/src/channel/) 下已有 12 个 channel（Telegram、Slack、飞书、企业微信...）作为参考。每个 channel 实现 `ChannelPlugin` trait + 一组事件回调。最简单的是 webhook-based channel（参考 LINE / Discord）。
+[`crates/ha-channel/src/channel/`](crates/ha-channel/src/channel/) 下已有 12 个 channel（Telegram、Slack、飞书、企业微信...）作为参考。每个 channel 实现 `ChannelPlugin` trait + 一组事件回调。最简单的是 webhook-based channel（参考 LINE / Discord）。
 
 ## CHANGELOG 维护
 

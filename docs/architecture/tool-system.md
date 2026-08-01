@@ -1460,9 +1460,9 @@ block-beta
 
 ## 飞书业务 toolset
 
-v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 / 云盘 / 知识库 / 审批 / 日历 / 联系人 / 招聘）做成 internal tools。本节记录当前已经实现的**工具系统契约**，具体 API 适配在 [`tools/feishu`](../../crates/ha-core/src/tools/feishu/)。
+v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 / 云盘 / 知识库 / 审批 / 日历 / 联系人 / 招聘）做成 internal tools。本节记录当前已经实现的**工具系统契约**，具体 API 适配在 [`tools/feishu`](../../crates/ha-channel/src/tools/feishu/)。
 
-**凭据复用**：所有 `feishu_*` tool 共享 [`tools::feishu::resolve_feishu_api`](../../crates/ha-core/src/tools/feishu/mod.rs)，从 [`cached_config().channels.accounts`](../../crates/ha-core/src/config/persistence.rs) 找出已配置的飞书账号，按账号 ID 缓存 [`FeishuAuth`](../../crates/ha-core/src/channel/feishu/auth.rs) —— 与 IM 渠道是否 `start_account` 解耦，**即使没有运行 WS 网关，业务 tool 也能用**。token mutex 共享，7200s 内不会双登。
+**凭据复用**：所有 `feishu_*` tool 共享 [`tools::feishu::resolve_feishu_api`](../../crates/ha-channel/src/tools/feishu/mod.rs)，从 [`cached_config().channels.accounts`](../../crates/ha-core/src/config/persistence.rs) 找出已配置的飞书账号，按账号 ID 缓存 [`FeishuAuth`](../../crates/ha-channel/src/channel/feishu/auth.rs) —— 与 IM 渠道是否 `start_account` 解耦，**即使没有运行 WS 网关，业务 tool 也能用**。token mutex 共享，7200s 内不会双登。
 
 **多账号路由**：每个 tool schema 都有可选 `account` 参数；零账号报错引导用户去 Settings → Channels；单账号自动选；多账号且未指定 `account` 时报错列出可选 ID。
 
@@ -1514,7 +1514,7 @@ v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 /
 | C9 | `feishu_hire_get_talent` | 查候选人详情（敏感） |
 | C9 | `feishu_hire_list_applications` | 列投递记录 |
 
-C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/tools/feishu/mod.rs) 追加自己的 tool 定义，本表持续 grow。
+C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-channel/src/tools/feishu/mod.rs) 追加自己的 tool 定义，本表持续 grow。
 
 **测试基线**：每个 `api_<module>.rs` 用 [`wiremock`](https://crates.io/crates/wiremock) 启动 mock HTTP server，覆盖 happy path + 飞书 envelope 错误码（如 `99991672` 权限不足）+ HTTP 5xx。`tools::feishu::*::execute_*` 单测验证参数缺失/类型错误的早期 `anyhow::Error` 路径。
 
@@ -1546,5 +1546,5 @@ C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/
 | `src/components/chat/ChatInput.tsx` | 盾牌按钮 UI（三态切换） |
 | `src/components/chat/ApprovalDialog.tsx` | 审批弹窗 UI |
 | `src/components/settings/agent-panel/tabs/CapabilitiesTab.tsx` | Agent 能力配置 UI（工具注入 / 审批 / 技能） |
-| `crates/ha-core/src/channel/worker/approval.rs` | IM Channel 审批交互（EventBus 监听、按钮/文本发送、回调处理） |
+| `crates/ha-channel/src/channel/worker/approval.rs` | IM Channel 审批交互（EventBus 监听、按钮/文本发送、回调处理） |
 | `src/components/settings/channel-panel/EditAccountDialog.tsx` | Channel 设置中的 auto_approve_tools 开关 |

@@ -267,7 +267,7 @@ flowchart TD
 
 5. **最终清理**（`ask_user_question.rs`）：无论 Answered / Cancelled / TimedOut，都会：
    - `ask_user::mark_group_answered(&request_id)` 把 DB 行翻到 `answered`
-   - `channel::worker::ask_user::drop_pending_by_request_id(&request_id)` 清理 IM 端的 button/text pending map，防止僵尸条目累积
+   - `channel_hooks::drop_ask_user_by_request_id(&request_id)` 清理 IM 端的 button/text pending map，防止僵尸条目累积（阶段 5 第五刀起 kernel 一律经钩子调用，实现在 `ha-channel` 的 `worker/ask_user.rs`；未装配即 no-op）
 
 ### Pending Registry（内存 oneshot 注册表）
 
@@ -592,7 +592,7 @@ Server 模式下多客户端连接同一 session 时，已经"live"（内存有 
 
 ## IM 渠道集成
 
-整个 IM 路径集中在 `crates/ha-core/src/channel/worker/ask_user.rs`，镜像 `approval.rs` 的模式，二者共享统一的 dispatcher。
+整个 IM 路径集中在 `crates/ha-channel/src/channel/worker/ask_user.rs`，镜像 `approval.rs` 的模式，二者共享统一的 dispatcher。
 
 ### button 渠道 vs text-fallback 渠道
 
@@ -882,14 +882,14 @@ ask_user_question_timeout_enabled
 
 **IM 渠道**：
 
-- `crates/ha-core/src/channel/worker/ask_user.rs` — IM listener、button / text fallback、统一 dispatcher
-- `crates/ha-core/src/channel/worker/dispatcher.rs` — 消息路由前置钩子
-- `crates/ha-core/src/channel/worker/mod.rs` — 模块声明
-- `crates/ha-core/src/channel/telegram/polling.rs` — Telegram callback 接入
-- `crates/ha-core/src/channel/discord/gateway.rs` — Discord callback 接入
-- `crates/ha-core/src/channel/slack/socket.rs` — Slack callback 接入
-- `crates/ha-core/src/channel/qqbot/gateway.rs` — QQ Bot callback 接入
-- `crates/ha-core/src/channel/feishu/ws_event.rs` / `line/webhook.rs` / `googlechat/webhook.rs` — 其他渠道接入
+- `crates/ha-channel/src/channel/worker/ask_user.rs` — IM listener、button / text fallback、统一 dispatcher
+- `crates/ha-channel/src/channel/worker/dispatcher.rs` — 消息路由前置钩子
+- `crates/ha-channel/src/channel/worker/mod.rs` — 模块声明
+- `crates/ha-channel/src/channel/telegram/polling.rs` — Telegram callback 接入
+- `crates/ha-channel/src/channel/discord/gateway.rs` — Discord callback 接入
+- `crates/ha-channel/src/channel/slack/socket.rs` — Slack callback 接入
+- `crates/ha-channel/src/channel/qqbot/gateway.rs` — QQ Bot callback 接入
+- `crates/ha-channel/src/channel/feishu/ws_event.rs` / `line/webhook.rs` / `googlechat/webhook.rs` — 其他渠道接入
 
 **命令层（Tauri）**：
 

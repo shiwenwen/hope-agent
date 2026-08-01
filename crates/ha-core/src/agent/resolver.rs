@@ -27,10 +27,14 @@
 //! See [`docs/architecture/api-reference.md`] and `AGENTS.md` for the full
 //! contract.
 
-use crate::channel::{
+// 这四个都是 `AppConfig` 可达的 wire 类型，定义处在 ha-config-schema
+// （`crates/ha-config-schema/src/channel.rs`），`channel/types.rs` 只是转发。
+// 直接指向 schema 侧的 kernel 再导出，解析链因此不依赖 IM 渠道实现——
+// channel 上浮后这条边自然为零，不需要钩子。
+use crate::project::Project;
+use ha_config_schema::channel::{
     ChannelAccountConfig, TelegramChannelConfig, TelegramGroupConfig, TelegramTopicConfig,
 };
-use crate::project::Project;
 
 /// Hardcoded last-resort agent id. Re-exported from [`crate::agent_loader`]
 /// so resolver-internal sites and tooling that already imports the resolver
