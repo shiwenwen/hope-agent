@@ -305,7 +305,7 @@ interface ModelChainEditorProps {
 | Recap | `crates/ha-dash/src/recap/{report,facets,sections}.rs` | `resolve_recap_chain` + facet/section 生成 |
 | Knowledge Compile | `crates/ha-knowledge/src/knowledge/compile.rs` | `generate_summary` |
 | Dreaming | `crates/ha-core/src/memory/dreaming/{pipeline,narrative,profile,resolver}.rs` | `resolve_dreaming_chain` + 叙事/Profile/resolver 三处调用 |
-| Skills auto_review | `crates/ha-core/src/skills/auto_review/pipeline.rs` | `query_review_agent` |
+| Skills auto_review | `crates/ha-skills/src/skills/auto_review/pipeline.rs` | `query_review_agent` |
 | Hooks | `crates/ha-core/src/hooks/runner/prompt.rs` | `resolve_prompt_hook_chain` |
 | Session Title | `crates/ha-core/src/session_title.rs` | `generate_and_update_title` |
 | Memory Extract | `crates/ha-core/src/memory_extract.rs` + `crates/ha-core/src/chat_engine/context.rs` | 两处独立解析点 |

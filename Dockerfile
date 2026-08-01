@@ -97,7 +97,7 @@ COPY crates ./crates
 COPY src-tauri ./src-tauri
 # The Rust build embeds three trees from outside crates/ via `rust-embed` at compile
 # time (the derive hard-errors if the folder is missing): the bundled skills
-# (ha-core skills/embedded.rs), the Chrome extension runtime files
+# (ha-skills skills/embedded.rs), the Chrome extension runtime files
 # (ha-browser browser/extension/embedded.rs), and the bilingual user manual
 # (ha-core manual/embed.rs). The binary materializes them under the data dir on
 # first use, so the runtime stage ships no separate copies.

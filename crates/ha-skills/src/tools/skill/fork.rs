@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Result};
 
 use crate::skills::{self, SkillEntry};
-use crate::tools::ToolExecContext;
+use ha_core::tools::ToolExecContext;
 
 pub(super) async fn execute(
     entry: &SkillEntry,
@@ -20,7 +20,7 @@ pub(super) async fn execute(
     let agent_id = ctx
         .agent_id
         .as_deref()
-        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
+        .unwrap_or(ha_core::agent_loader::DEFAULT_AGENT_ID);
 
     // skip_parent_injection=true: the skill tool itself feeds the result back
     // as a tool_result; the EventBus injection path would otherwise deliver

@@ -43,6 +43,7 @@ ha-local-llm = { path = "../ha-local-llm" }
 ha-dash = { path = "../ha-dash" }
 ha-channel = { path = "../ha-channel" }
 ha-knowledge = { path = "../ha-knowledge" }
+ha-skills = { path = "../ha-skills" }
 ha-cron = { path = "../ha-cron" }
 ha-eval-runtime = { path = "../ha-eval-runtime" }
 ha-updater = { path = "../ha-updater" }

@@ -264,7 +264,7 @@ pub fn init_runtime(role: &'static str) {
             menu_entries: || Box::pin(crate::slash_commands::im_menu_entries()),
             skill_command_help: |name| {
                 let store = crate::config::cached_config();
-                let skill = crate::skills::get_invocable_skills(
+                let skill = crate::skills_hooks::invocable_skills(
                     &store.extra_skills_dirs,
                     &store.disabled_skills,
                 )
@@ -1362,7 +1362,7 @@ pub async fn start_background_tasks() {
 
         // Optional skill draft consolidation loop. Re-reads the
         // auto-review config after every interval or config change.
-        crate::skills::auto_review::curator::spawn_auto_curator_loop();
+        crate::skills_hooks::spawn_auto_curator_loop();
 
         // STT 流式会话 GC 已随 ha-media 迁出：wire() 注册为 PrimaryOnly
         // startup task（本块原位在 primary 块内，档位语义一致）。

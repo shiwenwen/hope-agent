@@ -12,7 +12,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     // Store global AppHandle for event emission
     let _ = APP_HANDLE.set(app.handle().clone());
 
-    // Bundled skills are embedded in the binary (`ha_core::skills::embedded`)
+    // Bundled skills are embedded in the binary (`ha_skills::skills::embedded`)
     // and extract themselves to the data dir on first use — no Tauri resource
     // or env override involved.
     {

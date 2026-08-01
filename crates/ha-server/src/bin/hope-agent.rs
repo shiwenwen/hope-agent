@@ -24,21 +24,8 @@ fn main() {
 
     // 特征 crate 装配：必须先于任何 `init_runtime` 路径（server / acp / mcp
     // 各分支）——init 尾部冻结工具注册表，之后再挂 `app_update` 会 panic。
-    ha_updater::wire();
-    ha_weather::wire();
-    ha_acp::wire();
-    ha_mac::wire();
-    ha_design::wire();
-    ha_browser::wire();
-    ha_vcs::wire();
-    ha_mcp::wire();
-    ha_pet::wire();
-    ha_media::wire();
-    ha_local_llm::wire();
-    ha_dash::wire();
-    ha_channel::wire();
-    ha_knowledge::wire();
-    ha_cron::wire();
+    // 序列本体在 `ha_server::wire_features()`，与 `server_smoke` 共用一份。
+    ha_server::wire_features();
 
     if matches!(
         args.get(1).map(String::as_str),

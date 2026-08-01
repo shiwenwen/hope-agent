@@ -12,7 +12,7 @@ use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::subagent::{self, SpawnParams, SubagentStatus};
+use ha_core::subagent::{self, SpawnParams, SubagentStatus};
 
 use super::types::SkillEntry;
 
@@ -51,10 +51,10 @@ pub async fn spawn_skill_fork(
     let skill_content =
         crate::skills::build_skill_context_payload(skill, &substituted_skill_content);
 
-    let session_db = crate::globals::get_session_db()
+    let session_db = ha_core::globals::get_session_db()
         .ok_or_else(|| anyhow!("Session DB not initialized"))?
         .clone();
-    let cancel_registry = crate::globals::get_subagent_cancels()
+    let cancel_registry = ha_core::globals::get_subagent_cancels()
         .ok_or_else(|| anyhow!("Sub-agent cancel registry not initialized"))?
         .clone();
 
@@ -62,10 +62,10 @@ pub async fn spawn_skill_fork(
     // can't be loaded we stick with the parent agent so the skill still runs
     // instead of erroring out.
     let resolved_agent = match skill.agent.as_deref() {
-        Some(id) if !id.is_empty() => match crate::agent_loader::load_agent(id) {
+        Some(id) if !id.is_empty() => match ha_core::agent_loader::load_agent(id) {
             Ok(_) => id.to_string(),
             Err(e) => {
-                crate::app_warn!(
+                app_warn!(
                     "skill",
                     "agent",
                     "Skill '{}' declares agent '{}' which is not loadable ({}); falling back to parent agent",
@@ -102,9 +102,9 @@ pub async fn spawn_skill_fork(
         origin_channel_kb_context: None,
         // `context: fork` skill subagent (skip_parent_injection) — never grouped (R5).
         group_id: None,
-        owner_kind: crate::subagent::SubagentOwnerKind::Internal,
+        owner_kind: ha_core::subagent::SubagentOwnerKind::Internal,
         owner_id: format!("skill:{}:{}", parent_session_id, skill.name),
-        delivery_kind: crate::subagent::SubagentDeliveryKind::None,
+        delivery_kind: ha_core::subagent::SubagentDeliveryKind::None,
     };
 
     subagent::spawn_subagent(params, session_db, cancel_registry)
@@ -118,7 +118,7 @@ pub async fn spawn_skill_fork(
 /// Timeouts/Errors/Killed all return a short marker rather than an `Err` so
 /// the LLM sees a deterministic answer and can recover.
 pub async fn extract_fork_result(run_id: &str, skill_name: &str) -> Result<String> {
-    let session_db: Arc<crate::session::SessionDB> = crate::globals::get_session_db()
+    let session_db: Arc<ha_core::session::SessionDB> = ha_core::globals::get_session_db()
         .ok_or_else(|| anyhow!("Session DB not initialized"))?
         .clone();
 
@@ -164,7 +164,7 @@ pub async fn extract_fork_result(run_id: &str, skill_name: &str) -> Result<Strin
                 _ => unreachable!(),
             };
 
-            let truncated = crate::truncate_utf8(&body, MAX_RESULT_CHARS);
+            let truncated = ha_core::truncate_utf8(&body, MAX_RESULT_CHARS);
             return Ok(format!(
                 "Skill '{}' completed.\n\nResult:\n{}",
                 skill_name, truncated

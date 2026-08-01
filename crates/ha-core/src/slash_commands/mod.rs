@@ -117,7 +117,7 @@ pub async fn list_slash_commands() -> Result<Vec<SlashCommandDef>, String> {
 
     let store = crate::config::cached_config();
     let skill_entries =
-        crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
+        crate::skills_hooks::invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     let skill_entries = crate::skills::filter_catalog_eligible_skills(
         skill_entries,
         store.skill_env_check,

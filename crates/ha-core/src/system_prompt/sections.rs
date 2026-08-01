@@ -287,8 +287,10 @@ pub(super) fn build_skills_section(
     session_id: Option<&str>,
 ) -> String {
     let store = crate::config::cached_config();
-    let all_skills =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+    let all_skills = crate::skills_hooks::load_all_skills_with_budget(
+        &store.extra_skills_dirs,
+        &store.skill_prompt_budget,
+    );
 
     // Start with globally disabled skills
     let disabled = store.disabled_skills.clone();

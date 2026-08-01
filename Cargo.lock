@@ -3416,6 +3416,7 @@ dependencies = [
  "ha-mcp",
  "ha-media",
  "ha-pet",
+ "ha-skills",
  "ha-updater",
  "ha-vcs",
  "ha-weather",
@@ -3650,6 +3651,7 @@ dependencies = [
  "ha-mcp",
  "ha-media",
  "ha-pet",
+ "ha-skills",
  "ha-updater",
  "ha-vcs",
  "ha-weather",
@@ -3662,6 +3664,27 @@ dependencies = [
  "tokio",
  "tower",
  "tower-http",
+ "uuid",
+]
+
+[[package]]
+name = "ha-skills"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "dirs 6.0.0",
+ "ha-base",
+ "ha-config-schema",
+ "ha-core",
+ "ignore",
+ "once_cell",
+ "regex",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 
@@ -3860,6 +3883,7 @@ dependencies = [
  "ha-media",
  "ha-pet",
  "ha-server",
+ "ha-skills",
  "ha-updater",
  "ha-vcs",
  "ha-weather",

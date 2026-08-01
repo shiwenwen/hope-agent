@@ -131,6 +131,7 @@ pub mod session;
 pub mod session_title;
 pub mod settings_reset;
 pub mod skills;
+pub mod skills_hooks;
 pub mod slash_commands;
 pub mod slash_defs;
 pub mod slash_hooks;

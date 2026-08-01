@@ -15,6 +15,7 @@ mod tests {
     };
     use crate::skills::slash::{check_all_skills_status, normalize_skill_command_name};
     use crate::skills::types::*;
+    use ha_config_schema::skills::{DEFAULT_MAX_CANDIDATES_PER_ROOT, DEFAULT_MAX_SKILL_FILE_BYTES};
 
     fn make_skill(name: &str, desc: &str) -> SkillEntry {
         SkillEntry {

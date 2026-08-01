@@ -803,7 +803,7 @@ pub(crate) async fn run_chat_engine_classified(
     // containing a `[@…](#skill:…)` token can't self-activate a built-in skill
     // into the parent's system context.
     if source.fires_user_lifecycle_hooks() {
-        if let Some(extra) = crate::skills::resolve_inline_skill_mentions(&message) {
+        if let Some(extra) = crate::skills_hooks::resolve_inline_skill_mentions(&message) {
             extra_system_context = Some(match extra_system_context.take() {
                 Some(e) => format!("{e}\n\n{extra}"),
                 None => extra,
@@ -1604,37 +1604,17 @@ pub(crate) async fn run_chat_engine_classified(
                             // toggle is on.
                             let user_correction = cfg.correction_signal_enabled
                                 && db.user_messages_within(&session_id, 30).unwrap_or(false);
-                            let signals = crate::skills::auto_review::TriggerSignals {
-                                turn_tokens: round_tokens,
-                                new_messages: round_messages,
+                            // 闸 1 起的整条瀑布（trigger → spawn(run_review_cycle)
+                            // → sweep_stale）在 ha-skills；kernel 只算这四个
+                            // 信号标量——`user_correction` 需要 SessionDB。
+                            crate::skills_hooks::auto_review_post_turn(
+                                &session_id,
+                                &cfg,
+                                round_tokens,
+                                round_messages,
                                 tool_use_count,
                                 user_correction,
-                            };
-                            if let Some(gate) = crate::skills::auto_review::touch_and_maybe_trigger(
-                                &session_id,
-                                signals,
-                                &cfg,
-                            ) {
-                                let session_id_for_review = session_id.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = crate::skills::auto_review::run_review_cycle(
-                                        &session_id_for_review,
-                                        crate::skills::auto_review::ReviewTrigger::PostTurn,
-                                        gate,
-                                        None,
-                                    )
-                                    .await
-                                    {
-                                        app_warn!(
-                                            "skills",
-                                            "auto_review",
-                                            "post-turn review cycle failed: {}",
-                                            e
-                                        );
-                                    }
-                                    crate::skills::auto_review::sweep_stale(7 * 24 * 3600);
-                                });
-                            }
+                            );
                         }
 
                         if idle_timeout > 0 {

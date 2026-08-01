@@ -19,7 +19,7 @@ pub(super) async fn execute(entry: &SkillEntry, args: &str) -> Result<String> {
     // failure is retried on every activation, whichever door was used.
     // Idempotent: the fingerprint check short-circuits once mirrored.
     if entry.name == "ha-manual" {
-        let _ = tokio::task::spawn_blocking(crate::manual::ensure_local_manual).await;
+        let _ = tokio::task::spawn_blocking(ha_core::manual::ensure_local_manual).await;
     }
 
     // Disk IO off the async runtime thread.

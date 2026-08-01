@@ -22,7 +22,7 @@ use tokio::sync::Notify;
 
 use crate::skills::author::delete_skill;
 use crate::skills::{load_all_skills_with_extra, SkillEntry, SkillStatus};
-use crate::truncate_utf8;
+use ha_core::truncate_utf8;
 
 use super::heuristics::{jaccard, tokenize};
 
@@ -83,7 +83,7 @@ pub fn spawn_auto_curator_loop() {
 
     let notify = Arc::new(Notify::new());
 
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let mut rx = bus.subscribe();
         let notify_for_sub = notify.clone();
         tokio::spawn(async move {
@@ -105,7 +105,7 @@ pub fn spawn_auto_curator_loop() {
         let mut last_run: Option<Instant> = None;
 
         loop {
-            let cfg = crate::config::cached_config()
+            let cfg = ha_core::config::cached_config()
                 .skills
                 .auto_review
                 .clone()
@@ -117,7 +117,7 @@ pub fn spawn_auto_curator_loop() {
             }
 
             let interval =
-                Duration::from_secs(cfg.auto_curator_interval_days * crate::SECS_PER_DAY);
+                Duration::from_secs(cfg.auto_curator_interval_days * ha_core::SECS_PER_DAY);
             let now = Instant::now();
             let elapsed = last_run.map(|t| now.saturating_duration_since(t));
 
@@ -142,7 +142,7 @@ async fn run_auto_curator_pass() {
         Ok(Ok(report)) => {
             let proposals = report.proposals.len();
             let drafts_scanned = report.drafts_scanned;
-            if let Some(bus) = crate::get_event_bus() {
+            if let Some(bus) = ha_core::get_event_bus() {
                 bus.emit(
                     EVENT_CURATOR_PROPOSALS_READY,
                     serde_json::to_value(&report).unwrap_or(Value::Null),
@@ -171,7 +171,7 @@ async fn run_auto_curator_pass() {
 /// of the managed skills tree. Suitable for both the manual button
 /// (`run_skills_curator_now`) and the optional periodic task.
 pub fn run_curator_pass() -> Result<CuratorReport> {
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let entries: Vec<SkillEntry> = load_all_skills_with_extra(&config.extra_skills_dirs)
         .into_iter()
         // Only managed (~/.hope-agent/skills/) drafts; we never touch
@@ -264,7 +264,7 @@ pub fn apply_merge_keep_id(keep_id: &str, member_ids: &[String]) -> Result<usize
     if !member_ids.iter().any(|id| id == keep_id) {
         return Err(anyhow!("keep_id `{}` is not in the member list", keep_id));
     }
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let entries = load_all_skills_with_extra(&config.extra_skills_dirs);
 
     let is_managed_draft = |id: &str| -> bool {

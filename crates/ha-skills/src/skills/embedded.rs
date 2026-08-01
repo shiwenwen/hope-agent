@@ -15,7 +15,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use rust_embed::RustEmbed;
 
-use crate::paths;
+use ha_core::paths;
 
 use super::discovery::looks_like_skills_dir;
 
@@ -128,7 +128,7 @@ fn ensure_extracted_in(root: &Path) -> Result<PathBuf> {
     }
     touch_last_used(&target);
     prune_stale(root, &version);
-    crate::app_info!(
+    app_info!(
         "skills",
         "embedded",
         "extracted {} bundled skill files to {}",

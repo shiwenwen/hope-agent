@@ -1712,7 +1712,8 @@ fn any_paths_skills(cfg: &crate::config::AppConfig) -> bool {
         }
     }
 
-    let catalog = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let catalog =
+        crate::skills_hooks::invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
     let has_any = catalog
         .iter()
         .any(|s| s.paths.as_ref().map(|p| !p.is_empty()).unwrap_or(false));
@@ -1742,7 +1743,8 @@ fn maybe_activate_conditional_skills(name: &str, args: &Value, ctx: &ToolExecCon
         return;
     }
     let cwd = ctx.default_path();
-    let catalog = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let catalog =
+        crate::skills_hooks::invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
     let activated = crate::skills::activate_skills_for_paths(session_id, &paths, cwd, &catalog);
     if !activated.is_empty() {
         crate::skills::bump_skill_version();

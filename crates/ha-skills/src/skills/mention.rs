@@ -67,7 +67,7 @@ fn is_mentionable_on_this_os(name: &str) -> bool {
 /// invocable (respects `disabled_skills` / `user_invocable` / discoverable) ∩
 /// OS gate. Returned in [`AT_MENTIONABLE_SKILLS`] order.
 fn mentionable_entries() -> Vec<SkillEntry> {
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let invocable = get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
     AT_MENTIONABLE_SKILLS
         .iter()
@@ -137,7 +137,7 @@ pub fn resolve_inline_skill_mentions(message: &str) -> Option<String> {
         let content = match std::fs::read_to_string(&entry.file_path) {
             Ok(c) => c,
             Err(e) => {
-                crate::app_warn!(
+                app_warn!(
                     "skill",
                     "mention",
                     "Failed to read SKILL.md for @skill:{} ({}): skipping",
@@ -158,7 +158,7 @@ pub fn resolve_inline_skill_mentions(message: &str) -> Option<String> {
         return None;
     }
 
-    crate::app_info!(
+    app_info!(
         "skill",
         "mention",
         "Activated {} @skill mention(s): {}",

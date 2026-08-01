@@ -131,16 +131,19 @@ graph TB
 
 | 文件 | 职责 |
 |------|------|
-| `crates/ha-core/src/skills/` | 核心模块：类型定义、frontmatter 解析、requirements 检查、prompt 生成、缓存、健康检查、draft/auto-review |
-| `crates/ha-core/src/skills/fork_helper.rs` | 共享 fork helper：`spawn_skill_fork` + `extract_fork_result`，两个激活入口都走它 |
-| `crates/ha-core/src/skills/activation.rs` | `paths:` 条件激活：内存 cache + SQLite 持久化 + gitignore 匹配 |
-| `crates/ha-core/src/skills/commands.rs` | Tauri / HTTP 共用 command-layer：列表、详情、启用禁用、env、安装、draft 审核、Quick Import 探测 |
-| `crates/ha-core/src/tools/skill/` | `skill` 工具：`mod.rs` 分发 + `inline.rs` 读 SKILL.md + `fork.rs` 子 Agent 执行 |
-| `src-tauri/src/commands/skills.rs` | 桌面 Tauri 命令薄壳：参数转换 + 调用 `ha_core::skills::commands` |
+| `crates/ha-skills/src/skills/` | **机器层**（阶段 5 第七刀自 ha-core 迁出）：内置技能解包、SKILL.md 扫描与 frontmatter 解析、创作写盘、五闸 auto-review、`@skill` 提及、fork 派发、命令面 |
+| `crates/ha-core/src/skills/types.rs` | **契约**：`SkillEntry` / `SkillStatus` / `SkillSummary` 等 wire 类型 + `skill_cache_version` / `bump_skill_version` 目录版本计数器 |
+| `crates/ha-core/src/skills/activation.rs` | **台账**：`paths:` 条件激活的真相源（内存 cache + `session_skill_activation` 表 + gitignore 匹配）。三个 kernel 调用点读写它，故留 kernel |
+| `crates/ha-core/src/skills/{requirements,prompt,slash}.rs` | **纯谓词 / 纯渲染**：环境依赖检查、技能段拼装、slash 名字归一与健康度。不碰文件系统 / LLM / 网络 |
+| `crates/ha-core/src/skills_hooks.rs` | kernel → ha-skills 的**唯一回调面**（九槽原子：行为 8 + 装配 1）；未装配语义逐槽见模块文档 |
+| `crates/ha-skills/src/skills/fork_helper.rs` | 共享 fork helper：`spawn_skill_fork` + `extract_fork_result`，两个激活入口都走它 |
+| `crates/ha-skills/src/skills/commands.rs` | Tauri / HTTP 共用 command-layer：列表、详情、启用禁用、env、安装、draft 审核、Quick Import 探测 |
+| `crates/ha-skills/src/tools/skill/` | `skill` 工具：`mod.rs` 分发 + `inline.rs` 读 SKILL.md + `fork.rs` 子 Agent 执行 |
+| `src-tauri/src/commands/skills.rs` | 桌面 Tauri 命令薄壳：参数转换 + 调用 `ha_skills::skills::commands` |
 | `crates/ha-server/src/routes/skills.rs` | HTTP 路由薄壳：REST API + 远程安装 `allowRemoteInstall` 闸门 |
 | `crates/ha-core/src/system_prompt/` | 系统提示词构建，调用 `build_skills_prompt(..., activated_conditional)` 注入技能段落 |
 | `crates/ha-core/src/config/mod.rs` | `AppConfig` 持久化技能配置（budget/allowlist/disabled/env/auto-review/remote install） |
-| `crates/ha-core/src/slash_commands/` | 斜杠命令系统，动态注册 user-invocable 技能为 `/skillname` 命令；fork 分支复用 `skills::spawn_skill_fork` |
+| `crates/ha-core/src/slash_commands/` | 斜杠命令系统，动态注册 user-invocable 技能为 `/skillname` 命令；取目录 / 内联 SKILL.md / fork 三处经 `skills_hooks` 回调 ha-skills，`SkillEntry` 与 `resolve_skill_command_names` 仍是 kernel 契约 |
 | `crates/ha-core/src/subagent/` | 子 Agent spawn + `SubagentEvent.skill_name` 辨别字段 |
 | `src/components/settings/skills-panel/` | 前端技能管理面板（列表 + 详情 + 安装 + env + draft 审核 + Quick Import） |
 | `src/components/chat/SkillProgressBlock.tsx` | 对话流中 `skill` 工具的专用渲染器（琥珀 🧩 图标，inline/fork 自动区分） |
@@ -472,7 +475,7 @@ if req.always {
 
 对齐 Claude Code 的 `SkillTool`，Hope Agent 引入**专用 `skill` 工具**作为模型自主激活 skill 的主入口：
 
-- 工具名：`skill`，内置在 [`crates/ha-core/src/tools/skill/`](../../crates/ha-core/src/tools/skill/)
+- 工具名：`skill`，内置在 [`crates/ha-skills/src/tools/skill/`](../../crates/ha-skills/src/tools/skill/)
 - 入参：`{ name: string, args?: string }`
 - 工具执行层统一分发 **inline / fork**，`context: fork` 在斜杠命令和模型自主两条路径**都生效**
 - 标记 `internal: true + always_load: true`：跳过审批、deferred_tools 场景也恒定可见
@@ -540,7 +543,7 @@ flowchart TD
 `skills::fork_helper::spawn_skill_fork` 是**唯一的 fork 入口点**，保证斜杠命令路径和 `skill` 工具路径零漂移：
 
 ```rust
-// crates/ha-core/src/skills/fork_helper.rs
+// crates/ha-skills/src/skills/fork_helper.rs
 pub async fn spawn_skill_fork(
     skill: &SkillEntry,
     args: &str,
@@ -571,7 +574,7 @@ pub async fn extract_fork_result(
 
 ### 斜杠命令的 Inline 内联路径
 
-当用户打 `/skillname [args]` 且 skill 不是 `context: fork` 且没有 `command-prompt-template`，走这条路径：[`slash_commands/handlers/mod.rs`](../../crates/ha-core/src/slash_commands/handlers/mod.rs) 的 `_` 分支调 [`tools::skill::inline::execute(&entry, args)`](../../crates/ha-core/src/tools/skill/inline.rs)（与模型调 `skill` 工具完全同一函数）拿到 SKILL.md 全文 + `$ARGUMENTS` 替换后，包进如下格式的 `PassThrough` 消息：
+当用户打 `/skillname [args]` 且 skill 不是 `context: fork` 且没有 `command-prompt-template`，走这条路径：[`slash_commands/handlers/mod.rs`](../../crates/ha-core/src/slash_commands/handlers/mod.rs) 的 `_` 分支调 [`tools::skill::inline::execute(&entry, args)`](../../crates/ha-skills/src/tools/skill/inline.rs)（与模型调 `skill` 工具完全同一函数）拿到 SKILL.md 全文 + `$ARGUMENTS` 替换后，包进如下格式的 `PassThrough` 消息：
 
 ```
 [SYSTEM: The user has invoked the '<name>' skill via slash command with arguments: "<args>".
@@ -616,7 +619,7 @@ bundled resources；这样复杂 skill 可以把稳定逻辑放进包内脚本�
 输入框 `@` 菜单除了文件 / 知识笔记，还有一段**内置技能**：用户选中后插入一个 **markdown 链接 token `[@<标签>](#skill:<name>)`**（Codex 风格——链接文本是本地化友好标签、href 是稳定 id），留在消息文本里（与 `@path`、`[[note]]` 一致），由后端在 send-time 解析。这是「一次性 system-prompt 追加」方案的落地实例——技能内容进本回合 `extra_system_context`，不污染 conversation_history。
 
 - **token = markdown 链接（关键设计）**：用 `[@标签](#skill:name)` 而非裸 `@skill:name`，好处是**同一 token 在输入框（CM6 装饰）和消息历史（`MarkdownLink` 拦截 `#skill:` href）都渲染成同一玫瑰粉 chip**，不会在历史里露出 `@skill:xxx` 原文；标签本地化、id 稳定，后端只认 href 里的 id 与标签解耦。href 选 **fragment `#skill:`**（不是 `skill://`）——Streamdown 用固定 `defaultSchema` 的 rehype-sanitize，自定义 scheme 会被剥 href，fragment 则像现有本地路径链接一样存活（`allowedLinkPrefixes:["*"]`）。
-- **固定 allowlist（红线）**：`@skill` **只对内置、固定的技能开放**，不是通用技能注入入口。allowlist 在 [`skills/mention.rs::AT_MENTIONABLE_SKILLS`](../../crates/ha-core/src/skills/mention.rs)，共 6 项，按菜单展示顺序：`office-docx` / `office-pptx` / `office-xlsx` / `ha-data-analytics` / `ha-browser` / `ha-mac-control`（最后一个经 `is_mentionable_on_this_os` 的 `cfg!(target_os = "macos")` 硬门控，其余跨平台）。任意 / 已禁用（`disabled_skills`）/ 非本 OS 的名字一律静默跳过，原 token 文本留在消息里不注入。
+- **固定 allowlist（红线）**：`@skill` **只对内置、固定的技能开放**，不是通用技能注入入口。allowlist 在 [`skills/mention.rs::AT_MENTIONABLE_SKILLS`](../../crates/ha-skills/src/skills/mention.rs)，共 6 项，按菜单展示顺序：`office-docx` / `office-pptx` / `office-xlsx` / `ha-data-analytics` / `ha-browser` / `ha-mac-control`（最后一个经 `is_mentionable_on_this_os` 的 `cfg!(target_os = "macos")` 硬门控，其余跨平台）。任意 / 已禁用（`disabled_skills`）/ 非本 OS 的名字一律静默跳过，原 token 文本留在消息里不注入。
 - **解析 = `knowledge::inject` 平行**：`resolve_inline_skill_mentions(message)`（同步、纯文本扫描）正则 `\[@[^\]\n]+\]\(#skill:([a-z0-9-]+)\)`（label `+` 非空，与前端 `parseSkillMentions` 字节一致；绑定链接形态，挡掉散落在正文里的 `#skill:`）→ 去重 → 过 allowlist ∩ invocable ∩ OS → 读 SKILL.md（`$ARGUMENTS` 替换为空 + `build_skill_context_payload`）→ 拼一段 `# Activated Skills (@skill)` 块。在 [`chat_engine/engine.rs`](../../crates/ha-core/src/chat_engine/engine.rs) 紧跟 `[[note]]` 注入之后合并进 `extra_system_context`，**仅 `source.fires_user_lifecycle_hooks()`（Desktop / HTTP / IM 用户回合）生效**——`Subagent` / `ParentInjection` 不解析,挡掉子 Agent 未转义输出里夹带的 `[@…](#skill:…)` 自激活 skill。
 - **菜单数据**：`list_mentionable_skills()`（Tauri `list_mentionable_skills` / HTTP `GET /api/skills/mentionable`，owner 平面无 session 参数）返回 allowlist ∩ invocable ∩ OS 的 `{ name, description }`；友好标签 + 图标在前端 [`skill-mention/skillTokens.ts`](../../src/components/chat/skill-mention/skillTokens.ts) 按 `name` 映射（i18n `chat.skillMention.*`），后端不下发文案。插入时 `useFileMention` 用自己的 `useTranslation` 取当前语言标签写进链接文本（`skillTokens` 保持纯 / 无 i18n 副作用导入，避免被广引时把 i18n init 拖进测试图）。
 - **前端**：统一 `@` 菜单第三段（[`useFileMention`](../../src/components/chat/file-mention/useFileMention.ts) + [`FileMentionMenu`](../../src/components/chat/file-mention/FileMentionMenu.tsx)），扁平光标 `[...files, ...notes, ...skills]`；输入框 chip 在 [`MentionComposerInput`](../../src/components/chat/input/MentionComposerInput.tsx)（玫瑰粉，文件=蓝 / 笔记=紫之外的第三色），历史 chip 在 [`SkillMentionChip`](../../src/components/chat/skill-mention/SkillMentionChip.tsx)（`MarkdownLink` 按 `#skill:` href 派发）。链接形态的 `@` 在 `[` 之后，**天然不被裸 `@token` 文件 mention 语法命中**（无需像旧裸 token 那样在文件 chip / 发送展开处特判）。`enableSkillMention` prop 默认关，主对话 `ChatScreen` opt-in（QuickChat / 知识空间面板不开）。
@@ -1369,15 +1372,15 @@ flowchart LR
     G3 --> G4["闸 4 自评分硬阈值"] --> G5["闸 5 后置 lint"] --> OUT["落盘 draft / patch existing"]
 ```
 
-- **闸 1（[`triggers.rs`](../../crates/ha-core/src/skills/auto_review/triggers.rs)）**：[`TriggerSignals { turn_tokens, new_messages, tool_use_count, user_correction }`](../../crates/ha-core/src/skills/auto_review/triggers.rs)。默认 `requireToolUse=true` —— 纯聊天对话 `tool_use_count=0` 永远不触发；`tool_use_count ≥ toolUseThreshold` 是主入口；`correctionSignalEnabled=true` 时连发两条用户消息（< 30s）也独立触发。
-- **闸 2（[`heuristics::pre_gate`](../../crates/ha-core/src/skills/auto_review/heuristics.rs)）**：消息条数低于 `minMessageCount` 直接 skip；最近 `discardBlacklistDays` 天内被用户 discard 的草稿主题（按 description 做 overlap-coefficient 相似度匹配）直接 skip。`delete_skill` 会把当时的 description 写到 `learning_events.meta_json`，所以中英文题目都能匹配。
-- **闸 3（[`pipeline.rs`](../../crates/ha-core/src/skills/auto_review/pipeline.rs) + [`prompts.rs`](../../crates/ha-core/src/skills/auto_review/prompts.rs)）**：内置 prompt 列出 6 类禁拍（`ENV-FAILURE` / `NEGATIVE-CLAIM` / `TRANSIENT-ERROR` / `ONE-OFF-TASK` / `PERSONAL-LIFE-DECISION` / `ECHO-OF-USER-INPUT`），用户 `extraRejectCategories` 追加进去；按 Jaccard 选 `topKForDedup` 条现有 skill，**注入完整 body** 让模型优先 `patch` 而非 `create`；用户也可整段覆盖 `reviewSystemOverride`，但闸 4 / 5 不受影响。
+- **闸 1（[`triggers.rs`](../../crates/ha-skills/src/skills/auto_review/triggers.rs)）**：[`TriggerSignals { turn_tokens, new_messages, tool_use_count, user_correction }`](../../crates/ha-skills/src/skills/auto_review/triggers.rs)。默认 `requireToolUse=true` —— 纯聊天对话 `tool_use_count=0` 永远不触发；`tool_use_count ≥ toolUseThreshold` 是主入口；`correctionSignalEnabled=true` 时连发两条用户消息（< 30s）也独立触发。
+- **闸 2（[`heuristics::pre_gate`](../../crates/ha-skills/src/skills/auto_review/heuristics.rs)）**：消息条数低于 `minMessageCount` 直接 skip；最近 `discardBlacklistDays` 天内被用户 discard 的草稿主题（按 description 做 overlap-coefficient 相似度匹配）直接 skip。`delete_skill` 会把当时的 description 写到 `learning_events.meta_json`，所以中英文题目都能匹配。
+- **闸 3（[`pipeline.rs`](../../crates/ha-skills/src/skills/auto_review/pipeline.rs) + [`prompts.rs`](../../crates/ha-skills/src/skills/auto_review/prompts.rs)）**：内置 prompt 列出 6 类禁拍（`ENV-FAILURE` / `NEGATIVE-CLAIM` / `TRANSIENT-ERROR` / `ONE-OFF-TASK` / `PERSONAL-LIFE-DECISION` / `ECHO-OF-USER-INPUT`），用户 `extraRejectCategories` 追加进去；按 Jaccard 选 `topKForDedup` 条现有 skill，**注入完整 body** 让模型优先 `patch` 而非 `create`；用户也可整段覆盖 `reviewSystemOverride`，但闸 4 / 5 不受影响。
 - **闸 4（pipeline `apply_create` 内）**：要求模型在 create 决策里返回 `reuse_scenarios: [string; 3]`（每条 ≥ 20 字、互相 Jaccard < 0.8）+ `reuse_probability ≥ minReuseProbability` + `class_level_name = true`，否则强制 skip。
-- **闸 5（[`heuristics::post_lint`](../../crates/ha-core/src/skills/auto_review/heuristics.rs)）**：会话化词阈值（"今天 / this conversation / 上面" 等）≥ `sessionRecapThreshold`、步骤数不在 `[minSteps, maxSteps]`、缺少具体命令 / 路径 / 代码、命名含 `fix-issue` / `-today` / 末尾纯数字等"会话产物"特征任一命中即 skip。
+- **闸 5（[`heuristics::post_lint`](../../crates/ha-skills/src/skills/auto_review/heuristics.rs)）**：会话化词阈值（"今天 / this conversation / 上面" 等）≥ `sessionRecapThreshold`、步骤数不在 `[minSteps, maxSteps]`、缺少具体命令 / 路径 / 代码、命名含 `fix-issue` / `-today` / 末尾纯数字等"会话产物"特征任一命中即 skip。
 
 ### 落盘原语：`skills::author` 与 `security_scan`
 
-五道闸的产物最终经 [`skills/author.rs`](../../crates/ha-core/src/skills/author.rs) 落盘。该模块是**技能写入的唯一实现**（auto-review 管线、Curator、`coding_improvement` 的 skill 提案、草稿审核命令都调它），**只写 managed scope**（`paths::skills_dir()` 下的 `~/.hope-agent/skills/{id}/SKILL.md`）——bundled / project / extra 三个来源永不被改。
+五道闸的产物最终经 [`skills/author.rs`](../../crates/ha-skills/src/skills/author.rs) 落盘。该模块是**技能写入的唯一实现**（auto-review 管线、Curator、`coding_improvement` 的 skill 提案、草稿审核命令都调它），**只写 managed scope**（`paths::skills_dir()` 下的 `~/.hope-agent/skills/{id}/SKILL.md`）——bundled / project / extra 三个来源永不被改。
 
 #### 原语一览
 
@@ -1427,7 +1430,7 @@ flowchart LR
 
 ### Curator（草稿合并）
 
-[`curator.rs`](../../crates/ha-core/src/skills/auto_review/curator.rs) 提供一次性扫描：用 Jaccard 把 `status=draft` 的 managed skill 聚类（默认阈值 0.4），输出 `MergeProposal { members, min_similarity }`。**不调用 LLM、不落盘**；前端展示给用户选择保留哪一个，调用 `apply_skills_curator_merge` 时通过 `delete_skill` 删除其余成员（同时进 gate 2 黑名单）。`autoCuratorEnabled=true` 时由独立后台任务按 `autoCuratorIntervalDays` 周期触发（默认关），每轮成功扫描会 emit `skills:curator_proposals_ready`（payload `CuratorReport`）；设置页只在 proposals 非空时显示提醒。
+[`curator.rs`](../../crates/ha-skills/src/skills/auto_review/curator.rs) 提供一次性扫描：用 Jaccard 把 `status=draft` 的 managed skill 聚类（默认阈值 0.4），输出 `MergeProposal { members, min_similarity }`。**不调用 LLM、不落盘**；前端展示给用户选择保留哪一个，调用 `apply_skills_curator_merge` 时通过 `delete_skill` 删除其余成员（同时进 gate 2 黑名单）。`autoCuratorEnabled=true` 时由独立后台任务按 `autoCuratorIntervalDays` 周期触发（默认关），每轮成功扫描会 emit `skills:curator_proposals_ready`（payload `CuratorReport`）；设置页只在 proposals 非空时显示提醒。
 
 ### 命令一览
 
@@ -1460,7 +1463,7 @@ Agent 设置页只展示“全局已启用”的 skill；Agent 级开关只能�
 
 ## Tauri 命令与 HTTP 路由一览
 
-Tauri 与 HTTP 都只做薄适配，核心逻辑在 `ha_core::skills::commands`。HTTP 路由挂在 `/api` 前缀下；除健康检查外受 server Bearer Token 鉴权保护。
+Tauri 与 HTTP 都只做薄适配，核心逻辑在 `ha_skills::skills::commands`。HTTP 路由挂在 `/api` 前缀下；除健康检查外受 server Bearer Token 鉴权保护。
 
 | 命令 | 参数 | 返回 | 说明 |
 |------|------|------|------|
@@ -1478,7 +1481,7 @@ Tauri 与 HTTP 都只做薄适配，核心逻辑在 `ha_core::skills::commands`�
 | `remove_skill_env_var` | `skill, key` | — | 移除技能环境变量 |
 | `get_skills_env_status` | — | `HashMap<String, HashMap<String, bool>>` | 批量获取所有技能的环境变量配置状态 |
 | `get_skills_status` | — | `Vec<SkillStatusEntry>` | 获取所有技能的健康状态 |
-| `install_skill_dependency` | `skill_name, spec_index` | `String` | 安装技能依赖（返回日志）。Spawn 核心在 [`ha_core::skills::commands::install_skill_dependency`](../../crates/ha-core/src/skills/commands.rs)，两端共享。HTTP 等价路由 `POST /api/skills/{name}/install` 需要 `skills.allowRemoteInstall = true` 才不会返 403 —— 该开关默认关闭，因为它在 API Key 视角下等价于远程 RCE。Tauri 桌面不受开关限制 |
+| `install_skill_dependency` | `skill_name, spec_index` | `String` | 安装技能依赖（返回日志）。Spawn 核心在 [`ha_skills::skills::commands::install_skill_dependency`](../../crates/ha-skills/src/skills/commands.rs)，两端共享。HTTP 等价路由 `POST /api/skills/{name}/install` 需要 `skills.allowRemoteInstall = true` 才不会返 403 —— 该开关默认关闭，因为它在 API Key 视角下等价于远程 RCE。Tauri 桌面不受开关限制 |
 | `list_draft_skills` | — | `Vec<SkillSummary>` | 列出 `status: draft` 的技能，供人工审核 |
 | `activate_draft_skill` | `name` | — | 把 managed draft 提升为 `active` |
 | `discard_draft_skill` | `name` | — | 删除 managed draft skill |
@@ -1680,7 +1683,7 @@ sequenceDiagram
 
 ## 内置技能
 
-内置技能（Bundled Skills）源自项目根目录 `skills/`，优先级最低。该目录经 `rust-embed` 在**编译期整树嵌入 ha-core**（`skills/embedded.rs`），运行期按内容 hash 解压到 `~/.hope-agent/bundled-skills/<hash>/`（tmp 目录 + 原子 rename，并发安全；旧版本 hash 目录自动清理；整个目录是纯缓存，删除后下次启动重建）。因此**所有发行形态**——桌面 bundle、Docker、bare-binary tar.gz、自升级 swap 后的新二进制——天然携带并自动更新内置技能，无需在构建产物里单独拷贝 `skills/` 目录（旧的 Tauri `bundle.resources` 拷贝、Dockerfile `COPY skills` + env 指向、exe 同级目录探测均已退役，勿重新引入）。
+内置技能（Bundled Skills）源自项目根目录 `skills/`，优先级最低。该目录经 `rust-embed` 在**编译期整树嵌入 ha-skills**（`skills/embedded.rs`；阶段 5 第七刀随机器层自 ha-core 迁出，`cargo:rerun-if-changed=../../skills` 必须与 `#[folder]` 同 crate，见 `crates/ha-skills/build.rs`），运行期按内容 hash 解压到 `~/.hope-agent/bundled-skills/<hash>/`（tmp 目录 + 原子 rename，并发安全；旧版本 hash 目录自动清理；整个目录是纯缓存，删除后下次启动重建）。因此**所有发行形态**——桌面 bundle、Docker、bare-binary tar.gz、自升级 swap 后的新二进制——天然携带并自动更新内置技能，无需在构建产物里单独拷贝 `skills/` 目录（旧的 Tauri `bundle.resources` 拷贝、Dockerfile `COPY skills` + env 指向、exe 同级目录探测均已退役，勿重新引入）。
 
 `discovery.rs` 中的 `resolve_bundled_skills_dir()` 按以下顺序定位内置技能目录：
 

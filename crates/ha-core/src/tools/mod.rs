@@ -51,9 +51,6 @@ pub mod registry;
 mod runtime_cancel;
 mod schedule_wakeup;
 mod send_attachment;
-pub(crate) mod skill;
-// NOTE: `skill` is `pub(crate)` only to expose `render_inline` for the
-// slash-command handler; the `inline` / `fork` submodules stay private.
 mod sessions;
 mod settings;
 pub(crate) mod subagent;

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use crate::paths;
+use ha_core::paths;
 
 use super::frontmatter::parse_frontmatter;
 use super::types::*;
@@ -31,7 +31,7 @@ fn resolve_bundled_skills_dir() -> Option<PathBuf> {
         }
     }
 
-    // 2. Dev builds only: workspace root skills/ (CARGO_MANIFEST_DIR is crates/ha-core)
+    // 2. Dev builds only: workspace root skills/ (CARGO_MANIFEST_DIR is crates/ha-skills)
     //    Use env!() compile-time macro so the path is baked in at build time,
     //    since the runtime env var is only present under `cargo run`.
     #[cfg(debug_assertions)]
@@ -50,7 +50,7 @@ fn resolve_bundled_skills_dir() -> Option<PathBuf> {
     match super::embedded::ensure_extracted() {
         Ok(dir) => Some(dir),
         Err(e) => {
-            crate::app_warn!(
+            app_warn!(
                 "skills",
                 "discovery",
                 "failed to extract embedded bundled skills: {e:#}"
@@ -372,28 +372,6 @@ pub fn get_invocable_skills(extra_dirs: &[String], disabled: &[String]) -> Vec<S
         .filter(|s| s.user_invocable != Some(false))
         // Draft/Archived skills are excluded from slash command registration
         .filter(|s| s.status.is_discoverable())
-        .collect()
-}
-
-/// Filter a skill list down to entries that may be surfaced in catalogs or
-/// menus. Recoverable setup gaps stay visible; hard blockers such as
-/// unsupported OS are hidden.
-pub fn filter_catalog_eligible_skills(
-    skills: Vec<SkillEntry>,
-    env_check: bool,
-    skill_env: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
-) -> Vec<SkillEntry> {
-    if !env_check {
-        return skills;
-    }
-    skills
-        .into_iter()
-        .filter(|s| {
-            super::requirements::check_requirements_for_injection(
-                &s.requires,
-                skill_env.get(&s.name),
-            )
-        })
         .collect()
 }
 

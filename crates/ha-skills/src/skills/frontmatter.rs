@@ -1076,3 +1076,33 @@ pub(super) fn parse_metadata_namespaces(yaml_block: &str) -> MetadataNamespaces 
 
     out
 }
+
+/// 阶段 5 第七刀自 kernel `skills/types.rs` 迁来——它是个迷你 frontmatter
+/// 解析器，唯一消费者 `author::delete_skill` 就在本 crate，留在契约层只是历史
+/// 位置（原 doc 自述「Used by `author::delete_skill`」）。
+///
+/// Extract the `description:` frontmatter field from a SKILL.md content
+/// string without instantiating the full `ParsedFrontmatter`. Used by
+/// `author::delete_skill` to persist the language-rich description into
+/// the `skill_discarded` learning event meta so the auto-review pipeline
+/// can build a real topical blacklist (rather than matching against
+/// kebab-case ids that may not share a language with the user).
+pub fn parse_frontmatter_for_discard(content: &str) -> Option<String> {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return None;
+    }
+    let after_open = &trimmed[3..];
+    let end = after_open.find("\n---")?;
+    let yaml_block = &after_open[..end];
+    for line in yaml_block.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("description:") {
+            let v = rest.trim().trim_matches(|c| c == '"' || c == '\'');
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}

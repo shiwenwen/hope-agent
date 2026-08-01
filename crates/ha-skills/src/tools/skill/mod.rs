@@ -11,7 +11,7 @@
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use super::ToolExecContext;
+use ha_core::tools::ToolExecContext;
 
 mod fork;
 mod inline;
@@ -22,12 +22,12 @@ use crate::skills::{self as skill_runtime, SkillEntry};
 /// `$ARGUMENTS` substitution" string the `skill` tool returns in inline mode.
 /// Used by the slash-command handler so `/skillname args` and the model's
 /// `skill({name, args})` tool call produce byte-identical activation text.
-pub(crate) async fn render_inline(entry: &SkillEntry, args: &str) -> anyhow::Result<String> {
+pub async fn render_inline(entry: &SkillEntry, args: &str) -> anyhow::Result<String> {
     inline::execute(entry, args).await
 }
 
 /// Entry point registered in `tools::execution::execute_tool_with_context`.
-pub(crate) async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+pub async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let name = args
         .get("name")
         .and_then(|v| v.as_str())
@@ -39,7 +39,7 @@ pub(crate) async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<St
         .unwrap_or("")
         .trim();
 
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let env_check = skill_runtime::skill_env_check_enabled_for_agent(
         ctx.agent_id.as_deref(),
         cfg.skill_env_check,

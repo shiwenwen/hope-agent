@@ -140,7 +140,16 @@ const FEATURES = {
   // slash_commands 已移出：它是**装配层**（handler 逐个调 skills / channel /
   // cron / dash / improve，出度 30 模块、入度 2），与 app_init / globals 同型，
   // 见下方 ASSEMBLY。契约物在 kernel 的 slash_defs，分发经 slash_hooks 三槽。
-  "ha-skills": ["skills", "tools::skill"],
+  // ha-skills 已实际迁出（crates/ha-skills/，阶段 5 第七刀）——**契约、台账与
+  // 纯谓词留 kernel**：`skills/types.rs`（`SkillEntry` 等 wire 契约 +
+  // `skill_cache_version` / `bump_skill_version` 目录版本计数器）、
+  // `skills/activation.rs`（`session_skill_activation` 表 + 进程内热缓存的真相
+  // 源，三个 kernel 调用点读写：`tools::execution` 写 / `system_prompt` 读 /
+  // `session::cleanup_watcher` 清）、`skills/{requirements,prompt,slash}.rs`
+  // （对契约类型的纯谓词与纯渲染，不碰文件系统 / LLM / 网络）。
+  // 迁出前报 19 条需切 + 16 条装配，契约留下后真正开钩子的只有 8 处行为 +
+  // 1 处装配（`skills_hooks` 九槽）——`tools::execution` 的条件激活块与
+  // `cleanup_watcher` 的清理**一行未改**。
   // ha-dash 已实际迁出（crates/ha-dash/，阶段 5 第二刀）。`activity` **留在
   // kernel**：它是 `impl SessionDB` 的扩展方法，唯一 kernel 消费者是 Core
   // 工具 tools::goal（无条件注册，放钩子后面会静默缺数据）。

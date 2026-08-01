@@ -95,7 +95,7 @@ pub fn mark_run_fetched(run_id: &str) {
 /// suppressed transactionally or through `SessionDB::run`. Async callers must
 /// use this helper instead of [`mark_run_fetched`] so SQLite never blocks a
 /// Tokio worker.
-pub(crate) fn mark_run_fetched_in_memory(run_id: &str) {
+pub fn mark_run_fetched_in_memory(run_id: &str) {
     if let Ok(mut set) = super::FETCHED_RUN_IDS.lock() {
         set.insert(run_id.to_string());
     }

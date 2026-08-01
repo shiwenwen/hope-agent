@@ -19,14 +19,14 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::agent::AssistantAgent;
-use crate::config::cached_config;
-use crate::learning_events::{emit as emit_learning_event, EVT_SKILL_DISCARDED};
 use crate::skills::author::{
     create_skill, patch_skill_fuzzy, security_scan, CreateOpts, FuzzyOpts, PatchResult,
 };
 use crate::skills::{load_all_skills_with_extra, SkillEntry, SkillStatus};
-use crate::truncate_utf8;
+use ha_core::agent::AssistantAgent;
+use ha_core::config::cached_config;
+use ha_core::learning_events::{emit as emit_learning_event, EVT_SKILL_DISCARDED};
+use ha_core::truncate_utf8;
 
 use super::config::{AutoReviewPromotion, SkillsAutoReviewConfig};
 use super::heuristics::{jaccard, post_lint, pre_gate, tokenize, PostLintOutcome, PreGateOutcome};
@@ -172,7 +172,7 @@ pub async fn run_review_cycle(
         );
     }
 
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "skills:auto_review_complete",
             serde_json::to_value(&with_trigger).unwrap_or(Value::Null),
@@ -303,10 +303,10 @@ async fn query_review_agent(
     let override_chain = cfg.model_override.clone().or_else(|| {
         cfg.review_model
             .as_deref()
-            .and_then(crate::automation::parse_legacy_model_string)
+            .and_then(ha_core::automation::parse_legacy_model_string)
     });
     if let Some(chain) = override_chain {
-        let fut = crate::automation::run(crate::automation::ModelTaskSpec {
+        let fut = ha_core::automation::run(ha_core::automation::ModelTaskSpec {
             purpose: "skills.auto_review",
             chain: chain.into_vec(),
             session_key: "automation:skills_auto_review",
@@ -328,8 +328,8 @@ async fn query_review_agent(
     }
 
     let config = cached_config();
-    let chain = crate::automation::effective_chain(&config, None);
-    let fut = crate::automation::run(crate::automation::ModelTaskSpec {
+    let chain = ha_core::automation::effective_chain(&config, None);
+    let fut = ha_core::automation::run(ha_core::automation::ModelTaskSpec {
         purpose: "skills.auto_review",
         chain,
         session_key: "automation:skills_auto_review",
@@ -343,7 +343,7 @@ async fn query_review_agent(
 }
 
 fn parse_review_response(text: &str) -> Result<ReviewDecision> {
-    let span = crate::extract_json_span(text, Some('{'))
+    let span = ha_core::extract_json_span(text, Some('{'))
         .ok_or_else(|| anyhow::anyhow!("no JSON object found in review response"))?;
     let value: ReviewDecision = serde_json::from_str(span).context("decode review decision")?;
     Ok(value)
@@ -576,7 +576,7 @@ fn load_recent_discards(cfg: &SkillsAutoReviewConfig) -> Vec<DiscardEntry> {
     if cfg.discard_blacklist_days == 0 {
         return Vec::new();
     }
-    let Some(db) = crate::get_session_db() else {
+    let Some(db) = ha_core::get_session_db() else {
         return Vec::new();
     };
     let now = std::time::SystemTime::now()
@@ -658,7 +658,7 @@ fn build_dedup_block(
 /// and the count of role-bearing entries (used by gate 2).
 fn collect_recent_messages(session_id: &str, limit: usize) -> Result<(String, usize)> {
     let db =
-        crate::get_session_db().ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
+        ha_core::get_session_db().ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
     let raw = match db.load_context(session_id)? {
         Some(s) => s,
         None => return Ok((String::new(), 0)),

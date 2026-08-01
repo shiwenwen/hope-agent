@@ -23,7 +23,7 @@ use super::{
 // ── Catalog / detail ──────────────────────────────────────────────
 
 pub fn list_skills() -> Vec<SkillSummary> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     let entries = load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     let disabled = &store.disabled_skills;
     entries
@@ -36,18 +36,18 @@ pub fn list_skills() -> Vec<SkillSummary> {
 }
 
 pub fn get_skill_detail(name: &str) -> Option<SkillDetail> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     get_skill_content(name, &store.extra_skills_dirs, &store.disabled_skills)
 }
 
 // ── Extra skills directories ──────────────────────────────────────
 
 pub fn get_extra_skills_dirs() -> Vec<String> {
-    crate::config::cached_config().extra_skills_dirs.clone()
+    ha_core::config::cached_config().extra_skills_dirs.clone()
 }
 
 pub fn add_extra_skills_dir(dir: String, source: &str) -> Result<()> {
-    crate::config::mutate_config(("extra_skills_dirs", source), |store| {
+    ha_core::config::mutate_config(("extra_skills_dirs", source), |store| {
         if !store.extra_skills_dirs.contains(&dir) {
             store.extra_skills_dirs.push(dir);
         }
@@ -58,7 +58,7 @@ pub fn add_extra_skills_dir(dir: String, source: &str) -> Result<()> {
 }
 
 pub fn remove_extra_skills_dir(dir: &str, source: &str) -> Result<()> {
-    crate::config::mutate_config(("extra_skills_dirs", source), |store| {
+    ha_core::config::mutate_config(("extra_skills_dirs", source), |store| {
         store.extra_skills_dirs.retain(|d| d != dir);
         Ok(())
     })?;
@@ -69,7 +69,7 @@ pub fn remove_extra_skills_dir(dir: &str, source: &str) -> Result<()> {
 // ── Enable / disable ──────────────────────────────────────────────
 
 pub fn toggle_skill(name: String, enabled: bool, source: &str) -> Result<()> {
-    crate::config::mutate_config(("disabled_skills", source), |store| {
+    ha_core::config::mutate_config(("disabled_skills", source), |store| {
         if enabled {
             store.disabled_skills.retain(|n| n != &name);
         } else if !store.disabled_skills.contains(&name) {
@@ -84,11 +84,11 @@ pub fn toggle_skill(name: String, enabled: bool, source: &str) -> Result<()> {
 // ── Skill env-check + per-skill env vars ──────────────────────────
 
 pub fn get_skill_env_check() -> bool {
-    crate::config::cached_config().skill_env_check
+    ha_core::config::cached_config().skill_env_check
 }
 
 pub fn set_skill_env_check(enabled: bool, source: &str) -> Result<()> {
-    crate::config::mutate_config(("skill_env_check", source), |store| {
+    ha_core::config::mutate_config(("skill_env_check", source), |store| {
         store.skill_env_check = enabled;
         Ok(())
     })?;
@@ -98,7 +98,7 @@ pub fn set_skill_env_check(enabled: bool, source: &str) -> Result<()> {
 
 /// Env vars for a skill with values masked (safe to return to UI).
 pub fn get_skill_env_masked(name: &str) -> HashMap<String, String> {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .skill_env
         .get(name)
         .cloned()
@@ -115,7 +115,7 @@ pub fn set_skill_env_var(skill: String, key: String, value: String, source: &str
     if is_masked_value(&value) {
         return Ok(());
     }
-    crate::config::mutate_config(("skill_env", source), |store| {
+    ha_core::config::mutate_config(("skill_env", source), |store| {
         store.skill_env.entry(skill).or_default().insert(key, value);
         Ok(())
     })?;
@@ -124,7 +124,7 @@ pub fn set_skill_env_var(skill: String, key: String, value: String, source: &str
 }
 
 pub fn remove_skill_env_var(skill: &str, key: &str, source: &str) -> Result<()> {
-    crate::config::mutate_config(("skill_env", source), |store| {
+    ha_core::config::mutate_config(("skill_env", source), |store| {
         if let Some(map) = store.skill_env.get_mut(skill) {
             map.remove(key);
             if map.is_empty() {
@@ -141,7 +141,7 @@ pub fn remove_skill_env_var(skill: &str, key: &str, source: &str) -> Result<()> 
 /// inherited from the process environment). Only skills that declare
 /// `requires.env` are included.
 pub fn get_skills_env_status() -> HashMap<String, HashMap<String, bool>> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     let entries = load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     let mut result = HashMap::new();
     for entry in &entries {
@@ -164,7 +164,7 @@ pub fn get_skills_env_status() -> HashMap<String, HashMap<String, bool>> {
 }
 
 pub fn get_skills_status() -> Vec<SkillStatusEntry> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     let entries = load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     check_all_skills_status(
         &entries,
@@ -178,7 +178,7 @@ pub fn get_skills_status() -> Vec<SkillStatusEntry> {
 // ── Phase B' draft review ─────────────────────────────────────────
 
 pub fn list_draft_skills() -> Vec<SkillSummary> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     let drafts = author::list_drafts(&store.extra_skills_dirs);
     let disabled = &store.disabled_skills;
     drafts
@@ -203,14 +203,17 @@ pub fn discard_draft_skill(name: &str) -> Result<()> {
 /// `false` = newly auto-created skills land in `Draft` for manual user activation.
 pub fn get_auto_review_promotion() -> bool {
     matches!(
-        crate::config::cached_config().skills.auto_review.promotion,
+        ha_core::config::cached_config()
+            .skills
+            .auto_review
+            .promotion,
         auto_review::AutoReviewPromotion::Auto
     )
 }
 
 /// Toggle the auto-review promotion mode. `true` skips the draft buffer.
 pub fn set_auto_review_promotion(auto: bool, source: &str) -> Result<()> {
-    crate::config::mutate_config(("skills.auto_review", source), |store| {
+    ha_core::config::mutate_config(("skills.auto_review", source), |store| {
         store.skills.auto_review.promotion = if auto {
             auto_review::AutoReviewPromotion::Auto
         } else {
@@ -226,12 +229,12 @@ pub fn set_auto_review_promotion(auto: bool, source: &str) -> Result<()> {
 /// the side_query review. `false` = the pipeline is fully suppressed; nothing
 /// auto-creates or auto-patches skills.
 pub fn get_auto_review_enabled() -> bool {
-    crate::config::cached_config().skills.auto_review.enabled
+    ha_core::config::cached_config().skills.auto_review.enabled
 }
 
 /// Toggle the master enabled flag.
 pub fn set_auto_review_enabled(enabled: bool, source: &str) -> Result<()> {
-    crate::config::mutate_config(("skills.auto_review", source), |store| {
+    ha_core::config::mutate_config(("skills.auto_review", source), |store| {
         store.skills.auto_review.enabled = enabled;
         Ok(())
     })?;
@@ -243,7 +246,7 @@ pub fn set_auto_review_enabled(enabled: bool, source: &str) -> Result<()> {
 /// Snapshot of the sanitized auto-review config as a JSON-ready value.
 /// Used by the Settings panel; UI binds to camelCase keys directly.
 pub fn get_auto_review_config_snapshot() -> auto_review::SkillsAutoReviewConfig {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .skills
         .auto_review
         .clone()
@@ -261,10 +264,10 @@ pub fn set_auto_review_config_patch(
     if !patch.is_object() {
         anyhow::bail!("auto_review patch must be a JSON object");
     }
-    crate::config::mutate_config(("skills.auto_review", source), |store| {
+    ha_core::config::mutate_config(("skills.auto_review", source), |store| {
         let mut current = serde_json::to_value(&store.skills.auto_review)
             .context("serialize current auto_review config")?;
-        crate::util::merge_json(&mut current, patch.clone());
+        ha_core::util::merge_json(&mut current, patch.clone());
         let next: auto_review::SkillsAutoReviewConfig =
             serde_json::from_value(current).context("deserialize merged auto_review config")?;
         store.skills.auto_review = next.sanitize();
@@ -280,7 +283,7 @@ pub fn reset_auto_review_config(
     fields: Option<Vec<String>>,
     source: &str,
 ) -> Result<auto_review::SkillsAutoReviewConfig> {
-    crate::config::mutate_config(("skills.auto_review", source), |store| {
+    ha_core::config::mutate_config(("skills.auto_review", source), |store| {
         store.skills.auto_review.reset_fields(fields.as_deref());
         store.skills.auto_review = store.skills.auto_review.clone().sanitize();
         Ok(())
@@ -298,7 +301,7 @@ pub fn reset_auto_review_config(
 /// gate fired before a candidate had an id, so a deduped view would
 /// drop the most common cases.
 pub fn recent_auto_review_skips(limit: usize) -> Vec<serde_json::Value> {
-    let Some(db) = crate::get_session_db() else {
+    let Some(db) = ha_core::get_session_db() else {
         return Vec::new();
     };
     // 7-day window matches what we surface in the dashboard; users
@@ -389,7 +392,7 @@ pub fn apply_curator_merge(keep_id: &str, member_ids: &[String]) -> Result<usize
 /// the same format when the process exits non-zero.
 pub async fn install_skill_dependency(skill_name: &str, spec_index: usize) -> Result<String> {
     let (cmd_program, cmd_args, bins) = {
-        let store = crate::config::cached_config();
+        let store = ha_core::config::cached_config();
         let entries =
             load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
         let skill = entries
@@ -504,7 +507,7 @@ pub async fn install_skill_dependency(skill_name: &str, spec_index: usize) -> Re
 async fn run_install_command(program: &str, args: &[&str]) -> Result<String> {
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args);
-    crate::platform::hide_console_tokio(&mut cmd);
+    ha_core::platform::hide_console_tokio(&mut cmd);
     let output = cmd
         .output()
         .await
@@ -577,7 +580,7 @@ pub struct PresetCandidate {
 /// stable order regardless of what's installed locally — the UI renders
 /// "not found" rows for absent ones.
 pub fn discover_preset_skill_sources() -> Vec<PresetSkillSource> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     let extra: Vec<String> = store.extra_skills_dirs.clone();
     let home = match dirs::home_dir() {
         Some(h) => h,

@@ -27,6 +27,7 @@ fn main() {
     ha_dash::wire();
     ha_channel::wire();
     ha_knowledge::wire();
+    ha_skills::wire();
     ha_cron::wire();
 
     // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,

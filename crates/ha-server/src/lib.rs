@@ -26,6 +26,36 @@ pub mod ws;
 
 pub use config::ServerConfig;
 
+/// 特征 crate 装配序列——`hope-agent` 二进制与 `server_smoke` 集成测试的
+/// **单一来源**。
+///
+/// **必须先于任何 `init_runtime` 路径**（server / acp / mcp 各分支）：init
+/// 尾部冻结工具注册表，之后再挂 handler 会 panic 或静默丢失。每个 `wire()`
+/// 自带 `Once`，重复调用安全。
+///
+/// 抽成函数而非两处各抄一份：`server_smoke` 自称跑「full server runtime
+/// path」，可它原先一个特征 crate 都不 wire，于是**漏接或错序在生产入口发生
+/// 时那个测试照样绿**。共用同一份序列，smoke 才真的覆盖这条装配契约。
+/// 新增特征 crate 只需改这里一处。
+pub fn wire_features() {
+    ha_updater::wire();
+    ha_weather::wire();
+    ha_acp::wire();
+    ha_mac::wire();
+    ha_design::wire();
+    ha_browser::wire();
+    ha_vcs::wire();
+    ha_mcp::wire();
+    ha_pet::wire();
+    ha_media::wire();
+    ha_local_llm::wire();
+    ha_dash::wire();
+    ha_channel::wire();
+    ha_knowledge::wire();
+    ha_skills::wire();
+    ha_cron::wire();
+}
+
 // ── AppContext ───────────────────────────────────────────────────
 
 /// Shared application state passed to all handlers via `State<Arc<AppContext>>`.

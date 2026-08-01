@@ -212,7 +212,7 @@ async fn handle_skill_command(
         crate::skills::skill_env_check_enabled_for_agent(Some(agent_id), store.skill_env_check);
     let skill_env = store.skill_env.clone();
     let skills =
-        crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
+        crate::skills_hooks::invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);
 
     // Resolve via the shared collision-aware table so `/new_skill` (a skill named
@@ -312,7 +312,7 @@ async fn handle_skill_command(
                 // Inline SKILL.md so the LLM skips the tool_search → read indirection
                 // that the old "Read the skill file at <path>" prompt forced when
                 // deferred tools were enabled.
-                match crate::tools::skill::render_inline(&matched, args).await {
+                match crate::skills_hooks::render_skill_inline(&matched, args).await {
                     Ok(skill_content) => {
                         build_skill_activation_prompt(&matched.name, args, &skill_content)
                     }
@@ -380,9 +380,10 @@ async fn dispatch_skill_fork(
     // injection UX (result posted back as a user message) is preserved.
     // The `skill` tool path sets skip_parent_injection=true and synthesizes
     // its own tool_result.
-    let run_id = crate::skills::spawn_skill_fork(skill, args, parent_session_id, agent_id, false)
-        .await
-        .map_err(|e| e.to_string())?;
+    let run_id =
+        crate::skills_hooks::spawn_skill_fork(skill, args, parent_session_id, agent_id, false)
+            .await
+            .map_err(|e| e.to_string())?;
 
     Ok(CommandResult {
         content: format!(

@@ -224,7 +224,7 @@ Layer A–D 之外的一条横切约定，专治「同步阻塞把 async runtime
 | `exec` 工具（用户命令执行 + PTY） | [`tools/exec.rs`](../../crates/ha-core/src/tools/exec.rs) |
 | Sandbox 隔离执行 | [`sandbox.rs`](../../crates/ha-vcs/src/sandbox.rs) |
 | Plan Mode git 调用 | [`plan/git.rs`](../../crates/ha-core/src/plan/git.rs) |
-| Skill 依赖安装（brew / npm / go / uv） | [`skills/commands.rs`](../../crates/ha-core/src/skills/commands.rs) |
+| Skill 依赖安装（brew / npm / go / uv） | [`skills/commands.rs`](../../crates/ha-skills/src/skills/commands.rs) |
 | Provider / Docker 代理探测 | [`provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs), [`docker/proxy.rs`](../../crates/ha-vcs/src/docker/proxy.rs) |
 | 跨平台原语（打开终端 / 检测环境） | [`platform/mod.rs`](../../crates/ha-base/src/platform/) |
 | Agent loader 初始化（git clone 默认模板） | [`agent_loader.rs`](../../crates/ha-core/src/agent_loader.rs) |

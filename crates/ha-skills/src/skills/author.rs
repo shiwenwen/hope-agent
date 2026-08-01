@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use super::discovery::{bundled_skills_dir, load_all_skills_with_extra};
 use super::frontmatter::parse_frontmatter;
 use super::types::{SkillEntry, SkillStatus};
-use crate::paths;
+use ha_core::paths;
 
 // ── Public API ──────────────────────────────────────────────────
 
@@ -102,8 +102,8 @@ pub fn create_skill(
         .with_context(|| format!("write {}", file_path.display()))?;
 
     super::types::bump_skill_version();
-    crate::learning_events::emit(
-        crate::learning_events::EVT_SKILL_CREATED,
+    ha_core::learning_events::emit(
+        ha_core::learning_events::EVT_SKILL_CREATED,
         None,
         Some(skill_id),
         Some(&serde_json::json!({
@@ -147,8 +147,8 @@ pub fn set_skill_status(skill_id: &str, status: SkillStatus) -> Result<()> {
 
     super::types::bump_skill_version();
     if status == SkillStatus::Active {
-        crate::learning_events::emit(
-            crate::learning_events::EVT_SKILL_ACTIVATED,
+        ha_core::learning_events::emit(
+            ha_core::learning_events::EVT_SKILL_ACTIVATED,
             None,
             Some(skill_id),
             None,
@@ -183,15 +183,15 @@ pub fn delete_skill(skill_id: &str) -> Result<()> {
     let description =
         std::fs::read_to_string(managed_skill_file(skill_id).unwrap_or(dir.join("SKILL.md")))
             .ok()
-            .and_then(|content| crate::skills::types::parse_frontmatter_for_discard(&content));
+            .and_then(|content| super::frontmatter::parse_frontmatter_for_discard(&content));
     std::fs::remove_dir_all(&dir).with_context(|| format!("remove {}", dir.display()))?;
 
     super::types::bump_skill_version();
     let meta = description
         .as_ref()
         .map(|desc| serde_json::json!({ "description": desc }));
-    crate::learning_events::emit(
-        crate::learning_events::EVT_SKILL_DISCARDED,
+    ha_core::learning_events::emit(
+        ha_core::learning_events::EVT_SKILL_DISCARDED,
         None,
         Some(skill_id),
         meta.as_ref(),
@@ -242,8 +242,8 @@ pub fn patch_skill_fuzzy(
         std::fs::write(&file_path, updated)
             .with_context(|| format!("write {}", file_path.display()))?;
         super::types::bump_skill_version();
-        crate::learning_events::emit(
-            crate::learning_events::EVT_SKILL_PATCHED,
+        ha_core::learning_events::emit(
+            ha_core::learning_events::EVT_SKILL_PATCHED,
             None,
             Some(skill_id),
             Some(&serde_json::json!({ "match": "exact" })),
@@ -276,8 +276,8 @@ pub fn patch_skill_fuzzy(
     std::fs::write(&file_path, replaced)
         .with_context(|| format!("write {}", file_path.display()))?;
     super::types::bump_skill_version();
-    crate::learning_events::emit(
-        crate::learning_events::EVT_SKILL_PATCHED,
+    ha_core::learning_events::emit(
+        ha_core::learning_events::EVT_SKILL_PATCHED,
         None,
         Some(skill_id),
         Some(&serde_json::json!({

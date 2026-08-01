@@ -53,7 +53,8 @@ pub use ha_core::sandbox;
 pub use ha_core::self_diagnosis;
 pub use ha_core::service_install;
 pub use ha_core::session;
-pub use ha_core::skills;
+// ha-skills 的 `skills` 门面已把 kernel 留存的契约 / 台账 / 纯谓词原名再导出，
+// 故这里指向特征 crate 才是拆分前的完整符号集（只指 ha_core 会少掉机器层）。
 pub use ha_core::slash_commands;
 pub use ha_core::subagent;
 pub use ha_core::system_prompt;
@@ -67,6 +68,7 @@ pub use ha_design::artifacts;
 pub use ha_design::canvas_db;
 pub use ha_local_llm::local_embedding;
 pub use ha_mac as mac_control;
+pub use ha_skills::skills;
 pub use ha_vcs::docker;
 pub use ha_weather as weather;
 
@@ -108,6 +110,7 @@ pub fn run() {
     ha_dash::wire();
     ha_channel::wire();
     ha_knowledge::wire();
+    ha_skills::wire();
     ha_cron::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new

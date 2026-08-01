@@ -81,7 +81,7 @@ impl DiscordPlugin {
         // Single source of truth for the IM-bot catalog (filter, cap, fallback);
         // Discord just projects each entry into its CHAT_INPUT JSON below.
         // Skill names already pass Discord's `^[-_\p{L}\p{N}]{1,32}$` rule via
-        // `skills::normalize_skill_command_name`, so no re-sanitisation needed.
+        // `ha_core::skills::normalize_skill_command_name`, so no re-sanitisation needed.
         let entries = ha_core::slash_hooks::im_menu_entries().await;
 
         let discord_commands: Vec<serde_json::Value> = entries

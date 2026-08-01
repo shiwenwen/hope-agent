@@ -8954,15 +8954,11 @@ fn apply_skill_candidate_plan(
             step.target_path
         );
     }
-    let path = crate::skills::author::create_skill(
+    let path = crate::skills_hooks::create_managed_skill_draft(
         skill_id,
         description,
         body,
-        crate::skills::author::CreateOpts {
-            status: SkillStatus::Draft,
-            authored_by: "coding-improvement".to_string(),
-            rationale: Some(plan.proposal.title.clone()),
-        },
+        Some(plan.proposal.title.clone()),
     )?;
     Ok(vec![CodingImprovementActionArtifact {
         kind: "create_managed_skill_draft".to_string(),
@@ -9032,7 +9028,7 @@ fn apply_promotion_plan(
                     .content
                     .as_deref()
                     .ok_or_else(|| anyhow!("missing managed skill id"))?;
-                crate::skills::author::set_skill_status(skill_id, SkillStatus::Active)?;
+                crate::skills_hooks::set_managed_skill_status(skill_id, SkillStatus::Active)?;
                 artifacts.push(CodingImprovementActionArtifact {
                     kind: step.action.clone(),
                     path: step.target_path.clone(),

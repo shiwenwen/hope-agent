@@ -12,7 +12,7 @@
 
 ## 提交前检查（强制）
 
-[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 覆盖 `ha-base` + `ha-config-schema` + `ha-core` + `ha-acp` + `ha-browser` + `ha-channel` + `ha-cron` + `ha-dash` + `ha-design` + `ha-eval-runtime` + `ha-knowledge` + `ha-mac` + `ha-local-llm` + `ha-mcp` + `ha-media` + `ha-pet` + `ha-updater` + `ha-vcs` + `ha-weather` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
+[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 覆盖 `ha-base` + `ha-config-schema` + `ha-core` + `ha-acp` + `ha-browser` + `ha-channel` + `ha-cron` + `ha-dash` + `ha-design` + `ha-eval-runtime` + `ha-knowledge` + `ha-mac` + `ha-local-llm` + `ha-mcp` + `ha-media` + `ha-pet` + `ha-skills` + `ha-updater` + `ha-vcs` + `ha-weather` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
 
 - **开发中只单点验证**（`cargo check -p <crate>` / `pnpm typecheck`）；跑 clippy / cargo test / pnpm {test,lint} 须先问用户等回复，例外限跨 crate / 多文件收尾，跑前说明
 - **应急跳过**：`HA_SKIP_PREPUSH=1`（限纯 `.md` / 弱网）/ `HA_SKIP_PREPUSH_TEST=1`（只跳 cargo test）。禁止 `--no-verify`（会绕过 GPG 等钩子）
@@ -209,6 +209,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **内置技能编译期嵌入二进制**（`skills/embedded.rs`）：禁止往构建产物单独拷 `skills/`
 - **`@skill` 固定 allowlist**：非通用注入入口，单一来源 `skills::mention::AT_MENTIONABLE_SKILLS`
 - **`skills::author` 写正文三路径（create/update/patch）全过 `security_scan`，命中即 bail 不降级**；自动**创建**默认落 draft 待用户确认，但 `promotion:"auto"` 直接写 Active；**`patch` 就地改已存在技能——目标 Active 时即刻对模型生效，不落 draft、不经确认**
+- **crate 边界**：机器（解包 / 发现解析 / 创作 / auto-review / 提及 / fork / 命令面 / `skill` 工具）在 `ha-skills`，**契约 `skills/types.rs` + 台账 `skills/activation.rs` + 纯谓词 `skills/{requirements,prompt,slash}.rs` 恒留 kernel**（slash 命令表与 system prompt 直接用，条件激活台账被 `tools::execution` / `system_prompt` / `cleanup_watcher` 三处读写）；kernel → ha-skills 只经 `skills_hooks` 九槽。**`rerun-if-changed=../../skills` 在 `crates/ha-skills/build.rs`**——它与 `#[folder]` 必须同 crate，分开即 warm-target release 静默 ship 旧技能集
 
 ### MCP 客户端
 
@@ -283,7 +284,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 ## 项目结构
 
-二十四 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-config-schema`（`AppConfig` wire 类型闭包，**只依赖 ha-base 与叶子 crate、零行为逻辑**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ 特征 crate `ha-acp`·`ha-browser`·`ha-channel`·`ha-cron`·`ha-dash`·`ha-design`·`ha-eval-runtime`·`ha-knowledge`·`ha-local-llm`·`ha-mac`·`ha-mcp`·`ha-media`·`ha-pet`·`ha-updater`·`ha-vcs`·`ha-weather`（依赖 ha-core，壳层 `wire()` 装配，**同守零 Tauri 红线**；`ha-eval-runtime` 是唯一无 `wire()` 者——kernel 对它零引用）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
+二十五 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-config-schema`（`AppConfig` wire 类型闭包，**只依赖 ha-base 与叶子 crate、零行为逻辑**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ 特征 crate `ha-acp`·`ha-browser`·`ha-channel`·`ha-cron`·`ha-dash`·`ha-design`·`ha-eval-runtime`·`ha-knowledge`·`ha-local-llm`·`ha-mac`·`ha-mcp`·`ha-media`·`ha-pet`·`ha-skills`·`ha-updater`·`ha-vcs`·`ha-weather`（依赖 ha-core，壳层 `wire()` 装配，**同守零 Tauri 红线**；`ha-eval-runtime` 是唯一无 `wire()` 者——kernel 对它零引用）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
 
 ## 开发命令
 

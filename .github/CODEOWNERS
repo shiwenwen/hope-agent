@@ -152,6 +152,23 @@
 /crates/ha-core/src/channel/db.rs @shiwenwen
 # 审批拒决侧的对偶：chat 被接管 / 会话消失时撤掉该 chat 的全部 pending。
 /crates/ha-channel/src/channel/worker/eviction_watcher.rs @shiwenwen
+# 技能创作（阶段 5 第七刀自 ha-core 的 skills/author.rs 迁入 ha-skills）：
+# AGENTS 红线「写正文三路径（create / update / patch）全过 `security_scan`，
+# 命中即 bail 不降级」的执行点。它写的是**会被当作模型指令执行**的 SKILL.md
+# 正文，且 `patch` 就地改已存在技能——目标 Active 时即刻生效、不落 draft、
+# 不经用户确认，绕过 scan 等于给模型开一条自我改装的口子。
+# **迁出前本路径无 owner 条目**，此处是顺手闭合的既有缺口，不是搬迁导致的
+# 覆盖丢失（同 ha-cron / ha-local-llm 两刀的处理）。
+/crates/ha-skills/src/skills/author.rs @shiwenwen
+# 同刀顺手闭合的另两个缺口（迁出前同样无 owner 条目）：
+# `commands.rs` 是 `install_skill_dependency` 的 spawn 核心（brew / npm / go /
+# uv 装依赖）——skill-system.md 自述它「在 API Key 视角下等价于远程 RCE」，
+# HTTP 侧靠默认关闭的 `skills.allowRemoteInstall` 挡着，放松那个闸门或改这里
+# 的 spawn 都该走关键路径评审。`mention.rs` 是 AGENTS 红线「`@skill` 固定
+# allowlist，非通用注入入口」的**单一来源** `AT_MENTIONABLE_SKILLS`——往里加
+# 一项就是给未审的技能开一条进 system context 的路。
+/crates/ha-skills/src/skills/commands.rs @shiwenwen
+/crates/ha-skills/src/skills/mention.rs  @shiwenwen
 # 铸币点：`oauth::mint_codex_evaluation_secret` 是 Codex OAuth token 跨 crate
 # 的唯一出口（load → encode → digest 三步）。**迁出前 oauth.rs 无 owner 条目**，
 # 本刀补上——把关点不该只落在下游消费者。

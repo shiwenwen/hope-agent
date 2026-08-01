@@ -2,7 +2,7 @@
 //!
 //! Single source of truth is the repo's `docs/user-guide/` tree (zh at the
 //! root, en under `en/`), compiled into the binary via `rust-embed` — the
-//! same shape as the bundled skills ([`crate::skills`] `embedded.rs`) and the
+//! same shape as the bundled skills (`ha_skills::skills::embedded`) and the
 //! Chrome extension runtime files. Two consumers, two paths:
 //!
 //! - **GUI**: Tauri / HTTP commands call [`get_bundle`] / [`search`] which

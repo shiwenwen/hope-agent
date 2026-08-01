@@ -34,6 +34,7 @@ ha-local-llm = { path = "../crates/ha-local-llm" }
 ha-dash = { path = "../crates/ha-dash" }
 ha-channel = { path = "../crates/ha-channel" }
 ha-knowledge = { path = "../crates/ha-knowledge" }
+ha-skills = { path = "../crates/ha-skills" }
 ha-cron = { path = "../crates/ha-cron" }
 ha-eval-runtime = { path = "../crates/ha-eval-runtime" }
 ha-updater = { path = "../crates/ha-updater" }

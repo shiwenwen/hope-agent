@@ -14,7 +14,7 @@
 //! 退化为纯订阅方，是恢复单向依赖的最小改动。
 //!
 //! **新增事件种类由生产者侧声明**：常量放这里（跨生产者共享的）或生产者
-//! 自己的模块（单点使用的，如 `skills::auto_review` 的
+//! 自己的模块（单点使用的，如 ha-skills `skills::auto_review` 的
 //! `EVT_SKILL_REVIEW_SKIPPED`），dashboard 不需要预先认识它们——聚合查询
 //! 按 kind 字符串过滤，未知 kind 只是不出现在现有卡片里。
 

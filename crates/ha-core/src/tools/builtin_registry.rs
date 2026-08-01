@@ -77,6 +77,7 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_LIST_SETTINGS_BACKUPS, aliases: &[], handler: tool_handler!(|args, ctx| super::settings::tool_list_settings_backups(args).await) },
         BuiltinToolEntry { name: super::TOOL_RESTORE_SETTINGS_BACKUP, aliases: &[], handler: tool_handler!(|args, ctx| super::settings::tool_restore_settings_backup(args).await) },
         BuiltinToolEntry { name: super::TOOL_SEND_ATTACHMENT, aliases: &[], handler: tool_handler!(|args, ctx| super::send_attachment::tool_send_attachment(args, ctx).await) },
-        BuiltinToolEntry { name: super::TOOL_SKILL, aliases: &[], handler: tool_handler!(|args, ctx| super::skill::tool_skill(args, ctx).await) },
+        // `skill` handler 随 ha-skills 迁出，由 `ha_skills::wire()` 注册外部
+        // 分发条目；名字常量与 schema 仍在 tool_defs / definitions::core_tools。
     ]
 }

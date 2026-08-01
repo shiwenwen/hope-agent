@@ -131,7 +131,9 @@ channel/           12 个 IM 插件（telegram / wechat / slack / feishu / disco
                    irc / signal / imessage / whatsapp / googlechat / line）+ Worker 分发 + 媒体管道
 plan/              5 态状态机（plan 设计契约 + task 进度真相）+ 步骤追踪
 subagent/          spawn + inject + Mailbox + 深度控制
-skills/            SKILL.md 发现 + 懒加载 + Fork 模式 + draft 审核
+skills/            **契约 + 台账 + 纯谓词**：SkillEntry 等 wire 类型 / 条件激活
+                   台账 / requirements·prompt·slash 纯谓词（发现 / 解析 / 创作 /
+                   auto-review / Fork 已随 ha-skills 迁出，见下文特征 crate 一节）
 provider/          多模板 + Failover Chain + Proxy + crud helper
                    （所有 provider/active_model 写入必须走 provider/crud.rs，详见下文）
 context_compact/   5 层渐进式压缩 + API-Round 分组
@@ -266,7 +268,7 @@ config 写路径副作用同处）。**分析器 `ASSEMBLY` 名单与这条契�
 #### learning 事件：发布在 kernel、消费在 dashboard
 
 `learning_events` 表的生产者遍布四层——kernel（`tools::memory` 的 recall
-埋点）、未来的 ha-skills（skill CRUD）、ha-knowledge（维护调度）、以及
+埋点）、ha-skills（skill CRUD）、ha-knowledge（维护调度）、以及
 **已经独立的特征 crate ha-mcp**（工具调用成败）。发布面若留在 dashboard，
 这些生产者全要反向依赖 ha-dash（ha-mcp 那条尤其荒谬：一个已拆出的 crate
 为打点去依赖另一个特征 crate）。
@@ -302,8 +304,9 @@ dash / skills / improve）原本构成一个强连通分量——**环内任何�
 
 `node scripts/analyze-crate-deps.mjs` 现在输出「✅ 无环 —— 存在可行的拓扑
 拆分顺序」。**无环 ≠ 任意顺序**：它保证的是存在一个可行顺序，而剩下的单向
-边就是这个顺序的约束。当前单向边：**只剩 improve→skills 4**——dash / cron / channel 都已实际
-拆出（它们的边现在是 crate 间依赖，不再进本表；ha-local-llm 同理）。
+边就是这个顺序的约束。当前单向边：**一条都不剩**——最后那条 improve→skills 4
+随第七刀改成 `skills_hooks` 后消失，dash / cron / channel / knowledge / skills
+都已实际拆出（它们的边现在是 crate 间依赖，不再进本表；ha-local-llm 同理）。
 
 **方向：`A→B` 则 A（依赖方）先拆**，与直觉相反，理由是
 `ha-core` 不依赖任何特征 crate（见下节共同契约）：
@@ -315,13 +318,17 @@ dash / skills / improve）原本构成一个强连通分量——**环内任何�
   这与「环内成员不能先于破环单独成 crate」是同一条约束的两种形态。
 
 据此的可行顺序原为 **dash → cron → improve → channel → knowledge →
-skills**；dash / cron / channel 已落地（improve 只拆出了 ha-eval-runtime
-那一半，见该小节），**剩余约束只有 improve 先于 skills**。ha-local-llm
+skills**；除 improve 外全部落地（improve 只拆出了 ha-eval-runtime 那一半，
+见该小节）。**skills 之所以能抢在 improve 前面走**：那条 improve→skills 边
+只有 4 处、全是 `coding_improvement.rs` 里对 `skills::author` 的调用，改成
+钩子即断边；而 improve 本体被 `sessions.db` 写连接红线挡着（100 处
+`self.conn.lock()`，见本表上方 ha-improve 小节），本来就走不动。**顺序约束
+现已清空**，ha-improve 是最后一个待拆组。ha-local-llm
 之所以能不排在这条序列里先走，正是因为它没有任何入边（需切 0）——它只依赖
 别人，不被别人依赖。**新增任何特征间边前先跑
 一次脚本**——成环会让后续拆分整个卡住。
 
-### 特征 crate（ha-acp / ha-browser / ha-channel / ha-cron / ha-dash / ha-design / ha-eval-runtime / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-channel / ha-cron / ha-dash / ha-design / ha-eval-runtime / ha-knowledge / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-skills / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -514,6 +521,71 @@ skills**；dash / cron / channel 已落地（improve 只拆出了 ha-eval-runtim
   （设计空间的笔记落库与 `require_write` 写门）。
   **ha-core 甩掉两个孤儿依赖**：`pulldown-cmark` / `unicode-normalization`
   随 `parser.rs` 迁出后在 kernel 零引用。
+- **ha-skills**（技能机器，阶段 5 第七刀）：内置技能的编译期嵌入与解包、
+  SKILL.md 目录扫描与 YAML frontmatter 解析、技能创作（create / update /
+  patch，三路径全过 `security_scan`）、五闸自动复盘流水线与 draft 归并
+  curator、`@skill` 提及注入、`context: fork` 派子 agent、GUI / HTTP 命令面，
+  以及 `skill` 工具。新 crate 7.8 千行、kernel 留存 1.5 千行。
+  **分法是「契约 + 台账 + 纯谓词留 kernel」**——本组没有 `SessionDB` 私有连接
+  触点（自 ha-media 以来第一刀不必做台账切分），线因此划在别处：
+  - `skills/types.rs`——`SkillEntry` / `SkillStatus` / `SkillSummary` 等 wire
+    契约，连同 `skill_cache_version` / `bump_skill_version` 这对目录版本计数器。
+    kernel 的 slash 命令表（`slash_commands` 的 `resolve_skill_command_names`）
+    与 GUI / HTTP 命令面共用它们，是跨 crate 的公共词汇表。
+  - `skills/activation.rs`——**台账**：`session_skill_activation` 表 + 进程内
+    热缓存的真相源。三个 kernel 调用点读写它（`tools::execution` 写、
+    `system_prompt::sections` 读、`session::cleanup_watcher` 清），`SessionDB`
+    也在 kernel。挪出去再钩回来，等于给 skill-system.md「清理时机」那条
+    「会话删除必须同时清 DB 行与热缓存」加一条「未装配即漏清」的旁路。
+  - `skills/{requirements,prompt,slash}.rs`——对契约类型的**纯谓词与纯渲染**
+    （环境依赖检查、技能段拼装、slash 名字归一与健康度）。不碰文件系统 /
+    LLM / 网络，`slash_commands` 与 `system_prompt` 直接调；放进钩子只会凭空
+    多出一层「未装配语义」。`filter_catalog_eligible_skills` 本在 `discovery.rs`
+    里，按同一标准归位 `requirements.rs`（它只是 `check_requirements_for_injection`
+    的一层 `Vec` 包装）。
+  **契约留下消掉了绝大多数切边**：analyzer 迁出前对本组报 19 条需切边 + 16 条
+  装配边，收敛后只剩九处——`tools::execution` 的条件激活块（原 5 条）只有
+  「取目录」一步走钩子，`HAS_PATHS_SKILLS_CACHE` 快路径与 `activate_skills_for_paths`
+  / `bump_skill_version` 原地不动；`session::cleanup_watcher`（原 2 条）
+  **一行未改、零钩子**；`slash_commands` 的 16 条装配边只剩「取目录」
+  「内联 SKILL.md」「fork」三处真行为。
+  kernel 边界：[`skills_hooks`](../../crates/ha-core/src/skills_hooks.rs)
+  **九槽原子注册**——行为 8（两条目录链 `invocable_skills` /
+  `load_all_skills_with_budget`、`@skill` 提及、内联渲染、fork 派发、轮末
+  自动复盘、创建 draft、改状态）+ 装配 1（curator 循环）。
+  未装配语义**刻意不统一**：两条目录链返**空目录**（逐位等价于「`skills/`
+  下一个 SKILL.md 都没有」，三个调用点本就按空目录写的）、提及返 `None`、
+  复盘 no-op，而**内联 / fork / 创建 / 改状态四槽返 `Err`**——都是用户或
+  Coding Improvement 显式触发的激活 / 写动作，静默成功会让 slash 命令回一段
+  空正文、让 promotion 记下一条根本没落盘的 artifact。
+  **工具 schema 留 kernel**：`TOOL_SKILL` 名字常量与 `ToolDefinition` 是纯契约
+  （不含任何 skills 类型），只有 handler 上浮走 `register_external_tools`
+  ——同第六刀 `note_*` 那批。
+  **构建依赖同步拆分**：`skills::embedded` 的 `#[folder = "../../skills"]` 随
+  crate 迁出，`crates/ha-core/build.rs` 里那行
+  `cargo:rerun-if-changed=../../skills` 必须一并移进
+  `crates/ha-skills/build.rs`——漏掉即 warm-target release 重建静默 ship 旧的
+  内置技能文件集（rust-embed 只把**已存在**文件写进 dep-info，增删文件对
+  cargo 指纹不可见）。`../../docs/user-guide` 那行留 ha-core（手册模块没动）。
+  两个 crate 目录同深度，故相对路径不变。
+  **可见性变动两类**：其一是唯一一处 `pub(crate)` → `pub`，
+  `subagent::mark_run_fetched_in_memory`（见下）；其二是 kernel
+  `skills/mod.rs` 把 `prompt` / `requirements` / `slash` / `types` 四个私有
+  `mod` 改成 `pub mod`——它们本就经 `pub use …::*` 全量再导出，crate 外**符号
+  集逐字不变**，改的只是多了四条模块路径（`ha_core::skills::types::…`）。
+  这是为了让 ha-skills 的 `skills` 门面原名再导出、并让迁走的 `tests.rs`
+  保持 `skills::slash::check_all_skills_status` 这类原路径。
+  `subagent::mark_run_fetched_in_memory`——技能
+  fork 的结果被 `skill` 工具显式消费后要抑制重复注入，唯一 crate 外消费者是
+  随迁的 `fork_helper`。durable 抑制仍走
+  `SessionDB::suppress_subagent_result_delivery`，放开的只是进程内快路径。
+  **一处小归位**：`parse_frontmatter_for_discard`（迷你 frontmatter 解析器）
+  自 `skills/types.rs` 迁进 ha-skills 的 `frontmatter.rs`——它唯一的消费者
+  `author::delete_skill` 随机器上浮，留在契约层只是历史位置（原 doc 自述
+  「Used by `author::delete_skill`」）。
+  **不新增兄弟边**：唯一那条 `ha-improve -> ha-skills`（4 处 `skills::author`
+  调用，全在 `coding_improvement.rs`）随本刀改成钩子而**消失**——ha-improve
+  因此不再被拆分顺序约束，是最后一个待拆组。
 - **ha-cron**（排程，阶段 5 第三刀）：cron 的调度器 / 执行器 / 投递 /
   失败分类 / 时间线，以及 `manage_cron` 工具 adapter。
   **分法是「台账 vs 机器」，与破环那刀对 `local_model_jobs` 的处理同型**：
@@ -859,9 +931,9 @@ sequenceDiagram
 
 | 事件名 | 来源 | 用途 |
 |--------|------|------|
-| `skill_activated` / `skill_used` / `skill_created` / `skill_patched` / `skill_discarded` | skills/* | Skill 生命周期与 Learning 埋点 |
-| `skills:auto_review_complete` | skills/* | Draft 审核完成 |
-| `skills:curator_proposals_ready` | skills/auto_review/curator.rs | Auto-curator 周期扫描产出草稿合并建议 |
+| `skill_activated` / `skill_used` / `skill_created` / `skill_patched` / `skill_discarded` | ha-skills (skills/author.rs·auto_review/) | Skill 生命周期与 Learning 埋点 |
+| `skills:auto_review_complete` | ha-skills (skills/auto_review/) | Draft 审核完成 |
+| `skills:curator_proposals_ready` | ha-skills (skills/auto_review/curator.rs) | Auto-curator 周期扫描产出草稿合并建议 |
 | `mcp:servers_changed` (`EV_SERVERS_CHANGED`) | ha-mcp (events.rs) | MCP 服务器列表变更 |
 | `mcp:server_status_changed` | ha-mcp (events.rs) | MCP 单个 server 状态切换（Ready / NeedsAuth / Failed 等） |
 | `mcp:catalog_refreshed` | ha-mcp (events.rs) | MCP tool catalog 重建 |

@@ -1338,8 +1338,10 @@ fn append_goal_handoff(lines: &mut Vec<String>, snapshot: &crate::goal::GoalSnap
 /// This preserves backward compatibility during the transition.
 pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool) -> String {
     let store = crate::config::cached_config();
-    let available_skills =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+    let available_skills = crate::skills_hooks::load_all_skills_with_budget(
+        &store.extra_skills_dirs,
+        &store.skill_prompt_budget,
+    );
     // Legacy path has no session context — conditional skills stay hidden.
     let activated_conditional = std::collections::HashSet::new();
     let skills_section = skills::build_skills_prompt(

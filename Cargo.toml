@@ -12,6 +12,7 @@ members = [
     "crates/ha-knowledge",
     "crates/ha-local-llm",
     "crates/ha-server",
+    "crates/ha-skills",
     "crates/ha-acp",
     "crates/ha-mac",
     "crates/ha-mcp",
