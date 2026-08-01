@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger"
 import { APP_VERSION } from "@/lib/appMeta"
 
 export type DesktopUpdateEvent =
-  | { event: "Started"; data: { contentLength: number } }
+  | { event: "Started"; data: { contentLength?: number } }
   | { event: "Progress"; data: { chunkLength: number } }
   | { event: "Finished" }
 
@@ -154,9 +154,28 @@ type Listener = () => void
 export type DownloadStatus = "idle" | "downloading" | "downloaded"
 
 let _pendingUpdate: DesktopUpdate | null = null
+let _retainedUpdate: DesktopUpdate | null = null
+let _installedReleaseKey: string | null = null
 let _checked = false
-let _downloadStatus: DownloadStatus = "idle"
 const _listeners = new Set<Listener>()
+
+interface DownloadTask {
+  promise: Promise<void>
+  listeners: Set<(event: DesktopUpdateEvent) => void>
+  contentLength: number | null
+  downloaded: number
+  started: boolean
+  finished: boolean
+}
+
+// `tauri-plugin-updater` stores the downloaded bytes on the concrete `Update`
+// resource. A second `check()` may describe the same version but returns a
+// different resource, and calling `install()` on that new object fails with
+// "Update.install called before Update.download". Keep download state keyed by
+// object identity so one resource can never borrow another one's status.
+const _downloadTasks = new Map<DesktopUpdate, DownloadTask>()
+const _downloadedUpdates = new WeakSet<DesktopUpdate>()
+const _consumedUpdates = new WeakSet<DesktopUpdate>()
 
 function _notify() {
   _listeners.forEach((fn) => fn())
@@ -180,17 +199,115 @@ export function hasChecked(): boolean {
 
 /** Current silent-download status of the pending update. */
 export function getDownloadStatus(): DownloadStatus {
-  return _downloadStatus
+  if (!_pendingUpdate) return "idle"
+  if (_downloadedUpdates.has(_pendingUpdate)) return "downloaded"
+  if (_downloadTasks.has(_pendingUpdate)) return "downloading"
+  return "idle"
+}
+
+/** Whether this release was installed in the current process and now only needs a restart. */
+export function isDesktopUpdateInstalled(update: DesktopUpdate | null): boolean {
+  return update !== null && _installedReleaseKey === updateReleaseKey(update)
 }
 
 /** Set the pending update (called by AboutPanel after manual check too). */
-export async function setPendingUpdate(update: DesktopUpdate | null): Promise<void> {
-  if (_pendingUpdate && _pendingUpdate !== update) {
-    await disposeDesktopUpdate(_pendingUpdate)
-  }
-  _pendingUpdate = update
-  _downloadStatus = "idle"
+export function setPendingUpdate(update: DesktopUpdate): Promise<DesktopUpdate>
+export function setPendingUpdate(update: null): Promise<null>
+export async function setPendingUpdate(
+  update: DesktopUpdate | null,
+): Promise<DesktopUpdate | null> {
+  const next = update ? retainUpdateResource(update) : null
+
+  const previous = _pendingUpdate
+  _pendingUpdate = next
   _notify()
+
+  if (previous && previous !== next) {
+    await releaseUpdateWhenUnused(previous)
+  }
+
+  return next
+}
+
+async function forgetAndDisposeUpdate(update: DesktopUpdate): Promise<void> {
+  _downloadedUpdates.delete(update)
+  // A successful install closes the native updater resources itself. Keep the
+  // weak marker so repeated cleanup attempts remain idempotent.
+  if (_consumedUpdates.has(update)) return
+  await disposeDesktopUpdate(update)
+}
+
+function updateReleaseKey(update: DesktopUpdate): string {
+  return `${update.currentVersion}\0${update.version}`
+}
+
+function sameRelease(left: DesktopUpdate, right: DesktopUpdate): boolean {
+  return updateReleaseKey(left) === updateReleaseKey(right)
+}
+
+function reusableUpdateResource(update: DesktopUpdate): DesktopUpdate | null {
+  for (const candidate of [_retainedUpdate, _pendingUpdate]) {
+    if (
+      candidate &&
+      sameRelease(candidate, update) &&
+      (isDesktopUpdateInstalled(candidate) ||
+        _downloadedUpdates.has(candidate) ||
+        _downloadTasks.has(candidate))
+    ) {
+      return candidate
+    }
+  }
+  for (const active of _downloadTasks.keys()) {
+    if (sameRelease(active, update)) return active
+  }
+  return null
+}
+
+function retainUpdateResource(update: DesktopUpdate): DesktopUpdate {
+  const reusable = reusableUpdateResource(update)
+  if (reusable && reusable !== update) {
+    disposeUpdateBestEffort(update, "duplicate resource cleanup failed")
+    return reusable
+  }
+
+  const previous = _retainedUpdate
+  _retainedUpdate = update
+  if (previous && previous !== update) {
+    void releaseUpdateWhenUnused(previous).catch((err) => {
+      logger.warn("updater", "desktopUpdater::retainUpdateResource", "update cleanup failed", err)
+    })
+  }
+  return update
+}
+
+function disposeUpdateBestEffort(update: DesktopUpdate, message: string): void {
+  void forgetAndDisposeUpdate(update).catch((err) => {
+    logger.warn("updater", "desktopUpdater::disposeUpdateBestEffort", message, err)
+  })
+}
+
+async function releaseUpdateWhenUnused(update: DesktopUpdate): Promise<void> {
+  if (_retainedUpdate === update || _pendingUpdate === update) return
+
+  const activeDownload = _downloadTasks.get(update)
+  if (activeDownload) {
+    // `close()` destroys the native Update resource. Defer it until an
+    // already-running download releases the resource, then re-check ownership
+    // in case another check adopted it while the download was in flight.
+    void activeDownload.promise
+      .catch(() => {})
+      .then(async () => {
+        if (_retainedUpdate !== update && _pendingUpdate !== update) {
+          await forgetAndDisposeUpdate(update)
+        }
+      })
+      .catch((err) => {
+        logger.warn("updater", "desktopUpdater::releaseUpdateWhenUnused", "update cleanup failed", err)
+      })
+    return
+  }
+
+  await forgetAndDisposeUpdate(update)
 }
 
 /**
@@ -199,29 +316,16 @@ export async function setPendingUpdate(update: DesktopUpdate | null): Promise<vo
  * store `downloaded` on success. Best-effort — a failed silent download just
  * leaves status `idle` so the user can retry from the toast.
  */
-let _silentDownloadPromise: Promise<void> | null = null
-export function silentDownload(update: DesktopUpdate): Promise<void> {
-  if (_downloadStatus === "downloaded") return Promise.resolve()
-  if (_silentDownloadPromise) return _silentDownloadPromise
-  if (!update.download) return Promise.resolve() // plugin too old; install will download
+export async function silentDownload(update: DesktopUpdate): Promise<void> {
+  const retainedUpdate = retainUpdateResource(update)
+  if (isDesktopUpdateInstalled(retainedUpdate)) return
+  if (_downloadedUpdates.has(retainedUpdate)) return
+  if (!retainedUpdate.download) return // plugin too old; install will download
 
-  _downloadStatus = "downloading"
-  _notify()
-  _silentDownloadPromise = update
-    .download()
-    .then(() => {
-      _downloadStatus = "downloaded"
-      _notify()
-    })
-    .catch((err) => {
-      logger.error("updater", "desktopUpdater::silentDownload", "silent download failed", err)
-      _downloadStatus = "idle"
-      _notify()
-    })
-    .finally(() => {
-      _silentDownloadPromise = null
-    })
-  return _silentDownloadPromise
+  const task = getOrStartDownload(retainedUpdate)
+  return task.promise.catch((err) => {
+    logger.error("updater", "desktopUpdater::silentDownload", "silent download failed", err)
+  })
 }
 
 /**
@@ -234,13 +338,16 @@ export async function installUpdate(
   update: DesktopUpdate,
   onEvent?: (event: DesktopUpdateEvent) => void,
 ): Promise<void> {
-  if (_silentDownloadPromise) await _silentDownloadPromise
-  if (_downloadStatus !== "downloaded" && update.download) {
-    _downloadStatus = "downloading"
-    _notify()
-    await update.download(onEvent)
-    _downloadStatus = "downloaded"
-    _notify()
+  if (isDesktopUpdateInstalled(update)) return
+
+  if (!_downloadedUpdates.has(update) && update.download) {
+    const task = getOrStartDownload(update)
+    const unsubscribe = onEvent ? subscribeToDownload(task, onEvent) : () => {}
+    try {
+      await task.promise
+    } finally {
+      unsubscribe()
+    }
   }
   if (update.install) {
     await update.install()
@@ -248,6 +355,97 @@ export async function installUpdate(
     // Plugin predates split download/install — fall back to the combined call.
     await update.downloadAndInstall(onEvent)
   }
+
+  _downloadedUpdates.delete(update)
+  _consumedUpdates.add(update)
+  _installedReleaseKey = updateReleaseKey(update)
+  _notify()
+}
+
+function getOrStartDownload(update: DesktopUpdate): DownloadTask {
+  const active = _downloadTasks.get(update)
+  if (active) return active
+
+  const task: DownloadTask = {
+    promise: Promise.resolve(),
+    listeners: new Set(),
+    contentLength: null,
+    downloaded: 0,
+    started: false,
+    finished: false,
+  }
+
+  // Start in a microtask so the task is registered before a fake/test Update
+  // emits its first progress event synchronously.
+  task.promise = Promise.resolve()
+    .then(() => update.download?.((event) => publishDownloadEvent(task, event)))
+    .then(() => {
+      if (!task.finished) publishDownloadEvent(task, { event: "Finished" })
+      _downloadedUpdates.add(update)
+    })
+    .finally(() => {
+      if (_downloadTasks.get(update) === task) {
+        _downloadTasks.delete(update)
+      }
+      if (_pendingUpdate === update) _notify()
+    })
+
+  _downloadTasks.set(update, task)
+  if (_pendingUpdate === update) _notify()
+  return task
+}
+
+function publishDownloadEvent(task: DownloadTask, event: DesktopUpdateEvent): void {
+  switch (event.event) {
+    case "Started":
+      task.contentLength = event.data.contentLength ?? null
+      task.downloaded = 0
+      task.started = true
+      task.finished = false
+      break
+    case "Progress":
+      task.downloaded += event.data.chunkLength
+      break
+    case "Finished":
+      task.finished = true
+      break
+  }
+
+  task.listeners.forEach((listener) => {
+    try {
+      listener(event)
+    } catch (err) {
+      logger.warn(
+        "updater",
+        "desktopUpdater::publishDownloadEvent",
+        "progress listener failed",
+        err,
+      )
+    }
+  })
+}
+
+function subscribeToDownload(
+  task: DownloadTask,
+  listener: (event: DesktopUpdateEvent) => void,
+): () => void {
+  task.listeners.add(listener)
+
+  // Silent download may already be well underway when the user clicks the
+  // install button. Replay a synthetic snapshot, then forward live chunks, so
+  // the progress bar starts at the real percentage instead of sitting at 0%.
+  if (task.started) {
+    listener({
+      event: "Started",
+      data: task.contentLength === null ? {} : { contentLength: task.contentLength },
+    })
+    if (task.downloaded > 0) {
+      listener({ event: "Progress", data: { chunkLength: task.downloaded } })
+    }
+  }
+  if (task.finished) listener({ event: "Finished" })
+
+  return () => task.listeners.delete(listener)
 }
 
 // ─── Manual-check request bus ───────────────────────────────
@@ -321,10 +519,15 @@ export function autoCheckForUpdate(force = false): Promise<DesktopUpdate | null>
         // `notify` gates surfacing the update to the user (the toast renders
         // off the store's pending update). With notify off we still pre-
         // download if enabled, but stay silent — matching the headless loop.
-        if (cfg.notify) await setPendingUpdate(update)
+        const retainedUpdate = retainUpdateResource(update)
+        const installableUpdate = cfg.notify
+          ? await setPendingUpdate(retainedUpdate)
+          : retainedUpdate
         // Silent pre-download so the eventual install is instant. Fire-and-
         // forget — the toast reflects status via the store.
-        if (cfg.autoDownload) void silentDownload(update)
+        if (cfg.autoDownload && installableUpdate) void silentDownload(installableUpdate)
+        _notify()
+        return installableUpdate
       }
       _notify()
       return update
