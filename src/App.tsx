@@ -1500,14 +1500,24 @@ export default function App() {
                           <p className="text-sm font-medium text-foreground">
                             {t("about.updateToast.updating")}
                           </p>
-                          <p className="text-sm font-medium text-emerald-500">
-                            {downloadPercent ?? 0}%
-                          </p>
+                          {downloadPercent !== null && (
+                            <p className="text-sm font-medium text-emerald-500">
+                              {downloadPercent}%
+                            </p>
+                          )}
                         </div>
                         <div className="h-1.5 w-full bg-secondary overflow-hidden rounded-full mt-1">
                           <div
-                            className="h-full bg-emerald-500 transition-all duration-300 rounded-full"
-                            style={{ width: `${downloadPercent ?? 0}%` }}
+                            className={
+                              downloadPercent === null
+                                ? "h-full w-1/3 animate-pulse rounded-full bg-gradient-to-r from-transparent via-emerald-500 to-transparent"
+                                : "h-full rounded-full bg-emerald-500 transition-all duration-300"
+                            }
+                            style={
+                              downloadPercent === null
+                                ? undefined
+                                : { width: `${downloadPercent}%` }
+                            }
                           />
                         </div>
                       </div>
