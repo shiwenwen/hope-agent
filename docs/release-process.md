@@ -73,6 +73,21 @@ git checkout -b chore/release-v0.1.2
 
 - **文件名必须与 tag 严格对应**（带 `v` 前缀）。CI 据此填 `latest.json#notes`，找不到就落 fallback 文字 `See CHANGELOG.md for details.`
 - **跨文件链接一律用 `https://github.com/shiwenwen/hope-agent/blob/v0.1.2/...` 绝对 URL，禁用 `./` `../`**。这些链接会进 `latest.json#notes`，在桌面应用的「发现新版」弹窗里渲染时已脱离 GitHub 上下文，相对路径必 broken。tag pin 在 release.yml 触发时已含本文件，永不漂移。
+- **不要把 CHANGELOG 条目复制过来**。两者读者不同：CHANGELOG 回答「这个版本改了什么」，release notes 回答「你能拿它做什么」。逐条改写，每句都要过一遍「用户看了能做什么决定」。
+
+  这条反复被违反，所以把判据写死——**下列内容一律不进 release notes**：
+
+  | 禁止出现 | 改写成 |
+  | --- | --- |
+  | 类型 / 函数 / 文件 / 字段名（`AudioWorklet`、`#memory/...`、`script-src`、`content_hash`） | 用户看到的现象 |
+  | 打包与构建概念（「编译进二进制」「sidecar」「产物」「crate」） | 用户要做的动作 |
+  | 内部机制（缓存 / 并发 / 上限 / 校验 / 哈希 / 信封 / 门控） | 删掉，或压成一句结果 |
+  | 架构与红线（「唯一入口」「fail-closed」「单一真相源」） | 删掉 |
+  | 面向开发者的命令与脚本（`pnpm dev:*`、workflow 名） | 删掉，这类进 CHANGELOG 就够了 |
+
+  例外只有一个：**用户自己会去搜、会去敲的东西**可以留（如 `tccutil`、设置项路径、下载域名）。
+
+  安全相关的说法要么写准要么不写——写不准就整句删掉，别用加长解释来补救。
 
 **(b) CHANGELOG**
 
