@@ -328,7 +328,7 @@ pub async fn chat(
     // Composer-staged KB attaches. Only honored when this call also creates the
     // session (mirrors `working_dir`); applied before the engine runs so the
     // first turn already sees the access. No-op for incognito.
-    kb_attachments: Option<Vec<ha_core::knowledge::types::KbAttachInput>>,
+    kb_attachments: Option<Vec<ha_knowledge::knowledge::types::KbAttachInput>>,
     // Tool-visibility scope (`"knowledge"`). Set by the knowledge-space sidebar
     // chat to trim the injected tool set; `None` for normal chats.
     tool_scope: Option<String>,
@@ -624,7 +624,7 @@ pub async fn chat(
             }
         }
         if let Some(attaches) = kb_attachments.as_ref() {
-            ha_core::knowledge::service::apply_draft_attachments(
+            ha_knowledge::knowledge::service::apply_draft_attachments(
                 &sid,
                 incognito.unwrap_or(false),
                 attaches,
@@ -845,7 +845,7 @@ pub async fn chat(
             .and_then(|a| a.first())
             .map(|a| a.kb_id.clone())
         {
-            ha_core::knowledge::service::mark_session_as_kb_thread(
+            ha_knowledge::knowledge::service::mark_session_as_kb_thread(
                 &sid,
                 &kb_id,
                 kb_anchor_note.as_deref(),

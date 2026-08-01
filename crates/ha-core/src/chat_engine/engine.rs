@@ -778,7 +778,7 @@ pub(crate) async fn run_chat_engine_classified(
     // user referenced inline with `[[ ]]`, scoped by `effective_kb_access` (D10)
     // and wrapped as untrusted external data (#7). Skipped for incognito inside
     // the resolver (zero KB access).
-    if let Some(extra) = crate::knowledge::inject::resolve_inline_injections(
+    if let Some(extra) = crate::knowledge_hooks::resolve_inline_injections(
         &message,
         &session_id,
         kb_access_source(source),

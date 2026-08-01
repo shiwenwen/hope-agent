@@ -12,7 +12,7 @@ use super::types::{
     NewCompileProposal, QueryFileInput, QueryFileMode, DEFAULT_SCHEMA_SECTIONS,
 };
 use super::{service, source};
-use crate::session::{MessageRole, SessionKind, SessionMessage};
+use ha_core::session::{MessageRole, SessionKind, SessionMessage};
 
 const DEFAULT_STRATEGY: &str = "source_summary_v1";
 const QUERY_FILE_STRATEGY: &str = "query_filing_v1";
@@ -24,7 +24,7 @@ const LLM_TIMEOUT_SECS: u64 = 120;
 const LLM_MAX_TOKENS: u32 = 4_000;
 
 fn registry() -> Result<&'static std::sync::Arc<super::KnowledgeRegistry>> {
-    crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
+    ha_core::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,7 +130,7 @@ pub fn list_proposals(
 pub fn query_file(kb_id: &str, input: QueryFileInput) -> Result<CompileProposal> {
     ensure_kb_exists(kb_id)?;
     let session_db =
-        crate::get_session_db().ok_or_else(|| anyhow!("session db not initialized"))?;
+        ha_core::get_session_db().ok_or_else(|| anyhow!("session db not initialized"))?;
     let session = session_db
         .get_session(&input.session_id)?
         .ok_or_else(|| anyhow!("session not found: {}", input.session_id))?;
@@ -249,7 +249,7 @@ async fn execute_compile_run(
         let (summary, label) = match generated {
             Ok((content, label)) => (content, label),
             Err(e) => {
-                crate::app_warn!(
+                app_warn!(
                     "knowledge",
                     "compile",
                     "LLM compile for source {} failed, using fallback summary: {}",
@@ -446,10 +446,10 @@ fn build_query_file_proposal(
     title: &str,
     target_path: &str,
 ) -> Result<NewCompileProposal> {
-    let answer = crate::truncate_utf8(message.content.trim(), MAX_FILED_ANSWER_CHARS);
+    let answer = ha_core::truncate_utf8(message.content.trim(), MAX_FILED_ANSWER_CHARS);
     let user_prompt = user_prompt
         .as_deref()
-        .map(|s| crate::truncate_utf8(s, MAX_FILED_PROMPT_CHARS).to_string());
+        .map(|s| ha_core::truncate_utf8(s, MAX_FILED_PROMPT_CHARS).to_string());
     let filed_block = conversation_filed_block(title, user_prompt.as_deref(), answer, message);
     let (kind, action, before_text, after_text) = match mode {
         QueryFileMode::CreateNote => {
@@ -599,7 +599,7 @@ fn normalize_title(requested: Option<&str>, fallback: &str) -> String {
         .trim_start_matches('#')
         .trim_start_matches(['-', '*'])
         .trim();
-    let title = crate::truncate_utf8(raw, 80).trim().to_string();
+    let title = ha_core::truncate_utf8(raw, 80).trim().to_string();
     if title.is_empty() {
         "Filed conversation".to_string()
     } else {
@@ -763,7 +763,7 @@ fn quote_markdown(text: &str) -> String {
 }
 
 fn one_line(text: &str) -> String {
-    crate::truncate_utf8(&text.split_whitespace().collect::<Vec<_>>().join(" "), 240).to_string()
+    ha_core::truncate_utf8(&text.split_whitespace().collect::<Vec<_>>().join(" "), 240).to_string()
 }
 
 fn yaml_inline(text: &str) -> String {
@@ -776,17 +776,17 @@ async fn generate_summary(
     content: &str,
     related: &[String],
 ) -> Result<(String, Option<String>)> {
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let compile_cfg = config.knowledge_compile.clone().normalized();
     let override_chain = compile_cfg.model_override.clone().or_else(|| {
         compile_cfg
             .agent_id
             .as_deref()
-            .and_then(|id| crate::automation::resolve_legacy_agent_chain(&config, id))
+            .and_then(|id| ha_core::automation::resolve_legacy_agent_chain(&config, id))
     });
-    let chain = crate::automation::effective_chain(&config, override_chain);
+    let chain = ha_core::automation::effective_chain(&config, override_chain);
     let prompt = summary_prompt(kb_id, source_meta, content, related);
-    let fut = crate::automation::run(crate::automation::ModelTaskSpec {
+    let fut = ha_core::automation::run(ha_core::automation::ModelTaskSpec {
         purpose: "knowledge.compile",
         chain,
         session_key: "automation:knowledge_compile",
@@ -798,7 +798,7 @@ async fn generate_summary(
         .map_err(|_| anyhow!("compile LLM call timed out"))??;
     // Label the candidate that actually produced `res.text` — not
     // necessarily `chain[0]` if a fallback fired mid-call.
-    let model = crate::automation::model_label(&config, &res.model);
+    let model = ha_core::automation::model_label(&config, &res.model);
     let parsed = parse_llm_summary(&res.text)?;
     let title = parsed
         .title
@@ -824,7 +824,7 @@ fn summary_prompt(
     content: &str,
     related: &[String],
 ) -> String {
-    let source_excerpt = crate::truncate_utf8(content, MAX_SOURCE_PROMPT_CHARS);
+    let source_excerpt = ha_core::truncate_utf8(content, MAX_SOURCE_PROMPT_CHARS);
     let related = if related.is_empty() {
         "No related notes were found.".to_string()
     } else {
@@ -939,7 +939,7 @@ fn ensure_default_sections(body: &str) -> String {
 
 fn fallback_summary(source_meta: &KnowledgeSource, content: &str, related: &[String]) -> String {
     let title = source_meta.title.trim();
-    let excerpt = crate::truncate_utf8(content.trim(), 6_000);
+    let excerpt = ha_core::truncate_utf8(content.trim(), 6_000);
     let related = if related.is_empty() {
         "- 暂无\n".to_string()
     } else {
@@ -1038,7 +1038,7 @@ fn build_summary_proposal(
 fn related_notes(kb_id: &str, content: &str) -> Vec<String> {
     service::search(
         Some(kb_id),
-        crate::truncate_utf8(content, 2_000),
+        ha_core::truncate_utf8(content, 2_000),
         MAX_RELATED_NOTES,
     )
     .unwrap_or_default()
@@ -1065,7 +1065,9 @@ fn sanitize_file_stem(title: &str) -> String {
         }
     }
     let compact = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    let compact = crate::truncate_utf8(compact.trim(), 80).trim().to_string();
+    let compact = ha_core::truncate_utf8(compact.trim(), 80)
+        .trim()
+        .to_string();
     if compact.is_empty() {
         "Untitled Source".to_string()
     } else {

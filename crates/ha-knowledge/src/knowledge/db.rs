@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::memory::EmbeddingProvider;
+use ha_core::memory::EmbeddingProvider;
 
 use super::chunker::ParsedChunk;
 use super::parser::ParsedLink;

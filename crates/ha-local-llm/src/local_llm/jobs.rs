@@ -148,7 +148,7 @@ pub fn retry_job(
             // bind-scan failure must retry just that KB, not escalate into a
             // full-app rebuild. The chat-completion hook is irrelevant here.
             let _ = on_chat_complete;
-            ha_core::knowledge::reembed::start_knowledge_reembed_job(
+            ha_knowledge::knowledge::reembed::start_knowledge_reembed_job(
                 job.target_kb_ids.clone(),
                 "retry",
             )

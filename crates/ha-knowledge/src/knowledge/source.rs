@@ -16,9 +16,9 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use crate::agent::Attachment;
-use crate::async_jobs::{JobManager, JobStatus, KnowledgeImportCounts};
-use crate::stt::{AudioPayload, Transcript};
+use ha_core::agent::Attachment;
+use ha_core::async_jobs::{JobManager, JobStatus, KnowledgeImportCounts};
+use ha_core::stt::{AudioPayload, Transcript};
 
 use super::types::{
     KnowledgeBase, KnowledgeBrowserCaptureMode, KnowledgeBrowserSourceImportInput, KnowledgeSource,
@@ -51,7 +51,7 @@ const MAX_SOURCE_DIFF_LINES: usize = 240;
 const USER_AGENT: &str =
     "HopeAgent/KnowledgeSourceImporter (+https://github.com/shiwenwen/hope-agent)";
 fn registry() -> Result<&'static std::sync::Arc<super::KnowledgeRegistry>> {
-    crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
+    ha_core::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
 }
 
 struct ImportedSourceOutcome {
@@ -132,7 +132,7 @@ pub async fn import_session_attachment(
         .ok_or_else(|| anyhow!("session attachment import requires path"))?
         .to_string();
 
-    let attachment_root = crate::paths::attachments_dir(&session_id)?;
+    let attachment_root = ha_core::paths::attachments_dir(&session_id)?;
     let canonical_root = attachment_root.canonicalize().map_err(|e| {
         anyhow!(
             "session attachments directory is not available for {}: {e}",
@@ -175,7 +175,7 @@ pub async fn import_session_attachment(
         .unwrap_or_else(|| default_file_name(KnowledgeSourceKind::Text).to_string());
     let mime_type = normalize_optional(input.mime_type.as_deref())
         .and_then(normalize_mime_type)
-        .unwrap_or_else(|| crate::attachments::sniff_mime(&bytes, &canonical_path));
+        .unwrap_or_else(|| ha_core::attachments::sniff_mime(&bytes, &canonical_path));
     let kind = input
         .kind
         .unwrap_or_else(|| infer_file_kind(&file_name, &mime_type));
@@ -246,7 +246,7 @@ async fn import_source_with_outcome(
             if let Some(upload_id) = upload_id {
                 // Import is durable at this point. Leave cleanup to the expiry
                 // sweeper if immediate lease removal fails.
-                let _ = crate::file_upload::discard_upload(&upload_id);
+                let _ = ha_core::file_upload::discard_upload(&upload_id);
             }
             outcome
         }
@@ -352,8 +352,8 @@ async fn start_import_batch(
         if let Err(e) =
             registry()?.set_source_import_run_background_job_id(&run.id, Some(&job_id_value))
         {
-            let error = crate::truncate_utf8(&e.to_string(), 600).to_string();
-            crate::app_warn!(
+            let error = ha_core::truncate_utf8(&e.to_string(), 600).to_string();
+            app_warn!(
                 "knowledge",
                 "source_import_batch",
                 "Failed to attach background job {} to source import run {}: {}",
@@ -389,9 +389,9 @@ fn spawn_source_import_run(
         match result {
             Ok(detail) => finish_source_import_job(job_id.as_deref(), Some(&detail), None),
             Err(e) => {
-                let error = crate::truncate_utf8(&e.to_string(), 600).to_string();
+                let error = ha_core::truncate_utf8(&e.to_string(), 600).to_string();
                 if let Err(mark_err) = mark_source_import_run_failed(&kb_id, &run_id, &error) {
-                    crate::app_warn!(
+                    app_warn!(
                         "knowledge",
                         "source_import_batch",
                         "Failed to mark source import run {} failed: {}",
@@ -441,7 +441,7 @@ async fn process_import_run(
             }
             Err(e) => {
                 failed += 1;
-                let error = crate::truncate_utf8(&e.to_string(), 600).to_string();
+                let error = ha_core::truncate_utf8(&e.to_string(), 600).to_string();
                 registry()?.finish_source_import_item(
                     item.id,
                     KnowledgeSourceImportItemStatus::Failed,
@@ -934,7 +934,7 @@ pub fn sync_external_raw_snapshots(kb_id: &str) -> Result<KnowledgeSourceExterna
                 result.errors.push(format!(
                     "{}: {}",
                     source.title,
-                    crate::truncate_utf8(&e.to_string(), 240)
+                    ha_core::truncate_utf8(&e.to_string(), 240)
                 ));
             }
         }
@@ -1168,10 +1168,8 @@ async fn capture_browser_snapshot(
 ) -> Result<SourceSnapshotDraft> {
     // 特征钩子（fail-explicit：网页捕获是用户显式动作，未 wire 报错优于
     // 静默）。backend 选择、select_page 与抓取脚本都在 ha-browser 侧。
-    let Some(hooks) = crate::browser_hooks::browser_hooks() else {
-        anyhow::bail!("browser feature not wired; browser capture unavailable in this binary");
-    };
-    let capture: crate::browser_hooks::BrowserTabCapture = (hooks.capture_active_tab)().await?;
+    let capture: ha_core::browser_hooks::BrowserTabCapture =
+        ha_core::browser_hooks::capture_active_tab().await?;
     let selected = !capture.selection_text.trim().is_empty();
     let (capture_mode, text) = match input.mode {
         KnowledgeBrowserCaptureMode::Selection => {
@@ -1308,8 +1306,8 @@ fn normalize_import_input(input: KnowledgeSourceImportInput) -> Result<Normalize
     }
 
     if let Some(upload_id) = upload_id {
-        let lease = crate::file_upload::upload_status(&upload_id)?;
-        if lease.purpose != crate::file_upload::FileUploadPurpose::KnowledgeSource {
+        let lease = ha_core::file_upload::upload_status(&upload_id)?;
+        if lease.purpose != ha_core::file_upload::FileUploadPurpose::KnowledgeSource {
             bail!("file upload purpose mismatch");
         }
         let file_name =
@@ -1332,9 +1330,9 @@ fn normalize_import_input(input: KnowledgeSourceImportInput) -> Result<Normalize
         } else {
             limits.max_binary_source_bytes()
         };
-        let (_, bytes) = crate::file_upload::read_completed_upload_with_limit(
+        let (_, bytes) = ha_core::file_upload::read_completed_upload_with_limit(
             &upload_id,
-            crate::file_upload::FileUploadPurpose::KnowledgeSource,
+            ha_core::file_upload::FileUploadPurpose::KnowledgeSource,
             max_bytes,
         )?;
         return Ok(NormalizedImport::File {
@@ -1392,7 +1390,7 @@ fn decode_base64_source(raw: &str) -> Result<Vec<u8>> {
 }
 
 fn source_limits() -> super::KnowledgeSourceLimitsConfig {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .knowledge_source_limits
         .clone()
         .clamped()
@@ -1456,16 +1454,16 @@ async fn transcribe_media_bytes(
         );
     }
 
-    let (primary, fallback) = crate::stt::current_desktop_chain();
+    let (primary, fallback) = ha_core::stt::current_desktop_chain();
     if primary.is_none() && fallback.is_empty() {
         bail!("no STT model configured for audio/video source import");
     }
 
-    let mut options = crate::config::cached_config().stt.default_options.clone();
+    let mut options = ha_core::config::cached_config().stt.default_options.clone();
     if options.timestamps.is_none() {
         options.timestamps = Some(true);
     }
-    let transcript = crate::stt::failover_transcribe_batch(
+    let transcript = ha_core::stt::failover_transcribe_batch(
         primary,
         fallback,
         AudioPayload::Bytes {
@@ -1552,9 +1550,9 @@ async fn ocr_image_bytes(
         bail!("image_ocr imports require an image file");
     }
 
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let vis_cfg = config.knowledge_vision.clone();
-    let chain = crate::automation::effective_chain(&config, vis_cfg.model_override.clone());
+    let chain = ha_core::automation::effective_chain(&config, vis_cfg.model_override.clone());
     let attachment = Attachment {
         name: provenance.file_name.clone(),
         mime_type: provenance.mime_type.clone(),
@@ -1572,7 +1570,7 @@ async fn ocr_image_bytes(
     let session_key = format!("automation:knowledge_ocr:{kb_id}");
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(vis_cfg.timeout_secs),
-        crate::automation::run_vision(crate::automation::VisionTaskSpec {
+        ha_core::automation::run_vision(ha_core::automation::VisionTaskSpec {
             purpose: "knowledge.ocr",
             chain,
             session_key: &session_key,
@@ -1589,7 +1587,7 @@ async fn ocr_image_bytes(
     if ocr_text.is_empty() {
         bail!("image OCR produced no text");
     }
-    let model_label = crate::automation::model_label(&config, &output.model);
+    let model_label = ha_core::automation::model_label(&config, &output.model);
 
     let imported_at = chrono::Utc::now().to_rfc3339();
     let mut snapshot = format!(
@@ -1800,12 +1798,12 @@ async fn ocr_one_pdf_page(
     page_number: u32,
     total_pages: usize,
     image_b64: String,
-    chain: Vec<crate::provider::ActiveModel>,
+    chain: Vec<ha_core::provider::ActiveModel>,
     session_key: &str,
     timeout_secs: u64,
     max_tokens: u32,
 ) -> std::result::Result<(String, String), (KnowledgeSourceOcrPageStage, String)> {
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let attachment = Attachment {
         name: format!("{file_name} — page {page_number}"),
         mime_type: "image/png".to_string(),
@@ -1822,7 +1820,7 @@ async fn ocr_one_pdf_page(
     );
     let timed = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        crate::automation::run_vision(crate::automation::VisionTaskSpec {
+        ha_core::automation::run_vision(ha_core::automation::VisionTaskSpec {
             purpose: "knowledge.ocr",
             chain,
             session_key,
@@ -1850,7 +1848,7 @@ async fn ocr_one_pdf_page(
             "page OCR produced no text".to_string(),
         ));
     }
-    let model_label = crate::automation::model_label(&config, &output.model);
+    let model_label = ha_core::automation::model_label(&config, &output.model);
     Ok((text, model_label))
 }
 
@@ -1884,7 +1882,7 @@ async fn run_pdf_ocr_round_inner(
     }
 
     let page_indices: Vec<usize> = page_numbers.iter().map(|n| (*n - 1) as usize).collect();
-    let render_outcome = crate::file_extract::render_pdf_bytes_isolated(
+    let render_outcome = ha_core::file_extract::render_pdf_bytes_isolated(
         original_bytes,
         Some(&page_indices),
         page_indices.len(),
@@ -1950,7 +1948,7 @@ async fn run_pdf_ocr_round_inner(
     }
 
     if !ok_pages.is_empty() {
-        let config = crate::config::cached_config();
+        let config = ha_core::config::cached_config();
         let vis_cfg = config.knowledge_vision.clamped();
         let concurrency = (vis_cfg.ocr_concurrency as usize).max(1);
         let timeout_secs = vis_cfg.timeout_secs;
@@ -1961,7 +1959,8 @@ async fn run_pdf_ocr_round_inner(
         let mime_owned = mime.to_string();
 
         let results = ocr_pages_with(ok_pages, concurrency, |page_number, image_b64| {
-            let chain = crate::automation::effective_chain(&config, vis_cfg.model_override.clone());
+            let chain =
+                ha_core::automation::effective_chain(&config, vis_cfg.model_override.clone());
             let file_name = file_name_owned.clone();
             let mime = mime_owned.clone();
             let session_key = session_key.clone();
@@ -2131,7 +2130,7 @@ fn finalize_pdf_ocr_source(
                         None,
                         None,
                     ) {
-                        crate::app_warn!(
+                        app_warn!(
                             "knowledge",
                             "source_ocr",
                             "failed to downgrade recovered-lost page {} of source {} back to Failed: {}",
@@ -2257,7 +2256,7 @@ fn update_source_snapshot_in_place(
         .get_source(kb_id, source_id)?
         .ok_or_else(|| anyhow!("source not found: {source_id}"))?;
     let path = source_path(kb_id, &source.stored_path)?;
-    crate::platform::write_atomic(&path, new_content.as_bytes())?;
+    ha_core::platform::write_atomic(&path, new_content.as_bytes())?;
     let _ = try_mirror_source_snapshot_to_external(
         kb_id,
         source_id,
@@ -2316,8 +2315,8 @@ fn spawn_pdf_ocr_round(
                 finish_knowledge_ocr_job(job_id.as_deref(), success, error.as_deref());
             }
             Err(e) => {
-                let error = crate::truncate_utf8(&e.to_string(), 600).to_string();
-                crate::app_warn!(
+                let error = ha_core::truncate_utf8(&e.to_string(), 600).to_string();
+                app_warn!(
                     "knowledge",
                     "source_ocr",
                     "scanned-PDF OCR round failed for source {}: {}",
@@ -2358,14 +2357,14 @@ async fn import_pdf_ocr_fallback(
     mime: String,
     bytes: Vec<u8>,
 ) -> Result<ImportedSourceOutcome> {
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let vis_cfg = config.knowledge_vision.clamped();
 
     // Fail fast on a genuinely unreadable file before persisting anything —
     // this only catches whole-document load failures (corrupt/non-PDF
     // bytes), never a single page's render failing (that becomes a
     // per-page Failed row inside the real round below, not an abort here).
-    let (total_pages, _) = crate::file_extract::render_pdf_bytes_isolated(
+    let (total_pages, _) = ha_core::file_extract::render_pdf_bytes_isolated(
         &bytes,
         Some(&[0]),
         1,
@@ -2414,8 +2413,8 @@ async fn import_pdf_ocr_fallback(
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if let Err(e) = crate::platform::write_atomic(&path, &bytes) {
-            crate::app_warn!(
+        if let Err(e) = ha_core::platform::write_atomic(&path, &bytes) {
+            app_warn!(
                 "knowledge",
                 "source_ocr",
                 "failed to retain original PDF bytes for source {} (retry will not be possible): {}",
@@ -2461,7 +2460,7 @@ pub async fn retry_source_ocr_pages(kb_id: &str, source_id: &str) -> Result<Know
     // rule the sibling `kb_source_ocr_pages` GET route already follows).
     let kb = kb_id.to_string();
     let sid = source_id.to_string();
-    let (source, failed) = crate::blocking::run_blocking(move || {
+    let (source, failed) = ha_core::blocking::run_blocking(move || {
         let source = registry()?
             .get_source(&kb, &sid)?
             .ok_or_else(|| anyhow!("source not found: {sid}"))?;
@@ -2484,7 +2483,7 @@ pub async fn retry_source_ocr_pages(kb_id: &str, source_id: &str) -> Result<Know
 
     let original_path = ocr_original_pdf_asset_path(kb_id, source_id)?;
     let sid_for_err = source_id.to_string();
-    let original_bytes = crate::blocking::run_blocking(move || {
+    let original_bytes = ha_core::blocking::run_blocking(move || {
         std::fs::read(&original_path).map_err(|_| {
             anyhow!(
                 "original PDF bytes are no longer retained for source {sid_for_err}; reimport the file to retry"
@@ -2516,7 +2515,7 @@ pub async fn retry_source_ocr_pages(kb_id: &str, source_id: &str) -> Result<Know
 
     let kb2 = kb_id.to_string();
     let sid2 = source_id.to_string();
-    crate::blocking::run_blocking(move || {
+    ha_core::blocking::run_blocking(move || {
         registry()?
             .get_source(&kb2, &sid2)?
             .ok_or_else(|| anyhow!("source not found: {sid2}"))
@@ -2592,7 +2591,7 @@ fn extract_uploaded_document_text(
     tmp.flush()?;
 
     let path = tmp.path().to_string_lossy().to_string();
-    let extracted = crate::file_extract::extract(&path, file_name, mime_type);
+    let extracted = ha_core::file_extract::extract(&path, file_name, mime_type);
     let Some(text) = extracted.text else {
         return Ok(None);
     };
@@ -2658,16 +2657,16 @@ async fn download_remote_media_source(
     file_name_hint: Option<String>,
     mime_type_hint: Option<String>,
 ) -> Result<RemoteMediaDownload> {
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let ssrf_cfg = cfg.ssrf.clone();
     let web_cfg = cfg.web_fetch.clone();
     let effective_policy = if web_cfg.ssrf_protection {
         ssrf_cfg.web_fetch()
     } else {
-        crate::security::ssrf::SsrfPolicy::AllowPrivate
+        ha_core::security::ssrf::SsrfPolicy::AllowPrivate
     };
     let trusted_hosts = ssrf_cfg.trusted_hosts.clone();
-    let parsed = crate::security::ssrf::check_url(url, effective_policy, &trusted_hosts).await?;
+    let parsed = ha_core::security::ssrf::check_url(url, effective_policy, &trusted_hosts).await?;
 
     let max_redirects = web_cfg.max_redirects;
     let timeout_seconds = web_cfg.timeout_seconds.max(1);
@@ -2682,7 +2681,7 @@ async fn download_remote_media_source(
             return attempt.error("too many redirects");
         }
         if let Some(host) = attempt.url().host_str() {
-            if crate::security::ssrf::check_host_blocking_sync(
+            if ha_core::security::ssrf::check_host_blocking_sync(
                 host,
                 effective_policy,
                 &redirect_policy_hosts,
@@ -2693,7 +2692,7 @@ async fn download_remote_media_source(
         attempt.follow()
     });
 
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .user_agent(user_agent)
             .timeout(Duration::from_secs(timeout_seconds))
@@ -2713,7 +2712,7 @@ async fn download_remote_media_source(
     }
 
     let final_url = resp.url().to_string();
-    crate::security::ssrf::check_url(&final_url, effective_policy, &trusted_hosts).await?;
+    ha_core::security::ssrf::check_url(&final_url, effective_policy, &trusted_hosts).await?;
     let response_mime = resp
         .headers()
         .get("content-type")
@@ -2765,16 +2764,16 @@ async fn fetch_url_snapshot(
     url: &str,
     requested_title: Option<String>,
 ) -> Result<SourceSnapshotDraft> {
-    let cfg = crate::config::cached_config();
+    let cfg = ha_core::config::cached_config();
     let ssrf_cfg = cfg.ssrf.clone();
     let web_cfg = cfg.web_fetch.clone();
     let effective_policy = if web_cfg.ssrf_protection {
         ssrf_cfg.web_fetch()
     } else {
-        crate::security::ssrf::SsrfPolicy::AllowPrivate
+        ha_core::security::ssrf::SsrfPolicy::AllowPrivate
     };
     let trusted_hosts = ssrf_cfg.trusted_hosts.clone();
-    let parsed = crate::security::ssrf::check_url(url, effective_policy, &trusted_hosts).await?;
+    let parsed = ha_core::security::ssrf::check_url(url, effective_policy, &trusted_hosts).await?;
 
     let max_redirects = web_cfg.max_redirects;
     let timeout_seconds = web_cfg.timeout_seconds.max(1);
@@ -2789,7 +2788,7 @@ async fn fetch_url_snapshot(
             return attempt.error("too many redirects");
         }
         if let Some(host) = attempt.url().host_str() {
-            if crate::security::ssrf::check_host_blocking_sync(
+            if ha_core::security::ssrf::check_host_blocking_sync(
                 host,
                 effective_policy,
                 &redirect_policy_hosts,
@@ -2800,7 +2799,7 @@ async fn fetch_url_snapshot(
         attempt.follow()
     });
 
-    let client = crate::provider::apply_proxy(
+    let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .user_agent(user_agent)
             .timeout(Duration::from_secs(timeout_seconds))
@@ -2820,7 +2819,7 @@ async fn fetch_url_snapshot(
     }
 
     let final_url = resp.url().to_string();
-    crate::security::ssrf::check_url(&final_url, effective_policy, &trusted_hosts).await?;
+    ha_core::security::ssrf::check_url(&final_url, effective_policy, &trusted_hosts).await?;
     let content_type = resp
         .headers()
         .get("content-type")
@@ -2944,7 +2943,7 @@ fn persist_source_draft(
                         }
                     }
                 }
-                Err(e) => crate::app_warn!(
+                Err(e) => app_warn!(
                     "knowledge",
                     "source_external_raw_sync",
                     "duplicate source external raw mirror skipped for {}: {}",
@@ -2968,7 +2967,7 @@ fn persist_source_draft(
         Some(asset) => prepare_source_assets(kb_id, &id, asset)?,
         None => None,
     };
-    crate::platform::write_atomic(&path, draft.content.as_bytes())?;
+    ha_core::platform::write_atomic(&path, draft.content.as_bytes())?;
     let external_raw_path =
         try_mirror_source_snapshot_to_external(kb_id, &id, draft.ext, &draft.content);
     let mut written_asset_paths = Vec::new();
@@ -2976,7 +2975,7 @@ fn persist_source_draft(
         let mut failed = None;
         for file in &prepared.files {
             let asset_path = source_asset_path(kb_id, &file.stored_path)?;
-            match crate::platform::write_atomic(&asset_path, &file.bytes) {
+            match ha_core::platform::write_atomic(&asset_path, &file.bytes) {
                 Ok(()) => written_asset_paths.push(asset_path),
                 Err(e) => {
                     failed = Some((asset_path, e));
@@ -2985,7 +2984,7 @@ fn persist_source_draft(
             }
         }
         if let Some((asset_path, e)) = failed {
-            crate::app_warn!(
+            app_warn!(
                 "knowledge",
                 "source_import",
                 "source media retention skipped after write failure at {}: {}",
@@ -3039,7 +3038,7 @@ fn persist_source_draft(
     });
     if let Err(e) = insert_result {
         if let Err(cleanup_err) = std::fs::remove_file(&path) {
-            crate::app_warn!(
+            app_warn!(
                 "knowledge",
                 "source_import",
                 "cleanup orphan source file {} failed after registry insert error: {}",
@@ -3049,7 +3048,7 @@ fn persist_source_draft(
         }
         for asset_path in written_asset_paths {
             if let Err(cleanup_err) = std::fs::remove_file(&asset_path) {
-                crate::app_warn!(
+                app_warn!(
                     "knowledge",
                     "source_import",
                     "cleanup orphan source asset {} failed after registry insert error: {}",
@@ -3102,7 +3101,7 @@ fn inspect_image_asset(
     max_edge: u32,
 ) -> (Option<u32>, Option<u32>, Option<SourceThumbnailDraft>) {
     let Ok(image) = image::load_from_memory(bytes) else {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "source_import",
             "image source retained without thumbnail because image decoding failed"
@@ -3118,7 +3117,7 @@ fn inspect_image_asset(
     let rgb = thumbnail.to_rgb8();
     let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 82);
     if let Err(e) = encoder.encode_image(&rgb) {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "source_import",
             "image source retained without thumbnail because JPEG encoding failed: {}",
@@ -3151,7 +3150,7 @@ fn prepare_source_assets(
         return Ok(None);
     }
     if original_size > cfg.max_source_bytes {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "source_import",
             "source media retention skipped: original file is {} bytes, per-source limit is {}",
@@ -3167,7 +3166,7 @@ fn prepare_source_assets(
         .unwrap_or(0);
     let required_bytes = original_size.saturating_add(thumbnail_size);
     if !reserve_media_retention_bytes(required_bytes, &cfg)? {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "source_import",
             "source media retention skipped: quota requires {} bytes, total limit is {}",
@@ -3267,7 +3266,7 @@ fn remove_source_asset_files(kb_id: &str, stored_paths: &[String]) -> Result<()>
         let path = match source_asset_path(kb_id, stored_path) {
             Ok(path) => path,
             Err(e) => {
-                crate::app_warn!(
+                app_warn!(
                     "knowledge",
                     "source_import",
                     "skip invalid source asset path {}: {}",
@@ -3279,7 +3278,7 @@ fn remove_source_asset_files(kb_id: &str, stored_paths: &[String]) -> Result<()>
         };
         if path.exists() {
             if let Err(e) = std::fs::remove_file(&path) {
-                crate::app_warn!(
+                app_warn!(
                     "knowledge",
                     "source_import",
                     "remove source asset {} failed: {}",
@@ -3357,7 +3356,7 @@ fn try_mirror_source_snapshot_to_external(
     match mirror_source_snapshot_to_external(kb_id, source_id, ext, content) {
         Ok(path) => path,
         Err(e) => {
-            crate::app_warn!(
+            app_warn!(
                 "knowledge",
                 "source_external_raw_sync",
                 "external raw snapshot mirror skipped for {source_id}: {e}"
@@ -3420,7 +3419,7 @@ fn write_external_raw_snapshot(
     let ext = sanitize_ext(ext);
     let rel_path = format!("{folder}/{source_id}.{ext}");
     let target = external_raw_target_path(root, &rel_path)?;
-    crate::platform::write_atomic(&target, content.as_bytes())?;
+    ha_core::platform::write_atomic(&target, content.as_bytes())?;
     Ok(rel_path)
 }
 
@@ -3491,7 +3490,7 @@ fn remove_external_raw_file_if_allowed(kb_id: &str, rel_path: &str) {
         Ok(())
     };
     if let Err(e) = remove() {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "source_external_raw_sync",
             "remove external raw snapshot {rel_path} skipped: {e}"
@@ -3500,8 +3499,8 @@ fn remove_external_raw_file_if_allowed(kb_id: &str, rel_path: &str) {
 }
 
 fn source_dir(kb_id: &str) -> Result<PathBuf> {
-    let dir = crate::paths::knowledge_kb_sources_dir(kb_id)?;
-    let path = crate::util::ensure_dir_canonical(&dir)?;
+    let dir = ha_core::paths::knowledge_kb_sources_dir(kb_id)?;
+    let path = ha_core::util::ensure_dir_canonical(&dir)?;
     Ok(PathBuf::from(path))
 }
 
@@ -3746,7 +3745,7 @@ fn choose_title(
 ) -> String {
     for candidate in [requested.as_deref(), extracted, file_name] {
         if let Some(value) = normalize_optional(candidate) {
-            return crate::truncate_utf8(value, 120).to_string();
+            return ha_core::truncate_utf8(value, 120).to_string();
         }
     }
     "Untitled source".to_string()
@@ -4036,7 +4035,7 @@ fn union(parent: &mut [usize], a: usize, b: usize) -> usize {
 }
 
 fn emit(kb_id: &str, op: &str) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
             "knowledge:changed",
             serde_json::json!({ "kbId": kb_id, "op": op }),
@@ -4090,17 +4089,17 @@ mod tests {
     #[test]
     fn normalize_import_accepts_completed_knowledge_upload_lease() {
         let root = tempfile::tempdir().expect("tempdir");
-        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+        ha_core::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
             let lease =
-                crate::file_upload::start_upload(crate::file_upload::FileUploadStartInput {
-                    purpose: crate::file_upload::FileUploadPurpose::KnowledgeSource,
+                ha_core::file_upload::start_upload(ha_core::file_upload::FileUploadStartInput {
+                    purpose: ha_core::file_upload::FileUploadPurpose::KnowledgeSource,
                     file_name: "source.md".to_string(),
                     mime_type: "text/markdown".to_string(),
                     size_bytes: 6,
                 })
                 .unwrap();
-            crate::file_upload::upload_chunk(&lease.upload_id, 0, b"source").unwrap();
-            crate::file_upload::complete_upload(&lease.upload_id).unwrap();
+            ha_core::file_upload::upload_chunk(&lease.upload_id, 0, b"source").unwrap();
+            ha_core::file_upload::complete_upload(&lease.upload_id).unwrap();
 
             let mut request = input();
             request.upload_id = Some(lease.upload_id.clone());
@@ -4118,7 +4117,7 @@ mod tests {
             assert_eq!(file_name.as_deref(), Some("source.md"));
             assert_eq!(bytes, b"source");
             assert_eq!(upload_id.as_deref(), Some(lease.upload_id.as_str()));
-            assert!(crate::file_upload::upload_status(&lease.upload_id).is_ok());
+            assert!(ha_core::file_upload::upload_status(&lease.upload_id).is_ok());
         });
     }
 

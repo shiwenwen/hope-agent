@@ -9,6 +9,7 @@ members = [
     "crates/ha-dash",
     "crates/ha-cron",
     "crates/ha-channel",
+    "crates/ha-knowledge",
     "crates/ha-local-llm",
     "crates/ha-server",
     "crates/ha-acp",

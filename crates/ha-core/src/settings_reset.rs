@@ -827,7 +827,7 @@ pub fn reset_settings_section(
         }
     }
     if scope == SettingsResetScope::Knowledge && target.section.is_none() && app_changed {
-        crate::knowledge::apply_knowledge_embedding_from_config(source);
+        crate::knowledge_hooks::apply_embedding_from_config(source);
     }
 
     let mut reindex_started = false;
@@ -835,7 +835,7 @@ pub fn reset_settings_section(
         match crate::get_knowledge_db() {
             Some(registry) => match registry.list_all_ids() {
                 Ok(ids) if !ids.is_empty() => {
-                    match crate::knowledge::start_knowledge_reembed_job(Some(ids), source) {
+                    match crate::knowledge_hooks::start_reembed_job(Some(ids), source) {
                         Ok(_) => reindex_started = true,
                         Err(error) => {
                             crate::app_warn!(

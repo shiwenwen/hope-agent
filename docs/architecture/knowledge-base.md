@@ -1,6 +1,6 @@
 # Knowledge Base（知识空间）
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-02
+> 返回 [文档索引](../README.md) | 更新时间：2026-08-01
 
 本文是知识空间子系统的**单一真相源**：定位、设计取舍、数据模型、鉴权、工具面、检索、前端、自主维护与安全红线。实现细节引用代码路径而非复制，以代码为准。对外功能名「知识空间 / Knowledge Space」，代码内部保持中性——模块 `knowledge/`、工具 `note_*`、作用域 `for_knowledge`（D5）。
 
@@ -75,7 +75,7 @@ flowchart LR
 ## 两类存储（D9）
 
 - **真相源**：`KnowledgeRegistry`（[`knowledge/registry.rs`](../../crates/ha-core/src/knowledge/registry.rs)）—— `knowledge_bases` + `knowledge_schema_profiles` + `session_knowledge_bases` + `project_knowledge_bases` + `knowledge_sources` / `knowledge_source_chunks` + `knowledge_compile_runs` / `knowledge_compile_proposals` + `kb_maintenance_proposals` + `kb_graph_layout`（图谱布局，按 `rel_path` 键）落 `sessions.db`，包 `Arc<SessionDB>` 复用连接（仿 `ProjectDB` / `ChannelDB`），均 `ON DELETE CASCADE` 随 KB 删。
-- **可重建缓存**：`IndexDb`（[`knowledge/db.rs`](../../crates/ha-core/src/knowledge/db.rs)）—— `note` / `note_chunk` / `note_link` / `note_tag` + FTS5（`note_chunk_fts`）+ sqlite-vec（`note_vec`）落 `~/.hope-agent/knowledge/index.db`。删了能从 `.md` 文件全量重建（连 `rel_path` 都是缓存）。连接模型仿 memory backend：1 写连接 + 4 读连接池 + WAL + sqlite-vec auto-extension。
+- **可重建缓存**：`IndexDb`（[`knowledge/db.rs`](../../crates/ha-knowledge/src/knowledge/db.rs)）—— `note` / `note_chunk` / `note_link` / `note_tag` + FTS5（`note_chunk_fts`）+ sqlite-vec（`note_vec`）落 `~/.hope-agent/knowledge/index.db`。删了能从 `.md` 文件全量重建（连 `rel_path` 都是缓存）。连接模型仿 memory backend：1 写连接 + 4 读连接池 + WAL + sqlite-vec auto-extension。
 
 笔记 = 真实 `.md` 文件（唯一真相源）。内部 KB（`root_dir=NULL`）落 `~/.hope-agent/knowledge/{id}/notes/`（lazy ensure），可写；外部绑定 vault（`root_dir` 非空）**默认只读**，KB 级 `allow_external_writes` opt-in（owner GUI）后解锁编辑器 / AI 写入（D11）。`resolve_kb_dir` 返回 `KbRoot{dir, is_external, read_only}`——`read_only = is_external && !allow_external_writes`，`WorkspaceScope::for_knowledge` 取 `read_only`；写冲突沿用 stale-write guard（比磁盘 raw BLAKE3，冲突中止）。**后台自主维护 `scheduler.rs` 按 `is_external` 跳过所有外部 root，无视 opt-in**——只 GUI / agent 按需写外部。
 
@@ -107,33 +107,41 @@ flowchart LR
 
 **坐标系契约（D14）**：三套坐标不可混——Rust UTF-8 字节 / Unicode 码点 / JS·CM6 UTF-16。持久 offset = 码点偏移（索引内部）；跨端定位走 `line`（1-based）+ `col`（0-based 码点列，tab 记 1 码点不展开），按 `\n` 分行、`\r\n` 视作单个行终止符、**不改写原文件换行**。`note_chunk` 与 `note_link` 的坐标都相对**原始完整文件**（含 frontmatter / CRLF），不是相对剥离后的 `body`。CM6 内部 UTF-16，跳转 / 命中定位一律走 line/col，前端做 UTF-16↔码点转换。
 
-## 模块地图（`crates/ha-core/src/knowledge/`）
+## 模块地图
 
-| 文件 | 职责 |
-|---|---|
-| `types.rs` | `KnowledgeBase` / `Note` / `NoteChunk` / `NoteLink` / `KbAccess` / 搜索结果 / 图谱布局 / Raw Source / Schema Profile + Evidence index / Compile Run + Proposal 类型 |
-| `registry.rs` | KB CRUD + 访问绑定（真相源）+ `resolve_kb_dir`（内部 lazy ensure / 外部只读标记）+ Schema Profile 表 + Evidence 派生索引表 + Raw Source 表 + Compile run/proposal 表 + 维护提案表 + 图谱布局表 |
-| `db.rs` | index.db 后端：note/chunk/link/tag 写入（单事务重索引）+ FTS/vec 查询 + 反链 + 重解析 + `list_broken_links` / `list_orphan_notes`（维护面板）+ `all_resolved_links`（图谱边）+ `block_backlinks`（块级反链：`note_link.anchor = '^id' COLLATE NOCASE`） |
-| `parser.rs` | pulldown-cmark 扫 heading / code + **叶块 span**（paragraph / item / heading），正则扫 `[[ ]]` / `#tag` + **Obsidian `^block-id` 块锚**（跳过 code），D14 坐标（`PosMap` 码点 offset + line / col，相对原始全文）+ 手写 frontmatter→JSON。`ParsedBlock{block_id,start,end,text}`：行尾 `^id`（`[A-Za-z0-9-]+`）附到所在叶块（独占行的 `^id` 附到上一块），`text` 剥锚，首个 id 胜出，**不落表**（transclusion 重解析、块反链查 `note_link.anchor`），`line_block_anchor` 供写工具复用 |
-| `chunker.rs` | 按 heading 分段 + 大小封顶（D12），产出 chunk（D14 坐标 + BLAKE3 content_hash + overlap）。参数 `ChunkConfig{max_chars, overlap_chars}`（默认 1500 / 80，`clamped()` 钳 `[200,8000]` / `[0,max/2]`） |
-| `resolver.rs` | `[[ref]]` → note_id 确定性规则（路径式 > 唯一 basename > 最短路径再字典序，NFC + 大小写不敏感，**不用 mtime**） |
-| `rename.rs` | note / folder 改名移动 + **入站 `[[ ]]` 链接改写**：`rename_note` / `rename_dir` 复用给 owner 平面 + agent 工具；纯文本变换 `rewrite_content`（re-parse 跳 code、按 D14 码点 offset splice、保留 `#anchor` / `\|alias` / `![[ ]]`，路径式→新路径、basename→新 stem，歧义退回路径式） |
-| `index.rs` | 索引器：文件 → parse → chunk → embed → IndexDb；KB reconcile（mtime 增量 + prune）；全局 `IndexDb` |
-| `watcher.rs` | `notify` 生产级 watcher（debounce 800ms，仅 `.md` 事件，per-KB 线程，外部 vault 实时同步，D6） |
-| `access.rs` | `effective_kb_access(KnowledgeAccessContext)`（D10）：incognito short-circuit → IM 全链归零（除非 origin 账号 / 群聊 opt-in，`im_lineage_denied`）→ `max(session, project)` → 滤 archived → 外部 `read_only` root cap read（opt-in 可写则不 cap） |
-| `search.rs` | chunk 级 FTS + vec → RRF → MMR → 聚合回 note；`similar_notes` 向量 KNN。算法复用 memory，独立 store（D7） |
-| `schema.rs` | Schema Profile / required sections / source refs lint；从 `.md` 解析 Evidence refs 与 claim-level `source_id`，维护 `knowledge_evidence_refs` / `knowledge_evidence_claims` 派生索引；提供 coverage score、source→compiled claims 反查与 rebuild owner 入口 |
-| `graph.rs` | 链接图谱构建（纯变换）：`build_kb_graph`（节点=笔记+度数，边=去重 resolved 链接，丢自环）/ `ego_subgraph`（N 跳无向邻域）/ `cap_nodes`（按度数截断标 `truncated`）；owner 图与 `note_graph` 工具共用 |
-| `service.rs` | owner 平面操作（GUI / HTTP）：list / read / save / delete / rename / backlinks / search / broken_links / orphans / graph / note_read_ref / ai_rewrite / 维护配置，不经 `effective_kb_access`。`note_rename` / `rename_dir` 委托 `rename::*`（移动文件 + 改写入站 `[[ ]]`，返回 `RenameOutcome{newRel, filesChanged, linksRewritten}`）；外部 root 只读拒写。`note_read_ref` 经 resolver 解析 `[[ ]]` ref 再读，按 ref 的 `#anchor` 切片（`slice_by_anchor`：`^id`→块文本、heading→该标题到下一同 / 更高级标题段，未命中降级整篇） |
-| `source.rs` | Raw Source / 资料舱（D15 + 导入流水线）：文本 / Markdown / PDF / DOCX / 音频转录 / 视频转录 / 图片 OCR / URL / 浏览器快照导入，远程媒体 URL 下载归档，会话附件归档白名单，STT failover 转录，vision analysis agent OCR，SSRF-gated URL fetch，HTML→Markdown 可读快照，受控浏览器 tab DOM/选区采集，`extracted_text_hash` exact dedup，外部 vault raw/source 文本快照镜像（尊重外部写 opt-in + 记录 `external_raw_path`），URL / Browser refresh + source version chain + bounded diff，批量 import run / item 状态、后台化执行、失败重试、相似 source 分组、跨 KB exact duplicate 提示、dismiss / resolve 治理，可选原始媒体留存 + 图片缩略图 + quota prune，Hope 管理目录写盘，source chunk 切分，list/read/asset/refresh/versions/diff/reextract/delete/sync-external-raw owner 面 |
-| `compile.rs` | Knowledge Compiler（D16）：读取 source + 相关笔记，经 `AppConfig.knowledge_compile.agent_id` 指定的资料整理 Agent（未设则继承全局默认 Agent）发起 side_query 生成结构化 Markdown，转成 `CreateNote` / `PatchNote` / `SetFrontmatter` / `AppendLink` / `CreateMoc` proposal；approve 才 apply，写盘仍走 `service::note_save` 与 stale-write guard |
-| `schema.rs` | Schema Profile / Evidence（D17）：默认 profile backfill、笔记 `sources` / `source_id` 解析、source ref 跳转数据、`missing_evidence` / `stale_source` / `schema_violation` / `conflicting_claim` / `unfiled_open_question` lint issues |
-| `agent_api.rs` | 外部 agent 稳定门面（D19）：`knowledge.search/read/expand/sources/compile.propose` 共用同一套 ha-core 类型；默认 notes-first，source 显式隔离；HTTP / Tauri 只是薄壳 |
-| `agent_mcp.rs` | stdio MCP server（D20）：`initialize` / `tools/list` / `tools/call` 薄包装 `agent_api`；默认只读工具集，`--allow-proposals` 才暴露 compile proposal |
-| `inject.rs` | 读取桥①：用户消息 `[[note]]` 确定性注入（`untrusted_external_data` 信封，受 `effective_kb_access` 约束，#7） |
-| `embedding.rs` / `reembed.rs` | 知识空间独立 embedding selector + 后台重嵌 job（见「检索与索引」） |
-| `maintenance/` | Layer 2 自主维护（见「自主维护」） |
-| `mod.rs` | `blake3_hex`（D14 hash 契约：BLAKE3 over raw bytes）+ `delete_kb_cascade`（registry 事务 + index prune + 内部目录 rm-rf，外部 root 永不删） |
+**两个 crate**（阶段 5 第六刀）：机器在 [`crates/ha-knowledge/src/knowledge/`](../../crates/ha-knowledge/src/knowledge/)，**台账 / 契约 / 裁决留 kernel** [`crates/ha-core/src/knowledge/`](../../crates/ha-core/src/knowledge/) —— 下表「kernel」列标出。
+
+- `registry.rs` 留 kernel：81 处直接 `session_db.conn.lock()`，撞 AGENTS 红线「kernel 的 `sessions.db` 写连接不对特征 crate 开放」。**正因它留下，`KNOWLEDGE_DB` 全局、`get_knowledge_db()` 与 `AppState.knowledge_db` 一处未改。**
+- `access.rs` 留 kernel：`effective_kb_access` 是「访问默认 deny」的唯一裁决点，不能挪到可选装配的钩子后面。
+- `types.rs` / `maintenance_defs.rs` 留 kernel：registry 方法签名用到的 wire 类型（后者自 `maintenance/types.rs` 下沉，ha-knowledge 侧 `maintenance::types` 原名再导出）。
+- kernel → ha-knowledge 的**唯一**回调面是 [`knowledge_hooks`](../../crates/ha-core/src/knowledge_hooks.rs)（十槽：行为 4 + 装配 6）。工具面的解析链（`access_map_for_tool_ctx` / `im_kb_context_from_session` / `session_has_kb_access`）**刻意不走钩子**、随裁决点留 kernel `access.rs`——钩子会给 WS8 的收紧动作加上「未装配即失效」的 fail-open 语义，也破坏「工具面与 `Agent::resolve_kb_access` 共用同一份推导」这条不变量。`ha_knowledge::wire()` 同时注册 24 个知识空间工具的分发条目（schema 仍在 kernel `definitions/core_tools.rs`）。
+
+| 文件 | kernel | 职责 |
+|---|---|---|
+| `types.rs` | ✅ | `KnowledgeBase` / `Note` / `NoteChunk` / `NoteLink` / `KbAccess` / 搜索结果 / 图谱布局 / Raw Source / Schema Profile + Evidence index / Compile Run + Proposal 类型 |
+| `registry.rs` | ✅ | KB CRUD + 访问绑定（真相源）+ `resolve_kb_dir`（内部 lazy ensure / 外部只读标记）+ Schema Profile 表 + Evidence 派生索引表 + Raw Source 表 + Compile run/proposal 表 + 维护提案表 + 图谱布局表 |
+| `db.rs` |  | index.db 后端：note/chunk/link/tag 写入（单事务重索引）+ FTS/vec 查询 + 反链 + 重解析 + `list_broken_links` / `list_orphan_notes`（维护面板）+ `all_resolved_links`（图谱边）+ `block_backlinks`（块级反链：`note_link.anchor = '^id' COLLATE NOCASE`） |
+| `parser.rs` |  | pulldown-cmark 扫 heading / code + **叶块 span**（paragraph / item / heading），正则扫 `[[ ]]` / `#tag` + **Obsidian `^block-id` 块锚**（跳过 code），D14 坐标（`PosMap` 码点 offset + line / col，相对原始全文）+ 手写 frontmatter→JSON。`ParsedBlock{block_id,start,end,text}`：行尾 `^id`（`[A-Za-z0-9-]+`）附到所在叶块（独占行的 `^id` 附到上一块），`text` 剥锚，首个 id 胜出，**不落表**（transclusion 重解析、块反链查 `note_link.anchor`），`line_block_anchor` 供写工具复用 |
+| `chunker.rs` |  | 按 heading 分段 + 大小封顶（D12），产出 chunk（D14 坐标 + BLAKE3 content_hash + overlap）。参数 `ChunkConfig{max_chars, overlap_chars}`（默认 1500 / 80，`clamped()` 钳 `[200,8000]` / `[0,max/2]`） |
+| `resolver.rs` |  | `[[ref]]` → note_id 确定性规则（路径式 > 唯一 basename > 最短路径再字典序，NFC + 大小写不敏感，**不用 mtime**） |
+| `rename.rs` |  | note / folder 改名移动 + **入站 `[[ ]]` 链接改写**：`rename_note` / `rename_dir` 复用给 owner 平面 + agent 工具；纯文本变换 `rewrite_content`（re-parse 跳 code、按 D14 码点 offset splice、保留 `#anchor` / `\|alias` / `![[ ]]`，路径式→新路径、basename→新 stem，歧义退回路径式） |
+| `index.rs` |  | 索引器：文件 → parse → chunk → embed → IndexDb；KB reconcile（mtime 增量 + prune）；全局 `IndexDb` |
+| `watcher.rs` |  | `notify` 生产级 watcher（debounce 800ms，仅 `.md` 事件，per-KB 线程，外部 vault 实时同步，D6） |
+| `maintenance_defs.rs` | ✅ | Layer-2 维护提案的 wire 类型（`ProposalKind` / `ProposalAction` / `MaintenanceProposal` / `MaintenanceReport`）。随 registry 的提案队列方法下沉 kernel；ha-knowledge 侧 `maintenance::types` 原名再导出 |
+| `access.rs` | ✅ | `effective_kb_access(KnowledgeAccessContext)`（D10）：incognito short-circuit → IM 全链归零（除非 origin 账号 / 群聊 opt-in，`im_lineage_denied`）→ `max(session, project)` → 滤 archived → 外部 `read_only` root cap read（opt-in 可写则不 cap） |
+| `search.rs` |  | chunk 级 FTS + vec → RRF → MMR → 聚合回 note；`similar_notes` 向量 KNN。算法复用 memory，独立 store（D7） |
+| `schema.rs` |  | Schema Profile / required sections / source refs lint；从 `.md` 解析 Evidence refs 与 claim-level `source_id`，维护 `knowledge_evidence_refs` / `knowledge_evidence_claims` 派生索引；提供 coverage score、source→compiled claims 反查与 rebuild owner 入口 |
+| `graph.rs` |  | 链接图谱构建（纯变换）：`build_kb_graph`（节点=笔记+度数，边=去重 resolved 链接，丢自环）/ `ego_subgraph`（N 跳无向邻域）/ `cap_nodes`（按度数截断标 `truncated`）；owner 图与 `note_graph` 工具共用 |
+| `service.rs` |  | owner 平面操作（GUI / HTTP）：list / read / save / delete / rename / backlinks / search / broken_links / orphans / graph / note_read_ref / ai_rewrite / 维护配置，不经 `effective_kb_access`。`note_rename` / `rename_dir` 委托 `rename::*`（移动文件 + 改写入站 `[[ ]]`，返回 `RenameOutcome{newRel, filesChanged, linksRewritten}`）；外部 root 只读拒写。`note_read_ref` 经 resolver 解析 `[[ ]]` ref 再读，按 ref 的 `#anchor` 切片（`slice_by_anchor`：`^id`→块文本、heading→该标题到下一同 / 更高级标题段，未命中降级整篇） |
+| `source.rs` |  | Raw Source / 资料舱（D15 + 导入流水线）：文本 / Markdown / PDF / DOCX / 音频转录 / 视频转录 / 图片 OCR / URL / 浏览器快照导入，远程媒体 URL 下载归档，会话附件归档白名单，STT failover 转录，vision analysis agent OCR，SSRF-gated URL fetch，HTML→Markdown 可读快照，受控浏览器 tab DOM/选区采集，`extracted_text_hash` exact dedup，外部 vault raw/source 文本快照镜像（尊重外部写 opt-in + 记录 `external_raw_path`），URL / Browser refresh + source version chain + bounded diff，批量 import run / item 状态、后台化执行、失败重试、相似 source 分组、跨 KB exact duplicate 提示、dismiss / resolve 治理，可选原始媒体留存 + 图片缩略图 + quota prune，Hope 管理目录写盘，source chunk 切分，list/read/asset/refresh/versions/diff/reextract/delete/sync-external-raw owner 面 |
+| `compile.rs` |  | Knowledge Compiler（D16）：读取 source + 相关笔记，经 `AppConfig.knowledge_compile.agent_id` 指定的资料整理 Agent（未设则继承全局默认 Agent）发起 side_query 生成结构化 Markdown，转成 `CreateNote` / `PatchNote` / `SetFrontmatter` / `AppendLink` / `CreateMoc` proposal；approve 才 apply，写盘仍走 `service::note_save` 与 stale-write guard |
+| `schema.rs` |  | Schema Profile / Evidence（D17）：默认 profile backfill、笔记 `sources` / `source_id` 解析、source ref 跳转数据、`missing_evidence` / `stale_source` / `schema_violation` / `conflicting_claim` / `unfiled_open_question` lint issues |
+| `agent_api.rs` |  | 外部 agent 稳定门面（D19）：`knowledge.search/read/expand/sources/compile.propose` 共用同一套 wire 类型（`KbAccess` 家族在 kernel、结果类型随本模块）；默认 notes-first，source 显式隔离；HTTP / Tauri 只是薄壳 |
+| `agent_mcp.rs` |  | stdio MCP server（D20）：`initialize` / `tools/list` / `tools/call` 薄包装 `agent_api`；默认只读工具集，`--allow-proposals` 才暴露 compile proposal |
+| `inject.rs` |  | 读取桥①：用户消息 `[[note]]` 确定性注入（`untrusted_external_data` 信封，受 `effective_kb_access` 约束，#7） |
+| `embedding.rs` / `reembed.rs` |  | 知识空间独立 embedding selector + 后台重嵌 job（见「检索与索引」） |
+| `maintenance/` |  | Layer 2 自主维护（见「自主维护」） |
+| `mod.rs` |  | `blake3_hex`（D14 hash 契约：BLAKE3 over raw bytes）+ `delete_kb_cascade`（registry 事务 + index prune + 内部目录 rm-rf，外部 root 永不删）。kernel 侧同名门面只留模块声明与 `access` / `registry` / `types` / `maintenance_defs` 的再导出 |
 
 `agent/related_notes.rs`（在 `knowledge/` 之外）承载读取桥③ 被动相关笔记，见「检索与索引」。
 
@@ -142,15 +150,15 @@ flowchart LR
 | 平面 | 在哪层 | 主体 / 鉴权 |
 |---|---|---|
 | **Owner / 管理** | HTTP 端点 / Tauri 命令（`service.rs`） | owner（桌面本机信任 / HTTP API key = owner-equivalent），看自己**所有** KB，**不经 attach** |
-| **Agent / session** | ha-core 工具执行（`note_*`，进程内） | turn 内 agent；`effective_kb_access(ctx)`（session + source + 全链 cap + incognito） |
+| **Agent / session** | ha-knowledge 工具执行（`note_*`，进程内） | turn 内 agent；`effective_kb_access(ctx)`（session + source + 全链 cap + incognito） |
 
-KB 文件预览端点 `/api/knowledge/{kb_id}/files/*` = 纯 owner 平面，**无 session 参数、无 fallback**，与 `/api/sessions/{id}/files/*` 不互相放宽。`note_*` 工具读笔记不经 HTTP 端点（ha-core 内返回内容）。
+KB 文件预览端点 `/api/knowledge/{kb_id}/files/*` = 纯 owner 平面，**无 session 参数、无 fallback**，与 `/api/sessions/{id}/files/*` 不互相放宽。`note_*` 工具读笔记不经 HTTP 端点（进程内返回内容）。
 
 **source-aware**：`ChatSource{Desktop|Http|Channel|Subagent|ParentInjection|Cron}`（不在 `ToolExecContext` 上）经 `kb_access_source` / `configure_agent` 映射成 `KbAccessSource` 透传到 `AssistantAgent.chat_source` → `ToolExecContext.chat_source`。IM（`Channel`）→ KB 访问默认归零（即便 project attach）；`Cron` 映射到 `KbAccessSource::Cron`（`is_im()==false`），故 cron 不触发 IM 归零，走 owner 的 `max(session, project)` 路径（`note_*` / `[[note]]` / `knowledge_recall` 正常可用）；incognito 由 `is_session_incognito(session_id)` short-circuit。**血缘 origin 真接线**：`ChatEngineParams.origin_source`（顶层 `None`→origin=source）→ `configure_agent(kb_origin)` → `agent.origin_chat_source` → `ToolExecContext.origin_chat_source`；`subagent` 工具 spawn 时把父轮 `ctx.origin_chat_source.or(chat_source)` 经 `SpawnParams.origin_source` 透传给子 `ChatEngineParams.origin_source`，`effective_kb_access` 的 cap 查 `source.is_im() || origin_source.is_im()`，故 IM-origin 子代理被归零。**双重防线**：即便不接线，子代理子会话也无 attach / 无 project_id（`create_session_with_parent` 不继承）→ 天然空集；origin cap 是面向未来（若子代理改为继承 project）的纵深防御。系统发起的 spawn（plan / team / hooks / fork skill）`origin_source=None`，靠会话隔离。
 
 **IM opt-in**：IM 默认归零的红线可按账号放开。IM 身份经 `ChannelKbContext{channel_id, account_id, chat_id, is_group}` 真接线透传：dispatcher 填顶层 IM turn 身份 → `ChatEngineParams.channel_kb_context` → `configure_agent` → `agent.channel_kb_context` → `ToolExecContext.channel_kb_context` → `KnowledgeAccessContext::resolve`（在此调同模块的 `im_kb_access_allowed` 读 config 解析账号、再交自包含谓词 `ChannelAccountConfig::kb_access_allowed_for`（ha-config-schema）算出 `im_access_allowed` bool，`effective_kb_access` 只消费这个纯 bool，故短路规则单测无需全局）。判定：账号级 `settings.kbAccessOptIn`（owner GUI-only，默认关）；DM 只需账号 opt-in；群聊还需 `settings.kbAccessChats` 含该 chat（群内 `/kb on` 写入）；账号查不到 / channel_id 不匹配 → fail closed。`subagent` 工具把父轮 `ctx.channel_kb_context` 经 `SpawnParams.origin_channel_kb_context` 透传给子轮，故 **IM-origin 子代理按 origin 账号 / 群聊判 opt-in，不洗权限**。`access.rs` 短路单测覆盖：opt-in 关归零 / DM 放行 / 群聊未确认归零 / IM-origin subagent 无 opt-in 归零 / opt-in 放行 / incognito 压过 opt-in。
 
-## 工具面（Layer 1，`tools/note.rs`）
+## 工具面（Layer 1，ha-knowledge 的 `tools/note.rs`）
 
 agent 在对话中直接调用，覆盖 CRUD / 链接图谱 / 检索 / 元数据 / AI 高阶。均 `internal=false`（过权限引擎 + plan-mode），`kb` 过 `effective_kb_access`：写需 write + 内部 root + 全链允许 + 非 incognito；读 `kb?` 省略时只搜可访问集合（跨 KB 同名返 disambiguation）。
 
@@ -177,8 +185,8 @@ agent 在对话中直接调用，覆盖 CRUD / 链接图谱 / 检索 / 元数据
 **Embedding 配置（D7，独立 selector）**：知识空间的向量化**不寄生记忆**——有自己完整的配置生命周期，记忆没配 / 关了都不影响知识空间向量检索（关了只降级 FTS-only，不回退到 `memory_embedding`）。
 
 - **配置三层**（与 memory 对称，共享底层）：`AppConfig.embedding_models`（共享命名模型库 provider / apiKey / model / dims，memory 与 knowledge 同一份）+ `AppConfig.knowledge_embedding: EmbeddingSelection`（知识空间独立选择器 `enabled` / `model_config_id` / `active_signature` / `last_reembedded_signature`）+ 运行时 `resolve_memory_embedding_config(&knowledge_embedding, &embedding_models)` 解析成 provider（纯函数）。
-- **helper**（[`knowledge/embedding.rs`](../../crates/ha-core/src/knowledge/embedding.rs)）：`knowledge_active_embedding_signature`（索引 + 检索热路径签名源，**不读** `memory::active_embedding_signature`）/ `set_knowledge_embedding_default`（验证 provider → 写 selection → 装 index embedder → spawn reembed）/ `disable_knowledge_embedding` / `apply_knowledge_embedding_from_config`（热重载）。复用 memory 的 `create_embedding_provider` 工厂、`EmbeddingProvider` trait、`signature()`、RRF / MMR 算法。**不复用** memory 的 `embedding_cache`——知识索引经 `IndexDb` 持有的裸 `EmbeddingProvider` 直接 embed，该缓存表是 memory SQLite backend 内部的（`embedding.rs` 注释明载）。
-- **重建**（[`knowledge/reembed.rs`](../../crates/ha-core/src/knowledge/reembed.rs)）：切模型 → 装新 embedder（维度变则 `note_vec` DROP 重建）→ spawn `LocalModelJobKind::KnowledgeReembed`，遍历所有 KB `reindex_kb(full=true)` 重 embed 全部 chunk，进度 KB-granular，完成写 `last_reembedded_signature`。复用 memory 的 `local_model_jobs` 框架（取消 / 单实例 / 进度 / retry）。
+- **helper**（[`knowledge/embedding.rs`](../../crates/ha-knowledge/src/knowledge/embedding.rs)）：`knowledge_active_embedding_signature`（索引 + 检索热路径签名源，**不读** `memory::active_embedding_signature`）/ `set_knowledge_embedding_default`（验证 provider → 写 selection → 装 index embedder → spawn reembed）/ `disable_knowledge_embedding` / `apply_knowledge_embedding_from_config`（热重载）。复用 memory 的 `create_embedding_provider` 工厂、`EmbeddingProvider` trait、`signature()`、RRF / MMR 算法。**不复用** memory 的 `embedding_cache`——知识索引经 `IndexDb` 持有的裸 `EmbeddingProvider` 直接 embed，该缓存表是 memory SQLite backend 内部的（`embedding.rs` 注释明载）。
+- **重建**（[`knowledge/reembed.rs`](../../crates/ha-knowledge/src/knowledge/reembed.rs)）：切模型 → 装新 embedder（维度变则 `note_vec` DROP 重建）→ spawn `LocalModelJobKind::KnowledgeReembed`，遍历所有 KB `reindex_kb(full=true)` 重 embed 全部 chunk，进度 KB-granular，完成写 `last_reembedded_signature`。复用 memory 的 `local_model_jobs` 框架（取消 / 单实例 / 进度 / retry）。
 - **分块配置（D12，高级）**：`AppConfig.knowledge_chunk: ChunkConfig`（`clamped()` 钳 `[200,8000]` / `[0,max/2]`）。owner 命令 `knowledge_chunk_{get,set}_cmd` / HTTP `GET|POST /api/knowledge/chunk`；`service::set_chunk_config` 写 config + 触发全 KB 重切（向量开→重嵌、关→FTS-only re-chunk；**不 stamp signature**，chunk 改动不是模型覆盖事件）。
 - **排序配置（`search.rs::KnowledgeSearchConfig`）**：`AppConfig.knowledge_search`——`text_weight`(0.4) / `vector_weight`(0.6) 融合权重（比值决定关键词↔语义平衡，两者皆 0 时 `clamped()` 回默认防全零打平）、`rrf_k`(60, `[1,1000]`) 融合平滑、`mmr_lambda`(0.7, `[0,1]`) 相关↔多样、`candidate_multiplier`(3, `[1,10]`) MMR 前候选池 = `limit×`。`search_notes` 每次读 `cached_config().knowledge_search.clamped()`。**纯查询期、无 reindex 副作用 → 与 chunk/embedding 不同，是正常 MEDIUM 设置**：owner 命令 `knowledge_search_config_{get,set}_cmd` / HTTP `GET|POST /api/knowledge/search-config`（`service::{get,set}_search_config`），**同时进 `ha-settings`**（`knowledge_search` category，MEDIUM）。GUI 在「设置 → 知识空间 → 高级 · 检索排序」,每项带详细说明 + **一键「恢复默认」**（发默认值持久化，改错可一键复原）。
 - **共享库交叉保护**：`save_embedding_model_config` / `delete_embedding_model_config` / Ollama 删模型清理都对 memory **与** knowledge 的 active model 双向守门（改 / 删 active model 一律拒；删 Ollama active 重置对应 selection + 清对应 embedder）。
@@ -206,7 +214,7 @@ AGENTS.md 只列这些为单行红线，细节在此。
 
 **系统提示「# Knowledge Bases」段**：`build_full_system_prompt` 末尾按 `build_attached_knowledge_section()` 追加**静态段**（像 MCP snippet，仅 attach/detach 变动 → cache-safe），逐库列 `display_label`（emoji+名）+ 读/写（取自 `resolve_kb_access` 的 `KbAccess`，非裸 `allow_external_writes`）+ 外部标记，库名转义防注入（折叠换行 / 中和反引号）。`resolve_kb_access()` 为空（含 incognito / IM 未 opt-in）则整段省略——**绝不广告 `note_*` 会拒的库**。
 
-**检索结果来源（多库可辨）**：`NoteSearchHit` 增 `kb_name` / `kb_emoji`，`search::enrich_kb_names`（[`search.rs`](../../crates/ha-core/src/knowledge/search.rs)）经 registry（D9 真相源，index.db 只存 `kb_id`，缺失回退 `kb_id`）在 `search_notes` / `similar_notes` 收尾**按 distinct kb_id 一次性填充**（防 N+1）。三处暴露来源：桥① 信封加 `kb="名"`（owner 名转义，`source` 仍留机读 `kb_id/rel`）；桥③ 相关笔记**仅多库时**每行补 ` · 库名`（单库省——已在系统提示段命名）；前端 `KnowledgeResultCard`（[`message/KnowledgeResultCard.tsx`](../../src/components/chat/message/KnowledgeResultCard.tsx)）把 `note_search` / `note_similar` / `knowledge_recall` 结果**按知识空间分组**渲染（emoji+名表头 = 来源），recall 的 memory / notes 仍**两段独立不混排**（D7）。`note_related` / `note_by_tag` 是单库作用域、来源隐含，不改。
+**检索结果来源（多库可辨）**：`NoteSearchHit` 增 `kb_name` / `kb_emoji`，`search::enrich_kb_names`（[`search.rs`](../../crates/ha-knowledge/src/knowledge/search.rs)）经 registry（D9 真相源，index.db 只存 `kb_id`，缺失回退 `kb_id`）在 `search_notes` / `similar_notes` 收尾**按 distinct kb_id 一次性填充**（防 N+1）。三处暴露来源：桥① 信封加 `kb="名"`（owner 名转义，`source` 仍留机读 `kb_id/rel`）；桥③ 相关笔记**仅多库时**每行补 ` · 库名`（单库省——已在系统提示段命名）；前端 `KnowledgeResultCard`（[`message/KnowledgeResultCard.tsx`](../../src/components/chat/message/KnowledgeResultCard.tsx)）把 `note_search` / `note_similar` / `knowledge_recall` 结果**按知识空间分组**渲染（emoji+名表头 = 来源），recall 的 memory / notes 仍**两段独立不混排**（D7）。`note_related` / `note_by_tag` 是单库作用域、来源隐含，不改。
 
 **工作台「知识空间」段**：`WorkspacePanel` 新增段（[`workspace/useSessionKnowledge.ts`](../../src/components/chat/workspace/useSessionKnowledge.ts)）——① 本会话挂载库（owner 平面 `list_session_kbs_cmd`，`knowledge:changed` 刷新，**incognito 派生为空不调命令**）；② 笔记活动 live-tail（`note_*` 工具无 `tool_metadata`，故扫 messages 的 `tool.name` 聚合写/读笔记 + 检索计数，仅覆盖已载窗口，与 files/urls 的 live tail 同理）。`list_session_kbs_cmd` 读取失败必须显示本地化 warning + 脱敏 detail，不能把 owner IPC / SQLite / permission 异常伪装成“未挂载知识空间”；同一 hook 被 composer `KnowledgePicker` 复用，picker 中“全部知识空间”列表和“本会话挂载状态”两路读取失败也必须分开提示，不得落到空列表。
 
@@ -216,7 +224,7 @@ AGENTS.md 只列这些为单行红线，细节在此。
 
 **会话模型**：对话 = `kind='knowledge'` 的普通会话（[`SessionKind`](../../crates/ha-core/src/session/types.rs)，`sessions.kind` 列 + 一次性 migration），消息照常落 `messages` 表，但**从主会话列表 / `/sessions` picker / 全局 Cmd+F FTS 隐藏**（`list_sessions_paged_inner` 无条件 `kind!='knowledge'`、`search_messages` 全局路径 + `Regular` 过滤、`is_regular_chat()`）。锚定信息落 `knowledge_chat_threads(session_id PK, kb_id, anchor_note_path, created_at)`（[`registry.rs`](../../crates/ha-core/src/knowledge/registry.rs)，sessions.db 真相源 D9，随 session / KB 级联删）。一篇笔记可有多条对话；打开笔记默认加载该文档**最近一次**对话（`kb_chat_thread_get_cmd` → `latest_thread_session_for_note`），无则空草稿；历史对话列表（`kb_chat_threads_list_cmd`，KB 范围、`updated_at` 倒序、可选 FTS over 线程消息）可切换 + 搜索。
 
-**懒创建（无空会话、无闭包竞态）**：「新建对话」只把面板清成草稿（`currentSessionId=null`）。首条消息走主对话 `chat` 命令的 **auto-create 分支**——前端带 `toolScope:"knowledge"` + 单条 draft `kbAttachments`(write，= 当前活动 KB) + `kbAnchorNote`(当前笔记)，后端建会话 + 应用 draft attach 后调 [`service::mark_session_as_kb_thread`](../../crates/ha-core/src/knowledge/service.rs) 设 `kind=Knowledge` + 写 thread 行。复用既有 auto-create / `session_created` 流程，无需独立 create 命令、无 setState→send 的闭包竞态。
+**懒创建（无空会话、无闭包竞态）**：「新建对话」只把面板清成草稿（`currentSessionId=null`）。首条消息走主对话 `chat` 命令的 **auto-create 分支**——前端带 `toolScope:"knowledge"` + 单条 draft `kbAttachments`(write，= 当前活动 KB) + `kbAnchorNote`(当前笔记)，后端建会话 + 应用 draft attach 后调 [`service::mark_session_as_kb_thread`](../../crates/ha-knowledge/src/knowledge/service.rs) 设 `kind=Knowledge` + 写 thread 行。复用既有 auto-create / `session_created` 流程，无需独立 create 命令、无 setState→send 的闭包竞态。
 
 **工具精简（`ToolScope`，与 source/D10 正交）**：`ChatEngineParams.tool_scope: Option<ToolScope>`（[`tool_defs/scope.rs`](../../crates/ha-core/src/tool_defs/scope.rs)）；`Knowledge` 在 `build_tool_schemas` 收尾 + `build_full_system_prompt` 的 eager/hints 块按 `is_knowledge_scope_tool` 白名单 `retain`（全 `note_*` + `knowledge_recall` + `recall_memory`/`save_memory`/`update_memory`/`memory_get` + 框架基础 `skill`/`tool_search`/`ask_user_question`/`runtime_cancel`/`job_status`），去掉 exec / browser / image / subagent / cron / channel / web / 原始 fs 等。**纯 schema/prompt 可见性收窄，绝不动 KB 访问**——source 仍 Desktop/Http，访问仍由 `effective_kb_access` 单点裁决。`configure_agent` 透传 → `agent.set_tool_scope`。
 
@@ -224,11 +232,11 @@ AGENTS.md 只列这些为单行红线，细节在此。
 
 **前端复用**：[`chat/KnowledgeChatPanel.tsx`](../../src/components/knowledge/chat/KnowledgeChatPanel.tsx) 复用主对话 `useChatStream`（新增 `toolScope`/`getExtraAttachments`/`draftKbAnchorNote` 三个**可选** prop，主对话 / QuickChat 不传 = 行为不变）+ `MessageList`/`ChatInput`(`enableNoteMention` 开 `[[note]]` 补全)/`ApprovalDialog`；[`chat/useKnowledgeChat.ts`](../../src/components/knowledge/chat/useKnowledgeChat.ts) 管 thread 生命周期 + 模型 / Agent 态（镜像 `useQuickChatSession`）。面板在 links 模式仍**保持挂载**（隐藏），故「加入对话」的命令式 ref（`addQuote` / `insertToken`）随时可用；`active` prop 控制是否真正加载。**桌面走 per-call 通道实时流式**；HTTP 无 reattach，靠 turn 完成后 reload 线程消息对账。`ChatInput` 的 `[[note]]` 菜单和 `@` 菜单 Knowledge notes 段都通过 `list_referenceable_notes_cmd` 读取候选；读取失败必须显示本地化 warning + 脱敏 detail，不得把 owner IPC / SQLite / permission 异常伪装成“没有笔记 / 未挂载知识空间”。
 
-**Query Filing（D18）**：知识对话中已落库的 assistant 消息显示「归档」入口，打开 [`KnowledgeQueryFilingDialog.tsx`](../../src/components/knowledge/chat/KnowledgeQueryFilingDialog.tsx)：用户选择 filing mode（新建笔记 / 更新当前笔记 / MOC / Open Questions）、标题与目标路径后调用 owner 命令 `kb_query_file_cmd` 生成 `CompileProposal`，用 [`KnowledgeCompilePanel.tsx`](../../src/components/knowledge/KnowledgeCompilePanel.tsx) 的 `ProposalDiff` 预览，确认后复用 `kb_compile_proposal_approve_cmd`。后端入口 [`compile::query_file`](../../crates/ha-core/src/knowledge/compile.rs) 只产 proposal：incognito 直接拒绝；非 `kind='knowledge'` 会话必须传 `confirmConversationSource=true`；新建笔记 frontmatter 写 `type: conversation_note`、`source: conversation`、`conversation_session_id`、`conversation_message_id`，追加块写 session/message/timestamp。真正写盘仍由 compile proposal apply 管线处理 stale-write guard、外部 root 写保护和 `knowledge:changed` 事件。
+**Query Filing（D18）**：知识对话中已落库的 assistant 消息显示「归档」入口，打开 [`KnowledgeQueryFilingDialog.tsx`](../../src/components/knowledge/chat/KnowledgeQueryFilingDialog.tsx)：用户选择 filing mode（新建笔记 / 更新当前笔记 / MOC / Open Questions）、标题与目标路径后调用 owner 命令 `kb_query_file_cmd` 生成 `CompileProposal`，用 [`KnowledgeCompilePanel.tsx`](../../src/components/knowledge/KnowledgeCompilePanel.tsx) 的 `ProposalDiff` 预览，确认后复用 `kb_compile_proposal_approve_cmd`。后端入口 [`compile::query_file`](../../crates/ha-knowledge/src/knowledge/compile.rs) 只产 proposal：incognito 直接拒绝；非 `kind='knowledge'` 会话必须传 `confirmConversationSource=true`；新建笔记 frontmatter 写 `type: conversation_note`、`source: conversation`、`conversation_session_id`、`conversation_message_id`，追加块写 session/message/timestamp。真正写盘仍由 compile proposal apply 管线处理 stale-write guard、外部 root 写保护和 `knowledge:changed` 事件。
 
 ## 外部 Agent API（D19–D20）
 
-外部 agent 稳定门面在 [`knowledge/agent_api.rs`](../../crates/ha-core/src/knowledge/agent_api.rs)，Tauri 命令 `knowledge_agent_{search,read,expand,sources,compile_propose}_cmd`、HTTP `/api/knowledge/agent/*` 与 MCP stdio server [`knowledge/agent_mcp.rs`](../../crates/ha-core/src/knowledge/agent_mcp.rs) 共用同一套 ha-core 类型。
+外部 agent 稳定门面在 [`knowledge/agent_api.rs`](../../crates/ha-knowledge/src/knowledge/agent_api.rs)，Tauri 命令 `knowledge_agent_{search,read,expand,sources,compile_propose}_cmd`、HTTP `/api/knowledge/agent/*` 与 MCP stdio server [`knowledge/agent_mcp.rs`](../../crates/ha-knowledge/src/knowledge/agent_mcp.rs) 共用同一套 wire 类型。
 
 - `knowledge.search`：notes-first，返回 `KnowledgeAgentSearchResult{notes,sources,truncated}`。默认只查 wiki note 层（`kind:"compiled_note" | "note"`），`includeSources=true` 时必须同时传 `kbId`，raw source 作为 `kind:"source"` 独立段返回，不混进 note 排名。
 - `knowledge.read`：`path` / `reference` 二选一，返回全文、tags、outgoing links、backlinks、source refs，并用 `kind:"compiled_note" | "note"` 标明是否有 evidence/source 标记。
@@ -243,7 +251,7 @@ HTTP 鉴权：全局 `server.apiKey` 仍是 owner token，可访问所有受保�
 安全边界：HTTP owner token 与 Tauri owner 命令仍属 owner 平面，agent/session 平面仍只走 `note_*` 工具与 `effective_kb_access`。Raw Source 继续不进入 `note_search` / `knowledge_recall` / system prompt，source 与 compiled note 的隔离靠独立存储、独立返回段和显式调用三层保证。MCP 默认只读、HTTP scoped token、Review Diff proposal 和外部 root read-only/stale-write guard 是四层独立防线。
 
 **选区针对性编辑（替代旧 `AiRewriteDialog`，已删）两路并存**：
-- **加入对话**：编辑器选区 → 输入框上方可删除 quote chip（`useChatStream.pendingQuotes`）→ 进对话由 AI 用 `note_patch`/`note_update` 改写。note 工具结果带 `FileChangeMetadata`（[`note.rs::emit_note_diff`](../../crates/ha-core/src/tools/note.rs)，`language:"markdown"`，复用 `diff_util`）→ `ToolCallBlock` 内联 diff。落盘 emit `knowledge:changed` → 编辑器**重载当前笔记**（仅当 hash 变 + 非 dirty + 非 draft）。**脏态 + 磁盘 hash 变**（自身改写 / 外部 vault watcher 改了同一篇）不再静默跳过，而是弹**外部修改冲突横幅**（`externalConflict` slot，[`KnowledgeView.tsx`](../../src/components/knowledge/KnowledgeView.tsx)）：「重新加载」覆盖编辑器为磁盘版、「保留我的改动」把 `baseHash` rebase 到磁盘当前 hash 使下次保存能过 stale-write guard 覆盖外部版；切换 / 关闭笔记或保存成功即清。底层兜底仍是 stale-write guard（盲存必拒），横幅只是把冲突提前暴露给用户。
+- **加入对话**：编辑器选区 → 输入框上方可删除 quote chip（`useChatStream.pendingQuotes`）→ 进对话由 AI 用 `note_patch`/`note_update` 改写。note 工具结果带 `FileChangeMetadata`（[`note.rs::emit_note_diff`](../../crates/ha-knowledge/src/tools/note.rs)，`language:"markdown"`，复用 `diff_util`）→ `ToolCallBlock` 内联 diff。落盘 emit `knowledge:changed` → 编辑器**重载当前笔记**（仅当 hash 变 + 非 dirty + 非 draft）。**脏态 + 磁盘 hash 变**（自身改写 / 外部 vault watcher 改了同一篇）不再静默跳过，而是弹**外部修改冲突横幅**（`externalConflict` slot，[`KnowledgeView.tsx`](../../src/components/knowledge/KnowledgeView.tsx)）：「重新加载」覆盖编辑器为磁盘版、「保留我的改动」把 `baseHash` rebase 到磁盘当前 hash 使下次保存能过 stale-write guard 覆盖外部版；切换 / 关闭笔记或保存成功即清。底层兜底仍是 stale-write guard（盲存必拒），横幅只是把冲突提前暴露给用户。
 - **快捷改写**（[`chat/QuickRewriteBar.tsx`](../../src/components/knowledge/chat/QuickRewriteBar.tsx)）：选区旁浮动条，一次性、不进对话历史，走重做后的 `kb_ai_rewrite_cmd`（接 `model_override`，默认跟随对话 / 全局 active 模型、可单独选）→ `UnifiedDiffView` 预览 → 应用（splice 编辑器，用户再正常保存）。每次结果经 `kb_rewrite_log_cmd` 落 `learning_events`（`kind="kb_quick_rewrite"`，记 instruction / model / 字数 / accepted）做统计。
 
 **与主站会话列表的能力差异（为何不复用 `ChatSidebar`）**：知识对话是 `kind='knowledge'` 的会话，被主站列表无条件过滤隐藏（`list_sessions_paged_inner`），且数据形态是锚定到笔记的 `KbChatThread`（含 `anchorNotePath`）而非 `SessionMeta`——两套数据源、两个场景，故 [`KnowledgeConversationHistory`](../../src/components/knowledge/chat/KnowledgeConversationHistory.tsx) 是独立轻量列表（定位「编辑辅助」而非持久会话管理）。当前能力对照：
@@ -260,7 +268,7 @@ HTTP 鉴权：全局 `server.apiKey` 仍是 owner token，可访问所有受保�
 
 ## 首次运行默认空间
 
-`service::ensure_default_knowledge_base()`（[`service.rs`](../../crates/ha-core/src/knowledge/service.rs)，`app_init` 在 logger 就绪后调用，所有运行模式共用）让新装实例开箱即有一个可用空间:
+`service::ensure_default_knowledge_base()`（[`service.rs`](../../crates/ha-knowledge/src/knowledge/service.rs)，`app_init` 在 logger 就绪后调用，所有运行模式共用）让新装实例开箱即有一个可用空间:
 - **幂等**靠 `<root>/.default-kb-seeded` sentinel——**只种一次**,用户之后删掉不会被重建;已有 ≥1 个 KB 的老用户只补 sentinel、不加冗余空间。
 - 创建一个**内部 KB**（`root_dir=None`,名称 / 欢迎笔记按 `AppConfig.language` 本地化,`auto` 时回退嗅探 `LANG`/`LC_ALL`/`LANGUAGE`,`normalize_seed_locale` 纯函数 + 单测),并 best-effort 写一篇 `Welcome.md`（失败仅 warn,空间仍可用）。
 - **只创建、不自动挂载**——遵守 D10 默认 deny,用户在 composer / 项目设置里显式 attach 才对 agent 可见。全程 best-effort,任何失败 log 后返回,不阻断启动。
@@ -302,7 +310,7 @@ HTTP 鉴权：全局 `server.apiKey` 仍是 owner token，可访问所有受保�
 
 ## 自主维护（Layer 2，`knowledge/maintenance/`）
 
-模块 [`knowledge/maintenance/`](../../crates/ha-core/src/knowledge/maintenance/)（零 Tauri），镜像 `memory/dreaming`：后台周期扫描每个**内部** KB（外部只读 root 跳过），产出**维护提案**进 draft 审阅队列；用户在维护面板确认前绝不动笔记。**默认全关**（`AppConfig.knowledge_maintenance`）。
+模块 [`knowledge/maintenance/`](../../crates/ha-knowledge/src/knowledge/maintenance/)（零 Tauri），镜像 `memory/dreaming`：后台周期扫描每个**内部** KB（外部只读 root 跳过），产出**维护提案**进 draft 审阅队列；用户在维护面板确认前绝不动笔记。**默认全关**（`AppConfig.knowledge_maintenance`）。
 
 - **调度**（`scheduler.rs`）：`MAINTENANCE_RUNNING` AtomicBool 串行锁 + `try_claim`；idle 触发复用 dreaming 活动时钟（`check_idle_trigger`，app_init 60s ticker 与 dreaming 同 loop）；`spawn_maintenance_cron_loop`（`LOOP_SPAWNED` once 守卫，app_init **primary-gated** 调一次，听 `config:changed` 重排）。`run_cycle` 遍历 `registry.list(false)`、跳外部、调 `generators::generate`、`registry.insert_proposal` 落库（`INSERT OR IGNORE` + 唯一 `(kb_id, fingerprint, status)` 去重），`auto_approve` 时即时 `approve_proposal`，但 **compile 类 `source_compile` 强制忽略 auto-approve**，末尾 emit `knowledge:changed{op:maintenance}` + `knowledge:maintenance_complete` + learning event。
 - **持久化**（`kb_maintenance_proposals` 表，落 `sessions.db` 真相源 D9，`ON DELETE CASCADE`）：`insert_proposal` / `list_proposals` / `get_proposal` / `set_proposal_status` / `count_pending_proposals` / `prune_proposals`。`row_to_proposal` 对未知 kind / status / 坏 action JSON 跳过（前向兼容）。URL / Browser source refresh 生成新版本后，若已有 compiled notes 通过 frontmatter / Evidence 引用旧版本 source，会即时排入 `source_compile` draft proposal；proposal detail 列受影响笔记，approve 后只启动新版 source 的 compile run，仍走 Review Diff，不直接写笔记。

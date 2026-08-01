@@ -9,10 +9,10 @@
 //! 本 crate 只带走 Ollama 执行器（`local_llm::jobs`）。两者分家是阶段 4
 //! 破环的最后一步，见 [backend-separation]。
 //!
-//! 依赖方向：本 crate → ha-core。`local_llm → knowledge` 是既有的**特征间
-//! 单向边**（embedding 模型下载完成后触发知识库 reembed）——knowledge 目前
-//! 仍在 ha-core 内，故现阶段表现为普通的 `ha_core::knowledge::…` 调用；等
-//! ha-knowledge 拆出后改为 crate 间依赖，方向不变。
+//! 依赖方向：本 crate → ha-core，外加 **ha-local-llm → ha-knowledge** 这条
+//! 特征间单向边（embedding 模型下载完成后触发知识库 reembed，见
+//! `local_llm::jobs` 与 `local_llm::management`）。阶段 5 第六刀 ha-knowledge
+//! 拆出后它由同 crate 调用变成真正的 crate 间依赖，方向未变。
 //!
 //! 装配契约与其它特征 crate 相同：每个调 `ha_core::init_runtime` 的二进制
 //! 必须先调 [`wire()`]。

@@ -359,9 +359,7 @@ pub fn init_runtime(role: &'static str) {
 
     // Open the knowledge index cache (index.db) + install the note embedder.
     // Non-fatal: notes degrade to FTS-only / no search if this fails.
-    if let Err(e) = crate::knowledge::index::init_index_db() {
-        eprintln!("[runtime] knowledge index init failed: {e}");
-    }
+    crate::knowledge_hooks::init_index_db();
 
     // Initialize the LogDB and AppLogger. `LogDB` captures the db path
     // internally so we don't need to keep it around in this scope.
@@ -387,7 +385,7 @@ pub fn init_runtime(role: &'static str) {
     // check isn't atomic across instances, so a Secondary booting a fresh shared
     // data dir could otherwise race the Primary and seed a duplicate space.
     if crate::runtime_lock::is_primary() {
-        crate::knowledge::service::ensure_default_knowledge_base();
+        crate::knowledge_hooks::ensure_default_knowledge_base();
     }
 
     recover_startup_session_state(&session_db, tier);
@@ -1344,23 +1342,7 @@ pub async fn start_background_tasks() {
                     });
                 }
                 // Knowledge maintenance idle trigger (WS6) — same idle clock.
-                let mcfg = crate::config::cached_config().knowledge_maintenance.clone();
-                if crate::knowledge::maintenance::check_idle_trigger(&mcfg) {
-                    tokio::spawn(async {
-                        let report = crate::knowledge::maintenance::manual_run(
-                            crate::knowledge::maintenance::MaintenanceTrigger::Idle,
-                        )
-                        .await;
-                        app_info!(
-                            "knowledge",
-                            "maintenance::idle_trigger",
-                            "idle-trigger cycle: generated={}, autoApplied={}, note={:?}",
-                            report.generated,
-                            report.auto_applied,
-                            report.note,
-                        );
-                    });
-                }
+                crate::knowledge_hooks::maintenance_idle_tick();
             }
         });
 
@@ -1376,7 +1358,7 @@ pub async fn start_background_tasks() {
 
         // Knowledge maintenance cron-trigger loop (WS6). Reads
         // `knowledge_maintenance.cron_trigger`; off unless the user enables it.
-        crate::knowledge::maintenance::spawn_maintenance_cron_loop();
+        crate::knowledge_hooks::spawn_maintenance_cron_loop();
 
         // Optional skill draft consolidation loop. Re-reads the
         // auto-review config after every interval or config change.
@@ -1388,8 +1370,8 @@ pub async fn start_background_tasks() {
         // Knowledge base index: reconcile every KB against disk (catches edits
         // made while the app was off) and start a live watcher per KB root so
         // external-vault edits stay indexed (D6).
-        crate::knowledge::index::spawn_startup_reconcile();
-        crate::knowledge::watcher::start_all_watchers();
+        crate::knowledge_hooks::index_spawn_startup_reconcile();
+        crate::knowledge_hooks::watcher_start_all_watchers();
 
         // One-shot reconciler for orphan project-scoped memory rows. The
         // delete_project cascade touches both `session.db` and `memory.db` and

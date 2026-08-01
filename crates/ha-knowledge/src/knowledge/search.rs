@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use super::db::IndexDb;
 use super::types::NoteSearchHit;
-use crate::util::truncate_utf8;
+use ha_core::util::truncate_utf8;
 
 // 类型已下沉 ha-config-schema，此处原地再导出保持 `crate::knowledge::search::*`
 // 路径不变（DEFAULT_TEXT_WEIGHT / DEFAULT_VECTOR_WEIGHT 供本文件测试使用，
@@ -30,7 +30,7 @@ pub fn search_notes(
     if kb_ids.is_empty() || query.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let cfg = crate::config::cached_config().knowledge_search.clamped();
+    let cfg = ha_core::config::cached_config().knowledge_search.clamped();
     let fetch = (limit * cfg.candidate_multiplier).max(10);
 
     // Step 1: FTS5 BM25 over chunks.
@@ -119,7 +119,7 @@ pub fn search_notes(
         .iter()
         .map(|(id, s, body)| (*id, *s, body.as_str()))
         .collect();
-    let reranked = crate::memory::mmr::mmr_rerank(&candidate_refs, limit, cfg.mmr_lambda);
+    let reranked = ha_core::memory::mmr::mmr_rerank(&candidate_refs, limit, cfg.mmr_lambda);
 
     // Build hits in MMR order.
     let score_by_note: HashMap<i64, (i64, f64)> =
@@ -162,7 +162,7 @@ pub fn enrich_kb_names(hits: &mut [NoteSearchHit]) {
     if hits.is_empty() {
         return;
     }
-    let Some(reg) = crate::get_knowledge_db() else {
+    let Some(reg) = ha_core::get_knowledge_db() else {
         return;
     };
     let mut cache: HashMap<String, (String, Option<String>)> = HashMap::new();

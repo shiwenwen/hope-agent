@@ -2665,7 +2665,7 @@ impl AssistantAgent {
         // tool plane uses (`note.rs::im_kb_context_from_session`) so the gate
         // can't drift between planes.
         if chat_source.is_none() {
-            if let Some(ci) = crate::tools::note::im_kb_context_from_session(Some(&sid)) {
+            if let Some(ci) = crate::knowledge::access::im_kb_context_from_session(Some(&sid)) {
                 source = crate::knowledge::KbAccessSource::Im;
                 origin = crate::knowledge::KbAccessSource::Im;
                 channel_info = Some(ci);
@@ -2827,10 +2827,7 @@ impl AssistantAgent {
             KNOWLEDGE_RETRIEVAL_TIMEOUT,
             tokio::task::spawn_blocking(move || -> Vec<crate::knowledge::NoteSearchHit> {
                 let _retrieval_slot = retrieval_slot;
-                let Some(db) = crate::knowledge::index::get_index_db() else {
-                    return Vec::new();
-                };
-                crate::knowledge::search::search_notes(&db, &kbs, &query, top_n).unwrap_or_default()
+                crate::knowledge_hooks::search_notes(&kbs, &query, top_n)
             }),
         )
         .await

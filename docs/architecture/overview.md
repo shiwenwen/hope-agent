@@ -96,6 +96,7 @@ graph TD
         CronFeat["ha-cron<br/>调度器 / 执行器 / 投递 + manage_cron<br/>(台账 CronDB 留 kernel)"]
         EvalRtFeat["ha-eval-runtime<br/>coding 评测 runner / 评测编排 / 上下文排序<br/>(无 wire()：kernel 零引用)"]
         ChannelFeat["ha-channel<br/>12 个 IM 插件 / worker 分发 / 飞书工具<br/>(台账 ChannelDB + registry 留 kernel)"]
+        KnowledgeFeat["ha-knowledge<br/>index.db 检索 / 解析编译 / 维护流水线 + 24 工具<br/>(台账 KnowledgeRegistry + 裁决 access 留 kernel)"]
     end
     Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     Weather -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
@@ -116,6 +117,9 @@ graph TD
     CronFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     EvalRtFeat -->|"依赖 ha-core<br/>无 wire()：kernel 零引用，壳层直接调"| Tools
     ChannelFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    KnowledgeFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    DesignFeat -.->|"特征间单向依赖<br/>（笔记落库 / require_write 写门）"| KnowledgeFeat
+    LocalLlmFeat -.->|"特征间单向依赖<br/>（embedding 就位触发 reembed）"| KnowledgeFeat
 
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler

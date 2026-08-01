@@ -3395,14 +3395,14 @@ pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<De
 
 /// Resolve which knowledge base an artifact save targets: the explicit `kb_id`
 /// when non-empty, otherwise the default KB (created on demand). Shared so the
-/// agent-plane write gate ([`ha_core::tools::note::require_write`]) and the actual
+/// agent-plane write gate ([`ha_knowledge::tools::note::require_write`]) and the actual
 /// save agree on exactly which KB is written.
 pub fn resolve_save_kb(kb_id: Option<&str>) -> Result<String> {
     match kb_id.map(str::trim).filter(|s| !s.is_empty()) {
         Some(k) => Ok(k.to_string()),
         None => {
-            ha_core::knowledge::service::ensure_default_knowledge_base();
-            ha_core::knowledge::service::list_kb_meta(false)?
+            ha_knowledge::knowledge::service::ensure_default_knowledge_base();
+            ha_knowledge::knowledge::service::list_kb_meta(false)?
                 .into_iter()
                 .next()
                 .map(|m| m.kb.id)
@@ -3415,7 +3415,7 @@ pub fn resolve_save_kb(kb_id: Option<&str>) -> Result<String> {
 ///
 /// 这是 owner 平面写入（本机 / API key 信任，不经会话访问裁决）。agent 平面
 /// (`design` 工具 `save_to_knowledge`) 必须先经 [`resolve_save_kb`] +
-/// `ha_core::tools::note::require_write` 门控 `effective_kb_access` 才可到达这里。
+/// `ha_knowledge::tools::note::require_write` 门控 `effective_kb_access` 才可到达这里。
 pub fn save_to_knowledge(artifact_id: &str, kb_id: Option<&str>) -> Result<String> {
     let db = open_db()?;
     let a = db
@@ -3442,7 +3442,7 @@ pub fn save_to_knowledge(artifact_id: &str, kb_id: Option<&str>) -> Result<Strin
         aid = a.id,
         body = parts.body_html,
     );
-    let hash = ha_core::knowledge::service::note_save(&kb, &rel, &content, None, false)?;
+    let hash = ha_knowledge::knowledge::service::note_save(&kb, &rel, &content, None, false)?;
     ha_core::app_info!(
         "design",
         "service",

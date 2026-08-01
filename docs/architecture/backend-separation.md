@@ -460,6 +460,60 @@ skills**；dash / cron / channel 已落地（improve 只拆出了 ha-eval-runtim
   **构建依赖同步拆分**：`protoc` / `prost` 只服务飞书长连接的 pbbp2 帧，
   `build.rs` 与 `proto/` 随本 crate 迁出，**ha-core 因此甩掉
   `prost-build` + `protoc-bin-vendored` 两个构建依赖**。
+- **ha-knowledge**（知识空间，阶段 5 第六刀）：`index.db` 笔记缓存与检索、
+  Markdown 解析 / 来源导入 / 编译、embedding 与重建、`[[note]]` 注入与被动
+  召回、笔记图谱与重命名、Layer-2 自主维护流水线、外部 vault 实时监听，
+  以及 24 个知识空间工具（22 个 `note_*` + `knowledge_recall` +
+  `session_to_note`）。约 1.8 万行迁出、6.5 千行留 kernel。
+  **分法沿用第五刀的三层，kernel 留台账 + 契约 + 裁决**：
+  - `knowledge/registry.rs`——`knowledge_bases` + 会话 / 项目访问绑定的真相源
+    （D9），**81 处直接 `session_db.conn.lock()`**（多行写法，单行 grep 抓不到），
+    撞红线「kernel 的 `sessions.db` 写连接不对特征 crate 开放」。同
+    `ChannelDB` / `CronDB`。**正因它留下，`KNOWLEDGE_DB` 全局、
+    `get_knowledge_db()` 与 `AppState.knowledge_db` 一处未改。**
+  - `knowledge/access.rs`——`effective_kb_access` 是「KB 访问默认 deny」的
+    **唯一裁决点**。把唯一裁决点挪到可选装配的钩子后面，等于凭空给它加一条
+    「未装配」旁路语义，这不是重构该碰的东西。`im_kb_access_allowed`（WS8
+    IM 闸门）同处，`channel/mod.rs` 与 slash 命令都直接引用。
+  - `knowledge/types.rs` + 新的 `knowledge/maintenance_defs.rs`——registry 方法
+    签名用到的 wire 类型。后者自 `maintenance/types.rs` 下沉（registry 的提案
+    队列方法用 `NewProposal` / `ProposalStatus` / `MaintenanceProposal` /
+    `ProposalKind`），ha-knowledge 侧 `maintenance::types` 原名再导出，
+    crate 外路径逐字不变。
+  **契约留下消掉了绝大多数切边**：analyzer 迁出前对本组报 44 条需切边，其中
+  约 36 条是 `KbAccess` / `KbAccessSource` / `ChannelKbContext` /
+  `KnowledgeAccessContext` / `NoteSearchHit` 的**纯类型引用**（`agent` 独占
+  25 条），一条都不必改成钩子。
+  kernel 边界：[`knowledge_hooks`](../../crates/ha-core/src/knowledge_hooks.rs)
+  **十槽原子注册**——行为 4（笔记检索 / `[[note]]` 注入 / embedding 重载 /
+  重建任务）+ 装配 6（`index.db` 打开、首次运行播种、维护 idle tick、
+  维护 cron 循环、开机对账、vault 监听）。
+  **工具面的解析链刻意不在其中**：`access_map_for_tool_ctx` /
+  `im_kb_context_from_session` / `session_has_kb_access` 随裁决点留
+  `knowledge/access.rs`。本刀一度把它们随 `tools/note.rs` 迁出、经钩子回调，
+  自审时改回——它们只用 kernel 原语，而钩子会给 WS8 的**收紧**动作
+  （未线接 source 但 IM-bound 的会话重分类为 IM）加上「未装配即失效」的
+  fail-open 语义，也破坏「工具面与 `Agent::resolve_kb_access` 共用同一份推导、
+  WS8 闸门不得在两平面漂移」这条不变量。
+  装配六槽**全部在 `app_init` 的原调用位触发**而非改用 `register_startup_task`：
+  `init_index_db` 刻意排在 LogDB 之前、播种刻意排在 logger 之后，两个位置都有
+  文档化理由，而 `register_init_task` 的消费点在 600 行之后。
+  未装配语义逐槽不同：检索 / 注入返空（等价于迁出前 `get_index_db()` 返 `None`
+  的分支）、embedding 重载 no-op，而**重建任务返 `Err`**——用户显式触发的写
+  不能静默成功。
+  **工具 schema 留 kernel**：24 个工具的名字常量与 `ToolDefinition` 都是纯契约
+  （不含任何 knowledge 类型），故只有 handler 上浮走 `register_external_tools`，
+  不需要 `register_external_tool_definitions`。
+  **三处 `pub(crate)` 放开**：`local_model_jobs::spawn_job_with_target_kb_ids`
+  与 `file_extract::render_pdf_bytes_isolated`（唯一消费者随迁，台账 / pdfium
+  绑定本体留 kernel）；`browser_hooks` 则**不放开整组**，只新增一个公开薄封装
+  `capture_active_tab()`——ha-knowledge 的网页收藏只需要这一项，`BrowserHooks`
+  结构体仍不出 kernel。
+  **新增两条兄弟间单向边**：`ha-local-llm -> ha-knowledge`（embedding 模型就位
+  后触发知识库 reembed，方向与拆分前一致）、`ha-design -> ha-knowledge`
+  （设计空间的笔记落库与 `require_write` 写门）。
+  **ha-core 甩掉两个孤儿依赖**：`pulldown-cmark` / `unicode-normalization`
+  随 `parser.rs` 迁出后在 kernel 零引用。
 - **ha-cron**（排程，阶段 5 第三刀）：cron 的调度器 / 执行器 / 投递 /
   失败分类 / 时间线，以及 `manage_cron` 工具 adapter。
   **分法是「台账 vs 机器」，与破环那刀对 `local_model_jobs` 的处理同型**：
@@ -593,8 +647,8 @@ skills**；dash / cron / channel 已落地（improve 只拆出了 ha-eval-runtim
   ha-core 内唯一使用者；ha-design 另有自己的一份声明）。
   **需切边为 0**——残留 core 对它零引用，是唯一一个不需要任何钩子倒转的
   特征。它自身对 knowledge 有 3 处引用（embedding 模型就位后触发知识库
-  reembed），knowledge 尚在 ha-core 内，故现表现为普通 `ha_core::knowledge`
-  调用；ha-knowledge 拆出后变为 crate 间单向边，方向不变。
+  reembed）；第六刀 ha-knowledge 拆出后，这 3 处已成
+  `ha_local_llm -> ha_knowledge` 的**兄弟间单向边**，方向不变。
   **已知取舍延续（`retry_job`）**：按 kind 分派的重试随执行器在本 crate，
   故壳层的通用「重试」端点会经本 crate 分派回 kernel 的 memory reembed /
   knowledge reembed。彻底解法是「kind → starter」注册表，留待装配层重整。

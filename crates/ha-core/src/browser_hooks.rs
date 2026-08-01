@@ -46,3 +46,14 @@ pub fn register_browser_hooks(hooks: BrowserHooks) -> Result<(), crate::AlreadyR
 pub(crate) fn browser_hooks() -> Option<&'static BrowserHooks> {
     BROWSER_HOOKS.get()
 }
+
+/// 抓取当前活动标签页。`BrowserHooks` 结构体本身仍不出 kernel——ha-knowledge
+/// 的网页收藏（`knowledge::source::capture_browser_snapshot`）只需要这一项，
+/// 故单开薄封装而非放开整组。**fail-explicit**：未 wire 报错而非静默返空，
+/// 与迁出前 `source.rs` 里那条 `bail!` 逐字相同（网页捕获是用户显式动作）。
+pub async fn capture_active_tab() -> anyhow::Result<BrowserTabCapture> {
+    let Some(hooks) = browser_hooks() else {
+        anyhow::bail!("browser feature not wired; browser capture unavailable in this binary");
+    };
+    (hooks.capture_active_tab)().await
+}

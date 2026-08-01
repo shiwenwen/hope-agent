@@ -292,7 +292,7 @@ pub fn save_embedding_model_config(
         );
     }
     if reload_knowledge {
-        crate::knowledge::apply_knowledge_embedding_from_config(source);
+        crate::knowledge_hooks::apply_embedding_from_config(source);
         app_info!(
             "knowledge",
             "embedding_models",

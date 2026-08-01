@@ -71,7 +71,7 @@ pub fn start_watcher(kb_id: &str) -> Result<()> {
             stop,
         },
     );
-    crate::app_info!(
+    app_info!(
         "knowledge",
         "watcher",
         "watching kb {} at {}",
@@ -91,12 +91,12 @@ pub fn stop_watcher(kb_id: &str) {
 
 /// Start watchers for every registered KB. Called once at startup (Primary).
 pub fn start_all_watchers() {
-    let Some(registry) = crate::get_knowledge_db() else {
+    let Some(registry) = ha_core::get_knowledge_db() else {
         return;
     };
     for id in registry.list_all_ids().unwrap_or_default() {
         if let Err(e) = start_watcher(&id) {
-            crate::app_warn!(
+            app_warn!(
                 "knowledge",
                 "watcher",
                 "start watcher for kb {} failed: {}",
@@ -127,7 +127,7 @@ fn debounce_loop(kb: String, rx: std::sync::mpsc::Receiver<()>, stop: Arc<Atomic
                 }
                 match super::index::reindex_kb(&kb, false) {
                     Ok(report) if report.changed > 0 || report.removed > 0 => {
-                        crate::app_info!(
+                        app_info!(
                             "knowledge",
                             "watcher",
                             "kb {} reconciled: {} changed, {} removed",
@@ -135,7 +135,7 @@ fn debounce_loop(kb: String, rx: std::sync::mpsc::Receiver<()>, stop: Arc<Atomic
                             report.changed,
                             report.removed
                         );
-                        if let Some(bus) = crate::get_event_bus() {
+                        if let Some(bus) = ha_core::get_event_bus() {
                             bus.emit(
                                 "knowledge:changed",
                                 serde_json::json!({ "kbId": kb, "op": "reindex" }),
@@ -144,13 +144,7 @@ fn debounce_loop(kb: String, rx: std::sync::mpsc::Receiver<()>, stop: Arc<Atomic
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        crate::app_warn!(
-                            "knowledge",
-                            "watcher",
-                            "kb {} reconcile failed: {}",
-                            kb,
-                            e
-                        )
+                        app_warn!("knowledge", "watcher", "kb {} reconcile failed: {}", kb, e)
                     }
                 }
             }

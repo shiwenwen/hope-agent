@@ -12,66 +12,18 @@ use std::path::Path;
 use anyhow::{anyhow, bail, Result};
 use serde_json::Value;
 
-use super::ToolExecContext;
-use crate::filesystem::{self, WorkspaceScope};
-use crate::knowledge::{
-    self, effective_kb_access, index, search, KbAccess, KbAccessSource, KnowledgeAccessContext,
-};
+use crate::knowledge::{self, index, search, KbAccess};
+use ha_core::filesystem::{self, WorkspaceScope};
+use ha_core::tools::ToolExecContext;
 
 // ── Access helpers ──────────────────────────────────────────────
-
-fn access_map(ctx: &ToolExecContext) -> HashMap<String, KbAccess> {
-    let mut source = ctx.chat_source.unwrap_or(KbAccessSource::Gui);
-    // Call-chain origin (D10): a subagent carries its parent turn's origin so an
-    // IM-origin chain can't reacquire KB access via the neutral Subagent source.
-    // Falls back to `source` when unset (contexts not built by the chat engine).
-    let mut origin = ctx.origin_chat_source.unwrap_or(source);
-    let mut channel_info = ctx.channel_kb_context.clone();
-
-    // Defense in depth (WS8): a context whose `chat_source` was never threaded
-    // (`None` → would default to `Gui` owner) must NOT bypass the IM opt-in gate
-    // when it is actually running on an IM-bound session. The `/skill` direct-tool
-    // path (and any other entry that builds a `..Default::default()` context)
-    // reaches `note_*` without setting a source; on an IM session that would
-    // silently elevate to owner-plane KB access. Reclassify it as an IM turn
-    // carrying the session's own channel identity so `effective_kb_access` applies
-    // the same WS8 gate as the sanctioned inbound-LLM path. A non-IM session has
-    // no `channel_info`, so desktop/HTTP owner contexts are unaffected.
-    if ctx.chat_source.is_none() {
-        if let Some(ci) = im_kb_context_from_session(ctx.session_id.as_deref()) {
-            source = KbAccessSource::Im;
-            origin = KbAccessSource::Im;
-            channel_info = Some(ci);
-        }
-    }
-
-    let actx = KnowledgeAccessContext::resolve(
-        ctx.session_id.clone(),
-        ctx.project_id.clone(),
-        source,
-        origin,
-        channel_info,
-    );
-    effective_kb_access(&actx)
-}
-
-/// Build a [`ChannelKbContext`] from a session's persisted IM binding, or `None`
-/// if the session is not IM-bound. Used by [`access_map`]'s defense-in-depth
-/// reclassification (WS8) so an un-threaded tool context can't launder owner KB
-/// access on an IM session.
-pub(crate) fn im_kb_context_from_session(
-    session_id: Option<&str>,
-) -> Option<crate::knowledge::ChannelKbContext> {
-    let ci = crate::session::lookup_session_meta(session_id)?.channel_info?;
-    Some(crate::knowledge::ChannelKbContext {
-        channel_id: ci.channel_id,
-        account_id: ci.account_id,
-        chat_id: ci.chat_id,
-        // Any non-DM chat needs per-chat confirmation (matches the dispatcher's
-        // live `is_group` derivation).
-        is_group: !ci.chat_type.eq_ignore_ascii_case("dm"),
-    })
-}
+//
+// 解析链本体（`access_map_for_tool_ctx` / `im_kb_context_from_session` /
+// `session_has_kb_access`）**在 kernel** `ha_core::knowledge::access`——它们只用
+// kernel 原语，且与 `Agent::resolve_kb_access` 必须是同一份推导（WS8 闸门不得
+// 在两个平面间漂移）。搬到特征 crate 再用钩子回调，会给那条**收紧**动作加上
+// 「未装配即失效」的 fail-open 语义。
+use ha_core::knowledge::access::access_map_for_tool_ctx as access_map;
 
 pub fn require_write(ctx: &ToolExecContext, kb_id: &str) -> Result<()> {
     match access_map(ctx).get(kb_id) {
@@ -99,15 +51,6 @@ fn accessible_kbs(ctx: &ToolExecContext) -> Vec<String> {
     let mut v: Vec<String> = access_map(ctx).into_keys().collect();
     v.sort();
     v
-}
-
-/// Whether this tool context can reach ANY knowledge base (its agent-plane
-/// `effective_kb_access` set is non-empty). Used by `tool_search` to hide the
-/// KB-scoped tools on a no-KB session, mirroring the eager-schema gate in
-/// `Agent::build_tool_schemas` (so a tool hidden from the eager schema can't be
-/// resurrected via `tool_search`). Same access set the tools themselves enforce.
-pub(crate) fn session_has_kb_access(ctx: &ToolExecContext) -> bool {
-    !access_map(ctx).is_empty()
 }
 
 fn str_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
@@ -168,9 +111,9 @@ async fn emit_note_diff(ctx: &ToolExecContext, rel_path: &str, before: &str, aft
     if ctx.metadata_sink.is_none() {
         return;
     }
-    let (added, removed) = super::diff_util::compute_line_delta(before, after);
-    let (before_t, before_trunc) = super::diff_util::truncate_for_metadata(before);
-    let (after_t, after_trunc) = super::diff_util::truncate_for_metadata(after);
+    let (added, removed) = ha_core::tools::diff_util::compute_line_delta(before, after);
+    let (before_t, before_trunc) = ha_core::tools::diff_util::truncate_for_metadata(before);
+    let (after_t, after_trunc) = ha_core::tools::diff_util::truncate_for_metadata(after);
     ctx.emit_metadata(serde_json::json!({
         "kind": "file_change",
         "path": rel_path,
@@ -213,7 +156,7 @@ fn write_and_index(
         .map_err(|e| anyhow!(e.message().to_string()))?;
     let hash = knowledge::blake3_hex(content.as_bytes());
     if let Err(e) = index::reindex_note(kb_id, scope.root(), rel_path) {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "tool",
             "reindex {} after write failed: {}",
@@ -226,7 +169,7 @@ fn write_and_index(
 }
 
 fn emit_changed(kb_id: &str, op: &str) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "knowledge:changed",
             serde_json::json!({ "kbId": kb_id, "op": op }),
@@ -453,7 +396,7 @@ pub(crate) async fn tool_note_delete(args: &Value, ctx: &ToolExecContext) -> Res
     filesystem::project_delete(&scope, &rel, false)
         .map_err(|e| anyhow!(e.message().to_string()))?;
     if let Err(e) = index::remove_note(kb, &rel) {
-        crate::app_warn!("knowledge", "tool", "remove index {} failed: {}", rel, e);
+        app_warn!("knowledge", "tool", "remove index {} failed: {}", rel, e);
     }
     emit_changed(kb, "delete");
     Ok(format!(
@@ -955,7 +898,11 @@ pub(crate) async fn tool_note_similar(args: &Value, ctx: &ToolExecContext) -> Re
         .unwrap_or(8);
     let (kb_id, note, content) = read_resolved_note(ctx, str_arg(args, "kb"), reference)?;
     let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
-    let source_text = format!("{}\n\n{}", note.title, crate::truncate_utf8(&content, 8000));
+    let source_text = format!(
+        "{}\n\n{}",
+        note.title,
+        ha_core::truncate_utf8(&content, 8000)
+    );
     let hits = search::similar_notes(&db, std::slice::from_ref(&kb_id), note.id, &source_text, k)?;
     if hits.is_empty() {
         // Distinguish "vectors off" from "vectors on, no neighbours" so we don't
@@ -1048,7 +995,11 @@ pub(crate) async fn tool_note_related(args: &Value, ctx: &ToolExecContext) -> Re
     }
     // Vector neighbours. One of four fused channels — tolerate an embedding outage
     // (degrade to link/tag recall) rather than failing the whole tool.
-    let source_text = format!("{}\n\n{}", note.title, crate::truncate_utf8(&content, 8000));
+    let source_text = format!(
+        "{}\n\n{}",
+        note.title,
+        ha_core::truncate_utf8(&content, 8000)
+    );
     for h in search::similar_notes(&db, std::slice::from_ref(&kb_id), note.id, &source_text, 10)
         .unwrap_or_default()
     {
@@ -1146,7 +1097,7 @@ pub(crate) async fn tool_note_suggest_links(args: &Value, ctx: &ToolExecContext)
 
 // ── Tools: AI high-level operations (WS5, side_query driven) ─────
 
-/// Run one bounded background model call via `crate::automation::run`,
+/// Run one bounded background model call via `ha_core::automation::run`,
 /// returning the trimmed text. Shared by the WS5 AI note tools
 /// (`note_distill` / `note_moc` / `session_to_note`) — one shared
 /// `note_tools.model_override` field, not per-tool, since all three already
@@ -1158,10 +1109,10 @@ async fn run_kb_side_query(
     max_tokens: u32,
     session_key: &str,
 ) -> Result<String> {
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let chain =
-        crate::automation::effective_chain(&config, config.note_tools.model_override.clone());
-    let out = crate::automation::run(crate::automation::ModelTaskSpec {
+        ha_core::automation::effective_chain(&config, config.note_tools.model_override.clone());
+    let out = ha_core::automation::run(ha_core::automation::ModelTaskSpec {
         purpose,
         chain,
         session_key,
@@ -1335,7 +1286,7 @@ pub(crate) async fn tool_note_distill(args: &Value, ctx: &ToolExecContext) -> Re
          descriptive title and a markdown body that stands on its own. Produce 2 to 8 notes. \
          Return ONLY a JSON array (no prose, no code fence) of objects \
          {{\"title\": string, \"content\": markdown string, \"tags\": [string]}}.\n\nSOURCE:\n{}",
-        crate::truncate_utf8(&source_text, 16000)
+        ha_core::truncate_utf8(&source_text, 16000)
     );
     let session_key = ctx
         .session_id
@@ -1503,16 +1454,16 @@ pub(crate) async fn tool_session_to_note(args: &Value, ctx: &ToolExecContext) ->
         .or_else(|| ctx.session_id.clone())
         .ok_or_else(|| anyhow!("no session id — pass 'session' or call from within a session"))?;
     // "Close = burn": never persist an incognito conversation into a note.
-    if crate::session::is_session_incognito(Some(&session_id)) {
+    if ha_core::session::is_session_incognito(Some(&session_id)) {
         bail!("refusing to distill an incognito session into a permanent note");
     }
-    let sdb = crate::get_session_db().ok_or_else(|| anyhow!("session db not available"))?;
+    let sdb = ha_core::get_session_db().ok_or_else(|| anyhow!("session db not available"))?;
     let messages = sdb.load_session_messages(&session_id)?;
     let mut transcript = String::new();
     for m in &messages {
         let role = match m.role {
-            crate::session::MessageRole::User => "User",
-            crate::session::MessageRole::Assistant => "Assistant",
+            ha_core::session::MessageRole::User => "User",
+            ha_core::session::MessageRole::Assistant => "Assistant",
             _ => continue,
         };
         if m.content.trim().is_empty() {
@@ -1532,7 +1483,7 @@ pub(crate) async fn tool_session_to_note(args: &Value, ctx: &ToolExecContext) ->
          markdown. Capture the topic, key points, decisions, and any action items. Begin with a \
          concise H1 title. Be faithful — do not invent. Return ONLY the markdown (no frontmatter, \
          no code fence).\n\nCONVERSATION:\n{}",
-        crate::truncate_utf8(&transcript, 16000)
+        ha_core::truncate_utf8(&transcript, 16000)
     );
     let session_key = ctx
         .session_id
@@ -1647,14 +1598,14 @@ pub(crate) async fn tool_knowledge_recall(args: &Value, ctx: &ToolExecContext) -
         Vec::new()
     } else {
         let type_filter =
-            str_arg(args, "type").map(|t| vec![crate::memory::MemoryType::from_str(t)]);
+            str_arg(args, "type").map(|t| vec![ha_core::memory::MemoryType::from_str(t)]);
         let agent_id = ctx.agent_id.clone();
         let q = query.clone();
         tokio::task::spawn_blocking(move || -> Result<Vec<Value>> {
-            let Some(backend) = crate::get_memory_backend() else {
+            let Some(backend) = ha_core::get_memory_backend() else {
                 return Ok(Vec::new());
             };
-            let mq = crate::memory::MemorySearchQuery {
+            let mq = ha_core::memory::MemorySearchQuery {
                 query: q,
                 types: type_filter,
                 sources: None,
@@ -1667,9 +1618,9 @@ pub(crate) async fn tool_knowledge_recall(args: &Value, ctx: &ToolExecContext) -
                 .iter()
                 .map(|m| {
                     let scope = match &m.scope {
-                        crate::memory::MemoryScope::Global => "global".to_string(),
-                        crate::memory::MemoryScope::Agent { id } => format!("agent:{id}"),
-                        crate::memory::MemoryScope::Project { id } => format!("project:{id}"),
+                        ha_core::memory::MemoryScope::Global => "global".to_string(),
+                        ha_core::memory::MemoryScope::Agent { id } => format!("agent:{id}"),
+                        ha_core::memory::MemoryScope::Project { id } => format!("project:{id}"),
                     };
                     serde_json::json!({
                         "id": m.id,

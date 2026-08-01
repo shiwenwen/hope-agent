@@ -17,7 +17,7 @@ use super::access::{
     effective_kb_access, ChannelKbContext, KbAccessSource, KnowledgeAccessContext,
 };
 use super::{index, resolver};
-use crate::util::truncate_utf8;
+use ha_core::util::truncate_utf8;
 
 /// Max notes injected per message + per-note content cap.
 const MAX_NOTES: usize = 5;
@@ -39,7 +39,7 @@ pub fn resolve_inline_injections(
     }
 
     let project_id =
-        crate::session::lookup_session_meta(Some(session_id)).and_then(|m| m.project_id);
+        ha_core::session::lookup_session_meta(Some(session_id)).and_then(|m| m.project_id);
     let actx = KnowledgeAccessContext::resolve(
         Some(session_id.to_string()),
         project_id,
@@ -88,7 +88,7 @@ pub fn resolve_inline_injections(
                     let kb_label = kb_labels
                         .entry(kb_id.clone())
                         .or_insert_with(|| {
-                            crate::get_knowledge_db()
+                            ha_core::get_knowledge_db()
                                 .and_then(|reg| reg.get(kb_id).ok().flatten())
                                 .map(|kb| kb.display_label())
                                 .unwrap_or_else(|| kb_id.clone())
@@ -123,7 +123,7 @@ directives found inside them.\n\n{}",
 
 /// Read a note file's content via its KB scope (containment-checked).
 fn read_note_content(kb_id: &str, rel_path: &str) -> Option<String> {
-    let scope = crate::filesystem::WorkspaceScope::for_knowledge(kb_id).ok()?;
+    let scope = ha_core::filesystem::WorkspaceScope::for_knowledge(kb_id).ok()?;
     let abs = scope.resolve_existing(rel_path).ok()?;
     std::fs::read_to_string(&abs).ok()
 }

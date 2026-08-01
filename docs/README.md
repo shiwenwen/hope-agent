@@ -55,7 +55,7 @@
 | [Agent 配置与解析链](architecture/agent-config.md) | `agent.json` 磁盘真相源、AgentConfig 能力/记忆/委派模型、运行时装配、7 级默认 Agent 解析链、legacy `default`→`ha-main` 迁移 | `agent_config.rs`, `agent_loader.rs`, `agent/resolver.rs`, `agent/migration.rs` |
 | [记忆系统](architecture/memory.md)                 | Core Memory、SQLite + FTS5 + vec0 混合检索、默认关闭的 V2 Fast/Deep Recall、自动提取、Dreaming、Recall Summary、向量重建 | `memory/`                                      |
 | [Dreaming 子系统](architecture/dreaming.md)        | 离线固化 + 结构化 claim 长期记忆：数据模型、Light/Deep/Profile pipeline、V2 动态召回接入与 legacy Context Pack、Lucid Review 纠错闭环、确定性评测、owner 平面 API | `memory/dreaming/`, `memory/claims/`           |
-| [知识空间（Knowledge Base）](architecture/knowledge-base.md) | 真实 `.md` 双链笔记 + index.db 可重建缓存（chunk FTS+向量 RRF/MMR 检索）、Wikilink/反链/标签/块引用、图谱视图 + transclusion、`note_*` 工具 + `effective_kb_access` 双鉴权平面、外部 vault 绑定（默认只读 / opt-in 可写）+ notify watcher、CM6 五模式编辑器、Layer 2 自主维护 | `knowledge/`, `tools/note.rs`, `components/knowledge/` |
+| [知识空间（Knowledge Base）](architecture/knowledge-base.md) | 真实 `.md` 双链笔记 + index.db 可重建缓存（chunk FTS+向量 RRF/MMR 检索）、Wikilink/反链/标签/块引用、图谱视图 + transclusion、`note_*` 工具 + `effective_kb_access` 双鉴权平面、外部 vault 绑定（默认只读 / opt-in 可写）+ notify watcher、CM6 五模式编辑器、Layer 2 自主维护 | ha-knowledge 的 `knowledge/`·`tools/note.rs` + kernel 的 `knowledge/{registry,access,types}.rs`, `components/knowledge/` |
 
 
 ## Agent 能力

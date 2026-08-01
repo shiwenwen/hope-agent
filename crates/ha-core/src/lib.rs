@@ -90,6 +90,7 @@ pub mod hooks;
 pub mod i18n;
 pub mod issue_reporting;
 pub mod knowledge;
+pub mod knowledge_hooks;
 pub mod learning_events;
 // `local_embedding` / `local_llm` 已随阶段 5 首刀迁出 ha-local-llm——特征
 // crate 在 ha-core 之上，此处**不能**再导出（会构成循环依赖）。台账面

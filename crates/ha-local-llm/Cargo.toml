@@ -10,6 +10,7 @@ edition.workspace = true
 [dependencies]
 ha-base = { path = "../ha-base" }
 ha-core = { path = "../ha-core" }
+ha-knowledge = { path = "../ha-knowledge" }
 
 anyhow = { workspace = true }
 chrono = { workspace = true }

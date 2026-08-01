@@ -274,9 +274,9 @@ impl KnowledgeVisionConfig {
 /// (`tools::note::run_kb_side_query`) and had zero dedicated config before
 /// this (implicitly rode on `recap.analysis_agent`), so there's no existing
 /// per-tool precedent to preserve or diverge from. Homed in `knowledge::types`
-/// (not `tools::note`, which is `pub(crate)` and unreachable from
-/// `src-tauri`/`ha-server`'s Tauri/HTTP command signatures) alongside its
-/// domain siblings.
+/// alongside its domain siblings because it is an `AppConfig`-reachable wire
+/// type, and those live in ha-config-schema by contract — not next to the
+/// handlers that read it (`ha_knowledge::tools::note`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteToolsConfig {

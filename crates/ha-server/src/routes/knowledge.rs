@@ -20,7 +20,8 @@ use tower_http::services::ServeFile;
 use ha_core::filesystem::{
     self, ExtractedContent, FileTextContent, FilesystemError, WorkspaceScope,
 };
-use ha_core::knowledge::{
+use ha_core::session::SessionMeta;
+use ha_knowledge::knowledge::{
     self, service, Backlink, BrokenLink, CompileProposal, CompileProposalStatus, CompileRun,
     CompileStartInput, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KbAttachment,
     KbChatThread, KnowledgeAgentCompileProposeInput, KnowledgeAgentExpandInput,
@@ -40,7 +41,6 @@ use ha_core::knowledge::{
     QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
     UpdateKnowledgeBaseInput,
 };
-use ha_core::session::SessionMeta;
 
 use super::file_serve::{
     apply_inline_media_headers, resolve_mime_for_path, safe_content_disposition, HeaderOpts,
@@ -1079,7 +1079,9 @@ pub async fn kb_list_tags(Path(kb_id): Path<String>) -> Result<Json<Vec<String>>
 /// `GET /api/knowledge/embedding` — current knowledge embedding selection state.
 pub async fn knowledge_embedding_get(
 ) -> Result<Json<ha_core::memory::EmbeddingSelectionState>, AppError> {
-    Ok(Json(ha_core::knowledge::get_knowledge_embedding_state()))
+    Ok(Json(
+        ha_knowledge::knowledge::get_knowledge_embedding_state(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -1094,7 +1096,7 @@ pub async fn knowledge_embedding_set_default(
 ) -> Result<Json<ha_core::memory::EmbeddingSelectionState>, AppError> {
     Ok(Json(
         run_blocking(move || {
-            ha_core::knowledge::set_knowledge_embedding_default(&body.model_config_id, "http")
+            ha_knowledge::knowledge::set_knowledge_embedding_default(&body.model_config_id, "http")
         })
         .await?,
     ))
@@ -1104,21 +1106,23 @@ pub async fn knowledge_embedding_set_default(
 pub async fn knowledge_embedding_disable(
 ) -> Result<Json<ha_core::memory::EmbeddingSelectionState>, AppError> {
     Ok(Json(
-        run_blocking(move || ha_core::knowledge::disable_knowledge_embedding("http")).await?,
+        run_blocking(move || ha_knowledge::knowledge::disable_knowledge_embedding("http")).await?,
     ))
 }
 
 /// `POST /api/knowledge/embedding/rebuild` — force a full rebuild of every KB
 /// under the active model (no same-signature short-circuit).
 pub async fn knowledge_embedding_rebuild() -> Result<Json<bool>, AppError> {
-    run_blocking(move || ha_core::knowledge::start_knowledge_reembed_job(None, "manual-rebuild"))
-        .await?;
+    run_blocking(move || {
+        ha_knowledge::knowledge::start_knowledge_reembed_job(None, "manual-rebuild")
+    })
+    .await?;
     Ok(Json(true))
 }
 
 /// `GET /api/knowledge/chunk` — current chunking parameters (advanced).
-pub async fn knowledge_chunk_get() -> Result<Json<ha_core::knowledge::ChunkConfig>, AppError> {
-    Ok(Json(ha_core::knowledge::get_chunk_config()))
+pub async fn knowledge_chunk_get() -> Result<Json<ha_knowledge::knowledge::ChunkConfig>, AppError> {
+    Ok(Json(ha_knowledge::knowledge::get_chunk_config()))
 }
 
 #[derive(Deserialize)]
@@ -1131,10 +1135,10 @@ pub struct KnowledgeChunkSetBody {
 /// `POST /api/knowledge/chunk` — save chunking parameters and reindex every KB.
 pub async fn knowledge_chunk_set(
     Json(body): Json<KnowledgeChunkSetBody>,
-) -> Result<Json<ha_core::knowledge::ChunkConfig>, AppError> {
+) -> Result<Json<ha_knowledge::knowledge::ChunkConfig>, AppError> {
     Ok(Json(
         run_blocking(move || {
-            ha_core::knowledge::set_chunk_config(body.max_chars, body.overlap_chars, "http")
+            ha_knowledge::knowledge::set_chunk_config(body.max_chars, body.overlap_chars, "http")
         })
         .await?,
     ))
@@ -1142,21 +1146,21 @@ pub async fn knowledge_chunk_set(
 
 /// `GET /api/knowledge/search-config` — current hybrid-search ranking parameters.
 pub async fn knowledge_search_config_get(
-) -> Result<Json<ha_core::knowledge::KnowledgeSearchConfig>, AppError> {
-    Ok(Json(ha_core::knowledge::get_search_config()))
+) -> Result<Json<ha_knowledge::knowledge::KnowledgeSearchConfig>, AppError> {
+    Ok(Json(ha_knowledge::knowledge::get_search_config()))
 }
 
 #[derive(Deserialize)]
 pub struct KnowledgeSearchSetBody {
-    pub config: ha_core::knowledge::KnowledgeSearchConfig,
+    pub config: ha_knowledge::knowledge::KnowledgeSearchConfig,
 }
 
 /// `POST /api/knowledge/search-config` — save search ranking parameters (clamped,
 /// no reindex). Send default values to restore defaults.
 pub async fn knowledge_search_config_set(
     Json(body): Json<KnowledgeSearchSetBody>,
-) -> Result<Json<ha_core::knowledge::KnowledgeSearchConfig>, AppError> {
-    Ok(Json(ha_core::knowledge::set_search_config(
+) -> Result<Json<ha_knowledge::knowledge::KnowledgeSearchConfig>, AppError> {
+    Ok(Json(ha_knowledge::knowledge::set_search_config(
         body.config,
         "http",
     )?))

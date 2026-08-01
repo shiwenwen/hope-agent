@@ -50,6 +50,13 @@
 # kb_access_allowed_for 在 ha-config-schema 的 channel wire 类型上。
 /crates/ha-core/src/knowledge/access.rs      @shiwenwen
 /crates/ha-config-schema/src/channel.rs      @shiwenwen
+# KB agent 写入平面（阶段 5 第六刀自 ha-core 的 tools/note.rs 迁入
+# ha-knowledge）：AGENTS「写入三闸」的**调用点**——`WorkspaceScope::for_knowledge`
+# （外部 root 只读、桌面也拒）→ `filesystem::project_write_text` →
+# `platform::write_atomic`（禁回退 fs::write，实现在 ha-base）→
+# `expected_file_hash` 比磁盘 raw BLAKE3。同处的 `access_map` 是 agent 平面
+# 每次调用的 live 门（`session_has_kb_access` 只收窄 schema、非安全边界）。
+/crates/ha-knowledge/src/tools/note.rs       @shiwenwen
 # 自升级信任根（Minisign pubkey）与验签实现（阶段 3 自 ha-core 迁入
 # ha-updater）：pubkey 或验签被改 = 供应链攻击面，与 tauri.conf.json 的
 # updater 公钥同级别把关。

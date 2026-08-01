@@ -21,7 +21,7 @@ const SCAN_CAP: usize = 500;
 const ISSUE_CAP: usize = 100;
 
 fn registry() -> Result<&'static std::sync::Arc<KnowledgeRegistry>> {
-    crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
+    ha_core::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
 }
 
 pub fn profile(kb_id: &str) -> Result<SchemaProfile> {
@@ -86,7 +86,7 @@ pub fn rebuild_evidence_index(kb_id: &str) -> Result<KnowledgeEvidenceRebuildRes
         let read = match service::note_read(kb_id, &note.rel_path) {
             Ok(read) => read,
             Err(e) => {
-                crate::app_warn!(
+                app_warn!(
                     "knowledge",
                     "schema",
                     "skip evidence rebuild for {}: {}",
@@ -629,7 +629,7 @@ fn extract_claims(content: &str) -> Vec<EvidenceClaimIndexInput> {
         claims.push(EvidenceClaimIndexInput {
             claim_index: claims.len() as u32,
             section: "Compiled Truth".to_string(),
-            claim_text: crate::truncate_utf8(&text, 500).to_string(),
+            claim_text: ha_core::truncate_utf8(&text, 500).to_string(),
             source_ids: source_ids_in_text(&text),
         });
     }

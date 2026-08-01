@@ -19,7 +19,7 @@ use anyhow::{anyhow, bail, Result};
 use super::db::IndexDb;
 use super::types::{LinkType, RenameOutcome};
 use super::{index, parser};
-use crate::filesystem::{self, WorkspaceScope};
+use ha_core::filesystem::{self, WorkspaceScope};
 
 /// One note's old→new identity, in both reference forms (path + basename).
 struct Move {
@@ -100,7 +100,7 @@ pub fn rename_note(
     // Drop the old index row + index the new path (batch-resolve once at the end).
     db.delete_note(kb_id, &canon_from)?;
     if let Err(e) = super::schema::delete_note_evidence_index(kb_id, &canon_from) {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "rename",
             "delete evidence index {} failed: {}",
@@ -226,7 +226,7 @@ fn rewrite_inbound_for_moves(
         // conversion that would silently replace their stray bytes with U+FFFD on
         // write. Integrity over link-completeness: the link stays as-is.
         let Ok(content) = String::from_utf8(bytes) else {
-            crate::app_warn!(
+            app_warn!(
                 "knowledge",
                 "rename",
                 "skipping link rewrite for non-utf8 note {}",
@@ -375,7 +375,7 @@ fn normalize_md(to_rel: &str) -> String {
 }
 
 fn emit_changed(kb_id: &str, op: &str) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "knowledge:changed",
             serde_json::json!({ "kbId": kb_id, "op": op }),

@@ -32,7 +32,7 @@ pub fn set_index_db(db: Arc<IndexDb>) {
 /// Open `index.db`, install the embedding provider (if knowledge embedding is
 /// configured), and register the global. Called once at startup.
 pub fn init_index_db() -> Result<()> {
-    let path = crate::paths::knowledge_index_db_path()?;
+    let path = ha_core::paths::knowledge_index_db_path()?;
     let db = Arc::new(IndexDb::open(&path)?);
     apply_embedding_to_index(&db);
     set_index_db(db);
@@ -44,19 +44,19 @@ pub fn init_index_db() -> Result<()> {
 /// embed under that model/signature. No-op (clears) when knowledge embedding is
 /// disabled or unresolved; note vector search then degrades to FTS-only.
 pub fn apply_embedding_to_index(db: &IndexDb) {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     if !store.knowledge_embedding.enabled {
         db.clear_embedder();
         return;
     }
-    match crate::memory::resolve_memory_embedding_config(
+    match ha_core::memory::resolve_memory_embedding_config(
         &store.knowledge_embedding,
         &store.embedding_models,
     ) {
-        Ok(Some((_, config, _sig))) => match crate::memory::create_embedding_provider(&config) {
+        Ok(Some((_, config, _sig))) => match ha_core::memory::create_embedding_provider(&config) {
             Ok(p) => db.set_embedder(p),
             Err(e) => {
-                crate::app_warn!(
+                app_warn!(
                     "knowledge",
                     "embedding",
                     "failed to init note embedding provider: {}",
@@ -101,7 +101,7 @@ pub fn remove_note(kb_id: &str, rel_path: &str) -> Result<()> {
     let db = get_index_db().ok_or_else(|| anyhow::anyhow!("knowledge index not initialized"))?;
     db.delete_note(kb_id, rel_path)?;
     if let Err(e) = super::schema::delete_note_evidence_index(kb_id, rel_path) {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "index",
             "delete evidence index {} failed: {}",
@@ -147,7 +147,7 @@ pub fn reindex_dir(kb_id: &str, rel_dir: &str) -> Result<ReindexReport> {
         }
         report.total += 1;
         if let Err(e) = reindex_one(&db, kb_id, &root, &rel) {
-            crate::app_warn!("knowledge", "index", "reindex {} failed: {}", rel, e);
+            app_warn!("knowledge", "index", "reindex {} failed: {}", rel, e);
             continue;
         }
         report.changed += 1;
@@ -198,7 +198,7 @@ pub fn reindex_kb_with_progress(
         if !disk_set.contains(rel.as_str()) {
             if db.delete_note(kb_id, rel).unwrap_or(false) {
                 if let Err(e) = super::schema::delete_note_evidence_index(kb_id, rel) {
-                    crate::app_warn!(
+                    app_warn!(
                         "knowledge",
                         "index",
                         "delete evidence index {} failed: {}",
@@ -225,7 +225,7 @@ pub fn reindex_kb_with_progress(
                 .is_some_and(|prev| *prev == mtime && mtime != 0);
         if !skip {
             if let Err(e) = reindex_one(&db, kb_id, &root, rel) {
-                crate::app_warn!("knowledge", "index", "reindex {} failed: {}", rel, e);
+                app_warn!("knowledge", "index", "reindex {} failed: {}", rel, e);
                 report.failed += 1;
             } else {
                 report.changed += 1;
@@ -245,7 +245,7 @@ pub fn reindex_kb_with_progress(
 pub fn spawn_reindex_kb(kb_id: String, full: bool) {
     tokio::task::spawn_blocking(move || match reindex_kb(&kb_id, full) {
         Ok(report) => {
-            crate::app_info!(
+            app_info!(
                 "knowledge",
                 "index",
                 "reindexed kb {}: {} changed, {} removed, {} total",
@@ -254,20 +254,20 @@ pub fn spawn_reindex_kb(kb_id: String, full: bool) {
                 report.removed,
                 report.total
             );
-            if let Some(bus) = crate::get_event_bus() {
+            if let Some(bus) = ha_core::get_event_bus() {
                 bus.emit(
                     "knowledge:changed",
                     serde_json::json!({ "kbId": kb_id, "op": "reindex" }),
                 );
             }
         }
-        Err(e) => crate::app_warn!("knowledge", "index", "reindex kb {} failed: {}", kb_id, e),
+        Err(e) => app_warn!("knowledge", "index", "reindex kb {} failed: {}", kb_id, e),
     });
 }
 
 /// Reconcile every registered KB at startup (best-effort, off-thread).
 pub fn spawn_startup_reconcile() {
-    let Some(registry) = crate::get_knowledge_db() else {
+    let Some(registry) = ha_core::get_knowledge_db() else {
         return;
     };
     let ids = registry.list_all_ids().unwrap_or_default();
@@ -288,7 +288,7 @@ fn reindex_one(db: &IndexDb, kb_id: &str, root: &Path, rel_path: &str) -> Result
     let size = meta.len() as i64;
 
     let parsed = parser::parse_document(&content);
-    let chunk_cfg = crate::config::cached_config().knowledge_chunk.clamped();
+    let chunk_cfg = ha_core::config::cached_config().knowledge_chunk.clamped();
     let chunks = chunker::chunk(&content, &parsed, &chunk_cfg);
     let title = parsed.title.clone().unwrap_or_else(|| file_stem(rel_path));
 
@@ -310,7 +310,7 @@ fn reindex_one(db: &IndexDb, kb_id: &str, root: &Path, rel_path: &str) -> Result
     };
     db.replace_note_index(input)?;
     if let Err(e) = super::schema::replace_note_evidence_index(kb_id, rel_path, &title, &content) {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "index",
             "evidence index {} failed: {}",
@@ -340,7 +340,7 @@ fn embed_chunks(
         Ok(vecs) if vecs.len() == chunks.len() => (Some(vecs), signature),
         Ok(_) => (None, None),
         Err(e) => {
-            crate::app_warn!("knowledge", "embedding", "embed batch failed: {}", e);
+            app_warn!("knowledge", "embedding", "embed batch failed: {}", e);
             (None, None)
         }
     }

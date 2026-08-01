@@ -24,11 +24,11 @@ use super::types::{
     KnowledgeSourceVersionHistory, Note, NoteReadResult, NoteSearchHit, NoteSourceRef,
     QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
 };
-use crate::filesystem::{self, WorkspaceScope};
-use crate::session::{SessionKind, SessionMeta};
+use ha_core::filesystem::{self, WorkspaceScope};
+use ha_core::session::{SessionKind, SessionMeta};
 
 fn registry() -> Result<&'static std::sync::Arc<super::KnowledgeRegistry>> {
-    crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
+    ha_core::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
 }
 
 fn index_db() -> Result<std::sync::Arc<super::IndexDb>> {
@@ -283,8 +283,8 @@ pub fn evidence_rebuild(kb_id: &str) -> Result<KnowledgeEvidenceRebuildResult> {
 // these helpers create/list the conversation containers; the conversation turns
 // themselves run through the normal `chat` path with `toolScope: "knowledge"`.
 
-fn session_db() -> Result<&'static std::sync::Arc<crate::session::SessionDB>> {
-    crate::get_session_db().ok_or_else(|| anyhow!("session db not initialized"))
+fn session_db() -> Result<&'static std::sync::Arc<ha_core::session::SessionDB>> {
+    ha_core::get_session_db().ok_or_else(|| anyhow!("session db not initialized"))
 }
 
 /// Latest knowledge-chat thread anchored to `anchor_note` in this KB — the
@@ -322,7 +322,7 @@ pub fn kb_chat_threads_list(
 /// Best-effort: a failure leaves a usable (if unlisted) regular session rather
 /// than blocking the user's first message.
 pub fn mark_session_as_kb_thread(session_id: &str, kb_id: &str, anchor_note: Option<&str>) {
-    let Some(db) = crate::get_session_db() else {
+    let Some(db) = ha_core::get_session_db() else {
         return;
     };
     // Create the thread row FIRST: if it fails, leave the session as a regular
@@ -332,7 +332,7 @@ pub fn mark_session_as_kb_thread(session_id: &str, kb_id: &str, anchor_note: Opt
     match registry() {
         Ok(reg) => {
             if let Err(e) = reg.create_chat_thread(session_id, kb_id, anchor_note) {
-                crate::app_warn!(
+                app_warn!(
                     "knowledge",
                     "kb_thread_mint",
                     "create_chat_thread failed for {}: {}",
@@ -343,7 +343,7 @@ pub fn mark_session_as_kb_thread(session_id: &str, kb_id: &str, anchor_note: Opt
             }
         }
         Err(e) => {
-            crate::app_warn!(
+            app_warn!(
                 "knowledge",
                 "kb_thread_mint",
                 "registry unavailable for {}: {}",
@@ -357,7 +357,7 @@ pub fn mark_session_as_kb_thread(session_id: &str, kb_id: &str, anchor_note: Opt
         // Thread row exists but kind didn't flip: the session is still visible
         // in the main list (kind=regular) and listed in the KB picker — odd but
         // reachable/deletable, not a hidden zombie.
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "kb_thread_mint",
             "set_session_kind failed for {} (thread row kept): {}",
@@ -442,7 +442,7 @@ pub fn note_save(
     filesystem::project_write_text(&scope, rel_path, content, create_only)
         .map_err(|e| anyhow!(e.message().to_string()))?;
     if let Err(e) = index::reindex_note(kb_id, scope.root(), rel_path) {
-        crate::app_warn!("knowledge", "service", "reindex {} failed: {}", rel_path, e);
+        app_warn!("knowledge", "service", "reindex {} failed: {}", rel_path, e);
     }
     emit(kb_id, "upsert");
     Ok(super::blake3_hex(content.as_bytes()))
@@ -458,7 +458,7 @@ pub fn note_delete(kb_id: &str, rel_path: &str) -> Result<()> {
     filesystem::project_delete(&scope, rel_path, false)
         .map_err(|e| anyhow!(e.message().to_string()))?;
     if let Err(e) = index::remove_note(kb_id, rel_path) {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "service",
             "remove index {} failed: {}",
@@ -635,7 +635,7 @@ pub fn note_read_ref(kb_id: &str, reference: &str) -> Result<Option<NoteReadResu
             Ok(Some(r))
         }
         Err(e) => {
-            crate::app_warn!(
+            app_warn!(
                 "knowledge",
                 "service",
                 "note_read_ref resolved '{}' but read failed (stale index?): {}",
@@ -704,7 +704,7 @@ pub async fn delete_dir(kb_id: &str, rel: &str) -> Result<()> {
         filesystem::project_delete(&scope, &rel, true)
             .map_err(|e| anyhow!(e.message().to_string()))?;
         if let Err(e) = index::reindex_kb(&kb, false) {
-            crate::app_warn!("knowledge", "service", "delete_dir reindex failed: {}", e);
+            app_warn!("knowledge", "service", "delete_dir reindex failed: {}", e);
         }
         Ok(())
     })
@@ -813,14 +813,14 @@ pub fn apply_draft_attachments(session_id: &str, incognito: bool, attaches: &[Kb
     if incognito || attaches.is_empty() {
         return;
     }
-    let Some(reg) = crate::get_knowledge_db() else {
+    let Some(reg) = ha_core::get_knowledge_db() else {
         return;
     };
     for a in attaches {
         let access = KbAccess::from_str_lenient(&a.access);
         match reg.attach_session(session_id, &a.kb_id, access) {
             Ok(()) => emit(&a.kb_id, "attach"),
-            Err(e) => crate::app_warn!(
+            Err(e) => app_warn!(
                 "knowledge",
                 "service",
                 "draft attach {} failed: {}",
@@ -832,7 +832,7 @@ pub fn apply_draft_attachments(session_id: &str, incognito: bool, attaches: &[Kb
 }
 
 fn emit(kb_id: &str, op: &str) {
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "knowledge:changed",
             serde_json::json!({ "kbId": kb_id, "op": op }),
@@ -844,7 +844,7 @@ fn emit(kb_id: &str, op: &str) {
 
 /// Current chunking parameters, clamped to sane bounds.
 pub fn get_chunk_config() -> super::ChunkConfig {
-    crate::config::cached_config().knowledge_chunk.clamped()
+    ha_core::config::cached_config().knowledge_chunk.clamped()
 }
 
 /// Persist new chunking parameters and kick off a full reindex (re-chunk +
@@ -868,7 +868,7 @@ pub fn set_chunk_config(
     }
     .clamped();
     let to_save = cfg.clone();
-    crate::config::mutate_config(("knowledge_chunk", source), move |store| {
+    ha_core::config::mutate_config(("knowledge_chunk", source), move |store| {
         store.knowledge_chunk = to_save.clone();
         Ok(())
     })?;
@@ -876,7 +876,7 @@ pub fn set_chunk_config(
     let ids = registry()?.list_all_ids()?;
     if !ids.is_empty() {
         if let Err(e) = super::start_knowledge_reembed_job(Some(ids), source) {
-            crate::app_warn!(
+            app_warn!(
                 "knowledge",
                 "service",
                 "chunk config saved but reindex spawn failed: {}",
@@ -891,7 +891,7 @@ pub fn set_chunk_config(
 
 /// Current (clamped) hybrid-search ranking parameters.
 pub fn get_search_config() -> super::KnowledgeSearchConfig {
-    crate::config::cached_config().knowledge_search.clamped()
+    ha_core::config::cached_config().knowledge_search.clamped()
 }
 
 /// Persist new search ranking parameters (clamped first). Pure query-time — no
@@ -903,7 +903,7 @@ pub fn set_search_config(
 ) -> Result<super::KnowledgeSearchConfig> {
     let clamped = cfg.clamped();
     let to_save = clamped.clone();
-    crate::config::mutate_config(("knowledge_search", source), move |store| {
+    ha_core::config::mutate_config(("knowledge_search", source), move |store| {
         store.knowledge_search = to_save.clone();
         Ok(())
     })?;
@@ -915,7 +915,7 @@ pub fn set_search_config(
 /// Current agent selection for organizing raw sources into reviewable note
 /// proposals. `agent_id = None` inherits the global default agent.
 pub fn get_compile_config() -> super::KnowledgeCompileConfig {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .knowledge_compile
         .clone()
         .normalized()
@@ -929,7 +929,7 @@ pub fn set_compile_config(
 ) -> Result<super::KnowledgeCompileConfig> {
     let normalized = cfg.normalized();
     let to_save = normalized.clone();
-    crate::config::mutate_config(("knowledge_compile", source), move |store| {
+    ha_core::config::mutate_config(("knowledge_compile", source), move |store| {
         store.knowledge_compile = to_save.clone();
         Ok(())
     })?;
@@ -942,7 +942,7 @@ pub fn set_compile_config(
 /// OCR import). `model_override = None` falls through to
 /// `function_models.automation` → chat default.
 pub fn get_vision_config() -> super::KnowledgeVisionConfig {
-    crate::config::cached_config().knowledge_vision.clone()
+    ha_core::config::cached_config().knowledge_vision.clone()
 }
 
 /// Persist Knowledge vision model selection. Uses `mutate_config_async` (not
@@ -955,7 +955,7 @@ pub async fn set_vision_config(
 ) -> Result<super::KnowledgeVisionConfig> {
     let clamped = cfg.clamped();
     let to_save = clamped.clone();
-    crate::config::mutate_config_async(("knowledge_vision", source), move |store| {
+    ha_core::config::mutate_config_async(("knowledge_vision", source), move |store| {
         store.knowledge_vision = to_save.clone();
         Ok(())
     })
@@ -968,7 +968,7 @@ pub async fn set_vision_config(
 /// Current model selection for the standalone note-authoring tools
 /// (`note_distill` / `note_moc` / `session_to_note`).
 pub fn get_note_tools_config() -> super::NoteToolsConfig {
-    crate::config::cached_config().note_tools.clone()
+    ha_core::config::cached_config().note_tools.clone()
 }
 
 /// Persist note-tools model selection.
@@ -977,7 +977,7 @@ pub async fn set_note_tools_config(
     source: &str,
 ) -> Result<super::NoteToolsConfig> {
     let to_save = cfg.clone();
-    crate::config::mutate_config_async(("note_tools", source), move |store| {
+    ha_core::config::mutate_config_async(("note_tools", source), move |store| {
         store.note_tools = to_save.clone();
         Ok(())
     })
@@ -989,7 +989,7 @@ pub async fn set_note_tools_config(
 
 /// Current (clamped) maintenance config for the GUI panel.
 pub fn get_maintenance_config() -> super::maintenance::MaintenanceConfig {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .knowledge_maintenance
         .clamped()
 }
@@ -1002,7 +1002,7 @@ pub fn set_maintenance_config(
 ) -> Result<super::maintenance::MaintenanceConfig> {
     let clamped = cfg.clamped();
     let to_save = clamped.clone();
-    crate::config::mutate_config(("knowledge_maintenance", source), move |store| {
+    ha_core::config::mutate_config(("knowledge_maintenance", source), move |store| {
         store.knowledge_maintenance = to_save.clone();
         Ok(())
     })?;
@@ -1013,7 +1013,7 @@ pub fn set_maintenance_config(
 
 /// Current (clamped) passive related-notes config for the GUI panel.
 pub fn get_passive_recall_config() -> super::PassiveRecallConfig {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .knowledge_passive_recall
         .clamped()
 }
@@ -1026,7 +1026,7 @@ pub fn set_passive_recall_config(
 ) -> Result<super::PassiveRecallConfig> {
     let clamped = cfg.clamped();
     let to_save = clamped.clone();
-    crate::config::mutate_config(("knowledge_passive_recall", source), move |store| {
+    ha_core::config::mutate_config(("knowledge_passive_recall", source), move |store| {
         store.knowledge_passive_recall = to_save.clone();
         Ok(())
     })?;
@@ -1038,7 +1038,7 @@ pub fn set_passive_recall_config(
 /// Current optional source-media retention config. Disabled by default; the
 /// returned shape is clamped so UI and import paths share the same bounds.
 pub fn get_media_retention_config() -> super::KnowledgeMediaRetentionConfig {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .knowledge_media_retention
         .clone()
         .clamped()
@@ -1052,7 +1052,7 @@ pub fn set_media_retention_config(
 ) -> Result<super::KnowledgeMediaRetentionConfig> {
     let clamped = cfg.clamped();
     let to_save = clamped.clone();
-    crate::config::mutate_config(("knowledge_media_retention", source), move |store| {
+    ha_core::config::mutate_config(("knowledge_media_retention", source), move |store| {
         store.knowledge_media_retention = to_save.clone();
         Ok(())
     })?;
@@ -1062,7 +1062,7 @@ pub fn set_media_retention_config(
 // ── Source import limits (owner plane GUI + ha-settings, MEDIUM) ────────
 
 pub fn get_source_limits_config() -> super::KnowledgeSourceLimitsConfig {
-    crate::config::cached_config()
+    ha_core::config::cached_config()
         .knowledge_source_limits
         .clone()
         .clamped()
@@ -1074,7 +1074,7 @@ pub fn set_source_limits_config(
 ) -> Result<super::KnowledgeSourceLimitsConfig> {
     let clamped = cfg.clamped();
     let to_save = clamped.clone();
-    crate::config::mutate_config(("knowledge_source_limits", source), move |store| {
+    ha_core::config::mutate_config(("knowledge_source_limits", source), move |store| {
         store.knowledge_source_limits = to_save.clone();
         Ok(())
     })?;
@@ -1136,9 +1136,9 @@ pub async fn ai_rewrite(
         .unwrap_or(u32::MAX)
         .saturating_add(512)
         .clamp(512, 8192);
-    let config = crate::config::cached_config();
+    let config = ha_core::config::cached_config();
     let chain = resolve_rewrite_chain(&config, model_override);
-    let output = crate::automation::run(crate::automation::ModelTaskSpec {
+    let output = ha_core::automation::run(ha_core::automation::ModelTaskSpec {
         purpose: "knowledge.ai_rewrite",
         chain,
         session_key: "automation:knowledge_ai_rewrite",
@@ -1161,21 +1161,21 @@ pub async fn ai_rewrite(
 /// `automation::effective_chain` (the real degradation chain), which is the
 /// "no explicit pick" default path.
 fn resolve_rewrite_chain(
-    config: &crate::config::AppConfig,
+    config: &ha_core::config::AppConfig,
     model_override: Option<&str>,
-) -> Vec<crate::provider::ActiveModel> {
+) -> Vec<ha_core::provider::ActiveModel> {
     if let Some(m) = model_override.map(str::trim).filter(|s| !s.is_empty()) {
-        if let Some(active) = crate::provider::parse_model_ref(m) {
+        if let Some(active) = ha_core::provider::parse_model_ref(m) {
             return vec![active];
         }
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "ai_rewrite",
             "quick-rewrite model override '{}' unresolvable; falling back to default",
             m
         );
     }
-    crate::automation::effective_chain(config, None)
+    ha_core::automation::effective_chain(config, None)
 }
 
 /// Record a quick-rewrite outcome into the Learning Tracker (`learning_events`)
@@ -1190,12 +1190,12 @@ pub fn log_quick_rewrite(
     chars_after: i64,
     accepted: bool,
 ) {
-    let Some(db) = crate::get_session_db() else {
+    let Some(db) = ha_core::get_session_db() else {
         return;
     };
     let meta = serde_json::json!({
         "notePath": note_path,
-        "instruction": crate::truncate_utf8(instruction.trim(), 500),
+        "instruction": ha_core::truncate_utf8(instruction.trim(), 500),
         "model": model,
         "charsBefore": chars_before,
         "charsAfter": chars_after,
@@ -1215,7 +1215,7 @@ pub fn log_quick_rewrite(
 /// depend on it); a hard error before the sentinel is written simply retries next
 /// launch. Called from `app_init` after the registry + index are ready.
 pub fn ensure_default_knowledge_base() {
-    let Ok(sentinel) = crate::paths::root_dir().map(|d| d.join(".default-kb-seeded")) else {
+    let Ok(sentinel) = ha_core::paths::root_dir().map(|d| d.join(".default-kb-seeded")) else {
         return;
     };
     if sentinel.exists() {
@@ -1232,7 +1232,7 @@ pub fn ensure_default_knowledge_base() {
         }
         Ok(_) => {}
         Err(e) => {
-            crate::app_warn!("knowledge", "seed", "count KBs failed: {}", e);
+            app_warn!("knowledge", "seed", "count KBs failed: {}", e);
             return;
         }
     }
@@ -1245,7 +1245,7 @@ pub fn ensure_default_knowledge_base() {
     }) {
         Ok(kb) => kb,
         Err(e) => {
-            crate::app_warn!("knowledge", "seed", "create default KB failed: {}", e);
+            app_warn!("knowledge", "seed", "create default KB failed: {}", e);
             return;
         }
     };
@@ -1254,11 +1254,11 @@ pub fn ensure_default_knowledge_base() {
     // the basics. A failure here still leaves a usable (empty) space.
     let (rel, content) = welcome_note();
     if let Err(e) = note_save(&kb.id, &rel, &content, None, true) {
-        crate::app_warn!("knowledge", "seed", "welcome note failed: {}", e);
+        app_warn!("knowledge", "seed", "welcome note failed: {}", e);
     }
 
     let _ = std::fs::write(&sentinel, b"");
-    crate::app_info!(
+    app_info!(
         "knowledge",
         "seed",
         "created default knowledge space {}",
@@ -1271,7 +1271,7 @@ pub fn ensure_default_knowledge_base() {
 /// `"auto"` default. Normalized to a base code (`zh` / `en` / …) with `zh-TW` kept
 /// distinct for Traditional Chinese.
 fn seed_locale() -> String {
-    let cfg = crate::config::cached_config().language.clone();
+    let cfg = ha_core::config::cached_config().language.clone();
     let raw = if cfg.is_empty() || cfg.eq_ignore_ascii_case("auto") {
         // Skip set-but-empty vars (e.g. LANG="") so they don't short-circuit the
         // chain and starve LC_ALL/LANGUAGE.

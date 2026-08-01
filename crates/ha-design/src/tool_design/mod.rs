@@ -496,7 +496,7 @@ fn action_save_to_knowledge(args: &Value, ctx: &ha_core::tools::ToolExecContext)
     // owner-plane save path, so a prompt-injected model cannot write an artifact
     // note into a KB that was never attached / opted in for the session.
     let kb = service::resolve_save_kb(str_arg(args, "kb_id"))?;
-    ha_core::tools::note::require_write(ctx, &kb)?;
+    ha_knowledge::tools::note::require_write(ctx, &kb)?;
     let path = service::save_to_knowledge(id, Some(&kb))?;
     ok(json!({ "status": "saved", "artifactId": id, "note": path }))
 }

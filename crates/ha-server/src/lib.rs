@@ -443,7 +443,8 @@ fn build_router_with_cors(
             get(routes::knowledge::kb_source_list)
                 .post(routes::knowledge::kb_source_import)
                 .layer(DefaultBodyLimit::max(
-                    (ha_core::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4 / 3)
+                    (ha_knowledge::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4
+                        / 3)
                         + 2 * 1024 * 1024,
                 )),
         )
@@ -458,7 +459,8 @@ fn build_router_with_cors(
         .route(
             "/knowledge/{kb_id}/sources/batch",
             post(routes::knowledge::kb_source_import_batch).layer(DefaultBodyLimit::max(
-                (ha_core::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4 / 3 * 3)
+                (ha_knowledge::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4 / 3
+                    * 3)
                     + 4 * 1024 * 1024,
             )),
         )

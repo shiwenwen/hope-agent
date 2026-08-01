@@ -179,7 +179,7 @@ const PHASE_KEY: Record<string, string> = {
   "reembed-keep": "settings.embedding.reembedJob.phaseKeep",
   "reembed-fresh": "settings.embedding.reembedJob.phaseFresh",
   "knowledge-reembed": "settings.knowledgeEmbedding.reembed.phase",
-  // Source of truth: `crates/ha-core/src/knowledge/reembed.rs::PHASE_KNOWLEDGE_INDEX_FILES`.
+  // Source of truth: `crates/ha-knowledge/src/knowledge/reembed.rs::PHASE_KNOWLEDGE_INDEX_FILES`.
   // Single-KB scope (bind a new space / per-KB Reindex) — file-granular
   // progress, as opposed to the KB-granular "knowledge-reembed" above.
   "knowledge-index-files": "knowledge.jobs.phaseIndex",

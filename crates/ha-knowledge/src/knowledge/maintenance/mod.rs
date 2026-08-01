@@ -18,7 +18,10 @@ pub mod apply;
 pub mod config;
 pub mod generators;
 pub mod scheduler;
-pub mod types;
+/// 提案 wire 类型随 registry 下沉 kernel（`ha_core::knowledge::maintenance_defs`）——
+/// 队列真相源是 `KnowledgeRegistry`，方法签名直接用这些类型。原名再导出，
+/// 本模块内 `super::types::…` 与 crate 外 `maintenance::types::…` 逐字不变。
+pub use ha_core::knowledge::maintenance_defs as types;
 
 pub use config::MaintenanceConfig;
 pub use scheduler::{
@@ -35,7 +38,7 @@ use anyhow::{anyhow, Result};
 
 /// The owner-plane registry handle (truth source for the proposal queue).
 fn registry() -> Result<&'static std::sync::Arc<super::KnowledgeRegistry>> {
-    crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
+    ha_core::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
 }
 
 /// List queued proposals for a KB (owner plane). `status=None` = all.

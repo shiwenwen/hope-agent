@@ -143,6 +143,15 @@ pub(crate) fn canonical_name(name: &str) -> Option<&'static str> {
     frozen().get(name).map(|t| t.canonical)
 }
 
+/// [`canonical_name`] 的 test-only 公开入口：特征 crate 需要断言**自己注册的
+/// 别名**也归一（如 ha-knowledge 的 `note_move` → `note_rename`），而
+/// `canonical_name` 是执行门内部入口、不对外开放。`cfg(any(test,
+/// feature = "test-support"))`——生产构建里不存在。同 `SessionDB::with_conn_for_test`。
+#[cfg(any(test, feature = "test-support"))]
+pub fn canonical_name_for_test(name: &str) -> Option<&'static str> {
+    canonical_name(name)
+}
+
 /// 装配期主动冻结（`init_runtime` 尾部调用）：让「重名注册」这类装配 bug
 /// 在启动时 panic，而不是推迟到用户第一次工具调用才炸。幂等。
 ///
@@ -278,7 +287,9 @@ mod tests {
             ("write_file", crate::tools::TOOL_WRITE),
             ("patch_file", crate::tools::TOOL_EDIT),
             ("list_dir", crate::tools::TOOL_LS),
-            (crate::tools::TOOL_NOTE_MOVE, crate::tools::TOOL_NOTE_RENAME),
+            // `note_move` → `note_rename` 随 ha-knowledge 迁出，在
+            // `ha_knowledge::tools::note_alias_resolves_to_canonical_name`
+            // 里同样断言（外部注册的别名也必须归一）。
         ];
         for (alias, expected) in cases {
             assert_eq!(canonical_name(alias), Some(expected), "alias {alias}");

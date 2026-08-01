@@ -90,7 +90,7 @@ fn initialize_result() -> Value {
         },
         "serverInfo": {
             "name": "hope-agent-knowledge",
-            "version": crate::app_version()
+            "version": ha_core::app_version()
         },
         "instructions": "Use the knowledge_* tools to read Hope Agent Knowledge Space notes. Raw sources are returned only when explicitly requested."
     })

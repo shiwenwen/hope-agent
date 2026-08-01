@@ -16,7 +16,7 @@
 
 use anyhow::{anyhow, Result};
 
-use crate::memory::{
+use ha_core::memory::{
     active_signature_for, create_embedding_provider, memory_embedding_state,
     EmbeddingSelectionState,
 };
@@ -27,17 +27,17 @@ use super::reembed::{cancel_active_knowledge_reembed_jobs, start_knowledge_reemb
 /// Current knowledge-embedding selection state: selected model + `needsReembed`.
 /// Drives the knowledge settings UI (mirrors `get_memory_embedding_state`).
 pub fn get_knowledge_embedding_state() -> EmbeddingSelectionState {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     memory_embedding_state(&store.knowledge_embedding, &store.embedding_models)
 }
 
 /// Active knowledge-embedding signature (persisted SHA256 of the active model).
 /// `None` when knowledge embedding is disabled / unresolved — note chunks index
 /// FTS-only and `search_notes` skips the vector leg. This is the knowledge
-/// analogue of [`crate::memory::helpers::active_embedding_signature`], read from
+/// analogue of [`ha_core::memory::helpers::active_embedding_signature`], read from
 /// `knowledge_embedding` rather than `memory_embedding`.
 pub fn knowledge_active_embedding_signature() -> Option<String> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     active_signature_for(&store.knowledge_embedding, &store.embedding_models)
 }
 
@@ -45,7 +45,7 @@ pub fn knowledge_active_embedding_signature() -> Option<String> {
 /// embedder immediately, and kick off a background reembed (a full reindex of
 /// every KB, which re-embeds each note chunk under the new model).
 ///
-/// Mirrors [`crate::memory::set_memory_embedding_default`] but writes
+/// Mirrors [`ha_core::memory::set_memory_embedding_default`] but writes
 /// `knowledge_embedding` and rebuilds the note index instead of the memory
 /// store. The provider AND the index DB are resolved up front so a bad config or
 /// an uninitialized index fails *before* anything is persisted — never leaving a
@@ -54,7 +54,7 @@ pub fn set_knowledge_embedding_default(
     model_config_id: &str,
     source: &str,
 ) -> Result<EmbeddingSelectionState> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     let model = store
         .embedding_models
         .iter()
@@ -82,7 +82,7 @@ pub fn set_knowledge_embedding_default(
             .as_deref()
             == Some(signature.as_str());
 
-    crate::app_info!(
+    app_info!(
         "knowledge",
         "embedding",
         "Switch knowledge embedding model requested: id={} name={} same={} source={}",
@@ -103,7 +103,7 @@ pub fn set_knowledge_embedding_default(
     // old-dimension vectors into the freshly recreated table.
     cancel_active_knowledge_reembed_jobs(None);
 
-    crate::config::mutate_config(("knowledge_embedding.set_default", source), |store| {
+    ha_core::config::mutate_config(("knowledge_embedding.set_default", source), |store| {
         store.knowledge_embedding.enabled = true;
         store.knowledge_embedding.model_config_id = Some(model_config_id.to_string());
         store.knowledge_embedding.active_signature = Some(signature.clone());
@@ -119,7 +119,7 @@ pub fn set_knowledge_embedding_default(
 
     // Rebuild every KB's note vectors under the new model (background job).
     if let Err(e) = start_knowledge_reembed_job(None, source) {
-        crate::app_warn!(
+        app_warn!(
             "knowledge",
             "embedding",
             "failed to spawn knowledge reembed job: {}",
@@ -138,14 +138,14 @@ pub fn disable_knowledge_embedding(source: &str) -> Result<EmbeddingSelectionSta
     // running against the about-to-be-cleared embedder (embedding nothing) and
     // still stamp `last_reembedded_signature` on completion.
     cancel_active_knowledge_reembed_jobs(None);
-    crate::config::mutate_config(("knowledge_embedding.disable", source), |store| {
+    ha_core::config::mutate_config(("knowledge_embedding.disable", source), |store| {
         store.knowledge_embedding.enabled = false;
         Ok(())
     })?;
     if let Some(db) = get_index_db() {
         db.clear_embedder();
     }
-    crate::app_info!(
+    app_info!(
         "knowledge",
         "embedding",
         "Knowledge embedding disabled (source={})",
@@ -155,7 +155,7 @@ pub fn disable_knowledge_embedding(source: &str) -> Result<EmbeddingSelectionSta
 }
 
 /// Reload the index embedder from the persisted `knowledge_embedding` selection.
-/// Called by [`crate::memory::save_embedding_model_config`] after an edit to the
+/// Called by [`ha_core::memory::save_embedding_model_config`] after an edit to the
 /// active knowledge model. NOTE: there is currently **no** `config:changed`
 /// subscriber wired to this, so config mutations that bypass the dedicated
 /// set/disable/save paths (e.g. backup restore, config rollback) do not

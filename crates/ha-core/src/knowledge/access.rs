@@ -213,6 +213,79 @@ fn merge_max(map: &mut HashMap<String, KbAccess>, kb_id: String, access: KbAcces
         .or_insert(access);
 }
 
+// ── 工具面（agent 平面）的解析链 ─────────────────────────────────
+//
+// 阶段 5 第六刀曾把这三个函数随 `tools/note.rs` 迁进 ha-knowledge，再经
+// `knowledge_hooks` 反向回调回来——**那是错的**：它们只用 kernel 原语
+// （`lookup_session_meta` + 本模块的 `ChannelKbContext` /
+// `KnowledgeAccessContext` / `effective_kb_access` + `tool_defs` 的
+// `ToolExecContext`），一行知识机器都没碰，而钩子给 WS8 收紧动作凭空加了一条
+// **未装配即失效**的 fail-open 语义。归位到裁决点同处后，「工具面与 agent 面
+// 共用同一推导、不得漂移」这条不变量重新是编译期保证而不是约定。
+
+/// 从会话持久化的 IM 绑定构造 [`ChannelKbContext`]，非 IM-bound 会话返 `None`。
+///
+/// 两处消费者共用**这一份**推导，防止 WS8 闸门在两个平面间漂移：
+/// `Agent::resolve_kb_access`（agent 面）与 [`access_map_for_tool_ctx`]（工具面）。
+pub fn im_kb_context_from_session(session_id: Option<&str>) -> Option<ChannelKbContext> {
+    let ci = crate::session::lookup_session_meta(session_id)?.channel_info?;
+    Some(ChannelKbContext {
+        channel_id: ci.channel_id,
+        account_id: ci.account_id,
+        chat_id: ci.chat_id,
+        // Any non-DM chat needs per-chat confirmation (matches the dispatcher's
+        // live `is_group` derivation).
+        is_group: !ci.chat_type.eq_ignore_ascii_case("dm"),
+    })
+}
+
+/// 工具执行上下文 → 本次调用真实可访问的 KB 集合。**agent 平面每次调用的
+/// live 门**（`note_*` / `knowledge_recall` 全部经此），与
+/// `Agent::resolve_kb_access` 的 schema/prompt 快照是两回事。
+pub fn access_map_for_tool_ctx(
+    ctx: &crate::tool_defs::ToolExecContext,
+) -> HashMap<String, KbAccess> {
+    let mut source = ctx.chat_source.unwrap_or(KbAccessSource::Gui);
+    // Call-chain origin (D10): a subagent carries its parent turn's origin so an
+    // IM-origin chain can't reacquire KB access via the neutral Subagent source.
+    // Falls back to `source` when unset (contexts not built by the chat engine).
+    let mut origin = ctx.origin_chat_source.unwrap_or(source);
+    let mut channel_info = ctx.channel_kb_context.clone();
+
+    // Defense in depth (WS8): a context whose `chat_source` was never threaded
+    // (`None` → would default to `Gui` owner) must NOT bypass the IM opt-in gate
+    // when it is actually running on an IM-bound session. The `/skill` direct-tool
+    // path (and any other entry that builds a `..Default::default()` context)
+    // reaches `note_*` without setting a source; on an IM session that would
+    // silently elevate to owner-plane KB access. Reclassify it as an IM turn
+    // carrying the session's own channel identity so `effective_kb_access` applies
+    // the same WS8 gate as the sanctioned inbound-LLM path. A non-IM session has
+    // no `channel_info`, so desktop/HTTP owner contexts are unaffected.
+    if ctx.chat_source.is_none() {
+        if let Some(ci) = im_kb_context_from_session(ctx.session_id.as_deref()) {
+            source = KbAccessSource::Im;
+            origin = KbAccessSource::Im;
+            channel_info = Some(ci);
+        }
+    }
+
+    let actx = KnowledgeAccessContext::resolve(
+        ctx.session_id.clone(),
+        ctx.project_id.clone(),
+        source,
+        origin,
+        channel_info,
+    );
+    effective_kb_access(&actx)
+}
+
+/// 本会话是否 attach 了任何 KB。只服务 `tool_search` 的 **schema 可见性**收窄
+/// （AGENTS：`is_kb_scoped_tool` / `ToolScope::Knowledge` 非安全边界）；执行层
+/// 门是 [`access_map_for_tool_ctx`] 本身。
+pub fn session_has_kb_access(ctx: &crate::tool_defs::ToolExecContext) -> bool {
+    !access_map_for_tool_ctx(ctx).is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

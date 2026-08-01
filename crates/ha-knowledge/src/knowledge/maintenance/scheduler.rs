@@ -82,7 +82,7 @@ pub fn check_idle_trigger(cfg: &MaintenanceConfig) -> bool {
         return false;
     }
     let now = now_secs();
-    let last_activity = crate::memory::dreaming::last_activity_epoch_secs();
+    let last_activity = ha_core::memory::dreaming::last_activity_epoch_secs();
     if last_activity == 0 {
         return false; // never saw activity — no surprise cycle after boot
     }
@@ -115,7 +115,7 @@ async fn run_cycle(trigger: MaintenanceTrigger) -> MaintenanceReport {
         None => return skipped("already running"),
     };
     let started = std::time::Instant::now();
-    let cfg = crate::config::cached_config()
+    let cfg = ha_core::config::cached_config()
         .knowledge_maintenance
         .clamped();
     // `enabled` gates only the automatic (idle/cron) triggers; a manual "Scan now"
@@ -133,7 +133,7 @@ async fn run_cycle(trigger: MaintenanceTrigger) -> MaintenanceReport {
         }
     }
 
-    let reg = match crate::get_knowledge_db() {
+    let reg = match ha_core::get_knowledge_db() {
         Some(r) => r,
         None => return skipped("knowledge db not initialized"),
     };
@@ -225,7 +225,7 @@ async fn run_cycle(trigger: MaintenanceTrigger) -> MaintenanceReport {
     report.duration_ms = started.elapsed().as_millis() as u64;
 
     // Notify the GUI to refresh the review queue per affected KB.
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         for kb_id in &changed_kbs {
             bus.emit(
                 "knowledge:changed",
@@ -237,7 +237,7 @@ async fn run_cycle(trigger: MaintenanceTrigger) -> MaintenanceReport {
             serde_json::to_value(&report).unwrap_or(serde_json::Value::Null),
         );
     }
-    crate::learning_events::emit(
+    ha_core::learning_events::emit(
         "kb_maintenance_cycle",
         None,
         None,
@@ -284,7 +284,7 @@ pub fn spawn_maintenance_cron_loop() {
     }
     let notify = Arc::new(Notify::new());
 
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let mut rx = bus.subscribe();
         let notify_for_sub = notify.clone();
         tokio::spawn(async move {
@@ -298,7 +298,7 @@ pub fn spawn_maintenance_cron_loop() {
 
     tokio::spawn(async move {
         loop {
-            let cfg = crate::config::cached_config()
+            let cfg = ha_core::config::cached_config()
                 .knowledge_maintenance
                 .clamped();
             if !cfg.enabled || !cfg.cron_trigger.enabled {
@@ -336,8 +336,8 @@ pub fn spawn_maintenance_cron_loop() {
 
 /// Reject every pending proposal across all KBs (owner "clear queue" action).
 pub fn reject_all(kb_id: &str) -> anyhow::Result<usize> {
-    let reg =
-        crate::get_knowledge_db().ok_or_else(|| anyhow::anyhow!("knowledge db not initialized"))?;
+    let reg = ha_core::get_knowledge_db()
+        .ok_or_else(|| anyhow::anyhow!("knowledge db not initialized"))?;
     let pending = reg.list_proposals(kb_id, Some(ProposalStatus::Draft))?;
     let mut n = 0;
     for p in pending {

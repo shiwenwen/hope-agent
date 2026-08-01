@@ -1,0 +1,46 @@
+[package]
+name = "ha-knowledge"
+version = "0.24.0"
+description = "Hope Agent knowledge space feature — index.db note cache, parser/compiler, retrieval, embedding, Layer-2 maintenance, note tools"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+ha-base = { path = "../ha-base" }
+ha-config-schema = { path = "../ha-config-schema" }
+ha-core = { path = "../ha-core" }
+
+anyhow = { workspace = true }
+base64 = { workspace = true }
+blake3 = "1.8.5"
+chrono = { workspace = true }
+cron = "0.13"
+futures-util = { workspace = true }
+htmd = "0.5"
+ignore = "0.4.25"
+image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
+notify = "8.2.0"
+pulldown-cmark = "0.13.4"
+readability = { version = "0.3", default-features = false }
+regex = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+similar = "2"
+sqlite-vec = "0.1"
+tempfile = "3"
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["rt"] }
+unicode-normalization = "0.1.25"
+url = { workspace = true }
+urlencoding = "2"
+uuid = { workspace = true }
+
+[dev-dependencies]
+ha-core = { path = "../ha-core", features = ["test-support"] }
+
+[lints]
+workspace = true

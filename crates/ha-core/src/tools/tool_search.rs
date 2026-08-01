@@ -109,7 +109,7 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // `Agent::build_tool_schemas` so they can't be resurrected here. The access
     // check is skipped unless such a tool actually survived the filters above.
     if candidates.iter().any(|t| super::is_kb_scoped_tool(&t.name))
-        && !super::note::session_has_kb_access(ctx)
+        && !crate::knowledge::access::session_has_kb_access(ctx)
     {
         candidates.retain(|t| !super::is_kb_scoped_tool(&t.name));
     }

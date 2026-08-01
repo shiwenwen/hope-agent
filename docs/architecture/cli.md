@@ -48,7 +48,7 @@ hope-agent knowledge-mcp [OPTIONS]
 
 - `knowledge_compile_propose`
 
-启动序列：`paths::ensure_dirs()` → `set_app_version()` → `init_runtime("knowledge-mcp")` → `knowledge::agent_mcp::run_stdio()`。MCP 层只做协议包装，所有行为复用 [`knowledge::agent_api`](../../crates/ha-core/src/knowledge/agent_api.rs)，因此 raw source 隔离、Review Diff、外部 root 只读与 stale-write guard 都与 HTTP/Tauri 出口一致。
+启动序列：`paths::ensure_dirs()` → `set_app_version()` → `init_runtime("knowledge-mcp")` → `knowledge::agent_mcp::run_stdio()`。MCP 层只做协议包装，所有行为复用 [`knowledge::agent_api`](../../crates/ha-knowledge/src/knowledge/agent_api.rs)，因此 raw source 隔离、Review Diff、外部 root 只读与 stale-write guard 都与 HTTP/Tauri 出口一致。
 
 ## `hope-agent mcp` 子命令
 

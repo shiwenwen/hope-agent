@@ -1,5 +1,5 @@
 // Pure helpers for the chat composer's `[[note]]` picker. Mirrors the backend
-// grammar (crates/ha-core/src/knowledge/inject.rs scans `\[\[([^\]\n]+)\]\]`)
+// grammar (crates/ha-knowledge/src/knowledge/inject.rs scans `\[\[([^\]\n]+)\]\]`)
 // so an inserted `[[name]]` round-trips through resolve_inline_injections.
 
 export interface ActiveNoteRef {

@@ -37,6 +37,7 @@ fn main() {
     ha_local_llm::wire();
     ha_dash::wire();
     ha_channel::wire();
+    ha_knowledge::wire();
     ha_cron::wire();
 
     if matches!(
@@ -173,7 +174,7 @@ fn run_knowledge_mcp(args: &[String]) {
     ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("knowledge-mcp");
 
-    if let Err(e) = ha_core::knowledge::agent_mcp::run_stdio(options) {
+    if let Err(e) = ha_knowledge::knowledge::agent_mcp::run_stdio(options) {
         eprintln!("[knowledge-mcp] Server error: {e}");
         std::process::exit(1);
     }
@@ -220,8 +221,8 @@ fn run_mcp(args: &[String]) {
 
 fn parse_knowledge_mcp_args(
     args: &[String],
-) -> Option<ha_core::knowledge::agent_mcp::KnowledgeMcpOptions> {
-    let mut options = ha_core::knowledge::agent_mcp::KnowledgeMcpOptions::default();
+) -> Option<ha_knowledge::knowledge::agent_mcp::KnowledgeMcpOptions> {
+    let mut options = ha_knowledge::knowledge::agent_mcp::KnowledgeMcpOptions::default();
     for arg in args {
         match arg.as_str() {
             "--allow-proposals" => options.allow_proposals = true,

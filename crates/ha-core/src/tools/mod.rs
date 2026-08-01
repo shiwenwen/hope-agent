@@ -42,9 +42,6 @@ mod loop_tool;
 mod ls;
 mod lsp;
 mod memory;
-// pub：ha-design 的 design 工具写 KB 时复用同一写门（require_write），
-// 不 fork KB 访问检查。
-pub mod note;
 mod notification;
 pub(crate) mod pdf;
 mod process;

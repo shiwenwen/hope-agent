@@ -13,7 +13,7 @@
 //! operation (`reindex_kb`), so they share progress reporting, cancellation,
 //! and retry instead of each reimplementing it.
 //!
-//! Runs through the shared [`crate::local_model_jobs`] runner so it reports
+//! Runs through the shared [`ha_core::local_model_jobs`] runner so it reports
 //! progress, supports cancellation, and holds the at-most-one-overlapping-scope
 //! invariant exactly like the memory reembed job. Progress granularity depends
 //! on scope: a single-KB run (the common case — bind / per-KB reindex) reports
@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use serde_json::json;
 
-use crate::local_model_jobs::{
+use ha_core::local_model_jobs::{
     self, append_log, finish_job, spawn_job_with_target_kb_ids, update_job_with_bytes,
     LocalModelJobKind, LocalModelJobSnapshot, LocalModelJobStatus, ProgressThrottle,
 };
@@ -90,7 +90,7 @@ pub fn start_knowledge_reembed_job(
     kb_ids: Option<Vec<String>>,
     source: &str,
 ) -> Result<LocalModelJobSnapshot> {
-    let store = crate::config::cached_config();
+    let store = ha_core::config::cached_config();
     let enabled = store.knowledge_embedding.enabled;
 
     // Resolve the job's display id/name and whether to stamp the signature.
@@ -130,7 +130,7 @@ pub fn start_knowledge_reembed_job(
 
     cancel_active_knowledge_reembed_jobs(kb_ids.as_deref());
 
-    crate::app_info!(
+    app_info!(
         "knowledge",
         "reembed",
         "Knowledge reembed/reindex job requested: scope={} enabled={} source={}",
@@ -171,8 +171,8 @@ async fn run_knowledge_reembed(
     let kb_ids = match kb_ids {
         Some(ids) => ids,
         None => {
-            let registry =
-                crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
+            let registry = ha_core::get_knowledge_db()
+                .ok_or_else(|| anyhow!("knowledge db not initialized"))?;
             // Propagate a registry error instead of unwrap_or_default → []: an
             // empty list from a failed query must NOT look like "0 KBs, all done"
             // and stamp the signature (see the cancel/had_error guard below).
@@ -240,7 +240,7 @@ async fn run_knowledge_reembed(
             {
                 Ok(report) => (report.changed, report.failed, false),
                 Err(e) => {
-                    crate::app_warn!("knowledge", "reembed", "reindex kb {} failed: {}", kb_id, e);
+                    app_warn!("knowledge", "reembed", "reindex kb {} failed: {}", kb_id, e);
                     (0, 0, true)
                 }
             }
@@ -279,13 +279,7 @@ async fn run_knowledge_reembed(
                     }
                     Err(e) => {
                         had_error = true;
-                        crate::app_warn!(
-                            "knowledge",
-                            "reembed",
-                            "reindex kb {} failed: {}",
-                            kb_id,
-                            e
-                        )
+                        app_warn!("knowledge", "reembed", "reindex kb {} failed: {}", kb_id, e)
                     }
                 }
                 done += 1;
@@ -339,7 +333,7 @@ async fn run_knowledge_reembed(
     // None for scoped rebuilds and disabled reindexes, which must not clear
     // `needsReembed` (they don't cover every note).
     if let Some(signature_for_save) = stamp_signature {
-        crate::config::mutate_config(
+        ha_core::config::mutate_config(
             ("knowledge_embedding.reembedded", "knowledge_reembed_job"),
             move |store| {
                 store.knowledge_embedding.last_reembedded_signature =
@@ -353,7 +347,7 @@ async fn run_knowledge_reembed(
     // manual reload. `spawn_reindex_kb`'s fire-and-forget path already does
     // this on completion; this job-tracked path historically didn't, which
     // left a completed bind/rebuild silently stuck showing stale contents.
-    if let Some(bus) = crate::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         for kb_id in &kb_ids {
             bus.emit(
                 "knowledge:changed",
@@ -362,7 +356,7 @@ async fn run_knowledge_reembed(
         }
     }
 
-    crate::app_info!(
+    app_info!(
         "knowledge",
         "reembed",
         "Knowledge reembed completed: {} notes reindexed ({} failed) across {} KBs",

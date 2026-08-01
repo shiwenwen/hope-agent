@@ -101,7 +101,18 @@ const FEATURES = {
     "review",
     "verification",
   ],
-  "ha-knowledge": ["knowledge", "tools::note"],
+  // ha-knowledge 已实际迁出（crates/ha-knowledge/，阶段 5 第六刀）——**台账、
+  // 契约与裁决留 kernel**：`knowledge/registry.rs`（`knowledge_bases` + 访问绑定
+  // 的真相源，81 处直接 `session_db.conn.lock()`，撞「sessions.db 写连接不对
+  // 特征 crate 开放」红线）、`access.rs`（`effective_kb_access` 是「KB 访问默认
+  // deny」的唯一裁决点，不能挪到可选装配的钩子后面）、`types.rs` 与
+  // `maintenance_defs.rs`（registry 方法签名用的 wire 类型，后者自
+  // `maintenance/types.rs` 下沉）。正因 registry 留下，`KNOWLEDGE_DB` 全局、
+  // `get_knowledge_db()` 与 `AppState.knowledge_db` 一处未改。
+  // 迁出前报的 44 条需切边里约 36 条是 `KbAccess` / `KbAccessSource` /
+  // `ChannelKbContext` / `NoteSearchHit` 的**纯类型引用**——契约留下即消失，
+  // 真正开钩子的只有 4 处行为 + 6 处装配（`knowledge_hooks` 十槽）——工具面的
+  // 解析链（`access_map_for_tool_ctx` 等）随裁决点留 kernel，刻意不走钩子。
   // ha-channel 已实际迁出（crates/ha-channel/，阶段 5 第五刀）——**台账与契约
   // 留 kernel**：`channel/db.rs`（红线「一 chat ↔ 一 session 双向 1:1、读写一律走
   // db.rs helper」的执行点，且它持 SessionDB 连接）、`cancel.rs`（绑

@@ -2,6 +2,13 @@
 //! the concrete file action each carries, the persisted proposal row, and the
 //! per-cycle report. Proposals are **drafts** — nothing touches a user's notes
 //! until the owner approves one in the review queue.
+//!
+//! **契约层留 kernel**（阶段 5 第六刀，原 `knowledge/maintenance/types.rs`）：
+//! 提案队列的真相源是 [`super::KnowledgeRegistry`]，其 `insert_proposal` /
+//! `list_proposals` / `get_proposal` / `set_proposal_status` 签名直接用这里的
+//! 类型；registry 因 `sessions.db` 写连接红线恒留 kernel，类型跟着留下。
+//! 生成器 / 应用器 / 调度器等**机器**在 `ha_knowledge::knowledge::maintenance`，
+//! 那边原路径 `maintenance::types` 再导出本模块，crate 外符号集不变。
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

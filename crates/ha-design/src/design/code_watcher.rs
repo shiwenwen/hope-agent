@@ -1,6 +1,6 @@
 //! 绑定代码目录的文件监听（code→design 回灌的实时触发）。
 //!
-//! 蓝本 [`ha_core::knowledge::watcher`]，但两点分歧：① **只 watch 已收割「产物落地文件」的父目录**
+//! 蓝本 [`ha_knowledge::knowledge::watcher`]，但两点分歧：① **只 watch 已收割「产物落地文件」的父目录**
 //! （`NonRecursive`），不递归仓库根——避免 `node_modules`/`target` 事件洪泛与 Linux inotify 配额；
 //! ② 事件按**关联绝对路径集**精确过滤。索引变化（收割/同步/建回执/删产物/绑定变更）后经
 //! [`refresh_all`] 全量重建（简单可靠）。父目录整体被删 → watch 静默失效，由打开项目时的

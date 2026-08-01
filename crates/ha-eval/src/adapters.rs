@@ -396,6 +396,7 @@ fn runtime_eval_db() -> Result<Arc<SessionDB>> {
     ha_local_llm::wire();
     ha_dash::wire();
     ha_channel::wire();
+    ha_knowledge::wire();
     ha_cron::wire();
     ha_core::init_runtime("eval");
     ha_core::get_session_db()

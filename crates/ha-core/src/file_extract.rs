@@ -285,7 +285,7 @@ pub(crate) fn render_pdf_bytes(
 /// loop short-circuits the whole call). Used by the knowledge-base scanned-
 /// PDF OCR fallback, which needs per-page failure isolation to support
 /// retrying just the pages that failed.
-pub(crate) struct PageRenderResult {
+pub struct PageRenderResult {
     /// 1-indexed page number.
     pub page_number: usize,
     pub result: std::result::Result<String, String>,
@@ -295,7 +295,10 @@ pub(crate) struct PageRenderResult {
 /// per-page render failures instead of aborting the whole call. Failure to
 /// load the document itself (corrupt file, wrong format) still bails —
 /// that's a whole-file problem, not a single-page one.
-pub(crate) fn render_pdf_bytes_isolated(
+///
+/// `pub`（而非 `pub(crate)`）：唯一消费者 `knowledge::source` 的 PDF OCR 分页
+/// 渲染随 ha-knowledge 迁出。pdfium 绑定与抽取本体留 kernel。
+pub fn render_pdf_bytes_isolated(
     data: &[u8],
     page_indices: Option<&[usize]>,
     max_pages: usize,

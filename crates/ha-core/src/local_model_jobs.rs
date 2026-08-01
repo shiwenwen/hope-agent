@@ -780,7 +780,10 @@ where
 /// KB）。目前仅 `KnowledgeReembed` 使用——绑定新空间 / 单空间 Reindex 传
 /// `Some(vec![kb_id])`，设置页「重建全部」传 `None`。见
 /// [`LocalModelJobSnapshot::target_kb_ids`] 的用途说明。
-pub(crate) fn spawn_job_with_target_kb_ids<F, Fut>(
+///
+/// `pub`（而非 `pub(crate)`）：唯一消费者 `knowledge::reembed` 随 ha-knowledge
+/// 迁出。台账本体（`local_model_jobs` 表与 `spawn_job_inner`）留 kernel。
+pub fn spawn_job_with_target_kb_ids<F, Fut>(
     kind: LocalModelJobKind,
     model_id: String,
     display_name: String,

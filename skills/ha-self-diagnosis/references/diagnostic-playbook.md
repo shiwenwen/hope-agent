@@ -43,7 +43,7 @@ gotcha that most often explains a failure. Open every DB read-only.
 
 ### Knowledge Base (知识空间) — `knowledge-base.md`
 
-- Entry: `knowledge/access.rs` (access), `knowledge/service.rs` (owner plane), `knowledge/search.rs`, `tools/note.rs`.
+- Entry: kernel `ha-core/src/knowledge/access.rs` (access 唯一裁决) + `knowledge/registry.rs` (台账); ha-knowledge 的 `knowledge/service.rs` (owner plane), `knowledge/search.rs`, `tools/note.rs`（阶段 5 第六刀迁出；kernel 回调面 `knowledge_hooks.rs` 十槽）.
 - State: `knowledge/index.db` (rebuildable cache); registry + attach bindings in `sessions.db` (`knowledge_bases` / `session_knowledge_bases` / `project_knowledge_bases`). Config: `knowledge_embedding`, `knowledge_search`, `knowledge_passive_recall`.
 - Grep: `category='knowledge'` (sources: `service` / `index` / `reembed` / `embedding` / `maintenance::cycle`).
 - Gotcha: access is deny-by-default via `effective_kb_access`; an agent that "can't see notes" usually has no attach — `SELECT kb_id,access FROM session_knowledge_bases WHERE session_id=?`. Empty search results → check `knowledge_embedding.enabled` (vector search degrades to FTS-only, never falls back to memory). Index drift → compare on-disk `.md` count vs `SELECT count(*) FROM note WHERE kb_id=?`.

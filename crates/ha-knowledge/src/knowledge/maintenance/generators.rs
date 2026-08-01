@@ -262,7 +262,7 @@ fn gen_frontmatter_fill(db: &crate::knowledge::IndexDb, kb_id: &str) -> Result<V
 
 /// Raw sources that have not been compiled, or were re-extracted after compile.
 fn gen_source_compile(kb_id: &str) -> Result<Vec<NewProposal>> {
-    let reg = crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
+    let reg = ha_core::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
     let mut sources = reg.list_sources(kb_id)?;
     sources.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
     let covered = covered_source_compile_keys(kb_id)?;
@@ -314,7 +314,7 @@ fn gen_source_compile(kb_id: &str) -> Result<Vec<NewProposal>> {
 }
 
 fn covered_source_compile_keys(kb_id: &str) -> Result<HashSet<(String, String, String)>> {
-    let reg = crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
+    let reg = ha_core::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
     let mut covered = HashSet::new();
     for proposal in reg.list_proposals(kb_id, None)? {
         let covers_source_compile = proposal.kind == ProposalKind::SourceCompile
@@ -777,7 +777,7 @@ async fn gen_auto_tag(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<NewPro
         for n in db.list_notes(&kb)?.into_iter().take(SCAN_CAP) {
             if db.tags_for_note(n.id)?.is_empty() {
                 if let Ok(read) = service::note_read(&kb, &n.rel_path) {
-                    let excerpt = crate::truncate_utf8(&read.content, EXCERPT_CHARS).to_string();
+                    let excerpt = ha_core::truncate_utf8(&read.content, EXCERPT_CHARS).to_string();
                     out.push((n.rel_path, n.title, excerpt));
                 }
                 if out.len() >= 5 {
@@ -914,7 +914,7 @@ async fn gen_moc_upkeep(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<NewP
 async fn gen_memory_to_note(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<NewProposal>> {
     // Memory backend list is a blocking SQLite call — off the async executor.
     let fragments: Vec<String> = tokio::task::spawn_blocking(|| {
-        let Some(backend) = crate::get_memory_backend() else {
+        let Some(backend) = ha_core::get_memory_backend() else {
             return Ok::<_, anyhow::Error>(Vec::new());
         };
         let entries = backend.list(None, None, 40, 0)?;
@@ -933,7 +933,7 @@ async fn gen_memory_to_note(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<
     }
     let joined = fragments
         .iter()
-        .map(|c| format!("- {}", crate::truncate_utf8(c, 280)))
+        .map(|c| format!("- {}", ha_core::truncate_utf8(c, 280)))
         .collect::<Vec<_>>()
         .join("\n");
     let prompt = format!(
@@ -1008,7 +1008,7 @@ async fn gen_source_conflict(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec
     let candidates: Vec<SourceConflictCandidate> = tokio::task::spawn_blocking(move || {
         let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
         let reg =
-            crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
+            ha_core::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
         let notes = db
             .list_notes(&kb)?
             .into_iter()
@@ -1061,12 +1061,12 @@ async fn gen_source_conflict(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec
                 content: note_read.content.clone(),
                 source_id: source.id.clone(),
                 source_title: source.title.clone(),
-                note_excerpt: crate::truncate_utf8(
+                note_excerpt: ha_core::truncate_utf8(
                     &strip_frontmatter(&note_read.content),
                     EXCERPT_CHARS,
                 )
                 .to_string(),
-                source_excerpt: crate::truncate_utf8(&source_read.content, EXCERPT_CHARS)
+                source_excerpt: ha_core::truncate_utf8(&source_read.content, EXCERPT_CHARS)
                     .to_string(),
             });
         }
@@ -1163,9 +1163,9 @@ async fn run_side_query(
     prompt: &str,
     cfg: &MaintenanceConfig,
 ) -> Result<String> {
-    let config = crate::config::cached_config();
-    let chain = crate::automation::effective_chain(&config, cfg.model_override.clone());
-    let fut = crate::automation::run(crate::automation::ModelTaskSpec {
+    let config = ha_core::config::cached_config();
+    let chain = ha_core::automation::effective_chain(&config, cfg.model_override.clone());
+    let fut = ha_core::automation::run(ha_core::automation::ModelTaskSpec {
         purpose,
         chain,
         session_key: "automation:knowledge_maintenance",
@@ -1378,7 +1378,7 @@ fn question_lines(body: &str) -> Vec<String> {
             if t.is_empty() || matches!(t, "None" | "none" | "N/A" | "n/a" | "无" | "暂无") {
                 None
             } else {
-                Some(crate::truncate_utf8(t, 180).to_string())
+                Some(ha_core::truncate_utf8(t, 180).to_string())
             }
         })
         .take(5)
@@ -1397,7 +1397,7 @@ fn first_prose_line(content: &str) -> Option<String> {
                 && !line.starts_with("Source:")
         })
         .map(|line| {
-            crate::truncate_utf8(
+            ha_core::truncate_utf8(
                 line.trim_start_matches("- ")
                     .trim_start_matches("* ")
                     .trim_start_matches("> ")
@@ -1487,7 +1487,7 @@ fn insertion_after_frontmatter_and_h1(content: &str) -> usize {
 }
 
 fn one_line(value: &str) -> String {
-    crate::truncate_utf8(&value.split_whitespace().collect::<Vec<_>>().join(" "), 240).to_string()
+    ha_core::truncate_utf8(&value.split_whitespace().collect::<Vec<_>>().join(" "), 240).to_string()
 }
 
 fn clean_ref(raw: &str) -> String {

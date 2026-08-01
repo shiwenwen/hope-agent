@@ -107,6 +107,7 @@ pub fn run() {
     ha_local_llm::wire();
     ha_dash::wire();
     ha_channel::wire();
+    ha_knowledge::wire();
     ha_cron::wire();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new

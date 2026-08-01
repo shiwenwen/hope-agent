@@ -291,7 +291,7 @@ fn snippet_for_query(content: &str, query: &str) -> Option<String> {
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty() && line.to_lowercase().contains(query))
-        .map(|line| crate::truncate_utf8(line, SNIPPET_CHARS).to_string())
+        .map(|line| ha_core::truncate_utf8(line, SNIPPET_CHARS).to_string())
 }
 
 fn related_query(note: &KnowledgeAgentReadResult) -> String {
@@ -308,7 +308,7 @@ fn related_query(note: &KnowledgeAgentReadResult) -> String {
         .take(4)
         .collect::<Vec<_>>()
         .join(" ");
-    crate::truncate_utf8(&format!("{} {}", note.title, first_body), 2_000).to_string()
+    ha_core::truncate_utf8(&format!("{} {}", note.title, first_body), 2_000).to_string()
 }
 
 fn normalized_query(query: &str) -> Result<String> {
