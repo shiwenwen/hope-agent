@@ -22,7 +22,6 @@ pub use ha_base::{app_debug, app_error, app_info, app_warn};
 
 // ── New abstractions ──────────────────────────────────────────────
 pub mod eval_context;
-pub mod evaluation;
 
 // ── Initialization ────────────────────────────────────────────────
 pub mod app_init;
@@ -63,11 +62,14 @@ pub mod backup;
 pub mod browser_hooks;
 pub mod channel;
 pub mod chat_engine;
-pub mod coding_eval;
+// `coding_eval` / `context_retrieval` / `evaluation` 已随阶段 5 第四刀迁出
+// ha-eval-runtime——特征 crate 在 ha-core 之上，此处**不能**再导出。评测 wire
+// 类型留 kernel（`coding_eval_defs`，见该模块文档）：kernel 的
+// `coding_improvement` 存的就是这些报告的 JSON。
+pub mod coding_eval_defs;
 pub mod coding_improvement;
 pub mod config;
 pub mod context_compact;
-pub mod context_retrieval;
 pub mod crash_flush;
 pub mod cron;
 pub mod cron_defs;

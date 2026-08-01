@@ -3373,6 +3373,7 @@ dependencies = [
  "ha-cron",
  "ha-dash",
  "ha-design",
+ "ha-eval-runtime",
  "ha-eval-spec",
  "ha-local-llm",
  "ha-mac",
@@ -3391,6 +3392,29 @@ dependencies = [
  "tempfile",
  "tokio",
  "windows-sys 0.52.0",
+ "zip 7.2.0",
+]
+
+[[package]]
+name = "ha-eval-runtime"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "ha-core",
+ "ha-eval-spec",
+ "ring",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "wiremock",
  "zip 7.2.0",
 ]
 
@@ -3546,6 +3570,7 @@ dependencies = [
  "ha-cron",
  "ha-dash",
  "ha-design",
+ "ha-eval-runtime",
  "ha-local-llm",
  "ha-mac",
  "ha-mcp",
@@ -3752,6 +3777,7 @@ dependencies = [
  "ha-cron",
  "ha-dash",
  "ha-design",
+ "ha-eval-runtime",
  "ha-local-llm",
  "ha-mac",
  "ha-mcp",

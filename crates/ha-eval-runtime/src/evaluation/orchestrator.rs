@@ -4,9 +4,9 @@ use super::types::{
     EvalExperimentStatus, EvalPreview, EvalReadiness, EvalResolvedLaunch, EvalTrialRecord,
     EvalWorkerEvent, EVALUATION_EVENT,
 };
-use crate::event_bus::EventBus;
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
+use ha_core::event_bus::EventBus;
 use ha_eval_spec::app::{AppDebugRetention, EvalAppPlan, EvalAppProfile};
 use ha_eval_spec::model::{validate_evidence_shape, ModelCampaignEvidence};
 use std::path::Component;
@@ -595,7 +595,7 @@ fn safe_error(error: &anyhow::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event_bus::BroadcastEventBus;
+    use ha_core::event_bus::BroadcastEventBus;
 
     struct UnavailableRuntime;
 

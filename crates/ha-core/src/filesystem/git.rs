@@ -9,7 +9,7 @@ use serde::Serialize;
 
 /// Ensure a Git subprocess discovers its repository from `current_dir` rather
 /// than inheriting repository-local state from a parent Git process or hook.
-pub(crate) fn isolate_repository_env(cmd: &mut Command) {
+pub fn isolate_repository_env(cmd: &mut Command) {
     const LOCAL_REPOSITORY_ENV: &[&str] = &[
         "GIT_ALTERNATE_OBJECT_DIRECTORIES",
         "GIT_CONFIG",

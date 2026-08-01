@@ -122,7 +122,7 @@ pub fn export_local_evidence_bundle(
     if bytes.len() > MAX_EXPORT_BYTES {
         bail!("compressed local evaluation export exceeds 512 MiB");
     }
-    crate::platform::write_atomic(output_path, &bytes)
+    ha_core::platform::write_atomic(output_path, &bytes)
         .with_context(|| format!("writing local evaluation bundle {}", output_path.display()))?;
     Ok(EvalLocalExportResult {
         experiment_id: experiment_id.to_string(),

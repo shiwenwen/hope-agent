@@ -338,7 +338,7 @@ pub async fn create_coding_benchmark_campaign(
         std::mem::take(&mut input.gold_task_input.providers)
     } else {
         input.gold_task_input.providers.clear();
-        ha_core::evaluation::resolve_owner_provider_refs(&references)
+        ha_eval_runtime::evaluation::resolve_owner_provider_refs(&references)
             .map_err(|error| AppError::bad_request(error.to_string()))?
     };
     let campaign = db
@@ -354,7 +354,7 @@ pub async fn create_coding_benchmark_campaign(
                 providers,
                 retry_failed_only: false,
             };
-            let _ = ha_core::coding_eval::run_benchmark_campaign(run_db, input).await;
+            let _ = ha_eval_runtime::coding_eval::run_benchmark_campaign(run_db, input).await;
         });
     }
     Ok(Json(campaign))
@@ -408,12 +408,12 @@ pub async fn run_coding_benchmark_campaign(
             .iter()
             .filter_map(|model| Some((model.provider_id.clone()?, model.model_id.clone()?, None)))
             .collect::<Vec<_>>();
-        input.providers = ha_core::evaluation::resolve_owner_provider_refs(&references)
+        input.providers = ha_eval_runtime::evaluation::resolve_owner_provider_refs(&references)
             .map_err(|error| AppError::bad_request(error.to_string()))?;
     }
     let spawn_db = db.clone();
     tokio::spawn(async move {
-        let _ = ha_core::coding_eval::run_benchmark_campaign(spawn_db, input).await;
+        let _ = ha_eval_runtime::coding_eval::run_benchmark_campaign(spawn_db, input).await;
     });
     db.run(move |db| db.get_coding_benchmark_campaign(&campaign_id))
         .await

@@ -16,119 +16,31 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::agent_loader::DEFAULT_AGENT_ID;
-use crate::chat_engine::{self, ChatEngineParams, ChatSource, NoopEventSink};
-use crate::coding_improvement::{
+use crate::context_retrieval::{self, ContextCandidate, ContextCandidateKind};
+use ha_core::agent_loader::DEFAULT_AGENT_ID;
+use ha_core::chat_engine::{self, ChatEngineParams, ChatSource, NoopEventSink};
+// `RecordCodingEvalRunInput` **不在这里导入**：它已随契约层下沉
+// `coding_eval_defs`，由下方 glob 公开再导出。从 `coding_improvement` 的兼容
+// re-export 再私有导入一次会遮蔽那个公开导出（clippy
+// `private_item_shadows_public_glob_reexport`），且让本模块的公开符号集变样。
+use ha_core::coding_improvement::{
     ApplyCodingImprovementProposalResult, CodingBenchmarkCampaign, CodingBenchmarkCampaignRunInput,
     CodingTrendReport, GenerateCodingImprovementProposalsResult,
-    PromoteCodingImprovementProposalResult, RecordCodingEvalPackRunInput, RecordCodingEvalRunInput,
+    PromoteCodingImprovementProposalResult, RecordCodingEvalPackRunInput,
     RecordCodingStrategyEffectRunInput,
 };
-use crate::context_compact::CompactConfig;
-use crate::context_retrieval::{self, ContextCandidate, ContextCandidateKind};
-use crate::goal::CreateGoalInput;
-use crate::provider::{ActiveModel, ProviderConfig};
-use crate::review::{self, RunReviewInput};
-use crate::session::{MessageRole, NewMessage, SessionDB, SessionIdeContext, TaskStatus};
-use crate::verification::{self, PlanVerificationInput};
-use crate::workflow::{
+use ha_core::goal::CreateGoalInput;
+use ha_core::provider::{ActiveModel, ProviderConfig};
+use ha_core::review::{self, RunReviewInput};
+use ha_core::session::{MessageRole, NewMessage, SessionDB, TaskStatus};
+use ha_core::verification::{self, PlanVerificationInput};
+use ha_core::workflow::{
     self, CreateWorkflowRunInput, UpsertWorkflowOpInput, WorkflowEffectClass, WorkflowRunState,
 };
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodingEvalFixture {
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub task: Option<CodingTaskEvalSpec>,
-    pub repo: RepoFixture,
-    #[serde(default)]
-    pub setup: FixtureSetup,
-    #[serde(default)]
-    pub runs: FixtureRuns,
-    #[serde(default)]
-    pub checks: FixtureChecks,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoldTaskPackRunInput {
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub project_id: Option<String>,
-    #[serde(default)]
-    pub ids: Vec<String>,
-    #[serde(default)]
-    pub statuses: Vec<String>,
-    #[serde(default)]
-    pub task_types: Vec<String>,
-    #[serde(default)]
-    pub include_unautomated: bool,
-    #[serde(default)]
-    pub max_tasks: Option<usize>,
-    #[serde(default)]
-    pub execution_mode: Option<String>,
-    #[serde(default)]
-    pub providers: Vec<ProviderConfig>,
-    #[serde(default)]
-    pub model_chain: Vec<ActiveModel>,
-    #[serde(default)]
-    pub compact_config: Option<CompactConfig>,
-    #[serde(default)]
-    pub reasoning_effort: Option<String>,
-    #[serde(default)]
-    pub extra_system_context: Option<String>,
-    #[serde(default)]
-    pub denied_tools: Vec<String>,
-    #[serde(default)]
-    pub auto_approve_tools: bool,
-    #[serde(default = "default_true")]
-    pub record_eval_runs: bool,
-    #[serde(default = "default_true")]
-    pub record_pack_run: bool,
-    #[serde(default = "default_true")]
-    pub evaluate_goal: bool,
-    #[serde(default)]
-    pub label: Option<String>,
-    #[serde(default)]
-    pub baseline_kind: Option<String>,
-    #[serde(default)]
-    pub source_type: Option<String>,
-    #[serde(default)]
-    pub source_id: Option<String>,
-}
-
-impl Default for GoldTaskPackRunInput {
-    fn default() -> Self {
-        Self {
-            session_id: None,
-            project_id: None,
-            ids: Vec::new(),
-            statuses: Vec::new(),
-            task_types: Vec::new(),
-            include_unautomated: false,
-            max_tasks: None,
-            execution_mode: None,
-            providers: Vec::new(),
-            model_chain: Vec::new(),
-            compact_config: None,
-            reasoning_effort: None,
-            extra_system_context: None,
-            denied_tools: Vec::new(),
-            auto_approve_tools: false,
-            record_eval_runs: true,
-            record_pack_run: true,
-            evaluate_goal: true,
-            label: None,
-            baseline_kind: None,
-            source_type: None,
-            source_id: None,
-        }
-    }
-}
+// 契约类型下沉 kernel（见 `ha_core::coding_eval_defs` 模块文档）；此处 glob 再导出
+// 保证 `coding_eval::<Type>` 既有路径逐字不变。
+pub use ha_core::coding_eval_defs::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -139,55 +51,6 @@ pub struct GoldTaskPackSummary {
     pub automated_cases: usize,
     pub active_cases: usize,
     pub cases: Vec<GoldTaskCaseSummary>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoldTaskCaseSummary {
-    pub id: String,
-    pub task_type: String,
-    pub title: String,
-    pub status: String,
-    pub source: String,
-    pub execution_mode: String,
-    pub automation_status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fixture_name: Option<String>,
-    pub expected_artifacts: Vec<String>,
-    pub requires_seeded_state: bool,
-    pub likely_files: Vec<String>,
-    pub allowed_validation: Vec<String>,
-    pub success_criteria: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoldTaskPackReport {
-    pub pack_id: String,
-    pub source_doc: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pack_run_id: Option<String>,
-    pub selected_cases: usize,
-    pub automated_cases: usize,
-    pub skipped_cases: usize,
-    pub passed_cases: usize,
-    pub failed_cases: usize,
-    pub total_checks: usize,
-    pub passed: bool,
-    pub cases: Vec<GoldTaskCaseRunReport>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoldTaskCaseRunReport {
-    pub case: GoldTaskCaseSummary,
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fixture_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub report: Option<FixtureReport>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -217,598 +80,6 @@ pub struct StrategyEffectEvalInput {
     pub candidate: GoldTaskPackReport,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StrategyEffectReport {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_id: Option<String>,
-    pub strategy_type: String,
-    pub baseline_label: String,
-    pub candidate_label: String,
-    pub verdict: String,
-    pub compared_cases: usize,
-    pub baseline_only_cases: Vec<String>,
-    pub candidate_only_cases: Vec<String>,
-    pub summary: StrategyEffectSummary,
-    pub dimensions: Vec<StrategyEffectDimension>,
-    pub cases: Vec<StrategyCaseComparison>,
-    pub regressions: Vec<String>,
-    pub improvements: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StrategyEffectSummary {
-    pub baseline_pass_rate: f64,
-    pub candidate_pass_rate: f64,
-    pub pass_rate_delta: f64,
-    pub baseline_average_score: f64,
-    pub candidate_average_score: f64,
-    pub average_score_delta: f64,
-    pub baseline_context_recall: f64,
-    pub candidate_context_recall: f64,
-    pub context_recall_delta: f64,
-    pub baseline_validation_violations: usize,
-    pub candidate_validation_violations: usize,
-    pub validation_violation_delta: isize,
-    pub baseline_scope_creep: usize,
-    pub candidate_scope_creep: usize,
-    pub scope_creep_delta: isize,
-    pub baseline_execution_failures: usize,
-    pub candidate_execution_failures: usize,
-    pub execution_failure_delta: isize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StrategyEffectDimension {
-    pub name: String,
-    pub direction: String,
-    pub baseline: f64,
-    pub candidate: f64,
-    pub delta: f64,
-    pub verdict: String,
-    pub detail: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StrategyCaseComparison {
-    pub id: String,
-    pub title: String,
-    pub verdict: String,
-    pub baseline_status: String,
-    pub candidate_status: String,
-    pub baseline_passed: bool,
-    pub candidate_passed: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub baseline_outcome: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub candidate_outcome: Option<String>,
-    pub baseline_score: f64,
-    pub candidate_score: f64,
-    pub score_delta: f64,
-    pub baseline_context_recall: f64,
-    pub candidate_context_recall: f64,
-    pub context_recall_delta: f64,
-    pub baseline_validation_violations: usize,
-    pub candidate_validation_violations: usize,
-    pub baseline_scope_creep: usize,
-    pub candidate_scope_creep: usize,
-    pub baseline_execution_failed: bool,
-    pub candidate_execution_failed: bool,
-    pub notes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepoFixture {
-    #[serde(default)]
-    pub files: Vec<FileFixture>,
-    #[serde(default)]
-    pub changes: Vec<FileFixture>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileFixture {
-    pub path: String,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodingTaskEvalSpec {
-    pub id: String,
-    #[serde(default)]
-    pub task_type: String,
-    pub title: String,
-    #[serde(default)]
-    pub source: String,
-    pub prompt: String,
-    #[serde(default)]
-    pub execution_mode: String,
-    #[serde(default)]
-    pub expected_behavior: Vec<String>,
-    #[serde(default)]
-    pub forbidden_behavior: Vec<String>,
-    #[serde(default)]
-    pub likely_files: Vec<String>,
-    #[serde(default)]
-    pub expected_artifacts: Vec<String>,
-    #[serde(default)]
-    pub requires_seeded_state: bool,
-    #[serde(default)]
-    pub allowed_validation: Vec<String>,
-    #[serde(default)]
-    pub success_criteria: Vec<String>,
-    #[serde(default)]
-    pub failure_notes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FixtureSetup {
-    #[serde(default)]
-    pub goal: Option<GoalFixture>,
-    #[serde(default)]
-    pub tasks: Vec<TaskFixture>,
-    #[serde(default)]
-    pub workflow: Option<WorkflowFixture>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoalFixture {
-    pub objective: String,
-    #[serde(default)]
-    pub completion_criteria: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskFixture {
-    pub content: String,
-    #[serde(default)]
-    pub active_form: Option<String>,
-    #[serde(default = "default_pending_status")]
-    pub status: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowFixture {
-    #[serde(default = "default_workflow_kind")]
-    pub kind: String,
-    #[serde(default = "default_execution_mode")]
-    pub execution_mode: String,
-    #[serde(default = "default_workflow_script")]
-    pub script_source: String,
-    #[serde(default)]
-    pub ops: Vec<WorkflowOpFixture>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowOpFixture {
-    pub op_key: String,
-    pub op_type: String,
-    #[serde(default = "default_effect_class")]
-    pub effect_class: String,
-    #[serde(default)]
-    pub input: Value,
-    #[serde(default)]
-    pub state: Option<String>,
-    #[serde(default)]
-    pub output: Option<Value>,
-    #[serde(default)]
-    pub error: Option<Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FixtureRuns {
-    #[serde(default)]
-    pub execution: Option<AgentExecutionEvalRun>,
-    #[serde(default)]
-    pub task: Option<TaskLevelEvalRun>,
-    #[serde(default)]
-    pub workflow: Option<WorkflowScriptEvalRun>,
-    #[serde(default)]
-    pub review: Option<ReviewEvalRun>,
-    #[serde(default)]
-    pub verification: Option<VerificationEvalRun>,
-    #[serde(default)]
-    pub context: Option<ContextEvalRun>,
-    #[serde(default)]
-    pub improvement: Option<ImprovementEvalRun>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowScriptEvalRun {
-    pub script_source: String,
-    #[serde(default = "default_workflow_kind")]
-    pub kind: String,
-    #[serde(default = "default_execution_mode")]
-    pub execution_mode: String,
-    #[serde(default)]
-    pub budget: Value,
-    #[serde(default)]
-    pub allow_terminal_error: bool,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewEvalRun {
-    #[serde(default)]
-    pub focus_paths: Vec<String>,
-    #[serde(default)]
-    pub profiles: Vec<String>,
-    #[serde(default)]
-    pub ide_context: Option<SessionIdeContext>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VerificationEvalRun {
-    #[serde(default)]
-    pub focus_paths: Vec<String>,
-    #[serde(default)]
-    pub max_commands: Option<usize>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ContextEvalRun {
-    #[serde(default)]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub limit: Option<usize>,
-    #[serde(default)]
-    pub ide_context: Option<SessionIdeContext>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImprovementEvalRun {
-    #[serde(default)]
-    pub window_days: Option<u32>,
-    #[serde(default)]
-    pub generate_proposals: bool,
-    #[serde(default)]
-    pub apply_first_proposal: bool,
-    #[serde(default)]
-    pub promote_applied_proposal: bool,
-    #[serde(default)]
-    pub apply_proposal_kind: Option<String>,
-    #[serde(default)]
-    pub seed_eval_runs: Vec<RecordCodingEvalRunInput>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentExecutionEvalRun {
-    #[serde(default = "default_agent_execution_mode")]
-    pub mode: String,
-    #[serde(default)]
-    pub prompt: Option<String>,
-    #[serde(default)]
-    pub agent_id: Option<String>,
-    #[serde(default)]
-    pub display_text: Option<String>,
-    #[serde(default)]
-    pub providers: Vec<ProviderConfig>,
-    #[serde(default)]
-    pub model_chain: Vec<ActiveModel>,
-    #[serde(default)]
-    pub compact_config: Option<CompactConfig>,
-    #[serde(default)]
-    pub reasoning_effort: Option<String>,
-    #[serde(default)]
-    pub extra_system_context: Option<String>,
-    #[serde(default)]
-    pub denied_tools: Vec<String>,
-    #[serde(default)]
-    pub auto_approve_tools: bool,
-}
-
-impl Default for AgentExecutionEvalRun {
-    fn default() -> Self {
-        Self {
-            mode: default_agent_execution_mode(),
-            prompt: None,
-            agent_id: None,
-            display_text: None,
-            providers: Vec::new(),
-            model_chain: Vec::new(),
-            compact_config: None,
-            reasoning_effort: None,
-            extra_system_context: None,
-            denied_tools: Vec::new(),
-            auto_approve_tools: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskLevelEvalRun {
-    #[serde(default = "default_true")]
-    pub record_eval_run: bool,
-    #[serde(default = "default_true")]
-    pub evaluate_goal: bool,
-}
-
-impl Default for TaskLevelEvalRun {
-    fn default() -> Self {
-        Self {
-            record_eval_run: true,
-            evaluate_goal: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FixtureChecks {
-    #[serde(default)]
-    pub execution: Option<AgentExecutionCheck>,
-    #[serde(default)]
-    pub task: Option<TaskLevelCheck>,
-    #[serde(default)]
-    pub workflow: Option<WorkflowCheck>,
-    #[serde(default)]
-    pub context: Option<ContextCheck>,
-    #[serde(default)]
-    pub review: Option<ReviewCheck>,
-    #[serde(default)]
-    pub verification: Option<VerificationCheck>,
-    #[serde(default)]
-    pub improvement: Option<ImprovementCheck>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowCheck {
-    #[serde(default)]
-    pub expected_state: Option<String>,
-    #[serde(default)]
-    pub expected_blocked_reason: Option<String>,
-    #[serde(default)]
-    pub expected_op_types: Vec<String>,
-    #[serde(default)]
-    pub expected_commands: Vec<String>,
-    #[serde(default)]
-    pub min_finding_count: Option<usize>,
-    #[serde(default)]
-    pub expect_review_ok: Option<bool>,
-    #[serde(default)]
-    pub expected_goal_relations: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ContextCheck {
-    #[serde(default)]
-    pub critical: Vec<CandidateExpectation>,
-    #[serde(default)]
-    pub min_critical_recall: Option<f64>,
-    #[serde(default)]
-    pub min_precision: Option<f64>,
-    #[serde(default)]
-    pub max_candidates: Option<usize>,
-    #[serde(default)]
-    pub expect_action_paths: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CandidateExpectation {
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub title_contains: Option<String>,
-    #[serde(default)]
-    pub path_suffix: Option<String>,
-    #[serde(default)]
-    pub status_contains: Option<String>,
-    #[serde(default)]
-    pub source: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewCheck {
-    #[serde(default)]
-    pub min_findings: Option<usize>,
-    #[serde(default)]
-    pub max_findings: Option<usize>,
-    #[serde(default)]
-    pub expect_focused: Option<bool>,
-    #[serde(default)]
-    pub expected_profiles: Vec<String>,
-    #[serde(default)]
-    pub expect_ide_context: Option<bool>,
-    #[serde(default)]
-    pub expected_titles: Vec<String>,
-    #[serde(default)]
-    pub expected_categories: Vec<String>,
-    #[serde(default)]
-    pub expected_files: Vec<String>,
-    #[serde(default)]
-    pub forbidden_files: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VerificationCheck {
-    #[serde(default)]
-    pub expected_commands: Vec<String>,
-    #[serde(default)]
-    pub forbidden_commands: Vec<String>,
-    #[serde(default)]
-    pub expect_focused: Option<bool>,
-    #[serde(default)]
-    pub expected_focus_paths: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImprovementCheck {
-    #[serde(default)]
-    pub expected_scope: Option<String>,
-    #[serde(default)]
-    pub min_failures: Option<usize>,
-    #[serde(default)]
-    pub expected_failure_categories: Vec<String>,
-    #[serde(default)]
-    pub min_proposals: Option<usize>,
-    #[serde(default)]
-    pub min_inserted_proposals: Option<usize>,
-    #[serde(default)]
-    pub expected_proposal_kinds: Vec<String>,
-    #[serde(default)]
-    pub expect_draft_only: Option<bool>,
-    #[serde(default)]
-    pub min_eval_runs: Option<usize>,
-    #[serde(default)]
-    pub expect_eval_success_rate: Option<f64>,
-    #[serde(default)]
-    pub min_repair_loop_blocked: Option<usize>,
-    #[serde(default)]
-    pub expected_applied_status: Option<String>,
-    #[serde(default)]
-    pub expected_applied_kind: Option<String>,
-    #[serde(default)]
-    pub min_applied_artifacts: Option<usize>,
-    #[serde(default)]
-    pub expected_action_target_contains: Option<String>,
-    #[serde(default)]
-    pub min_retros: Option<usize>,
-    #[serde(default)]
-    pub min_retro_recommendations: Option<usize>,
-    #[serde(default)]
-    pub expected_promoted_status: Option<String>,
-    #[serde(default)]
-    pub min_promoted_artifacts: Option<usize>,
-    #[serde(default)]
-    pub expected_promotion_target_contains: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskLevelCheck {
-    #[serde(default)]
-    pub expected_outcome: Option<String>,
-    #[serde(default)]
-    pub min_score: Option<f64>,
-    #[serde(default)]
-    pub expected_changed_files: Vec<String>,
-    #[serde(default)]
-    pub forbidden_changed_files: Vec<String>,
-    #[serde(default)]
-    pub required_diff_contains: Vec<String>,
-    #[serde(default)]
-    pub forbidden_diff_contains: Vec<String>,
-    #[serde(default)]
-    pub expected_validation_commands: Vec<String>,
-    #[serde(default)]
-    pub forbidden_validation_commands: Vec<String>,
-    #[serde(default)]
-    pub max_changed_files: Option<usize>,
-    #[serde(default)]
-    pub require_review: Option<bool>,
-    #[serde(default)]
-    pub require_verification: Option<bool>,
-    #[serde(default)]
-    pub require_context: Option<bool>,
-    #[serde(default)]
-    pub require_goal_evaluation: Option<bool>,
-    #[serde(default)]
-    pub required_context: Vec<CandidateExpectation>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentExecutionCheck {
-    #[serde(default)]
-    pub expected_mode: Option<String>,
-    #[serde(default)]
-    pub expected_status: Option<String>,
-    #[serde(default)]
-    pub expected_changed_files: Vec<String>,
-    #[serde(default)]
-    pub forbidden_changed_files: Vec<String>,
-    #[serde(default)]
-    pub expected_tool_calls: Vec<String>,
-    #[serde(default)]
-    pub min_tool_calls: Option<usize>,
-    #[serde(default)]
-    pub require_turn: Option<bool>,
-    #[serde(default)]
-    pub response_contains: Vec<String>,
-    #[serde(default)]
-    pub error_contains: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CheckOutcome {
-    pub name: String,
-    pub passed: bool,
-    pub detail: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct EvalMetrics {
-    pub context_precision: Option<f64>,
-    pub critical_context_recall: Option<f64>,
-    pub review_findings: Option<usize>,
-    pub verification_commands: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution_status: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution_mode: Option<String>,
-    #[serde(default)]
-    pub execution_changed_files: Vec<String>,
-    #[serde(default)]
-    pub execution_tool_calls: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub task_outcome: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub task_score: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub task_failure_category: Option<String>,
-    #[serde(default)]
-    pub task_changed_files: Vec<String>,
-    #[serde(default)]
-    pub task_constraint_violations: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FixtureReport {
-    pub name: String,
-    pub metrics: EvalMetrics,
-    pub outcomes: Vec<CheckOutcome>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution: Option<AgentExecutionEvalReport>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub task: Option<CodingTaskEvalReport>,
-}
-
-impl FixtureReport {
-    pub fn passed(&self) -> bool {
-        self.outcomes.iter().all(|outcome| outcome.passed)
-    }
-
-    pub fn failures(&self) -> Vec<&CheckOutcome> {
-        self.outcomes
-            .iter()
-            .filter(|outcome| !outcome.passed)
-            .collect()
-    }
-}
-
 struct EvalRunArtifacts {
     repo_root: PathBuf,
     execution: Option<AgentExecutionEvalReport>,
@@ -826,112 +97,25 @@ struct EvalRunArtifacts {
     goal_evaluated: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentExecutionEvalReport {
-    pub mode: String,
-    pub status: String,
-    pub prompt: String,
-    pub agent_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub response: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_used: Option<ActiveModel>,
-    #[serde(default)]
-    pub tool_calls: Vec<String>,
-    pub changed_files: Vec<String>,
-    pub diff_bytes: usize,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodingTaskEvalReport {
-    pub task_id: String,
-    pub task_type: String,
-    pub title: String,
-    pub outcome: String,
-    pub score: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub failure_category: Option<String>,
-    pub diff: CodingTaskDiffSummary,
-    pub validation: CodingTaskValidationSummary,
-    pub review: CodingTaskReviewSummary,
-    pub context: CodingTaskContextSummary,
-    pub goal: CodingTaskGoalSummary,
-    pub checks: Vec<CodingTaskEvalCheckResult>,
-    pub metrics: Value,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodingTaskDiffSummary {
-    pub changed_files: Vec<String>,
-    pub files_changed: usize,
-    pub insertions: usize,
-    pub deletions: usize,
-    pub diff_bytes: usize,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodingTaskValidationSummary {
-    pub commands: Vec<String>,
-    pub command_count: usize,
-    pub allowed_command_count: usize,
-    pub disallowed_commands: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodingTaskReviewSummary {
-    pub requested: bool,
-    pub findings: usize,
-    pub blocking_findings: usize,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodingTaskContextSummary {
-    pub requested: bool,
-    pub candidates: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub required_context_recall: Option<f64>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodingTaskGoalSummary {
-    pub requested: bool,
-    pub evaluated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<String>,
-    pub evidence_relations: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodingTaskEvalCheckResult {
-    pub name: String,
-    pub passed: bool,
-    pub detail: String,
-    pub category: String,
-    pub severity: String,
-}
-
 pub fn fixtures_dir() -> PathBuf {
-    let canonical = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../evals/suites/coding-control-plane/fixtures");
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let canonical = manifest_dir.join("../../evals/suites/coding-control-plane/fixtures");
     if canonical.is_dir() {
-        canonical
-    } else {
-        // One-minor source-tree compatibility fallback for downstream forks
-        // that have not moved the fixture pack yet.
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/coding_eval")
+        return canonical;
     }
+    // One-minor source-tree compatibility fallback for downstream forks that
+    // have not moved the fixture pack yet. **路径必须是 `../ha-core/…`**：
+    // 迁移前 `CARGO_MANIFEST_DIR` 是 `crates/ha-core`，旧 fork 的 fixture 就
+    // 落在那里；本模块搬进 ha-eval-runtime 后写 crate-local 路径等于指向一个
+    // 永远不存在的目录，兼容承诺会静默失效（本仓 canonical 路径存在，所以
+    // 上游永远走不到这条分支，坏掉也没人发现）。
+    let legacy = manifest_dir.join("../ha-core/tests/fixtures/coding_eval");
+    if legacy.is_dir() {
+        return legacy;
+    }
+    // 最后再看本 crate 自己的 tests/fixtures——留给「已经跟着搬迁、但还没把
+    // fixture 挪进 evals/ 」的 fork。
+    manifest_dir.join("tests/fixtures/coding_eval")
 }
 
 pub fn load_fixtures() -> Result<Vec<CodingEvalFixture>> {
@@ -1148,15 +332,16 @@ fn campaign_provider_config(
     supplied
         .iter()
         .find(|provider| {
-            provider.id == provider_id && !crate::provider::is_masked_key(&provider.api_key)
+            provider.id == provider_id && !ha_core::provider::is_masked_key(&provider.api_key)
         })
         .cloned()
         .or_else(|| {
-            crate::config::cached_config()
+            ha_core::config::cached_config()
                 .providers
                 .iter()
                 .find(|provider| {
-                    provider.id == provider_id && !crate::provider::is_masked_key(&provider.api_key)
+                    provider.id == provider_id
+                        && !ha_core::provider::is_masked_key(&provider.api_key)
                 })
                 .cloned()
         })
@@ -1997,7 +1182,7 @@ async fn run_agent_execution_eval(
                 });
             }
 
-            let _agent_admission = match crate::agent_lifecycle::begin_agent_run(&agent_id) {
+            let _agent_admission = match ha_core::agent_lifecycle::begin_agent_run(&agent_id) {
                 Ok(guard) => guard,
                 Err(error) => {
                     let (changed_files, diff_bytes) = execution_diff_snapshot(repo_root)?;
@@ -2051,7 +1236,7 @@ async fn run_agent_execution_eval(
                     .clone()
                     .or_else(|| Some("none".to_string())),
                 cancel: Arc::new(AtomicBool::new(false)),
-                plan_context_override: Some(crate::agent::PlanResolvedContext::off()),
+                plan_context_override: Some(ha_core::agent::PlanResolvedContext::off()),
                 skill_allowed_tools: Vec::new(),
                 denied_tools: run.denied_tools.clone(),
                 tool_scope: None,
@@ -4927,7 +4112,7 @@ fn write_fixture_file(root: &Path, file: &FileFixture) -> Result<()> {
 
 fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
     let mut command = Command::new("git");
-    crate::filesystem::isolate_repository_env(&mut command);
+    ha_core::filesystem::isolate_repository_env(&mut command);
     let output = command
         .args(args)
         .current_dir(cwd)
@@ -5096,18 +4281,6 @@ fn push_check(
     });
 }
 
-impl CandidateExpectation {
-    fn label(&self) -> String {
-        [
-            self.kind.as_deref().unwrap_or("*"),
-            self.title_contains.as_deref().unwrap_or("*"),
-            self.path_suffix.as_deref().unwrap_or("*"),
-            self.status_contains.as_deref().unwrap_or("*"),
-        ]
-        .join(":")
-    }
-}
-
 fn parse_task_status(status: &str) -> Result<TaskStatus> {
     TaskStatus::from_str(status).ok_or_else(|| anyhow!("unsupported task status: {status}"))
 }
@@ -5135,38 +4308,10 @@ fn sanitize_name(name: &str) -> String {
     }
 }
 
-fn default_pending_status() -> String {
-    "pending".to_string()
-}
-
-fn default_workflow_kind() -> String {
-    "coding".to_string()
-}
-
-fn default_execution_mode() -> String {
-    "guarded".to_string()
-}
-
-fn default_workflow_script() -> String {
-    "await workflow.finish({ summary: 'eval fixture' });".to_string()
-}
-
-fn default_effect_class() -> String {
-    "idempotent".to_string()
-}
-
-fn default_agent_execution_mode() -> String {
-    "agent".to_string()
-}
-
-fn default_true() -> bool {
-    true
-}
-
 #[cfg(all(test, feature = "eval-internal-tests"))]
 mod tests {
     use super::*;
-    use crate::provider::{ApiType, ModelConfig};
+    use ha_core::provider::{ApiType, ModelConfig};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -5231,7 +4376,7 @@ mod tests {
             SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
                 .expect("session db"),
         );
-        crate::channel::ChannelDB::new(db.clone())
+        ha_core::channel::ChannelDB::new(db.clone())
             .migrate()
             .expect("channel db migration");
         (dir, db)
@@ -5501,11 +4646,11 @@ mod tests {
     async fn benchmark_campaign_runs_deterministic_pack_and_records_history() {
         let (_dir, db) = temp_session_db();
         let session = db
-            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
             .expect("create session");
         let campaign = db
             .create_coding_benchmark_campaign(
-                crate::coding_improvement::CodingBenchmarkCampaignCreateInput {
+                ha_core::coding_improvement::CodingBenchmarkCampaignCreateInput {
                     session_id: Some(session.id.clone()),
                     name: Some("unit deterministic campaign".to_string()),
                     gold_task_input: GoldTaskPackRunInput {
@@ -5527,7 +4672,7 @@ mod tests {
 
         let completed = run_benchmark_campaign(
             db.clone(),
-            crate::coding_improvement::CodingBenchmarkCampaignRunInput {
+            ha_core::coding_improvement::CodingBenchmarkCampaignRunInput {
                 campaign_id: campaign.id.clone(),
                 providers: Vec::new(),
                 retry_failed_only: false,
@@ -5548,14 +4693,15 @@ mod tests {
         assert_eq!(item.passed_cases, 1);
         assert!(item.total_checks > 0);
 
-        let conn = db.conn.lock().expect("lock db");
-        let pack_runs: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM coding_eval_pack_runs
+        let pack_runs: i64 = db
+            .with_conn_for_test(|conn| {
+                Ok(conn.query_row(
+                    "SELECT COUNT(*) FROM coding_eval_pack_runs
                  WHERE source_type = 'benchmark_campaign' AND source_id = ?1",
-                rusqlite::params![campaign.id],
-                |row| row.get(0),
-            )
+                    rusqlite::params![campaign.id],
+                    |row| row.get(0),
+                )?)
+            })
             .expect("pack run count");
         assert_eq!(pack_runs, 1);
     }
@@ -5564,11 +4710,11 @@ mod tests {
     async fn benchmark_leaderboard_ranks_comparable_campaign_items() {
         let (_dir, db) = temp_session_db();
         let session = db
-            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
             .expect("create session");
         let deterministic = db
             .create_coding_benchmark_campaign(
-                crate::coding_improvement::CodingBenchmarkCampaignCreateInput {
+                ha_core::coding_improvement::CodingBenchmarkCampaignCreateInput {
                     session_id: Some(session.id.clone()),
                     name: Some("leaderboard deterministic".to_string()),
                     gold_task_input: GoldTaskPackRunInput {
@@ -5584,7 +4730,7 @@ mod tests {
             .expect("create deterministic campaign");
         run_benchmark_campaign(
             db.clone(),
-            crate::coding_improvement::CodingBenchmarkCampaignRunInput {
+            ha_core::coding_improvement::CodingBenchmarkCampaignRunInput {
                 campaign_id: deterministic.id.clone(),
                 providers: Vec::new(),
                 retry_failed_only: false,
@@ -5595,7 +4741,7 @@ mod tests {
 
         let external = db
             .create_coding_benchmark_campaign(
-                crate::coding_improvement::CodingBenchmarkCampaignCreateInput {
+                ha_core::coding_improvement::CodingBenchmarkCampaignCreateInput {
                     session_id: Some(session.id.clone()),
                     name: Some("leaderboard external missing provider".to_string()),
                     gold_task_input: GoldTaskPackRunInput {
@@ -5607,7 +4753,7 @@ mod tests {
                         record_pack_run: true,
                         ..Default::default()
                     },
-                    models: vec![crate::coding_improvement::CodingBenchmarkCampaignModel {
+                    models: vec![ha_core::coding_improvement::CodingBenchmarkCampaignModel {
                         provider_id: Some("missing-provider-for-leaderboard-unit".to_string()),
                         model_id: Some("missing-model-for-leaderboard-unit".to_string()),
                         label: Some("missing provider model".to_string()),
@@ -5619,7 +4765,7 @@ mod tests {
             .expect("create external campaign");
         run_benchmark_campaign(
             db.clone(),
-            crate::coding_improvement::CodingBenchmarkCampaignRunInput {
+            ha_core::coding_improvement::CodingBenchmarkCampaignRunInput {
                 campaign_id: external.id,
                 providers: Vec::new(),
                 retry_failed_only: false,
@@ -5629,11 +4775,13 @@ mod tests {
         .expect("run missing-provider campaign");
 
         let leaderboard = db
-            .get_benchmark_leaderboard(crate::coding_improvement::CodingBenchmarkLeaderboardInput {
-                session_id: Some(session.id),
-                min_items: Some(1),
-                ..Default::default()
-            })
+            .get_benchmark_leaderboard(
+                ha_core::coding_improvement::CodingBenchmarkLeaderboardInput {
+                    session_id: Some(session.id),
+                    min_items: Some(1),
+                    ..Default::default()
+                },
+            )
             .expect("leaderboard");
 
         assert_eq!(leaderboard.status, "passed");
@@ -5658,11 +4806,11 @@ mod tests {
         let provider = mock_responses_provider(server_url, "secret-provider", "secret-model");
         let (_dir, db) = temp_session_db();
         let session = db
-            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
             .expect("create session");
         let campaign = db
             .create_coding_benchmark_campaign(
-                crate::coding_improvement::CodingBenchmarkCampaignCreateInput {
+                ha_core::coding_improvement::CodingBenchmarkCampaignCreateInput {
                     session_id: Some(session.id),
                     name: Some("secret strip campaign".to_string()),
                     gold_task_input: GoldTaskPackRunInput {
@@ -5676,7 +4824,7 @@ mod tests {
                         baseline_kind: Some("external_model".to_string()),
                         ..Default::default()
                     },
-                    models: vec![crate::coding_improvement::CodingBenchmarkCampaignModel {
+                    models: vec![ha_core::coding_improvement::CodingBenchmarkCampaignModel {
                         provider_id: Some("secret-provider".to_string()),
                         model_id: Some("secret-model".to_string()),
                         label: Some("secret baseline".to_string()),
@@ -5766,21 +4914,21 @@ mod tests {
         .expect("record strategy effect");
         assert!(effect.run_id.is_some());
 
-        let conn = db.conn.lock().expect("lock db");
-        let pack_runs: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM coding_eval_pack_runs WHERE baseline_kind = 'deterministic_mock'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("pack history count");
-        let strategy_runs: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM coding_strategy_effect_runs WHERE verdict = 'regressed'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("strategy history count");
+        let (pack_runs, strategy_runs): (i64, i64) = db
+            .with_conn_for_test(|conn| {
+                let pack_runs = conn.query_row(
+                    "SELECT COUNT(*) FROM coding_eval_pack_runs WHERE baseline_kind = 'deterministic_mock'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let strategy_runs = conn.query_row(
+                    "SELECT COUNT(*) FROM coding_strategy_effect_runs WHERE verdict = 'regressed'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                Ok((pack_runs, strategy_runs))
+            })
+            .expect("pack / strategy history count");
         assert_eq!(pack_runs, 1);
         assert_eq!(strategy_runs, 1);
     }
@@ -5892,13 +5040,14 @@ mod tests {
             .execution_tool_calls
             .contains(&"write".to_string()));
 
-        let conn = db.conn.lock().expect("lock db");
-        let external_runs: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM coding_eval_pack_runs WHERE baseline_kind = 'external_model'",
-                [],
-                |row| row.get(0),
-            )
+        let external_runs: i64 = db
+            .with_conn_for_test(|conn| {
+                Ok(conn.query_row(
+                    "SELECT COUNT(*) FROM coding_eval_pack_runs WHERE baseline_kind = 'external_model'",
+                    [],
+                    |row| row.get(0),
+                )?)
+            })
             .expect("external pack history count");
         assert_eq!(external_runs, 1);
     }
@@ -6179,7 +5328,7 @@ mod contract_tests {
 
     #[test]
     fn app_campaign_history_strips_provider_secrets() {
-        use crate::provider::{ApiType, ModelConfig};
+        use ha_core::provider::{ApiType, ModelConfig};
 
         let mut provider = ProviderConfig::new(
             "Secret provider".to_string(),
@@ -6202,15 +5351,15 @@ mod contract_tests {
         let dir = tempfile::tempdir().unwrap();
         let db =
             Arc::new(SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).unwrap());
-        crate::channel::ChannelDB::new(db.clone())
+        ha_core::channel::ChannelDB::new(db.clone())
             .migrate()
             .unwrap();
         let session = db
-            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
         let campaign = db
             .create_coding_benchmark_campaign(
-                crate::coding_improvement::CodingBenchmarkCampaignCreateInput {
+                ha_core::coding_improvement::CodingBenchmarkCampaignCreateInput {
                     session_id: Some(session.id),
                     gold_task_input: GoldTaskPackRunInput {
                         ids: vec!["CE-TEST-004".to_string()],
@@ -6223,7 +5372,7 @@ mod contract_tests {
                         baseline_kind: Some("external_model".to_string()),
                         ..Default::default()
                     },
-                    models: vec![crate::coding_improvement::CodingBenchmarkCampaignModel {
+                    models: vec![ha_core::coding_improvement::CodingBenchmarkCampaignModel {
                         provider_id: Some("secret-provider".to_string()),
                         model_id: Some("secret-model".to_string()),
                         label: Some("secret baseline".to_string()),

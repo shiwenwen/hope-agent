@@ -120,7 +120,7 @@ pub async fn create_domain_eval_campaign(
         std::mem::take(&mut input.providers)
     } else {
         input.providers.clear();
-        ha_core::evaluation::resolve_owner_provider_refs(&references)?
+        ha_eval_runtime::evaluation::resolve_owner_provider_refs(&references)?
     };
     let db = app_state.session_db.clone();
     let campaign = db
@@ -193,7 +193,7 @@ pub async fn run_domain_eval_campaign(
             .iter()
             .filter_map(|model| Some((model.provider_id.clone()?, model.model_id.clone()?, None)))
             .collect::<Vec<_>>();
-        input.providers = ha_core::evaluation::resolve_owner_provider_refs(&references)?;
+        input.providers = ha_eval_runtime::evaluation::resolve_owner_provider_refs(&references)?;
     }
     tokio::spawn(async move {
         let _ = ha_core::domain_eval::run_domain_eval_campaign(db, input).await;

@@ -194,7 +194,7 @@ Evidence 写出前会扫描常见 Key/token/Cookie、Authorization、私钥片�
 | D10 | 外部 benchmark 固定代码、数据、任务列表、镜像、grader 和 adapter 版本；禁止跟随 `latest` 建立趋势 |
 | D11 | Manifest 只引用注册 adapter/verifier/fault/user-simulator 与受限资产路径，永不执行任意 shell 字符串 |
 | D12 | 本地真实模型需要访问所选 Provider；无法证明 provider-only egress 时必须标记为 network unverified，未来远端 Runner 仍需外部防火墙实施最小出站范围 |
-| D13 | App 控制面留在 `ha-core::evaluation`，重 Runner 保持独立 Sidecar；普通 `ha-core/ha-server` 单测不链接完整评测包 |
+| D13 | App 控制面在 `ha-eval-runtime::evaluation`（阶段 5 第四刀自 `ha-core::evaluation` 迁出；kernel 对它零引用，故该 crate 无 `wire()`），重 Runner 保持独立 Sidecar；普通 `ha-core/ha-server` 单测不链接完整评测包 |
 | D14 | 统一历史只是只读索引；Hope Core、Coding、Domain、本地和导入数据的来源、完整性与评分语义不得合并 |
 | D15 | 总预算按模型数切分且绝不向上扩张；无法为每个 child campaign 分到至少一个整数额度时直接拒绝计划 |
 | D16 | App `maxConcurrency` 表示可并行的 trial/shard 数，不替代 suite/scenario 内部 Agent、model、tool 与 span 预算 |
@@ -478,7 +478,7 @@ reviewed_at / owner
 EvaluationTab
     │ typed Tauri owner commands + evaluation:changed
     ▼
-ha-core::evaluation::EvalOrchestrator
+ha-eval-runtime::evaluation::EvalOrchestrator
     │ EvalWorkerRuntime（不依赖 ha-eval）
     ▼
 签名 hope-agent-eval Sidecar / eval-app-control.v1 JSONL
@@ -490,7 +490,7 @@ ha-core::evaluation::EvalOrchestrator
 eval-model-campaign.v1 → 内容寻址 artifact → evals.db 索引
 ```
 
-协议、App profile/request/plan、runtime/provenance/compatibility、bundle/trust 类型在轻量 `ha-eval-spec`；编排、存储、历史、查询和 Provider 解析在 `ha-core::evaluation`；Tauri 只发现安装包内 product/Sidecar/assets、实现进程 runtime 和 owner command；重执行器继续留在 `ha-eval`。这保证普通 `ha-core` / `ha-server` 测试不会链接 Runner、scenario pack 或真实模型代码。
+协议、App profile/request/plan、runtime/provenance/compatibility、bundle/trust 类型在轻量 `ha-eval-spec`；编排、存储、历史、查询和 Provider 解析在 `ha-eval-runtime::evaluation`；Codex 凭据只经 kernel 单一出口 `ha_core::oauth::mint_codex_evaluation_secret` 取得（load → encode → digest 三步收在 kernel，特征 crate 不认识 `CodexEvaluationToken`；但返回的 secret 是**含 raw access token 的明文 JSON**，不是脱敏边界）；Tauri 只发现安装包内 product/Sidecar/assets、实现进程 runtime 和 owner command；重执行器继续留在 `ha-eval`。这保证普通 `ha-core` / `ha-server` 测试不会链接 Runner、scenario pack 或真实模型代码。
 
 Sidecar 第一个事件必须是 hello，包含 `eval-app-control.v1` 协议、产品版本、runner digest、asset root/version-lock digest、OS/arch 和 adapter 能力。App 重新计算 Sidecar 二进制 hash，并以自己的产品版本和资源 digest 回执；任一不匹配都拒绝执行。stdout 只允许有序 JSONL 控制事件，日志走 stderr；seq 重复或倒退、未知事件、握手超时和 event stream 意外关闭均 fail closed。
 

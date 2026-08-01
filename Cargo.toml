@@ -19,6 +19,7 @@ members = [
     "crates/ha-vcs",
     "crates/ha-weather",
     "crates/ha-browser-host",
+    "crates/ha-eval-runtime",
     "crates/ha-eval-spec",
     "crates/ha-eval",
 ]

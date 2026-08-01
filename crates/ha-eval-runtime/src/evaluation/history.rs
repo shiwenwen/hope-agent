@@ -2,10 +2,10 @@ use super::types::{
     EvalCampaignRecord, EvalExperimentDetail, EvalExperimentRecord, EvalExperimentStatus,
     EvalHistoryKind, EvalHistoryQuery, EvalIntegrity, EvalTrialRecord,
 };
-use crate::coding_improvement::{CodingBenchmarkCampaign, CodingBenchmarkCampaignListInput};
-use crate::domain_eval::{DomainEvalCampaign, ListDomainEvalCampaignsInput};
-use crate::session::SessionDB;
 use anyhow::Result;
+use ha_core::coding_improvement::{CodingBenchmarkCampaign, CodingBenchmarkCampaignListInput};
+use ha_core::domain_eval::{DomainEvalCampaign, ListDomainEvalCampaignsInput};
+use ha_core::session::SessionDB;
 use ha_eval_spec::digest_serializable;
 use ha_eval_spec::model::{ModelCampaignOutcome, ModelCampaignSource};
 

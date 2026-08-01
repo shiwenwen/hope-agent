@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Context, Result};
-use ha_core::coding_eval::{self, CodingEvalFixture, GoldTaskPackRunInput};
 use ha_core::domain_eval::{self, RunDomainEvalFixtureInput};
 use ha_core::memory::{claims, dreaming, SqliteMemoryBackend};
 use ha_core::session::SessionDB;
+use ha_eval_runtime::coding_eval::{self, CodingEvalFixture, GoldTaskPackRunInput};
 use ha_eval_spec::{
     read_json, resolve_contained, CaseResult, EvalAdapter, EvalCheck, EvalStatus, PlannedCase,
     PlannedSuite,

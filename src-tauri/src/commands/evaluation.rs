@@ -2,8 +2,8 @@ use super::CmdError;
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, SecondsFormat, Utc};
-use ha_core::evaluation::ModelCampaignTier;
-use ha_core::evaluation::{
+use ha_eval_runtime::evaluation::ModelCampaignTier;
+use ha_eval_runtime::evaluation::{
     validate_app_control_envelope, AppControlCommand, AppControlEnvelope, AppControlEvent,
     AppControlHello, CodingHistorySource, DomainHistorySource, EvalAnnotationRecord, EvalAppPlan,
     EvalAppProfile, EvalAppRunRequest, EvalArtifactStore, EvalBaselineRecord, EvalCatalog,
@@ -75,7 +75,7 @@ fn refresh_import_trust(orchestrator: &DesktopOrchestrator, require_registry: bo
     let trust = trust_path
         .as_deref()
         .ok_or_else(|| anyhow!("packaged evaluation assets are unavailable"))
-        .and_then(ha_core::evaluation::load_evidence_trust_registry_file);
+        .and_then(ha_eval_runtime::evaluation::load_evidence_trust_registry_file);
     match trust {
         Ok(trust) => {
             orchestrator
@@ -191,7 +191,7 @@ impl DesktopEvalRuntime {
             };
             if hello.product_version != env!("CARGO_PKG_VERSION")
                 || hello.runner_digest
-                    != ha_core::evaluation::artifact_sha256(&std::fs::read(sidecar)?)
+                    != ha_eval_runtime::evaluation::artifact_sha256(&std::fs::read(sidecar)?)
             {
                 bail!("evaluation Sidecar version or binary digest mismatch");
             }
@@ -269,12 +269,12 @@ impl EvalWorkerRuntime for DesktopEvalRuntime {
             .asset_root
             .as_deref()
             .map(|root| root.join("evals/live/trust/evidence-keys.json"))
-            .map(
-                |path| match ha_core::evaluation::validate_evidence_trust_registry_file(&path) {
+            .map(|path| {
+                match ha_eval_runtime::evaluation::validate_evidence_trust_registry_file(&path) {
                     Ok(()) => (true, Vec::new()),
                     Err(error) => (false, vec![error.to_string()]),
-                },
-            )
+                }
+            })
             .unwrap_or_else(|| {
                 (
                     false,
@@ -317,7 +317,7 @@ impl EvalWorkerRuntime for DesktopEvalRuntime {
         .await
     }
 
-    async fn list_suites(&self) -> Result<Vec<ha_core::evaluation::AppEvalSuiteCatalog>> {
+    async fn list_suites(&self) -> Result<Vec<ha_eval_runtime::evaluation::AppEvalSuiteCatalog>> {
         self.with_ephemeral(AppControlCommand::ListCatalog, |event| match event {
             AppControlEvent::Catalog { suites } => Ok(suites),
             AppControlEvent::Error { message, .. } => bail!(message),
@@ -368,9 +368,9 @@ impl EvalWorkerRuntime for DesktopEvalRuntime {
                     app_version: launch.app_version,
                     runtime_environment: launch.runtime_environment,
                     product_binary: self.paths.product.to_string_lossy().to_string(),
-                    product_binary_digest: ha_core::evaluation::artifact_sha256(&std::fs::read(
-                        &self.paths.product,
-                    )?),
+                    product_binary_digest: ha_eval_runtime::evaluation::artifact_sha256(
+                        &std::fs::read(&self.paths.product)?,
+                    ),
                     output_root: output_root.to_string_lossy().to_string(),
                     config: launch.credential_free_config,
                     provider_secrets_b64: launch.provider_secrets_b64,
@@ -835,12 +835,12 @@ async fn resolve_launch(
         )
     })?;
     let (reference, dirty) = local_build_identity(&runtime.paths.product);
-    ha_core::evaluation::resolve_local_launch(
+    ha_eval_runtime::evaluation::resolve_local_launch(
         request,
         reference,
         dirty,
         env!("CARGO_PKG_VERSION").to_string(),
-        ha_core::evaluation::artifact_sha256(&std::fs::read(&runtime.paths.product)?),
+        ha_eval_runtime::evaluation::artifact_sha256(&std::fs::read(&runtime.paths.product)?),
         hello.runner_digest,
         hello.asset_root_digest,
     )
@@ -915,13 +915,14 @@ pub async fn eval_catalog(
         readiness,
         profiles,
         suites,
-        models: ha_core::evaluation::list_model_options()?,
+        models: ha_eval_runtime::evaluation::list_model_options()?,
     })
 }
 
 #[tauri::command]
-pub fn eval_list_model_options() -> Result<Vec<ha_core::evaluation::EvalModelOption>, CmdError> {
-    Ok(ha_core::evaluation::list_model_options()?)
+pub fn eval_list_model_options(
+) -> Result<Vec<ha_eval_runtime::evaluation::EvalModelOption>, CmdError> {
+    Ok(ha_eval_runtime::evaluation::list_model_options()?)
 }
 
 #[tauri::command]
@@ -1027,7 +1028,7 @@ pub async fn eval_get_experiment(
             .run(move |db| {
                 Ok::<_, anyhow::Error>(
                     db.get_coding_benchmark_campaign(&id)?
-                        .map(|value| ha_core::evaluation::coding_detail(&value)),
+                        .map(|value| ha_eval_runtime::evaluation::coding_detail(&value)),
                 )
             })
             .await?);
@@ -1037,7 +1038,7 @@ pub async fn eval_get_experiment(
             .run(move |db| {
                 Ok::<_, anyhow::Error>(
                     db.get_domain_eval_campaign(&id)?
-                        .map(|value| ha_core::evaluation::domain_detail(&value)),
+                        .map(|value| ha_eval_runtime::evaluation::domain_detail(&value)),
                 )
             })
             .await?);
@@ -1110,7 +1111,7 @@ pub fn eval_import_bundle(
         .as_ref()
         .ok_or_else(|| anyhow!("packaged evaluation assets are unavailable"))?;
     let trust = asset_root.join("evals/live/trust/evidence-keys.json");
-    let result = ha_core::evaluation::import_evidence_bundle(
+    let result = ha_eval_runtime::evaluation::import_evidence_bundle(
         Path::new(&bundle_path),
         &trust,
         orchestrator.repository(),
@@ -1119,7 +1120,7 @@ pub fn eval_import_bundle(
     refresh_import_trust(&orchestrator, true)?;
     if let Some(events) = ha_core::get_event_bus() {
         events.emit(
-            ha_core::evaluation::EVALUATION_EVENT,
+            ha_eval_runtime::evaluation::EVALUATION_EVENT,
             serde_json::json!({"experimentId": result.experiment_id, "change": "imported"}),
         );
     }
@@ -1132,14 +1133,14 @@ pub fn eval_import_unverified(
     state: tauri::State<'_, EvaluationState>,
 ) -> Result<EvalImportResult, CmdError> {
     let orchestrator = state.orchestrator()?;
-    let result = ha_core::evaluation::import_unverified_evidence_file(
+    let result = ha_eval_runtime::evaluation::import_unverified_evidence_file(
         Path::new(&evidence_path),
         orchestrator.repository(),
         &EvalArtifactStore::default_store()?,
     )?;
     if let Some(events) = ha_core::get_event_bus() {
         events.emit(
-            ha_core::evaluation::EVALUATION_EVENT,
+            ha_eval_runtime::evaluation::EVALUATION_EVENT,
             serde_json::json!({"experimentId": result.experiment_id, "change": "imported"}),
         );
     }
@@ -1153,7 +1154,7 @@ pub fn eval_export_local_bundle(
     state: tauri::State<'_, EvaluationState>,
 ) -> Result<EvalLocalExportResult, CmdError> {
     let orchestrator = state.orchestrator()?;
-    Ok(ha_core::evaluation::export_local_evidence_bundle(
+    Ok(ha_eval_runtime::evaluation::export_local_evidence_bundle(
         &experiment_id,
         Path::new(&output_path),
         orchestrator.repository(),

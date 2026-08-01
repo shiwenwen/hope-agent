@@ -34,7 +34,7 @@ impl EvalRepository {
     }
 
     pub fn default_repository() -> Result<Self> {
-        Self::open(crate::paths::evals_db_path()?)
+        Self::open(ha_core::paths::evals_db_path()?)
     }
 
     pub fn path(&self) -> &Path {

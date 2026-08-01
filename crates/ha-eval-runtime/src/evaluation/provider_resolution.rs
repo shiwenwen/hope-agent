@@ -14,12 +14,12 @@ use std::collections::BTreeMap;
 /// persisting or returning campaign input.
 pub fn resolve_owner_provider_refs(
     references: &[(String, String, Option<String>)],
-) -> Result<Vec<crate::provider::ProviderConfig>> {
+) -> Result<Vec<ha_core::provider::ProviderConfig>> {
     if references.is_empty() {
         return Ok(Vec::new());
     }
-    let source = crate::config::load_config()?;
-    let mut resolved = BTreeMap::<String, crate::provider::ProviderConfig>::new();
+    let source = ha_core::config::load_config()?;
+    let mut resolved = BTreeMap::<String, ha_core::provider::ProviderConfig>::new();
     for (provider_id, model_id, credential_profile_ref) in references {
         let provider = source
             .providers
@@ -75,11 +75,11 @@ pub fn resolve_owner_provider_refs(
 }
 
 pub fn list_model_options() -> Result<Vec<EvalModelOption>> {
-    let config = crate::config::load_config()?;
-    let codex_authenticated = crate::get_codex_token_cache()
+    let config = ha_core::config::load_config()?;
+    let codex_authenticated = ha_core::get_codex_token_cache()
         .and_then(|cache| cache.try_lock().ok().map(|value| value.is_some()))
         .unwrap_or(false)
-        || crate::oauth::load_token().ok().flatten().is_some();
+        || ha_core::oauth::load_token().ok().flatten().is_some();
     let mut options = Vec::new();
     for provider in config.providers.iter().filter(|provider| provider.enabled) {
         let codex = provider.api_type.is_codex();
@@ -157,12 +157,12 @@ pub async fn resolve_local_launch(
     asset_root_digest: String,
 ) -> Result<EvalResolvedLaunch> {
     ha_eval_spec::app::validate_app_request(&request)?;
-    let source = crate::config::load_config()?;
-    let mut isolated = crate::config::AppConfig::default();
+    let source = ha_core::config::load_config()?;
+    let mut isolated = ha_core::config::AppConfig::default();
     let mut models = Vec::with_capacity(request.models.len());
     let mut secrets = BTreeMap::<String, String>::new();
     let mut credential_identity = BTreeMap::<String, String>::new();
-    let mut resolved_codex_token: Option<crate::oauth::CodexEvaluationToken> = None;
+    let mut resolved_codex_secret: Option<ha_core::oauth::CodexEvaluationSecret> = None;
     for selection in &request.models {
         let provider = source
             .providers
@@ -180,7 +180,7 @@ pub async fn resolve_local_launch(
             if selection.credential_profile_ref.is_some() {
                 bail!("Codex evaluation models do not accept API-key credential profiles");
             }
-            if resolved_codex_token.is_none() {
+            if resolved_codex_secret.is_none() {
                 let required_validity_secs = request
                     .campaign_budget
                     .max_wall_seconds
@@ -189,23 +189,22 @@ pub async fn resolve_local_launch(
                             "Codex evaluation requires maxWallSeconds because the isolated runtime cannot refresh OAuth"
                         )
                     })?;
-                resolved_codex_token = Some(
-                    crate::oauth::load_codex_token_for_evaluation(required_validity_secs).await?,
+                // 铸币三步（load → encode → digest）收在 ha-core，此处只拿成品。
+                // 注意 secret 是明文 JSON、内含 raw access token（见
+                // `ha_core::oauth::CodexEvaluationSecret` 文档）——这里收窄的是
+                // 装配职责，不是脱敏；凭据仍要按原有规矩进隔离 config、禁入日志。
+                resolved_codex_secret = Some(
+                    ha_core::oauth::mint_codex_evaluation_secret(required_validity_secs).await?,
                 );
             }
-            let token = resolved_codex_token
+            let minted = resolved_codex_secret
                 .as_ref()
                 .ok_or_else(|| anyhow!("Codex OAuth credential is unavailable"))?;
-            let secret = crate::config::encode_model_eval_codex_secret(
-                &token.access_token,
-                &token.account_id,
-                token.expires_at_ms,
-            )?;
             (
-                Some(secret),
+                Some(minted.secret.clone()),
                 serde_json::json!({
                     "kind": "codex_oauth_access_token",
-                    "accountIdDigest": digest_serializable(&token.account_id)?,
+                    "accountIdDigest": minted.account_id_digest.clone(),
                 }),
                 None,
             )
@@ -267,10 +266,12 @@ pub async fn resolve_local_launch(
             credential_config_digest: credential_digest,
         });
     }
-    isolated.active_model = models.first().map(|binding| crate::provider::ActiveModel {
-        provider_id: binding.model.provider_id.clone(),
-        model_id: binding.model.model_id.clone(),
-    });
+    isolated.active_model = models
+        .first()
+        .map(|binding| ha_core::provider::ActiveModel {
+            provider_id: binding.model.provider_id.clone(),
+            model_id: binding.model.model_id.clone(),
+        });
     isolated.fallback_models.clear();
     isolated.channels = Default::default();
     isolated.cron = Default::default();
@@ -311,7 +312,7 @@ pub async fn resolve_local_launch(
 }
 
 fn resolve_credential(
-    provider: &crate::provider::ProviderConfig,
+    provider: &ha_core::provider::ProviderConfig,
     requested_profile: Option<&str>,
 ) -> Result<(Option<String>, serde_json::Value, Option<String>)> {
     if let Some(profile_id) = requested_profile {
@@ -367,7 +368,7 @@ fn resolve_credential(
     bail!("selected Provider has no usable isolated-evaluation credential")
 }
 
-fn is_keyless_loopback(provider: &crate::provider::ProviderConfig) -> Result<bool> {
+fn is_keyless_loopback(provider: &ha_core::provider::ProviderConfig) -> Result<bool> {
     if !provider.api_key.trim().is_empty()
         || provider
             .auth_profiles

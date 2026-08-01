@@ -24,7 +24,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::coding_eval::{GoldTaskPackReport, GoldTaskPackRunInput, StrategyEffectReport};
+use crate::coding_eval_defs::{GoldTaskPackReport, GoldTaskPackRunInput, StrategyEffectReport};
+// `RecordCodingEvalRunInput` 是 `CodingEvalFixture.seed_eval_runs` 的字段类型，
+// 已随契约层下沉 `coding_eval_defs`（否则 defs ↔ 业务层成源码环，会卡住后续
+// improve 域上浮）。此处再导出保住 `coding_improvement::RecordCodingEvalRunInput`
+// 既有路径。
+pub use crate::coding_eval_defs::RecordCodingEvalRunInput;
 use crate::review::{ReviewFindingStatus, ReviewSeverity};
 use crate::session::{MessageRole, SessionDB, SessionMessage};
 use crate::skills::SkillStatus;
@@ -490,24 +495,6 @@ pub struct CodingDistilledCandidate {
     pub title: String,
     pub rationale: String,
     pub fingerprint: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordCodingEvalRunInput {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project_id: Option<String>,
-    pub suite: String,
-    pub name: String,
-    pub status: String,
-    #[serde(default)]
-    pub metrics: Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_type: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9099,7 +9086,7 @@ fn apply_eval_fixture_registration(
     }
 
     let fixture_raw = std::fs::read_to_string(&fixture_path)?;
-    serde_json::from_str::<crate::coding_eval::CodingEvalFixture>(&fixture_raw)
+    serde_json::from_str::<crate::coding_eval_defs::CodingEvalFixture>(&fixture_raw)
         .map_err(|err| anyhow!("promoted eval fixture is invalid: {err}"))?;
 
     let mut manifest: ha_eval_spec::SuiteManifest = ha_eval_spec::read_json(&manifest_path)?;

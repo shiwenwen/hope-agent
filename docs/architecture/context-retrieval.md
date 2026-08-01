@@ -30,7 +30,7 @@ Context Retrieval v2 回答一个用户视角的问题：
 
 ## 2. 架构边界
 
-核心实现位于 `ha-core::context_retrieval`，入口是：
+核心实现位于 `ha-eval-runtime::context_retrieval`（阶段 5 第四刀自 ha-core 迁出），入口是：
 
 ```rust
 context_retrieval_for_session(db, session_id, ContextRetrievalInput { query, limit, ide_context, domain, template_id, template_version })

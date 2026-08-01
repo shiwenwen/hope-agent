@@ -120,6 +120,22 @@
 # 大盘特征（阶段 5 自 ha-core 迁入 ha-dash）：**迁出前 dashboard/ 与 recap/ 就没有
 # owner 条目**，本刀不新增——它是纯只读聚合，连接是 SQLITE_OPEN_READ_ONLY，
 # 不碰凭据 / 权限 / 写路径。此处留记录，免得后来者以为是搬迁时漏同步。
+# 评测运行时特征（阶段 5 自 ha-core 迁入 ha-eval-runtime）：
+# `evaluation/provider_resolution.rs` 是真实模型评测的**凭据装配点**——它把
+# Provider 凭据与 Codex secret 塞进隔离运行时的 config，也是「隔离 config.json
+# 禁存 Provider Key」这条红线的落点。**迁出前该路径无 owner 条目**，本刀补上。
+# 注意它拿到的 secret **含 raw access token 明文**（kernel 的
+# `encode_model_eval_codex_secret` 只做 schema 封装、不加密），所以这条路径要
+# 按真凭据审——此处把关的是凭据**去向**，铸币点见下方 oauth.rs 条目。
+/crates/ha-eval-runtime/src/evaluation/provider_resolution.rs @shiwenwen
+# 同刀迁出的 `evaluation/evidence_bundle.rs` 决定 trust registry、签名有效性与
+# protected evidence / baseline 资格——放松这里等于让未签名或不受信来源冒充
+# 发布证据，安全权重不低于凭据装配，故一并登记。
+/crates/ha-eval-runtime/src/evaluation/evidence_bundle.rs @shiwenwen
+# 铸币点：`oauth::mint_codex_evaluation_secret` 是 Codex OAuth token 跨 crate
+# 的唯一出口（load → encode → digest 三步）。**迁出前 oauth.rs 无 owner 条目**，
+# 本刀补上——把关点不该只落在下游消费者。
+/crates/ha-core/src/oauth.rs      @shiwenwen
 
 # === 跨 PR 契约：架构文档 ===
 /docs/architecture/               @shiwenwen

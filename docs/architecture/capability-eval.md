@@ -49,7 +49,7 @@ cargo run -p ha-eval --locked -- aggregate \
 - 修改 lock 后在本地运行 `node scripts/verify-eval-version-lock.mjs --base <base-sha>`，并在代码审查中确认 append-only。GitHub CI 当前不执行这项评测专用校验。
 - Memory latency 只作提示，质量和召回正确性仍是功能断言。
 
-`ha-eval` 默认启用 `full-runner`，完整确定性 adapter 不链接进普通 `ha-core` / `ha-server` 测试。此前迁出的 `eval-internal-tests` 继续保持 opt-in，不回到默认 Cargo test。
+`ha-eval` 默认启用 `full-runner`，完整确定性 adapter 不链接进普通 `ha-core` / `ha-server` 测试。此前迁出的 `eval-internal-tests` 继续保持 opt-in，不回到默认 Cargo test——阶段 5 第四刀 `coding_eval` 迁入 `ha-eval-runtime` 后，该开关在两处同名（`ha-core/eval-internal-tests` 与 `ha-eval-runtime/eval-internal-tests`，后者转发前者），跑遗留内部测试须按所在 crate 显式打开。
 
 ## 本地网络与证据语义
 

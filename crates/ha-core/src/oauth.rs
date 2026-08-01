@@ -209,6 +209,49 @@ pub(crate) async fn load_codex_token_for_evaluation(
     )
 }
 
+/// 已按 `model-eval-codex-oauth.v1` schema 编码、可交给隔离评测运行时的 Codex 凭据。
+///
+/// **`secret` 是明文 JSON，内含 raw access token**——
+/// `config::encode_model_eval_codex_secret` 只做 schema 封装与有效性校验，
+/// 不加密。别把这个类型当成脱敏边界。
+///
+/// 它收窄的是**装配职责**而非凭据可见性：特征 crate 不再需要认识
+/// [`CodexEvaluationToken`]、不再自己决定编码方式与摘要口径，因此
+/// [`CodexEvaluationToken`] / [`load_codex_token_for_evaluation`] /
+/// `config::encode_model_eval_codex_secret` 三者得以保持 `pub(crate)`。
+/// 凭据本身照样流向 `ha-eval-runtime` 并进隔离运行时的 config——那条路径的
+/// 把关点在 `evaluation/provider_resolution.rs`（见 CODEOWNERS）。
+///
+/// 刻意不 derive `Debug`：避免被顺手 `{:?}` 进日志（AGENTS「凭据禁入日志」红线）。
+pub struct CodexEvaluationSecret {
+    /// `config::encode_model_eval_codex_secret` 的产物，直接进隔离 `config.json`。
+    /// **含 raw access token 明文**，见类型文档。
+    pub secret: String,
+    /// 账号标识的摘要，只用于「同一 Provider 不得混用不同凭据」的一致性校验。
+    pub account_id_digest: String,
+}
+
+/// 为本地真实模型评测铸一份 Codex 凭据。`required_validity_secs` 必须覆盖整个
+/// campaign——隔离运行时拿不到 refresh token，中途过期无法续期。
+///
+/// 与迁移前 `ha-eval-runtime` 侧自己拼 token → encode → digest 三步**逐位等价**，
+/// 只是把三步收进 kernel，让那三个 `pub(crate)` 项不必为跨 crate 调用放开。
+pub async fn mint_codex_evaluation_secret(
+    required_validity_secs: u64,
+) -> Result<CodexEvaluationSecret> {
+    let token = load_codex_token_for_evaluation(required_validity_secs).await?;
+    let secret = crate::config::encode_model_eval_codex_secret(
+        &token.access_token,
+        &token.account_id,
+        token.expires_at_ms,
+    )?;
+    let account_id_digest = ha_eval_spec::digest_serializable(&token.account_id)?;
+    Ok(CodexEvaluationSecret {
+        secret,
+        account_id_digest,
+    })
+}
+
 /// Check if token is expired (or within `REFRESH_MARGIN_MS` of expiry).
 pub fn is_token_expired(token: &TokenData) -> bool {
     match token.expires_at {

@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-cron · ha-dash · ha-design · ha-local-llm<br/>ha-mac · ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
+        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-cron · ha-dash · ha-design · ha-eval-runtime<br/>ha-local-llm · ha-mac · ha-mcp · ha-media · ha-pet · ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -141,6 +141,8 @@ mcp/               MCP 客户端（stdio / Streamable HTTP / SSE / WebSocket）
 cron/              **台账**：CronDB + 排程算术 + 内存取消注册表（调度器 /
                    执行器 / 投递已随 ha-cron 迁出，见下文特征 crate 一节）
 cron_defs/         cron_jobs / cron_run_logs 的 wire 类型（契约层）
+coding_eval_defs.rs 评测 wire 类型（契约层；机器随 ha-eval-runtime 迁出，
+                   kernel 的 coding_improvement 存的就是这些报告的 JSON）
 cron_hooks.rs      cron 机器的反向钩子（起任务 / 取消 / 注入回投）
 loop_control.rs    托管 /loop（复用 cron 持久化调度；**整体留 kernel**——
                    有 58 方法的 impl SessionDB 块）
@@ -311,7 +313,7 @@ skills**。ha-local-llm 之所以能不排在这条序列里先走，正是因�
 入边（需切 0）——它只依赖别人，不被别人依赖。**新增任何特征间边前先跑
 一次脚本**——成环会让后续拆分整个卡住。
 
-### 特征 crate（ha-acp / ha-browser / ha-cron / ha-dash / ha-design / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-cron / ha-dash / ha-design / ha-eval-runtime / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -468,6 +470,59 @@ skills**。ha-local-llm 之所以能不排在这条序列里先走，正是因�
   self_diagnosis / eval_context 与 `Currency` 配对使用）。
   剩余对 cron / coding_improvement 的引用现为普通 `ha_core::…` 调用，等那
   两家拆出后成为特征间单向边——**ha-dash 排在拓扑序第一正是为此**。
+- **ha-eval-runtime**（评测运行时，阶段 5 第四刀）：coding 评测 fixture
+  runner / gold task pack / strategy 对照（`coding_eval`）、评测编排与制品仓
+  （`evaluation`，自带 `evals.db`）、任务感知的只读上下文排序
+  （`context_retrieval`）。
+  **它不叫 ha-improve，因为 improve 域没拆完**。原方案把
+  `coding_improvement` / `domain_eval` / `domain_quality`（三者合计 25.7k 行）
+  一并划进 `ha-improve`；摸底否了：那三个模块共 **100 处直接
+  `self.conn.lock()`**（含 `conn.transaction()`）写 kernel 的 `sessions.db`。
+  搬走只有三条路——① 把 `SessionDB` 的**可写**连接开成跨 crate 公开 API
+  （还得再加一个 `&mut` 版供 `transaction()` 用）；② 155 个 `impl SessionDB`
+  方法转扩展 trait 并逐个改写方法体；③ 把这 155 个方法整体留 kernel、其余
+  上浮。① 会永久击穿封装（拿到裸句柄即可绕过 kernel 对 `sessions` /
+  `messages` 的不变量与事务边界），且直接推翻 ha-dash 那刀立下的契约——
+  ha-dash 正是被这条契约逼去自开**只读**连接的；③ 只是换个位置放代码，
+  不是拆分（90 个方法里 47 个非 pub、54 个碰 conn，与纯计算逻辑交织，
+  切口靠人工逐方法判断）。**故这一刀只收不碰 kernel 连接的那三块**，
+  剩下的等 typed repository / store 边界设计好再单独切，
+  **不拿通用 `with_conn` 当过渡方案**（该结论已进 AGENTS 红线）。
+  **kernel 侧留存 `coding_eval_defs`**（契约层，同 `tool_defs` / `slash_defs` /
+  `cron_defs`）：kernel 的 `coding_improvement` 存的就是 `GoldTaskPackReport` /
+  `StrategyEffectReport` 的 JSON（`coding_benchmark_*` 表），排行榜再解回来；
+  提案晋升成正式 eval fixture 时还要按 `CodingEvalFixture` 校验一遍。类型跟着
+  机器上浮就成环，故 46 个 wire 类型（`coding_eval_defs.rs`）下沉 kernel，
+  `ha_eval_runtime::coding_eval` 对它 glob 再导出，既有路径逐字不变。
+  其中 `RecordCodingEvalRunInput`（`CodingEvalFixture.seed_eval_runs` 的元素
+  类型）原定义在 `coding_improvement`，一并下沉——否则契约层反向依赖业务层，
+  与 `coding_improvement → coding_eval_defs` 的正向依赖构成源码环：同 crate 内
+  能编译，却会在后续 improve 域上浮时变成真的 Cargo 反向依赖。
+  `coding_improvement` 保留同名 re-export。
+  **`review` / `verification` / `domain_workflow` / `lsp` 留 kernel**：前三个
+  同时是 workflow 的内置步骤与 Goal / Loop 的模板来源（`workflow.review` /
+  `workflow.verify` / `workflow.evidence.record` 三个 op 就在
+  `workflow/runtime.rs` 里），上浮要给 runtime 开 6~7 个钩子；`lsp` 被 kernel
+  核心路径消费（agent streaming loop 的诊断 prompt 段 + `apply_patch` /
+  `edit` / `write` 三个 Core 工具的 `sync_file_after_tool`），同 `activity` /
+  `local_model_jobs` / `CronDB` 的规则。
+  **kernel 边界：零钩子** —— kernel 对这三个模块零引用，能力面全部经壳层
+  暴露（Tauri 命令 / HTTP 路由 / `hope-agent-eval`）。因此它是**唯一没有
+  `wire()` 的特征 crate**；不要为对齐补一个空 `wire()`，那只会让「漏调
+  `wire()`」的真问题更难被发现。
+  凭据面收窄了一处：`provider_resolution` 原本自己拼 raw Codex access token
+  → encode → digest 三步，需要 `oauth::{CodexEvaluationToken,
+  load_codex_token_for_evaluation}` 与 `config::encode_model_eval_codex_secret`
+  三个 `pub(crate)` 项。改为 kernel 单一出口
+  `oauth::mint_codex_evaluation_secret`，那三项得以保持不公开。
+  **收窄的是装配职责，不是凭据可见性**——`encode_model_eval_codex_secret`
+  只做 schema 封装与校验、不加密，返回的 secret 是**含 raw access token 的
+  明文 JSON**，照样跨 crate 流向 ha-eval-runtime 并进隔离运行时的 config。
+  那条路径的把关点是 CODEOWNERS 的 `provider_resolution.rs`（凭据去向）与
+  `oauth.rs`（铸币点）两条。
+  测试造 fixture 需要原始 SQL，走新增的 `SessionDB::with_conn_for_test`
+  （`cfg(any(test, feature = "test-support"))`，与 `open_ephemeral_for_test`
+  同档——生产构建里这个方法根本不存在，不能当后门）。
 - **ha-local-llm**（本地模型，阶段 5 首刀——原 7-环成员出栈第一个）：
   Ollama 生命周期（检测 / 安装 / 启动 / 拉取 / 预载）、模型目录与硬件
   预算推荐、Ollama Library 元数据抓取、默认模型自维护 watchdog、本地

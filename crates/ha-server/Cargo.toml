@@ -42,6 +42,7 @@ ha-mac = { path = "../ha-mac" }
 ha-local-llm = { path = "../ha-local-llm" }
 ha-dash = { path = "../ha-dash" }
 ha-cron = { path = "../ha-cron" }
+ha-eval-runtime = { path = "../ha-eval-runtime" }
 ha-updater = { path = "../ha-updater" }
 ha-weather = { path = "../ha-weather" }
 serde = { workspace = true }

@@ -1,5 +1,5 @@
 use axum::Json;
-use ha_core::coding_eval::{
+use ha_eval_runtime::coding_eval::{
     self, CodingEvalFixture, FixtureReport, GoldTaskPackReport, GoldTaskPackRunInput,
     GoldTaskPackSummary, StrategyEffectEvalInput, StrategyEffectReport,
 };

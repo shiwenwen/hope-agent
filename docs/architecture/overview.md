@@ -94,6 +94,7 @@ graph TD
         LocalLlmFeat["ha-local-llm<br/>Ollama 生命周期 / 模型目录 / 本地 embedding"]
         DashFeat["ha-dash<br/>用量 Insights / 控制面聚合 / recap 报告<br/>(只读：SQLITE_OPEN_READ_ONLY)"]
         CronFeat["ha-cron<br/>调度器 / 执行器 / 投递 + manage_cron<br/>(台账 CronDB 留 kernel)"]
+        EvalRtFeat["ha-eval-runtime<br/>coding 评测 runner / 评测编排 / 上下文排序<br/>(无 wire()：kernel 零引用)"]
     end
     Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     Weather -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
@@ -112,6 +113,7 @@ graph TD
     LocalLlmFeat -.->|"Provider 注册"| Agent
     DashFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     CronFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    EvalRtFeat -->|"依赖 ha-core<br/>无 wire()：kernel 零引用，壳层直接调"| Tools
 
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler

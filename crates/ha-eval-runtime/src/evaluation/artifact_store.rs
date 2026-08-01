@@ -23,7 +23,7 @@ impl EvalArtifactStore {
     }
 
     pub fn default_store() -> Result<Self> {
-        Self::open(crate::paths::eval_artifacts_dir()?)
+        Self::open(ha_core::paths::eval_artifacts_dir()?)
     }
 
     pub fn put_bytes(&self, bytes: &[u8]) -> Result<StoredEvalArtifact> {
@@ -35,7 +35,7 @@ impl EvalArtifactStore {
                 bail!("content-addressed evaluation artifact is corrupt");
             }
         } else {
-            crate::platform::write_atomic_create_new(&path, bytes).or_else(|error| {
+            ha_core::platform::write_atomic_create_new(&path, bytes).or_else(|error| {
                 if error.kind() == std::io::ErrorKind::AlreadyExists {
                     Ok(())
                 } else {

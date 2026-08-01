@@ -385,6 +385,24 @@ impl SessionDB {
         Self::open_with_mode(db_path, SessionDbOpenMode::EphemeralTest)
     }
 
+    /// 测试专用的锁内连接访问——**生产契约未松动**。
+    ///
+    /// [`Self::with_conn_internal`] 仍是 `pub(crate)`：特征 crate 的生产代码
+    /// 一律走类型化方法，核心库 schema 不做跨 crate 隐式 API。但已迁出的特征
+    /// crate 要给自己的表造 fixture / 断言行数时，除了原始 SQL 没有别的办法
+    /// （ha-eval-runtime 的评测断言、context_retrieval 的 fixture 建表）。
+    ///
+    /// 门控与 [`Self::open_ephemeral_for_test`] 同档（`test-support` 只出现在
+    /// dev-dependencies），因此**生产构建里这个方法根本不存在**——它不能被拿来
+    /// 当「绕过类型化方法」的后门。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_conn_for_test<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> anyhow::Result<R>,
+    ) -> anyhow::Result<R> {
+        self.with_conn_internal(f)
+    }
+
     fn open_with_mode(db_path: &PathBuf, mode: SessionDbOpenMode) -> Result<Self> {
         // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {

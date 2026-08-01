@@ -14,15 +14,15 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::domain_workflow::{
+use ha_core::domain_workflow::{
     DomainApprovalGate, DomainEvidenceItem, DomainEvidenceRequirement, DomainVerificationRule,
     ListDomainEvidenceInput, ListDomainWorkflowTemplatesInput,
 };
-use crate::review::{ReviewFindingStatus, ReviewSeverity};
-use crate::session::{effective_working_dir_for_meta, SessionDB, SessionIdeContext};
-use crate::util::now_rfc3339;
-use crate::verification::VerificationStepState;
-use crate::workflow::{WorkflowOpState, WorkflowRunState};
+use ha_core::review::{ReviewFindingStatus, ReviewSeverity};
+use ha_core::session::{effective_working_dir_for_meta, SessionDB, SessionIdeContext};
+use ha_core::util::now_rfc3339;
+use ha_core::verification::VerificationStepState;
+use ha_core::workflow::{WorkflowOpState, WorkflowRunState};
 
 const DEFAULT_LIMIT: usize = 24;
 const MAX_LIMIT: usize = 50;
@@ -722,7 +722,7 @@ fn gather_domain_artifacts(
     map: &mut HashMap<String, CandidateAccum>,
     stats: &mut ContextRetrievalStats,
 ) {
-    let Ok(artifacts) = crate::session::aggregate_session_artifacts(db, session_id) else {
+    let Ok(artifacts) = ha_core::session::aggregate_session_artifacts(db, session_id) else {
         return;
     };
     for (idx, file) in artifacts.files.into_iter().take(60).enumerate() {
@@ -987,7 +987,8 @@ async fn gather_git_changes(
 ) {
     let sid = session_id.to_string();
     let diff =
-        tokio::task::spawn_blocking(move || crate::session::load_session_git_diff(&db, &sid)).await;
+        tokio::task::spawn_blocking(move || ha_core::session::load_session_git_diff(&db, &sid))
+            .await;
     let Ok(Ok(diff)) = diff else {
         return;
     };
@@ -1035,9 +1036,10 @@ async fn gather_artifacts(
     stats: &mut ContextRetrievalStats,
 ) {
     let sid = session_id.to_string();
-    let artifacts =
-        tokio::task::spawn_blocking(move || crate::session::aggregate_session_artifacts(&db, &sid))
-            .await;
+    let artifacts = tokio::task::spawn_blocking(move || {
+        ha_core::session::aggregate_session_artifacts(&db, &sid)
+    })
+    .await;
     let Ok(Ok(artifacts)) = artifacts else {
         return;
     };
@@ -1178,7 +1180,7 @@ fn gather_ide_context(
                 .as_deref()
                 .map(|text| {
                     let compact = text.replace('\n', " ");
-                    crate::truncate_utf8(&compact, 80).to_string()
+                    ha_core::truncate_utf8(&compact, 80).to_string()
                 })
                 .unwrap_or_else(|| "IDE selection".to_string());
             let boost = matcher.boost(&[path, &title, source]);
@@ -1352,7 +1354,7 @@ async fn gather_lsp_diagnostics(
     map: &mut HashMap<String, CandidateAccum>,
     stats: &mut ContextRetrievalStats,
 ) {
-    let Ok(snapshot) = crate::lsp::diagnostics_for_session(db, session_id).await else {
+    let Ok(snapshot) = ha_core::lsp::diagnostics_for_session(db, session_id).await else {
         return;
     };
     stats.diagnostics = snapshot.diagnostics.len();
@@ -1789,7 +1791,7 @@ async fn gather_file_search(
         return;
     };
     let search = tokio::task::spawn_blocking(move || {
-        crate::filesystem::search_files(&root, &query, Some(FILE_SEARCH_LIMIT))
+        ha_core::filesystem::search_files(&root, &query, Some(FILE_SEARCH_LIMIT))
     })
     .await;
     let Ok(Ok(response)) = search else {
@@ -1851,9 +1853,13 @@ async fn gather_lsp_symbols(
     if query.chars().count() < 2 {
         return;
     }
-    let Ok(snapshot) =
-        crate::lsp::workspace_symbols_for_session(db, session_id, query, Some(SYMBOL_SEARCH_LIMIT))
-            .await
+    let Ok(snapshot) = ha_core::lsp::workspace_symbols_for_session(
+        db,
+        session_id,
+        query,
+        Some(SYMBOL_SEARCH_LIMIT),
+    )
+    .await
     else {
         return;
     };
@@ -2324,8 +2330,8 @@ fn path_from_metadata(metadata: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_workflow::RecordDomainEvidenceInput;
-    use crate::goal::CreateGoalInput;
+    use ha_core::domain_workflow::RecordDomainEvidenceInput;
+    use ha_core::goal::CreateGoalInput;
     use tempfile::tempdir;
 
     struct TestDb {
@@ -2337,8 +2343,7 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let db =
             SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).expect("open db");
-        {
-            let conn = db.conn.lock().expect("lock connection");
+        db.with_conn_for_test(|conn| {
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS channel_conversations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2356,9 +2361,10 @@ mod tests {
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
                 );",
-            )
-            .expect("create channel conversations table");
-        }
+            )?;
+            Ok(())
+        })
+        .expect("create channel conversations table");
         TestDb {
             _dir: dir,
             db: Arc::new(db),

@@ -79,7 +79,7 @@ pub type Result<T> = std::result::Result<T, FilesystemError>;
 // ---- Project file-browser API (workspace-scoped CRUD) ----------------------
 
 mod git;
-pub(crate) use git::isolate_repository_env;
+pub use git::isolate_repository_env;
 mod ops;
 mod workspace;
 

@@ -23,11 +23,11 @@ pub struct ContextRetrievalQuery {
 pub async fn get_context_retrieval(
     Path(session_id): Path<String>,
     Query(query): Query<ContextRetrievalQuery>,
-) -> Result<Json<ha_core::context_retrieval::ContextRetrievalSnapshot>, AppError> {
-    ha_core::context_retrieval::context_retrieval_for_session(
+) -> Result<Json<ha_eval_runtime::context_retrieval::ContextRetrievalSnapshot>, AppError> {
+    ha_eval_runtime::context_retrieval::context_retrieval_for_session(
         session_db()?.clone(),
         session_id,
-        ha_core::context_retrieval::ContextRetrievalInput {
+        ha_eval_runtime::context_retrieval::ContextRetrievalInput {
             query: query.query,
             limit: query.limit,
             ide_context: None,
