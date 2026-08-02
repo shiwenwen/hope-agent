@@ -25,6 +25,7 @@ import { filterGlobalSessionSearchResults } from "./sessionListModel"
 
 interface SessionListProps {
   sessions: SessionMeta[]
+  sessionsByFilter: Record<SessionFilterType, SessionMeta[]>
   filteredSessions: SessionMeta[]
   sessionFilter: SessionFilterType
   setSessionFilter: (filter: SessionFilterType) => void
@@ -72,6 +73,7 @@ interface SessionListProps {
 
 export default function SessionList({
   sessions,
+  sessionsByFilter,
   filteredSessions,
   sessionFilter,
   setSessionFilter,
@@ -122,6 +124,14 @@ export default function SessionList({
 
   const highlightTerms = useMemo(() => parseHighlightTerms(searchQuery), [searchQuery])
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
+  const sessionContext = useMemo(() => {
+    const byId = new Map(sessions.map((session) => [session.id, session]))
+    for (const session of [...sessionsByFilter.session, ...sessionsByFilter.subagent]) {
+      byId.set(session.id, session)
+    }
+    return [...byId.values()]
+  }, [sessions, sessionsByFilter])
+
   return (
     <>
       {/* Browsing tabs are hidden during search because search always spans all
@@ -267,7 +277,9 @@ export default function SessionList({
                 <SessionItem
                   key={session.id}
                   session={session}
+                  sessions={sessionContext}
                   agent={agent}
+                  showSubagentBadge={sessionFilter !== "subagent"}
                   projects={projects}
                   isActive={isActive}
                   isReadable={session.id === readableSessionId}
@@ -284,6 +296,7 @@ export default function SessionList({
                   onMarkAllRead={onMarkAllRead}
                   onMoveToProject={onMoveToProject}
                   onTogglePinned={onToggleSessionPinned}
+                  getAgentInfo={getAgentInfo}
                   formatRelativeTime={formatRelativeTime}
                   displayMode={displayMode}
                   revealSignal={

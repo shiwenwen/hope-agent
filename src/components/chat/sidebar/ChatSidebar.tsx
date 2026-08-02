@@ -486,6 +486,7 @@ export default function ChatSidebar({
   const sessionListNode = (
     <SessionList
       sessions={sessions}
+      sessionsByFilter={sessionsByFilter}
       filteredSessions={filteredSessions}
       sessionFilter={sessionFilter}
       setSessionFilter={setSessionFilter}

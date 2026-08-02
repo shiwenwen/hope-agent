@@ -414,6 +414,7 @@ function ProjectGroup({
   projectSessions,
   expanded: groupExpanded,
   onToggleExpanded: handleToggleExpanded,
+  sessions,
   currentSessionId,
   readableSessionId,
   loadingSessionIds,
@@ -705,6 +706,7 @@ function ProjectGroup({
                   <SessionItem
                     key={session.id}
                     session={session}
+                    sessions={sessions}
                     agent={getAgentInfo(session.agentId)}
                     projects={projects}
                     isActive={session.id === currentSessionId}
@@ -722,6 +724,7 @@ function ProjectGroup({
                     onMarkAllRead={onMarkAllRead}
                     onMoveToProject={onMoveSessionToProject}
                     onTogglePinned={onToggleSessionPinned}
+                    getAgentInfo={getAgentInfo}
                     formatRelativeTime={formatRelativeTime}
                     displayMode={displayMode}
                     revealSignal={
