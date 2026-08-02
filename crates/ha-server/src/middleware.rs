@@ -338,7 +338,10 @@ pub(crate) fn open_authorized_bound_file(
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
+        // O_NONBLOCK makes a FIFO/device substitution return immediately so
+        // the regular-file metadata check below can fail closed without
+        // occupying a blocking-pool thread indefinitely.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
     #[cfg(windows)]
     {
@@ -929,6 +932,23 @@ mod tests {
         assert!(error
             .to_string()
             .contains("escaped its authorized canonical path"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authorized_bound_file_open_rejects_fifo_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("preview.fifo");
+        let fifo_c = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `fifo_c` is a live NUL-terminated path and mode is valid.
+        assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+
+        let error = open_authorized_bound_file(fifo, false)
+            .expect_err("non-regular preview targets must fail closed");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     }
 
     #[tokio::test]

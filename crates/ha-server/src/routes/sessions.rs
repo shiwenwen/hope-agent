@@ -1304,6 +1304,17 @@ async fn resolve_authorized_session_bound_file(
                 AppError::forbidden("file not referenced by session")
             }
         })?;
+        if !referenced {
+            let in_workspace = ha_core::filesystem::WorkspaceScope::for_session(&session_id)
+                .map(|scope| scope.contains(&canonical))
+                .unwrap_or(false);
+            if !in_workspace {
+                // Do not touch an unreferenced host path before the workspace
+                // boundary has authorized it. Besides avoiding an existence
+                // oracle, this prevents a FIFO from pinning a blocking thread.
+                return Err(AppError::forbidden("file not referenced by session"));
+            }
+        }
         // The authorization result is the opened handle, not a pathname for a
         // later phase to reopen. A hard-link replacement before this point is
         // therefore the identity observed by this traversal; replacement after
@@ -1321,17 +1332,7 @@ async fn resolve_authorized_session_bound_file(
                 AppError::forbidden("file not referenced by session")
             }
         })?;
-        if referenced {
-            return Ok(resource);
-        }
-        let in_workspace = ha_core::filesystem::WorkspaceScope::for_session(&session_id)
-            .map(|scope| scope.contains(&resource.path))
-            .unwrap_or(false);
-        if in_workspace {
-            Ok(resource)
-        } else {
-            Err(AppError::forbidden("file not referenced by session"))
-        }
+        Ok(resource)
     })
     .await
     .map_err(|error| AppError::internal(format!("bound session file task failed: {error}")))?
