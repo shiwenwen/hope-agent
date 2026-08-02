@@ -61,6 +61,13 @@ pub struct ResolvedToken {
     pub source: TokenSource,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManagedTokenMatch {
+    Missing,
+    Matches,
+    Differs,
+}
+
 fn validate_token(token: String, label: &str) -> Result<String> {
     let token = token.trim_end_matches(['\r', '\n']).to_string();
     if token.is_empty() {
@@ -327,13 +334,20 @@ fn token_values_match(candidate: &str, expected: &str) -> bool {
         == 0
 }
 
-/// Check whether a legacy service argv token is the credential that was
-/// already migrated. This lets a supervisor with a cached pre-migration
-/// command keep restarting safely until it reloads the rewritten definition.
-pub fn managed_token_matches(candidate: &str) -> Result<bool> {
-    Ok(load_managed_token()?
-        .as_deref()
-        .is_some_and(|expected| token_values_match(candidate, expected)))
+fn classify_managed_token(existing: Option<&str>, candidate: &str) -> ManagedTokenMatch {
+    match existing {
+        None => ManagedTokenMatch::Missing,
+        Some(expected) if token_values_match(candidate, expected) => ManagedTokenMatch::Matches,
+        Some(_) => ManagedTokenMatch::Differs,
+    }
+}
+
+/// Classify a legacy service argv token without exposing the managed
+/// credential. Callers must never replace a `Differs` credential with the
+/// stale command-line value.
+pub fn compare_managed_token(candidate: &str) -> Result<ManagedTokenMatch> {
+    let existing = load_managed_token()?;
+    Ok(classify_managed_token(existing.as_deref(), candidate))
 }
 
 pub fn set_managed_token(token: Option<&str>, source: &str) -> Result<()> {
@@ -569,5 +583,21 @@ mod tests {
         assert!(token_values_match("same-token", "same-token"));
         assert!(!token_values_match("same-tokee", "same-token"));
         assert!(!token_values_match("short", "longer"));
+    }
+
+    #[test]
+    fn managed_token_match_distinguishes_missing_matching_and_rotated() {
+        assert_eq!(
+            classify_managed_token(None, "legacy"),
+            ManagedTokenMatch::Missing
+        );
+        assert_eq!(
+            classify_managed_token(Some("legacy"), "legacy"),
+            ManagedTokenMatch::Matches
+        );
+        assert_eq!(
+            classify_managed_token(Some("rotated"), "legacy"),
+            ManagedTokenMatch::Differs
+        );
     }
 }

@@ -593,12 +593,31 @@ fn run_server(args: &[String]) {
             }
         };
         if legacy_definition {
-            if let Err(error) = ha_core::server_auth::set_managed_token(
-                Some(legacy_token),
-                "legacy-service-argv-migration",
-            ) {
-                eprintln!("[server] Failed to migrate the legacy service Owner Token: {error}");
-                std::process::exit(2);
+            match ha_core::server_auth::compare_managed_token(legacy_token) {
+                Ok(ha_core::server_auth::ManagedTokenMatch::Missing) => {
+                    if let Err(error) = ha_core::server_auth::set_managed_token(
+                        Some(legacy_token),
+                        "legacy-service-argv-migration",
+                    ) {
+                        eprintln!(
+                            "[server] Failed to migrate the legacy service Owner Token: {error}"
+                        );
+                        std::process::exit(2);
+                    }
+                }
+                Ok(ha_core::server_auth::ManagedTokenMatch::Matches) => {}
+                Ok(ha_core::server_auth::ManagedTokenMatch::Differs) => {
+                    // A rotation won the race with an earlier definition
+                    // rewrite failure. The stale argv value is ignored and
+                    // must never reactivate a previously exposed credential.
+                    eprintln!(
+                        "[server] Ignoring a stale legacy service Owner Token; the current managed credential remains active."
+                    );
+                }
+                Err(error) => {
+                    eprintln!("[server] Failed to inspect the managed service credential: {error}");
+                    std::process::exit(2);
+                }
             }
             if let Err(error) =
                 ha_core::service_install::rewrite_service_without_cli_api_key(&bind_addr)
@@ -615,13 +634,16 @@ fn run_server(args: &[String]) {
                 );
             }
         } else {
-            match ha_core::server_auth::managed_token_matches(legacy_token) {
-                Ok(true) => {
+            match ha_core::server_auth::compare_managed_token(legacy_token) {
+                Ok(ha_core::server_auth::ManagedTokenMatch::Matches) => {
                     eprintln!(
                         "[server] Accepted a cached pre-migration service command; reload the service manager to remove the legacy argument from the running definition."
                     );
                 }
-                Ok(false) => {
+                Ok(
+                    ha_core::server_auth::ManagedTokenMatch::Missing
+                    | ha_core::server_auth::ManagedTokenMatch::Differs,
+                ) => {
                     eprintln!(
                         "[server] --api-key is no longer accepted because command-line secrets are visible to other processes; use HA_API_KEY or --api-key-file."
                     );
@@ -921,7 +943,7 @@ fn parse_server_args(
                     );
                     std::process::exit(2);
                 }
-                let Some(value) = args.get(i + 1).filter(|value| !value.starts_with('-')) else {
+                let Some(value) = args.get(i + 1) else {
                     eprintln!("[{context}] --api-key requires a value");
                     std::process::exit(2);
                 };
