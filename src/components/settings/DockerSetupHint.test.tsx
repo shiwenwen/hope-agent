@@ -40,7 +40,8 @@ describe("DockerSetupHint", () => {
       <DockerSetupHint
         status={{
           installed: true,
-          running: true,
+          running: false,
+          connectionError: "socket_missing",
           containerized: true,
           isolatedModeOnly: true,
         }}
@@ -49,12 +50,14 @@ describe("DockerSetupHint", () => {
     )
 
     expect(screen.getByText("settings.dockerSetupContainerIsolatedOnly")).toBeTruthy()
+    expect(screen.queryByText("settings.dockerSetupSocketMissingContainer")).toBeNull()
 
     rerender(
       <DockerSetupHint
         status={{
           installed: true,
-          running: true,
+          running: false,
+          connectionError: "socket_missing",
           containerized: true,
           isolatedModeOnly: true,
         }}
@@ -62,6 +65,7 @@ describe("DockerSetupHint", () => {
       />,
     )
     expect(screen.queryByText("settings.dockerSetupContainerIsolatedOnly")).toBeNull()
+    expect(screen.getByText("settings.dockerSetupSocketMissingContainer")).toBeTruthy()
   })
 
   it("opens install documentation in the current web client", () => {

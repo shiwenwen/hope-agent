@@ -34,8 +34,7 @@ export function DockerSetupHint({
     )
   }
   const containerModeUnsupported = !!(
-    status?.running &&
-    status.isolatedModeOnly &&
+    status?.isolatedModeOnly &&
     (showContainerNotice || (sandboxMode && sandboxMode !== "off" && sandboxMode !== "isolated"))
   )
   if (!status || (status.installed && status.running && !containerModeUnsupported)) return null
