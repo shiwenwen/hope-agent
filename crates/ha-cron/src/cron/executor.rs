@@ -54,7 +54,7 @@ pub async fn execute_job_public(
 ) {
     // C10: cron executes only on the Primary instance (like the scheduler). A
     // Secondary process running a job would set `running_at` in the shared DB,
-    // which the Primary's startup `recover_orphaned_runs` / `clear_all_running`
+    // which the Primary's startup `recover_orphaned_runs` / `clear_stale_running`
     // would then clobber (mismarking the run-log `error`, undercounting the
     // concurrency cap, and letting a recurring job be double-claimed). Refuse a
     // run-now off-Primary — the single chokepoint for all three run-now entries

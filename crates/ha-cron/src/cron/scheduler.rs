@@ -153,7 +153,7 @@ pub fn start_scheduler(
                         e
                     );
                 }
-                match cron_db.clear_all_running() {
+                match cron_db.clear_stale_running() {
                     Ok(n) if n > 0 => app_warn!(
                         "cron",
                         "scheduler",

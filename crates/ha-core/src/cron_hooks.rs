@@ -46,14 +46,22 @@ pub fn register_cron_hooks(hooks: CronHooks) -> Result<(), crate::AlreadyRegiste
         .map_err(|_| crate::AlreadyRegistered("cron machinery hooks"))
 }
 
-/// 起调度线程。**必须在 `loop_control` 的事件 watcher 之前调用**——调度器
-/// 启动会跑 `recover_orphaned_runs()` + `clear_all_running()`，后者**无差别
-/// 清除所有 running 标记**；若 watcher 先跑并 claim 了任务，那个合法在途任务
-/// 会被当成上一次会话的遗留标记清掉，从而可能被重复 claim、重复产生副作用。
+/// 起调度线程。调度器启动会跑 `recover_orphaned_runs()` +
+/// `clear_stale_running()` 两个清理。
 ///
-/// 正因为这条顺序约束，调度器**没有**做成 startup task（那样会被排到
-/// PrimaryOnly 队列里、落在 watcher 之后），而是保留在 `app_init` 的原调用位
-/// 经本钩子转发——迁移前后时序逐位相同。
+/// **这里曾经写着「必须在 `loop_control` 的事件 watcher 之前调用」，那条约束
+/// 从来没有真正生效过**：本函数转发到的 `cron::start_scheduler` 是
+/// `std::thread::Builder::spawn`，**立即返回**，两个清理跑在那个新线程上；而
+/// `app_init` 下一行就起 watcher。调用序只保证「谁先被调用」，不构成
+/// happens-before，窗口依然存在——watcher 在窗口内派出去的合法在途任务会被
+/// 当成遗留标记清掉，随后被周期 tick 重新 claim、副作用跑两遍。
+///
+/// 现在两个清理都用 `running_owner` / `started_owner` 做界（见
+/// [`CronDB::clear_stale_running`]）——本进程 `Arc<CronDB>::clone` release +
+/// `spawn` 移交 acquire 构成对 `owner_token` 值的 happens-before，是 Rust 内存
+/// 模型真正保证的那种关系，与墙上时钟解耦；系统时间回拨也不会误清。**竞态
+/// 在数据层被消掉，不再依赖任何调用顺序**。调度器仍不做成 startup task——那
+/// 只是为了保持 `app_init` 时序与迁出前逐位相同，不再是正确性要求。
 ///
 /// 未装配 → warn + no-op（没有装配的进程本就跑不了 cron）。
 pub fn start_scheduler(cron_db: Arc<CronDB>, session_db: Arc<SessionDB>) {
