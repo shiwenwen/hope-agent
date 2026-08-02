@@ -22,7 +22,6 @@ import {
   Loader2,
   Timer,
   Pencil,
-  Network,
   CheckCheck,
   BellRing,
   FolderInput,
@@ -44,7 +43,6 @@ import type { SidebarDisplayMode } from "./types"
 
 interface SessionItemProps {
   session: SessionMeta
-  sessions: SessionMeta[]
   agent: AgentSummaryForSidebar | undefined
   /** Projects visible in the sidebar — used by the "Move to project" submenu. */
   projects?: ProjectMeta[]
@@ -67,7 +65,6 @@ interface SessionItemProps {
    * `projectId` is `null`). Only rendered when this callback is provided.
    */
   onMoveToProject?: (sessionId: string, projectId: string | null) => void
-  getAgentInfo: (agentId: string) => AgentSummaryForSidebar | undefined
   formatRelativeTime: (dateStr: string) => string
   displayMode: SidebarDisplayMode
   /** Monotonic signal that reveals and briefly highlights this row. */
@@ -76,7 +73,6 @@ interface SessionItemProps {
 
 export default function SessionItem({
   session,
-  sessions,
   agent,
   projects = [],
   isActive,
@@ -94,7 +90,6 @@ export default function SessionItem({
   onMarkAllRead,
   onTogglePinned,
   onMoveToProject,
-  getAgentInfo,
   formatRelativeTime,
   displayMode,
   revealSignal,
@@ -245,24 +240,6 @@ export default function SessionItem({
                   <Timer className="w-2.5 h-2.5" />
                 </span>
               )}
-              {session.parentSessionId &&
-                (() => {
-                  const parentSession = sessions.find((s) => s.id === session.parentSessionId)
-                  const parentAgent = parentSession
-                    ? getAgentInfo(parentSession.agentId)
-                    : undefined
-                  return (
-                    <IconTip
-                      label={t("chat.subagentFrom", {
-                        agent: parentAgent?.name || parentSession?.agentId || "unknown",
-                      })}
-                    >
-                      <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-purple-500/15 text-purple-500">
-                        <Network className="w-2.5 h-2.5" />
-                      </span>
-                    </IconTip>
-                  )
-                })()}
               {!isCompact && session.channelInfo && channelLabel && (
                 <IconTip label={channelLabel}>
                   <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-blue-500/15 text-blue-500">
