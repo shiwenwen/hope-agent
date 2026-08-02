@@ -15,11 +15,16 @@ use crate::user_config;
 /// - `mcp_servers`: the per-server config holds OAuth tokens, command paths and
 ///   trust acknowledgements; writes must go through the GUI which also drives
 ///   the trust dialog and 0600 credential write.
+/// - `server`: the legacy `apiKey` field is credential-bearing. The live Owner
+///   Token is managed by the dedicated 0600 credential store and rotation UI;
+///   allowing a model-authored merge here would leak token material into chat
+///   history without rotating the active credential.
 const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
     "active_model",
     "fallback_models",
     "channels",
     "mcp_servers",
+    "server",
     // Hooks run arbitrary commands / HTTP / sub-agents on lifecycle events —
     // letting the model write them is a privilege-escalation vector (it could
     // persist its own command execution). Read-only via this tool; writes go
@@ -109,7 +114,6 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("proxy", "high"),
     ("shortcuts", "high"),
     ("skills", "high"),
-    ("server", "high"),
     ("acp_control", "high"),
     ("skill_env", "high"),
     ("security", "high"),
@@ -130,6 +134,7 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("fallback_models", "read_only"),
     ("channels", "read_only"),
     ("mcp_servers", "read_only"),
+    ("server", "read_only"),
     ("embedding", "read_only"),
     ("hooks", "read_only"),
     ("stt_providers", "read_only"),
@@ -1336,7 +1341,6 @@ fn apply_app_config_update(
                 store.skills.allow_remote_install = v;
             }
         }
-        "server" => merge_field(&mut store.server, values)?,
         "acp_control" => merge_field(&mut store.acp_control, values)?,
         "skill_env" => {
             // Per-skill env vars: support full replace via `skillEnv` or per-skill
@@ -1803,6 +1807,7 @@ mod tests {
             "fallback_models",
             "channels",
             "mcp_servers",
+            "server",
             "embedding",
             "hooks",
             "stt_providers",
@@ -1820,6 +1825,7 @@ mod tests {
             "fallback_models",
             "channels",
             "mcp_servers",
+            "server",
             "embedding",
             "hooks",
             "stt_providers",

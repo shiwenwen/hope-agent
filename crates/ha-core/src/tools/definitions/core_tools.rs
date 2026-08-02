@@ -1724,7 +1724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_UPDATE_SETTINGS.into(),
-            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. Secret-bearing provider/model selections, `channels`, `mcp_servers`, and `hooks` are read-only here and must be edited in the GUI.".into(),
+            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. Secret-bearing provider/model selections, `server`, `channels`, `mcp_servers`, and `hooks` are read-only here and must be edited in the GUI.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: false },
             internal: true,
             concurrent_safe: false,
