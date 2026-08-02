@@ -9,6 +9,12 @@ interface RemoteApiKeyForSaveArgs {
   replacementOwnerToken: string | null
 }
 
+interface OwnerTokenWillExistArgs {
+  replacementOwnerToken: string | null
+  hasManagedOwnerToken: boolean
+  externallyManaged: boolean
+}
+
 function normalizedRemoteServerUrl(value: string): string {
   return value.trim().replace(/\/+$/, "")
 }
@@ -34,4 +40,13 @@ export function remoteApiKeyForSave({
     return replacementOwnerToken.trim() || null
   }
   return remoteApiKey.trim() || null
+}
+
+export function ownerTokenWillExist({
+  replacementOwnerToken,
+  hasManagedOwnerToken,
+  externallyManaged,
+}: OwnerTokenWillExistArgs): boolean {
+  if (externallyManaged) return true
+  return replacementOwnerToken === null ? hasManagedOwnerToken : replacementOwnerToken.length > 0
 }

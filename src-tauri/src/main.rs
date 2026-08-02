@@ -13,6 +13,7 @@ struct ServerArgs {
     bind_addr: String,
     api_key_file: Option<PathBuf>,
     allow_unauthenticated_network: bool,
+    legacy_service_api_key: Option<String>,
 }
 
 fn main() {
@@ -497,7 +498,7 @@ fn run_server(args: &[String]) {
         }
     }
 
-    let Some(options) = parse_server_args(args, "server") else {
+    let Some(options) = parse_server_args(args, "server", true) else {
         println!("Hope Agent HTTP/WebSocket Server");
         println!();
         println!("Usage: hope-agent server [COMMAND] [OPTIONS]");
@@ -524,6 +525,7 @@ fn run_server(args: &[String]) {
         return;
     };
     let bind_addr = options.bind_addr;
+    let legacy_service_api_key = options.legacy_service_api_key;
     let bootstrap_token = match ha_core::server_auth::consume_bootstrap_token(options.api_key_file)
     {
         Ok(token) => token,
@@ -533,6 +535,12 @@ fn run_server(args: &[String]) {
         }
     };
     let model_eval_mode = ha_core::eval_context::model_eval_mode_enabled();
+    if model_eval_mode && legacy_service_api_key.is_some() {
+        eprintln!(
+            "[model-eval] legacy service Owner Token migration is forbidden in model-eval mode"
+        );
+        std::process::exit(2);
+    }
     if model_eval_mode {
         if let Err(error) = ha_core::eval_context::install_supervisor_watchdog_from_env() {
             eprintln!("[model-eval] failed to install Supervisor watchdog: {error}");
@@ -574,6 +582,57 @@ fn run_server(args: &[String]) {
     if let Err(e) = ha_core::paths::ensure_dirs() {
         eprintln!("[server] Failed to initialize data directories: {}", e);
         std::process::exit(1);
+    }
+
+    if let Some(legacy_token) = legacy_service_api_key.as_deref() {
+        let legacy_definition = match ha_core::service_install::legacy_service_uses_cli_api_key() {
+            Ok(found) => found,
+            Err(error) => {
+                eprintln!("[server] Failed to inspect the legacy service definition: {error}");
+                std::process::exit(2);
+            }
+        };
+        if legacy_definition {
+            if let Err(error) = ha_core::server_auth::set_managed_token(
+                Some(legacy_token),
+                "legacy-service-argv-migration",
+            ) {
+                eprintln!("[server] Failed to migrate the legacy service Owner Token: {error}");
+                std::process::exit(2);
+            }
+            if let Err(error) =
+                ha_core::service_install::rewrite_service_without_cli_api_key(&bind_addr)
+            {
+                // The credential is already durable, so keep this service
+                // available. A cached supervisor command remains accepted
+                // only when it carries that exact managed token.
+                eprintln!(
+                    "[server] Warning: the Owner Token was secured, but the legacy service definition could not be rewritten: {error}"
+                );
+            } else {
+                eprintln!(
+                    "[server] Migrated the installed service away from command-line Owner Token storage."
+                );
+            }
+        } else {
+            match ha_core::server_auth::managed_token_matches(legacy_token) {
+                Ok(true) => {
+                    eprintln!(
+                        "[server] Accepted a cached pre-migration service command; reload the service manager to remove the legacy argument from the running definition."
+                    );
+                }
+                Ok(false) => {
+                    eprintln!(
+                        "[server] --api-key is no longer accepted because command-line secrets are visible to other processes; use HA_API_KEY or --api-key-file."
+                    );
+                    std::process::exit(2);
+                }
+                Err(error) => {
+                    eprintln!("[server] Failed to verify the migrated service credential: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
     }
 
     // Onboarding status: when the wizard hasn't run yet, walk the user
@@ -819,10 +878,15 @@ fn run_server_token(args: &[String]) {
 
 /// Shared server arg parser for bind and credential-file options.
 /// Returns None if --help was requested (already printed).
-fn parse_server_args(args: &[String], context: &str) -> Option<ServerArgs> {
+fn parse_server_args(
+    args: &[String],
+    context: &str,
+    allow_legacy_service_migration: bool,
+) -> Option<ServerArgs> {
     let mut bind_addr = "127.0.0.1:8420".to_string();
     let mut api_key_file = None;
     let mut allow_unauthenticated_network = false;
+    let mut legacy_service_api_key = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -851,10 +915,22 @@ fn parse_server_args(args: &[String], context: &str) -> Option<ServerArgs> {
             }
             "--allow-unauthenticated-network" => allow_unauthenticated_network = true,
             "--api-key" => {
-                eprintln!(
-                    "[{context}] --api-key is no longer accepted because command-line secrets are visible to other processes; use HA_API_KEY or --api-key-file."
-                );
-                std::process::exit(2);
+                if !allow_legacy_service_migration {
+                    eprintln!(
+                        "[{context}] --api-key is no longer accepted because command-line secrets are visible to other processes; use HA_API_KEY or --api-key-file."
+                    );
+                    std::process::exit(2);
+                }
+                let Some(value) = args.get(i + 1).filter(|value| !value.starts_with('-')) else {
+                    eprintln!("[{context}] --api-key requires a value");
+                    std::process::exit(2);
+                };
+                if legacy_service_api_key.is_some() {
+                    eprintln!("[{context}] --api-key may only be specified once");
+                    std::process::exit(2);
+                }
+                i += 1;
+                legacy_service_api_key = Some(value.clone());
             }
             arg if arg.starts_with("--api-key=") => {
                 eprintln!(
@@ -883,6 +959,7 @@ fn parse_server_args(args: &[String], context: &str) -> Option<ServerArgs> {
         bind_addr,
         api_key_file,
         allow_unauthenticated_network,
+        legacy_service_api_key,
     })
 }
 
@@ -898,7 +975,7 @@ fn redact_server_arg(arg: &str) -> String {
 
 /// Handle `hope-agent server install [--bind ADDR] [--api-key-file PATH]`
 fn run_server_install(args: &[String]) {
-    let Some(options) = parse_server_args(args, "server install") else {
+    let Some(options) = parse_server_args(args, "server install", false) else {
         println!("Install Hope Agent server as a system service");
         println!();
         println!("Usage: hope-agent server install [OPTIONS]");

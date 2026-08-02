@@ -27,7 +27,7 @@ import {
   useFilesystemConfig,
   type FilesystemConfig,
 } from "@/lib/filesystemConfig"
-import { remoteApiKeyForSave } from "./serverCredentials"
+import { ownerTokenWillExist, remoteApiKeyForSave } from "./serverCredentials"
 import {
   MonitorSmartphone,
   Globe,
@@ -235,12 +235,15 @@ export default function ServerPanel() {
         remoteApiKey: config.remoteApiKey,
         replacementOwnerToken: embeddedApiKey,
       })
-      const ownerTokenWillExist =
-        embeddedApiKey === null ? loadedSecrets.hasEmbeddedApiKey : embeddedApiKey.length > 0
+      const ownerTokenAvailable = ownerTokenWillExist({
+        replacementOwnerToken: embeddedApiKey,
+        hasManagedOwnerToken: loadedSecrets.hasEmbeddedApiKey,
+        externallyManaged: loadedSecrets.embeddedApiKeyExternallyManaged,
+      })
       if (
         (!isLoopbackServerAddress(previous.embeddedBindAddr) ||
           !isLoopbackServerAddress(config.embeddedBindAddr || DEFAULT_EMBEDDED_ADDRESS)) &&
-        !ownerTokenWillExist
+        !ownerTokenAvailable
       ) {
         throw new Error(t("settings.serverPublicTokenRequired"))
       }

@@ -7,8 +7,13 @@ const SERVICE_LABEL: &str = "ai.hopeagent.server";
 #[cfg(target_os = "macos")]
 const LEGACY_SERVICE_LABEL: &str = "com.hopeagent.server";
 
+fn definition_uses_cli_api_key(content: &str) -> bool {
+    content.contains("<string>--api-key</string>")
+        || content.split_whitespace().any(|part| part == "--api-key")
+}
+
 /// Minimal XML-text escape for plist `<string>` bodies. launchd parses
-/// the plist as XML, so any user-controlled value (home path, api key)
+/// the plist as XML, so any user-controlled value (executable path, bind address)
 /// MUST be escaped or `<`/`>`/`&`/quotes in the input will be interpreted
 /// as XML markup — in the worst case injecting extra `<string>` elements
 /// that become additional argv entries to the launched process.
@@ -90,6 +95,50 @@ pub fn install_service(bind_addr: &str) -> Result<String> {
 
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     bail!("Service installation is not supported on this platform")
+}
+
+/// Return whether the installed user-service definition still embeds the
+/// legacy `--api-key <token>` argv pair. The definition is inspected without
+/// ever returning or logging its contents.
+pub fn legacy_service_uses_cli_api_key() -> Result<bool> {
+    #[cfg(target_os = "macos")]
+    return launchd_uses_cli_api_key();
+
+    #[cfg(target_os = "linux")]
+    return systemd_uses_cli_api_key();
+
+    #[cfg(windows)]
+    return windows_task::scheduled_task_uses_cli_api_key();
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    Ok(false)
+}
+
+/// Rewrite an installed legacy user-service definition without stopping or
+/// starting the current process. This removes the command-line secret for the
+/// next launch while avoiding a self-unload outage during an upgrade.
+pub fn rewrite_service_without_cli_api_key(bind_addr: &str) -> Result<()> {
+    let exe_path = std::env::current_exe()
+        .context("Cannot resolve own executable path")?
+        .to_string_lossy()
+        .to_string();
+    let log_dir = crate::paths::logs_dir()?;
+    std::fs::create_dir_all(&log_dir)?;
+    let log_path = log_dir.to_string_lossy().to_string();
+
+    #[cfg(target_os = "macos")]
+    return rewrite_launchd_without_cli_api_key(&exe_path, bind_addr, &log_path);
+
+    #[cfg(target_os = "linux")]
+    return rewrite_systemd_without_cli_api_key(&exe_path, bind_addr, &log_path);
+
+    #[cfg(windows)]
+    return windows_task::rewrite_scheduled_task_without_cli_api_key(
+        &exe_path, bind_addr, &log_path,
+    );
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    bail!("Service migration is not supported on this platform")
 }
 
 /// Uninstall the Hope Agent system service.
@@ -195,14 +244,7 @@ fn unload_launchd_plist(plist: &std::path::Path) {
 }
 
 #[cfg(target_os = "macos")]
-fn install_launchd(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<String> {
-    let plist = plist_path()?;
-    let legacy_plist = legacy_plist_path()?;
-
-    // Build ProgramArguments entries. Every user-controlled value
-    // (exe path, bind addr, log path) is XML-escaped so that
-    // characters like `<`, `>`, `"` or `&` cannot break out of the
-    // surrounding `<string>` element and inject additional argv entries.
+fn launchd_content(label: &str, exe_path: &str, bind_addr: &str, log_path: &str) -> String {
     let args_xml = format!(
         "        <string>{}</string>\n\
          \x20       <string>server</string>\n\
@@ -211,7 +253,7 @@ fn install_launchd(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<St
         xml_escape(exe_path),
         xml_escape(bind_addr)
     );
-    let content = format!(
+    format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -233,10 +275,65 @@ fn install_launchd(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<St
 </dict>
 </plist>
 "#,
-        label = SERVICE_LABEL,
+        label = label,
         args = args_xml,
         log = xml_escape(log_path),
-    );
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn launchd_uses_cli_api_key() -> Result<bool> {
+    for path in [plist_path()?, legacy_plist_path()?] {
+        match std::fs::read_to_string(&path) {
+            Ok(content) if definition_uses_cli_api_key(&content) => return Ok(true),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("Failed to inspect plist {:?}", path));
+            }
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(target_os = "macos")]
+fn rewrite_launchd_without_cli_api_key(
+    exe_path: &str,
+    bind_addr: &str,
+    log_path: &str,
+) -> Result<()> {
+    let mut rewritten = false;
+    for (label, path) in [
+        (SERVICE_LABEL, plist_path()?),
+        (LEGACY_SERVICE_LABEL, legacy_plist_path()?),
+    ] {
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error).with_context(|| format!("Failed to inspect plist {:?}", path));
+            }
+        };
+        if !definition_uses_cli_api_key(&content) {
+            continue;
+        }
+        let replacement = launchd_content(label, exe_path, bind_addr, log_path);
+        crate::platform::write_atomic(&path, replacement.as_bytes())
+            .with_context(|| format!("Failed to rewrite plist {:?}", path))?;
+        rewritten = true;
+    }
+    if !rewritten {
+        bail!("No legacy launchd service definition was found")
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn install_launchd(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<String> {
+    let plist = plist_path()?;
+    let legacy_plist = legacy_plist_path()?;
+
+    let content = launchd_content(SERVICE_LABEL, exe_path, bind_addr, log_path);
 
     // Remove the pre-hopeagent.ai service label so users don't end up
     // with two LaunchAgents racing to run the same server.
@@ -384,18 +481,70 @@ fn unit_path() -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
-fn install_systemd(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<String> {
-    let unit = unit_path()?;
-
-    // Quote every argv token individually so whitespace / quotes in any
-    // user-controlled value (exe path, bind addr) cannot split
-    // the line into extra tokens or inject shell metacharacters into
-    // `ExecStart`.
+fn systemd_content(exe_path: &str, bind_addr: &str, log_path: &str) -> String {
     let exec_start = format!(
         "{} server --bind {}",
         systemd_escape_arg(exe_path),
         systemd_escape_arg(bind_addr)
     );
+    format!(
+        "[Unit]\n\
+         Description=Hope Agent Server\n\
+         After=network.target\n\
+         \n\
+         [Service]\n\
+         ExecStart={exec}\n\
+         Restart=on-failure\n\
+         RestartSec=3\n\
+         StandardOutput=append:{stdout}/server.stdout.log\n\
+         StandardError=append:{stderr}/server.stderr.log\n\
+         \n\
+         [Install]\n\
+         WantedBy=default.target\n",
+        exec = exec_start,
+        stdout = log_path,
+        stderr = log_path,
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn systemd_uses_cli_api_key() -> Result<bool> {
+    let unit = unit_path()?;
+    match std::fs::read_to_string(&unit) {
+        Ok(content) => Ok(definition_uses_cli_api_key(&content)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error).with_context(|| format!("Failed to inspect unit {:?}", unit)),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn rewrite_systemd_without_cli_api_key(
+    exe_path: &str,
+    bind_addr: &str,
+    log_path: &str,
+) -> Result<()> {
+    let unit = unit_path()?;
+    let existing = std::fs::read_to_string(&unit)
+        .with_context(|| format!("Failed to inspect unit {:?}", unit))?;
+    if !definition_uses_cli_api_key(&existing) {
+        bail!("No legacy systemd service definition was found");
+    }
+    let replacement = systemd_content(exe_path, bind_addr, log_path);
+    crate::platform::write_atomic(&unit, replacement.as_bytes())
+        .with_context(|| format!("Failed to rewrite unit {:?}", unit))?;
+    let status = std::process::Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .status()
+        .context("Failed to run systemctl daemon-reload")?;
+    if !status.success() {
+        bail!("systemctl daemon-reload failed with status {}", status);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn install_systemd(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<String> {
+    let unit = unit_path()?;
     let stdout_log = format!("{}/server.stdout.log", log_path);
     let stderr_log = format!("{}/server.stderr.log", log_path);
 
@@ -409,24 +558,7 @@ fn install_systemd(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<St
         .append(true)
         .open(&stderr_log);
 
-    let content = format!(
-        "[Unit]\n\
-         Description=Hope Agent Server\n\
-         After=network.target\n\
-         \n\
-         [Service]\n\
-         ExecStart={exec}\n\
-         Restart=on-failure\n\
-         RestartSec=3\n\
-         StandardOutput=append:{stdout}\n\
-         StandardError=append:{stderr}\n\
-         \n\
-         [Install]\n\
-         WantedBy=default.target\n",
-        exec = exec_start,
-        stdout = stdout_log,
-        stderr = stderr_log,
-    );
+    let content = systemd_content(exe_path, bind_addr, log_path);
 
     std::fs::write(&unit, &content)
         .with_context(|| format!("Failed to write unit file to {:?}", unit))?;
@@ -570,14 +702,7 @@ mod windows_task {
         out
     }
 
-    pub(super) fn install_scheduled_task(
-        exe_path: &str,
-        bind_addr: &str,
-        log_path: &str,
-    ) -> Result<String> {
-        // Build the argv the task will run. We use a wrapper `cmd /C` so
-        // stdout/stderr can be redirected into our logs directory — the
-        // native schtasks TaskRun doesn't capture output on its own.
+    fn task_command(exe_path: &str, bind_addr: &str, log_path: &str) -> String {
         let inner = format!(
             "{} server --bind {}",
             quote_arg(exe_path),
@@ -585,16 +710,16 @@ mod windows_task {
         );
         let stdout_log = format!("{}\\server.stdout.log", log_path);
         let stderr_log = format!("{}\\server.stderr.log", log_path);
-
-        let tr = format!(
+        format!(
             "cmd /C {} >> {} 2>> {}",
             inner,
             quote_arg(&stdout_log),
             quote_arg(&stderr_log),
-        );
+        )
+    }
 
-        // `/F` on /Create force-overwrites any existing task with the
-        // same name — no separate /Delete needed.
+    fn create_scheduled_task(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<()> {
+        let tr = task_command(exe_path, bind_addr, log_path);
         let output = Command::new("schtasks")
             .args([
                 "/Create", "/TN", TASK_NAME, "/TR", &tr, "/SC", "ONLOGON", "/RL", "LIMITED", "/F",
@@ -602,13 +727,60 @@ mod windows_task {
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .context("Failed to run schtasks /Create")?;
-
         if !output.status.success() {
             bail!(
                 "schtasks /Create failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
+        Ok(())
+    }
+
+    fn scheduled_task_xml() -> Result<Option<Vec<u8>>> {
+        let output = Command::new("schtasks")
+            .args(["/Query", "/TN", TASK_NAME, "/XML"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .context("Failed to run schtasks /Query")?;
+        if output.status.success() {
+            return Ok(Some(output.stdout));
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("cannot find")
+            || stderr.contains("ERROR: The system")
+            || stderr.contains("does not exist")
+        {
+            return Ok(None);
+        }
+        bail!("schtasks /Query failed: {}", stderr.trim())
+    }
+
+    pub(super) fn scheduled_task_uses_cli_api_key() -> Result<bool> {
+        Ok(scheduled_task_xml()?
+            .is_some_and(|xml| definition_uses_cli_api_key(&String::from_utf8_lossy(&xml))))
+    }
+
+    pub(super) fn rewrite_scheduled_task_without_cli_api_key(
+        exe_path: &str,
+        bind_addr: &str,
+        log_path: &str,
+    ) -> Result<()> {
+        if !scheduled_task_uses_cli_api_key()? {
+            bail!("No legacy scheduled-task definition was found");
+        }
+        // `/Create /F` updates the future task action without terminating or
+        // duplicating the process that is performing this migration.
+        create_scheduled_task(exe_path, bind_addr, log_path)
+    }
+
+    pub(super) fn install_scheduled_task(
+        exe_path: &str,
+        bind_addr: &str,
+        log_path: &str,
+    ) -> Result<String> {
+        // `/F` on /Create force-overwrites any existing task with the same
+        // name — no separate /Delete needed.
+        create_scheduled_task(exe_path, bind_addr, log_path)?;
 
         // Start it now so the user doesn't have to log out / back in.
         let run_output = Command::new("schtasks")
@@ -680,5 +852,23 @@ mod windows_task {
             }
         }
         Ok(summary)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::definition_uses_cli_api_key;
+
+    #[test]
+    fn legacy_cli_key_detection_does_not_match_file_credentials() {
+        assert!(definition_uses_cli_api_key(
+            "ExecStart=hope-agent server --api-key secret"
+        ));
+        assert!(definition_uses_cli_api_key(
+            "<string>--api-key</string>\n<string>secret</string>"
+        ));
+        assert!(!definition_uses_cli_api_key(
+            "ExecStart=hope-agent server --api-key-file /run/secret"
+        ));
     }
 }

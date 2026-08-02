@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import { remoteApiKeyForSave } from "./serverCredentials"
+import { ownerTokenWillExist, remoteApiKeyForSave } from "./serverCredentials"
 
 describe("remoteApiKeyForSave", () => {
   test("keeps the destination token when switching from embedded to remote", () => {
@@ -53,5 +53,37 @@ describe("remoteApiKeyForSave", () => {
         replacementOwnerToken: null,
       }),
     ).toBe("remote-secret")
+  })
+})
+
+describe("ownerTokenWillExist", () => {
+  test("accepts externally managed credentials for public binding", () => {
+    expect(
+      ownerTokenWillExist({
+        replacementOwnerToken: null,
+        hasManagedOwnerToken: false,
+        externallyManaged: true,
+      }),
+    ).toBe(true)
+  })
+
+  test("uses the credential-store state when the field was not edited", () => {
+    expect(
+      ownerTokenWillExist({
+        replacementOwnerToken: null,
+        hasManagedOwnerToken: true,
+        externallyManaged: false,
+      }),
+    ).toBe(true)
+  })
+
+  test("uses an explicit replacement when credentials are locally managed", () => {
+    expect(
+      ownerTokenWillExist({
+        replacementOwnerToken: "",
+        hasManagedOwnerToken: true,
+        externallyManaged: false,
+      }),
+    ).toBe(false)
   })
 })

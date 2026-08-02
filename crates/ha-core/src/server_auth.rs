@@ -315,6 +315,27 @@ pub fn load_managed_token() -> Result<Option<String>> {
     Ok(Some(token))
 }
 
+fn token_values_match(candidate: &str, expected: &str) -> bool {
+    if candidate.len() != expected.len() {
+        return false;
+    }
+    candidate
+        .as_bytes()
+        .iter()
+        .zip(expected.as_bytes())
+        .fold(0u8, |difference, (left, right)| difference | (left ^ right))
+        == 0
+}
+
+/// Check whether a legacy service argv token is the credential that was
+/// already migrated. This lets a supervisor with a cached pre-migration
+/// command keep restarting safely until it reloads the rewritten definition.
+pub fn managed_token_matches(candidate: &str) -> Result<bool> {
+    Ok(load_managed_token()?
+        .as_deref()
+        .is_some_and(|expected| token_values_match(candidate, expected)))
+}
+
 pub fn set_managed_token(token: Option<&str>, source: &str) -> Result<()> {
     // Complete legacy migration before the ordinary config mutation below;
     // otherwise a CLI rotation could autosave the old plaintext token just
@@ -541,5 +562,12 @@ mod tests {
         let fingerprint = token_fingerprint(token);
         assert_eq!(fingerprint.len(), 12);
         assert!(!token.contains(&fingerprint));
+    }
+
+    #[test]
+    fn token_comparison_rejects_wrong_values_and_lengths() {
+        assert!(token_values_match("same-token", "same-token"));
+        assert!(!token_values_match("same-tokee", "same-token"));
+        assert!(!token_values_match("short", "longer"));
     }
 }
