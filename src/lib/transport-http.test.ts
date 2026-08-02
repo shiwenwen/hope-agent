@@ -298,6 +298,50 @@ test("HttpTransport ignores scoped tickets minted for a replaced Owner Token", a
   })
 })
 
+test("HttpTransport ignores stale 401 responses after Owner Token replacement", async () => {
+  let resolveStaleRequest: ((response: Response) => void) | undefined
+  const dispatchEvent = vi.fn()
+  vi.stubGlobal("window", {
+    location: { origin: "https://ui.example" },
+    dispatchEvent,
+  })
+  fetchMock
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveStaleRequest = resolve
+        }),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "new-resource-ticket",
+          eventTicket: "new-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+  const transport = new HttpTransport("https://agent.example", "old-owner-token")
+  const staleRequest = transport.call("get_server_runtime_status")
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+  await transport.activateOwnerToken("new-owner-token")
+  resolveStaleRequest?.(new Response("unauthorized", { status: 401 }))
+  await expect(staleRequest).rejects.toThrow("returned 401")
+
+  expect(dispatchEvent).not.toHaveBeenCalled()
+  expect(transport.artifactPreviewUrl("artifact-1")).toContain("new-resource-ticket")
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+    headers: { Authorization: "Bearer old-owner-token" },
+  })
+  expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+    headers: { Authorization: "Bearer new-owner-token" },
+  })
+})
+
 test("HttpTransport keeps provisional remote-auth failures local to the connection flow", async () => {
   const dispatchEvent = vi.fn()
   vi.stubGlobal("window", { dispatchEvent })

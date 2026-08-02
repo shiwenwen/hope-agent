@@ -2095,7 +2095,7 @@ export class HttpTransport implements Transport {
     })
     if (revision !== this.credentialRevision || this.apiKey !== apiKey) return
     if (!response.ok) {
-      if (notifyAuthFailure) this.handleAuthFailure(response.status)
+      if (notifyAuthFailure) this.handleAuthFailure(response.status, revision)
       throw new RemoteAuthenticationError(response.status)
     }
     const payload = (await response.json()) as {
@@ -2155,6 +2155,10 @@ export class HttpTransport implements Transport {
     return `${this.baseUrl}/api/resource/${encodeURIComponent(this.resourceTicket)}${apiPath.slice(4)}`
   }
 
+  private authSnapshot(): { apiKey: string | null; revision: number } {
+    return { apiKey: this.apiKey, revision: this.credentialRevision }
+  }
+
   /**
    * Centralized 401 handler. Every fetch site in this class funnels its
    * non-ok response status through here before throwing — without this
@@ -2164,8 +2168,8 @@ export class HttpTransport implements Transport {
    * and dispatches the event; the caller still throws so the UI's
    * own error path runs normally.
    */
-  private handleAuthFailure(status: number): void {
-    if (status !== 401) return
+  private handleAuthFailure(status: number, requestCredentialRevision: number): void {
+    if (status !== 401 || requestCredentialRevision !== this.credentialRevision) return
     clearStoredApiKey()
     this.setApiKey(null)
     dispatchAuthRequired()
@@ -2194,8 +2198,9 @@ export class HttpTransport implements Transport {
       init: RequestInit = {},
       ignoreUploadAbort = false,
     ): Promise<T> => {
+      const auth = this.authSnapshot()
       const headers = new Headers(init.headers)
-      if (this.apiKey) headers.set("Authorization", `Bearer ${this.apiKey}`)
+      if (auth.apiKey) headers.set("Authorization", `Bearer ${auth.apiKey}`)
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,
         headers,
@@ -2203,7 +2208,7 @@ export class HttpTransport implements Transport {
       })
       if (!response.ok) {
         const text = await response.text().catch(() => "")
-        this.handleAuthFailure(response.status)
+        this.handleAuthFailure(response.status, auth.revision)
         throw new Error(
           `[HttpTransport] ${init.method ?? "GET"} ${path} returned ${response.status}: ${text}`,
         )
@@ -2246,15 +2251,16 @@ export class HttpTransport implements Transport {
   }
 
   async discardFileUpload(uploadId: string): Promise<void> {
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers.Authorization = `Bearer ${auth.apiKey}`
     const response = await fetch(
       `${this.baseUrl}/api/file-uploads/${encodeURIComponent(uploadId)}`,
       { method: "DELETE", headers },
     )
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`[HttpTransport] DELETE file upload returned ${response.status}: ${text}`)
     }
   }
@@ -2309,9 +2315,10 @@ export class HttpTransport implements Transport {
     const isBodyMethod = def.method === "POST" || def.method === "PUT" || def.method === "PATCH"
     const url = isBodyMethod ? rawUrl : appendQueryParams(rawUrl, remainingArgs)
 
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) {
-      headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) {
+      headers["Authorization"] = `Bearer ${auth.apiKey}`
     }
     let body: string | undefined
 
@@ -2328,7 +2335,7 @@ export class HttpTransport implements Transport {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`[HttpTransport] ${def.method} ${url} returned ${response.status}: ${text}`)
     }
 
@@ -2373,9 +2380,10 @@ export class HttpTransport implements Transport {
       if (v !== undefined && v !== null) form.append(k, String(v))
     }
 
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) {
-      headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) {
+      headers["Authorization"] = `Bearer ${auth.apiKey}`
     }
     // Do NOT set Content-Type — browser sets multipart boundary automatically.
 
@@ -2383,7 +2391,7 @@ export class HttpTransport implements Transport {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`[HttpTransport] POST ${url} returned ${response.status}: ${text}`)
     }
 
@@ -2477,13 +2485,14 @@ export class HttpTransport implements Transport {
     if (!resolved) throw new Error("attachment is not reachable")
     const sameServerApi =
       resolved.origin === new URL(this.baseUrl).origin && resolved.pathname.startsWith("/api/")
-    if (!sameServerApi || !this.apiKey) throw new Error("attachment is not reachable")
+    const auth = this.authSnapshot()
+    if (!sameServerApi || !auth.apiKey) throw new Error("attachment is not reachable")
 
     const response = await fetch(resolved, {
-      headers: { Authorization: `Bearer ${this.apiKey}` },
+      headers: { Authorization: `Bearer ${auth.apiKey}` },
     })
     if (!response.ok) {
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`fetch attachment: ${response.status}`)
     }
     const objectUrl = URL.createObjectURL(await response.blob())
@@ -2506,12 +2515,13 @@ export class HttpTransport implements Transport {
     url.searchParams.delete("download")
     // Do not propagate legacy query-string credentials into a new request.
     url.searchParams.delete("token")
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers.Authorization = `Bearer ${auth.apiKey}`
     const response = await fetch(url, { headers })
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`[HttpTransport] attachment extract returned ${response.status}: ${text}`)
     }
     return (await response.json()) as ExtractedContent
@@ -2736,11 +2746,12 @@ export class HttpTransport implements Transport {
     }
     const url = new URL(`${this.baseUrl}/api/pets/sprite`)
     url.searchParams.set("assetId", assetId)
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers.Authorization = `Bearer ${auth.apiKey}`
     const response = await fetch(url, { headers })
     if (!response.ok) {
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`Failed to load pet asset (${response.status})`)
     }
     const blobUrl = URL.createObjectURL(await response.blob())
@@ -2929,12 +2940,13 @@ export class HttpTransport implements Transport {
   async listServerDirectory(path?: string): Promise<DirListing> {
     const url = new URL(`${this.baseUrl}/api/filesystem/list-dir`)
     if (path) url.searchParams.set("path", path)
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url.toString(), { method: "GET", headers })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       let message = text || `list-dir failed: ${res.status}`
       try {
         const parsed = JSON.parse(text) as { error?: string }
@@ -2950,8 +2962,9 @@ export class HttpTransport implements Transport {
   }
 
   async createDirectory(path: string): Promise<DirListing> {
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = { "Content-Type": "application/json" }
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(`${this.baseUrl}/api/filesystem/create-dir`, {
       method: "POST",
       headers,
@@ -2959,7 +2972,7 @@ export class HttpTransport implements Transport {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       let message = text || `create-dir failed: ${res.status}`
       try {
         const parsed = JSON.parse(text) as { error?: string }
@@ -2977,12 +2990,13 @@ export class HttpTransport implements Transport {
     url.searchParams.set("format", args.format)
     url.searchParams.set("includeThinking", String(args.includeThinking))
     url.searchParams.set("includeTools", String(args.includeTools))
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url.toString(), { method: "GET", headers })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       throw new Error(text || `export failed: ${res.status}`)
     }
     const disposition = res.headers.get("content-disposition") ?? ""
@@ -3056,8 +3070,9 @@ export class HttpTransport implements Transport {
     format: ArtifactExportFormat,
     expectedVersion: number,
   ): Promise<ArtifactExportResult | null> {
+    const createAuth = this.authSnapshot()
     const headers: Record<string, string> = { "Content-Type": "application/json" }
-    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    if (createAuth.apiKey) headers.Authorization = `Bearer ${createAuth.apiKey}`
     const create = await fetch(`${this.baseUrl}/api/artifacts/${encodeURIComponent(id)}/exports`, {
       method: "POST",
       headers,
@@ -3065,7 +3080,7 @@ export class HttpTransport implements Transport {
     })
     if (!create.ok) {
       const text = await create.text().catch(() => "")
-      this.handleAuthFailure(create.status)
+      this.handleAuthFailure(create.status, createAuth.revision)
       throw new Error(text || `artifact export failed: ${create.status}`)
     }
     const payload = (await create.json()) as { receipt: ArtifactExportReceipt }
@@ -3073,15 +3088,16 @@ export class HttpTransport implements Transport {
     if (receipt.status !== "ready") {
       return { filename: receipt.filename, receipt }
     }
+    const downloadAuth = this.authSnapshot()
     const downloadHeaders: Record<string, string> = {}
-    if (this.apiKey) downloadHeaders.Authorization = `Bearer ${this.apiKey}`
+    if (downloadAuth.apiKey) downloadHeaders.Authorization = `Bearer ${downloadAuth.apiKey}`
     const response = await fetch(
       `${this.baseUrl}/api/artifact-exports/${encodeURIComponent(receipt.id)}/download`,
       { headers: downloadHeaders },
     )
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, downloadAuth.revision)
       throw new Error(text || `artifact download failed: ${response.status}`)
     }
     const disposition = response.headers.get("content-disposition") ?? ""
@@ -3115,12 +3131,13 @@ export class HttpTransport implements Transport {
     defaultFilename = "hope-agent-memory-backup.zip",
   ): Promise<ExportSessionResult | null> {
     const url = `${this.baseUrl}/api/memory/backup/export-archive`
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url, { method: "POST", headers })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       throw new Error(text || `memory backup archive export failed: ${res.status}`)
     }
     const disposition = res.headers.get("content-disposition") ?? ""
@@ -3179,10 +3196,11 @@ export class HttpTransport implements Transport {
 
   private async postMemoryBackupArchive(pathOrUrl: string | URL, file: File): Promise<unknown> {
     const url = typeof pathOrUrl === "string" ? new URL(pathOrUrl, this.baseUrl) : pathOrUrl
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {
       "Content-Type": "application/zip",
     }
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url.toString(), {
       method: "POST",
       headers,
@@ -3190,7 +3208,7 @@ export class HttpTransport implements Transport {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       throw new Error(text || `memory backup archive request failed: ${res.status}`)
     }
     return res.json()
@@ -3201,12 +3219,13 @@ export class HttpTransport implements Transport {
     url.searchParams.set("root", root)
     url.searchParams.set("q", q)
     if (limit !== undefined) url.searchParams.set("limit", String(limit))
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url.toString(), { method: "GET", headers })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       let message = text || `search-files failed: ${res.status}`
       try {
         const parsed = JSON.parse(text) as { error?: string }

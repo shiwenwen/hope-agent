@@ -27,6 +27,7 @@ import {
   useFilesystemConfig,
   type FilesystemConfig,
 } from "@/lib/filesystemConfig"
+import { remoteApiKeyForSave } from "./serverCredentials"
 import {
   MonitorSmartphone,
   Globe,
@@ -225,13 +226,17 @@ export default function ServerPanel() {
         loadedSecrets.embeddedKnowledgeAgentReadToken,
         loadedSecrets.hasEmbeddedKnowledgeAgentReadToken,
       )
-      const effectiveRemoteApiKey =
-        config.serverMode === "remote" && embeddedApiKey !== null
-          ? embeddedApiKey || null
-          : config.remoteApiKey || null
+      const previous = JSON.parse(savedSnapshot || JSON.stringify(config)) as ServerConfig
+      const effectiveRemoteApiKey = remoteApiKeyForSave({
+        currentMode: config.serverMode,
+        previousMode: previous.serverMode,
+        currentRemoteServerUrl: config.remoteServerUrl,
+        previousRemoteServerUrl: previous.remoteServerUrl,
+        remoteApiKey: config.remoteApiKey,
+        replacementOwnerToken: embeddedApiKey,
+      })
       const ownerTokenWillExist =
         embeddedApiKey === null ? loadedSecrets.hasEmbeddedApiKey : embeddedApiKey.length > 0
-      const previous = JSON.parse(savedSnapshot || JSON.stringify(config)) as ServerConfig
       if (
         (!isLoopbackServerAddress(previous.embeddedBindAddr) ||
           !isLoopbackServerAddress(config.embeddedBindAddr || DEFAULT_EMBEDDED_ADDRESS)) &&
