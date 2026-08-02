@@ -39,6 +39,53 @@ test("HttpTransport builds remote Artifact previews with a scoped resource ticke
   })
 })
 
+test("HttpTransport mints a single-file ticket for remote workspace previews", async () => {
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "generic-resource-ticket",
+          eventTicket: "event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ ticket: "bound-file-ticket", expiresInSecs: 900 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+  const transport = new HttpTransport("https://agent.example", "owner-token")
+
+  await expect(
+    transport.projectFsRawUrl({
+      scope: "project",
+      scopeId: "project-1",
+      path: "preview/index.html",
+    }),
+  ).resolves.toBe("https://agent.example/api/resource/bound-file-ticket/fs/raw")
+
+  expect(fetchMock.mock.calls[1]).toEqual([
+    "https://agent.example/api/fs/raw-ticket",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer owner-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        scope: "project",
+        scopeId: "project-1",
+        path: "preview/index.html",
+      }),
+    },
+  ])
+  expect(fetchMock.mock.calls[1]?.[0]).not.toContain("generic-resource-ticket")
+})
+
 test("HttpTransport requests durable-state resync on connect and EventBus lag", async () => {
   class MockWebSocket {
     static instances: MockWebSocket[] = []

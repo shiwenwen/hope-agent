@@ -7,10 +7,11 @@
 //! cannot modify the server host's files unless the operator opts in. The
 //! desktop (Tauri IPC) bypasses this gate entirely.
 
-use axum::extract::{Multipart, Query, Request, State};
+use axum::extract::{Extension, Multipart, Path, Query, Request, State};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -22,6 +23,7 @@ use super::file_serve::{
 };
 use super::helpers::parse_file_upload_to_temp;
 use crate::error::AppError;
+use crate::middleware::AuthState;
 use crate::AppContext;
 use ha_core::filesystem::{
     self, ExtractedContent, FileSearchResponse, FileTextContent, FileWriteOutcome, FilesystemError,
@@ -179,20 +181,42 @@ pub struct RawQuery {
     pub download: Option<u8>,
 }
 
-/// `GET /api/fs/raw?scope=&scopeId=&path=&download=` — serve raw bytes inline
-/// (images / PDFs / any file) for the preview pane.
-pub async fn fs_raw(Query(q): Query<RawQuery>, request: Request) -> Result<Response, AppError> {
-    let RawQuery {
-        scope,
-        scope_id,
-        path,
-        download,
-    } = q;
-    let abs = run(move || {
-        let s = WorkspaceScope::resolve(&scope, &scope_id)?;
-        s.resolve_existing(&path)
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RawTicketBody {
+    pub scope: String,
+    pub scope_id: String,
+    pub path: String,
+    #[serde(default)]
+    pub download: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RawTicketResponse {
+    ticket: String,
+    expires_in_secs: u64,
+}
+
+const WORKSPACE_RAW_TICKET_TTL_SECS: u64 = 15 * 60;
+
+async fn resolve_raw_path(
+    scope: String,
+    scope_id: String,
+    path: String,
+) -> Result<std::path::PathBuf, AppError> {
+    run(move || {
+        let resolved = WorkspaceScope::resolve(&scope, &scope_id)?;
+        resolved.resolve_existing(&path)
     })
-    .await?;
+    .await
+}
+
+async fn serve_raw_path(
+    abs: std::path::PathBuf,
+    download: bool,
+    request: Request,
+) -> Result<Response, AppError> {
     let mime = resolve_mime_for_path(
         &abs,
         MimeOpts {
@@ -201,7 +225,7 @@ pub async fn fs_raw(Query(q): Query<RawQuery>, request: Request) -> Result<Respo
         },
     )
     .await;
-    let disposition = safe_content_disposition(&abs, &mime, download.unwrap_or(0) == 1);
+    let disposition = safe_content_disposition(&abs, &mime, download);
     // Stream via ServeFile (Range-capable, memory-bounded) rather than buffering
     // the whole file into a Vec — a large file would otherwise spike RSS / OOM.
     let mut response = ServeFile::new(&abs)
@@ -226,6 +250,65 @@ pub async fn fs_raw(Query(q): Query<RawQuery>, request: Request) -> Result<Respo
         axum::http::HeaderValue::from_static("nosniff"),
     );
     Ok(response)
+}
+
+/// `POST /api/fs/raw-ticket` — resolve authorization once and bind a short-lived
+/// iframe-safe capability to that exact canonical file.
+pub async fn create_fs_raw_ticket(
+    Extension(auth): Extension<AuthState>,
+    Json(body): Json<RawTicketBody>,
+) -> Result<Response, AppError> {
+    let abs = resolve_raw_path(body.scope, body.scope_id, body.path).await?;
+    let ticket = auth
+        .create_workspace_raw_ticket(abs, body.download, WORKSPACE_RAW_TICKET_TTL_SECS)
+        .map_err(|error| {
+            ha_core::app_error!(
+                "security",
+                "workspace_raw_ticket_mint_failed",
+                "Failed to mint a bound workspace raw ticket: {}",
+                error
+            );
+            AppError::internal("Workspace preview is unavailable")
+        })?;
+    Ok(super::auth::no_store_json(
+        StatusCode::OK,
+        &RawTicketResponse {
+            ticket,
+            expires_in_secs: WORKSPACE_RAW_TICKET_TTL_SECS,
+        },
+    ))
+}
+
+/// Public capability endpoint for one canonical workspace file. Query strings
+/// are deliberately ignored: the path and disposition are server-side state.
+pub async fn fs_raw_with_ticket(
+    Path(ticket): Path<String>,
+    Extension(auth): Extension<AuthState>,
+    request: Request,
+) -> Response {
+    let Some(bound) = auth.resolve_workspace_raw_ticket(&ticket) else {
+        return super::auth::no_store_json(
+            StatusCode::UNAUTHORIZED,
+            &json!({ "error": "Invalid or expired workspace preview ticket" }),
+        );
+    };
+    match serve_raw_path(bound.path, bound.download, request).await {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    }
+}
+
+/// `GET /api/fs/raw?scope=&scopeId=&path=&download=` — serve raw bytes inline
+/// (images / PDFs / any file) for the preview pane.
+pub async fn fs_raw(Query(q): Query<RawQuery>, request: Request) -> Result<Response, AppError> {
+    let RawQuery {
+        scope,
+        scope_id,
+        path,
+        download,
+    } = q;
+    let abs = resolve_raw_path(scope, scope_id, path).await?;
+    serve_raw_path(abs, download.unwrap_or(0) == 1, request).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -489,4 +572,65 @@ pub async fn fs_claim_upload(
         &result.rel_path,
     );
     Ok(Json(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::Request as HttpRequest;
+    use axum::routing::get;
+    use axum::Router;
+
+    #[tokio::test]
+    async fn workspace_raw_capability_serves_only_its_server_bound_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let visible = dir.path().join("visible.html");
+        let secret = dir.path().join("secret.js");
+        std::fs::write(&visible, "visible content").unwrap();
+        std::fs::write(&secret, "secret content").unwrap();
+
+        let auth = AuthState::new(Some("owner-token".into()), None, false);
+        let bound_ticket = auth
+            .create_workspace_raw_ticket(visible, false, 900)
+            .unwrap();
+        let generic_ticket = auth.create_access_ticket("resources", 900).unwrap();
+        let app = Router::new()
+            .route("/api/resource/{ticket}/fs/raw", get(fs_raw_with_ticket))
+            .route(
+                "/api/resource/{ticket}/{*path}",
+                get(|| async { StatusCode::IM_A_TEAPOT }),
+            )
+            .layer(Extension(auth));
+
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!(
+                        "/api/resource/{bound_ticket}/fs/raw?path={}",
+                        secret.display()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap(),
+            "visible content"
+        );
+
+        let rejected = app
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!("/api/resource/{generic_ticket}/fs/raw"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+    }
 }

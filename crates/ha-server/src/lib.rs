@@ -199,7 +199,6 @@ fn build_router_with_cors(
             "/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}",
             get(routes::knowledge::kb_source_asset_file),
         )
-        .route("/fs/raw", get(routes::project_fs::fs_raw))
         .route(
             "/canvas/projects/{project_id}/{*rest}",
             get(routes::canvas::serve_canvas_project_file),
@@ -226,6 +225,10 @@ fn build_router_with_cors(
         .route(
             "/api/auth/logout",
             post(routes::auth::clear_browser_session),
+        )
+        .route(
+            "/api/resource/{ticket}/fs/raw",
+            get(routes::project_fs::fs_raw_with_ticket),
         )
         .route(
             "/api/resource/{ticket}/{*path}",
@@ -3558,6 +3561,10 @@ fn build_router_with_cors(
         .route("/fs/extract", get(routes::project_fs::fs_extract))
         .route("/fs/search", get(routes::project_fs::fs_search))
         .route("/fs/raw", get(routes::project_fs::fs_raw))
+        .route(
+            "/fs/raw-ticket",
+            post(routes::project_fs::create_fs_raw_ticket).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
         .route("/fs/git", get(routes::project_fs::fs_git_info))
         // Static envelope for the largest configurable UTF-8 edit payload;
         // the handler still applies the current dynamic MiB limit.

@@ -288,7 +288,7 @@ fn same_origin_or_non_browser(headers: &HeaderMap) -> bool {
         .is_some_and(|authority| authority.eq_ignore_ascii_case(host))
 }
 
-fn no_store_json<T: Serialize>(status: StatusCode, body: &T) -> Response {
+pub(crate) fn no_store_json<T: Serialize>(status: StatusCode, body: &T) -> Response {
     let mut response = (status, Json(body)).into_response();
     response.headers_mut().insert(
         header::CACHE_CONTROL,

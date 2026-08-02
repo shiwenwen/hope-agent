@@ -304,6 +304,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   project_fs_read_text: { method: "GET", path: "/api/fs/read" },
   project_fs_extract: { method: "GET", path: "/api/fs/extract" },
   project_fs_search: { method: "GET", path: "/api/fs/search" },
+  project_fs_raw_ticket: { method: "POST", path: "/api/fs/raw-ticket" },
   project_git_info: { method: "GET", path: "/api/fs/git" },
   project_fs_write_text: { method: "PUT", path: "/api/fs/file" },
   project_fs_delete: { method: "DELETE", path: "/api/fs/entry" },
@@ -2544,9 +2545,14 @@ export class HttpTransport implements Transport {
     args: ProjectFsScope & { path: string; download?: boolean },
   ): Promise<string | null> {
     await this.initializeRemoteAccess()
-    const rawUrl = this.scopedResourceUrl("/api/fs/raw")
-    if (!rawUrl) return null
-    const url = new URL(rawUrl)
+    if (this.apiKey) {
+      const response = await this.call<{ ticket: string; expiresInSecs: number }>(
+        "project_fs_raw_ticket",
+        { ...args },
+      )
+      return `${this.baseUrl}/api/resource/${encodeURIComponent(response.ticket)}/fs/raw`
+    }
+    const url = new URL(`${this.baseUrl}/api/fs/raw`)
     url.searchParams.set("scope", args.scope)
     url.searchParams.set("scopeId", args.scopeId)
     url.searchParams.set("path", args.path)
