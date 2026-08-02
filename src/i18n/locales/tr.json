@@ -5042,8 +5042,12 @@
     "devWarningDesc": "Aşağıdaki eylemler verileri kalıcı olarak siler ve geri alınamaz. Yürütme sonrası uygulama otomatik olarak yeniden başlatılır.",
     "devWarningTitle": "Tehlike bölgesi",
     "developer": "Geliştirici",
+    "dockerSetupConnectionFailed": "Docker istemcisi yapılandırılan uç noktaya bağlanamadı. Docker uç noktası yapılandırmasını kontrol edip yeniden deneyin.",
+    "dockerSetupContainerIsolatedOnly": "Hope Agent Docker içinde çalışıyor. Yalnızca yalıtılmış korumalı alan modu desteklenir; ana makine bind mount gerektiren modlar reddedilir.",
     "dockerSetupNotInstalled": "Docker algılanmadı. Bu platform için bir Docker seçeneği seçin.",
     "dockerSetupNotRunning": "Docker kurulu ancak arka plan programı çalışmıyor. Docker'i başlatın ve tekrar deneyin.",
+    "dockerSetupPermissionDenied": "Docker socket bulundu ancak Hope Agent'ın erişim izni yok. Socket grup GID'sini kapsayıcıya ekleyin; socket'i herkes tarafından yazılabilir yapmayın.",
+    "dockerSetupSocketMissingContainer": "Docker socket Hope Agent kapsayıcısına bağlanmamış. Yalıtılmış modu kullanmak için güvenilir bir yerel Docker socket bağlayın.",
     "dockerSetupWslNoDocker": "WSL hazır. Docker Desktop olmadan korumalı alanı kullanmak için varsayılan WSL dağıtımına Docker Engine kurun.",
     "dockerSetupWslNotRunning": "Docker Engine WSL'de kurulu ancak arka plan programı çalışmıyor. WSL'de Docker'ı başlatıp tekrar deneyin.",
     "dreaming": {

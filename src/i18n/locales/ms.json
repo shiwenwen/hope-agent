@@ -5042,8 +5042,12 @@
     "devWarningDesc": "Tindakan berikut akan memadam data secara kekal dan tidak boleh dibatalkan. Aplikasi akan dimulakan semula secara automatik selepas pelaksanaan.",
     "devWarningTitle": "Zon bahaya",
     "developer": "Pembangun",
+    "dockerSetupConnectionFailed": "Klien Docker tidak dapat menyambung ke endpoint yang dikonfigurasi. Semak konfigurasi endpoint Docker dan cuba lagi.",
+    "dockerSetupContainerIsolatedOnly": "Hope Agent sedang berjalan dalam Docker. Hanya mod kotak pasir terasing disokong; mod yang memerlukan bind mount hos akan ditolak.",
     "dockerSetupNotInstalled": "Docker tidak dikesan. Pilih pilihan Docker untuk platform ini.",
     "dockerSetupNotRunning": "Docker dipasang tetapi daemon tidak berjalan. Mulakan Docker dan cuba lagi.",
+    "dockerSetupPermissionDenied": "Docker socket ditemui tetapi Hope Agent tiada kebenaran untuk mengaksesnya. Tambahkan GID kumpulan socket pada bekas; jangan jadikan socket boleh ditulis oleh semua pengguna.",
+    "dockerSetupSocketMissingContainer": "Docker socket tidak dipasang ke dalam bekas Hope Agent. Pasang Docker socket setempat yang dipercayai untuk menggunakan mod terasing.",
     "dockerSetupWslNoDocker": "WSL sudah tersedia. Pasang Docker Engine dalam edaran WSL lalai untuk menggunakan kotak pasir tanpa Docker Desktop.",
     "dockerSetupWslNotRunning": "Docker Engine dipasang dalam WSL tetapi daemon tidak berjalan. Mulakan Docker dalam WSL dan cuba lagi.",
     "dreaming": {

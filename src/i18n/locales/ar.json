@@ -5042,8 +5042,12 @@
     "devWarningDesc": "الإجراءات التالية ستحذف البيانات بشكل دائم ولا يمكن التراجع عنها. سيُعاد تشغيل التطبيق تلقائياً بعد التنفيذ.",
     "devWarningTitle": "منطقة الخطر",
     "developer": "المطور",
+    "dockerSetupConnectionFailed": "تعذر على عميل Docker الاتصال بنقطة النهاية المكوّنة. تحقق من إعداد نقطة نهاية Docker وحاول مرة أخرى.",
+    "dockerSetupContainerIsolatedOnly": "يعمل Hope Agent داخل Docker. وضع البيئة المعزولة فقط هو المدعوم؛ تُرفض الأوضاع التي تتطلب ربط مجلدات المضيف.",
     "dockerSetupNotInstalled": "لم يتم الكشف عن Docker. اختر خيار Docker لهذا النظام الأساسي.",
     "dockerSetupNotRunning": "تم تثبيت Docker لكن البرنامج الخفي لا يعمل. ابدأ تشغيل Docker وحاول مرة أخرى.",
+    "dockerSetupPermissionDenied": "تم العثور على Docker socket، لكن Hope Agent لا يملك إذن الوصول إليه. أضف GID لمجموعة socket إلى الحاوية ولا تجعله قابلاً للكتابة من الجميع.",
+    "dockerSetupSocketMissingContainer": "لم يتم ربط Docker socket داخل حاوية Hope Agent. اربط Docker socket محلياً موثوقاً لاستخدام الوضع المعزول.",
     "dockerSetupWslNoDocker": "WSL جاهز. ثبّت Docker Engine في توزيعة WSL الافتراضية لاستخدام البيئة المعزولة من دون Docker Desktop.",
     "dockerSetupWslNotRunning": "تم تثبيت Docker Engine في WSL لكن البرنامج الخفي لا يعمل. ابدأ Docker داخل WSL وحاول مرة أخرى.",
     "dreaming": {

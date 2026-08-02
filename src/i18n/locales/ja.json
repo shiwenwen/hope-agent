@@ -5042,8 +5042,12 @@
     "devWarningDesc": "以下の操作はデータを完全に削除し、元に戻せません。実行後アプリは自動再起動されます。",
     "devWarningTitle": "危険な操作",
     "developer": "開発者",
+    "dockerSetupConnectionFailed": "Docker クライアントが設定済みのエンドポイントに接続できません。Docker エンドポイントの設定を確認して再試行してください。",
+    "dockerSetupContainerIsolatedOnly": "Hope Agent は Docker 内で実行されています。現在サポートされるのは隔離サンドボックスモードのみで、ホストのバインドマウントが必要なモードは拒否されます。",
     "dockerSetupNotInstalled": "Docker が検出されませんでした。このプラットフォームには Docker オプションを選択してください。",
     "dockerSetupNotRunning": "Docker はインストールされていますが、デーモンが実行されていません。 Docker を起動して、再試行してください。",
+    "dockerSetupPermissionDenied": "Docker socket は見つかりましたが、Hope Agent にアクセス権がありません。socket のグループ GID をコンテナに追加し、全ユーザー書き込み可能にはしないでください。",
+    "dockerSetupSocketMissingContainer": "Hope Agent コンテナに Docker socket がマウントされていません。隔離サンドボックスモードを使用するには、信頼できるローカル Docker socket をマウントしてください。",
     "dockerSetupWslNoDocker": "WSL は使用可能です。既定の WSL ディストリビューションに Docker Engine をインストールすると、Docker Desktop なしでサンドボックスを使用できます。",
     "dockerSetupWslNotRunning": "WSL に Docker Engine はインストールされていますが、デーモンが実行されていません。WSL で Docker を起動して再試行してください。",
     "dreaming": {

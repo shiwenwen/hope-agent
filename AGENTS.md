@@ -89,6 +89,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - 工作台聚合 dedup/排序 TS 与 Rust（`session::aggregate_session_artifacts`）两份须同步。
 - 文件打开/下载/预览走 `useFileResource`；新可预览类型改 `src/lib/fileKind.ts` `isPreviewableKind`。
 - preview-by-path：HTTP 三端点共用 `authorized_canonical_file_path`（tool 消息引用 ∪ 会话工作目录内），其余 403（远端严禁任意主机路径）；桌面信任本机。
+- **Docker 部署执行沙箱只允许 `isolated`**：`HA_DEPLOYMENT=docker` 时工作区经有界副本 + Archive API 进入匿名 volume；`standard` / `workspace` / `trusted` 在预检与执行层双重 fail closed，禁止把父容器路径当宿主 daemon 路径。数据根、其祖先与 credentials 不得作为归档源；取消 / timeout 必须覆盖副本与归档准备全过程。
 
 ### Memory
 
@@ -114,7 +115,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - `TeamTemplateMember.description` 注入子 session 身份段
 - **Cron 投递白名单**：`delivery_targets` 须命中 `channel_conversations`——模型显式给的未命中目标创建期 `bail!`，投递期再查、未命中或 DB 不可用 fail-closed 跳过。白名单即边界（刻意不叠 SSRF）
 - **Cron delete 审批**：`manage_cron action=delete` 唯一非 internal action，刻意抑制 AllowAlways——matcher 只按 `action` 不含 `id`，持久化即「删任意任务」常驻授权。owner 三入口走 `cron::delete_job_and_sessions`；新增审批原因同步 `ApprovalReasonKind` + `ApprovalDialog.tsx` union + 全语言文案
-- **Cron owner-only 覆盖**：`permission_mode_override` / `sandbox_mode_override` 仅 owner 可设，`manage_cron` 恒 `None`、不进 schema、`update` 拒带覆盖的 job（否则注入可排 `permission=yolo` 提权）。沙箱 fail-closed：override 写失败即终止本次运行（写丢=裸跑 host），权限 override 写失败仅 warn（退回更严）——不对称刻意，勿拉平；预检读错回退 expected 而非 `Off`（防 `.unwrap_or(Off)`）；`ensure_sandbox_available()` 失败即终止、不回落宿主机
+- **Cron owner-only 覆盖**：`permission_mode_override` / `sandbox_mode_override` 仅 owner 可设，`manage_cron` 恒 `None`、不进 schema、`update` 拒带覆盖的 job（否则注入可排 `permission=yolo` 提权）。沙箱 fail-closed：override 写失败即终止本次运行（写丢=裸跑 host），权限 override 写失败仅 warn（退回更严）——不对称刻意，勿拉平；预检读错回退 expected 而非 `Off`（防 `.unwrap_or(Off)`）；`ensure_sandbox_available_for_mode()` 失败即终止、不回落宿主机
 - **Cron 排程与时区**：`schedule::validate_schedule` 为合法性唯一裁决（owner/模型共用），非法 IANA 时区 `bail!`、禁止静默回退 UTC；`compute_next_cron` 用 `.find(|dt| *dt > *after)` 非裸 `.next()`（否则 DST 秋退写入过去时刻 → 每 tick 重触发）；时区 backfill 经 `cron_meta` sentinel `tz_backfill_done` 真·一次性（形似性能优化，删掉即把故意-UTC 任务静默改成宿主时区）；`update_job` 系统字段以 DB live 为准、不取 caller 快照
 - **Cron Primary-only + slot-before-claim**：执行与 run-now 三入口前置 `is_primary()`（非 Primary 返错不假成功）；调度器先 `count_running()`（并发计数单一真相源，失败 fail-closed 跳过本 pass）抢槽再 claim——claim 会推进 `next_run_at`，反序即静默丢一轮
 - **`at_grace_secs` 的 `0` 是 async_tools 规则的例外**：`0`=严格不补跑、只钳上限不钳地板，勿套用「bounded-resource 旁钮 `0` 一律钳地板、绝非无限」。`save_cron_config` 替换整个 `CronConfig`——新增字段须同步各 save 调用点，漏传即被 serde 默认静默重置

@@ -5042,8 +5042,12 @@
     "devWarningDesc": "Следующие действия безвозвратно удаляют данные. После выполнения приложение автоматически перезапустится.",
     "devWarningTitle": "Опасная зона",
     "developer": "Разработчик",
+    "dockerSetupConnectionFailed": "Клиент Docker не смог подключиться к настроенной конечной точке. Проверьте конфигурацию Docker и повторите попытку.",
+    "dockerSetupContainerIsolatedOnly": "Hope Agent работает в Docker. Поддерживается только изолированный режим песочницы; режимы, требующие bind-монтирования каталогов хоста, отклоняются.",
     "dockerSetupNotInstalled": "Docker не обнаружен. Выберите вариант Docker для этой платформы.",
     "dockerSetupNotRunning": "Docker установлен, но демон не запущен. Запустите Docker и повторите попытку.",
+    "dockerSetupPermissionDenied": "Сокет Docker найден, но у Hope Agent нет разрешения на доступ. Добавьте GID группы сокета в контейнер; не разрешайте запись в сокет всем пользователям.",
+    "dockerSetupSocketMissingContainer": "Сокет Docker не смонтирован в контейнер Hope Agent. Для изолированного режима смонтируйте доверенный локальный сокет Docker.",
     "dockerSetupWslNoDocker": "WSL готова к работе. Установите Docker Engine в дистрибутив WSL по умолчанию, чтобы использовать песочницу без Docker Desktop.",
     "dockerSetupWslNotRunning": "Docker Engine установлен в WSL, но его демон не запущен. Запустите Docker в WSL и повторите попытку.",
     "dreaming": {

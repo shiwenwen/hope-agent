@@ -24,7 +24,7 @@ Hope Agent 的 Sandbox 子系统有两条相互独立但共享 Docker 状态引�
 |------|------|
 | `SandboxMode` | 会话级沙箱姿态，wire 值固定为 `off` / `standard` / `isolated` / `workspace` / `trusted` |
 | `SandboxConfig` | Docker 执行沙箱的容器配置，持久化在 `~/.hope-agent/sandbox.json` |
-| `DockerStatus` | Docker CLI/daemon 状态；Windows 额外报告 WSL / 默认发行版 / WSL Docker Engine 探测结果与选中的 backend |
+| `DockerStatus` | Docker CLI/daemon 状态、结构化连接错误与容器部署限制；Windows 额外报告 WSL / 默认发行版 / WSL Docker Engine 探测结果与选中的 backend |
 | strict 原因 | `AskReason::forbids_allow_always()` 为 true 的审批原因，不能 AllowAlways、不能超时 proceed、不能被沙箱软放行 |
 | soft approval | Default/Smart 层的普通编辑类审批、编辑命令审批等，沙箱可在特定模式下放松 |
 | SearXNG Docker | `crates/ha-core/src/docker/` 下的 Web Search 托管容器子系统 |
@@ -36,7 +36,7 @@ Hope Agent 的 Sandbox 子系统有两条相互独立但共享 Docker 状态引�
 | Sandbox mode 类型 | `crates/ha-core/src/permission/mode.rs` | 定义 `SandboxMode`、serde wire 值、默认值和软审批放松判定 |
 | 权限引擎 | `crates/ha-core/src/permission/engine.rs` | 读取 `ResolveContext.sandbox_mode`，在 strict/AllowAlways 后执行 sandbox soft allow |
 | 执行沙箱 runtime | `crates/ha-core/src/sandbox.rs` | Docker 执行、状态检测、配置持久化、隔离副本、容器清理 |
-| exec 工具 | `crates/ha-core/src/tools/exec.rs` | 根据会话/legacy 参数决定执行位置，调用 `ensure_sandbox_available()` 和 `exec_in_sandbox_mode()` |
+| exec 工具 | `crates/ha-core/src/tools/exec.rs` | 根据会话/legacy 参数决定执行位置，调用 `ensure_sandbox_available_for_mode()` 和 `exec_in_sandbox_mode()` |
 | Tool context | `crates/ha-core/src/tools/execution.rs` | 将 `ToolExecContext.sandbox_mode` 传给权限引擎 |
 | Agent 配置 | `crates/ha-core/src/agent_config.rs` | `CapabilitiesConfig.default_sandbox_mode` + legacy `sandbox` 兼容 |
 | Session DB | `crates/ha-core/src/session/db.rs` | `sessions.sandbox_mode` 迁移、读写、初始值、兼容回填 |
@@ -158,7 +158,7 @@ Session 读写 API：
 |------|----------|--------------|----------|-------------|
 | `off` | 宿主机 | 真实宿主机 | 不放松 | 正常审批 |
 | `standard` | Docker，挂载当前 cwd 到 `/workspace` | 写入挂载目录会落到真实工作区 | 不放松 | 正常审批 |
-| `isolated` | Docker，挂载临时副本到 `/workspace` | 写入只落到临时副本，执行结束删除 | 不放松（v1） | strict 仍审批 |
+| `isolated` | Docker；桌面挂载临时副本，容器部署经 Archive API 上传匿名 volume | 写入只落到临时副本，执行结束删除 | 不放松（v1） | strict 仍审批 |
 | `workspace` | Docker，挂载当前 cwd 到 `/workspace` | `exec` 写入挂载目录会落到真实工作区 | 放松 workspace 内 `exec` 编辑命令 | strict 仍审批 |
 | `trusted` | Docker，挂载当前 cwd 到 `/workspace` | 同 `workspace` | 同 `workspace`，语义上是沙箱内 exec 最大自治 | strict 仍审批 |
 
@@ -248,14 +248,17 @@ flowchart TD
     A["tool_exec(args, ctx)"] --> B["解析 command/cwd/env/background/timeout"]
     B --> C{"effective SandboxMode enabled?"}
     C -->|否| H["宿主机执行路径<br/>PTY / tokio process"]
-    C -->|是| D["ensure_sandbox_available()<br/>检查原生 Docker；Windows 再检查 WSL Docker Engine"]
+    C -->|是| D["ensure_sandbox_available_for_mode()<br/>检查 Docker + 部署形态支持的 mode"]
     D -->|不可用| E["返回 SandboxUnavailable<br/>不回落宿主机"]
     D -->|可用| F["exec 命令级审批 gate"]
     F --> G{"mode == isolated?"}
     G -->|是| I["gitignore-aware bounded copy 到 tempfile<br/>跳过 symlink / 常见生成目录"]
-    I --> J["Docker 挂载临时副本到 /workspace"]
+    I --> N{"HA_DEPLOYMENT=docker?"}
+    N -->|否| J["Docker 挂载临时副本到 /workspace"]
+    N -->|是| O["tar 流式上传到匿名 /workspace volume<br/>拒绝 /data 与 credentials"]
     G -->|否| K["Docker 挂载 session cwd 到 /workspace"]
     J --> L["创建容器 -> start -> wait/cancel/timeout -> logs -> remove"]
+    O --> L
     K --> L
     L --> M["返回 stdout/stderr/exit_code/timed_out"]
 ```
@@ -270,13 +273,14 @@ Docker 容器属性：
 - stdout/stderr 通过 Docker logs 收集。
 - 正常完成、超时、取消、启动失败都尝试清理容器。
 - Windows 原生 Docker daemon 不可达时，如果默认 WSL 发行版内的**本地 Unix Socket** daemon 可用，则以 `wsl.exe --exec docker --host <validated-unix-endpoint> run` 启动同等配置的容器；不会隐式采用 `ssh://` / `tcp://` 远程 Docker Context。宿主工作目录先经 `wslpath` 与 WSL 侧 `readlink -f` 转为 canonical Linux 路径，并再次执行敏感挂载校验；容器使用当前 WSL 用户的数值 UID:GID。该路径直接收集前台进程 stdout/stderr；超时或取消时先终止 Docker CLI，再按随机容器名重试 `docker rm --force` 并确认清理结果。
+- `HA_DEPLOYMENT=docker` 时仅允许 `isolated`：有界副本打成 tar，经 Docker Archive API 流式上传到匿名 `/workspace` volume；容器删除时带 `v=true` 清掉匿名 volume。`standard` / `workspace` / `trusted` 在预检与执行层双重 fail closed，禁止把父容器路径误交给宿主 daemon。数据根、其祖先或 credentials 目录不能作为上传源。
 
 `isolated` 副本准备：
 
 - 复制工作区发生在 `spawn_blocking` 中，避免同步 `std::fs` 递归阻塞 tokio runtime。
 - 遍历使用 `ignore::WalkBuilder`；`hidden(false)`，所以 dotfile 不会仅因隐藏而被跳过，是否复制由 ignore 规则和硬编码兜底决定。
 - 如果 cwd 位于 Git repo 内，按 Git repo 边界读取父级 `.gitignore`，并尊重 `.ignore`、`.git/info/exclude` 和 git global ignore；如果 cwd 不在 Git repo 内，则只读取 cwd 树内的 `.gitignore` / `.ignore`，避免父目录或全局规则意外影响隔离副本。
-- 复制过程检查取消 token 和本次 exec timeout；取消 / 超时会在准备阶段 fail-fast。
+- 复制与 tar 归档过程共享取消 token 和本次准备阶段 deadline；逐条、分块检查，取消 / 超时会 fail-fast。
 - 默认最多复制 512MiB / 50,000 个文件或目录，超过后返回明确错误并建议改用 `workspace` mode 或收窄 cwd。
 - 跳过 symlink、特殊文件，以及常见 VCS / 依赖 / 构建缓存目录：`.git`、`.hg`、`.svn`、`node_modules`、`target`、`dist`、`build`、`.next`、`.turbo`、`.cache`、`coverage`、`.pytest_cache`、`__pycache__`。
 
@@ -357,15 +361,19 @@ pub struct DockerStatus {
     pub wsl_installed: Option<bool>,
     pub wsl_distribution_installed: Option<bool>,
     pub wsl_docker_installed: Option<bool>,
+    pub connection_error: Option<DockerConnectionErrorKind>,
+    pub containerized: bool,
+    pub isolated_mode_only: bool,
 }
 ```
 
 检测逻辑：
 
-1. 执行宿主 `docker --version` 判断原生 CLI 是否存在，并通过 `bollard::Docker::connect_with_local_defaults().ping()` 判断原生 daemon 是否运行；daemon 可达时不额外要求 CLI，因为执行路径本身使用 Docker API。
+1. 执行宿主 `docker --version` 判断原生 CLI 是否存在，并通过 `bollard::Docker::connect_with_local_defaults().ping()` 判断原生 daemon 是否运行；daemon 可达时不额外要求 CLI，因为执行路径本身使用 Docker API。连接失败分类为 `socket_missing` / `permission_denied` / `daemon_unreachable` / `client_error`，原始错误不进 API 或日志，避免凭据化 `DOCKER_HOST` 泄漏。
 2. Windows 在原生 daemon 不可达时继续探测 `wsl.exe --status`、默认发行版能否执行命令、发行版内 `docker --version`，并只对当前 Context 中经过校验的 `unix://` endpoint、`/var/run/docker.sock` 与当前 UID 的 rootless socket 执行显式 `docker --host <endpoint> info`。远程 Context 不参与自动 fallback。原生 daemon 优先且健康时不会为丰富状态而唤醒已停止的 WSL VM，此时三个 WSL 探测字段为 `None`；原生不可达但 WSL 本地 daemon 可用时，`backend=wsl`。
 3. 仅安装 WSL 不等于 Docker 可用：默认发行版内还必须安装 Docker-compatible CLI/Engine，daemon 必须运行；否则执行继续 fail-closed。
 4. `host_os()` 返回 `macos` / `windows` / `linux` / `unknown`。
+5. `containerized` 来自 `HA_DEPLOYMENT=docker`；此时 `isolated_mode_only=true`，UI 提示仅支持隔离模式。
 
 API：
 
@@ -671,6 +679,7 @@ outgoing:
 9. server 模式 Docker 引导必须反映服务器宿主机，不是浏览器客户端。
 10. `SandboxConfig` 是执行沙箱配置；SearXNG Docker 配置和状态不得混用。
 11. `ha-settings` 不写 Agent 默认 sandbox mode；Agent 配置走 Agent 设置保存路径。
+12. 容器化部署只允许 archive-backed `isolated`；父容器数据根、其祖先与 credentials 不得复制进沙箱，非 isolated mode 双层 fail closed。
 
 ## 测试矩阵
 
@@ -691,6 +700,10 @@ outgoing:
 | `workspace/trusted` + exec edit command + 目标路径越界或动态展开 | 仍 Ask |
 | `trusted` + protected path | 仍 Ask strict |
 | Docker unavailable + sandbox exec | `SandboxUnavailable`，不进入宿主执行 |
+| Docker socket 权限不足 | 状态返回 `permission_denied`，不误报未安装 |
+| 容器部署 + `isolated` | archive 上传匿名 volume，执行后 volume 随容器删除 |
+| 容器部署 + 非 `isolated` | 预检与执行层均 `SandboxUnavailable` |
+| 容器部署 + cwd 为数据根或其祖先 | 拒绝复制 credentials / DB，不创建子容器 |
 
 ### TypeScript / UI
 
@@ -703,6 +716,8 @@ outgoing:
 | Windows WSL 可用、WSL 内未装 Docker Engine | 主入口切换为 Docker Engine on WSL |
 | Windows 原生 daemon 不可用、WSL Docker daemon 可用 | `backend=wsl`，沙箱经 `wsl.exe` 执行 |
 | Docker 已安装未运行 | 显示启动提示 + 重新检测 |
+| Docker socket 缺失 / 权限不足 | 显示针对性修复提示，不显示错误安装引导 |
+| 容器部署选择非 `isolated` | 显示仅支持隔离模式提示 |
 | Agent 默认值兼容 | `defaultSandboxMode ?? (sandbox ? standard : off)` |
 | i18n | 所有 locale 无缺 key |
 

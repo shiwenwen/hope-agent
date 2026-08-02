@@ -95,6 +95,11 @@ export function SandboxModeOptions({
   }, [active, refreshStatus, sandboxMode])
 
   const dockerReady = status?.installed && status?.running
+  const containerModeUnsupported = !!(
+    status?.isolatedModeOnly &&
+    sandboxMode !== "off" &&
+    sandboxMode !== "isolated"
+  )
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -112,7 +117,9 @@ export function SandboxModeOptions({
             )}
             onClick={() => {
               onSandboxModeChange(mode)
-              if (mode === "off" || dockerReady) {
+              const modeSupported =
+                !status?.isolatedModeOnly || mode === "off" || mode === "isolated"
+              if (mode === "off" || (dockerReady && modeSupported)) {
                 onSelectionComplete?.()
               } else {
                 void refreshStatus()
@@ -133,11 +140,12 @@ export function SandboxModeOptions({
           </button>
         )
       })}
-      {sandboxMode !== "off" && (!status || !dockerReady) && (
+      {sandboxMode !== "off" && (!status || !dockerReady || containerModeUnsupported) && (
         <DockerSetupHint
           status={status}
           checking={checking}
           onRefresh={refreshStatus}
+          sandboxMode={sandboxMode}
           title={t("chat.sandboxMode.setupTitle", {
             defaultValue: "配置 Docker 后启用沙箱",
           })}

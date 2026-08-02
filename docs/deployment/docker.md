@@ -89,6 +89,33 @@ volumes:
 
 注意：bind mount 的目录需要 UID 1000 可写（容器内运行用户 `hope` 的 UID）。
 
+## Docker 隔离沙箱
+
+容器化部署只支持 `isolated` 沙箱模式。Hope Agent 会先创建有界临时副本，再通过 Docker Archive API 流式上传到子容器的匿名 `/workspace` volume；命令结束后子容器和匿名 volume 一并删除，修改不会回写真实工作区。这个路径不把容器内的 `/data` 当作宿主机 bind mount，因而同时支持命名卷、bind mount 和 NAS 容器管理器。
+
+`standard` / `workspace` / `trusted` 在容器化部署中会 fail closed。它们需要把实时工作目录 bind mount 到子容器，但 `/data/project` 这类路径属于 Hope Agent 容器命名空间，不能安全地当作 Docker daemon 所见的宿主路径。
+
+启用前需把可信的本机 Docker socket 显式挂入 Hope Agent，并添加 socket 的组 GID：
+
+```bash
+stat -c '%A %u:%g %n' /var/run/docker.sock
+export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+```
+
+```yaml
+services:
+  hope-agent:
+    volumes:
+      - hope-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID}"
+```
+
+NAS 图形界面不能展开 `${DOCKER_GID}` 时，先运行 `stat`，再把数字 GID 直接填进附加组。重新创建容器后，沙箱状态会区分 socket 缺失、权限不足、daemon 不可达与客户端配置错误。
+
+> **安全警告**：Docker socket 可控制宿主 Docker daemon，通常等价于宿主机高权限。仅在可信的单租户部署中启用；不要把 socket 改成 `0666`，也不要为了访问 socket 让 Hope Agent 以 root 运行。`isolated` 还要求会话使用项目或显式工作目录；如果工作目录是数据根或其祖先，执行会拒绝，避免把 credentials、配置和数据库复制进沙箱（官方镜像的数据根为 `/data`）。
+
 ## 浏览器自动化
 
 镜像内置了 Debian trixie 仓库的 `chromium`（约增加 250 MB 镜像体积）。容器内默认带 `HA_DEPLOYMENT=docker`，所以 Agent 调用浏览器工具时会自动用 headless 模式启动这个 Chromium，并附加容器所需的 sandbox 兼容参数，无需额外配置。

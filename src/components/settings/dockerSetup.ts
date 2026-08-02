@@ -1,4 +1,9 @@
 export type DockerHostOs = "macos" | "windows" | "linux" | "unknown" | string
+export type DockerConnectionError =
+  | "socket_missing"
+  | "permission_denied"
+  | "daemon_unreachable"
+  | "client_error"
 
 export interface DockerStatus {
   installed: boolean
@@ -8,6 +13,9 @@ export interface DockerStatus {
   wslInstalled?: boolean | null
   wslDistributionInstalled?: boolean | null
   wslDockerInstalled?: boolean | null
+  connectionError?: DockerConnectionError | null
+  containerized?: boolean
+  isolatedModeOnly?: boolean
 }
 
 interface DockerOption {
