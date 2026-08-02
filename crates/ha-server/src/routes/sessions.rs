@@ -1294,6 +1294,7 @@ pub async fn create_session_file_ticket(
     let ttl_secs = super::project_fs::BOUND_FILE_TICKET_TTL_SECS;
     let ticket = auth
         .create_bound_file_ticket(file_canon, body.download, ttl_secs)
+        .await
         .map_err(|error| {
             ha_core::app_error!(
                 "security",

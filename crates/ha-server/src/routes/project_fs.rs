@@ -7,12 +7,15 @@
 //! cannot modify the server host's files unless the operator opts in. The
 //! desktop (Tauri IPC) bypasses this gate entirely.
 
+use axum::body::{Body, Bytes};
 use axum::extract::{Extension, Multipart, Path, Query, Request, State};
-use axum::http::StatusCode;
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::io;
 use std::sync::Arc;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -23,7 +26,7 @@ use super::file_serve::{
 };
 use super::helpers::parse_file_upload_to_temp;
 use crate::error::AppError;
-use crate::middleware::AuthState;
+use crate::middleware::{AuthState, BoundFile};
 use crate::AppContext;
 use ha_core::filesystem::{
     self, ExtractedContent, FileSearchResponse, FileTextContent, FileWriteOutcome, FilesystemError,
@@ -199,6 +202,7 @@ struct RawTicketResponse {
 }
 
 pub(super) const BOUND_FILE_TICKET_TTL_SECS: u64 = 15 * 60;
+const BOUND_FILE_STREAM_CHUNK_BYTES: usize = 64 * 1024;
 
 async fn resolve_raw_path(
     scope: String,
@@ -252,6 +256,165 @@ async fn serve_raw_path(
     Ok(response)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HttpByteRange {
+    start: u64,
+    len: u64,
+}
+
+fn parse_single_byte_range(value: &str, file_len: u64) -> Option<HttpByteRange> {
+    let value = value.strip_prefix("bytes=")?;
+    if value.contains(',') || file_len == 0 {
+        return None;
+    }
+    let (start, end) = value.split_once('-')?;
+    if start.is_empty() {
+        let suffix = end.parse::<u64>().ok()?;
+        if suffix == 0 {
+            return None;
+        }
+        let len = suffix.min(file_len);
+        return Some(HttpByteRange {
+            start: file_len - len,
+            len,
+        });
+    }
+
+    let start = start.parse::<u64>().ok()?;
+    if start >= file_len {
+        return None;
+    }
+    let end = if end.is_empty() {
+        file_len - 1
+    } else {
+        end.parse::<u64>().ok()?.min(file_len - 1)
+    };
+    if end < start {
+        return None;
+    }
+    Some(HttpByteRange {
+        start,
+        len: end - start + 1,
+    })
+}
+
+#[cfg(unix)]
+fn read_bound_file_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    use std::os::unix::fs::FileExt;
+    file.read_at(buf, offset)
+}
+
+#[cfg(windows)]
+fn read_bound_file_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    use std::os::windows::fs::FileExt;
+    file.seek_read(buf, offset)
+}
+
+fn bound_file_body(file: Arc<std::fs::File>, range: HttpByteRange) -> Body {
+    let chunks = stream::try_unfold(
+        (file, range.start, range.len),
+        |(file, offset, remaining)| async move {
+            if remaining == 0 {
+                return Ok::<_, io::Error>(None);
+            }
+            let wanted = remaining.min(BOUND_FILE_STREAM_CHUNK_BYTES as u64) as usize;
+            let read_file = file.clone();
+            let (mut bytes, read) = tokio::task::spawn_blocking(move || {
+                let mut bytes = vec![0_u8; wanted];
+                let read = read_bound_file_at(&read_file, &mut bytes, offset)?;
+                Ok::<_, io::Error>((bytes, read))
+            })
+            .await
+            .map_err(|error| io::Error::other(format!("bound file-read task failed: {error}")))??;
+            if read == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "bound file changed length while streaming",
+                ));
+            }
+            bytes.truncate(read);
+            Ok(Some((
+                Bytes::from(bytes),
+                (file, offset + read as u64, remaining - read as u64),
+            )))
+        },
+    );
+    Body::from_stream(chunks)
+}
+
+fn serve_bound_raw_file(bound: BoundFile, request: Request) -> Result<Response, AppError> {
+    let requested_range = request.headers().get(header::RANGE);
+    let range = match requested_range {
+        Some(value) => {
+            let parsed = value
+                .to_str()
+                .ok()
+                .and_then(|value| parse_single_byte_range(value, bound.len));
+            let Some(range) = parsed else {
+                return Response::builder()
+                    .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                    .header(header::ACCEPT_RANGES, "bytes")
+                    .header(header::CONTENT_RANGE, format!("bytes */{}", bound.len))
+                    .header(header::CACHE_CONTROL, "private, max-age=0")
+                    .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+                    .body(Body::empty())
+                    .map_err(|error| {
+                        AppError::internal(format!("build invalid-range response: {error}"))
+                    });
+            };
+            range
+        }
+        None => HttpByteRange {
+            start: 0,
+            len: bound.len,
+        },
+    };
+
+    let status = if requested_range.is_some() {
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
+    let body = if request.method() == Method::HEAD || range.len == 0 {
+        Body::empty()
+    } else {
+        bound_file_body(bound.file.clone(), range)
+    };
+    let mut response = Response::builder()
+        .status(status)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_LENGTH, range.len.to_string())
+        .body(body)
+        .map_err(|error| AppError::internal(format!("build bound file response: {error}")))?;
+    if status == StatusCode::PARTIAL_CONTENT {
+        response.headers_mut().insert(
+            header::CONTENT_RANGE,
+            HeaderValue::from_str(&format!(
+                "bytes {}-{}/{}",
+                range.start,
+                range.start + range.len - 1,
+                bound.len
+            ))
+            .map_err(|error| AppError::internal(error.to_string()))?,
+        );
+    }
+    let disposition = safe_content_disposition(&bound.path, &bound.mime, bound.download);
+    apply_inline_media_headers(
+        &mut response,
+        HeaderOpts {
+            mime: &bound.mime,
+            cache_secs: 0,
+            disposition: &disposition,
+            no_referrer: false,
+        },
+    );
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
+}
+
 /// `POST /api/fs/raw-ticket` — resolve authorization once and bind a short-lived
 /// iframe-safe capability to that exact canonical file.
 pub async fn create_fs_raw_ticket(
@@ -261,6 +424,7 @@ pub async fn create_fs_raw_ticket(
     let abs = resolve_raw_path(body.scope, body.scope_id, body.path).await?;
     let ticket = auth
         .create_bound_file_ticket(abs, body.download, BOUND_FILE_TICKET_TTL_SECS)
+        .await
         .map_err(|error| {
             ha_core::app_error!(
                 "security",
@@ -292,7 +456,7 @@ pub async fn fs_raw_with_ticket(
             &json!({ "error": "Invalid or expired file preview ticket" }),
         );
     };
-    match serve_raw_path(bound.path, bound.download, request).await {
+    match serve_bound_raw_file(bound, request) {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
@@ -591,8 +755,20 @@ mod tests {
         std::fs::write(&secret, "secret content").unwrap();
 
         let auth = AuthState::new(Some("owner-token".into()), None, false);
-        let bound_ticket = auth.create_bound_file_ticket(visible, true, 900).unwrap();
+        let bound_ticket = auth
+            .create_bound_file_ticket(visible.clone(), true, 900)
+            .await
+            .unwrap();
         let generic_ticket = auth.create_access_ticket("resources", 900).unwrap();
+
+        // The workspace can remain agent-writable after capability minting.
+        // Replacing the authorized path must not make this ticket follow the
+        // new symlink; it stays pinned to the already-open original file.
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&visible).unwrap();
+            std::os::unix::fs::symlink(&secret, &visible).unwrap();
+        }
         let app = Router::new()
             .route("/api/resource/{ticket}/fs/raw", get(fs_raw_with_ticket))
             .route(
@@ -624,6 +800,27 @@ mod tests {
             to_bytes(response.into_body(), 1024).await.unwrap(),
             "visible content"
         );
+
+        let ranged = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!("/api/resource/{bound_ticket}/fs/raw"))
+                    .header(axum::http::header::RANGE, "bytes=8-14")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ranged.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            ranged
+                .headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok()),
+            Some("bytes 8-14/15")
+        );
+        assert_eq!(to_bytes(ranged.into_body(), 1024).await.unwrap(), "content");
 
         let rejected = app
             .oneshot(

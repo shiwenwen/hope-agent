@@ -7,6 +7,8 @@ use axum::{
 };
 use serde_json::json;
 use std::collections::{HashMap, VecDeque};
+use std::fs::File;
+use std::io::Read;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -20,6 +22,9 @@ const MAX_BOUND_FILE_TICKETS: usize = 4_096;
 pub struct BoundFile {
     pub path: PathBuf,
     pub download: bool,
+    pub mime: String,
+    pub file: Arc<File>,
+    pub len: u64,
 }
 
 #[derive(Clone)]
@@ -179,15 +184,31 @@ impl AuthState {
         )
     }
 
-    /// Mint a short-lived capability bound to one already-authorized canonical
-    /// file. The path lives only server-side, so iframe callers
-    /// cannot change a query parameter and reuse the ticket for another file.
-    pub fn create_bound_file_ticket(
+    /// Mint a short-lived capability bound to an open handle for one
+    /// already-authorized canonical file. The stable handle prevents a
+    /// writable workspace from swapping the path to a symlink or a different
+    /// inode between ticket creation and the later public GET.
+    pub async fn create_bound_file_ticket(
         &self,
         path: PathBuf,
         download: bool,
         ttl_secs: u64,
     ) -> anyhow::Result<String> {
+        let open_path = path.clone();
+        let (file, metadata, mime) = tokio::task::spawn_blocking(move || {
+            let file = open_bound_file(&open_path)?;
+            let metadata = file.metadata()?;
+            if !metadata.is_file() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "bound path is not a regular file",
+                ));
+            }
+            let mime = mime_for_open_bound_file(&open_path, &file);
+            Ok::<_, std::io::Error>((file, metadata, mime))
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("bound file-open task failed: {error}"))??;
         let ticket = self.create_access_ticket("bound_file", ttl_secs)?;
         let now = unix_time();
         let expires_at = now.saturating_add(ttl_secs.clamp(60, 60 * 60));
@@ -202,10 +223,34 @@ impl AuthState {
         tickets.insert(
             ticket.clone(),
             BoundFileEntry {
-                resource: BoundFile { path, download },
+                resource: BoundFile {
+                    path,
+                    download,
+                    mime,
+                    file: Arc::new(file),
+                    len: metadata.len(),
+                },
                 expires_at,
             },
         );
+        drop(tickets);
+
+        // Expired capabilities own OS file handles, so unlike ordinary signed
+        // tickets they must be removed even if no later request happens to
+        // trigger lazy pruning.
+        let expiring_ticket = ticket.clone();
+        let bound_file_tickets = self.bound_file_tickets.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(expires_at.saturating_sub(now))).await;
+            if let Ok(mut tickets) = bound_file_tickets.lock() {
+                let should_remove = tickets
+                    .get(&expiring_ticket)
+                    .is_some_and(|entry| entry.expires_at <= unix_time());
+                if should_remove {
+                    tickets.remove(&expiring_ticket);
+                }
+            }
+        });
         Ok(ticket)
     }
 
@@ -296,6 +341,49 @@ impl AuthState {
             by_peer.remove(&peer);
         }
     }
+}
+
+fn open_bound_file(path: &std::path::Path) -> std::io::Result<File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+
+    // The authorization layer hands us a canonical regular-file path. Refuse
+    // a last-component link introduced in the narrow hand-off window before
+    // opening the stable capability handle.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+
+    options.open(path)
+}
+
+fn mime_for_open_bound_file(path: &std::path::Path, file: &File) -> String {
+    let ext = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase);
+    if let Some(mime) = ext
+        .as_deref()
+        .and_then(ha_core::attachments::mime_from_extension)
+    {
+        return mime.to_string();
+    }
+
+    let mut head = vec![0_u8; 512];
+    let read = file
+        .try_clone()
+        .and_then(|mut cloned| cloned.read(&mut head))
+        .unwrap_or(0);
+    head.truncate(read);
+    ha_core::attachments::sniff_mime(&head, path)
 }
 
 fn active_auth_state() -> &'static RwLock<Option<AuthState>> {
@@ -684,17 +772,22 @@ mod tests {
         assert!(auth.check_access_ticket(&new_ticket, "events"));
     }
 
-    #[test]
-    fn bound_file_tickets_are_path_bound_and_revoked_on_owner_rotation() {
+    #[tokio::test]
+    async fn bound_file_tickets_are_handle_bound_and_revoked_on_owner_rotation() {
         let auth = AuthState::new(Some("owner-token".into()), None, false);
-        let path = PathBuf::from("/srv/workspace/visible.html");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("visible.html");
+        std::fs::write(&path, "visible").unwrap();
         let ticket = auth
             .create_bound_file_ticket(path.clone(), false, 900)
+            .await
             .unwrap();
 
         let bound = auth.resolve_bound_file_ticket(&ticket).unwrap();
         assert_eq!(bound.path, path);
         assert!(!bound.download);
+        assert_eq!(bound.mime, "text/html");
+        assert_eq!(bound.len, 7);
         assert!(auth
             .resolve_bound_file_ticket(&auth.create_access_ticket("resources", 900).unwrap())
             .is_none());
