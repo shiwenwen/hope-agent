@@ -46,6 +46,11 @@ const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
     "embedding",
 ];
 
+/// Credential-bearing fields inside otherwise writable categories. The user
+/// category stays model-writable for ordinary preferences, but its remote
+/// Owner Token remains owner-UI-only and must never enter tool responses.
+const BLOCKED_USER_UPDATE_FIELDS: &[&str] = &["remoteApiKey"];
+
 /// Single registry for schema reachability and risk metadata. `read_only`
 /// entries are readable after category-specific redaction but omitted from the
 /// update schema. Keeping all three concerns together prevents future drift.
@@ -474,6 +479,15 @@ fn redact_server_value(mut value: Value) -> Value {
     value
 }
 
+/// Redact the remote Owner Token from UserConfig reads and mutation responses.
+/// The surrounding user preferences remain visible and model-writable.
+fn redact_user_value(mut value: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        redact_string_field(obj, "remoteApiKey");
+    }
+    value
+}
+
 /// Redact the API keys from a resolved `EmbeddingConfig` JSON tree. The
 /// provider / base URL / model / dimensions stay visible so the model can
 /// describe which embedding backend is active, but the credentials never enter
@@ -552,7 +566,7 @@ fn read_category(category: &str) -> Result<Value> {
     match category {
         "user" => {
             let uc = user_config::load_user_config()?;
-            Ok(serde_json::to_value(&uc)?)
+            Ok(redact_user_value(serde_json::to_value(&uc)?))
         }
         "theme" => Ok(json!({ "theme": cfg.theme })),
         "language" => Ok(json!({ "language": cfg.language })),
@@ -1083,6 +1097,7 @@ async fn update_stt_language(values: &Value) -> Result<String> {
 }
 
 fn update_user_config(values: &Value) -> Result<String> {
+    reject_blocked_user_update_fields(values)?;
     let uc = user_config::load_user_config()?;
     let mut uc_json = serde_json::to_value(&uc)?;
     crate::merge_json(&mut uc_json, values.clone());
@@ -1103,8 +1118,20 @@ fn update_user_config(values: &Value) -> Result<String> {
     Ok(serde_json::to_string_pretty(&json!({
         "category": "user",
         "updated": true,
-        "settings": uc_json,
+        "settings": redact_user_value(uc_json),
     }))?)
+}
+
+fn reject_blocked_user_update_fields(values: &Value) -> Result<()> {
+    if let Some(field) = BLOCKED_USER_UPDATE_FIELDS
+        .iter()
+        .find(|field| values.get(**field).is_some())
+    {
+        bail!(
+            "user.{field} cannot be modified through this tool because it contains an Owner Token. Change it in Settings → Server.",
+        );
+    }
+    Ok(())
 }
 
 async fn update_session_title_config(values: &Value) -> Result<String> {
@@ -2115,6 +2142,40 @@ mod tests {
         // Null api_key (server unauthenticated) stays null.
         let r = redact_server_value(json!({ "bindAddr": "127.0.0.1:8420", "apiKey": null }));
         assert!(r["apiKey"].is_null());
+    }
+
+    #[test]
+    fn redact_user_masks_remote_owner_token() {
+        let redacted = redact_user_value(json!({
+            "name": "Owner",
+            "serverMode": "remote",
+            "remoteServerUrl": "https://agent.example",
+            "remoteApiKey": "owner-root-token"
+        }));
+        assert_eq!(redacted["remoteApiKey"], json!("[REDACTED]"));
+        assert_eq!(redacted["name"], "Owner");
+        assert_eq!(redacted["remoteServerUrl"], "https://agent.example");
+
+        let cleared = redact_user_value(json!({ "remoteApiKey": "" }));
+        assert_eq!(cleared["remoteApiKey"], "");
+        let unset = redact_user_value(json!({ "remoteApiKey": null }));
+        assert!(unset["remoteApiKey"].is_null());
+    }
+
+    #[test]
+    fn user_updates_reject_remote_owner_token_but_keep_preferences_writable() {
+        let error = reject_blocked_user_update_fields(&json!({
+            "remoteApiKey": "owner-root-token",
+            "weatherCity": "Shanghai"
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("user.remoteApiKey"));
+
+        reject_blocked_user_update_fields(&json!({
+            "weatherCity": "Shanghai",
+            "autoSendPending": true
+        }))
+        .expect("ordinary user preferences remain writable");
     }
 
     #[test]

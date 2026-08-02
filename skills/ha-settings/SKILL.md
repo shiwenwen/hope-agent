@@ -53,7 +53,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 
 | Category | Fields |
 |----------|--------|
-| `user` | `name`, `avatar`, `gender`, `birthday`, `role`, `timezone`, `language`, `aiExperience`, `responseStyle`, `customInfo`, `autoSendPending`, `autoExpandThinking`, `autoCollapseCompletedTurns`, `chatDisplayMode`, `serverMode`, `remoteServerUrl`, `remoteApiKey`, `weatherEnabled`, `weatherCity`, `weatherLatitude`, `weatherLongitude` |
+| `user` | `name`, `avatar`, `gender`, `birthday`, `role`, `timezone`, `language`, `aiExperience`, `responseStyle`, `customInfo`, `autoSendPending`, `autoExpandThinking`, `autoCollapseCompletedTurns`, `chatDisplayMode`, `serverMode`, `remoteServerUrl`, `weatherEnabled`, `weatherCity`, `weatherLatitude`, `weatherLongitude`. `remoteApiKey` is credential-bearing, read-only/redacted here, and must be changed in Settings → Server |
 | `theme` | `theme` (`auto`/`light`/`dark`) |
 | `language` | `language` (`auto`/`zh`/`en`/…) |
 | `focus_indicator` | `enhancedFocusIndicators` (bool, default `false`). Enables the stronger 2px focus outline for all input methods. When disabled, pointer/touch focus stays visually quiet while keyboard navigation keeps the lightweight focus indicator. System `prefers-contrast: more` and forced-colors modes still take precedence automatically. |
@@ -253,7 +253,7 @@ Returns `{id, timestamp, kind, category, source}` newest first.
 - **Read before write** — always `get_settings` first so you can show a diff.
 - **Confirm before write** — especially HIGH risk. Include the risk level in your confirmation prompt.
 - **Field names are camelCase** (e.g. `softRatio`, `toolTimeout`, `approvalTimeoutEnabled`, `askUserQuestionTimeoutEnabled`, `askUserQuestionTimeoutSecs`).
-- **Security restrictions** — cannot modify Providers or API Keys through this tool; guide the user to the Settings UI.
+- **Security restrictions** — cannot modify Providers or API Keys through this tool, including `user.remoteApiKey`; guide the user to the Settings UI.
 - **Surface side effects** — if the response has `sideEffect` (e.g. "requires restart"), tell the user.
-- **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks. Note that `get_settings` for `server` / `web_search` / `media_generation` / `acp_control` / `embedding` already redacts the credential fields to `"[REDACTED]"` — if you see that marker, the field is set but the value is hidden from the model intentionally.
+- **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks. Note that `get_settings` for `user` / `server` / `web_search` / `media_generation` / `acp_control` / `embedding` already redacts the credential fields to `"[REDACTED]"` — if you see that marker, the field is set but the value is hidden from the model intentionally.
 - **Rollback is built-in** — if a change goes wrong, offer `restore_settings_backup` instead of trying to reconstruct the old values manually.
