@@ -606,10 +606,12 @@ fn run_server(args: &[String]) {
                     }
                 }
                 Ok(ha_core::server_auth::ManagedTokenMatch::Matches) => {}
-                Ok(
-                    ha_core::server_auth::ManagedTokenMatch::RetiredServiceArgument
-                    | ha_core::server_auth::ManagedTokenMatch::Differs,
-                ) => {
+                Ok(ha_core::server_auth::ManagedTokenMatch::RetiredServiceArgument) => {
+                    eprintln!(
+                        "[server] Ignoring a retired legacy service Owner Token; the active authentication state remains unchanged."
+                    );
+                }
+                Ok(ha_core::server_auth::ManagedTokenMatch::Differs) => {
                     // A rotation won the race with an earlier definition
                     // rewrite failure. The stale argv value is ignored and
                     // must never reactivate a previously exposed credential.
@@ -651,7 +653,7 @@ fn run_server(args: &[String]) {
                 }
                 Ok(ha_core::server_auth::ManagedTokenMatch::RetiredServiceArgument) => {
                     eprintln!(
-                        "[server] Ignoring a retired token from a cached pre-migration service command; the current managed credential remains active."
+                        "[server] Ignoring a retired token from a cached pre-migration service command; the active authentication state remains unchanged."
                     );
                 }
                 Ok(
