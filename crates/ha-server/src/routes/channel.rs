@@ -191,6 +191,8 @@ pub async fn health_all() -> Result<Json<Vec<(String, ChannelHealth)>>, AppError
 pub struct ValidateBody {
     pub channel_id: String,
     pub credentials: Value,
+    #[serde(default)]
+    pub settings: Option<Value>,
 }
 
 /// `POST /api/channel/validate`
@@ -201,7 +203,10 @@ pub async fn validate_credentials(Json(body): Json<ValidateBody>) -> Result<Json
         AppError::not_found(format!("No plugin for channel: {}", body.channel_id))
     })?;
     let info = plugin
-        .validate_credentials(&body.credentials)
+        .validate_account_config(
+            &body.credentials,
+            body.settings.as_ref().unwrap_or(&Value::Null),
+        )
         .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(json!({ "info": info })))

@@ -1247,7 +1247,7 @@ pub struct TelegramBotApi {
 }
 
 impl TelegramBotApi {
-    pub fn new(token, proxy_url, api_root) -> Self;
+    pub async fn new(token, proxy_url, api_root) -> Result<Self>;
     pub async fn get_me() -> Result<Me>;
     pub async fn send_text(chat_id, text, parse_mode, reply_to, thread_id) -> Result<Message>;
     pub async fn send_text_with_fallback(...) -> Result<Message>;  // HTML → 纯文本降级
@@ -1260,7 +1260,12 @@ impl TelegramBotApi {
 }
 ```
 
-**代理支持**：通过环境变量 `HTTPS_PROXY` 注入（teloxide 的 `Bot::new()` 内部调用 `client_from_env()`），支持 channel 级别和全局级别代理。
+**Telegram 出站选路有两层，勿混用**：
+
+- `settings.proxy` 是 HTTP / SOCKS forward proxy；账号级优先，否则回退全局 custom proxy。Bot SDK、`sendMessageDraft` 与媒体下载复用同一个 client，因此 timeout、TLS、proxy、禁 redirect 语义一致。
+- `settings.apiRoot` 是 Bot API reverse-proxy / 自托管 server 的根地址。空值使用 teloxide 官方默认 `https://api.telegram.org`；非空值在联网前 trim + URL shape 校验，并经 `security::ssrf::check_url`。只允许 HTTP(S)，拒 URL credentials / query / fragment，路径前缀允许。非法值 fail closed，绝不静默回退官方 endpoint。
+
+启动、setup `channel_validate_credentials`、health probe 三条路径共用同一个 client builder。反代必须同时转发 `{apiRoot}/bot<TOKEN>/<method>` 与 `{apiRoot}/file/bot<TOKEN>/<file_path>`；只转发前者会出现文字正常、入站媒体失败。Bot API 的 token 天然位于 URL path，所有 Telegram request error 在进入 watchdog / UI / 日志前须按当前 token 精确脱敏；自定义反代的操作者仍能看到 token 与消息内容，GUI 必须提示只用自控可信 HTTPS 服务。
 
 ### Long-Polling 循环
 
