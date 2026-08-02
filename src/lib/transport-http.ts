@@ -351,9 +351,13 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   pet_sync_window_cmd: { method: "POST", path: "/api/pets/window/sync" },
   pet_focus_target_cmd: { method: "POST", path: "/api/pets/focus-target" },
   // Preview by absolute path (file-operations unification). Session-scoped +
-  // authorized server-side; `{sessionId}` is interpolated, `path` → query.
+  // authorized server-side; raw media first mints a path-bound capability.
   preview_read_text: { method: "GET", path: "/api/sessions/{sessionId}/files/read" },
   preview_extract: { method: "GET", path: "/api/sessions/{sessionId}/files/extract" },
+  preview_raw_ticket: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/files/by-path-ticket",
+  },
 
   // -- Sessions --
   list_sessions_cmd: { method: "GET", path: "/api/sessions" },
@@ -2597,8 +2601,6 @@ export class HttpTransport implements Transport {
     opts?: { sessionId?: string | null },
     download?: boolean,
   ): Promise<string | null> {
-    // The session-authorized by-path route serves inline (preview) or as an
-    // attachment (download) based on `?download=1`; reuse it as the raw src.
     return this.sessionFileUrl(path, opts?.sessionId, download ?? false)
   }
 
@@ -2645,20 +2647,31 @@ export class HttpTransport implements Transport {
     }
   }
 
-  private sessionFileUrl(
+  private async sessionFileUrl(
     path: string,
     sessionId: string | null | undefined,
     forceDownload: boolean,
-  ): string | null {
+  ): Promise<string | null> {
     if (!sessionId) return null
-    const rawUrl = this.scopedResourceUrl(
-      `/api/sessions/${encodeURIComponent(sessionId)}/files/by-path`,
+    const directUrl = new URL(
+      `${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/files/by-path`,
     )
-    if (!rawUrl) return null
-    const url = new URL(rawUrl)
-    url.searchParams.set("path", path)
-    if (forceDownload) url.searchParams.set("download", "1")
-    return url.toString()
+    directUrl.searchParams.set("path", path)
+    if (forceDownload) directUrl.searchParams.set("download", "1")
+    const capability = await this.call<{
+      authRequired: boolean
+      ticket: string | null
+      expiresInSecs: number | null
+    }>("preview_raw_ticket", {
+      sessionId,
+      path,
+      download: forceDownload,
+    })
+    if (!capability.authRequired) return directUrl.toString()
+    if (!capability.ticket || !capability.expiresInSecs) {
+      throw new Error("Remote server returned an incomplete file preview capability")
+    }
+    return `${this.baseUrl}/api/resource/${encodeURIComponent(capability.ticket)}/fs/raw`
   }
 
   resolveAssetUrl(path: string | null | undefined): string | null {
@@ -2778,7 +2791,7 @@ export class HttpTransport implements Transport {
   }
 
   async openFilePath(path: string, opts?: { sessionId?: string | null }): Promise<void> {
-    const href = this.sessionFileUrl(path, opts?.sessionId, false)
+    const href = await this.sessionFileUrl(path, opts?.sessionId, false)
     if (!href) return
     this.clickHref(href)
   }
@@ -2787,7 +2800,7 @@ export class HttpTransport implements Transport {
     path: string,
     opts?: { sessionId?: string | null; filename?: string },
   ): Promise<void> {
-    const href = this.sessionFileUrl(path, opts?.sessionId, true)
+    const href = await this.sessionFileUrl(path, opts?.sessionId, true)
     if (!href) return
     this.clickHref(href, opts?.filename)
   }

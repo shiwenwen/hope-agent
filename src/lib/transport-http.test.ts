@@ -86,6 +86,58 @@ test("HttpTransport mints a single-file ticket for remote workspace previews", a
   expect(fetchMock.mock.calls[1]?.[0]).not.toContain("generic-resource-ticket")
 })
 
+test("HttpTransport mints a path-bound ticket for session file previews", async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        ticket: "bound-session-file-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  const transport = new HttpTransport("https://agent.example", "owner-token")
+
+  await expect(
+    transport.previewRawUrl("/srv/session/visible.html", { sessionId: "session-1" }),
+  ).resolves.toBe("https://agent.example/api/resource/bound-session-file-ticket/fs/raw")
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    "https://agent.example/api/sessions/session-1/files/by-path-ticket",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer owner-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        path: "/srv/session/visible.html",
+        download: false,
+      }),
+    },
+  )
+  expect(fetchMock.mock.calls[0]?.[0]).not.toContain("visible.html")
+})
+
+test("HttpTransport uses the protected direct session route when authentication is disabled", async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({ authRequired: false, ticket: null, expiresInSecs: null }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  const transport = new HttpTransport("http://localhost:8420")
+
+  const url = await transport.previewRawUrl("/srv/session/report.pdf", {
+    sessionId: "session-1",
+  })
+
+  expect(url).toBe(
+    "http://localhost:8420/api/sessions/session-1/files/by-path?path=%2Fsrv%2Fsession%2Freport.pdf",
+  )
+})
+
 test("HttpTransport requests durable-state resync on connect and EventBus lag", async () => {
   class MockWebSocket {
     static instances: MockWebSocket[] = []

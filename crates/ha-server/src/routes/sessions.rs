@@ -1,6 +1,6 @@
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{Extension, Path, Query, Request, State};
 use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
-use axum::http::HeaderValue;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,7 @@ use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 use crate::error::AppError;
+use crate::middleware::AuthState;
 use crate::routes::file_serve::{
     apply_inline_media_headers, resolve_mime_for_path, safe_content_disposition, HeaderOpts,
     MimeOpts,
@@ -90,6 +91,14 @@ pub struct SearchInSessionQuery {
 pub struct SessionFileByPathQuery {
     pub path: String,
     pub download: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionFileTicketBody {
+    pub path: String,
+    #[serde(default)]
+    pub download: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1239,6 +1248,71 @@ pub async fn get_session_messages(
     Ok(Json(json!([messages, total, has_more])))
 }
 
+async fn resolve_authorized_session_file(
+    ctx: &AppContext,
+    session_id: &str,
+    requested: &str,
+) -> Result<PathBuf, AppError> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Err(AppError::bad_request("missing path"));
+    }
+    let lookup_id = session_id.to_string();
+    let messages = ctx
+        .session_db
+        .run(move |db| db.load_session_messages(&lookup_id))
+        .await?;
+    let file_canon = authorized_canonical_file_path(session_id, requested, &messages).await?;
+    let meta = tokio::fs::metadata(&file_canon)
+        .await
+        .map_err(|_| AppError::not_found("file not found"))?;
+    if !meta.is_file() {
+        return Err(AppError::bad_request("path is not a file"));
+    }
+    Ok(file_canon)
+}
+
+/// `POST /api/sessions/:id/files/by-path-ticket` — authorize one canonical
+/// session file once, then bind a short-lived iframe-safe capability to it.
+pub async fn create_session_file_ticket(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Extension(auth): Extension<AuthState>,
+    Json(body): Json<SessionFileTicketBody>,
+) -> Result<Response, AppError> {
+    let file_canon = resolve_authorized_session_file(&ctx, &id, &body.path).await?;
+    if !auth.auth_required() {
+        return Ok(super::auth::no_store_json(
+            StatusCode::OK,
+            &json!({
+                "authRequired": false,
+                "ticket": null,
+                "expiresInSecs": null,
+            }),
+        ));
+    }
+    let ttl_secs = super::project_fs::BOUND_FILE_TICKET_TTL_SECS;
+    let ticket = auth
+        .create_bound_file_ticket(file_canon, body.download, ttl_secs)
+        .map_err(|error| {
+            ha_core::app_error!(
+                "security",
+                "session_file_ticket_mint_failed",
+                "Failed to mint a bound session file ticket: {}",
+                error
+            );
+            AppError::internal("Session file preview is unavailable")
+        })?;
+    Ok(super::auth::no_store_json(
+        StatusCode::OK,
+        &json!({
+            "authRequired": true,
+            "ticket": ticket,
+            "expiresInSecs": ttl_secs,
+        }),
+    ))
+}
+
 /// `GET /api/sessions/:id/files/by-path?path=/abs/file&download=1` — serve a
 /// file only when that exact canonical path is referenced by this session's
 /// persisted tool side-output. This powers HTTP/Web clicks on the assistant
@@ -1250,24 +1324,7 @@ pub async fn download_session_file_by_path(
     Query(q): Query<SessionFileByPathQuery>,
     request: Request,
 ) -> Result<Response, AppError> {
-    let requested = q.path.trim();
-    if requested.is_empty() {
-        return Err(AppError::bad_request("missing path"));
-    }
-
-    let messages = {
-        let id = id.clone();
-        ctx.session_db
-            .run(move |db| db.load_session_messages(&id))
-            .await?
-    };
-    let file_canon = authorized_canonical_file_path(&id, requested, &messages).await?;
-    let meta = tokio::fs::metadata(&file_canon)
-        .await
-        .map_err(|_| AppError::not_found("file not found"))?;
-    if !meta.is_file() {
-        return Err(AppError::bad_request("path is not a file"));
-    }
+    let file_canon = resolve_authorized_session_file(&ctx, &id, &q.path).await?;
 
     let mime = resolve_mime_for_path(
         &file_canon,

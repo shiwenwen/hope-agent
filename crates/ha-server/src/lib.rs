@@ -192,10 +192,6 @@ fn build_router_with_cors(
             get(routes::pet::preview_thumbnail),
         )
         .route(
-            "/sessions/{id}/files/by-path",
-            get(routes::sessions::download_session_file_by_path),
-        )
-        .route(
             "/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}",
             get(routes::knowledge::kb_source_asset_file),
         )
@@ -355,6 +351,11 @@ fn build_router_with_cors(
         .route(
             "/sessions/{id}/files/by-path",
             get(routes::sessions::download_session_file_by_path),
+        )
+        .route(
+            "/sessions/{id}/files/by-path-ticket",
+            post(routes::sessions::create_session_file_ticket)
+                .layer(DefaultBodyLimit::max(8 * 1024)),
         )
         .route(
             "/sessions/{id}/files/read",

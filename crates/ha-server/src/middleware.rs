@@ -14,17 +14,17 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const BROWSER_SESSION_COOKIE: &str = "ha_session";
 pub const EVENT_TICKET_PROTOCOL_PREFIX: &str = "ha-events.";
-const MAX_BOUND_WORKSPACE_RAW_TICKETS: usize = 4_096;
+const MAX_BOUND_FILE_TICKETS: usize = 4_096;
 
 #[derive(Clone)]
-pub struct BoundWorkspaceRaw {
+pub struct BoundFile {
     pub path: PathBuf,
     pub download: bool,
 }
 
 #[derive(Clone)]
-struct BoundWorkspaceRawEntry {
-    resource: BoundWorkspaceRaw,
+struct BoundFileEntry {
+    resource: BoundFile,
     expires_at: u64,
 }
 
@@ -39,7 +39,7 @@ pub struct AuthState {
     knowledge_agent_read_token: Option<String>,
     externally_managed: bool,
     login_failures: Arc<Mutex<HashMap<IpAddr, VecDeque<Instant>>>>,
-    workspace_raw_tickets: Arc<Mutex<HashMap<String, BoundWorkspaceRawEntry>>>,
+    bound_file_tickets: Arc<Mutex<HashMap<String, BoundFileEntry>>>,
 }
 
 impl AuthState {
@@ -58,7 +58,7 @@ impl AuthState {
             knowledge_agent_read_token,
             externally_managed,
             login_failures: Arc::new(Mutex::new(HashMap::new())),
-            workspace_raw_tickets: Arc::new(Mutex::new(HashMap::new())),
+            bound_file_tickets: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -180,41 +180,41 @@ impl AuthState {
     }
 
     /// Mint a short-lived capability bound to one already-authorized canonical
-    /// workspace file. The path lives only server-side, so iframe callers
+    /// file. The path lives only server-side, so iframe callers
     /// cannot change a query parameter and reuse the ticket for another file.
-    pub fn create_workspace_raw_ticket(
+    pub fn create_bound_file_ticket(
         &self,
         path: PathBuf,
         download: bool,
         ttl_secs: u64,
     ) -> anyhow::Result<String> {
-        let ticket = self.create_access_ticket("workspace_raw", ttl_secs)?;
+        let ticket = self.create_access_ticket("bound_file", ttl_secs)?;
         let now = unix_time();
         let expires_at = now.saturating_add(ttl_secs.clamp(60, 60 * 60));
         let mut tickets = self
-            .workspace_raw_tickets
+            .bound_file_tickets
             .lock()
-            .map_err(|_| anyhow::anyhow!("workspace raw-ticket state is unavailable"))?;
+            .map_err(|_| anyhow::anyhow!("bound file-ticket state is unavailable"))?;
         tickets.retain(|_, entry| entry.expires_at >= now);
-        if tickets.len() >= MAX_BOUND_WORKSPACE_RAW_TICKETS {
-            anyhow::bail!("too many active workspace raw tickets");
+        if tickets.len() >= MAX_BOUND_FILE_TICKETS {
+            anyhow::bail!("too many active bound file tickets");
         }
         tickets.insert(
             ticket.clone(),
-            BoundWorkspaceRawEntry {
-                resource: BoundWorkspaceRaw { path, download },
+            BoundFileEntry {
+                resource: BoundFile { path, download },
                 expires_at,
             },
         );
         Ok(ticket)
     }
 
-    pub fn resolve_workspace_raw_ticket(&self, ticket: &str) -> Option<BoundWorkspaceRaw> {
-        if !self.check_access_ticket(ticket, "workspace_raw") {
+    pub fn resolve_bound_file_ticket(&self, ticket: &str) -> Option<BoundFile> {
+        if !self.check_access_ticket(ticket, "bound_file") {
             return None;
         }
         let now = unix_time();
-        let mut tickets = self.workspace_raw_tickets.lock().ok()?;
+        let mut tickets = self.bound_file_tickets.lock().ok()?;
         tickets.retain(|_, entry| entry.expires_at >= now);
         tickets.get(ticket).map(|entry| entry.resource.clone())
     }
@@ -242,7 +242,7 @@ impl AuthState {
             .map_err(|_| anyhow::anyhow!("access-ticket signing state is unavailable"))?;
         *owner = token.filter(|value| !value.is_empty());
         *signing_key = ha_core::server_auth::generate_access_ticket_signing_key();
-        if let Ok(mut tickets) = self.workspace_raw_tickets.lock() {
+        if let Ok(mut tickets) = self.bound_file_tickets.lock() {
             tickets.clear();
         }
         self.owner_changes
@@ -685,23 +685,23 @@ mod tests {
     }
 
     #[test]
-    fn workspace_raw_tickets_are_path_bound_and_revoked_on_owner_rotation() {
+    fn bound_file_tickets_are_path_bound_and_revoked_on_owner_rotation() {
         let auth = AuthState::new(Some("owner-token".into()), None, false);
         let path = PathBuf::from("/srv/workspace/visible.html");
         let ticket = auth
-            .create_workspace_raw_ticket(path.clone(), false, 900)
+            .create_bound_file_ticket(path.clone(), false, 900)
             .unwrap();
 
-        let bound = auth.resolve_workspace_raw_ticket(&ticket).unwrap();
+        let bound = auth.resolve_bound_file_ticket(&ticket).unwrap();
         assert_eq!(bound.path, path);
         assert!(!bound.download);
         assert!(auth
-            .resolve_workspace_raw_ticket(&auth.create_access_ticket("resources", 900).unwrap())
+            .resolve_bound_file_ticket(&auth.create_access_ticket("resources", 900).unwrap())
             .is_none());
 
         auth.replace_owner_token(Some("rotated-owner-token".into()))
             .unwrap();
-        assert!(auth.resolve_workspace_raw_ticket(&ticket).is_none());
+        assert!(auth.resolve_bound_file_ticket(&ticket).is_none());
     }
 
     #[tokio::test]

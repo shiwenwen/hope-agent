@@ -198,7 +198,7 @@ struct RawTicketResponse {
     expires_in_secs: u64,
 }
 
-const WORKSPACE_RAW_TICKET_TTL_SECS: u64 = 15 * 60;
+pub(super) const BOUND_FILE_TICKET_TTL_SECS: u64 = 15 * 60;
 
 async fn resolve_raw_path(
     scope: String,
@@ -260,7 +260,7 @@ pub async fn create_fs_raw_ticket(
 ) -> Result<Response, AppError> {
     let abs = resolve_raw_path(body.scope, body.scope_id, body.path).await?;
     let ticket = auth
-        .create_workspace_raw_ticket(abs, body.download, WORKSPACE_RAW_TICKET_TTL_SECS)
+        .create_bound_file_ticket(abs, body.download, BOUND_FILE_TICKET_TTL_SECS)
         .map_err(|error| {
             ha_core::app_error!(
                 "security",
@@ -274,22 +274,22 @@ pub async fn create_fs_raw_ticket(
         StatusCode::OK,
         &RawTicketResponse {
             ticket,
-            expires_in_secs: WORKSPACE_RAW_TICKET_TTL_SECS,
+            expires_in_secs: BOUND_FILE_TICKET_TTL_SECS,
         },
     ))
 }
 
-/// Public capability endpoint for one canonical workspace file. Query strings
+/// Public capability endpoint for one canonical authorized file. Query strings
 /// are deliberately ignored: the path and disposition are server-side state.
 pub async fn fs_raw_with_ticket(
     Path(ticket): Path<String>,
     Extension(auth): Extension<AuthState>,
     request: Request,
 ) -> Response {
-    let Some(bound) = auth.resolve_workspace_raw_ticket(&ticket) else {
+    let Some(bound) = auth.resolve_bound_file_ticket(&ticket) else {
         return super::auth::no_store_json(
             StatusCode::UNAUTHORIZED,
-            &json!({ "error": "Invalid or expired workspace preview ticket" }),
+            &json!({ "error": "Invalid or expired file preview ticket" }),
         );
     };
     match serve_raw_path(bound.path, bound.download, request).await {
@@ -591,9 +591,7 @@ mod tests {
         std::fs::write(&secret, "secret content").unwrap();
 
         let auth = AuthState::new(Some("owner-token".into()), None, false);
-        let bound_ticket = auth
-            .create_workspace_raw_ticket(visible, false, 900)
-            .unwrap();
+        let bound_ticket = auth.create_bound_file_ticket(visible, true, 900).unwrap();
         let generic_ticket = auth.create_access_ticket("resources", 900).unwrap();
         let app = Router::new()
             .route("/api/resource/{ticket}/fs/raw", get(fs_raw_with_ticket))
@@ -608,7 +606,7 @@ mod tests {
             .oneshot(
                 HttpRequest::builder()
                     .uri(format!(
-                        "/api/resource/{bound_ticket}/fs/raw?path={}",
+                        "/api/resource/{bound_ticket}/fs/raw?path={}&download=0",
                         secret.display()
                     ))
                     .body(Body::empty())
@@ -617,6 +615,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        assert!(response
+            .headers()
+            .get(axum::http::header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("attachment;")));
         assert_eq!(
             to_bytes(response.into_body(), 1024).await.unwrap(),
             "visible content"

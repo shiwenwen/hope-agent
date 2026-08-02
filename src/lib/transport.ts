@@ -541,8 +541,9 @@ export interface Transport {
    * Resolve a raw URL for an absolute file path, for `<img>` / `<iframe>` /
    * `<video>` / `<audio>` preview (and binary-placeholder open/download).
    * - Tauri: `resolveAssetUrl(path)` (`convertFileSrc`); `download` is ignored.
-   * - HTTP: a short-lived, read-only resource-capability URL (with
-   *   `download=1` when requested). Returns `null` without a `sessionId`.
+   * - HTTP: a short-lived, read-only capability bound server-side to that
+   *   canonical file and its preview/download disposition. Returns `null`
+   *   without a `sessionId`.
    */
   previewRawUrl(
     path: string,

@@ -12,7 +12,7 @@ Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运�
 |---|---|---|
 | Tauri 命令 | `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` | **1128** |
 | HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **1058** |
-| 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **1107** |
+| 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **1108** |
 | WebSocket 端点 | `crates/ha-server/src/ws/` | **1** |
 | EventBus 事件 | 全代码 `emit_event` 调用 | **59+** |
 
@@ -20,7 +20,7 @@ Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运�
 
 | 分类 | 数量 | 说明 |
 |---|---|---|
-| ✅ 两端完全对齐（在 COMMAND_MAP 中） | 1107 | 常规请求/响应命令（所有顶层 COMMAND_MAP 条目都有 Tauri 命令对应） |
+| ✅ 两端完全对齐（在 COMMAND_MAP 中） | 1108 | 常规请求/响应命令，以及 HTTP-only 的 bound raw ticket 命令 |
 | 🔧 特殊处理（不在 COMMAND_MAP 但 HTTP 已实现，走专用 Transport 方法） | 14 | multipart/二进制流/保存对话框类接口，以及 HTTP-only 的短时 transport ticket 基础设施 |
 | 🖥️ Desktop-only / Tauri-only（HTTP 无对应） | 10 | macOS / legacy 系统权限探测（5 条）+ `project_fs_resolve` / `kb_file_resolve_cmd`（`convertFileSrc`）+ Dock / tray 未读提示 + browser-side save-as |
 | ❌ HTTP 路由存在但 COMMAND_MAP 漏写 | 0 | — |
@@ -44,7 +44,7 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 | Tauri | 无鉴权（本地 IPC） |
 | HTTP REST | `Authorization: Bearer <owner_token>` header |
 | 浏览器 HTTP / WebSocket / 媒体 | Root Token 经 `POST /api/auth/session` 一次性交换为签名 `HttpOnly; SameSite=Strict` Cookie；Root Token 不进入 URL/localStorage |
-| 跨源远程 GUI | Fetch 继续用 Bearer；`POST /api/auth/transport-tickets` 以独立随机签名密钥换 15 分钟 scope 票据（避免把弱 Root Token 变成离线猜测 oracle）：WebSocket 票据走 `Sec-WebSocket-Protocol`，只读资源票据走 `/api/resource/{ticket}/...`，相对 iframe 资源继承前缀；workspace raw preview 另经 `/api/fs/raw-ticket` 绑定到单个 canonical file；这些票据均不能调用 owner 控制面 |
+| 跨源远程 GUI | Fetch 继续用 Bearer；`POST /api/auth/transport-tickets` 以独立随机签名密钥换 15 分钟 scope 票据（避免把弱 Root Token 变成离线猜测 oracle）：WebSocket 票据走 `Sec-WebSocket-Protocol`，只读静态资源票据走 `/api/resource/{ticket}/...`，相对 iframe 资源继承前缀；workspace / session raw preview 分别经 `/api/fs/raw-ticket` / `/api/sessions/{id}/files/by-path-ticket` 绑定到单个 canonical file；这些票据均不能调用 owner 控制面 |
 | 自动化客户端 | `Authorization: Bearer <owner_token>`；不接受通用 `?token=` |
 | Knowledge Agent 只读 token | `server.knowledgeAgentReadToken` 或 `HA_KNOWLEDGE_AGENT_READ_TOKEN`；仅在 Owner Token 已启用时参与鉴权，仅允许 `POST /api/knowledge/agent/{search,read,expand,sources}`，其它受保护 API 返回 403 |
 | 免鉴权 | `GET /api/health`、浏览器登录引导 `/api/auth/{status,session,logout}`、显式创建的只读 Design Share capability URL，以及自带短时 scope 签名的 `/api/resource/{ticket}/...`；`GET /api/server/status` 已归入 Owner 保护面 |
@@ -285,7 +285,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `revealMedia(item)` | `invoke("reveal_in_folder", {path})` | no-op |
 | `previewReadText(path,{sessionId})` | `invoke("preview_read_text", {path})` | `GET /api/sessions/{id}/files/read?path=`（会话鉴权） |
 | `previewExtractDoc(path,{sessionId})` | `invoke("preview_extract", {path})` | `GET /api/sessions/{id}/files/extract?path=`（会话鉴权） |
-| `previewRawUrl(path,{sessionId},download)` | `resolveAssetUrl(path)`（`convertFileSrc`） | 短时只读 capability `/api/resource/{ticket}/sessions/{id}/files/by-path?...&download=` |
+| `previewRawUrl(path,{sessionId},download)` | `resolveAssetUrl(path)`（`convertFileSrc`） | `POST /api/sessions/{id}/files/by-path-ticket` 后用绑定单个 canonical file 的 `/api/resource/{ticket}/fs/raw` |
 | `fileRuntime()` | `{workspaceHost:"local",openMode:"system",canReveal:true}` | `{workspaceHost:"remote",openMode:"browser",canReveal:false}` |
 | `getWorkspaceAccess(scope)` | `project_fs_capabilities` | `GET /api/fs/capabilities` |
 | `openWorkspaceFile` / `downloadWorkspaceFile` | 系统打开 | `POST /api/fs/raw-ticket` 后用绑定单个 canonical file 的 `/api/resource/{ticket}/fs/raw` 浏览/下载 |
@@ -380,6 +380,7 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 | `project_fs_read_text` | `GET /api/fs/read?...` | ✅ |
 | `project_fs_extract` | `GET /api/fs/extract?...` | ✅ (PDF/Office 提取预览) |
 | —（HTTP-only raw ticket） | `POST /api/fs/raw-ticket` | N/A（Owner 保护；绑定单个 canonical file，`no-store`） |
+| —（HTTP-only session raw ticket） | `POST /api/sessions/{id}/files/by-path-ticket` | N/A（会话路径授权后绑定单个 canonical file，`no-store`） |
 | `project_fs_write_text` | `PUT /api/fs/file` | ✅（`expectedFileHash` / `createOnly` / 结构化冲突 + 写闸门） |
 | `project_fs_delete` | `DELETE /api/fs/entry?...&recursive=` | ✅ (写闸门) |
 | `project_fs_rename` | `POST /api/fs/rename` | ✅ (写闸门) |
@@ -1768,6 +1769,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | — | `POST /api/auth/logout` | 清除浏览器会话 Cookie |
 | — | `POST /api/auth/transport-tickets` | Owner 保护；给跨源远程 GUI 签发 15 分钟 `events` / `resources` scope 票据，`no-store` |
 | — | `POST /api/fs/raw-ticket` | Owner 保护；把 15 分钟 capability 绑定到单个已授权 canonical workspace file，`no-store` |
+| — | `POST /api/sessions/{id}/files/by-path-ticket` | Owner 保护；按会话引用/工作目录授权后把 15 分钟 capability 绑定到单个 canonical file，`no-store` |
 | — | `GET /api/resource/{ticket}/{*path}` | 公开 capability 入口；票据仅分派到静态预览/附件/授权文件的只读 allowlist，访问日志隐藏票据段 |
 | `rotate_server_token` | `POST /api/auth/token/rotate` | ✅；Owner 保护，返回新 Token 一次，立即作废旧会话；外部托管 Token 拒绝 |
 | `list_local_ips` | `GET /api/server/local-ips` | ✅ |
