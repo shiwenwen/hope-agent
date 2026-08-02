@@ -167,6 +167,7 @@ fn build_router_with_cors(
     knowledge_agent_read_token: Option<String>,
     auth_externally_managed: bool,
 ) -> Router {
+    let cors_origins = config::effective_cors_origins(cors_origins);
     let auth_state =
         middleware::AuthState::new(api_key, knowledge_agent_read_token, auth_externally_managed);
     middleware::register_active_auth_state(auth_state.clone());
@@ -3683,8 +3684,8 @@ fn build_router_with_cors(
         .layer(axum::Extension(routes::auth::ScopedResourceService(
             scoped_resources,
         )))
-        .layer(axum::Extension(UiRequestPolicy::new(cors_origins)))
-        .layer(build_cors_layer(cors_origins))
+        .layer(axum::Extension(UiRequestPolicy::new(&cors_origins)))
+        .layer(build_cors_layer(&cors_origins))
         .layer(axum::middleware::from_fn(middleware::security_headers))
         .layer(axum::middleware::from_fn(middleware::access_log))
         .with_state(ctx)
@@ -3710,8 +3711,8 @@ fn attach_web_fallback(router: Router<Arc<AppContext>>) -> Router<Arc<AppContext
     }
 }
 
-/// Build a CORS layer. Empty means same-origin browser access only; explicit
-/// origins are an operator allowlist for Bearer-token API clients.
+/// Build a CORS layer from the effective explicit origin allowlist. Same-origin
+/// requests do not need CORS response headers.
 fn build_cors_layer(origins: &[String]) -> CorsLayer {
     let cors = CorsLayer::new()
         .allow_methods(tower_http::cors::Any)
@@ -3728,6 +3729,9 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
 #[cfg(test)]
 mod ui_request_policy_tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::{HeaderValue, Method, Request, StatusCode};
+    use tower::ServiceExt;
 
     fn browser_headers(origin: &str, host: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -3747,8 +3751,39 @@ mod ui_request_policy_tests {
         assert!(!UiRequestPolicy::new(&[]).accepts(&cross_origin));
         assert!(UiRequestPolicy::new(&["https://app.example".to_string()]).accepts(&cross_origin));
 
+        let desktop = browser_headers("http://tauri.localhost", "agent.example");
+        let effective = config::effective_cors_origins(&[]);
+        assert!(UiRequestPolicy::new(&effective).accepts(&desktop));
+
         let mut missing_fetch_metadata = same_origin;
         missing_fetch_metadata.remove("sec-fetch-mode");
         assert!(!UiRequestPolicy::new(&[]).accepts(&missing_fetch_metadata));
+    }
+
+    #[tokio::test]
+    async fn packaged_desktop_origin_receives_cors_preflight_headers() {
+        let origins = config::effective_cors_origins(&[]);
+        let app = Router::new()
+            .route("/api/health", get(|| async { StatusCode::OK }))
+            .layer(build_cors_layer(&origins));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/api/health")
+                    .header(header::ORIGIN, "http://tauri.localhost")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_static("http://tauri.localhost"))
+        );
     }
 }

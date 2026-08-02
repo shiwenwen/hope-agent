@@ -32,6 +32,8 @@ services:
       # When empty, Docker generates and stores one under /data/credentials.
       # Prefer HA_API_KEY_FILE with a mounted secret in production.
       HA_API_KEY: ${HA_API_KEY:-}
+      # Only needed when a separately hosted Web GUI calls this API cross-origin.
+      HA_CORS_ORIGINS: ${HA_CORS_ORIGINS:-}
       TZ: ${TZ:-UTC}
     volumes:
       - hope-data:/data

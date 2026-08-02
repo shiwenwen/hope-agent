@@ -59,6 +59,20 @@ function subscribeTransport(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Monotonic identity for transport switches and scoped-ticket refreshes. */
+export function getTransportRevision(): number {
+  return transportRevision;
+}
+
+/** Re-render a consumer whenever transport-scoped credentials change. */
+export function useTransportRevision(): number {
+  return useSyncExternalStore(
+    subscribeTransport,
+    getTransportRevision,
+    getTransportRevision,
+  );
+}
+
 export function confirmTransportChange(): boolean {
   return confirmDiscardDirtyFileEditors(dirtyTransportConfirmText);
 }
@@ -151,10 +165,6 @@ export function switchToEmbedded(options?: { dirtyConfirmed?: boolean }): boolea
 
 /** React hook that re-renders consumers as soon as the active transport changes. */
 export function useTransport(): Transport {
-  useSyncExternalStore(
-    subscribeTransport,
-    () => transportRevision,
-    () => transportRevision,
-  );
+  useTransportRevision();
   return getTransport();
 }

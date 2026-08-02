@@ -50,6 +50,7 @@ docker compose logs -f hope-agent
 | `HA_API_KEY` | _unset_ | Optional externally managed Owner Root Token. Rust consumes and removes it before runtime initialization; it is never copied to argv or tool subprocesses. Browsers exchange it for an HttpOnly session and do not retain the root token |
 | `HA_API_KEY_FILE` | _unset_ | Mounted secret-file path, preferred over `HA_API_KEY` for production. A trailing newline is ignored |
 | `HA_KNOWLEDGE_AGENT_READ_TOKEN` | _unset_ | Knowledge Agent read-only token. It can only access `/api/knowledge/agent/{search,read,expand,sources}`, not owner admin APIs or `compile/propose`; useful for external-agent HTTP scripts |
+| `HA_CORS_ORIGINS` | _unset_ | Additional allowed Web GUI origins, comma-separated (for example `https://ui.example`). Set only when the UI and API are deployed cross-origin; same-origin UI and packaged desktop webviews need no configuration. `*` is not supported |
 | `HA_DATA_DIR` | `/data` | Data root. All persistent state (`config.json` / `sessions.db` / `memory.db` / credentials / projects / attachments) lives here |
 | `HA_DEPLOYMENT` | `docker` | Hint to the self-updater. **Do not change** — without it `app_update install` would attempt an in-container binary swap |
 | `TZ` | `UTC` | Timezone. Affects cron scheduling and timestamp formatting |

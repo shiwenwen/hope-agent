@@ -342,6 +342,8 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 
 Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns.ui_surface`；缺省值绝不推断为桌面主对话。HTTP 只有带浏览器不可由页面脚本伪造的 `Sec-Fetch-Mode: cors`、`Sec-Fetch-Dest: empty`，且 `Origin` 与 `Host` 同源或命中服务端显式 CORS allowlist 时才能进入 `/api/chat/ui`；普通 API、side-query 和 automation 一律走会清空字段的 `/api/chat`。详见 [Pet 架构](pet.md)。
 
+跨源 HTTP/WS GUI 只允许显式 origin：打包桌面 WebView 的 `tauri://localhost` / `http://tauri.localhost` 默认加入 allowlist；其他前端部署通过逗号分隔的 `HA_CORS_ORIGINS` 配置（例如 `https://ui.example`）。不接受 `*`，同源浏览器无需配置。Owner Token 仍只走 Bearer/登录请求体，禁止放 URL；WebSocket 与静态资源使用 15 分钟 scope ticket。
+
 ### Projects
 
 | Tauri Command | HTTP | 状态 |

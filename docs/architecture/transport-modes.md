@@ -79,6 +79,8 @@ flowchart TD
 
 业务组件只依赖 `Transport` 接口，不直接判断 IPC、REST 或 WebSocket。例外是少量 UI 需要根据能力调整交互，例如 HTTP 模式不能 reveal 本地文件，工作目录选择需要显示 server-side directory browser。
 
+跨源连接保持显式 allowlist：打包桌面 WebView 的 `tauri://localhost` 与 `http://tauri.localhost` 默认允许；把 Web GUI 部署在其他 origin 时，服务端须设置逗号分隔的 `HA_CORS_ORIGINS`。同源内嵌 Web GUI 无需设置，服务端不提供 `*` 通配放行。跨源 Fetch 用 Bearer，WebSocket / iframe / 下载换短时 scope ticket；Root Token 不进入 URL。
+
 ## Transport 方法矩阵
 
 | 方法 / 能力 | TauriTransport | HttpTransport |
@@ -144,6 +146,7 @@ HTTP 模式没有 per-call browser Channel，主流式路径就是 EventBus：
 - 同源浏览器先用 Root Token 换取签名 HttpOnly Cookie；WebSocket 握手自动携带 Cookie。跨源远程客户端用 Bearer 调 `/api/auth/transport-tickets`，再把 15 分钟 `events` scope 票据放进 `Sec-WebSocket-Protocol`；两种模式的 URL 都不含根凭据。
 - 跨源 iframe / 图片 / 下载使用 `/api/resource/{ticket}/...`，只分派到显式只读资源路由；该前缀响应允许远程 GUI 的 sandbox iframe 嵌入，其余 owner 页面继续 `frame-ancestors 'self'` + `X-Frame-Options: SAMEORIGIN`。
 - `HttpTransport.listen()` 在第一个 listener 注册时建立连接，最后一个 listener 取消时关闭连接。
+- scope ticket 刷新会推进 transport revision；所有缓存的资源 URL 必须绑定该 revision，旧 ticket 对应 URL 不得在组件重挂后复用。
 - 断线后只要仍有 listener，就按 1s、2s、4s 递增到 30s 上限的退避策略重连；Owner Token 变更会主动断开既有连接，服务端也会周期复验 Cookie / scope 票据，连接不能无限越过凭据有效期。
 - server 端每个 WebSocket 连接持有独立 broadcast receiver，多客户端互不抢消息。
 - 发送单帧超过 5s 会断开慢客户端；连续 lag 超过阈值会发送 `_lagged` 并最终断开，避免阻塞 EventBus。

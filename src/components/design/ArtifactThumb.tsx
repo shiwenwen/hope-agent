@@ -9,17 +9,27 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Palette } from "lucide-react"
-import { getTransport } from "@/lib/transport-provider"
+import {
+  getTransport,
+  getTransportRevision,
+  useTransportRevision,
+} from "@/lib/transport-provider"
 import { acquireThumb, setThumbVisible, releaseThumb } from "@/lib/designThumbPool"
 import type { DesignArtifactView } from "@/types/design"
 
 const THUMB_DESIGN_W = 1280
 const ARM_LINGER_MS = 350
 
-// 已解析的产物预览 URL（id → url|null）。URL 带 ?v=currentVersion 做 cache-bust，故内容更新后
-// 经 design:reload/generate_done 失效本缓存 + 重取即得新版本 URL、已挂 iframe 随 src 变化重载
-// （对齐主预览 previewKey；此前无版本参数 + 无失效 → AI 改完稿墙上仍旧稿，audit）。
-const urlCache = new Map<string, string | null>()
+// 已解析的产物预览 URL（id → transport revision + url|null）。URL 带 ?v=currentVersion 做
+// cache-bust，故内容更新后经 design:reload/generate_done 失效本缓存 + 重取即得新版本 URL、
+// 已挂 iframe 随 src 变化重载（对齐主预览 previewKey；此前无版本参数 + 无失效 → AI 改完稿墙
+// 上仍旧稿，audit）。
+interface CachedUrl {
+  revision: number
+  url: string | null
+}
+
+const urlCache = new Map<string, CachedUrl>()
 
 function eventArtifactId(raw: unknown): string | undefined {
   try {
@@ -31,9 +41,22 @@ function eventArtifactId(raw: unknown): string | undefined {
 }
 
 export function ArtifactThumb({ artifactId }: { artifactId: string }) {
+  const transportRevision = useTransportRevision()
   const wrapRef = useRef<HTMLDivElement>(null)
   const [live, setLive] = useState(false)
-  const [src, setSrc] = useState<string | null>(() => urlCache.get(artifactId) ?? null)
+  const [resolvedSrc, setResolvedSrc] = useState<CachedUrl>(() => {
+    const cached = urlCache.get(artifactId)
+    return cached?.revision === transportRevision
+      ? cached
+      : { revision: transportRevision, url: null }
+  })
+  const cachedSrc = urlCache.get(artifactId)
+  const src =
+    resolvedSrc.revision === transportRevision
+      ? resolvedSrc.url
+      : cachedSrc?.revision === transportRevision
+        ? cachedSrc.url
+        : null
   const [scale, setScale] = useState(0.2)
   const liveRef = useRef(false)
   useEffect(() => {
@@ -42,30 +65,51 @@ export function ArtifactThumb({ artifactId }: { artifactId: string }) {
 
   // 解析带版本 cache-bust 的预览 URL；force=清缓存重拉（内容更新后拿新 currentVersion）。
   const resolveSrc = useCallback(
-    async (force: boolean): Promise<string | null> => {
+    async (force: boolean): Promise<CachedUrl | undefined> => {
+      const requestedRevision = getTransportRevision()
+      const transport = getTransport()
       if (!force) {
         const cached = urlCache.get(artifactId)
-        if (cached !== undefined) return cached
+        if (cached?.revision === requestedRevision) return cached
       }
       try {
-        const v = await getTransport().call<DesignArtifactView | null>("get_design_artifact_cmd", {
+        const v = await transport.call<DesignArtifactView | null>("get_design_artifact_cmd", {
           id: artifactId,
         })
         const p = v?.artifactPath
         // cache-bust `v=` 必须加在**已解析 URL** 上（对齐主预览 `iframeSrc`）——`resolveAssetUrl` 两侧
         // 都会把整条文件路径编码（Tauri `convertFileSrc` 把 `?`→`%3F`、HTTP `encodeURIComponent`
         // 同样），塞进路径的 `?v=` 会变成文件名一部分 → asset:// / 静态路由 404 → 缩略图全白（audit 根因）。
-        const base = p ? getTransport().resolveAssetUrl(`${p}/index.html`) : null
+        const base = p ? transport.resolveAssetUrl(`${p}/index.html`) : null
         const url = base ? `${base}${base.includes("?") ? "&" : "?"}v=${v?.currentVersion ?? 0}` : null
-        urlCache.set(artifactId, url)
-        return url
+        if (getTransportRevision() !== requestedRevision || getTransport() !== transport) return
+        const resolved = { revision: requestedRevision, url }
+        urlCache.set(artifactId, resolved)
+        return resolved
       } catch {
-        urlCache.set(artifactId, null)
-        return null
+        if (getTransportRevision() === requestedRevision && getTransport() === transport) {
+          const resolved = { revision: requestedRevision, url: null }
+          urlCache.set(artifactId, resolved)
+          return resolved
+        }
       }
     },
     [artifactId],
   )
+
+  // Scoped resource URLs contain short-lived transport tickets. A ticket
+  // refresh invalidates every older cache entry, including entries reused by a
+  // thumbnail that remounts after the previous ticket expired.
+  useEffect(() => {
+    const cached = urlCache.get(artifactId)
+    if (cached?.revision === transportRevision) {
+      return
+    }
+    urlCache.delete(artifactId)
+    if (liveRef.current) {
+      void resolveSrc(true).then((resolved) => resolved && setResolvedSrc(resolved))
+    }
+  }, [artifactId, resolveSrc, transportRevision])
 
   // 等比缩放（全页宽 → 卡片宽）。
   useEffect(() => {
@@ -86,7 +130,9 @@ export function ArtifactThumb({ artifactId }: { artifactId: string }) {
       const id = eventArtifactId(raw)
       if (id && id !== artifactId) return
       urlCache.delete(artifactId)
-      if (liveRef.current) void resolveSrc(true).then((url) => url && setSrc(url))
+      if (liveRef.current) {
+        void resolveSrc(true).then((resolved) => resolved && setResolvedSrc(resolved))
+      }
     }
     const off = [tx.listen("design:reload", onChange), tx.listen("design:generate_done", onChange)]
     return () => off.forEach((f) => f())
@@ -105,9 +151,9 @@ export function ArtifactThumb({ artifactId }: { artifactId: string }) {
       }
     }
     const goLive = () => {
-      void resolveSrc(false).then((url) => {
+      void resolveSrc(false).then((resolved) => {
         if (cancelled) return
-        if (url) setSrc(url)
+        if (resolved) setResolvedSrc(resolved)
         acquireThumb(artifactId, () => setLive(false), true)
         setLive(true)
       })

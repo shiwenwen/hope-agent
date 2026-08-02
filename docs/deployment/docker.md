@@ -50,6 +50,7 @@ docker compose logs -f hope-agent
 | `HA_API_KEY` | _未设置_ | 可选的外部托管 Owner Root Token。Rust 入口会在运行时初始化前读取并移除，绝不复制到 argv 或工具子进程；浏览器只用它换 HttpOnly 会话，不保存长期 Token |
 | `HA_API_KEY_FILE` | _未设置_ | 挂载的 Secret 文件路径，优先于 `HA_API_KEY`。生产环境推荐；文件内容末尾换行会被忽略 |
 | `HA_KNOWLEDGE_AGENT_READ_TOKEN` | _未设置_ | Knowledge Agent 只读 token。只能访问 `/api/knowledge/agent/{search,read,expand,sources}`，不能访问 owner 管理 API 或 `compile/propose`；适合给外部 agent 的 HTTP 脚本使用 |
+| `HA_CORS_ORIGINS` | _未设置_ | 额外允许的 Web GUI origin，多个值用逗号分隔（如 `https://ui.example`）。仅在前端与 API 跨源部署时设置；同源 UI 与打包桌面 WebView 无需设置，不支持 `*` |
 | `HA_SERVER_AUTO_APPROVE_TOOLS` | _未设置_ | 设为 `1` / `true` / `yes` 让 HTTP 入口的每条 chat 都按「自动批准工具」处理 —— 等同于桌面端 IM 渠道账号勾上「auto-approve tools」。**全自动放行**：dangerous-commands / protected-paths / edit-command 审计 / Plan Mode ask / Smart judge **全部跳过**，LLM 触发的任何 `exec` / `write` / `edit` 直接执行无任何拦截。**不要用于不可信租户**。`--dangerously-skip-all-approvals` 是严格超集（还会静默 dispatcher 层审计日志）。无人值守 / CI / pipeline 部署且客户端没接审批 UI 时必开，否则每条 `exec` 都会等满 5 分钟超时 → deny |
 | `HA_DATA_DIR` | `/data` | 数据根目录，所有持久化文件（`config.json` / `sessions.db` / `memory.db` / 凭据 / 项目 / 附件等）都在此目录下 |
 | `HA_DEPLOYMENT` | `docker` | 给 updater 的部署形态提示。**不要改**，否则 `app_update install` 会尝试在容器内做 binary swap |

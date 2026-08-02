@@ -76,7 +76,10 @@ pub async fn create_browser_session(
         return no_store_error(StatusCode::FORBIDDEN, "Cross-origin login is not allowed");
     }
     let peer = peer.ip();
-    if !auth.login_allowed(peer) {
+    // Always verify the supplied token before consulting the failure bucket.
+    // Multiple users commonly share a reverse-proxy peer address; failures by
+    // one caller must not lock a legitimate owner out of the server.
+    if !auth.check_owner_token(body.token.as_bytes()) && !auth.login_allowed(peer) {
         return no_store_error(
             StatusCode::TOO_MANY_REQUESTS,
             "Too many failed attempts; try again shortly",
@@ -585,5 +588,40 @@ mod server_token_tests {
             .await
             .unwrap();
         assert_eq!(invalid.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn correct_owner_token_bypasses_a_shared_peer_failure_bucket() {
+        let auth = AuthState::new(Some("owner-token".to_string()), None, false);
+        let peer: SocketAddr = "127.0.0.1:43123".parse().unwrap();
+        for _ in 0..10 {
+            auth.record_login_failure(peer.ip());
+        }
+        assert!(!auth.login_allowed(peer.ip()));
+
+        let throttled = create_browser_session(
+            Extension(auth.clone()),
+            ConnectInfo(peer),
+            HeaderMap::new(),
+            Json(CreateBrowserSessionBody {
+                token: "wrong-token".to_string(),
+                remember: false,
+            }),
+        )
+        .await;
+        assert_eq!(throttled.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        let accepted = create_browser_session(
+            Extension(auth),
+            ConnectInfo(peer),
+            HeaderMap::new(),
+            Json(CreateBrowserSessionBody {
+                token: "owner-token".to_string(),
+                remember: false,
+            }),
+        )
+        .await;
+        assert_eq!(accepted.status(), StatusCode::OK);
+        assert!(accepted.headers().contains_key(header::SET_COOKIE));
     }
 }
