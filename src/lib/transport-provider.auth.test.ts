@@ -76,10 +76,12 @@ test("prepared remote stays inactive until durable settings can be saved", async
   )
   expect(provider.getTransport()).toBe(current)
   expect(provider.getTransportRevision()).toBe(revision)
+  expect(provider.isCurrentHttpTransportFor("https://remote.example/")).toBe(false)
 
   prepared.activate()
   expect(provider.getTransport()).not.toBe(current)
   expect(provider.getTransportRevision()).toBeGreaterThan(revision)
+  expect(provider.isCurrentHttpTransportFor("https://REMOTE.example:443/")).toBe(true)
   provider.switchToEmbedded({ dirtyConfirmed: true })
 })
 

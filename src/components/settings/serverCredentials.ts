@@ -7,6 +7,7 @@ interface RemoteApiKeyForSaveArgs {
   previousRemoteServerUrl: string
   remoteApiKey: string
   replacementOwnerToken: string | null
+  activeRemoteMatchesDestination: boolean
 }
 
 interface OwnerTokenWillExistArgs {
@@ -21,6 +22,7 @@ interface RemoteValidationOrderArgs {
   currentRemoteServerUrl: string
   previousRemoteServerUrl: string
   replacementOwnerToken: string | null
+  activeRemoteMatchesDestination: boolean
 }
 
 function normalizedRemoteServerUrl(value: string): string {
@@ -34,6 +36,7 @@ export function remoteApiKeyForSave({
   previousRemoteServerUrl,
   remoteApiKey,
   replacementOwnerToken,
+  activeRemoteMatchesDestination,
 }: RemoteApiKeyForSaveArgs): string | null {
   // Replacing the Owner Token while already connected to a remote server
   // must carry the replacement into that connection. When switching server
@@ -42,6 +45,7 @@ export function remoteApiKeyForSave({
   const keepsCurrentRemoteServer =
     currentMode === "remote" &&
     previousMode === "remote" &&
+    activeRemoteMatchesDestination &&
     normalizedRemoteServerUrl(currentRemoteServerUrl) ===
       normalizedRemoteServerUrl(previousRemoteServerUrl)
   if (keepsCurrentRemoteServer && replacementOwnerToken !== null) {
@@ -70,10 +74,12 @@ export function shouldPrepareRemoteBeforeServerMutation({
   currentRemoteServerUrl,
   previousRemoteServerUrl,
   replacementOwnerToken,
+  activeRemoteMatchesDestination,
 }: RemoteValidationOrderArgs): boolean {
   if (currentMode !== "remote") return false
   const keepsCurrentRemoteServer =
     previousMode === "remote" &&
+    activeRemoteMatchesDestination &&
     normalizedRemoteServerUrl(currentRemoteServerUrl) ===
       normalizedRemoteServerUrl(previousRemoteServerUrl)
   return !keepsCurrentRemoteServer || replacementOwnerToken === null

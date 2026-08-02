@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, type ReactNode } from "react"
-import { getTransport, useTransport } from "@/lib/transport-provider"
+import {
+  getTransport,
+  isCurrentHttpTransportFor,
+  useTransport,
+} from "@/lib/transport-provider"
 import {
   activateCurrentHttpOwnerToken,
   confirmTransportChange,
@@ -234,6 +238,13 @@ export default function ServerPanel() {
         loadedSecrets.hasEmbeddedKnowledgeAgentReadToken,
       )
       const previous = JSON.parse(savedSnapshot || JSON.stringify(config)) as ServerConfig
+      const remoteUrl =
+        config.serverMode === "remote" && config.remoteServerUrl
+          ? config.remoteServerUrl.replace(/\/+$/, "")
+          : null
+      const activeRemoteMatchesDestination = Boolean(
+        remoteUrl && isCurrentHttpTransportFor(remoteUrl),
+      )
       const effectiveRemoteApiKey = remoteApiKeyForSave({
         currentMode: config.serverMode,
         previousMode: previous.serverMode,
@@ -241,6 +252,7 @@ export default function ServerPanel() {
         previousRemoteServerUrl: previous.remoteServerUrl,
         remoteApiKey: config.remoteApiKey,
         replacementOwnerToken: embeddedApiKey,
+        activeRemoteMatchesDestination,
       })
       const ownerTokenAvailable = ownerTokenWillExist({
         replacementOwnerToken: embeddedApiKey,
@@ -254,16 +266,13 @@ export default function ServerPanel() {
       ) {
         throw new Error(t("settings.serverPublicTokenRequired"))
       }
-      const remoteUrl =
-        config.serverMode === "remote" && config.remoteServerUrl
-          ? config.remoteServerUrl.replace(/\/+$/, "")
-          : null
       const prepareBeforeServerMutation = shouldPrepareRemoteBeforeServerMutation({
         currentMode: config.serverMode,
         previousMode: previous.serverMode,
         currentRemoteServerUrl: config.remoteServerUrl,
         previousRemoteServerUrl: previous.remoteServerUrl,
         replacementOwnerToken: embeddedApiKey,
+        activeRemoteMatchesDestination,
       })
 
       // A destination change must fail before it can mutate the current

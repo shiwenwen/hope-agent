@@ -16,6 +16,7 @@ describe("remoteApiKeyForSave", () => {
         previousRemoteServerUrl: "",
         remoteApiKey: " remote-secret ",
         replacementOwnerToken: "",
+        activeRemoteMatchesDestination: false,
       }),
     ).toBe("remote-secret")
   })
@@ -29,6 +30,7 @@ describe("remoteApiKeyForSave", () => {
         previousRemoteServerUrl: "https://old.example",
         remoteApiKey: " new-remote-secret ",
         replacementOwnerToken: "",
+        activeRemoteMatchesDestination: false,
       }),
     ).toBe("new-remote-secret")
   })
@@ -42,6 +44,7 @@ describe("remoteApiKeyForSave", () => {
         previousRemoteServerUrl: "https://agent.example",
         remoteApiKey: "old-secret",
         replacementOwnerToken: " new-secret ",
+        activeRemoteMatchesDestination: true,
       }),
     ).toBe("new-secret")
   })
@@ -55,8 +58,23 @@ describe("remoteApiKeyForSave", () => {
         previousRemoteServerUrl: "https://agent.example",
         remoteApiKey: " remote-secret ",
         replacementOwnerToken: null,
+        activeRemoteMatchesDestination: true,
       }),
     ).toBe("remote-secret")
+  })
+
+  test("does not reuse a token replacement for a differently targeted active client", () => {
+    expect(
+      remoteApiKeyForSave({
+        currentMode: "remote",
+        previousMode: "remote",
+        currentRemoteServerUrl: "https://target.example",
+        previousRemoteServerUrl: "https://target.example",
+        remoteApiKey: " target-secret ",
+        replacementOwnerToken: "new-current-token",
+        activeRemoteMatchesDestination: false,
+      }),
+    ).toBe("target-secret")
   })
 })
 
@@ -101,6 +119,7 @@ describe("shouldPrepareRemoteBeforeServerMutation", () => {
         currentRemoteServerUrl: "https://new.example",
         previousRemoteServerUrl: "https://old.example",
         replacementOwnerToken: "new-current-token",
+        activeRemoteMatchesDestination: false,
       }),
     ).toBe(true)
   })
@@ -113,6 +132,7 @@ describe("shouldPrepareRemoteBeforeServerMutation", () => {
         currentRemoteServerUrl: "https://agent.example/",
         previousRemoteServerUrl: "https://agent.example",
         replacementOwnerToken: null,
+        activeRemoteMatchesDestination: true,
       }),
     ).toBe(true)
   })
@@ -125,7 +145,21 @@ describe("shouldPrepareRemoteBeforeServerMutation", () => {
         currentRemoteServerUrl: "https://agent.example",
         previousRemoteServerUrl: "https://agent.example",
         replacementOwnerToken: "new-token",
+        activeRemoteMatchesDestination: true,
       }),
     ).toBe(false)
+  })
+
+  test("validates first when the active HTTP client targets another origin", () => {
+    expect(
+      shouldPrepareRemoteBeforeServerMutation({
+        currentMode: "remote",
+        previousMode: "remote",
+        currentRemoteServerUrl: "https://target.example",
+        previousRemoteServerUrl: "https://target.example",
+        replacementOwnerToken: "new-current-token",
+        activeRemoteMatchesDestination: false,
+      }),
+    ).toBe(true)
   })
 })

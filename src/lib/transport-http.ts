@@ -2028,6 +2028,18 @@ export class HttpTransport implements Transport {
     this.onAccessTicketRefresh = onAccessTicketRefresh
   }
 
+  /** Whether this client targets the same normalized HTTP origin/path. */
+  matchesBaseUrl(candidate: string): boolean {
+    const normalize = (value: string): string => {
+      try {
+        return new URL(value).href.replace(/\/+$/, "")
+      } catch {
+        return value.trim().replace(/\/+$/, "")
+      }
+    }
+    return normalize(this.baseUrl) === normalize(candidate)
+  }
+
   /** Update the API key at runtime. */
   setApiKey(key: string | null): void {
     this.credentialRevision += 1

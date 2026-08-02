@@ -160,6 +160,11 @@ export function setTransport(transport: Transport): void {
   emitTransportChanged();
 }
 
+/** Fail-closed identity check for decisions that may reuse the active client. */
+export function isCurrentHttpTransportFor(baseUrl: string): boolean {
+  return instance instanceof HttpTransport && instance.matchesBaseUrl(baseUrl);
+}
+
 export interface PreparedRemoteTransport {
   /** Publish the already-validated client as the application singleton. */
   activate(): void;
