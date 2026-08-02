@@ -70,7 +70,7 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
   const apiKey = draft.server?.apiKeyEnabled ? draft.server?.apiKey ?? "" : ""
   const host = bindMode === "lan" && ips[0] ? ips[0] : "localhost"
   const base = `http://${host}:8420`
-  const fullUrl = apiKey ? `${base}/?token=${apiKey}` : `${base}/`
+  const fullUrl = `${base}/`
   const searchProviderValue = searchProviderId
     ? t(PROVIDER_META[searchProviderId]?.labelKey ?? searchProviderId)
     : ""

@@ -48,6 +48,8 @@ export interface PreviewSource {
   extractDoc: () => Promise<ExtractedContent>
   /** Raw URL for `<img>/<iframe>/<video>/<audio>` (or download). */
   rawUrl: (download?: boolean) => Promise<string | null>
+  /** Release a temporary raw URL returned by this source, when applicable. */
+  releaseRawUrl?: (url: string) => void
 }
 
 /** Adapter: project file-browser scope (relPath within a workspace root). */
@@ -137,12 +139,22 @@ export function mediaPreviewSource(
   maxTextPreviewBytes: number = DEFAULT_MAX_TEXT_PREVIEW_MB * MEBIBYTE_BYTES,
 ): PreviewSource {
   const name = item.name || basename(item.localPath || item.url || "") || "file"
+  const rawUrlReleases = new Map<string, () => void>()
   return {
     name,
     mime: item.mimeType,
     displayPath: item.localPath || item.url || name,
     sizeBytes: item.sizeBytes,
-    rawUrl: async () => transport.resolveMediaUrl(item),
+    rawUrl: async () => {
+      const lease = await transport.loadMediaUrl(item)
+      rawUrlReleases.set(lease.url, lease.release)
+      return lease.url
+    },
+    releaseRawUrl: (url) => {
+      const release = rawUrlReleases.get(url)
+      rawUrlReleases.delete(url)
+      release?.()
+    },
     readText: async () => {
       // Desktop: read the local file directly (proper binary/size detection).
       if (item.localPath && transport.supportsLocalFileOps()) {
@@ -166,11 +178,15 @@ export function mediaPreviewSource(
           hasUtf8Bom: false,
         }
       }
-      const url = transport.resolveMediaUrl(item)
-      if (!url) throw new Error("attachment not reachable")
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`fetch attachment: ${res.status}`)
-      const bytes = new Uint8Array(await readResponseArrayBufferWithLimit(res, maxTextPreviewBytes))
+      const lease = await transport.loadMediaUrl(item)
+      let bytes: Uint8Array
+      try {
+        const res = await fetch(lease.url)
+        if (!res.ok) throw new Error(`fetch attachment: ${res.status}`)
+        bytes = new Uint8Array(await readResponseArrayBufferWithLimit(res, maxTextPreviewBytes))
+      } finally {
+        lease.release()
+      }
       const hasUtf8Bom =
         bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
       let content = ""

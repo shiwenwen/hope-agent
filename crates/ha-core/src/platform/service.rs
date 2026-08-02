@@ -69,7 +69,7 @@ fn systemd_escape_arg(s: &str) -> String {
 ///   closely than a system-scoped service would.
 ///
 /// Returns a human-readable status message on success.
-pub fn install_service(bind_addr: &str, api_key: Option<&str>) -> Result<String> {
+pub fn install_service(bind_addr: &str) -> Result<String> {
     let exe_path = std::env::current_exe()
         .context("Cannot resolve own executable path")?
         .to_string_lossy()
@@ -80,13 +80,13 @@ pub fn install_service(bind_addr: &str, api_key: Option<&str>) -> Result<String>
     let log_path = log_dir.to_string_lossy().to_string();
 
     #[cfg(target_os = "macos")]
-    return install_launchd(&exe_path, bind_addr, api_key, &log_path);
+    return install_launchd(&exe_path, bind_addr, &log_path);
 
     #[cfg(target_os = "linux")]
-    return install_systemd(&exe_path, bind_addr, api_key, &log_path);
+    return install_systemd(&exe_path, bind_addr, &log_path);
 
     #[cfg(windows)]
-    return windows_task::install_scheduled_task(&exe_path, bind_addr, api_key, &log_path);
+    return windows_task::install_scheduled_task(&exe_path, bind_addr, &log_path);
 
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     bail!("Service installation is not supported on this platform")
@@ -195,20 +195,15 @@ fn unload_launchd_plist(plist: &std::path::Path) {
 }
 
 #[cfg(target_os = "macos")]
-fn install_launchd(
-    exe_path: &str,
-    bind_addr: &str,
-    api_key: Option<&str>,
-    log_path: &str,
-) -> Result<String> {
+fn install_launchd(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<String> {
     let plist = plist_path()?;
     let legacy_plist = legacy_plist_path()?;
 
     // Build ProgramArguments entries. Every user-controlled value
-    // (exe path, bind addr, api key, log path) is XML-escaped so that
+    // (exe path, bind addr, log path) is XML-escaped so that
     // characters like `<`, `>`, `"` or `&` cannot break out of the
     // surrounding `<string>` element and inject additional argv entries.
-    let mut args_xml = format!(
+    let args_xml = format!(
         "        <string>{}</string>\n\
          \x20       <string>server</string>\n\
          \x20       <string>--bind</string>\n\
@@ -216,14 +211,6 @@ fn install_launchd(
         xml_escape(exe_path),
         xml_escape(bind_addr)
     );
-    if let Some(key) = api_key {
-        args_xml.push_str(&format!(
-            "\n        <string>--api-key</string>\n\
-             \x20       <string>{}</string>",
-            xml_escape(key)
-        ));
-    }
-
     let content = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -397,27 +384,18 @@ fn unit_path() -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
-fn install_systemd(
-    exe_path: &str,
-    bind_addr: &str,
-    api_key: Option<&str>,
-    log_path: &str,
-) -> Result<String> {
+fn install_systemd(exe_path: &str, bind_addr: &str, log_path: &str) -> Result<String> {
     let unit = unit_path()?;
 
     // Quote every argv token individually so whitespace / quotes in any
-    // user-controlled value (exe path, bind addr, api key) cannot split
+    // user-controlled value (exe path, bind addr) cannot split
     // the line into extra tokens or inject shell metacharacters into
     // `ExecStart`.
-    let mut exec_start = format!(
+    let exec_start = format!(
         "{} server --bind {}",
         systemd_escape_arg(exe_path),
         systemd_escape_arg(bind_addr)
     );
-    if let Some(key) = api_key {
-        exec_start.push_str(&format!(" --api-key {}", systemd_escape_arg(key)));
-    }
-
     let stdout_log = format!("{}/server.stdout.log", log_path);
     let stderr_log = format!("{}/server.stderr.log", log_path);
 
@@ -595,21 +573,16 @@ mod windows_task {
     pub(super) fn install_scheduled_task(
         exe_path: &str,
         bind_addr: &str,
-        api_key: Option<&str>,
         log_path: &str,
     ) -> Result<String> {
         // Build the argv the task will run. We use a wrapper `cmd /C` so
         // stdout/stderr can be redirected into our logs directory — the
         // native schtasks TaskRun doesn't capture output on its own.
-        let mut inner = format!(
+        let inner = format!(
             "{} server --bind {}",
             quote_arg(exe_path),
             quote_arg(bind_addr)
         );
-        if let Some(key) = api_key {
-            inner.push_str(&format!(" --api-key {}", quote_arg(key)));
-        }
-
         let stdout_log = format!("{}\\server.stdout.log", log_path);
         let stderr_log = format!("{}\\server.stderr.log", log_path);
 

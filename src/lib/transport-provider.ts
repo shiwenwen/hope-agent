@@ -74,9 +74,8 @@ export function getTransport(): Transport {
     instance = new TauriTransport();
   } else {
     // In standalone web mode, read the server URL from a Vite env variable
-    // or fall back to the page's origin. The Bearer token (when the
-    // server enforces auth) is read from localStorage — populated either
-    // by a one-shot `?token=` URL capture or by the 401 retry modal.
+    // or fall back to the page's origin. A legacy localStorage token is
+    // visible here for one release only; AuthGate exchanges and clears it.
     const baseUrl = import.meta.env?.VITE_SERVER_URL || defaultHttpBase();
     const apiKey = getStoredApiKey();
     instance = new HttpTransport(baseUrl, apiKey);
@@ -117,10 +116,7 @@ export function switchToEmbedded(options?: { dirtyConfirmed?: boolean }): boolea
   if (isTauriMode()) {
     instance = new TauriTransport();
   } else {
-    // Keep the stored Bearer token alive on the embedded fallback —
-    // without it, a user who had switched to a remote auth-enabled
-    // server and switches back would 401 on every subsequent request
-    // (and ping-pong the AuthRequiredDialog until reload).
+    // AuthGate normally cleared this legacy value before App mounted.
     instance = new HttpTransport(defaultHttpBase(), getStoredApiKey());
   }
   emitTransportChanged();

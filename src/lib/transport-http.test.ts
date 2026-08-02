@@ -18,7 +18,7 @@ test("HttpTransport builds Artifact previews from opaque ids", () => {
   const transport = new HttpTransport("http://localhost:8420", "secret token")
 
   expect(transport.artifactPreviewUrl("artifact/report 1", "/srv/private/artifact")).toBe(
-    "http://localhost:8420/api/canvas/projects/artifact%2Freport%201/index.html?token=secret%20token",
+    "http://localhost:8420/api/canvas/projects/artifact%2Freport%201/index.html",
   )
 })
 
@@ -151,6 +151,7 @@ test("HttpTransport.save_attachment unwraps path from multipart response", async
 
 test("HttpTransport extracts only attachments owned by the active session", async () => {
   const transport = new HttpTransport("http://localhost:8420", "secret")
+  const browserTransport = new HttpTransport("http://localhost:8420")
   fetchMock.mockResolvedValue(
     new Response(
       JSON.stringify({ relPath: "report.docx", kind: "office", text: "report", images: [] }),
@@ -160,6 +161,25 @@ test("HttpTransport extracts only attachments owned by the active session", asyn
       },
     ),
   )
+
+  expect(
+    browserTransport.resolveMediaUrl({
+      url: "/api/attachments/session-a/report.docx?token=legacy-secret&download=1",
+      name: "report.docx",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      sizeBytes: 100,
+      kind: "file",
+    }),
+  ).toBe("http://localhost:8420/api/attachments/session-a/report.docx?download=1")
+  expect(
+    transport.resolveMediaUrl({
+      url: "/api/attachments/session-a/report.docx?token=legacy-secret",
+      name: "report.docx",
+      mimeType: "application/octet-stream",
+      sizeBytes: 100,
+      kind: "file",
+    }),
+  ).toBeNull()
 
   await expect(
     transport.extractMediaDocument(
@@ -175,7 +195,7 @@ test("HttpTransport extracts only attachments owned by the active session", asyn
   ).resolves.toMatchObject({ text: "report" })
   const [extractUrl, extractInit] = fetchMock.mock.lastCall!
   expect(extractUrl.toString()).toBe(
-    "http://localhost:8420/api/attachments/session-a/report.docx/extract?token=secret",
+    "http://localhost:8420/api/attachments/session-a/report.docx/extract",
   )
   expect(extractInit).toEqual({ headers: { Authorization: "Bearer secret" } })
 
@@ -193,6 +213,29 @@ test("HttpTransport extracts only attachments owned by the active session", asyn
     ),
   ).rejects.toThrow("outside the active session")
   expect(fetchMock).not.toHaveBeenCalled()
+})
+
+test("HttpTransport turns Bearer-authenticated remote media into a temporary Blob URL", async () => {
+  const transport = new HttpTransport("https://agent.example", "root-secret")
+  const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:secure-media")
+  const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined)
+  fetchMock.mockResolvedValue(new Response("image-bytes", { status: 200 }))
+
+  const lease = await transport.loadMediaUrl({
+    url: "/api/attachments/session-a/image.png?token=legacy-secret",
+    name: "image.png",
+    mimeType: "image/png",
+    sizeBytes: 11,
+    kind: "image",
+  })
+
+  expect(lease.url).toBe("blob:secure-media")
+  const [url, init] = fetchMock.mock.lastCall!
+  expect(url.toString()).toBe("https://agent.example/api/attachments/session-a/image.png")
+  expect(init).toEqual({ headers: { Authorization: "Bearer root-secret" } })
+  expect(createObjectUrl).toHaveBeenCalledOnce()
+  lease.release()
+  expect(revokeObjectUrl).toHaveBeenCalledWith("blob:secure-media")
 })
 
 test("HttpTransport.try_restore_session unwraps HTTP restored payload", async () => {

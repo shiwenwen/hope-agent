@@ -183,16 +183,16 @@ pub enum MediaKind {
 ///
 /// URL semantics: `url` is the logical reference
 /// `/api/attachments/{sessionId}/{filename}` — frontend consumes directly
-/// (HTTP sink appends `?token=`; Tauri sink leaves as-is, and the frontend
-/// prefers `local_path` via `convertFileSrc`). `local_path` is the absolute
+/// (HTTP relies on its HttpOnly session; Tauri prefers `local_path` via
+/// `convertFileSrc`). `local_path` is the absolute
 /// path on the server, used by IM channel workers to read bytes and by the
 /// Tauri frontend to open/reveal locally. HTTP sinks strip `local_path`
 /// from events so it never leaks to web clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaItem {
     /// Logical URL `/api/attachments/{sessionId}/{filename}`. Frontends resolve
-    /// this through the transport layer (Tauri uses `local_path`, HTTP adds
-    /// `?token=`).
+    /// this through the transport layer (Tauri uses `local_path`, HTTP uses a
+    /// same-origin session cookie).
     pub url: String,
     /// Absolute server-side path. Present for outbound delivery (IM workers,
     /// Tauri file ops). Stripped before forwarding events over HTTP.

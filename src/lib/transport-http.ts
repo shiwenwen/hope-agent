@@ -41,7 +41,7 @@ import type {
 import { uploadFileInChunks } from "@/lib/fileUpload"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import type { FileChangesMetadata, MediaItem } from "@/types/chat"
-import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage"
+import { clearStoredApiKey, dispatchAuthRequired } from "@/lib/api-key-storage"
 import { downloadBlob } from "@/lib/fileDownload"
 
 // ---------------------------------------------------------------------------
@@ -1334,6 +1334,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Server --
   get_server_config: { method: "GET", path: "/api/config/server" },
   save_server_config: { method: "PUT", path: "/api/config/server" },
+  rotate_server_token: { method: "POST", path: "/api/auth/token/rotate" },
   get_server_runtime_status: { method: "GET", path: "/api/server/status" },
 
   // -- Proxy --
@@ -2008,18 +2009,15 @@ export class HttpTransport implements Transport {
    */
   private handleAuthFailure(status: number): void {
     if (status !== 401) return
-    setStoredApiKey(null)
+    clearStoredApiKey()
     this.apiKey = null
     dispatchAuthRequired()
   }
 
-  /** Build a WebSocket URL with token query param if API key is set. */
+  /** Browser WebSockets authenticate with the same-origin HttpOnly cookie. */
   private wsUrl(path: string): string {
     const wsBase = this.baseUrl.replace(/^http/, "ws")
-    const url = `${wsBase}${path}`
-    return this.apiKey
-      ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`
-      : url
+    return `${wsBase}${path}`
   }
 
   // ----- prepareFileData -----
@@ -2281,15 +2279,58 @@ export class HttpTransport implements Transport {
 
   // ----- media -----
 
-  resolveMediaUrl(item: MediaItem): string | null {
+  private normalizedMediaUrl(item: MediaItem): URL | null {
     const url = item.url
     if (!url) return null
-    if (url.startsWith("http://") || url.startsWith("https://")) return url
-    // The HTTP sink has already stamped `?token=` onto logical
-    // `/api/attachments/...` URLs; we only prepend the base.
-    if (url.startsWith("/")) return `${this.baseUrl}${url}`
+    if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/")) {
+      try {
+        const resolved = new URL(url, this.baseUrl)
+        // Scrub credentials from legacy same-origin attachment records before
+        // they reach an <img>, <a>, browser history, or intermediary log.
+        if (
+          resolved.origin === new URL(this.baseUrl).origin &&
+          resolved.pathname.startsWith("/api/")
+        ) {
+          resolved.searchParams.delete("token")
+        }
+        return resolved
+      } catch {
+        return null
+      }
+    }
     // Absolute filesystem path — not reachable from a browser.
     return null
+  }
+
+  resolveMediaUrl(item: MediaItem): string | null {
+    const resolved = this.normalizedMediaUrl(item)
+    if (!resolved) return null
+    const protectedRemoteMedia =
+      Boolean(this.apiKey) &&
+      resolved.origin === new URL(this.baseUrl).origin &&
+      resolved.pathname.startsWith("/api/")
+    return protectedRemoteMedia ? null : resolved.toString()
+  }
+
+  async loadMediaUrl(item: MediaItem): Promise<{ url: string; release: () => void }> {
+    const direct = this.resolveMediaUrl(item)
+    if (direct) return { url: direct, release: () => undefined }
+
+    const resolved = this.normalizedMediaUrl(item)
+    if (!resolved) throw new Error("attachment is not reachable")
+    const sameServerApi =
+      resolved.origin === new URL(this.baseUrl).origin && resolved.pathname.startsWith("/api/")
+    if (!sameServerApi || !this.apiKey) throw new Error("attachment is not reachable")
+
+    const response = await fetch(resolved, {
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    })
+    if (!response.ok) {
+      this.handleAuthFailure(response.status)
+      throw new Error(`fetch attachment: ${response.status}`)
+    }
+    const objectUrl = URL.createObjectURL(await response.blob())
+    return { url: objectUrl, release: () => URL.revokeObjectURL(objectUrl) }
   }
 
   async extractMediaDocument(
@@ -2298,15 +2339,16 @@ export class HttpTransport implements Transport {
   ): Promise<ExtractedContent> {
     const sessionId = opts?.sessionId?.trim()
     if (!sessionId) throw new Error("attachment extraction requires a session id")
-    const href = this.resolveMediaUrl(item)
-    if (!href) throw new Error("attachment is not reachable")
-    const url = new URL(href)
+    const url = this.normalizedMediaUrl(item)
+    if (!url) throw new Error("attachment is not reachable")
     const match = url.pathname.match(/^\/api\/attachments\/([^/]+)\/([^/]+)$/)
     if (!match || decodeURIComponent(match[1]) !== sessionId) {
       throw new Error("attachment URL is outside the active session")
     }
     url.pathname = `${url.pathname}/extract`
     url.searchParams.delete("download")
+    // Do not propagate legacy query-string credentials into a new request.
+    url.searchParams.delete("token")
     const headers: Record<string, string> = {}
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
     const response = await fetch(url, { headers })
@@ -2316,11 +2358,6 @@ export class HttpTransport implements Transport {
       throw new Error(`[HttpTransport] attachment extract returned ${response.status}: ${text}`)
     }
     return (await response.json()) as ExtractedContent
-  }
-
-  private appendToken(url: string): string {
-    if (!this.apiKey) return url
-    return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`
   }
 
   private addDownloadParam(href: string): string {
@@ -2355,7 +2392,6 @@ export class HttpTransport implements Transport {
     url.searchParams.set("scopeId", args.scopeId)
     url.searchParams.set("path", args.path)
     if (args.download) url.searchParams.set("download", "1")
-    if (this.apiKey) url.searchParams.set("token", this.apiKey)
     return url.toString()
   }
 
@@ -2445,7 +2481,6 @@ export class HttpTransport implements Transport {
     )
     url.searchParams.set("path", path)
     if (forceDownload) url.searchParams.set("download", "1")
-    if (this.apiKey) url.searchParams.set("token", this.apiKey)
     return url.toString()
   }
 
@@ -2458,7 +2493,7 @@ export class HttpTransport implements Transport {
     // in the stored absolute path. Each category needs a matching
     // server-side route. Anything unrecognized returns `null` so callers
     // fall back gracefully (emoji / default icon / broken state).
-    const stamped = (url: string) => this.appendToken(url)
+    const stamped = (url: string) => url
 
     // Avatars: `~/.hope-agent/avatars/{file}` → `/api/avatars/{file}`
     const avatarMatch = path.match(/[\\/]avatars[\\/]([^\\/]+)$/)
@@ -2546,17 +2581,22 @@ export class HttpTransport implements Transport {
   }
 
   async openMedia(item: MediaItem): Promise<void> {
-    const href = this.resolveMediaUrl(item)
-    if (!href) return
+    const lease = await this.loadMediaUrl(item)
     // Transient anchor click so the browser honors the server's
     // Content-Disposition (inline preview vs download prompt).
-    this.clickHref(href)
+    this.clickHref(lease.url)
+    setTimeout(lease.release, 60_000)
   }
 
   async downloadMedia(item: MediaItem): Promise<void> {
-    const href = this.resolveMediaUrl(item)
-    if (!href) return
-    this.clickHref(this.addDownloadParam(href), item.name || undefined)
+    const direct = this.resolveMediaUrl(item)
+    if (direct) {
+      this.clickHref(this.addDownloadParam(direct), item.name || undefined)
+      return
+    }
+    const lease = await this.loadMediaUrl(item)
+    this.clickHref(lease.url, item.name || undefined)
+    setTimeout(lease.release, 60_000)
   }
 
   async openFilePath(path: string, opts?: { sessionId?: string | null }): Promise<void> {
@@ -2809,9 +2849,7 @@ export class HttpTransport implements Transport {
   artifactPreviewUrl(id: string, projectPath?: string | null): string | null {
     void projectPath
     if (!id) return null
-    return this.appendToken(
-      `${this.baseUrl}/api/canvas/projects/${encodeURIComponent(id)}/index.html`,
-    )
+    return `${this.baseUrl}/api/canvas/projects/${encodeURIComponent(id)}/index.html`
   }
 
   async openArtifact(id: string): Promise<void> {

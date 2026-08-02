@@ -186,7 +186,7 @@ flowchart TD
 | `bearer` | Bearer 令牌 |
 | `password` | 密码 |
 | `secret` | 密钥/秘密 |
-| `token` | ha-server `?token=<api-key>` WebSocket 鉴权 fallback |
+| `token` | 旧版本 query 凭据 / 第三方 URL；当前 ha-server 已不接受 query token |
 
 ### 匹配模式
 

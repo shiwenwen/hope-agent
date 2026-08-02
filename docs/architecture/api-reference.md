@@ -42,12 +42,13 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 | 模式 | 机制 |
 |---|---|
 | Tauri | 无鉴权（本地 IPC） |
-| HTTP REST | `Authorization: Bearer <api_key>` header |
-| WebSocket | `?token=<api_key>` 查询参数（浏览器 WS 不支持自定义 header） |
-| Knowledge Agent 只读 token | `server.knowledgeAgentReadToken` 或 `HA_KNOWLEDGE_AGENT_READ_TOKEN`；仅在 owner API key 已启用时参与鉴权，仅允许 `POST /api/knowledge/agent/{search,read,expand,sources}`，其它受保护 API 返回 403 |
-| 免鉴权 | `GET /api/health`、`GET /api/server/status`（server 绑定状态 / 正常运行时间 / WS 数，不含敏感字段） |
+| HTTP REST | `Authorization: Bearer <owner_token>` header |
+| 浏览器 HTTP / WebSocket / 媒体 | Root Token 经 `POST /api/auth/session` 一次性交换为签名 `HttpOnly; SameSite=Strict` Cookie；Root Token 不进入 URL/localStorage |
+| 自动化客户端 | `Authorization: Bearer <owner_token>`；不接受通用 `?token=` |
+| Knowledge Agent 只读 token | `server.knowledgeAgentReadToken` 或 `HA_KNOWLEDGE_AGENT_READ_TOKEN`；仅在 Owner Token 已启用时参与鉴权，仅允许 `POST /api/knowledge/agent/{search,read,expand,sources}`，其它受保护 API 返回 403 |
+| 免鉴权 | `GET /api/health`、浏览器登录引导 `/api/auth/{status,session,logout}`、显式创建的只读 Design Share capability URL；`GET /api/server/status` 已归入 Owner 保护面 |
 
-`api_key=None` 时中间件全放行。鉴权实现见 [`crates/ha-server/src/middleware.rs`](../../crates/ha-server/src/middleware.rs)（constant-time 比较）。
+`api_key=None` 仅允许回环监听；非回环启动默认 fail-closed（危险逃生开关除外），此时受保护路由才退化为无鉴权。鉴权实现见 [`crates/ha-server/src/middleware.rs`](../../crates/ha-server/src/middleware.rs)（constant-time 比较）。
 
 ## WebSocket 端点
 
@@ -278,7 +279,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `startChat(args, onEvent)` | `new Channel<string>()` + `invoke("chat", { ...args, onEvent })` | Bundled UI 走 `POST /api/chat/ui`（服务端要求浏览器 Fetch Metadata + 同源或显式 CORS origin）；公共 owner API 保留 `POST /api/chat` 并强制清空 `uiSurface`；流式 delta 走 `/ws/events` 的 `chat:stream_delta`，仅合成 `session_created` 给 `onEvent` 做新会话 cache rename |
 | `listen(eventName, handler)` | `@tauri-apps/api/event.listen` | 全局 `/ws/events` + name 匹配 + 指数退避重连 |
 | `resolveMediaUrl(item)` | `convertFileSrc(localPath)` → `tauri://` | 仅支持 `/api/` 或 `http(s)://`，本地绝对路径返 `null` |
-| `resolveAssetUrl(path)` | `convertFileSrc` | 正则识别 `avatars`/`image_generate`/`canvas` → `/api/avatars/{n}?token=...` 等 |
+| `resolveAssetUrl(path)` | `convertFileSrc` | 正则识别 `avatars`/`image_generate`/`canvas` → 同源 `/api/...`，浏览器 Cookie 自动鉴权 |
 | `openMedia(item)` | `invoke("open_directory", {path})` | 临时 `<a download>` 触发浏览器下载 |
 | `revealMedia(item)` | `invoke("reveal_in_folder", {path})` | no-op |
 | `previewReadText(path,{sessionId})` | `invoke("preview_read_text", {path})` | `GET /api/sessions/{id}/files/read?path=`（会话鉴权） |
@@ -1758,6 +1759,10 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `apply_onboarding_skills` | `POST /api/onboarding/skills` | ✅ |
 | `apply_onboarding_server` | `POST /api/onboarding/server` | ✅ |
 | `generate_api_key` | `POST /api/server/generate-api-key` | ✅ |
+| — | `GET /api/auth/status` | 公开最小启动探针：仅返回 required/authenticated；Token 指纹仅对已认证请求返回，避免弱 Token 离线猜测 oracle |
+| — | `POST /api/auth/session` | 公开 Token→HttpOnly 会话交换；同源检查、失败限速、`no-store` |
+| — | `POST /api/auth/logout` | 清除浏览器会话 Cookie |
+| `rotate_server_token` | `POST /api/auth/token/rotate` | ✅；Owner 保护，返回新 Token 一次，立即作废旧会话；外部托管 Token 拒绝 |
 | `list_local_ips` | `GET /api/server/local-ips` | ✅ |
 
 ## 已知不对齐项
@@ -1860,5 +1865,5 @@ comm -23 \
 | 模式 | 启动命令 | 前端通信 |
 |---|---|---|
 | 桌面 GUI（默认） | `hope-agent` | Tauri IPC + 内嵌 HTTP 可选 |
-| HTTP/WS 守护 | `hope-agent server [--bind ...] [--api-key ...]` | REST + WebSocket |
+| HTTP/WS 守护 | `hope-agent server [--bind ...] [--api-key-file ...]` | REST + WebSocket；`server token show/rotate` 用于恢复与轮换 |
 | ACP stdio | `hope-agent acp` | JSON-RPC over stdio（不经本文档的接口） |

@@ -32,21 +32,21 @@ fn remote_terminal_access_allowed() -> bool {
         .allow_remote_writes
 }
 
-fn event_json_for_http(event: &AppEvent, api_key: Option<&str>) -> Option<String> {
+fn event_json_for_http(event: &AppEvent) -> Option<String> {
     // Only chat/channel stream deltas carry nested `payload.event` strings
-    // with `media_items` that need `localPath` stripped and `?token=` stamped.
+    // with `media_items` that need server-local paths stripped.
     let name = event.name.as_str();
     if name == EVENT_CHAT_STREAM_DELTA || name == EVENT_CHANNEL_STREAM_DELTA {
         let mut event_val = serde_json::to_value(event).ok()?;
-        ha_core::agent::rewrite_envelope_event_for_http(&mut event_val, api_key);
+        ha_core::agent::rewrite_envelope_event_for_http(&mut event_val);
         serde_json::to_string(&event_val).ok()
     } else {
         serde_json::to_string(event).ok()
     }
 }
 
-async fn send_event(socket: &mut WebSocket, event: &AppEvent, api_key: Option<&str>) -> bool {
-    let Some(json) = event_json_for_http(event, api_key) else {
+async fn send_event(socket: &mut WebSocket, event: &AppEvent) -> bool {
+    let Some(json) = event_json_for_http(event) else {
         return true;
     };
     matches!(
@@ -80,7 +80,6 @@ async fn handle_events_socket(mut socket: WebSocket, ctx: Arc<AppContext>) {
     let mut terminal_rx = ctx.terminal_manager.subscribe_output_events();
     let mut app_lag_count: u32 = 0;
     let mut terminal_lag_count: u32 = 0;
-    let api_key = ctx.api_key.clone();
 
     loop {
         tokio::select! {
@@ -93,7 +92,7 @@ async fn handle_events_socket(mut socket: WebSocket, ctx: Arc<AppContext>) {
                         {
                             continue;
                         }
-                        if !send_event(&mut socket, &event, api_key.as_deref()).await {
+                        if !send_event(&mut socket, &event).await {
                             break;
                         }
                     }
@@ -117,7 +116,7 @@ async fn handle_events_socket(mut socket: WebSocket, ctx: Arc<AppContext>) {
                         if !remote_terminal_access_allowed() {
                             continue;
                         }
-                        if !send_event(&mut socket, &event, api_key.as_deref()).await {
+                        if !send_event(&mut socket, &event).await {
                             break;
                         }
                     }

@@ -275,6 +275,13 @@ export interface Transport {
    */
   resolveMediaUrl(item: MediaItem): string | null;
 
+  /**
+   * Resolve media for a consumer that can await authentication. Remote desktop
+   * transports fetch with a Bearer header and return a temporary Blob URL so
+   * the long-lived owner token never appears in browser-visible URLs.
+   */
+  loadMediaUrl(item: MediaItem): Promise<{ url: string; release: () => void }>;
+
   /** Extract a persisted media document without exposing its backend path. */
   extractMediaDocument(
     item: MediaItem,
@@ -293,7 +300,7 @@ export interface Transport {
    *    `~/.hope-agent/avatars/foo.png`):
    *       - Tauri mode → wrapped via `convertFileSrc`
    *       - HTTP mode  → rewritten to a server route
-   *         (`/api/avatars/{basename}?token=...`) when the path's parent
+   *         (`/api/avatars/{basename}`) when the path's parent
    *         directory matches a known asset category; otherwise `null`
    *  - `null` / empty string → `null`
    *

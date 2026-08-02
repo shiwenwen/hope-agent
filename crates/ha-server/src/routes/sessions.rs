@@ -186,18 +186,15 @@ pub struct PaginatedSessions {
     pub total: u32,
 }
 
-fn rewrite_messages_for_http(
-    mut messages: Vec<SessionMessage>,
-    api_key: Option<&str>,
-) -> Vec<SessionMessage> {
+fn rewrite_messages_for_http(mut messages: Vec<SessionMessage>) -> Vec<SessionMessage> {
     for msg in &mut messages {
-        rewrite_tool_media_meta_for_http(msg, api_key);
-        rewrite_user_attachments_meta_for_http(msg, api_key);
+        rewrite_tool_media_meta_for_http(msg);
+        rewrite_user_attachments_meta_for_http(msg);
     }
     messages
 }
 
-fn rewrite_tool_media_meta_for_http(msg: &mut SessionMessage, api_key: Option<&str>) {
+fn rewrite_tool_media_meta_for_http(msg: &mut SessionMessage) {
     let Some(raw) = msg.attachments_meta.as_deref() else {
         return;
     };
@@ -216,7 +213,7 @@ fn rewrite_tool_media_meta_for_http(msg: &mut SessionMessage, api_key: Option<&s
     };
 
     let event = json!({ "media_items": items });
-    let rewritten = ha_core::agent::rewrite_event_for_http(&event.to_string(), api_key);
+    let rewritten = ha_core::agent::rewrite_event_for_http(&event.to_string());
     let Ok(rewritten_event) = serde_json::from_str::<Value>(&rewritten) else {
         return;
     };
@@ -227,37 +224,28 @@ fn rewrite_tool_media_meta_for_http(msg: &mut SessionMessage, api_key: Option<&s
     msg.attachments_meta = Some(meta.to_string());
 }
 
-fn rewrite_user_attachments_meta_for_http(msg: &mut SessionMessage, api_key: Option<&str>) {
+fn rewrite_user_attachments_meta_for_http(msg: &mut SessionMessage) {
     if msg.role != MessageRole::User {
         return;
     }
     let Some(raw) = msg.attachments_meta.as_deref() else {
         return;
     };
-    if let Some(rewritten) = rewrite_user_attachments_json_for_http(&msg.session_id, raw, api_key) {
+    if let Some(rewritten) = rewrite_user_attachments_json_for_http(&msg.session_id, raw) {
         msg.attachments_meta = Some(rewritten);
     }
 }
 
-fn rewrite_fork_draft_attachments_for_http(
-    result: &mut ha_core::session::ForkSessionResult,
-    api_key: Option<&str>,
-) {
+fn rewrite_fork_draft_attachments_for_http(result: &mut ha_core::session::ForkSessionResult) {
     let Some(raw) = result.draft_attachments_meta.as_deref() else {
         return;
     };
-    if let Some(rewritten) =
-        rewrite_user_attachments_json_for_http(&result.session.id, raw, api_key)
-    {
+    if let Some(rewritten) = rewrite_user_attachments_json_for_http(&result.session.id, raw) {
         result.draft_attachments_meta = Some(rewritten);
     }
 }
 
-fn rewrite_user_attachments_json_for_http(
-    session_id: &str,
-    raw: &str,
-    api_key: Option<&str>,
-) -> Option<String> {
+fn rewrite_user_attachments_json_for_http(session_id: &str, raw: &str) -> Option<String> {
     let Ok(mut meta) = serde_json::from_str::<Value>(raw) else {
         return None;
     };
@@ -266,8 +254,7 @@ fn rewrite_user_attachments_json_for_http(
         Value::Object(object) => object.get_mut("user_attachments")?.as_array_mut()?,
         _ => return None,
     };
-    let rewritten =
-        rewrite_user_attachment_items_for_http(session_id, std::mem::take(items), api_key)?;
+    let rewritten = rewrite_user_attachment_items_for_http(session_id, std::mem::take(items))?;
     *items = rewritten;
     Some(meta.to_string())
 }
@@ -275,7 +262,6 @@ fn rewrite_user_attachments_json_for_http(
 fn rewrite_user_attachment_items_for_http(
     session_id: &str,
     items: Vec<Value>,
-    api_key: Option<&str>,
 ) -> Option<Vec<Value>> {
     let attachments_dir = ha_core::paths::attachments_dir(session_id).ok()?;
     let canonical_attachments_dir = attachments_dir.canonicalize().ok();
@@ -303,15 +289,11 @@ fn rewrite_user_attachment_items_for_http(
                 .unwrap_or(false);
             if is_inside_session_dir {
                 if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-                    let mut url = format!(
+                    let url = format!(
                         "/api/attachments/{}/{}",
                         percent_encode_url_segment(session_id),
                         percent_encode_url_segment(filename)
                     );
-                    if let Some(key) = api_key {
-                        url.push_str("?token=");
-                        url.push_str(&percent_encode_query_value(key));
-                    }
                     obj.insert("url".to_string(), Value::String(url));
                 }
             }
@@ -330,7 +312,6 @@ fn rewrite_user_attachment_items_for_http(
 fn rewrite_artifact_sources_for_http(
     session_id: &str,
     artifacts: &mut ha_core::session::SessionArtifacts,
-    api_key: Option<&str>,
 ) {
     let attachments_dir = match ha_core::paths::attachments_dir(session_id) {
         Ok(dir) => dir,
@@ -356,15 +337,11 @@ fn rewrite_artifact_sources_for_http(
         let Some(filename) = path.file_name().and_then(|s| s.to_str()) else {
             continue;
         };
-        let mut url = format!(
+        let url = format!(
             "/api/attachments/{}/{}",
             percent_encode_url_segment(session_id),
             percent_encode_url_segment(filename)
         );
-        if let Some(key) = api_key {
-            url.push_str("?token=");
-            url.push_str(&percent_encode_query_value(key));
-        }
         source.url = Some(url);
     }
 }
@@ -696,7 +673,7 @@ pub async fn fork_session(
             None => db.fork_session(&id, body.message_id).map(Into::into),
         })
         .await?;
-    rewrite_fork_draft_attachments_for_http(&mut result, ctx.api_key.as_deref());
+    rewrite_fork_draft_attachments_for_http(&mut result);
     Ok(Json(result))
 }
 
@@ -1124,7 +1101,7 @@ pub async fn get_session_messages_around(
         .session_db
         .run(move |db| db.load_session_messages_around(&id, q.target_message_id, before, after))
         .await?;
-    let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
+    let messages = rewrite_messages_for_http(messages);
     Ok(Json(json!([
         messages,
         total,
@@ -1147,7 +1124,7 @@ pub async fn get_session_messages_before(
         .session_db
         .run(move |db| db.load_session_messages_before(&id, q.before_id, limit))
         .await?;
-    let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
+    let messages = rewrite_messages_for_http(messages);
     Ok(Json(json!([messages, has_more])))
 }
 
@@ -1165,7 +1142,7 @@ pub async fn get_session_messages_after(
         .session_db
         .run(move |db| db.load_session_messages_after(&id, q.after_id, limit))
         .await?;
-    let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
+    let messages = rewrite_messages_for_http(messages);
     Ok(Json(json!([messages, has_more])))
 }
 
@@ -1182,7 +1159,7 @@ pub async fn get_session_artifacts(
         .session_db
         .run(move |db| ha_core::session::aggregate_session_artifacts(db, &id))
         .await?;
-    rewrite_artifact_sources_for_http(&session_id, &mut artifacts, ctx.api_key.as_deref());
+    rewrite_artifact_sources_for_http(&session_id, &mut artifacts);
     Ok(Json(artifacts))
 }
 
@@ -1258,7 +1235,7 @@ pub async fn get_session_messages(
         .session_db
         .run(move |db| db.load_session_messages_latest(&id, limit))
         .await?;
-    let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
+    let messages = rewrite_messages_for_http(messages);
     Ok(Json(json!([messages, total, has_more])))
 }
 
@@ -1669,19 +1646,6 @@ fn percent_encode_url_segment(value: &str) -> String {
     out
 }
 
-fn percent_encode_query_value(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        let ok = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
-        if ok {
-            out.push(byte as char);
-        } else {
-            out.push_str(&format!("%{:02X}", byte));
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1735,15 +1699,15 @@ mod tests {
             let items = serde_json::from_str::<Vec<Value>>(&meta).expect("parse meta");
 
             let rewritten =
-                rewrite_user_attachment_items_for_http(session_id, items, Some("key with space"))
-                    .expect("rewritten");
+                rewrite_user_attachment_items_for_http(session_id, items).expect("rewritten");
 
             let url = rewritten[0]
                 .get("url")
                 .and_then(Value::as_str)
                 .expect("url");
             assert!(url.starts_with("/api/attachments/s-http/"));
-            assert!(url.ends_with("_image.png?token=key%20with%20space"));
+            assert!(url.ends_with("_image.png"));
+            assert!(!url.contains("token="));
             assert!(rewritten[0].get("path").is_none());
         });
     }
@@ -1757,8 +1721,7 @@ mod tests {
             "path": "/tmp/elsewhere/image.png",
         })];
 
-        let rewritten =
-            rewrite_user_attachment_items_for_http("s-http", items, None).expect("rewritten");
+        let rewritten = rewrite_user_attachment_items_for_http("s-http", items).expect("rewritten");
 
         assert!(rewritten[0].get("path").is_none());
         assert!(rewritten[0].get("url").is_none());
@@ -1784,7 +1747,7 @@ mod tests {
             })];
 
             let rewritten =
-                rewrite_user_attachment_items_for_http(session_id, items, None).expect("rewritten");
+                rewrite_user_attachment_items_for_http(session_id, items).expect("rewritten");
 
             assert!(rewritten[0].get("path").is_none());
             assert!(rewritten[0].get("url").is_none());
@@ -1823,12 +1786,13 @@ mod tests {
                 browser_truncated: false,
             };
 
-            rewrite_artifact_sources_for_http(session_id, &mut artifacts, Some("key"));
+            rewrite_artifact_sources_for_http(session_id, &mut artifacts);
 
             assert!(artifacts.sources[0].local_path.is_none());
             let url = artifacts.sources[0].url.as_deref().expect("url");
             assert!(url.starts_with("/api/attachments/s-http/"));
-            assert!(url.ends_with("_report.pdf?token=key"));
+            assert!(url.ends_with("_report.pdf"));
+            assert!(!url.contains("token="));
         });
     }
 

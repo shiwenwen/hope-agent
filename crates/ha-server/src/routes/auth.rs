@@ -6,9 +6,12 @@
 //! "finalize" — access the same mutex; we hold it in a process-wide
 //! `OnceLock` so it outlives individual request handlers.
 
-use axum::Json;
-use serde::Deserialize;
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::{extract::ConnectInfo, Extension, Json};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex as TokioMutex;
 
@@ -17,6 +20,191 @@ use ha_core::oauth::{self, AuthStatus, TokenData};
 use ha_core::provider::{ActiveModelUpdate, ApiType};
 
 use crate::error::AppError;
+use crate::middleware::{AuthState, BROWSER_SESSION_COOKIE};
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAuthStatus {
+    auth_required: bool,
+    authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateBrowserSessionBody {
+    token: String,
+    #[serde(default)]
+    remember: bool,
+}
+
+/// Public bootstrap probe for the browser Auth Gate. The fingerprint is only
+/// returned to an already-authenticated caller; exposing even a truncated hash
+/// before login would provide an offline oracle for operator-chosen weak tokens.
+pub async fn server_auth_status(
+    Extension(auth): Extension<AuthState>,
+    headers: HeaderMap,
+) -> Response {
+    no_store_json(StatusCode::OK, &server_auth_status_payload(&auth, &headers))
+}
+
+fn server_auth_status_payload(auth: &AuthState, headers: &HeaderMap) -> ServerAuthStatus {
+    let authenticated = auth.headers_are_owner_authenticated(&headers);
+    ServerAuthStatus {
+        auth_required: auth.auth_required(),
+        authenticated,
+        token_fingerprint: authenticated.then(|| auth.owner_fingerprint()).flatten(),
+    }
+}
+
+/// Exchange the long-lived owner token for an HttpOnly signed session. The
+/// root token is never returned and need not remain in browser storage.
+pub async fn create_browser_session(
+    Extension(auth): Extension<AuthState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<CreateBrowserSessionBody>,
+) -> Response {
+    if !same_origin_or_non_browser(&headers) {
+        return no_store_error(StatusCode::FORBIDDEN, "Cross-origin login is not allowed");
+    }
+    let peer = peer.ip();
+    if !auth.login_allowed(peer) {
+        return no_store_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many failed attempts; try again shortly",
+        );
+    }
+    if !auth.check_owner_token(body.token.as_bytes()) {
+        auth.record_login_failure(peer);
+        return no_store_error(StatusCode::UNAUTHORIZED, "Invalid owner token");
+    }
+    auth.clear_login_failures(peer);
+    let max_age = if body.remember {
+        30 * 24 * 60 * 60
+    } else {
+        12 * 60 * 60
+    };
+    let session = match auth.create_browser_session(max_age) {
+        Ok(session) => session,
+        Err(error) => {
+            ha_core::app_error!(
+                "security",
+                "browser_session_create_failed",
+                "Failed to create browser session: {}",
+                error
+            );
+            return no_store_error(StatusCode::INTERNAL_SERVER_ERROR, "Login is unavailable");
+        }
+    };
+    let secure = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| origin.starts_with("https://"));
+    let cookie = format!(
+        "{BROWSER_SESSION_COOKIE}={session}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
+        if secure { "; Secure" } else { "" }
+    );
+    let mut response = no_store_json(StatusCode::OK, &serde_json::json!({ "ok": true }));
+    if let Ok(cookie) = HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(header::SET_COOKIE, cookie);
+    }
+    response
+}
+
+pub async fn clear_browser_session(headers: HeaderMap) -> Response {
+    if !same_origin_or_non_browser(&headers) {
+        return no_store_error(StatusCode::FORBIDDEN, "Cross-origin logout is not allowed");
+    }
+    let mut response = no_store_json(StatusCode::OK, &serde_json::json!({ "ok": true }));
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_static("ha_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
+    );
+    response
+}
+
+/// Rotate the single owner root token. The new value is returned exactly once;
+/// all existing browser sessions and Bearer clients become invalid immediately.
+pub async fn rotate_server_owner_token(Extension(auth): Extension<AuthState>) -> Response {
+    if auth.externally_managed() {
+        return no_store_error(
+            StatusCode::CONFLICT,
+            "The owner token is externally managed; rotate it at its source",
+        );
+    }
+    let rotated = match ha_core::blocking::run_blocking(|| {
+        ha_core::server_auth::rotate_managed_token("http-token-rotate")
+    })
+    .await
+    {
+        Ok(rotated) => rotated,
+        Err(error) => {
+            ha_core::app_error!(
+                "security",
+                "server_token_rotate_failed",
+                "Failed to rotate server owner token: {}",
+                error
+            );
+            return no_store_error(StatusCode::INTERNAL_SERVER_ERROR, "Token rotation failed");
+        }
+    };
+    if let Err(error) = auth.replace_owner_token(Some(rotated.token.clone())) {
+        ha_core::app_error!(
+            "security",
+            "server_token_activate_failed",
+            "New server owner token was stored but could not be activated: {}",
+            error
+        );
+        return no_store_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Token was stored but requires a server restart",
+        );
+    }
+    no_store_json(
+        StatusCode::OK,
+        &serde_json::json!({
+            "token": rotated.token,
+            "fingerprint": ha_core::server_auth::token_fingerprint(&rotated.token),
+        }),
+    )
+}
+
+fn same_origin_or_non_browser(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return true;
+    };
+    let Some(host) = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    origin
+        .parse::<axum::http::Uri>()
+        .ok()
+        .and_then(|uri| {
+            uri.authority()
+                .map(|authority| authority.as_str().to_string())
+        })
+        .is_some_and(|authority| authority.eq_ignore_ascii_case(host))
+}
+
+fn no_store_json<T: Serialize>(status: StatusCode, body: &T) -> Response {
+    let mut response = (status, Json(body)).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, max-age=0"),
+    );
+    response
+}
+
+fn no_store_error(status: StatusCode, message: &'static str) -> Response {
+    no_store_json(status, &serde_json::json!({ "error": message }))
+}
 
 type AuthResult = Arc<TokioMutex<Option<anyhow::Result<TokenData>>>>;
 
@@ -229,4 +417,36 @@ pub async fn set_codex_model(Json(body): Json<SetCodexModelBody>) -> Result<Json
     .await?;
 
     Ok(Json(json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod server_token_tests {
+    use super::*;
+
+    #[test]
+    fn public_auth_probe_does_not_expose_a_token_fingerprint_or_oracle() {
+        let auth = AuthState::new(Some("weak-operator-token".to_string()), None, false);
+        let status = server_auth_status_payload(&auth, &HeaderMap::new());
+        assert!(status.auth_required);
+        assert!(!status.authenticated);
+        assert!(status.token_fingerprint.is_none());
+        let json = serde_json::to_value(status).unwrap();
+        assert!(json.get("tokenFingerprint").is_none());
+    }
+
+    #[test]
+    fn authenticated_auth_probe_can_return_the_operator_fingerprint() {
+        let auth = AuthState::new(Some("owner-token".to_string()), None, false);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer owner-token"),
+        );
+        let status = server_auth_status_payload(&auth, &headers);
+        assert!(status.authenticated);
+        assert_eq!(
+            status.token_fingerprint,
+            Some(ha_core::server_auth::token_fingerprint("owner-token"))
+        );
+    }
 }

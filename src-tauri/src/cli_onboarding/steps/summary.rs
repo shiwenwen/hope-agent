@@ -1,7 +1,6 @@
 //! Final step — read every persisted setting back and print a recap so
 //! the operator sees what just got saved. Mirrors the GUI `SummaryStep`
-//! recap card; the GUI also shows a clickable Web GUI URL with optional
-//! `?token=` for sharing — we do the same in stdout.
+//! recap card. Root tokens are printed separately and never placed in URLs.
 
 use anyhow::Result;
 
@@ -71,9 +70,10 @@ pub fn run(step: u32, total: u32, provider_done: bool) -> Result<()> {
         .map(|entry| entry.id.to_string())
         .unwrap_or_else(|| "Not configured — DuckDuckGo fallback will be used".to_string());
 
-    let server_label = match cfg.server.api_key.as_deref() {
-        Some(k) if !k.is_empty() => format!("bind {} · API key set", cfg.server.bind_addr),
-        _ => format!("bind {} · no API key", cfg.server.bind_addr),
+    let server_label = if ha_core::server_auth::has_managed_token().unwrap_or(false) {
+        format!("bind {} · owner token set", cfg.server.bind_addr)
+    } else {
+        format!("bind {} · no owner token", cfg.server.bind_addr)
     };
 
     println!("  Language     : {language}");
@@ -87,7 +87,7 @@ pub fn run(step: u32, total: u32, provider_done: bool) -> Result<()> {
 
     println!();
     println!("  Web GUI URL(s):");
-    let urls = build_web_urls(&cfg.server.bind_addr, cfg.server.api_key.as_deref());
+    let urls = build_web_urls(&cfg.server.bind_addr);
     for url in &urls {
         println!("    {url}");
     }
@@ -119,16 +119,10 @@ fn read_personality_label() -> String {
 
 /// Build the user-facing Web GUI URLs by delegating host/port expansion
 /// to `ha_server::banner::display_host_urls` (same path used by the
-/// `print_launch_banner` so the wizard recap and the eventual server
-/// boot banner show identical URLs), then appending the token suffix.
-fn build_web_urls(bind_addr: &str, api_key: Option<&str>) -> Vec<String> {
-    let token_suffix = api_key
-        .filter(|k| !k.is_empty())
-        .map(|k| format!("/?token={}", k))
-        .unwrap_or_else(|| "/".to_string());
-
+/// `print_launch_banner` so the wizard recap and server banner match.
+fn build_web_urls(bind_addr: &str) -> Vec<String> {
     ha_server::banner::display_host_urls(bind_addr)
         .into_iter()
-        .map(|base| format!("{}{}", base, token_suffix))
+        .map(|base| format!("{base}/"))
         .collect()
 }

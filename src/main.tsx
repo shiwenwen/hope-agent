@@ -7,7 +7,8 @@ import QuickChatWindow from "./QuickChatWindow.tsx"
 import PlanDetachedWindow from "./PlanDetachedWindow.tsx"
 import FileBrowserDetachedWindow from "./FileBrowserDetachedWindow.tsx"
 import { logger } from "./lib/logger"
-import { captureTokenFromUrl } from "./lib/api-key-storage"
+import { AuthGate } from "./components/AuthGate"
+import { discardTokenFromUrl } from "./lib/api-key-storage"
 import { installDesktopContextMenuGuard } from "./lib/contextMenuGuard"
 import { installInvertedClickRecovery } from "./lib/inverted-click-recovery"
 import { installFocusVisibilityTracker } from "./lib/focus-visibility"
@@ -16,11 +17,7 @@ import {
   loadEnhancedFocusIndicators,
 } from "./lib/focus-indicator-preference"
 
-// Pull `?token=XXX` out of the URL into localStorage before the transport
-// singleton is constructed. Standalone Web GUI mode (Docker / reverse
-// proxy without auth header injection) bootstraps the Bearer token this
-// way — see `src/lib/api-key-storage.ts`.
-captureTokenFromUrl()
+discardTokenFromUrl()
 installDesktopContextMenuGuard()
 installInvertedClickRecovery()
 installFocusVisibilityTracker()
@@ -84,31 +81,33 @@ void i18nReady.finally(async () => {
 
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      {windowType === "quickchat" ? (
-        <QuickChatWindow />
-      ) : PetWindow ? (
-        <PetWindow />
-      ) : windowType === "plan" ? (
-        <PlanDetachedWindow />
-      ) : windowType === "files" ? (
-        <FileBrowserDetachedWindow />
-      ) : SpaceDetachedWindow ? (
-        <SpaceDetachedWindow />
-      ) : HelpWindow ? (
-        <HelpWindow />
-      ) : WorkflowSmokeWindow ? (
-        <WorkflowSmokeWindow />
-      ) : LoopSmokeWindow ? (
-        <LoopSmokeWindow />
-      ) : GoalSmokeWindow ? (
-        <GoalSmokeWindow />
-      ) : WorkspaceSmokeWindow ? (
-        <WorkspaceSmokeWindow />
-      ) : ChatInputSmokeWindow ? (
-        <ChatInputSmokeWindow />
-      ) : (
-        <App />
-      )}
+      <AuthGate>
+        {windowType === "quickchat" ? (
+          <QuickChatWindow />
+        ) : PetWindow ? (
+          <PetWindow />
+        ) : windowType === "plan" ? (
+          <PlanDetachedWindow />
+        ) : windowType === "files" ? (
+          <FileBrowserDetachedWindow />
+        ) : SpaceDetachedWindow ? (
+          <SpaceDetachedWindow />
+        ) : HelpWindow ? (
+          <HelpWindow />
+        ) : WorkflowSmokeWindow ? (
+          <WorkflowSmokeWindow />
+        ) : LoopSmokeWindow ? (
+          <LoopSmokeWindow />
+        ) : GoalSmokeWindow ? (
+          <GoalSmokeWindow />
+        ) : WorkspaceSmokeWindow ? (
+          <WorkspaceSmokeWindow />
+        ) : ChatInputSmokeWindow ? (
+          <ChatInputSmokeWindow />
+        ) : (
+          <App />
+        )}
+      </AuthGate>
     </StrictMode>,
   )
 })

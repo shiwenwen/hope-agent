@@ -79,6 +79,10 @@ describe("message fork semantics", () => {
   test("restores copied files and quotes into the new composer draft", async () => {
     setTransport({
       resolveMediaUrl: (item: MediaItem) => item.url || null,
+      loadMediaUrl: async (item: MediaItem) => ({
+        url: item.url,
+        release: () => undefined,
+      }),
     } as unknown as Transport)
     vi.stubGlobal(
       "fetch",
@@ -134,6 +138,10 @@ describe("message fork semantics", () => {
   test("keeps the fork draft when one copied file cannot be restored", async () => {
     setTransport({
       resolveMediaUrl: (item: MediaItem) => item.url || null,
+      loadMediaUrl: async (item: MediaItem) => ({
+        url: item.url,
+        release: () => undefined,
+      }),
     } as unknown as Transport)
     vi.stubGlobal(
       "fetch",

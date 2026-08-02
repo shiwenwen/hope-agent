@@ -7,8 +7,8 @@
 use anyhow::Result;
 
 /// Install Hope Agent as a user-level background service.
-pub fn install_service(bind_addr: &str, api_key: Option<&str>) -> Result<String> {
-    crate::platform::service::install_service(bind_addr, api_key)
+pub fn install_service(bind_addr: &str) -> Result<String> {
+    crate::platform::service::install_service(bind_addr)
 }
 
 /// Uninstall the Hope Agent system service.

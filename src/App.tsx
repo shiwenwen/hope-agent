@@ -30,7 +30,6 @@ import { PortalScopeProvider } from "@/components/ui/portal-scope"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
-import { AuthRequiredDialog } from "@/components/AuthRequiredDialog"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import type { SettingsSection } from "@/components/settings/types"
 import type { AgentTab } from "@/components/settings/agent-panel/types"
@@ -1029,17 +1028,11 @@ export default function App() {
     setView("chat")
   }
 
-  // `AuthRequiredDialog` is mounted in every view branch — the first
-  // protected API call from the boot effect commonly 401s while the
-  // splash / onboarding / setup screens are visible, so the listener
-  // has to be live before then. (The sticky flag in api-key-storage
-  // backs this up if React commits the dialog after the 401 fires.)
   if (view === "loading") {
     return (
       <TooltipProvider>
         <div className="flex items-center justify-center h-screen">
           <StarrySky />
-          <AuthRequiredDialog />
           <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
         </div>
       </TooltipProvider>
@@ -1052,7 +1045,6 @@ export default function App() {
         <div className="min-h-screen overflow-y-auto bg-surface-app">
           <StarrySky />
           <Toaster />
-          <AuthRequiredDialog />
           <ConfigRecoveryScreen health={configHealth} onRecovered={bootstrapApp} />
         </div>
       </TooltipProvider>
@@ -1066,7 +1058,6 @@ export default function App() {
           <StarrySky />
           <Toaster />
           <DangerousModeBanner />
-          <AuthRequiredDialog />
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
             <OnboardingWizard
               onComplete={() => setView("chat")}
@@ -1087,7 +1078,6 @@ export default function App() {
           <StarrySky />
           <Toaster />
           <DangerousModeBanner />
-          <AuthRequiredDialog />
           <div className="flex-1 min-h-0 overflow-hidden">
             <ProviderSetup onComplete={() => setView("chat")} onCodexAuth={handleCodexAuth} />
           </div>
@@ -1106,7 +1096,6 @@ export default function App() {
             <DangerousModeBanner />
             <MissingModelDialog />
             <ChromiumRuntimeDialog onOpenBrowserSettings={() => handleOpenSettings("browser")} />
-            <AuthRequiredDialog />
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <IconSidebar
                 view={view}

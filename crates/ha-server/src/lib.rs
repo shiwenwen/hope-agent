@@ -9,7 +9,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::http::{header, HeaderMap, Uri};
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
-use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::cors::CorsLayer;
 
 use ha_core::event_bus::EventBus;
 use ha_core::project::ProjectDB;
@@ -36,10 +36,6 @@ pub struct AppContext {
     pub terminal_manager: Arc<ha_core::terminal::TerminalManager>,
     /// Per-session cancel flags. Key = session_id.
     pub chat_cancels: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
-    /// API key used by middleware auth, reused by attachment URL rewrite to
-    /// stamp `?token=` onto `/api/attachments/*` URLs emitted in events.
-    /// `None` when server runs in no-auth mode.
-    pub api_key: Option<String>,
 }
 
 /// Browser provenance required by the product-UI chat endpoint. Product
@@ -103,16 +99,16 @@ impl UiRequestPolicy {
 // ── Router Builder ──────────────────────────────────────────────
 
 /// Build the full axum `Router` with all API routes and WebSocket endpoints.
-/// Uses permissive CORS (allow all origins), no API key auth.
+/// Uses same-origin browser defaults and no Owner Token auth.
 pub fn build_router(ctx: Arc<AppContext>) -> Router {
-    build_router_with_cors(ctx, &[], None, None)
+    build_router_with_cors(ctx, &[], None, None, false)
 }
 
 /// Start the HTTP/WebSocket server, binding to the configured address.
 ///
 /// Prints the structured `[ha-server] listening on ...` log line for log
 /// aggregators as well as the human-readable launch banner (Web GUI URL,
-/// API endpoint, API key). Both go to stderr so they don't contaminate
+/// API endpoint, and non-secret auth fingerprint). Both go to stderr so they don't contaminate
 /// the ACP NDJSON stdout when the embedded server runs under
 /// `hope-agent acp`.
 pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow::Result<()> {
@@ -121,6 +117,7 @@ pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow:
         &config.cors_origins,
         config.api_key.clone(),
         config.knowledge_agent_read_token.clone(),
+        config.auth_externally_managed,
     );
 
     let listener = match tokio::net::TcpListener::bind(&config.bind_addr).await {
@@ -148,7 +145,12 @@ pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow:
     // single signal-path chokepoint that actually runs on SIGTERM/SIGINT (it
     // `process::exit`s, so a graceful-shutdown future here would never win the
     // race). Plain serve; the signal handler terminates this future.
-    if let Err(e) = axum::serve(listener, router).await {
+    if let Err(e) = axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    {
         ha_core::server_status::mark_failed(format!("serve: {}", e));
         return Err(e.into());
     }
@@ -163,16 +165,24 @@ fn build_router_with_cors(
     cors_origins: &[String],
     api_key: Option<String>,
     knowledge_agent_read_token: Option<String>,
+    auth_externally_managed: bool,
 ) -> Router {
-    // Health + server status are always public (no auth required). The
-    // status payload only contains bound-addr / uptime / WS counts — nothing
-    // secret — and keeping it unauthenticated lets the Transport layer probe
-    // remote servers the same way it probes `/api/health`.
+    let auth_state =
+        middleware::AuthState::new(api_key, knowledge_agent_read_token, auth_externally_managed);
+    middleware::register_active_auth_state(auth_state.clone());
+
+    // Health and the minimal browser-login bootstrap stay public. Operational
+    // server status belongs to the owner plane and is routed below.
     let health = Router::new()
         .route("/api/health", get(routes::health::health_check))
+        .route("/api/auth/status", get(routes::auth::server_auth_status))
         .route(
-            "/api/server/status",
-            get(routes::server_status::server_status),
+            "/api/auth/session",
+            post(routes::auth::create_browser_session).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
+        .route(
+            "/api/auth/logout",
+            post(routes::auth::clear_browser_session),
         )
         // B7-1 只读分享：**公开无鉴权**——token 是唯一不可猜凭证，服务干净快照（sandbox
         // opaque-origin）。放公开路由（与 /api/health 同层），不进 require_api_key 保护面。
@@ -183,6 +193,11 @@ fn build_router_with_cors(
 
     // Protected API routes
     let api = Router::new()
+        .route("/server/status", get(routes::server_status::server_status))
+        .route(
+            "/auth/token/rotate",
+            post(routes::auth::rotate_server_owner_token),
+        )
         // Sessions
         .route("/sessions", post(routes::sessions::create_session))
         .route("/sessions", get(routes::sessions::list_sessions))
@@ -3603,23 +3618,21 @@ fn build_router_with_cors(
     let ws_routes = Router::new().route("/events", get(ws::events::events_ws));
 
     // Apply API key auth middleware to protected routes
-    let auth_state = middleware::ApiKeyState {
-        api_key,
-        knowledge_agent_read_token,
-    };
     let protected = Router::new()
         .nest("/api", api)
         .nest("/ws", ws_routes)
         .route_layer(axum::middleware::from_fn_with_state(
-            auth_state,
+            auth_state.clone(),
             middleware::require_api_key,
         ));
 
     let base = Router::new().merge(health).merge(protected);
 
     attach_web_fallback(base)
+        .layer(axum::Extension(auth_state))
         .layer(axum::Extension(UiRequestPolicy::new(cors_origins)))
         .layer(build_cors_layer(cors_origins))
+        .layer(axum::middleware::from_fn(middleware::security_headers))
         .layer(axum::middleware::from_fn(middleware::access_log))
         .with_state(ctx)
 }
@@ -3644,14 +3657,15 @@ fn attach_web_fallback(router: Router<Arc<AppContext>>) -> Router<Arc<AppContext
     }
 }
 
-/// Build a CORS layer. When `origins` is empty, allow all origins (permissive).
+/// Build a CORS layer. Empty means same-origin browser access only; explicit
+/// origins are an operator allowlist for Bearer-token API clients.
 fn build_cors_layer(origins: &[String]) -> CorsLayer {
     let cors = CorsLayer::new()
         .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any);
 
     if origins.is_empty() {
-        cors.allow_origin(AllowOrigin::any())
+        cors
     } else {
         let parsed: Vec<_> = origins.iter().filter_map(|o| o.parse().ok()).collect();
         cors.allow_origin(parsed)

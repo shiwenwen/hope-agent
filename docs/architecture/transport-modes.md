@@ -89,7 +89,7 @@ flowchart TD
 | `startChat(args, onEvent)` | 创建 `Channel<string>`，调用 `invoke("chat", { ...args, onEvent })`，每个 stream event 直接进 `onEvent`。 | 调 `POST /api/chat`。stream delta 不进 `onEvent`，而是由 `/ws/events` 的 `chat:stream_delta` 送达；只在新会话时合成 `session_created` 给 `onEvent`。 |
 | `listen(eventName, handler)` | `@tauri-apps/api/event.listen(eventName, ...)`。 | 复用全局 `/ws/events`，按 `{ name, payload }` 的 `name` 过滤。 |
 | 媒体 URL | 用 `convertFileSrc(localPath)` 暴露本地文件。 | 只接受 `http(s)://` 或后端逻辑 URL，如 `/api/attachments/...`；绝对本地路径返回 `null`。 |
-| 资产 URL | data/http(s) 透传，绝对路径走 `convertFileSrc`。 | 识别 avatars、image_generate、canvas 路径并改写到对应 `/api/...` route，必要时追加 `?token=`。 |
+| 资产 URL | data/http(s) 透传，绝对路径走 `convertFileSrc`。 | 识别 avatars、image_generate、canvas 路径并改写到同源 `/api/...` route，依赖 HttpOnly 会话 Cookie。 |
 | 打开 / 定位文件 | `openMedia` 调 OS 默认处理器，`revealMedia` 调文件管理器。 | `openMedia` 触发浏览器下载或打开，`revealMedia` no-op，`supportsLocalFileOps()` 返回 `false`。 |
 | 图片选择 | 原生文件选择器，返回 Tauri asset URL。 | 隐藏 `<input type="file">`，返回 `blob:` URL 和 `File`。 |
 | 目录选择 / 浏览 | `pickLocalDirectory()` 用原生目录选择器；`listServerDirectory()` 也可走 Tauri 命令供 `@` mention 使用。 | 浏览器不能选 server 文件系统，UI 应显示 `ServerDirectoryBrowser`，由 `listServerDirectory()` 调 `/api/filesystem/list-dir`。 |
@@ -141,7 +141,7 @@ HTTP 模式没有 per-call browser Channel，主流式路径就是 EventBus：
 `/ws/events` 是 HTTP/Web 模式唯一的全局事件 WebSocket：
 
 - 消息格式固定为 `{"name": string, "payload": unknown}`。
-- 鉴权用 `?token=<api_key>` query 参数，因为浏览器 WebSocket 不能设置自定义 `Authorization` header。
+- 浏览器先用 Root Token 换取签名 HttpOnly Cookie；WebSocket 握手自动携带同源 Cookie，URL 不含凭据。
 - `HttpTransport.listen()` 在第一个 listener 注册时建立连接，最后一个 listener 取消时关闭连接。
 - 断线后只要仍有 listener，就按 1s、2s、4s 递增到 30s 上限的退避策略重连。
 - server 端每个 WebSocket 连接持有独立 broadcast receiver，多客户端互不抢消息。

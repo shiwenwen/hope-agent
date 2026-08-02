@@ -105,6 +105,7 @@ pub mod runtime_tasks;
 pub mod sandbox;
 pub mod security;
 pub mod self_diagnosis;
+pub mod server_auth;
 pub mod server_status;
 pub mod service_install;
 pub mod session;
