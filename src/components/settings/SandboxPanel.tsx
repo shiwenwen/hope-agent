@@ -133,11 +133,12 @@ export default function SandboxPanel() {
         </div>
 
         {/* Docker not available hint */}
-        {dockerStatus && !dockerAvailable && (
+        {dockerStatus && (!dockerAvailable || dockerStatus.isolatedModeOnly) && (
           <DockerSetupHint
             status={dockerStatus}
             onRefresh={refreshDockerStatus}
             title={t("settings.sandboxDockerUnavailable")}
+            showContainerNotice
           />
         )}
 

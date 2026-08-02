@@ -92,6 +92,33 @@ volumes:
 
 The directory must be writable by UID 1000 (the in-container `hope` user).
 
+## Docker isolated sandbox
+
+Container deployments support only `isolated` sandbox mode. Hope Agent first creates a bounded temporary copy, then streams it through the Docker Archive API into an anonymous `/workspace` volume in the child container. The child container and anonymous volume are removed after the command, and changes are not written back to the real workspace. Because this path never treats the parent container's `/data` as a host bind-mount source, it works with named volumes, bind mounts, and NAS container managers.
+
+`standard`, `workspace`, and `trusted` fail closed in container deployments. Those modes require a live bind mount, but a path such as `/data/project` belongs to the Hope Agent container namespace and cannot safely be interpreted as a host path by the Docker daemon.
+
+To enable the isolated sandbox, explicitly mount a trusted local Docker socket and add the socket's group GID:
+
+```bash
+stat -c '%A %u:%g %n' /var/run/docker.sock
+export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+```
+
+```yaml
+services:
+  hope-agent:
+    volumes:
+      - hope-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID}"
+```
+
+If a NAS GUI cannot expand `${DOCKER_GID}`, run `stat` first and enter the numeric GID as an additional group. After recreating the container, sandbox status distinguishes a missing socket, insufficient permissions, an unreachable daemon, and a client configuration error.
+
+> **Security warning**: the Docker socket controls the host Docker daemon and commonly provides host-level privilege. Enable it only for trusted single-tenant deployments. Do not make the socket `0666`, and do not run Hope Agent as root merely to access it. Isolated mode also requires a project or explicit working directory; execution is rejected when the working directory is the data root or one of its ancestors, preventing credentials, configuration, and databases from being copied into the sandbox (the official image uses `/data`).
+
 ## Browser automation
 
 The image bundles Debian trixie's `chromium` package (adds ~250 MB to the image). The container sets `HA_DEPLOYMENT=docker`, so browser tool calls automatically start this Chromium in headless mode with the container-compatible sandbox flag — no extra configuration required.

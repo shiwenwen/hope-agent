@@ -5049,8 +5049,12 @@
     "devWarningDesc": "The following actions will permanently delete data and cannot be undone. The app will restart automatically after execution.",
     "devWarningTitle": "Danger Zone",
     "developer": "Developer",
+    "dockerSetupConnectionFailed": "The Docker client could not connect to the configured endpoint. Check the Docker endpoint configuration and try again.",
+    "dockerSetupContainerIsolatedOnly": "Hope Agent is running in Docker. Only isolated sandbox mode is supported; modes that require host bind mounts are rejected.",
     "dockerSetupNotInstalled": "Docker was not detected. Choose a Docker option for this platform.",
     "dockerSetupNotRunning": "Docker is installed but the daemon is not running. Start Docker and try again.",
+    "dockerSetupPermissionDenied": "The Docker socket was found, but Hope Agent does not have permission to access it. Add the socket's group GID to the container; do not make the socket world-writable.",
+    "dockerSetupSocketMissingContainer": "The Docker socket is not mounted into the Hope Agent container. Mount a trusted local Docker socket to use isolated sandbox mode.",
     "dockerSetupWslNoDocker": "WSL is ready. Install Docker Engine in the default WSL distribution to use the sandbox without Docker Desktop.",
     "dockerSetupWslNotRunning": "Docker Engine is installed in WSL but its daemon is not running. Start Docker in WSL and try again.",
     "dreaming": {

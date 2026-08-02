@@ -35,6 +35,14 @@ services:
       TZ: ${TZ:-UTC}
     volumes:
       - hope-data:/data
+      # Optional: enables `isolated` Docker sandbox mode for trusted local
+      # deployments. The socket grants host-level Docker control. Before
+      # uncommenting, set DOCKER_GID to `stat -c '%g' /var/run/docker.sock`.
+      # Other sandbox modes remain fail-closed in container deployments because
+      # a path inside this container is not a safe host bind-mount source.
+      #- /var/run/docker.sock:/var/run/docker.sock
+    #group_add:
+    #  - "${DOCKER_GID}"
 
   ollama:
     image: ollama/ollama:latest

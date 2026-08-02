@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { getTransport } from "@/lib/transport-provider"
+import { openExternalUrl } from "@/lib/openExternalUrl"
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react"
 import { dockerInstallOptions, type DockerStatus } from "./dockerSetup"
 
@@ -10,12 +10,16 @@ export function DockerSetupHint({
   onRefresh,
   title,
   className = "",
+  sandboxMode,
+  showContainerNotice = false,
 }: {
   status: DockerStatus | null
   checking?: boolean
   onRefresh?: () => void
   title?: string
   className?: string
+  sandboxMode?: string | null
+  showContainerNotice?: boolean
 }) {
   const { t } = useTranslation()
 
@@ -29,10 +33,48 @@ export function DockerSetupHint({
       </div>
     )
   }
-  if (!status || (status.installed && status.running)) return null
+  const containerModeUnsupported = !!(
+    status?.isolatedModeOnly &&
+    (showContainerNotice || (sandboxMode && sandboxMode !== "off" && sandboxMode !== "isolated"))
+  )
+  if (!status || (status.installed && status.running && !containerModeUnsupported)) return null
 
-  const openExt = (url: string) => getTransport().call("open_url", { url })
+  const openExt = (url: string) => openExternalUrl(url)
   const options = dockerInstallOptions(status.hostOs, status.wslDistributionInstalled ?? false)
+
+  if (containerModeUnsupported) {
+    return (
+      <div className={`rounded-md border border-border/50 p-3 space-y-2 ${className}`}>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.dockerSetupContainerIsolatedOnly")}
+        </p>
+      </div>
+    )
+  }
+
+  const diagnosticKey =
+    status.connectionError === "permission_denied"
+      ? "settings.dockerSetupPermissionDenied"
+      : status.connectionError === "socket_missing" && status.containerized
+        ? "settings.dockerSetupSocketMissingContainer"
+        : status.connectionError === "client_error"
+          ? "settings.dockerSetupConnectionFailed"
+          : null
+
+  if (diagnosticKey) {
+    return (
+      <div className={`rounded-md border border-border/50 p-3 space-y-2 ${className}`}>
+        <div className="text-xs font-medium">{title ?? t("settings.sandboxDockerUnavailable")}</div>
+        <p className="text-xs text-muted-foreground">{t(diagnosticKey)}</p>
+        {onRefresh && (
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onRefresh}>
+            <RefreshCw className="h-3 w-3 mr-1" />
+            {t("settings.sandboxDockerRefresh")}
+          </Button>
+        )}
+      </div>
+    )
+  }
 
   if (!status.installed) {
     return (

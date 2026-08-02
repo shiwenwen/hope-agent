@@ -5049,8 +5049,12 @@
     "devWarningDesc": "Las siguientes acciones eliminan permanentemente datos y no se pueden deshacer. La app se reiniciará automáticamente tras la ejecución.",
     "devWarningTitle": "Zona peligrosa",
     "developer": "Desarrollador",
+    "dockerSetupConnectionFailed": "El cliente Docker no pudo conectarse al endpoint configurado. Compruebe la configuración del endpoint de Docker y vuelva a intentarlo.",
+    "dockerSetupContainerIsolatedOnly": "Hope Agent se ejecuta en Docker. Solo se admite el modo de entorno aislado; se rechazan los modos que requieren montajes bind del host.",
     "dockerSetupNotInstalled": "No se detectó Docker. Elija una opción Docker para esta plataforma.",
     "dockerSetupNotRunning": "Docker está instalado pero el demonio no se está ejecutando. Inicie Docker y vuelva a intentarlo.",
+    "dockerSetupPermissionDenied": "Se encontró el socket de Docker, pero Hope Agent no tiene permiso para acceder. Añada el GID del grupo del socket al contenedor; no permita escritura global en el socket.",
+    "dockerSetupSocketMissingContainer": "El socket de Docker no está montado en el contenedor de Hope Agent. Monte un socket Docker local de confianza para usar el modo aislado.",
     "dockerSetupWslNoDocker": "WSL está listo. Instale Docker Engine en la distribución WSL predeterminada para usar el entorno aislado sin Docker Desktop.",
     "dockerSetupWslNotRunning": "Docker Engine está instalado en WSL, pero su demonio no se está ejecutando. Inicie Docker en WSL y vuelva a intentarlo.",
     "dreaming": {

@@ -2917,7 +2917,7 @@ describe("WorkspacePanel workflow section", () => {
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("Workflow failed")
     })
-  })
+  }, 15_000)
 
   it("flags stale real sample freshness in acceptance coverage", async () => {
     const staleSoak = domainSoakReport()

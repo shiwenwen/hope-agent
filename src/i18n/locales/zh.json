@@ -5049,8 +5049,12 @@
     "devWarningDesc": "以下操作将永久删除数据且无法恢复，执行后应用将自动重启。",
     "devWarningTitle": "危险操作区域",
     "developer": "开发者模式",
+    "dockerSetupConnectionFailed": "Docker 客户端无法连接到配置的端点。请检查 Docker 端点配置后重试。",
+    "dockerSetupContainerIsolatedOnly": "Hope Agent 正运行在 Docker 中。目前仅支持隔离沙箱模式；需要宿主机目录挂载的其他模式会被拒绝。",
     "dockerSetupNotInstalled": "未检测到 Docker。请选择适合当前平台的 Docker 方案。",
     "dockerSetupNotRunning": "Docker 已安装但守护进程未运行。请先启动 Docker 后重试。",
+    "dockerSetupPermissionDenied": "已找到 Docker socket，但 Hope Agent 没有访问权限。请把 socket 的组 GID 添加到容器，不要把 socket 改成全局可写。",
+    "dockerSetupSocketMissingContainer": "Hope Agent 容器中未挂载 Docker socket。要使用隔离沙箱模式，请挂载可信的本地 Docker socket。",
     "dockerSetupWslNoDocker": "WSL 已就绪。可在默认 WSL 发行版中安装 Docker Engine，无需安装 Docker Desktop 即可使用沙箱。",
     "dockerSetupWslNotRunning": "WSL 中已安装 Docker Engine，但守护进程未运行。请在 WSL 中启动 Docker 后重试。",
     "dreaming": {

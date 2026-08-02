@@ -765,7 +765,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     let session_cwd = cwd.clone().unwrap_or_else(|| ctx.default_cwd());
 
     if sandbox {
-        crate::sandbox::ensure_sandbox_available().await?;
+        crate::sandbox::ensure_sandbox_available_for_mode(sandbox_mode).await?;
     }
 
     app_info!(

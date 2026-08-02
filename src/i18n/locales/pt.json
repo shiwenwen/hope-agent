@@ -5049,8 +5049,12 @@
     "devWarningDesc": "As ações a seguir excluirão dados permanentemente e não podem ser desfeitas. A app reiniciará automaticamente após a execução.",
     "devWarningTitle": "Zona de perigo",
     "developer": "Desenvolvedor",
+    "dockerSetupConnectionFailed": "O cliente Docker não conseguiu se conectar ao endpoint configurado. Verifique a configuração do endpoint Docker e tente novamente.",
+    "dockerSetupContainerIsolatedOnly": "O Hope Agent está sendo executado no Docker. Apenas o modo de ambiente isolado é suportado; modos que exigem bind mounts do host são recusados.",
     "dockerSetupNotInstalled": "Docker não foi detectado. Escolha uma opção Docker para esta plataforma.",
     "dockerSetupNotRunning": "Docker está instalado, mas o daemon não está em execução. Inicie o Docker e tente novamente.",
+    "dockerSetupPermissionDenied": "O socket do Docker foi encontrado, mas o Hope Agent não tem permissão para acessá-lo. Adicione o GID do grupo do socket ao contêiner; não torne o socket gravável por todos.",
+    "dockerSetupSocketMissingContainer": "O socket do Docker não está montado no contêiner do Hope Agent. Monte um socket Docker local confiável para usar o modo isolado.",
     "dockerSetupWslNoDocker": "O WSL está pronto. Instale o Docker Engine na distribuição WSL padrão para usar o ambiente isolado sem o Docker Desktop.",
     "dockerSetupWslNotRunning": "O Docker Engine está instalado no WSL, mas o daemon não está em execução. Inicie o Docker no WSL e tente novamente.",
     "dreaming": {

@@ -494,6 +494,7 @@ export default function CapabilitiesTab({
               status={dockerStatus}
               checking={dockerChecking}
               onRefresh={refreshDockerStatus}
+              sandboxMode={sandboxMode}
               title={t("chat.sandboxMode.setupTitle", {
                 defaultValue: "配置 Docker 后启用沙箱",
               })}

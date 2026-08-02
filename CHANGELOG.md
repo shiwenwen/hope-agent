@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Server 认证收口为单一 Owner Token 且远程使用不再暴露根凭据**：浏览器登录换 HttpOnly 会话，远程 WebSocket 与文件/预览使用短时受限票据，旧配置及历史备份中的明文 Token 自动迁移清理，保存或轮换 Token 后当前页面会自动续接而不会把自己锁在登录页外。 (#603)
 
+### Fixed
+
+- **修复 Docker 部署无法正确使用执行沙箱**：即使容器内没有 Docker CLI，也能通过已挂载的 Docker socket 检测 daemon 并给出缺失、权限不足等明确诊断；容器部署现支持把有界工作区副本上传到匿名 volume 的 `isolated` 模式，其他依赖宿主路径映射的模式会安全拒绝，安装帮助链接也会在当前 Web 客户端打开。 (#604)
+
 ## [0.27.0] - 2026-07-31
 
 ### Added
