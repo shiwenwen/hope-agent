@@ -1,3 +1,5 @@
+import { normalizeHttpBaseUrl } from "@/lib/httpUrl"
+
 type ServerMode = "embedded" | "remote"
 
 interface RemoteApiKeyForSaveArgs {
@@ -25,10 +27,6 @@ interface RemoteValidationOrderArgs {
   activeRemoteMatchesDestination: boolean
 }
 
-function normalizedRemoteServerUrl(value: string): string {
-  return value.trim().replace(/\/+$/, "")
-}
-
 export function remoteApiKeyForSave({
   currentMode,
   previousMode,
@@ -46,8 +44,8 @@ export function remoteApiKeyForSave({
     currentMode === "remote" &&
     previousMode === "remote" &&
     activeRemoteMatchesDestination &&
-    normalizedRemoteServerUrl(currentRemoteServerUrl) ===
-      normalizedRemoteServerUrl(previousRemoteServerUrl)
+    normalizeHttpBaseUrl(currentRemoteServerUrl) ===
+      normalizeHttpBaseUrl(previousRemoteServerUrl)
   if (keepsCurrentRemoteServer && replacementOwnerToken !== null) {
     return replacementOwnerToken.trim() || null
   }
@@ -80,7 +78,7 @@ export function shouldPrepareRemoteBeforeServerMutation({
   const keepsCurrentRemoteServer =
     previousMode === "remote" &&
     activeRemoteMatchesDestination &&
-    normalizedRemoteServerUrl(currentRemoteServerUrl) ===
-      normalizedRemoteServerUrl(previousRemoteServerUrl)
+    normalizeHttpBaseUrl(currentRemoteServerUrl) ===
+      normalizeHttpBaseUrl(previousRemoteServerUrl)
   return !keepsCurrentRemoteServer || replacementOwnerToken === null
 }

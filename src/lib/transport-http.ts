@@ -38,6 +38,7 @@ import type {
   DomainArtifactExportGuardReport,
   PetAssetLease,
 } from "@/lib/transport"
+import { normalizeHttpBaseUrl } from "@/lib/httpUrl"
 import { uploadFileInChunks } from "@/lib/fileUpload"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import type { FileChangesMetadata, MediaItem } from "@/types/chat"
@@ -2022,22 +2023,14 @@ export class HttpTransport implements Transport {
   private readonly maxReconnectDelay = 30_000 // 30 s cap
 
   constructor(baseUrl: string, apiKey?: string | null, onAccessTicketRefresh?: () => void) {
-    // Strip trailing slash.
-    this.baseUrl = baseUrl.replace(/\/+$/, "")
+    this.baseUrl = normalizeHttpBaseUrl(baseUrl)
     this.apiKey = apiKey ?? null
     this.onAccessTicketRefresh = onAccessTicketRefresh
   }
 
   /** Whether this client targets the same normalized HTTP origin/path. */
   matchesBaseUrl(candidate: string): boolean {
-    const normalize = (value: string): string => {
-      try {
-        return new URL(value).href.replace(/\/+$/, "")
-      } catch {
-        return value.trim().replace(/\/+$/, "")
-      }
-    }
-    return normalize(this.baseUrl) === normalize(candidate)
+    return this.baseUrl === normalizeHttpBaseUrl(candidate)
   }
 
   /** Update the API key at runtime. */

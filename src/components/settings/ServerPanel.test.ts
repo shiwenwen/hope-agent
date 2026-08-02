@@ -40,7 +40,7 @@ describe("remoteApiKeyForSave", () => {
       remoteApiKeyForSave({
         currentMode: "remote",
         previousMode: "remote",
-        currentRemoteServerUrl: "https://agent.example/",
+        currentRemoteServerUrl: "https://AGENT.example:443/",
         previousRemoteServerUrl: "https://agent.example",
         remoteApiKey: "old-secret",
         replacementOwnerToken: " new-secret ",
@@ -129,7 +129,7 @@ describe("shouldPrepareRemoteBeforeServerMutation", () => {
       shouldPrepareRemoteBeforeServerMutation({
         currentMode: "remote",
         previousMode: "remote",
-        currentRemoteServerUrl: "https://agent.example/",
+        currentRemoteServerUrl: "https://AGENT.example:443/",
         previousRemoteServerUrl: "https://agent.example",
         replacementOwnerToken: null,
         activeRemoteMatchesDestination: true,

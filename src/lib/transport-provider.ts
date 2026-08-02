@@ -19,6 +19,7 @@ import type { Transport } from "@/lib/transport";
 import { TauriTransport } from "@/lib/transport-tauri";
 import { HttpTransport, RemoteAuthenticationError } from "@/lib/transport-http";
 import { getStoredApiKey } from "@/lib/api-key-storage";
+import { normalizeHttpBaseUrl } from "@/lib/httpUrl";
 import { confirmDiscardDirtyFileEditors } from "@/components/chat/files/fileDirtyRegistry";
 
 /**
@@ -189,7 +190,7 @@ export async function prepareRemoteTransport(
     if (apiKey) {
       await next.initializeRemoteAccess(false);
     } else {
-      const normalizedBase = baseUrl.replace(/\/+$/, "");
+      const normalizedBase = normalizeHttpBaseUrl(baseUrl);
       const response = await fetch(`${normalizedBase}/api/auth/status`, {
         signal: AbortSignal.timeout(10_000),
       });
