@@ -755,8 +755,9 @@ mod tests {
         std::fs::write(&secret, "secret content").unwrap();
 
         let auth = AuthState::new(Some("owner-token".into()), None, false);
+        let visible_canonical = std::fs::canonicalize(&visible).unwrap();
         let bound_ticket = auth
-            .create_bound_file_ticket(visible.clone(), true, 900)
+            .create_bound_file_ticket(visible_canonical, true, 900)
             .await
             .unwrap();
         let generic_ticket = auth.create_access_ticket("resources", 900).unwrap();

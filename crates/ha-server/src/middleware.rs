@@ -204,6 +204,7 @@ impl AuthState {
                     "bound path is not a regular file",
                 ));
             }
+            verify_opened_bound_file_path(&open_path, &file)?;
             let mime = mime_for_open_bound_file(&open_path, &file);
             Ok::<_, std::io::Error>((file, metadata, mime))
         })
@@ -363,6 +364,88 @@ fn open_bound_file(path: &std::path::Path) -> std::io::Result<File> {
     }
 
     options.open(path)
+}
+
+fn verify_opened_bound_file_path(expected: &std::path::Path, file: &File) -> std::io::Result<()> {
+    let actual = opened_file_path(file)?;
+    if bound_paths_match(expected, &actual) {
+        return Ok(());
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "bound file escaped its authorized canonical path",
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn opened_file_path(file: &File) -> std::io::Result<PathBuf> {
+    use std::os::fd::AsRawFd;
+    std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+}
+
+#[cfg(target_os = "macos")]
+fn opened_file_path(file: &File) -> std::io::Result<PathBuf> {
+    use std::ffi::CStr;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    let mut buffer = vec![0 as libc::c_char; libc::PATH_MAX as usize];
+    // SAFETY: `buffer` is writable for PATH_MAX bytes and remains alive for
+    // the variadic fcntl call. F_GETPATH writes a NUL-terminated path.
+    if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: a successful F_GETPATH call guarantees NUL termination inside
+    // the supplied PATH_MAX-sized buffer.
+    let bytes = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_bytes();
+    Ok(PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
+}
+
+#[cfg(windows)]
+fn opened_file_path(file: &File) -> std::io::Result<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
+
+    let handle = file.as_raw_handle() as isize;
+    let mut buffer = vec![0_u16; 512];
+    loop {
+        // SAFETY: `handle` is borrowed from a live File and `buffer` exposes
+        // its full writable capacity to the Windows API for this call.
+        let len = unsafe {
+            GetFinalPathNameByHandleW(handle, buffer.as_mut_ptr(), buffer.len() as u32, 0)
+        };
+        if len == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if (len as usize) < buffer.len() {
+            return Ok(PathBuf::from(std::ffi::OsString::from_wide(
+                &buffer[..len as usize],
+            )));
+        }
+        buffer.resize(len as usize + 1, 0);
+    }
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+fn opened_file_path(_file: &File) -> std::io::Result<PathBuf> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "bound file path attestation is unavailable on this platform",
+    ))
+}
+
+#[cfg(windows)]
+fn bound_paths_match(expected: &std::path::Path, actual: &std::path::Path) -> bool {
+    expected
+        .as_os_str()
+        .to_string_lossy()
+        .eq_ignore_ascii_case(&actual.as_os_str().to_string_lossy())
+}
+
+#[cfg(not(windows))]
+fn bound_paths_match(expected: &std::path::Path, actual: &std::path::Path) -> bool {
+    expected == actual
 }
 
 fn mime_for_open_bound_file(path: &std::path::Path, file: &File) -> String {
@@ -778,6 +861,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("visible.html");
         std::fs::write(&path, "visible").unwrap();
+        let path = std::fs::canonicalize(path).unwrap();
         let ticket = auth
             .create_bound_file_ticket(path.clone(), false, 900)
             .await
@@ -795,6 +879,33 @@ mod tests {
         auth.replace_owner_token(Some("rotated-owner-token".into()))
             .unwrap();
         assert!(auth.resolve_bound_file_ticket(&ticket).is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bound_file_ticket_rejects_a_substituted_parent_symlink() {
+        let auth = AuthState::new(Some("owner-token".into()), None, false);
+        let dir = tempfile::tempdir().unwrap();
+        let authorized_parent = dir.path().join("authorized");
+        let displaced_parent = dir.path().join("authorized-original");
+        let outside_parent = dir.path().join("outside");
+        std::fs::create_dir(&authorized_parent).unwrap();
+        std::fs::create_dir(&outside_parent).unwrap();
+        let authorized_file = authorized_parent.join("visible.html");
+        std::fs::write(&authorized_file, "visible").unwrap();
+        std::fs::write(outside_parent.join("visible.html"), "host secret").unwrap();
+        let authorized_canonical = std::fs::canonicalize(&authorized_file).unwrap();
+
+        std::fs::rename(&authorized_parent, &displaced_parent).unwrap();
+        std::os::unix::fs::symlink(&outside_parent, &authorized_parent).unwrap();
+
+        let error = auth
+            .create_bound_file_ticket(authorized_canonical, false, 900)
+            .await
+            .expect_err("a substituted parent symlink must fail closed");
+        assert!(error
+            .to_string()
+            .contains("escaped its authorized canonical path"));
     }
 
     #[tokio::test]
