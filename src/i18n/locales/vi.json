@@ -5042,8 +5042,12 @@
     "devWarningDesc": "Các hành động sau sẽ xóa dữ liệu vĩnh viễn và không thể hoàn tác. Ứng dụng sẽ tự động khởi động lại sau khi thực thi.",
     "devWarningTitle": "Vùng nguy hiểm",
     "developer": "Nhà phát triển",
+    "dockerSetupConnectionFailed": "Máy khách Docker không thể kết nối tới endpoint đã cấu hình. Hãy kiểm tra cấu hình endpoint Docker và thử lại.",
+    "dockerSetupContainerIsolatedOnly": "Hope Agent đang chạy trong Docker. Hiện chỉ hỗ trợ chế độ hộp cát cô lập; các chế độ cần bind mount từ máy chủ sẽ bị từ chối.",
     "dockerSetupNotInstalled": "Docker không được phát hiện. Chọn tùy chọn Docker cho nền tảng này.",
     "dockerSetupNotRunning": "Docker đã được cài đặt nhưng daemon không chạy. Hãy khởi động Docker và thử lại.",
+    "dockerSetupPermissionDenied": "Đã tìm thấy Docker socket nhưng Hope Agent không có quyền truy cập. Hãy thêm GID nhóm của socket vào container; không đặt socket cho phép mọi người ghi.",
+    "dockerSetupSocketMissingContainer": "Docker socket chưa được gắn vào container Hope Agent. Hãy gắn một Docker socket cục bộ đáng tin cậy để dùng chế độ cô lập.",
     "dockerSetupWslNoDocker": "WSL đã sẵn sàng. Hãy cài Docker Engine trong bản phân phối WSL mặc định để dùng hộp cát mà không cần Docker Desktop.",
     "dockerSetupWslNotRunning": "Docker Engine đã được cài trong WSL nhưng daemon chưa chạy. Hãy khởi động Docker trong WSL rồi thử lại.",
     "dreaming": {

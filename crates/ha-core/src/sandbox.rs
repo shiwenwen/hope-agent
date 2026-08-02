@@ -2,18 +2,22 @@ use anyhow::Result;
 use bollard::models::{ContainerCreateBody, HostConfig};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, LogsOptions, RemoveContainerOptions,
-    WaitContainerOptions,
+    UploadToContainerOptions, WaitContainerOptions,
 };
 use bollard::Docker;
 use futures_util::StreamExt;
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::error::Error as StdError;
+use std::fs::File;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
+use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
 
 const DEFAULT_SANDBOX_IMAGE: &str = "debian:bookworm-slim";
@@ -110,6 +114,16 @@ pub fn host_os() -> &'static str {
     } else {
         "unknown"
     }
+}
+
+fn deployment_is_docker() -> bool {
+    std::env::var("HA_DEPLOYMENT")
+        .map(|value| value.eq_ignore_ascii_case("docker"))
+        .unwrap_or(false)
+}
+
+fn container_sandbox_mode_supported(mode: crate::permission::SandboxMode) -> bool {
+    mode == crate::permission::SandboxMode::Isolated
 }
 
 // ── Configuration Persistence ─────────────────────────────────────
@@ -253,6 +267,31 @@ fn validate_bind_mount(host_path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+fn validate_container_isolated_source(source: &Path) -> Result<()> {
+    let data_root = crate::paths::root_dir()?.canonicalize().map_err(|e| {
+        anyhow::anyhow!(
+            "Cannot resolve Hope Agent data directory before preparing isolated sandbox: {e}"
+        )
+    })?;
+    validate_container_isolated_source_against(source, &data_root)
+}
+
+fn validate_container_isolated_source_against(source: &Path, data_root: &Path) -> Result<()> {
+    if source == data_root || data_root.starts_with(source) {
+        anyhow::bail!(
+            "SandboxUnavailable: refusing to copy the Hope Agent data root or one of its parent directories into an isolated container because it contains credentials and databases; select a project or explicit workspace directory"
+        );
+    }
+    let credentials_path = data_root.join("credentials");
+    let credentials = credentials_path.canonicalize().unwrap_or(credentials_path);
+    if source.starts_with(&credentials) {
+        anyhow::bail!(
+            "Sandbox security: the Hope Agent credentials directory cannot be used as an isolated workspace"
+        );
+    }
+    Ok(())
+}
+
 /// Validate a canonical absolute path as interpreted by the WSL distribution.
 ///
 /// Windows-side canonicalization cannot apply the Linux mount blocklist to WSL
@@ -315,12 +354,89 @@ fn validate_wsl_docker_socket_mount(wsl_path: &str, socket_path: &str) -> Result
 
 // ── Docker Operations ─────────────────────────────────────────────
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DockerConnectionErrorKind {
+    SocketMissing,
+    PermissionDenied,
+    DaemonUnreachable,
+    ClientError,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct NativeDockerProbe {
+    daemon_running: bool,
+    connection_error: Option<DockerConnectionErrorKind>,
+}
+
+fn docker_connection_error_from_io_kind(kind: ErrorKind) -> DockerConnectionErrorKind {
+    match kind {
+        ErrorKind::NotFound => DockerConnectionErrorKind::SocketMissing,
+        ErrorKind::PermissionDenied => DockerConnectionErrorKind::PermissionDenied,
+        ErrorKind::ConnectionRefused
+        | ErrorKind::ConnectionReset
+        | ErrorKind::ConnectionAborted
+        | ErrorKind::NotConnected
+        | ErrorKind::AddrNotAvailable
+        | ErrorKind::BrokenPipe
+        | ErrorKind::TimedOut => DockerConnectionErrorKind::DaemonUnreachable,
+        _ => DockerConnectionErrorKind::ClientError,
+    }
+}
+
+fn classify_docker_connection_error(error: &(dyn StdError + 'static)) -> DockerConnectionErrorKind {
+    let mut current = Some(error);
+    while let Some(source) = current {
+        if let Some(io_error) = source.downcast_ref::<std::io::Error>() {
+            return docker_connection_error_from_io_kind(io_error.kind());
+        }
+        current = source.source();
+    }
+
+    // Some HTTP connector errors do not expose their nested io::Error through
+    // `source()`. Keep the fallback deliberately narrow and return only a
+    // stable category; the raw error may contain a credential-bearing
+    // DOCKER_HOST and must never be returned to the UI or logs.
+    let message = error.to_string().to_ascii_lowercase();
+    if message.contains("permission denied") || message.contains("os error 13") {
+        DockerConnectionErrorKind::PermissionDenied
+    } else if message.contains("no such file") || message.contains("os error 2") {
+        DockerConnectionErrorKind::SocketMissing
+    } else if message.contains("connection refused")
+        || message.contains("connection reset")
+        || message.contains("timed out")
+    {
+        DockerConnectionErrorKind::DaemonUnreachable
+    } else {
+        DockerConnectionErrorKind::ClientError
+    }
+}
+
+async fn native_docker_probe() -> NativeDockerProbe {
+    let docker = match Docker::connect_with_local_defaults() {
+        Ok(docker) => docker,
+        Err(error) => {
+            return NativeDockerProbe {
+                daemon_running: false,
+                connection_error: Some(classify_docker_connection_error(&error)),
+            };
+        }
+    };
+    match docker.ping().await {
+        Ok(_) => NativeDockerProbe {
+            daemon_running: true,
+            connection_error: None,
+        },
+        Err(error) => NativeDockerProbe {
+            daemon_running: false,
+            connection_error: Some(classify_docker_connection_error(&error)),
+        },
+    }
+}
+
 /// Check if Docker is available and running.
 pub async fn check_docker_available() -> bool {
-    match Docker::connect_with_local_defaults() {
-        Ok(docker) => docker.ping().await.is_ok(),
-        Err(_) => false,
-    }
+    native_docker_probe().await.daemon_running
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -554,8 +670,121 @@ async fn exec_in_native_docker(
     timeout_secs: u64,
     cancellation_token: Option<CancellationToken>,
 ) -> Result<SandboxResult> {
-    let docker = Docker::connect_with_local_defaults()
-        .map_err(|e| anyhow::anyhow!("Cannot connect to Docker: {}. Is Docker running?", e))?;
+    let host_cwd = std::path::Path::new(cwd).canonicalize().map_err(|e| {
+        anyhow::anyhow!(
+            "Cannot resolve sandbox working directory '{}': {}. Ensure the path exists.",
+            cwd,
+            e
+        )
+    })?;
+    validate_bind_mount(&host_cwd)?;
+    exec_in_native_docker_with_workspace(
+        command,
+        env,
+        config,
+        timeout_secs,
+        cancellation_token,
+        NativeWorkspaceSource::Bind(&host_cwd),
+    )
+    .await
+}
+
+async fn exec_in_native_docker_archive(
+    command: &str,
+    archive_path: &Path,
+    env: Option<&serde_json::Map<String, serde_json::Value>>,
+    config: &SandboxConfig,
+    timeout_secs: u64,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<SandboxResult> {
+    exec_in_native_docker_with_workspace(
+        command,
+        env,
+        config,
+        timeout_secs,
+        cancellation_token,
+        NativeWorkspaceSource::Archive(archive_path),
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Copy)]
+enum NativeWorkspaceSource<'a> {
+    Bind(&'a Path),
+    Archive(&'a Path),
+}
+
+async fn upload_workspace_archive(
+    docker: &Docker,
+    container_id: &str,
+    archive_path: &Path,
+    timeout_secs: u64,
+    cancellation_token: Option<&CancellationToken>,
+) -> Result<()> {
+    let file = tokio::fs::File::open(archive_path)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to open isolated workspace archive: {e}"))?;
+    let upload = docker.upload_to_container(
+        container_id,
+        Some(UploadToContainerOptions {
+            path: "/workspace".to_string(),
+            no_overwrite_dir_non_dir: Some("true".to_string()),
+            copy_uidgid: Some("true".to_string()),
+        }),
+        bollard::body_try_stream(ReaderStream::new(file)),
+    );
+    tokio::pin!(upload);
+    let cancellation = async {
+        match cancellation_token {
+            Some(token) => token.cancelled().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::pin!(cancellation);
+    let timeout = async {
+        if timeout_secs == 0 {
+            std::future::pending::<()>().await;
+        } else {
+            tokio::time::sleep(Duration::from_secs(timeout_secs)).await;
+        }
+    };
+    tokio::pin!(timeout);
+
+    let result = tokio::select! {
+        result = &mut upload => result.map_err(|_| {
+            anyhow::anyhow!("Failed to upload isolated workspace through the Docker API")
+        }),
+        _ = &mut cancellation => Err(anyhow::anyhow!("Sandbox workspace upload cancelled")),
+        _ = &mut timeout => Err(anyhow::anyhow!(
+            "Sandbox workspace upload timed out after {}s",
+            timeout_secs
+        )),
+    };
+    if result.is_ok() {
+        app_info!(
+            "sandbox",
+            "docker_archive",
+            "Uploaded isolated workspace to anonymous volume for container {}",
+            crate::truncate_utf8(container_id, 12)
+        );
+    }
+    result
+}
+
+async fn exec_in_native_docker_with_workspace(
+    command: &str,
+    env: Option<&serde_json::Map<String, serde_json::Value>>,
+    config: &SandboxConfig,
+    timeout_secs: u64,
+    cancellation_token: Option<CancellationToken>,
+    workspace: NativeWorkspaceSource<'_>,
+) -> Result<SandboxResult> {
+    let docker = Docker::connect_with_local_defaults().map_err(|error| {
+        anyhow::anyhow!(
+            "Cannot connect to Docker ({:?}). Check the local Docker endpoint.",
+            classify_docker_connection_error(&error)
+        )
+    })?;
 
     // Ensure image is available
     ensure_image(&docker, &config.image).await?;
@@ -581,23 +810,20 @@ async fn exec_in_native_docker(
         }
     };
 
-    // Resolve absolute path for the working directory mount
-    let host_cwd = std::path::Path::new(cwd).canonicalize().map_err(|e| {
-        anyhow::anyhow!(
-            "Cannot resolve sandbox working directory '{}': {}. Ensure the path exists.",
-            cwd,
-            e
-        )
-    })?;
-
-    // Validate bind mount path
-    validate_bind_mount(&host_cwd)?;
-
-    let bind_mount = format!("{}:/workspace", host_cwd.display());
+    let (binds, volumes) = match workspace {
+        NativeWorkspaceSource::Bind(host_cwd) => (
+            Some(vec![format!("{}:/workspace", host_cwd.display())]),
+            None,
+        ),
+        // The anonymous volume is populated through Docker's archive API and
+        // removed together with the container. It avoids interpreting a path
+        // from the parent container in the host daemon's namespace.
+        NativeWorkspaceSource::Archive(_) => (None, Some(vec!["/workspace".to_string()])),
+    };
 
     // Build host config with resource limits and security hardening
     let mut host_config = HostConfig {
-        binds: Some(vec![bind_mount]),
+        binds,
         // Security: read-only root filesystem
         readonly_rootfs: Some(config.read_only),
         // Security: network isolation
@@ -653,6 +879,7 @@ async fn exec_in_native_docker(
             Some(env_vec)
         },
         user: if user.is_empty() { None } else { Some(user) },
+        volumes,
         host_config: Some(host_config),
         attach_stdout: Some(true),
         attach_stderr: Some(true),
@@ -680,6 +907,29 @@ async fn exec_in_native_docker(
         .map_err(|e| anyhow::anyhow!("Failed to create container: {}", e))?;
 
     let container_id = container.id.clone();
+
+    if let NativeWorkspaceSource::Archive(archive_path) = workspace {
+        if let Err(error) = upload_workspace_archive(
+            &docker,
+            &container_id,
+            archive_path,
+            timeout_secs,
+            cancellation_token.as_ref(),
+        )
+        .await
+        {
+            if let Err(cleanup_error) = cleanup_container(&docker, &container_id).await {
+                app_warn!(
+                    "sandbox",
+                    "docker",
+                    "Failed to cleanup container {} after workspace upload failure: {}",
+                    crate::truncate_utf8(&container_id, 12),
+                    cleanup_error
+                );
+            }
+            return Err(error);
+        }
+    }
 
     // Start container
     if let Err(e) = docker.start_container(&container_id, None).await {
@@ -747,8 +997,23 @@ async fn exec_in_native_docker(
         }
     };
 
-    // Collect logs
-    let (stdout, stderr) = collect_logs(&docker, &container_id).await?;
+    // Collect logs. A log-driver/API failure must not strand the container or
+    // the anonymous workspace volume used by containerized isolated mode.
+    let (stdout, stderr) = match collect_logs(&docker, &container_id).await {
+        Ok(logs) => logs,
+        Err(error) => {
+            if let Err(cleanup_error) = cleanup_container(&docker, &container_id).await {
+                app_warn!(
+                    "sandbox",
+                    "docker",
+                    "Failed to cleanup container {} after log collection failure: {}",
+                    crate::truncate_utf8(&container_id, 12),
+                    cleanup_error
+                );
+            }
+            return Err(error);
+        }
+    };
 
     // Cleanup container
     if let Err(e) = cleanup_container(&docker, &container_id).await {
@@ -1100,6 +1365,12 @@ pub async fn exec_in_sandbox_mode(
     cancellation_token: Option<CancellationToken>,
     mode: crate::permission::SandboxMode,
 ) -> Result<SandboxResult> {
+    if deployment_is_docker() && !container_sandbox_mode_supported(mode) {
+        anyhow::bail!(
+            "SandboxUnavailable: container deployments currently support only isolated sandbox mode; '{}' requires a host bind mount and is rejected to prevent container-path/host-path confusion",
+            mode.as_str()
+        );
+    }
     if mode != crate::permission::SandboxMode::Isolated {
         return exec_in_sandbox(command, cwd, env, config, timeout_secs, cancellation_token).await;
     }
@@ -1112,6 +1383,11 @@ pub async fn exec_in_sandbox_mode(
         )
     })?;
     validate_bind_mount(&source)?;
+    if deployment_is_docker() {
+        validate_container_isolated_source(&source)?;
+    }
+    let preparation_deadline =
+        (timeout_secs > 0).then(|| Instant::now() + Duration::from_secs(timeout_secs));
     let temp = tempfile::Builder::new()
         .prefix("hope-agent-sandbox-isolated-")
         .tempdir()
@@ -1119,7 +1395,7 @@ pub async fn exec_in_sandbox_mode(
     prepare_isolated_workspace(
         source.clone(),
         temp.path().to_path_buf(),
-        timeout_secs,
+        preparation_deadline,
         cancellation_token.clone(),
     )
     .await
@@ -1131,6 +1407,30 @@ pub async fn exec_in_sandbox_mode(
         )
     })?;
     let isolated_cwd = temp.path().to_string_lossy().to_string();
+    if deployment_is_docker() {
+        let archive_path = tempfile::Builder::new()
+            .prefix("hope-agent-sandbox-isolated-")
+            .suffix(".tar")
+            .tempfile()
+            .map_err(|e| anyhow::anyhow!("Failed to create isolated workspace archive: {e}"))?
+            .into_temp_path();
+        create_workspace_archive(
+            temp.path().to_path_buf(),
+            archive_path.to_path_buf(),
+            preparation_deadline,
+            cancellation_token.clone(),
+        )
+        .await?;
+        return exec_in_native_docker_archive(
+            command,
+            archive_path.as_ref(),
+            env,
+            config,
+            timeout_secs,
+            cancellation_token,
+        )
+        .await;
+    }
     exec_in_sandbox(
         command,
         &isolated_cwd,
@@ -1142,16 +1442,148 @@ pub async fn exec_in_sandbox_mode(
     .await
 }
 
+async fn create_workspace_archive(
+    source: PathBuf,
+    destination: PathBuf,
+    deadline: Option<Instant>,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        write_workspace_archive(&source, &destination, deadline, cancellation_token)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Isolated workspace archive task panicked: {e}"))?
+}
+
+fn check_isolated_archive_guard(
+    deadline: Option<Instant>,
+    cancellation_token: Option<&CancellationToken>,
+) -> Result<()> {
+    if cancellation_token.is_some_and(CancellationToken::is_cancelled) {
+        anyhow::bail!("isolated sandbox archive preparation cancelled");
+    }
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        anyhow::bail!("isolated sandbox archive preparation timed out");
+    }
+    Ok(())
+}
+
+struct GuardedArchiveReader<'a> {
+    file: File,
+    deadline: Option<Instant>,
+    cancellation_token: Option<&'a CancellationToken>,
+}
+
+impl Read for GuardedArchiveReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        check_isolated_archive_guard(self.deadline, self.cancellation_token)
+            .map_err(|error| std::io::Error::new(ErrorKind::Interrupted, error.to_string()))?;
+        self.file.read(buffer)
+    }
+}
+
+fn write_workspace_archive(
+    source: &Path,
+    destination: &Path,
+    deadline: Option<Instant>,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<()> {
+    check_isolated_archive_guard(deadline, cancellation_token.as_ref())?;
+    let file = File::create(destination)
+        .map_err(|e| anyhow::anyhow!("Failed to create isolated workspace archive: {e}"))?;
+    let mut archive = tar::Builder::new(file);
+    archive.follow_symlinks(false);
+
+    let walker = WalkBuilder::new(source)
+        .hidden(false)
+        .ignore(false)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .parents(false)
+        .follow_links(false)
+        .build();
+    for entry in walker {
+        check_isolated_archive_guard(deadline, cancellation_token.as_ref())?;
+        let entry = entry.map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to walk isolated workspace archive source '{}': {e}",
+                source.display()
+            )
+        })?;
+        let path = entry.path();
+        let relative = path.strip_prefix(source).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to make isolated archive path '{}' relative: {e}",
+                path.display()
+            )
+        })?;
+        let archive_path = if relative.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            relative
+        };
+        let metadata = std::fs::symlink_metadata(path).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to inspect isolated archive entry '{}': {e}",
+                path.display()
+            )
+        })?;
+        let file_type = metadata.file_type();
+        if file_type.is_symlink() || (!file_type.is_dir() && !file_type.is_file()) {
+            continue;
+        }
+
+        let mut header = tar::Header::new_gnu();
+        header.set_metadata(&metadata);
+        if file_type.is_dir() {
+            archive
+                .append_data(&mut header, archive_path, std::io::empty())
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to pack isolated workspace directory '{}': {e}",
+                        relative.display()
+                    )
+                })?;
+        } else {
+            let file = File::open(path).map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to open isolated archive entry '{}': {e}",
+                    path.display()
+                )
+            })?;
+            let mut reader = GuardedArchiveReader {
+                file,
+                deadline,
+                cancellation_token: cancellation_token.as_ref(),
+            };
+            archive
+                .append_data(&mut header, archive_path, &mut reader)
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to pack isolated workspace file '{}': {e}",
+                        relative.display()
+                    )
+                })?;
+        }
+    }
+    check_isolated_archive_guard(deadline, cancellation_token.as_ref())?;
+    archive
+        .finish()
+        .map_err(|e| anyhow::anyhow!("Failed to finish isolated workspace archive: {e}"))?;
+    Ok(())
+}
+
 async fn prepare_isolated_workspace(
     source: PathBuf,
     destination: PathBuf,
-    timeout_secs: u64,
+    deadline: Option<Instant>,
     cancellation_token: Option<CancellationToken>,
 ) -> Result<()> {
     let limits = IsolatedCopyLimits {
         max_bytes: ISOLATED_COPY_MAX_BYTES,
         max_entries: ISOLATED_COPY_MAX_ENTRIES,
-        deadline: (timeout_secs > 0).then(|| Instant::now() + Duration::from_secs(timeout_secs)),
+        deadline,
         cancellation_token,
     };
 
@@ -1654,23 +2086,33 @@ pub struct DockerStatus {
     pub wsl_distribution_installed: Option<bool>,
     #[serde(default)]
     pub wsl_docker_installed: Option<bool>,
+    #[serde(default)]
+    pub connection_error: Option<DockerConnectionErrorKind>,
+    #[serde(default)]
+    pub containerized: bool,
+    #[serde(default)]
+    pub isolated_mode_only: bool,
 }
 
 pub async fn check_sandbox_available() -> DockerStatus {
-    let (native_cli_installed, native_daemon_running) =
-        tokio::join!(native_docker_cli_installed(), check_docker_available());
+    let (native_cli_installed, native) =
+        tokio::join!(native_docker_cli_installed(), native_docker_probe());
     // Do not wake a stopped WSL VM merely to enrich status when the preferred
     // native backend is already healthy. WSL probing is the Windows fallback.
-    let wsl = if native_daemon_running {
+    let wsl = if native.daemon_running {
         None
     } else {
         Some(wsl_docker_probe().await)
     };
-    let backend = if native_daemon_running {
+    let backend = if native.daemon_running {
         Some(DockerBackend::Native)
     } else if wsl.as_ref().is_some_and(|probe| probe.daemon_running) {
         Some(DockerBackend::Wsl)
-    } else if native_cli_installed {
+    } else if native_cli_installed
+        || native
+            .connection_error
+            .is_some_and(|kind| !matches!(kind, DockerConnectionErrorKind::SocketMissing))
+    {
         Some(DockerBackend::Native)
     } else if wsl.as_ref().is_some_and(|probe| probe.docker_installed) {
         Some(DockerBackend::Wsl)
@@ -1679,15 +2121,24 @@ pub async fn check_sandbox_available() -> DockerStatus {
     };
     let wsl_daemon_running = wsl.as_ref().is_some_and(|probe| probe.daemon_running);
     let wsl_docker_installed = wsl.as_ref().is_some_and(|probe| probe.docker_installed);
+    let running = native.daemon_running || wsl_daemon_running;
+    let native_detected = native.daemon_running
+        || native
+            .connection_error
+            .is_some_and(|kind| !matches!(kind, DockerConnectionErrorKind::SocketMissing));
+    let containerized = deployment_is_docker();
 
     DockerStatus {
-        installed: native_cli_installed || native_daemon_running || wsl_docker_installed,
-        running: native_daemon_running || wsl_daemon_running,
+        installed: native_cli_installed || native_detected || wsl_docker_installed,
+        running,
         host_os: host_os().to_string(),
         backend,
         wsl_installed: wsl.as_ref().map(|probe| probe.wsl_installed),
         wsl_distribution_installed: wsl.as_ref().map(|probe| probe.distribution_installed),
         wsl_docker_installed: wsl.as_ref().map(|probe| probe.docker_installed),
+        connection_error: (!running).then_some(native.connection_error).flatten(),
+        containerized,
+        isolated_mode_only: containerized,
     }
 }
 
@@ -1696,7 +2147,18 @@ pub async fn ensure_sandbox_available() -> Result<()> {
     if status.installed && status.running {
         return Ok(());
     }
-    let reason = if !status.installed
+    let reason = if status.connection_error == Some(DockerConnectionErrorKind::PermissionDenied) {
+        "Permission denied while connecting to Docker. Grant the Hope Agent process access to the Docker socket without making the socket world-writable.".to_string()
+    } else if status.connection_error == Some(DockerConnectionErrorKind::SocketMissing)
+        && status.containerized
+    {
+        "The Docker socket is not mounted into the Hope Agent container. Container deployments require an explicit, trusted Docker socket mount for isolated sandbox mode.".to_string()
+    } else if status.connection_error == Some(DockerConnectionErrorKind::DaemonUnreachable) {
+        "The Docker endpoint was found but its daemon is unreachable. Start Docker and retry."
+            .to_string()
+    } else if status.connection_error == Some(DockerConnectionErrorKind::ClientError) {
+        "The Docker client could not connect to the configured endpoint. Check the local Docker endpoint configuration and retry.".to_string()
+    } else if !status.installed
         && status.host_os == "windows"
         && status.wsl_distribution_installed == Some(true)
         && status.wsl_docker_installed != Some(true)
@@ -1718,11 +2180,29 @@ pub async fn ensure_sandbox_available() -> Result<()> {
     Err(anyhow::anyhow!("SandboxUnavailable: {}", reason))
 }
 
+pub async fn ensure_sandbox_available_for_mode(mode: crate::permission::SandboxMode) -> Result<()> {
+    ensure_sandbox_available().await?;
+    if deployment_is_docker() && !container_sandbox_mode_supported(mode) {
+        anyhow::bail!(
+            "SandboxUnavailable: container deployments currently support only isolated sandbox mode; '{}' requires a host bind mount and is rejected to prevent container-path/host-path confusion",
+            mode.as_str()
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
-mod wsl_security_tests {
+mod sandbox_tests {
     use super::{
-        normalize_local_docker_endpoint, validate_wsl_bind_mount, validate_wsl_docker_socket_mount,
+        container_sandbox_mode_supported, docker_connection_error_from_io_kind,
+        normalize_local_docker_endpoint, validate_container_isolated_source_against,
+        validate_wsl_bind_mount, validate_wsl_docker_socket_mount, write_workspace_archive,
+        DockerBackend, DockerConnectionErrorKind, DockerStatus,
     };
+    use crate::permission::SandboxMode;
+    use std::fs;
+    use std::io::ErrorKind;
+    use std::time::Instant;
 
     #[test]
     fn wsl_mount_validation_blocks_linux_sensitive_paths() {
@@ -1797,5 +2277,140 @@ mod wsl_security_tests {
         assert!(validate_wsl_docker_socket_mount("/home/user/project", socket_path).is_ok());
         assert!(validate_wsl_docker_socket_mount("/run/user/1001/project", socket_path).is_ok());
         assert!(validate_wsl_docker_socket_mount("/run", "/run/docker.sock").is_err());
+    }
+
+    #[test]
+    fn docker_connection_io_errors_have_stable_categories() {
+        assert_eq!(
+            docker_connection_error_from_io_kind(ErrorKind::NotFound),
+            DockerConnectionErrorKind::SocketMissing
+        );
+        assert_eq!(
+            docker_connection_error_from_io_kind(ErrorKind::PermissionDenied),
+            DockerConnectionErrorKind::PermissionDenied
+        );
+        assert_eq!(
+            docker_connection_error_from_io_kind(ErrorKind::ConnectionRefused),
+            DockerConnectionErrorKind::DaemonUnreachable
+        );
+        assert_eq!(
+            docker_connection_error_from_io_kind(ErrorKind::InvalidInput),
+            DockerConnectionErrorKind::ClientError
+        );
+    }
+
+    #[test]
+    fn container_deployment_supports_only_isolated_mode() {
+        for mode in [
+            SandboxMode::Off,
+            SandboxMode::Standard,
+            SandboxMode::Workspace,
+            SandboxMode::Trusted,
+        ] {
+            assert!(!container_sandbox_mode_supported(mode));
+        }
+        assert!(container_sandbox_mode_supported(SandboxMode::Isolated));
+    }
+
+    #[test]
+    fn container_archive_source_rejects_data_root_and_credentials() {
+        let base = tempfile::tempdir().expect("base tempdir");
+        let data_root_path = base.path().join("state");
+        fs::create_dir_all(&data_root_path).expect("data root directory");
+        let data_root = data_root_path.canonicalize().expect("canonical data root");
+        let data_root_parent = base
+            .path()
+            .canonicalize()
+            .expect("canonical data root parent");
+        let credentials = data_root.join("credentials");
+        let workspace = data_root.join("projects/demo/workspace");
+        fs::create_dir_all(&credentials).expect("credentials directory");
+        fs::create_dir_all(&workspace).expect("workspace directory");
+
+        assert!(validate_container_isolated_source_against(&data_root, &data_root).is_err());
+        assert!(validate_container_isolated_source_against(&data_root_parent, &data_root).is_err());
+        assert!(validate_container_isolated_source_against(&credentials, &data_root).is_err());
+        assert!(validate_container_isolated_source_against(&workspace, &data_root).is_ok());
+    }
+
+    #[test]
+    fn workspace_archive_keeps_relative_hidden_and_nested_files() {
+        let source = tempfile::tempdir().expect("source tempdir");
+        fs::write(source.path().join(".env.example"), "safe=true\n").expect("hidden file");
+        fs::create_dir_all(source.path().join("src")).expect("source directory");
+        fs::write(source.path().join("src/main.rs"), "fn main() {}\n").expect("source file");
+        let archive_file = tempfile::NamedTempFile::new().expect("archive tempfile");
+        write_workspace_archive(source.path(), archive_file.path(), None, None)
+            .expect("write archive");
+
+        let file = fs::File::open(archive_file.path()).expect("open archive");
+        let mut archive = tar::Archive::new(file);
+        let paths = archive
+            .entries()
+            .expect("archive entries")
+            .map(|entry| {
+                entry
+                    .expect("archive entry")
+                    .path()
+                    .expect("archive path")
+                    .into_owned()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(paths.iter().any(|path| path.ends_with(".env.example")));
+        assert!(paths.iter().any(|path| path.ends_with("src/main.rs")));
+        assert!(paths.iter().all(|path| !path.is_absolute()));
+    }
+
+    #[test]
+    fn workspace_archive_honors_cancellation_and_deadline() {
+        let source = tempfile::tempdir().expect("source tempdir");
+        fs::write(source.path().join("large.bin"), vec![0_u8; 1024 * 1024]).expect("source file");
+
+        let cancelled_archive = tempfile::NamedTempFile::new().expect("cancelled archive");
+        let cancellation_token = tokio_util::sync::CancellationToken::new();
+        cancellation_token.cancel();
+        let cancelled = write_workspace_archive(
+            source.path(),
+            cancelled_archive.path(),
+            None,
+            Some(cancellation_token),
+        )
+        .expect_err("cancelled archive should fail");
+        assert!(cancelled
+            .to_string()
+            .contains("archive preparation cancelled"));
+
+        let timed_out_archive = tempfile::NamedTempFile::new().expect("timed out archive");
+        let timed_out = write_workspace_archive(
+            source.path(),
+            timed_out_archive.path(),
+            Some(Instant::now()),
+            None,
+        )
+        .expect_err("timed out archive should fail");
+        assert!(timed_out
+            .to_string()
+            .contains("archive preparation timed out"));
+    }
+
+    #[test]
+    fn docker_status_serializes_structured_diagnostics() {
+        let status = DockerStatus {
+            installed: true,
+            running: false,
+            host_os: "linux".to_string(),
+            backend: Some(DockerBackend::Native),
+            wsl_installed: None,
+            wsl_distribution_installed: None,
+            wsl_docker_installed: None,
+            connection_error: Some(DockerConnectionErrorKind::PermissionDenied),
+            containerized: true,
+            isolated_mode_only: true,
+        };
+        let value = serde_json::to_value(status).expect("serialize Docker status");
+        assert_eq!(value["connectionError"], "permission_denied");
+        assert_eq!(value["containerized"], true);
+        assert_eq!(value["isolatedModeOnly"], true);
     }
 }
