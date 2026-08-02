@@ -3,8 +3,9 @@ import { getTransport, useTransport } from "@/lib/transport-provider"
 import {
   activateCurrentHttpOwnerToken,
   confirmTransportChange,
-  switchToRemote,
+  prepareRemoteTransport,
   switchToEmbedded,
+  type PreparedRemoteTransport,
 } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -215,6 +216,7 @@ export default function ServerPanel() {
     if (!confirmTransportChange()) return
     setSaving(true)
     setSaveError("")
+    let preparedRemote: PreparedRemoteTransport | null = null
     try {
       const embeddedApiKey = serializeOptionalSecret(
         config.embeddedApiKey,
@@ -265,9 +267,19 @@ export default function ServerPanel() {
         await activateCurrentHttpOwnerToken(embeddedApiKey)
       }
 
+      // Validate the exact destination credential before persisting remote
+      // connection preferences. The provisional client stays unpublished so
+      // all saves still go through the currently active transport.
+      if (config.serverMode === "remote" && config.remoteServerUrl) {
+        preparedRemote = await prepareRemoteTransport(
+          config.remoteServerUrl.replace(/\/+$/, ""),
+          effectiveRemoteApiKey,
+        )
+      }
+
       // Persist connection preferences only after the new server credential
-      // is active locally. A failed server update must not leave user config
-      // pointing at a token the server never accepted.
+      // is active locally and the remote destination has accepted it. A failed
+      // validation must leave durable mode, URL, and credential unchanged.
       const full = await getTransport().call<Record<string, unknown>>("get_user_config")
       await getTransport().call("save_user_config", {
         config: {
@@ -280,11 +292,8 @@ export default function ServerPanel() {
 
       // Switch transport based on mode
       if (config.serverMode === "remote" && config.remoteServerUrl) {
-        await switchToRemote(
-          config.remoteServerUrl.replace(/\/+$/, ""),
-          effectiveRemoteApiKey,
-          { dirtyConfirmed: true },
-        )
+        preparedRemote?.activate()
+        preparedRemote = null
       } else {
         switchToEmbedded({ dirtyConfirmed: true })
       }
@@ -319,6 +328,7 @@ export default function ServerPanel() {
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
+      preparedRemote?.dispose()
       logger.error("settings", "ServerPanel::save", "Failed to save server config", e)
       setSaveError(e instanceof Error ? e.message : t("common.saveFailed"))
       setSaveStatus("failed")

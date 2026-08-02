@@ -53,3 +53,54 @@ test("cross-origin web authentication distinguishes a rejected token from an out
     "network unavailable",
   )
 })
+
+test("prepared remote stays inactive until durable settings can be saved", async () => {
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        resourceTicket: "resource-ticket",
+        eventTicket: "event-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  const provider = await import("./transport-provider")
+  const current = provider.getTransport()
+  const revision = provider.getTransportRevision()
+
+  const prepared = await provider.prepareRemoteTransport(
+    "https://remote.example",
+    "owner-secret",
+  )
+  expect(provider.getTransport()).toBe(current)
+  expect(provider.getTransportRevision()).toBe(revision)
+
+  prepared.activate()
+  expect(provider.getTransport()).not.toBe(current)
+  expect(provider.getTransportRevision()).toBeGreaterThan(revision)
+  provider.switchToEmbedded({ dirtyConfirmed: true })
+})
+
+test("failed provisional authentication preserves the active transport", async () => {
+  fetchMock.mockResolvedValueOnce(new Response("unauthorized", { status: 401 }))
+  const provider = await import("./transport-provider")
+  const current = provider.getTransport()
+
+  await expect(
+    provider.prepareRemoteTransport("https://remote.example", "wrong-secret"),
+  ).rejects.toThrow()
+  expect(provider.getTransport()).toBe(current)
+})
+
+test("uncredentialed provisional connection still validates reachability", async () => {
+  fetchMock.mockRejectedValueOnce(new TypeError("network unavailable"))
+  const provider = await import("./transport-provider")
+  const current = provider.getTransport()
+
+  await expect(
+    provider.prepareRemoteTransport("https://remote.example", null),
+  ).rejects.toThrow("network unavailable")
+  expect(provider.getTransport()).toBe(current)
+})

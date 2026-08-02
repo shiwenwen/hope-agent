@@ -160,6 +160,66 @@ export function setTransport(transport: Transport): void {
   emitTransportChanged();
 }
 
+export interface PreparedRemoteTransport {
+  /** Publish the already-validated client as the application singleton. */
+  activate(): void;
+  /** Erase provisional credentials when persistence or another setup step fails. */
+  dispose(): void;
+}
+
+/**
+ * Validate a provisional remote client without changing the active singleton.
+ * Callers can safely persist connection preferences through the current
+ * transport, then publish this exact authenticated client with `activate()`.
+ */
+export async function prepareRemoteTransport(
+  baseUrl: string,
+  apiKey?: string | null,
+): Promise<PreparedRemoteTransport> {
+  let published = false;
+  const next = new HttpTransport(baseUrl, apiKey, () => {
+    if (published) emitTransportChanged();
+  });
+  try {
+    if (apiKey) {
+      await next.initializeRemoteAccess(false);
+    } else {
+      const normalizedBase = baseUrl.replace(/\/+$/, "");
+      const response = await fetch(`${normalizedBase}/api/auth/status`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error(`Remote connection failed (${response.status})`);
+      const status = (await response.json()) as {
+        authRequired: boolean;
+        authenticated: boolean;
+      };
+      if (status.authRequired && !status.authenticated) {
+        throw new RemoteAuthenticationError(401);
+      }
+    }
+  } catch (error) {
+    next.dispose();
+    throw error;
+  }
+
+  let available = true;
+  return {
+    activate() {
+      if (!available) throw new Error("Prepared remote transport is no longer available");
+      available = false;
+      published = true;
+      if (instance instanceof HttpTransport) instance.dispose();
+      instance = next;
+      emitTransportChanged();
+    },
+    dispose() {
+      if (!available) return;
+      available = false;
+      next.dispose();
+    },
+  };
+}
+
 /**
  * Switch to a remote HTTP transport with the given base URL and optional API key.
  * Replaces the current singleton so all subsequent calls go to the remote server.
@@ -170,18 +230,8 @@ export async function switchToRemote(
   options?: { dirtyConfirmed?: boolean },
 ): Promise<boolean> {
   if (!options?.dirtyConfirmed && !confirmTransportChange()) return false;
-  const next = new HttpTransport(baseUrl, apiKey, emitTransportChanged);
-  try {
-    if (apiKey) await next.initializeRemoteAccess(false);
-  } catch (error) {
-    // A provisional connection must not clear credentials or open the login
-    // dialog for the still-active transport when the new URL/key is wrong.
-    next.dispose();
-    throw error;
-  }
-  if (instance instanceof HttpTransport) instance.dispose();
-  instance = next;
-  emitTransportChanged();
+  const prepared = await prepareRemoteTransport(baseUrl, apiKey);
+  prepared.activate();
   return true;
 }
 
