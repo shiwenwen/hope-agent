@@ -32,8 +32,9 @@ import {
 import AllowlistTagInput from "./AllowlistTagInput"
 import WeChatConnectSection from "./WeChatConnectSection"
 import TelegramGroupChannelConfig from "./TelegramGroupConfig"
+import TelegramConnectionFields from "./TelegramConnectionFields"
 import SaveErrorBanner from "./SaveErrorBanner"
-import { defaultWeChatLabel, parseChannelSaveError } from "./utils"
+import { defaultWeChatLabel, parseChannelSaveError, withTelegramApiRoot } from "./utils"
 import type {
   AgentInfo,
   ChannelPluginInfo,
@@ -70,6 +71,7 @@ export default function AddAccountDialog({
     }
   }, [open, initialChannelId])
   const [token, setToken] = useState("")
+  const [telegramApiRoot, setTelegramApiRoot] = useState("")
   // Slack-specific
   const [slackBotToken, setSlackBotToken] = useState("")
   const [slackAppToken, setSlackAppToken] = useState("")
@@ -166,6 +168,19 @@ export default function AddAccountDialog({
     }
   }
 
+  const buildSettings = (): Record<string, unknown> => {
+    if (channelId === "telegram") {
+      return withTelegramApiRoot({}, telegramApiRoot)
+    }
+    if (channelId === "wechat") {
+      return {
+        transport: "longpoll",
+        baseUrl: wechatConnection?.baseUrl ?? "",
+      }
+    }
+    return {}
+  }
+
   const canValidate = () => {
     switch (channelId) {
       case "slack": return !!slackBotToken.trim()
@@ -208,6 +223,7 @@ export default function AddAccountDialog({
       const botName = await getTransport().call<string>("channel_validate_credentials", {
         channelId,
         credentials: buildCredentials(),
+        settings: buildSettings(),
       })
       setValidationResult(botName)
       if (!label.trim()) {
@@ -239,12 +255,7 @@ export default function AddAccountDialog({
     try {
       const credentials = buildCredentials()
 
-      const settings = channelId === "wechat"
-        ? {
-            transport: "longpoll",
-            baseUrl: wechatConnection?.baseUrl ?? "",
-          }
-        : {}
+      const settings = buildSettings()
 
       await getTransport().call("channel_add_account", {
         channelId,
@@ -267,6 +278,7 @@ export default function AddAccountDialog({
       setChannelId("")
       setLabel("")
       setToken("")
+      setTelegramApiRoot("")
       setSlackBotToken("")
       setSlackAppToken("")
       setFeishuAppId("")
@@ -348,57 +360,26 @@ export default function AddAccountDialog({
             </DialogHeader>
 
             <div className="space-y-4">
-              {/* Bot Token (Telegram-specific) */}
+              {/* Telegram token + optional Bot API reverse proxy */}
               {channelId === "telegram" && (
-                <div className="space-y-2">
-                  <Label>{t("channels.botToken")}</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="password"
-                      placeholder="123456:ABC-DEF..."
-                      value={token}
-                      onChange={(e) => {
-                        setToken(e.target.value)
-                        setValidationResult(null)
-                        setValidationError(null)
-                      }}
-                      onBlur={() => {
-                        if (token.trim() && !validationResult && !validating) {
-                          handleValidate()
-                        }
-                      }}
-                      className="flex-1"
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleValidate}
-                      disabled={!token.trim() || validating}
-                      className="shrink-0"
-                    >
-                      {validating ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        t("channels.testConnection")
-                      )}
-                    </Button>
-                  </div>
-                  {validationResult && (
-                    <div className="flex items-center gap-1 text-sm text-green-600">
-                      <Check className="h-3.5 w-3.5" />
-                      {validationResult}
-                    </div>
-                  )}
-                  {validationError && (
-                    <div className="flex items-center gap-1 text-sm text-destructive">
-                      <AlertCircle className="h-3.5 w-3.5" />
-                      {validationError}
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    {t("channels.telegramTokenHint")}
-                  </p>
-                </div>
+                <TelegramConnectionFields
+                  token={token}
+                  apiRoot={telegramApiRoot}
+                  validating={validating}
+                  validationResult={validationResult}
+                  validationError={validationError}
+                  onTokenChange={(value) => {
+                    setToken(value)
+                    setValidationResult(null)
+                    setValidationError(null)
+                  }}
+                  onApiRootChange={(value) => {
+                    setTelegramApiRoot(value)
+                    setValidationResult(null)
+                    setValidationError(null)
+                  }}
+                  onValidate={handleValidate}
+                />
               )}
 
               {/* Discord: single Bot Token */}

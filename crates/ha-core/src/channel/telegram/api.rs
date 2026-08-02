@@ -1,5 +1,5 @@
 use crate::channel::types::InlineButton;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use teloxide::adaptors::{throttle::Limits, Throttle};
@@ -15,8 +15,6 @@ type ThrottledBot = Throttle<Bot>;
 /// Thin wrapper around teloxide's `Bot` to isolate framework details.
 pub struct TelegramBotApi {
     bot: ThrottledBot,
-    /// Stored proxy URL for raw HTTP requests (sendMessageDraft etc.)
-    proxy_url: Option<String>,
     /// Shared `reqwest::Client` clone used for inbound media downloads.
     /// Cloning is cheap (`Arc`-internal); we keep our own handle so
     /// [`download_file_to_disk`] can hit the Telegram file CDN with the
@@ -36,45 +34,41 @@ impl TelegramBotApi {
     /// `api_root` 让用户切到自托管 Bot API server（处理 >50MB 文件 / 内网部署）
     /// 或区域反代。设置后所有 send_* / get_* 都走该 base URL（teloxide 内部
     /// `bot.set_api_url(url)`），与官方注释"respects custom apiRoot"对齐。
-    pub fn new(token: &str, proxy_url: Option<&str>, api_root: Option<&str>) -> Self {
+    pub async fn new(token: &str, proxy_url: Option<&str>, api_root: Option<&str>) -> Result<Self> {
+        let api_root = validate_api_root(api_root).await?;
+
         // Build a custom reqwest client with timeouts.
         // connect_timeout: fail fast if the server is unreachable (10s)
         // timeout: overall request timeout, must be longer than long-poll timeout (30s)
         //          to allow the server to hold the connection. Set to 60s.
         let mut client_builder = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(60));
+            .timeout(Duration::from_secs(60))
+            // Telegram's Bot API does not require redirects. Disabling them
+            // prevents a custom reverse proxy from forwarding the bot token in
+            // the request path to a different, unchecked destination.
+            .redirect(reqwest::redirect::Policy::none());
 
         if let Some(proxy) = proxy_url {
-            if let Ok(p) = reqwest::Proxy::all(proxy) {
-                client_builder = client_builder.proxy(p);
-            }
+            let proxy = reqwest::Proxy::all(proxy)
+                .map_err(|_| anyhow::anyhow!("Invalid Telegram proxy URL"))?;
+            client_builder = client_builder.proxy(proxy);
         }
 
         let client = client_builder
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+            .context("Failed to build Telegram HTTP client")?;
         let mut bot = Bot::with_client(token, client.clone());
         if let Some(root) = api_root {
-            match reqwest::Url::parse(root) {
-                Ok(url) => bot = bot.set_api_url(url),
-                Err(e) => app_warn!(
-                    "channel",
-                    "telegram::api",
-                    "Invalid apiRoot '{}', falling back to default api.telegram.org: {}",
-                    crate::truncate_utf8(root, 200),
-                    e
-                ),
-            }
+            bot = bot.set_api_url(root);
         }
         let bot = bot.throttle(Limits::default());
 
-        Self {
+        Ok(Self {
             bot,
-            proxy_url: proxy_url.map(|s| s.to_string()),
             http_client: client,
             draft_preview_enabled: AtomicBool::new(true),
-        }
+        })
     }
 
     /// Get the underlying teloxide Bot reference.
@@ -87,7 +81,7 @@ impl TelegramBotApi {
         self.bot
             .get_me()
             .await
-            .map_err(|e| anyhow::anyhow!("getMe failed: {}", e))
+            .map_err(|e| self.request_error("getMe", e))
     }
 
     /// Send a text message, optionally with inline keyboard buttons.
@@ -116,8 +110,7 @@ impl TelegramBotApi {
             req = req.reply_markup(keyboard);
         }
 
-        req.await
-            .map_err(|e| anyhow::anyhow!("sendMessage failed: {}", e))
+        req.await.map_err(|e| self.request_error("sendMessage", e))
     }
 
     /// Send a text message with optional inline buttons, falling back to plain text if parse mode fails.
@@ -156,7 +149,7 @@ impl TelegramBotApi {
         self.bot
             .send_chat_action(ChatId(chat_id), ChatAction::Typing)
             .await
-            .map_err(|e| anyhow::anyhow!("sendChatAction failed: {}", e))?;
+            .map_err(|e| self.request_error("sendChatAction", e))?;
         Ok(())
     }
 
@@ -175,7 +168,7 @@ impl TelegramBotApi {
             req = req.parse_mode(pm);
         }
         req.await
-            .map_err(|e| anyhow::anyhow!("editMessageText failed: {}", e))?;
+            .map_err(|e| self.request_error("editMessageText", e))?;
         Ok(())
     }
 
@@ -184,7 +177,7 @@ impl TelegramBotApi {
         self.bot
             .delete_message(ChatId(chat_id), MessageId(message_id))
             .await
-            .map_err(|e| anyhow::anyhow!("deleteMessage failed: {}", e))?;
+            .map_err(|e| self.request_error("deleteMessage", e))?;
         Ok(())
     }
 
@@ -216,29 +209,21 @@ impl TelegramBotApi {
 
         let body = build_send_message_draft_body(chat_id, text, draft_id, parse_mode, thread_id);
 
-        // Build reqwest client with proxy if configured (same proxy as the Bot)
-        let client = if let Some(ref proxy) = self.proxy_url {
-            reqwest::Client::builder()
-                .proxy(
-                    reqwest::Proxy::all(proxy)
-                        .map_err(|e| anyhow::anyhow!("Invalid proxy URL: {}", e))?,
-                )
-                .build()
-                .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?
-        } else {
-            reqwest::Client::new()
-        };
-        let resp = client
+        // Reuse the Bot's client so proxy, timeouts, TLS roots, and the
+        // no-redirect policy stay identical across SDK and raw endpoints.
+        let resp = self
+            .http_client
             .post(&url)
             .json(&body)
             .send()
             .await
-            .map_err(|e| anyhow::anyhow!("sendMessageDraft request failed: {}", e))?;
+            .map_err(|e| self.request_error("sendMessageDraft", e))?;
 
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            let body = crate::truncate_utf8(&text, 200);
+            let redacted = redact_telegram_error(&text, self.bot.inner().token());
+            let body = crate::truncate_utf8(&redacted, 200);
             if send_message_draft_soft_degrades(status) {
                 self.draft_preview_enabled.store(false, Ordering::Relaxed);
                 app_warn!(
@@ -283,8 +268,7 @@ impl TelegramBotApi {
             req = req.allowed_updates(updates);
         }
 
-        req.await
-            .map_err(|e| anyhow::anyhow!("getUpdates failed: {}", e))
+        req.await.map_err(|e| self.request_error("getUpdates", e))
     }
 
     /// POST answerCallbackQuery — acknowledge a callback query (dismisses loading spinner).
@@ -300,7 +284,7 @@ impl TelegramBotApi {
             req = req.text(t);
         }
         req.await
-            .map_err(|e| anyhow::anyhow!("answerCallbackQuery failed: {}", e))?;
+            .map_err(|e| self.request_error("answerCallbackQuery", e))?;
         Ok(())
     }
 
@@ -309,7 +293,7 @@ impl TelegramBotApi {
         self.bot
             .edit_message_reply_markup(ChatId(chat_id), MessageId(message_id))
             .await
-            .map_err(|e| anyhow::anyhow!("editMessageReplyMarkup failed: {}", e))?;
+            .map_err(|e| self.request_error("editMessageReplyMarkup", e))?;
         Ok(())
     }
 
@@ -318,7 +302,7 @@ impl TelegramBotApi {
         self.bot
             .set_my_commands(commands)
             .await
-            .map_err(|e| anyhow::anyhow!("setMyCommands failed: {}", e))?;
+            .map_err(|e| self.request_error("setMyCommands", e))?;
         Ok(())
     }
 
@@ -328,7 +312,7 @@ impl TelegramBotApi {
         self.bot
             .get_file(FileId(file_id.to_string()))
             .await
-            .map_err(|e| anyhow::anyhow!("getFile failed: {}", e))
+            .map_err(|e| self.request_error("getFile", e))
     }
 
     /// Download a file by `file_id` to `dest`, enforcing `cap_bytes`.
@@ -362,7 +346,9 @@ impl TelegramBotApi {
         let token = self.bot.inner().token();
         let url = format!("{}/file/bot{}/{}", api_url, token, file.path);
         let builder = self.http_client.get(&url);
-        crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes).await
+        crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes)
+            .await
+            .map_err(|e| self.request_error("downloadFile", e))
     }
 
     /// Send a photo.
@@ -380,8 +366,7 @@ impl TelegramBotApi {
         if let Some(tid) = thread_id {
             req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
         }
-        req.await
-            .map_err(|e| anyhow::anyhow!("sendPhoto failed: {}", e))
+        req.await.map_err(|e| self.request_error("sendPhoto", e))
     }
 
     /// Send a video.
@@ -399,8 +384,7 @@ impl TelegramBotApi {
         if let Some(tid) = thread_id {
             req = req.message_thread_id(telegram_thread_id(tid));
         }
-        req.await
-            .map_err(|e| anyhow::anyhow!("sendVideo failed: {}", e))
+        req.await.map_err(|e| self.request_error("sendVideo", e))
     }
 
     /// Send an audio file.
@@ -418,8 +402,7 @@ impl TelegramBotApi {
         if let Some(tid) = thread_id {
             req = req.message_thread_id(telegram_thread_id(tid));
         }
-        req.await
-            .map_err(|e| anyhow::anyhow!("sendAudio failed: {}", e))
+        req.await.map_err(|e| self.request_error("sendAudio", e))
     }
 
     /// Send a voice message.
@@ -437,8 +420,7 @@ impl TelegramBotApi {
         if let Some(tid) = thread_id {
             req = req.message_thread_id(telegram_thread_id(tid));
         }
-        req.await
-            .map_err(|e| anyhow::anyhow!("sendVoice failed: {}", e))
+        req.await.map_err(|e| self.request_error("sendVoice", e))
     }
 
     /// Send an animation.
@@ -457,7 +439,7 @@ impl TelegramBotApi {
             req = req.message_thread_id(telegram_thread_id(tid));
         }
         req.await
-            .map_err(|e| anyhow::anyhow!("sendAnimation failed: {}", e))
+            .map_err(|e| self.request_error("sendAnimation", e))
     }
 
     /// Send a sticker. Telegram stickers do not support captions.
@@ -471,8 +453,7 @@ impl TelegramBotApi {
         if let Some(tid) = thread_id {
             req = req.message_thread_id(telegram_thread_id(tid));
         }
-        req.await
-            .map_err(|e| anyhow::anyhow!("sendSticker failed: {}", e))
+        req.await.map_err(|e| self.request_error("sendSticker", e))
     }
 
     /// Send a document (file).
@@ -490,9 +471,77 @@ impl TelegramBotApi {
         if let Some(tid) = thread_id {
             req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
         }
-        req.await
-            .map_err(|e| anyhow::anyhow!("sendDocument failed: {}", e))
+        req.await.map_err(|e| self.request_error("sendDocument", e))
     }
+
+    fn request_error(&self, operation: &str, error: impl std::fmt::Display) -> anyhow::Error {
+        let message = redact_telegram_error(&error.to_string(), self.bot.inner().token());
+        anyhow::anyhow!(
+            "{} failed: {}",
+            operation,
+            crate::truncate_utf8(&message, 1000)
+        )
+    }
+}
+
+/// Parse and normalize a user-supplied Telegram Bot API root without doing
+/// network I/O. A path prefix is allowed for reverse proxies mounted below the
+/// origin; URL credentials, query strings, and fragments are rejected because
+/// the raw draft/file paths cannot preserve them safely or consistently.
+fn parse_api_root(api_root: Option<&str>) -> Result<Option<reqwest::Url>> {
+    let Some(raw) = api_root.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    let url = reqwest::Url::parse(raw).context("Invalid Telegram Bot API base URL")?;
+    if !matches!(url.scheme(), "http" | "https") {
+        anyhow::bail!("Telegram Bot API base URL must use http:// or https://");
+    }
+    if url.cannot_be_a_base() || url.host_str().is_none() {
+        anyhow::bail!("Telegram Bot API base URL must include a valid host");
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        anyhow::bail!("Telegram Bot API base URL must not include credentials");
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        anyhow::bail!("Telegram Bot API base URL must not include a query or fragment");
+    }
+
+    // Canonicalize trailing slashes from the original serialized value. Using
+    // `Url::set_path(url.path())` would double-encode an existing `%xx`
+    // sequence in a valid reverse-proxy path.
+    let normalized = raw.trim_end_matches('/');
+    let normalized =
+        reqwest::Url::parse(normalized).context("Invalid Telegram Bot API base URL")?;
+    Ok(Some(normalized))
+}
+
+async fn validate_api_root(api_root: Option<&str>) -> Result<Option<reqwest::Url>> {
+    let cfg = crate::config::cached_config();
+    validate_api_root_with_policy(api_root, cfg.ssrf.default_policy, &cfg.ssrf.trusted_hosts).await
+}
+
+async fn validate_api_root_with_policy(
+    api_root: Option<&str>,
+    policy: crate::security::ssrf::SsrfPolicy,
+    trusted_hosts: &[String],
+) -> Result<Option<reqwest::Url>> {
+    let Some(parsed) = parse_api_root(api_root)? else {
+        return Ok(None);
+    };
+    let checked = crate::security::ssrf::check_url(parsed.as_str(), policy, trusted_hosts)
+        .await
+        .context("Telegram Bot API base URL blocked")?;
+    Ok(Some(checked))
+}
+
+fn redact_telegram_error(message: &str, token: &str) -> String {
+    let without_token = if token.is_empty() {
+        message.to_string()
+    } else {
+        message.replace(token, "[REDACTED]")
+    };
+    crate::logging::redact_sensitive(&without_token)
 }
 
 fn build_send_message_draft_body(
@@ -567,7 +616,11 @@ fn strip_html_tags(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_send_message_draft_body, send_message_draft_soft_degrades};
+    use super::{
+        build_send_message_draft_body, parse_api_root, redact_telegram_error,
+        send_message_draft_soft_degrades, validate_api_root_with_policy,
+    };
+    use crate::security::ssrf::SsrfPolicy;
     use reqwest::StatusCode;
 
     #[test]
@@ -589,5 +642,63 @@ mod tests {
         assert!(!send_message_draft_soft_degrades(
             StatusCode::INTERNAL_SERVER_ERROR
         ));
+    }
+
+    #[test]
+    fn api_root_normalizes_optional_root_and_keeps_path_prefix() {
+        assert!(parse_api_root(None).unwrap().is_none());
+        assert!(parse_api_root(Some("  ")).unwrap().is_none());
+
+        let root = parse_api_root(Some(" https://tg.example.com/telegram/// "))
+            .unwrap()
+            .unwrap();
+        assert_eq!(root.as_str(), "https://tg.example.com/telegram");
+
+        let encoded = parse_api_root(Some("https://tg.example.com/my%20proxy/"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(encoded.as_str(), "https://tg.example.com/my%20proxy");
+    }
+
+    #[test]
+    fn api_root_rejects_unsafe_or_incompatible_shapes() {
+        for root in [
+            "file:///tmp/telegram",
+            "https://user:pass@tg.example.com",
+            "https://tg.example.com?target=telegram",
+            "https://tg.example.com/#fragment",
+        ] {
+            assert!(parse_api_root(Some(root)).is_err(), "root={root}");
+        }
+    }
+
+    #[test]
+    fn telegram_proxy_accepts_socks_schemes() {
+        assert!(reqwest::Proxy::all("socks5://127.0.0.1:1080").is_ok());
+        assert!(reqwest::Proxy::all("socks5h://proxy.example.com:1080").is_ok());
+    }
+
+    #[test]
+    fn telegram_error_redaction_removes_bot_token_from_url_paths() {
+        let token = "123456:ABC_secret";
+        let raw =
+            format!("error sending request for url (https://tg.example.com/bot{token}/getMe)");
+        let redacted = redact_telegram_error(&raw, token);
+        assert!(!redacted.contains(token));
+        assert!(redacted.contains("bot[REDACTED]/getMe"));
+    }
+
+    #[tokio::test]
+    async fn api_root_ssrf_check_blocks_metadata_even_in_allow_private_mode() {
+        let error = validate_api_root_with_policy(
+            Some("http://169.254.169.254"),
+            SsrfPolicy::AllowPrivate,
+            &[],
+        )
+        .await
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Telegram Bot API base URL blocked"));
     }
 }

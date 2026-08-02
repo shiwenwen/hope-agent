@@ -190,6 +190,20 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Used during account setup to verify the token/API key is valid.
     async fn validate_credentials(&self, credentials: &serde_json::Value) -> Result<String>;
 
+    /// Validate a complete account draft, including channel-specific settings.
+    ///
+    /// Most channels only need credentials, so the default preserves the
+    /// existing contract. Channels whose endpoint lives in `settings` (for
+    /// example Telegram's optional `apiRoot`) override this method so setup
+    /// validation exercises the exact same route as account startup.
+    async fn validate_account_config(
+        &self,
+        credentials: &serde_json::Value,
+        _settings: &serde_json::Value,
+    ) -> Result<String> {
+        self.validate_credentials(credentials).await
+    }
+
     // ── Inbound Materialization ───────────────────────────────────
 
     /// Hydrate any deferred-download attachments on `msg`. Plugins that

@@ -40,6 +40,8 @@ Twelve channels are currently supported:
 
 **Entry point**: Settings → IM Channels → Add account → pick a channel → enter that channel's credentials (for example, a Bot Token for Telegram, which can be verified instantly).
 
+Telegram also accepts an optional **Bot API Base URL**. You can enter the root URL of a trusted HTTPS reverse proxy you operate (for example, `https://tg.example.com`); leave it empty to keep using the official API. Enter only the root—do not append `/bot<TOKEN>/getMe`. The proxy must forward both `/bot…` API requests and `/file/bot…` media downloads. A reverse proxy can see the Bot Token, messages, and media, so do not use an untrusted public proxy.
+
 In the account editor you can configure:
 
 - **Bound Agent** — which Agent this account replies with by default.
