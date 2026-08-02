@@ -28,6 +28,8 @@ import { extractOfficeFileInBrowser } from "./office/browserOfficeExtract"
 import { readResponseArrayBufferWithLimit } from "./readResponseWithLimit"
 
 export interface PreviewSource {
+  /** Credential epoch stamped by remote callers so scoped URLs are reloaded on rotation. */
+  resourceRevision?: number
   /** File name (drives the preview kind + Shiki language). */
   name: string
   /** MIME, when known (attachments). The pane categorizes via `fileKindOf` —

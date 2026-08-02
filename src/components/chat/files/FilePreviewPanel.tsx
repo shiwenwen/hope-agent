@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 
 import { FilePreviewPane } from "@/components/chat/project/file-browser/FilePreviewPane"
-import { useTransport } from "@/lib/transport-provider"
+import { useTransport, useTransportRevision } from "@/lib/transport-provider"
 import type { PreviewSource } from "./previewSource"
 import { fileResourceAdapterFor } from "./fileResourceAdapter"
 import { StagedFilePreviewPane } from "./StagedFilePreviewPane"
@@ -71,16 +71,18 @@ function PersistedFilePreviewPanel({
   onToggleMaximize,
 }: Omit<FilePreviewPanelProps, "target"> & { target: PersistedPreviewTarget | null }) {
   const transport = useTransport()
+  const transportRevision = useTransportRevision()
   const { config: filesystemConfig } = useFilesystemConfig()
   const { run, isLocal, capabilities } = useFileResource(target, { sessionId })
   const source = useMemo<PreviewSource | null>(() => {
     if (!target) return null
-    return fileResourceAdapterFor(target).previewSource(target, {
+    const previewSource = fileResourceAdapterFor(target).previewSource(target, {
       transport,
       sessionId,
       filesystemConfig,
     })
-  }, [target, sessionId, transport, filesystemConfig])
+    return { ...previewSource, resourceRevision: transportRevision }
+  }, [target, sessionId, transport, transportRevision, filesystemConfig])
   const highlightLines =
     target?.kind === "sessionPath" || target?.kind === "workspace"
       ? (target.revealLines ?? null)
