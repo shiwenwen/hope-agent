@@ -1756,7 +1756,6 @@ mod tests {
             "proxy",
             "shortcuts",
             "skills",
-            "server",
             "acp_control",
             "skill_env",
             "security",
