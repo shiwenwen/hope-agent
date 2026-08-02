@@ -149,8 +149,8 @@ pub fn verify_browser_session(owner_token: &str, session: &str, now: u64) -> boo
 }
 
 /// Create a short-lived capability derived from the Owner Token. Unlike the
-/// root credential, these tickets are constrained to one transport surface
-/// (`events` or `resources`) and cannot authorize control-plane APIs.
+/// root credential, these tickets are constrained to one caller-defined
+/// transport/resource scope and cannot authorize control-plane APIs.
 pub fn create_scoped_access_ticket(
     signing_key: &[u8],
     scope: &str,

@@ -248,6 +248,11 @@ fn build_router_with_cors(
             "/auth/transport-tickets",
             post(routes::auth::create_transport_access_tickets),
         )
+        .route(
+            "/auth/preview-resource-ticket",
+            post(routes::auth::create_preview_resource_ticket)
+                .layer(DefaultBodyLimit::max(4 * 1024)),
+        )
         // Sessions
         .route("/sessions", post(routes::sessions::create_session))
         .route("/sessions", get(routes::sessions::list_sessions))

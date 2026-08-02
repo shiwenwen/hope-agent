@@ -454,7 +454,7 @@ export interface Transport {
   listArtifactVersions(id: string): Promise<ArtifactVersionSummary[]>;
   importArtifact(request: ArtifactImportRequest): Promise<ArtifactRecord>;
   /** Resolve the managed Artifact HTML preview without exposing HTTP clients to raw paths. */
-  artifactPreviewUrl(id: string, projectPath?: string | null): string | null;
+  artifactPreviewUrl(id: string, projectPath?: string | null): Promise<string | null>;
   /** Open the managed Artifact using the runtime-appropriate system/browser handler. */
   openArtifact(id: string, projectPath?: string | null): Promise<void>;
   /** Reveal the managed Artifact on runtimes that expose a local file manager. */

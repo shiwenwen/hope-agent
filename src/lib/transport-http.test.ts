@@ -15,27 +15,87 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test("HttpTransport builds remote Artifact previews with a scoped resource ticket", async () => {
-  fetchMock.mockResolvedValue(
+test("HttpTransport builds remote Artifact previews with a project-bound ticket", async () => {
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "resource-ticket",
+          eventTicket: "event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          ticket: "canvas-bound-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+  const transport = new HttpTransport("http://localhost:8420", "secret token")
+  await transport.initializeRemoteAccess()
+  expect(transport.resolveAssetUrl("/srv/canvas/projects/artifact report 1/index.html")).toBeNull()
+
+  await expect(
+    transport.artifactPreviewUrl("artifact report 1", "/srv/private/artifact"),
+  ).resolves.toBe(
+    "http://localhost:8420/api/resource/canvas-bound-ticket/canvas/projects/artifact%20report%201/index.html",
+  )
+  expect(fetchMock.mock.calls[1]).toEqual([
+    "http://localhost:8420/api/auth/preview-resource-ticket",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer secret token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ kind: "canvas_project", projectId: "artifact report 1" }),
+    },
+  ])
+  expect(fetchMock.mock.calls[0]?.[1]).toEqual({
+    method: "POST",
+    headers: { Authorization: "Bearer secret token" },
+  })
+})
+
+test("HttpTransport binds Design previews to the path-derived artifact subtree", async () => {
+  fetchMock.mockResolvedValueOnce(
     new Response(
       JSON.stringify({
         authRequired: true,
-        resourceTicket: "resource-ticket",
-        eventTicket: "event-ticket",
+        ticket: "design-bound-ticket",
         expiresInSecs: 900,
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     ),
   )
-  const transport = new HttpTransport("http://localhost:8420", "secret token")
-  await transport.initializeRemoteAccess()
+  const transport = new HttpTransport("https://agent.example", "owner-token")
 
-  expect(transport.artifactPreviewUrl("artifact/report 1", "/srv/private/artifact")).toBe(
-    "http://localhost:8420/api/resource/resource-ticket/canvas/projects/artifact%2Freport%201/index.html",
+  const projectPath = "/srv/design/projects/project 1/artifacts/artifact 2"
+  await expect(transport.artifactPreviewUrl("artifact 2", projectPath)).resolves.toBe(
+    "https://agent.example/api/resource/design-bound-ticket/design/projects/project%201/artifacts/artifact%202/index.html",
   )
-  expect(fetchMock.mock.lastCall?.[1]).toEqual({
+  await expect(transport.artifactPreviewUrl("artifact 2", projectPath)).resolves.toContain(
+    "design-bound-ticket",
+  )
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(fetchMock).toHaveBeenCalledWith("https://agent.example/api/auth/preview-resource-ticket", {
     method: "POST",
-    headers: { Authorization: "Bearer secret token" },
+    headers: {
+      Authorization: "Bearer owner-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      kind: "design_artifact",
+      projectId: "project 1",
+      artifactId: "artifact 2",
+    }),
   })
 })
 
@@ -298,7 +358,7 @@ test("HttpTransport refreshes the same-origin browser session after token replac
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token: "replacement-secret", remember: true }),
   })
-  expect(transport.artifactPreviewUrl("artifact-1")).toBe(
+  await expect(transport.artifactPreviewUrl("artifact-1")).resolves.toBe(
     "http://localhost:8420/api/canvas/projects/artifact-1/index.html",
   )
 })
@@ -340,13 +400,69 @@ test("HttpTransport ignores scoped tickets minted for a replaced Owner Token", a
   )
   await oldRequest
 
-  expect(transport.artifactPreviewUrl("artifact-1")).toContain("new-resource-ticket")
-  expect(transport.artifactPreviewUrl("artifact-1")).not.toContain("stale-resource-ticket")
+  expect(transport.resolveAssetUrl("/srv/avatars/a.png")).toContain("new-resource-ticket")
+  expect(transport.resolveAssetUrl("/srv/avatars/a.png")).not.toContain("stale-resource-ticket")
   expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
     headers: { Authorization: "Bearer old-owner-token" },
   })
   expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
     headers: { Authorization: "Bearer new-owner-token" },
+  })
+})
+
+test("HttpTransport ignores a preview ticket minted for a replaced Owner Token", async () => {
+  let resolveOldPreview: ((response: Response) => void) | undefined
+  fetchMock
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveOldPreview = resolve
+        }),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "new-resource-ticket",
+          eventTicket: "new-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          ticket: "new-preview-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+  const transport = new HttpTransport("https://agent.example", "old-owner-token")
+  const stalePreview = transport.artifactPreviewUrl("artifact-1")
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+  await transport.activateOwnerToken("new-owner-token")
+  resolveOldPreview?.(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        ticket: "stale-preview-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  await expect(stalePreview).resolves.toBeNull()
+  await expect(transport.artifactPreviewUrl("artifact-1")).resolves.toContain("new-preview-ticket")
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+    headers: expect.objectContaining({ Authorization: "Bearer old-owner-token" }),
+  })
+  expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({
+    headers: expect.objectContaining({ Authorization: "Bearer new-owner-token" }),
   })
 })
 
@@ -385,7 +501,7 @@ test("HttpTransport ignores stale 401 responses after Owner Token replacement", 
   await expect(staleRequest).rejects.toThrow("returned 401")
 
   expect(dispatchEvent).not.toHaveBeenCalled()
-  expect(transport.artifactPreviewUrl("artifact-1")).toContain("new-resource-ticket")
+  expect(transport.resolveAssetUrl("/srv/avatars/a.png")).toContain("new-resource-ticket")
   expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
     headers: { Authorization: "Bearer old-owner-token" },
   })

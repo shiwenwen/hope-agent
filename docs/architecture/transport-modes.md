@@ -151,7 +151,7 @@ HTTP 模式没有 per-call browser Channel，主流式路径就是 EventBus：
 - 断线后只要仍有 listener，就按 1s、2s、4s 递增到 30s 上限的退避策略重连；Owner Token 变更会主动断开既有连接，服务端也会周期复验 Cookie / scope 票据，连接不能无限越过凭据有效期。
 - server 端每个 WebSocket 连接持有独立 broadcast receiver，多客户端互不抢消息。
 - 发送单帧超过 5s 会断开慢客户端；连续 lag 超过阈值会发送 `_lagged` 并最终断开，避免阻塞 EventBus。
-- `chat:stream_delta` 与 `channel:stream_delta` 会在 server 桥接时重写内层 `media_items`，去掉本地绝对路径；同源资源靠 HttpOnly Cookie，跨源资源由 `HttpTransport` 换短时 `resources` scope 前缀或用 Bearer Fetch 转 Blob，根 Token 不进入媒体 URL。
+- `chat:stream_delta` 与 `channel:stream_delta` 会在 server 桥接时重写内层 `media_items`，去掉本地绝对路径；同源资源靠 HttpOnly Cookie，跨源非执行型 UI 资源由 `HttpTransport` 换短时 `resources` scope 前缀或用 Bearer Fetch 转 Blob。可执行 Canvas / Design iframe 必须另换绑定到单个 project / artifact 子树的票据，iframe 泄露自己的 URL 也不能读取其他资源；根 Token 不进入媒体 URL。
 
 Tauri 桌面没有 `/ws/events`，但同一个 EventBus 会在 `src-tauri/src/setup.rs` 中订阅并转成 `app_handle.emit(name, payload)`，所以前端仍用同一个 `transport.listen(eventName, handler)` API。
 

@@ -430,7 +430,7 @@ export class TauriTransport implements Transport {
     return invoke<ArtifactRecord>("import_artifact", { request });
   }
 
-  artifactPreviewUrl(_id: string, projectPath?: string | null): string | null {
+  async artifactPreviewUrl(_id: string, projectPath?: string | null): Promise<string | null> {
     return projectPath ? this.resolveAssetUrl(`${projectPath}/index.html`) : null;
   }
 

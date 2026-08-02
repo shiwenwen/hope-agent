@@ -43,7 +43,7 @@ beforeEach(() => {
   state.revision = 0
   state.artifactPreviewUrl.mockReset()
   state.artifactPreviewUrl.mockImplementation(
-    () => `https://agent.example/api/resource/ticket-${state.revision}/canvas/index.html`,
+    async () => `https://agent.example/api/resource/ticket-${state.revision}/canvas/index.html`,
   )
 })
 

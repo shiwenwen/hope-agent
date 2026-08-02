@@ -1985,6 +1985,15 @@ export class RemoteAuthenticationError extends Error {
   }
 }
 
+type PreviewResourceGrant =
+  | { kind: "canvas_project"; projectId: string }
+  | { kind: "design_artifact"; projectId: string; artifactId: string }
+
+interface CachedPreviewTicket {
+  ticket: string
+  expiresAt: number
+}
+
 // ---------------------------------------------------------------------------
 // HttpTransport
 // ---------------------------------------------------------------------------
@@ -1998,6 +2007,8 @@ export class HttpTransport implements Transport {
   private credentialRevision = 0
   private accessTicketRequest: Promise<void> | null = null
   private accessTicketRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly previewTickets = new Map<string, CachedPreviewTicket>()
+  private readonly previewTicketRequests = new Map<string, Promise<string | null>>()
   private readonly onAccessTicketRefresh?: () => void
 
   /** Persistent WebSocket for backend-pushed events. */
@@ -2024,6 +2035,8 @@ export class HttpTransport implements Transport {
     this.resourceTicket = null
     this.eventTicket = null
     this.accessTicketExpiresAt = 0
+    this.previewTickets.clear()
+    this.previewTicketRequests.clear()
     if (this.accessTicketRefreshTimer) {
       clearTimeout(this.accessTicketRefreshTimer)
       this.accessTicketRefreshTimer = null
@@ -2157,6 +2170,77 @@ export class HttpTransport implements Transport {
     if (!this.resourceTicket || this.accessTicketExpiresAt <= Date.now()) return null
     if (!apiPath.startsWith("/api/")) return null
     return `${this.baseUrl}/api/resource/${encodeURIComponent(this.resourceTicket)}${apiPath.slice(4)}`
+  }
+
+  private previewGrantKey(grant: PreviewResourceGrant): string {
+    return JSON.stringify(grant)
+  }
+
+  private async previewResourceTicket(grant: PreviewResourceGrant): Promise<string | null> {
+    const key = this.previewGrantKey(grant)
+    const cached = this.previewTickets.get(key)
+    // The global transport refresh emits a revision five minutes before its
+    // own expiry. Refresh preview capabilities at that revision as well so an
+    // already-open iframe never crosses a ticket-expiry gap.
+    if (cached && cached.expiresAt > Date.now() + 6 * 60_000) return cached.ticket
+    const pending = this.previewTicketRequests.get(key)
+    if (pending) return pending
+
+    const auth = this.authSnapshot()
+    if (!auth.apiKey) return null
+    const request = (async () => {
+      const response = await fetch(`${this.baseUrl}/api/auth/preview-resource-ticket`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${auth.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(grant),
+      })
+      if (auth.revision !== this.credentialRevision || this.apiKey !== auth.apiKey) return null
+      if (!response.ok) {
+        this.handleAuthFailure(response.status, auth.revision)
+        throw new RemoteAuthenticationError(response.status)
+      }
+      const payload = (await response.json()) as {
+        authRequired: boolean
+        ticket: string | null
+        expiresInSecs: number | null
+      }
+      if (!payload.authRequired) {
+        this.setApiKey(null)
+        this.onAccessTicketRefresh?.()
+        return null
+      }
+      if (!payload.ticket || !payload.expiresInSecs) {
+        throw new Error("Remote server returned an incomplete preview capability")
+      }
+      if (auth.revision !== this.credentialRevision || this.apiKey !== auth.apiKey) return null
+      this.previewTickets.set(key, {
+        ticket: payload.ticket,
+        expiresAt: Date.now() + payload.expiresInSecs * 1000,
+      })
+      return payload.ticket
+    })()
+    this.previewTicketRequests.set(key, request)
+    try {
+      return await request
+    } finally {
+      if (this.previewTicketRequests.get(key) === request) {
+        this.previewTicketRequests.delete(key)
+      }
+    }
+  }
+
+  private async scopedPreviewResourceUrl(
+    apiPath: string,
+    grant: PreviewResourceGrant,
+  ): Promise<string | null> {
+    if (!this.apiKey) return `${this.baseUrl}${apiPath}`
+    if (!apiPath.startsWith("/api/")) return null
+    const ticket = await this.previewResourceTicket(grant)
+    if (!ticket) return this.apiKey ? null : `${this.baseUrl}${apiPath}`
+    return `${this.baseUrl}/api/resource/${encodeURIComponent(ticket)}${apiPath.slice(4)}`
   }
 
   private authSnapshot(): { apiKey: string | null; revision: number } {
@@ -2730,7 +2814,10 @@ export class HttpTransport implements Transport {
         .split("/")
         .map((seg) => encodeURIComponent(seg))
         .join("/")
-      return stamped(`/api/canvas/projects/${pid}/${rest}`)
+      // Executable previews must go through artifactPreviewUrl(), which mints
+      // a capability bound to this project subtree. Never expose the reusable
+      // static-asset ticket in a model-generated document URL.
+      return this.apiKey ? null : `${this.baseUrl}/api/canvas/projects/${pid}/${rest}`
     }
 
     // Design artifacts:
@@ -2747,7 +2834,9 @@ export class HttpTransport implements Transport {
         .split("/")
         .map((seg) => encodeURIComponent(seg))
         .join("/")
-      return stamped(`/api/design/projects/${pid}/artifacts/${aid}/${rest}`)
+      return this.apiKey
+        ? null
+        : `${this.baseUrl}/api/design/projects/${pid}/artifacts/${aid}/${rest}`
     }
 
     return null
@@ -3040,16 +3129,27 @@ export class HttpTransport implements Transport {
     return this.call<ArtifactRecord>("import_artifact", { request })
   }
 
-  artifactPreviewUrl(id: string, projectPath?: string | null): string | null {
-    void projectPath
+  async artifactPreviewUrl(id: string, projectPath?: string | null): Promise<string | null> {
     if (!id) return null
-    return this.scopedResourceUrl(
+    const designMatch = projectPath?.match(
+      /[\\/]design[\\/]projects[\\/]([^\\/]+)[\\/]artifacts[\\/]([^\\/]+)(?:[\\/]|$)/,
+    )
+    if (designMatch) {
+      const projectId = designMatch[1]
+      const artifactId = designMatch[2]
+      return this.scopedPreviewResourceUrl(
+        `/api/design/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/index.html`,
+        { kind: "design_artifact", projectId, artifactId },
+      )
+    }
+    return this.scopedPreviewResourceUrl(
       `/api/canvas/projects/${encodeURIComponent(id)}/index.html`,
+      { kind: "canvas_project", projectId: id },
     )
   }
 
   async openArtifact(id: string): Promise<void> {
-    const href = this.artifactPreviewUrl(id)
+    const href = await this.artifactPreviewUrl(id)
     if (href) this.clickHref(href)
   }
 

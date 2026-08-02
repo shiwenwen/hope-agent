@@ -77,10 +77,10 @@ export function ArtifactThumb({ artifactId }: { artifactId: string }) {
           id: artifactId,
         })
         const p = v?.artifactPath
-        // cache-bust `v=` 必须加在**已解析 URL** 上（对齐主预览 `iframeSrc`）——`resolveAssetUrl` 两侧
-        // 都会把整条文件路径编码（Tauri `convertFileSrc` 把 `?`→`%3F`、HTTP `encodeURIComponent`
-        // 同样），塞进路径的 `?v=` 会变成文件名一部分 → asset:// / 静态路由 404 → 缩略图全白（audit 根因）。
-        const base = p ? transport.resolveAssetUrl(`${p}/index.html`) : null
+        // cache-bust `v=` 必须加在**已解析 URL** 上（对齐主预览 `iframeSrc`）——Tauri
+        // `convertFileSrc` 与 HTTP 的 bound capability 都已经固定资源路径；把 `?v=` 塞进传入路径
+        // 会变成文件名一部分 → asset:// / 静态路由 404 → 缩略图全白（audit 根因）。
+        const base = p ? await transport.artifactPreviewUrl(artifactId, p) : null
         const url = base ? `${base}${base.includes("?") ? "&" : "?"}v=${v?.currentVersion ?? 0}` : null
         if (getTransportRevision() !== requestedRevision || getTransport() !== transport) return
         const resolved = { revision: requestedRevision, url }

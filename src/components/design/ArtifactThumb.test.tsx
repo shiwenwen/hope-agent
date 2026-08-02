@@ -8,7 +8,7 @@ const transportState = vi.hoisted(() => {
   const transport = {
     call: vi.fn(),
     listen: vi.fn(() => () => undefined),
-    resolveAssetUrl: vi.fn(),
+    artifactPreviewUrl: vi.fn(),
   }
   return { revision: 0, ticket: "old-ticket", transport }
 })
@@ -58,8 +58,9 @@ beforeEach(() => {
     artifactPath: "/design/artifact",
     currentVersion: 7,
   })
-  transportState.transport.resolveAssetUrl.mockImplementation(
-    (path: string) => `https://agent.example/api/resource/${transportState.ticket}${path}`,
+  transportState.transport.artifactPreviewUrl.mockImplementation(
+    async (_id: string, path: string) =>
+      `https://agent.example/api/resource/${transportState.ticket}${path}/index.html`,
   )
 })
 
