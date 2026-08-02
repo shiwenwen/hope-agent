@@ -212,9 +212,9 @@ export default function AboutPanel({ onOpenUpdateHistory }: { onOpenUpdateHistor
         return
       }
 
-      setPendingUpdate(update)
-      void setGlobalPendingUpdate(update)
-      setUpdateStatus(t("about.updateAvailable", { version: update.version }))
+      const installableUpdate = await setGlobalPendingUpdate(update)
+      setPendingUpdate(installableUpdate)
+      setUpdateStatus(t("about.updateAvailable", { version: installableUpdate.version }))
     } catch (err) {
       const detail = describeError(err)
       logger.error("updater", "AboutPanel::handleCheckForUpdates", "check failed", {
@@ -378,16 +378,28 @@ export default function AboutPanel({ onOpenUpdateHistory }: { onOpenUpdateHistor
                     </div>
                   )}
                 </div>
-                {installingUpdate && downloadPercent !== null && (
+                {installingUpdate && (
                   <div className="px-5 pb-4">
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{t("about.updateDownloadProgress", { percent: downloadPercent })}</span>
-                      <span className="tabular-nums">{downloadPercent}%</span>
+                      <span>
+                        {downloadPercent === null
+                          ? t("about.updateToast.updating")
+                          : t("about.updateDownloadProgress", { percent: downloadPercent })}
+                      </span>
+                      {downloadPercent !== null && (
+                        <span className="tabular-nums">{downloadPercent}%</span>
+                      )}
                     </div>
                     <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-emerald-500/15">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out"
-                        style={{ width: `${downloadPercent}%` }}
+                        className={
+                          downloadPercent === null
+                            ? "h-full w-1/3 animate-pulse rounded-full bg-gradient-to-r from-transparent via-emerald-400 to-transparent"
+                            : "h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out"
+                        }
+                        style={
+                          downloadPercent === null ? undefined : { width: `${downloadPercent}%` }
+                        }
                       />
                     </div>
                   </div>

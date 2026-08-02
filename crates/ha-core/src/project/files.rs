@@ -39,6 +39,8 @@ pub struct ProjectInstructionsFile {
     /// Raw BLAKE3 of the file bytes. Clients must echo this when saving so an
     /// external edit cannot be overwritten by a stale draft.
     pub content_hash: String,
+    /// Whether the file existed when it was inspected or read.
+    pub exists: bool,
     /// True when this call created a previously-missing file.
     pub created: bool,
 }
@@ -50,6 +52,10 @@ pub struct ProjectInstructionsFile {
 pub struct ProjectInstructionsDraft {
     pub content: String,
     pub expected_file_hash: String,
+    /// Expected existence state observed alongside `expected_file_hash`.
+    /// `None` keeps older clients fail-closed by assuming the file existed.
+    #[serde(default)]
+    pub expected_exists: Option<bool>,
 }
 
 /// Marker error for optimistic-concurrency failures while saving AGENTS.md.
@@ -85,20 +91,27 @@ pub fn resolve_project_dir(project_id: &str, db: &ProjectDB) -> Result<PathBuf> 
     Ok(PathBuf::from(crate::util::ensure_dir_canonical(&ws)?))
 }
 
-/// Create a project, ensure its root `AGENTS.md` exists, and optionally replace
-/// it with a concurrency-checked draft. The DB row is removed again when the
-/// filesystem operation fails, so callers never receive a partially-created
-/// project.
+/// Create a project, optionally ensure its root `AGENTS.md` exists, and replace
+/// it with a concurrency-checked draft when supplied. The DB row is removed
+/// again when the filesystem operation fails, so callers never receive a
+/// partially-created project.
 pub fn create_project_with_instructions_file(
     input: CreateProjectInput,
     instructions: Option<ProjectInstructionsDraft>,
+    create_instructions_if_missing: bool,
     db: &ProjectDB,
 ) -> Result<Project> {
     let project = db.create(input)?;
     let prepare_result = (|| -> Result<()> {
-        let created = ensure_project_instructions(&project.id, db)?;
         if let Some(draft) = instructions {
-            save_project_instructions_draft(&project.id, draft, created, db)?;
+            if !create_instructions_if_missing && !draft.expected_exists.unwrap_or(true) {
+                anyhow::bail!(
+                    "project instructions draft requires creating AGENTS.md, but creation is disabled"
+                );
+            }
+            save_project_instructions_draft(&project.id, draft, db)?;
+        } else if create_instructions_if_missing {
+            ensure_project_instructions(&project.id, db)?;
         }
         Ok(())
     })();
@@ -126,12 +139,13 @@ pub fn update_project_with_instructions_file(
     let previous = db
         .get(project_id)?
         .ok_or_else(|| anyhow::anyhow!("project not found: {project_id}"))?;
-    let working_dir_changed = patch.working_dir.is_some();
     let updated = db.update(project_id, patch)?;
+    let working_dir_changed = updated.working_dir.as_deref() != previous.working_dir.as_deref();
     let prepare_result = (|| -> Result<()> {
-        let created = working_dir_changed && ensure_project_instructions(project_id, db)?;
         if let Some(draft) = instructions {
-            save_project_instructions_draft(project_id, draft, created, db)?;
+            save_project_instructions_draft(project_id, draft, db)?;
+        } else if working_dir_changed {
+            ensure_project_instructions(project_id, db)?;
         }
         Ok(())
     })();
@@ -159,18 +173,24 @@ pub fn update_project_with_instructions_file(
 fn save_project_instructions_draft(
     project_id: &str,
     draft: ProjectInstructionsDraft,
-    file_was_created: bool,
     db: &ProjectDB,
 ) -> Result<ProjectInstructionsFile> {
+    let expected_exists = draft.expected_exists.unwrap_or(true);
     let expected_hash = if draft.expected_file_hash.is_empty() {
-        if !file_was_created {
+        if expected_exists {
             return Err(StaleProjectInstructionsError.into());
         }
         blake3::hash(b"").to_hex().to_string()
     } else {
         draft.expected_file_hash
     };
-    save_project_instructions(project_id, &draft.content, &expected_hash, db)
+    save_project_instructions(
+        project_id,
+        &draft.content,
+        &expected_hash,
+        expected_exists,
+        db,
+    )
 }
 
 /// Ensure `<project-root>/AGENTS.md` exists without reading or rewriting an
@@ -180,16 +200,15 @@ pub fn ensure_project_instructions(project_id: &str, db: &ProjectDB) -> Result<b
     ensure_instructions_at_root(&root)
 }
 
-/// Read the project root's `AGENTS.md`, creating an empty one first when it is
-/// missing. The file must be regular UTF-8 text; symlinks are rejected so this
-/// owner endpoint cannot be used to read an arbitrary path outside the project.
+/// Read the project root's `AGENTS.md` without creating a missing file. The
+/// file must be regular UTF-8 text; symlinks are rejected so this owner endpoint
+/// cannot be used to read an arbitrary path outside the project.
 pub fn read_project_instructions(
     project_id: &str,
     db: &ProjectDB,
 ) -> Result<ProjectInstructionsFile> {
     let root = resolve_project_dir(project_id, db)?;
-    let created = ensure_instructions_at_root(&root)?;
-    read_project_instructions_at_root(&root, created)
+    inspect_project_instructions_at_root(&root)
 }
 
 /// Inspect an existing working directory without creating AGENTS.md. Missing
@@ -225,6 +244,7 @@ fn inspect_project_instructions_at_root(root: &Path) -> Result<ProjectInstructio
             path: path.to_string_lossy().to_string(),
             content: String::new(),
             content_hash: blake3::hash(b"").to_hex().to_string(),
+            exists: false,
             created: false,
         }),
         Err(error) => Err(error).with_context(|| format!("stat {}", path.display())),
@@ -259,16 +279,20 @@ fn read_project_instructions_at_root(
         path: path.to_string_lossy().to_string(),
         content_hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
         content,
+        exists: true,
         created,
     })
 }
 
-/// Atomically replace the project root's `AGENTS.md` with the exact Markdown
-/// source supplied by the user. Whitespace is preserved byte-for-byte.
+/// Atomically write the project root's `AGENTS.md` with the exact Markdown
+/// source supplied by the user. Missing files are published directly with
+/// create-new semantics, so a failed write cannot leave an empty placeholder
+/// behind. Whitespace is preserved byte-for-byte.
 pub fn save_project_instructions(
     project_id: &str,
     content: &str,
     expected_file_hash: &str,
+    expected_exists: bool,
     db: &ProjectDB,
 ) -> Result<ProjectInstructionsFile> {
     let max_bytes = max_project_instructions_bytes();
@@ -284,13 +308,39 @@ pub fn save_project_instructions(
         .canonicalize()
         .with_context(|| format!("resolve project root {}", root.display()))?;
     let path = canonical_root.join(PROJECT_INSTRUCTIONS_FILE);
-    let metadata = match std::fs::symlink_metadata(&path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == ErrorKind::NotFound => {
+    let created = match std::fs::symlink_metadata(&path) {
+        Ok(_) if !expected_exists => return Err(StaleProjectInstructionsError.into()),
+        Ok(_) => false,
+        Err(error) if error.kind() == ErrorKind::NotFound && expected_exists => {
             return Err(StaleProjectInstructionsError.into());
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            let empty_hash = blake3::hash(b"").to_hex().to_string();
+            if expected_file_hash != empty_hash {
+                return Err(StaleProjectInstructionsError.into());
+            }
+            match crate::platform::write_atomic_create_new(&path, content.as_bytes()) {
+                Ok(()) => {
+                    return Ok(ProjectInstructionsFile {
+                        path: path.to_string_lossy().to_string(),
+                        content: content.to_string(),
+                        content_hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
+                        exists: true,
+                        created: true,
+                    });
+                }
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    return Err(StaleProjectInstructionsError.into());
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| format!("write {}", path.display()));
+                }
+            }
         }
         Err(error) => return Err(error).with_context(|| format!("stat {}", path.display())),
     };
+    let metadata =
+        std::fs::symlink_metadata(&path).with_context(|| format!("stat {}", path.display()))?;
     if metadata.file_type().is_symlink() {
         anyhow::bail!("project AGENTS.md must not be a symbolic link");
     }
@@ -317,7 +367,8 @@ pub fn save_project_instructions(
         path: path.to_string_lossy().to_string(),
         content: content.to_string(),
         content_hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
-        created: false,
+        exists: true,
+        created,
     })
 }
 
@@ -542,8 +593,9 @@ mod tests {
         let root = tempdir().unwrap();
         let db = project_db(db_dir.path());
 
-        let project = create_project_with_instructions_file(input("Docs", root.path()), None, &db)
-            .expect("create project");
+        let project =
+            create_project_with_instructions_file(input("Docs", root.path()), None, true, &db)
+                .expect("create project");
         let agents_md = root.path().join(PROJECT_INSTRUCTIONS_FILE);
         assert!(agents_md.is_file());
         assert_eq!(std::fs::read_to_string(agents_md).unwrap(), "");
@@ -566,7 +618,9 @@ mod tests {
             Some(ProjectInstructionsDraft {
                 content: markdown.to_string(),
                 expected_file_hash: inspected.content_hash,
+                expected_exists: Some(inspected.exists),
             }),
+            true,
             &db,
         )
         .expect("create project with instructions");
@@ -578,19 +632,56 @@ mod tests {
     }
 
     #[test]
-    fn read_creates_missing_file_and_save_round_trips_markdown_exactly() {
+    fn project_create_can_leave_missing_agents_md_untouched() {
+        let db_dir = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        let db = project_db(db_dir.path());
+
+        let project =
+            create_project_with_instructions_file(input("Docs", root.path()), None, false, &db)
+                .expect("create project without instructions file");
+
+        update_project_with_instructions_file(
+            &project.id,
+            UpdateProjectInput {
+                name: Some("Renamed".to_string()),
+                working_dir: Some(root.path().to_string_lossy().to_string()),
+                ..UpdateProjectInput::default()
+            },
+            None,
+            &db,
+        )
+        .expect("metadata-only update preserves opt-out");
+        db.migrate().expect("restart migration keeps opt-out");
+        let inspected = inspect_project_instructions(root.path().to_str().unwrap()).unwrap();
+        assert!(!inspected.exists);
+        assert!(!root.path().join(PROJECT_INSTRUCTIONS_FILE).exists());
+    }
+
+    #[test]
+    fn read_keeps_missing_file_absent_and_save_round_trips_markdown_exactly() {
         let db_dir = tempdir().unwrap();
         let root = tempdir().unwrap();
         let db = project_db(db_dir.path());
         let project = db.create(input("Docs", root.path())).unwrap();
 
         let initial = read_project_instructions(&project.id, &db).unwrap();
-        assert!(initial.created);
+        assert!(!initial.exists);
+        assert!(!initial.created);
         assert_eq!(initial.content, "");
+        assert!(!root.path().join(PROJECT_INSTRUCTIONS_FILE).exists());
 
         let markdown = "# Rules\n\n- Keep trailing whitespace  \n";
-        let saved =
-            save_project_instructions(&project.id, markdown, &initial.content_hash, &db).unwrap();
+        let saved = save_project_instructions(
+            &project.id,
+            markdown,
+            &initial.content_hash,
+            initial.exists,
+            &db,
+        )
+        .unwrap();
+        assert!(saved.exists);
+        assert!(saved.created);
         assert_eq!(saved.content, markdown);
         assert_eq!(
             saved.content_hash,
@@ -604,15 +695,21 @@ mod tests {
         let db_dir = tempdir().unwrap();
         let root = tempdir().unwrap();
         let db = project_db(db_dir.path());
-        let project = create_project_with_instructions_file(input("Docs", root.path()), None, &db)
-            .expect("create project");
+        let project =
+            create_project_with_instructions_file(input("Docs", root.path()), None, true, &db)
+                .expect("create project");
         let loaded = read_project_instructions(&project.id, &db).unwrap();
         let path = root.path().join(PROJECT_INSTRUCTIONS_FILE);
         std::fs::write(&path, "external edit").unwrap();
 
-        let error =
-            save_project_instructions(&project.id, "stale editor draft", &loaded.content_hash, &db)
-                .unwrap_err();
+        let error = save_project_instructions(
+            &project.id,
+            "stale editor draft",
+            &loaded.content_hash,
+            loaded.exists,
+            &db,
+        )
+        .unwrap_err();
         assert!(error
             .downcast_ref::<StaleProjectInstructionsError>()
             .is_some());
@@ -620,12 +717,65 @@ mod tests {
     }
 
     #[test]
+    fn stale_save_does_not_recreate_an_externally_deleted_empty_file() {
+        let db_dir = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        let db = project_db(db_dir.path());
+        let project =
+            create_project_with_instructions_file(input("Docs", root.path()), None, true, &db)
+                .expect("create project");
+        let loaded = read_project_instructions(&project.id, &db).unwrap();
+        let path = root.path().join(PROJECT_INSTRUCTIONS_FILE);
+        std::fs::remove_file(&path).unwrap();
+
+        let error = save_project_instructions(
+            &project.id,
+            "replacement",
+            &loaded.content_hash,
+            loaded.exists,
+            &db,
+        )
+        .unwrap_err();
+
+        assert!(error
+            .downcast_ref::<StaleProjectInstructionsError>()
+            .is_some());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn stale_missing_save_does_not_overwrite_an_external_creation() {
+        let db_dir = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        let db = project_db(db_dir.path());
+        let project = db.create(input("Docs", root.path())).unwrap();
+        let loaded = read_project_instructions(&project.id, &db).unwrap();
+        let path = root.path().join(PROJECT_INSTRUCTIONS_FILE);
+        std::fs::write(&path, "external creation").unwrap();
+
+        let error = save_project_instructions(
+            &project.id,
+            "editor draft",
+            &loaded.content_hash,
+            loaded.exists,
+            &db,
+        )
+        .unwrap_err();
+
+        assert!(error
+            .downcast_ref::<StaleProjectInstructionsError>()
+            .is_some());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "external creation");
+    }
+
+    #[test]
     fn stale_draft_rolls_back_project_metadata_update() {
         let db_dir = tempdir().unwrap();
         let root = tempdir().unwrap();
         let db = project_db(db_dir.path());
-        let project = create_project_with_instructions_file(input("Docs", root.path()), None, &db)
-            .expect("create project");
+        let project =
+            create_project_with_instructions_file(input("Docs", root.path()), None, true, &db)
+                .expect("create project");
         let loaded = read_project_instructions(&project.id, &db).unwrap();
         std::fs::write(root.path().join(PROJECT_INSTRUCTIONS_FILE), "external edit").unwrap();
 
@@ -638,6 +788,7 @@ mod tests {
             Some(ProjectInstructionsDraft {
                 content: "stale editor draft".to_string(),
                 expected_file_hash: loaded.content_hash,
+                expected_exists: Some(loaded.exists),
             }),
             &db,
         )

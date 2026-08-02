@@ -25,6 +25,7 @@ export default function ProjectInstructionsEditor({
   const [draft, setDraft] = useState("")
   const [savedContent, setSavedContent] = useState("")
   const [contentHash, setContentHash] = useState("")
+  const [fileExists, setFileExists] = useState(false)
   const [filePath, setFilePath] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -56,6 +57,7 @@ export default function ProjectInstructionsEditor({
       setDraft(file.content)
       setSavedContent(file.content)
       setContentHash(file.contentHash)
+      setFileExists(file.exists)
       setFilePath(file.path)
       setSaveStatus("idle")
     } catch (error) {
@@ -71,6 +73,7 @@ export default function ProjectInstructionsEditor({
     setDraft("")
     setSavedContent("")
     setContentHash("")
+    setFileExists(false)
     setFilePath("")
     setSaving(false)
     void load()
@@ -88,11 +91,17 @@ export default function ProjectInstructionsEditor({
     try {
       const file = await getTransport().call<ProjectInstructionsFile>(
         "save_project_instructions_cmd",
-        { id: projectId, content: draft, expectedFileHash: contentHash },
+        {
+          id: projectId,
+          content: draft,
+          expectedFileHash: contentHash,
+          expectedExists: fileExists,
+        },
       )
       if (seq !== requestSeq.current) return
       setSavedContent(file.content)
       setContentHash(file.contentHash)
+      setFileExists(file.exists)
       setFilePath(file.path)
       setSaveStatus("saved")
       window.setTimeout(() => setSaveStatus("idle"), 2000)
@@ -102,7 +111,7 @@ export default function ProjectInstructionsEditor({
     } finally {
       if (seq === requestSeq.current) setSaving(false)
     }
-  }, [contentHash, dirty, draft, projectId, readOnly, saving])
+  }, [contentHash, dirty, draft, fileExists, projectId, readOnly, saving])
 
   function handleEditorKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (!readOnly && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {

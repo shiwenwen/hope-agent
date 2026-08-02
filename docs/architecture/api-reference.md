@@ -350,7 +350,7 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 | `create_project_cmd` | `POST /api/projects` | ✅ |
 | `update_project_cmd` | `PATCH /api/projects/{id}` | ✅ |
 | `inspect_project_instructions_cmd` | `POST /api/projects/instructions/inspect` | ✅（表单切换工作目录时只读检查，不创建缺失文件） |
-| `get_project_instructions_cmd` | `GET /api/projects/{id}/instructions` | ✅（缺失时创建根 `AGENTS.md`） |
+| `get_project_instructions_cmd` | `GET /api/projects/{id}/instructions` | ✅（只读检查，缺失时不创建） |
 | `save_project_instructions_cmd` | `PUT /api/projects/{id}/instructions` | ✅（owner 设置面，原子写入，不受通用文件写闸门影响） |
 | `delete_project_cmd` | `DELETE /api/projects/{id}` | ✅ |
 | `archive_project_cmd` | `POST /api/projects/{id}/archive` | ✅ |
@@ -365,7 +365,7 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 
 `list_projects_cmd` / `GET /api/projects` 接受可选 `active_session_id`（HTTP query `activeSessionId`）：前端仅在该会话满足“聊天主视图已选中 + 窗口聚焦 + document 可见 + 消息列表在最新位置”的可读条件时传入，使项目徽标与会话行口径一致，无需前端跨数据源相减。项目列表不再返回旧 `memoryCount`，也不再逐项目查询记忆库；概览口径统一由 `get_project_overview_cmd` / `GET /api/projects/{id}/overview` 提供。
 
-项目指令以项目工作目录根 `AGENTS.md` 为唯一真相源，`Project` / `CreateProjectInput` / `UpdateProjectInput` 均不再携带 `instructions`。新增 / 编辑表单通过独立 `instructions: { content, expectedFileHash }` 请求字段把文件草稿与项目元数据一起提交；文件步骤失败会回滚项目创建 / 元数据更新，内容仍不进 SQLite。切换目录前可用 inspect 接口只读取得目标文件，缺失时返回空内容与空文件 hash，但不提前建文件。创建项目、切换 `workingDir` 和启动迁移会确保文件存在；GET 返回 `{ path, content, contentHash, created }`，PUT body 为 `{ content, expectedFileHash }` 并原样保留 Markdown 空白。保存前以磁盘 raw BLAKE3 校验 `expectedFileHash`，不一致返回冲突，防止覆盖 Agent / 外部编辑器的并发修改。
+项目指令以项目工作目录根 `AGENTS.md` 为唯一真相源，`Project` / `CreateProjectInput` / `UpdateProjectInput` 均不再携带 `instructions`。新增 / 编辑表单通过独立 `instructions: { content, expectedFileHash, expectedExists }` 请求字段把文件草稿与项目元数据一起提交；创建接口另接受默认 `true` 的 `createInstructionsIfMissing`，添加已有目录时可显式保留缺失状态。文件步骤失败会回滚项目创建 / 元数据更新，内容仍不进 SQLite。切换目录前与 GET 都只读检查目标文件，缺失时返回空内容、空文件 hash 与 `exists: false`，不提前建文件；用户显式保存指令时才以 create-new 语义建立文件。GET 返回 `{ path, content, contentHash, exists, created }`，PUT body 为 `{ content, expectedFileHash, expectedExists }` 并原样保留 Markdown 空白。保存前同时校验磁盘存在状态与 raw BLAKE3，任一不一致都返回冲突，防止覆盖 Agent / 外部编辑器的并发创建、删除或修改；旧客户端缺少 `expectedExists` 时按 `true` fail closed。
 
 **项目文件浏览器（workspace-scoped filesystem）**——上传/读写改走作用域文件管理 API（旧的 `list_project_files_cmd` / `upload_project_file_cmd` / `delete_project_file_cmd` / `rename_project_file_cmd` / `read_project_file_content_cmd` 五条命令与对应 `/api/projects/{id}/files*` 路由已删除）。命令以 `{ scope: "session"|"project", scopeId, ... }` 寻址，后端 `WorkspaceScope` 解析工作目录并做越界校验：
 

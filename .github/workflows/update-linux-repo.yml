@@ -32,6 +32,12 @@ name: Update Linux Repo
 # First-time / rotation setup on the Cloudflare side (bucket, custom domain
 # repo.hopeagent.ai, API token) is documented in linux-repo/README.md.
 
+# run-name puts the tag in the run's display title. Without it every run
+# is called "Update Linux Repo" and `gh run list` cannot tell which release a run
+# belongs to — a manual re-run for an older tag looks identical to this
+# release's own run. See docs/release-process.md §1.4.
+run-name: Linux repo ${{ inputs.tag || github.event.release.tag_name }}
+
 on:
   release:
     types: [published]

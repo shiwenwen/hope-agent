@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import AgentEditView from "./AgentEditView"
-import type { AgentConfig } from "./types"
+import type { AgentConfig, AgentTab } from "./types"
 
 const tMock = vi.hoisted(() => {
   return (
@@ -154,7 +154,121 @@ function mockSuccessfulLoadThenSaveFailure() {
   })
 }
 
+const tabResetCases: Array<{
+  name: string
+  tab: AgentTab
+  configure: (config: AgentConfig) => void
+  assertDefaults: (config: AgentConfig) => void
+}> = [
+  {
+    name: "model",
+    tab: "model",
+    configure: (config) => {
+      config.model = {
+        primary: "provider::primary",
+        fallbacks: ["provider::fallback"],
+        planModel: "provider::plan",
+        temperature: 0.4,
+        reasoningEffort: "high",
+      }
+    },
+    assertDefaults: (config) => {
+      expect(config.model).toEqual({
+        primary: null,
+        fallbacks: [],
+        planModel: null,
+        temperature: null,
+        reasoningEffort: null,
+      })
+    },
+  },
+  {
+    name: "sub-agent",
+    tab: "subagent",
+    configure: (config) => {
+      config.capabilities.tools = {
+        allow: ["browser", "subagent"],
+        deny: ["write", "subagent"],
+      }
+      config.subagents = {
+        allowedAgents: ["researcher"],
+        deniedAgents: ["writer"],
+        maxConcurrent: 2,
+        defaultTimeoutSecs: 1000,
+        model: "provider::worker",
+        deniedTools: ["browser"],
+        maxSpawnDepth: 5,
+        maxBatchSize: 30,
+        archiveAfterMinutes: 15,
+        announceTimeoutSecs: 300,
+      }
+    },
+    assertDefaults: (config) => {
+      expect(config.capabilities.tools).toEqual({ allow: ["browser"], deny: ["write"] })
+      expect(config.subagents).toEqual({
+        allowedAgents: [],
+        deniedAgents: [],
+        maxConcurrent: 8,
+        defaultTimeoutSecs: 0,
+        model: null,
+        deniedTools: [],
+        maxSpawnDepth: null,
+        maxBatchSize: null,
+        archiveAfterMinutes: null,
+        announceTimeoutSecs: null,
+      })
+    },
+  },
+  {
+    name: "approval",
+    tab: "approval",
+    configure: (config) => {
+      config.capabilities.defaultSessionPermissionMode = "smart"
+      config.capabilities.enableCustomToolApproval = true
+      config.capabilities.customApprovalTools = ["browser", "web_fetch"]
+    },
+    assertDefaults: (config) => {
+      expect(config.capabilities.defaultSessionPermissionMode).toBeNull()
+      expect(config.capabilities.enableCustomToolApproval).toBe(false)
+      expect(config.capabilities.customApprovalTools).toEqual([])
+      expect(config.capabilities.maxToolRounds).toBe(10)
+    },
+  },
+]
+
 describe("AgentEditView", () => {
+  it.each(tabResetCases)("restores the whole $name tab to defaults", async (testCase) => {
+    const configured = structuredClone(agentConfig) as AgentConfig
+    testCase.configure(configured)
+    transportMock.call.mockImplementation(async (command: string) => {
+      if (command === "get_agent_config") return structuredClone(configured)
+      if (command === "get_agent_markdown") return ""
+      if (command === "get_skills") return []
+      if (command === "list_builtin_tools") return []
+      if (command === "get_available_models") return []
+      return null
+    })
+
+    render(<AgentEditView agentId="agent-1" initialTab={testCase.tab} onBack={vi.fn()} />)
+
+    expect(await screen.findByText("Research agent")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "settings.resetDefaultsTabAction" }))
+    fireEvent.click(await screen.findByRole("button", { name: "common.restoreDefaults" }))
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith(
+        "save_agent_config_cmd",
+        expect.objectContaining({ id: "agent-1" }),
+      )
+    })
+    const saveCall = transportMock.call.mock.calls.find(
+      ([command]) => command === "save_agent_config_cmd",
+    )
+    expect(saveCall).toBeTruthy()
+    testCase.assertDefaults(saveCall?.[1].config as AgentConfig)
+  })
+
   it("shows redacted detail when saving an agent config fails", async () => {
     mockSuccessfulLoadThenSaveFailure()
 

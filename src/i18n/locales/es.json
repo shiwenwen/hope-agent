@@ -3617,6 +3617,8 @@
       "emptyPreview": "Aún no hay detalles en Markdown. Cambia a Editar para añadir contenido."
     },
     "createFirstProject": "Crea tu primer proyecto",
+    "createAgentsFile": "Crear AGENTS.md",
+    "createAgentsFileHint": "Este directorio no contiene AGENTS.md. Desactiva esta opción para añadir el proyecto sin crear el archivo.",
     "defaultAgent": "Agent por defecto",
     "defaultModel": "Modelo por defecto",
     "deleteConfirm": {
@@ -4042,6 +4044,7 @@
     "resetDefaultsAlreadyDefault": "{{section}} ya usa los valores predeterminados",
     "resetDefaultsTitle": "¿Restaurar los valores predeterminados de {{section}}?",
     "resetDefaultsDescription": "Esto restaura {{section}} inmediatamente a los valores predeterminados de esta versión. Los cambios no guardados se descartarán.",
+    "agentResetDefaultsDescription": "Esto reemplaza los valores no guardados de {{section}} por los predeterminados de esta versión. Haz clic en Guardar para aplicar el cambio.",
     "resetDefaultsPreserve": "No se eliminarán proveedores, credenciales, memorias, bases de conocimiento, tareas ni artefactos.",
     "resetDefaultsKnowledgeWarning": "Restaurar los ajustes de conocimiento puede iniciar una reconstrucción del índice en segundo plano.",
     "resetDefaultsSuccess": "{{section}} se restauró a los valores predeterminados",

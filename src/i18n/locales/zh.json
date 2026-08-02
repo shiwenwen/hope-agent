@@ -3617,6 +3617,8 @@
       "emptyPreview": "暂无 Markdown 详细内容。切换到编辑模式即可添加。"
     },
     "createFirstProject": "创建第一个项目",
+    "createAgentsFile": "创建 AGENTS.md",
+    "createAgentsFileHint": "此目录中尚无 AGENTS.md。关闭后将只添加项目，不创建该文件。",
     "defaultAgent": "默认助手",
     "defaultModel": "默认模型",
     "deleteConfirm": {
@@ -4042,6 +4044,7 @@
     "resetDefaultsAlreadyDefault": "“{{section}}”已经是默认设置",
     "resetDefaultsTitle": "恢复“{{section}}”的默认设置？",
     "resetDefaultsDescription": "将立即把“{{section}}”恢复到当前版本的默认值，未保存的修改会丢失。",
+    "agentResetDefaultsDescription": "这会将“{{section}}”中未保存的设置替换为当前版本的默认值；点击“保存”后才会生效。",
     "resetDefaultsPreserve": "Provider、凭据以及关联的记忆、知识库、任务和产物不会被删除。",
     "resetDefaultsKnowledgeWarning": "恢复知识设置可能会启动后台索引重建。",
     "resetDefaultsSuccess": "“{{section}}”已恢复默认设置",

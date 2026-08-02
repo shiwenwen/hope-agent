@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import {
@@ -64,7 +65,8 @@ export interface ProjectDialogProps {
   onOpenChange: (open: boolean) => void
   onCreate?: (
     input: CreateProjectInput,
-    instructions: ProjectInstructionsDraft,
+    instructions: ProjectInstructionsDraft | undefined,
+    createInstructionsIfMissing: boolean,
   ) => Promise<Project | null>
   onUpdate?: (
     id: string,
@@ -141,6 +143,8 @@ export default function ProjectDialog({
   const [instructionsPath, setInstructionsPath] = useState("AGENTS.md")
   const [instructionsLoading, setInstructionsLoading] = useState(false)
   const [instructionsReady, setInstructionsReady] = useState(false)
+  const [instructionsExists, setInstructionsExists] = useState(false)
+  const [createInstructionsIfMissing, setCreateInstructionsIfMissing] = useState(true)
   const [instructionsError, setInstructionsError] = useState("")
   const instructionsRequestSeq = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -159,6 +163,8 @@ export default function ProjectDialog({
     setInstructionsPath("AGENTS.md")
     setInstructionsLoading(false)
     setInstructionsReady(true)
+    setInstructionsExists(false)
+    setCreateInstructionsIfMissing(true)
     setInstructionsError("")
   }, [])
 
@@ -174,6 +180,8 @@ export default function ProjectDialog({
       setInstructions("")
       setLoadedInstructions("")
       setInstructionsHash("")
+      setInstructionsExists(false)
+      setCreateInstructionsIfMissing(true)
       setInstructionsError("")
       setInstructionsPath(pendingPath)
       try {
@@ -183,6 +191,7 @@ export default function ProjectDialog({
         setLoadedInstructions(file.content)
         setInstructionsHash(file.contentHash)
         setInstructionsPath(file.path)
+        setInstructionsExists(file.exists)
         setInstructionsReady(true)
       } catch (loadError) {
         if (seq !== instructionsRequestSeq.current) return
@@ -232,6 +241,8 @@ export default function ProjectDialog({
   }, [initialProject?.id, loadInstructions, mode, open, resetInstructionsForNewWorkspace])
 
   const selectedColor = COLOR_CHOICES.find((choice) => choice.value === color)
+  const canSkipMissingInstructions =
+    mode === "create" && Boolean(workingDir.trim()) && instructionsReady && !instructionsExists
 
   async function handleLogoFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -313,6 +324,7 @@ export default function ProjectDialog({
     setError("")
     try {
       if (mode === "create" && onCreate) {
+        const shouldCreateInstructions = !canSkipMissingInstructions || createInstructionsIfMissing
         const created = await onCreate(
           {
             name: name.trim(),
@@ -322,7 +334,14 @@ export default function ProjectDialog({
             defaultAgentId: defaultAgentId || null,
             workingDir: workingDir.trim() || null,
           },
-          { content: instructions, expectedFileHash: instructionsHash },
+          shouldCreateInstructions
+            ? {
+                content: instructions,
+                expectedFileHash: instructionsHash,
+                expectedExists: instructionsExists,
+              }
+            : undefined,
+          shouldCreateInstructions,
         )
         if (created) {
           setSaveStatus("saved")
@@ -337,7 +356,11 @@ export default function ProjectDialog({
           workingDir,
           initialProject.workingDir,
         )
-          ? { content: instructions, expectedFileHash: instructionsHash }
+          ? {
+              content: instructions,
+              expectedFileHash: instructionsHash,
+              expectedExists: instructionsExists,
+            }
           : undefined
         const updated = await onUpdate(
           initialProject.id,
@@ -543,7 +566,7 @@ export default function ProjectDialog({
                     onClick={() => setColor("")}
                     className={cn(
                       "h-9 w-9 rounded-full border border-dashed border-muted-foreground/40 p-0 text-muted-foreground hover:bg-muted/40",
-                        !color && "bg-secondary",
+                      !color && "bg-secondary",
                     )}
                     aria-label={t("common.none")}
                   >
@@ -613,15 +636,38 @@ export default function ProjectDialog({
                 <ProjectKnowledgeSection projectId={initialProject.id} />
               )}
 
-              <ProjectInstructionsField
-                key={instructionsPath}
-                value={instructions}
-                path={instructionsPath}
-                loading={instructionsLoading}
-                error={instructionsError}
-                disabled={saving || !instructionsReady}
-                onChange={setInstructions}
-              />
+              {canSkipMissingInstructions && (
+                <div className="flex items-start justify-between gap-4 rounded-lg border border-border/70 bg-muted/20 px-4 py-3">
+                  <div className="min-w-0">
+                    <Label htmlFor="project-create-agents-md" className="text-sm font-medium">
+                      {t("project.createAgentsFile")}
+                    </Label>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {t("project.createAgentsFileHint")}
+                    </p>
+                  </div>
+                  <Switch
+                    id="project-create-agents-md"
+                    checked={createInstructionsIfMissing}
+                    onCheckedChange={setCreateInstructionsIfMissing}
+                    disabled={saving}
+                    aria-label={t("project.createAgentsFile")}
+                    className="mt-0.5"
+                  />
+                </div>
+              )}
+
+              {(!canSkipMissingInstructions || createInstructionsIfMissing) && (
+                <ProjectInstructionsField
+                  key={instructionsPath}
+                  value={instructions}
+                  path={instructionsPath}
+                  loading={instructionsLoading}
+                  error={instructionsError}
+                  disabled={saving || !instructionsReady}
+                  onChange={setInstructions}
+                />
+              )}
 
               {error && (
                 <p className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
