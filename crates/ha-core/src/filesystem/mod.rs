@@ -332,16 +332,30 @@ fn default_root() -> PathBuf {
     // Directory pickers are user-facing creation surfaces. Starting at `/`
     // makes the first "New folder" attempt target `/name`, which ordinary
     // desktop/server users cannot write. Prefer the current account's home;
-    // keep `/` only as a last-resort navigation fallback when the platform
-    // cannot resolve a home directory.
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
+    // keep `/` as a last-resort navigation fallback when a service/container
+    // account has no usable home directory.
+    dirs::home_dir()
+        .and_then(usable_default_directory)
+        .unwrap_or_else(|| PathBuf::from("/"))
 }
 
 #[cfg(windows)]
 fn default_root() -> PathBuf {
     std::env::var_os("USERPROFILE")
         .map(PathBuf::from)
+        .and_then(usable_default_directory)
         .unwrap_or_else(|| PathBuf::from("C:\\"))
+}
+
+fn usable_default_directory(candidate: PathBuf) -> Option<PathBuf> {
+    if !candidate.is_absolute() {
+        return None;
+    }
+    let canonical = candidate.canonicalize().ok()?;
+    if !canonical.is_dir() || std::fs::read_dir(&canonical).is_err() {
+        return None;
+    }
+    Some(canonical)
 }
 
 // ---- search_files ----------------------------------------------------------
@@ -874,11 +888,27 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn directory_picker_defaults_to_the_user_home_on_unix() {
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = dirs::home_dir().and_then(usable_default_directory) {
             assert_eq!(default_root(), home);
         } else {
             assert_eq!(default_root(), PathBuf::from("/"));
         }
+    }
+
+    #[test]
+    fn unusable_default_directories_are_rejected() {
+        let dir = tmpdir("default-directory");
+        let missing = dir.join("missing");
+        let file = dir.join("not-a-directory");
+        std::fs::write(&file, b"not a directory").expect("write fixture");
+
+        assert_eq!(usable_default_directory(PathBuf::from("relative")), None);
+        assert_eq!(usable_default_directory(missing), None);
+        assert_eq!(usable_default_directory(file), None);
+
+        let canonical = dir.canonicalize().expect("canonical temp directory");
+        assert_eq!(usable_default_directory(dir.clone()), Some(canonical));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
