@@ -139,6 +139,8 @@ Assign a default working directory to the current conversation. It will:
 
 **How to set it**: click the "Working directory" button in the input toolbar. The desktop app opens the system directory picker; the web / server version opens a directory browser (pointing at a path on the server machine).
 
+When no path is already selected, the directory browser starts in the home folder of the system account running Hope Agent; use the Home button to return there at any time. Hope Agent never elevates itself just to write a system directory, so choose a folder owned by that account if the current location is not writable. Creating a folder from the web / server UI also requires "Allow remote file writes" under Settings → Server; when it is off, the browser links directly to that setting instead of attempting a write that will fail.
+
 The priority is "session setting > project setting > default workspace". A session inside a project always has a working directory (by default `~/.hope-agent/projects/{project}/workspace/`).
 
 ---
