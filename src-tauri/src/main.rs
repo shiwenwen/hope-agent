@@ -606,7 +606,10 @@ fn run_server(args: &[String]) {
                     }
                 }
                 Ok(ha_core::server_auth::ManagedTokenMatch::Matches) => {}
-                Ok(ha_core::server_auth::ManagedTokenMatch::Differs) => {
+                Ok(
+                    ha_core::server_auth::ManagedTokenMatch::RetiredServiceArgument
+                    | ha_core::server_auth::ManagedTokenMatch::Differs,
+                ) => {
                     // A rotation won the race with an earlier definition
                     // rewrite failure. The stale argv value is ignored and
                     // must never reactivate a previously exposed credential.
@@ -618,6 +621,12 @@ fn run_server(args: &[String]) {
                     eprintln!("[server] Failed to inspect the managed service credential: {error}");
                     std::process::exit(2);
                 }
+            }
+            if let Err(error) =
+                ha_core::server_auth::remember_legacy_service_argv_token(legacy_token)
+            {
+                eprintln!("[server] Failed to retain the legacy service migration marker: {error}");
+                std::process::exit(2);
             }
             if let Err(error) =
                 ha_core::service_install::rewrite_service_without_cli_api_key(&bind_addr)
@@ -638,6 +647,11 @@ fn run_server(args: &[String]) {
                 Ok(ha_core::server_auth::ManagedTokenMatch::Matches) => {
                     eprintln!(
                         "[server] Accepted a cached pre-migration service command; reload the service manager to remove the legacy argument from the running definition."
+                    );
+                }
+                Ok(ha_core::server_auth::ManagedTokenMatch::RetiredServiceArgument) => {
+                    eprintln!(
+                        "[server] Ignoring a retired token from a cached pre-migration service command; the current managed credential remains active."
                     );
                 }
                 Ok(

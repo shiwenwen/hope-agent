@@ -30,6 +30,8 @@ struct StoredServerAuth {
     version: u32,
     token: String,
     created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_service_argv_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +67,7 @@ pub struct ResolvedToken {
 pub enum ManagedTokenMatch {
     Missing,
     Matches,
+    RetiredServiceArgument,
     Differs,
 }
 
@@ -254,19 +257,41 @@ fn load_credential() -> Result<Option<StoredServerAuth>> {
         );
     }
     validate_token(stored.token.clone(), "stored server token")?;
+    if let Some(digest) = stored.legacy_service_argv_digest.as_deref() {
+        let decoded = URL_SAFE_NO_PAD
+            .decode(digest)
+            .context("decode legacy service argv digest")?;
+        if decoded.len() != 32 {
+            bail!("invalid legacy service argv digest");
+        }
+    }
     Ok(Some(stored))
 }
 
-fn write_credential(token: &str) -> Result<()> {
+fn write_stored_credential(stored: &StoredServerAuth) -> Result<()> {
     let path = crate::paths::server_auth_path()?;
-    let stored = StoredServerAuth {
+    let bytes = serde_json::to_vec_pretty(stored).context("serialize server credentials")?;
+    crate::platform::write_secure_file(&path, &bytes)
+        .with_context(|| format!("write {}", path.display()))
+}
+
+fn replacement_credential(
+    token: &str,
+    previous: Option<&StoredServerAuth>,
+) -> Result<StoredServerAuth> {
+    Ok(StoredServerAuth {
         version: CREDENTIAL_VERSION,
         token: validate_token(token.to_string(), "server token")?,
         created_at: chrono::Utc::now().timestamp(),
-    };
-    let bytes = serde_json::to_vec_pretty(&stored).context("serialize server credentials")?;
-    crate::platform::write_secure_file(&path, &bytes)
-        .with_context(|| format!("write {}", path.display()))
+        legacy_service_argv_digest: previous
+            .and_then(|stored| stored.legacy_service_argv_digest.clone()),
+    })
+}
+
+fn write_credential(token: &str) -> Result<()> {
+    let previous = load_credential()?;
+    let stored = replacement_credential(token, previous.as_ref())?;
+    write_stored_credential(&stored)
 }
 
 fn clear_credential() -> Result<()> {
@@ -334,10 +359,25 @@ fn token_values_match(candidate: &str, expected: &str) -> bool {
         == 0
 }
 
-fn classify_managed_token(existing: Option<&str>, candidate: &str) -> ManagedTokenMatch {
+fn legacy_service_argv_digest(token: &str) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes()))
+}
+
+fn classify_managed_token(
+    existing: Option<&str>,
+    retired_service_digest: Option<&str>,
+    candidate: &str,
+) -> ManagedTokenMatch {
     match existing {
         None => ManagedTokenMatch::Missing,
         Some(expected) if token_values_match(candidate, expected) => ManagedTokenMatch::Matches,
+        Some(_)
+            if retired_service_digest.is_some_and(|expected| {
+                token_values_match(&legacy_service_argv_digest(candidate), expected)
+            }) =>
+        {
+            ManagedTokenMatch::RetiredServiceArgument
+        }
         Some(_) => ManagedTokenMatch::Differs,
     }
 }
@@ -347,7 +387,26 @@ fn classify_managed_token(existing: Option<&str>, candidate: &str) -> ManagedTok
 /// stale command-line value.
 pub fn compare_managed_token(candidate: &str) -> Result<ManagedTokenMatch> {
     let existing = load_managed_token()?;
-    Ok(classify_managed_token(existing.as_deref(), candidate))
+    let retired_service_digest =
+        load_credential()?.and_then(|stored| stored.legacy_service_argv_digest);
+    Ok(classify_managed_token(
+        existing.as_deref(),
+        retired_service_digest.as_deref(),
+        candidate,
+    ))
+}
+
+/// Remember the exact legacy service argv token after it has been imported or
+/// superseded. Service managers may keep restarting a cached command after the
+/// on-disk definition is cleaned, so rotations must retain this non-plaintext
+/// marker until the old command disappears.
+pub fn remember_legacy_service_argv_token(candidate: &str) -> Result<()> {
+    let candidate = validate_token(candidate.to_string(), "legacy service argv token")?;
+    let Some(mut stored) = load_credential()? else {
+        bail!("cannot remember a legacy service argument without a managed token");
+    };
+    stored.legacy_service_argv_digest = Some(legacy_service_argv_digest(&candidate));
+    write_stored_credential(&stored)
 }
 
 pub fn set_managed_token(token: Option<&str>, source: &str) -> Result<()> {
@@ -366,7 +425,7 @@ pub fn set_managed_token(token: Option<&str>, source: &str) -> Result<()> {
     });
     if let Err(error) = config_result {
         match previous {
-            Some(previous) => write_credential(&previous.token)?,
+            Some(previous) => write_stored_credential(&previous)?,
             None => clear_credential()?,
         }
         return Err(error);
@@ -425,7 +484,7 @@ pub fn update_server_config(
     if let Err(error) = result {
         if token_update.is_some() {
             match previous {
-                Some(previous) => write_credential(&previous.token)?,
+                Some(previous) => write_stored_credential(&previous)?,
                 None => clear_credential()?,
             }
         }
@@ -588,16 +647,42 @@ mod tests {
     #[test]
     fn managed_token_match_distinguishes_missing_matching_and_rotated() {
         assert_eq!(
-            classify_managed_token(None, "legacy"),
+            classify_managed_token(None, None, "legacy"),
             ManagedTokenMatch::Missing
         );
         assert_eq!(
-            classify_managed_token(Some("legacy"), "legacy"),
+            classify_managed_token(Some("legacy"), None, "legacy"),
             ManagedTokenMatch::Matches
         );
         assert_eq!(
-            classify_managed_token(Some("rotated"), "legacy"),
+            classify_managed_token(
+                Some("rotated"),
+                Some(&legacy_service_argv_digest("legacy")),
+                "legacy"
+            ),
+            ManagedTokenMatch::RetiredServiceArgument
+        );
+        assert_eq!(
+            classify_managed_token(Some("rotated"), None, "legacy"),
             ManagedTokenMatch::Differs
+        );
+    }
+
+    #[test]
+    fn credential_rotation_preserves_the_retired_service_marker() {
+        let previous = StoredServerAuth {
+            version: CREDENTIAL_VERSION,
+            token: "legacy".to_string(),
+            created_at: 1,
+            legacy_service_argv_digest: Some(legacy_service_argv_digest("legacy")),
+        };
+
+        let rotated = replacement_credential("rotated", Some(&previous)).unwrap();
+
+        assert_eq!(rotated.token, "rotated");
+        assert_eq!(
+            rotated.legacy_service_argv_digest,
+            previous.legacy_service_argv_digest
         );
     }
 }
