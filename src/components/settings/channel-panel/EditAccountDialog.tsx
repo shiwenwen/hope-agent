@@ -19,7 +19,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
-import { Check, Loader2, AlertCircle } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { logger } from "@/lib/logger"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import {
@@ -30,8 +30,14 @@ import {
 import AllowlistTagInput from "./AllowlistTagInput"
 import WeChatConnectSection from "./WeChatConnectSection"
 import TelegramGroupChannelConfig from "./TelegramGroupConfig"
+import TelegramConnectionFields from "./TelegramConnectionFields"
 import SaveErrorBanner from "./SaveErrorBanner"
-import { getWeChatConnectionFromAccount, parseChannelSaveError } from "./utils"
+import {
+  getWeChatConnectionFromAccount,
+  parseChannelSaveError,
+  readTelegramApiRoot,
+  withTelegramApiRoot,
+} from "./utils"
 import type {
   AgentInfo,
   ChannelAccountConfig,
@@ -67,6 +73,7 @@ export default function EditAccountDialog({
   const { t } = useTranslation()
   const [label, setLabel] = useState("")
   const [token, setToken] = useState("")
+  const [telegramApiRoot, setTelegramApiRoot] = useState("")
   const [agentId, setAgentId] = useState("")
   const [dmPolicy, setDmPolicy] = useState("open")
   const [userAllowlist, setUserAllowlist] = useState<string[]>([])
@@ -100,6 +107,7 @@ export default function EditAccountDialog({
     if (account) {
       setLabel(account.label)
       setToken((account.credentials as Record<string, string>).token ?? "")
+      setTelegramApiRoot(readTelegramApiRoot(account.settings))
       setAgentId(account.agentId ?? "")
       setDmPolicy(account.security.dmPolicy)
       setUserAllowlist([...account.security.userAllowlist])
@@ -138,6 +146,10 @@ export default function EditAccountDialog({
       const botName = await getTransport().call<string>("channel_validate_credentials", {
         channelId: account.channelId,
         credentials: { token: token.trim() },
+        settings:
+          account.channelId === "telegram"
+            ? withTelegramApiRoot(account.settings, telegramApiRoot)
+            : account.settings,
       })
       setValidationResult(botName)
     } catch (e) {
@@ -162,7 +174,7 @@ export default function EditAccountDialog({
       )
       const autoTranscribeChanged = autoTranscribeVoice !== originalAutoTranscribe
 
-      const settingsBase = {
+      const commonSettings = {
         ...((account.settings as Record<string, unknown> | null | undefined) ?? {}),
         imReplyMode,
         showThinking,
@@ -170,6 +182,10 @@ export default function EditAccountDialog({
         // is preserved by the spread above and only edited via the `/kb` command.
         kbAccessOptIn,
       }
+      const settingsBase =
+        account.channelId === "telegram"
+          ? withTelegramApiRoot(commonSettings, telegramApiRoot)
+          : commonSettings
       // Drop the key entirely so a saved snapshot of "untouched" account
       // doesn't reintroduce the flag through this path.
       delete (settingsBase as Record<string, unknown>).autoTranscribeVoice
@@ -182,6 +198,9 @@ export default function EditAccountDialog({
       const originalKbAccessOptIn = Boolean(
         (account.settings as Record<string, unknown> | null | undefined)?.kbAccessOptIn,
       )
+      const originalTelegramApiRoot = readTelegramApiRoot(account.settings)
+      const telegramApiRootChanged =
+        account.channelId === "telegram" && telegramApiRoot.trim() !== originalTelegramApiRoot
       const wechatChanged =
         account.channelId === "wechat" && wechatConnection !== null
       const otherFieldsChanged =
@@ -191,6 +210,7 @@ export default function EditAccountDialog({
         notifySessionEviction !== (account.notifySessionEviction ?? true) ||
         notifyStartup !== (account.notifyStartup ?? true) ||
         token.trim() !== originalToken ||
+        telegramApiRootChanged ||
         wechatChanged ||
         imReplyMode !== originalImReplyMode ||
         showThinking !== originalShowThinking ||
@@ -284,54 +304,26 @@ export default function EditAccountDialog({
             </div>
           </div>
 
-          {/* Bot Token */}
+          {/* Telegram token + optional Bot API reverse proxy */}
           {account.channelId === "telegram" && (
-            <div className="space-y-2">
-              <Label>{t("channels.botToken")}</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="password"
-                  placeholder="123456:ABC-DEF..."
-                  value={token}
-                  onChange={(e) => {
-                    setToken(e.target.value)
-                    setValidationResult(null)
-                    setValidationError(null)
-                  }}
-                  onBlur={() => {
-                    if (token.trim() && !validationResult && !validating) {
-                      handleValidate()
-                    }
-                  }}
-                  className="flex-1"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleValidate}
-                  disabled={!token.trim() || validating}
-                  className="shrink-0"
-                >
-                  {validating ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    t("channels.testConnection")
-                  )}
-                </Button>
-              </div>
-              {validationResult && (
-                <div className="flex items-center gap-1 text-sm text-green-600">
-                  <Check className="h-3.5 w-3.5" />
-                  {validationResult}
-                </div>
-              )}
-              {validationError && (
-                <div className="flex items-center gap-1 text-sm text-destructive">
-                  <AlertCircle className="h-3.5 w-3.5" />
-                  {validationError}
-                </div>
-              )}
-            </div>
+            <TelegramConnectionFields
+              token={token}
+              apiRoot={telegramApiRoot}
+              validating={validating}
+              validationResult={validationResult}
+              validationError={validationError}
+              onTokenChange={(value) => {
+                setToken(value)
+                setValidationResult(null)
+                setValidationError(null)
+              }}
+              onApiRootChange={(value) => {
+                setTelegramApiRoot(value)
+                setValidationResult(null)
+                setValidationError(null)
+              }}
+              onValidate={handleValidate}
+            />
           )}
 
           {account.channelId === "wechat" && (

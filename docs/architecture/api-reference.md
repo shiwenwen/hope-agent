@@ -1548,7 +1548,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `channel_sync_commands` | `POST /api/channel/sync-commands` | ✅ |
 | `channel_health` | `GET /api/channel/accounts/{accountId}/health` | ✅ |
 | `channel_health_all` | `GET /api/channel/health` | ✅ |
-| `channel_validate_credentials` | `POST /api/channel/validate` | ✅ |
+| `channel_validate_credentials` | `POST /api/channel/validate` | ✅（body `{ channelId, credentials, settings? }`；`settings` 让 Telegram setup 校验走草稿中的 `apiRoot`，缺省保持旧版只验 credentials） |
 | `channel_send_test_message` | `POST /api/channel/accounts/{accountId}/test-message` | ✅ |
 | `channel_list_sessions` | `GET /api/channel/sessions` | ✅ |
 | `channel_wechat_start_login` | `POST /api/channel/wechat/login/start` | ✅ |
