@@ -1969,6 +1969,17 @@ interface EventSubscription {
   handler: (payload: unknown) => void
 }
 
+/** A reachable remote server rejected the supplied Owner Token. */
+export class RemoteAuthenticationError extends Error {
+  readonly status: number
+
+  constructor(status: number) {
+    super(`Remote authentication failed (${status})`)
+    this.name = "RemoteAuthenticationError"
+    this.status = status
+  }
+}
+
 // ---------------------------------------------------------------------------
 // HttpTransport
 // ---------------------------------------------------------------------------
@@ -2084,7 +2095,7 @@ export class HttpTransport implements Transport {
     if (revision !== this.credentialRevision || this.apiKey !== apiKey) return
     if (!response.ok) {
       if (notifyAuthFailure) this.handleAuthFailure(response.status)
-      throw new Error(`Remote authentication failed (${response.status})`)
+      throw new RemoteAuthenticationError(response.status)
     }
     const payload = (await response.json()) as {
       authRequired: boolean

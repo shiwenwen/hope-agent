@@ -74,7 +74,8 @@ flowchart TD
 - `getTransport()` 第一次调用时检查 `isTauriMode()`。
 - `isTauriMode()` 只看 `window.__TAURI_INTERNALS__`，这是 Tauri 在用户脚本前注入的运行时标记。
 - Tauri 模式创建 `new TauriTransport()`。
-- 非 Tauri 模式创建 `new HttpTransport(import.meta.env.VITE_SERVER_URL || "http://localhost:8420")`。
+- 非 Tauri 模式创建 `new HttpTransport(import.meta.env.VITE_SERVER_URL || window.location.origin)`；无浏览器环境的测试 / SSR 才回退 `http://localhost:8420`。
+- `AuthGate` 与 singleton 共用上述 API base：同源把 Owner Token 换成 HttpOnly cookie，跨源只在内存 `HttpTransport` 中保留 Bearer 并换取 scope ticket，不把 Token 落浏览器存储。
 - 设置页可用 `switchToRemote(baseUrl, apiKey)` 把 singleton 切到远程 `HttpTransport`，也可用 `switchToEmbedded()` 切回默认入口。
 
 业务组件只依赖 `Transport` 接口，不直接判断 IPC、REST 或 WebSocket。例外是少量 UI 需要根据能力调整交互，例如 HTTP 模式不能 reveal 本地文件，工作目录选择需要显示 server-side directory browser。
@@ -91,7 +92,7 @@ flowchart TD
 | `startChat(args, onEvent)` | 创建 `Channel<string>`，调用 `invoke("chat", { ...args, onEvent })`，每个 stream event 直接进 `onEvent`。 | 调 `POST /api/chat`。stream delta 不进 `onEvent`，而是由 `/ws/events` 的 `chat:stream_delta` 送达；只在新会话时合成 `session_created` 给 `onEvent`。 |
 | `listen(eventName, handler)` | `@tauri-apps/api/event.listen(eventName, ...)`。 | 复用全局 `/ws/events`，按 `{ name, payload }` 的 `name` 过滤。 |
 | 媒体 URL | 用 `convertFileSrc(localPath)` 暴露本地文件。 | 只接受 `http(s)://` 或后端逻辑 URL，如 `/api/attachments/...`；绝对本地路径返回 `null`。 |
-| 资产 URL | data/http(s) 透传，绝对路径走 `convertFileSrc`。 | 识别 avatars、image_generate、canvas 路径并改写到同源 `/api/...` route，依赖 HttpOnly 会话 Cookie。 |
+| 资产 URL | data/http(s) 透传，绝对路径走 `convertFileSrc`。 | 识别 avatars、image_generate、canvas 路径并改写到 HTTP server route；同源依赖 HttpOnly 会话 Cookie，跨源使用短时 resource ticket。 |
 | 打开 / 定位文件 | `openMedia` 调 OS 默认处理器，`revealMedia` 调文件管理器。 | `openMedia` 触发浏览器下载或打开，`revealMedia` no-op，`supportsLocalFileOps()` 返回 `false`。 |
 | 图片选择 | 原生文件选择器，返回 Tauri asset URL。 | 隐藏 `<input type="file">`，返回 `blob:` URL 和 `File`。 |
 | 目录选择 / 浏览 | `pickLocalDirectory()` 用原生目录选择器；`listServerDirectory()` 也可走 Tauri 命令供 `@` mention 使用。 | 浏览器不能选 server 文件系统，UI 应显示 `ServerDirectoryBrowser`，由 `listServerDirectory()` 调 `/api/filesystem/list-dir`。 |

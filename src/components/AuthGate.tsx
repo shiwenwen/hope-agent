@@ -12,6 +12,11 @@ import {
   getStoredApiKey,
 } from "@/lib/api-key-storage"
 import { isTauriMode } from "@/lib/transport"
+import {
+  authenticateWebOwnerToken,
+  configuredHttpBase,
+  isConfiguredHttpBaseSameOrigin,
+} from "@/lib/transport-provider"
 
 type GateState = "checking" | "ready" | "login" | "unavailable"
 
@@ -27,15 +32,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  const exchangeToken = useCallback(async (candidate: string) => {
-    const response = await fetch("/api/auth/session", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: candidate, remember: true }),
-    })
-    return response.ok
-  }, [])
+  const exchangeToken = useCallback(
+    (candidate: string) => authenticateWebOwnerToken(candidate),
+    [],
+  )
 
   const check = useCallback(async () => {
     if (isTauriMode()) {
@@ -45,8 +45,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setState("checking")
     setError(null)
     try {
-      const response = await fetch("/api/auth/status", {
-        credentials: "same-origin",
+      const response = await fetch(`${configuredHttpBase()}/api/auth/status`, {
+        credentials: isConfiguredHttpBaseSameOrigin() ? "same-origin" : "omit",
         cache: "no-store",
       })
       if (!response.ok) throw new Error(`status ${response.status}`)

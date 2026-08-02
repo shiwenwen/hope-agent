@@ -17,7 +17,7 @@ import { useSyncExternalStore } from "react";
 import { isTauriMode } from "@/lib/transport";
 import type { Transport } from "@/lib/transport";
 import { TauriTransport } from "@/lib/transport-tauri";
-import { HttpTransport } from "@/lib/transport-http";
+import { HttpTransport, RemoteAuthenticationError } from "@/lib/transport-http";
 import { getStoredApiKey } from "@/lib/api-key-storage";
 import { confirmDiscardDirtyFileEditors } from "@/components/chat/files/fileDirtyRegistry";
 
@@ -36,6 +36,21 @@ function defaultHttpBase(): string {
     return window.location.origin;
   }
   return "http://localhost:8420";
+}
+
+/** HTTP server selected for standalone web mode, normalized for path joins. */
+export function configuredHttpBase(): string {
+  return (import.meta.env?.VITE_SERVER_URL || defaultHttpBase()).replace(/\/+$/, "");
+}
+
+/** Whether the configured server can use the browser's same-origin session cookie. */
+export function isConfiguredHttpBaseSameOrigin(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URL(configuredHttpBase()).origin === window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 let instance: Transport | null = null;
@@ -92,7 +107,7 @@ export function getTransport(): Transport {
     // In standalone web mode, read the server URL from a Vite env variable
     // or fall back to the page's origin. A legacy localStorage token is
     // visible here for one release only; AuthGate exchanges and clears it.
-    const baseUrl = import.meta.env?.VITE_SERVER_URL || defaultHttpBase();
+    const baseUrl = configuredHttpBase();
     const apiKey = getStoredApiKey();
     const http = new HttpTransport(baseUrl, apiKey, emitTransportChanged);
     instance = http;
@@ -102,6 +117,38 @@ export function getTransport(): Transport {
   }
 
   return instance;
+}
+
+/**
+ * Authenticate the standalone web client without persisting the Owner Token.
+ * Same-origin deployments exchange it for an HttpOnly cookie; split-origin
+ * deployments retain it only in the in-memory HTTP transport and mint scoped
+ * browser tickets for resources and WebSockets.
+ */
+export async function authenticateWebOwnerToken(token: string): Promise<boolean> {
+  const baseUrl = configuredHttpBase();
+  if (isConfiguredHttpBaseSameOrigin()) {
+    const response = await fetch(`${baseUrl}/api/auth/session`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, remember: true }),
+    });
+    return response.ok;
+  }
+
+  const next = new HttpTransport(baseUrl, token, emitTransportChanged);
+  try {
+    await next.initializeRemoteAccess(false);
+  } catch (error) {
+    next.dispose();
+    if (error instanceof RemoteAuthenticationError) return false;
+    throw error;
+  }
+  if (instance instanceof HttpTransport) instance.dispose();
+  instance = next;
+  emitTransportChanged();
+  return true;
 }
 
 /**
