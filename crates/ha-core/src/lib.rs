@@ -88,6 +88,7 @@ pub mod goal;
 pub mod guardian;
 pub mod hooks;
 pub mod i18n;
+pub mod improve_hooks;
 pub mod issue_reporting;
 pub mod knowledge;
 pub mod knowledge_hooks;

@@ -98,6 +98,7 @@ graph TD
         ChannelFeat["ha-channel<br/>12 个 IM 插件 / worker 分发 / 飞书工具<br/>(台账 ChannelDB + registry 留 kernel)"]
         KnowledgeFeat["ha-knowledge<br/>index.db 检索 / 解析编译 / 维护流水线 + 24 工具<br/>(台账 KnowledgeRegistry + 裁决 access 留 kernel)"]
         SkillsFeat["ha-skills<br/>内置技能解包 / SKILL.md 发现解析 / 创作 / auto-review + skill 工具<br/>(契约 SkillEntry + 台账 activation 留 kernel)"]
+        ImproveFeat["ha-improve<br/>提案队列 / 领域评测跑批 / 质量复核 / 四道闸 + soak<br/>(124 个摸连接的方法留 kernel，只上浮 34 个零连接入口)"]
     end
     Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
     Weather -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
@@ -122,6 +123,8 @@ graph TD
     DesignFeat -.->|"特征间单向依赖<br/>（笔记落库 / require_write 写门）"| KnowledgeFeat
     LocalLlmFeat -.->|"特征间单向依赖<br/>（embedding 就位触发 reembed）"| KnowledgeFeat
     SkillsFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    ImproveFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    EvalRtFeat -.->|"兄弟单向边<br/>提案流水线 / 趋势报表"| ImproveFeat
 
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler

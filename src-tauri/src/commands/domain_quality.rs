@@ -29,7 +29,7 @@ pub async fn run_domain_quality(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<DomainQualityRunSnapshot, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.run_domain_quality_for_session(input))
+    db.run(move |db| ha_improve::domain_quality::run_domain_quality_for_session(db, input))
         .await
         .map_err(Into::into)
 }

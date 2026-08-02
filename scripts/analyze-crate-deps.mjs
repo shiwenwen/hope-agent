@@ -71,36 +71,30 @@ const FEATURES = {
   // ha-updater：阶段 3 首个特征 crate，已实际迁出（crates/ha-updater/），
   // 不再是 ha-core 内的分组。已拆出的 crate 一律从本表删除——留着会以
   // LOC 0 的幽灵行出现在报表里。
-  // ha-eval-runtime 已实际迁出（crates/ha-eval-runtime/，阶段 5 第四刀）——
-  // 但它**只收了 improve 域里不碰 kernel 连接的那三块**：`coding_eval` /
-  // `context_retrieval` / `evaluation`。下面这组是**剩下的 improve 域**，
-  // 名字保留 ha-improve 是因为它还没拆完，不是它已经拆了。
+  // ha-improve 已实际迁出（crates/ha-improve/，阶段 5 第八刀）——**台账留
+  // kernel**：`coding_improvement` / `domain_eval` / `domain_quality` 三个
+  // 模块的 `impl SessionDB` 里，124 个直接摸连接的方法与全部 wire 类型 /
+  // 行映射原地不动，只有 34 个**一处连接都不碰**的顶层入口（四道闸、提案
+  // 流水线、报表与执行器）改写成自由函数上浮。
   //
-  // `coding_improvement` / `domain_eval` / `domain_quality` **暂时切不动**：
-  // 三者共 100 处直接 `self.conn.lock()`（含 `conn.transaction()`）写 kernel
-  // 的 `sessions.db`，搬走就得把 `SessionDB` 的可写连接开成跨 crate 公开
-  // API——那会永久击穿封装，也推翻 ha-dash 那刀立的「特征 crate 不碰 kernel
-  // 连接」契约。后续单独设计 typed repository / store 边界再切，**别拿通用
-  // `with_conn` 当过渡方案**。所以本组的"需切"数目前不是拆分难度的全部。
+  // 这条边界回答的正是本表旧注释里的那个悬案（「100 处 `self.conn.lock()`
+  // 搬走就得把可写连接开成跨 crate 公开 API」）——不动点算出来的答案是
+  // **一处都不用开**：`with_conn_internal` 仍是 `pub(crate)`，特征 crate 只
+  // 经类型化仓储方法触达 `sessions.db`，ha-dash 那刀立的契约完好。
   //
-  // `review` / `verification` / `domain_workflow` 留在本组是**待定归属**：
-  // 它们同时是 workflow 的内置步骤与 Goal / Loop 的模板来源（`workflow.review`
-  // / `workflow.verify` / `workflow.evidence.record` 三个 op 就在
-  // `workflow/runtime.rs` 里），真要上浮得给 runtime 开 6~7 个钩子并下沉一族
-  // wire 类型；也可能最终判定它们本就是控制面本体、该留 kernel。
+  // `review` / `verification` / `domain_workflow` **不随本刀迁出**，归属仍
+  // 待定：它们同时是 workflow 的内置步骤与 Goal / Loop 的模板来源
+  // （`workflow.review` / `workflow.verify` / `workflow.evidence.record` 三个
+  // op 就在 `workflow/runtime.rs` 里），真要上浮得给 runtime 开 6~7 个钩子并
+  // 下沉一族 wire 类型；也可能最终判定它们本就是控制面本体、该留 kernel。
+  // 它们**留在本表**作为唯一的待定组——本表的用途是追踪「还没拆的」，
+  // 组名 `ha-workflow-quality` 是候选名不是结论。
   //
   // `lsp` / `tools::lsp` 已判定**留 kernel**：被 kernel 核心路径消费（agent
   // streaming loop 的诊断 prompt 段 + `apply_patch` / `edit` / `write` 三个
   // Core 工具的 `sync_file_after_tool`），同 `activity` / `local_model_jobs` /
   // `CronDB` 的规则，故从本组移出。
-  "ha-improve": [
-    "coding_improvement",
-    "domain_eval",
-    "domain_quality",
-    "domain_workflow",
-    "review",
-    "verification",
-  ],
+  "ha-workflow-quality": ["domain_workflow", "review", "verification"],
   // ha-knowledge 已实际迁出（crates/ha-knowledge/，阶段 5 第六刀）——**台账、
   // 契约与裁决留 kernel**：`knowledge/registry.rs`（`knowledge_bases` + 访问绑定
   // 的真相源，81 处直接 `session_db.conn.lock()`，撞「sessions.db 写连接不对

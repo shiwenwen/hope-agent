@@ -10,7 +10,6 @@ use ha_core::domain_eval::{
     ListDomainEvalRunsInput, ListDomainEvalTasksInput, RecordDomainEvalCalibrationInput,
     RunDomainEvalCampaignInput, RunDomainEvalFixtureInput, RunDomainEvalTaskInput,
 };
-use ha_core::session::SessionDB;
 use serde::Deserialize;
 
 use crate::error::AppError;
@@ -136,7 +135,7 @@ pub async fn run_domain_eval_fixture(
     Json(body): Json<RunDomainEvalFixtureBody>,
 ) -> Result<Json<DomainEvalFixtureReport>, AppError> {
     let db = session_db()?.clone();
-    SessionDB::run_domain_eval_fixture(db, body.input)
+    ha_improve::domain_eval::run_domain_eval_fixture(db, body.input)
         .await
         .map(Json)
         .map_err(|err| AppError::bad_request(err.to_string()))
@@ -229,7 +228,7 @@ pub async fn create_domain_eval_campaign(
                 providers,
                 retry_failed_only: false,
             };
-            let _ = ha_core::domain_eval::run_domain_eval_campaign(run_db, input).await;
+            let _ = ha_improve::domain_eval::run_domain_eval_campaign(run_db, input).await;
         });
     }
     Ok(Json(campaign))
@@ -288,7 +287,7 @@ pub async fn run_domain_eval_campaign(
     }
     let spawn_db = db.clone();
     tokio::spawn(async move {
-        let _ = ha_core::domain_eval::run_domain_eval_campaign(spawn_db, input).await;
+        let _ = ha_improve::domain_eval::run_domain_eval_campaign(spawn_db, input).await;
     });
     db.run(move |db| db.get_domain_eval_campaign(&campaign_id))
         .await
@@ -311,7 +310,7 @@ pub async fn evaluate_domain_quality_gate(
 ) -> Result<Json<DomainQualityGateReport>, AppError> {
     let db = session_db()?;
     Ok(Json(
-        db.run(move |db| db.evaluate_domain_quality_gate(body.input))
+        db.run(move |db| ha_improve::domain_eval::evaluate_domain_quality_gate(db, body.input))
             .await?,
     ))
 }
@@ -321,7 +320,7 @@ pub async fn evaluate_domain_readiness_gate(
 ) -> Result<Json<DomainReadinessGateReport>, AppError> {
     let db = session_db()?;
     Ok(Json(
-        db.run(move |db| db.evaluate_domain_readiness_gate(body.input))
+        db.run(move |db| ha_improve::domain_eval::evaluate_domain_readiness_gate(db, body.input))
             .await?,
     ))
 }
@@ -331,7 +330,7 @@ pub async fn evaluate_domain_operational_gate(
 ) -> Result<Json<DomainOperationalGateReport>, AppError> {
     let db = session_db()?;
     Ok(Json(
-        db.run(move |db| db.evaluate_domain_operational_gate(body.input))
+        db.run(move |db| ha_improve::domain_eval::evaluate_domain_operational_gate(db, body.input))
             .await?,
     ))
 }
@@ -341,7 +340,7 @@ pub async fn generate_domain_soak_report(
 ) -> Result<Json<DomainSoakReport>, AppError> {
     let db = session_db()?;
     Ok(Json(
-        db.run(move |db| db.generate_domain_soak_report(body.input))
+        db.run(move |db| ha_improve::domain_eval::generate_domain_soak_report(db, body.input))
             .await?,
     ))
 }

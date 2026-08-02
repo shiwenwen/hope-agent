@@ -49,7 +49,7 @@ cargo run -p ha-eval --locked -- aggregate \
 - 修改 lock 后在本地运行 `node scripts/verify-eval-version-lock.mjs --base <base-sha>`，并在代码审查中确认 append-only。GitHub CI 当前不执行这项评测专用校验。
 - Memory latency 只作提示，质量和召回正确性仍是功能断言。
 
-`ha-eval` 默认启用 `full-runner`，完整确定性 adapter 不链接进普通 `ha-core` / `ha-server` 测试。此前迁出的 `eval-internal-tests` 继续保持 opt-in，不回到默认 Cargo test——阶段 5 第四刀 `coding_eval` 迁入 `ha-eval-runtime` 后，该开关在两处同名（`ha-core/eval-internal-tests` 与 `ha-eval-runtime/eval-internal-tests`，后者转发前者），跑遗留内部测试须按所在 crate 显式打开。
+`ha-eval` 默认启用 `full-runner`，完整确定性 adapter 不链接进普通 `ha-core` / `ha-server` 测试。此前迁出的 `eval-internal-tests` 继续保持 opt-in，不回到默认 Cargo test——阶段 5 第四刀 `coding_eval` 迁入 `ha-eval-runtime`、第八刀学习闭环机器迁入 `ha-improve` 后，该开关在**三处**同名（`ha-core/eval-internal-tests`，以及转发它的 `ha-eval-runtime/eval-internal-tests` 与 `ha-improve/eval-internal-tests`），跑遗留内部测试须按所在 crate 显式打开。**这条 lane 不进任何门禁**——`cargo clippy --all-targets` 与 `cargo test` 都不开这个 feature，所以它编译不过或断言失败都不会变红，改动这三个 crate 的 gated 测试后须本地显式跑一遍。已知存量失败一条：`ha-improve` 的 `promote_eval_candidate_refuses_existing_formal_fixture_without_overwrite`（测试 setup 没在临时 workspace 建 `evals/suites/coding-control-plane/suite.json` 与 `evals/version-lock.json`，而 promotion plan 要求两者存在）——**在 `6f855edc3` 上复现过同一失败，不是第八刀引入的**。
 
 ## 本地网络与证据语义
 

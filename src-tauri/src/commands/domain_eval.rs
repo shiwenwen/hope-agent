@@ -10,7 +10,6 @@ use ha_core::domain_eval::{
     ListDomainEvalRunsInput, ListDomainEvalTasksInput, RecordDomainEvalCalibrationInput,
     RunDomainEvalCampaignInput, RunDomainEvalFixtureInput, RunDomainEvalTaskInput,
 };
-use ha_core::session::SessionDB;
 
 #[tauri::command]
 pub async fn list_domain_eval_tasks(
@@ -39,7 +38,7 @@ pub async fn run_domain_eval_fixture(
     input: RunDomainEvalFixtureInput,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<DomainEvalFixtureReport, CmdError> {
-    SessionDB::run_domain_eval_fixture(app_state.session_db.clone(), input)
+    ha_improve::domain_eval::run_domain_eval_fixture(app_state.session_db.clone(), input)
         .await
         .map_err(Into::into)
 }
@@ -136,7 +135,7 @@ pub async fn create_domain_eval_campaign(
                 providers,
                 retry_failed_only: false,
             };
-            let _ = ha_core::domain_eval::run_domain_eval_campaign(db, input).await;
+            let _ = ha_improve::domain_eval::run_domain_eval_campaign(db, input).await;
         });
     }
     Ok(campaign)
@@ -196,7 +195,7 @@ pub async fn run_domain_eval_campaign(
         input.providers = ha_eval_runtime::evaluation::resolve_owner_provider_refs(&references)?;
     }
     tokio::spawn(async move {
-        let _ = ha_core::domain_eval::run_domain_eval_campaign(db, input).await;
+        let _ = ha_improve::domain_eval::run_domain_eval_campaign(db, input).await;
     });
     let db = app_state.session_db.clone();
     db.run(move |db| db.get_domain_eval_campaign(&campaign_id))
@@ -221,7 +220,7 @@ pub async fn evaluate_domain_quality_gate(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<DomainQualityGateReport, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.evaluate_domain_quality_gate(input))
+    db.run(move |db| ha_improve::domain_eval::evaluate_domain_quality_gate(db, input))
         .await
         .map_err(Into::into)
 }
@@ -232,7 +231,7 @@ pub async fn evaluate_domain_readiness_gate(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<DomainReadinessGateReport, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.evaluate_domain_readiness_gate(input))
+    db.run(move |db| ha_improve::domain_eval::evaluate_domain_readiness_gate(db, input))
         .await
         .map_err(Into::into)
 }
@@ -243,7 +242,7 @@ pub async fn evaluate_domain_operational_gate(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<DomainOperationalGateReport, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.evaluate_domain_operational_gate(input))
+    db.run(move |db| ha_improve::domain_eval::evaluate_domain_operational_gate(db, input))
         .await
         .map_err(Into::into)
 }
@@ -254,7 +253,7 @@ pub async fn generate_domain_soak_report(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<DomainSoakReport, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.generate_domain_soak_report(input))
+    db.run(move |db| ha_improve::domain_eval::generate_domain_soak_report(db, input))
         .await
         .map_err(Into::into)
 }

@@ -2,7 +2,23 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.4 已实现，Phase 7.5 已接入 Domain Learning，Phase 7.6 已接入 Domain Eval / Quality Gate，Phase 7.15 已在 Workspace 侧和 Domain Workflow owner API 上补充最终交付守门，Phase 7.16 已补外部动作守门。本文记录 `ha-core::domain_quality` 的最终技术事实：通用领域 review / verification run、check、event、Goal evidence 阻塞语义、Domain Learning 与 Domain Eval 输入信号、owner API 与 Workspace「领域复核」交互。
+> 状态：Phase 7.4 已实现，Phase 7.5 已接入 Domain Learning，Phase 7.6 已接入 Domain Eval / Quality Gate，Phase 7.15 已在 Workspace 侧和 Domain Workflow owner API 上补充最终交付守门，Phase 7.16 已补外部动作守门。本文记录 `ha_improve::domain_quality`（机器）+ `ha_core::domain_quality`（台账）的最终技术事实：通用领域 review / verification run、check、event、Goal evidence 阻塞语义、Domain Learning 与 Domain Eval 输入信号、owner API 与 Workspace「领域复核」交互。
+
+## Crate 边界（阶段 5 第八刀）
+
+本子系统自 0.25 起横跨两个 crate，**分界线是「方法是否直接摸 `sessions.db`
+连接」**（对 `impl SessionDB` 做不动点，摸连接的与被摸连接者调用的全部留守）：
+
+| | 位置 | 内容 |
+|---|---|---|
+| **台账** | `crates/ha-core/src/domain_quality.rs` | wire 类型、行映射、`ensure_tables`，以及全部直接执行 SQL 的 `impl SessionDB` 方法 |
+| **机器** | `crates/ha-improve/src/domain_quality.rs` | 顶层入口——一处连接都不碰，只调台账的类型化方法 |
+
+固有 impl 不能跨 crate，所以上浮的方法在 ha-improve 里是自由函数
+`fn f(db: &SessionDB, …)`。`SessionDB::with_conn_internal` 仍是 `pub(crate)`，
+ha-improve 生产代码零连接触点。新增 owner 入口时：**SQL 写台账、编排写机器**。
+
+详见 [前后端分离架构](backend-separation.md) 的 ha-improve 小节。
 
 ## 目标
 
@@ -210,8 +226,11 @@ Workspace 面板新增「领域复核」区块，位于「代码审查」和「�
 定向测试：
 
 ```bash
-cargo test -p ha-core domain_quality --locked
+cargo test -p ha-improve domain_quality --locked
 ```
+
+（第八刀后 6 个定向测试全部在 ha-improve；kernel 侧 `domain_quality` 只剩台账，
+跑 `-p ha-core` 是**零覆盖**。）
 
 覆盖：
 

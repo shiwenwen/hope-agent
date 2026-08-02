@@ -179,8 +179,10 @@ pub async fn get_coding_trend_report(
 ) -> Result<Json<CodingTrendReport>, AppError> {
     let db = session_db()?;
     Ok(Json(
-        db.run(move |db| db.coding_trend_report(&session_id, query.window_days))
-            .await?,
+        db.run(move |db| {
+            ha_improve::coding_improvement::coding_trend_report(db, &session_id, query.window_days)
+        })
+        .await?,
     ))
 }
 
@@ -189,8 +191,10 @@ pub async fn list_coding_improvement_proposals(
 ) -> Result<Json<Vec<CodingImprovementProposal>>, AppError> {
     let db = session_db()?;
     Ok(Json(
-        db.run(move |db| db.list_coding_improvement_proposals(&session_id))
-            .await?,
+        db.run(move |db| {
+            ha_improve::coding_improvement::list_coding_improvement_proposals(db, &session_id)
+        })
+        .await?,
     ))
 }
 
@@ -201,7 +205,8 @@ pub async fn generate_coding_improvement_proposals(
     let db = session_db()?;
     Ok(Json(
         db.run(move |db| {
-            db.generate_coding_improvement_proposals_with_input(
+            ha_improve::coding_improvement::generate_coding_improvement_proposals_with_input(
+                db,
                 &session_id,
                 GenerateCodingImprovementProposalsInput {
                     window_days: body.window_days,
@@ -221,8 +226,14 @@ pub async fn distill_coding_improvement_proposals(
 ) -> Result<Json<DistillCodingImprovementResult>, AppError> {
     let db = session_db()?;
     Ok(Json(
-        db.run(move |db| db.distill_coding_improvement_proposals(&session_id, body.window_days))
-            .await?,
+        db.run(move |db| {
+            ha_improve::coding_improvement::distill_coding_improvement_proposals(
+                db,
+                &session_id,
+                body.window_days,
+            )
+        })
+        .await?,
     ))
 }
 
@@ -241,40 +252,51 @@ pub async fn preview_coding_improvement_proposal_action(
     Path(proposal_id): Path<String>,
 ) -> Result<Json<CodingImprovementActionPlan>, AppError> {
     let db = session_db()?;
-    db.run(move |db| db.preview_coding_improvement_proposal_action(&proposal_id))
-        .await
-        .map(Json)
-        .map_err(|e| AppError::bad_request(e.to_string()))
+    db.run(move |db| {
+        ha_improve::coding_improvement::preview_coding_improvement_proposal_action(db, &proposal_id)
+    })
+    .await
+    .map(Json)
+    .map_err(|e| AppError::bad_request(e.to_string()))
 }
 
 pub async fn apply_coding_improvement_proposal(
     Path(proposal_id): Path<String>,
 ) -> Result<Json<ApplyCodingImprovementProposalResult>, AppError> {
     let db = session_db()?;
-    db.run(move |db| db.apply_coding_improvement_proposal(&proposal_id))
-        .await
-        .map(Json)
-        .map_err(|e| AppError::bad_request(e.to_string()))
+    db.run(move |db| {
+        ha_improve::coding_improvement::apply_coding_improvement_proposal(db, &proposal_id)
+    })
+    .await
+    .map(Json)
+    .map_err(|e| AppError::bad_request(e.to_string()))
 }
 
 pub async fn preview_coding_improvement_proposal_promotion(
     Path(proposal_id): Path<String>,
 ) -> Result<Json<CodingImprovementPromotionPlan>, AppError> {
     let db = session_db()?;
-    db.run(move |db| db.preview_coding_improvement_proposal_promotion(&proposal_id))
-        .await
-        .map(Json)
-        .map_err(|e| AppError::bad_request(e.to_string()))
+    db.run(move |db| {
+        ha_improve::coding_improvement::preview_coding_improvement_proposal_promotion(
+            db,
+            &proposal_id,
+        )
+    })
+    .await
+    .map(Json)
+    .map_err(|e| AppError::bad_request(e.to_string()))
 }
 
 pub async fn promote_coding_improvement_proposal(
     Path(proposal_id): Path<String>,
 ) -> Result<Json<PromoteCodingImprovementProposalResult>, AppError> {
     let db = session_db()?;
-    db.run(move |db| db.promote_coding_improvement_proposal(&proposal_id))
-        .await
-        .map(Json)
-        .map_err(|e| AppError::bad_request(e.to_string()))
+    db.run(move |db| {
+        ha_improve::coding_improvement::promote_coding_improvement_proposal(db, &proposal_id)
+    })
+    .await
+    .map(Json)
+    .map_err(|e| AppError::bad_request(e.to_string()))
 }
 
 pub async fn record_coding_eval_run(
@@ -545,10 +567,12 @@ pub async fn evaluate_continuous_benchmark_gate(
     Json(body): Json<ContinuousBenchmarkGateBody>,
 ) -> Result<Json<CodingContinuousBenchmarkGateReport>, AppError> {
     let db = session_db()?;
-    db.run(move |db| db.evaluate_continuous_benchmark_gate(body.input))
-        .await
-        .map(Json)
-        .map_err(|e| AppError::bad_request(e.to_string()))
+    db.run(move |db| {
+        ha_improve::coding_improvement::evaluate_continuous_benchmark_gate(db, body.input)
+    })
+    .await
+    .map(Json)
+    .map_err(|e| AppError::bad_request(e.to_string()))
 }
 
 pub async fn materialize_benchmark_backlog(

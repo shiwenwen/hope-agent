@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
-use ha_core::domain_eval::{self, RunDomainEvalFixtureInput};
+use ha_core::domain_eval::RunDomainEvalFixtureInput;
 use ha_core::memory::{claims, dreaming, SqliteMemoryBackend};
 use ha_core::session::SessionDB;
 use ha_eval_runtime::coding_eval::{self, CodingEvalFixture, GoldTaskPackRunInput};
@@ -137,7 +137,7 @@ async fn run_coding_gold(
 async fn run_domain(temp: &Path, suite: &PlannedSuite, case: &PlannedCase) -> Result<CaseResult> {
     let _ = temp;
     let db = runtime_eval_db()?;
-    let fixture = domain_eval::deterministic_domain_eval_fixture(
+    let fixture = ha_improve::domain_eval::deterministic_domain_eval_fixture(
         db.as_ref(),
         &case.id,
         &format!("release-eval:{}", case.id),
@@ -149,7 +149,8 @@ async fn run_domain(temp: &Path, suite: &PlannedSuite, case: &PlannedCase) -> Re
         bail!("domain deterministic fixture unexpectedly contains agent/provider configuration");
     }
     let report =
-        SessionDB::run_domain_eval_fixture(db, RunDomainEvalFixtureInput { fixture }).await?;
+        ha_improve::domain_eval::run_domain_eval_fixture(db, RunDomainEvalFixtureInput { fixture })
+            .await?;
     let mut checks = report
         .checks
         .iter()
@@ -398,6 +399,7 @@ fn runtime_eval_db() -> Result<Arc<SessionDB>> {
     ha_channel::wire();
     ha_knowledge::wire();
     ha_skills::wire();
+    ha_improve::wire();
     ha_cron::wire();
     ha_core::init_runtime("eval");
     ha_core::get_session_db()

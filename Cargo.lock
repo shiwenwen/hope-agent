@@ -3410,6 +3410,7 @@ dependencies = [
  "ha-design",
  "ha-eval-runtime",
  "ha-eval-spec",
+ "ha-improve",
  "ha-knowledge",
  "ha-local-llm",
  "ha-mac",
@@ -3442,6 +3443,7 @@ dependencies = [
  "chrono",
  "ha-core",
  "ha-eval-spec",
+ "ha-improve",
  "ring",
  "rusqlite",
  "serde",
@@ -3466,6 +3468,23 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "sha2",
+]
+
+[[package]]
+name = "ha-improve"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ha-core",
+ "ha-eval-spec",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "wiremock",
 ]
 
 [[package]]
@@ -3645,6 +3664,7 @@ dependencies = [
  "ha-dash",
  "ha-design",
  "ha-eval-runtime",
+ "ha-improve",
  "ha-knowledge",
  "ha-local-llm",
  "ha-mac",
@@ -3876,6 +3896,7 @@ dependencies = [
  "ha-dash",
  "ha-design",
  "ha-eval-runtime",
+ "ha-improve",
  "ha-knowledge",
  "ha-local-llm",
  "ha-mac",

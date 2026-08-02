@@ -169,6 +169,15 @@
 # 一项就是给未审的技能开一条进 system context 的路。
 /crates/ha-skills/src/skills/commands.rs @shiwenwen
 /crates/ha-skills/src/skills/mention.rs  @shiwenwen
+# 学习闭环的落盘面（阶段 5 第八刀自 ha-core 的 coding_improvement.rs 迁入
+# ha-improve）：`apply_coding_improvement_proposal` / `promote_…` 把提案变成
+# 磁盘产物——托管技能 draft（经 `skills_hooks`，与上面 author.rs 同一条写正文
+# 路径）、项目 `AGENTS.md` 的 managed include、评测 fixture 与 `version-lock`
+# 追加。AGENTS 红线要求「preview → apply → 用户显式 promotion 才落生产，禁直
+# 改生产模板 / connector 策略 / eval fixture」，这个文件就是那三步的执行点。
+# **迁出前本路径无 owner 条目**，此处是顺手闭合的既有缺口，不是搬迁导致的
+# 覆盖丢失（同第七刀 author.rs 的处理）。
+/crates/ha-improve/src/coding_improvement.rs @shiwenwen
 # 铸币点：`oauth::mint_codex_evaluation_secret` 是 Codex OAuth token 跨 crate
 # 的唯一出口（load → encode → digest 三步）。**迁出前 oauth.rs 无 owner 条目**，
 # 本刀补上——把关点不该只落在下游消费者。

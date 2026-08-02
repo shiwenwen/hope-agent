@@ -1021,8 +1021,13 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
             db.record_coding_eval_run(input)?;
         }
         if run.generate_proposals {
-            artifacts.improvement_proposals =
-                Some(db.generate_coding_improvement_proposals(&session.id, run.window_days)?);
+            artifacts.improvement_proposals = Some(
+                ha_improve::coding_improvement::generate_coding_improvement_proposals(
+                    &db,
+                    &session.id,
+                    run.window_days,
+                )?,
+            );
         }
         if run.apply_first_proposal {
             let desired_kind = run.apply_proposal_kind.as_deref();
@@ -1040,22 +1045,30 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                         .map(|proposal| proposal.id.clone())
                 })
                 .or_else(|| {
-                    db.list_coding_improvement_proposals(&session.id)
-                        .ok()
-                        .and_then(|proposals| {
-                            proposals
-                                .into_iter()
-                                .find(|proposal| {
-                                    proposal.status == "draft"
-                                        && desired_kind.is_none_or(|kind| proposal.kind == kind)
-                                })
-                                .map(|proposal| proposal.id)
-                        })
+                    ha_improve::coding_improvement::list_coding_improvement_proposals(
+                        &db,
+                        &session.id,
+                    )
+                    .ok()
+                    .and_then(|proposals| {
+                        proposals
+                            .into_iter()
+                            .find(|proposal| {
+                                proposal.status == "draft"
+                                    && desired_kind.is_none_or(|kind| proposal.kind == kind)
+                            })
+                            .map(|proposal| proposal.id)
+                    })
                 })
                 .ok_or_else(|| {
                     anyhow!("applyFirstProposal requested but no draft proposal exists")
                 })?;
-            artifacts.improvement_apply = Some(db.apply_coding_improvement_proposal(&proposal_id)?);
+            artifacts.improvement_apply = Some(
+                ha_improve::coding_improvement::apply_coding_improvement_proposal(
+                    &db,
+                    &proposal_id,
+                )?,
+            );
         }
         if run.promote_applied_proposal {
             let proposal_id = artifacts
@@ -1063,22 +1076,33 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                 .as_ref()
                 .map(|result| result.proposal.id.clone())
                 .or_else(|| {
-                    db.list_coding_improvement_proposals(&session.id)
-                        .ok()
-                        .and_then(|proposals| {
-                            proposals
-                                .into_iter()
-                                .find(|proposal| proposal.status == "applied")
-                                .map(|proposal| proposal.id)
-                        })
+                    ha_improve::coding_improvement::list_coding_improvement_proposals(
+                        &db,
+                        &session.id,
+                    )
+                    .ok()
+                    .and_then(|proposals| {
+                        proposals
+                            .into_iter()
+                            .find(|proposal| proposal.status == "applied")
+                            .map(|proposal| proposal.id)
+                    })
                 })
                 .ok_or_else(|| {
                     anyhow!("promoteAppliedProposal requested but no applied proposal exists")
                 })?;
-            artifacts.improvement_promotion =
-                Some(db.promote_coding_improvement_proposal(&proposal_id)?);
+            artifacts.improvement_promotion = Some(
+                ha_improve::coding_improvement::promote_coding_improvement_proposal(
+                    &db,
+                    &proposal_id,
+                )?,
+            );
         }
-        artifacts.improvement = Some(db.coding_trend_report(&session.id, run.window_days)?);
+        artifacts.improvement = Some(ha_improve::coding_improvement::coding_trend_report(
+            &db,
+            &session.id,
+            run.window_days,
+        )?);
     }
 
     if let Some(goal_id) = goal_id.as_deref() {

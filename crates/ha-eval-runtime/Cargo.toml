@@ -14,6 +14,7 @@ eval-internal-tests = ["ha-core/eval-internal-tests"]
 
 [dependencies]
 ha-core = { path = "../ha-core" }
+ha-improve = { path = "../ha-improve" }
 ha-eval-spec = { path = "../ha-eval-spec" }
 
 anyhow = { workspace = true }

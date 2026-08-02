@@ -2,7 +2,23 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.5 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Domain Learning proposals、Gold Pack / Strategy Effect history、External Model Baseline、Release Gate、Learning Generalization Gate、Benchmark Run Center、Benchmark Campaign Runner、Cross-model Leaderboard、Benchmark Task Corpus、Benchmark Report Export、Continuous Benchmark Gate、Benchmark Improvement Backlog、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
+> 状态：Phase 7.5 已实现。本文是 `ha_improve::coding_improvement`（机器）+ `ha_core::coding_improvement`（台账）、`ha_dash::dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Domain Learning proposals、Gold Pack / Strategy Effect history、External Model Baseline、Release Gate、Learning Generalization Gate、Benchmark Run Center、Benchmark Campaign Runner、Cross-model Leaderboard、Benchmark Task Corpus、Benchmark Report Export、Continuous Benchmark Gate、Benchmark Improvement Backlog、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
+
+## Crate 边界（阶段 5 第八刀）
+
+本子系统自 0.25 起横跨两个 crate，**分界线是「方法是否直接摸 `sessions.db`
+连接」**（对 `impl SessionDB` 做不动点，摸连接的与被摸连接者调用的全部留守）：
+
+| | 位置 | 内容 |
+|---|---|---|
+| **台账** | `crates/ha-core/src/coding_improvement.rs` | wire 类型、行映射、`ensure_tables`，以及全部直接执行 SQL 的 `impl SessionDB` 方法 |
+| **机器** | `crates/ha-improve/src/coding_improvement.rs` | 顶层入口——一处连接都不碰，只调台账的类型化方法 |
+
+固有 impl 不能跨 crate，所以上浮的方法在 ha-improve 里是自由函数
+`fn f(db: &SessionDB, …)`。`SessionDB::with_conn_internal` 仍是 `pub(crate)`，
+ha-improve 生产代码零连接触点。新增 owner 入口时：**SQL 写台账、编排写机器**。
+
+详见 [前后端分离架构](backend-separation.md) 的 ha-improve 小节。
 
 ## 目标
 
@@ -90,7 +106,7 @@ Phase 4.4 新增显式 owner-plane action：`distill_coding_improvement_proposal
 
 ## Trend Report
 
-`SessionDB::coding_trend_report(session_id, window_days)` 返回 `CodingTrendReport`：
+`ha_improve::coding_improvement::coding_trend_report(db, session_id, window_days)` 返回 `CodingTrendReport`：
 
 | 区块 | 指标 |
 | --- | --- |
@@ -520,7 +536,7 @@ Dashboard Learning Tab 在 Task Corpus 下方展示 Benchmark Reports 面板：�
 
 ## Continuous Benchmark Gate & Improvement Backlog
 
-Phase 6.6 新增 `SessionDB::evaluate_continuous_benchmark_gate(input)`、`materialize_benchmark_backlog`、`list_benchmark_backlog` 与 `update_benchmark_backlog_status`。Tauri / HTTP / transport 均已注册，对应 owner API：
+Phase 6.6 新增 `evaluate_continuous_benchmark_gate(db, input)`（第八刀后是 `ha_improve::coding_improvement` 的自由函数）与 `SessionDB::materialize_benchmark_backlog` / `list_benchmark_backlog` / `update_benchmark_backlog_status`（台账，仍是 kernel 方法）。Tauri / HTTP / transport 均已注册，对应 owner API：
 
 - `POST /api/coding-benchmark/continuous-gate/evaluate`
 - `POST /api/coding-benchmark/backlog/materialize`

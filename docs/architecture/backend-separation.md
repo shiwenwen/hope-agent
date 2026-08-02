@@ -321,14 +321,15 @@ dash / skills / improve）原本构成一个强连通分量——**环内任何�
 skills**；除 improve 外全部落地（improve 只拆出了 ha-eval-runtime 那一半，
 见该小节）。**skills 之所以能抢在 improve 前面走**：那条 improve→skills 边
 只有 4 处、全是 `coding_improvement.rs` 里对 `skills::author` 的调用，改成
-钩子即断边；而 improve 本体被 `sessions.db` 写连接红线挡着（100 处
-`self.conn.lock()`，见本表上方 ha-improve 小节），本来就走不动。**顺序约束
-现已清空**，ha-improve 是最后一个待拆组。ha-local-llm
+钩子即断边；而 improve 本体**当时**被 `sessions.db` 写连接红线挡着（100 处
+`self.conn.lock()`），本来就走不动——那条红线在第八刀由 typed repository
+边界解开，见本表上方 ha-improve 小节。**顺序约束
+现已清空**；ha-improve 已于第八刀落地，这条序列走完。ha-local-llm
 之所以能不排在这条序列里先走，正是因为它没有任何入边（需切 0）——它只依赖
 别人，不被别人依赖。**新增任何特征间边前先跑
 一次脚本**——成环会让后续拆分整个卡住。
 
-### 特征 crate（ha-acp / ha-browser / ha-channel / ha-cron / ha-dash / ha-design / ha-eval-runtime / ha-knowledge / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-skills / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
+### 特征 crate（ha-acp / ha-browser / ha-channel / ha-cron / ha-dash / ha-design / ha-eval-runtime / ha-improve / ha-knowledge / ha-local-llm / ha-mac / ha-mcp / ha-media / ha-pet / ha-skills / ha-updater / ha-vcs / ha-weather，阶段 3 起逐个迁出）
 
 共同契约（对全部特征 crate 生效）：
 
@@ -521,6 +522,74 @@ skills**；除 improve 外全部落地（improve 只拆出了 ha-eval-runtime �
   （设计空间的笔记落库与 `require_write` 写门）。
   **ha-core 甩掉两个孤儿依赖**：`pulldown-cmark` / `unicode-normalization`
   随 `parser.rs` 迁出后在 kernel 零引用。
+- **ha-improve**（学习闭环机器，阶段 5 第八刀）：Coding 改进提案队列（生成 /
+  蒸馏 / 预览 / 落盘 / 提升）、领域评测 fixture 与 campaign 跑批、领域质量
+  复核，以及建立在它们之上的四道确定性闸（持续基准 / 领域质量 / 领域就绪 /
+  领域运营）与 soak 报表。新 crate 11.0 千行、kernel 留存 15.3 千行。
+  **这是唯一一个被 AGENTS 红线点名挡过两轮的组**——「`coding_improvement` /
+  `domain_eval` / `domain_quality` 共 100 处 `self.conn.lock()`，因此留
+  kernel、等 typed repository 边界设计好再切」。本刀交付的就是那条边界。
+  **分界线是「方法是否直接摸连接」，跑到不动点**：
+  - **种子**：三个 `impl SessionDB` 块共 155 个方法里，方法体直接出现
+    `self.conn` / `Connection` / `rusqlite::` 的，留 kernel。
+  - **迭代**：留守方法调用到的方法，也留 kernel（传递闭包——漏了这步会把
+    「只调了一层 store」的方法误判成可上浮）。
+  - **收敛**：剩下 32 个方法一处连接都不碰，且正好是这一组的**顶层入口**
+    （四道闸、`generate` / `preview` / `promote` / `apply` 提案流水线、
+    `build_coding_trend_report` / `generate_domain_soak_report` /
+    `run_domain_eval_fixture` / `run_domain_quality_for_session`）；留下的
+    123 个全是纯 SQL 访问层。**入口与访问层正好各在一侧**，是这条线划对了的
+    旁证——朴素按「摸不摸连接」切会留下 24 条反向边，不动点把它们全吸收了。
+  **不动点从方法出发，够不着自由函数**，两个方向各有一处要手工补判：
+  `run_domain_eval_campaign` / `deterministic_domain_eval_fixture` 只被壳层
+  调用、没有任何方法引用，故显式登记为机器根一并上浮（上浮入口因此是
+  32 + 2 = **34** 个）；反过来 `persist_domain_eval_fixture_report` 自己
+  `db.conn.lock()` 写表，本刀把它**收编成 `SessionDB` 的第 124 个类型化方法**
+  ——留作一个 `pub` 的自由 SQL 写入口也能编过，但那会在「特征 crate 一律走
+  类型化方法」的边界上开一个说不清归类的例外。
+  **红线本身一行没松**：`SessionDB::with_conn_internal` 仍是 `pub(crate)`，
+  ha-improve 的**生产代码零连接触点**（测试 fixture 走 `test-support` 门控的
+  `with_conn_for_test`）。可见性放开分两类、合计 **82** 个符号：**36 个
+  `impl SessionDB` 类型化方法**（红线所说的「特征 crate 一律走类型化方法」，
+  含上面那个收编进来的 `persist_domain_eval_fixture_report`），外加 **46 个
+  顶层符号**——16 个是这些方法的入参 / 返回类型（`CandidateCheck` /
+  `QualityContext` / `DomainGateScope` / `NewProposal` / `ReportScope` /
+  `Soak*Row` 等）、14 个阈值常量、16 个两侧共用的纯谓词（`ratio` /
+  `non_empty` / `normalize_domain` …）。**这 46 个里零个碰 SQL**——所有走
+  数据库的路径都落在前 36 个类型化方法上，这是可以逐条核的。
+  **后者刻意不复制一份到 ha-improve**：这些常量与判据是两侧共同的口径，
+  复制即埋一颗迟早漂移的雷。代价是 ha-core 公开 API 多出一批通名符号，
+  这是这条边界的真实成本，不该被「只放开了类型化方法」一句盖过去。
+  **判据不是「不写 `sessions` / `messages`」**——`run_domain_eval_fixture` 照样
+  `create_session` / `set_session_kind`，agent 执行路径还会 `append_message` /
+  `create_chat_turn_with_id`。成立的是更强也更准的那条：**零裸连接、零直接
+  SQL，对 `sessions` / `messages` 的每一次写都经 kernel 的类型化方法**，不变量
+  与事务边界仍由 kernel 独占——红线担心的是拿到裸句柄后绕过它们，而 ha-improve
+  根本没有句柄。三个模块自身的 SQL 只碰 `coding_*` / `domain_*` 私有表，
+  21 处 `JOIN sessions` 全是只读聚合。
+  **`impl` 块的物理约束决定了本刀的主要工作量**：固有 impl 只能待在定义
+  `SessionDB` 的 crate 里，所以那 32 个方法必须改写成
+  `fn f(db: &SessionDB, …)`、`self.foo()` 改 `db.foo()`，并同步 42 处壳层
+  调用点（Tauri 命令 17 / HTTP 路由 17 / `ha-eval-runtime` 6 / `ha-eval` 2）。
+  kernel 边界：[`improve_hooks`](../../crates/ha-core/src/improve_hooks.rs)
+  **只有一槽**——`ensure_coding_workflow_retro_for_run`，`workflow/db.rs` 的
+  `transition_workflow_run` 在终态转移时调它记一条 coding retro。机器的其余
+  入口全部只被壳层调用，是正向依赖、不需要钩子。未装配返 `Ok(None)`，与迁出前
+  「非终态 / 无痕会话」两个提前返回**逐字相同**；这里刻意**不返 `Err`**——
+  retro 是观察性副产物，让它把一次合法的终态转移变成失败，代价远大于少记一条
+  复盘（同第七刀 `auto_review_post_turn` 的 no-op 语义）。
+  **一个测试换了家**：`loop_control` 的
+  `workflow_strategy_feeds_operational_and_soak_gates`（122 行）断言的主体是
+  两道闸，随机器上浮后 kernel 不能反向 use 特征 crate，故迁成
+  `crates/ha-improve/tests/loop_gate_integration.rs`。它本来就横跨
+  loop_control + workflow + domain_eval 三个子系统，只是过去恰好住在其中一个
+  的私有测试模块里。
+  **新增兄弟边一条**：`ha-eval-runtime -> ha-improve`（`coding_eval.rs` 6 处
+  调提案流水线与趋势报表，方向与拆分前一致）。
+  **`review` / `verification` / `domain_workflow` 不随本刀迁出**：它们是
+  `workflow/runtime.rs` 的内置 op（`workflow.review` / `workflow.verify` /
+  `workflow.evidence.record`），归属仍待定，已从 analyzer 的特征分组表移出、
+  按普通 kernel 模块计。
 - **ha-skills**（技能机器，阶段 5 第七刀）：内置技能的编译期嵌入与解包、
   SKILL.md 目录扫描与 YAML frontmatter 解析、技能创作（create / update /
   patch，三路径全过 `security_scan`）、五闸自动复盘流水线与 draft 归并
@@ -585,7 +654,7 @@ skills**；除 improve 外全部落地（improve 只拆出了 ha-eval-runtime �
   「Used by `author::delete_skill`」）。
   **不新增兄弟边**：唯一那条 `ha-improve -> ha-skills`（4 处 `skills::author`
   调用，全在 `coding_improvement.rs`）随本刀改成钩子而**消失**——ha-improve
-  因此不再被拆分顺序约束，是最后一个待拆组。
+  因此不再被拆分顺序约束，并已于第八刀落地。
 - **ha-cron**（排程，阶段 5 第三刀）：cron 的调度器 / 执行器 / 投递 /
   失败分类 / 时间线，以及 `manage_cron` 工具 adapter。
   **分法是「台账 vs 机器」，与破环那刀对 `local_model_jobs` 的处理同型**：
@@ -656,6 +725,9 @@ skills**；除 improve 外全部落地（improve 只拆出了 ha-eval-runtime �
   切口靠人工逐方法判断）。**故这一刀只收不碰 kernel 连接的那三块**，
   剩下的等 typed repository / store 边界设计好再单独切，
   **不拿通用 `with_conn` 当过渡方案**（该结论已进 AGENTS 红线）。
+  **后续**：那条 typed repository 边界在**阶段 5 第八刀**交付了，见本表
+  ha-improve 小节——答案是路线 ③ 的精确版本（按不动点算出「哪 123 个方法必须
+  留」，而不是靠人工逐方法判断），可写连接一处没开。
   **kernel 侧留存 `coding_eval_defs`**（契约层，同 `tool_defs` / `slash_defs` /
   `cron_defs`）：kernel 的 `coding_improvement` 存的就是 `GoldTaskPackReport` /
   `StrategyEffectReport` 的 JSON（`coding_benchmark_*` 表），排行榜再解回来；

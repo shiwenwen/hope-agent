@@ -5776,11 +5776,9 @@ mod tests {
     use std::sync::OnceLock;
 
     use super::*;
-    use crate::domain_eval::{DomainOperationalGateInput, DomainSoakReportInput};
     use crate::goal::{CreateGoalInput, UpdateGoalInput};
     use crate::model_usage::{ModelUsageEvent, KIND_CHAT};
     use crate::session::NewMessage;
-    use crate::workflow::WorkflowRunState;
 
     fn temp_dbs() -> (tempfile::TempDir, SessionDB, CronDB) {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -7206,130 +7204,6 @@ mod tests {
         assert_eq!(loop_runs.len(), 1);
         assert_eq!(loop_runs[0].trace["triggerSpec"]["intervalSecs"], json!(60));
         assert_eq!(loop_runs[0].trace["workflowRunId"], json!(runs[0].id));
-    }
-
-    #[test]
-    fn workflow_strategy_feeds_operational_and_soak_gates() {
-        let (_dir, session_db, cron_db) = temp_dbs();
-        let session = session_db.create_session("ha-main").expect("session");
-        let goal = session_db
-            .create_goal(CreateGoalInput {
-                session_id: session.id.clone(),
-                objective: "Keep the weekly writing brief fresh".to_string(),
-                completion_criteria: "A reviewed writing brief workflow completes".to_string(),
-                domain: Some("writing".to_string()),
-                workflow_template_id: Some("writing-brief".to_string()),
-                workflow_template_version: None,
-                workflow_task_type: Some("weekly_report".to_string()),
-                budget_token_limit: None,
-                budget_time_limit_secs: None,
-                budget_turn_limit: None,
-            })
-            .expect("create goal");
-        let schedule = session_db
-            .create_loop_schedule(
-                &cron_db,
-                CreateLoopScheduleInput {
-                    session_id: session.id.clone(),
-                    goal_id: Some(goal.goal.id.clone()),
-                    goal_criterion_id: None,
-                    prompt: "Refresh the brief from the newest evidence".into(),
-                    trigger_kind: LoopTriggerKind::Interval,
-                    trigger_spec: json!({ "intervalSecs": 60 }),
-                    execution_strategy: LoopExecutionStrategy::Workflow,
-                    max_runs: None,
-                    max_runtime_secs: None,
-                    token_budget: None,
-                    cost_budget_micros: None,
-                    max_no_progress_runs: None,
-                    max_failures: None,
-                    backoff_secs: None,
-                    agent_id: None,
-                },
-            )
-            .expect("create workflow loop");
-        let started_at = now_rfc3339();
-        let admission = match session_db
-            .prepare_loop_cron_run(&schedule.cron_job_id, &session.id, &started_at)
-            .expect("prepare loop")
-        {
-            LoopRunDecision::Admit(admission) => admission,
-            other => panic!("expected admission, got {other:?}"),
-        };
-        let launch = session_db
-            .create_loop_workflow_run(&admission)
-            .expect("create loop workflow run");
-        session_db
-            .transition_workflow_run(&launch.run_id, WorkflowRunState::Running, Some("loop_tick"))
-            .expect("start workflow");
-        session_db
-            .transition_workflow_run(
-                &launch.run_id,
-                WorkflowRunState::Completed,
-                Some("loop_tick_completed"),
-            )
-            .expect("complete workflow");
-        let finished_at = now_rfc3339();
-        session_db
-            .finish_loop_cron_run_with_trace(
-                &schedule.cron_job_id,
-                Some(&admission.run_id),
-                None,
-                LoopRunState::Succeeded,
-                Some("workflow launched and drained"),
-                None,
-                &finished_at,
-                Some(json!({
-                    "executionStrategy": "workflow",
-                    "workflowRunId": launch.run_id,
-                    "workflowKind": launch.workflow_kind,
-                    "templateId": launch.template_id,
-                    "templateVersion": launch.template_version,
-                })),
-            )
-            .expect("finish loop run");
-
-        let operational = session_db
-            .evaluate_domain_operational_gate(DomainOperationalGateInput {
-                session_id: Some(session.id.clone()),
-                domain: Some("writing".to_string()),
-                window_days: Some(1),
-                min_workflow_runs: Some(1),
-                min_loop_runs: Some(1),
-                ..Default::default()
-            })
-            .expect("evaluate operational gate");
-        assert_eq!(operational.status, "passed", "{operational:?}");
-        assert_eq!(operational.summary.workflow_runs, 1);
-        assert_eq!(operational.summary.completed_workflow_runs, 1);
-        assert_eq!(operational.summary.loop_runs, 1);
-        assert_eq!(operational.summary.succeeded_loop_runs, 1);
-        assert_eq!(operational.summary.active_workflow_runs, 0);
-        assert!(operational.blockers.is_empty());
-
-        let soak = session_db
-            .generate_domain_soak_report(DomainSoakReportInput {
-                session_id: Some(session.id.clone()),
-                domain: Some("writing".to_string()),
-                window_days: Some(1),
-                max_items: Some(20),
-                ..Default::default()
-            })
-            .expect("generate soak report");
-        assert_eq!(soak.status, "passed", "{soak:?}");
-        assert_eq!(soak.summary.workflow_runs, 1);
-        assert_eq!(soak.summary.completed_workflow_runs, 1);
-        assert_eq!(soak.summary.loop_runs, 1);
-        assert_eq!(soak.summary.succeeded_loop_runs, 1);
-        assert_eq!(soak.summary.critical_incidents, 0);
-        assert!(soak
-            .timeline
-            .iter()
-            .any(|item| item.source == "workflow" && item.id == launch.run_id));
-        assert!(soak
-            .timeline
-            .iter()
-            .any(|item| item.source == "loop" && item.id == admission.run_id));
     }
 
     #[test]
