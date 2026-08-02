@@ -77,7 +77,7 @@ export function RemoteConnectPanel({
           remoteApiKey: finalKey,
         },
       })
-      switchToRemote(trimmedUrl, finalKey, { dirtyConfirmed: true })
+      await switchToRemote(trimmedUrl, finalKey, { dirtyConfirmed: true })
       onRemoteConnected()
     } catch (e) {
       logger.error("onboarding", "RemoteConnectPanel::connect", "remote connect failed", e)

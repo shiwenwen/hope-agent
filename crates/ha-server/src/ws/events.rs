@@ -1,6 +1,8 @@
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
-use axum::response::IntoResponse;
+use axum::http::HeaderMap;
+use axum::response::{IntoResponse, Response};
+use axum::Extension;
 use futures_util::SinkExt;
 use std::sync::Arc;
 
@@ -17,8 +19,30 @@ use crate::AppContext;
 pub async fn events_ws(
     ws: WebSocketUpgrade,
     State(ctx): State<Arc<AppContext>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_events_socket(socket, ctx))
+    Extension(auth): Extension<crate::middleware::AuthState>,
+    headers: HeaderMap,
+) -> Response {
+    let owner_changes = auth.subscribe_owner_changes();
+    let protocol = crate::middleware::event_ticket_protocol(&headers).filter(|protocol| {
+        protocol
+            .strip_prefix(crate::middleware::EVENT_TICKET_PROTOCOL_PREFIX)
+            .is_some_and(|ticket| auth.check_access_ticket(ticket, "events"))
+    });
+    // Authentication was already checked by middleware. Revalidate after
+    // subscribing to changes to close the race where a token rotates between
+    // middleware and the WebSocket upgrade.
+    if auth.auth_required() && protocol.is_none() && !auth.headers_are_owner_authenticated(&headers)
+    {
+        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    }
+    let ws = match protocol {
+        Some(ref protocol) => ws.protocols([protocol.clone()]),
+        None => ws,
+    };
+    ws.on_upgrade(move |socket| {
+        handle_events_socket(socket, ctx, auth, headers, protocol, owner_changes)
+    })
+    .into_response()
 }
 
 /// Send timeout — disconnect clients that can't keep up.
@@ -70,7 +94,14 @@ async fn send_lag_notice(socket: &mut WebSocket, missed: u64, stream: &str) -> b
     )
 }
 
-async fn handle_events_socket(mut socket: WebSocket, ctx: Arc<AppContext>) {
+async fn handle_events_socket(
+    mut socket: WebSocket,
+    ctx: Arc<AppContext>,
+    auth: crate::middleware::AuthState,
+    headers: HeaderMap,
+    event_protocol: Option<String>,
+    mut owner_changes: tokio::sync::watch::Receiver<u64>,
+) {
     use tokio::sync::broadcast::error::RecvError;
 
     let _conn_guard =
@@ -80,9 +111,36 @@ async fn handle_events_socket(mut socket: WebSocket, ctx: Arc<AppContext>) {
     let mut terminal_rx = ctx.terminal_manager.subscribe_output_events();
     let mut app_lag_count: u32 = 0;
     let mut terminal_lag_count: u32 = 0;
+    let mut credential_check = tokio::time::interval_at(
+        tokio::time::Instant::now() + std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(30),
+    );
 
     loop {
         tokio::select! {
+            changed = owner_changes.changed() => {
+                // Token replacement revokes both browser sessions and scoped
+                // tickets. Close the already-upgraded stream as well; active
+                // clients will reconnect using the new credential.
+                let _ = changed;
+                break;
+            }
+            _ = credential_check.tick() => {
+                let ticket_is_valid = event_protocol.as_deref().is_some_and(|protocol| {
+                    protocol
+                        .strip_prefix(crate::middleware::EVENT_TICKET_PROTOCOL_PREFIX)
+                        .is_some_and(|ticket| auth.check_access_ticket(ticket, "events"))
+                });
+                if auth.auth_required()
+                    && !ticket_is_valid
+                    && !auth.headers_are_owner_authenticated(&headers)
+                {
+                    // WebSocket admission credentials have finite lifetimes.
+                    // Revalidate them so a connection cannot outlive an
+                    // expired scoped ticket or browser session indefinitely.
+                    break;
+                }
+            }
             result = app_rx.recv() => {
                 match result {
                     Ok(event) => {

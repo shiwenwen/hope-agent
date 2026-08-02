@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, type ReactNode } from "react"
 import { getTransport, useTransport } from "@/lib/transport-provider"
-import { confirmTransportChange, switchToRemote, switchToEmbedded } from "@/lib/transport-provider"
+import {
+  activateCurrentHttpOwnerToken,
+  confirmTransportChange,
+  switchToRemote,
+  switchToEmbedded,
+} from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
@@ -17,7 +22,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { logger } from "@/lib/logger"
-import { isTauriMode } from "@/lib/transport"
 import {
   patchFilesystemConfig,
   useFilesystemConfig,
@@ -221,6 +225,10 @@ export default function ServerPanel() {
         loadedSecrets.embeddedKnowledgeAgentReadToken,
         loadedSecrets.hasEmbeddedKnowledgeAgentReadToken,
       )
+      const effectiveRemoteApiKey =
+        config.serverMode === "remote" && embeddedApiKey !== null
+          ? embeddedApiKey || null
+          : config.remoteApiKey || null
       const ownerTokenWillExist =
         embeddedApiKey === null ? loadedSecrets.hasEmbeddedApiKey : embeddedApiKey.length > 0
       const previous = JSON.parse(savedSnapshot || JSON.stringify(config)) as ServerConfig
@@ -232,17 +240,6 @@ export default function ServerPanel() {
         throw new Error(t("settings.serverPublicTokenRequired"))
       }
 
-      // Save user config (server mode, remote URL/key)
-      const full = await getTransport().call<Record<string, unknown>>("get_user_config")
-      await getTransport().call("save_user_config", {
-        config: {
-          ...full,
-          serverMode: config.serverMode,
-          remoteServerUrl: config.remoteServerUrl || null,
-          remoteApiKey: config.remoteApiKey || null,
-        },
-      })
-
       // Save embedded server config; the backend moves the Owner Token to the
       // credential store instead of config.json.
       await getTransport().call("save_server_config", {
@@ -253,18 +250,46 @@ export default function ServerPanel() {
         },
       })
 
+      // Saving a replacement Owner Token activates it immediately on the
+      // server. Refresh the same-origin HttpOnly session (or the explicit
+      // remote Bearer client) before making another protected request.
+      if (embeddedApiKey) {
+        await activateCurrentHttpOwnerToken(embeddedApiKey)
+      }
+
+      // Persist connection preferences only after the new server credential
+      // is active locally. A failed server update must not leave user config
+      // pointing at a token the server never accepted.
+      const full = await getTransport().call<Record<string, unknown>>("get_user_config")
+      await getTransport().call("save_user_config", {
+        config: {
+          ...full,
+          serverMode: config.serverMode,
+          remoteServerUrl: config.remoteServerUrl || null,
+          remoteApiKey: effectiveRemoteApiKey,
+        },
+      })
+
       // Switch transport based on mode
       if (config.serverMode === "remote" && config.remoteServerUrl) {
-        switchToRemote(config.remoteServerUrl.replace(/\/+$/, ""), config.remoteApiKey || null, {
-          dirtyConfirmed: true,
-        })
+        await switchToRemote(
+          config.remoteServerUrl.replace(/\/+$/, ""),
+          effectiveRemoteApiKey,
+          { dirtyConfirmed: true },
+        )
       } else {
         switchToEmbedded({ dirtyConfirmed: true })
       }
 
+      const savedEmbeddedApiKey =
+        embeddedApiKey === null
+          ? config.embeddedApiKey
+          : embeddedApiKey.length > 0
+            ? "••••••••"
+            : ""
       setLoadedSecrets((prev) => ({
         ...prev,
-        embeddedApiKey: embeddedApiKey === null ? prev.embeddedApiKey : embeddedApiKey,
+        embeddedApiKey: savedEmbeddedApiKey,
         hasEmbeddedApiKey:
           embeddedApiKey === null ? prev.hasEmbeddedApiKey : embeddedApiKey.length > 0,
         embeddedKnowledgeAgentReadToken:
@@ -276,7 +301,13 @@ export default function ServerPanel() {
             ? prev.hasEmbeddedKnowledgeAgentReadToken
             : embeddedKnowledgeAgentReadToken.length > 0,
       }))
-      setSavedSnapshot(JSON.stringify(config))
+      const savedConfig = {
+        ...config,
+        embeddedApiKey: savedEmbeddedApiKey,
+        remoteApiKey: effectiveRemoteApiKey || "",
+      }
+      setConfig(savedConfig)
+      setSavedSnapshot(JSON.stringify(savedConfig))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
@@ -339,31 +370,38 @@ export default function ServerPanel() {
         hasEmbeddedApiKey: true,
         embeddedApiKeyFingerprint: result.fingerprint,
       }))
-      setConfig((previous) => ({ ...previous, embeddedApiKey: "••••••••" }))
+      setConfig((previous) => ({
+        ...previous,
+        embeddedApiKey: "••••••••",
+      }))
       setSavedSnapshot((previous) => {
         const snapshot = JSON.parse(previous || JSON.stringify(config)) as ServerConfig
         snapshot.embeddedApiKey = "••••••••"
         return JSON.stringify(snapshot)
       })
       setRotateOpen(false)
-      if (!isTauriMode()) {
-        try {
-          const session = await fetch("/api/auth/session", {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: result.token, remember: true }),
+      try {
+        await activateCurrentHttpOwnerToken(result.token)
+        if (config.serverMode === "remote") {
+          const full = await getTransport().call<Record<string, unknown>>("get_user_config")
+          await getTransport().call("save_user_config", {
+            config: { ...full, remoteApiKey: result.token },
           })
-          if (!session.ok) throw new Error(`session ${session.status}`)
-        } catch (error) {
-          logger.error(
-            "settings",
-            "ServerPanel::refreshSession",
-            "Token rotated but browser session refresh failed",
-            error,
-          )
-          setRotationError(t("settings.serverTokenSessionRefreshFailed"))
+          setConfig((previous) => ({ ...previous, remoteApiKey: result.token }))
+          setSavedSnapshot((previous) => {
+            const snapshot = JSON.parse(previous || JSON.stringify(config)) as ServerConfig
+            snapshot.remoteApiKey = result.token
+            return JSON.stringify(snapshot)
+          })
         }
+      } catch (error) {
+        logger.error(
+          "settings",
+          "ServerPanel::refreshSession",
+          "Token rotated but browser session refresh failed",
+          error,
+        )
+        setRotationError(t("settings.serverTokenSessionRefreshFailed"))
       }
     } catch (error) {
       logger.error("settings", "ServerPanel::rotateToken", "Failed to rotate token", error)

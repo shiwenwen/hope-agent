@@ -6,12 +6,12 @@
 
 Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运行环境自动在 Tauri IPC 和 HTTP/WebSocket 之间切换。本文档把两条通道上的**每一条接口**列成一一对应的表格，并标记对齐状态。
 
-## 数据来源（截至 2026-07-30）
+## 数据来源（截至 2026-08-02）
 
 | 源 | 位置 | 数量 |
 |---|---|---|
 | Tauri 命令 | `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` | **1128** |
-| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **1040** |
+| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **1058** |
 | 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **1107** |
 | WebSocket 端点 | `crates/ha-server/src/ws/` | **1** |
 | EventBus 事件 | 全代码 `emit_event` 调用 | **59+** |
@@ -21,7 +21,7 @@ Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运�
 | 分类 | 数量 | 说明 |
 |---|---|---|
 | ✅ 两端完全对齐（在 COMMAND_MAP 中） | 1107 | 常规请求/响应命令（所有顶层 COMMAND_MAP 条目都有 Tauri 命令对应） |
-| 🔧 特殊处理（不在 COMMAND_MAP 但 HTTP 已实现，走专用 Transport 方法） | 12 | multipart/二进制流/保存对话框类接口：avatar、filesystem、session export、Artifact export 和 memory backup archive |
+| 🔧 特殊处理（不在 COMMAND_MAP 但 HTTP 已实现，走专用 Transport 方法） | 14 | multipart/二进制流/保存对话框类接口，以及 HTTP-only 的短时 transport ticket 基础设施 |
 | 🖥️ Desktop-only / Tauri-only（HTTP 无对应） | 10 | macOS / legacy 系统权限探测（5 条）+ `project_fs_resolve` / `kb_file_resolve_cmd`（`convertFileSrc`）+ Dock / tray 未读提示 + browser-side save-as |
 | ❌ HTTP 路由存在但 COMMAND_MAP 漏写 | 0 | — |
 | ❌ HTTP 路由完全缺失 | 0 | — |
@@ -44,9 +44,10 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 | Tauri | 无鉴权（本地 IPC） |
 | HTTP REST | `Authorization: Bearer <owner_token>` header |
 | 浏览器 HTTP / WebSocket / 媒体 | Root Token 经 `POST /api/auth/session` 一次性交换为签名 `HttpOnly; SameSite=Strict` Cookie；Root Token 不进入 URL/localStorage |
+| 跨源远程 GUI | Fetch 继续用 Bearer；`POST /api/auth/transport-tickets` 以独立随机签名密钥换 15 分钟 scope 票据（避免把弱 Root Token 变成离线猜测 oracle）：WebSocket 票据走 `Sec-WebSocket-Protocol`，只读资源票据走 `/api/resource/{ticket}/...`，相对 iframe 资源继承前缀；两者均不能调用 owner 控制面 |
 | 自动化客户端 | `Authorization: Bearer <owner_token>`；不接受通用 `?token=` |
 | Knowledge Agent 只读 token | `server.knowledgeAgentReadToken` 或 `HA_KNOWLEDGE_AGENT_READ_TOKEN`；仅在 Owner Token 已启用时参与鉴权，仅允许 `POST /api/knowledge/agent/{search,read,expand,sources}`，其它受保护 API 返回 403 |
-| 免鉴权 | `GET /api/health`、浏览器登录引导 `/api/auth/{status,session,logout}`、显式创建的只读 Design Share capability URL；`GET /api/server/status` 已归入 Owner 保护面 |
+| 免鉴权 | `GET /api/health`、浏览器登录引导 `/api/auth/{status,session,logout}`、显式创建的只读 Design Share capability URL，以及自带短时 scope 签名的 `/api/resource/{ticket}/...`；`GET /api/server/status` 已归入 Owner 保护面 |
 
 `api_key=None` 仅允许回环监听；非回环启动默认 fail-closed（危险逃生开关除外），此时受保护路由才退化为无鉴权。鉴权实现见 [`crates/ha-server/src/middleware.rs`](../../crates/ha-server/src/middleware.rs)（constant-time 比较）。
 
@@ -56,7 +57,7 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 |---|---|---|
 | `/ws/events` | 全局事件广播（EventBus → WS，多客户端同步） | JSON：`{ name: string, payload: unknown }` |
 
-**HTTP 模式重连**：前端 `/ws/events` 指数退避（1s→30s 封顶），只在有活跃 listener 时维持连接；首次 listener 注册自动连上，最后一个取消订阅自动关闭。详见 `src/lib/transport-http.ts` 的 `ensureEventWs` / `scheduleReconnect` / `teardownEventWs`。
+**HTTP 模式重连**：前端 `/ws/events` 指数退避（1s→30s 封顶），只在有活跃 listener 时维持连接；同源浏览器握手携带 HttpOnly Cookie，跨源远程客户端把短时 `events` 票据放进 WebSocket 子协议（不进 URL）。首次 listener 注册自动连上，最后一个取消订阅自动关闭。详见 `src/lib/transport-http.ts` 的 `ensureEventWs` / `scheduleReconnect` / `teardownEventWs`。
 
 ## EventBus 事件清单
 
@@ -284,10 +285,10 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `revealMedia(item)` | `invoke("reveal_in_folder", {path})` | no-op |
 | `previewReadText(path,{sessionId})` | `invoke("preview_read_text", {path})` | `GET /api/sessions/{id}/files/read?path=`（会话鉴权） |
 | `previewExtractDoc(path,{sessionId})` | `invoke("preview_extract", {path})` | `GET /api/sessions/{id}/files/extract?path=`（会话鉴权） |
-| `previewRawUrl(path,{sessionId},download)` | `resolveAssetUrl(path)`（`convertFileSrc`） | tokened `/api/sessions/{id}/files/by-path?...&download=` |
+| `previewRawUrl(path,{sessionId},download)` | `resolveAssetUrl(path)`（`convertFileSrc`） | 短时只读 capability `/api/resource/{ticket}/sessions/{id}/files/by-path?...&download=` |
 | `fileRuntime()` | `{workspaceHost:"local",openMode:"system",canReveal:true}` | `{workspaceHost:"remote",openMode:"browser",canReveal:false}` |
 | `getWorkspaceAccess(scope)` | `project_fs_capabilities` | `GET /api/fs/capabilities` |
-| `openWorkspaceFile` / `downloadWorkspaceFile` | 系统打开 | tokened `/api/fs/raw` 浏览/下载 |
+| `openWorkspaceFile` / `downloadWorkspaceFile` | 系统打开 | 短时只读 capability `/api/resource/{ticket}/fs/raw` 浏览/下载 |
 | `revealWorkspaceFile` | `reveal_in_folder` | 不支持（capability disabled） |
 | `uploadFile(file,purpose)` | `file_upload_start/status/chunk/complete`（chunk raw binary IPC） | `/api/file-uploads*`（chunk Blob body） |
 | `discardFileUpload(id)` | `file_upload_discard` | `DELETE /api/file-uploads/{id}` |
@@ -1762,12 +1763,14 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | — | `GET /api/auth/status` | 公开最小启动探针：仅返回 required/authenticated；Token 指纹仅对已认证请求返回，避免弱 Token 离线猜测 oracle |
 | — | `POST /api/auth/session` | 公开 Token→HttpOnly 会话交换；同源检查、失败限速、`no-store` |
 | — | `POST /api/auth/logout` | 清除浏览器会话 Cookie |
+| — | `POST /api/auth/transport-tickets` | Owner 保护；给跨源远程 GUI 签发 15 分钟 `events` / `resources` scope 票据，`no-store` |
+| — | `GET /api/resource/{ticket}/{*path}` | 公开 capability 入口；票据仅分派到静态预览/附件/授权文件的只读 allowlist，访问日志隐藏票据段 |
 | `rotate_server_token` | `POST /api/auth/token/rotate` | ✅；Owner 保护，返回新 Token 一次，立即作废旧会话；外部托管 Token 拒绝 |
 | `list_local_ips` | `GET /api/server/local-ips` | ✅ |
 
 ## 已知不对齐项
 
-截至 2026-07-31 三端差集为 23 条：§7.3 的 6 条 Desktop-only 系统权限命令、§7.3.1 的 12 条 HTTP 已实现但走专用 Transport 方法，以及 `project_fs_resolve` / `kb_file_resolve_cmd` / `set_dock_badge_cmd` / `set_tray_unread_cmd` / `save_exported_file` 5 条 Tauri-only 命令。没有“HTTP 漏写 COMMAND_MAP”或“HTTP 路由缺失”的破口；COMMAND_MAP 每一条顶层命令都能在 `tauri::generate_handler!` 找到对应命令。
+截至 2026-08-02 三端差集为 25 条：§7.3 的 6 条 Desktop-only 系统权限命令、§7.3.1 的 12 条 HTTP 已实现但走专用 Transport 方法、2 条 HTTP-only transport ticket 基础设施，以及 `project_fs_resolve` / `kb_file_resolve_cmd` / `set_dock_badge_cmd` / `set_tray_unread_cmd` / `save_exported_file` 5 条 Tauri-only 命令。没有“HTTP 漏写 COMMAND_MAP”或“HTTP 路由缺失”的破口；COMMAND_MAP 每一条顶层命令都能在 `tauri::generate_handler!` 找到对应命令。
 
 ### §7.3 Desktop-only（Tauri 专属，合法缺失，6 条）
 
@@ -1782,7 +1785,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 
 前端必须在 `supportsLocalFileOps()` / `isTauriMode()` 或等价的运行模式判定保护下调用，HTTP 模式应 gate 住相关 UI。
 
-### §7.3.1 不进 COMMAND_MAP 但 HTTP 已实现的合法非 REST 命令（12 条）
+### §7.3.1 不进 COMMAND_MAP 但 HTTP 已实现的合法专用入口（14 条）
 
 | Tauri Command | HTTP 端点 | 原因 |
 |---|---|---|
@@ -1798,8 +1801,10 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `memory_backup_preview_archive` | `POST /api/memory/backup/preview-archive` | HTTP body 为 ZIP bytes，走 `previewMemoryBackupArchive` |
 | `memory_backup_restore_legacy_archive` | `POST /api/memory/backup/restore-legacy-archive` | HTTP body 为 ZIP bytes，走 `restoreMemoryBackupLegacyArchive` |
 | `memory_backup_restore_structured_archive` | `POST /api/memory/backup/restore-structured-archive` | HTTP body 为 ZIP bytes，走 `restoreMemoryBackupStructuredArchive` |
+| — | `POST /api/auth/transport-tickets` | HTTP-only：Bearer 换短时、scope 受限的远程传输票据 |
+| — | `GET /api/resource/{ticket}/{*path}` | HTTP-only：只读资源 allowlist 分派，供 `<img>` / iframe / 下载直链使用 |
 
-这 12 条都是 HTTP 端有路由且前端两侧都能调用，只是不通过通用的 `COMMAND_MAP` JSON 路径。另有 `project_fs_resolve` / `kb_file_resolve_cmd`（Tauri-only `convertFileSrc`）、`set_dock_badge_cmd`（Desktop-only Dock 数字角标）、`set_tray_unread_cmd`（Desktop-only tray 红点）与 `save_exported_file`（浏览器在客户端保存）属 Tauri 专属、无 HTTP 对应。
+前 12 条是 HTTP 端有路由且前端两侧都能调用、但不通过通用 `COMMAND_MAP` JSON 路径的命令；后 2 条是仅 HTTP Transport 需要的鉴权基础设施。另有 `project_fs_resolve` / `kb_file_resolve_cmd`（Tauri-only `convertFileSrc`）、`set_dock_badge_cmd`（Desktop-only Dock 数字角标）、`set_tray_unread_cmd`（Desktop-only tray 红点）与 `save_exported_file`（浏览器在客户端保存）属 Tauri 专属、无 HTTP 对应。
 
 ### §7.4 命名/返回值语义差异
 
@@ -1834,7 +1839,7 @@ awk 'BEGIN{flag=0} /tauri::generate_handler!\[/{flag=1;next} flag&&/^[[:space:]]
     src-tauri/src/lib.rs | grep -vE '^[[:space:]]*//|^[[:space:]]*$' | \
     grep -oE '::[a-z_][a-zA-Z0-9_]*,?[[:space:]]*$' | tr -d ':, ' | sort -u | wc -l
 
-# 2. HTTP 路由总数（截至 2026-07-30：1040）
+# 2. HTTP 路由总数（截至 2026-08-02：1058）
 grep -cE '^[[:space:]]+\.route\(' crates/ha-server/src/lib.rs
 
 # 3. COMMAND_MAP 条目数（截至 2026-07-30：1107，不含闭合 `}` 的行）

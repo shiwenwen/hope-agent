@@ -11,18 +11,35 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
-test("HttpTransport builds Artifact previews from opaque ids", () => {
+test("HttpTransport builds remote Artifact previews with a scoped resource ticket", async () => {
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        resourceTicket: "resource-ticket",
+        eventTicket: "event-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
   const transport = new HttpTransport("http://localhost:8420", "secret token")
+  await transport.initializeRemoteAccess()
 
   expect(transport.artifactPreviewUrl("artifact/report 1", "/srv/private/artifact")).toBe(
-    "http://localhost:8420/api/canvas/projects/artifact%2Freport%201/index.html",
+    "http://localhost:8420/api/resource/resource-ticket/canvas/projects/artifact%2Freport%201/index.html",
   )
+  expect(fetchMock.mock.lastCall?.[1]).toEqual({
+    method: "POST",
+    headers: { Authorization: "Bearer secret token" },
+  })
 })
 
-test("HttpTransport requests durable-state resync on connect and EventBus lag", () => {
+test("HttpTransport requests durable-state resync on connect and EventBus lag", async () => {
   class MockWebSocket {
     static instances: MockWebSocket[] = []
     readyState = 0
@@ -31,8 +48,9 @@ test("HttpTransport requests durable-state resync on connect and EventBus lag", 
     onerror: (() => void) | null = null
     onclose: (() => void) | null = null
 
-    constructor(url: string) {
+    constructor(url: string, protocols?: string[]) {
       void url
+      void protocols
       MockWebSocket.instances.push(this)
     }
 
@@ -58,12 +76,192 @@ test("HttpTransport requests durable-state resync on connect and EventBus lag", 
     resyncReasons.push(payload)
   })
 
+  await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
   const socket = MockWebSocket.instances[0]
   socket.open()
   socket.message({ name: "_lagged", payload: { missed: 3 } })
 
   expect(resyncReasons).toEqual([{ reason: "connected" }, { reason: "lagged", missed: 3 }])
   unsubscribe()
+})
+
+test("HttpTransport sends the scoped event ticket as a WebSocket subprotocol", async () => {
+  class MockWebSocket {
+    static calls: Array<{ url: string; protocols?: string[] }> = []
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+
+    constructor(url: string, protocols?: string[]) {
+      MockWebSocket.calls.push({ url, protocols })
+    }
+
+    close() {
+      this.readyState = 3
+    }
+  }
+
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        resourceTicket: "resource-ticket",
+        eventTicket: "event-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  vi.stubGlobal("WebSocket", MockWebSocket)
+  const transport = new HttpTransport("https://agent.example", "root-secret")
+  const unsubscribe = transport.listen("config:changed", () => undefined)
+
+  await vi.waitFor(() => expect(MockWebSocket.calls).toHaveLength(1))
+  expect(MockWebSocket.calls[0]).toEqual({
+    url: "wss://agent.example/ws/events",
+    protocols: ["ha-events.event-ticket"],
+  })
+  expect(MockWebSocket.calls[0].url).not.toContain("root-secret")
+  unsubscribe()
+})
+
+test("HttpTransport remints scoped tickets after a rejected WebSocket handshake", async () => {
+  vi.useFakeTimers()
+  class MockWebSocket {
+    static instances: MockWebSocket[] = []
+    static calls: Array<{ url: string; protocols?: string[] }> = []
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+
+    constructor(url: string, protocols?: string[]) {
+      MockWebSocket.instances.push(this)
+      MockWebSocket.calls.push({ url, protocols })
+    }
+
+    close() {
+      this.readyState = 3
+      this.onclose?.()
+    }
+  }
+
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "old-resource-ticket",
+          eventTicket: "old-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "new-resource-ticket",
+          eventTicket: "new-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+  vi.stubGlobal("WebSocket", MockWebSocket)
+  const transport = new HttpTransport("https://agent.example", "root-secret")
+  const unsubscribe = transport.listen("config:changed", () => undefined)
+
+  await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
+  MockWebSocket.instances[0].close()
+  await vi.advanceTimersByTimeAsync(1_000)
+  await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(2))
+
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  expect(MockWebSocket.calls[1].protocols).toEqual(["ha-events.new-event-ticket"])
+  unsubscribe()
+})
+
+test("HttpTransport refreshes the same-origin browser session after token replacement", async () => {
+  vi.stubGlobal("window", { location: { origin: "http://localhost:8420" } })
+  fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+  const transport = new HttpTransport("http://localhost:8420")
+
+  await transport.activateOwnerToken("replacement-secret")
+
+  expect(fetchMock).toHaveBeenCalledWith("http://localhost:8420/api/auth/session", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: "replacement-secret", remember: true }),
+  })
+  expect(transport.artifactPreviewUrl("artifact-1")).toBe(
+    "http://localhost:8420/api/canvas/projects/artifact-1/index.html",
+  )
+})
+
+test("HttpTransport ignores scoped tickets minted for a replaced Owner Token", async () => {
+  let resolveOldRequest: ((response: Response) => void) | undefined
+  fetchMock
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveOldRequest = resolve
+        }),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "new-resource-ticket",
+          eventTicket: "new-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+  const transport = new HttpTransport("https://agent.example", "old-owner-token")
+  const oldRequest = transport.initializeRemoteAccess()
+  await transport.activateOwnerToken("new-owner-token")
+  resolveOldRequest?.(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        resourceTicket: "stale-resource-ticket",
+        eventTicket: "stale-event-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  await oldRequest
+
+  expect(transport.artifactPreviewUrl("artifact-1")).toContain("new-resource-ticket")
+  expect(transport.artifactPreviewUrl("artifact-1")).not.toContain("stale-resource-ticket")
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+    headers: { Authorization: "Bearer old-owner-token" },
+  })
+  expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+    headers: { Authorization: "Bearer new-owner-token" },
+  })
+})
+
+test("HttpTransport keeps provisional remote-auth failures local to the connection flow", async () => {
+  const dispatchEvent = vi.fn()
+  vi.stubGlobal("window", { dispatchEvent })
+  fetchMock.mockResolvedValue(new Response("unauthorized", { status: 401 }))
+  const transport = new HttpTransport("https://agent.example", "wrong-owner-token")
+
+  await expect(transport.initializeRemoteAccess(false)).rejects.toThrow(
+    "Remote authentication failed (401)",
+  )
+
+  expect(dispatchEvent).not.toHaveBeenCalled()
 })
 
 test("HttpTransport.startChat only bridges session_created and not late turn_started", async () => {

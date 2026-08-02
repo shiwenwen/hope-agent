@@ -89,7 +89,7 @@ export function RemoteConnectDialog({
           remoteApiKey: finalKey,
         },
       })
-      switchToRemote(finalUrl, finalKey, { dirtyConfirmed: true })
+      await switchToRemote(finalUrl, finalKey, { dirtyConfirmed: true })
       onOpenChange(false)
       onConnected()
     } catch (e) {

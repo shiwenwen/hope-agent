@@ -512,8 +512,8 @@ export interface Transport {
    *
    * - Tauri: resolves the absolute path via `project_fs_resolve` and returns
    *   an `asset://` src from `convertFileSrc`.
-   * - HTTP: returns a tokened `/api/fs/raw` URL usable directly in
-   *   `<img>` / `<iframe>`.
+   * - HTTP: returns a short-lived, read-only resource-capability URL usable
+   *   directly in `<img>` / `<iframe>`; the Owner Token is never in the URL.
    *
    * Returns `null` when the path can't be resolved.
    */
@@ -541,8 +541,8 @@ export interface Transport {
    * Resolve a raw URL for an absolute file path, for `<img>` / `<iframe>` /
    * `<video>` / `<audio>` preview (and binary-placeholder open/download).
    * - Tauri: `resolveAssetUrl(path)` (`convertFileSrc`); `download` is ignored.
-   * - HTTP: a tokened `/api/sessions/{id}/files/by-path` URL (with `download=1`
-   *   when requested). Returns `null` without a `sessionId`.
+   * - HTTP: a short-lived, read-only resource-capability URL (with
+   *   `download=1` when requested). Returns `null` without a `sessionId`.
    */
   previewRawUrl(
     path: string,

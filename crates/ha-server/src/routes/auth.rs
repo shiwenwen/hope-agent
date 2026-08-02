@@ -6,7 +6,8 @@
 //! "finalize" — access the same mutex; we hold it in a process-wide
 //! `OnceLock` so it outlives individual request handlers.
 
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::extract::Request;
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::{extract::ConnectInfo, Extension, Json};
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex as TokioMutex;
+use tower::ServiceExt;
 
 use ha_core::agent;
 use ha_core::oauth::{self, AuthStatus, TokenData};
@@ -21,6 +23,11 @@ use ha_core::provider::{ActiveModelUpdate, ApiType};
 
 use crate::error::AppError;
 use crate::middleware::{AuthState, BROWSER_SESSION_COOKIE};
+
+const ACCESS_TICKET_TTL_SECS: u64 = 15 * 60;
+
+#[derive(Clone)]
+pub struct ScopedResourceService(pub axum::Router);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,6 +129,91 @@ pub async fn clear_browser_session(headers: HeaderMap) -> Response {
         HeaderValue::from_static("ha_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
     );
     response
+}
+
+/// Mint transport-only capabilities for browser APIs that cannot attach an
+/// Authorization header. The event ticket is carried as a WebSocket
+/// subprotocol; the resource ticket is accepted only by the dedicated
+/// read-only resource dispatcher.
+pub async fn create_transport_access_tickets(Extension(auth): Extension<AuthState>) -> Response {
+    if !auth.auth_required() {
+        return no_store_json(
+            StatusCode::OK,
+            &serde_json::json!({
+                "authRequired": false,
+                "resourceTicket": null,
+                "eventTicket": null,
+                "expiresInSecs": null,
+            }),
+        );
+    }
+    match auth.create_transport_access_tickets(ACCESS_TICKET_TTL_SECS) {
+        Ok((resource_ticket, event_ticket)) => no_store_json(
+            StatusCode::OK,
+            &serde_json::json!({
+                "authRequired": true,
+                "resourceTicket": resource_ticket,
+                "eventTicket": event_ticket,
+                "expiresInSecs": ACCESS_TICKET_TTL_SECS,
+            }),
+        ),
+        Err(error) => {
+            ha_core::app_error!(
+                "security",
+                "transport_ticket_mint_failed",
+                "Transport access ticket minting failed: {}",
+                error
+            );
+            no_store_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Transport access is unavailable",
+            )
+        }
+    }
+}
+
+/// Validate a short-lived read-only ticket, then internally dispatch to the
+/// small resource-only router. Rewriting the URI preserves the ticket prefix
+/// in the browser, so relative iframe CSS/JS/image URLs inherit it without
+/// exposing the Owner Token.
+pub async fn serve_scoped_resource(
+    Extension(auth): Extension<AuthState>,
+    Extension(service): Extension<ScopedResourceService>,
+    request: Request,
+) -> Response {
+    const PREFIX: &str = "/api/resource/";
+    let raw_path = request.uri().path();
+    let Some(ticket_and_path) = raw_path.strip_prefix(PREFIX) else {
+        return no_store_error(StatusCode::NOT_FOUND, "Resource not found");
+    };
+    let Some((ticket, resource_path)) = ticket_and_path.split_once('/') else {
+        return no_store_error(StatusCode::NOT_FOUND, "Resource not found");
+    };
+    if !auth.check_access_ticket(ticket, "resources") {
+        return no_store_error(
+            StatusCode::UNAUTHORIZED,
+            "Invalid or expired resource ticket",
+        );
+    }
+
+    let rewritten = match request.uri().query() {
+        Some(query) => format!("/{resource_path}?{query}"),
+        None => format!("/{resource_path}"),
+    };
+    let Ok(uri) = rewritten.parse::<Uri>() else {
+        return no_store_error(StatusCode::BAD_REQUEST, "Invalid resource path");
+    };
+    let (mut parts, body) = request.into_parts();
+    parts.uri = uri;
+    // The outer capability route already installed its `{ticket}` / `{path}`
+    // captures. Do not forward those private Axum extensions into the inner
+    // router or its `Path<T>` extractors would see both capture sets.
+    parts.extensions = Default::default();
+    let request = Request::from_parts(parts, body);
+    match service.0.clone().oneshot(request).await {
+        Ok(response) => response,
+        Err(never) => match never {},
+    }
 }
 
 /// Rotate the single owner root token. The new value is returned exactly once;
@@ -422,6 +514,11 @@ pub async fn set_codex_model(Json(body): Json<SetCodexModelBody>) -> Result<Json
 #[cfg(test)]
 mod server_token_tests {
     use super::*;
+    use axum::body::Body;
+    use axum::extract::Path;
+    use axum::http::Request as HttpRequest;
+    use axum::routing::get;
+    use axum::Router;
 
     #[test]
     fn public_auth_probe_does_not_expose_a_token_fingerprint_or_oracle() {
@@ -448,5 +545,45 @@ mod server_token_tests {
             status.token_fingerprint,
             Some(ha_core::server_auth::token_fingerprint("owner-token"))
         );
+    }
+
+    #[tokio::test]
+    async fn scoped_resource_ticket_reaches_only_the_read_only_dispatcher() {
+        let auth = AuthState::new(Some("owner-token".to_string()), None, false);
+        let ticket = auth.create_access_ticket("resources", 900).unwrap();
+        let resources = Router::new().route(
+            "/avatars/{filename}",
+            get(|Path(filename): Path<String>| async move {
+                assert_eq!(filename, "a.png");
+                StatusCode::NO_CONTENT
+            }),
+        );
+        let app = Router::new()
+            .route("/api/resource/{ticket}/{*path}", get(serve_scoped_resource))
+            .layer(Extension(auth))
+            .layer(Extension(ScopedResourceService(resources)));
+
+        let valid = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!("/api/resource/{ticket}/avatars/a.png"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(valid.status(), StatusCode::NO_CONTENT);
+
+        let invalid = app
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/api/resource/not-a-ticket/avatars/a.png")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), StatusCode::UNAUTHORIZED);
     }
 }

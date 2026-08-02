@@ -18,6 +18,7 @@ use sha2::{Digest, Sha256};
 
 const CREDENTIAL_VERSION: u32 = 1;
 const MAX_BROWSER_SESSION_SECS: u64 = 31 * 24 * 60 * 60;
+const MAX_SCOPED_ACCESS_TICKET_SECS: u64 = 60 * 60;
 type HmacSha256 = Hmac<Sha256>;
 pub const API_KEY_ENV: &str = "HA_API_KEY";
 pub const API_KEY_FILE_ENV: &str = "HA_API_KEY_FILE";
@@ -80,6 +81,15 @@ pub fn generate_token() -> String {
     format!("hope_{}", URL_SAFE_NO_PAD.encode(bytes))
 }
 
+/// Generate an ephemeral key for transport capabilities. Keeping this key
+/// independent from an operator-chosen Owner Token prevents a disclosed
+/// scoped ticket from becoming an offline password-guessing oracle.
+pub fn generate_access_ticket_signing_key() -> [u8; 32] {
+    let mut key = [0u8; 32];
+    rand::rng().fill_bytes(&mut key);
+    key
+}
+
 pub fn token_fingerprint(token: &str) -> String {
     let digest = Sha256::digest(token.as_bytes());
     digest[..6]
@@ -122,6 +132,65 @@ pub fn verify_browser_session(owner_token: &str, session: &str, now: u64) -> boo
         return false;
     };
     HmacSha256::new_from_slice(owner_token.as_bytes()).is_ok_and(|mut mac| {
+        mac.update(message.as_bytes());
+        mac.verify_slice(&signature).is_ok()
+    })
+}
+
+/// Create a short-lived capability derived from the Owner Token. Unlike the
+/// root credential, these tickets are constrained to one transport surface
+/// (`events` or `resources`) and cannot authorize control-plane APIs.
+pub fn create_scoped_access_ticket(
+    signing_key: &[u8],
+    scope: &str,
+    ttl_secs: u64,
+    now: u64,
+) -> Result<String> {
+    if scope.is_empty()
+        || !scope
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        bail!("invalid access-ticket scope");
+    }
+    let ttl_secs = ttl_secs.clamp(60, MAX_SCOPED_ACCESS_TICKET_SECS);
+    let expires_at = now.saturating_add(ttl_secs);
+    let mut nonce = [0u8; 18];
+    rand::rng().fill_bytes(&mut nonce);
+    let message = format!("v1.{scope}.{expires_at}.{}", URL_SAFE_NO_PAD.encode(nonce));
+    let mut mac = HmacSha256::new_from_slice(signing_key)
+        .map_err(|_| anyhow!("invalid access-ticket signing key"))?;
+    mac.update(message.as_bytes());
+    let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+    Ok(format!("{message}.{signature}"))
+}
+
+pub fn verify_scoped_access_ticket(
+    signing_key: &[u8],
+    ticket: &str,
+    expected_scope: &str,
+    now: u64,
+) -> bool {
+    let Some((message, signature)) = ticket.rsplit_once('.') else {
+        return false;
+    };
+    let mut fields = message.split('.');
+    if fields.next() != Some("v1") || fields.next() != Some(expected_scope) {
+        return false;
+    }
+    let Some(expires_at) = fields.next().and_then(|value| value.parse::<u64>().ok()) else {
+        return false;
+    };
+    if fields.next().is_none() || fields.next().is_some() {
+        return false;
+    }
+    if expires_at < now || expires_at > now.saturating_add(MAX_SCOPED_ACCESS_TICKET_SECS) {
+        return false;
+    }
+    let Ok(signature) = URL_SAFE_NO_PAD.decode(signature) else {
+        return false;
+    };
+    HmacSha256::new_from_slice(signing_key).is_ok_and(|mut mac| {
         mac.update(message.as_bytes());
         mac.verify_slice(&signature).is_ok()
     })
@@ -220,10 +289,10 @@ pub fn masked_managed_token() -> Result<Option<String>> {
 }
 
 fn clear_legacy_config_token() -> Result<()> {
-    crate::config::mutate_config(("server.auth.migrate", "system"), |config| {
-        config.server.api_key = None;
-        Ok(())
-    })
+    crate::config::clear_legacy_server_token_without_backup()?;
+    crate::backup::scrub_legacy_server_tokens()
+        .map_err(anyhow::Error::msg)
+        .context("scrub legacy server token from config backups")
 }
 
 /// Load the credential-store token, migrating a legacy config value. The
@@ -232,14 +301,9 @@ fn clear_legacy_config_token() -> Result<()> {
 /// cleanup next time instead of leaving a forgotten plaintext duplicate.
 pub fn load_managed_token() -> Result<Option<String>> {
     if let Some(stored) = load_credential()? {
-        if crate::config::cached_config()
-            .server
-            .api_key
-            .as_deref()
-            .is_some_and(|token| !token.is_empty())
-        {
-            clear_legacy_config_token().context("clear legacy server token from config")?;
-        }
+        // Always rescan backups. A prior run may have cleared live config but
+        // failed part-way through historical snapshot cleanup.
+        clear_legacy_config_token().context("clear legacy server token from config")?;
         return Ok(Some(stored.token));
     }
     let legacy = crate::config::cached_config().server.api_key.clone();
@@ -252,6 +316,10 @@ pub fn load_managed_token() -> Result<Option<String>> {
 }
 
 pub fn set_managed_token(token: Option<&str>, source: &str) -> Result<()> {
+    // Complete legacy migration before the ordinary config mutation below;
+    // otherwise a CLI rotation could autosave the old plaintext token just
+    // before clearing the live field.
+    let _ = load_managed_token()?;
     let previous = load_credential()?;
     match token {
         Some(token) if !token.is_empty() => write_credential(token)?,
@@ -434,6 +502,37 @@ mod tests {
         let mut tampered = session;
         tampered.push('x');
         assert!(!verify_browser_session("owner-one", &tampered, 1_001));
+    }
+
+    #[test]
+    fn scoped_access_tickets_are_expiring_signing_key_bound_and_scope_bound() {
+        let signing_key = [7u8; 32];
+        let other_signing_key = [8u8; 32];
+        let ticket = create_scoped_access_ticket(&signing_key, "resources", 900, 1_000).unwrap();
+        assert!(verify_scoped_access_ticket(
+            &signing_key,
+            &ticket,
+            "resources",
+            1_001
+        ));
+        assert!(!verify_scoped_access_ticket(
+            &signing_key,
+            &ticket,
+            "events",
+            1_001
+        ));
+        assert!(!verify_scoped_access_ticket(
+            &other_signing_key,
+            &ticket,
+            "resources",
+            1_001
+        ));
+        assert!(!verify_scoped_access_ticket(
+            &signing_key,
+            &ticket,
+            "resources",
+            1_901
+        ));
     }
 
     #[test]

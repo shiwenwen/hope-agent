@@ -171,6 +171,48 @@ fn build_router_with_cors(
         middleware::AuthState::new(api_key, knowledge_agent_read_token, auth_externally_managed);
     middleware::register_active_auth_state(auth_state.clone());
 
+    let scoped_resources = Router::new()
+        .route("/avatars/{filename}", get(routes::avatars::download))
+        .route(
+            "/attachments/{session_id}/{filename}",
+            get(routes::attachments::download),
+        )
+        .route(
+            "/generated-images/{filename}",
+            get(routes::generated_images::download),
+        )
+        .route("/pets/sprite", get(routes::pet::sprite))
+        .route(
+            "/pets/codex-candidates/{candidate_id}/thumbnail",
+            get(routes::pet::candidate_thumbnail),
+        )
+        .route(
+            "/pets/import/previews/{preview_token}/thumbnail",
+            get(routes::pet::preview_thumbnail),
+        )
+        .route(
+            "/sessions/{id}/files/by-path",
+            get(routes::sessions::download_session_file_by_path),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}",
+            get(routes::knowledge::kb_source_asset_file),
+        )
+        .route("/fs/raw", get(routes::project_fs::fs_raw))
+        .route(
+            "/canvas/projects/{project_id}/{*rest}",
+            get(routes::canvas::serve_canvas_project_file),
+        )
+        .route(
+            "/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}",
+            get(routes::design::serve_artifact_file),
+        )
+        .route(
+            "/artifact-exports/{export_id}/download",
+            get(routes::artifacts::download_export),
+        )
+        .with_state(ctx.clone());
+
     // Health and the minimal browser-login bootstrap stay public. Operational
     // server status belongs to the owner plane and is routed below.
     let health = Router::new()
@@ -183,6 +225,10 @@ fn build_router_with_cors(
         .route(
             "/api/auth/logout",
             post(routes::auth::clear_browser_session),
+        )
+        .route(
+            "/api/resource/{ticket}/{*path}",
+            get(routes::auth::serve_scoped_resource),
         )
         // B7-1 只读分享：**公开无鉴权**——token 是唯一不可猜凭证，服务干净快照（sandbox
         // opaque-origin）。放公开路由（与 /api/health 同层），不进 require_api_key 保护面。
@@ -197,6 +243,10 @@ fn build_router_with_cors(
         .route(
             "/auth/token/rotate",
             post(routes::auth::rotate_server_owner_token),
+        )
+        .route(
+            "/auth/transport-tickets",
+            post(routes::auth::create_transport_access_tickets),
         )
         // Sessions
         .route("/sessions", post(routes::sessions::create_session))
@@ -3630,6 +3680,9 @@ fn build_router_with_cors(
 
     attach_web_fallback(base)
         .layer(axum::Extension(auth_state))
+        .layer(axum::Extension(routes::auth::ScopedResourceService(
+            scoped_resources,
+        )))
         .layer(axum::Extension(UiRequestPolicy::new(cors_origins)))
         .layer(build_cors_layer(cors_origins))
         .layer(axum::middleware::from_fn(middleware::security_headers))

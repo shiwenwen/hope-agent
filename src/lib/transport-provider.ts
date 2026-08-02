@@ -40,6 +40,7 @@ function defaultHttpBase(): string {
 
 let instance: Transport | null = null;
 const listeners = new Set<() => void>();
+let transportRevision = 0;
 let dirtyTransportConfirmText =
   "You have unsaved file changes. Switch connection and discard them?";
 
@@ -49,6 +50,7 @@ export function setDirtyTransportConfirmText(message: string): void {
 }
 
 function emitTransportChanged(): void {
+  transportRevision += 1;
   for (const listener of listeners) listener();
 }
 
@@ -78,7 +80,11 @@ export function getTransport(): Transport {
     // visible here for one release only; AuthGate exchanges and clears it.
     const baseUrl = import.meta.env?.VITE_SERVER_URL || defaultHttpBase();
     const apiKey = getStoredApiKey();
-    instance = new HttpTransport(baseUrl, apiKey);
+    const http = new HttpTransport(baseUrl, apiKey, emitTransportChanged);
+    instance = http;
+    if (apiKey) {
+      void http.initializeRemoteAccess().then(emitTransportChanged).catch(() => undefined);
+    }
   }
 
   return instance;
@@ -88,6 +94,7 @@ export function getTransport(): Transport {
  * Replace the current transport singleton (useful for testing).
  */
 export function setTransport(transport: Transport): void {
+  if (instance instanceof HttpTransport && instance !== transport) instance.dispose();
   instance = transport;
   emitTransportChanged();
 }
@@ -96,15 +103,33 @@ export function setTransport(transport: Transport): void {
  * Switch to a remote HTTP transport with the given base URL and optional API key.
  * Replaces the current singleton so all subsequent calls go to the remote server.
  */
-export function switchToRemote(
+export async function switchToRemote(
   baseUrl: string,
   apiKey?: string | null,
   options?: { dirtyConfirmed?: boolean },
-): boolean {
+): Promise<boolean> {
   if (!options?.dirtyConfirmed && !confirmTransportChange()) return false;
-  instance = new HttpTransport(baseUrl, apiKey);
+  const next = new HttpTransport(baseUrl, apiKey, emitTransportChanged);
+  try {
+    if (apiKey) await next.initializeRemoteAccess(false);
+  } catch (error) {
+    // A provisional connection must not clear credentials or open the login
+    // dialog for the still-active transport when the new URL/key is wrong.
+    next.dispose();
+    throw error;
+  }
+  if (instance instanceof HttpTransport) instance.dispose();
+  instance = next;
   emitTransportChanged();
   return true;
+}
+
+/** Keep the active HTTP client authenticated after the server changes its root token. */
+export async function activateCurrentHttpOwnerToken(token: string): Promise<void> {
+  if (instance instanceof HttpTransport) {
+    await instance.activateOwnerToken(token);
+    emitTransportChanged();
+  }
 }
 
 /**
@@ -113,6 +138,7 @@ export function switchToRemote(
  */
 export function switchToEmbedded(options?: { dirtyConfirmed?: boolean }): boolean {
   if (!options?.dirtyConfirmed && !confirmTransportChange()) return false;
+  if (instance instanceof HttpTransport) instance.dispose();
   if (isTauriMode()) {
     instance = new TauriTransport();
   } else {
@@ -125,5 +151,10 @@ export function switchToEmbedded(options?: { dirtyConfirmed?: boolean }): boolea
 
 /** React hook that re-renders consumers as soon as the active transport changes. */
 export function useTransport(): Transport {
-  return useSyncExternalStore(subscribeTransport, getTransport, getTransport);
+  useSyncExternalStore(
+    subscribeTransport,
+    () => transportRevision,
+    () => transportRevision,
+  );
+  return getTransport();
 }

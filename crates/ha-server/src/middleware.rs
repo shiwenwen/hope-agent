@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const BROWSER_SESSION_COOKIE: &str = "ha_session";
+pub const EVENT_TICKET_PROTOCOL_PREFIX: &str = "ha-events.";
 
 /// Shared owner-token authentication state. The root token can be rotated
 /// without restarting the server; browser sessions are stateless HMAC tokens
@@ -19,6 +20,8 @@ pub const BROWSER_SESSION_COOKIE: &str = "ha_session";
 #[derive(Clone)]
 pub struct AuthState {
     owner_token: Arc<RwLock<Option<String>>>,
+    access_ticket_key: Arc<RwLock<[u8; 32]>>,
+    owner_changes: tokio::sync::watch::Sender<u64>,
     knowledge_agent_read_token: Option<String>,
     externally_managed: bool,
     login_failures: Arc<Mutex<HashMap<IpAddr, VecDeque<Instant>>>>,
@@ -30,8 +33,13 @@ impl AuthState {
         knowledge_agent_read_token: Option<String>,
         externally_managed: bool,
     ) -> Self {
+        let (owner_changes, _) = tokio::sync::watch::channel(0);
         Self {
             owner_token: Arc::new(RwLock::new(owner_token.filter(|token| !token.is_empty()))),
+            access_ticket_key: Arc::new(RwLock::new(
+                ha_core::server_auth::generate_access_ticket_signing_key(),
+            )),
+            owner_changes,
             knowledge_agent_read_token,
             externally_managed,
             login_failures: Arc::new(Mutex::new(HashMap::new())),
@@ -86,6 +94,75 @@ impl AuthState {
         })
     }
 
+    pub fn create_access_ticket(&self, scope: &str, ttl_secs: u64) -> anyhow::Result<String> {
+        let owner = self
+            .owner_token
+            .read()
+            .map_err(|_| anyhow::anyhow!("owner-token state is unavailable"))?;
+        if owner.as_deref().is_none_or(str::is_empty) {
+            anyhow::bail!("owner-token authentication is disabled");
+        }
+        let signing_key = self
+            .access_ticket_key
+            .read()
+            .map_err(|_| anyhow::anyhow!("access-ticket signing state is unavailable"))?;
+        ha_core::server_auth::create_scoped_access_ticket(
+            signing_key.as_ref(),
+            scope,
+            ttl_secs,
+            unix_time(),
+        )
+    }
+
+    pub fn create_transport_access_tickets(
+        &self,
+        ttl_secs: u64,
+    ) -> anyhow::Result<(String, String)> {
+        let owner = self
+            .owner_token
+            .read()
+            .map_err(|_| anyhow::anyhow!("owner-token state is unavailable"))?;
+        if owner.as_deref().is_none_or(str::is_empty) {
+            anyhow::bail!("owner-token authentication is disabled");
+        }
+        let signing_key = self
+            .access_ticket_key
+            .read()
+            .map_err(|_| anyhow::anyhow!("access-ticket signing state is unavailable"))?;
+        let now = unix_time();
+        let resources = ha_core::server_auth::create_scoped_access_ticket(
+            signing_key.as_ref(),
+            "resources",
+            ttl_secs,
+            now,
+        )?;
+        let events = ha_core::server_auth::create_scoped_access_ticket(
+            signing_key.as_ref(),
+            "events",
+            ttl_secs,
+            now,
+        )?;
+        Ok((resources, events))
+    }
+
+    pub fn check_access_ticket(&self, ticket: &str, scope: &str) -> bool {
+        let Ok(owner) = self.owner_token.read() else {
+            return false;
+        };
+        if owner.as_deref().is_none_or(str::is_empty) {
+            return false;
+        }
+        let Ok(signing_key) = self.access_ticket_key.read() else {
+            return false;
+        };
+        ha_core::server_auth::verify_scoped_access_ticket(
+            signing_key.as_ref(),
+            ticket,
+            scope,
+            unix_time(),
+        )
+    }
+
     pub fn headers_are_owner_authenticated(&self, headers: &axum::http::HeaderMap) -> bool {
         if !self.auth_required() {
             return true;
@@ -103,8 +180,22 @@ impl AuthState {
             .owner_token
             .write()
             .map_err(|_| anyhow::anyhow!("owner-token state is unavailable"))?;
+        let mut signing_key = self
+            .access_ticket_key
+            .write()
+            .map_err(|_| anyhow::anyhow!("access-ticket signing state is unavailable"))?;
         *owner = token.filter(|value| !value.is_empty());
+        *signing_key = ha_core::server_auth::generate_access_ticket_signing_key();
+        self.owner_changes
+            .send_modify(|revision| *revision = revision.wrapping_add(1));
         Ok(())
+    }
+
+    /// Subscribe before revalidating a WebSocket upgrade so a concurrent
+    /// Owner Token replacement cannot leave an authenticated event stream
+    /// alive under the previous credential.
+    pub fn subscribe_owner_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.owner_changes.subscribe()
     }
 
     pub fn login_allowed(&self, peer: IpAddr) -> bool {
@@ -252,6 +343,13 @@ pub async fn require_api_key(
     {
         return next.run(request).await;
     }
+    if path == "/ws/events"
+        && event_ticket_from_headers(request.headers())
+            .as_deref()
+            .is_some_and(|ticket| state.check_access_ticket(ticket, "events"))
+    {
+        return next.run(request).await;
+    }
 
     (
         StatusCode::UNAUTHORIZED,
@@ -276,6 +374,29 @@ fn bearer_header_token(headers: &axum::http::HeaderMap) -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+pub fn event_ticket_protocol(headers: &axum::http::HeaderMap) -> Option<String> {
+    headers
+        .get("sec-websocket-protocol")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|protocols| {
+            protocols.split(',').find_map(|protocol| {
+                let protocol = protocol.trim();
+                protocol
+                    .strip_prefix(EVENT_TICKET_PROTOCOL_PREFIX)
+                    .filter(|ticket| !ticket.is_empty())
+                    .map(|_| protocol.to_string())
+            })
+        })
+}
+
+fn event_ticket_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
+    event_ticket_protocol(headers).and_then(|protocol| {
+        protocol
+            .strip_prefix(EVENT_TICKET_PROTOCOL_PREFIX)
+            .map(str::to_string)
+    })
 }
 
 pub fn browser_session_cookie(request: &Request) -> Option<String> {
@@ -348,15 +469,20 @@ pub async fn access_log(request: Request, next: Next) -> Response {
 }
 
 pub async fn security_headers(request: Request, next: Next) -> Response {
+    let scoped_resource = request.uri().path().starts_with("/api/resource/");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
+    let content_security_policy = if scoped_resource {
+        // Scoped resources are the only surface intentionally frameable by a
+        // cross-origin Tauri/remote GUI. The short-lived read-only capability
+        // is the authorization boundary; iframe callers still apply sandbox.
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
+    } else {
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+    };
     let defaults = [
-        (
-            "content-security-policy",
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
-        ),
+        ("content-security-policy", content_security_policy),
         ("x-content-type-options", "nosniff"),
-        ("x-frame-options", "SAMEORIGIN"),
         ("strict-transport-security", "max-age=31536000"),
         ("referrer-policy", "no-referrer"),
         (
@@ -374,10 +500,23 @@ pub async fn security_headers(request: Request, next: Next) -> Response {
             }
         }
     }
+    if !scoped_resource && !headers.contains_key("x-frame-options") {
+        headers.insert(
+            "x-frame-options",
+            axum::http::HeaderValue::from_static("SAMEORIGIN"),
+        );
+    }
     response
 }
 
 fn redact_access_path(path: &str) -> String {
+    const RESOURCE_PREFIX: &str = "/api/resource/";
+    if let Some(ticket_and_path) = path.strip_prefix(RESOURCE_PREFIX) {
+        if let Some((_, resource_path)) = ticket_and_path.split_once('/') {
+            return format!("{RESOURCE_PREFIX}[redacted]/{resource_path}");
+        }
+        return format!("{RESOURCE_PREFIX}[redacted]");
+    }
     const PREFIX: &str = "/api/pets/import/previews/";
     const SUFFIX: &str = "/thumbnail";
     if let Some(token_and_suffix) = path.strip_prefix(PREFIX) {
@@ -439,6 +578,96 @@ mod tests {
             redact_access_path("/api/pets/import/preview/cancel"),
             "/api/pets/import/preview/cancel"
         );
+    }
+
+    #[test]
+    fn access_log_redacts_scoped_resource_tickets() {
+        assert_eq!(
+            redact_access_path("/api/resource/v1.resources.secret/canvas/projects/p1/index.html"),
+            "/api/resource/[redacted]/canvas/projects/p1/index.html"
+        );
+    }
+
+    #[test]
+    fn websocket_event_ticket_uses_a_subprotocol_not_the_url() {
+        let auth = AuthState::new(Some("owner-token".into()), None, false);
+        let ticket = auth.create_access_ticket("events", 900).unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "sec-websocket-protocol",
+            format!("chat, {EVENT_TICKET_PROTOCOL_PREFIX}{ticket}")
+                .parse()
+                .unwrap(),
+        );
+        assert_eq!(
+            event_ticket_from_headers(&headers).as_deref(),
+            Some(ticket.as_str())
+        );
+        assert!(auth.check_access_ticket(&ticket, "events"));
+        assert!(!auth.check_access_ticket(&ticket, "resources"));
+    }
+
+    #[tokio::test]
+    async fn owner_token_replacement_revokes_existing_event_streams() {
+        let auth = AuthState::new(Some("owner-token".into()), None, false);
+        let mut owner_changes = auth.subscribe_owner_changes();
+        let old_ticket = auth.create_access_ticket("events", 900).unwrap();
+
+        auth.replace_owner_token(Some("new-owner-token".into()))
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), owner_changes.changed())
+            .await
+            .expect("owner-token change notification")
+            .expect("owner-token watch remains open");
+        assert!(!auth.check_access_ticket(&old_ticket, "events"));
+        let new_ticket = auth.create_access_ticket("events", 900).unwrap();
+        assert!(auth.check_access_ticket(&new_ticket, "events"));
+    }
+
+    #[tokio::test]
+    async fn scoped_resources_can_be_framed_but_owner_pages_cannot() {
+        let app = Router::new()
+            .route(
+                "/api/resource/ticket/canvas/index.html",
+                get(|| async { "ok" }),
+            )
+            .route("/settings", get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn(security_headers));
+
+        let resource = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/api/resource/ticket/canvas/index.html")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(resource.headers().get("x-frame-options").is_none());
+        assert!(!resource
+            .headers()
+            .get("content-security-policy")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("frame-ancestors"));
+
+        let owner = app
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/settings")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(owner.headers()["x-frame-options"], "SAMEORIGIN");
+        assert!(owner.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("frame-ancestors 'self'"));
     }
 
     #[tokio::test]

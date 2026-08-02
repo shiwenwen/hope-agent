@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Server 认证收口为单一 Owner Token 且远程使用不再暴露根凭据**：浏览器登录换 HttpOnly 会话，远程 WebSocket 与文件/预览使用短时受限票据，旧配置及历史备份中的明文 Token 自动迁移清理，保存或轮换 Token 后当前页面会自动续接而不会把自己锁在登录页外。 (#603)
+
 ## [0.27.0] - 2026-07-31
 
 ### Added

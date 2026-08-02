@@ -1976,6 +1976,13 @@ interface EventSubscription {
 export class HttpTransport implements Transport {
   private readonly baseUrl: string
   private apiKey: string | null
+  private resourceTicket: string | null = null
+  private eventTicket: string | null = null
+  private accessTicketExpiresAt = 0
+  private credentialRevision = 0
+  private accessTicketRequest: Promise<void> | null = null
+  private accessTicketRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly onAccessTicketRefresh?: () => void
 
   /** Persistent WebSocket for backend-pushed events. */
   private eventWs: WebSocket | null = null
@@ -1987,15 +1994,153 @@ export class HttpTransport implements Transport {
   private reconnectAttempts = 0
   private readonly maxReconnectDelay = 30_000 // 30 s cap
 
-  constructor(baseUrl: string, apiKey?: string | null) {
+  constructor(baseUrl: string, apiKey?: string | null, onAccessTicketRefresh?: () => void) {
     // Strip trailing slash.
     this.baseUrl = baseUrl.replace(/\/+$/, "")
     this.apiKey = apiKey ?? null
+    this.onAccessTicketRefresh = onAccessTicketRefresh
   }
 
   /** Update the API key at runtime. */
   setApiKey(key: string | null): void {
+    this.credentialRevision += 1
     this.apiKey = key
+    this.resourceTicket = null
+    this.eventTicket = null
+    this.accessTicketExpiresAt = 0
+    if (this.accessTicketRefreshTimer) {
+      clearTimeout(this.accessTicketRefreshTimer)
+      this.accessTicketRefreshTimer = null
+    }
+    // A request started with the previous credential may still finish, but
+    // its revision check prevents it from publishing stale tickets. Clearing
+    // this slot lets the new credential mint its own tickets immediately.
+    this.accessTicketRequest = null
+  }
+
+  /** Stop timers/sockets and erase credentials when this singleton is replaced. */
+  dispose(): void {
+    this.eventSubscriptions = []
+    this.teardownEventWs()
+    this.setApiKey(null)
+  }
+
+  /**
+   * Exchange the root Bearer credential for browser-usable, scoped transport
+   * tickets before publishing a remote transport. This keeps the Owner Token
+   * out of WebSocket URLs, iframe URLs, browser history, and access logs.
+   */
+  async initializeRemoteAccess(notifyAuthFailure = true): Promise<void> {
+    if (!this.apiKey) return
+    if (
+      this.resourceTicket &&
+      this.eventTicket &&
+      this.accessTicketExpiresAt > Date.now() + 6 * 60_000
+    ) {
+      return
+    }
+    if (this.accessTicketRequest) return this.accessTicketRequest
+    const revision = this.credentialRevision
+    const request = this.refreshAccessTickets(revision, notifyAuthFailure)
+    this.accessTicketRequest = request
+    try {
+      await request
+    } finally {
+      if (this.accessTicketRequest === request) this.accessTicketRequest = null
+    }
+  }
+
+  /** Activate a newly saved/rotated token without invalidating this UI. */
+  async activateOwnerToken(token: string): Promise<void> {
+    this.setApiKey(token)
+    const sameOrigin =
+      typeof window !== "undefined" && new URL(this.baseUrl).origin === window.location.origin
+    if (sameOrigin) {
+      const response = await fetch(`${this.baseUrl}/api/auth/session`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, remember: true }),
+      })
+      if (response.ok) {
+        // Same-origin browsers can go back to the HttpOnly cookie immediately;
+        // do not retain the root token in the transport object.
+        this.setApiKey(null)
+        return
+      }
+    }
+    // Cross-origin/Tauri clients cannot rely on SameSite cookies. Retain the
+    // explicit Bearer credential for Fetch and mint scoped browser tickets.
+    await this.initializeRemoteAccess()
+  }
+
+  private async refreshAccessTickets(revision: number, notifyAuthFailure: boolean): Promise<void> {
+    const apiKey = this.apiKey
+    if (!apiKey) return
+    const response = await fetch(`${this.baseUrl}/api/auth/transport-tickets`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    if (revision !== this.credentialRevision || this.apiKey !== apiKey) return
+    if (!response.ok) {
+      if (notifyAuthFailure) this.handleAuthFailure(response.status)
+      throw new Error(`Remote authentication failed (${response.status})`)
+    }
+    const payload = (await response.json()) as {
+      authRequired: boolean
+      resourceTicket: string | null
+      eventTicket: string | null
+      expiresInSecs: number | null
+    }
+    if (
+      payload.authRequired &&
+      (!payload.resourceTicket || !payload.eventTicket || !payload.expiresInSecs)
+    ) {
+      throw new Error("Remote server returned incomplete transport credentials")
+    }
+    if (revision !== this.credentialRevision || this.apiKey !== apiKey) return
+    if (!payload.authRequired) {
+      this.setApiKey(null)
+      this.onAccessTicketRefresh?.()
+      return
+    }
+    this.resourceTicket = payload.resourceTicket
+    this.eventTicket = payload.eventTicket
+    this.accessTicketExpiresAt = payload.expiresInSecs
+      ? Date.now() + payload.expiresInSecs * 1000
+      : 0
+    this.scheduleAccessTicketRefresh()
+    this.onAccessTicketRefresh?.()
+  }
+
+  private scheduleAccessTicketRefresh(): void {
+    if (this.accessTicketRefreshTimer) clearTimeout(this.accessTicketRefreshTimer)
+    this.accessTicketRefreshTimer = null
+    if (!this.apiKey || !this.accessTicketExpiresAt) return
+    const refreshIn = Math.max(60_000, this.accessTicketExpiresAt - Date.now() - 5 * 60_000)
+    this.accessTicketRefreshTimer = setTimeout(() => {
+      this.accessTicketRefreshTimer = null
+      void this.initializeRemoteAccess().catch(() => {
+        // Fetch calls keep using Bearer auth; a WebSocket reconnect will retry
+        // ticket minting. Never downgrade to an uncredentialed resource URL.
+        this.scheduleAccessTicketRetry()
+      })
+    }, refreshIn)
+  }
+
+  private scheduleAccessTicketRetry(): void {
+    if (!this.apiKey || this.accessTicketRefreshTimer) return
+    this.accessTicketRefreshTimer = setTimeout(() => {
+      this.accessTicketRefreshTimer = null
+      void this.initializeRemoteAccess().catch(() => this.scheduleAccessTicketRetry())
+    }, 60_000)
+  }
+
+  private scopedResourceUrl(apiPath: string): string | null {
+    if (!this.apiKey) return `${this.baseUrl}${apiPath}`
+    if (!this.resourceTicket || this.accessTicketExpiresAt <= Date.now()) return null
+    if (!apiPath.startsWith("/api/")) return null
+    return `${this.baseUrl}/api/resource/${encodeURIComponent(this.resourceTicket)}${apiPath.slice(4)}`
   }
 
   /**
@@ -2010,7 +2155,7 @@ export class HttpTransport implements Transport {
   private handleAuthFailure(status: number): void {
     if (status !== 401) return
     clearStoredApiKey()
-    this.apiKey = null
+    this.setApiKey(null)
     dispatchAuthRequired()
   }
 
@@ -2387,7 +2532,10 @@ export class HttpTransport implements Transport {
   async projectFsRawUrl(
     args: ProjectFsScope & { path: string; download?: boolean },
   ): Promise<string | null> {
-    const url = new URL(`${this.baseUrl}/api/fs/raw`)
+    await this.initializeRemoteAccess()
+    const rawUrl = this.scopedResourceUrl("/api/fs/raw")
+    if (!rawUrl) return null
+    const url = new URL(rawUrl)
     url.searchParams.set("scope", args.scope)
     url.searchParams.set("scopeId", args.scopeId)
     url.searchParams.set("path", args.path)
@@ -2476,9 +2624,11 @@ export class HttpTransport implements Transport {
     forceDownload: boolean,
   ): string | null {
     if (!sessionId) return null
-    const url = new URL(
-      `${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/files/by-path`,
+    const rawUrl = this.scopedResourceUrl(
+      `/api/sessions/${encodeURIComponent(sessionId)}/files/by-path`,
     )
+    if (!rawUrl) return null
+    const url = new URL(rawUrl)
     url.searchParams.set("path", path)
     if (forceDownload) url.searchParams.set("download", "1")
     return url.toString()
@@ -2493,12 +2643,12 @@ export class HttpTransport implements Transport {
     // in the stored absolute path. Each category needs a matching
     // server-side route. Anything unrecognized returns `null` so callers
     // fall back gracefully (emoji / default icon / broken state).
-    const stamped = (url: string) => url
+    const stamped = (path: string) => this.scopedResourceUrl(path)
 
     // Avatars: `~/.hope-agent/avatars/{file}` → `/api/avatars/{file}`
     const avatarMatch = path.match(/[\\/]avatars[\\/]([^\\/]+)$/)
     if (avatarMatch) {
-      return stamped(`${this.baseUrl}/api/avatars/${encodeURIComponent(avatarMatch[1])}`)
+      return stamped(`/api/avatars/${encodeURIComponent(avatarMatch[1])}`)
     }
 
     // Session attachments: `~/.hope-agent/attachments/{sessionId}/{file}` →
@@ -2507,7 +2657,7 @@ export class HttpTransport implements Transport {
     const attachmentMatch = path.match(/[\\/]attachments[\\/]([^\\/]+)[\\/]([^\\/]+)$/)
     if (attachmentMatch) {
       return stamped(
-        `${this.baseUrl}/api/attachments/${encodeURIComponent(attachmentMatch[1])}/${encodeURIComponent(attachmentMatch[2])}`,
+        `/api/attachments/${encodeURIComponent(attachmentMatch[1])}/${encodeURIComponent(attachmentMatch[2])}`,
       )
     }
 
@@ -2518,7 +2668,7 @@ export class HttpTransport implements Transport {
     )
     if (sourceAssetMatch) {
       return stamped(
-        `${this.baseUrl}/api/knowledge/${encodeURIComponent(sourceAssetMatch[1])}/sources/${encodeURIComponent(sourceAssetMatch[2])}/assets/${encodeURIComponent(sourceAssetMatch[3])}`,
+        `/api/knowledge/${encodeURIComponent(sourceAssetMatch[1])}/sources/${encodeURIComponent(sourceAssetMatch[2])}/assets/${encodeURIComponent(sourceAssetMatch[3])}`,
       )
     }
 
@@ -2527,7 +2677,7 @@ export class HttpTransport implements Transport {
     // different working-directory prefixes.)
     const imgMatch = path.match(/[\\/]image_generate[\\/]([^\\/]+)$/)
     if (imgMatch) {
-      return stamped(`${this.baseUrl}/api/generated-images/${encodeURIComponent(imgMatch[1])}`)
+      return stamped(`/api/generated-images/${encodeURIComponent(imgMatch[1])}`)
     }
 
     // Canvas projects: `~/.hope-agent/canvas/projects/{id}/{...rest}` →
@@ -2540,7 +2690,7 @@ export class HttpTransport implements Transport {
         .split("/")
         .map((seg) => encodeURIComponent(seg))
         .join("/")
-      return stamped(`${this.baseUrl}/api/canvas/projects/${pid}/${rest}`)
+      return stamped(`/api/canvas/projects/${pid}/${rest}`)
     }
 
     // Design artifacts:
@@ -2557,7 +2707,7 @@ export class HttpTransport implements Transport {
         .split("/")
         .map((seg) => encodeURIComponent(seg))
         .join("/")
-      return stamped(`${this.baseUrl}/api/design/projects/${pid}/artifacts/${aid}/${rest}`)
+      return stamped(`/api/design/projects/${pid}/artifacts/${aid}/${rest}`)
     }
 
     return null
@@ -2849,7 +2999,9 @@ export class HttpTransport implements Transport {
   artifactPreviewUrl(id: string, projectPath?: string | null): string | null {
     void projectPath
     if (!id) return null
-    return `${this.baseUrl}/api/canvas/projects/${encodeURIComponent(id)}/index.html`
+    return this.scopedResourceUrl(
+      `/api/canvas/projects/${encodeURIComponent(id)}/index.html`,
+    )
   }
 
   async openArtifact(id: string): Promise<void> {
@@ -3084,11 +3236,38 @@ export class HttpTransport implements Transport {
     if (this.eventWs || this.eventWsConnecting) return
     this.eventWsConnecting = true
 
-    const ws = new WebSocket(this.wsUrl("/ws/events"))
+    void this.openEventWs()
+  }
+
+  private async openEventWs(): Promise<void> {
+    try {
+      await this.initializeRemoteAccess()
+    } catch {
+      this.eventWsConnecting = false
+      if (this.eventSubscriptions.length > 0) this.scheduleReconnect()
+      return
+    }
+    if (this.eventSubscriptions.length === 0) {
+      this.eventWsConnecting = false
+      return
+    }
+    const ticketUsed = this.eventTicket
+    const protocol = ticketUsed ? [`ha-events.${ticketUsed}`] : undefined
+    const ws = protocol
+      ? new WebSocket(this.wsUrl("/ws/events"), protocol)
+      : new WebSocket(this.wsUrl("/ws/events"))
+    // Track the socket during the handshake as well, so switching transports
+    // or removing the final listener can cancel an in-flight connection.
+    this.eventWs = ws
+    let opened = false
 
     ws.onopen = () => {
+      if (this.eventWs !== ws || this.eventSubscriptions.length === 0) {
+        ws.close()
+        return
+      }
+      opened = true
       this.eventWsConnecting = false
-      this.eventWs = ws
       this.reconnectAttempts = 0
       this.dispatchEvent(TRANSPORT_EVENT_RESYNC_REQUIRED, { reason: "connected" })
     }
@@ -3119,8 +3298,20 @@ export class HttpTransport implements Transport {
     }
 
     ws.onclose = () => {
-      this.eventWs = null
+      if (this.eventWs === ws) this.eventWs = null
       this.eventWsConnecting = false
+      if (!opened && ticketUsed && this.eventTicket === ticketUsed) {
+        // The server may have restarted (ephemeral signing key) or rotated its
+        // Owner Token. Force the next reconnect to exchange the still-current
+        // Bearer credential instead of retrying a locally unexpired ticket.
+        this.resourceTicket = null
+        this.eventTicket = null
+        this.accessTicketExpiresAt = 0
+        if (this.accessTicketRefreshTimer) {
+          clearTimeout(this.accessTicketRefreshTimer)
+          this.accessTicketRefreshTimer = null
+        }
+      }
 
       // Reconnect only if there are active subscribers.
       if (this.eventSubscriptions.length > 0) {

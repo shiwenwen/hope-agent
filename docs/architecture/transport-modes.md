@@ -141,12 +141,13 @@ HTTP 模式没有 per-call browser Channel，主流式路径就是 EventBus：
 `/ws/events` 是 HTTP/Web 模式唯一的全局事件 WebSocket：
 
 - 消息格式固定为 `{"name": string, "payload": unknown}`。
-- 浏览器先用 Root Token 换取签名 HttpOnly Cookie；WebSocket 握手自动携带同源 Cookie，URL 不含凭据。
+- 同源浏览器先用 Root Token 换取签名 HttpOnly Cookie；WebSocket 握手自动携带 Cookie。跨源远程客户端用 Bearer 调 `/api/auth/transport-tickets`，再把 15 分钟 `events` scope 票据放进 `Sec-WebSocket-Protocol`；两种模式的 URL 都不含根凭据。
+- 跨源 iframe / 图片 / 下载使用 `/api/resource/{ticket}/...`，只分派到显式只读资源路由；该前缀响应允许远程 GUI 的 sandbox iframe 嵌入，其余 owner 页面继续 `frame-ancestors 'self'` + `X-Frame-Options: SAMEORIGIN`。
 - `HttpTransport.listen()` 在第一个 listener 注册时建立连接，最后一个 listener 取消时关闭连接。
-- 断线后只要仍有 listener，就按 1s、2s、4s 递增到 30s 上限的退避策略重连。
+- 断线后只要仍有 listener，就按 1s、2s、4s 递增到 30s 上限的退避策略重连；Owner Token 变更会主动断开既有连接，服务端也会周期复验 Cookie / scope 票据，连接不能无限越过凭据有效期。
 - server 端每个 WebSocket 连接持有独立 broadcast receiver，多客户端互不抢消息。
 - 发送单帧超过 5s 会断开慢客户端；连续 lag 超过阈值会发送 `_lagged` 并最终断开，避免阻塞 EventBus。
-- `chat:stream_delta` 与 `channel:stream_delta` 会在 server 桥接时重写内层 `media_items`，去掉本地绝对路径并给 HTTP 资源 URL 补 token。
+- `chat:stream_delta` 与 `channel:stream_delta` 会在 server 桥接时重写内层 `media_items`，去掉本地绝对路径；同源资源靠 HttpOnly Cookie，跨源资源由 `HttpTransport` 换短时 `resources` scope 前缀或用 Bearer Fetch 转 Blob，根 Token 不进入媒体 URL。
 
 Tauri 桌面没有 `/ws/events`，但同一个 EventBus 会在 `src-tauri/src/setup.rs` 中订阅并转成 `app_handle.emit(name, payload)`，所以前端仍用同一个 `transport.listen(eventName, handler)` API。
 
