@@ -290,7 +290,29 @@ pub fn create_dir(requested: &str) -> Result<DirListing> {
     }
 
     std::fs::create_dir_all(target).map_err(|e| {
-        FilesystemError::bad_input(format!("cannot create directory '{}': {}", trimmed, e))
+        if matches!(
+            e.kind(),
+            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
+        ) {
+            app_warn!(
+                "filesystem",
+                "create_dir_denied",
+                "path={} error_kind={:?}",
+                target.display(),
+                e.kind()
+            );
+            FilesystemError::bad_input(format!(
+                "directory is not writable: '{}': {}",
+                target
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                    .unwrap_or(target)
+                    .display(),
+                e
+            ))
+        } else {
+            FilesystemError::bad_input(format!("cannot create directory '{}': {}", trimmed, e))
+        }
     })?;
     let canon = target.canonicalize().map_err(|e| {
         FilesystemError::bad_input(format!("cannot resolve path '{}': {}", trimmed, e))
@@ -307,7 +329,12 @@ pub fn create_dir(requested: &str) -> Result<DirListing> {
 
 #[cfg(unix)]
 fn default_root() -> PathBuf {
-    PathBuf::from("/")
+    // Directory pickers are user-facing creation surfaces. Starting at `/`
+    // makes the first "New folder" attempt target `/name`, which ordinary
+    // desktop/server users cannot write. Prefer the current account's home;
+    // keep `/` only as a last-resort navigation fallback when the platform
+    // cannot resolve a home directory.
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
 }
 
 #[cfg(windows)]
@@ -817,6 +844,41 @@ mod tests {
             other => panic!("expected BadInput, got {:?}", other),
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_dir_creates_missing_parents_under_a_writable_location() {
+        let dir = tmpdir("create-dir");
+        let created = dir.join("parent").join("child");
+
+        let listing = create_dir(created.to_str().unwrap()).expect("create nested directory");
+
+        assert_eq!(
+            PathBuf::from(listing.path),
+            created.canonicalize().expect("canonical created directory")
+        );
+        assert!(created.is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_dir_rejects_relative_path() {
+        match create_dir("relative/path") {
+            Err(FilesystemError::BadInput(message)) => {
+                assert!(message.contains("path must be absolute"));
+            }
+            other => panic!("expected BadInput, got {:?}", other),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_picker_defaults_to_the_user_home_on_unix() {
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(default_root(), home);
+        } else {
+            assert_eq!(default_root(), PathBuf::from("/"));
+        }
     }
 
     #[test]
