@@ -2,11 +2,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 /// Maximum consecutive crash restarts in child mode (panic recovery)
 const MAX_CHILD_PANICS: u32 = 3;
+
+struct ServerArgs {
+    bind_addr: String,
+    api_key_file: Option<PathBuf>,
+    allow_unauthenticated_network: bool,
+    legacy_service_api_key: Option<String>,
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -172,7 +180,10 @@ fn parse_knowledge_mcp_args(
             }
             "--help" | "-h" => return None,
             other => {
-                eprintln!("[knowledge-mcp] Unknown argument: {}", other);
+                eprintln!(
+                    "[knowledge-mcp] Unknown argument: {}",
+                    redact_server_arg(other)
+                );
                 return None;
             }
         }
@@ -224,7 +235,7 @@ fn parse_mcp_args(args: &[String]) -> Option<ha_core::mcp_server::McpServerOptio
             }
             "--help" | "-h" => return None,
             other => {
-                eprintln!("[mcp] Unknown argument: {}", other);
+                eprintln!("[mcp] Unknown argument: {}", redact_server_arg(other));
                 return None;
             }
         }
@@ -343,7 +354,7 @@ fn run_acp_server(args: &[String]) {
                 return;
             }
             _ => {
-                eprintln!("[acp] Unknown argument: {}", args[i]);
+                eprintln!("[acp] Unknown argument: {}", redact_server_arg(&args[i]));
             }
         }
         i += 1;
@@ -480,11 +491,14 @@ fn run_server(args: &[String]) {
             "setup" => {
                 return run_server_setup(&args[1..]);
             }
+            "token" => {
+                return run_server_token(&args[1..]);
+            }
             _ => {} // Fall through to normal arg parsing
         }
     }
 
-    let Some((bind_addr, api_key)) = parse_server_args(args, "server") else {
+    let Some(options) = parse_server_args(args, "server", true) else {
         println!("Hope Agent HTTP/WebSocket Server");
         println!();
         println!("Usage: hope-agent server [COMMAND] [OPTIONS]");
@@ -497,16 +511,36 @@ fn run_server(args: &[String]) {
         println!("  status                            Show service status");
         println!("  stop                              Stop the running server");
         println!("  setup [--reset]                   Run the interactive first-run wizard");
+        println!("  token <show|rotate>               Recover or rotate the owner token");
         println!();
         println!("Options:");
         println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
-        println!("  --api-key KEY                     API key for authentication");
+        println!("  --api-key-file PATH               Read the owner token from a file");
+        println!(
+            "  --allow-unauthenticated-network   Allow no-token non-loopback binding (unsafe)"
+        );
         println!("  --dangerously-skip-all-approvals  Skip ALL tool approvals (DANGEROUS, this launch only)");
         println!("  --version                         Print version and exit");
         println!("  --help, -h                        Print help and exit");
         return;
     };
+    let bind_addr = options.bind_addr;
+    let legacy_service_api_key = options.legacy_service_api_key;
+    let bootstrap_token = match ha_core::server_auth::consume_bootstrap_token(options.api_key_file)
+    {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("[server] Failed to load the owner token: {error}");
+            std::process::exit(2);
+        }
+    };
     let model_eval_mode = ha_core::eval_context::model_eval_mode_enabled();
+    if model_eval_mode && legacy_service_api_key.is_some() {
+        eprintln!(
+            "[model-eval] legacy service Owner Token migration is forbidden in model-eval mode"
+        );
+        std::process::exit(2);
+    }
     if model_eval_mode {
         if let Err(error) = ha_core::eval_context::install_supervisor_watchdog_from_env() {
             eprintln!("[model-eval] failed to install Supervisor watchdog: {error}");
@@ -518,9 +552,9 @@ fn run_server(args: &[String]) {
         }
     }
     let model_eval_server_token = if model_eval_mode {
-        if api_key.is_some() {
+        if bootstrap_token.is_some() {
             eprintln!(
-                "[model-eval] --api-key is forbidden; pass HA_MODEL_EVAL_SERVER_TOKEN so it can be consumed before tool processes start"
+                "[model-eval] HA_API_KEY / HA_API_KEY_FILE are forbidden; pass HA_MODEL_EVAL_SERVER_TOKEN so it can be consumed before tool processes start"
             );
             std::process::exit(2);
         }
@@ -548,6 +582,95 @@ fn run_server(args: &[String]) {
     if let Err(e) = ha_core::paths::ensure_dirs() {
         eprintln!("[server] Failed to initialize data directories: {}", e);
         std::process::exit(1);
+    }
+
+    if let Some(legacy_token) = legacy_service_api_key.as_deref() {
+        let legacy_definition = match ha_core::service_install::legacy_service_uses_cli_api_key() {
+            Ok(found) => found,
+            Err(error) => {
+                eprintln!("[server] Failed to inspect the legacy service definition: {error}");
+                std::process::exit(2);
+            }
+        };
+        if legacy_definition {
+            match ha_core::server_auth::compare_managed_token(legacy_token) {
+                Ok(ha_core::server_auth::ManagedTokenMatch::Missing) => {
+                    if let Err(error) = ha_core::server_auth::set_managed_token(
+                        Some(legacy_token),
+                        "legacy-service-argv-migration",
+                    ) {
+                        eprintln!(
+                            "[server] Failed to migrate the legacy service Owner Token: {error}"
+                        );
+                        std::process::exit(2);
+                    }
+                }
+                Ok(ha_core::server_auth::ManagedTokenMatch::Matches) => {}
+                Ok(ha_core::server_auth::ManagedTokenMatch::RetiredServiceArgument) => {
+                    eprintln!(
+                        "[server] Ignoring a retired legacy service Owner Token; the active authentication state remains unchanged."
+                    );
+                }
+                Ok(ha_core::server_auth::ManagedTokenMatch::Differs) => {
+                    // A rotation won the race with an earlier definition
+                    // rewrite failure. The stale argv value is ignored and
+                    // must never reactivate a previously exposed credential.
+                    eprintln!(
+                        "[server] Ignoring a stale legacy service Owner Token; the current managed credential remains active."
+                    );
+                }
+                Err(error) => {
+                    eprintln!("[server] Failed to inspect the managed service credential: {error}");
+                    std::process::exit(2);
+                }
+            }
+            if let Err(error) =
+                ha_core::server_auth::remember_legacy_service_argv_token(legacy_token)
+            {
+                eprintln!("[server] Failed to retain the legacy service migration marker: {error}");
+                std::process::exit(2);
+            }
+            if let Err(error) =
+                ha_core::service_install::rewrite_service_without_cli_api_key(&bind_addr)
+            {
+                // The credential is already durable, so keep this service
+                // available. A cached supervisor command remains accepted
+                // only when it carries that exact managed token.
+                eprintln!(
+                    "[server] Warning: the Owner Token was secured, but the legacy service definition could not be rewritten: {error}"
+                );
+            } else {
+                eprintln!(
+                    "[server] Migrated the installed service away from command-line Owner Token storage."
+                );
+            }
+        } else {
+            match ha_core::server_auth::compare_managed_token(legacy_token) {
+                Ok(ha_core::server_auth::ManagedTokenMatch::Matches) => {
+                    eprintln!(
+                        "[server] Accepted a cached pre-migration service command; reload the service manager to remove the legacy argument from the running definition."
+                    );
+                }
+                Ok(ha_core::server_auth::ManagedTokenMatch::RetiredServiceArgument) => {
+                    eprintln!(
+                        "[server] Ignoring a retired token from a cached pre-migration service command; the active authentication state remains unchanged."
+                    );
+                }
+                Ok(
+                    ha_core::server_auth::ManagedTokenMatch::Missing
+                    | ha_core::server_auth::ManagedTokenMatch::Differs,
+                ) => {
+                    eprintln!(
+                        "[server] --api-key is no longer accepted because command-line secrets are visible to other processes; use HA_API_KEY or --api-key-file."
+                    );
+                    std::process::exit(2);
+                }
+                Err(error) => {
+                    eprintln!("[server] Failed to verify the migrated service credential: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
     }
 
     // Onboarding status: when the wizard hasn't run yet, walk the user
@@ -614,10 +737,44 @@ fn run_server(args: &[String]) {
         eprintln!("[server] Warning: failed to ensure default agent: {}", e);
     }
 
-    // The evaluation Server authenticates only with the consumed, one-shot
-    // supervisor token. Normal server launches preserve the existing CLI
-    // `--api-key` behavior.
-    let api_key = model_eval_server_token.or(api_key);
+    let resolved_token = if let Some(token) = model_eval_server_token {
+        Some(ha_core::server_auth::ResolvedToken {
+            token,
+            source: ha_core::server_auth::TokenSource::Environment,
+        })
+    } else {
+        match ha_core::server_auth::resolve_effective_token(bootstrap_token, false) {
+            Ok(token) => token,
+            Err(error) => {
+                eprintln!("[server] Failed to resolve the owner token: {error}");
+                std::process::exit(2);
+            }
+        }
+    };
+    let unsafe_network = options.allow_unauthenticated_network
+        || ha_core::server_auth::unauthenticated_network_override_enabled();
+    if resolved_token.is_none()
+        && !ha_core::server_auth::bind_is_loopback(&bind_addr)
+        && !unsafe_network
+    {
+        eprintln!(
+            "[server] Refusing unauthenticated non-loopback binding. Set HA_API_KEY, HA_API_KEY_FILE, or use --api-key-file. To accept the risk explicitly, pass --allow-unauthenticated-network."
+        );
+        std::process::exit(2);
+    }
+    if let Some(resolved) = resolved_token.as_ref() {
+        eprintln!(
+            "[server] Owner-token authentication enabled (source={}, fingerprint={}).",
+            resolved.source.as_str(),
+            ha_core::server_auth::token_fingerprint(&resolved.token)
+        );
+    } else {
+        eprintln!("[server] Authentication disabled for loopback-only access.");
+    }
+    let auth_externally_managed = resolved_token
+        .as_ref()
+        .is_some_and(|resolved| resolved.source.externally_managed());
+    let api_key = resolved_token.map(|resolved| resolved.token);
     let knowledge_agent_read_token = std::env::var("HA_KNOWLEDGE_AGENT_READ_TOKEN")
         .ok()
         .map(|v| v.trim().to_string())
@@ -649,12 +806,12 @@ fn run_server(args: &[String]) {
             .expect("init_runtime contract")
             .clone(),
         chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
-        api_key: api_key.clone(),
     });
 
     let config = ha_server::ServerConfig {
         bind_addr,
         api_key,
+        auth_externally_managed,
         knowledge_agent_read_token,
         cors_origins: Vec::new(),
     };
@@ -688,26 +845,136 @@ fn run_server(args: &[String]) {
     }
 }
 
-/// Shared server arg parser for --bind and --api-key.
+fn run_server_token(args: &[String]) {
+    let action = args.first().map(String::as_str).unwrap_or("help");
+    if matches!(action, "help" | "--help" | "-h") {
+        println!("Usage: hope-agent server token <show|rotate>");
+        println!("  show    Print the effective owner token to stdout");
+        println!("  rotate  Generate, store, and print a new owner token");
+        return;
+    }
+    if let Err(error) = ha_core::paths::ensure_dirs() {
+        eprintln!("[server token] Failed to initialize data directories: {error}");
+        std::process::exit(1);
+    }
+    let bootstrap = match ha_core::server_auth::consume_bootstrap_token(None) {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("[server token] Failed to load the external owner token: {error}");
+            std::process::exit(2);
+        }
+    };
+    let _ = ha_core::config::cached_config();
+    match action {
+        "show" => {
+            let token = match bootstrap {
+                Some(resolved) => Ok(Some(resolved.token)),
+                None => ha_core::server_auth::load_managed_token(),
+            };
+            match token {
+                Ok(Some(token)) => println!("{token}"),
+                Ok(None) => {
+                    eprintln!("[server token] No owner token is configured.");
+                    std::process::exit(1);
+                }
+                Err(error) => {
+                    eprintln!("[server token] Failed to read the managed owner token: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        "rotate" => {
+            if bootstrap.is_some() {
+                eprintln!(
+                    "[server token] The owner token is externally managed by HA_API_KEY or HA_API_KEY_FILE; rotate that secret at its source."
+                );
+                std::process::exit(2);
+            }
+            match ha_core::server_auth::rotate_managed_token("cli-token-rotate") {
+                Ok(rotated) => {
+                    eprintln!(
+                        "[server token] Stored a new owner token (fingerprint={}). Restart the running server to activate it and invalidate existing sessions.",
+                        ha_core::server_auth::token_fingerprint(&rotated.token)
+                    );
+                    println!("{}", rotated.token);
+                }
+                Err(error) => {
+                    eprintln!("[server token] Rotation failed: {error}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        other => {
+            eprintln!(
+                "[server token] Unknown action: {}",
+                redact_server_arg(other)
+            );
+            std::process::exit(2);
+        }
+    }
+}
+
+/// Shared server arg parser for bind and credential-file options.
 /// Returns None if --help was requested (already printed).
-fn parse_server_args(args: &[String], context: &str) -> Option<(String, Option<String>)> {
+fn parse_server_args(
+    args: &[String],
+    context: &str,
+    allow_legacy_service_migration: bool,
+) -> Option<ServerArgs> {
     let mut bind_addr = "127.0.0.1:8420".to_string();
-    let mut api_key: Option<String> = None;
+    let mut api_key_file = None;
+    let mut allow_unauthenticated_network = false;
+    let mut legacy_service_api_key = None;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--bind" | "-b" => {
-                i += 1;
-                if i < args.len() {
+                if args.get(i + 1).is_some_and(|value| !value.starts_with('-')) {
+                    i += 1;
                     bind_addr = args[i].clone();
+                } else {
+                    eprintln!("[{context}] --bind requires an address");
                 }
             }
-            "--api-key" => {
-                i += 1;
-                if i < args.len() {
-                    api_key = Some(args[i].clone());
+            "--api-key-file" => {
+                if args.get(i + 1).is_some_and(|value| !value.starts_with('-')) {
+                    i += 1;
+                    api_key_file = Some(PathBuf::from(&args[i]));
+                } else {
+                    eprintln!("[{context}] --api-key-file requires a path");
                 }
+            }
+            arg if arg.starts_with("--bind=") => {
+                bind_addr = arg["--bind=".len()..].to_string();
+            }
+            arg if arg.starts_with("--api-key-file=") => {
+                api_key_file = Some(PathBuf::from(&arg["--api-key-file=".len()..]));
+            }
+            "--allow-unauthenticated-network" => allow_unauthenticated_network = true,
+            "--api-key" => {
+                if !allow_legacy_service_migration {
+                    eprintln!(
+                        "[{context}] --api-key is no longer accepted because command-line secrets are visible to other processes; use HA_API_KEY or --api-key-file."
+                    );
+                    std::process::exit(2);
+                }
+                let Some(value) = args.get(i + 1) else {
+                    eprintln!("[{context}] --api-key requires a value");
+                    std::process::exit(2);
+                };
+                if legacy_service_api_key.is_some() {
+                    eprintln!("[{context}] --api-key may only be specified once");
+                    std::process::exit(2);
+                }
+                i += 1;
+                legacy_service_api_key = Some(value.clone());
+            }
+            arg if arg.starts_with("--api-key=") => {
+                eprintln!(
+                    "[{context}] --api-key is no longer accepted because command-line secrets are visible to other processes; use HA_API_KEY or --api-key-file."
+                );
+                std::process::exit(2);
             }
             // Already handled at top-level main() — consume silently here.
             "--dangerously-skip-all-approvals" => {}
@@ -717,30 +984,72 @@ fn parse_server_args(args: &[String], context: &str) -> Option<(String, Option<S
             }
             "--help" | "-h" => return None,
             _ => {
-                eprintln!("[{}] Unknown argument: {}", context, args[i]);
+                eprintln!(
+                    "[{}] Unknown argument: {}",
+                    context,
+                    redact_server_arg(&args[i])
+                );
             }
         }
         i += 1;
     }
-    Some((bind_addr, api_key))
+    Some(ServerArgs {
+        bind_addr,
+        api_key_file,
+        allow_unauthenticated_network,
+        legacy_service_api_key,
+    })
 }
 
-/// Handle `hope-agent server install [--bind ADDR] [--api-key KEY]`
+fn redact_server_arg(arg: &str) -> String {
+    if !arg.starts_with('-') {
+        return "[REDACTED]".to_string();
+    }
+    match arg.split_once('=') {
+        Some((flag, _)) => format!("{flag}=[REDACTED]"),
+        None => arg.to_string(),
+    }
+}
+
+/// Handle `hope-agent server install [--bind ADDR] [--api-key-file PATH]`
 fn run_server_install(args: &[String]) {
-    let Some((bind_addr, api_key)) = parse_server_args(args, "server install") else {
+    let Some(options) = parse_server_args(args, "server install", false) else {
         println!("Install Hope Agent server as a system service");
         println!();
         println!("Usage: hope-agent server install [OPTIONS]");
         println!();
         println!("Options:");
         println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
-        println!("  --api-key KEY                     API key for authentication");
+        println!("  --api-key-file PATH               Store the owner token from a file");
         println!("  --dangerously-skip-all-approvals  Skip ALL tool approvals (DANGEROUS, this launch only)");
         println!("  --help, -h                        Print help and exit");
         return;
     };
 
-    match ha_core::service_install::install_service(&bind_addr, api_key.as_deref()) {
+    let bootstrap = match ha_core::server_auth::consume_bootstrap_token(options.api_key_file) {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("Failed to load the owner token: {error}");
+            std::process::exit(2);
+        }
+    };
+    if let Some(token) = bootstrap.as_ref() {
+        if let Err(error) =
+            ha_core::server_auth::set_managed_token(Some(&token.token), "server-install")
+        {
+            eprintln!("Failed to store the owner token: {error}");
+            std::process::exit(1);
+        }
+    }
+    if !ha_core::server_auth::bind_is_loopback(&options.bind_addr)
+        && bootstrap.is_none()
+        && !ha_core::server_auth::has_managed_token().unwrap_or(false)
+    {
+        eprintln!("Refusing to install an unauthenticated non-loopback service.");
+        std::process::exit(2);
+    }
+
+    match ha_core::service_install::install_service(&options.bind_addr) {
         Ok(msg) => println!("{}", msg),
         Err(e) => {
             eprintln!("Failed to install service: {}", e);
@@ -768,7 +1077,7 @@ fn run_server_setup(args: &[String]) {
                 return;
             }
             _ => {
-                eprintln!("[server setup] Unknown argument: {}", a);
+                eprintln!("[server setup] Unknown argument: {}", redact_server_arg(a));
             }
         }
     }

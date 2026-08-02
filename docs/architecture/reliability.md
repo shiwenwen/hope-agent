@@ -198,7 +198,7 @@ fn run_child() {
 | Key | Value | 含义 |
 |-----|-------|------|
 | `Label` | `ai.hopeagent.server` | 服务标识，`launchctl` 操作通过它定位 |
-| `ProgramArguments` | `[exe_path, "server", "--bind", addr, ("--api-key", key)?]` | 启动命令；`xml_escape`（[`platform/service.rs`](../../crates/ha-core/src/platform/service.rs)）转义每个值防注入 |
+| `ProgramArguments` | `[exe_path, "server", "--bind", addr]` | 启动命令只含非敏感参数；Owner Token 从 0600 凭据文件读取，不进入 launchd/systemd/Task Scheduler argv |
 | `KeepAlive` | `true` | **进程消失自动拉起**——这是核心保活键 |
 | `RunAtLoad` | `true` | 开机自动启动（用户登录后 LaunchAgent domain 加载） |
 | `StandardOutPath` / `StandardErrorPath` | `~/.hope-agent/logs/server.{stdout,stderr}.log` | 标准流落盘，方便事后排查 |

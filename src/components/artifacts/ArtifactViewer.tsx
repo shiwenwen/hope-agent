@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { useTransport } from "@/lib/transport-provider"
+import { useTransport, useTransportRevision } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { fileResourceAdapterFor } from "@/components/chat/files/fileResourceAdapter"
 import type { FileTarget } from "@/components/chat/files/types"
@@ -18,6 +18,7 @@ const ArtifactViewer = forwardRef<HTMLIFrameElement, ArtifactViewerProps>(
   ({ artifactId, projectPath, title, refreshKey = 0, className }, ref) => {
     const { t } = useTranslation()
     const transport = useTransport()
+    const transportRevision = useTransportRevision()
     const target = useMemo<Extract<FileTarget, { kind: "artifact" }>>(
       () => ({
         kind: "artifact",
@@ -43,7 +44,7 @@ const ArtifactViewer = forwardRef<HTMLIFrameElement, ArtifactViewerProps>(
       return () => {
         cancelled = true
       }
-    }, [target, transport, refreshKey])
+    }, [target, transport, transportRevision, refreshKey])
 
     return (
       <iframe

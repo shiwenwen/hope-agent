@@ -1,17 +1,42 @@
 import { useState, useEffect, useCallback, type ReactNode } from "react"
-import { getTransport, useTransport } from "@/lib/transport-provider"
-import { confirmTransportChange, switchToRemote, switchToEmbedded } from "@/lib/transport-provider"
+import {
+  getTransport,
+  isCurrentHttpTransportFor,
+  useTransport,
+} from "@/lib/transport-provider"
+import {
+  activateCurrentHttpOwnerToken,
+  confirmTransportChange,
+  prepareRemoteTransport,
+  switchToEmbedded,
+  type PreparedRemoteTransport,
+} from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { logger } from "@/lib/logger"
 import {
   patchFilesystemConfig,
   useFilesystemConfig,
   type FilesystemConfig,
 } from "@/lib/filesystemConfig"
+import {
+  ownerTokenWillExist,
+  remoteApiKeyForSave,
+  shouldPrepareRemoteBeforeServerMutation,
+} from "./serverCredentials"
 import {
   MonitorSmartphone,
   Globe,
@@ -25,6 +50,8 @@ import {
   Radio,
   MessageSquare,
   AlertTriangle,
+  Copy,
+  KeyRound,
 } from "lucide-react"
 import MetricCard from "@/components/common/MetricCard"
 import {
@@ -61,6 +88,8 @@ const DEFAULT_CONFIG: ServerConfig = {
 interface LoadedServerSecrets {
   embeddedApiKey: string
   hasEmbeddedApiKey: boolean
+  embeddedApiKeyFingerprint: string
+  embeddedApiKeyExternallyManaged: boolean
   embeddedKnowledgeAgentReadToken: string
   hasEmbeddedKnowledgeAgentReadToken: boolean
 }
@@ -68,11 +97,13 @@ interface LoadedServerSecrets {
 const EMPTY_LOADED_SECRETS: LoadedServerSecrets = {
   embeddedApiKey: "",
   hasEmbeddedApiKey: false,
+  embeddedApiKeyFingerprint: "",
+  embeddedApiKeyExternallyManaged: false,
   embeddedKnowledgeAgentReadToken: "",
   hasEmbeddedKnowledgeAgentReadToken: false,
 }
 
-/** Generate a random 32-char hex API key. */
+/** Generate a random read-only integration token. */
 function generateApiKey(): string {
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
@@ -89,6 +120,15 @@ function serializeOptionalSecret(
   return trimmed ? trimmed : ""
 }
 
+function isLoopbackServerAddress(value: string): boolean {
+  const address = value.trim().toLowerCase()
+  return (
+    /^localhost:\d+$/.test(address) ||
+    /^127(?:\.\d{1,3}){3}:\d+$/.test(address) ||
+    /^\[::1\]:\d+$/.test(address)
+  )
+}
+
 export default function ServerPanel() {
   const { t } = useTranslation()
 
@@ -97,9 +137,14 @@ export default function ServerPanel() {
   const [savedSnapshot, setSavedSnapshot] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+  const [saveError, setSaveError] = useState("")
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [connected, setConnected] = useState<boolean | null>(null)
+  const [rotateOpen, setRotateOpen] = useState(false)
+  const [rotating, setRotating] = useState(false)
+  const [rotatedToken, setRotatedToken] = useState("")
+  const [rotationError, setRotationError] = useState("")
 
   const dirty = JSON.stringify(config) !== savedSnapshot
 
@@ -129,6 +174,8 @@ export default function ServerPanel() {
         setLoadedSecrets({
           embeddedApiKey: loaded.embeddedApiKey,
           hasEmbeddedApiKey,
+          embeddedApiKeyFingerprint: (serverCfg.apiKeyFingerprint as string) || "",
+          embeddedApiKeyExternallyManaged: Boolean(serverCfg.apiKeyExternallyManaged),
           embeddedKnowledgeAgentReadToken: loaded.embeddedKnowledgeAgentReadToken,
           hasEmbeddedKnowledgeAgentReadToken,
         })
@@ -176,6 +223,9 @@ export default function ServerPanel() {
     // editor guard would leave config pointing at a transport we never opened.
     if (!confirmTransportChange()) return
     setSaving(true)
+    setSaveError("")
+    let preparedRemote: PreparedRemoteTransport | null = null
+    let reuseActiveRemote = false
     try {
       const embeddedApiKey = serializeOptionalSecret(
         config.embeddedApiKey,
@@ -187,19 +237,52 @@ export default function ServerPanel() {
         loadedSecrets.embeddedKnowledgeAgentReadToken,
         loadedSecrets.hasEmbeddedKnowledgeAgentReadToken,
       )
-
-      // Save user config (server mode, remote URL/key)
-      const full = await getTransport().call<Record<string, unknown>>("get_user_config")
-      await getTransport().call("save_user_config", {
-        config: {
-          ...full,
-          serverMode: config.serverMode,
-          remoteServerUrl: config.remoteServerUrl || null,
-          remoteApiKey: config.remoteApiKey || null,
-        },
+      const previous = JSON.parse(savedSnapshot || JSON.stringify(config)) as ServerConfig
+      const remoteUrl =
+        config.serverMode === "remote" && config.remoteServerUrl
+          ? config.remoteServerUrl.replace(/\/+$/, "")
+          : null
+      const activeRemoteMatchesDestination = Boolean(
+        remoteUrl && isCurrentHttpTransportFor(remoteUrl),
+      )
+      const effectiveRemoteApiKey = remoteApiKeyForSave({
+        currentMode: config.serverMode,
+        previousMode: previous.serverMode,
+        currentRemoteServerUrl: config.remoteServerUrl,
+        previousRemoteServerUrl: previous.remoteServerUrl,
+        remoteApiKey: config.remoteApiKey,
+        replacementOwnerToken: embeddedApiKey,
+        activeRemoteMatchesDestination,
+      })
+      const ownerTokenAvailable = ownerTokenWillExist({
+        replacementOwnerToken: embeddedApiKey,
+        hasManagedOwnerToken: loadedSecrets.hasEmbeddedApiKey,
+        externallyManaged: loadedSecrets.embeddedApiKeyExternallyManaged,
+      })
+      if (
+        (!isLoopbackServerAddress(previous.embeddedBindAddr) ||
+          !isLoopbackServerAddress(config.embeddedBindAddr || DEFAULT_EMBEDDED_ADDRESS)) &&
+        !ownerTokenAvailable
+      ) {
+        throw new Error(t("settings.serverPublicTokenRequired"))
+      }
+      const prepareBeforeServerMutation = shouldPrepareRemoteBeforeServerMutation({
+        currentMode: config.serverMode,
+        previousMode: previous.serverMode,
+        currentRemoteServerUrl: config.remoteServerUrl,
+        previousRemoteServerUrl: previous.remoteServerUrl,
+        replacementOwnerToken: embeddedApiKey,
+        activeRemoteMatchesDestination,
       })
 
-      // Save embedded server config (bind addr, api key) to config.json
+      // A destination change must fail before it can mutate the current
+      // server's Owner Token or disconnect any clients still using it.
+      if (remoteUrl && prepareBeforeServerMutation) {
+        preparedRemote = await prepareRemoteTransport(remoteUrl, effectiveRemoteApiKey)
+      }
+
+      // Save embedded server config; the backend moves the Owner Token to the
+      // credential store instead of config.json.
       await getTransport().call("save_server_config", {
         config: {
           bindAddr: config.embeddedBindAddr || DEFAULT_EMBEDDED_ADDRESS,
@@ -208,17 +291,57 @@ export default function ServerPanel() {
         },
       })
 
+      // Saving a replacement Owner Token activates it immediately on the
+      // server. Refresh the same-origin HttpOnly session (or the explicit
+      // remote Bearer client) before making another protected request.
+      if (embeddedApiKey) {
+        const activated = await activateCurrentHttpOwnerToken(embeddedApiKey)
+        reuseActiveRemote = Boolean(remoteUrl && !preparedRemote && activated)
+      }
+
+      // Clearing/replacing the token of the same active remote is the only
+      // case that cannot be validated before the server accepts the change.
+      // A successful in-place Bearer/cookie activation is already sufficient;
+      // otherwise validate a fresh provisional client now.
+      if (remoteUrl && !preparedRemote && !reuseActiveRemote) {
+        preparedRemote = await prepareRemoteTransport(remoteUrl, effectiveRemoteApiKey)
+      }
+      if (remoteUrl && !preparedRemote && !reuseActiveRemote) {
+        throw new Error("Remote transport validation did not complete")
+      }
+
+      // Persist connection preferences only after the new server credential
+      // is active locally and the remote destination has accepted it. A failed
+      // validation must leave durable mode, URL, and credential unchanged.
+      const full = await getTransport().call<Record<string, unknown>>("get_user_config")
+      await getTransport().call("save_user_config", {
+        config: {
+          ...full,
+          serverMode: config.serverMode,
+          remoteServerUrl: config.remoteServerUrl || null,
+          remoteApiKey: effectiveRemoteApiKey,
+        },
+      })
+
       // Switch transport based on mode
-      if (config.serverMode === "remote" && config.remoteServerUrl) {
-        switchToRemote(config.remoteServerUrl.replace(/\/+$/, ""), config.remoteApiKey || null, {
-          dirtyConfirmed: true,
-        })
+      if (remoteUrl) {
+        if (preparedRemote) {
+          preparedRemote.activate()
+          preparedRemote = null
+        }
       } else {
         switchToEmbedded({ dirtyConfirmed: true })
       }
 
+      const savedEmbeddedApiKey =
+        embeddedApiKey === null
+          ? config.embeddedApiKey
+          : embeddedApiKey.length > 0
+            ? "••••••••"
+            : ""
       setLoadedSecrets((prev) => ({
-        embeddedApiKey: embeddedApiKey === null ? prev.embeddedApiKey : embeddedApiKey,
+        ...prev,
+        embeddedApiKey: savedEmbeddedApiKey,
         hasEmbeddedApiKey:
           embeddedApiKey === null ? prev.hasEmbeddedApiKey : embeddedApiKey.length > 0,
         embeddedKnowledgeAgentReadToken:
@@ -230,17 +353,25 @@ export default function ServerPanel() {
             ? prev.hasEmbeddedKnowledgeAgentReadToken
             : embeddedKnowledgeAgentReadToken.length > 0,
       }))
-      setSavedSnapshot(JSON.stringify(config))
+      const savedConfig = {
+        ...config,
+        embeddedApiKey: savedEmbeddedApiKey,
+        remoteApiKey: effectiveRemoteApiKey || "",
+      }
+      setConfig(savedConfig)
+      setSavedSnapshot(JSON.stringify(savedConfig))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
+      preparedRemote?.dispose()
       logger.error("settings", "ServerPanel::save", "Failed to save server config", e)
+      setSaveError(e instanceof Error ? e.message : t("common.saveFailed"))
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
       setSaving(false)
     }
-  }, [config, loadedSecrets])
+  }, [config, loadedSecrets, savedSnapshot, t])
 
   const handleTestConnection = useCallback(async () => {
     setTesting(true)
@@ -274,6 +405,78 @@ export default function ServerPanel() {
       setTesting(false)
     }
   }, [config])
+
+  const handleRotateToken = useCallback(async () => {
+    setRotating(true)
+    setRotationError("")
+    try {
+      const result = await getTransport().call<{ token: string; fingerprint: string }>(
+        "rotate_server_token",
+      )
+      // Publish the one-time recovery value before refreshing the browser
+      // session. If that secondary request fails, the newly rotated token must
+      // remain visible so the user cannot lock themselves out.
+      setRotatedToken(result.token)
+      setLoadedSecrets((previous) => ({
+        ...previous,
+        embeddedApiKey: "••••••••",
+        hasEmbeddedApiKey: true,
+        embeddedApiKeyFingerprint: result.fingerprint,
+      }))
+      setConfig((previous) => ({
+        ...previous,
+        embeddedApiKey: "••••••••",
+      }))
+      setSavedSnapshot((previous) => {
+        const snapshot = JSON.parse(previous || JSON.stringify(config)) as ServerConfig
+        snapshot.embeddedApiKey = "••••••••"
+        return JSON.stringify(snapshot)
+      })
+      setRotateOpen(false)
+      try {
+        await activateCurrentHttpOwnerToken(result.token)
+        if (config.serverMode === "remote") {
+          const full = await getTransport().call<Record<string, unknown>>("get_user_config")
+          await getTransport().call("save_user_config", {
+            config: { ...full, remoteApiKey: result.token },
+          })
+          setConfig((previous) => ({ ...previous, remoteApiKey: result.token }))
+          setSavedSnapshot((previous) => {
+            const snapshot = JSON.parse(previous || JSON.stringify(config)) as ServerConfig
+            snapshot.remoteApiKey = result.token
+            return JSON.stringify(snapshot)
+          })
+        }
+      } catch (error) {
+        logger.error(
+          "settings",
+          "ServerPanel::refreshSession",
+          "Token rotated but browser session refresh failed",
+          error,
+        )
+        setRotationError(t("settings.serverTokenSessionRefreshFailed"))
+      }
+    } catch (error) {
+      logger.error("settings", "ServerPanel::rotateToken", "Failed to rotate token", error)
+      setRotationError(t("settings.serverTokenRotateFailed"))
+    } finally {
+      setRotating(false)
+    }
+  }, [config, t])
+
+  const copyRotatedToken = useCallback(async () => {
+    if (!rotatedToken) return
+    await navigator.clipboard.writeText(rotatedToken)
+  }, [rotatedToken])
+
+  const generateOwnerToken = useCallback(async () => {
+    try {
+      const token = await getTransport().call<string>("generate_api_key")
+      setConfig((previous) => ({ ...previous, embeddedApiKey: token }))
+    } catch (error) {
+      logger.error("settings", "ServerPanel::generateOwnerToken", "Failed to generate token", error)
+    }
+  }, [])
 
   const modeOptions: {
     value: ServerMode
@@ -327,7 +530,7 @@ export default function ServerPanel() {
         {/* Runtime Status — live snapshot of the embedded server. Shown in
             both embedded and remote modes; the underlying command is routed
             by the Transport layer so remote servers answer via
-            GET /api/server/status (unauthenticated). */}
+            authenticated GET /api/server/status. */}
         <RuntimeStatusSection />
 
         {/* File-browser remote-write gate */}
@@ -382,7 +585,7 @@ export default function ServerPanel() {
           </div>
         </div>
 
-        {/* Embedded mode: configurable bind address + API key */}
+        {/* Embedded mode: configurable bind address + Owner Token */}
         {config.serverMode === "embedded" && (
           <div className="space-y-3">
             <div className="space-y-1.5">
@@ -412,6 +615,7 @@ export default function ServerPanel() {
                   type="password"
                   className="flex-1"
                   value={config.embeddedApiKey}
+                  disabled={loadedSecrets.embeddedApiKeyExternallyManaged}
                   placeholder={t("settings.serverEmbeddedApiKeyPlaceholder")}
                   onChange={(e) =>
                     setConfig((prev) => ({
@@ -424,17 +628,54 @@ export default function ServerPanel() {
                   variant="outline"
                   size="sm"
                   className="shrink-0"
-                  onClick={() =>
-                    setConfig((prev) => ({
-                      ...prev,
-                      embeddedApiKey: generateApiKey(),
-                    }))
-                  }
+                  disabled={loadedSecrets.embeddedApiKeyExternallyManaged}
+                  onClick={() => void generateOwnerToken()}
                 >
                   <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                   {t("settings.serverGenerateApiKey")}
                 </Button>
               </div>
+              {loadedSecrets.embeddedApiKeyFingerprint ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("auth.fingerprint", {
+                    fingerprint: loadedSecrets.embeddedApiKeyFingerprint,
+                  })}
+                </p>
+              ) : null}
+              {loadedSecrets.embeddedApiKeyExternallyManaged ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.serverTokenExternallyManaged")}
+                </p>
+              ) : null}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                disabled={loadedSecrets.embeddedApiKeyExternallyManaged}
+                onClick={() => {
+                  setRotationError("")
+                  setRotateOpen(true)
+                }}
+              >
+                <KeyRound className="mr-1.5 size-3.5" />
+                {t("settings.serverTokenRotate")}
+              </Button>
+              {rotatedToken ? (
+                <div className="mt-3 space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                  <p className="text-xs font-medium">{t("settings.serverTokenCopyNow")}</p>
+                  <div className="flex gap-2">
+                    <Input value={rotatedToken} readOnly className="font-mono text-xs" />
+                    <Button variant="secondary" size="icon" onClick={copyRotatedToken}>
+                      <Copy className="size-4" />
+                      <span className="sr-only">{t("common.copy")}</span>
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t("settings.serverTokenShownOnce")}
+                  </p>
+                </div>
+              ) : null}
+              {rotationError ? <p className="text-xs text-destructive">{rotationError}</p> : null}
             </div>
             <div className="space-y-1.5">
               <span className="text-xs text-muted-foreground">
@@ -478,7 +719,7 @@ export default function ServerPanel() {
           </div>
         )}
 
-        {/* Remote mode: URL + API key inputs */}
+        {/* Remote mode: URL + Owner Token inputs */}
         {config.serverMode === "remote" && (
           <div className="space-y-3">
             <div className="space-y-1.5">
@@ -562,6 +803,8 @@ export default function ServerPanel() {
           </Button>
         </div>
 
+        {saveError ? <p className="text-xs text-destructive">{saveError}</p> : null}
+
         {/* Test result */}
         {testResult && (
           <div
@@ -578,6 +821,31 @@ export default function ServerPanel() {
             <pre className="mt-1 whitespace-pre-wrap break-all opacity-80">{testResult.msg}</pre>
           </div>
         )}
+
+        <AlertDialog open={rotateOpen} onOpenChange={setRotateOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("settings.serverTokenRotateTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("settings.serverTokenRotateDescription")}
+              </AlertDialogDescription>
+              {rotationError ? <p className="text-sm text-destructive">{rotationError}</p> : null}
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={rotating}>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(event) => {
+                  event.preventDefault()
+                  void handleRotateToken()
+                }}
+                disabled={rotating}
+              >
+                {rotating ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : null}
+                {t("settings.serverTokenRotateConfirm")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   )
@@ -629,6 +897,7 @@ function FilesystemSection() {
             )}
           </p>
         </div>
+
       </div>
       {status === "saved" ? (
         <span className="flex items-center gap-1 text-xs text-green-600">

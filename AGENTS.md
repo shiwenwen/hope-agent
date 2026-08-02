@@ -7,6 +7,7 @@
 ## 安全红线
 
 - **API Key / OAuth Token 禁止出现在任何日志中**
+- **Server Owner Token 只许走 Bearer header 或同源登录 body，禁止进 URL**；同源浏览器换 HttpOnly Cookie，跨源 WebSocket / iframe 只用短时、scope 受限票据，资源票据入口必须保持只读 allowlist
 - `tauri.conf.json` CSP 不要放行外部域名
 - OAuth token 在 `~/.hope-agent/credentials/auth.json`，登出时必须 `clear_token()`
 

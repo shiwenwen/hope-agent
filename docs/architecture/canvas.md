@@ -453,7 +453,7 @@ const iframeSrc = indexPath ? (getTransport().resolveAssetUrl(indexPath) ?? "") 
 `resolveAssetUrl` 是 Transport 抽象的核心方法，两种模式不同：
 
 - **Tauri**：调 `convertFileSrc` 转成 `asset://localhost/{escaped-path}`
-- **HTTP**：[`transport-http.ts`](../../src/lib/transport-http.ts) 的 `resolveAssetUrl`（canvas-projects 重写分支）用正则匹配 `…/canvas/projects/{id}/{rest}`，重写为 `{baseUrl}/api/canvas/projects/{id}/{rest}?token=...`，附加 Bearer token query 参数（浏览器 iframe 不支持自定义 header）
+- **HTTP**：[`transport-http.ts`](../../src/lib/transport-http.ts) 的 `resolveAssetUrl` 将磁盘路径重写为同源 `/api/canvas/projects/{id}/{rest}`；iframe 自动携带 HttpOnly 会话 Cookie，URL 无凭据
 
 ### iframe 沙盒
 
@@ -657,7 +657,7 @@ pub async fn serve_canvas_project_file(
 
 ### 6. 内嵌 web GUI 模式下分离窗口不可用
 
-`isTauriMode()` 为 false 时 pop-out 按钮直接隐藏（[`CanvasPanel.tsx:502-511`](../../src/components/chat/CanvasPanel.tsx#L502-L511)）。浏览器里要"独立窗口"得用户自己在新 tab 里直接访问 `/api/canvas/projects/{id}/index.html?token=...`。
+`isTauriMode()` 为 false 时 pop-out 按钮直接隐藏（[`CanvasPanel.tsx:502-511`](../../src/components/chat/CanvasPanel.tsx#L502-L511)）。浏览器新 tab 访问同源 `/api/canvas/projects/{id}/index.html` 时复用 HttpOnly 会话。
 
 ---
 

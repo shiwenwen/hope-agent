@@ -9,7 +9,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::http::{header, HeaderMap, Uri};
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
-use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::cors::CorsLayer;
 
 use ha_core::event_bus::EventBus;
 use ha_core::project::ProjectDB;
@@ -36,10 +36,6 @@ pub struct AppContext {
     pub terminal_manager: Arc<ha_core::terminal::TerminalManager>,
     /// Per-session cancel flags. Key = session_id.
     pub chat_cancels: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
-    /// API key used by middleware auth, reused by attachment URL rewrite to
-    /// stamp `?token=` onto `/api/attachments/*` URLs emitted in events.
-    /// `None` when server runs in no-auth mode.
-    pub api_key: Option<String>,
 }
 
 /// Browser provenance required by the product-UI chat endpoint. Product
@@ -103,16 +99,16 @@ impl UiRequestPolicy {
 // ── Router Builder ──────────────────────────────────────────────
 
 /// Build the full axum `Router` with all API routes and WebSocket endpoints.
-/// Uses permissive CORS (allow all origins), no API key auth.
+/// Uses same-origin browser defaults and no Owner Token auth.
 pub fn build_router(ctx: Arc<AppContext>) -> Router {
-    build_router_with_cors(ctx, &[], None, None)
+    build_router_with_cors(ctx, &[], None, None, false)
 }
 
 /// Start the HTTP/WebSocket server, binding to the configured address.
 ///
 /// Prints the structured `[ha-server] listening on ...` log line for log
 /// aggregators as well as the human-readable launch banner (Web GUI URL,
-/// API endpoint, API key). Both go to stderr so they don't contaminate
+/// API endpoint, and non-secret auth fingerprint). Both go to stderr so they don't contaminate
 /// the ACP NDJSON stdout when the embedded server runs under
 /// `hope-agent acp`.
 pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow::Result<()> {
@@ -121,6 +117,7 @@ pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow:
         &config.cors_origins,
         config.api_key.clone(),
         config.knowledge_agent_read_token.clone(),
+        config.auth_externally_managed,
     );
 
     let listener = match tokio::net::TcpListener::bind(&config.bind_addr).await {
@@ -148,7 +145,12 @@ pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow:
     // single signal-path chokepoint that actually runs on SIGTERM/SIGINT (it
     // `process::exit`s, so a graceful-shutdown future here would never win the
     // race). Plain serve; the signal handler terminates this future.
-    if let Err(e) = axum::serve(listener, router).await {
+    if let Err(e) = axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    {
         ha_core::server_status::mark_failed(format!("serve: {}", e));
         return Err(e.into());
     }
@@ -163,16 +165,70 @@ fn build_router_with_cors(
     cors_origins: &[String],
     api_key: Option<String>,
     knowledge_agent_read_token: Option<String>,
+    auth_externally_managed: bool,
 ) -> Router {
-    // Health + server status are always public (no auth required). The
-    // status payload only contains bound-addr / uptime / WS counts — nothing
-    // secret — and keeping it unauthenticated lets the Transport layer probe
-    // remote servers the same way it probes `/api/health`.
+    let cors_origins = config::effective_cors_origins(cors_origins);
+    let auth_state =
+        middleware::AuthState::new(api_key, knowledge_agent_read_token, auth_externally_managed);
+    middleware::register_active_auth_state(auth_state.clone());
+
+    let scoped_resources = Router::new()
+        .route("/avatars/{filename}", get(routes::avatars::download))
+        .route(
+            "/attachments/{session_id}/{filename}",
+            get(routes::attachments::download),
+        )
+        .route(
+            "/generated-images/{filename}",
+            get(routes::generated_images::download),
+        )
+        .route("/pets/sprite", get(routes::pet::sprite))
+        .route(
+            "/pets/codex-candidates/{candidate_id}/thumbnail",
+            get(routes::pet::candidate_thumbnail),
+        )
+        .route(
+            "/pets/import/previews/{preview_token}/thumbnail",
+            get(routes::pet::preview_thumbnail),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}",
+            get(routes::knowledge::kb_source_asset_file),
+        )
+        .route(
+            "/canvas/projects/{project_id}/{*rest}",
+            get(routes::canvas::serve_canvas_project_file),
+        )
+        .route(
+            "/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}",
+            get(routes::design::serve_artifact_file),
+        )
+        .route(
+            "/artifact-exports/{export_id}/download",
+            get(routes::artifacts::download_export),
+        )
+        .with_state(ctx.clone());
+
+    // Health and the minimal browser-login bootstrap stay public. Operational
+    // server status belongs to the owner plane and is routed below.
     let health = Router::new()
         .route("/api/health", get(routes::health::health_check))
+        .route("/api/auth/status", get(routes::auth::server_auth_status))
         .route(
-            "/api/server/status",
-            get(routes::server_status::server_status),
+            "/api/auth/session",
+            post(routes::auth::create_browser_session).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
+        .route(
+            "/api/auth/logout",
+            post(routes::auth::clear_browser_session),
+        )
+        .route(
+            "/api/resource/{ticket}/fs/raw",
+            get(routes::project_fs::fs_raw_with_ticket),
+        )
+        .route(
+            "/api/resource/{ticket}/{*path}",
+            get(routes::auth::serve_scoped_resource),
         )
         // B7-1 只读分享：**公开无鉴权**——token 是唯一不可猜凭证，服务干净快照（sandbox
         // opaque-origin）。放公开路由（与 /api/health 同层），不进 require_api_key 保护面。
@@ -183,6 +239,20 @@ fn build_router_with_cors(
 
     // Protected API routes
     let api = Router::new()
+        .route("/server/status", get(routes::server_status::server_status))
+        .route(
+            "/auth/token/rotate",
+            post(routes::auth::rotate_server_owner_token),
+        )
+        .route(
+            "/auth/transport-tickets",
+            post(routes::auth::create_transport_access_tickets),
+        )
+        .route(
+            "/auth/preview-resource-ticket",
+            post(routes::auth::create_preview_resource_ticket)
+                .layer(DefaultBodyLimit::max(4 * 1024)),
+        )
         // Sessions
         .route("/sessions", post(routes::sessions::create_session))
         .route("/sessions", get(routes::sessions::list_sessions))
@@ -286,6 +356,11 @@ fn build_router_with_cors(
         .route(
             "/sessions/{id}/files/by-path",
             get(routes::sessions::download_session_file_by_path),
+        )
+        .route(
+            "/sessions/{id}/files/by-path-ticket",
+            post(routes::sessions::create_session_file_ticket)
+                .layer(DefaultBodyLimit::max(8 * 1024)),
         )
         .route(
             "/sessions/{id}/files/read",
@@ -3492,6 +3567,10 @@ fn build_router_with_cors(
         .route("/fs/extract", get(routes::project_fs::fs_extract))
         .route("/fs/search", get(routes::project_fs::fs_search))
         .route("/fs/raw", get(routes::project_fs::fs_raw))
+        .route(
+            "/fs/raw-ticket",
+            post(routes::project_fs::create_fs_raw_ticket).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
         .route("/fs/git", get(routes::project_fs::fs_git_info))
         // Static envelope for the largest configurable UTF-8 edit payload;
         // the handler still applies the current dynamic MiB limit.
@@ -3603,23 +3682,24 @@ fn build_router_with_cors(
     let ws_routes = Router::new().route("/events", get(ws::events::events_ws));
 
     // Apply API key auth middleware to protected routes
-    let auth_state = middleware::ApiKeyState {
-        api_key,
-        knowledge_agent_read_token,
-    };
     let protected = Router::new()
         .nest("/api", api)
         .nest("/ws", ws_routes)
         .route_layer(axum::middleware::from_fn_with_state(
-            auth_state,
+            auth_state.clone(),
             middleware::require_api_key,
         ));
 
     let base = Router::new().merge(health).merge(protected);
 
     attach_web_fallback(base)
-        .layer(axum::Extension(UiRequestPolicy::new(cors_origins)))
-        .layer(build_cors_layer(cors_origins))
+        .layer(axum::Extension(auth_state))
+        .layer(axum::Extension(routes::auth::ScopedResourceService(
+            scoped_resources,
+        )))
+        .layer(axum::Extension(UiRequestPolicy::new(&cors_origins)))
+        .layer(build_cors_layer(&cors_origins))
+        .layer(axum::middleware::from_fn(middleware::security_headers))
         .layer(axum::middleware::from_fn(middleware::access_log))
         .with_state(ctx)
 }
@@ -3644,14 +3724,15 @@ fn attach_web_fallback(router: Router<Arc<AppContext>>) -> Router<Arc<AppContext
     }
 }
 
-/// Build a CORS layer. When `origins` is empty, allow all origins (permissive).
+/// Build a CORS layer from the effective explicit origin allowlist. Same-origin
+/// requests do not need CORS response headers.
 fn build_cors_layer(origins: &[String]) -> CorsLayer {
     let cors = CorsLayer::new()
         .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any);
 
     if origins.is_empty() {
-        cors.allow_origin(AllowOrigin::any())
+        cors
     } else {
         let parsed: Vec<_> = origins.iter().filter_map(|o| o.parse().ok()).collect();
         cors.allow_origin(parsed)
@@ -3661,6 +3742,9 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
 #[cfg(test)]
 mod ui_request_policy_tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::{HeaderValue, Method, Request, StatusCode};
+    use tower::ServiceExt;
 
     fn browser_headers(origin: &str, host: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -3680,8 +3764,39 @@ mod ui_request_policy_tests {
         assert!(!UiRequestPolicy::new(&[]).accepts(&cross_origin));
         assert!(UiRequestPolicy::new(&["https://app.example".to_string()]).accepts(&cross_origin));
 
+        let desktop = browser_headers("http://tauri.localhost", "agent.example");
+        let effective = config::effective_cors_origins(&[]);
+        assert!(UiRequestPolicy::new(&effective).accepts(&desktop));
+
         let mut missing_fetch_metadata = same_origin;
         missing_fetch_metadata.remove("sec-fetch-mode");
         assert!(!UiRequestPolicy::new(&[]).accepts(&missing_fetch_metadata));
+    }
+
+    #[tokio::test]
+    async fn packaged_desktop_origin_receives_cors_preflight_headers() {
+        let origins = config::effective_cors_origins(&[]);
+        let app = Router::new()
+            .route("/api/health", get(|| async { StatusCode::OK }))
+            .layer(build_cors_layer(&origins));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/api/health")
+                    .header(header::ORIGIN, "http://tauri.localhost")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_static("http://tauri.localhost"))
+        );
     }
 }

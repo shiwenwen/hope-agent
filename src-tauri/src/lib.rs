@@ -594,6 +594,7 @@ pub fn run() {
             commands::config::save_startup_notification_config,
             commands::config::get_server_config,
             commands::config::save_server_config,
+            commands::config::rotate_server_token,
             commands::config::get_server_runtime_status,
             commands::config::compact_context_now,
             commands::config::get_awareness_config,

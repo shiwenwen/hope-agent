@@ -112,7 +112,8 @@ hope-agent server [SUBCOMMAND] [OPTIONS]
 | 子命令      | 行为                                                                                       | 源码定位                              |
 | ----------- | ------------------------------------------------------------------------------------------ | ------------------------------------- |
 | _（默认）_  | 前台启动服务，写 PID 文件 `~/.hope-agent/server.pid`，跑完整 `start_background_tasks` 集 | [`main.rs:300-417`](../../src-tauri/src/main.rs#L300)            |
-| `install`   | 注册系统服务（macOS launchd / Linux systemd-user），共享下方 `--bind` / `--api-key`      | [`main.rs:458-479`](../../src-tauri/src/main.rs#L458)            |
+| `install`   | 注册系统服务（macOS launchd / Linux systemd-user），Token 只写 0600 凭据文件、不进入服务 argv | [`main.rs`](../../src-tauri/src/main.rs) |
+| `token show/rotate` | 恢复显示或写入新的单一 Owner Root Token；CLI 轮换后需重启运行中的服务才激活 | [`main.rs`](../../src-tauri/src/main.rs) |
 | `uninstall` | 卸载系统服务                                                                               | [`main.rs:263-271`](../../src-tauri/src/main.rs#L263)            |
 | `status`    | 查询服务运行状态（plist load 状态 / systemd unit active 状态）                             | [`main.rs:273-281`](../../src-tauri/src/main.rs#L273)            |
 | `stop`      | 停止运行中的服务                                                                           | [`main.rs:283-291`](../../src-tauri/src/main.rs#L283)            |
@@ -126,8 +127,9 @@ hope-agent server [SUBCOMMAND] [OPTIONS]
 
 | 参数                               | 短选项 | 类型      | 默认             | 说明                                                                                                                                            |
 | ---------------------------------- | ------ | --------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--bind ADDR`                      | `-b`   | host:port | `127.0.0.1:8420` | 绑定地址。**默认仅本机**——远程访问需显式 `0.0.0.0:8420`，并务必同时设置 `--api-key`                                                              |
-| `--api-key KEY`                    | —      | string    | _（未设）_       | Bearer Token。请求带 `Authorization: Bearer <key>`，浏览器 WS 用 `?token=<key>` query 参数。**未设置时所有请求放行**（见 [`ha-server` 中间件](../../crates/ha-server/src/middleware.rs)），`/api/health` 永远公开 |
+| `--bind ADDR`                      | `-b`   | host:port | `127.0.0.1:8420` | 绑定地址。非回环监听没有 Token 时 fail-closed，除非显式传危险开关 |
+| `--api-key-file PATH`              | —      | path      | _（未设）_       | 从文件一次性读 Owner Token；优先级高于 `HA_API_KEY`，读取后环境变量立即移除，不传给工具子进程 |
+| `--allow-unauthenticated-network`  | —      | bool      | `false`          | 危险逃生口：允许非回环地址无鉴权启动；也可设 `HA_ALLOW_UNAUTHENTICATED_NETWORK=1` |
 | `--dangerously-skip-all-approvals` | —      | flag      | off              | 在 server 子命令解析器中被静默 consume，由顶层全局开关已经生效                                                                                  |
 | `--version`                        | —      | flag      | —                | 打印 `hope-agent-server X.Y.Z` 后退出（取自 `CARGO_PKG_VERSION`）                                                                              |
 | `--help` / `-h`                    | —      | flag      | —                | 打印帮助后退出                                                                                                                                  |
@@ -167,9 +169,9 @@ hope-agent server [SUBCOMMAND] [OPTIONS]
 | 7    | personality      | Personality preset（default / engineer / creative / companion）                                                                    |
 | 8    | safety           | 工具审批开关（关 = 所有工具自动放行，超时 0s）                                                                                    |
 | 9    | skills           | bundled skills 多选（默认全开，取消勾选写到 `disabled_skills`）                                                                  |
-| 10   | server           | 内嵌 HTTP 的 bind 地址 + 可选 API key（`generate_api_key()` 可生成 `hope_<uuid>`）                                              |
+| 10   | server           | 内嵌 HTTP 的 bind 地址 + 单一 Owner Token（本机可选、LAN 强制；`generate_api_key()` 生成高熵 `hope_...` Token）                  |
 | 11   | channels         | 列出 13 种 IM channel 提示去 Web GUI 配凭据，CLI 不收集                                                                           |
-| 12   | summary          | 反读所有持久化设置打印 recap：language / provider 含 active model / search provider / profile / personality preset / approvals 状态 / 禁用 skills 数 / server bind+key 状态 / Web GUI URL（含 `?token=` 自动拼接，bind 是 `0.0.0.0` 时附 LAN IP 列表，复用 `ha_server::banner::local_ipv4_addresses()`） |
+| 12   | summary          | 反读所有持久化设置打印 recap：server 只打印 URL 与 Token 是否已设，Root Token 永不拼进 URL；bind 是 `0.0.0.0` 时附 LAN IP 列表 |
 
 **Remote 模式短路**：在 mode 步选 remote 后向导直接跳到「All done」并 `mark_completed()`——和 GUI `stepsForMode("remote") = ["welcome", "import-openclaw", "mode"]` 行为对齐。一旦指向远程 server，本机不需要再配 provider / agent / channels（那些都在远程那台机器上）。
 

@@ -784,6 +784,37 @@ where
     Ok(result)
 }
 
+/// Credential migration only: clear the legacy `server.apiKey` field without
+/// first copying the secret-bearing config into the ordinary autosave tree.
+/// All other config writes must continue to use [`mutate_config`].
+pub(crate) fn clear_legacy_server_token_without_backup() -> Result<()> {
+    let _write_guard = write_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let mut snapshot = load_config()?;
+    if snapshot.server.api_key.take().is_none() {
+        return Ok(());
+    }
+
+    if std::env::var("HA_MODEL_EVAL_MODE").as_deref() == Ok("1") {
+        bail!("configuration writes are disabled in isolated model evaluation mode");
+    }
+    let path = config_path()?;
+    ensure_no_initial_load_failure_for_write()?;
+    let data = serde_json::to_string_pretty(&snapshot)?;
+    crate::platform::write_secure_file(&path, data.as_bytes())?;
+    cache().store(Arc::new(snapshot));
+    clear_config_load_failure();
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            "config:changed",
+            serde_json::json!({ "category": "server.auth.migrate", "source": "system" }),
+        );
+    }
+    crate::hooks::fire_config_change("server.auth.migrate", "system");
+    Ok(())
+}
+
 /// Async wrapper for [`mutate_config`]: runs the whole clone → mutate →
 /// persist → publish cycle on tokio's blocking pool.
 ///

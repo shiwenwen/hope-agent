@@ -84,7 +84,7 @@ import {
   Hammer,
 } from "lucide-react"
 import { toast } from "sonner"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, useTransportRevision } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
 import { WindowModeIcon } from "@/components/common/WindowModeIcon"
@@ -527,6 +527,7 @@ export default function DesignView({
 }: DesignViewProps) {
   const { t } = useTranslation()
   const tx = getTransport()
+  const transportRevision = useTransportRevision()
 
   const [projects, setProjects] = useState<DesignProject[]>([])
   const [systems, setSystems] = useState<DesignSystemMeta[]>([])
@@ -623,6 +624,7 @@ export default function DesignView({
 
   const [zoom, setZoom] = useState<ZoomMode>("fit")
   const [previewKey, setPreviewKey] = useState(0)
+  const [resolvedPreview, setResolvedPreview] = useState({ identity: "", url: "" })
   const iframeRef = useRef<HTMLIFrameElement>(null)
   // 预览重载中（Wave 2-⑥）：src 变→true，onLoad→false；驱动叠层 spinner，让改稿读作「更新中」
   // 而非白屏/坏页。旧帧因 iframe 不再按 key 重挂而垫在下面直到新帧就绪。
@@ -4555,12 +4557,30 @@ export default function DesignView({
 
   // cache-bust 键 previewKey：生成/编辑/恢复/刷新 index.html 后端 max-age=60，且流式壳与定稿写
   // 同一 index.html——不带 cache-bust 时 remount 会取回缓存的旧页（server 模式尤甚，卡旧内容 ≤60s）。
-  const iframeSrc = (() => {
-    if (!activeArtifact) return ""
-    const base = tx.resolveAssetUrl(`${activeArtifact.artifactPath}/index.html`) ?? ""
-    if (!base) return ""
-    return `${base}${base.includes("?") ? "&" : "?"}v=${previewKey}`
-  })()
+  const activePreviewId = activeArtifact?.id ?? ""
+  const activePreviewPath = activeArtifact?.artifactPath ?? ""
+  const previewIdentity = activePreviewId && activePreviewPath
+    ? JSON.stringify([transportRevision, activePreviewId, activePreviewPath])
+    : ""
+  useEffect(() => {
+    let cancelled = false
+    if (!activePreviewId || !activePreviewPath) return
+    void tx
+      .artifactPreviewUrl(activePreviewId, activePreviewPath)
+      .then((url) => {
+        if (!cancelled) setResolvedPreview({ identity: previewIdentity, url: url ?? "" })
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedPreview({ identity: previewIdentity, url: "" })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activePreviewId, activePreviewPath, previewIdentity, tx])
+  const iframeBase = resolvedPreview.identity === previewIdentity ? resolvedPreview.url : ""
+  const iframeSrc = iframeBase
+    ? `${iframeBase}${iframeBase.includes("?") ? "&" : "?"}v=${previewKey}`
+    : ""
   // src 变（换产物 / 内容刷新 / 定稿 swap）→ 进重载态，onLoad 撤（Wave 2-⑥）。字符串相等比较，
   // 流式期不变 src 故不触发（流式走 postMessage，无 spinner 打扰）。
   useEffect(() => {

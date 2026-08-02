@@ -53,7 +53,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 
 | Category | Fields |
 |----------|--------|
-| `user` | `name`, `avatar`, `gender`, `birthday`, `role`, `timezone`, `language`, `aiExperience`, `responseStyle`, `customInfo`, `autoSendPending`, `autoExpandThinking`, `autoCollapseCompletedTurns`, `chatDisplayMode`, `serverMode`, `remoteServerUrl`, `remoteApiKey`, `weatherEnabled`, `weatherCity`, `weatherLatitude`, `weatherLongitude` |
+| `user` | `name`, `avatar`, `gender`, `birthday`, `role`, `timezone`, `language`, `aiExperience`, `responseStyle`, `customInfo`, `autoSendPending`, `autoExpandThinking`, `autoCollapseCompletedTurns`, `chatDisplayMode`, `serverMode`, `remoteServerUrl`, `weatherEnabled`, `weatherCity`, `weatherLatitude`, `weatherLongitude`. `remoteApiKey` is credential-bearing, read-only/redacted here, and must be changed in Settings → Server |
 | `theme` | `theme` (`auto`/`light`/`dark`) |
 | `language` | `language` (`auto`/`zh`/`en`/…) |
 | `focus_indicator` | `enhancedFocusIndicators` (bool, default `false`). Enables the stronger 2px focus outline for all input methods. When disabled, pointer/touch focus stays visually quiet while keyboard navigation keeps the lightweight focus indicator. System `prefers-contrast: more` and forced-colors modes still take precedence automatically. |
@@ -127,7 +127,6 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `proxy` | `mode`, `url` | Affects ALL outgoing HTTP |
 | `shortcuts` | `bindings` (array) | Global OS keybindings, can collide |
 | `skills` | `extraSkillsDirs`, `disabledSkills`, `skillEnvCheck`, `allowRemoteInstall` | Disabling skills removes tools; `allowRemoteInstall` opens the HTTP `/api/skills/{name}/install` route that spawns `brew`/`npm -g`/`go install`/`uv tool install` — effectively RCE over the API Key |
-| `server` | `bindAddr` (e.g. `127.0.0.1:8420` vs `0.0.0.0:8420`), `apiKey`, `publicBaseUrl`. **Read responses redact `apiKey` to `"[REDACTED]"`** so the bearer token isn't echoed back on every overview; writes still flow through. | Network exposure, requires app restart |
 | `acp_control` | `enabled`, `backends` (each: `id`, `name`, `binary`, `acpArgs`, `enabled`, `defaultModel`, `env`), `maxConcurrentSessions`, `defaultTimeoutSecs`, `runtimeTtlSecs`, `autoDiscover`. **Read responses redact non-empty `backends[*].env` to `"[REDACTED]"`** because env frequently carries `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` overrides. | Controls external agent delegation |
 | `skill_env` | Per-skill env vars (may contain secrets) | Stored plaintext in `config.json` |
 | `security.ssrf` | `defaultPolicy` (`strict`/`default`/`allowPrivate`), `trustedHosts` (array), per-tool overrides `browserPolicy` / `webFetchPolicy` / `imageGeneratePolicy` / `urlPreviewPolicy` | Controls whether tools can reach private networks / cloud metadata. Relaxing policy or adding untrusted hosts enables SSRF attack paths |
@@ -154,12 +153,13 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `embedding` | Active memory-embedding config. Read resolves the currently-selected model from the shared `embedding_models` library + `memory_embedding` selection (the same source the GUI and runtime use) and returns `enabled` / `providerType` / `apiBaseUrl` / `apiModel` / `apiDimensions` with **`apiKey` redacted** (`"[REDACTED]"`); a disabled selection reads as `enabled:false`. Writes are GUI-only (Settings → Memory) — the model choice carries an API key and a heavy background reembed side effect, same class as `active_model` / `memory_embedding` / `knowledge_embedding`. |
 | `channels` | IM Channel accounts (Telegram / WeChat / Feishu / QQ / Discord). Read returns the account list with **`credentials` and `settings` fields redacted** (`"[REDACTED]"`); structural metadata (`id`, `channelId`, `label`, `enabled`, `agentId`, `autoApproveTools`, `security`) is exposed so the model can reference accounts without seeing bot tokens. Writes must go through Settings → Channels so the registry can drop/re-establish listeners under user supervision and credentials stay out of conversation logs. |
 | `mcp_servers` | MCP server configs. Read returns the server list with **`env`, `headers`, `oauth` fields redacted**. Writes must go through Settings → MCP Servers UI which enforces "trust acknowledgement" for stdio servers and routes credentials through `platform::write_secure_file` (0600). |
+| `server` | Server bind/public URL metadata plus legacy `apiKey` state. Reads redact every non-empty `apiKey` as `"[REDACTED]"`. Writes are GUI-only because the live Owner Token is stored separately in the 0600 credential store and must be changed through the dedicated rotate/save flow; writing the legacy config field would leak a credential into conversation history without rotating active authentication. |
 | `hooks` | Hooks system (Claude Code compatible). Read returns `{ disableAllHooks, hooks }` with **http handler `headers` values redacted**. **Read-only here on purpose** — hooks run arbitrary commands / HTTP / LLM prompts / sub-agents on lifecycle events, so a writable category would let the model persist its own command execution (privilege escalation). Edit in Settings → Hooks or the scope files (user: `config.json`; project: `<working_dir>/.hope-agent/hooks.json`, repo-shared; local: `hooks.local.json`, git-ignored; managed: `/etc/hope-agent/hooks.json`). All scopes are UNIONed. |
 | `stt_providers` | Speech-to-Text providers (cloud + local servers). Read returns the provider list with **`apiKey`, `authProfiles[*].apiKey`, and every value inside `extra` redacted** while preserving the `extra` keys (covers Volcengine `app_id` / `access_key`, iFlytek `app_id`, Azure region key, etc.). Writes must go through Settings → Speech-to-Text so credentials stay out of conversation logs. |
 | `active_stt_model` | Active STT model for desktop voice input — use Settings UI so the engine cache picks up the new selection without an app restart. |
 | `stt_fallback_models` | STT failover chain — use Settings UI. |
 
-Model / Provider / API Key / IM Channel accounts / MCP server configs / STT providers / per-session configs require the Settings UI.
+Model / Provider / API Key / Server authentication / IM Channel accounts / MCP server configs / STT providers / per-session configs require the Settings UI.
 
 ## Special: `teams` Semantics
 
@@ -253,7 +253,7 @@ Returns `{id, timestamp, kind, category, source}` newest first.
 - **Read before write** — always `get_settings` first so you can show a diff.
 - **Confirm before write** — especially HIGH risk. Include the risk level in your confirmation prompt.
 - **Field names are camelCase** (e.g. `softRatio`, `toolTimeout`, `approvalTimeoutEnabled`, `askUserQuestionTimeoutEnabled`, `askUserQuestionTimeoutSecs`).
-- **Security restrictions** — cannot modify Providers or API Keys through this tool; guide the user to the Settings UI.
+- **Security restrictions** — cannot modify Providers or API Keys through this tool, including `user.remoteApiKey`; guide the user to the Settings UI.
 - **Surface side effects** — if the response has `sideEffect` (e.g. "requires restart"), tell the user.
-- **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks. Note that `get_settings` for `server` / `web_search` / `media_generation` / `acp_control` / `embedding` already redacts the credential fields to `"[REDACTED]"` — if you see that marker, the field is set but the value is hidden from the model intentionally.
+- **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks. Note that `get_settings` for `user` / `server` / `web_search` / `media_generation` / `acp_control` / `embedding` already redacts the credential fields to `"[REDACTED]"` — if you see that marker, the field is set but the value is hidden from the model intentionally.
 - **Rollback is built-in** — if a change goes wrong, offer `restore_settings_backup` instead of trying to reconstruct the old values manually.

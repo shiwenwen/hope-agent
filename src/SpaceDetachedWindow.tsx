@@ -5,7 +5,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
-import { AuthRequiredDialog } from "@/components/AuthRequiredDialog"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
 import DangerousModeBanner from "@/components/common/DangerousModeBanner"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
@@ -279,7 +278,6 @@ export default function SpaceDetachedWindow() {
               </Suspense>
             </div>
             <Toaster />
-            <AuthRequiredDialog />
           </div>
         </LightboxProvider>
       </TooltipProvider>

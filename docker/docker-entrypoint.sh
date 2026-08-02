@@ -1,15 +1,14 @@
 #!/bin/sh
 # Hope Agent container entrypoint.
 #
-# Translates a small set of environment variables to CLI flags before
-# exec'ing the hope-agent binary. The binary itself only knows about
-# command-line flags today (see src-tauri/src/main.rs::parse_server_args);
-# entrypoint translation keeps the binary unchanged while still letting
-# docker / compose / k8s users configure via env vars.
+# Translates the non-secret bind setting to a CLI flag before exec. Owner
+# tokens stay in HA_API_KEY / HA_API_KEY_FILE until the Rust entrypoint
+# consumes and removes them before runtime or tool-process initialization.
 #
 # Env vars honored:
 #   HA_BIND        — bind address, default 0.0.0.0:8420 (set in Dockerfile ENV)
-#   HA_API_KEY     — if set, passed as `--api-key`; empty string disables
+#   HA_API_KEY     — optional one-shot owner token (never copied into argv)
+#   HA_API_KEY_FILE — optional mounted secret file (preferred over HA_API_KEY)
 #   HA_DATA_DIR    — data root, default /data (set in Dockerfile ENV;
 #                    consumed by ha-core::paths)
 #   HA_DEPLOYMENT  — `docker` (set in Dockerfile ENV; read by updater so
@@ -43,9 +42,7 @@ case "${1:-}" in
 esac
 
 if [ "$should_translate" -eq 1 ]; then
-    set -- "$@" \
-        ${HA_BIND:+--bind "$HA_BIND"} \
-        ${HA_API_KEY:+--api-key "$HA_API_KEY"}
+    set -- "$@" ${HA_BIND:+--bind "$HA_BIND"}
 fi
 
 exec hope-agent "$@"

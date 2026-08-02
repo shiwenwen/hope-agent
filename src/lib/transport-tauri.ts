@@ -158,6 +158,12 @@ export class TauriTransport implements Transport {
     return source ? convertFileSrc(source) : null;
   }
 
+  async loadMediaUrl(item: MediaItem): Promise<{ url: string; release: () => void }> {
+    const url = this.resolveMediaUrl(item);
+    if (!url) throw new Error("attachment is not available on this desktop");
+    return { url, release: () => undefined };
+  }
+
   async extractMediaDocument(item: MediaItem): Promise<ExtractedContent> {
     const path = this.localSourceFor(item);
     if (!path) throw new Error("attachment is not available on this desktop")
@@ -424,7 +430,7 @@ export class TauriTransport implements Transport {
     return invoke<ArtifactRecord>("import_artifact", { request });
   }
 
-  artifactPreviewUrl(_id: string, projectPath?: string | null): string | null {
+  async artifactPreviewUrl(_id: string, projectPath?: string | null): Promise<string | null> {
     return projectPath ? this.resolveAssetUrl(`${projectPath}/index.html`) : null;
   }
 

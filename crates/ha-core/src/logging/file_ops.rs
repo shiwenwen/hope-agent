@@ -116,7 +116,7 @@ pub fn redact_sensitive(input: &str) -> String {
         "bearer",
         "password",
         "secret",
-        // ha-server `?token=<api-key>` WebSocket auth fallback.
+        // Legacy query credentials may still occur in imported old logs.
         "token",
     ];
 

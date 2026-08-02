@@ -33,10 +33,10 @@ afterEach(() => {
   warnSpy.mockRestore()
 })
 
-test("TauriTransport builds Artifact previews from the local project path", () => {
+test("TauriTransport builds Artifact previews from the local project path", async () => {
   const transport = new TauriTransport()
 
-  expect(transport.artifactPreviewUrl("artifact-1", "/tmp/artifact-1")).toBe(
+  await expect(transport.artifactPreviewUrl("artifact-1", "/tmp/artifact-1")).resolves.toBe(
     "asset:///tmp/artifact-1/index.html",
   )
   expect(mocks.convertFileSrc).toHaveBeenCalledWith("/tmp/artifact-1/index.html")

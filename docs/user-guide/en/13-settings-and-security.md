@@ -39,7 +39,7 @@ The left side of the Settings page is a navigation column. The table below tells
 | **Speech-to-Text** | [Speech-to-Text (STT)](02-models-and-providers.md#211-speech-to-text-stt) |
 | **Plan Mode** | The sub-agent and question timeout for [Plan Mode](08-autonomous-tasks.md#85-plan-mode) |
 | **Recap** | The model, language, and scope for [Recap reports](12-projects-and-insights.md#124-recap-reports) |
-| **Server** | [Run mode, listen address, API key, remote access](01-getting-started.md#14-access-from-your-phone-or-another-computer) |
+| **Server** | [Run mode, listen address, Owner Token, remote access](01-getting-started.md#14-access-from-your-phone-or-another-computer) |
 | **Files** | File size limits (attachment / upload / preview / edit / document) |
 | **Docker Sandbox** | [Docker Sandbox](07-tools-and-permissions.md#76-docker-sandbox) container configuration |
 | **Browser** | [Browser backend, extension, raw CDP toggle](07-tools-and-permissions.md#77-browser-control) |
@@ -104,9 +104,9 @@ After a config change, the interface hot-reloads automatically (theme, language,
 | **You own your data** | All data lives in `~/.hope-agent/`; [Incognito sessions](03-chat-and-sessions.md#36-incognito-sessions) are "burn on close" and never enter the sidebar / search / statistics |
 | **Direct API-key connection** | Keys are used only to connect directly to the model services you configured, never through a third party |
 | **Logs never contain keys** | All logs are forcibly redacted; API keys / OAuth tokens are forbidden from appearing in any log |
-| **Server-mode authentication** | The HTTP/WS service authenticates with a Bearer Token (`/api/health` is exempt); **be sure to set an API key** before binding `0.0.0.0` and exposing it externally |
+| **Server-mode authentication** | One Owner Root Token lives in the 0600 credential store; browsers hold only a signed HttpOnly session, automation uses Bearer, and non-loopback without a token fails closed |
 | **SSRF protection** | All outbound requests undergo mandatory safety checks and by default block access to intranet and cloud-metadata addresses; you can adjust the policy and add a trusted-host allowlist in Settings → Security Policy |
-| **Credential storage** | Credentials such as OAuth tokens are stored in `~/.hope-agent/credentials/`; they are cleared on sign-out |
+| **Credential storage** | Owner and OAuth tokens live under `~/.hope-agent/credentials/`; rotate the Owner Token online in Settings, or recover/store a new value with `hope-agent server token show/rotate` (restart the service after CLI rotation) |
 
 **Dangerous mode (Global YOLO)** is a switch that skips all tool approvals in one click (Settings → Security Policy, or the command line `--dangerously-skip-all-approvals`); it is **extremely high risk—use it only in a fully trusted local environment**. It is orthogonal to Plan Mode—it only skips approvals and does not lift Plan Mode's restrictions. See [07 · Global YOLO](07-tools-and-permissions.md#75-full-auto-timeouts-and-unattended).
 

@@ -5,6 +5,7 @@ import { useLightbox } from "@/components/common/ImageLightbox"
 import FileCard from "@/components/chat/message/FileCard"
 import { FileActionsMoreButton, FileContextMenu } from "@/components/chat/files/FileActionMenu"
 import { useFileResource } from "@/components/chat/files/useFileResource"
+import { useMediaUrl } from "@/components/chat/files/useMediaUrl"
 import { MediaHoistContext } from "@/components/chat/message/mediaHoistContext"
 import { extractImageToolMarkers } from "@/components/chat/message/imageToolMarkers"
 import { cn } from "@/lib/utils"
@@ -17,9 +18,8 @@ interface Props {
 }
 
 function ToolImageMedia({ item }: { item: MediaItem }) {
-  const transport = useTransport()
   const { openLightbox } = useLightbox()
-  const src = transport.resolveMediaUrl(item)
+  const src = useMediaUrl(item)
   const target = useMemo<PreviewTarget>(() => ({ kind: "media", item }), [item])
   const overrides = useMemo(
     () => ({ onPreviewFile: () => src && openLightbox(src, item.name) }),

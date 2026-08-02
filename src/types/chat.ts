@@ -27,8 +27,8 @@ export type ChatTurnInterruptReason =
  *  rather than reading `url` / `localPath` directly.
  *  - Tauri: `localPath` is the absolute server-side path; run through
  *    `convertFileSrc` for `<img src>` / `<a href>`.
- *  - HTTP/Web: `url` is already `/api/attachments/...?token=...` after the
- *    server-side rewrite — prepend base URL and use directly. `localPath` is
+ *  - HTTP/Web: `url` is a credential-free `/api/attachments/...` path after
+ *    the server-side rewrite; the HttpOnly session authenticates it. `localPath` is
  *    stripped by the HTTP sink and must not appear. */
 export interface MediaItem {
   url: string

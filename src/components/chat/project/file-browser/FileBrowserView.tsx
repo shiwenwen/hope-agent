@@ -41,7 +41,7 @@ import {
 import { SearchInput } from "@/components/ui/search-input"
 import { IconTip } from "@/components/ui/tooltip"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
-import { useTransport } from "@/lib/transport-provider"
+import { useTransport, useTransportRevision } from "@/lib/transport-provider"
 import type { FileMatch, GitInfo, WorkspaceEntry } from "@/lib/transport"
 import { useProjectFs } from "../hooks/useProjectFs"
 import { useTreeExpansion } from "../hooks/useTreeExpansion"
@@ -113,6 +113,7 @@ export function FileBrowserView({
 }: FileBrowserViewProps) {
   const { t } = useTranslation()
   const transport = useTransport()
+  const transportRevision = useTransportRevision()
   const { config: filesystemConfig } = useFilesystemConfig()
   const requestedHostKey = `${requestedScope}:${requestedScopeId ?? ""}`
   const [host, setHost] = useState(() => ({
@@ -257,8 +258,11 @@ export function FileBrowserView({
   // Memoized so FilePreviewPane's load effect only re-runs when the selected
   // file (or fs) actually changes, not on every unrelated render.
   const previewSource = useMemo(
-    () => (selected && !selected.isDir ? projectFsPreviewSource(fs, selected) : null),
-    [fs, selected],
+    () =>
+      selected && !selected.isDir
+        ? { ...projectFsPreviewSource(fs, selected), resourceRevision: transportRevision }
+        : null,
+    [fs, selected, transportRevision],
   )
   const selectedTarget = useMemo<PreviewTarget | null>(
     () =>

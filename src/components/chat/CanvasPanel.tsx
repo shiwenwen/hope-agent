@@ -363,7 +363,8 @@ export default function CanvasPanel({
     // the Detach button is hidden, but guard defensively anyway.
     if (!isTauriMode()) return
 
-    const url = getTransport().artifactPreviewUrl(canvas.projectId, canvas.projectPath) ?? ""
+    const url =
+      (await getTransport().artifactPreviewUrl(canvas.projectId, canvas.projectPath)) ?? ""
     if (!url) return
 
     try {

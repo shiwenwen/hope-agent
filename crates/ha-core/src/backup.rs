@@ -543,6 +543,145 @@ pub fn snapshot_before_write(src: &Path, kind: &str) {
     }
 }
 
+/// Remove the legacy server Owner Token from every config snapshot created
+/// before the credential-store migration. These files are ordinary rollback
+/// data (and may be copied off-host), so leaving `server.apiKey` in them would
+/// defeat moving the live value to `credentials/server-auth.json`.
+///
+/// Symlinks are rejected rather than followed: the backup tree is data, not an
+/// authority to rewrite arbitrary files outside `~/.hope-agent/backups`.
+pub fn scrub_legacy_server_tokens() -> Result<(), String> {
+    let backups = paths::backups_dir().map_err(|error| error.to_string())?;
+    if !backups.exists() {
+        return Ok(());
+    }
+    let backups_metadata = std::fs::symlink_metadata(&backups)
+        .map_err(|error| format!("Cannot inspect backups dir: {error}"))?;
+    if backups_metadata.file_type().is_symlink() || !backups_metadata.is_dir() {
+        return Err(format!(
+            "Refusing to inspect non-directory or symlink {:?}",
+            backups
+        ));
+    }
+
+    let autosave = backups.join("autosave");
+    if autosave.exists() {
+        let metadata = std::fs::symlink_metadata(&autosave)
+            .map_err(|error| format!("Cannot inspect autosave dir: {error}"))?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(format!(
+                "Refusing to inspect non-directory or symlink {:?}",
+                autosave
+            ));
+        }
+        for entry in std::fs::read_dir(&autosave)
+            .map_err(|error| format!("Cannot read autosave dir: {error}"))?
+        {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let path = entry.path();
+            let name = entry.file_name();
+            if name.to_string_lossy().split("__").nth(1) == Some("config")
+                && path.extension().and_then(|ext| ext.to_str()) == Some("json")
+            {
+                scrub_legacy_server_token_file(&path)?;
+            }
+        }
+    }
+
+    for entry in
+        std::fs::read_dir(&backups).map_err(|error| format!("Cannot read backups dir: {error}"))?
+    {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with("backup_") {
+            let metadata = std::fs::symlink_metadata(entry.path())
+                .map_err(|error| format!("Cannot inspect {:?}: {error}", entry.path()))?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err(format!(
+                    "Refusing to inspect non-directory or symlink {:?}",
+                    entry.path()
+                ));
+            }
+            let config = entry.path().join("config.json");
+            if config.exists() {
+                scrub_legacy_server_token_file(&config)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn scrub_legacy_server_token_file(path: &Path) -> Result<(), String> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| format!("Cannot inspect {:?}: {error}", path))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(format!(
+            "Refusing to rewrite non-file or symlink {:?}",
+            path
+        ));
+    }
+    let bytes = std::fs::read(path).map_err(|error| format!("Cannot read {:?}: {error}", path))?;
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Cannot parse {:?}: {error}", path))?;
+    let Some(server) = value
+        .as_object_mut()
+        .and_then(|root| root.get_mut("server"))
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return Ok(());
+    };
+    if server.remove("apiKey").is_none() {
+        return Ok(());
+    }
+    let data = serde_json::to_vec_pretty(&value)
+        .map_err(|error| format!("Cannot serialize {:?}: {error}", path))?;
+    // Config snapshots can contain other sensitive settings even after the
+    // legacy Owner Token is removed. Preserve the credential-grade 0600
+    // posture while replacing the file atomically.
+    crate::platform::write_secure_file(path, &data)
+        .map_err(|error| format!("Cannot rewrite {:?}: {error}", path))
+}
+
+#[cfg(test)]
+mod server_token_scrub_tests {
+    use super::*;
+
+    #[test]
+    fn scrub_removes_only_the_legacy_owner_token() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.json");
+        std::fs::write(
+            &path,
+            r#"{
+              "server": {
+                "bindAddr": "127.0.0.1:8420",
+                "apiKey": "owner-secret",
+                "knowledgeAgentReadToken": "read-secret"
+              },
+              "theme": "dark"
+            }"#,
+        )
+        .unwrap();
+
+        scrub_legacy_server_token_file(&path).unwrap();
+
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(value["server"].get("apiKey").is_none());
+        assert_eq!(value["server"]["knowledgeAgentReadToken"], "read-secret");
+        assert_eq!(value["theme"], "dark");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+}
+
 fn sanitize_slug(s: &str) -> String {
     s.chars()
         .map(|c| {

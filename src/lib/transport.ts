@@ -275,6 +275,13 @@ export interface Transport {
    */
   resolveMediaUrl(item: MediaItem): string | null;
 
+  /**
+   * Resolve media for a consumer that can await authentication. Remote desktop
+   * transports fetch with a Bearer header and return a temporary Blob URL so
+   * the long-lived owner token never appears in browser-visible URLs.
+   */
+  loadMediaUrl(item: MediaItem): Promise<{ url: string; release: () => void }>;
+
   /** Extract a persisted media document without exposing its backend path. */
   extractMediaDocument(
     item: MediaItem,
@@ -293,7 +300,7 @@ export interface Transport {
    *    `~/.hope-agent/avatars/foo.png`):
    *       - Tauri mode → wrapped via `convertFileSrc`
    *       - HTTP mode  → rewritten to a server route
-   *         (`/api/avatars/{basename}?token=...`) when the path's parent
+   *         (`/api/avatars/{basename}`) when the path's parent
    *         directory matches a known asset category; otherwise `null`
    *  - `null` / empty string → `null`
    *
@@ -447,7 +454,7 @@ export interface Transport {
   listArtifactVersions(id: string): Promise<ArtifactVersionSummary[]>;
   importArtifact(request: ArtifactImportRequest): Promise<ArtifactRecord>;
   /** Resolve the managed Artifact HTML preview without exposing HTTP clients to raw paths. */
-  artifactPreviewUrl(id: string, projectPath?: string | null): string | null;
+  artifactPreviewUrl(id: string, projectPath?: string | null): Promise<string | null>;
   /** Open the managed Artifact using the runtime-appropriate system/browser handler. */
   openArtifact(id: string, projectPath?: string | null): Promise<void>;
   /** Reveal the managed Artifact on runtimes that expose a local file manager. */
@@ -505,8 +512,8 @@ export interface Transport {
    *
    * - Tauri: resolves the absolute path via `project_fs_resolve` and returns
    *   an `asset://` src from `convertFileSrc`.
-   * - HTTP: returns a tokened `/api/fs/raw` URL usable directly in
-   *   `<img>` / `<iframe>`.
+   * - HTTP: returns a short-lived, read-only resource-capability URL usable
+   *   directly in `<img>` / `<iframe>`; the Owner Token is never in the URL.
    *
    * Returns `null` when the path can't be resolved.
    */
@@ -534,8 +541,9 @@ export interface Transport {
    * Resolve a raw URL for an absolute file path, for `<img>` / `<iframe>` /
    * `<video>` / `<audio>` preview (and binary-placeholder open/download).
    * - Tauri: `resolveAssetUrl(path)` (`convertFileSrc`); `download` is ignored.
-   * - HTTP: a tokened `/api/sessions/{id}/files/by-path` URL (with `download=1`
-   *   when requested). Returns `null` without a `sessionId`.
+   * - HTTP: a short-lived, read-only capability bound server-side to that
+   *   canonical file and its preview/download disposition. Returns `null`
+   *   without a `sessionId`.
    */
   previewRawUrl(
     path: string,

@@ -7,8 +7,20 @@
 use anyhow::Result;
 
 /// Install Hope Agent as a user-level background service.
-pub fn install_service(bind_addr: &str, api_key: Option<&str>) -> Result<String> {
-    crate::platform::service::install_service(bind_addr, api_key)
+pub fn install_service(bind_addr: &str) -> Result<String> {
+    crate::platform::service::install_service(bind_addr)
+}
+
+/// Whether an installed service definition still contains the legacy
+/// command-line Owner Token argument.
+pub fn legacy_service_uses_cli_api_key() -> Result<bool> {
+    crate::platform::service::legacy_service_uses_cli_api_key()
+}
+
+/// Rewrite the installed definition to use the credential store on its next
+/// launch, without stopping the server that is performing the migration.
+pub fn rewrite_service_without_cli_api_key(bind_addr: &str) -> Result<()> {
+    crate::platform::service::rewrite_service_without_cli_api_key(bind_addr)
 }
 
 /// Uninstall the Hope Agent system service.

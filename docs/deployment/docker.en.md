@@ -36,6 +36,7 @@ A reference [`docker-compose.yml`](../../docker-compose.yml) lives at the repo r
 
 ```bash
 docker compose up -d
+docker compose exec hope-agent hope-agent server token show
 docker compose logs -f hope-agent
 ```
 
@@ -46,25 +47,29 @@ docker compose logs -f hope-agent
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `HA_BIND` | `0.0.0.0:8420` | Server listen address. Must be `0.0.0.0` inside a container — loopback rejects external connections. Translated to `--bind` by the entrypoint |
-| `HA_API_KEY` | _unset_ | HTTP/WS Bearer token. With this set, opening the page in a browser shows a "Server authentication required" dialog — paste the token to continue, then it's saved to localStorage and reused on subsequent visits. You can also share a one-shot link `https://host:8420/?token=XXX`; the frontend captures the value into localStorage and rewrites the URL so the token never lands in history / referer / bookmarks. Translated to `--api-key` by the entrypoint |
+| `HA_API_KEY` | _unset_ | Optional externally managed Owner Root Token. Rust consumes and removes it before runtime initialization; it is never copied to argv or tool subprocesses. Browsers exchange it for an HttpOnly session and do not retain the root token |
+| `HA_API_KEY_FILE` | _unset_ | Mounted secret-file path, preferred over `HA_API_KEY` for production. A trailing newline is ignored |
 | `HA_KNOWLEDGE_AGENT_READ_TOKEN` | _unset_ | Knowledge Agent read-only token. It can only access `/api/knowledge/agent/{search,read,expand,sources}`, not owner admin APIs or `compile/propose`; useful for external-agent HTTP scripts |
+| `HA_CORS_ORIGINS` | _unset_ | Additional allowed Web GUI origins, comma-separated (for example `https://ui.example`). Set only when the UI and API are deployed cross-origin; same-origin UI and packaged desktop webviews need no configuration. `*` is not supported |
 | `HA_DATA_DIR` | `/data` | Data root. All persistent state (`config.json` / `sessions.db` / `memory.db` / credentials / projects / attachments) lives here |
 | `HA_DEPLOYMENT` | `docker` | Hint to the self-updater. **Do not change** — without it `app_update install` would attempt an in-container binary swap |
 | `TZ` | `UTC` | Timezone. Affects cron scheduling and timestamp formatting |
 
 ### Ports and networking
 
-The image `EXPOSE`s `8420`. `docker-compose.yml` binds host `127.0.0.1:8420` to container `8420` by default — **loopback only**, which is also the currently recommended deployment shape.
+The image `EXPOSE`s `8420`. Without an supplied token, Docker generates one on first boot and stores it at `/data/credentials/server-auth.json` with mode 0600. Retrieve it with `docker compose exec hope-agent hope-agent server token show`. Compose still binds the host loopback address by default.
 
 #### LAN / public exposure
 
-To make Hope Agent reachable on the LAN or public internet, **set `HA_API_KEY`**, change the port mapping to `8420:8420` (drop the `127.0.0.1:` prefix), and strongly consider a TLS-terminating reverse proxy.
+For LAN or public access, keep the generated token (or configure `HA_API_KEY_FILE`), change the mapping to `8420:8420`, and terminate TLS at a reverse proxy. A non-loopback server without a token now refuses to start instead of silently downgrading.
 
 Three typical patterns:
 
-1. **Direct exposure with in-browser token entry**: `HA_API_KEY=...` + `0.0.0.0:8420`. First visit pops a "Server authentication required" dialog — paste the token and it gets cached in localStorage for subsequent loads. You can also share a one-shot link `https://host:8420/?token=XXX`; the frontend captures the token and rewrites the URL so it never reaches browser history / `Referer` / bookmarks. **Risk**: the token lives in `localStorage` and is reachable from any XSS on the page; best for trusted networks / small teams.
-2. **Reverse proxy injects `Authorization` (recommended for production)**: Caddy / Nginx / Traefik terminates TLS and adds `Authorization: Bearer ${HA_API_KEY}` to upstream requests. Hope Agent enforces `HA_API_KEY`; the browser never sees the token. Do user-facing access control at the proxy layer (mTLS / OIDC / basic auth).
-3. **VPN / tailnet only**: Tailscale / WireGuard / Zerotier brings the container onto a private network — no `HA_API_KEY` needed, network-layer isolation does the work.
+1. **Browser access**: the first visit shows the Auth Gate. The Root Token is exchanged for a signed `HttpOnly + SameSite=Strict` cookie and never enters URLs, localStorage, or the Referer. HTTP, media, and WebSocket requests reuse that short-lived session.
+2. **Automation clients**: continue to send `Authorization: Bearer <root-token>`. Generic `?token=` authentication is rejected.
+3. **Reverse proxy / VPN**: use HTTPS for public exposure. A VPN narrows network reach but does not replace the built-in token; OIDC or mTLS at the proxy is an additional layer.
+
+Rotate online in Settings → Server to invalidate every prior browser session and Bearer client immediately. The CLI command `hope-agent server token rotate` stores a new token; restart the container or service to activate it. For `HA_API_KEY(_FILE)`, rotate the external secret at its source.
 
 ### Persistent data
 
@@ -73,7 +78,7 @@ The container's `/data` (`HA_DATA_DIR`) holds:
 - `config.json` — global config (provider list, memory settings, temperature, failover policy)
 - `user.json` — user preferences
 - `sessions.db` / `memory.db` / `logs.db` / `cron.db` — SQLite databases
-- `credentials/` — provider API keys, OAuth tokens, MCP credentials (**sensitive**)
+- `credentials/` — owner token, provider API keys, OAuth tokens, MCP credentials (**sensitive; files use mode 0600**)
 - `agents/` — agent definitions
 - `projects/` — project-scoped files
 - `attachments/` — chat attachments
@@ -230,7 +235,7 @@ server {
 
 **`docker exec hope-agent server status` reports "no server"?** The entrypoint clears `server.pid` on startup to avoid stale-PID misreporting. The server inside the container is the foreground PID 1 (tini → entrypoint → hope-agent); `server status` is designed for systemd / launchd-registered background services and doesn't apply here. Use `docker logs` or HEALTHCHECK instead.
 
-**`HA_API_KEY` not taking effect?** The entrypoint only translates env vars to flags when the CMD is `server start`. If you override the CMD (e.g. `docker run ... hope-agent server status`), pass `--api-key` explicitly.
+**Forgot the Owner Token?** Run `docker compose exec hope-agent hope-agent server token show`. If an external secret owns the token, the command prints that effective value; never paste the output into logs or tickets.
 
 ## Forks and custom images
 

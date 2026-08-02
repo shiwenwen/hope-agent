@@ -80,21 +80,24 @@ function parseQuoteRange(lines: string | undefined): { start: number; end: numbe
 }
 
 async function restoreFileAttachment(attachment: MessageAttachment): Promise<DraftAttachment> {
-  const url = getTransport().resolveMediaUrl(mediaItemFromAttachment(attachment))
-  if (!url) throw new Error(`Fork attachment is unavailable: ${attachment.name}`)
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to restore fork attachment: ${attachment.name}`)
+  const lease = await getTransport().loadMediaUrl(mediaItemFromAttachment(attachment))
+  try {
+    const response = await fetch(lease.url)
+    if (!response.ok) {
+      throw new Error(`Failed to restore fork attachment: ${attachment.name}`)
+    }
+    const blob = await response.blob()
+    const file = new File([blob], attachment.name, {
+      type: attachment.mimeType || blob.type || "application/octet-stream",
+    })
+    return createDraftAttachment(
+      file,
+      "picker",
+      attachment.semanticSource === "pasted_text" ? "pasted_text" : "upload",
+    )
+  } finally {
+    lease.release()
   }
-  const blob = await response.blob()
-  const file = new File([blob], attachment.name, {
-    type: attachment.mimeType || blob.type || "application/octet-stream",
-  })
-  return createDraftAttachment(
-    file,
-    "picker",
-    attachment.semanticSource === "pasted_text" ? "pasted_text" : "upload",
-  )
 }
 
 async function restoreFileAttachmentOrError(

@@ -134,11 +134,11 @@ hope-agent server setup        # re-run the setup wizard (replays by default; --
 
 To reach a Hope Agent running on your main device from a phone, tablet, or another computer:
 
-1. Open "**Settings → Server**" and **set an API key** (used for authentication — be sure to set it).
+1. Open "**Settings → Server**" and generate an **Owner Token** for authentication; store it safely.
 2. Change the listen address from `127.0.0.1:8420` to `0.0.0.0:8420` (allow LAN access).
-3. After restarting, open `http://<IP of the device running Hope Agent>:8420` in a browser on the other device and enter the API key.
+3. After restarting, open `http://<IP of the device running Hope Agent>:8420` and enter the Owner Token once at the Auth Gate. The browser exchanges it for an HttpOnly session and does not keep the Root Token in a URL or localStorage.
 
-> ⚠️ **Security reminder**: do not expose the port to your LAN or the public internet without authentication (no API key set). When you need public access, put an HTTPS reverse proxy in front of it — see the [Docker deployment guide](../../deployment/docker.md).
+> ⚠️ **Security reminder**: a non-loopback server without a token now refuses to start. Public access still requires an HTTPS reverse proxy. Never place the Owner Token in a URL, chat, or log. See the [Docker deployment guide](../../deployment/docker.md).
 
 ---
 
@@ -154,7 +154,7 @@ docker run -d \
   ghcr.io/shiwenwen/hope-agent:latest
 ```
 
-Once the container is up, open <http://127.0.0.1:8420> in a browser and configure your Provider API key through the setup wizard. The image covers `linux/amd64` + `linux/arm64` (including Apple Silicon / Raspberry Pi) and is built automatically with every release.
+The container generates an Owner Token on first boot. Run `docker exec hope-agent hope-agent server token show`, then open <http://127.0.0.1:8420>, enter the token, and configure your Provider through the setup wizard. The image covers `linux/amd64` + `linux/arm64` (including Apple Silicon / Raspberry Pi) and is built automatically with every release.
 
 For docker compose, pairing with a local Ollama LLM, exposing to the LAN, reverse proxy and TLS, and the upgrade process, see the full [Docker deployment guide](../../deployment/docker.md). You can also bring up a local LLM sidecar in one command:
 

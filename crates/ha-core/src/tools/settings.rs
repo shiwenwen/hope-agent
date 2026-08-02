@@ -15,11 +15,16 @@ use crate::user_config;
 /// - `mcp_servers`: the per-server config holds OAuth tokens, command paths and
 ///   trust acknowledgements; writes must go through the GUI which also drives
 ///   the trust dialog and 0600 credential write.
+/// - `server`: the legacy `apiKey` field is credential-bearing. The live Owner
+///   Token is managed by the dedicated 0600 credential store and rotation UI;
+///   allowing a model-authored merge here would leak token material into chat
+///   history without rotating the active credential.
 const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
     "active_model",
     "fallback_models",
     "channels",
     "mcp_servers",
+    "server",
     // Hooks run arbitrary commands / HTTP / sub-agents on lifecycle events —
     // letting the model write them is a privilege-escalation vector (it could
     // persist its own command execution). Read-only via this tool; writes go
@@ -40,6 +45,11 @@ const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
     // the resolved config (redacted); writes go through Settings → Memory.
     "embedding",
 ];
+
+/// Credential-bearing fields inside otherwise writable categories. The user
+/// category stays model-writable for ordinary preferences, but its remote
+/// Owner Token remains owner-UI-only and must never enter tool responses.
+const BLOCKED_USER_UPDATE_FIELDS: &[&str] = &["remoteApiKey"];
 
 /// Single registry for schema reachability and risk metadata. `read_only`
 /// entries are readable after category-specific redaction but omitted from the
@@ -109,7 +119,6 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("proxy", "high"),
     ("shortcuts", "high"),
     ("skills", "high"),
-    ("server", "high"),
     ("acp_control", "high"),
     ("skill_env", "high"),
     ("security", "high"),
@@ -130,6 +139,7 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("fallback_models", "read_only"),
     ("channels", "read_only"),
     ("mcp_servers", "read_only"),
+    ("server", "read_only"),
     ("embedding", "read_only"),
     ("hooks", "read_only"),
     ("stt_providers", "read_only"),
@@ -469,6 +479,15 @@ fn redact_server_value(mut value: Value) -> Value {
     value
 }
 
+/// Redact the remote Owner Token from UserConfig reads and mutation responses.
+/// The surrounding user preferences remain visible and model-writable.
+fn redact_user_value(mut value: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        redact_string_field(obj, "remoteApiKey");
+    }
+    value
+}
+
 /// Redact the API keys from a resolved `EmbeddingConfig` JSON tree. The
 /// provider / base URL / model / dimensions stay visible so the model can
 /// describe which embedding backend is active, but the credentials never enter
@@ -547,7 +566,7 @@ fn read_category(category: &str) -> Result<Value> {
     match category {
         "user" => {
             let uc = user_config::load_user_config()?;
-            Ok(serde_json::to_value(&uc)?)
+            Ok(redact_user_value(serde_json::to_value(&uc)?))
         }
         "theme" => Ok(json!({ "theme": cfg.theme })),
         "language" => Ok(json!({ "language": cfg.language })),
@@ -1078,6 +1097,7 @@ async fn update_stt_language(values: &Value) -> Result<String> {
 }
 
 fn update_user_config(values: &Value) -> Result<String> {
+    reject_blocked_user_update_fields(values)?;
     let uc = user_config::load_user_config()?;
     let mut uc_json = serde_json::to_value(&uc)?;
     crate::merge_json(&mut uc_json, values.clone());
@@ -1098,8 +1118,20 @@ fn update_user_config(values: &Value) -> Result<String> {
     Ok(serde_json::to_string_pretty(&json!({
         "category": "user",
         "updated": true,
-        "settings": uc_json,
+        "settings": redact_user_value(uc_json),
     }))?)
+}
+
+fn reject_blocked_user_update_fields(values: &Value) -> Result<()> {
+    if let Some(field) = BLOCKED_USER_UPDATE_FIELDS
+        .iter()
+        .find(|field| values.get(**field).is_some())
+    {
+        bail!(
+            "user.{field} cannot be modified through this tool because it contains an Owner Token. Change it in Settings → Server.",
+        );
+    }
+    Ok(())
 }
 
 async fn update_session_title_config(values: &Value) -> Result<String> {
@@ -1336,7 +1368,6 @@ fn apply_app_config_update(
                 store.skills.allow_remote_install = v;
             }
         }
-        "server" => merge_field(&mut store.server, values)?,
         "acp_control" => merge_field(&mut store.acp_control, values)?,
         "skill_env" => {
             // Per-skill env vars: support full replace via `skillEnv` or per-skill
@@ -1752,7 +1783,6 @@ mod tests {
             "proxy",
             "shortcuts",
             "skills",
-            "server",
             "acp_control",
             "skill_env",
             "security",
@@ -1803,6 +1833,7 @@ mod tests {
             "fallback_models",
             "channels",
             "mcp_servers",
+            "server",
             "embedding",
             "hooks",
             "stt_providers",
@@ -1820,6 +1851,7 @@ mod tests {
             "fallback_models",
             "channels",
             "mcp_servers",
+            "server",
             "embedding",
             "hooks",
             "stt_providers",
@@ -2110,6 +2142,40 @@ mod tests {
         // Null api_key (server unauthenticated) stays null.
         let r = redact_server_value(json!({ "bindAddr": "127.0.0.1:8420", "apiKey": null }));
         assert!(r["apiKey"].is_null());
+    }
+
+    #[test]
+    fn redact_user_masks_remote_owner_token() {
+        let redacted = redact_user_value(json!({
+            "name": "Owner",
+            "serverMode": "remote",
+            "remoteServerUrl": "https://agent.example",
+            "remoteApiKey": "owner-root-token"
+        }));
+        assert_eq!(redacted["remoteApiKey"], json!("[REDACTED]"));
+        assert_eq!(redacted["name"], "Owner");
+        assert_eq!(redacted["remoteServerUrl"], "https://agent.example");
+
+        let cleared = redact_user_value(json!({ "remoteApiKey": "" }));
+        assert_eq!(cleared["remoteApiKey"], "");
+        let unset = redact_user_value(json!({ "remoteApiKey": null }));
+        assert!(unset["remoteApiKey"].is_null());
+    }
+
+    #[test]
+    fn user_updates_reject_remote_owner_token_but_keep_preferences_writable() {
+        let error = reject_blocked_user_update_fields(&json!({
+            "remoteApiKey": "owner-root-token",
+            "weatherCity": "Shanghai"
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("user.remoteApiKey"));
+
+        reject_blocked_user_update_fields(&json!({
+            "weatherCity": "Shanghai",
+            "autoSendPending": true
+        }))
+        .expect("ordinary user preferences remain writable");
     }
 
     #[test]

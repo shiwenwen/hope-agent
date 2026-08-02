@@ -50,9 +50,15 @@ export function OfficeRichPreview({
   useEffect(() => {
     if (!eligible) return
     let cancelled = false
+    let leasedRawUrl: string | null = null
     void (async () => {
       try {
         const url = await source.rawUrl(false)
+        if (url && cancelled) {
+          source.releaseRawUrl?.(url)
+          return
+        }
+        if (url) leasedRawUrl = url
         if (cancelled) return
         // Clear any prior failure/bytes now that a new source is loading. Done
         // post-await (not synchronously in the effect body) to stay clear of the
@@ -87,6 +93,7 @@ export function OfficeRichPreview({
     })()
     return () => {
       cancelled = true
+      if (leasedRawUrl) source.releaseRawUrl?.(leasedRawUrl)
     }
   }, [source, eligible, effectiveLimit])
 
