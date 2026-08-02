@@ -142,8 +142,8 @@ describe("shouldPrepareRemoteBeforeServerMutation", () => {
       shouldPrepareRemoteBeforeServerMutation({
         currentMode: "remote",
         previousMode: "remote",
-        currentRemoteServerUrl: "https://agent.example",
-        previousRemoteServerUrl: "https://agent.example",
+        currentRemoteServerUrl: "https://agent.example/%7E/",
+        previousRemoteServerUrl: "https://agent.example/~",
         replacementOwnerToken: "new-token",
         activeRemoteMatchesDestination: true,
       }),
