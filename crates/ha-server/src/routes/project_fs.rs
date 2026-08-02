@@ -26,7 +26,7 @@ use super::file_serve::{
 };
 use super::helpers::parse_file_upload_to_temp;
 use crate::error::AppError;
-use crate::middleware::{AuthState, BoundFile};
+use crate::middleware::{open_authorized_bound_file, AuthState, BoundFile};
 use crate::AppContext;
 use ha_core::filesystem::{
     self, ExtractedContent, FileSearchResponse, FileTextContent, FileWriteOutcome, FilesystemError,
@@ -214,6 +214,32 @@ async fn resolve_raw_path(
         resolved.resolve_existing(&path)
     })
     .await
+}
+
+async fn resolve_authorized_raw_file(
+    scope: String,
+    scope_id: String,
+    path: String,
+    download: bool,
+) -> Result<BoundFile, AppError> {
+    tokio::task::spawn_blocking(move || {
+        let resolved = WorkspaceScope::resolve(&scope, &scope_id).map_err(map_err)?;
+        let canonical = resolved.resolve_existing(&path).map_err(map_err)?;
+        // Opening the stable handle is the final step of this authorization
+        // traversal. The ticket layer receives the handle itself and never
+        // reopens `canonical`, closing the post-authorization substitution gap.
+        open_authorized_bound_file(canonical, download).map_err(|error| {
+            ha_core::app_warn!(
+                "security",
+                "workspace_bound_file_open_rejected",
+                "Workspace preview changed during authorization: {}",
+                error
+            );
+            AppError::forbidden("Workspace preview changed during authorization")
+        })
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("bound file task failed: {error}")))?
 }
 
 async fn serve_raw_path(
@@ -421,10 +447,10 @@ pub async fn create_fs_raw_ticket(
     Extension(auth): Extension<AuthState>,
     Json(body): Json<RawTicketBody>,
 ) -> Result<Response, AppError> {
-    let abs = resolve_raw_path(body.scope, body.scope_id, body.path).await?;
+    let resource =
+        resolve_authorized_raw_file(body.scope, body.scope_id, body.path, body.download).await?;
     let ticket = auth
-        .create_bound_file_ticket(abs, body.download, BOUND_FILE_TICKET_TTL_SECS)
-        .await
+        .create_bound_file_ticket(resource, BOUND_FILE_TICKET_TTL_SECS)
         .map_err(|error| {
             ha_core::app_error!(
                 "security",
@@ -756,10 +782,8 @@ mod tests {
 
         let auth = AuthState::new(Some("owner-token".into()), None, false);
         let visible_canonical = std::fs::canonicalize(&visible).unwrap();
-        let bound_ticket = auth
-            .create_bound_file_ticket(visible_canonical, true, 900)
-            .await
-            .unwrap();
+        let resource = open_authorized_bound_file(visible_canonical, true).unwrap();
+        let bound_ticket = auth.create_bound_file_ticket(resource, 900).unwrap();
         let generic_ticket = auth.create_access_ticket("resources", 900).unwrap();
 
         // The workspace can remain agent-writable after capability minting.

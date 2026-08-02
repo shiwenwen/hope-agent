@@ -18,7 +18,7 @@ pub const BROWSER_SESSION_COOKIE: &str = "ha_session";
 pub const EVENT_TICKET_PROTOCOL_PREFIX: &str = "ha-events.";
 const MAX_BOUND_FILE_TICKETS: usize = 4_096;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BoundFile {
     pub path: PathBuf,
     pub download: bool,
@@ -184,32 +184,15 @@ impl AuthState {
         )
     }
 
-    /// Mint a short-lived capability bound to an open handle for one
-    /// already-authorized canonical file. The stable handle prevents a
-    /// writable workspace from swapping the path to a symlink or a different
-    /// inode between ticket creation and the later public GET.
-    pub async fn create_bound_file_ticket(
+    /// Register a short-lived capability for a file handle that the route's
+    /// authorization traversal already opened and verified. Ticket creation
+    /// deliberately performs no path lookup: separating authorization from a
+    /// later open would recreate a hard-link/symlink substitution window.
+    pub fn create_bound_file_ticket(
         &self,
-        path: PathBuf,
-        download: bool,
+        resource: BoundFile,
         ttl_secs: u64,
     ) -> anyhow::Result<String> {
-        let open_path = path.clone();
-        let (file, metadata, mime) = tokio::task::spawn_blocking(move || {
-            let file = open_bound_file(&open_path)?;
-            let metadata = file.metadata()?;
-            if !metadata.is_file() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "bound path is not a regular file",
-                ));
-            }
-            verify_opened_bound_file_path(&open_path, &file)?;
-            let mime = mime_for_open_bound_file(&open_path, &file);
-            Ok::<_, std::io::Error>((file, metadata, mime))
-        })
-        .await
-        .map_err(|error| anyhow::anyhow!("bound file-open task failed: {error}"))??;
         let ticket = self.create_access_ticket("bound_file", ttl_secs)?;
         let now = unix_time();
         let expires_at = now.saturating_add(ttl_secs.clamp(60, 60 * 60));
@@ -224,13 +207,7 @@ impl AuthState {
         tickets.insert(
             ticket.clone(),
             BoundFileEntry {
-                resource: BoundFile {
-                    path,
-                    download,
-                    mime,
-                    file: Arc::new(file),
-                    len: metadata.len(),
-                },
+                resource,
                 expires_at,
             },
         );
@@ -344,7 +321,14 @@ impl AuthState {
     }
 }
 
-fn open_bound_file(path: &std::path::Path) -> std::io::Result<File> {
+/// Open and attest the stable handle that becomes the authorization result.
+/// Callers must invoke this inside the same blocking traversal that decides
+/// whether `path` is authorized, then pass the returned object directly to
+/// `create_bound_file_ticket` without reopening the path.
+pub(crate) fn open_authorized_bound_file(
+    path: PathBuf,
+    download: bool,
+) -> std::io::Result<BoundFile> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
 
@@ -363,7 +347,23 @@ fn open_bound_file(path: &std::path::Path) -> std::io::Result<File> {
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
 
-    options.open(path)
+    let file = options.open(&path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "bound path is not a regular file",
+        ));
+    }
+    verify_opened_bound_file_path(&path, &file)?;
+    let mime = mime_for_open_bound_file(&path, &file);
+    Ok(BoundFile {
+        path,
+        download,
+        mime,
+        file: Arc::new(file),
+        len: metadata.len(),
+    })
 }
 
 fn verify_opened_bound_file_path(expected: &std::path::Path, file: &File) -> std::io::Result<()> {
@@ -862,10 +862,8 @@ mod tests {
         let path = dir.path().join("visible.html");
         std::fs::write(&path, "visible").unwrap();
         let path = std::fs::canonicalize(path).unwrap();
-        let ticket = auth
-            .create_bound_file_ticket(path.clone(), false, 900)
-            .await
-            .unwrap();
+        let resource = open_authorized_bound_file(path.clone(), false).unwrap();
+        let ticket = auth.create_bound_file_ticket(resource, 900).unwrap();
 
         let bound = auth.resolve_bound_file_ticket(&ticket).unwrap();
         assert_eq!(bound.path, path);
@@ -883,8 +881,35 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn bound_file_ticket_rejects_a_substituted_parent_symlink() {
+    async fn bound_file_registration_never_reopens_the_authorized_path() {
+        use std::io::Read;
+
         let auth = AuthState::new(Some("owner-token".into()), None, false);
+        let dir = tempfile::tempdir().unwrap();
+        let visible = dir.path().join("visible.html");
+        let secret = dir.path().join("secret.html");
+        std::fs::write(&visible, "authorized content").unwrap();
+        std::fs::write(&secret, "host secret").unwrap();
+
+        // The authorization traversal returns this stable handle. An
+        // agent-writable workspace then replaces the visible pathname with a
+        // hard link before ticket registration completes.
+        let canonical = std::fs::canonicalize(&visible).unwrap();
+        let resource = open_authorized_bound_file(canonical, false).unwrap();
+        std::fs::remove_file(&visible).unwrap();
+        std::fs::hard_link(&secret, &visible).unwrap();
+
+        let ticket = auth.create_bound_file_ticket(resource, 900).unwrap();
+        let bound = auth.resolve_bound_file_ticket(&ticket).unwrap();
+        let mut contents = String::new();
+        (&*bound.file).read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, "authorized content");
+        assert_eq!(std::fs::read_to_string(&visible).unwrap(), "host secret");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bound_file_ticket_rejects_a_substituted_parent_symlink() {
         let dir = tempfile::tempdir().unwrap();
         let authorized_parent = dir.path().join("authorized");
         let displaced_parent = dir.path().join("authorized-original");
@@ -899,9 +924,7 @@ mod tests {
         std::fs::rename(&authorized_parent, &displaced_parent).unwrap();
         std::os::unix::fs::symlink(&outside_parent, &authorized_parent).unwrap();
 
-        let error = auth
-            .create_bound_file_ticket(authorized_canonical, false, 900)
-            .await
+        let error = open_authorized_bound_file(authorized_canonical, false)
             .expect_err("a substituted parent symlink must fail closed");
         assert!(error
             .to_string()

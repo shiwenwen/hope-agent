@@ -12,7 +12,7 @@ use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 use crate::error::AppError;
-use crate::middleware::AuthState;
+use crate::middleware::{open_authorized_bound_file, AuthState, BoundFile};
 use crate::routes::file_serve::{
     apply_inline_media_headers, resolve_mime_for_path, safe_content_disposition, HeaderOpts,
     MimeOpts,
@@ -1272,6 +1272,71 @@ async fn resolve_authorized_session_file(
     Ok(file_canon)
 }
 
+async fn resolve_authorized_session_bound_file(
+    ctx: &AppContext,
+    session_id: &str,
+    requested: &str,
+    download: bool,
+) -> Result<BoundFile, AppError> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Err(AppError::bad_request("missing path"));
+    }
+    let requested_path = PathBuf::from(requested);
+    if !requested_path.is_absolute() {
+        return Err(AppError::bad_request("path must be absolute"));
+    }
+    let lookup_id = session_id.to_string();
+    let messages = ctx
+        .session_db
+        .run(move |db| db.load_session_messages(&lookup_id))
+        .await?;
+    let referenced = collect_authorized_session_file_paths(&messages)
+        .iter()
+        .any(|raw| raw.trim() == requested);
+    let session_id = session_id.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        let canonical = requested_path.canonicalize().map_err(|_| {
+            if referenced {
+                AppError::not_found("file not found")
+            } else {
+                AppError::forbidden("file not referenced by session")
+            }
+        })?;
+        // The authorization result is the opened handle, not a pathname for a
+        // later phase to reopen. A hard-link replacement before this point is
+        // therefore the identity observed by this traversal; replacement after
+        // it cannot change the capability's stable handle.
+        let resource = open_authorized_bound_file(canonical, download).map_err(|error| {
+            ha_core::app_warn!(
+                "security",
+                "session_bound_file_open_rejected",
+                "Session preview changed during authorization: {}",
+                error
+            );
+            if referenced {
+                AppError::not_found("file not found")
+            } else {
+                AppError::forbidden("file not referenced by session")
+            }
+        })?;
+        if referenced {
+            return Ok(resource);
+        }
+        let in_workspace = ha_core::filesystem::WorkspaceScope::for_session(&session_id)
+            .map(|scope| scope.contains(&resource.path))
+            .unwrap_or(false);
+        if in_workspace {
+            Ok(resource)
+        } else {
+            Err(AppError::forbidden("file not referenced by session"))
+        }
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("bound session file task failed: {error}")))?
+}
+
 /// `POST /api/sessions/:id/files/by-path-ticket` — authorize one canonical
 /// session file once, then bind a short-lived iframe-safe capability to it.
 pub async fn create_session_file_ticket(
@@ -1280,7 +1345,8 @@ pub async fn create_session_file_ticket(
     Extension(auth): Extension<AuthState>,
     Json(body): Json<SessionFileTicketBody>,
 ) -> Result<Response, AppError> {
-    let file_canon = resolve_authorized_session_file(&ctx, &id, &body.path).await?;
+    let resource =
+        resolve_authorized_session_bound_file(&ctx, &id, &body.path, body.download).await?;
     if !auth.auth_required() {
         return Ok(super::auth::no_store_json(
             StatusCode::OK,
@@ -1293,8 +1359,7 @@ pub async fn create_session_file_ticket(
     }
     let ttl_secs = super::project_fs::BOUND_FILE_TICKET_TTL_SECS;
     let ticket = auth
-        .create_bound_file_ticket(file_canon, body.download, ttl_secs)
-        .await
+        .create_bound_file_ticket(resource, ttl_secs)
         .map_err(|error| {
             ha_core::app_error!(
                 "security",
