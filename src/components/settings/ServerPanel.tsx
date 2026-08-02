@@ -28,7 +28,11 @@ import {
   useFilesystemConfig,
   type FilesystemConfig,
 } from "@/lib/filesystemConfig"
-import { ownerTokenWillExist, remoteApiKeyForSave } from "./serverCredentials"
+import {
+  ownerTokenWillExist,
+  remoteApiKeyForSave,
+  shouldPrepareRemoteBeforeServerMutation,
+} from "./serverCredentials"
 import {
   MonitorSmartphone,
   Globe,
@@ -217,6 +221,7 @@ export default function ServerPanel() {
     setSaving(true)
     setSaveError("")
     let preparedRemote: PreparedRemoteTransport | null = null
+    let reuseActiveRemote = false
     try {
       const embeddedApiKey = serializeOptionalSecret(
         config.embeddedApiKey,
@@ -249,6 +254,23 @@ export default function ServerPanel() {
       ) {
         throw new Error(t("settings.serverPublicTokenRequired"))
       }
+      const remoteUrl =
+        config.serverMode === "remote" && config.remoteServerUrl
+          ? config.remoteServerUrl.replace(/\/+$/, "")
+          : null
+      const prepareBeforeServerMutation = shouldPrepareRemoteBeforeServerMutation({
+        currentMode: config.serverMode,
+        previousMode: previous.serverMode,
+        currentRemoteServerUrl: config.remoteServerUrl,
+        previousRemoteServerUrl: previous.remoteServerUrl,
+        replacementOwnerToken: embeddedApiKey,
+      })
+
+      // A destination change must fail before it can mutate the current
+      // server's Owner Token or disconnect any clients still using it.
+      if (remoteUrl && prepareBeforeServerMutation) {
+        preparedRemote = await prepareRemoteTransport(remoteUrl, effectiveRemoteApiKey)
+      }
 
       // Save embedded server config; the backend moves the Owner Token to the
       // credential store instead of config.json.
@@ -264,17 +286,19 @@ export default function ServerPanel() {
       // server. Refresh the same-origin HttpOnly session (or the explicit
       // remote Bearer client) before making another protected request.
       if (embeddedApiKey) {
-        await activateCurrentHttpOwnerToken(embeddedApiKey)
+        const activated = await activateCurrentHttpOwnerToken(embeddedApiKey)
+        reuseActiveRemote = Boolean(remoteUrl && !preparedRemote && activated)
       }
 
-      // Validate the exact destination credential before persisting remote
-      // connection preferences. The provisional client stays unpublished so
-      // all saves still go through the currently active transport.
-      if (config.serverMode === "remote" && config.remoteServerUrl) {
-        preparedRemote = await prepareRemoteTransport(
-          config.remoteServerUrl.replace(/\/+$/, ""),
-          effectiveRemoteApiKey,
-        )
+      // Clearing/replacing the token of the same active remote is the only
+      // case that cannot be validated before the server accepts the change.
+      // A successful in-place Bearer/cookie activation is already sufficient;
+      // otherwise validate a fresh provisional client now.
+      if (remoteUrl && !preparedRemote && !reuseActiveRemote) {
+        preparedRemote = await prepareRemoteTransport(remoteUrl, effectiveRemoteApiKey)
+      }
+      if (remoteUrl && !preparedRemote && !reuseActiveRemote) {
+        throw new Error("Remote transport validation did not complete")
       }
 
       // Persist connection preferences only after the new server credential
@@ -291,9 +315,11 @@ export default function ServerPanel() {
       })
 
       // Switch transport based on mode
-      if (config.serverMode === "remote" && config.remoteServerUrl) {
-        preparedRemote?.activate()
-        preparedRemote = null
+      if (remoteUrl) {
+        if (preparedRemote) {
+          preparedRemote.activate()
+          preparedRemote = null
+        }
       } else {
         switchToEmbedded({ dirtyConfirmed: true })
       }

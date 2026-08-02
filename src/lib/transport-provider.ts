@@ -236,11 +236,13 @@ export async function switchToRemote(
 }
 
 /** Keep the active HTTP client authenticated after the server changes its root token. */
-export async function activateCurrentHttpOwnerToken(token: string): Promise<void> {
+export async function activateCurrentHttpOwnerToken(token: string): Promise<boolean> {
   if (instance instanceof HttpTransport) {
     await instance.activateOwnerToken(token);
     emitTransportChanged();
+    return true;
   }
+  return false;
 }
 
 /**

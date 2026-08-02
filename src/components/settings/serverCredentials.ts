@@ -15,6 +15,14 @@ interface OwnerTokenWillExistArgs {
   externallyManaged: boolean
 }
 
+interface RemoteValidationOrderArgs {
+  currentMode: ServerMode
+  previousMode: ServerMode
+  currentRemoteServerUrl: string
+  previousRemoteServerUrl: string
+  replacementOwnerToken: string | null
+}
+
 function normalizedRemoteServerUrl(value: string): string {
   return value.trim().replace(/\/+$/, "")
 }
@@ -49,4 +57,24 @@ export function ownerTokenWillExist({
 }: OwnerTokenWillExistArgs): boolean {
   if (externallyManaged) return true
   return replacementOwnerToken === null ? hasManagedOwnerToken : replacementOwnerToken.length > 0
+}
+
+/**
+ * A different destination can always be validated before touching the current
+ * server. The only deferred case is replacing the Owner Token of the same
+ * active remote, because that new credential is invalid until the mutation.
+ */
+export function shouldPrepareRemoteBeforeServerMutation({
+  currentMode,
+  previousMode,
+  currentRemoteServerUrl,
+  previousRemoteServerUrl,
+  replacementOwnerToken,
+}: RemoteValidationOrderArgs): boolean {
+  if (currentMode !== "remote") return false
+  const keepsCurrentRemoteServer =
+    previousMode === "remote" &&
+    normalizedRemoteServerUrl(currentRemoteServerUrl) ===
+      normalizedRemoteServerUrl(previousRemoteServerUrl)
+  return !keepsCurrentRemoteServer || replacementOwnerToken === null
 }

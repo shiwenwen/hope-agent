@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest"
 
-import { ownerTokenWillExist, remoteApiKeyForSave } from "./serverCredentials"
+import {
+  ownerTokenWillExist,
+  remoteApiKeyForSave,
+  shouldPrepareRemoteBeforeServerMutation,
+} from "./serverCredentials"
 
 describe("remoteApiKeyForSave", () => {
   test("keeps the destination token when switching from embedded to remote", () => {
@@ -83,6 +87,44 @@ describe("ownerTokenWillExist", () => {
         replacementOwnerToken: "",
         hasManagedOwnerToken: true,
         externallyManaged: false,
+      }),
+    ).toBe(false)
+  })
+})
+
+describe("shouldPrepareRemoteBeforeServerMutation", () => {
+  test("validates a different remote before changing the current server token", () => {
+    expect(
+      shouldPrepareRemoteBeforeServerMutation({
+        currentMode: "remote",
+        previousMode: "remote",
+        currentRemoteServerUrl: "https://new.example",
+        previousRemoteServerUrl: "https://old.example",
+        replacementOwnerToken: "new-current-token",
+      }),
+    ).toBe(true)
+  })
+
+  test("validates an unchanged remote early when its Owner Token was not edited", () => {
+    expect(
+      shouldPrepareRemoteBeforeServerMutation({
+        currentMode: "remote",
+        previousMode: "remote",
+        currentRemoteServerUrl: "https://agent.example/",
+        previousRemoteServerUrl: "https://agent.example",
+        replacementOwnerToken: null,
+      }),
+    ).toBe(true)
+  })
+
+  test("defers validation only for a same-remote Owner Token replacement", () => {
+    expect(
+      shouldPrepareRemoteBeforeServerMutation({
+        currentMode: "remote",
+        previousMode: "remote",
+        currentRemoteServerUrl: "https://agent.example",
+        previousRemoteServerUrl: "https://agent.example",
+        replacementOwnerToken: "new-token",
       }),
     ).toBe(false)
   })
