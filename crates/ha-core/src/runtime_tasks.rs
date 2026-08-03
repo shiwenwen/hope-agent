@@ -39,6 +39,26 @@ pub struct RuntimeTaskSnapshot {
     tasks: Vec<(RuntimeTaskKind, String)>,
 }
 
+fn extend_snapshot_source(
+    tasks: &mut Vec<(RuntimeTaskKind, String)>,
+    source: &'static str,
+    discovered: anyhow::Result<Vec<(RuntimeTaskKind, String)>>,
+) {
+    match discovered {
+        Ok(discovered) => tasks.extend(discovered),
+        Err(error) => {
+            let message = crate::logging::redact_sensitive(&error.to_string());
+            crate::app_warn!(
+                "chat",
+                "runtime_task_snapshot",
+                "Runtime task source snapshot failed; continuing other sources: source={} error={}",
+                source,
+                message
+            );
+        }
+    }
+}
+
 impl CancelRuntimeTaskResult {
     fn new(
         kind: RuntimeTaskKind,
@@ -101,30 +121,36 @@ pub async fn snapshot_runtime_tasks_for_session(
         let mut tasks = Vec::new();
 
         if let Some(db) = crate::async_jobs::get_async_jobs_db() {
-            for job in db.list_running()? {
-                let matches_session = session_for_blocking
-                    .as_deref()
-                    .map(|sid| job.session_id.as_deref() == Some(sid))
-                    .unwrap_or(true);
-                if matches_session {
-                    tasks.push((RuntimeTaskKind::AsyncJob, job.job_id));
-                }
-            }
+            let discovered = db.list_running().map(|jobs| {
+                jobs.into_iter()
+                    .filter(|job| {
+                        session_for_blocking
+                            .as_deref()
+                            .map(|sid| job.session_id.as_deref() == Some(sid))
+                            .unwrap_or(true)
+                    })
+                    .map(|job| (RuntimeTaskKind::AsyncJob, job.job_id))
+                    .collect()
+            });
+            extend_snapshot_source(&mut tasks, "async_jobs", discovered);
         }
 
         if let Some(db) = crate::get_session_db() {
-            let runs = match session_for_blocking.as_deref() {
-                Some(sid) => db.list_active_subagent_runs(sid)?,
-                None => db.list_all_active_subagent_runs()?,
-            };
-            for run in runs {
-                tasks.push((RuntimeTaskKind::Subagent, run.run_id));
+            let discovered = match session_for_blocking.as_deref() {
+                Some(sid) => db.list_active_subagent_runs(sid),
+                None => db.list_all_active_subagent_runs(),
             }
+            .map(|runs| {
+                runs.into_iter()
+                    .map(|run| (RuntimeTaskKind::Subagent, run.run_id))
+                    .collect()
+            });
+            extend_snapshot_source(&mut tasks, "subagents", discovered);
         }
 
-        anyhow::Ok(tasks)
+        tasks
     })
-    .await?;
+    .await;
 
     let process_ids = {
         let registry = crate::process_registry::get_registry().lock().await;
@@ -342,6 +368,26 @@ fn cancel_cron(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn snapshot_collection_continues_after_source_failure() {
+        let mut tasks = Vec::new();
+        extend_snapshot_source(
+            &mut tasks,
+            "async_jobs",
+            Err(anyhow::anyhow!("transient database read failure")),
+        );
+        extend_snapshot_source(
+            &mut tasks,
+            "subagents",
+            Ok(vec![(RuntimeTaskKind::Subagent, "continues".to_string())]),
+        );
+
+        assert_eq!(
+            tasks,
+            vec![(RuntimeTaskKind::Subagent, "continues".to_string())]
+        );
+    }
 
     #[tokio::test]
     async fn snapshot_cancellation_continues_after_individual_failure() {
