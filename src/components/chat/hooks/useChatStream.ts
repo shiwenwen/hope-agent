@@ -72,6 +72,7 @@ import {
   awaitUnlessAborted,
   ChatPreparationCancelledError,
   isChatPreparationCancelled,
+  loadingStateAfterPreparationRelease,
   validateChatAttachmentCount,
 } from "./chatPreparation"
 
@@ -1530,7 +1531,12 @@ export function useChatStream({
     }
     const releasePreparationLoading = () => {
       if (chatRequestOwnerBySessionRef.current.get(chatRequestOwnerKey) === chatRequestOwnerId) {
-        setLoading(false)
+        const nextLoading = loadingStateAfterPreparationRelease(
+          chatRequestOwnerKey,
+          currentSessionIdRef.current,
+          loadingSessionsRef.current,
+        )
+        if (nextLoading !== undefined) setLoading(nextLoading)
       }
     }
     bindChatRequestOwner(chatRequestOwnerKey)

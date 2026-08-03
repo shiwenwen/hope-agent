@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import type { ChatAttachment, Transport } from "@/lib/transport"
-import { validateChatAttachmentCount } from "./chatPreparation"
+import { loadingStateAfterPreparationRelease, validateChatAttachmentCount } from "./chatPreparation"
 
 describe("validateChatAttachmentCount", () => {
   it("releases Stop immediately while excess-upload cleanup is still pending", async () => {
@@ -23,5 +23,21 @@ describe("validateChatAttachmentCount", () => {
 
     controller.abort()
     await expect(validation).rejects.toMatchObject({ name: "ChatPreparationCancelledError" })
+  })
+})
+
+describe("loadingStateAfterPreparationRelease", () => {
+  it("does not clear a different session's active loading state", () => {
+    expect(
+      loadingStateAfterPreparationRelease("session-a", "session-b", new Set(["session-b"])),
+    ).toBeUndefined()
+  })
+
+  it("reconciles the displayed session against active turns", () => {
+    expect(loadingStateAfterPreparationRelease("session-a", "session-a", new Set())).toBe(false)
+    expect(
+      loadingStateAfterPreparationRelease("session-a", "session-a", new Set(["session-a"])),
+    ).toBe(true)
+    expect(loadingStateAfterPreparationRelease("__pending__", null, new Set())).toBe(false)
   })
 })

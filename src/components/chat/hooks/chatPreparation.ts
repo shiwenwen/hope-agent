@@ -65,3 +65,18 @@ export async function validateChatAttachmentCount(
   await awaitUnlessAborted(cleanup, signal)
   throw new Error(tooManyMessage)
 }
+
+/**
+ * Resolve the visible loading state when one session's local preparation ends.
+ * `undefined` means the completed request belongs to a background session and
+ * must not mutate the currently displayed session's loading indicator.
+ */
+export function loadingStateAfterPreparationRelease(
+  requestSessionKey: string,
+  currentSessionId: string | null,
+  loadingSessionIds: ReadonlySet<string>,
+): boolean | undefined {
+  const currentSessionKey = currentSessionId ?? "__pending__"
+  if (requestSessionKey !== currentSessionKey) return undefined
+  return currentSessionId ? loadingSessionIds.has(currentSessionId) : false
+}
