@@ -657,15 +657,22 @@ pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResoluti
         return 0;
     }
     let count = drained.len();
+    let mut cleanup_request_ids = Vec::with_capacity(count);
     for (request_id, entry) in drained {
         let _ = entry.sender.send(ApprovalResponse::Deny);
-        // EventBus delivery is best-effort and the IM listener can lag. Clear
-        // its text-reply state directly so Stop cannot leave a stale prompt
-        // that captures a later ordinary chat message.
-        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
         emit_approval_resolved(&request_id, Some(session_id), "deny", source);
+        cleanup_request_ids.push(request_id);
     }
     emit_pending_interactions_changed(Some(session_id));
+
+    // Publish every terminal event before the first blocking IM cleanup. Stop
+    // bounds this whole routine with a timeout; if cleanup stalls, cancelling
+    // here is safe because the approval is already denied and every surface
+    // has already been told to dismiss it. The exact request-id cleanup below
+    // remains a best-effort guard against stale IM text replies.
+    for request_id in cleanup_request_ids {
+        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
+    }
     count
 }
 
@@ -681,12 +688,19 @@ pub async fn deny_all_pending(source: ApprovalResolutionSource) -> usize {
         return 0;
     }
     let count = drained.len();
+    let mut cleanup_request_ids = Vec::with_capacity(count);
     for (request_id, entry) in drained {
         let session_id = entry.request.session_id;
         let _ = entry.sender.send(ApprovalResponse::Deny);
-        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
         emit_approval_resolved(&request_id, session_id.as_deref(), "deny", source);
         emit_pending_interactions_changed(session_id.as_deref());
+        cleanup_request_ids.push(request_id);
+    }
+    // Keep global Stop cancellation-safe for the same reason as the
+    // per-session path above: terminal events are non-negotiable; IM's
+    // secondary text-reply cleanup is bounded best effort.
+    for request_id in cleanup_request_ids {
+        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
     }
     count
 }
@@ -1381,6 +1395,92 @@ mod tests {
             .await
             .iter()
             .all(|candidate| candidate.request_id != request_id));
+    }
+
+    /// Stop bounds approval cleanup with a short timeout. Even if the IM
+    /// text-reply registry is contended for that whole window, the authoritative
+    /// denial and cross-surface dismissal event must happen first.
+    #[tokio::test]
+    async fn user_stop_resolves_approval_before_im_cleanup_can_block() {
+        let bus = crate::globals::EVENT_BUS
+            .get_or_init(|| {
+                let bus: std::sync::Arc<dyn crate::event_bus::EventBus> =
+                    std::sync::Arc::new(crate::event_bus::BroadcastEventBus::new(256));
+                bus
+            })
+            .clone();
+        let mut events = bus.subscribe();
+
+        let request_id = format!("approval-stop-order-{}", create_session_id());
+        let session_id = format!("session-stop-order-{}", create_session_id());
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        get_pending_approvals().lock().await.insert(
+            request_id.clone(),
+            PendingApprovalEntry {
+                sender,
+                request: ApprovalRequest {
+                    request_id: request_id.clone(),
+                    command: "blocked cleanup test".into(),
+                    cwd: "/tmp".into(),
+                    session_id: Some(session_id.clone()),
+                    reason: None,
+                    incognito: false,
+                    created_at_ms: 1_000,
+                    server_now_ms: 1_000,
+                    timeout_at_ms: None,
+                    timeout_secs: 0,
+                    timeout_action: crate::config::ApprovalTimeoutAction::Deny,
+                },
+            },
+        );
+
+        let (lock_acquired_tx, lock_acquired_rx) = tokio::sync::oneshot::channel();
+        let (release_lock_tx, release_lock_rx) = tokio::sync::oneshot::channel();
+        let lock_task = tokio::spawn(
+            crate::channel::worker::approval::hold_text_pending_lock_for_test(
+                lock_acquired_tx,
+                release_lock_rx,
+            ),
+        );
+        lock_acquired_rx.await.expect("IM cleanup lock acquired");
+
+        let stopped_session_id = session_id.clone();
+        let mut deny_task = tokio::spawn(async move {
+            deny_pending_for_session(&stopped_session_id, ApprovalResolutionSource::UserStop).await
+        });
+
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), receiver)
+                .await
+                .expect("approval denied before IM cleanup")
+                .expect("approval sender still active"),
+            ApprovalResponse::Deny
+        );
+        let resolved = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let event = events.recv().await.expect("event bus remains open");
+                if event.name == EVENT_APPROVAL_RESOLVED
+                    && event.payload.get("requestId").and_then(|v| v.as_str())
+                        == Some(request_id.as_str())
+                {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("approval resolved event emitted before IM cleanup");
+        assert_eq!(resolved.payload["source"], "user_stop");
+        assert_eq!(resolved.payload["decision"], "deny");
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), &mut deny_task)
+                .await
+                .is_err(),
+            "cleanup should still be waiting on the deliberately held IM lock"
+        );
+
+        release_lock_tx.send(()).expect("release IM cleanup lock");
+        assert_eq!(deny_task.await.expect("deny task completed"), 1);
+        lock_task.await.expect("lock task completed");
     }
 
     /// Sidebar countdown: the per-session aggregate counts every pending
