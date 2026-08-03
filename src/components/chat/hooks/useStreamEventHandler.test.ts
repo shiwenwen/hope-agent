@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest"
 import type { Message } from "@/types/chat"
-import { createStreamDeltaBuffers, handleStreamEvent } from "./useStreamEventHandler"
+import {
+  createStreamDeltaBuffers,
+  handleStreamEvent,
+  streamCursorKey,
+} from "./useStreamEventHandler"
 
 function createDeps(messagesRef: { current: Message[] }) {
   return {
@@ -310,12 +314,7 @@ describe("handleStreamEvent model recovery notices", () => {
       )
     }
 
-    expect(messagesRef.current.map((m) => m.role)).toEqual([
-      "user",
-      "event",
-      "event",
-      "assistant",
-    ])
+    expect(messagesRef.current.map((m) => m.role)).toEqual(["user", "event", "event", "assistant"])
     expect(parseEvent(messagesRef.current[1]).attempt).toBe(1)
     expect(parseEvent(messagesRef.current[2]).attempt).toBe(2)
   })
@@ -337,7 +336,8 @@ describe("handleStreamEvent durable attempt replacement", () => {
       ] satisfies Message[],
     }
     const deps = createDeps(messagesRef)
-    deps.deltaBuffersRef.current.pending.set("s1", {
+    const legacyCursor = streamCursorKey("s1", null)
+    deps.deltaBuffersRef.current.pending.set(legacyCursor, {
       text: "not-yet-rendered old bytes",
       thinking: "",
     })
@@ -353,7 +353,7 @@ describe("handleStreamEvent durable attempt replacement", () => {
     )
 
     expect(handled).toBe(true)
-    expect(deps.deltaBuffersRef.current.pending.has("s1")).toBe(false)
+    expect(deps.deltaBuffersRef.current.pending.has(legacyCursor)).toBe(false)
     expect(messagesRef.current[1]).toMatchObject({
       role: "assistant",
       content: "",

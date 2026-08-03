@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::stream_seq::{ChatSource, ACTIVE_STREAM_ERROR_CODE};
@@ -15,6 +15,15 @@ use super::stream_seq::{ChatSource, ACTIVE_STREAM_ERROR_CODE};
 pub struct ActiveTurnError {
     pub session_id: String,
     pub existing_source: ChatSource,
+    cancelled_by_global_stop: bool,
+}
+
+impl ActiveTurnError {
+    /// The request was admitted before (or during) an emergency global Stop
+    /// and was rejected before its user message could be persisted.
+    pub fn cancelled_by_global_stop(&self) -> bool {
+        self.cancelled_by_global_stop
+    }
 }
 
 impl fmt::Display for ActiveTurnError {
@@ -33,16 +42,55 @@ impl std::error::Error for ActiveTurnError {}
 struct Entry {
     token: String,
     turn_id: String,
+    client_request_id: Option<String>,
     stream_id: Option<String>,
     source: ChatSource,
     cancel: Arc<AtomicBool>,
+    persistence_state: Arc<AtomicU8>,
     accepting_insertions: bool,
 }
 
+const PERSISTENCE_PENDING: u8 = 0;
+const PERSISTENCE_RUNNING: u8 = 1;
+const PERSISTENCE_DURABLE: u8 = 2;
+const PERSISTENCE_CANCELLED: u8 = 3;
+
 static ACTIVE_TURNS: OnceLock<Mutex<HashMap<String, Entry>>> = OnceLock::new();
+/// A Stop request keeps this short-lived gate armed while it snapshots and
+/// settles work owned by the old turn. Without the gate, the old cleanup can
+/// race a freshly-acquired turn in the same session and mistake its resources
+/// for leftovers.
+static STOP_CLEANUPS: OnceLock<Mutex<HashMap<String, HashSet<String>>>> = OnceLock::new();
+/// Process-wide emergency Stop gate. This closes the enumeration gap in
+/// `stop_all_sessions`: a turn must not acquire after the active snapshot yet
+/// before runtime work is captured, otherwise global cleanup could cancel its
+/// resources without signalling its foreground token.
+static GLOBAL_STOP_CLEANUPS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+/// Monotonic emergency-Stop generation. Desktop/HTTP requests snapshot this at
+/// entry, before any project bootstrap or other pre-registration await. A Stop
+/// advances it while holding the active registry lock, so an older request can
+/// never register after the bounded global cleanup gate has been released.
+static GLOBAL_STOP_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Request-scoped stops may arrive before the shell has registered a turn.
+/// When the caller already knows the target session, retain that binding so a
+/// reused/malformed request id cannot cancel a turn in another session.
+static PENDING_CLIENT_CANCELS: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+const PENDING_CLIENT_CANCELS_MAX: usize = 4096;
 
 fn registry() -> &'static Mutex<HashMap<String, Entry>> {
     ACTIVE_TURNS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn pending_client_cancels() -> &'static Mutex<HashMap<String, Option<String>>> {
+    PENDING_CLIENT_CANCELS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn stop_cleanups() -> &'static Mutex<HashMap<String, HashSet<String>>> {
+    STOP_CLEANUPS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn global_stop_cleanups() -> &'static Mutex<HashSet<String>> {
+    GLOBAL_STOP_CLEANUPS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
 /// Poison-tolerant lock on the active-turn registry. A panic while another
@@ -68,9 +116,7 @@ impl ActiveTurnGuard {
         if self.released {
             return;
         }
-        let mut map = registry()
-            .lock()
-            .expect("active chat turn registry poisoned");
+        let mut map = registry_lock();
         if map
             .get(&self.session_id)
             .map(|entry| entry.token.as_str() == self.token)
@@ -88,10 +134,183 @@ impl Drop for ActiveTurnGuard {
     }
 }
 
+#[derive(Debug)]
+pub struct StopCleanupGuard {
+    session_id: String,
+    token: String,
+    released: bool,
+}
+
+impl StopCleanupGuard {
+    pub fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        let mut stopping = stop_cleanups()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(tokens) = stopping.get_mut(&self.session_id) {
+            tokens.remove(&self.token);
+            if tokens.is_empty() {
+                stopping.remove(&self.session_id);
+            }
+        }
+        self.released = true;
+    }
+}
+
+impl Drop for StopCleanupGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+#[derive(Debug)]
+pub struct GlobalStopCleanupGuard {
+    token: String,
+    released: bool,
+}
+
+impl GlobalStopCleanupGuard {
+    pub fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        global_stop_cleanups()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.token);
+        self.released = true;
+    }
+}
+
+impl Drop for GlobalStopCleanupGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// Prevent a replacement foreground turn from acquiring this session until
+/// the Stop caller has captured the old turn's exact cleanup targets.
+///
+/// Acquisition and gate installation both serialize through `ACTIVE_TURNS`,
+/// so either a racing turn is visible to Stop and gets cancelled, or it sees
+/// this gate and is rejected. They cannot pass each other unseen.
+pub fn begin_stop_cleanup(session_id: &str) -> StopCleanupGuard {
+    let token = uuid::Uuid::new_v4().to_string();
+    let _active = registry_lock();
+    stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .entry(session_id.to_string())
+        .or_default()
+        .insert(token.clone());
+    StopCleanupGuard {
+        session_id: session_id.to_string(),
+        token,
+        released: false,
+    }
+}
+
+/// Prevent any replacement foreground turn from entering while a process-wide
+/// emergency Stop enumerates and settles its exact cleanup targets.
+pub fn begin_global_stop_cleanup() -> GlobalStopCleanupGuard {
+    let token = uuid::Uuid::new_v4().to_string();
+    let _active = registry_lock();
+    GLOBAL_STOP_GENERATION.fetch_add(1, Ordering::SeqCst);
+    global_stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(token.clone());
+    GlobalStopCleanupGuard {
+        token,
+        released: false,
+    }
+}
+
+/// Whether session-scoped or process-wide Stop cleanup still owns admission
+/// for this session. ACP does not register an [`ActiveTurnGuard`], so it uses
+/// this read-only gate before accepting a replacement prompt.
+pub fn stop_cleanup_active(session_id: &str) -> bool {
+    let _active = registry_lock();
+    if !global_stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .is_empty()
+    {
+        return true;
+    }
+    stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(session_id)
+        .is_some_and(|tokens| !tokens.is_empty())
+}
+
+/// Admission snapshot for a foreground request that may perform async work
+/// before it can register its active turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForegroundRequestAdmission {
+    global_stop_generation: u64,
+}
+
+/// Capture at the transport entry point, before its first await.
+pub fn begin_foreground_request() -> ForegroundRequestAdmission {
+    ForegroundRequestAdmission {
+        global_stop_generation: GLOBAL_STOP_GENERATION.load(Ordering::SeqCst),
+    }
+}
+
 pub fn try_acquire(
     session_id: &str,
     source: ChatSource,
     turn_id: String,
+    cancel: Arc<AtomicBool>,
+) -> Result<ActiveTurnGuard, ActiveTurnError> {
+    try_acquire_with_client_request_id(session_id, source, turn_id, None, cancel)
+}
+
+/// Acquire a foreground turn and associate it with the client request that
+/// initiated it. The request id lets a draft-session Stop target this exact
+/// turn before `session_created` / `turn_started` has reached the UI.
+pub fn try_acquire_with_client_request_id(
+    session_id: &str,
+    source: ChatSource,
+    turn_id: String,
+    client_request_id: Option<String>,
+    cancel: Arc<AtomicBool>,
+) -> Result<ActiveTurnGuard, ActiveTurnError> {
+    try_acquire_inner(session_id, source, turn_id, client_request_id, None, cancel)
+}
+
+/// Register a Desktop/HTTP request against the generation captured at its
+/// transport entry point. If an emergency Stop began while the request was in
+/// bootstrap or another pre-registration await, reject it even after the
+/// short-lived global cleanup gate has already been released.
+pub fn try_acquire_foreground_request(
+    admission: ForegroundRequestAdmission,
+    session_id: &str,
+    source: ChatSource,
+    turn_id: String,
+    client_request_id: Option<String>,
+    cancel: Arc<AtomicBool>,
+) -> Result<ActiveTurnGuard, ActiveTurnError> {
+    try_acquire_inner(
+        session_id,
+        source,
+        turn_id,
+        client_request_id,
+        Some(admission.global_stop_generation),
+        cancel,
+    )
+}
+
+fn try_acquire_inner(
+    session_id: &str,
+    source: ChatSource,
+    turn_id: String,
+    client_request_id: Option<String>,
+    request_global_stop_generation: Option<u64>,
     cancel: Arc<AtomicBool>,
 ) -> Result<ActiveTurnGuard, ActiveTurnError> {
     let token = uuid::Uuid::new_v4().to_string();
@@ -100,16 +319,72 @@ pub fn try_acquire(
         return Err(ActiveTurnError {
             session_id: session_id.to_string(),
             existing_source: existing.source,
+            cancelled_by_global_stop: false,
         });
     }
+    if request_global_stop_generation
+        .is_some_and(|generation| generation != GLOBAL_STOP_GENERATION.load(Ordering::SeqCst))
+    {
+        return Err(ActiveTurnError {
+            session_id: session_id.to_string(),
+            existing_source: source,
+            cancelled_by_global_stop: true,
+        });
+    }
+    if !global_stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .is_empty()
+    {
+        return Err(ActiveTurnError {
+            session_id: session_id.to_string(),
+            existing_source: source,
+            cancelled_by_global_stop: true,
+        });
+    }
+    if stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(session_id)
+        .is_some_and(|tokens| !tokens.is_empty())
+    {
+        return Err(ActiveTurnError {
+            session_id: session_id.to_string(),
+            existing_source: source,
+            cancelled_by_global_stop: false,
+        });
+    }
+    if client_request_id.as_deref().is_some_and(|request_id| {
+        let mut pending = pending_client_cancels()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let matches_session = pending.get(request_id).is_some_and(|expected_session_id| {
+            expected_session_id
+                .as_deref()
+                .is_none_or(|expected| expected == session_id)
+        });
+        if matches_session {
+            pending.remove(request_id);
+        }
+        matches_session
+    }) {
+        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    let persistence_state = Arc::new(AtomicU8::new(if cancel.load(Ordering::SeqCst) {
+        PERSISTENCE_CANCELLED
+    } else {
+        PERSISTENCE_PENDING
+    }));
     map.insert(
         session_id.to_string(),
         Entry {
             token: token.clone(),
             turn_id,
+            client_request_id,
             stream_id: None,
             source,
             cancel,
+            persistence_state,
             accepting_insertions: true,
         },
     );
@@ -129,6 +404,27 @@ pub struct ActiveTurnSnapshot {
     pub cancel: Arc<AtomicBool>,
 }
 
+/// Resolve the exact Stop target shared by the desktop and HTTP adapters.
+///
+/// Before `turn_started` reaches the client, a Stop may know the session and
+/// client request id but not the turn id. If the request id already resolves
+/// to an active turn, preserve that turn id even when the caller supplied the
+/// session explicitly; falling back to a session-wide Stop could otherwise
+/// race and cancel a replacement turn.
+pub fn resolve_stop_target(
+    explicit_session_id: Option<&str>,
+    explicit_turn_id: Option<&str>,
+    request_target: Option<&ActiveTurnSnapshot>,
+) -> (Option<String>, Option<String>) {
+    let session_id = explicit_session_id
+        .map(str::to_string)
+        .or_else(|| request_target.map(|active| active.session_id.clone()));
+    let turn_id = explicit_turn_id
+        .map(str::to_string)
+        .or_else(|| request_target.map(|active| active.turn_id.clone()));
+    (session_id, turn_id)
+}
+
 pub fn current(session_id: &str) -> Option<ActiveTurnSnapshot> {
     let map = registry_lock();
     map.get(session_id).map(|entry| ActiveTurnSnapshot {
@@ -138,6 +434,163 @@ pub fn current(session_id: &str) -> Option<ActiveTurnSnapshot> {
         source: entry.source,
         cancel: Arc::clone(&entry.cancel),
     })
+}
+
+/// Resolve an active foreground turn by the opaque client request id.
+pub fn current_for_client_request(client_request_id: &str) -> Option<ActiveTurnSnapshot> {
+    let map = registry_lock();
+    map.iter().find_map(|(session_id, entry)| {
+        (entry.client_request_id.as_deref() == Some(client_request_id)).then(|| {
+            ActiveTurnSnapshot {
+                session_id: session_id.clone(),
+                turn_id: entry.turn_id.clone(),
+                stream_id: entry.stream_id.clone(),
+                source: entry.source,
+                cancel: Arc::clone(&entry.cancel),
+            }
+        })
+    })
+}
+
+#[derive(Debug, Clone)]
+pub enum ActiveTurnCancelOutcome {
+    Cancelled(ActiveTurnSnapshot),
+    NotFound,
+    TurnMismatch,
+}
+
+/// Signal one active turn while still holding the registry lock shared with
+/// the pre-turn persistence boundary. This makes Stop linearizable with the
+/// user-message/chat-turn transaction: either persistence commits first and
+/// Stop observes a durable turn, or cancellation wins and persistence is
+/// rejected.
+pub fn cancel_current(session_id: &str, expected_turn_id: Option<&str>) -> ActiveTurnCancelOutcome {
+    let map = registry_lock();
+    let Some(entry) = map.get(session_id) else {
+        return ActiveTurnCancelOutcome::NotFound;
+    };
+    if expected_turn_id.is_some_and(|expected| expected != entry.turn_id) {
+        return ActiveTurnCancelOutcome::TurnMismatch;
+    }
+    entry.cancel.store(true, Ordering::SeqCst);
+    let _ = entry.persistence_state.compare_exchange(
+        PERSISTENCE_PENDING,
+        PERSISTENCE_CANCELLED,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
+    ActiveTurnCancelOutcome::Cancelled(ActiveTurnSnapshot {
+        session_id: session_id.to_string(),
+        turn_id: entry.turn_id.clone(),
+        stream_id: entry.stream_id.clone(),
+        source: entry.source,
+        cancel: Arc::clone(&entry.cancel),
+    })
+}
+
+/// Signal every active turn under the same registry lock used by persistence.
+pub fn cancel_all_current() -> Vec<ActiveTurnSnapshot> {
+    let map = registry_lock();
+    map.iter()
+        .map(|(session_id, entry)| {
+            entry.cancel.store(true, Ordering::SeqCst);
+            let _ = entry.persistence_state.compare_exchange(
+                PERSISTENCE_PENDING,
+                PERSISTENCE_CANCELLED,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
+            ActiveTurnSnapshot {
+                session_id: session_id.clone(),
+                turn_id: entry.turn_id.clone(),
+                stream_id: entry.stream_id.clone(),
+                source: entry.source,
+                cancel: Arc::clone(&entry.cancel),
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone)]
+pub enum ClientRequestCancelOutcome {
+    Active(ActiveTurnSnapshot),
+    Latched,
+    SessionMismatch,
+}
+
+/// Cancel an already-registered client request, or latch the cancellation if
+/// the Stop request won the transport race and arrived first. Both this path
+/// and acquisition take the active registry before the pending map, so the
+/// lookup/insert and consume/register transitions cannot pass each other.
+pub fn cancel_or_latch_client_request(
+    client_request_id: &str,
+    expected_session_id: Option<&str>,
+) -> ClientRequestCancelOutcome {
+    let map = registry_lock();
+    if let Some((session_id, entry)) = map
+        .iter()
+        .find(|(_, entry)| entry.client_request_id.as_deref() == Some(client_request_id))
+    {
+        if expected_session_id.is_some_and(|expected| expected != session_id) {
+            return ClientRequestCancelOutcome::SessionMismatch;
+        }
+        entry
+            .cancel
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = entry.persistence_state.compare_exchange(
+            PERSISTENCE_PENDING,
+            PERSISTENCE_CANCELLED,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
+        return ClientRequestCancelOutcome::Active(ActiveTurnSnapshot {
+            session_id: session_id.clone(),
+            turn_id: entry.turn_id.clone(),
+            stream_id: entry.stream_id.clone(),
+            source: entry.source,
+            cancel: Arc::clone(&entry.cancel),
+        });
+    }
+
+    let mut pending = pending_client_cancels()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(existing_session_id) = pending.get(client_request_id) {
+        if existing_session_id.as_deref().is_some()
+            && expected_session_id.is_some()
+            && existing_session_id.as_deref() != expected_session_id
+        {
+            return ClientRequestCancelOutcome::SessionMismatch;
+        }
+        if existing_session_id.is_none() && expected_session_id.is_some() {
+            pending.insert(
+                client_request_id.to_string(),
+                expected_session_id.map(str::to_string),
+            );
+        }
+        return ClientRequestCancelOutcome::Latched;
+    }
+    if pending.len() >= PENDING_CLIENT_CANCELS_MAX {
+        if let Some(evicted) = pending.keys().next().cloned() {
+            pending.remove(&evicted);
+        }
+    }
+    pending.insert(
+        client_request_id.to_string(),
+        expected_session_id.map(str::to_string),
+    );
+    ClientRequestCancelOutcome::Latched
+}
+
+/// Observe a pre-registration request cancellation without consuming it.
+/// Project bootstrap uses this after publishing its client-request mapping so
+/// a Stop that arrived even earlier can also latch bootstrap cancellation.
+pub fn has_latched_client_cancel(client_request_id: &str) -> bool {
+    let _map = registry_lock();
+    pending_client_cancels()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains_key(client_request_id)
 }
 
 /// Execute a short synchronous operation only while this exact user-facing
@@ -168,6 +621,67 @@ pub fn with_insertion_target<T>(
         return Err("active turn source does not support insertion");
     }
     Ok(operation())
+}
+
+/// Claim and execute the transaction that first makes a foreground prompt
+/// durable. The atomic state is the ordering point with Stop; the registry
+/// lock is deliberately released before the potentially blocking operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PersistenceTargetOutcome<T> {
+    Committed(T),
+    CommittedAfterCancel(T),
+    CancelledBeforeCommit,
+}
+
+pub fn with_persistence_target<T>(
+    session_id: &str,
+    turn_id: &str,
+    operation: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<PersistenceTargetOutcome<T>> {
+    let (cancel, persistence_state) = {
+        let map = registry_lock();
+        let Some(entry) = map.get(session_id) else {
+            return Ok(PersistenceTargetOutcome::CancelledBeforeCommit);
+        };
+        if entry.turn_id != turn_id {
+            return Ok(PersistenceTargetOutcome::CancelledBeforeCommit);
+        }
+        (
+            Arc::clone(&entry.cancel),
+            Arc::clone(&entry.persistence_state),
+        )
+    };
+
+    // This atomic claim is the ordering point with Stop. The registry mutex is
+    // released before SQLite/filesystem work starts, so a stalled persistence
+    // cannot block cancellation or admission for unrelated sessions.
+    if persistence_state
+        .compare_exchange(
+            PERSISTENCE_PENDING,
+            PERSISTENCE_RUNNING,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        )
+        .is_err()
+    {
+        return Ok(PersistenceTargetOutcome::CancelledBeforeCommit);
+    }
+
+    let result = operation();
+    match result {
+        Ok(value) => {
+            persistence_state.store(PERSISTENCE_DURABLE, Ordering::SeqCst);
+            if cancel.load(Ordering::SeqCst) {
+                Ok(PersistenceTargetOutcome::CommittedAfterCancel(value))
+            } else {
+                Ok(PersistenceTargetOutcome::Committed(value))
+            }
+        }
+        Err(error) => {
+            persistence_state.store(PERSISTENCE_CANCELLED, Ordering::SeqCst);
+            Err(error)
+        }
+    }
 }
 
 /// Close the insertion gate for an exact turn before its durable queue rows
@@ -251,6 +765,18 @@ pub fn clear_all() -> usize {
     let mut map = registry_lock();
     let n = map.len();
     map.clear();
+    pending_client_cancels()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+    stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+    global_stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
     n
 }
 
@@ -407,6 +933,119 @@ mod tests {
     }
 
     #[test]
+    fn request_id_targets_a_draft_turn_before_session_events_arrive() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-request-target";
+        let cancel = Arc::new(AtomicBool::new(false));
+        let _guard = try_acquire_with_client_request_id(
+            sid,
+            ChatSource::Desktop,
+            "turn-request-target".to_string(),
+            Some("request-target".to_string()),
+            Arc::clone(&cancel),
+        )
+        .unwrap();
+
+        assert!(current_for_client_request("unknown-request").is_none());
+        let snapshot = current_for_client_request("request-target").unwrap();
+        assert_eq!(snapshot.session_id, sid);
+        assert_eq!(snapshot.turn_id, "turn-request-target");
+        assert!(Arc::ptr_eq(&snapshot.cancel, &cancel));
+
+        let cancelled = cancel_or_latch_client_request("request-target", Some(sid));
+        let ClientRequestCancelOutcome::Active(cancelled) = cancelled else {
+            panic!("expected an active request cancellation");
+        };
+        assert_eq!(cancelled.turn_id, "turn-request-target");
+        assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
+
+        let (target_session_id, target_turn_id) =
+            resolve_stop_target(Some(sid), None, Some(&cancelled));
+        assert_eq!(target_session_id.as_deref(), Some(sid));
+        assert_eq!(target_turn_id.as_deref(), Some("turn-request-target"));
+    }
+
+    #[test]
+    fn request_stop_latches_when_it_arrives_before_turn_registration() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-request-latch";
+        let cancel = Arc::new(AtomicBool::new(false));
+
+        assert!(matches!(
+            cancel_or_latch_client_request("request-latch", Some(sid)),
+            ClientRequestCancelOutcome::Latched
+        ));
+        let _guard = try_acquire_with_client_request_id(
+            sid,
+            ChatSource::Http,
+            "turn-request-latch".to_string(),
+            Some("request-latch".to_string()),
+            Arc::clone(&cancel),
+        )
+        .unwrap();
+
+        assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn latched_request_stop_does_not_signal_another_turn_in_the_session() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-request-latch-isolation";
+        let active_cancel = Arc::new(AtomicBool::new(false));
+        let _active_guard = try_acquire_with_client_request_id(
+            sid,
+            ChatSource::Http,
+            "turn-a".to_string(),
+            Some("request-a".to_string()),
+            Arc::clone(&active_cancel),
+        )
+        .expect("active request A");
+
+        assert!(matches!(
+            cancel_or_latch_client_request("request-b", Some(sid)),
+            ClientRequestCancelOutcome::Latched
+        ));
+        assert!(
+            !active_cancel.load(std::sync::atomic::Ordering::SeqCst),
+            "request B's latch must not become a session-wide signal for request A"
+        );
+    }
+
+    #[test]
+    fn request_stop_for_known_session_does_not_cancel_another_session() {
+        let _lock = test_lock();
+        let expected_sid = "test-active-turn-request-expected-session";
+        let other_sid = "test-active-turn-request-other-session";
+
+        assert!(matches!(
+            cancel_or_latch_client_request("request-session-bound", Some(expected_sid)),
+            ClientRequestCancelOutcome::Latched
+        ));
+
+        let other_cancel = Arc::new(AtomicBool::new(false));
+        let _other_guard = try_acquire_with_client_request_id(
+            other_sid,
+            ChatSource::Http,
+            "turn-other-session".to_string(),
+            Some("request-session-bound".to_string()),
+            Arc::clone(&other_cancel),
+        )
+        .unwrap();
+        assert!(!other_cancel.load(std::sync::atomic::Ordering::SeqCst));
+
+        let expected_cancel = Arc::new(AtomicBool::new(false));
+        let _expected_guard = try_acquire_with_client_request_id(
+            expected_sid,
+            ChatSource::Desktop,
+            "turn-expected-session".to_string(),
+            Some("request-session-bound".to_string()),
+            Arc::clone(&expected_cancel),
+        )
+        .unwrap();
+        assert!(expected_cancel.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
     fn is_accepting_and_has_entry_match_current_semantics() {
         let _lock = test_lock();
         let sid = "test-active-turn-is-accepting";
@@ -501,6 +1140,162 @@ mod tests {
         assert!(current(sid).is_some());
         assert!(force_release(sid, "turn-force"));
         assert!(current(sid).is_none());
+    }
+
+    #[test]
+    fn stop_cleanup_gate_blocks_only_until_old_snapshot_finishes() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-stop-cleanup-gate";
+        let gate = begin_stop_cleanup(sid);
+
+        assert!(try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-during-stop".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .is_err());
+
+        drop(gate);
+        let _guard = try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-after-stop".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("replacement turn should acquire after cleanup snapshot");
+    }
+
+    #[test]
+    fn global_stop_cleanup_gate_blocks_every_session_until_release() {
+        let _lock = test_lock();
+        let gate = begin_global_stop_cleanup();
+        for (session_id, source) in [
+            ("test-global-stop-a", ChatSource::Desktop),
+            ("test-global-stop-b", ChatSource::Http),
+        ] {
+            assert!(try_acquire(
+                session_id,
+                source,
+                format!("turn-{session_id}"),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .is_err());
+        }
+
+        drop(gate);
+        let _guard = try_acquire(
+            "test-global-stop-a",
+            ChatSource::Desktop,
+            "turn-after-global-stop".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("replacement turn should acquire after global cleanup");
+    }
+
+    #[test]
+    fn global_stop_generation_rejects_requests_that_predate_cleanup() {
+        let _lock = test_lock();
+        let stale_request = begin_foreground_request();
+
+        let gate = begin_global_stop_cleanup();
+        drop(gate);
+
+        let error = try_acquire_foreground_request(
+            stale_request,
+            "test-global-stop-stale-request",
+            ChatSource::Desktop,
+            "turn-stale-request".to_string(),
+            Some("request-stale".to_string()),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect_err("request predating global Stop must be rejected");
+        assert!(error.cancelled_by_global_stop());
+
+        let fresh_request = begin_foreground_request();
+        let _guard = try_acquire_foreground_request(
+            fresh_request,
+            "test-global-stop-fresh-request",
+            ChatSource::Http,
+            "turn-fresh-request".to_string(),
+            Some("request-fresh".to_string()),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("request entering after global Stop should acquire");
+    }
+
+    #[test]
+    fn global_stop_generation_rejects_stale_channel_admission() {
+        let _lock = test_lock();
+        let stale_request = begin_foreground_request();
+        drop(begin_global_stop_cleanup());
+
+        let error = try_acquire_foreground_request(
+            stale_request,
+            "test-global-stop-stale-channel",
+            ChatSource::Channel,
+            "turn-stale-channel".to_string(),
+            None,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect_err("Channel request predating global Stop must be rejected");
+        assert!(error.cancelled_by_global_stop());
+    }
+
+    #[test]
+    fn cancelled_turn_cannot_cross_prompt_persistence_boundary() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-persistence-boundary";
+        let _guard = try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-persistence".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            cancel_current(sid, Some("turn-persistence")),
+            ActiveTurnCancelOutcome::Cancelled(_)
+        ));
+        assert_eq!(
+            with_persistence_target(sid, "turn-persistence", || Ok("persisted")).unwrap(),
+            PersistenceTargetOutcome::CancelledBeforeCommit
+        );
+    }
+
+    #[test]
+    fn persistence_does_not_hold_registry_mutex_during_slow_io() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-persistence-nonblocking";
+        let _guard = try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-persistence-nonblocking".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            with_persistence_target(sid, "turn-persistence-nonblocking", || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok("persisted")
+            })
+            .unwrap()
+        });
+        started_rx.recv().unwrap();
+
+        assert!(matches!(
+            cancel_current(sid, Some("turn-persistence-nonblocking")),
+            ActiveTurnCancelOutcome::Cancelled(_)
+        ));
+        release_tx.send(()).unwrap();
+        assert_eq!(
+            worker.join().unwrap(),
+            PersistenceTargetOutcome::CommittedAfterCancel("persisted")
+        );
     }
 
     #[test]

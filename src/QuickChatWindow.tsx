@@ -29,15 +29,10 @@ const QUICK_CHAT_MESSAGES_HEIGHT = 500
 export default function QuickChatWindow() {
   const session = useQuickChatSession(true)
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
-  const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
+  const quickEndedStreamIdsRef = useRef<Map<string, Set<string>>>(new Map())
   const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
   const [messageTailVisible, setMessageTailVisible] = useState(true)
-  useEmbeddedChatReadReceipt(
-    true,
-    messageTailVisible,
-    session.currentSessionId,
-    session.messages,
-  )
+  useEmbeddedChatReadReceipt(true, messageTailVisible, session.currentSessionId, session.messages)
 
   // Effective incognito = persisted session.incognito (continued chat) or
   // draft toggle (new chat). Mirrors `ChatScreen` semantics so the toggle
@@ -351,25 +346,25 @@ function AgentSelector({
         className="ha-menu-from-top min-w-[200px] max-h-[240px] overflow-y-auto p-1.5"
         onEscapeKeyDown={() => setMenuOpen(false)}
       >
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              onClick={() => {
-                onSelect(agent.id)
-                setMenuOpen(false)
-              }}
-              className={cn(
-                "w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2",
-                agent.id === currentAgent?.id && "bg-muted/50",
-              )}
-            >
-              <AgentAvatarIcon agent={agent} />
-              <span className="truncate">{agent.name}</span>
-              {agent.id === currentAgent?.id && (
-                <span className="ml-auto text-xs text-primary">●</span>
-              )}
-            </button>
-          ))}
+        {agents.map((agent) => (
+          <button
+            key={agent.id}
+            onClick={() => {
+              onSelect(agent.id)
+              setMenuOpen(false)
+            }}
+            className={cn(
+              "w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2",
+              agent.id === currentAgent?.id && "bg-muted/50",
+            )}
+          >
+            <AgentAvatarIcon agent={agent} />
+            <span className="truncate">{agent.name}</span>
+            {agent.id === currentAgent?.id && (
+              <span className="ml-auto text-xs text-primary">●</span>
+            )}
+          </button>
+        ))}
       </FloatingMenu>
     </div>
   )

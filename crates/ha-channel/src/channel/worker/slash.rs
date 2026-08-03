@@ -251,11 +251,24 @@ pub(super) async fn dispatch_slash_for_channel(
             })
         }
 
-        // ── Stop stream — cancel via registry ──
+        // ── Stop stream — same session-stop orchestration as GUI / HTTP ──
         Some(CommandAction::StopStream) => {
-            let cancelled = ha_core::globals::get_channel_cancels()
-                .map(|reg| reg.cancel(session_id))
-                .unwrap_or(false);
+            // The shared service also flips Channel preflight registrations;
+            // keeping it there makes a GUI/HTTP Stop of this attached session
+            // exactly equivalent to `/stop`.
+            let stop = match ha_core::get_session_db() {
+                Some(db) => {
+                    ha_core::chat_engine::stop::stop_session(db.clone(), session_id, None, false)
+                        .await
+                }
+                None => ha_core::chat_engine::stop::StopSessionOutcome {
+                    stopped: ha_core::globals::get_channel_cancels()
+                        .map(|registry| registry.cancel(session_id))
+                        .unwrap_or(false),
+                    ..Default::default()
+                },
+            };
+            let cancelled = stop.stopped;
             let msg = if cancelled {
                 "Stopping current stream...".to_string()
             } else {

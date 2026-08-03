@@ -405,7 +405,7 @@ flowchart TD
     ENGINE --> S8 --> S9 --> S10
 ```
 
-> **入站单飞（I8 / MISC-2 修复）**：dispatcher 用 `MAX_CONCURRENT_INBOUND` semaphore 限**全局**并发，但不串行化**同一会话**——两条快速到达的消息会并发 spawn 两个 `handle_inbound_message`，后到者在引擎深处输给 `stream_seq::begin` 竞争（此时 pipeline 已 spawn），以「active stream」错误回复收场。步骤 5c 接上 GUI/HTTP 同款 `active_turn::try_acquire` 单飞守卫：在持久化用户消息**之后**、引擎启动**之前**加闸，故每条入站照常入库 + 过 `UserPromptSubmit` preflight，仅「引擎回合」被单飞。守卫跨 IM/GUI/HTTP 在同一（1:1 attach）会话上互斥。用**合成 turn_id** 仅作单飞锁、引擎仍 `turn_id: None`（Channel 走 `channel:*` 总线，给它 seq-tracked turn_id 会改变 stream 接受 / 广播语义）；cancel `Arc` 一处创建供 `try_acquire` / `engine_params` / channel 取消注册表共用，使跨端取消能真正中止该引擎回合。被拒的消息已入库、搭下一回合上下文（无自动出队）。
+> **入站单飞与停止（I8 / MISC-2 修复）**：dispatcher 用 `MAX_CONCURRENT_INBOUND` semaphore 限**全局**并发，但不串行化**同一会话**——两条快速到达的消息会并发 spawn 两个 `handle_inbound_message`。每条非 Reply-only 入站在 typing、延迟附件下载和 `UserPromptSubmit` preflight **之前**向 Channel cancel registry 注册独立 token；网络准备也与该 token 竞争。同 session 多条在飞入站不能相互覆盖，一次 Stop 会同时翻转全部 token。通过 preflight 并持久化 user message 后，步骤 5c 再接 GUI/HTTP 同款 `active_turn::try_acquire` 单飞守卫，故仅一个「引擎回合」可运行；被单飞拒绝的消息已入库、搭下一回合上下文（无自动出队）。守卫跨 IM/GUI/HTTP 在同一（1:1 attach）会话上互斥。用**合成 turn_id** 仅作单飞锁、引擎仍 `turn_id: None`（Channel 走 `channel:*` 总线，给它 seq-tracked turn_id 会改变 stream 接受 / 广播语义）；同一 cancel `Arc` 贯穿 typing / 附件下载、preflight、`try_acquire`、可选语音转写、`engine_params`、preview 收尾和 final/error delivery。stream pipeline 只在可取消准备完成后创建，Stop 会 abort 卡住的 preview / 渠道投递并释放单飞 guard，已渲染的半截 preview 保留作为中止视觉信号。
 
 ### 出站流程
 
@@ -887,6 +887,7 @@ mirror 与入站共享同一份 chunk 管道(`send_text_chunks` → `markdown_to
 | `/projects` | 列所有未归档项目 | inline buttons,callback `slash:project <id>` |
 | `/project <name>` | 模糊匹配后切项目 | 发 `AssignProject` —— UPDATE `sessions.project_id`,**不创建新 session**;GUI 模式发 `EnterProject` 创建新 session 进入 |
 | `/handover <ch:acc:chat[:thread]>` | GUI 把当前 session 推到 IM chat | 不下发菜单;实际入口 GUI Handover dialog,slash 给 power user / 脚本 |
+| `/stop` | 停止当前 session 的前台回合 | 与 GUI / HTTP Stop 共用 `chat_engine::stop::stop_session`：取消 Channel slash/preflight/active turn、拒绝待审批、撤销 `ask_user`、取消 session-owned runtime；`/stop` 是控制面输入，不得被自由输入型 `ask_user` 当作答案；仅回执与流事件走 Channel 自己的 transport |
 | `/kb [on\|off]` | 知识空间访问 per-chat 确认(WS8)。无参 / `status` 报生效态;群聊 `on`/`off` 写 `kbAccessChats`;DM 仅报状态(账号级 opt-in 在桌面 Settings) | 群聊确认入口;**账号级 `kbAccessOptIn` 仍为 owner GUI-only**,`/kb` 只翻 per-chat 确认位,且需账号已 opt-in 才生效 |
 
 `/status` 末尾追加 **Attached IM Channel** 段,显示该 session 的 IM attach 行(1:1,0 或 1 行) —— channel / chat 标识 + `attached_at`。
@@ -984,6 +985,7 @@ pub fn spawn_dispatcher(
 - **入站事件枚举**：分发器收 `InboundEvent`（`Message` / `Reaction` / `MessageEdited` / `MessageRecalled` / `Membership` / `ReadReceipt` 多变体），仅 `Message` 触发完整 chat round，其余变体当前仅 log
 - **并发处理 + 全局上限**：每条 `Message` 在独立 `tokio::spawn` 中处理，不阻塞其他消息；`Semaphore::new(MAX_CONCURRENT_INBOUND=20)` 的 owned permit 限全局在飞消息并发上限。整个 dispatcher 跑在专用线程自建的 tokio runtime 上
 - **斜杠命令拦截**：在调用 LLM 和写入 user turn 之前，`dispatch_slash_for_channel()` 检测以 `/` 开头的消息并经 `slash_hooks::dispatch()` 跳板转发给装配层 handler（IM 渠道**不得**直接 `use crate::slash_commands::…`，见 [backend-separation](backend-separation.md) 装配层小节）。`Reply` 类命令（`/help`、`/clear`、`/model`、`/status` 等）把原始 slash 与结果落为 `messages.role="event"`（command event 带 `displayAs="user"` 供 GUI 渲染成用户气泡），直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）将转换后的指令作为 `engine_message` 交给 LLM，并按真实对话 user turn 落库（详见 [斜杠命令系统](slash-commands.md)）
+- **Stop 只分入口、不分语义**：IM `/stop`、GUI 与 HTTP 都进入同一个 session-stop 编排，由共享服务统一翻转 Channel slash/preflight token 与 active-turn cancel，并清理审批、结构化问答及 runtime；不得只停 Channel preview，也不得在入口另写清理分支。Channel cancel registration 必须早于通用 slash dispatch，使 `/compact` 等尚未进入 Chat Engine 的长命令也可停止；`/stop` 自身不注册 token，且在审批/`ask_user` 文本回复解析前被识别为控制面消息，避免被吞作答案。Channel 只保留「如何定位当前 attach session、如何发送回执和流事件」的 transport 差异
 - **共享 ChatEngine**：调用 `chat_engine::run_chat_engine()` — 与 UI 聊天使用完全相同的 Agent 执行引擎，拥有相同的能力：流式输出、会话历史恢复、工具事件持久化、Failover 降级、Context compaction、Token 跟踪、异步记忆提取
 - **EventSink 抽象**：UI 聊天在桌面通过 `ChannelSink`（Tauri Channel）推流，在 HTTP 模式通过 `chat:stream_delta` EventBus 推到 `/ws/events`；IM 聊天通过 `ChannelStreamSink`（EventBus）推流到前端 + 累积 text_delta 发送 `channel:stream_delta` 事件
 - **每个渠道可绑定独立 Agent**：`ChannelAccountConfig.agent_id` 字段支持每个渠道账户绑定不同 Agent，未设置时回退到全局默认

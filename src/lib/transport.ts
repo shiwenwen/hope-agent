@@ -82,6 +82,9 @@ export interface ChatStartArgs {
   message: string;
   attachments: ReadonlyArray<ChatAttachment>;
   sessionId: string | null;
+  /** Opaque UI request identity used to stop a first turn before its lazy
+   *  session id has reached the frontend. */
+  clientRequestId?: string;
   incognito?: boolean;
   modelOverride?: string;
   /** Draft-only values snapshotted when the first turn creates the Session. */

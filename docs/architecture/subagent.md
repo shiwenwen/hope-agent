@@ -1,5 +1,5 @@
 # 子 Agent 系统架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../README.md) | 更新时间：2026-08-03
 
 ## 概述
 
@@ -64,7 +64,7 @@ stateDiagram-v2
 | `child_agent_id` | `String` | 子 Agent ID（如 `"ha-main"`） |
 | `child_session_id` | `String` | 隔离子会话 ID（通过 `create_session_with_parent` 创建，关联父会话） |
 | `task` | `String` | 任务描述原文 |
-| `status` | `SubagentStatus` | 七态状态枚举（含 `Queued`，R7.2） |
+| `status` | `SubagentStatus` | 八态状态枚举（含 `Queued` / `Interrupted`） |
 | `result` | `Option<String>` | 执行结果文本（截断至 `MAX_RESULT_CHARS = 10,000` 字符） |
 | `error` | `Option<String>` | 错误信息 |
 | `depth` | `u32` | 嵌套深度（从 1 开始，每级 +1） |
@@ -74,8 +74,8 @@ stateDiagram-v2
 | `duration_ms` | `Option<u64>` | 执行耗时（毫秒） |
 | `label` | `Option<String>` | 可选显示标签，用于前端追踪 |
 | `attachment_count` | `u32` | 传入附件数量 |
-| `input_tokens` | `Option<u64>` | 输入 token 用量（预留，当前为 None） |
-| `output_tokens` | `Option<u64>` | 输出 token 用量（预留，当前为 None） |
+| `input_tokens` | `Option<u64>` | 终态 attempt 的输入 token 用量；Provider 未返回 usage 时为 None |
+| `output_tokens` | `Option<u64>` | 终态 attempt 的输出 token 用量；Provider 未返回 usage 时为 None |
 | `continuation_of_run_id` | `Option<String>` | 前一 attempt；初次 spawn 为 None |
 | `trigger_kind` | `String` | `spawn` / `parent_followup` / `workflow_resume` / `internal` 等稳定触发来源 |
 | `terminal_reason` | `Option<SubagentTerminalReason>` | 稳定终止分类，用于恢复建议与审计 |
@@ -94,6 +94,27 @@ stateDiagram-v2
 
 run 终态与普通 parent delivery row 在同一事务写入；显式 `check/result/wait` 或续跑会先 durable suppress，再触发进程内取消信号。这样 app 在“子 Agent 已完成但父 Agent 尚未收到”窗口崩溃时可重放，而已经消费的结果不会因重启重复回注。
 
+### 终止原因与续跑判定
+
+`SubagentTerminalReason` 是持久化诊断枚举，不从自由文本反推。`resume_allowed` 只是 reason 级硬闸；真正续跑仍须同时通过 thread 为 `open`、owner 一致、source 是当前终态 attempt、单写者 fence、实时权限 / Plan / sandbox / KB / Agent capability 等检查。`resume_recommended` 仅是更窄的诊断建议，绝不自动创建 attempt。
+
+| terminal reason | 典型 status | resume allowed | resume recommended | 语义 |
+| --- | --- | --- | --- | --- |
+| `success` | Completed | 是 | 否 | 允许正常 follow-up，不属于故障恢复建议 |
+| `provider_exhausted` | Error | 是 | 是 | Provider 链耗尽，可由上层显式续跑 |
+| `model_error` | Error | 是 | 否 | 需由父 Agent / Workflow 判断 |
+| `tool_error` | Error | 是 | 否 | 先检查部分副作用，再决定是否续跑 |
+| `deadline_exceeded` | Timeout | 是 | 是 | 超时后可显式续跑 |
+| `process_interrupted` | Interrupted | 是 | 是 | 进程 / runner 丢失，启动恢复的标准分类 |
+| `runner_panic` | Error | 是 | 否 | 不自动重试，交上层判断 |
+| `invalid_typed_output` | Error | 是 | 否 | 先走已有的有界 schema repair |
+| `approval_denied` | Error | 否 | 否 | 不得借续跑绕过拒绝 |
+| `user_killed` | Killed | 否 | 否 | 用户停止是硬边界 |
+| `parent_cancelled` | Killed | 否 | 否 | 跟随父生命周期 |
+| `workflow_cancelled` | Killed | 否 | 否 | 跟随 Workflow 生命周期 |
+| `queue_payload_unavailable` | Interrupted / Error | 是 | 否 | 兼容 / 诊断枚举；当前 V1 的启动 sweep 统一写 `process_interrupted` |
+| `unknown` | Error | 是 | 否 | 历史或不可判定错误；允许人工决策，但不建议自动恢复 |
+
 ### SpawnParams（调用参数）
 
 | 字段 | 类型 | 说明 |
@@ -109,10 +130,18 @@ run 终态与普通 parent delivery row 在同一事务写入；显式 `check/re
 | `attachments` | `Vec<Attachment>` | 文件附件列表（支持 base64 和 UTF-8 文本） |
 | `plan_agent_mode` | `Option<PlanAgentMode>` | Plan 模式配置（用于 Plan 创建子 Agent） |
 | `plan_mode_allow_paths` | `Vec<String>` | Plan 模式文件写入白名单 |
-| `skip_parent_injection` | `bool` | 是否跳过自动结果注入 |
+| `lock_plan_agent_mode` | `bool` | 标记 Plan helper 是 `plan_agent_mode` 真相源，防 child session 的 live probe 覆盖显式模式 |
+| `skip_parent_injection` | `bool` | 兼容输入，并继续控制 Background Job 投影 gate；执行层交付真相源是 `delivery_kind` |
 | `extra_system_context` | `Option<String>` | 额外系统上下文（如 `PLAN_MODE_SYSTEM_PROMPT`） |
 | `skill_allowed_tools` | `Vec<String>` | Skill fork 模式继承的工具白名单 |
 | `isolate_worktree` | `bool` | 是否为 child session 尝试创建 Managed Worktree 隔离执行目录 |
+| `reasoning_effort` | `Option<String>` | 转发给子 Agent Provider 调用的 thinking effort；未设时回退 Provider / Agent 默认 |
+| `skill_name` | `Option<String>` | `context: fork` Skill 名，只用于事件 / UI 投影 |
+| `origin_source` | `Option<KbAccessSource>` | 父 turn 的 KB 来源血缘，防 IM-origin continuation 洗掉访问来源 |
+| `origin_channel_kb_context` | `Option<ChannelKbContext>` | IM account/chat 身份，供 child 的 KB opt-in 判定 |
+| `group_id` | `Option<String>` | `batch_spawn` Group 的协调 job id；存在时交付域切到 Group |
+| `owner_kind` / `owner_id` | owner tuple | Durable thread 控制域；普通 parent / Workflow / Team / internal 不得互相接管 |
+| `delivery_kind` | `parent|group|workflow|none` | Durable 交付域；决定普通 parent dispatcher 是否有权注入 |
 
 `isolate_worktree` 的默认产品语义：
 
@@ -125,7 +154,7 @@ run 终态与普通 parent delivery row 在同一事务写入；显式 `check/re
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `event_type` | `String` | `"spawned"` / `"running"` / `"completed"` / `"error"` / `"timeout"` / `"killed"` |
+| `event_type` | `String` | live launcher 发 `"spawned"`，执行终态发 `"completed"` / `"error"` / `"timeout"` / `"killed"`；启动恢复的 `Interrupted` 通过持久快照刷新，不伪造 live event |
 | `run_id` | `String` | 运行 ID |
 | `parent_session_id` | `String` | 父会话 ID |
 | `child_agent_id` | `String` | 子 Agent ID |
@@ -139,6 +168,7 @@ run 终态与普通 parent delivery row 在同一事务写入；显式 `check/re
 | `input_tokens` | `Option<u64>` | 输入 token（终态事件，`skip_serializing_if = None`） |
 | `output_tokens` | `Option<u64>` | 输出 token（终态事件，`skip_serializing_if = None`） |
 | `result_full` | `Option<String>` | 完整结果文本（仅终态事件携带，用于前端 push 交付） |
+| `skill_name` | `Option<String>` | `context: fork` Skill 名；前端据此选择专用进度渲染器 |
 
 ### ParentAgentStreamEvent（注入流式事件）
 
@@ -166,8 +196,9 @@ flowchart TD
     E1 --> E[生成 run_id UUID]
     EQ --> E
     E --> F[create_session_with_parent<br/>创建隔离子会话]
-    F --> G[INSERT SubagentRun<br/>status = initial_status<br/>+ project_subagent_spawn 投影]
-    G --> SQ{should_queue?}
+    F --> G[INSERT subagent_threads + SubagentRun<br/>status = initial_status]
+    G --> G2[按 gate 建只读 Background Job 投影]
+    G2 --> SQ{should_queue?}
     SQ -->|是| QQ[queue::enqueue<br/>返回 run_id（待调度器提升）]
     SQ -->|否| H[launch_subagent_run]
     H --> H2[注册 cancel flag<br/>SubagentCancelRegistry]
@@ -186,14 +217,19 @@ flowchart TD
     P -->|Timeout| T[status = Timeout]
     P -->|Panic| U[status = Error<br/>panicked unexpectedly]
 
-    Q & R & S & T & U --> V[更新 DB 状态 + finished_at]
-    V --> W[保存 user + assistant 消息到子会话]
+    Q & R & S & T & U --> V[状态事务写 status + terminal_reason<br/>普通 parent 同事务建 pending delivery]
+    V --> W[写 usage / 子会话终态消息]
     W --> X[emit 终态 SubagentEvent]
     X --> Y[清理 cancel flag + mailbox]
-    Y --> Z{skip_parent_injection?}
-    Z -->|否| AA[std::thread::spawn<br/>inject_and_run_parent]
-    Z -->|是| AB[结束]
-    AA --> AB
+    Y --> Z[dispatch_parent_result_delivery]
+    Z --> ZA{delivery_kind=parent<br/>owner=parent_session<br/>终态且非 Killed?}
+    ZA -->|否| AB[结束]
+    ZA -->|是·非无痕| ZB[durable CAS<br/>pending → injecting]
+    ZA -->|是·无痕| ZC[仅同进程即时注入]
+    ZB --> ZD[inject_and_run_parent]
+    ZC --> ZD
+    ZD --> ZE[成功 delivered<br/>显式消费 / 续跑 suppressed]
+    ZE --> AB
 ```
 
 ### execute_subagent 内部逻辑
@@ -212,6 +248,7 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant Sub as 子 Agent 后台任务
+    participant DB as SessionDB / durable delivery
     participant Inj as inject_and_run_parent
     participant ACS as ACTIVE_CHAT_SESSIONS
     participant Notify as SESSION_IDLE_NOTIFY
@@ -219,10 +256,11 @@ sequenceDiagram
     participant FE as 前端
     participant Queue as PENDING_INJECTIONS
 
-    Sub->>Sub: 子 Agent 完成
-    Sub->>Inj: std::thread::spawn<br/>(独立 OS 线程 + 新 tokio runtime)
+    Sub->>DB: 终态事务写 run<br/>普通 parent 同事务建 pending delivery
+    Sub->>DB: dispatch + CAS pending→injecting<br/>无痕跳过 durable row
+    Sub->>Inj: 独立 OS 线程 + current-thread runtime
 
-    Note over Inj: 步骤 0: 检查 FETCHED_RUN_IDS<br/>若已被 check/result 读取则跳过
+    Note over DB,Inj: check/result/wait/continuation 先把 delivery durable suppress<br/>FETCHED_RUN_IDS 只作同进程快速取消信号
 
     Inj->>Inj: 检查 INJECTING_SESSIONS<br/>防止同会话并发注入
     alt 已有注入进行中
@@ -253,6 +291,7 @@ sequenceDiagram
     alt 执行成功 & 未被取消
         Inj->>Inj: 写入父会话 DB:<br/>user(push_message) + assistant(response)
         Inj->>Inj: 保存更新后的 conversation history
+        Inj->>DB: on_injected → delivered
         Inj->>FE: emit ParentAgentStreamEvent(done)
         Note over Inj: G1: 父会话若 attach IM → await finalize 注入镜像回投 IM<br/>G2: cron 会话 → 反查 delivery_targets fan-out
     else 被用户取消 (cancel flag = true)
@@ -273,7 +312,7 @@ sequenceDiagram
 - **重试保证**：被取消的注入进入 `PENDING_INJECTIONS`，`ChatSessionGuard::drop()` 时 `flush_pending_injections` 每次只取一个重试（串行），下一个在 `CleanupGuard::drop()` 时触发
 - **空闲门超时不丢弃（G3/G5）**：父会话忙到 `announce_timeout` 仍未空闲时，**不再 `Abandoned` 到重启 replay**，而是携 `on_injected` 重排队进 `PENDING_INJECTIONS`，在长前台 turn 结束（`ChatSessionGuard::drop`）时重试。对 subagent / Group 注入（`on_injected=None`，无 `injected=0` 重启兜底）尤其关键——Group 合并注入因此不再永久丢失。`Abandoned` 仅剩锁中毒兜底
 - **后台完成回投外部面（G1/G2）**：注入 turn 成功后，若父会话 attach 了 IM chat，经 `im_mirror::attach_im_injection_mirror` + **await** `finalize_im_live_mirror` 按 `imReplyMode` 回投 IM（必须 await：注入跑在短命 current-thread runtime 上，spawned finalize 会被腰斩）；cron 会话经 `cron::delivery::deliver_injection_for_session`（反查 `cron_run_logs` → job）下发 `delivery_targets`
-- **跳过已读**：`mark_run_fetched(run_id)` 在 check/result 工具中调用，注入前和等待中均检查 `FETCHED_RUN_IDS`
+- **跳过已读**：显式 `check/result/wait` 或 continuation 先把 `subagent_result_deliveries` 持久化为 `suppressed`，再写 `FETCHED_RUN_IDS` 作为同进程快速取消信号；启动重放只认 durable row，不把内存集合当真相源
 
 ### 异步工具任务复用注入管道
 
@@ -287,7 +326,7 @@ sequenceDiagram
 | 传入的 `run_id` | 真实 `SubagentRun.run_id`（UUID v4） | `AsyncJob.job_id`（伪 run_id） |
 | `child_agent_id` 标签 | 子 Agent 的真实 ID | `tool_job:<tool_name>`，前端据此区分 |
 | 共享机制 | `inject_and_run_parent` / `INJECTING_SESSIONS` / `PENDING_INJECTIONS` / `SESSION_IDLE_NOTIFY` / `INJECTION_CANCELS` |
-| 进程内去重 | `FETCHED_RUN_IDS`（check/result 标记） | `dispatching_set()`（in-flight HashSet）+ `mark_injected` DB flag |
+| 去重真相 | `subagent_result_deliveries` CAS；`FETCHED_RUN_IDS` 仅同进程快速取消 | `dispatching_set()`（in-flight HashSet）+ `mark_injected` DB flag |
 
 设计要点：
 
@@ -306,17 +345,17 @@ sequenceDiagram
 | 关注点 | 实现 |
 |--------|------|
 | **建** | `spawn_subagent` 插入 run 行后，gate `!skip_parent_injection`（排除 plan / team / hook 内部 spawn）`&& !parent_incognito`（关闭即焚不留痕）→ `JobManager::project_subagent_spawn`。投影 `args_json="{}"`、result/error 恒 `None`、`injected=true`，status 镜像 run 的 `initial_status`（R7.2 起可为 `Queued`） |
-| **同步** | 单一 choke point `SessionDB::update_subagent_status` 末尾 → `JobManager::sync_subagent_projection`（先释放 SessionDB 锁再跨库）。覆盖 run 生命周期（Spawning→Running→终态）+ 三处 kill fallback。映射 `Queued→Queued`（R7.2）、`Spawning/Running→Running`、`Error→Failed`、`Timeout→TimedOut`、`Killed→Cancelled`。`update_subagent_projection_status` scoped `kind='subagent'`、terminal 冻结（`status NOT IN (终态)`）防 late/duplicate sync 重开 |
+| **同步** | 单一 choke point `SessionDB::update_subagent_status` 末尾 → `JobManager::sync_subagent_projection`（先释放 SessionDB 锁再跨库）。覆盖 run 生命周期（Spawning→Running→终态）+ kill fallback；启动恢复事务在 commit 后显式调用同一 projection sync。映射 `Queued→Queued`（R7.2）、`Spawning/Running→Running`、`Error→Failed`、`Interrupted→Interrupted`、`Timeout→TimedOut`、`Killed→Cancelled`。`update_subagent_projection_status` scoped `kind='subagent'`、terminal 冻结（`status NOT IN (终态)`）防 late/duplicate sync 重开 |
 | **注入隔离** | 投影 `injected=true` → 永不进工具 job 的 `list_pending_injection` / replay 注入路径；subagent 自有 `inject_and_run_parent`，**无双注入** |
 | **取消** | `async_jobs::cancel_job` 对 `kind=Subagent` 分支路由到 `subagent::request_cancel_run`（注册表 cancel + DB-`Killed` 兜底，与 `kill` 工具同源），**不跑工具 job 的 hook/注入**；run 终态经同步落到投影 Cancelled。`cancel_jobs_for_session`（会话删除）因此也会取消其后台 subagent（此前缺口） |
-| **重启** | `cleanup_orphan_subagent_runs`（R7.2 起 sweep `status IN ('queued','spawning','running')`，含排队但未发射的 run——内存队列重启即失）走 raw SQL 绕过同步 choke point，故投影由 `replay_pending_jobs` 的 `list_running` 标 `Interrupted` 兜底（与 run 的 `Error` 终态属轻微 cosmetic 分歧，投影只是视图） |
+| **重启** | Primary 启动时 `cleanup_orphan_subagent_runs` 在一个事务内把当前 epoch 的 `queued/spawning/running` attempt 统一转为 `Interrupted(process_interrupted)`，为普通 parent 补 pending delivery；commit 后显式同步 Background Job 投影为 `Interrupted`、通知 Workflow，并唤醒 subagent scheduler。随后 `cleanup_orphan_runs` 重放未完成的普通 parent delivery，不依赖 `async_jobs::replay_pending_jobs` 修补 run / 投影分歧 |
 | **内层审批投影（R8 follow-up）** | 后台 subagent 在隔离子会话内命中审批点时，`async_jobs::approval_projection_watcher` 订阅 EventBus 的 `approval_required` / `approval:resolved`（事件名不对称：required 下划线、resolved 冒号），按 child_session_id 经 `find_active_run_by_child_session` 找到 run + 投影，调 `JobManager::reflect_subagent_inner_approval` 把投影置 `AwaitingApproval` / 复位（复用 R8 kind-agnostic 的 park/resume，status-WHERE 守卫、仅 true 时 emit `job:updated`）。**只动投影视图、不碰 `subagent_runs` 真相源**；`AwaitingApproval` 非终态，run 真正落终态时由同步 choke point 覆盖 |
 
 来源：`crates/ha-core/src/async_jobs/manager.rs`（`project_subagent_spawn` / `sync_subagent_projection` / `reflect_subagent_inner_approval`）、`crates/ha-core/src/async_jobs/approval_projection_watcher.rs`、`crates/ha-core/src/subagent/{spawn.rs,queue.rs,mod.rs}`、`crates/ha-core/src/session/subagent_db.rs`、`crates/ha-core/src/async_jobs/{db.rs,mod.rs}`。
 
 ## Group fan-out（R5）
 
-`batch_spawn` 把 N 个后台 subagent 升格为一个 **Group**：一条 `kind=group` 协调行 + N 个 `kind=subagent` 子投影（共享 `group_id` 列 = group 的 `job_id`）。全部子到终态时**合并注入一轮**（一条 `<task-notification>` 汇总所有子结果），而不是每个子各起一轮计费 turn——收口 PRD P2「委派并发后台工作并等齐收集结果」。**join-all-settle**：等所有子到终态（不 fail-fast），一并返回部分成功 + 各自终态，失败不丢弃其余结果。
+`batch_spawn` 把 N 个后台 subagent 升格为一个 **Group**：一条 `kind=group` 协调行 + N 个 `kind=subagent` 子投影（共享 `group_id` 列 = group 的 `job_id`）。全部子到终态时**合并注入一轮**（一条 `<subagent-result>` 汇总所有子结果），而不是每个子各起一轮计费 turn——收口 PRD P2「委派并发后台工作并等齐收集结果」。**join-all-settle**：等所有子到终态（不 fail-fast），一并返回部分成功 + 各自终态，失败不丢弃其余结果。
 
 **与 R6 的关系**：Group 是 R6 单向投影的编排层。子投影仍是 R6 那套（`subagent_runs` 真相源、投影不持正文不反写），只是多带一个 `group_id` 并把个体注入交给 Group 统一发。group 行本身也是纯协调投影，**绝不持有 run 正文**（合并消息构建时才从 `subagent_runs` 读子结果）。
 
@@ -324,13 +363,13 @@ sequenceDiagram
 |--------|------|
 | **建** | `action_batch_spawn` **先预校验全部 task**（任一缺 `task` 字段整体拒——否则已建的子代理永不 seal → 漏交付，详见红线）→ 非 incognito 且 jobs DB 就绪时 `JobManager::spawn_group`（group 行 `status=Running`、`args_json={"sealed":false}`、`injected=true`）→ 每个子 `SpawnParams.group_id=Some(group)`。子投影建在 `spawn_subagent`（同 R6 gate），携 `group_id` |
 | **附件** | 顶层 `files[]` 只解析一次并作为共享附件克隆给每个 child；`tasks[].files[]` 只追加到对应 child。UTF-8 内容落有界临时文件引用，base64 保持内存数据；解析失败整体显式报错，不再静默丢附件。`attachment_count` 记录合并后的真实数量。 |
-| **抑制个体注入** | grouped 子（`effective_group_id.is_some()`）在 `spawn.rs` 完成处**跳过** `inject_and_run_parent`——Group 统一发。覆盖**全部终态含 Killed**（个体路径只发 Completed/Error/Timeout，Group 更全） |
+| **抑制个体注入** | grouped 子持久化 `delivery_kind=group`；终态仍走统一 `dispatch_parent_result_delivery`，但执行层 owner/delivery gate 使其 no-op，由 Group 统一发。覆盖全部终态含 Killed，不依赖易失的 caller bool |
 | **seal** | spawn 循环结束后 `JobManager::seal_group`：标 `args_json={"sealed":true}` 再跑一次 `try_complete_group`（兜底「spawn 期间快子已全完成」）。`try_complete_group` 未 sealed 直接 no-op，防 spawn 中途某子完成就误判全完成 |
 | **join + 合并注入** | 每个子终态经 `sync_subagent_projection` → `group_id_for_subagent_run` → `try_complete_group`：sealed + 全子终态 → **单赢 CAS** `claim_group_completion`（`Running→Completed` only if 非终态，N 个并发子只一个赢）→ `build_group_push_message`（单 `<subagent-result>` 封套，body 枚举每子 status/result/error + task/label，XML-escape）→ 复用 `inject_and_run_parent`（`child_agent_id="batch"`、`run_id=group_id`、`on_injected=None`），复用既有 `subagent_result` 前端 pill，**零前端/零文案** |
 | **fetched-all 跳过** | 注入前 `take_runs_fetched(run_ids)`：若所有子已被 `wait_all`/`check`/`result` 收走则跳过冗余注入（顺带 drain 抑制注入留下的 FETCHED 泄漏）；部分收走仍发完整 summary |
 | **取消** | `cancel_job` kind=Group **先标 group `Cancelled` 再取消子 run**（顺序 load-bearing：`request_cancel_run` 无 flag 兜底会**同步**标子 Killed → 同线程触发 `try_complete_group`，group 须已终态使 CAS 落败，否则给已取消批次误发合并注入）。`cancel_jobs_for_session` 会话删除同样覆盖 group + 子 |
 | **投影失败回退** | grouped 子若投影插入失败 → `effective_group_id=None` → 该子回退**个体注入**（不丢结果），不依赖永不可见它的 Group join |
-| **重启** | in-flight group + 子（`injected=true`）由 `replay_pending_jobs` 的 `list_running` 标 `Interrupted`，**不进注入 replay 路径**——合并注入不补发，子结果仍在 `subagent_runs` 可查（与 R6 narrow gap 对称） |
+| **重启** | Primary 先把遗留 child attempt 收敛为 `Interrupted` 并逐个同步子投影；sealed 且子投影完整时，最后一个终态同步会经 `try_complete_group` + 单赢 CAS 把 Group 结算为 `Completed`，发一次合并 `<subagent-result>`。若投影缺失等原因使 Group 无法在这一步收敛，后续 `replay_pending_jobs` 才把残留 Running group 标 `Interrupted` 且不伪造合并结果；child 真相仍可从 `subagent_runs` 查询 |
 
 `job_status(action='status', job_id=<group>)` 对 group 行返回 N-of-M（`child_count` / `children_terminal` / `children_completed` / `children_failed`）+ 合并交付提示。当前 **Group 只 `batch_spawn` 触发**；单 `spawn` / `spawn_and_wait` 仍走 R6 个体投影 + 个体注入。
 
@@ -356,7 +395,7 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 ### 生命周期边界
 
 - **取消排队中的 run（promote-vs-cancel 安全）**：cancel flag 在**入队时注册**、提升时由 `launch_subagent_run` 经 get-or-create **复用同一 flag**，故 park→launch 窗口内到达的 cancel 对最终起跑的引擎始终可见。`request_cancel_run` 用队列锁**抢占出队**（`remove_for_run` 返 `Some` = 赢得权威 → 该 run 永不 launch，直接标 `Killed`；返 `None` = 已被提升 → 触发复用 flag 让引擎 abort 自落 `Killed`）。配合提升的 guarded CAS（终态行无法转 `Spawning`），被取消的 run **绝不会被复活成运行子代理**——subagent 版的 R7.1「原子出队认领」
-- **重启**：`cleanup_orphan_subagent_runs` 的 sweep 含 `'queued'` → 排队行转 Orphaned（内存队列已失），投影同步到终态
+- **重启**：`cleanup_orphan_subagent_runs` 的 sweep 含 `'queued'` → 排队行转 `Interrupted(process_interrupted)`（内存队列已失），投影同步为 `Interrupted`，普通 parent delivery 可在启动期重放
 - **会话删除 / 无痕焚毁**：与取消活跃 run 同一路径调 `queue::purge_for_session(sid)`——注意 `list_active_subagent_runs` **排除** `Queued`，不 purge 就会漏掉排队 run；无痕会话的敏感 `SpawnParams` 只活在队列项里，丢弃即焚
 - **R5 Group**：零特例——排队的 grouped 子拿到 `kind=subagent` 投影（`Queued` 非终态）带 `group_id`，`try_complete_group` 因此**正确等待**它；提升后跑完结算再由 `sync_subagent_projection` 复查 group（优于此前「超额 batch 子直接 error 出 group」）
 - **`spawn_and_wait`**：尚未起跑的排队 run 在 `foreground_timeout` 内不会 `Completed` → 转后台（既有行为），`session_has_pending_approval` 检查不受影响
@@ -478,6 +517,27 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 - `workflow.spawnAgent` / V5 `workflow.resumeAgent` 仍复用 `subagent` 的权限、并发队列、取消和运行引擎，但持久化 `owner_kind=workflow`、`owner_id=workflow_run_id`、`delivery_kind=workflow`。普通 subagent/group 行为不变，Workflow child 不走个体或 Group 的通用回注。
 - 子 Agent 终态由 `SessionDB::update_subagent_status` 统一通知 Workflow；Workflow 决定主动查询、checkpoint 或 final 交付。显式读取会调用 `mark_run_fetched` 同时压掉对应待回注 source。
 - `INJECTION_CANCELS` 记录 `{run_id, cancel}`，不再只有 session 级 flag。这样读取某个阶段结果只取消该 source 的活跃注入，不会误伤同会话其他后台结果；用户新发消息仍按 session 取消当前注入并在空闲后重试。
+
+## UI Thread / Attempt 投影
+
+- Subagent 主列表和 Workspace 摘要按 `thread_id`（兼容回退 `child_session_id`）聚合，只展示每条 thread 的最新 attempt；数量按 thread 计，不把 continuation 伪装成多个独立 Agent。
+- 同一 thread 的全部 run 仍保留在 snapshot。详情页按 `started_at` 升序生成 attempt timeline，使用 `lease_epoch`（缺失时回退序号）展示 `#N + status`，允许切换查看每次 attempt 的 result / conversation / details。
+- 列表行在 attempt 数大于 1 时显示 `×N`。`Interrupted` 同 `Error/Timeout/Killed` 一样属于终态失败展示，但不会被折叠成普通 `Error`。
+- Workflow Agents 视图继续以 Workflow 的 `workflow_agent_attempts` 投影展示 `initial|continuation|imported`、`control|result_only` 与 failure resolution；不得仅按最新 run 丢弃旧 attempt 的审计关系。
+
+来源：`src/components/chat/subagent/SubagentPanel.tsx`、`src/components/chat/subagent/SubagentRunRow.tsx`、`src/components/chat/workspace/WorkspacePanel.tsx`、`crates/ha-core/src/workflow/{db,runtime}.rs`。
+
+## 恢复验证契约
+
+快速、确定性的 DB / Workflow 契约测试覆盖：同 thread continuation、epoch 迟到写 fence、owner provenance、durable delivery 单赢 CAS / suppress / 数据库 reopen、启动 sweep → `Interrupted`、incognito 不重放、steer dispatch retarget、V5 unresolved-failure finish guard 与带理由的 `allow_partial`。这些测试保持无真实 Provider、可进入常规 Rust 测试。
+
+真实跨进程恢复属于发布前本地显式 strict route，不进入默认 `cargo test` / CI，也不得用 LLM 自动重试替代。至少验证以下 kill window，并记录当次发布证据：
+
+1. child 为 `Running` 时 SIGKILL Primary；重启后旧 attempt 为 `Interrupted(process_interrupted)`，可显式 continuation。
+2. child 已终态、delivery 尚未 `delivered` 时 SIGKILL；重启后普通 parent delivery 最终只投递一次。
+3. Workflow `resumeAgent` op 已 `started`、新 child 尚未 op-complete 时 SIGKILL；重启后 attach 同一预分配 attempt，不重复 spawn。
+4. Workflow child 已终态、checkpoint 尚未 requested / delivered 时 SIGKILL；恢复补齐 milestone，且不跨 delivery domain 双投。
+5. write-capable worktree attempt 在可能已有部分副作用时中断；新 attempt 只有在旧 lease 失效后才能启动，不回落父 workspace、不把续跑解释为副作用回滚。
 
 ## 关键源文件索引
 

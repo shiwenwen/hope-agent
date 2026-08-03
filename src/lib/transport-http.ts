@@ -1853,6 +1853,16 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
     const paginated = value as { sessions: unknown; total: unknown }
     return [paginated.sessions, paginated.total]
   }
+  if (command === "test_provider" || command === "test_model") {
+    // HTTP parses the core JSON string before returning it; Tauri passes that
+    // JSON string through. A non-JSON core error becomes a JSON string scalar
+    // over HTTP, which must reject just like the Tauri command instead of being
+    // interpreted as a successful plain-text result by parseTestResult().
+    if (typeof value === "string") throw new Error(value)
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return JSON.stringify(value)
+    }
+  }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as Record<string, unknown>
     switch (command) {
@@ -1861,6 +1871,43 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
       case "get_plan_content":
       case "load_plan_version_content":
         return record.content
+      case "get_agent_markdown":
+      case "get_agent_memory_md":
+      case "get_global_memory_md":
+        // HTTP wraps the optional file contents as `{ content }`, while the
+        // Tauri command returns `Option<String>` directly. Preserve `null` so
+        // callers can distinguish a missing file from an intentionally empty one.
+        return record.content ?? null
+      case "get_agent_template":
+      case "render_persona_to_soul_md":
+      case "read_log_file_cmd":
+        // HTTP wraps required text responses as `{ content }`; Tauri returns
+        // the string directly.
+        return record.content ?? ""
+      case "get_system_prompt":
+        return record.system_prompt ?? ""
+      case "get_log_file_path_cmd":
+        return record.path ?? ""
+      case "export_logs_cmd":
+        return record.data ?? ""
+      case "install_skill_dependency":
+        return record.output ?? ""
+      case "channel_validate_credentials":
+        return record.info ?? ""
+      case "create_backup_cmd":
+        return record.name ?? ""
+      case "get_skill_env_check":
+      case "get_skills_auto_review_enabled":
+        return record.enabled ?? false
+      case "get_skills_auto_review_promotion":
+        return record.auto ?? false
+      case "test_proxy":
+        // The HTTP route reports probe failures in a 200 response, whereas the
+        // Tauri command rejects. Keep callers' success/error branches aligned.
+        if (record.success === false) {
+          throw new Error(String(record.message ?? "Proxy test failed"))
+        }
+        return record.message ?? ""
       case "get_plan_file_path":
         return record.filePath
       case "get_plan_checkpoint":

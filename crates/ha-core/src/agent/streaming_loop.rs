@@ -532,6 +532,23 @@ async fn execute_tool_with_cancel(
     let cancellation_token = tokio_util::sync::CancellationToken::new();
     local_ctx.cancellation_token = Some(cancellation_token.clone());
     let tool_start = std::time::Instant::now();
+    // A concurrent-safe batch can leave calls waiting on its semaphore while
+    // earlier tools wind down.  Re-check before constructing/polling dispatch
+    // so those queued calls cannot begin side effects after the user pressed
+    // Stop.
+    if cancel.load(Ordering::SeqCst) {
+        let rendered = tools::ToolRejection::cancelled(name).to_tool_result();
+        crate::eval_context::record_tool_result_with_digest(
+            ctx.session_id.as_deref(),
+            name,
+            call_id,
+            &eval_tool_arguments_digest(args),
+            Some(&eval_tool_result_digest(&rendered)),
+            crate::eval_context::EvalToolOutcome::Cancelled,
+            0,
+        );
+        return Ok((rendered, 0, Default::default()));
+    }
     if let Err(error) = crate::eval_context::ensure_tool_budget(ctx.session_id.as_deref()) {
         let elapsed_ms = tool_start.elapsed().as_millis() as u64;
         let rendered = crate::tool_defs::ToolRejection::render_error(&error);
@@ -576,6 +593,38 @@ async fn execute_tool_with_cancel(
     let result = loop {
         tokio::select! {
             biased;
+            _ = wait_for_cancel(&cancel_clone) => {
+                cancellation_token.cancel();
+                // Grace window: let the dispatch wind down. If the user approved a
+                // background-capable tool (exec / web_search / …) inside this
+                // window, the dispatch returns a synthetic `{job_id,status:"started"}`
+                // and has ALREADY detached a runner with its own fresh cancel token —
+                // the turn cancel never reaches it, so the job would run on as an
+                // orphan while the model is told "cancelled" (MISC-2). Capture that
+                // result and cancel the freshly-spawned job so the verdict stays
+                // truthful. (Sync inline tools that don't finish in time are dropped
+                // here as before; their exec process group is reaped by
+                // `ProcessGroupGuard::drop`.)
+                if let Ok(Ok(grace_result)) =
+                    tokio::time::timeout(TOOL_CANCEL_CLEANUP_GRACE, &mut dispatch).await
+                {
+                    if let Some(job_id) = extract_started_job_id(&grace_result) {
+                        app_info!(
+                            "async_jobs",
+                            "cancel",
+                            "Reaping job {} spawned by tool '{}' inside the turn-cancel grace window",
+                            job_id,
+                            name
+                        );
+                        let _ = crate::blocking::run_blocking(move || {
+                            crate::async_jobs::JobManager::cancel(&job_id)
+                        })
+                        .await;
+                    }
+                }
+                eval_outcome = crate::eval_context::EvalToolOutcome::Cancelled;
+                break tools::ToolRejection::cancelled(name).to_tool_result();
+            }
             update = effective_args_sink.next() => {
                 let patched = update.value.to_string();
                 emit_tool_call_args_rewritten(on_delta, call_id, &patched);
@@ -607,40 +656,6 @@ async fn execute_tool_with_cancel(
                         crate::tool_defs::ToolRejection::render_error(&e)
                     }
                 };
-            }
-            _ = async {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    if cancel_clone.load(Ordering::SeqCst) { break; }
-                }
-            } => {
-                cancellation_token.cancel();
-                // Grace window: let the dispatch wind down. If the user approved a
-                // background-capable tool (exec / web_search / …) inside this
-                // window, the dispatch returns a synthetic `{job_id,status:"started"}`
-                // and has ALREADY detached a runner with its own fresh cancel token —
-                // the turn cancel never reaches it, so the job would run on as an
-                // orphan while the model is told "cancelled" (MISC-2). Capture that
-                // result and cancel the freshly-spawned job so the verdict stays
-                // truthful. (Sync inline tools that don't finish in time are dropped
-                // here as before; their exec process group is reaped by
-                // `ProcessGroupGuard::drop`.)
-                if let Ok(Ok(grace_result)) =
-                    tokio::time::timeout(TOOL_CANCEL_CLEANUP_GRACE, &mut dispatch).await
-                {
-                    if let Some(job_id) = extract_started_job_id(&grace_result) {
-                        app_info!(
-                            "async_jobs",
-                            "cancel",
-                            "Reaping job {} spawned by tool '{}' inside the turn-cancel grace window",
-                            job_id,
-                            name
-                        );
-                        let _ = crate::async_jobs::JobManager::cancel(&job_id);
-                    }
-                }
-                eval_outcome = crate::eval_context::EvalToolOutcome::Cancelled;
-                break crate::tool_defs::ToolRejection::cancelled(name).to_tool_result();
             }
         }
     };

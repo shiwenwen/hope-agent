@@ -13,6 +13,7 @@ pub(crate) mod persister;
 pub mod quote;
 pub mod sink_registry;
 pub(crate) mod spool;
+pub mod stop;
 pub mod stream_broadcast;
 pub mod stream_seq;
 pub mod turn_injection;
@@ -261,7 +262,37 @@ fn snapshot_blocks(
     (blocks, usage)
 }
 
-pub const CHAT_STOP_WATCHDOG_GRACE: Duration = Duration::from_secs(5);
+/// The engine gives an already-visible provider/tool loop six seconds for
+/// cooperative cleanup.  The watchdog intentionally fires later: it is the
+/// last-resort durable convergence path, not a competing normal finalizer.
+pub const CHAT_STOP_WATCHDOG_GRACE: Duration = Duration::from_secs(8);
+const CHAT_STOP_RECOVERY_RETRY_MIN: Duration = Duration::from_millis(250);
+const CHAT_STOP_RECOVERY_RETRY_MAX: Duration = Duration::from_secs(5);
+
+fn stop_recovery_retry_delay(failures: u32) -> Duration {
+    let multiplier = 1u32 << failures.saturating_sub(1).min(4);
+    CHAT_STOP_RECOVERY_RETRY_MIN
+        .saturating_mul(multiplier)
+        .min(CHAT_STOP_RECOVERY_RETRY_MAX)
+}
+
+async fn stopped_turn_is_latest_session_generation(
+    db: &Arc<crate::session::SessionDB>,
+    session_id: &str,
+    turn_id: &str,
+) -> bool {
+    if active_turn::current(session_id).is_some_and(|active| active.turn_id != turn_id) {
+        return false;
+    }
+    let session_id = session_id.to_string();
+    let turn_id = turn_id.to_string();
+    db.clone()
+        .run(move |db| db.get_latest_chat_turn(&session_id))
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|latest| latest.id == turn_id)
+}
 
 /// Recover a unified persistence run when its owning async engine future is
 /// dropped before it can execute the normal finalizer (HTTP disconnect,
@@ -285,6 +316,7 @@ pub fn spawn_abandoned_stream_recovery(
             &session_id,
             turn_id.as_deref(),
             source,
+            finalize::TerminationReason::RuntimeCancel,
             &persistence_run_id,
         )
         .await;
@@ -305,6 +337,7 @@ async fn converge_abandoned_stream(
     session_id: &str,
     turn_id: Option<&str>,
     source: ChatSource,
+    reason: finalize::TerminationReason,
     run_id: &str,
 ) -> anyhow::Result<()> {
     // Import any frames that were acknowledged through the emergency spool
@@ -375,7 +408,9 @@ async fn converge_abandoned_stream(
         checkpoint_seq,
         provider_kind,
     )?;
-    let reason = finalize::TerminationReason::RuntimeCancel;
+    let terminal_status = reason.to_chat_turn_status();
+    let interrupt_reason = reason.to_chat_turn_interrupt_reason();
+    let is_user_stop = matches!(reason, finalize::TerminationReason::UserStop);
     history.push(serde_json::json!({
         "role": "assistant",
         "content": finalize::copy::model_marker(&reason),
@@ -384,10 +419,9 @@ async fn converge_abandoned_stream(
     let trailing = crate::session::trailing_text_from_journal_events(&events);
     let assistant = crate::session::journal_events_have_assistant_output(&events)
         .then(|| crate::session::NewMessage::assistant(&trailing).with_source(source));
-    let recovery_event = Some(
-        crate::session::NewMessage::event(&finalize::copy::user_notice(&reason))
-            .with_source(source),
-    );
+    let recovery_event = (!is_user_stop).then(|| {
+        crate::session::NewMessage::event(&finalize::copy::user_notice(&reason)).with_source(source)
+    });
     let error = journal_error.or(spool_integrity_error);
     let commit = crate::session::CommitInterruptedTurn {
         run_id: Some(run_id.to_string()),
@@ -398,8 +432,8 @@ async fn converge_abandoned_stream(
         expected_context_revision: context_revision,
         turn_id: turn_id.map(ToOwned::to_owned),
         final_seq: through_seq,
-        status: crate::session::ChatTurnStatus::Interrupted,
-        interrupt_reason: Some("runtime_cancel".to_string()),
+        status: terminal_status,
+        interrupt_reason: Some(interrupt_reason.as_str().to_string()),
         error,
         recovery_event,
     };
@@ -408,19 +442,9 @@ async fn converge_abandoned_stream(
         .run(move |db| db.commit_interrupted_turn(&commit))
         .await?;
 
-    let run_id_for_cleanup = run_id.to_string();
-    if spool.integrity_error.is_some() {
-        crate::blocking::run_blocking(move || {
-            crate::chat_engine::spool::quarantine(&run_id_for_cleanup)
-        })
-        .await?;
-    } else {
-        crate::blocking::run_blocking(move || {
-            crate::chat_engine::spool::remove(&run_id_for_cleanup)
-        })
-        .await?;
-    }
-
+    // The DB transaction is the terminal truth. Release the visible stream
+    // before best-effort spool housekeeping so a filesystem cleanup error
+    // cannot leave an already-committed turn looking active forever.
     if let Some(stream_id) = snapshot.run.stream_id.as_deref() {
         let _ = stream_seq::end_if_stream(session_id, stream_id);
     }
@@ -429,23 +453,109 @@ async fn converge_abandoned_stream(
             session_id,
             snapshot.run.stream_id.as_deref(),
             turn_id,
-            Some(crate::session::ChatTurnStatus::Interrupted),
-            Some(crate::session::ChatTurnInterruptReason::RuntimeCancel),
+            Some(terminal_status),
+            Some(interrupt_reason),
             None,
         );
     }
     if let Some(turn_id) = turn_id {
         active_turn::force_release(session_id, turn_id);
     }
+
+    let run_id_for_cleanup = run_id.to_string();
+    let spool_cleanup = if spool.integrity_error.is_some() {
+        crate::blocking::run_blocking(move || {
+            crate::chat_engine::spool::quarantine(&run_id_for_cleanup)
+        })
+        .await
+    } else {
+        crate::blocking::run_blocking(move || {
+            crate::chat_engine::spool::remove(&run_id_for_cleanup)
+        })
+        .await
+    };
+    if let Err(error) = spool_cleanup {
+        app_warn!(
+            "chat",
+            "abandoned_stream_recovery",
+            "Recovered run {} but could not archive/remove its spool; startup cleanup will retry: {}",
+            run_id,
+            error
+        );
+    }
     app_info!(
         "chat",
         "abandoned_stream_recovery",
-        "atomically recovered runtime-cancelled run {} through seq {} assistant_id={}",
+        "atomically recovered abandoned run {} through seq {} assistant_id={} reason={}",
         run_id,
         committed.committed_seq,
-        committed.assistant_message_id
+        committed.assistant_message_id,
+        interrupt_reason.as_str()
     );
     Ok(())
+}
+
+/// Resolve the persistence run owned by an exact stopped turn. Transient
+/// spool/SQLite failures are retried while the caller retains the session Stop
+/// gate, so a replacement turn cannot advance the context revision out from
+/// under recoverable partial output. `false` means no exact run exists and the
+/// caller may evaluate the one-minor legacy fallback.
+async fn converge_exact_stopped_run(
+    db: Arc<crate::session::SessionDB>,
+    session_id: &str,
+    turn_id: &str,
+    source: ChatSource,
+    retry_missing: bool,
+) -> bool {
+    let mut failures = 0u32;
+    loop {
+        let turn_id_for_run = turn_id.to_string();
+        let exact_run = db
+            .clone()
+            .run(move |db| db.stream_run_snapshot_for_turn(&turn_id_for_run))
+            .await;
+        let failure = match exact_run {
+            Ok(Some(snapshot)) if snapshot.run.status == "running" => {
+                let run_id = snapshot.run.run_id;
+                match converge_abandoned_stream(
+                    db.clone(),
+                    session_id,
+                    Some(turn_id),
+                    source,
+                    finalize::TerminationReason::UserStop,
+                    &run_id,
+                )
+                .await
+                {
+                    Ok(()) => return true,
+                    Err(error) => (Some(run_id), error),
+                }
+            }
+            Ok(Some(_)) => return true,
+            Ok(None) if !retry_missing => return false,
+            Ok(None) => (
+                None,
+                anyhow::anyhow!("expected stopped persistence run is temporarily unavailable"),
+            ),
+            Err(error) => (None, error),
+        };
+
+        failures = failures.saturating_add(1);
+        if failures == 1 || failures.is_power_of_two() {
+            let run = failure.0.as_deref().unwrap_or("unresolved");
+            app_warn!(
+                "chat",
+                "stop_watchdog",
+                "Retrying exact stopped-run recovery while admission remains closed: session={} turn={} run={} failures={} error={}",
+                session_id,
+                turn_id,
+                run,
+                failures,
+                failure.1
+            );
+        }
+        tokio::time::sleep(stop_recovery_retry_delay(failures)).await;
+    }
 }
 
 pub fn spawn_user_stop_watchdog(
@@ -457,9 +567,38 @@ pub fn spawn_user_stop_watchdog(
     tokio::spawn(async move {
         tokio::time::sleep(CHAT_STOP_WATCHDOG_GRACE).await;
 
-        let turn = match db.get_chat_turn(&turn_id) {
-            Ok(Some(turn)) if !turn.status.is_terminal() => turn,
-            _ => return,
+        // Re-establish the Stop generation gate before inspecting any
+        // session-scoped legacy state. If a replacement turn won the race it
+        // is now visible below; otherwise no new turn can start while this
+        // watchdog converges the old one.
+        let _stop_cleanup_guard = active_turn::begin_stop_cleanup(&session_id);
+
+        let mut turn_load_failures = 0u32;
+        let turn = loop {
+            let turn_id_for_load = turn_id.clone();
+            match db
+                .clone()
+                .run(move |db| db.get_chat_turn(&turn_id_for_load))
+                .await
+            {
+                Ok(Some(turn)) if !turn.status.is_terminal() => break turn,
+                Ok(Some(_)) | Ok(None) => return,
+                Err(error) => {
+                    turn_load_failures = turn_load_failures.saturating_add(1);
+                    if turn_load_failures == 1 || turn_load_failures.is_power_of_two() {
+                        app_warn!(
+                            "chat",
+                            "stop_watchdog",
+                            "Retrying stopped-turn lookup while admission remains closed: session={} turn={} failures={} error={}",
+                            session_id,
+                            turn_id,
+                            turn_load_failures,
+                            error
+                        );
+                    }
+                    tokio::time::sleep(stop_recovery_retry_delay(turn_load_failures)).await;
+                }
+            }
         };
         let stream_id = turn.stream_id.clone().or_else(|| {
             active_turn::current(&session_id)
@@ -467,10 +606,15 @@ pub fn spawn_user_stop_watchdog(
                 .and_then(|active| active.stream_id)
         });
 
-        // New streams converge from their durable journal. This branch races
-        // safely with the normal engine finalizer: context revision + turn
-        // status CAS allow exactly one transaction to win.
-        if let Some(durability) = durability::active(&session_id) {
+        // New streams converge from their durable journal. The registry is
+        // keyed by session for the streaming hot path, so a delayed watchdog
+        // must additionally bind the coordinator to its exact turn. A newer
+        // turn may already own the session after the stopped engine released.
+        let active_durability = durability::active(&session_id);
+        let matching_durability = active_durability.as_ref().filter(|coordinator| {
+            coordinator.snapshot().turn_id.as_deref() == Some(turn_id.as_str())
+        });
+        if let Some(durability) = matching_durability.cloned() {
             let convergence = async {
                 let durable_seq = durability.flush(FlushReason::Stop).await?;
                 durability.reconcile_spool_to_sqlite().await?;
@@ -578,42 +722,84 @@ pub fn spawn_user_stop_watchdog(
             }
             .await;
 
-            let (status, interrupt, error) = match convergence {
+            match convergence {
                 Ok(()) => {
                     durability.mark_interrupted("interrupted");
-                    (
-                        crate::session::ChatTurnStatus::Interrupted,
+                    let _released_stream = stream_id
+                        .as_deref()
+                        .map(|id| stream_seq::end_if_stream(&session_id, id))
+                        .unwrap_or(false);
+                    stream_broadcast::broadcast_stream_end(
+                        &session_id,
+                        stream_id.as_deref(),
+                        Some(&turn_id),
+                        Some(crate::session::ChatTurnStatus::Interrupted),
                         Some(crate::session::ChatTurnInterruptReason::UserStop),
                         None,
-                    )
+                    );
+                    active_turn::force_release(&session_id, &turn_id);
+                    return;
+                }
+                Err(convergence_error) if durability.is_persistent() => {
+                    app_warn!(
+                        "chat",
+                        "stop_watchdog",
+                        "Live stopped-run convergence failed; retaining admission gate for exact recovery: session={} turn={} run={} error={}",
+                        session_id,
+                        turn_id,
+                        durability.persistence_run_id(),
+                        convergence_error
+                    );
+                    // Unregister the failed live coordinator, but leave its DB
+                    // run in `running` so exact journal recovery can converge
+                    // it without exposing a replacement-turn window.
+                    durability.mark_interrupted("recovering");
+                    let _recovered =
+                        converge_exact_stopped_run(db.clone(), &session_id, &turn_id, source, true)
+                            .await;
+                    return;
                 }
                 Err(convergence_error) => {
                     let message =
                         format!("stop persistence convergence failed: {convergence_error}");
-                    // Keep the DB run recoverable. Terminalizing it without
-                    // materializing the journal would make already displayed
-                    // bytes unreachable on restart.
                     durability.mark_interrupted("failed");
-                    (
-                        crate::session::ChatTurnStatus::Failed,
+                    let _released_stream = stream_id
+                        .as_deref()
+                        .map(|id| stream_seq::end_if_stream(&session_id, id))
+                        .unwrap_or(false);
+                    stream_broadcast::broadcast_stream_end(
+                        &session_id,
+                        stream_id.as_deref(),
+                        Some(&turn_id),
+                        Some(crate::session::ChatTurnStatus::Failed),
                         Some(crate::session::ChatTurnInterruptReason::Unknown),
-                        Some(message),
-                    )
+                        Some(&message),
+                    );
+                    active_turn::force_release(&session_id, &turn_id);
+                    return;
                 }
-            };
-            let _released_stream = stream_id
-                .as_deref()
-                .map(|id| stream_seq::end_if_stream(&session_id, id))
-                .unwrap_or(false);
-            stream_broadcast::broadcast_stream_end(
-                &session_id,
-                stream_id.as_deref(),
-                Some(&turn_id),
-                Some(status),
-                interrupt,
-                error.as_deref(),
-            );
-            active_turn::force_release(&session_id, &turn_id);
+            }
+        }
+
+        // A different live coordinator proves this is not a legacy stream.
+        // Never recover or reconstruct session-wide state across its boundary.
+        if active_durability.is_some() {
+            return;
+        }
+
+        // The old coordinator may already have been force-dropped and
+        // unregistered. Recover its run by turn id rather than touching the
+        // session's current coordinator or latest run. The Stop gate remains
+        // held across transient failures and retry backoff.
+        if converge_exact_stopped_run(db.clone(), &session_id, &turn_id, source, false).await {
+            return;
+        }
+
+        // Everything below is the one-minor legacy fallback and is keyed only
+        // by session. It is safe solely while the stopped turn is still the
+        // latest generation and no different turn is active. The cleanup gate
+        // above makes this check stable until fallback finalization completes.
+        if !stopped_turn_is_latest_session_generation(&db, &session_id, &turn_id).await {
             return;
         }
 
@@ -674,6 +860,38 @@ mod abandoned_stream_tests {
     use crate::session::{CreateStreamRun, JournalBatch, JournalEvent, NewMessage, SessionDB};
 
     #[tokio::test]
+    async fn legacy_stop_watchdog_rejects_a_completed_replacement_turn() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("legacy-generation.db"))
+                .expect("db"),
+        );
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("session");
+        let stopped = db
+            .create_chat_turn(&session.id, "desktop", None, None)
+            .expect("stopped turn");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let replacement = db
+            .create_chat_turn(&session.id, "desktop", None, None)
+            .expect("replacement turn");
+        db.finish_chat_turn_once(
+            &replacement.id,
+            crate::session::ChatTurnStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .expect("finish replacement");
+
+        assert!(
+            !stopped_turn_is_latest_session_generation(&db, &session.id, &stopped.id).await,
+            "a delayed legacy watchdog must not rebuild from a completed newer turn"
+        );
+    }
+
+    #[tokio::test]
     async fn dropped_engine_materializes_only_its_durable_prefix() {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
@@ -724,6 +942,7 @@ mod abandoned_stream_tests {
             &session.id,
             Some(&turn.id),
             ChatSource::Http,
+            finalize::TerminationReason::RuntimeCancel,
             &run_id,
         )
         .await
@@ -784,6 +1003,7 @@ mod abandoned_stream_tests {
             &session.id,
             Some(&turn.id),
             ChatSource::Http,
+            finalize::TerminationReason::RuntimeCancel,
             &run_id,
         )
         .await

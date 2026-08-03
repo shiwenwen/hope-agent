@@ -820,6 +820,18 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
 | `delete_task` | `DELETE /api/tasks/{id}` | ✅ TaskProgressPanel 用户控件 |
 
+`chat` 的可选 `clientRequestId` 是前端生成的不透明请求 id，只用于主动停止定位：在懒创建会话的
+`session_created` 尚未到达前，`stop_chat` / `POST /api/chat/stop` 可传
+`{ clientRequestId }` 精确取消该请求，不会误停其他会话。已知会话时依旧传
+`{ sessionId, turnId?, clientRequestId? }`：`turnId` 尚未发布时由 `clientRequestId`
+封住 active-turn 注册前的竞态，已有 `turnId` 后以精确 turn 为准；session 与 request
+绑定不一致时不得跨会话取消。`sessionId` 与 `clientRequestId` 都缺失才表示全局停止。
+
+三种入口在定位 session 后共用 core Stop 编排：先同步发出 cancel/`cancelling`/watchdog，再以
+有界等待并行收敛 DB、审批、`ask_user` 与 session-owned runtime；响应超时不取消已经启动的
+后台清理。全局停止同样走 core `stop_all_sessions`，HTTP / Tauri 只先翻转 transport-local
+cancel handle。精确 `turnId` 不匹配时 fail closed，不得误停同 session 的新回合。
+
 #### Chat `attachments` wire format
 
 `chat` / `POST /api/chat` 与 `queue_turn_user_message` / `POST /api/chat/turn-message` 共用同一份 `attachments` 数组；Tauri IPC 和 HTTP 都按 snake_case 原样序列化。每项的基础字段为 `{ name, mime_type, source?, upload_id?, data?, file_path? }`。GUI 新客户端点击发送后统一经通用 `chat_attachment` 分块 lease，再只传 `upload_id`；`upload_id` 与 `data` / `file_path` 互斥。图片不再由 GUI 转 Base64。旧字段保留给 ACP、IM、历史客户端与历史消息，旧 stage/Base64 固定 20 MiB；HTTP 旧 `file_path` 必须 canonicalize 后位于对应 session 或 `_temp` 附件目录。单文件动态上限取当前后端 `filesystem.maxChatAttachmentMb`（默认 20 MiB），单消息最多 64 个，前后端双重校验；claim 采用全量 prepare + rollback，部分失败不会消费其他 lease。

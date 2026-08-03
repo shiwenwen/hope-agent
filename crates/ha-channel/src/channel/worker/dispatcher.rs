@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
 
@@ -9,7 +9,7 @@ use ha_core::channel::types::*;
 
 use super::media::{convert_inbound_media_to_attachments, transcribe_inbound_voice_attachments};
 use super::pipeline::{
-    await_stream_pipeline, deliver_rounds, spawn_stream_pipeline, DeliveryTarget,
+    await_stream_pipeline_until_cancel, deliver_rounds, spawn_stream_pipeline, DeliveryTarget,
 };
 use super::slash::{dispatch_slash_for_channel, ChannelSlashOutcome};
 use super::streaming::{append_preview_round_text, PreviewHandle, CARD_ELEMENT_MAX_CHARS};
@@ -17,6 +17,92 @@ use super::streaming::{append_preview_round_text, PreviewHandle, CARD_ELEMENT_MA
 /// Maximum number of inbound messages processed concurrently.
 /// Prevents resource exhaustion (DB lock contention, API rate limits) during message bursts.
 const MAX_CONCURRENT_INBOUND: usize = 20;
+const CONTROL_DELIVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const CANCELLED_MESSAGE_RETRY_MIN: std::time::Duration = std::time::Duration::from_millis(250);
+const CANCELLED_MESSAGE_RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(5);
+
+async fn wait_for_channel_cancel(cancel: &AtomicBool) {
+    while !cancel.load(Ordering::Acquire) {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
+struct ChannelCancelHandleGuard {
+    session_id: String,
+    registration_id: Option<String>,
+}
+
+impl Drop for ChannelCancelHandleGuard {
+    fn drop(&mut self) {
+        if let (Some(registry), Some(registration_id)) = (
+            ha_core::globals::get_channel_cancels(),
+            self.registration_id.as_deref(),
+        ) {
+            registry.remove(&self.session_id, registration_id);
+        }
+    }
+}
+
+fn is_stop_command(text: Option<&str>) -> bool {
+    text.and_then(|text| ha_core::slash_defs::parser::parse(text).ok())
+        .is_some_and(|(name, _)| name == "stop")
+}
+
+fn spawn_cancelled_channel_message_rollback(
+    session_db: Arc<ha_core::session::SessionDB>,
+    session_id: String,
+    message_id: i64,
+) -> tokio::task::JoinHandle<()> {
+    // Install the replacement gate synchronously while the cancelled active
+    // turn still owns admission, then transfer it to retry cleanup. A transient
+    // SQLite failure must never expose the stale prompt to a later inbound.
+    let cleanup_gate = ha_core::chat_engine::active_turn::begin_stop_cleanup(&session_id);
+    tokio::spawn(async move {
+        let mut retry_delay = CANCELLED_MESSAGE_RETRY_MIN;
+        let mut attempt = 0_u64;
+        loop {
+            attempt = attempt.saturating_add(1);
+            let result = session_db
+                .run(move |db| db.delete_message_by_id(message_id))
+                .await;
+            match result {
+                Ok(()) => {
+                    if attempt > 1 {
+                        app_info!(
+                            "channel",
+                            "cancelled_message_rollback",
+                            "Rolled back cancelled Channel message after retry: session={} message_id={} attempts={}",
+                            session_id,
+                            message_id,
+                            attempt
+                        );
+                    }
+                    emit_channel_update(&session_id);
+                    drop(cleanup_gate);
+                    return;
+                }
+                Err(error) => {
+                    if attempt == 1 || attempt.is_power_of_two() {
+                        let message = ha_core::logging::redact_sensitive(&error.to_string());
+                        app_warn!(
+                            "channel",
+                            "cancelled_message_rollback",
+                            "Failed to roll back cancelled Channel message; retaining Stop gate and retrying: session={} message_id={} attempt={} error={}",
+                            session_id,
+                            message_id,
+                            attempt,
+                            message
+                        );
+                    }
+                    tokio::time::sleep(retry_delay).await;
+                    retry_delay = retry_delay
+                        .saturating_mul(2)
+                        .min(CANCELLED_MESSAGE_RETRY_MAX);
+                }
+            }
+        }
+    })
+}
 
 /// Notify the frontend that a channel session has new messages.
 pub(super) fn emit_channel_update(session_id: &str) {
@@ -200,6 +286,11 @@ async fn handle_inbound_message(
     channel_db: &ChannelDB,
     mut msg: MsgContext,
 ) -> anyhow::Result<()> {
+    // Capture before approval/ask-user routing performs its first await. A
+    // process-wide Stop that runs during those preludes must still reject this
+    // inbound if it later reaches active-turn registration after the bounded
+    // global cleanup gate has already closed.
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
     let channel_id_str = msg.channel_id.to_string();
     let sender_label = msg
         .sender_name
@@ -216,8 +307,13 @@ async fn handle_inbound_message(
         ha_core::truncate_utf8(msg.text.as_deref().unwrap_or("(media)"), 100)
     );
 
+    // `/stop` is control-plane input, never an approval answer or a custom
+    // ask_user response. In particular, a free-form question used to consume
+    // the literal "/stop" as its answer and leave the turn running.
+    let is_stop_command = is_stop_command(msg.text.as_deref());
+
     // 0. Check if this message is a text-reply to a pending approval prompt
-    if super::approval::try_handle_approval_reply(&msg).await {
+    if !is_stop_command && super::approval::try_handle_approval_reply(&msg).await {
         app_info!(
             "channel",
             "worker",
@@ -230,10 +326,12 @@ async fn handle_inbound_message(
     // 0a. Not an approval reply, but a text-mode approval is still pending in
     // this chat — nudge the user once per minute so they don't accidentally
     // start a side conversation while the prompt is still open.
-    super::approval::maybe_send_pending_hint(&msg, registry).await;
+    if !is_stop_command {
+        super::approval::maybe_send_pending_hint(&msg, registry).await;
+    }
 
     // 0b. Check if this message is a text-reply to a pending ask_user_question
-    if super::ask_user::try_handle_ask_user_reply(&msg).await {
+    if !is_stop_command && super::ask_user::try_handle_ask_user_reply(&msg).await {
         app_info!(
             "channel",
             "worker",
@@ -320,23 +418,6 @@ async fn handle_inbound_message(
         }
     }
 
-    // 2d. Hydrate any deferred-download attachments now that gating has
-    //     cleared. Channels that download eagerly (Telegram, Slack, etc.)
-    //     leave the trait method as a no-op; Feishu uses this hook so the
-    //     gateway ack isn't blocked on attachment downloads. Failures are
-    //     non-fatal — the surrounding text still reaches the agent.
-    if let Err(e) = plugin.materialize_pending_media(&account, &mut msg).await {
-        app_warn!(
-            "channel",
-            "worker",
-            "[{}] Failed to materialize pending media for {} in {}: {}",
-            channel_id_str,
-            msg.message_id,
-            msg.chat_id,
-            e
-        );
-    }
-
     // 3. Resolve agent_id via the central resolver — the precedence chain
     //    (project > topic > group > channel-override > channel-account >
     //    global > hardcoded) lives in `agent::resolver` so /status, IM
@@ -403,21 +484,39 @@ async fn handle_inbound_message(
     let session_db =
         ha_core::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
 
-    let user_text = msg.text.as_deref().unwrap_or("(media message)");
+    let user_text = msg
+        .text
+        .clone()
+        .unwrap_or_else(|| "(media message)".to_string());
 
-    // 5. Send typing indicator
-    let _ = plugin.send_typing(&account.id, &msg.chat_id).await;
+    // Register before slash dispatch: commands such as /compact can execute
+    // long-running work before the chat engine exists. `/stop` deliberately
+    // does not register itself; it cancels every other registration owned by
+    // the attached session through the shared Stop service.
+    let channel_cancel_registration = if is_stop_command {
+        None
+    } else {
+        ha_core::globals::get_channel_cancels().map(|registry| registry.register(&session_id))
+    };
+    let cancel = channel_cancel_registration
+        .as_ref()
+        .map(|registration| registration.cancel.clone())
+        .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
+    let _cancel_handle_guard = ChannelCancelHandleGuard {
+        session_id: session_id.clone(),
+        registration_id: channel_cancel_registration.map(|registration| registration.id),
+    };
 
     // 5a. Intercept slash commands — dispatch and send reply directly, skip LLM.
     // For PassThrough commands (e.g. skill invocations), use the transformed message as the
     // engine input so the LLM receives the skill instruction rather than the raw "/" text.
     let engine_message: String;
-    if ha_core::slash_defs::parser::is_command(user_text) {
+    if ha_core::slash_defs::parser::is_command(&user_text) {
         // Channels without inline-button support get the handler's verbose
         // no-arg text response instead of the (un-tappable) `Select an
         // option for /xxx:` shortcut.
         let supports_buttons = plugin.capabilities().supports_buttons;
-        match dispatch_slash_for_channel(
+        let slash_dispatch = dispatch_slash_for_channel(
             channel_db,
             &plugin,
             &account,
@@ -428,12 +527,17 @@ async fn handle_inbound_message(
             &msg.chat_type,
             &session_id,
             &agent_id,
-            user_text,
+            &user_text,
             &msg.sender_id,
             supports_buttons,
-        )
-        .await
-        {
+        );
+        tokio::pin!(slash_dispatch);
+        let slash_outcome = tokio::select! {
+            biased;
+            _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+            outcome = &mut slash_dispatch => outcome,
+        };
+        match slash_outcome {
             Ok(ChannelSlashOutcome::Reply {
                 content,
                 new_session_id,
@@ -441,19 +545,41 @@ async fn handle_inbound_message(
             }) => {
                 let effective_sid = new_session_id.as_deref().unwrap_or(&session_id);
                 if new_session_id.is_none() {
-                    if let Err(e) = ha_core::slash_defs::append_slash_history_events(
-                        &session_db,
-                        effective_sid,
-                        user_text,
-                        Some(&content),
-                        ha_core::chat_engine::ChatSource::Channel,
-                    ) {
-                        app_warn!(
+                    let history_db = session_db.clone();
+                    let history_sid = effective_sid.to_string();
+                    let history_command = user_text.clone();
+                    let history_reply = content.clone();
+                    let persistence = tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        history_db.run(move |db| {
+                            ha_core::slash_defs::append_slash_history_events(
+                                db,
+                                &history_sid,
+                                &history_command,
+                                Some(&history_reply),
+                                ha_core::chat_engine::ChatSource::Channel,
+                            )
+                        }),
+                    );
+                    tokio::pin!(persistence);
+                    match tokio::select! {
+                        biased;
+                        _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+                        result = &mut persistence => result,
+                    } {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(error)) => app_warn!(
                             "channel",
                             "worker",
                             "Failed to persist slash command history: {}",
-                            e
-                        );
+                            error
+                        ),
+                        Err(_) => app_warn!(
+                            "channel",
+                            "worker",
+                            "Timed out persisting slash command history for session {}",
+                            effective_sid
+                        ),
                     }
                 }
                 let slash_target = DeliveryTarget {
@@ -462,7 +588,17 @@ async fn handle_inbound_message(
                     thread_id: msg.thread_id.as_deref(),
                     reply_to_message_id: Some(&msg.message_id),
                 };
-                send_text_chunks(&plugin, &slash_target, &content, None, &buttons).await;
+                let delivery = send_text_chunks(&plugin, &slash_target, &content, None, &buttons);
+                tokio::pin!(delivery);
+                tokio::select! {
+                    biased;
+                    _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+                    result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
+                        if result.is_err() {
+                            app_warn!("channel", "worker", "Timed out delivering slash reply for session {}", effective_sid);
+                        }
+                    }
+                }
                 emit_channel_update(effective_sid);
                 return Ok(());
             }
@@ -478,12 +614,63 @@ async fn handle_inbound_message(
                     thread_id: msg.thread_id.as_deref(),
                     reply_to_message_id: Some(&msg.message_id),
                 };
-                send_text_chunks(&plugin, &err_target, &error_reply, None, &[]).await;
+                let delivery = send_text_chunks(&plugin, &err_target, &error_reply, None, &[]);
+                tokio::pin!(delivery);
+                tokio::select! {
+                    biased;
+                    _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+                    result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
+                        if result.is_err() {
+                            app_warn!("channel", "worker", "Timed out delivering slash error for session {}", session_id);
+                        }
+                    }
+                }
                 return Ok(());
             }
         }
     } else {
-        engine_message = user_text.to_string();
+        engine_message = user_text.clone();
+    }
+
+    if cancel.load(Ordering::Acquire) {
+        return Ok(());
+    }
+
+    // Typing and deferred media hydration are network-facing preparation, so
+    // they must be inside the same cancellable lifetime as preflight/engine.
+    // `/stop` itself returns above before either wait.
+    {
+        let typing = plugin.send_typing(&account.id, &msg.chat_id);
+        tokio::pin!(typing);
+        tokio::select! {
+            biased;
+            _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+            _ = &mut typing => {}
+        }
+    }
+
+    // Hydrate deferred-download attachments only after slash interception and
+    // cancel registration. Channels that download eagerly leave this as a
+    // no-op; failures remain non-fatal so surrounding text can still run.
+    let media_result = {
+        let hydration = plugin.materialize_pending_media(&account, &mut msg);
+        tokio::pin!(hydration);
+        tokio::select! {
+            biased;
+            _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+            result = &mut hydration => result,
+        }
+    };
+    if let Err(e) = media_result {
+        app_warn!(
+            "channel",
+            "worker",
+            "[{}] Failed to materialize pending media for {} in {}: {}",
+            channel_id_str,
+            msg.message_id,
+            msg.chat_id,
+            e
+        );
     }
 
     // 5b. Persist only messages that will enter the chat engine. Reply-only
@@ -495,25 +682,30 @@ async fn handle_inbound_message(
     // consistent with what lands in history.
     //
     // The turn id is minted here rather than at the `try_acquire` in 5c below
-    // purely so the hook can carry it as `prompt_id`: IM deliberately runs the
-    // preflight *before* the single-flight gate (see 5c), so without hoisting
-    // the id, `UserPromptSubmit` and the rest of the turn would report two
-    // different ids. This is a hoist, not a reorder — the acquire stays exactly
-    // where it is. A prompt that is later deferred at 5c therefore emits a
-    // `UserPromptSubmit` for a turn that never runs; correlating scripts must
-    // tolerate a `UserPromptSubmit` with no following `Stop` (already true
-    // before the id existed).
+    // so the hook and engine use the same `prompt_id`. The Channel cancel
+    // registration above deliberately starts before preflight: `/stop` and the
+    // GUI button are the same operation even while a hook is still running.
     let turn_id = uuid::Uuid::new_v4().to_string();
-    let effective_prompt = match ha_core::agent::preflight::user_prompt_preflight(
+    let preflight = ha_core::agent::preflight::user_prompt_preflight_cancellable(
         ha_core::agent::preflight::PreflightArgs {
             session_id: &session_id,
             agent_id: Some(agent_id.as_str()),
-            raw_prompt: user_text,
+            raw_prompt: &user_text,
             turn_id: &turn_id,
         },
+        cancel.as_ref(),
     )
-    .await
-    {
+    .await;
+    let Some(preflight) = preflight else {
+        app_info!(
+            "channel",
+            "stop",
+            "Stopped channel prompt during preflight for session {}",
+            session_id
+        );
+        return Ok(());
+    };
+    let effective_prompt = match preflight {
         ha_core::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
             effective_prompt
         }
@@ -524,12 +716,88 @@ async fn handle_inbound_message(
             let notice = format!("🚫 {reason}");
             let _ = session_db
                 .append_message(&session_id, &ha_core::session::NewMessage::event(&notice));
-            let _ = plugin
-                .send_message(&account.id, &msg.chat_id, &ReplyPayload::text(&notice))
-                .await;
+            let notice_payload = ReplyPayload::text(&notice);
+            let delivery = plugin.send_message(&account.id, &msg.chat_id, &notice_payload);
+            tokio::pin!(delivery);
+            tokio::select! {
+                biased;
+                _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+                result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
+                    if result.is_err() {
+                        app_warn!("channel", "worker", "Timed out delivering hook-block notice for session {}", session_id);
+                    }
+                }
+            }
             return Ok(());
         }
     };
+    if cancel.load(Ordering::Acquire) {
+        return Ok(());
+    }
+
+    // Acquire before the user message becomes durable. Besides enforcing
+    // single-flight, this is the generation check that prevents an inbound
+    // which predates global Stop from leaking into the next turn's context.
+    let _active_turn_guard = match ha_core::chat_engine::active_turn::try_acquire_foreground_request(
+        foreground_admission,
+        &session_id,
+        ha_core::chat_engine::stream_seq::ChatSource::Channel,
+        turn_id.clone(),
+        None,
+        cancel.clone(),
+    ) {
+        Ok(guard) => guard,
+        Err(e) => {
+            if e.cancelled_by_global_stop() {
+                app_info!(
+                    "channel",
+                    "stop",
+                    "[{}] discarded inbound for session {} because it predated global Stop",
+                    channel_id_str,
+                    session_id
+                );
+                emit_channel_update(&session_id);
+                return Ok(());
+            }
+            app_info!(
+                "channel",
+                "worker",
+                "[{}] inbound for session {} rejected: a turn is already active ({})",
+                channel_id_str,
+                session_id,
+                e
+            );
+            let busy_target = DeliveryTarget {
+                account_id: &account.id,
+                chat_id: &msg.chat_id,
+                thread_id: msg.thread_id.as_deref(),
+                reply_to_message_id: Some(&msg.message_id),
+            };
+            let delivery = send_text_chunks(
+                &plugin,
+                &busy_target,
+                "⏳ I'm still finishing your previous message. Please send this again shortly.",
+                None,
+                &[],
+            );
+            tokio::pin!(delivery);
+            tokio::select! {
+                biased;
+                _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+                result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
+                    if result.is_err() {
+                        app_warn!("channel", "worker", "Timed out delivering busy notice for session {}", session_id);
+                    }
+                }
+            }
+            return Ok(());
+        }
+    };
+    if cancel.load(Ordering::Acquire) {
+        emit_channel_update(&session_id);
+        return Ok(());
+    }
+
     let mut attachments = convert_inbound_media_to_attachments(&msg.media, &session_id);
     let user_attachments_meta = match ha_core::attachments::persist_chat_user_attachments_meta(
         &session_id,
@@ -548,6 +816,9 @@ async fn handle_inbound_message(
             None
         }
     };
+    if cancel.load(Ordering::Acquire) {
+        return Ok(());
+    }
     let mut attachments_meta = serde_json::json!({
         "channel_inbound": {
             "channelId": channel_id_str,
@@ -574,34 +845,65 @@ async fn handle_inbound_message(
     // Keep all synchronous SessionDB work off this async dispatcher's Tokio
     // workers and preserve restore-before-append ordering in one blocking task.
     let persist_session_id = session_id.clone();
-    let title_prompt = effective_prompt.clone();
-    let title_attachments_meta = attachments_meta_json.clone();
+    let persist_turn_id = turn_id.clone();
     let persist_result = session_db
-        .run(move |db| -> anyhow::Result<()> {
-            db.set_session_archived(&persist_session_id, false)?;
-            db.append_message(&persist_session_id, &user_msg)?;
-            // Auto-generate fallback title from the first real message (same
-            // logic as normal chat).
-            let _ = ha_core::session::ensure_first_message_title(
-                db,
+        .run(move |db| {
+            ha_core::chat_engine::active_turn::with_persistence_target(
                 &persist_session_id,
-                &title_prompt,
-                Some(&title_attachments_meta),
-            )?;
-            Ok(())
+                &persist_turn_id,
+                || -> anyhow::Result<i64> {
+                    db.set_session_archived(&persist_session_id, false)?;
+                    db.append_message(&persist_session_id, &user_msg)
+                },
+            )
         })
         .await;
-    if let Err(error) = persist_result {
-        app_warn!(
-            "channel",
-            "worker",
-            "[{}] Failed to restore/persist inbound conversation {}: {}",
-            channel_id_str,
-            session_id,
-            error
-        );
-        return Err(error);
-    }
+    let _user_message_id = match persist_result {
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::Committed(message_id)) => {
+            message_id
+        }
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
+            message_id,
+        )) => {
+            spawn_cancelled_channel_message_rollback(
+                session_db.clone(),
+                session_id.clone(),
+                message_id,
+            );
+            return Ok(());
+        }
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit) => {
+            emit_channel_update(&session_id);
+            return Ok(());
+        }
+        Err(error) => {
+            app_warn!(
+                "channel",
+                "worker",
+                "[{}] Failed to restore/persist inbound conversation {}: {}",
+                channel_id_str,
+                session_id,
+                error
+            );
+            return Err(error);
+        }
+    };
+
+    // Auto-generate fallback title only after persistence has won over Stop;
+    // a cancelled stale inbound must not leave either a message or its title.
+    let title_session_id = session_id.clone();
+    let title_prompt = effective_prompt.clone();
+    let title_attachments_meta = attachments_meta_json.clone();
+    let _ = session_db
+        .run(move |db| {
+            ha_core::session::ensure_first_message_title(
+                db,
+                &title_session_id,
+                &title_prompt,
+                Some(&title_attachments_meta),
+            )
+        })
+        .await;
 
     // Notify the desktop / web side that a fresh user message landed on
     // this session from IM, so an attached GUI view can pull it into
@@ -624,79 +926,13 @@ async fn handle_inbound_message(
         );
     }
 
+    if cancel.load(Ordering::Acquire) {
+        emit_channel_update(&session_id);
+        return Ok(());
+    }
+
     // NOTE: We don't emit channel:message_update here because channel:stream_start
     // will handle frontend state. Emitting here would race with the stream placeholder.
-
-    // 5c. Single-flight gate (I8 / MISC-6). IM inbound previously had NO
-    // per-session turn guard: two rapid messages to the same session ran
-    // `run_chat_engine` concurrently, and the loser lost the
-    // `stream_seq::begin` race deep inside the engine — after the pipeline was
-    // spawned — surfacing as an "active stream" error reply. Acquire the same
-    // `active_turn` guard the GUI/HTTP entry points use so a concurrent turn
-    // (from IM, GUI, or HTTP on this 1:1-attached session) is rejected up
-    // front. We acquire AFTER persisting the user message: every inbound is
-    // captured into history + run through the `UserPromptSubmit` preflight,
-    // and only the *engine run* is single-flighted (a deferred message rides
-    // the next turn's context; there is no auto-dequeue). The guard + cancel
-    // handle are held by RAII for the whole turn including delivery.
-    let cancel = match ha_core::globals::get_channel_cancels() {
-        Some(reg) => reg.register(&session_id),
-        None => Arc::new(AtomicBool::new(false)),
-    };
-    // RAII removal so the channel cancel handle never leaks on an early bail
-    // (e.g. empty model chain below) — it used to be removed only on the
-    // run_chat_engine-reached path.
-    struct CancelHandleGuard(String);
-    impl Drop for CancelHandleGuard {
-        fn drop(&mut self) {
-            if let Some(reg) = ha_core::globals::get_channel_cancels() {
-                reg.remove(&self.0);
-            }
-        }
-    }
-    let _cancel_handle_guard = CancelHandleGuard(session_id.clone());
-
-    // The synthetic turn id only keys the single-flight registry entry; the
-    // engine keeps `turn_id: None` (IM streams on the `channel:*` bus, not the
-    // `chat:*` seq-tracked bus, so giving it a tracked turn id would change
-    // stream acceptance/broadcast semantics). It is minted above the preflight
-    // so `UserPromptSubmit` reports the same `prompt_id` as this turn's other
-    // hooks. The shared `cancel` Arc is reused by `engine_params` below so a
-    // cross-surface cancel (session delete / GUI stop walking `active_turn`)
-    // actually aborts this engine run.
-    let _active_turn_guard = match ha_core::chat_engine::active_turn::try_acquire(
-        &session_id,
-        ha_core::chat_engine::stream_seq::ChatSource::Channel,
-        turn_id.clone(),
-        cancel.clone(),
-    ) {
-        Ok(guard) => guard,
-        Err(e) => {
-            app_info!(
-                "channel",
-                "worker",
-                "[{}] inbound for session {} deferred: a turn is already active ({})",
-                channel_id_str,
-                session_id,
-                e
-            );
-            let busy_target = DeliveryTarget {
-                account_id: &account.id,
-                chat_id: &msg.chat_id,
-                thread_id: msg.thread_id.as_deref(),
-                reply_to_message_id: Some(&msg.message_id),
-            };
-            send_text_chunks(
-                &plugin,
-                &busy_target,
-                "⏳ I'm still finishing your previous message; I'll get to this one shortly.",
-                None,
-                &[],
-            )
-            .await;
-            return Ok(());
-        }
-    };
 
     // 6. Build channel context for prompt injection
     let chat_type_label = match msg.chat_type {
@@ -774,9 +1010,34 @@ async fn handle_inbound_message(
 
     let resolved_temperature = runtime_defaults.temperature;
 
-    // 8. Spawn the shared streaming pipeline (preview task + sink). The
-    // chat engine writes events into `pipeline.event_sink`; we await the
-    // stream task and deliver rounds after `run_chat_engine` returns.
+    // 8a. Auto-transcribe voice / audio attachments when the account opts
+    // in. The prefix gets prepended to the engine message so the LLM sees
+    // a text version of the spoken content; the original audio is kept as
+    // an attachment so multimodal models (or downstream re-transcribe)
+    // can still fall back to listening. Failure is non-blocking — logged
+    // and dropped.
+    let engine_message = if account.auto_transcribe_voice() {
+        let transcription = transcribe_inbound_voice_attachments(&attachments, &store.language);
+        tokio::pin!(transcription);
+        let prefix = tokio::select! {
+            biased;
+            _ = wait_for_channel_cancel(cancel.as_ref()) => {
+                emit_channel_update(&session_id);
+                return Ok(());
+            }
+            prefix = &mut transcription => prefix,
+        };
+        match prefix {
+            Some(prefix) => format!("{}{}", prefix, engine_message),
+            None => engine_message,
+        }
+    } else {
+        engine_message
+    };
+
+    // 8. Spawn the shared streaming pipeline (preview task + sink) only after
+    // cancellable preparation finishes. The engine writes events into
+    // `pipeline.event_sink`; we await it and deliver rounds after the engine.
     let target = DeliveryTarget {
         account_id: &account.id,
         chat_id: &msg.chat_id,
@@ -794,21 +1055,6 @@ async fn handle_inbound_message(
         true,
     );
     let event_sink = pipeline.event_sink.clone();
-
-    // 8a. Auto-transcribe voice / audio attachments when the account opts
-    // in. The prefix gets prepended to the engine message so the LLM sees
-    // a text version of the spoken content; the original audio is kept as
-    // an attachment so multimodal models (or downstream re-transcribe)
-    // can still fall back to listening. Failure is non-blocking — logged
-    // and dropped.
-    let engine_message = if account.auto_transcribe_voice() {
-        match transcribe_inbound_voice_attachments(&attachments, &store.language).await {
-            Some(prefix) => format!("{}{}", prefix, engine_message),
-            None => engine_message,
-        }
-    } else {
-        engine_message
-    };
     let reasoning_effort = Some(runtime_defaults.reasoning_effort);
 
     // Snapshot whether the *entire* fallback chain is Codex before
@@ -888,11 +1134,35 @@ async fn handle_inbound_message(
 
     // Late async tool completions arriving after this drain are deferred to
     // a future turn — a stale attachment from turn N must not leak into N+1.
-    let outcome = await_stream_pipeline(pipeline).await;
+    let Some(outcome) = await_stream_pipeline_until_cancel(pipeline, cancel.as_ref()).await else {
+        app_info!(
+            "channel",
+            "stop",
+            "Stopped channel preview finalization for session {}",
+            session_id
+        );
+        emit_stream_lifecycle("channel:stream_end", &session_id);
+        return Ok(());
+    };
 
     match result {
         Ok(engine_result) => {
-            let metrics = deliver_rounds(&plugin, &target, &outcome, &engine_result.response).await;
+            let delivery = deliver_rounds(&plugin, &target, &outcome, &engine_result.response);
+            tokio::pin!(delivery);
+            let metrics = tokio::select! {
+                biased;
+                _ = wait_for_channel_cancel(cancel.as_ref()) => {
+                    app_info!(
+                        "channel",
+                        "stop",
+                        "Stopped channel final delivery for session {}",
+                        session_id
+                    );
+                    emit_stream_lifecycle("channel:stream_end", &session_id);
+                    return Ok(());
+                }
+                metrics = &mut delivery => metrics,
+            };
 
             app_info!(
                 "channel",
@@ -938,13 +1208,27 @@ async fn handle_inbound_message(
                 thread_id: msg.thread_id.as_deref(),
                 reply_to_message_id: Some(&msg.message_id),
             };
-            send_error_reply(
+            let error_delivery = send_error_reply(
                 &plugin,
                 &err_target,
                 outcome.stream_outcome.preview.as_ref(),
                 &body,
-            )
-            .await;
+            );
+            tokio::pin!(error_delivery);
+            tokio::select! {
+                biased;
+                _ = wait_for_channel_cancel(cancel.as_ref()) => {
+                    app_info!(
+                        "channel",
+                        "stop",
+                        "Stopped channel error delivery for session {}",
+                        session_id
+                    );
+                    emit_stream_lifecycle("channel:stream_end", &session_id);
+                    return Ok(());
+                }
+                _ = &mut error_delivery => {}
+            }
         }
     }
 
@@ -1654,6 +1938,60 @@ pub(crate) async fn deliver_media_to_chat(
 mod tests {
     use super::*;
     use ha_core::attachments::{MediaItem, MediaKind};
+
+    #[test]
+    fn stop_command_is_reserved_from_interactive_reply_parsing() {
+        assert!(is_stop_command(Some("/stop")));
+        assert!(is_stop_command(Some("  /STOP  ")));
+        assert!(!is_stop_command(Some("stop")));
+        assert!(!is_stop_command(Some("/status")));
+        assert!(!is_stop_command(None));
+    }
+
+    #[tokio::test]
+    async fn cancelled_channel_message_retry_holds_gate_until_delete_succeeds() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("sessions.db");
+        let db = Arc::new(
+            ha_core::session::SessionDB::open_ephemeral_for_test(&db_path)
+                .expect("open session db"),
+        );
+        let session = db.create_session("ha-main").expect("create session");
+        let message_id = db
+            .append_message(
+                &session.id,
+                &ha_core::session::NewMessage::user("cancelled inbound"),
+            )
+            .expect("append message");
+        db.with_conn_for_test(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER block_cancelled_message_delete
+                 BEFORE DELETE ON messages
+                 BEGIN SELECT RAISE(FAIL, 'delete blocked'); END;",
+            )?;
+            Ok(())
+        })
+        .expect("install delete blocker");
+
+        let cleanup =
+            spawn_cancelled_channel_message_rollback(db.clone(), session.id.clone(), message_id);
+        assert!(ha_core::chat_engine::active_turn::stop_cleanup_active(
+            &session.id
+        ));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(db.get_message(message_id).expect("read message").is_some());
+
+        db.with_conn_for_test(|conn| {
+            conn.execute_batch("DROP TRIGGER block_cancelled_message_delete;")?;
+            Ok(())
+        })
+        .expect("remove delete blocker");
+        tokio::time::timeout(std::time::Duration::from_secs(2), cleanup)
+            .await
+            .expect("cleanup retry should settle")
+            .expect("cleanup task should not panic");
+        assert!(db.get_message(message_id).expect("read message").is_none());
+    }
 
     fn mk_item(name: &str, mime: &str, kind: MediaKind) -> MediaItem {
         MediaItem {

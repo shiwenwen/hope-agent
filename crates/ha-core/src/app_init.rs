@@ -537,7 +537,7 @@ pub fn init_runtime(role: &'static str) {
     }
 
     // Startup orphan sweeps. Gated on Primary tier so a Secondary process
-    // (e.g. acp launching while desktop is running) doesn't mark-error the
+    // (e.g. acp launching while desktop is running) doesn't mark-interrupted the
     // desktop's live subagent runs / team members or, worst case, hard-
     // delete its incognito sessions. Defense in depth: incognito purge
     // also has a per-row updated_at < now-60s SQL guard added in this

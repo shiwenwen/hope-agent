@@ -4,6 +4,7 @@ import {
   hasSendableChatPayload,
   nextDispatchablePending,
   shouldApplyPendingQueueSnapshot,
+  shouldReplayNextPending,
 } from "./pendingQueue"
 
 describe("durable pending queue projection", () => {
@@ -25,5 +26,27 @@ describe("durable pending queue projection", () => {
   test("allows a durable attachment-only row to reach the backend", () => {
     expect(hasSendableChatPayload("", false, false, "queued-request")).toBe(true)
     expect(hasSendableChatPayload("", false, false)).toBe(false)
+  })
+
+  test("does not replay after a user Stop from another surface", () => {
+    expect(
+      shouldReplayNextPending(false, {
+        status: "interrupted",
+        interruptReason: "user_stop",
+      }),
+    ).toBe(false)
+    expect(
+      shouldReplayNextPending(false, {
+        status: "cancelling",
+        interruptReason: "user_stop",
+      }),
+    ).toBe(false)
+    expect(shouldReplayNextPending(true, { status: "completed" })).toBe(false)
+    expect(
+      shouldReplayNextPending(false, {
+        status: "interrupted",
+        interruptReason: "runtime_cancel",
+      }),
+    ).toBe(true)
   })
 })

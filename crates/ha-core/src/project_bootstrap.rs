@@ -2,10 +2,11 @@
 //! The desktop and HTTP shells both call this module so validation, durable
 //! progress, Git semantics, and session binding stay identical.
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use anyhow::{anyhow, bail, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -15,11 +16,44 @@ use serde_json::json;
 use crate::session::SessionDB;
 use crate::worktree::{CreateManagedWorktreeInput, ManagedWorktree, ManagedWorktreePurpose};
 
-type ActiveBootstrapMap = std::collections::HashMap<String, Arc<AtomicBool>>;
-static ACTIVE_BOOTSTRAPS: OnceLock<Mutex<ActiveBootstrapMap>> = OnceLock::new();
+const PENDING_BOOTSTRAP_CANCELS_MAX: usize = 4096;
 
-fn active_bootstraps() -> &'static Mutex<ActiveBootstrapMap> {
-    ACTIVE_BOOTSTRAPS.get_or_init(|| Mutex::new(ActiveBootstrapMap::new()))
+#[derive(Debug)]
+struct ClientBootstrapBinding {
+    token: String,
+    bootstrap_request_id: String,
+}
+
+#[derive(Default)]
+struct BootstrapCancellationRegistry {
+    active: HashMap<String, Arc<AtomicBool>>,
+    pending: HashSet<String>,
+    client_bindings: HashMap<String, ClientBootstrapBinding>,
+}
+
+static BOOTSTRAP_CANCELLATIONS: OnceLock<Mutex<BootstrapCancellationRegistry>> = OnceLock::new();
+
+fn bootstrap_cancellations() -> &'static Mutex<BootstrapCancellationRegistry> {
+    BOOTSTRAP_CANCELLATIONS.get_or_init(|| Mutex::new(BootstrapCancellationRegistry::default()))
+}
+
+fn bootstrap_cancellations_lock() -> MutexGuard<'static, BootstrapCancellationRegistry> {
+    bootstrap_cancellations()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn arm_bootstrap_cancel(registry: &mut BootstrapCancellationRegistry, request_id: &str) {
+    if let Some(flag) = registry.active.get(request_id) {
+        flag.store(true, Ordering::SeqCst);
+        return;
+    }
+    if registry.pending.len() >= PENDING_BOOTSTRAP_CANCELS_MAX {
+        if let Some(evicted) = registry.pending.iter().next().cloned() {
+            registry.pending.remove(&evicted);
+        }
+    }
+    registry.pending.insert(request_id.to_string());
 }
 
 struct ActiveBootstrapGuard {
@@ -29,34 +63,103 @@ struct ActiveBootstrapGuard {
 
 impl Drop for ActiveBootstrapGuard {
     fn drop(&mut self) {
-        if let Ok(mut active) = active_bootstraps().lock() {
-            if active
-                .get(&self.id)
-                .is_some_and(|current| Arc::ptr_eq(current, &self.flag))
-            {
-                active.remove(&self.id);
-            }
+        let mut registry = bootstrap_cancellations_lock();
+        if registry
+            .active
+            .get(&self.id)
+            .is_some_and(|current| Arc::ptr_eq(current, &self.flag))
+        {
+            registry.active.remove(&self.id);
         }
     }
 }
 
 pub fn cancel_project_bootstrap(request_id: &str) -> bool {
-    let Ok(active) = active_bootstraps().lock() else {
+    if request_id.is_empty() {
+        return false;
+    }
+    arm_bootstrap_cancel(&mut bootstrap_cancellations_lock(), request_id);
+    true
+}
+
+/// Bind a transport-level chat request to the independently generated project
+/// bootstrap request. The mapping is installed before bootstrap awaits begin,
+/// allowing the normal Stop endpoint to cancel Git preparation without the UI
+/// having to issue a second control request.
+pub struct ProjectBootstrapClientRequestGuard {
+    client_request_id: String,
+    token: String,
+}
+
+impl Drop for ProjectBootstrapClientRequestGuard {
+    fn drop(&mut self) {
+        let mut registry = bootstrap_cancellations_lock();
+        if registry
+            .client_bindings
+            .get(&self.client_request_id)
+            .is_some_and(|binding| binding.token == self.token)
+        {
+            registry.client_bindings.remove(&self.client_request_id);
+        }
+    }
+}
+
+pub fn register_project_bootstrap_client_request(
+    client_request_id: &str,
+    bootstrap_request_id: &str,
+) -> ProjectBootstrapClientRequestGuard {
+    let token = uuid::Uuid::new_v4().to_string();
+    bootstrap_cancellations_lock().client_bindings.insert(
+        client_request_id.to_string(),
+        ClientBootstrapBinding {
+            token: token.clone(),
+            bootstrap_request_id: bootstrap_request_id.to_string(),
+        },
+    );
+    // A request-scoped Stop can win before this handler executes at all. The
+    // active-turn latch is authoritative in that ordering; mirror it into the
+    // bootstrap-id latch immediately after publishing the relationship.
+    if crate::chat_engine::active_turn::has_latched_client_cancel(client_request_id) {
+        cancel_project_bootstrap(bootstrap_request_id);
+    }
+    ProjectBootstrapClientRequestGuard {
+        client_request_id: client_request_id.to_string(),
+        token,
+    }
+}
+
+pub fn cancel_project_bootstrap_for_client_request(client_request_id: &str) -> bool {
+    let mut registry = bootstrap_cancellations_lock();
+    let Some(bootstrap_request_id) = registry
+        .client_bindings
+        .get(client_request_id)
+        .map(|binding| binding.bootstrap_request_id.clone())
+    else {
         return false;
     };
-    let Some(flag) = active.get(request_id) else {
-        return false;
-    };
-    flag.store(true, Ordering::SeqCst);
+    arm_bootstrap_cancel(&mut registry, &bootstrap_request_id);
     true
 }
 
 pub(crate) fn is_project_bootstrap_cancelled(request_id: &str) -> bool {
-    active_bootstraps()
-        .lock()
-        .ok()
-        .and_then(|active| active.get(request_id).cloned())
+    bootstrap_cancellations_lock()
+        .active
+        .get(request_id)
+        .cloned()
         .is_some_and(|flag| flag.load(Ordering::SeqCst))
+}
+
+fn register_active_bootstrap(request_id: &str) -> (Arc<AtomicBool>, ActiveBootstrapGuard) {
+    let mut registry = bootstrap_cancellations_lock();
+    let cancel = Arc::new(AtomicBool::new(registry.pending.remove(request_id)));
+    registry
+        .active
+        .insert(request_id.to_string(), cancel.clone());
+    let guard = ActiveBootstrapGuard {
+        id: request_id.to_string(),
+        flag: cancel.clone(),
+    };
+    (cancel, guard)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +348,59 @@ fn prepare_local_branch_on_disk(
 }
 
 impl SessionDB {
+    async fn insert_project_bootstrap_run_async(
+        self: &Arc<Self>,
+        input: &PrepareProjectWorktreeInput,
+        base_ref: &str,
+    ) -> Result<()> {
+        let db = self.clone();
+        let input = input.clone();
+        let base_ref = base_ref.to_string();
+        db.run(move |db| db.insert_project_bootstrap_run(&input, &base_ref))
+            .await
+    }
+
+    async fn update_project_bootstrap_stage_async(
+        self: &Arc<Self>,
+        id: &str,
+        status: &str,
+        stage: &str,
+        worktree_id: Option<&str>,
+        error: Option<(&str, &str)>,
+    ) -> Result<()> {
+        let db = self.clone();
+        let id = id.to_string();
+        let status = status.to_string();
+        let stage = stage.to_string();
+        let worktree_id = worktree_id.map(str::to_string);
+        let error = error.map(|(code, message)| (code.to_string(), message.to_string()));
+        db.run(move |db| {
+            db.update_project_bootstrap_stage(
+                &id,
+                &status,
+                &stage,
+                worktree_id.as_deref(),
+                error
+                    .as_ref()
+                    .map(|(code, message)| (code.as_str(), message.as_str())),
+            )
+        })
+        .await
+    }
+
+    async fn report_project_bootstrap_stage_async(
+        self: &Arc<Self>,
+        id: &str,
+        stage: &str,
+        session_id: Option<&str>,
+        worktree_id: Option<&str>,
+    ) -> Result<()> {
+        self.update_project_bootstrap_stage_async(id, "preparing", stage, worktree_id, None)
+            .await?;
+        emit_progress(id, "preparing", stage, session_id, worktree_id, None);
+        Ok(())
+    }
+
     async fn prepare_project_local_branch(
         self: &Arc<Self>,
         input: PrepareProjectWorktreeInput,
@@ -280,24 +436,35 @@ impl SessionDB {
             bail!("bootstrap session is not bound to the requested project");
         }
 
-        self.insert_project_bootstrap_run(&input, &base_ref)?;
-        let cancel = Arc::new(AtomicBool::new(false));
-        {
-            let mut active = active_bootstraps()
-                .lock()
-                .map_err(|_| anyhow!("bootstrap cancellation registry is unavailable"))?;
-            active.insert(input.request.request_id.clone(), cancel.clone());
+        self.insert_project_bootstrap_run_async(&input, &base_ref)
+            .await?;
+        let (cancel, _active_guard) = register_active_bootstrap(&input.request.request_id);
+        if cancel.load(Ordering::SeqCst) {
+            self.update_project_bootstrap_stage_async(
+                &input.request.request_id,
+                "cancelled",
+                "cancelled",
+                None,
+                Some(("cancelled", "Local branch preparation was cancelled")),
+            )
+            .await?;
+            emit_progress(
+                &input.request.request_id,
+                "cancelled",
+                "cancelled",
+                Some(&input.session_id),
+                None,
+                Some(("cancelled", "Local branch preparation was cancelled")),
+            );
+            bail!("local branch preparation was cancelled");
         }
-        let _active_guard = ActiveBootstrapGuard {
-            id: input.request.request_id.clone(),
-            flag: cancel.clone(),
-        };
-        self.report_project_bootstrap_stage(
+        self.report_project_bootstrap_stage_async(
             &input.request.request_id,
             "resolving_git",
             Some(&input.session_id),
             None,
-        )?;
+        )
+        .await?;
 
         let source = input.source_working_dir.clone();
         let include_local_changes = input.request.include_local_changes;
@@ -311,13 +478,14 @@ impl SessionDB {
 
         match switch_result {
             Ok(()) if !cancel.load(Ordering::SeqCst) => {
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     "ready",
                     "ready",
                     None,
                     None,
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     "ready",
@@ -329,13 +497,14 @@ impl SessionDB {
                 Ok(())
             }
             Ok(()) => {
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     "cancelled",
                     "cancelled",
                     None,
                     Some(("cancelled", "Local branch preparation was cancelled")),
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     "cancelled",
@@ -348,13 +517,14 @@ impl SessionDB {
             }
             Err(error) => {
                 let message = format!("{error:#}");
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     "failed",
                     "failed",
                     None,
                     Some(("local_branch_prepare_failed", message.as_str())),
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     "failed",
@@ -520,24 +690,35 @@ impl SessionDB {
             bail!("bootstrap session is not bound to the requested project");
         }
 
-        self.insert_project_bootstrap_run(&input, &base_ref)?;
-        let cancel = Arc::new(AtomicBool::new(false));
-        {
-            let mut active = active_bootstraps()
-                .lock()
-                .map_err(|_| anyhow!("bootstrap cancellation registry is unavailable"))?;
-            active.insert(input.request.request_id.clone(), cancel.clone());
+        self.insert_project_bootstrap_run_async(&input, &base_ref)
+            .await?;
+        let (cancel, _active_guard) = register_active_bootstrap(&input.request.request_id);
+        if cancel.load(Ordering::SeqCst) {
+            self.update_project_bootstrap_stage_async(
+                &input.request.request_id,
+                "cancelled",
+                "cancelled",
+                None,
+                Some(("cancelled", "Worktree preparation was cancelled")),
+            )
+            .await?;
+            emit_progress(
+                &input.request.request_id,
+                "cancelled",
+                "cancelled",
+                Some(&input.session_id),
+                None,
+                Some(("cancelled", "Worktree preparation was cancelled")),
+            );
+            bail!("worktree preparation was cancelled");
         }
-        let _active_guard = ActiveBootstrapGuard {
-            id: input.request.request_id.clone(),
-            flag: cancel.clone(),
-        };
-        self.report_project_bootstrap_stage(
+        self.report_project_bootstrap_stage_async(
             &input.request.request_id,
             "resolving_git",
             Some(&input.session_id),
             None,
-        )?;
+        )
+        .await?;
 
         let source = input.source_working_dir.clone();
         let base_ref_for_validation = base_ref.clone();
@@ -560,13 +741,14 @@ impl SessionDB {
         .await;
         if let Err(error) = validation {
             let message = format!("{error:#}");
-            self.update_project_bootstrap_stage(
+            self.update_project_bootstrap_stage_async(
                 &input.request.request_id,
                 "failed",
                 "failed",
                 None,
                 Some(("git_validation_failed", message.as_str())),
-            )?;
+            )
+            .await?;
             emit_progress(
                 &input.request.request_id,
                 "failed",
@@ -578,13 +760,14 @@ impl SessionDB {
             return Err(error);
         }
         if cancel.load(Ordering::SeqCst) {
-            self.update_project_bootstrap_stage(
+            self.update_project_bootstrap_stage_async(
                 &input.request.request_id,
                 "cancelled",
                 "cancelled",
                 None,
                 Some(("cancelled", "Worktree preparation was cancelled")),
-            )?;
+            )
+            .await?;
             emit_progress(
                 &input.request.request_id,
                 "cancelled",
@@ -596,13 +779,14 @@ impl SessionDB {
             bail!("worktree preparation was cancelled");
         }
         if input.request.include_local_changes {
-            self.update_project_bootstrap_stage(
+            self.update_project_bootstrap_stage_async(
                 &input.request.request_id,
                 "preparing",
                 "snapshotting",
                 None,
                 None,
-            )?;
+            )
+            .await?;
             emit_progress(
                 &input.request.request_id,
                 "preparing",
@@ -613,13 +797,14 @@ impl SessionDB {
             );
         }
         if cancel.load(Ordering::SeqCst) {
-            self.update_project_bootstrap_stage(
+            self.update_project_bootstrap_stage_async(
                 &input.request.request_id,
                 "cancelled",
                 "cancelled",
                 None,
                 Some(("cancelled", "Worktree preparation was cancelled")),
-            )?;
+            )
+            .await?;
             emit_progress(
                 &input.request.request_id,
                 "cancelled",
@@ -659,13 +844,14 @@ impl SessionDB {
 
         match result {
             Ok(worktree) => {
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     "ready",
                     "ready",
                     Some(&worktree.id),
                     None,
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     "ready",
@@ -689,20 +875,28 @@ impl SessionDB {
                     if let Some(worktree_id) = run.and_then(|run| run.worktree_id) {
                         let db = self.clone();
                         let cleanup_id = worktree_id.clone();
-                        db.run(move |db| {
-                            if db.get_managed_worktree(&cleanup_id)?.is_some() {
-                                db.discard_managed_worktree(&cleanup_id)
-                            } else {
-                                crate::worktree::cleanup_orphan_builtin_worktree(&cleanup_id)
-                                    .map(|_| ())
-                            }
-                        })
-                        .await
-                        .err()
-                        .map(|cleanup_error| {
-                            let _ = self.mark_managed_worktree_bootstrap_failed(&worktree_id);
-                            format!("; cleanup failed: {cleanup_error:#}")
-                        })
+                        let cleanup_result = db
+                            .run(move |db| {
+                                if db.get_managed_worktree(&cleanup_id)?.is_some() {
+                                    db.discard_managed_worktree(&cleanup_id)
+                                } else {
+                                    crate::worktree::cleanup_orphan_builtin_worktree(&cleanup_id)
+                                        .map(|_| ())
+                                }
+                            })
+                            .await;
+                        if let Err(cleanup_error) = cleanup_result {
+                            let db = self.clone();
+                            let failed_worktree_id = worktree_id.clone();
+                            let _ = db
+                                .run(move |db| {
+                                    db.mark_managed_worktree_bootstrap_failed(&failed_worktree_id)
+                                })
+                                .await;
+                            Some(format!("; cleanup failed: {cleanup_error:#}"))
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
@@ -715,13 +909,14 @@ impl SessionDB {
                 } else {
                     "worktree_prepare_failed"
                 };
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     status,
                     status,
                     None,
                     Some((error_code, message.as_str())),
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     status,
@@ -816,6 +1011,84 @@ impl SessionDB {
             emit_completed(id);
         }
         Ok(changed > 0)
+    }
+
+    /// Roll back a prepared project launch when the first chat is explicitly
+    /// stopped during `UserPromptSubmit`, before any user message exists.
+    ///
+    /// Worktree preparation has already completed by this point, so deleting
+    /// the Session first would cascade away the registry row without asking Git
+    /// to remove the physical worktree. Keep cleanup Git-aware, then terminalize
+    /// the durable bootstrap run before the shell deletes the empty Session.
+    pub fn rollback_project_bootstrap_after_chat_cancel(&self, id: &str) -> Result<()> {
+        let run = self
+            .get_project_bootstrap_run(id)?
+            .ok_or_else(|| anyhow!("project bootstrap run not found: {id}"))?;
+        if !matches!(run.status.as_str(), "ready" | "chatting") {
+            bail!(
+                "project bootstrap {id} cannot be cancelled from status {}",
+                run.status
+            );
+        }
+
+        let cleanup_result = if let Some(worktree_id) = run.worktree_id.as_deref() {
+            if self.get_managed_worktree(worktree_id)?.is_some() {
+                self.discard_managed_worktree(worktree_id)
+            } else {
+                crate::worktree::cleanup_orphan_builtin_worktree(worktree_id).map(|_| ())
+            }
+        } else {
+            Ok(())
+        };
+        if let Err(cleanup_error) = cleanup_result {
+            let message = format!("Failed to clean up stopped chat worktree: {cleanup_error:#}");
+            if let Some(worktree_id) = run.worktree_id.as_deref() {
+                let _ = self.mark_managed_worktree_bootstrap_failed(worktree_id);
+            }
+            if let Err(update_error) = self.update_project_bootstrap_stage(
+                id,
+                "failed",
+                "failed",
+                run.worktree_id.as_deref(),
+                Some(("worktree_cleanup_failed", message.as_str())),
+            ) {
+                return Err(anyhow!(
+                    "{message}; failed to persist bootstrap failure: {update_error:#}"
+                ));
+            }
+            emit_progress(
+                id,
+                "failed",
+                "failed",
+                run.session_id.as_deref(),
+                run.worktree_id.as_deref(),
+                Some(("worktree_cleanup_failed", message.as_str())),
+            );
+            return Err(anyhow!(message));
+        }
+
+        self.update_project_bootstrap_stage(
+            id,
+            "cancelled",
+            "cancelled",
+            run.worktree_id.as_deref(),
+            Some((
+                "cancelled",
+                "Chat was stopped before prompt submission completed",
+            )),
+        )?;
+        emit_progress(
+            id,
+            "cancelled",
+            "cancelled",
+            run.session_id.as_deref(),
+            run.worktree_id.as_deref(),
+            Some((
+                "cancelled",
+                "Chat was stopped before prompt submission completed",
+            )),
+        );
+        Ok(())
     }
 
     pub(crate) fn report_project_bootstrap_stage(
@@ -932,6 +1205,44 @@ fn emit_completed(request_id: &str) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn client_request_stop_latches_until_bootstrap_registers() {
+        let client_request_id = format!("bootstrap-client-{}", uuid::Uuid::new_v4());
+        let bootstrap_request_id = format!("bootstrap-run-{}", uuid::Uuid::new_v4());
+        let binding =
+            register_project_bootstrap_client_request(&client_request_id, &bootstrap_request_id);
+
+        assert!(cancel_project_bootstrap_for_client_request(
+            &client_request_id
+        ));
+        let (cancel, active) = register_active_bootstrap(&bootstrap_request_id);
+        assert!(cancel.load(Ordering::SeqCst));
+        drop(active);
+        drop(binding);
+        assert!(!cancel_project_bootstrap_for_client_request(
+            &client_request_id
+        ));
+    }
+
+    #[test]
+    fn stop_before_client_binding_is_mirrored_into_bootstrap_latch() {
+        let client_request_id = format!("bootstrap-early-client-{}", uuid::Uuid::new_v4());
+        let bootstrap_request_id = format!("bootstrap-early-run-{}", uuid::Uuid::new_v4());
+        assert!(matches!(
+            crate::chat_engine::active_turn::cancel_or_latch_client_request(
+                &client_request_id,
+                None,
+            ),
+            crate::chat_engine::active_turn::ClientRequestCancelOutcome::Latched
+        ));
+
+        let _binding =
+            register_project_bootstrap_client_request(&client_request_id, &bootstrap_request_id);
+        let (bootstrap_cancel, active_bootstrap) = register_active_bootstrap(&bootstrap_request_id);
+        assert!(bootstrap_cancel.load(Ordering::SeqCst));
+        drop(active_bootstrap);
+    }
+
     fn git(cwd: &Path, args: &[&str]) {
         git_output(cwd, args).unwrap_or_else(|error| panic!("git {args:?}: {error:#}"));
     }
@@ -966,6 +1277,168 @@ mod tests {
         assert!(!db.mark_project_bootstrap_completed("request-1").unwrap());
         let run = db.get_project_bootstrap_run("request-1").unwrap().unwrap();
         assert_eq!(run.status, "completed");
+        assert!(run.completed_at.is_some());
+    }
+
+    #[test]
+    fn chat_cancel_rolls_claimed_bootstrap_to_cancelled() {
+        let (_dir, db) = test_db();
+        insert_run(&db, "request-cancelled", "ready");
+        assert!(db
+            .claim_project_bootstrap_chatting("request-cancelled")
+            .unwrap());
+
+        db.rollback_project_bootstrap_after_chat_cancel("request-cancelled")
+            .expect("rollback claimed bootstrap");
+
+        let run = db
+            .get_project_bootstrap_run("request-cancelled")
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.status, "cancelled");
+        assert_eq!(run.stage, "cancelled");
+        assert_eq!(run.error_code.as_deref(), Some("cancelled"));
+        assert!(run.completed_at.is_some());
+    }
+
+    #[test]
+    fn cleanup_failure_is_not_emitted_when_terminal_write_fails() {
+        let (_dir, db) = test_db();
+        let bus = crate::globals::EVENT_BUS
+            .get_or_init(|| {
+                let bus: Arc<dyn crate::event_bus::EventBus> =
+                    Arc::new(crate::event_bus::BroadcastEventBus::new(256));
+                bus
+            })
+            .clone();
+        let mut events = bus.subscribe();
+
+        insert_run(&db, "request-terminal-write-fails", "ready");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE project_bootstrap_runs SET worktree_id = 'invalid-id' WHERE id = ?1",
+                params!["request-terminal-write-fails"],
+            )
+            .unwrap();
+            conn.execute_batch(
+                "CREATE TRIGGER reject_bootstrap_failed_update
+                 BEFORE UPDATE OF status ON project_bootstrap_runs
+                 WHEN NEW.id = 'request-terminal-write-fails' AND NEW.status = 'failed'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'forced bootstrap status write failure');
+                 END;",
+            )
+            .unwrap();
+        }
+
+        let error = db
+            .rollback_project_bootstrap_after_chat_cancel("request-terminal-write-fails")
+            .expect_err("cleanup and terminal write must fail");
+        assert!(
+            format!("{error:#}").contains("failed to persist bootstrap failure"),
+            "unexpected error: {error:#}"
+        );
+        assert_eq!(
+            db.get_project_bootstrap_run("request-terminal-write-fails")
+                .unwrap()
+                .unwrap()
+                .status,
+            "ready"
+        );
+
+        while let Ok(event) = events.try_recv() {
+            assert!(
+                event.name != "project:bootstrap_progress"
+                    || event
+                        .payload
+                        .get("requestId")
+                        .and_then(|value| value.as_str())
+                        != Some("request-terminal-write-fails")
+                    || event.payload.get("status").and_then(|value| value.as_str())
+                        != Some("failed"),
+                "failed progress must not be emitted before its durable write: {:?}",
+                event.payload
+            );
+        }
+    }
+
+    #[test]
+    fn chat_cancel_discards_prepared_worktree_before_session_cleanup() {
+        let (dir, db) = test_db();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).expect("create repo directory");
+        git(&repo, &["init", "-b", "main"]);
+        std::fs::write(repo.join("file.txt"), "main\n").expect("write repository file");
+        git(&repo, &["add", "."]);
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.name=Hope Test",
+                "-c",
+                "user.email=hope@example.invalid",
+                "commit",
+                "-m",
+                "main",
+            ],
+        );
+
+        let worktree_path = dir.path().join("prepared-worktree");
+        let worktree_path_arg = worktree_path.to_string_lossy().into_owned();
+        git(
+            &repo,
+            &["worktree", "add", "--detach", &worktree_path_arg, "HEAD"],
+        );
+        let session = db.create_session("default").expect("create session");
+        insert_run(&db, "request-with-worktree", "ready");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO managed_worktrees (
+                    id, session_id, purpose, state, repo_root,
+                    source_working_dir, path, created_at, updated_at, path_source
+                 ) VALUES (
+                    'worktree-cancelled', ?1, 'manual', 'active', ?2,
+                    ?2, ?3, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z', 'builtin'
+                 )",
+                params![session.id, repo.to_string_lossy(), worktree_path_arg],
+            )
+            .expect("register managed worktree");
+            conn.execute(
+                "UPDATE project_bootstrap_runs
+                 SET session_id = ?2, worktree_id = 'worktree-cancelled'
+                 WHERE id = ?1",
+                params!["request-with-worktree", session.id],
+            )
+            .expect("bind bootstrap run");
+        }
+        assert!(db
+            .claim_project_bootstrap_chatting("request-with-worktree")
+            .unwrap());
+        assert!(worktree_path.exists());
+
+        db.rollback_project_bootstrap_after_chat_cancel("request-with-worktree")
+            .expect("rollback bootstrap with prepared worktree");
+
+        assert!(!worktree_path.exists());
+        assert!(db
+            .get_managed_worktree("worktree-cancelled")
+            .unwrap()
+            .is_none());
+        assert!(!git_output(&repo, &["worktree", "list", "--porcelain"])
+            .unwrap()
+            .contains(&worktree_path_arg));
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("DELETE FROM sessions WHERE id = ?1", params![session.id])
+                .expect("delete empty session after worktree cleanup");
+        }
+        let run = db
+            .get_project_bootstrap_run("request-with-worktree")
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.status, "cancelled");
         assert!(run.completed_at.is_some());
     }
 

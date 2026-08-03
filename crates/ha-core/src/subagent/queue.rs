@@ -35,8 +35,8 @@
 //!   parked entry for the session (the entry is the only place an incognito
 //!   spawn's sensitive `SpawnParams` live — dropping it IS the burn).
 //! - **Restart**: the in-memory queue is lost; `Queued` rows are swept to
-//!   Orphaned by `cleanup_orphan_subagent_runs` (mirrors tool-job
-//!   Queued→Interrupted).
+//!   `Interrupted(process_interrupted)` by `cleanup_orphan_subagent_runs`
+//!   (mirrors tool-job Queued→Interrupted).
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -43,6 +43,24 @@ fn get_text_pending() -> &'static Mutex<HashMap<(String, String), Vec<PendingTex
     TEXT_PENDING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Hold the IM text-approval registry lock so approval cleanup tests can prove
+/// terminal events are published before this secondary cleanup can block.
+///
+/// `#[allow(dead_code)]`：唯一消费者 `user_stop_resolves_approval_before_im_cleanup_can_block`
+/// 在 kernel `ha-core::tools::approval` 里，随第五刀 channel 拆出后 kernel
+/// 无法跨 crate 引用 pub(crate) helper——已在 kernel 侧留欠账、注释指路。
+/// 未来把该 test 搬到 ha-channel integration test 时会重新用到本 helper。
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) async fn hold_text_pending_lock_for_test(
+    acquired: tokio::sync::oneshot::Sender<()>,
+    release: tokio::sync::oneshot::Receiver<()>,
+) {
+    let _pending = get_text_pending().lock().await;
+    let _ = acquired.send(());
+    let _ = release.await;
+}
+
 /// Throttle for the "you have N pending approvals" hint — one nudge per
 /// (account, chat) per the configured interval (see
 /// `permission.imApprovalHintThrottleSecs`, default 60s). Backed by

@@ -65,7 +65,7 @@ export default function SubagentSessionView({
   const sessionsRef = useRef<SessionMeta[]>([])
   const currentSessionIdRef = useRef<string | null>(null)
   const lastSeqRef = useRef<Map<string, number>>(new Map())
-  const endedStreamIdsRef = useRef<Map<string, string>>(new Map())
+  const endedStreamIdsRef = useRef<Map<string, Set<string>>>(new Map())
   const loadingSessionsRef = useRef<Set<string>>(new Set())
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
   const loadedSessionIdRef = useRef<string | null>(null)
@@ -100,8 +100,9 @@ export default function SubagentSessionView({
   }, [])
 
   const handleTurnEnded = useCallback((sid: string, status?: ChatTurnStatus | null) => {
-    if (sid !== currentSessionIdRef.current) return
+    if (sid !== currentSessionIdRef.current) return false
     setExecutionState(status ?? null)
+    return true
   }, [])
 
   useChatStreamReattach({

@@ -136,7 +136,7 @@ sequenceDiagram
 | `/new` | 无 | 创建新会话 | `NewSession` |
 | `/clear` | 无 | 删除当前会话所有消息 | `SessionCleared` |
 | `/compact` | 无 | 压缩当前会话上下文（触发渐进式压缩） | `Compact` |
-| `/stop` | 无 | 停止当前流式回复 | `StopStream` |
+| `/stop` | 无 | 停止当前会话主动回合；IM 与 GUI / HTTP 共用同一 session-stop 编排，仅交互入口不同；在 IM 中优先于审批/结构化问答回复解析 | `StopStream` |
 | `/rename` | `<title>` 必需 | 重命名当前会话标题 | `DisplayOnly` |
 | `/plan` | `[enter\|exit\|show\|approve]` | 进入/管理计划模式（详见下方） | 多种 |
 | `/project` | `[name]` 可选 | 无参：弹出项目选择器（桌面端 markdown 列表 + sidebar 项目树）；有参：模糊匹配项目名进入并在该项目下新建会话。**IM 渠道**：`AssignProject`（不创建新 session，UPDATE 当前 chat 的 `sessions.project_id`） | `ShowProjectPicker` / `EnterProject` / `AssignProject` |

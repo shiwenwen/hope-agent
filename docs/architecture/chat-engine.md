@@ -1,6 +1,6 @@
 # Chat Engine 对话引擎架构
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-19
+> 返回 [文档索引](../README.md) | 更新时间：2026-08-01
 
 ## 目录
 
@@ -385,6 +385,55 @@ Plan task、stream seq 与消息持久化：
 interruptReason / error / finalSeq / durableSeq / assistantMessageId /
 persistenceStatus`，前端据此清理 loading 并恢复停止后的展示状态。completed 只允许与
 committed 同时出现。
+
+主动 Stop 的退出预算分三层：cancel flag 立即阻止新 provider round / 新 tool dispatch，
+在途 tool 最多用 5 秒撤销审批、结束子进程并回收刚 detach 的 job；已经产生可见 runtime
+事件的 Agent loop 最多再等 6 秒协作收尾，超时就 drop future 并进入统一中断提交；8 秒
+watchdog 只作最后的 journal 收敛兜底，不能与正常 finalizer 同时抢终态。并发安全工具中
+尚在 semaphore 后排队的调用必须在获得槽后重新检查 cancel，停止后不得再启动副作用。
+Stop 编排自身也有独立预算：先同步翻转所有已知 cancel flag、广播 `cancelling` 并启动
+watchdog，再并行执行 DB 标记（2 秒）、审批/问答撤销（2 秒）与 runtime 清理（5 秒）。
+编排开始时须建立 session 的短暂 Stop gate（全局 Stop 使用 process-wide gate），阻止替代 turn
+在旧资源快照完成前 acquire；runtime
+先快照精确 job/subagent/process id，再逐项取消，超时后不得重新按 session 枚举。审批/问答直接
+timeout 原 future（禁止 detach 会话级 sweep），因此迟到清理不会消费续聊新建的交互。
+watchdog 读取 session-keyed live durability 时必须再校验 `turn_id`；不匹配时只按旧 turn 查找并
+恢复其 persistence run，绝不能把新 turn 的 journal 提交到旧 turn。进入仅按 session 定位的
+legacy fallback 前须重新建立 Stop gate，并确认没有不同 active turn、旧 turn 仍是 DB 最新一代；
+即使续聊已经快速完成、live coordinator 已注销，也不得从最新消息反向重建旧 turn。
+`UserPromptSubmit` 预检同样必须与该 turn 的 cancel flag 竞争；若停止在用户消息落库前发生，
+必须先广播终态并释放精确 active-turn guard；空会话/worktree 的 Git-aware 回滚随后在后台按
+durable bootstrap row 收敛，不能让 Git/SQLite 清理阻塞续聊。前端将未发出内容恢复为草稿。
+GUI 的 plan mention 展开、文件系统配置读取与附件 staging 同样属于 request 生命周期；本地 Stop
+必须立即 abort 等待。底层上传若不可物理取消，迟到返回的 upload lease 必须自动 discard，
+不得形成孤儿附件，也不得把用户停止显示为上传失败。
+项目首轮已经完成 bootstrap 时，回滚必须先把 bootstrap 置为终态并经 Git-aware 路径
+discard 托管 worktree，再删空会话；禁止先靠 session FK cascade 丢掉 worktree 注册行。
+懒创建会话在 `session_created` 前用不透明 `clientRequestId` 定位 active turn，此时点击
+停止不得退化成“停止所有会话”；已知 session 但 `turn_started` 尚未到达的窗口也必须用
+同一 request id latch，不能让 Stop 跑在 active-turn 注册前而静默丢失。
+Desktop、HTTP 与 IM `/stop` 在解析出 session 后必须统一进入
+`chat_engine::stop::stop_session`：设置精确 active-turn cancel、写 `cancelling`、拒绝待审批、
+撤销 live `ask_user` 并取消 session-owned runtime；共享服务也负责翻转该 session 的全部
+Channel preflight registrations，所以 GUI / HTTP 停止 attached session 时不会漏掉 IM 的
+active-turn 注册前窗口。同 session 的并发入站必须逐个注册、一次 Stop 全部翻转；交互入口
+与 stream transport 可以不同，停止的业务语义不得分叉。
+无 target 的全局紧急停止统一进入 `chat_engine::stop::stop_all_sessions`，Desktop / HTTP shell
+只负责先翻转各自 transport-local handle；全局路径不得复制一套 DB、审批或 runtime 清理逻辑。
+ACP 的 `session/cancel` 也调用同一 session-stop 服务；由于 ACP prompt 同步占用业务主循环，stdio
+reader 必须独立读取并先翻转每轮独立 token，不能等 prompt 返回后才处理 cancel。ACP 的 hook、provider
+构造、重试和 Agent loop 均须观察该 token，停止胜出后同样以 `Interrupted/user_stop` 保留 journal 前缀。
+终态 CAS 上 `cancelling` 优先于迟到的 success commit：成功事务只能从 `running` 转为
+`completed`，不得清掉已写入的 `user_stop` 并把会话翻回成功。
+
+前端的 loading / optimistic placeholder 归属于具体 chat request。旧请求即使在 watchdog
+放行后才返回，其 `finally` 也不得清掉同 session 新 turn 的状态；迟到的
+`chat:turn_status` / `chat:stream_end` 必须按 `turnId` 拒绝覆盖新 turn。用户主动停止后，
+durable queued message 保留为可编辑待发送项，但不得在中断回合收尾时自动启动下一轮。
+重连握手期间若已经观察到更新的 live `turn_started`，较早返回的 active snapshot 不得再
+覆盖 live turn id 或覆盖该新请求的 optimistic cache。
+watchdog 精确释放旧 `turnId` 后允许用户继续对话；旧请求迟到的 `finally`、status、stream end
+及 success commit 都必须按 request/turn ownership 拒绝覆盖新回合。
 
 启动恢复会把 DB 中残留的 `running` / `cancelling` turn 走统一 finalize（见下节）
 拿到正确的 `Shutdown` / `Crash` reason 落 chat_turn 终态，同时清理内存

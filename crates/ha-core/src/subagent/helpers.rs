@@ -8,8 +8,8 @@ use super::INJECTING_SESSIONS;
 
 // ── Startup Recovery ────────────────────────────────────────────
 
-/// Clean up orphan sub-agent runs left in non-terminal state (spawning/running)
-/// from a previous app session. Called once at startup.
+/// Clean up orphan sub-agent runs left in non-terminal state
+/// (queued/spawning/running) from a previous app session. Called once at startup.
 pub fn cleanup_orphan_runs(session_db: &Arc<SessionDB>) {
     match session_db.cleanup_orphan_subagent_runs() {
         Ok(affected) if affected > 0 => {
