@@ -182,10 +182,10 @@ test("HttpTransport mints a path-bound ticket for session file previews", async 
 
 test("HttpTransport uses the protected direct session route when authentication is disabled", async () => {
   fetchMock.mockResolvedValueOnce(
-    new Response(
-      JSON.stringify({ authRequired: false, ticket: null, expiresInSecs: null }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    ),
+    new Response(JSON.stringify({ authRequired: false, ticket: null, expiresInSecs: null }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
   )
   const transport = new HttpTransport("http://localhost:8420")
 
@@ -708,6 +708,223 @@ test("HttpTransport.try_restore_session unwraps HTTP restored payload", async ()
   const restored = await transport.call<boolean>("try_restore_session")
 
   expect(restored).toBe(true)
+})
+
+test("HttpTransport unwraps Agent markdown and template content like Tauri", async () => {
+  const transport = new HttpTransport("http://localhost:8420")
+
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ content: "# Agent instructions" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ content: null }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ content: "# Built-in template" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+  await expect(
+    transport.call<string | null>("get_agent_markdown", {
+      id: "agent-1",
+      file: "agent.md",
+    }),
+  ).resolves.toBe("# Agent instructions")
+  await expect(
+    transport.call<string | null>("get_agent_markdown", {
+      id: "agent-1",
+      file: "persona.md",
+    }),
+  ).resolves.toBeNull()
+  await expect(
+    transport.call<string>("get_agent_template", { name: "agent", locale: "zh" }),
+  ).resolves.toBe("# Built-in template")
+
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+    "http://localhost:8420/api/agents/agent-1/markdown?file=agent.md",
+    "http://localhost:8420/api/agents/agent-1/markdown?file=persona.md",
+    "http://localhost:8420/api/agents/template?name=agent&locale=zh",
+  ])
+})
+
+test.each([
+  {
+    command: "get_system_prompt",
+    args: { agentId: "agent-1" },
+    payload: { system_prompt: "# System prompt" },
+    expected: "# System prompt",
+  },
+  {
+    command: "render_persona_to_soul_md",
+    args: { id: "agent-1", persona: {} },
+    payload: { content: "# Soul" },
+    expected: "# Soul",
+  },
+  {
+    command: "read_log_file_cmd",
+    args: { filename: "app.log" },
+    payload: { content: "log line" },
+    expected: "log line",
+  },
+  {
+    command: "get_log_file_path_cmd",
+    args: undefined,
+    payload: { path: "/tmp/app.log" },
+    expected: "/tmp/app.log",
+  },
+  {
+    command: "export_logs_cmd",
+    args: { filter: {}, format: "json" },
+    payload: { data: "[]" },
+    expected: "[]",
+  },
+  {
+    command: "install_skill_dependency",
+    args: { skillName: "demo", specIndex: 0 },
+    payload: { ok: true, output: "installed" },
+    expected: "installed",
+  },
+  {
+    command: "channel_validate_credentials",
+    args: { channelId: "telegram", credentials: {}, settings: {} },
+    payload: { info: "Hope Bot" },
+    expected: "Hope Bot",
+  },
+  {
+    command: "create_backup_cmd",
+    args: undefined,
+    payload: { name: "backup.zip" },
+    expected: "backup.zip",
+  },
+])(
+  "HttpTransport unwraps $command string payload like Tauri",
+  async ({ command, args, payload, expected }) => {
+    const transport = new HttpTransport("http://localhost:8420")
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    await expect(
+      transport.call<string>(command, args as Record<string, unknown> | undefined),
+    ).resolves.toBe(expected)
+  },
+)
+
+test.each([
+  {
+    command: "get_agent_memory_md",
+    args: { id: "agent-1" },
+    payload: { content: "# Agent memory" },
+    expected: "# Agent memory",
+  },
+  {
+    command: "get_global_memory_md",
+    args: undefined,
+    payload: { content: null },
+    expected: null,
+  },
+])(
+  "HttpTransport unwraps $command optional content like Tauri",
+  async ({ command, args, payload, expected }) => {
+    const transport = new HttpTransport("http://localhost:8420")
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    await expect(
+      transport.call<string | null>(command, args as Record<string, unknown> | undefined),
+    ).resolves.toBe(expected)
+  },
+)
+
+test.each([
+  ["get_skill_env_check", { enabled: false }, false],
+  ["get_skills_auto_review_enabled", { enabled: true }, true],
+  ["get_skills_auto_review_promotion", { auto: false }, false],
+])("HttpTransport unwraps %s boolean payload like Tauri", async (command, payload, expected) => {
+  const transport = new HttpTransport("http://localhost:8420")
+  fetchMock.mockResolvedValue(
+    new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  )
+
+  await expect(transport.call<boolean>(command)).resolves.toBe(expected)
+})
+
+test.each(["test_provider", "test_model"])(
+  "HttpTransport preserves the %s JSON-string contract",
+  async (command) => {
+    const transport = new HttpTransport("http://localhost:8420")
+    const payload = { success: false, message: "connection failed", latencyMs: 12 }
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    const args = command === "test_provider" ? { config: {} } : { config: {}, modelId: "m1" }
+    await expect(transport.call<string>(command, args)).resolves.toBe(JSON.stringify(payload))
+  },
+)
+
+test.each(["test_provider", "test_model"])(
+  "HttpTransport rejects a scalar %s error like Tauri",
+  async (command) => {
+    const transport = new HttpTransport("http://localhost:8420")
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify("Client error: invalid user agent"), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    const args = command === "test_provider" ? { config: {} } : { config: {}, modelId: "m1" }
+    await expect(transport.call<string>(command, args)).rejects.toThrow(
+      "Client error: invalid user agent",
+    )
+  },
+)
+
+test("HttpTransport aligns proxy probe success and failure with Tauri", async () => {
+  const transport = new HttpTransport("http://localhost:8420")
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, message: "Proxy connected" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: false, message: "Proxy unavailable" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+  await expect(transport.call<string>("test_proxy", { config: {} })).resolves.toBe(
+    "Proxy connected",
+  )
+  await expect(transport.call<string>("test_proxy", { config: {} })).rejects.toThrow(
+    "Proxy unavailable",
+  )
 })
 
 test("HttpTransport unwraps the Git auto-merge input for the HTTP owner API", async () => {
