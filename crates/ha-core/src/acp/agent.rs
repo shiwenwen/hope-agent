@@ -475,6 +475,10 @@ fn persist_acp_ide_context(db: &Arc<SessionDB>, session_id: &str, meta: &Option<
     }
 }
 
+fn acp_prompt_blocked_by_stop_cleanup(internal_session_id: &str) -> bool {
+    crate::chat_engine::active_turn::stop_cleanup_active(internal_session_id)
+}
+
 impl AcpAgent {
     pub fn new(session_db: Arc<SessionDB>, default_agent_id: String, verbose: bool) -> Self {
         Self {
@@ -963,6 +967,24 @@ impl AcpAgent {
                 )
             }
         };
+        if acp_prompt_blocked_by_stop_cleanup(&internal_session_id) {
+            // The stdin reader armed this generation before enqueueing it.
+            // Disarm it here so a prompt rejected by a late runtime snapshot
+            // cannot make the next legitimate prompt look concurrently active.
+            if let Some(state) = self.cancel_state(&session_id) {
+                state.finish_prompt();
+            }
+            crate::app_info!(
+                "acp",
+                "stop_gate",
+                "Rejected replacement ACP prompt while Stop cleanup is active: session={}",
+                internal_session_id
+            );
+            let response = PromptResponse {
+                stop_reason: "cancelled".to_string(),
+            };
+            return JsonRpcResponse::success(id.clone(), serde_json::to_value(&response).unwrap());
+        }
         let cancel_state = {
             let mut states = lock_cancel_states(&self.cancel_states);
             states
@@ -2182,6 +2204,15 @@ mod tests {
         assert!(state.claim_non_cancelled_persistence());
         assert_eq!(state.request_cancel(), Some("internal-session".to_string()));
         assert!(turn_cancel.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn replacement_acp_prompt_observes_deferred_stop_gate() {
+        let session_id = format!("acp-deferred-stop-{}", uuid::Uuid::new_v4());
+        let gate = crate::chat_engine::active_turn::begin_stop_cleanup(&session_id);
+
+        assert!(acp_prompt_blocked_by_stop_cleanup(&session_id));
+        drop(gate);
     }
 
     #[test]

@@ -18,6 +18,8 @@ use super::streaming::{append_preview_round_text, PreviewHandle, CARD_ELEMENT_MA
 /// Prevents resource exhaustion (DB lock contention, API rate limits) during message bursts.
 const MAX_CONCURRENT_INBOUND: usize = 20;
 const CONTROL_DELIVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const CANCELLED_MESSAGE_RETRY_MIN: std::time::Duration = std::time::Duration::from_millis(250);
+const CANCELLED_MESSAGE_RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(5);
 
 async fn wait_for_channel_cancel(cancel: &AtomicBool) {
     while !cancel.load(Ordering::Acquire) {
@@ -44,6 +46,62 @@ impl Drop for ChannelCancelHandleGuard {
 fn is_stop_command(text: Option<&str>) -> bool {
     text.and_then(|text| crate::slash_commands::parser::parse(text).ok())
         .is_some_and(|(name, _)| name == "stop")
+}
+
+fn spawn_cancelled_channel_message_rollback(
+    session_db: Arc<crate::session::SessionDB>,
+    session_id: String,
+    message_id: i64,
+) -> tokio::task::JoinHandle<()> {
+    // Install the replacement gate synchronously while the cancelled active
+    // turn still owns admission, then transfer it to retry cleanup. A transient
+    // SQLite failure must never expose the stale prompt to a later inbound.
+    let cleanup_gate = crate::chat_engine::active_turn::begin_stop_cleanup(&session_id);
+    tokio::spawn(async move {
+        let mut retry_delay = CANCELLED_MESSAGE_RETRY_MIN;
+        let mut attempt = 0_u64;
+        loop {
+            attempt = attempt.saturating_add(1);
+            let result = session_db
+                .run(move |db| db.delete_message_by_id(message_id))
+                .await;
+            match result {
+                Ok(()) => {
+                    if attempt > 1 {
+                        crate::app_info!(
+                            "channel",
+                            "cancelled_message_rollback",
+                            "Rolled back cancelled Channel message after retry: session={} message_id={} attempts={}",
+                            session_id,
+                            message_id,
+                            attempt
+                        );
+                    }
+                    emit_channel_update(&session_id);
+                    drop(cleanup_gate);
+                    return;
+                }
+                Err(error) => {
+                    if attempt == 1 || attempt.is_power_of_two() {
+                        let message = crate::logging::redact_sensitive(&error.to_string());
+                        crate::app_warn!(
+                            "channel",
+                            "cancelled_message_rollback",
+                            "Failed to roll back cancelled Channel message; retaining Stop gate and retrying: session={} message_id={} attempt={} error={}",
+                            session_id,
+                            message_id,
+                            attempt,
+                            message
+                        );
+                    }
+                    tokio::time::sleep(retry_delay).await;
+                    retry_delay = retry_delay
+                        .saturating_mul(2)
+                        .min(CANCELLED_MESSAGE_RETRY_MAX);
+                }
+            }
+        }
+    })
 }
 
 /// Notify the frontend that a channel session has new messages.
@@ -802,10 +860,11 @@ async fn handle_inbound_message(
         Ok(crate::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
             message_id,
         )) => {
-            let _ = session_db
-                .run(move |db| db.delete_message_by_id(message_id))
-                .await;
-            emit_channel_update(&session_id);
+            spawn_cancelled_channel_message_rollback(
+                session_db.clone(),
+                session_id.clone(),
+                message_id,
+            );
             return Ok(());
         }
         Ok(crate::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit) => {
@@ -1882,6 +1941,50 @@ mod tests {
         assert!(!is_stop_command(Some("stop")));
         assert!(!is_stop_command(Some("/status")));
         assert!(!is_stop_command(None));
+    }
+
+    #[tokio::test]
+    async fn cancelled_channel_message_retry_holds_gate_until_delete_succeeds() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("sessions.db");
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(&db_path).expect("open session db"),
+        );
+        let session = db.create_session("ha-main").expect("create session");
+        let message_id = db
+            .append_message(
+                &session.id,
+                &crate::session::NewMessage::user("cancelled inbound"),
+            )
+            .expect("append message");
+        db.conn
+            .lock()
+            .expect("writer lock")
+            .execute_batch(
+                "CREATE TRIGGER block_cancelled_message_delete
+                 BEFORE DELETE ON messages
+                 BEGIN SELECT RAISE(FAIL, 'delete blocked'); END;",
+            )
+            .expect("install delete blocker");
+
+        let cleanup =
+            spawn_cancelled_channel_message_rollback(db.clone(), session.id.clone(), message_id);
+        assert!(crate::chat_engine::active_turn::stop_cleanup_active(
+            &session.id
+        ));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(db.get_message(message_id).expect("read message").is_some());
+
+        db.conn
+            .lock()
+            .expect("writer lock")
+            .execute_batch("DROP TRIGGER block_cancelled_message_delete;")
+            .expect("remove delete blocker");
+        tokio::time::timeout(std::time::Duration::from_secs(2), cleanup)
+            .await
+            .expect("cleanup retry should settle")
+            .expect("cleanup task should not panic");
+        assert!(db.get_message(message_id).expect("read message").is_none());
     }
 
     fn mk_item(name: &str, mime: &str, kind: MediaKind) -> MediaItem {

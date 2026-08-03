@@ -228,6 +228,25 @@ pub fn begin_global_stop_cleanup() -> GlobalStopCleanupGuard {
     }
 }
 
+/// Whether session-scoped or process-wide Stop cleanup still owns admission
+/// for this session. ACP does not register an [`ActiveTurnGuard`], so it uses
+/// this read-only gate before accepting a replacement prompt.
+pub fn stop_cleanup_active(session_id: &str) -> bool {
+    let _active = registry_lock();
+    if !global_stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .is_empty()
+    {
+        return true;
+    }
+    stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(session_id)
+        .is_some_and(|tokens| !tokens.is_empty())
+}
+
 /// Admission snapshot for a foreground request that may perform async work
 /// before it can register its active turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
