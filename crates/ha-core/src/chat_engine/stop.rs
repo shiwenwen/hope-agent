@@ -15,6 +15,7 @@ use crate::session::{ChatTurnInterruptReason, ChatTurnStatus, SessionDB};
 use crate::tools::ApprovalResolutionSource;
 
 const STOP_DB_MARK_TIMEOUT: Duration = Duration::from_secs(2);
+const PRE_TURN_QUEUE_RELEASE_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_INTERACTION_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_RUNTIME_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -47,6 +48,7 @@ pub struct PreTurnCancelCleanup {
     session_id: String,
     bootstrap_request_id: Option<String>,
     delete_empty_session: bool,
+    queued_dispatch: Option<(String, String)>,
     cleanup_gate: super::active_turn::StopCleanupGuard,
 }
 
@@ -56,8 +58,9 @@ impl PreTurnCancelCleanup {
         session_id: String,
         bootstrap_request_id: Option<String>,
         delete_empty_session: bool,
+        queued_dispatch: Option<(String, String)>,
     ) -> Option<Self> {
-        if bootstrap_request_id.is_none() && !delete_empty_session {
+        if bootstrap_request_id.is_none() && !delete_empty_session && queued_dispatch.is_none() {
             return None;
         }
         let cleanup_gate = super::active_turn::begin_stop_cleanup(&session_id);
@@ -66,6 +69,7 @@ impl PreTurnCancelCleanup {
             session_id,
             bootstrap_request_id,
             delete_empty_session,
+            queued_dispatch,
             cleanup_gate,
         })
     }
@@ -80,8 +84,49 @@ impl PreTurnCancelCleanup {
             session_id,
             bootstrap_request_id,
             delete_empty_session,
+            queued_dispatch,
             cleanup_gate,
         } = self;
+        let queued_release_requested = queued_dispatch.is_some();
+        let queued_release_succeeded = if let Some((request_id, turn_id)) = queued_dispatch {
+            let sid_for_release = session_id.clone();
+            match tokio::time::timeout(
+                PRE_TURN_QUEUE_RELEASE_TIMEOUT,
+                db.clone().run(move |db| {
+                    db.release_queued_turn_message_dispatch(&sid_for_release, &request_id, &turn_id)
+                }),
+            )
+            .await
+            {
+                Ok(Ok(_)) => true,
+                Ok(Err(error)) => {
+                    crate::app_warn!(
+                        "chat",
+                        "pre_turn_cancel_cleanup",
+                        "Failed to release queued dispatch for stopped chat {}: {}",
+                        session_id,
+                        error
+                    );
+                    false
+                }
+                Err(_) => {
+                    // The exact session/request/turn CAS may still finish on
+                    // the detached blocking worker. Releasing this cleanup
+                    // gate is safe because it cannot mutate a replacement
+                    // turn's queue claim.
+                    crate::app_warn!(
+                        "chat",
+                        "pre_turn_cancel_cleanup",
+                        "Timed out after {}ms releasing queued dispatch for stopped chat {}",
+                        PRE_TURN_QUEUE_RELEASE_TIMEOUT.as_millis(),
+                        session_id
+                    );
+                    false
+                }
+            }
+        } else {
+            true
+        };
         let had_bootstrap = bootstrap_request_id.is_some();
         let bootstrap_rollback_succeeded = if let Some(request_id) = bootstrap_request_id {
             match db
@@ -126,8 +171,10 @@ impl PreTurnCancelCleanup {
         crate::app_info!(
             "chat",
             "pre_turn_cancel_cleanup",
-            "Pre-turn Stop cleanup settled: session={} bootstrap={} bootstrap_rollback_succeeded={} delete_requested={} session_deleted={}",
+            "Pre-turn Stop cleanup settled: session={} queued_release_requested={} queued_release_succeeded={} bootstrap={} bootstrap_rollback_succeeded={} delete_requested={} session_deleted={}",
             session_id,
+            queued_release_requested,
+            queued_release_succeeded,
             had_bootstrap,
             bootstrap_rollback_succeeded,
             delete_empty_session,
@@ -585,7 +632,7 @@ mod tests {
             .migrate()
             .expect("channel schema");
         let session = db.create_session("ha-main").expect("session");
-        let cleanup = PreTurnCancelCleanup::begin(db.clone(), session.id.clone(), None, true)
+        let cleanup = PreTurnCancelCleanup::begin(db.clone(), session.id.clone(), None, true, None)
             .expect("new lazy sessions require cleanup");
 
         assert!(crate::chat_engine::active_turn::try_acquire(
@@ -609,6 +656,59 @@ mod tests {
             &session.id,
             crate::chat_engine::ChatSource::Desktop,
             "after-cleanup".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("cleanup gate must be released");
+    }
+
+    #[tokio::test]
+    async fn pre_turn_cancel_cleanup_releases_exact_queued_dispatch() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("pre-turn-queue-cleanup.db"))
+                .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        db.enqueue_turn_user_message(crate::session::NewQueuedTurnMessage {
+            request_id: "queued-request".to_string(),
+            session_id: session.id.clone(),
+            message: "queued message".to_string(),
+            display_text: None,
+            attachments: Vec::new(),
+            is_plan_trigger: false,
+            goal_trigger: false,
+            plan_comment: None,
+            plan_mode: None,
+            workflow_mode: None,
+        })
+        .expect("enqueue");
+        db.claim_queued_turn_message_for_dispatch(&session.id, "queued-request", "stopped-turn")
+            .expect("claim queue row")
+            .expect("queued row");
+
+        let cleanup = PreTurnCancelCleanup::begin(
+            db.clone(),
+            session.id.clone(),
+            None,
+            false,
+            Some(("queued-request".to_string(), "stopped-turn".to_string())),
+        )
+        .expect("queued dispatch requires cleanup");
+        cleanup.run().await;
+
+        let queue = db
+            .list_queued_turn_user_messages(&session.id)
+            .expect("list queue");
+        assert_eq!(queue.len(), 1);
+        assert_eq!(
+            queue[0].status,
+            crate::session::QueuedTurnMessageStatus::Queued
+        );
+        assert_eq!(queue[0].turn_id, None);
+        let _guard = crate::chat_engine::active_turn::try_acquire(
+            &session.id,
+            crate::chat_engine::ChatSource::Desktop,
+            "after-queue-cleanup".to_string(),
             Arc::new(AtomicBool::new(false)),
         )
         .expect("cleanup gate must be released");

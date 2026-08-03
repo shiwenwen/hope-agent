@@ -945,21 +945,10 @@ async fn chat_inner(
                 sid.clone(),
                 bootstrap_request_id.clone(),
                 new_session_created,
+                queued_request_id
+                    .as_ref()
+                    .map(|request_id| (request_id.clone(), turn_id.clone())),
             );
-            if let Some(request_id) = queued_request_id.as_ref() {
-                let sid_for_release = sid.clone();
-                let request_id_for_release = request_id.clone();
-                let turn_for_release = turn_id.clone();
-                let _ = db
-                    .run(move |db| {
-                        db.release_queued_turn_message_dispatch(
-                            &sid_for_release,
-                            &request_id_for_release,
-                            &turn_for_release,
-                        )
-                    })
-                    .await;
-            }
             if let Some(cleanup) = cleanup {
                 cleanup.spawn();
             }
@@ -984,27 +973,18 @@ async fn chat_inner(
     )
     .await;
     let Some(preflight) = preflight else {
-        if let Some(request_id) = queued_request_id.as_ref() {
-            let sid_for_release = sid.clone();
-            let request_id_for_release = request_id.clone();
-            let turn_for_release = turn_id.clone();
-            let _ = db
-                .run(move |db| {
-                    db.release_queued_turn_message_dispatch(
-                        &sid_for_release,
-                        &request_id_for_release,
-                        &turn_for_release,
-                    )
-                })
-                .await;
-        }
         // There is no chat_turn row yet, so terminate the transport-visible
-        // lifecycle and release the exact guard before Git-aware cleanup.
+        // lifecycle and release the exact guard before Git/SQLite cleanup. The
+        // cleanup gate keeps a replacement turn out until the exact queued-row
+        // CAS settles or reaches its bounded timeout.
         let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
             db.clone(),
             sid.clone(),
             bootstrap_request_id.clone(),
             new_session_created,
+            queued_request_id
+                .as_ref()
+                .map(|request_id| (request_id.clone(), turn_id.clone())),
         );
         ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
             &sid,

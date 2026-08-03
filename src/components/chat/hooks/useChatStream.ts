@@ -63,6 +63,7 @@ import {
   hasSendableChatPayload,
   nextDispatchablePending,
   shouldApplyPendingQueueSnapshot,
+  shouldReplayNextPending,
 } from "./pendingQueue"
 import {
   AUTO_SEND_PENDING_EVENT,
@@ -2215,9 +2216,10 @@ export function useChatStream({
       if (targetSessionId) {
         const queue = await syncPendingSends(targetSessionId).catch(() => [])
         const queued = nextDispatchablePending(queue)
+        const turnState = lastTurnStatusBySessionRef.current.get(targetSessionId)
         if (
           ownsRequestLifecycle &&
-          !wasUserStopped &&
+          shouldReplayNextPending(wasUserStopped, turnState) &&
           queued &&
           currentSessionIdRef.current === targetSessionId &&
           (queued.isPlanTrigger || queued.goalTrigger || autoSendPendingRef.current)

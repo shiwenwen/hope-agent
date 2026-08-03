@@ -169,22 +169,35 @@ struct AcpPromptEnqueueGuard {
     prepared_cancel: Option<Arc<AtomicBool>>,
 }
 
+enum AcpPromptEnqueueDecision {
+    NotPrompt,
+    Prepared(AcpPromptEnqueueGuard),
+    RejectActive,
+}
+
 impl AcpPromptEnqueueGuard {
-    fn prepare(msg: &JsonRpcMessage, states: &AcpCancelStates) -> Option<Self> {
-        if msg.method.as_deref() != Some("session/prompt") {
-            return None;
+    fn prepare(msg: &JsonRpcMessage, states: &AcpCancelStates) -> AcpPromptEnqueueDecision {
+        if msg.method.as_deref() != Some("session/prompt") || msg.id.is_none() {
+            return AcpPromptEnqueueDecision::NotPrompt;
         }
-        let session_id = msg
+        let Some(session_id) = msg
             .params
             .as_ref()
             .and_then(|params| params.get("sessionId"))
-            .and_then(Value::as_str)?;
-        let state = lock_cancel_states(states).get(session_id).cloned()?;
-        let prepared_cancel = state.prepare_prompt_for_enqueue()?;
-        Some(Self {
-            state,
-            prepared_cancel: Some(prepared_cancel),
-        })
+            .and_then(Value::as_str)
+        else {
+            return AcpPromptEnqueueDecision::NotPrompt;
+        };
+        let Some(state) = lock_cancel_states(states).get(session_id).cloned() else {
+            return AcpPromptEnqueueDecision::NotPrompt;
+        };
+        match state.prepare_prompt_for_enqueue() {
+            Some(prepared_cancel) => AcpPromptEnqueueDecision::Prepared(AcpPromptEnqueueGuard {
+                state,
+                prepared_cancel: Some(prepared_cancel),
+            }),
+            None => AcpPromptEnqueueDecision::RejectActive,
+        }
     }
 
     fn commit(mut self) {
@@ -202,6 +215,7 @@ impl Drop for AcpPromptEnqueueGuard {
 
 enum AcpInbound {
     Message(JsonRpcMessage),
+    Response(JsonRpcResponse),
     ParseError(String),
     IoError(String),
     Eof,
@@ -562,7 +576,28 @@ impl AcpAgent {
                                 // and rolls back only the generation armed by
                                 // this enqueue attempt.
                                 let prompt_enqueue =
-                                    AcpPromptEnqueueGuard::prepare(&msg, &cancel_states);
+                                    match AcpPromptEnqueueGuard::prepare(&msg, &cancel_states) {
+                                        AcpPromptEnqueueDecision::NotPrompt => None,
+                                        AcpPromptEnqueueDecision::Prepared(guard) => Some(guard),
+                                        AcpPromptEnqueueDecision::RejectActive => {
+                                            let response = JsonRpcResponse::error(
+                                                msg.id.clone().unwrap_or(Value::Null),
+                                                ERROR_INVALID_REQUEST,
+                                                "A prompt is already active",
+                                            );
+                                            match inbound_tx
+                                                .try_send(AcpInbound::Response(response))
+                                            {
+                                                Ok(()) => {}
+                                                Err(mpsc::TrySendError::Full(_)) => {
+                                                    overloaded_for_reader
+                                                        .store(true, Ordering::Release);
+                                                }
+                                                Err(mpsc::TrySendError::Disconnected(_)) => return,
+                                            }
+                                            continue;
+                                        }
+                                    };
                                 match inbound_tx.try_send(AcpInbound::Message(msg)) {
                                     Ok(()) => {
                                         if let Some(prompt_enqueue) = prompt_enqueue {
@@ -606,6 +641,10 @@ impl AcpAgent {
             }
             let msg = match inbound_rx.recv() {
                 Ok(AcpInbound::Message(message)) => message,
+                Ok(AcpInbound::Response(response)) => {
+                    self.transport.write_response(&response)?;
+                    continue;
+                }
                 Ok(AcpInbound::ParseError(error)) => {
                     let response = JsonRpcResponse::error(
                         Value::Null,
@@ -2141,9 +2180,13 @@ mod tests {
         ));
         lock_cancel_states(&states).insert("acp-session".to_string(), state.clone());
 
-        let enqueue =
-            AcpPromptEnqueueGuard::prepare(&inbound("session/prompt", "acp-session"), &states)
-                .expect("prompt must be armed before it is published");
+        let enqueue = match AcpPromptEnqueueGuard::prepare(
+            &inbound("session/prompt", "acp-session"),
+            &states,
+        ) {
+            AcpPromptEnqueueDecision::Prepared(guard) => guard,
+            _ => panic!("prompt must be armed before it is published"),
+        };
         let completed = state.prepare_prompt();
 
         // Model the dispatcher receiving and completing the prompt before
@@ -2170,9 +2213,13 @@ mod tests {
         ));
         lock_cancel_states(&states).insert("acp-session".to_string(), state.clone());
 
-        let failed_enqueue =
-            AcpPromptEnqueueGuard::prepare(&inbound("session/prompt", "acp-session"), &states)
-                .expect("prompt must be armed before enqueue");
+        let failed_enqueue = match AcpPromptEnqueueGuard::prepare(
+            &inbound("session/prompt", "acp-session"),
+            &states,
+        ) {
+            AcpPromptEnqueueDecision::Prepared(guard) => guard,
+            _ => panic!("prompt must be armed before enqueue"),
+        };
         let rejected = state.prepare_prompt();
         drop(failed_enqueue);
         assert_eq!(
@@ -2184,5 +2231,38 @@ mod tests {
         let next = state.prepare_prompt();
         assert!(!Arc::ptr_eq(&rejected, &next));
         assert!(!next.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn concurrent_prompt_is_rejected_before_inbound_queueing() {
+        let states = Arc::new(Mutex::new(HashMap::new()));
+        let state = Arc::new(AcpCancelState::new(
+            Some("internal-session".to_string()),
+            Arc::new(AtomicBool::new(false)),
+        ));
+        lock_cancel_states(&states).insert("acp-session".to_string(), state.clone());
+
+        let first = match AcpPromptEnqueueGuard::prepare(
+            &inbound("session/prompt", "acp-session"),
+            &states,
+        ) {
+            AcpPromptEnqueueDecision::Prepared(guard) => guard,
+            _ => panic!("first prompt must be accepted"),
+        };
+        first.commit();
+
+        assert!(matches!(
+            AcpPromptEnqueueGuard::prepare(&inbound("session/prompt", "acp-session"), &states),
+            AcpPromptEnqueueDecision::RejectActive
+        ));
+        let first_cancel = state.prepare_prompt();
+        assert_eq!(state.request_cancel(), Some("internal-session".to_string()));
+        assert!(first_cancel.load(Ordering::Acquire));
+
+        state.finish_prompt();
+        assert!(matches!(
+            AcpPromptEnqueueGuard::prepare(&inbound("session/prompt", "acp-session"), &states),
+            AcpPromptEnqueueDecision::Prepared(_)
+        ));
     }
 }
