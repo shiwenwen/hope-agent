@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 const RUNTIME_SNAPSHOT_SOURCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const DEFERRED_SNAPSHOT_CANCEL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Runtime work units that can be cancelled best-effort.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,10 +111,10 @@ pub async fn cancel_runtime_tasks_for_session(
     cancel_runtime_task_snapshot(snapshot).await
 }
 
-/// Capture runtime work associated with a session without performing any
-/// cancellation side effects. A caller may safely time this future out: an
-/// already-running blocking DB read can finish in the background, but it
-/// cannot affect a later turn.
+/// Capture runtime work associated with a session without performing immediate
+/// cancellation side effects. A source that misses its bound is transferred to
+/// a gated continuation, which cancels its exact late identities before
+/// replacement foreground work can register.
 pub async fn snapshot_runtime_tasks_for_session(
     session_id: Option<&str>,
 ) -> anyhow::Result<RuntimeTaskSnapshot> {
@@ -154,7 +155,7 @@ pub async fn snapshot_runtime_tasks_for_session(
         }
     });
 
-    let process_session_id = owned_session_id;
+    let process_session_id = owned_session_id.clone();
     let processes = async move {
         let registry = crate::process_registry::get_registry().lock().await;
         anyhow::Ok(
@@ -170,9 +171,17 @@ pub async fn snapshot_runtime_tasks_for_session(
     // wedged SQLite read or process-registry lock must not prevent the other
     // exact identities from being captured and cancelled.
     let (async_jobs, subagents, processes) = tokio::join!(
-        timeout_snapshot_source("async_jobs", async_jobs),
-        timeout_snapshot_source("subagents", subagents),
-        timeout_snapshot_source("processes", processes),
+        timeout_snapshot_source(
+            "async_jobs",
+            owned_session_id.clone(),
+            tokio::spawn(async_jobs)
+        ),
+        timeout_snapshot_source(
+            "subagents",
+            owned_session_id.clone(),
+            tokio::spawn(subagents)
+        ),
+        timeout_snapshot_source("processes", owned_session_id, tokio::spawn(processes)),
     );
     let mut tasks = Vec::new();
     for discovered in [async_jobs, subagents, processes] {
@@ -182,29 +191,106 @@ pub async fn snapshot_runtime_tasks_for_session(
     Ok(RuntimeTaskSnapshot { tasks })
 }
 
-async fn timeout_snapshot_source<F>(
+enum DeferredSnapshotGate {
+    Session(crate::chat_engine::active_turn::StopCleanupGuard),
+    Global(crate::chat_engine::active_turn::GlobalStopCleanupGuard),
+}
+
+impl DeferredSnapshotGate {
+    fn begin(session_id: Option<&str>) -> Self {
+        match session_id {
+            Some(session_id) => Self::Session(crate::chat_engine::active_turn::begin_stop_cleanup(
+                session_id,
+            )),
+            None => Self::Global(crate::chat_engine::active_turn::begin_global_stop_cleanup()),
+        }
+    }
+}
+
+impl Drop for DeferredSnapshotGate {
+    fn drop(&mut self) {
+        match self {
+            Self::Session(guard) => guard.release(),
+            Self::Global(guard) => guard.release(),
+        }
+    }
+}
+
+async fn timeout_snapshot_source(
     source: &'static str,
-    future: F,
-) -> Vec<(RuntimeTaskKind, String)>
-where
-    F: std::future::Future<Output = anyhow::Result<Vec<(RuntimeTaskKind, String)>>>,
-{
-    match tokio::time::timeout(RUNTIME_SNAPSHOT_SOURCE_TIMEOUT, future).await {
+    session_id: Option<String>,
+    handle: tokio::task::JoinHandle<anyhow::Result<Vec<(RuntimeTaskKind, String)>>>,
+) -> Vec<(RuntimeTaskKind, String)> {
+    timeout_snapshot_source_with(source, session_id, handle, RUNTIME_SNAPSHOT_SOURCE_TIMEOUT).await
+}
+
+async fn timeout_snapshot_source_with(
+    source: &'static str,
+    session_id: Option<String>,
+    mut handle: tokio::task::JoinHandle<anyhow::Result<Vec<(RuntimeTaskKind, String)>>>,
+    timeout: std::time::Duration,
+) -> Vec<(RuntimeTaskKind, String)> {
+    match tokio::time::timeout(timeout, &mut handle).await {
+        Ok(joined) => snapshot_source_join_result(source, joined),
+        Err(_) => {
+            // Transfer an additional generation gate to the continuation
+            // before returning. The blocked read may finish later, but a
+            // replacement foreground turn cannot register resources that the
+            // eventual snapshot might mistake for the stopped generation.
+            let gate = DeferredSnapshotGate::begin(session_id.as_deref());
+            crate::app_warn!(
+                "chat",
+                "runtime_task_snapshot",
+                "Runtime task source snapshot timed out; continuing it behind the Stop gate: source={} timeout_ms={}",
+                source,
+                timeout.as_millis()
+            );
+            tokio::spawn(async move {
+                let discovered = snapshot_source_join_result(source, handle.await);
+                if !discovered.is_empty() {
+                    let snapshot = RuntimeTaskSnapshot { tasks: discovered };
+                    if tokio::time::timeout(
+                        DEFERRED_SNAPSHOT_CANCEL_TIMEOUT,
+                        cancel_runtime_task_snapshot(snapshot),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        crate::app_warn!(
+                            "chat",
+                            "runtime_task_cancel",
+                            "Deferred runtime cancellation timed out after {}ms: source={}",
+                            DEFERRED_SNAPSHOT_CANCEL_TIMEOUT.as_millis(),
+                            source
+                        );
+                    }
+                }
+                drop(gate);
+            });
+            Vec::new()
+        }
+    }
+}
+
+fn snapshot_source_join_result(
+    source: &'static str,
+    joined: Result<anyhow::Result<Vec<(RuntimeTaskKind, String)>>, tokio::task::JoinError>,
+) -> Vec<(RuntimeTaskKind, String)> {
+    match joined {
         Ok(Ok(discovered)) => discovered,
         Ok(Err(error)) => {
             let mut tasks = Vec::new();
             extend_snapshot_source(&mut tasks, source, Err(error));
             tasks
         }
-        Err(_) => {
-            crate::app_warn!(
-                "chat",
-                "runtime_task_snapshot",
-                "Runtime task source snapshot timed out; continuing other sources: source={} timeout_ms={}",
+        Err(error) => {
+            let mut tasks = Vec::new();
+            extend_snapshot_source(
+                &mut tasks,
                 source,
-                RUNTIME_SNAPSHOT_SOURCE_TIMEOUT.as_millis()
+                Err(anyhow::anyhow!("snapshot task failed: {error}")),
             );
-            Vec::new()
+            tasks
         }
     }
 }
@@ -546,5 +632,57 @@ mod tests {
         let results = cancellation.await.unwrap();
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|result| result.accepted));
+    }
+
+    #[tokio::test]
+    async fn timed_out_snapshot_source_continues_behind_gate() {
+        let session_id = format!("deferred-snapshot-{}", uuid::Uuid::new_v4());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let completed = Arc::new(tokio::sync::Notify::new());
+        let release_for_source = release.clone();
+        let completed_for_source = completed.clone();
+        let handle = tokio::spawn(async move {
+            release_for_source.notified().await;
+            completed_for_source.notify_one();
+            anyhow::Ok(Vec::new())
+        });
+
+        let immediate = timeout_snapshot_source_with(
+            "test_source",
+            Some(session_id.clone()),
+            handle,
+            std::time::Duration::from_millis(10),
+        )
+        .await;
+        assert!(immediate.is_empty());
+        assert!(crate::chat_engine::active_turn::try_acquire(
+            &session_id,
+            crate::chat_engine::ChatSource::Desktop,
+            "turn-before-late-snapshot".to_string(),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .is_err());
+
+        release.notify_one();
+        tokio::time::timeout(std::time::Duration::from_secs(1), completed.notified())
+            .await
+            .expect("timed-out source should remain attached to its continuation");
+
+        let replacement = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Ok(guard) = crate::chat_engine::active_turn::try_acquire(
+                    &session_id,
+                    crate::chat_engine::ChatSource::Desktop,
+                    "turn-after-late-snapshot".to_string(),
+                    Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                ) {
+                    break guard;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("replacement should acquire after the late snapshot settles");
+        drop(replacement);
     }
 }

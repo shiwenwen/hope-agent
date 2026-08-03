@@ -142,6 +142,18 @@ impl AcpCancelState {
         true
     }
 
+    /// Ordering point between `session/cancel` and durable prompt submission.
+    /// The claim is short and contains no SQLite I/O: cancellation before it
+    /// suppresses persistence, while cancellation after it belongs to a prompt
+    /// that has already been accepted for persistence.
+    fn claim_non_cancelled_persistence(&self) -> bool {
+        let inner = self.lock();
+        if inner.cancel.load(Ordering::Acquire) || !inner.armed {
+            return false;
+        }
+        true
+    }
+
     fn force_cancel(&self) -> Option<String> {
         let mut inner = self.lock();
         inner.cancel.store(true, Ordering::SeqCst);
@@ -965,7 +977,7 @@ impl AcpAgent {
         };
         let turn_cancel = cancel_state.prepare_prompt();
         let _prompt_state_guard = AcpPromptStateGuard {
-            state: cancel_state,
+            state: cancel_state.clone(),
         };
 
         {
@@ -1077,6 +1089,17 @@ impl AcpAgent {
             }
             Err(_) => text.clone(),
         };
+
+        if !cancel_state.claim_non_cancelled_persistence() {
+            crate::hooks::set_user_prompt_context(&session_id, None);
+            if let Some(s) = self.sessions.get_mut(&session_id) {
+                s.active_prompt = false;
+            }
+            let response = PromptResponse {
+                stop_reason: "cancelled".to_string(),
+            };
+            return JsonRpcResponse::success(id.clone(), serde_json::to_value(&response).unwrap());
+        }
 
         // A model turn must never start without its triggering user message
         // being durable. Otherwise a successful assistant commit could leave
@@ -2145,6 +2168,20 @@ mod tests {
             "repeated Stop must not start duplicate cleanup"
         );
         assert!(!state.claim_non_cancelled_completion());
+        assert!(!state.claim_non_cancelled_persistence());
+    }
+
+    #[test]
+    fn acp_persistence_claim_orders_prompt_before_later_cancel() {
+        let state = Arc::new(AcpCancelState::new(
+            Some("internal-session".to_string()),
+            Arc::new(AtomicBool::new(false)),
+        ));
+        let turn_cancel = state.prepare_prompt();
+
+        assert!(state.claim_non_cancelled_persistence());
+        assert_eq!(state.request_cancel(), Some("internal-session".to_string()));
+        assert!(turn_cancel.load(Ordering::Acquire));
     }
 
     #[test]

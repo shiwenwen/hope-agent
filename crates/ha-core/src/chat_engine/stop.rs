@@ -38,6 +38,32 @@ pub struct StopAllOutcome {
     pub runtime_cancellation_error: Option<String>,
 }
 
+/// Persistence won its atomic claim, but Stop arrived while the blocking DB
+/// operation was still running. Converge the now-durable turn off the async
+/// worker so the earlier watchdog cannot miss a row that did not exist yet.
+pub async fn finalize_persisted_user_stop(
+    db: Arc<SessionDB>,
+    session_id: String,
+    turn_id: String,
+    user_message: String,
+    source: crate::chat_engine::ChatSource,
+) -> crate::chat_engine::finalize::FinalizeOutcome {
+    crate::blocking::run_blocking(move || {
+        crate::chat_engine::finalize::finalize_turn_context_blocking(
+            &db,
+            &session_id,
+            crate::chat_engine::finalize::TerminationReason::UserStop,
+            crate::chat_engine::finalize::PartialMeta {
+                user_message: Some(user_message),
+                turn_id: Some(turn_id),
+                ..Default::default()
+            },
+            source,
+        )
+    })
+    .await
+}
+
 /// Cleanup owned state for a prompt that was cancelled before a durable chat
 /// turn existed. Construction installs the session cleanup gate immediately;
 /// callers may then publish/release any transport-visible lifecycle before

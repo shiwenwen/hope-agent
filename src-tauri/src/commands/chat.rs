@@ -1030,8 +1030,67 @@ pub async fn chat(
         .await
     };
     let _user_message_id = match user_message_result {
-        Ok(Ok(message_id)) => message_id,
-        Ok(Err(error)) => {
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::Committed(message_id)) => {
+            message_id
+        }
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
+            _message_id,
+        )) => {
+            ha_core::hooks::set_user_prompt_context(&sid, None);
+            if new_session_created.is_some() {
+                let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
+                    db.clone(),
+                    sid.clone(),
+                    bootstrap_request_id.clone(),
+                    true,
+                    None,
+                );
+                broadcast_turn_end(
+                    &sid,
+                    &turn_id,
+                    session::ChatTurnStatus::Interrupted,
+                    Some(session::ChatTurnInterruptReason::UserStop),
+                    None,
+                );
+                ha_core::chat_engine::active_turn::force_release(&sid, &turn_id);
+                if let Some(cleanup) = cleanup {
+                    cleanup.spawn();
+                }
+            } else {
+                let outcome = ha_core::chat_engine::stop::finalize_persisted_user_stop(
+                    db.clone(),
+                    sid.clone(),
+                    turn_id.clone(),
+                    effective_prompt.clone(),
+                    ha_core::chat_engine::ChatSource::Desktop,
+                )
+                .await;
+                broadcast_turn_end(
+                    &sid,
+                    &turn_id,
+                    outcome
+                        .turn_status
+                        .unwrap_or(session::ChatTurnStatus::Interrupted),
+                    outcome
+                        .interrupt_reason
+                        .or(Some(session::ChatTurnInterruptReason::UserStop)),
+                    None,
+                );
+                ha_core::chat_engine::active_turn::force_release(&sid, &turn_id);
+            }
+            app_info!(
+                "chat",
+                "persistence_cancelled",
+                "Stopped desktop prompt after persistence claim: session={} turn={}",
+                sid,
+                turn_id
+            );
+            return Err(CmdError::msg(format!(
+                "{}: chat stopped while prompt persistence completed",
+                ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE
+            )));
+        }
+        Err(error) => {
             if let Some(request_id) = queued_request_id.as_ref() {
                 let sid_for_reconcile = sid.clone();
                 let request_for_reconcile = request_id.clone();
@@ -1048,7 +1107,7 @@ pub async fn chat(
             }
             return Err(error.into());
         }
-        Err(reason) => {
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit) => {
             ha_core::hooks::set_user_prompt_context(&sid, None);
             let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
                 db.clone(),
@@ -1073,10 +1132,9 @@ pub async fn chat(
             app_info!(
                 "chat",
                 "persistence_cancelled",
-                "Stopped desktop prompt at persistence boundary: session={} turn={} reason={}",
+                "Stopped desktop prompt before persistence claim: session={} turn={}",
                 sid,
-                turn_id,
-                reason
+                turn_id
             );
             return Err(CmdError::msg(format!(
                 "{}: chat stopped before prompt persistence completed",

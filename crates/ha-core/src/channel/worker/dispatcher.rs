@@ -672,6 +672,70 @@ async fn handle_inbound_message(
     if cancel.load(Ordering::Acquire) {
         return Ok(());
     }
+
+    // Acquire before the user message becomes durable. Besides enforcing
+    // single-flight, this is the generation check that prevents an inbound
+    // which predates global Stop from leaking into the next turn's context.
+    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire_foreground_request(
+        foreground_admission,
+        &session_id,
+        crate::chat_engine::stream_seq::ChatSource::Channel,
+        turn_id.clone(),
+        None,
+        cancel.clone(),
+    ) {
+        Ok(guard) => guard,
+        Err(e) => {
+            if e.cancelled_by_global_stop() {
+                app_info!(
+                    "channel",
+                    "stop",
+                    "[{}] discarded inbound for session {} because it predated global Stop",
+                    channel_id_str,
+                    session_id
+                );
+                emit_channel_update(&session_id);
+                return Ok(());
+            }
+            app_info!(
+                "channel",
+                "worker",
+                "[{}] inbound for session {} rejected: a turn is already active ({})",
+                channel_id_str,
+                session_id,
+                e
+            );
+            let busy_target = DeliveryTarget {
+                account_id: &account.id,
+                chat_id: &msg.chat_id,
+                thread_id: msg.thread_id.as_deref(),
+                reply_to_message_id: Some(&msg.message_id),
+            };
+            let delivery = send_text_chunks(
+                &plugin,
+                &busy_target,
+                "⏳ I'm still finishing your previous message. Please send this again shortly.",
+                None,
+                &[],
+            );
+            tokio::pin!(delivery);
+            tokio::select! {
+                biased;
+                _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+                result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
+                    if result.is_err() {
+                        app_warn!("channel", "worker", "Timed out delivering busy notice for session {}", session_id);
+                    }
+                }
+            }
+            return Ok(());
+        }
+    };
+    if cancel.load(Ordering::Acquire) {
+        emit_channel_update(&session_id);
+        return Ok(());
+    }
+
     let mut attachments = convert_inbound_media_to_attachments(&msg.media, &session_id);
     let user_attachments_meta =
         match crate::attachments::persist_chat_user_attachments_meta(&session_id, &mut attachments)
@@ -718,34 +782,64 @@ async fn handle_inbound_message(
     // Keep all synchronous SessionDB work off this async dispatcher's Tokio
     // workers and preserve restore-before-append ordering in one blocking task.
     let persist_session_id = session_id.clone();
-    let title_prompt = effective_prompt.clone();
-    let title_attachments_meta = attachments_meta_json.clone();
+    let persist_turn_id = turn_id.clone();
     let persist_result = session_db
-        .run(move |db| -> anyhow::Result<()> {
-            db.set_session_archived(&persist_session_id, false)?;
-            db.append_message(&persist_session_id, &user_msg)?;
-            // Auto-generate fallback title from the first real message (same
-            // logic as normal chat).
-            let _ = crate::session::ensure_first_message_title(
-                db,
+        .run(move |db| {
+            crate::chat_engine::active_turn::with_persistence_target(
                 &persist_session_id,
-                &title_prompt,
-                Some(&title_attachments_meta),
-            )?;
-            Ok(())
+                &persist_turn_id,
+                || -> anyhow::Result<i64> {
+                    db.set_session_archived(&persist_session_id, false)?;
+                    db.append_message(&persist_session_id, &user_msg)
+                },
+            )
         })
         .await;
-    if let Err(error) = persist_result {
-        app_warn!(
-            "channel",
-            "worker",
-            "[{}] Failed to restore/persist inbound conversation {}: {}",
-            channel_id_str,
-            session_id,
-            error
-        );
-        return Err(error);
-    }
+    let _user_message_id = match persist_result {
+        Ok(crate::chat_engine::active_turn::PersistenceTargetOutcome::Committed(message_id)) => {
+            message_id
+        }
+        Ok(crate::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
+            message_id,
+        )) => {
+            let _ = session_db
+                .run(move |db| db.delete_message_by_id(message_id))
+                .await;
+            emit_channel_update(&session_id);
+            return Ok(());
+        }
+        Ok(crate::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit) => {
+            emit_channel_update(&session_id);
+            return Ok(());
+        }
+        Err(error) => {
+            app_warn!(
+                "channel",
+                "worker",
+                "[{}] Failed to restore/persist inbound conversation {}: {}",
+                channel_id_str,
+                session_id,
+                error
+            );
+            return Err(error);
+        }
+    };
+
+    // Auto-generate fallback title only after persistence has won over Stop;
+    // a cancelled stale inbound must not leave either a message or its title.
+    let title_session_id = session_id.clone();
+    let title_prompt = effective_prompt.clone();
+    let title_attachments_meta = attachments_meta_json.clone();
+    let _ = session_db
+        .run(move |db| {
+            crate::session::ensure_first_message_title(
+                db,
+                &title_session_id,
+                &title_prompt,
+                Some(&title_attachments_meta),
+            )
+        })
+        .await;
 
     // Notify the desktop / web side that a fresh user message landed on
     // this session from IM, so an attached GUI view can pull it into
@@ -775,86 +869,6 @@ async fn handle_inbound_message(
 
     // NOTE: We don't emit channel:message_update here because channel:stream_start
     // will handle frontend state. Emitting here would race with the stream placeholder.
-
-    // 5c. Single-flight gate (I8 / MISC-6). IM inbound previously had NO
-    // per-session turn guard: two rapid messages to the same session ran
-    // `run_chat_engine` concurrently, and the loser lost the
-    // `stream_seq::begin` race deep inside the engine — after the pipeline was
-    // spawned — surfacing as an "active stream" error reply. Acquire the same
-    // `active_turn` guard the GUI/HTTP entry points use so a concurrent turn
-    // (from IM, GUI, or HTTP on this 1:1-attached session) is rejected up
-    // front. We acquire AFTER persisting the user message: every inbound is
-    // captured into history + run through the `UserPromptSubmit` preflight,
-    // and only the *engine run* is single-flighted (a deferred message rides
-    // the next turn's context; there is no auto-dequeue). The guard + cancel
-    // handle are held by RAII for the whole turn including delivery.
-    // The synthetic turn id only keys the single-flight registry entry; the
-    // engine keeps `turn_id: None` (IM streams on the `channel:*` bus, not the
-    // `chat:*` seq-tracked bus, so giving it a tracked turn id would change
-    // stream acceptance/broadcast semantics). It is minted above the preflight
-    // so `UserPromptSubmit` reports the same `prompt_id` as this turn's other
-    // hooks. The shared `cancel` Arc is reused by `engine_params` below so a
-    // cross-surface cancel (session delete / GUI stop walking `active_turn`)
-    // actually aborts this engine run.
-    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire_foreground_request(
-        foreground_admission,
-        &session_id,
-        crate::chat_engine::stream_seq::ChatSource::Channel,
-        turn_id.clone(),
-        None,
-        cancel.clone(),
-    ) {
-        Ok(guard) => guard,
-        Err(e) => {
-            if e.cancelled_by_global_stop() {
-                app_info!(
-                    "channel",
-                    "stop",
-                    "[{}] discarded inbound for session {} because it predated global Stop",
-                    channel_id_str,
-                    session_id
-                );
-                emit_channel_update(&session_id);
-                return Ok(());
-            }
-            app_info!(
-                "channel",
-                "worker",
-                "[{}] inbound for session {} deferred: a turn is already active ({})",
-                channel_id_str,
-                session_id,
-                e
-            );
-            let busy_target = DeliveryTarget {
-                account_id: &account.id,
-                chat_id: &msg.chat_id,
-                thread_id: msg.thread_id.as_deref(),
-                reply_to_message_id: Some(&msg.message_id),
-            };
-            let delivery = send_text_chunks(
-                &plugin,
-                &busy_target,
-                "⏳ I'm still finishing your previous message; I'll get to this one shortly.",
-                None,
-                &[],
-            );
-            tokio::pin!(delivery);
-            tokio::select! {
-                biased;
-                _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
-                result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
-                    if result.is_err() {
-                        app_warn!("channel", "worker", "Timed out delivering busy notice for session {}", session_id);
-                    }
-                }
-            }
-            return Ok(());
-        }
-    };
-    if cancel.load(Ordering::Acquire) {
-        emit_channel_update(&session_id);
-        return Ok(());
-    }
 
     // 6. Build channel context for prompt injection
     let chat_type_label = match msg.chat_type {

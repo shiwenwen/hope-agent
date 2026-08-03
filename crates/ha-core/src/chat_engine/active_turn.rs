@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::stream_seq::{ChatSource, ACTIVE_STREAM_ERROR_CODE};
@@ -46,8 +46,14 @@ struct Entry {
     stream_id: Option<String>,
     source: ChatSource,
     cancel: Arc<AtomicBool>,
+    persistence_state: Arc<AtomicU8>,
     accepting_insertions: bool,
 }
+
+const PERSISTENCE_PENDING: u8 = 0;
+const PERSISTENCE_RUNNING: u8 = 1;
+const PERSISTENCE_DURABLE: u8 = 2;
+const PERSISTENCE_CANCELLED: u8 = 3;
 
 static ACTIVE_TURNS: OnceLock<Mutex<HashMap<String, Entry>>> = OnceLock::new();
 /// A Stop request keeps this short-lived gate armed while it snapshots and
@@ -345,6 +351,11 @@ fn try_acquire_inner(
     }) {
         cancel.store(true, std::sync::atomic::Ordering::SeqCst);
     }
+    let persistence_state = Arc::new(AtomicU8::new(if cancel.load(Ordering::SeqCst) {
+        PERSISTENCE_CANCELLED
+    } else {
+        PERSISTENCE_PENDING
+    }));
     map.insert(
         session_id.to_string(),
         Entry {
@@ -354,6 +365,7 @@ fn try_acquire_inner(
             stream_id: None,
             source,
             cancel,
+            persistence_state,
             accepting_insertions: true,
         },
     );
@@ -442,6 +454,12 @@ pub fn cancel_current(session_id: &str, expected_turn_id: Option<&str>) -> Activ
         return ActiveTurnCancelOutcome::TurnMismatch;
     }
     entry.cancel.store(true, Ordering::SeqCst);
+    let _ = entry.persistence_state.compare_exchange(
+        PERSISTENCE_PENDING,
+        PERSISTENCE_CANCELLED,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
     ActiveTurnCancelOutcome::Cancelled(ActiveTurnSnapshot {
         session_id: session_id.to_string(),
         turn_id: entry.turn_id.clone(),
@@ -457,6 +475,12 @@ pub fn cancel_all_current() -> Vec<ActiveTurnSnapshot> {
     map.iter()
         .map(|(session_id, entry)| {
             entry.cancel.store(true, Ordering::SeqCst);
+            let _ = entry.persistence_state.compare_exchange(
+                PERSISTENCE_PENDING,
+                PERSISTENCE_CANCELLED,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
             ActiveTurnSnapshot {
                 session_id: session_id.clone(),
                 turn_id: entry.turn_id.clone(),
@@ -494,6 +518,12 @@ pub fn cancel_or_latch_client_request(
         entry
             .cancel
             .store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = entry.persistence_state.compare_exchange(
+            PERSISTENCE_PENDING,
+            PERSISTENCE_CANCELLED,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
         return ClientRequestCancelOutcome::Active(ActiveTurnSnapshot {
             session_id: session_id.clone(),
             turn_id: entry.turn_id.clone(),
@@ -574,28 +604,65 @@ pub fn with_insertion_target<T>(
     Ok(operation())
 }
 
-/// Execute the short synchronous transaction that first makes a foreground
-/// prompt durable. Stop signalling takes the same registry lock, so a prompt
-/// cannot slip into history after its cancellation flag was observed false.
+/// Claim and execute the transaction that first makes a foreground prompt
+/// durable. The atomic state is the ordering point with Stop; the registry
+/// lock is deliberately released before the potentially blocking operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PersistenceTargetOutcome<T> {
+    Committed(T),
+    CommittedAfterCancel(T),
+    CancelledBeforeCommit,
+}
+
 pub fn with_persistence_target<T>(
     session_id: &str,
     turn_id: &str,
-    operation: impl FnOnce() -> T,
-) -> Result<T, &'static str> {
-    let map = registry_lock();
-    let Some(entry) = map.get(session_id) else {
-        return Err("no active turn for session");
+    operation: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<PersistenceTargetOutcome<T>> {
+    let (cancel, persistence_state) = {
+        let map = registry_lock();
+        let Some(entry) = map.get(session_id) else {
+            return Ok(PersistenceTargetOutcome::CancelledBeforeCommit);
+        };
+        if entry.turn_id != turn_id {
+            return Ok(PersistenceTargetOutcome::CancelledBeforeCommit);
+        }
+        (
+            Arc::clone(&entry.cancel),
+            Arc::clone(&entry.persistence_state),
+        )
     };
-    if entry.turn_id != turn_id {
-        return Err("active turn id does not match");
+
+    // This atomic claim is the ordering point with Stop. The registry mutex is
+    // released before SQLite/filesystem work starts, so a stalled persistence
+    // cannot block cancellation or admission for unrelated sessions.
+    if persistence_state
+        .compare_exchange(
+            PERSISTENCE_PENDING,
+            PERSISTENCE_RUNNING,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        )
+        .is_err()
+    {
+        return Ok(PersistenceTargetOutcome::CancelledBeforeCommit);
     }
-    if entry.cancel.load(Ordering::SeqCst) {
-        return Err("active turn is cancelling");
+
+    let result = operation();
+    match result {
+        Ok(value) => {
+            persistence_state.store(PERSISTENCE_DURABLE, Ordering::SeqCst);
+            if cancel.load(Ordering::SeqCst) {
+                Ok(PersistenceTargetOutcome::CommittedAfterCancel(value))
+            } else {
+                Ok(PersistenceTargetOutcome::Committed(value))
+            }
+        }
+        Err(error) => {
+            persistence_state.store(PERSISTENCE_CANCELLED, Ordering::SeqCst);
+            Err(error)
+        }
     }
-    if !matches!(entry.source, ChatSource::Desktop | ChatSource::Http) {
-        return Err("active turn source does not support prompt persistence");
-    }
-    Ok(operation())
 }
 
 /// Close the insertion gate for an exact turn before its durable queue rows
@@ -1173,8 +1240,42 @@ mod tests {
             ActiveTurnCancelOutcome::Cancelled(_)
         ));
         assert_eq!(
-            with_persistence_target(sid, "turn-persistence", || "persisted"),
-            Err("active turn is cancelling")
+            with_persistence_target(sid, "turn-persistence", || Ok("persisted")).unwrap(),
+            PersistenceTargetOutcome::CancelledBeforeCommit
+        );
+    }
+
+    #[test]
+    fn persistence_does_not_hold_registry_mutex_during_slow_io() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-persistence-nonblocking";
+        let _guard = try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-persistence-nonblocking".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            with_persistence_target(sid, "turn-persistence-nonblocking", || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok("persisted")
+            })
+            .unwrap()
+        });
+        started_rx.recv().unwrap();
+
+        assert!(matches!(
+            cancel_current(sid, Some("turn-persistence-nonblocking")),
+            ActiveTurnCancelOutcome::Cancelled(_)
+        ));
+        release_tx.send(()).unwrap();
+        assert_eq!(
+            worker.join().unwrap(),
+            PersistenceTargetOutcome::CommittedAfterCancel("persisted")
         );
     }
 
