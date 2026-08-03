@@ -43,6 +43,7 @@ pub fn build_project_overview(
 
     let instructions = read_project_instructions(project_id, project_db)
         .ok()
+        .filter(|file| file.exists)
         .map(|file| ProjectInstructionsStats {
             path: file.path,
             line_count: markdown_line_count(&file.content),

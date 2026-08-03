@@ -4,7 +4,7 @@
 //! script don't need to change between desktop and container builds.
 //!
 //! Scope:
-//! - `hope-agent server start [--bind ADDR] [--api-key KEY]` — same flags
+//! - `hope-agent server start [--bind ADDR] [--api-key-file PATH]` — same flags
 //!   as the desktop binary; runs the HTTP/WS server and blocks until exit.
 //! - `hope-agent knowledge-mcp` — stdio MCP wrapper for Knowledge Space.
 //! - `--version` / `--help`.
@@ -17,7 +17,14 @@
 //! binary in `src-tauri`.
 
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
+
+struct ServerArgs {
+    bind_addr: String,
+    api_key_file: Option<PathBuf>,
+    allow_unauthenticated_network: bool,
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -59,12 +66,13 @@ fn main() {
             // Sub starts with `-` → caller used `hope-agent server --bind …`
             // shorthand. Treat the whole tail as flags.
             s if s.starts_with('-') => return run_server(&args[2..]),
+            "token" => return run_server_token(&args[3..]),
             "install" | "uninstall" | "status" | "stop" | "setup" => {
                 print_unsupported_subcommand(sub);
                 std::process::exit(1);
             }
             other => {
-                eprintln!("[server] Unknown subcommand: {other}");
+                eprintln!("[server] Unknown subcommand: {}", redact_arg_for_log(other));
                 print_top_help();
                 std::process::exit(1);
             }
@@ -77,7 +85,11 @@ fn main() {
     }
 
     if args.len() > 1 {
-        eprintln!("[hope-agent] Unknown arguments: {:?}", &args[1..]);
+        let redacted: Vec<_> = args[1..]
+            .iter()
+            .map(|arg| redact_arg_for_log(arg))
+            .collect();
+        eprintln!("[hope-agent] Unknown arguments: {redacted:?}");
         print_top_help();
         std::process::exit(1);
     }
@@ -132,12 +144,14 @@ fn print_top_help() {
     println!();
     println!("Usage:");
     println!("  hope-agent server start [OPTIONS]");
+    println!("  hope-agent server token <show|rotate>");
     println!("  hope-agent knowledge-mcp [OPTIONS]");
     println!("  hope-agent mcp [OPTIONS]");
     println!();
     println!("Server options:");
     println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
-    println!("  --api-key KEY                     Bearer token for HTTP/WS auth");
+    println!("  --api-key-file PATH               Read the owner token from a file");
+    println!("  --allow-unauthenticated-network   Allow no-token non-loopback binding (unsafe)");
     println!(
         "  --auto-approve-tools              Auto-approve every tool call on HTTP chat — including"
     );
@@ -146,6 +160,75 @@ fn print_top_help() {
     println!("  --dangerously-skip-all-approvals  Skip every tool approval (this launch only)");
     println!("  --version                         Print version and exit");
     println!("  --help, -h                        Print help and exit");
+}
+
+fn run_server_token(args: &[String]) {
+    let action = args.first().map(String::as_str).unwrap_or("help");
+    if matches!(action, "help" | "--help" | "-h") {
+        println!("Usage: hope-agent server token <show|rotate>");
+        println!("  show    Print the effective owner token to stdout");
+        println!("  rotate  Generate, store, and print a new owner token");
+        return;
+    }
+    if let Err(error) = ha_core::paths::ensure_dirs() {
+        eprintln!("[server token] Failed to initialize data directories: {error}");
+        std::process::exit(1);
+    }
+    let bootstrap = match ha_core::server_auth::consume_bootstrap_token(None) {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("[server token] Failed to load the external owner token: {error}");
+            std::process::exit(2);
+        }
+    };
+    let _ = ha_core::config::cached_config();
+    match action {
+        "show" => {
+            let token = match bootstrap {
+                Some(resolved) => Ok(Some(resolved.token)),
+                None => ha_core::server_auth::load_managed_token(),
+            };
+            match token {
+                Ok(Some(token)) => println!("{token}"),
+                Ok(None) => {
+                    eprintln!("[server token] No owner token is configured.");
+                    std::process::exit(1);
+                }
+                Err(error) => {
+                    eprintln!("[server token] Failed to read the managed owner token: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        "rotate" => {
+            if bootstrap.is_some() {
+                eprintln!(
+                    "[server token] The owner token is externally managed by HA_API_KEY or HA_API_KEY_FILE; rotate that secret at its source."
+                );
+                std::process::exit(2);
+            }
+            match ha_core::server_auth::rotate_managed_token("cli-token-rotate") {
+                Ok(rotated) => {
+                    eprintln!(
+                        "[server token] Stored a new owner token (fingerprint={}). Restart the running server to activate it and invalidate existing sessions.",
+                        ha_core::server_auth::token_fingerprint(&rotated.token)
+                    );
+                    println!("{}", rotated.token);
+                }
+                Err(error) => {
+                    eprintln!("[server token] Rotation failed: {error}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        other => {
+            eprintln!(
+                "[server token] Unknown action: {}",
+                redact_arg_for_log(other)
+            );
+            std::process::exit(2);
+        }
+    }
 }
 
 fn run_knowledge_mcp(args: &[String]) {
@@ -185,7 +268,7 @@ fn run_mcp(args: &[String]) {
                 return;
             }
             other => {
-                eprintln!("[mcp] Unknown argument: {other}");
+                eprintln!("[mcp] Unknown argument: {}", redact_arg_for_log(other));
                 return;
             }
         }
@@ -219,7 +302,10 @@ fn parse_knowledge_mcp_args(
             }
             "--help" | "-h" => return None,
             other => {
-                eprintln!("[knowledge-mcp] Unknown argument: {other}");
+                eprintln!(
+                    "[knowledge-mcp] Unknown argument: {}",
+                    redact_arg_for_log(other)
+                );
                 return None;
             }
         }
@@ -252,9 +338,18 @@ fn print_unsupported_subcommand(sub: &str) {
 }
 
 fn run_server(args: &[String]) {
-    let Some((bind_addr, api_key)) = parse_server_args(args) else {
+    let Some(options) = parse_server_args(args) else {
         print_top_help();
         return;
+    };
+    let bind_addr = options.bind_addr;
+    let bootstrap_token = match ha_core::server_auth::consume_bootstrap_token(options.api_key_file)
+    {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("[server] Failed to load the owner token: {error}");
+            std::process::exit(2);
+        }
     };
     let model_eval_mode = ha_core::eval_context::model_eval_mode_enabled();
     if model_eval_mode {
@@ -268,9 +363,9 @@ fn run_server(args: &[String]) {
         }
     }
     let model_eval_server_token = if model_eval_mode {
-        if api_key.is_some() {
+        if bootstrap_token.is_some() {
             eprintln!(
-                "[model-eval] --api-key is forbidden; pass HA_MODEL_EVAL_SERVER_TOKEN so it can be consumed before tool processes start"
+                "[model-eval] HA_API_KEY / HA_API_KEY_FILE are forbidden; pass HA_MODEL_EVAL_SERVER_TOKEN so it can be consumed before tool processes start"
             );
             std::process::exit(2);
         }
@@ -363,30 +458,49 @@ fn run_server(args: &[String]) {
         );
     }
 
-    // Resolve the effective API key. Precedence (highest first):
-    //   1. One-shot `HA_MODEL_EVAL_SERVER_TOKEN` in isolated evaluation mode;
-    //      it has already been removed from the server environment.
-    //   2. `--api-key` CLI flag (translated from `HA_API_KEY` env by the
-    //      Docker entrypoint).
-    //   3. `config.server.api_key` written by the browser onboarding
-    //      wizard or the Settings → Server panel.
-    //   4. `None` — server accepts unauthenticated requests.
-    //
-    // Without #2 a user who enables auth in the browser, restarts the
-    // container without re-exporting `HA_API_KEY`, gets a server that
-    // silently downgrades to no-auth while the UI suggests otherwise.
+    // Resolve credentials only after the config cache is available. Docker
+    // creates a managed token on first boot; other non-loopback deployments
+    // must provide one explicitly or opt into the unsafe override.
     let saved_server_config = ha_core::config::cached_config().server.clone();
-    let api_key = model_eval_server_token.or(api_key).or_else(|| {
-        saved_server_config
-            .api_key
-            .clone()
-            .filter(|k| !k.is_empty())
-            .inspect(|_| {
-                eprintln!(
-                    "[server] Using API key from saved config (server.api_key); CLI / HA_API_KEY would override."
-                );
-            })
-    });
+    let resolved_token = if let Some(token) = model_eval_server_token {
+        Some(ha_core::server_auth::ResolvedToken {
+            token,
+            source: ha_core::server_auth::TokenSource::Environment,
+        })
+    } else {
+        let docker = env::var("HA_DEPLOYMENT").as_deref() == Ok("docker");
+        match ha_core::server_auth::resolve_effective_token(bootstrap_token, docker) {
+            Ok(token) => token,
+            Err(error) => {
+                eprintln!("[server] Failed to resolve the owner token: {error}");
+                std::process::exit(2);
+            }
+        }
+    };
+    let unsafe_network = options.allow_unauthenticated_network
+        || ha_core::server_auth::unauthenticated_network_override_enabled();
+    if resolved_token.is_none()
+        && !ha_core::server_auth::bind_is_loopback(&bind_addr)
+        && !unsafe_network
+    {
+        eprintln!(
+            "[server] Refusing unauthenticated non-loopback binding. Set HA_API_KEY, HA_API_KEY_FILE, or use --api-key-file. To accept the risk explicitly, pass --allow-unauthenticated-network."
+        );
+        std::process::exit(2);
+    }
+    if let Some(resolved) = resolved_token.as_ref() {
+        eprintln!(
+            "[server] Owner-token authentication enabled (source={}, fingerprint={}).",
+            resolved.source.as_str(),
+            ha_core::server_auth::token_fingerprint(&resolved.token)
+        );
+    } else {
+        eprintln!("[server] Authentication disabled for loopback-only access.");
+    }
+    let auth_externally_managed = resolved_token
+        .as_ref()
+        .is_some_and(|resolved| resolved.source.externally_managed());
+    let api_key = resolved_token.map(|resolved| resolved.token);
     let knowledge_agent_read_token = env::var("HA_KNOWLEDGE_AGENT_READ_TOKEN")
         .ok()
         .map(|v| v.trim().to_string())
@@ -416,11 +530,11 @@ fn run_server(args: &[String]) {
             .expect("init_runtime contract")
             .clone(),
         chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
-        api_key: api_key.clone(),
     });
     let config = ha_server::ServerConfig {
         bind_addr,
         api_key,
+        auth_externally_managed,
         knowledge_agent_read_token,
         cors_origins: Vec::new(),
     };
@@ -452,35 +566,49 @@ fn run_server(args: &[String]) {
 
 /// Argv parsing for `server start` flags. `None` means `--help` was
 /// requested; the caller prints help and returns.
-fn parse_server_args(args: &[String]) -> Option<(String, Option<String>)> {
+fn parse_server_args(args: &[String]) -> Option<ServerArgs> {
     let mut bind_addr = "127.0.0.1:8420".to_string();
-    let mut api_key: Option<String> = None;
+    let mut api_key_file = None;
+    let mut allow_unauthenticated_network = false;
 
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].as_str();
         match arg {
             "--bind" | "-b" => {
-                i += 1;
-                if i < args.len() {
+                if args.get(i + 1).is_some_and(|value| !value.starts_with('-')) {
+                    i += 1;
                     bind_addr = args[i].clone();
+                } else {
+                    eprintln!("[server] --bind requires an address");
                 }
             }
-            "--api-key" => {
-                i += 1;
-                if i < args.len() {
-                    api_key = Some(args[i].clone());
+            "--api-key-file" => {
+                if args.get(i + 1).is_some_and(|value| !value.starts_with('-')) {
+                    i += 1;
+                    api_key_file = Some(PathBuf::from(&args[i]));
+                } else {
+                    eprintln!("[server] --api-key-file requires a path");
                 }
             }
-            // Also honor `--bind=ADDR` / `--api-key=VALUE` so a user
-            // dropping into `docker run ... hope-agent server start
-            // --api-key=KEY` doesn't fall into the unknown-arg branch
-            // (which would echo the full token to stderr → docker logs).
             s if s.starts_with("--bind=") => {
                 bind_addr = s["--bind=".len()..].to_string();
             }
-            s if s.starts_with("--api-key=") => {
-                api_key = Some(s["--api-key=".len()..].to_string());
+            s if s.starts_with("--api-key-file=") => {
+                api_key_file = Some(PathBuf::from(&s["--api-key-file=".len()..]));
+            }
+            "--allow-unauthenticated-network" => allow_unauthenticated_network = true,
+            "--api-key" => {
+                eprintln!(
+                    "[server] --api-key is no longer accepted because command-line secrets are visible to other processes; use HA_API_KEY or --api-key-file."
+                );
+                std::process::exit(2);
+            }
+            arg if arg.starts_with("--api-key=") => {
+                eprintln!(
+                    "[server] --api-key is no longer accepted because command-line secrets are visible to other processes; use HA_API_KEY or --api-key-file."
+                );
+                std::process::exit(2);
             }
             "--dangerously-skip-all-approvals" => {}
             // Already consumed in `main()`; ignore here so it doesn't fall
@@ -501,24 +629,23 @@ fn parse_server_args(args: &[String]) -> Option<(String, Option<String>)> {
         }
         i += 1;
     }
-    Some((bind_addr, api_key))
+    Some(ServerArgs {
+        bind_addr,
+        api_key_file,
+        allow_unauthenticated_network,
+    })
 }
 
-/// Mask the value portion of any `--…key…=value` / `--token=value` /
-/// `--secret=value` style argument before it hits stderr. Plain flags
-/// without `=` are returned unchanged.
+/// Never echo an unknown positional value. Unknown flags retain only their
+/// name so a typo remains diagnosable without risking a secret in stderr.
 fn redact_arg_for_log(arg: &str) -> String {
-    if let Some((flag, _value)) = arg.split_once('=') {
-        let lower = flag.to_ascii_lowercase();
-        if lower.contains("key")
-            || lower.contains("token")
-            || lower.contains("secret")
-            || lower.contains("pass")
-        {
-            return format!("{}=[REDACTED]", flag);
-        }
+    if !arg.starts_with('-') {
+        return "[REDACTED]".to_string();
     }
-    arg.to_string()
+    match arg.split_once('=') {
+        Some((flag, _)) => format!("{flag}=[REDACTED]"),
+        None => arg.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -544,12 +671,12 @@ mod tests {
     }
 
     #[test]
-    fn redact_passes_through_non_secret_args() {
+    fn redact_keeps_only_unknown_flag_names() {
         assert_eq!(
             redact_arg_for_log("--bind=0.0.0.0:8420"),
-            "--bind=0.0.0.0:8420"
+            "--bind=[REDACTED]"
         );
         assert_eq!(redact_arg_for_log("--unknown-flag"), "--unknown-flag");
-        assert_eq!(redact_arg_for_log("plain"), "plain");
+        assert_eq!(redact_arg_for_log("plain"), "[REDACTED]");
     }
 }

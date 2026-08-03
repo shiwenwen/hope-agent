@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import {
   getDownloadStatus,
   installUpdate,
+  isDesktopUpdateInstalled,
   relaunchDesktopApp,
   setPendingUpdate as setGlobalPendingUpdate,
+  subscribeUpdateStore,
   type DesktopUpdate,
   type DesktopUpdateEvent,
 } from "@/lib/desktopUpdater"
@@ -11,7 +13,7 @@ import {
 export interface UpdateInstallController {
   /** Download + install in progress (buttons should disable + show spinner). */
   installing: boolean
-  /** 0–100 while downloading, null otherwise. */
+  /** 0–100 when the total is known; null for indeterminate or inactive downloads. */
   downloadPercent: number | null
   /** Installed via "update only" and waiting for an explicit restart. */
   awaitingRestart: boolean
@@ -42,6 +44,11 @@ export function useDesktopUpdateInstall(
   const [installing, setInstalling] = useState(false)
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
   const [awaitingRestart, setAwaitingRestart] = useState(false)
+  const installed = useSyncExternalStore(
+    subscribeUpdateStore,
+    () => isDesktopUpdateInstalled(update),
+    () => false,
+  )
 
   // Reset the lifecycle when the target version changes.
   const versionRef = useRef<string | undefined>(undefined)
@@ -52,7 +59,12 @@ export function useDesktopUpdateInstall(
       setInstalling(false)
       setDownloadPercent(null)
     }
-  }, [update?.version])
+    if (installed) {
+      setAwaitingRestart(true)
+      setInstalling(false)
+      setDownloadPercent(100)
+    }
+  }, [installed, update?.version])
 
   // Keep callbacks current without re-creating `install` each render.
   const optsRef = useRef(opts)
@@ -62,22 +74,20 @@ export function useDesktopUpdateInstall(
     async (relaunchAfter: boolean) => {
       if (!update) return
       setInstalling(true)
-      setDownloadPercent(getDownloadStatus() === "downloaded" ? 100 : 0)
+      setDownloadPercent(getDownloadStatus() === "downloaded" ? 100 : null)
       let downloaded = 0
       let contentLength = 0
       try {
         await installUpdate(update, (event: DesktopUpdateEvent) => {
           switch (event.event) {
             case "Started":
-              contentLength = event.data.contentLength
-              setDownloadPercent(0)
+              contentLength = event.data.contentLength ?? 0
+              setDownloadPercent(contentLength > 0 ? 0 : null)
               break
             case "Progress":
               downloaded += event.data.chunkLength
               if (contentLength > 0) {
-                setDownloadPercent(
-                  Math.min(100, Math.round((downloaded / contentLength) * 100)),
-                )
+                setDownloadPercent(Math.min(100, Math.round((downloaded / contentLength) * 100)))
               }
               break
             case "Finished":

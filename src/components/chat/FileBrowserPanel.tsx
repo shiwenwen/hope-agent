@@ -18,16 +18,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
-import {
-  ChevronRight,
-  ExternalLink,
-  FolderOpen,
-  Maximize2,
-  Minimize2,
-  PanelLeftClose,
-} from "lucide-react"
+import { ChevronRight, FolderOpen, Maximize2, Minimize2 } from "lucide-react"
 
 import { IconTip } from "@/components/ui/tooltip"
+import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { isTauriMode } from "@/lib/transport"
 import { cn } from "@/lib/utils"
@@ -191,7 +185,7 @@ export function FileBrowserPanel({
               className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               onClick={handleReattach}
             >
-              <PanelLeftClose className="h-3.5 w-3.5" />
+              <WindowModeIcon action="reattach" className="h-3.5 w-3.5" />
             </button>
           </IconTip>
         ) : desktopMode ? (
@@ -202,17 +196,27 @@ export function FileBrowserPanel({
                 className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={handleDetach}
               >
-                <ExternalLink className="h-3.5 w-3.5" />
+                <WindowModeIcon action="detach" className="h-3.5 w-3.5" />
               </button>
             </IconTip>
-            <IconTip label={maximized ? t("fileBrowser.minimize", "Restore") : t("fileBrowser.maximize", "Maximize")}>
+            <IconTip
+              label={
+                maximized
+                  ? t("fileBrowser.minimize", "Restore")
+                  : t("fileBrowser.maximize", "Maximize")
+              }
+            >
               <button
                 type="button"
                 className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={toggleFullscreen}
                 disabled={fullscreenAnimating}
               >
-                {maximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                {maximized ? (
+                  <Minimize2 className="h-3.5 w-3.5" />
+                ) : (
+                  <Maximize2 className="h-3.5 w-3.5" />
+                )}
               </button>
             </IconTip>
           </>

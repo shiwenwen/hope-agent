@@ -24,6 +24,7 @@ Hope Agent 的后台工作单元分四层。工程排查常见问题（"为什�
 | `hope-agent acp [...]` | `run_acp_server` | stdio ACP 子进程（被 IDE / Claude Code 等拉起） |
 | `hope-agent server [...]` | `run_server` | 前台 HTTP/WS 守护进程；`server install/uninstall/status/stop/setup` 走同入口分派子命令 |
 | `hope-agent --child-mode` 或 `HOPE_AGENT_CHILD=1` | `run_child` | Guardian 派生的子进程，真正加载 Tauri GUI |
+| `hope-agent --tcc-probe <id>` | `main()` 内联 | macOS TCC 探针短命进程：打印一行握手 token 后退出，**不初始化任何运行时**。由系统权限子系统 spawn（新进程才看得到运行期新授的录屏权限），详见 [系统权限](macos-permissions.md)。**分派须早于 Guardian / `--child-mode`**——落到 Guardian 会每次探针拉起一整个 GUI |
 | 其它（含无参） | `run_guardian` / `run_child` | Release 默认走 Guardian 父子；Dev / `config.guardian.enabled=false` 直接 `run_child` |
 
 三种模式共享同一个 `ha-core` 库——Provider / Tool Loop / Memory 等**业务代码**复用；但是否启动 Layer B/C 的后台驱动由各模式的 `fn run_*` 自行决定，详见下文「跨模式能力不对等」。

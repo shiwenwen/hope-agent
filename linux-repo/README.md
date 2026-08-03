@@ -24,7 +24,7 @@ See [`../docs/release-process.md`](../docs/release-process.md) §1.9 for the ful
 
 1. `gh release download` pulls every deb + rpm whose filename matches the release version — both amd64 / x86_64 and arm64 / aarch64 when present. Only the amd64 deb + x86_64 rpm are required as the minimum baseline.
 2. Import `GPG_SIGNING_KEY` into a fresh `GNUPGHOME`.
-3. **`rclone copy r2:$R2_BUCKET → ./bucket`** — mirror the currently-published tree DOWN so reprepro's `apt/db` state and createrepo_c's existing repodata are intact for an incremental update. Empty on the very first seed run.
+3. **`rclone copy r2:$R2_BUCKET → ./bucket --include /apt/** --include /rpm/** --include /pubkey.gpg`** — mirror the currently-published tree DOWN so reprepro's `apt/db` state and createrepo_c's existing repodata are intact for an incremental update. Empty on the very first seed run. The `--include` filter is **load-bearing, not tuning**: [`mirror-release-r2.yml`](../.github/workflows/mirror-release-r2.yml) shares this bucket and writes ~1.5 GB of installers per release under `download/`, kept forever — an unfiltered pull would drag every historical installer down on every Linux-repo publish and grow without bound. Adding a new top-level path this job owns? Add it to the filter too.
 4. `reprepro -b apt includedeb stable …` files each deb into the right `binary-<arch>` index and signs `InRelease` / `Release.gpg` via `SignWith:`.
 5. `createrepo_c --update rpm/stable/<arch>/` + `gpg --detach-sign --armor` on each `repodata/repomd.xml`. Per-arch subdirs (`x86_64` + `aarch64`); dnf picks via `$basearch`.
 6. Export `pubkey.gpg` from the imported key.
@@ -32,6 +32,8 @@ See [`../docs/release-process.md`](../docs/release-process.md) §1.9 for the ful
 8. **Verify** — fetch `InRelease`, `repomd.xml` and `pubkey.gpg` back over `https://repo.hopeagent.ai/…` and assert they are live and well-formed. A broken publish (or an unwired custom domain) fails the job here instead of silently leaving users on a stale source.
 
 `rpm --addsign` is **not** used — reprepro/createrepo only require *repo metadata* signatures; the rpm is trusted via repo-level `repo_gpgcheck=1`.
+
+> **This bucket has a second tenant.** [`mirror-release-r2.yml`](../.github/workflows/mirror-release-r2.yml) publishes the raw installer mirror plus the updater manifest under `download/` (`download/v<version>/`, `download/latest/`, `download/latest.json`) on the same bucket and custom domain. The two workflows write disjoint prefixes and are safe to run concurrently, but anything that touches the whole bucket — a pull, a lifecycle rule, a cleanup script — has to account for both. See [`../docs/release-process.md`](../docs/release-process.md) §1.10.
 
 ## R2 first-time setup (one-time, on the Cloudflare side)
 
@@ -56,28 +58,40 @@ All of this is done in the Cloudflare dashboard + `gh` CLI; none of it is in cod
    ```
    The verify step confirms `https://repo.hopeagent.ai/apt/dists/stable/InRelease` etc. are live. From then on it auto-fires on every `release.published`.
 
-> **New-account gotcha — `tls: handshake failure` on the first seed.** Cloudflare
-> provisions the **per-account TLS certificate for the S3 API endpoint**
-> (`<account_id>.r2.cloudflarestorage.com`) with a delay on **brand-new R2
-> accounts** — often ~20 minutes, sometimes a few hours (Cloudflare-side, see
+> **Resolved for this account (2026-07-31).** The S3 API endpoint's certificate
+> is provisioned and every workflow now talks to it directly over rclone. The
+> note below applies only to a **brand-new Cloudflare account**; nothing here
+> needs doing on the current one.
+>
+> <details>
+> <summary><b>New-account gotcha — <code>tls: handshake failure</code> on the first seed</b></summary>
+>
+> Cloudflare provisions the **per-account TLS certificate for the S3 API
+> endpoint** (`<account_id>.r2.cloudflarestorage.com`) with a delay on brand-new
+> R2 accounts — often ~20 minutes, sometimes a few hours (Cloudflare-side, see
 > cloudflare/cloudflare-docs#6252). Until it lands, rclone/aws-cli/curl all fail
 > at the TLS handshake (`alert 40`, no peer certificate) **even though the
 > account id, keys, bucket, and custom domain are all correct** — the custom
 > domain works immediately because it uses a different (Universal SSL) cert
-> path. This is not a misconfiguration: **wait and re-run the seed.** A quick way
-> to check readiness from a clean network: `curl -sS -o /dev/null -w '%{http_code}\n'
-> https://<account_id>.r2.cloudflarestorage.com/` — once it returns an HTTP status
-> (e.g. 400) instead of an SSL error, the endpoint is ready.
+> path. This is not a misconfiguration: **wait and re-run the seed.** Readiness
+> check: `curl -sS -o /dev/null -w '%{http_code}\n'
+> https://<account_id>.r2.cloudflarestorage.com/` — an HTTP status (e.g. 400)
+> instead of an SSL error means the endpoint is ready.
 >
-> **Can't wait? Seed via the Wrangler bridge.** The workflow accepts a
-> `via` input: `gh workflow run update-linux-repo.yml -f tag=vX.Y.Z -f via=wrangler`.
-> This uploads the built tree through the **Cloudflare API** (`api.cloudflare.com`,
-> which has a valid cert) with `wrangler r2 object put` instead of the S3
-> endpoint, bypassing the unprovisioned cert entirely. It is **seed-only** (a
-> fresh/empty bucket, no pull) and needs a `CLOUDFLARE_API_TOKEN` secret — an API
-> token with **Account → Workers R2 Storage → Edit**. Once the S3-endpoint cert
-> provisions, drop the flag; normal releases go back to the default rclone path
-> (which does the efficient incremental pull+push the bridge can't).
+> **Can't wait? Seed via the Wrangler bridge.** `gh workflow run
+> update-linux-repo.yml -f tag=vX.Y.Z -f via=wrangler` uploads the built tree
+> through the **Cloudflare API** (`api.cloudflare.com`, which has a valid cert)
+> with `wrangler r2 object put` instead of the S3 endpoint. It is **seed-only**
+> (fresh/empty bucket, no pull) and needs a `CLOUDFLARE_API_TOKEN` secret — an
+> API token with **Account → Workers R2 Storage → Edit**. Once the cert
+> provisions, drop the flag; normal releases use the default rclone path, which
+> does the incremental pull+push the bridge can't.
+>
+> The bridge is kept as a standby for that scenario. **A new bucket in the
+> existing account does not need it** — the certificate is per-account, not
+> per-bucket. `CLOUDFLARE_API_TOKEN` is currently unused; it can be deleted and
+> re-created if the bridge is ever needed again.
+> </details>
 
 ### Signing key info
 

@@ -44,7 +44,7 @@ Project 是 Hope Agent 的**可选会话容器**，把多个会话聚成一个�
 - **复用 `sessions.db`**：`projects` 表与 `sessions` 表同 DB（`ProjectDB` 持 `Arc<SessionDB>`），项目与会话的关系查询可在单库内完成。
 - **跨 DB 内存**：项目记忆在独立的 `memory.db`，无法与 `sessions.db` 共享事务；删除时分两库执行，靠启动期 reconciler 兜底孤儿清理。
 - **工作目录单一真相源**：[`session::effective_session_working_dir`](../../crates/ha-core/src/session/helpers.rs)（lazy ensure 默认 workspace），文件浏览器读写经 [`filesystem::WorkspaceScope`](../../crates/ha-core/src/filesystem/workspace.rs)（canonicalize + `starts_with` 失败闭合）。
-- **指令文件单一真相源**：项目元数据和 SQLite 不保存指令；项目创建、工作目录切换和启动迁移都会确保根目录 `AGENTS.md` 存在，设置页直接读写该文件。旧 `projects.instructions` 列在 migration 中直接 drop，不迁移历史内容。
+- **指令文件单一真相源**：项目元数据和 SQLite 不保存指令；新建默认工作区仍会创建根目录 `AGENTS.md`，添加缺少该文件的已有目录时用户可选择保留缺失状态，设置页直接读写该文件。旧 `projects.instructions` 列在 migration 中直接 drop，不迁移历史内容。
 - **无反向认领**：项目不认领 (channel, account)；IM 会话归项目靠 chat 内 `/project <id>` 显式触发（详见 [Agent 解析链](#agent-解析链7-级) 与 [im-channel.md](im-channel.md)）。
 
 ## 数据模型
@@ -124,7 +124,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
         │   ├── MEMORY.md              # 生成的简短索引；最多注入 200 行 / 25KB
         │   └── *.md                   # 带 frontmatter 的主题详情；按需读取
         └── workspace/                 # 默认工作目录（未显式选目录时）；上传/产出/浏览都在此
-            ├── AGENTS.md              # 项目指令唯一真相源（缺失时自动创建）
+            ├── AGENTS.md              # 项目指令唯一真相源（用户可选择不创建）
             └── <用户与 agent 的真实文件>
 ```
 
@@ -145,7 +145,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
 | `list_all_ids()` → `Vec<String>` | 轻量 id 列表，reconciler 专用 |
 | `list(include_archived)` → `Vec<ProjectMeta>` | 带 `session_count` / `unread_count` 聚合子查询 |
 
-项目普通文件 CRUD 全在 [文件浏览器 API](#文件浏览器-api)。`files.rs` 另提供项目指令专用编排：`create_project_with_instructions_file` / `update_project_with_instructions_file`、`inspect_project_instructions`、`ensure_project_instructions`、`read_project_instructions`、`save_project_instructions`；它们固定操作根目录 `AGENTS.md`，保存走 `platform::write_atomic`，以读取时的 raw BLAKE3 作 stale-write guard，并共用 `filesystem.maxTextEditMb` 动态读写上限。新增 / 编辑项目可把 `ProjectInstructionsDraft` 与元数据一并提交；文件步骤失败会回滚项目创建或元数据更新，指令内容仍不进入 SQLite。
+项目普通文件 CRUD 全在 [文件浏览器 API](#文件浏览器-api)。`files.rs` 另提供项目指令专用编排：`create_project_with_instructions_file` / `update_project_with_instructions_file`、`inspect_project_instructions`、`ensure_project_instructions`、`read_project_instructions`、`save_project_instructions`；它们固定操作根目录 `AGENTS.md`，读取不创建缺失文件，显式保存才以 create-new 语义建立文件；保存走 `platform::write_atomic`，以读取时的 `expectedExists` + raw BLAKE3 作 stale-write guard，并共用 `filesystem.maxTextEditMb` 动态读写上限。新增 / 编辑项目可把 `ProjectInstructionsDraft` 与元数据一并提交；创建接口用默认开启的 `createInstructionsIfMissing` 控制缺失时是否创建，未实际变更工作目录的元数据更新不得补建文件，文件步骤失败会回滚项目创建或元数据更新，指令内容仍不进入 SQLite。
 
 ### session ↔ project 绑定（[`session/db.rs`](../../crates/ha-core/src/session/db.rs)）
 
@@ -319,11 +319,11 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 | `list_projects_cmd(include_archived?)` | 项目列表与会话 / 未读聚合 |
 | `get_project_overview_cmd(id)` | 项目首页聚合：用户会话、自动记忆、有效结构化记忆、`AGENTS.md` 状态 |
 | `get_project_cmd(id)` | 取单个 |
-| `create_project_cmd(input, instructions)` | 创建项目并原子落根 `AGENTS.md` 草稿；emit `project:created` |
+| `create_project_cmd(input, instructions, createInstructionsIfMissing?)` | 创建项目；默认原子落根 `AGENTS.md` 草稿，也可保留已有目录中的缺失状态；emit `project:created` |
 | `update_project_cmd(id, patch, instructions)` | 更新元数据并原子落根 `AGENTS.md` 草稿；任一文件步骤失败则回滚元数据；emit `project:updated` |
 | `inspect_project_instructions_cmd(working_dir?, project_id?)` | 在新增 / 编辑表单中只读检查目标根 `AGENTS.md`；缺失时返回空草稿但不建文件 |
-| `get_project_instructions_cmd(id)` | 读取根 `AGENTS.md`；缺失时创建空文件 |
-| `save_project_instructions_cmd(id, content)` | 原子保存 Markdown，并 emit `project:fs_changed` |
+| `get_project_instructions_cmd(id)` | 只读检查根 `AGENTS.md`；缺失时返回空草稿但不建文件 |
+| `save_project_instructions_cmd(id, content, expectedFileHash, expectedExists)` | 校验存在状态与内容 hash，必要时建立文件并原子保存 Markdown，emit `project:fs_changed` |
 | `delete_project_cmd(id)` | 走 `delete_project_cascade`，emit `project:deleted` |
 | `archive_project_cmd(id, archived)` | 等价 patch `{archived}`，emit `project:updated` |
 | `list_project_sessions_cmd(id, limit?, offset?)` | 基于 `ProjectFilter::InProject`，含 `enrich_pending_interactions` |

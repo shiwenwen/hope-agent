@@ -76,6 +76,7 @@ export function FilePreviewPane({
 
   useEffect(() => {
     let cancelled = false
+    let leasedRawUrl: string | null = null
     setViewSource(false)
     if (!source) {
       setLoaded(null)
@@ -88,9 +89,19 @@ export function FilePreviewPane({
       try {
         if (source.presentation === "managed_html") {
           const url = await source.rawUrl(false)
+          if (url && cancelled) {
+            source.releaseRawUrl?.(url)
+            return
+          }
+          if (url) leasedRawUrl = url
           if (!cancelled) setLoaded({ kind: "managed_html", url })
         } else if (kind === "image" || kind === "pdf" || kind === "audio" || kind === "video") {
           const url = await source.rawUrl(false)
+          if (url && cancelled) {
+            source.releaseRawUrl?.(url)
+            return
+          }
+          if (url) leasedRawUrl = url
           if (!cancelled) setLoaded({ kind, url })
         } else if (kind === "office") {
           // Office files are rich-rendered from raw bytes by OfficeRichPreview;
@@ -112,6 +123,7 @@ export function FilePreviewPane({
     })()
     return () => {
       cancelled = true
+      if (leasedRawUrl) source.releaseRawUrl?.(leasedRawUrl)
     }
   }, [source])
 

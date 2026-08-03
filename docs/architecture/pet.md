@@ -1,8 +1,40 @@
 # 桌面宠物（Pet）
 
-> 返回 [文档索引](../README.md) · 决策与验收历史见 [实施计划](../plan/pet.md)
+> 返回 [文档索引](../README.md)
 
 Pet 是一个桌面优先、被动常驻零 LLM 的状态表现层。它把已有主对话的运行、待处理、失败和未读完成状态投影到透明浮窗，不改变 Prompt、Memory、权限、任务状态或会话正文。只有用户明确提交气泡快捷回复时才复用原 Session 的主对话链；Settings 的 Create 则走隔离的媒体生成工作流，后者不属于主对话，也不能成为 Pet activity。
+
+## 模块与数据真相源
+
+| 层 | 唯一职责与入口 |
+| --- | --- |
+| Core | `crates/ha-core/src/pet/`：`activity` 负责主对话投影，`atlas` 负责 Codex 格式与图片校验，`import` 负责发现和 preview capability，`store` 负责原子安装、删除/恢复与导出，`asset` 负责安全资源解析，`creator` 负责显式创作流程；这里不依赖 Tauri |
+| 桌面壳 | `src-tauri/src/commands/pet.rs` 只做命令适配；`src-tauri/src/pet_window.rs` 负责透明窗口生命周期、原生 geometry、失焦指针桥和位置恢复；`src-tauri/src/pet_deep_link.rs` 只接收 Hope 自有协议并转交预览 |
+| HTTP 壳 | `crates/ha-server/src/routes/pet.rs` 只做 Bearer 鉴权、参数/结果映射和同源资源响应，不能重写 Core 的导入、hash、状态资格或优先级 |
+| React | `src/PetWindow.tsx` 是独立轻量入口；`src/components/pet/` 承载精灵、气泡、交互卡和布局 hooks；`src/components/settings/PetSettingsPanel.tsx` 是 owner 管理面 |
+
+持久化与临时状态必须保持以下边界：
+
+| 真相源 | 内容与生命周期 |
+| --- | --- |
+| `config.json` | `pet.enabled`、`pet.selectedPetRef`；所有开关和选择入口都走共享配置 mutation，不维护 localStorage 副本 |
+| `sessions.db` | `chat_turns.ui_surface`、turn 状态与消息边界，`sessions.last_read_message_id`，以及 pending `ask_user_question` groups；只有携带 durable `ownerResponse` 的 owner-plane group 可跨重启保持 pending，普通工具 group 的内存 oneshot 无法恢复，启动时由 `expire_pending_ask_user_groups` 标为 answered；`ui_surface` 是 additive migration，历史 NULL 永不按 source 猜测，索引随 migration 一次性建立 |
+| `~/.hope-agent/pets/` | 自定义包和 `.trash`；磁盘是真相源，库 revision 只是进程内失效版本，不可替代目录扫描与校验 |
+| `pet-window-state.json` | monitor、work area、scale 与宠物脚下归一化锚点；它只属于桌面 UI state，不复制 `enabled` |
+| 进程内 approval registry | `tools::approval::PENDING_APPROVALS` 保存完整 request 与响应 sender，供同一进程内的 reload/transport resync 重建卡片；它不写入 `sessions.db`，进程退出即失效，不能用于跨重启恢复 |
+| 进程内 capability 表 | Codex candidate 30 分钟、import preview 10 分钟、restore token 10 分钟；重启即失效。preview 最多 128 项/64 MiB，restore token 最多 128 项，客户端不能把 token 当持久 ID |
+
+Pet 的 `activity_snapshot` 只把进程内 approval 数与 SQLite pending Ask group 数相加，用“是否大于零”决定运行中 turn 是否投影为 `NeedsInput`；它不返回交互总数或最早倒计时。侧边栏 `SessionMeta.pending_interaction_count` / `pending_countdown` 的数量和 deadline 合并属于 `session::pending::enrich_pending_interactions`。PetWindow 的交互卡则分别读取当前进程内 approval request 与 live Ask group，不能把任一聚合结果回写数据库，也不能据此假设普通 approval/Ask 可跨重启恢复。
+
+`.install-*` staging 超过 24 小时才清理；`.trash` 最长保留 7 天且最多 256 项。清理、导入、删除、恢复与选择校验共享跨进程库锁，任何缓存或 renderer state 都不能成为包、配置、activity 或未读的第二真相源。
+
+## 能力边界与非目标
+
+- 不复制或解包 Codex 应用内置的专有素材；自动发现只扫描用户自己的 Codex current/legacy 自定义目录，用户明确选择的兼容包仍可导入。
+- 不让 Pet 数据进入 system prompt、Memory、Awareness 或会话正文，也不新增 scheduler、任务状态或未读系统。
+- HTTP/server 提供资源管理与只读 activity API，但不伪造桌面置顶浮层；ACP/IM 同样不能远程唤醒 owner 桌面窗口。
+- Pet 与会主动调用模型的 Knowledge Sprite 是两个独立子系统，不共享配置、事件、状态投影或 prompt。Pet 的被动 runtime 零 LLM，只有用户明确快捷回复或 Create Pet 才进入既有模型链。
+- 不把透明浮层逻辑塞进 CLI，也不实现 Computer Use 画中画吸附；平台不支持透明或置顶时只做明确的静态降级。
 
 ## 主对话边界
 
@@ -69,9 +101,20 @@ typed navigation 由主 App 壳消费：Regular 回主聊天 session；Knowledge
 
 ## 精灵图、存储与导入
 
-Core 显式支持 Codex v1 `1536×1872`（8×9）和 v2 `1536×2288`（8×11），单格 `192×208`。渲染使用 SVG `viewBox` + atlas 坐标，不用 Canvas/WebGL，不复制 Codex 内置专有素材。内置 Hope pet 编译进应用；自定义包位于 `~/.hope-agent/pets/`，`pet.json` 保持 Codex 兼容字段，Hope provenance 放 `hope.json`。
+Core 显式支持 Codex v1 `1536×1872`（8×9）和 v2 `1536×2288`（8×11），单格 `192×208`。渲染使用 SVG `viewBox` + atlas 坐标，不用 Canvas/WebGL，不复制 Codex 内置专有素材。内置 Hope pet 编译进应用；自定义包位于 `~/.hope-agent/pets/`，`pet.json` 只保留 Codex 兼容的 `id`、`displayName`、`description`、`spriteVersionNumber`、`spritesheetPath`，后两项缺省为 `1` 和 `spritesheet.webp`；Hope provenance、source 与 hash 单独放 `hope.json`。v2 末两行保持原样，不赋予未经确认的业务语义。
 
 Debug 构建额外注入内置 `builtin:hope-debug`，其 v1 atlas 每格使用纯色背景，并精确标注英文状态、中文状态、零基 row/frame；同一行的各帧用同色系明暗变化，便于同时观察 action 仲裁和计时器是否推进。行契约固定为 `Idle/空闲`、`Run Right/向右跑`、`Run Left/向左跑`、`Wave/挥手`、`Jump/跳跃`、`Sad/难过`、`Waiting/等待`、`Working/工作中`、`Celebrate/庆祝`。资源由 `scripts/generate-debug-pet.py` 确定性生成。Core 的注册、内嵌 asset resolver 和导出分支必须受 Rust `debug_assertions` 编译门控；renderer 的直连 asset 必须受 `import.meta.env.DEV` 门控。Release library、选择校验和 asset API 均不能识别该 pet；若开发配置残留其引用，Release 按既有 selected-unavailable 逻辑回退 Hope，不迁移用户配置。
+
+### Create Pet 生成管线
+
+Create 是 Settings 内 owner 显式触发的媒体生成，不注册 Agent tool/skill，也不从一张图继续发起逐帧模型调用。它先经 `media_gen::execute_image` 生成单个角色源图，再由 Core 确定性构造 Codex v1 atlas：
+
+1. 按 magic bytes 解码并限制源图尺寸；已有明显透明度时保留原 alpha。
+2. 只有四角背景色一致且图像基本不透明时，才移除与图像边缘连通的近似背景色；不做全图颜色抠除，避免误删角色内部的同色细节。
+3. 按 alpha 内容边界裁剪并缩放到单格安全区，随后使用固定的位移、缩放、翻转和 bob 参数合成 9 行 × 8 帧动作。动作行顺序与上面的 v1 契约一致，结果恒为 `1536×1872` PNG。
+4. 生成包继续走与外部导入相同的 atlas validator、preview capability 和人工确认；校验失败不安装，用户取消不留下最终包。
+
+因此 Creator 的“动画”是本地可复现的 pose 合成，不表示媒体模型分别生成了 72 帧；修改背景判定、裁剪、pose 或行顺序时必须同步 creator/atlas 单测和本节。
 
 所有导入入口都走 preview → validate → commit：Codex current/legacy 扫描、目录、zip、manifest + image、PNG/WebP、浏览器 upload、HTTPS sprite、粘贴 `codex://` / `hope-agent://`，以及系统注册的 `hope-agent://` 协议。系统协议只把主窗口带到 Settings 的预览确认页；`codex://` 只支持粘贴解析，因为该 scheme 属于 Codex。任何入口都不能静默安装或启用。
 
@@ -101,10 +144,12 @@ Debug 构建额外注入内置 `builtin:hope-debug`，其 v1 atlas 每格使用�
 | `pet:library_changed`  | 安装、删除或恢复后刷新 library                    |
 | `pet:activity_changed` | 对话状态失效；PetWindow 重查 snapshot             |
 | `session:title_updated` | 首消息 fallback 或 LLM 标题回写后立即重查 snapshot |
-| `pet:navigate`         | PetWindow 请求主 App 做 typed navigation          |
-| `pet:install_link`     | OS `hope-agent://` 路由到 Settings import preview |
+| `pet:navigate`         | Tauri-only；PetWindow 请求主 App 做 typed navigation |
+| `pet:install_link`     | Tauri-only；OS `hope-agent://` 路由到 Settings import preview |
+| `pet:inactive_pointer` | macOS Tauri-only；`{ inside, x, y }`，进入/移动时为 logical pointer，离开固定发 `{ inside: false, x: 0, y: 0 }`，最多 30 Hz |
+| `pet:native_drag_ended` | macOS Tauri-only；补齐原生拖拽释放，不携带窗口外坐标 |
 
-Tauri commands 与 HTTP routes 一一对应，详见 [API 参考](api-reference.md)。只有 `pet_apply_window_bounds_cmd`、`pet_sync_window_cmd`、`pet_focus_target_cmd` 的 HTTP 适配明确返回 overlay unsupported；`pet_take_install_link_cmd` 在 HTTP 恒为 `null`。
+前三个 `pet:*_changed` 是 Core EventBus 失效通知，Tauri/HTTP 两条桥都会转发；其余四个是桌面壳内部事件，不经过 HTTP bridge。Tauri commands 与 HTTP routes 一一对应，详见 [API 参考](api-reference.md)。只有 `pet_apply_window_bounds_cmd`、`pet_sync_window_cmd`、`pet_focus_target_cmd` 的 HTTP 适配明确返回 overlay unsupported；`pet_take_install_link_cmd` 在 HTTP 恒为 `null`。
 
 ## 失败与性能契约
 
@@ -113,3 +158,21 @@ Tauri commands 与 HTTP routes 一一对应，详见 [API 参考](api-reference.
 - activity 查询只为未读 Ready 读取 terminal assistant row，并在 Core 折叠空白、按有效 UTF-8 边界截断为 240 bytes；incognito、Running、NeedsInput、Blocked 不返回正文。候选列表只读 header，thumbnail 进 viewport 才生成；候选与安装 preview 返回单行 idle 动画条而非整张 atlas，sprite URL 使用可撤销 Blob lease。
 - 动画 timer 按 `performance.now()` 跳过后台积压帧；逐帧状态只影响 `PetSprite`，不让气泡栈重渲染。
 - 布局 IPC 只在 overlay mode/测量变化时触发，不做逐帧窗口尺寸动画；revision 与 generation 双重 latest-wins。
+
+## 验证与变更检查
+
+Pet 的回归矩阵分三层，不能只验证设置页能选中图片：
+
+| 层级 | 必须覆盖的契约 |
+| --- | --- |
+| Core 确定性测试 | v1/v2 尺寸、manifest 缺省与动作行；路径/symlink/zip/URL 上限和 SSRF；preview→commit stale 检测、hash 去重、并发锁、staging、trash/restore；四态优先级、最新 `ui_surface` allowlist、历史 NULL 和所有非主对话排除；terminal boundary/read watermark；asset resolver 与 HTTP 路径不泄露 |
+| React 测试 | atlas 裁切与 reduced-motion；Running snapshot+delta/seq 去重、Markdown 纯文本和完成状态；多气泡、黄色待处理数字、hover 回复/停止、Ask 单题分页、审批撤窗；PetOnly/Overlay/Dragging、latest-wins bounds、180ms 收展、阴影安全区、4px click/drag 抑制、失焦 pointer bridge；逐 boundary 未读刷新；批量拖拽 preview 与 Blob URL revoke |
+| 桌面 smoke | macOS 多 Space/全屏/Retina/失焦 hover，Windows 多显示器/DPI/透明点击区，Linux compositor 透明与置顶降级；四角、长 CJK/英文、字体放大、多活动滚动、拖拽中更新、拔插显示器和重启恢复；主窗口隐藏时常驻、应用退出无孤儿窗口 |
+
+以下变更必须同步检查：
+
+- 新增一等主对话表面：扩展 `ChatUiSurface`、固定 UI 调用点、Core SQL allowlist、typed navigation/read receipt 与纳入/排除测试；不得用 `ChatSource` 或 session 类型推断。
+- 新增或修改 Pet command/route/event：同步 Tauri、Bearer-auth HTTP adapter、前端 transport map 和 [API 参考](api-reference.md)；纯桌面能力必须明确返回 unsupported，而不是假成功。
+- 修改 `AppConfig.pet`：同步 Settings GUI、`ha-settings` 读写与 risk、skill 风险表；窗口坐标仍保持 GUI-only。
+- 修改 Codex manifest/atlas、Creator pose 或安全限制：同步 Core validator、导入/导出 fixtures、debug pet 与本节兼容契约。
+- 修改用户可见交互：同步中英文 `docs/user-guide/` 与全语言 i18n，并运行 docs parity 和 i18n check。

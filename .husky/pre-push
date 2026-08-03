@@ -66,7 +66,10 @@ echo "[pre-push] verify-updater-pubkey (tauri.conf.json ↔ ha-updater)"
 node scripts/verify-updater-pubkey.mjs
 
 echo "[pre-push] crate layering red line (tool_defs → tools)"
-node scripts/analyze-crate-deps.mjs > /dev/null
+  node scripts/analyze-crate-deps.mjs > /dev/null
+
+  echo "[pre-push] verify-updater-endpoints (tauri.conf.json ↔ ha-updater ↔ mirror PUBLIC_BASE)"
+  node scripts/verify-updater-endpoints.mjs
 
 echo "[pre-push] vitest run"
 pnpm test

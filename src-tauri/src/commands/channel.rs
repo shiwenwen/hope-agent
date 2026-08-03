@@ -178,6 +178,7 @@ pub async fn channel_health_all() -> Result<Vec<(String, ChannelHealth)>, CmdErr
 pub async fn channel_validate_credentials(
     channel_id: String,
     credentials: serde_json::Value,
+    settings: Option<serde_json::Value>,
 ) -> Result<String, CmdError> {
     let parsed_channel_id: ChannelId =
         serde_json::from_value(serde_json::Value::String(channel_id.clone()))
@@ -191,7 +192,10 @@ pub async fn channel_validate_credentials(
         .ok_or_else(|| CmdError::msg(format!("No plugin for channel: {}", channel_id)))?;
 
     plugin
-        .validate_credentials(&credentials)
+        .validate_account_config(
+            &credentials,
+            settings.as_ref().unwrap_or(&serde_json::Value::Null),
+        )
         .await
         .map_err(Into::into)
 }

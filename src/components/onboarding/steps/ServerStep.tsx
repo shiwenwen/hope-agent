@@ -17,12 +17,12 @@ interface ServerStepProps {
 }
 
 /**
- * Step 7 — bind address + optional API key.
+ * Step 7 — bind address + single Owner Token.
  *
  * Radios expand only two user-friendly choices; the raw bind string
  * ("0.0.0.0:8420" vs "127.0.0.1:8420") is kept out of sight. LAN mode
- * flips the API-Key switch on by default since an exposed port without
- * auth is a sharp edge.
+ * requires the Owner Token switch and generates a strong value on selection,
+ * so an exposed port cannot be persisted through the ordinary wizard.
  */
 export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: ServerStepProps) {
   const { t } = useTranslation()
@@ -57,6 +57,20 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
     }
   }
 
+  async function selectLanMode() {
+    if (apiKey) {
+      update({ bindMode: "lan", apiKeyEnabled: true })
+      return
+    }
+    try {
+      const generated = await getTransport().call<string>("generate_api_key")
+      update({ bindMode: "lan", apiKey: generated, apiKeyEnabled: true })
+    } catch {
+      // Keep the protected state visible; the user can enter a token manually.
+      update({ bindMode: "lan", apiKeyEnabled: true })
+    }
+  }
+
   /**
    * Toggle the API-key switch.
    *
@@ -75,9 +89,7 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
   }
 
   const previewHost = bindMode === "lan" && localIps[0] ? localIps[0] : "localhost"
-  const previewUrl = apiKeyEnabled && apiKey
-    ? `http://${previewHost}:8420/?token=${apiKey}`
-    : `http://${previewHost}:8420/`
+  const previewUrl = `http://${previewHost}:8420/`
 
   async function copyPreview() {
     try {
@@ -114,7 +126,7 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
         </button>
         <button
           type="button"
-          onClick={() => update({ bindMode: "lan", apiKeyEnabled: true })}
+          onClick={() => void selectLanMode()}
           className={`rounded-lg border-2 px-4 py-3 text-left transition-all ${
             bindMode === "lan"
               ? "border-border bg-secondary"
@@ -137,6 +149,7 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
           <Switch
             id="onb-apikey-toggle"
             checked={apiKeyEnabled}
+            disabled={bindMode === "lan"}
             onCheckedChange={(v) => void toggleApiKey(v)}
           />
         </div>

@@ -57,6 +57,8 @@ pub struct CreateProjectBody {
     pub input: CreateProjectInput,
     #[serde(default)]
     pub instructions: Option<ProjectInstructionsDraft>,
+    #[serde(default, rename = "createInstructionsIfMissing")]
+    pub create_instructions_if_missing: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,6 +75,8 @@ pub struct InspectProjectInstructionsBody {
 pub struct SaveProjectInstructionsBody {
     pub content: String,
     pub expected_file_hash: String,
+    #[serde(default)]
+    pub expected_exists: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,10 +183,16 @@ pub async fn create_project(
     Json(body): Json<CreateProjectBody>,
 ) -> Result<Json<Project>, AppError> {
     let instructions_changed = body.instructions.is_some();
+    let create_instructions_if_missing = body.create_instructions_if_missing.unwrap_or(true);
     let result = {
         let project_db = ctx.project_db.clone();
         ha_core::blocking::run_blocking(move || {
-            create_project_with_instructions_file(body.input, body.instructions, &project_db)
+            create_project_with_instructions_file(
+                body.input,
+                body.instructions,
+                create_instructions_if_missing,
+                &project_db,
+            )
         })
         .await
     };
@@ -262,7 +272,7 @@ pub async fn inspect_project_instructions_file(
     Ok(Json(file))
 }
 
-/// `GET /api/projects/:id/instructions` — read (and lazily create) root AGENTS.md.
+/// `GET /api/projects/:id/instructions` — inspect root AGENTS.md without creating it.
 pub async fn get_project_instructions(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
@@ -283,8 +293,15 @@ pub async fn save_project_instructions_file(
 ) -> Result<Json<ProjectInstructionsFile>, AppError> {
     let event_id = id.clone();
     let project_db = ctx.project_db.clone();
+    let expected_exists = body.expected_exists.unwrap_or(true);
     let result = ha_core::blocking::run_blocking(move || {
-        save_project_instructions(&id, &body.content, &body.expected_file_hash, &project_db)
+        save_project_instructions(
+            &id,
+            &body.content,
+            &body.expected_file_hash,
+            expected_exists,
+            &project_db,
+        )
     })
     .await;
     let file = match result {

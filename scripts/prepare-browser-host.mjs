@@ -3,9 +3,9 @@ import { basename, dirname, join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
-// `--dev` builds a debug host and places it next to the dev binary so
-// `pnpm tauri dev` (which does NOT bundle resources) still has a fresh host.
-// Without it, `tauri build`'s release flow bundles into src-tauri/resources.
+// `--dev` builds the debug host and stages the resource required by the legacy
+// `pnpm tauri dev` entrypoint. The optimized dev config clears bundle resources,
+// while `tauri build` stages the release host here for packaging.
 const DEV = process.argv.includes("--dev")
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -38,12 +38,6 @@ const build = spawnSync("cargo", cargoArgs, {
 })
 
 if (build.status !== 0) {
-  // In dev, a host build failure must not block the frontend dev server — warn
-  // and keep whatever host binary is already on disk.
-  if (DEV) {
-    console.warn("[prepare-browser-host] dev host build failed; keeping existing binary")
-    process.exit(0)
-  }
   process.exit(build.status ?? 1)
 }
 
@@ -54,27 +48,17 @@ const targetDir = targetTriple
 const source = join(targetDir, hostName)
 if (!existsSync(source) || !statSync(source).isFile()) {
   console.error(`[prepare-browser-host] missing built host binary: ${source}`)
-  process.exit(DEV ? 0 : 1)
+  process.exit(1)
 }
 
-// Dev: copy next to the dev binary where the running app's current_exe-relative
-// host lookup finds it (`<target>/debug/browser-host/`; cargo's direct
-// `<target>/debug/<host>` is already fresh too) AND into the Tauri resources
-// tree — `pnpm tauri dev` does not bundle resources, but tauri-build still
-// validates every declared resource path exists at compile time, so a fresh
-// checkout (resources/ is gitignored) would otherwise fail the build script.
-// Release: bundle into Tauri resources for packaging.
 const resourcesDir = join(repoRoot, "src-tauri", "resources", "browser-host")
-const outDirs = DEV ? [join(targetDir, "browser-host"), resourcesDir] : [resourcesDir]
-for (const outDir of outDirs) {
-  mkdirSync(outDir, { recursive: true })
-  const dest = join(outDir, basename(hostName))
-  copyFileSync(source, dest)
-  if (process.platform !== "win32") {
-    chmodSync(dest, 0o755)
-  }
-  console.log(`[prepare-browser-host] copied ${source} -> ${dest}`)
+mkdirSync(resourcesDir, { recursive: true })
+const dest = join(resourcesDir, basename(hostName))
+copyFileSync(source, dest)
+if (process.platform !== "win32") {
+  chmodSync(dest, 0o755)
 }
+console.log(`[prepare-browser-host] copied ${source} -> ${dest}`)
 
 function inferTargetTriple(platform, arch) {
   if (!platform || !arch) return ""

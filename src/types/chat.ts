@@ -27,8 +27,8 @@ export type ChatTurnInterruptReason =
  *  rather than reading `url` / `localPath` directly.
  *  - Tauri: `localPath` is the absolute server-side path; run through
  *    `convertFileSrc` for `<img src>` / `<a href>`.
- *  - HTTP/Web: `url` is already `/api/attachments/...?token=...` after the
- *    server-side rewrite — prepend base URL and use directly. `localPath` is
+ *  - HTTP/Web: `url` is a credential-free `/api/attachments/...` path after
+ *    the server-side rewrite; the HttpOnly session authenticates it. `localPath` is
  *    stripped by the HTTP sink and must not appear. */
 export interface MediaItem {
   url: string
@@ -425,6 +425,22 @@ export interface ProfileRotationEvent {
   from_profile?: string
   to_profile?: string
   reason?: string
+}
+
+/** Live progress emitted before a same-model retry or a bounded restart of
+ *  the complete model fallback chain. These notices are intentionally not
+ *  materialized into conversation history after the turn settles. */
+export interface ModelRecoveryEvent {
+  type: "model_retry" | "model_chain_retry"
+  provider_id?: string
+  model_id?: string
+  model?: string
+  reason?: string
+  attempt?: number
+  total?: number
+  delay_ms?: number
+  recovery_id?: string
+  can_switch_model?: boolean
 }
 
 /** Context window compaction event. Tier 0/1 reactive micro-compactions are

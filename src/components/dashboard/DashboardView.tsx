@@ -19,15 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ArrowLeft, RefreshCw, Download, Play, Pause, Settings2 } from "lucide-react"
+import { RefreshCw, Download, Play, Pause, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { PANEL_SCROLL_FADE } from "@/components/chat/right-panel/panelFade"
 import DashboardFilter from "./DashboardFilter"
-import {
-  computeDashboardDateRange,
-  type DashboardRangeKey,
-} from "./dashboardFilterConfig"
+import { computeDashboardDateRange, type DashboardRangeKey } from "./dashboardFilterConfig"
 import OverviewCards from "./OverviewCards"
 import type { CardAction } from "./OverviewCards"
 import DetailListPanel from "./DetailListPanel"
@@ -150,7 +147,8 @@ interface LocalModelsTabData {
 }
 
 interface DashboardViewProps {
-  onBack: () => void
+  /** 顶层侧边栏当前是否正在展示仪表盘；组件本身会跨视图常驻。 */
+  isViewVisible: boolean
   onOpenSettings?: (section?: SettingsSection) => void
   initialTab?: string
   initialRecapReportId?: string | null
@@ -159,7 +157,7 @@ interface DashboardViewProps {
 }
 
 export default function DashboardView({
-  onBack,
+  isViewVisible,
   onOpenSettings,
   initialTab,
   initialRecapReportId,
@@ -364,6 +362,7 @@ export default function DashboardView({
 
   // Initial load & filter change reload
   useEffect(() => {
+    if (!isViewVisible) return
     const timer = setTimeout(() => {
       setLoading(true)
       const overviewRequest = showsGlobalOverview(activeTab) ? loadOverview() : Promise.resolve()
@@ -373,10 +372,11 @@ export default function DashboardView({
       })
     }, 0)
     return () => clearTimeout(timer)
-  }, [filter, loadOverview, loadTabData, activeTab, granularity])
+  }, [filter, loadOverview, loadTabData, activeTab, granularity, isViewVisible])
 
   // Auto-refresh polling
   useEffect(() => {
+    if (!isViewVisible) return
     const ms = autoRefreshMs(autoRefresh)
     if (ms <= 0) return
     const id = window.setInterval(() => {
@@ -386,7 +386,7 @@ export default function DashboardView({
       })
     }, ms)
     return () => window.clearInterval(id)
-  }, [autoRefresh, loadOverview, loadTabData, activeTab])
+  }, [autoRefresh, loadOverview, loadTabData, activeTab, isViewVisible])
 
   const handleCardClick = useCallback(
     (action: CardAction) => {
@@ -520,9 +520,6 @@ export default function DashboardView({
         className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
         data-tauri-drag-region
       >
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
         <h1 className="text-sm font-semibold">{t("dashboard.title")}</h1>
         {lastRefreshAt && (
           <span className="text-[11px] text-muted-foreground hidden md:inline">
@@ -587,7 +584,7 @@ export default function DashboardView({
               className="h-8 w-8"
               onClick={() => onOpenSettings("recap")}
             >
-              <Settings2 className="h-4 w-4" />
+              <Settings className="h-4 w-4" />
             </Button>
           </IconTip>
         )}

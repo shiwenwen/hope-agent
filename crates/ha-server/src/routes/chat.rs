@@ -469,6 +469,14 @@ pub struct StopChatRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryControlRequest {
+    pub session_id: String,
+    pub recovery_id: String,
+    pub action: ha_core::recovery_control::RecoveryAction,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ApprovalRequest {
     pub response: String,
 }
@@ -1751,6 +1759,19 @@ pub async fn stop_chat(
         "count": stopped_count,
         "runtimeCancellations": runtime_cancellations,
     })))
+}
+
+/// `POST /api/chat/recovery/control` — control the exact visible recovery
+/// wait. A random recovery id prevents a stale card from affecting a later
+/// retry in the same session.
+pub async fn control_model_recovery(
+    Json(body): Json<RecoveryControlRequest>,
+) -> Result<Json<ha_core::recovery_control::RecoveryControlResult>, AppError> {
+    Ok(Json(ha_core::recovery_control::request(
+        &body.session_id,
+        &body.recovery_id,
+        body.action,
+    )))
 }
 
 #[derive(Debug, Deserialize)]

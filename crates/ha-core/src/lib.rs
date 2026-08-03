@@ -123,10 +123,12 @@ pub mod provider;
 // 在 ha-core 之上，**不能**再导出）。kernel 侧只留 `/recap` 的分发钩子；
 // Learning 埋点发布面在 `learning_events`，成本折算常量在 `provider`。
 pub mod recap_hooks;
+pub mod recovery_control;
 pub mod review;
 pub mod runtime_tasks;
 pub mod sandbox;
 pub mod self_diagnosis;
+pub mod server_auth;
 pub mod server_status;
 pub mod session;
 pub mod session_title;

@@ -49,6 +49,7 @@ import { PANEL_SCROLL_FADE } from "./right-panel/panelFade"
 import { SubagentRunsProvider } from "./subagent/SubagentRunsProvider"
 import type { SubagentRunsSnapshot } from "./subagent/useSubagentRuns"
 import type { SubagentOpenTarget } from "./subagent/subagentRunModel"
+import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
 
 interface MessageListProps {
   messages: Message[]
@@ -123,7 +124,7 @@ interface MessageListProps {
   onForkFromMessage?: (message: Message) => void
   onEditAndResend?: (message: Message, content: string) => Promise<void>
   onOpenMemorySettings?: () => void
-  onOpenKnowledge?: () => void
+  onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
   onAddQuickPrompt?: (content: string) => void
   onAddMessageQuote?: (quote: PendingMessageQuote) => void
   renderMessageActions?: (msg: Message, index: number) => ReactNode
@@ -1859,9 +1860,65 @@ export default function MessageList({
           <button
             type="button"
             onClick={handleJumpToLatest}
-            className="pointer-events-auto inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
+            className="pointer-events-auto relative inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-border-soft bg-surface-floating/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-surface-subtle supports-[backdrop-filter]:bg-surface-floating/85"
             aria-label={t("chat.scrollToBottom")}
           >
+            {loading && (
+              <span aria-hidden="true" className="pointer-events-none absolute -inset-1">
+                <svg
+                  viewBox="0 0 44 44"
+                  className="absolute inset-0 h-full w-full animate-spin motion-reduce:animate-none"
+                >
+                  <circle
+                    cx="22"
+                    cy="22"
+                    r="20"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                    strokeLinecap="round"
+                    strokeDasharray="8 118"
+                    className="text-sky-300/10"
+                  />
+                  <circle
+                    cx="22"
+                    cy="22"
+                    r="20"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeDasharray="8 118"
+                    strokeDashoffset="-6.5"
+                    className="text-sky-300/25"
+                  />
+                  <circle
+                    cx="22"
+                    cy="22"
+                    r="20"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeDasharray="9 117"
+                    strokeDashoffset="-13"
+                    className="text-sky-300/45"
+                  />
+                  <circle
+                    cx="22"
+                    cy="22"
+                    r="20"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeDasharray="10 116"
+                    strokeDashoffset="-20.5"
+                    className="text-sky-300/70 drop-shadow-[0_0_6px_rgba(125,211,252,0.7)]"
+                  />
+                </svg>
+              </span>
+            )}
             <ArrowDown className="h-4 w-4" />
           </button>
         </AnimatedPresenceBox>

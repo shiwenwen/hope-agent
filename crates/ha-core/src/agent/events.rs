@@ -25,6 +25,7 @@ pub(super) fn emit_tool_call(
     call_id: &str,
     name: &str,
     arguments: &str,
+    replay_safe: bool,
 ) {
     emit_event(
         on_delta,
@@ -33,6 +34,7 @@ pub(super) fn emit_tool_call(
             "call_id": call_id,
             "name": name,
             "arguments": arguments,
+            "replay_safe": replay_safe,
         }),
     );
 }
@@ -88,6 +90,7 @@ pub(super) fn emit_tool_result(
     is_error: bool,
     media_items: &[MediaItem],
     tool_metadata: Option<&serde_json::Value>,
+    replay_safe: bool,
 ) {
     let mut event = json!({
         "type": "tool_result",
@@ -96,6 +99,7 @@ pub(super) fn emit_tool_result(
         "result": result,
         "duration_ms": duration_ms,
         "is_error": is_error,
+        "replay_safe": replay_safe,
     });
     if !media_items.is_empty() {
         event["media_items"] = json!(media_items);

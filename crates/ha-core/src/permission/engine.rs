@@ -2449,12 +2449,11 @@ mod tests {
         let mut c = ctx("exec", &args, SessionMode::Default, &plan, &custom);
         c.default_path = Some(workspace.path().to_str().unwrap());
         c.sandbox_mode = SandboxMode::Workspace;
-        assert!(matches!(
-            resolve(&c),
-            Decision::Ask {
-                reason: AskReason::EditCommand { .. }
-            }
-        ));
+        // Exercise the relaxation layer directly: `resolve` intentionally
+        // consults persisted AllowAlways rules first, so a developer's local
+        // `mkdir` grant must not make this path-safety test non-hermetic.
+        assert!(check_edit_command(&c).is_some());
+        assert!(!sandbox_relaxed_allow(&c));
     }
 
     #[test]

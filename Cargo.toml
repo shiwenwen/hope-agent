@@ -135,7 +135,7 @@ log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.39", features = ["bundled", "backup"] }
-reqwest = { version = "0.12", features = ["json", "blocking", "stream", "native-tls", "multipart"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "stream", "native-tls", "multipart", "socks"] }
 futures-util = "0.3"
 # SSE frame parser (same crate rmcp pulls in via `client-side-sse`). Powers the
 # hand-rolled legacy MCP HTTP+SSE client transport — rmcp 1.5 dropped its own
@@ -192,14 +192,21 @@ strip = "symbols"
 
 # The desktop bundle carries `hope-agent-eval` as an isolated Sidecar.  It
 # links ha-core for registered evaluators, while the latency-sensitive Agent
-# itself runs in the separately packaged Hope product binary.  Whole-program
-# size optimization therefore removes otherwise retained ha-core code without
-# slowing the product binary or changing the normal release/CI profile.
+# itself runs in the separately packaged Hope product binary.  `opt-level="z"`
+# therefore stays: the sidecar ships inside the bundle, so its size is part of
+# every user's download.
+#
+# codegen-units 1 → 16（v0.24.0）：本 profile 编译的是 ha-eval，而它依赖
+# ha-core，所以发版每条 lane 都要把 ha-core 整个再编一遍——macOS 实测 27 分钟，
+# 且设置与主构建的 release profile 不同、无法复用产物。dry-run 实测该阶段
+# 27 → 19 分钟，sidecar 26.2 → 27.9 MB。保留 lto="fat"：DCE 靠它，实测改 thin
+# 虽更快但 sidecar 涨到 38.8 MB（+48%），而 sidecar 是 externalBin、计入每个
+# 平台的下载包，不值得。
 [profile.eval-sidecar]
 inherits = "release"
 opt-level = "z"
 lto = "fat"
-codegen-units = 1
+codegen-units = 16
 panic = "abort"
 strip = "symbols"
 

@@ -3,9 +3,9 @@ use std::sync::Arc;
 use crate::agent::AssistantAgent;
 use crate::failover::{
     self,
-    executor::{execute_with_failover, ExecutorError, FailoverPolicy},
+    executor::{execute_with_failover_observed, ExecutorError, FailoverPolicy, RetryProgress},
 };
-use crate::provider::{ApiType, AuthProfile};
+use crate::provider::{ActiveModel, ApiType, AuthProfile, ProviderConfig};
 use crate::session;
 use crate::turn_durability::{FlushReason, TurnDurabilitySink};
 
@@ -33,6 +33,54 @@ fn event_enters_runtime_loop(event: &str) -> bool {
         || event.contains("\"type\":\"thinking_delta\"")
         || event.contains("\"type\":\"tool_call\"")
         || event.contains("\"type\":\"tool_result\"")
+}
+
+fn should_retry_model_chain(
+    current_round: u32,
+    max_rounds: u32,
+    reason: Option<failover::FailoverReason>,
+    no_profile_available: bool,
+    compaction_failed: bool,
+    had_tool_activity: bool,
+) -> bool {
+    current_round < max_rounds
+        && matches!(
+            reason,
+            Some(failover::FailoverReason::Timeout | failover::FailoverReason::Unknown)
+        )
+        && !no_profile_available
+        && !compaction_failed
+        && !had_tool_activity
+}
+
+fn chain_reason_after_missing_provider(
+    previous: Option<failover::FailoverReason>,
+) -> failover::FailoverReason {
+    match previous {
+        Some(reason @ (failover::FailoverReason::Timeout | failover::FailoverReason::Unknown)) => {
+            reason
+        }
+        _ => failover::FailoverReason::ModelNotFound,
+    }
+}
+
+fn has_resolvable_fallback(
+    model_chain: &[ActiveModel],
+    providers: &[ProviderConfig],
+    current_index: usize,
+) -> bool {
+    let Some(remaining) = current_index
+        .checked_add(1)
+        .and_then(|next_index| model_chain.get(next_index..))
+    else {
+        return false;
+    };
+
+    remaining.iter().any(|candidate| {
+        providers
+            .iter()
+            .any(|provider| provider.id == candidate.provider_id)
+    })
 }
 
 fn terminal_turn_state(
@@ -875,7 +923,87 @@ pub(crate) async fn run_chat_engine_classified(
 
     let effort_str = reasoning_effort.clone();
 
-    for (idx, model_ref) in model_chain.iter().enumerate() {
+    // A complete second pass is reserved for timeout/unknown failures that may
+    // self-heal after every configured model has had a chance. Rate-limit and
+    // overload already consume the larger per-profile retry budget and rotate
+    // keys; auth/billing/model-not-found are deterministic. Never replay a
+    // whole chain after any tool boundary, where another pass could duplicate
+    // an external side effect.
+    const MAX_MODEL_CHAIN_ROUNDS: u32 = 2;
+    const MODEL_CHAIN_RETRY_BASE_MS: u64 = 4_000;
+    const MODEL_CHAIN_RETRY_MAX_MS: u64 = 10_000;
+    let mut model_chain_round = 1_u32;
+    let mut model_index = 0_usize;
+
+    loop {
+        if model_index >= model_chain.len() {
+            let can_retry_whole_chain = should_retry_model_chain(
+                model_chain_round,
+                MAX_MODEL_CHAIN_ROUNDS,
+                last_reason,
+                last_was_no_profile,
+                compaction_failed.is_some(),
+                durability.had_tool_activity(),
+            ) && !cancel.load(std::sync::atomic::Ordering::SeqCst);
+            if !can_retry_whole_chain {
+                break;
+            }
+
+            let delay_ms = failover::retry_delay_ms(
+                model_chain_round - 1,
+                MODEL_CHAIN_RETRY_BASE_MS,
+                MODEL_CHAIN_RETRY_MAX_MS,
+            );
+            let next_round = model_chain_round + 1;
+            app_info!(
+                "provider",
+                "retry_chain",
+                "Restarting model fallback chain for session {} (round {}/{}, delay={}ms)",
+                session_id,
+                next_round,
+                MAX_MODEL_CHAIN_ROUNDS,
+                delay_ms
+            );
+            let recovery_wait = crate::recovery_control::register(&session_id);
+            if let Ok(json_str) = serde_json::to_string(&serde_json::json!({
+                "type": "model_chain_retry",
+                "reason": last_reason,
+                "attempt": next_round,
+                "total": MAX_MODEL_CHAIN_ROUNDS,
+                "delay_ms": delay_ms,
+                "recovery_id": recovery_wait.id(),
+                "can_switch_model": false,
+            })) {
+                emit_stream_event(
+                    &db,
+                    &event_sink,
+                    &session_id,
+                    source,
+                    turn_id.as_deref(),
+                    &json_str,
+                );
+            }
+            match recovery_wait
+                .wait(std::time::Duration::from_millis(delay_ms), Some(&cancel))
+                .await
+            {
+                crate::recovery_control::RecoveryWaitOutcome::Cancelled => {
+                    last_reason = None;
+                    last_error = Some(CHAT_CANCELLED_BY_CALLER.to_string());
+                    break;
+                }
+                crate::recovery_control::RecoveryWaitOutcome::Elapsed
+                | crate::recovery_control::RecoveryWaitOutcome::SkipWait
+                | crate::recovery_control::RecoveryWaitOutcome::SwitchModel => {}
+            }
+            model_chain_round = next_round;
+            model_index = 0;
+            continue;
+        }
+
+        let idx = model_index;
+        let model_ref = &model_chain[idx];
+        let mut manual_model_switch = false;
         if cancel.load(std::sync::atomic::Ordering::SeqCst) {
             last_error = Some(CHAT_CANCELLED_BY_CALLER.to_string());
             break;
@@ -887,11 +1015,16 @@ pub(crate) async fn run_chat_engine_classified(
             Some(p) => p,
             None => {
                 let msg = format!(
-                    "Provider {} not found for model {}",
+                    "Provider not found: {} for model {}",
                     model_ref.provider_id, model_ref.model_id
                 );
-                last_reason = Some(failover::classify_error(&msg));
+                // A stale fallback is deterministic, but it must not erase a
+                // transient failure from an earlier usable model. Reaching the
+                // chain boundary should still give that model its bounded
+                // second-round opportunity.
+                last_reason = Some(chain_reason_after_missing_provider(last_reason));
                 last_error = Some(msg);
+                model_index += 1;
                 continue;
             }
         };
@@ -972,6 +1105,44 @@ pub(crate) async fn run_chat_engine_classified(
                     }
                 };
 
+            let retry_model_display = format!("{} / {}", prov.name, model_ref.model_id);
+            let can_switch_model = has_resolvable_fallback(&model_chain, &providers, idx);
+            let on_retry = |progress: &RetryProgress| {
+                app_info!(
+                    "provider",
+                    "retry",
+                    "Retrying {}::{} after {:?} (attempt {}/{}, delay={}ms)",
+                    model_provider_id,
+                    model_id,
+                    progress.reason,
+                    progress.attempt,
+                    progress.max_attempts,
+                    progress.delay_ms
+                );
+                if let Ok(json_str) = serde_json::to_string(&serde_json::json!({
+                    "type": "model_retry",
+                    "provider_id": model_provider_id,
+                    "model_id": model_id,
+                    "model": retry_model_display,
+                    "reason": progress.reason,
+                    "attempt": progress.attempt,
+                    "total": progress.max_attempts,
+                    "delay_ms": progress.delay_ms,
+                    "recovery_id": progress.recovery_id,
+                    "can_switch_model": can_switch_model,
+                })) {
+                    emit_stream_event(
+                        &db,
+                        &event_sink,
+                        &session_id,
+                        source,
+                        turn_id.as_deref(),
+                        &json_str,
+                    );
+                }
+            };
+            let can_replay_operation = || !durability.had_tool_activity();
+
             // Capture refs / clones the closure needs. `move` consumes per-
             // call clones; the original chat_engine values stay borrowable
             // for the next compaction-retry iteration.
@@ -994,11 +1165,13 @@ pub(crate) async fn run_chat_engine_classified(
             let durability_ref = durability.clone();
             let fallback_event_ref = fallback_event_json.as_deref();
 
-            let exec_result = execute_with_failover(
+            let exec_result = execute_with_failover_observed(
                 prov,
                 &session_id,
                 FailoverPolicy::chat_engine_default().with_cancel(cancel.clone()),
                 Some(&on_rotate),
+                Some(&on_retry),
+                Some(&can_replay_operation),
                 |profile| {
                     let profile_owned = profile.cloned();
                     // Sync setup: build + configure + restore. If build
@@ -1664,6 +1837,17 @@ pub(crate) async fn run_chat_engine_classified(
                         });
                     }
 
+                    if durability.had_tool_activity() {
+                        let msg = format!(
+                            "Context overflow on {}::{} after tool activity; refusing to replay the turn",
+                            model_ref.provider_id, model_ref.model_id
+                        );
+                        app_warn!("provider", "recovery_blocked", "{}", msg);
+                        last_reason = Some(failover::FailoverReason::ContextOverflow);
+                        last_error = Some(msg);
+                        break;
+                    }
+
                     if compaction_attempts >= MAX_COMPACTION_RETRIES {
                         app_warn!(
                             "context",
@@ -1901,6 +2085,24 @@ pub(crate) async fn run_chat_engine_classified(
                     break;
                 }
 
+                Err(ExecutorError::SwitchModel {
+                    last_reason: r,
+                    last_error: err_str,
+                }) => {
+                    app_info!(
+                        "provider",
+                        "manual_model_switch",
+                        "Skipping remaining retries for {}::{} at user request",
+                        model_ref.provider_id,
+                        model_ref.model_id
+                    );
+                    last_reason = Some(r);
+                    last_error = Some(err_str);
+                    last_was_no_profile = false;
+                    manual_model_switch = true;
+                    break;
+                }
+
                 Err(ExecutorError::Exhausted {
                     last_reason: r,
                     last_error: err_str,
@@ -1959,6 +2161,35 @@ pub(crate) async fn run_chat_engine_classified(
                     break;
                 }
             }
+        }
+
+        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
+
+        // Every model/profile retry rebuilds the Agent from the turn's stable
+        // base context. Once a tool ran, doing so would replay its external
+        // side effects instead of resuming after its result.
+        if durability.had_non_replayable_tool_activity() {
+            app_warn!(
+                "provider",
+                "recovery_blocked",
+                "Not switching models for session {} after tool activity",
+                session_id
+            );
+            break;
+        }
+
+        if last_reason.is_some_and(|reason| reason.is_terminal()) {
+            break;
+        }
+
+        model_index += 1;
+        // "Switch model" means leave the current model immediately. If there
+        // is no later configured model, do not reinterpret it as permission to
+        // restart the same chain from its first model.
+        if model_index >= model_chain.len() && manual_model_switch {
+            break;
         }
     }
 
@@ -2415,6 +2646,101 @@ mod stream_lifecycle_tests {
         }
 
         assert!(!stream_seq::is_active(sid));
+    }
+
+    #[test]
+    fn whole_chain_retry_is_bounded_to_uncertain_pre_tool_failures() {
+        assert!(should_retry_model_chain(
+            1,
+            2,
+            Some(failover::FailoverReason::Timeout),
+            false,
+            false,
+            false,
+        ));
+        assert!(should_retry_model_chain(
+            1,
+            2,
+            Some(failover::FailoverReason::Unknown),
+            false,
+            false,
+            false,
+        ));
+        assert!(!should_retry_model_chain(
+            1,
+            2,
+            Some(failover::FailoverReason::Auth),
+            false,
+            false,
+            false,
+        ));
+        assert!(!should_retry_model_chain(
+            1,
+            2,
+            Some(failover::FailoverReason::Unknown),
+            false,
+            false,
+            true,
+        ));
+        assert!(!should_retry_model_chain(
+            2,
+            2,
+            Some(failover::FailoverReason::Timeout),
+            false,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn missing_final_provider_preserves_an_uncertain_chain_failure() {
+        let reason = chain_reason_after_missing_provider(Some(failover::FailoverReason::Timeout));
+        assert_eq!(reason, failover::FailoverReason::Timeout);
+        assert!(should_retry_model_chain(
+            1,
+            2,
+            Some(reason),
+            false,
+            false,
+            false,
+        ));
+
+        assert_eq!(
+            chain_reason_after_missing_provider(None),
+            failover::FailoverReason::ModelNotFound
+        );
+    }
+
+    #[test]
+    fn switch_model_requires_a_remaining_resolvable_provider() {
+        let current_provider = openai_provider("http://current.invalid".to_string(), "m1");
+        let fallback_provider = openai_provider("http://fallback.invalid".to_string(), "m3");
+        let chain = vec![
+            ActiveModel {
+                provider_id: current_provider.id.clone(),
+                model_id: "m1".to_string(),
+            },
+            ActiveModel {
+                provider_id: "deleted-provider".to_string(),
+                model_id: "m2".to_string(),
+            },
+            ActiveModel {
+                provider_id: fallback_provider.id.clone(),
+                model_id: "m3".to_string(),
+            },
+        ];
+
+        assert!(!has_resolvable_fallback(
+            &chain[..2],
+            std::slice::from_ref(&current_provider),
+            0,
+        ));
+        assert!(has_resolvable_fallback(
+            &chain,
+            &[current_provider, fallback_provider],
+            0,
+        ));
+        assert!(!has_resolvable_fallback(&chain, &[], 2));
     }
 
     fn temp_db() -> (TempDir, Arc<SessionDB>) {

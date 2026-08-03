@@ -1,5 +1,6 @@
 import * as React from "react"
 import * as PopoverPrimitive from "@radix-ui/react-popover"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 
 const Popover = PopoverPrimitive.Root
@@ -10,21 +11,25 @@ const PopoverAnchor = PopoverPrimitive.Anchor
 const PopoverContent = React.forwardRef<
   React.ComponentRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "center", sideOffset = 4, collisionPadding = 12, ...props }, ref) => (
-  <PopoverPrimitive.Portal>
-    <PopoverPrimitive.Content
-      ref={ref}
-      align={align}
-      sideOffset={sideOffset}
-      collisionPadding={collisionPadding}
-      className={cn(
-        "z-50 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none animate-in fade-in-80",
-        className,
-      )}
-      {...props}
-    />
-  </PopoverPrimitive.Portal>
-))
+>(({ className, align = "center", sideOffset = 4, collisionPadding = 12, ...props }, ref) => {
+  const portalScope = usePortalScope()
+  if (portalScope && !portalScope.active) return null
+  return (
+    <PopoverPrimitive.Portal container={portalScope?.container ?? undefined}>
+      <PopoverPrimitive.Content
+        ref={ref}
+        align={align}
+        sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
+        className={cn(
+          "z-50 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none animate-in fade-in-80",
+          className,
+        )}
+        {...props}
+      />
+    </PopoverPrimitive.Portal>
+  )
+})
 PopoverContent.displayName = PopoverPrimitive.Content.displayName
 
 export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent }

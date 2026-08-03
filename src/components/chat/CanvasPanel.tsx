@@ -6,8 +6,9 @@ import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { X, RefreshCw, Maximize2, Minimize2, ExternalLink, PanelLeftClose } from "lucide-react"
+import { X, RefreshCw, Maximize2, Minimize2 } from "lucide-react"
 import { IconTip } from "@/components/ui/tooltip"
+import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
 import ArtifactViewer from "@/components/artifacts/ArtifactViewer"
@@ -107,35 +108,41 @@ export default function CanvasPanel({
     setDetached(false)
   }
 
-  const handleSnapshotRequest = useCallback((requestId: string) => {
-    const iframe = iframeRef.current
-    if (!iframe?.contentWindow) {
-      getTransport()
-        .call("canvas_submit_snapshot", {
-          requestId,
-          dataUrl: null,
-          error: t("canvas.notReadyError"),
-        })
-        .catch(() => {})
-      return
-    }
-    iframe.contentWindow.postMessage({ type: "canvas_snapshot", requestId }, "*")
-  }, [t])
+  const handleSnapshotRequest = useCallback(
+    (requestId: string) => {
+      const iframe = iframeRef.current
+      if (!iframe?.contentWindow) {
+        getTransport()
+          .call("canvas_submit_snapshot", {
+            requestId,
+            dataUrl: null,
+            error: t("canvas.notReadyError"),
+          })
+          .catch(() => {})
+        return
+      }
+      iframe.contentWindow.postMessage({ type: "canvas_snapshot", requestId }, "*")
+    },
+    [t],
+  )
 
-  const handleEvalRequest = useCallback((requestId: string, code: string) => {
-    const iframe = iframeRef.current
-    if (!iframe?.contentWindow) {
-      getTransport()
-        .call("canvas_submit_eval_result", {
-          requestId,
-          result: null,
-          error: t("canvas.notReadyError"),
-        })
-        .catch(() => {})
-      return
-    }
-    iframe.contentWindow.postMessage({ type: "canvas_eval", requestId, code }, "*")
-  }, [t])
+  const handleEvalRequest = useCallback(
+    (requestId: string, code: string) => {
+      const iframe = iframeRef.current
+      if (!iframe?.contentWindow) {
+        getTransport()
+          .call("canvas_submit_eval_result", {
+            requestId,
+            result: null,
+            error: t("canvas.notReadyError"),
+          })
+          .catch(() => {})
+        return
+      }
+      iframe.contentWindow.postMessage({ type: "canvas_eval", requestId, code }, "*")
+    },
+    [t],
+  )
 
   // Dynamically adjust window min width when canvas is shown/hidden
   useEffect(() => {
@@ -357,7 +364,7 @@ export default function CanvasPanel({
     if (!isTauriMode()) return
 
     const url =
-      getTransport().artifactPreviewUrl(canvas.projectId, canvas.projectPath) ?? ""
+      (await getTransport().artifactPreviewUrl(canvas.projectId, canvas.projectPath)) ?? ""
     if (!url) return
 
     try {
@@ -444,7 +451,7 @@ export default function CanvasPanel({
                 onClick={handleReattach}
                 className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
               >
-                <PanelLeftClose className="h-3.5 w-3.5" />
+                <WindowModeIcon action="reattach" className="h-3.5 w-3.5" />
               </button>
             </IconTip>
             <IconTip label={t("canvas.close")}>
@@ -508,7 +515,7 @@ export default function CanvasPanel({
                 onClick={handleDetach}
                 className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
               >
-                <ExternalLink className="h-3.5 w-3.5" />
+                <WindowModeIcon action="detach" className="h-3.5 w-3.5" />
               </button>
             </IconTip>
           )}

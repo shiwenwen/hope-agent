@@ -4,6 +4,8 @@ The Design Space lets you collaborate with AI to **turn a single sentence or a r
 
 **Entry point**: "Design Space" in the sidebar (right below "Knowledge Space").
 
+**Switching and separate windows**: Design Space is a top-level workspace, so its home page has no Back button; a Back-to-projects button appears only after you enter a project. Switching from Design Space to Chat or another workspace in the main window does not unmount it. Returning restores the same project, artifact, open tabs, and workspace layout. In the desktop app, right-click the sidebar icon and choose "Open in a separate window," double-click the icon, or use the separate-window button in the workspace title bar. Once detached, clicking the sidebar icon focuses the existing window; "Reattach" in its title bar brings the current project and artifact back into the main window.
+
 **In this chapter**
 
 - [6.1 Supported artifact types](#61-supported-artifact-types)
@@ -63,7 +65,7 @@ Generation is **truly streaming**, taking shape in the preview as it generates. 
 - **Artifact library (thumbnail wall)**: a thumbnail wall of all artifacts, viewable across projects or within a project. Thumbnails are the artifact's real static preview (no scripts run, no lag).
 - **Tab bar**: the top of the workspace lists only the artifacts you've "opened"; tabs can be closed (just removed from view, the file is not deleted), double-clicked to rename, and dragged to reorder. True **permanent deletion** lives in the right-click menu and the artifact library wall (irreversible).
 - **Folder grouping**: artifacts can be sorted into folders, with drag-to-move and rename support (deleting a folder only returns its artifacts to the root—it does not delete them).
-- **Device preview**: switch among `Auto / Desktop / Tablet / Phone` viewports; there is also a full-screen "presentation mode".
+- **Device preview**: the device selector groups desktop, tablet, and phone presets, with mainstream iPad, Surface, iPhone, Pixel, and Galaxy models and their CSS logical viewport sizes. Choose **Custom** to enter a width and height or drag the preview's right edge, bottom edge, or bottom-right corner just like Chrome DevTools; the selected device and custom dimensions are remembered per artifact. **Auto** continues to use the artifact's natural size, and the workspace also provides a full-screen presentation mode.
 
 ---
 

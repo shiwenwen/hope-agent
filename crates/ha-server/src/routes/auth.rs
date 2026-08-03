@@ -6,17 +6,422 @@
 //! "finalize" — access the same mutex; we hold it in a process-wide
 //! `OnceLock` so it outlives individual request handlers.
 
-use axum::Json;
-use serde::Deserialize;
+use axum::extract::{Path, Request};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
+use axum::response::{IntoResponse, Response};
+use axum::{extract::ConnectInfo, Extension, Json};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex as TokioMutex;
+use tower::ServiceExt;
 
 use ha_core::agent;
 use ha_core::oauth::{self, AuthStatus, TokenData};
 use ha_core::provider::{ActiveModelUpdate, ApiType};
 
 use crate::error::AppError;
+use crate::middleware::{AuthState, BROWSER_SESSION_COOKIE};
+
+const ACCESS_TICKET_TTL_SECS: u64 = 15 * 60;
+
+#[derive(Clone)]
+pub struct ScopedResourceService(pub axum::Router);
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAuthStatus {
+    auth_required: bool,
+    authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateBrowserSessionBody {
+    token: String,
+    #[serde(default)]
+    remember: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CreatePreviewResourceTicketBody {
+    CanvasProject {
+        #[serde(rename = "projectId")]
+        project_id: String,
+    },
+    DesignArtifact {
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "artifactId")]
+        artifact_id: String,
+    },
+}
+
+/// Public bootstrap probe for the browser Auth Gate. The fingerprint is only
+/// returned to an already-authenticated caller; exposing even a truncated hash
+/// before login would provide an offline oracle for operator-chosen weak tokens.
+pub async fn server_auth_status(
+    Extension(auth): Extension<AuthState>,
+    headers: HeaderMap,
+) -> Response {
+    no_store_json(StatusCode::OK, &server_auth_status_payload(&auth, &headers))
+}
+
+fn server_auth_status_payload(auth: &AuthState, headers: &HeaderMap) -> ServerAuthStatus {
+    let authenticated = auth.headers_are_owner_authenticated(&headers);
+    ServerAuthStatus {
+        auth_required: auth.auth_required(),
+        authenticated,
+        token_fingerprint: authenticated.then(|| auth.owner_fingerprint()).flatten(),
+    }
+}
+
+/// Exchange the long-lived owner token for an HttpOnly signed session. The
+/// root token is never returned and need not remain in browser storage.
+pub async fn create_browser_session(
+    Extension(auth): Extension<AuthState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<CreateBrowserSessionBody>,
+) -> Response {
+    if !same_origin_or_non_browser(&headers) {
+        return no_store_error(StatusCode::FORBIDDEN, "Cross-origin login is not allowed");
+    }
+    let peer = peer.ip();
+    // Always verify the supplied token before consulting the failure bucket.
+    // Multiple users commonly share a reverse-proxy peer address; failures by
+    // one caller must not lock a legitimate owner out of the server.
+    if !auth.check_owner_token(body.token.as_bytes()) && !auth.login_allowed(peer) {
+        return no_store_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many failed attempts; try again shortly",
+        );
+    }
+    if !auth.check_owner_token(body.token.as_bytes()) {
+        auth.record_login_failure(peer);
+        return no_store_error(StatusCode::UNAUTHORIZED, "Invalid owner token");
+    }
+    auth.clear_login_failures(peer);
+    let max_age = if body.remember {
+        30 * 24 * 60 * 60
+    } else {
+        12 * 60 * 60
+    };
+    let session = match auth.create_browser_session(max_age) {
+        Ok(session) => session,
+        Err(error) => {
+            ha_core::app_error!(
+                "security",
+                "browser_session_create_failed",
+                "Failed to create browser session: {}",
+                error
+            );
+            return no_store_error(StatusCode::INTERNAL_SERVER_ERROR, "Login is unavailable");
+        }
+    };
+    let secure = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| origin.starts_with("https://"));
+    let cookie = format!(
+        "{BROWSER_SESSION_COOKIE}={session}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
+        if secure { "; Secure" } else { "" }
+    );
+    let mut response = no_store_json(StatusCode::OK, &serde_json::json!({ "ok": true }));
+    if let Ok(cookie) = HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(header::SET_COOKIE, cookie);
+    }
+    response
+}
+
+pub async fn clear_browser_session(headers: HeaderMap) -> Response {
+    if !same_origin_or_non_browser(&headers) {
+        return no_store_error(StatusCode::FORBIDDEN, "Cross-origin logout is not allowed");
+    }
+    let mut response = no_store_json(StatusCode::OK, &serde_json::json!({ "ok": true }));
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_static("ha_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
+    );
+    response
+}
+
+/// Mint transport-only capabilities for browser APIs that cannot attach an
+/// Authorization header. The event ticket is carried as a WebSocket
+/// subprotocol; the reusable resource ticket is accepted only for
+/// non-executable routes in the dedicated read-only resource dispatcher.
+pub async fn create_transport_access_tickets(Extension(auth): Extension<AuthState>) -> Response {
+    if !auth.auth_required() {
+        return no_store_json(
+            StatusCode::OK,
+            &serde_json::json!({
+                "authRequired": false,
+                "resourceTicket": null,
+                "eventTicket": null,
+                "expiresInSecs": null,
+            }),
+        );
+    }
+    match auth.create_transport_access_tickets(ACCESS_TICKET_TTL_SECS) {
+        Ok((resource_ticket, event_ticket)) => no_store_json(
+            StatusCode::OK,
+            &serde_json::json!({
+                "authRequired": true,
+                "resourceTicket": resource_ticket,
+                "eventTicket": event_ticket,
+                "expiresInSecs": ACCESS_TICKET_TTL_SECS,
+            }),
+        ),
+        Err(error) => {
+            ha_core::app_error!(
+                "security",
+                "transport_ticket_mint_failed",
+                "Transport access ticket minting failed: {}",
+                error
+            );
+            no_store_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Transport access is unavailable",
+            )
+        }
+    }
+}
+
+/// Mint a browser capability for one executable preview subtree. Model-created
+/// Canvas and Design documents can read their own URL, so they must never
+/// receive the reusable ticket used by non-executable UI assets.
+pub async fn create_preview_resource_ticket(
+    Extension(auth): Extension<AuthState>,
+    Json(body): Json<CreatePreviewResourceTicketBody>,
+) -> Response {
+    if !auth.auth_required() {
+        return no_store_json(
+            StatusCode::OK,
+            &serde_json::json!({
+                "authRequired": false,
+                "ticket": null,
+                "expiresInSecs": null,
+            }),
+        );
+    }
+    let Some(scope) = preview_resource_scope(&body) else {
+        return no_store_error(StatusCode::BAD_REQUEST, "Invalid preview resource identity");
+    };
+    match auth.create_access_ticket(&scope, ACCESS_TICKET_TTL_SECS) {
+        Ok(ticket) => no_store_json(
+            StatusCode::OK,
+            &serde_json::json!({
+                "authRequired": true,
+                "ticket": ticket,
+                "expiresInSecs": ACCESS_TICKET_TTL_SECS,
+            }),
+        ),
+        Err(error) => {
+            ha_core::app_error!(
+                "security",
+                "preview_resource_ticket_mint_failed",
+                "Preview resource ticket minting failed: {}",
+                error
+            );
+            no_store_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Preview access is unavailable",
+            )
+        }
+    }
+}
+
+fn encoded_resource_id(value: &str) -> Option<String> {
+    if value.is_empty()
+        || value.len() > 256
+        || value.contains('/')
+        || value.contains('\0')
+        || value == "."
+        || value == ".."
+    {
+        return None;
+    }
+    Some(URL_SAFE_NO_PAD.encode(value.as_bytes()))
+}
+
+fn canvas_resource_scope(project_id: &str) -> Option<String> {
+    encoded_resource_id(project_id).map(|id| format!("resource_canvas_{id}"))
+}
+
+fn design_resource_scope(project_id: &str, artifact_id: &str) -> Option<String> {
+    let project_id = encoded_resource_id(project_id)?;
+    let artifact_id = encoded_resource_id(artifact_id)?;
+    Some(format!(
+        "resource_design_{}_{}_{}",
+        project_id.len(),
+        project_id,
+        artifact_id
+    ))
+}
+
+fn preview_resource_scope(body: &CreatePreviewResourceTicketBody) -> Option<String> {
+    match body {
+        CreatePreviewResourceTicketBody::CanvasProject { project_id } => {
+            canvas_resource_scope(project_id)
+        }
+        CreatePreviewResourceTicketBody::DesignArtifact {
+            project_id,
+            artifact_id,
+        } => design_resource_scope(project_id, artifact_id),
+    }
+}
+
+fn required_resource_scope(resource_path: &str) -> Option<String> {
+    let segments: Vec<_> = resource_path.trim_start_matches('/').split('/').collect();
+    match segments.as_slice() {
+        ["canvas", "projects", project_id, rest @ ..] if !rest.is_empty() => {
+            canvas_resource_scope(project_id)
+        }
+        ["design", "projects", project_id, "artifacts", artifact_id, rest @ ..]
+            if !rest.is_empty() =>
+        {
+            design_resource_scope(project_id, artifact_id)
+        }
+        ["canvas", ..] | ["design", ..] => None,
+        _ => Some("resources".to_string()),
+    }
+}
+
+/// Validate a short-lived read-only ticket against the requested resource,
+/// then internally dispatch to the small resource-only router. Rewriting the
+/// URI preserves a bound preview ticket in the browser, so relative iframe
+/// CSS/JS/image URLs inherit it without exposing the Owner Token or widening
+/// access beyond that Canvas/Design subtree.
+pub async fn serve_scoped_resource(
+    Path((ticket, resource_path)): Path<(String, String)>,
+    Extension(auth): Extension<AuthState>,
+    Extension(service): Extension<ScopedResourceService>,
+    request: Request,
+) -> Response {
+    const PREFIX: &str = "/api/resource/";
+    let raw_path = request.uri().path();
+    let Some(ticket_and_path) = raw_path.strip_prefix(PREFIX) else {
+        return no_store_error(StatusCode::NOT_FOUND, "Resource not found");
+    };
+    let Some((_raw_ticket, raw_resource_path)) = ticket_and_path.split_once('/') else {
+        return no_store_error(StatusCode::NOT_FOUND, "Resource not found");
+    };
+    let Some(required_scope) = required_resource_scope(&resource_path) else {
+        return no_store_error(StatusCode::NOT_FOUND, "Resource not found");
+    };
+    if !auth.check_access_ticket(&ticket, &required_scope) {
+        return no_store_error(
+            StatusCode::UNAUTHORIZED,
+            "Invalid or expired resource ticket",
+        );
+    }
+
+    let rewritten = match request.uri().query() {
+        Some(query) => format!("/{raw_resource_path}?{query}"),
+        None => format!("/{raw_resource_path}"),
+    };
+    let Ok(uri) = rewritten.parse::<Uri>() else {
+        return no_store_error(StatusCode::BAD_REQUEST, "Invalid resource path");
+    };
+    let (mut parts, body) = request.into_parts();
+    parts.uri = uri;
+    // The outer capability route already installed its `{ticket}` / `{path}`
+    // captures. Do not forward those private Axum extensions into the inner
+    // router or its `Path<T>` extractors would see both capture sets.
+    parts.extensions = Default::default();
+    let request = Request::from_parts(parts, body);
+    match service.0.clone().oneshot(request).await {
+        Ok(response) => response,
+        Err(never) => match never {},
+    }
+}
+
+/// Rotate the single owner root token. The new value is returned exactly once;
+/// all existing browser sessions and Bearer clients become invalid immediately.
+pub async fn rotate_server_owner_token(Extension(auth): Extension<AuthState>) -> Response {
+    if auth.externally_managed() {
+        return no_store_error(
+            StatusCode::CONFLICT,
+            "The owner token is externally managed; rotate it at its source",
+        );
+    }
+    let rotated = match ha_core::blocking::run_blocking(|| {
+        ha_core::server_auth::rotate_managed_token("http-token-rotate")
+    })
+    .await
+    {
+        Ok(rotated) => rotated,
+        Err(error) => {
+            ha_core::app_error!(
+                "security",
+                "server_token_rotate_failed",
+                "Failed to rotate server owner token: {}",
+                error
+            );
+            return no_store_error(StatusCode::INTERNAL_SERVER_ERROR, "Token rotation failed");
+        }
+    };
+    if let Err(error) = auth.replace_owner_token(Some(rotated.token.clone())) {
+        ha_core::app_error!(
+            "security",
+            "server_token_activate_failed",
+            "New server owner token was stored but could not be activated: {}",
+            error
+        );
+        return no_store_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Token was stored but requires a server restart",
+        );
+    }
+    no_store_json(
+        StatusCode::OK,
+        &serde_json::json!({
+            "token": rotated.token,
+            "fingerprint": ha_core::server_auth::token_fingerprint(&rotated.token),
+        }),
+    )
+}
+
+fn same_origin_or_non_browser(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return true;
+    };
+    let Some(host) = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    origin
+        .parse::<axum::http::Uri>()
+        .ok()
+        .and_then(|uri| {
+            uri.authority()
+                .map(|authority| authority.as_str().to_string())
+        })
+        .is_some_and(|authority| authority.eq_ignore_ascii_case(host))
+}
+
+pub(crate) fn no_store_json<T: Serialize>(status: StatusCode, body: &T) -> Response {
+    let mut response = (status, Json(body)).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, max-age=0"),
+    );
+    response
+}
+
+fn no_store_error(status: StatusCode, message: &'static str) -> Response {
+    no_store_json(status, &serde_json::json!({ "error": message }))
+}
 
 type AuthResult = Arc<TokioMutex<Option<anyhow::Result<TokenData>>>>;
 
@@ -229,4 +634,285 @@ pub async fn set_codex_model(Json(body): Json<SetCodexModelBody>) -> Result<Json
     .await?;
 
     Ok(Json(json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod server_token_tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::extract::Path;
+    use axum::http::Request as HttpRequest;
+    use axum::routing::{get, post};
+    use axum::Router;
+
+    #[test]
+    fn public_auth_probe_does_not_expose_a_token_fingerprint_or_oracle() {
+        let auth = AuthState::new(Some("weak-operator-token".to_string()), None, false);
+        let status = server_auth_status_payload(&auth, &HeaderMap::new());
+        assert!(status.auth_required);
+        assert!(!status.authenticated);
+        assert!(status.token_fingerprint.is_none());
+        let json = serde_json::to_value(status).unwrap();
+        assert!(json.get("tokenFingerprint").is_none());
+    }
+
+    #[test]
+    fn authenticated_auth_probe_can_return_the_operator_fingerprint() {
+        let auth = AuthState::new(Some("owner-token".to_string()), None, false);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer owner-token"),
+        );
+        let status = server_auth_status_payload(&auth, &headers);
+        assert!(status.authenticated);
+        assert_eq!(
+            status.token_fingerprint,
+            Some(ha_core::server_auth::token_fingerprint("owner-token"))
+        );
+    }
+
+    #[tokio::test]
+    async fn preview_ticket_endpoint_mints_only_valid_bound_scopes() {
+        let auth = AuthState::new(Some("owner-token".to_string()), None, false);
+        let app = Router::new()
+            .route("/ticket", post(create_preview_resource_ticket))
+            .layer(Extension(auth.clone()));
+
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/ticket")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"kind":"design_artifact","projectId":"project-a","artifactId":"artifact-a"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await.unwrap())
+                .unwrap();
+        let ticket = payload["ticket"].as_str().unwrap();
+        assert!(auth.check_access_ticket(
+            ticket,
+            &design_resource_scope("project-a", "artifact-a").unwrap()
+        ));
+        assert!(!auth.check_access_ticket(ticket, "resources"));
+
+        let invalid = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/ticket")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"kind":"canvas_project","projectId":"escaped/id"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn scoped_resource_tickets_are_bound_away_from_executable_previews() {
+        let auth = AuthState::new(Some("owner-token".to_string()), None, false);
+        let generic_ticket = auth.create_access_ticket("resources", 900).unwrap();
+        let canvas_ticket = auth
+            .create_access_ticket(&canvas_resource_scope("canvas-a").unwrap(), 900)
+            .unwrap();
+        let design_ticket = auth
+            .create_access_ticket(
+                &design_resource_scope("project-a", "artifact-a").unwrap(),
+                900,
+            )
+            .unwrap();
+        let encoded_canvas_ticket = auth
+            .create_access_ticket(&canvas_resource_scope("canvas a").unwrap(), 900)
+            .unwrap();
+        let resources = Router::new()
+            .route(
+                "/avatars/{filename}",
+                get(|Path(filename): Path<String>| async move {
+                    assert_eq!(filename, "a.png");
+                    StatusCode::NO_CONTENT
+                }),
+            )
+            .route(
+                "/canvas/projects/{project_id}/{*rest}",
+                get(|| async { StatusCode::NO_CONTENT }),
+            )
+            .route(
+                "/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}",
+                get(|| async { StatusCode::NO_CONTENT }),
+            );
+        let app = Router::new()
+            .route("/api/resource/{ticket}/{*path}", get(serve_scoped_resource))
+            .layer(Extension(auth))
+            .layer(Extension(ScopedResourceService(resources)));
+
+        let generic_asset = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!("/api/resource/{generic_ticket}/avatars/a.png"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(generic_asset.status(), StatusCode::NO_CONTENT);
+
+        for path in [
+            "canvas/projects/canvas-a/index.html",
+            "design/projects/project-a/artifacts/artifact-a/index.html",
+        ] {
+            let generic_cannot_enter_preview = app
+                .clone()
+                .oneshot(
+                    HttpRequest::builder()
+                        .uri(format!("/api/resource/{generic_ticket}/{path}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                generic_cannot_enter_preview.status(),
+                StatusCode::UNAUTHORIZED,
+                "{path}"
+            );
+        }
+
+        for rest in ["index.html", "assets/app.js"] {
+            let own_canvas_subtree = app
+                .clone()
+                .oneshot(
+                    HttpRequest::builder()
+                        .uri(format!(
+                            "/api/resource/{canvas_ticket}/canvas/projects/canvas-a/{rest}"
+                        ))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(own_canvas_subtree.status(), StatusCode::NO_CONTENT);
+        }
+
+        let encoded_canvas_identity = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!(
+                        "/api/resource/{encoded_canvas_ticket}/canvas/projects/canvas%20a/index.html"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(encoded_canvas_identity.status(), StatusCode::NO_CONTENT);
+
+        for path in [
+            "canvas/projects/canvas-b/index.html",
+            "avatars/a.png",
+            "design/projects/project-a/artifacts/artifact-a/index.html",
+        ] {
+            let escaped = app
+                .clone()
+                .oneshot(
+                    HttpRequest::builder()
+                        .uri(format!("/api/resource/{canvas_ticket}/{path}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(escaped.status(), StatusCode::UNAUTHORIZED, "{path}");
+        }
+
+        let own_design_subtree = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!(
+                        "/api/resource/{design_ticket}/design/projects/project-a/artifacts/artifact-a/index.html"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(own_design_subtree.status(), StatusCode::NO_CONTENT);
+
+        for path in [
+            "design/projects/project-a/artifacts/artifact-b/index.html",
+            "artifact-exports/export-a/download",
+        ] {
+            let escaped = app
+                .clone()
+                .oneshot(
+                    HttpRequest::builder()
+                        .uri(format!("/api/resource/{design_ticket}/{path}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(escaped.status(), StatusCode::UNAUTHORIZED, "{path}");
+        }
+
+        let invalid = app
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/api/resource/not-a-ticket/avatars/a.png")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn correct_owner_token_bypasses_a_shared_peer_failure_bucket() {
+        let auth = AuthState::new(Some("owner-token".to_string()), None, false);
+        let peer: SocketAddr = "127.0.0.1:43123".parse().unwrap();
+        for _ in 0..10 {
+            auth.record_login_failure(peer.ip());
+        }
+        assert!(!auth.login_allowed(peer.ip()));
+
+        let throttled = create_browser_session(
+            Extension(auth.clone()),
+            ConnectInfo(peer),
+            HeaderMap::new(),
+            Json(CreateBrowserSessionBody {
+                token: "wrong-token".to_string(),
+                remember: false,
+            }),
+        )
+        .await;
+        assert_eq!(throttled.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        let accepted = create_browser_session(
+            Extension(auth),
+            ConnectInfo(peer),
+            HeaderMap::new(),
+            Json(CreateBrowserSessionBody {
+                token: "owner-token".to_string(),
+                remember: false,
+            }),
+        )
+        .await;
+        assert_eq!(accepted.status(), StatusCode::OK);
+        assert!(accepted.headers().contains_key(header::SET_COOKIE));
+    }
 }

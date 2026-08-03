@@ -36,6 +36,7 @@ docker run -d \
 
 ```bash
 docker compose up -d
+docker compose exec hope-agent hope-agent server token show
 docker compose logs -f hope-agent
 ```
 
@@ -46,8 +47,10 @@ docker compose logs -f hope-agent
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `HA_BIND` | `0.0.0.0:8420` | server 监听地址。容器内必须是 `0.0.0.0`（loopback 会拒绝外部连接）。entrypoint 自动翻译为 `--bind` |
-| `HA_API_KEY` | _未设置_ | HTTP/WS Bearer Token。设了之后从浏览器打开会弹「需要服务器鉴权」对话框，粘贴 token 即可继续；也支持 `https://host:8420/?token=XXX` 一次性传 token —— 前端会自动捕获到 localStorage 并把 URL 清掉。entrypoint 自动翻译为 `--api-key` |
+| `HA_API_KEY` | _未设置_ | 可选的外部托管 Owner Root Token。Rust 入口会在运行时初始化前读取并移除，绝不复制到 argv 或工具子进程；浏览器只用它换 HttpOnly 会话，不保存长期 Token |
+| `HA_API_KEY_FILE` | _未设置_ | 挂载的 Secret 文件路径，优先于 `HA_API_KEY`。生产环境推荐；文件内容末尾换行会被忽略 |
 | `HA_KNOWLEDGE_AGENT_READ_TOKEN` | _未设置_ | Knowledge Agent 只读 token。只能访问 `/api/knowledge/agent/{search,read,expand,sources}`，不能访问 owner 管理 API 或 `compile/propose`；适合给外部 agent 的 HTTP 脚本使用 |
+| `HA_CORS_ORIGINS` | _未设置_ | 额外允许的 Web GUI origin，多个值用逗号分隔（如 `https://ui.example`）。仅在前端与 API 跨源部署时设置；同源 UI 与打包桌面 WebView 无需设置，不支持 `*` |
 | `HA_SERVER_AUTO_APPROVE_TOOLS` | _未设置_ | 设为 `1` / `true` / `yes` 让 HTTP 入口的每条 chat 都按「自动批准工具」处理 —— 等同于桌面端 IM 渠道账号勾上「auto-approve tools」。**全自动放行**：dangerous-commands / protected-paths / edit-command 审计 / Plan Mode ask / Smart judge **全部跳过**，LLM 触发的任何 `exec` / `write` / `edit` 直接执行无任何拦截。**不要用于不可信租户**。`--dangerously-skip-all-approvals` 是严格超集（还会静默 dispatcher 层审计日志）。无人值守 / CI / pipeline 部署且客户端没接审批 UI 时必开，否则每条 `exec` 都会等满 5 分钟超时 → deny |
 | `HA_DATA_DIR` | `/data` | 数据根目录，所有持久化文件（`config.json` / `sessions.db` / `memory.db` / 凭据 / 项目 / 附件等）都在此目录下 |
 | `HA_DEPLOYMENT` | `docker` | 给 updater 的部署形态提示。**不要改**，否则 `app_update install` 会尝试在容器内做 binary swap |
@@ -55,17 +58,19 @@ docker compose logs -f hope-agent
 
 ### 端口与网络
 
-镜像 `EXPOSE 8420`。`docker-compose.yml` 默认把宿主机的 `127.0.0.1:8420` 映射到容器 `8420`，**只允许本机访问** —— 这也是当前推荐的默认部署形态。
+镜像 `EXPOSE 8420`。首次启动若未提供 Token，Docker 会自动生成一枚并以 0600 权限保存在 `/data/credentials/server-auth.json`；用 `docker compose exec hope-agent hope-agent server token show` 查看。`docker-compose.yml` 默认仍只映射宿主机回环地址。
 
 #### LAN / 公网暴露
 
-要让 LAN 或公网访问，**先设 `HA_API_KEY`**，再把端口映射改成 `8420:8420`（去掉 `127.0.0.1:` 前缀），最后强烈建议前置反代做 TLS 终止。
+要让 LAN 或公网访问，保留自动生成的 Token（或配置 `HA_API_KEY_FILE`），再把端口映射改成 `8420:8420`，并前置反代做 TLS 终止。非回环监听缺少 Token 时服务会拒绝启动，不再静默降级。
 
 三种典型部署：
 
-1. **直接暴露 + 浏览器输 token**：`HA_API_KEY=...` + `0.0.0.0:8420` —— 用户首次访问，前端弹「需要服务器鉴权」对话框，粘 token 即继续；token 存 localStorage，之后访问无感。也可以分享 `https://host:8420/?token=XXX` 一次性预填 token 的链接（前端自动捕获并把 URL 清掉，不进历史 / referer / bookmark）。**风险**：token 在浏览器 localStorage 里，浏览器侧 XSS 会泄露；适合内网 / 小团队。
-2. **反向代理注入 Authorization**（推荐生产）：Caddy / Nginx / Traefik 前置 TLS 终止，在 upstream 加 `Authorization: Bearer ${HA_API_KEY}` 头；hope-agent 强制 `HA_API_KEY`，浏览器无需感知 token。用户层访问控制在反代做（client cert / OIDC / basic auth）。
-3. **VPN / tailnet 内网**：Tailscale / WireGuard / Zerotier 把容器拉进私网，不开 `HA_API_KEY`，靠网络层隔离。
+1. **浏览器访问**：首次打开 Auth Gate，粘贴 Root Token 后换取签名 `HttpOnly + SameSite=Strict` Cookie；Root Token 不进 URL、localStorage 或 Referer。之后 HTTP、媒体和 WebSocket 都复用短期会话。
+2. **自动化客户端**：继续使用 `Authorization: Bearer <root-token>`。不要使用 query token；通用 `?token=` 已拒绝。
+3. **反向代理 / VPN**：公网必须用 HTTPS；VPN 可再收窄网络面，但不会替代内置 Token。反代若另加 OIDC/mTLS 属额外防线。
+
+轮换：设置 → 服务器可在线轮换并只显示新 Token 一次，且会立即让全部旧浏览器会话和 Bearer 客户端失效。CLI 使用 `hope-agent server token rotate` 写入新 Token 后，需重启容器或服务才会激活。若 Token 来自 `HA_API_KEY(_FILE)`，必须在 Secret 源头轮换。
 
 ### 数据持久化
 
@@ -74,7 +79,7 @@ docker compose logs -f hope-agent
 - `config.json` — 全局配置（Provider 列表、记忆设置、温度、failover 策略等）
 - `user.json` — 用户偏好
 - `sessions.db` / `memory.db` / `logs.db` / `cron.db` — SQLite 数据库
-- `credentials/` — Provider API Key、OAuth token、MCP 凭据（**包含敏感信息**）
+- `credentials/` — Owner Token、Provider API Key、OAuth token、MCP 凭据（**包含敏感信息，文件权限 0600**）
 - `agents/` — Agent 定义
 - `projects/` — 项目文件
 - `attachments/` — 会话附件
@@ -88,6 +93,33 @@ volumes:
 ```
 
 注意：bind mount 的目录需要 UID 1000 可写（容器内运行用户 `hope` 的 UID）。
+
+## Docker 隔离沙箱
+
+容器化部署只支持 `isolated` 沙箱模式。Hope Agent 会先创建有界临时副本，再通过 Docker Archive API 流式上传到子容器的匿名 `/workspace` volume；命令结束后子容器和匿名 volume 一并删除，修改不会回写真实工作区。这个路径不把容器内的 `/data` 当作宿主机 bind mount，因而同时支持命名卷、bind mount 和 NAS 容器管理器。
+
+`standard` / `workspace` / `trusted` 在容器化部署中会 fail closed。它们需要把实时工作目录 bind mount 到子容器，但 `/data/project` 这类路径属于 Hope Agent 容器命名空间，不能安全地当作 Docker daemon 所见的宿主路径。
+
+启用前需把可信的本机 Docker socket 显式挂入 Hope Agent，并添加 socket 的组 GID：
+
+```bash
+stat -c '%A %u:%g %n' /var/run/docker.sock
+export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+```
+
+```yaml
+services:
+  hope-agent:
+    volumes:
+      - hope-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID}"
+```
+
+NAS 图形界面不能展开 `${DOCKER_GID}` 时，先运行 `stat`，再把数字 GID 直接填进附加组。重新创建容器后，沙箱状态会区分 socket 缺失、权限不足、daemon 不可达与客户端配置错误。
+
+> **安全警告**：Docker socket 可控制宿主 Docker daemon，通常等价于宿主机高权限。仅在可信的单租户部署中启用；不要把 socket 改成 `0666`，也不要为了访问 socket 让 Hope Agent 以 root 运行。`isolated` 还要求会话使用项目或显式工作目录；如果工作目录是数据根或其祖先，执行会拒绝，避免把 credentials、配置和数据库复制进沙箱（官方镜像的数据根为 `/data`）。
 
 ## 浏览器自动化
 
@@ -204,7 +236,7 @@ server {
 
 **容器内 `docker exec hope-agent server status` 报 "no server"？** entrypoint 启动时清掉的 `server.pid` 只是为了避免崩溃残留误报。容器内 server 是前台进程（PID 1 是 tini → entrypoint → hope-agent），`server status` 设计用于 systemd / launchd 注册的后台服务，对容器无意义。要查状态用 `docker logs` 或 HEALTHCHECK。
 
-**`HA_API_KEY` 没生效？** entrypoint 只在 `CMD` 为 `server start` 时翻译环境变量。如果你覆盖了 CMD（例如 `docker run ... hope-agent server status`），需要手动传 `--api-key` 参数。
+**忘记 Owner Token？** 运行 `docker compose exec hope-agent hope-agent server token show`。若由外部 Secret 管理，这条命令显示当前环境提供的值；请不要把输出贴进日志或工单。
 
 ## fork / 自建镜像
 

@@ -333,9 +333,10 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             let _ = db.migrate();
             db
         });
-        // Read server config from config.json (bind address, API key)
-        let store = ha_core::config::load_config().unwrap_or_default();
-        let api_key = store.server.api_key.clone();
+        // Long-lived owner tokens live in the 0600 credential store, never in
+        // ordinary config.json. `load_managed_token` also migrates legacy data.
+        let store = ha_core::config::cached_config();
+        let api_key = ha_core::server_auth::load_managed_token()?;
         let ctx = Arc::new(ha_server::AppContext {
             session_db,
             project_db,
@@ -344,11 +345,11 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 .expect("init_runtime contract")
                 .clone(),
             chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
-            api_key: api_key.clone(),
         });
         let config = ha_server::ServerConfig {
             bind_addr: store.server.bind_addr.clone(),
             api_key,
+            auth_externally_managed: false,
             knowledge_agent_read_token: std::env::var("HA_KNOWLEDGE_AGENT_READ_TOKEN")
                 .ok()
                 .map(|v| v.trim().to_string())
@@ -362,16 +363,25 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 }),
             cors_origins: Vec::new(),
         };
-        tauri::async_runtime::spawn(async move {
-            if let Err(e) = ha_server::start_server(config, ctx).await {
-                // Defense-in-depth: start_server already marks failed on bind
-                // and serve errors, but catch any future error path above/
-                // around those calls too.
-                ha_core::server_status::mark_failed(format!("{:#}", e));
-                eprintln!("[embedded-server] Failed to start: {}", e);
-                app_error!("server", "start", "embedded server failed: {:#}", e);
-            }
-        });
+        if config.api_key.is_none()
+            && !ha_core::server_auth::bind_is_loopback(&config.bind_addr)
+            && !ha_core::server_auth::unauthenticated_network_override_enabled()
+        {
+            let message = "refusing unauthenticated non-loopback binding";
+            ha_core::server_status::mark_failed(message.to_string());
+            app_error!("server", "start", "embedded server {message}");
+        } else {
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = ha_server::start_server(config, ctx).await {
+                    // Defense-in-depth: start_server already marks failed on bind
+                    // and serve errors, but catch any future error path above/
+                    // around those calls too.
+                    ha_core::server_status::mark_failed(format!("{:#}", e));
+                    eprintln!("[embedded-server] Failed to start: {}", e);
+                    app_error!("server", "start", "embedded server failed: {:#}", e);
+                }
+            });
+        }
     }
 
     // Best-effort: copy the bundled Chrome extension into a stable location

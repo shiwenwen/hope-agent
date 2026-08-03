@@ -1,5 +1,6 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
+import { isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -48,6 +49,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react"
+import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import { useTheme } from "@/hooks/useTheme"
 import { usePetDiscoveryHint } from "@/components/pet/hooks/usePetDiscoveryHint"
 import { usePetSidebarToggle } from "@/components/pet/hooks/usePetSidebarToggle"
@@ -87,7 +89,11 @@ interface IconSidebarProps {
   onOpenDashboard: () => void
   onOpenPlans: () => void
   onOpenKnowledge: () => void
+  onOpenKnowledgeWindow: () => void
   onOpenDesign: () => void
+  onOpenDesignWindow: () => void
+  knowledgeDetached?: boolean
+  designDetached?: boolean
   onOpenArtifacts: () => void
   onOpenUpdatePanel?: () => void
   userAvatar?: string | null
@@ -123,7 +129,11 @@ export default function IconSidebar({
   onOpenDashboard,
   onOpenPlans,
   onOpenKnowledge,
+  onOpenKnowledgeWindow,
   onOpenDesign,
+  onOpenDesignWindow,
+  knowledgeDetached = false,
+  designDetached = false,
   onOpenArtifacts,
   onOpenUpdatePanel,
   totalUnreadCount,
@@ -135,6 +145,41 @@ export default function IconSidebar({
   const petDiscovery = usePetDiscoveryHint(petToggle)
   const [showLangMenu, setShowLangMenu] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const supportsDetachedSpaces = isTauriMode()
+  const spaceClickTimersRef = useRef<Partial<Record<"knowledge" | "design", number>>>({})
+
+  useEffect(
+    () => () => {
+      Object.values(spaceClickTimersRef.current).forEach((timer) => window.clearTimeout(timer))
+    },
+    [],
+  )
+
+  const clearSpaceClick = (space: "knowledge" | "design") => {
+    const timer = spaceClickTimersRef.current[space]
+    if (timer !== undefined) window.clearTimeout(timer)
+    delete spaceClickTimersRef.current[space]
+  }
+  const scheduleSpaceClick = (
+    space: "knowledge" | "design",
+    detail: number,
+    openDocked: () => void,
+  ) => {
+    clearSpaceClick(space)
+    if (!supportsDetachedSpaces || detail === 0) {
+      openDocked()
+      return
+    }
+    if (detail > 1) return
+    spaceClickTimersRef.current[space] = window.setTimeout(() => {
+      delete spaceClickTimersRef.current[space]
+      openDocked()
+    }, 250)
+  }
+  const openSpaceWindow = (space: "knowledge" | "design", openDetached: () => void) => {
+    clearSpaceClick(space)
+    openDetached()
+  }
   const { pendingUpdate } = useDesktopUpdateStore()
   const { draftCount: skillDraftCount } = useDraftSkillsStore()
   const skillDraftBadgeLabel = skillDraftCount > 99 ? "99+" : String(skillDraftCount)
@@ -308,39 +353,97 @@ export default function IconSidebar({
         </ContextMenu>
         {/* Knowledge Space entry — grouped directly under Conversations */}
         <div className="w-full flex justify-center">
-          <IconTip label={t("knowledge.title", "Knowledge Space")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "knowledge"
-                  ? "bg-secondary text-foreground hover:bg-secondary"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenKnowledge}
-            >
-              <Library className="h-4 w-4" />
-            </Button>
-          </IconTip>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div>
+                <IconTip
+                  label={
+                    knowledgeDetached
+                      ? t("fileBrowser.popOutActive", "Opened in a separate window")
+                      : t("knowledge.title", "Knowledge Space")
+                  }
+                  side="right"
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "rounded-xl h-8 w-8",
+                      view === "knowledge" || knowledgeDetached
+                        ? "bg-secondary text-foreground hover:bg-secondary"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    aria-label={t("knowledge.title", "Knowledge Space")}
+                    onClick={(event) =>
+                      scheduleSpaceClick("knowledge", event.detail, onOpenKnowledge)
+                    }
+                    onDoubleClick={() => {
+                      if (supportsDetachedSpaces) {
+                        openSpaceWindow("knowledge", onOpenKnowledgeWindow)
+                      }
+                    }}
+                  >
+                    <Library className="h-4 w-4" />
+                  </Button>
+                </IconTip>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent variant="floating">
+              <ContextMenuItem
+                disabled={!supportsDetachedSpaces}
+                onSelect={() => openSpaceWindow("knowledge", onOpenKnowledgeWindow)}
+              >
+                <WindowModeIcon action="detach" className="mr-2 h-4 w-4" />
+                {t("fileBrowser.openInWindow", "Open in a separate window")}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </div>
         {/* Design Space entry — grouped directly under Knowledge Space */}
         <div className="w-full flex justify-center">
-          <IconTip label={t("design.title", "Design Space")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "design"
-                  ? "bg-secondary text-foreground hover:bg-secondary"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenDesign}
-            >
-              <Palette className="h-4 w-4" />
-            </Button>
-          </IconTip>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div>
+                <IconTip
+                  label={
+                    designDetached
+                      ? t("fileBrowser.popOutActive", "Opened in a separate window")
+                      : t("design.title", "Design Space")
+                  }
+                  side="right"
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "rounded-xl h-8 w-8",
+                      view === "design" || designDetached
+                        ? "bg-secondary text-foreground hover:bg-secondary"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    aria-label={t("design.title", "Design Space")}
+                    onClick={(event) => scheduleSpaceClick("design", event.detail, onOpenDesign)}
+                    onDoubleClick={() => {
+                      if (supportsDetachedSpaces) {
+                        openSpaceWindow("design", onOpenDesignWindow)
+                      }
+                    }}
+                  >
+                    <Palette className="h-4 w-4" />
+                  </Button>
+                </IconTip>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent variant="floating">
+              <ContextMenuItem
+                disabled={!supportsDetachedSpaces}
+                onSelect={() => openSpaceWindow("design", onOpenDesignWindow)}
+              >
+                <WindowModeIcon action="detach" className="mr-2 h-4 w-4" />
+                {t("fileBrowser.openInWindow", "Open in a separate window")}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </div>
         {/* Artifacts entry — grouped directly under Knowledge Space */}
         <div className="w-full flex justify-center">

@@ -170,7 +170,7 @@ sequenceDiagram
         Engine->>DB: 3. restore_agent_context()（加载 conversation_history）
         Engine->>DB: 4. update_session_model()
 
-        loop 重试循环（MAX_RETRIES=2）
+        loop 有界重试循环（已知瞬时错误 3 次；Unknown 2 次）
             alt 非首个模型
                 Engine->>Sink: emit model_fallback 事件
                 Engine->>DB: append_message(Event)
@@ -227,9 +227,11 @@ sequenceDiagram
 | `usage` | `input_tokens, output_tokens, model, ttft_ms, duration_ms` | Token 用量和性能指标 |
 | `text_delta` | `text` | 文本增量 |
 | `thinking_delta` | `content` | 思考内容增量 |
-| `tool_call` | `call_id, name, arguments` | 工具调用发起 |
-| `tool_result` | `call_id, result, duration_ms, is_error` | 工具执行结果 |
+| `tool_call` | `call_id, name, arguments, replay_safe` | 工具调用发起；`replay_safe=true` 仅用于并发安全的只读工具 |
+| `tool_result` | `call_id, result, duration_ms, is_error, replay_safe` | 工具执行结果；`replay_safe` 与对应调用一致 |
 | `model_fallback` | `model, from_model, provider_id, model_id, reason, attempt, total, error` | 模型降级通知 |
+| `model_retry` | `model, provider_id, model_id, reason, attempt, total, delay_ms, recovery_id, can_switch_model` | 同模型退避重试；GUI 显示倒计时/进度，并可精确控制本次等待 |
+| `model_chain_retry` | `reason, attempt, total, delay_ms, recovery_id, can_switch_model=false` | fallback chain 整轮恢复；GUI 只提供“立即开始” |
 | `context_compaction_progress` | `data.phase, data.kind` | live-only 上下文压缩进度；不持久化，GUI 用同一条 banner 原地更新 |
 | `context_compacted` | `data` | 上下文压缩完成；final 事件是完成态唯一真相源，Tier ≥ 2 持久化 |
 | `codex_auth_expired` | `error` | Codex OAuth Token 过期 |
@@ -536,7 +538,7 @@ flowchart TD
 ```
 
 **退避参数：**
-退避基数 / 上限 / 单模型重试次数已统一外移到 `failover::FailoverPolicy::chat_engine_default()`（见 [failover.md](./failover.md)），engine 内不再自管这三个常量。引擎本地仅保留一个常量 `MAX_COMPACTION_RETRIES = 1`（每模型最多紧急压缩重试 1 次），其它分类、退避、profile 轮换、Codex 强制不轮换等行为全部交给 `failover::executor::execute_with_failover` 配合 `chat_engine_default` policy 决定。
+退避基数 / 上限 / 单模型重试次数已统一外移到 `failover::FailoverPolicy::chat_engine_default()`（见 [failover.md](./failover.md)）。已知瞬时错误最多重试 3 次，Unknown 谨慎重试 2 次；每次等待前发 `model_retry`。当前 Key 的预算耗尽后才轮换 profile，再耗尽才切模型。引擎本地保留 `MAX_COMPACTION_RETRIES = 1`，以及最多 2 轮的 model-chain pass：仅 Timeout / Unknown 且尚未跨过任何 tool boundary 时启动第 2 轮并发 `model_chain_retry`。GUI 按 `delay_ms` 显示真实倒计时/进度条，可跳过等待；存在下一模型时可立即进入 fallback，整链等待则只允许立即开始。动作必须匹配该事件的随机 `recovery_id`，旧提示不能影响新等待。任意工具边界都会停止同模型 / Key 内部重试与整链重启，避免 supersede 已完成的工具上下文；并发安全的只读工具事件显式携带 `replay_safe=true`，仍可随失败 attempt 一起切到本轮尚未尝试的下一模型。可变更状态的工具一开始执行，或旧事件缺少该元数据时，向后模型切换也 fail closed，避免重复副作用。GUI 与 IM 都会收到恢复进度提示。
 
 **Codex 特殊处理：** Auth 错误时，如果当前 Provider 是 Codex 类型，额外发送 `codex_auth_expired` 事件通知前端触发重新授权流程。
 

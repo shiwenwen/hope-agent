@@ -7,6 +7,7 @@ import { useMacControlFrame } from "@/hooks/useMacControlFrame"
 import { BrowserPanelContent } from "../BrowserPanelContent"
 import { MacControlPanelContent } from "../MacControlPanelContent"
 import { FloatingPanelWindow } from "./FloatingPanelWindow"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 
 interface FloatingPanelLayerProps {
   floatingPanels: FloatablePanel[]
@@ -87,7 +88,8 @@ export function FloatingPanelLayer({
   onFocus,
   sessionId,
 }: FloatingPanelLayerProps) {
-  if (floatingPanels.length === 0) return null
+  const portalScope = usePortalScope()
+  if (floatingPanels.length === 0 || (portalScope && !portalScope.active)) return null
   return createPortal(
     <>
       {floatingPanels.includes("browser") && (
@@ -109,6 +111,6 @@ export function FloatingPanelLayer({
         />
       )}
     </>,
-    document.body,
+    portalScope?.container ?? document.body,
   )
 }

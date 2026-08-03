@@ -59,7 +59,7 @@ Signed-in Codex OAuth models appear in the selectable list with a permanent “D
 
 If a Provider has multiple Auth Profiles, you can choose a credential profile after selecting the model. Within one experiment, all models from the same Provider must use the same credential profile.
 
-> If a development build reports a missing Sidecar, a developer must first run `pnpm prepare:eval-sidecar`. Release packages include a matching Sidecar with the application.
+> If a development build reports a missing Sidecar, stop the current development process and restart it with `pnpm dev:desktop:eval`. Release packages include a matching Sidecar with the application.
 
 ---
 

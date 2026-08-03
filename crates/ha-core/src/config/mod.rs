@@ -10,6 +10,7 @@
 pub(crate) mod autosave;
 mod persistence;
 
+pub(crate) use persistence::clear_legacy_server_token_without_backup;
 pub(crate) use persistence::encode_model_eval_codex_secret;
 #[cfg(any(test, feature = "test-support"))]
 pub use persistence::replace_cache_for_test;

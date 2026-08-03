@@ -23,14 +23,18 @@ pub fn run(step: u32, total: u32) -> Result<()> {
         "0.0.0.0:8420".to_string()
     };
 
-    // When exposing to LAN, push the API key toggle on by default so we
-    // don't accidentally teach users that 0.0.0.0 without auth is normal.
-    let default_require_key = bind_idx == 1;
-    let want_key = prompt_confirm("Require an API key", default_require_key)?;
+    // Network exposure is fail-closed: there is no ordinary onboarding path
+    // that persists a public listener without an owner token.
+    let want_key = if bind_idx == 1 {
+        println!("  Owner-token authentication is required for LAN access.");
+        true
+    } else {
+        prompt_confirm("Require an owner token", false)?
+    };
     let api_key = if want_key {
         let generated = generate_api_key();
         println!(
-            "  {}Generated API key:{} {}",
+            "  {}Generated owner token:{} {}",
             crate::cli_onboarding::prompt::color::DIM,
             crate::cli_onboarding::prompt::color::RESET,
             generated
@@ -47,7 +51,7 @@ pub fn run(step: u32, total: u32) -> Result<()> {
     print_saved(&format!(
         "Server bind saved ({}){}",
         bind_addr,
-        if want_key { ", API key set" } else { "" }
+        if want_key { ", owner token set" } else { "" }
     ));
     println!(
         "  {}Note:{} bind-address changes take effect after the next server restart.",

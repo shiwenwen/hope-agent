@@ -223,4 +223,44 @@ mod tests {
             "whisper-1".to_string()
         );
     }
+
+    #[test]
+    fn transcript_options_merge_request_overrides_over_defaults() {
+        let defaults = TranscriptOptions {
+            language: Some("zh-CN".into()),
+            prompt: Some("product names".into()),
+            punctuation: Some(true),
+            diarization: Some(false),
+            timestamps: Some(true),
+            sample_rate_hz: Some(44_100),
+        };
+        let request = TranscriptOptions {
+            language: Some(" en-US ".into()),
+            prompt: Some("   ".into()),
+            punctuation: Some(false),
+            sample_rate_hz: Some(16_000),
+            ..TranscriptOptions::default()
+        };
+
+        let merged = request.with_defaults(&defaults);
+        assert_eq!(merged.language.as_deref(), Some("en-US"));
+        assert_eq!(merged.prompt.as_deref(), Some("product names"));
+        assert_eq!(merged.punctuation, Some(false));
+        assert_eq!(merged.diarization, Some(false));
+        assert_eq!(merged.timestamps, Some(true));
+        assert_eq!(merged.sample_rate_hz, Some(16_000));
+    }
+
+    #[test]
+    fn transcript_options_normalize_empty_strings() {
+        let options = TranscriptOptions {
+            language: Some("  ".into()),
+            prompt: Some(" hint ".into()),
+            ..TranscriptOptions::default()
+        }
+        .normalized();
+
+        assert_eq!(options.language, None);
+        assert_eq!(options.prompt.as_deref(), Some("hint"));
+    }
 }

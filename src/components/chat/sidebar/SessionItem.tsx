@@ -46,6 +46,8 @@ interface SessionItemProps {
   session: SessionMeta
   sessions: SessionMeta[]
   agent: AgentSummaryForSidebar | undefined
+  /** Hide the redundant child-session type badge in the dedicated sub-agent tab. */
+  showSubagentBadge?: boolean
   /** Projects visible in the sidebar — used by the "Move to project" submenu. */
   projects?: ProjectMeta[]
   isActive: boolean
@@ -78,6 +80,7 @@ export default function SessionItem({
   session,
   sessions,
   agent,
+  showSubagentBadge = true,
   projects = [],
   isActive,
   isReadable,
@@ -245,7 +248,8 @@ export default function SessionItem({
                   <Timer className="w-2.5 h-2.5" />
                 </span>
               )}
-              {session.parentSessionId &&
+              {showSubagentBadge &&
+                session.parentSessionId &&
                 (() => {
                   const parentSession = sessions.find((s) => s.id === session.parentSessionId)
                   const parentAgent = parentSession

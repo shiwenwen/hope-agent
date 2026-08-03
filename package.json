@@ -1,7 +1,7 @@
 {
   "name": "hope-agent",
   "private": true,
-  "version": "0.24.0",
+  "version": "0.27.0",
   "license": "MIT",
   "author": "shiwenwen",
   "homepage": "https://github.com/shiwenwen/hope-agent",
@@ -16,6 +16,11 @@
   "packageManager": "pnpm@10.33.1+sha512.05ba3c1d5d1c18f68df06470d74055e62d41fc110a0c660db1b2dfb2785327f04cf0f68345d4609bc52089e7fa0343c31593b2f9594e2c5d5da426230acc9820",
   "scripts": {
     "dev": "vite",
+    "desktop": "node scripts/select-desktop-dev.mjs",
+    "dev:desktop": "pnpm exec tauri dev --config src-tauri/tauri.dev.conf.json",
+    "dev:desktop:browser": "pnpm dev:browser-host && pnpm dev:desktop",
+    "dev:desktop:eval": "pnpm dev:eval-sidecar && pnpm dev:desktop",
+    "dev:desktop:full": "pnpm dev:browser-host && pnpm dev:eval-sidecar && pnpm dev:desktop",
     "build": "tsc -b --pretty false && vite build",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",

@@ -10,7 +10,7 @@ Hope Agent 的所有运行模式共享同一个二进制 `hope-agent`。CLI 是�
 hope-agent [GLOBAL_FLAGS] [SUBCOMMAND] [OPTIONS]
 ```
 
-主分发顺序：**全局 flag → `knowledge-mcp` → `mcp` → `acp` → `server` → `auth` → 桌面 / Guardian / 子进程**。匹配到任何子命令就 return，不再继续往下；未知子命令静默落到桌面入口。
+主分发顺序：**全局 flag → `--tcc-probe` → `knowledge-mcp` → `mcp` → `acp` → `server` → `auth` → 桌面 / Guardian / 子进程**。匹配到任何子命令就 return，不再继续往下；未知子命令静默落到桌面入口。
 
 | 子命令         | 性质         | 触发                                  | 入口函数 / 模块               | 说明                                                                                       |
 | -------------- | ------------ | ------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
@@ -74,6 +74,7 @@ hope-agent mcp [--allow-writes]
 | ------------------------------------- | ---- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--dangerously-skip-all-approvals`    | flag | off  | 跳过所有工具审批（**仅本次启动**，不写 config）。在每个子命令解析器里被静默 consume。会经 `ha_core::security::dangerous::set_cli_flag(true)` 落到进程内 `AtomicBool`，并向 stderr 打一行 warning。与 `AppConfig.permission.global_yolo` 是 OR 关系，详见 [权限/审批系统](permission-system.md) |
 | `--version` / `-V`                    | flag | —    | `hope-agent --version`（或 `-V`，不带子命令）在子命令分发前打印 `hope-agent X.Y.Z`（取自 `CARGO_PKG_VERSION`）后退出，**不会**落到桌面启动路径。子命令各自的 `acp --version` / `server --version` 走自己的解析器（在此分支之前先被匹配） |
+| `--tcc-probe <permission-id>`          | flag | —    | **内部用**：macOS TCC 探针进程模式。打印一行 `hope-agent-tcc-probe:granted=1\|0\|unknown` 后退出，由 [系统权限](macos-permissions.md) 子系统 spawn（新进程才能看到运行期新授的录屏权限）。**判据是 stdout token 而非退出码**；此分支**必须早于 guardian / `--child-mode` 分派**（否则每次探针会拉起一个完整 GUI），且不初始化任何运行时状态 |
 
 > 注意：Plan Mode 仍然能压过 YOLO 限制工具集；YOLO 只跳审批门控，不放行 protected paths / dangerous commands 之外的禁用工具。
 
@@ -111,7 +112,8 @@ hope-agent server [SUBCOMMAND] [OPTIONS]
 | 子命令      | 行为                                                                                       | 源码定位                              |
 | ----------- | ------------------------------------------------------------------------------------------ | ------------------------------------- |
 | _（默认）_  | 前台启动服务，写 PID 文件 `~/.hope-agent/server.pid`，跑完整 `start_background_tasks` 集 | [`main.rs:300-417`](../../src-tauri/src/main.rs#L300)            |
-| `install`   | 注册系统服务（macOS launchd / Linux systemd-user），共享下方 `--bind` / `--api-key`      | [`main.rs:458-479`](../../src-tauri/src/main.rs#L458)            |
+| `install`   | 注册系统服务（macOS launchd / Linux systemd-user），Token 只写 0600 凭据文件、不进入服务 argv | [`main.rs`](../../src-tauri/src/main.rs) |
+| `token show/rotate` | 恢复显示或写入新的单一 Owner Root Token；CLI 轮换后需重启运行中的服务才激活 | [`main.rs`](../../src-tauri/src/main.rs) |
 | `uninstall` | 卸载系统服务                                                                               | [`main.rs:263-271`](../../src-tauri/src/main.rs#L263)            |
 | `status`    | 查询服务运行状态（plist load 状态 / systemd unit active 状态）                             | [`main.rs:273-281`](../../src-tauri/src/main.rs#L273)            |
 | `stop`      | 停止运行中的服务                                                                           | [`main.rs:283-291`](../../src-tauri/src/main.rs#L283)            |
@@ -125,8 +127,9 @@ hope-agent server [SUBCOMMAND] [OPTIONS]
 
 | 参数                               | 短选项 | 类型      | 默认             | 说明                                                                                                                                            |
 | ---------------------------------- | ------ | --------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--bind ADDR`                      | `-b`   | host:port | `127.0.0.1:8420` | 绑定地址。**默认仅本机**——远程访问需显式 `0.0.0.0:8420`，并务必同时设置 `--api-key`                                                              |
-| `--api-key KEY`                    | —      | string    | _（未设）_       | Bearer Token。请求带 `Authorization: Bearer <key>`，浏览器 WS 用 `?token=<key>` query 参数。**未设置时所有请求放行**（见 [`ha-server` 中间件](../../crates/ha-server/src/middleware.rs)），`/api/health` 永远公开 |
+| `--bind ADDR`                      | `-b`   | host:port | `127.0.0.1:8420` | 绑定地址。非回环监听没有 Token 时 fail-closed，除非显式传危险开关 |
+| `--api-key-file PATH`              | —      | path      | _（未设）_       | 从文件一次性读 Owner Token；优先级高于 `HA_API_KEY`，读取后环境变量立即移除，不传给工具子进程 |
+| `--allow-unauthenticated-network`  | —      | bool      | `false`          | 危险逃生口：允许非回环地址无鉴权启动；也可设 `HA_ALLOW_UNAUTHENTICATED_NETWORK=1` |
 | `--dangerously-skip-all-approvals` | —      | flag      | off              | 在 server 子命令解析器中被静默 consume，由顶层全局开关已经生效                                                                                  |
 | `--version`                        | —      | flag      | —                | 打印 `hope-agent-server X.Y.Z` 后退出（取自 `CARGO_PKG_VERSION`）                                                                              |
 | `--help` / `-h`                    | —      | flag      | —                | 打印帮助后退出                                                                                                                                  |
@@ -166,9 +169,9 @@ hope-agent server [SUBCOMMAND] [OPTIONS]
 | 7    | personality      | Personality preset（default / engineer / creative / companion）                                                                    |
 | 8    | safety           | 工具审批开关（关 = 所有工具自动放行，超时 0s）                                                                                    |
 | 9    | skills           | bundled skills 多选（默认全开，取消勾选写到 `disabled_skills`）                                                                  |
-| 10   | server           | 内嵌 HTTP 的 bind 地址 + 可选 API key（`generate_api_key()` 可生成 `hope_<uuid>`）                                              |
+| 10   | server           | 内嵌 HTTP 的 bind 地址 + 单一 Owner Token（本机可选、LAN 强制；`generate_api_key()` 生成高熵 `hope_...` Token）                  |
 | 11   | channels         | 列出 13 种 IM channel 提示去 Web GUI 配凭据，CLI 不收集                                                                           |
-| 12   | summary          | 反读所有持久化设置打印 recap：language / provider 含 active model / search provider / profile / personality preset / approvals 状态 / 禁用 skills 数 / server bind+key 状态 / Web GUI URL（含 `?token=` 自动拼接，bind 是 `0.0.0.0` 时附 LAN IP 列表，复用 `ha_server::banner::local_ipv4_addresses()`） |
+| 12   | summary          | 反读所有持久化设置打印 recap：server 只打印 URL 与 Token 是否已设，Root Token 永不拼进 URL；bind 是 `0.0.0.0` 时附 LAN IP 列表 |
 
 **Remote 模式短路**：在 mode 步选 remote 后向导直接跳到「All done」并 `mark_completed()`——和 GUI `stepsForMode("remote") = ["welcome", "import-openclaw", "mode"]` 行为对齐。一旦指向远程 server，本机不需要再配 provider / agent / channels（那些都在远程那台机器上）。
 
@@ -315,7 +318,12 @@ CLI 直接消费或路径相关的环境变量。完整跨子系统列表分散�
 
 | 命令                                       | 用途                                                     | 来源                                                                 |
 | ------------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------- |
-| `pnpm tauri dev`                           | 桌面 dev（前端 + Tauri 热重载）                          | [`package.json`](../../package.json)                                 |
+| `pnpm desktop`                            | 交互选择下面四种桌面 dev 模式                            | [`package.json`](../../package.json)                                 |
+| `pnpm dev:desktop`                         | 默认桌面 dev，不构建 Browser Host / Eval Sidecar         | 同上                                                                 |
+| `pnpm dev:desktop:browser`                 | Chrome 插件联调，仅构建 Browser Host                     | 同上                                                                 |
+| `pnpm dev:desktop:eval`                    | 评测功能开发，仅构建 Eval Sidecar                        | 同上                                                                 |
+| `pnpm dev:desktop:full`                    | 完整桌面能力验证，构建 Browser Host 与 Eval Sidecar      | 同上                                                                 |
+| `pnpm tauri dev`                           | 兼容旧入口；构建两个可选二进制后启动桌面 dev             | 同上                                                                 |
 | `pnpm dev`                                 | 仅前端 Vite 开发服务器                                   | 同上                                                                 |
 | `pnpm tauri build`                         | 构建桌面生产包                                           | 同上                                                                 |
 | `pnpm sync:version`                        | 把 `package.json` 版本同步到 `src-tauri`                 | [`scripts/sync-version.mjs`](../../scripts/sync-version.mjs)         |

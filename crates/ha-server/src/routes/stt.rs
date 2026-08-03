@@ -173,6 +173,28 @@ pub async fn set_im_fallback_stt_model(
     Ok(Json(json!({ "updated": true })))
 }
 
+/// `GET /api/stt/default-options`
+pub async fn get_stt_default_options() -> Result<Json<TranscriptOptions>, AppError> {
+    let cfg = ha_core::config::cached_config();
+    Ok(Json(cfg.stt.default_options.clone()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultOptionsBody {
+    pub options: TranscriptOptions,
+}
+
+/// `PUT /api/stt/default-options`
+pub async fn set_stt_default_options(
+    Json(body): Json<DefaultOptionsBody>,
+) -> Result<Json<TranscriptOptions>, AppError> {
+    let options = run_blocking(move || stt::set_stt_default_options(body.options, "http"))
+        .await
+        .map_err(stt_write_error)?;
+    Ok(Json(options))
+}
+
 // ── Local backend catalog ─────────────────────────────────────────
 
 /// `GET /api/stt/local-backends`

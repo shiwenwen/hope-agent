@@ -7,6 +7,7 @@
 ## 安全红线
 
 - **API Key / OAuth Token 禁止出现在任何日志中**
+- **Server Owner Token 只许走 Bearer header 或同源登录 body，禁止进 URL**；同源浏览器换 HttpOnly Cookie，跨源 WebSocket / iframe 只用短时、scope 受限票据，资源票据入口必须保持只读 allowlist
 - `tauri.conf.json` CSP 不要放行外部域名
 - OAuth token 在 `~/.hope-agent/credentials/auth.json`，登出时必须 `clear_token()`
 
@@ -37,6 +38,7 @@
 - **只读例外双理由（红线）**：凭据安全**或**运行时稳定性——`active_model`/`fallback_models` 不携密、无重副作用仍恒 GUI-only（须与 provider 状态/agent 重建协同），**别当误挡解封**；Provider 列表与 API Key 更严：无 category、禁新增入口。
 - **凭据必脱敏（红线）**：带凭据新字段须接入 `redact_*_value`（否则 LLM 拿 history 当 leak 通道）；只覆盖非空串（保住「未设」vs「已清空」）。
 - **读写 contract（红线）**：读 `cached_config()`、写 `mutate_config((category, source), …)`；禁 `Mutex<AppConfig>` / `load_config()`+`save_config()` 克隆-改-存。详见 [config-system](docs/architecture/config-system.md)。
+- **STT 默认参数统一合并**：batch 只在 `failover_transcribe_batch`、streaming 只在 `SttSessionManager::start` 合并 `stt.default_options`，请求的非空 / `Some` 字段优先；新增转写入口不得各自复制合并逻辑或绕过这两个边界。Azure Speech 的 `language` 缺失须在联网前 fail closed。
 
 ## 易错提醒（新增即同步）
 
@@ -95,6 +97,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - 工作台聚合 dedup/排序 TS 与 Rust（`session::aggregate_session_artifacts`）两份须同步。
 - 文件打开/下载/预览走 `useFileResource`；新可预览类型改 `src/lib/fileKind.ts` `isPreviewableKind`。
 - preview-by-path：HTTP 三端点共用 `authorized_canonical_file_path`（tool 消息引用 ∪ 会话工作目录内），其余 403（远端严禁任意主机路径）；桌面信任本机。
+- **Docker 部署执行沙箱只允许 `isolated`**：`HA_DEPLOYMENT=docker` 时工作区经有界副本 + Archive API 进入匿名 volume；`standard` / `workspace` / `trusted` 在预检与执行层双重 fail closed，禁止把父容器路径当宿主 daemon 路径。数据根、其祖先与 credentials 不得作为归档源；取消 / timeout 必须覆盖副本与归档准备全过程。
 
 ### Memory
 
@@ -120,7 +123,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - `TeamTemplateMember.description` 注入子 session 身份段
 - **Cron 投递白名单**：`delivery_targets` 须命中 `channel_conversations`——模型显式给的未命中目标创建期 `bail!`，投递期再查、未命中或 DB 不可用 fail-closed 跳过。白名单即边界（刻意不叠 SSRF）
 - **Cron delete 审批**：`manage_cron action=delete` 唯一非 internal action，刻意抑制 AllowAlways——matcher 只按 `action` 不含 `id`，持久化即「删任意任务」常驻授权。owner 三入口走 `cron::delete_job_and_sessions`；新增审批原因同步 `ApprovalReasonKind` + `ApprovalDialog.tsx` union + 全语言文案
-- **Cron owner-only 覆盖**：`permission_mode_override` / `sandbox_mode_override` 仅 owner 可设，`manage_cron` 恒 `None`、不进 schema、`update` 拒带覆盖的 job（否则注入可排 `permission=yolo` 提权）。沙箱 fail-closed：override 写失败即终止本次运行（写丢=裸跑 host），权限 override 写失败仅 warn（退回更严）——不对称刻意，勿拉平；预检读错回退 expected 而非 `Off`（防 `.unwrap_or(Off)`）；`ensure_sandbox_available()` 失败即终止、不回落宿主机
+- **Cron owner-only 覆盖**：`permission_mode_override` / `sandbox_mode_override` 仅 owner 可设，`manage_cron` 恒 `None`、不进 schema、`update` 拒带覆盖的 job（否则注入可排 `permission=yolo` 提权）。沙箱 fail-closed：override 写失败即终止本次运行（写丢=裸跑 host），权限 override 写失败仅 warn（退回更严）——不对称刻意，勿拉平；预检读错回退 expected 而非 `Off`（防 `.unwrap_or(Off)`）；`ensure_sandbox_available_for_mode()` 失败即终止、不回落宿主机
 - **Cron 排程与时区**：`schedule::validate_schedule` 为合法性唯一裁决（owner/模型共用），非法 IANA 时区 `bail!`、禁止静默回退 UTC；`compute_next_cron` 用 `.find(|dt| *dt > *after)` 非裸 `.next()`（否则 DST 秋退写入过去时刻 → 每 tick 重触发）；时区 backfill 经 `cron_meta` sentinel `tz_backfill_done` 真·一次性（形似性能优化，删掉即把故意-UTC 任务静默改成宿主时区）；`update_job` 系统字段以 DB live 为准、不取 caller 快照
 - **Cron Primary-only + slot-before-claim**：执行与 run-now 三入口前置 `is_primary()`（非 Primary 返错不假成功）；调度器先 `count_running()`（并发计数单一真相源，失败 fail-closed 跳过本 pass）抢槽再 claim——claim 会推进 `next_run_at`，反序即静默丢一轮
 - **启动清理必须带 owner 界（红线）**：`clear_stale_running` / `recover_orphaned_runs` 恒按 `running_owner` / `started_owner != CronDB::owner_token`（`NULL` 视为「不是本进程」）判断。`start_scheduler` 起独立 OS 线程后立即返回，启动清理与 `app_init` 下一行的事件 watcher **并发**——去掉这条界即回到「watcher 派出的合法在途任务被当遗留清掉 → 周期 tick 重新 claim → 副作用跑两遍」。**别改回调用顺序保证**（那条从未成立），**也别改回时间界**（`Utc::now()` 不受 Rust happens-before 约束，系统时间回拨即误清）。owner token 与墙上时钟解耦，回拨也不误清
@@ -248,6 +251,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **已删勿引入**：`project_files`/`ProjectFile`/`project_read_file`（项目文件=工作目录真实文件）、`Project.bound_channel`（IM 无反向认领，归属靠 chat 内 `/project <id>`）
 - **交互入口懒创建**：进项目「新建对话」不得 `create_session_cmd` 预建，首条消息经 `chat` 的 `projectId` 落库；`project_id` 与 `incognito` 互斥（**后端强制 incognito off**）；IM/cron/subagent 仍 eager
 - **两个唯一入口**：工作目录 `session::effective_session_working_dir`（session > project > 默认 workspace）；文件读写 `filesystem::WorkspaceScope`（失败闭合，`for_path` 只读，HTTP 写受 `filesystem.allow_remote_writes` 默认 false）
+- **AGENTS.md 缺失可保留**：添加已有目录时用户可取消创建，之后只读检查、启动迁移和未改工作目录的元数据更新均不得补建；读取返回 `exists`，保存必须回传 `expectedExists` + raw BLAKE3，存在状态或内容任一变化都 stale-write fail closed
 - **删除级联**：`rm -rf projects/{id}/` **绝不波及用户显式选的外部 working_dir**；跨 db 项目记忆单独删、启动期 reconciler 兜底
 
 ### Agent 解析链（默认 Agent）
@@ -264,6 +268,9 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 - **下载产物必须验签**：更新下载走 `ha_updater::download::download_to`，落地 / swap 前必过 Minisign `signature::verify_bytes`
 - **pubkey 两处必须相等**：`ha_updater::keys::MINISIGN_PUBKEY_BASE64` ↔ `tauri.conf.json#plugins.updater.pubkey`（启动 panic / CI / pre-push 三重校验）
+- **manifest endpoints 两处逐项逐序相等**：`ha_updater::manifest::UPDATE_MANIFEST_URLS` ↔ `tauri.conf.json#plugins.updater.endpoints`（`verify-updater-endpoints.mjs`，CI + pre-push，另校验镜像域名 ↔ `mirror-release-r2.yml` 的 `PUBLIC_BASE`）。R2 镜像恒排第一——**是可达性不是延迟**（部分用户访问不了 github.com）；**刻意维持「首个成功者胜」**、不做比版本取新，否则桌面与 headless 会对「当前哪个版本」分歧
+- **镜像 manifest 是派生物、GitHub 那份权威**：`mirror-release-r2.yml` 只改 URL 与 `notes` 链接，`signature` 原样复制**绝不重算**（验签用编译期嵌入 pubkey，故污染镜像装不进恶意二进制，最坏只能拒服务/谎报版本）；必须**先回抓校验全部对象再写 `latest.json`**，顺序反了可变 manifest 就会指向不存在的字节
+- **可变面只许当前稳定版写（红线）**：`download/latest/` 与 `download/latest.json` 全局共享，给非 latest / prerelease 写＝降级广播（R2 是 endpoint[0] 且首个成功者胜，全体客户端从此看不到真新版）——回填旧 tag 与发 prerelease 都会触发本 workflow，故推进可变面须过 `PROMOTE` 门控；不可变 `download/<tag>/` 永远照写。`latest/` 别名**禁带 immutable 头**（文件名每版复用）、可变上传须 `--ignore-times`（同名同大小会被静默跳过）；`checkout` 的 `ref:` **必须显式**指默认分支（`release.published` 下 `github.ref` 是 tag，裸 checkout 会取 tag，历史版本从此不可回填）；`update-linux-repo.yml` 整桶 pull 的 `--include` 过滤是 load-bearing，新增本 job 顶层路径须同步
 - **换 binary 只走 `platform::atomic_replace_binary`**（禁 `fs::write` 覆盖运行中 binary）；swap 后冷烟自检失败自动回滚
 - **安装 / 重启必经用户确认**：`auto_update` 后台只检查 + 预下载 staging，`app_update` 的 `install` / `rollback` 弹 `ask_user_question`，**桌面绝不无条件 relaunch**
 - **ha-updater 不依赖 tauri-plugin-updater**（自升级独立 crate，阶段 3 迁出 ha-core），桌面路径经 `ha_updater::UpdaterBridge` 反向注册
@@ -291,7 +298,12 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 ## 开发命令
 
 ```bash
-pnpm tauri dev                        # 开发（改 ha-browser-host 后先 pnpm dev:browser-host）
+pnpm desktop                          # 交互选择下面四种桌面开发模式
+pnpm dev:desktop                      # 默认桌面开发（不构建 Browser Host / Eval Sidecar）
+pnpm dev:desktop:browser              # Chrome 插件联调（仅构建 Browser Host）
+pnpm dev:desktop:eval                 # 评测功能开发（仅构建 Eval Sidecar）
+pnpm dev:desktop:full                 # 完整桌面能力（构建两者）
+pnpm tauri dev                        # 兼容旧入口（等价于完整能力，构建两者）
 node scripts/sync-i18n.mjs --check    # 翻译缺失（--apply 补齐）
 cargo run -p ha-eval --locked -- validate   # 评测资产校验
 ```

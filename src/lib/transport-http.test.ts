@@ -11,18 +11,194 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
-test("HttpTransport builds Artifact previews from opaque ids", () => {
+test("HttpTransport builds remote Artifact previews with a project-bound ticket", async () => {
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "resource-ticket",
+          eventTicket: "event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          ticket: "canvas-bound-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
   const transport = new HttpTransport("http://localhost:8420", "secret token")
+  await transport.initializeRemoteAccess()
+  expect(transport.resolveAssetUrl("/srv/canvas/projects/artifact report 1/index.html")).toBeNull()
 
-  expect(transport.artifactPreviewUrl("artifact/report 1", "/srv/private/artifact")).toBe(
-    "http://localhost:8420/api/canvas/projects/artifact%2Freport%201/index.html?token=secret%20token",
+  await expect(
+    transport.artifactPreviewUrl("artifact report 1", "/srv/private/artifact"),
+  ).resolves.toBe(
+    "http://localhost:8420/api/resource/canvas-bound-ticket/canvas/projects/artifact%20report%201/index.html",
+  )
+  expect(fetchMock.mock.calls[1]).toEqual([
+    "http://localhost:8420/api/auth/preview-resource-ticket",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer secret token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ kind: "canvas_project", projectId: "artifact report 1" }),
+    },
+  ])
+  expect(fetchMock.mock.calls[0]?.[1]).toEqual({
+    method: "POST",
+    headers: { Authorization: "Bearer secret token" },
+  })
+})
+
+test("HttpTransport binds Design previews to the path-derived artifact subtree", async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        ticket: "design-bound-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  const transport = new HttpTransport("https://agent.example", "owner-token")
+
+  const projectPath = "/srv/design/projects/project 1/artifacts/artifact 2"
+  await expect(transport.artifactPreviewUrl("artifact 2", projectPath)).resolves.toBe(
+    "https://agent.example/api/resource/design-bound-ticket/design/projects/project%201/artifacts/artifact%202/index.html",
+  )
+  await expect(transport.artifactPreviewUrl("artifact 2", projectPath)).resolves.toContain(
+    "design-bound-ticket",
+  )
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(fetchMock).toHaveBeenCalledWith("https://agent.example/api/auth/preview-resource-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer owner-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      kind: "design_artifact",
+      projectId: "project 1",
+      artifactId: "artifact 2",
+    }),
+  })
+})
+
+test("HttpTransport mints a single-file ticket for remote workspace previews", async () => {
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "generic-resource-ticket",
+          eventTicket: "event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ ticket: "bound-file-ticket", expiresInSecs: 900 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+  const transport = new HttpTransport("https://agent.example", "owner-token")
+
+  await expect(
+    transport.projectFsRawUrl({
+      scope: "project",
+      scopeId: "project-1",
+      path: "preview/index.html",
+    }),
+  ).resolves.toBe("https://agent.example/api/resource/bound-file-ticket/fs/raw")
+
+  expect(fetchMock.mock.calls[1]).toEqual([
+    "https://agent.example/api/fs/raw-ticket",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer owner-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        scope: "project",
+        scopeId: "project-1",
+        path: "preview/index.html",
+      }),
+    },
+  ])
+  expect(fetchMock.mock.calls[1]?.[0]).not.toContain("generic-resource-ticket")
+})
+
+test("HttpTransport mints a path-bound ticket for session file previews", async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        ticket: "bound-session-file-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  const transport = new HttpTransport("https://agent.example", "owner-token")
+
+  await expect(
+    transport.previewRawUrl("/srv/session/visible.html", { sessionId: "session-1" }),
+  ).resolves.toBe("https://agent.example/api/resource/bound-session-file-ticket/fs/raw")
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    "https://agent.example/api/sessions/session-1/files/by-path-ticket",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer owner-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        path: "/srv/session/visible.html",
+        download: false,
+      }),
+    },
+  )
+  expect(fetchMock.mock.calls[0]?.[0]).not.toContain("visible.html")
+})
+
+test("HttpTransport uses the protected direct session route when authentication is disabled", async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({ authRequired: false, ticket: null, expiresInSecs: null }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  const transport = new HttpTransport("http://localhost:8420")
+
+  const url = await transport.previewRawUrl("/srv/session/report.pdf", {
+    sessionId: "session-1",
+  })
+
+  expect(url).toBe(
+    "http://localhost:8420/api/sessions/session-1/files/by-path?path=%2Fsrv%2Fsession%2Freport.pdf",
   )
 })
 
-test("HttpTransport requests durable-state resync on connect and EventBus lag", () => {
+test("HttpTransport requests durable-state resync on connect and EventBus lag", async () => {
   class MockWebSocket {
     static instances: MockWebSocket[] = []
     readyState = 0
@@ -31,8 +207,9 @@ test("HttpTransport requests durable-state resync on connect and EventBus lag", 
     onerror: (() => void) | null = null
     onclose: (() => void) | null = null
 
-    constructor(url: string) {
+    constructor(url: string, protocols?: string[]) {
       void url
+      void protocols
       MockWebSocket.instances.push(this)
     }
 
@@ -58,12 +235,292 @@ test("HttpTransport requests durable-state resync on connect and EventBus lag", 
     resyncReasons.push(payload)
   })
 
+  await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
   const socket = MockWebSocket.instances[0]
   socket.open()
   socket.message({ name: "_lagged", payload: { missed: 3 } })
 
   expect(resyncReasons).toEqual([{ reason: "connected" }, { reason: "lagged", missed: 3 }])
   unsubscribe()
+})
+
+test("HttpTransport sends the scoped event ticket as a WebSocket subprotocol", async () => {
+  class MockWebSocket {
+    static calls: Array<{ url: string; protocols?: string[] }> = []
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+
+    constructor(url: string, protocols?: string[]) {
+      MockWebSocket.calls.push({ url, protocols })
+    }
+
+    close() {
+      this.readyState = 3
+    }
+  }
+
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        resourceTicket: "resource-ticket",
+        eventTicket: "event-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  vi.stubGlobal("WebSocket", MockWebSocket)
+  const transport = new HttpTransport("https://agent.example", "root-secret")
+  const unsubscribe = transport.listen("config:changed", () => undefined)
+
+  await vi.waitFor(() => expect(MockWebSocket.calls).toHaveLength(1))
+  expect(MockWebSocket.calls[0]).toEqual({
+    url: "wss://agent.example/ws/events",
+    protocols: ["ha-events.event-ticket"],
+  })
+  expect(MockWebSocket.calls[0].url).not.toContain("root-secret")
+  unsubscribe()
+})
+
+test("HttpTransport remints scoped tickets after a rejected WebSocket handshake", async () => {
+  vi.useFakeTimers()
+  class MockWebSocket {
+    static instances: MockWebSocket[] = []
+    static calls: Array<{ url: string; protocols?: string[] }> = []
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+
+    constructor(url: string, protocols?: string[]) {
+      MockWebSocket.instances.push(this)
+      MockWebSocket.calls.push({ url, protocols })
+    }
+
+    close() {
+      this.readyState = 3
+      this.onclose?.()
+    }
+  }
+
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "old-resource-ticket",
+          eventTicket: "old-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "new-resource-ticket",
+          eventTicket: "new-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+  vi.stubGlobal("WebSocket", MockWebSocket)
+  const transport = new HttpTransport("https://agent.example", "root-secret")
+  const unsubscribe = transport.listen("config:changed", () => undefined)
+
+  await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
+  MockWebSocket.instances[0].close()
+  await vi.advanceTimersByTimeAsync(1_000)
+  await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(2))
+
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  expect(MockWebSocket.calls[1].protocols).toEqual(["ha-events.new-event-ticket"])
+  unsubscribe()
+})
+
+test("HttpTransport refreshes the same-origin browser session after token replacement", async () => {
+  vi.stubGlobal("window", { location: { origin: "http://localhost:8420" } })
+  fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+  const transport = new HttpTransport("http://localhost:8420")
+
+  await transport.activateOwnerToken("replacement-secret")
+
+  expect(fetchMock).toHaveBeenCalledWith("http://localhost:8420/api/auth/session", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: "replacement-secret", remember: true }),
+  })
+  await expect(transport.artifactPreviewUrl("artifact-1")).resolves.toBe(
+    "http://localhost:8420/api/canvas/projects/artifact-1/index.html",
+  )
+})
+
+test("HttpTransport ignores scoped tickets minted for a replaced Owner Token", async () => {
+  let resolveOldRequest: ((response: Response) => void) | undefined
+  fetchMock
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveOldRequest = resolve
+        }),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "new-resource-ticket",
+          eventTicket: "new-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+  const transport = new HttpTransport("https://agent.example", "old-owner-token")
+  const oldRequest = transport.initializeRemoteAccess()
+  await transport.activateOwnerToken("new-owner-token")
+  resolveOldRequest?.(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        resourceTicket: "stale-resource-ticket",
+        eventTicket: "stale-event-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  await oldRequest
+
+  expect(transport.resolveAssetUrl("/srv/avatars/a.png")).toContain("new-resource-ticket")
+  expect(transport.resolveAssetUrl("/srv/avatars/a.png")).not.toContain("stale-resource-ticket")
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+    headers: { Authorization: "Bearer old-owner-token" },
+  })
+  expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+    headers: { Authorization: "Bearer new-owner-token" },
+  })
+})
+
+test("HttpTransport ignores a preview ticket minted for a replaced Owner Token", async () => {
+  let resolveOldPreview: ((response: Response) => void) | undefined
+  fetchMock
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveOldPreview = resolve
+        }),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "new-resource-ticket",
+          eventTicket: "new-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          ticket: "new-preview-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+  const transport = new HttpTransport("https://agent.example", "old-owner-token")
+  const stalePreview = transport.artifactPreviewUrl("artifact-1")
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+  await transport.activateOwnerToken("new-owner-token")
+  resolveOldPreview?.(
+    new Response(
+      JSON.stringify({
+        authRequired: true,
+        ticket: "stale-preview-ticket",
+        expiresInSecs: 900,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+  await expect(stalePreview).resolves.toBeNull()
+  await expect(transport.artifactPreviewUrl("artifact-1")).resolves.toContain("new-preview-ticket")
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+    headers: expect.objectContaining({ Authorization: "Bearer old-owner-token" }),
+  })
+  expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({
+    headers: expect.objectContaining({ Authorization: "Bearer new-owner-token" }),
+  })
+})
+
+test("HttpTransport ignores stale 401 responses after Owner Token replacement", async () => {
+  let resolveStaleRequest: ((response: Response) => void) | undefined
+  const dispatchEvent = vi.fn()
+  vi.stubGlobal("window", {
+    location: { origin: "https://ui.example" },
+    dispatchEvent,
+  })
+  fetchMock
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveStaleRequest = resolve
+        }),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          authRequired: true,
+          resourceTicket: "new-resource-ticket",
+          eventTicket: "new-event-ticket",
+          expiresInSecs: 900,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+  const transport = new HttpTransport("https://agent.example", "old-owner-token")
+  const staleRequest = transport.call("get_server_runtime_status")
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+  await transport.activateOwnerToken("new-owner-token")
+  resolveStaleRequest?.(new Response("unauthorized", { status: 401 }))
+  await expect(staleRequest).rejects.toThrow("returned 401")
+
+  expect(dispatchEvent).not.toHaveBeenCalled()
+  expect(transport.resolveAssetUrl("/srv/avatars/a.png")).toContain("new-resource-ticket")
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+    headers: { Authorization: "Bearer old-owner-token" },
+  })
+  expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+    headers: { Authorization: "Bearer new-owner-token" },
+  })
+})
+
+test("HttpTransport keeps provisional remote-auth failures local to the connection flow", async () => {
+  const dispatchEvent = vi.fn()
+  vi.stubGlobal("window", { dispatchEvent })
+  fetchMock.mockResolvedValue(new Response("unauthorized", { status: 401 }))
+  const transport = new HttpTransport("https://agent.example", "wrong-owner-token")
+
+  await expect(transport.initializeRemoteAccess(false)).rejects.toThrow(
+    "Remote authentication failed (401)",
+  )
+
+  expect(dispatchEvent).not.toHaveBeenCalled()
 })
 
 test("HttpTransport.startChat only bridges session_created and not late turn_started", async () => {
@@ -151,6 +608,7 @@ test("HttpTransport.save_attachment unwraps path from multipart response", async
 
 test("HttpTransport extracts only attachments owned by the active session", async () => {
   const transport = new HttpTransport("http://localhost:8420", "secret")
+  const browserTransport = new HttpTransport("http://localhost:8420")
   fetchMock.mockResolvedValue(
     new Response(
       JSON.stringify({ relPath: "report.docx", kind: "office", text: "report", images: [] }),
@@ -160,6 +618,25 @@ test("HttpTransport extracts only attachments owned by the active session", asyn
       },
     ),
   )
+
+  expect(
+    browserTransport.resolveMediaUrl({
+      url: "/api/attachments/session-a/report.docx?token=legacy-secret&download=1",
+      name: "report.docx",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      sizeBytes: 100,
+      kind: "file",
+    }),
+  ).toBe("http://localhost:8420/api/attachments/session-a/report.docx?download=1")
+  expect(
+    transport.resolveMediaUrl({
+      url: "/api/attachments/session-a/report.docx?token=legacy-secret",
+      name: "report.docx",
+      mimeType: "application/octet-stream",
+      sizeBytes: 100,
+      kind: "file",
+    }),
+  ).toBeNull()
 
   await expect(
     transport.extractMediaDocument(
@@ -175,7 +652,7 @@ test("HttpTransport extracts only attachments owned by the active session", asyn
   ).resolves.toMatchObject({ text: "report" })
   const [extractUrl, extractInit] = fetchMock.mock.lastCall!
   expect(extractUrl.toString()).toBe(
-    "http://localhost:8420/api/attachments/session-a/report.docx/extract?token=secret",
+    "http://localhost:8420/api/attachments/session-a/report.docx/extract",
   )
   expect(extractInit).toEqual({ headers: { Authorization: "Bearer secret" } })
 
@@ -193,6 +670,29 @@ test("HttpTransport extracts only attachments owned by the active session", asyn
     ),
   ).rejects.toThrow("outside the active session")
   expect(fetchMock).not.toHaveBeenCalled()
+})
+
+test("HttpTransport turns Bearer-authenticated remote media into a temporary Blob URL", async () => {
+  const transport = new HttpTransport("https://agent.example", "root-secret")
+  const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:secure-media")
+  const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined)
+  fetchMock.mockResolvedValue(new Response("image-bytes", { status: 200 }))
+
+  const lease = await transport.loadMediaUrl({
+    url: "/api/attachments/session-a/image.png?token=legacy-secret",
+    name: "image.png",
+    mimeType: "image/png",
+    sizeBytes: 11,
+    kind: "image",
+  })
+
+  expect(lease.url).toBe("blob:secure-media")
+  const [url, init] = fetchMock.mock.lastCall!
+  expect(url.toString()).toBe("https://agent.example/api/attachments/session-a/image.png")
+  expect(init).toEqual({ headers: { Authorization: "Bearer root-secret" } })
+  expect(createObjectUrl).toHaveBeenCalledOnce()
+  lease.release()
+  expect(revokeObjectUrl).toHaveBeenCalledWith("blob:secure-media")
 })
 
 test("HttpTransport.try_restore_session unwraps HTTP restored payload", async () => {

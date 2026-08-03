@@ -539,7 +539,11 @@ owner/GUI 生成走**真 token 流式**——边生成边成形预览，而非�
 
 ### 9.3 侧边栏入口
 
-在 [`IconSidebar.tsx`](../../src/components/common/IconSidebar.tsx) 的「知识空间」入口**正下方**插入「设计空间」入口（lucide 图标，建议 `Palette` / `Shapes` / `PenTool`，`t("design.title")`，`view === "design"` 高亮，`onClick={onOpenDesign}`）。同步 `App.tsx` 的 `view` 联合、`lazy` import、渲染分支、`onOpenDesign` prop。
+[`IconSidebar.tsx`](../../src/components/common/IconSidebar.tsx) 的「设计空间」入口位于「知识空间」正下方。主窗口里的 `DesignView` 属于 `PERSISTENT_APP_VIEWS`：首次访问才挂载，切去其他侧边栏入口只隐藏并设 `inert`，不得卸载；`isViewVisible` 门控快捷键 / 焦点 / 高成本副作用，返回时保留项目、当前产物、已打开标签和布局。
+
+桌面版入口支持三条等价弹出路径：右键图标选择「在独立窗口打开」、双击图标、工作区标题栏按钮。三者都走 [`spaceWindow.ts`](../../src/lib/spaceWindow.ts) 的固定 label 单实例窗口，当前位置载荷为 `{projectId, artifactId}`；已有窗口时只导航 / 聚焦，不创建第二个。独立窗口标题栏「收回主窗口」经 `SPACE_WINDOW_REATTACH_EVENT` 把当前位置交还主 `DesignView` 后关闭。普通点击侧边栏图标时，若独立窗口仍在则聚焦窗口；窗口已失效才回退主窗口视图。
+
+设计空间首页是一级落点，不显示返回按钮；进入项目后才显示「返回项目列表」。标题栏的弹出 / 收回使用 Lucide 原生配对的 `SquareArrowRightExit` / `SquareArrowRightEnter`，tooltip 同步区分动作，不用 CSS 旋转伪造反向图标。macOS 独立窗口的同一行标题栏从交通灯右侧开始，剩余伸缩区显式标记 `data-tauri-drag-region`。
 
 ### 9.4 每项目 AI 对话线程
 
@@ -573,7 +577,7 @@ owner/GUI 生成走**真 token 流式**——边生成边成形预览，而非�
   - **3-3 版本历史双栏（`DesignVersionHistoryModal`，独立组件）**：左栏版本列表（溯源徽标 + 标题 + 相对时间 + `>3` 时搜索），右栏选中版本 **srcdoc live 预览**（沙箱 iframe，读磁盘 `versions/{n}/index.html` 快照，dormant bridge 未激活无害）；内容按版本号缓存 + hover 预取零往返。**溯源列**：`design_artifact_versions` 加 `origin`（`ai`/`manual`/`restore`）+ `prompt_summary`，在**全部 4 个 create_version 站点**赋值（生成/精修=ai、可视化编辑/换系统=manual、回滚=restore；`UpdateArtifactInput` 加同名字段缺省 ai）；分支未发布，CREATE TABLE + 幂等 ALTER 补列，无迁移。**恢复二次确认**（AlertDialog），恢复仍在后端生成**新**版本（原历史不动）。owner 新命令：`duplicate_design_project_cmd`（深拷贝产物磁盘目录 + 版本行 + 改写 artifact.json，失败整体回滚删项目 + 目录）、`get_design_artifact_version_html_cmd`（快照 HTML，Tauri `String` ↔ HTTP `Json<String>` 裸串对齐）。
 - **B4 预览纵深（批注批量 / 设备视口 / 演示）**：
   - **4-2 批注批量带到对话**：`DesignCommentPanel` 多选 open 批注 → `handleBatchCommentsToChat` 合成一个 scope-guarded 结构块（编号 + 元素 snippet/tag + 反馈正文 + 「仅改这些」硬约束）作**单条 quote** 塞 composer（对齐参照 `<attached-preview-comments>`）。**刻意分歧**：参照 `applying/needs_review` 是绑 conversation-run 的瞬时态，我方就地精修静默单条 → 只保留 open/resolved（忠实终态），不引瞬时态。
-  - **4-3 设备视口切换**：`PreviewDevice = auto|desktop|tablet|mobile`（`DEVICE_PRESETS` desktop 1440 / tablet 820×1180 / mobile 390×844）；`auto` 沿用产物自然 viewportW/H + 既有 zoom（**默认，零回归**），非 auto 走 `previewPaneRef` ResizeObserver 测面 → 整体 `deviceScale` 缩放适配 + 居中设备框（zoom 隐藏）。per-artifact `localStorage design:device:{id}` 记忆（参照用 session Map，我方按 roadmap 持久）。
+  - **4-3 设备视口切换**：`PreviewDevice = auto|<preset-id>|custom`；`designViewport.ts` 是桌面 / 主流手机 / 平板 CSS viewport（逻辑像素）清单的单一来源，并保留 legacy `desktop|tablet|mobile` id 兼容已有选择。`auto` 沿用产物自然 viewportW/H + 既有 zoom（**默认，零回归**），预设与 custom 走 `previewPaneRef` ResizeObserver 测面 → 整体 `deviceScale` 缩放适配 + 居中设备框（zoom 隐藏）；custom 同时支持宽高输入与右侧 / 底部 / 右下角拖拽。拖拽期间冻结起始 `deviceScale` 与居中外层的屏上占位，内层从左上角向右 / 下增长；结束即释放冻结、恢复随面板 contain 适配。屏上拖动量除以冻结 scale 换回逻辑像素，使手柄逐像素跟随且无需动态位移样式。per-artifact `localStorage design:device:{id}` 记忆选择，`design:custom-viewport:{id}` 记忆自定义宽高。
   - **4-4 Present 演示**：`presentMode` 本窗口无 chrome 覆盖态（fixed inset-0 全屏 iframe + Escape 退出）+ `presentFullscreen`（`requestFullscreen` on `previewPaneRef`）。**刻意分歧**：参照有 `window.open(noopener)` 新标签，我方沙箱 srcDoc 无 URL → 不做（取出走 3-2 磁盘/导出）。
   - **4-1 绘制批注叠层（排为下一专项，不删）**：区域画框/涂鸦 + 烧进截图带到对话。最难/最脆：沙箱 opaque-origin 下捕获须改安全敏感 inspector bridge（SVG-foreignObject 光栅化脆弱）或 offscreen 重渲染（滚动错位）。现有元素钉 + 一键精修 + 4-2 批量已覆盖「标注→反馈」，4-1 差异=烧进截图，为守高可用/性能稳定单独立项。
 - **B5 检视器编辑广度（链接 / 图片 / undo-redo）**：

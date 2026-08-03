@@ -43,7 +43,8 @@ pub enum FailoverReason {
     ModelNotFound,
     /// Context window exceeded — NOT fallback-able (smaller model would be worse)
     ContextOverflow,
-    /// Unrecognized error — skip to next model
+    /// Unrecognized error — retry with a small budget because opaque provider / proxy errors
+    /// are often transient, then skip to the next model.
     Unknown,
 }
 
@@ -65,7 +66,10 @@ impl FailoverReason {
     /// Whether this error class should be retried on the **same** model
     /// (with backoff) before moving to the next model in the chain.
     pub fn is_retryable(&self) -> bool {
-        matches!(self, Self::RateLimit | Self::Overloaded | Self::Timeout)
+        matches!(
+            self,
+            Self::RateLimit | Self::Overloaded | Self::Timeout | Self::Unknown
+        )
     }
 
     /// Whether this error should immediately surface to the user
@@ -104,8 +108,35 @@ impl FailoverReason {
 
 // ── Error Classification ──────────────────────────────────────────
 
-// Regex-style patterns for error classification.
-// We use simple substring matching for performance.
+// Known semantic phrases use substring matching. Ambiguous generic 500/504
+// codes require explicit HTTP/API-status context so token counts and request
+// IDs cannot accidentally trigger retries or profile cooldowns.
+
+static HTTP_STATUS_CODE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r#"(?ix)
+        (?:
+            \bhttp(?:/\d(?:\.\d)?)?\s* |
+            \bstatus(?:\s+code)?\s*[:=]?\s* |
+            \bresponse\s+code\s*[:=]?\s* |
+            \bapi\s+(?:error|错误)\s*[\(:=]?\s* |
+            ["']status["']\s*:\s*
+        )
+        (?P<code>[1-5][0-9]{2})\b
+        "#,
+    )
+    .expect("valid HTTP status code regex")
+});
+
+fn contains_http_status(error_msg: &str, expected: &str) -> bool {
+    HTTP_STATUS_CODE_RE
+        .captures_iter(error_msg)
+        .any(|captures| {
+            captures
+                .name("code")
+                .is_some_and(|code| code.as_str() == expected)
+        })
+}
 
 /// Classify an API error message into a `FailoverReason`.
 ///
@@ -135,7 +166,8 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
     }
 
     // ── Overloaded (retryable) ────────────────────────────────────
-    if lower.contains("503")
+    if contains_http_status(&lower, "500") // Internal Server Error
+        || lower.contains("503")
         || lower.contains("overloaded")
         || lower.contains("service unavailable")
         || lower.contains("temporarily unavailable")
@@ -143,6 +175,7 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
         || lower.contains("internal server error")
         || lower.contains("an error occurred while processing your request")
         || lower.contains("502")  // Bad Gateway
+        || contains_http_status(&lower, "504") // Gateway Timeout
         || lower.contains("521")  // Cloudflare origin down
         || lower.contains("522")  // Cloudflare connection timed out
         || lower.contains("524")
@@ -210,6 +243,7 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
     if lower.contains("404")
         || lower.contains("model not found")
         || lower.contains("model_not_found")
+        || lower.contains("provider not found")
         || lower.contains("does not exist")
         || lower.contains("not_found_error")
     {
@@ -502,10 +536,38 @@ mod tests {
             classify_error("502 Bad Gateway"),
             FailoverReason::Overloaded
         );
+        assert_eq!(
+            classify_error("Codex API 错误 (500):"),
+            FailoverReason::Overloaded
+        );
+        assert_eq!(
+            classify_error("Codex API 错误 (504):"),
+            FailoverReason::Overloaded
+        );
+        assert_eq!(
+            classify_error("request failed with status: 500"),
+            FailoverReason::Overloaded
+        );
         assert_eq!(classify_error("server_error"), FailoverReason::Overloaded);
         assert_eq!(
             classify_error("An error occurred while processing your request. Please include the request ID 8d46da73-d9c2-44d5-af24-707fb7680aad in your message."),
             FailoverReason::Overloaded
+        );
+    }
+
+    #[test]
+    fn status_codes_require_http_context() {
+        assert_eq!(
+            classify_error("maximum output tokens is 500"),
+            FailoverReason::Unknown
+        );
+        assert_eq!(
+            classify_error("request ID abc-500-def"),
+            FailoverReason::Unknown
+        );
+        assert_eq!(
+            classify_error("using model v504-preview"),
+            FailoverReason::Unknown
         );
     }
 
@@ -575,6 +637,10 @@ mod tests {
             classify_error("The model does not exist"),
             FailoverReason::ModelNotFound
         );
+        assert_eq!(
+            classify_error("Provider not found: removed-provider for model example-model"),
+            FailoverReason::ModelNotFound
+        );
     }
 
     #[test]
@@ -599,6 +665,7 @@ mod tests {
         assert!(FailoverReason::RateLimit.is_retryable());
         assert!(FailoverReason::Overloaded.is_retryable());
         assert!(FailoverReason::Timeout.is_retryable());
+        assert!(FailoverReason::Unknown.is_retryable());
         assert!(!FailoverReason::Auth.is_retryable());
         assert!(!FailoverReason::ContextOverflow.is_retryable());
     }

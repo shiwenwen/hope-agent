@@ -1,4 +1,4 @@
-use axum::{extract::Path, Json};
+use axum::{extract::Path, Extension, Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -893,17 +893,26 @@ pub async fn set_ask_user_question_timeout_enabled(
 // ── Server Config ──────────────────────────────────────────────
 
 /// `GET /api/config/server` -- get embedded server config (api_key masked).
-pub async fn get_server_config() -> Result<Json<Value>, AppError> {
-    let store = load_config()?;
+pub async fn get_server_config(
+    Extension(auth): Extension<crate::middleware::AuthState>,
+) -> Result<Json<Value>, AppError> {
+    let store = ha_core::config::cached_config();
     let server = &store.server;
-    // Mask api_key for security — only reveal whether it's set
-    let masked_key = server.api_key.as_ref().map(|k| {
-        if k.is_empty() {
-            "****".to_string()
-        } else {
-            ha_core::mask_secret_middle(k, 2, 2)
-        }
-    });
+    let (masked_key, api_key_fingerprint) = if auth.externally_managed() {
+        (
+            auth.auth_required().then(|| "••••••••".to_string()),
+            auth.owner_fingerprint(),
+        )
+    } else {
+        ha_core::blocking::run_blocking(|| {
+            Ok::<_, anyhow::Error>((
+                ha_core::server_auth::masked_managed_token()?,
+                ha_core::server_auth::managed_token_fingerprint()?,
+            ))
+        })
+        .await?
+    };
+    let has_api_key = masked_key.is_some();
     let masked_knowledge_agent_read_token = server.knowledge_agent_read_token.as_ref().map(|k| {
         if k.is_empty() {
             "****".to_string()
@@ -914,7 +923,9 @@ pub async fn get_server_config() -> Result<Json<Value>, AppError> {
     Ok(Json(json!({
         "bindAddr": server.bind_addr,
         "apiKey": masked_key,
-        "hasApiKey": server.api_key.is_some(),
+        "hasApiKey": has_api_key,
+        "apiKeyFingerprint": api_key_fingerprint,
+        "apiKeyExternallyManaged": auth.externally_managed(),
         "knowledgeAgentReadToken": masked_knowledge_agent_read_token,
         "hasKnowledgeAgentReadToken": server.knowledge_agent_read_token.is_some(),
     })))
@@ -922,14 +933,27 @@ pub async fn get_server_config() -> Result<Json<Value>, AppError> {
 
 /// `PUT /api/config/server` -- save embedded server config.
 pub async fn save_server_config(
+    Extension(auth): Extension<crate::middleware::AuthState>,
     Json(body): Json<ConfigBody<ha_core::config::EmbeddedServerConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config_async(("server", "http"), move |store| {
-        let next = body.config.merge_over_existing(&store.server);
-        store.server = next;
-        Ok(())
+    let token_update = body.config.api_key.is_some();
+    if auth.externally_managed() && token_update {
+        return Err(AppError::conflict_with_code(
+            "server_token_externally_managed",
+            "The owner token is externally managed; update HA_API_KEY or HA_API_KEY_FILE instead",
+        ));
+    }
+    let external_runtime_auth = auth.externally_managed() && auth.auth_required();
+    ha_core::blocking::run_blocking(move || {
+        ha_core::server_auth::update_server_config(body.config, "http", external_runtime_auth)
     })
     .await?;
+    if token_update {
+        let token =
+            ha_core::blocking::run_blocking(ha_core::server_auth::load_managed_token).await?;
+        auth.replace_owner_token(token)
+            .map_err(|error| AppError::internal(error.to_string()))?;
+    }
     Ok(Json(json!({ "saved": true, "restartRequired": true })))
 }
 

@@ -49,7 +49,6 @@ async fn server_starts_and_serves_health() {
             .expect("init_runtime contract")
             .clone(),
         chat_cancels: Arc::new(RwLock::new(HashMap::<String, Arc<AtomicBool>>::new())),
-        api_key: None,
     });
 
     // Bind to an ephemeral port and read the actual address back so the

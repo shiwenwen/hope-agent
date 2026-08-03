@@ -712,16 +712,19 @@ export default function CronJobForm({
             <p className="text-[10px] text-muted-foreground">
               {t("cron.permissionSandboxHint")}
             </p>
-            {sandboxNeedsDocker && !dockerReady && (
-              <DockerSetupHint
-                status={dockerStatus}
-                checking={dockerChecking}
-                onRefresh={checkDocker}
-                title={t("chat.sandboxMode.setupTitle", {
-                  defaultValue: "配置 Docker 后启用沙箱",
-                })}
-              />
-            )}
+            {sandboxNeedsDocker &&
+              (!dockerReady ||
+                (dockerStatus?.isolatedModeOnly && sandboxModeOverride !== "isolated")) && (
+                <DockerSetupHint
+                  status={dockerStatus}
+                  checking={dockerChecking}
+                  onRefresh={checkDocker}
+                  sandboxMode={sandboxModeOverride}
+                  title={t("chat.sandboxMode.setupTitle", {
+                    defaultValue: "配置 Docker 后启用沙箱",
+                  })}
+                />
+              )}
             {permissionModeOverride === "yolo" && sandboxModeOverride === "off" && (
               <div className="flex items-start gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive">
                 <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />

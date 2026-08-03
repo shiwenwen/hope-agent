@@ -30,6 +30,7 @@ import type {
 } from "@/types/knowledge"
 import { FileContextMenu, FileActionsMoreButton } from "../files/FileActionMenu"
 import { useFileResource } from "../files/useFileResource"
+import { useMediaUrl } from "../files/useMediaUrl"
 import type { FileTarget } from "../files/types"
 import { FileMimeIcon } from "./FileCard"
 
@@ -81,41 +82,45 @@ function mediaItemFromAttachment(attachment: MessageAttachment): MediaItem {
   }
 }
 
-function resolveAttachmentPreview(
-  attachment: MessageAttachment,
-  transport: ReturnType<typeof useTransport>,
-): string | null {
-  if (attachment.previewUrl) return attachment.previewUrl
-  return transport.resolveMediaUrl(mediaItemFromAttachment(attachment))
-}
-
 function attachmentTarget(attachment: MessageAttachment): FileTarget {
   return { kind: "media", item: mediaItemFromAttachment(attachment) }
 }
 
 function MessageImageAttachment({
   attachment,
-  src,
   sessionId,
   onArchive,
 }: {
   attachment: MessageAttachment
-  src: string
   sessionId?: string | null
   onArchive: (attachment: MessageAttachment) => void
 }) {
   const { t } = useTranslation()
   const { openLightbox } = useLightbox()
+  const item = useMemo(() => mediaItemFromAttachment(attachment), [attachment])
+  const src = useMediaUrl(item, attachment.previewUrl)
   const target = useMemo(() => attachmentTarget(attachment), [attachment])
   const overrides = useMemo(
     () => ({
       sessionId,
-      onPreviewFile: () => openLightbox(src, attachment.name),
+      onPreviewFile: () => {
+        if (src) openLightbox(src, attachment.name)
+      },
     }),
     [attachment.name, openLightbox, sessionId, src],
   )
   const { primary, run } = useFileResource(target, overrides)
   const canArchive = Boolean(sessionId && attachment.localPath)
+
+  if (!src) {
+    return (
+      <MessageFileAttachment
+        attachment={attachment}
+        sessionId={sessionId}
+        onArchive={onArchive}
+      />
+    )
+  }
 
   return (
     <FileContextMenu target={target} overrides={overrides}>
@@ -359,39 +364,23 @@ function UserAttachments({ attachments, sessionId }: UserAttachmentsProps) {
   if (items.length === 0) return null
 
   const imageItems = items.filter((item) => item.kind === "image")
-  const imagePreviewItems = imageItems
-    .map((attachment, index) => ({
-      attachment,
-      index,
-      src: resolveAttachmentPreview(attachment, transport),
-    }))
-    .filter((item): item is { attachment: MessageAttachment; index: number; src: string } =>
-      Boolean(item.src),
-    )
-  const imageFallbackItems = imageItems.filter(
-    (attachment) => !resolveAttachmentPreview(attachment, transport),
-  )
   const quoteItems = items.filter((item) => item.kind === "quote")
   const messageQuoteItems = items.filter((item) => item.kind === "message_quote")
-  const fileItems = [
-    ...items.filter(
-      (item) => item.kind !== "image" && item.kind !== "quote" && item.kind !== "message_quote",
-    ),
-    ...imageFallbackItems,
-  ]
+  const fileItems = items.filter(
+    (item) => item.kind !== "image" && item.kind !== "quote" && item.kind !== "message_quote",
+  )
 
   return (
     <div className="mb-2 flex flex-col gap-2">
-      {imagePreviewItems.length > 0 && (
+      {imageItems.length > 0 && (
         <div className="flex flex-wrap justify-end gap-2">
-          {imagePreviewItems.map(({ attachment, index, src }) => (
+          {imageItems.map((attachment, index) => (
             <MessageImageAttachment
-                key={`${attachment.name}:${attachment.localPath ?? attachment.url ?? index}`}
+              key={`${attachment.name}:${attachment.localPath ?? attachment.url ?? index}`}
               attachment={attachment}
-                    src={src}
               sessionId={sessionId}
               onArchive={openArchiveDialog}
-                  />
+            />
           ))}
         </div>
       )}

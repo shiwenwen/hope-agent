@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from "react"
-import { ChevronUp, Folder, FolderOpen, FolderPlus, Loader2, RefreshCw } from "lucide-react"
+import {
+  ChevronUp,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Home,
+  Loader2,
+  RefreshCw,
+  ShieldAlert,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   Dialog,
@@ -12,8 +21,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { type DirListing } from "@/lib/transport"
-import { getTransport } from "@/lib/transport-provider"
+import { TRANSPORT_EVENT_RESYNC_REQUIRED, type DirListing } from "@/lib/transport"
+import { useTransport } from "@/lib/transport-provider"
+import { readFilesystemConfig } from "@/lib/filesystemConfig"
 import { logger } from "@/lib/logger"
 
 interface ServerDirectoryBrowserProps {
@@ -32,6 +42,8 @@ export default function ServerDirectoryBrowser({
   allowCreate = false,
 }: ServerDirectoryBrowserProps) {
   const { t } = useTranslation()
+  const transport = useTransport()
+  const workspaceIsLocal = transport.fileRuntime().workspaceHost === "local"
   const [listing, setListing] = useState<DirListing | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -39,30 +51,74 @@ export default function ServerDirectoryBrowser({
   const [newFolderName, setNewFolderName] = useState("")
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [createErrorDetail, setCreateErrorDetail] = useState<string | null>(null)
+  const [remoteWritesAllowed, setRemoteWritesAllowed] = useState<boolean | null>(null)
+  const [remoteWritesCheckFailed, setRemoteWritesCheckFailed] = useState(false)
+  const [remoteWritesRefreshRevision, setRemoteWritesRefreshRevision] = useState(0)
 
-  const load = useCallback(async (path?: string): Promise<DirListing | null> => {
-    setLoading(true)
-    setError(null)
-    setCreateError(null)
-    try {
-      const result = await getTransport().listServerDirectory(path)
-      setListing(result)
-      setManualPath(result.path)
-      return result
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      logger.error(
-        "chat",
-        "ServerDirectoryBrowser::load",
-        "Failed to list server directory",
-        e,
-      )
-      setError(message)
-      return null
-    } finally {
-      setLoading(false)
+  const load = useCallback(
+    async (path?: string): Promise<DirListing | null> => {
+      setLoading(true)
+      setError(null)
+      setCreateError(null)
+      setCreateErrorDetail(null)
+      try {
+        const result = await transport.listServerDirectory(path)
+        setListing(result)
+        setManualPath(result.path)
+        return result
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error("chat", "ServerDirectoryBrowser::load", "Failed to list server directory", e)
+        setError(message)
+        return null
+      } finally {
+        setLoading(false)
+      }
+    },
+    [transport],
+  )
+
+  useEffect(() => {
+    if (!open || !allowCreate || workspaceIsLocal) return
+
+    let cancelled = false
+    let requestRevision = 0
+    const refresh = async () => {
+      const currentRevision = ++requestRevision
+      setRemoteWritesAllowed(null)
+      setRemoteWritesCheckFailed(false)
+      try {
+        const config = await readFilesystemConfig(transport)
+        if (!cancelled && currentRevision === requestRevision) {
+          setRemoteWritesAllowed(config.allowRemoteWrites)
+        }
+      } catch (e) {
+        if (!cancelled && currentRevision === requestRevision) {
+          // Keep capability-read failures distinct from an authoritative
+          // policy denial so the UI never tells users to enable an option
+          // that may already be enabled. Creation stays fail-closed until a
+          // retry succeeds; the backend remains the execution authority.
+          setRemoteWritesCheckFailed(true)
+          logger.warn(
+            "chat",
+            "ServerDirectoryBrowser::remoteWritesCapability",
+            "Failed to read remote-write capability",
+            e,
+          )
+        }
+      }
     }
-  }, [])
+
+    void refresh()
+    const unlistenConfig = transport.listen("config:changed", () => void refresh())
+    const unlistenResync = transport.listen(TRANSPORT_EVENT_RESYNC_REQUIRED, () => void refresh())
+    return () => {
+      cancelled = true
+      unlistenConfig()
+      unlistenResync()
+    }
+  }, [allowCreate, open, remoteWritesRefreshRevision, transport, workspaceIsLocal])
 
   useEffect(() => {
     if (!open) return
@@ -90,13 +146,15 @@ export default function ServerDirectoryBrowser({
     if (!name) return
     if (name === "." || name === ".." || /[\\/]/.test(name)) {
       setCreateError(t("chat.workingDir.invalid"))
+      setCreateErrorDetail(null)
       return
     }
 
     setCreating(true)
     setCreateError(null)
+    setCreateErrorDetail(null)
     try {
-      const created = await getTransport().createDirectory(joinDirectoryPath(listing.path, name))
+      const created = await transport.createDirectory(joinDirectoryPath(listing.path, name))
       setListing(created)
       setManualPath(created.path)
       setNewFolderName("")
@@ -109,7 +167,16 @@ export default function ServerDirectoryBrowser({
         "Failed to create directory",
         e,
       )
-      setCreateError(message)
+      if (isRemoteWritesDisabledError(message)) {
+        setRemoteWritesAllowed(false)
+        setRemoteWritesCheckFailed(false)
+        setCreateError(t("fileEditor.remoteWritesTitle"))
+      } else if (isLocationNotWritableError(message)) {
+        setCreateError(t("chat.workingDir.locationNotWritable"))
+        setCreateErrorDetail(message)
+      } else {
+        setCreateError(message)
+      }
     } finally {
       setCreating(false)
     }
@@ -127,14 +194,25 @@ export default function ServerDirectoryBrowser({
     onSelect(listing.path)
   }
 
+  const remoteWritesChecking =
+    allowCreate && !workspaceIsLocal && remoteWritesAllowed === null && !remoteWritesCheckFailed
+  const remoteWritesUnavailable = allowCreate && !workspaceIsLocal && remoteWritesCheckFailed
+  const remoteWritesBlocked =
+    allowCreate && !workspaceIsLocal && remoteWritesAllowed === false && !remoteWritesCheckFailed
+  const canCreate =
+    allowCreate && (workspaceIsLocal || (remoteWritesAllowed === true && !remoteWritesCheckFailed))
+
+  const openServerSettings = () => {
+    onOpenChange(false)
+    window.dispatchEvent(new CustomEvent("settings:navigate", { detail: { section: "server" } }))
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("chat.workingDir.browserTitle")}</DialogTitle>
-          <DialogDescription>
-            {t("chat.workingDir.browserDescription")}
-          </DialogDescription>
+          <DialogDescription>{t("chat.workingDir.browserDescription")}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleManualSubmit} className="flex items-center gap-2">
@@ -147,6 +225,16 @@ export default function ServerDirectoryBrowser({
             aria-label={t("chat.workingDir.parent")}
           >
             <ChevronUp className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={loading}
+            onClick={() => void load()}
+            aria-label={t("chat.workingDir.home")}
+          >
+            <Home className="h-4 w-4" />
           </Button>
           <Input
             value={manualPath}
@@ -169,7 +257,75 @@ export default function ServerDirectoryBrowser({
           </Button>
         </form>
 
-        {allowCreate && (
+        {remoteWritesChecking && (
+          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            {t("chat.workingDir.loading")}
+          </div>
+        )}
+
+        {remoteWritesBlocked && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <div className="flex items-start gap-2.5">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-foreground">
+                  {t("fileEditor.remoteWritesTitle")}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t("fileEditor.remoteWritesBody")}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 h-8"
+                  onClick={openServerSettings}
+                >
+                  {t("fileEditor.goToServerSettings")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {remoteWritesUnavailable && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <div className="flex items-start gap-2.5">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-foreground">
+                  {t("chat.workingDir.remoteWritesUnavailable")}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t("chat.workingDir.remoteWritesUnavailableBody")}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => setRemoteWritesRefreshRevision((revision) => revision + 1)}
+                  >
+                    {t("common.retry")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8"
+                    onClick={openServerSettings}
+                  >
+                    {t("fileEditor.goToServerSettings")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {canCreate && (
           <form
             onSubmit={handleCreateSubmit}
             className="rounded-md border border-border bg-muted/20 p-3"
@@ -193,15 +349,19 @@ export default function ServerDirectoryBrowser({
                 size="sm"
                 disabled={!listing || loading || creating || !newFolderName.trim()}
               >
-                {creating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  t("common.create")
-                )}
+                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("common.create")}
               </Button>
             </div>
             {createError && (
-              <p className="mt-2 break-all text-xs text-destructive">{createError}</p>
+              <div className="mt-2 text-xs text-destructive">
+                <p>{createError}</p>
+                {createErrorDetail && (
+                  <details className="mt-1 text-muted-foreground">
+                    <summary className="cursor-pointer select-none">{t("chat.details")}</summary>
+                    <p className="mt-1 break-all font-mono text-[11px]">{createErrorDetail}</p>
+                  </details>
+                )}
+              </div>
             )}
           </form>
         )}
@@ -278,4 +438,14 @@ function joinDirectoryPath(base: string, name: string): string {
   const normalizedBase = base.replace(/[\\/]+$/, "")
   if (!normalizedBase) return `${separator}${name}`
   return `${normalizedBase}${separator}${name}`
+}
+
+function isRemoteWritesDisabledError(message: string): boolean {
+  return /allowremotewrites|remote file writes are disabled/i.test(message)
+}
+
+function isLocationNotWritableError(message: string): boolean {
+  return /directory is not writable|permission denied|operation not permitted|access is denied|read-only file system|os error (?:5|13|30)/i.test(
+    message,
+  )
 }

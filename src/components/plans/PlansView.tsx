@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
-  ArrowLeft,
   ClipboardList,
   ExternalLink,
   FilePlus,
@@ -38,7 +37,8 @@ import type {
 } from "./types"
 
 interface PlansViewProps {
-  onBack: () => void
+  /** 顶层侧边栏当前是否正在展示计划空间；隐藏时保留筛选与选中项。 */
+  isViewVisible: boolean
   onJumpToSession: (sessionId: string) => void
   onInsertMention: (token: string) => void
 }
@@ -88,7 +88,7 @@ function readStoredWidth(key: string, fallback: number): number {
 }
 
 export default function PlansView({
-  onBack,
+  isViewVisible,
   onJumpToSession,
   onInsertMention,
 }: PlansViewProps) {
@@ -139,8 +139,9 @@ export default function PlansView({
   }, [stateFilter])
 
   useEffect(() => {
+    if (!isViewVisible) return
     void loadPlans()
-  }, [loadPlans])
+  }, [isViewVisible, loadPlans])
 
   useEffect(() => {
     try {
@@ -213,9 +214,7 @@ export default function PlansView({
   // racing against `loadPlans` to reset state on every reload.
   const selectedEntry = useMemo(
     () =>
-      visibleEntries.find((e) => e.sessionId === selectedSessionId) ??
-      visibleEntries[0] ??
-      null,
+      visibleEntries.find((e) => e.sessionId === selectedSessionId) ?? visibleEntries[0] ?? null,
     [visibleEntries, selectedSessionId],
   )
 
@@ -227,21 +226,7 @@ export default function PlansView({
         className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
         data-tauri-drag-region
       >
-        <IconTip label={t("common.back")} side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onBack}
-            className="h-8 w-8"
-            aria-label={t("common.back")}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </IconTip>
-        <IconTip
-          label={listCollapsed ? t("common.expand") : t("common.collapse")}
-          side="bottom"
-        >
+        <IconTip label={listCollapsed ? t("common.expand") : t("common.collapse")} side="bottom">
           <Button
             variant="ghost"
             size="icon"
@@ -498,11 +483,7 @@ interface PlanReadOnlyDetailProps {
   onInsertMention: (token: string) => void
 }
 
-function PlanReadOnlyDetail({
-  entry,
-  onJumpToSession,
-  onInsertMention,
-}: PlanReadOnlyDetailProps) {
+function PlanReadOnlyDetail({ entry, onJumpToSession, onInsertMention }: PlanReadOnlyDetailProps) {
   const { t } = useTranslation()
   const [versions, setVersions] = useState<PlanVersionInfoTs[]>([])
   const [selectedVersion, setSelectedVersion] = useState<number>(0)
@@ -619,11 +600,7 @@ function PlanReadOnlyDetail({
             <FilePlus className="h-4 w-4" />
           </Button>
         </IconTip>
-        <IconTip
-          label={
-            entry.orphan ? t("plans.sessionDeleted") : t("plans.openInSession")
-          }
-        >
+        <IconTip label={entry.orphan ? t("plans.sessionDeleted") : t("plans.openInSession")}>
           <Button
             variant="ghost"
             size="icon"
@@ -655,13 +632,7 @@ function PlanReadOnlyDetail({
   )
 }
 
-function StateBadge({
-  state,
-  orphan,
-}: {
-  state: PlanModeStateString
-  orphan: boolean
-}) {
+function StateBadge({ state, orphan }: { state: PlanModeStateString; orphan: boolean }) {
   const { t } = useTranslation()
   if (orphan) {
     return (
@@ -680,8 +651,7 @@ function StateBadge({
           : state === "planning"
             ? "bg-amber-500/15 text-amber-600"
             : "bg-muted text-muted-foreground"
-  const labelKey =
-    state === "off" ? "plans.badge.archived" : `plans.badge.${state}`
+  const labelKey = state === "off" ? "plans.badge.archived" : `plans.badge.${state}`
   return (
     <span className={cn("whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px]", tone)}>
       {t(labelKey)}

@@ -40,10 +40,23 @@
 知识空间、设计空间、产物库、仪表盘、Plan 和定时任务等一级工作区共用紧凑单行标题栏：
 
 - 固定 `h-10`，`shrink-0`，标题、可选副标题和右侧操作不得撑出第二行；
-- 返回按钮位于最左侧；存在侧栏展开/收起时，该按钮紧跟返回按钮，不能散落到内容工具条；
+- 侧边栏一级工作区本身是导航终点，首页**不显示返回主对话按钮**，工作区切换统一走主侧栏；只有进入项目、任务详情等二级页面后才显示返回上一级，且位于最左侧；
+- 存在侧栏展开/收起时，一级页面将侧栏按钮放在最左侧；二级页面则紧跟返回按钮，不能散落到内容工具条；
 - 标题使用紧凑字号；副标题与标题同行、允许截断，使用弱化前景色，不再占据独立行高；
 - 右侧刷新、设置、创建等操作统一使用紧凑按钮，窄宽度下优先压缩或隐藏次要说明；
 - 标题栏可保留固定结构分隔线，但 hover、selected、open 等状态不得改变该分隔线。
+
+### 主侧栏工作区生命周期
+
+[`App.tsx`](../../src/App.tsx) 的 `PERSISTENT_APP_VIEWS` 是主侧栏常驻工作区的单一清单：`chat`、`calendar`、`dashboard`、`plans`、`knowledge`、`design`、`artifacts`。工作区首次访问时才懒挂载，之后用 `PersistentViewSurface` 隐藏并设 `inert`，**不得因切换侧边栏卸载组件树**；当前会话、选择、项目、笔记、产物、滚动和布局状态因此原地保留。`settings`、`skills`、`memory`、`profile`、`agents`、`modelConfig`、`channels` 是配置流程页，不在常驻清单。
+
+常驻不等于后台继续做全部可见面工作：视图组件必须接收 `isViewVisible`，快捷键、已读回执、轮询、焦点和高成本渲染据此门控；依赖外部可变数据的列表 / 详情在 `false → true` 时刷新，同时保留仍有效的本地选择。新增一级工作区时必须明确归入常驻工作区或配置流程页，不得依赖渲染分支的偶然挂载行为。
+
+常驻工作区内的 Dialog / AlertDialog / Select / Menu / Popover / Tooltip 等 Portal 浮层必须跟随 [`portal-scope.tsx`](../../src/components/ui/portal-scope.tsx)：挂到所属 `PersistentViewSurface`，并在 surface 不可见时卸载浮层内容，释放 modal focus / pointer lock；否则浮层挂在 `document.body` 会越过 `hidden` / `inert` 覆盖另一个工作区。公共 UI Portal 已统一接线，业务组件若直接使用 `createPortal`，也必须读取同一 scope，不得固定写死 `document.body`。
+
+桌面版知识空间与设计空间还支持单实例独立窗口。[`spaceWindow.ts`](../../src/lib/spaceWindow.ts) 统一维护固定 window label、打开 / 聚焦 / 导航 / 收回事件和当前位置载荷，[`SpaceDetachedWindow.tsx`](../../src/SpaceDetachedWindow.tsx) 是独立 renderer 根；侧边栏右键、双击与空间标题栏共用同一入口。macOS 动态窗口必须显式使用 overlay + hidden title，标题栏保持单行 `h-10`，用左内边距避开交通灯，**不得再加垂直 padding**；Windows / Linux 保持原生标题栏且不加 macOS 专用左边距。动态 window label 必须登记进 Tauri capability，否则 renderer 内的 drag / close 等窗口 API 会被权限层拒绝。独立窗口存在时，普通侧边栏点击只聚焦它；收回时把当前位置发回主窗口再关闭。知识空间的弹出、收回和原生关闭必须先经过 `KnowledgeView.guardNavigation`，保存 / 丢弃 / 取消未决前不得销毁承载编辑器的窗口。
+
+独立窗口与浮动面板的图标语义统一走 [`WindowModeIcon`](../../src/components/common/WindowModeIcon.tsx)：`detach` 使用方框右上对角弹出箭头，`reattach` 使用同一方框内的左下对角收回箭头。侧边栏菜单、空间标题栏、对话内 Canvas / 文件 / Plan 面板及可浮动控制面板均不得自行选择 `ExternalLink`、`PictureInPicture2` 或 `Panel*Close` 代替；普通网页外链仍使用 `ExternalLink`，不与窗口层级操作混用。
 
 ### 浮层与提示
 
@@ -267,7 +280,7 @@ Tab 有独立的层级协议，不套普通列表选中背景：公共 `TabsList
 - 是否误把工具栏 ghost action 当成表单字段，或反过来？
 - 强互斥分类标签是否复用 `RadioPills variant="strong"`，并避免用于 Tab、视图切换或多选？
 - 容器型 Tab 是否使用 `bg-background` 区分选中面，并保持无阴影？
-- 一级工作区标题栏是否保持 `h-10` 单行，并把返回、侧栏开关按顺序放在最左侧？
+- 一级工作区标题栏是否保持 `h-10` 单行、未出现返回主对话按钮，并把侧栏开关放在最左侧？二级页面的返回按钮是否只返回真实上一级？
 - hover / selected / open 是否只改变背景，没有引入 `hover:border-*`、`hover:ring-*`、
   `group-hover:border-*` 或状态阴影？
 - 普通列表行是否使用 `hover:bg-secondary/40` 和 `bg-secondary`，并把语义强调色限制在

@@ -2,22 +2,20 @@
 #
 # Quick start:
 #   1. docker compose up -d
-#   2. Open http://127.0.0.1:8420 in a browser, run the onboarding wizard
-#      (configure Provider API keys, MCP servers, IM channels).
-#   3. Done — chat at http://127.0.0.1:8420.
+#   2. Print the auto-generated owner token:
+#      docker compose exec hope-agent hope-agent server token show
+#   3. Open http://127.0.0.1:8420 and enter that token once.
 #
 # Enable Ollama sidecar for local LLMs:
 #   docker compose --profile with-ollama up -d
 #
 # Expose to the LAN / public internet:
-#   1. Set HA_API_KEY (random string, e.g. `openssl rand -hex 24`).
+#   1. Keep the generated token, or set HA_API_KEY / HA_API_KEY_FILE.
 #   2. Change the port mapping to "8420:8420" (drop the 127.0.0.1: prefix).
-#   3. First visit will pop a "Server authentication required" dialog —
-#      paste the token. Or share `http://host:8420/?token=XXX` and the
-#      frontend will capture it into localStorage and rewrite the URL.
-#   For production prefer a TLS-terminating reverse proxy (Caddy / Nginx
-#   / Traefik) that injects `Authorization: Bearer ${HA_API_KEY}` on the
-#   upstream — the browser never sees the token then. See
+#   3. First visit asks for the token and exchanges it for an HttpOnly
+#      browser session. Never put the root token in a URL.
+#   For production use a TLS-terminating reverse proxy (Caddy / Nginx /
+#   Traefik). See
 #   docs/deployment/docker.md for full examples.
 
 services:
@@ -26,23 +24,27 @@ services:
     container_name: hope-agent
     restart: unless-stopped
     ports:
-      # Default: loopback only. Hope Agent does not enforce auth when
-      # HA_API_KEY is unset, so exposing 0.0.0.0 directly would publish
-      # every provider credential to the LAN. Use a reverse proxy with
-      # network-level auth instead — see docs/deployment/docker.md.
+      # Default: loopback only. Docker still generates an owner token on
+      # first boot, so changing this mapping never silently disables auth.
       - "127.0.0.1:8420:8420"
     environment:
-      # HA_API_KEY: gate every /api/* and WS upgrade behind a Bearer
-      # token. Leave unset for the default loopback deployment. When set,
-      # browsers visiting the page get a "Server authentication required"
-      # dialog asking them to paste the token; you can also share a
-      # `?token=XXX` URL for one-shot bootstrap. For production prefer a
-      # reverse proxy that adds `Authorization: Bearer ${HA_API_KEY}` on
-      # the upstream so the token never reaches the browser.
+      # HA_API_KEY optionally supplies an externally managed owner token.
+      # When empty, Docker generates and stores one under /data/credentials.
+      # Prefer HA_API_KEY_FILE with a mounted secret in production.
       HA_API_KEY: ${HA_API_KEY:-}
+      # Only needed when a separately hosted Web GUI calls this API cross-origin.
+      HA_CORS_ORIGINS: ${HA_CORS_ORIGINS:-}
       TZ: ${TZ:-UTC}
     volumes:
       - hope-data:/data
+      # Optional: enables `isolated` Docker sandbox mode for trusted local
+      # deployments. The socket grants host-level Docker control. Before
+      # uncommenting, set DOCKER_GID to `stat -c '%g' /var/run/docker.sock`.
+      # Other sandbox modes remain fail-closed in container deployments because
+      # a path inside this container is not a safe host bind-mount source.
+      #- /var/run/docker.sock:/var/run/docker.sock
+    #group_add:
+    #  - "${DOCKER_GID}"
 
   ollama:
     image: ollama/ollama:latest

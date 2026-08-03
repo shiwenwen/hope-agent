@@ -16,6 +16,7 @@ import {
 } from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 
 const Dialog = Root
@@ -45,8 +46,10 @@ interface DialogContentProps extends ComponentPropsWithoutRef<typeof Content> {
 const DialogContent = forwardRef<ComponentRef<typeof Content>, DialogContentProps>(
   ({ className, children, showCloseButton = true, ...props }, ref) => {
     const { t } = useTranslation()
+    const portalScope = usePortalScope()
+    if (portalScope && !portalScope.active) return null
     return (
-      <DialogPortal>
+      <DialogPortal container={portalScope?.container ?? undefined}>
         <DialogOverlay />
         <Content
           ref={ref}

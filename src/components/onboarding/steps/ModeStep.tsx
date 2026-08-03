@@ -4,7 +4,11 @@ import { Globe, Laptop, Loader2, Wifi } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { confirmTransportChange, getTransport, switchToRemote } from "@/lib/transport-provider"
+import {
+  confirmTransportChange,
+  getTransport,
+  prepareRemoteTransport,
+} from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
 interface RemoteConnectPanelProps {
@@ -68,16 +72,23 @@ export function RemoteConnectPanel({
       }
       if (!confirmTransportChange()) return
       const finalKey = remoteApiKey.trim() || null
-      const full = await getTransport().call<Record<string, unknown>>("get_user_config")
-      await getTransport().call("save_user_config", {
-        config: {
-          ...full,
-          serverMode: "remote",
-          remoteServerUrl: trimmedUrl,
-          remoteApiKey: finalKey,
-        },
-      })
-      switchToRemote(trimmedUrl, finalKey, { dirtyConfirmed: true })
+      const prepared = await prepareRemoteTransport(trimmedUrl, finalKey)
+      try {
+        const current = getTransport()
+        const full = await current.call<Record<string, unknown>>("get_user_config")
+        await current.call("save_user_config", {
+          config: {
+            ...full,
+            serverMode: "remote",
+            remoteServerUrl: trimmedUrl,
+            remoteApiKey: finalKey,
+          },
+        })
+        prepared.activate()
+      } catch (error) {
+        prepared.dispose()
+        throw error
+      }
       onRemoteConnected()
     } catch (e) {
       logger.error("onboarding", "RemoteConnectPanel::connect", "remote connect failed", e)

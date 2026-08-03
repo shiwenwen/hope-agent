@@ -516,16 +516,16 @@ pub async fn add_quick_prompt(
 
 #[tauri::command]
 pub async fn get_server_config() -> Result<serde_json::Value, CmdError> {
-    let store = ha_core::config::load_config()?;
+    let store = ha_core::config::cached_config();
     let server = &store.server;
-    // Mask api_key for security
-    let masked_key = server.api_key.as_ref().map(|k| {
-        if k.is_empty() {
-            "****".to_string()
-        } else {
-            ha_core::mask_secret_middle(k, 2, 2)
-        }
-    });
+    let (masked_key, api_key_fingerprint) = ha_core::blocking::run_blocking(|| {
+        Ok::<_, anyhow::Error>((
+            ha_core::server_auth::masked_managed_token()?,
+            ha_core::server_auth::managed_token_fingerprint()?,
+        ))
+    })
+    .await?;
+    let has_api_key = masked_key.is_some();
     let masked_knowledge_agent_read_token = server.knowledge_agent_read_token.as_ref().map(|k| {
         if k.is_empty() {
             "****".to_string()
@@ -536,7 +536,9 @@ pub async fn get_server_config() -> Result<serde_json::Value, CmdError> {
     Ok(serde_json::json!({
         "bindAddr": server.bind_addr,
         "apiKey": masked_key,
-        "hasApiKey": server.api_key.is_some(),
+        "hasApiKey": has_api_key,
+        "apiKeyFingerprint": api_key_fingerprint,
+        "apiKeyExternallyManaged": false,
         "knowledgeAgentReadToken": masked_knowledge_agent_read_token,
         "hasKnowledgeAgentReadToken": server.knowledge_agent_read_token.is_some(),
     }))
@@ -546,13 +548,42 @@ pub async fn get_server_config() -> Result<serde_json::Value, CmdError> {
 pub async fn save_server_config(
     config: ha_core::config::EmbeddedServerConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config_async(("server", "settings-ui"), move |store| {
-        let next = config.merge_over_existing(&store.server);
-        store.server = next;
-        Ok(())
+    let token_update = config.api_key.is_some();
+    let (runtime_auth_required, externally_managed) =
+        ha_server::middleware::active_auth_status()?.unwrap_or((false, false));
+    if externally_managed && token_update {
+        return Err(anyhow::anyhow!(
+            "the owner token is externally managed; update HA_API_KEY or HA_API_KEY_FILE instead"
+        )
+        .into());
+    }
+    ha_core::blocking::run_blocking(move || {
+        ha_core::server_auth::update_server_config(
+            config,
+            "settings-ui",
+            externally_managed && runtime_auth_required,
+        )
     })
-    .await
-    .map_err(Into::into)
+    .await?;
+    if token_update {
+        let token =
+            ha_core::blocking::run_blocking(ha_core::server_auth::load_managed_token).await?;
+        ha_server::middleware::replace_active_owner_token(token)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn rotate_server_token() -> Result<serde_json::Value, CmdError> {
+    let rotated = ha_core::blocking::run_blocking(|| {
+        ha_core::server_auth::rotate_managed_token("settings-ui-rotate")
+    })
+    .await?;
+    ha_server::middleware::replace_active_owner_token(Some(rotated.token.clone()))?;
+    Ok(serde_json::json!({
+        "token": rotated.token,
+        "fingerprint": ha_core::server_auth::token_fingerprint(&rotated.token),
+    }))
 }
 
 /// Runtime status of the embedded HTTP/WS server. Shape mirrors

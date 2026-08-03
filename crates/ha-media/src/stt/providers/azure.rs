@@ -60,29 +60,7 @@ pub async fn open_stream(
     profile: &AuthProfile,
     options: &TranscriptOptions,
 ) -> SttResult<super::SttStream> {
-    let base_owned;
-    let base = match provider
-        .extra
-        .get("region")
-        .map(String::as_str)
-        .filter(|s| !s.is_empty())
-    {
-        Some(region) => {
-            base_owned = format!("wss://{}.stt.speech.microsoft.com", region);
-            base_owned.as_str()
-        }
-        None => provider.resolve_base_url(profile).trim_end_matches('/'),
-    };
-    let mut url = format!(
-        "{}/speech/recognition/conversation/cognitiveservices/v1",
-        base
-    );
-    if let Some(lang) = options.language.as_deref().filter(|l| !l.is_empty()) {
-        url.push_str(&format!("?language={}", urlencoding::encode(lang)));
-        url.push_str("&format=detailed");
-    } else {
-        url.push_str("?format=detailed");
-    }
+    let url = recognition_url(provider, profile, options)?;
 
     let https_twin = super::ws_to_https_twin(&url, "Azure Speech")?;
     ha_core::stt::types::check_ssrf(provider, &https_twin).await?;
@@ -202,6 +180,53 @@ pub async fn open_stream(
     });
 
     Ok(super::SttStream { audio_tx, delta_rx })
+}
+
+fn recognition_url(
+    provider: &SttProviderConfig,
+    profile: &AuthProfile,
+    options: &TranscriptOptions,
+) -> SttResult<String> {
+    let language = options
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|language| !language.is_empty())
+        .ok_or_else(|| {
+            SttError::Config(
+                "Azure Speech requires a recognition language (for example zh-CN); set the default language in Settings → Speech-to-Text"
+                    .into(),
+            )
+        })?;
+
+    let base_owned;
+    let base = match provider
+        .extra
+        .get("region")
+        .map(String::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        Some(region) => {
+            let region = region.trim();
+            if region.is_empty()
+                || !region
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+            {
+                return Err(SttError::Config(format!(
+                    "Azure Speech region must be a region name such as southeastasia, not a URL: {region}"
+                )));
+            }
+            base_owned = format!("wss://{}.stt.speech.microsoft.com", region);
+            base_owned.as_str()
+        }
+        None => provider.resolve_base_url(profile).trim_end_matches('/'),
+    };
+    Ok(format!(
+        "{}/speech/recognition/conversation/cognitiveservices/v1?language={}&format=detailed",
+        base,
+        urlencoding::encode(language)
+    ))
 }
 
 fn iso8601_now() -> String {
@@ -360,6 +385,57 @@ mod tests {
         assert!(f.contains("X-Timestamp: "));
         assert!(f.contains("Content-Type: application/json"));
         assert!(f.ends_with(r#"{"context":{}}"#));
+    }
+
+    fn azure_fixture() -> (SttProviderConfig, AuthProfile) {
+        let mut provider = SttProviderConfig::new(
+            "Azure",
+            crate::stt::SttProviderKind::AzureWs,
+            "wss://eastus.stt.speech.microsoft.com",
+        );
+        provider
+            .extra
+            .insert("region".into(), "southeastasia".into());
+        let profile = AuthProfile::new("default".into(), "key".into(), None);
+        (provider, profile)
+    }
+
+    #[test]
+    fn recognition_url_requires_language_before_network_access() {
+        let (provider, profile) = azure_fixture();
+        let err = recognition_url(&provider, &profile, &TranscriptOptions::default()).unwrap_err();
+        assert!(matches!(err, SttError::Config(_)));
+        assert!(err.to_string().contains("requires a recognition language"));
+    }
+
+    #[test]
+    fn recognition_url_includes_language_and_detailed_format() {
+        let (provider, profile) = azure_fixture();
+        let options = TranscriptOptions {
+            language: Some("zh-CN".into()),
+            ..TranscriptOptions::default()
+        };
+        let url = recognition_url(&provider, &profile, &options).unwrap();
+        assert_eq!(
+            url,
+            "wss://southeastasia.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=zh-CN&format=detailed"
+        );
+    }
+
+    #[test]
+    fn recognition_url_rejects_full_url_in_region() {
+        let (mut provider, profile) = azure_fixture();
+        provider.extra.insert(
+            "region".into(),
+            "https://southeastasia.api.cognitive.microsoft.com/".into(),
+        );
+        let options = TranscriptOptions {
+            language: Some("en-US".into()),
+            ..TranscriptOptions::default()
+        };
+        let err = recognition_url(&provider, &profile, &options).unwrap_err();
+        assert!(matches!(err, SttError::Config(_)));
+        assert!(err.to_string().contains("region must be a region name"));
     }
 
     #[test]

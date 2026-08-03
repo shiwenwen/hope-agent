@@ -43,6 +43,10 @@ pub struct FailoverPolicy {
     /// Maximum same-profile retry attempts for retryable errors (RateLimit /
     /// Overloaded / Timeout) before giving up.
     pub max_retries: u32,
+    /// Unknown errors get a smaller retry budget than known transient errors.
+    /// Opaque gateway/provider failures can recover, but repeatedly replaying
+    /// an unclassified failure is more likely to waste time or duplicate work.
+    pub max_unknown_retries: u32,
     /// Whether `is_profile_rotatable` errors should rotate to the next
     /// auth profile. Set `false` for paths that need to fail fast (e.g.
     /// summarize_direct → CompactionProvider fallback chain).
@@ -55,11 +59,24 @@ pub struct FailoverPolicy {
     pub cancel: Option<Arc<AtomicBool>>,
 }
 
+/// A retry that has been scheduled by the executor. Foreground callers use
+/// this to surface a friendly progress notice before the backoff sleep.
+#[derive(Debug, Clone)]
+pub struct RetryProgress {
+    pub reason: FailoverReason,
+    /// One-based retry number (the initial request is not included).
+    pub attempt: u32,
+    pub max_attempts: u32,
+    pub delay_ms: u64,
+    pub recovery_id: String,
+}
+
 impl FailoverPolicy {
     /// chat_engine main loop default (matches pre-Phase-3 hand-rolled values).
     pub fn chat_engine_default() -> Self {
         Self {
-            max_retries: 2,
+            max_retries: 3,
+            max_unknown_retries: 2,
             allow_profile_rotation: true,
             retry_base_ms: 1000,
             retry_max_ms: 10000,
@@ -72,6 +89,7 @@ impl FailoverPolicy {
     pub fn side_query_default() -> Self {
         Self {
             max_retries: 1,
+            max_unknown_retries: 1,
             allow_profile_rotation: true,
             retry_base_ms: 1000,
             retry_max_ms: 10000,
@@ -88,6 +106,7 @@ impl FailoverPolicy {
     pub fn summarize_default() -> Self {
         Self {
             max_retries: 2,
+            max_unknown_retries: 1,
             allow_profile_rotation: false,
             retry_base_ms: 1000,
             retry_max_ms: 10000,
@@ -117,6 +136,11 @@ pub enum ExecutorError {
         last_reason: FailoverReason,
         last_error: String,
     },
+    /// The user chose to skip the current model's remaining recovery budget.
+    SwitchModel {
+        last_reason: FailoverReason,
+        last_error: String,
+    },
     /// Provider has no usable auth profile (all in cooldown, all `enabled=false`,
     /// or `auth_profiles` empty + `api_key` empty). Distinct from `Exhausted`
     /// because no operation was ever attempted.
@@ -142,6 +166,14 @@ impl std::fmt::Display for ExecutorError {
                 last_reason,
                 last_error,
             } => write!(f, "exhausted ({:?}): {}", last_reason, last_error),
+            Self::SwitchModel {
+                last_reason,
+                last_error,
+            } => write!(
+                f,
+                "model switch requested ({:?}): {}",
+                last_reason, last_error
+            ),
             Self::NoProfileAvailable => write!(f, "no auth profile available"),
             Self::Cancelled => write!(f, "cancelled by caller"),
         }
@@ -176,6 +208,37 @@ pub async fn execute_with_failover<T, F, Fut>(
     session_id: &str,
     policy: FailoverPolicy,
     on_profile_rotation: Option<&(dyn Fn(&AuthProfile, &AuthProfile, &FailoverReason) + Sync)>,
+    operation: F,
+) -> Result<T, ExecutorError>
+where
+    F: FnMut(Option<&AuthProfile>) -> Fut,
+    Fut: Future<Output = anyhow::Result<T>>,
+{
+    execute_with_failover_observed(
+        provider,
+        session_id,
+        policy,
+        on_profile_rotation,
+        None,
+        None,
+        operation,
+    )
+    .await
+}
+
+/// Same executor as [`execute_with_failover`], with an optional callback for
+/// retry progress. Kept as a separate entry point so background callers do not
+/// need to manufacture UI observers. `can_replay_operation` is checked before
+/// every same-operation retry or profile rotation; foreground chat uses it to
+/// stop recovery once a tool boundary has been crossed, while side-effect-free
+/// callers can leave it unset.
+pub async fn execute_with_failover_observed<T, F, Fut>(
+    provider: &ProviderConfig,
+    session_id: &str,
+    policy: FailoverPolicy,
+    on_profile_rotation: Option<&(dyn Fn(&AuthProfile, &AuthProfile, &FailoverReason) + Sync)>,
+    on_retry: Option<&(dyn Fn(&RetryProgress) + Sync)>,
+    can_replay_operation: Option<&(dyn Fn() -> bool + Sync)>,
     mut operation: F,
 ) -> Result<T, ExecutorError>
 where
@@ -242,8 +305,84 @@ where
                     });
                 }
 
-                // Profile rotation path
+                // Retry errors that may self-heal before rotating credentials.
+                // Unknown errors deliberately get a smaller budget; auth,
+                // billing and model-not-found never enter this branch.
+                let retry_budget = if provider.api_type == ApiType::Codex && reason.is_retryable() {
+                    // Codex reports each of its transport retries through the
+                    // streaming callback. Do not multiply that adapter-level
+                    // budget with another executor loop. Keep this check ahead
+                    // of Unknown so an opaque Codex response cannot bypass it.
+                    0
+                } else if reason == FailoverReason::Unknown {
+                    policy.max_unknown_retries
+                } else if reason.is_retryable() {
+                    policy.max_retries
+                } else {
+                    0
+                };
+                if retry_count < retry_budget {
+                    if can_replay_operation.is_some_and(|can_replay| !can_replay()) {
+                        return Err(ExecutorError::Exhausted {
+                            last_reason: reason,
+                            last_error: err_str,
+                        });
+                    }
+                    let delay =
+                        retry_delay_ms(retry_count, policy.retry_base_ms, policy.retry_max_ms);
+                    let next_attempt = retry_count + 1;
+                    let wait_outcome = if let Some(ref cb) = on_retry {
+                        let recovery_wait = crate::recovery_control::register(session_id);
+                        cb(&RetryProgress {
+                            reason,
+                            attempt: next_attempt,
+                            max_attempts: retry_budget,
+                            delay_ms: delay,
+                            recovery_id: recovery_wait.id().to_string(),
+                        });
+                        recovery_wait
+                            .wait(Duration::from_millis(delay), policy.cancel.as_ref())
+                            .await
+                    } else if sleep_or_cancel(Duration::from_millis(delay), policy.cancel.as_ref())
+                        .await
+                    {
+                        crate::recovery_control::RecoveryWaitOutcome::Cancelled
+                    } else {
+                        crate::recovery_control::RecoveryWaitOutcome::Elapsed
+                    };
+                    let effective_delay = match wait_outcome {
+                        crate::recovery_control::RecoveryWaitOutcome::Elapsed => delay,
+                        crate::recovery_control::RecoveryWaitOutcome::SkipWait => 0,
+                        crate::recovery_control::RecoveryWaitOutcome::SwitchModel => {
+                            return Err(ExecutorError::SwitchModel {
+                                last_reason: reason,
+                                last_error: err_str,
+                            });
+                        }
+                        crate::recovery_control::RecoveryWaitOutcome::Cancelled => {
+                            return Err(ExecutorError::Cancelled);
+                        }
+                    };
+                    retry_count = next_attempt;
+                    crate::eval_context::record_model_retry(
+                        session_id,
+                        false,
+                        reason.as_str(),
+                        effective_delay,
+                    );
+                    continue;
+                }
+
+                // Profile rotation happens only after the current credential's
+                // useful retry budget is exhausted. Deterministic auth/billing
+                // failures arrive here immediately with a zero retry budget.
                 if reason.is_profile_rotatable() && allow_rotation {
+                    if can_replay_operation.is_some_and(|can_replay| !can_replay()) {
+                        return Err(ExecutorError::Exhausted {
+                            last_reason: reason,
+                            last_error: err_str,
+                        });
+                    }
                     if let Some(ref profile) = current_profile {
                         PROFILE_COOLDOWNS.mark_cooldown(&profile.id, &reason);
                     }
@@ -269,25 +408,6 @@ where
                         last_reason: reason,
                         last_error: err_str,
                     });
-                }
-
-                // Retry-on-same-profile path (only for retryable errors that
-                // either aren't profile-rotatable or whose rotation we already
-                // skipped because policy.allow_profile_rotation is false).
-                if reason.is_retryable() && retry_count < policy.max_retries {
-                    let delay =
-                        retry_delay_ms(retry_count, policy.retry_base_ms, policy.retry_max_ms);
-                    if sleep_or_cancel(Duration::from_millis(delay), policy.cancel.as_ref()).await {
-                        return Err(ExecutorError::Cancelled);
-                    }
-                    retry_count += 1;
-                    crate::eval_context::record_model_retry(
-                        session_id,
-                        false,
-                        reason.as_str(),
-                        delay,
-                    );
-                    continue;
                 }
 
                 // Non-retryable, non-rotatable, non-compactable → give up.
@@ -433,6 +553,7 @@ mod tests {
         // policy with retries=1 + retry_base=10ms (fast test)
         let policy = FailoverPolicy {
             max_retries: 1,
+            max_unknown_retries: 1,
             allow_profile_rotation: false, // force retry path, not rotation
             retry_base_ms: 10,
             retry_max_ms: 20,
@@ -487,6 +608,7 @@ mod tests {
 
         let policy = FailoverPolicy {
             max_retries: 0,
+            max_unknown_retries: 0,
             allow_profile_rotation: false,
             retry_base_ms: 1,
             retry_max_ms: 1,
@@ -642,7 +764,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unknown_error_exhausts_immediately() {
+    async fn unknown_error_retries_twice_then_exhausts() {
         let (cfg, _ids) = make_provider(2);
         let session = format!("sess-{}", uuid::Uuid::new_v4());
         let attempt = AtomicU32::new(0);
@@ -666,7 +788,260 @@ mod tests {
                 ..
             })
         ));
+        // 1 initial + 2 cautious retries = 3 attempts.
+        assert_eq!(attempt.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn retryable_error_retries_before_profile_rotation_and_reports_progress() {
+        let (cfg, ids) = make_provider(2);
+        let session = format!("sess-{}", uuid::Uuid::new_v4());
+        let attempt = AtomicU32::new(0);
+        let retries = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let rotations = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let retry_events = retries.clone();
+        let on_retry = move |progress: &RetryProgress| {
+            retry_events.lock().unwrap().push((
+                progress.reason,
+                progress.attempt,
+                progress.max_attempts,
+            ));
+        };
+        let rotation_events = rotations.clone();
+        let on_rotate = move |from: &AuthProfile, to: &AuthProfile, reason: &FailoverReason| {
+            rotation_events
+                .lock()
+                .unwrap()
+                .push((from.id.clone(), to.id.clone(), *reason));
+        };
+        let policy = FailoverPolicy {
+            max_retries: 1,
+            max_unknown_retries: 1,
+            allow_profile_rotation: true,
+            retry_base_ms: 1,
+            retry_max_ms: 1,
+            cancel: None,
+        };
+
+        let result: Result<String, _> = execute_with_failover_observed(
+            &cfg,
+            &session,
+            policy,
+            Some(&on_rotate),
+            Some(&on_retry),
+            None,
+            |profile| {
+                let n = attempt.fetch_add(1, Ordering::SeqCst);
+                let key = profile.map(|p| p.api_key.clone()).unwrap_or_default();
+                async move {
+                    if n < 2 {
+                        Err(anyhow::anyhow!("503 overloaded"))
+                    } else {
+                        Ok(key)
+                    }
+                }
+            },
+        )
+        .await;
+
+        assert!(matches!(result, Ok(key) if key == "key-1"));
+        assert_eq!(attempt.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            retries.lock().unwrap().as_slice(),
+            &[(FailoverReason::Overloaded, 1, 1)]
+        );
+        assert_eq!(
+            rotations.lock().unwrap().as_slice(),
+            &[(ids[0].clone(), ids[1].clone(), FailoverReason::Overloaded)]
+        );
+    }
+
+    #[tokio::test]
+    async fn recovery_control_can_switch_model_before_retry_delay() {
+        let (cfg, _ids) = make_provider(1);
+        let session = format!("sess-{}", uuid::Uuid::new_v4());
+        let attempt = AtomicU32::new(0);
+        let session_for_control = session.clone();
+        let on_retry = move |progress: &RetryProgress| {
+            let result = crate::recovery_control::request(
+                &session_for_control,
+                &progress.recovery_id,
+                crate::recovery_control::RecoveryAction::SwitchModel,
+            );
+            assert!(result.applied);
+        };
+        let policy = FailoverPolicy {
+            max_retries: 2,
+            max_unknown_retries: 1,
+            allow_profile_rotation: false,
+            retry_base_ms: 60_000,
+            retry_max_ms: 60_000,
+            cancel: None,
+        };
+
+        let result: Result<String, _> = execute_with_failover_observed(
+            &cfg,
+            &session,
+            policy,
+            None,
+            Some(&on_retry),
+            None,
+            |_profile| {
+                attempt.fetch_add(1, Ordering::SeqCst);
+                async move { Err(anyhow::anyhow!("503 overloaded")) }
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ExecutorError::SwitchModel {
+                last_reason: FailoverReason::Overloaded,
+                ..
+            })
+        ));
         assert_eq!(attempt.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn recovery_control_is_not_replaced_without_progress_callback() {
+        let (cfg, _ids) = make_provider(1);
+        let session = format!("sess-{}", uuid::Uuid::new_v4());
+        let visible_wait = crate::recovery_control::register(&session);
+        let attempt = AtomicU32::new(0);
+        let policy = FailoverPolicy {
+            max_retries: 1,
+            max_unknown_retries: 1,
+            allow_profile_rotation: false,
+            retry_base_ms: 1,
+            retry_max_ms: 1,
+            cancel: None,
+        };
+
+        let result: Result<String, _> =
+            execute_with_failover(&cfg, &session, policy, None, |_profile| {
+                let current = attempt.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    if current == 0 {
+                        Err(anyhow::anyhow!("503 overloaded"))
+                    } else {
+                        Ok("ok".to_string())
+                    }
+                }
+            })
+            .await;
+
+        assert!(matches!(result, Ok(value) if value == "ok"));
+        assert!(
+            crate::recovery_control::request(
+                &session,
+                visible_wait.id(),
+                crate::recovery_control::RecoveryAction::SkipWait,
+            )
+            .applied
+        );
+    }
+
+    #[tokio::test]
+    async fn replay_guard_blocks_retry() {
+        let (cfg, _ids) = make_provider(2);
+        let session = format!("sess-{}", uuid::Uuid::new_v4());
+        let attempts = AtomicU32::new(0);
+        let rotations = AtomicU32::new(0);
+        let on_rotate = |_from: &AuthProfile, _to: &AuthProfile, _reason: &FailoverReason| {
+            rotations.fetch_add(1, Ordering::SeqCst);
+        };
+        let cannot_replay = || false;
+
+        let result: Result<String, _> = execute_with_failover_observed(
+            &cfg,
+            &session,
+            FailoverPolicy::chat_engine_default(),
+            Some(&on_rotate),
+            None,
+            Some(&cannot_replay),
+            |_profile| {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                async move { Err(anyhow::anyhow!("503 overloaded")) }
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ExecutorError::Exhausted {
+                last_reason: FailoverReason::Overloaded,
+                ..
+            })
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(rotations.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn replay_guard_blocks_profile_rotation() {
+        let (cfg, _ids) = make_provider(2);
+        let session = format!("sess-{}", uuid::Uuid::new_v4());
+        let attempts = AtomicU32::new(0);
+        let rotations = AtomicU32::new(0);
+        let on_rotate = |_from: &AuthProfile, _to: &AuthProfile, _reason: &FailoverReason| {
+            rotations.fetch_add(1, Ordering::SeqCst);
+        };
+        let cannot_replay = || false;
+
+        let result: Result<String, _> = execute_with_failover_observed(
+            &cfg,
+            &session,
+            FailoverPolicy::chat_engine_default(),
+            Some(&on_rotate),
+            None,
+            Some(&cannot_replay),
+            |_profile| {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                async move { Err(anyhow::anyhow!("401 Unauthorized")) }
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ExecutorError::Exhausted {
+                last_reason: FailoverReason::Auth,
+                ..
+            })
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(rotations.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn codex_unknown_does_not_stack_outer_retries() {
+        let (mut cfg, _ids) = make_provider(1);
+        cfg.api_type = ApiType::Codex;
+        let session = format!("sess-{}", uuid::Uuid::new_v4());
+        let attempts = AtomicU32::new(0);
+
+        let result: Result<String, _> = execute_with_failover(
+            &cfg,
+            &session,
+            FailoverPolicy::chat_engine_default(),
+            None,
+            |_profile| {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                async move { Err(anyhow::anyhow!("opaque Codex failure")) }
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ExecutorError::Exhausted {
+                last_reason: FailoverReason::Unknown,
+                ..
+            })
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -677,6 +1052,7 @@ mod tests {
 
         let policy = FailoverPolicy {
             max_retries: 2,
+            max_unknown_retries: 1,
             allow_profile_rotation: false,
             retry_base_ms: 5,
             retry_max_ms: 10,

@@ -1561,6 +1561,9 @@ pub async fn check_sandbox_available() -> DockerStatus {
         wsl_installed: wsl.as_ref().map(|probe| probe.wsl_installed),
         wsl_distribution_installed: wsl.as_ref().map(|probe| probe.distribution_installed),
         wsl_docker_installed: wsl.as_ref().map(|probe| probe.docker_installed),
+        connection_error: None,
+        containerized: false,
+        isolated_mode_only: false,
     }
 }
 

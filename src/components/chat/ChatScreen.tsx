@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { subscribeAskAiQuotes } from "@/lib/manual/askAi"
 import type { SettingsSection } from "@/components/settings/types"
+import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
 import { requestMemoryFocus } from "@/components/settings/memory-panel/memoryFocus"
 import { memorySourceLabel } from "./message/memoryTraceFormat"
 import {
@@ -243,7 +244,7 @@ interface ChatScreenProps {
   /** Open the settings view, optionally to a specific section. */
   onOpenSettings?: (section?: SettingsSection) => void
   /** Open the Knowledge Space view. */
-  onOpenKnowledge?: () => void
+  onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
 }
 
 interface ManualCompactOverride {

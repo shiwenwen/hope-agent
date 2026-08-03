@@ -98,6 +98,7 @@ impl TelegramPlugin {
     fn extract_proxy(settings: &serde_json::Value) -> Option<String> {
         // Check channel-level proxy first
         if let Some(proxy) = settings.get("proxy").and_then(|v| v.as_str()) {
+            let proxy = proxy.trim();
             if !proxy.is_empty() {
                 return Some(proxy.to_string());
             }
@@ -105,6 +106,38 @@ impl TelegramPlugin {
         // Fall back to global custom proxy (system-proxy autodetect is
         // intentionally NOT honored for bot SDKs).
         ha_core::provider::active_custom_proxy_url()
+    }
+
+    /// Extract the optional reverse-proxy / self-hosted Bot API root.
+    /// Empty strings are treated exactly like an absent value so the official
+    /// Telegram endpoint remains the zero-configuration default.
+    fn extract_api_root(settings: &serde_json::Value) -> Option<String> {
+        settings
+            .get("apiRoot")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    async fn build_api(
+        credentials: &serde_json::Value,
+        settings: &serde_json::Value,
+    ) -> Result<TelegramBotApi> {
+        let token = Self::extract_token(credentials)?;
+        let proxy = Self::extract_proxy(settings);
+        let api_root = Self::extract_api_root(settings);
+        TelegramBotApi::new(&token, proxy.as_deref(), api_root.as_deref()).await
+    }
+
+    async fn validate_config(
+        &self,
+        credentials: &serde_json::Value,
+        settings: &serde_json::Value,
+    ) -> Result<String> {
+        let api = Self::build_api(credentials, settings).await?;
+        let me = api.get_me().await?;
+        Ok(format!("@{}", me.username()))
     }
 
     /// Get the API for a running account.
@@ -163,15 +196,7 @@ impl ChannelPlugin for TelegramPlugin {
         inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
-        let token = Self::extract_token(&account.credentials)?;
-        let proxy = Self::extract_proxy(&account.settings);
-        let api_root = account
-            .settings
-            .get("apiRoot")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        let api = TelegramBotApi::new(&token, proxy.as_deref(), api_root.as_deref());
+        let api = Self::build_api(&account.credentials, &account.settings).await?;
 
         // Validate token by calling getMe
         let me = api.get_me().await?;
@@ -413,9 +438,19 @@ impl ChannelPlugin for TelegramPlugin {
     }
 
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {
-        let token = Self::extract_token(&account.credentials)?;
-        let proxy = Self::extract_proxy(&account.settings);
-        let api = TelegramBotApi::new(&token, proxy.as_deref(), None);
+        let api = match Self::build_api(&account.credentials, &account.settings).await {
+            Ok(api) => api,
+            Err(error) => {
+                return Ok(ChannelHealth {
+                    is_running: false,
+                    last_probe: Some(chrono::Utc::now().to_rfc3339()),
+                    probe_ok: Some(false),
+                    error: Some(error.to_string()),
+                    uptime_secs: None,
+                    bot_name: None,
+                });
+            }
+        };
 
         match api.get_me().await {
             Ok(me) => Ok(ChannelHealth {
@@ -549,10 +584,16 @@ impl ChannelPlugin for TelegramPlugin {
     }
 
     async fn validate_credentials(&self, credentials: &serde_json::Value) -> Result<String> {
-        let token = Self::extract_token(credentials)?;
-        let api = TelegramBotApi::new(&token, None, None);
-        let me = api.get_me().await?;
-        Ok(format!("@{}", me.username()))
+        self.validate_config(credentials, &serde_json::Value::Null)
+            .await
+    }
+
+    async fn validate_account_config(
+        &self,
+        credentials: &serde_json::Value,
+        settings: &serde_json::Value,
+    ) -> Result<String> {
+        self.validate_config(credentials, settings).await
     }
 
     async fn sync_commands(&self, account: &ChannelAccountConfig) -> Result<()> {

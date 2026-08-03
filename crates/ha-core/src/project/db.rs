@@ -132,24 +132,6 @@ impl ProjectDB {
              DROP TABLE IF EXISTS project_files;",
         )?;
 
-        // Release the SQLite mutex before resolving project roots (which reads
-        // project rows again). Existing projects get the same invariant as new
-        // ones: a root AGENTS.md always exists. Failure is non-fatal at startup
-        // (the directory may be temporarily unavailable); opening the settings
-        // tab or editing the project will retry and surface the concrete error.
-        drop(conn);
-        for project_id in self.list_all_ids()? {
-            if let Err(error) = super::files::ensure_project_instructions(&project_id, self) {
-                crate::app_warn!(
-                    "project",
-                    "agents_md",
-                    "could not ensure AGENTS.md for project {}: {}",
-                    project_id,
-                    error
-                );
-            }
-        }
-
         Ok(())
     }
 

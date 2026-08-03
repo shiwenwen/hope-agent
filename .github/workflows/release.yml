@@ -50,13 +50,11 @@ jobs:
             os: macos-14
             rust_target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-            # 这条 lane 是整个 release 的关键路径：v0.20.1 实测 147 分钟，其余
-            # lane 66 / 67 / 100，总时长完全由它决定。macos-14 只有 3 核，
-            # codegen-units=1 又恰好掐掉唯一能吃满多核的阶段。取 4 而非 arm64
-            # Linux 的 16：3 核上 4 块已够并行，优化损失（跨块内联失效）远小于
-            # 16，lto="thin" 还能补回一部分。与 linux-arm64 不同，这里不是 OOM
-            # 规避而是纯提速——该 lane 未出现过 runner 杀进程。
-            codegen_units: "4"
+            # 关键路径 lane（macos-14 只有 3 核）。纯提速，非 OOM 规避。
+            # 4 → 16（v0.24.0）：ha-core 增 4710 行后本 lane 从 98 涨到 152 /
+            # 173 分钟。dry-run 实测 16 档为 103 分钟，代价是裸二进制
+            # 192.4 → 225.3 MB，用户实际下载的压缩包 84.8 → 95.3 MB（+12%）。
+            codegen_units: "16"
           # macOS x64 lane remains disabled (since v0.2.0). GitHub-hosted
           # macos-13 Intel runners are capacity-constrained and frequently
           # queue >1h. An earlier v0.2.1 attempt to re-add this lane with
@@ -130,6 +128,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          # 本 workflow 一律不存缓存。GitHub 只允许 run 恢复「当前 ref」与
+          # 「默认分支」的缓存，所以 tag 作用域下存的这份（实测每条 lane
+          # 1.55~1.73 GB，四条约 6.5 GB）下次发版打的是新 tag，永远读不到，却会
+          # 把仓库 10 GB 预算挤满、连带 LRU 清掉 main 上给所有 PR 用的缓存。
+          #
+          # 刻意用 false 而非 `github.ref == 'refs/heads/main'`：本 workflow 有
+          # workflow_dispatch 入口，dispatch 时 github.ref 是被派发的分支（通常
+          # 就是 main），而 checkout 切到的是 `tag` 输入指定的 tag——按 ref 判断
+          # 会把 tag 代码树的缓存存进 main 作用域，正好吃掉本要省的预算。
+          #
+          # 唯一损失是同一 run 内重跑失败 job 时不再有热缓存——v0.24.0 arm64
+          # 失败那次实际走的是「修完重新打 tag」，新 ref 本就冷启，没有损失。
+          save-if: false
 
       # `ring` (via jsonwebtoken / rustls) assembles its Windows MSVC crypto
       # with NASM. Use Chocolatey instead of ilammy/setup-nasm (upstream still

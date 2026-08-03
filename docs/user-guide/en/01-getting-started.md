@@ -93,6 +93,12 @@ The desktop wizard is actually 6 steps (the X in the top-right of each step exit
 
 All data — configuration, sessions, memory, and so on — is stored in the `~/.hope-agent/` directory on your own machine (use the `HA_DATA_DIR` environment variable to change the location).
 
+### Switching sidebar workspaces
+
+Main Chat, Scheduled Tasks, Dashboard, Plans, Knowledge Space, Design Space, and Artifacts are **persistent workspaces**. After you open one for the first time, switching to another sidebar destination does not unmount it; returning preserves the current conversation, project, note, artifact, filters, and panel layout. Lists and run history refresh when you return, so preserving the workspace does not mean keeping stale data forever. These top-level workspace home pages do not show a Back-to-Chat button; switch destinations with the sidebar. A Back button appears only after you enter a real subpage such as a project or task detail.
+
+Settings and configuration pages for Agents, models, Skills, Memory, and Channels are short-lived navigation screens and may reload after you leave. Do not treat an unsubmitted form draft as saved configuration. In the desktop app, Knowledge Space and Design Space can also open in separate windows by right-clicking or double-clicking their sidebar icons; see their respective chapters for details.
+
 ---
 
 ## 1.3 Three run modes
@@ -128,11 +134,11 @@ hope-agent server setup        # re-run the setup wizard (replays by default; --
 
 To reach a Hope Agent running on your main device from a phone, tablet, or another computer:
 
-1. Open "**Settings → Server**" and **set an API key** (used for authentication — be sure to set it).
+1. Open "**Settings → Server**" and generate an **Owner Token** for authentication; store it safely.
 2. Change the listen address from `127.0.0.1:8420` to `0.0.0.0:8420` (allow LAN access).
-3. After restarting, open `http://<IP of the device running Hope Agent>:8420` in a browser on the other device and enter the API key.
+3. After restarting, open `http://<IP of the device running Hope Agent>:8420` and enter the Owner Token once at the Auth Gate. The browser exchanges it for an HttpOnly session and does not keep the Root Token in a URL or localStorage.
 
-> ⚠️ **Security reminder**: do not expose the port to your LAN or the public internet without authentication (no API key set). When you need public access, put an HTTPS reverse proxy in front of it — see the [Docker deployment guide](../../deployment/docker.md).
+> ⚠️ **Security reminder**: a non-loopback server without a token now refuses to start. Public access still requires an HTTPS reverse proxy. Never place the Owner Token in a URL, chat, or log. See the [Docker deployment guide](../../deployment/docker.md).
 
 ---
 
@@ -148,7 +154,7 @@ docker run -d \
   ghcr.io/shiwenwen/hope-agent:latest
 ```
 
-Once the container is up, open <http://127.0.0.1:8420> in a browser and configure your Provider API key through the setup wizard. The image covers `linux/amd64` + `linux/arm64` (including Apple Silicon / Raspberry Pi) and is built automatically with every release.
+The container generates an Owner Token on first boot. Run `docker exec hope-agent hope-agent server token show`, then open <http://127.0.0.1:8420>, enter the token, and configure your Provider through the setup wizard. The image covers `linux/amd64` + `linux/arm64` (including Apple Silicon / Raspberry Pi) and is built automatically with every release.
 
 For docker compose, pairing with a local Ollama LLM, exposing to the LAN, reverse proxy and TLS, and the upgrade process, see the full [Docker deployment guide](../../deployment/docker.md). You can also bring up a local LLM sidecar in one command:
 

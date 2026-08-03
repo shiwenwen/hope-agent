@@ -30,6 +30,18 @@ pub async fn request_system_permission(id: String) -> ha_core::permissions::Syst
     ha_core::permissions::request_system_permission(id).await
 }
 
+/// Reset this app's OS permission record so the OS prompts again.
+/// Desktop/owner-only like the rest of this subsystem — no HTTP route, and
+/// deliberately no model-facing tool (see `permissions::reset_system_permission`).
+#[tauri::command]
+pub async fn reset_system_permission(
+    id: String,
+) -> Result<ha_core::permissions::SystemPermissionItem, crate::commands::error::CmdError> {
+    ha_core::permissions::reset_system_permission(id)
+        .await
+        .map_err(crate::commands::error::CmdError::msg)
+}
+
 // ── macOS Control ────────────────────────────────────────────────
 
 #[tauri::command]

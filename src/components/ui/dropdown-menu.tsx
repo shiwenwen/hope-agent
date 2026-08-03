@@ -4,6 +4,7 @@ import {
   FLOATING_MENU_RADIX_MOTION_CLASS,
   FLOATING_MENU_SURFACE_CLASS,
 } from "@/components/ui/floating-menu"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 
 const DropdownMenu = DropdownMenuPrimitive.Root
@@ -40,18 +41,22 @@ const DropdownMenuContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
     variant?: DropdownMenuVariant
   }
->(({ className, sideOffset = 4, variant = "default", ...props }, ref) => (
-  <DropdownMenuVariantContext.Provider value={variant}>
-    <DropdownMenuPrimitive.Portal>
-      <DropdownMenuPrimitive.Content
-        ref={ref}
-        sideOffset={sideOffset}
-        className={cn(contentVariantClass[variant], className)}
-        {...props}
-      />
-    </DropdownMenuPrimitive.Portal>
-  </DropdownMenuVariantContext.Provider>
-))
+>(({ className, sideOffset = 4, variant = "default", ...props }, ref) => {
+  const portalScope = usePortalScope()
+  if (portalScope && !portalScope.active) return null
+  return (
+    <DropdownMenuVariantContext.Provider value={variant}>
+      <DropdownMenuPrimitive.Portal container={portalScope?.container ?? undefined}>
+        <DropdownMenuPrimitive.Content
+          ref={ref}
+          sideOffset={sideOffset}
+          className={cn(contentVariantClass[variant], className)}
+          {...props}
+        />
+      </DropdownMenuPrimitive.Portal>
+    </DropdownMenuVariantContext.Provider>
+  )
+})
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName
 
 const DropdownMenuItem = React.forwardRef<

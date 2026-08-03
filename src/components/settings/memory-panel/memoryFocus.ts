@@ -380,6 +380,14 @@ export function parseMemoryFocusFromLocation(): MemoryFocusTarget | null {
   return parseMemoryFocusHash(window.location.hash)
 }
 
+export function clearMemoryFocusUrl(): boolean {
+  if (typeof window === "undefined" || !parseMemoryFocusFromLocation()) return false
+  const url = new URL(window.location.href)
+  url.hash = ""
+  window.history.replaceState(window.history.state, "", url)
+  return true
+}
+
 function updateMemoryFocusUrl(target: MemoryFocusTarget, replace: boolean): void {
   if (typeof window === "undefined") return
   const url = memoryFocusUrl(target)

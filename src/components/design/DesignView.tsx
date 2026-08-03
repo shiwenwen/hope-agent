@@ -7,7 +7,7 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import type { CSSProperties, ReactNode } from "react"
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ArrowLeft,
@@ -15,7 +15,7 @@ import {
   Braces,
   Trash2,
   RefreshCw,
-  Settings2,
+  Settings,
   Palette,
   PanelLeft,
   PanelLeftDashed,
@@ -61,7 +61,6 @@ import {
   Check,
   CheckSquare,
   FolderOpen,
-  Tablet,
   Maximize2,
   Undo2,
   Redo2,
@@ -85,15 +84,30 @@ import {
   Hammer,
 } from "lucide-react"
 import { toast } from "sonner"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, useTransportRevision } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
+import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import DesignChatPanel, {
   type DesignChatPanelHandle,
 } from "@/components/design/chat/DesignChatPanel"
 import type { PendingFileQuote } from "@/types/chat"
 import type { PetNavigationTarget } from "@/types/pet"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
+import {
+  DesignViewportControl,
+  DesignViewportResizeHandles,
+} from "@/components/design/DesignViewportControl"
+import {
+  DEFAULT_CUSTOM_VIEWPORT,
+  clampCustomViewport,
+  findDeviceViewportPreset,
+  isPreviewDevice,
+  resizeCustomViewport,
+  type PreviewDevice,
+  type ViewportResizeAxis,
+  type ViewportSize,
+} from "@/components/design/designViewport"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { ModelSelector, type AvailableModel } from "@/components/ui/model-selector"
 import type { ActiveModel } from "@/types/chat"
@@ -206,9 +220,15 @@ import DesignFilesPanel from "@/components/design/DesignFilesPanel"
 import DesignSharePanel from "@/components/design/DesignSharePanel"
 import { useTypewriterPlaceholder } from "./useTypewriterPlaceholder"
 import { useClickOutside } from "@/hooks/useClickOutside"
+import {
+  usesSpaceWindowOverlayTitleBar,
+  type DesignSpaceLocation,
+  type SpaceNavigationRequest,
+} from "@/lib/spaceWindow"
 
 interface DesignViewProps {
-  onBack: () => void
+  /** 顶层侧边栏当前是否正在展示设计空间；组件本身会跨视图常驻。 */
+  isViewVisible: boolean
   onOpenSettings: () => void
   /** 「实现到代码」：跳到主对话该会话并把 prompt 作首条消息自动发送（App 层接线）。 */
   onImplementToCode?: (sessionId: string, prompt: string) => void
@@ -217,6 +237,10 @@ interface DesignViewProps {
     nonce: number
   } | null
   onPetFocusHandled?: (nonce: number) => void
+  windowMode?: "docked" | "detached"
+  windowNavigation?: SpaceNavigationRequest<DesignSpaceLocation> | null
+  onWindowLocationChange?: (location: DesignSpaceLocation) => void
+  onToggleWindowMode?: (location: DesignSpaceLocation) => void
 }
 
 const KIND_ICON: Record<ArtifactKind, typeof Monitor> = {
@@ -267,15 +291,6 @@ const RIGHT_PANEL_WIDTH_PX = 288
 function normalizeWheelDelta(deltaY: number, deltaMode: number): number {
   const px = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 400 : deltaY
   return Math.sign(px) * Math.min(Math.abs(px), 60)
-}
-
-// 预览设备视口（B4-3，源码级对标参照 PREVIEW_VIEWPORT_PRESETS）。`auto` = 沿用产物自然
-// viewportW/H（默认，零回归）；其余固定逻辑宽高、居中缩放适配 + 设备框。
-type PreviewDevice = "auto" | "desktop" | "tablet" | "mobile"
-const DEVICE_PRESETS: Record<Exclude<PreviewDevice, "auto">, { w: number; h: number | null }> = {
-  desktop: { w: 1440, h: null },
-  tablet: { w: 820, h: 1180 },
-  mobile: { w: 390, h: 844 },
 }
 
 /** 可视化编辑 undo/redo 的 inverse-patch 载荷 / 记录（B5）。
@@ -500,14 +515,19 @@ function writeOpenTabs(projectId: string, ids: string[]): void {
 }
 
 export default function DesignView({
-  onBack,
+  isViewVisible,
   onOpenSettings,
   onImplementToCode,
   petFocus,
   onPetFocusHandled,
+  windowMode = "docked",
+  windowNavigation,
+  onWindowLocationChange,
+  onToggleWindowMode,
 }: DesignViewProps) {
   const { t } = useTranslation()
   const tx = getTransport()
+  const transportRevision = useTransportRevision()
 
   const [projects, setProjects] = useState<DesignProject[]>([])
   const [systems, setSystems] = useState<DesignSystemMeta[]>([])
@@ -604,6 +624,7 @@ export default function DesignView({
 
   const [zoom, setZoom] = useState<ZoomMode>("fit")
   const [previewKey, setPreviewKey] = useState(0)
+  const [resolvedPreview, setResolvedPreview] = useState({ identity: "", url: "" })
   const iframeRef = useRef<HTMLIFrameElement>(null)
   // 预览重载中（Wave 2-⑥）：src 变→true，onLoad→false；驱动叠层 spinner，让改稿读作「更新中」
   // 而非白屏/坏页。旧帧因 iframe 不再按 key 重挂而垫在下面直到新帧就绪。
@@ -618,6 +639,16 @@ export default function DesignView({
   deckStateRef.current = deckState
   // 预览设备视口（B4-3）+ 演示态（B4-4）。
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("auto")
+  const [customViewport, setCustomViewport] = useState<ViewportSize>(DEFAULT_CUSTOM_VIEWPORT)
+  const customViewportRef = useRef(customViewport)
+  customViewportRef.current = customViewport
+  // 拖拽时冻结起始屏上 scale 与外层占位：居中的外层不改尺寸，内层只向右/下增长，因而无需
+  // 动态 translate 就能锚定左/上边；松手即清空，恢复随预览面实时 contain 适配。
+  const [customResizeAnchor, setCustomResizeAnchor] = useState<{
+    size: ViewportSize
+    scale: number
+  } | null>(null)
+  const customResizeCleanupRef = useRef<(() => void) | null>(null)
   const [presentMode, setPresentMode] = useState(false) // 本标签无 chrome 演示
   const presentModeRef = useRef(false)
   presentModeRef.current = presentMode
@@ -630,6 +661,13 @@ export default function DesignView({
   // 手势缩放入口（渲染期赋值，收 iframe 桥 ds_zoom 与父层原生 wheel 两路）。用 ref 避免
   // 让常驻消息/滚轮监听随 zoom/设备/模式频繁重挂。
   const applyZoomDeltaRef = useRef<(deltaY: number, deltaMode: number) => void>(() => {})
+
+  useEffect(
+    () => () => {
+      customResizeCleanupRef.current?.()
+    },
+    [],
+  )
 
   // 设计系统套件（Kit）预览模态：选择器行内「预览套件」触发（B1-1）。
   const [kitSystem, setKitSystem] = useState<{ id: string; name: string } | null>(null)
@@ -659,6 +697,7 @@ export default function DesignView({
   }, [chatOpen])
   useEffect(() => {
     if (
+      !isViewVisible ||
       !pendingPetThreadFocus ||
       !chatOpen ||
       activeProject?.id !== pendingPetThreadFocus.projectId ||
@@ -669,7 +708,7 @@ export default function DesignView({
     chatPanelRef.current.focusThread(pendingPetThreadFocus.sessionId)
     onPetFocusHandled?.(pendingPetThreadFocus.nonce)
     setPendingPetThreadFocus(null)
-  }, [activeProject?.id, chatOpen, onPetFocusHandled, pendingPetThreadFocus])
+  }, [activeProject?.id, chatOpen, isViewVisible, onPetFocusHandled, pendingPetThreadFocus])
   // 画框批注合成图作对话图附件（同 quote 缓冲：面板未挂载先缓冲、chatOpen 后 flush 恰好一次）。
   const pendingImagesRef = useRef<File[]>([])
   const enqueueChatImage = useCallback((file: File) => {
@@ -760,9 +799,11 @@ export default function DesignView({
     if (document.fullscreenElement === previewPaneRef.current) {
       // 原生全屏先交还浏览器；fullscreenchange 再启动 CSS FLIP 还原，避免按钮消失后
       // 节点仍被 :fullscreen 强制铺满屏幕。
-      void document.exitFullscreen().catch((e) =>
-        logger.error("design", "DesignView::exitFullscreen", "exit fullscreen failed", e),
-      )
+      void document
+        .exitFullscreen()
+        .catch((e) =>
+          logger.error("design", "DesignView::exitFullscreen", "exit fullscreen failed", e),
+        )
       return
     }
     transitionPresentMode(false)
@@ -773,6 +814,7 @@ export default function DesignView({
   activeProjectRef.current = activeProject
   const activeArtifactRef = useRef<DesignArtifactView | null>(null)
   activeArtifactRef.current = activeArtifact
+  const lastWindowNavigationNonceRef = useRef<number | null>(null)
   const openTabIdsRef = useRef<string[]>([])
   openTabIdsRef.current = openTabIds
   // 顶部标签条渲染的产物（已打开、保序、滤掉已删）；产物库墙里未打开的 = 可重新打开的。
@@ -791,6 +833,12 @@ export default function DesignView({
   // 提前声明（commit handlers 在历史块之前引用；实体在 undo/redo 块内赋值）。
   const pushHistoryRef = useRef<(op: EditOp) => void>(() => {})
   const activeArtifactId = activeArtifact?.id
+  useEffect(() => {
+    onWindowLocationChange?.({
+      projectId: activeProject?.id ?? null,
+      artifactId: activeArtifactId ?? null,
+    })
+  }, [activeArtifactId, activeProject?.id, onWindowLocationChange])
   const postToIframe = useCallback((msg: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(msg, "*")
   }, [])
@@ -803,6 +851,7 @@ export default function DesignView({
   // Deck 宿主级键盘翻页（Wave 2-⑧）：无需先点 iframe 拿焦点。编辑/批注/画框态不劫持方向键；
   // 跳过 input/textarea/contenteditable 焦点；带修饰键放行（避免抢 Cmd+Z 等）。演示态也生效。
   useEffect(() => {
+    if (!isViewVisible) return
     if (activeArtifact?.kind !== "deck") return
     if (!presentMode && (editMode || commentMode || drawMode)) return
     const onKey = (e: KeyboardEvent) => {
@@ -832,7 +881,7 @@ export default function DesignView({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [activeArtifact?.kind, presentMode, editMode, commentMode, drawMode, deckNav])
+  }, [activeArtifact?.kind, presentMode, editMode, commentMode, drawMode, deckNav, isViewVisible])
 
   // ── 画框批注 orchestration（B4-1）──
   // ds_viewport round-trip：跨源无法直接读 iframe 滚动/视口，postMessage 请求 → 回传 resolve。
@@ -1341,6 +1390,7 @@ export default function DesignView({
           id: artifact.id,
         })
         if (view) {
+          activeArtifactRef.current = view
           setActiveArtifact(view)
           setPreviewKey((k) => k + 1)
           ensureTabOpen(view.id)
@@ -1383,7 +1433,7 @@ export default function DesignView({
           setOpenTabIds(restored)
           writeOpenTabs(projectId, restored)
           const first = restored[0] ? all.find((a) => a.id === restored[0]) : undefined
-          if (first) void openArtifact(first)
+          if (first) await openArtifact(first)
         }
       } catch (e) {
         // Wave 2-⑨：置显式 error 态，让产物墙显示「加载失败 + 重试」而非误当空库。
@@ -1586,14 +1636,16 @@ export default function DesignView({
   }, [activeProject?.id, artifacts, loadFolders])
 
   const openProject = useCallback(
-    (project: DesignProject) => {
+    async (project: DesignProject) => {
+      activeProjectRef.current = project
+      activeArtifactRef.current = null
       setActiveProject(project)
       setActiveArtifact(null)
       setShowGrid(false)
       setRenamingProject(false)
       setRenamingArtifactId(null)
       setOpenTabIds([]) // 清上一个项目的标签，随后 loadArtifacts(selectFirst) 恢复本项目的
-      void loadArtifacts(project.id, true)
+      await loadArtifacts(project.id, true)
     },
     [loadArtifacts],
   )
@@ -1615,7 +1667,9 @@ export default function DesignView({
           toast.error(t("pet.navigation.unavailable", "This conversation is no longer available."))
           return
         }
-        if (activeProjectRef.current?.id !== project.id) openProject(project)
+        if (activeProjectRef.current?.id !== project.id) {
+          await openProject(project)
+        }
         setChatOpen(true)
         setPendingPetThreadFocus({
           projectId: project.id,
@@ -1637,11 +1691,52 @@ export default function DesignView({
   }, [onPetFocusHandled, openArtifact, openProject, petFocus, t, tx])
 
   const backToHome = useCallback(() => {
+    activeProjectRef.current = null
+    activeArtifactRef.current = null
     setActiveProject(null)
     setActiveArtifact(null)
     setArtifacts([])
     void loadProjects()
   }, [loadProjects])
+
+  useEffect(() => {
+    if (!windowNavigation || lastWindowNavigationNonceRef.current === windowNavigation.nonce) {
+      return
+    }
+    lastWindowNavigationNonceRef.current = windowNavigation.nonce
+    const { projectId, artifactId } = windowNavigation.location
+    if (!projectId) {
+      backToHome()
+      return
+    }
+
+    void (async () => {
+      try {
+        const project = await tx.call<DesignProject | null>("get_design_project_cmd", {
+          id: projectId,
+        })
+        if (!project) return
+        if (activeProjectRef.current?.id !== project.id) {
+          await openProject(project)
+        } else {
+          activeProjectRef.current = project
+          setActiveProject(project)
+        }
+        if (!artifactId || activeArtifactRef.current?.id === artifactId) return
+        const artifact = await tx.call<DesignArtifact | null>("get_design_artifact_cmd", {
+          id: artifactId,
+        })
+        if (artifact) await openArtifact(artifact)
+      } catch (error) {
+        logger.error(
+          "design",
+          "DesignView::windowNavigation",
+          "navigate detached design window failed",
+          error,
+        )
+      }
+    })()
+  }, [backToHome, openArtifact, openProject, tx, windowNavigation])
 
   // 批量删项目（LaunchHome 内已二次确认；此处 settle-all + 汇总提示 + 重载）。
   const batchDeleteProjects = useCallback(
@@ -1947,75 +2042,116 @@ export default function DesignView({
   // 后端按 (id, kind) 匹配、不匹配即回退，故换 kind 无需清空。
   const [homeRecipeId, setHomeRecipeId] = useState<string | null>(null)
   const [generatingHome, setGeneratingHome] = useState(false)
+  // image / audio 在首屏也先过能力驱动的媒体对话框：无可用模型时给配置入口，
+  // 有模型时收集该模型支持的参数，避免直接建项目后同步失败。
+  const [homeMediaGenOpen, setHomeMediaGenOpen] = useState(false)
+  const [homeMediaGenKind, setHomeMediaGenKind] = useState<"image" | "audio">("image")
 
   // 首屏「一句话 → 生成」：建项目 → 带 prompt 建产物（后端一次模型生成完整自包含设计）→ 打开。
   // 需求补全交给设计 Agent 在对话里按需追问（ask_user_question 的 discovery / direction-cards），
   // 首屏只收一句话，不再叠加静态简报表单。
-  const generateFromHome = useCallback(async () => {
-    const base = homePrompt.trim()
-    // 有图无文也可生成（后端固定「照图复刻」指令）。
-    if ((!base && homeRefImages.length === 0) || generatingHome) return
-    const prompt = base
-    const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
-    let createdProjectId: string | null = null
-    setGeneratingHome(true)
-    try {
-      const project = await tx.call<DesignProject>("create_design_project_cmd", {
-        input: {
-          title: base.slice(0, 40),
-          // 首页选的模型带入项目：作为项目对话的初始模型（会话内切换照常）。
-          defaultModel: genModel ?? undefined,
-        },
-      })
-      createdProjectId = project.id
-      // 首屏一句话 → 流式生成（返回 generating 壳，前端挂稳定 iframe 后逐帧灌入）。
-      // 带参考图时选中的视觉模型**直接看原图**（真多模态）。
-      const artifact = await tx.call<DesignArtifact>("generate_design_artifact_cmd", {
-        input: {
-          projectId: project.id,
-          title: kindLabel(homeKind),
-          kind: homeKind,
-          prompt: prompt || undefined,
-          systemId,
-          recipeId: homeRecipeId ?? undefined,
-          referenceImages: homeRefImages.map((i) => ({ b64: i.b64, mime: i.mime })),
-          modelOverride: genModel ?? undefined,
-        },
-      })
-      setHomePrompt("")
-      setHomeRecipeId(null)
-      setHomeRefImages([])
-      openProject(project)
-      if (artifact) void openArtifact(artifact)
-    } catch (e) {
-      logger.error("design", "DesignView::generateFromHome", "generate failed", e)
-      toast.error(t("design.err.create", "创建失败"))
-      // 回滚：产物没建成，删掉刚建的孤儿空项目（否则每次重试堆积隐藏空项目）。
-      if (createdProjectId) {
-        try {
-          await tx.call("delete_design_project_cmd", { id: createdProjectId })
-        } catch {
-          /* best effort */
+  const generateFromHome = useCallback(
+    async (
+      mediaPayload?: MediaGeneratePayload,
+      kindOverride?: "image" | "audio",
+    ): Promise<boolean> => {
+      const base = (mediaPayload?.prompt ?? homePrompt).trim()
+      const selectedKind = kindOverride ?? homeKind
+      const media = mediaPayload
+        ? {
+            aspectRatio: mediaPayload.aspectRatio,
+            imageSize: mediaPayload.imageSize,
+            imageResolution: mediaPayload.imageResolution,
+            audioKind: mediaPayload.audioKind,
+            audioVoice: mediaPayload.audioVoice,
+            audioDurationSecs: mediaPayload.audioDurationSecs,
+          }
+        : undefined
+      // 有图无文也可生成（后端固定「照图复刻」指令）。
+      if ((!base && homeRefImages.length === 0) || generatingHome) return false
+      const prompt = base
+      const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
+      let createdProjectId: string | null = null
+      setGeneratingHome(true)
+      try {
+        const project = await tx.call<DesignProject>("create_design_project_cmd", {
+          input: {
+            title: base.slice(0, 40),
+            // 首页选的模型带入项目：作为项目对话的初始模型（会话内切换照常）。
+            defaultModel: genModel ?? undefined,
+          },
+        })
+        createdProjectId = project.id
+        // 首屏一句话 → 流式生成（返回 generating 壳，前端挂稳定 iframe 后逐帧灌入）。
+        // 带参考图时选中的视觉模型**直接看原图**（真多模态）。
+        const artifact = await tx.call<DesignArtifact>("generate_design_artifact_cmd", {
+          input: {
+            projectId: project.id,
+            title: kindLabel(selectedKind),
+            kind: selectedKind,
+            prompt: prompt || undefined,
+            systemId,
+            recipeId: homeRecipeId ?? undefined,
+            referenceImages: homeRefImages.map((i) => ({ b64: i.b64, mime: i.mime })),
+            modelOverride: genModel ?? undefined,
+            ...media,
+          },
+        })
+        setHomePrompt("")
+        setHomeRecipeId(null)
+        setHomeRefImages([])
+        openProject(project)
+        if (artifact) void openArtifact(artifact)
+        return true
+      } catch (e) {
+        logger.error("design", "DesignView::generateFromHome", "generate failed", e)
+        toast.error(t("design.err.create", "创建失败"))
+        // 回滚：产物没建成，删掉刚建的孤儿空项目（否则每次重试堆积隐藏空项目）。
+        if (createdProjectId) {
+          try {
+            await tx.call("delete_design_project_cmd", { id: createdProjectId })
+          } catch {
+            /* best effort */
+          }
         }
+        return false
+      } finally {
+        setGeneratingHome(false)
       }
-    } finally {
-      setGeneratingHome(false)
+    },
+    [
+      tx,
+      homePrompt,
+      homeKind,
+      homeSystemId,
+      homeRecipeId,
+      homeRefImages,
+      genModel,
+      generatingHome,
+      designConfig,
+      kindLabel,
+      openProject,
+      openArtifact,
+      t,
+    ],
+  )
+
+  const requestGenerateFromHome = useCallback(() => {
+    if (homeKind === "image" || homeKind === "audio") {
+      setHomeMediaGenKind(homeKind)
+      setHomeMediaGenOpen(true)
+      return
     }
-  }, [
-    tx,
-    homePrompt,
-    homeKind,
-    homeSystemId,
-    homeRecipeId,
-    homeRefImages,
-    genModel,
-    generatingHome,
-    designConfig,
-    kindLabel,
-    openProject,
-    openArtifact,
-    t,
-  ])
+    void generateFromHome()
+  }, [generateFromHome, homeKind])
+
+  const confirmHomeMediaGenerate = useCallback(
+    async (payload: MediaGeneratePayload) => {
+      const generated = await generateFromHome(payload, homeMediaGenKind)
+      if (generated) setHomeMediaGenOpen(false)
+    },
+    [generateFromHome, homeMediaGenKind],
+  )
 
   // 品牌包：一句话 → 建项目 → 批量生成一组共享系统的协调产物（形态由弹窗自选）。
   // 带参考图时每件产物都真看原图（N 件 = N 次带图视觉调用，用户主动选择）。
@@ -2485,6 +2621,7 @@ export default function DesignView({
   }, [activeArtifactId])
   // Cmd/Ctrl+Z 撤销 / Cmd/Ctrl+Shift+Z 重做——但焦点在输入框 / contenteditable 时让位原生撤销。
   useEffect(() => {
+    if (!isViewVisible) return
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return
       // 画框批注期 Cmd/Ctrl+Z 归叠层自己的 mark undo（其监听后注册、无法阻断本 window sibling
@@ -2499,7 +2636,7 @@ export default function DesignView({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [undo, redo])
+  }, [isViewVisible, undo, redo])
 
   // P1-E 键盘体系（宿主聚焦时）：Escape 分级退出 + Cmd/Ctrl+[ ] 切上/下一个产物。镜像 ref 让监听器
   // 不随 state 反复重挂。
@@ -2517,6 +2654,7 @@ export default function DesignView({
     activeChipRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
   }, [activeArtifactId])
   useEffect(() => {
+    if (!isViewVisible) return
     const onKey = (e: KeyboardEvent) => {
       const ae = document.activeElement as HTMLElement | null
       const inField =
@@ -2595,7 +2733,7 @@ export default function DesignView({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [postToIframe, openArtifact])
+  }, [isViewVisible, postToIframe, openArtifact])
 
   // ── B5：链接 / 图片属性编辑 ──
   const handleLiveAttr = useCallback(
@@ -3919,21 +4057,52 @@ export default function DesignView({
   }, [refreshView, activeProject]) // loadArtifacts/setPreviewKey stable
 
   // ── 设备视口 (B4-3) + 演示态 (B4-4) ───────────────────────────
-  // per-artifact 记忆（localStorage）：切产物时载回上次的设备选择。
+  // per-artifact 记忆（localStorage）：切产物时载回上次的设备选择与自定义尺寸。
   useEffect(() => {
     if (!activeArtifactId) return
     let saved: string | null = null
+    let savedCustom: ViewportSize = DEFAULT_CUSTOM_VIEWPORT
     try {
       saved = localStorage.getItem(`design:device:${activeArtifactId}`)
+      const rawCustom = localStorage.getItem(`design:custom-viewport:${activeArtifactId}`)
+      if (rawCustom) {
+        const parsed = JSON.parse(rawCustom) as Partial<ViewportSize>
+        savedCustom = clampCustomViewport({
+          width: Number(parsed.width),
+          height: Number(parsed.height),
+        })
+      }
     } catch {
       /* localStorage 不可用 */
     }
-    setPreviewDevice(
-      saved === "desktop" || saved === "tablet" || saved === "mobile" ? saved : "auto",
-    )
+    customResizeCleanupRef.current?.()
+    customViewportRef.current = savedCustom
+    setCustomViewport(savedCustom)
+    setCustomResizeAnchor(null)
+    setPreviewDevice(isPreviewDevice(saved) ? saved : "auto")
   }, [activeArtifactId])
+
+  const commitCustomViewport = useCallback(
+    (size: ViewportSize) => {
+      const next = clampCustomViewport(size)
+      customViewportRef.current = next
+      setCustomViewport(next)
+      if (!activeArtifactId) return
+      try {
+        localStorage.setItem(`design:custom-viewport:${activeArtifactId}`, JSON.stringify(next))
+      } catch {
+        /* localStorage 不可用 → 仅本次会话生效 */
+      }
+    },
+    [activeArtifactId],
+  )
+
   const changeDevice = useCallback(
     (d: PreviewDevice) => {
+      if (d !== previewDevice) {
+        customResizeCleanupRef.current?.()
+        setCustomResizeAnchor(null)
+      }
       setPreviewDevice(d)
       if (!activeArtifactId) return
       try {
@@ -3943,13 +4112,14 @@ export default function DesignView({
         /* localStorage 不可用 → 仅本次会话生效 */
       }
     },
-    [activeArtifactId],
+    [activeArtifactId, previewDevice],
   )
   // 测量预览面尺寸（统一渲染的「适应」缩放 + 设备模式都依赖）。useLayoutEffect：paint 前先同步量
   // 一次，令首帧「适应」即按面板尺寸精确缩放、无 natural→fit 跳一下。用 clientWidth/Height（含 p-4
   // padding 的盒），frame 里再 `-32` 取内容区。deps 含 showGrid —— 产物墙开关会卸载/重挂预览面，不带
   // 它则监听绑在旧的已卸载节点、paneSize 停更（切产物才自愈）。
   useLayoutEffect(() => {
+    if (!isViewVisible) return
     const el = previewPaneRef.current
     if (!el) return
     const measure = () => setPaneSize({ w: el.clientWidth, h: el.clientHeight })
@@ -3958,11 +4128,12 @@ export default function DesignView({
     const ro = new ResizeObserver(() => measure())
     ro.observe(el)
     return () => ro.disconnect()
-  }, [activeArtifactId, showGrid])
+  }, [activeArtifactId, isViewVisible, showGrid])
   // 父层原生 wheel 监听（预览面 padding 区，光标不在 iframe 上时）：Ctrl·⌘+滚轮 = 缩放。
   // 必须 passive:false 才能 preventDefault 掉 webview 的整页缩放；iframe 上方的手势另由注入桥
   // 转发 ds_zoom（跨源事件不冒泡到父层）。按产物 id 重挂（面随产物条件渲染）。
   useEffect(() => {
+    if (!isViewVisible) return
     const el = previewPaneRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
@@ -3972,24 +4143,24 @@ export default function DesignView({
     }
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
-  }, [activeArtifactId, showGrid])
+  }, [activeArtifactId, isViewVisible, showGrid])
   // Present（本标签无 chrome）：Escape 退出。
   useEffect(() => {
-    if (!presentMode) return
+    if (!isViewVisible || !presentMode) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) exitPresentMode()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [exitPresentMode, presentMode])
+  }, [exitPresentMode, isViewVisible, presentMode])
   useEffect(() => {
-    if (!presentMode) return
+    if (!isViewVisible || !presentMode) return
     const onFullscreenChange = () => {
       if (!document.fullscreenElement) exitPresentMode()
     }
     document.addEventListener("fullscreenchange", onFullscreenChange)
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange)
-  }, [exitPresentMode, presentMode])
+  }, [exitPresentMode, isViewVisible, presentMode])
   // 演讲者备注：随打开产物解析 metadata 同步。
   useEffect(() => {
     setPresenterNotes(parsePresenterNotes(activeArtifact?.metadata))
@@ -4000,9 +4171,10 @@ export default function DesignView({
       setPresentElapsed(0)
       return
     }
+    if (!isViewVisible) return
     const id = window.setInterval(() => setPresentElapsed((s) => s + 1), 1000)
     return () => window.clearInterval(id)
-  }, [presentMode])
+  }, [isViewVisible, presentMode])
   const savePresenterNote = useCallback(
     (slideIndex: number, text: string) => {
       const aid = activeArtifactRef.current?.id
@@ -4385,12 +4557,30 @@ export default function DesignView({
 
   // cache-bust 键 previewKey：生成/编辑/恢复/刷新 index.html 后端 max-age=60，且流式壳与定稿写
   // 同一 index.html——不带 cache-bust 时 remount 会取回缓存的旧页（server 模式尤甚，卡旧内容 ≤60s）。
-  const iframeSrc = (() => {
-    if (!activeArtifact) return ""
-    const base = tx.resolveAssetUrl(`${activeArtifact.artifactPath}/index.html`) ?? ""
-    if (!base) return ""
-    return `${base}${base.includes("?") ? "&" : "?"}v=${previewKey}`
-  })()
+  const activePreviewId = activeArtifact?.id ?? ""
+  const activePreviewPath = activeArtifact?.artifactPath ?? ""
+  const previewIdentity = activePreviewId && activePreviewPath
+    ? JSON.stringify([transportRevision, activePreviewId, activePreviewPath])
+    : ""
+  useEffect(() => {
+    let cancelled = false
+    if (!activePreviewId || !activePreviewPath) return
+    void tx
+      .artifactPreviewUrl(activePreviewId, activePreviewPath)
+      .then((url) => {
+        if (!cancelled) setResolvedPreview({ identity: previewIdentity, url: url ?? "" })
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedPreview({ identity: previewIdentity, url: "" })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activePreviewId, activePreviewPath, previewIdentity, tx])
+  const iframeBase = resolvedPreview.identity === previewIdentity ? resolvedPreview.url : ""
+  const iframeSrc = iframeBase
+    ? `${iframeBase}${iframeBase.includes("?") ? "&" : "?"}v=${previewKey}`
+    : ""
   // src 变（换产物 / 内容刷新 / 定稿 swap）→ 进重载态，onLoad 撤（Wave 2-⑥）。字符串相等比较，
   // 流式期不变 src 故不触发（流式走 postMessage，无 spinner 打扰）。
   useEffect(() => {
@@ -4407,13 +4597,25 @@ export default function DesignView({
   const naturalH =
     activeArtifact?.viewportH && activeArtifact.viewportH > 0 ? activeArtifact.viewportH : 768
 
-  const devicePreset = previewDevice === "auto" ? null : DEVICE_PRESETS[previewDevice]
+  const selectedDevicePreset = findDeviceViewportPreset(previewDevice)
+  const devicePreset =
+    previewDevice === "custom"
+      ? { w: customViewport.width, h: customViewport.height }
+      : selectedDevicePreset
+        ? { w: selectedDevicePreset.width, h: selectedDevicePreset.height }
+        : null
   const frame = (() => {
     const availW = Math.max(0, paneSize.w - 32) // p-4 两侧
     const availH = Math.max(0, paneSize.h - 32)
     if (devicePreset) {
       const sw = devicePreset.w > 0 ? availW / devicePreset.w : 1
-      const scale = devicePreset.h ? Math.min(1, sw, availH / devicePreset.h) : Math.min(1, sw)
+      const fittedScale = devicePreset.h
+        ? Math.min(1, sw, availH / devicePreset.h)
+        : Math.min(1, sw)
+      const scale =
+        previewDevice === "custom" && customResizeAnchor != null
+          ? customResizeAnchor.scale
+          : fittedScale
       const h = devicePreset.h ?? Math.max(400, Math.round(availH / (scale || 1)))
       return { w: devicePreset.w, h, scale }
     }
@@ -4460,13 +4662,77 @@ export default function DesignView({
         transform: `scale(${frame.scale})`,
         transformOrigin: "top left",
       }
-  const frameWrapStyle: CSSProperties = presentMode
+  const previewFootprintStyle: CSSProperties = presentMode
     ? { width: "100%", minHeight: 0 }
     : {
         width: `${frame.w * frame.scale}px`,
         height: `${frame.h * frame.scale}px`,
       }
-  const overlayFrameStyle: CSSProperties = frameWrapStyle
+  const frameWrapStyle: CSSProperties =
+    previewDevice === "custom" && customResizeAnchor != null && !presentMode
+      ? {
+          width: `${customResizeAnchor.size.width * customResizeAnchor.scale}px`,
+          height: `${customResizeAnchor.size.height * customResizeAnchor.scale}px`,
+        }
+      : previewFootprintStyle
+  const overlayFrameStyle: CSSProperties = previewFootprintStyle
+
+  const startCustomViewportResize = (
+    axis: ViewportResizeAxis,
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (event.button !== 0 || previewDevice !== "custom" || presentMode) return
+    event.preventDefault()
+    event.stopPropagation()
+    customResizeCleanupRef.current?.()
+
+    const startX = event.clientX
+    const startY = event.clientY
+    const startSize = customViewportRef.current
+    const renderedScale = frame.scale
+    setCustomResizeAnchor({ size: startSize, scale: renderedScale })
+    const iframe = iframeRef.current
+    const previousPointerEvents = iframe?.style.pointerEvents ?? ""
+    if (iframe) iframe.style.pointerEvents = "none"
+
+    const cursor = axis === "width" ? "ew-resize" : axis === "height" ? "ns-resize" : "nwse-resize"
+    document.body.style.cursor = cursor
+    document.body.style.userSelect = "none"
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const next = resizeCustomViewport(
+        startSize,
+        moveEvent.clientX - startX,
+        moveEvent.clientY - startY,
+        renderedScale,
+        axis,
+      )
+      customViewportRef.current = next
+      setCustomViewport(next)
+    }
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", finish)
+      window.removeEventListener("pointercancel", finish)
+      window.removeEventListener("blur", finish)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      if (iframe) iframe.style.pointerEvents = previousPointerEvents
+      customResizeCleanupRef.current = null
+    }
+    const finish = () => {
+      cleanup()
+      commitCustomViewport(customViewportRef.current)
+      setCustomResizeAnchor(null)
+    }
+
+    customResizeCleanupRef.current = cleanup
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", finish)
+    window.addEventListener("pointercancel", finish)
+    window.addEventListener("blur", finish)
+  }
 
   // ── Render ───────────────────────────────────────────────────
 
@@ -4474,7 +4740,10 @@ export default function DesignView({
     <div className="flex flex-1 min-h-0 min-w-0 flex-col bg-background">
       {/* Header */}
       <header
-        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
+        className={cn(
+          "flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3",
+          windowMode === "detached" && usesSpaceWindowOverlayTitleBar() && "pl-28",
+        )}
         data-tauri-drag-region
       >
         {activeProject ? (
@@ -4483,13 +4752,7 @@ export default function DesignView({
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </IconTip>
-        ) : (
-          <IconTip label={t("common.back", "返回")} side="bottom">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </IconTip>
-        )}
+        ) : null}
         {activeProject && (
           <IconTip
             label={chatOpen ? t("design.chat.hide", "隐藏对话") : t("design.chat.show", "显示对话")}
@@ -4542,7 +4805,36 @@ export default function DesignView({
             {activeProject ? activeProject.title : t("design.title", "设计空间")}
           </span>
         )}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="min-w-4 flex-1 self-stretch" data-tauri-drag-region />
+        <div className="flex items-center gap-1">
+          {onToggleWindowMode && (
+            <IconTip
+              label={
+                windowMode === "detached"
+                  ? t("fileBrowser.reattach", "收回主窗口")
+                  : t("fileBrowser.openInWindow", "在独立窗口打开")
+              }
+              side="bottom"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() =>
+                  onToggleWindowMode({
+                    projectId: activeProject?.id ?? null,
+                    artifactId: activeArtifact?.id ?? null,
+                  })
+                }
+              >
+                {windowMode === "detached" ? (
+                  <WindowModeIcon action="reattach" className="h-4 w-4" />
+                ) : (
+                  <WindowModeIcon action="detach" className="h-4 w-4" />
+                )}
+              </Button>
+            </IconTip>
+          )}
           {activeProject && (
             <>
               <Button
@@ -4808,7 +5100,7 @@ export default function DesignView({
           )}
           <IconTip label={t("common.settings", "设置")} side="bottom">
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onOpenSettings}>
-              <Settings2 className="h-4 w-4" />
+              <Settings className="h-4 w-4" />
             </Button>
           </IconTip>
         </div>
@@ -4834,7 +5126,7 @@ export default function DesignView({
           systemId={homeSystemId}
           setSystemId={setHomeSystemId}
           generating={generatingHome}
-          onGenerate={() => void generateFromHome()}
+          onGenerate={requestGenerateFromHome}
           onBrandPack={() => setBrandPackOpen(true)}
           kindLabel={kindLabel}
           refImages={homeRefImages}
@@ -4912,7 +5204,7 @@ export default function DesignView({
                   resolveArtifactTitle={(id) => artifacts.find((a) => a.id === id)?.title ?? null}
                   recipes={recipes}
                   kindLabel={(k) => kindLabel(k as ArtifactKind)}
-                  active
+                  active={isViewVisible && chatOpen}
                 />
               )}
             </div>
@@ -5344,48 +5636,13 @@ export default function DesignView({
                           </IconTip>
                         </div>
                       )}
-                      {/* 设备视口切换（B4-3） */}
-                      <div className="flex items-center rounded-md border border-border/60 p-0.5">
-                        {(
-                          [
-                            {
-                              id: "auto" as const,
-                              label: t("design.deviceAuto", "自动"),
-                              icon: null,
-                            },
-                            {
-                              id: "desktop" as const,
-                              label: t("design.deviceDesktop", "桌面"),
-                              icon: Monitor,
-                            },
-                            {
-                              id: "tablet" as const,
-                              label: t("design.deviceTablet", "平板"),
-                              icon: Tablet,
-                            },
-                            {
-                              id: "mobile" as const,
-                              label: t("design.deviceMobile", "手机"),
-                              icon: Smartphone,
-                            },
-                          ] as const
-                        ).map((d) => (
-                          <IconTip key={d.id} label={d.label} side="bottom">
-                            <button
-                              type="button"
-                              onClick={() => changeDevice(d.id)}
-                              className={cn(
-                                "flex h-5 items-center justify-center rounded px-1.5 text-[11px] transition-colors",
-                                previewDevice === d.id
-                                  ? "bg-secondary text-foreground"
-                                  : "text-muted-foreground hover:text-foreground",
-                              )}
-                            >
-                              {d.icon ? <d.icon className="h-3.5 w-3.5" /> : d.label}
-                            </button>
-                          </IconTip>
-                        ))}
-                      </div>
+                      {/* 设备视口（B4-3）：主流机型预设 + Chrome DevTools 式自定义尺寸。 */}
+                      <DesignViewportControl
+                        value={previewDevice}
+                        customSize={customViewport}
+                        onValueChange={changeDevice}
+                        onCustomSizeCommit={commitCustomViewport}
+                      />
                       {/* zoom 仅在自动视口下有意义（设备模式整体缩放适配） */}
                       {previewDevice === "auto" && (
                         <Select
@@ -5905,60 +6162,84 @@ export default function DesignView({
                     )}
                     <div
                       className={cn(
-                        "relative overflow-hidden bg-white",
+                        "relative",
                         presentMode
-                          ? "min-h-0 w-full flex-1 rounded-none border-0"
+                          ? "min-h-0 w-full flex-1"
                           : devicePreset
-                            ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
-                            : // 统一渲染后「适应」也是固定 scaled footprint（非 width:100% 填充），恒 mx-auto
-                              "rounded-lg border shadow-sm mx-auto",
-                        !presentMode && editMode && "bg-secondary",
-                        !presentMode && drawMode && "bg-secondary",
+                            ? "shrink-0"
+                            : "mx-auto",
                       )}
                       style={frameWrapStyle}
                     >
-                      {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
-                        旧帧垫底直到新帧首绘，消除 React 卸载重建的白闪。key 仅保留在下方 DrawOverlay
-                        （其坐标须随内容重排复位）。滚动保温 + spinner 见 handleIframeLoad / previewLoading。 */}
-                      <iframe
-                        ref={iframeRef}
-                        src={iframeSrc}
-                        sandbox="allow-scripts"
-                        title={activeArtifact.title}
-                        onLoad={handleIframeLoad}
-                        className="border-0"
-                        style={scaleStyle}
-                      />
-                      {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
-                      {previewLoading && (
+                      <div
+                        className={cn("relative", presentMode && "h-full w-full")}
+                        style={previewFootprintStyle}
+                      >
                         <div
-                          role="status"
-                          aria-live="polite"
-                          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+                          className={cn(
+                            "relative h-full w-full overflow-hidden bg-white",
+                            presentMode
+                              ? "rounded-none border-0"
+                              : previewDevice === "custom"
+                                ? "rounded-lg border border-border/80 shadow-lg"
+                                : devicePreset
+                                  ? "rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
+                                  : "rounded-lg border shadow-sm",
+                            !presentMode && editMode && "bg-secondary",
+                            !presentMode && drawMode && "bg-secondary",
+                          )}
                         >
-                          <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
-                            <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
-                          </div>
-                          <span className="sr-only">{t("common.loading", "加载中...")}</span>
+                          {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
+                          旧帧垫底直到新帧首绘，消除 React 卸载重建的白闪。key 仅保留在下方 DrawOverlay
+                          （其坐标须随内容重排复位）。滚动保温 + spinner 见 handleIframeLoad / previewLoading。 */}
+                          <iframe
+                            ref={iframeRef}
+                            src={iframeSrc}
+                            sandbox="allow-scripts"
+                            title={activeArtifact.title}
+                            onLoad={handleIframeLoad}
+                            className="border-0"
+                            style={scaleStyle}
+                          />
+                          {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
+                          {previewLoading && (
+                            <div
+                              role="status"
+                              aria-live="polite"
+                              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+                            >
+                              <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
+                                <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
+                              </div>
+                              <span className="sr-only">{t("common.loading", "加载中...")}</span>
+                            </div>
+                          )}
+                          {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
+                          pane。drawMode 期保持挂载；演示时只暂停并隐藏，退出后保留 marks/note。 */}
+                          {drawMode && (
+                            // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
+                            // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
+                            //（review MED：同产物 previewKey 变而叠层不重置会把 v1 marks 合成到 v2 布局）。
+                            <DesignDrawOverlay
+                              key={`${activeArtifact.id}-${previewKey}`}
+                              busy={drawBusy}
+                              suspended={!isViewVisible || presentMode}
+                              onExit={() => setDrawMode(false)}
+                              onSubmit={handleDrawSubmit}
+                              onWheelScroll={forwardScrollToIframe}
+                              toolbarHost={previewPaneRef.current}
+                              frameStyle={overlayFrameStyle}
+                            />
+                          )}
                         </div>
-                      )}
-                      {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
-                        pane。drawMode 期保持挂载；演示时只暂停并隐藏，退出后保留 marks/note。 */}
-                      {drawMode && (
-                        // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
-                        // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
-                        //（review MED：同产物 previewKey 变而叠层不重置会把 v1 marks 合成到 v2 布局）。
-                        <DesignDrawOverlay
-                          key={`${activeArtifact.id}-${previewKey}`}
-                          busy={drawBusy}
-                          suspended={presentMode}
-                          onExit={() => setDrawMode(false)}
-                          onSubmit={handleDrawSubmit}
-                          onWheelScroll={forwardScrollToIframe}
-                          toolbarHost={previewPaneRef.current}
-                          frameStyle={overlayFrameStyle}
-                        />
-                      )}
+                        {previewDevice === "custom" && !presentMode && (
+                          <DesignViewportResizeHandles
+                            size={customViewport}
+                            onResizeStart={startCustomViewportResize}
+                            onSizeCommit={commitCustomViewport}
+                          />
+                        )}
+                      </div>
                     </div>
                     {presentMode &&
                       activeArtifact.kind === "deck" &&
@@ -6246,6 +6527,17 @@ export default function DesignView({
       )}
 
       {/* Image / audio 参数化生成对话框（能力驱动参数区 + 空态引导） */}
+      <MediaGenerateDialog
+        open={homeMediaGenOpen}
+        kind={homeMediaGenKind}
+        initialPrompt={homePrompt}
+        allowEmptyPrompt={homeRefImages.length > 0}
+        referenceImageCount={homeRefImages.length}
+        onClose={() => setHomeMediaGenOpen(false)}
+        onConfirm={confirmHomeMediaGenerate}
+        busy={generatingHome}
+      />
+
       <MediaGenerateDialog
         open={mediaGenOpen}
         kind={mediaGenKind}
@@ -7529,7 +7821,7 @@ function LaunchHome({
                 </span>
               </Button>
               {/* 视觉模型 chip：prompt dock 工具栏 ghost action（已登记例外）；传图态只亮视觉模型。 */}
-              {models.length > 0 && (
+              {models.length > 0 && kind !== "image" && kind !== "audio" && (
                 <ModelSelector
                   value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}
                   onChange={onModelChange}

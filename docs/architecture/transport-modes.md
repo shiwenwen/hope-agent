@@ -8,7 +8,7 @@
 
 | 模式 | 用户入口 | 前端通信 | 后端入口 | 说明 |
 | --- | --- | --- | --- | --- |
-| Tauri 桌面 GUI | `pnpm tauri dev` / 桌面 App | `TauriTransport` | `src-tauri` 命令薄壳 | React 运行在 Tauri WebView 中，请求走 `invoke()`，流式聊天主路径走 Tauri `Channel<string>`。 |
+| Tauri 桌面 GUI | `pnpm dev:desktop` / 桌面 App | `TauriTransport` | `src-tauri` 命令薄壳 | React 运行在 Tauri WebView 中，请求走 `invoke()`，流式聊天主路径走 Tauri `Channel<string>`。 |
 | HTTP/WS server Web GUI | `hope-agent server start` + 浏览器 | `HttpTransport` | `ha-server` axum 路由 | 请求走 REST，后端事件和聊天流走 `/ws/events`。内嵌 Web GUI 和远程浏览器使用同一套路径。 |
 | ACP stdio | `hope-agent acp` | 不经过前端 `Transport` | ha-acp（`ha_acp::acp`） | IDE/外部客户端通过 ACP NDJSON over stdio 直连核心协议，不加载 React，也不使用 `src/lib/transport.ts`。 |
 
@@ -74,10 +74,13 @@ flowchart TD
 - `getTransport()` 第一次调用时检查 `isTauriMode()`。
 - `isTauriMode()` 只看 `window.__TAURI_INTERNALS__`，这是 Tauri 在用户脚本前注入的运行时标记。
 - Tauri 模式创建 `new TauriTransport()`。
-- 非 Tauri 模式创建 `new HttpTransport(import.meta.env.VITE_SERVER_URL || "http://localhost:8420")`。
+- 非 Tauri 模式创建 `new HttpTransport(import.meta.env.VITE_SERVER_URL || window.location.origin)`；无浏览器环境的测试 / SSR 才回退 `http://localhost:8420`。
+- `AuthGate` 与 singleton 共用上述 API base：同源把 Owner Token 换成 HttpOnly cookie，跨源只在内存 `HttpTransport` 中保留 Bearer 并换取 scope ticket，不把 Token 落浏览器存储。
 - 设置页可用 `switchToRemote(baseUrl, apiKey)` 把 singleton 切到远程 `HttpTransport`，也可用 `switchToEmbedded()` 切回默认入口。
 
 业务组件只依赖 `Transport` 接口，不直接判断 IPC、REST 或 WebSocket。例外是少量 UI 需要根据能力调整交互，例如 HTTP 模式不能 reveal 本地文件，工作目录选择需要显示 server-side directory browser。
+
+跨源连接保持显式 allowlist：打包桌面 WebView 的 `tauri://localhost` 与 `http://tauri.localhost` 默认允许；把 Web GUI 部署在其他 origin 时，服务端须设置逗号分隔的 `HA_CORS_ORIGINS`。同源内嵌 Web GUI 无需设置，服务端不提供 `*` 通配放行。跨源 Fetch 用 Bearer，WebSocket / iframe / 下载换短时 scope ticket；Root Token 不进入 URL。
 
 ## Transport 方法矩阵
 
@@ -89,7 +92,7 @@ flowchart TD
 | `startChat(args, onEvent)` | 创建 `Channel<string>`，调用 `invoke("chat", { ...args, onEvent })`，每个 stream event 直接进 `onEvent`。 | 调 `POST /api/chat`。stream delta 不进 `onEvent`，而是由 `/ws/events` 的 `chat:stream_delta` 送达；只在新会话时合成 `session_created` 给 `onEvent`。 |
 | `listen(eventName, handler)` | `@tauri-apps/api/event.listen(eventName, ...)`。 | 复用全局 `/ws/events`，按 `{ name, payload }` 的 `name` 过滤。 |
 | 媒体 URL | 用 `convertFileSrc(localPath)` 暴露本地文件。 | 只接受 `http(s)://` 或后端逻辑 URL，如 `/api/attachments/...`；绝对本地路径返回 `null`。 |
-| 资产 URL | data/http(s) 透传，绝对路径走 `convertFileSrc`。 | 识别 avatars、image_generate、canvas 路径并改写到对应 `/api/...` route，必要时追加 `?token=`。 |
+| 资产 URL | data/http(s) 透传，绝对路径走 `convertFileSrc`。 | 识别 avatars、image_generate、canvas 路径并改写到 HTTP server route；同源依赖 HttpOnly 会话 Cookie，跨源使用短时 resource ticket。 |
 | 打开 / 定位文件 | `openMedia` 调 OS 默认处理器，`revealMedia` 调文件管理器。 | `openMedia` 触发浏览器下载或打开，`revealMedia` no-op，`supportsLocalFileOps()` 返回 `false`。 |
 | 图片选择 | 原生文件选择器，返回 Tauri asset URL。 | 隐藏 `<input type="file">`，返回 `blob:` URL 和 `File`。 |
 | 目录选择 / 浏览 | `pickLocalDirectory()` 用原生目录选择器；`listServerDirectory()` 也可走 Tauri 命令供 `@` mention 使用。 | 浏览器不能选 server 文件系统，UI 应显示 `ServerDirectoryBrowser`，由 `listServerDirectory()` 调 `/api/filesystem/list-dir`。 |
@@ -141,12 +144,14 @@ HTTP 模式没有 per-call browser Channel，主流式路径就是 EventBus：
 `/ws/events` 是 HTTP/Web 模式唯一的全局事件 WebSocket：
 
 - 消息格式固定为 `{"name": string, "payload": unknown}`。
-- 鉴权用 `?token=<api_key>` query 参数，因为浏览器 WebSocket 不能设置自定义 `Authorization` header。
+- 同源浏览器先用 Root Token 换取签名 HttpOnly Cookie；WebSocket 握手自动携带 Cookie。跨源远程客户端用 Bearer 调 `/api/auth/transport-tickets`，再把 15 分钟 `events` scope 票据放进 `Sec-WebSocket-Protocol`；两种模式的 URL 都不含根凭据。
+- 跨源 iframe / 图片 / 下载使用 `/api/resource/{ticket}/...`，只分派到显式只读静态资源路由；workspace / session raw preview 分别先经 Owner 保护的 `/api/fs/raw-ticket` / `/api/sessions/{id}/files/by-path-ticket` 把 capability 绑定到单个 canonical file，不能复用通用 resource ticket 改 `path`。该前缀响应允许远程 GUI 的 sandbox iframe 嵌入，其余 owner 页面继续 `frame-ancestors 'self'` + `X-Frame-Options: SAMEORIGIN`。
 - `HttpTransport.listen()` 在第一个 listener 注册时建立连接，最后一个 listener 取消时关闭连接。
-- 断线后只要仍有 listener，就按 1s、2s、4s 递增到 30s 上限的退避策略重连。
+- scope ticket 刷新会推进 transport revision；所有缓存的资源 URL 必须绑定该 revision，旧 ticket 对应 URL 不得在组件重挂后复用。
+- 断线后只要仍有 listener，就按 1s、2s、4s 递增到 30s 上限的退避策略重连；Owner Token 变更会主动断开既有连接，服务端也会周期复验 Cookie / scope 票据，连接不能无限越过凭据有效期。
 - server 端每个 WebSocket 连接持有独立 broadcast receiver，多客户端互不抢消息。
 - 发送单帧超过 5s 会断开慢客户端；连续 lag 超过阈值会发送 `_lagged` 并最终断开，避免阻塞 EventBus。
-- `chat:stream_delta` 与 `channel:stream_delta` 会在 server 桥接时重写内层 `media_items`，去掉本地绝对路径并给 HTTP 资源 URL 补 token。
+- `chat:stream_delta` 与 `channel:stream_delta` 会在 server 桥接时重写内层 `media_items`，去掉本地绝对路径；同源资源靠 HttpOnly Cookie，跨源非执行型 UI 资源由 `HttpTransport` 换短时 `resources` scope 前缀或用 Bearer Fetch 转 Blob。可执行 Canvas / Design iframe 必须另换绑定到单个 project / artifact 子树的票据，iframe 泄露自己的 URL 也不能读取其他资源；根 Token 不进入媒体 URL。
 
 Tauri 桌面没有 `/ws/events`，但同一个 EventBus 会在 `src-tauri/src/setup.rs` 中订阅并转成 `app_handle.emit(name, payload)`，所以前端仍用同一个 `transport.listen(eventName, handler)` API。
 

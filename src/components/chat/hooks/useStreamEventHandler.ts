@@ -405,6 +405,8 @@ export function handleStreamEvent(
     event.type === "vision_auto_disabled" ||
     event.type === "vision_bridge" ||
     event.type === "profile_rotation" ||
+    event.type === "model_retry" ||
+    event.type === "model_chain_retry" ||
     event.type === "context_compacted" ||
     event.type === "context_compaction_progress" ||
     event.type === "queued_user_message_blocked" ||

@@ -126,7 +126,7 @@ pub struct HeaderOpts<'a> {
     /// attachments route builds a filename-bearing variant inline.
     pub disposition: &'a str,
     /// Set `Referrer-Policy: no-referrer` — used by canvas iframe to keep
-    /// `?token=...` out of sub-request referrers.
+    /// legacy or third-party query credentials out of sub-request referrers.
     pub no_referrer: bool,
 }
 

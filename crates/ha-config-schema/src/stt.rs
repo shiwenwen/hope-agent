@@ -342,3 +342,36 @@ pub struct TranscriptOptions {
     #[serde(default)]
     pub sample_rate_hz: Option<u32>,
 }
+
+impl TranscriptOptions {
+    /// Merge per-request overrides on top of the configured defaults.
+    ///
+    /// String fields containing only whitespace are treated as absent so
+    /// callers that serialize empty form inputs still inherit the default.
+    /// Every other field uses `Some` as the explicit override signal.
+    pub fn with_defaults(&self, defaults: &Self) -> Self {
+        let normalize_string = |value: &Option<String>| {
+            value
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        };
+
+        Self {
+            language: normalize_string(&self.language)
+                .or_else(|| normalize_string(&defaults.language)),
+            prompt: normalize_string(&self.prompt).or_else(|| normalize_string(&defaults.prompt)),
+            punctuation: self.punctuation.or(defaults.punctuation),
+            diarization: self.diarization.or(defaults.diarization),
+            timestamps: self.timestamps.or(defaults.timestamps),
+            sample_rate_hz: self.sample_rate_hz.or(defaults.sample_rate_hz),
+        }
+    }
+
+    /// Canonicalize user-saved options without introducing provider-specific
+    /// defaults. This keeps an empty language/prompt serialized as `None`.
+    pub fn normalized(&self) -> Self {
+        self.with_defaults(&Self::default())
+    }
+}

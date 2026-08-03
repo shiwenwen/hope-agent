@@ -829,10 +829,10 @@ describe("MessageList", () => {
     })
   })
 
-  test("shows the jump-to-bottom button while loading and not at bottom, and clicking calls scrollTo", () => {
+  test("shows a loading comet on the jump-to-bottom button while streaming", () => {
     const scrollToSpy = vi.spyOn(Element.prototype, "scrollTo").mockImplementation(() => {})
 
-    render(
+    const { rerender } = render(
       <MessageList
         messages={[baseMessage({ role: "assistant", content: "streaming", dbId: 1 })]}
         loading
@@ -851,10 +851,27 @@ describe("MessageList", () => {
     })
 
     const button = screen.getByRole("button", { name: "chat.scrollToBottom" })
+    expect(button.querySelector(".animate-spin")).toBeTruthy()
+
     fireEvent.click(button)
 
     expect(scrollToSpy).toHaveBeenCalled()
     expect(scrollToSpy.mock.calls[0]?.[0]).toMatchObject({ behavior: "smooth" })
+
+    rerender(
+      <MessageList
+        messages={[baseMessage({ role: "assistant", content: "complete", dbId: 1 })]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const completedButton = screen.getByRole("button", { name: "chat.scrollToBottom" })
+    expect(completedButton.querySelector(".animate-spin")).toBeNull()
   })
 
   test("forces bottom-follow when a new user message arrives after reading history", () => {

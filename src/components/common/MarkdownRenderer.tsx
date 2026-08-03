@@ -5,6 +5,7 @@ import {
   useState,
   useEffect,
   useMemo,
+  useRef,
   type AnchorHTMLAttributes,
   type ComponentProps,
   type ImgHTMLAttributes,
@@ -52,6 +53,7 @@ import { AgentMentionChip } from "@/components/chat/agent-mention/AgentMentionCh
 import { agentIdFromHref } from "@/components/chat/agent-mention/agentTokens"
 import { SkillMentionChip } from "@/components/chat/skill-mention/SkillMentionChip"
 import { isSkillMentionName, skillNameFromHref } from "@/components/chat/skill-mention/skillTokens"
+import { observeMarkdownFaviconVisibility } from "./markdownFaviconVisibility"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
 // KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
@@ -347,10 +349,20 @@ function MarkdownWebLink({
   isIncomplete,
   ...rest
 }: MarkdownAnchorProps & { linkIcon: LinkIconInfo; isIncomplete: boolean }) {
-  const [faviconArmed, setFaviconArmed] = useState(false)
+  const linkRef = useRef<HTMLAnchorElement>(null)
+  const [faviconArmedHref, setFaviconArmedHref] = useState<string>()
+  const faviconArmed = Boolean(href && faviconArmedHref === href)
+
+  useEffect(() => {
+    const element = linkRef.current
+    if (!element || !href || faviconArmed) return
+    return observeMarkdownFaviconVisibility(element, () => setFaviconArmedHref(href))
+  }, [faviconArmed, href])
+
   return (
     <a
       {...rest}
+      ref={linkRef}
       href={href}
       className={cn("wrap-anywhere markdown-link", className)}
       data-incomplete={isIncomplete || undefined}
@@ -362,11 +374,11 @@ function MarkdownWebLink({
         openExternalUrl(href)
       }}
       onFocus={(event) => {
-        setFaviconArmed(true)
+        setFaviconArmedHref(href)
         rest.onFocus?.(event)
       }}
       onMouseEnter={(event) => {
-        setFaviconArmed(true)
+        setFaviconArmedHref(href)
         rest.onMouseEnter?.(event)
       }}
     >
@@ -407,8 +419,9 @@ export function MarkdownLink({
   ...rest
 }: MarkdownAnchorProps) {
   const isIncomplete = href === "streamdown:incomplete-link"
-  // `@skill` mentions are `[@label](#skill:<name>)` links — render the same rose
-  // chip the composer shows, not the raw link. Fragment href survives sanitize.
+  // `@skill` mentions are `[@label](#skill:<name>)` links — render the same
+  // lightweight inline treatment as the composer, not the raw link. Fragment
+  // href survives sanitize.
   const skillName = isIncomplete ? null : skillNameFromHref(href)
   if (skillName && isSkillMentionName(skillName)) {
     return <SkillMentionChip name={skillName} />

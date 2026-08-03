@@ -7,11 +7,15 @@
 //! cannot modify the server host's files unless the operator opts in. The
 //! desktop (Tauri IPC) bypasses this gate entirely.
 
-use axum::extract::{Multipart, Query, Request, State};
+use axum::body::{Body, Bytes};
+use axum::extract::{Extension, Multipart, Path, Query, Request, State};
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::Deserialize;
+use futures_util::stream;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::io;
 use std::sync::Arc;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -22,6 +26,7 @@ use super::file_serve::{
 };
 use super::helpers::parse_file_upload_to_temp;
 use crate::error::AppError;
+use crate::middleware::{open_authorized_bound_file, AuthState, BoundFile};
 use crate::AppContext;
 use ha_core::filesystem::{
     self, ExtractedContent, FileSearchResponse, FileTextContent, FileWriteOutcome, FilesystemError,
@@ -179,20 +184,69 @@ pub struct RawQuery {
     pub download: Option<u8>,
 }
 
-/// `GET /api/fs/raw?scope=&scopeId=&path=&download=` — serve raw bytes inline
-/// (images / PDFs / any file) for the preview pane.
-pub async fn fs_raw(Query(q): Query<RawQuery>, request: Request) -> Result<Response, AppError> {
-    let RawQuery {
-        scope,
-        scope_id,
-        path,
-        download,
-    } = q;
-    let abs = run(move || {
-        let s = WorkspaceScope::resolve(&scope, &scope_id)?;
-        s.resolve_existing(&path)
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RawTicketBody {
+    pub scope: String,
+    pub scope_id: String,
+    pub path: String,
+    #[serde(default)]
+    pub download: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RawTicketResponse {
+    ticket: String,
+    expires_in_secs: u64,
+}
+
+pub(super) const BOUND_FILE_TICKET_TTL_SECS: u64 = 15 * 60;
+const BOUND_FILE_STREAM_CHUNK_BYTES: usize = 64 * 1024;
+
+async fn resolve_raw_path(
+    scope: String,
+    scope_id: String,
+    path: String,
+) -> Result<std::path::PathBuf, AppError> {
+    run(move || {
+        let resolved = WorkspaceScope::resolve(&scope, &scope_id)?;
+        resolved.resolve_existing(&path)
     })
-    .await?;
+    .await
+}
+
+async fn resolve_authorized_raw_file(
+    scope: String,
+    scope_id: String,
+    path: String,
+    download: bool,
+) -> Result<BoundFile, AppError> {
+    tokio::task::spawn_blocking(move || {
+        let resolved = WorkspaceScope::resolve(&scope, &scope_id).map_err(map_err)?;
+        let canonical = resolved.resolve_existing(&path).map_err(map_err)?;
+        // Opening the stable handle is the final step of this authorization
+        // traversal. The ticket layer receives the handle itself and never
+        // reopens `canonical`, closing the post-authorization substitution gap.
+        open_authorized_bound_file(canonical, download).map_err(|error| {
+            ha_core::app_warn!(
+                "security",
+                "workspace_bound_file_open_rejected",
+                "Workspace preview changed during authorization: {}",
+                error
+            );
+            AppError::forbidden("Workspace preview changed during authorization")
+        })
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("bound file task failed: {error}")))?
+}
+
+async fn serve_raw_path(
+    abs: std::path::PathBuf,
+    download: bool,
+    request: Request,
+) -> Result<Response, AppError> {
     let mime = resolve_mime_for_path(
         &abs,
         MimeOpts {
@@ -201,7 +255,7 @@ pub async fn fs_raw(Query(q): Query<RawQuery>, request: Request) -> Result<Respo
         },
     )
     .await;
-    let disposition = safe_content_disposition(&abs, &mime, download.unwrap_or(0) == 1);
+    let disposition = safe_content_disposition(&abs, &mime, download);
     // Stream via ServeFile (Range-capable, memory-bounded) rather than buffering
     // the whole file into a Vec — a large file would otherwise spike RSS / OOM.
     let mut response = ServeFile::new(&abs)
@@ -226,6 +280,225 @@ pub async fn fs_raw(Query(q): Query<RawQuery>, request: Request) -> Result<Respo
         axum::http::HeaderValue::from_static("nosniff"),
     );
     Ok(response)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HttpByteRange {
+    start: u64,
+    len: u64,
+}
+
+fn parse_single_byte_range(value: &str, file_len: u64) -> Option<HttpByteRange> {
+    let value = value.strip_prefix("bytes=")?;
+    if value.contains(',') || file_len == 0 {
+        return None;
+    }
+    let (start, end) = value.split_once('-')?;
+    if start.is_empty() {
+        let suffix = end.parse::<u64>().ok()?;
+        if suffix == 0 {
+            return None;
+        }
+        let len = suffix.min(file_len);
+        return Some(HttpByteRange {
+            start: file_len - len,
+            len,
+        });
+    }
+
+    let start = start.parse::<u64>().ok()?;
+    if start >= file_len {
+        return None;
+    }
+    let end = if end.is_empty() {
+        file_len - 1
+    } else {
+        end.parse::<u64>().ok()?.min(file_len - 1)
+    };
+    if end < start {
+        return None;
+    }
+    Some(HttpByteRange {
+        start,
+        len: end - start + 1,
+    })
+}
+
+#[cfg(unix)]
+fn read_bound_file_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    use std::os::unix::fs::FileExt;
+    file.read_at(buf, offset)
+}
+
+#[cfg(windows)]
+fn read_bound_file_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    use std::os::windows::fs::FileExt;
+    file.seek_read(buf, offset)
+}
+
+fn bound_file_body(file: Arc<std::fs::File>, range: HttpByteRange) -> Body {
+    let chunks = stream::try_unfold(
+        (file, range.start, range.len),
+        |(file, offset, remaining)| async move {
+            if remaining == 0 {
+                return Ok::<_, io::Error>(None);
+            }
+            let wanted = remaining.min(BOUND_FILE_STREAM_CHUNK_BYTES as u64) as usize;
+            let read_file = file.clone();
+            let (mut bytes, read) = tokio::task::spawn_blocking(move || {
+                let mut bytes = vec![0_u8; wanted];
+                let read = read_bound_file_at(&read_file, &mut bytes, offset)?;
+                Ok::<_, io::Error>((bytes, read))
+            })
+            .await
+            .map_err(|error| io::Error::other(format!("bound file-read task failed: {error}")))??;
+            if read == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "bound file changed length while streaming",
+                ));
+            }
+            bytes.truncate(read);
+            Ok(Some((
+                Bytes::from(bytes),
+                (file, offset + read as u64, remaining - read as u64),
+            )))
+        },
+    );
+    Body::from_stream(chunks)
+}
+
+fn serve_bound_raw_file(bound: BoundFile, request: Request) -> Result<Response, AppError> {
+    let requested_range = request.headers().get(header::RANGE);
+    let range = match requested_range {
+        Some(value) => {
+            let parsed = value
+                .to_str()
+                .ok()
+                .and_then(|value| parse_single_byte_range(value, bound.len));
+            let Some(range) = parsed else {
+                return Response::builder()
+                    .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                    .header(header::ACCEPT_RANGES, "bytes")
+                    .header(header::CONTENT_RANGE, format!("bytes */{}", bound.len))
+                    .header(header::CACHE_CONTROL, "private, max-age=0")
+                    .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+                    .body(Body::empty())
+                    .map_err(|error| {
+                        AppError::internal(format!("build invalid-range response: {error}"))
+                    });
+            };
+            range
+        }
+        None => HttpByteRange {
+            start: 0,
+            len: bound.len,
+        },
+    };
+
+    let status = if requested_range.is_some() {
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
+    let body = if request.method() == Method::HEAD || range.len == 0 {
+        Body::empty()
+    } else {
+        bound_file_body(bound.file.clone(), range)
+    };
+    let mut response = Response::builder()
+        .status(status)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_LENGTH, range.len.to_string())
+        .body(body)
+        .map_err(|error| AppError::internal(format!("build bound file response: {error}")))?;
+    if status == StatusCode::PARTIAL_CONTENT {
+        response.headers_mut().insert(
+            header::CONTENT_RANGE,
+            HeaderValue::from_str(&format!(
+                "bytes {}-{}/{}",
+                range.start,
+                range.start + range.len - 1,
+                bound.len
+            ))
+            .map_err(|error| AppError::internal(error.to_string()))?,
+        );
+    }
+    let disposition = safe_content_disposition(&bound.path, &bound.mime, bound.download);
+    apply_inline_media_headers(
+        &mut response,
+        HeaderOpts {
+            mime: &bound.mime,
+            cache_secs: 0,
+            disposition: &disposition,
+            no_referrer: false,
+        },
+    );
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
+}
+
+/// `POST /api/fs/raw-ticket` — resolve authorization once and bind a short-lived
+/// iframe-safe capability to that exact canonical file.
+pub async fn create_fs_raw_ticket(
+    Extension(auth): Extension<AuthState>,
+    Json(body): Json<RawTicketBody>,
+) -> Result<Response, AppError> {
+    let resource =
+        resolve_authorized_raw_file(body.scope, body.scope_id, body.path, body.download).await?;
+    let ticket = auth
+        .create_bound_file_ticket(resource, BOUND_FILE_TICKET_TTL_SECS)
+        .map_err(|error| {
+            ha_core::app_error!(
+                "security",
+                "workspace_raw_ticket_mint_failed",
+                "Failed to mint a bound workspace raw ticket: {}",
+                error
+            );
+            AppError::internal("Workspace preview is unavailable")
+        })?;
+    Ok(super::auth::no_store_json(
+        StatusCode::OK,
+        &RawTicketResponse {
+            ticket,
+            expires_in_secs: BOUND_FILE_TICKET_TTL_SECS,
+        },
+    ))
+}
+
+/// Public capability endpoint for one canonical authorized file. Query strings
+/// are deliberately ignored: the path and disposition are server-side state.
+pub async fn fs_raw_with_ticket(
+    Path(ticket): Path<String>,
+    Extension(auth): Extension<AuthState>,
+    request: Request,
+) -> Response {
+    let Some(bound) = auth.resolve_bound_file_ticket(&ticket) else {
+        return super::auth::no_store_json(
+            StatusCode::UNAUTHORIZED,
+            &json!({ "error": "Invalid or expired file preview ticket" }),
+        );
+    };
+    match serve_bound_raw_file(bound, request) {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    }
+}
+
+/// `GET /api/fs/raw?scope=&scopeId=&path=&download=` — serve raw bytes inline
+/// (images / PDFs / any file) for the preview pane.
+pub async fn fs_raw(Query(q): Query<RawQuery>, request: Request) -> Result<Response, AppError> {
+    let RawQuery {
+        scope,
+        scope_id,
+        path,
+        download,
+    } = q;
+    let abs = resolve_raw_path(scope, scope_id, path).await?;
+    serve_raw_path(abs, download.unwrap_or(0) == 1, request).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -489,4 +762,100 @@ pub async fn fs_claim_upload(
         &result.rel_path,
     );
     Ok(Json(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::Request as HttpRequest;
+    use axum::routing::get;
+    use axum::Router;
+
+    #[tokio::test]
+    async fn workspace_raw_capability_serves_only_its_server_bound_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let visible = dir.path().join("visible.html");
+        let secret = dir.path().join("secret.js");
+        std::fs::write(&visible, "visible content").unwrap();
+        std::fs::write(&secret, "secret content").unwrap();
+
+        let auth = AuthState::new(Some("owner-token".into()), None, false);
+        let visible_canonical = std::fs::canonicalize(&visible).unwrap();
+        let resource = open_authorized_bound_file(visible_canonical, true).unwrap();
+        let bound_ticket = auth.create_bound_file_ticket(resource, 900).unwrap();
+        let generic_ticket = auth.create_access_ticket("resources", 900).unwrap();
+
+        // The workspace can remain agent-writable after capability minting.
+        // Replacing the authorized path must not make this ticket follow the
+        // new symlink; it stays pinned to the already-open original file.
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&visible).unwrap();
+            std::os::unix::fs::symlink(&secret, &visible).unwrap();
+        }
+        let app = Router::new()
+            .route("/api/resource/{ticket}/fs/raw", get(fs_raw_with_ticket))
+            .route(
+                "/api/resource/{ticket}/{*path}",
+                get(|| async { StatusCode::IM_A_TEAPOT }),
+            )
+            .layer(Extension(auth));
+
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!(
+                        "/api/resource/{bound_ticket}/fs/raw?path={}&download=0",
+                        secret.display()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response
+            .headers()
+            .get(axum::http::header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("attachment;")));
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap(),
+            "visible content"
+        );
+
+        let ranged = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!("/api/resource/{bound_ticket}/fs/raw"))
+                    .header(axum::http::header::RANGE, "bytes=8-14")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ranged.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            ranged
+                .headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok()),
+            Some("bytes 8-14/15")
+        );
+        assert_eq!(to_bytes(ranged.into_body(), 1024).await.unwrap(), "content");
+
+        let rejected = app
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!("/api/resource/{generic_ticket}/fs/raw"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+    }
 }

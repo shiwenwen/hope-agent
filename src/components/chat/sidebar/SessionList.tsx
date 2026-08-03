@@ -279,6 +279,7 @@ export default function SessionList({
                   session={session}
                   sessions={sessionContext}
                   agent={agent}
+                  showSubagentBadge={sessionFilter !== "subagent"}
                   projects={projects}
                   isActive={isActive}
                   isReadable={session.id === readableSessionId}

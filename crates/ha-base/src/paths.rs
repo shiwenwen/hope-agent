@@ -161,6 +161,11 @@ pub fn auth_path() -> Result<PathBuf> {
     Ok(credentials_dir()?.join("auth.json"))
 }
 
+/// Owner token used by the embedded HTTP/WS server.
+pub fn server_auth_path() -> Result<PathBuf> {
+    Ok(credentials_dir()?.join("server-auth.json"))
+}
+
 /// MCP credentials directory: ~/.hope-agent/credentials/mcp/
 pub fn mcp_credentials_dir() -> Result<PathBuf> {
     Ok(credentials_dir()?.join("mcp"))

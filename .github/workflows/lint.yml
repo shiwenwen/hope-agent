@@ -44,6 +44,14 @@ jobs:
       - name: Updater pubkey sync check
         run: node scripts/verify-updater-pubkey.mjs
 
+      # Same class of two-place contract as the pubkey above, for the manifest
+      # endpoints: tauri.conf.json (desktop), manifest.rs (headless), and the
+      # mirror workflow's PUBLIC_BASE must name the same URLs in the same
+      # order. Drift means one update path silently stops working, or every
+      # client asks a host nothing is published to.
+      - name: Updater endpoints sync check
+        run: node scripts/verify-updater-endpoints.mjs
+
       # Catch release.yml / update-*.yml path bugs at PR time instead of
       # at tag-push time. Covers the workspace target/ vs src-tauri/target/
       # mismatch that took down v0.2.0 release three times in a row, plus

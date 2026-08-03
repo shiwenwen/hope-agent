@@ -43,6 +43,12 @@ pub struct SttConfig {
 }
 ```
 
+`default_options` 在 ha-core 的两个统一执行边界生效：batch 走
+`failover_transcribe_batch`，streaming 走 `SttSessionManager::start`。调用方的非空 / `Some`
+字段覆盖默认值，空字符串按“未指定”处理；因此 Tauri、HTTP、IM 与知识空间导入不会各自形成不同的默认参数语义。
+Azure Speech 必须得到非空 BCP-47 `language`（例如 `zh-CN`），否则在联网前返回
+`stt:config`，不会再发送缺参数的 WebSocket 握手。
+
 - **`SttProviderConfig`**：`id` / `name` / `kind: SttProviderKind` / `base_url` / `api_key`（legacy 单 key）/ `auth_profiles: Vec<AuthProfile>`（与 LLM Provider 共用 key 轮换）/ `models: Vec<SttModelConfig>` / `enabled` / `allow_private_network` / `extra: HashMap`（provider 私有 secret，如 app_id / cluster / region）
 - **`SttModelConfig`**：`id` / `name` / `supports_streaming` / `languages` / `cost_per_minute` / `supports_timestamps` / `supports_diarization`
 - **凭据脱敏**：`SttProviderConfig::masked()` 对 `api_key` / `auth_profiles` / `extra` 三处 secret 统一打码（`xxx...yyy` / 短值 `****`）；写回时经 `is_masked_key` + `merge_profile_keys`（复用 `provider::`）**合并保密**——前端 round-trip 把打码值传回不会清空真实 key
@@ -74,7 +80,7 @@ helper 方法：`default_base_url()` / `supports_streaming()` / `supports_batch(
 - `Network` / `RateLimit` / `Auth` / `ProviderUnavailable` / `Other` → 尝试链中下一个
 - 全链耗尽返回 `FailoverError`（含所有 `AttemptedModel` 记录 + 终态错误，供遥测）
 
-`SttError` 10 变体：`NotFound` / `NoActiveModel` / `Auth` / `RateLimit` / `Network` / `UnsupportedAudio` / `ProviderUnavailable` / `SsrfBlocked` / `Io` / `Other`。`Display` 渲染为 `stt:<code>: <message>`，便于 Tauri / HTTP 边界两侧解析 code。桌面链 = `current_desktop_chain()`（active + fallback_models），IM 链 = `current_im_chain()`（im_fallback_model 或 active，仅 batch-capable）。
+`SttError` 11 变体：`NotFound` / `NoActiveModel` / `Config` / `Auth` / `RateLimit` / `Network` / `UnsupportedAudio` / `ProviderUnavailable` / `SsrfBlocked` / `Io` / `Other`。`Display` 渲染为 `stt:<code>: <message>`，便于 Tauri / HTTP 边界两侧解析 code。桌面链 = `current_desktop_chain()`（active + fallback_models），IM 链 = `current_im_chain()`（im_fallback_model 或 active，仅 batch-capable）。
 
 知识空间资料舱的 `audio_transcript` / `video_transcript` 导入复用桌面链：owner-plane import 接收用户选择的音视频字节、SSRF-gated 远程媒体 URL 下载结果，或已经落入 session attachments dir 的聊天 / IM 附件，调用 `failover_transcribe_batch(current_desktop_chain, AudioPayload::Bytes, default_options)`，默认请求 timestamps（若用户未显式配置），成功后只保存带 provenance / provider / model / language / duration / segment 时间戳的 Markdown 转录快照；原始媒体不持久化。未配置 STT 或转录失败时，对应 import item 进入 `failed`，错误保留在导入历史供用户重试。
 
@@ -125,10 +131,10 @@ pub const EVENT_SESSION_ERROR:      &str = "stt:session_error";
 
 | 平面 | 入口 | 数量 | 脱敏 |
 |---|---|---|---|
-| Tauri 命令 | [`src-tauri/src/commands/stt.rs`](../../src-tauri/src/commands/stt.rs) | 20 | **unmasked**（桌面 = 本机信任域） |
-| HTTP 路由 | `/api/stt/*`（[`routes/stt.rs`](../../crates/ha-server/src/routes/stt.rs)） | 17 | **masked**（响应内 provider secret 打码） |
+| Tauri 命令 | [`src-tauri/src/commands/stt.rs`](../../src-tauri/src/commands/stt.rs) | 22 | **unmasked**（桌面 = 本机信任域） |
+| HTTP 路由 | `/api/stt/*`（[`routes/stt.rs`](../../crates/ha-server/src/routes/stt.rs)） | 22 | **masked**（响应内 provider secret 打码） |
 
-分组（两端镜像）：provider CRUD、active / fallback / im-fallback 选择、本地 catalog（list / probe / upsert）、转写（`transcribe_blob` 一次性 + session `start`/`push_chunk`/`finalize`/`cancel`）。
+分组（两端镜像）：provider CRUD、active / fallback / im-fallback 选择、默认转写参数、本地 catalog（list / probe / upsert）、转写（`transcribe_blob` 一次性 + session `start`/`push_chunk`/`finalize`/`cancel`）。
 
 ## 安全红线
 
@@ -145,6 +151,7 @@ STT 归「**强制留 GUI 的例外**」同类（凭据安全）：
 
 - **Provider 列表 + Key owner-GUI-only**：provider 写入只经 Tauri / HTTP owner 命令（调 `stt::crud`），**不进 `update_settings`**
 - **`get_settings` 只读摘要**：暴露脱敏 `stt` 块（`providerCount` / `activeModel` / `fallbackCount` / `imFallbackConfigured` / `imAutoTranscribeAccountCount`），不泄 key
+- **默认转写语言双入口**：GUI 通过 `get/set_stt_default_options` 修改；`ha-settings` 通过 LOW 风险 `stt_language` 读写同一 `default_options.language`，不暴露 Provider 凭据或模型选择
 - **唯一模型可写旋钮**：`im_auto_transcribe`（per-account 语音转写开关，**LOW**，`update_settings` 经 `update_im_auto_transcribe`）
 
 ## 跨子系统

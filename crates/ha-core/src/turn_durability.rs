@@ -66,5 +66,15 @@ pub trait TurnDurabilitySink: Send + Sync + 'static {
     fn persistence_run_id(&self) -> &str;
     fn current_attempt_no(&self) -> u32;
     fn context_revision(&self) -> i64;
+    /// True once any attempt in this turn has crossed any tool boundary.
+    /// Same-model/profile retry and whole-chain restart use this to preserve
+    /// completed tool context instead of superseding it with a fresh attempt.
+    fn had_tool_activity(&self) -> bool;
+    /// True once any attempt has crossed a non-replayable tool boundary.
+    /// Forward-only model fallback uses this as the side-effect barrier:
+    /// mutating or otherwise unsafe work must not be repeated on the next
+    /// configured model. Events without explicit replay-safety metadata remain
+    /// conservative and set the barrier.
+    fn had_non_replayable_tool_activity(&self) -> bool;
     fn snapshot(&self) -> StreamSnapshot;
 }

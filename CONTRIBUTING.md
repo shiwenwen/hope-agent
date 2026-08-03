@@ -40,7 +40,7 @@ git checkout -b feat/xxx   # 或 fix/xxx, docs/xxx
 
 ```bash
 pnpm install              # 装前端依赖 + Husky pre-push 钩子
-pnpm tauri dev            # 启动桌面开发模式（前端 + Rust 后端 + 热重载）
+pnpm dev:desktop          # 启动默认桌面开发模式（前端 + Rust 后端 + 热重载）
 ```
 
 详细命令清单见 [AGENTS.md "开发命令"](AGENTS.md#开发命令)。
@@ -123,7 +123,7 @@ node scripts/sync-i18n.mjs --apply   # 从模板补齐
 
 - 一个 PR 只覆盖一个或几个相关语言
 - key 路径必须和 `zh` 完全一致
-- 测试方式：`pnpm tauri dev` 在 UI 切到目标语言验证
+- 测试方式：`pnpm dev:desktop` 在 UI 切到目标语言验证
 
 ## 插件式贡献（Skill / Provider / Channel）
 

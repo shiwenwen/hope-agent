@@ -11,6 +11,7 @@ import {
   History,
   Loader2,
   Monitor,
+  Palette,
   RefreshCw,
   RotateCcw,
 } from "lucide-react"
@@ -44,11 +45,7 @@ interface HighlightItem {
   iconClass: string
 }
 
-export default function AboutPanel({
-  onOpenUpdateHistory,
-}: {
-  onOpenUpdateHistory?: () => void
-}) {
+export default function AboutPanel({ onOpenUpdateHistory }: { onOpenUpdateHistory?: () => void }) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
   const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
@@ -163,18 +160,26 @@ export default function AboutPanel({
   const highlights: HighlightItem[] = [
     {
       icon: Monitor,
-      title: t("about.featureDailyTitle"),
-      description: t("about.featureDailyDesc"),
+      title: t("about.featureActionTitle"),
+      description: t("about.featureActionDesc"),
       cardClass: "border-border/70 bg-sky-500/6",
       iconClass: "border border-sky-500/15 bg-sky-500/10 text-sky-600 dark:text-sky-300",
     },
     {
       icon: Brain,
-      title: t("about.featureMemoryTitle"),
-      description: t("about.featureMemoryDesc"),
+      title: t("about.featureKnowledgeTitle"),
+      description: t("about.featureKnowledgeDesc"),
       cardClass: "border-border/70 bg-emerald-500/6",
       iconClass:
         "border border-emerald-500/15 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
+    },
+    {
+      icon: Palette,
+      title: t("about.featureCreateTitle"),
+      description: t("about.featureCreateDesc"),
+      cardClass: "border-border/70 bg-violet-500/6",
+      iconClass:
+        "border border-violet-500/15 bg-violet-500/10 text-violet-600 dark:text-violet-300",
     },
     {
       icon: Globe,
@@ -207,9 +212,9 @@ export default function AboutPanel({
         return
       }
 
-      setPendingUpdate(update)
-      void setGlobalPendingUpdate(update)
-      setUpdateStatus(t("about.updateAvailable", { version: update.version }))
+      const installableUpdate = await setGlobalPendingUpdate(update)
+      setPendingUpdate(installableUpdate)
+      setUpdateStatus(t("about.updateAvailable", { version: installableUpdate.version }))
     } catch (err) {
       const detail = describeError(err)
       logger.error("updater", "AboutPanel::handleCheckForUpdates", "check failed", {
@@ -373,16 +378,28 @@ export default function AboutPanel({
                     </div>
                   )}
                 </div>
-                {installingUpdate && downloadPercent !== null && (
+                {installingUpdate && (
                   <div className="px-5 pb-4">
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{t("about.updateDownloadProgress", { percent: downloadPercent })}</span>
-                      <span className="tabular-nums">{downloadPercent}%</span>
+                      <span>
+                        {downloadPercent === null
+                          ? t("about.updateToast.updating")
+                          : t("about.updateDownloadProgress", { percent: downloadPercent })}
+                      </span>
+                      {downloadPercent !== null && (
+                        <span className="tabular-nums">{downloadPercent}%</span>
+                      )}
                     </div>
                     <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-emerald-500/15">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out"
-                        style={{ width: `${downloadPercent}%` }}
+                        className={
+                          downloadPercent === null
+                            ? "h-full w-1/3 animate-pulse rounded-full bg-gradient-to-r from-transparent via-emerald-400 to-transparent"
+                            : "h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out"
+                        }
+                        style={
+                          downloadPercent === null ? undefined : { width: `${downloadPercent}%` }
+                        }
                       />
                     </div>
                   </div>
@@ -471,9 +488,7 @@ export default function AboutPanel({
                   value={autoCfg.checkIntervalHours}
                   disabled={autoSaving || !autoCfg.checkEnabled}
                   className="h-8 w-24"
-                  onValueCommit={(value) =>
-                    saveAutoCfg({ ...autoCfg, checkIntervalHours: value })
-                  }
+                  onValueCommit={(value) => saveAutoCfg({ ...autoCfg, checkIntervalHours: value })}
                 />
               </div>
               <div className="flex items-center justify-between gap-4 py-3">
@@ -496,7 +511,7 @@ export default function AboutPanel({
           </section>
         )}
 
-        <section className="grid gap-4 lg:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-2">
           {highlights.map((item) => {
             const Icon = item.icon
             return (

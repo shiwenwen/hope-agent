@@ -17,6 +17,7 @@ import {
 import { X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cva, type VariantProps } from "class-variance-authority"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 
 const Sheet = Root
@@ -65,8 +66,10 @@ interface SheetContentProps
 const SheetContent = forwardRef<ComponentRef<typeof Content>, SheetContentProps>(
   ({ side = "right", className, children, ...props }, ref) => {
     const { t } = useTranslation()
+    const portalScope = usePortalScope()
+    if (portalScope && !portalScope.active) return null
     return (
-      <SheetPortal>
+      <SheetPortal container={portalScope?.container ?? undefined}>
         <SheetOverlay />
         <Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
           {children}

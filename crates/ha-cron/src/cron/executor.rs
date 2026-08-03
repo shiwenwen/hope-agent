@@ -453,7 +453,8 @@ pub(crate) async fn execute_claimed_job(
         },
     };
     if effective_sandbox.enabled() {
-        if let Err(e) = ha_core::sandbox::ensure_sandbox_available().await {
+        if let Err(e) = ha_core::sandbox::ensure_sandbox_available_for_mode(effective_sandbox).await
+        {
             let err_text = format!("sandbox unavailable: {e}");
             app_error!(
                 "cron",

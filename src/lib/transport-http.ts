@@ -38,10 +38,11 @@ import type {
   DomainArtifactExportGuardReport,
   PetAssetLease,
 } from "@/lib/transport"
+import { normalizeHttpBaseUrl } from "@/lib/httpUrl"
 import { uploadFileInChunks } from "@/lib/fileUpload"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import type { FileChangesMetadata, MediaItem } from "@/types/chat"
-import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage"
+import { clearStoredApiKey, dispatchAuthRequired } from "@/lib/api-key-storage"
 import { downloadBlob } from "@/lib/fileDownload"
 
 // ---------------------------------------------------------------------------
@@ -304,6 +305,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   project_fs_read_text: { method: "GET", path: "/api/fs/read" },
   project_fs_extract: { method: "GET", path: "/api/fs/extract" },
   project_fs_search: { method: "GET", path: "/api/fs/search" },
+  project_fs_raw_ticket: { method: "POST", path: "/api/fs/raw-ticket" },
   project_git_info: { method: "GET", path: "/api/fs/git" },
   project_fs_write_text: { method: "PUT", path: "/api/fs/file" },
   project_fs_delete: { method: "DELETE", path: "/api/fs/entry" },
@@ -350,9 +352,13 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   pet_sync_window_cmd: { method: "POST", path: "/api/pets/window/sync" },
   pet_focus_target_cmd: { method: "POST", path: "/api/pets/focus-target" },
   // Preview by absolute path (file-operations unification). Session-scoped +
-  // authorized server-side; `{sessionId}` is interpolated, `path` → query.
+  // authorized server-side; raw media first mints a path-bound capability.
   preview_read_text: { method: "GET", path: "/api/sessions/{sessionId}/files/read" },
   preview_extract: { method: "GET", path: "/api/sessions/{sessionId}/files/extract" },
+  preview_raw_ticket: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/files/by-path-ticket",
+  },
 
   // -- Sessions --
   list_sessions_cmd: { method: "GET", path: "/api/sessions" },
@@ -440,6 +446,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   },
   insert_queued_turn_user_message: { method: "POST", path: "/api/chat/turn-message/insert" },
   cancel_queued_turn_user_message: { method: "POST", path: "/api/chat/turn-message/cancel" },
+  control_model_recovery: { method: "POST", path: "/api/chat/recovery/control" },
   stop_chat: { method: "POST", path: "/api/chat/stop" },
   cancel_runtime_task: { method: "POST", path: "/api/runtime-tasks/cancel" },
 
@@ -1333,6 +1340,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Server --
   get_server_config: { method: "GET", path: "/api/config/server" },
   save_server_config: { method: "PUT", path: "/api/config/server" },
+  rotate_server_token: { method: "POST", path: "/api/auth/token/rotate" },
   get_server_runtime_status: { method: "GET", path: "/api/server/status" },
 
   // -- Proxy --
@@ -1472,6 +1480,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_stt_fallback_models: { method: "PUT", path: "/api/stt/fallback-models" },
   get_im_fallback_stt_model: { method: "GET", path: "/api/stt/im-fallback-model" },
   set_im_fallback_stt_model: { method: "PUT", path: "/api/stt/im-fallback-model" },
+  get_stt_default_options: { method: "GET", path: "/api/stt/default-options" },
+  set_stt_default_options: { method: "PUT", path: "/api/stt/default-options" },
   list_known_local_stt_backends: { method: "GET", path: "/api/stt/local-backends" },
   probe_local_stt_backend: { method: "GET", path: "/api/stt/local-backends/{key}/probe" },
   upsert_known_local_stt_provider_cmd: {
@@ -1965,6 +1975,26 @@ interface EventSubscription {
   handler: (payload: unknown) => void
 }
 
+/** A reachable remote server rejected the supplied Owner Token. */
+export class RemoteAuthenticationError extends Error {
+  readonly status: number
+
+  constructor(status: number) {
+    super(`Remote authentication failed (${status})`)
+    this.name = "RemoteAuthenticationError"
+    this.status = status
+  }
+}
+
+type PreviewResourceGrant =
+  | { kind: "canvas_project"; projectId: string }
+  | { kind: "design_artifact"; projectId: string; artifactId: string }
+
+interface CachedPreviewTicket {
+  ticket: string
+  expiresAt: number
+}
+
 // ---------------------------------------------------------------------------
 // HttpTransport
 // ---------------------------------------------------------------------------
@@ -1972,6 +2002,15 @@ interface EventSubscription {
 export class HttpTransport implements Transport {
   private readonly baseUrl: string
   private apiKey: string | null
+  private resourceTicket: string | null = null
+  private eventTicket: string | null = null
+  private accessTicketExpiresAt = 0
+  private credentialRevision = 0
+  private accessTicketRequest: Promise<void> | null = null
+  private accessTicketRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly previewTickets = new Map<string, CachedPreviewTicket>()
+  private readonly previewTicketRequests = new Map<string, Promise<string | null>>()
+  private readonly onAccessTicketRefresh?: () => void
 
   /** Persistent WebSocket for backend-pushed events. */
   private eventWs: WebSocket | null = null
@@ -1983,15 +2022,234 @@ export class HttpTransport implements Transport {
   private reconnectAttempts = 0
   private readonly maxReconnectDelay = 30_000 // 30 s cap
 
-  constructor(baseUrl: string, apiKey?: string | null) {
-    // Strip trailing slash.
-    this.baseUrl = baseUrl.replace(/\/+$/, "")
+  constructor(baseUrl: string, apiKey?: string | null, onAccessTicketRefresh?: () => void) {
+    this.baseUrl = normalizeHttpBaseUrl(baseUrl)
     this.apiKey = apiKey ?? null
+    this.onAccessTicketRefresh = onAccessTicketRefresh
+  }
+
+  /** Whether this client targets the same normalized HTTP origin/path. */
+  matchesBaseUrl(candidate: string): boolean {
+    return this.baseUrl === normalizeHttpBaseUrl(candidate)
   }
 
   /** Update the API key at runtime. */
   setApiKey(key: string | null): void {
+    this.credentialRevision += 1
     this.apiKey = key
+    this.resourceTicket = null
+    this.eventTicket = null
+    this.accessTicketExpiresAt = 0
+    this.previewTickets.clear()
+    this.previewTicketRequests.clear()
+    if (this.accessTicketRefreshTimer) {
+      clearTimeout(this.accessTicketRefreshTimer)
+      this.accessTicketRefreshTimer = null
+    }
+    // A request started with the previous credential may still finish, but
+    // its revision check prevents it from publishing stale tickets. Clearing
+    // this slot lets the new credential mint its own tickets immediately.
+    this.accessTicketRequest = null
+  }
+
+  /** Stop timers/sockets and erase credentials when this singleton is replaced. */
+  dispose(): void {
+    this.eventSubscriptions = []
+    this.teardownEventWs()
+    this.setApiKey(null)
+  }
+
+  /**
+   * Exchange the root Bearer credential for browser-usable, scoped transport
+   * tickets before publishing a remote transport. This keeps the Owner Token
+   * out of WebSocket URLs, iframe URLs, browser history, and access logs.
+   */
+  async initializeRemoteAccess(notifyAuthFailure = true): Promise<void> {
+    if (!this.apiKey) return
+    if (
+      this.resourceTicket &&
+      this.eventTicket &&
+      this.accessTicketExpiresAt > Date.now() + 6 * 60_000
+    ) {
+      return
+    }
+    if (this.accessTicketRequest) return this.accessTicketRequest
+    const revision = this.credentialRevision
+    const request = this.refreshAccessTickets(revision, notifyAuthFailure)
+    this.accessTicketRequest = request
+    try {
+      await request
+    } finally {
+      if (this.accessTicketRequest === request) this.accessTicketRequest = null
+    }
+  }
+
+  /** Activate a newly saved/rotated token without invalidating this UI. */
+  async activateOwnerToken(token: string): Promise<void> {
+    this.setApiKey(token)
+    const sameOrigin =
+      typeof window !== "undefined" && new URL(this.baseUrl).origin === window.location.origin
+    if (sameOrigin) {
+      const response = await fetch(`${this.baseUrl}/api/auth/session`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, remember: true }),
+      })
+      if (response.ok) {
+        // Same-origin browsers can go back to the HttpOnly cookie immediately;
+        // do not retain the root token in the transport object.
+        this.setApiKey(null)
+        return
+      }
+    }
+    // Cross-origin/Tauri clients cannot rely on SameSite cookies. Retain the
+    // explicit Bearer credential for Fetch and mint scoped browser tickets.
+    await this.initializeRemoteAccess()
+  }
+
+  private async refreshAccessTickets(revision: number, notifyAuthFailure: boolean): Promise<void> {
+    const apiKey = this.apiKey
+    if (!apiKey) return
+    const response = await fetch(`${this.baseUrl}/api/auth/transport-tickets`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    if (revision !== this.credentialRevision || this.apiKey !== apiKey) return
+    if (!response.ok) {
+      if (notifyAuthFailure) this.handleAuthFailure(response.status, revision)
+      throw new RemoteAuthenticationError(response.status)
+    }
+    const payload = (await response.json()) as {
+      authRequired: boolean
+      resourceTicket: string | null
+      eventTicket: string | null
+      expiresInSecs: number | null
+    }
+    if (
+      payload.authRequired &&
+      (!payload.resourceTicket || !payload.eventTicket || !payload.expiresInSecs)
+    ) {
+      throw new Error("Remote server returned incomplete transport credentials")
+    }
+    if (revision !== this.credentialRevision || this.apiKey !== apiKey) return
+    if (!payload.authRequired) {
+      this.setApiKey(null)
+      this.onAccessTicketRefresh?.()
+      return
+    }
+    this.resourceTicket = payload.resourceTicket
+    this.eventTicket = payload.eventTicket
+    this.accessTicketExpiresAt = payload.expiresInSecs
+      ? Date.now() + payload.expiresInSecs * 1000
+      : 0
+    this.scheduleAccessTicketRefresh()
+    this.onAccessTicketRefresh?.()
+  }
+
+  private scheduleAccessTicketRefresh(): void {
+    if (this.accessTicketRefreshTimer) clearTimeout(this.accessTicketRefreshTimer)
+    this.accessTicketRefreshTimer = null
+    if (!this.apiKey || !this.accessTicketExpiresAt) return
+    const refreshIn = Math.max(60_000, this.accessTicketExpiresAt - Date.now() - 5 * 60_000)
+    this.accessTicketRefreshTimer = setTimeout(() => {
+      this.accessTicketRefreshTimer = null
+      void this.initializeRemoteAccess().catch(() => {
+        // Fetch calls keep using Bearer auth; a WebSocket reconnect will retry
+        // ticket minting. Never downgrade to an uncredentialed resource URL.
+        this.scheduleAccessTicketRetry()
+      })
+    }, refreshIn)
+  }
+
+  private scheduleAccessTicketRetry(): void {
+    if (!this.apiKey || this.accessTicketRefreshTimer) return
+    this.accessTicketRefreshTimer = setTimeout(() => {
+      this.accessTicketRefreshTimer = null
+      void this.initializeRemoteAccess().catch(() => this.scheduleAccessTicketRetry())
+    }, 60_000)
+  }
+
+  private scopedResourceUrl(apiPath: string): string | null {
+    if (!this.apiKey) return `${this.baseUrl}${apiPath}`
+    if (!this.resourceTicket || this.accessTicketExpiresAt <= Date.now()) return null
+    if (!apiPath.startsWith("/api/")) return null
+    return `${this.baseUrl}/api/resource/${encodeURIComponent(this.resourceTicket)}${apiPath.slice(4)}`
+  }
+
+  private previewGrantKey(grant: PreviewResourceGrant): string {
+    return JSON.stringify(grant)
+  }
+
+  private async previewResourceTicket(grant: PreviewResourceGrant): Promise<string | null> {
+    const key = this.previewGrantKey(grant)
+    const cached = this.previewTickets.get(key)
+    // The global transport refresh emits a revision five minutes before its
+    // own expiry. Refresh preview capabilities at that revision as well so an
+    // already-open iframe never crosses a ticket-expiry gap.
+    if (cached && cached.expiresAt > Date.now() + 6 * 60_000) return cached.ticket
+    const pending = this.previewTicketRequests.get(key)
+    if (pending) return pending
+
+    const auth = this.authSnapshot()
+    if (!auth.apiKey) return null
+    const request = (async () => {
+      const response = await fetch(`${this.baseUrl}/api/auth/preview-resource-ticket`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${auth.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(grant),
+      })
+      if (auth.revision !== this.credentialRevision || this.apiKey !== auth.apiKey) return null
+      if (!response.ok) {
+        this.handleAuthFailure(response.status, auth.revision)
+        throw new RemoteAuthenticationError(response.status)
+      }
+      const payload = (await response.json()) as {
+        authRequired: boolean
+        ticket: string | null
+        expiresInSecs: number | null
+      }
+      if (!payload.authRequired) {
+        this.setApiKey(null)
+        this.onAccessTicketRefresh?.()
+        return null
+      }
+      if (!payload.ticket || !payload.expiresInSecs) {
+        throw new Error("Remote server returned an incomplete preview capability")
+      }
+      if (auth.revision !== this.credentialRevision || this.apiKey !== auth.apiKey) return null
+      this.previewTickets.set(key, {
+        ticket: payload.ticket,
+        expiresAt: Date.now() + payload.expiresInSecs * 1000,
+      })
+      return payload.ticket
+    })()
+    this.previewTicketRequests.set(key, request)
+    try {
+      return await request
+    } finally {
+      if (this.previewTicketRequests.get(key) === request) {
+        this.previewTicketRequests.delete(key)
+      }
+    }
+  }
+
+  private async scopedPreviewResourceUrl(
+    apiPath: string,
+    grant: PreviewResourceGrant,
+  ): Promise<string | null> {
+    if (!this.apiKey) return `${this.baseUrl}${apiPath}`
+    if (!apiPath.startsWith("/api/")) return null
+    const ticket = await this.previewResourceTicket(grant)
+    if (!ticket) return this.apiKey ? null : `${this.baseUrl}${apiPath}`
+    return `${this.baseUrl}/api/resource/${encodeURIComponent(ticket)}${apiPath.slice(4)}`
+  }
+
+  private authSnapshot(): { apiKey: string | null; revision: number } {
+    return { apiKey: this.apiKey, revision: this.credentialRevision }
   }
 
   /**
@@ -2003,20 +2261,17 @@ export class HttpTransport implements Transport {
    * and dispatches the event; the caller still throws so the UI's
    * own error path runs normally.
    */
-  private handleAuthFailure(status: number): void {
-    if (status !== 401) return
-    setStoredApiKey(null)
-    this.apiKey = null
+  private handleAuthFailure(status: number, requestCredentialRevision: number): void {
+    if (status !== 401 || requestCredentialRevision !== this.credentialRevision) return
+    clearStoredApiKey()
+    this.setApiKey(null)
     dispatchAuthRequired()
   }
 
-  /** Build a WebSocket URL with token query param if API key is set. */
+  /** Browser WebSockets authenticate with the same-origin HttpOnly cookie. */
   private wsUrl(path: string): string {
     const wsBase = this.baseUrl.replace(/^http/, "ws")
-    const url = `${wsBase}${path}`
-    return this.apiKey
-      ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`
-      : url
+    return `${wsBase}${path}`
   }
 
   // ----- prepareFileData -----
@@ -2036,8 +2291,9 @@ export class HttpTransport implements Transport {
       init: RequestInit = {},
       ignoreUploadAbort = false,
     ): Promise<T> => {
+      const auth = this.authSnapshot()
       const headers = new Headers(init.headers)
-      if (this.apiKey) headers.set("Authorization", `Bearer ${this.apiKey}`)
+      if (auth.apiKey) headers.set("Authorization", `Bearer ${auth.apiKey}`)
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,
         headers,
@@ -2045,7 +2301,7 @@ export class HttpTransport implements Transport {
       })
       if (!response.ok) {
         const text = await response.text().catch(() => "")
-        this.handleAuthFailure(response.status)
+        this.handleAuthFailure(response.status, auth.revision)
         throw new Error(
           `[HttpTransport] ${init.method ?? "GET"} ${path} returned ${response.status}: ${text}`,
         )
@@ -2088,15 +2344,16 @@ export class HttpTransport implements Transport {
   }
 
   async discardFileUpload(uploadId: string): Promise<void> {
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers.Authorization = `Bearer ${auth.apiKey}`
     const response = await fetch(
       `${this.baseUrl}/api/file-uploads/${encodeURIComponent(uploadId)}`,
       { method: "DELETE", headers },
     )
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`[HttpTransport] DELETE file upload returned ${response.status}: ${text}`)
     }
   }
@@ -2151,9 +2408,10 @@ export class HttpTransport implements Transport {
     const isBodyMethod = def.method === "POST" || def.method === "PUT" || def.method === "PATCH"
     const url = isBodyMethod ? rawUrl : appendQueryParams(rawUrl, remainingArgs)
 
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) {
-      headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) {
+      headers["Authorization"] = `Bearer ${auth.apiKey}`
     }
     let body: string | undefined
 
@@ -2170,7 +2428,7 @@ export class HttpTransport implements Transport {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`[HttpTransport] ${def.method} ${url} returned ${response.status}: ${text}`)
     }
 
@@ -2215,9 +2473,10 @@ export class HttpTransport implements Transport {
       if (v !== undefined && v !== null) form.append(k, String(v))
     }
 
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) {
-      headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) {
+      headers["Authorization"] = `Bearer ${auth.apiKey}`
     }
     // Do NOT set Content-Type — browser sets multipart boundary automatically.
 
@@ -2225,7 +2484,7 @@ export class HttpTransport implements Transport {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`[HttpTransport] POST ${url} returned ${response.status}: ${text}`)
     }
 
@@ -2278,15 +2537,59 @@ export class HttpTransport implements Transport {
 
   // ----- media -----
 
-  resolveMediaUrl(item: MediaItem): string | null {
+  private normalizedMediaUrl(item: MediaItem): URL | null {
     const url = item.url
     if (!url) return null
-    if (url.startsWith("http://") || url.startsWith("https://")) return url
-    // The HTTP sink has already stamped `?token=` onto logical
-    // `/api/attachments/...` URLs; we only prepend the base.
-    if (url.startsWith("/")) return `${this.baseUrl}${url}`
+    if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/")) {
+      try {
+        const resolved = new URL(url, this.baseUrl)
+        // Scrub credentials from legacy same-origin attachment records before
+        // they reach an <img>, <a>, browser history, or intermediary log.
+        if (
+          resolved.origin === new URL(this.baseUrl).origin &&
+          resolved.pathname.startsWith("/api/")
+        ) {
+          resolved.searchParams.delete("token")
+        }
+        return resolved
+      } catch {
+        return null
+      }
+    }
     // Absolute filesystem path — not reachable from a browser.
     return null
+  }
+
+  resolveMediaUrl(item: MediaItem): string | null {
+    const resolved = this.normalizedMediaUrl(item)
+    if (!resolved) return null
+    const protectedRemoteMedia =
+      Boolean(this.apiKey) &&
+      resolved.origin === new URL(this.baseUrl).origin &&
+      resolved.pathname.startsWith("/api/")
+    return protectedRemoteMedia ? null : resolved.toString()
+  }
+
+  async loadMediaUrl(item: MediaItem): Promise<{ url: string; release: () => void }> {
+    const direct = this.resolveMediaUrl(item)
+    if (direct) return { url: direct, release: () => undefined }
+
+    const resolved = this.normalizedMediaUrl(item)
+    if (!resolved) throw new Error("attachment is not reachable")
+    const sameServerApi =
+      resolved.origin === new URL(this.baseUrl).origin && resolved.pathname.startsWith("/api/")
+    const auth = this.authSnapshot()
+    if (!sameServerApi || !auth.apiKey) throw new Error("attachment is not reachable")
+
+    const response = await fetch(resolved, {
+      headers: { Authorization: `Bearer ${auth.apiKey}` },
+    })
+    if (!response.ok) {
+      this.handleAuthFailure(response.status, auth.revision)
+      throw new Error(`fetch attachment: ${response.status}`)
+    }
+    const objectUrl = URL.createObjectURL(await response.blob())
+    return { url: objectUrl, release: () => URL.revokeObjectURL(objectUrl) }
   }
 
   async extractMediaDocument(
@@ -2295,29 +2598,26 @@ export class HttpTransport implements Transport {
   ): Promise<ExtractedContent> {
     const sessionId = opts?.sessionId?.trim()
     if (!sessionId) throw new Error("attachment extraction requires a session id")
-    const href = this.resolveMediaUrl(item)
-    if (!href) throw new Error("attachment is not reachable")
-    const url = new URL(href)
+    const url = this.normalizedMediaUrl(item)
+    if (!url) throw new Error("attachment is not reachable")
     const match = url.pathname.match(/^\/api\/attachments\/([^/]+)\/([^/]+)$/)
     if (!match || decodeURIComponent(match[1]) !== sessionId) {
       throw new Error("attachment URL is outside the active session")
     }
     url.pathname = `${url.pathname}/extract`
     url.searchParams.delete("download")
+    // Do not propagate legacy query-string credentials into a new request.
+    url.searchParams.delete("token")
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers.Authorization = `Bearer ${auth.apiKey}`
     const response = await fetch(url, { headers })
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`[HttpTransport] attachment extract returned ${response.status}: ${text}`)
     }
     return (await response.json()) as ExtractedContent
-  }
-
-  private appendToken(url: string): string {
-    if (!this.apiKey) return url
-    return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`
   }
 
   private addDownloadParam(href: string): string {
@@ -2347,12 +2647,19 @@ export class HttpTransport implements Transport {
   async projectFsRawUrl(
     args: ProjectFsScope & { path: string; download?: boolean },
   ): Promise<string | null> {
+    await this.initializeRemoteAccess()
+    if (this.apiKey) {
+      const response = await this.call<{ ticket: string; expiresInSecs: number }>(
+        "project_fs_raw_ticket",
+        { ...args },
+      )
+      return `${this.baseUrl}/api/resource/${encodeURIComponent(response.ticket)}/fs/raw`
+    }
     const url = new URL(`${this.baseUrl}/api/fs/raw`)
     url.searchParams.set("scope", args.scope)
     url.searchParams.set("scopeId", args.scopeId)
     url.searchParams.set("path", args.path)
     if (args.download) url.searchParams.set("download", "1")
-    if (this.apiKey) url.searchParams.set("token", this.apiKey)
     return url.toString()
   }
 
@@ -2383,8 +2690,6 @@ export class HttpTransport implements Transport {
     opts?: { sessionId?: string | null },
     download?: boolean,
   ): Promise<string | null> {
-    // The session-authorized by-path route serves inline (preview) or as an
-    // attachment (download) based on `?download=1`; reuse it as the raw src.
     return this.sessionFileUrl(path, opts?.sessionId, download ?? false)
   }
 
@@ -2431,19 +2736,31 @@ export class HttpTransport implements Transport {
     }
   }
 
-  private sessionFileUrl(
+  private async sessionFileUrl(
     path: string,
     sessionId: string | null | undefined,
     forceDownload: boolean,
-  ): string | null {
+  ): Promise<string | null> {
     if (!sessionId) return null
-    const url = new URL(
+    const directUrl = new URL(
       `${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/files/by-path`,
     )
-    url.searchParams.set("path", path)
-    if (forceDownload) url.searchParams.set("download", "1")
-    if (this.apiKey) url.searchParams.set("token", this.apiKey)
-    return url.toString()
+    directUrl.searchParams.set("path", path)
+    if (forceDownload) directUrl.searchParams.set("download", "1")
+    const capability = await this.call<{
+      authRequired: boolean
+      ticket: string | null
+      expiresInSecs: number | null
+    }>("preview_raw_ticket", {
+      sessionId,
+      path,
+      download: forceDownload,
+    })
+    if (!capability.authRequired) return directUrl.toString()
+    if (!capability.ticket || !capability.expiresInSecs) {
+      throw new Error("Remote server returned an incomplete file preview capability")
+    }
+    return `${this.baseUrl}/api/resource/${encodeURIComponent(capability.ticket)}/fs/raw`
   }
 
   resolveAssetUrl(path: string | null | undefined): string | null {
@@ -2455,12 +2772,12 @@ export class HttpTransport implements Transport {
     // in the stored absolute path. Each category needs a matching
     // server-side route. Anything unrecognized returns `null` so callers
     // fall back gracefully (emoji / default icon / broken state).
-    const stamped = (url: string) => this.appendToken(url)
+    const stamped = (path: string) => this.scopedResourceUrl(path)
 
     // Avatars: `~/.hope-agent/avatars/{file}` → `/api/avatars/{file}`
     const avatarMatch = path.match(/[\\/]avatars[\\/]([^\\/]+)$/)
     if (avatarMatch) {
-      return stamped(`${this.baseUrl}/api/avatars/${encodeURIComponent(avatarMatch[1])}`)
+      return stamped(`/api/avatars/${encodeURIComponent(avatarMatch[1])}`)
     }
 
     // Session attachments: `~/.hope-agent/attachments/{sessionId}/{file}` →
@@ -2469,7 +2786,7 @@ export class HttpTransport implements Transport {
     const attachmentMatch = path.match(/[\\/]attachments[\\/]([^\\/]+)[\\/]([^\\/]+)$/)
     if (attachmentMatch) {
       return stamped(
-        `${this.baseUrl}/api/attachments/${encodeURIComponent(attachmentMatch[1])}/${encodeURIComponent(attachmentMatch[2])}`,
+        `/api/attachments/${encodeURIComponent(attachmentMatch[1])}/${encodeURIComponent(attachmentMatch[2])}`,
       )
     }
 
@@ -2480,7 +2797,7 @@ export class HttpTransport implements Transport {
     )
     if (sourceAssetMatch) {
       return stamped(
-        `${this.baseUrl}/api/knowledge/${encodeURIComponent(sourceAssetMatch[1])}/sources/${encodeURIComponent(sourceAssetMatch[2])}/assets/${encodeURIComponent(sourceAssetMatch[3])}`,
+        `/api/knowledge/${encodeURIComponent(sourceAssetMatch[1])}/sources/${encodeURIComponent(sourceAssetMatch[2])}/assets/${encodeURIComponent(sourceAssetMatch[3])}`,
       )
     }
 
@@ -2489,7 +2806,7 @@ export class HttpTransport implements Transport {
     // different working-directory prefixes.)
     const imgMatch = path.match(/[\\/]image_generate[\\/]([^\\/]+)$/)
     if (imgMatch) {
-      return stamped(`${this.baseUrl}/api/generated-images/${encodeURIComponent(imgMatch[1])}`)
+      return stamped(`/api/generated-images/${encodeURIComponent(imgMatch[1])}`)
     }
 
     // Canvas projects: `~/.hope-agent/canvas/projects/{id}/{...rest}` →
@@ -2502,7 +2819,10 @@ export class HttpTransport implements Transport {
         .split("/")
         .map((seg) => encodeURIComponent(seg))
         .join("/")
-      return stamped(`${this.baseUrl}/api/canvas/projects/${pid}/${rest}`)
+      // Executable previews must go through artifactPreviewUrl(), which mints
+      // a capability bound to this project subtree. Never expose the reusable
+      // static-asset ticket in a model-generated document URL.
+      return this.apiKey ? null : `${this.baseUrl}/api/canvas/projects/${pid}/${rest}`
     }
 
     // Design artifacts:
@@ -2519,7 +2839,9 @@ export class HttpTransport implements Transport {
         .split("/")
         .map((seg) => encodeURIComponent(seg))
         .join("/")
-      return stamped(`${this.baseUrl}/api/design/projects/${pid}/artifacts/${aid}/${rest}`)
+      return this.apiKey
+        ? null
+        : `${this.baseUrl}/api/design/projects/${pid}/artifacts/${aid}/${rest}`
     }
 
     return null
@@ -2531,11 +2853,12 @@ export class HttpTransport implements Transport {
     }
     const url = new URL(`${this.baseUrl}/api/pets/sprite`)
     url.searchParams.set("assetId", assetId)
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers.Authorization = `Bearer ${auth.apiKey}`
     const response = await fetch(url, { headers })
     if (!response.ok) {
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, auth.revision)
       throw new Error(`Failed to load pet asset (${response.status})`)
     }
     const blobUrl = URL.createObjectURL(await response.blob())
@@ -2543,21 +2866,26 @@ export class HttpTransport implements Transport {
   }
 
   async openMedia(item: MediaItem): Promise<void> {
-    const href = this.resolveMediaUrl(item)
-    if (!href) return
+    const lease = await this.loadMediaUrl(item)
     // Transient anchor click so the browser honors the server's
     // Content-Disposition (inline preview vs download prompt).
-    this.clickHref(href)
+    this.clickHref(lease.url)
+    setTimeout(lease.release, 60_000)
   }
 
   async downloadMedia(item: MediaItem): Promise<void> {
-    const href = this.resolveMediaUrl(item)
-    if (!href) return
-    this.clickHref(this.addDownloadParam(href), item.name || undefined)
+    const direct = this.resolveMediaUrl(item)
+    if (direct) {
+      this.clickHref(this.addDownloadParam(direct), item.name || undefined)
+      return
+    }
+    const lease = await this.loadMediaUrl(item)
+    this.clickHref(lease.url, item.name || undefined)
+    setTimeout(lease.release, 60_000)
   }
 
   async openFilePath(path: string, opts?: { sessionId?: string | null }): Promise<void> {
-    const href = this.sessionFileUrl(path, opts?.sessionId, false)
+    const href = await this.sessionFileUrl(path, opts?.sessionId, false)
     if (!href) return
     this.clickHref(href)
   }
@@ -2566,7 +2894,7 @@ export class HttpTransport implements Transport {
     path: string,
     opts?: { sessionId?: string | null; filename?: string },
   ): Promise<void> {
-    const href = this.sessionFileUrl(path, opts?.sessionId, true)
+    const href = await this.sessionFileUrl(path, opts?.sessionId, true)
     if (!href) return
     this.clickHref(href, opts?.filename)
   }
@@ -2719,12 +3047,13 @@ export class HttpTransport implements Transport {
   async listServerDirectory(path?: string): Promise<DirListing> {
     const url = new URL(`${this.baseUrl}/api/filesystem/list-dir`)
     if (path) url.searchParams.set("path", path)
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url.toString(), { method: "GET", headers })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       let message = text || `list-dir failed: ${res.status}`
       try {
         const parsed = JSON.parse(text) as { error?: string }
@@ -2740,8 +3069,9 @@ export class HttpTransport implements Transport {
   }
 
   async createDirectory(path: string): Promise<DirListing> {
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = { "Content-Type": "application/json" }
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(`${this.baseUrl}/api/filesystem/create-dir`, {
       method: "POST",
       headers,
@@ -2749,7 +3079,7 @@ export class HttpTransport implements Transport {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       let message = text || `create-dir failed: ${res.status}`
       try {
         const parsed = JSON.parse(text) as { error?: string }
@@ -2767,12 +3097,13 @@ export class HttpTransport implements Transport {
     url.searchParams.set("format", args.format)
     url.searchParams.set("includeThinking", String(args.includeThinking))
     url.searchParams.set("includeTools", String(args.includeTools))
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url.toString(), { method: "GET", headers })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       throw new Error(text || `export failed: ${res.status}`)
     }
     const disposition = res.headers.get("content-disposition") ?? ""
@@ -2803,16 +3134,27 @@ export class HttpTransport implements Transport {
     return this.call<ArtifactRecord>("import_artifact", { request })
   }
 
-  artifactPreviewUrl(id: string, projectPath?: string | null): string | null {
-    void projectPath
+  async artifactPreviewUrl(id: string, projectPath?: string | null): Promise<string | null> {
     if (!id) return null
-    return this.appendToken(
-      `${this.baseUrl}/api/canvas/projects/${encodeURIComponent(id)}/index.html`,
+    const designMatch = projectPath?.match(
+      /[\\/]design[\\/]projects[\\/]([^\\/]+)[\\/]artifacts[\\/]([^\\/]+)(?:[\\/]|$)/,
+    )
+    if (designMatch) {
+      const projectId = designMatch[1]
+      const artifactId = designMatch[2]
+      return this.scopedPreviewResourceUrl(
+        `/api/design/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/index.html`,
+        { kind: "design_artifact", projectId, artifactId },
+      )
+    }
+    return this.scopedPreviewResourceUrl(
+      `/api/canvas/projects/${encodeURIComponent(id)}/index.html`,
+      { kind: "canvas_project", projectId: id },
     )
   }
 
   async openArtifact(id: string): Promise<void> {
-    const href = this.artifactPreviewUrl(id)
+    const href = await this.artifactPreviewUrl(id)
     if (href) this.clickHref(href)
   }
 
@@ -2846,8 +3188,9 @@ export class HttpTransport implements Transport {
     format: ArtifactExportFormat,
     expectedVersion: number,
   ): Promise<ArtifactExportResult | null> {
+    const createAuth = this.authSnapshot()
     const headers: Record<string, string> = { "Content-Type": "application/json" }
-    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    if (createAuth.apiKey) headers.Authorization = `Bearer ${createAuth.apiKey}`
     const create = await fetch(`${this.baseUrl}/api/artifacts/${encodeURIComponent(id)}/exports`, {
       method: "POST",
       headers,
@@ -2855,7 +3198,7 @@ export class HttpTransport implements Transport {
     })
     if (!create.ok) {
       const text = await create.text().catch(() => "")
-      this.handleAuthFailure(create.status)
+      this.handleAuthFailure(create.status, createAuth.revision)
       throw new Error(text || `artifact export failed: ${create.status}`)
     }
     const payload = (await create.json()) as { receipt: ArtifactExportReceipt }
@@ -2863,15 +3206,16 @@ export class HttpTransport implements Transport {
     if (receipt.status !== "ready") {
       return { filename: receipt.filename, receipt }
     }
+    const downloadAuth = this.authSnapshot()
     const downloadHeaders: Record<string, string> = {}
-    if (this.apiKey) downloadHeaders.Authorization = `Bearer ${this.apiKey}`
+    if (downloadAuth.apiKey) downloadHeaders.Authorization = `Bearer ${downloadAuth.apiKey}`
     const response = await fetch(
       `${this.baseUrl}/api/artifact-exports/${encodeURIComponent(receipt.id)}/download`,
       { headers: downloadHeaders },
     )
     if (!response.ok) {
       const text = await response.text().catch(() => "")
-      this.handleAuthFailure(response.status)
+      this.handleAuthFailure(response.status, downloadAuth.revision)
       throw new Error(text || `artifact download failed: ${response.status}`)
     }
     const disposition = response.headers.get("content-disposition") ?? ""
@@ -2905,12 +3249,13 @@ export class HttpTransport implements Transport {
     defaultFilename = "hope-agent-memory-backup.zip",
   ): Promise<ExportSessionResult | null> {
     const url = `${this.baseUrl}/api/memory/backup/export-archive`
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url, { method: "POST", headers })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       throw new Error(text || `memory backup archive export failed: ${res.status}`)
     }
     const disposition = res.headers.get("content-disposition") ?? ""
@@ -2969,10 +3314,11 @@ export class HttpTransport implements Transport {
 
   private async postMemoryBackupArchive(pathOrUrl: string | URL, file: File): Promise<unknown> {
     const url = typeof pathOrUrl === "string" ? new URL(pathOrUrl, this.baseUrl) : pathOrUrl
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {
       "Content-Type": "application/zip",
     }
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url.toString(), {
       method: "POST",
       headers,
@@ -2980,7 +3326,7 @@ export class HttpTransport implements Transport {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       throw new Error(text || `memory backup archive request failed: ${res.status}`)
     }
     return res.json()
@@ -2991,12 +3337,13 @@ export class HttpTransport implements Transport {
     url.searchParams.set("root", root)
     url.searchParams.set("q", q)
     if (limit !== undefined) url.searchParams.set("limit", String(limit))
+    const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`
+    if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`
     const res = await fetch(url.toString(), { method: "GET", headers })
     if (!res.ok) {
       const text = await res.text().catch(() => "")
-      this.handleAuthFailure(res.status)
+      this.handleAuthFailure(res.status, auth.revision)
       let message = text || `search-files failed: ${res.status}`
       try {
         const parsed = JSON.parse(text) as { error?: string }
@@ -3043,11 +3390,38 @@ export class HttpTransport implements Transport {
     if (this.eventWs || this.eventWsConnecting) return
     this.eventWsConnecting = true
 
-    const ws = new WebSocket(this.wsUrl("/ws/events"))
+    void this.openEventWs()
+  }
+
+  private async openEventWs(): Promise<void> {
+    try {
+      await this.initializeRemoteAccess()
+    } catch {
+      this.eventWsConnecting = false
+      if (this.eventSubscriptions.length > 0) this.scheduleReconnect()
+      return
+    }
+    if (this.eventSubscriptions.length === 0) {
+      this.eventWsConnecting = false
+      return
+    }
+    const ticketUsed = this.eventTicket
+    const protocol = ticketUsed ? [`ha-events.${ticketUsed}`] : undefined
+    const ws = protocol
+      ? new WebSocket(this.wsUrl("/ws/events"), protocol)
+      : new WebSocket(this.wsUrl("/ws/events"))
+    // Track the socket during the handshake as well, so switching transports
+    // or removing the final listener can cancel an in-flight connection.
+    this.eventWs = ws
+    let opened = false
 
     ws.onopen = () => {
+      if (this.eventWs !== ws || this.eventSubscriptions.length === 0) {
+        ws.close()
+        return
+      }
+      opened = true
       this.eventWsConnecting = false
-      this.eventWs = ws
       this.reconnectAttempts = 0
       this.dispatchEvent(TRANSPORT_EVENT_RESYNC_REQUIRED, { reason: "connected" })
     }
@@ -3078,8 +3452,20 @@ export class HttpTransport implements Transport {
     }
 
     ws.onclose = () => {
-      this.eventWs = null
+      if (this.eventWs === ws) this.eventWs = null
       this.eventWsConnecting = false
+      if (!opened && ticketUsed && this.eventTicket === ticketUsed) {
+        // The server may have restarted (ephemeral signing key) or rotated its
+        // Owner Token. Force the next reconnect to exchange the still-current
+        // Bearer credential instead of retrying a locally unexpired ticket.
+        this.resourceTicket = null
+        this.eventTicket = null
+        this.accessTicketExpiresAt = 0
+        if (this.accessTicketRefreshTimer) {
+          clearTimeout(this.accessTicketRefreshTimer)
+          this.accessTicketRefreshTimer = null
+        }
+      }
 
       // Reconnect only if there are active subscribers.
       if (this.eventSubscriptions.length > 0) {

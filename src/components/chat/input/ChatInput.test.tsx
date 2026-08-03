@@ -1147,6 +1147,37 @@ describe("ChatInput", () => {
     expect(screen.getByText("Wait for the monitored file")).toBeTruthy()
   })
 
+  test("replaces background subagent wire identifiers with a friendly label", () => {
+    renderChatInput({
+      autonomyActivity: {
+        sessionId: "s1",
+        state: "waiting_external",
+        headlineCode: "waiting_background_work",
+        currentStep: "subagent:batch",
+        waitingOn: {
+          kind: "job",
+          reasonCode: "background_work_running",
+          sourceId: "job-1",
+          label: "subagent:batch",
+        },
+        needsUser: false,
+        counts: {
+          activeWorkflows: 0,
+          activeTasks: 0,
+          activeLoops: 0,
+          activeJobs: 1,
+          awaitingApproval: 0,
+        },
+        sourceRefs: [],
+        projectedAt: "2026-07-08T00:03:00Z",
+      },
+      onOpenWorkspace: vi.fn(),
+    })
+
+    expect(screen.getByText("任务组")).toBeTruthy()
+    expect(screen.queryByText("subagent:batch")).toBeNull()
+  })
+
   test("previews required optional and follow-up criteria while editing the active goal", () => {
     renderChatInput({
       goalSnapshot: {

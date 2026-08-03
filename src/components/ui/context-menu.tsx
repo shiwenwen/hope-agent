@@ -5,6 +5,7 @@ import {
   FLOATING_MENU_RADIX_MOTION_CLASS,
   FLOATING_MENU_SURFACE_CLASS,
 } from "@/components/ui/floating-menu"
+import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 
 const ContextMenu = ContextMenuPrimitive.Root
@@ -109,17 +110,21 @@ const ContextMenuContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content> & {
     variant?: ContextMenuVariant
   }
->(({ className, variant = "default", ...props }, ref) => (
-  <ContextMenuVariantContext.Provider value={variant}>
-    <ContextMenuPrimitive.Portal>
-      <ContextMenuPrimitive.Content
-        ref={ref}
-        className={cn(contentVariantClass[variant], className)}
-        {...props}
-      />
-    </ContextMenuPrimitive.Portal>
-  </ContextMenuVariantContext.Provider>
-))
+>(({ className, variant = "default", ...props }, ref) => {
+  const portalScope = usePortalScope()
+  if (portalScope && !portalScope.active) return null
+  return (
+    <ContextMenuVariantContext.Provider value={variant}>
+      <ContextMenuPrimitive.Portal container={portalScope?.container ?? undefined}>
+        <ContextMenuPrimitive.Content
+          ref={ref}
+          className={cn(contentVariantClass[variant], className)}
+          {...props}
+        />
+      </ContextMenuPrimitive.Portal>
+    </ContextMenuVariantContext.Provider>
+  )
+})
 ContextMenuContent.displayName = ContextMenuPrimitive.Content.displayName
 
 const ContextMenuItem = React.forwardRef<

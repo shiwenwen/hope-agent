@@ -23,7 +23,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -55,6 +54,7 @@ import {
 import type { ProjectMeta } from "@/types/project"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import type { SettingsSection } from "@/components/settings/types"
+import { useReadableSurface } from "@/hooks/useReadableSurface"
 
 type ViewMode = "calendar" | "list" | "conversations"
 
@@ -75,18 +75,20 @@ function readStoredViewMode(): ViewMode {
 }
 
 interface CronCalendarViewProps {
-  onBack: () => void
+  /** 顶层侧边栏当前是否正在展示日历；隐藏时保留状态并暂停实时刷新。 */
+  isViewVisible: boolean
   defaultProjectId?: string | null
   /** Open the main Settings page deep-linked to a section (e.g. "cron"). */
   onOpenSettings?: (section: SettingsSection) => void
 }
 
 export default function CronCalendarView({
-  onBack,
+  isViewVisible,
   defaultProjectId,
   onOpenSettings,
 }: CronCalendarViewProps) {
   const { t } = useTranslation()
+  const isSurfaceReadable = useReadableSurface(isViewVisible)
   // Remember the last mode the user left the cron panel in across re-entries.
   const [mode, setMode] = useState<ViewMode>(readStoredViewMode)
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -169,23 +171,25 @@ export default function CronCalendarView({
   }, [fetchEvents, fetchJobs, jobsLoaded])
 
   useEffect(() => {
+    if (!isViewVisible) return
     fetchEvents()
-  }, [fetchEvents])
+  }, [fetchEvents, isViewVisible])
 
-  // Lazily load jobs on first switch to list mode
+  // Entering or returning to list mode refreshes the data without resetting its UI state.
   useEffect(() => {
-    if (mode === "list" && !jobsLoaded) {
+    if (isViewVisible && mode === "list") {
       fetchJobs()
     }
-  }, [mode, jobsLoaded, fetchJobs])
+  }, [fetchJobs, isViewVisible, mode])
 
   // Listen for cron:run_completed events
   useEffect(() => {
+    if (!isViewVisible) return
     return getTransport().listen("cron:run_completed", () => {
       fetchEvents()
       if (jobsLoaded) fetchJobs()
     })
-  }, [fetchEvents, fetchJobs, jobsLoaded])
+  }, [fetchEvents, fetchJobs, isViewVisible, jobsLoaded])
 
   // Load the agent roster once (job-independent); shared by both the embedded
   // and full-screen CronJobDetail so row switches don't refetch it.
@@ -376,6 +380,8 @@ export default function CronCalendarView({
           <CronJobDetail
             jobId={detailJobId}
             agents={agents}
+            isViewVisible={isViewVisible}
+            isSurfaceReadable={isSurfaceReadable}
             onBack={() => setDetailJobId(null)}
             onEdit={handleEditJob}
             onDelete={handleDelete}
@@ -410,11 +416,6 @@ export default function CronCalendarView({
         className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
         data-tauri-drag-region
       >
-        <IconTip label={t("common.back")} side="bottom">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </IconTip>
         <CalendarDays className="h-4 w-4 text-primary" />
         <h2 className="text-[15px] font-semibold tracking-tight">{t("cron.title")}</h2>
 
@@ -484,7 +485,10 @@ export default function CronCalendarView({
       </div>
 
       <TabsContent value="conversations" className="mt-0 min-h-0 flex-1">
-        <CronConversationsPanel />
+        <CronConversationsPanel
+          isViewVisible={isViewVisible}
+          isSurfaceReadable={isSurfaceReadable}
+        />
       </TabsContent>
 
       <TabsContent value="calendar" className="mt-0 min-h-0 flex-1">
@@ -782,6 +786,8 @@ export default function CronCalendarView({
                 key={selectedListJobId}
                 jobId={selectedListJobId}
                 agents={agents}
+                isViewVisible={isViewVisible}
+                isSurfaceReadable={isSurfaceReadable}
                 embedded
                 onBack={() => setSelectedListJobId(null)}
                 onEdit={handleEditJob}

@@ -236,6 +236,7 @@ import {
   type GoalTimelineItem,
   type GoalWatchdogFinding,
 } from "./useGoal"
+import { autonomyActivitySourceLabel } from "./activityDisplay"
 import {
   useLoopSchedules,
   type LoopExecutionStrategy,
@@ -12794,6 +12795,11 @@ function GoalWorkspaceSection({
     },
     [activeGoal, goalState, t],
   )
+  const goalActivityCurrentStepLabel = autonomyActivitySourceLabel(
+    t,
+    goalState.activity,
+    goalState.activity?.currentStep,
+  )
 
   return (
     <WorkspaceSection
@@ -12866,9 +12872,9 @@ function GoalWorkspaceSection({
               <span className="shrink-0 font-medium text-foreground/85">
                 {autonomyActivityLabel(t, goalState.activity)}
               </span>
-              {goalState.activity.currentStep ? (
+              {goalActivityCurrentStepLabel ? (
                 <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                  {goalState.activity.currentStep}
+                  {goalActivityCurrentStepLabel}
                 </span>
               ) : null}
               {goalState.activity.needsUser ? (

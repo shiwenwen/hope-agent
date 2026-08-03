@@ -154,6 +154,8 @@ pub struct StreamCoordinator {
     captured_usage: Mutex<CapturedUsage>,
     had_thinking: AtomicBool,
     had_text: AtomicBool,
+    had_tool_activity: AtomicBool,
+    had_non_replayable_tool_activity: AtomicBool,
 }
 
 static REGISTRY: OnceLock<Mutex<HashMap<String, Weak<StreamCoordinator>>>> = OnceLock::new();
@@ -227,6 +229,8 @@ impl StreamCoordinator {
             captured_usage: Mutex::new(CapturedUsage::default()),
             had_thinking: AtomicBool::new(false),
             had_text: AtomicBool::new(false),
+            had_tool_activity: AtomicBool::new(false),
+            had_non_replayable_tool_activity: AtomicBool::new(false),
         });
         let registered = {
             let mut map = registry()
@@ -349,6 +353,10 @@ impl StreamCoordinator {
             || raw_event.contains("\"type\":\"tool_result\"")
             || raw_event.contains("\"type\":\"round_limit_reached\"")
             || raw_event.contains("\"type\":\"context_compacted\"")
+            || raw_event.contains("\"type\":\"model_retry\"")
+            || raw_event.contains("\"type\":\"model_chain_retry\"")
+            || raw_event.contains("\"type\":\"model_fallback\"")
+            || raw_event.contains("\"type\":\"profile_rotation\"")
     }
 
     fn payload_with_seq(&self, raw_event: &str, seq: u64) -> String {
@@ -700,6 +708,16 @@ impl TurnDurabilitySink for StreamCoordinator {
                 .absorb_event(&parsed),
             Some("thinking_delta") => self.had_thinking.store(true, Ordering::SeqCst),
             Some("text_delta") => self.had_text.store(true, Ordering::SeqCst),
+            Some("tool_call" | "tool_result") => {
+                self.had_tool_activity.store(true, Ordering::SeqCst);
+                if parsed.get("replay_safe").and_then(|value| value.as_bool()) != Some(true) {
+                    // Events produced before replay-safety metadata existed
+                    // remain conservative. Only explicitly read-only/
+                    // concurrent-safe tool work may cross a model boundary.
+                    self.had_non_replayable_tool_activity
+                        .store(true, Ordering::SeqCst);
+                }
+            }
             _ => {}
         }
         let current_role = match event_type {
@@ -944,6 +962,14 @@ impl TurnDurabilitySink for StreamCoordinator {
         self.context_revision.load(Ordering::SeqCst)
     }
 
+    fn had_tool_activity(&self) -> bool {
+        self.had_tool_activity.load(Ordering::SeqCst)
+    }
+
+    fn had_non_replayable_tool_activity(&self) -> bool {
+        self.had_non_replayable_tool_activity.load(Ordering::SeqCst)
+    }
+
     fn snapshot(&self) -> StreamSnapshot {
         let state = lock_state(&self.state);
         StreamSnapshot {
@@ -1044,6 +1070,7 @@ mod tests {
                 .to_string(),
             )
             .expect("accept tool call");
+        assert!(coordinator.had_tool_activity());
 
         let durable = coordinator
             .flush(FlushReason::ToolBoundary)

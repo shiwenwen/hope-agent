@@ -155,6 +155,8 @@
 ### Install Locally
 
 > 📦 Full installer list across platforms: [Releases](https://github.com/shiwenwen/hope-agent/releases)
+>
+> 🌏 **Can't reach GitHub?** Every installer is mirrored at <https://repo.hopeagent.ai/download/latest/> (Cloudflare R2, the same domain as the apt / dnf repos), and each manual-install entry below links the mirror directly. The desktop auto-updater prefers this mirror too, with GitHub as the fallback. Past versions are kept indefinitely under `https://repo.hopeagent.ai/download/v<version>/`.
 
 #### macOS
 
@@ -169,7 +171,7 @@ brew install --cask hope-agent
 
 ##### Manual install (DMG)
 
-Download `Hope.Agent_*.dmg` from [Releases](https://github.com/shiwenwen/hope-agent/releases) and drag into Applications.
+Download `Hope.Agent_*.dmg` from [Releases](https://github.com/shiwenwen/hope-agent/releases) and drag into Applications. Mirror: [Hope.Agent_aarch64.dmg](https://repo.hopeagent.ai/download/latest/Hope.Agent_aarch64.dmg).
 
 > If macOS reports "damaged" or "cannot verify the developer" on first launch, run in Terminal:
 >
@@ -197,7 +199,7 @@ scoop install hope-agent
 
 ##### Manual install (installer)
 
-Download `Hope.Agent_*-setup.exe` from [Releases](https://github.com/shiwenwen/hope-agent/releases) and double-click. **Windows is not yet fully tested** — please file issues if anything breaks.
+Download `Hope.Agent_*-setup.exe` from [Releases](https://github.com/shiwenwen/hope-agent/releases) and double-click. Mirror: [Hope.Agent_x64-setup.exe](https://repo.hopeagent.ai/download/latest/Hope.Agent_x64-setup.exe). **Windows is not yet fully tested** — please file issues if anything breaks.
 
 > If Windows reports "MSVCP140_1.dll was not found" or a similar missing `VCRUNTIME140.dll` / `MSVCP140.dll` error on launch, install the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) and relaunch.
 
@@ -251,9 +253,9 @@ sudo zypper install hope-agent
 
 From [Releases](https://github.com/shiwenwen/hope-agent/releases) (filenames include the arch suffix — pick `_amd64` / `_arm64` for deb/AppImage or `.x86_64` / `.aarch64` for rpm):
 
-- AppImage: `Hope.Agent_*.AppImage` — `chmod +x` and run
-- Debian / Ubuntu: `Hope.Agent_*.deb` — `sudo dpkg -i Hope.Agent_*.deb`
-- Fedora / RHEL: `Hope.Agent_*.rpm` — `sudo rpm -i Hope.Agent_*.rpm`
+- AppImage: `Hope.Agent_*.AppImage` — `chmod +x` and run. Mirror: [amd64](https://repo.hopeagent.ai/download/latest/Hope.Agent_amd64.AppImage) · [aarch64](https://repo.hopeagent.ai/download/latest/Hope.Agent_aarch64.AppImage)
+- Debian / Ubuntu: `Hope.Agent_*.deb` — `sudo dpkg -i Hope.Agent_*.deb`. Mirror: [amd64](https://repo.hopeagent.ai/download/latest/Hope.Agent_amd64.deb) · [arm64](https://repo.hopeagent.ai/download/latest/Hope.Agent_arm64.deb)
+- Fedora / RHEL: `Hope.Agent_*.rpm` — `sudo rpm -i Hope.Agent_*.rpm`. Mirror: [x86_64](https://repo.hopeagent.ai/download/latest/Hope.Agent.x86_64.rpm) · [aarch64](https://repo.hopeagent.ai/download/latest/Hope.Agent.aarch64.rpm)
 
 Both amd64 (x86_64) and arm64 (aarch64) native builds are published, covering desktops, Raspberry Pi 4/5, Apple Silicon Macs running Asahi Linux, and Graviton / Ampere cloud VMs. apt and dnf automatically pick the right arch via `dpkg --print-architecture` / `$basearch`.
 
@@ -266,7 +268,7 @@ Both amd64 (x86_64) and arm64 (aarch64) native builds are published, covering de
 #### First launch & auto-update
 
 1. First launch wizard: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
-2. Desktop builds ship with the GitHub Releases auto-updater. Go to **Settings → About** in-app to check for and install updates, or just tell the model "upgrade" / "check for updates" in chat.
+2. Desktop builds ship with a built-in auto-updater (it reads the `repo.hopeagent.ai` mirror first and falls back to GitHub Releases). Go to **Settings → About** in-app to check for and install updates, or just tell the model "upgrade" / "check for updates" in chat. Installers fetched by the updater are signature-verified against the built-in public key — the mirror and GitHub go through the identical check. (Manual downloads are installed by your OS and do not pass through it.)
 3. Versions installed via Homebrew / AUR / Scoop also receive updates through the built-in updater; the package manager's recorded version stays pinned to the initial install version and does not affect functionality.
 
 > To connect from a phone or another computer, set an API key under **Settings → Server** and change the bind address to `0.0.0.0:8420`. After restarting, open `http://<IP of the device running Hope Agent>:8420`. Never expose the port to a LAN or the public internet without authentication; for public access, put it behind an HTTPS reverse proxy. See the [Docker deployment guide](docs/deployment/docker.en.md).
@@ -293,7 +295,7 @@ For docker-compose, the optional Ollama sidecar for local LLMs, LAN exposure, re
 git clone https://github.com/shiwenwen/hope-agent.git
 cd hope-agent
 pnpm install
-pnpm tauri dev         # desktop dev (frontend + Rust hot reload)
+pnpm dev:desktop       # default desktop dev (frontend + Rust hot reload)
 
 # Other useful commands
 pnpm typecheck         # frontend typecheck (tsc -b)
@@ -301,13 +303,25 @@ pnpm lint              # lint
 pnpm tauri build       # production build
 ```
 
-For local Web GUI development with live reload, run `pnpm tauri dev` and open `http://localhost:1420` in your browser. That is the Vite dev server, sharing the same frontend HMR as the Tauri window. `http://localhost:8420` is the embedded HTTP/WS server's static Web GUI entry, served from `dist/` / the embedded bundle, so it behaves like the packaged browser entry and does not HMR with source changes. If your local server has an API key enabled, the `1420` page may get 401s from `8420`; for development, temporarily clear the Server API Key in Settings and restart.
+Desktop development enables extra binaries only when they are needed, so ordinary UI and business-logic work does not wait for unrelated Rust crates:
+
+| Command                    | Browser Host | Eval Sidecar | Use case                         |
+| -------------------------- | ------------ | ------------ | -------------------------------- |
+| `pnpm desktop`             | As selected  | As selected  | Interactively choose a mode      |
+| `pnpm dev:desktop`         | Not built    | Not built    | Default UI / business development |
+| `pnpm dev:desktop:browser` | Built        | Not built    | Chrome extension integration     |
+| `pnpm dev:desktop:eval`    | Not built    | Built        | Evaluation feature development   |
+| `pnpm dev:desktop:full`    | Built        | Built        | Full desktop capability check    |
+
+The default command delegates to `pnpm exec tauri dev --config src-tauri/tauri.dev.conf.json`. Prefer the scripts above so startup flags and optional-component conventions stay aligned. Production `pnpm tauri build` still builds and bundles both the Browser Host and Eval Sidecar.
+
+For local Web GUI development with live reload, run `pnpm dev:desktop` and open `http://localhost:1420` in your browser. That is the Vite dev server, sharing the same frontend HMR as the Tauri window. `http://localhost:8420` is the embedded HTTP/WS server's static Web GUI entry, served from `dist/` / the embedded bundle, so it behaves like the packaged browser entry and does not HMR with source changes. If your local server has an API key enabled, the `1420` page may get 401s from `8420`; for development, temporarily clear the Server API Key in Settings and restart.
 
 ## Run Modes
 
 | Mode             | How to start                                                                      | When to use                                                                       |
 | ---------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Desktop GUI      | Double-click the app / `pnpm tauri dev`                                        | The most complete entry point: full GUI plus an embedded HTTP/WS server, so the desktop can serve remote clients while you use it |
+| Desktop GUI      | Double-click the app / `pnpm dev:desktop`                                      | The most complete entry point: full GUI plus an embedded HTTP/WS server, so the desktop can serve remote clients while you use it |
 | Server + Web GUI (HTTP/WS) | `server start` subcommand; `server install` registers a launchd / systemd service | Headless always-on daemon for IM channels and cron jobs; **the React frontend is `rust-embed`-baked into the server binary, so opening `http://<server>:port` in any browser gives you the full Web GUI** — phone, tablet, any computer can connect directly without installing a client |
 | ACP (stdio)      | `acp` subcommand                                                                  | IDE integration — any ACP-capable editor can call Hope Agent as its agent backend |
 
@@ -377,7 +391,7 @@ The main branch is under active development — issues and PRs are welcome. Plea
 Common commands:
 
 ```bash
-pnpm tauri dev                    # desktop dev
+pnpm dev:desktop                  # default desktop dev
 cargo check --workspace              # Rust dep / type check
 cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server   # core tests
 node scripts/sync-i18n.mjs --check   # i18n completeness check

@@ -28,6 +28,13 @@ import type { AgentConfig, AsyncToolPolicy, SkillSummary } from "../types"
 import type { SandboxMode } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import AgentTabResetControl from "../AgentTabResetControl"
+import {
+  agentSkillSettingsUseDefaults,
+  agentToolSettingsUseDefaults,
+  createDefaultSkillSettingsPatch,
+  createDefaultToolSettingsPatch,
+} from "../agentTabDefaults"
 
 /** Ordered policy options. First entry is the implicit default. The
  * `i18nKey` segment plugs into `settings.agentAsyncToolPolicy.<key>` —
@@ -262,6 +269,15 @@ export default function CapabilitiesTab({
 
       {/* ─── Tools sub-tab ─────────────────────────────────────── */}
       <TabsContent value="tools" className="space-y-5">
+        <AgentTabResetControl
+          sectionLabel={t("settings.agentCapabilitiesTabTools")}
+          disabled={agentToolSettingsUseDefaults(config, openclawMode ? "" : toolsGuide)}
+          onReset={() => {
+            updateConfig(createDefaultToolSettingsPatch(config))
+            if (!openclawMode) setToolsGuide("")
+          }}
+        />
+
         {/* Max Tool Rounds */}
         <div>
           <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
@@ -478,6 +494,7 @@ export default function CapabilitiesTab({
               status={dockerStatus}
               checking={dockerChecking}
               onRefresh={refreshDockerStatus}
+              sandboxMode={sandboxMode}
               title={t("chat.sandboxMode.setupTitle", {
                 defaultValue: "配置 Docker 后启用沙箱",
               })}
@@ -518,6 +535,12 @@ export default function CapabilitiesTab({
 
       {/* ─── Skills sub-tab ────────────────────────────────────── */}
       <TabsContent value="skills" className="space-y-5">
+        <AgentTabResetControl
+          sectionLabel={t("settings.agentCapabilitiesTabSkills")}
+          disabled={agentSkillSettingsUseDefaults(config)}
+          onReset={() => updateConfig(createDefaultSkillSettingsPatch(config))}
+        />
+
         <CollapsibleSection
           title={t("settings.agentSkills")}
           description={t("settings.agentSkillsDesc")}

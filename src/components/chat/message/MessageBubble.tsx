@@ -49,6 +49,7 @@ import FileAttachments from "./FileAttachments"
 import UserAttachments from "./UserAttachments"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import ProfileRotationBanner from "@/components/chat/ProfileRotationBanner"
+import ModelRecoveryBanner from "@/components/chat/ModelRecoveryBanner"
 import ContextCompactedBanner from "@/components/chat/ContextCompactedBanner"
 import RoundLimitReachedBanner from "@/components/chat/RoundLimitReachedBanner"
 import MessageUrlPreviews from "./MessageUrlPreviews"
@@ -59,6 +60,7 @@ import type {
   ContentRenderMode,
   Message,
   AgentSummaryForSidebar,
+  ModelRecoveryEvent,
   ProfileRotationEvent,
   ContextCompactedEvent,
   ContextCompactionProgressEvent,
@@ -89,10 +91,7 @@ import {
   requestMemoryFocus,
   type MemoryFocusTarget,
 } from "@/components/settings/memory-panel/memoryFocus"
-import {
-  requestKnowledgeFocus,
-  type KnowledgeFocusTarget,
-} from "@/components/knowledge/knowledgeFocus"
+import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
 import {
   memoryKindLabel,
   memoryTraceErrorDescription,
@@ -239,7 +238,7 @@ export interface MessageBubbleProps {
   editHasFileMutations?: boolean
   onEditAndResend?: (message: Message, content: string) => Promise<void>
   onOpenMemorySettings?: () => void
-  onOpenKnowledge?: () => void
+  onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
   displayMode?: ChatDisplayMode
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
@@ -726,7 +725,7 @@ function ActiveMemoryTrace({
   usedMemoryRefs?: UsedMemoryRef[]
   retrievalPlanner?: RetrievalPlannerTrace
   onOpenMemorySettings?: () => void
-  onOpenKnowledge?: () => void
+  onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
 }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
@@ -1164,8 +1163,7 @@ function ActiveMemoryTrace({
                             onClick={(e) => {
                               e.stopPropagation()
                               if (knowledgeTarget && onOpenKnowledge) {
-                                requestKnowledgeFocus(knowledgeTarget)
-                                onOpenKnowledge()
+                                onOpenKnowledge(knowledgeTarget)
                                 return
                               }
                               if (focusTarget && onOpenMemorySettings) {
@@ -1497,10 +1495,7 @@ function MessageBubbleInner({
   const hasDetails = msg.role === "assistant" && !!(msg.usage || msg.model)
   const canAddQuickPrompt = !!onAddQuickPrompt && isQuickPromptEligibleUserMessage(msg)
   const canForkFromMessage =
-    !!onForkFromMessage &&
-    !!sessionId &&
-    !loading &&
-    isForkableConversationMessage(msg)
+    !!onForkFromMessage && !!sessionId && !loading && isForkableConversationMessage(msg)
   const hasToolbarActions =
     hasTextContent || hasDetails || canAddQuickPrompt || canForkFromMessage || canEditAndResend
   // Always-visible total turn duration, shown at the message bottom once the
@@ -1792,6 +1787,14 @@ function MessageBubbleInner({
     }
     if (eventPayload?.type === "profile_rotation") {
       return <ProfileRotationBanner event={eventPayload as ProfileRotationEvent} />
+    }
+    if (eventPayload?.type === "model_retry" || eventPayload?.type === "model_chain_retry") {
+      return (
+        <ModelRecoveryBanner
+          event={eventPayload as unknown as ModelRecoveryEvent}
+          sessionId={sessionId}
+        />
+      )
     }
     if (
       eventPayload?.type === "context_compacted" ||

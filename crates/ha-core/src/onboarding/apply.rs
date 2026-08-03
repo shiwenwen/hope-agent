@@ -155,26 +155,18 @@ pub struct ServerStepInput {
 }
 
 pub fn apply_server(input: ServerStepInput) -> Result<()> {
-    let _g = crate::backup::scope_save_reason("onboarding", "server");
-    let mut cfg = load_config()?;
-    if let Some(addr) = input.bind_addr {
-        if !addr.is_empty() {
-            cfg.server.bind_addr = addr;
-        }
-    }
-    match input.api_key {
-        Some(k) if k.is_empty() => cfg.server.api_key = None,
-        Some(k) => cfg.server.api_key = Some(k),
-        None => {}
-    }
-    save_config(&cfg)
+    let config = crate::config::EmbeddedServerConfig {
+        bind_addr: input.bind_addr.unwrap_or_default(),
+        api_key: input.api_key,
+        ..Default::default()
+    };
+    crate::server_auth::update_server_config(config, "onboarding", false)
 }
 
 /// Generate a fresh `hope_<uuid_no_dashes>` api key. Bound here (instead of
 /// in the commands layer) so GUI + CLI + tests share the same format.
 pub fn generate_api_key() -> String {
-    let uuid = uuid::Uuid::new_v4().simple().to_string();
-    format!("hope_{}", uuid)
+    crate::server_auth::generate_token()
 }
 
 /// Step "mode" (remote variant) — point this install at an existing
@@ -183,7 +175,7 @@ pub fn generate_api_key() -> String {
 /// already lives on the remote box.
 ///
 /// `api_key` of `None` or `Some("")` means "no auth" — the remote was
-/// started without `--api-key`. We normalize empty strings to `None`
+/// started without owner-token authentication. We normalize empty strings to `None`
 /// before persisting so `Authorization` headers aren't built later.
 #[derive(Debug, Clone)]
 pub struct RemoteModeInput {

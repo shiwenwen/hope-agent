@@ -812,7 +812,7 @@ skills**；除 improve 外全部落地（improve 只拆出了 ha-eval-runtime �
 | REST API | ~430 个端点（精确数以 `grep -rE '\.route\(' crates/ha-server/src/ \| wc -l` 为准；完整清单与 Tauri 命令对照见 [api-reference.md](api-reference.md)） |
 | WebSocket | `/ws/events`（全局事件广播，含聊天流 `chat:stream_delta`、`channel:stream_delta` 等） |
 | 路由框架 | axum 0.8 + tower-http CORS |
-| API Key 鉴权 | `middleware.rs` — `Authorization: Bearer` 头 + `?token=` 查询参数，`/api/health` 与 `/api/server/status` 免鉴权 |
+| Owner Token 鉴权 | `middleware.rs` — 自动化用 Bearer；浏览器用 Root Token 换签名 HttpOnly Cookie；仅 health、Auth bootstrap 与显式分享公开，server status 需鉴权 |
 | 内嵌 Web GUI | `web_assets.rs` 用 `rust-embed` 把 Vite `dist/` 打进二进制；axum `fallback_service` 直返；`HA_WEB_ROOT` 可指向本地 `dist/` 做 dev override |
 | 错误处理 | axum 风格 `Result<Json<T>, (StatusCode, String)>`，显式 status code，不做字符串匹配 |
 
@@ -892,19 +892,19 @@ flowchart LR
 - 第 5 次崩溃触发 backup + self-diagnosis + auto-fix
 - 子进程启动 Tauri GUI，`setup.rs` 中同时 spawn ha-server
 - 前端通过 Tauri IPC 调用后端（也可通过内嵌 HTTP 服务）
-- 内嵌服务器配置从 `config.json` 的 `server` 字段读取（`EmbeddedServerConfig`）：
+- 内嵌服务器的非敏感配置从 `config.json.server` 读取，Owner Token 独立存入 `credentials/server-auth.json`：
   - `bindAddr`：监听地址（默认 `127.0.0.1:8420`，设为 `0.0.0.0:8420` 可对外暴露）
-  - `apiKey`：API Key 鉴权（`null` = 无鉴权）
+  - `apiKey` 仅为旧版迁移字段；新写入落 0600 凭据文件，配置响应只回掩码与指纹
 - 修改后需重启应用生效
 
 ### 2. 服务器模式
 
 ```
-hope-agent server [--bind 0.0.0.0:8420] [--api-key KEY]
+HA_API_KEY_FILE=/run/secrets/hope-token hope-agent server --bind 0.0.0.0:8420
 ```
 
 - 无 GUI，纯 HTTP/WS 守护进程
-- CLI `--api-key` 参数优先于 config.json 配置
+- Root Token 优先级：`--api-key-file` / `HA_API_KEY_FILE` → `HA_API_KEY` → 0600 凭据文件；禁止放入 argv/config.json
 - 初始化 ha-core 全部子系统（DB、IM 渠道、ACP、Cron）
 - 写 PID 文件到 `~/.hope-agent/server.pid`
 - 支持系统服务注册：

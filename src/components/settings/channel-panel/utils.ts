@@ -21,7 +21,32 @@ export function formatUptime(secs: number): string {
   return `${Math.floor(secs / 86400)}d ${Math.floor((secs % 86400) / 3600)}h`
 }
 
-export function getWeChatConnectionFromAccount(account: ChannelAccountConfig | null): WeChatConnection | null {
+export function readTelegramApiRoot(settings: unknown): string {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return ""
+  const value = (settings as Record<string, unknown>).apiRoot
+  return typeof value === "string" ? value.trim() : ""
+}
+
+/** Return a fresh settings object with a normalized Telegram API root.
+ * Empty input removes the key so absence remains the canonical representation
+ * of the official Telegram endpoint. */
+export function withTelegramApiRoot(settings: unknown, apiRoot: string): Record<string, unknown> {
+  const next =
+    settings && typeof settings === "object" && !Array.isArray(settings)
+      ? { ...(settings as Record<string, unknown>) }
+      : {}
+  const normalized = apiRoot.trim()
+  if (normalized) {
+    next.apiRoot = normalized
+  } else {
+    delete next.apiRoot
+  }
+  return next
+}
+
+export function getWeChatConnectionFromAccount(
+  account: ChannelAccountConfig | null,
+): WeChatConnection | null {
   if (!account || account.channelId !== "wechat") return null
 
   const credentials = account.credentials as Record<string, string | undefined>

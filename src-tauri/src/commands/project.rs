@@ -67,12 +67,19 @@ pub async fn get_project_cmd(
 pub async fn create_project_cmd(
     input: CreateProjectInput,
     instructions: Option<ProjectInstructionsDraft>,
+    create_instructions_if_missing: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<Project, CmdError> {
     let instructions_changed = instructions.is_some();
+    let create_instructions_if_missing = create_instructions_if_missing.unwrap_or(true);
     let project_db = state.project_db.clone();
     let project = ha_core::blocking::run_blocking(move || {
-        create_project_with_instructions_file(input, instructions, &project_db)
+        create_project_with_instructions_file(
+            input,
+            instructions,
+            create_instructions_if_missing,
+            &project_db,
+        )
     })
     .await?;
 
@@ -141,7 +148,7 @@ pub async fn inspect_project_instructions_cmd(
     .map_err(Into::into)
 }
 
-/// Read `<project-root>/AGENTS.md`, creating an empty file when missing.
+/// Inspect `<project-root>/AGENTS.md` without creating a missing file.
 #[tauri::command]
 pub async fn get_project_instructions_cmd(
     id: String,
@@ -159,12 +166,20 @@ pub async fn save_project_instructions_cmd(
     id: String,
     content: String,
     expected_file_hash: String,
+    expected_exists: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<ProjectInstructionsFile, CmdError> {
     let event_id = id.clone();
+    let expected_exists = expected_exists.unwrap_or(true);
     let project_db = state.project_db.clone();
     let file = ha_core::blocking::run_blocking(move || {
-        save_project_instructions(&id, &content, &expected_file_hash, &project_db)
+        save_project_instructions(
+            &id,
+            &content,
+            &expected_file_hash,
+            expected_exists,
+            &project_db,
+        )
     })
     .await?;
 

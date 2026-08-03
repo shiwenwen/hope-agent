@@ -17,6 +17,7 @@ import {
   agentOperationErrorToast,
   type AgentLoadOperationErrorToast,
 } from "./agentLoadOperationFeedback"
+import { createDefaultAgentModelConfig, createDefaultSubagentConfig } from "./agentTabDefaults"
 
 // ── Agent Create View ───────────────────────────────────────────
 
@@ -47,7 +48,7 @@ function AgentCreateView({
         description: null,
         emoji: null,
         avatar: null,
-        model: { primary: null, fallbacks: [] },
+        model: createDefaultAgentModelConfig(),
         personality: { ...DEFAULT_PERSONALITY },
         capabilities: {
           maxToolRounds: 0,
@@ -57,13 +58,7 @@ function AgentCreateView({
           skills: { allow: [], deny: [] },
         },
         openclawMode: false,
-        subagents: {
-          allowedAgents: [],
-          deniedAgents: [],
-          maxConcurrent: 8,
-          defaultTimeoutSecs: 0,
-          model: null,
-        },
+        subagents: createDefaultSubagentConfig(),
       }
       await getTransport().call("save_agent_config_cmd", { id: trimmedId, config, create: true })
       window.dispatchEvent(new Event("agents-changed"))
