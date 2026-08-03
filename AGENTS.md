@@ -139,6 +139,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 详见 [chat-engine](docs/architecture/chat-engine.md)；未读口径见 [session](docs/architecture/session.md)。
 
 - **未读单一来源**：普通未读计**会话数**，资格只走 `regular_session_scope_sql` / `regular_unread_exists_sql`，禁止分页求和；Regular / Cron / IM 三域互不清除，新专属对话空间须用独立 `SessionKind`
+- **Bundled HTTP UI 只作观察者**：非 incognito 主对话由服务端持有执行；页面、WebSocket 或反向代理断开不得取消 turn，前端须以 durable `turnId` 重连终态；会话删除导致 turn 404 时须终止本地等待并释放轮询 / 订阅
 - **API-Round 分组**：新 Provider adapter 须经 `push_and_stamp` 标 `_oc_round`（否则压缩切割拆散 tool_use / tool_result 配对），请求体构建前统一 `prepare_messages_for_api()` 剥离元数据
 - **前台 idle guard 单一入口**：`run_chat_engine` 按 `ChatSource::holds_foreground_idle_guard()` 统一建 `ChatSessionGuard`（ACP 自建），新增对话入口不得手搓 per-shell guard
 

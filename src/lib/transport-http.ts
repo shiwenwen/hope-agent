@@ -2072,6 +2072,16 @@ interface CachedPreviewTicket {
 // HttpTransport
 // ---------------------------------------------------------------------------
 
+class HttpTransportResponseError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = "HttpTransportResponseError"
+    this.status = status
+  }
+}
+
 export class HttpTransport implements Transport {
   private readonly baseUrl: string
   private apiKey: string | null
@@ -2502,7 +2512,10 @@ export class HttpTransport implements Transport {
     if (!response.ok) {
       const text = await response.text().catch(() => "")
       this.handleAuthFailure(response.status, auth.revision)
-      throw new Error(`[HttpTransport] ${def.method} ${url} returned ${response.status}: ${text}`)
+      throw new HttpTransportResponseError(
+        response.status,
+        `[HttpTransport] ${def.method} ${url} returned ${response.status}: ${text}`,
+      )
     }
 
     // Some endpoints return no body (204, or empty 200).
@@ -2681,7 +2694,13 @@ export class HttpTransport implements Transport {
               persistenceStatus: "recovered",
             })
           }
-        } catch {
+        } catch (error) {
+          if (error instanceof HttpTransportResponseError && error.status === 404) {
+            settled = true
+            cleanup()
+            reject(new Error(`Chat turn ${turnId} no longer exists; its session may be deleted`))
+            return
+          }
           // A temporary HTTP/auth/server outage must not convert observation
           // loss into task cancellation. Reconnect events and the bounded poll
           // below retry until the durable turn reaches a terminal state.

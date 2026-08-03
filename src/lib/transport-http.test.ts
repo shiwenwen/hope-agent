@@ -729,6 +729,50 @@ test("HttpTransport.startChat reconciles a terminal turn whose end event raced t
   unsubscribe()
 })
 
+test("HttpTransport.startChat settles a detached wait when its session was deleted", async () => {
+  vi.useFakeTimers()
+
+  class MockWebSocket {
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+
+    close() {
+      this.readyState = 3
+      this.onclose?.()
+    }
+  }
+
+  vi.stubGlobal("WebSocket", MockWebSocket)
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          sessionId: "session-deleted",
+          response: "",
+          turnId: "turn-deleted",
+          accepted: true,
+        }),
+        { status: 202, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(new Response("chat turn not found", { status: 404 }))
+
+  const transport = new HttpTransport("http://localhost:8420")
+  await expect(
+    transport.startChat(
+      { message: "hello", attachments: [], sessionId: "session-deleted" },
+      () => undefined,
+    ),
+  ).rejects.toThrow("Chat turn turn-deleted no longer exists")
+
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
 test.each(["knowledge_chat", "pet_chat"] as const)(
   "HttpTransport carries the %s product surface through the bundled UI endpoint",
   async (uiSurface) => {
