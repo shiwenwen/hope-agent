@@ -924,13 +924,17 @@ impl SessionDB {
             if let Some(worktree_id) = run.worktree_id.as_deref() {
                 let _ = self.mark_managed_worktree_bootstrap_failed(worktree_id);
             }
-            let _ = self.update_project_bootstrap_stage(
+            if let Err(update_error) = self.update_project_bootstrap_stage(
                 id,
                 "failed",
                 "failed",
                 run.worktree_id.as_deref(),
                 Some(("worktree_cleanup_failed", message.as_str())),
-            );
+            ) {
+                return Err(anyhow!(
+                    "{message}; failed to persist bootstrap failure: {update_error:#}"
+                ));
+            }
             emit_progress(
                 id,
                 "failed",
@@ -1136,6 +1140,68 @@ mod tests {
         assert_eq!(run.stage, "cancelled");
         assert_eq!(run.error_code.as_deref(), Some("cancelled"));
         assert!(run.completed_at.is_some());
+    }
+
+    #[test]
+    fn cleanup_failure_is_not_emitted_when_terminal_write_fails() {
+        let (_dir, db) = test_db();
+        let bus = crate::globals::EVENT_BUS
+            .get_or_init(|| {
+                let bus: Arc<dyn crate::event_bus::EventBus> =
+                    Arc::new(crate::event_bus::BroadcastEventBus::new(256));
+                bus
+            })
+            .clone();
+        let mut events = bus.subscribe();
+
+        insert_run(&db, "request-terminal-write-fails", "ready");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE project_bootstrap_runs SET worktree_id = 'invalid-id' WHERE id = ?1",
+                params!["request-terminal-write-fails"],
+            )
+            .unwrap();
+            conn.execute_batch(
+                "CREATE TRIGGER reject_bootstrap_failed_update
+                 BEFORE UPDATE OF status ON project_bootstrap_runs
+                 WHEN NEW.id = 'request-terminal-write-fails' AND NEW.status = 'failed'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'forced bootstrap status write failure');
+                 END;",
+            )
+            .unwrap();
+        }
+
+        let error = db
+            .rollback_project_bootstrap_after_chat_cancel("request-terminal-write-fails")
+            .expect_err("cleanup and terminal write must fail");
+        assert!(
+            format!("{error:#}").contains("failed to persist bootstrap failure"),
+            "unexpected error: {error:#}"
+        );
+        assert_eq!(
+            db.get_project_bootstrap_run("request-terminal-write-fails")
+                .unwrap()
+                .unwrap()
+                .status,
+            "ready"
+        );
+
+        while let Ok(event) = events.try_recv() {
+            assert!(
+                event.name != "project:bootstrap_progress"
+                    || event
+                        .payload
+                        .get("requestId")
+                        .and_then(|value| value.as_str())
+                        != Some("request-terminal-write-fails")
+                    || event.payload.get("status").and_then(|value| value.as_str())
+                        != Some("failed"),
+                "failed progress must not be emitted before its durable write: {:?}",
+                event.payload
+            );
+        }
     }
 
     #[test]
