@@ -1461,6 +1461,22 @@ pub async fn stop_chat(
         );
         return Ok(());
     }
+    if matches!(
+        request_cancel.as_ref(),
+        Some(crate::chat_engine::active_turn::ClientRequestCancelOutcome::Latched)
+    ) {
+        // The request-scoped latch is the complete Stop result until this
+        // opaque request registers. Do not reinterpret its optional session
+        // ownership constraint as a session-wide Stop and cancel another turn.
+        app_info!(
+            "chat",
+            "stop_chat",
+            "Latched pre-registration Stop for client request {:?} session {:?}",
+            client_request_id,
+            session_id
+        );
+        return Ok(());
+    }
     let request_target = request_cancel.as_ref().and_then(|outcome| match outcome {
         crate::chat_engine::active_turn::ClientRequestCancelOutcome::Active(active) => {
             Some(active.clone())
@@ -1476,10 +1492,7 @@ pub async fn stop_chat(
     if let Some(sid) = target_session_id.as_deref() {
         let already_signalled = matches!(
             request_cancel,
-            Some(
-                crate::chat_engine::active_turn::ClientRequestCancelOutcome::Active(_)
-                    | crate::chat_engine::active_turn::ClientRequestCancelOutcome::Latched
-            )
+            Some(crate::chat_engine::active_turn::ClientRequestCancelOutcome::Active(_))
         );
         let outcome = crate::chat_engine::stop::stop_session(
             state.session_db.clone(),

@@ -746,6 +746,30 @@ mod tests {
     }
 
     #[test]
+    fn latched_request_stop_does_not_signal_another_turn_in_the_session() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-request-latch-isolation";
+        let active_cancel = Arc::new(AtomicBool::new(false));
+        let _active_guard = try_acquire_with_client_request_id(
+            sid,
+            ChatSource::Http,
+            "turn-a".to_string(),
+            Some("request-a".to_string()),
+            Arc::clone(&active_cancel),
+        )
+        .expect("active request A");
+
+        assert!(matches!(
+            cancel_or_latch_client_request("request-b", Some(sid)),
+            ClientRequestCancelOutcome::Latched
+        ));
+        assert!(
+            !active_cancel.load(std::sync::atomic::Ordering::SeqCst),
+            "request B's latch must not become a session-wide signal for request A"
+        );
+    }
+
+    #[test]
     fn request_stop_for_known_session_does_not_cancel_another_session() {
         let _lock = test_lock();
         let expected_sid = "test-active-turn-request-expected-session";

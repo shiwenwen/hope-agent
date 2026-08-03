@@ -1719,6 +1719,22 @@ pub async fn stop_chat(
             "runtimeCancellationError": Value::Null,
         })));
     }
+    if matches!(
+        request_cancel.as_ref(),
+        Some(ha_core::chat_engine::active_turn::ClientRequestCancelOutcome::Latched)
+    ) {
+        // The opaque request is not registered yet. Its Stop is now
+        // authoritatively represented by the in-memory request latch; a session id supplied
+        // by the caller is only an ownership constraint, not permission to
+        // cancel a different active turn in that session.
+        return Ok(Json(json!({
+            "stopped": true,
+            "scope": "request",
+            "reason": Value::Null,
+            "runtimeCancellations": [],
+            "runtimeCancellationError": Value::Null,
+        })));
+    }
     let request_target = request_cancel.as_ref().and_then(|outcome| match outcome {
         ha_core::chat_engine::active_turn::ClientRequestCancelOutcome::Active(active) => {
             Some(active.clone())
@@ -1727,10 +1743,7 @@ pub async fn stop_chat(
     });
     let mut already_signalled = matches!(
         request_cancel,
-        Some(
-            ha_core::chat_engine::active_turn::ClientRequestCancelOutcome::Active(_)
-                | ha_core::chat_engine::active_turn::ClientRequestCancelOutcome::Latched
-        )
+        Some(ha_core::chat_engine::active_turn::ClientRequestCancelOutcome::Active(_))
     );
     let (target_session_id, target_turn_id) =
         ha_core::chat_engine::active_turn::resolve_stop_target(
