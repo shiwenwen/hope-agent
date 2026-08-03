@@ -703,6 +703,16 @@ pub async fn chat(
         ) {
             Ok(guard) => guard,
             Err(error) => {
+                // The lazy Session/bootstrap already exists by this point.
+                // Install its cleanup gate before the first await so a global
+                // Stop admission failure cannot leak unpublished state or let
+                // a replacement turn race the rollback.
+                let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
+                    db.clone(),
+                    sid.clone(),
+                    bootstrap_request_id.clone(),
+                    new_session_created.is_some(),
+                );
                 if let Some(request_id) = queued_request_id.as_ref() {
                     let sid_for_release = sid.clone();
                     let request_id_for_release = request_id.clone();
@@ -716,6 +726,9 @@ pub async fn chat(
                             )
                         })
                         .await;
+                }
+                if let Some(cleanup) = cleanup {
+                    cleanup.spawn();
                 }
                 return Err(error.into());
             }
@@ -762,10 +775,12 @@ pub async fn chat(
         // This turn has no chat_turn row yet, so the ordinary Stop watchdog
         // cannot release it. Publish the terminal state and release the exact
         // active-turn entry before any Git/SQLite cleanup that may block.
-        let needs_background_cleanup =
-            bootstrap_request_id.is_some() || new_session_created.is_some();
-        let cleanup_gate = needs_background_cleanup
-            .then(|| ha_core::chat_engine::active_turn::begin_stop_cleanup(&sid));
+        let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
+            db.clone(),
+            sid.clone(),
+            bootstrap_request_id.clone(),
+            new_session_created.is_some(),
+        );
         broadcast_turn_end(
             &sid,
             &turn_id,
@@ -775,53 +790,8 @@ pub async fn chat(
         );
         ha_core::chat_engine::active_turn::force_release(&sid, &turn_id);
 
-        if needs_background_cleanup {
-            let cleanup_db = db.clone();
-            let cleanup_sid = sid.clone();
-            let cleanup_request_id = bootstrap_request_id.clone();
-            let delete_empty_session = new_session_created.is_some();
-            tokio::spawn(async move {
-                let bootstrap_rollback_succeeded = if let Some(request_id) = cleanup_request_id {
-                    match cleanup_db
-                        .clone()
-                        .run(move |db| db.rollback_project_bootstrap_after_chat_cancel(&request_id))
-                        .await
-                    {
-                        Ok(()) => true,
-                        Err(error) => {
-                            // Preserve the Session + managed-worktree row
-                            // when Git-aware cleanup fails; startup recovery
-                            // can retry it without orphaning the worktree.
-                            app_warn!(
-                                "project",
-                                "bootstrap_cancel_rollback",
-                                "Failed to roll back project bootstrap for stopped chat {}: {}",
-                                cleanup_sid,
-                                error
-                            );
-                            false
-                        }
-                    }
-                } else {
-                    true
-                };
-                if delete_empty_session && bootstrap_rollback_succeeded {
-                    let sid_for_delete = cleanup_sid.clone();
-                    if let Err(error) = cleanup_db
-                        .run(move |db| db.delete_session(&sid_for_delete))
-                        .await
-                    {
-                        app_warn!(
-                            "chat",
-                            "preflight_cancel_cleanup",
-                            "Failed to delete empty stopped session {}: {}",
-                            cleanup_sid,
-                            error
-                        );
-                    }
-                }
-                drop(cleanup_gate);
-            });
+        if let Some(cleanup) = cleanup {
+            cleanup.spawn();
         }
         return Err(CmdError::msg(format!(
             "{}: chat stopped before prompt submission completed",

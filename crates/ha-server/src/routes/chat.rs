@@ -927,6 +927,16 @@ async fn chat_inner(
         ) {
             Ok(guard) => guard,
             Err(error) => {
+                // Session creation and bootstrap claiming precede active-turn
+                // admission. Hold a session cleanup gate before awaiting any
+                // queue release so a global Stop rejection cannot leak this
+                // unpublished lazy Session or its managed worktree.
+                let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
+                    db.clone(),
+                    sid.clone(),
+                    bootstrap_request_id.clone(),
+                    new_session_created,
+                );
                 if let Some(request_id) = queued_request_id.as_ref() {
                     let sid_for_release = sid.clone();
                     let request_id_for_release = request_id.clone();
@@ -940,6 +950,9 @@ async fn chat_inner(
                             )
                         })
                         .await;
+                }
+                if let Some(cleanup) = cleanup {
+                    cleanup.spawn();
                 }
                 return Err(AppError::conflict_with_code(
                     ha_core::chat_engine::stream_seq::ACTIVE_STREAM_ERROR_CODE,
@@ -981,9 +994,12 @@ async fn chat_inner(
         }
         // There is no chat_turn row yet, so terminate the transport-visible
         // lifecycle and release the exact guard before Git-aware cleanup.
-        let needs_background_cleanup = bootstrap_request_id.is_some() || new_session_created;
-        let cleanup_gate = needs_background_cleanup
-            .then(|| ha_core::chat_engine::active_turn::begin_stop_cleanup(&sid));
+        let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
+            db.clone(),
+            sid.clone(),
+            bootstrap_request_id.clone(),
+            new_session_created,
+        );
         ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
             &sid,
             None,
@@ -994,49 +1010,8 @@ async fn chat_inner(
         );
         ha_core::chat_engine::active_turn::force_release(&sid, &turn_id);
 
-        if needs_background_cleanup {
-            let cleanup_db = db.clone();
-            let cleanup_sid = sid.clone();
-            let cleanup_request_id = bootstrap_request_id.clone();
-            tokio::spawn(async move {
-                let bootstrap_rollback_succeeded = if let Some(request_id) = cleanup_request_id {
-                    match cleanup_db
-                        .clone()
-                        .run(move |db| db.rollback_project_bootstrap_after_chat_cancel(&request_id))
-                        .await
-                    {
-                        Ok(()) => true,
-                        Err(error) => {
-                            ha_core::app_warn!(
-                                "project",
-                                "bootstrap_cancel_rollback",
-                                "Failed to roll back project bootstrap for stopped chat {}: {}",
-                                cleanup_sid,
-                                error
-                            );
-                            false
-                        }
-                    }
-                } else {
-                    true
-                };
-                if new_session_created && bootstrap_rollback_succeeded {
-                    let sid_for_delete = cleanup_sid.clone();
-                    if let Err(error) = cleanup_db
-                        .run(move |db| db.delete_session(&sid_for_delete))
-                        .await
-                    {
-                        ha_core::app_warn!(
-                            "chat",
-                            "preflight_cancel_cleanup",
-                            "Failed to delete empty stopped session {}: {}",
-                            cleanup_sid,
-                            error
-                        );
-                    }
-                }
-                drop(cleanup_gate);
-            });
+        if let Some(cleanup) = cleanup {
+            cleanup.spawn();
         }
         return Err(AppError::conflict_with_code(
             ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE,

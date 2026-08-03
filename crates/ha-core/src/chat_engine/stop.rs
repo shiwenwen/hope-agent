@@ -38,6 +38,105 @@ pub struct StopAllOutcome {
     pub runtime_cancellation_error: Option<String>,
 }
 
+/// Cleanup owned state for a prompt that was cancelled before a durable chat
+/// turn existed. Construction installs the session cleanup gate immediately;
+/// callers may then publish/release any transport-visible lifecycle before
+/// spawning the potentially blocking Git/SQLite work.
+pub struct PreTurnCancelCleanup {
+    db: Arc<SessionDB>,
+    session_id: String,
+    bootstrap_request_id: Option<String>,
+    delete_empty_session: bool,
+    cleanup_gate: super::active_turn::StopCleanupGuard,
+}
+
+impl PreTurnCancelCleanup {
+    pub fn begin(
+        db: Arc<SessionDB>,
+        session_id: String,
+        bootstrap_request_id: Option<String>,
+        delete_empty_session: bool,
+    ) -> Option<Self> {
+        if bootstrap_request_id.is_none() && !delete_empty_session {
+            return None;
+        }
+        let cleanup_gate = super::active_turn::begin_stop_cleanup(&session_id);
+        Some(Self {
+            db,
+            session_id,
+            bootstrap_request_id,
+            delete_empty_session,
+            cleanup_gate,
+        })
+    }
+
+    pub fn spawn(self) {
+        tokio::spawn(self.run());
+    }
+
+    async fn run(self) {
+        let Self {
+            db,
+            session_id,
+            bootstrap_request_id,
+            delete_empty_session,
+            cleanup_gate,
+        } = self;
+        let had_bootstrap = bootstrap_request_id.is_some();
+        let bootstrap_rollback_succeeded = if let Some(request_id) = bootstrap_request_id {
+            match db
+                .clone()
+                .run(move |db| db.rollback_project_bootstrap_after_chat_cancel(&request_id))
+                .await
+            {
+                Ok(()) => true,
+                Err(error) => {
+                    // Preserve the Session + managed-worktree row when
+                    // Git-aware cleanup fails; startup recovery can retry it
+                    // without orphaning the physical worktree.
+                    crate::app_warn!(
+                        "project",
+                        "bootstrap_cancel_rollback",
+                        "Failed to roll back project bootstrap for stopped chat {}: {}",
+                        session_id,
+                        error
+                    );
+                    false
+                }
+            }
+        } else {
+            true
+        };
+        let mut session_deleted = false;
+        if delete_empty_session && bootstrap_rollback_succeeded {
+            let sid_for_delete = session_id.clone();
+            match db.run(move |db| db.delete_session(&sid_for_delete)).await {
+                Ok(()) => session_deleted = true,
+                Err(error) => {
+                    crate::app_warn!(
+                        "chat",
+                        "pre_turn_cancel_cleanup",
+                        "Failed to delete empty stopped session {}: {}",
+                        session_id,
+                        error
+                    );
+                }
+            }
+        }
+        crate::app_info!(
+            "chat",
+            "pre_turn_cancel_cleanup",
+            "Pre-turn Stop cleanup settled: session={} bootstrap={} bootstrap_rollback_succeeded={} delete_requested={} session_deleted={}",
+            session_id,
+            had_bootstrap,
+            bootstrap_rollback_succeeded,
+            delete_empty_session,
+            session_deleted
+        );
+        drop(cleanup_gate);
+    }
+}
+
 async fn timeout_count(operation: &'static str, future: impl Future<Output = usize>) -> usize {
     // Time the operation itself rather than a detached JoinHandle. Both
     // interaction cleanup functions drain their exact entries before their
@@ -473,5 +572,45 @@ mod tests {
         assert!(outcome.stopped);
         assert!(!outcome.turn_mismatch);
         assert!(cancel.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn pre_turn_cancel_cleanup_deletes_lazy_session_and_releases_gate() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("pre-turn-cleanup.db"))
+                .expect("session db"),
+        );
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .expect("channel schema");
+        let session = db.create_session("ha-main").expect("session");
+        let cleanup = PreTurnCancelCleanup::begin(db.clone(), session.id.clone(), None, true)
+            .expect("new lazy sessions require cleanup");
+
+        assert!(crate::chat_engine::active_turn::try_acquire(
+            &session.id,
+            crate::chat_engine::ChatSource::Desktop,
+            "blocked-during-cleanup".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .is_err());
+
+        cleanup.run().await;
+
+        let sid = session.id.clone();
+        assert!(db
+            .clone()
+            .run(move |db| db.get_session(&sid))
+            .await
+            .expect("read session")
+            .is_none());
+        let _guard = crate::chat_engine::active_turn::try_acquire(
+            &session.id,
+            crate::chat_engine::ChatSource::Desktop,
+            "after-cleanup".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("cleanup gate must be released");
     }
 }

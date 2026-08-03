@@ -11,6 +11,22 @@ export function isChatPreparationCancelled(error: unknown): boolean {
   return error instanceof ChatPreparationCancelledError
 }
 
+/**
+ * Linearize local Stop against publishing the backend request. JavaScript
+ * executes the membership check and marker write in one synchronous turn, so
+ * Stop either wins here or observes backend ownership and calls `stop_chat`.
+ */
+export function beginChatBackendHandoff(
+  requestId: string,
+  stoppedRequestIds: ReadonlySet<string>,
+  backendStartedRequestIds: Set<string>,
+): void {
+  if (stoppedRequestIds.has(requestId)) {
+    throw new ChatPreparationCancelledError()
+  }
+  backendStartedRequestIds.add(requestId)
+}
+
 export function awaitUnlessAborted<T>(
   promise: Promise<T>,
   signal?: AbortSignal,

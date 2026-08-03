@@ -70,6 +70,7 @@ import {
 } from "../autoSendPendingPreference"
 import {
   awaitUnlessAborted,
+  beginChatBackendHandoff,
   ChatPreparationCancelledError,
   isChatPreparationCancelled,
   loadingStateAfterPreparationRelease,
@@ -1919,7 +1920,14 @@ export function useChatStream({
 
       const modelOverride = modelOverrideFromManualSelection(manualModelOverrideRef?.current)
       const effectivePlanMode = options?.planMode ?? planMode
-      backendStartedRequestIdsRef.current.add(chatRequestOwnerId)
+      // This synchronous check+mark is the handoff linearization point. Stop
+      // either cancelled the local request already, or it will observe backend
+      // ownership and send `stop_chat` (which can latch before turn_started).
+      beginChatBackendHandoff(
+        chatRequestOwnerId,
+        userStoppedRequestIdsRef.current,
+        backendStartedRequestIdsRef.current,
+      )
       await sendTransport.startChat(
         {
           message: text,
@@ -2002,7 +2010,12 @@ export function useChatStream({
       const requestWasUserStopped = userStoppedRequestIdsRef.current.has(chatRequestOwnerId)
       const bootstrapFailedBeforeSession =
         !sendSessionId && sid === "__pending__" && !!draftProjectBootstrap
-      if (requestWasUserStopped && isPreflightStopError(e)) {
+      if (
+        requestWasUserStopped &&
+        (isPreflightStopError(e) ||
+          isChatPreparationCancelled(e) ||
+          isActiveStreamError(e))
+      ) {
         updateSessionMessages(sid, (prev) =>
           prev.filter(
             (message) =>
