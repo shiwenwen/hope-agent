@@ -8,18 +8,25 @@ use anyhow::Result;
 use bollard::models::{ContainerCreateBody, HostConfig};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, LogsOptions, RemoveContainerOptions,
-    WaitContainerOptions,
+    UploadToContainerOptions, WaitContainerOptions,
 };
 use bollard::Docker;
 use futures_util::StreamExt;
-use ha_core::sandbox::{host_os, DockerBackend, DockerStatus, SandboxConfig, SandboxResult};
+use ha_core::sandbox::{
+    classify_docker_connection_error, host_os, DockerBackend, DockerConnectionErrorKind,
+    DockerStatus, SandboxConfig, SandboxResult,
+};
+use ha_core::truncate_utf8;
 use ignore::WalkBuilder;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
+use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
 
 const ISOLATED_COPY_MAX_BYTES: u64 = 512 * 1024 * 1024;
@@ -999,6 +1006,14 @@ pub async fn exec_in_sandbox_mode(
     cancellation_token: Option<CancellationToken>,
     mode: ha_core::permission::SandboxMode,
 ) -> Result<SandboxResult> {
+    if ha_core::sandbox::deployment_is_docker()
+        && !ha_core::sandbox::container_sandbox_mode_supported(mode)
+    {
+        anyhow::bail!(
+            "SandboxUnavailable: container deployments currently support only isolated sandbox mode; '{}' requires a host bind mount and is rejected to prevent container-path/host-path confusion",
+            mode.as_str()
+        );
+    }
     if mode != ha_core::permission::SandboxMode::Isolated {
         return exec_in_sandbox(command, cwd, env, config, timeout_secs, cancellation_token).await;
     }
@@ -1011,6 +1026,11 @@ pub async fn exec_in_sandbox_mode(
         )
     })?;
     validate_bind_mount(&source)?;
+    if ha_core::sandbox::deployment_is_docker() {
+        ha_core::sandbox::validate_container_isolated_source(&source)?;
+    }
+    let preparation_deadline =
+        (timeout_secs > 0).then(|| Instant::now() + Duration::from_secs(timeout_secs));
     let temp = tempfile::Builder::new()
         .prefix("hope-agent-sandbox-isolated-")
         .tempdir()
@@ -1018,7 +1038,7 @@ pub async fn exec_in_sandbox_mode(
     prepare_isolated_workspace(
         source.clone(),
         temp.path().to_path_buf(),
-        timeout_secs,
+        preparation_deadline,
         cancellation_token.clone(),
     )
     .await
@@ -1030,6 +1050,30 @@ pub async fn exec_in_sandbox_mode(
         )
     })?;
     let isolated_cwd = temp.path().to_string_lossy().to_string();
+    if ha_core::sandbox::deployment_is_docker() {
+        let archive_path = tempfile::Builder::new()
+            .prefix("hope-agent-sandbox-isolated-")
+            .suffix(".tar")
+            .tempfile()
+            .map_err(|e| anyhow::anyhow!("Failed to create isolated workspace archive: {e}"))?
+            .into_temp_path();
+        create_workspace_archive(
+            temp.path().to_path_buf(),
+            archive_path.to_path_buf(),
+            preparation_deadline,
+            cancellation_token.clone(),
+        )
+        .await?;
+        return exec_in_native_docker_archive(
+            command,
+            archive_path.as_ref(),
+            env,
+            config,
+            timeout_secs,
+            cancellation_token,
+        )
+        .await;
+    }
     exec_in_sandbox(
         command,
         &isolated_cwd,
@@ -1044,13 +1088,13 @@ pub async fn exec_in_sandbox_mode(
 async fn prepare_isolated_workspace(
     source: PathBuf,
     destination: PathBuf,
-    timeout_secs: u64,
+    deadline: Option<Instant>,
     cancellation_token: Option<CancellationToken>,
 ) -> Result<()> {
     let limits = IsolatedCopyLimits {
         max_bytes: ISOLATED_COPY_MAX_BYTES,
         max_entries: ISOLATED_COPY_MAX_ENTRIES,
-        deadline: (timeout_secs > 0).then(|| Instant::now() + Duration::from_secs(timeout_secs)),
+        deadline,
         cancellation_token,
     };
 
@@ -1530,20 +1574,24 @@ async fn cleanup_container(docker: &Docker, container_id: &str) -> Result<()> {
 }
 
 pub async fn check_sandbox_available() -> DockerStatus {
-    let (native_cli_installed, native_daemon_running) =
-        tokio::join!(native_docker_cli_installed(), check_docker_available());
+    let (native_cli_installed, native) =
+        tokio::join!(native_docker_cli_installed(), native_docker_probe());
     // Do not wake a stopped WSL VM merely to enrich status when the preferred
     // native backend is already healthy. WSL probing is the Windows fallback.
-    let wsl = if native_daemon_running {
+    let wsl = if native.daemon_running {
         None
     } else {
         Some(wsl_docker_probe().await)
     };
-    let backend = if native_daemon_running {
+    let backend = if native.daemon_running {
         Some(DockerBackend::Native)
     } else if wsl.as_ref().is_some_and(|probe| probe.daemon_running) {
         Some(DockerBackend::Wsl)
-    } else if native_cli_installed {
+    } else if native_cli_installed
+        || native
+            .connection_error
+            .is_some_and(|kind| !matches!(kind, DockerConnectionErrorKind::SocketMissing))
+    {
         Some(DockerBackend::Native)
     } else if wsl.as_ref().is_some_and(|probe| probe.docker_installed) {
         Some(DockerBackend::Wsl)
@@ -1552,18 +1600,24 @@ pub async fn check_sandbox_available() -> DockerStatus {
     };
     let wsl_daemon_running = wsl.as_ref().is_some_and(|probe| probe.daemon_running);
     let wsl_docker_installed = wsl.as_ref().is_some_and(|probe| probe.docker_installed);
+    let running = native.daemon_running || wsl_daemon_running;
+    let native_detected = native.daemon_running
+        || native
+            .connection_error
+            .is_some_and(|kind| !matches!(kind, DockerConnectionErrorKind::SocketMissing));
+    let containerized = ha_core::sandbox::deployment_is_docker();
 
     DockerStatus {
-        installed: native_cli_installed || native_daemon_running || wsl_docker_installed,
-        running: native_daemon_running || wsl_daemon_running,
+        installed: native_cli_installed || native_detected || wsl_docker_installed,
+        running,
         host_os: host_os().to_string(),
         backend,
         wsl_installed: wsl.as_ref().map(|probe| probe.wsl_installed),
         wsl_distribution_installed: wsl.as_ref().map(|probe| probe.distribution_installed),
         wsl_docker_installed: wsl.as_ref().map(|probe| probe.docker_installed),
-        connection_error: None,
-        containerized: false,
-        isolated_mode_only: false,
+        connection_error: (!running).then_some(native.connection_error).flatten(),
+        containerized,
+        isolated_mode_only: containerized,
     }
 }
 
@@ -1674,4 +1728,515 @@ mod wsl_security_tests {
         assert!(validate_wsl_docker_socket_mount("/run/user/1001/project", socket_path).is_ok());
         assert!(validate_wsl_docker_socket_mount("/run", "/run/docker.sock").is_err());
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct NativeDockerProbe {
+    daemon_running: bool,
+    connection_error: Option<DockerConnectionErrorKind>,
+}
+
+async fn native_docker_probe() -> NativeDockerProbe {
+    let docker = match Docker::connect_with_local_defaults() {
+        Ok(docker) => docker,
+        Err(error) => {
+            return NativeDockerProbe {
+                daemon_running: false,
+                connection_error: Some(classify_docker_connection_error(&error)),
+            };
+        }
+    };
+    match docker.ping().await {
+        Ok(_) => NativeDockerProbe {
+            daemon_running: true,
+            connection_error: None,
+        },
+        Err(error) => NativeDockerProbe {
+            daemon_running: false,
+            connection_error: Some(classify_docker_connection_error(&error)),
+        },
+    }
+}
+
+/// `Bind` 变体当前无构造点：ha-vcs 现有的 `exec_in_native_docker` 是拆分前
+/// 就有的旧实现，尚未走「构造 Bind → 统一 exec_in_native_docker_with_workspace」
+/// 这条 main 8e7227f32 引入的重构路径。留 `Bind` 是为了让 `_with_workspace` /
+/// `upload_workspace_archive` 的分派仍是双 arm（isolated 与非 isolated 一致的
+/// 接口），下一刀把老 `exec_in_native_docker` 收编时会自然用到。
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+enum NativeWorkspaceSource<'a> {
+    Bind(&'a Path),
+    Archive(&'a Path),
+}
+
+async fn upload_workspace_archive(
+    docker: &Docker,
+    container_id: &str,
+    archive_path: &Path,
+    timeout_secs: u64,
+    cancellation_token: Option<&CancellationToken>,
+) -> Result<()> {
+    let file = tokio::fs::File::open(archive_path)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to open isolated workspace archive: {e}"))?;
+    let upload = docker.upload_to_container(
+        container_id,
+        Some(UploadToContainerOptions {
+            path: "/workspace".to_string(),
+            no_overwrite_dir_non_dir: Some("true".to_string()),
+            copy_uidgid: Some("true".to_string()),
+        }),
+        bollard::body_try_stream(ReaderStream::new(file)),
+    );
+    tokio::pin!(upload);
+    let cancellation = async {
+        match cancellation_token {
+            Some(token) => token.cancelled().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::pin!(cancellation);
+    let timeout = async {
+        if timeout_secs == 0 {
+            std::future::pending::<()>().await;
+        } else {
+            tokio::time::sleep(Duration::from_secs(timeout_secs)).await;
+        }
+    };
+    tokio::pin!(timeout);
+
+    let result = tokio::select! {
+        result = &mut upload => result.map_err(|_| {
+            anyhow::anyhow!("Failed to upload isolated workspace through the Docker API")
+        }),
+        _ = &mut cancellation => Err(anyhow::anyhow!("Sandbox workspace upload cancelled")),
+        _ = &mut timeout => Err(anyhow::anyhow!(
+            "Sandbox workspace upload timed out after {}s",
+            timeout_secs
+        )),
+    };
+    if result.is_ok() {
+        app_info!(
+            "sandbox",
+            "docker_archive",
+            "Uploaded isolated workspace to anonymous volume for container {}",
+            truncate_utf8(container_id, 12)
+        );
+    }
+    result
+}
+
+async fn exec_in_native_docker_with_workspace(
+    command: &str,
+    env: Option<&serde_json::Map<String, serde_json::Value>>,
+    config: &SandboxConfig,
+    timeout_secs: u64,
+    cancellation_token: Option<CancellationToken>,
+    workspace: NativeWorkspaceSource<'_>,
+) -> Result<SandboxResult> {
+    let docker = Docker::connect_with_local_defaults().map_err(|error| {
+        anyhow::anyhow!(
+            "Cannot connect to Docker ({:?}). Check the local Docker endpoint.",
+            classify_docker_connection_error(&error)
+        )
+    })?;
+
+    // Ensure image is available
+    ensure_image(&docker, &config.image).await?;
+
+    // Build environment variables (with sanitization)
+    let env_vec: Vec<String> = if let Some(env_map) = env {
+        sanitize_env(env_map)
+    } else {
+        Vec::new()
+    };
+
+    // Resolve current UID:GID to avoid permission issues on mounted volumes
+    let user = {
+        #[cfg(unix)]
+        {
+            format!("{}:{}", unsafe { libc::getuid() }, unsafe {
+                libc::getgid()
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            String::new()
+        }
+    };
+
+    let (binds, volumes) = match workspace {
+        NativeWorkspaceSource::Bind(host_cwd) => (
+            Some(vec![format!("{}:/workspace", host_cwd.display())]),
+            None,
+        ),
+        // The anonymous volume is populated through Docker's archive API and
+        // removed together with the container. It avoids interpreting a path
+        // from the parent container in the host daemon's namespace.
+        NativeWorkspaceSource::Archive(_) => (None, Some(vec!["/workspace".to_string()])),
+    };
+
+    // Build host config with resource limits and security hardening
+    let mut host_config = HostConfig {
+        binds,
+        // Security: read-only root filesystem
+        readonly_rootfs: Some(config.read_only),
+        // Security: network isolation
+        network_mode: Some(config.network_mode.clone()),
+        // Security: drop all capabilities
+        cap_drop: if config.cap_drop_all {
+            Some(vec!["ALL".to_string()])
+        } else {
+            None
+        },
+        // Security: prevent privilege escalation
+        security_opt: if config.no_new_privileges {
+            Some(vec!["no-new-privileges".to_string()])
+        } else {
+            None
+        },
+        // Security: PID limit
+        pids_limit: config.pids_limit,
+        // tmpfs mounts for writable temp dirs when root is read-only
+        tmpfs: if config.read_only && !config.tmpfs.is_empty() {
+            let mut map = HashMap::new();
+            for entry in &config.tmpfs {
+                let parts: Vec<&str> = entry.splitn(2, ':').collect();
+                let mount_point = parts[0].to_string();
+                let options = parts.get(1).unwrap_or(&"").to_string();
+                map.insert(mount_point, options);
+            }
+            Some(map)
+        } else {
+            None
+        },
+        ..Default::default()
+    };
+    if let Some(mem) = config.memory_limit {
+        host_config.memory = Some(mem);
+    }
+    if let Some(cpus) = config.cpu_limit {
+        host_config.nano_cpus = Some((cpus * 1_000_000_000.0) as i64);
+    }
+
+    // Create container
+    let container_config = ContainerCreateBody {
+        image: Some(config.image.clone()),
+        cmd: Some(vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            command.to_string(),
+        ]),
+        working_dir: Some("/workspace".to_string()),
+        env: if env_vec.is_empty() {
+            None
+        } else {
+            Some(env_vec)
+        },
+        user: if user.is_empty() { None } else { Some(user) },
+        volumes,
+        host_config: Some(host_config),
+        attach_stdout: Some(true),
+        attach_stderr: Some(true),
+        ..Default::default()
+    };
+
+    let container_name = format!(
+        "hope-agent-sandbox-{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("tmp")
+    );
+
+    let container = docker
+        .create_container(
+            Some(CreateContainerOptions {
+                name: Some(container_name.clone()),
+                platform: String::new(),
+            }),
+            container_config,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to create container: {}", e))?;
+
+    let container_id = container.id.clone();
+
+    if let NativeWorkspaceSource::Archive(archive_path) = workspace {
+        if let Err(error) = upload_workspace_archive(
+            &docker,
+            &container_id,
+            archive_path,
+            timeout_secs,
+            cancellation_token.as_ref(),
+        )
+        .await
+        {
+            if let Err(cleanup_error) = cleanup_container(&docker, &container_id).await {
+                app_warn!(
+                    "sandbox",
+                    "docker",
+                    "Failed to cleanup container {} after workspace upload failure: {}",
+                    truncate_utf8(&container_id, 12),
+                    cleanup_error
+                );
+            }
+            return Err(error);
+        }
+    }
+
+    // Start container
+    if let Err(e) = docker.start_container(&container_id, None).await {
+        // Synchronously clean up the failed container before returning error
+        if let Err(cleanup_err) = cleanup_container(&docker, &container_id).await {
+            app_warn!(
+                "sandbox",
+                "docker",
+                "Failed to cleanup container {}: {}",
+                truncate_utf8(&container_id, 12),
+                cleanup_err
+            );
+        }
+        return Err(anyhow::anyhow!("Failed to start container: {}", e));
+    }
+
+    app_info!(
+        "sandbox",
+        "docker",
+        "Sandbox container started: {} (image: {}, read_only: {}, network: {}, cap_drop_all: {}, command: {})",
+        truncate_utf8(&container_id, 12),
+        config.image,
+        config.read_only,
+        config.network_mode,
+        config.cap_drop_all,
+        command
+    );
+
+    // Wait for container to finish. `timeout_secs = 0` disables the exec-level
+    // timeout and lets Docker wait until the container exits naturally.
+    let (exit_code, timed_out) = match wait_for_container_with_limits(
+        &docker,
+        &container_id,
+        timeout_secs,
+        cancellation_token,
+    )
+    .await
+    {
+        SandboxWaitOutcome::Exited(Ok(code)) => (code, false),
+        SandboxWaitOutcome::Exited(Err(e)) => {
+            app_warn!("sandbox", "docker", "Container wait error: {}", e);
+            stop_and_cleanup_container(&docker, &container_id).await;
+            return Err(anyhow::anyhow!("Container execution failed: {}", e));
+        }
+        SandboxWaitOutcome::TimedOut => {
+            app_warn!(
+                "sandbox",
+                "docker",
+                "Sandbox container timed out after {}s, killing...",
+                timeout_secs
+            );
+            let _ = docker.stop_container(&container_id, None).await;
+            (-1, true)
+        }
+        SandboxWaitOutcome::Cancelled => {
+            app_warn!(
+                "sandbox",
+                "docker",
+                "Sandbox container cancelled, killing {}...",
+                truncate_utf8(&container_id, 12)
+            );
+            let _ = docker.stop_container(&container_id, None).await;
+            stop_and_cleanup_container(&docker, &container_id).await;
+            return Err(anyhow::anyhow!("Sandbox execution cancelled"));
+        }
+    };
+
+    // Collect logs. A log-driver/API failure must not strand the container or
+    // the anonymous workspace volume used by containerized isolated mode.
+    let (stdout, stderr) = match collect_logs(&docker, &container_id).await {
+        Ok(logs) => logs,
+        Err(error) => {
+            if let Err(cleanup_error) = cleanup_container(&docker, &container_id).await {
+                app_warn!(
+                    "sandbox",
+                    "docker",
+                    "Failed to cleanup container {} after log collection failure: {}",
+                    truncate_utf8(&container_id, 12),
+                    cleanup_error
+                );
+            }
+            return Err(error);
+        }
+    };
+
+    // Cleanup container
+    if let Err(e) = cleanup_container(&docker, &container_id).await {
+        app_warn!(
+            "sandbox",
+            "docker",
+            "Failed to cleanup container {}: {}",
+            truncate_utf8(&container_id, 12),
+            e
+        );
+    }
+
+    Ok(SandboxResult {
+        stdout,
+        stderr,
+        exit_code,
+        timed_out,
+    })
+}
+
+async fn exec_in_native_docker_archive(
+    command: &str,
+    archive_path: &Path,
+    env: Option<&serde_json::Map<String, serde_json::Value>>,
+    config: &SandboxConfig,
+    timeout_secs: u64,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<SandboxResult> {
+    exec_in_native_docker_with_workspace(
+        command,
+        env,
+        config,
+        timeout_secs,
+        cancellation_token,
+        NativeWorkspaceSource::Archive(archive_path),
+    )
+    .await
+}
+
+async fn create_workspace_archive(
+    source: PathBuf,
+    destination: PathBuf,
+    deadline: Option<Instant>,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        write_workspace_archive(&source, &destination, deadline, cancellation_token)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Isolated workspace archive task panicked: {e}"))?
+}
+
+fn check_isolated_archive_guard(
+    deadline: Option<Instant>,
+    cancellation_token: Option<&CancellationToken>,
+) -> Result<()> {
+    if cancellation_token.is_some_and(CancellationToken::is_cancelled) {
+        anyhow::bail!("isolated sandbox archive preparation cancelled");
+    }
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        anyhow::bail!("isolated sandbox archive preparation timed out");
+    }
+    Ok(())
+}
+
+struct GuardedArchiveReader<'a> {
+    file: File,
+    deadline: Option<Instant>,
+    cancellation_token: Option<&'a CancellationToken>,
+}
+
+impl Read for GuardedArchiveReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        check_isolated_archive_guard(self.deadline, self.cancellation_token)
+            .map_err(|error| std::io::Error::new(ErrorKind::Interrupted, error.to_string()))?;
+        self.file.read(buffer)
+    }
+}
+
+fn write_workspace_archive(
+    source: &Path,
+    destination: &Path,
+    deadline: Option<Instant>,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<()> {
+    check_isolated_archive_guard(deadline, cancellation_token.as_ref())?;
+    let file = File::create(destination)
+        .map_err(|e| anyhow::anyhow!("Failed to create isolated workspace archive: {e}"))?;
+    let mut archive = tar::Builder::new(file);
+    archive.follow_symlinks(false);
+
+    let walker = WalkBuilder::new(source)
+        .hidden(false)
+        .ignore(false)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .parents(false)
+        .follow_links(false)
+        .build();
+    for entry in walker {
+        check_isolated_archive_guard(deadline, cancellation_token.as_ref())?;
+        let entry = entry.map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to walk isolated workspace archive source '{}': {e}",
+                source.display()
+            )
+        })?;
+        let path = entry.path();
+        let relative = path.strip_prefix(source).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to make isolated archive path '{}' relative: {e}",
+                path.display()
+            )
+        })?;
+        let archive_path = if relative.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            relative
+        };
+        let metadata = std::fs::symlink_metadata(path).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to inspect isolated archive entry '{}': {e}",
+                path.display()
+            )
+        })?;
+        let file_type = metadata.file_type();
+        if file_type.is_symlink() || (!file_type.is_dir() && !file_type.is_file()) {
+            continue;
+        }
+
+        let mut header = tar::Header::new_gnu();
+        header.set_metadata(&metadata);
+        if file_type.is_dir() {
+            archive
+                .append_data(&mut header, archive_path, std::io::empty())
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to pack isolated workspace directory '{}': {e}",
+                        relative.display()
+                    )
+                })?;
+        } else {
+            let file = File::open(path).map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to open isolated archive entry '{}': {e}",
+                    path.display()
+                )
+            })?;
+            let mut reader = GuardedArchiveReader {
+                file,
+                deadline,
+                cancellation_token: cancellation_token.as_ref(),
+            };
+            archive
+                .append_data(&mut header, archive_path, &mut reader)
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to pack isolated workspace file '{}': {e}",
+                        relative.display()
+                    )
+                })?;
+        }
+    }
+    check_isolated_archive_guard(deadline, cancellation_token.as_ref())?;
+    archive
+        .finish()
+        .map_err(|e| anyhow::anyhow!("Failed to finish isolated workspace archive: {e}"))?;
+    Ok(())
 }
