@@ -117,6 +117,8 @@ interface SnapshotHandshake {
   stagedMessages: Message[] | null
   /** Most recent live turn_started observed after this handshake began. */
   liveTurnId: string | null
+  /** Stream generation paired with `liveTurnId` by chat:turn_started. */
+  liveStreamId: string | null
 }
 
 /**
@@ -188,10 +190,13 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
 
   useEffect(() => {
     const unlisten = getTransport().listen(EVENT_CHAT_TURN_STARTED, (raw) => {
-      const payload = raw as { sessionId?: string; turnId?: string } | null
+      const payload = raw as { sessionId?: string; turnId?: string; streamId?: string } | null
       if (!payload?.sessionId || !payload.turnId) return
       const handshake = snapshotHandshakeRef.current.get(payload.sessionId)
-      if (handshake) handshake.liveTurnId = payload.turnId
+      if (handshake) {
+        handshake.liveTurnId = payload.turnId
+        handshake.liveStreamId = payload.streamId ?? null
+      }
       onTurnStarted?.(payload.sessionId, payload.turnId)
     })
     return unlisten
@@ -230,6 +235,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       ended: false,
       stagedMessages: null,
       liveTurnId: null,
+      liveStreamId: null,
     }
     handshakeRegistry.set(sid, handshake)
     const stagedSessionCacheRef = {
@@ -267,7 +273,18 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
           if (handshakeRegistry.get(sid) === handshake) {
             handshakeRegistry.delete(sid)
           }
-          handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
+          const staleStreamId = snapshot?.streamId || state.streamId || null
+          handshake.deltas
+            // `turn_started` and stream deltas share the backend stream id.
+            // Once a newer turn has announced its generation, never replay an
+            // older stream's tail into that turn's optimistic assistant bubble.
+            .filter((delta) =>
+              handshake.liveStreamId
+                ? delta.streamId === handshake.liveStreamId
+                : !staleStreamId || delta.streamId !== staleStreamId,
+            )
+            .sort((a, b) => a.seq - b.seq)
+            .forEach(applyStreamPayload)
           if (!loadingSessionsRef.current.has(sid)) {
             loadingSessionsRef.current.add(sid)
             setLoadingSessionIds(new Set(loadingSessionsRef.current))

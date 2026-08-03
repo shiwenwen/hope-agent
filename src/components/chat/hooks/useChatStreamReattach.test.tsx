@@ -68,8 +68,10 @@ function Harness({
   onMessages,
   onTurnStarted,
   onTurnEnded,
+  initialMessages = [],
 }: {
   onMessages: (messages: Message[]) => void
+  initialMessages?: Message[]
   onTurnStarted?: (sessionId: string, turnId: string) => void
   onTurnEnded?: (
     sessionId: string,
@@ -78,14 +80,16 @@ function Harness({
     turnId?: string | null,
   ) => boolean
 }) {
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [, setLoading] = useState(false)
   const [, setLoadingSessionIds] = useState<Set<string>>(new Set())
   const currentSessionIdRef = useRef<string | null>("s1")
   const lastSeqRef = useRef(new Map<string, number>())
   const endedStreamIdsRef = useRef(new Map<string, Set<string>>())
   const loadingSessionsRef = useRef(new Set<string>())
-  const sessionCacheRef = useRef(new Map<string, Message[]>())
+  const sessionCacheRef = useRef(
+    new Map<string, Message[]>(initialMessages.length > 0 ? [["s1", initialMessages]] : []),
+  )
 
   const updateSessionMessages = (sessionId: string, updater: (prev: Message[]) => Message[]) => {
     setMessages((prev) => {
@@ -321,6 +325,75 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
 
     expect(activeTurnId).toBeNull()
     expect(endedTurns).toContain("turn-new")
+  })
+
+  test("replays only the live turn stream when a stale snapshot handshake mixes generations", async () => {
+    let latest: Message[] = []
+    render(
+      <Harness
+        initialMessages={[
+          { role: "user", content: "new question" },
+          { role: "assistant", content: "", _clientId: "new-turn-placeholder" },
+        ]}
+        onMessages={(messages) => {
+          latest = messages
+        }}
+      />,
+    )
+
+    await act(async () => {
+      const emitDelta = mocks.listeners.get("chat:stream_delta")
+      emitDelta?.({
+        sessionId: "s1",
+        streamId: "stream-old",
+        seq: 8,
+        event: JSON.stringify({ type: "text_delta", content: "stale before; " }),
+      })
+      mocks.listeners.get("chat:turn_started")?.({
+        sessionId: "s1",
+        turnId: "turn-new",
+        streamId: "stream-new",
+      })
+      emitDelta?.({
+        sessionId: "s1",
+        streamId: "stream-old",
+        seq: 9,
+        event: JSON.stringify({ type: "text_delta", content: "stale after; " }),
+      })
+      emitDelta?.({
+        sessionId: "s1",
+        streamId: "stream-new",
+        seq: 1,
+        event: JSON.stringify({ type: "text_delta", content: "new reply" }),
+      })
+      mocks.pending.get("get_session_stream_state")?.({
+        active: true,
+        lastSeq: 9,
+        acceptedSeq: 9,
+        durableSeq: 9,
+        committedSeq: 0,
+        persistenceRunId: "run-old",
+        streamId: "stream-old",
+        turnId: "turn-old",
+      })
+      mocks.pending.get("get_session_stream_snapshot")?.({
+        sessionId: "s1",
+        streamId: "stream-old",
+        turnId: "turn-old",
+        persistenceRunId: "run-old",
+        throughSeq: 9,
+        durableSeq: 9,
+        committedSeq: 0,
+        status: "running",
+        events: [],
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+      flushAnimationFrames()
+    })
+
+    expect(latest.at(-1)?.role).toBe("assistant")
+    expect(latest.at(-1)?.content).toBe("new reply")
   })
 
   test("ignores an older terminal state after a live newer turn starts", async () => {

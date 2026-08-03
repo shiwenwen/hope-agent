@@ -245,6 +245,59 @@ fn prepare_local_branch_on_disk(
 }
 
 impl SessionDB {
+    async fn insert_project_bootstrap_run_async(
+        self: &Arc<Self>,
+        input: &PrepareProjectWorktreeInput,
+        base_ref: &str,
+    ) -> Result<()> {
+        let db = self.clone();
+        let input = input.clone();
+        let base_ref = base_ref.to_string();
+        db.run(move |db| db.insert_project_bootstrap_run(&input, &base_ref))
+            .await
+    }
+
+    async fn update_project_bootstrap_stage_async(
+        self: &Arc<Self>,
+        id: &str,
+        status: &str,
+        stage: &str,
+        worktree_id: Option<&str>,
+        error: Option<(&str, &str)>,
+    ) -> Result<()> {
+        let db = self.clone();
+        let id = id.to_string();
+        let status = status.to_string();
+        let stage = stage.to_string();
+        let worktree_id = worktree_id.map(str::to_string);
+        let error = error.map(|(code, message)| (code.to_string(), message.to_string()));
+        db.run(move |db| {
+            db.update_project_bootstrap_stage(
+                &id,
+                &status,
+                &stage,
+                worktree_id.as_deref(),
+                error
+                    .as_ref()
+                    .map(|(code, message)| (code.as_str(), message.as_str())),
+            )
+        })
+        .await
+    }
+
+    async fn report_project_bootstrap_stage_async(
+        self: &Arc<Self>,
+        id: &str,
+        stage: &str,
+        session_id: Option<&str>,
+        worktree_id: Option<&str>,
+    ) -> Result<()> {
+        self.update_project_bootstrap_stage_async(id, "preparing", stage, worktree_id, None)
+            .await?;
+        emit_progress(id, "preparing", stage, session_id, worktree_id, None);
+        Ok(())
+    }
+
     async fn prepare_project_local_branch(
         self: &Arc<Self>,
         input: PrepareProjectWorktreeInput,
@@ -280,7 +333,8 @@ impl SessionDB {
             bail!("bootstrap session is not bound to the requested project");
         }
 
-        self.insert_project_bootstrap_run(&input, &base_ref)?;
+        self.insert_project_bootstrap_run_async(&input, &base_ref)
+            .await?;
         let cancel = Arc::new(AtomicBool::new(false));
         {
             let mut active = active_bootstraps()
@@ -292,12 +346,13 @@ impl SessionDB {
             id: input.request.request_id.clone(),
             flag: cancel.clone(),
         };
-        self.report_project_bootstrap_stage(
+        self.report_project_bootstrap_stage_async(
             &input.request.request_id,
             "resolving_git",
             Some(&input.session_id),
             None,
-        )?;
+        )
+        .await?;
 
         let source = input.source_working_dir.clone();
         let include_local_changes = input.request.include_local_changes;
@@ -311,13 +366,14 @@ impl SessionDB {
 
         match switch_result {
             Ok(()) if !cancel.load(Ordering::SeqCst) => {
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     "ready",
                     "ready",
                     None,
                     None,
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     "ready",
@@ -329,13 +385,14 @@ impl SessionDB {
                 Ok(())
             }
             Ok(()) => {
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     "cancelled",
                     "cancelled",
                     None,
                     Some(("cancelled", "Local branch preparation was cancelled")),
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     "cancelled",
@@ -348,13 +405,14 @@ impl SessionDB {
             }
             Err(error) => {
                 let message = format!("{error:#}");
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     "failed",
                     "failed",
                     None,
                     Some(("local_branch_prepare_failed", message.as_str())),
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     "failed",
@@ -520,7 +578,8 @@ impl SessionDB {
             bail!("bootstrap session is not bound to the requested project");
         }
 
-        self.insert_project_bootstrap_run(&input, &base_ref)?;
+        self.insert_project_bootstrap_run_async(&input, &base_ref)
+            .await?;
         let cancel = Arc::new(AtomicBool::new(false));
         {
             let mut active = active_bootstraps()
@@ -532,12 +591,13 @@ impl SessionDB {
             id: input.request.request_id.clone(),
             flag: cancel.clone(),
         };
-        self.report_project_bootstrap_stage(
+        self.report_project_bootstrap_stage_async(
             &input.request.request_id,
             "resolving_git",
             Some(&input.session_id),
             None,
-        )?;
+        )
+        .await?;
 
         let source = input.source_working_dir.clone();
         let base_ref_for_validation = base_ref.clone();
@@ -560,13 +620,14 @@ impl SessionDB {
         .await;
         if let Err(error) = validation {
             let message = format!("{error:#}");
-            self.update_project_bootstrap_stage(
+            self.update_project_bootstrap_stage_async(
                 &input.request.request_id,
                 "failed",
                 "failed",
                 None,
                 Some(("git_validation_failed", message.as_str())),
-            )?;
+            )
+            .await?;
             emit_progress(
                 &input.request.request_id,
                 "failed",
@@ -578,13 +639,14 @@ impl SessionDB {
             return Err(error);
         }
         if cancel.load(Ordering::SeqCst) {
-            self.update_project_bootstrap_stage(
+            self.update_project_bootstrap_stage_async(
                 &input.request.request_id,
                 "cancelled",
                 "cancelled",
                 None,
                 Some(("cancelled", "Worktree preparation was cancelled")),
-            )?;
+            )
+            .await?;
             emit_progress(
                 &input.request.request_id,
                 "cancelled",
@@ -596,13 +658,14 @@ impl SessionDB {
             bail!("worktree preparation was cancelled");
         }
         if input.request.include_local_changes {
-            self.update_project_bootstrap_stage(
+            self.update_project_bootstrap_stage_async(
                 &input.request.request_id,
                 "preparing",
                 "snapshotting",
                 None,
                 None,
-            )?;
+            )
+            .await?;
             emit_progress(
                 &input.request.request_id,
                 "preparing",
@@ -613,13 +676,14 @@ impl SessionDB {
             );
         }
         if cancel.load(Ordering::SeqCst) {
-            self.update_project_bootstrap_stage(
+            self.update_project_bootstrap_stage_async(
                 &input.request.request_id,
                 "cancelled",
                 "cancelled",
                 None,
                 Some(("cancelled", "Worktree preparation was cancelled")),
-            )?;
+            )
+            .await?;
             emit_progress(
                 &input.request.request_id,
                 "cancelled",
@@ -659,13 +723,14 @@ impl SessionDB {
 
         match result {
             Ok(worktree) => {
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     "ready",
                     "ready",
                     Some(&worktree.id),
                     None,
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     "ready",
@@ -689,20 +754,28 @@ impl SessionDB {
                     if let Some(worktree_id) = run.and_then(|run| run.worktree_id) {
                         let db = self.clone();
                         let cleanup_id = worktree_id.clone();
-                        db.run(move |db| {
-                            if db.get_managed_worktree(&cleanup_id)?.is_some() {
-                                db.discard_managed_worktree(&cleanup_id)
-                            } else {
-                                crate::worktree::cleanup_orphan_builtin_worktree(&cleanup_id)
-                                    .map(|_| ())
-                            }
-                        })
-                        .await
-                        .err()
-                        .map(|cleanup_error| {
-                            let _ = self.mark_managed_worktree_bootstrap_failed(&worktree_id);
-                            format!("; cleanup failed: {cleanup_error:#}")
-                        })
+                        let cleanup_result = db
+                            .run(move |db| {
+                                if db.get_managed_worktree(&cleanup_id)?.is_some() {
+                                    db.discard_managed_worktree(&cleanup_id)
+                                } else {
+                                    crate::worktree::cleanup_orphan_builtin_worktree(&cleanup_id)
+                                        .map(|_| ())
+                                }
+                            })
+                            .await;
+                        if let Err(cleanup_error) = cleanup_result {
+                            let db = self.clone();
+                            let failed_worktree_id = worktree_id.clone();
+                            let _ = db
+                                .run(move |db| {
+                                    db.mark_managed_worktree_bootstrap_failed(&failed_worktree_id)
+                                })
+                                .await;
+                            Some(format!("; cleanup failed: {cleanup_error:#}"))
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
@@ -715,13 +788,14 @@ impl SessionDB {
                 } else {
                     "worktree_prepare_failed"
                 };
-                self.update_project_bootstrap_stage(
+                self.update_project_bootstrap_stage_async(
                     &input.request.request_id,
                     status,
                     status,
                     None,
                     Some((error_code, message.as_str())),
-                )?;
+                )
+                .await?;
                 emit_progress(
                     &input.request.request_id,
                     status,
