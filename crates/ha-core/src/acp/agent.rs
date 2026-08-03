@@ -65,11 +65,32 @@ impl AcpCancelState {
     fn prepare_prompt(&self) -> Arc<AtomicBool> {
         let mut inner = self.lock();
         if !inner.armed {
-            inner.cancel = Arc::new(AtomicBool::new(false));
-            inner.armed = true;
-            inner.cleanup_started = false;
+            Self::arm_fresh_prompt(&mut inner);
         }
         inner.cancel.clone()
+    }
+
+    fn prepare_prompt_for_enqueue(&self) -> Option<Arc<AtomicBool>> {
+        let mut inner = self.lock();
+        if inner.armed {
+            return None;
+        }
+        Self::arm_fresh_prompt(&mut inner);
+        Some(inner.cancel.clone())
+    }
+
+    fn arm_fresh_prompt(inner: &mut AcpCancelStateInner) {
+        inner.cancel = Arc::new(AtomicBool::new(false));
+        inner.armed = true;
+        inner.cleanup_started = false;
+    }
+
+    fn rollback_prompt_enqueue(&self, prepared_cancel: &Arc<AtomicBool>) {
+        let mut inner = self.lock();
+        if inner.armed && Arc::ptr_eq(&inner.cancel, prepared_cancel) {
+            inner.armed = false;
+            inner.cleanup_started = false;
+        }
     }
 
     fn attach(&self, internal_session_id: String) -> Option<String> {
@@ -140,6 +161,42 @@ struct AcpPromptStateGuard {
 impl Drop for AcpPromptStateGuard {
     fn drop(&mut self) {
         self.state.finish_prompt();
+    }
+}
+
+struct AcpPromptEnqueueGuard {
+    state: Arc<AcpCancelState>,
+    prepared_cancel: Option<Arc<AtomicBool>>,
+}
+
+impl AcpPromptEnqueueGuard {
+    fn prepare(msg: &JsonRpcMessage, states: &AcpCancelStates) -> Option<Self> {
+        if msg.method.as_deref() != Some("session/prompt") {
+            return None;
+        }
+        let session_id = msg
+            .params
+            .as_ref()
+            .and_then(|params| params.get("sessionId"))
+            .and_then(Value::as_str)?;
+        let state = lock_cancel_states(states).get(session_id).cloned()?;
+        let prepared_cancel = state.prepare_prompt_for_enqueue()?;
+        Some(Self {
+            state,
+            prepared_cancel: Some(prepared_cancel),
+        })
+    }
+
+    fn commit(mut self) {
+        self.prepared_cancel = None;
+    }
+}
+
+impl Drop for AcpPromptEnqueueGuard {
+    fn drop(&mut self) {
+        if let Some(prepared_cancel) = self.prepared_cancel.as_ref() {
+            self.state.rollback_prompt_enqueue(prepared_cancel);
+        }
     }
 }
 
@@ -497,25 +554,19 @@ impl AcpAgent {
                                 if overloaded_for_reader.load(Ordering::Acquire) {
                                     continue;
                                 }
-                                let prompt_session_id = (msg.method.as_deref()
-                                    == Some("session/prompt"))
-                                .then(|| {
-                                    msg.params
-                                        .as_ref()
-                                        .and_then(|params| params.get("sessionId"))
-                                        .and_then(Value::as_str)
-                                        .map(str::to_string)
-                                })
-                                .flatten();
+                                // Arm the prompt before publishing it. The
+                                // dispatcher may receive and finish a fast
+                                // prompt before `try_send` returns, so doing
+                                // this after the send can revive a completed
+                                // generation. A failed send drops the guard
+                                // and rolls back only the generation armed by
+                                // this enqueue attempt.
+                                let prompt_enqueue =
+                                    AcpPromptEnqueueGuard::prepare(&msg, &cancel_states);
                                 match inbound_tx.try_send(AcpInbound::Message(msg)) {
                                     Ok(()) => {
-                                        if let Some(session_id) = prompt_session_id.as_deref() {
-                                            if let Some(state) = lock_cancel_states(&cancel_states)
-                                                .get(session_id)
-                                                .cloned()
-                                            {
-                                                state.prepare_prompt();
-                                            }
+                                        if let Some(prompt_enqueue) = prompt_enqueue {
+                                            prompt_enqueue.commit();
                                         }
                                     }
                                     Err(mpsc::TrySendError::Full(_)) => {
@@ -2079,5 +2130,59 @@ mod tests {
         let second = state.prepare_prompt();
         assert!(!Arc::ptr_eq(&first, &second));
         assert!(!second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn prompt_enqueue_commit_cannot_rearm_a_generation_completed_by_dispatch() {
+        let states = Arc::new(Mutex::new(HashMap::new()));
+        let state = Arc::new(AcpCancelState::new(
+            Some("internal-session".to_string()),
+            Arc::new(AtomicBool::new(false)),
+        ));
+        lock_cancel_states(&states).insert("acp-session".to_string(), state.clone());
+
+        let enqueue =
+            AcpPromptEnqueueGuard::prepare(&inbound("session/prompt", "acp-session"), &states)
+                .expect("prompt must be armed before it is published");
+        let completed = state.prepare_prompt();
+
+        // Model the dispatcher receiving and completing the prompt before
+        // try_send returns to the reader and commits its enqueue guard.
+        assert!(state.claim_non_cancelled_completion());
+        enqueue.commit();
+        assert_eq!(
+            observe_acp_control_message(&inbound("session/cancel", "acp-session"), &states),
+            None,
+            "a late cancel must not target the completed generation"
+        );
+
+        let next = state.prepare_prompt();
+        assert!(!Arc::ptr_eq(&completed, &next));
+        assert!(!next.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn failed_prompt_enqueue_rolls_back_only_its_new_generation() {
+        let states = Arc::new(Mutex::new(HashMap::new()));
+        let state = Arc::new(AcpCancelState::new(
+            Some("internal-session".to_string()),
+            Arc::new(AtomicBool::new(false)),
+        ));
+        lock_cancel_states(&states).insert("acp-session".to_string(), state.clone());
+
+        let failed_enqueue =
+            AcpPromptEnqueueGuard::prepare(&inbound("session/prompt", "acp-session"), &states)
+                .expect("prompt must be armed before enqueue");
+        let rejected = state.prepare_prompt();
+        drop(failed_enqueue);
+        assert_eq!(
+            observe_acp_control_message(&inbound("session/cancel", "acp-session"), &states),
+            None,
+            "a prompt rejected by the inbound queue must not remain cancellable"
+        );
+
+        let next = state.prepare_prompt();
+        assert!(!Arc::ptr_eq(&rejected, &next));
+        assert!(!next.load(Ordering::Acquire));
     }
 }
