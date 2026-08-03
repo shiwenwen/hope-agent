@@ -551,6 +551,10 @@ async fn chat_inner(
     ctx: Arc<AppContext>,
     mut body: ChatRequest,
 ) -> Result<Json<ChatResponse>, AppError> {
+    // Snapshot before the first await. A global Stop that begins while this
+    // request is still resolving/bootstrapping must remain authoritative even
+    // after its bounded cleanup gate has been released.
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
     let db = ctx.session_db.clone();
     let eval_context_pending = body.eval_context.take();
     if eval_context_pending.is_some() && !ha_core::eval_context::model_eval_mode_enabled() {
@@ -917,49 +921,51 @@ async fn chat_inner(
             .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
     let cancel = Arc::new(AtomicBool::new(false));
-    let _active_turn_guard =
-        match ha_core::chat_engine::active_turn::try_acquire_with_client_request_id(
-            &sid,
-            ha_core::chat_engine::stream_seq::ChatSource::Http,
-            turn_id.clone(),
-            body.client_request_id.clone(),
-            cancel.clone(),
-        ) {
-            Ok(guard) => guard,
-            Err(error) => {
-                // Session creation and bootstrap claiming precede active-turn
-                // admission. Hold a session cleanup gate before awaiting any
-                // queue release so a global Stop rejection cannot leak this
-                // unpublished lazy Session or its managed worktree.
-                let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
-                    db.clone(),
-                    sid.clone(),
-                    bootstrap_request_id.clone(),
-                    new_session_created,
-                );
-                if let Some(request_id) = queued_request_id.as_ref() {
-                    let sid_for_release = sid.clone();
-                    let request_id_for_release = request_id.clone();
-                    let turn_for_release = turn_id.clone();
-                    let _ = db
-                        .run(move |db| {
-                            db.release_queued_turn_message_dispatch(
-                                &sid_for_release,
-                                &request_id_for_release,
-                                &turn_for_release,
-                            )
-                        })
-                        .await;
-                }
-                if let Some(cleanup) = cleanup {
-                    cleanup.spawn();
-                }
-                return Err(AppError::conflict_with_code(
-                    ha_core::chat_engine::stream_seq::ACTIVE_STREAM_ERROR_CODE,
-                    error.to_string(),
-                ));
+    let _active_turn_guard = match ha_core::chat_engine::active_turn::try_acquire_foreground_request(
+        foreground_admission,
+        &sid,
+        ha_core::chat_engine::stream_seq::ChatSource::Http,
+        turn_id.clone(),
+        body.client_request_id.clone(),
+        cancel.clone(),
+    ) {
+        Ok(guard) => guard,
+        Err(error) => {
+            let error_code = if error.cancelled_by_global_stop() {
+                ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE
+            } else {
+                ha_core::chat_engine::stream_seq::ACTIVE_STREAM_ERROR_CODE
+            };
+            // Session creation and bootstrap claiming precede active-turn
+            // admission. Hold a session cleanup gate before awaiting any
+            // queue release so a global Stop rejection cannot leak this
+            // unpublished lazy Session or its managed worktree.
+            let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
+                db.clone(),
+                sid.clone(),
+                bootstrap_request_id.clone(),
+                new_session_created,
+            );
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_release = sid.clone();
+                let request_id_for_release = request_id.clone();
+                let turn_for_release = turn_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.release_queued_turn_message_dispatch(
+                            &sid_for_release,
+                            &request_id_for_release,
+                            &turn_for_release,
+                        )
+                    })
+                    .await;
             }
-        };
+            if let Some(cleanup) = cleanup {
+                cleanup.spawn();
+            }
+            return Err(AppError::conflict_with_code(error_code, error.to_string()));
+        }
+    };
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
     let raw_prompt = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);

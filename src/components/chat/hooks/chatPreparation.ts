@@ -85,6 +85,24 @@ export async function discardChatAttachmentUploads(
   if (waitForCompletion) await cleanup
 }
 
+/**
+ * A preflight Stop is authoritative regardless of which client initiated it:
+ * the backend guarantees that no user message was persisted. Preparation and
+ * active-stream errors are ambiguous, so only the local request's Stop marker
+ * may turn those into a draft rollback.
+ */
+export function shouldRollbackNonPersistedStoppedSend(
+  requestWasUserStopped: boolean,
+  preflightStopError: boolean,
+  preparationCancelled: boolean,
+  activeStreamError: boolean,
+): boolean {
+  return (
+    preflightStopError ||
+    (requestWasUserStopped && (preparationCancelled || activeStreamError))
+  )
+}
+
 export async function validateChatAttachmentCount(
   attachments: ChatAttachment[],
   transport: Transport,

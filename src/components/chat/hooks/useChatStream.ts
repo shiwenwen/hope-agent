@@ -75,6 +75,7 @@ import {
   discardChatAttachmentUploads,
   isChatPreparationCancelled,
   loadingStateAfterPreparationRelease,
+  shouldRollbackNonPersistedStoppedSend,
   validateChatAttachmentCount,
 } from "./chatPreparation"
 
@@ -2003,11 +2004,12 @@ export function useChatStream({
       const ownsRequestLifecycleNow =
         chatRequestOwnerBySessionRef.current.get(sid) === chatRequestOwnerId
       const requestWasUserStopped = userStoppedRequestIdsRef.current.has(chatRequestOwnerId)
-      const stoppedBeforePersistence =
-        requestWasUserStopped &&
-        (isPreflightStopError(e) ||
-          isChatPreparationCancelled(e) ||
-          isActiveStreamError(e))
+      const stoppedBeforePersistence = shouldRollbackNonPersistedStoppedSend(
+        requestWasUserStopped,
+        isPreflightStopError(e),
+        isChatPreparationCancelled(e),
+        isActiveStreamError(e),
+      )
       await discardChatAttachmentUploads(attachments, sendTransport, !stoppedBeforePersistence)
       const bootstrapFailedBeforeSession =
         !sendSessionId && sid === "__pending__" && !!draftProjectBootstrap

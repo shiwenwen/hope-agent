@@ -4,8 +4,22 @@ import {
   beginChatBackendHandoff,
   discardChatAttachmentUploads,
   loadingStateAfterPreparationRelease,
+  shouldRollbackNonPersistedStoppedSend,
   validateChatAttachmentCount,
 } from "./chatPreparation"
+
+describe("shouldRollbackNonPersistedStoppedSend", () => {
+  it("rolls back a remote preflight Stop without a local Stop marker", () => {
+    expect(shouldRollbackNonPersistedStoppedSend(false, true, false, false)).toBe(true)
+  })
+
+  it("requires a local Stop marker for ambiguous preparation and active-stream errors", () => {
+    expect(shouldRollbackNonPersistedStoppedSend(false, false, true, false)).toBe(false)
+    expect(shouldRollbackNonPersistedStoppedSend(false, false, false, true)).toBe(false)
+    expect(shouldRollbackNonPersistedStoppedSend(true, false, true, false)).toBe(true)
+    expect(shouldRollbackNonPersistedStoppedSend(true, false, false, true)).toBe(true)
+  })
+})
 
 describe("discardChatAttachmentUploads", () => {
   it("does not wait for stalled cleanup after the send was stopped", async () => {

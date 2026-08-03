@@ -369,6 +369,10 @@ pub async fn chat(
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, CmdError> {
+    // Snapshot before the first await. A global Stop that begins while this
+    // request is still resolving/bootstrapping must remain authoritative even
+    // after its bounded cleanup gate has been released.
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
     // Capture optional per-session modes — applied below once we have a session id.
     let permission_mode_pending = permission_mode;
     let sandbox_mode_pending = sandbox_mode;
@@ -693,46 +697,53 @@ pub async fn chat(
     if let Some(mode) = workflow_mode_pending {
         db.update_session_workflow_mode(&sid, mode)?;
     }
-    let _active_turn_guard =
-        match crate::chat_engine::active_turn::try_acquire_with_client_request_id(
-            &sid,
-            crate::chat_engine::stream_seq::ChatSource::Desktop,
-            turn_id.clone(),
-            client_request_id,
-            cancel.clone(),
-        ) {
-            Ok(guard) => guard,
-            Err(error) => {
-                // The lazy Session/bootstrap already exists by this point.
-                // Install its cleanup gate before the first await so a global
-                // Stop admission failure cannot leak unpublished state or let
-                // a replacement turn race the rollback.
-                let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
-                    db.clone(),
-                    sid.clone(),
-                    bootstrap_request_id.clone(),
-                    new_session_created.is_some(),
-                );
-                if let Some(request_id) = queued_request_id.as_ref() {
-                    let sid_for_release = sid.clone();
-                    let request_id_for_release = request_id.clone();
-                    let turn_for_release = turn_id.clone();
-                    let _ = db
-                        .run(move |db| {
-                            db.release_queued_turn_message_dispatch(
-                                &sid_for_release,
-                                &request_id_for_release,
-                                &turn_for_release,
-                            )
-                        })
-                        .await;
-                }
-                if let Some(cleanup) = cleanup {
-                    cleanup.spawn();
-                }
-                return Err(error.into());
+    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire_foreground_request(
+        foreground_admission,
+        &sid,
+        crate::chat_engine::stream_seq::ChatSource::Desktop,
+        turn_id.clone(),
+        client_request_id,
+        cancel.clone(),
+    ) {
+        Ok(guard) => guard,
+        Err(error) => {
+            let cancelled_by_global_stop = error.cancelled_by_global_stop();
+            // The lazy Session/bootstrap already exists by this point.
+            // Install its cleanup gate before the first await so a global
+            // Stop admission failure cannot leak unpublished state or let
+            // a replacement turn race the rollback.
+            let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
+                db.clone(),
+                sid.clone(),
+                bootstrap_request_id.clone(),
+                new_session_created.is_some(),
+            );
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_release = sid.clone();
+                let request_id_for_release = request_id.clone();
+                let turn_for_release = turn_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.release_queued_turn_message_dispatch(
+                            &sid_for_release,
+                            &request_id_for_release,
+                            &turn_for_release,
+                        )
+                    })
+                    .await;
             }
-        };
+            if let Some(cleanup) = cleanup {
+                cleanup.spawn();
+            }
+            if cancelled_by_global_stop {
+                return Err(CmdError::msg(format!(
+                    "{}: request cancelled by global Stop before turn registration",
+                    ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE
+                )));
+            }
+            return Err(error.into());
+        }
+    };
 
     // Mark this session as active — cancels any running subagent injection and blocks new ones
     let _chat_session_guard = crate::subagent::ChatSessionGuard::new(&sid);

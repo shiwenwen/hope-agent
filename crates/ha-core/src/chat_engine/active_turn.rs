@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::stream_seq::{ChatSource, ACTIVE_STREAM_ERROR_CODE};
@@ -15,6 +15,15 @@ use super::stream_seq::{ChatSource, ACTIVE_STREAM_ERROR_CODE};
 pub struct ActiveTurnError {
     pub session_id: String,
     pub existing_source: ChatSource,
+    cancelled_by_global_stop: bool,
+}
+
+impl ActiveTurnError {
+    /// The request was admitted before (or during) an emergency global Stop
+    /// and was rejected before its user message could be persisted.
+    pub fn cancelled_by_global_stop(&self) -> bool {
+        self.cancelled_by_global_stop
+    }
 }
 
 impl fmt::Display for ActiveTurnError {
@@ -51,6 +60,11 @@ static STOP_CLEANUPS: OnceLock<Mutex<HashMap<String, HashSet<String>>>> = OnceLo
 /// before runtime work is captured, otherwise global cleanup could cancel its
 /// resources without signalling its foreground token.
 static GLOBAL_STOP_CLEANUPS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+/// Monotonic emergency-Stop generation. Desktop/HTTP requests snapshot this at
+/// entry, before any project bootstrap or other pre-registration await. A Stop
+/// advances it while holding the active registry lock, so an older request can
+/// never register after the bounded global cleanup gate has been released.
+static GLOBAL_STOP_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Request-scoped stops may arrive before the shell has registered a turn.
 /// When the caller already knows the target session, retain that binding so a
 /// reused/malformed request id cannot cancel a turn in another session.
@@ -197,6 +211,7 @@ pub fn begin_stop_cleanup(session_id: &str) -> StopCleanupGuard {
 pub fn begin_global_stop_cleanup() -> GlobalStopCleanupGuard {
     let token = uuid::Uuid::new_v4().to_string();
     let _active = registry_lock();
+    GLOBAL_STOP_GENERATION.fetch_add(1, Ordering::SeqCst);
     global_stop_cleanups()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -204,6 +219,20 @@ pub fn begin_global_stop_cleanup() -> GlobalStopCleanupGuard {
     GlobalStopCleanupGuard {
         token,
         released: false,
+    }
+}
+
+/// Admission snapshot for a foreground request that may perform async work
+/// before it can register its active turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForegroundRequestAdmission {
+    global_stop_generation: u64,
+}
+
+/// Capture at the transport entry point, before its first await.
+pub fn begin_foreground_request() -> ForegroundRequestAdmission {
+    ForegroundRequestAdmission {
+        global_stop_generation: GLOBAL_STOP_GENERATION.load(Ordering::SeqCst),
     }
 }
 
@@ -226,12 +255,55 @@ pub fn try_acquire_with_client_request_id(
     client_request_id: Option<String>,
     cancel: Arc<AtomicBool>,
 ) -> Result<ActiveTurnGuard, ActiveTurnError> {
+    try_acquire_inner(session_id, source, turn_id, client_request_id, None, cancel)
+}
+
+/// Register a Desktop/HTTP request against the generation captured at its
+/// transport entry point. If an emergency Stop began while the request was in
+/// bootstrap or another pre-registration await, reject it even after the
+/// short-lived global cleanup gate has already been released.
+pub fn try_acquire_foreground_request(
+    admission: ForegroundRequestAdmission,
+    session_id: &str,
+    source: ChatSource,
+    turn_id: String,
+    client_request_id: Option<String>,
+    cancel: Arc<AtomicBool>,
+) -> Result<ActiveTurnGuard, ActiveTurnError> {
+    try_acquire_inner(
+        session_id,
+        source,
+        turn_id,
+        client_request_id,
+        Some(admission.global_stop_generation),
+        cancel,
+    )
+}
+
+fn try_acquire_inner(
+    session_id: &str,
+    source: ChatSource,
+    turn_id: String,
+    client_request_id: Option<String>,
+    request_global_stop_generation: Option<u64>,
+    cancel: Arc<AtomicBool>,
+) -> Result<ActiveTurnGuard, ActiveTurnError> {
     let token = uuid::Uuid::new_v4().to_string();
     let mut map = registry_lock();
     if let Some(existing) = map.get(session_id) {
         return Err(ActiveTurnError {
             session_id: session_id.to_string(),
             existing_source: existing.source,
+            cancelled_by_global_stop: false,
+        });
+    }
+    if request_global_stop_generation
+        .is_some_and(|generation| generation != GLOBAL_STOP_GENERATION.load(Ordering::SeqCst))
+    {
+        return Err(ActiveTurnError {
+            session_id: session_id.to_string(),
+            existing_source: source,
+            cancelled_by_global_stop: true,
         });
     }
     if !global_stop_cleanups()
@@ -242,6 +314,7 @@ pub fn try_acquire_with_client_request_id(
         return Err(ActiveTurnError {
             session_id: session_id.to_string(),
             existing_source: source,
+            cancelled_by_global_stop: true,
         });
     }
     if stop_cleanups()
@@ -253,6 +326,7 @@ pub fn try_acquire_with_client_request_id(
         return Err(ActiveTurnError {
             session_id: session_id.to_string(),
             existing_source: source,
+            cancelled_by_global_stop: false,
         });
     }
     if client_request_id.as_deref().is_some_and(|request_id| {
@@ -949,6 +1023,37 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         )
         .expect("replacement turn should acquire after global cleanup");
+    }
+
+    #[test]
+    fn global_stop_generation_rejects_requests_that_predate_cleanup() {
+        let _lock = test_lock();
+        let stale_request = begin_foreground_request();
+
+        let gate = begin_global_stop_cleanup();
+        drop(gate);
+
+        let error = try_acquire_foreground_request(
+            stale_request,
+            "test-global-stop-stale-request",
+            ChatSource::Desktop,
+            "turn-stale-request".to_string(),
+            Some("request-stale".to_string()),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect_err("request predating global Stop must be rejected");
+        assert!(error.cancelled_by_global_stop());
+
+        let fresh_request = begin_foreground_request();
+        let _guard = try_acquire_foreground_request(
+            fresh_request,
+            "test-global-stop-fresh-request",
+            ChatSource::Http,
+            "turn-fresh-request".to_string(),
+            Some("request-fresh".to_string()),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("request entering after global Stop should acquire");
     }
 
     #[test]
