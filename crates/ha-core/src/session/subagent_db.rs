@@ -1040,6 +1040,32 @@ impl SessionDB {
         Ok(runs)
     }
 
+    /// List every non-terminal sub-agent run owned by a parent session.
+    /// Unlike the active-run query, this includes parked `queued` runs so a
+    /// parent Stop can cancel them before the scheduler promotes them.
+    pub fn list_nonterminal_subagent_runs(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<Vec<crate::subagent::SubagentRun>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let sql = format!(
+            "SELECT {SUBAGENT_RUN_COLUMNS}
+               FROM subagent_runs
+              WHERE parent_session_id = ?1 AND status IN ('queued', 'spawning', 'running')
+              ORDER BY started_at DESC"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![parent_session_id], Self::row_to_subagent_run)?;
+        let mut runs = Vec::new();
+        for row in rows {
+            runs.push(row?);
+        }
+        Ok(runs)
+    }
+
     /// R8 follow-up: the active (`spawning`/`running`) sub-agent run whose CHILD
     /// session is `child_session_id`. An inner-tool approval event carries the
     /// child session that requested it; this maps that back to the run whose
@@ -1078,6 +1104,28 @@ impl SessionDB {
             "SELECT {SUBAGENT_RUN_COLUMNS}
                FROM subagent_runs
               WHERE status IN ('spawning', 'running')
+              ORDER BY started_at DESC"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], Self::row_to_subagent_run)?;
+        let mut runs = Vec::new();
+        for row in rows {
+            runs.push(row?);
+        }
+        Ok(runs)
+    }
+
+    /// List all queued or active sub-agent runs across sessions. This is the
+    /// process-wide Stop counterpart of [`Self::list_nonterminal_subagent_runs`].
+    pub fn list_all_nonterminal_subagent_runs(&self) -> Result<Vec<crate::subagent::SubagentRun>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let sql = format!(
+            "SELECT {SUBAGENT_RUN_COLUMNS}
+               FROM subagent_runs
+              WHERE status IN ('queued', 'spawning', 'running')
               ORDER BY started_at DESC"
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -1356,6 +1404,33 @@ mod tests {
             .find_active_run_by_child_session("child-nope")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn nonterminal_stop_snapshot_includes_queued_runs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open_ephemeral_for_test(&tmp.path().join("s.db")).unwrap();
+        db.insert_subagent_run(&run("run-q", "child-q", SubagentStatus::Queued))
+            .unwrap();
+        db.insert_subagent_run(&run("run-s", "child-s", SubagentStatus::Spawning))
+            .unwrap();
+        db.insert_subagent_run(&run("run-r", "child-r", SubagentStatus::Running))
+            .unwrap();
+        db.insert_subagent_run(&run("run-done", "child-done", SubagentStatus::Completed))
+            .unwrap();
+
+        let run_ids = db
+            .list_nonterminal_subagent_runs("parent")
+            .unwrap()
+            .into_iter()
+            .map(|run| run.run_id)
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(run_ids.len(), 3);
+        assert!(run_ids.contains("run-q"));
+        assert!(run_ids.contains("run-s"));
+        assert!(run_ids.contains("run-r"));
+        assert!(!run_ids.contains("run-done"));
+        assert_eq!(db.list_all_nonterminal_subagent_runs().unwrap().len(), 3);
     }
 
     #[test]

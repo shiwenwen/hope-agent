@@ -675,7 +675,7 @@ impl SessionDB {
                  SET status = 'completed', interrupt_reason = NULL, error = NULL,
                      assistant_message_id = ?1, ended_at = ?2, updated_at = ?2
                  WHERE id = ?3 AND session_id = ?4
-                   AND status NOT IN ('completed','interrupted','failed')",
+                   AND status = 'running'",
                 params![assistant_id, now, turn_id, input.session_id],
             )?;
             if changed_turn != 1 {
@@ -1043,6 +1043,38 @@ impl SessionDB {
                         started_at, ended_at, error
                  FROM chat_stream_runs WHERE run_id = ?1",
                 params![run_id],
+                row_to_run,
+            )
+            .optional()?;
+        let Some(run) = run else {
+            return Ok(None);
+        };
+        let attempts = load_attempts(&conn, &run.run_id)?;
+        let journal = load_journal(&conn, &run.run_id)?;
+        let mut snapshot = StreamRunSnapshot {
+            run,
+            attempts,
+            journal,
+            through_seq: 0,
+        };
+        snapshot.through_seq = select_recoverable_attempt_prefix(&snapshot).1;
+        Ok(Some(snapshot))
+    }
+
+    /// Load the persistence run owned by one exact foreground turn. Stop
+    /// watchdogs must never fall back to the session's latest run because a
+    /// replacement turn may already be active by the time recovery fires.
+    pub fn stream_run_snapshot_for_turn(&self, turn_id: &str) -> Result<Option<StreamRunSnapshot>> {
+        let conn = self.read_conn()?;
+        let run = conn
+            .query_row(
+                "SELECT run_id, session_id, source, stream_id, turn_id, status,
+                        accepted_seq, durable_seq, checkpoint_seq, committed_seq, provider_shape,
+                        started_at, ended_at, error
+                 FROM chat_stream_runs
+                 WHERE turn_id = ?1
+                 ORDER BY started_at DESC LIMIT 1",
+                params![turn_id],
                 row_to_run,
             )
             .optional()?;
@@ -2000,6 +2032,7 @@ pub fn journal_events_have_assistant_output(events: &[JournalEvent]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::ChatTurnInterruptReason;
 
     struct RunFixture {
         _dir: tempfile::TempDir,
@@ -2195,6 +2228,79 @@ mod tests {
             .expect("turn exists");
         assert_eq!(turn.status, ChatTurnStatus::Completed);
         assert_eq!(turn.assistant_message_id, Some(first.assistant_message_id));
+    }
+
+    #[test]
+    fn cancelling_turn_rejects_late_success_commit_atomically() {
+        let fixture = fixture("cancel-wins-final-commit");
+        fixture
+            .db
+            .mark_chat_turn_cancelling(&fixture.turn_id, ChatTurnInterruptReason::UserStop)
+            .expect("mark cancelling");
+
+        fixture
+            .db
+            .commit_assistant_turn(&success_commit(&fixture, None))
+            .expect_err("late success must not overwrite a cancelling turn");
+
+        assert_eq!(
+            scalar_i64(
+                &fixture.db,
+                "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+                &fixture.session_id,
+            ),
+            1,
+            "the whole success transaction must roll back"
+        );
+        let turn = fixture
+            .db
+            .get_chat_turn(&fixture.turn_id)
+            .expect("load turn")
+            .expect("turn exists");
+        assert_eq!(turn.status, ChatTurnStatus::Cancelling);
+        assert_eq!(
+            turn.interrupt_reason,
+            Some(ChatTurnInterruptReason::UserStop)
+        );
+        assert_eq!(
+            scalar_i64(
+                &fixture.db,
+                "SELECT COUNT(*) FROM model_usage_events WHERE session_id = ?1",
+                &fixture.session_id,
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn turn_scoped_snapshot_never_selects_a_newer_session_run() {
+        let fixture = fixture("turn-scoped-run");
+        let newer_turn = fixture
+            .db
+            .create_chat_turn(&fixture.session_id, "desktop", Some("stream-new"), None)
+            .expect("newer turn");
+        let newer_run_id = uuid::Uuid::new_v4().to_string();
+        fixture
+            .db
+            .create_stream_run(&CreateStreamRun {
+                run_id: newer_run_id.clone(),
+                session_id: fixture.session_id.clone(),
+                source: "desktop".to_string(),
+                stream_id: Some("stream-new".to_string()),
+                turn_id: Some(newer_turn.id),
+                provider_shape: None,
+            })
+            .expect("newer run");
+
+        let exact_run = fixture
+            .db
+            .stream_run_snapshot_for_turn(&fixture.turn_id)
+            .expect("turn run")
+            .expect("turn run exists")
+            .run
+            .run_id;
+        assert_eq!(exact_run, fixture.run_id);
+        assert_ne!(exact_run, newer_run_id);
     }
 
     #[test]

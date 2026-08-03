@@ -29,6 +29,10 @@ export interface StreamDeltaBuffers {
   lastFlushAt: Map<string, number>
 }
 
+export type EndedStreamIds = Map<string, Set<string>>
+
+const MAX_ENDED_STREAMS_PER_SESSION = 8
+
 const LEGACY_STREAM_ID = "__legacy__"
 
 // 流式 flush 节流：把每帧（≈60fps）flush 降到 ~30fps。每次 flush 都触发末块
@@ -52,6 +56,46 @@ export function streamIdFromPayload(raw: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
 }
 
+export function isStreamEnded(
+  ended: EndedStreamIds,
+  sessionId: string,
+  streamId?: string | null,
+): boolean {
+  return !!streamId && ended.get(sessionId)?.has(streamId) === true
+}
+
+export function markStreamEnded(
+  ended: EndedStreamIds,
+  sessionId: string,
+  streamId?: string | null,
+): void {
+  if (!streamId) return
+  let streams = ended.get(sessionId)
+  if (!streams) {
+    streams = new Set()
+    ended.set(sessionId, streams)
+  }
+  streams.delete(streamId)
+  streams.add(streamId)
+  while (streams.size > MAX_ENDED_STREAMS_PER_SESSION) {
+    const oldest = streams.values().next().value as string | undefined
+    if (!oldest) break
+    streams.delete(oldest)
+  }
+}
+
+export function markStreamActive(
+  ended: EndedStreamIds,
+  sessionId: string,
+  streamId?: string | null,
+): void {
+  if (!streamId) return
+  const streams = ended.get(sessionId)
+  if (!streams) return
+  streams.delete(streamId)
+  if (streams.size === 0) ended.delete(sessionId)
+}
+
 export function createStreamDeltaBuffers(): StreamDeltaBuffers {
   return {
     pending: new Map(),
@@ -63,15 +107,23 @@ export function createStreamDeltaBuffers(): StreamDeltaBuffers {
 export function discardPendingStreamDeltas(
   sid: string,
   deltaBuffersRef: React.MutableRefObject<StreamDeltaBuffers>,
+  streamId?: string | null,
 ): void {
   const state = deltaBuffersRef.current
-  const raf = state.rafs.get(sid)
-  if (raf !== undefined) {
-    cancelAnimationFrame(raf)
+  const keys =
+    streamId !== undefined
+      ? [streamCursorKey(sid, streamId)]
+      : new Set([...state.pending.keys(), ...state.rafs.keys(), ...state.lastFlushAt.keys()])
+  for (const key of keys) {
+    if (streamId === undefined && !key.startsWith(`${sid}\u0000`)) continue
+    const raf = state.rafs.get(key)
+    if (raf !== undefined) {
+      cancelAnimationFrame(raf)
+    }
+    state.rafs.delete(key)
+    state.pending.delete(key)
+    state.lastFlushAt.delete(key)
   }
-  state.rafs.delete(sid)
-  state.pending.delete(sid)
-  state.lastFlushAt.delete(sid)
 }
 
 export function discardAllPendingStreamDeltas(
@@ -89,12 +141,14 @@ export function discardAllPendingStreamDeltas(
 function pendingDeltasFor(
   deltaBuffersRef: React.MutableRefObject<StreamDeltaBuffers>,
   sid: string,
+  streamId?: string | null,
 ): { text: string; thinking: string } {
   const state = deltaBuffersRef.current
-  let pending = state.pending.get(sid)
+  const key = streamCursorKey(sid, streamId)
+  let pending = state.pending.get(key)
   if (!pending) {
     pending = { text: "", thinking: "" }
-    state.pending.set(sid, pending)
+    state.pending.set(key, pending)
   }
   return pending
 }
@@ -103,17 +157,19 @@ function takePendingStreamDeltas(
   sid: string,
   deltaBuffersRef: React.MutableRefObject<StreamDeltaBuffers>,
   cancelScheduled: boolean,
+  streamId?: string | null,
 ): { text: string; thinking: string } | null {
   const state = deltaBuffersRef.current
+  const key = streamCursorKey(sid, streamId)
   if (cancelScheduled) {
-    const raf = state.rafs.get(sid)
+    const raf = state.rafs.get(key)
     if (raf !== undefined) {
       cancelAnimationFrame(raf)
     }
   }
-  state.rafs.delete(sid)
-  const pending = state.pending.get(sid)
-  state.pending.delete(sid)
+  state.rafs.delete(key)
+  const pending = state.pending.get(key)
+  state.pending.delete(key)
   if (!pending || (!pending.text && !pending.thinking)) return null
   return pending
 }
@@ -122,10 +178,27 @@ export function flushPendingStreamDeltas(
   sid: string,
   deps: StreamEventHandlerDeps,
   cancelScheduled: boolean,
+  streamId?: string | null,
 ): void {
-  const pending = takePendingStreamDeltas(sid, deps.deltaBuffersRef, cancelScheduled)
+  if (streamId === undefined) {
+    const prefix = `${sid}\u0000`
+    const keys = [...deps.deltaBuffersRef.current.pending.keys()].filter((key) =>
+      key.startsWith(prefix),
+    )
+    for (const key of keys) {
+      const exactStreamId = key.slice(prefix.length)
+      flushPendingStreamDeltas(
+        sid,
+        deps,
+        cancelScheduled,
+        exactStreamId === LEGACY_STREAM_ID ? null : exactStreamId,
+      )
+    }
+    return
+  }
+  const pending = takePendingStreamDeltas(sid, deps.deltaBuffersRef, cancelScheduled, streamId)
   if (!pending) return
-  deps.deltaBuffersRef.current.lastFlushAt.set(sid, Date.now())
+  deps.deltaBuffersRef.current.lastFlushAt.set(streamCursorKey(sid, streamId), Date.now())
 
   const textChunk = pending.text
   const thinkingChunk = pending.thinking
@@ -200,23 +273,28 @@ function fallbackEventFromStreamEvent(event: Record<string, unknown>): FallbackE
   }
 }
 
-function schedulePendingStreamFlush(sid: string, deps: StreamEventHandlerDeps): void {
+function schedulePendingStreamFlush(
+  sid: string,
+  streamId: string | null,
+  deps: StreamEventHandlerDeps,
+): void {
   const state = deps.deltaBuffersRef.current
-  if (state.rafs.has(sid)) return
+  const key = streamCursorKey(sid, streamId)
+  if (state.rafs.has(key)) return
   const raf = requestAnimationFrame(() => {
     const s = deps.deltaBuffersRef.current
-    s.rafs.delete(sid)
+    s.rafs.delete(key)
     // Throttle to ~30fps: if the previous flush was < FLUSH_MIN_INTERVAL_MS ago,
     // wait one more frame instead of flushing now. Pending deltas keep
     // accumulating in the buffer, so nothing is lost — just coalesced.
-    const last = s.lastFlushAt.get(sid) ?? 0
+    const last = s.lastFlushAt.get(key) ?? 0
     if (Date.now() - last < FLUSH_MIN_INTERVAL_MS) {
-      schedulePendingStreamFlush(sid, deps)
+      schedulePendingStreamFlush(sid, streamId, deps)
       return
     }
-    flushPendingStreamDeltas(sid, deps, false)
+    flushPendingStreamDeltas(sid, deps, false, streamId)
   })
-  state.rafs.set(sid, raf)
+  state.rafs.set(key, raf)
 }
 
 function stringField(event: Record<string, unknown>, key: string): string {
@@ -298,13 +376,14 @@ export function handleStreamEvent(
   deps: StreamEventHandlerDeps,
 ): boolean {
   const { updateSessionMessages, deltaBuffersRef, setShowCodexAuthExpired } = deps
+  const eventStreamId = streamIdFromEvent(event) ?? null
 
   // A durable failover can happen after the failed attempt already rendered.
   // The backend journals this marker as the first event of the replacement
   // attempt, so clearing here is ordered and replay-safe. Never flush the old
   // rAF buffer: those bytes belong to the superseded attempt.
   if (event.type === "stream_attempt_started" && event.reset_superseded === true) {
-    discardPendingStreamDeltas(sid, deltaBuffersRef)
+    discardPendingStreamDeltas(sid, deltaBuffersRef, eventStreamId)
     updateSessionMessages(sid, (prev) => {
       const last = prev[prev.length - 1]
       if (!last || last.role !== "assistant") return prev
@@ -326,13 +405,13 @@ export function handleStreamEvent(
 
   // text_delta and thinking_delta: buffer and flush via rAF
   if (event.type === "text_delta" || event.type === "thinking_delta") {
-    const pending = pendingDeltasFor(deltaBuffersRef, sid)
+    const pending = pendingDeltasFor(deltaBuffersRef, sid, eventStreamId)
     if (event.type === "text_delta") {
       pending.text += stringField(event, "content") || stringField(event, "text")
     } else {
       pending.thinking += stringField(event, "content")
     }
-    schedulePendingStreamFlush(sid, deps)
+    schedulePendingStreamFlush(sid, eventStreamId, deps)
     return true
   }
 
@@ -351,14 +430,12 @@ export function handleStreamEvent(
   }
 
   if (event.type === "queued_user_message_inserted") {
-    flushPendingStreamDeltas(sid, deps, true)
+    flushPendingStreamDeltas(sid, deps, true, eventStreamId)
     const requestId = stringField(event, "request_id")
     const content = stringField(event, "content")
     const messageIdRaw = event.message_id
     const dbId =
-      typeof messageIdRaw === "number" && Number.isFinite(messageIdRaw)
-        ? messageIdRaw
-        : undefined
+      typeof messageIdRaw === "number" && Number.isFinite(messageIdRaw) ? messageIdRaw : undefined
     const attachmentsMeta =
       typeof event.attachments_meta === "string" ? event.attachments_meta : null
     const attachments = parseUserAttachmentsMeta(attachmentsMeta)
@@ -396,7 +473,7 @@ export function handleStreamEvent(
 
   // Flush pending thinking/text buffer before tool_call to preserve display order
   if (event.type === "tool_call") {
-    flushPendingStreamDeltas(sid, deps, true)
+    flushPendingStreamDeltas(sid, deps, true, eventStreamId)
   }
 
   // Handle tool_call, tool_result, model_fallback, codex_auth_expired via updateSessionMessages
@@ -508,11 +585,12 @@ export function handleStreamEvent(
           calls[idx] = { ...calls[idx], arguments: args }
         }
         const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
-        const blockIdx = blocks.findIndex(
-          (b) => b.type === "tool_call" && b.tool.callId === callId,
-        )
+        const blockIdx = blocks.findIndex((b) => b.type === "tool_call" && b.tool.callId === callId)
         if (blockIdx >= 0) {
-          const block = blocks[blockIdx] as { type: "tool_call"; tool: { callId: string; name: string; arguments: string } }
+          const block = blocks[blockIdx] as {
+            type: "tool_call"
+            tool: { callId: string; name: string; arguments: string }
+          }
           blocks[blockIdx] = {
             type: "tool_call",
             tool: { ...block.tool, arguments: args },
@@ -533,13 +611,14 @@ export function handleStreamEvent(
         const toolMetadata = extractToolMetadata(event)
         const calls = [...(last.toolCalls || [])]
         const idx = calls.findIndex((c) => c.callId === event.call_id)
-        const resolvedDurationMs = (event.duration_ms as number | undefined) ?? (
-          idx >= 0 && calls[idx].startedAtMs ? Date.now() - calls[idx].startedAtMs! : undefined
-        )
+        const resolvedDurationMs =
+          (event.duration_ms as number | undefined) ??
+          (idx >= 0 && calls[idx].startedAtMs ? Date.now() - calls[idx].startedAtMs! : undefined)
         if (idx >= 0) {
-          const isError = typeof event.is_error === "boolean"
-            ? event.is_error as boolean
-            : hasToolError({ result: event.result as string | undefined })
+          const isError =
+            typeof event.is_error === "boolean"
+              ? (event.is_error as boolean)
+              : hasToolError({ result: event.result as string | undefined })
           calls[idx] = {
             ...calls[idx],
             result: event.result as string,
@@ -570,9 +649,10 @@ export function handleStreamEvent(
             tool: {
               ...block.tool,
               result: event.result as string,
-              isError: typeof event.is_error === "boolean"
-                ? event.is_error as boolean
-                : hasToolError({ result: event.result as string | undefined }),
+              isError:
+                typeof event.is_error === "boolean"
+                  ? (event.is_error as boolean)
+                  : hasToolError({ result: event.result as string | undefined }),
               ...(mediaItems && { mediaItems }),
               ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
               ...(toolMetadata ? { metadata: toolMetadata } : {}),

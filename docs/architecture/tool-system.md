@@ -485,7 +485,7 @@ flowchart TD
     F --> G["下一轮 API 调用（或退出 loop）"]
 ```
 
-每个工具执行都通过 `tokio::select!` 与 cancel flag 竞争，支持用户随时取消。只有 `BackgroundPolicy::GenericJob` 工具进入 `execute_tool_with_context` 后会经过下文的“异步决策”三道闸；显式后台或自动后台化时**会立即把 synthetic `{job_id, status: "started"}` 当作合法 tool_result 写回**，对话不阻塞继续推进，真实结果走异步注入回流。`SelfManaged` 工具则直接执行其派发 action 并立即返回 native durable handle。
+每个工具执行都通过 `tokio::select!` 与 cancel flag 竞争，cancel 分支必须排在 dispatch 前；进入 executor 前还要再检查一次，使并发批次里等 semaphore 的调用在用户停止后不会补启动。只有 `BackgroundPolicy::GenericJob` 工具进入 `execute_tool_with_context` 后会经过下文的“异步决策”三道闸；显式后台或自动后台化时**会立即把 synthetic `{job_id, status: "started"}` 当作合法 tool_result 写回**，对话不阻塞继续推进，真实结果走异步注入回流。`SelfManaged` 工具则直接执行其派发 action 并立即返回 native durable handle。
 
 ---
 

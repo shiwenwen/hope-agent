@@ -43,6 +43,18 @@ fn get_text_pending() -> &'static Mutex<HashMap<(String, String), Vec<PendingTex
     TEXT_PENDING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Hold the IM text-approval registry lock so approval cleanup tests can prove
+/// terminal events are published before this secondary cleanup can block.
+#[cfg(test)]
+pub(crate) async fn hold_text_pending_lock_for_test(
+    acquired: tokio::sync::oneshot::Sender<()>,
+    release: tokio::sync::oneshot::Receiver<()>,
+) {
+    let _pending = get_text_pending().lock().await;
+    let _ = acquired.send(());
+    let _ = release.await;
+}
+
 /// Throttle for the "you have N pending approvals" hint — one nudge per
 /// (account, chat) per the configured interval (see
 /// `permission.imApprovalHintThrottleSecs`, default 60s). Backed by
