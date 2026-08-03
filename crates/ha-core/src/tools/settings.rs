@@ -1072,20 +1072,24 @@ async fn update_stt_language(values: &Value) -> Result<String> {
         bail!("stt_language only accepts `language`");
     }
 
-    if let Some(value) = object.get("language") {
-        let language = if value.is_null() {
-            None
-        } else if let Some(language) = value.as_str() {
-            let language = language.trim();
-            (!language.is_empty()).then(|| language.to_string())
-        } else {
-            bail!("stt_language.language must be a string or null");
-        };
+    // 空对象 = 契约错误：调用方以为在改，实则什么都没写。
+    // 返回错误而不是 `updated: true` 让 skill / model 早失败——不然调用方
+    // 会记「已改」并继续，STT 却仍用旧 language。
+    let Some(value) = object.get("language") else {
+        bail!("stt_language requires a `language` field (use `null` to reset to auto-detect)");
+    };
+    let language = if value.is_null() {
+        None
+    } else if let Some(language) = value.as_str() {
+        let language = language.trim();
+        (!language.is_empty()).then(|| language.to_string())
+    } else {
+        bail!("stt_language.language must be a string or null");
+    };
 
-        crate::stt::set_stt_default_language_async(language, "skill")
-            .await
-            .map_err(|err| anyhow::anyhow!("{err}"))?;
-    }
+    crate::stt::set_stt_default_language_async(language, "skill")
+        .await
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
 
     let updated_value = read_category("stt_language")?;
     Ok(serde_json::to_string_pretty(&json!({

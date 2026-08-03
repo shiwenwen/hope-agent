@@ -187,18 +187,33 @@ pub enum DockerConnectionErrorKind {
 pub async fn check_sandbox_available() -> DockerStatus {
     match crate::vcs_hooks::vcs_hooks() {
         Some(hooks) => (hooks.sandbox_check)().await,
-        None => DockerStatus {
-            installed: false,
-            running: false,
-            host_os: host_os().to_string(),
-            backend: None,
-            wsl_installed: None,
-            wsl_distribution_installed: None,
-            wsl_docker_installed: None,
-            connection_error: None,
-            containerized: deployment_is_docker(),
-            isolated_mode_only: deployment_is_docker(),
-        },
+        None => {
+            // 少了 `ha_vcs::wire()` → 前端只看到 installed=false / running=false
+            // 与 containerized=deployment_is_docker() 的合成状态，UI 会渲染
+            // 「container isolated only」提示指错方向。这里 emit 一次 warn
+            // （用 OnceLock 去重，避免每次前端 poll 都刷屏）——ops grep
+            // "sandbox not wired" 就能立刻找到根因，比追 UI 提示快得多。
+            static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+            WARNED.get_or_init(|| {
+                app_warn!(
+                    "sandbox",
+                    "wire",
+                    "check_sandbox_available fallback triggered — ha_vcs::wire() has not been called in this process; UI status is a placeholder"
+                );
+            });
+            DockerStatus {
+                installed: false,
+                running: false,
+                host_os: host_os().to_string(),
+                backend: None,
+                wsl_installed: None,
+                wsl_distribution_installed: None,
+                wsl_docker_installed: None,
+                connection_error: None,
+                containerized: deployment_is_docker(),
+                isolated_mode_only: deployment_is_docker(),
+            }
+        }
     }
 }
 
@@ -347,4 +362,86 @@ pub fn validate_container_isolated_source_against(source: &Path, data_root: &Pat
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::permission::SandboxMode;
+    use std::fs;
+    use std::io::ErrorKind;
+
+    #[test]
+    fn docker_connection_io_errors_have_stable_categories() {
+        assert_eq!(
+            docker_connection_error_from_io_kind(ErrorKind::NotFound),
+            DockerConnectionErrorKind::SocketMissing
+        );
+        assert_eq!(
+            docker_connection_error_from_io_kind(ErrorKind::PermissionDenied),
+            DockerConnectionErrorKind::PermissionDenied
+        );
+        assert_eq!(
+            docker_connection_error_from_io_kind(ErrorKind::ConnectionRefused),
+            DockerConnectionErrorKind::DaemonUnreachable
+        );
+        assert_eq!(
+            docker_connection_error_from_io_kind(ErrorKind::InvalidInput),
+            DockerConnectionErrorKind::ClientError
+        );
+    }
+
+    #[test]
+    fn container_deployment_supports_only_isolated_mode() {
+        for mode in [
+            SandboxMode::Off,
+            SandboxMode::Standard,
+            SandboxMode::Workspace,
+            SandboxMode::Trusted,
+        ] {
+            assert!(!container_sandbox_mode_supported(mode));
+        }
+        assert!(container_sandbox_mode_supported(SandboxMode::Isolated));
+    }
+
+    #[test]
+    fn container_archive_source_rejects_data_root_and_credentials() {
+        let base = tempfile::tempdir().expect("base tempdir");
+        let data_root_path = base.path().join("state");
+        fs::create_dir_all(&data_root_path).expect("data root directory");
+        let data_root = data_root_path.canonicalize().expect("canonical data root");
+        let data_root_parent = base
+            .path()
+            .canonicalize()
+            .expect("canonical data root parent");
+        let credentials = data_root.join("credentials");
+        let workspace = data_root.join("projects/demo/workspace");
+        fs::create_dir_all(&credentials).expect("credentials directory");
+        fs::create_dir_all(&workspace).expect("workspace directory");
+
+        assert!(validate_container_isolated_source_against(&data_root, &data_root).is_err());
+        assert!(validate_container_isolated_source_against(&data_root_parent, &data_root).is_err());
+        assert!(validate_container_isolated_source_against(&credentials, &data_root).is_err());
+        assert!(validate_container_isolated_source_against(&workspace, &data_root).is_ok());
+    }
+
+    #[test]
+    fn docker_status_serializes_structured_diagnostics() {
+        let status = DockerStatus {
+            installed: true,
+            running: false,
+            host_os: "linux".to_string(),
+            backend: Some(DockerBackend::Native),
+            wsl_installed: None,
+            wsl_distribution_installed: None,
+            wsl_docker_installed: None,
+            connection_error: Some(DockerConnectionErrorKind::PermissionDenied),
+            containerized: true,
+            isolated_mode_only: true,
+        };
+        let value = serde_json::to_value(status).expect("serialize Docker status");
+        assert_eq!(value["connectionError"], "permission_denied");
+        assert_eq!(value["containerized"], true);
+        assert_eq!(value["isolatedModeOnly"], true);
+    }
 }

@@ -341,6 +341,7 @@ impl TelegramBotApi {
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
+        validate_telegram_file_path(&file.path)?;
         let api_url_owned = self.bot.inner().api_url();
         let api_url = api_url_owned.as_str().trim_end_matches('/');
         let token = self.bot.inner().token();
@@ -700,5 +701,79 @@ mod tests {
         assert!(error
             .to_string()
             .contains("Telegram Bot API base URL blocked"));
+    }
+}
+
+/// Telegram Bot API 契约：`file.path` 是 base URL 之下的相对路径（如
+/// `photos/file_1234.jpg`）。**恶意或被劫持的 upstream** 可以违反契约返回
+/// `../` 段、绝对路径、编码遍历（`%2e%2e`）或空字节；把这些直接拼进
+/// `{api_url}/file/bot{TOKEN}/{path}` 会让反代路径 normalize 后把
+/// `bot<TOKEN>` 顺着遍历发往 SSRF gate 从没验过的位置——**token 泄漏 +
+/// 未审目标请求**。提前拒绝，只放行「相对、无遍历、无编码、无空字节」。
+fn validate_telegram_file_path(path: &str) -> anyhow::Result<()> {
+    if path.is_empty() {
+        anyhow::bail!("Telegram file.path is empty");
+    }
+    // 绝对路径（POSIX 或 Windows 风格）—— Bot API 契约里 file.path 应始终相对。
+    if path.starts_with('/') || path.starts_with('\\') {
+        anyhow::bail!("Telegram file.path must be relative (got '{}')", path);
+    }
+    // Windows 盘符（'C:'）也拒绝。
+    if path.len() >= 2 && path.as_bytes()[1] == b':' {
+        anyhow::bail!("Telegram file.path must be relative (got '{}')", path);
+    }
+    // 段级检查：任何 `.` / `..` / 空段（意味着 `//`）都拒绝。
+    for seg in path.split(['/', '\\']) {
+        if seg.is_empty() || seg == "." || seg == ".." {
+            anyhow::bail!(
+                "Telegram file.path contains traversal or empty segment (got '{}')",
+                path
+            );
+        }
+    }
+    // 控制字符（含 NUL）与 `%` 编码 —— 一律拒。反代 normalize 后可能等价于
+    // `..`/`\0`/绝对路径，而我们不打算逐一枚举 unicode/percent 变体。
+    if path.contains(|c: char| c.is_control()) {
+        anyhow::bail!("Telegram file.path contains control characters");
+    }
+    if path.contains('%') {
+        anyhow::bail!(
+            "Telegram file.path contains percent-encoded segment; Bot API does not need URL escaping"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod telegram_file_path_tests {
+    use super::validate_telegram_file_path;
+
+    #[test]
+    fn accepts_relative_paths() {
+        assert!(validate_telegram_file_path("photos/file_1.jpg").is_ok());
+        assert!(validate_telegram_file_path("documents/nested/path/file.pdf").is_ok());
+    }
+
+    #[test]
+    fn rejects_absolute_and_traversal() {
+        for bad in [
+            "",
+            "/absolute",
+            "\\windows",
+            "C:/Users",
+            "..",
+            "../etc/passwd",
+            "photos/../..",
+            "photos/./file",
+            "photos//file",
+            "photos/%2e%2e/etc",
+            "photos/file\x00.jpg",
+        ] {
+            assert!(
+                validate_telegram_file_path(bad).is_err(),
+                "should reject '{}'",
+                bad
+            );
+        }
     }
 }

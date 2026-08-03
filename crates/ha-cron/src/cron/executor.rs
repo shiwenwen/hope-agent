@@ -453,6 +453,46 @@ pub(crate) async fn execute_claimed_job(
         },
     };
     if effective_sandbox.enabled() {
+        // 两类不同的失败，处理必须分开：
+        //   ① **配置错**：容器化部署（`HA_DEPLOYMENT=docker`）+ 非 Isolated
+        //      模式——永远不会自愈，每 tick 都是同一错误。count_toward_disable
+        //      = **true**，让 max_failures 兜底触发禁用。
+        //   ② **基础设施错**：Docker daemon 暂时不可达（笔记本 resume /
+        //      daemon 重启等）。一次成功即消，count_toward_disable = **false**
+        //      避免把健康的循环任务永久禁用。
+        //   两者共用 ensure_sandbox_available_for_mode 时无法区分——先手动
+        //   预检①，走 config 分支；剩下的都算 infra。
+        let container_mode_mismatch = ha_core::sandbox::deployment_is_docker()
+            && !ha_core::sandbox::container_sandbox_mode_supported(effective_sandbox);
+        if container_mode_mismatch {
+            let err_text = format!(
+                "container deployments only support isolated sandbox mode; '{}' is a permanent misconfiguration (count toward auto-disable)",
+                effective_sandbox.as_str()
+            );
+            app_error!(
+                "cron",
+                "executor",
+                "Job '{}' ({}) has sandbox override '{}' incompatible with HA_DEPLOYMENT=docker — treating as config failure so max_failures can disable it",
+                job.name,
+                job.id,
+                effective_sandbox.as_str()
+            );
+            persist_failure_message_if_missing(session_db, &session_id, &err_text);
+            record_failure(
+                cron_db,
+                &job,
+                &started_at,
+                start_time,
+                "error",
+                &err_text,
+                &session_id,
+                None,
+                run_log_id,
+                true,
+                immediate,
+            );
+            return;
+        }
         if let Err(e) = ha_core::sandbox::ensure_sandbox_available_for_mode(effective_sandbox).await
         {
             let err_text = format!("sandbox unavailable: {e}");

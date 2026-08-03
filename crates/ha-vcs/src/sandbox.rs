@@ -653,10 +653,11 @@ async fn exec_in_native_docker(
         }
     };
 
-    // Collect logs
-    let (stdout, stderr) = collect_logs(&docker, &container_id).await?;
+    // Collect logs —— log driver 错误 / API 抽风时不能直接 `?` 返回，那样
+    // container 会残留在 Docker 里泄漏 name / anonymous volume。先接住错误、
+    // 保证 cleanup_container 一定跑，再往上抛。
+    let logs_result = collect_logs(&docker, &container_id).await;
 
-    // Cleanup container
     if let Err(e) = cleanup_container(&docker, &container_id).await {
         app_warn!(
             "sandbox",
@@ -666,6 +667,7 @@ async fn exec_in_native_docker(
             e
         );
     }
+    let (stdout, stderr) = logs_result?;
 
     Ok(SandboxResult {
         stdout,
@@ -1064,22 +1066,56 @@ pub async fn exec_in_sandbox_mode(
             cancellation_token.clone(),
         )
         .await?;
+        // 把「已消耗时间」从 caller 的 timeout_secs 里扣掉，别再给 container
+        // 一个 fresh 的完整预算——否则总墙钟可到 2-3×（prep + archive + 全新
+        // exec，都各按 timeout_secs 计）。`timeout_secs == 0` 表示无上限，直
+        // 接透传。仅在 exec 前时间已耗尽时 bail，不给出 0（会被 exec 解为
+        // 无限跑）。
+        let exec_timeout_secs = if let Some(deadline) = preparation_deadline {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .map(|dur| dur.as_secs())
+                .unwrap_or(0);
+            if remaining == 0 {
+                anyhow::bail!(
+                    "Isolated sandbox preparation exhausted the {timeout_secs}s budget before the container could start"
+                );
+            }
+            remaining
+        } else {
+            0
+        };
         return exec_in_native_docker_archive(
             command,
             archive_path.as_ref(),
             env,
             config,
-            timeout_secs,
+            exec_timeout_secs,
             cancellation_token,
         )
         .await;
     }
+    // 同上：把 prepare_isolated_workspace 已消耗的时间从 timeout_secs 扣除。
+    let exec_timeout_secs = if let Some(deadline) = preparation_deadline {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .map(|dur| dur.as_secs())
+            .unwrap_or(0);
+        if remaining == 0 {
+            anyhow::bail!(
+                "Isolated sandbox preparation exhausted the {timeout_secs}s budget before the container could start"
+            );
+        }
+        remaining
+    } else {
+        0
+    };
     exec_in_sandbox(
         command,
         &isolated_cwd,
         env,
         config,
-        timeout_secs,
+        exec_timeout_secs,
         cancellation_token,
     )
     .await
@@ -1615,7 +1651,13 @@ pub async fn check_sandbox_available() -> DockerStatus {
         wsl_installed: wsl.as_ref().map(|probe| probe.wsl_installed),
         wsl_distribution_installed: wsl.as_ref().map(|probe| probe.distribution_installed),
         wsl_docker_installed: wsl.as_ref().map(|probe| probe.docker_installed),
-        connection_error: (!running).then_some(native.connection_error).flatten(),
+        // 曾用 `(!running).then_some(native.connection_error).flatten()`—— 当
+        // WSL 后端成功让 `running=true` 时会**吞掉** native 侧的
+        // PermissionDenied/ClientError 等诊断，UI（DockerSetupHint）失去信号，
+        // 用户永远不知道 native Docker 权限有问题。始终保留 native 的
+        // connection_error；ensure_sandbox_available 的成功判据仍是
+        // `installed && running`，与本字段无关。
+        connection_error: native.connection_error,
         containerized,
         isolated_mode_only: containerized,
     }
@@ -1626,7 +1668,21 @@ pub async fn ensure_sandbox_available() -> Result<()> {
     if status.installed && status.running {
         return Ok(());
     }
-    let reason = if !status.installed
+    // 优先按 connection_error 路由——main #610 的核心，被拆分回退过一次，
+    // 现在全部重放。四条 connection_error 分支覆盖 socket 缺失 / 权限拒绝 /
+    // daemon 不可达 / 客户端错误的可操作提示；后面几条是老 fallback。
+    let reason = if status.connection_error == Some(DockerConnectionErrorKind::PermissionDenied) {
+        "Permission denied while connecting to Docker. Grant the Hope Agent process access to the Docker socket without making the socket world-writable.".to_string()
+    } else if status.connection_error == Some(DockerConnectionErrorKind::SocketMissing)
+        && status.containerized
+    {
+        "The Docker socket is not mounted into the Hope Agent container. Container deployments require an explicit, trusted Docker socket mount for isolated sandbox mode.".to_string()
+    } else if status.connection_error == Some(DockerConnectionErrorKind::DaemonUnreachable) {
+        "The Docker endpoint was found but its daemon is unreachable. Start Docker and retry."
+            .to_string()
+    } else if status.connection_error == Some(DockerConnectionErrorKind::ClientError) {
+        "The Docker client could not connect to the configured endpoint. Check the local Docker endpoint configuration and retry.".to_string()
+    } else if !status.installed
         && status.host_os == "windows"
         && status.wsl_distribution_installed == Some(true)
         && status.wsl_docker_installed != Some(true)
@@ -1867,10 +1923,19 @@ async fn exec_in_native_docker_with_workspace(
     };
 
     let (binds, volumes) = match workspace {
-        NativeWorkspaceSource::Bind(host_cwd) => (
-            Some(vec![format!("{}:/workspace", host_cwd.display())]),
-            None,
-        ),
+        NativeWorkspaceSource::Bind(host_cwd) => {
+            // 老 exec_in_native_docker 的守卫在**调用点**做（line ~500 前置
+            // validate_bind_mount）。搬进 _with_workspace 后调用点消失，若
+            // 未来直接构造 Bind（`Bind` 现在 dead_code，注释里说"下一刀会
+            // 构造"），bind mount `/etc`、`/var/run/docker.sock`、根目录成为
+            // 可能。在此就地校验，让 Bind arm 与 exec_in_native_docker 的
+            // 守卫等价，收编时不留漏点。
+            validate_bind_mount(host_cwd)?;
+            (
+                Some(vec![format!("{}:/workspace", host_cwd.display())]),
+                None,
+            )
+        }
         // The anonymous volume is populated through Docker's archive API and
         // removed together with the container. It avoids interpreting a path
         // from the parent container in the host daemon's namespace.
@@ -2143,8 +2208,13 @@ struct GuardedArchiveReader<'a> {
 
 impl Read for GuardedArchiveReader<'_> {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        // **不能用 `ErrorKind::Interrupted`**——std::io::copy 及 tar 的 read
+        // 循环按惯例把 Interrupted 当作可重试的瞬时错误重跑，这里 deadline /
+        // cancellation 都已经命中且不会自愈，重跑会立即再次触发同样的错误 →
+        // 忙循环烧 CPU 直到外层 spawn_blocking 被 drop。用 `Other` 让消费者
+        // 把它当终态错误传播出去。
         check_isolated_archive_guard(self.deadline, self.cancellation_token)
-            .map_err(|error| std::io::Error::new(ErrorKind::Interrupted, error.to_string()))?;
+            .map_err(|error| std::io::Error::new(ErrorKind::Other, error.to_string()))?;
         self.file.read(buffer)
     }
 }
@@ -2161,6 +2231,12 @@ fn write_workspace_archive(
     let mut archive = tar::Builder::new(file);
     archive.follow_symlinks(false);
 
+    // Prepare 阶段已按 ISOLATED_COPY_MAX_BYTES / ENTRIES 上限拷贝到 temp，但
+    // archive 阶段**再次**遍历 temp 时没有守卫：如果 prep 到 archive 之间
+    // temp 出现意外新文件（TOCTOU / sandbox 内进程越权写入），tar 会不受
+    // 限制地打包，绕开隔离预算。这里镜像同一对上限，触顶即 bail。
+    let mut bytes_seen: u64 = 0;
+    let mut entries_seen: u64 = 0;
     let walker = WalkBuilder::new(source)
         .hidden(false)
         .ignore(false)
@@ -2201,6 +2277,27 @@ fn write_workspace_archive(
             continue;
         }
 
+        entries_seen = entries_seen.saturating_add(1);
+        if entries_seen > ISOLATED_COPY_MAX_ENTRIES {
+            anyhow::bail!(
+                "isolated sandbox archive exceeded entry limit ({} > {}); source '{}' likely diverged after prepare_isolated_workspace",
+                entries_seen,
+                ISOLATED_COPY_MAX_ENTRIES,
+                source.display()
+            );
+        }
+        if file_type.is_file() {
+            bytes_seen = bytes_seen.saturating_add(metadata.len());
+            if bytes_seen > ISOLATED_COPY_MAX_BYTES {
+                anyhow::bail!(
+                    "isolated sandbox archive exceeded size limit ({} > {} bytes); source '{}' likely diverged after prepare_isolated_workspace",
+                    bytes_seen,
+                    ISOLATED_COPY_MAX_BYTES,
+                    source.display()
+                );
+            }
+        }
+
         let mut header = tar::Header::new_gnu();
         header.set_metadata(&metadata);
         if file_type.is_dir() {
@@ -2239,4 +2336,72 @@ fn write_workspace_archive(
         .finish()
         .map_err(|e| anyhow::anyhow!("Failed to finish isolated workspace archive: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::write_workspace_archive;
+    use std::fs;
+    use std::time::Instant;
+
+    #[test]
+    fn workspace_archive_keeps_relative_hidden_and_nested_files() {
+        let source = tempfile::tempdir().expect("source tempdir");
+        fs::write(source.path().join(".env.example"), "safe=true\n").expect("hidden file");
+        fs::create_dir_all(source.path().join("src")).expect("source directory");
+        fs::write(source.path().join("src/main.rs"), "fn main() {}\n").expect("source file");
+        let archive_file = tempfile::NamedTempFile::new().expect("archive tempfile");
+        write_workspace_archive(source.path(), archive_file.path(), None, None)
+            .expect("write archive");
+
+        let file = fs::File::open(archive_file.path()).expect("open archive");
+        let mut archive = tar::Archive::new(file);
+        let paths = archive
+            .entries()
+            .expect("archive entries")
+            .map(|entry| {
+                entry
+                    .expect("archive entry")
+                    .path()
+                    .expect("archive path")
+                    .into_owned()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(paths.iter().any(|path| path.ends_with(".env.example")));
+        assert!(paths.iter().any(|path| path.ends_with("src/main.rs")));
+        assert!(paths.iter().all(|path| !path.is_absolute()));
+    }
+
+    #[test]
+    fn workspace_archive_honors_cancellation_and_deadline() {
+        let source = tempfile::tempdir().expect("source tempdir");
+        fs::write(source.path().join("large.bin"), vec![0_u8; 1024 * 1024]).expect("source file");
+
+        let cancelled_archive = tempfile::NamedTempFile::new().expect("cancelled archive");
+        let cancellation_token = tokio_util::sync::CancellationToken::new();
+        cancellation_token.cancel();
+        let cancelled = write_workspace_archive(
+            source.path(),
+            cancelled_archive.path(),
+            None,
+            Some(cancellation_token),
+        )
+        .expect_err("cancelled archive should fail");
+        assert!(cancelled
+            .to_string()
+            .contains("archive preparation cancelled"));
+
+        let timed_out_archive = tempfile::NamedTempFile::new().expect("timed out archive");
+        let timed_out = write_workspace_archive(
+            source.path(),
+            timed_out_archive.path(),
+            Some(Instant::now()),
+            None,
+        )
+        .expect_err("timed out archive should fail");
+        assert!(timed_out
+            .to_string()
+            .contains("archive preparation timed out"));
+    }
 }

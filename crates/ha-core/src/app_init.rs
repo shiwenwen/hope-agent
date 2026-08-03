@@ -1116,7 +1116,12 @@ pub async fn start_background_tasks() {
         // 时序，**不再是正确性要求**：这里曾经声称「调用序保护了启动清理与
         // 下面 watcher 之间的竞态」，但 `start_scheduler` 起的是独立 OS 线程、
         // 立即返回，清理与 watcher 实际并发，那条保护从未成立。竞态现已在
-        // 数据层消掉（`CronDB::clear_stale_running` 的 `< opened_at` 时间界）。
+        // 数据层消掉：`CronDB::clear_stale_running` / `recover_orphaned_runs`
+        // 按 **`running_owner != CronDB::owner_token` 的 owner 界**判断遗留
+        // （详见 `cron/db.rs:1499-1502`——刻意否决了 `< opened_at` 时间界，
+        // 因为 `Utc::now()` 不受 Rust happens-before 约束，clock rollback 会
+        // 让本进程写的 `running_at` 落到 `opened_at` 之前被误清）。owner
+        // token 与墙上时钟解耦。
         if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
             crate::cron_hooks::start_scheduler(cron_db.clone(), session_db.clone());
         }

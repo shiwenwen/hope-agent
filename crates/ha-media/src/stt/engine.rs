@@ -98,6 +98,13 @@ pub async fn failover_transcribe_batch(
     }
 
     let cfg = cached_config();
+    // main 的 fix (#571 apply default recognition language) 在 kernel engine
+    // 入口做了这次 with_defaults；ha-media 拆分后**只有** session.rs (流式)
+    // 保住了，batch 路径丢了。IM 语音 / HTTP transcribe-blob 都走 batch，
+    // 缺这行 = provider 拿到全 None，用户配的 language/prompt/timestamps
+    // 全部无效，中文识别质量与命名实体准确度悄悄回退。
+    let options = options.with_defaults(&cfg.stt.default_options);
+    let options = &options;
     let mut attempts = Vec::new();
     let mut last_error: Option<SttError> = None;
     let last_idx = chain.len() - 1;
