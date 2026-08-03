@@ -72,6 +72,7 @@ import {
 import {
   awaitUnlessAborted,
   beginChatBackendHandoff,
+  deferActiveTurnRelease,
   ChatPreparationCancelledError,
   discardChatAttachmentUploads,
   isChatPreparationCancelled,
@@ -903,7 +904,13 @@ export function useChatStream({
         if (streamId) discardPendingStreamDeltas(sid, deltaBuffersRef, streamId)
         return
       }
-      if (payload?.turnId) activeTurnBySessionRef.current.delete(sid)
+      if (payload?.turnId) {
+        // Keep the identity until every listener for this event has run. The
+        // reattach listener owns loading teardown and calls handleTurnEnded;
+        // deleting synchronously here would make it reject the same terminal
+        // event as stale while the HTTP request owner is still present.
+        deferActiveTurnRelease(activeTurnBySessionRef.current, sid, payload.turnId)
+      }
       if (payload?.status) {
         lastTurnStatusBySessionRef.current.set(sid, {
           status: payload.status,

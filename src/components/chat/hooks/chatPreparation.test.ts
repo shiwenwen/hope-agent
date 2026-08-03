@@ -2,11 +2,34 @@ import { describe, expect, it, vi } from "vitest"
 import type { ChatAttachment, Transport } from "@/lib/transport"
 import {
   beginChatBackendHandoff,
+  deferActiveTurnRelease,
   discardChatAttachmentUploads,
   loadingStateAfterPreparationRelease,
   shouldRollbackNonPersistedStoppedSend,
   validateChatAttachmentCount,
 } from "./chatPreparation"
+
+describe("deferActiveTurnRelease", () => {
+  it("keeps the turn visible through the current terminal event dispatch", async () => {
+    const turns = new Map([["session", "stopped-turn"]])
+
+    deferActiveTurnRelease(turns, "session", "stopped-turn")
+    expect(turns.get("session")).toBe("stopped-turn")
+
+    await Promise.resolve()
+    expect(turns.has("session")).toBe(false)
+  })
+
+  it("does not delete a replacement turn", async () => {
+    const turns = new Map([["session", "stopped-turn"]])
+
+    deferActiveTurnRelease(turns, "session", "stopped-turn")
+    turns.set("session", "replacement-turn")
+    await Promise.resolve()
+
+    expect(turns.get("session")).toBe("replacement-turn")
+  })
+})
 
 describe("shouldRollbackNonPersistedStoppedSend", () => {
   it("rolls back a remote preflight Stop without a local Stop marker", () => {
@@ -29,7 +52,9 @@ describe("discardChatAttachmentUploads", () => {
       { name: "upload", mime_type: "text/plain", upload_id: "lease-1" },
     ]
 
-    await expect(discardChatAttachmentUploads(attachments, transport, false)).resolves.toBeUndefined()
+    await expect(
+      discardChatAttachmentUploads(attachments, transport, false),
+    ).resolves.toBeUndefined()
     expect(discardChatAttachmentUpload).toHaveBeenCalledWith("lease-1")
   })
 

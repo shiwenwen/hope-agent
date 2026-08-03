@@ -137,8 +137,8 @@ pub async fn snapshot_runtime_tasks_for_session(
 
         if let Some(db) = crate::get_session_db() {
             let discovered = match session_for_blocking.as_deref() {
-                Some(sid) => db.list_active_subagent_runs(sid),
-                None => db.list_all_active_subagent_runs(),
+                Some(sid) => db.list_nonterminal_subagent_runs(sid),
+                None => db.list_all_nonterminal_subagent_runs(),
             }
             .map(|runs| {
                 runs.into_iter()

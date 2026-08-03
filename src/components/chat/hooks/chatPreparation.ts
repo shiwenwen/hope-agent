@@ -98,8 +98,7 @@ export function shouldRollbackNonPersistedStoppedSend(
   activeStreamError: boolean,
 ): boolean {
   return (
-    preflightStopError ||
-    (requestWasUserStopped && (preparationCancelled || activeStreamError))
+    preflightStopError || (requestWasUserStopped && (preparationCancelled || activeStreamError))
   )
 }
 
@@ -133,4 +132,23 @@ export function loadingStateAfterPreparationRelease(
   const currentSessionKey = currentSessionId ?? "__pending__"
   if (requestSessionKey !== currentSessionKey) return undefined
   return currentSessionId ? loadingSessionIds.has(currentSessionId) : false
+}
+
+/**
+ * Keep the exact turn identity visible to every listener handling the current
+ * terminal event. Some consumers use a later listener to clear loading; an
+ * immediate delete in an earlier listener would make that same event look
+ * stale. The exact-id check prevents the deferred cleanup from deleting a
+ * replacement turn that starts in the meantime.
+ */
+export function deferActiveTurnRelease(
+  activeTurns: Map<string, string>,
+  sessionId: string,
+  turnId: string,
+): void {
+  queueMicrotask(() => {
+    if (activeTurns.get(sessionId) === turnId) {
+      activeTurns.delete(sessionId)
+    }
+  })
 }
