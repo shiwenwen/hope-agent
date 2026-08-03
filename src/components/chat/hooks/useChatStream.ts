@@ -68,60 +68,17 @@ import {
   AUTO_SEND_PENDING_EVENT,
   normalizeAutoSendPendingPreference,
 } from "../autoSendPendingPreference"
+import {
+  awaitUnlessAborted,
+  ChatPreparationCancelledError,
+  isChatPreparationCancelled,
+  validateChatAttachmentCount,
+} from "./chatPreparation"
 
 const ACTIVE_STREAM_ERROR_CODE = "active_stream"
 const QUEUED_MESSAGE_UNAVAILABLE_ERROR_CODE = "queued_message_unavailable"
 const CHAT_CANCELLED_DURING_PREFLIGHT_CODE = "chat_cancelled_during_preflight"
 const CHAT_NOTIFICATION_PREVIEW_MAX_CHARS = 220
-
-class ChatPreparationCancelledError extends Error {
-  constructor() {
-    super("Chat preparation cancelled by user")
-    this.name = "ChatPreparationCancelledError"
-  }
-}
-
-function isChatPreparationCancelled(error: unknown): boolean {
-  return error instanceof ChatPreparationCancelledError
-}
-
-function awaitUnlessAborted<T>(
-  promise: Promise<T>,
-  signal?: AbortSignal,
-  onLateResolve?: (value: T) => void | Promise<void>,
-): Promise<T> {
-  if (!signal) return promise
-  return new Promise<T>((resolve, reject) => {
-    let settled = false
-    const onAbort = () => {
-      if (settled) return
-      settled = true
-      signal.removeEventListener("abort", onAbort)
-      reject(new ChatPreparationCancelledError())
-    }
-    promise.then(
-      (value) => {
-        if (settled) {
-          if (signal.aborted && onLateResolve) {
-            void Promise.resolve(onLateResolve(value)).catch(() => {})
-          }
-          return
-        }
-        settled = true
-        signal.removeEventListener("abort", onAbort)
-        resolve(value)
-      },
-      (error) => {
-        if (settled) return
-        settled = true
-        signal.removeEventListener("abort", onAbort)
-        reject(error)
-      },
-    )
-    if (signal.aborted) onAbort()
-    else signal.addEventListener("abort", onAbort, { once: true })
-  })
-}
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -1258,17 +1215,13 @@ export function useChatStream({
   )
 
   const ensureAttachmentCount = useCallback(
-    async (attachments: ChatAttachment[], transport: Transport, signal?: AbortSignal) => {
-      if (attachments.length <= 64) return
-      const cleanup = Promise.allSettled(
-        attachments
-          .map((attachment) => attachment.upload_id)
-          .filter((id): id is string => !!id)
-          .map((id) => transport.discardChatAttachmentUpload(id)),
-      )
-      await awaitUnlessAborted(cleanup, signal)
-      throw new Error(t("attachments.tooMany", "A message can contain at most 64 files"))
-    },
+    (attachments: ChatAttachment[], transport: Transport, signal?: AbortSignal) =>
+      validateChatAttachmentCount(
+        attachments,
+        transport,
+        t("attachments.tooMany", "A message can contain at most 64 files"),
+        signal,
+      ),
     [t],
   )
 
@@ -1394,7 +1347,7 @@ export function useChatStream({
         })
       }
 
-      await ensureAttachmentCount(attachments, transport)
+      await ensureAttachmentCount(attachments, transport, signal)
       return attachments
     },
     [draftWorkingDir, ensureAttachmentCount, quoteLineLabel, sessions, t],

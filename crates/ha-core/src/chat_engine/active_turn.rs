@@ -299,6 +299,27 @@ pub struct ActiveTurnSnapshot {
     pub cancel: Arc<AtomicBool>,
 }
 
+/// Resolve the exact Stop target shared by the desktop and HTTP adapters.
+///
+/// Before `turn_started` reaches the client, a Stop may know the session and
+/// client request id but not the turn id. If the request id already resolves
+/// to an active turn, preserve that turn id even when the caller supplied the
+/// session explicitly; falling back to a session-wide Stop could otherwise
+/// race and cancel a replacement turn.
+pub fn resolve_stop_target(
+    explicit_session_id: Option<&str>,
+    explicit_turn_id: Option<&str>,
+    request_target: Option<&ActiveTurnSnapshot>,
+) -> (Option<String>, Option<String>) {
+    let session_id = explicit_session_id
+        .map(str::to_string)
+        .or_else(|| request_target.map(|active| active.session_id.clone()));
+    let turn_id = explicit_turn_id
+        .map(str::to_string)
+        .or_else(|| request_target.map(|active| active.turn_id.clone()));
+    (session_id, turn_id)
+}
+
 pub fn current(session_id: &str) -> Option<ActiveTurnSnapshot> {
     let map = registry_lock();
     map.get(session_id).map(|entry| ActiveTurnSnapshot {
@@ -695,6 +716,11 @@ mod tests {
         };
         assert_eq!(cancelled.turn_id, "turn-request-target");
         assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
+
+        let (target_session_id, target_turn_id) =
+            resolve_stop_target(Some(sid), None, Some(&cancelled));
+        assert_eq!(target_session_id.as_deref(), Some(sid));
+        assert_eq!(target_turn_id.as_deref(), Some("turn-request-target"));
     }
 
     #[test]

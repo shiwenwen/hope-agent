@@ -1757,16 +1757,12 @@ pub async fn stop_chat(
                 | ha_core::chat_engine::active_turn::ClientRequestCancelOutcome::Latched
         )
     );
-    let target_session_id = body.session_id.clone().or_else(|| {
-        request_target
-            .as_ref()
-            .map(|active| active.session_id.clone())
-    });
-    let target_turn_id = if body.session_id.is_some() {
-        body.turn_id.clone()
-    } else {
-        request_target.as_ref().map(|active| active.turn_id.clone())
-    };
+    let (target_session_id, target_turn_id) =
+        ha_core::chat_engine::active_turn::resolve_stop_target(
+            body.session_id.as_deref(),
+            body.turn_id.as_deref(),
+            request_target.as_ref(),
+        );
     let global_stop = body.session_id.is_none() && body.client_request_id.is_none();
     let registered_cancels: std::collections::HashMap<_, _> = ctx
         .chat_cancels

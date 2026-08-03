@@ -1497,16 +1497,11 @@ pub async fn stop_chat(
         }
         _ => None,
     });
-    let target_session_id = session_id.clone().or_else(|| {
-        request_target
-            .as_ref()
-            .map(|active| active.session_id.clone())
-    });
-    let target_turn_id = if session_id.is_some() {
-        turn_id.clone()
-    } else {
-        request_target.as_ref().map(|active| active.turn_id.clone())
-    };
+    let (target_session_id, target_turn_id) = crate::chat_engine::active_turn::resolve_stop_target(
+        session_id.as_deref(),
+        turn_id.as_deref(),
+        request_target.as_ref(),
+    );
     let global_stop = session_id.is_none() && client_request_id.is_none();
     if let Some(sid) = target_session_id.as_deref() {
         let already_signalled = matches!(
