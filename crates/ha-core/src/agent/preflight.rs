@@ -108,7 +108,7 @@ pub async fn user_prompt_preflight_cancellable(
     args: PreflightArgs<'_>,
     cancel: &AtomicBool,
 ) -> Option<PreflightOutcome> {
-    if cancel.load(Ordering::Acquire) {
+    if cancel.load(Ordering::SeqCst) {
         crate::hooks::set_user_prompt_context(args.session_id, None);
         return None;
     }
@@ -116,14 +116,32 @@ pub async fn user_prompt_preflight_cancellable(
     tokio::select! {
         biased;
         _ = async {
-            while !cancel.load(Ordering::Acquire) {
+            while !cancel.load(Ordering::SeqCst) {
                 tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             }
         } => {
             crate::hooks::set_user_prompt_context(args.session_id, None);
             None
         }
-        outcome = user_prompt_preflight(args) => Some(outcome),
+        outcome = user_prompt_preflight(args) => {
+            finish_cancellable_preflight(args.session_id, cancel, outcome)
+        },
+    }
+}
+
+/// Close the final race between the cancellation poll and hook completion.
+/// `user_prompt_preflight` may already have stashed additional context, so a
+/// late Stop must also clear that slot before the shell can persist the prompt.
+fn finish_cancellable_preflight(
+    session_id: &str,
+    cancel: &AtomicBool,
+    outcome: PreflightOutcome,
+) -> Option<PreflightOutcome> {
+    if cancel.load(Ordering::SeqCst) {
+        crate::hooks::set_user_prompt_context(session_id, None);
+        None
+    } else {
+        Some(outcome)
     }
 }
 
@@ -168,5 +186,23 @@ mod tests {
 
         assert!(out.is_none());
         assert!(crate::hooks::take_user_prompt_context("preflight-cancelled-s1").is_none());
+    }
+
+    #[test]
+    fn cancellation_after_hook_completion_discards_outcome_and_context() {
+        let session_id = "preflight-cancelled-after-hook-s1";
+        crate::hooks::set_user_prompt_context(session_id, Some("hook context".into()));
+        let cancel = AtomicBool::new(true);
+
+        let out = finish_cancellable_preflight(
+            session_id,
+            &cancel,
+            PreflightOutcome::Proceed {
+                effective_prompt: "must not persist".into(),
+            },
+        );
+
+        assert!(out.is_none());
+        assert!(crate::hooks::take_user_prompt_context(session_id).is_none());
     }
 }

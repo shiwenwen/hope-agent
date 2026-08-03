@@ -72,6 +72,7 @@ import {
   awaitUnlessAborted,
   beginChatBackendHandoff,
   ChatPreparationCancelledError,
+  discardChatAttachmentUploads,
   isChatPreparationCancelled,
   loadingStateAfterPreparationRelease,
   validateChatAttachmentCount,
@@ -1998,24 +1999,19 @@ export function useChatStream({
       if (options?.editMessageId != null) markDispatchAccepted()
       chatResolved = true
     } catch (e) {
-      await Promise.allSettled(
-        attachments
-          .map((attachment) => attachment.upload_id)
-          .filter((id): id is string => !!id)
-          .map((id) => sendTransport.discardChatAttachmentUpload(id)),
-      )
       const sid = targetSessionId || "__pending__"
       const ownsRequestLifecycleNow =
         chatRequestOwnerBySessionRef.current.get(sid) === chatRequestOwnerId
       const requestWasUserStopped = userStoppedRequestIdsRef.current.has(chatRequestOwnerId)
-      const bootstrapFailedBeforeSession =
-        !sendSessionId && sid === "__pending__" && !!draftProjectBootstrap
-      if (
+      const stoppedBeforePersistence =
         requestWasUserStopped &&
         (isPreflightStopError(e) ||
           isChatPreparationCancelled(e) ||
           isActiveStreamError(e))
-      ) {
+      await discardChatAttachmentUploads(attachments, sendTransport, !stoppedBeforePersistence)
+      const bootstrapFailedBeforeSession =
+        !sendSessionId && sid === "__pending__" && !!draftProjectBootstrap
+      if (stoppedBeforePersistence) {
         updateSessionMessages(sid, (prev) =>
           prev.filter(
             (message) =>

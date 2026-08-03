@@ -2,9 +2,48 @@ import { describe, expect, it, vi } from "vitest"
 import type { ChatAttachment, Transport } from "@/lib/transport"
 import {
   beginChatBackendHandoff,
+  discardChatAttachmentUploads,
   loadingStateAfterPreparationRelease,
   validateChatAttachmentCount,
 } from "./chatPreparation"
+
+describe("discardChatAttachmentUploads", () => {
+  it("does not wait for stalled cleanup after the send was stopped", async () => {
+    const discardChatAttachmentUpload = vi.fn(() => new Promise<void>(() => {}))
+    const transport = { discardChatAttachmentUpload } as unknown as Transport
+    const attachments: ChatAttachment[] = [
+      { name: "upload", mime_type: "text/plain", upload_id: "lease-1" },
+    ]
+
+    await expect(discardChatAttachmentUploads(attachments, transport, false)).resolves.toBeUndefined()
+    expect(discardChatAttachmentUpload).toHaveBeenCalledWith("lease-1")
+  })
+
+  it("waits for cleanup on ordinary failures", async () => {
+    let resolveCleanup: (() => void) | undefined
+    const discardChatAttachmentUpload = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCleanup = resolve
+        }),
+    )
+    const transport = { discardChatAttachmentUpload } as unknown as Transport
+    const attachments: ChatAttachment[] = [
+      { name: "upload", mime_type: "text/plain", upload_id: "lease-1" },
+    ]
+    let settled = false
+
+    const cleanup = discardChatAttachmentUploads(attachments, transport, true).then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    resolveCleanup?.()
+    await cleanup
+    expect(settled).toBe(true)
+  })
+})
 
 describe("validateChatAttachmentCount", () => {
   it("releases Stop immediately while excess-upload cleanup is still pending", async () => {

@@ -65,6 +65,26 @@ export function awaitUnlessAborted<T>(
   })
 }
 
+/**
+ * Start best-effort cleanup for staged attachment leases. A stopped send must
+ * release its composer state immediately even if the cleanup transport is
+ * stalled; ordinary failures still wait so their leases are settled before
+ * the error lifecycle completes.
+ */
+export async function discardChatAttachmentUploads(
+  attachments: ChatAttachment[],
+  transport: Transport,
+  waitForCompletion: boolean,
+): Promise<void> {
+  const cleanup = Promise.allSettled(
+    attachments
+      .map((attachment) => attachment.upload_id)
+      .filter((id): id is string => !!id)
+      .map((id) => transport.discardChatAttachmentUpload(id)),
+  )
+  if (waitForCompletion) await cleanup
+}
+
 export async function validateChatAttachmentCount(
   attachments: ChatAttachment[],
   transport: Transport,
