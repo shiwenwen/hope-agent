@@ -141,11 +141,47 @@ pub async fn snapshot_runtime_tasks_for_session(
 pub async fn cancel_runtime_task_snapshot(
     snapshot: RuntimeTaskSnapshot,
 ) -> anyhow::Result<Vec<CancelRuntimeTaskResult>> {
+    Ok(
+        cancel_runtime_task_snapshot_with(snapshot, |kind, id| async move {
+            cancel_runtime_task(kind, &id).await
+        })
+        .await,
+    )
+}
+
+async fn cancel_runtime_task_snapshot_with<F, Fut>(
+    snapshot: RuntimeTaskSnapshot,
+    mut cancel_task: F,
+) -> Vec<CancelRuntimeTaskResult>
+where
+    F: FnMut(RuntimeTaskKind, String) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<CancelRuntimeTaskResult>>,
+{
     let mut results = Vec::with_capacity(snapshot.tasks.len());
     for (kind, id) in snapshot.tasks {
-        results.push(cancel_runtime_task(kind, &id).await?);
+        match cancel_task(kind, id.clone()).await {
+            Ok(result) => results.push(result),
+            Err(error) => {
+                let message = crate::logging::redact_sensitive(&error.to_string());
+                crate::app_warn!(
+                    "chat",
+                    "runtime_task_cancel",
+                    "Runtime task cancellation failed; continuing snapshot: kind={} id={} error={}",
+                    kind.as_str(),
+                    id,
+                    message
+                );
+                results.push(CancelRuntimeTaskResult::new(
+                    kind,
+                    &id,
+                    false,
+                    "error",
+                    format!("Runtime task cancellation failed: {message}"),
+                ));
+            }
+        }
     }
-    Ok(results)
+    results
 }
 
 fn cancel_async_job(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
@@ -299,5 +335,47 @@ fn cancel_cron(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
             "not_found",
             "Cron job not found",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn snapshot_cancellation_continues_after_individual_failure() {
+        let snapshot = RuntimeTaskSnapshot {
+            tasks: vec![
+                (RuntimeTaskKind::AsyncJob, "fails".to_string()),
+                (RuntimeTaskKind::Process, "continues".to_string()),
+            ],
+        };
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let calls_for_cancel = calls.clone();
+
+        let results = cancel_runtime_task_snapshot_with(snapshot, move |kind, id| {
+            calls_for_cancel.lock().unwrap().push(id.clone());
+            async move {
+                if id == "fails" {
+                    anyhow::bail!("transient cancellation failure");
+                }
+                Ok(CancelRuntimeTaskResult::new(
+                    kind,
+                    &id,
+                    true,
+                    "killed",
+                    "cancelled",
+                ))
+            }
+        })
+        .await;
+
+        assert_eq!(&*calls.lock().unwrap(), &["fails", "continues"]);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].status, "error");
+        assert!(!results[0].accepted);
+        assert_eq!(results[1].status, "killed");
+        assert!(results[1].accepted);
     }
 }
