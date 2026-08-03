@@ -439,14 +439,28 @@ watchdog 精确释放旧 `turnId` 后允许用户继续对话；旧请求迟到�
 拿到正确的 `Shutdown` / `Crash` reason 落 chat_turn 终态，同时清理内存
 `active_turn` registry，避免热重启后 DB 已中断但内存仍报告 active。
 
-HTTP chat route 还额外持有两个 Drop 兜底 guard：一是只移除本次请求注册的
-cancel flag，避免客户端断开时把 stale cancel 留在 `chat_cancels`；二是当
-Axum 因 HTTP 客户端断开而丢弃 handler future 时，外层 guard 只把 turn 标为
-`cancelling/runtime_cancel`，不得直接写终态或广播 end。Chat Engine 的
-`StreamLifecycle::Drop` 按精确 `persistence_run_id` 启动后台收敛：导入已 fsync 的 spool、
-校验 journal 连续前缀、重建 provider-native context、执行 `commit_interrupted_turn`，事务
-完成后才广播 `interrupted/runtime_cancel` 的 `chat:stream_end`。若 runtime 已经退出，run
-保持 `running`，交给下一次启动恢复；不得以一个未物化 journal 的 HTTP Drop end 解除 loading。
+Bundled HTTP UI 的 `POST /api/chat/ui` 不把 Chat Engine 生命周期挂在 Axum request future
+上：通过浏览器来源校验且非 incognito 的请求先进入 server-owned Tokio task，完成 Session、
+user message、`chat_turn(running)` 同一持久化边界后立即返回 `202` ACK
+`{sessionId, turnId, accepted:true}`；worker 独立继续执行。`clientRequestId` + payload SHA-256
+指纹随 turn 落 SQLite，进程内 registry 只负责合并提交前的并发 waiter；因此服务重启或 registry
+淘汰后，相同 payload 重试仍返回原 Session/turn，不重复落用户消息，不同 payload 复用同 id 返回 409。
+浏览器用 `/ws/events` 接收流，并以 `GET /api/chat/turns/{turnId}` 补齐 ACK/end 竞态或断线期间
+漏掉的精确终态；页面、WebSocket 或反向代理连接断开只丢观察者，不再取消 worker。
+
+server-owned UI turn 在运行期间注册 session-scoped `ReattachableUiSessionGuard`：即使当前没有
+`/ws/events` 客户端，后续 Ask 仍走正常 pending 审批，用户重开页面后可恢复回答；它会沿后台
+subagent 的排队 + 执行生命周期传播，并由结果回投及其 `PENDING_INJECTIONS` 重排队继续持有，
+避免父 turn 先结束后子任务/回投被误判为无人值守。这不自动批准任何操作，且 cron 的恒
+Unattended 判定仍优先。所有派生工作终态后 guard 自动撤销。Incognito 仍遵守
+close-and-burn，不脱离原 request；公共同步 API `POST /api/chat` 也保留“请求返回即回合结束”的
+兼容契约。
+
+同步 HTTP / incognito 路径仍持有两个 Drop 兜底 guard：一是只移除本次请求注册的 cancel flag，
+避免客户端断开时把 stale cancel 留在 `chat_cancels`；二是 request future 被丢弃时，外层 guard
+只把 turn 标为 `cancelling/runtime_cancel`，由 Chat Engine `StreamLifecycle::Drop` 按精确
+`persistence_run_id` 从 durable prefix 后台收敛并广播终态。服务进程退出则依旧不透明重放
+任意副作用，交给启动恢复标记 Interrupted。
 
 `turn_id = None` 仍是非交互入口的显式设计：Cron、subagent、parent injection、IM
 channel worker 与 ACP 不参与 GUI/HTTP 的 turn 级 stop 与 active-turn registry；但它们

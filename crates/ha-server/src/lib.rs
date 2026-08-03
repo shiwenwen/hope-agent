@@ -883,6 +883,7 @@ fn build_router_with_cors(
         // Chat
         .route("/chat", post(routes::chat::chat))
         .route("/chat/ui", post(routes::chat::ui_chat))
+        .route("/chat/turns/{turn_id}", get(routes::chat::get_chat_turn))
         .route(
             "/eval/model/trials/{trial_id}",
             get(routes::chat::model_eval_trial_telemetry),

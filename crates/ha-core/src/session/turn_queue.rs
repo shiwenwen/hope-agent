@@ -146,7 +146,7 @@ pub struct EnqueueQueuedTurnMessageOutcome {
     pub inserted: bool,
 }
 
-fn emit_changed(session_id: &str, request_id: Option<&str>, operation: &str) {
+pub(super) fn emit_changed(session_id: &str, request_id: Option<&str>, operation: &str) {
     if let Some(bus) = crate::get_event_bus() {
         bus.emit(
             EVENT_TURN_QUEUE_CHANGED,

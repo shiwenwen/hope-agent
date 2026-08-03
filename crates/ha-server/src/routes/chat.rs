@@ -1,15 +1,19 @@
 use axum::extract::{Multipart, Path, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Extension;
 use axum::Json;
 
 use super::helpers::parse_file_upload_to_temp;
+use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use tokio::sync::oneshot;
 
 use ha_core::agent::Attachment;
 use ha_core::chat_engine::{ChatEngineParams, EventSink, NoopEventSink};
@@ -29,7 +33,7 @@ use crate::{AppContext, UiRequestPolicy};
 // throughout (`sessionId`, `agentId`, `requestId`, ...), so the matching
 // HTTP body structs MUST accept camelCase to deserialize successfully.
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitialGoalRequest {
     pub objective: String,
@@ -37,7 +41,7 @@ pub struct InitialGoalRequest {
     pub completion_criteria: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatRequest {
     pub message: String,
@@ -189,7 +193,7 @@ pub struct CancelQueuedTurnUserMessageRequest {
     pub request_id: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatResponse {
     pub session_id: String,
@@ -210,10 +214,158 @@ pub struct ChatResponse {
     /// would break subsequent sends / history loads).
     #[serde(default, skip_serializing_if = "is_false")]
     pub session_deleted: bool,
+    /// The bundled HTTP UI request has transferred execution ownership to the
+    /// server and this response is only a dispatch acknowledgement. Public API
+    /// and incognito requests keep their synchronous completion contract.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub accepted: bool,
 }
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+#[derive(Clone)]
+enum UiChatDispatchOutcome {
+    Success(ChatResponse),
+    Failure(AppError),
+}
+
+struct UiChatDispatchEntry {
+    fingerprint: String,
+    outcome: Option<UiChatDispatchOutcome>,
+    finished: bool,
+    waiters: Vec<oneshot::Sender<UiChatDispatchOutcome>>,
+}
+
+#[derive(Default)]
+struct UiChatDispatchState {
+    entries: HashMap<String, UiChatDispatchEntry>,
+    order: VecDeque<String>,
+}
+
+struct UiChatDispatchSubscription {
+    leader: bool,
+    receiver: oneshot::Receiver<UiChatDispatchOutcome>,
+}
+
+const UI_CHAT_DISPATCH_CACHE_MAX: usize = 4096;
+static UI_CHAT_DISPATCHES: OnceLock<Mutex<UiChatDispatchState>> = OnceLock::new();
+
+#[derive(Clone)]
+struct DetachedUiDispatch {
+    request_id: String,
+    fingerprint: String,
+}
+
+fn ui_chat_dispatches() -> &'static Mutex<UiChatDispatchState> {
+    UI_CHAT_DISPATCHES.get_or_init(|| Mutex::new(UiChatDispatchState::default()))
+}
+
+fn ui_chat_request_fingerprint(body: &ChatRequest) -> Result<String, AppError> {
+    let encoded = serde_json::to_vec(body)
+        .map_err(|error| AppError::bad_request(format!("invalid chat request: {error}")))?;
+    Ok(ha_core::sha256_hex(&encoded))
+}
+
+fn subscribe_ui_chat_dispatch(
+    request_id: &str,
+    fingerprint: &str,
+) -> Result<UiChatDispatchSubscription, AppError> {
+    let (sender, receiver) = oneshot::channel();
+    let mut state = ui_chat_dispatches()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    if let Some(entry) = state.entries.get_mut(request_id) {
+        if entry.fingerprint != fingerprint {
+            return Err(AppError::conflict_with_code(
+                "client_request_id_reused",
+                "clientRequestId was already used for a different chat request",
+            ));
+        }
+        if let Some(outcome) = entry.outcome.clone() {
+            let _ = sender.send(outcome);
+        } else {
+            entry.waiters.push(sender);
+        }
+        return Ok(UiChatDispatchSubscription {
+            leader: false,
+            receiver,
+        });
+    }
+
+    while state.entries.len() >= UI_CHAT_DISPATCH_CACHE_MAX {
+        let attempts = state.order.len();
+        let mut evicted = false;
+        for _ in 0..attempts {
+            let Some(candidate) = state.order.pop_front() else {
+                break;
+            };
+            if state
+                .entries
+                .get(&candidate)
+                .is_some_and(|entry| entry.finished)
+            {
+                state.entries.remove(&candidate);
+                evicted = true;
+                break;
+            }
+            state.order.push_back(candidate);
+        }
+        if !evicted {
+            return Err(AppError::internal(
+                "too many UI chat requests are still being prepared",
+            ));
+        }
+    }
+
+    state.order.push_back(request_id.to_string());
+    state.entries.insert(
+        request_id.to_string(),
+        UiChatDispatchEntry {
+            fingerprint: fingerprint.to_string(),
+            outcome: None,
+            finished: false,
+            waiters: vec![sender],
+        },
+    );
+    Ok(UiChatDispatchSubscription {
+        leader: true,
+        receiver,
+    })
+}
+
+/// Publish exactly one transport outcome. The accepted ACK remains cached so
+/// retrying a POST whose response was lost cannot create a duplicate turn.
+fn publish_ui_chat_dispatch(request_id: &str, outcome: UiChatDispatchOutcome) -> bool {
+    let mut state = ui_chat_dispatches()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(entry) = state.entries.get_mut(request_id) else {
+        return false;
+    };
+    if entry.outcome.is_some() {
+        return false;
+    }
+    entry.finished = match &outcome {
+        UiChatDispatchOutcome::Success(response) => !response.accepted,
+        UiChatDispatchOutcome::Failure(_) => true,
+    };
+    entry.outcome = Some(outcome.clone());
+    for waiter in entry.waiters.drain(..) {
+        let _ = waiter.send(outcome.clone());
+    }
+    true
+}
+
+fn mark_ui_chat_dispatch_finished(request_id: &str) {
+    let mut state = ui_chat_dispatches()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(entry) = state.entries.get_mut(request_id) {
+        entry.finished = true;
+    }
 }
 
 struct ChatCancelRegistrationGuard {
@@ -291,9 +443,10 @@ impl HttpChatTurnDropFinalizer {
 
         // Once the unified journal run exists, its atomic convergence path is
         // the only authority allowed to terminalize the turn or emit
-        // `chat:stream_end`. This includes Drop during client disconnect: the
-        // engine lifecycle schedules runtime-cancel recovery from the durable
-        // prefix, while this outer HTTP guard merely records `cancelling`.
+        // `chat:stream_end`. This includes a synchronous public/incognito
+        // request disconnect and a detached worker panic: the engine lifecycle
+        // schedules runtime-cancel recovery from the durable prefix, while this
+        // outer HTTP guard merely records `cancelling`.
         if self
             .db
             .latest_stream_run(&self.session_id)
@@ -353,7 +506,7 @@ impl Drop for HttpChatTurnDropFinalizer {
         self.finish_if_open(
             session::ChatTurnStatus::Interrupted,
             Some(session::ChatTurnInterruptReason::RuntimeCancel),
-            Some("chat request dropped before completion"),
+            Some("chat execution owner dropped before completion"),
         );
     }
 }
@@ -528,33 +681,177 @@ pub async fn chat(
     State(ctx): State<Arc<AppContext>>,
     Json(mut body): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, AppError> {
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
     body.ui_surface = None;
-    chat_inner(ctx, body).await
+    chat_inner(ctx, body, None, foreground_admission).await
 }
 
-/// Bundled first-party HTTP UI chat. `HttpTransport.startChat` uses this route
-/// only when a fixed `ChatUiSurface` was supplied by a first-party product
-/// message-list/composer surface (including Pet quick reply).
+/// Bundled first-party HTTP UI chat. Every `HttpTransport.startChat` call uses
+/// this browser-provenance-gated route; `uiSurface`, when present, additionally
+/// identifies a product message-list/composer surface for Pet projection.
 pub async fn ui_chat(
     State(ctx): State<Arc<AppContext>>,
     Extension(ui_request_policy): Extension<UiRequestPolicy>,
     headers: HeaderMap,
-    Json(body): Json<ChatRequest>,
-) -> Result<Json<ChatResponse>, AppError> {
+    Json(mut body): Json<ChatRequest>,
+) -> Result<Response, AppError> {
     if !ui_request_policy.accepts(&headers) {
         return Err(AppError::forbidden("ui_chat_browser_proof_required"));
     }
-    chat_inner(ctx, body).await
+    // Capture at the HTTP transport boundary, before the incognito lookup or
+    // detached-task handoff. A global Stop racing either await must reject this
+    // already-arrived request even after the cleanup gate is released.
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
+
+    // Incognito is deliberately close-and-burn: it must never outlive the
+    // request/web surface that owns it. Existing sessions do not resend the
+    // draft `incognito` flag, so resolve the durable session metadata before
+    // deciding whether execution may detach from this request.
+    let project_bound = body
+        .project_id
+        .as_deref()
+        .is_some_and(|project_id| !project_id.trim().is_empty());
+    let incognito = if let Some(session_id) = body
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|session_id| !session_id.is_empty())
+    {
+        let session_id = session_id.to_string();
+        ctx.session_db
+            .run(move |db| db.get_session(&session_id))
+            .await?
+            .is_some_and(|session| session.incognito)
+    } else {
+        body.incognito.unwrap_or(false) && !project_bound
+    };
+    if incognito {
+        return chat_inner(ctx, body, None, foreground_admission)
+            .await
+            .map(|response| response.into_response());
+    }
+
+    let request_id = body
+        .client_request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|request_id| !request_id.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    if request_id.len() > 256 {
+        return Err(AppError::bad_request(
+            "clientRequestId must be at most 256 characters",
+        ));
+    }
+    body.client_request_id = Some(request_id.clone());
+    let fingerprint = ui_chat_request_fingerprint(&body)?;
+
+    // SQLite is the cross-process idempotency authority. The in-memory entry
+    // below only coordinates concurrent waiters while the first request is
+    // still preparing its durable user-message/turn boundary.
+    let durable_request_id = request_id.clone();
+    if let Some(dispatch) = ctx
+        .session_db
+        .run(move |db| db.get_ui_chat_dispatch(&durable_request_id))
+        .await?
+    {
+        if dispatch.request_fingerprint != fingerprint {
+            return Err(AppError::conflict_with_code(
+                "client_request_id_reused",
+                "clientRequestId was already used for a different chat request",
+            ));
+        }
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(ChatResponse {
+                session_id: dispatch.session_id,
+                response: String::new(),
+                turn_id: dispatch.turn_id,
+                blocked_reason: None,
+                session_deleted: false,
+                accepted: true,
+            }),
+        )
+            .into_response());
+    }
+
+    let subscription = subscribe_ui_chat_dispatch(&request_id, &fingerprint)?;
+
+    if subscription.leader {
+        let worker_request_id = request_id.clone();
+        let detached_dispatch = DetachedUiDispatch {
+            request_id: worker_request_id.clone(),
+            fingerprint,
+        };
+        tokio::spawn(async move {
+            let result = AssertUnwindSafe(chat_inner(
+                ctx,
+                body,
+                Some(detached_dispatch),
+                foreground_admission,
+            ))
+            .catch_unwind()
+            .await;
+            match result {
+                Ok(result) => {
+                    let outcome = match result {
+                        Ok(Json(response)) => UiChatDispatchOutcome::Success(response),
+                        Err(error) => UiChatDispatchOutcome::Failure(error),
+                    };
+                    if !publish_ui_chat_dispatch(&worker_request_id, outcome.clone()) {
+                        mark_ui_chat_dispatch_finished(&worker_request_id);
+                        if let UiChatDispatchOutcome::Failure(error) = outcome {
+                            ha_core::app_warn!(
+                                "chat",
+                                "detached_ui_chat_failed",
+                                "Detached HTTP UI chat failed after dispatch: request={} error={}",
+                                worker_request_id,
+                                error.message
+                            );
+                        }
+                    }
+                }
+                Err(_) => {
+                    ha_core::app_error!(
+                        "chat",
+                        "detached_ui_chat_panicked",
+                        "Detached HTTP UI chat panicked: request={}",
+                        worker_request_id
+                    );
+                    let _ = publish_ui_chat_dispatch(
+                        &worker_request_id,
+                        UiChatDispatchOutcome::Failure(AppError::internal(
+                            "detached UI chat worker panicked",
+                        )),
+                    );
+                    mark_ui_chat_dispatch_finished(&worker_request_id);
+                }
+            }
+        });
+    }
+
+    match subscription.receiver.await {
+        Ok(UiChatDispatchOutcome::Success(response)) => {
+            let status = if response.accepted {
+                StatusCode::ACCEPTED
+            } else {
+                StatusCode::OK
+            };
+            Ok((status, Json(response)).into_response())
+        }
+        Ok(UiChatDispatchOutcome::Failure(error)) => Err(error),
+        Err(_) => Err(AppError::internal(
+            "UI chat dispatch closed before acknowledgement",
+        )),
+    }
 }
 
 async fn chat_inner(
     ctx: Arc<AppContext>,
     mut body: ChatRequest,
+    detached_ui_dispatch: Option<DetachedUiDispatch>,
+    foreground_admission: ha_core::chat_engine::active_turn::ForegroundRequestAdmission,
 ) -> Result<Json<ChatResponse>, AppError> {
-    // Snapshot before the first await. A global Stop that begins while this
-    // request is still resolving/bootstrapping must remain authoritative even
-    // after its bounded cleanup gate has been released.
-    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
     let db = ctx.session_db.clone();
     let eval_context_pending = body.eval_context.take();
     if eval_context_pending.is_some() && !ha_core::eval_context::model_eval_mode_enabled() {
@@ -1067,6 +1364,7 @@ async fn chat_inner(
                     blocked_reason: Some(notice),
                     // Session was just deleted — tell the transport not to adopt it.
                     session_deleted: true,
+                    accepted: false,
                 }));
             }
             let _ = {
@@ -1087,6 +1385,7 @@ async fn chat_inner(
                 turn_id,
                 blocked_reason: Some(notice),
                 session_deleted: false,
+                accepted: false,
             }));
         }
     };
@@ -1212,9 +1511,14 @@ async fn chat_inner(
         let sid = sid.clone();
         let turn_id = turn_id.clone();
         let effective_prompt = effective_prompt.clone();
-        let queue_id_for_consume = queued_request_id.clone();
         let edit_message_id = body.edit_message_id;
         let ui_surface_for_turn = body.ui_surface;
+        let dispatch_request_id = detached_ui_dispatch
+            .as_ref()
+            .map(|dispatch| dispatch.request_id.clone());
+        let dispatch_fingerprint = detached_ui_dispatch
+            .as_ref()
+            .map(|dispatch| dispatch.fingerprint.clone());
         db.run(move |db| {
             ha_core::chat_engine::active_turn::with_persistence_target(
                 &sid,
@@ -1228,29 +1532,25 @@ async fn chat_inner(
                             &turn_id,
                             ha_core::chat_engine::ChatSource::Http.as_str(),
                             ui_surface_for_turn,
+                            dispatch_request_id.as_deref(),
+                            dispatch_fingerprint.as_deref(),
                         )?;
                         let turn = db.get_chat_turn(&turn_id)?.ok_or_else(|| {
                             anyhow::anyhow!("replacement chat turn was not created")
                         })?;
                         return Ok((Some(replacement_id), turn));
                     }
-                    let user_message_id = if queue_id_for_consume.is_some() {
-                        Some(db.append_message(&sid, &user_msg)?)
-                    } else {
-                        db.append_message(&sid, &user_msg).ok()
-                    };
-                    let turn = db.create_chat_turn_with_id_surface(
-                        &turn_id,
-                        &sid,
-                        ha_core::chat_engine::ChatSource::Http.as_str(),
-                        None,
-                        user_message_id,
-                        ui_surface_for_turn,
-                    )?;
-                    if let Some(request_id) = queue_id_for_consume.as_deref() {
-                        db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
-                    }
-
+                    let (user_message_id, turn) = db
+                        .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                            &turn_id,
+                            &sid,
+                            ha_core::chat_engine::ChatSource::Http.as_str(),
+                            None,
+                            &user_msg,
+                            ui_surface_for_turn,
+                            dispatch_request_id.as_deref(),
+                            dispatch_fingerprint.as_deref(),
+                        )?;
                     // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
                     let _ = session::ensure_first_message_title(
                         db,
@@ -1258,7 +1558,7 @@ async fn chat_inner(
                         &effective_prompt,
                         title_attachments_meta.as_deref(),
                     );
-                    Ok((user_message_id, turn))
+                    Ok((Some(user_message_id), turn))
                 },
             )
         })
@@ -1380,6 +1680,29 @@ async fn chat_inner(
     };
     let mut turn_drop_finalizer =
         HttpChatTurnDropFinalizer::new(db.clone(), sid.clone(), turn_id.clone());
+
+    // This is the ownership-transfer boundary for the bundled HTTP UI. The
+    // session, user message, and running chat_turn are durable and the detached
+    // Tokio task owns every guard below. Returning this ACK can no longer drop
+    // the engine. Keep a session-scoped approval surface registered so a turn
+    // that reaches Ask while every browser is temporarily disconnected waits
+    // for a reconnect instead of being misclassified as headless automation.
+    let _reattachable_ui_guard = detached_ui_dispatch.as_ref().map(|dispatch| {
+        let guard = ha_core::permission::register_reattachable_ui_session(&sid);
+        let accepted = publish_ui_chat_dispatch(
+            &dispatch.request_id,
+            UiChatDispatchOutcome::Success(ChatResponse {
+                session_id: sid.clone(),
+                response: String::new(),
+                turn_id: turn_id.clone(),
+                blocked_reason: None,
+                session_deleted: false,
+                accepted: true,
+            }),
+        );
+        debug_assert!(accepted, "detached UI dispatch must publish exactly once");
+        guard
+    });
 
     // Resolve model chain
     let agent_model_config = agent_def
@@ -1573,7 +1896,24 @@ async fn chat_inner(
         turn_id,
         blocked_reason: None,
         session_deleted: false,
+        accepted: false,
     }))
+}
+
+/// Exact turn status used by the HTTP UI after a dispatch ACK. Unlike the
+/// session-level stream snapshot, this cannot accidentally observe a newer
+/// turn after reconnecting or missing a terminal WebSocket event.
+pub async fn get_chat_turn(
+    State(ctx): State<Arc<AppContext>>,
+    Path(turn_id): Path<String>,
+) -> Result<Json<session::ChatTurn>, AppError> {
+    let lookup_id = turn_id.clone();
+    let turn = ctx
+        .session_db
+        .run(move |db| db.get_chat_turn(&lookup_id))
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("chat turn not found: {turn_id}")))?;
+    Ok(Json(turn))
 }
 
 /// Isolated model-evaluation telemetry snapshot. The endpoint is physically
@@ -2299,5 +2639,81 @@ mod tests {
         let plain: ChatRequest =
             serde_json::from_value(serde_json::json!({ "message": "hi" })).expect("deserialize");
         assert_eq!(plain.project_id, None);
+    }
+
+    #[tokio::test]
+    async fn ui_chat_dispatch_is_idempotent_for_the_same_request() {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let first =
+            subscribe_ui_chat_dispatch(&request_id, "fingerprint-7").expect("first subscription");
+        let duplicate = subscribe_ui_chat_dispatch(&request_id, "fingerprint-7")
+            .expect("duplicate subscription");
+        assert!(first.leader);
+        assert!(!duplicate.leader);
+
+        let response = ChatResponse {
+            session_id: "session-1".to_string(),
+            response: String::new(),
+            turn_id: "turn-1".to_string(),
+            blocked_reason: None,
+            session_deleted: false,
+            accepted: true,
+        };
+        assert!(publish_ui_chat_dispatch(
+            &request_id,
+            UiChatDispatchOutcome::Success(response)
+        ));
+
+        for receiver in [first.receiver, duplicate.receiver] {
+            match receiver.await.expect("dispatch outcome") {
+                UiChatDispatchOutcome::Success(response) => {
+                    assert_eq!(response.session_id, "session-1");
+                    assert_eq!(response.turn_id, "turn-1");
+                    assert!(response.accepted);
+                }
+                UiChatDispatchOutcome::Failure(_) => panic!("unexpected failure"),
+            }
+        }
+
+        let replay =
+            subscribe_ui_chat_dispatch(&request_id, "fingerprint-7").expect("cached replay");
+        assert!(!replay.leader);
+        assert!(matches!(
+            replay.receiver.await.expect("cached outcome"),
+            UiChatDispatchOutcome::Success(ChatResponse { accepted: true, .. })
+        ));
+        assert!(subscribe_ui_chat_dispatch(&request_id, "fingerprint-8").is_err());
+    }
+
+    #[tokio::test]
+    async fn dropped_ui_request_receiver_does_not_lose_the_dispatch_ack() {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let disconnected =
+            subscribe_ui_chat_dispatch(&request_id, "fingerprint-11").expect("first subscription");
+        assert!(disconnected.leader);
+        drop(disconnected.receiver);
+
+        assert!(publish_ui_chat_dispatch(
+            &request_id,
+            UiChatDispatchOutcome::Success(ChatResponse {
+                session_id: "session-after-disconnect".to_string(),
+                response: String::new(),
+                turn_id: "turn-after-disconnect".to_string(),
+                blocked_reason: None,
+                session_deleted: false,
+                accepted: true,
+            })
+        ));
+
+        let reconnected = subscribe_ui_chat_dispatch(&request_id, "fingerprint-11")
+            .expect("reconnect subscription");
+        match reconnected.receiver.await.expect("cached ACK") {
+            UiChatDispatchOutcome::Success(response) => {
+                assert_eq!(response.session_id, "session-after-disconnect");
+                assert_eq!(response.turn_id, "turn-after-disconnect");
+                assert!(response.accepted);
+            }
+            UiChatDispatchOutcome::Failure(_) => panic!("unexpected failure"),
+        }
     }
 }

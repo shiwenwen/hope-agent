@@ -23,13 +23,109 @@
 //! want privileged cron/headless runs set `unattendedApprovalAction = proceed`
 //! or give that agent YOLO / `auto_approve_tools`.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 /// Whether the ACP (`hope-agent acp`) client declared a permission capability
 /// it can use to surface approvals. Default `false` → ACP approvals are
 /// unattended (fail-closed) until the client advertises one. Set by the ACP
 /// `do_initialize` handler (D7). Irrelevant outside ACP mode.
 static ACP_PERMISSION_CAPABLE: AtomicBool = AtomicBool::new(false);
+
+/// Verified first-party HTTP UI turns remain reachable after their initiating
+/// request returns: pending approvals are durable for same-process reload and
+/// the browser can reconnect to `/ws/events`. Track that capability per
+/// session; a process-wide boolean would incorrectly make unrelated headless
+/// automation look attended.
+static REATTACHABLE_UI_SESSIONS: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
+
+fn reattachable_ui_sessions() -> &'static Mutex<HashMap<String, usize>> {
+    REATTACHABLE_UI_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[derive(Debug)]
+pub struct ReattachableUiSessionGuard {
+    session_id: String,
+    released: bool,
+}
+
+impl Clone for ReattachableUiSessionGuard {
+    fn clone(&self) -> Self {
+        register_reattachable_ui_session(&self.session_id)
+    }
+}
+
+impl ReattachableUiSessionGuard {
+    pub fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        let mut sessions = reattachable_ui_sessions()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(count) = sessions.get_mut(&self.session_id) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                sessions.remove(&self.session_id);
+            }
+        }
+        self.released = true;
+    }
+}
+
+impl Drop for ReattachableUiSessionGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// Mark one server-owned, first-party UI turn as reattachable. This does not
+/// approve anything: it only preserves the normal Ask path while the browser
+/// is disconnected, so the user can reopen the UI and answer. Cron remains
+/// unattended by the earlier hard gate below.
+pub fn register_reattachable_ui_session(session_id: &str) -> ReattachableUiSessionGuard {
+    let mut sessions = reattachable_ui_sessions()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *sessions.entry(session_id.to_string()).or_insert(0) += 1;
+    ReattachableUiSessionGuard {
+        session_id: session_id.to_string(),
+        released: false,
+    }
+}
+
+/// Propagate a verified first-party UI reachability lease from a parent turn
+/// to one background child. The returned guard must live for the child's full
+/// queue + execution lifecycle; otherwise a child that outlives the parent
+/// turn could be reclassified as unattended before a later approval request.
+///
+/// This copies only an already-live capability. It never creates an attended
+/// surface for an unrelated headless/cron parent.
+pub fn register_reattachable_ui_child_session(
+    parent_session_id: &str,
+    child_session_id: &str,
+) -> Option<ReattachableUiSessionGuard> {
+    let parent_meta =
+        crate::get_session_db().and_then(|db| db.get_session(parent_session_id).ok().flatten());
+    if parent_meta.as_ref().is_some_and(|meta| meta.is_cron) {
+        return None;
+    }
+    if session_has_reattachable_ui_surface(parent_session_id)
+        || subagent_chain_has_reattachable_ui_surface(parent_meta.as_ref())
+    {
+        return Some(register_reattachable_ui_session(child_session_id));
+    }
+    None
+}
+
+fn session_has_reattachable_ui_surface(session_id: &str) -> bool {
+    reattachable_ui_sessions()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(session_id)
+        .is_some_and(|count| *count > 0)
+}
 
 /// Record whether the connected ACP client can surface permission requests.
 /// Called from the ACP initialize handler (D7); no-op effect outside ACP mode
@@ -133,6 +229,11 @@ pub fn evaluate_approval_surface(session_id: Option<&str>) -> ApprovalSurface {
         if subagent_chain_roots_at_cron(meta.as_ref()) {
             return Unattended(UnattendedReason::Cron);
         }
+        if session_id.is_some_and(session_has_reattachable_ui_surface)
+            || subagent_chain_has_reattachable_ui_surface(meta.as_ref())
+        {
+            return Attended;
+        }
         // A desktop window / connected web client surfaces child approvals via
         // OS notification + the child-session badge (and D6 parent bubbling), so
         // the user can still reach them — only a fully headless parent leaves it
@@ -149,6 +250,9 @@ pub fn evaluate_approval_surface(session_id: Option<&str>) -> ApprovalSurface {
     // 3. Top-level turn. IM-attached chat → the IM user can approve via buttons.
     if let Some(sid) = session_id {
         if session_is_im_attached(sid, meta.as_ref()) {
+            return Attended;
+        }
+        if session_has_reattachable_ui_surface(sid) {
             return Attended;
         }
     }
@@ -212,6 +316,33 @@ fn subagent_chain_has_im_surface(child: Option<&crate::session::SessionMeta>) ->
             return true;
         }
         next_parent = parent.parent_session_id.clone();
+    }
+    false
+}
+
+/// A child approval can bubble back to a currently-running first-party HTTP UI
+/// parent even while that browser is disconnected. This is session-scoped and
+/// bounded like the IM ancestry walk above.
+fn subagent_chain_has_reattachable_ui_surface(child: Option<&crate::session::SessionMeta>) -> bool {
+    const MAX_DEPTH: usize = 8;
+    let Some(db) = crate::get_session_db() else {
+        return false;
+    };
+    let mut next_parent = child.and_then(|meta| meta.parent_session_id.clone());
+    for _ in 0..MAX_DEPTH {
+        let Some(parent_id) = next_parent.take() else {
+            return false;
+        };
+        if session_has_reattachable_ui_surface(&parent_id) {
+            return true;
+        }
+        let Ok(Some(parent)) = db.get_session(&parent_id) else {
+            return false;
+        };
+        if parent.is_cron {
+            return false;
+        }
+        next_parent = parent.parent_session_id;
     }
     false
 }
@@ -292,6 +423,46 @@ mod tests {
             evaluate_approval_surface(None),
             ApprovalSurface::Unattended(UnattendedReason::HeadlessNoClient)
         );
+    }
+
+    #[test]
+    fn reattachable_ui_guard_preserves_ask_surface_without_a_live_socket() {
+        let session_id = format!("reattachable-ui-{}", uuid::Uuid::new_v4());
+        assert!(!session_has_reattachable_ui_surface(&session_id));
+        let first = register_reattachable_ui_session(&session_id);
+        let second = register_reattachable_ui_session(&session_id);
+        assert!(session_has_reattachable_ui_surface(&session_id));
+        assert_eq!(
+            evaluate_approval_surface(Some(&session_id)),
+            ApprovalSurface::Attended
+        );
+        drop(first);
+        assert_eq!(
+            evaluate_approval_surface(Some(&session_id)),
+            ApprovalSurface::Attended,
+            "the per-session registration is reference counted"
+        );
+        drop(second);
+        assert!(!session_has_reattachable_ui_surface(&session_id));
+    }
+
+    #[test]
+    fn reattachable_ui_guard_is_retained_by_background_child() {
+        let parent_id = format!("reattachable-parent-{}", uuid::Uuid::new_v4());
+        let child_id = format!("reattachable-child-{}", uuid::Uuid::new_v4());
+        let parent_guard = register_reattachable_ui_session(&parent_id);
+        let child_guard = register_reattachable_ui_child_session(&parent_id, &child_id)
+            .expect("an active parent UI lease must propagate to its child");
+
+        drop(parent_guard);
+        assert_eq!(
+            evaluate_approval_surface(Some(&child_id)),
+            ApprovalSurface::Attended,
+            "the child must remain reachable after its parent turn completes"
+        );
+
+        drop(child_guard);
+        assert!(!session_has_reattachable_ui_surface(&child_id));
     }
 
     #[test]
