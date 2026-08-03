@@ -10,8 +10,12 @@ import {
   discardPendingStreamDeltas,
   flushPendingStreamDeltas,
   handleStreamEvent,
+  isStreamEnded,
+  markStreamActive,
+  markStreamEnded,
   streamCursorKey,
   streamIdFromPayload,
+  type EndedStreamIds,
 } from "./useStreamEventHandler"
 
 // Backend constants: see `crates/ha-core/src/chat_engine/stream_broadcast.rs`.
@@ -44,7 +48,7 @@ export interface UseChatStreamReattachDeps {
   /** Per-session seq cursor shared with `useChatStream` for dedup. Owned by the
    *  parent (ChatScreen) so both hooks can see / update it. */
   lastSeqRef: React.MutableRefObject<Map<string, number>>
-  endedStreamIdsRef: React.MutableRefObject<Map<string, string>>
+  endedStreamIdsRef: React.MutableRefObject<EndedStreamIds>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>
@@ -58,7 +62,8 @@ export interface UseChatStreamReattachDeps {
     sessionId: string,
     status?: ChatTurnStatus | null,
     interruptReason?: ChatTurnInterruptReason | null,
-  ) => void
+    turnId?: string | null,
+  ) => boolean
 }
 
 export interface SessionStreamState {
@@ -110,6 +115,8 @@ interface SnapshotHandshake {
   deltas: StreamDeltaPayload[]
   ended: boolean
   stagedMessages: Message[] | null
+  /** Most recent live turn_started observed after this handshake began. */
+  liveTurnId: string | null
 }
 
 /**
@@ -145,15 +152,15 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
 
   // Buffers are per-hook, not shared with useChatStream's primary path;
   // lastSeqRef dedup ensures each event hits at most one path. Within this
-  // hook they are keyed by session so overlapping background streams cannot
-  // mix pending text before the rAF flush runs.
+  // hook they are keyed by session + stream so an old stream cannot mix its
+  // pending text into a replacement turn before the rAF flush runs.
   const deltaBuffersRef = useRef(createStreamDeltaBuffers())
   const snapshotHandshakeRef = useRef(new Map<string, SnapshotHandshake>())
 
   const applyStreamPayload = (payload: StreamDeltaPayload) => {
     const sid = payload.sessionId
     const seq = payload.seq
-    if (payload.streamId && endedStreamIdsRef.current.get(sid) === payload.streamId) return
+    if (isStreamEnded(endedStreamIdsRef.current, sid, payload.streamId)) return
     const cursorKey = streamCursorKey(sid, payload.streamId)
     const prev = lastSeqRef.current.get(cursorKey) ?? 0
     if (seq <= prev) return
@@ -166,6 +173,12 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       logger.warn("chat", "useChatStreamReattach::parse", "Failed to parse bus event", e)
       return
     }
+    // EventBus frames carry stream identity in the envelope, while the primary
+    // transport stamps it into the event. Normalize both paths so rAF buffers
+    // remain isolated by session + stream.
+    if (payload.streamId && !event._oc_stream_id) {
+      event._oc_stream_id = payload.streamId
+    }
     handleStreamEvent(event, sid, {
       updateSessionMessages,
       deltaBuffersRef,
@@ -177,6 +190,8 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
     const unlisten = getTransport().listen(EVENT_CHAT_TURN_STARTED, (raw) => {
       const payload = raw as { sessionId?: string; turnId?: string } | null
       if (!payload?.sessionId || !payload.turnId) return
+      const handshake = snapshotHandshakeRef.current.get(payload.sessionId)
+      if (handshake) handshake.liveTurnId = payload.turnId
       onTurnStarted?.(payload.sessionId, payload.turnId)
     })
     return unlisten
@@ -214,6 +229,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       deltas: [],
       ended: false,
       stagedMessages: null,
+      liveTurnId: null,
     }
     handshakeRegistry.set(sid, handshake)
     const stagedSessionCacheRef = {
@@ -238,22 +254,60 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       .then(([state, snapshot]) => {
         if (cancelled || handshake.ended) return
         if (!state) return
-        if (handshake.stagedMessages) {
-          sessionCacheRef.current.set(sid, handshake.stagedMessages)
-          setMessages(handshake.stagedMessages)
+        if (
+          handshake.liveTurnId &&
+          (!state.active ||
+            state.turnId !== handshake.liveTurnId ||
+            (snapshot !== null && snapshot.turnId !== handshake.liveTurnId))
+        ) {
+          // At least one state/snapshot response was captured before the live
+          // turn_started arrived. Whether that response describes an older
+          // active turn or an older terminal turn, it must not replace the
+          // live turn id or overwrite the new request's optimistic cache.
+          if (handshakeRegistry.get(sid) === handshake) {
+            handshakeRegistry.delete(sid)
+          }
+          handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
+          if (!loadingSessionsRef.current.has(sid)) {
+            loadingSessionsRef.current.add(sid)
+            setLoadingSessionIds(new Set(loadingSessionsRef.current))
+          }
+          if (currentSessionIdRef.current === sid) setLoading(true)
+          return
         }
         if (state.turnId && state.active) {
           onTurnStarted?.(sid, state.turnId)
         } else {
-          onTurnEnded?.(
-            sid,
-            state.status ?? state.lastTerminalStatus ?? null,
-            state.interruptReason ?? null,
-          )
+          const appliesToCurrentTurn =
+            onTurnEnded?.(
+              sid,
+              state.status ?? state.lastTerminalStatus ?? null,
+              state.interruptReason ?? null,
+              state.turnId ?? null,
+            ) ?? true
+          if (!appliesToCurrentTurn) {
+            const staleStreamId = snapshot?.streamId || state.streamId || undefined
+            markStreamEnded(endedStreamIdsRef.current, sid, staleStreamId)
+            if (staleStreamId) {
+              discardPendingStreamDeltas(sid, deltaBuffersRef, staleStreamId)
+            }
+            if (handshakeRegistry.get(sid) === handshake) {
+              handshakeRegistry.delete(sid)
+            }
+            handshake.deltas
+              .filter((delta) => !staleStreamId || delta.streamId !== staleStreamId)
+              .sort((a, b) => a.seq - b.seq)
+              .forEach(applyStreamPayload)
+            return
+          }
+        }
+        if (handshake.stagedMessages) {
+          sessionCacheRef.current.set(sid, handshake.stagedMessages)
+          setMessages(handshake.stagedMessages)
         }
         const streamId = snapshot?.streamId || state.streamId || undefined
         if (snapshot) {
-          if (streamId) endedStreamIdsRef.current.delete(sid)
+          markStreamActive(endedStreamIdsRef.current, sid, streamId)
           const cursorKey = streamCursorKey(sid, streamId)
           // DB snapshot can lag accepted memory state. Rebuild from the
           // journal prefix instead of jumping to `lastSeq`.
@@ -305,9 +359,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
             // while the old stream's snapshot request is still in flight and
             // restart at seq=1; only apply the old snapshot watermark to
             // buffered frames from that same stream.
-            .filter(
-              (event) => event.streamId !== streamId || event.seq > snapshot.throughSeq,
-            )
+            .filter((event) => event.streamId !== streamId || event.seq > snapshot.throughSeq)
             .sort((a, b) => a.seq - b.seq)
             .forEach(applyStreamPayload)
         } else {
@@ -353,6 +405,22 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       if (!payload?.sessionId) return
       const sid = payload.sessionId
       const streamId = payload.streamId || streamIdFromPayload(raw)
+      const appliesToCurrentTurn =
+        onTurnEnded?.(sid, payload.status, payload.interruptReason, payload.turnId) ?? true
+      if (!appliesToCurrentTurn) {
+        // Quarantine the old stream without touching the newer turn's state or
+        // rAF buffer. Handshake deltas retain stream identity, so remove only
+        // frames owned by this stale terminal event.
+        markStreamEnded(endedStreamIdsRef.current, sid, streamId)
+        if (streamId) {
+          discardPendingStreamDeltas(sid, deltaBuffersRef, streamId)
+          const handshake = snapshotHandshakeRef.current.get(sid)
+          if (handshake) {
+            handshake.deltas = handshake.deltas.filter((delta) => delta.streamId !== streamId)
+          }
+        }
+        return
+      }
       const handshake = snapshotHandshakeRef.current.get(sid)
       if (handshake) {
         handshake.ended = true
@@ -381,9 +449,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
           handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
         }
       }
-      if (streamId) endedStreamIdsRef.current.set(sid, streamId)
-      onTurnEnded?.(sid, payload.status, payload.interruptReason)
-
+      markStreamEnded(endedStreamIdsRef.current, sid, streamId)
       // The backend deliberately delivers every durable delta before end, but
       // the most recent frame may still be waiting in our 30fps RAF merge
       // buffer. Flush it before cleanup; a `pending` persistence end does not
@@ -392,8 +458,9 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         sid,
         { updateSessionMessages, deltaBuffersRef, setShowCodexAuthExpired },
         true,
+        streamId ?? null,
       )
-      discardPendingStreamDeltas(sid, deltaBuffersRef)
+      discardPendingStreamDeltas(sid, deltaBuffersRef, streamId ?? null)
       loadingSessionsRef.current.delete(sid)
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
 
@@ -454,9 +521,16 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         if (recheck.active || !loadingSessionsRef.current.has(sid)) return
 
         // Terminal but the stream_end never landed → run the same teardown.
-        if (recheck.streamId) endedStreamIdsRef.current.set(sid, recheck.streamId)
-        onTurnEnded?.(sid, recheck.status ?? recheck.lastTerminalStatus ?? null, recheck.interruptReason ?? null)
-        discardPendingStreamDeltas(sid, deltaBuffersRef)
+        const appliesToCurrentTurn =
+          onTurnEnded?.(
+            sid,
+            recheck.status ?? recheck.lastTerminalStatus ?? null,
+            recheck.interruptReason ?? null,
+            recheck.turnId ?? null,
+          ) ?? true
+        if (!appliesToCurrentTurn) return
+        markStreamEnded(endedStreamIdsRef.current, sid, recheck.streamId)
+        discardPendingStreamDeltas(sid, deltaBuffersRef, recheck.streamId ?? null)
         loadingSessionsRef.current.delete(sid)
         setLoadingSessionIds(new Set(loadingSessionsRef.current))
         setLoading(false)

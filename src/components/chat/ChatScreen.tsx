@@ -836,7 +836,7 @@ export default function ChatScreen({
   // (useChatStreamReattach). Cursors are keyed by session + stream id so a
   // delayed frame from a finished stream cannot mutate the next DB snapshot.
   const streamSeqRef = useRef<Map<string, number>>(new Map())
-  const endedStreamIdsRef = useRef<Map<string, string>>(new Map())
+  const endedStreamIdsRef = useRef<Map<string, Set<string>>>(new Map())
   const manualModelOverrideRef = useRef<ActiveModel | null>(null)
 
   // ── Projects ────────────────────────────────────────────────
@@ -3288,11 +3288,14 @@ export default function ChatScreen({
     setWorkspaceFocusRequest((current) => (current?.nonce === nonce ? null : current))
   }, [])
 
-  const openPullRequestPanel = useCallback((expectedUrl?: string | null) => {
-    setPullRequestExpectedUrl(expectedUrl ?? null)
-    setShowPullRequestPanel(true)
-    showRightPanelByUser("pull-request")
-  }, [showRightPanelByUser])
+  const openPullRequestPanel = useCallback(
+    (expectedUrl?: string | null) => {
+      setPullRequestExpectedUrl(expectedUrl ?? null)
+      setShowPullRequestPanel(true)
+      showRightPanelByUser("pull-request")
+    },
+    [showRightPanelByUser],
+  )
 
   const openBrowserPanel = useCallback(() => {
     browserPanelDismissedRef.current = false
@@ -4076,708 +4079,712 @@ export default function ChatScreen({
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div
-            className="relative flex-1 flex flex-col min-w-0"
-            style={{ minWidth: chatMainMinWidth }}
-          >
-            {activeTeamId && !showTeamPanel && (
-              <div className="px-3 py-1 border-b border-border">
-                <TeamMiniIndicator teamId={activeTeamId} onClick={() => setShowTeamPanel(true)} />
-              </div>
-            )}
-
-            {searchBarOpen && session.currentSessionId && (
-              <SessionSearchBar
-                sessionId={session.currentSessionId}
-                onJumpTo={session.jumpToMessage}
-                onClose={() => setSearchBarOpen(false)}
-                focusSignal={searchFocusSignal}
-              />
-            )}
-
-            <CrashRecoveryBanner />
-
-            {forkSourceSession && (
-              <div className="border-b border-border/60 px-4 py-2">
-                <button
-                  type="button"
-                  onClick={() => void rawHandleSwitchSession(forkSourceSession.id)}
-                  className="mx-auto flex max-w-[880px] items-center gap-2 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-                >
-                  <GitFork className="h-3.5 w-3.5 shrink-0" />
-                  <span className="shrink-0">
-                    {t("chat.fork.continuedFrom", {
-                      defaultValue: "接续自",
-                    })}
-                  </span>
-                  <span className="min-w-0 truncate font-medium text-foreground/80">
-                    {forkSourceSession.title}
-                  </span>
-                </button>
-              </div>
-            )}
-
-            <FileActionsContext.Provider value={fileActionsValue}>
-              <MessageList
-                messages={session.messages}
-                historyLoading={session.historyLoading}
-                loading={session.loading}
-                executionState={
-                  session.currentSessionId
-                    ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
-                    : null
-                }
-                agents={session.agents}
-                hasMore={session.hasMore}
-                loadingMore={session.loadingMore}
-                onLoadMore={session.handleLoadMore}
-                hasMoreAfter={session.hasMoreAfter}
-                loadingMoreAfter={session.loadingMoreAfter}
-                onLoadMoreAfter={session.handleLoadMoreAfter}
-                onResetToLatest={session.resetToLatest}
-                sessionId={session.currentSessionId}
-                incognito={incognitoEnabled}
-                heroComposer={heroComposerActive}
-                projectName={currentProject?.name ?? null}
-                onProjectSuggestion={currentProject ? handleProjectWelcomeSuggestion : undefined}
-                pendingScrollIntent={session.pendingScrollIntent}
-                onScrollTargetHandled={session.clearPendingScrollIntent}
-                pendingQuestionGroup={planMode.pendingQuestionGroup}
-                onQuestionSubmitted={() => {
-                  planMode.setPendingQuestionGroup(null)
-                  void planMode.refreshPendingQuestion()
-                }}
-                planCardData={planMode.planCardInfo ? { title: planMode.planCardInfo.title } : null}
-                planState={planMode.planState}
-                onOpenPlanPanel={planMode.openPlanPanel}
-                onApprovePlan={handlePlanApprove}
-                onExitPlan={planMode.exitPlanMode}
-                planSubagentRunning={planMode.planSubagentRunning}
-                onSwitchModel={handleMessageSwitchModel}
-                onViewSystemPrompt={loadSystemPrompt}
-                compacting={compacting}
-                onCompactContext={runCompactContextForCurrentSession}
-                onOpenDashboardTab={onOpenDashboardTab}
-                onViewChildSession={(sid) => {
-                  setSubagentPreviewSessionId(sid)
-                }}
-                onOpenSubagentRun={handleOpenSubagentRun}
-                subagentRunsSnapshot={subagentRuns}
-                bottomInset={isCronSession || isSubagentSession}
-                onOpenDiff={diffPanel.openDiff}
-                onResume={(message) => {
-                  void stream.handleSend(message)
-                }}
-                onForkFromMessage={handleForkFromMessage}
-                onEditAndResend={
-                  !isCronSession && !isSubagentSession && stream.pendingSends.length === 0
-                    ? handleEditAndResend
-                    : undefined
-                }
-                onOpenMemorySettings={onOpenSettings ? () => onOpenSettings("memory") : undefined}
-                onOpenKnowledge={onOpenKnowledge}
-                onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
-                onAddMessageQuote={handleMessageQuote}
-                displayMode={displayMode}
-                autoCollapseCompletedTurns={autoCollapseCompletedTurns}
-                onAtBottomChange={setMessageTailVisible}
-              />
-
-              {/* Memory extraction toast — absolute-positioned above ChatInput
-               * so it doesn't shrink the MessageList scroll container when it
-               * appears/disappears. */}
-              {!isCronSession && !isSubagentSession && (
-                <div
-                  className={cn(
-                    "relative",
-                    emptySessionInputHero &&
-                      "absolute inset-x-0 top-[48%] z-20 flex -translate-y-1/2 justify-center px-5 sm:px-8",
-                  )}
-                >
-                  {(activeMemoryToast || memoryToast) && (
-                    <div
-                      className={cn(
-                        "absolute bottom-full mb-2 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 z-10",
-                        emptySessionInputHero
-                          ? "inset-x-5 mx-auto max-w-[880px] sm:inset-x-8"
-                          : "inset-x-3 mx-auto max-w-[880px]",
-                      )}
-                    >
-                      {activeMemoryToast && (
-                        <div className="flex items-center gap-2 rounded-lg border border-primary/15 bg-primary/8 px-3 py-1.5 text-xs text-foreground shadow-sm">
-                          <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-medium">
-                                {t("memory.activeRecallToastTitle", "已引用记忆")}
-                              </span>
-                              {activeMemoryToast.selected && (
-                                <span className="truncate text-[10px] text-muted-foreground">
-                                  {memorySourceLabel(activeMemoryToast.selected, t)}
-                                </span>
-                              )}
-                            </div>
-                            <div className="truncate text-muted-foreground">
-                              {activeMemoryToast.summary}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => setActiveMemoryToast(null)}
-                            className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
-                            aria-label={t("common.close", "关闭")}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      )}
-                      {memoryToast && (
-                        <div className="flex items-center gap-2 rounded-lg bg-secondary/50 px-3 py-1.5 text-xs text-muted-foreground">
-                          <Brain className="h-3.5 w-3.5 shrink-0" />
-                          <span>
-                            {t("settings.memoryExtractedToast", { count: memoryToast.count })}
-                          </span>
-                          <button
-                            onClick={() => setMemoryToast(null)}
-                            className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
-                            aria-label={t("common.close", "关闭")}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div
-                    className={cn(
-                      "mx-auto w-full max-w-[880px]",
-                      emptySessionInputHero && "flex flex-col",
-                    )}
-                  >
-                    {heroComposerActive && (
-                      <div className="mb-5 sm:mb-6">
-                        <ChatWelcomeHero
-                          incognito={incognitoEnabled}
-                          projectName={currentProject?.name ?? null}
-                          onProjectSuggestion={
-                            currentProject ? handleProjectWelcomeSuggestion : undefined
-                          }
-                        />
-                      </div>
-                    )}
-                    <ChatInput
-                      topAccessory={
-                        !session.currentSessionId && !incognitoEnabled ? (
-                          <ProjectSessionDraftBar
-                            project={currentProject}
-                            projects={projects}
-                            draft={draftProjectRuntime}
-                            disabled={session.loading}
-                            progressStage={projectBootstrapProgress?.stage ?? null}
-                            progressError={projectBootstrapProgress?.error ?? null}
-                            onDraftChange={handleProjectRuntimeDraftChange}
-                            onSelectProject={(projectId, defaultAgentId) => {
-                              void handleNewChatInProject(projectId, defaultAgentId)
-                            }}
-                            onRemoveProject={() => {
-                              void handleStartNewChat(currentAgentId)
-                            }}
-                            onRetry={() => {
-                              setProjectBootstrapProgress(null)
-                              window.setTimeout(() => {
-                                void stream.handleSend()
-                              }, 0)
-                            }}
-                            onUseLocal={() => {
-                              handleProjectRuntimeDraftChange({
-                                ...draftProjectRuntime,
-                                launchMode: "local",
-                              })
-                            }}
-                          />
-                        ) : undefined
-                      }
-                      input={stream.input}
-                      onInputChange={stream.setInput}
-                      inputHistory={inputHistory}
-                      quickPrompts={quickPrompts}
-                      onSend={() =>
-                        stream.handleSend(
-                          undefined,
-                          shouldSendDraftWorkflowMode(
-                            session.currentSessionId,
-                            incognitoEnabled,
-                            draftWorkflowMode,
-                          )
-                            ? { workflowMode: draftWorkflowMode }
-                            : undefined,
-                        )
-                      }
-                      sendDisabled={
-                        session.historyLoading ||
-                        (draftProjectRuntime.launchMode === "worktree" &&
-                          (!draftProjectBootstrap || session.loading))
-                      }
-                      loading={session.loading}
-                      availableModels={availableModels}
-                      activeModel={activeModel}
-                      unavailableModelPreference={unavailableModelPreference}
-                      reasoningEffort={reasoningEffort}
-                      onModelChange={handleManualModelChange}
-                      onEffortChange={handleSessionEffortChange}
-                      onEffortReset={handleSessionEffortReset}
-                      attachedFiles={stream.attachedFiles}
-                      maxAttachmentBytes={stream.maxChatAttachmentBytes}
-                      onAttachFiles={(files) =>
-                        stream.setAttachedFiles((prev) => [...prev, ...files])
-                      }
-                      onRemoveFile={(index) =>
-                        stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
-                      }
-                      onUpdateFile={(index, file) =>
-                        stream.setAttachedFiles((prev) =>
-                          prev.map((existing, i) =>
-                            i === index
-                              ? { ...existing, file, status: "ready", error: undefined }
-                              : existing,
-                          ),
-                        )
-                      }
-                      pendingQuotes={stream.pendingQuotes}
-                      onRemoveQuote={(index) => {
-                        stream.setPendingQuotes((prev) => prev.filter((_, i) => i !== index))
-                        setRevealFile(null) // dropping a quote clears its reveal highlight
-                      }}
-                      onJumpToQuote={handleQuoteJump}
-                      pendingMessageQuotes={stream.pendingMessageQuotes}
-                      onRemoveMessageQuote={(index) =>
-                        stream.setPendingMessageQuotes((prev) => prev.filter((_, i) => i !== index))
-                      }
-                      focusSignal={composerFocusSignal}
-                      pendingMessage={stream.pendingMessage}
-                      pendingSends={stream.pendingSends}
-                      onCancelPending={() => {
-                        stream.setInput(stream.pendingMessage || "")
-                        stream.setPendingMessage(null)
-                      }}
-                      onDiscardPending={() => {
-                        stream.setPendingMessage(null)
-                      }}
-                      onEditPending={stream.editPendingSend}
-                      onDiscardPendingItem={stream.discardPendingSend}
-                      onSendPending={stream.sendPendingSend}
-                      onForceInsertPending={stream.forceInsertPendingSend}
-                      onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
-                      onStop={stream.handleStop}
-                      currentSessionId={session.currentSessionId}
-                      currentAgentId={session.currentAgentId}
-                      onEnsureSession={ensureWorkflowSession}
-                      onCommandAction={handleCommandAction}
-                      permissionMode={stream.permissionMode}
-                      onPermissionModeChange={stream.setPermissionModeByUser}
-                      sandboxMode={stream.sandboxMode}
-                      onSandboxModeChange={stream.setSandboxModeByUser}
-                      sessionTemperature={sessionTemperature}
-                      onSessionTemperatureChange={handleSessionTemperatureChange}
-                      incognitoEnabled={incognitoEnabled}
-                      projectId={effectiveProjectId}
-                      draftKbAttachments={draftKbAttachments}
-                      onDraftKbAttachChange={setDraftKbAttachments}
-                      enableNoteMention
-                      enableSkillMention
-                      enableAgentMention
-                      agents={session.agents}
-                      workingDir={
-                        session.currentSessionId
-                          ? effectiveWorkingDir
-                          : (draftWorkingDir ?? projectWorkingDir)
-                      }
-                      workingDirInherited={
-                        session.currentSessionId
-                          ? workingDirSource === "project"
-                          : draftWorkingDir
-                            ? false
-                            : !!projectWorkingDir
-                      }
-                      workingDirSaving={workingDirSaving}
-                      onWorkingDirChange={effectiveProjectId ? undefined : handleWorkingDirChange}
-                      planState={planMode.planState}
-                      onEnterPlanMode={planMode.enterPlanMode}
-                      onExitPlanMode={planMode.exitPlanMode}
-                      onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
-                      draftWorkflowMode={draftWorkflowMode}
-                      onDraftWorkflowModeChange={setDraftWorkflowMode}
-                      goalSnapshot={chatGoal.snapshot}
-                      autonomyActivity={chatGoal.activity}
-                      goalLoading={chatGoal.loading}
-                      onGoalModeSubmit={handleGoalModeSubmit}
-                      onLoopModeSubmit={handleLoopModeSubmit}
-                      onGoalUpdate={handleGoalUpdate}
-                      onPauseGoal={() => runGoalControlAction("pause_goal")}
-                      onResumeGoal={() => runGoalControlAction("resume_goal")}
-                      onClearGoal={() => runGoalControlAction("clear_goal")}
-                      onEvaluateGoal={() => runGoalControlAction("evaluate_goal")}
-                      taskProgressSnapshot={taskProgressSnapshot}
-                      onOpenWorkspace={openWorkspacePanel}
-                      workflowProgressRun={workflowInputProgress.run}
-                      workflowProgressCount={workflowInputProgress.count}
-                      workspacePanelVisible={workspacePanelVisibleInRightPanel}
-                      executionState={
-                        session.currentSessionId
-                          ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
-                          : null
-                      }
-                      hero={emptySessionInputHero}
-                      contextUsage={contextUsage}
-                    />
-                  </div>
+            <div
+              className="relative flex-1 flex flex-col min-w-0"
+              style={{ minWidth: chatMainMinWidth }}
+            >
+              {activeTeamId && !showTeamPanel && (
+                <div className="px-3 py-1 border-b border-border">
+                  <TeamMiniIndicator teamId={activeTeamId} onClick={() => setShowTeamPanel(true)} />
                 </div>
               )}
-            </FileActionsContext.Provider>
-          </div>
 
-          {/* Diff panel (right side, selected from the title-bar panel switcher) */}
-          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "diff" && (
-            <RightPanelShell
-              width={rightPanelWidth}
-              onWidthChange={setRightPanelWidth}
-              resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
-              maxWidth={860}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              contentKey="diff"
-            >
-              <DiffPanel
-                changes={diffPanel.activeChanges}
-                activeIndex={diffPanel.activeIndex}
-                openNonce={diffPanel.openNonce}
-                onActiveIndexChange={diffPanel.setActiveIndex}
-                onClose={diffPanel.closeDiff}
-                onPreviewFile={filePreview.openPreview}
-                gitContext={diffPanel.gitContext}
-                onGitSnapshotChange={diffPanel.replaceGitDiff}
-                embedded
-              />
-            </RightPanelShell>
-          )}
+              {searchBarOpen && session.currentSessionId && (
+                <SessionSearchBar
+                  sessionId={session.currentSessionId}
+                  onJumpTo={session.jumpToMessage}
+                  onClose={() => setSearchBarOpen(false)}
+                  focusSignal={searchFocusSignal}
+                />
+              )}
 
-          {shouldRenderRightPanelContent &&
-            renderedExclusiveRightPanel === "pull-request" &&
-            session.currentSessionId && (
+              <CrashRecoveryBanner />
+
+              {forkSourceSession && (
+                <div className="border-b border-border/60 px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => void rawHandleSwitchSession(forkSourceSession.id)}
+                    className="mx-auto flex max-w-[880px] items-center gap-2 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                  >
+                    <GitFork className="h-3.5 w-3.5 shrink-0" />
+                    <span className="shrink-0">
+                      {t("chat.fork.continuedFrom", {
+                        defaultValue: "接续自",
+                      })}
+                    </span>
+                    <span className="min-w-0 truncate font-medium text-foreground/80">
+                      {forkSourceSession.title}
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              <FileActionsContext.Provider value={fileActionsValue}>
+                <MessageList
+                  messages={session.messages}
+                  historyLoading={session.historyLoading}
+                  loading={session.loading}
+                  executionState={
+                    session.currentSessionId
+                      ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
+                      : null
+                  }
+                  agents={session.agents}
+                  hasMore={session.hasMore}
+                  loadingMore={session.loadingMore}
+                  onLoadMore={session.handleLoadMore}
+                  hasMoreAfter={session.hasMoreAfter}
+                  loadingMoreAfter={session.loadingMoreAfter}
+                  onLoadMoreAfter={session.handleLoadMoreAfter}
+                  onResetToLatest={session.resetToLatest}
+                  sessionId={session.currentSessionId}
+                  incognito={incognitoEnabled}
+                  heroComposer={heroComposerActive}
+                  projectName={currentProject?.name ?? null}
+                  onProjectSuggestion={currentProject ? handleProjectWelcomeSuggestion : undefined}
+                  pendingScrollIntent={session.pendingScrollIntent}
+                  onScrollTargetHandled={session.clearPendingScrollIntent}
+                  pendingQuestionGroup={planMode.pendingQuestionGroup}
+                  onQuestionSubmitted={() => {
+                    planMode.setPendingQuestionGroup(null)
+                    void planMode.refreshPendingQuestion()
+                  }}
+                  planCardData={
+                    planMode.planCardInfo ? { title: planMode.planCardInfo.title } : null
+                  }
+                  planState={planMode.planState}
+                  onOpenPlanPanel={planMode.openPlanPanel}
+                  onApprovePlan={handlePlanApprove}
+                  onExitPlan={planMode.exitPlanMode}
+                  planSubagentRunning={planMode.planSubagentRunning}
+                  onSwitchModel={handleMessageSwitchModel}
+                  onViewSystemPrompt={loadSystemPrompt}
+                  compacting={compacting}
+                  onCompactContext={runCompactContextForCurrentSession}
+                  onOpenDashboardTab={onOpenDashboardTab}
+                  onViewChildSession={(sid) => {
+                    setSubagentPreviewSessionId(sid)
+                  }}
+                  onOpenSubagentRun={handleOpenSubagentRun}
+                  subagentRunsSnapshot={subagentRuns}
+                  bottomInset={isCronSession || isSubagentSession}
+                  onOpenDiff={diffPanel.openDiff}
+                  onResume={(message) => {
+                    void stream.handleSend(message)
+                  }}
+                  onForkFromMessage={handleForkFromMessage}
+                  onEditAndResend={
+                    !isCronSession && !isSubagentSession && stream.pendingSends.length === 0
+                      ? handleEditAndResend
+                      : undefined
+                  }
+                  onOpenMemorySettings={onOpenSettings ? () => onOpenSettings("memory") : undefined}
+                  onOpenKnowledge={onOpenKnowledge}
+                  onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
+                  onAddMessageQuote={handleMessageQuote}
+                  displayMode={displayMode}
+                  autoCollapseCompletedTurns={autoCollapseCompletedTurns}
+                  onAtBottomChange={setMessageTailVisible}
+                />
+
+                {/* Memory extraction toast — absolute-positioned above ChatInput
+                 * so it doesn't shrink the MessageList scroll container when it
+                 * appears/disappears. */}
+                {!isCronSession && !isSubagentSession && (
+                  <div
+                    className={cn(
+                      "relative",
+                      emptySessionInputHero &&
+                        "absolute inset-x-0 top-[48%] z-20 flex -translate-y-1/2 justify-center px-5 sm:px-8",
+                    )}
+                  >
+                    {(activeMemoryToast || memoryToast) && (
+                      <div
+                        className={cn(
+                          "absolute bottom-full mb-2 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 z-10",
+                          emptySessionInputHero
+                            ? "inset-x-5 mx-auto max-w-[880px] sm:inset-x-8"
+                            : "inset-x-3 mx-auto max-w-[880px]",
+                        )}
+                      >
+                        {activeMemoryToast && (
+                          <div className="flex items-center gap-2 rounded-lg border border-primary/15 bg-primary/8 px-3 py-1.5 text-xs text-foreground shadow-sm">
+                            <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-medium">
+                                  {t("memory.activeRecallToastTitle", "已引用记忆")}
+                                </span>
+                                {activeMemoryToast.selected && (
+                                  <span className="truncate text-[10px] text-muted-foreground">
+                                    {memorySourceLabel(activeMemoryToast.selected, t)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="truncate text-muted-foreground">
+                                {activeMemoryToast.summary}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setActiveMemoryToast(null)}
+                              className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                              aria-label={t("common.close", "关闭")}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
+                        {memoryToast && (
+                          <div className="flex items-center gap-2 rounded-lg bg-secondary/50 px-3 py-1.5 text-xs text-muted-foreground">
+                            <Brain className="h-3.5 w-3.5 shrink-0" />
+                            <span>
+                              {t("settings.memoryExtractedToast", { count: memoryToast.count })}
+                            </span>
+                            <button
+                              onClick={() => setMemoryToast(null)}
+                              className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                              aria-label={t("common.close", "关闭")}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div
+                      className={cn(
+                        "mx-auto w-full max-w-[880px]",
+                        emptySessionInputHero && "flex flex-col",
+                      )}
+                    >
+                      {heroComposerActive && (
+                        <div className="mb-5 sm:mb-6">
+                          <ChatWelcomeHero
+                            incognito={incognitoEnabled}
+                            projectName={currentProject?.name ?? null}
+                            onProjectSuggestion={
+                              currentProject ? handleProjectWelcomeSuggestion : undefined
+                            }
+                          />
+                        </div>
+                      )}
+                      <ChatInput
+                        topAccessory={
+                          !session.currentSessionId && !incognitoEnabled ? (
+                            <ProjectSessionDraftBar
+                              project={currentProject}
+                              projects={projects}
+                              draft={draftProjectRuntime}
+                              disabled={session.loading}
+                              progressStage={projectBootstrapProgress?.stage ?? null}
+                              progressError={projectBootstrapProgress?.error ?? null}
+                              onDraftChange={handleProjectRuntimeDraftChange}
+                              onSelectProject={(projectId, defaultAgentId) => {
+                                void handleNewChatInProject(projectId, defaultAgentId)
+                              }}
+                              onRemoveProject={() => {
+                                void handleStartNewChat(currentAgentId)
+                              }}
+                              onRetry={() => {
+                                setProjectBootstrapProgress(null)
+                                window.setTimeout(() => {
+                                  void stream.handleSend()
+                                }, 0)
+                              }}
+                              onUseLocal={() => {
+                                handleProjectRuntimeDraftChange({
+                                  ...draftProjectRuntime,
+                                  launchMode: "local",
+                                })
+                              }}
+                            />
+                          ) : undefined
+                        }
+                        input={stream.input}
+                        onInputChange={stream.setInput}
+                        inputHistory={inputHistory}
+                        quickPrompts={quickPrompts}
+                        onSend={() =>
+                          stream.handleSend(
+                            undefined,
+                            shouldSendDraftWorkflowMode(
+                              session.currentSessionId,
+                              incognitoEnabled,
+                              draftWorkflowMode,
+                            )
+                              ? { workflowMode: draftWorkflowMode }
+                              : undefined,
+                          )
+                        }
+                        sendDisabled={
+                          session.historyLoading ||
+                          (draftProjectRuntime.launchMode === "worktree" &&
+                            (!draftProjectBootstrap || session.loading))
+                        }
+                        loading={session.loading}
+                        availableModels={availableModels}
+                        activeModel={activeModel}
+                        unavailableModelPreference={unavailableModelPreference}
+                        reasoningEffort={reasoningEffort}
+                        onModelChange={handleManualModelChange}
+                        onEffortChange={handleSessionEffortChange}
+                        onEffortReset={handleSessionEffortReset}
+                        attachedFiles={stream.attachedFiles}
+                        maxAttachmentBytes={stream.maxChatAttachmentBytes}
+                        onAttachFiles={(files) =>
+                          stream.setAttachedFiles((prev) => [...prev, ...files])
+                        }
+                        onRemoveFile={(index) =>
+                          stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
+                        }
+                        onUpdateFile={(index, file) =>
+                          stream.setAttachedFiles((prev) =>
+                            prev.map((existing, i) =>
+                              i === index
+                                ? { ...existing, file, status: "ready", error: undefined }
+                                : existing,
+                            ),
+                          )
+                        }
+                        pendingQuotes={stream.pendingQuotes}
+                        onRemoveQuote={(index) => {
+                          stream.setPendingQuotes((prev) => prev.filter((_, i) => i !== index))
+                          setRevealFile(null) // dropping a quote clears its reveal highlight
+                        }}
+                        onJumpToQuote={handleQuoteJump}
+                        pendingMessageQuotes={stream.pendingMessageQuotes}
+                        onRemoveMessageQuote={(index) =>
+                          stream.setPendingMessageQuotes((prev) =>
+                            prev.filter((_, i) => i !== index),
+                          )
+                        }
+                        focusSignal={composerFocusSignal}
+                        pendingMessage={stream.pendingMessage}
+                        pendingSends={stream.pendingSends}
+                        onCancelPending={() => {
+                          stream.setInput(stream.pendingMessage || "")
+                          stream.setPendingMessage(null)
+                        }}
+                        onDiscardPending={() => {
+                          stream.setPendingMessage(null)
+                        }}
+                        onEditPending={stream.editPendingSend}
+                        onDiscardPendingItem={stream.discardPendingSend}
+                        onSendPending={stream.sendPendingSend}
+                        onForceInsertPending={stream.forceInsertPendingSend}
+                        onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
+                        onStop={stream.handleStop}
+                        currentSessionId={session.currentSessionId}
+                        currentAgentId={session.currentAgentId}
+                        onEnsureSession={ensureWorkflowSession}
+                        onCommandAction={handleCommandAction}
+                        permissionMode={stream.permissionMode}
+                        onPermissionModeChange={stream.setPermissionModeByUser}
+                        sandboxMode={stream.sandboxMode}
+                        onSandboxModeChange={stream.setSandboxModeByUser}
+                        sessionTemperature={sessionTemperature}
+                        onSessionTemperatureChange={handleSessionTemperatureChange}
+                        incognitoEnabled={incognitoEnabled}
+                        projectId={effectiveProjectId}
+                        draftKbAttachments={draftKbAttachments}
+                        onDraftKbAttachChange={setDraftKbAttachments}
+                        enableNoteMention
+                        enableSkillMention
+                        enableAgentMention
+                        agents={session.agents}
+                        workingDir={
+                          session.currentSessionId
+                            ? effectiveWorkingDir
+                            : (draftWorkingDir ?? projectWorkingDir)
+                        }
+                        workingDirInherited={
+                          session.currentSessionId
+                            ? workingDirSource === "project"
+                            : draftWorkingDir
+                              ? false
+                              : !!projectWorkingDir
+                        }
+                        workingDirSaving={workingDirSaving}
+                        onWorkingDirChange={effectiveProjectId ? undefined : handleWorkingDirChange}
+                        planState={planMode.planState}
+                        onEnterPlanMode={planMode.enterPlanMode}
+                        onExitPlanMode={planMode.exitPlanMode}
+                        onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
+                        draftWorkflowMode={draftWorkflowMode}
+                        onDraftWorkflowModeChange={setDraftWorkflowMode}
+                        goalSnapshot={chatGoal.snapshot}
+                        autonomyActivity={chatGoal.activity}
+                        goalLoading={chatGoal.loading}
+                        onGoalModeSubmit={handleGoalModeSubmit}
+                        onLoopModeSubmit={handleLoopModeSubmit}
+                        onGoalUpdate={handleGoalUpdate}
+                        onPauseGoal={() => runGoalControlAction("pause_goal")}
+                        onResumeGoal={() => runGoalControlAction("resume_goal")}
+                        onClearGoal={() => runGoalControlAction("clear_goal")}
+                        onEvaluateGoal={() => runGoalControlAction("evaluate_goal")}
+                        taskProgressSnapshot={taskProgressSnapshot}
+                        onOpenWorkspace={openWorkspacePanel}
+                        workflowProgressRun={workflowInputProgress.run}
+                        workflowProgressCount={workflowInputProgress.count}
+                        workspacePanelVisible={workspacePanelVisibleInRightPanel}
+                        executionState={
+                          session.currentSessionId
+                            ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
+                            : null
+                        }
+                        hero={emptySessionInputHero}
+                        contextUsage={contextUsage}
+                      />
+                    </div>
+                  </div>
+                )}
+              </FileActionsContext.Provider>
+            </div>
+
+            {/* Diff panel (right side, selected from the title-bar panel switcher) */}
+            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "diff" && (
               <RightPanelShell
                 width={rightPanelWidth}
                 onWidthChange={setRightPanelWidth}
-                resizeLabel={t("workspace.git.resizePullRequestPanel", "调整拉取请求面板宽度")}
-                maxWidth={960}
+                resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
+                maxWidth={860}
                 reservedMainWidth={rightPanelReservedMainWidth}
                 collapsed={rightPanelCollapsed}
                 overlay={rightPanelOverlay}
                 animateOnMount={animateRightPanelOnMount}
-                contentKey={`pull-request:${session.currentSessionId}`}
+                contentKey="diff"
               >
-                <PullRequestPanel
-                  sessionId={session.currentSessionId}
-                  expectedUrl={pullRequestExpectedUrl}
-                  onFillInput={stream.setInput}
-                  onClose={() => {
-                    setShowPullRequestPanel(false)
-                    setPullRequestExpectedUrl(null)
-                  }}
+                <DiffPanel
+                  changes={diffPanel.activeChanges}
+                  activeIndex={diffPanel.activeIndex}
+                  openNonce={diffPanel.openNonce}
+                  onActiveIndexChange={diffPanel.setActiveIndex}
+                  onClose={diffPanel.closeDiff}
+                  onPreviewFile={filePreview.openPreview}
+                  gitContext={diffPanel.gitContext}
+                  onGitSnapshotChange={diffPanel.replaceGitDiff}
+                  embedded
                 />
               </RightPanelShell>
             )}
 
-          {/* Plan workspace (right side, integrated under the shared title bar) */}
-          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "plan" && (
-            <RightPanelShell
-              width={rightPanelWidth}
-              onWidthChange={setRightPanelWidth}
-              resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
-              maxWidth={860}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              contentKey="plan"
-            >
-              <PlanPanel
-                planState={planMode.planState}
-                planContent={planMode.planContent}
-                sessionId={session.currentSessionId}
-                onApprove={handlePlanApprove}
-                onExit={planMode.exitPlanMode}
-                onClose={() => planMode.setShowPanel(false)}
-                onContinue={handlePlanContinue}
-                isExecutionActive={session.loading && planMode.planState === "executing"}
-                onRequestChanges={handleRequestChanges}
-                embedded
-              />
-            </RightPanelShell>
-          )}
+            {shouldRenderRightPanelContent &&
+              renderedExclusiveRightPanel === "pull-request" &&
+              session.currentSessionId && (
+                <RightPanelShell
+                  width={rightPanelWidth}
+                  onWidthChange={setRightPanelWidth}
+                  resizeLabel={t("workspace.git.resizePullRequestPanel", "调整拉取请求面板宽度")}
+                  maxWidth={960}
+                  reservedMainWidth={rightPanelReservedMainWidth}
+                  collapsed={rightPanelCollapsed}
+                  overlay={rightPanelOverlay}
+                  animateOnMount={animateRightPanelOnMount}
+                  contentKey={`pull-request:${session.currentSessionId}`}
+                >
+                  <PullRequestPanel
+                    sessionId={session.currentSessionId}
+                    expectedUrl={pullRequestExpectedUrl}
+                    onFillInput={stream.setInput}
+                    onClose={() => {
+                      setShowPullRequestPanel(false)
+                      setPullRequestExpectedUrl(null)
+                    }}
+                  />
+                </RightPanelShell>
+              )}
 
-          {/* Project file browser (right side, scoped to the working dir) */}
-          {/* File browser panel — permanently mounted (like CanvasPanel) and
+            {/* Plan workspace (right side, integrated under the shared title bar) */}
+            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "plan" && (
+              <RightPanelShell
+                width={rightPanelWidth}
+                onWidthChange={setRightPanelWidth}
+                resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
+                maxWidth={860}
+                reservedMainWidth={rightPanelReservedMainWidth}
+                collapsed={rightPanelCollapsed}
+                overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
+                contentKey="plan"
+              >
+                <PlanPanel
+                  planState={planMode.planState}
+                  planContent={planMode.planContent}
+                  sessionId={session.currentSessionId}
+                  onApprove={handlePlanApprove}
+                  onExit={planMode.exitPlanMode}
+                  onClose={() => planMode.setShowPanel(false)}
+                  onContinue={handlePlanContinue}
+                  isExecutionActive={session.loading && planMode.planState === "executing"}
+                  onRequestChanges={handleRequestChanges}
+                  embedded
+                />
+              </RightPanelShell>
+            )}
+
+            {/* Project file browser (right side, scoped to the working dir) */}
+            {/* File browser panel — permanently mounted (like CanvasPanel) and
               toggled via `visible`, so a popped-out window survives panel
               switches / collapses. */}
-          <FileBrowserPanel
-            scope={!session.currentSessionId && currentProject ? "project" : "session"}
-            scopeId={
-              !session.currentSessionId && currentProject
-                ? currentProject.id
-                : session.currentSessionId
-            }
-            rootPath={effectiveWorkingDir}
-            sessionId={session.currentSessionId}
-            visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
-            collapsed={rightPanelCollapsed}
-            overlay={rightPanelOverlay}
-            animateOnMount={animateRightPanelOnMount}
-            panelWidth={rightPanelWidth}
-            onPanelWidthChange={setRightPanelWidth}
-            reservedMainWidth={rightPanelReservedMainWidth}
-            onQuote={handleFileQuote}
-            revealFile={revealFile}
-            onClose={() => setShowFilesPanel(false)}
-          />
-
-          {/* Canvas Preview Panel */}
-          <CanvasPanel
-            panelWidth={rightPanelWidth}
-            onPanelWidthChange={setRightPanelWidth}
-            currentSessionId={currentSessionId}
-            onOpenChange={setCanvasPanelOpen}
-            collapsed={rightPanelCollapsed}
-            overlay={rightPanelOverlay}
-            animateOnMount={animateRightPanelOnMount}
-            reservedMainWidth={rightPanelReservedMainWidth}
-            visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"}
-          />
-
-          {/* Browser live-mirror panel — open on first `browser:frame` push,
-              close-only by user, then switchable from the title bar. */}
-          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "browser" && (
-            <BrowserPanel
-              sessionId={session.currentSessionId}
-              panelWidth={rightPanelWidth}
-              onPanelWidthChange={setRightPanelWidth}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              onClose={() => {
-                browserPanelDismissedRef.current = true
-                setShowBrowserPanel(false)
-              }}
-              onFloat={() => floatPanel("browser")}
-            />
-          )}
-
-          {/* Mac Control live-mirror panel — opens on tool-produced managed
-              screenshot frames; panel polling frames only refresh an already
-              open panel and must not re-open after a session switch. */}
-          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "mac-control" && (
-            <MacControlPanel
-              sessionId={session.currentSessionId}
-              panelWidth={rightPanelWidth}
-              onPanelWidthChange={setRightPanelWidth}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              onClose={() => {
-                macControlPanelDismissedRef.current = true
-                setShowMacControlPanel(false)
-              }}
-              onFloat={() => floatPanel("mac-control")}
-            />
-          )}
-
-          {/* In-app floating control-panel windows (portal to body). */}
-          <FloatingPanelLayer
-            floatingPanels={floatingPanelList}
-            zIndexOf={floatingPanelZIndex}
-            onDock={(panel: FloatablePanel) => {
-              dockFloatingPanel(panel)
-              showRightPanelByUser(panel)
-            }}
-            onClose={(panel: FloatablePanel) => {
-              closeFloatingPanel(panel)
-              if (panel === "browser") {
-                browserPanelDismissedRef.current = true
-                setShowBrowserPanel(false)
-              } else {
-                macControlPanelDismissedRef.current = true
-                setShowMacControlPanel(false)
+            <FileBrowserPanel
+              scope={!session.currentSessionId && currentProject ? "project" : "session"}
+              scopeId={
+                !session.currentSessionId && currentProject
+                  ? currentProject.id
+                  : session.currentSessionId
               }
-            }}
-            onFocus={focusFloatingPanel}
-            sessionId={session.currentSessionId}
-          />
+              rootPath={effectiveWorkingDir}
+              sessionId={session.currentSessionId}
+              visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
+              collapsed={rightPanelCollapsed}
+              overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
+              panelWidth={rightPanelWidth}
+              onPanelWidthChange={setRightPanelWidth}
+              reservedMainWidth={rightPanelReservedMainWidth}
+              onQuote={handleFileQuote}
+              revealFile={revealFile}
+              onClose={() => setShowFilesPanel(false)}
+            />
 
-          {/* Team Panel */}
-          {shouldRenderRightPanelContent &&
-            renderedExclusiveRightPanel === "team" &&
-            activeTeamId && (
-              <TeamPanel
-                teamId={activeTeamId}
+            {/* Canvas Preview Panel */}
+            <CanvasPanel
+              panelWidth={rightPanelWidth}
+              onPanelWidthChange={setRightPanelWidth}
+              currentSessionId={currentSessionId}
+              onOpenChange={setCanvasPanelOpen}
+              collapsed={rightPanelCollapsed}
+              overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
+              reservedMainWidth={rightPanelReservedMainWidth}
+              visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"}
+            />
+
+            {/* Browser live-mirror panel — open on first `browser:frame` push,
+              close-only by user, then switchable from the title bar. */}
+            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "browser" && (
+              <BrowserPanel
+                sessionId={session.currentSessionId}
                 panelWidth={rightPanelWidth}
                 onPanelWidthChange={setRightPanelWidth}
                 collapsed={rightPanelCollapsed}
                 overlay={rightPanelOverlay}
                 animateOnMount={animateRightPanelOnMount}
                 reservedMainWidth={rightPanelReservedMainWidth}
-                onClose={() => setShowTeamPanel(false)}
-                onViewSession={setSubagentPreviewSessionId}
+                onClose={() => {
+                  browserPanelDismissedRef.current = true
+                  setShowBrowserPanel(false)
+                }}
+                onFloat={() => floatPanel("browser")}
               />
             )}
 
-          {/* Workspace 面板 — 聚合任务进度 / 碰到的文件 / 引用来源 */}
-          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "workspace" && (
-            <RightPanelShell
-              width={rightPanelWidth}
-              onWidthChange={setRightPanelWidth}
-              resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
-              maxWidth={860}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              contentKey="workspace"
-            >
-              <WorkspacePanel
-                taskSnapshot={taskProgressSnapshot}
-                taskExecutionState={workspaceTaskExecutionState}
-                messages={session.messages}
-                contextUsageOverride={contextUsage}
-                onOpenDiff={diffPanel.openDiff}
-                onOpenGitDiff={diffPanel.openGitDiff}
-                onFillInput={stream.setInput}
-                onOpenPullRequest={openPullRequestPanel}
-                onPreviewFile={filePreview.openPreview}
+            {/* Mac Control live-mirror panel — opens on tool-produced managed
+              screenshot frames; panel polling frames only refresh an already
+              open panel and must not re-open after a session switch. */}
+            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "mac-control" && (
+              <MacControlPanel
                 sessionId={session.currentSessionId}
-                sessionMeta={currentSessionMeta}
-                project={currentProject}
-                effectiveWorkingDir={workspaceEffectiveWorkingDir}
-                workingDirSource={workspaceWorkingDirSource}
-                permissionMode={stream.permissionMode}
-                planState={planMode.planState}
-                activeModel={activeModel}
-                agentName={session.agentName}
-                reasoningEffort={reasoningEffort}
-                availableModels={availableModels}
-                currentAgentId={session.currentAgentId}
-                compacting={compacting}
-                onCompactContext={runCompactContextForCurrentSession}
-                onCommandAction={handleCommandAction}
-                onViewSystemPrompt={loadSystemPrompt}
-                systemPromptLoading={systemPromptLoading}
-                incognito={incognitoEnabled}
-                turnActive={
-                  workspaceTaskExecutionState === "running" ||
-                  workspaceTaskExecutionState === "cancelling"
-                }
-                workflowRunsState={workflowTitleBarRuns}
-                backgroundJobs={backgroundJobs.jobs}
-                backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
-                onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
-                onOpenBackgroundJobs={openBackgroundJobsPanel}
-                onOpenBrowserPanel={openBrowserPanel}
-                onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
-                subagentRunsState={subagentRuns}
-                focusRequest={workspaceFocusRequest}
-                onFocusRequestHandled={handleWorkspaceFocusRequestHandled}
-                onEnsureSession={ensureWorkflowSession}
-                draftWorkflowMode={draftWorkflowMode}
-                onDraftWorkflowModeChange={setDraftWorkflowMode}
+                panelWidth={rightPanelWidth}
+                onPanelWidthChange={setRightPanelWidth}
+                collapsed={rightPanelCollapsed}
+                overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
+                reservedMainWidth={rightPanelReservedMainWidth}
                 onClose={() => {
-                  workspacePanelDismissedRef.current = true
-                  setWorkspaceFocusRequest(null)
-                  setShowWorkspacePanel(false)
+                  macControlPanelDismissedRef.current = true
+                  setShowMacControlPanel(false)
                 }}
+                onFloat={() => floatPanel("mac-control")}
               />
-            </RightPanelShell>
-          )}
+            )}
 
-          {/* Background-jobs panel (R4) — session jobs (cancellable) + a
+            {/* In-app floating control-panel windows (portal to body). */}
+            <FloatingPanelLayer
+              floatingPanels={floatingPanelList}
+              zIndexOf={floatingPanelZIndex}
+              onDock={(panel: FloatablePanel) => {
+                dockFloatingPanel(panel)
+                showRightPanelByUser(panel)
+              }}
+              onClose={(panel: FloatablePanel) => {
+                closeFloatingPanel(panel)
+                if (panel === "browser") {
+                  browserPanelDismissedRef.current = true
+                  setShowBrowserPanel(false)
+                } else {
+                  macControlPanelDismissedRef.current = true
+                  setShowMacControlPanel(false)
+                }
+              }}
+              onFocus={focusFloatingPanel}
+              sessionId={session.currentSessionId}
+            />
+
+            {/* Team Panel */}
+            {shouldRenderRightPanelContent &&
+              renderedExclusiveRightPanel === "team" &&
+              activeTeamId && (
+                <TeamPanel
+                  teamId={activeTeamId}
+                  panelWidth={rightPanelWidth}
+                  onPanelWidthChange={setRightPanelWidth}
+                  collapsed={rightPanelCollapsed}
+                  overlay={rightPanelOverlay}
+                  animateOnMount={animateRightPanelOnMount}
+                  reservedMainWidth={rightPanelReservedMainWidth}
+                  onClose={() => setShowTeamPanel(false)}
+                  onViewSession={setSubagentPreviewSessionId}
+                />
+              )}
+
+            {/* Workspace 面板 — 聚合任务进度 / 碰到的文件 / 引用来源 */}
+            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "workspace" && (
+              <RightPanelShell
+                width={rightPanelWidth}
+                onWidthChange={setRightPanelWidth}
+                resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
+                maxWidth={860}
+                reservedMainWidth={rightPanelReservedMainWidth}
+                collapsed={rightPanelCollapsed}
+                overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
+                contentKey="workspace"
+              >
+                <WorkspacePanel
+                  taskSnapshot={taskProgressSnapshot}
+                  taskExecutionState={workspaceTaskExecutionState}
+                  messages={session.messages}
+                  contextUsageOverride={contextUsage}
+                  onOpenDiff={diffPanel.openDiff}
+                  onOpenGitDiff={diffPanel.openGitDiff}
+                  onFillInput={stream.setInput}
+                  onOpenPullRequest={openPullRequestPanel}
+                  onPreviewFile={filePreview.openPreview}
+                  sessionId={session.currentSessionId}
+                  sessionMeta={currentSessionMeta}
+                  project={currentProject}
+                  effectiveWorkingDir={workspaceEffectiveWorkingDir}
+                  workingDirSource={workspaceWorkingDirSource}
+                  permissionMode={stream.permissionMode}
+                  planState={planMode.planState}
+                  activeModel={activeModel}
+                  agentName={session.agentName}
+                  reasoningEffort={reasoningEffort}
+                  availableModels={availableModels}
+                  currentAgentId={session.currentAgentId}
+                  compacting={compacting}
+                  onCompactContext={runCompactContextForCurrentSession}
+                  onCommandAction={handleCommandAction}
+                  onViewSystemPrompt={loadSystemPrompt}
+                  systemPromptLoading={systemPromptLoading}
+                  incognito={incognitoEnabled}
+                  turnActive={
+                    workspaceTaskExecutionState === "running" ||
+                    workspaceTaskExecutionState === "cancelling"
+                  }
+                  workflowRunsState={workflowTitleBarRuns}
+                  backgroundJobs={backgroundJobs.jobs}
+                  backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
+                  onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
+                  onOpenBackgroundJobs={openBackgroundJobsPanel}
+                  onOpenBrowserPanel={openBrowserPanel}
+                  onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
+                  subagentRunsState={subagentRuns}
+                  focusRequest={workspaceFocusRequest}
+                  onFocusRequestHandled={handleWorkspaceFocusRequestHandled}
+                  onEnsureSession={ensureWorkflowSession}
+                  draftWorkflowMode={draftWorkflowMode}
+                  onDraftWorkflowModeChange={setDraftWorkflowMode}
+                  onClose={() => {
+                    workspacePanelDismissedRef.current = true
+                    setWorkspaceFocusRequest(null)
+                    setShowWorkspacePanel(false)
+                  }}
+                />
+              </RightPanelShell>
+            )}
+
+            {/* Background-jobs panel (R4) — session jobs (cancellable) + a
               read-only mirror of global local-model jobs. */}
-          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "background-jobs" && (
-            <RightPanelShell
-              width={rightPanelWidth}
-              onWidthChange={setRightPanelWidth}
-              resizeLabel={t("backgroundJobs.resizePanel", "Resize background jobs panel")}
-              maxWidth={860}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              contentKey="background-jobs"
-            >
-              <BackgroundJobsPanel
-                jobs={backgroundJobs.jobs}
-                jobExpansionOverrides={backgroundJobExpansionOverrides}
-                onJobExpandedChange={handleBackgroundJobExpandedChange}
-                onClose={closeBackgroundJobsPanel}
-                onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
-              />
-            </RightPanelShell>
-          )}
+            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "background-jobs" && (
+              <RightPanelShell
+                width={rightPanelWidth}
+                onWidthChange={setRightPanelWidth}
+                resizeLabel={t("backgroundJobs.resizePanel", "Resize background jobs panel")}
+                maxWidth={860}
+                reservedMainWidth={rightPanelReservedMainWidth}
+                collapsed={rightPanelCollapsed}
+                overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
+                contentKey="background-jobs"
+              >
+                <BackgroundJobsPanel
+                  jobs={backgroundJobs.jobs}
+                  jobExpansionOverrides={backgroundJobExpansionOverrides}
+                  onJobExpandedChange={handleBackgroundJobExpandedChange}
+                  onClose={closeBackgroundJobsPanel}
+                  onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
+                />
+              </RightPanelShell>
+            )}
 
-          {/* Sub-agent panel — this session's sub-agent runs + the selected
+            {/* Sub-agent panel — this session's sub-agent runs + the selected
               run's live child-session transcript. Opened from inline chips. */}
-          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "subagent" && (
-            <RightPanelShell
-              width={rightPanelWidth}
-              onWidthChange={setRightPanelWidth}
-              resizeLabel={t("subagentPanel.resizePanel", "Resize sub-agents panel")}
-              maxWidth={960}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              contentKey={`subagent:${session.currentSessionId ?? ""}`}
-            >
-              <SubagentPanel
-                sessionId={session.currentSessionId}
-                runsState={subagentRuns}
-                agents={session.agents}
-                selectRequest={subagentPanelSelectRequest}
-                onClose={closeSubagentPanel}
-              />
-            </RightPanelShell>
-          )}
+            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "subagent" && (
+              <RightPanelShell
+                width={rightPanelWidth}
+                onWidthChange={setRightPanelWidth}
+                resizeLabel={t("subagentPanel.resizePanel", "Resize sub-agents panel")}
+                maxWidth={960}
+                reservedMainWidth={rightPanelReservedMainWidth}
+                collapsed={rightPanelCollapsed}
+                overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
+                contentKey={`subagent:${session.currentSessionId ?? ""}`}
+              >
+                <SubagentPanel
+                  sessionId={session.currentSessionId}
+                  runsState={subagentRuns}
+                  agents={session.agents}
+                  selectRequest={subagentPanelSelectRequest}
+                  onClose={closeSubagentPanel}
+                />
+              </RightPanelShell>
+            )}
 
-          {/* File preview panel — single-file viewer opened from Markdown
+            {/* File preview panel — single-file viewer opened from Markdown
               links / attachments / the workspace panel (file-operations
               unification). Reuses the file-browser FilePreviewPane. */}
-          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "preview" && (
-            <RightPanelShell
-              width={rightPanelWidth}
-              onWidthChange={setRightPanelWidth}
-              resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
-              maxWidth={860}
-              maximized={filePreviewMaximized}
-              fullscreenTransitionRef={filePreviewFullscreenRef}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              contentKey="preview"
-            >
-              <FilePreviewPanel
-                target={filePreview.target}
-                sessionId={session.currentSessionId}
-                onReplaceDraft={replaceDraftAttachment}
+            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "preview" && (
+              <RightPanelShell
+                width={rightPanelWidth}
+                onWidthChange={setRightPanelWidth}
+                resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
+                maxWidth={860}
                 maximized={filePreviewMaximized}
-                onToggleMaximize={toggleFilePreviewFullscreen}
-                onClose={() => {
-                  resetFilePreviewFullscreen()
-                  filePreview.closePreview()
-                }}
-              />
-            </RightPanelShell>
-          )}
+                fullscreenTransitionRef={filePreviewFullscreenRef}
+                reservedMainWidth={rightPanelReservedMainWidth}
+                collapsed={rightPanelCollapsed}
+                overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
+                contentKey="preview"
+              >
+                <FilePreviewPanel
+                  target={filePreview.target}
+                  sessionId={session.currentSessionId}
+                  onReplaceDraft={replaceDraftAttachment}
+                  maximized={filePreviewMaximized}
+                  onToggleMaximize={toggleFilePreviewFullscreen}
+                  onClose={() => {
+                    resetFilePreviewFullscreen()
+                    filePreview.closePreview()
+                  }}
+                />
+              </RightPanelShell>
+            )}
           </div>
           <TerminalPanel
             open={terminalOpen}

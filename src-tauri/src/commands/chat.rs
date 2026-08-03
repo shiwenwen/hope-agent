@@ -48,30 +48,43 @@ fn broadcast_turn_end(
     );
 }
 
-fn commit_local_reply(
-    db: &SessionDB,
+async fn commit_local_reply(
+    db: Arc<SessionDB>,
     session_id: &str,
     turn_id: &str,
     content: &str,
-) -> Result<(), CmdError> {
-    let (context_json, context_revision) = db
-        .load_context_with_revision(session_id)
-        .map_err(CmdError::from)?;
-    let commit = session::CommitAssistantTurn {
-        run_id: None,
-        attempt_no: 0,
-        session_id: session_id.to_string(),
-        assistant: session::NewMessage::assistant(content)
-            .with_source(ha_core::chat_engine::ChatSource::Desktop),
-        trailing_placeholder_id: None,
-        context_json: context_json.unwrap_or_else(|| "[]".to_string()),
-        expected_context_revision: context_revision,
-        turn_id: Some(turn_id.to_string()),
-        usage: None,
-        final_seq: 0,
-    };
-    db.commit_assistant_turn(&commit).map_err(CmdError::from)?;
-    Ok(())
+    cancel: &AtomicBool,
+) -> Result<bool, CmdError> {
+    if cancel.load(Ordering::Acquire) {
+        return Ok(false);
+    }
+    let session_id = session_id.to_string();
+    let turn_id = turn_id.to_string();
+    let content = content.to_string();
+    let result = db
+        .run(move |db| {
+            let (context_json, context_revision) = db.load_context_with_revision(&session_id)?;
+            let commit = session::CommitAssistantTurn {
+                run_id: None,
+                attempt_no: 0,
+                session_id,
+                assistant: session::NewMessage::assistant(&content)
+                    .with_source(ha_core::chat_engine::ChatSource::Desktop),
+                trailing_placeholder_id: None,
+                context_json: context_json.unwrap_or_else(|| "[]".to_string()),
+                expected_context_revision: context_revision,
+                turn_id: Some(turn_id),
+                usage: None,
+                final_seq: 0,
+            };
+            db.commit_assistant_turn(&commit)
+        })
+        .await;
+    match result {
+        Ok(_) => Ok(true),
+        Err(_) if cancel.load(Ordering::Acquire) => Ok(false),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
@@ -282,6 +295,7 @@ pub async fn chat(
     mut message: String,
     mut attachments: Vec<Attachment>,
     session_id: Option<String>,
+    client_request_id: Option<String>,
     incognito: Option<bool>,
     model_override: Option<String>,
     session_defaults: Option<ha_core::session::SessionDefaultsInput>,
@@ -679,31 +693,33 @@ pub async fn chat(
     if let Some(mode) = workflow_mode_pending {
         db.update_session_workflow_mode(&sid, mode)?;
     }
-    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire(
-        &sid,
-        crate::chat_engine::stream_seq::ChatSource::Desktop,
-        turn_id.clone(),
-        cancel.clone(),
-    ) {
-        Ok(guard) => guard,
-        Err(error) => {
-            if let Some(request_id) = queued_request_id.as_ref() {
-                let sid_for_release = sid.clone();
-                let request_id_for_release = request_id.clone();
-                let turn_for_release = turn_id.clone();
-                let _ = db
-                    .run(move |db| {
-                        db.release_queued_turn_message_dispatch(
-                            &sid_for_release,
-                            &request_id_for_release,
-                            &turn_for_release,
-                        )
-                    })
-                    .await;
+    let _active_turn_guard =
+        match crate::chat_engine::active_turn::try_acquire_with_client_request_id(
+            &sid,
+            crate::chat_engine::stream_seq::ChatSource::Desktop,
+            turn_id.clone(),
+            client_request_id,
+            cancel.clone(),
+        ) {
+            Ok(guard) => guard,
+            Err(error) => {
+                if let Some(request_id) = queued_request_id.as_ref() {
+                    let sid_for_release = sid.clone();
+                    let request_id_for_release = request_id.clone();
+                    let turn_for_release = turn_id.clone();
+                    let _ = db
+                        .run(move |db| {
+                            db.release_queued_turn_message_dispatch(
+                                &sid_for_release,
+                                &request_id_for_release,
+                                &turn_for_release,
+                            )
+                        })
+                        .await;
+                }
+                return Err(error.into());
             }
-            return Err(error.into());
-        }
-    };
+        };
 
     // Mark this session as active — cancels any running subagent injection and blocks new ones
     let _chat_session_guard = crate::subagent::ChatSessionGuard::new(&sid);
@@ -718,16 +734,101 @@ pub async fn chat(
     // persisted", but the attachment IO had already touched disk. The preflight
     // only consumes `raw_prompt` / `session_id` / `agent_id`, so it doesn't need
     // any attachment metadata — moving it up is purely a side-effect deferral.
-    let effective_prompt = match ha_core::agent::preflight::user_prompt_preflight(
+    let preflight = ha_core::agent::preflight::user_prompt_preflight_cancellable(
         ha_core::agent::preflight::PreflightArgs {
             session_id: &sid,
             agent_id: Some(current_agent_id.as_str()),
             raw_prompt,
             turn_id: &turn_id,
         },
+        cancel.as_ref(),
     )
-    .await
-    {
+    .await;
+    let Some(preflight) = preflight else {
+        if let Some(request_id) = queued_request_id.as_ref() {
+            let sid_for_release = sid.clone();
+            let request_id_for_release = request_id.clone();
+            let turn_for_release = turn_id.clone();
+            let _ = db
+                .run(move |db| {
+                    db.release_queued_turn_message_dispatch(
+                        &sid_for_release,
+                        &request_id_for_release,
+                        &turn_for_release,
+                    )
+                })
+                .await;
+        }
+        // This turn has no chat_turn row yet, so the ordinary Stop watchdog
+        // cannot release it. Publish the terminal state and release the exact
+        // active-turn entry before any Git/SQLite cleanup that may block.
+        let needs_background_cleanup =
+            bootstrap_request_id.is_some() || new_session_created.is_some();
+        let cleanup_gate = needs_background_cleanup
+            .then(|| ha_core::chat_engine::active_turn::begin_stop_cleanup(&sid));
+        broadcast_turn_end(
+            &sid,
+            &turn_id,
+            session::ChatTurnStatus::Interrupted,
+            Some(session::ChatTurnInterruptReason::UserStop),
+            None,
+        );
+        ha_core::chat_engine::active_turn::force_release(&sid, &turn_id);
+
+        if needs_background_cleanup {
+            let cleanup_db = db.clone();
+            let cleanup_sid = sid.clone();
+            let cleanup_request_id = bootstrap_request_id.clone();
+            let delete_empty_session = new_session_created.is_some();
+            tokio::spawn(async move {
+                let bootstrap_rollback_succeeded = if let Some(request_id) = cleanup_request_id {
+                    match cleanup_db
+                        .clone()
+                        .run(move |db| db.rollback_project_bootstrap_after_chat_cancel(&request_id))
+                        .await
+                    {
+                        Ok(()) => true,
+                        Err(error) => {
+                            // Preserve the Session + managed-worktree row
+                            // when Git-aware cleanup fails; startup recovery
+                            // can retry it without orphaning the worktree.
+                            app_warn!(
+                                "project",
+                                "bootstrap_cancel_rollback",
+                                "Failed to roll back project bootstrap for stopped chat {}: {}",
+                                cleanup_sid,
+                                error
+                            );
+                            false
+                        }
+                    }
+                } else {
+                    true
+                };
+                if delete_empty_session && bootstrap_rollback_succeeded {
+                    let sid_for_delete = cleanup_sid.clone();
+                    if let Err(error) = cleanup_db
+                        .run(move |db| db.delete_session(&sid_for_delete))
+                        .await
+                    {
+                        app_warn!(
+                            "chat",
+                            "preflight_cancel_cleanup",
+                            "Failed to delete empty stopped session {}: {}",
+                            cleanup_sid,
+                            error
+                        );
+                    }
+                }
+                drop(cleanup_gate);
+            });
+        }
+        return Err(CmdError::msg(format!(
+            "{}: chat stopped before prompt submission completed",
+            ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE
+        )));
+    };
+    let effective_prompt = match preflight {
         ha_core::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
             effective_prompt
         }
@@ -1072,71 +1173,101 @@ pub async fn chat(
     // ── Plan Sub-Agent: optionally dispatch Planning to an isolated sub-agent ──
     // When plan_subagent=true, keeps the main agent's context clean for execution.
     // When plan_subagent=false (default), planning runs inline in the main agent.
-    if early_plan_state == crate::plan::PlanModeState::Planning {
+    if early_plan_state == crate::plan::PlanModeState::Planning && !cancel.load(Ordering::Acquire) {
         let use_subagent = cfg.plan_subagent;
 
         if use_subagent {
             // Check if a plan sub-agent is already active for this session
-            if let Some(run_id) = crate::plan::get_active_plan_run_id(&sid).await {
-                // User sent a message while planning → route as steer to the sub-agent
-                crate::subagent::SUBAGENT_MAILBOX.push(&run_id, message.clone());
-                let reply = "💬 Message forwarded to planning agent.";
-                commit_local_reply(&db, &sid, &turn_id, reply)?;
-                let _ = on_event.send(
-                    serde_json::json!({
-                        "type": "text",
-                        "text": "💬 Message forwarded to planning agent."
-                    })
-                    .to_string(),
-                );
-                broadcast_turn_end(
-                    &sid,
-                    &turn_id,
-                    session::ChatTurnStatus::Completed,
-                    None,
-                    None,
-                );
-                return Ok(reply.to_string());
+            let active_plan_run_id = crate::plan::get_active_plan_run_id(&sid).await;
+            if !cancel.load(Ordering::Acquire) {
+                if let Some(run_id) = active_plan_run_id {
+                    // User sent a message while planning → route as steer to the sub-agent
+                    crate::subagent::SUBAGENT_MAILBOX.push(&run_id, message.clone());
+                    let reply = "💬 Message forwarded to planning agent.";
+                    if commit_local_reply(db.clone(), &sid, &turn_id, reply, cancel.as_ref())
+                        .await?
+                    {
+                        let _ = on_event.send(
+                            serde_json::json!({
+                                "type": "text",
+                                "text": "💬 Message forwarded to planning agent."
+                            })
+                            .to_string(),
+                        );
+                        broadcast_turn_end(
+                            &sid,
+                            &turn_id,
+                            session::ChatTurnStatus::Completed,
+                            None,
+                            None,
+                        );
+                        return Ok(reply.to_string());
+                    }
+                }
             }
 
             // First message in Planning state → spawn plan sub-agent
-            let recent_summary = build_recent_context_summary(&db, &sid).await;
-            let cancel_registry = crate::get_subagent_cancels()
-                .cloned()
-                .ok_or_else(|| CmdError::msg("Sub-agent cancel registry not initialized"))?;
-            match crate::plan::spawn_plan_subagent(
-                &sid,
-                &current_agent_id,
-                &message,
-                &recent_summary,
-                db.clone(),
-                cancel_registry,
-            )
-            .await
-            {
-                Ok(run_id) => {
-                    app_info!("plan", "chat", "Plan sub-agent spawned: run_id={}", run_id);
-                    let reply = "🗂️ Plan creation started...";
-                    commit_local_reply(&db, &sid, &turn_id, reply)?;
-                    let _ = on_event.send(
-                        serde_json::json!({
-                            "type": "text",
-                            "text": "🗂️ Plan creation started..."
-                        })
-                        .to_string(),
-                    );
-                    broadcast_turn_end(
+            if !cancel.load(Ordering::Acquire) {
+                let recent_summary = build_recent_context_summary(&db, &sid).await;
+                if !cancel.load(Ordering::Acquire) {
+                    let cancel_registry =
+                        crate::get_subagent_cancels().cloned().ok_or_else(|| {
+                            CmdError::msg("Sub-agent cancel registry not initialized")
+                        })?;
+                    match crate::plan::spawn_plan_subagent(
                         &sid,
-                        &turn_id,
-                        session::ChatTurnStatus::Completed,
-                        None,
-                        None,
-                    );
-                    return Ok(format!("Plan sub-agent spawned: {}", run_id));
-                }
-                Err(e) => {
-                    app_error!("plan", "chat", "Failed to spawn plan sub-agent: {}", e);
-                    // Fall through to inline planning as fallback
+                        &current_agent_id,
+                        &message,
+                        &recent_summary,
+                        db.clone(),
+                        cancel_registry.clone(),
+                    )
+                    .await
+                    {
+                        Ok(run_id) if cancel.load(Ordering::Acquire) => {
+                            cancel_registry.cancel(&run_id);
+                            app_info!(
+                                "plan",
+                                "chat",
+                                "Cancelled plan sub-agent spawned during stop: run_id={}",
+                                run_id
+                            );
+                        }
+                        Ok(run_id) => {
+                            app_info!("plan", "chat", "Plan sub-agent spawned: run_id={}", run_id);
+                            let reply = "🗂️ Plan creation started...";
+                            if commit_local_reply(
+                                db.clone(),
+                                &sid,
+                                &turn_id,
+                                reply,
+                                cancel.as_ref(),
+                            )
+                            .await?
+                            {
+                                let _ = on_event.send(
+                                    serde_json::json!({
+                                        "type": "text",
+                                        "text": "🗂️ Plan creation started..."
+                                    })
+                                    .to_string(),
+                                );
+                                broadcast_turn_end(
+                                    &sid,
+                                    &turn_id,
+                                    session::ChatTurnStatus::Completed,
+                                    None,
+                                    None,
+                                );
+                                return Ok(format!("Plan sub-agent spawned: {}", run_id));
+                            }
+                            cancel_registry.cancel(&run_id);
+                        }
+                        Err(e) => {
+                            app_error!("plan", "chat", "Failed to spawn plan sub-agent: {}", e);
+                            // Fall through to inline planning as fallback
+                        }
+                    }
                 }
             }
         }
@@ -1329,136 +1460,114 @@ pub async fn control_model_recovery(
 pub async fn stop_chat(
     session_id: Option<String>,
     turn_id: Option<String>,
+    client_request_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    let mut stopped = false;
-    let mut watchdog_turns = Vec::new();
-    if let Some(sid) = session_id.as_deref() {
-        if let Some(active) = crate::chat_engine::active_turn::current(sid) {
-            let matches_turn = turn_id
-                .as_deref()
-                .map(|id| id == active.turn_id)
-                .unwrap_or(true);
-            if matches_turn {
-                active.cancel.store(true, Ordering::SeqCst);
-                let _ = {
-                    let turn_id = active.turn_id.clone();
-                    state
-                        .session_db
-                        .run(move |db| {
-                            db.mark_chat_turn_cancelling(
-                                &turn_id,
-                                session::ChatTurnInterruptReason::UserStop,
-                            )
-                        })
-                        .await
-                };
-                ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
-                    sid,
-                    &active.turn_id,
-                    session::ChatTurnStatus::Cancelling,
-                    Some(session::ChatTurnInterruptReason::UserStop),
-                );
-                watchdog_turns.push((sid.to_string(), active.turn_id.clone(), active.source));
-                stopped = true;
-            } else {
-                app_info!(
-                    "chat",
-                    "stop_chat",
-                    "Ignoring stale stop for session {} turn {:?}; active turn is {}",
-                    sid,
-                    turn_id,
-                    active.turn_id
-                );
-            }
-        }
-    } else {
-        // Legacy fallback for callers that cannot target a session. Keep the
-        // old global flag, but all new UI paths pass a session id.
-        state.chat_cancel.store(true, Ordering::SeqCst);
-        let mut cancelling_turn_ids = Vec::new();
-        for active in crate::chat_engine::active_turn::all_current() {
-            active.cancel.store(true, Ordering::SeqCst);
-            ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
-                &active.session_id,
-                &active.turn_id,
-                session::ChatTurnStatus::Cancelling,
-                Some(session::ChatTurnInterruptReason::UserStop),
-            );
-            cancelling_turn_ids.push(active.turn_id.clone());
-            watchdog_turns.push((
-                active.session_id.clone(),
-                active.turn_id.clone(),
-                active.source,
-            ));
-        }
-        // One blocking-pool hop for all the DB marks (a stalled DB otherwise
-        // multiplies into one queued task per turn).
-        if !cancelling_turn_ids.is_empty() {
-            let _ = state
-                .session_db
-                .run(move |db| {
-                    for turn_id in &cancelling_turn_ids {
-                        let _ = db.mark_chat_turn_cancelling(
-                            turn_id,
-                            session::ChatTurnInterruptReason::UserStop,
-                        );
-                    }
-                })
-                .await;
-        }
-        stopped = true;
+    // `turn_id` is not known until the backend announces turn_started. During
+    // that pre-registration window, use the request id even for an existing
+    // session; otherwise Stop can race ahead of active-turn acquisition and be
+    // silently forgotten.
+    let request_cancel =
+        if client_request_id.is_some() && (session_id.is_none() || turn_id.is_none()) {
+            client_request_id.as_deref().map(|request_id| {
+                crate::chat_engine::active_turn::cancel_or_latch_client_request(
+                    request_id,
+                    session_id.as_deref(),
+                )
+            })
+        } else {
+            None
+        };
+    if matches!(
+        request_cancel.as_ref(),
+        Some(crate::chat_engine::active_turn::ClientRequestCancelOutcome::SessionMismatch)
+    ) {
+        app_warn!(
+            "chat",
+            "stop_chat",
+            "Ignoring Stop because client request {:?} is not owned by session {:?}",
+            client_request_id,
+            session_id
+        );
+        return Ok(());
     }
-    // A foreground approval wait does not observe the chat cancel flag itself.
-    // Resolve it explicitly so Stop cannot leave a modal orphaned or allow the
-    // user to authorize a tool after the turn has been marked cancelled.
-    if let Some(sid) = session_id.as_deref() {
-        if stopped || turn_id.is_none() {
-            ha_core::tools::deny_pending_for_session(
-                sid,
-                ha_core::tools::ApprovalResolutionSource::UserStop,
-            )
-            .await;
-            ha_core::ask_user::cancel_pending_ask_user_questions_for_session(sid, "user_stop")
-                .await;
+    let request_target = request_cancel.as_ref().and_then(|outcome| match outcome {
+        crate::chat_engine::active_turn::ClientRequestCancelOutcome::Active(active) => {
+            Some(active.clone())
         }
+        _ => None,
+    });
+    let target_session_id = session_id.clone().or_else(|| {
+        request_target
+            .as_ref()
+            .map(|active| active.session_id.clone())
+    });
+    let target_turn_id = if session_id.is_some() {
+        turn_id.clone()
     } else {
-        ha_core::tools::deny_all_pending(ha_core::tools::ApprovalResolutionSource::UserStop).await;
-        ha_core::ask_user::cancel_all_pending_ask_user_questions("user_stop").await;
-    }
-    let runtime_scope = stopped.then_some(session_id.as_deref()).flatten();
-    let runtime_cancellations = if stopped || session_id.is_none() {
-        ha_core::runtime_tasks::cancel_runtime_tasks_for_session(runtime_scope).await
-    } else {
-        Ok(Vec::new())
+        request_target.as_ref().map(|active| active.turn_id.clone())
     };
-    match runtime_cancellations {
-        Ok(results) => {
+    let global_stop = session_id.is_none() && client_request_id.is_none();
+    if let Some(sid) = target_session_id.as_deref() {
+        let already_signalled = matches!(
+            request_cancel,
+            Some(
+                crate::chat_engine::active_turn::ClientRequestCancelOutcome::Active(_)
+                    | crate::chat_engine::active_turn::ClientRequestCancelOutcome::Latched
+            )
+        );
+        let outcome = crate::chat_engine::stop::stop_session(
+            state.session_db.clone(),
+            sid,
+            target_turn_id.as_deref(),
+            already_signalled,
+        )
+        .await;
+        if outcome.turn_mismatch {
             app_info!(
                 "chat",
                 "stop_chat",
-                "Stop chat requested; stopped={} runtime cancellations attempted: {}",
-                stopped,
-                results.len()
+                "Ignoring stale stop for session {} turn {:?}",
+                sid,
+                target_turn_id
             );
         }
-        Err(e) => {
-            app_warn!(
-                "chat",
-                "stop_chat",
-                "Stop chat runtime cancellation failed: {}",
-                e
-            );
-        }
-    }
-    for (sid, turn_id, source) in watchdog_turns {
-        crate::chat_engine::spawn_user_stop_watchdog(
-            state.session_db.clone(),
-            sid,
-            turn_id,
-            source,
+        app_info!(
+            "chat",
+            "stop_chat",
+            "Stop chat requested; stopped={} approvals_denied={} questions_cancelled={} runtime cancellations attempted: {}",
+            outcome.stopped,
+            outcome.denied_approvals,
+            outcome.cancelled_questions,
+            outcome.runtime_cancellations.len()
         );
+        return Ok(());
     }
+    if !global_stop {
+        // A request-scoped Stop that arrived before lazy session creation is
+        // latched in active_turn and will be consumed by registration.
+        return Ok(());
+    }
+    // Legacy/emergency callers without a target still flip the shell-level
+    // flag synchronously. Core owns every other Stop semantic so this path
+    // cannot drift from HTTP or IM `/stop` again.
+    state.chat_cancel.store(true, Ordering::SeqCst);
+    let outcome = ha_core::chat_engine::stop::stop_all_sessions(
+        state.session_db.clone(),
+        std::iter::empty(),
+        true,
+    )
+    .await;
+    app_info!(
+        "chat",
+        "stop_chat",
+        "Global Stop requested; stopped={} sessions={} approvals_denied={} questions_cancelled={} runtime cancellations attempted: {}",
+        outcome.stopped,
+        outcome.stopped_session_count,
+        outcome.denied_approvals,
+        outcome.cancelled_questions,
+        outcome.runtime_cancellations.len()
+    );
     Ok(())
 }
 

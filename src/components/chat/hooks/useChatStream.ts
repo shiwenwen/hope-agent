@@ -44,9 +44,13 @@ import {
   discardAllPendingStreamDeltas,
   discardPendingStreamDeltas,
   handleStreamEvent,
+  isStreamEnded,
+  markStreamActive,
+  markStreamEnded,
   streamCursorKey,
   streamIdFromEvent,
   streamIdFromPayload,
+  type EndedStreamIds,
 } from "./useStreamEventHandler"
 import { useApprovals } from "./useApprovals"
 import { generateClientId } from "@/components/chat/chatScrollKeys"
@@ -67,7 +71,57 @@ import {
 
 const ACTIVE_STREAM_ERROR_CODE = "active_stream"
 const QUEUED_MESSAGE_UNAVAILABLE_ERROR_CODE = "queued_message_unavailable"
+const CHAT_CANCELLED_DURING_PREFLIGHT_CODE = "chat_cancelled_during_preflight"
 const CHAT_NOTIFICATION_PREVIEW_MAX_CHARS = 220
+
+class ChatPreparationCancelledError extends Error {
+  constructor() {
+    super("Chat preparation cancelled by user")
+    this.name = "ChatPreparationCancelledError"
+  }
+}
+
+function isChatPreparationCancelled(error: unknown): boolean {
+  return error instanceof ChatPreparationCancelledError
+}
+
+function awaitUnlessAborted<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+  onLateResolve?: (value: T) => void | Promise<void>,
+): Promise<T> {
+  if (!signal) return promise
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    const onAbort = () => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener("abort", onAbort)
+      reject(new ChatPreparationCancelledError())
+    }
+    promise.then(
+      (value) => {
+        if (settled) {
+          if (signal.aborted && onLateResolve) {
+            void Promise.resolve(onLateResolve(value)).catch(() => {})
+          }
+          return
+        }
+        settled = true
+        signal.removeEventListener("abort", onAbort)
+        resolve(value)
+      },
+      (error) => {
+        if (settled) return
+        settled = true
+        signal.removeEventListener("abort", onAbort)
+        reject(error)
+      },
+    )
+    if (signal.aborted) onAbort()
+    else signal.addEventListener("abort", onAbort, { once: true })
+  })
+}
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -89,6 +143,10 @@ function isQueuedMessageUnavailableError(error: unknown): boolean {
     text.includes(QUEUED_MESSAGE_UNAVAILABLE_ERROR_CODE) ||
     text.includes("Queued message is no longer available")
   )
+}
+
+function isPreflightStopError(error: unknown): boolean {
+  return errorText(error).includes(CHAT_CANCELLED_DURING_PREFLIGHT_CODE)
 }
 
 function normalizeNotificationText(text: string): string {
@@ -295,7 +353,7 @@ export interface UseChatStreamOptions {
   lastSeqRef: React.MutableRefObject<Map<string, number>>
   /** Latest stream id that has ended for each session. Used to drop delayed
    *  primary frames that arrive after DB reconciliation. */
-  endedStreamIdsRef: React.MutableRefObject<Map<string, string>>
+  endedStreamIdsRef: React.MutableRefObject<EndedStreamIds>
   /** Current plan mode state, passed to backend chat() for reliable sync */
   planMode?: string
   /** Session-level temperature override (0.0–2.0). Overrides agent and global settings. */
@@ -411,7 +469,8 @@ export interface UseChatStreamReturn {
     sessionId: string,
     status?: ChatTurnStatus | null,
     interruptReason?: ChatTurnInterruptReason | null,
-  ) => void
+    turnId?: string | null,
+  ) => boolean
   executionStateBySession: Map<string, ChatTurnStatus>
 }
 
@@ -755,6 +814,17 @@ export function useChatStream({
     Map<string, ChatTurnStatus>
   >(() => new Map())
   const activeTurnBySessionRef = useRef<Map<string, string>>(new Map())
+  // A stop watchdog may durably finish and release a turn before the original
+  // transport promise unwinds.  Track which request currently owns each
+  // session's optimistic/loading lifecycle so a late `finally` from the old
+  // request cannot remove the new turn's placeholder or clear its loading bit.
+  const chatRequestOwnerBySessionRef = useRef<Map<string, string>>(new Map())
+  const userStoppedRequestIdsRef = useRef<Set<string>>(new Set())
+  // A request id is only useful to the backend after startChat has begun. A
+  // Stop during local attachment preparation should stay local; sending it to
+  // the backend would create a never-consumed pre-registration cancel latch.
+  const backendStartedRequestIdsRef = useRef<Set<string>>(new Set())
+  const preparationAbortByRequestRef = useRef<Map<string, AbortController>>(new Map())
   const lastTurnStatusBySessionRef = useRef<
     Map<string, { status: ChatTurnStatus; interruptReason?: ChatTurnInterruptReason | null }>
   >(new Map())
@@ -853,6 +923,24 @@ export function useChatStream({
       } | null
       const sid = payload?.sessionId
       if (!sid) return
+      const streamId = streamIdFromPayload(raw)
+      const currentTurnId = activeTurnBySessionRef.current.get(sid)
+      if (payload.turnId && !currentTurnId && chatRequestOwnerBySessionRef.current.has(sid)) {
+        // A new request already owns the session but has not received its
+        // turn_started yet. The backend guarantees started-before-terminal
+        // for that request, so this terminal event can only belong to the old
+        // turn and must not occupy the new request's empty turn-id slot.
+        markStreamEnded(endedStreamIdsRef.current, sid, streamId)
+        if (streamId) discardPendingStreamDeltas(sid, deltaBuffersRef, streamId)
+        return
+      }
+      if (payload?.turnId && currentTurnId && currentTurnId !== payload.turnId) {
+        // A delayed terminal event from the watchdog/transport belongs to an
+        // older turn.  Never let it overwrite a newer turn's running state.
+        markStreamEnded(endedStreamIdsRef.current, sid, streamId)
+        if (streamId) discardPendingStreamDeltas(sid, deltaBuffersRef, streamId)
+        return
+      }
       if (payload?.turnId) activeTurnBySessionRef.current.delete(sid)
       if (payload?.status) {
         lastTurnStatusBySessionRef.current.set(sid, {
@@ -861,9 +949,8 @@ export function useChatStream({
         })
         setExecutionStateBySession((prev) => new Map(prev).set(sid, payload.status!))
       }
-      const streamId = streamIdFromPayload(raw)
-      if (streamId) endedStreamIdsRef.current.set(sid, streamId)
-      discardPendingStreamDeltas(sid, deltaBuffersRef)
+      markStreamEnded(endedStreamIdsRef.current, sid, streamId)
+      discardPendingStreamDeltas(sid, deltaBuffersRef, streamId ?? null)
     })
     return () => {
       unlisten()
@@ -881,6 +968,11 @@ export function useChatStream({
       } | null
       const sid = payload?.sessionId
       if (!sid || !payload?.status) return
+      const currentTurnId = activeTurnBySessionRef.current.get(sid)
+      if (payload.turnId && !currentTurnId && chatRequestOwnerBySessionRef.current.has(sid)) {
+        return
+      }
+      if (payload.turnId && currentTurnId && currentTurnId !== payload.turnId) return
       if (payload.turnId) activeTurnBySessionRef.current.set(sid, payload.turnId)
       lastTurnStatusBySessionRef.current.set(sid, {
         status: payload.status,
@@ -1058,6 +1150,11 @@ export function useChatStream({
   async function handleStop() {
     const sid = currentSessionIdRef.current ?? currentSessionId ?? null
     if (!sid) {
+      const pendingRequestOwner = chatRequestOwnerBySessionRef.current.get("__pending__")
+      if (pendingRequestOwner) {
+        userStoppedRequestIdsRef.current.add(pendingRequestOwner)
+        preparationAbortByRequestRef.current.get(pendingRequestOwner)?.abort()
+      }
       if (draftProjectBootstrap) {
         try {
           await getTransport().call("cancel_project_bootstrap", {
@@ -1066,16 +1163,36 @@ export function useChatStream({
         } catch (e) {
           logger.error("ui", "ChatScreen::stopBootstrap", "Failed to stop project task setup", e)
         }
+      }
+      if (pendingRequestOwner) {
+        if (!backendStartedRequestIdsRef.current.has(pendingRequestOwner)) return
+        try {
+          await getTransport().call("stop_chat", {
+            sessionId: null,
+            turnId: null,
+            clientRequestId: pendingRequestOwner,
+          })
+        } catch (e) {
+          logger.error("ui", "ChatScreen::stopPending", "Failed to stop pending chat", e)
+        }
         return
       }
       const active = Array.from(activeTurnBySessionRef.current.entries()).at(-1)
       if (!active) return
       const [activeSid, activeTurnId] = active
+      const requestOwner =
+        chatRequestOwnerBySessionRef.current.get(activeSid) ??
+        chatRequestOwnerBySessionRef.current.get("__pending__")
+      if (requestOwner) {
+        userStoppedRequestIdsRef.current.add(requestOwner)
+        preparationAbortByRequestRef.current.get(requestOwner)?.abort()
+      }
       setExecutionStateBySession((prev) => new Map(prev).set(activeSid, "cancelling"))
       try {
         await getTransport().call("stop_chat", {
           sessionId: activeSid,
           turnId: activeTurnId,
+          clientRequestId: requestOwner,
         })
       } catch (e) {
         logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
@@ -1083,11 +1200,20 @@ export function useChatStream({
       return
     }
     const activeTurnId = activeTurnBySessionRef.current.get(sid) ?? null
+    const requestOwner = chatRequestOwnerBySessionRef.current.get(sid)
+    if (requestOwner) {
+      userStoppedRequestIdsRef.current.add(requestOwner)
+      preparationAbortByRequestRef.current.get(requestOwner)?.abort()
+    }
+    if (requestOwner && !activeTurnId && !backendStartedRequestIdsRef.current.has(requestOwner)) {
+      return
+    }
     setExecutionStateBySession((prev) => new Map(prev).set(sid, "cancelling"))
     try {
       await getTransport().call("stop_chat", {
         sessionId: sid,
         turnId: activeTurnId,
+        clientRequestId: requestOwner,
       })
     } catch (e) {
       logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
@@ -1105,7 +1231,13 @@ export function useChatStream({
       sessionId: string,
       status?: ChatTurnStatus | null,
       interruptReason?: ChatTurnInterruptReason | null,
+      turnId?: string | null,
     ) => {
+      const currentTurnId = activeTurnBySessionRef.current.get(sessionId)
+      if (turnId && !currentTurnId && chatRequestOwnerBySessionRef.current.has(sessionId)) {
+        return false
+      }
+      if (turnId && currentTurnId && currentTurnId !== turnId) return false
       activeTurnBySessionRef.current.delete(sessionId)
       if (status) {
         lastTurnStatusBySessionRef.current.set(sessionId, {
@@ -1114,6 +1246,7 @@ export function useChatStream({
         })
         setExecutionStateBySession((prev) => new Map(prev).set(sessionId, status))
       }
+      return true
     },
     [],
   )
@@ -1125,14 +1258,15 @@ export function useChatStream({
   )
 
   const ensureAttachmentCount = useCallback(
-    async (attachments: ChatAttachment[], transport: Transport) => {
+    async (attachments: ChatAttachment[], transport: Transport, signal?: AbortSignal) => {
       if (attachments.length <= 64) return
-      await Promise.allSettled(
+      const cleanup = Promise.allSettled(
         attachments
           .map((attachment) => attachment.upload_id)
           .filter((id): id is string => !!id)
           .map((id) => transport.discardChatAttachmentUpload(id)),
       )
+      await awaitUnlessAborted(cleanup, signal)
       throw new Error(t("attachments.tooMany", "A message can contain at most 64 files"))
     },
     [t],
@@ -1146,8 +1280,11 @@ export function useChatStream({
       messageQuotesToSend: PendingMessageQuote[],
       targetSessionId: string | null,
       transport: Transport,
+      signal?: AbortSignal,
     ): Promise<ChatAttachment[]> => {
       const attachments: ChatAttachment[] = []
+
+      if (signal?.aborted) throw new ChatPreparationCancelledError()
 
       const sessionWorkingDir = sessions.find((s) => s.id === targetSessionId)?.workingDir ?? null
       const resolvedWorkingDir = targetSessionId ? sessionWorkingDir : draftWorkingDir
@@ -1156,7 +1293,10 @@ export function useChatStream({
         attachments.push(m)
       }
 
-      const planAttachments = await expandPlanMentionsToAttachments(text)
+      const planAttachments = await awaitUnlessAborted(
+        expandPlanMentionsToAttachments(text),
+        signal,
+      )
       for (const p of planAttachments) {
         attachments.push(p)
       }
@@ -1165,13 +1305,15 @@ export function useChatStream({
         throw new Error(t("attachments.tooMany", "A message can contain at most 64 files"))
       const unavailable = filesToSend.find((draft) => draft.status === "error")
       if (unavailable) {
-        throw new Error(
-          unavailable.error ||
-            t("attachments.uploadFailedShort", "Upload failed"),
-        )
+        throw new Error(unavailable.error || t("attachments.uploadFailedShort", "Upload failed"))
       }
       if (filesToSend.length > 0) {
-        const filesystemConfig = await readFilesystemConfig(transport).catch(() => null)
+        let filesystemConfig: Awaited<ReturnType<typeof readFilesystemConfig>> | null = null
+        try {
+          filesystemConfig = await awaitUnlessAborted(readFilesystemConfig(transport), signal)
+        } catch (error) {
+          if (isChatPreparationCancelled(error)) throw error
+        }
         if (filesystemConfig) {
           const configuredMaxBytes = attachmentBytesForConfig(filesystemConfig)
           const oversized = filesToSend.find((draft) => draft.file.size > configuredMaxBytes)
@@ -1191,24 +1333,31 @@ export function useChatStream({
       let cursor = 0
       let failure: unknown = null
       const worker = async () => {
-        while (!failure) {
+        while (!failure && !signal?.aborted) {
           const index = cursor
           cursor += 1
           if (index >= filesToSend.length) return
           try {
-            leases[index] = await transport.stageChatAttachment(filesToSend[index].file)
+            leases[index] = await awaitUnlessAborted(
+              transport.stageChatAttachment(filesToSend[index].file),
+              signal,
+              (lease) => transport.discardChatAttachmentUpload(lease.uploadId),
+            )
           } catch (error) {
             failure = error
           }
         }
       }
       await Promise.all(Array.from({ length: Math.min(3, filesToSend.length) }, () => worker()))
+      if (signal?.aborted && !failure) failure = new ChatPreparationCancelledError()
       if (failure) {
-        await Promise.allSettled(
+        const cleanup = Promise.allSettled(
           leases
             .filter((lease): lease is NonNullable<typeof lease> => !!lease)
             .map((lease) => transport.discardChatAttachmentUpload(lease.uploadId)),
         )
+        if (isChatPreparationCancelled(failure)) void cleanup
+        else await cleanup
         throw failure
       }
       for (let index = 0; index < filesToSend.length; index += 1) {
@@ -1407,6 +1556,35 @@ export function useChatStream({
     const messageQuotesToSend = [...draftMessageQuotes]
     const displayed = options?.displayText?.trim() || text
     const sendSessionId = options?.sessionIdOverride ?? currentSessionId
+    const chatRequestOwnerId = generateClientId()
+    const preparationAbort = new AbortController()
+    preparationAbortByRequestRef.current.set(chatRequestOwnerId, preparationAbort)
+    let chatRequestOwnerKey = sendSessionId ?? "__pending__"
+    const bindChatRequestOwner = (nextKey: string) => {
+      if (
+        chatRequestOwnerKey !== nextKey &&
+        chatRequestOwnerBySessionRef.current.get(chatRequestOwnerKey) === chatRequestOwnerId
+      ) {
+        chatRequestOwnerBySessionRef.current.delete(chatRequestOwnerKey)
+      }
+      chatRequestOwnerKey = nextKey
+      chatRequestOwnerBySessionRef.current.set(nextKey, chatRequestOwnerId)
+    }
+    const releaseChatRequestOwner = () => {
+      if (chatRequestOwnerBySessionRef.current.get(chatRequestOwnerKey) === chatRequestOwnerId) {
+        chatRequestOwnerBySessionRef.current.delete(chatRequestOwnerKey)
+      }
+    }
+    const releasePreparationLoading = () => {
+      if (chatRequestOwnerBySessionRef.current.get(chatRequestOwnerKey) === chatRequestOwnerId) {
+        setLoading(false)
+      }
+    }
+    bindChatRequestOwner(chatRequestOwnerKey)
+    // Attachment/mention preparation is part of the active send lifecycle.
+    // Expose Stop immediately instead of waiting until optimistic messages are
+    // created; handleStop aborts this request locally before startChat exists.
+    setLoading(true)
     if (options?.sessionIdOverride) {
       currentSessionIdRef.current = options.sessionIdOverride
       setCurrentSessionId(options.sessionIdOverride)
@@ -1433,12 +1611,32 @@ export function useChatStream({
             messageQuotesToSend,
             sendSessionId,
             sendTransport,
+            preparationAbort.signal,
           )
       if (getExtraAttachments && !options?.queuedRequestId) {
         attachments.push(...getExtraAttachments())
       }
-      await ensureAttachmentCount(attachments, sendTransport)
+      await ensureAttachmentCount(attachments, sendTransport, preparationAbort.signal)
     } catch (error) {
+      preparationAbortByRequestRef.current.delete(chatRequestOwnerId)
+      releasePreparationLoading()
+      releaseChatRequestOwner()
+      if (
+        isChatPreparationCancelled(error) ||
+        userStoppedRequestIdsRef.current.delete(chatRequestOwnerId)
+      ) {
+        userStoppedRequestIdsRef.current.delete(chatRequestOwnerId)
+        if (usesComposerDraft && sendingDraftIds.size > 0) {
+          setAttachedFiles((existing) =>
+            existing.map((draft) =>
+              sendingDraftIds.has(draft.id)
+                ? { ...draft, status: "ready", error: undefined }
+                : draft,
+            ),
+          )
+        }
+        return
+      }
       logger.error("ui", "useChatStream::attachment", "Attachment upload failed", error)
       toast.error(
         t("attachments.uploadFailed", "Files were not sent. {{error}}", {
@@ -1459,6 +1657,28 @@ export function useChatStream({
         )
       }
       options?.onPreparationError?.(error)
+      return
+    }
+    preparationAbortByRequestRef.current.delete(chatRequestOwnerId)
+    // Stop can arrive while files/quotes are still being staged, before the
+    // backend knows this request. In that window the request id is the local
+    // cancellation authority: discard leases and leave the composer intact.
+    if (userStoppedRequestIdsRef.current.delete(chatRequestOwnerId)) {
+      releasePreparationLoading()
+      void Promise.allSettled(
+        attachments
+          .map((attachment) => attachment.upload_id)
+          .filter((id): id is string => !!id)
+          .map((id) => sendTransport.discardChatAttachmentUpload(id)),
+      )
+      if (usesComposerDraft && sendingDraftIds.size > 0) {
+        setAttachedFiles((existing) =>
+          existing.map((draft) =>
+            sendingDraftIds.has(draft.id) ? { ...draft, status: "ready", error: undefined } : draft,
+          ),
+        )
+      }
+      releaseChatRequestOwner()
       return
     }
     const optimisticQuoteAttachments: MessageAttachment[] = quotesToSend.map((q) => ({
@@ -1610,6 +1830,7 @@ export function useChatStream({
         }
 
         targetSessionId = event.session_id
+        bindChatRequestOwner(event.session_id)
         // Bridge the ref lag: `setCurrentSessionId` below only updates
         // `currentSessionIdRef` after React commits, but the user is already on
         // this freshly-materialized session. Set it eagerly so the mark-as-read
@@ -1649,7 +1870,7 @@ export function useChatStream({
 
       const shouldDropStreamEvent = (event: Record<string, unknown>, sid: string): boolean => {
         const streamId = streamIdFromEvent(event)
-        if (streamId && endedStreamIdsRef.current.get(sid) === streamId) return true
+        if (isStreamEnded(endedStreamIdsRef.current, sid, streamId)) return true
 
         // Primary path bumps the seq cursor so identical events arriving
         // later via the EventBus reattach listener are dropped.
@@ -1739,11 +1960,13 @@ export function useChatStream({
 
       const modelOverride = modelOverrideFromManualSelection(manualModelOverrideRef?.current)
       const effectivePlanMode = options?.planMode ?? planMode
+      backendStartedRequestIdsRef.current.add(chatRequestOwnerId)
       await sendTransport.startChat(
         {
           message: text,
           attachments,
           sessionId: sendSessionId,
+          clientRequestId: chatRequestOwnerId,
           incognito: sendSessionId ? undefined : incognitoEnabled,
           sessionDefaults: sendSessionId
             ? undefined
@@ -1815,23 +2038,28 @@ export function useChatStream({
           .map((id) => sendTransport.discardChatAttachmentUpload(id)),
       )
       const sid = targetSessionId || "__pending__"
+      const ownsRequestLifecycleNow =
+        chatRequestOwnerBySessionRef.current.get(sid) === chatRequestOwnerId
+      const requestWasUserStopped = userStoppedRequestIdsRef.current.has(chatRequestOwnerId)
       const bootstrapFailedBeforeSession =
         !sendSessionId && sid === "__pending__" && !!draftProjectBootstrap
-      if (bootstrapFailedBeforeSession) {
+      if (requestWasUserStopped && isPreflightStopError(e)) {
+        updateSessionMessages(sid, (prev) =>
+          prev.filter(
+            (message) =>
+              message._clientId !== assistantPlaceholderClientId &&
+              message._clientId !== optimisticUserClientId,
+          ),
+        )
+        if (!options?.queuedRequestId) restoreUnsentDraft()
+      } else if (bootstrapFailedBeforeSession) {
         onProjectBootstrapFailure?.(e instanceof Error ? e.message : String(e))
         updateSessionMessages(sid, (prev) => {
-          const updated = [...prev]
-          const last = updated[updated.length - 1]
-          if (last?.role === "assistant" && !last.content && !last.toolCalls?.length) updated.pop()
-          const maybeUser = updated[updated.length - 1]
-          if (
-            maybeUser?.role === "user" &&
-            maybeUser.content === displayed &&
-            maybeUser.timestamp === now
-          ) {
-            updated.pop()
-          }
-          return updated
+          return prev.filter(
+            (message) =>
+              message._clientId !== assistantPlaceholderClientId &&
+              message._clientId !== optimisticUserClientId,
+          )
         })
         restoreUnsentDraft()
       } else if (
@@ -1843,27 +2071,11 @@ export function useChatStream({
         // errors may already have saved server-side, so keep those visible.
         keepExistingStreamLoading = true
         updateSessionMessages(sid, (prev) => {
-          const updated = [...prev]
-          const last = updated[updated.length - 1]
-          if (
-            last &&
-            last.role === "assistant" &&
-            !last.content &&
-            !last.toolCalls?.length &&
-            !last.contentBlocks?.length
-          ) {
-            updated.pop()
-          }
-          const maybeUser = updated[updated.length - 1]
-          if (
-            maybeUser &&
-            maybeUser.role === "user" &&
-            maybeUser.content === displayed &&
-            maybeUser.timestamp === now
-          ) {
-            updated.pop()
-          }
-          return updated
+          return prev.filter(
+            (message) =>
+              message._clientId !== assistantPlaceholderClientId &&
+              message._clientId !== optimisticUserClientId,
+          )
         })
         restoreUnsentDraft()
         try {
@@ -1884,7 +2096,7 @@ export function useChatStream({
             setExecutionStateBySession((prev) => new Map(prev).set(sid, state.status!))
           }
           const streamId = state.streamId || undefined
-          if (streamId) endedStreamIdsRef.current.delete(sid)
+          markStreamActive(endedStreamIdsRef.current, sid, streamId)
           const cursorKey = streamCursorKey(sid, streamId)
           if (!lastSeqRef.current.has(cursorKey)) {
             lastSeqRef.current.set(cursorKey, Number(state.lastSeq) || 0)
@@ -1899,11 +2111,13 @@ export function useChatStream({
         }
       } else {
         updateSessionMessages(sid, (prev) => {
-          const updated = [...prev]
-          const last = updated[updated.length - 1]
-          if (last && last.role === "assistant" && last.content === "" && !last.toolCalls?.length) {
-            updated.pop()
-          }
+          const updated = prev.filter(
+            (message) => message._clientId !== assistantPlaceholderClientId,
+          )
+          // A late failure from an older request is already represented by
+          // its durable terminal row.  Do not append that transient error
+          // after a newer turn's optimistic messages.
+          if (!ownsRequestLifecycleNow) return updated
           // isTurnError：可靠的失败信号（仅真抛错才 push，绝非 reconcile 未决的空成功）——
           // 让设计对话等消费端可给出一键重试，而不必用会误报的「空内容」启发式。
           updated.push({ role: "event", content: `${e}`, isTurnError: true })
@@ -1933,6 +2147,7 @@ export function useChatStream({
       }
       // Notify on error for non-current sessions
       if (
+        ownsRequestLifecycleNow &&
         !keepExistingStreamLoading &&
         targetSessionId &&
         currentSessionIdRef.current !== targetSessionId
@@ -1952,39 +2167,50 @@ export function useChatStream({
         }
       }
     } finally {
+      preparationAbortByRequestRef.current.delete(chatRequestOwnerId)
+      backendStartedRequestIdsRef.current.delete(chatRequestOwnerId)
       const sid = targetSessionId || "__pending__"
-      // Clean up empty assistant message if chat was stopped before any response arrived
+      const ownsRequestLifecycle =
+        chatRequestOwnerBySessionRef.current.get(sid) === chatRequestOwnerId
+      const wasUserStopped = userStoppedRequestIdsRef.current.delete(chatRequestOwnerId)
+      // Remove only this request's placeholder.  A watchdog can release the
+      // session before this promise settles; using "last empty assistant"
+      // here would delete a newer turn's placeholder.
       updateSessionMessages(sid, (prev) => {
-        const updated = [...prev]
-        const last = updated[updated.length - 1]
+        const index = prev.findIndex(
+          (message) => message._clientId === assistantPlaceholderClientId,
+        )
+        if (index < 0) return prev
+        const candidate = prev[index]
         if (
-          last &&
-          last.role === "assistant" &&
-          !last.content &&
-          !last.toolCalls?.length &&
-          !last.contentBlocks?.length
+          candidate.role === "assistant" &&
+          !candidate.content &&
+          !candidate.toolCalls?.length &&
+          !candidate.contentBlocks?.length
         ) {
-          updated.pop()
+          return [...prev.slice(0, index), ...prev.slice(index + 1)]
         }
-        return updated
+        return prev
       })
-      if (keepExistingStreamLoading && sid !== "__pending__") {
-        loadingSessionsRef.current.add(sid)
-        setLoadingSessionIds(new Set(loadingSessionsRef.current))
-        if (currentSessionIdRef.current === sid) {
-          setLoading(true)
-        }
-      } else {
-        loadingSessionsRef.current.delete(sid)
-        setLoadingSessionIds(new Set(loadingSessionsRef.current))
-        if (currentSessionIdRef.current === sid) {
-          setLoading(false)
+      if (ownsRequestLifecycle) {
+        if (keepExistingStreamLoading && sid !== "__pending__") {
+          loadingSessionsRef.current.add(sid)
+          setLoadingSessionIds(new Set(loadingSessionsRef.current))
+          if (currentSessionIdRef.current === sid) {
+            setLoading(true)
+          }
+        } else {
+          loadingSessionsRef.current.delete(sid)
+          setLoadingSessionIds(new Set(loadingSessionsRef.current))
+          if (currentSessionIdRef.current === sid) {
+            setLoading(false)
+          }
         }
       }
       // Notify on completion. Existing behavior: always notify for a
       // different session. For the active session, only surface an OS
       // notification when the app window is no longer foregrounded.
-      if (!keepExistingStreamLoading && chatResolved && targetSessionId) {
+      if (ownsRequestLifecycle && !keepExistingStreamLoading && chatResolved && targetSessionId) {
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
           const status = lastTurnStatusBySessionRef.current.get(targetSessionId)?.status
@@ -2020,6 +2246,8 @@ export function useChatStream({
         const queue = await syncPendingSends(targetSessionId).catch(() => [])
         const queued = nextDispatchablePending(queue)
         if (
+          ownsRequestLifecycle &&
+          !wasUserStopped &&
           queued &&
           currentSessionIdRef.current === targetSessionId &&
           (queued.isPlanTrigger || queued.goalTrigger || autoSendPendingRef.current)
@@ -2035,6 +2263,7 @@ export function useChatStream({
           autoSendRef.current = true
         }
       }
+      if (ownsRequestLifecycle) releaseChatRequestOwner()
     }
   }
 

@@ -5,7 +5,7 @@ import type { MutableRefObject } from "react"
 import { act, cleanup, render } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
-import type { Message } from "@/types/chat"
+import type { ChatTurnInterruptReason, ChatTurnStatus, Message } from "@/types/chat"
 import { useChatStreamReattach } from "./useChatStreamReattach"
 
 const mocks = vi.hoisted(() => {
@@ -20,21 +20,25 @@ const mocks = vi.hoisted(() => {
         listeners.set(name, handler)
         return () => listeners.delete(name)
       }),
-      call: vi.fn((name: string) =>
-        new Promise((resolve) => {
-          pending.set(name, resolve)
-        })),
+      call: vi.fn(
+        (name: string) =>
+          new Promise((resolve) => {
+            pending.set(name, resolve)
+          }),
+      ),
     },
-    reload: vi.fn(async (params: {
-      sessionId: string
-      sessionCacheRef: MutableRefObject<Map<string, Message[]>>
-      setMessages: (messages: Message[]) => void
-    }) => {
-      const next = mocks.dbMessages.map((message) => ({ ...message }))
-      params.sessionCacheRef.current.set(params.sessionId, next)
-      params.setMessages(next)
-      return true
-    }),
+    reload: vi.fn(
+      async (params: {
+        sessionId: string
+        sessionCacheRef: MutableRefObject<Map<string, Message[]>>
+        setMessages: (messages: Message[]) => void
+      }) => {
+        const next = mocks.dbMessages.map((message) => ({ ...message }))
+        params.sessionCacheRef.current.set(params.sessionId, next)
+        params.setMessages(next)
+        return true
+      },
+    ),
   }
 })
 
@@ -60,13 +64,26 @@ vi.mock("../chatUtils", async () => {
   return { ...actual, reloadAndMergeSessionMessages: mocks.reload }
 })
 
-function Harness({ onMessages }: { onMessages: (messages: Message[]) => void }) {
+function Harness({
+  onMessages,
+  onTurnStarted,
+  onTurnEnded,
+}: {
+  onMessages: (messages: Message[]) => void
+  onTurnStarted?: (sessionId: string, turnId: string) => void
+  onTurnEnded?: (
+    sessionId: string,
+    status?: ChatTurnStatus | null,
+    interruptReason?: ChatTurnInterruptReason | null,
+    turnId?: string | null,
+  ) => boolean
+}) {
   const [messages, setMessages] = useState<Message[]>([])
   const [, setLoading] = useState(false)
   const [, setLoadingSessionIds] = useState<Set<string>>(new Set())
   const currentSessionIdRef = useRef<string | null>("s1")
   const lastSeqRef = useRef(new Map<string, number>())
-  const endedStreamIdsRef = useRef(new Map<string, string>())
+  const endedStreamIdsRef = useRef(new Map<string, Set<string>>())
   const loadingSessionsRef = useRef(new Set<string>())
   const sessionCacheRef = useRef(new Map<string, Message[]>())
 
@@ -91,6 +108,8 @@ function Harness({ onMessages }: { onMessages: (messages: Message[]) => void }) 
     setLoadingSessionIds,
     sessionCacheRef,
     reloadSessions: async () => {},
+    onTurnStarted,
+    onTurnEnded,
   })
 
   useEffect(() => onMessages(messages), [messages, onMessages])
@@ -131,7 +150,13 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
       },
     ]
     let latest: Message[] = []
-    render(<Harness onMessages={(messages) => { latest = messages }} />)
+    render(
+      <Harness
+        onMessages={(messages) => {
+          latest = messages
+        }}
+      />,
+    )
     const emit = mocks.listeners.get("chat:stream_delta")
     expect(emit).toBeTruthy()
 
@@ -189,7 +214,13 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
 
   test("replays buffered deltas from a newer stream even below the old throughSeq", async () => {
     let latest: Message[] = []
-    render(<Harness onMessages={(messages) => { latest = messages }} />)
+    render(
+      <Harness
+        onMessages={(messages) => {
+          latest = messages
+        }}
+      />,
+    )
     const emit = mocks.listeners.get("chat:stream_delta")
     expect(emit).toBeTruthy()
 
@@ -231,13 +262,117 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
     expect(latest.at(-1)?.content).toBe("old durable; new first token")
   })
 
+  test("does not let an older active snapshot replace a live newer turn", async () => {
+    let activeTurnId: string | null = null
+    const endedTurns: string[] = []
+    render(
+      <Harness
+        onMessages={() => {}}
+        onTurnStarted={(_sid, turnId) => {
+          activeTurnId = turnId
+        }}
+        onTurnEnded={(_sid, _status, _reason, turnId) => {
+          if (turnId && activeTurnId && turnId !== activeTurnId) return false
+          if (turnId) endedTurns.push(turnId)
+          activeTurnId = null
+          return true
+        }}
+      />,
+    )
+
+    await act(async () => {
+      mocks.listeners.get("chat:turn_started")?.({ sessionId: "s1", turnId: "turn-new" })
+      mocks.pending.get("get_session_stream_state")?.({
+        active: true,
+        lastSeq: 7,
+        acceptedSeq: 7,
+        durableSeq: 7,
+        committedSeq: 0,
+        persistenceRunId: "run-old",
+        streamId: "stream-old",
+        turnId: "turn-old",
+      })
+      mocks.pending.get("get_session_stream_snapshot")?.({
+        sessionId: "s1",
+        streamId: "stream-old",
+        turnId: "turn-old",
+        persistenceRunId: "run-old",
+        throughSeq: 7,
+        durableSeq: 7,
+        committedSeq: 0,
+        status: "running",
+        events: [],
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(activeTurnId).toBe("turn-new")
+
+    await act(async () => {
+      mocks.listeners.get("chat:stream_end")?.({
+        sessionId: "s1",
+        streamId: "stream-new",
+        turnId: "turn-new",
+        status: "completed",
+        persistenceStatus: "committed",
+      })
+    })
+
+    expect(activeTurnId).toBeNull()
+    expect(endedTurns).toContain("turn-new")
+  })
+
+  test("ignores an older terminal state after a live newer turn starts", async () => {
+    let activeTurnId: string | null = null
+    render(
+      <Harness
+        onMessages={() => {}}
+        onTurnStarted={(_sid, turnId) => {
+          activeTurnId = turnId
+        }}
+        onTurnEnded={(_sid, _status, _reason, turnId) => {
+          if (turnId && activeTurnId && turnId !== activeTurnId) return false
+          activeTurnId = null
+          return true
+        }}
+      />,
+    )
+
+    await act(async () => {
+      mocks.listeners.get("chat:turn_started")?.({ sessionId: "s1", turnId: "turn-new" })
+      mocks.pending.get("get_session_stream_state")?.({
+        active: false,
+        lastSeq: 7,
+        acceptedSeq: 7,
+        durableSeq: 7,
+        committedSeq: 7,
+        persistenceRunId: "run-old",
+        streamId: "stream-old",
+        turnId: null,
+        lastTerminalStatus: "interrupted",
+      })
+      mocks.pending.get("get_session_stream_snapshot")?.(null)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(activeTurnId).toBe("turn-new")
+  })
+
   test("does not replay a committed journal over canonical DB messages", async () => {
     mocks.dbMessages = [
       { role: "user", content: "question", dbId: 1 },
       { role: "assistant", content: "done", dbId: 2 },
     ]
     let latest: Message[] = []
-    render(<Harness onMessages={(messages) => { latest = messages }} />)
+    render(
+      <Harness
+        onMessages={(messages) => {
+          latest = messages
+        }}
+      />,
+    )
 
     await act(async () => {
       mocks.pending.get("get_session_stream_state")?.({
@@ -258,9 +393,7 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
         durableSeq: 1,
         committedSeq: 1,
         status: "committed",
-        events: [
-          { seq: 1, event: JSON.stringify({ type: "text_delta", content: "done" }) },
-        ],
+        events: [{ seq: 1, event: JSON.stringify({ type: "text_delta", content: "done" }) }],
       })
       await Promise.resolve()
       await Promise.resolve()
@@ -273,7 +406,13 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
 
   test("flushes the last durable RAF frame before a pending stream end", async () => {
     let latest: Message[] = []
-    render(<Harness onMessages={(messages) => { latest = messages }} />)
+    render(
+      <Harness
+        onMessages={(messages) => {
+          latest = messages
+        }}
+      />,
+    )
 
     await act(async () => {
       mocks.pending.get("get_session_stream_state")?.({
@@ -329,7 +468,13 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
 
   test("does not let a stale snapshot revive a stream that ended during the handshake", async () => {
     let latest: Message[] = []
-    render(<Harness onMessages={(messages) => { latest = messages }} />)
+    render(
+      <Harness
+        onMessages={(messages) => {
+          latest = messages
+        }}
+      />,
+    )
 
     await act(async () => {
       // Let the staged DB baseline finish, while the state/snapshot calls are
@@ -382,5 +527,75 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
     expect(latest).toHaveLength(2)
     expect(latest[0]?.content).toBe("question")
     expect(latest[1]?.content).toBe("safe tail")
+  })
+
+  test("ignores a delayed stream end from an older turn", async () => {
+    let latest: Message[] = []
+    render(
+      <Harness
+        onMessages={(messages) => {
+          latest = messages
+        }}
+        onTurnEnded={(_sid, _status, _reason, turnId) => turnId === "turn-new"}
+      />,
+    )
+
+    await act(async () => {
+      mocks.pending.get("get_session_stream_state")?.({
+        active: true,
+        lastSeq: 1,
+        acceptedSeq: 1,
+        durableSeq: 1,
+        committedSeq: 0,
+        persistenceRunId: "run-new",
+        streamId: "stream-new",
+        turnId: "turn-new",
+      })
+      mocks.pending.get("get_session_stream_snapshot")?.({
+        sessionId: "s1",
+        streamId: "stream-new",
+        turnId: "turn-new",
+        persistenceRunId: "run-new",
+        throughSeq: 1,
+        durableSeq: 1,
+        committedSeq: 0,
+        status: "running",
+        events: [{ seq: 1, event: JSON.stringify({ type: "text_delta", content: "new reply" }) }],
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+      flushAnimationFrames()
+    })
+
+    const reloadsBeforeEnd = mocks.reload.mock.calls.length
+    await act(async () => {
+      // A final old delta can already be sitting in its own rAF buffer when
+      // the delayed end arrives. The stale terminal must discard that buffer
+      // without touching the newer stream.
+      mocks.listeners.get("chat:stream_delta")?.({
+        sessionId: "s1",
+        streamId: "stream-old",
+        seq: 2,
+        event: JSON.stringify({ type: "text_delta", content: "old buffered tail" }),
+      })
+      mocks.listeners.get("chat:stream_end")?.({
+        sessionId: "s1",
+        streamId: "stream-old",
+        turnId: "turn-old",
+        status: "interrupted",
+        persistenceStatus: "committed",
+      })
+      // Frames that arrive after the old end are quarantined as well.
+      mocks.listeners.get("chat:stream_delta")?.({
+        sessionId: "s1",
+        streamId: "stream-old",
+        seq: 3,
+        event: JSON.stringify({ type: "text_delta", content: "old late tail" }),
+      })
+      flushAnimationFrames()
+    })
+
+    expect(latest.at(-1)?.content).toBe("new reply")
+    expect(mocks.reload).toHaveBeenCalledTimes(reloadsBeforeEnd)
   })
 })

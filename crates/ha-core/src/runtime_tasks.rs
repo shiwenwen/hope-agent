@@ -31,6 +31,14 @@ pub struct CancelRuntimeTaskResult {
     pub message: String,
 }
 
+/// Exact runtime identities captured while a stopped session is still gated.
+/// Cancellation may finish later, but it must never re-enumerate the session
+/// and accidentally pick up work from a replacement turn.
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeTaskSnapshot {
+    tasks: Vec<(RuntimeTaskKind, String)>,
+}
+
 impl CancelRuntimeTaskResult {
     fn new(
         kind: RuntimeTaskKind,
@@ -54,10 +62,19 @@ pub async fn cancel_runtime_task(
     id: &str,
 ) -> anyhow::Result<CancelRuntimeTaskResult> {
     match kind {
-        RuntimeTaskKind::AsyncJob => cancel_async_job(id),
-        RuntimeTaskKind::Subagent => cancel_subagent(id),
+        RuntimeTaskKind::AsyncJob => {
+            let id = id.to_string();
+            crate::blocking::run_blocking(move || cancel_async_job(&id)).await
+        }
+        RuntimeTaskKind::Subagent => {
+            let id = id.to_string();
+            crate::blocking::run_blocking(move || cancel_subagent(&id)).await
+        }
         RuntimeTaskKind::Process => cancel_process(id).await,
-        RuntimeTaskKind::Cron => cancel_cron(id),
+        RuntimeTaskKind::Cron => {
+            let id = id.to_string();
+            crate::blocking::run_blocking(move || cancel_cron(&id)).await
+        }
     }
 }
 
@@ -67,37 +84,67 @@ pub async fn cancel_runtime_task(
 pub async fn cancel_runtime_tasks_for_session(
     session_id: Option<&str>,
 ) -> anyhow::Result<Vec<CancelRuntimeTaskResult>> {
-    let mut results = Vec::new();
+    let snapshot = snapshot_runtime_tasks_for_session(session_id).await?;
+    cancel_runtime_task_snapshot(snapshot).await
+}
 
-    if let Some(db) = crate::async_jobs::get_async_jobs_db() {
-        for job in db.list_running()? {
-            let matches_session = session_id
-                .map(|sid| job.session_id.as_deref() == Some(sid))
-                .unwrap_or(true);
-            if matches_session {
-                results.push(cancel_async_job(&job.job_id)?);
+/// Capture runtime work associated with a session without performing any
+/// cancellation side effects. A caller may safely time this future out: an
+/// already-running blocking DB read can finish in the background, but it
+/// cannot affect a later turn.
+pub async fn snapshot_runtime_tasks_for_session(
+    session_id: Option<&str>,
+) -> anyhow::Result<RuntimeTaskSnapshot> {
+    let owned_session_id = session_id.map(str::to_string);
+    let session_for_blocking = owned_session_id.clone();
+    let mut tasks = crate::blocking::run_blocking(move || {
+        let mut tasks = Vec::new();
+
+        if let Some(db) = crate::async_jobs::get_async_jobs_db() {
+            for job in db.list_running()? {
+                let matches_session = session_for_blocking
+                    .as_deref()
+                    .map(|sid| job.session_id.as_deref() == Some(sid))
+                    .unwrap_or(true);
+                if matches_session {
+                    tasks.push((RuntimeTaskKind::AsyncJob, job.job_id));
+                }
             }
         }
-    }
 
-    if let Some(db) = crate::get_session_db() {
-        let runs = match session_id {
-            Some(sid) => db.list_active_subagent_runs(sid)?,
-            None => db.list_all_active_subagent_runs()?,
-        };
-        for run in runs {
-            results.push(cancel_subagent(&run.run_id)?);
+        if let Some(db) = crate::get_session_db() {
+            let runs = match session_for_blocking.as_deref() {
+                Some(sid) => db.list_active_subagent_runs(sid)?,
+                None => db.list_all_active_subagent_runs()?,
+            };
+            for run in runs {
+                tasks.push((RuntimeTaskKind::Subagent, run.run_id));
+            }
         }
-    }
+
+        anyhow::Ok(tasks)
+    })
+    .await?;
 
     let process_ids = {
         let registry = crate::process_registry::get_registry().lock().await;
-        registry.list_running_ids_for_parent_session(session_id)
+        registry.list_running_ids_for_parent_session(owned_session_id.as_deref())
     };
     for process_id in process_ids {
-        results.push(cancel_process(&process_id).await?);
+        tasks.push((RuntimeTaskKind::Process, process_id));
     }
 
+    Ok(RuntimeTaskSnapshot { tasks })
+}
+
+/// Cancel only the identities in a previously captured snapshot.
+pub async fn cancel_runtime_task_snapshot(
+    snapshot: RuntimeTaskSnapshot,
+) -> anyhow::Result<Vec<CancelRuntimeTaskResult>> {
+    let mut results = Vec::with_capacity(snapshot.tasks.len());
+    for (kind, id) in snapshot.tasks {
+        results.push(cancel_runtime_task(kind, &id).await?);
+    }
     Ok(results)
 }
 
@@ -168,25 +215,23 @@ fn cancel_subagent(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
         ));
     }
 
-    let signalled = crate::get_subagent_cancels()
-        .map(|registry| registry.cancel(id))
-        .unwrap_or(false);
-    if !signalled {
-        let _ = db.update_subagent_status(
-            id,
-            crate::subagent::SubagentStatus::Killed,
-            None,
-            Some("Killed by runtime cancel"),
-            None,
-            None,
-        );
-    }
+    // This is the only cancellation entry that atomically claims parked runs,
+    // reuses the running token, and synchronizes the background projection.
+    let accepted = crate::subagent::request_cancel_run(id);
     Ok(CancelRuntimeTaskResult::new(
         RuntimeTaskKind::Subagent,
         id,
-        true,
-        "killed",
-        "Sub-agent cancellation requested",
+        accepted,
+        if accepted {
+            "killed"
+        } else {
+            run.status.as_str()
+        },
+        if accepted {
+            "Sub-agent cancellation requested"
+        } else {
+            "Sub-agent is no longer active"
+        },
     ))
 }
 
@@ -194,8 +239,11 @@ async fn cancel_process(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
     use crate::process_registry::{get_registry, ProcessStatus};
 
     crate::process_notification::mark_observed(id);
-    let mut registry = get_registry().lock().await;
-    let Some(session) = registry.get_session(id).cloned() else {
+    let session = {
+        let registry = get_registry().lock().await;
+        registry.get_session(id).cloned()
+    };
+    let Some(session) = session else {
         return Ok(CancelRuntimeTaskResult::new(
             RuntimeTaskKind::Process,
             id,
@@ -214,8 +262,9 @@ async fn cancel_process(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
         ));
     }
     if let Some(pid) = session.pid {
-        crate::platform::terminate_process_tree(pid);
+        crate::blocking::run_blocking(move || crate::platform::terminate_process_tree(pid)).await;
     }
+    let mut registry = get_registry().lock().await;
     registry.mark_exited(id, None, Some("SIGKILL".to_string()), ProcessStatus::Failed);
     Ok(CancelRuntimeTaskResult::new(
         RuntimeTaskKind::Process,

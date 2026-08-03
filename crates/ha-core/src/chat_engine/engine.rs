@@ -18,6 +18,12 @@ use super::stream_seq;
 use super::types::*;
 
 const CHAT_CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+/// Once a turn has emitted runtime-visible output we first give the provider /
+/// tool loop a bounded window to propagate cancellation and clean up owned
+/// resources.  The previous unbounded await meant one cancellation-unaware
+/// tool or hook could keep the caller future alive forever, even though the
+/// stop watchdog had already made the turn look terminal to the UI.
+const CHAT_CANCEL_COOPERATIVE_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
 const CHAT_CANCELLED_BY_CALLER: &str = "chat cancelled by caller";
 
 async fn wait_for_chat_cancel(cancel: Arc<std::sync::atomic::AtomicBool>) {
@@ -1312,7 +1318,24 @@ pub(crate) async fn run_chat_engine_classified(
                             None if allow_hard_cancel.load(std::sync::atomic::Ordering::SeqCst) => {
                                 Err(anyhow::anyhow!(CHAT_CANCELLED_BY_CALLER))
                             }
-                            None => chat_future.as_mut().await,
+                            None => match tokio::time::timeout(
+                                CHAT_CANCEL_COOPERATIVE_GRACE,
+                                chat_future.as_mut(),
+                            )
+                            .await
+                            {
+                                Ok(result) => result,
+                                Err(_) => {
+                                    app_warn!(
+                                        "chat",
+                                        "cancel",
+                                        "Force-dropping session {} model/tool loop after {}ms cancellation grace",
+                                        session_id_owned,
+                                        CHAT_CANCEL_COOPERATIVE_GRACE.as_millis()
+                                    );
+                                    Err(anyhow::anyhow!(CHAT_CANCELLED_BY_CALLER))
+                                }
+                            },
                         };
                         drop(chat_future);
 
@@ -1638,6 +1661,18 @@ pub(crate) async fn run_chat_engine_classified(
                     };
                     let committed = match committed {
                         Ok(committed) => committed,
+                        Err(_) if cancel.load(std::sync::atomic::Ordering::SeqCst) => {
+                            // Stop may win after the final in-memory cancel
+                            // check but before the atomic success transaction.
+                            // The DB refuses to overwrite `cancelling`; converge
+                            // the durable journal through the normal UserStop
+                            // finalizer instead of misclassifying that CAS as a
+                            // persistence failure.
+                            last_reason = None;
+                            last_error = Some(CHAT_CANCELLED_BY_CALLER.to_string());
+                            last_was_no_profile = false;
+                            break;
+                        }
                         Err(error) => {
                             let message = format!("final assistant transaction failed: {error}");
                             // Do not terminalize the persistence run here.

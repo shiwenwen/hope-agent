@@ -94,7 +94,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
     // 跟随主聊天的「任务 / 气泡」显示模式与回合折叠偏好（设置页改动实时生效）。
     const { displayMode, autoCollapseCompletedTurns } = useChatDisplayPreferences()
     const seqRef = useRef<Map<string, number>>(new Map())
-    const endedRef = useRef<Map<string, string>>(new Map())
+    const endedRef = useRef<Map<string, Set<string>>>(new Map())
     const [messageTailVisible, setMessageTailVisible] = useState(true)
     useEmbeddedChatReadReceipt(
       isActive,

@@ -48,12 +48,7 @@ import {
   forkSessionRequestForMessage,
   type ForkComposerDraft,
 } from "@/components/chat/message/messageFork"
-import type {
-  ActiveModel,
-  ForkSessionResult,
-  Message,
-  PendingFileQuote,
-} from "@/types/chat"
+import type { ActiveModel, ForkSessionResult, Message, PendingFileQuote } from "@/types/chat"
 import type { DesignRecipe } from "@/types/design"
 import { useDesignChat } from "./useDesignChat"
 import { DesignConversationHistory } from "./DesignConversationHistory"
@@ -77,7 +72,8 @@ const DESIGN_STARTERS: {
     titleKey: "design.chat.starterOutlineTitle",
     titleFallback: "先规划大纲",
     promptKey: "design.chat.starterOutlinePrompt",
-    promptFallback: "先别急着做，请先给我一份结构大纲（分节 / 分页的标题与要点、叙事顺序），我确认后你再按大纲生成正式产物。",
+    promptFallback:
+      "先别急着做，请先给我一份结构大纲（分节 / 分页的标题与要点、叙事顺序），我确认后你再按大纲生成正式产物。",
   },
   {
     key: "palette",
@@ -275,7 +271,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   // 跟随主聊天的「任务 / 气泡」显示模式与回合折叠偏好（设置页改动实时生效）。
   const { displayMode, autoCollapseCompletedTurns } = useChatDisplayPreferences()
   const seqRef = useRef<Map<string, number>>(new Map())
-  const endedRef = useRef<Map<string, string>>(new Map())
+  const endedRef = useRef<Map<string, Set<string>>>(new Map())
   const [messageTailVisible, setMessageTailVisible] = useState(true)
   useEmbeddedChatReadReceipt(
     isActive,
@@ -414,8 +410,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             ? prev
             : [...prev, quote],
         ),
-      insertToken: (token) =>
-        stream.setInput((prev) => (prev.trim() ? `${prev} ${token}` : token)),
+      insertToken: (token) => stream.setInput((prev) => (prev.trim() ? `${prev} ${token}` : token)),
       addImageAttachment: (file) => {
         if (file.size > stream.maxChatAttachmentBytes) {
           toast.error(
@@ -497,11 +492,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   const nextStepOverflowItems = showNextStep ? (
     <>
       {lastUserContent.trim() && (
-        <button
-          type="button"
-          className={FLOATING_MENU_ITEM_CLASS}
-          onClick={() => retryLastTurn()}
-        >
+        <button type="button" className={FLOATING_MENU_ITEM_CLASS} onClick={() => retryLastTurn()}>
           <RotateCcw className="h-3.5 w-3.5" />
           {t("design.chat.regenerate", "重新生成")}
         </button>
@@ -686,9 +677,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
               void getTransport()
                 .call("rename_session_cmd", { sessionId: sid, title })
                 .then(() => session.reloadThreads())
-                .catch((e) =>
-                  logger.error("ui", "DesignChat::rename", "rename thread failed", e),
-                )
+                .catch((e) => logger.error("ui", "DesignChat::rename", "rename thread failed", e))
             }}
             onArchive={(sid) => {
               void getTransport()
@@ -703,9 +692,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
                   if (session.currentSessionIdRef.current === sid) session.handleNewThread()
                   return session.reloadThreads()
                 })
-                .catch((e) =>
-                  logger.error("ui", "DesignChat::archive", "archive thread failed", e),
-                )
+                .catch((e) => logger.error("ui", "DesignChat::archive", "archive thread failed", e))
             }}
           />
         </div>
@@ -770,13 +757,18 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         )}
       </div>
 
-      <ApprovalDialog requests={stream.approvalRequests} onRespond={stream.handleApprovalResponse} />
+      <ApprovalDialog
+        requests={stream.approvalRequests}
+        onRespond={stream.handleApprovalResponse}
+      />
 
       {/* 回合失败恢复条（P1-G）：末条是标记的失败事件时，给一键重试（重跑上一句 user prompt）。
           错误详情已由消息流里的 event 行呈现，本条只补此前缺失的「重试」出口。 */}
       {!session.loading && lastTurnFailed && !stream.input.trim() && lastUserContent.trim() && (
         <div className="flex items-center gap-2 px-3 pb-1.5">
-          <span className="text-xs text-destructive">{t("design.chat.turnFailed", "回合失败")}</span>
+          <span className="text-xs text-destructive">
+            {t("design.chat.turnFailed", "回合失败")}
+          </span>
           <button
             type="button"
             onClick={retryLastTurn}

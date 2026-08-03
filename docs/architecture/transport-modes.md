@@ -14,6 +14,12 @@
 
 三种模式共享 `ha-core` 业务逻辑和 `EventBus` 抽象。Tauri 与 HTTP 只是把同一批核心能力分别桥接成 IPC 或 REST/WS；ACP 是另一条协议入口，不参与前端 Transport 选择。
 
+### ACP Stop 与 stdin 并发
+
+ACP 的 `session/prompt` 业务处理保持单线程串行，但 NDJSON stdin 必须由独立 reader 持续读取；否则主线程同步等待 provider / tool 时无法看见同一流上的 `session/cancel`。reader 在把 prompt 排入主循环前为该轮安装独立 cancel token，收到 cancel 后立即翻转 token，并异步调用共享 `chat_engine::stop::stop_session` 清理该 session 的审批、`ask_user` 与 runtime。`UserPromptSubmit`、SessionStart hook、provider 构造、重试退避和 Agent chat 都与 token 竞争；Agent chat 最多保留 6 秒协作退出窗口。
+
+每轮 token 不复用：旧 provider/tool future 即使在停止响应后迟到，也不能因下一轮把同一 flag 重置而恢复。自然完成 / provider failure 与 Stop 在 cancel-state 锁内确定唯一线性化终点；Stop 胜出时 journal 的可恢复前缀写为 `Interrupted/user_stop` 并追加下一轮可理解的系统 marker，随后 prompt response 返回 `stopReason=cancelled`。已完成终态之后才到达的 cancel 是 no-op，不得污染下一轮。
+
 ### Server 模式的工具审批
 
 HTTP 入口的 `ChatEngineParams.auto_approve_tools` 在桌面 Web GUI 客户端下默认 `false`（跟桌面 GUI 一致），审批通过 EventBus `approval_required` 事件等浏览器侧 UI 响应。但 headless 客户端（curl / pipeline / Docker entrypoint）通常不会订阅这个事件，工具调用会卡到 5 分钟超时再被 deny —— 表现就是「模型一个 shell 命令都跑不了」。
@@ -137,7 +143,7 @@ HTTP 模式没有 per-call browser Channel，主流式路径就是 EventBus：
 - `chat:stream_delta` payload 的 `seq` 是 session/stream 内递增游标。
 - 前端 `lastSeqRef` 由 `useChatStream` 与 `useChatStreamReattach` 共享，哪个路径先处理事件就推进 cursor。
 - 切换会话时，前端会读 `get_session_stream_state`，用后端 cursor 给 `lastSeqRef` 播种，避免把 DB 快照里已有的 delta 再播一遍。
-- `chat:stream_end` 用于清理 loading 状态、记录 ended stream id，并在当前会话上重拉最新消息兜底。
+- `chat:stream_end` 用于清理 loading 状态、记录 ended stream id，并在当前会话上重拉最新消息兜底。ended 集合与 rAF delta buffer 都按 `sessionId + streamId` 隔离；旧 turn 的迟到 end/delta 只能封存旧 stream，不能清空或写入新 turn 的占位消息。
 
 ## `/ws/events` EventBus 桥
 

@@ -818,6 +818,80 @@ impl SessionDB {
         Ok(changed > 0)
     }
 
+    /// Roll back a prepared project launch when the first chat is explicitly
+    /// stopped during `UserPromptSubmit`, before any user message exists.
+    ///
+    /// Worktree preparation has already completed by this point, so deleting
+    /// the Session first would cascade away the registry row without asking Git
+    /// to remove the physical worktree. Keep cleanup Git-aware, then terminalize
+    /// the durable bootstrap run before the shell deletes the empty Session.
+    pub fn rollback_project_bootstrap_after_chat_cancel(&self, id: &str) -> Result<()> {
+        let run = self
+            .get_project_bootstrap_run(id)?
+            .ok_or_else(|| anyhow!("project bootstrap run not found: {id}"))?;
+        if !matches!(run.status.as_str(), "ready" | "chatting") {
+            bail!(
+                "project bootstrap {id} cannot be cancelled from status {}",
+                run.status
+            );
+        }
+
+        let cleanup_result = if let Some(worktree_id) = run.worktree_id.as_deref() {
+            if self.get_managed_worktree(worktree_id)?.is_some() {
+                self.discard_managed_worktree(worktree_id)
+            } else {
+                crate::worktree::cleanup_orphan_builtin_worktree(worktree_id).map(|_| ())
+            }
+        } else {
+            Ok(())
+        };
+        if let Err(cleanup_error) = cleanup_result {
+            let message = format!("Failed to clean up stopped chat worktree: {cleanup_error:#}");
+            if let Some(worktree_id) = run.worktree_id.as_deref() {
+                let _ = self.mark_managed_worktree_bootstrap_failed(worktree_id);
+            }
+            let _ = self.update_project_bootstrap_stage(
+                id,
+                "failed",
+                "failed",
+                run.worktree_id.as_deref(),
+                Some(("worktree_cleanup_failed", message.as_str())),
+            );
+            emit_progress(
+                id,
+                "failed",
+                "failed",
+                run.session_id.as_deref(),
+                run.worktree_id.as_deref(),
+                Some(("worktree_cleanup_failed", message.as_str())),
+            );
+            return Err(anyhow!(message));
+        }
+
+        self.update_project_bootstrap_stage(
+            id,
+            "cancelled",
+            "cancelled",
+            run.worktree_id.as_deref(),
+            Some((
+                "cancelled",
+                "Chat was stopped before prompt submission completed",
+            )),
+        )?;
+        emit_progress(
+            id,
+            "cancelled",
+            "cancelled",
+            run.session_id.as_deref(),
+            run.worktree_id.as_deref(),
+            Some((
+                "cancelled",
+                "Chat was stopped before prompt submission completed",
+            )),
+        );
+        Ok(())
+    }
+
     pub(crate) fn report_project_bootstrap_stage(
         &self,
         id: &str,
@@ -966,6 +1040,106 @@ mod tests {
         assert!(!db.mark_project_bootstrap_completed("request-1").unwrap());
         let run = db.get_project_bootstrap_run("request-1").unwrap().unwrap();
         assert_eq!(run.status, "completed");
+        assert!(run.completed_at.is_some());
+    }
+
+    #[test]
+    fn chat_cancel_rolls_claimed_bootstrap_to_cancelled() {
+        let (_dir, db) = test_db();
+        insert_run(&db, "request-cancelled", "ready");
+        assert!(db
+            .claim_project_bootstrap_chatting("request-cancelled")
+            .unwrap());
+
+        db.rollback_project_bootstrap_after_chat_cancel("request-cancelled")
+            .expect("rollback claimed bootstrap");
+
+        let run = db
+            .get_project_bootstrap_run("request-cancelled")
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.status, "cancelled");
+        assert_eq!(run.stage, "cancelled");
+        assert_eq!(run.error_code.as_deref(), Some("cancelled"));
+        assert!(run.completed_at.is_some());
+    }
+
+    #[test]
+    fn chat_cancel_discards_prepared_worktree_before_session_cleanup() {
+        let (dir, db) = test_db();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).expect("create repo directory");
+        git(&repo, &["init", "-b", "main"]);
+        std::fs::write(repo.join("file.txt"), "main\n").expect("write repository file");
+        git(&repo, &["add", "."]);
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.name=Hope Test",
+                "-c",
+                "user.email=hope@example.invalid",
+                "commit",
+                "-m",
+                "main",
+            ],
+        );
+
+        let worktree_path = dir.path().join("prepared-worktree");
+        let worktree_path_arg = worktree_path.to_string_lossy().into_owned();
+        git(
+            &repo,
+            &["worktree", "add", "--detach", &worktree_path_arg, "HEAD"],
+        );
+        let session = db.create_session("default").expect("create session");
+        insert_run(&db, "request-with-worktree", "ready");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO managed_worktrees (
+                    id, session_id, purpose, state, repo_root,
+                    source_working_dir, path, created_at, updated_at, path_source
+                 ) VALUES (
+                    'worktree-cancelled', ?1, 'manual', 'active', ?2,
+                    ?2, ?3, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z', 'builtin'
+                 )",
+                params![session.id, repo.to_string_lossy(), worktree_path_arg],
+            )
+            .expect("register managed worktree");
+            conn.execute(
+                "UPDATE project_bootstrap_runs
+                 SET session_id = ?2, worktree_id = 'worktree-cancelled'
+                 WHERE id = ?1",
+                params!["request-with-worktree", session.id],
+            )
+            .expect("bind bootstrap run");
+        }
+        assert!(db
+            .claim_project_bootstrap_chatting("request-with-worktree")
+            .unwrap());
+        assert!(worktree_path.exists());
+
+        db.rollback_project_bootstrap_after_chat_cancel("request-with-worktree")
+            .expect("rollback bootstrap with prepared worktree");
+
+        assert!(!worktree_path.exists());
+        assert!(db
+            .get_managed_worktree("worktree-cancelled")
+            .unwrap()
+            .is_none());
+        assert!(!git_output(&repo, &["worktree", "list", "--porcelain"])
+            .unwrap()
+            .contains(&worktree_path_arg));
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("DELETE FROM sessions WHERE id = ?1", params![session.id])
+                .expect("delete empty session after worktree cleanup");
+        }
+        let run = db
+            .get_project_bootstrap_run("request-with-worktree")
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.status, "cancelled");
         assert!(run.completed_at.is_some());
     }
 

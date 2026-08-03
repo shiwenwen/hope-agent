@@ -41,16 +41,11 @@ export default function QuickChatDialog({
   // Quick chat is transient — no reattach logic is wired, but the seq cursor
   // still has to be supplied to `useChatStream` and local-only is fine here.
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
-  const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
+  const quickEndedStreamIdsRef = useRef<Map<string, Set<string>>>(new Map())
   const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([])
   const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
   const [messageTailVisible, setMessageTailVisible] = useState(true)
-  useEmbeddedChatReadReceipt(
-    open,
-    messageTailVisible,
-    session.currentSessionId,
-    session.messages,
-  )
+  useEmbeddedChatReadReceipt(open, messageTailVisible, session.currentSessionId, session.messages)
 
   // Effective incognito = persisted session.incognito (continued chat) or
   // draft toggle (new chat). Same shape as `ChatScreen` so `useChatStream`
@@ -410,25 +405,25 @@ function AgentSelector({
         className="ha-menu-from-top min-w-[200px] max-h-[240px] overflow-y-auto p-1.5"
         onEscapeKeyDown={() => setMenuOpen(false)}
       >
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              onClick={() => {
-                onSelect(agent.id)
-                setMenuOpen(false)
-              }}
-              className={cn(
-                "w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2",
-                agent.id === currentAgent?.id && "bg-muted/50",
-              )}
-            >
-              <AgentAvatarIcon agent={agent} size="sm" />
-              <span className="truncate">{agent.name}</span>
-              {agent.id === currentAgent?.id && (
-                <span className="ml-auto text-xs text-primary">●</span>
-              )}
-            </button>
-          ))}
+        {agents.map((agent) => (
+          <button
+            key={agent.id}
+            onClick={() => {
+              onSelect(agent.id)
+              setMenuOpen(false)
+            }}
+            className={cn(
+              "w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2",
+              agent.id === currentAgent?.id && "bg-muted/50",
+            )}
+          >
+            <AgentAvatarIcon agent={agent} size="sm" />
+            <span className="truncate">{agent.name}</span>
+            {agent.id === currentAgent?.id && (
+              <span className="ml-auto text-xs text-primary">●</span>
+            )}
+          </button>
+        ))}
       </FloatingMenu>
     </div>
   )

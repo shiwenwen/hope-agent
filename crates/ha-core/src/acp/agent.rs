@@ -3,8 +3,10 @@
 //! Implements all ACP Agent interface methods by translating between
 //! ACP protocol and the existing Hope Agent AssistantAgent + SessionDB.
 
+use std::collections::{HashMap, HashSet};
+use std::io::BufRead;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 
 use anyhow::Result;
 use serde_json::Value;
@@ -22,6 +24,306 @@ use crate::turn_durability::{FlushReason, TurnDurabilitySink};
 
 /// ACP protocol version we advertise
 const ACP_PROTOCOL_VERSION: &str = "0.2";
+const ACP_CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
+const ACP_CANCEL_COOPERATIVE_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
+const ACP_INBOUND_QUEUE_CAPACITY: usize = 256;
+
+type AcpCancelStates = Arc<Mutex<HashMap<String, Arc<AcpCancelState>>>>;
+
+struct AcpCancelState {
+    inner: Mutex<AcpCancelStateInner>,
+}
+
+struct AcpCancelStateInner {
+    internal_session_id: Option<String>,
+    cancel: Arc<AtomicBool>,
+    armed: bool,
+    cleanup_started: bool,
+}
+
+impl AcpCancelState {
+    fn new(internal_session_id: Option<String>, cancel: Arc<AtomicBool>) -> Self {
+        Self {
+            inner: Mutex::new(AcpCancelStateInner {
+                internal_session_id,
+                cancel,
+                armed: false,
+                cleanup_started: false,
+            }),
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, AcpCancelStateInner> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Arm a fresh, turn-owned token before the prompt is handed to the
+    /// synchronous request dispatcher. Keeping tokens per turn prevents a
+    /// late old future from being revived when the next prompt starts.
+    fn prepare_prompt(&self) -> Arc<AtomicBool> {
+        let mut inner = self.lock();
+        if !inner.armed {
+            inner.cancel = Arc::new(AtomicBool::new(false));
+            inner.armed = true;
+            inner.cleanup_started = false;
+        }
+        inner.cancel.clone()
+    }
+
+    fn attach(&self, internal_session_id: String) -> Option<String> {
+        let mut inner = self.lock();
+        inner.internal_session_id = Some(internal_session_id.clone());
+        let should_start_cleanup =
+            inner.armed && inner.cancel.load(Ordering::Acquire) && !inner.cleanup_started;
+        if should_start_cleanup {
+            inner.cleanup_started = true;
+            Some(internal_session_id)
+        } else {
+            None
+        }
+    }
+
+    fn request_cancel(&self) -> Option<String> {
+        let mut inner = self.lock();
+        if !inner.armed {
+            return None;
+        }
+        inner.cancel.store(true, Ordering::SeqCst);
+        if inner.cleanup_started {
+            return None;
+        }
+        let internal_session_id = inner.internal_session_id.clone()?;
+        inner.cleanup_started = true;
+        Some(internal_session_id)
+    }
+
+    fn finish_prompt(&self) {
+        let mut inner = self.lock();
+        inner.armed = false;
+        inner.cleanup_started = false;
+        // Deliberately retain the old token and its value. A cancellation-
+        // unaware future may still be unwinding after the ACP response; only
+        // prepare_prompt installs a distinct token for the next turn.
+    }
+
+    /// Linearization point between a natural/error completion and a Stop.
+    /// Once completion claims the state, a later notification belongs after
+    /// this prompt and must not rewrite its terminal result.
+    fn claim_non_cancelled_completion(&self) -> bool {
+        let mut inner = self.lock();
+        if inner.cancel.load(Ordering::Acquire) {
+            return false;
+        }
+        inner.armed = false;
+        inner.cleanup_started = false;
+        true
+    }
+
+    fn force_cancel(&self) -> Option<String> {
+        let mut inner = self.lock();
+        inner.cancel.store(true, Ordering::SeqCst);
+        if inner.cleanup_started {
+            return None;
+        }
+        let internal_session_id = inner.internal_session_id.clone()?;
+        inner.cleanup_started = true;
+        Some(internal_session_id)
+    }
+}
+
+struct AcpPromptStateGuard {
+    state: Arc<AcpCancelState>,
+}
+
+impl Drop for AcpPromptStateGuard {
+    fn drop(&mut self) {
+        self.state.finish_prompt();
+    }
+}
+
+enum AcpInbound {
+    Message(JsonRpcMessage),
+    ParseError(String),
+    IoError(String),
+    Eof,
+}
+
+fn lock_cancel_states(
+    states: &AcpCancelStates,
+) -> MutexGuard<'_, HashMap<String, Arc<AcpCancelState>>> {
+    states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn observe_acp_control_message(msg: &JsonRpcMessage, states: &AcpCancelStates) -> Option<String> {
+    let method = msg.method.as_deref()?;
+    let session_id = msg
+        .params
+        .as_ref()
+        .and_then(|params| params.get("sessionId"))
+        .and_then(Value::as_str)?;
+    match method {
+        "session/prompt" => {
+            if let Some(state) = lock_cancel_states(states).get(session_id).cloned() {
+                state.prepare_prompt();
+            }
+            None
+        }
+        "session/cancel" => lock_cancel_states(states)
+            .get(session_id)
+            .cloned()
+            .and_then(|state| state.request_cancel()),
+        _ => None,
+    }
+}
+
+fn spawn_acp_stop_cleanup(db: Arc<SessionDB>, internal_session_id: String) {
+    let session_for_log = internal_session_id.clone();
+    if let Err(error) = std::thread::Builder::new()
+        .name("ha-acp-stop".to_string())
+        .spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                crate::app_warn!(
+                    "acp",
+                    "stop",
+                    "failed to create ACP Stop cleanup runtime for session {}",
+                    internal_session_id
+                );
+                return;
+            };
+            let _ = runtime.block_on(crate::chat_engine::stop::stop_session(
+                db,
+                &internal_session_id,
+                None,
+                true,
+            ));
+        })
+    {
+        crate::app_warn!(
+            "acp",
+            "stop",
+            "failed to start ACP Stop cleanup thread for session {}: {}",
+            session_for_log,
+            error
+        );
+    }
+}
+
+async fn wait_for_acp_cancel(cancel: Arc<AtomicBool>) {
+    while !cancel.load(Ordering::Acquire) {
+        tokio::time::sleep(ACP_CANCEL_POLL_INTERVAL).await;
+    }
+}
+
+fn finalize_acp_user_stop(
+    runtime: &tokio::runtime::Runtime,
+    db: &Arc<SessionDB>,
+    durability: &Arc<crate::chat_engine::durability::StreamCoordinator>,
+    session_id: &str,
+) -> Result<()> {
+    let durable_seq = match runtime.block_on(durability.flush(FlushReason::Stop)) {
+        Ok(seq) => seq,
+        Err(error) => {
+            crate::app_warn!(
+                "acp",
+                "stop",
+                "failed to flush stopped ACP turn for session {}: {}",
+                session_id,
+                error
+            );
+            durability.snapshot().durable_seq
+        }
+    };
+    if let Err(error) = runtime.block_on(durability.reconcile_spool_to_sqlite()) {
+        crate::app_warn!(
+            "acp",
+            "stop",
+            "failed to reconcile stopped ACP turn for session {}: {}",
+            session_id,
+            error
+        );
+    }
+
+    let (attempt_no, final_seq, visible_events, provider_kind) = if durability.is_persistent() {
+        let snapshot = db
+            .stream_run_snapshot(durability.persistence_run_id())?
+            .ok_or_else(|| anyhow::anyhow!("ACP persistence run disappeared during Stop"))?;
+        let (attempt_no, final_seq, events, _) =
+            session::select_recoverable_attempt_prefix(&snapshot);
+        let provider_kind = snapshot
+            .attempts
+            .iter()
+            .find(|attempt| attempt.attempt_no == attempt_no)
+            .and_then(|attempt| attempt.provider_shape.as_deref())
+            .or(snapshot.run.provider_shape.as_deref())
+            .and_then(crate::chat_engine::finalize::ProviderApiKind::from_shape);
+        (attempt_no, final_seq, events, provider_kind)
+    } else {
+        let snapshot = durability.snapshot();
+        (
+            durability.current_attempt_no(),
+            durable_seq,
+            snapshot.events,
+            durability
+                .current_provider_shape()
+                .as_deref()
+                .and_then(crate::chat_engine::finalize::ProviderApiKind::from_shape),
+        )
+    };
+    let trailing = session::trailing_text_from_journal_events(&visible_events);
+    let (stored_context, context_checkpoint_seq, context_revision) = if durability.is_persistent() {
+        db.recovery_context_for_prefix(durability.persistence_run_id(), attempt_no, final_seq)?
+    } else {
+        let (context, revision) = db
+            .load_context_with_revision(session_id)
+            .unwrap_or((None, durability.context_revision()));
+        (context, 0, revision)
+    };
+    let mut history: Vec<serde_json::Value> = stored_context
+        .as_deref()
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default();
+    crate::chat_engine::finalize::rebuild::append_journal_suffix_to_history(
+        &mut history,
+        &visible_events,
+        context_checkpoint_seq,
+        provider_kind,
+    )?;
+    history.push(serde_json::json!({
+        "role": "assistant",
+        "content": crate::chat_engine::finalize::copy::model_marker(
+            &crate::chat_engine::finalize::TerminationReason::UserStop,
+        ),
+    }));
+    let assistant = session::journal_events_have_assistant_output(&visible_events).then(|| {
+        session::NewMessage::assistant(&trailing).with_source(crate::chat_engine::ChatSource::Acp)
+    });
+    let commit = session::CommitInterruptedTurn {
+        run_id: durability
+            .is_persistent()
+            .then(|| durability.persistence_run_id().to_string()),
+        attempt_no,
+        session_id: session_id.to_string(),
+        assistant,
+        context_json: serde_json::to_string(&history)?,
+        expected_context_revision: context_revision,
+        turn_id: None,
+        final_seq,
+        status: session::ChatTurnStatus::Interrupted,
+        interrupt_reason: Some("user_stop".to_string()),
+        error: None,
+        recovery_event: None,
+    };
+    db.commit_interrupted_turn(&commit)?;
+    durability.mark_interrupted("interrupted");
+    Ok(())
+}
 
 /// ACP's live transport is fed by the coordinator's post-durability output
 /// hook. Writing from the model callback would expose bytes before the journal
@@ -55,6 +357,7 @@ pub struct AcpAgent {
     pub verbose: bool,
     /// Default agent ID (from CLI flag)
     pub default_agent_id: String,
+    cancel_states: AcpCancelStates,
 }
 
 fn persist_acp_ide_context(db: &Arc<SessionDB>, session_id: &str, meta: &Option<Value>) {
@@ -98,15 +401,171 @@ impl AcpAgent {
             initialized: false,
             verbose,
             default_agent_id,
+            cancel_states: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    fn reconcile_cancel_states(&self) {
+        let live: Vec<(String, String, Arc<AtomicBool>)> = self
+            .sessions
+            .list()
+            .into_iter()
+            .map(|session| {
+                (
+                    session.session_id.clone(),
+                    session.internal_session_id.clone(),
+                    session.cancel.clone(),
+                )
+            })
+            .collect();
+        let live_ids: HashSet<String> = live
+            .iter()
+            .map(|(session_id, _, _)| session_id.clone())
+            .collect();
+        let mut cleanup_sessions = Vec::new();
+        {
+            let mut states = lock_cancel_states(&self.cancel_states);
+            states.retain(|session_id, _| live_ids.contains(session_id));
+            for (session_id, internal_session_id, cancel) in live {
+                let state = states
+                    .entry(session_id)
+                    .or_insert_with(|| {
+                        Arc::new(AcpCancelState::new(
+                            Some(internal_session_id.clone()),
+                            cancel,
+                        ))
+                    })
+                    .clone();
+                if let Some(session_id) = state.attach(internal_session_id) {
+                    cleanup_sessions.push(session_id);
+                }
+            }
+        }
+        for session_id in cleanup_sessions {
+            spawn_acp_stop_cleanup(self.session_db.clone(), session_id);
+        }
+    }
+
+    fn cancel_state(&self, session_id: &str) -> Option<Arc<AcpCancelState>> {
+        lock_cancel_states(&self.cancel_states)
+            .get(session_id)
+            .cloned()
     }
 
     /// Main loop: read messages from stdin, dispatch, respond
     pub fn run(&mut self) -> Result<()> {
+        // Prompt handling is intentionally synchronous, but cancellation is a
+        // notification on the same stdin stream. A dedicated reader must arm
+        // and flip the turn token before queueing messages, otherwise the main
+        // loop cannot even observe `session/cancel` until the prompt finishes.
+        // Ordinary JSON-RPC work is bounded so a client cannot buffer an
+        // unbounded number of requests behind one synchronous model prompt.
+        // `session/cancel` never enters this queue: the reader handles it on
+        // the control path below, so backpressure cannot starve Stop.
+        let (inbound_tx, inbound_rx) = mpsc::sync_channel(ACP_INBOUND_QUEUE_CAPACITY);
+        let inbound_overloaded = Arc::new(AtomicBool::new(false));
+        let overloaded_for_reader = inbound_overloaded.clone();
+        let cancel_states = self.cancel_states.clone();
+        let db = self.session_db.clone();
+        std::thread::Builder::new()
+            .name("ha-acp-input".to_string())
+            .spawn(move || {
+                let stdin = std::io::stdin();
+                let mut reader = std::io::BufReader::new(stdin);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => {
+                            let _ = inbound_tx.try_send(AcpInbound::Eof);
+                            return;
+                        }
+                        Ok(_) if line.trim().is_empty() => continue,
+                        Ok(_) => match serde_json::from_str::<JsonRpcMessage>(line.trim()) {
+                            Ok(msg) => {
+                                if msg.method.as_deref() == Some("session/cancel") {
+                                    if let Some(session_id) =
+                                        observe_acp_control_message(&msg, &cancel_states)
+                                    {
+                                        spawn_acp_stop_cleanup(db.clone(), session_id);
+                                    }
+                                    // Cancellation is a notification and has
+                                    // no response; its complete behavior ran on
+                                    // the out-of-band path above.
+                                    continue;
+                                }
+                                if overloaded_for_reader.load(Ordering::Acquire) {
+                                    continue;
+                                }
+                                let prompt_session_id = (msg.method.as_deref()
+                                    == Some("session/prompt"))
+                                .then(|| {
+                                    msg.params
+                                        .as_ref()
+                                        .and_then(|params| params.get("sessionId"))
+                                        .and_then(Value::as_str)
+                                        .map(str::to_string)
+                                })
+                                .flatten();
+                                match inbound_tx.try_send(AcpInbound::Message(msg)) {
+                                    Ok(()) => {
+                                        if let Some(session_id) = prompt_session_id.as_deref() {
+                                            if let Some(state) = lock_cancel_states(&cancel_states)
+                                                .get(session_id)
+                                                .cloned()
+                                            {
+                                                state.prepare_prompt();
+                                            }
+                                        }
+                                    }
+                                    Err(mpsc::TrySendError::Full(_)) => {
+                                        overloaded_for_reader.store(true, Ordering::Release);
+                                    }
+                                    Err(mpsc::TrySendError::Disconnected(_)) => return,
+                                }
+                            }
+                            Err(error) => {
+                                if overloaded_for_reader.load(Ordering::Acquire) {
+                                    continue;
+                                }
+                                match inbound_tx.try_send(AcpInbound::ParseError(error.to_string()))
+                                {
+                                    Ok(()) => {}
+                                    Err(mpsc::TrySendError::Full(_)) => {
+                                        overloaded_for_reader.store(true, Ordering::Release);
+                                    }
+                                    Err(mpsc::TrySendError::Disconnected(_)) => return,
+                                }
+                            }
+                        },
+                        Err(error) => {
+                            let _ = inbound_tx.try_send(AcpInbound::IoError(error.to_string()));
+                            return;
+                        }
+                    }
+                }
+            })?;
+
         loop {
-            let msg = match self.transport.read_message()? {
-                Some(m) => m,
-                None => {
+            if inbound_overloaded.load(Ordering::Acquire) {
+                anyhow::bail!(
+                    "ACP inbound queue exceeded {} messages; closing connection",
+                    ACP_INBOUND_QUEUE_CAPACITY
+                );
+            }
+            let msg = match inbound_rx.recv() {
+                Ok(AcpInbound::Message(message)) => message,
+                Ok(AcpInbound::ParseError(error)) => {
+                    let response = JsonRpcResponse::error(
+                        Value::Null,
+                        ERROR_PARSE,
+                        format!("Parse error: {error}"),
+                    );
+                    self.transport.write_response(&response)?;
+                    continue;
+                }
+                Ok(AcpInbound::IoError(error)) => anyhow::bail!("ACP stdin read failed: {error}"),
+                Ok(AcpInbound::Eof) | Err(_) => {
                     if self.verbose {
                         eprintln!("[acp] stdin closed, shutting down");
                     }
@@ -290,6 +749,7 @@ impl AcpAgent {
         if let Err(e) = self.sessions.insert(acp_session) {
             return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string());
         }
+        self.reconcile_cancel_states();
 
         let modes = self.build_modes(&agent_id);
         let config_options = self.build_config_options(&agent_id);
@@ -351,6 +811,7 @@ impl AcpAgent {
         if let Err(e) = self.sessions.insert(acp_session) {
             return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string());
         }
+        self.reconcile_cancel_states();
 
         // Replay session history
         self.replay_session_history(&req.session_id);
@@ -372,33 +833,58 @@ impl AcpAgent {
         let req: PromptRequest = match serde_json::from_value(params.clone()) {
             Ok(r) => r,
             Err(e) => {
-                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+                if let Some(session_id) = params.get("sessionId").and_then(Value::as_str) {
+                    if let Some(state) = self.cancel_state(session_id) {
+                        state.finish_prompt();
+                    }
+                }
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string());
             }
         };
 
         let session_id = req.session_id.clone();
 
-        // Validate session
-        {
-            let session = match self.sessions.get_mut(&session_id) {
-                Some(s) => s,
-                None => {
-                    return JsonRpcResponse::error(
-                        id.clone(),
-                        ERROR_INVALID_PARAMS,
-                        "Session not found",
-                    )
-                }
-            };
-            if session.active_prompt {
+        let (internal_session_id, previous_cancel) = match self.sessions.get(&session_id) {
+            Some(session) if session.active_prompt => {
                 return JsonRpcResponse::error(
                     id.clone(),
                     ERROR_INVALID_REQUEST,
                     "A prompt is already active",
-                );
+                )
             }
+            Some(session) => (session.internal_session_id.clone(), session.cancel.clone()),
+            None => {
+                return JsonRpcResponse::error(
+                    id.clone(),
+                    ERROR_INVALID_PARAMS,
+                    "Session not found",
+                )
+            }
+        };
+        let cancel_state = {
+            let mut states = lock_cancel_states(&self.cancel_states);
+            states
+                .entry(session_id.clone())
+                .or_insert_with(|| {
+                    Arc::new(AcpCancelState::new(
+                        Some(internal_session_id),
+                        previous_cancel,
+                    ))
+                })
+                .clone()
+        };
+        let turn_cancel = cancel_state.prepare_prompt();
+        let _prompt_state_guard = AcpPromptStateGuard {
+            state: cancel_state,
+        };
+
+        {
+            let session = self
+                .sessions
+                .get_mut(&session_id)
+                .expect("ACP session was validated before prompt setup");
             session.active_prompt = true;
-            session.cancel.store(false, Ordering::SeqCst);
+            session.cancel = turn_cancel.clone();
         }
         self.sessions.touch(&session_id);
         persist_acp_ide_context(&self.session_db, &session_id, &req.meta);
@@ -431,18 +917,19 @@ impl AcpAgent {
             .enable_all()
             .build()
         {
-            Ok(rt) => match rt.block_on(crate::agent::preflight::user_prompt_preflight(
+            Ok(rt) => match rt.block_on(crate::agent::preflight::user_prompt_preflight_cancellable(
                 crate::agent::preflight::PreflightArgs {
                     session_id: &session_id,
                     agent_id: None,
                     raw_prompt: &text,
                     turn_id: &turn_id,
                 },
+                turn_cancel.as_ref(),
             )) {
-                crate::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
+                Some(crate::agent::preflight::PreflightOutcome::Proceed { effective_prompt }) => {
                     effective_prompt
                 }
-                crate::agent::preflight::PreflightOutcome::Block { reason } => {
+                Some(crate::agent::preflight::PreflightOutcome::Block { reason }) => {
                     // A UserPromptSubmit hook blocked the prompt: record a
                     // UI-only event marker (excluded from LLM context), surface
                     // the reason as an agent message, and return without
@@ -473,7 +960,31 @@ impl AcpAgent {
                         serde_json::to_value(&response).unwrap(),
                     );
                 }
+                None => {
+                    if let Some(s) = self.sessions.get_mut(&session_id) {
+                        s.active_prompt = false;
+                    }
+                    let response = PromptResponse {
+                        stop_reason: "cancelled".to_string(),
+                    };
+                    return JsonRpcResponse::success(
+                        id.clone(),
+                        serde_json::to_value(&response).unwrap(),
+                    );
+                }
             },
+            Err(_) if turn_cancel.load(Ordering::Acquire) => {
+                if let Some(s) = self.sessions.get_mut(&session_id) {
+                    s.active_prompt = false;
+                }
+                let response = PromptResponse {
+                    stop_reason: "cancelled".to_string(),
+                };
+                return JsonRpcResponse::success(
+                    id.clone(),
+                    serde_json::to_value(&response).unwrap(),
+                );
+            }
             Err(_) => text.clone(),
         };
 
@@ -536,8 +1047,11 @@ impl AcpAgent {
     // ── session/cancel ──────────────────────────────────────────
 
     fn handle_cancel(&mut self, cancel: &CancelNotification) {
-        if let Some(session) = self.sessions.get_mut(&cancel.session_id) {
-            session.cancel.store(true, Ordering::SeqCst);
+        if let Some(session_id) = self
+            .cancel_state(&cancel.session_id)
+            .and_then(|state| state.request_cancel())
+        {
+            spawn_acp_stop_cleanup(self.session_db.clone(), session_id);
         }
     }
 
@@ -659,10 +1173,14 @@ impl AcpAgent {
             }
         };
 
-        if let Some(session) = self.sessions.get(&req.session_id) {
-            session.cancel.store(true, Ordering::SeqCst);
+        if let Some(session_id) = self
+            .cancel_state(&req.session_id)
+            .and_then(|state| state.force_cancel())
+        {
+            spawn_acp_stop_cleanup(self.session_db.clone(), session_id);
         }
         self.sessions.remove(&req.session_id);
+        self.reconcile_cancel_states();
 
         JsonRpcResponse::success(
             id.clone(),
@@ -780,6 +1298,7 @@ impl AcpAgent {
             Some(s) => s.cancel.clone(),
             None => return Err(anyhow::anyhow!("Session not found")),
         };
+        let cancel_state = self.cancel_state(session_id);
 
         let session_id_owned = session_id.to_string();
         let db_clone = self.session_db.clone();
@@ -834,6 +1353,7 @@ impl AcpAgent {
 
         let mut last_error = String::new();
         let mut stop_all_models = false;
+        let mut cancelled = false;
 
         // Build CompactionProvider once, reuse across retries
         let compaction_provider: Option<
@@ -845,32 +1365,6 @@ impl AcpAgent {
                 crate::agent::build_compaction_provider(&mr, &store.providers, &session_id_owned)
                     .map(|cp| std::sync::Arc::new(cp) as _)
             });
-
-        // SessionStart hook (startup/resume). ACP runs `AssistantAgent::chat`
-        // directly rather than `run_chat_engine`, so the engine's SessionStart
-        // embed never fires here — we invoke the shared observation helper
-        // ourselves. Fired once before the failover loop (`claim_session_start`
-        // only releases once); the resulting additionalContext is re-applied to
-        // each rebuilt agent so it survives retries, mirroring how the engine
-        // threads it through `extra_system_context`.
-        let mut session_start_ctx = rt.block_on(crate::hooks::fire_session_start_observation(
-            &session_id_owned,
-            &agent_id,
-            model_chain
-                .first()
-                .map(|m| m.model_id.as_str())
-                .unwrap_or_default(),
-        ));
-        // Fold in any UserPromptSubmit hook context the preflight chokepoint
-        // stashed for this turn, so the ACP entry injects it identically to
-        // `run_chat_engine`. Drained once; re-applied to each rebuilt agent
-        // below alongside the SessionStart context.
-        if let Some(extra) = crate::hooks::take_user_prompt_context(&session_id_owned) {
-            session_start_ctx = Some(match session_start_ctx.take() {
-                Some(e) => format!("{e}\n\n{extra}"),
-                None => extra,
-            });
-        }
 
         let durability = rt.block_on(crate::chat_engine::durability::StreamCoordinator::create(
             db_clone.clone(),
@@ -884,7 +1378,60 @@ impl AcpAgent {
             cancel.clone(),
         ))?;
 
+        // SessionStart hook (startup/resume). ACP runs `AssistantAgent::chat`
+        // directly rather than `run_chat_engine`, so the engine's SessionStart
+        // embed never fires here — we invoke the shared observation helper
+        // ourselves. Fired once before the failover loop (`claim_session_start`
+        // only releases once); the resulting additionalContext is re-applied to
+        // each rebuilt agent so it survives retries, mirroring how the engine
+        // threads it through `extra_system_context`.
+        let session_start_ctx = rt.block_on(async {
+            tokio::select! {
+                biased;
+                _ = wait_for_acp_cancel(cancel.clone()) => None,
+                context = crate::hooks::fire_session_start_observation(
+                    &session_id_owned,
+                    &agent_id,
+                    model_chain
+                        .first()
+                        .map(|m| m.model_id.as_str())
+                        .unwrap_or_default(),
+                ) => Some(context),
+            }
+        });
+        let mut session_start_ctx = match session_start_ctx {
+            Some(context) => context,
+            None => {
+                if let Err(error) =
+                    finalize_acp_user_stop(&rt, &db_clone, &durability, &session_id_owned)
+                {
+                    crate::app_error!(
+                        "acp",
+                        "stop",
+                        "failed to finalize ACP Stop during session-start hook for {}: {}",
+                        session_id_owned,
+                        error
+                    );
+                }
+                return Ok("cancelled".to_string());
+            }
+        };
+        // Fold in any UserPromptSubmit hook context the preflight chokepoint
+        // stashed for this turn, so the ACP entry injects it identically to
+        // `run_chat_engine`. Drained once; re-applied to each rebuilt agent
+        // below alongside the SessionStart context.
+        if let Some(extra) = crate::hooks::take_user_prompt_context(&session_id_owned) {
+            session_start_ctx = Some(match session_start_ctx.take() {
+                Some(e) => format!("{e}\n\n{extra}"),
+                None => extra,
+            });
+        }
+
         for model_ref in &model_chain {
+            if cancel.load(Ordering::Acquire) {
+                cancelled = true;
+                break;
+            }
             let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
                 Some(p) => p,
                 None => continue,
@@ -892,6 +1439,10 @@ impl AcpAgent {
 
             let mut retry_count: u32 = 0;
             loop {
+                if cancel.load(Ordering::Acquire) {
+                    cancelled = true;
+                    break;
+                }
                 let provider_shape = match &prov.api_type {
                     crate::provider::ApiType::Anthropic => "anthropic",
                     crate::provider::ApiType::OpenaiChat => "openai_chat",
@@ -903,14 +1454,26 @@ impl AcpAgent {
                     Some(&model_ref.model_id),
                     Some(provider_shape),
                 ))?;
-                let build_result = rt.block_on(AssistantAgent::try_new_from_provider(
-                    prov,
-                    &model_ref.model_id,
-                ));
+                let build_result = rt.block_on(async {
+                    tokio::select! {
+                        biased;
+                        _ = wait_for_acp_cancel(cancel.clone()) => {
+                            Err(anyhow::anyhow!("ACP prompt cancelled"))
+                        }
+                        result = AssistantAgent::try_new_from_provider(
+                            prov,
+                            &model_ref.model_id,
+                        ) => result,
+                    }
+                });
                 let mut agent = match build_result {
                     Ok(a) => a.with_failover_context(prov),
                     Err(e) => {
                         last_error = e.to_string();
+                        if cancel.load(Ordering::Acquire) {
+                            cancelled = true;
+                            break;
+                        }
                         let reason = failover::classify_error(&last_error);
                         if reason.is_retryable() && retry_count < MAX_RETRIES {
                             retry_count += 1;
@@ -919,9 +1482,17 @@ impl AcpAgent {
                                 RETRY_BASE_MS,
                                 RETRY_MAX_MS,
                             );
-                            rt.block_on(tokio::time::sleep(std::time::Duration::from_millis(
-                                delay,
-                            )));
+                            let completed_delay = rt.block_on(async {
+                                tokio::select! {
+                                    biased;
+                                    _ = wait_for_acp_cancel(cancel.clone()) => false,
+                                    _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => true,
+                                }
+                            });
+                            if !completed_delay {
+                                cancelled = true;
+                                break;
+                            }
                             continue;
                         }
                         app_warn!(
@@ -958,28 +1529,59 @@ impl AcpAgent {
                 let durability_for_cb = durability.clone();
 
                 let result = rt.block_on(async {
-                    agent
-                        .chat(
-                            &text_owned,
-                            &attachments_owned,
-                            None,
-                            cancel_clone,
-                            move |delta| {
-                                if let Err(error) = durability_for_cb.accept_event(delta) {
-                                    app_error!(
-                                        "acp",
-                                        "stream_durability",
-                                        "failed to accept ACP stream event: {}",
-                                        error
-                                    );
-                                }
-                            },
-                        )
-                        .await
+                    let chat = agent.chat(
+                        &text_owned,
+                        &attachments_owned,
+                        None,
+                        cancel_clone.clone(),
+                        move |delta| {
+                            if let Err(error) = durability_for_cb.accept_event(delta) {
+                                app_error!(
+                                    "acp",
+                                    "stream_durability",
+                                    "failed to accept ACP stream event: {}",
+                                    error
+                                );
+                            }
+                        },
+                    );
+                    tokio::pin!(chat);
+                    tokio::select! {
+                        biased;
+                        _ = wait_for_acp_cancel(cancel_clone) => {
+                            match tokio::time::timeout(
+                                ACP_CANCEL_COOPERATIVE_GRACE,
+                                &mut chat,
+                            ).await {
+                                Ok(result) => result,
+                                Err(_) => Err(anyhow::anyhow!(
+                                    "ACP chat cancellation grace timed out"
+                                )),
+                            }
+                        }
+                        result = &mut chat => result,
+                    }
                 });
 
                 match result {
                     Ok((response, _thinking)) => {
+                        if cancel.load(Ordering::Acquire) {
+                            if let Err(error) = finalize_acp_user_stop(
+                                &rt,
+                                &db_clone,
+                                &durability,
+                                &session_id_owned,
+                            ) {
+                                crate::app_error!(
+                                    "acp",
+                                    "stop",
+                                    "failed to finalize stopped ACP turn for {}: {}",
+                                    session_id_owned,
+                                    error
+                                );
+                            }
+                            return Ok("cancelled".to_string());
+                        }
                         let final_seq = rt.block_on(durability.flush(FlushReason::FinalEnd))?;
                         rt.block_on(durability.reconcile_spool_to_sqlite())?;
                         let trailing = {
@@ -1028,43 +1630,43 @@ impl AcpAgent {
                         usage_event.agent_id = Some(agent_id.clone());
                         let context_json =
                             serde_json::to_string(&agent.get_conversation_history())?;
-                        if cancel.load(Ordering::SeqCst) {
-                            let commit = session::CommitInterruptedTurn {
-                                run_id: durability
-                                    .is_persistent()
-                                    .then(|| durability.persistence_run_id().to_string()),
-                                attempt_no: durability.current_attempt_no(),
-                                session_id: session_id_owned.clone(),
-                                assistant: Some(assistant_msg),
-                                context_json,
-                                expected_context_revision: durability.context_revision(),
-                                turn_id: None,
-                                final_seq,
-                                status: session::ChatTurnStatus::Interrupted,
-                                interrupt_reason: Some("user_stop".to_string()),
-                                error: None,
-                                recovery_event: None,
-                            };
-                            db_clone.commit_interrupted_turn(&commit)?;
-                            durability.mark_interrupted("interrupted");
-                        } else {
-                            let commit = session::CommitAssistantTurn {
-                                run_id: durability
-                                    .is_persistent()
-                                    .then(|| durability.persistence_run_id().to_string()),
-                                attempt_no: durability.current_attempt_no(),
-                                session_id: session_id_owned.clone(),
-                                assistant: assistant_msg,
-                                trailing_placeholder_id: None,
-                                context_json,
-                                expected_context_revision: durability.context_revision(),
-                                turn_id: None,
-                                usage: Some(usage_event),
-                                final_seq,
-                            };
-                            let committed = db_clone.commit_assistant_turn(&commit)?;
-                            durability.mark_committed(committed.committed_seq);
+                        let completion_claimed = cancel_state
+                            .as_ref()
+                            .map(|state| state.claim_non_cancelled_completion())
+                            .unwrap_or_else(|| !cancel.load(Ordering::Acquire));
+                        if !completion_claimed {
+                            if let Err(error) = finalize_acp_user_stop(
+                                &rt,
+                                &db_clone,
+                                &durability,
+                                &session_id_owned,
+                            ) {
+                                crate::app_error!(
+                                    "acp",
+                                    "stop",
+                                    "failed to finalize late ACP Stop for {}: {}",
+                                    session_id_owned,
+                                    error
+                                );
+                            }
+                            return Ok("cancelled".to_string());
                         }
+                        let commit = session::CommitAssistantTurn {
+                            run_id: durability
+                                .is_persistent()
+                                .then(|| durability.persistence_run_id().to_string()),
+                            attempt_no: durability.current_attempt_no(),
+                            session_id: session_id_owned.clone(),
+                            assistant: assistant_msg,
+                            trailing_placeholder_id: None,
+                            context_json,
+                            expected_context_revision: durability.context_revision(),
+                            turn_id: None,
+                            usage: Some(usage_event),
+                            final_seq,
+                        };
+                        let committed = db_clone.commit_assistant_turn(&commit)?;
+                        durability.mark_committed(committed.committed_seq);
                         crate::session_title::maybe_schedule_after_success(
                             db_clone.clone(),
                             session_id_owned.clone(),
@@ -1072,15 +1674,14 @@ impl AcpAgent {
                             model_ref.clone(),
                         );
 
-                        let stop = if cancel.load(Ordering::SeqCst) {
-                            "cancelled"
-                        } else {
-                            "end_turn"
-                        };
-                        return Ok(stop.to_string());
+                        return Ok("end_turn".to_string());
                     }
                     Err(e) => {
                         last_error = e.to_string();
+                        if cancel.load(Ordering::Acquire) {
+                            cancelled = true;
+                            break;
+                        }
                         let reason = failover::classify_error(&last_error);
 
                         if reason.is_terminal() {
@@ -1095,18 +1696,41 @@ impl AcpAgent {
                                 RETRY_BASE_MS,
                                 RETRY_MAX_MS,
                             );
-                            rt.block_on(tokio::time::sleep(std::time::Duration::from_millis(
-                                delay,
-                            )));
+                            let completed_delay = rt.block_on(async {
+                                tokio::select! {
+                                    biased;
+                                    _ = wait_for_acp_cancel(cancel.clone()) => false,
+                                    _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => true,
+                                }
+                            });
+                            if !completed_delay {
+                                cancelled = true;
+                                break;
+                            }
                             continue;
                         }
                         break;
                     }
                 }
             }
-            if stop_all_models {
+            if stop_all_models || cancelled {
                 break;
             }
+        }
+
+        if cancelled || cancel.load(Ordering::Acquire) {
+            if let Err(error) =
+                finalize_acp_user_stop(&rt, &db_clone, &durability, &session_id_owned)
+            {
+                crate::app_error!(
+                    "acp",
+                    "stop",
+                    "failed to finalize stopped ACP turn for {}: {}",
+                    session_id_owned,
+                    error
+                );
+            }
+            return Ok("cancelled".to_string());
         }
 
         // Converge provider/build failures through the same durable protocol;
@@ -1213,6 +1837,24 @@ impl AcpAgent {
                     .with_source(crate::chat_engine::ChatSource::Acp),
             ),
         };
+        let completion_claimed = cancel_state
+            .as_ref()
+            .map(|state| state.claim_non_cancelled_completion())
+            .unwrap_or_else(|| !cancel.load(Ordering::Acquire));
+        if !completion_claimed {
+            if let Err(error) =
+                finalize_acp_user_stop(&rt, &db_clone, &durability, &session_id_owned)
+            {
+                crate::app_error!(
+                    "acp",
+                    "stop",
+                    "failed to finalize ACP Stop racing terminal failure for {}: {}",
+                    session_id_owned,
+                    error
+                );
+            }
+            return Ok("cancelled".to_string());
+        }
         if let Err(error) = db_clone.commit_interrupted_turn(&commit) {
             app_error!(
                 "acp",
@@ -1368,5 +2010,74 @@ fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &Assistan
                 agent.set_conversation_history(history);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inbound(method: &str, session_id: &str) -> JsonRpcMessage {
+        JsonRpcMessage {
+            jsonrpc: "2.0".to_string(),
+            id: (method == "session/prompt").then(|| serde_json::json!(1)),
+            method: Some(method.to_string()),
+            params: Some(serde_json::json!({ "sessionId": session_id })),
+            result: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn queued_acp_prompt_observes_cancel_before_dispatch() {
+        let states = Arc::new(Mutex::new(HashMap::new()));
+        let initial = Arc::new(AtomicBool::new(false));
+        let state = Arc::new(AcpCancelState::new(
+            Some("internal-session".to_string()),
+            initial,
+        ));
+        lock_cancel_states(&states).insert("acp-session".to_string(), state.clone());
+
+        assert_eq!(
+            observe_acp_control_message(&inbound("session/prompt", "acp-session"), &states),
+            None
+        );
+        let turn_cancel = state.prepare_prompt();
+        assert!(!turn_cancel.load(Ordering::Acquire));
+        assert_eq!(
+            observe_acp_control_message(&inbound("session/cancel", "acp-session"), &states),
+            Some("internal-session".to_string())
+        );
+        assert!(turn_cancel.load(Ordering::Acquire));
+        assert_eq!(
+            observe_acp_control_message(&inbound("session/cancel", "acp-session"), &states),
+            None,
+            "repeated Stop must not start duplicate cleanup"
+        );
+        assert!(!state.claim_non_cancelled_completion());
+    }
+
+    #[test]
+    fn completed_acp_prompt_ignores_late_cancel_and_next_turn_gets_fresh_token() {
+        let states = Arc::new(Mutex::new(HashMap::new()));
+        let state = Arc::new(AcpCancelState::new(
+            Some("internal-session".to_string()),
+            Arc::new(AtomicBool::new(false)),
+        ));
+        lock_cancel_states(&states).insert("acp-session".to_string(), state.clone());
+
+        observe_acp_control_message(&inbound("session/prompt", "acp-session"), &states);
+        let first = state.prepare_prompt();
+        assert!(state.claim_non_cancelled_completion());
+        assert_eq!(
+            observe_acp_control_message(&inbound("session/cancel", "acp-session"), &states),
+            None
+        );
+        assert!(!first.load(Ordering::Acquire));
+
+        observe_acp_control_message(&inbound("session/prompt", "acp-session"), &states);
+        let second = state.prepare_prompt();
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(!second.load(Ordering::Acquire));
     }
 }

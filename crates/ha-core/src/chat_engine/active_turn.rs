@@ -33,6 +33,7 @@ impl std::error::Error for ActiveTurnError {}
 struct Entry {
     token: String,
     turn_id: String,
+    client_request_id: Option<String>,
     stream_id: Option<String>,
     source: ChatSource,
     cancel: Arc<AtomicBool>,
@@ -40,9 +41,36 @@ struct Entry {
 }
 
 static ACTIVE_TURNS: OnceLock<Mutex<HashMap<String, Entry>>> = OnceLock::new();
+/// A Stop request keeps this short-lived gate armed while it snapshots and
+/// settles work owned by the old turn. Without the gate, the old cleanup can
+/// race a freshly-acquired turn in the same session and mistake its resources
+/// for leftovers.
+static STOP_CLEANUPS: OnceLock<Mutex<HashMap<String, HashSet<String>>>> = OnceLock::new();
+/// Process-wide emergency Stop gate. This closes the enumeration gap in
+/// `stop_all_sessions`: a turn must not acquire after the active snapshot yet
+/// before runtime work is captured, otherwise global cleanup could cancel its
+/// resources without signalling its foreground token.
+static GLOBAL_STOP_CLEANUPS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+/// Request-scoped stops may arrive before the shell has registered a turn.
+/// When the caller already knows the target session, retain that binding so a
+/// reused/malformed request id cannot cancel a turn in another session.
+static PENDING_CLIENT_CANCELS: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+const PENDING_CLIENT_CANCELS_MAX: usize = 4096;
 
 fn registry() -> &'static Mutex<HashMap<String, Entry>> {
     ACTIVE_TURNS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn pending_client_cancels() -> &'static Mutex<HashMap<String, Option<String>>> {
+    PENDING_CLIENT_CANCELS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn stop_cleanups() -> &'static Mutex<HashMap<String, HashSet<String>>> {
+    STOP_CLEANUPS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn global_stop_cleanups() -> &'static Mutex<HashSet<String>> {
+    GLOBAL_STOP_CLEANUPS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
 /// Poison-tolerant lock on the active-turn registry. A panic while another
@@ -68,9 +96,7 @@ impl ActiveTurnGuard {
         if self.released {
             return;
         }
-        let mut map = registry()
-            .lock()
-            .expect("active chat turn registry poisoned");
+        let mut map = registry_lock();
         if map
             .get(&self.session_id)
             .map(|entry| entry.token.as_str() == self.token)
@@ -88,10 +114,116 @@ impl Drop for ActiveTurnGuard {
     }
 }
 
+#[derive(Debug)]
+pub struct StopCleanupGuard {
+    session_id: String,
+    token: String,
+    released: bool,
+}
+
+impl StopCleanupGuard {
+    pub fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        let mut stopping = stop_cleanups()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(tokens) = stopping.get_mut(&self.session_id) {
+            tokens.remove(&self.token);
+            if tokens.is_empty() {
+                stopping.remove(&self.session_id);
+            }
+        }
+        self.released = true;
+    }
+}
+
+impl Drop for StopCleanupGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+#[derive(Debug)]
+pub struct GlobalStopCleanupGuard {
+    token: String,
+    released: bool,
+}
+
+impl GlobalStopCleanupGuard {
+    pub fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        global_stop_cleanups()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.token);
+        self.released = true;
+    }
+}
+
+impl Drop for GlobalStopCleanupGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// Prevent a replacement foreground turn from acquiring this session until
+/// the Stop caller has captured the old turn's exact cleanup targets.
+///
+/// Acquisition and gate installation both serialize through `ACTIVE_TURNS`,
+/// so either a racing turn is visible to Stop and gets cancelled, or it sees
+/// this gate and is rejected. They cannot pass each other unseen.
+pub fn begin_stop_cleanup(session_id: &str) -> StopCleanupGuard {
+    let token = uuid::Uuid::new_v4().to_string();
+    let _active = registry_lock();
+    stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .entry(session_id.to_string())
+        .or_default()
+        .insert(token.clone());
+    StopCleanupGuard {
+        session_id: session_id.to_string(),
+        token,
+        released: false,
+    }
+}
+
+/// Prevent any replacement foreground turn from entering while a process-wide
+/// emergency Stop enumerates and settles its exact cleanup targets.
+pub fn begin_global_stop_cleanup() -> GlobalStopCleanupGuard {
+    let token = uuid::Uuid::new_v4().to_string();
+    let _active = registry_lock();
+    global_stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(token.clone());
+    GlobalStopCleanupGuard {
+        token,
+        released: false,
+    }
+}
+
 pub fn try_acquire(
     session_id: &str,
     source: ChatSource,
     turn_id: String,
+    cancel: Arc<AtomicBool>,
+) -> Result<ActiveTurnGuard, ActiveTurnError> {
+    try_acquire_with_client_request_id(session_id, source, turn_id, None, cancel)
+}
+
+/// Acquire a foreground turn and associate it with the client request that
+/// initiated it. The request id lets a draft-session Stop target this exact
+/// turn before `session_created` / `turn_started` has reached the UI.
+pub fn try_acquire_with_client_request_id(
+    session_id: &str,
+    source: ChatSource,
+    turn_id: String,
+    client_request_id: Option<String>,
     cancel: Arc<AtomicBool>,
 ) -> Result<ActiveTurnGuard, ActiveTurnError> {
     let token = uuid::Uuid::new_v4().to_string();
@@ -102,11 +234,49 @@ pub fn try_acquire(
             existing_source: existing.source,
         });
     }
+    if !global_stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .is_empty()
+    {
+        return Err(ActiveTurnError {
+            session_id: session_id.to_string(),
+            existing_source: source,
+        });
+    }
+    if stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(session_id)
+        .is_some_and(|tokens| !tokens.is_empty())
+    {
+        return Err(ActiveTurnError {
+            session_id: session_id.to_string(),
+            existing_source: source,
+        });
+    }
+    if client_request_id.as_deref().is_some_and(|request_id| {
+        let mut pending = pending_client_cancels()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let matches_session = pending.get(request_id).is_some_and(|expected_session_id| {
+            expected_session_id
+                .as_deref()
+                .is_none_or(|expected| expected == session_id)
+        });
+        if matches_session {
+            pending.remove(request_id);
+        }
+        matches_session
+    }) {
+        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
     map.insert(
         session_id.to_string(),
         Entry {
             token: token.clone(),
             turn_id,
+            client_request_id,
             stream_id: None,
             source,
             cancel,
@@ -138,6 +308,87 @@ pub fn current(session_id: &str) -> Option<ActiveTurnSnapshot> {
         source: entry.source,
         cancel: Arc::clone(&entry.cancel),
     })
+}
+
+/// Resolve an active foreground turn by the opaque client request id.
+pub fn current_for_client_request(client_request_id: &str) -> Option<ActiveTurnSnapshot> {
+    let map = registry_lock();
+    map.iter().find_map(|(session_id, entry)| {
+        (entry.client_request_id.as_deref() == Some(client_request_id)).then(|| {
+            ActiveTurnSnapshot {
+                session_id: session_id.clone(),
+                turn_id: entry.turn_id.clone(),
+                stream_id: entry.stream_id.clone(),
+                source: entry.source,
+                cancel: Arc::clone(&entry.cancel),
+            }
+        })
+    })
+}
+
+#[derive(Debug, Clone)]
+pub enum ClientRequestCancelOutcome {
+    Active(ActiveTurnSnapshot),
+    Latched,
+    SessionMismatch,
+}
+
+/// Cancel an already-registered client request, or latch the cancellation if
+/// the Stop request won the transport race and arrived first. Both this path
+/// and acquisition take the active registry before the pending map, so the
+/// lookup/insert and consume/register transitions cannot pass each other.
+pub fn cancel_or_latch_client_request(
+    client_request_id: &str,
+    expected_session_id: Option<&str>,
+) -> ClientRequestCancelOutcome {
+    let map = registry_lock();
+    if let Some((session_id, entry)) = map
+        .iter()
+        .find(|(_, entry)| entry.client_request_id.as_deref() == Some(client_request_id))
+    {
+        if expected_session_id.is_some_and(|expected| expected != session_id) {
+            return ClientRequestCancelOutcome::SessionMismatch;
+        }
+        entry
+            .cancel
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        return ClientRequestCancelOutcome::Active(ActiveTurnSnapshot {
+            session_id: session_id.clone(),
+            turn_id: entry.turn_id.clone(),
+            stream_id: entry.stream_id.clone(),
+            source: entry.source,
+            cancel: Arc::clone(&entry.cancel),
+        });
+    }
+
+    let mut pending = pending_client_cancels()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(existing_session_id) = pending.get(client_request_id) {
+        if existing_session_id.as_deref().is_some()
+            && expected_session_id.is_some()
+            && existing_session_id.as_deref() != expected_session_id
+        {
+            return ClientRequestCancelOutcome::SessionMismatch;
+        }
+        if existing_session_id.is_none() && expected_session_id.is_some() {
+            pending.insert(
+                client_request_id.to_string(),
+                expected_session_id.map(str::to_string),
+            );
+        }
+        return ClientRequestCancelOutcome::Latched;
+    }
+    if pending.len() >= PENDING_CLIENT_CANCELS_MAX {
+        if let Some(evicted) = pending.keys().next().cloned() {
+            pending.remove(&evicted);
+        }
+    }
+    pending.insert(
+        client_request_id.to_string(),
+        expected_session_id.map(str::to_string),
+    );
+    ClientRequestCancelOutcome::Latched
 }
 
 /// Execute a short synchronous operation only while this exact user-facing
@@ -251,6 +502,18 @@ pub fn clear_all() -> usize {
     let mut map = registry_lock();
     let n = map.len();
     map.clear();
+    pending_client_cancels()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+    stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+    global_stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
     n
 }
 
@@ -407,6 +670,90 @@ mod tests {
     }
 
     #[test]
+    fn request_id_targets_a_draft_turn_before_session_events_arrive() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-request-target";
+        let cancel = Arc::new(AtomicBool::new(false));
+        let _guard = try_acquire_with_client_request_id(
+            sid,
+            ChatSource::Desktop,
+            "turn-request-target".to_string(),
+            Some("request-target".to_string()),
+            Arc::clone(&cancel),
+        )
+        .unwrap();
+
+        assert!(current_for_client_request("unknown-request").is_none());
+        let snapshot = current_for_client_request("request-target").unwrap();
+        assert_eq!(snapshot.session_id, sid);
+        assert_eq!(snapshot.turn_id, "turn-request-target");
+        assert!(Arc::ptr_eq(&snapshot.cancel, &cancel));
+
+        let cancelled = cancel_or_latch_client_request("request-target", Some(sid));
+        let ClientRequestCancelOutcome::Active(cancelled) = cancelled else {
+            panic!("expected an active request cancellation");
+        };
+        assert_eq!(cancelled.turn_id, "turn-request-target");
+        assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn request_stop_latches_when_it_arrives_before_turn_registration() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-request-latch";
+        let cancel = Arc::new(AtomicBool::new(false));
+
+        assert!(matches!(
+            cancel_or_latch_client_request("request-latch", Some(sid)),
+            ClientRequestCancelOutcome::Latched
+        ));
+        let _guard = try_acquire_with_client_request_id(
+            sid,
+            ChatSource::Http,
+            "turn-request-latch".to_string(),
+            Some("request-latch".to_string()),
+            Arc::clone(&cancel),
+        )
+        .unwrap();
+
+        assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn request_stop_for_known_session_does_not_cancel_another_session() {
+        let _lock = test_lock();
+        let expected_sid = "test-active-turn-request-expected-session";
+        let other_sid = "test-active-turn-request-other-session";
+
+        assert!(matches!(
+            cancel_or_latch_client_request("request-session-bound", Some(expected_sid)),
+            ClientRequestCancelOutcome::Latched
+        ));
+
+        let other_cancel = Arc::new(AtomicBool::new(false));
+        let _other_guard = try_acquire_with_client_request_id(
+            other_sid,
+            ChatSource::Http,
+            "turn-other-session".to_string(),
+            Some("request-session-bound".to_string()),
+            Arc::clone(&other_cancel),
+        )
+        .unwrap();
+        assert!(!other_cancel.load(std::sync::atomic::Ordering::SeqCst));
+
+        let expected_cancel = Arc::new(AtomicBool::new(false));
+        let _expected_guard = try_acquire_with_client_request_id(
+            expected_sid,
+            ChatSource::Desktop,
+            "turn-expected-session".to_string(),
+            Some("request-session-bound".to_string()),
+            Arc::clone(&expected_cancel),
+        )
+        .unwrap();
+        assert!(expected_cancel.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
     fn is_accepting_and_has_entry_match_current_semantics() {
         let _lock = test_lock();
         let sid = "test-active-turn-is-accepting";
@@ -501,6 +848,57 @@ mod tests {
         assert!(current(sid).is_some());
         assert!(force_release(sid, "turn-force"));
         assert!(current(sid).is_none());
+    }
+
+    #[test]
+    fn stop_cleanup_gate_blocks_only_until_old_snapshot_finishes() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-stop-cleanup-gate";
+        let gate = begin_stop_cleanup(sid);
+
+        assert!(try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-during-stop".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .is_err());
+
+        drop(gate);
+        let _guard = try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-after-stop".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("replacement turn should acquire after cleanup snapshot");
+    }
+
+    #[test]
+    fn global_stop_cleanup_gate_blocks_every_session_until_release() {
+        let _lock = test_lock();
+        let gate = begin_global_stop_cleanup();
+        for (session_id, source) in [
+            ("test-global-stop-a", ChatSource::Desktop),
+            ("test-global-stop-b", ChatSource::Http),
+        ] {
+            assert!(try_acquire(
+                session_id,
+                source,
+                format!("turn-{session_id}"),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .is_err());
+        }
+
+        drop(gate);
+        let _guard = try_acquire(
+            "test-global-stop-a",
+            ChatSource::Desktop,
+            "turn-after-global-stop".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("replacement turn should acquire after global cleanup");
     }
 
     #[test]
