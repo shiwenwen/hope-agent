@@ -241,12 +241,12 @@ fn job_response_value(job: &crate::async_jobs::BackgroundJob, include_output_tai
                 let hint = if job.status.is_terminal() {
                     format!(
                         "Background batch finished ({completed} completed, {failed} failed). The \
-                         merged results are delivered as ONE task-notification — read that, don't poll."
+                         merged results are delivered as ONE subagent-result — read that, don't poll."
                     )
                 } else {
                     format!(
                         "Background batch in progress ({terminal}/{total} sub-agents finished). All \
-                         results arrive together as ONE task-notification when the batch completes — \
+                         results arrive together as ONE subagent-result when the batch completes — \
                          do not poll; end your turn and continue when it arrives."
                     )
                 };

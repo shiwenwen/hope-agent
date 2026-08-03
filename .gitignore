@@ -37,11 +37,10 @@ tool_comparison.md
 # Private research
 docs/research/
 
-# Local requirements / PRD drafts
+# Local requirements / PRD / implementation-plan drafts.
+# Plans stay local; after implementation, document final contracts in docs/architecture/.
 docs/requirements/
-docs/plan/*
-!docs/plan/memory-next-generation-plan.md
-!docs/plan/subagent-thread-resume-and-workflow-recovery.md
+docs/plan/
 
 # Local assistant state（worktrees / settings.local.json 等）
 .claude/

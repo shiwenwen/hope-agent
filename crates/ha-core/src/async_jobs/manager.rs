@@ -878,7 +878,7 @@ impl JobManager {
     // coordinator row plus N `Subagent` child projections sharing its `job_id`
     // in `group_id`. When the group is sealed (all children spawned) and every
     // child is terminal, a single CAS-claimed winner fires ONE merged
-    // `<task-notification>` summarizing every child (join-all-settle), instead
+    // `<subagent-result>` summarizing every child (join-all-settle), instead
     // of N separate billed injection turns. The group row holds NO run content;
     // child results are read from `subagent_runs` (the truth source) only at
     // injection time.
@@ -1136,7 +1136,7 @@ impl JobManager {
         });
     }
 
-    /// Build the merged `<task-notification>` for a completed group: a single
+    /// Build the merged result for a completed group: a single
     /// `<subagent-result>`-shaped envelope (so the existing frontend pill
     /// renders it) whose `<result>` body enumerates every child's terminal
     /// status + result/error. Join-all-settle: failures are included alongside

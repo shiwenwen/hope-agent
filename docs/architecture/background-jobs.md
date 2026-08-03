@@ -1,6 +1,6 @@
 # 后台任务（Background Jobs）系统架构
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-06-24
+> 返回 [文档索引](../README.md) | 更新时间：2026-08-03
 
 ## 概述
 
@@ -227,7 +227,7 @@ category `async_tools`，归 **MEDIUM**，GUI 走专用 `save_async_tools_config
 - **V4 Monitor 投影**：Loop 的 file/WebSocket one-shot watcher 通过 `JobManager::register_monitor` 建 `kind=Monitor` 行，`args_json` 只保存有界 spec，`injected=true`，watch id 放 `tool_name`/关联字段用于诊断。Monitor 不走 Tool runner、retry、completion injection 或普通 Tool slot；适配器在 change/message/close/failure/timeout/cancel 时调用 `finish_monitor` 结算。执行真相仍在 `loop_watches` 和进程内 generation handle，Job 行只是可观察投影。详见 [Loop 控制平面](loop.md)。
 
 - **R6 后台 subagent 投影（单向）**：用户委派的后台 subagent run 在 `spawn_subagent` 建一条 `kind=Subagent`、`subagent_run_id` FK、`args_json="{}"`、`injected=true` 的投影，与 tool job 共享 `job_status` / 面板 / 取消。`subagent_runs` 是执行真相源（task/result/error 只在那），投影只承载 status/生命周期、**绝不持有正文、绝不反写**。同步走单一 choke point `SessionDB::update_subagent_status` → `JobManager::sync_subagent_projection`；取消经 `cancel_job` kind=Subagent 分支路由到 `subagent::request_cancel_run`，**不跑 tool job 的 hook/注入**。详见 [子 Agent 系统](subagent.md)。
-- **R5 Group fan-out**：`batch_spawn` 建 `kind=Group` 协调行（`group_id` 关联子投影、`args_json={"sealed":bool}`、`injected=true`），N 个子携 `group_id` 抑制个体注入；全部子终态 + sealed 时单赢 CAS 发一条合并 `<task-notification>`（join 真相读 `subagent_runs`，group 行**绝不持有正文**）。详见 [子 Agent 系统](subagent.md)。
+- **R5 Group fan-out**：`batch_spawn` 建 `kind=Group` 协调行（`group_id` 关联子投影、`args_json={"sealed":bool}`、`injected=true`），N 个子携 `group_id` 抑制个体注入；全部子终态 + sealed 时单赢 CAS 发一条合并 `<subagent-result>`（join 真相读 `subagent_runs`，group 行**绝不持有正文**）。普通 tool job 才使用 `<task-notification>` / `<task-notification-batch>`。详见 [子 Agent 系统](subagent.md)。
 - **`schedule_wakeup`**：`wakeup_max_delay_secs` / `wakeup_max_pending_per_session` 虽落在 `AsyncToolsConfig`，语义属一次性自我唤醒子系统（`crate::wakeup` + `wakeups.db`），与后台 job 不复用入口。详见 [工具系统](tool-system.md)。
 - **统一取消**：所有 runtime 任务取消走 `cancel_runtime_task`（`RuntimeTaskKind`，runtime_tasks.rs），后台 job 是其 `AsyncJob` kind。
 

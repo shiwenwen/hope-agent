@@ -1,5 +1,5 @@
 # Agent Team 多 Agent 协作系统
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-28
+> 返回 [文档索引](../README.md) | 更新时间：2026-08-03
 
 ## 概述
 
@@ -426,7 +426,7 @@ flowchart TD
 
 | 场景 | 处理 |
 |------|------|
-| 成员崩溃 | subagent error → coordinator 标记 Error → 系统消息通知团队 → 用户可在 UI 重新添加 |
+| 成员执行崩溃 | 底层 attempt 收敛为 `Interrupted(process_interrupted)`；coordinator 将非 Completed/Killed 的终态映射为成员 Error → 系统消息通知团队 → 用户可在 UI 重新添加 |
 | App 重启 | `cleanup_orphan_teams()` 将 working 成员标记 Error，团队保持 Active 等用户决定 |
 | 用户暂停成员 | kill subagent → 标记 Paused → 保留任务分配 |
 | 用户恢复成员 | 重新 spawn subagent（同一任务 + 成员 session 历史上下文） |

@@ -1,6 +1,6 @@
 # Workflow Mode、Workflow Tool、Workflow Run 与 Execution Mode
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../README.md) | 更新时间：2026-08-03
 
 本文记录已经实现的 durable workflow 子系统。Workflow Mode 是会话级“允许模型自主动态编排”的开关；Workflow Run 是一次具体、可观察、可恢复、可审批、可暂停/恢复/取消的脚本执行；Execution Mode 是会话级推进强度策略。Goal 已作为顶层目标与证据链落地，详见 [Goal 控制平面](goal.md)；定时/重复触发由 [Loop 控制平面](loop.md) 承载。
 
@@ -736,4 +736,4 @@ V4 selective resume 跨 Workflow run 复用只读前缀时，V5 将复用 attemp
 
 上个进程遗留的 queued/spawning/running attempt 在启动事务中变为 `Interrupted(process_interrupted)`，随后同步 Workflow op/attempt 投影。Workflow runtime 的 started-op recovery 重新 attach 已持久化的 `spawnAgent` / `resumeAgent` child；普通父会话结果则通过 `subagent_result_deliveries` 的 pending/injecting CAS 重放。Workflow/Group/result-only attempt 的 `delivery_kind` 不进入普通父注入，避免恢复时跨域双交付。
 
-测试至少覆盖：同 child session 串行 continuation、epoch 迟到写 fence、owner takeover 拒绝、delivery CAS 与启动重放、V5 unresolved finish guard、带理由 allow-partial，以及 V4 finish 兼容性。
+确定性测试至少覆盖：同 child session 串行 continuation、epoch 迟到写 fence、owner takeover 拒绝、delivery CAS 与启动重放、V5 unresolved finish guard、带理由 allow-partial，以及 V4 finish 兼容性。真实 SIGKILL / restart 的五个发布前手工 kill window 见 [Subagent 恢复验证契约](subagent.md#恢复验证契约)；它们不进入默认 Cargo test / CI。
