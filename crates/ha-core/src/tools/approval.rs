@@ -619,10 +619,6 @@ pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResoluti
     let mut cleanup_request_ids = Vec::with_capacity(count);
     for (request_id, entry) in drained {
         let _ = entry.sender.send(ApprovalResponse::Deny);
-        // EventBus delivery is best-effort and the IM listener can lag. Clear
-        // its text-reply state directly so Stop cannot leave a stale prompt
-        // that captures a later ordinary chat message.
-        crate::channel_hooks::drop_approval_by_request_id(&request_id).await;
         emit_approval_resolved(&request_id, Some(session_id), "deny", source);
         cleanup_request_ids.push(request_id);
     }
@@ -631,8 +627,9 @@ pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResoluti
     // Publish every terminal event before the first blocking IM cleanup. Stop
     // bounds this whole routine with a timeout; if cleanup stalls, cancelling
     // here is safe because the approval is already denied and every surface
-    // has already been told to dismiss it. The exact request-id cleanup below
-    // remains a best-effort guard against stale IM text replies.
+    // has already been told to dismiss it. EventBus delivery is best-effort
+    // and the IM listener can lag, so clear its text-reply state directly as
+    // a best-effort guard against a stale prompt capturing a later chat msg.
     for request_id in cleanup_request_ids {
         crate::channel_hooks::drop_approval_by_request_id(&request_id).await;
     }
@@ -655,7 +652,6 @@ pub async fn deny_all_pending(source: ApprovalResolutionSource) -> usize {
     for (request_id, entry) in drained {
         let session_id = entry.request.session_id;
         let _ = entry.sender.send(ApprovalResponse::Deny);
-        crate::channel_hooks::drop_approval_by_request_id(&request_id).await;
         emit_approval_resolved(&request_id, session_id.as_deref(), "deny", source);
         emit_pending_interactions_changed(session_id.as_deref());
         cleanup_request_ids.push(request_id);
@@ -1367,8 +1363,10 @@ mod tests {
     // 应作为 ha-channel 的 integration test 重新实现（需把 kernel 的
     // `deny_pending_for_session` / `EVENT_APPROVAL_RESOLVED` / `PendingApprovalEntry` 等
     // 放开为 pub，或者用 registry 注入的方式代替直接 lock helper）。
-    // 相关不变量仍生效：`deny_pending_for_session` 先 emit 终态事件再排队 IM 清理，
-    // 由该 fn 里 `for request_id in cleanup_request_ids` 之前的 emit 顺序保证。
+    // 不变量仍在代码里生效：`deny_pending_for_session` / `deny_all_pending` 把
+    // `channel_hooks::drop_approval_by_request_id` 收敛到 `for request_id in
+    // cleanup_request_ids` 尾清理循环里，emit 终态事件（`emit_approval_resolved`
+    // / `emit_pending_interactions_changed`）在其之前完成——改前先看这两个 fn。
 
     /// Sidebar countdown: the per-session aggregate counts every pending
     /// approval but only surfaces the earliest *future* deadline (and that
