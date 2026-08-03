@@ -2264,8 +2264,15 @@ impl SessionDB {
         new_turn_id: &str,
         source: &str,
         ui_surface: Option<crate::pet::ChatUiSurface>,
+        client_request_id: Option<&str>,
+        request_fingerprint: Option<&str>,
     ) -> Result<i64> {
         let result = (|| {
+            if client_request_id.is_some() != request_fingerprint.is_some() {
+                anyhow::bail!(
+                    "UI chat dispatch identity requires both client_request_id and request_fingerprint"
+                );
+            }
             if replacement.role != MessageRole::User {
                 anyhow::bail!("message edit replacement must be a user message");
             }
@@ -2516,8 +2523,8 @@ impl SessionDB {
                 "INSERT INTO chat_turns (
                     id, session_id, source, status, interrupt_reason, stream_id,
                     user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
-                    ui_surface
-                 ) VALUES (?1, ?2, ?3, 'running', NULL, NULL, ?4, NULL, NULL, ?5, NULL, ?5, ?6)",
+                    ui_surface, client_request_id, request_fingerprint
+                 ) VALUES (?1, ?2, ?3, 'running', NULL, NULL, ?4, NULL, NULL, ?5, NULL, ?5, ?6, ?7, ?8)",
                 params![
                     new_turn_id,
                     session_id,
@@ -2525,6 +2532,8 @@ impl SessionDB {
                     replacement_message_id,
                     now,
                     ui_surface.map(crate::pet::ChatUiSurface::as_str),
+                    client_request_id,
+                    request_fingerprint,
                 ],
             )?;
 
@@ -3900,17 +3909,26 @@ impl SessionDB {
             emit_unread_changed(Some(session_id), Some(domain));
         }
 
+        self.mirror_persisted_message_for_hooks(session_id, msg_id, msg, &resolved_ts);
+
+        Ok(msg_id)
+    }
+
+    /// Best-effort live transcript mirror after a message transaction commits.
+    /// Kept separate from the INSERT so compound persistence boundaries (for
+    /// example HTTP UI message + turn admission) preserve hook behavior without
+    /// duplicating the scope/incognito rules.
+    pub(crate) fn mirror_persisted_message_for_hooks(
+        &self,
+        session_id: &str,
+        msg_id: i64,
+        msg: &NewMessage,
+        resolved_ts: &str,
+    ) {
         // Live transcript mirror for hook scripts (design §10): mirror when ANY
         // scope has handlers — the global user/managed registry OR the session
-        // cwd's project/local hooks. A repo that ships only `.hope-agent/
-        // hooks.json` still runs hooks that read `transcript.jsonl` (they merge
-        // in per-cwd via `scopes::resolve_for_cwd`), so a project-only config
-        // must keep the mirror current too — gating on `registry::global()`
-        // alone left those scripts reading stale/missing history (adversarial
-        // review). Never mirror incognito sessions (they leave no on-disk
-        // trace). Best-effort: a mirror failure must not fail the message
-        // persist. Runs after the conn lock is released because the lookups
-        // re-lock it.
+        // cwd's project/local hooks. Never mirror incognito sessions. Runs only
+        // after the write connection is released because lookups re-lock it.
         let global_has = !crate::hooks::registry::global().is_empty();
         // Only consult config for the project-scope possibility when the cheap
         // global check didn't already decide it — keeps the no-hooks hot path
@@ -3939,13 +3957,11 @@ impl SessionDB {
                     session_id,
                     msg_id,
                     msg,
-                    &resolved_ts,
+                    resolved_ts,
                     &cwd,
                 );
             }
         }
-
-        Ok(msg_id)
     }
 
     /// Update an existing tool_call message with result, duration, and is_error.
@@ -8129,6 +8145,8 @@ mod tests {
                 "replacement-turn",
                 crate::chat_engine::ChatSource::Desktop.as_str(),
                 Some(crate::pet::ChatUiSurface::MainChat),
+                None,
+                None,
             )
             .expect("replace latest turn");
         let remaining = db
@@ -8190,6 +8208,8 @@ mod tests {
                 "replacement-turn",
                 crate::chat_engine::ChatSource::Desktop.as_str(),
                 None,
+                None,
+                None,
             )
             .expect_err("older user message must be rejected");
         assert!(error.to_string().contains("latest user message"));
@@ -8249,6 +8269,8 @@ mod tests {
             &NewMessage::user("replacement prompt"),
             "duplicate-replacement-turn",
             crate::chat_engine::ChatSource::Desktop.as_str(),
+            None,
+            None,
             None,
         )
         .expect_err("duplicate turn id must fail the transaction");

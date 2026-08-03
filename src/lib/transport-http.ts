@@ -41,7 +41,12 @@ import type {
 import { normalizeHttpBaseUrl } from "@/lib/httpUrl"
 import { uploadFileInChunks } from "@/lib/fileUpload"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
-import type { FileChangesMetadata, MediaItem } from "@/types/chat"
+import type {
+  ChatTurnInterruptReason,
+  ChatTurnStatus,
+  FileChangesMetadata,
+  MediaItem,
+} from "@/types/chat"
 import { clearStoredApiKey, dispatchAuthRequired } from "@/lib/api-key-storage"
 import { downloadBlob } from "@/lib/fileDownload"
 
@@ -58,6 +63,26 @@ interface EndpointDef {
    * extracted from the `args` object.
    */
   path: string
+}
+
+function generateHttpChatRequestId(): string {
+  const cryptoApi = globalThis.crypto
+  if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
+    return cryptoApi.randomUUID()
+  }
+  if (cryptoApi && typeof cryptoApi.getRandomValues === "function") {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16))
+    // RFC 4122 version 4 + variant bits. `getRandomValues` remains available
+    // on plain-HTTP LAN origins where the secure-context-only randomUUID API
+    // is intentionally hidden by browsers.
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+  }
+  // Test/legacy-WebView fallback. The server still verifies payload reuse and
+  // persists the identity; this only needs to avoid collisions for one client.
+  return `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
 }
 
 /**
@@ -434,6 +459,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // Bundled web UI route. The public owner API remains POST /api/chat and
   // clears uiSurface server-side; both routes share the same chat engine.
   chat: { method: "POST", path: "/api/chat/ui" },
+  get_chat_turn: { method: "GET", path: "/api/chat/turns/{turnId}" },
   queue_turn_user_message: { method: "POST", path: "/api/chat/turn-message" },
   list_queued_turn_user_messages: {
     method: "GET",
@@ -2541,23 +2567,26 @@ export class HttpTransport implements Transport {
   // ----- startChat -----
 
   async startChat(args: ChatStartArgs, onEvent: (event: string) => void): Promise<string> {
-    // Stream deltas and turn lifecycle events arrive via /ws/events →
-    // useChatStreamReattach. We only bridge `session_created` so the in-hook
-    // __pending__ cache key gets renamed in place. Do not synthesize
-    // `turn_started` here: POST /api/chat resolves after the engine finishes,
-    // so a late local start event can incorrectly overwrite a terminal state.
+    const requestArgs: ChatStartArgs = {
+      ...args,
+      // The server persists the dispatch identity with the turn. If the ACK is
+      // lost and the same POST is retried—even after restart—it returns the
+      // original session/turn instead of persisting a duplicate user message.
+      clientRequestId: args.clientRequestId ?? generateHttpChatRequestId(),
+    }
     const resp = await this.call<{
       sessionId: string
       response: string
-      turnId?: string
+      turnId: string
       blockedReason?: string
       sessionDeleted?: boolean
-    }>("chat", args)
+      accepted?: boolean
+    }>("chat", requestArgs)
     // `sessionDeleted` is set when a blocked first message on a design/knowledge
     // lazy-created session dropped that session before returning. Suppress the
     // synthesized `session_created` so the UI does not switch to a session id
     // that no longer exists (subsequent sends / history loads would fail).
-    if (!args.sessionId && !resp.sessionDeleted) {
+    if (!requestArgs.sessionId && !resp.sessionDeleted) {
       onEvent(
         JSON.stringify({
           type: "session_created",
@@ -2579,7 +2608,105 @@ export class HttpTransport implements Transport {
         }),
       )
     }
-    return resp.response
+    if (!resp.accepted) return resp.response
+
+    // The HTTP response is now only an ownership-transfer ACK. Synthesize the
+    // exact turn identity because the EventBus start frame may have raced the
+    // response, then wait client-side for the durable terminal state. Losing
+    // this page or Promise no longer owns/cancels the server task.
+    onEvent(
+      JSON.stringify({
+        type: "turn_started",
+        session_id: resp.sessionId,
+        turn_id: resp.turnId,
+      }),
+    )
+    return this.waitForDetachedChatTurn(resp.sessionId, resp.turnId, resp.response)
+  }
+
+  private waitForDetachedChatTurn(
+    sessionId: string,
+    turnId: string,
+    response: string,
+  ): Promise<string> {
+    type TurnState = {
+      id: string
+      status: ChatTurnStatus
+      interruptReason?: ChatTurnInterruptReason | null
+      streamId?: string | null
+      error?: string | null
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      let settled = false
+      let checking = false
+      let unlistenEnd: () => void = () => undefined
+      let unlistenResync: () => void = () => undefined
+      let reconcileTimer: ReturnType<typeof setInterval> | null = null
+
+      const cleanup = () => {
+        unlistenEnd()
+        unlistenResync()
+        if (reconcileTimer) clearInterval(reconcileTimer)
+      }
+      const finish = (
+        status: ChatTurnStatus,
+        interruptReason?: ChatTurnInterruptReason | null,
+        error?: string | null,
+      ) => {
+        if (settled || status === "running" || status === "cancelling") return
+        settled = true
+        cleanup()
+        if (status === "completed" || interruptReason === "user_stop") {
+          resolve(response)
+          return
+        }
+        reject(new Error(error || `Chat turn ${turnId} ended with status ${status}`))
+      }
+      const reconcile = async () => {
+        if (settled || checking) return
+        checking = true
+        try {
+          const turn = await this.call<TurnState>("get_chat_turn", { turnId })
+          if (turn.id === turnId && turn.status !== "running" && turn.status !== "cancelling") {
+            // Re-emit a terminal event locally so every UI consumer—not only
+            // this Promise—converges after an ACK/end race or WebSocket gap.
+            this.dispatchEvent("chat:stream_end", {
+              sessionId,
+              turnId,
+              streamId: turn.streamId ?? null,
+              status: turn.status,
+              interruptReason: turn.interruptReason ?? null,
+              error: turn.error ?? null,
+              persistenceStatus: "recovered",
+            })
+          }
+        } catch {
+          // A temporary HTTP/auth/server outage must not convert observation
+          // loss into task cancellation. Reconnect events and the bounded poll
+          // below retry until the durable turn reaches a terminal state.
+        } finally {
+          checking = false
+        }
+      }
+
+      unlistenEnd = this.listen("chat:stream_end", (raw) => {
+        const payload = raw as {
+          sessionId?: string | null
+          turnId?: string | null
+          status?: ChatTurnStatus | null
+          interruptReason?: ChatTurnInterruptReason | null
+          error?: string | null
+        } | null
+        if (payload?.sessionId !== sessionId || payload.turnId !== turnId || !payload.status) return
+        finish(payload.status, payload.interruptReason, payload.error)
+      })
+      unlistenResync = this.listen(TRANSPORT_EVENT_RESYNC_REQUIRED, () => {
+        void reconcile()
+      })
+      reconcileTimer = setInterval(() => void reconcile(), 15_000)
+      void reconcile()
+    })
   }
 
   // ----- media -----

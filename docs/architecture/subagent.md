@@ -310,6 +310,7 @@ sequenceDiagram
 - **串行注入**：同一父会话同时只有一个注入在执行（`INJECTING_SESSIONS` 互斥），多个完成的子 Agent 排队
 - **用户优先**：`ChatSessionGuard::new()` 立即设置 `INJECTION_CANCELS` 取消正在进行的注入，用户消息永远优先
 - **重试保证**：被取消的注入进入 `PENDING_INJECTIONS`，`ChatSessionGuard::drop()` 时 `flush_pending_injections` 每次只取一个重试（串行），下一个在 `CleanupGuard::drop()` 时触发
+- **可重连审批租约**：来自 Bundled HTTP UI 的后台 child 在 `PendingSubagentSpawn` 排队和 `launch_subagent_run` 执行期间持有自己的 `ReattachableUiSessionGuard`；终态结果回投会无缝换成 parent lease，若注入被取消/忙等待则随 `PendingInjection` 继续移动。父 turn、页面和 WebSocket 先结束都不会让后续 Ask 误判为无人值守；cron / 公共 API 不产生该租约。
 - **空闲门超时不丢弃（G3/G5）**：父会话忙到 `announce_timeout` 仍未空闲时，**不再 `Abandoned` 到重启 replay**，而是携 `on_injected` 重排队进 `PENDING_INJECTIONS`，在长前台 turn 结束（`ChatSessionGuard::drop`）时重试。对 subagent / Group 注入（`on_injected=None`，无 `injected=0` 重启兜底）尤其关键——Group 合并注入因此不再永久丢失。`Abandoned` 仅剩锁中毒兜底
 - **后台完成回投外部面（G1/G2）**：注入 turn 成功后，若父会话 attach 了 IM chat，经 `im_mirror::attach_im_injection_mirror` + **await** `finalize_im_live_mirror` 按 `imReplyMode` 回投 IM（必须 await：注入跑在短命 current-thread runtime 上，spawned finalize 会被腰斩）；cron 会话经 `cron::delivery::deliver_injection_for_session`（反查 `cron_run_logs` → job）下发 `delivery_targets`
 - **跳过已读**：显式 `check/result/wait` 或 continuation 先把 `subagent_result_deliveries` 持久化为 `suppressed`，再写 `FETCHED_RUN_IDS` 作为同进程快速取消信号；启动重放只认 durable row，不把内存集合当真相源

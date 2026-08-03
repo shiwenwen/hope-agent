@@ -1004,6 +1004,8 @@ pub async fn chat(
                             &turn_id,
                             ha_core::chat_engine::ChatSource::Desktop.as_str(),
                             ui_surface_for_turn,
+                            None,
+                            None,
                         )?;
                         return Ok(Some(replacement_id));
                     }

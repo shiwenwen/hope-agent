@@ -277,7 +277,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 |---|---|---|
 | `call<T>(command, args)` | `invoke(command, args)` | REST 查表 + JSON；multipart 走特例分支 |
 | `prepareFileData(buffer, mime)` | `Array.from(Uint8Array)` — JSON 传输（~4× 膨胀） | `new Blob([buffer], {type})` — 零拷贝 |
-| `startChat(args, onEvent)` | `new Channel<string>()` + `invoke("chat", { ...args, onEvent })` | Bundled UI 走 `POST /api/chat/ui`（服务端要求浏览器 Fetch Metadata + 同源或显式 CORS origin）；公共 owner API 保留 `POST /api/chat` 并强制清空 `uiSurface`；流式 delta 走 `/ws/events` 的 `chat:stream_delta`，仅合成 `session_created` 给 `onEvent` 做新会话 cache rename |
+| `startChat(args, onEvent)` | `new Channel<string>()` + `invoke("chat", { ...args, onEvent })` | Bundled UI 走 `POST /api/chat/ui`，非 incognito 在 Session/turn 持久化后返回 202 ACK，执行由服务端 task 持有；流式 delta 走 `/ws/events`，ACK 合成 `session_created` + `turn_started`，漏掉 end 时查 `GET /api/chat/turns/{turnId}`；公共 `POST /api/chat` 与 incognito 保留同步完成语义 |
 | `listen(eventName, handler)` | `@tauri-apps/api/event.listen` | 全局 `/ws/events` + name 匹配 + 指数退避重连 |
 | `resolveMediaUrl(item)` | `convertFileSrc(localPath)` → `tauri://` | 仅支持 `/api/` 或 `http(s)://`，本地绝对路径返 `null` |
 | `resolveAssetUrl(path)` | `convertFileSrc` | 正则识别 `avatars`/`image_generate`/`canvas` → 同源 `/api/...`，浏览器 Cookie 自动鉴权 |
@@ -800,7 +800,8 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `chat` | Bundled Transport：`POST /api/chat/ui`（浏览器 Fetch Metadata + origin 校验）；公共 owner API：`POST /api/chat`（忽略 `uiSurface`）；流式输出均经 `/ws/events` 的 `chat:stream_delta` | ✅（已有会话可带 `editMessageId`，仅允许最后一条非排队 user 且旧 turn 已终止；旧分支回退、replacement user 落库、新 turn 登记同一事务提交并保留 Bundled UI surface） |
+| `chat` | Bundled Transport：`POST /api/chat/ui`（浏览器来源校验；非 incognito 返回 202 ACK 后服务端托管）；公共 owner API：`POST /api/chat`（忽略 `uiSurface`、同步完成）；流式输出均经 `/ws/events` | ✅（已有会话可带 `editMessageId`，仅允许最后一条非排队 user 且旧 turn 已终止；旧分支回退、replacement user 落库、新 turn 登记同一事务提交并保留 Bundled UI surface） |
+| — | `GET /api/chat/turns/{turnId}` | ✅ 查询精确 ChatTurn 终态，供 202 ACK 后断线/竞态恢复 |
 | `queue_turn_user_message` | `POST /api/chat/turn-message` | ✅ 持久入队，附件在入队时转 session-owned 引用 |
 | `list_queued_turn_user_messages` | `GET /api/chat/turn-message/{sessionId}` | ✅ UI/恢复单一查询入口 |
 | `update_queued_turn_user_message` | `PATCH /api/chat/turn-message` | ✅ CAS 拒绝 inserting/dispatching |
@@ -820,7 +821,10 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
 | `delete_task` | `DELETE /api/tasks/{id}` | ✅ TaskProgressPanel 用户控件 |
 
-`chat` 的可选 `clientRequestId` 是前端生成的不透明请求 id，只用于主动停止定位：在懒创建会话的
+`chat` 的可选 `clientRequestId` 是前端生成的不透明请求 id。Bundled HTTP UI 把它和 payload
+指纹随 `chat_turn` 持久化（与 user message 同一 SQLite 事务），进程内 registry 只合并尚未提交的
+并发 waiter：相同 id + 相同 payload 即使服务重启或 registry 淘汰也返回原 `sessionId/turnId`，
+不同 payload 复用返回 409，避免 ACK 丢失造成重复消息。它同时用于主动停止定位：在懒创建会话的
 `session_created` 尚未到达前，`stop_chat` / `POST /api/chat/stop` 可传
 `{ clientRequestId }` 精确取消该请求，不会误停其他会话。已知会话时依旧传
 `{ sessionId, turnId?, clientRequestId? }`：`turnId` 尚未发布时由 `clientRequestId`

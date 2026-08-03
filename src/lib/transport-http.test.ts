@@ -523,7 +523,7 @@ test("HttpTransport keeps provisional remote-auth failures local to the connecti
   expect(dispatchEvent).not.toHaveBeenCalled()
 })
 
-test("HttpTransport.startChat only bridges session_created and not late turn_started", async () => {
+test("HttpTransport.startChat bridges session_created for a synchronous response", async () => {
   const transport = new HttpTransport("http://localhost:8420")
   const events: string[] = []
 
@@ -558,6 +558,175 @@ test("HttpTransport.startChat only bridges session_created and not late turn_sta
       session_id: "session-123",
     }),
   ])
+})
+
+test("HttpTransport.startChat generates a request id without crypto.randomUUID", async () => {
+  vi.stubGlobal("crypto", {
+    getRandomValues(bytes: Uint8Array) {
+      bytes.set(Array.from({ length: 16 }, (_, index) => index))
+      return bytes
+    },
+  })
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        sessionId: "session-lan",
+        response: "ok",
+        turnId: "turn-lan",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+
+  const transport = new HttpTransport("http://192.168.1.20:8420")
+  await expect(
+    transport.startChat(
+      { message: "hello", attachments: [], sessionId: "session-lan" },
+      () => undefined,
+    ),
+  ).resolves.toBe("ok")
+
+  const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined
+  expect(JSON.parse(String(request?.body)).clientRequestId).toBe(
+    "00010203-0405-4607-8809-0a0b0c0d0e0f",
+  )
+})
+
+test("HttpTransport.startChat treats a 202 ACK as detached and waits for the exact turn", async () => {
+  class MockWebSocket {
+    static instances: MockWebSocket[] = []
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+
+    constructor() {
+      MockWebSocket.instances.push(this)
+    }
+
+    close() {
+      this.readyState = 3
+      this.onclose?.()
+    }
+
+    open() {
+      this.readyState = 1
+      this.onopen?.()
+    }
+
+    message(value: unknown) {
+      this.onmessage?.({ data: JSON.stringify(value) })
+    }
+  }
+
+  vi.stubGlobal("WebSocket", MockWebSocket)
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          sessionId: "session-123",
+          response: "",
+          turnId: "turn-456",
+          accepted: true,
+        }),
+        {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: "turn-456", status: "running" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+  const transport = new HttpTransport("http://localhost:8420")
+  const events: string[] = []
+  let resolved = false
+  const start = transport
+    .startChat({ message: "hello", attachments: [], sessionId: null }, (event) =>
+      events.push(event),
+    )
+    .then((value) => {
+      resolved = true
+      return value
+    })
+
+  await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(resolved).toBe(false)
+  expect(events).toEqual([
+    JSON.stringify({ type: "session_created", session_id: "session-123" }),
+    JSON.stringify({ type: "turn_started", session_id: "session-123", turn_id: "turn-456" }),
+  ])
+  const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined
+  expect(JSON.parse(String(request?.body)).clientRequestId).toEqual(expect.any(String))
+
+  const socket = MockWebSocket.instances[0]
+  socket.open()
+  socket.message({
+    name: "chat:stream_end",
+    payload: { sessionId: "session-123", turnId: "turn-456", status: "completed" },
+  })
+
+  await expect(start).resolves.toBe("")
+})
+
+test("HttpTransport.startChat reconciles a terminal turn whose end event raced the ACK", async () => {
+  class MockWebSocket {
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+
+    close() {
+      this.readyState = 3
+      this.onclose?.()
+    }
+  }
+
+  vi.stubGlobal("WebSocket", MockWebSocket)
+  fetchMock
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          sessionId: "session-123",
+          response: "",
+          turnId: "turn-456",
+          accepted: true,
+        }),
+        { status: 202, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: "turn-456", status: "completed" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+  const transport = new HttpTransport("http://localhost:8420")
+  const terminalEvents: unknown[] = []
+  const unsubscribe = transport.listen("chat:stream_end", (event) => terminalEvents.push(event))
+  await expect(
+    transport.startChat(
+      { message: "hello", attachments: [], sessionId: "session-123" },
+      () => undefined,
+    ),
+  ).resolves.toBe("")
+  expect(terminalEvents).toEqual([
+    expect.objectContaining({
+      sessionId: "session-123",
+      turnId: "turn-456",
+      status: "completed",
+      persistenceStatus: "recovered",
+    }),
+  ])
+  unsubscribe()
 })
 
 test.each(["knowledge_chat", "pet_chat"] as const)(

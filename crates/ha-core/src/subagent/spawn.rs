@@ -6,7 +6,7 @@ use crate::session::SessionDB;
 
 use super::cancel::SubagentCancelRegistry;
 use super::helpers::{emit_subagent_event, truncate_str};
-use super::injection::{build_subagent_push_message, inject_and_run_parent};
+use super::injection::{build_subagent_push_message, inject_and_run_parent_with_ui_guard};
 use super::mailbox::SUBAGENT_MAILBOX;
 use super::types::{
     SpawnParams, SubagentEvent, SubagentRun, SubagentStatus, SubagentTerminalReason,
@@ -129,6 +129,10 @@ pub(crate) async fn spawn_subagent_with_run_id(
         )?),
         None => None,
     };
+    let reattachable_ui_guard = crate::permission::register_reattachable_ui_child_session(
+        &params.parent_session_id,
+        &child_session_id,
+    );
 
     // Set a descriptive title for the sub-agent session
     let task_preview = truncate_str(&params.task, 50);
@@ -230,6 +234,7 @@ pub(crate) async fn spawn_subagent_with_run_id(
         None,
         None,
         eval_child_guard,
+        reattachable_ui_guard,
         session_db,
         cancel_registry,
     )
@@ -382,6 +387,10 @@ pub async fn resume_subagent(
         )?),
         None => None,
     };
+    let reattachable_ui_guard = crate::permission::register_reattachable_ui_child_session(
+        &params.parent_session_id,
+        &source.child_session_id,
+    );
 
     let run_id = materialize_and_schedule_run(
         params,
@@ -392,6 +401,7 @@ pub async fn resume_subagent(
         Some(source_run_id),
         dispatch_id.as_deref(),
         eval_child_guard,
+        reattachable_ui_guard,
         session_db,
         cancel_registry,
     )
@@ -417,6 +427,7 @@ async fn materialize_and_schedule_run(
     resumed_from_run_id: Option<&str>,
     resume_dispatch_id: Option<&str>,
     eval_child_guard: Option<crate::eval_context::EvalSessionGuard>,
+    reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
 ) -> Result<String> {
@@ -581,6 +592,7 @@ async fn materialize_and_schedule_run(
             effective_group_id,
             enqueued_at: std::time::Instant::now(),
             eval_guard: eval_child_guard,
+            reattachable_ui_guard,
         }) {
             // Lost the cap race after the earlier check — settle the row and
             // drop the just-registered flag so we never leave a dangling
@@ -613,6 +625,7 @@ async fn materialize_and_schedule_run(
         child_session_id,
         effective_group_id,
         eval_child_guard,
+        reattachable_ui_guard,
         0,
         session_db,
         cancel_registry,
@@ -632,6 +645,7 @@ pub(crate) async fn launch_subagent_run(
     child_session_id: String,
     _effective_group_id: Option<String>,
     eval_child_guard: Option<crate::eval_context::EvalSessionGuard>,
+    reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
     queue_wait_ms: u64,
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
@@ -739,6 +753,10 @@ pub(crate) async fn launch_subagent_run(
         // Keeps campaign attribution alive across the child task's complete
         // lifecycle, including timeout/cancel/final injection cleanup.
         let _eval_child_guard = eval_child_guard;
+        // A detached UI parent may finish before this background child asks for
+        // approval. Keep its verified reattachment capability for the child's
+        // complete queue/run lifecycle instead of tying it to the parent turn.
+        let reattachable_ui_guard = reattachable_ui_guard;
         if let Some(fault) = crate::eval_context::scheduler_fault_action(
             Some(&child_session_id_clone),
             &run_id_clone,
@@ -972,7 +990,7 @@ pub(crate) async fn launch_subagent_run(
         emit_subagent_event(&SubagentEvent {
             event_type: status.as_str().to_string(),
             run_id: run_id_clone.clone(),
-            parent_session_id,
+            parent_session_id: parent_session_id.clone(),
             child_agent_id: agent_id,
             child_session_id: child_session_id_clone,
             task_preview: truncate_str(&task, 50),
@@ -1009,7 +1027,14 @@ pub(crate) async fn launch_subagent_run(
         // thread rather than pinning a runtime worker.
         let delivery_run_id = run_id_clone.clone();
         let delivery_db = db.clone();
-        dispatch_parent_result_delivery(&delivery_run_id, delivery_db);
+        let parent_delivery_ui_guard = reattachable_ui_guard
+            .as_ref()
+            .map(|_| crate::permission::register_reattachable_ui_session(&parent_session_id));
+        dispatch_parent_result_delivery_with_ui_guard(
+            &delivery_run_id,
+            delivery_db,
+            parent_delivery_ui_guard,
+        );
     });
 }
 
@@ -1017,13 +1042,25 @@ pub(crate) async fn launch_subagent_run(
 /// both on the live completion path and during startup replay; the database CAS
 /// admits exactly one in-flight injector.
 pub(crate) fn dispatch_parent_result_delivery(run_id: &str, db: Arc<SessionDB>) {
+    dispatch_parent_result_delivery_with_ui_guard(run_id, db, None);
+}
+
+fn dispatch_parent_result_delivery_with_ui_guard(
+    run_id: &str,
+    db: Arc<SessionDB>,
+    reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
+) {
     let run_id = run_id.to_string();
     std::thread::spawn(move || {
-        dispatch_parent_result_delivery_blocking(&run_id, db);
+        dispatch_parent_result_delivery_blocking(&run_id, db, reattachable_ui_guard);
     });
 }
 
-fn dispatch_parent_result_delivery_blocking(run_id: &str, db: Arc<SessionDB>) -> bool {
+fn dispatch_parent_result_delivery_blocking(
+    run_id: &str,
+    db: Arc<SessionDB>,
+    reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
+) -> bool {
     let run = match db.get_subagent_run(run_id) {
         Ok(Some(run)) => run,
         Ok(None) => return false,
@@ -1100,7 +1137,7 @@ fn dispatch_parent_result_delivery_blocking(run_id: &str, db: Arc<SessionDB>) ->
         .build()
     {
         Ok(runtime) => {
-            let _ = runtime.block_on(inject_and_run_parent(
+            let _ = runtime.block_on(inject_and_run_parent_with_ui_guard(
                 run.parent_session_id,
                 run.parent_agent_id,
                 run.child_agent_id,
@@ -1108,6 +1145,7 @@ fn dispatch_parent_result_delivery_blocking(run_id: &str, db: Arc<SessionDB>) ->
                 push_message,
                 db,
                 on_injected,
+                reattachable_ui_guard,
             ));
         }
         Err(error) => crate::app_error!(
