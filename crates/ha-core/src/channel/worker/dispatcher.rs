@@ -228,6 +228,11 @@ async fn handle_inbound_message(
     channel_db: &ChannelDB,
     mut msg: MsgContext,
 ) -> anyhow::Result<()> {
+    // Capture before approval/ask-user routing performs its first await. A
+    // process-wide Stop that runs during those preludes must still reject this
+    // inbound if it later reaches active-turn registration after the bounded
+    // global cleanup gate has already closed.
+    let foreground_admission = crate::chat_engine::active_turn::begin_foreground_request();
     let channel_id_str = msg.channel_id.to_string();
     let sender_label = msg
         .sender_name
@@ -791,14 +796,27 @@ async fn handle_inbound_message(
     // hooks. The shared `cancel` Arc is reused by `engine_params` below so a
     // cross-surface cancel (session delete / GUI stop walking `active_turn`)
     // actually aborts this engine run.
-    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire(
+    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire_foreground_request(
+        foreground_admission,
         &session_id,
         crate::chat_engine::stream_seq::ChatSource::Channel,
         turn_id.clone(),
+        None,
         cancel.clone(),
     ) {
         Ok(guard) => guard,
         Err(e) => {
+            if e.cancelled_by_global_stop() {
+                app_info!(
+                    "channel",
+                    "stop",
+                    "[{}] discarded inbound for session {} because it predated global Stop",
+                    channel_id_str,
+                    session_id
+                );
+                emit_channel_update(&session_id);
+                return Ok(());
+            }
             app_info!(
                 "channel",
                 "worker",

@@ -422,6 +422,53 @@ pub fn current_for_client_request(client_request_id: &str) -> Option<ActiveTurnS
 }
 
 #[derive(Debug, Clone)]
+pub enum ActiveTurnCancelOutcome {
+    Cancelled(ActiveTurnSnapshot),
+    NotFound,
+    TurnMismatch,
+}
+
+/// Signal one active turn while still holding the registry lock shared with
+/// the pre-turn persistence boundary. This makes Stop linearizable with the
+/// user-message/chat-turn transaction: either persistence commits first and
+/// Stop observes a durable turn, or cancellation wins and persistence is
+/// rejected.
+pub fn cancel_current(session_id: &str, expected_turn_id: Option<&str>) -> ActiveTurnCancelOutcome {
+    let map = registry_lock();
+    let Some(entry) = map.get(session_id) else {
+        return ActiveTurnCancelOutcome::NotFound;
+    };
+    if expected_turn_id.is_some_and(|expected| expected != entry.turn_id) {
+        return ActiveTurnCancelOutcome::TurnMismatch;
+    }
+    entry.cancel.store(true, Ordering::SeqCst);
+    ActiveTurnCancelOutcome::Cancelled(ActiveTurnSnapshot {
+        session_id: session_id.to_string(),
+        turn_id: entry.turn_id.clone(),
+        stream_id: entry.stream_id.clone(),
+        source: entry.source,
+        cancel: Arc::clone(&entry.cancel),
+    })
+}
+
+/// Signal every active turn under the same registry lock used by persistence.
+pub fn cancel_all_current() -> Vec<ActiveTurnSnapshot> {
+    let map = registry_lock();
+    map.iter()
+        .map(|(session_id, entry)| {
+            entry.cancel.store(true, Ordering::SeqCst);
+            ActiveTurnSnapshot {
+                session_id: session_id.clone(),
+                turn_id: entry.turn_id.clone(),
+                stream_id: entry.stream_id.clone(),
+                source: entry.source,
+                cancel: Arc::clone(&entry.cancel),
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone)]
 pub enum ClientRequestCancelOutcome {
     Active(ActiveTurnSnapshot),
     Latched,
@@ -486,6 +533,17 @@ pub fn cancel_or_latch_client_request(
     ClientRequestCancelOutcome::Latched
 }
 
+/// Observe a pre-registration request cancellation without consuming it.
+/// Project bootstrap uses this after publishing its client-request mapping so
+/// a Stop that arrived even earlier can also latch bootstrap cancellation.
+pub fn has_latched_client_cancel(client_request_id: &str) -> bool {
+    let _map = registry_lock();
+    pending_client_cancels()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains_key(client_request_id)
+}
+
 /// Execute a short synchronous operation only while this exact user-facing
 /// turn still accepts queued-message insertion. The registry lock deliberately
 /// spans `operation`: turn finalization takes the same lock to close insertion
@@ -512,6 +570,30 @@ pub fn with_insertion_target<T>(
     }
     if !matches!(entry.source, ChatSource::Desktop | ChatSource::Http) {
         return Err("active turn source does not support insertion");
+    }
+    Ok(operation())
+}
+
+/// Execute the short synchronous transaction that first makes a foreground
+/// prompt durable. Stop signalling takes the same registry lock, so a prompt
+/// cannot slip into history after its cancellation flag was observed false.
+pub fn with_persistence_target<T>(
+    session_id: &str,
+    turn_id: &str,
+    operation: impl FnOnce() -> T,
+) -> Result<T, &'static str> {
+    let map = registry_lock();
+    let Some(entry) = map.get(session_id) else {
+        return Err("no active turn for session");
+    };
+    if entry.turn_id != turn_id {
+        return Err("active turn id does not match");
+    }
+    if entry.cancel.load(Ordering::SeqCst) {
+        return Err("active turn is cancelling");
+    }
+    if !matches!(entry.source, ChatSource::Desktop | ChatSource::Http) {
+        return Err("active turn source does not support prompt persistence");
     }
     Ok(operation())
 }
@@ -1054,6 +1136,46 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         )
         .expect("request entering after global Stop should acquire");
+    }
+
+    #[test]
+    fn global_stop_generation_rejects_stale_channel_admission() {
+        let _lock = test_lock();
+        let stale_request = begin_foreground_request();
+        drop(begin_global_stop_cleanup());
+
+        let error = try_acquire_foreground_request(
+            stale_request,
+            "test-global-stop-stale-channel",
+            ChatSource::Channel,
+            "turn-stale-channel".to_string(),
+            None,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect_err("Channel request predating global Stop must be rejected");
+        assert!(error.cancelled_by_global_stop());
+    }
+
+    #[test]
+    fn cancelled_turn_cannot_cross_prompt_persistence_boundary() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-persistence-boundary";
+        let _guard = try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-persistence".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            cancel_current(sid, Some("turn-persistence")),
+            ActiveTurnCancelOutcome::Cancelled(_)
+        ));
+        assert_eq!(
+            with_persistence_target(sid, "turn-persistence", || "persisted"),
+            Err("active turn is cancelling")
+        );
     }
 
     #[test]

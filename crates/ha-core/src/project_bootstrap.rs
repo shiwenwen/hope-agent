@@ -2,10 +2,11 @@
 //! The desktop and HTTP shells both call this module so validation, durable
 //! progress, Git semantics, and session binding stay identical.
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use anyhow::{anyhow, bail, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -15,11 +16,44 @@ use serde_json::json;
 use crate::session::SessionDB;
 use crate::worktree::{CreateManagedWorktreeInput, ManagedWorktree, ManagedWorktreePurpose};
 
-type ActiveBootstrapMap = std::collections::HashMap<String, Arc<AtomicBool>>;
-static ACTIVE_BOOTSTRAPS: OnceLock<Mutex<ActiveBootstrapMap>> = OnceLock::new();
+const PENDING_BOOTSTRAP_CANCELS_MAX: usize = 4096;
 
-fn active_bootstraps() -> &'static Mutex<ActiveBootstrapMap> {
-    ACTIVE_BOOTSTRAPS.get_or_init(|| Mutex::new(ActiveBootstrapMap::new()))
+#[derive(Debug)]
+struct ClientBootstrapBinding {
+    token: String,
+    bootstrap_request_id: String,
+}
+
+#[derive(Default)]
+struct BootstrapCancellationRegistry {
+    active: HashMap<String, Arc<AtomicBool>>,
+    pending: HashSet<String>,
+    client_bindings: HashMap<String, ClientBootstrapBinding>,
+}
+
+static BOOTSTRAP_CANCELLATIONS: OnceLock<Mutex<BootstrapCancellationRegistry>> = OnceLock::new();
+
+fn bootstrap_cancellations() -> &'static Mutex<BootstrapCancellationRegistry> {
+    BOOTSTRAP_CANCELLATIONS.get_or_init(|| Mutex::new(BootstrapCancellationRegistry::default()))
+}
+
+fn bootstrap_cancellations_lock() -> MutexGuard<'static, BootstrapCancellationRegistry> {
+    bootstrap_cancellations()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn arm_bootstrap_cancel(registry: &mut BootstrapCancellationRegistry, request_id: &str) {
+    if let Some(flag) = registry.active.get(request_id) {
+        flag.store(true, Ordering::SeqCst);
+        return;
+    }
+    if registry.pending.len() >= PENDING_BOOTSTRAP_CANCELS_MAX {
+        if let Some(evicted) = registry.pending.iter().next().cloned() {
+            registry.pending.remove(&evicted);
+        }
+    }
+    registry.pending.insert(request_id.to_string());
 }
 
 struct ActiveBootstrapGuard {
@@ -29,34 +63,103 @@ struct ActiveBootstrapGuard {
 
 impl Drop for ActiveBootstrapGuard {
     fn drop(&mut self) {
-        if let Ok(mut active) = active_bootstraps().lock() {
-            if active
-                .get(&self.id)
-                .is_some_and(|current| Arc::ptr_eq(current, &self.flag))
-            {
-                active.remove(&self.id);
-            }
+        let mut registry = bootstrap_cancellations_lock();
+        if registry
+            .active
+            .get(&self.id)
+            .is_some_and(|current| Arc::ptr_eq(current, &self.flag))
+        {
+            registry.active.remove(&self.id);
         }
     }
 }
 
 pub fn cancel_project_bootstrap(request_id: &str) -> bool {
-    let Ok(active) = active_bootstraps().lock() else {
+    if request_id.is_empty() {
+        return false;
+    }
+    arm_bootstrap_cancel(&mut bootstrap_cancellations_lock(), request_id);
+    true
+}
+
+/// Bind a transport-level chat request to the independently generated project
+/// bootstrap request. The mapping is installed before bootstrap awaits begin,
+/// allowing the normal Stop endpoint to cancel Git preparation without the UI
+/// having to issue a second control request.
+pub struct ProjectBootstrapClientRequestGuard {
+    client_request_id: String,
+    token: String,
+}
+
+impl Drop for ProjectBootstrapClientRequestGuard {
+    fn drop(&mut self) {
+        let mut registry = bootstrap_cancellations_lock();
+        if registry
+            .client_bindings
+            .get(&self.client_request_id)
+            .is_some_and(|binding| binding.token == self.token)
+        {
+            registry.client_bindings.remove(&self.client_request_id);
+        }
+    }
+}
+
+pub fn register_project_bootstrap_client_request(
+    client_request_id: &str,
+    bootstrap_request_id: &str,
+) -> ProjectBootstrapClientRequestGuard {
+    let token = uuid::Uuid::new_v4().to_string();
+    bootstrap_cancellations_lock().client_bindings.insert(
+        client_request_id.to_string(),
+        ClientBootstrapBinding {
+            token: token.clone(),
+            bootstrap_request_id: bootstrap_request_id.to_string(),
+        },
+    );
+    // A request-scoped Stop can win before this handler executes at all. The
+    // active-turn latch is authoritative in that ordering; mirror it into the
+    // bootstrap-id latch immediately after publishing the relationship.
+    if crate::chat_engine::active_turn::has_latched_client_cancel(client_request_id) {
+        cancel_project_bootstrap(bootstrap_request_id);
+    }
+    ProjectBootstrapClientRequestGuard {
+        client_request_id: client_request_id.to_string(),
+        token,
+    }
+}
+
+pub fn cancel_project_bootstrap_for_client_request(client_request_id: &str) -> bool {
+    let mut registry = bootstrap_cancellations_lock();
+    let Some(bootstrap_request_id) = registry
+        .client_bindings
+        .get(client_request_id)
+        .map(|binding| binding.bootstrap_request_id.clone())
+    else {
         return false;
     };
-    let Some(flag) = active.get(request_id) else {
-        return false;
-    };
-    flag.store(true, Ordering::SeqCst);
+    arm_bootstrap_cancel(&mut registry, &bootstrap_request_id);
     true
 }
 
 pub(crate) fn is_project_bootstrap_cancelled(request_id: &str) -> bool {
-    active_bootstraps()
-        .lock()
-        .ok()
-        .and_then(|active| active.get(request_id).cloned())
+    bootstrap_cancellations_lock()
+        .active
+        .get(request_id)
+        .cloned()
         .is_some_and(|flag| flag.load(Ordering::SeqCst))
+}
+
+fn register_active_bootstrap(request_id: &str) -> (Arc<AtomicBool>, ActiveBootstrapGuard) {
+    let mut registry = bootstrap_cancellations_lock();
+    let cancel = Arc::new(AtomicBool::new(registry.pending.remove(request_id)));
+    registry
+        .active
+        .insert(request_id.to_string(), cancel.clone());
+    let guard = ActiveBootstrapGuard {
+        id: request_id.to_string(),
+        flag: cancel.clone(),
+    };
+    (cancel, guard)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -335,17 +438,26 @@ impl SessionDB {
 
         self.insert_project_bootstrap_run_async(&input, &base_ref)
             .await?;
-        let cancel = Arc::new(AtomicBool::new(false));
-        {
-            let mut active = active_bootstraps()
-                .lock()
-                .map_err(|_| anyhow!("bootstrap cancellation registry is unavailable"))?;
-            active.insert(input.request.request_id.clone(), cancel.clone());
+        let (cancel, _active_guard) = register_active_bootstrap(&input.request.request_id);
+        if cancel.load(Ordering::SeqCst) {
+            self.update_project_bootstrap_stage_async(
+                &input.request.request_id,
+                "cancelled",
+                "cancelled",
+                None,
+                Some(("cancelled", "Local branch preparation was cancelled")),
+            )
+            .await?;
+            emit_progress(
+                &input.request.request_id,
+                "cancelled",
+                "cancelled",
+                Some(&input.session_id),
+                None,
+                Some(("cancelled", "Local branch preparation was cancelled")),
+            );
+            bail!("local branch preparation was cancelled");
         }
-        let _active_guard = ActiveBootstrapGuard {
-            id: input.request.request_id.clone(),
-            flag: cancel.clone(),
-        };
         self.report_project_bootstrap_stage_async(
             &input.request.request_id,
             "resolving_git",
@@ -580,17 +692,26 @@ impl SessionDB {
 
         self.insert_project_bootstrap_run_async(&input, &base_ref)
             .await?;
-        let cancel = Arc::new(AtomicBool::new(false));
-        {
-            let mut active = active_bootstraps()
-                .lock()
-                .map_err(|_| anyhow!("bootstrap cancellation registry is unavailable"))?;
-            active.insert(input.request.request_id.clone(), cancel.clone());
+        let (cancel, _active_guard) = register_active_bootstrap(&input.request.request_id);
+        if cancel.load(Ordering::SeqCst) {
+            self.update_project_bootstrap_stage_async(
+                &input.request.request_id,
+                "cancelled",
+                "cancelled",
+                None,
+                Some(("cancelled", "Worktree preparation was cancelled")),
+            )
+            .await?;
+            emit_progress(
+                &input.request.request_id,
+                "cancelled",
+                "cancelled",
+                Some(&input.session_id),
+                None,
+                Some(("cancelled", "Worktree preparation was cancelled")),
+            );
+            bail!("worktree preparation was cancelled");
         }
-        let _active_guard = ActiveBootstrapGuard {
-            id: input.request.request_id.clone(),
-            flag: cancel.clone(),
-        };
         self.report_project_bootstrap_stage_async(
             &input.request.request_id,
             "resolving_git",
@@ -1083,6 +1204,44 @@ fn emit_completed(request_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_request_stop_latches_until_bootstrap_registers() {
+        let client_request_id = format!("bootstrap-client-{}", uuid::Uuid::new_v4());
+        let bootstrap_request_id = format!("bootstrap-run-{}", uuid::Uuid::new_v4());
+        let binding =
+            register_project_bootstrap_client_request(&client_request_id, &bootstrap_request_id);
+
+        assert!(cancel_project_bootstrap_for_client_request(
+            &client_request_id
+        ));
+        let (cancel, active) = register_active_bootstrap(&bootstrap_request_id);
+        assert!(cancel.load(Ordering::SeqCst));
+        drop(active);
+        drop(binding);
+        assert!(!cancel_project_bootstrap_for_client_request(
+            &client_request_id
+        ));
+    }
+
+    #[test]
+    fn stop_before_client_binding_is_mirrored_into_bootstrap_latch() {
+        let client_request_id = format!("bootstrap-early-client-{}", uuid::Uuid::new_v4());
+        let bootstrap_request_id = format!("bootstrap-early-run-{}", uuid::Uuid::new_v4());
+        assert!(matches!(
+            crate::chat_engine::active_turn::cancel_or_latch_client_request(
+                &client_request_id,
+                None,
+            ),
+            crate::chat_engine::active_turn::ClientRequestCancelOutcome::Latched
+        ));
+
+        let _binding =
+            register_project_bootstrap_client_request(&client_request_id, &bootstrap_request_id);
+        let (bootstrap_cancel, active_bootstrap) = register_active_bootstrap(&bootstrap_request_id);
+        assert!(bootstrap_cancel.load(Ordering::SeqCst));
+        drop(active_bootstrap);
+    }
 
     fn git(cwd: &Path, args: &[&str]) {
         git_output(cwd, args).unwrap_or_else(|error| panic!("git {args:?}: {error:#}"));

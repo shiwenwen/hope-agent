@@ -395,6 +395,18 @@ pub async fn chat(
     let bootstrap_request_id = project_bootstrap
         .as_ref()
         .map(|bootstrap| bootstrap.request_id.clone());
+    let project_bootstrap_request_guard = match (
+        client_request_id.as_deref(),
+        bootstrap_request_id.as_deref(),
+    ) {
+        (Some(client_request_id), Some(bootstrap_request_id)) => Some(
+            ha_core::project_bootstrap::register_project_bootstrap_client_request(
+                client_request_id,
+                bootstrap_request_id,
+            ),
+        ),
+        _ => None,
+    };
     let auto_create_session = session_id.as_deref().is_none_or(|id| id.is_empty());
     if edit_message_id.is_some() && auto_create_session {
         return Err(CmdError::msg("editMessageId requires an existing session"));
@@ -648,6 +660,10 @@ pub async fn chat(
             );
         }
     }
+    // Bootstrap is no longer running beyond this point. Remove the temporary
+    // client mapping so a later Stop for the model turn does not create a
+    // stale bootstrap-id cancellation latch.
+    drop(project_bootstrap_request_guard);
 
     if let Some(request_id) = bootstrap_request_id.as_deref() {
         let claimed = {
@@ -702,7 +718,7 @@ pub async fn chat(
         &sid,
         crate::chat_engine::stream_seq::ChatSource::Desktop,
         turn_id.clone(),
-        client_request_id,
+        client_request_id.clone(),
         cancel.clone(),
     ) {
         Ok(guard) => guard,
@@ -975,41 +991,47 @@ pub async fn chat(
         let queue_id_for_consume = queued_request_id.clone();
         let edit_message_id = edit_message_id;
         let ui_surface_for_turn = ui_surface;
-        db.run(move |db| -> anyhow::Result<Option<i64>> {
-            if let Some(message_id) = edit_message_id {
-                let replacement_id = db.replace_last_user_message_for_edit(
-                    &sid,
-                    message_id,
-                    &user_msg,
-                    &turn_id,
-                    ha_core::chat_engine::ChatSource::Desktop.as_str(),
-                    ui_surface_for_turn,
-                )?;
-                return Ok(Some(replacement_id));
-            }
-            let user_message_id = if queue_id_for_consume.is_some() {
-                Some(db.append_message(&sid, &user_msg)?)
-            } else {
-                db.append_message(&sid, &user_msg).ok()
-            };
-            db.create_chat_turn_with_id_surface(
-                &turn_id,
+        db.run(move |db| {
+            ha_core::chat_engine::active_turn::with_persistence_target(
                 &sid,
-                ha_core::chat_engine::ChatSource::Desktop.as_str(),
-                None,
-                user_message_id,
-                ui_surface_for_turn,
-            )?;
-            if let Some(request_id) = queue_id_for_consume.as_deref() {
-                db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
-            }
-            Ok(user_message_id)
+                &turn_id,
+                || -> anyhow::Result<Option<i64>> {
+                    if let Some(message_id) = edit_message_id {
+                        let replacement_id = db.replace_last_user_message_for_edit(
+                            &sid,
+                            message_id,
+                            &user_msg,
+                            &turn_id,
+                            ha_core::chat_engine::ChatSource::Desktop.as_str(),
+                            ui_surface_for_turn,
+                        )?;
+                        return Ok(Some(replacement_id));
+                    }
+                    let user_message_id = if queue_id_for_consume.is_some() {
+                        Some(db.append_message(&sid, &user_msg)?)
+                    } else {
+                        db.append_message(&sid, &user_msg).ok()
+                    };
+                    db.create_chat_turn_with_id_surface(
+                        &turn_id,
+                        &sid,
+                        ha_core::chat_engine::ChatSource::Desktop.as_str(),
+                        None,
+                        user_message_id,
+                        ui_surface_for_turn,
+                    )?;
+                    if let Some(request_id) = queue_id_for_consume.as_deref() {
+                        db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
+                    }
+                    Ok(user_message_id)
+                },
+            )
         })
         .await
     };
     let _user_message_id = match user_message_result {
-        Ok(message_id) => message_id,
-        Err(error) => {
+        Ok(Ok(message_id)) => message_id,
+        Ok(Err(error)) => {
             if let Some(request_id) = queued_request_id.as_ref() {
                 let sid_for_reconcile = sid.clone();
                 let request_for_reconcile = request_id.clone();
@@ -1025,6 +1047,41 @@ pub async fn chat(
                     .await;
             }
             return Err(error.into());
+        }
+        Err(reason) => {
+            ha_core::hooks::set_user_prompt_context(&sid, None);
+            let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
+                db.clone(),
+                sid.clone(),
+                bootstrap_request_id.clone(),
+                new_session_created.is_some(),
+                queued_request_id
+                    .as_ref()
+                    .map(|request_id| (request_id.clone(), turn_id.clone())),
+            );
+            broadcast_turn_end(
+                &sid,
+                &turn_id,
+                session::ChatTurnStatus::Interrupted,
+                Some(session::ChatTurnInterruptReason::UserStop),
+                None,
+            );
+            ha_core::chat_engine::active_turn::force_release(&sid, &turn_id);
+            if let Some(cleanup) = cleanup {
+                cleanup.spawn();
+            }
+            app_info!(
+                "chat",
+                "persistence_cancelled",
+                "Stopped desktop prompt at persistence boundary: session={} turn={} reason={}",
+                sid,
+                turn_id,
+                reason
+            );
+            return Err(CmdError::msg(format!(
+                "{}: chat stopped before prompt persistence completed",
+                ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE
+            )));
         }
     };
 
@@ -1428,6 +1485,9 @@ pub async fn stop_chat(
     // that pre-registration window, use the request id even for an existing
     // session; otherwise Stop can race ahead of active-turn acquisition and be
     // silently forgotten.
+    let bootstrap_signalled = client_request_id
+        .as_deref()
+        .is_some_and(ha_core::project_bootstrap::cancel_project_bootstrap_for_client_request);
     let request_cancel =
         if client_request_id.is_some() && (session_id.is_none() || turn_id.is_none()) {
             client_request_id.as_deref().map(|request_id| {
@@ -1462,9 +1522,10 @@ pub async fn stop_chat(
         app_info!(
             "chat",
             "stop_chat",
-            "Latched pre-registration Stop for client request {:?} session {:?}",
+            "Latched pre-registration Stop for client request {:?} session {:?} bootstrap_signalled={}",
             client_request_id,
-            session_id
+            session_id,
+            bootstrap_signalled
         );
         return Ok(());
     }

@@ -5,7 +5,6 @@
 //! HTTP, and IM `/stop` resolve interaction waits and owned runtime work with
 //! the same semantics.
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::HashSet, future::Future};
@@ -240,14 +239,10 @@ pub async fn stop_session(
     let mut matched_active = false;
     let mut durable_turn_id = None;
 
-    if let Some(active) = super::active_turn::current(session_id) {
-        let matches_turn = expected_turn_id
-            .map(|turn_id| turn_id == active.turn_id)
-            .unwrap_or(true);
-        if matches_turn {
+    match super::active_turn::cancel_current(session_id, expected_turn_id) {
+        super::active_turn::ActiveTurnCancelOutcome::Cancelled(active) => {
             matched_active = true;
             outcome.stopped = true;
-            active.cancel.store(true, Ordering::SeqCst);
 
             // Channel has its own stream lifecycle bus and deliberately does
             // not create a GUI chat_turn row. Desktop/HTTP use the normal
@@ -269,9 +264,11 @@ pub async fn stop_session(
                 );
                 durable_turn_id = Some(active.turn_id);
             }
-        } else {
+        }
+        super::active_turn::ActiveTurnCancelOutcome::TurnMismatch => {
             outcome.turn_mismatch = true;
         }
+        super::active_turn::ActiveTurnCancelOutcome::NotFound => {}
     }
 
     // A session-only Stop is authoritative even if the active entry vanished
@@ -427,8 +424,7 @@ pub async fn stop_all_sessions(
     let mut stopped_sessions: HashSet<String> = pre_signalled_sessions.into_iter().collect();
     let mut durable_turn_ids = Vec::new();
 
-    for active in super::active_turn::all_current() {
-        active.cancel.store(true, Ordering::SeqCst);
+    for active in super::active_turn::cancel_all_current() {
         stopped_sessions.insert(active.session_id.clone());
         if active.source.broadcasts_to_user_ui() {
             super::stream_broadcast::broadcast_turn_status(
@@ -541,7 +537,7 @@ pub async fn stop_all_sessions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     fn fixture() -> (tempfile::TempDir, Arc<SessionDB>, String, String) {
         let dir = tempfile::tempdir().expect("tempdir");

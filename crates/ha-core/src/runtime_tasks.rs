@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+const RUNTIME_SNAPSHOT_SOURCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Runtime work units that can be cancelled best-effort.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -116,27 +118,29 @@ pub async fn snapshot_runtime_tasks_for_session(
     session_id: Option<&str>,
 ) -> anyhow::Result<RuntimeTaskSnapshot> {
     let owned_session_id = session_id.map(str::to_string);
-    let session_for_blocking = owned_session_id.clone();
-    let mut tasks = crate::blocking::run_blocking(move || {
-        let mut tasks = Vec::new();
-
+    let async_job_session_id = owned_session_id.clone();
+    let async_jobs = crate::blocking::run_blocking(move || {
         if let Some(db) = crate::async_jobs::get_async_jobs_db() {
-            let discovered = db.list_running().map(|jobs| {
+            db.list_running().map(|jobs| {
                 jobs.into_iter()
                     .filter(|job| {
-                        session_for_blocking
+                        async_job_session_id
                             .as_deref()
                             .map(|sid| job.session_id.as_deref() == Some(sid))
                             .unwrap_or(true)
                     })
                     .map(|job| (RuntimeTaskKind::AsyncJob, job.job_id))
                     .collect()
-            });
-            extend_snapshot_source(&mut tasks, "async_jobs", discovered);
+            })
+        } else {
+            Ok(Vec::new())
         }
+    });
 
+    let subagent_session_id = owned_session_id.clone();
+    let subagents = crate::blocking::run_blocking(move || {
         if let Some(db) = crate::get_session_db() {
-            let discovered = match session_for_blocking.as_deref() {
+            match subagent_session_id.as_deref() {
                 Some(sid) => db.list_nonterminal_subagent_runs(sid),
                 None => db.list_all_nonterminal_subagent_runs(),
             }
@@ -144,23 +148,65 @@ pub async fn snapshot_runtime_tasks_for_session(
                 runs.into_iter()
                     .map(|run| (RuntimeTaskKind::Subagent, run.run_id))
                     .collect()
-            });
-            extend_snapshot_source(&mut tasks, "subagents", discovered);
+            })
+        } else {
+            Ok(Vec::new())
         }
+    });
 
-        tasks
-    })
-    .await;
-
-    let process_ids = {
+    let process_session_id = owned_session_id;
+    let processes = async move {
         let registry = crate::process_registry::get_registry().lock().await;
-        registry.list_running_ids_for_parent_session(owned_session_id.as_deref())
+        anyhow::Ok(
+            registry
+                .list_running_ids_for_parent_session(process_session_id.as_deref())
+                .into_iter()
+                .map(|id| (RuntimeTaskKind::Process, id))
+                .collect(),
+        )
     };
-    for process_id in process_ids {
-        tasks.push((RuntimeTaskKind::Process, process_id));
+
+    // Each source gets its own bound and all sources are polled together. A
+    // wedged SQLite read or process-registry lock must not prevent the other
+    // exact identities from being captured and cancelled.
+    let (async_jobs, subagents, processes) = tokio::join!(
+        timeout_snapshot_source("async_jobs", async_jobs),
+        timeout_snapshot_source("subagents", subagents),
+        timeout_snapshot_source("processes", processes),
+    );
+    let mut tasks = Vec::new();
+    for discovered in [async_jobs, subagents, processes] {
+        tasks.extend(discovered);
     }
 
     Ok(RuntimeTaskSnapshot { tasks })
+}
+
+async fn timeout_snapshot_source<F>(
+    source: &'static str,
+    future: F,
+) -> Vec<(RuntimeTaskKind, String)>
+where
+    F: std::future::Future<Output = anyhow::Result<Vec<(RuntimeTaskKind, String)>>>,
+{
+    match tokio::time::timeout(RUNTIME_SNAPSHOT_SOURCE_TIMEOUT, future).await {
+        Ok(Ok(discovered)) => discovered,
+        Ok(Err(error)) => {
+            let mut tasks = Vec::new();
+            extend_snapshot_source(&mut tasks, source, Err(error));
+            tasks
+        }
+        Err(_) => {
+            crate::app_warn!(
+                "chat",
+                "runtime_task_snapshot",
+                "Runtime task source snapshot timed out; continuing other sources: source={} timeout_ms={}",
+                source,
+                RUNTIME_SNAPSHOT_SOURCE_TIMEOUT.as_millis()
+            );
+            Vec::new()
+        }
+    }
 }
 
 /// Cancel only the identities in a previously captured snapshot.
@@ -177,17 +223,31 @@ pub async fn cancel_runtime_task_snapshot(
 
 async fn cancel_runtime_task_snapshot_with<F, Fut>(
     snapshot: RuntimeTaskSnapshot,
-    mut cancel_task: F,
+    cancel_task: F,
 ) -> Vec<CancelRuntimeTaskResult>
 where
-    F: FnMut(RuntimeTaskKind, String) -> Fut,
-    Fut: std::future::Future<Output = anyhow::Result<CancelRuntimeTaskResult>>,
+    F: Fn(RuntimeTaskKind, String) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = anyhow::Result<CancelRuntimeTaskResult>> + Send + 'static,
 {
-    let mut results = Vec::with_capacity(snapshot.tasks.len());
+    let cancel_task = std::sync::Arc::new(cancel_task);
+    let mut cancellations = Vec::with_capacity(snapshot.tasks.len());
     for (kind, id) in snapshot.tasks {
-        match cancel_task(kind, id.clone()).await {
-            Ok(result) => results.push(result),
-            Err(error) => {
+        let task_id = id.clone();
+        let cancel_task = cancel_task.clone();
+        let handle = tokio::spawn(async move { cancel_task(kind, task_id).await });
+        cancellations.push(async move { (kind, id, handle.await) });
+    }
+
+    // All exact cancellation tasks have been spawned before the first await.
+    // If the caller's overall Stop timeout expires, dropping these JoinHandles
+    // detaches (rather than aborts) the tasks, so a slow first cancellation
+    // cannot prevent later snapshot members from being attempted.
+    futures_util::future::join_all(cancellations)
+        .await
+        .into_iter()
+        .map(|(kind, id, joined)| match joined {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
                 let message = crate::logging::redact_sensitive(&error.to_string());
                 crate::app_warn!(
                     "chat",
@@ -197,17 +257,34 @@ where
                     id,
                     message
                 );
-                results.push(CancelRuntimeTaskResult::new(
+                CancelRuntimeTaskResult::new(
                     kind,
                     &id,
                     false,
                     "error",
                     format!("Runtime task cancellation failed: {message}"),
-                ));
+                )
             }
-        }
-    }
-    results
+            Err(error) => {
+                let message = crate::logging::redact_sensitive(&error.to_string());
+                crate::app_warn!(
+                    "chat",
+                    "runtime_task_cancel",
+                    "Runtime task cancellation task failed: kind={} id={} error={}",
+                    kind.as_str(),
+                    id,
+                    message
+                );
+                CancelRuntimeTaskResult::new(
+                    kind,
+                    &id,
+                    false,
+                    "error",
+                    format!("Runtime task cancellation task failed: {message}"),
+                )
+            }
+        })
+        .collect()
 }
 
 fn cancel_async_job(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
@@ -417,11 +494,57 @@ mod tests {
         })
         .await;
 
-        assert_eq!(&*calls.lock().unwrap(), &["fails", "continues"]);
+        let mut calls = calls.lock().unwrap().clone();
+        calls.sort();
+        assert_eq!(calls, ["continues", "fails"]);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].status, "error");
         assert!(!results[0].accepted);
         assert_eq!(results[1].status, "killed");
         assert!(results[1].accepted);
+    }
+
+    #[tokio::test]
+    async fn slow_cancellation_does_not_block_later_snapshot_members() {
+        let snapshot = RuntimeTaskSnapshot {
+            tasks: vec![
+                (RuntimeTaskKind::AsyncJob, "slow".to_string()),
+                (RuntimeTaskKind::Process, "later".to_string()),
+            ],
+        };
+        let slow_release = Arc::new(tokio::sync::Notify::new());
+        let later_started = Arc::new(tokio::sync::Notify::new());
+        let release_for_cancel = slow_release.clone();
+        let started_for_cancel = later_started.clone();
+
+        let cancellation = tokio::spawn(cancel_runtime_task_snapshot_with(
+            snapshot,
+            move |kind, id| {
+                let slow_release = release_for_cancel.clone();
+                let later_started = started_for_cancel.clone();
+                async move {
+                    if id == "slow" {
+                        slow_release.notified().await;
+                    } else {
+                        later_started.notify_one();
+                    }
+                    Ok(CancelRuntimeTaskResult::new(
+                        kind,
+                        &id,
+                        true,
+                        "cancelled",
+                        "cancelled",
+                    ))
+                }
+            },
+        ));
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), later_started.notified())
+            .await
+            .expect("later snapshot member should start while the first is blocked");
+        slow_release.notify_one();
+        let results = cancellation.await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|result| result.accepted));
     }
 }
