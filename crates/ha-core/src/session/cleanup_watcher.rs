@@ -244,10 +244,7 @@ async fn cleanup_session(
     // agent-created tabs owned by this session. This mirrors tool-level
     // `tabs.finalize` so deleting or burning a session cannot leave stale
     // browser-control ownership behind.
-    let browser_cleanup = match crate::browser_hooks::browser_hooks() {
-        Some(hooks) => (hooks.cleanup_session)(session_id).await,
-        None => "browser feature not wired (no extension leases to release)".to_string(),
-    };
+    let browser_cleanup = crate::browser_hooks::cleanup_session(session_id).await;
     app_debug!(
         "session",
         "cleanup_watcher",

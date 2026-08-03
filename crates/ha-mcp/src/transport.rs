@@ -644,7 +644,7 @@ pub async fn build_sse_client(cfg: &McpServerConfig, url: &str) -> McpResult<Con
 
     // Box-pin the `!Unpin` parser so it can be driven by `.next()` here and then
     // handed to `filter_map` without pin plumbing leaking into the Stream half.
-    let mut sse = Box::pin(SseStream::from_byte_stream(response.bytes_stream()));
+    let mut sse = Box::pin(SseStream::from_bytes_stream(response.bytes_stream()));
 
     // 2) Read up to the `endpoint` event to learn the session-scoped POST URL.
     //    The whole handshake runs under `do_connect`'s connect_timeout, so a

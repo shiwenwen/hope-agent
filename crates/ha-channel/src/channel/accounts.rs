@@ -122,20 +122,6 @@ pub async fn add_account(
     let parsed_channel_id: ChannelId = serde_json::from_value(Value::String(channel_id.clone()))
         .map_err(|e| anyhow!("Invalid channel_id '{}': {}", channel_id, e))?;
 
-    let mut store = ha_core::config::load_config()?;
-
-    if let Some(fp) = credential_fingerprint(&parsed_channel_id, &credentials) {
-        if let Some(existing) =
-            find_duplicate_account(&store.channels.accounts, &parsed_channel_id, &fp, None)
-        {
-            return Err(anyhow!(
-                "{}: {}",
-                DUPLICATE_CREDENTIAL_ERROR_PREFIX,
-                existing.label
-            ));
-        }
-    }
-
     let account = ChannelAccountConfig {
         id: id.clone(),
         channel_id: parsed_channel_id,
@@ -150,8 +136,36 @@ pub async fn add_account(
         notify_startup: true,
     };
 
-    store.channels.accounts.push(account.clone());
-    ha_core::config::save_config(&store)?;
+    // Duplicate check + push happen inside `mutate_config_async` so two
+    // concurrent add_account calls can't both pass the check on the same
+    // credential and then race-write the config file — clone-then-save
+    // clobbers the loser silently (config write red line #7).
+    let account_for_write = account.clone();
+    ha_core::config::mutate_config_async(
+        ("channels.add", "channel.accounts"),
+        move |store| {
+            if let Some(fp) = credential_fingerprint(
+                &account_for_write.channel_id,
+                &account_for_write.credentials,
+            ) {
+                if let Some(existing) = find_duplicate_account(
+                    &store.channels.accounts,
+                    &account_for_write.channel_id,
+                    &fp,
+                    None,
+                ) {
+                    anyhow::bail!(
+                        "{}: {}",
+                        DUPLICATE_CREDENTIAL_ERROR_PREFIX,
+                        existing.label
+                    );
+                }
+            }
+            store.channels.accounts.push(account_for_write);
+            Ok(())
+        },
+    )
+    .await?;
 
     if account.enabled {
         if let Some(registry) = ha_core::get_channel_registry() {
@@ -167,69 +181,81 @@ pub async fn add_account(
 /// Apply `params` to the named account and manage registry lifecycle
 /// transitions (start/stop/restart) based on the before/after enabled state.
 pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Result<()> {
-    let mut store = ha_core::config::load_config()?;
+    // All dup-check + patch application run inside `mutate_config_async` so a
+    // concurrent write can't win the save race and clobber this update (config
+    // write red line #7). Registry lifecycle (start/stop/restart) is async and
+    // must stay outside — the closure signature is sync.
+    let account_id_owned = account_id.to_string();
+    let (was_enabled, updated) = ha_core::config::mutate_config_async(
+        ("channels.update", "channel.accounts"),
+        move |store| {
+            let idx = store
+                .channels
+                .accounts
+                .iter()
+                .position(|a| a.id == account_id_owned)
+                .ok_or_else(|| anyhow!("Account '{}' not found", account_id_owned))?;
+            let channel_id = store.channels.accounts[idx].channel_id.clone();
 
-    let idx = store
-        .channels
-        .accounts
-        .iter()
-        .position(|a| a.id == account_id)
-        .ok_or_else(|| anyhow!("Account '{}' not found", account_id))?;
-    let channel_id = store.channels.accounts[idx].channel_id.clone();
-
-    if let Some(new_credentials) = params.credentials.as_ref() {
-        if let Some(fp) = credential_fingerprint(&channel_id, new_credentials) {
-            if let Some(existing) =
-                find_duplicate_account(&store.channels.accounts, &channel_id, &fp, Some(account_id))
-            {
-                return Err(anyhow!(
-                    "{}: {}",
-                    DUPLICATE_CREDENTIAL_ERROR_PREFIX,
-                    existing.label
-                ));
+            if let Some(new_credentials) = params.credentials.as_ref() {
+                if let Some(fp) = credential_fingerprint(&channel_id, new_credentials) {
+                    if let Some(existing) = find_duplicate_account(
+                        &store.channels.accounts,
+                        &channel_id,
+                        &fp,
+                        Some(&account_id_owned),
+                    ) {
+                        anyhow::bail!(
+                            "{}: {}",
+                            DUPLICATE_CREDENTIAL_ERROR_PREFIX,
+                            existing.label
+                        );
+                    }
+                }
             }
-        }
-    }
 
-    let account = &mut store.channels.accounts[idx];
-    let was_enabled = account.enabled;
+            let account = &mut store.channels.accounts[idx];
+            let was_enabled = account.enabled;
 
-    if let Some(l) = params.label {
-        account.label = l;
-    }
-    if let Some(e) = params.enabled {
-        account.enabled = e;
-    }
-    if let Some(aid) = params.agent_id {
-        account.agent_id = if aid.is_empty() { None } else { Some(aid) };
-    }
-    if let Some(aat) = params.auto_approve_tools {
-        account.auto_approve_tools = aat;
-    }
-    if let Some(nse) = params.notify_session_eviction {
-        account.notify_session_eviction = nse;
-    }
-    if let Some(ns) = params.notify_startup {
-        account.notify_startup = ns;
-    }
-    if let Some(c) = params.credentials {
-        account.credentials = c;
-    }
-    if let Some(mut s) = params.settings {
-        // WS8: `kbAccessChats` (per-group KB confirmations) is owned by the in-chat
-        // `/kb` command via `mutate_config`, NOT by this dialog. The account-edit
-        // dialog ships a full settings snapshot captured at open time, so blindly
-        // replacing would clobber confirmations changed in-chat meanwhile. Preserve
-        // the current on-disk value (and drop any stale copy the caller sent).
-        preserve_kb_access_chats(&mut s, &account.settings);
-        account.settings = s;
-    }
-    if let Some(sec) = params.security {
-        account.security = sec;
-    }
+            if let Some(l) = params.label {
+                account.label = l;
+            }
+            if let Some(e) = params.enabled {
+                account.enabled = e;
+            }
+            if let Some(aid) = params.agent_id {
+                account.agent_id = if aid.is_empty() { None } else { Some(aid) };
+            }
+            if let Some(aat) = params.auto_approve_tools {
+                account.auto_approve_tools = aat;
+            }
+            if let Some(nse) = params.notify_session_eviction {
+                account.notify_session_eviction = nse;
+            }
+            if let Some(ns) = params.notify_startup {
+                account.notify_startup = ns;
+            }
+            if let Some(c) = params.credentials {
+                account.credentials = c;
+            }
+            if let Some(mut s) = params.settings {
+                // WS8: `kbAccessChats` (per-group KB confirmations) is owned by
+                // the in-chat `/kb` command via `mutate_config`, NOT by this
+                // dialog. The account-edit dialog ships a full settings snapshot
+                // captured at open time, so blindly replacing would clobber
+                // confirmations changed in-chat meanwhile. Preserve the current
+                // on-disk value (and drop any stale copy the caller sent).
+                preserve_kb_access_chats(&mut s, &account.settings);
+                account.settings = s;
+            }
+            if let Some(sec) = params.security {
+                account.security = sec;
+            }
 
-    let updated = account.clone();
-    ha_core::config::save_config(&store)?;
+            Ok((was_enabled, account.clone()))
+        },
+    )
+    .await?;
 
     if let Some(registry) = ha_core::get_channel_registry() {
         if was_enabled && !updated.enabled {
@@ -252,9 +278,8 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
 }
 
 /// Toggle `settings.autoTranscribeVoice` on a single account. Returns the
-/// previous value so callers can short-circuit "no change". Goes through
-/// `mutate_config` (unlike the legacy `update_account`) — this setting is
-/// purely behavioural and never restarts the channel listener.
+/// previous value so callers can short-circuit "no change". Purely behavioural
+/// — no channel restart needed, hence sync `mutate_config` (not `_async`).
 pub fn set_account_auto_transcribe_voice(
     account_id: &str,
     on: bool,
@@ -283,13 +308,19 @@ pub async fn remove_account(account_id: &str) -> Result<()> {
         let _ = registry.stop_account(account_id).await;
     }
 
-    let mut store = ha_core::config::load_config()?;
-    let removed_channel_id = store
-        .channels
-        .find_account(account_id)
-        .map(|a| a.channel_id.clone());
-    store.channels.accounts.retain(|a| a.id != account_id);
-    ha_core::config::save_config(&store)?;
+    let account_id_owned = account_id.to_string();
+    let removed_channel_id = ha_core::config::mutate_config_async(
+        ("channels.remove", "channel.accounts"),
+        move |store| {
+            let removed = store
+                .channels
+                .find_account(&account_id_owned)
+                .map(|a| a.channel_id.clone());
+            store.channels.accounts.retain(|a| a.id != account_id_owned);
+            Ok(removed)
+        },
+    )
+    .await?;
 
     if matches!(removed_channel_id, Some(ChannelId::WeChat)) {
         super::wechat::clear_persisted_account_state(account_id).map_err(|e| anyhow!("{}", e))?;

@@ -32,6 +32,9 @@ ha-eval-runtime = { path = "../ha-eval-runtime" }
 ha-updater = { path = "../ha-updater" }
 ha-weather = { path = "../ha-weather" }
 ha-eval-spec = { path = "../ha-eval-spec" }
+# Only used to reuse the composition-root `wire_features()` — keeps ha-eval,
+# src-tauri and hope-agent-server in lockstep on the feature-crate wire list.
+ha-server = { path = "../ha-server" }
 anyhow = { workspace = true }
 axum = "0.8"
 base64 = { workspace = true }

@@ -47,6 +47,64 @@ pub(crate) fn browser_hooks() -> Option<&'static BrowserHooks> {
     BROWSER_HOOKS.get()
 }
 
+/// 每个 no-op 分支首次未命中时打一次 warn，让「未 wire → 静默 no-op」这条
+/// 路径可 grep（`category=browser source=hooks.<slot>`）；避免刷屏。
+static UNWIRED_SPAWN_WARN: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+static UNWIRED_TURN_FINALIZE_WARN: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+static UNWIRED_CLEANUP_WARN: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// 启动 broker（Chrome extension loopback + discovery file）。未 wire 即
+/// no-op——扩展连不上，但注册表里也没 browser 工具，故不产生 lease；首次
+/// 未命中打一次 warn，方便 headless 部署审计。
+pub fn spawn_broker() {
+    match browser_hooks() {
+        Some(hooks) => (hooks.spawn_broker)(),
+        None => {
+            UNWIRED_SPAWN_WARN.get_or_init(|| {
+                app_warn!(
+                    "browser",
+                    "hooks.spawn_broker",
+                    "ha-browser not wired: Chrome extension broker will not start in this process"
+                );
+            });
+        }
+    }
+}
+
+/// 轮结束后的 extension tab finalize 排程。未 wire → 依赖 lease 24h TTL 自愈。
+pub fn schedule_turn_finalize(session_id: &str) {
+    match browser_hooks() {
+        Some(hooks) => (hooks.schedule_turn_finalize)(session_id),
+        None => {
+            UNWIRED_TURN_FINALIZE_WARN.get_or_init(|| {
+                app_warn!(
+                    "browser",
+                    "hooks.schedule_turn_finalize",
+                    "ha-browser not wired: turn-end tab finalize skipped for this process (leases rely on 24h TTL)"
+                );
+            });
+        }
+    }
+}
+
+/// 会话删除时释放 user-tab lease、关闭 agent tab；返回摘要串给
+/// cleanup_watcher 记 debug。未 wire → 空清理串 + 首次 warn。
+pub async fn cleanup_session(session_id: &str) -> String {
+    match browser_hooks() {
+        Some(hooks) => (hooks.cleanup_session)(session_id).await,
+        None => {
+            UNWIRED_CLEANUP_WARN.get_or_init(|| {
+                app_warn!(
+                    "browser",
+                    "hooks.cleanup_session",
+                    "ha-browser not wired: session cleanup no-op (leases self-heal via TTL)"
+                );
+            });
+            "browser feature not wired (no extension leases to release)".to_string()
+        }
+    }
+}
+
 /// 抓取当前活动标签页。`BrowserHooks` 结构体本身仍不出 kernel——ha-knowledge
 /// 的网页收藏（`knowledge::source::capture_browser_snapshot`）只需要这一项，
 /// 故单开薄封装而非放开整组。**fail-explicit**：未 wire 报错而非静默返空，

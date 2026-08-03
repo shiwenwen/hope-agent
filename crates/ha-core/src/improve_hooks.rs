@@ -32,6 +32,7 @@ pub struct ImproveHooks {
 }
 
 static HOOKS: OnceLock<ImproveHooks> = OnceLock::new();
+static UNWIRED_WARN: OnceLock<()> = OnceLock::new();
 
 /// 装配期注册（幂等由 `ha_improve::wire()` 的 `Once` 保证）。
 pub fn register_improve_hooks(hooks: ImproveHooks) -> Result<(), crate::AlreadyRegistered> {
@@ -40,13 +41,25 @@ pub fn register_improve_hooks(hooks: ImproveHooks) -> Result<(), crate::AlreadyR
         .map_err(|_| crate::AlreadyRegistered("improve machinery hooks"))
 }
 
-/// 工作流终态复盘。未装配 → `Ok(None)`（见模块文档）。
+/// 工作流终态复盘。未装配 → `Ok(None)`（见模块文档）。**首次未命中时打一条
+/// warn**：本 hook 是所有反向 hook 里唯一「durable 写 + 未装配 no-op」的组合，
+/// 不留审计线索意味着新增二进制漏 wire 时会静默丢学习闭环观察数据；warn 让
+/// 这条路径可 grep（`category=improve source=hooks`）。
 pub fn ensure_coding_workflow_retro_for_run(
     db: &SessionDB,
     run: &WorkflowRun,
 ) -> anyhow::Result<Option<CodingWorkflowRetro>> {
     match HOOKS.get() {
         Some(h) => (h.ensure_coding_workflow_retro_for_run)(db, run),
-        None => Ok(None),
+        None => {
+            UNWIRED_WARN.get_or_init(|| {
+                app_warn!(
+                    "improve",
+                    "hooks",
+                    "ha-improve not wired: coding_workflow_retro observations skipped for this process"
+                );
+            });
+            Ok(None)
+        }
     }
 }

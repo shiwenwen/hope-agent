@@ -611,9 +611,18 @@ pub async fn get_canvas_config() -> Result<CanvasConfig, String> {
 }
 
 pub async fn save_canvas_config(config: CanvasConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.canvas = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    // Config write red line #7: never load+save on a snapshot — clone-then-save
+    // clobbers concurrent writes. `mutate_config_async` takes the write lock
+    // around load → mutate → persist and runs on the blocking pool.
+    ha_core::config::mutate_config_async(
+        ("canvas", "design.tool_canvas"),
+        move |store| {
+            store.canvas = config;
+            Ok(())
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 pub async fn list_canvas_projects() -> Result<String, String> {

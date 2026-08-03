@@ -95,24 +95,9 @@ pub(crate) use shortcuts::toggle_quickchat_window;
 pub fn run() {
     // 特征 crate 装配（幂等）。桌面路径已在 main.rs 顶部 wire 过，这里兜底
     // mobile entry point（`app_lib::run()` 不经 main.rs）——漏 wire 的症状是
-    // `app_update` 有 schema 无 handler + registry_freeze warn。
-    ha_updater::wire();
-    ha_weather::wire();
-    ha_acp::wire();
-    ha_mac::wire();
-    ha_design::wire();
-    ha_browser::wire();
-    ha_vcs::wire();
-    ha_mcp::wire();
-    ha_pet::wire();
-    ha_media::wire();
-    ha_local_llm::wire();
-    ha_dash::wire();
-    ha_channel::wire();
-    ha_knowledge::wire();
-    ha_skills::wire();
-    ha_improve::wire();
-    ha_cron::wire();
+    // `app_update` 有 schema 无 handler + registry_freeze warn。单一来源在
+    // `ha_server::wire_features()`；新增特征 crate 只需改那一处。
+    ha_server::wire_features();
 
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when

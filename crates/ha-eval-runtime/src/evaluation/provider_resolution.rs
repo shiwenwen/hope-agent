@@ -18,7 +18,9 @@ pub fn resolve_owner_provider_refs(
     if references.is_empty() {
         return Ok(Vec::new());
     }
-    let source = ha_core::config::load_config()?;
+    // Read-only lookup: cached snapshot avoids a disk re-parse per call (config
+    // read contract — `cached_config` not `load_config`).
+    let source = ha_core::config::cached_config();
     let mut resolved = BTreeMap::<String, ha_core::provider::ProviderConfig>::new();
     for (provider_id, model_id, credential_profile_ref) in references {
         let provider = source
@@ -75,7 +77,7 @@ pub fn resolve_owner_provider_refs(
 }
 
 pub fn list_model_options() -> Result<Vec<EvalModelOption>> {
-    let config = ha_core::config::load_config()?;
+    let config = ha_core::config::cached_config();
     let codex_authenticated = ha_core::get_codex_token_cache()
         .and_then(|cache| cache.try_lock().ok().map(|value| value.is_some()))
         .unwrap_or(false)
@@ -157,7 +159,7 @@ pub async fn resolve_local_launch(
     asset_root_digest: String,
 ) -> Result<EvalResolvedLaunch> {
     ha_eval_spec::app::validate_app_request(&request)?;
-    let source = ha_core::config::load_config()?;
+    let source = ha_core::config::cached_config();
     let mut isolated = ha_core::config::AppConfig::default();
     let mut models = Vec::with_capacity(request.models.len());
     let mut secrets = BTreeMap::<String, String>::new();

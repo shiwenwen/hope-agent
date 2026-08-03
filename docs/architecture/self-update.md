@@ -100,7 +100,7 @@ Manifest 结构（[`ha_updater::manifest::Manifest`](../../crates/ha-updater/src
 
 ## Manifest 端点链（R2 镜像优先，GitHub 兜底）
 
-端点列表在两处，**必须逐项逐序相等**：`src-tauri/tauri.conf.json#plugins.updater.endpoints`（桌面，`tauri-plugin-updater` 读）与 [`manifest.rs::UPDATE_MANIFEST_URLS`](../../crates/ha-core/src/updater/manifest.rs)（headless / CLI）。当前顺序：
+端点列表在两处，**必须逐项逐序相等**：`src-tauri/tauri.conf.json#plugins.updater.endpoints`（桌面，`tauri-plugin-updater` 读）与 [`manifest.rs::UPDATE_MANIFEST_URLS`](../../crates/ha-updater/src/manifest.rs)（headless / CLI）。当前顺序：
 
 1. `https://repo.hopeagent.ai/download/latest.json` —— Cloudflare R2 镜像
 2. `https://github.com/shiwenwen/hope-agent/releases/latest/download/latest.json` —— GitHub
@@ -114,7 +114,7 @@ Manifest 结构（[`ha_updater::manifest::Manifest`](../../crates/ha-updater/src
 
 **镜像不削弱签名信任根**：manifest 自身不签名，但里面的 `signature` 要用编译进二进制的 `MINISIGN_PUBKEY_BASE64` 验（见上节）。所以被污染的镜像**无法通过自动更新把恶意二进制装进去**，最坏只能拒绝服务或谎报版本。镜像 workflow 因此原样复制 `signature`、**绝不重算**。
 
-**这条保证只覆盖 updater 路径**。`verify_bytes` 的调用点只有 [`self_contained.rs`](../../crates/ha-core/src/updater/self_contained.rs)；README 上的手动下载链接指向同一个镜像，但那些安装包由系统安装、不经这道验签——与从 GitHub 手动下载的情况相同。对外描述镜像安全性时不要把范围写成「安装包一律验签」。
+**这条保证只覆盖 updater 路径**。`verify_bytes` 的调用点只有 [`self_contained.rs`](../../crates/ha-updater/src/self_contained.rs)；README 上的手动下载链接指向同一个镜像，但那些安装包由系统安装、不经这道验签——与从 GitHub 手动下载的情况相同。对外描述镜像安全性时不要把范围写成「安装包一律验签」。
 
 **「谎报版本」不只是被攻击才会发生**——正常运维就能踩到。`download/latest.json` 是全局共享的可变对象，一旦给**非当前稳定版**写它（手动回填旧 tag、或发布 prerelease，两者都会触发镜像 workflow），配合上面「首个成功者胜」，全体客户端会被告知那个旧版本才是最新，从而看不到真正的新版。因此镜像 workflow 只在该 tag 恰好是 GitHub 认定的 latest release 且非 prerelease 时才写可变面（`PROMOTE` 门控），其余情况只写自己的不可变 `download/<tag>/` 前缀。
 

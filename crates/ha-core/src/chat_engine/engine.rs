@@ -2581,10 +2581,9 @@ fn schedule_browser_turn_finalize(source: stream_seq::ChatSource, session_id: &s
     if matches!(source, stream_seq::ChatSource::ParentInjection) {
         return;
     }
-    // 特征钩子（未 wire no-op：无 extension tab 可 finalize）。
-    if let Some(hooks) = crate::browser_hooks::browser_hooks() {
-        (hooks.schedule_turn_finalize)(session_id);
-    }
+    // 特征钩子（未 wire no-op：无 extension tab 可 finalize；wrapper 首次未
+    // 命中打一次 warn，避免每轮刷屏）。
+    crate::browser_hooks::schedule_turn_finalize(session_id);
 }
 
 /// Apply common agent configuration. Extracted to avoid duplication between

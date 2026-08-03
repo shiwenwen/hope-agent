@@ -21,23 +21,8 @@ fn main() {
 
     // 特征 crate 装配：必须先于任何 `init_runtime` 路径（GUI / server / acp /
     // mcp 各分支）——init 尾部冻结工具注册表，之后再挂 `app_update` 会 panic。
-    ha_updater::wire();
-    ha_weather::wire();
-    ha_acp::wire();
-    ha_mac::wire();
-    ha_design::wire();
-    ha_browser::wire();
-    ha_vcs::wire();
-    ha_mcp::wire();
-    ha_pet::wire();
-    ha_media::wire();
-    ha_local_llm::wire();
-    ha_dash::wire();
-    ha_channel::wire();
-    ha_knowledge::wire();
-    ha_skills::wire();
-    ha_improve::wire();
-    ha_cron::wire();
+    // 单一来源在 `ha_server::wire_features()`；新增特征 crate 只需改那一处。
+    ha_server::wire_features();
 
     // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,
     // NOT persisted). Skips every tool-level approval gate for THIS launch only.

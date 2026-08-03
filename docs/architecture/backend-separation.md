@@ -17,7 +17,7 @@ graph TD
     subgraph Workspace
         HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
         HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        HA_FEAT["特征 crate<br/>ha-acp · ha-browser · ha-channel · ha-cron · ha-dash · ha-design<br/>ha-eval-runtime · ha-local-llm · ha-mac · ha-mcp · ha-media · ha-pet<br/>ha-updater · ha-vcs · ha-weather（阶段 3-5 逐个迁出）"]
+        HA_FEAT["特征 crate（18 个）<br/>ha-acp · ha-browser · ha-channel · ha-cron · ha-dash · ha-design<br/>ha-eval-runtime · ha-improve · ha-knowledge · ha-local-llm · ha-mac · ha-mcp<br/>ha-media · ha-pet · ha-skills · ha-updater · ha-vcs · ha-weather"]
         HA_CORE["ha-core<br/>(核心业务逻辑)<br/>零 Tauri 依赖"]
         HA_SCHEMA["ha-config-schema<br/>(AppConfig wire 类型闭包)<br/>纯数据定义 · 零行为逻辑"]
         HA_BASE["ha-base<br/>(基础设施底层)<br/>paths · logging · platform<br/>security · permissions · terminal<br/>不依赖任何 ha-* 业务 crate"]
@@ -115,7 +115,7 @@ ha_config_schema::<mod>::{…};` 顶替被搬定义，既有 re-export 链
 | 数据存储 | SessionDB、MemoryDB、LogDB、CronDB、ChannelDB、ProjectDB、AsyncJobDB、LocalModelJobDB — 全部 SQLite（RecapDB 已随 ha-dash 迁出；大盘另有一条 `SQLITE_OPEN_READ_ONLY` 的 sessions/cron 读连接，见特征 crate 一节） |
 | 状态管理 | `AppState` + `OnceLock` 全局单例 + accessor 函数 |
 | 事件系统 | `EventBus` trait — 替代原 Tauri `APP_HANDLE.emit()` |
-| 接入层 | 12 个 IM 渠道插件、ACP stdio 协议、MCP 客户端（4 种 transport） |
+| 接入层契约 | IM 渠道 wire 类型 / worker skeleton（12 IM 插件与 dispatcher 随 ha-channel 迁出）、ACP hook 与 tool_defs（stdio server 随 ha-acp 迁出）、MCP catalog / mcp_hooks（4 种 transport 与 tool 客户端随 ha-mcp 迁出） |
 | 基础设施 | Guardian 保活、Self-Diagnosis（路径 / 日志 / 平台 / 安全 / runtime_lock 等原语已下沉 ha-base）|
 
 **主要模块**（精确清单以 `ls crates/ha-core/src/` 为准，整体 ~50+ 顶层模块）：
@@ -127,8 +127,8 @@ memory/            SQLite + FTS5 + vec0 向量 + 多种 Embedding（含 dreaming
 tool_defs/         工具契约层：TOOL_* 名字常量 / ToolDefinition 家族 /
                    ToolExecContext / ToolScope / ToolRejection（详见下文）
 tools/             内置工具集 + 并发/串行执行引擎（具体工具数量以 tools/ 子模块为准）
-channel/           12 个 IM 插件（telegram / wechat / slack / feishu / discord / qqbot /
-                   irc / signal / imessage / whatsapp / googlechat / line）+ Worker 分发 + 媒体管道
+channel/           IM 渠道**契约 + 装配台账**：wire 类型 / channel_conversations 台账 /
+                   channel_hooks 三槽（12 IM 插件与 worker 分发已随 ha-channel 迁出）
 plan/              5 态状态机（plan 设计契约 + task 进度真相）+ 步骤追踪
 subagent/          spawn + inject + Mailbox + 深度控制
 skills/            **契约 + 台账 + 纯谓词**：SkillEntry 等 wire 类型 / 条件激活
@@ -139,7 +139,8 @@ provider/          多模板 + Failover Chain + Proxy + crud helper
 context_compact/   5 层渐进式压缩 + API-Round 分组
 session/           会话 + 消息持久化 + FTS5 搜索
 project/           Project 容器（工作目录即真实文件，无独立 project_files；无反向 channel 认领）
-mcp/               MCP 客户端（stdio / Streamable HTTP / SSE / WebSocket）
+mcp/               MCP catalog（已注册工具名 / 系统提示片段的 kernel 可见面）+
+                   mcp_hooks（4 种 transport 客户端已随 ha-mcp 迁出）
 cron/              **台账**：CronDB + 排程算术 + 内存取消注册表（调度器 /
                    执行器 / 投递已随 ha-cron 迁出，见下文特征 crate 一节）
 cron_defs/         cron_jobs / cron_run_logs 的 wire 类型（契约层）
@@ -334,10 +335,14 @@ skills**；除 improve 外全部落地（improve 只拆出了 ha-eval-runtime �
 共同契约（对全部特征 crate 生效）：
 
 - **依赖方向**：特征 crate → ha-core（借用 tools registry / config / EventBus
-  等 kernel 服务）；**特征之间允许单向依赖**（无环即可——现有三条：
+  等 kernel 服务）；**特征之间允许单向依赖**（无环即可——阶段 5 收尾时六条：
   ha-design → ha-browser（render_native 复用 Chrome PDF/截图 backend）、
-  ha-design → ha-media（图/音 artifact 表单走 execute_image/execute_audio
-  唯一入口）、ha-pet → ha-media（creator 生成 sprite）；
+  ha-design → ha-media（图/音 artifact 表单走 execute_image/execute_audio）、
+  ha-design → ha-knowledge（画布把已收集的笔记作为 artifact 源）、
+  ha-pet → ha-media（creator 生成 sprite）、
+  ha-local-llm → ha-knowledge（embedding 模型下载完成后立即注册）、
+  ha-eval-runtime → ha-improve（coding_eval 复用 improve 台账 typed API）；
+  实时以 `node scripts/analyze-crate-deps.mjs` 输出为准。
   ha-core **不知道**任何特征 crate 存在——kernel 需要特征
   行为的点全部倒转为注册钩子（工具分发条目 / 启动任务 / 专用 fn-pointer 钩子）。
 - **装配**：每个调 `init_runtime` 的二进制在 init 前调 `<crate>::wire()`

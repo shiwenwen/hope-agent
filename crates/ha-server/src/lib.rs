@@ -26,17 +26,17 @@ pub mod ws;
 
 pub use config::ServerConfig;
 
-/// 特征 crate 装配序列——`hope-agent` 二进制与 `server_smoke` 集成测试的
-/// **单一来源**。
+/// 特征 crate 装配序列——**所有二进制入口共用的单一来源**：
+/// `hope-agent` server binary、`server_smoke` 集成测试、`src-tauri` 的
+/// `main.rs`/`lib.rs` 与 `crates/ha-eval/src/adapters.rs` 都调这里。
 ///
 /// **必须先于任何 `init_runtime` 路径**（server / acp / mcp 各分支）：init
 /// 尾部冻结工具注册表，之后再挂 handler 会 panic 或静默丢失。每个 `wire()`
 /// 自带 `Once`，重复调用安全。
 ///
-/// 抽成函数而非两处各抄一份：`server_smoke` 自称跑「full server runtime
-/// path」，可它原先一个特征 crate 都不 wire，于是**漏接或错序在生产入口发生
-/// 时那个测试照样绿**。共用同一份序列，smoke 才真的覆盖这条装配契约。
-/// 新增特征 crate 只需改这里一处。
+/// 新增特征 crate 只需改这里一处 + 在每个壳的 `Cargo.toml` 加 path dep；
+/// 不要重新在 shell 里内联 `wire()` 序列（历史上 4 处各抄一份，新增功能时
+/// 漏改任一处就是 `app_update` 式 registry_freeze warn 加静默丢 handler）。
 pub fn wire_features() {
     ha_updater::wire();
     ha_weather::wire();

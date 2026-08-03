@@ -427,6 +427,68 @@ const TOOL_DEFS_TEST_EDGE_BUDGET = { "tools::dispatch": 2, "tools::mod": 1 }
     )
     process.exit(1)
   }
+
+  // ── 跨 crate slash_commands 反向依赖检测 ────────────────────────────────
+  //
+  // 上面两条只扫 `crates/ha-core/src/`——特征 crate 通过
+  // `use ha_core::slash_commands::…` 拉装配层照样过关（阶段 5 第五刀后
+  // ha-channel 就短暂踩过一次，靠人工 review 兜住）。这里补一条：任何
+  // 特征 crate 源码里出现 `ha_core::slash_commands` 直接算违反。
+  //
+  // 契约与 kernel 内部两条一致：契约物走 `ha_core::slash_defs::…`，真分发
+  // 走 `ha_core::slash_hooks` 三槽，装配层留 kernel 独占。
+  // Shells（HTTP/CLI/桌面壳、辅助 binary、纯协议 crate）是装配层的合法调用
+  // 者，与 kernel `app_init` 同源；只排它们四个。src-tauri 不在 crates/ 下，
+  // 天然不进 walk。
+  const SHELLS = new Set([
+    "ha-server",
+    "ha-browser-host",
+    "ha-eval",
+    "ha-eval-spec",
+  ])
+  const featureRoots = readdirSync(path.join(repoRoot, "crates"))
+    .filter((n) => n.startsWith("ha-") && n !== "ha-core" && !SHELLS.has(n))
+    .map((n) => path.join(repoRoot, "crates", n, "src"))
+    .filter((p) => existsSync(p))
+  const crossCrateHits = []
+  for (const root of featureRoots) {
+    for (const file of walkRust(root)) {
+      const text = readFileSync(file, "utf8")
+      if (/ha_core::slash_commands\b/.test(text)) {
+        crossCrateHits.push(path.relative(repoRoot, file))
+      }
+    }
+  }
+  if (crossCrateHits.length) {
+    console.error(
+      `✗ 红线违规：特征 crate 直接依赖 ha_core::slash_commands（装配层）——` +
+        crossCrateHits.join(" "),
+    )
+    console.error(
+      "  跨 crate 亦不例外：契约物请用 ha_core::slash_defs::…，真分发请走 ha_core::slash_hooks。",
+    )
+    process.exit(1)
+  }
+}
+
+function walkRust(root) {
+  const out = []
+  const stack = [root]
+  while (stack.length) {
+    const cur = stack.pop()
+    let ents
+    try {
+      ents = readdirSync(cur, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const ent of ents) {
+      const full = path.join(cur, ent.name)
+      if (ent.isDirectory()) stack.push(full)
+      else if (ent.isFile() && ent.name.endsWith(".rs")) out.push(full)
+    }
+  }
+  return out
 }
 
 const rev = new Map([...nodes.keys()].map((n) => [n, new Map()]))

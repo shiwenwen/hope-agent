@@ -68,6 +68,11 @@ node scripts/verify-updater-pubkey.mjs
 echo "[pre-push] crate layering red line (tool_defs → tools)"
   node scripts/analyze-crate-deps.mjs > /dev/null
 
+echo "[pre-push] crate layering red line (test edges)"
+  # --tests mode locks the 3 registered legacy test edges + no cycles in the
+  # test graph. Default mode above skips cfg(test) so this is the only guard.
+  node scripts/analyze-crate-deps.mjs --tests > /dev/null
+
   echo "[pre-push] verify-updater-endpoints (tauri.conf.json ↔ ha-updater ↔ mirror PUBLIC_BASE)"
   node scripts/verify-updater-endpoints.mjs
 

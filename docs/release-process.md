@@ -38,7 +38,7 @@ PR（release notes + CHANGELOG + version bump）
 
 R2 排第一是**可达性**不是延迟：有一部分用户根本访问不了 `github.com`。
 
-两处配置必须逐项逐序相等：[`tauri.conf.json`](../src-tauri/tauri.conf.json) `plugins.updater.endpoints` ↔ [`manifest.rs`](../crates/ha-core/src/updater/manifest.rs) `UPDATE_MANIFEST_URLS`，由 [`scripts/verify-updater-endpoints.mjs`](../scripts/verify-updater-endpoints.mjs) 在 CI 与 pre-push 强制。
+两处配置必须逐项逐序相等：[`tauri.conf.json`](../src-tauri/tauri.conf.json) `plugins.updater.endpoints` ↔ [`manifest.rs`](../crates/ha-updater/src/manifest.rs) `UPDATE_MANIFEST_URLS`，由 [`scripts/verify-updater-endpoints.mjs`](../scripts/verify-updater-endpoints.mjs) 在 CI 与 pre-push 强制。
 
 GitHub 的 `releases/latest` 只解析**已 published 且非 prerelease** 的 Release，所以 draft 状态客户端拉不到。
 
@@ -438,7 +438,7 @@ dry-run 不改任何 GitHub 状态：不打 tag、不建 Release、不碰 latest
 |---|---|
 | [package.json](../package.json) | 版本号单一真相源 |
 | [src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json) | Tauri app 版本 + updater endpoints + pubkey |
-| [crates/ha-core/src/updater/manifest.rs](../crates/ha-core/src/updater/manifest.rs) | headless 侧 updater endpoints，与上一行必须逐项逐序相等 |
+| [crates/ha-updater/src/manifest.rs](../crates/ha-updater/src/manifest.rs) | headless 侧 updater endpoints，与上一行必须逐项逐序相等 |
 | [.github/workflows/release.yml](../.github/workflows/release.yml) | tag push 触发的发版 workflow，含 release notes 提取 |
 | [docs/release-notes/](release-notes/) | 双语 release notes，文件名 `vX.Y.Z[.en].md` |
 | [CHANGELOG.md](../CHANGELOG.md) | 用户视角变更日志，单行 entry + PR 引用 |

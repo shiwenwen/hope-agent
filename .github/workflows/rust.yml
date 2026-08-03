@@ -168,6 +168,7 @@ jobs:
       # 已知的存量断言失败（见 capability-eval.md）。本步骤不改任何 job 名字，
       # 因此不需要同步 ruleset 的 required_status_checks。
       - name: cargo check eval-internal-tests
+        if: env.RUN_RUST_CI == 'true'
         run: cargo check -p ha-core -p ha-eval-runtime -p ha-improve --tests --features ha-core/eval-internal-tests,ha-eval-runtime/eval-internal-tests,ha-improve/eval-internal-tests --locked
 
   test:
