@@ -409,7 +409,7 @@ flowchart TD
 
 > **入站单飞、FIFO 与停止（I8 / #608）**：fresh dispatcher 与恢复泵共用一个 `MAX_CONCURRENT_INBOUND` semaphore 限**全局**模型并发，但同一 session 的模型回合仍由 `active_turn` 严格单飞。approval / `ask_user` 回复和 Reply-only 控制命令先走控制面，不进入普通消息队列；普通消息只有在该 session 没有任何 Channel backlog 时才尝试直接 acquire，否则先下载/固化附件并写入 `queued_turn_user_messages(source=channel)`，保证新 webhook 不会越过已被泵 claim 的 FIFO 队首。request id 由 channel/account/chat/thread/provider-message-id 稳定哈希，重复 webhook 与崩溃重放用 `messages.queue_request_id` 收敛。
 >
-> 安全插入严格同源：只有正在执行的 **Channel turn** 能接收 Channel FIFO 队首；Desktop / HTTP turn 的权限、KB access 与审批上下文在回合开始时已经固定，IM 消息不得借用，因此必须等 owner turn 收尾后由泵启动独立的最小权限 Channel turn。在 Channel turn 的完整 `tool_result` 边界插入后，engine 保证至少再调用模型一轮；即使边界已经位于配置的最后一轮，也会增加一个只用于继续回答的终轮。该行成为 durable user message 后才允许下一行绑定未来边界，避免同一 burst 被批量插入后只得到一份合并回复。未命中边界则由 backend pump 在当前回复结束后按 FIFO 启动独立 Channel turn。
+> 安全插入严格同源：只有正在执行的 **Channel turn** 能接收 Channel FIFO 队首；Desktop / HTTP turn 的权限、KB access 与审批上下文在回合开始时已经固定，IM 消息不得借用，因此必须等 owner turn 收尾后由泵启动独立的最小权限 Channel turn。即使同为 Channel turn，turn-level context 也只属于发起该回合的 sender；每条插入消息必须把其 `channel_origin` 的 sender/chat allowlist 作为 `<untrusted_external_data source="im_channel_origin">` 元数据随该 user content 发送，禁止把群聊中后续发送者误归给原 sender，也禁止透传 `raw` webhook。在 Channel turn 的完整 `tool_result` 边界插入后，engine 保证至少再调用模型一轮；即使边界已经位于配置的最后一轮，也会增加一个只用于继续回答的终轮。该行成为 durable user message 后才允许下一行绑定未来边界，避免同一 burst 被批量插入后只得到一份合并回复；查询与绑定下一队首须经 `SessionDB::run`，不得在 streaming async worker 内直接执行 SQLite。未命中边界则由 backend pump 在当前回复结束后按 FIFO 启动独立 Channel turn。
 >
 > worker 重启会扫描未提交行；泵领取共享并发 permit 后才 claim，处理完成后的队列 reconciliation 持续重试直到成功，避免进程未重启时把 `dispatching` 行永久搁置。路由已被 1:1 attach 接管、账号/插件已删除、权限/mention 策略已收紧或路由信封损坏时 fail closed 丢弃该行并在会话留下可见错误，不让毒行永久阻塞 FIFO。
 >
