@@ -1,6 +1,6 @@
 [package]
 name = "ha-eval"
-version = "0.28.0"
+version = "0.29.0"
 description = "Standalone deterministic capability evaluation runner for Hope Agent"
 license.workspace = true
 authors.workspace = true
