@@ -12332,9 +12332,20 @@
       "name": "Name",
       "shortDescription": "Short description (optional)",
       "prompt": "What should your pet look like?",
+      "version": "Sprite version",
+      "versionV2": "v2 · Recommended",
+      "versionV1": "v1 · Legacy",
+      "versionV2Description": "Includes the 16 clockwise look directions used by Codex v2.",
+      "versionV1Description": "Creates the original nine-row atlas for older clients.",
       "generate": "Generate preview",
       "generating": "Creating preview…",
       "failed": "Could not create this pet"
+    },
+    "upgrade": {
+      "action": "Upgrade to v2",
+      "upgraded": "v2 copy created. Your original v1 pet is still available.",
+      "alreadyExists": "This v2 upgrade is already in your library.",
+      "failed": "Could not upgrade this pet to v2"
     },
     "export": {
       "action": "Export for Codex",

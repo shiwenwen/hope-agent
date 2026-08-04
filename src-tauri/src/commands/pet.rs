@@ -117,6 +117,13 @@ pub async fn pet_create_preview_cmd(
 }
 
 #[tauri::command]
+pub async fn pet_upgrade_v2_cmd(
+    request: ha_pet::PetUpgradeRequest,
+) -> Result<ha_pet::PetUpgradeResult, CmdError> {
+    ha_pet::upgrade_pet_to_v2(request).await.map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn pet_import_preview_cmd(
     request: ha_pet::PetImportPreviewRequest,
 ) -> Result<ha_pet::PetImportPreview, CmdError> {

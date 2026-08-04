@@ -12332,9 +12332,20 @@
       "name": "名稱",
       "shortDescription": "簡短描述（選填）",
       "prompt": "希望寵物長什麼樣子？",
+      "version": "精靈圖版本",
+      "versionV2": "v2 · 建議",
+      "versionV1": "v1 · 舊版相容",
+      "versionV2Description": "包含 Codex v2 使用的 16 個順時針注視方向。",
+      "versionV1Description": "為舊版用戶端建立原始九列精靈圖。",
       "generate": "生成預覽",
       "generating": "正在建立預覽…",
       "failed": "無法建立這隻寵物"
+    },
+    "upgrade": {
+      "action": "升級至 v2",
+      "upgraded": "已建立 v2 副本，原本的 v1 寵物仍會保留。",
+      "alreadyExists": "寵物庫中已有這個 v2 升級版本。",
+      "failed": "無法將這隻寵物升級至 v2"
     },
     "export": {
       "action": "匯出給 Codex",

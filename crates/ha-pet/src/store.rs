@@ -11,13 +11,15 @@ use base64::Engine as _;
 use rand::RngCore;
 
 use super::atlas::{
-    portable_pet_id, validate_package, ValidatedPetPackage, MAX_MANIFEST_BYTES, MAX_SPRITE_BYTES,
+    portable_pet_id, upgrade_v1_atlas_to_v2, validate_package, ValidatedPetPackage,
+    MAX_MANIFEST_BYTES, MAX_SPRITE_BYTES,
 };
 #[cfg(debug_assertions)]
 use super::types::BUILTIN_DEBUG_PET_REF;
 use super::types::{
     HopePetMetadata, PetDeleteResult, PetExportResult, PetLibrarySnapshot, PetManifest, PetRef,
-    PetSourceKind, PetSummary, BUILTIN_DEFAULT_PET_REF,
+    PetSourceKind, PetSpriteVersion, PetSummary, PetUpgradeRequest, PetUpgradeResult,
+    BUILTIN_DEFAULT_PET_REF,
 };
 
 const HOPE_SCHEMA_VERSION: u32 = 1;
@@ -350,6 +352,68 @@ fn package_for_export(pet_ref: &PetRef) -> Result<ValidatedPetPackage> {
     let sprite_path = root.join(&summary.manifest.spritesheet_path);
     let sprite = fs::read(sprite_path)?;
     validate_package(summary.manifest, sprite)
+}
+
+fn package_source_kind(pet_ref: &PetRef) -> Result<PetSourceKind> {
+    if pet_ref.0 == BUILTIN_DEFAULT_PET_REF {
+        return Ok(PetSourceKind::Created);
+    }
+    #[cfg(debug_assertions)]
+    if pet_ref.0 == BUILTIN_DEBUG_PET_REF {
+        return Ok(PetSourceKind::Created);
+    }
+    let id = pet_ref
+        .custom_id()
+        .ok_or_else(|| anyhow::anyhow!("pet_ref_invalid"))?;
+    let root = ha_core::paths::pet_dir(id)?;
+    Ok(read_custom_summary(id, &root)?.source_kind)
+}
+
+fn upgrade_pet_to_v2_blocking(request: PetUpgradeRequest) -> Result<PetUpgradeResult> {
+    let source_kind = package_source_kind(&request.pet_ref)?;
+    let package = package_for_export(&request.pet_ref)?;
+    if package.package_hash != request.expected_package_hash {
+        anyhow::bail!("stale_pet_package");
+    }
+    if package.manifest.sprite_version_number != PetSpriteVersion::V1 {
+        anyhow::bail!("pet_upgrade_requires_v1");
+    }
+
+    let sprite = upgrade_v1_atlas_to_v2(&package.sprite_bytes)?;
+    let mut manifest = package.manifest;
+    manifest.sprite_version_number = PetSpriteVersion::V2;
+    manifest.spritesheet_path = "spritesheet.png".to_string();
+    let upgraded = validate_package(manifest, sprite)?;
+    let (pet, installed) = install_validated(
+        &upgraded,
+        source_kind,
+        Some(format!("upgrade:{}", request.pet_ref.0)),
+    )?;
+    Ok(PetUpgradeResult {
+        pet,
+        upgraded: installed,
+    })
+}
+
+/// Create a non-destructive v2 copy of an installed v1 pet. If the source pet
+/// is currently selected, switch selection only after the upgraded package is
+/// durably installed. Retaining the v1 source makes the one-click operation
+/// recoverable without a second rollback store.
+pub async fn upgrade_pet_to_v2(request: PetUpgradeRequest) -> Result<PetUpgradeResult> {
+    let source_ref = request.pet_ref.clone();
+    let result =
+        ha_core::blocking::run_blocking(move || upgrade_pet_to_v2_blocking(request)).await?;
+    let switched_selection =
+        super::replace_selected_pet_if(source_ref, result.pet.pet_ref.clone(), "pet-upgrade-v2")
+            .await?;
+    ha_core::app_info!(
+        "pet",
+        "upgrade_v2",
+        "Installed Codex v2 pet upgrade (new_package={}, switched_selection={})",
+        result.upgraded,
+        switched_selection
+    );
+    Ok(result)
 }
 
 /// Build a minimal Codex-compatible package. Unknown source-manifest fields

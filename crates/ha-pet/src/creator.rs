@@ -5,8 +5,8 @@ use anyhow::{Context, Result};
 use image::{ImageFormat, Rgba, RgbaImage};
 
 use super::atlas::{
-    portable_pet_id, sanitize_text, validate_package, ATLAS_WIDTH, CELL_HEIGHT, CELL_WIDTH,
-    V1_HEIGHT,
+    portable_pet_id, sanitize_text, upgrade_v1_atlas_to_v2, validate_package, ATLAS_WIDTH,
+    CELL_HEIGHT, CELL_WIDTH, V1_HEIGHT,
 };
 use super::types::{PetCreateRequest, PetImportPreview, PetManifest, PetSpriteVersion};
 
@@ -146,7 +146,7 @@ fn pose(row: u32, frame: u32) -> (i32, i32, f32, bool) {
     }
 }
 
-fn build_atlas(source: &[u8]) -> Result<Vec<u8>> {
+fn build_atlas(source: &[u8], version: PetSpriteVersion) -> Result<Vec<u8>> {
     if source.is_empty() || source.len() > super::atlas::MAX_SPRITE_BYTES {
         anyhow::bail!("pet_creator_source_size_invalid");
     }
@@ -216,10 +216,15 @@ fn build_atlas(source: &[u8]) -> Result<Vec<u8>> {
     }
     let mut output = Cursor::new(Vec::new());
     image::DynamicImage::ImageRgba8(atlas).write_to(&mut output, ImageFormat::Png)?;
-    Ok(output.into_inner())
+    let v1 = output.into_inner();
+    match version {
+        PetSpriteVersion::V1 => Ok(v1),
+        PetSpriteVersion::V2 => upgrade_v1_atlas_to_v2(&v1),
+    }
 }
 
 pub async fn create_preview(request: PetCreateRequest) -> Result<PetImportPreview> {
+    let sprite_version_number = request.sprite_version_number;
     let display_name = sanitize_text(&request.display_name, 256);
     let description = request
         .description
@@ -260,12 +265,15 @@ pub async fn create_preview(request: PetCreateRequest) -> Result<PetImportPrevie
         .into_iter()
         .next()
         .ok_or_else(|| anyhow::anyhow!("pet_creator_no_image"))?;
-    let atlas = ha_core::blocking::run_blocking(move || build_atlas(&generated.data)).await?;
+    let atlas = ha_core::blocking::run_blocking(move || {
+        build_atlas(&generated.data, sprite_version_number)
+    })
+    .await?;
     let manifest = PetManifest {
         id: portable_pet_id(&display_name),
         display_name,
         description,
-        sprite_version_number: PetSpriteVersion::V1,
+        sprite_version_number,
         spritesheet_path: "spritesheet.png".to_string(),
     };
     let package =
@@ -279,7 +287,7 @@ mod tests {
     use image::GenericImageView;
 
     #[test]
-    fn generated_atlas_has_codex_v1_geometry() {
+    fn generated_atlas_supports_codex_v1_and_defaults_to_v2_shape() {
         let source = RgbaImage::from_fn(64, 64, |x, y| {
             if (12..52).contains(&x) && (8..58).contains(&y) {
                 Rgba([40, 120, 240, 255])
@@ -291,8 +299,16 @@ mod tests {
         image::DynamicImage::ImageRgba8(source)
             .write_to(&mut bytes, ImageFormat::Png)
             .unwrap();
-        let atlas = build_atlas(&bytes.into_inner()).unwrap();
-        let dimensions = image::load_from_memory(&atlas).unwrap().dimensions();
-        assert_eq!(dimensions, (ATLAS_WIDTH, V1_HEIGHT));
+        let source = bytes.into_inner();
+        let v1 = build_atlas(&source, PetSpriteVersion::V1).unwrap();
+        assert_eq!(
+            image::load_from_memory(&v1).unwrap().dimensions(),
+            (ATLAS_WIDTH, V1_HEIGHT)
+        );
+        let v2 = build_atlas(&source, PetSpriteVersion::V2).unwrap();
+        assert_eq!(
+            image::load_from_memory(&v2).unwrap().dimensions(),
+            (ATLAS_WIDTH, super::super::atlas::V2_HEIGHT)
+        );
     }
 }

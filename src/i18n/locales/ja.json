@@ -12332,9 +12332,20 @@
       "name": "名前",
       "shortDescription": "短い説明（任意）",
       "prompt": "どんな見た目のペットにしますか？",
+      "version": "スプライトバージョン",
+      "versionV2": "v2 · 推奨",
+      "versionV1": "v1 · 旧形式",
+      "versionV2Description": "Codex v2 の時計回り16方向の視線ポーズを含みます。",
+      "versionV1Description": "古いクライアント向けの元の9行アトラスを作成します。",
       "generate": "プレビューを生成",
       "generating": "プレビューを作成中…",
       "failed": "このペットを作成できませんでした"
+    },
+    "upgrade": {
+      "action": "v2 にアップグレード",
+      "upgraded": "v2 のコピーを作成しました。元の v1 ペットも残っています。",
+      "alreadyExists": "この v2 アップグレードはすでにライブラリにあります。",
+      "failed": "このペットを v2 にアップグレードできませんでした"
     },
     "export": {
       "action": "Codex 用にエクスポート",

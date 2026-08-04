@@ -12332,9 +12332,20 @@
       "name": "Nama",
       "shortDescription": "Penerangan ringkas (pilihan)",
       "prompt": "Apakah rupa haiwan peliharaan anda?",
+      "version": "Versi helaian sprite",
+      "versionV2": "v2 · Disyorkan",
+      "versionV1": "v1 · Legasi",
+      "versionV2Description": "Termasuk 16 arah pandangan mengikut arah jam yang digunakan oleh Codex v2.",
+      "versionV1Description": "Mencipta atlas sembilan baris asal untuk klien lama.",
       "generate": "Jana pratonton",
       "generating": "Mencipta pratonton…",
       "failed": "Tidak dapat mencipta haiwan ini"
+    },
+    "upgrade": {
+      "action": "Naik taraf ke v2",
+      "upgraded": "Salinan v2 telah dicipta. Haiwan v1 asal masih tersedia.",
+      "alreadyExists": "Naik taraf v2 ini sudah ada dalam pustaka anda.",
+      "failed": "Tidak dapat menaik taraf haiwan ini ke v2"
     },
     "export": {
       "action": "Eksport untuk Codex",

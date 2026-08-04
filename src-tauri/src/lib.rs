@@ -231,6 +231,7 @@ pub fn run() {
             commands::pet::pet_candidate_thumbnail_cmd,
             commands::pet::pet_preview_thumbnail_cmd,
             commands::pet::pet_create_preview_cmd,
+            commands::pet::pet_upgrade_v2_cmd,
             commands::pet::pet_import_preview_cmd,
             commands::pet::pet_import_preview_cancel_cmd,
             commands::pet::pet_import_commit_cmd,

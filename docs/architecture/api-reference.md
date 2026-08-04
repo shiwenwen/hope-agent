@@ -328,6 +328,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `pet_candidate_thumbnail_cmd` | `GET /api/pets/codex-candidates/{candidateId}/thumbnail` | ✅ |
 | `pet_preview_thumbnail_cmd` | `GET /api/pets/import/previews/{previewToken}/thumbnail` | ✅（1536×208 idle 动画条） |
 | `pet_create_preview_cmd` | `POST /api/pets/create/preview` | ✅（显式 media generation） |
+| `pet_upgrade_v2_cmd` | `POST /api/pets/upgrade-v2` | ✅（保留 v1、安装 v2 副本；持久化成功后仅当 v1 仍被选中时切换到 v2） |
 | `pet_import_preview_cmd` | `POST /api/pets/import/preview` | ✅（HTTP 拒绝 LocalPath，只接受 upload/link/candidate capability） |
 | `pet_import_preview_cancel_cmd` | `POST /api/pets/import/preview/cancel` | ✅（token 只放 JSON body；幂等释放 preview cache 与其 upload leases） |
 | `pet_import_commit_cmd` | `POST /api/pets/import/commit` | ✅（HTTP 拒绝 `enableAfterImport=true`，不能启用桌面 overlay） |

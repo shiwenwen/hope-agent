@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import {
   AlertCircle,
+  ArrowUpCircle,
   Check,
   Download,
   FileArchive,
@@ -40,6 +41,7 @@ import {
 import { IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RadioPills } from "@/components/ui/radio-pills"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { AnimatedPetSprite, PetSprite } from "@/components/pet/PetSprite"
@@ -57,6 +59,7 @@ import type {
   PetImportSource,
   PetLibrarySnapshot,
   PetSummary,
+  PetUpgradeResult,
 } from "@/types/pet"
 
 type SaveStatus = "idle" | "saving" | "saved" | "failed"
@@ -306,8 +309,10 @@ export default function PetSettingsPanel({
   const [createName, setCreateName] = useState("")
   const [createDescription, setCreateDescription] = useState("")
   const [createPrompt, setCreatePrompt] = useState("")
+  const [createVersion, setCreateVersion] = useState<1 | 2>(2)
   const [creating, setCreating] = useState(false)
   const [exportingRef, setExportingRef] = useState<string | null>(null)
+  const [upgradingRef, setUpgradingRef] = useState<string | null>(null)
   const browserFileInputRef = useRef<HTMLInputElement>(null)
   const dropZoneRef = useRef<HTMLDivElement>(null)
   const previewRequestRevision = useRef(0)
@@ -620,6 +625,7 @@ export default function PetSettingsPanel({
           displayName: createName,
           description: createDescription.trim() || null,
           prompt: createPrompt,
+          spriteVersionNumber: createVersion,
         },
       })
       if (revision === creatorRequestRevision.current) replacePreviews([next])
@@ -632,6 +638,34 @@ export default function PetSettingsPanel({
       }
     } finally {
       if (revision === creatorRequestRevision.current) setCreating(false)
+    }
+  }
+
+  const upgradePet = async (pet: PetSummary) => {
+    setUpgradingRef(pet.petRef)
+    try {
+      const result = await getTransport().call<PetUpgradeResult>("pet_upgrade_v2_cmd", {
+        request: {
+          petRef: pet.petRef,
+          expectedPackageHash: pet.packageHash,
+        },
+      })
+      await reload()
+      toast.success(
+        result.upgraded
+          ? t("pet.upgrade.upgraded", {
+              defaultValue: "v2 copy created. Your original v1 pet is still available.",
+            })
+          : t("pet.upgrade.alreadyExists", {
+              defaultValue: "This v2 upgrade is already in your library.",
+            }),
+      )
+    } catch (error) {
+      toast.error(t("pet.upgrade.failed", { defaultValue: "Could not upgrade this pet to v2" }), {
+        description: String(error),
+      })
+    } finally {
+      setUpgradingRef(null)
     }
   }
 
@@ -931,6 +965,24 @@ export default function PetSettingsPanel({
                     </span>
                   </Button>
                   <div className="absolute right-3 top-3 flex items-center gap-1">
+                    {pet.manifest.spriteVersionNumber === 1 && (
+                      <IconTip label={t("pet.upgrade.action", { defaultValue: "Upgrade to v2" })}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={upgradingRef !== null}
+                          onClick={() => void upgradePet(pet)}
+                          className="h-7 w-7 bg-background/85 text-muted-foreground backdrop-blur-sm"
+                        >
+                          {upgradingRef === pet.petRef ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <ArrowUpCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                          )}
+                        </Button>
+                      </IconTip>
+                    )}
                     <IconTip label={t("pet.export.action", { defaultValue: "Export for Codex" })}>
                       <Button
                         type="button"
@@ -1197,6 +1249,34 @@ export default function PetSettingsPanel({
                   rows={4}
                   onChange={(event) => setCreatePrompt(event.target.value)}
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("pet.creator.version", { defaultValue: "Sprite version" })}</Label>
+                <RadioPills<1 | 2>
+                  value={createVersion}
+                  options={[
+                    {
+                      value: 2,
+                      label: t("pet.creator.versionV2", { defaultValue: "v2 · Recommended" }),
+                    },
+                    {
+                      value: 1,
+                      label: t("pet.creator.versionV1", { defaultValue: "v1 · Legacy" }),
+                    },
+                  ]}
+                  onChange={setCreateVersion}
+                  cols="grid-cols-2"
+                  ariaLabel={t("pet.creator.version", { defaultValue: "Sprite version" })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {createVersion === 2
+                    ? t("pet.creator.versionV2Description", {
+                        defaultValue: "Includes the 16 clockwise look directions used by Codex v2.",
+                      })
+                    : t("pet.creator.versionV1Description", {
+                        defaultValue: "Creates the original nine-row atlas for older clients.",
+                      })}
+                </p>
               </div>
               <Button
                 type="button"

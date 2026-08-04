@@ -12332,9 +12332,20 @@
       "name": "Ad",
       "shortDescription": "Kısa açıklama (isteğe bağlı)",
       "prompt": "Evcil hayvanınız nasıl görünmeli?",
+      "version": "Sprite sürümü",
+      "versionV2": "v2 · Önerilen",
+      "versionV1": "v1 · Eski",
+      "versionV2Description": "Codex v2 tarafından kullanılan saat yönündeki 16 bakış yönünü içerir.",
+      "versionV1Description": "Eski istemciler için özgün dokuz satırlı atlası oluşturur.",
       "generate": "Önizleme oluştur",
       "generating": "Önizleme oluşturuluyor…",
       "failed": "Bu evcil hayvan oluşturulamadı"
+    },
+    "upgrade": {
+      "action": "v2'ye yükselt",
+      "upgraded": "v2 kopyası oluşturuldu. Özgün v1 evcil hayvanınız korunuyor.",
+      "alreadyExists": "Bu v2 yükseltmesi zaten kitaplığınızda.",
+      "failed": "Bu evcil hayvan v2'ye yükseltilemedi"
     },
     "export": {
       "action": "Codex için dışa aktar",
