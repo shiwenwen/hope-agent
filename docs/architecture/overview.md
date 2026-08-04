@@ -77,7 +77,7 @@ graph TD
 | ha-skills | 技能：解包 / 发现 / 创作 / auto-review |
 | ha-improve | 学习闭环：提案队列 / 领域评测 / 质量复核 |
 
-> Tauri 命令、HTTP 端点、工具数量是会增长的活数据；以 [API 参考](api-reference.md) 为单一真相源，其它文档不重复维护精确数字。
+> Tauri 命令、HTTP 端点、工具数量是会增长的活数据；准确数字见 [API 参考](api-reference.md)。
 
 ## 核心数据流
 

@@ -1744,7 +1744,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 
 `search-files` 在 `root` 下做 fuzzy 搜索，供聊天输入框 `@` mention popper 的"搜索模式"使用——用户输入 `@chat` 这种不含 `/` 的非空 token 时调用。后端用 `ignore::WalkBuilder` 遍历，遵守 `.gitignore` / `.git/info/exclude` / `.ignore` / 隐藏文件规则；`q` 按子序列匹配 + 评分（name 命中 +1000、path 命中 +200，靠近开头 + 跨度紧凑得分高）。响应 `{ root, matches: [{ name, path, relPath, isDir, score }], truncated }`，按 score desc + path asc 排序；`limit` 默认 50，最大 200；单次最多遍历 50000 条文件，超出 `truncated=true`。
 
-两个 endpoint 桌面用 Tauri 原生 dialog（`pickLocalDirectory`）做目录初选时仍优先走 `@tauri-apps/plugin-dialog`，但 mention popper 在 Tauri 模式同样需要列目录 / 搜索能力，因此两个命令在桌面端也 invoke 注册。核心逻辑在 [`crates/ha-core/src/filesystem/mod.rs`](crates/ha-core/src/filesystem/mod.rs) 单一来源，axum / Tauri 两侧都是薄壳。
+两个 endpoint 桌面用 Tauri 原生 dialog（`pickLocalDirectory`）做目录初选时仍优先走 `@tauri-apps/plugin-dialog`，但 mention popper 在 Tauri 模式同样需要列目录 / 搜索能力，因此两个命令在桌面端也 invoke 注册。核心逻辑在 [`crates/ha-core/src/filesystem/mod.rs`](../../crates/ha-core/src/filesystem/mod.rs) 单一来源，axum / Tauri 两侧都是薄壳。
 
 ### Terminal
 
