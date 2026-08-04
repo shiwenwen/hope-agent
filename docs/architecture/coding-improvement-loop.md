@@ -1,112 +1,103 @@
 # Coding Improvement Loop
 
-> 返回 [技术文档索引](../README.md)
->
-> 状态：Phase 7.5 已实现。本文是 `ha_improve::coding_improvement`（机器）+ `ha_core::coding_improvement`（台账）、`ha_dash::dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Domain Learning proposals、Gold Pack / Strategy Effect history、External Model Baseline、Release Gate、Learning Generalization Gate、Benchmark Run Center、Benchmark Campaign Runner、Cross-model Leaderboard、Benchmark Task Corpus、Benchmark Report Export、Continuous Benchmark Gate、Benchmark Improvement Backlog、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
+> 返回 [技术文档索引](../README.md) | 更新时间：2026-07-23
 
-## Crate 边界（阶段 5 第八刀）
+**关联源码**
+- 台账（kernel）：`crates/ha-core/src/coding_improvement.rs`
+- 分析机器：`crates/ha-improve/src/coding_improvement.rs`
+- 执行机器：`crates/ha-eval-runtime/src/coding_eval.rs`
+- 只读聚合：`crates/ha-dash/src/dashboard/coding_improvement.rs`
+- HTTP 路由：`crates/ha-server/src/routes/coding_improvement.rs`、`crates/ha-server/src/routes/coding_eval.rs`
 
-本子系统自 0.25 起横跨两个 crate，**分界线是「方法是否直接摸 `sessions.db`
-连接」**（对 `impl SessionDB` 做不动点，摸连接的与被摸连接者调用的全部留守）：
+## 核心思想
 
-| | 位置 | 内容 |
+Hope Agent 在做编码任务时，会持续往 `sessions.db` 写下大量控制面事实：目标是否完成、工作流卡在哪一步、代码复核发现了什么、验证命令有没有跑通、评测 fixture 是通过还是失败。这些数据平时只用来驱动当前一次任务，任务结束就沉睡在库里。
+
+Coding Improvement Loop 的想法是：**把这些已经持久化的事实，转成一条可审计、可复核的改进回路**——自动看出"最近这一批编码任务反复栽在哪里"，把失败模式沉淀成可复用的评测用例、工作流脚本、项目规则或技能草稿，让下一批任务少踩同样的坑。
+
+整套回路守着三条设计取向，理解它们就理解了这个子系统怎么想：
+
+1. **不依赖 LLM。** 趋势报告、失败分类、候选生成、蒸馏全部是规则式确定性计算，只读已有数据库事实。同一份历史永远算出同一份结论，可以进确定性评测，也不产生推理费用。
+2. **人拍板，系统不自作主张。** 系统只生成 **draft 草案**；用户明确"应用"后，也只落在可复核的草稿路径下（草稿评测用例、草稿文档、managed draft 技能），绝不直接改项目规则、`AGENTS.md`、用户记忆或生产 fixture。只有用户再次明确"晋升"，草稿才变成正式产物。
+3. **失败必须可见，不能被静默洗白。** 无论是评测失败、campaign 中断，还是跨项目泛化不成立，都以红色数字、backlog item 或三态门禁的形式暴露出来，而不是悄悄改成一条"新规则"。
+
+围绕这条回路，还长出一套 **Benchmark 台面**：把编码能力评测做成可持久追踪的 campaign、跨模型榜单、任务集 registry、报告快照和持续发布门禁——同样只读历史、同样不冒充真实模型能力。
+
+## 分层与 crate 边界
+
+这条回路的代码横跨四个 crate，加上两层薄壳。分工的关键在于一条硬边界：**谁直接摸 `sessions.db` 连接，谁就留在 kernel。**
+
+| 角色 | crate | 职责 |
 |---|---|---|
-| **台账** | `crates/ha-core/src/coding_improvement.rs` | wire 类型、行映射、`ensure_tables`，以及全部直接执行 SQL 的 `impl SessionDB` 方法 |
-| **机器** | `crates/ha-improve/src/coding_improvement.rs` | 顶层入口——一处连接都不碰，只调台账的类型化方法 |
+| **台账** | `ha-core`（kernel） | 建表 `ensure_tables`、行映射、wire 类型、Scope 谓词，以及全部直接执行 SQL 的 `impl SessionDB` 方法（含 Release Gate、Generalization Gate 两条门禁——它们内部直接跑 SQL，按边界规则留在这里） |
+| **分析机器** | `ha-improve` | 顶层编排入口——趋势报告、候选生成、蒸馏、Apply/Promotion 计划、Continuous Gate；一处连接都不碰，只调台账的类型化方法 |
+| **执行机器** | `ha-eval-runtime` | 真正跑评测的 runner：fixture harness、Gold Task Pack、Benchmark Campaign。它执行评测并把结果**写回**回路要读的 pack run / eval run |
+| **只读聚合** | `ha-dash` | 全局 / 项目级 Learning Dashboard，只读台账、不回写 |
+| **薄壳** | `ha-server` / `src-tauri` | HTTP·WS 与 Tauri 命令的传输适配 |
 
-固有 impl 不能跨 crate，所以上浮的方法在 ha-improve 里是自由函数
-`fn f(db: &SessionDB, …)`。`SessionDB::with_conn_internal` 仍是 `pub(crate)`，
-ha-improve 生产代码零连接触点。新增 owner 入口时：**SQL 写台账、编排写机器**。
+因为 Rust 的固有 `impl` 不能跨 crate，上浮到 `ha-improve` 的方法都写成自由函数 `fn f(db: &SessionDB, …)`。`SessionDB::with_conn_internal` 仍是 `pub(crate)`，`ha-improve` 生产代码对数据库连接零触点。新增 owner 入口时的规矩很简单：**SQL 写台账，编排写机器。**
 
-详见 [前后端分离架构](backend-separation.md) 的 ha-improve 小节。
+依赖方向是 `ha-eval-runtime → ha-improve → ha-core`，`ha-dash → ha-core`；薄壳直连四者：除了转发给执行 / 分析 / 聚合三台机器，大量传输路由还直接调用 `ha-core` 台账的 `SessionDB` 方法（Release Gate、Generalization Gate、proposal 增删查、benchmark 台账等都是薄壳直调）。
 
-## 目标
+```mermaid
+flowchart TB
+    shells["ha-server / src-tauri<br/>HTTP · WS · Tauri 薄壳"]
+    runtime["ha-eval-runtime · 执行机器<br/>fixture harness · Gold Pack runner · Campaign runner"]
+    improve["ha-improve · 分析机器<br/>Trend Report · Proposal · 蒸馏 · Apply/Promotion · Continuous Gate<br/>（生产代码零 sessions.db 连接触点）"]
+    dash["ha-dash · 只读聚合<br/>Learning Dashboard"]
+    core["ha-core（kernel）· 台账<br/>ensure_tables · 行映射 · wire 类型 · Scope 谓词 · 全部 SQL<br/>Release / Generalization Gate"]
+    db[("sessions.db")]
 
-Coding Improvement Loop 把已经持久化的 coding 控制面数据转成可审计的改进回路：
+    shells --> runtime
+    shells --> improve
+    shells --> dash
+    shells --> core
+    runtime --> improve
+    improve --> core
+    dash --> core
+    core --> db
+```
 
-- 基于 durable data 生成近 30 天 coding trend report，不调用 LLM。
-- 汇总 Goal / Workflow / Review / Smart Verification / Repair Loop / Coding Eval 信号。
-- 把失败模式归类成稳定 taxonomy，解释为什么完成、阻塞或需要改进。
-- 从失败 run 生成 eval candidate proposal，从成功 run 生成 workflow / guidance / skill proposal。
-- proposal 默认只生成草案；用户明确应用后，也只落 reviewable draft artifact 或 managed draft skill，不直接修改项目规则、AGENTS、用户记忆或生产 fixture。
-- workflow 进入终态时自动生成 lightweight retro；retro recommendation 也可进入 proposal queue。
-- 用户可显式触发 transcript distillation：扫描真实 session transcript、tool error、workflow op shape 和 failure taxonomy，生成更高质量的 workflow / skill / guidance proposal。
-- 已应用草稿可显式 promotion：eval candidate 迁入正式 fixture 路径，workflow/guidance 写入项目 promoted docs 并由 AGENTS.md managed include 引入，skill draft 激活为 managed active skill。
-- Dashboard Learning Tab 提供全局 / 项目级 Coding Improvement 聚合：workflow completion、eval success、pack pass rate、strategy verdict、tool-call failure mode、validation / scope creep delta、review blocker、verification failure、proposal status、retro recommendation、top failure mode 与最近 retro。
-- Release Gate 把持久化 pack / strategy / tool-call history 变成可配置的发布质量阈值，输出 `passed` / `failed` / `insufficient_data` 三态结论。
-- Learning Generalization Gate 读取多个项目的 promoted learning、Gold Pack history 与 Strategy Effect history，判断 guidance / workflow / skill 学习成果是否跨项目成立，而不是只优化单项目 fixture。
-- Benchmark Run Center 聚合 Gold Pack history、baseline kind、最近 run、Release Gate 与 Learning Generalization Gate，让用户在 Dashboard 里看到当前 coding benchmark 是否可发布、是否有外部模型基线、最近失败 case 是什么，并能显式启动安全 deterministic Benchmark Campaign。
-- Benchmark Campaign Runner 把单次 Gold Pack run 包装成 durable campaign：记录 task filter、provider/model matrix、子 item 状态、attempt、pack run 关联、取消与 retry 入口，且 campaign history 不保存 provider secret。
-- Cross-model Leaderboard 基于 campaign item history 聚合同一 task pack / source doc / execution mode / baseline kind 下的 provider/model 表现，显示 case pass rate、item pass rate、样本量 warning，并保留 evidence 链回 campaign item 与 pack run。
-- Benchmark Task Corpus 提供 owner-plane task pack registry：导入显式 manifest、记录来源/license/privacy/redaction、保留 pack/task version、区分 draft/active/archive、验证 active task 质量，并输出 corpus health report。
-- Benchmark Report Export 把 campaign / comparison / release benchmark 生成 Markdown / JSON / HTML snapshot，记录 report history，并允许用户显式标记 release evidence。
-- Continuous Benchmark Gate 把 release gate、release evidence report、recent campaign、corpus health、leaderboard、失败 backlog、外部模型 opt-in、预算和可靠性指标合成一条可发布 / 可阻断的持续 benchmark 结论。
-- Benchmark Improvement Backlog 把 failed / interrupted / cancelled campaign item 物化成可处理 backlog item，保留 task id、model、baseline、失败分类、pack report evidence 和 campaign evidence，避免失败只停留在红色数字。
-- Phase 7.5 复用同一 proposal queue 承接通用领域学习：从 Domain Quality run/check/evidence 中生成 `domain_workflow_template`、`domain_guidance`、`domain_review_profile`、`domain_eval_case`、`connector_usage_pattern` 草稿，仍然必须 preview/apply/promotion，不能直接改生产模板或连接器策略。
+一个容易误读的点：**执行机器和分析机器是两回事。** `ha-eval-runtime` 负责真的跑评测、把 pack run 写进库；`ha-improve` 只负责读这些库里的事实、算出改进结论。回路本身从不执行项目命令、不跑模型——那是执行机器的活。
 
-## 数据模型
+crate 拆分的更多背景见 [前后端分离架构](backend-separation.md) 的 ha-improve 小节。
 
-初始化入口在 `SessionDB::open()`，由 `crate::coding_improvement::ensure_tables()` 创建下列持久化表。
+## 端到端数据流
 
-| 表 | 说明 |
-| --- | --- |
-| `coding_eval_runs` | 记录 deterministic eval 或外部评测运行结果，字段包括 `session_id`、`project_id`、`suite`、`name`、`status`、`metrics_json`、`source_type`、`source_id`、`created_at`。 |
-| `coding_eval_pack_runs` | Phase 5.7 新增。记录 `GoldTaskPackReport` history，字段包括 `pack_id`、`source_doc`、`label`、`baseline_kind`、pack pass/fail/skipped/checks 汇总、`report_json`、`source_type`、`source_id`、`created_at`。`baseline_kind` 用来区分 `deterministic_mock` / `mock_provider` / `external_model`，避免把 fixture / mock 基线冒充真实模型能力。Phase 5.9 后 `external_model` pack run 必须来自 `executionMode="agent"` + 显式 provider/modelChain。 |
-| `coding_strategy_effect_runs` | Phase 5.7 新增。记录 `StrategyEffectReport` history，字段包括 `strategy_type`、baseline/candidate label、可选 pack run 关联、`verdict`、共同 case 数、pass rate / task score / context recall / validation / scope creep / execution failure delta、`report_json`、`source_type`、`source_id`、`created_at`。 |
-| `coding_benchmark_campaigns` | Phase 6.2 新增。记录 durable benchmark campaign，字段包括 scope、name、status、task pack/source doc、execution/baseline kind、`task_filter_json`、`model_matrix_json`、预算/超时、错误和开始/结束时间。`task_filter_json` 会清空 providers / modelChain，避免 provider config 或 API key 进入 history。 |
-| `coding_benchmark_campaign_items` | Phase 6.2 新增。记录每个 campaign item 的 provider/model/label、status、attempt、关联 `pack_run_id`、case/check 汇总、截断后的 `report_json`、error、开始/结束时间。 |
-| `coding_benchmark_task_packs` | Phase 6.4 新增。记录 corpus task pack manifest，字段包括 `pack_id`、`pack_version`、name、status、source kind / URI、repo template、license / privacy note、redaction status、import source、manifest JSON、created/updated/activated/archived 时间；`(pack_id, pack_version)` 唯一，导入同版本不会覆盖历史。 |
-| `coding_benchmark_task_pack_tasks` | Phase 6.4 新增。记录 pack 内 task version，字段包括 task id/version/title/status、task type、difficulty、language/framework、source URI、repo template、tags、success criteria、validation commands、allowed/forbidden paths、calibration notes、license/privacy/redaction、risk flags、fingerprint；`(pack_id, pack_version, task_id, task_version)` 唯一。 |
-| `coding_benchmark_reports` | Phase 6.5 新增。记录 benchmark report history，字段包括 report type、title、三态 status、scope、session/project、source type/id、campaign ids、不可变 snapshot JSON、Markdown / JSON / HTML 路径、release evidence 标记和创建/更新时间。 |
-| `coding_benchmark_backlog_items` | Phase 6.6 新增。记录 failed / interrupted / cancelled benchmark item 物化出的 improvement backlog，字段包括 status、severity、failure category、scope、campaign/item/pack/task、provider/model、baseline/execution、evidence JSON、proposal 关联和 resolved 时间；`(campaign_item_id, task_id)` 唯一，避免重复创建。 |
-| `coding_workflow_retros` | workflow 终态 retro，字段包括 `workflow_run_id`、`run_state`、`summary`、`signals_json`、`recommendations_json`、`project_id`、`created_at`、`updated_at`。`workflow_run_id` 唯一，重复终态回写走 upsert。 |
-| `coding_improvement_proposals` | 改进候选草案队列，字段包括 `kind`、`status`、`source_type`、`source_id`、`title`、`body`、`payload_json`、`fingerprint`、`decided_at`、`apply_result_json`、`applied_at`、`promotion_result_json`、`promoted_at`。 |
+一句话概括整条回路：**控制面事实 → 趋势报告 → 候选草案 → 应用为草稿 → 晋升为正式产物**，门禁在旁边只读地看着这些历史，判断能不能发布。
 
-`coding_improvement_proposals` 对 `(session_id, fingerprint)` 建唯一索引；重复生成同一候选只返回既有草案，不制造噪音。
+```mermaid
+flowchart LR
+    A["控制面持久事实<br/>Goal · Workflow · Review · Verification · Eval"] --> B["Trend Report<br/>确定性汇总 + 失败分类"]
+    A --> C["Transcript 蒸馏<br/>transcript · tool error · workflow op"]
+    W["Workflow 终态 Retro"] --> B
+    B --> P["Proposal 队列（draft）"]
+    C --> P
+    W --> P
+    P -->|apply| D["草稿产物<br/>.hope-agent/coding-improvement/"]
+    D -->|promote| E["正式产物<br/>fixture · promoted docs · active skill"]
+    A --> G["Release / Generalization / Continuous Gate<br/>只读三态门禁"]
+```
 
-## Transcript Distillation
+- **Trend Report** 是入口视图：把最近窗口内的控制面事实汇总成一份报告，并把失败归类成稳定 taxonomy。
+- **Proposal 队列** 是回路的中枢：所有候选（无论来自趋势报告、蒸馏还是 retro）都落进同一张 `coding_improvement_proposals` 表，走同一套状态机。
+- **Apply / Promotion** 是唯二会写产物的动作，都必须用户显式触发、都先 preview。
+- **门禁** 只消费历史、只输出三态结论，从不生成或改写 proposal。
 
-Phase 4.4 新增显式 owner-plane action：`distill_coding_improvement_proposals(session_id, window_days)`。
+## Scope 与窗口
 
-它和 `generate_coding_improvement_proposals()` 的区别：
+回路的所有入口都以当前 `session_id` 为锚点，由 `SessionDB::resolve_coding_report_scope` 统一解析：
 
-| Action | 输入信号 | 输出 |
-| --- | --- | --- |
-| `generate_coding_improvement_proposals` | 已聚合的 trend report / retro recommendation | 粗粒度 eval / workflow / guidance / skill 候选。 |
-| `distill_coding_improvement_proposals` | trend report + scope 内最近 transcript + tool result + workflow ops | 带 transcript/workflow/failure evidence 的 workflow template、skill candidate、failure guidance、tool guidance 候选。 |
-
-蒸馏过程仍然完全确定性：
-
-- 不调用 LLM，不执行项目命令，不写项目文件。
-- 读取 scope 内最多 12 个最近 session，每个 session 最多 80 条最新 message。
-- 统计 user/assistant/tool message、top tool、tool error、objective snippet、error snippet。
-- 扫描最近 workflow run 的 op shape，识别 review / verification / diff / tool op 组合。
-- 把 failure taxonomy 转成 `CodingFailureFeedback`：`rule`、`expectedSignals`、`examples`。
-- 只写 `coding_improvement_proposals(status='draft')`；重复候选靠 `(session_id, fingerprint)` 去重。
-
-返回 `DistillCodingImprovementResult`：
-
-| 字段 | 说明 |
-| --- | --- |
-| `inserted` | 本次新插入的 proposal 数。 |
-| `distillation.transcript` | transcript/window/tool/error 统计。 |
-| `distillation.workflowPatterns` | workflow run 的 review/verify/diff/tool op shape 摘要。 |
-| `distillation.failureFeedback` | 从 failure bucket 派生的规则和证据要求。 |
-| `distillation.candidates` | 本次尝试生成的候选摘要；可能因 fingerprint 已存在而未新插入。 |
-| `proposals` | 当前 scope 的完整 proposal 队列。 |
-
-## Scope
-
-入口以当前 `session_id` 为锚点：
-
-- 当前 session 绑定 `project_id` 时，报告按项目 scope 聚合最近窗口内的非无痕 session，最多 200 个。
+- 当前 session 绑定 `project_id` 时，按项目 scope 聚合窗口内的**非无痕** session，最多 200 个（当前 session 即使超出窗口也一定包含）。
 - 当前 session 无 `project_id` 时，只聚合当前 session。
-- incognito session 直接拒绝：不生成 report、不记录 eval run、不生成 proposal。
-- 默认窗口 30 天；服务端钳制到 `[1, 180]` 天。
+- **incognito session 直接拒绝**：`resolve_coding_report_scope` 对无痕会话 `bail!`，不生成报告、不记录 eval run、不生成 proposal。
+- 默认窗口 30 天，服务端钳制到 `[1, 180]` 天。
+
+这条 scope 边界贯穿整个子系统：Dashboard、Release Gate、Generalization Gate、Benchmark Center、Leaderboard 全部沿用同一套"无痕 / cron / subagent 不进 durable 判断"的规则，避免用任意 session 伪装全局趋势。
 
 ## Trend Report
 
-`ha_improve::coding_improvement::coding_trend_report(db, session_id, window_days)` 返回 `CodingTrendReport`：
+`ha_improve::coding_improvement::coding_trend_report(db, session_id, window_days)` 返回 `CodingTrendReport`，把控制面事实拆成若干区块：
 
 | 区块 | 指标 |
 | --- | --- |
@@ -121,12 +112,14 @@ Phase 4.4 新增显式 owner-plane action：`distill_coding_improvement_proposal
 | `retros` | 最近 workflow retro，含 summary、signals、recommendations |
 | `proposals` | 当前 scope 下的 proposal 队列，draft 优先 |
 
-失败分类是规则式、确定性的：
+### 失败分类
+
+失败分类是规则式、确定性的——同一批 run 永远归到同一 bucket。这是整条回路的稳定语义基石，因为 proposal 生成、Dashboard top failure、backlog 都靠这套 category 名对齐：
 
 | Category | 来源 |
 | --- | --- |
 | `validation_failed` | verification failed/timed out step，或 blocked reason 指向 validation/verify |
-| `eval_failed` | `coding_eval_runs.status='failed'`，用于把失败 eval 直接送入 backlog |
+| `eval_failed` | `coding_eval_runs.status='failed'`，把失败 eval 直接送入 backlog |
 | `review_blocker` | open P0/P1 review finding |
 | `repair_loop_exhausted` | workflow blocked reason 为 `repair_loop_attempts_exhausted` |
 | `no_effective_diff_progress` | blocked reason 指向 no effective/no valid diff |
@@ -135,510 +128,432 @@ Phase 4.4 新增显式 owner-plane action：`distill_coding_improvement_proposal
 | `verification_selection_gap` | verification run 没有 step |
 | `workflow_failed` / `workflow_blocked` / `goal_failed` | 兜底分类 |
 
-## Proposal Queue
+## Proposal 队列
 
-`generate_coding_improvement_proposals()` 从 report 派生候选。默认行为是读取当前 session/project scope 内可用事实并生成所有匹配候选；Phase 7.5 后也支持 `sourceType` / `sourceId` / `proposalKinds` 过滤，用于 GUI 从一次具体事实源定向提炼经验，例如 Workspace「领域复核」的「提炼经验」会传入 `sourceType="domain_quality"` + 当前 `run_id`，只返回这次 Domain Quality run 对应的 draft proposal。
+Proposal 队列是回路的中枢。`generate_coding_improvement_proposals()` 从趋势报告派生候选：默认读取当前 session/project scope 内所有可用事实、生成所有匹配候选；也支持 `sourceType` / `sourceId` / `proposalKinds` 过滤，用于 GUI 从一次具体事实源定向提炼经验（例如 Workspace「领域复核」的「提炼经验」按钮会传 `sourceType="domain_quality"` + 当前 `run_id`，只返回这次 Domain Quality run 对应的草案）。
 
-| Kind | 触发 |
+### 候选类型
+
+| Kind | 触发条件 |
 | --- | --- |
-| `eval_candidate` | Top failure bucket，可转 deterministic eval backlog。 |
-| `workflow_template` | repair loop 近期有成功 run，可人工审查后沉淀 workflow 草稿。 |
-| `guidance_candidate` | review blocker 或 verification failure 暗示项目规则/流程需要补充。 |
-| `skill_candidate` | workflow 成功且无已分类 blocker，可人工审查后沉淀 skill 草稿。 |
-| `domain_workflow_template` | Domain Quality `completed` run，可把成功领域任务沉淀成可审查 workflow 模板草稿。 |
-| `domain_guidance` | Domain Quality `completed` run，可把证据、approval 和完成习惯沉淀成领域 guidance 草稿。 |
-| `domain_review_profile` | Domain Quality `blocked` / `failed` / `needs_user` run，可把漏检点沉淀成领域复核 profile 草稿。 |
-| `domain_eval_case` | Domain Quality `blocked` / `failed` / `needs_user` run，可把失败模式沉淀成通用领域 eval case 草稿。 |
-| `connector_usage_pattern` | Domain Quality 中高风险 approval check 进入 `needs_user`，可沉淀连接器使用和审批规则草稿。 |
-| retro recommendation | `coding_workflow_retros.recommendations_json` 中的 `eval_candidate` / `workflow_template` / `guidance_candidate` / `skill_candidate`。 |
+| `eval_candidate` | Top failure bucket，可转 deterministic eval backlog |
+| `workflow_template` | repair loop 近期有成功 run，可人工审查后沉淀 workflow 草稿 |
+| `guidance_candidate` | review blocker 或 verification failure 暗示项目规则/流程需要补充 |
+| `skill_candidate` | workflow 成功且无已分类 blocker，可人工审查后沉淀 skill 草稿 |
+| `domain_workflow_template` | Domain Quality `completed` run，把成功领域任务沉淀成可审查 workflow 模板草稿 |
+| `domain_guidance` | Domain Quality `completed` run，把证据、approval、完成习惯沉淀成领域 guidance 草稿 |
+| `domain_review_profile` | Domain Quality `blocked` / `failed` / `needs_user` run，把漏检点沉淀成领域复核 profile 草稿 |
+| `domain_eval_case` | Domain Quality `blocked` / `failed` / `needs_user` run，把失败模式沉淀成通用领域 eval case 草稿 |
+| `connector_usage_pattern` | Domain Quality 中高风险 approval check 进入 `needs_user`，沉淀连接器使用和审批规则草稿 |
+| retro recommendation | `coding_workflow_retros.recommendations_json` 中的 `eval_candidate` / `workflow_template` / `guidance_candidate` / `skill_candidate` |
 
-Proposal 状态：
+队列对 `(session_id, fingerprint)` 建唯一索引：重复生成同一候选只返回既有草案，不制造噪音。趋势报告、蒸馏、retro、领域学习全部写入这**同一张表、同一套状态机**，不另起旁路。
 
-- `draft`：默认状态，只是候选。
-- `rejected`：用户拒绝该候选。
-- `applying`：内部瞬态，apply 已 claim 该 proposal，防止并发应用互相覆盖。
-- `applied`：用户明确应用，系统已生成 reviewable draft artifact 或 managed draft skill。
-- `failed`：应用失败，`apply_result_json.error` 保存失败原因。
-- `promoting`：内部瞬态，promotion 已 claim 该 proposal。
-- `promoted`：用户明确晋升，系统已生成正式产物或激活 managed skill。
-- `promotion_failed`：晋升失败，`promotion_result_json.error` 保存失败原因，可通过 promotion API 重试。
+### 状态机
 
-`update_coding_improvement_proposal_status` 只允许 `draft` / `rejected` 这类人工队列状态；`applied` / `promoting` / `promoted` / `promotion_failed` 不可被普通状态更新改写，promotion retry 只能走 promotion API；`failed` 只能由 apply 路径写入但可回到 `draft` 让用户修复环境后重试，避免把“采纳意向”伪装成“产物已落地”。
+Proposal 的状态设计要害在于：**区分"采纳意向"和"产物已落地"**。一旦系统实际写出了草稿或正式产物，就不能被一次普通的状态更新悄悄改回草案，避免把审计记录洗掉。
 
-Phase 4.4 的 transcript distillation 也写入同一张 proposal queue。它不会创建新状态机，也不会绕过 preview/apply/promotion；只是让 `payload_json` 包含 `distillation`、`workflowPattern`、`failureFeedback` 或 `toolFeedback`，从而让后续草稿产物带上更具体的证据。
+```mermaid
+stateDiagram-v2
+    [*] --> draft: 生成 / 蒸馏
+    draft --> rejected: 用户拒绝
+    draft --> applying: apply claim（原子）
+    applying --> applied: 产物已生成
+    applying --> failed: 应用失败
+    failed --> draft: 修复环境后重试
+    applied --> promoting: promotion claim（原子）
+    promoting --> promoted: 正式产物已落地
+    promoting --> promotion_failed: 晋升失败
+    promotion_failed --> promoting: 走 promotion API 重试
+    promoted --> [*]
+```
 
-Phase 7.5 的 Domain Learning 也写入同一张 proposal queue。它从当前 scope 的 `domain_quality_runs` 读取 snapshot，按 run state 派生候选：成功 run 只产生可复用 workflow/guidance 草稿，失败或需用户确认的 run 产生 review profile / eval case，approval gate 卡点再补 connector usage pattern。`payload_json` 保留 domain、quality run、checks、blocking checks、scope、project/window 信息，方便草稿和后续 promotion 可审计。
+| 状态 | 含义 |
+| --- | --- |
+| `draft` | 默认状态，只是候选 |
+| `rejected` | 用户拒绝该候选 |
+| `applying` | 内部瞬态，apply 已原子 claim，防止并发应用互相覆盖 |
+| `applied` | 用户明确应用，系统已生成可复核草稿产物或 managed draft 技能 |
+| `failed` | 应用失败，`apply_result_json.error` 保存原因；可回到 `draft` 让用户修复环境后重试 |
+| `promoting` | 内部瞬态，promotion 已原子 claim |
+| `promoted` | 用户明确晋升，系统已生成正式产物或激活 managed 技能 |
+| `promotion_failed` | 晋升失败，`promotion_result_json.error` 保存原因，可通过 promotion API 重试 |
 
-Phase 7.13 的 Domain Campaign Learning Closure 继续复用同一队列。`generate_coding_improvement_proposals(sourceType="domain_eval_campaign", sourceId=<campaign_id>)` 会读取 failed / cancelled / interrupted `domain_eval_campaign_items`，按 item 生成 `domain_eval_case` 与 `domain_guidance` draft proposal；fingerprint 使用 scope + item id + kind，重复触发幂等。它不调用 LLM、不自动应用，也不把 campaign 失败静默改成项目规则。Phase 7.14 的 Domain Readiness Gate 会只读 `coding_improvement_proposals(source_type='domain_eval_campaign')` 判断失败 campaign 是否已物化为学习草稿、是否仍有未关闭 proposal；gate 本身不生成、不应用、不晋升 proposal。
+`update_coding_improvement_proposal_status` 只接受把 proposal 改成 `draft` / `rejected`，且当前状态必须是 `draft` / `rejected` / `failed`；`applied` / `applying` / `promoting` / `promoted` / `promotion_failed` 一律拒绝手动改写，promotion retry 只能走 promotion API。
+
+## Transcript Distillation
+
+`generate_coding_improvement_proposals()` 只吃已聚合的趋势报告，粒度偏粗。当用户想要更贴合真实操作痕迹的建议时，可以显式触发 `distill_coding_improvement_proposals(session_id, window_days)` —— 它扫描真实 transcript、工具错误、工作流 op shape 和失败 taxonomy，生成带具体证据的候选。
+
+| Action | 输入信号 | 输出 |
+| --- | --- | --- |
+| `generate_coding_improvement_proposals` | 已聚合的 trend report / retro recommendation | 粗粒度 eval / workflow / guidance / skill 候选 |
+| `distill_coding_improvement_proposals` | trend report + scope 内最近 transcript + tool result + workflow ops | 带 transcript/workflow/failure evidence 的 workflow template、skill candidate、failure guidance、tool guidance 候选 |
+
+蒸馏过程仍然完全确定性、有明确的读取上限：
+
+- 不调用 LLM、不执行项目命令、不写项目文件。
+- 读取 scope 内最多 12 个最近 session，每个 session 最多 80 条最新 message。
+- 统计 user/assistant/tool message、top tool、tool error、objective snippet、error snippet。
+- 扫描最近 workflow run 的 op shape，识别 review / verification / diff / tool op 组合。
+- 把 failure taxonomy 转成 `CodingFailureFeedback`：`rule`、`expectedSignals`、`examples`。
+- 只写 `coding_improvement_proposals(status='draft')`；重复候选靠 `(session_id, fingerprint)` 去重。
+
+它不创建新状态机、不绕过 preview/apply/promotion，只是让 `payload_json` 带上 `distillation` / `workflowPattern` / `failureFeedback` / `toolFeedback`，从而让后续草稿产物携带更具体的证据。返回 `DistillCodingImprovementResult`：
+
+| 字段 | 说明 |
+| --- | --- |
+| `inserted` | 本次新插入的 proposal 数 |
+| `distillation.transcript` | transcript/window/tool/error 统计 |
+| `distillation.workflowPatterns` | workflow run 的 review/verify/diff/tool op shape 摘要 |
+| `distillation.failureFeedback` | 从 failure bucket 派生的规则和证据要求 |
+| `distillation.candidates` | 本次尝试生成的候选摘要；可能因 fingerprint 已存在而未新插入 |
+| `proposals` | 当前 scope 的完整 proposal 队列 |
 
 ## Workflow Retro
 
-Phase 4.2 在 `workflow_runs` 进入 terminal state 时 best-effort 调用 `ensure_coding_workflow_retro_for_run()`：
+当 `workflow_runs` 进入终态时，系统 best-effort 调用 `ensure_coding_workflow_retro_for_run()` 生成一份轻量复盘：
 
-- 不调用 LLM，只看 terminal state、`workflow_ops` 的 op type / state / output。
-- 生成 `summary`、`signals[]` 和 `recommendations[]`。
-- 成功写入 `coding_workflow_retros`，并在 workflow trace 里追加 `coding_retro_recorded` event。
-- 失败不阻断 workflow terminal transition，避免学习层影响长任务完成语义。
+- 不调用 LLM，只看终态、`workflow_ops` 的 op type / state / output。
+- 生成 `summary`、`signals[]` 和 `recommendations[]`，写入 `coding_workflow_retros`，并在 workflow trace 里追加 `coding_retro_recorded` event。
+- 失败不阻断 workflow 终态转移——学习层绝不影响长任务的完成语义。
 - incognito session 不写 retro。
 
-retro recommendation 会被 `generate_coding_improvement_proposals()` 消费：失败/阻塞可进入 `eval_candidate` / `guidance_candidate`，成功且具备 review + verify + diff 证据可进入 `workflow_template`。
+Retro 的 recommendation 会被 `generate_coding_improvement_proposals()` 消费：失败/阻塞走 `eval_candidate` / `guidance_candidate`，成功且具备 review + verify + diff 证据走 `workflow_template`。`workflow_run_id` 唯一，重复终态回写走 upsert。
 
-## Proposal-to-Action
+## Proposal-to-Action（Apply）
 
-Phase 4.1 新增确定性 action plan：
+Apply 把 draft proposal 变成**可复核的草稿产物**——落在工作目录（或会话目录）的 `.hope-agent/coding-improvement/` 下，绝不直接写生产路径。
 
-| Proposal Kind | Apply 结果 |
+| Proposal Kind | Apply 产物 |
 | --- | --- |
-| `eval_candidate` | 在当前 session/project 工作目录下创建 `.hope-agent/coding-improvement/eval-candidates/<slug>.json` 草稿。该 JSON 是可 review 的 eval candidate，不直接写入 `evals/suites/coding-control-plane/fixtures/`。 |
-| `workflow_template` | 创建 `.hope-agent/coding-improvement/workflows/<slug>.md`，包含 workflow script 草稿和 promotion checklist。 |
-| `guidance_candidate` | 创建 `.hope-agent/coding-improvement/guidance/<slug>.md`，包含信号、建议规则和原始 payload。 |
-| `skill_candidate` | 通过 `skills::author::create_skill` 创建 `~/.hope-agent/skills/ha-learned-*/SKILL.md`，状态为 `draft`，进入既有 Skills 草稿审核流。 |
-| `domain_workflow_template` | 创建 `.hope-agent/coding-improvement/domain-workflows/<slug>.md`，包含领域、quality evidence、draft workflow shape 和 promotion checklist。 |
-| `domain_guidance` | 创建 `.hope-agent/coding-improvement/domain-guidance/<slug>.md`，包含领域完成规则、必需 evidence、approval discipline 和 source payload。 |
-| `domain_review_profile` | 创建 `.hope-agent/coding-improvement/domain-review-profiles/<slug>.md`，包含应提前捕获的 blocking checks 和复核 profile 草稿。 |
-| `domain_eval_case` | 创建 `.hope-agent/coding-improvement/domain-eval-cases/<slug>.json`，包含 deterministic / semi-deterministic 通用 eval fixture 草稿。 |
-| `connector_usage_pattern` | 创建 `.hope-agent/coding-improvement/connector-patterns/<slug>.md`，包含连接器读取、草稿、审批和 fail-closed 规则草稿。 |
+| `eval_candidate` | `.hope-agent/coding-improvement/eval-candidates/<slug>.json`：可复核的 eval candidate，不直接写 `evals/suites/coding-control-plane/fixtures/` |
+| `workflow_template` | `.hope-agent/coding-improvement/workflows/<slug>.md`：workflow script 草稿 + promotion checklist |
+| `guidance_candidate` | `.hope-agent/coding-improvement/guidance/<slug>.md`：信号、建议规则和原始 payload |
+| `skill_candidate` | 经 `skills::author::create_skill` 建 `~/.hope-agent/skills/ha-learned-*/SKILL.md`，状态 `draft`，进入既有 Skills 草稿审核流 |
+| `domain_workflow_template` | `.hope-agent/coding-improvement/domain-workflows/<slug>.md`：领域、quality evidence、draft workflow shape、promotion checklist |
+| `domain_guidance` | `.hope-agent/coding-improvement/domain-guidance/<slug>.md`：领域完成规则、必需 evidence、approval discipline、source payload |
+| `domain_review_profile` | `.hope-agent/coding-improvement/domain-review-profiles/<slug>.md`：应提前捕获的 blocking checks 和复核 profile 草稿 |
+| `domain_eval_case` | `.hope-agent/coding-improvement/domain-eval-cases/<slug>.json`：deterministic / semi-deterministic 通用 eval fixture 草稿 |
+| `connector_usage_pattern` | `.hope-agent/coding-improvement/connector-patterns/<slug>.md`：连接器读取、草稿、审批和 fail-closed 规则草稿 |
 
-如果 session 有有效工作目录，文件型草稿落在该工作目录的 `.hope-agent/coding-improvement/` 下；否则落在 `~/.hope-agent/sessions/{session_id}/.hope-agent/coding-improvement/`，仍然是 owner-plane 可审计产物。
+落盘位置由 session 决定：有有效工作目录时落在该目录的 `.hope-agent/coding-improvement/` 下（`effective_working_dir_for_meta`，session > project）；否则落在 `~/.hope-agent/sessions/{session_id}/.hope-agent/coding-improvement/`，仍是面向用户本人可审计的产物。
 
-`preview_coding_improvement_proposal_action(proposal_id)` 返回 `CodingImprovementActionPlan`：
+`preview_coding_improvement_proposal_action(proposal_id)` 返回 `CodingImprovementActionPlan`：`proposal`（当前 row）、`targetKind`、`steps[]`（目标路径、是否已存在、内容预览）、`preview`（kind-specific 摘要）。
 
-- `proposal`：当前 proposal row。
-- `targetKind`：`eval_candidate` / `workflow_template` / `guidance_candidate` / `skill_candidate`。
-- `steps[]`：目标路径、是否已存在、内容预览。
-- `preview`：kind-specific 结构化摘要。
-
-`apply_coding_improvement_proposal(proposal_id)` 重新构建同一份 action plan 后执行：
+`apply_coding_improvement_proposal(proposal_id)` 重建同一份计划后执行，关键约束：
 
 - 只允许 `draft` proposal 应用。
-- apply 会先把 proposal 从 `draft` 原子 claim 到内部 `applying`，最终只允许从 `applying` 写入 `applied` / `failed`，避免并发 apply clobber 审计状态。
-- 文件型 action 使用 create-new 写入语义；如果目标已存在或竞态中被创建则 fail-closed，不覆盖。
-- 成功后 `status='applied'`，`apply_result_json.artifacts[]` 记录路径和内容 hash。
-- 失败后 `status='failed'`，`apply_result_json.error` 记录原因。
+- 先把 proposal 从 `draft` 原子 claim 到内部 `applying`，最终只允许从 `applying` 写 `applied` / `failed`，避免并发 apply 互相 clobber 审计状态。
+- 文件型 action 用 create-new 写入语义；目标已存在或竞态中被创建则 fail-closed，不覆盖。
+- 成功后 `status='applied'`，`apply_result_json.artifacts[]` 记录路径和内容 hash；失败后 `status='failed'`，`apply_result_json.error` 记录原因。
 
 ## Draft Promotion
 
-Phase 4.2 新增显式 promotion plan：
+Promotion 是唯一把草稿变成**正式产物**的动作，必须用户显式触发、必须先 preview，不得从生成或 apply 隐式执行。
 
-| Proposal Kind | Promotion 结果 |
+| Proposal Kind | Promotion 产物 |
 | --- | --- |
-| `eval_candidate` | 把已应用草稿从 `.hope-agent/coding-improvement/eval-candidates/` 晋升到工作目录 `evals/suites/coding-control-plane/fixtures/<slug>.json`；同一 promotion 自动登记 manifest case、提升 suite patch version，并向 `evals/version-lock.json` 追加新版本 digest。 |
-| `workflow_template` | 把草稿复制到 `.hope-agent/coding-improvement/promoted/workflows/`，并在 `AGENTS.md` managed block 中加入 `@./...` 引用。 |
-| `guidance_candidate` | 把草稿复制到 `.hope-agent/coding-improvement/promoted/guidance/`，并在 `AGENTS.md` managed block 中加入 `@./...` 引用。 |
-| `skill_candidate` | 调 `skills::author::set_skill_status(skill_id, Active)` 激活 managed draft skill。 |
-| `domain_workflow_template` | 把草稿复制到 `.hope-agent/coding-improvement/promoted/domain-workflows/`，并在 `AGENTS.md` managed block 中加入引用。 |
-| `domain_guidance` | 把草稿复制到 `.hope-agent/coding-improvement/promoted/domain-guidance/`，并在 `AGENTS.md` managed block 中加入引用。 |
-| `domain_review_profile` | 把草稿复制到 `.hope-agent/coding-improvement/promoted/domain-review-profiles/`，并在 `AGENTS.md` managed block 中加入引用。 |
-| `domain_eval_case` | 把草稿复制到 `.hope-agent/coding-improvement/promoted/domain-eval-cases/`，作为 Phase 7.6 通用 eval/gate 的候选 fixture。 |
-| `connector_usage_pattern` | 把草稿复制到 `.hope-agent/coding-improvement/promoted/connector-patterns/`，并在 `AGENTS.md` managed block 中加入引用。 |
+| `eval_candidate` | 草稿晋升到 `evals/suites/coding-control-plane/fixtures/<slug>.json`；同步登记 manifest case、提升 suite patch version，并向 `evals/version-lock.json` 追加新版本 digest |
+| `workflow_template` | 复制到 `.hope-agent/coding-improvement/promoted/workflows/`，并在 `AGENTS.md` managed block 加入 `@./...` 引用 |
+| `guidance_candidate` | 复制到 `.hope-agent/coding-improvement/promoted/guidance/`，并在 `AGENTS.md` managed block 加入 `@./...` 引用 |
+| `skill_candidate` | 调 `skills::author::set_skill_status(skill_id, Active)` 激活 managed draft 技能 |
+| `domain_workflow_template` | 复制到 `.hope-agent/coding-improvement/promoted/domain-workflows/`，并在 `AGENTS.md` managed block 加引用 |
+| `domain_guidance` | 复制到 `.hope-agent/coding-improvement/promoted/domain-guidance/`，并在 `AGENTS.md` managed block 加引用 |
+| `domain_review_profile` | 复制到 `.hope-agent/coding-improvement/promoted/domain-review-profiles/`，并在 `AGENTS.md` managed block 加引用 |
+| `domain_eval_case` | 复制到 `.hope-agent/coding-improvement/promoted/domain-eval-cases/`，作为通用 eval/gate 的候选 fixture |
+| `connector_usage_pattern` | 复制到 `.hope-agent/coding-improvement/promoted/connector-patterns/`，并在 `AGENTS.md` managed block 加引用 |
 
-`preview_coding_improvement_proposal_promotion(proposal_id)` 返回 `CodingImprovementPromotionPlan`，包含 source path、target path、target existence、source hash 和内容预览。
+`preview_coding_improvement_proposal_promotion(proposal_id)` 返回 `CodingImprovementPromotionPlan`：source path、target path、target existence、source hash、内容预览。
 
-`promote_coding_improvement_proposal(proposal_id)` 执行 promotion：
+`promote_coding_improvement_proposal(proposal_id)` 执行晋升，关键约束：
 
 - 只允许 `applied` / `promotion_failed` proposal 晋升。
-- promotion 先原子 claim 到内部 `promoting`，最终只允许写入 `promoted` / `promotion_failed`。
-- 文件型 promotion 对目标路径 fail-closed：目标不存在时 create-new；目标已存在且内容相同则幂等通过；目标已存在且内容不同则拒绝覆盖。
-- `eval_candidate` 的注册步骤对 preview 时的 manifest/version-lock SHA-256 做 stale-write guard；只允许写 `coding-control-plane`，fixture 必须位于 suite 内且能解析为 `CodingEvalFixture`。manifest 已写但 lock 写入失败时 proposal 保持 `promotion_failed`，重试会识别已登记 case 并只补齐缺失 lock，不能产生第二次版本递增。
-- `AGENTS.md` 只写 managed include block；已有 include 行 no-op，多次 promotion 会插入同一个 managed block。
+- 先原子 claim 到内部 `promoting`，最终只允许写 `promoted` / `promotion_failed`。
+- 文件型 promotion 对目标路径 fail-closed：目标不存在则 create-new；已存在且内容相同则幂等通过；已存在且内容不同则拒绝覆盖。
+- `eval_candidate` 的注册步骤对 preview 时的 manifest / version-lock SHA-256 做 stale-write guard；只允许写 `coding-control-plane` suite，fixture 必须位于 suite 内且能解析为 `CodingEvalFixture`。manifest 已写但 lock 写入失败时保持 `promotion_failed`，重试会识别已登记 case 并只补齐缺失 lock，不会二次递增版本。
+- `AGENTS.md` 只写 managed include block（标记 `<!-- hope-agent-coding-improvement:start/end -->`）；已有 include 行 no-op，多次 promotion 插入同一个 managed block。
 - 成功后 `promotion_result_json.artifacts[]` 记录正式产物路径和 hash；失败后 `promotion_result_json.error` 记录原因。
 
-## Owner API
+## 通用领域学习复用同一队列
 
-Tauri commands：
+回路的候选机制被复用来承接通用领域（非编码）学习：从 Domain Quality 的 run / check / evidence 生成 `domain_workflow_template`、`domain_guidance`、`domain_review_profile`、`domain_eval_case`、`connector_usage_pattern` 草稿，仍然必须 preview → apply → promotion，不能直接改生产模板或连接器策略。
 
-| Command | 说明 |
-| --- | --- |
-| `get_coding_trend_report` | 读取当前 session/project scope 的 trend report。 |
-| `list_coding_improvement_proposals` | 读取 proposal 队列。 |
-| `generate_coding_improvement_proposals` | 基于当前 report 生成 draft-only proposals；可选 `sourceType` / `sourceId` / `proposalKinds` 做定向提炼。 |
-| `distill_coding_improvement_proposals` | 显式蒸馏 transcript / workflow ops / failure feedback，并生成 draft-only proposals。 |
-| `update_coding_improvement_proposal_status` | 更新 proposal 状态。 |
-| `preview_coding_improvement_proposal_action` | 预览 proposal 将生成的 action plan。 |
-| `apply_coding_improvement_proposal` | 应用 proposal，生成 reviewable draft artifact 或 managed draft skill。 |
-| `preview_coding_improvement_proposal_promotion` | 预览已应用草稿的晋升计划。 |
-| `promote_coding_improvement_proposal` | 晋升已应用草稿为正式 fixture / project guidance / active skill。 |
-| `record_coding_eval_run` | 记录 deterministic eval 或外部 eval run。 |
+- **领域学习**从当前 scope 的 `domain_quality_runs` 读 snapshot，按 run state 派生候选：成功 run 只产可复用 workflow/guidance 草稿；失败或需用户确认的 run 产 review profile / eval case；approval gate 卡点再补 connector usage pattern。`payload_json` 保留 domain、quality run、checks、blocking checks、scope、project/window 信息，方便草稿和后续 promotion 可审计。
+- **领域 Campaign 学习闭环**继续复用同一队列：`generate_coding_improvement_proposals(sourceType="domain_eval_campaign", sourceId=<campaign_id>)` 读取 failed / cancelled / interrupted `domain_eval_campaign_items`，按 item 生成 `domain_eval_case` 与 `domain_guidance` draft；fingerprint 用 scope + item id + kind，重复触发幂等。它不调用 LLM、不自动应用，也不把 campaign 失败静默改成项目规则。
+- **Domain Readiness Gate** 只读 `coding_improvement_proposals(source_type='domain_eval_campaign')`，判断失败 campaign 是否已物化为学习草稿、是否仍有未关闭 proposal；gate 本身不生成、不应用、不晋升 proposal。
 
-HTTP routes：
+## Benchmark 台面
 
-| Method | Path |
-| --- | --- |
-| `GET` | `/api/sessions/{sid}/coding-trend?windowDays=30` |
-| `GET` / `POST` | `/api/sessions/{sid}/coding-improvement/proposals` |
-| `POST` | `/api/sessions/{sid}/coding-improvement/distill` |
-| `POST` | `/api/coding-improvement/proposals/{id}/status` |
-| `GET` | `/api/coding-improvement/proposals/{id}/action-preview` |
-| `POST` | `/api/coding-improvement/proposals/{id}/apply` |
-| `GET` | `/api/coding-improvement/proposals/{id}/promotion-preview` |
-| `POST` | `/api/coding-improvement/proposals/{id}/promote` |
-| `POST` | `/api/coding-improvement/eval-runs` |
+Benchmark 台面把"编码能力评测"做成一套可持久追踪的体系：任务集有 registry、每次运行是可取消可重试的 campaign、跨模型有榜单、结论能导出快照、发布前有综合门禁。它同样是面向用户本人的控制面，只读历史、默认不碰外部模型。
 
-前端 HTTP `COMMAND_MAP` 与 Tauri `generate_handler!` 均已注册，保持 Desktop / server 模式闭合。
+```mermaid
+flowchart TD
+    corpus["Task Corpus<br/>owner 导入 manifest · draft/active/archive"] --> campaign["Benchmark Campaign<br/>task filter · provider/model matrix"]
+    campaign --> items["Campaign Items<br/>逐 provider/model · attempt"]
+    items -->|deterministic 或 external| packrun["Pack Run<br/>coding_eval_pack_runs"]
+    packrun --> center["Run Center · Leaderboard"]
+    packrun --> gates["Release Gate<br/>Generalization Gate<br/>Continuous Gate"]
+    center --> report["Report Export<br/>md · json · html snapshot"]
+    gates --> report
+    items -->|failed/interrupted/cancelled| backlog["Improvement Backlog"]
+    backlog -. 显式后续 action .-> P["Proposal 队列"]
+```
 
-## Dashboard Learning API
+一条贯穿全台面的安全底线：**deterministic / mock / external_model 三种基线由 `baseline_kind` 明确区分，绝不把 fixture / mock 冒充成真实模型能力**，且 provider 配置与 API key 永不落进任何 history。
 
-Phase 4.3 新增只读全局聚合 API：
+### Benchmark Run Center
 
-| Command | HTTP | 说明 |
-| --- | --- | --- |
-| `dashboard_coding_improvement` | `POST /api/dashboard/learning/coding-improvement` | 按 DashboardFilter 聚合 Coding Improvement 全局 / 项目信号。 |
-| `evaluate_coding_eval_release_gate` | `POST /api/coding-improvement/release-gate/evaluate` | 根据持久化 pack / strategy / tool-call history 计算发布质量门禁。 |
-| `evaluate_coding_learning_generalization` | `POST /api/coding-improvement/generalization/evaluate` | 根据 promoted learning、pack history 与 strategy history 计算跨项目泛化门禁。 |
-| `get_coding_benchmark_center` | `POST /api/coding-benchmark/center` | 聚合 benchmark history、baseline buckets、recent runs、Release Gate 与 Generalization Gate。 |
-| `create_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/create` | 创建 durable Benchmark Campaign；`runNow=true` 时后台启动 runner。 |
-| `list_coding_benchmark_campaigns` | `POST /api/coding-benchmark/campaigns` | 按 scope 列出最近 campaign 和 item 摘要。 |
-| `get_coding_benchmark_campaign` | `GET /api/coding-benchmark/campaigns/{id}` | 读取单个 campaign、summary 与 item 明细。 |
-| `cancel_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/{id}/cancel` | 请求取消 campaign，并把未运行 queued item 标记为 cancelled。 |
-| `run_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/run` | 后台运行 queued item；`retryFailedOnly=true` 时只重排失败 / interrupted / cancelled item。 |
-| `get_benchmark_leaderboard` | `POST /api/coding-benchmark/leaderboard` | 基于 campaign item history 生成跨模型 leaderboard。 |
-| `compare_benchmark_models` | `POST /api/coding-benchmark/compare` | 使用同一聚合器按输入 campaign/window 生成可追溯 comparison report。 |
-| `import_benchmark_task_pack` | `POST /api/coding-benchmark/corpus/import` | 显式 owner action 导入 task pack manifest；必须 `explicitImportConsent=true`，不扫描用户仓库，不保存 provider secret。 |
-| `list_benchmark_task_packs` | `POST /api/coding-benchmark/corpus/packs` | 列出 corpus task packs，可按 status / includeArchived / limit 过滤。 |
-| `get_benchmark_task_pack` | `GET /api/coding-benchmark/corpus/packs/{packId}/{version}` | 读取单个 pack 与 task version 明细。 |
-| `update_benchmark_task_pack_status` | `POST /api/coding-benchmark/corpus/packs/status` | 切换 pack draft / active / archived；激活前强制重新验证 active task quality。 |
-| `validate_benchmark_task_pack` | `POST /api/coding-benchmark/corpus/packs/validate` | 返回 task pack validation report，不执行项目命令。 |
-| `get_benchmark_corpus_health` | `POST /api/coding-benchmark/corpus/health` | 返回 corpus health：active/draft/archive、分类分布、过期校准、重复 task、fixture-gaming risk 与 checks。 |
+`SessionDB::get_coding_benchmark_center(input)` 是只读聚合器，不跑模型、不执行命令、不写 DB。它把 Gold Pack history、baseline kind、最近 run、Release Gate 与 Generalization Gate 合成一张"当前 benchmark 能不能发布"的视图。
 
-`dashboard_coding_improvement` 输入为 `{ filter, limit? }`，其中 `filter` 使用 Dashboard 既有时间 / agent / provider / model 过滤。gate / benchmark API 输入为 `{ input: ... }`，按各自 scope/window/threshold 字段解析；campaign API 同样是 owner plane，不经 agent 工具面。`dashboard_coding_improvement` 返回 `CodingImprovementDashboard`：
+输入：`sessionId` / `projectId`（可选 scope）、`windowDays`（默认 30，钳 `[1,180]`）、`limit`（recent runs 数，默认 12，钳 `[1,50]`）、`requireExternalModelBaseline`（把外部模型基线从 advisory 变 required）、`requireLearningGeneralization`（把泛化门禁变 required）。
 
-| 区块 | 内容 |
-| --- | --- |
-| `overview` | session、workflow、case eval、pack eval、strategy effect、tool-call missing、validation/scope delta、review blocker、verification failure、retro、proposal 和 distillation queue 汇总。 |
-| `timeline` | 按天聚合 completed/blocked/failed workflow、passed/failed eval、passed/failed pack、strategy verdict、validation/scope delta、proposal created/applied/promoted、retro recommendation。 |
-| `byProject` | 按 `project_id` 汇总 workflow/eval/pack 成功率、strategy regression、blocker、proposal 与 distillation candidates；项目名可用时从 `projects` 表补齐。 |
-| `domainQuality` | Phase 7.5/7.6 新增。聚合 `domain_quality_runs`、`domain_quality_checks`、`domain_eval_runs` 与 `source_type='domain_quality'` 的 proposal，包含总览、按天趋势、按领域 bucket、top blockers 与 recent runs。它是历史趋势视图，不执行 gate。 |
-| `topFailures` | 从 `eval_candidate` proposal payload 中读取稳定 failure category，展示 top failure mode。 |
-| `toolCallFailures` | 从 task-level eval metrics 读取 agent 模式下 `toolCalls=[]` 的 run，展示 tool-call failure mode。 |
-| `proposalStatuses` | proposal status 分布。 |
-| `latestStrategyEffects` | 最近 strategy effect run，展示 verdict、baseline/candidate label、pass rate / task score / validation / scope creep delta。 |
-| `latestRetros` | 最近 workflow retro summary 与 recommendation。 |
+输出 `CodingBenchmarkCenterReport` 含 `summary`、按 `baselineKind` 聚合的 `baselines[]`、`runs[]`、`checks[]`（`benchmark_history` / `latest_pack_run` / `release_gate` / `external_model_baseline` / `learning_generalization`），以及内嵌的完整三态 `releaseGate` / `generalizationGate` 报告。整体状态计算：任一 check `failed` → `failed`；required check `insufficient_data` → `insufficient_data`；只有 advisory check `insufficient_data` 不阻断（例如没有外部模型基线时，deterministic center 仍可用于本地回归）。
 
-该 API **只读** existing durable facts，不调用 `generate_coding_improvement_proposals`，不 apply，不 promotion，也不回写任何 learning event。无痕、cron、subagent session 按 Dashboard 通用规则排除；sessionless eval run 仅在未按 agent/provider/model 过滤时计入全局 eval 聚合。
+Dashboard 的默认 Run 按钮不裸调评测函数，而是创建 `runNow=true` 的 deterministic Benchmark Campaign；runner 内部固定 `executionMode="fixture_patch"` + `baselineKind="deterministic_mock"`，因此默认不访问外部模型、不产生网络费用。
 
-## GUI
+### Benchmark Campaign Runner
 
-Workspace 面板新增「质量趋势」区块：
+Campaign 把一次 Gold Pack run 包装成 durable 单元。ledger 侧的 `SessionDB::create_coding_benchmark_campaign` / `list_coding_benchmark_campaigns` / `get_coding_benchmark_campaign` / `cancel_coding_benchmark_campaign` 负责建表和查询；真正跑 campaign 的是执行机器里的 `ha_eval_runtime::coding_eval::run_benchmark_campaign`（异步自由函数），由 owner API 后台调用。
 
-- 读取近 30 天 report。
-- 显示 Goal / Workflow / Eval / Repair 成功率。
-- 显示 review blocker、verification failure、failure bucket、draft proposal 数。
-- 展示当前 scope、session 数、workflow run 数、retro 数、top review category。
-- 展示最近 workflow retro summary 和 recommendation。
-- 展示 top failure bucket 与 proposal 草案。
-- 顶部操作包含「生成改进候选」和「提炼候选」：前者从 trend report 派生候选，后者显式扫描 transcript/workflow/failure feedback 生成更高质量候选。
-- proposal 行支持展开详情、预览 action plan、应用草稿产物、预览 promotion、执行 promotion、拒绝候选。
-- 详情态展示目标路径、目标是否已存在、内容预览、应用/晋升后的 artifact 或错误。
-
-Dashboard Learning Tab 新增「Coding improvement」区块：
-
-- 顶部展示 Workflow / Eval / Pack 成功率、Strategy Effect 数、Tool-call 缺失、Review blocker、Verification failure、Distillation queue、Retro recommendation。
-- Project signals 列出项目级完成率、eval 率、pack 率、strategy regression、blocker 和可沉淀候选。
-- Failure modes 展示 top eval candidate failure taxonomy 与 tool-call missing failure mode。
-- Improvement timeline 展示近日日级信号密度，包含 pack pass/fail、strategy verdict 与 validation/scope delta。
-- Latest strategy effects 展示最近策略对比 verdict 与关键 delta。
-- Latest retros 展示最近 terminal workflow retro 和首条 recommendation。
-- Release Gate 卡片展示当前窗口的 `passed` / `failed` / `insufficient_data`、pack pass rate、strategy regression、missing tool-call 和未通过 checks。
-- Generalization Gate 卡片展示跨项目学习门禁状态、通过/失败/证据不足项目数、promoted learning 数、pack 证据数和未通过 checks。
-- General domain trends 卡片展示通用领域历史趋势：quality completion rate、blocked/failed/needs_user run、approval blockers、domain eval pass rate/average score、domain learning draft/promoted proposal、按领域分布、top blocker reason、recent quality runs。
-- General domain quality gate 卡片只展示当前窗口门禁结果：eval pass rate、average score、quality blocker、domain coverage 与最近 eval run；不替代趋势卡片，也不写入学习结果。
-- Domain campaigns 卡片的 learning action 会定向生成 `sourceType="domain_eval_campaign"` 草稿 proposal；它只是把失败 item 暴露到既有 proposal 审查链路，不自动 apply / promotion。
-
-Workspace 是当前 session/project 的可操作质量面板；Dashboard 是全局 / 项目级只读学习视图。两者不复用任意 session 伪装 scope，避免把 session-local report 误读成全局事实。
-
-## Release Gate
-
-Phase 5.8 新增 `SessionDB::evaluate_coding_eval_release_gate(input)`，并通过 Tauri command 与 HTTP owner API 暴露。它只读历史记录，不调用 LLM、不执行项目命令、不生成 proposal、不回写 DB。
-
-数据来源：
-
-- `coding_eval_pack_runs`：pack run 数、pack pass rate、case/check 汇总、`baseline_kind` 分布。
-- `coding_strategy_effect_runs`：strategy verdict 数量、validation / scope creep / execution failure delta。
-- `coding_eval_runs(source_type='coding_task_eval')`：agent 模式下 `toolCalls=[]` 的 task eval 次数。
-
-默认阈值偏保守：
-
-- `minPackRuns=1`
-- `minStrategyEffectRuns=0`
-- `minPackPassRate=1.0`
-- `requireExternalModelPack=false`
-- `maxRegressedStrategyEffects=0`
-- `maxMixedStrategyEffects=0`
-- `maxMissingToolCallRuns=0`
-- `maxValidationViolationDelta=0`
-- `maxScopeCreepDelta=0`
-
-返回 `CodingEvalReleaseGateReport`：
-
-- `status="passed"`：样本充足且所有阈值通过。
-- `status="failed"`：已有证据表明质量不达标，例如 pack pass rate 过低、strategy regressed、tool-call 缺失、validation / scope creep 增量超限。
-- `status="insufficient_data"`：缺少要求的 pack / strategy 样本，或显式要求外部真实模型基线但窗口内没有 `baseline_kind='external_model'`。
-
-scope 规则沿用 Dashboard 的 durable 数据边界：无痕、cron、subagent session 不进入发布质量判断；传入 session 且该 session 绑定 project 时自动按 project 聚合；无 scope 时可做全局 gate。Release gate 不把 deterministic / mock provider 结果冒充外部真实模型结果；需要真实 provider 基线时必须设置 `requireExternalModelPack=true` 并由 pack run 显式记录 `baselineKind="external_model"`。
-
-## Learning Generalization Gate
-
-Phase 5.10 新增 `SessionDB::evaluate_coding_learning_generalization(input)`，并通过 Tauri command 与 HTTP owner API `POST /api/coding-improvement/generalization/evaluate` 暴露。它只读历史记录，不调用 LLM、不执行项目命令、不生成 proposal、不回写 DB。
-
-数据来源：
-
-- `coding_improvement_proposals(status='promoted')`：只把已晋升的 `guidance_candidate` / `skill_candidate` / `workflow_template` 计入 durable learning evidence；默认不把草稿或已应用但未晋升的 artifact 当成泛化证据。
-- `coding_eval_pack_runs`：按项目聚合 pack run、pack pass rate、external model pack run。
-- `coding_strategy_effect_runs`：按项目聚合 strategy verdict、validation / scope creep / execution failure delta；当输入指定 `sourceType` / `sourceId` 时，promoted learning 与 strategy effect 只看同一来源，pack history 仍作为项目级质量背景。
-
-默认阈值偏保守：
-
-- `minProjects=2`
-- `minProjectPackRuns=1`
-- `minProjectPackPassRate=1.0`
-- `minStrategyEffectRunsPerProject=0`
-- `requirePromotedLearning=true`
-- `requireExternalModelPack=false`
-- `maxRegressedProjects=0`
-- `maxMixedProjects=0`
-- `maxValidationViolationDeltaPerProject=0`
-- `maxScopeCreepDeltaPerProject=0`
-
-返回 `CodingLearningGeneralizationReport`：
-
-- `status="passed"`：至少达到要求的项目数，且每个计入项目都有 promoted learning、pack history，并通过质量阈值。
-- `status="failed"`：已有证据显示某个项目 pack pass rate、strategy regression、validation delta 或 scope creep delta 不达标。
-- `status="insufficient_data"`：项目数、promoted learning、pack history、strategy history 或 external model pack history 不足以证明跨项目泛化。
-- `projects[]`：每个项目的 promoted learning 数、pack run、pack pass rate、strategy effect、delta、reasons 与 learning item 摘要。
-- `checks[]`：机器可读门禁项，供 Dashboard / CI / release scripts 展示。
-
-scope 规则沿用 Release Gate 的 durable 数据边界：无痕、cron、subagent session 不参与；无 scope 时按全局跨项目聚合；传 `projectId` 时可把同一 evaluator 退化为单项目学习质量门禁；传 `sessionId` 且 session 绑定 project 时按项目 scope 解析。
-
-## Benchmark Run Center
-
-Phase 6.1 新增 `SessionDB::get_coding_benchmark_center(input)`，并通过 Tauri command 与 HTTP owner API `POST /api/coding-benchmark/center` 暴露。它是只读聚合器，不直接跑模型、不执行项目命令、不写 DB。Phase 6.2 后 Dashboard 的 Run 按钮不再裸调 `run_coding_eval_gold_task_pack`，而是创建 `runNow=true` 的 deterministic Benchmark Campaign；runner 内部仍固定 `executionMode="fixture_patch"` + `baselineKind="deterministic_mock"`，因此默认不会访问外部模型或产生网络费用。
-
-输入：
-
-- `sessionId` / `projectId`：可选 scope。传入 session 且 session 绑定 project 时按 project 聚合。
-- `windowDays`：默认 30，钳制到 `[1, 180]`。
-- `limit`：recent runs 返回数量，默认 12，钳制到 `[1, 50]`。
-- `requireExternalModelBaseline`：为 `true` 时，外部模型基线从 advisory 变成 required，并同步传给 Release / Generalization gate。
-- `requireLearningGeneralization`：为 `true` 时，Learning Generalization Gate 从 advisory 变成 required。
-
-输出 `CodingBenchmarkCenterReport`：
-
-- `summary`：run 数、pass/fail/skipped、deterministic / external model run 数、case pass rate、latest run、best case pass rate。
-- `baselines[]`：按 `baselineKind` 聚合 run pass rate、case pass rate、latest run。
-- `runs[]`：最近 pack runs，包含 label、baseline kind、状态、case 计数、失败 case 摘要。
-- `checks[]`：`benchmark_history`、`latest_pack_run`、`release_gate`、`external_model_baseline`、`learning_generalization`。
-- `releaseGate` / `generalizationGate`：嵌入完整三态 gate 报告，供 GUI 展示和后续脚本复用。
-
-整体状态计算：
-
-- 任一 check `failed` -> `failed`。
-- required check `insufficient_data` -> `insufficient_data`。
-- 只有 advisory check `insufficient_data` 不阻断整体通过，例如没有外部模型基线时 deterministic center 仍可用于本地回归。
-
-Dashboard Learning Tab 的 Benchmark Center 卡片展示整体状态、run/case pass rate、external model run 数、baseline buckets、recent runs、失败 case 摘要和未通过 checks；下方 Campaign 列表展示最近 campaign 的状态、item pass/case pass/check 数、每个 item 的 provider/model/label、状态、packRunId 或错误。默认 Run 创建 deterministic campaign；External campaign 控制区会列出已启用 provider/model，允许用户显式选择最多 4 个模型、设置 max tasks / budget contract 后启动 `external_model` campaign。queued/running/cancel_requested campaign 可取消；failed/partial/cancelled/interrupted campaign 可 retry failed items。
-
-## Benchmark Campaign Runner
-
-Phase 6.2 新增 `SessionDB::create_coding_benchmark_campaign`、`list_coding_benchmark_campaigns`、`get_coding_benchmark_campaign`、`cancel_coding_benchmark_campaign` 与 `run_benchmark_campaign`。Tauri / HTTP owner API 与 frontend transport 均已注册，Dashboard Learning Tab 使用同一组 API。
-
-输入核心字段：
-
-- `name`：可选显示名；为空时按 deterministic / external model 自动命名。
-- `goldTaskInput`：Gold Pack 过滤和运行选项。创建 campaign 时会把 `sessionId` / `projectId` 解析到 durable scope，并清空 `providers` / `modelChain` 后写入 `task_filter_json`。
-- `models[]`：provider/model matrix。为空时自动创建一个 deterministic item；外部模型 item 必须同时有 `providerId` 与 `modelId`。
-- `runNow`：创建后后台启动 runner。runner 不把 provider config 写入 DB，只在本次调用内用传入 providers 匹配 model item。
-- `maxBudgetUsd` / `timeoutSecs`：先作为 campaign contract 持久化，供后续 P6.3+ UI / policy 使用；当前 deterministic runner 不消耗费用。
+输入核心字段：`name`（可选，空时按 deterministic/external 自动命名）、`goldTaskInput`（Gold Pack 过滤和运行选项，创建时把 `sessionId`/`projectId` 解析到 durable scope 并清空 `providers`/`modelChain` 后写入 `task_filter_json`）、`models[]`（provider/model matrix，空时自动建一个 deterministic item；外部模型 item 必须同时有 `providerId` 与 `modelId`）、`runNow`、`maxBudgetUsd` / `timeoutSecs`（先作为 campaign contract 持久化）。
 
 状态语义：
 
 - campaign：`queued`、`running`、`cancel_requested`、`passed`、`failed`、`partial`、`cancelled`、`interrupted`。
 - item：`queued`、`running`、`passed`、`failed`、`skipped`、`cancelled`、`interrupted`。
-- `cancel_coding_benchmark_campaign` 立即把 queued item 标记为 `cancelled`，runner 在 item 间检查 cancel flag；已经 running 的 item 结束后 campaign 会收口为 `cancelled` 或 `partial`。
-- `retryFailedOnly=true` 会把 failed / interrupted / cancelled item 重排为 queued，并保留 attempt 计数和历史 pack run 关联。
+- `cancel_coding_benchmark_campaign` 立即把 queued item 标 `cancelled`，runner 在 item 间检查 cancel flag；已 running 的 item 结束后 campaign 收口为 `cancelled` 或 `partial`。
+- `retryFailedOnly=true` 把 failed / interrupted / cancelled item 重排为 queued，保留 attempt 计数和历史 pack run 关联。
 
-真实外部模型 benchmark 必须通过 Dashboard External campaign 控制区或 owner API 显式选择 provider/model matrix，并在 `run_coding_benchmark_campaign` / `create(... runNow=true)` 调用中提供或由本机 cached config 解析 provider configs；history 只记录 provider/model id 与 report summary，不保存 API key。默认 Dashboard Run 只创建 deterministic campaign，不触发外部网络或费用。
+真实外部模型 benchmark 必须经 Dashboard External campaign 控制区或 owner API 显式选择 provider/model matrix，provider config 只在本次调用内用于匹配 model item；history 只记录 provider/model id 与 report summary，不保存 API key。
 
-## Cross-model Leaderboard
+### Cross-model Leaderboard
 
-Phase 6.3 新增 `SessionDB::get_benchmark_leaderboard(input)` 与 `compare_benchmark_models(input)`，并通过 Tauri / HTTP / transport 暴露为 `get_benchmark_leaderboard`、`compare_benchmark_models`、`POST /api/coding-benchmark/leaderboard`、`POST /api/coding-benchmark/compare`。
+`SessionDB::get_benchmark_leaderboard(input)` 与 `compare_benchmark_models(input)` 基于 campaign item history 聚合同一"任务包 + source doc + execution mode + baseline kind + provider + model"下的表现。
 
-聚合边界：
+聚合边界：scope 沿用 Benchmark Center（incognito fail-closed）；`windowDays` 默认 30 钳 `[1,180]`，`campaignIds[]` 可收窄到指定 campaign；leaderboard key = `taskPackId + sourceDoc + executionMode + baselineKind + providerId + modelId`，因此不同任务包 / source doc / execution mode / baseline kind 不会被混成一个榜单；排序优先 `casePassRate`，再看 `itemPassRate`、`totalChecks`、`items` 和 label；样本不足、campaign 未完成、取消/interrupted item 都进 `warnings[]`。
 
-- scope 沿用 Benchmark Center：`sessionId` / `projectId` / global，session 绑定 project 时按 project 聚合；incognito fail-closed。
-- `windowDays` 默认 30，钳制到 `[1, 180]`；`campaignIds[]` 可把 report 收窄到指定 campaign。
-- leaderboard key = `taskPackId + sourceDoc + executionMode + baselineKind + providerId + modelId`，因此不会把不同任务包、不同 source doc、不同 execution mode 或不同 baseline kind 混成一个榜单。
-- 排序优先 `casePassRate`，再看 `itemPassRate`、`totalChecks`、`items` 和 label；样本不足、campaign 未完成、取消/interrupted item 都会进入 `warnings[]`。
+输出 `CodingBenchmarkLeaderboardReport`：`status`（≥2 行可比较为 `passed`，否则 `insufficient_data`）、`rows[]`（rank、label、provider/model、task pack/source、execution/baseline、各类汇总、pass rate、warnings）、`evidence[]`（每行最多 6 条，含 campaign id/name、item id、packRunId、provider/model、status、updatedAt、error，保证数字能回到原始 campaign item 和 pack run）。
 
-输出 `CodingBenchmarkLeaderboardReport`：
+### Benchmark Task Corpus
 
-- `status="passed"`：至少有 2 行可比较 model/baseline row。
-- `status="insufficient_data"`：少于 2 行，或 sample-size check 给出 advisory insufficient data。
-- `rows[]`：rank、label、provider/model、task pack/source、execution/baseline、campaign/item/case/check 汇总、pass rate、warnings。
-- `evidence[]`：每行最多保留 6 条 evidence，包含 campaign id/name、item id、packRunId、provider/model、status、updatedAt 与 error，保证 leaderboard 数字能回到原始 campaign item 和 pack run。
+Corpus 是面向用户本人的 task pack registry：`import_benchmark_task_pack` / `list_benchmark_task_packs` / `get_benchmark_task_pack` / `update_benchmark_task_pack_status` / `validate_benchmark_task_pack` / `get_benchmark_corpus_health`。
 
-Dashboard Benchmark Center 在 Campaign 控制区上方展示 Model leaderboard：rank、label、baseline/execution/task pack、case pass rate、item pass 和 warning 标记。P6.4 已补齐真实任务集 registry 与 corpus health；P6.5 已补 benchmark report export；P6.6 已把持续 gate、失败 backlog、可靠性和预算指标接入同一 owner-plane。
+导入契约：输入是完整 `CodingBenchmarkTaskPackManifest`（pack + task 两级 manifest）；必须传 `explicitImportConsent=true` 否则 fail-closed；**导入 API 不扫描本地 repo、不抓取 GitHub issue、不上传私有代码，只保存 owner 传入的 manifest**；`(packId, version)` 与 `(packId, packVersion, taskId, taskVersion)` 唯一，任务提示 / fixture / expected diff / scorer / 校准记录变化必须导入新版本、不覆盖旧历史；`status` 只允许 `draft` / `active` / `archived`，active pack 必须至少含一个 active task。
 
-## Benchmark Task Corpus
+验证规则（`validate_benchmark_task_pack`，不执行项目命令）：
 
-Phase 6.4 新增 `SessionDB::import_benchmark_task_pack`、`list_benchmark_task_packs`、`get_benchmark_task_pack`、`update_benchmark_task_pack_status`、`validate_benchmark_task_pack` 与 `get_benchmark_corpus_health`。Tauri / HTTP / transport 均已注册，Dashboard Learning Tab 在 Benchmark Center 下方展示 Task Corpus 面板。
-
-导入契约：
-
-- 输入是完整 `CodingBenchmarkTaskPackManifest`，包含 pack id/version/name/status/source kind/source URI/repo template/license note/privacy note/redaction status/tasks。
-- 每个 task manifest 记录 task id/version/title/status/task type/difficulty/language/framework/source URI/repo template/tags/success criteria/validation commands/allowed paths/forbidden paths/calibration notes/license/privacy/redaction。
-- 导入必须传 `explicitImportConsent=true`；否则 fail-closed。导入 API 不扫描本地 repo、不抓取 GitHub issue、不上传用户私有代码，只保存 owner 传入的 manifest。
-- `(packId, version)` 与 `(packId, packVersion, taskId, taskVersion)` 唯一。任务提示、fixture、expected diff、scorer schema 或校准记录变化必须导入新版本，不覆盖旧历史。
-- `status` 只允许 `draft` / `active` / `archived`。Draft pack 可保存未激活任务；active pack 必须至少包含一个 active task。
-
-验证规则：
-
-- `pack_identity`：pack id、version、name 必填。
-- `source_traceability`：必须有 source kind，且 source URI 或 repo template 至少一个。
-- `import_safety`：必须记录 license note、privacy note、redaction status。
-- `task_version_uniqueness`：同 pack 内 task id/version 不可重复。
-- `active_task_presence`：active pack 必须有 active task。
-- `active_task_quality`：每个 active task 必须有 source、成功标准、验证命令，redaction 不能是 pending。
-- `fixture_gaming_risk`：active task 的成功标准过薄、缺验证命令、写入范围过宽会阻止激活。
-
-Corpus health report：
-
-- 只把 `pack.status == active && task.status == active` 计作 active coverage；draft pack 内的 active task 仍只算 draft coverage。
-- 输出 pack/task active/draft/archive 数、difficulty / task type / language 分布。
-- 标出 stale task：active task 缺少 `calibratedAt` 或超过 `staleAfterDays`，默认 90 天。
-- 标出 duplicate task：active task fingerprint 重复，避免用近似任务刷高样本量。
-- 标出 gaming risk task：active task 缺验证、成功标准过薄或写入面过宽。
-
-Dashboard Task Corpus 面板展示 corpus status、active pack/task、draft、stale、duplicate、risk 数、task type 分布和最近 pack。用户可显式导入内置 sample manifest、validate、activate、archive；sample import 也只是 owner-provided manifest，不读取当前项目文件。Draft task pack 不进入 release gate 或 leaderboard。
-
-## Benchmark Report Export
-
-Phase 6.5 新增 `SessionDB::generate_benchmark_report(input)`、`list_benchmark_reports`、`get_benchmark_report` 与 `mark_benchmark_report_release_evidence`。Tauri / HTTP / transport 均已注册，对应 owner API：
-
-- `POST /api/coding-benchmark/reports/generate`
-- `POST /api/coding-benchmark/reports`
-- `GET /api/coding-benchmark/reports/{reportId}`
-- `POST /api/coding-benchmark/reports/release-evidence`
-
-报告类型：
-
-- `campaign`：必须传 `campaignId`，snapshot 嵌入完整 campaign 与按该 campaign 收窄的 leaderboard。
-- `comparison`：snapshot 嵌入 cross-model leaderboard / comparison 与 corpus health，用于模型或 baseline 对标复盘。
-- `release`：snapshot 嵌入 Benchmark Run Center、Release Gate、Leaderboard 与 Corpus Health；默认 `releaseEvidence=true`。
-
-落盘契约：
-
-- 默认输出到 `reports_dir()/benchmark/{reportId}/`，也可由 owner API 显式传 `outputDir`。
-- 每份报告写三份文件：`report.md`、`snapshot.json`、`report.html`；写入使用 `crate::platform::write_atomic`。
-- `snapshot_json` 是生成时刻的不可变 evidence，不依赖后续 live DB 变化；DB 只保存路径和 snapshot 副本，不自动上传或分享。
-- `releaseEvidence` 只能由 owner-plane 生成或显式标记；它是 release / PR 审计入口，不代表报告无法被后续重新生成。
-
-Dashboard Learning Tab 在 Task Corpus 下方展示 Benchmark Reports 面板：可生成 Comparison / Release / 最新 Campaign 报告，展示最近 6 份 report 的 status、type、title、summary、路径和 release 标记，并支持复制 Markdown 路径、显式切换 release evidence。
-
-## Continuous Benchmark Gate & Improvement Backlog
-
-Phase 6.6 新增 `evaluate_continuous_benchmark_gate(db, input)`（第八刀后是 `ha_improve::coding_improvement` 的自由函数）与 `SessionDB::materialize_benchmark_backlog` / `list_benchmark_backlog` / `update_benchmark_backlog_status`（台账，仍是 kernel 方法）。Tauri / HTTP / transport 均已注册，对应 owner API：
-
-- `POST /api/coding-benchmark/continuous-gate/evaluate`
-- `POST /api/coding-benchmark/backlog/materialize`
-- `POST /api/coding-benchmark/backlog`
-- `POST /api/coding-benchmark/backlog/status`
-
-Continuous Benchmark Gate 是 release 前 / 策略变更后 / 模型切换后的一条综合质量闸。它不跑模型、不执行项目命令，只读 durable history，并把下列信号归一到 `CodingContinuousBenchmarkGateReport`：
-
-- 既有 `evaluate_coding_eval_release_gate` 结果。
-- 最近 release evidence report 是否存在且未过期。
-- 最近 benchmark campaign 是否存在，campaign item 数是否达到阈值。
-- campaign case pass rate 是否达到阈值。
-- active corpus health 是否通过。
-- open benchmark backlog 和尚未物化的 failed / interrupted / cancelled campaign item 数。
-- required task pack / required provider/model/baseline 是否有对应 history。
-- 外部模型 policy：`requireExternalModel=true` 时必须同时 `externalModelPolicyEnabled=true`，否则 fail-closed。
-- 可靠性指标：interrupted campaign、provider error item、budget exhausted item。
-- 预算 contract：可选 `maxBudgetUsd`，只看 campaign contract，不估算隐藏费用。
-- retention knobs：报告输出 `retentionDays` 与 `rawArtifactRetentionDays`，作为非破坏性清理策略的可见参数；实际删除 raw artifact 必须走后续显式 owner action，不在 gate 里静默清理。
-
-Gate 输出：
-
-| 字段 | 说明 |
+| Check | 要求 |
 | --- | --- |
-| `status` | `passed` / `failed` / `insufficient_data`，任何 blocking check 失败都会阻断。 |
-| `checks[]` | 每条 check 的 expected / actual / reason。 |
-| `blockers[]` | 当前阻塞项名称，供 Dashboard 直接展示。 |
-| `recommendations[]` | 下一步动作，例如生成 release report、运行 campaign、物化 backlog、处理 provider error。 |
-| `summary` | release report、latest campaign、corpus、leaderboard、pass rate、backlog、budget 等摘要。 |
-| `reliability` | campaign 成功率、interrupted、provider error、budget exhausted、retention 窗口。 |
+| `pack_identity` | pack id、version、name 必填 |
+| `source_traceability` | 有 source kind，且 source URI 或 repo template 至少一个 |
+| `import_safety` | 记录 license note、privacy note、redaction status |
+| `task_version_uniqueness` | 同 pack 内 task id/version 不重复 |
+| `active_task_presence` | active pack 必须有 active task |
+| `active_task_quality` | 每个 active task 有 source、成功标准、验证命令，redaction 不能 pending |
+| `fixture_gaming_risk` | active task 成功标准过薄、缺验证命令、写入范围过宽 → 阻止激活 |
 
-Benchmark Backlog 是 P6.6 的改进输入层：
+Corpus health report 只把 `pack.status==active && task.status==active` 计作 active coverage（draft pack 内的 active task 仍只算 draft）；输出 pack/task 的 active/draft/archive 数与 difficulty / task type / language 分布，并标出 stale task（active task 缺 `calibratedAt` 或超过 `staleAfterDays`，默认 90 天）、duplicate task（active fingerprint 重复）、gaming risk task。Draft task pack 不进 release gate 或 leaderboard。
 
-- `materialize_benchmark_backlog` 会扫描 scope 内 failed / interrupted / cancelled campaign item，解析 item report JSON 中的 failed case；能拿到 task/case id 时按 case 建 item，拿不到时回退到 campaign item 级 item。
-- 每个 backlog item 保留 campaign id、campaign item id、pack run id、task pack id、task id、provider/model、baseline kind、execution mode、failure category、title 和 evidence JSON。
-- `UNIQUE(campaign_item_id, task_id)` 防止重复物化；重复触发只返回 existing 数，不制造噪音。
-- status 只允许 `open` / `in_progress` / `resolved` / `wont_fix`；`resolved` 和 `wont_fix` 会写 `resolved_at`。
-- 当前版本先把 benchmark 失败沉淀成独立 backlog item；进入 proposal / retro / failure feedback 的自动转化仍需显式后续 action，避免把失败 item 悄悄变成项目规则或 active skill。
+### Benchmark Report Export
 
-Dashboard Learning Tab 在 Benchmark Reports 下方展示 Continuous Benchmark Gate 面板：
+`generate_benchmark_report` / `list_benchmark_reports` / `get_benchmark_report` / `mark_benchmark_report_release_evidence` 把 campaign / comparison / release benchmark 生成不可变快照。
 
-- 顶部展示 gate status、blocking check 数、release report 新鲜度、latest campaign、case pass rate、open backlog、pending failure、reliability / budget 指标。
-- Blocking checks 区列出 expected / actual / reason，便于用户知道是缺 release report、缺 campaign、样本不足、失败未处理还是外部模型 policy 没开启。
-- Next steps 区展示 gate 推荐动作。
-- Benchmark backlog 区展示最近 open item，可一键从 pending failure 创建 backlog，也可把 item 标记为 resolved。
+报告类型：`campaign`（必传 `campaignId`，snapshot 嵌入完整 campaign 与按该 campaign 收窄的 leaderboard）、`comparison`（嵌入 cross-model leaderboard/comparison 与 corpus health）、`release`（嵌入 Run Center、Release Gate、Leaderboard、Corpus Health，默认 `releaseEvidence=true`）。
 
-## Eval
+落盘契约：默认输出到 `reports_dir()/benchmark/{reportId}/`（也可显式传 `outputDir`），每份写 `report.md` / `snapshot.json` / `report.html` 三份文件，写入用 `crate::platform::write_atomic`。`snapshot_json` 是生成时刻的不可变 evidence，不依赖后续 live DB 变化；DB 只保存路径和 snapshot 副本，不自动上传或分享。`releaseEvidence` 只能由面向用户本人的控制面生成或显式标记，是 release / PR 审计入口。
 
-`coding_eval.rs` 的 fixture harness 增加 `runs.improvement` 和 `checks.improvement`：
+### Continuous Benchmark Gate 与 Improvement Backlog
 
-- 可 seed `coding_eval_runs`。
-- 可生成 proposal。
-- 可应用指定 kind 的 draft proposal。
-- 可晋升已应用 proposal。
-- 可断言 scope、failure taxonomy、proposal kind、draft-only、eval success rate、repair loop blocked 数、retro 数、retro recommendation 数、applied / promoted status、artifact 数和 action target。
+`evaluate_continuous_benchmark_gate(db, input)`（`ha-improve` 自由函数）是发布前 / 策略变更后 / 模型切换后的一条综合质量闸；`materialize_benchmark_backlog` / `list_benchmark_backlog` / `update_benchmark_backlog_status`（kernel 台账方法）负责把失败沉淀成可处理的 backlog。
 
-`repair_loop_blocks_with_evidence` fixture 已覆盖 Phase 3.11：bounded repair loop 阻塞后，trend report 能识别 `repair_loop_exhausted`，生成 draft `eval_candidate`，并记录 eval run success rate。
+**Continuous Gate** 只读 durable history，把下列信号归一到 `CodingContinuousBenchmarkGateReport`：既有 Release Gate 结果、最近 release evidence report 是否存在且未过期、最近 campaign 是否达 item 数阈值、campaign case pass rate、active corpus health、open backlog 与尚未物化的失败 item 数、required task pack / provider/model/baseline 是否有 history、外部模型 policy（`requireExternalModel=true` 时必须同时 `externalModelPolicyEnabled=true`，否则 fail-closed）、可靠性指标（interrupted campaign、provider error item、budget exhausted item）、预算 contract、retention 参数。
 
-`improvement_proposal_to_action` fixture 已覆盖 Phase 4.1：失败 eval run 进入 `eval_failed` taxonomy，生成 `eval_candidate`，并应用为 `.hope-agent/coding-improvement/eval-candidates/` 下的草稿 artifact。
+| 输出字段 | 说明 |
+| --- | --- |
+| `status` | `passed` / `failed` / `insufficient_data`，任何 blocking check 失败都阻断 |
+| `checks[]` | 每条 check 的 expected / actual / reason |
+| `blockers[]` | 当前阻塞项名称，供 Dashboard 直接展示 |
+| `recommendations[]` | 下一步动作，例如生成 release report、运行 campaign、物化 backlog、处理 provider error |
+| `summary` | release report、latest campaign、corpus、leaderboard、pass rate、backlog、budget 摘要 |
+| `reliability` | campaign 成功率、interrupted、provider error、budget exhausted、retention 窗口 |
 
-`improvement_retro_and_promotion` fixture 已覆盖 Phase 4.2：workflow terminal retro 写入 report，retro recommendation 进入候选池，`eval_candidate` 草稿晋升到正式 coding eval fixture 路径。
+retention 参数只是**可见的清理策略参数**——gate 只暴露 `retentionDays` / `rawArtifactRetentionDays`，实际删除 raw artifact 必须走后续显式 owner action，不在 gate 里静默清理。
 
-Phase 4.3 为 `dashboard::coding_improvement` 增加 Rust 单元测试，覆盖项目级 rollup、proposal / retro / review / verification 信号合并，以及 incognito session 排除。该层仍是纯 SQLite 聚合，无 LLM、无项目命令执行、无写入副作用。
+**Improvement Backlog** 是把失败暴露出来的改进输入层：`materialize_benchmark_backlog` 扫描 scope 内 failed / interrupted / cancelled campaign item，解析 item report JSON 里的 failed case——能拿到 task/case id 时按 case 建 item，拿不到时回退到 campaign item 级。每个 backlog item 保留 campaign id、campaign item id、pack run id、task pack id、task id、provider/model、baseline kind、execution mode、failure category、title 和 evidence JSON；`UNIQUE(campaign_item_id, task_id)` 防重复物化。status 只允许 `open` / `in_progress` / `resolved` / `wont_fix`（后两者写 `resolved_at`）。当前版本先把 benchmark 失败沉淀成独立 backlog item，转成 proposal / retro / failure feedback 的自动转化仍需显式后续 action，避免把失败悄悄变成项目规则或 active skill。
 
-Phase 4.4 为 `distill_coding_improvement_proposals` 增加 Rust 单元测试，覆盖真实 transcript message、tool error、review+verify+diff workflow op shape、failed eval feedback、proposal 插入与重复触发去重。该路径仍不调用 LLM、不执行项目命令、不直接写项目规则。
+## Release Gate 与 Learning Generalization Gate
 
-Phase 5.1 为 `coding_eval.rs` 增加 task-level runner fixture，覆盖候选 diff 判分、验证命令约束、review/context/goal evidence 和 `coding_eval_runs(suite='task_level_coding_eval')` 记录。Improvement Loop 不需要新表即可消费这类任务级结果；失败仍走既有 eval failure taxonomy 与 proposal 队列。
+这两条 gate 都只读历史、不调 LLM、不执行项目命令、不生成 proposal、不回写 DB，输出 `passed` / `failed` / `insufficient_data` 三态。它们回答两个不同层次的问题。
 
-Phase 5.2 为同一 harness 增加 agent execution runner：`mode=agent` 真实调用 chat engine，`mode=fixture_patch` 做无模型回归替身。task eval run metrics 会携带 execution 摘要，因此 Improvement Loop 可以区分执行失败、无 diff、scope creep、验证缺口等失败来源，而不需要新建 learning 表。
+### Release Gate
 
-Phase 5.3 为同一 harness 增加 Gold Task Pack v1；Phase 5.5 已把首批 20 个 active gold tasks 全部接入自动化 pack，可批量 materialize 成普通 task fixture 并运行。Pack 内每个 case 仍复用 `runs.task.recordEvalRun` 写入同一 `coding_eval_runs` 表，Phase 5.7 额外把 pack-level summary 写入 `coding_eval_pack_runs`，让 Dashboard 能按 pack 粒度展示 pass rate 与 baseline kind。
+`SessionDB::evaluate_coding_eval_release_gate(input)` 回答"**这一批编码质量能不能发布**"。数据来源：`coding_eval_pack_runs`（pack run 数、pass rate、case/check 汇总、`baseline_kind` 分布）、`coding_strategy_effect_runs`（strategy verdict、validation / scope creep / execution failure delta）、`coding_eval_runs(source_type='coding_task_eval')`（agent 模式下 `toolCalls=[]` 的 task eval 次数）。
 
-Phase 5.4 为 pack report 增加策略效果评估：两份 `GoldTaskPackReport` 可通过纯函数 owner API 生成 `StrategyEffectReport`，按共同 case 比较 pass rate、task score、context recall、validation violations、scope creep 和 execution failures。Phase 5.7 保留纯函数无副作用语义，同时让 Tauri / HTTP owner API 在 `recordRun=true` 时写入 `coding_strategy_effect_runs`，把 review-time 质量闸升级为可审计趋势。
+默认阈值偏保守：
 
-Phase 5.6 为 agent execution runner 增加稳定 mock tool-call 基线与 `toolCalls` 指标。mock Responses provider 会驱动真实 `write` 工具修改临时 repo，再由 task scorer 判断候选 diff 是否完成任务；`FixtureReport.metrics.execution_tool_calls` 与 task report metrics 让 Improvement Loop 可以区分“模型调用了错误工具 / 没有调用工具”和“工具调用成功但 diff 质量不达标”。Phase 5.7 Dashboard 会把 agent 模式下缺失 tool call 的 run 聚合为 `missing_tool_call` failure mode。
+| 阈值 | 默认值 |
+| --- | --- |
+| `minPackRuns` | 1 |
+| `minStrategyEffectRuns` | 0 |
+| `minPackPassRate` | 1.0 |
+| `requireExternalModelPack` | false |
+| `maxRegressedStrategyEffects` | 0 |
+| `maxMixedStrategyEffects` | 0 |
+| `maxMissingToolCallRuns` | 0 |
+| `maxValidationViolationDelta` | 0 |
+| `maxScopeCreepDelta` | 0 |
 
-Phase 5.8 为持久化 pack / strategy history 增加 release gate。核心单测覆盖：干净 pack + strategy history 通过；strategy regression / validation / scope creep / missing tool-call 触发失败；要求外部真实模型但只有 deterministic / mock history 时返回 `insufficient_data`。
+三态语义：`passed`=样本充足且所有阈值通过；`failed`=已有证据表明质量不达标（pack pass rate 过低、strategy regressed、tool-call 缺失、validation / scope creep 增量超限）；`insufficient_data`=缺要求的 pack / strategy 样本，或显式要求外部真实模型基线但窗口内没有 `baseline_kind='external_model'`。需要真实 provider 基线时必须 `requireExternalModelPack=true` 且由 pack run 显式记录 `baselineKind="external_model"`——gate 绝不把 deterministic / mock 结果冒充外部真实模型。
 
-Phase 5.9 为 Gold Task Pack 增加外部模型基线 runner。`run_coding_eval_gold_task_pack` 可显式传 `executionMode="agent"`、`providers`、`modelChain` 和 `autoApproveTools`；runner 从 gold task prompt 创建真实 chat turn，要求模型通过工具产生 candidate diff，再由同一 scorer 判分。`baselineKind="external_model"` 不能配 `fixture_patch`，`agent` 也不能记录为 `deterministic_mock`，因此 Dashboard / Release Gate 中的 external pack run 不再只是标签。
+### Learning Generalization Gate
 
-Phase 5.10 为 Learning Loop 增加跨项目泛化门禁。核心单测覆盖：两个项目均有 promoted guidance、pack history 与 improved strategy effect 时通过；任一项目出现 regressed strategy effect / validation delta / scope creep delta 时整体失败。它证明的是“学习成果在多个项目的 durable evidence 下没有退化”，而不是训练或自动发布新策略。
+`SessionDB::evaluate_coding_learning_generalization(input)` 回答更高层的问题："**学到的经验在多个项目里是真成立，还是只优化了单项目 fixture**"。数据来源：`coding_improvement_proposals(status='promoted')`（只把已晋升的 `guidance_candidate` / `skill_candidate` / `workflow_template` 计入 durable learning evidence，草稿或已应用但未晋升的一律不算）、`coding_eval_pack_runs`（按项目聚合）、`coding_strategy_effect_runs`（按项目聚合）。
 
-Phase 6.1 为 Dashboard 增加 Benchmark Run Center。核心单测覆盖：干净 deterministic pack history 通过；latest pack run failed 时 center 与 release gate 失败；配置要求 external model baseline 但只有 deterministic history 时返回 `insufficient_data`。Phase 6.2 为 Benchmark Campaign Runner 增加核心单测：deterministic campaign 可运行 Gold Pack 子集并写回 `pack_run_id` / case 汇总；创建 external model campaign 时 `task_filter_json` 会剥离 provider config、modelChain 和 API key。Phase 6.3 为 leaderboard 增加核心单测：deterministic passed campaign 与 external failed campaign 可生成两行 comparison，deterministic 按 pass rate 排第一，失败行保留 error evidence。Phase 6.4 为 corpus registry 增加核心单测：显式 import draft pack 后不计 active coverage，激活后 health 通过；同 pack version 不可覆盖；未显式同意导入和低质量 active task fail-closed。Phase 6.5 为 report export 增加核心单测：release report 生成 Markdown / JSON / HTML 三份文件，snapshot 嵌入 center / release gate / leaderboard / corpus health，list/get/mark release evidence 可回归。Phase 6.6 为 continuous benchmark gate / backlog 增加核心单测：新鲜 release evidence + 最近 campaign + corpus health 可通过 gate；失败 campaign item 可物化成 backlog，随后 gate 因 open backlog 明确阻断。Phase 7.13 为 domain campaign learning 增加核心单测：失败 campaign item 可定向生成 `domain_eval_case` + `domain_guidance` proposal，重复触发幂等，并可预览 domain eval case 草稿。Phase 7.14 为 Domain Readiness Gate 增加核心单测：live quality + campaign evidence 齐全时 readiness passed；失败 campaign 且未学习闭环时 readiness failed，并指出 `campaign_failures` / `learning_closure` blockers。Phase 7.15 为 Artifact Export Guard 增加核心单测：产物、复核和脱敏检查齐全时 passed；connector evidence 仍 pending 且缺少 artifact review 时 failed。Phase 7.16 为 Connector Action Guard 增加核心单测：动作、用户批准、回滚和交付复核齐全时 passed；缺少显式批准时 failed；权限引擎 strict 分类与 auto-approve 旁路收口。前端 typecheck 覆盖 Tauri / HTTP transport 类型、Dashboard 状态、Campaign 列表、External campaign 控制、Leaderboard、Task Corpus、Benchmark Report、Continuous Gate、Benchmark Backlog、Domain Campaign learning action、Domain Readiness、Workspace 交付守门与外部动作守门展示。
+默认阈值偏保守：
+
+| 阈值 | 默认值 |
+| --- | --- |
+| `minProjects` | 2 |
+| `minProjectPackRuns` | 1 |
+| `minProjectPackPassRate` | 1.0 |
+| `minStrategyEffectRunsPerProject` | 0 |
+| `requirePromotedLearning` | true |
+| `requireExternalModelPack` | false |
+| `maxRegressedProjects` | 0 |
+| `maxMixedProjects` | 0 |
+| `maxValidationViolationDeltaPerProject` | 0 |
+| `maxScopeCreepDeltaPerProject` | 0 |
+
+输出 `CodingLearningGeneralizationReport` 含三态 `status`、`projects[]`（每项目的 promoted learning 数、pack run、pass rate、strategy effect、delta、reasons、learning item 摘要）、`checks[]`（机器可读门禁项，供 Dashboard / CI / release scripts 展示）。它证明的是"学习成果在多项目 durable evidence 下没有退化"，不是训练或自动发布新策略。传 `projectId` 时可把同一 evaluator 退化为单项目学习质量门禁。
+
+## Owner API
+
+面向用户本人的控制面，Tauri command 与 HTTP 路由一一对应，前端 HTTP `COMMAND_MAP` 与 Tauri `generate_handler!` 均已注册，保持 Desktop / server 模式闭合。
+
+### 核心回路
+
+| Tauri Command | HTTP | 说明 |
+| --- | --- | --- |
+| `get_coding_trend_report` | `GET /api/sessions/{sid}/coding-trend?windowDays=30` | 读取 scope 的 trend report |
+| `list_coding_improvement_proposals` | `GET /api/sessions/{sid}/coding-improvement/proposals` | 读取 proposal 队列 |
+| `generate_coding_improvement_proposals` | `POST /api/sessions/{sid}/coding-improvement/proposals` | 基于 report 生成 draft-only 候选；可选 `sourceType` / `sourceId` / `proposalKinds` 定向提炼 |
+| `distill_coding_improvement_proposals` | `POST /api/sessions/{sid}/coding-improvement/distill` | 显式蒸馏 transcript / workflow ops / failure feedback，生成 draft-only 候选 |
+| `update_coding_improvement_proposal_status` | `POST /api/coding-improvement/proposals/{id}/status` | 更新 proposal 状态（仅 draft / rejected） |
+| `preview_coding_improvement_proposal_action` | `GET /api/coding-improvement/proposals/{id}/action-preview` | 预览 action plan |
+| `apply_coding_improvement_proposal` | `POST /api/coding-improvement/proposals/{id}/apply` | 应用，生成草稿产物或 managed draft 技能 |
+| `preview_coding_improvement_proposal_promotion` | `GET /api/coding-improvement/proposals/{id}/promotion-preview` | 预览 promotion plan |
+| `promote_coding_improvement_proposal` | `POST /api/coding-improvement/proposals/{id}/promote` | 晋升为正式 fixture / project guidance / active skill |
+| `record_coding_eval_run` | `POST /api/coding-improvement/eval-runs` | 记录 deterministic eval 或外部 eval run |
+
+### Dashboard 与门禁
+
+| Tauri Command | HTTP | 说明 |
+| --- | --- | --- |
+| `dashboard_coding_improvement` | `POST /api/dashboard/learning/coding-improvement` | 按 DashboardFilter 聚合全局 / 项目信号（只读） |
+| `evaluate_coding_eval_release_gate` | `POST /api/coding-improvement/release-gate/evaluate` | 发布质量门禁 |
+| `evaluate_coding_learning_generalization` | `POST /api/coding-improvement/generalization/evaluate` | 跨项目泛化门禁 |
+
+### Benchmark 台面
+
+| Tauri Command | HTTP | 说明 |
+| --- | --- | --- |
+| `get_coding_benchmark_center` | `POST /api/coding-benchmark/center` | 聚合 benchmark history、baseline buckets、recent runs 与两条 gate |
+| `create_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/create` | 创建 durable campaign；`runNow=true` 后台启动 runner |
+| `list_coding_benchmark_campaigns` | `POST /api/coding-benchmark/campaigns` | 按 scope 列出最近 campaign 与 item 摘要 |
+| `get_coding_benchmark_campaign` | `GET /api/coding-benchmark/campaigns/{id}` | 读取单个 campaign、summary 与 item 明细 |
+| `cancel_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/{id}/cancel` | 请求取消，未运行 queued item 标 cancelled |
+| `run_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/run` | 后台运行 queued item；`retryFailedOnly=true` 只重排失败 / interrupted / cancelled item |
+| `get_benchmark_leaderboard` | `POST /api/coding-benchmark/leaderboard` | 基于 campaign item history 生成跨模型 leaderboard |
+| `compare_benchmark_models` | `POST /api/coding-benchmark/compare` | 按输入 campaign/window 生成可追溯 comparison report |
+| `import_benchmark_task_pack` | `POST /api/coding-benchmark/corpus/import` | 导入 task pack manifest；须 `explicitImportConsent=true`，不扫描仓库、不存 secret |
+| `list_benchmark_task_packs` | `POST /api/coding-benchmark/corpus/packs` | 列出 task packs，可按 status / includeArchived / limit 过滤 |
+| `get_benchmark_task_pack` | `GET /api/coding-benchmark/corpus/packs/{packId}/{version}` | 读取单个 pack 与 task version 明细 |
+| `update_benchmark_task_pack_status` | `POST /api/coding-benchmark/corpus/packs/status` | 切换 draft / active / archived；激活前强制重验 active task quality |
+| `validate_benchmark_task_pack` | `POST /api/coding-benchmark/corpus/packs/validate` | 返回 validation report，不执行项目命令 |
+| `get_benchmark_corpus_health` | `POST /api/coding-benchmark/corpus/health` | 返回 corpus health |
+| `generate_benchmark_report` | `POST /api/coding-benchmark/reports/generate` | 生成 campaign / comparison / release 报告快照 |
+| `list_benchmark_reports` | `POST /api/coding-benchmark/reports` | 列出最近报告 |
+| `get_benchmark_report` | `GET /api/coding-benchmark/reports/{reportId}` | 读取单份报告 |
+| `mark_benchmark_report_release_evidence` | `POST /api/coding-benchmark/reports/release-evidence` | 显式切换 release evidence 标记 |
+| `evaluate_continuous_benchmark_gate` | `POST /api/coding-benchmark/continuous-gate/evaluate` | 综合持续 benchmark 门禁 |
+| `materialize_benchmark_backlog` | `POST /api/coding-benchmark/backlog/materialize` | 把失败 campaign item 物化成 backlog |
+| `list_benchmark_backlog` | `POST /api/coding-benchmark/backlog` | 列出 backlog item |
+| `update_benchmark_backlog_status` | `POST /api/coding-benchmark/backlog/status` | 切换 backlog item 状态 |
+
+gate / benchmark API 输入为 `{ input: ... }`，按各自 scope/window/threshold 字段解析；campaign API 同样是面向用户本人的控制面，不经模型能调用的工具面。`dashboard_coding_improvement` 输入为 `{ filter, limit? }`，`filter` 复用 Dashboard 既有时间 / agent / provider / model 过滤。
+
+Tauri 命令与 HTTP 路由的完整对照另见 [api-reference](api-reference.md)。
+
+## Dashboard Learning 视图
+
+`dashboard_coding_improvement` 返回 `CodingImprovementDashboard`（由 `ha_dash::dashboard::coding_improvement::query_coding_improvement_dashboard` 计算），是全局 / 项目级只读学习视图：
+
+| 区块 | 内容 |
+| --- | --- |
+| `overview` | session、workflow、case eval、pack eval、strategy effect、tool-call missing、validation/scope delta、review blocker、verification failure、retro、proposal、distillation queue 汇总 |
+| `timeline` | 按天聚合 completed/blocked/failed workflow、passed/failed eval、passed/failed pack、strategy verdict、validation/scope delta、proposal created/applied/promoted、retro recommendation |
+| `byProject` | 按 `project_id` 汇总 workflow/eval/pack 成功率、strategy regression、blocker、proposal 与 distillation candidates；项目名可用时从 `projects` 表补齐 |
+| `domainQuality` | 聚合 `domain_quality_runs`、`domain_quality_checks`、`domain_eval_runs` 与 `source_type='domain_quality'` 的 proposal，含总览、按天趋势、按领域 bucket、top blockers、recent runs。它是历史趋势视图，不执行 gate |
+| `topFailures` | 从 `eval_candidate` proposal payload 读稳定 failure category，展示 top failure mode |
+| `toolCallFailures` | 从 task-level eval metrics 读 agent 模式下 `toolCalls=[]` 的 run |
+| `proposalStatuses` | proposal status 分布 |
+| `latestStrategyEffects` | 最近 strategy effect run 的 verdict、baseline/candidate label、pass rate / task score / validation / scope creep delta |
+| `latestRetros` | 最近 workflow retro summary 与 recommendation |
+
+该 API **只读** existing durable facts：不调 `generate_coding_improvement_proposals`、不 apply、不 promotion、不回写任何 learning event。无痕、cron、subagent session 按 Dashboard 通用规则排除；sessionless eval run 仅在未按 agent/provider/model 过滤时计入全局 eval 聚合。
+
+### 两个面板的分工
+
+- **Workspace 质量趋势区块**是当前 session/project 的**可操作**质量面板：读近 30 天 report，展示 Goal / Workflow / Eval / Repair 成功率、review blocker、verification failure、failure bucket、draft proposal 数、最近 retro summary 与 recommendation；顶部有「生成改进候选」（从 trend report 派生）和「提炼候选」（显式扫描 transcript/workflow/failure feedback）；proposal 行支持展开详情、预览 action plan、应用草稿、预览/执行 promotion、拒绝候选。
+- **Dashboard Learning Tab** 是全局 / 项目级**只读**学习视图：Coding improvement 区块展示各类成功率、失败模式、improvement timeline、latest strategy effects/retros；Release Gate 与 Generalization Gate 卡片展示三态门禁；Benchmark Center / Campaign 列表 / Leaderboard / Task Corpus / Benchmark Reports / Continuous Gate / Backlog 面板逐层展开整个 benchmark 台面；General domain trends / quality gate / Domain campaigns 卡片承接通用领域学习。
+
+两者不复用任意 session 伪装 scope，避免把 session-local report 误读成全局事实。
+
+## 数据模型
+
+初始化入口 `SessionDB::open()` 调 `crate::coding_improvement::ensure_tables()` 创建下列持久化表（均以 `session_id` 外键 `ON DELETE CASCADE` 挂在 `sessions` 上）：
+
+| 表 | 说明 |
+| --- | --- |
+| `coding_eval_runs` | deterministic eval 或外部评测运行结果：`session_id`、`project_id`、`suite`、`name`、`status`、`metrics_json`、`source_type`、`source_id`、`created_at` |
+| `coding_eval_pack_runs` | `GoldTaskPackReport` history：`pack_id`、`source_doc`、`label`、`baseline_kind`、`status`、`selected/automated/skipped/passed/failed_cases`、`total_checks`、`report_json`、`source_type`、`source_id`、`created_at`。`baseline_kind` 区分 `deterministic_mock` / `mock_provider` / `external_model`；`external_model` pack run 必须来自 `executionMode="agent"` + 显式 provider/modelChain |
+| `coding_strategy_effect_runs` | `StrategyEffectReport` history：`strategy_type`、baseline/candidate label、可选 pack run 关联、`verdict`、`compared_cases`、pass rate / average score / context recall / validation / scope creep / execution failure delta、`report_json`、source、`created_at` |
+| `coding_benchmark_campaigns` | durable campaign：scope、`name`、`status`、`task_pack_id`、`source_doc`、`execution_mode`、`baseline_kind`、`task_filter_json`、`model_matrix_json`、`max_budget_usd`、`timeout_secs`、`error`、created/updated/started/finished 时间。`task_filter_json` 清空 providers/modelChain，provider config 与 API key 不入 history |
+| `coding_benchmark_campaign_items` | 每个 item：`campaign_id`、`provider_id`/`model_id`/`label`、`status`、`attempt`、`pack_run_id`、case/check 汇总、截断后 `report_json`、`error`、时间戳 |
+| `coding_benchmark_task_packs` | corpus pack manifest：`pack_id`、`pack_version`、name、`status`、source kind/URI、repo template、license/privacy note、redaction status、import source、`manifest_json`、时间戳；`(pack_id, pack_version)` 唯一 |
+| `coding_benchmark_task_pack_tasks` | pack 内 task version：task id/version/title/status、task type、difficulty、language/framework、source URI、repo template、tags、success criteria、validation commands、allowed/forbidden paths、calibration notes、license/privacy/redaction、risk flags、`fingerprint`；`(pack_id, pack_version, task_id, task_version)` 唯一 |
+| `coding_benchmark_reports` | report history：report type、title、三态 status、scope、session/project、source type/id、campaign ids、不可变 `snapshot_json`、markdown/json/html 路径、`release_evidence` 标记、时间戳 |
+| `coding_benchmark_backlog_items` | 失败 item 物化的 backlog：`status`、`severity`、`failure_category`、scope、campaign/item/pack/task、provider/model、baseline/execution、`evidence_json`、`proposal_id`、`resolved_at`；`(campaign_item_id, task_id)` 唯一 |
+| `coding_improvement_proposals` | 候选草案队列：`kind`、`status`、`source_type`、`source_id`、`title`、`body`、`payload_json`、`fingerprint`、`decided_at`、`apply_result_json`、`applied_at`、`promotion_result_json`、`promoted_at`；`(session_id, fingerprint)` 唯一 |
+| `coding_workflow_retros` | workflow 终态 retro：`workflow_run_id`（唯一）、`run_state`、`summary`、`signals_json`、`recommendations_json`、`project_id`、created/updated 时间；重复终态回写走 upsert |
+
+## 确定性评测
+
+执行机器 `ha-eval-runtime` 的 fixture harness 提供 `runs.improvement` 和 `checks.improvement`，覆盖整条回路的确定性行为：seed `coding_eval_runs`、生成 proposal、应用指定 kind 的 draft、晋升已应用 proposal；并可断言 scope、failure taxonomy、proposal kind、draft-only、eval success rate、repair loop blocked 数、retro 数、retro recommendation 数、applied / promoted status、artifact 数和 action target。
+
+harness 还包含 task-level runner（候选 diff 判分、验证命令约束、review/context/goal evidence）、agent execution runner（`mode=agent` 真实调 chat engine 产 candidate diff，`mode=fixture_patch` 做无模型回归替身，metrics 携带 execution 摘要以区分执行失败 / 无 diff / scope creep / 验证缺口 / 缺失 tool call）、以及 Gold Task Pack（首批 active gold tasks 接入自动化 pack，pack-level summary 写入 `coding_eval_pack_runs`）。两份 `GoldTaskPackReport` 可经纯函数生成 `StrategyEffectReport`，`recordRun=true` 时写入 `coding_strategy_effect_runs`，落成可审计趋势。外部模型基线 runner 从 gold task prompt 建真实 chat turn、要求模型经工具产 candidate diff，`baselineKind="external_model"` 不能配 `fixture_patch`、`agent` 也不能记为 `deterministic_mock`，因此 Dashboard / Release Gate 里的 external pack run 不只是标签。
+
+Dashboard 聚合层、蒸馏、release / generalization / continuous gate、campaign runner、leaderboard、corpus、report export、backlog、领域学习均有对应单元测试，共同保证：不调用 LLM、不执行项目命令、不直接写项目规则的确定性语义。确定性评测的整体框架见 [capability-eval](capability-eval.md)。
 
 ## 红线
 
-- 不依赖 LLM：report、proposal generation 和 transcript distillation 全部规则式。
-- 不自动应用：生成 proposal 不改项目规则、skill、memory、fixture。
-- 应用也不直改生产规则：只生成草稿 artifact 或 managed draft skill，后续进入人工 review/promotion。
-- promotion 必须显式触发，且有 preview；不得从 proposal generation 或 apply 隐式执行。
-- fail-closed：目标文件已存在且内容不同、并发创建、AGENTS include 异常或 skill 激活失败都不能吞掉；apply/promotion 错误分别写入 `failed` / `promotion_failed`。
-- `applied` / `promoted` 不能被人工状态更新改回草案；promotion retry 走 promotion API。
-- incognito fail-closed：无痕会话不读取/写入 durable improvement 数据。
-- 蒸馏不越权：`distill_coding_improvement_proposals` 只读 durable transcript / workflow / eval / review / verification facts，只写 draft proposal，不 apply、不 promotion。
-- Domain campaign learning 不越权：只读 failed / cancelled / interrupted campaign item，只写 draft proposal；无 session scope 的 campaign 不在 Dashboard 提供学习按钮。
-- 泛化不伪证：Learning Generalization Gate 只消费 promoted learning 与跨项目质量历史；草稿、单项目样本、fixture-only 标签或无项目归属记录都不能证明跨项目泛化。
-- Benchmark 不伪证：Benchmark Run Center 只展示 `coding_eval_pack_runs` 的 durable history；deterministic / mock / external model 由 `baselineKind` 明确区分，Dashboard 默认 Run 创建 deterministic campaign，不冒充真实外部模型能力。
-- Campaign 不存密钥：`coding_benchmark_campaigns.task_filter_json` 永远不保存 provider config、modelChain 或 API key；外部模型 runner 只能使用本次 owner 调用传入的 provider configs。
-- Corpus 不隐式读取：task pack import 只保存 owner 提供的 manifest，必须显式 consent；不会自动扫描用户私有 repo、抓取任意 issue 或上传代码。Draft pack/task 不算 active benchmark coverage。
-- Report 不伪实时：benchmark report 是生成时刻的 snapshot，数字必须引用稳定 campaign / pack run / gate evidence，不得在展示时悄悄重算成另一份结论。
-- Continuous Gate 不偷跑模型：gate 只读 durable history；涉及外部模型、费用、网络或周期触发的 policy 默认关闭，必须 owner 显式 opt-in。
-- Backlog 不隐藏失败：failed / interrupted / cancelled campaign item 必须先以 open backlog 或 pending failure 形式可见；resolved / wont_fix 是用户可审计状态，不得为了通过 gate 静默删除 history。
-- Retention 不静默删证据：P6.6 gate 只暴露 retention 策略参数和可靠性指标；真实 cleanup 必须是显式 owner action，且不能破坏 report snapshot 的 evidence 可追溯性。
-- 不混淆 scope：Workspace 用 session/project scope；Dashboard 用 `dashboard_coding_improvement` 全局 / 项目级只读 scope，禁止用任意 session 伪装全局趋势。
-- 不绕过现有控制面：trend report 只消费 Goal / Workflow / Review / Verification / Eval 的持久化事实，不重写它们的语义。
+- **不依赖 LLM**：report、proposal generation 和 transcript distillation 全部规则式。
+- **不自动应用**：生成 proposal 不改项目规则、skill、memory、fixture。
+- **应用也不直改生产规则**：只生成草稿 artifact 或 managed draft 技能，后续进入人工 review/promotion。
+- **promotion 必须显式触发且有 preview**：不得从 proposal generation 或 apply 隐式执行。
+- **fail-closed**：目标文件已存在且内容不同、并发创建、AGENTS include 异常或 skill 激活失败都不能吞掉；apply/promotion 错误分别写 `failed` / `promotion_failed`。
+- **`applied` / `promoted` 不能被人工状态更新改回草案**；promotion retry 走 promotion API。
+- **incognito fail-closed**：无痕会话不读取/写入 durable improvement 数据。
+- **蒸馏不越权**：只读 durable transcript / workflow / eval / review / verification facts，只写 draft proposal，不 apply、不 promotion。
+- **领域 campaign 学习不越权**：只读 failed / cancelled / interrupted campaign item，只写 draft proposal；无 session scope 的 campaign 不在 Dashboard 提供学习按钮。
+- **泛化不伪证**：Learning Generalization Gate 只消费 promoted learning 与跨项目质量历史；草稿、单项目样本、fixture-only 标签或无项目归属记录都不能证明跨项目泛化。
+- **Benchmark 不伪证**：Run Center 只展示 `coding_eval_pack_runs` 的 durable history；deterministic / mock / external model 由 `baselineKind` 明确区分，默认 Run 创建 deterministic campaign，不冒充真实外部模型能力。
+- **Campaign 不存密钥**：`coding_benchmark_campaigns.task_filter_json` 永不保存 provider config、modelChain 或 API key；外部模型 runner 只能用本次 owner 调用传入的 provider configs。
+- **Corpus 不隐式读取**：task pack import 只保存 owner 提供的 manifest，必须显式 consent；不自动扫描私有 repo、抓取任意 issue 或上传代码。Draft pack/task 不算 active benchmark coverage。
+- **Report 不伪实时**：benchmark report 是生成时刻的 snapshot，数字必须引用稳定 campaign / pack run / gate evidence，不在展示时悄悄重算成另一份结论。
+- **Continuous Gate 不偷跑模型**：gate 只读 durable history；涉及外部模型、费用、网络或周期触发的 policy 默认关闭，必须 owner 显式 opt-in。
+- **Backlog 不隐藏失败**：failed / interrupted / cancelled campaign item 必须先以 open backlog 或 pending failure 形式可见；resolved / wont_fix 是用户可审计状态，不得为通过 gate 静默删除 history。
+- **Retention 不静默删证据**：gate 只暴露 retention 策略参数和可靠性指标；真实 cleanup 必须是显式 owner action，且不破坏 report snapshot 的 evidence 可追溯性。
+- **不混淆 scope**：Workspace 用 session/project scope；Dashboard 用 `dashboard_coding_improvement` 全局 / 项目级只读 scope，禁止用任意 session 伪装全局趋势。
+- **不绕过现有控制面**：trend report 只消费 Goal / Workflow / Review / Verification / Eval 的持久化事实，不重写它们的语义。
