@@ -810,9 +810,7 @@ mod tests {
                     .contains("must be resolved by the owner process"),
                 "错误信息应指出 mint 的边界，实际：{err}"
             ),
-            Ok(_) => panic!(
-                "隔离评测运行时里 mint 必须立刻 bail，绝不去读 owner OAuth 文件"
-            ),
+            Ok(_) => panic!("隔离评测运行时里 mint 必须立刻 bail，绝不去读 owner OAuth 文件"),
         }
     }
 }

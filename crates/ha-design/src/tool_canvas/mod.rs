@@ -614,13 +614,10 @@ pub async fn save_canvas_config(config: CanvasConfig) -> Result<(), String> {
     // Config write red line #7: never load+save on a snapshot — clone-then-save
     // clobbers concurrent writes. `mutate_config_async` takes the write lock
     // around load → mutate → persist and runs on the blocking pool.
-    ha_core::config::mutate_config_async(
-        ("canvas", "design.tool_canvas"),
-        move |store| {
-            store.canvas = config;
-            Ok(())
-        },
-    )
+    ha_core::config::mutate_config_async(("canvas", "design.tool_canvas"), move |store| {
+        store.canvas = config;
+        Ok(())
+    })
     .await
     .map_err(|e| e.to_string())
 }

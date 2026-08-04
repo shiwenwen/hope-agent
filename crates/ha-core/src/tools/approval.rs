@@ -1398,8 +1398,8 @@ mod tests {
         let (release_tx, release_rx) = tokio::sync::oneshot::channel();
         let started = std::sync::Arc::new(TokioMutex::new(Some(started_tx)));
         let release = std::sync::Arc::new(TokioMutex::new(Some(release_rx)));
-        let _hook_guard = crate::channel_hooks::test_seam::install(std::sync::Arc::new(
-            move |_req_id| {
+        let _hook_guard =
+            crate::channel_hooks::test_seam::install(std::sync::Arc::new(move |_req_id| {
                 let started = started.clone();
                 let release = release.clone();
                 Box::pin(async move {
@@ -1410,8 +1410,7 @@ mod tests {
                         let _ = rx.await;
                     }
                 })
-            },
-        ));
+            }));
 
         // Insert 3 pending approvals for one session (unique request_ids so we
         // don't collide with parallel tests).

@@ -141,30 +141,23 @@ pub async fn add_account(
     // credential and then race-write the config file — clone-then-save
     // clobbers the loser silently (config write red line #7).
     let account_for_write = account.clone();
-    ha_core::config::mutate_config_async(
-        ("channels.add", "channel.accounts"),
-        move |store| {
-            if let Some(fp) = credential_fingerprint(
+    ha_core::config::mutate_config_async(("channels.add", "channel.accounts"), move |store| {
+        if let Some(fp) = credential_fingerprint(
+            &account_for_write.channel_id,
+            &account_for_write.credentials,
+        ) {
+            if let Some(existing) = find_duplicate_account(
+                &store.channels.accounts,
                 &account_for_write.channel_id,
-                &account_for_write.credentials,
+                &fp,
+                None,
             ) {
-                if let Some(existing) = find_duplicate_account(
-                    &store.channels.accounts,
-                    &account_for_write.channel_id,
-                    &fp,
-                    None,
-                ) {
-                    anyhow::bail!(
-                        "{}: {}",
-                        DUPLICATE_CREDENTIAL_ERROR_PREFIX,
-                        existing.label
-                    );
-                }
+                anyhow::bail!("{}: {}", DUPLICATE_CREDENTIAL_ERROR_PREFIX, existing.label);
             }
-            store.channels.accounts.push(account_for_write);
-            Ok(())
-        },
-    )
+        }
+        store.channels.accounts.push(account_for_write);
+        Ok(())
+    })
     .await?;
 
     if account.enabled {
@@ -205,11 +198,7 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
                         &fp,
                         Some(&account_id_owned),
                     ) {
-                        anyhow::bail!(
-                            "{}: {}",
-                            DUPLICATE_CREDENTIAL_ERROR_PREFIX,
-                            existing.label
-                        );
+                        anyhow::bail!("{}: {}", DUPLICATE_CREDENTIAL_ERROR_PREFIX, existing.label);
                     }
                 }
             }

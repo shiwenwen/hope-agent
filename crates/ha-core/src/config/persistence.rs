@@ -1041,7 +1041,11 @@ mod parse_tests {
         let future_ms = (chrono::Utc::now().timestamp_millis() as u64) + 3_600_000;
 
         let cases: &[(&str, String, String)] = &[
-            ("access token 太短（<24）", "short".into(), "account-eval".into()),
+            (
+                "access token 太短（<24）",
+                "short".into(),
+                "account-eval".into(),
+            ),
             (
                 "access token 太长（>16 KiB）",
                 "x".repeat(16 * 1024 + 1),
