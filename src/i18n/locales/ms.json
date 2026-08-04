@@ -885,6 +885,7 @@
     "statusThinking": "Pemikiran",
     "statusUpdated": "Dikemas kini",
     "stopReply": "Hentikan balasan",
+    "stopGenerationDone": "Penjanaan dihentikan",
     "subagentFrom": "Diberikan kuasa oleh {{agent}}",
     "subagentResultCompleted": "Siap",
     "workflowResultName": "Aliran kerja",

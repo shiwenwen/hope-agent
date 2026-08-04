@@ -885,6 +885,7 @@
     "statusThinking": "Pensamento",
     "statusUpdated": "Atualizado",
     "stopReply": "Parar resposta",
+    "stopGenerationDone": "Geração interrompida",
     "subagentFrom": "Delegado por {{agent}}",
     "subagentResultCompleted": "Concluído",
     "workflowResultName": "Fluxo de trabalho",

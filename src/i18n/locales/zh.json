@@ -885,6 +885,7 @@
     "statusThinking": "思考模式",
     "statusUpdated": "更新时间",
     "stopReply": "停止回复",
+    "stopGenerationDone": "生成已停止",
     "subagentFrom": "由 {{agent}} 指派",
     "subagentResultCompleted": "已完成",
     "workflowResultName": "工作流",

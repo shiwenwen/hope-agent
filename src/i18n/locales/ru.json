@@ -885,6 +885,7 @@
     "statusThinking": "Мышление",
     "statusUpdated": "Обновлено",
     "stopReply": "Остановить ответ",
+    "stopGenerationDone": "Генерация остановлена",
     "subagentFrom": "Делегировано от {{agent}}",
     "subagentResultCompleted": "Завершено",
     "workflowResultName": "Рабочий процесс",

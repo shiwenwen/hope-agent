@@ -885,6 +885,7 @@
     "statusThinking": "사고 모드",
     "statusUpdated": "업데이트",
     "stopReply": "응답 중지",
+    "stopGenerationDone": "생성이 중지되었습니다",
     "subagentFrom": "{{agent}} 에서 위임",
     "subagentResultCompleted": "완료됨",
     "workflowResultName": "워크플로",

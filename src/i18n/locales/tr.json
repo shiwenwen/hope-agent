@@ -885,6 +885,7 @@
     "statusThinking": "Düşünme",
     "statusUpdated": "Güncellendi",
     "stopReply": "Yanıtı durdur",
+    "stopGenerationDone": "Üretim durduruldu",
     "subagentFrom": "{{agent}} tarafından devredildi",
     "subagentResultCompleted": "Tamamlandı",
     "workflowResultName": "İş akışı",
