@@ -24,7 +24,7 @@ use super::super::streaming_adapter::{
 };
 use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat, ThinkTagFilter};
 use crate::provider::ThinkingStyle;
-use crate::tools::ToolProvider;
+use crate::tool_defs::ToolProvider;
 
 /// OpenAI-compatible backends differ on whether they accept
 /// `prompt_cache_key`. Probe optimistically once, then remember an explicit

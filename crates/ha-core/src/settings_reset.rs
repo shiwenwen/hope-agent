@@ -506,14 +506,14 @@ fn apply_app_target(config: &mut AppConfig, target: SettingsResetTarget) {
         SettingsResetScope::Browser => {
             if let Some(current) = config.browser.as_ref() {
                 let extension = current.extension.as_ref().map(|saved_extension| {
-                    crate::browser::extension::BrowserExtensionConfig {
+                    ha_config_schema::browser::BrowserExtensionConfig {
                         native_host_name: saved_extension.native_host_name.clone(),
                         extension_ids: saved_extension.extension_ids.clone(),
                         store_url: saved_extension.store_url.clone(),
                         ..Default::default()
                     }
                 });
-                let next = crate::browser::BrowserConfig {
+                let next = ha_config_schema::browser::BrowserConfig {
                     profiles: current.profiles.clone(),
                     extension,
                     ..Default::default()
@@ -827,7 +827,7 @@ pub fn reset_settings_section(
         }
     }
     if scope == SettingsResetScope::Knowledge && target.section.is_none() && app_changed {
-        crate::knowledge::apply_knowledge_embedding_from_config(source);
+        crate::knowledge_hooks::apply_embedding_from_config(source);
     }
 
     let mut reindex_started = false;
@@ -835,7 +835,7 @@ pub fn reset_settings_section(
         match crate::get_knowledge_db() {
             Some(registry) => match registry.list_all_ids() {
                 Ok(ids) if !ids.is_empty() => {
-                    match crate::knowledge::start_knowledge_reembed_job(Some(ids), source) {
+                    match crate::knowledge_hooks::start_reembed_job(Some(ids), source) {
                         Ok(_) => reindex_started = true,
                         Err(error) => {
                             crate::app_warn!(
@@ -1194,10 +1194,10 @@ mod tests {
             provider_id: "provider".into(),
             model_id: "model".into(),
         });
-        config.browser = Some(crate::browser::BrowserConfig::default());
+        config.browser = Some(ha_config_schema::browser::BrowserConfig::default());
         config.browser.as_mut().unwrap().profiles.insert(
             "custom".into(),
-            crate::browser::BrowserProfileConfig::default(),
+            ha_config_schema::browser::BrowserProfileConfig::default(),
         );
         let backends = config.acp_control.backends.clone();
 

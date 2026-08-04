@@ -2,6 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
+// Smart 模式配置类型已下沉 ha-config-schema，原地再导出保持
+// `crate::permission::mode::*` 路径不变。
+pub use ha_config_schema::permission::{
+    JudgeModelConfig, SmartFallback, SmartModeConfig, SmartStrategy,
+};
+
 /// Per-session permission mode. Stored in `sessions.permission_mode` column
 /// and switched via the chat title bar dropdown.
 ///
@@ -99,59 +105,6 @@ impl SandboxMode {
     pub fn relaxes_soft_approvals(self) -> bool {
         matches!(self, Self::Workspace | Self::Trusted)
     }
-}
-
-/// How Smart mode reaches its decision.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SmartStrategy {
-    /// Read `_confidence` from the tool_call args; "high" → allow, else fallback.
-    #[default]
-    SelfConfidence,
-    /// Run an independent `judge_model` side_query for every approvable call.
-    JudgeModel,
-    /// Try `SelfConfidence` first, fall back to `JudgeModel`, then to `fallback`.
-    Both,
-}
-
-/// Smart mode configuration. Lives under `AppConfig.permission.smart`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SmartModeConfig {
-    pub strategy: SmartStrategy,
-    /// Required when `strategy` ∈ { JudgeModel, Both }. `None` → falls back.
-    pub judge_model: Option<JudgeModelConfig>,
-    /// What to do when Smart cannot decide (judge timeout, missing config, etc.).
-    /// Defaults to `Default` mode behavior.
-    #[serde(default)]
-    pub fallback: SmartFallback,
-}
-
-/// Fallback action when Smart mode cannot decide.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SmartFallback {
-    /// Behave as if the session were in `Default` mode.
-    #[default]
-    Default,
-    /// Force user prompt (most conservative).
-    Ask,
-    /// Silently allow (most permissive).
-    Allow,
-}
-
-/// Configuration for the independent "judge model" used by Smart mode.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JudgeModelConfig {
-    /// References a `ProviderConfig.id` from the global provider list.
-    pub provider_id: String,
-    /// Model name within the provider (e.g. "claude-haiku-4-5").
-    pub model: String,
-    /// User-supplied extra instructions for the judge prompt.
-    /// Useful for whitelisting project paths, trusted commands, etc.
-    #[serde(default)]
-    pub extra_prompt: Option<String>,
 }
 
 #[cfg(test)]

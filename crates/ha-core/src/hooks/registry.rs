@@ -9,7 +9,7 @@ use std::sync::{Arc, OnceLock};
 
 use arc_swap::ArcSwap;
 
-use super::config::{HookHandlerConfig, HooksConfig};
+use super::config::{HookHandlerConfig, HooksConfig, HooksConfigExt as _};
 use super::matcher::{compile_for_event, MatcherKind};
 use super::types::HookEvent;
 

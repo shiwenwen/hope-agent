@@ -45,39 +45,37 @@ pub async fn reset_system_permission(
 // ── macOS Control ────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn mac_control_status() -> ha_core::mac_control::MacControlStatus {
-    ha_core::mac_control::status().await
+pub async fn mac_control_status() -> ha_mac::MacControlStatus {
+    ha_mac::status().await
 }
 
 #[tauri::command]
-pub async fn mac_control_permissions() -> ha_core::mac_control::MacControlPermissionsResponse {
-    ha_core::mac_control::permissions().await
+pub async fn mac_control_permissions() -> ha_mac::MacControlPermissionsResponse {
+    ha_mac::permissions().await
 }
 
 #[tauri::command]
 pub async fn mac_control_snapshot(
-    options: Option<ha_core::mac_control::MacControlSnapshotRequest>,
-) -> ha_core::mac_control::MacControlSnapshotResponse {
-    ha_core::mac_control::snapshot(options.unwrap_or_default()).await
+    options: Option<ha_mac::MacControlSnapshotRequest>,
+) -> ha_mac::MacControlSnapshotResponse {
+    ha_mac::snapshot(options.unwrap_or_default()).await
 }
 
 #[tauri::command]
 pub async fn mac_control_elements(
-    options: Option<ha_core::mac_control::MacControlElementsRequest>,
-) -> ha_core::mac_control::MacControlElementsResponse {
-    ha_core::mac_control::elements(options.unwrap_or_default()).await
+    options: Option<ha_mac::MacControlElementsRequest>,
+) -> ha_mac::MacControlElementsResponse {
+    ha_mac::elements(options.unwrap_or_default()).await
 }
 
 #[tauri::command]
-pub async fn mac_control_capture_frame(
-    display_id: Option<u32>,
-) -> ha_core::mac_control::MacControlFrameResponse {
-    ha_core::mac_control::capture_frame(display_id).await
+pub async fn mac_control_capture_frame(display_id: Option<u32>) -> ha_mac::MacControlFrameResponse {
+    ha_mac::capture_frame(display_id).await
 }
 
 #[tauri::command]
-pub async fn mac_control_list_displays() -> ha_core::mac_control::MacControlDisplaysResponse {
-    ha_core::mac_control::list_displays().await
+pub async fn mac_control_list_displays() -> ha_mac::MacControlDisplaysResponse {
+    ha_mac::list_displays().await
 }
 
 // ── Panel action timeline ────────────────────────────────────────
@@ -144,7 +142,7 @@ pub async fn canvas_submit_snapshot(
     data_url: Option<String>,
     error: Option<String>,
 ) -> Result<(), String> {
-    ha_core::tools::canvas::canvas_submit_snapshot(request_id, data_url, error).await
+    ha_design::tool_canvas::canvas_submit_snapshot(request_id, data_url, error).await
 }
 
 #[tauri::command]
@@ -153,46 +151,46 @@ pub async fn canvas_submit_eval_result(
     result: Option<String>,
     error: Option<String>,
 ) -> Result<(), String> {
-    ha_core::tools::canvas::canvas_submit_eval_result(request_id, result, error).await
+    ha_design::tool_canvas::canvas_submit_eval_result(request_id, result, error).await
 }
 
 #[tauri::command]
-pub async fn get_canvas_config() -> Result<ha_core::tools::canvas::CanvasConfig, String> {
-    ha_core::tools::canvas::get_canvas_config().await
+pub async fn get_canvas_config() -> Result<ha_design::tool_canvas::CanvasConfig, String> {
+    ha_design::tool_canvas::get_canvas_config().await
 }
 
 #[tauri::command]
 pub async fn save_canvas_config(
-    config: ha_core::tools::canvas::CanvasConfig,
+    config: ha_design::tool_canvas::CanvasConfig,
 ) -> Result<(), String> {
-    ha_core::tools::canvas::save_canvas_config(config).await
+    ha_design::tool_canvas::save_canvas_config(config).await
 }
 
 #[tauri::command]
 pub async fn list_canvas_projects() -> Result<String, String> {
-    ha_core::tools::canvas::list_canvas_projects().await
+    ha_design::tool_canvas::list_canvas_projects().await
 }
 
 #[tauri::command]
 pub async fn list_canvas_projects_by_session(
     session_id: String,
-) -> Result<Vec<ha_core::tools::canvas::CanvasProjectView>, String> {
-    ha_core::tools::canvas::list_canvas_projects_by_session(session_id).await
+) -> Result<Vec<ha_design::tool_canvas::CanvasProjectView>, String> {
+    ha_design::tool_canvas::list_canvas_projects_by_session(session_id).await
 }
 
 #[tauri::command]
 pub async fn get_canvas_project(project_id: String) -> Result<String, String> {
-    ha_core::tools::canvas::get_canvas_project(project_id).await
+    ha_design::tool_canvas::get_canvas_project(project_id).await
 }
 
 #[tauri::command]
 pub async fn delete_canvas_project(project_id: String) -> Result<(), String> {
-    ha_core::tools::canvas::delete_canvas_project(project_id).await
+    ha_design::tool_canvas::delete_canvas_project(project_id).await
 }
 
 #[tauri::command]
 pub async fn show_canvas_panel(project_id: String) -> Result<(), String> {
-    ha_core::tools::canvas::show_canvas_panel(project_id).await
+    ha_design::tool_canvas::show_canvas_panel(project_id).await
 }
 
 // ── Artifacts ────────────────────────────────────────────────────

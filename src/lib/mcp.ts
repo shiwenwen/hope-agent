@@ -1,8 +1,8 @@
 /**
  * MCP (Model Context Protocol) client helper.
  *
- * Mirrors the serialized shapes from `crates/ha-core/src/mcp/api.rs`
- * and `crates/ha-core/src/mcp/config.rs`. Every function here is a
+ * Mirrors the serialized shapes from `crates/ha-mcp/src/api.rs`
+ * and `ha-config-schema/src/mcp.rs`. Every function here is a
  * thin wrapper over `getTransport().call(...)` so switching between
  * Tauri IPC and HTTP transport is invisible to callers.
  */
@@ -21,7 +21,7 @@ export type McpTransportSpec =
 
 export type McpTrustLevel = "untrusted" | "trusted";
 
-/** Matches `crates/ha-core/src/mcp/registry.rs::ServerState::label()`. */
+/** Matches `crates/ha-mcp/src/registry.rs::ServerState::label()`. */
 export type McpServerState =
   | "disabled"
   | "idle"

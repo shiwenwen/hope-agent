@@ -311,7 +311,7 @@ pub(crate) async fn finalize_turn_context(
     reason: TerminationReason,
     partial: PartialMeta,
     source: crate::chat_engine::ChatSource,
-    im_mirror: Option<crate::chat_engine::im_mirror::ImLiveMirrorState>,
+    im_mirror: Option<Box<dyn crate::channel_hooks::ImLiveMirror>>,
 ) -> FinalizeOutcome {
     let mut outcome = apply_finalize(db, session_id, &reason, &partial, source);
     if !outcome.was_already_finalized {
@@ -334,8 +334,7 @@ pub(crate) async fn finalize_turn_context(
         if let Some(state) = im_mirror {
             let body = copy::im_notice(&reason);
             tokio::spawn(async move {
-                crate::chat_engine::im_mirror::abort_im_live_mirror_with_body(state, Some(body))
-                    .await;
+                state.abort(Some(body)).await;
             });
             outcome.im_notice_dispatched = true;
         }

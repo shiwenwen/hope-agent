@@ -31,6 +31,24 @@ brotli = "8"
 
 [dependencies]
 ha-core = { path = "../ha-core" }
+ha-improve = { path = "../ha-improve" }
+ha-acp = { path = "../ha-acp" }
+ha-browser = { path = "../ha-browser" }
+ha-mcp = { path = "../ha-mcp" }
+ha-media = { path = "../ha-media" }
+ha-pet = { path = "../ha-pet" }
+ha-vcs = { path = "../ha-vcs" }
+ha-design = { path = "../ha-design" }
+ha-mac = { path = "../ha-mac" }
+ha-local-llm = { path = "../ha-local-llm" }
+ha-dash = { path = "../ha-dash" }
+ha-channel = { path = "../ha-channel" }
+ha-knowledge = { path = "../ha-knowledge" }
+ha-skills = { path = "../ha-skills" }
+ha-cron = { path = "../ha-cron" }
+ha-eval-runtime = { path = "../ha-eval-runtime" }
+ha-updater = { path = "../ha-updater" }
+ha-weather = { path = "../ha-weather" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

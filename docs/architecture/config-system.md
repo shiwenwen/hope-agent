@@ -114,9 +114,13 @@ flowchart LR
 
 ## 与备份 / 回滚联动
 
-`save_config` 写盘前先调用 [`crate::backup::snapshot_before_write`](../../crates/ha-core/src/backup.rs) 把**旧**文件复制到 `~/.hope-agent/backups/autosave/`，文件名含 `(category, source, timestamp)`。用户在设置 → 备份面板可以回滚到任何历史快照。
+`save_config` 写盘前先调用 [`config::autosave::snapshot_before_write`](../../crates/ha-core/src/config/autosave.rs) 把**旧**文件复制到 `~/.hope-agent/backups/autosave/`，文件名含 `(category, source, timestamp)`。用户在设置 → 备份面板可以回滚到任何历史快照。
 
-`mutate_config` 内部调用 `backup::scope_save_reason` 传入 `(category, source)`，作为当次备份的 tag——所以备份面板上能看到 "theme/settings-ui" / "image_generate/settings-ui" / "active_model/slash-channel" 这样的人类可读标签，而不是一排 "unknown/unknown"。
+`mutate_config` 内部调用 `autosave::scope_save_reason` 传入 `(category, source)`，作为当次备份的 tag——所以备份面板上能看到 "theme/settings-ui" / "image_generate/settings-ui" / "active_model/slash-channel" 这样的人类可读标签，而不是一排 "unknown/unknown"。
+
+**autosave 原语住在 `config/autosave.rs` 并被 persistence 直调（红线）**：写前快照必须**无条件**执行——`hope-agent server setup` 与两个 server 入口都在 `init_runtime` 之前（或完全不经它）写 config，任何「装配期注册」的钩子在这些路径上都会静默失效。`crate::backup::snapshot_before_write` / `scope_save_reason` 是再导出，完整备份 / 恢复 / autosave 列表仍在 `backup.rs`。
+
+**保存后联动走注入**：terminal 远程写开关同步 + `config:changed` 广播 + ConfigChange hook 经 `ConfigSideEffects`（`app_init` 装配注册，冲突即 panic——`post_save` 携带 `allowRemoteWrites` 的远程 shell 即时撤销，属安全联动）。这三样依赖 globals / hooks；在 `init_runtime` 之前本就没有订阅者（bus / terminal manager 未初始化），未注册即跳过与旧行为等价。
 
 ## 设置分区恢复默认
 

@@ -29,6 +29,11 @@ struct ServerArgs {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    // 特征 crate 装配：必须先于任何 `init_runtime` 路径（server / acp / mcp
+    // 各分支）——init 尾部冻结工具注册表，之后再挂 `app_update` 会 panic。
+    // 序列本体在 `ha_server::wire_features()`，与 `server_smoke` 共用一份。
+    ha_server::wire_features();
+
     if matches!(
         args.get(1).map(String::as_str),
         Some("--version") | Some("-V")
@@ -239,7 +244,7 @@ fn run_knowledge_mcp(args: &[String]) {
     ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("knowledge-mcp");
 
-    if let Err(e) = ha_core::knowledge::agent_mcp::run_stdio(options) {
+    if let Err(e) = ha_knowledge::knowledge::agent_mcp::run_stdio(options) {
         eprintln!("[knowledge-mcp] Server error: {e}");
         std::process::exit(1);
     }
@@ -275,8 +280,9 @@ fn run_mcp(args: &[String]) {
     ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("mcp");
 
-    let providers: Vec<Box<dyn ha_core::mcp_server::ToolProvider>> =
-        vec![Box::new(ha_core::design::mcp_provider::DesignToolProvider)];
+    let providers: Vec<Box<dyn ha_core::mcp_server::ToolProvider>> = vec![Box::new(
+        ha_design::design::mcp_provider::DesignToolProvider,
+    )];
     if let Err(e) = ha_core::mcp_server::run_stdio(options, providers) {
         eprintln!("[mcp] Server error: {e}");
         std::process::exit(1);
@@ -285,8 +291,8 @@ fn run_mcp(args: &[String]) {
 
 fn parse_knowledge_mcp_args(
     args: &[String],
-) -> Option<ha_core::knowledge::agent_mcp::KnowledgeMcpOptions> {
-    let mut options = ha_core::knowledge::agent_mcp::KnowledgeMcpOptions::default();
+) -> Option<ha_knowledge::knowledge::agent_mcp::KnowledgeMcpOptions> {
+    let mut options = ha_knowledge::knowledge::agent_mcp::KnowledgeMcpOptions::default();
     for arg in args {
         match arg.as_str() {
             "--allow-proposals" => options.allow_proposals = true,

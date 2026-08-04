@@ -1,6 +1,8 @@
 use crate::commands::CmdError;
 use crate::AppState;
-use ha_core::local_llm::{
+use ha_core::memory::EmbeddingModelConfig;
+use ha_core::provider::{known_local_backends, KnownLocalBackend};
+use ha_local_llm::local_llm::{
     add_ollama_model_as_embedding_config, delete_ollama_model, detect_hardware, detect_ollama,
     detect_ollama_version, get_ollama_library_model, list_local_ollama_models, model_catalog,
     preload_ollama_model, recommend_model, register_ollama_model_as_provider,
@@ -8,8 +10,6 @@ use ha_core::local_llm::{
     LocalOllamaModel, ModelCandidate, ModelRecommendation, OllamaLibraryModelDetail,
     OllamaLibrarySearchResponse, OllamaModelActionResult, OllamaModelRegistration, OllamaStatus,
 };
-use ha_core::memory::EmbeddingModelConfig;
-use ha_core::provider::{known_local_backends, KnownLocalBackend};
 use tauri::State;
 
 #[tauri::command]

@@ -1,6 +1,6 @@
 # 进程与并发模型
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-25 | 关联源码：[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)、[`guardian.rs`](../../crates/ha-core/src/guardian.rs)、[`app_init.rs`](../../crates/ha-core/src/app_init.rs)、[`logging/app_logger.rs`](../../crates/ha-core/src/logging/app_logger.rs)、[`cron/scheduler.rs`](../../crates/ha-core/src/cron/scheduler.rs)
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-25 | 关联源码：[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)、[`guardian.rs`](../../crates/ha-core/src/guardian.rs)、[`app_init.rs`](../../crates/ha-core/src/app_init.rs)、[`logging/app_logger.rs`](../../crates/ha-base/src/logging/app_logger.rs)、[`cron/scheduler.rs`](../../crates/ha-cron/src/cron/scheduler.rs)
 
 Hope Agent 的后台工作单元分四层。工程排查常见问题（"为什么重启才生效"、"哪个任务挂了但日志看不出来"）多半落在某一层。
 
@@ -66,9 +66,9 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 
 | 线程 | 位置 | 职责 |
 |------|------|------|
-| **AppLogger writer** | [`logging/app_logger.rs`](../../crates/ha-core/src/logging/app_logger.rs) | mpsc channel 收 `PendingLog` → 批量写 SQLite + 纯文本文件。cleanup_loop 作为同 runtime 内 `tokio::spawn` 任务附着 |
-| **Cron 调度器** | [`cron/scheduler.rs`](../../crates/ha-core/src/cron/scheduler.rs) | 独立线程 `cron-scheduler` + `new_multi_thread` runtime（2 worker threads）跑 tick 循环 |
-| **Weather 后台刷新** | [`weather.rs::start_background_refresh`](../../crates/ha-core/src/weather.rs) | 定时拉取天气 API 注入 system prompt |
+| **AppLogger writer** | [`logging/app_logger.rs`](../../crates/ha-base/src/logging/app_logger.rs) | mpsc channel 收 `PendingLog` → 批量写 SQLite + 纯文本文件。cleanup_loop 作为同 runtime 内 `tokio::spawn` 任务附着 |
+| **Cron 调度器** | [`cron/scheduler.rs`](../../crates/ha-cron/src/cron/scheduler.rs) | 独立线程 `cron-scheduler` + `new_multi_thread` runtime（2 worker threads）跑 tick 循环 |
+| **Weather 后台刷新** | [`ha_weather::start_background_refresh`](../../crates/ha-weather/src/lib.rs) | 定时拉取天气 API 注入 system prompt |
 | **Guardian Windows 信号监听** | [`guardian.rs`](../../crates/ha-core/src/guardian.rs) | Windows 无 POSIX 信号，用一条迷你线程跑 current-thread runtime 接 `ctrl_c` / `ctrl_break`（仅 `#[cfg(windows)]`） |
 
 ### 每次调用 spawn 一次（任务完成线程即回收）
@@ -103,17 +103,17 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 | Channel 自动启动已启用账户 | 启动一次 | [`app_init.rs`](../../crates/ha-core/src/app_init.rs) |
 | Async Jobs 残留回放 | 启动一次 | [`async_jobs::replay_pending_jobs`](../../crates/ha-core/src/async_jobs/) |
 | Async Jobs retention 轮询 | 启动一次 + 每日 | [`async_jobs::spawn_retention_loop`](../../crates/ha-core/src/async_jobs/retention.rs) |
-| Recap facet retention 轮询 | 启动一次 + 每日 | [`recap::spawn_facet_retention_loop`](../../crates/ha-core/src/recap/) |
+| Recap facet retention 轮询（ha-dash `wire()` 注册的 PrimaryOnly startup task） | 启动一次 + 每日 | [`recap::spawn_facet_retention_loop`](../../crates/ha-dash/src/recap/) |
 | Dreaming 空闲触发 | 每 60s 检查（`MissedTickBehavior::Skip`） | [`app_init.rs`](../../crates/ha-core/src/app_init.rs) → [`memory::dreaming`](../../crates/ha-core/src/memory/dreaming/) |
-| **Channel worker 主循环**（每账户一条） | 轮询 / 长连接取决于渠道协议 | [`channel/worker/`](../../crates/ha-core/src/channel/worker/) |
-| **ACP 健康检查**（仅内嵌 ACP runtime） | 周期 ping | [`acp_control/health.rs`](../../crates/ha-core/src/acp_control/health.rs) |
+| **Channel worker 主循环**（每账户一条） | 轮询 / 长连接取决于渠道协议 | [`channel/worker/`](../../crates/ha-channel/src/channel/worker/) |
+| **ACP 健康检查**（仅内嵌 ACP runtime） | 周期 ping | [`acp_control/health.rs`](../../crates/ha-acp/src/acp_control/health.rs) |
 
 模式无关的两类：
 
 | 任务 | 模式 | 位置 |
 |------|------|------|
 | Server HTTP listener | 桌面内嵌 + `hope-agent server` 独立 | [`ha_server::start_server`](../../crates/ha-server/src/lib.rs) |
-| AppLogger cleanup（挂在 logger runtime，不是主 runtime） | 三种模式（`init_runtime` 注入） | [`logging/app_logger.rs::cleanup_loop`](../../crates/ha-core/src/logging/app_logger.rs) |
+| AppLogger cleanup（挂在 logger runtime，不是主 runtime） | 三种模式（`init_runtime` 注入） | [`logging/app_logger.rs::cleanup_loop`](../../crates/ha-base/src/logging/app_logger.rs) |
 
 ### 设计约定
 
@@ -124,7 +124,7 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 
 ### Primary / Secondary 协作（多进程并存）
 
-`init_runtime()` 起手就调 [`runtime_lock::acquire_or_secondary`](../../crates/ha-core/src/runtime_lock.rs)，在 `~/.hope-agent/runtime.lock` 上抢一把 OS 级 advisory exclusive lock：
+`init_runtime()` 起手就调 [`runtime_lock::acquire_or_secondary`](../../crates/ha-base/src/runtime_lock.rs)，在 `~/.hope-agent/runtime.lock` 上抢一把 OS 级 advisory exclusive lock：
 
 - **Unix**：`flock(LOCK_EX | LOCK_NB)`，文件 fd 带 `O_CLOEXEC` 防 Guardian fork 继承
 - **Windows**：`OpenOptions::share_mode(FILE_SHARE_READ)` 写独占（挡其它 writer 的 ERROR_SHARING_VIOLATION，但放行同进程只读诊断 `current_holder()`，故不用 `FILE_SHARE_NONE`）+ `FILE_FLAG_NO_INHERIT_HANDLE`
@@ -191,7 +191,7 @@ Layer A–D 之外的一条横切约定，专治「同步阻塞把 async runtime
 
 **背景**：全app 每个 SQLite 库（`sessions` / `cron` / `channel` / `logs`）都是同步 rusqlite 藏在 `Mutex<Connection>` 后面；config 持久化在全局写锁内做同步文件 IO（写前校验读 + autosave 拷贝 + `fs::write`）。直接从 `async fn` 里 inline 调用，会把一个 tokio worker 钉住整个「锁等待 + IO」时长。桌面默认 runtime 的 worker 只有 `num_cpus` 个（Windows 笔记本常 2–4）；一旦底层文件 IO 卡住（杀软实时扫描、云同步的 home 目录、慢盘），worker 被逐个吃光直到整个 runtime 饿死——表现为「进程还活着，但发消息永久转圈、设置页全部加载中」（issue #433 Bug 2 复现于 Windows）。
 
-**单一入口**：[`ha_core::blocking::run_blocking(f)`](../../crates/ha-core/src/blocking.rs) —— 把同步闭包丢到 tokio 的 blocking 池（数百条可挥霍的线程）并 `await`，卡住的库 / config 写只降级该功能，不再冻结全 app。慢于 5s 的 op 会 `app_warn!("blocking", ...)` 带闭包定义点落进 `logs.db`，把下次现场的卡死 IO 从 heisenbug 变成可 grep 的证据。
+**单一入口**：[`ha_core::blocking::run_blocking(f)`](../../crates/ha-base/src/blocking.rs) —— 把同步闭包丢到 tokio 的 blocking 池（数百条可挥霍的线程）并 `await`，卡住的库 / config 写只降级该功能，不再冻结全 app。慢于 5s 的 op 会 `app_warn!("blocking", ...)` 带闭包定义点落进 `logs.db`，把下次现场的卡死 IO 从 heisenbug 变成可 grep 的证据。
 
 **两个便捷包装**（调用方优先用它们）：
 
@@ -214,26 +214,26 @@ Layer A–D 之外的一条横切约定，专治「同步阻塞把 async runtime
 
 | 场景 | 位置 | 生命周期 |
 |------|------|----------|
-| **ACP 运行时**（Codex CLI / Claude Code 等） | [`acp_control/runtime_stdio.rs`](../../crates/ha-core/src/acp_control/runtime_stdio.rs) | 会话存活期间，配 [`acp_control/health.rs`](../../crates/ha-core/src/acp_control/health.rs) 健康检查 |
-| **IM Channel 子进程**（部分协议实现） | [`channel/process_manager.rs`](../../crates/ha-core/src/channel/process_manager.rs) | 账户启用期间 |
-| **Docker 容器**（SearXNG / 部署目标） | [`docker/lifecycle.rs`](../../crates/ha-core/src/docker/lifecycle.rs), [`docker/deploy.rs`](../../crates/ha-core/src/docker/deploy.rs) | 容器自身生命周期；Hope Agent 退出不一定 kill |
+| **ACP 运行时**（Codex CLI / Claude Code 等） | [`acp_control/runtime_stdio.rs`](../../crates/ha-acp/src/acp_control/runtime_stdio.rs) | 会话存活期间，配 [`acp_control/health.rs`](../../crates/ha-acp/src/acp_control/health.rs) 健康检查 |
+| **IM Channel 子进程**（部分协议实现） | [`channel/process_manager.rs`](../../crates/ha-channel/src/channel/process_manager.rs) | 账户启用期间 |
+| **Docker 容器**（SearXNG / 部署目标） | [`docker/lifecycle.rs`](../../crates/ha-vcs/src/docker/lifecycle.rs), [`docker/deploy.rs`](../../crates/ha-vcs/src/docker/deploy.rs) | 容器自身生命周期；Hope Agent 退出不一定 kill |
 
 ### D2 · 单次调用型（短命，完成即回收）
 
 | 场景 | 位置 |
 |------|------|
 | `exec` 工具（用户命令执行 + PTY） | [`tools/exec.rs`](../../crates/ha-core/src/tools/exec.rs) |
-| Sandbox 隔离执行 | [`sandbox.rs`](../../crates/ha-core/src/sandbox.rs) |
+| Sandbox 隔离执行 | [`sandbox.rs`](../../crates/ha-vcs/src/sandbox.rs) |
 | Plan Mode git 调用 | [`plan/git.rs`](../../crates/ha-core/src/plan/git.rs) |
-| Skill 依赖安装（brew / npm / go / uv） | [`skills/commands.rs`](../../crates/ha-core/src/skills/commands.rs) |
-| Provider / Docker 代理探测 | [`provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs), [`docker/proxy.rs`](../../crates/ha-core/src/docker/proxy.rs) |
-| 跨平台原语（打开终端 / 检测环境） | [`platform/mod.rs`](../../crates/ha-core/src/platform/) |
+| Skill 依赖安装（brew / npm / go / uv） | [`skills/commands.rs`](../../crates/ha-skills/src/skills/commands.rs) |
+| Provider / Docker 代理探测 | [`provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs), [`docker/proxy.rs`](../../crates/ha-vcs/src/docker/proxy.rs) |
+| 跨平台原语（打开终端 / 检测环境） | [`platform/mod.rs`](../../crates/ha-base/src/platform/) |
 | Agent loader 初始化（git clone 默认模板） | [`agent_loader.rs`](../../crates/ha-core/src/agent_loader.rs) |
 | 托盘（macOS 打开 URL / 通知） | [`src-tauri/src/tray.rs`](../../src-tauri/src/tray.rs) |
 
 ### D3 · 一次性系统注册（不拉起进程，只落配置）
 
-`hope-agent server install` 把 [`platform/service.rs`](../../crates/ha-core/src/platform/service.rs) 的 plist / unit 写入系统（`service_install.rs` 仅是转发到 `platform::service` 的兼容薄壳），由 launchd / systemd 真正去执行 `hope-agent server start`：
+`hope-agent server install` 把 [`platform/service.rs`](../../crates/ha-base/src/platform/service.rs) 的 plist / unit 写入系统（`service_install.rs` 仅是转发到 `platform::service` 的兼容薄壳），由 launchd / systemd 真正去执行 `hope-agent server start`：
 
 - macOS：`~/Library/LaunchAgents/ai.hopeagent.server.plist`（label = `SERVICE_LABEL` 常量）
 - Linux：`~/.config/systemd/user/hope-agent.service`
@@ -330,7 +330,7 @@ flowchart TD
 ## 关联文档
 
 - [可靠性与崩溃自愈](reliability.md)——Guardian 三层保活全景、Crash Journal、Self-Diagnosis、Auto-Fix、子系统 watchdog
-- [前后端分离架构](backend-separation.md)——三 crate 职责切分、系统服务安装细节
+- [前后端分离架构](backend-separation.md)——分层 crate 职责切分（ha-base / ha-config-schema / ha-core / 薄壳）、系统服务安装细节
 - [Cron 调度](cron.md)——Layer B 独立线程 + 2 worker threads runtime
 - [IM 渠道系统](im-channel.md)——Layer C worker + Layer D 子进程混合
 - [ACP 协议](acp.md)——Layer A `acp` 模式 + Layer D ACP runtime 上下游

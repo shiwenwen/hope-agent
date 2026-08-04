@@ -20,7 +20,8 @@ use crate::plan::check_workflow_script_draft;
 use crate::review::{self, ReviewFindingStatus, RunReviewInput};
 use crate::runtime_tasks::{cancel_runtime_task, RuntimeTaskKind};
 use crate::session::{SessionDB, SessionIdeContext, Task, TaskStatus};
-use crate::tools::{self, ToolExecContext};
+use crate::tool_defs::ToolExecContext;
+use crate::tools;
 use crate::verification::{self, PlanVerificationInput};
 
 use super::types::{
@@ -3116,7 +3117,7 @@ impl WorkflowRuntimeHost {
                     &isolation,
                     &host.run_id,
                 )?;
-                let output = host.dispatch_tool(tools::TOOL_SUBAGENT, &dispatch_args)?;
+                let output = host.dispatch_tool(crate::tool_defs::TOOL_SUBAGENT, &dispatch_args)?;
                 let parsed = parse_tool_json_output(&output, "workflow.spawnAgent")?;
                 let run_id = parsed
                     .get("run_id")
@@ -3341,8 +3342,10 @@ impl WorkflowRuntimeHost {
                     tools::subagent::WORKFLOW_ISOLATION_ARG.to_string(),
                     Value::String(isolation.clone()),
                 );
-                let output =
-                    host.dispatch_tool(tools::TOOL_SUBAGENT, &Value::Object(dispatch_args))?;
+                let output = host.dispatch_tool(
+                    crate::tool_defs::TOOL_SUBAGENT,
+                    &Value::Object(dispatch_args),
+                )?;
                 let parsed = parse_tool_json_output(&output, "workflow.resumeAgent")?;
                 let run_id = parsed
                     .get("run_id")
@@ -3635,7 +3638,7 @@ impl WorkflowRuntimeHost {
             input,
             |host| {
                 let output = host.dispatch_tool(
-                    tools::TOOL_SUBAGENT,
+                    crate::tool_defs::TOOL_SUBAGENT,
                     &json!({
                         "action": "send",
                         "run_id": run_id,
@@ -3667,7 +3670,7 @@ impl WorkflowRuntimeHost {
                 let mut results = Vec::with_capacity(run_ids.len());
                 for run_id in &run_ids {
                     let output = host.dispatch_tool(
-                        tools::TOOL_SUBAGENT,
+                        crate::tool_defs::TOOL_SUBAGENT,
                         &json!({
                             "action": "kill",
                             "run_id": run_id,
@@ -3989,7 +3992,7 @@ impl WorkflowRuntimeHost {
     fn read(&mut self, args: Value) -> Result<Value> {
         let tool_args = args.clone();
         self.execute_op("read", WorkflowEffectClass::Pure, args, |host| {
-            host.dispatch_tool(tools::TOOL_READ, &tool_args)
+            host.dispatch_tool(crate::tool_defs::TOOL_READ, &tool_args)
                 .map(Value::String)
         })
     }
@@ -3997,7 +4000,7 @@ impl WorkflowRuntimeHost {
     fn grep(&mut self, args: Value) -> Result<Value> {
         let tool_args = args.clone();
         self.execute_op("grep", WorkflowEffectClass::Pure, args, |host| {
-            host.dispatch_tool(tools::TOOL_GREP, &tool_args)
+            host.dispatch_tool(crate::tool_defs::TOOL_GREP, &tool_args)
                 .map(Value::String)
         })
     }
@@ -4131,7 +4134,7 @@ impl WorkflowRuntimeHost {
         let session_id = self.session_id.clone();
         let default_path = ctx.default_cwd();
         JobManager::spawn_tool_with_id(
-            tools::TOOL_EXEC,
+            crate::tool_defs::TOOL_EXEC,
             exec_args,
             ctx,
             JobOrigin::Explicit,
@@ -5217,7 +5220,7 @@ impl WorkflowRuntimeHost {
         ToolExecContext {
             session_id: Some(self.session_id.clone()),
             workflow_run_id: Some(self.run_id.clone()),
-            session_db: Some(crate::tools::SessionDbHandle(self.db.clone())),
+            session_db: Some(crate::tool_defs::SessionDbHandle(self.db.clone())),
             session_working_dir: self.session_context.working_dir.clone(),
             agent_id: self.session_context.agent_id.clone(),
             session_mode: self.session_context.session_mode,
@@ -6770,7 +6773,7 @@ impl ValidationJobRef {
         if let Value::Object(map) = &mut args {
             if let Some(timeout) = self.timeout {
                 map.insert(
-                    tools::ASYNC_JOB_TIMEOUT_ARG.to_string(),
+                    crate::tool_defs::ASYNC_JOB_TIMEOUT_ARG.to_string(),
                     Value::Number(timeout.into()),
                 );
             }
@@ -6994,23 +6997,23 @@ pub(crate) fn validation_exit_code(output: &str) -> i64 {
 
 fn tool_effect_class(name: &str) -> WorkflowEffectClass {
     match name {
-        tools::TOOL_READ
+        crate::tool_defs::TOOL_READ
         | "read_file"
-        | tools::TOOL_GREP
-        | tools::TOOL_FIND
-        | tools::TOOL_LS
+        | crate::tool_defs::TOOL_GREP
+        | crate::tool_defs::TOOL_FIND
+        | crate::tool_defs::TOOL_LS
         | "list_dir"
-        | tools::TOOL_TOOL_SEARCH
-        | tools::TOOL_GET_SETTINGS
-        | tools::TOOL_AGENTS_LIST
-        | tools::TOOL_RECALL_MEMORY
-        | tools::TOOL_MEMORY_GET
-        | tools::TOOL_JOB_STATUS
-        | tools::TOOL_SESSIONS_LIST
-        | tools::TOOL_SESSION_STATUS
-        | tools::TOOL_SESSIONS_SEARCH
-        | tools::TOOL_SESSIONS_HISTORY
-        | tools::TOOL_PEEK_SESSIONS => WorkflowEffectClass::Pure,
+        | crate::tool_defs::TOOL_TOOL_SEARCH
+        | crate::tool_defs::TOOL_GET_SETTINGS
+        | crate::tool_defs::TOOL_AGENTS_LIST
+        | crate::tool_defs::TOOL_RECALL_MEMORY
+        | crate::tool_defs::TOOL_MEMORY_GET
+        | crate::tool_defs::TOOL_JOB_STATUS
+        | crate::tool_defs::TOOL_SESSIONS_LIST
+        | crate::tool_defs::TOOL_SESSION_STATUS
+        | crate::tool_defs::TOOL_SESSIONS_SEARCH
+        | crate::tool_defs::TOOL_SESSIONS_HISTORY
+        | crate::tool_defs::TOOL_PEEK_SESSIONS => WorkflowEffectClass::Pure,
         _ => WorkflowEffectClass::NonIdempotent,
     }
 }

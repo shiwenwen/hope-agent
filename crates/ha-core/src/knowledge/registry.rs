@@ -864,7 +864,7 @@ impl KnowledgeRegistry {
     pub fn insert_proposal(
         &self,
         kb_id: &str,
-        p: &super::maintenance::NewProposal,
+        p: &super::maintenance_defs::NewProposal,
     ) -> Result<Option<i64>> {
         let action_json = serde_json::to_string(&p.action)?;
         let now = chrono::Utc::now().timestamp_millis();
@@ -904,8 +904,8 @@ impl KnowledgeRegistry {
     pub fn list_proposals(
         &self,
         kb_id: &str,
-        status: Option<super::maintenance::ProposalStatus>,
-    ) -> Result<Vec<super::maintenance::MaintenanceProposal>> {
+        status: Option<super::maintenance_defs::ProposalStatus>,
+    ) -> Result<Vec<super::maintenance_defs::MaintenanceProposal>> {
         let conn = self
             .session_db
             .conn
@@ -943,7 +943,10 @@ impl KnowledgeRegistry {
     }
 
     /// Fetch one proposal by id.
-    pub fn get_proposal(&self, id: i64) -> Result<Option<super::maintenance::MaintenanceProposal>> {
+    pub fn get_proposal(
+        &self,
+        id: i64,
+    ) -> Result<Option<super::maintenance_defs::MaintenanceProposal>> {
         let conn = self
             .session_db
             .conn
@@ -965,7 +968,7 @@ impl KnowledgeRegistry {
     pub fn set_proposal_status(
         &self,
         id: i64,
-        status: super::maintenance::ProposalStatus,
+        status: super::maintenance_defs::ProposalStatus,
         error: Option<&str>,
     ) -> Result<()> {
         let now = chrono::Utc::now().timestamp_millis();
@@ -2915,8 +2918,8 @@ impl KnowledgeRegistry {
 
 fn row_to_proposal(
     row: &rusqlite::Row,
-) -> rusqlite::Result<Option<super::maintenance::MaintenanceProposal>> {
-    use super::maintenance::{MaintenanceProposal, ProposalKind, ProposalStatus};
+) -> rusqlite::Result<Option<super::maintenance_defs::MaintenanceProposal>> {
+    use super::maintenance_defs::{MaintenanceProposal, ProposalKind, ProposalStatus};
     let kind_s: String = row.get(2)?;
     let status_s: String = row.get(3)?;
     let action_s: String = row.get(6)?;
@@ -3321,6 +3324,19 @@ pub struct KbRoot {
     pub is_external: bool,
     /// Mutations rejected: external AND not opted into external writes.
     pub read_only: bool,
+}
+
+/// `WorkspaceScope::for_knowledge` 的根解析器（经 `app_init` 注册进
+/// `filesystem::workspace` 的钩子；直调会把 filesystem 焊进 knowledge 环）。
+pub(crate) fn workspace_root(
+    kb_id: &str,
+) -> std::result::Result<crate::filesystem::ResolvedRoot, crate::filesystem::FilesystemError> {
+    let root = resolve_kb_dir(kb_id)
+        .map_err(|e| crate::filesystem::FilesystemError::bad_input(e.to_string()))?;
+    Ok(crate::filesystem::ResolvedRoot {
+        dir: root.dir,
+        read_only: root.read_only,
+    })
 }
 
 /// Resolve a KB's notes directory + write posture.

@@ -4,10 +4,10 @@ use super::working_dir_instructions::InstructionFile;
 use crate::agent_config::{AgentConfig, FilterConfig, PersonalityConfig};
 use crate::project::Project;
 use crate::skills;
+use crate::tool_defs::ToolDefinition;
 use crate::tools::dispatch::{
     all_dispatchable_tools, resolve_tool_fate, DispatchContext, ToolFate,
 };
-use crate::tools::ToolDefinition;
 
 // ── Section Builders ─────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ pub(super) fn build_all_tools_description(incognito: bool) -> String {
         .effective_enabled(app_config.memory_extract.enabled);
     let descs: Vec<&str> = TOOL_DESCRIPTIONS
         .iter()
-        .filter(|(name, _)| memory_enabled && !incognito || !crate::tools::is_memory_tool(name))
+        .filter(|(name, _)| memory_enabled && !incognito || !crate::tool_defs::is_memory_tool(name))
         .map(|(_, desc)| *desc)
         .collect();
     format!("# Available Tools\n\n{}", descs.join("\n\n"))
@@ -287,8 +287,10 @@ pub(super) fn build_skills_section(
     session_id: Option<&str>,
 ) -> String {
     let store = crate::config::cached_config();
-    let all_skills =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+    let all_skills = crate::skills_hooks::load_all_skills_with_budget(
+        &store.extra_skills_dirs,
+        &store.skill_prompt_budget,
+    );
 
     // Start with globally disabled skills
     let disabled = store.disabled_skills.clone();
@@ -557,7 +559,7 @@ pub(super) fn build_acp_section() -> String {
         let available = if std::path::Path::new(&b.binary).is_absolute() {
             std::path::Path::new(&b.binary).exists()
         } else {
-            crate::acp_control::registry::resolve_binary(&b.binary).is_some()
+            super::acp_binary_resolvable(&b.binary)
         };
         if available {
             backend_lines.push(format!("- {}: {} (binary: {})", b.id, b.name, b.binary));

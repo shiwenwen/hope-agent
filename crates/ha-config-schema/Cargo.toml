@@ -1,0 +1,25 @@
+[package]
+name = "ha-config-schema"
+version = "0.29.0"
+description = "Hope Agent config wire types — AppConfig and its full transitive type closure. Pure data definitions, no business logic."
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+# ha-config-schema 只放「数据定义」：AppConfig 可达的全部 *Config 类型、
+# 它们的 Default / 自包含 impl 与 serde default helper。
+# 依赖红线：只允许 ha-base 与叶子 crate（serde / chrono …）。
+# 任何 ha-* 业务 crate、任何行为逻辑（mutate_config / redact / validate
+# 之类需要子系统服务的方法）都不属于这里——那等于把依赖环下沉一层。
+[dependencies]
+ha-base = { path = "../ha-base" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true

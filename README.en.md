@@ -351,12 +351,27 @@ All three modes share the same `ha-core` core. Config, sessions, and memories li
 
 ## Project Structure
 
-Cargo workspace, three crates; all business logic lives in `ha-core`:
+Layered multi-crate Cargo workspace: kernel capabilities live in `ha-core`; self-contained feature domains live in feature crates (`ha-acp` / `ha-browser` / `ha-design` / `ha-mac` / `ha-mcp` / `ha-media` / `ha-pet` / `ha-updater` / `ha-vcs` / `ha-weather`, with more moving out as the split continues):
 
 ```
 crates/
-  ha-core/       Rust core library (zero Tauri deps) — where the logic lives
-  ha-server/     axum HTTP/WS daemon (thin shell)
+  ha-base/           Infrastructure foundation (paths / logging / platform / security)
+  ha-config-schema/  AppConfig wire types (pure data definitions)
+  ha-core/           Rust core library (zero Tauri deps) — kernel + most business logic
+  ha-acp/            ACP feature crate (stdio server mode + external agent control plane)
+  ha-browser/        Browser feature crate (extension backend / CDP / browser tool)
+  ha-design/         Design space feature crate (artifacts store + compile/export + 3 tools)
+  ha-mac/            macOS control feature crate (Accessibility / screenshot / mac_control tool)
+  ha-mcp/            MCP client feature crate (McpManager / transports / OAuth / two tools)
+  ha-media/          Media feature crate (image/audio generation adapters + STT engines + two tools)
+  ha-pet/            Desktop pet feature crate (sprite store / import / creator / activity projection)
+  ha-updater/        Self-update feature crate (depends on ha-core, wired by shells)
+  ha-vcs/            VCS & local-exec feature crate (git control-plane ops + Docker sandbox machinery + SearXNG deploy)
+  ha-weather/        Weather feature crate (depends on ha-core, wired by shells)
+  ha-server/         axum HTTP/WS daemon (thin shell)
+  ha-browser-host/   Browser helper process
+  ha-eval-spec/      Evaluation protocol (no ha-core dependency)
+  ha-eval/           Evaluation CLI
 src-tauri/       Tauri desktop shell (thin shell)
 src/             React 19 + TypeScript frontend
 skills/          Bundled skills (ship with the app)
@@ -378,7 +393,7 @@ Common commands:
 ```bash
 pnpm dev:desktop                  # default desktop dev
 cargo check --workspace              # Rust dep / type check
-cargo test -p ha-core -p ha-server   # core tests
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server   # core tests
 node scripts/sync-i18n.mjs --check   # i18n completeness check
 ```
 

@@ -1,0 +1,425 @@
+//! Signal channel via signal-cli daemon.
+//!
+//! - **Official tool**: <https://github.com/AsamK/signal-cli>
+//! - **JSON-RPC spec**:
+//!   <https://github.com/AsamK/signal-cli/blob/master/man/signal-cli-jsonrpc.5.adoc>
+//! - **Protocol**: 子进程托管 signal-cli `--http=<addr>`，HTTP JSON-RPC
+//!   `/api/v1/rpc` 双向 + SSE `/api/v1/events` 推送实时事件
+//! - **Last reviewed**: 2026-05-05
+
+pub mod client;
+pub mod daemon;
+pub mod format;
+pub mod inbound_media;
+pub mod media;
+
+use anyhow::Result;
+use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
+
+use ha_core::channel::traits::ChannelPlugin;
+use ha_core::channel::types::*;
+
+use client::SignalClient;
+use daemon::SignalDaemon;
+
+/// Running account state for a Signal connection.
+struct RunningAccount {
+    client: Arc<SignalClient>,
+    #[allow(dead_code)]
+    account_phone: String,
+    daemon: Option<SignalDaemon>,
+}
+
+/// Signal channel plugin implementation.
+///
+/// Manages signal-cli daemon processes and communicates via JSON-RPC + SSE.
+/// Credentials JSON: `{ "account": "+1234567890", "signalCliPath": null, "httpPort": null }`
+pub struct SignalPlugin {
+    /// Running accounts keyed by account_id.
+    accounts: Mutex<HashMap<String, RunningAccount>>,
+}
+
+impl SignalPlugin {
+    pub fn new() -> Self {
+        Self {
+            accounts: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Extract the account phone number from credentials.
+    fn extract_account(credentials: &serde_json::Value) -> Result<String> {
+        credentials
+            .get("account")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && s.starts_with('+'))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Missing or invalid 'account' in Signal credentials (expected E.164 phone number like +1234567890)"
+                )
+            })
+    }
+
+    /// Extract optional signal-cli binary path from credentials.
+    fn extract_cli_path(credentials: &serde_json::Value) -> Option<String> {
+        credentials
+            .get("signalCliPath")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Extract optional HTTP port from credentials.
+    fn extract_port(credentials: &serde_json::Value) -> Option<u16> {
+        credentials
+            .get("httpPort")
+            .and_then(|v| v.as_u64())
+            .and_then(|p| u16::try_from(p).ok())
+    }
+
+    /// Get the client for a running account.
+    async fn get_client(&self, account_id: &str) -> Result<Arc<SignalClient>> {
+        let accounts = self.accounts.lock().await;
+        accounts
+            .get(account_id)
+            .map(|a| a.client.clone())
+            .ok_or_else(|| anyhow::anyhow!("Signal account '{}' is not running", account_id))
+    }
+}
+
+async fn wait_for_daemon_ready(
+    client: &SignalClient,
+    daemon: &mut SignalDaemon,
+    phone: &str,
+) -> Result<()> {
+    let timeout = std::time::Duration::from_secs(10);
+    let started_at = std::time::Instant::now();
+    let mut last_error: Option<String> = None;
+
+    loop {
+        if !daemon.is_running() {
+            anyhow::bail!(
+                "signal-cli daemon exited before readiness check passed for {}{}",
+                phone,
+                last_error
+                    .as_deref()
+                    .map(|e| format!(": {}", e))
+                    .unwrap_or_default()
+            );
+        }
+
+        match client.check_ready().await {
+            Ok(()) => return Ok(()),
+            Err(e) => last_error = Some(e.to_string()),
+        }
+
+        if started_at.elapsed() >= timeout {
+            anyhow::bail!(
+                "timed out waiting for signal-cli daemon readiness at /api/v1/check for {}{}",
+                phone,
+                last_error
+                    .as_deref()
+                    .map(|e| format!(": {}", e))
+                    .unwrap_or_default()
+            );
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
+#[async_trait]
+impl ChannelPlugin for SignalPlugin {
+    fn meta(&self) -> ChannelMeta {
+        ChannelMeta {
+            id: ChannelId::Signal,
+            display_name: "Signal".to_string(),
+            description: "Signal via signal-cli".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
+
+    fn capabilities(&self) -> ChannelCapabilities {
+        ChannelCapabilities {
+            chat_types: vec![ChatType::Dm, ChatType::Group],
+            supports_polls: false,
+            supports_reactions: false,
+            supports_draft: false,
+            supports_edit: false,
+            supports_unsend: true,
+            supports_reply: true,
+            supports_threads: false,
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Document,
+                MediaType::Voice,
+                MediaType::Animation,
+            ],
+            supports_typing: true,
+            supports_buttons: false,
+            streaming_preview_max_bytes: None,
+            supports_card_stream: false,
+        }
+    }
+
+    async fn start_account(
+        &self,
+        account: &ChannelAccountConfig,
+        inbound_tx: mpsc::Sender<InboundEvent>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        let phone = Self::extract_account(&account.credentials)?;
+        let cli_path = Self::extract_cli_path(&account.credentials);
+        let port = Self::extract_port(&account.credentials);
+
+        // Check that the signal-cli binary exists
+        let binary_name = cli_path.as_deref().unwrap_or("signal-cli");
+        if crate::channel::process_manager::find_binary(binary_name).is_none() {
+            anyhow::bail!(
+                "signal-cli binary not found: '{}'. Please install signal-cli or provide the full path in credentials.",
+                binary_name
+            );
+        }
+
+        // Start the daemon process
+        let mut daemon = SignalDaemon::start(&phone, cli_path.as_deref(), port)?;
+        let daemon_port = daemon.port();
+
+        // Create the client and actively poll signal-cli's readiness endpoint.
+        let client = Arc::new(SignalClient::new(daemon_port, phone.clone()));
+        if let Err(e) = wait_for_daemon_ready(&client, &mut daemon, &phone).await {
+            daemon.stop().await;
+            return Err(e);
+        }
+
+        app_info!(
+            "channel",
+            "signal",
+            "signal-cli daemon started for {} on port {}",
+            phone,
+            daemon_port
+        );
+
+        // SSE loop 内部 parse_data_payload 会顺手把 (message_id → sender_id)
+        // 写到 client.quote_authors 缓存，给 outbound reply 拼 quoteAuthor 用。
+
+        {
+            let mut accounts = self.accounts.lock().await;
+            accounts.insert(
+                account.id.clone(),
+                RunningAccount {
+                    client: client.clone(),
+                    account_phone: phone.clone(),
+                    daemon: Some(daemon),
+                },
+            );
+        }
+
+        let account_id = account.id.clone();
+        tokio::spawn(async move {
+            client.run_sse_loop(account_id, inbound_tx, cancel).await;
+        });
+
+        Ok(())
+    }
+
+    async fn materialize_pending_media(
+        &self,
+        account: &ChannelAccountConfig,
+        msg: &mut MsgContext,
+    ) -> Result<()> {
+        let pending = crate::channel::inbound_media_common::take_pending_refs::<
+            inbound_media::ParsedMediaRef,
+        >(msg);
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let results = futures_util::future::join_all(
+            pending
+                .iter()
+                .map(|p| inbound_media::materialize_inbound(p, &account.id)),
+        )
+        .await;
+        for m in results.into_iter().flatten() {
+            msg.media.push(m);
+        }
+        Ok(())
+    }
+
+    async fn stop_account(&self, account_id: &str) -> Result<()> {
+        let mut accounts = self.accounts.lock().await;
+        if let Some(mut running) = accounts.remove(account_id) {
+            if let Some(ref mut daemon) = running.daemon {
+                daemon.stop().await;
+            }
+            app_info!(
+                "channel",
+                "signal",
+                "Stopped Signal account '{}'",
+                account_id
+            );
+        }
+        Ok(())
+    }
+
+    async fn send_message(
+        &self,
+        account_id: &str,
+        chat_id: &str,
+        payload: &ReplyPayload,
+    ) -> Result<DeliveryResult> {
+        let client = self.get_client(account_id).await?;
+        let prepared = match media::prepare_signal_attachments(&payload.media).await {
+            Ok(prepared) => prepared,
+            Err(e) => return Ok(DeliveryResult::err(e.to_string())),
+        };
+
+        let text = payload
+            .text
+            .as_deref()
+            .or_else(|| payload.media.iter().find_map(|m| m.caption.as_deref()))
+            .filter(|s| !s.is_empty());
+
+        if text.is_none() && prepared.paths().is_empty() {
+            return Ok(DeliveryResult::ok("no_content"));
+        }
+
+        // signal-cli reply 必须 timestamp + author 配对，缺一即不发 quote
+        let (quote_ts, quote_author) = match payload.reply_to_message_id.as_deref() {
+            Some(reply_id) => (
+                reply_id.parse::<i64>().ok(),
+                client.quote_author_for(reply_id).await,
+            ),
+            None => (None, None),
+        };
+
+        let result = client
+            .send_message(
+                chat_id,
+                text,
+                prepared.paths(),
+                quote_ts,
+                quote_author.as_deref(),
+            )
+            .await;
+        prepared.cleanup().await;
+
+        match result {
+            Ok(result) => {
+                // signal-cli send returns the timestamp as message ID
+                let msg_id = result
+                    .get("timestamp")
+                    .and_then(|v| v.as_i64())
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_else(|| "sent".to_string());
+                Ok(DeliveryResult::ok(msg_id))
+            }
+            Err(e) => Ok(DeliveryResult::err(e.to_string())),
+        }
+    }
+
+    async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()> {
+        let client = self.get_client(account_id).await?;
+        client.send_typing(chat_id).await
+    }
+
+    async fn delete_message(
+        &self,
+        account_id: &str,
+        chat_id: &str,
+        message_id: &str,
+    ) -> Result<()> {
+        let client = self.get_client(account_id).await?;
+        let timestamp: i64 = message_id.parse().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid Signal message ID (expected timestamp): {}",
+                message_id
+            )
+        })?;
+        client.delete_message(chat_id, timestamp).await
+    }
+
+    async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {
+        let phone = Self::extract_account(&account.credentials)?;
+        let cli_path = Self::extract_cli_path(&account.credentials);
+        let binary_name = cli_path.as_deref().unwrap_or("signal-cli");
+
+        // Check if binary exists
+        if crate::channel::process_manager::find_binary(binary_name).is_none() {
+            return Ok(ChannelHealth {
+                is_running: false,
+                last_probe: Some(chrono::Utc::now().to_rfc3339()),
+                probe_ok: Some(false),
+                error: Some(format!("signal-cli binary not found: '{}'", binary_name)),
+                uptime_secs: None,
+                bot_name: None,
+            });
+        }
+
+        // If the account is running, try to list identities
+        let accounts = self.accounts.lock().await;
+        if let Some(running) = accounts.get(&account.id) {
+            match running.client.list_identities().await {
+                Ok(_) => Ok(ChannelHealth {
+                    is_running: true,
+                    last_probe: Some(chrono::Utc::now().to_rfc3339()),
+                    probe_ok: Some(true),
+                    error: None,
+                    uptime_secs: None,
+                    bot_name: Some(phone),
+                }),
+                Err(e) => Ok(ChannelHealth {
+                    is_running: true,
+                    last_probe: Some(chrono::Utc::now().to_rfc3339()),
+                    probe_ok: Some(false),
+                    error: Some(e.to_string()),
+                    uptime_secs: None,
+                    bot_name: Some(phone),
+                }),
+            }
+        } else {
+            Ok(ChannelHealth {
+                is_running: false,
+                last_probe: Some(chrono::Utc::now().to_rfc3339()),
+                probe_ok: Some(true),
+                error: None,
+                uptime_secs: None,
+                bot_name: Some(phone),
+            })
+        }
+    }
+
+    fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool {
+        ha_core::channel::traits::default_check_access(
+            account,
+            msg,
+            &[ChatType::Dm, ChatType::Group],
+        )
+    }
+
+    fn markdown_to_native(&self, markdown: &str) -> String {
+        format::markdown_to_signal(markdown)
+    }
+
+    async fn validate_credentials(&self, credentials: &serde_json::Value) -> Result<String> {
+        let phone = Self::extract_account(credentials)?;
+        let cli_path = Self::extract_cli_path(credentials);
+        let binary_name = cli_path.as_deref().unwrap_or("signal-cli");
+
+        // Check that signal-cli binary exists
+        if crate::channel::process_manager::find_binary(binary_name).is_none() {
+            anyhow::bail!(
+                "signal-cli binary not found: '{}'. Please install signal-cli or provide the full path.",
+                binary_name
+            );
+        }
+
+        Ok(phone)
+    }
+}

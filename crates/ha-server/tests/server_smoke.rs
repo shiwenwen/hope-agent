@@ -24,6 +24,11 @@ async fn server_starts_and_serves_health() {
     std::env::set_var("USERPROFILE", tmp.path());
 
     ha_core::paths::ensure_dirs().expect("ensure_dirs");
+    // 与 `hope-agent` 二进制同一份装配序列，且同样先于 `init_runtime`
+    // （init 尾部冻结工具注册表）。缺了它，这个自称跑「full server runtime
+    // path」的 smoke 就不含任何特征 crate 的 handler——阶段 5 第七刀后
+    // `skill` handler 正是由 `ha_skills::wire()` 动态注册的。
+    ha_server::wire_features();
     ha_core::init_runtime("test");
 
     let session_db = ha_core::globals::SESSION_DB

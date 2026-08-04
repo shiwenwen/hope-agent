@@ -2,13 +2,13 @@
 
 > 返回 [文档索引](../README.md) | 关联：[MCP 客户端](mcp.md) · [工具系统](tool-system.md) · [配置系统](config-system.md)
 
-[`security/`](../../crates/ha-core/src/security/) 集中所有跨子系统的安全 contract：
+[`security/`](../../crates/ha-base/src/security/) 集中所有跨子系统的安全 contract：
 
 | 模块 | 职责 |
 |---|---|
-| [`ssrf.rs`](../../crates/ha-core/src/security/ssrf.rs) | 出站 HTTP/WS 的 host 分类 + 三档策略 + 可信主机白名单 |
-| [`dangerous.rs`](../../crates/ha-core/src/security/dangerous.rs) | YOLO 进程级跳过所有工具审批的全局开关 |
-| [`http_stream.rs`](../../crates/ha-core/src/security/http_stream.rs) | 出站响应体的字节封顶读取（防恶意上游撑爆内存） |
+| [`ssrf.rs`](../../crates/ha-base/src/security/ssrf.rs) | 出站 HTTP/WS 的 host 分类 + 三档策略 + 可信主机白名单 |
+| [`dangerous.rs`](../../crates/ha-base/src/security/dangerous.rs) | YOLO 进程级跳过所有工具审批的全局开关 |
+| [`http_stream.rs`](../../crates/ha-base/src/security/http_stream.rs) | 出站响应体的字节封顶读取（防恶意上游撑爆内存） |
 
 **硬规则**：所有出站 HTTP / WebSocket 入口**必须**走 `security::ssrf::check_url`（异步入口）或 `check_host_blocking_sync`（reqwest redirect callback 同步入口）。新出站入口严禁自写 IP 校验——重复轮子 + 不一致语义 = 易错。
 
@@ -131,7 +131,7 @@ reqwest `redirect::Policy::custom` 的 callback 是同步上下文，没法 `.aw
 | 调用方 | 上限 | 文件 |
 |---|---|---|
 | `web_search/*`（Bocha / Brave / Google / Grok / SearXNG / 通用 helper） | `JSON_RESPONSE_BYTE_CAP = 1_000_000`（1 MB） | [`tools/web_search/helpers.rs`](../../crates/ha-core/src/tools/web_search/helpers.rs) |
-| `image_generate` URL 下载 | `MAX_IMAGE_DOWNLOAD_BYTES = 10_485_760`（10 MB） | [`tools/image_generate/helpers.rs`](../../crates/ha-core/src/tools/image_generate/helpers.rs) |
+| `image_generate` URL 下载 | `MAX_IMAGE_DOWNLOAD_BYTES = 10_485_760`（10 MB） | [`ha-media media_gen/input.rs`](../../crates/ha-media/src/media_gen/input.rs) |
 
 新增"会从外部下载内容"的工具时，**默认走 `read_*_capped`**，不要用 `resp.text()` / `resp.bytes()`。封顶值按业务合理上限选——JSON API 1 MB 已远超合理 payload，图片 10 MB 覆盖 4K 大图。
 
@@ -144,7 +144,7 @@ reqwest `redirect::Policy::custom` 的 callback 是同步上下文，没法 `.aw
 | CLI flag `--dangerously-skip-all-approvals` | 进程内 `AtomicBool`，重启清零 | [`src-tauri/src/main.rs`](../../src-tauri/src/main.rs) 启动早期 | 一次性脚本调用 / CI 环境 |
 | `AppConfig.permission.global_yolo`（`PermissionGlobalConfig`） | 持久化到 `config.json` | Settings UI / `update_settings(category="security")`（写 `skipAllApprovals` 子字段映射到 `permission.global_yolo`） | 高信任本地环境长开 |
 
-唯一判定入口：[`security::dangerous::is_dangerous_skip_active()`](../../crates/ha-core/src/security/dangerous.rs)，禁止业务代码自己读 `cfg.permission.global_yolo` 绕开 CLI flag 路径。
+唯一判定入口：[`security::dangerous::is_dangerous_skip_active()`](../../crates/ha-base/src/security/dangerous.rs)，禁止业务代码自己读 `cfg.permission.global_yolo` 绕开 CLI flag 路径。
 
 `active_source()` 给日志用——CLI 优先标注（"CLI flag"），因为 CLI 来源不可清除、最容易让用户惊讶（点了 Settings 关闭却仍在跳过审批，必然是 CLI 还开着）。
 
@@ -187,21 +187,21 @@ pub fn status() -> DangerousModeStatus;
 | 调用点 | Policy 解析 | 文件 |
 |---|---|---|
 | `web_fetch` | `ssrf_cfg.web_fetch()`；`ssrf_protection: false` legacy 字段降级到 `AllowPrivate`；redirect callback 走 `check_host_blocking_sync` | [`tools/web_fetch.rs:382-411`](../../crates/ha-core/src/tools/web_fetch.rs) |
-| `browser` 高层 URL 操作（`navigate.go` / `tabs.new` / `profile.connect` / `control.evaluate` 字面量） | `ssrf_cfg.browser()`；`raw_cdp` 不做 payload SSRF 扫描，风险交给统一 tool approval | [`tools/browser/mod.rs`](../../crates/ha-core/src/tools/browser/mod.rs)、[`browser/mod.rs::validate_cdp_endpoint_url`](../../crates/ha-core/src/browser/mod.rs) |
-| `browser` Chromium runtime 下载 | `ssrf_cfg.browser()`，固定 Google Chromium snapshots host，下载后 zip-slip 防护 + smoke test | [`browser/runtime.rs`](../../crates/ha-core/src/browser/runtime.rs) |
-| `image_generate` URL 下载 | `ssrf_cfg.image_generate()`，封顶 10 MB | [`tools/image_generate/helpers.rs:98,128`](../../crates/ha-core/src/tools/image_generate/helpers.rs) |
+| `browser` 高层 URL 操作（`navigate.go` / `tabs.new` / `profile.connect` / `control.evaluate` 字面量） | `ssrf_cfg.browser()`；`raw_cdp` 不做 payload SSRF 扫描，风险交给统一 tool approval | [`tools/browser/mod.rs`](../../crates/ha-browser/src/tool/mod.rs)、[`browser/mod.rs::validate_cdp_endpoint_url`](../../crates/ha-browser/src/browser/mod.rs) |
+| `browser` Chromium runtime 下载 | `ssrf_cfg.browser()`，固定 Google Chromium snapshots host，下载后 zip-slip 防护 + smoke test | [`browser/runtime.rs`](../../crates/ha-browser/src/browser/runtime.rs) |
+| `image_generate` URL 下载 | `ssrf_cfg.image_generate()`，封顶 10 MB | [`ha-media media_gen/input.rs`（逐跳 SSRF 经 adapters::fetch）](../../crates/ha-media/src/media_gen/input.rs) |
 | `url_preview` | `ssrf_cfg.url_preview()` | [`url_preview.rs:252`](../../crates/ha-core/src/url_preview.rs) |
 | `web_search` (Bocha / Brave / Google / Grok / SearXNG) | `ssrf_cfg.default_policy`（无 per-tool override） | [`tools/web_search/helpers.rs:16`](../../crates/ha-core/src/tools/web_search/helpers.rs) |
-| MCP transport (Streamable HTTP / SSE / WebSocket) | 调用方传入的 policy（默认 `Default`）；ws/wss 先 rewrite 成 http/https 再分类 | [`mcp/transport.rs:164,307,604`](../../crates/ha-core/src/mcp/transport.rs) |
-| MCP OAuth (discovery / DCR / token / refresh) | 固定 `SsrfPolicy::Default`，走 `provider::apply_proxy` | [`mcp/oauth.rs`](../../crates/ha-core/src/mcp/oauth.rs) |
+| MCP transport (Streamable HTTP / SSE / WebSocket) | 调用方传入的 policy（默认 `Default`）；ws/wss 先 rewrite 成 http/https 再分类 | [`transport.rs` `ssrf_gate_url`（SSE/WS/Streamable 三入口 331/382/609）](../../crates/ha-mcp/src/transport.rs) |
+| MCP OAuth (discovery / DCR / token / refresh) | 固定 `SsrfPolicy::Default`，走 `provider::apply_proxy` | [`oauth.rs`](../../crates/ha-mcp/src/oauth.rs) |
 
 **LLM Provider 出站**：当前不走 SSRF 检查。`ProviderConfig.allow_private_network` 字段仅做 round-trip 配置，不影响后端拦截——后续如果加入强制策略，应在 [`provider/`](../../crates/ha-core/src/provider/) 内部统一插桩，而不是散落到 4 个 Provider adapter。
 
 ## API Key / Token 红线
 
-- **任何日志路径**（包括 `app_*!` / `tracing` / panic backtrace / API 请求体落盘）都必须经 [`logging::file_ops::redact_sensitive`](../../crates/ha-core/src/logging/file_ops.rs) 脱敏。`logging.rs` 的请求体落盘路径已经强制 redact + 32 KB 截断
+- **任何日志路径**（包括 `app_*!` / `tracing` / panic backtrace / API 请求体落盘）都必须经 [`logging::file_ops::redact_sensitive`](../../crates/ha-base/src/logging/file_ops.rs) 脱敏。`logging.rs` 的请求体落盘路径已经强制 redact + 32 KB 截断
 - OAuth token 持久化在 `~/.hope-agent/credentials/auth.json`（核心 LLM）和 `~/.hope-agent/credentials/mcp/{server_id}.json`（MCP server）；登出 / 删除 server 时**必须** `clear_token()` / `mcp::credentials::clear()`
-- **MCP 凭据**走 [`platform::write_secure_file`](../../crates/ha-core/src/platform/) 0600 原子写（temp + fsync + rename）；**主 LLM OAuth `oauth.rs::save_token`** 当前用 `std::fs::write` 直写，没经过 `write_secure_file`——见 [跨平台抽象层](platform.md) 的"已知缺口"，待统一
+- **MCP 凭据**走 [`platform::write_secure_file`](../../crates/ha-base/src/platform/) 0600 原子写（temp + fsync + rename）；**主 LLM OAuth `oauth.rs::save_token`** 当前用 `std::fs::write` 直写，没经过 `write_secure_file`——见 [跨平台抽象层](platform.md) 的"已知缺口"，待统一
 - `tauri.conf.json` 的 CSP 当前为 `null`，**禁止放行外部域名**——任何远端资源加载请走后端代理
 
 ## 单元测试覆盖
@@ -221,10 +221,10 @@ pub fn status() -> DangerousModeStatus;
 
 | 文件 | 职责 |
 |---|---|
-| [`crates/ha-core/src/security/mod.rs`](../../crates/ha-core/src/security/mod.rs) | 三个子模块的 `pub mod` 导出 |
-| [`crates/ha-core/src/security/ssrf.rs`](../../crates/ha-core/src/security/ssrf.rs) | `SsrfPolicy` / `HostKind` / `SsrfConfig` / `classify_ip` / `is_metadata_ip` / `is_in_allowlist` / `policy_allows` / `check_url` / `check_host_blocking_sync` / `resolve_and_classify` |
-| [`crates/ha-core/src/security/dangerous.rs`](../../crates/ha-core/src/security/dangerous.rs) | `set_cli_flag` / `cli_flag_active` / `is_dangerous_skip_active` / `active_source` / `status` |
-| [`crates/ha-core/src/security/http_stream.rs`](../../crates/ha-core/src/security/http_stream.rs) | `read_bytes_capped` / `read_text_capped` |
+| [`crates/ha-base/src/security/mod.rs`](../../crates/ha-base/src/security/mod.rs) | 三个子模块的 `pub mod` 导出 |
+| [`crates/ha-base/src/security/ssrf.rs`](../../crates/ha-base/src/security/ssrf.rs) | `SsrfPolicy` / `HostKind` / `SsrfConfig` / `classify_ip` / `is_metadata_ip` / `is_in_allowlist` / `policy_allows` / `check_url` / `check_host_blocking_sync` / `resolve_and_classify` |
+| [`crates/ha-base/src/security/dangerous.rs`](../../crates/ha-base/src/security/dangerous.rs) | `set_cli_flag` / `cli_flag_active` / `is_dangerous_skip_active` / `active_source` / `status` |
+| [`crates/ha-base/src/security/http_stream.rs`](../../crates/ha-base/src/security/http_stream.rs) | `read_bytes_capped` / `read_text_capped` |
 | [`crates/ha-core/src/config/mod.rs`](../../crates/ha-core/src/config/mod.rs) | `AppConfig.ssrf: SsrfConfig` + `AppConfig.permission: PermissionGlobalConfig`（含 `global_yolo`）字段定义 |
 | [`crates/ha-core/src/tools/execution.rs`](../../crates/ha-core/src/tools/execution.rs) | 构造 `ResolveContext` 把 `is_dangerous_skip_active()` 喂进 `global_yolo`，bypass 决策落在 `permission::engine` |
-| [`crates/ha-core/src/logging/file_ops.rs`](../../crates/ha-core/src/logging/file_ops.rs) | `redact_sensitive` 脱敏函数 |
+| [`crates/ha-base/src/logging/file_ops.rs`](../../crates/ha-base/src/logging/file_ops.rs) | `redact_sensitive` 脱敏函数 |

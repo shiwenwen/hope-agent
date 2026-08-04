@@ -193,9 +193,9 @@ jobs:
         run: pnpm release:verify -- --tag "${{ env.RELEASE_TAG }}"
 
       # Refuse to ship if the desktop bundle (`tauri-plugin-updater`) and
-      # the headless self-update (`ha_core::updater`) point at different
+      # the headless self-update (`ha_updater`) point at different
       # Minisign pubkeys — one of the two would silently break.
-      - name: Verify updater pubkey sync (tauri.conf.json ↔ ha-core)
+      - name: Verify updater pubkey sync (tauri.conf.json ↔ ha-updater)
         run: node scripts/verify-updater-pubkey.mjs
 
       # Extract per-version release notes for both the GitHub Release body
@@ -334,8 +334,8 @@ jobs:
       # The desktop installers above cover GUI users; `hope-agent server`
       # / CLI deployments that can't run `tauri-plugin-updater` need a
       # signed tar.gz / zip with just the executable inside. Same
-      # Minisign keypair as the desktop installer — `ha_core::updater`
-      # verifies against the pubkey in `ha-core/updater/keys.rs` (which
+      # Minisign keypair as the desktop installer — `ha_updater`
+      # verifies against the pubkey in `ha-updater/keys.rs` (which
       # `verify-updater-pubkey.mjs` already proved matches
       # tauri.conf.json above).
       - name: Bundle + sign bare binary
@@ -409,7 +409,7 @@ jobs:
 
   # Patch `latest.json` with bare_binary entries once every platform has
   # uploaded its archive + sig. tauri-action wrote `latest.json` with only
-  # the desktop `platforms` map — `ha_core::updater::self_contained`
+  # the desktop `platforms` map — `ha_updater::self_contained`
   # additionally reads `bare_binary.platforms.<key>` so headless installs
   # can self-update.
   patch-manifest:

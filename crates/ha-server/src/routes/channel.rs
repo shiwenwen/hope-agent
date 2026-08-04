@@ -3,7 +3,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use ha_core::channel::accounts::{self, UpdateAccountParams};
+use ha_channel::channel::accounts::{self, UpdateAccountParams};
 use ha_core::channel::types::*;
 
 use crate::error::AppError;
@@ -285,9 +285,9 @@ pub struct WeChatStartLoginBody {
 /// `POST /api/channel/wechat/login/start`
 pub async fn wechat_start_login(
     Json(body): Json<WeChatStartLoginBody>,
-) -> Result<Json<ha_core::channel::wechat::login::WeChatLoginStart>, AppError> {
+) -> Result<Json<ha_channel::channel::wechat::login::WeChatLoginStart>, AppError> {
     Ok(Json(
-        ha_core::channel::wechat::login::start_login(body.account_id.as_deref()).await?,
+        ha_channel::channel::wechat::login::start_login(body.account_id.as_deref()).await?,
     ))
 }
 
@@ -301,9 +301,9 @@ pub struct WeChatWaitLoginBody {
 /// `POST /api/channel/wechat/login/wait`
 pub async fn wechat_wait_login(
     Json(body): Json<WeChatWaitLoginBody>,
-) -> Result<Json<ha_core::channel::wechat::login::WeChatLoginWait>, AppError> {
+) -> Result<Json<ha_channel::channel::wechat::login::WeChatLoginWait>, AppError> {
     Ok(Json(
-        ha_core::channel::wechat::login::wait_login(&body.session_key, body.timeout_ms).await?,
+        ha_channel::channel::wechat::login::wait_login(&body.session_key, body.timeout_ms).await?,
     ))
 }
 
@@ -405,7 +405,7 @@ async fn deliver_handover_catchup(
         Some(a) => a.clone(),
         None => return,
     };
-    ha_core::channel::attach_sync::deliver_handover_catchup(
+    ha_channel::channel::attach_sync::deliver_handover_catchup(
         &plugin, &account, session_id, chat_id, thread_id,
     )
     .await;

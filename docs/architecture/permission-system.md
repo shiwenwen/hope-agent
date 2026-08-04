@@ -114,6 +114,13 @@ Plan Mode 不属于 permission_mode 三选一，而是**正交的工作模式**�
 - **保守红线:确证无人才判 Unattended**。任何可能 surface(desktop 窗口 / web 客户端 / IM attach)→ Attended,绝不误拒合法交互审批。**唯 cron 例外**:cron 会话被桌面交互弹窗按 currentSessionId 过滤,即便桌面也无可靠交互 surface → 始终 Unattended(合 DEADLOCK-4)。**cron 起的 subagent 同理(C03)**:子会话自身 `is_cron=false`,故 subagent 分支须在 desktop 短路**之前**沿 `parent_session_id` 链探测 cron 根(`subagent_chain_roots_at_cron`,纯核 `chain_roots_at_cron_with` 可单测),命中即 `Unattended(Cron)`;否则桌面打开时(单进程 desktop 恒真)会误判 Attended 而把一个永不渲染的弹窗静默挂到 `approval_timeout`。cron 根的链不会 IM-attached,故优先返回 Unattended 无歧义。
 - 4 个 `UnattendedReason`:`Cron` / `HeadlessNoClient` / `AcpNoPermissionCapability` / `SubagentNoParentSurface`。
 - **判 ACP 必须用 `is_acp()` 而非 `ChatSource`**——ACP 回合复用 `ChatSource::Http`,source 无法区分真 HTTP 客户端(D1 红线)。
+- **ACP 分支守卫测试**：`crates/ha-acp/tests/approval_fail_closed.rs` 用独立
+  test binary 设 `RUNTIME_ROLE="acp"`，端到端验证 capability=false 时
+  `evaluate_approval_surface(None)` 返 `Unattended(AcpNoPermissionCapability)`、
+  D7 `set_acp_permission_capable(true)` 后回 `Attended`。kernel 的
+  `acp_capability_toggle_flips_acp_surface` 只测 flag 的 pure round-trip，
+  真正走 `evaluate_approval_surface` 的 ACP 分支这条测试独家覆盖（因
+  `RUNTIME_ROLE` 是 `OnceLock`，unit test 共享 binary 无法设 "acp"）。
 
 Unattended 时按 `permission.unattended_approval_action` 处理:`Deny`(默认,fail-closed)→ `ToolRejection::denied_unattended`(结构化根因 + `fire_permission_denied`)即时拒绝;`Proceed` → 自动放行(比全局 YOLO 窄,仅在确证无人时触发)。两路都 emit `approval:unattended` 事件供遥测/UI 消费(payload 带 `strict` + `effective`,后者已计入 strict 覆盖)。**与 YOLO 正交**:YOLO 下引擎返 `Allow` 不发 `Ask`,根本到不了此预检——所以 headless 自动放行的正解是 YOLO 或 `unattended_approval_action=proceed`,而非旧的 `approval_timeout=proceed`(后者实为无限等)。
 
@@ -269,7 +276,7 @@ pub struct PermissionGlobalConfig {
 
 一条审批可能同时呈现在多端(桌面弹窗 / Web / IM 按钮或文本),决议必须**单点广播、各端统一撤窗**,且只能由**有权的来源**应答。
 
-- **`approval:resolved` 统一撤窗(SURFACE-1)**:`submit_approval_response`(GUI/HTTP/IM)、超时(F4)、删会话(A-9)、eviction(G5)、前台 Stop 所有决议路径都 emit `approval:resolved {requestId, sessionId, decision, source}`。前端 `useApprovals` 订阅后按 `requestId` 撤窗;非本端(`locallyResolvedRef` 区分)且来源是另一交互端(`gui`/`http`/`im`)时 toast「已由他端处理」。`ApprovalResolutionSource` 全集（9）:`gui` / `http` / `im` / `session_deleted` / `timeout_deny` / `timeout_proceed` / `eviction` / `job_cancelled` / `user_stop`。Stop 必须 deny 目标会话 pending approvals（全局 Stop 则 drain 全部），因为 oneshot 审批等待不直接观察 chat cancel flag；否则停止后的旧弹窗仍可能授权工具执行。HTTP Stop 必须先收口这些交互，再执行可能失败的 runtime-task cancellation。两种 Stop drain 还必须直接调用 `channel::worker::approval::drop_pending_by_request_id`，不能只依赖可能 `Lagged` 的 EventBus listener，否则 IM 文本审批状态会残留并劫持后续普通消息。
+- **`approval:resolved` 统一撤窗(SURFACE-1)**:`submit_approval_response`(GUI/HTTP/IM)、超时(F4)、删会话(A-9)、eviction(G5)、前台 Stop 所有决议路径都 emit `approval:resolved {requestId, sessionId, decision, source}`。前端 `useApprovals` 订阅后按 `requestId` 撤窗;非本端(`locallyResolvedRef` 区分)且来源是另一交互端(`gui`/`http`/`im`)时 toast「已由他端处理」。`ApprovalResolutionSource` 全集（9）:`gui` / `http` / `im` / `session_deleted` / `timeout_deny` / `timeout_proceed` / `eviction` / `job_cancelled` / `user_stop`。Stop 必须 deny 目标会话 pending approvals（全局 Stop 则 drain 全部），因为 oneshot 审批等待不直接观察 chat cancel flag；否则停止后的旧弹窗仍可能授权工具执行。HTTP Stop 必须先收口这些交互，再执行可能失败的 runtime-task cancellation。两种 Stop drain 还必须直接调用 `channel_hooks::drop_approval_by_request_id`（阶段 5 第五刀起 kernel 侧统一经钩子，实现在 ha-channel），不能只依赖可能 `Lagged` 的 EventBus listener，否则 IM 文本审批状态会残留并劫持后续普通消息。
 - **snapshot 恢复是可靠性边界**:`PENDING_APPROVALS` 保存完整 `ApprovalRequest`（含 `created_at_ms` / `timeout_at_ms` / `timeout_secs` / effective `timeout_action`），owner 平面通过 Tauri `list_pending_approvals` / HTTP `GET /api/chat/approvals/pending` 读取权威快照。`useApprovals` 在 mount、transport resync、window focus、visibility 恢复以及提交结果不确定时对账；reconcile sequence 拒绝乱序响应，per-request event version 把请求期间新到的 `approval_required` 合并进快照，有界 terminal tombstone 防旧快照复活已终结请求。倒计时按请求绝对 deadline，而非弹窗出队时重启；快照刷新 `server_now_ms`，远程浏览器先换算本地 deadline，禁止假设客户端与服务器时钟同步。
 - **提交结果不确定时不乐观丢窗**:响应 RPC 成功可本地撤窗兜底；失败时保持当前授权可操作并立即 snapshot reconcile，以区分「请求未送达」与「后端已受理但响应丢失」。同一 request id 在调用未完成前禁止重复提交。
 - **IM listener 残留清理(SURFACE-2)**:`spawn_channel_approval_listener` 收到 `approval:resolved` 调 `drop_pending_by_request_id` 清 IM 端 `TEXT_PENDING`,杜绝旧 prompt 劫持后续消息。
@@ -484,7 +491,7 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 
 - **Default** 弹标准审批；**Smart** 交 judge 模型自决；**YOLO / global-yolo** 免审；**无人值守**（cron 自身 turn 内调用、无 surface）按 `unattended_approval_action` **fail-closed**（默认 deny）。
 - **非 strict**（刻意 NOT in `forbids_allow_always`）：只约束 timeout / unattended 轴——超时不强制 deny、可按配置 proceed，Smart 可降级 judge。这与 ProtectedPath / DangerousCommand / BrowserRawCdp 等 strict 原因不同。
-- **但仍抑制 AllowAlways（红线）**：[`gate_cron_delete`](../../crates/ha-core/src/tools/cron.rs) 对该审批单独强制 `allow_always_forbidden=true`，前端 `barsAllowAlways`（[`ApprovalDialog.tsx`](../../src/components/chat/ApprovalDialog.tsx)）同步禁用按钮。原因：`manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**，一旦 AllowAlways 持久化便是「静默删除任意定时任务」的 id 无关常驻授权，且 `allows_tool_call` 会先于 `check_cron_delete` 命中而绕过本门。故每次 delete 都逐次确认、永不留常驻 grant——这是「非 strict 但 bars AllowAlways」的唯一案例。
+- **但仍抑制 AllowAlways（红线）**：[`gate_cron_delete`](../../crates/ha-cron/src/tools/cron.rs) 对该审批单独强制 `allow_always_forbidden=true`，前端 `barsAllowAlways`（[`ApprovalDialog.tsx`](../../src/components/chat/ApprovalDialog.tsx)）同步禁用按钮。原因：`manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**，一旦 AllowAlways 持久化便是「静默删除任意定时任务」的 id 无关常驻授权，且 `allows_tool_call` 会先于 `check_cron_delete` 命中而绕过本门。故每次 delete 都逐次确认、永不留常驻 grant——这是「非 strict 但 bars AllowAlways」的唯一案例。
 - `ApprovalReasonKind::CronDelete` + `ApprovalDialog.tsx` union + 12 语言 `approval.reasons.cron_delete` 三处同步（一致性单测锁后端两者）。完整 cron 侧逻辑（先取消在途 run 再删等）见 [`cron.md`](cron.md)「delete 审批」。
 
 ### 可审批（出现在 Agent「自定义工具审批」勾选清单）
@@ -608,8 +615,8 @@ useEffect(() => {
 
 - `/permission default | smart | yolo` —— 切换 `SessionMeta.permission_mode`，落点为 [`SessionDB::update_session_permission_mode`](../../crates/ha-core/src/session/db.rs)；
   - 桌面端通过 `CommandAction::SetToolPermission` → `useChatStream.setPermissionMode` → `POST /api/chat/permission-mode` 写入；
-  - IM 端在 [`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs) 的 `SetToolPermission` 分支直接调 SessionDB，并 emit EventBus 事件 `permission:mode_changed`（payload `{ sessionId, mode }`）供桌面端订阅刷新。
-- 命令必须传参：`arg_options` 在 IM 端按渠道能力分流——支持按钮的渠道（Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat）渲成 inline keyboard 三按钮选单（default / smart / yolo），不支持按钮的（WeChat / iMessage / IRC / Signal / WhatsApp）回 `Usage: /permission <mode>` + Options 文本列表，用户复制粘贴选项即可（[`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs)）。桌面前端同样靠 `argOptions` 弹子菜单。
+  - IM 端在 [`channel/worker/slash.rs`](../../crates/ha-channel/src/channel/worker/slash.rs) 的 `SetToolPermission` 分支直接调 SessionDB，并 emit EventBus 事件 `permission:mode_changed`（payload `{ sessionId, mode }`）供桌面端订阅刷新。
+- 命令必须传参：`arg_options` 在 IM 端按渠道能力分流——支持按钮的渠道（Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat）渲成 inline keyboard 三按钮选单（default / smart / yolo），不支持按钮的（WeChat / iMessage / IRC / Signal / WhatsApp）回 `Usage: /permission <mode>` + Options 文本列表，用户复制粘贴选项即可（[`channel/worker/slash.rs`](../../crates/ha-channel/src/channel/worker/slash.rs)）。桌面前端同样靠 `argOptions` 弹子菜单。
 - 查看当前模式走 `/status` 命令（输出里有 `Permission Mode` 行），或直接看桌面标题栏 `PermissionModeSwitcher` dropdown。
 - `IM_DISABLED_COMMANDS` 不含 `permission`，IM 内可直接调用。
 

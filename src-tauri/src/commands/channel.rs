@@ -1,7 +1,7 @@
-use crate::channel::accounts::{self, UpdateAccountParams};
 use crate::channel::types::*;
 use crate::commands::CmdError;
 use anyhow::Context;
+use ha_channel::channel::accounts::{self, UpdateAccountParams};
 use ha_core::blocking::run_blocking;
 
 // ── List Plugins ─────────────────────────────────────────────────
@@ -264,8 +264,8 @@ pub async fn channel_list_sessions(
 #[tauri::command]
 pub async fn channel_wechat_start_login(
     account_id: Option<String>,
-) -> Result<crate::channel::wechat::login::WeChatLoginStart, CmdError> {
-    crate::channel::wechat::login::start_login(account_id.as_deref())
+) -> Result<ha_channel::channel::wechat::login::WeChatLoginStart, CmdError> {
+    ha_channel::channel::wechat::login::start_login(account_id.as_deref())
         .await
         .map_err(Into::into)
 }
@@ -274,8 +274,8 @@ pub async fn channel_wechat_start_login(
 pub async fn channel_wechat_wait_login(
     session_key: String,
     timeout_ms: Option<u64>,
-) -> Result<crate::channel::wechat::login::WeChatLoginWait, CmdError> {
-    crate::channel::wechat::login::wait_login(&session_key, timeout_ms)
+) -> Result<ha_channel::channel::wechat::login::WeChatLoginWait, CmdError> {
+    ha_channel::channel::wechat::login::wait_login(&session_key, timeout_ms)
         .await
         .map_err(Into::into)
 }
@@ -341,7 +341,7 @@ pub async fn channel_handover_session(
         if let Some(plugin) = registry.get_plugin(&parsed_channel) {
             let store = ha_core::config::cached_config();
             if let Some(account) = store.channels.find_account(&account_id).cloned() {
-                ha_core::channel::attach_sync::deliver_handover_catchup(
+                ha_channel::channel::attach_sync::deliver_handover_catchup(
                     plugin,
                     &account,
                     &session_id,

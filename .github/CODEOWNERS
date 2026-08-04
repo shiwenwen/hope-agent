@@ -31,9 +31,157 @@
 /pnpm-lock.yaml                   @shiwenwen
 
 # === 安全 / 凭据 / 权限引擎 ===
-/crates/ha-core/src/security/     @shiwenwen
+# security/ 与 paths.rs 已随 crate 拆分迁入 ha-base；permission/（审批引擎）
+# 仍在 ha-core。**模块跨 crate 搬迁时必须同步这里**——路径失配不会报错，
+# 只会让新位置的安全代码悄悄失去 code owner 强制评审。
+/crates/ha-base/src/security/     @shiwenwen
+/crates/ha-base/src/paths.rs      @shiwenwen
 /crates/ha-core/src/permission/   @shiwenwen
-/crates/ha-core/src/paths.rs      @shiwenwen
+# 工具契约层里的审批面（阶段 4「tools 类型归位」自 tools/ 迁入）：
+# context.rs 是 ApprovalOrigin（审批来源审计枚举）与 auto_approve_tools /
+# external_pre_approved / exec_pre_approved 三个旁路 flag 契约的唯一定义处
+# （其 doc 自述「改读取点不同步文档即安全回归」）；mac_control.rs 是
+# permission engine dangerous 判定消费的 AX 动作规范化入口。
+/crates/ha-core/src/tool_defs/context.rs     @shiwenwen
+/crates/ha-core/src/tool_defs/mac_control.rs @shiwenwen
+# KB 访问的唯一裁决点与其 IM 闸门（AGENTS「访问默认 deny，唯一裁决
+# effective_kb_access」）：判定住 knowledge/access.rs（阶段 4 破环自
+# channel/config.rs 迁入），它委托的 fail-closed 纯谓词
+# kb_access_allowed_for 在 ha-config-schema 的 channel wire 类型上。
+/crates/ha-core/src/knowledge/access.rs      @shiwenwen
+/crates/ha-config-schema/src/channel.rs      @shiwenwen
+# KB agent 写入平面（阶段 5 第六刀自 ha-core 的 tools/note.rs 迁入
+# ha-knowledge）：AGENTS「写入三闸」的**调用点**——`WorkspaceScope::for_knowledge`
+# （外部 root 只读、桌面也拒）→ `filesystem::project_write_text` →
+# `platform::write_atomic`（禁回退 fs::write，实现在 ha-base）→
+# `expected_file_hash` 比磁盘 raw BLAKE3。同处的 `access_map` 是 agent 平面
+# 每次调用的 live 门（`session_has_kb_access` 只收窄 schema、非安全边界）。
+/crates/ha-knowledge/src/tools/note.rs       @shiwenwen
+# 自升级信任根（Minisign pubkey）与验签实现（阶段 3 自 ha-core 迁入
+# ha-updater）：pubkey 或验签被改 = 供应链攻击面，与 tauri.conf.json 的
+# updater 公钥同级别把关。
+/crates/ha-updater/src/keys.rs      @shiwenwen
+/crates/ha-updater/src/signature.rs @shiwenwen
+# permission / hooks 的 config wire 类型（审批超时动作、unattended fail-closed
+# 默认）已下沉 ha-config-schema；AppConfig 本体（含 `disable_all_hooks` /
+# `hooks_allow_project_scope` 供应链开关与 `permission` 字段的默认值）在 config.rs。
+/crates/ha-config-schema/src/permission.rs  @shiwenwen
+/crates/ha-config-schema/src/hooks.rs       @shiwenwen
+/crates/ha-config-schema/src/config.rs      @shiwenwen
+# VCS/沙箱特征（阶段 4 自 ha-core 迁入 ha-vcs）：sandbox mount 黑名单 /
+# env 脱敏 / WSL socket 守卫、git mutation·handoff（写用户仓库）、Docker
+# 容器执行与部署；kernel 侧 sandbox trampoline 的 fail-closed 语义
+# （未接线即 Err、绝不回落宿主机）与 vcs_hooks 注册面同级别把关。
+/crates/ha-vcs/src/sandbox.rs     @shiwenwen
+/crates/ha-vcs/src/git_control.rs @shiwenwen
+/crates/ha-vcs/src/docker/        @shiwenwen
+/crates/ha-core/src/sandbox.rs    @shiwenwen
+/crates/ha-core/src/vcs_hooks.rs  @shiwenwen
+# MCP 特征（阶段 4 自 ha-core 迁入 ha-mcp）：OAuth 2.1+PKCE 全流程、token
+# 0600 落盘、出站 SSRF 门（ssrf_gate_url）、保存期 Untrusted+auto_approve
+# 校验；kernel 侧 auto-approve 信任谓词（审批跳门安全语义单一来源）与
+# mcp_hooks 注册面同级把关。
+/crates/ha-mcp/src/oauth.rs       @shiwenwen
+/crates/ha-mcp/src/credentials.rs @shiwenwen
+/crates/ha-mcp/src/transport.rs   @shiwenwen
+/crates/ha-mcp/src/config.rs      @shiwenwen
+/crates/ha-core/src/mcp/          @shiwenwen
+/crates/ha-core/src/mcp_hooks.rs  @shiwenwen
+# Pet 特征（阶段 4 自 ha-core 迁入 ha-pet）：导入链 SSRF / ZIP·路径逃逸·
+# symlink 校验（import/atlas）、库原子发布与删除恢复（store/asset）；
+# kernel 侧活动行查询在边界脱敏 incognito（pet_activity）与 ChatUiSurface/
+# 配置 trampoline（pet.rs）同级把关。
+/crates/ha-pet/src/import.rs      @shiwenwen
+/crates/ha-pet/src/atlas.rs       @shiwenwen
+/crates/ha-pet/src/store.rs       @shiwenwen
+/crates/ha-pet/src/asset.rs       @shiwenwen
+/crates/ha-core/src/pet.rs        @shiwenwen
+/crates/ha-core/src/session/pet_activity.rs @shiwenwen
+# 媒体特征（阶段 4 自 ha-core 迁入 ha-media）：23 个生成 adapters 与 9 个
+# STT provider 的全部出站 HTTP/WS（SSRF 门调用点）；kernel 侧
+# media_gen/types.rs（ssrf_policy_for 策略映射）与 stt/types.rs
+# （check_ssrf）是策略单一来源，同级把关。
+/crates/ha-media/src/media_gen/  @shiwenwen
+/crates/ha-media/src/stt/        @shiwenwen
+/crates/ha-core/src/media_gen/types.rs   @shiwenwen
+/crates/ha-core/src/stt/types.rs         @shiwenwen
+# 本地模型特征（阶段 5 自 ha-core 迁入 ha-local-llm）：`local_llm/mod.rs` 从
+# ollama.com 下载 install.sh 并以 pkexec / sudo 提权执行——供应链 + 提权双重
+# 面（出站 SSRF 门 `check_url` 与 trusted-host 判定也在同一文件），与
+# ha-updater 的验签同级别把关。**迁出前本路径无 owner 条目**，此处是顺手
+# 闭合的既有缺口，不是搬迁导致的覆盖丢失。
+/crates/ha-local-llm/src/local_llm/mod.rs @shiwenwen
+# 排程特征（阶段 5 自 ha-core 迁入 ha-cron）：`tools/cron.rs` 含 `gate_cron_delete`
+# （`manage_cron action=delete` 抑制 AllowAlways 的红线执行点——matcher 只按 action
+# 不含 job id，一旦持久化便是「删任意定时任务」常驻授权）与 owner-only
+# permission/sandbox override 的 bail；executor 是沙箱 fail-closed 不对称语义的
+# 落点。**迁出前该路径无 owner 条目**，本刀补上——它的安全权重高于同期迁出的
+# 只读大盘。
+/crates/ha-cron/src/tools/cron.rs   @shiwenwen
+/crates/ha-cron/src/cron/executor.rs @shiwenwen
+# 投递白名单是**两道**：`tools/cron.rs` 只管创建 / 更新期校验，真正发送前
+# 再查一次 `channel_conversations` 的**最终 fail-closed 边界**在 delivery.rs
+# （`deliver_results`）——那是阻止周期性任务跨会话外泄的最后一关，删掉或
+# 放松它不该绕过关键路径评审。
+/crates/ha-cron/src/cron/delivery.rs @shiwenwen
+# 大盘特征（阶段 5 自 ha-core 迁入 ha-dash）：**迁出前 dashboard/ 与 recap/ 就没有
+# owner 条目**，本刀不新增——它是纯只读聚合，连接是 SQLITE_OPEN_READ_ONLY，
+# 不碰凭据 / 权限 / 写路径。此处留记录，免得后来者以为是搬迁时漏同步。
+# 评测运行时特征（阶段 5 自 ha-core 迁入 ha-eval-runtime）：
+# `evaluation/provider_resolution.rs` 是真实模型评测的**凭据装配点**——它把
+# Provider 凭据与 Codex secret 塞进隔离运行时的 config，也是「隔离 config.json
+# 禁存 Provider Key」这条红线的落点。**迁出前该路径无 owner 条目**，本刀补上。
+# 注意它拿到的 secret **含 raw access token 明文**（kernel 的
+# `encode_model_eval_codex_secret` 只做 schema 封装、不加密），所以这条路径要
+# 按真凭据审——此处把关的是凭据**去向**，铸币点见下方 oauth.rs 条目。
+/crates/ha-eval-runtime/src/evaluation/provider_resolution.rs @shiwenwen
+# 同刀迁出的 `evaluation/evidence_bundle.rs` 决定 trust registry、签名有效性与
+# protected evidence / baseline 资格——放松这里等于让未签名或不受信来源冒充
+# 发布证据，安全权重不低于凭据装配，故一并登记。
+/crates/ha-eval-runtime/src/evaluation/evidence_bundle.rs @shiwenwen
+# IM 渠道特征（阶段 5 自 ha-core 迁入 ha-channel）：`worker/approval.rs` 是审批
+# 卡片的**决议入口**——AGENTS 红线「所有决议路径必须 emit `approval:resolved`
+# 统一撤窗」「按钮回调缺源即拒（不复用 ask_user 的 None→Ok）」「文本回复 submit
+# 前校验 session↔chat」「auto_approve 跳门命中 strict 须 app_warn」四条都落在这里。
+# **迁出前该路径无 owner 条目**，本刀补上。
+/crates/ha-channel/src/channel/worker/approval.rs @shiwenwen
+# 「一 chat ↔ 一 session 双向 1:1」这条红线的**执行点在 kernel**：
+# `channel/db.rs::{attach_session,update_session}` 里的 `evict_others` 才做
+# 物理 detach 并发 `EVENT_CHANNEL_SESSION_EVICTED`。（`attach_sync.rs` 只是
+# attach 成功**之后**的尽力补播，不是边界——早先版本把 owner 记在那里是误判。）
+/crates/ha-core/src/channel/db.rs @shiwenwen
+# 审批拒决侧的对偶：chat 被接管 / 会话消失时撤掉该 chat 的全部 pending。
+/crates/ha-channel/src/channel/worker/eviction_watcher.rs @shiwenwen
+# 技能创作（阶段 5 第七刀自 ha-core 的 skills/author.rs 迁入 ha-skills）：
+# AGENTS 红线「写正文三路径（create / update / patch）全过 `security_scan`，
+# 命中即 bail 不降级」的执行点。它写的是**会被当作模型指令执行**的 SKILL.md
+# 正文，且 `patch` 就地改已存在技能——目标 Active 时即刻生效、不落 draft、
+# 不经用户确认，绕过 scan 等于给模型开一条自我改装的口子。
+# **迁出前本路径无 owner 条目**，此处是顺手闭合的既有缺口，不是搬迁导致的
+# 覆盖丢失（同 ha-cron / ha-local-llm 两刀的处理）。
+/crates/ha-skills/src/skills/author.rs @shiwenwen
+# 同刀顺手闭合的另两个缺口（迁出前同样无 owner 条目）：
+# `commands.rs` 是 `install_skill_dependency` 的 spawn 核心（brew / npm / go /
+# uv 装依赖）——skill-system.md 自述它「在 API Key 视角下等价于远程 RCE」，
+# HTTP 侧靠默认关闭的 `skills.allowRemoteInstall` 挡着，放松那个闸门或改这里
+# 的 spawn 都该走关键路径评审。`mention.rs` 是 AGENTS 红线「`@skill` 固定
+# allowlist，非通用注入入口」的**单一来源** `AT_MENTIONABLE_SKILLS`——往里加
+# 一项就是给未审的技能开一条进 system context 的路。
+/crates/ha-skills/src/skills/commands.rs @shiwenwen
+/crates/ha-skills/src/skills/mention.rs  @shiwenwen
+# 学习闭环的落盘面（阶段 5 第八刀自 ha-core 的 coding_improvement.rs 迁入
+# ha-improve）：`apply_coding_improvement_proposal` / `promote_…` 把提案变成
+# 磁盘产物——托管技能 draft（经 `skills_hooks`，与上面 author.rs 同一条写正文
+# 路径）、项目 `AGENTS.md` 的 managed include、评测 fixture 与 `version-lock`
+# 追加。AGENTS 红线要求「preview → apply → 用户显式 promotion 才落生产，禁直
+# 改生产模板 / connector 策略 / eval fixture」，这个文件就是那三步的执行点。
+# **迁出前本路径无 owner 条目**，此处是顺手闭合的既有缺口，不是搬迁导致的
+# 覆盖丢失（同第七刀 author.rs 的处理）。
+/crates/ha-improve/src/coding_improvement.rs @shiwenwen
+# 铸币点：`oauth::mint_codex_evaluation_secret` 是 Codex OAuth token 跨 crate
+# 的唯一出口（load → encode → digest 三步）。**迁出前 oauth.rs 无 owner 条目**，
+# 本刀补上——把关点不该只落在下游消费者。
+/crates/ha-core/src/oauth.rs      @shiwenwen
 
 # === 跨 PR 契约：架构文档 ===
 /docs/architecture/               @shiwenwen

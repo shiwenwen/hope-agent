@@ -9,10 +9,8 @@ pub async fn dashboard_overview(
     filter: DashboardFilter,
     state: State<'_, AppState>,
 ) -> Result<OverviewStats, CmdError> {
-    let session_db = state.session_db.clone();
     let log_db = state.log_db.clone();
-    let cron_db = state.cron_db.clone();
-    run_blocking(move || query_overview(&session_db, &log_db, &cron_db, &filter))
+    run_blocking(move || query_overview(&log_db, &filter))
         .await
         .map_err(Into::into)
 }
@@ -20,10 +18,8 @@ pub async fn dashboard_overview(
 #[tauri::command]
 pub async fn dashboard_token_usage(
     filter: DashboardFilter,
-    state: State<'_, AppState>,
 ) -> Result<DashboardTokenData, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || query_token_usage(&session_db, &filter))
+    run_blocking(move || query_token_usage(&filter))
         .await
         .map_err(Into::into)
 }
@@ -31,21 +27,15 @@ pub async fn dashboard_token_usage(
 #[tauri::command]
 pub async fn dashboard_tool_usage(
     filter: DashboardFilter,
-    state: State<'_, AppState>,
 ) -> Result<Vec<ToolUsageStats>, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || query_tool_usage(&session_db, &filter))
+    run_blocking(move || query_tool_usage(&filter))
         .await
         .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn dashboard_sessions(
-    filter: DashboardFilter,
-    state: State<'_, AppState>,
-) -> Result<DashboardSessionData, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || query_sessions(&session_db, &filter))
+pub async fn dashboard_sessions(filter: DashboardFilter) -> Result<DashboardSessionData, CmdError> {
+    run_blocking(move || query_sessions(&filter))
         .await
         .map_err(Into::into)
 }
@@ -62,13 +52,8 @@ pub async fn dashboard_errors(
 }
 
 #[tauri::command]
-pub async fn dashboard_tasks(
-    filter: DashboardFilter,
-    state: State<'_, AppState>,
-) -> Result<DashboardTaskData, CmdError> {
-    let session_db = state.session_db.clone();
-    let cron_db = state.cron_db.clone();
-    run_blocking(move || query_tasks(&session_db, &cron_db, &filter))
+pub async fn dashboard_tasks(filter: DashboardFilter) -> Result<DashboardTaskData, CmdError> {
+    run_blocking(move || query_tasks(&filter))
         .await
         .map_err(Into::into)
 }
@@ -76,10 +61,8 @@ pub async fn dashboard_tasks(
 #[tauri::command]
 pub async fn dashboard_control_plane(
     filter: ControlPlaneDashboardFilter,
-    state: State<'_, AppState>,
 ) -> Result<ControlPlaneDashboard, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || query_control_plane_dashboard(&session_db, &filter))
+    run_blocking(move || query_control_plane_dashboard(&filter))
         .await
         .map_err(Into::into)
 }
@@ -95,10 +78,8 @@ pub async fn dashboard_system_metrics() -> Result<dashboard::SystemMetrics, CmdE
 #[tauri::command]
 pub async fn dashboard_session_list(
     filter: DashboardFilter,
-    state: State<'_, AppState>,
 ) -> Result<Vec<dashboard::DashboardSessionItem>, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || dashboard::query_session_list(&session_db, &filter))
+    run_blocking(move || dashboard::query_session_list(&filter))
         .await
         .map_err(Into::into)
 }
@@ -106,10 +87,8 @@ pub async fn dashboard_session_list(
 #[tauri::command]
 pub async fn dashboard_message_list(
     filter: DashboardFilter,
-    state: State<'_, AppState>,
 ) -> Result<Vec<dashboard::DashboardMessageItem>, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || dashboard::query_message_list(&session_db, &filter))
+    run_blocking(move || dashboard::query_message_list(&filter))
         .await
         .map_err(Into::into)
 }
@@ -117,10 +96,8 @@ pub async fn dashboard_message_list(
 #[tauri::command]
 pub async fn dashboard_tool_call_list(
     filter: DashboardFilter,
-    state: State<'_, AppState>,
 ) -> Result<Vec<dashboard::DashboardToolCallItem>, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || dashboard::query_tool_call_list(&session_db, &filter))
+    run_blocking(move || dashboard::query_tool_call_list(&filter))
         .await
         .map_err(Into::into)
 }
@@ -139,10 +116,8 @@ pub async fn dashboard_error_list(
 #[tauri::command]
 pub async fn dashboard_agent_list(
     filter: DashboardFilter,
-    state: State<'_, AppState>,
 ) -> Result<Vec<dashboard::DashboardAgentItem>, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || dashboard::query_agent_list(&session_db, &filter))
+    run_blocking(move || dashboard::query_agent_list(&filter))
         .await
         .map_err(Into::into)
 }
@@ -152,14 +127,10 @@ pub async fn dashboard_overview_delta(
     filter: DashboardFilter,
     state: State<'_, AppState>,
 ) -> Result<dashboard::OverviewStatsWithDelta, CmdError> {
-    let session_db = state.session_db.clone();
     let log_db = state.log_db.clone();
-    let cron_db = state.cron_db.clone();
-    run_blocking(move || {
-        dashboard::query_overview_with_delta(&session_db, &log_db, &cron_db, &filter)
-    })
-    .await
-    .map_err(Into::into)
+    run_blocking(move || dashboard::query_overview_with_delta(&log_db, &filter))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -167,10 +138,8 @@ pub async fn dashboard_insights(
     filter: DashboardFilter,
     state: State<'_, AppState>,
 ) -> Result<dashboard::DashboardInsights, CmdError> {
-    let session_db = state.session_db.clone();
     let log_db = state.log_db.clone();
-    let cron_db = state.cron_db.clone();
-    run_blocking(move || dashboard::query_insights(&session_db, &log_db, &cron_db, &filter))
+    run_blocking(move || dashboard::query_insights(&log_db, &filter))
         .await
         .map_err(Into::into)
 }
@@ -180,10 +149,8 @@ pub async fn dashboard_insights(
 #[tauri::command]
 pub async fn dashboard_learning_overview(
     window_days: u32,
-    state: State<'_, AppState>,
 ) -> Result<dashboard::LearningOverview, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || dashboard::query_learning_overview(&session_db, window_days))
+    run_blocking(move || dashboard::query_learning_overview(window_days))
         .await
         .map_err(Into::into)
 }
@@ -191,10 +158,8 @@ pub async fn dashboard_learning_overview(
 #[tauri::command]
 pub async fn dashboard_learning_timeline(
     window_days: u32,
-    state: State<'_, AppState>,
 ) -> Result<Vec<dashboard::TimelinePoint>, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || dashboard::query_skill_timeline(&session_db, window_days))
+    run_blocking(move || dashboard::query_skill_timeline(window_days))
         .await
         .map_err(Into::into)
 }
@@ -203,21 +168,15 @@ pub async fn dashboard_learning_timeline(
 pub async fn dashboard_top_skills(
     window_days: u32,
     limit: usize,
-    state: State<'_, AppState>,
 ) -> Result<Vec<dashboard::SkillUsage>, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || dashboard::query_top_skills(&session_db, window_days, limit))
+    run_blocking(move || dashboard::query_top_skills(window_days, limit))
         .await
         .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn dashboard_recall_stats(
-    window_days: u32,
-    state: State<'_, AppState>,
-) -> Result<dashboard::RecallStats, CmdError> {
-    let session_db = state.session_db.clone();
-    run_blocking(move || dashboard::query_recall_stats(&session_db, window_days))
+pub async fn dashboard_recall_stats(window_days: u32) -> Result<dashboard::RecallStats, CmdError> {
+    run_blocking(move || dashboard::query_recall_stats(window_days))
         .await
         .map_err(Into::into)
 }
@@ -226,9 +185,9 @@ pub async fn dashboard_recall_stats(
 pub async fn dashboard_coding_improvement(
     filter: DashboardFilter,
     limit: Option<usize>,
-    state: State<'_, AppState>,
 ) -> Result<dashboard::CodingImprovementDashboard, CmdError> {
-    dashboard::query_coding_improvement_dashboard(&state.session_db, &filter, limit.unwrap_or(8))
+    run_blocking(move || dashboard::query_coding_improvement_dashboard(&filter, limit.unwrap_or(8)))
+        .await
         .map_err(Into::into)
 }
 
@@ -245,12 +204,10 @@ pub async fn dashboard_plan_stats(
 #[tauri::command]
 pub async fn dashboard_local_model_usage(
     filter: DashboardFilter,
-    state: State<'_, AppState>,
 ) -> Result<dashboard::LocalModelUsage, CmdError> {
-    let session_db = state.session_db.clone();
     run_blocking(move || {
         let names = dashboard::local_provider_names();
-        dashboard::query_local_model_usage(&session_db, &filter, &names)
+        dashboard::query_local_model_usage(&filter, &names)
     })
     .await
     .map_err(Into::into)

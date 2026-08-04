@@ -45,7 +45,7 @@ Rust 端 slug（`model.rs::github_slug`）、手册正文里的 intra-doc `#anch
 ### 镜像触发点（三处，全部幂等）
 
 1. 启动：`app_init.rs` 的 `start_background_tasks` / `start_minimal_background_tasks`（ACP）primary-only 块，`spawn_blocking` 不占 runtime worker；
-2. `ha-manual` skill 激活时——特判放在 [`tools/skill/inline.rs`](../../crates/ha-core/src/tools/skill/inline.rs) 的 `execute`（**两条激活路径的共同咽喉**：模型 `skill({name})` 工具调用与用户 `/manual` 斜杠命令都经它，启动镜像失败在任一入口重试都生效）；
+2. `ha-manual` skill 激活时——特判放在 [`tools/skill/inline.rs`](../../crates/ha-skills/src/tools/skill/inline.rs) 的 `execute`（**两条激活路径的共同咽喉**：模型 `skill({name})` 工具调用与用户 `/manual` 斜杠命令都经它，启动镜像失败在任一入口重试都生效）；
 3. `get_manual_bundle` 命令（HelpWindow 打开是 agent 路径的自然就绪点）。
 
 指纹命中即约 30 次 stat 的廉价校验短路。失败一律 `app_warn!`（category `manual`）不致命——GUI 读内嵌不依赖磁盘。

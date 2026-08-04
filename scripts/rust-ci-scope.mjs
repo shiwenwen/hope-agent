@@ -28,7 +28,8 @@ export function requiresRustCi(filePath) {
   const path = normalizePath(filePath);
   if (!path) return false;
 
-  // These trees are consumed by ha-core at compile time. Keep all frontend
+  // These trees are consumed by the Rust build at compile time (`skills/` by
+  // ha-skills, the rest by ha-core / ha-browser). Keep all frontend
   // assets fail-closed too: ha-core already embeds src/assets/logo.png and a
   // future asset can become embedded without requiring a classifier change.
   if (

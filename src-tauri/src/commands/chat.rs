@@ -7,6 +7,7 @@ use crate::session::{self, SessionDB};
 use crate::tools;
 use crate::truncate_utf8;
 use crate::AppState;
+use ha_core::tools::dispatch::ToolDefinitionApiExt;
 use ha_core::{app_error, app_info, app_warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -343,7 +344,7 @@ pub async fn chat(
     // Composer-staged KB attaches. Only honored when this call also creates the
     // session (mirrors `working_dir`); applied before the engine runs so the
     // first turn already sees the access. No-op for incognito.
-    kb_attachments: Option<Vec<ha_core::knowledge::types::KbAttachInput>>,
+    kb_attachments: Option<Vec<ha_knowledge::knowledge::types::KbAttachInput>>,
     // Tool-visibility scope (`"knowledge"`). Set by the knowledge-space sidebar
     // chat to trim the injected tool set; `None` for normal chats.
     tool_scope: Option<String>,
@@ -655,7 +656,7 @@ pub async fn chat(
             }
         }
         if let Some(attaches) = kb_attachments.as_ref() {
-            ha_core::knowledge::service::apply_draft_attachments(
+            ha_knowledge::knowledge::service::apply_draft_attachments(
                 &sid,
                 incognito.unwrap_or(false),
                 attaches,
@@ -924,7 +925,7 @@ pub async fn chat(
             .and_then(|a| a.first())
             .map(|a| a.kb_id.clone())
         {
-            ha_core::knowledge::service::mark_session_as_kb_thread(
+            ha_knowledge::knowledge::service::mark_session_as_kb_thread(
                 &sid,
                 &kb_id,
                 kb_anchor_note.as_deref(),
@@ -936,7 +937,7 @@ pub async fn chat(
     // design thread anchored to the open project (mirrors the KB branch above).
     if new_session_created.is_some() && tool_scope.as_deref() == Some("design") {
         if let Some(project_id) = design_project_id.as_deref() {
-            ha_core::design::service::mark_session_as_design_thread(&sid, project_id);
+            ha_design::design::service::mark_session_as_design_thread(&sid, project_id);
         }
     }
 

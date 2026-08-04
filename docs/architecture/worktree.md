@@ -33,14 +33,14 @@ session working dir
 | --- | --- | --- |
 | 核心控制面 | `crates/ha-core/src/worktree.rs` | 表结构、创建、归档、恢复、交接、`.worktreeinclude` 复制、EventBus。 |
 | 项目首轮 Bootstrap | `crates/ha-core/src/project_bootstrap.rs` | 首次发送前校验、幂等记录、进度事件、取消与启动恢复。 |
-| 路径 | `crates/ha-core/src/paths.rs` | `worktrees_dir()` 返回 `~/.hope-agent/worktrees`。 |
+| 路径 | `crates/ha-base/src/paths.rs` | `worktrees_dir()` 返回 `~/.hope-agent/worktrees`。 |
 | Hooks | `crates/ha-core/src/hooks/*` | `WorktreeCreate` 阻断/替换默认创建；`WorktreeRemove` 观察清理。 |
 | Workflow | `crates/ha-core/src/workflow/{types,db,runtime}.rs` | `workflow_runs.worktree_id`，运行时自动 restore 并覆盖 execution cwd。 |
 | Goal | `crates/ha-core/src/goal/mod.rs` | 绑定 workflow 后写 `worktree_attached` evidence；生命周期变化刷新 worktree state / path / handoff / dirty snapshot。 |
 | Subagent | `crates/ha-core/src/subagent/*` | 用户委派的 subagent 默认尝试创建 managed worktree 并设置 child session cwd。 |
 | Tauri | `src-tauri/src/commands/worktree.rs` | 桌面 owner 命令。 |
 | HTTP | `crates/ha-server/src/routes/worktree.rs` | Server/Web owner REST API。 |
-| Session Git | `crates/ha-core/src/git_control.rs` | Local/Worktree 安全 Handoff、分支 ownership、Session active location；完整契约见 [`git-control.md`](git-control.md)。 |
+| Session Git | `crates/ha-vcs/src/git_control.rs` | Local/Worktree 安全 Handoff、分支 ownership、Session active location；完整契约见 [`git-control.md`](git-control.md)。 |
 | GUI | `src/components/chat/workspace/WorkspacePanel.tsx`、`GitControlCard.tsx` | Managed Worktree 列表、项目/Workflow 运行位置选择和 Session Git 入口。 |
 
 ## 数据模型
@@ -162,7 +162,7 @@ interface ProjectSessionBootstrapInput {
 
 ## Session Git 控制面
 
-工作台 Git 卡和 DiffPanel 统一调用 `crates/ha-core/src/git_control.rs`。所有入口只接受 `sessionId`，再通过 `WorkspaceScope::for_session` 解析 effective working directory；客户端不能传 cwd 或 patch。Tauri 的 `commands/git_control.rs` 与 server 的 `routes/git_control.rs` 只是薄适配，HTTP 写操作继续受 `filesystem.allow_remote_writes=false` 默认闸门保护。
+工作台 Git 卡和 DiffPanel 统一调用 `crates/ha-vcs/src/git_control.rs`（`git_operation_runs` 簿记留 kernel `ha-core/src/git_control.rs`）。所有入口只接受 `sessionId`，再通过 `WorkspaceScope::for_session` 解析 effective working directory；客户端不能传 cwd 或 patch。Tauri 的 `commands/git_control.rs` 与 server 的 `routes/git_control.rs` 只是薄适配，HTTP 写操作继续受 `filesystem.allow_remote_writes=false` 默认闸门保护。
 
 Git snapshot 同时返回 checkout root、HEAD/branch/detached、revision、local 与 remote-tracking branches、remotes、worktrees、dirty/status、ahead/behind、最近提交、active location 和 capability。Diff 分 `unstaged` / `staged` / `all`；hunk ID 由后端对 revision、路径和后端重新生成的 patch 内容计算，mutation 时再次匹配，前端不提交任意 patch。stage / unstage / discard 支持 all、file、hunk；binary、rename、submodule、untracked 与 conflict 按能力降为文件级，discard 必须显式确认。
 

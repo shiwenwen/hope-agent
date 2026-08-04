@@ -19,6 +19,68 @@ use super::{FilesystemError, Result};
 /// so the split is unambiguous. The frontend builds the same triple.
 const PATH_SCOPE_SEP: char = '\u{1f}';
 
+// ── 上下文根解析钩子（切 filesystem → knowledge/session/project 环边）────
+//
+// WorkspaceScope 是文件读写唯一入口（AGENTS.md），但「kb 根 / session 工作
+// 目录 / project 目录」的解析属于上层业务：直接调用会把 filesystem 焊进
+// knowledge（7-环成员）与 session/project 的大环。解析器由归属模块实现
+// （`knowledge::workspace_root` / `session::workspace_root` /
+// `project::workspace_root`），app_init 装配时经 [`register_root_resolvers`]
+// 注入；未注册即 fail-closed 报 internal 错，绝不回落任意目录。
+
+/// 上下文根解析结果。`read_only` 的语义按 scope 而异：knowledge = 外部
+/// 只读根未开写权，session / project = 所属项目已归档。解析器直接返回
+/// [`FilesystemError`]（bad_input / internal 分类与原直调路径逐字一致），
+/// 不再引入平行错误枚举。
+pub(crate) struct ResolvedRoot {
+    /// 原生路径，不经 lossy 字符串往返（非 UTF-8 根不会被替换成 U+FFFD）。
+    pub dir: PathBuf,
+    pub read_only: bool,
+}
+
+type RootResolver = fn(&str) -> Result<ResolvedRoot>;
+
+/// 三个解析器打包成一个 `OnceLock`：注册**原子**——要么整组首次胜出，要么
+/// 整组被拒，绝不出现「kb 用新的、session 没注册」的半套状态。
+struct RootResolvers {
+    kb: RootResolver,
+    session: RootResolver,
+    project: RootResolver,
+}
+
+static ROOT_RESOLVERS: std::sync::OnceLock<RootResolvers> = std::sync::OnceLock::new();
+
+/// 装配期一次性注册三个解析器（`init_runtime` 早期调用）。重复注册返回
+/// `Err`（首次注册的整组胜出），由调用方决定日志/报警——语义同
+/// `paths::register_plans_dir_source`。
+pub(crate) fn register_root_resolvers(
+    kb: RootResolver,
+    session: RootResolver,
+    project: RootResolver,
+) -> std::result::Result<(), crate::AlreadyRegistered> {
+    ROOT_RESOLVERS
+        .set(RootResolvers {
+            kb,
+            session,
+            project,
+        })
+        .map_err(|_| crate::AlreadyRegistered("workspace root resolvers"))
+}
+
+fn resolve_via(
+    pick: fn(&RootResolvers) -> RootResolver,
+    what: &str,
+    id: &str,
+) -> Result<ResolvedRoot> {
+    let Some(resolvers) = ROOT_RESOLVERS.get() else {
+        // fail-closed：装配未注入解析器时拒绝，而不是回落某个默认目录。
+        return Err(FilesystemError::internal(format!(
+            "{what} root resolver not registered"
+        )));
+    };
+    pick(resolvers)(id)
+}
+
 impl WorkspaceWriteState {
     fn message(self) -> &'static str {
         match self {
@@ -30,26 +92,6 @@ impl WorkspaceWriteState {
             Self::ProjectArchived => "this project is archived and read-only",
         }
     }
-}
-
-fn session_project_archived(session_id: &str) -> Result<bool> {
-    let session_db =
-        crate::require_session_db().map_err(|e| FilesystemError::internal(e.to_string()))?;
-    let Some(session) = session_db
-        .get_session(session_id)
-        .map_err(|e| FilesystemError::internal(e.to_string()))?
-    else {
-        return Err(FilesystemError::bad_input("session not found"));
-    };
-    let Some(project_id) = session.project_id.as_deref() else {
-        return Ok(false);
-    };
-    let project_db = crate::get_project_db()
-        .ok_or_else(|| FilesystemError::internal("project db not initialized"))?;
-    Ok(project_db
-        .get(project_id)
-        .map_err(|e| FilesystemError::internal(e.to_string()))?
-        .is_some_and(|project| project.archived))
 }
 
 /// A working-directory root that all file-browser operations are confined to.
@@ -126,7 +168,7 @@ impl WorkspaceScope {
     /// while the local desktop remains writable.
     pub fn resolve_effective_writable(kind: &str, id: &str) -> Result<Self> {
         let scope = Self::resolve_writable(kind, id)?;
-        if !crate::app_init::is_desktop()
+        if !crate::is_desktop()
             && !crate::config::cached_config()
                 .filesystem
                 .allow_remote_writes
@@ -145,7 +187,7 @@ impl WorkspaceScope {
         let scope = Self::resolve(kind, id)?;
         let write_state = match scope.read_only_reason {
             Some(reason) => reason,
-            None if !crate::app_init::is_desktop()
+            None if !crate::is_desktop()
                 && !crate::config::cached_config()
                     .filesystem
                     .allow_remote_writes =>
@@ -165,10 +207,9 @@ impl WorkspaceScope {
     /// `read_only` reflects that opt-in so every mutating op rejects a locked
     /// external root on every transport.
     pub fn for_knowledge(kb_id: &str) -> Result<Self> {
-        let root = crate::knowledge::resolve_kb_dir(kb_id)
-            .map_err(|e| FilesystemError::bad_input(e.to_string()))?;
+        let root = resolve_via(|r| r.kb, "knowledge", kb_id)?;
         Self::from_root_with(
-            &root.dir.to_string_lossy(),
+            &root.dir,
             root.read_only.then_some(WorkspaceWriteState::ScopeReadOnly),
         )
     }
@@ -222,37 +263,36 @@ impl WorkspaceScope {
     /// project dir → default workspace). Errors if the session has no working
     /// directory (non-project session that never selected one).
     pub fn for_session(session_id: &str) -> Result<Self> {
-        let dir = crate::session::effective_session_working_dir(Some(session_id))
-            .ok_or_else(|| FilesystemError::bad_input("session has no working directory"))?;
-        let archived = session_project_archived(session_id)?;
+        let root = resolve_via(|r| r.session, "session", session_id)?;
         Self::from_root_with(
-            &dir,
-            archived.then_some(WorkspaceWriteState::ProjectArchived),
+            &root.dir,
+            root.read_only
+                .then_some(WorkspaceWriteState::ProjectArchived),
         )
     }
 
     /// Scope to a project's working directory (explicit `working_dir`, else the
     /// lazily-created default workspace).
     pub fn for_project(project_id: &str) -> Result<Self> {
-        let db = crate::get_project_db()
-            .ok_or_else(|| FilesystemError::internal("project db not initialized"))?;
-        let project = db
-            .get(project_id)
-            .map_err(|e| FilesystemError::internal(e.to_string()))?
-            .ok_or_else(|| FilesystemError::bad_input("project not found"))?;
-        let dir = crate::project::resolve_project_dir(project_id, &db)
-            .map_err(|e| FilesystemError::bad_input(e.to_string()))?;
+        let root = resolve_via(|r| r.project, "project", project_id)?;
         Self::from_root_with(
-            &dir.to_string_lossy(),
-            project
-                .archived
+            &root.dir,
+            root.read_only
                 .then_some(WorkspaceWriteState::ProjectArchived),
         )
     }
 
-    fn from_root_with(dir: &str, read_only_reason: Option<WorkspaceWriteState>) -> Result<Self> {
-        let root = Path::new(dir).canonicalize().map_err(|e| {
-            FilesystemError::internal(format!("cannot resolve workspace root '{}': {}", dir, e))
+    fn from_root_with(
+        dir: impl AsRef<Path>,
+        read_only_reason: Option<WorkspaceWriteState>,
+    ) -> Result<Self> {
+        let dir = dir.as_ref();
+        let root = dir.canonicalize().map_err(|e| {
+            FilesystemError::internal(format!(
+                "cannot resolve workspace root '{}': {}",
+                dir.display(),
+                e
+            ))
         })?;
         if !root.is_dir() {
             return Err(FilesystemError::bad_input(format!(

@@ -1,16 +1,20 @@
-use crate::acp_control;
 use crate::agent::AssistantAgent;
 use crate::channel;
 use crate::cron;
 use crate::event_bus::EventBus;
 use crate::knowledge::KnowledgeRegistry;
-use crate::logging::{AppLogger, LogDB};
 use crate::memory;
 use crate::oauth::TokenData;
 use crate::project::ProjectDB;
 use crate::session::SessionDB;
 use crate::subagent;
 use crate::terminal::TerminalManager;
+
+// 日志全局已下沉 ha-base（`app_info!` 展开为 `$crate::get_logger()`，`$crate`
+// 解析到定义宏的 crate，故 logger 必须与宏同 crate）。这里再导出，保持
+// `crate::globals::APP_LOGGER` / `ha_core::globals::LOG_DB` 等既有路径不变。
+use ha_base::logging::{AppLogger, LogDB};
+pub use ha_base::{get_log_db, get_logger, require_log_db, require_logger, APP_LOGGER, LOG_DB};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -24,7 +28,6 @@ use tokio::sync::Mutex;
 // that shares the same Arcs via `init_app_state()`.
 
 pub static EVENT_BUS: std::sync::OnceLock<Arc<dyn EventBus>> = std::sync::OnceLock::new();
-pub static APP_LOGGER: std::sync::OnceLock<AppLogger> = std::sync::OnceLock::new();
 pub static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> =
     std::sync::OnceLock::new();
 pub static CRON_DB: std::sync::OnceLock<Arc<cron::CronDB>> = std::sync::OnceLock::new();
@@ -35,12 +38,9 @@ pub static PROJECT_DB: std::sync::OnceLock<Arc<ProjectDB>> = std::sync::OnceLock
 pub static KNOWLEDGE_DB: std::sync::OnceLock<Arc<KnowledgeRegistry>> = std::sync::OnceLock::new();
 pub static SUBAGENT_CANCELS: std::sync::OnceLock<Arc<subagent::SubagentCancelRegistry>> =
     std::sync::OnceLock::new();
-pub static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>> =
-    std::sync::OnceLock::new();
 pub static CHANNEL_REGISTRY: std::sync::OnceLock<Arc<channel::ChannelRegistry>> =
     std::sync::OnceLock::new();
 pub static CHANNEL_DB: std::sync::OnceLock<Arc<channel::ChannelDB>> = std::sync::OnceLock::new();
-pub static LOG_DB: std::sync::OnceLock<Arc<LogDB>> = std::sync::OnceLock::new();
 pub static TERMINAL_MANAGER: std::sync::OnceLock<Arc<TerminalManager>> = std::sync::OnceLock::new();
 
 pub static CHANNEL_CANCELS: std::sync::OnceLock<Arc<channel::ChannelCancelRegistry>> =
@@ -67,11 +67,6 @@ pub static IDLE_EXTRACT_HANDLES: std::sync::OnceLock<
 > = std::sync::OnceLock::new();
 
 // ── Accessor functions ─────────────────────────────────────────
-
-/// Get stored AppLogger for global logging
-pub fn get_logger() -> Option<&'static AppLogger> {
-    APP_LOGGER.get()
-}
 
 /// Get stored EventBus for global event emission (e.g., command approval)
 pub fn get_event_bus() -> Option<&'static Arc<dyn EventBus>> {
@@ -122,11 +117,6 @@ pub fn get_subagent_cancels() -> Option<&'static Arc<subagent::SubagentCancelReg
     SUBAGENT_CANCELS.get()
 }
 
-/// Get stored AcpSessionManager for ACP control plane operations
-pub fn get_acp_manager() -> Option<&'static Arc<acp_control::AcpSessionManager>> {
-    ACP_MANAGER.get()
-}
-
 /// Get stored ChannelRegistry for IM channel operations
 pub fn get_channel_registry() -> Option<&'static Arc<channel::ChannelRegistry>> {
     CHANNEL_REGISTRY.get()
@@ -135,12 +125,6 @@ pub fn get_channel_registry() -> Option<&'static Arc<channel::ChannelRegistry>> 
 /// Get stored ChannelDB for channel conversation management
 pub fn get_channel_db() -> Option<&'static Arc<channel::ChannelDB>> {
     CHANNEL_DB.get()
-}
-
-/// Get stored LogDB for log persistence (separate from the [`AppLogger`]
-/// async writer — routes that page logs need the DB handle directly).
-pub fn get_log_db() -> Option<&'static Arc<LogDB>> {
-    LOG_DB.get()
 }
 
 pub fn get_terminal_manager() -> Option<&'static Arc<TerminalManager>> {
@@ -183,7 +167,6 @@ macro_rules! require_accessor {
     };
 }
 
-require_accessor!(require_logger, get_logger, AppLogger, "AppLogger");
 require_accessor!(
     require_session_db,
     get_session_db,
@@ -203,7 +186,6 @@ require_accessor!(
     "Knowledge DB"
 );
 require_accessor!(require_cron_db, get_cron_db, Arc<cron::CronDB>, "Cron DB");
-require_accessor!(require_log_db, get_log_db, Arc<LogDB>, "Log DB");
 require_accessor!(
     require_terminal_manager,
     get_terminal_manager,

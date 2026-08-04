@@ -35,7 +35,7 @@ const READ_POOL_SIZE: usize = 4;
 #[derive(Clone, Copy)]
 enum SessionDbOpenMode {
     Durable,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     EphemeralTest,
 }
 
@@ -49,7 +49,7 @@ impl SessionDbOpenMode {
                 // failure even though COMMIT returned successfully.
                 conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Self::EphemeralTest => {
                 // These databases still use a real file so the read-only pool
                 // observes the writer, but their contents are disposable. Keep
@@ -253,6 +253,20 @@ fn emit_unread_changed(session_id: Option<&str>, domain: Option<UnreadDomain>) {
 }
 
 impl SessionDB {
+    /// 锁内闭包连接访问——**crate 内部专用**（design_threads 等 kernel
+    /// 模块的类型化方法实现体）。不对特征 crate 暴露：核心库 schema 不做
+    /// 跨 crate 隐式 API，特征侧一律走类型化方法。
+    pub(crate) fn with_conn_internal<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> anyhow::Result<R>,
+    ) -> anyhow::Result<R> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        f(&conn)
+    }
+
     /// Emit the usual unread invalidation after an assistant row was committed
     /// by a transaction implemented outside `append_message`.
     pub(crate) fn notify_assistant_persisted(&self, session_id: &str) {
@@ -360,9 +374,33 @@ impl SessionDB {
     /// Kept test-only so production call sites cannot accidentally opt out of
     /// WAL + FULL. Tests that exercise reopen, crash recovery, journal mode,
     /// locking, or durability must continue to call [`Self::open`].
-    #[cfg(test)]
-    pub(crate) fn open_ephemeral_for_test(db_path: &PathBuf) -> Result<Self> {
+    ///
+    /// 门控是 `cfg(any(test, feature = "test-support"))` 而不是裸 `cfg(test)`：
+    /// 已迁出的特征 crate（ha-dash 的大盘查询测试）要建同构的 fixture 库，而
+    /// `cfg(test)` 只在 ha-core 自己编测试时成立。**「生产调用点碰不到它」这条
+    /// 意图没有削弱**——`test-support` 与 `crate::test_support` 模块同一档门控，
+    /// 生产构建不开启，开了也只有 dev-dependencies 能看见。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn open_ephemeral_for_test(db_path: &PathBuf) -> Result<Self> {
         Self::open_with_mode(db_path, SessionDbOpenMode::EphemeralTest)
+    }
+
+    /// 测试专用的锁内连接访问——**生产契约未松动**。
+    ///
+    /// [`Self::with_conn_internal`] 仍是 `pub(crate)`：特征 crate 的生产代码
+    /// 一律走类型化方法，核心库 schema 不做跨 crate 隐式 API。但已迁出的特征
+    /// crate 要给自己的表造 fixture / 断言行数时，除了原始 SQL 没有别的办法
+    /// （ha-eval-runtime 的评测断言、context_retrieval 的 fixture 建表）。
+    ///
+    /// 门控与 [`Self::open_ephemeral_for_test`] 同档（`test-support` 只出现在
+    /// dev-dependencies），因此**生产构建里这个方法根本不存在**——它不能被拿来
+    /// 当「绕过类型化方法」的后门。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_conn_for_test<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> anyhow::Result<R>,
+    ) -> anyhow::Result<R> {
+        self.with_conn_internal(f)
     }
 
     fn open_with_mode(db_path: &PathBuf, mode: SessionDbOpenMode) -> Result<Self> {
@@ -4883,7 +4921,7 @@ impl SessionDB {
     /// messages must not vanish on close.
     pub fn update_session_incognito(&self, session_id: &str, incognito: bool) -> Result<()> {
         let _artifact_privacy_guard = incognito
-            .then(crate::artifacts::lock_privacy_transition)
+            .then(crate::session::privacy::lock_privacy_transition)
             .transpose()?;
         if incognito {
             let meta = self
@@ -4941,7 +4979,16 @@ impl SessionDB {
                 ));
             }
             drop(conn);
-            if crate::artifacts::ArtifactService::open()?.has_for_session(session_id)? {
+            // 特征 crate 钩子——**fail-closed**（incognito 红线）：未 wire 时
+            // 无法验证 durable Artifact 存在性，拒绝开启而不是放行（漏接线
+            // 的二进制静默放行 = 关闭即焚后 design.db 残留孤儿数据）。
+            let Some(hooks) = crate::session::design_hooks::design_session_hooks() else {
+                return Err(anyhow::anyhow!(
+                    "design feature not wired (ha_design::wire() missing in this binary); \
+                     refusing to enable incognito — durable-Artifact guard unavailable"
+                ));
+            };
+            if (hooks.has_durable_artifacts)(session_id)? {
                 return Err(anyhow::anyhow!(
                     "Cannot enable incognito while session has durable Artifacts"
                 ));
@@ -9601,7 +9648,7 @@ fn highlighted_search_snippet(text: &str, query: &str, context_chars: usize) -> 
 }
 
 /// Sanitize query for FTS5 MATCH: wrap each token in double quotes for exact matching.
-pub(crate) fn sanitize_fts_query(query: &str) -> String {
+pub fn sanitize_fts_query(query: &str) -> String {
     let tokens: Vec<String> = query
         .split_whitespace()
         .filter(|t| !t.is_empty())

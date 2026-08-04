@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ha_core::git_control::{
+use ha_vcs::git_control::{
     self, GitCommitInput, GitCreateBranchInput, GitCreatePullRequestInput, GitDiffScope,
     GitEnablePullRequestAutoMergeInput, GitHandoffInput, GitIndexMutationInput, GitPushInput,
     GitSwitchBranchInput,

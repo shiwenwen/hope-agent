@@ -4,9 +4,9 @@
 
 ## 系统定位
 
-基于 Rust 的本地 AI 助手，支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio。核心设计目标：**一切复杂逻辑在 ha-core**（零 Tauri 依赖），前端只负责展示和交互，Tauri 和 HTTP 服务都是薄壳。
+基于 Rust 的本地 AI 助手，支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio。核心设计目标：**复杂逻辑全部在后端分层 crate**（ha-base 基础设施 ← ha-config-schema 配置 wire 类型 ← ha-core 核心业务 ← 特征 crate（`ha-updater` 起，随 crate 拆分逐个迁出、壳层 `wire()` 装配）——全部零 Tauri 依赖），前端只负责展示和交互，Tauri 和 HTTP 服务都是薄壳。
 
-> 三层架构详细设计见 [前后端分离架构](backend-separation.md)
+> 分层 crate 架构详细设计见 [前后端分离架构](backend-separation.md)
 
 ## 技术栈
 
@@ -16,7 +16,7 @@
 | 前端通信 | Transport 抽象层（Tauri IPC 或 HTTP/WebSocket 双模式） |
 | 桌面 | Tauri 2（薄壳，调用 ha-core） |
 | 服务器 | axum 0.8（HTTP REST API + WebSocket 流式） |
-| 核心 | ha-core（Rust, tokio, reqwest，零 Tauri 依赖） |
+| 核心 | ha-core + 特征 crate（ha-updater 等；Rust, tokio, reqwest，零 Tauri 依赖） |
 | 渲染 | Streamdown + Shiki + KaTeX + Mermaid |
 | 存储 | SQLite (WAL) + FTS5 + vec0 向量扩展 |
 | 多语言 | i18next (12 种语言) |
@@ -77,10 +77,54 @@ graph TD
         Channel["Channel (12 渠道)"]
         Cron["Cron"]
         ACP["ACP (stdio)"]
-        LocalLLM["Local LLM<br/>(Ollama backend)"]
         Channel & Cron & ACP --> ChatEngine
-        LocalLLM -.->|"Provider 注册"| Agent
     end
+
+    subgraph OcFeat["特征 crate（阶段 3 起逐个迁出）"]
+        Updater["ha-updater<br/>manifest / 验签 / swap + app_update 工具"]
+        Weather["ha-weather<br/>Open-Meteo / 缓存 + get_weather 工具"]
+        AcpFeat["ha-acp<br/>ACP stdio server + acp_spawn 控制面"]
+        MacFeat["ha-mac<br/>Accessibility / 截屏 + mac_control 工具"]
+        DesignFeat["ha-design<br/>设计空间 + artifacts + 三工具"]
+        BrowserFeat["ha-browser<br/>扩展/CDP backend + browser 工具"]
+        VcsFeat["ha-vcs<br/>git 操作面 + Docker 沙箱机器 + SearXNG"]
+        McpFeat["ha-mcp<br/>McpManager / transport / OAuth + 两工具"]
+        PetFeat["ha-pet<br/>sprite 库 / 导入 / 活动投影"]
+        MediaFeat["ha-media<br/>图/音生成 adapters + STT 引擎 + 两工具"]
+        LocalLlmFeat["ha-local-llm<br/>Ollama 生命周期 / 模型目录 / 本地 embedding"]
+        DashFeat["ha-dash<br/>用量 Insights / 控制面聚合 / recap 报告<br/>(只读：SQLITE_OPEN_READ_ONLY)"]
+        CronFeat["ha-cron<br/>调度器 / 执行器 / 投递 + manage_cron<br/>(台账 CronDB 留 kernel)"]
+        EvalRtFeat["ha-eval-runtime<br/>coding 评测 runner / 评测编排 / 上下文排序<br/>(无 wire()：kernel 零引用)"]
+        ChannelFeat["ha-channel<br/>12 个 IM 插件 / worker 分发 / 飞书工具<br/>(台账 ChannelDB + registry 留 kernel)"]
+        KnowledgeFeat["ha-knowledge<br/>index.db 检索 / 解析编译 / 维护流水线 + 24 工具<br/>(台账 KnowledgeRegistry + 裁决 access 留 kernel)"]
+        SkillsFeat["ha-skills<br/>内置技能解包 / SKILL.md 发现解析 / 创作 / auto-review + skill 工具<br/>(契约 SkillEntry + 台账 activation 留 kernel)"]
+        ImproveFeat["ha-improve<br/>提案队列 / 领域评测跑批 / 质量复核 / 四道闸 + soak<br/>(124 个摸连接的方法留 kernel，只上浮 34 个零连接入口)"]
+    end
+    Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    Weather -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    AcpFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    MacFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    DesignFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    VcsFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    McpFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    PetFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    MediaFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    DesignFeat -.->|"特征间单向依赖<br/>（execute_image/audio）"| MediaFeat
+    PetFeat -.->|"特征间单向依赖<br/>（creator 生图）"| MediaFeat
+    BrowserFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    DesignFeat -.->|"特征间单向依赖<br/>（Chrome PDF/截图）"| BrowserFeat
+    LocalLlmFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    LocalLlmFeat -.->|"Provider 注册"| Agent
+    DashFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    CronFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    EvalRtFeat -->|"依赖 ha-core<br/>无 wire()：kernel 零引用，壳层直接调"| Tools
+    ChannelFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    KnowledgeFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    DesignFeat -.->|"特征间单向依赖<br/>（笔记落库 / require_write 写门）"| KnowledgeFeat
+    LocalLlmFeat -.->|"特征间单向依赖<br/>（embedding 就位触发 reembed）"| KnowledgeFeat
+    SkillsFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    ImproveFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
+    EvalRtFeat -.->|"兄弟单向边<br/>提案流水线 / 趋势报表"| ImproveFeat
 
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler
@@ -215,7 +259,7 @@ graph LR
 
 ## 本地模型加载
 
-`local_llm/` 模块通过 Ollama 的 OpenAI 兼容端点（`http://127.0.0.1:11434/v1/chat/completions`）将本地模型注册为 Provider，启用 `allow_private_network`。模型目录硬编码 Qwen3.6 / Gemma 4 默认量化的 on-disk 大小，根据可用内存（macOS 统一内存 / Windows + Linux 优先 dGPU VRAM 取所选轴 60%，再扣 1 GiB runtime buffer；常量 `RECOMMENDATION_BUDGET_PERCENT=60`）从大到小推荐适配模型；Ollama 进程不由 app 接管。安装、模型拉取、Embedding 拉取统一走 `local_model_jobs.rs` 后台任务表，事件通道 `local_model_job:created` / `:updated` / `:log` / `:completed`。详见 [本地模型加载](local-model-loading.md)。
+ha-local-llm 的 `local_llm/` 模块（阶段 5 自 ha-core 迁出）通过 Ollama 的 OpenAI 兼容端点（`http://127.0.0.1:11434/v1/chat/completions`）将本地模型注册为 Provider，启用 `allow_private_network`。模型目录硬编码 Qwen3.6 / Gemma 4 默认量化的 on-disk 大小，根据可用内存（macOS 统一内存 / Windows + Linux 优先 dGPU VRAM 取所选轴 60%，再扣 1 GiB runtime buffer；常量 `RECOMMENDATION_BUDGET_PERCENT=60`）从大到小推荐适配模型；Ollama 进程不由 app 接管。安装、模型拉取、Embedding 拉取统一走 **kernel 侧**的 `local_model_jobs.rs` 通用后台任务台账（执行器在特征 crate，台账留 ha-core——memory / 知识库 reembed 共用），事件通道 `local_model_job:created` / `:updated` / `:log` / `:completed`。详见 [本地模型加载](local-model-loading.md)。
 
 ## 存储架构
 

@@ -17,6 +17,17 @@ const MAX_CALENDAR_EVENTS_PER_JOB: usize = 10_000;
 /// SQLite-based persistence for cron jobs and run logs.
 pub struct CronDB {
     pub(crate) conn: Mutex<Connection>,
+    /// 本进程的 owner token（`CronDB::open()` 时生成的 UUID）。写入
+    /// `cron_jobs.running_owner` 与 `cron_run_logs.started_owner`，启动清理据此
+    /// 识别遗留：**owner 不是本进程的**（含旧行的 `NULL`）= 上一次会话或历史
+    /// 遗留，可清；owner 是本进程的 = 在途，不动。
+    ///
+    /// **不用时间戳做界的原因**：曾用 `opened_at: String`，靠「本进程后续
+    /// `Utc::now()` 必然晚于它」构造 happens-before。这条并不成立——Rust 的
+    /// happens-before 不约束墙上时钟，系统时间被手动调整或 VM 校时后，本进程
+    /// 刚写的 `running_at` 仍可能落到 `opened_at` 之前而被误清。owner token 与
+    /// 墙上时钟完全解耦，回拨也不误清。
+    owner_token: String,
 }
 
 impl CronDB {
@@ -143,6 +154,22 @@ impl CronDB {
             conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN sandbox_mode_override TEXT;")?;
         }
 
+        // Migration: `running_owner` / `started_owner` — 启动清理据此识别遗留，
+        // 与墙上时钟解耦。旧库升上来的行 owner 为 NULL，第一次启动清理会当成
+        // 「历史遗留」清掉——这与它们语义上就是「本进程从没写过 owner」相符。
+        let has_running_owner: bool = conn
+            .prepare("SELECT running_owner FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_running_owner {
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN running_owner TEXT;")?;
+        }
+        let has_started_owner: bool = conn
+            .prepare("SELECT started_owner FROM cron_run_logs LIMIT 0")
+            .is_ok();
+        if !has_started_owner {
+            conn.execute_batch("ALTER TABLE cron_run_logs ADD COLUMN started_owner TEXT;")?;
+        }
+
         // Migration (§8): add delivery_status column to run logs if missing
         let has_delivery_status: bool = conn
             .prepare("SELECT delivery_status FROM cron_run_logs LIMIT 0")
@@ -169,6 +196,7 @@ impl CronDB {
 
         Ok(Self {
             conn: Mutex::new(conn),
+            owner_token: uuid::Uuid::new_v4().simple().to_string(),
         })
     }
 
@@ -868,12 +896,13 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, started_owner)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 log.job_id, log.session_id, log.status, log.started_at,
                 log.finished_at, log.duration_ms.map(|v| v as i64), log.result_preview, log.error,
-                log.delivery_status
+                log.delivery_status,
+                self.owner_token,
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -895,9 +924,9 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at)
-             VALUES (?1, ?2, 'running', ?3, NULL)",
-            params![job_id, session_id, started_at],
+            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, started_owner)
+             VALUES (?1, ?2, 'running', ?3, NULL, ?4)",
+            params![job_id, session_id, started_at, self.owner_token],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -1276,17 +1305,27 @@ impl CronDB {
     /// Mark orphaned runs (started but never finished) as error. §9 (D2): now
     /// load-bearing — `add_running_run_log` leaves a `finished_at IS NULL` row
     /// for the duration of every run, so a process that died mid-run is detected
-    /// and its run log closed out as `error` on the next startup (runs only at
-    /// startup, when nothing is legitimately in flight).
+    /// and its run log closed out as `error` on the next startup.
+    ///
+    /// **只处理不是本进程 owner 的行**（`started_owner IS NULL OR
+    /// started_owner != self.owner_token`）——本函数在调度器线程 spawn 后
+    /// 与 [`spawn_loop_event_trigger_watcher`](crate::loop_control::spawn_loop_event_trigger_watcher)
+    /// 并发运行，watcher 派出去的合法在途任务此刻可能已经开了自己的 run log；
+    /// 缺这条界，那条 in-flight log 会被标成 `error` + `Interrupted by app
+    /// shutdown`，一条假失败记录、还污染 dashboard 的 cron 成功率口径。
     pub fn recover_orphaned_runs(&self) -> Result<usize> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        // 与 `clear_stale_running` 同一条 owner 界、同一个理由：不带界的话，
+        // 本进程刚开的 run log 会被标成 "Interrupted by app shutdown"——那是
+        // 一条**假的失败记录**，还会污染 dashboard 的 cron 成功率口径。
+        // `started_owner IS NULL` 覆盖旧库升上来的行与历史崩溃留下的 log。
         let count = conn.execute(
             "UPDATE cron_run_logs SET status='error', error='Interrupted by app shutdown', finished_at=datetime('now')
-             WHERE finished_at IS NULL",
-            [],
+             WHERE finished_at IS NULL AND (started_owner IS NULL OR started_owner != ?1)",
+            [&self.owner_token],
         )?;
         Ok(count)
     }
@@ -1354,11 +1393,12 @@ impl CronDB {
         // that case defer to the next scheduler tick instead of executing the
         // stale Agent id while consuming this occurrence.
         let rows = conn.execute(
-            "UPDATE cron_jobs SET running_at=?1, next_run_at=?2, updated_at=?1
-             WHERE id=?3 AND next_run_at=?4 AND next_run_at <= ?5
-               AND payload_json=?6 AND status='active' AND running_at IS NULL",
+            "UPDATE cron_jobs SET running_at=?1, running_owner=?2, next_run_at=?3, updated_at=?1
+             WHERE id=?4 AND next_run_at=?5 AND next_run_at <= ?6
+               AND payload_json=?7 AND status='active' AND running_at IS NULL",
             params![
                 now_str,
+                self.owner_token,
                 next_run,
                 job.id,
                 job.next_run_at,
@@ -1386,9 +1426,9 @@ impl CronDB {
         let now = chrono::Utc::now().to_rfc3339();
         let payload_json = serde_json::to_string(&job.payload)?;
         let rows = conn.execute(
-            "UPDATE cron_jobs SET running_at=?1
-             WHERE id=?2 AND payload_json=?3 AND running_at IS NULL",
-            params![now, job.id, payload_json],
+            "UPDATE cron_jobs SET running_at=?1, running_owner=?2
+             WHERE id=?3 AND payload_json=?4 AND running_at IS NULL",
+            params![now, self.owner_token, job.id, payload_json],
         )?;
         Ok((rows > 0).then(|| ClaimedCronJob {
             job: job.clone(),
@@ -1447,14 +1487,35 @@ impl CronDB {
     }
 
     /// Clear all stale running_at markers (for startup recovery after crash).
-    pub fn clear_all_running(&self) -> Result<usize> {
+    /// 启动时清掉**上一次会话**（或历史遗留）留下的 running 标记。
+    ///
+    /// **owner 界不可去掉**：早先这里是无差别 `WHERE running_at IS NOT NULL`，
+    /// 而调度器跑在 `std::thread::spawn` 出来的独立线程上、`start_scheduler`
+    /// 立即返回——`app_init` 下一行就起 `spawn_loop_event_trigger_watcher()`。
+    /// 两者之间没有 happens-before，窗口内被 watcher 派出去执行的**合法在途
+    /// 任务**会被当成遗留清掉，随后被周期 tick 重新 claim → 同一个 cron 任务
+    /// 跑两遍、副作用重复。
+    ///
+    /// 初版补丁用 `running_at < opened_at` 做界，但那条**并不严格成立**——
+    /// Rust 的 happens-before 不约束 `Utc::now()`，系统时间被手动调整或 VM
+    /// 校时后，本进程刚写的 `running_at` 仍可能小于 `opened_at` 而被误清。
+    ///
+    /// 现在的界是 `running_owner != self.owner_token`（`NULL` 视为「不是我」，
+    /// 覆盖旧库升上来、以及历史崩溃写下的行）。**与墙上时钟完全解耦，回拨也
+    /// 不会误清。** 相应的 `running_owner` 由两个 claim 路径与本进程 open 的
+    /// `CronDB` 共同写入，构造时的 `Arc::new` release + `spawn` 移交 acquire
+    /// 构成对 `owner_token` 值的 happens-before——这条是真的（Rust 内存模型
+    /// 保证过的），不是「借时间戳单调性」。
+    pub fn clear_stale_running(&self) -> Result<usize> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let count = conn.execute(
-            "UPDATE cron_jobs SET running_at=NULL WHERE running_at IS NOT NULL",
-            [],
+            "UPDATE cron_jobs SET running_at=NULL, running_owner=NULL
+             WHERE running_at IS NOT NULL
+               AND (running_owner IS NULL OR running_owner != ?1)",
+            [&self.owner_token],
         )?;
         Ok(count)
     }
@@ -1471,7 +1532,7 @@ impl CronDB {
     /// Only `running_at IS NULL` jobs are eligible: an `At` job mid-execution also
     /// has `next_run_at IS NULL` (cleared at claim) but is running, not a zombie,
     /// and must not be reaped. Claimed-then-crashed jobs become eligible after
-    /// startup's `clear_all_running` resets their stale `running_at`.
+    /// startup's `clear_stale_running` resets their stale `running_at`.
     ///
     /// `At` jobs past-due by no more than `grace_secs` are LEFT active so the
     /// startup catch-up can late-fire them (slot-aware via §4's `dispatch_due_jobs`).
@@ -1494,7 +1555,7 @@ impl CronDB {
         // is wrongly marked `missed`; the subsequent successful `update_after_run`
         // is then a no-op (its `status='active'` guard fails) and the job is stuck
         // `missed` despite a `success` run log. Claimed-then-crashed zombies are
-        // NOT lost: startup recovery runs `clear_all_running` (resetting their
+        // NOT lost: startup recovery runs `clear_stale_running` (resetting their
         // `running_at` to NULL) BEFORE `mark_missed_at_jobs`, so they still match.
         let count = conn.execute(
             "UPDATE cron_jobs SET status='missed', updated_at=?1
@@ -2326,16 +2387,30 @@ mod tests {
     #[test]
     fn recover_orphaned_closes_in_progress_run_log_as_error() {
         // §9 (D2): a run that crashed mid-flight leaves a finished_at-NULL row;
-        // the next startup's recover_orphaned_runs closes it out as error.
+        // **the next startup**'s recover_orphaned_runs closes it out as error.
+        //
+        // 「next startup」= 一次全新的 CronDB::open()，新进程有新的 owner_token。
+        // 用两个 CronDB 实例模拟：第一个开 running 行然后关掉（drop）；第二个是
+        // 「重启后的进程」，owner_token 不同，故看到的是「不是我」的遗留行。
+        //
+        // 在**同一个实例**里 recover_orphaned_runs **必须放过**自己 owner 的
+        // 在途行——那是 watcher 与启动清理并发时的合法在途任务，正是本刀修的
+        // 那条竞态。这个不变量由
+        // `startup_cleanup_spares_runs_started_by_this_process` 覆盖。
         let path = temp_db_path("recover-orphaned");
-        let db = CronDB::open(&path).expect("open db");
-        let job = db.add_job(&every_job("job", vec![], None)).expect("add");
-        db.add_running_run_log(&job.id, "s1", "2026-01-01T00:00:00Z")
-            .expect("open in-progress");
-
-        let recovered = db.recover_orphaned_runs().expect("recover");
+        let job_id;
+        {
+            let db = CronDB::open(&path).expect("open db");
+            let job = db.add_job(&every_job("job", vec![], None)).expect("add");
+            job_id = job.id.clone();
+            db.add_running_run_log(&job.id, "s1", "2026-01-01T00:00:00Z")
+                .expect("open in-progress");
+        }
+        // 「重启」：新的 CronDB 实例，新的 owner_token。
+        let db2 = CronDB::open(&path).expect("reopen db");
+        let recovered = db2.recover_orphaned_runs().expect("recover");
         assert_eq!(recovered, 1);
-        let logs = db.get_run_logs(&job.id, 10, 0).expect("logs");
+        let logs = db2.get_run_logs(&job_id, 10, 0).expect("logs");
         assert_eq!(logs[0].status, "error");
         assert!(logs[0].finished_at.is_some());
 
@@ -2500,6 +2575,134 @@ mod tests {
         assert!(!db
             .apply_delivery_target_stale_flags("ghost", &acc1, &empty)
             .expect("missing row → false"));
+
+        cleanup_db_files(&path);
+    }
+
+    /// 启动清理只能吃掉**上一次会话**（或历史遗留、`NULL` owner）的标记，
+    /// 不能碰本进程刚 claim 的在途任务——**哪怕系统时间被回拨**。
+    ///
+    /// 回归的是一条真实竞态：`start_scheduler` 起独立 OS 线程后立即返回，
+    /// 两个启动清理跑在那个线程上，而 `app_init` 下一行就起事件 watcher——
+    /// 二者并发。谓词若不带界，窗口内 watcher 派出去的合法在途任务会被清成
+    /// 「未在跑」，随后被周期 tick 重新 claim，同一个 cron 任务跑两遍。
+    ///
+    /// 初版补丁用 `running_at < opened_at` 做界，但那条不严格成立（Rust
+    /// happens-before 不约束墙上时钟）。现改用 `running_owner`（进程启动
+    /// UUID）做界，与时钟解耦——**这个测试同时覆盖了「时钟回拨」情形**：
+    /// 把 stale 行的 `running_at` 种成**未来**时间戳（即回拨后本进程时间落到
+    /// 它之前），旧的时间界方案在此会漏清；owner 界不受影响。
+    #[test]
+    fn startup_cleanup_spares_runs_started_by_this_process() {
+        let path = temp_db_path("startup-cleanup-cutoff");
+        let db = CronDB::open(&path).expect("open db");
+
+        let mk = |name: &str| {
+            db.add_job(&NewCronJob {
+                name: name.into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "tick".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job")
+        };
+        let stale = mk("leftover from previous session");
+        let stale_future = mk("stale but timestamped in the future (clock rollback)");
+        let live = mk("claimed by this process");
+
+        // 场景 A：上一次会话遗留——running_owner 用一个假的、不是本进程的 UUID。
+        let alien_owner = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let long_ago = (Utc::now() - chrono::Duration::hours(6)).to_rfc3339();
+        // 场景 B：clock-rollback——running_at 在未来（本进程 owner_token 生成
+        // 之后，若系统时间被回拨，本进程新写的 running_at 反而在这条之前）。
+        let far_future = (Utc::now() + chrono::Duration::hours(6)).to_rfc3339();
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "UPDATE cron_jobs SET running_at=?1, running_owner=?2 WHERE id=?3",
+                params![long_ago, alien_owner, stale.id],
+            )
+            .expect("plant stale marker");
+            conn.execute(
+                "UPDATE cron_jobs SET running_at=?1, running_owner=?2 WHERE id=?3",
+                params![far_future, alien_owner, stale_future.id],
+            )
+            .expect("plant future stale marker");
+            conn.execute(
+                "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, started_owner)
+                 VALUES (?1, ?2, 'running', ?3, ?4)",
+                params![stale.id, "stale-test-session", long_ago, alien_owner],
+            )
+            .expect("plant stale run log");
+        }
+
+        // 场景 C：本进程的在途任务——走真实 claim 路径写 running_at + owner。
+        let claimed = db
+            .claim_immediate_job_for_execution(&live)
+            .expect("claim")
+            .expect("claim succeeds");
+        let live_run_log_id = db
+            .add_running_run_log(&live.id, "live-test-session", &claimed.claimed_at)
+            .expect("live run log");
+
+        assert_eq!(db.clear_stale_running().expect("clear"), 2);
+        assert_eq!(db.recover_orphaned_runs().expect("recover"), 1);
+
+        // 精确断言：按 job_id 分别核，不看总数。
+        let after_stale = db.get_job(&stale.id).expect("get").expect("job");
+        let after_stale_future = db.get_job(&stale_future.id).expect("get").expect("job");
+        let after_live = db.get_job(&live.id).expect("get").expect("job");
+        assert!(after_stale.running_at.is_none(), "过去时间戳的遗留标记应清");
+        assert!(
+            after_stale_future.running_at.is_none(),
+            "未来时间戳（clock-rollback）的遗留标记应清；旧的时间界方案在此会漏清"
+        );
+        assert!(
+            after_live.running_at.is_some(),
+            "本进程刚 claim 的在途任务不能被清掉——清掉即会被重新 claim、重复执行"
+        );
+
+        // run log：stale 变 error，live 仍 running 且 finished_at NULL。
+        let (stale_status, stale_finished): (String, Option<String>) = {
+            let conn = db.conn.lock().expect("lock");
+            conn.query_row(
+                "SELECT status, finished_at FROM cron_run_logs WHERE job_id=?1",
+                params![stale.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("stale row")
+        };
+        assert_eq!(stale_status, "error");
+        assert!(stale_finished.is_some());
+
+        let (live_status, live_finished): (String, Option<String>) = {
+            let conn = db.conn.lock().expect("lock");
+            conn.query_row(
+                "SELECT status, finished_at FROM cron_run_logs WHERE id=?1",
+                params![live_run_log_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("live row")
+        };
+        assert_eq!(live_status, "running");
+        assert!(
+            live_finished.is_none(),
+            "本进程刚开的 run log 必须仍是 running / finished_at NULL"
+        );
 
         cleanup_db_files(&path);
     }

@@ -1,17 +1,17 @@
 //! HTTP routes for the MCP subsystem.
 //!
-//! Every handler delegates to [`ha_core::mcp::api`] so behavior parity
+//! Every handler delegates to [`ha_mcp::api`] so behavior parity
 //! with the Tauri shell is guaranteed — the only difference here is the
 //! wire-level framing (path + method + JSON body) and status-code
 //! mapping via [`crate::error::AppError`].
 
 use axum::extract::{Path, Query};
 use axum::Json;
-use ha_core::mcp::api::{
+use ha_mcp::api::{
     self, ImportSummary, McpLogLine, McpServerDraft, McpServerSummary, McpToolSummary,
 };
-use ha_core::mcp::config::McpGlobalSettings;
-use ha_core::mcp::registry::ServerStatusSnapshot;
+use ha_mcp::config::McpGlobalSettings;
+use ha_mcp::registry::ServerStatusSnapshot;
 use serde::Deserialize;
 
 use crate::error::AppError;

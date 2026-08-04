@@ -59,7 +59,7 @@ pub fn request_insertion(
     })
 }
 
-pub(crate) fn request_channel_insertion(
+pub fn request_channel_insertion(
     db: &crate::session::SessionDB,
     session_id: &str,
     turn_id: &str,
@@ -115,7 +115,7 @@ pub(crate) fn drain(session_id: &str, turn_id: &str) -> Vec<QueuedTurnUserMessag
         .unwrap_or_default()
 }
 
-pub(crate) fn clear_turn(session_id: &str, turn_id: &str) {
+pub fn clear_turn(session_id: &str, turn_id: &str) {
     // Close the active-turn gate first. `request_insertion` holds that gate
     // through its DB transition, so this fallback cannot miss a late writer.
     active_turn::stop_accepting_insertions(session_id, turn_id);

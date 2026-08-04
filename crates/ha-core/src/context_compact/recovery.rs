@@ -16,13 +16,13 @@ use std::path::{Path, PathBuf};
 use super::config::CompactConfig;
 
 /// Tool names that modify files on disk.
-/// Primary names reference constants from `crate::tools`; aliases match the dispatcher.
+/// Primary names reference constants from `crate::tool_defs`; aliases match the dispatcher.
 const FILE_WRITE_TOOLS: &[&str] = &[
-    crate::tools::TOOL_WRITE,       // "write"
-    "write_file",                   // alias accepted by dispatcher
-    crate::tools::TOOL_EDIT,        // "edit"
-    "patch_file",                   // alias accepted by dispatcher
-    crate::tools::TOOL_APPLY_PATCH, // "apply_patch"
+    crate::tool_defs::TOOL_WRITE,       // "write"
+    "write_file",                       // alias accepted by dispatcher
+    crate::tool_defs::TOOL_EDIT,        // "edit"
+    "patch_file",                       // alias accepted by dispatcher
+    crate::tool_defs::TOOL_APPLY_PATCH, // "apply_patch"
 ];
 
 /// Max total bytes for all recovery content (~25K tokens).
@@ -308,9 +308,9 @@ pub(crate) fn extract_file_touches(messages: &[Value]) -> Vec<FileTouch> {
                 continue;
             }
 
-            let (op, extracted) = if name == crate::tools::TOOL_APPLY_PATCH {
+            let (op, extracted) = if name == crate::tool_defs::TOOL_APPLY_PATCH {
                 (FileOp::ApplyPatch, extract_paths_from_patch_args(&args))
-            } else if name == crate::tools::TOOL_EDIT || name == "patch_file" {
+            } else if name == crate::tool_defs::TOOL_EDIT || name == "patch_file" {
                 (FileOp::Edit, extract_path_from_write_edit_args(&args))
             } else {
                 (FileOp::Write, extract_path_from_write_edit_args(&args))

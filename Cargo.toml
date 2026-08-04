@@ -1,9 +1,29 @@
 [workspace]
 members = [
     "src-tauri",
+    "crates/ha-base",
+    "crates/ha-browser",
+    "crates/ha-config-schema",
+    "crates/ha-design",
     "crates/ha-core",
+    "crates/ha-dash",
+    "crates/ha-cron",
+    "crates/ha-channel",
+    "crates/ha-improve",
+    "crates/ha-knowledge",
+    "crates/ha-local-llm",
     "crates/ha-server",
+    "crates/ha-skills",
+    "crates/ha-acp",
+    "crates/ha-mac",
+    "crates/ha-mcp",
+    "crates/ha-media",
+    "crates/ha-pet",
+    "crates/ha-updater",
+    "crates/ha-vcs",
+    "crates/ha-weather",
     "crates/ha-browser-host",
+    "crates/ha-eval-runtime",
     "crates/ha-eval-spec",
     "crates/ha-eval",
 ]
@@ -150,7 +170,7 @@ rmcp = { version = "1.5", default-features = false, features = [
     "auth",
 ] }
 # Minisign signature verification (Ed25519). Used by the self-update path in
-# `ha-core/updater` to verify the same `.sig` files tauri-plugin-updater
+# the `ha-updater` crate to verify the same `.sig` files tauri-plugin-updater
 # already consumes, so a headless `hope-agent server` can self-update without
 # pulling the Tauri runtime.
 minisign-verify = "0.2"

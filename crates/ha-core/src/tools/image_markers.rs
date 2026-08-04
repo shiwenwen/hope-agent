@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::browser::IMAGE_BASE64_PREFIX;
+use super::IMAGE_BASE64_PREFIX;
 
 pub(crate) const IMAGE_FILE_PREFIX: &str = "__IMAGE_FILE__";
 const MAX_IMAGE_FILE_BYTES: u64 = 20 * 1024 * 1024;
@@ -135,7 +135,7 @@ pub(crate) fn encode_marker_image(marker: &ImageMarker) -> anyhow::Result<String
     }
 }
 
-pub(crate) fn build_image_file_marker(mime: &str, path: &str, text: &str) -> String {
+pub fn build_image_file_marker(mime: &str, path: &str, text: &str) -> String {
     let spec = serde_json::json!({
         "mime": mime,
         "path": path,
@@ -143,7 +143,7 @@ pub(crate) fn build_image_file_marker(mime: &str, path: &str, text: &str) -> Str
     format!("{IMAGE_FILE_PREFIX}{spec}\n{text}")
 }
 
-pub(crate) fn build_image_base64_marker(mime: &str, b64: &str, text: &str) -> String {
+pub fn build_image_base64_marker(mime: &str, b64: &str, text: &str) -> String {
     format!("{IMAGE_BASE64_PREFIX}{mime}__{b64}__\n{text}")
 }
 
@@ -385,7 +385,7 @@ mod tests {
         build_image_base64_marker, build_image_file_marker, is_under_managed_media_root_for_root,
         materialize_base64_image_markers, parse_image_markers, IMAGE_FILE_PREFIX,
     };
-    use crate::tools::browser::IMAGE_BASE64_PREFIX;
+    use crate::tools::IMAGE_BASE64_PREFIX;
     use base64::Engine as _;
     use std::path::Path;
 

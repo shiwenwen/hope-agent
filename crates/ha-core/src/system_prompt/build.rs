@@ -424,7 +424,7 @@ pub(crate) fn build_with_resolved_session(
             &definition.id,
             &definition.config,
             incognito,
-            crate::tools::TOOL_SUBAGENT,
+            crate::tool_defs::TOOL_SUBAGENT,
         )
     {
         let subagent_section =
@@ -440,7 +440,7 @@ pub(crate) fn build_with_resolved_session(
             &definition.id,
             &definition.config,
             incognito,
-            crate::tools::TOOL_TEAM,
+            crate::tool_defs::TOOL_TEAM,
         )
     {
         let team_section = build_team_section();
@@ -467,7 +467,7 @@ pub(crate) fn build_with_resolved_session(
             &definition.id,
             &definition.config,
             incognito,
-            crate::tools::TOOL_ACP_SPAWN,
+            crate::tool_defs::TOOL_ACP_SPAWN,
         )
     {
         let acp_section = build_acp_section();
@@ -476,8 +476,8 @@ pub(crate) fn build_with_resolved_session(
         }
     }
 
-    // ⑭ Weather context (from cached weather data)
-    if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
+    // ⑭ Weather context（特征 crate 钩子：未 wire ＝ 无天气段）
+    if let Some(weather_text) = super::weather_prompt_text() {
         sections.push(weather_text);
     }
 
@@ -1338,8 +1338,10 @@ fn append_goal_handoff(lines: &mut Vec<String>, snapshot: &crate::goal::GoalSnap
 /// This preserves backward compatibility during the transition.
 pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool) -> String {
     let store = crate::config::cached_config();
-    let available_skills =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+    let available_skills = crate::skills_hooks::load_all_skills_with_budget(
+        &store.extra_skills_dirs,
+        &store.skill_prompt_budget,
+    );
     // Legacy path has no session context — conditional skills stay hidden.
     let activated_conditional = std::collections::HashSet::new();
     let skills_section = skills::build_skills_prompt(
@@ -1400,8 +1402,8 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool
         sections.push(skills_section);
     }
 
-    // Weather context
-    if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
+    // Weather context（特征 crate 钩子：未 wire ＝ 无天气段）
+    if let Some(weather_text) = super::weather_prompt_text() {
         sections.push(weather_text);
     }
 
@@ -2016,7 +2018,7 @@ mod memory_section_tests {
         };
         let eager_schema_tokens: u32 = crate::tools::dispatch::all_dispatchable_tools()
             .iter()
-            .filter(|tool| !crate::tools::is_kb_scoped_tool(&tool.name))
+            .filter(|tool| !crate::tool_defs::is_kb_scoped_tool(&tool.name))
             .filter(|tool| {
                 matches!(
                     crate::tools::dispatch::resolve_tool_fate(tool, &dispatch_ctx),
@@ -2025,7 +2027,7 @@ mod memory_section_tests {
             })
             .map(|tool| {
                 crate::context_compact::estimate_tokens(
-                    &tool.to_provider_schema(crate::tools::ToolProvider::OpenAI),
+                    &tool.to_provider_schema(crate::tool_defs::ToolProvider::OpenAI),
                 )
             })
             .sum();

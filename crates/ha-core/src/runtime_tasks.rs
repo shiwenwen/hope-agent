@@ -501,7 +501,7 @@ async fn cancel_process(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
 }
 
 fn cancel_cron(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
-    match crate::cron::cancel_running_job(id)? {
+    match crate::cron_hooks::cancel_running_job(id)? {
         Some(cancelled) => Ok(CancelRuntimeTaskResult::new(
             RuntimeTaskKind::Cron,
             id,

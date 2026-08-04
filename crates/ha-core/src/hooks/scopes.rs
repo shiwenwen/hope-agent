@@ -23,7 +23,7 @@ use std::time::SystemTime;
 
 use arc_swap::ArcSwap;
 
-use super::config::HooksConfig;
+use super::config::{HooksConfig, HooksConfigExt as _};
 use super::registry::{self, HookRegistry};
 use super::types::HookEvent;
 

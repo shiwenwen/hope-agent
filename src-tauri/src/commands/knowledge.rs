@@ -7,7 +7,8 @@
 
 use crate::commands::CmdError;
 use ha_core::filesystem::{self, ExtractedContent, FileTextContent, WorkspaceScope};
-use ha_core::knowledge::{
+use ha_core::session::SessionMeta;
+use ha_knowledge::knowledge::{
     self, service, Backlink, BrokenLink, CompileProposal, CompileProposalStatus, CompileRun,
     CompileStartInput, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KbAttachment,
     KbChatThread, KnowledgeAgentCompileProposeInput, KnowledgeAgentExpandInput,
@@ -27,7 +28,6 @@ use ha_core::knowledge::{
     NoteSourceRef, NoteToolsConfig, QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue,
     SchemaProfile, UpdateKnowledgeBaseInput,
 };
-use ha_core::session::SessionMeta;
 
 fn registry() -> Result<&'static std::sync::Arc<knowledge::KnowledgeRegistry>, CmdError> {
     ha_core::get_knowledge_db().ok_or_else(|| CmdError::msg("knowledge db not initialized"))
@@ -690,7 +690,7 @@ pub async fn knowledge_embedding_rebuild_cmd() -> Result<(), CmdError> {
 
 /// Current knowledge chunking parameters (advanced; GUI-only like embedding).
 #[tauri::command]
-pub async fn knowledge_chunk_get_cmd() -> Result<ha_core::knowledge::ChunkConfig, CmdError> {
+pub async fn knowledge_chunk_get_cmd() -> Result<ha_knowledge::knowledge::ChunkConfig, CmdError> {
     Ok(knowledge::get_chunk_config())
 }
 
@@ -700,14 +700,14 @@ pub async fn knowledge_chunk_get_cmd() -> Result<ha_core::knowledge::ChunkConfig
 pub async fn knowledge_chunk_set_cmd(
     max_chars: usize,
     overlap_chars: usize,
-) -> Result<ha_core::knowledge::ChunkConfig, CmdError> {
+) -> Result<ha_knowledge::knowledge::ChunkConfig, CmdError> {
     knowledge::set_chunk_config(max_chars, overlap_chars, "settings-ui").map_err(Into::into)
 }
 
 /// Current knowledge hybrid-search ranking parameters (clamped).
 #[tauri::command]
 pub async fn knowledge_search_config_get_cmd(
-) -> Result<ha_core::knowledge::KnowledgeSearchConfig, CmdError> {
+) -> Result<ha_knowledge::knowledge::KnowledgeSearchConfig, CmdError> {
     Ok(knowledge::get_search_config())
 }
 
@@ -715,8 +715,8 @@ pub async fn knowledge_search_config_get_cmd(
 /// result is returned. Send default values to restore defaults.
 #[tauri::command]
 pub async fn knowledge_search_config_set_cmd(
-    config: ha_core::knowledge::KnowledgeSearchConfig,
-) -> Result<ha_core::knowledge::KnowledgeSearchConfig, CmdError> {
+    config: ha_knowledge::knowledge::KnowledgeSearchConfig,
+) -> Result<ha_knowledge::knowledge::KnowledgeSearchConfig, CmdError> {
     knowledge::set_search_config(config, "settings-ui").map_err(Into::into)
 }
 

@@ -290,7 +290,7 @@ fn rewrite_agent_id_in_value(value: &mut serde_json::Value) -> bool {
 }
 
 fn update_log_db(log_db: &crate::logging::LogDB) -> Result<()> {
-    let conn = log_db.conn.lock().unwrap_or_else(|p| p.into_inner());
+    let conn = log_db.lock_conn();
     let n = conn.execute(
         "UPDATE logs SET agent_id = ?1 WHERE agent_id = ?2",
         params![DEFAULT_AGENT_ID, OLD_DEFAULT_ID],

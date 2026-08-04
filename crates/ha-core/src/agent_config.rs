@@ -64,7 +64,7 @@ pub struct AgentConfig {
 
     /// ACP external agent delegation settings
     #[serde(default)]
-    pub acp: crate::acp_control::AgentAcpConfig,
+    pub acp: AgentAcpConfig,
 }
 
 fn default_name() -> String {
@@ -87,7 +87,7 @@ impl Default for AgentConfig {
             notify_on_complete: None,
             subagents: SubagentConfig::default(),
             team: TeamAgentConfig::default(),
-            acp: crate::acp_control::AgentAcpConfig::default(),
+            acp: AgentAcpConfig::default(),
         }
     }
 }
@@ -953,5 +953,64 @@ mod tests {
         assert!(config.retrieval_planner.intent_aware);
         assert_eq!(config.retrieval_planner.max_trace_refs, 24);
         assert_eq!(config.retrieval_planner.max_candidates_per_origin, 4);
+    }
+}
+
+// ── Per-Agent ACP config（自 acp_control 下沉 kernel：agent.json wire 类型，
+// kernel 消费者在本文件；ha-acp 特征 crate 原路径再导出）──────────────
+
+/// Per-agent ACP delegation settings.
+/// Stored in `agent.json` → `acp`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentAcpConfig {
+    /// Whether this agent is allowed to use ACP external agents.
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+
+    /// Allowlist of backend IDs this agent may use (empty = all).
+    #[serde(default)]
+    pub allowed_backends: Vec<String>,
+
+    /// Denylist of backend IDs (takes precedence over allowed).
+    #[serde(default)]
+    pub denied_backends: Vec<String>,
+
+    /// Max concurrent ACP sessions for this agent.
+    #[serde(default = "default_agent_max_concurrent")]
+    pub max_concurrent: u32,
+}
+
+fn default_agent_max_concurrent() -> u32 {
+    3
+}
+
+impl Default for AgentAcpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allowed_backends: Vec::new(),
+            denied_backends: Vec::new(),
+            max_concurrent: default_agent_max_concurrent(),
+        }
+    }
+}
+
+impl AgentAcpConfig {
+    /// Check if a backend is allowed by this agent's policy.
+    pub fn is_backend_allowed(&self, backend_id: &str) -> bool {
+        if self
+            .denied_backends
+            .iter()
+            .any(|d| d.eq_ignore_ascii_case(backend_id))
+        {
+            return false;
+        }
+        if self.allowed_backends.is_empty() {
+            return true;
+        }
+        self.allowed_backends
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case(backend_id))
     }
 }

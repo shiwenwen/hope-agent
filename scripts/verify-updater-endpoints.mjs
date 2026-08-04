@@ -5,7 +5,7 @@
 //
 //   1. src-tauri/tauri.conf.json#plugins.updater.endpoints  (desktop, read
 //      by tauri-plugin-updater)
-//   2. crates/ha-core/src/updater/manifest.rs::UPDATE_MANIFEST_URLS
+//   2. crates/ha-updater/src/manifest.rs::UPDATE_MANIFEST_URLS
 //      (headless / CLI self-update)
 //   3. .github/workflows/mirror-release-r2.yml env.PUBLIC_BASE — the domain
 //      the mirror actually publishes `download/latest.json` to
@@ -32,7 +32,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const tauriConfPath = path.join(repoRoot, "src-tauri/tauri.conf.json");
 const manifestRsPath = path.join(
   repoRoot,
-  "crates/ha-core/src/updater/manifest.rs",
+  "crates/ha-updater/src/manifest.rs",
 );
 const mirrorWorkflowPath = path.join(
   repoRoot,

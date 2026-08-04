@@ -1,5 +1,6 @@
 /**
- * Tool name constants — must stay in sync with `src-tauri/src/tools/mod.rs`.
+ * Tool name constants — must stay in sync with
+ * `crates/ha-core/src/tool_defs/names.rs`.
  */
 export const TOOL_EXEC = "exec" as const
 export const TOOL_PROCESS = "process" as const

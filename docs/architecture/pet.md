@@ -8,7 +8,7 @@ Pet 是一个桌面优先、被动常驻零 LLM 的状态表现层。它把已�
 
 | 层 | 唯一职责与入口 |
 | --- | --- |
-| Core | `crates/ha-core/src/pet/`：`activity` 负责主对话投影，`atlas` 负责 Codex 格式与图片校验，`import` 负责发现和 preview capability，`store` 负责原子安装、删除/恢复与导出，`asset` 负责安全资源解析，`creator` 负责显式创作流程；这里不依赖 Tauri |
+| Core（契约） | `crates/ha-core/src/pet.rs`：`ChatUiSurface`（chat_turns.ui_surface 列 wire 类型）、`emit_activity_changed`、`update_config` trampoline；宠物机器（`activity` 主对话投影 / `atlas` Codex 格式与图片校验 / `import` 发现 + preview capability / `store` 原子安装-删除-恢复-导出 / `asset` 安全资源解析 / `creator` 显式创作流程）随第四刀迁到 `crates/ha-pet/`；这里不依赖 Tauri |
 | 桌面壳 | `src-tauri/src/commands/pet.rs` 只做命令适配；`src-tauri/src/pet_window.rs` 负责透明窗口生命周期、原生 geometry、失焦指针桥和位置恢复；`src-tauri/src/pet_deep_link.rs` 只接收 Hope 自有协议并转交预览 |
 | HTTP 壳 | `crates/ha-server/src/routes/pet.rs` 只做 Bearer 鉴权、参数/结果映射和同源资源响应，不能重写 Core 的导入、hash、状态资格或优先级 |
 | React | `src/PetWindow.tsx` 是独立轻量入口；`src/components/pet/` 承载精灵、气泡、交互卡和布局 hooks；`src/components/settings/PetSettingsPanel.tsx` 是 owner 管理面 |

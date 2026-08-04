@@ -8,7 +8,9 @@ use crate::paths;
 
 // ── Constants ────────────────────────────────────────────────────
 
-pub const DEFAULT_AGENT_ID: &str = "ha-main";
+// 常量已下沉 ha-config-schema（`AppConfig.default_agent_id` 的 serde default
+// 需要它），原地再导出保持 `agent_loader::DEFAULT_AGENT_ID` 红线路径不变。
+pub use ha_config_schema::config::DEFAULT_AGENT_ID;
 
 /// Whether `agent_id` is the hardcoded "main" agent (`"ha-main"`).
 ///

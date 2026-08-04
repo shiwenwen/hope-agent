@@ -3,7 +3,7 @@
  *
  * 关键：用**自包含 HTML → Blob URL → 同源隐藏 iframe** 栅格化（绕开 asset:// 跨域，
  * Tauri + HTTP 两模式通用、非打断、无需 Chrome）。PNG/PDF 纯前端（html2canvas + jspdf），
- * PPTX 前端栅格化 + 后端 zip 组装（见 crates/ha-core/src/design/export.rs）。
+ * PPTX 前端栅格化 + 后端 zip 组装（见 crates/ha-design/src/design/export.rs）。
  */
 
 import html2canvas from "html2canvas"

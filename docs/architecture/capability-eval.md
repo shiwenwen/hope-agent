@@ -49,7 +49,7 @@ cargo run -p ha-eval --locked -- aggregate \
 - 修改 lock 后在本地运行 `node scripts/verify-eval-version-lock.mjs --base <base-sha>`，并在代码审查中确认 append-only。GitHub CI 当前不执行这项评测专用校验。
 - Memory latency 只作提示，质量和召回正确性仍是功能断言。
 
-`ha-eval` 默认启用 `full-runner`，完整确定性 adapter 不链接进普通 `ha-core` / `ha-server` 测试。此前迁出的 `eval-internal-tests` 继续保持 opt-in，不回到默认 Cargo test。
+`ha-eval` 默认启用 `full-runner`，完整确定性 adapter 不链接进普通 `ha-core` / `ha-server` 测试。此前迁出的 `eval-internal-tests` 继续保持 opt-in，不回到默认 Cargo test——阶段 5 第四刀 `coding_eval` 迁入 `ha-eval-runtime`、第八刀学习闭环机器迁入 `ha-improve` 后，该开关在**三处**同名（`ha-core/eval-internal-tests`，以及转发它的 `ha-eval-runtime/eval-internal-tests` 与 `ha-improve/eval-internal-tests`），跑遗留内部测试须按所在 crate 显式打开。**编译面已进门禁**——`pnpm check:eval-internal`（三个 crate 的 gated 测试目标 `cargo check --tests`，约 2 分钟）由 `.husky/pre-push` 和 `.github/workflows/rust.yml` 无条件调用；改这三个 crate 的 gated 测试后编译错误会立刻变红。**跑起来的行为仍在门禁外**（不 `cargo test`）——那是刻意的：真正会静默 ship 的失效模式是**编译不过**（阶段 5 第八刀实测：34 处编译错误、全套门禁照样全绿的正是这条），而现在跑起来会撞下面那条存量断言失败。这不改任何 CI job 的名字，不需要同步 ruleset 的 required checks。已知存量失败一条：`ha-improve` 的 `promote_eval_candidate_refuses_existing_formal_fixture_without_overwrite`（测试 setup 没在临时 workspace 建 `evals/suites/coding-control-plane/suite.json` 与 `evals/version-lock.json`，而 promotion plan 要求两者存在）——**在 `6f855edc3` 上复现过同一失败，不是第八刀引入的**。
 
 ## 本地网络与证据语义
 

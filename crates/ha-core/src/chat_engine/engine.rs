@@ -11,7 +11,6 @@ use crate::turn_durability::{FlushReason, TurnDurabilitySink};
 
 use super::context::*;
 use super::finalize::{self, PartialMeta, TerminationReason};
-use super::im_mirror::{attach_im_live_mirror, finalize_im_live_mirror};
 use super::sink_registry;
 use super::stream_broadcast;
 use super::stream_seq;
@@ -833,7 +832,7 @@ pub(crate) async fn run_chat_engine_classified(
     // user referenced inline with `[[ ]]`, scoped by `effective_kb_access` (D10)
     // and wrapped as untrusted external data (#7). Skipped for incognito inside
     // the resolver (zero KB access).
-    if let Some(extra) = crate::knowledge::inject::resolve_inline_injections(
+    if let Some(extra) = crate::knowledge_hooks::resolve_inline_injections(
         &message,
         &session_id,
         kb_access_source(source),
@@ -858,7 +857,7 @@ pub(crate) async fn run_chat_engine_classified(
     // containing a `[@…](#skill:…)` token can't self-activate a built-in skill
     // into the parent's system context.
     if source.fires_user_lifecycle_hooks() {
-        if let Some(extra) = crate::skills::resolve_inline_skill_mentions(&message) {
+        if let Some(extra) = crate::skills_hooks::resolve_inline_skill_mentions(&message) {
             extra_system_context = Some(match extra_system_context.take() {
                 Some(e) => format!("{e}\n\n{extra}"),
                 None => extra,
@@ -875,10 +874,10 @@ pub(crate) async fn run_chat_engine_classified(
     // IM-mirror prefers the friendly `display_text` (e.g. `Using skill **X**...`
     // rendered for `/skill` invocations) so attached IM chats see what the
     // desktop user saw, not the raw `[SYSTEM:...]` prompt fed to the model.
-    let mut im_mirror = attach_im_live_mirror(
+    let mut im_mirror = crate::channel_hooks::attach_live_mirror(
         &session_id,
         source,
-        Some(crate::chat_engine::im_mirror::LastUserSnapshot {
+        Some(crate::channel_hooks::LastUserSnapshot {
             source: source.as_str().to_string(),
             text: crate::util::non_empty_trim_or(display_text.as_deref(), &message).to_owned(),
             attachment_count: attachments.len(),
@@ -1702,7 +1701,7 @@ pub(crate) async fn run_chat_engine_classified(
                     if let Some(state) = im_mirror.take() {
                         let mirror_response = response.clone();
                         tokio::spawn(async move {
-                            finalize_im_live_mirror(state, &mirror_response).await;
+                            state.finalize(&mirror_response).await;
                         });
                     }
 
@@ -1813,37 +1812,17 @@ pub(crate) async fn run_chat_engine_classified(
                             // toggle is on.
                             let user_correction = cfg.correction_signal_enabled
                                 && db.user_messages_within(&session_id, 30).unwrap_or(false);
-                            let signals = crate::skills::auto_review::TriggerSignals {
-                                turn_tokens: round_tokens,
-                                new_messages: round_messages,
+                            // 闸 1 起的整条瀑布（trigger → spawn(run_review_cycle)
+                            // → sweep_stale）在 ha-skills；kernel 只算这四个
+                            // 信号标量——`user_correction` 需要 SessionDB。
+                            crate::skills_hooks::auto_review_post_turn(
+                                &session_id,
+                                &cfg,
+                                round_tokens,
+                                round_messages,
                                 tool_use_count,
                                 user_correction,
-                            };
-                            if let Some(gate) = crate::skills::auto_review::touch_and_maybe_trigger(
-                                &session_id,
-                                signals,
-                                &cfg,
-                            ) {
-                                let session_id_for_review = session_id.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = crate::skills::auto_review::run_review_cycle(
-                                        &session_id_for_review,
-                                        crate::skills::auto_review::ReviewTrigger::PostTurn,
-                                        gate,
-                                        None,
-                                    )
-                                    .await
-                                    {
-                                        app_warn!(
-                                            "skills",
-                                            "auto_review",
-                                            "post-turn review cycle failed: {}",
-                                            e
-                                        );
-                                    }
-                                    crate::skills::auto_review::sweep_stale(7 * 24 * 3600);
-                                });
-                            }
+                            );
                         }
 
                         if idle_timeout > 0 {
@@ -2422,7 +2401,7 @@ pub(crate) async fn run_chat_engine_classified(
     }
     if let Some(state) = im_mirror.take() {
         tokio::spawn(async move {
-            finalize_im_live_mirror(state, "").await;
+            state.finalize("").await;
         });
     }
     stream_lifecycle.set_terminal(
@@ -2602,7 +2581,9 @@ fn schedule_browser_turn_finalize(source: stream_seq::ChatSource, session_id: &s
     if matches!(source, stream_seq::ChatSource::ParentInjection) {
         return;
     }
-    crate::browser::schedule_extension_turn_finalize(session_id);
+    // 特征钩子（未 wire no-op：无 extension tab 可 finalize；wrapper 首次未
+    // 命中打一次 warn，避免每轮刷屏）。
+    crate::browser_hooks::schedule_turn_finalize(session_id);
 }
 
 /// Apply common agent configuration. Extracted to avoid duplication between
@@ -2621,7 +2602,7 @@ fn configure_agent(
     extra_system_context: Option<&str>,
     skill_allowed_tools: &[String],
     denied_tools: &[String],
-    tool_scope: Option<crate::tools::ToolScope>,
+    tool_scope: Option<crate::tool_defs::ToolScope>,
     subagent_depth: u32,
     steer_run_id: Option<String>,
     plan_resolved: crate::agent::PlanResolvedContext,

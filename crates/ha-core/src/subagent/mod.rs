@@ -1,6 +1,8 @@
 mod cancel;
 mod helpers;
-pub(crate) mod injection;
+// cron 执行器（ha-cron）经此注入托管 /loop 的父会话轮次——`inject_and_run_parent`
+// 是「注入回投须在同一 future 内 await finalize」那条红线的唯一入口，不另开旁路。
+pub mod injection;
 mod mailbox;
 mod mention;
 pub(crate) mod queue;
@@ -214,7 +216,11 @@ fn stamp_run_killed(run_id: &str) {
 // ── Re-exports ──────────────────────────────────────────────────
 
 pub use cancel::SubagentCancelRegistry;
-pub(crate) use helpers::mark_run_fetched_in_memory;
+// 阶段 5 第七刀放开：唯一的 crate 外消费者是 ha-skills 的 `fork_helper`
+// （技能 fork 结果被 `skill` 工具显式消费后抑制重复注入），随 fork 派发
+// 机器一同迁出。durable 抑制仍走 `SessionDB::suppress_subagent_result_delivery`，
+// 这里只是进程内快路径。
+pub use helpers::mark_run_fetched_in_memory;
 pub use helpers::{cleanup_orphan_runs, mark_run_fetched, take_runs_fetched};
 pub use mailbox::{ChatSessionGuard, SubagentMailboxMessage, SUBAGENT_MAILBOX};
 pub(crate) use mention::resolve_inline_agent_mentions;

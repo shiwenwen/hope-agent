@@ -4,7 +4,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use ha_core::local_llm::auto_maintainer;
+use ha_local_llm::local_llm::auto_maintainer;
 
 use crate::error::AppError;
 

@@ -1,7 +1,7 @@
 /**
  * 设计空间（Design Space）前端类型。
  *
- * 与 `crates/ha-core/src/design/` 的 serde camelCase 输出对齐。
+ * 与 `crates/ha-design/src/design/` 的 serde camelCase 输出对齐。
  */
 
 import type { ActiveModel, FileChangeMetadata } from "./chat"

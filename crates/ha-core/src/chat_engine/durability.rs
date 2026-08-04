@@ -130,7 +130,7 @@ fn lock_state(mutex: &Mutex<CoordinatorState>) -> MutexGuard<'_, CoordinatorStat
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-pub(crate) struct StreamCoordinator {
+pub struct StreamCoordinator {
     db: Arc<SessionDB>,
     session_id: String,
     source: ChatSource,
@@ -186,7 +186,7 @@ fn group_commit_enabled() -> bool {
 }
 
 impl StreamCoordinator {
-    pub(crate) async fn create(
+    pub async fn create(
         db: Arc<SessionDB>,
         session_id: String,
         source: ChatSource,
@@ -578,7 +578,7 @@ impl StreamCoordinator {
         sink_registry::sink_registry().emit(&self.session_id, payload);
     }
 
-    pub(crate) async fn reconcile_spool_to_sqlite(&self) -> Result<()> {
+    pub async fn reconcile_spool_to_sqlite(&self) -> Result<()> {
         if !self.persistent || !lock_state(&self.state).spool_active {
             return Ok(());
         }
@@ -604,7 +604,7 @@ impl StreamCoordinator {
         Ok(())
     }
 
-    pub(crate) fn mark_committed(&self, seq: u64) {
+    pub fn mark_committed(&self, seq: u64) {
         self.committed_seq.store(seq, Ordering::SeqCst);
         lock_state(&self.state).status = "committed".to_string();
         self.closed.store(true, Ordering::SeqCst);
@@ -612,7 +612,7 @@ impl StreamCoordinator {
         Self::unregister(&self.session_id, &self.run_id);
     }
 
-    pub(crate) fn mark_interrupted(&self, status: &str) {
+    pub fn mark_interrupted(&self, status: &str) {
         lock_state(&self.state).status = status.to_string();
         self.closed.store(true, Ordering::SeqCst);
         global_writer_notify().notify_one();
@@ -632,18 +632,18 @@ impl StreamCoordinator {
         }
     }
 
-    pub(crate) fn is_persistent(&self) -> bool {
+    pub fn is_persistent(&self) -> bool {
         self.persistent
     }
 
-    pub(crate) fn current_provider_shape(&self) -> Option<String> {
+    pub fn current_provider_shape(&self) -> Option<String> {
         self.provider_shape
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
     }
 
-    pub(crate) fn trailing_text(&self) -> String {
+    pub fn trailing_text(&self) -> String {
         let state = lock_state(&self.state);
         let mut text = String::new();
         for journal_event in &state.durable_events {
@@ -663,7 +663,7 @@ impl StreamCoordinator {
         text
     }
 
-    pub(crate) fn usage(&self) -> CapturedUsage {
+    pub fn usage(&self) -> CapturedUsage {
         self.captured_usage
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -674,7 +674,7 @@ impl StreamCoordinator {
         self.had_thinking.load(Ordering::SeqCst)
     }
 
-    pub(crate) fn had_text_output(&self) -> bool {
+    pub fn had_text_output(&self) -> bool {
         self.had_text.load(Ordering::SeqCst)
     }
 

@@ -35,7 +35,7 @@ pub async fn run_domain_quality(
     Json(body): Json<RunDomainQualityBody>,
 ) -> Result<Json<DomainQualityRunSnapshot>, AppError> {
     let db = session_db()?;
-    db.run(move |db| db.run_domain_quality_for_session(body.input))
+    db.run(move |db| ha_improve::domain_quality::run_domain_quality_for_session(db, body.input))
         .await
         .map(Json)
         .map_err(|e| AppError::bad_request(e.to_string()))

@@ -1,6 +1,7 @@
 //! Shared helpers for `#[cfg(test)]` code across the crate.
 //!
-//! Compiled only under `cfg(test)` (see `lib.rs`); never reaches release
+//! Compiled under `cfg(any(test, feature = "test-support"))`（后者仅特征
+//! crate 的 dev-dependencies 开启，见 `lib.rs`）; never reaches release
 //! builds. Add helpers here when at least two test modules need the same
 //! pattern — single-module helpers should stay private to that module.
 

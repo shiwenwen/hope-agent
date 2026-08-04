@@ -284,7 +284,7 @@ fn rule_for_call(tool_name: &str, args: &Value, ctx: &GrantContext<'_>) -> RuleS
 }
 
 fn command_matcher(tool_name: &str, args: &Value) -> Option<ArgMatcher> {
-    if tool_name != crate::tools::TOOL_EXEC {
+    if tool_name != crate::tool_defs::TOOL_EXEC {
         return None;
     }
     let command = args.get("command").and_then(|v| v.as_str())?;
@@ -300,7 +300,7 @@ fn command_prefix(command: &str) -> Option<String> {
 
 fn path_matcher(tool_name: &str, args: &Value, ctx: &GrantContext<'_>) -> Option<ArgMatcher> {
     let default_path = ctx.default_path.map(Path::new);
-    if tool_name == crate::tools::TOOL_APPLY_PATCH {
+    if tool_name == crate::tool_defs::TOOL_APPLY_PATCH {
         let patch = args.get("input").and_then(|v| v.as_str())?;
         let paths = super::rules::paths_in_patch_directives(patch);
         let prefix = path_prefix_for_paths(&paths, default_path)?;
@@ -635,17 +635,17 @@ mod tests {
             ..Default::default()
         };
         let rule = rule_for_call(
-            crate::tools::TOOL_APPLY_PATCH,
+            crate::tool_defs::TOOL_APPLY_PATCH,
             &json!({"input": "*** Begin Patch\n*** Update File: src/lib.rs\n@@\n*** End Patch\n"}),
             &ctx,
         );
         assert!(rule.matches_with_default_path(
-            crate::tools::TOOL_APPLY_PATCH,
+            crate::tool_defs::TOOL_APPLY_PATCH,
             &json!({"input": "*** Begin Patch\n*** Update File: src/main.rs\n@@\n*** End Patch\n"}),
             Some(Path::new("/tmp/work"))
         ));
         assert!(!rule.matches_with_default_path(
-            crate::tools::TOOL_APPLY_PATCH,
+            crate::tool_defs::TOOL_APPLY_PATCH,
             &json!({"input": "*** Begin Patch\n*** Update File: /tmp/other/main.rs\n@@\n*** End Patch\n"}),
             Some(Path::new("/tmp/work"))
         ));
@@ -655,16 +655,16 @@ mod tests {
     fn builds_action_op_rule_for_mac_control() {
         let ctx = GrantContext::default();
         let rule = rule_for_call(
-            crate::tools::TOOL_MAC_CONTROL,
+            crate::tool_defs::TOOL_MAC_CONTROL,
             &json!({"action": "act", "op": "click", "x": 10, "y": 20}),
             &ctx,
         );
         assert!(rule.matches(
-            crate::tools::TOOL_MAC_CONTROL,
+            crate::tool_defs::TOOL_MAC_CONTROL,
             &json!({"action": "act", "op": "click", "x": 99, "y": 100})
         ));
         assert!(!rule.matches(
-            crate::tools::TOOL_MAC_CONTROL,
+            crate::tool_defs::TOOL_MAC_CONTROL,
             &json!({"action": "act", "op": "type", "text": "hello"})
         ));
     }

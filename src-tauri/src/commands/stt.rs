@@ -14,7 +14,7 @@
 use crate::commands::CmdError;
 use crate::AppState;
 use base64::Engine;
-use ha_core::stt::{
+use ha_media::stt::{
     failover_transcribe_batch, known_local_stt_backends, probe_local_backend_alive,
     upsert_known_local_stt_provider, ActiveSttModel, AudioPayload, KnownLocalSttBackend,
     SttModelConfig, SttProviderConfig, SttSessionManager, Transcript, TranscriptOptions,

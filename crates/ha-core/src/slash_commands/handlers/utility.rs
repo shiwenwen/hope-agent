@@ -23,7 +23,8 @@ pub fn handle_help(session_id: Option<&str>) -> CommandResult {
     }
 
     let cfg = crate::config::cached_config();
-    let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let skills =
+        crate::skills_hooks::invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
     let skills =
         crate::skills::filter_catalog_eligible_skills(skills, cfg.skill_env_check, &cfg.skill_env);
     let resolved_skills = crate::slash_commands::resolve_skill_command_names(
@@ -684,7 +685,7 @@ pub async fn handle_kb(session_id: Option<&str>, args: &str) -> Result<CommandRe
     };
 
     let effective =
-        crate::channel::im_kb_access_allowed(&channel_id, &account_id, &chat_id, is_group);
+        crate::knowledge::im_kb_access_allowed(&channel_id, &account_id, &chat_id, is_group);
 
     let arg = args.trim().to_lowercase();
 

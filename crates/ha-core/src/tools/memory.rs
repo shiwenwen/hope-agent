@@ -398,8 +398,8 @@ pub(crate) async fn tool_recall_memory(
 
     // Phase B'4 learning event: count every non-empty recall as a hit.
     if total_hits > 0 {
-        crate::dashboard::emit_learning_event(
-            crate::dashboard::EVT_RECALL_HIT,
+        crate::learning_events::emit(
+            crate::learning_events::EVT_RECALL_HIT,
             None,
             None,
             Some(&serde_json::json!({
@@ -417,8 +417,8 @@ pub(crate) async fn tool_recall_memory(
     if let Some(summary) =
         crate::memory::maybe_summarize_recall(&query_text, total_hits, &raw_output, &cfg).await
     {
-        crate::dashboard::emit_learning_event(
-            crate::dashboard::EVT_RECALL_SUMMARY_USED,
+        crate::learning_events::emit(
+            crate::learning_events::EVT_RECALL_SUMMARY_USED,
             None,
             None,
             Some(&serde_json::json!({ "hits": total_hits })),

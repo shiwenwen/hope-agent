@@ -1,9 +1,9 @@
 use axum::extract::Path;
 use axum::Json;
 use ha_core::blocking::run_blocking;
-use ha_core::evaluation::EvalArtifactStore;
-use ha_core::evaluation::ModelCampaignTier;
-use ha_core::evaluation::{
+use ha_eval_runtime::evaluation::EvalArtifactStore;
+use ha_eval_runtime::evaluation::ModelCampaignTier;
+use ha_eval_runtime::evaluation::{
     CodingHistorySource, DomainHistorySource, EvalAnnotationRecord, EvalBaselineRecord,
     EvalCatalog, EvalCompareQuery, EvalCompareResult, EvalExperimentDetail, EvalExperimentRecord,
     EvalHistoryQuery, EvalHistorySource, EvalQueryService, EvalReadiness, EvalRepository,
@@ -17,7 +17,7 @@ const TRUST_REGISTRY_PATH_ENV: &str = "HA_EVAL_TRUST_REGISTRY_PATH";
 
 fn reconcile_import_trust(repository: &EvalRepository) -> anyhow::Result<()> {
     let trust = configured_trust_registry_path()
-        .and_then(|path| ha_core::evaluation::load_evidence_trust_registry_file(&path));
+        .and_then(|path| ha_eval_runtime::evaluation::load_evidence_trust_registry_file(&path));
     match trust {
         Ok(trust) => {
             repository.refresh_import_signature_status(&trust)?;
@@ -115,12 +115,13 @@ pub async fn catalog() -> Result<Json<EvalCatalog>, AppError> {
         readiness: readiness().await.0,
         profiles: Vec::new(),
         suites: Vec::new(),
-        models: ha_core::evaluation::list_model_options()?,
+        models: ha_eval_runtime::evaluation::list_model_options()?,
     }))
 }
 
-pub async fn model_options() -> Result<Json<Vec<ha_core::evaluation::EvalModelOption>>, AppError> {
-    Ok(Json(ha_core::evaluation::list_model_options()?))
+pub async fn model_options(
+) -> Result<Json<Vec<ha_eval_runtime::evaluation::EvalModelOption>>, AppError> {
+    Ok(Json(ha_eval_runtime::evaluation::list_model_options()?))
 }
 
 pub async fn history(
@@ -176,7 +177,7 @@ pub async fn experiment(
             .run(move |db| {
                 Ok::<_, anyhow::Error>(
                     db.get_coding_benchmark_campaign(&id)?
-                        .map(|campaign| ha_core::evaluation::coding_detail(&campaign)),
+                        .map(|campaign| ha_eval_runtime::evaluation::coding_detail(&campaign)),
                 )
             })
             .await?
@@ -186,7 +187,7 @@ pub async fn experiment(
             .run(move |db| {
                 Ok::<_, anyhow::Error>(
                     db.get_domain_eval_campaign(&id)?
-                        .map(|campaign| ha_core::evaluation::domain_detail(&campaign)),
+                        .map(|campaign| ha_eval_runtime::evaluation::domain_detail(&campaign)),
                 )
             })
             .await?

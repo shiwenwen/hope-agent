@@ -10,7 +10,7 @@ import yaml
 from pathlib import Path
 
 # Allowed frontmatter keys. Mirrors the Rust frontmatter parser at
-# crates/ha-core/src/skills/frontmatter.rs — whenever a field is added
+# crates/ha-skills/src/skills/frontmatter.rs — whenever a field is added
 # there, add both spellings here (kebab-case and camelCase / snake_case
 # aliases) so scaffolded skills pass validation. The integration test
 # `test_quick_validate::test_accepts_full_frontmatter` fails loudly if

@@ -608,7 +608,7 @@ Settings → "embedding quick card"（commit f64cab52）作为快速入口，首
 | `bge-small-en-v1.5` | BGE Small English v1.5 | 384d | 33MB | 4GB | 英文 |
 | `bge-large-en-v1.5` | BGE Large English v1.5 | 1024d | 335MB | 16GB | 英文 |
 
-下载/加载经 `local_embedding.rs` 走 `local_model_jobs.rs` 后台任务体系（详见 [本地模型加载](local-model-loading.md)）。
+下载/加载经 ha-local-llm 的 `local_embedding.rs` 走 kernel `local_model_jobs.rs` 后台任务体系（详见 [本地模型加载](local-model-loading.md)）。
 
 ### 多模态支持
 
@@ -1190,7 +1190,7 @@ Memory Search Tuning / advanced retrieval 配置页的加载和保存失败必�
 | `crates/ha-core/src/memory/helpers.rs` | 辅助函数（加载配置等） |
 | `crates/ha-core/src/memory_extract.rs` | 自动记忆提取逻辑（含 COMBINED_EXTRACT_PROMPT 反省式） |
 | `crates/ha-core/src/agent/active_memory.rs` | V2 Fast/Deep Recall 执行与 legacy Active Memory 兼容链（动态 suffix、三级 scope、可选 bounded side-query） |
-| `crates/ha-core/src/local_embedding.rs` | 本地 embedding 模型一键安装入口（走 `local_model_jobs.rs`） |
+| `crates/ha-local-llm/src/local_embedding.rs` | 本地 embedding 模型一键安装入口（阶段 5 迁出 ha-core；记账仍走 kernel `local_model_jobs.rs`） |
 | `crates/ha-core/src/project/` | 项目系统（types / db / files），提供项目记忆的上层容器 |
 | `crates/ha-core/src/context_compact/engine.rs` | ContextEngine trait，`system_prompt_addition()` 钩子已被 Active Memory 占用 |
 | `src/components/sidebar/IconSidebar.tsx` | 记忆侧边栏入口（commit `9644311a`），点击进入记忆管理页 |

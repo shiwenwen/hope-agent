@@ -645,7 +645,7 @@ Fork 不复制 active Goal、Loop schedule、Workflow run、Task progress、pend
 
 删除 / 焚毁一个会话时,多个**内存子系统**仍持有它的引用(待审批、后台 job、IM 文本审批栈、在途 turn、per-session allowlist 规则、定时唤醒、排队 subagent)。`session::cleanup_watcher`（#318 引入）是 `session:deleted` / `session:purged` 的**唯一订阅者**,把一次生命周期事件 fan-out 到所有这些子系统,杜绝泄漏。
 
-模块设计(镜像 `channel::worker::eviction_watcher`):
+模块设计(镜像 ha-channel 的 `channel::worker::eviction_watcher`):
 
 - **单订阅 + 名字过滤**:一个 EventBus subscriber,只认 `EVENT_SESSION_DELETED` / `EVENT_SESSION_PURGED`
 - **fan-out 在接收循环外 `tokio::spawn`**:`cleanup_session` 含多次 DB 查询 + 全局锁扫描,inline await 会让突发删除回压 broadcast buffer 触发 `Lagged`(丢后续清理);off-loop spawn 后每步 best-effort + per-subsystem 幂等,不同会话并发清理安全
@@ -659,7 +659,7 @@ Fork 不复制 active Goal、Loop schedule、Workflow run、Task progress、pend
 | 1 | 取消活跃 / `awaiting_approval` 后台 job | `JobManager::cancel_for_session` | A-8 / DELETE-4 |
 | 2 | deny + resolve 待审批(解阻塞 tool turn + 撤所有 surface 弹窗) | `tools::deny_pending_for_session(SessionDeleted)` | A-9 / DELETE-1 / INCOG-4 |
 | 2b | **后代 subagent 子会话级联**:对每个 `descendant_session_ids` 也 `cancel_for_session` + `deny_pending_for_session`——内层 tool 审批 key 在**子会话**,被删父 id 匹配不到(子会话经 `collect_descendant_session_ids` 传递性收集) | `JobManager::cancel_for_session` + `tools::deny_pending_for_session` | **G4** |
-| 3 | 清该会话 IM 文本审批栈;**并按删除前快照的 `im_chat`(account, chat) 直接 `drop_pending_for_chat`**——`channel_conversations` 行已 FK 级联删,session-keyed 查找解析不出 | `channel::worker::approval::drop_pending_for_session` + `drop_pending_for_chat` | A-9 / **SURFACE-2** |
+| 3 | 清该会话 IM 文本审批栈;**并按删除前快照的 `im_chat`(account, chat) 直接 `drop_pending_for_chat`**——`channel_conversations` 行已 FK 级联删,session-keyed 查找解析不出 | `channel_hooks::drop_approval_for_session` + `drop_approval_for_chat` | A-9 / **SURFACE-2** |
 | 4 | 清 per-session allowlist 规则 | `permission::allowlist::clear_session_rules` | A-9 / INCOG-7 |
 | 5 | live-cancel 在途 turn | `chat_engine::active_turn::current(..).cancel` | A-9 / DELETE-5 / INCOG-1 |
 | 6 | 取消 + 删定时唤醒(删与焚都做) | `wakeup::purge_for_session` | R10 |

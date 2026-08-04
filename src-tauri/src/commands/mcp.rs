@@ -1,21 +1,21 @@
 //! Tauri IPC commands for the MCP subsystem.
 //!
 //! Thin shells over the business logic in
-//! [`ha_core::mcp::api`]. Every command returns `Result<T, CmdError>` —
+//! [`ha_mcp::api`]. Every command returns `Result<T, CmdError>` —
 //! Tauri serializes `T` to JS via serde and surfaces the `Err` (rendered as
 //! a string) to `invoke()` callers as a rejected promise.
 //!
 //! Both the Tauri invoke handler in `src-tauri/src/lib.rs` and the
 //! matching axum routes in `crates/ha-server/src/routes/mcp.rs` dispatch
-//! to the SAME `ha_core::mcp::api::*` functions — behavior parity is
+//! to the SAME `ha_mcp::api::*` functions — behavior parity is
 //! enforced by the single source of truth, not by copy-paste.
 
 use crate::commands::CmdError;
-use ha_core::mcp::api::{
+use ha_mcp::api::{
     self, ImportSummary, McpLogLine, McpServerDraft, McpServerSummary, McpToolSummary,
 };
-use ha_core::mcp::config::McpGlobalSettings;
-use ha_core::mcp::registry::ServerStatusSnapshot;
+use ha_mcp::config::McpGlobalSettings;
+use ha_mcp::registry::ServerStatusSnapshot;
 
 use crate::AppState;
 use tauri::State;

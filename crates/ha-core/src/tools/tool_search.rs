@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
+use super::dispatch::ToolDefinitionApiExt;
+
 use super::{
     definitions::ToolDefinition,
     dispatch::{all_dispatchable_tools, resolve_tool_fate, DispatchContext, ToolFate},
@@ -88,15 +90,13 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // Dynamic MCP tools (`mcp__<server>__<tool>`) — gated by agent.mcp_enabled
     // and the global MCP kill switch.
     if agent_cfg.capabilities.mcp_enabled && app_config.mcp_global.enabled {
-        if let Some(mcp) = crate::mcp::McpManager::global() {
-            for def in mcp.mcp_tool_definitions().iter() {
-                if !candidates.iter().any(|c| c.name == def.name) {
-                    if super::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
-                        total_deferred += 1;
-                        deferred_names.insert(def.name.clone());
-                    }
-                    candidates.push(def.clone());
+        for def in crate::mcp::tool_definitions().iter() {
+            if !candidates.iter().any(|c| c.name == def.name) {
+                if super::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
+                    total_deferred += 1;
+                    deferred_names.insert(def.name.clone());
                 }
+                candidates.push(def.clone());
             }
         }
     }
@@ -109,7 +109,7 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // `Agent::build_tool_schemas` so they can't be resurrected here. The access
     // check is skipped unless such a tool actually survived the filters above.
     if candidates.iter().any(|t| super::is_kb_scoped_tool(&t.name))
-        && !super::note::session_has_kb_access(ctx)
+        && !crate::knowledge::access::session_has_kb_access(ctx)
     {
         candidates.retain(|t| !super::is_kb_scoped_tool(&t.name));
     }
@@ -620,7 +620,7 @@ mod tests {
             .unwrap();
         let ctx = ToolExecContext {
             project_id: Some(project.id),
-            session_db: Some(crate::tools::execution::SessionDbHandle(session_db)),
+            session_db: Some(crate::tool_defs::SessionDbHandle(session_db)),
             ..ToolExecContext::default()
         };
 

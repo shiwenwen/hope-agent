@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md) | 更新时间：2026-07-12
 
-Session Git 控制平面负责 Hope Agent 工作台中的仓库状态、Diff 审阅、索引操作、分支、提交、推送、GitHub Pull Request，以及 Local 与 Managed Worktree 之间的安全交接。桌面端和 HTTP/server 端都只适配 `ha-core::git_control`，不各自实现 Git 业务逻辑。
+Session Git 控制平面负责 Hope Agent 工作台中的仓库状态、Diff 审阅、索引操作、分支、提交、推送、GitHub Pull Request，以及 Local 与 Managed Worktree 之间的安全交接。桌面端和 HTTP/server 端都只适配 `ha-vcs::git_control`（`git_operation_runs` 簿记与 `repository_revision` 留 `ha-core::git_control`），不各自实现 Git 业务逻辑。
 
 本文描述已经落地的运行时契约。Managed Worktree 的创建、归档、恢复、项目首轮 Bootstrap、Workflow 和 Subagent 集成见 [Managed Worktree 控制平面](worktree.md)。项目草稿的项目归属与首发状态见 [项目系统](project.md)。
 
@@ -15,9 +15,9 @@ GitControlCard / DiffPanel
 Transport (Tauri / HTTP)
         |
         v
-ha-core::git_control
+ha-vcs::git_control（操作面）
         |
-        +-- SessionDB / git_operation_runs
+        +-- ha-core::git_control（git_operation_runs 簿记，类型化查询）
         +-- WorkspaceScope::for_session
         +-- git / gh 子进程
         +-- managed_worktrees / project bootstrap
@@ -25,7 +25,8 @@ ha-core::git_control
 
 | 层 | 代码 | 责任 |
 | --- | --- | --- |
-| 核心编排 | `crates/ha-core/src/git_control.rs` | 仓库解析、snapshot、diff、mutation、branch、commit、push、PR、Handoff、锁和恢复。 |
+| 操作面编排 | `crates/ha-vcs/src/git_control.rs` | 仓库解析、snapshot、diff、mutation、branch、commit、push、PR、Handoff、锁和启动期对账（经 `ha_core::vcs_hooks` 回调）。 |
+| 簿记 kernel 面 | `crates/ha-core/src/git_control.rs` | `git_operation_runs` DDL / `GitOperationRun` / 类型化查询（类型随表下沉，特征侧不持 raw conn）+ `repository_revision` 指纹小簇（ha-design code_sync 共用）。 |
 | Git 公共读取 | `crates/ha-core/src/filesystem/git.rs`、`session/environment.rs` | 分支、dirty、worktree、同步状态等底层读取，供项目草稿和会话控制面复用。 |
 | Worktree 生命周期 | `crates/ha-core/src/worktree.rs` | Managed Worktree 创建、归档、恢复和 owner 记录。 |
 | Tauri 适配 | `src-tauri/src/commands/git_control.rs` | `spawn_blocking` 调核心函数并映射桌面命令错误。 |

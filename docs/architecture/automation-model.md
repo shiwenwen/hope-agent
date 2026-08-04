@@ -302,10 +302,10 @@ interface ModelChainEditorProps {
 | 全局配置 | `crates/ha-core/src/config/mod.rs` | `FunctionModelsConfig.automation` |
 | 执行原语 | `crates/ha-core/src/automation/mod.rs` | `effective_chain` / `run` / `resolve_legacy_agent_chain` / `parse_legacy_model_string` / `model_label` |
 | Purpose 记账 | `crates/ha-core/src/agent/side_query.rs` | `side_query_with_purpose` / `side_query_tagged` |
-| Recap | `crates/ha-core/src/recap/{report,facets,sections}.rs` | `resolve_recap_chain` + facet/section 生成 |
-| Knowledge Compile | `crates/ha-core/src/knowledge/compile.rs` | `generate_summary` |
+| Recap | `crates/ha-dash/src/recap/{report,facets,sections}.rs` | `resolve_recap_chain` + facet/section 生成 |
+| Knowledge Compile | `crates/ha-knowledge/src/knowledge/compile.rs` | `generate_summary` |
 | Dreaming | `crates/ha-core/src/memory/dreaming/{pipeline,narrative,profile,resolver}.rs` | `resolve_dreaming_chain` + 叙事/Profile/resolver 三处调用 |
-| Skills auto_review | `crates/ha-core/src/skills/auto_review/pipeline.rs` | `query_review_agent` |
+| Skills auto_review | `crates/ha-skills/src/skills/auto_review/pipeline.rs` | `query_review_agent` |
 | Hooks | `crates/ha-core/src/hooks/runner/prompt.rs` | `resolve_prompt_hook_chain` |
 | Session Title | `crates/ha-core/src/session_title.rs` | `generate_and_update_title` |
 | Memory Extract | `crates/ha-core/src/memory_extract.rs` + `crates/ha-core/src/chat_engine/context.rs` | 两处独立解析点 |
@@ -316,16 +316,16 @@ interface ModelChainEditorProps {
 | 全局面板 | `src/components/settings/GlobalModelPanel.tsx` | 自动化默认链区块 |
 | 命令/路由 | `src-tauri/src/commands/provider/models.rs`、`crates/ha-server/src/routes/models.rs` | `get/set_automation_model_chain` |
 | 视觉能力原语（Phase 2） | `crates/ha-core/src/automation/mod.rs` | `run_vision`/`VisionTaskSpec`/`build_candidate_agent`，`ModelTaskOutput.model` |
-| 图片 OCR（Phase 2） | `crates/ha-core/src/knowledge/{types,source,service}.rs` | `KnowledgeVisionConfig`、`ocr_image_bytes`、`get/set_vision_config` |
-| 知识空间维护（Phase 2） | `crates/ha-core/src/knowledge/maintenance/{config,generators}.rs` | `MaintenanceConfig.model_override`、`run_side_query` + 4 生成器调用点 |
+| 图片 OCR（Phase 2） | `crates/ha-core/src/knowledge/types.rs` + `crates/ha-knowledge/src/knowledge/{source,service}.rs` | `KnowledgeVisionConfig`、`ocr_image_bytes`、`get/set_vision_config` |
+| 知识空间维护（Phase 2） | `crates/ha-knowledge/src/knowledge/maintenance/{config,generators}.rs` | `MaintenanceConfig.model_override`、`run_side_query` + 4 生成器调用点 |
 | Sprite（Phase 2） | `crates/ha-core/src/sprite/{config,mod}.rs` | `SpriteConfig.model_override`、`observe_and_maybe_speak` |
-| 笔记三件套（Phase 2） | `crates/ha-core/src/knowledge/types.rs` + `crates/ha-core/src/tools/note.rs` | `NoteToolsConfig`、`run_kb_side_query` + 3 工具调用点 |
+| 笔记三件套（Phase 2） | `crates/ha-core/src/knowledge/types.rs` + `crates/ha-knowledge/src/tools/note.rs` | `NoteToolsConfig`、`run_kb_side_query` + 3 工具调用点 |
 | Recall Summary（Phase 2） | `crates/ha-core/src/memory/recall_summary.rs` | `RecallSummaryConfig.model_override`、`run_summary` |
-| AI 改写（Phase 2） | `crates/ha-core/src/knowledge/service.rs` | `ai_rewrite`、`resolve_rewrite_chain`（`build_rewrite_agent` 已删除） |
+| AI 改写（Phase 2） | `crates/ha-knowledge/src/knowledge/service.rs` | `ai_rewrite`、`resolve_rewrite_chain`（`build_rewrite_agent` 已删除） |
 | Phase 2 GUI | `src/components/settings/KnowledgePanel.tsx`（`KnowledgeVisionSection`/`NoteToolsSection`）、`KnowledgeMaintenanceSection.tsx`、`SpriteSection.tsx`、`src/components/settings/memory-panel/RecallSummarySection.tsx`（新文件） | 见 §4.4 |
-| 遗留函数删除 | `crates/ha-core/src/recap/report.rs` + `recap/mod.rs` | `build_analysis_agent` 家族已整体删除（Phase 2 收尾），确认全仓库零残留调用 |
-| Dashboard purpose 拆分（Phase 3） | `crates/ha-core/src/dashboard/{types,queries,filters}.rs` | `TokenByOperation`/`TokenByDomain`、`operation_domain`、`DashboardFilter.operation` |
-| 扫描版 PDF OCR 兜底（Phase 3） | `crates/ha-core/src/file_extract.rs`、`crates/ha-core/src/knowledge/{types,registry,source,service}.rs`、`crates/ha-core/src/async_jobs/manager.rs` | `render_pdf_bytes_isolated`、`knowledge_source_ocr_pages` 表、`import_pdf_ocr_fallback`/`retry_source_ocr_pages`，详见 [`knowledge-base.md`](knowledge-base.md#扫描版-pdf-ocr-兜底逐页追踪) |
+| 遗留函数删除 | `crates/ha-dash/src/recap/report.rs` + `recap/mod.rs` | `build_analysis_agent` 家族已整体删除（Phase 2 收尾），确认全仓库零残留调用 |
+| Dashboard purpose 拆分（Phase 3） | `crates/ha-dash/src/dashboard/{types,queries,filters}.rs` | `TokenByOperation`/`TokenByDomain`、`operation_domain`、`DashboardFilter.operation` |
+| 扫描版 PDF OCR 兜底（Phase 3） | `crates/ha-core/src/knowledge/{types,registry}.rs`、`crates/ha-core/src/{file_extract,async_jobs/manager}.rs`、`crates/ha-knowledge/src/knowledge/{source,service}.rs` | `render_pdf_bytes_isolated`、`knowledge_source_ocr_pages` 表、`import_pdf_ocr_fallback`/`retry_source_ocr_pages`，详见 [`knowledge-base.md`](knowledge-base.md#扫描版-pdf-ocr-兜底逐页追踪) |
 
 ---
 

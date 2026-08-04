@@ -18,30 +18,27 @@ mod window_state;
 // This makes `crate::agent`, `crate::session`, etc. resolve to ha-core's modules,
 // eliminating the need for duplicate local copies.
 
-pub use ha_core::acp;
-pub use ha_core::acp_control;
+pub use ha_acp::acp;
+pub use ha_acp::acp_control;
+pub use ha_acp::acp_control::get_acp_manager;
+pub use ha_browser::browser_state;
+pub use ha_browser::browser_ui;
 pub use ha_core::agent;
 pub use ha_core::agent_config;
 pub use ha_core::agent_loader;
-pub use ha_core::artifacts;
 pub use ha_core::backup;
-pub use ha_core::browser_state;
-pub use ha_core::browser_ui;
-pub use ha_core::canvas_db;
+// 台账 + 契约在 kernel，机器在 ha-channel（阶段 5 第五刀）。命令层同时用到
+// 两侧，故 `crate::channel` 保留指向 kernel，机器面显式走 `ha_channel::`。
 pub use ha_core::channel;
 pub use ha_core::chat_engine;
 pub use ha_core::context_compact;
 pub use ha_core::crash_journal;
 pub use ha_core::cron;
-pub use ha_core::dashboard;
 pub use ha_core::dev_tools;
-pub use ha_core::docker;
 pub use ha_core::failover;
 pub use ha_core::file_extract;
 pub use ha_core::guardian;
-pub use ha_core::local_embedding;
 pub use ha_core::logging;
-pub use ha_core::mac_control;
 pub use ha_core::memory;
 pub use ha_core::memory_extract;
 pub use ha_core::oauth;
@@ -56,16 +53,24 @@ pub use ha_core::sandbox;
 pub use ha_core::self_diagnosis;
 pub use ha_core::service_install;
 pub use ha_core::session;
-pub use ha_core::skills;
+// ha-skills 的 `skills` 门面已把 kernel 留存的契约 / 台账 / 纯谓词原名再导出，
+// 故这里指向特征 crate 才是拆分前的完整符号集（只指 ha_core 会少掉机器层）。
 pub use ha_core::slash_commands;
 pub use ha_core::subagent;
 pub use ha_core::system_prompt;
 pub use ha_core::tools;
 pub use ha_core::url_preview;
 pub use ha_core::user_config;
-pub use ha_core::weather;
 #[cfg(target_os = "macos")]
 pub use ha_core::weather_location_macos;
+pub use ha_dash::dashboard;
+pub use ha_design::artifacts;
+pub use ha_design::canvas_db;
+pub use ha_local_llm::local_embedding;
+pub use ha_mac as mac_control;
+pub use ha_skills::skills;
+pub use ha_vcs::docker;
+pub use ha_weather as weather;
 
 // Re-export ha-core utility functions (truncate_utf8, default_true, etc.)
 pub use ha_core::{default_true, sql_opt_u64, sql_u64, truncate_utf8};
@@ -74,12 +79,12 @@ pub use ha_core::{default_true, sql_opt_u64, sql_u64, truncate_utf8};
 pub use ha_core::event_bus;
 pub use ha_core::init_app_state;
 pub use ha_core::{
-    get_acp_manager, get_channel_db, get_channel_registry, get_cron_db, get_event_bus, get_logger,
+    get_channel_db, get_channel_registry, get_cron_db, get_event_bus, get_logger,
     get_memory_backend, get_session_db, get_subagent_cancels, set_event_bus,
 };
 pub use ha_core::{
-    AppState, ACP_MANAGER, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
-    MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS,
+    AppState, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS, MEMORY_BACKEND,
+    SESSION_DB, SUBAGENT_CANCELS,
 };
 
 // ── Local re-exports ─────────────────────────────────────────────
@@ -88,6 +93,12 @@ pub(crate) use shortcuts::toggle_quickchat_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 特征 crate 装配（幂等）。桌面路径已在 main.rs 顶部 wire 过，这里兜底
+    // mobile entry point（`app_lib::run()` 不经 main.rs）——漏 wire 的症状是
+    // `app_update` 有 schema 无 handler + registry_freeze warn。单一来源在
+    // `ha_server::wire_features()`；新增特征 crate 只需改那一处。
+    ha_server::wire_features();
+
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
     // `.app` under the temp dir then renames it over the installed bundle; when
     // the app runs from a different volume than the temp dir that rename fails

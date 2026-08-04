@@ -19,6 +19,8 @@
 
 use std::sync::LazyLock;
 
+use serde_json::{json, Value};
+
 use crate::agent_config::FilterConfig;
 use crate::agent_loader::is_main_agent;
 use crate::config::AppConfig;
@@ -71,6 +73,82 @@ pub enum ToolFate {
     Hidden,
 }
 
+/// `ToolDefinition::to_api_metadata` 的落点（extension trait）。方法需要
+/// `is_globally_configured`（读 web_search / media_gen / feishu 配置态，
+/// 属分发层），而 `ToolDefinition` 本体在 `crate::tool_defs`（契约层不
+/// 得反向依赖分发层）——同 ha-config-schema 的「需要行为的方法改子系统
+/// 自由函数或 extension trait」模式。
+pub trait ToolDefinitionApiExt {
+    fn to_api_metadata(&self, app_config: &crate::config::AppConfig) -> serde_json::Value;
+}
+
+impl ToolDefinitionApiExt for ToolDefinition {
+    /// Render this tool as a JSON metadata payload for `list_builtin_tools`
+    /// (Tauri command + `GET /api/chat/tools`). Single source of truth so
+    /// both transports return identically-shaped objects to the frontend.
+    ///
+    /// `app_config` is consulted only for Tier 3 (`Configured`) tools to
+    /// probe whether the global provider/feature is provisioned. The
+    /// returned `globally_configured` field is `Some(bool)` for Tier 3 and
+    /// `null` for every other tier — letting the frontend decide whether to
+    /// show the "未配置" hint without re-implementing the probe matrix.
+    fn to_api_metadata(&self, app_config: &crate::config::AppConfig) -> Value {
+        let (
+            tier_label,
+            core_subclass,
+            default_for_main,
+            default_for_others,
+            config_hint,
+            globally_configured,
+        ) = match &self.tier {
+            ToolTier::Core { subclass } => {
+                ("core", Some(subclass.as_str()), None, None, None, None)
+            }
+            ToolTier::Standard {
+                default_for_main,
+                default_for_others,
+                ..
+            } => (
+                "standard",
+                None,
+                Some(*default_for_main),
+                Some(*default_for_others),
+                None,
+                None,
+            ),
+            ToolTier::Configured {
+                default_for_main,
+                default_for_others,
+                config_hint,
+                ..
+            } => (
+                "configured",
+                None,
+                Some(*default_for_main),
+                Some(*default_for_others),
+                Some(*config_hint),
+                Some(is_globally_configured(&self.name, app_config)),
+            ),
+            ToolTier::Memory => ("memory", None, None, None, None, None),
+            ToolTier::Mcp => ("mcp", None, None, None, None, None),
+        };
+        json!({
+            "name": self.name,
+            "description": self.description,
+            "internal": self.internal,
+            "tier": tier_label,
+            "core_subclass": core_subclass,
+            "default_for_main": default_for_main,
+            "default_for_others": default_for_others,
+            "config_hint": config_hint,
+            "defer_capable": self.supports_deferred(),
+            "globally_configured": globally_configured,
+            "background_policy": self.background_policy,
+            "metadata": self.v2_metadata(),
+        })
+    }
+}
+
 /// Probe whether the global side of a Tier 3 tool's provisioning is ready
 /// (search providers configured, canvas/notification enabled flags set,
 /// image provider keys present, etc.). Tier 3 tools without a global gate
@@ -102,7 +180,15 @@ pub fn is_globally_configured(name: &str, app_config: &AppConfig) -> bool {
         // All `feishu_*` tools share the same provisioning gate — at least
         // one Feishu channel account configured. Falls to HintOnly when the
         // user enabled the agent capability but hasn't added an account.
-        n if n.starts_with("feishu_") => crate::tools::feishu::has_any_account_configured(),
+        //
+        // 判定就地做（而不是调 adapter 的 `has_any_account_configured`）：它是
+        // 纯 `AppConfig` 读取，与本函数其余分支同型；adapter 随 ha-channel 上浮
+        // 后，为这 5 行开一个钩子只会凭空增加一个未装配语义要论证的槽。
+        n if n.starts_with("feishu_") => app_config
+            .channels
+            .accounts
+            .iter()
+            .any(|a| a.channel_id == ha_config_schema::channel::ChannelId::Feishu),
         _ => true,
     }
 }
@@ -379,6 +465,10 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
 /// today) substitute via `get_image_generate_tool_dynamic` at injection
 /// time. Every other consumer reads tier metadata only and doesn't care.
 static ALL_DISPATCHABLE_TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| {
+    // 目录一旦开始汇编，之后注册的外部 provider 就进不来了——先立标志，让
+    // 迟到的 `register_external_tool_definitions` fail loud 而不是静默丢 schema
+    // （详见该函数文档）。必须在读 provider **之前**。
+    super::registry::mark_catalog_realized();
     use super::definitions::{
         get_acp_spawn_tool, get_artifact_tool, get_audio_generate_tool_dynamic,
         get_available_tools, get_canvas_tool, get_design_tool, get_enter_plan_mode_tool,
@@ -402,7 +492,8 @@ static ALL_DISPATCHABLE_TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| 
         super::job_status::get_job_status_tool(),
         super::schedule_wakeup::get_schedule_wakeup_tool(),
     ]);
-    tools.extend(super::feishu::get_feishu_tools());
+    // 特征 crate（ha-channel 的飞书工具族）在 `wire()` 里注册的 schema。
+    tools.extend(super::registry::external_tool_definitions());
     tools
 });
 

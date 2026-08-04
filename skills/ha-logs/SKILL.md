@@ -294,7 +294,7 @@ sqlite3 -readonly -cmd ".mode column" -cmd ".headers on" ~/.hope-agent/sessions.
 ## Privacy & safety caveats
 
 - **Incognito sessions** (`sessions.incognito = 1`) deliberately don't persist user content. If a query returns thin data for an incognito session, just note it — don't treat the gap as a bug.
-- **Secrets in logs**: API keys / tokens are redacted at the `app_*!` macro layer (`redact_sensitive` in [`crates/ha-core/src/logging.rs`](../../crates/ha-core/src/logging.rs)). However `messages.tool_arguments` / `tool_result` may contain user-pasted secrets — never echo raw tool arguments back in chat without scanning first.
+- **Secrets in logs**: API keys / tokens are redacted at the `app_*!` macro layer (`redact_sensitive` in [`crates/ha-base/src/logging/file_ops.rs`](../../crates/ha-base/src/logging/file_ops.rs)). However `messages.tool_arguments` / `tool_result` may contain user-pasted secrets — never echo raw tool arguments back in chat without scanning first.
 - **Local only**: these DBs never leave the user's machine. They're private by construction; treat them that way.
 - **Row counts**: `messages` and `logs` can grow to millions of rows. Always `LIMIT` and time-bound. Never `SELECT *` without filters.
 

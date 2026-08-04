@@ -1048,7 +1048,7 @@ async fn update_im_auto_transcribe(values: &Value) -> Result<String> {
                 let Some(on) = entry.get("autoTranscribeVoice").and_then(|v| v.as_bool()) else {
                     continue;
                 };
-                crate::channel::accounts::set_account_auto_transcribe_voice(id, on, "skill")?;
+                crate::channel_hooks::set_account_auto_transcribe_voice(id, on, "skill")?;
             }
         }
         Ok(())
@@ -1072,20 +1072,24 @@ async fn update_stt_language(values: &Value) -> Result<String> {
         bail!("stt_language only accepts `language`");
     }
 
-    if let Some(value) = object.get("language") {
-        let language = if value.is_null() {
-            None
-        } else if let Some(language) = value.as_str() {
-            let language = language.trim();
-            (!language.is_empty()).then(|| language.to_string())
-        } else {
-            bail!("stt_language.language must be a string or null");
-        };
+    // 空对象 = 契约错误：调用方以为在改，实则什么都没写。
+    // 返回错误而不是 `updated: true` 让 skill / model 早失败——不然调用方
+    // 会记「已改」并继续，STT 却仍用旧 language。
+    let Some(value) = object.get("language") else {
+        bail!("stt_language requires a `language` field (use `null` to reset to auto-detect)");
+    };
+    let language = if value.is_null() {
+        None
+    } else if let Some(language) = value.as_str() {
+        let language = language.trim();
+        (!language.is_empty()).then(|| language.to_string())
+    } else {
+        bail!("stt_language.language must be a string or null");
+    };
 
-        crate::stt::set_stt_default_language_async(language, "skill")
-            .await
-            .map_err(|err| anyhow::anyhow!("{err}"))?;
-    }
+    crate::stt::set_stt_default_language_async(language, "skill")
+        .await
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
 
     let updated_value = read_category("stt_language")?;
     Ok(serde_json::to_string_pretty(&json!({
@@ -1700,16 +1704,11 @@ fn trigger_weather_refresh_if_needed(values: &Value) {
     ];
     let needs_refresh = dominated_keys.iter().any(|k| values.get(k).is_some());
     if needs_refresh {
-        tokio::spawn(async {
-            if let Err(e) = crate::weather::force_refresh_weather().await {
-                app_warn!(
-                    "settings",
-                    "hot_reload",
-                    "Failed to refresh weather after user config change: {}",
-                    e
-                );
-            }
-        });
+        // 特征 crate 钩子：spawn 与错误日志在 ha-weather 注册的回调内，
+        // 未 wire 时不即时刷新（后台循环仍按周期刷）。
+        if let Some(refresh) = crate::tools::weather_settings_refresh_hook() {
+            refresh();
+        }
     }
 }
 

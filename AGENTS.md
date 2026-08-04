@@ -13,7 +13,7 @@
 
 ## 提交前检查（强制）
 
-[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 只覆盖 `ha-core` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
+[`.husky/pre-push`](.husky/pre-push) push 时自动跑全套门禁，与 CI required check 一一对应、改一边同步另一边；Agent 勿重跑。clippy / cargo test 覆盖 `ha-base` + `ha-config-schema` + `ha-core` + `ha-acp` + `ha-browser` + `ha-channel` + `ha-cron` + `ha-dash` + `ha-design` + `ha-eval-runtime` + `ha-improve` + `ha-knowledge` + `ha-mac` + `ha-local-llm` + `ha-mcp` + `ha-media` + `ha-pet` + `ha-skills` + `ha-updater` + `ha-vcs` + `ha-weather` + `ha-server`，`src-tauri` 不在门禁内、须 `--workspace` 自查。
 
 - **开发中只单点验证**（`cargo check -p <crate>` / `pnpm typecheck`）；跑 clippy / cargo test / pnpm {test,lint} 须先问用户等回复，例外限跨 crate / 多文件收尾，跑前说明
 - **应急跳过**：`HA_SKIP_PREPUSH=1`（限纯 `.md` / 弱网）/ `HA_SKIP_PREPUSH_TEST=1`（只跳 cargo test）。禁止 `--no-verify`（会绕过 GPG 等钩子）
@@ -50,12 +50,12 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 ### 后端（Rust）
 
-- **阻塞 IO 红线**：async 里 SQLite/config 写必经 [`run_blocking`](crates/ha-core/src/blocking.rs)/`SessionDB::run`/`mutate_config_async`，禁 inline / `block_on`（[process-model](docs/architecture/process-model.md) Layer C′）
+- **阻塞 IO 红线**：async 里 SQLite/config 写必经 [`run_blocking`](crates/ha-base/src/blocking.rs)/`SessionDB::run`/`mutate_config_async`，禁 inline / `block_on`（[process-model](docs/architecture/process-model.md) Layer C′）
 - **禁 `log` crate 宏**，用 `app_info!` 系列（例外见 [logging](docs/architecture/logging.md)）
 - **核心业务路径必须埋点**，带最小复现上下文；`category`/`source` 命名稳定便于 grep
 - **禁字节索引切片字符串**，用 `crate::truncate_utf8`
 - 错误：内部 `anyhow::Result`，Tauri 边界 `Result<T, CmdError>` 直接 `?`，禁 `.map_err(|e| e.to_string())`（[backend-separation](docs/architecture/backend-separation.md)）
-- **跨平台原语统一进 [`platform/`](crates/ha-core/src/platform/)**，走 `crate::platform::xxx()`（[platform](docs/architecture/platform.md)）
+- **跨平台原语统一进 [`platform/`](crates/ha-base/src/platform/)**，走 `crate::platform::xxx()`（[platform](docs/architecture/platform.md)）
 
 ## 架构契约
 
@@ -65,7 +65,14 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 详见 [backend-separation](docs/architecture/backend-separation.md) / [process-model](docs/architecture/process-model.md) / [transport-modes](docs/architecture/transport-modes.md)；版本发布见 [release-process](docs/release-process.md)。
 
-- **三 Crate**：业务全进 `ha-core`（**零 Tauri 依赖**），`ha-server` / `src-tauri` 只做薄壳；事件走 `ha-core::EventBus`，核心层禁用 `APP_HANDLE`
+- **分层 Crate**：`ha-base`（基础设施：paths / logging / platform / security / permissions / terminal 等，**不得依赖任何 ha-\* 业务 crate**）← `ha-config-schema`（`AppConfig` 全部 wire 类型 + 自包含 impl，**只准依赖 ha-base 与叶子 crate、零行为逻辑**——`cached_config`/`mutate_config`/redact/validate 等需要子系统服务的行为一律留在 ha-core，需要行为的方法改子系统自由函数或 extension trait，禁止把子系统依赖拖进 schema）← `ha-core`（kernel：核心业务，独立特征业务逐步迁出）← 特征 crate（`ha-updater` 起，依赖 ha-core、壳层 `wire()` 装配）← `ha-server` / `src-tauri`（薄壳）。**「零 Tauri 依赖」红线适用于 ha-base / ha-config-schema / ha-core 与全部特征 crate**；事件走 `ha-core::EventBus`，核心层禁用 `APP_HANDLE`。新增 `AppConfig` 可达类型定义进 ha-config-schema、ha-core 原地 `pub use` 再导出（既有 `crate::config::…` 路径不变）
+- **kernel 的 `sessions.db` 写连接不对特征 crate 开放（红线）**：`SessionDB::with_conn_internal` 恒 `pub(crate)`，特征 crate 一律走类型化方法——只读聚合自开 `SQLITE_OPEN_READ_ONLY` 连接（ha-dash），要写就说明该模块还没到能上浮的时候。**拿到裸句柄即可绕过 kernel 对 `sessions`/`messages` 的不变量与事务边界**，这条不因拆分进度让步，已多次决定分刀边界：`knowledge/registry.rs` 81 处（`session_db.conn.lock()` 多行写法，单行 grep 抓不到）**留 kernel**——机器上浮 ha-knowledge，台账不动。`coding_improvement`/`domain_eval`/`domain_quality` 曾因同一条被挡两轮（共 100 处 `self.conn.lock()`），第八刀按红线要求交付了 typed repository 边界：对三个 `impl SessionDB` 块的 155 个方法做不动点（**摸连接的、以及被摸连接者调用的，全部留 kernel**），收敛后 32 个**一处连接都不碰**的方法（加 2 个只被壳层调用的自由函数，共 34 个顶层入口）改写成自由函数上浮 ha-improve，123 个纯 SQL 访问层原地不动，另把 `persist_domain_eval_fixture_report`（原自由函数、自己锁连接写表）收编成第 124 个类型化方法。**`with_conn_internal` 一行没动**——放开的是 36 个类型化方法 + 46 个顶层符号（16 个入参 / 返回类型、14 个阈值常量、16 个纯谓词，**其中零个碰 SQL**）。**判据不是「不写 `sessions`/`messages`」**（`run_domain_eval_fixture` 照样建会话、写 user message、开 chat turn），而是**零裸连接 / 零直接 SQL——对 `sessions`/`messages` 的每一次写都经 kernel 的类型化方法**，不变量与事务边界仍由 kernel 独占。三个模块自身的 SQL 只碰 `coding_*` / `domain_*` 私有表，21 处 `JOIN sessions` 全是只读聚合。**新组要照此办理**：先算不动点，别拿通用 `with_conn` 当过渡。测试造 fixture 走 `with_conn_for_test`（`cfg(any(test, feature = "test-support"))`，生产构建里不存在）
+- **工具契约层 `tool_defs` 与分发层 `tools` 单向**：`TOOL_*` 名字常量 / `ToolDefinition` 家族 / `ToolExecContext` / `ToolScope` / `ToolRejection` 定义处是 `crates/ha-core/src/tool_defs/`，kernel 一律 `crate::tool_defs::…` 引用；**其生产代码绝不依赖 `tools::dispatch`/`registry`/adapter**（`cfg(test)` 全表断言是已登记的遗留测试边），需要分发层行为的方法改 extension trait 挂分发侧——`ToolDefinition::to_api_metadata` 即 `dispatch::ToolDefinitionApiExt`，**不在门面 glob 内、调用方须显式 import**。认识全表的 schema 汇编（`core_tools`/`special_tools`/`definitions::registry`）留 `tools/definitions/`；契约层子模块一律 `pub(crate)`，门面 glob 后 crate 外符号集与归位前逐字相同。**这条方向由 `scripts/analyze-crate-deps.mjs` 断言守卫**（pre-push + lint.yml，生产边零容忍、`--tests` 只放行 3 条登记测试边）。详见 [backend-separation](docs/architecture/backend-separation.md)
+- **`slash_commands` 是装配层，入向必须为零或走钩子**（analyzer `ASSEMBLY` 名单的第三名，与 `app_init` / `globals` 并列**仅指出边豁免**——那两个入向很重：`globals` 被 30 个模块引，是阶段 5 要解构的 god registry，不适用本条）。装配层向下依赖任意特征合法，但**下层反向 use 它即成环**。slash 命令因此三分——契约物（命令表 / wire 类型 / parser / fuzzy / 转录落库 / 选择器渲染）在 kernel `slash_defs/`，真分发（dispatch / IM 菜单 / 技能参数元数据）经 `slash_hooks` 三槽原子注册（`init_runtime` 内），`slash_commands/` 只留 handler。**`scripts/analyze-crate-deps.mjs` 双重守卫**：① `ASSEMBLY` 名单守 kernel 内部——名单说「出边不算成本」的前提是入边已清零，出现内部模块 `use crate::slash_commands::…` 就是名单在说谎；② 跨 crate 守：特征 crate 一律禁 `use ha_core::slash_commands::…`（装配层 handler），只准 `ha_core::slash_defs::…` / `ha_core::slash_hooks::…`；shells（`ha-server` / `ha-browser-host` / `ha-eval` / `ha-eval-spec`）与 kernel `app_init` 同源豁免（真正的装配点）。两条均 pre-push + lint.yml 强制
+- **特征分组图必须保持无环（红线）**：阶段 4 已把 7-环打成 DAG，`scripts/analyze-crate-deps.mjs` 断言守卫（重新成环即非零退出，接 pre-push + CI）。**回退的代价是卡死后续全部拆分**——环内任何成员都不能先于破环单独成 crate（已拆出的会依赖仍在残留 blob 里的环友，blob 又依赖已拆出者，Cargo 直接拒绝），而一条随手加的特征间反向边在编译期完全无感。兄弟间**单向**边合法（只约束拆分顺序），成环才拒；新增特征间引用前先跑一次脚本。**第八刀后这条守卫暂时空转**：`FEATURES` 只剩 `ha-workflow-quality` 一个待定组，一个组构不成环——**已拆出的 18 个真 crate 之间由 Cargo 自己拒绝成环**，脚本守的是「kernel 内部还没拆的分组」。下次新增待定组时它自动恢复效力。原盲区「纯 `cfg(test)` 边构成的环需 `--tests` 才报」已闭合：`--tests` 模式随 default 一起进 `.husky/pre-push` 与 `.github/workflows/lint.yml`
+- **Learning 埋点发布面在 kernel `learning_events.rs`**：生产者遍布 kernel / skills / knowledge / ha-mcp 四层，发布面留 dashboard 会让它们（含已拆出的特征 crate）反向依赖 ha-dash。`dashboard::learning` 只做只读聚合、保留原路径再导出；新增事件种类由生产者侧声明，dashboard 无需预先认识
+- **ha-base 需要上层数据时留注册钩子、绝不反向依赖**：现有 `paths::register_plans_dir_source`（冲突记 error）、`security::dangerous::register_config_flag_source`（冲突即 panic——它控制全局审批跳过，来源被顶替不可接受）与 `process_registry::register_notifiers`（未注册＝不通知，簿记不受影响），均在 `init_runtime()` 早期注册；同模式的 ha-core 内部装配钩子（filesystem 根解析器、config 写路径副作用）也在同处注册。`ha-core` 用 `pub use ha_base::*` + `#[macro_use] extern crate ha_base` 全量再导出，故 `crate::paths::…` / `ha_core::platform::…` / `app_info!` 等既有路径**全部不变**
+- **模块跨 crate 搬迁必须同步 [`.github/CODEOWNERS`](.github/CODEOWNERS)**：路径失配不报错，只会让安全代码悄悄失去强制评审
 - **Transport**：**新 invoke 必须同时实现 Tauri + HTTP 两套适配**（[`transport.ts`](src/lib/transport.ts)）；新 HTTP 端点默认经 Bearer 鉴权
 - **版本单一来源 `package.json`**：只走 `pnpm version` 同步，禁止手改任一 Cargo.toml / tauri.conf.json；**Updater 私钥严禁入仓**
 - **模式判定**用 `ha_core::runtime_role()` / `is_desktop()`，别给共享函数加 mode 参数
@@ -116,9 +123,10 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - `TeamTemplateMember.description` 注入子 session 身份段
 - **Cron 投递白名单**：`delivery_targets` 须命中 `channel_conversations`——模型显式给的未命中目标创建期 `bail!`，投递期再查、未命中或 DB 不可用 fail-closed 跳过。白名单即边界（刻意不叠 SSRF）
 - **Cron delete 审批**：`manage_cron action=delete` 唯一非 internal action，刻意抑制 AllowAlways——matcher 只按 `action` 不含 `id`，持久化即「删任意任务」常驻授权。owner 三入口走 `cron::delete_job_and_sessions`；新增审批原因同步 `ApprovalReasonKind` + `ApprovalDialog.tsx` union + 全语言文案
-- **Cron owner-only 覆盖**：`permission_mode_override` / `sandbox_mode_override` 仅 owner 可设，`manage_cron` 恒 `None`、不进 schema、`update` 拒带覆盖的 job（否则注入可排 `permission=yolo` 提权）。沙箱 fail-closed：override 写失败即终止本次运行（写丢=裸跑 host），权限 override 写失败仅 warn（退回更严）——不对称刻意，勿拉平；预检读错回退 expected 而非 `Off`（防 `.unwrap_or(Off)`）；`ensure_sandbox_available_for_mode()` 失败即终止、不回落宿主机
+- **Cron owner-only 覆盖**：`permission_mode_override` / `sandbox_mode_override` 仅 owner 可设，`manage_cron` 恒 `None`、不进 schema、`update` 拒带覆盖的 job（否则注入可排 `permission=yolo` 提权）。沙箱与权限 override 写失败**均 fail-closed 终止本次运行**（`app_error!` + 记 run_log failure，`count_toward_disable=false` 与 `no_session` 同档）：沙箱写丢=裸跑 host；权限写丢=按 agent 默认跑，agent 默认可能**比 override 更宽松**（owner 收紧场景 agent `yolo` → override `smart` 是常见），静默回退即隐性提权，故两侧对称——**别拉回不对称**（旧红线漏了收紧场景）；预检读错回退 expected 而非 `Off`（防 `.unwrap_or(Off)`）；`ensure_sandbox_available_for_mode()` 失败即终止、不回落宿主机
 - **Cron 排程与时区**：`schedule::validate_schedule` 为合法性唯一裁决（owner/模型共用），非法 IANA 时区 `bail!`、禁止静默回退 UTC；`compute_next_cron` 用 `.find(|dt| *dt > *after)` 非裸 `.next()`（否则 DST 秋退写入过去时刻 → 每 tick 重触发）；时区 backfill 经 `cron_meta` sentinel `tz_backfill_done` 真·一次性（形似性能优化，删掉即把故意-UTC 任务静默改成宿主时区）；`update_job` 系统字段以 DB live 为准、不取 caller 快照
 - **Cron Primary-only + slot-before-claim**：执行与 run-now 三入口前置 `is_primary()`（非 Primary 返错不假成功）；调度器先 `count_running()`（并发计数单一真相源，失败 fail-closed 跳过本 pass）抢槽再 claim——claim 会推进 `next_run_at`，反序即静默丢一轮
+- **启动清理必须带 owner 界（红线）**：`clear_stale_running` / `recover_orphaned_runs` 恒按 `running_owner` / `started_owner != CronDB::owner_token`（`NULL` 视为「不是本进程」）判断。`start_scheduler` 起独立 OS 线程后立即返回，启动清理与 `app_init` 下一行的事件 watcher **并发**——去掉这条界即回到「watcher 派出的合法在途任务被当遗留清掉 → 周期 tick 重新 claim → 副作用跑两遍」。**别改回调用顺序保证**（那条从未成立），**也别改回时间界**（`Utc::now()` 不受 Rust happens-before 约束，系统时间回拨即误清）。owner token 与墙上时钟解耦，回拨也不误清
 - **`at_grace_secs` 的 `0` 是 async_tools 规则的例外**：`0`=严格不补跑、只钳上限不钳地板，勿套用「bounded-resource 旁钮 `0` 一律钳地板、绝非无限」。`save_cron_config` 替换整个 `CronConfig`——新增字段须同步各 save 调用点，漏传即被 serde 默认静默重置
 - `CronFailureClass` 只做诊断、刻意不改 `max_failures` 禁用策略（防误分类过早禁用）
 - **`ChatSource::Cron`**：`kb_access_source` 映射 `KbAccessSource::Cron`（非 IM → owner KB）、incognito 归零；新增 variant 须同步 `stream_seq.rs` 语义方法 + `active_counts` 穷举 match + `kb_access_source` 映射
@@ -163,11 +171,11 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **写入三闸**：`WorkspaceScope::for_knowledge`（外部 root 只读、**桌面也拒**（刻意反「桌面不受限」通例），须 `allow_external_writes`；HTTP 再叠 `allow_remote_writes`；**后台维护永不写外部**）→ `platform::write_atomic`（**禁回退 `fs::write`**）→ `expected_file_hash` 比磁盘 raw BLAKE3（**非索引 `content_hash`**）
 - **检索独立**：笔记 store **绝不折进 `recall_memory`**（`knowledge_recall` 两段不混排）；`knowledge_embedding` 与 `memory_embedding` 物理隔离、**不寄生不回退**；embedding / chunk 重 reindex 故 **GUI-only 不进 `ha-settings`**（设置三件套例外）
 - **读取即 untrusted**：`[[note]]` 与 `knowledge_passive_recall` 套 `<untrusted_external_data>` 信封，**永不升为 system 指令**；incognito 零召回 / 零精灵
-- **接线**：会话独立 `SessionKind::Knowledge`（主列表 / `/sessions` / 全局 FTS 隐藏，与 design 同谓词）；**新增 KB 工具须同步 `tools/note.rs` + `core_tools.rs`（schema）+ `execution.rs`（dispatch）**
+- **接线**：会话独立 `SessionKind::Knowledge`（主列表 / `/sessions` / 全局 FTS 隐藏，与 design 同谓词）；**新增 KB 工具须同步 `ha-knowledge` 的 `tools/note.rs`（handler）+ `tools/mod.rs::note_dispatch_entries`（dispatch 条目，经 `wire()` 的 `register_external_tools`）+ kernel `core_tools.rs`（schema，名字常量与 `ToolDefinition` 是纯契约、恒留 kernel）**
 
 ### 设计空间（Design Space）
 
-详见 [design-space](docs/architecture/design-space.md)。**新增 action / 端点：工具进 `tools/design/mod.rs`，Tauri / HTTP 薄壳只调 `design::service`，逻辑全在 ha-core**。
+详见 [design-space](docs/architecture/design-space.md)。**新增 action / 端点：工具进 `crates/ha-design/src/tool_design/mod.rs`，Tauri / HTTP 薄壳只调 `design::service`，逻辑全在 ha-design 特征 crate（阶段 3 自 ha-core 迁出，与 artifacts 合并）**。
 
 - **浏览器零编译**：iframe 只载后端编译落盘的静态产物（`component` 经 `design::compile`）；**禁 in-browser Babel / esbuild-wasm / Tailwind JIT**（旧版 `feat/atelier` 白屏卡顿根因）；编译失败降错误页，**不白屏 / 不 panic**。**刻意不做无限画布**（同一卡顿根因）
 - **回写确定性**：磁盘即真相源，`design.db` 仅可重建注册表；微调回写单一命中 + `expected_hash` stale-write 守卫，写盘**一律** `platform::write_atomic`。**component 编译产物 ≠ 源码故无 oid 微调**，仅 `supports_oid_edit` kind（非 image/audio/component）可 `edit_element`
@@ -181,6 +189,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **控制面归位**：`/goal` 目标+完成标准 · `/mode` 强度 · `/workflow` 一次性可恢复可审批脚本 · `/task` 进度 · `/loop` 重复触发（复用 Cron，不另起 scheduler） · `/worktree` 隔离 coding。禁持续触发伪装 workflow、一次性脚本伪装 loop。
 - **领域模块不扩权、不执行**：`domain_workflow_templates` 只述交付契约，不给连接器权限；`preview_domain_workflow` 只出 draft/preview，不建 run 不执行、不碰连接器、不发/改外部系统。Domain Learning 复用 Coding Improvement 同一 proposal queue（禁平行队列），preview → apply → 用户显式 promotion 才落生产，禁直改生产模板/connector 策略/eval fixture。
 - **复核评测**：Domain Quality、`domain_eval_runs`、`evaluate_domain_quality_gate` 确定性只读：不调 LLM、不写状态、不碰连接器、不发送/发布、不自动学成正式规则。证据走 `domain_evidence_items` + Goal link，禁冒充 diff/validation/file evidence；与 `coding_eval_runs` 不混用，coding release gate 不代替 domain quality gate。
+- **crate 边界**：机器（提案生成 / 蒸馏 / 预览 / 落盘 / 提升、fixture 与 campaign 跑批、质量复核、四道闸与 soak 报表）在 `ha-improve`，**台账（三个模块的 `impl SessionDB` 纯 SQL 层 + wire 类型 + 行映射）恒留 kernel** 同名模块；kernel → ha-improve 只经 `improve_hooks` 单槽（工作流终态记 coding retro，未装配 `Ok(None)`）。新增 owner 入口只加壳层薄封装，**别把 SQL 写进 ha-improve**
 - **两处 fail closed**：只有 `requestedAction` 命中 approval gate 或 `highRiskAction=true` 才 `needs_user`（否则模板带 gate 即阻塞普通复核），缺确认阻塞 Goal；incognito 下 preview/evidence/quality/eval 拒绝或返空只读，不落 durable。
 
 ### Hooks
@@ -206,6 +215,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **内置技能编译期嵌入二进制**（`skills/embedded.rs`）：禁止往构建产物单独拷 `skills/`
 - **`@skill` 固定 allowlist**：非通用注入入口，单一来源 `skills::mention::AT_MENTIONABLE_SKILLS`
 - **`skills::author` 写正文三路径（create/update/patch）全过 `security_scan`，命中即 bail 不降级**；自动**创建**默认落 draft 待用户确认，但 `promotion:"auto"` 直接写 Active；**`patch` 就地改已存在技能——目标 Active 时即刻对模型生效，不落 draft、不经确认**
+- **crate 边界**：机器（解包 / 发现解析 / 创作 / auto-review / 提及 / fork / 命令面 / `skill` 工具）在 `ha-skills`，**契约 `skills/types.rs` + 台账 `skills/activation.rs` + 纯谓词 `skills/{requirements,prompt,slash}.rs` 恒留 kernel**（slash 命令表与 system prompt 直接用，条件激活台账被 `tools::execution` / `system_prompt` / `cleanup_watcher` 三处读写）；kernel → ha-skills 只经 `skills_hooks` 九槽。**`rerun-if-changed=../../skills` 在 `crates/ha-skills/build.rs`**——它与 `#[folder]` 必须同 crate，分开即 warm-target release 静默 ship 旧技能集
 
 ### MCP 客户端
 
@@ -223,7 +233,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **事件匹配用 `contains` 不用 `starts_with`（红线）**：`emit_tool_result` 的 `json!`+`BTreeMap` 键按**字母序**排（`call_id` 恒首位），锚 `{"type":...` 的 fast-path **永不触发**
 - **`channel_conversations` 双向 1:1（红线）**：一 chat ↔ 一 session，接管即物理 detach 旧 attach + emit `channel:session_evicted`；读写一律走 [`channel/db.rs`](crates/ha-core/src/channel/db.rs) helper，**禁止直接写表**
 - **注入回投须在同一 future 内 await finalize**：`inject_and_run_parent` 自驱动镜像（注入跑短命 runtime，`spawn(finalize)` 会被腰斩）；空闲门超时**不丢弃**，重排队进 `PENDING_INJECTIONS`
-- **单一入口勿另起**：流式预览选路走 `select_stream_preview_transport`，新卡片风格靠 `ChannelPlugin` default=`Err` trait 方法扩展；auto-start 失败重试走 [`channel/start_watchdog.rs`](crates/ha-core/src/channel/start_watchdog.rs)（**user 操作永远胜过 watchdog**），勿自写退避
+- **单一入口勿另起**：流式预览选路走 `select_stream_preview_transport`，新卡片风格靠 `ChannelPlugin` default=`Err` trait 方法扩展；auto-start 失败重试走 [`channel/start_watchdog.rs`](crates/ha-channel/src/channel/start_watchdog.rs)（**user 操作永远胜过 watchdog**），勿自写退避
 
 ### 跨会话 / 全局
 
@@ -257,33 +267,34 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 详见 [self-update](docs/architecture/self-update.md)。红线：
 
-- **下载产物必须验签**：更新下载走 `updater::download::download_to`，落地 / swap 前必过 Minisign `signature::verify_bytes`
-- **pubkey 两处必须相等**：`updater::keys::MINISIGN_PUBKEY_BASE64` ↔ `tauri.conf.json#plugins.updater.pubkey`（启动 panic / CI / pre-push 三重校验）
-- **manifest endpoints 两处逐项逐序相等**：`manifest::UPDATE_MANIFEST_URLS` ↔ `tauri.conf.json#plugins.updater.endpoints`（`verify-updater-endpoints.mjs`，CI + pre-push，另校验镜像域名 ↔ `mirror-release-r2.yml` 的 `PUBLIC_BASE`）。R2 镜像恒排第一——**是可达性不是延迟**（部分用户访问不了 github.com）；**刻意维持「首个成功者胜」**、不做比版本取新，否则桌面与 headless 会对「当前哪个版本」分歧
+- **下载产物必须验签**：更新下载走 `ha_updater::download::download_to`，落地 / swap 前必过 Minisign `signature::verify_bytes`
+- **pubkey 两处必须相等**：`ha_updater::keys::MINISIGN_PUBKEY_BASE64` ↔ `tauri.conf.json#plugins.updater.pubkey`（启动 panic / CI / pre-push 三重校验）
+- **manifest endpoints 两处逐项逐序相等**：`ha_updater::manifest::UPDATE_MANIFEST_URLS` ↔ `tauri.conf.json#plugins.updater.endpoints`（`verify-updater-endpoints.mjs`，CI + pre-push，另校验镜像域名 ↔ `mirror-release-r2.yml` 的 `PUBLIC_BASE`）。R2 镜像恒排第一——**是可达性不是延迟**（部分用户访问不了 github.com）；**刻意维持「首个成功者胜」**、不做比版本取新，否则桌面与 headless 会对「当前哪个版本」分歧
 - **镜像 manifest 是派生物、GitHub 那份权威**：`mirror-release-r2.yml` 只改 URL 与 `notes` 链接，`signature` 原样复制**绝不重算**（验签用编译期嵌入 pubkey，故污染镜像装不进恶意二进制，最坏只能拒服务/谎报版本）；必须**先回抓校验全部对象再写 `latest.json`**，顺序反了可变 manifest 就会指向不存在的字节
 - **可变面只许当前稳定版写（红线）**：`download/latest/` 与 `download/latest.json` 全局共享，给非 latest / prerelease 写＝降级广播（R2 是 endpoint[0] 且首个成功者胜，全体客户端从此看不到真新版）——回填旧 tag 与发 prerelease 都会触发本 workflow，故推进可变面须过 `PROMOTE` 门控；不可变 `download/<tag>/` 永远照写。`latest/` 别名**禁带 immutable 头**（文件名每版复用）、可变上传须 `--ignore-times`（同名同大小会被静默跳过）；`checkout` 的 `ref:` **必须显式**指默认分支（`release.published` 下 `github.ref` 是 tag，裸 checkout 会取 tag，历史版本从此不可回填）；`update-linux-repo.yml` 整桶 pull 的 `--include` 过滤是 load-bearing，新增本 job 顶层路径须同步
 - **换 binary 只走 `platform::atomic_replace_binary`**（禁 `fs::write` 覆盖运行中 binary）；swap 后冷烟自检失败自动回滚
 - **安装 / 重启必经用户确认**：`auto_update` 后台只检查 + 预下载 staging，`app_update` 的 `install` / `rollback` 弹 `ask_user_question`，**桌面绝不无条件 relaunch**
-- **ha-core 不依赖 tauri-plugin-updater**，桌面路径经 `updater::UpdaterBridge` 反向注册
+- **ha-updater 不依赖 tauri-plugin-updater**（自升级独立 crate，阶段 3 迁出 ha-core），桌面路径经 `ha_updater::UpdaterBridge` 反向注册
+- **壳层装配契约**：每个调 `ha_core::init_runtime` 的二进制（src-tauri / hope-agent-server / ha-eval runner）必须先调 [`ha_server::wire_features()`](crates/ha-server/src/lib.rs)——**单一来源**，按序调 `ha_updater::wire()` + 17 个特征 crate 的 `wire()`。**别在 shell 里内联 `wire()` 序列**（历史 4 处各抄一份，新增特征 crate 时漏改任一处即静默丢 handler：`app_update` 有 schema 无 handler，启动期只剩 `registry_freeze` warn 兜底）。新增特征 crate = 改 `wire_features()` 一处 + 三个壳的 `Cargo.toml` 加 path dep
 
 ### Dashboard / Recap / Learning
 
 详见 [dashboard](docs/architecture/dashboard.md) / [recap](docs/architecture/recap.md)。
 
 - **用量总账（红线）**：新增任何触发模型推理 / embedding / STT / judge / `web_search` / 生图生音 / `provider_test` / vision 的入口必须经 [`model_usage.rs`](crates/ha-core/src/model_usage.rs) 入账（无痕不记，**cron / subagent / 后台维护照记**），**禁止字符估算冒充 token**；新增 `KIND_*` 须同步 `DashboardFilter.USAGE_KIND_VALUES` + `dashboard.usageKind.*` 全部语言
-- **大盘只读、不伪造因果（红线）**：`dashboard/control_plane.rs` 是 Goal / Workflow / Loop / Task / Plan 聚合唯一入口；无可靠外键前禁止按 session 拼因果漏斗，零分母返 `null`，Goal / Workflow / Loop / Task / attention 排除 incognito / Cron / 子会话
+- **大盘只读、不伪造因果（红线）**：ha-dash 的 `dashboard/control_plane.rs`（阶段 5 自 ha-core 迁出）是 Goal / Workflow / Loop / Task / Plan 聚合唯一入口；无可靠外键前禁止按 session 拼因果漏斗，零分母返 `null`，Goal / Workflow / Loop / Task / attention 排除 incognito / Cron / 子会话
 
 ### 本地 LLM 助手
 
 详见 [local-model-loading](docs/architecture/local-model-loading.md)。
 
-- 后端锁 Ollama（OpenAI 兼容端点），**App 不接管其进程**；模型目录与硬件预算算法见 `local_llm/types.rs::model_catalog` / `RECOMMENDATION_BUDGET_PERCENT`
+- 后端锁 Ollama（OpenAI 兼容端点），**App 不接管其进程**；模型目录与硬件预算算法见 `crates/ha-local-llm/src/local_llm/types.rs::model_catalog` / `RECOMMENDATION_BUDGET_PERCENT`（阶段 5 自 ha-core 迁出；任务台账仍在 kernel `local_model_jobs`）
 - **Provider 写入 contract**：Provider 列表与 `active_model` 一切写入走 [`provider/crud.rs`](crates/ha-core/src/provider/crud.rs) helper（本地安装走 `upsert_known_local_provider_model`），**禁止 `providers.push` / `retain` / 手写 `active_model`**
 - **本地后端判定消费 catalog**（[`provider/local.rs`](crates/ha-core/src/provider/local.rs)），**禁止硬编码 regex**
 
 ## 项目结构
 
-六 crate workspace：`ha-core`（核心业务，**零 Tauri 依赖**）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
+二十六 crate workspace：`ha-base`（基础设施底层，**不依赖任何 ha-\* 业务 crate**）/ `ha-config-schema`（`AppConfig` wire 类型闭包，**只依赖 ha-base 与叶子 crate、零行为逻辑**）/ `ha-core`（核心业务，**零 Tauri 依赖**）/ 特征 crate `ha-acp`·`ha-browser`·`ha-channel`·`ha-cron`·`ha-dash`·`ha-design`·`ha-eval-runtime`·`ha-improve`·`ha-knowledge`·`ha-local-llm`·`ha-mac`·`ha-mcp`·`ha-media`·`ha-pet`·`ha-skills`·`ha-updater`·`ha-vcs`·`ha-weather`（依赖 ha-core，壳层 `wire()` 装配，**同守零 Tauri 红线**；`ha-eval-runtime` 是唯一无 `wire()` 者——kernel 对它零引用）/ `ha-server`（axum HTTP·WS）/ `ha-browser-host`（浏览器辅助进程）/ `ha-eval-spec`（评测协议，**不依赖 ha-core**）/ `ha-eval`（评测 CLI）＋ `src-tauri/`（桌面薄壳），`src/` 前端，`skills/` 内置技能，`evals/` 评测资产。
 
 ## 开发命令
 

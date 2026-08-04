@@ -1,0 +1,36 @@
+[package]
+name = "ha-local-llm"
+version = "0.29.0"
+description = "Hope Agent local model feature — Ollama lifecycle, model catalog, hardware budget, embedding backend"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+ha-base = { path = "../ha-base" }
+ha-core = { path = "../ha-core" }
+ha-knowledge = { path = "../ha-knowledge" }
+
+anyhow = { workspace = true }
+chrono = { workspace = true }
+futures-util = { workspace = true }
+once_cell = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+# 与 ha-core 原依赖同版本线。`scraper`（Ollama Library 页面解析）随本刀离开
+# ha-core 的依赖树——它原是 ha-core 内唯一使用者（ha-design 另有自己一份）。
+libc = "0.2"
+scraper = "0.26.0"
+sysinfo = "0.38"
+tokio-util = { version = "0.7", features = ["rt"] }
+urlencoding = "2"
+which = "8"
+
+[lints]
+workspace = true

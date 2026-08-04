@@ -12,9 +12,36 @@ pub mod crud;
 pub mod engine;
 pub mod errors;
 pub mod local;
-pub mod providers;
-pub mod session;
 pub mod types;
+
+// ── ha-media 转写钩子（装配期单钩子注册，与 pet config updater 同型）──
+
+type SttTranscriber = fn(
+    Option<ActiveSttModel>,
+    Vec<ActiveSttModel>,
+    AudioPayload,
+    TranscriptOptions,
+    Option<String>,
+) -> std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = Result<Transcript, engine::FailoverError>>
+            + Send
+            + 'static,
+    >,
+>;
+
+static STT_TRANSCRIBER: std::sync::OnceLock<SttTranscriber> = std::sync::OnceLock::new();
+
+/// ha-media 装配期注册批量转写实现。重复注册返回 `Err`。
+pub fn register_stt_transcriber(t: SttTranscriber) -> Result<(), crate::AlreadyRegistered> {
+    STT_TRANSCRIBER
+        .set(t)
+        .map_err(|_| crate::AlreadyRegistered("stt transcriber"))
+}
+
+pub(crate) fn stt_transcriber() -> Option<&'static SttTranscriber> {
+    STT_TRANSCRIBER.get()
+}
 
 // ── i18n helpers ─────────────────────────────────────────────────
 
@@ -54,16 +81,13 @@ pub use crud::{
 };
 pub use engine::{
     current_desktop_chain, current_im_chain, failover_transcribe_batch, resolve_active,
-    transcribe_with, AttemptedModel, FailoverError,
+    AttemptedModel, FailoverError,
 };
 pub use errors::{SttError, SttResult};
 pub use local::{
     known_local_stt_backend, known_local_stt_backend_matches, known_local_stt_backends,
     probe_local_backend_alive, KnownLocalSttBackend, FASTER_WHISPER_KEY, FUNASR_KEY,
     SHERPA_ONNX_KEY, WHISPER_CPP_KEY,
-};
-pub use session::{
-    SttSessionManager, EVENT_SESSION_ERROR, EVENT_TRANSCRIPT_FINAL, EVENT_TRANSCRIPT_PARTIAL,
 };
 pub use types::{
     ActiveSttModel, AudioPayload, SttConfig, SttModelConfig, SttProviderConfig, SttProviderKind,

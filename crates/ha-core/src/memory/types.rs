@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -8,11 +8,605 @@ use crate::memory::episodes::{
     MemoryEpisodeRecord, MemoryExperienceHistoryRecord, MemoryProcedureRecord,
 };
 
-const MAX_EXTERNAL_MEMORY_PROVIDERS: usize = 16;
-const MAX_EXTERNAL_PROVIDER_ID_CHARS: usize = 64;
-const MAX_EXTERNAL_PROVIDER_DISPLAY_CHARS: usize = 80;
-const MAX_EXTERNAL_PROVIDER_ERROR_CHARS: usize = 512;
-const MAX_EXTERNAL_PROVIDER_TIMESTAMP_CHARS: usize = 80;
+// wire 类型已下沉 ha-config-schema，原地再导出保持路径不变。External provider
+// 的健康 / 预检 / 同步报告等**运行时投影与决策逻辑**留在本文件（见下方
+// External provider runtime projection 段）——schema 只收数据定义。
+pub use ha_config_schema::memory::{
+    DedupConfig, EmbeddingCacheConfig, ExternalMemoryProviderConfig, ExternalMemoryProviderKind,
+    ExternalMemoryProvidersConfig, ExternalMemorySyncPolicy, HybridSearchConfig,
+    MemoryBudgetConfig, MemoryExtractConfig, MemorySelectionConfig, MmrConfig, MultimodalConfig,
+    SqliteSectionBudgets, TemporalDecayConfig, DEDUP_THRESHOLD_HIGH, DEDUP_THRESHOLD_MERGE,
+    MAX_EXTERNAL_PROVIDER_ERROR_CHARS,
+};
+
+// ── External provider runtime projection（运行时投影，刻意不下沉 schema）──
+//
+// 这里是「provider 是否/如何会同步用户记忆」的决策与投影：健康、预检、
+// 同步报告。它们不是 AppConfig wire 类型，只经方法可达，且未来会接入
+// adapter 注册表 / 真实端点探测——属于 ha-core 行为面。schema 侧类型上的
+// 跨界方法在此改为自由函数（与 666ed047f 的 4 处解耦同模式）。
+
+/// Memory statistics for the dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryStats {
+    pub total: usize,
+    pub by_type: std::collections::HashMap<String, usize>,
+    pub by_source: std::collections::HashMap<String, usize>,
+    pub with_embedding: usize,
+    pub oldest: Option<String>,
+    pub newest: Option<String>,
+}
+
+/// Overall health state for the memory backend.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryHealthStatus {
+    Ok,
+    Warning,
+    Error,
+}
+
+/// Runtime capability contract for an external provider family. This is health
+/// metadata, not user data and not a credential record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMemoryProviderCapabilities {
+    #[serde(default)]
+    pub adapter_available: bool,
+    #[serde(default)]
+    pub requires_endpoint: bool,
+    #[serde(default)]
+    pub supports_manual: bool,
+    #[serde(default)]
+    pub supports_pull: bool,
+    #[serde(default)]
+    pub supports_push: bool,
+    #[serde(default)]
+    pub supports_bidirectional: bool,
+}
+
+impl Default for ExternalMemoryProviderCapabilities {
+    fn default() -> Self {
+        Self {
+            adapter_available: false,
+            requires_endpoint: true,
+            supports_manual: false,
+            supports_pull: false,
+            supports_push: false,
+            supports_bidirectional: false,
+        }
+    }
+}
+
+/// 运行时能力注册表（原 `ExternalMemoryProviderKind::capabilities` 方法；
+/// 类型下沉 schema 后按 coherence 改为 ha-core 自由函数）。health / preflight /
+/// owner sync 的就绪投影都以这张表为准。
+pub fn external_provider_capabilities(
+    kind: ExternalMemoryProviderKind,
+) -> ExternalMemoryProviderCapabilities {
+    match kind {
+        ExternalMemoryProviderKind::Mem0
+        | ExternalMemoryProviderKind::Zep
+        | ExternalMemoryProviderKind::Supermemory
+        | ExternalMemoryProviderKind::Honcho
+        | ExternalMemoryProviderKind::Hindsight
+        | ExternalMemoryProviderKind::OpenViking
+        | ExternalMemoryProviderKind::Custom => ExternalMemoryProviderCapabilities {
+            adapter_available: true,
+            requires_endpoint: true,
+            supports_manual: true,
+            supports_pull: true,
+            supports_push: true,
+            supports_bidirectional: true,
+        },
+    }
+}
+
+/// Owner-visible data-flow projection for external provider policies. This is
+/// not an execution log; it separates user-selected policy intent from runtime
+/// adapter readiness so health consumers do not confuse planned sync with data
+/// actually being able to move.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalMemoryProviderDataFlow {
+    #[default]
+    None,
+    Manual,
+    PullOnly,
+    PushOnly,
+    Bidirectional,
+}
+
+/// 原 `ExternalMemorySyncPolicy::data_flow` 方法（返回运行时投影，改自由函数）。
+pub fn sync_policy_data_flow(policy: &ExternalMemorySyncPolicy) -> ExternalMemoryProviderDataFlow {
+    match policy {
+        ExternalMemorySyncPolicy::Off => ExternalMemoryProviderDataFlow::None,
+        ExternalMemorySyncPolicy::Manual => ExternalMemoryProviderDataFlow::Manual,
+        ExternalMemorySyncPolicy::PullOnly => ExternalMemoryProviderDataFlow::PullOnly,
+        ExternalMemorySyncPolicy::PushOnly => ExternalMemoryProviderDataFlow::PushOnly,
+        ExternalMemorySyncPolicy::Bidirectional => ExternalMemoryProviderDataFlow::Bidirectional,
+    }
+}
+
+/// 原 `ExternalMemorySyncPolicy::supported_by` 方法（参数是运行时能力表，改自由函数）。
+pub fn sync_policy_supported_by(
+    policy: &ExternalMemorySyncPolicy,
+    capabilities: &ExternalMemoryProviderCapabilities,
+) -> bool {
+    match policy {
+        ExternalMemorySyncPolicy::Off => true,
+        ExternalMemorySyncPolicy::Manual => capabilities.supports_manual,
+        ExternalMemorySyncPolicy::PullOnly => capabilities.supports_pull,
+        ExternalMemorySyncPolicy::PushOnly => capabilities.supports_push,
+        ExternalMemorySyncPolicy::Bidirectional => capabilities.supports_bidirectional,
+    }
+}
+
+/// Stable owner-facing reasons why an external provider cannot currently sync.
+/// These are diagnostics only; they do not perform or authorize any network IO.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalMemoryProviderSyncBlockReason {
+    GlobalDisabled,
+    ProviderDisabled,
+    PolicyOff,
+    EndpointMissing,
+    PolicyUnsupported,
+    AdapterUnavailable,
+    LastError,
+}
+
+/// Owner-visible health projection for one external provider config.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMemoryProviderHealth {
+    pub id: String,
+    pub kind: ExternalMemoryProviderKind,
+    pub display_name: String,
+    pub enabled: bool,
+    pub sync_policy: ExternalMemorySyncPolicy,
+    pub status: MemoryHealthStatus,
+    #[serde(default)]
+    pub capabilities: ExternalMemoryProviderCapabilities,
+    #[serde(default = "crate::default_true")]
+    pub policy_supported: bool,
+    #[serde(default)]
+    pub policy_data_flow: ExternalMemoryProviderDataFlow,
+    #[serde(default)]
+    pub runtime_data_flow: ExternalMemoryProviderDataFlow,
+    #[serde(default)]
+    pub runtime_sync_enabled: bool,
+    #[serde(default)]
+    pub sync_blocked: bool,
+    #[serde(default)]
+    pub sync_block_reasons: Vec<ExternalMemoryProviderSyncBlockReason>,
+    #[serde(default)]
+    pub sends_query_context: bool,
+    #[serde(default)]
+    pub sends_local_memory: bool,
+    #[serde(default)]
+    pub imports_external_memory: bool,
+    #[serde(default)]
+    pub requires_explicit_action: bool,
+    #[serde(default)]
+    pub automatic_sync: bool,
+    #[serde(default)]
+    pub endpoint_configured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sync_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+/// Owner-only dry-run action state for external memory sync. This is a
+/// preflight projection, not an execution result.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalMemoryProviderPreflightAction {
+    Off,
+    Blocked,
+    WouldSync,
+}
+
+/// Owner-visible result status for a requested external provider sync run.
+/// This is distinct from preflight so future real adapters can report executed
+/// success/failure without changing the dry-run action contract.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalMemoryProviderSyncStatus {
+    Off,
+    Blocked,
+    NoRuntimeAdapter,
+    Succeeded,
+    Failed,
+}
+
+/// One provider's owner-visible external sync preflight. It intentionally
+/// exposes counts and data-flow flags, never memory contents or credentials.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMemoryProviderPreflight {
+    pub id: String,
+    pub kind: ExternalMemoryProviderKind,
+    pub display_name: String,
+    pub action: ExternalMemoryProviderPreflightAction,
+    pub dry_run_only: bool,
+    pub health: ExternalMemoryProviderHealth,
+    pub planned_data_flow: ExternalMemoryProviderDataFlow,
+    pub runtime_data_flow: ExternalMemoryProviderDataFlow,
+    pub planned_sends_query_context: bool,
+    pub planned_sends_local_memory: bool,
+    pub planned_imports_external_memory: bool,
+    pub runtime_sends_query_context: bool,
+    pub runtime_sends_local_memory: bool,
+    pub runtime_imports_external_memory: bool,
+    pub local_memory_candidate_count: usize,
+}
+
+/// One provider's owner-visible sync result. Counts are zero until a concrete
+/// adapter executes; blocked/no-adapter results must not imply any IO happened.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMemoryProviderSyncResult {
+    pub id: String,
+    pub kind: ExternalMemoryProviderKind,
+    pub display_name: String,
+    pub status: ExternalMemoryProviderSyncStatus,
+    pub external_io_performed: bool,
+    pub preflight: ExternalMemoryProviderPreflight,
+    pub imported_memory_count: usize,
+    pub exported_memory_count: usize,
+    pub updated_memory_count: usize,
+    pub skipped_memory_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Owner-only report for an external memory provider sync request. Current
+/// planned adapters return blocked/off results only; future real adapters must
+/// keep local SQLite as truth source and fill result counts after explicit IO.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMemoryProviderSyncReport {
+    pub generated_at: String,
+    pub global_enabled: bool,
+    pub external_io_performed: bool,
+    pub local_memory_total: usize,
+    pub local_memory_with_embedding: usize,
+    #[serde(default)]
+    pub stats_unavailable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats_error: Option<String>,
+    pub runnable_provider_count: usize,
+    pub blocked_provider_count: usize,
+    pub executed_provider_count: usize,
+    pub succeeded_provider_count: usize,
+    pub failed_provider_count: usize,
+    pub providers: Vec<ExternalMemoryProviderSyncResult>,
+}
+
+/// Owner-only dry-run report for external memory sync. Future concrete
+/// adapters should keep this as the explicit preflight before any outbound IO.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMemoryProviderPreflightReport {
+    pub generated_at: String,
+    pub global_enabled: bool,
+    pub dry_run_only: bool,
+    pub local_memory_total: usize,
+    pub local_memory_with_embedding: usize,
+    #[serde(default)]
+    pub stats_unavailable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats_error: Option<String>,
+    pub runnable_provider_count: usize,
+    pub blocked_provider_count: usize,
+    pub providers: Vec<ExternalMemoryProviderPreflight>,
+}
+
+impl ExternalMemoryProviderHealth {
+    pub fn from_config(config: &ExternalMemoryProviderConfig, global_enabled: bool) -> Self {
+        Self::from_config_with_capabilities(
+            config,
+            global_enabled,
+            external_provider_capabilities(config.kind),
+        )
+    }
+
+    pub fn from_config_with_capabilities(
+        config: &ExternalMemoryProviderConfig,
+        global_enabled: bool,
+        capabilities: ExternalMemoryProviderCapabilities,
+    ) -> Self {
+        let active = global_enabled && config.enabled && config.sync_policy.is_active();
+        let policy_supported = sync_policy_supported_by(&config.sync_policy, &capabilities);
+        let endpoint_ready = !capabilities.requires_endpoint || config.endpoint_configured;
+        let runtime_sync_enabled =
+            active && policy_supported && capabilities.adapter_available && endpoint_ready;
+        let sync_block_reasons = external_provider_sync_block_reasons(
+            config,
+            global_enabled,
+            &capabilities,
+            policy_supported,
+            endpoint_ready,
+        );
+        let policy_data_flow = if active {
+            sync_policy_data_flow(&config.sync_policy)
+        } else {
+            ExternalMemoryProviderDataFlow::None
+        };
+        let runtime_data_flow = if runtime_sync_enabled {
+            policy_data_flow.clone()
+        } else {
+            ExternalMemoryProviderDataFlow::None
+        };
+        let status = if !active {
+            MemoryHealthStatus::Ok
+        } else if !policy_supported
+            || !capabilities.adapter_available
+            || !endpoint_ready
+            || config.last_error.is_some()
+        {
+            MemoryHealthStatus::Warning
+        } else {
+            MemoryHealthStatus::Ok
+        };
+        Self {
+            id: config.id.clone(),
+            kind: config.kind,
+            display_name: config.display_name.clone(),
+            enabled: active,
+            sync_policy: config.sync_policy.clone(),
+            status,
+            capabilities,
+            policy_supported,
+            policy_data_flow,
+            runtime_data_flow,
+            runtime_sync_enabled,
+            sync_blocked: active && !runtime_sync_enabled,
+            sync_block_reasons,
+            sends_query_context: runtime_sync_enabled && config.sync_policy.sends_query_context(),
+            sends_local_memory: runtime_sync_enabled && config.sync_policy.sends_local_memory(),
+            imports_external_memory: runtime_sync_enabled
+                && config.sync_policy.imports_external_memory(),
+            requires_explicit_action: runtime_sync_enabled
+                && matches!(config.sync_policy, ExternalMemorySyncPolicy::Manual),
+            automatic_sync: runtime_sync_enabled
+                && matches!(
+                    config.sync_policy,
+                    ExternalMemorySyncPolicy::PullOnly
+                        | ExternalMemorySyncPolicy::PushOnly
+                        | ExternalMemorySyncPolicy::Bidirectional
+                ),
+            endpoint_configured: config.endpoint_configured,
+            last_sync_at: config.last_sync_at.clone(),
+            last_error: config.last_error.clone(),
+        }
+    }
+}
+
+/// 原 `ExternalMemoryProvidersConfig::sync_preflight` 方法（改自由函数）。
+pub fn external_memory_sync_preflight(
+    config: &ExternalMemoryProvidersConfig,
+    stats: &MemoryStats,
+) -> ExternalMemoryProviderPreflightReport {
+    external_memory_sync_preflight_with_stats_status(config, stats, None)
+}
+
+/// 原 `ExternalMemoryProvidersConfig::sync_preflight_with_stats_status` 方法。
+pub fn external_memory_sync_preflight_with_stats_status(
+    config: &ExternalMemoryProvidersConfig,
+    stats: &MemoryStats,
+    stats_error: Option<String>,
+) -> ExternalMemoryProviderPreflightReport {
+    let providers = config
+        .providers
+        .iter()
+        .map(|provider| {
+            let health = ExternalMemoryProviderHealth::from_config(provider, config.enabled);
+            external_memory_provider_preflight(provider, health, config.enabled, stats)
+        })
+        .collect::<Vec<_>>();
+    let runnable_provider_count = providers
+        .iter()
+        .filter(|provider| provider.action == ExternalMemoryProviderPreflightAction::WouldSync)
+        .count();
+    let blocked_provider_count = providers
+        .iter()
+        .filter(|provider| provider.action == ExternalMemoryProviderPreflightAction::Blocked)
+        .count();
+    ExternalMemoryProviderPreflightReport {
+        generated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        global_enabled: config.enabled,
+        dry_run_only: true,
+        local_memory_total: stats.total,
+        local_memory_with_embedding: stats.with_embedding,
+        stats_unavailable: stats_error.is_some(),
+        stats_error,
+        runnable_provider_count,
+        blocked_provider_count,
+        providers,
+    }
+}
+
+/// 原 `ExternalMemoryProvidersConfig::sync_report` 方法（改自由函数）。
+pub fn external_memory_sync_report(
+    config: &ExternalMemoryProvidersConfig,
+    stats: &MemoryStats,
+) -> ExternalMemoryProviderSyncReport {
+    external_memory_sync_report_with_stats_status(config, stats, None)
+}
+
+/// 原 `ExternalMemoryProvidersConfig::sync_report_with_stats_status` 方法。
+pub fn external_memory_sync_report_with_stats_status(
+    config: &ExternalMemoryProvidersConfig,
+    stats: &MemoryStats,
+    stats_error: Option<String>,
+) -> ExternalMemoryProviderSyncReport {
+    let preflight = external_memory_sync_preflight_with_stats_status(config, stats, stats_error);
+    external_memory_provider_sync_report_from_preflight(preflight)
+}
+
+fn external_memory_provider_sync_report_from_preflight(
+    preflight: ExternalMemoryProviderPreflightReport,
+) -> ExternalMemoryProviderSyncReport {
+    let providers = preflight
+        .providers
+        .into_iter()
+        .map(external_memory_provider_sync_result_from_preflight)
+        .collect::<Vec<_>>();
+    let external_io_performed = providers
+        .iter()
+        .any(|provider| provider.external_io_performed);
+    let executed_provider_count = providers
+        .iter()
+        .filter(|provider| provider.external_io_performed)
+        .count();
+    let succeeded_provider_count = providers
+        .iter()
+        .filter(|provider| provider.status == ExternalMemoryProviderSyncStatus::Succeeded)
+        .count();
+    let failed_provider_count = providers
+        .iter()
+        .filter(|provider| provider.status == ExternalMemoryProviderSyncStatus::Failed)
+        .count();
+    let blocked_provider_count = providers
+        .iter()
+        .filter(|provider| {
+            matches!(
+                provider.status,
+                ExternalMemoryProviderSyncStatus::Blocked
+                    | ExternalMemoryProviderSyncStatus::NoRuntimeAdapter
+            )
+        })
+        .count();
+
+    ExternalMemoryProviderSyncReport {
+        generated_at: preflight.generated_at,
+        global_enabled: preflight.global_enabled,
+        external_io_performed,
+        local_memory_total: preflight.local_memory_total,
+        local_memory_with_embedding: preflight.local_memory_with_embedding,
+        stats_unavailable: preflight.stats_unavailable,
+        stats_error: preflight.stats_error,
+        runnable_provider_count: preflight.runnable_provider_count,
+        blocked_provider_count,
+        executed_provider_count,
+        succeeded_provider_count,
+        failed_provider_count,
+        providers,
+    }
+}
+
+fn external_memory_provider_sync_result_from_preflight(
+    preflight: ExternalMemoryProviderPreflight,
+) -> ExternalMemoryProviderSyncResult {
+    let status = match &preflight.action {
+        ExternalMemoryProviderPreflightAction::Off => ExternalMemoryProviderSyncStatus::Off,
+        ExternalMemoryProviderPreflightAction::Blocked => ExternalMemoryProviderSyncStatus::Blocked,
+        ExternalMemoryProviderPreflightAction::WouldSync => {
+            // Fail closed until a concrete provider adapter owns this branch.
+            ExternalMemoryProviderSyncStatus::NoRuntimeAdapter
+        }
+    };
+    let error = if status == ExternalMemoryProviderSyncStatus::NoRuntimeAdapter {
+        Some("external memory provider runtime adapter is not wired".to_string())
+    } else {
+        None
+    };
+    ExternalMemoryProviderSyncResult {
+        id: preflight.id.clone(),
+        kind: preflight.kind,
+        display_name: preflight.display_name.clone(),
+        status,
+        external_io_performed: false,
+        preflight,
+        imported_memory_count: 0,
+        exported_memory_count: 0,
+        updated_memory_count: 0,
+        skipped_memory_count: 0,
+        error,
+    }
+}
+
+fn external_memory_provider_preflight(
+    provider: &ExternalMemoryProviderConfig,
+    health: ExternalMemoryProviderHealth,
+    global_enabled: bool,
+    stats: &MemoryStats,
+) -> ExternalMemoryProviderPreflight {
+    let active = global_enabled && provider.enabled && provider.sync_policy.is_active();
+    let action = if !active {
+        ExternalMemoryProviderPreflightAction::Off
+    } else if health.runtime_sync_enabled {
+        ExternalMemoryProviderPreflightAction::WouldSync
+    } else {
+        ExternalMemoryProviderPreflightAction::Blocked
+    };
+    let planned_sends_query_context = active && provider.sync_policy.sends_query_context();
+    let planned_sends_local_memory = active && provider.sync_policy.sends_local_memory();
+    let planned_imports_external_memory = active && provider.sync_policy.imports_external_memory();
+    ExternalMemoryProviderPreflight {
+        id: provider.id.clone(),
+        kind: provider.kind,
+        display_name: provider.display_name.clone(),
+        action,
+        dry_run_only: true,
+        planned_data_flow: if active {
+            sync_policy_data_flow(&provider.sync_policy)
+        } else {
+            ExternalMemoryProviderDataFlow::None
+        },
+        runtime_data_flow: health.runtime_data_flow.clone(),
+        planned_sends_query_context,
+        planned_sends_local_memory,
+        planned_imports_external_memory,
+        runtime_sends_query_context: health.sends_query_context,
+        runtime_sends_local_memory: health.sends_local_memory,
+        runtime_imports_external_memory: health.imports_external_memory,
+        local_memory_candidate_count: if planned_sends_local_memory {
+            stats.total
+        } else {
+            0
+        },
+        health,
+    }
+}
+
+fn external_provider_sync_block_reasons(
+    config: &ExternalMemoryProviderConfig,
+    global_enabled: bool,
+    capabilities: &ExternalMemoryProviderCapabilities,
+    policy_supported: bool,
+    endpoint_ready: bool,
+) -> Vec<ExternalMemoryProviderSyncBlockReason> {
+    let mut reasons = Vec::new();
+    if !global_enabled {
+        reasons.push(ExternalMemoryProviderSyncBlockReason::GlobalDisabled);
+    }
+    if !config.enabled {
+        reasons.push(ExternalMemoryProviderSyncBlockReason::ProviderDisabled);
+    }
+    if !config.sync_policy.is_active() {
+        reasons.push(ExternalMemoryProviderSyncBlockReason::PolicyOff);
+    }
+    if config.sync_policy.is_active() {
+        if !endpoint_ready {
+            reasons.push(ExternalMemoryProviderSyncBlockReason::EndpointMissing);
+        }
+        if !policy_supported {
+            reasons.push(ExternalMemoryProviderSyncBlockReason::PolicyUnsupported);
+        }
+        if !capabilities.adapter_available {
+            reasons.push(ExternalMemoryProviderSyncBlockReason::AdapterUnavailable);
+        }
+        if config.last_error.is_some() {
+            reasons.push(ExternalMemoryProviderSyncBlockReason::LastError);
+        }
+    }
+    reasons
+}
 
 // ── Data Structures ─────────────────────────────────────────────
 
@@ -260,27 +854,6 @@ pub struct MemorySearchQuery {
 
 // ── Statistics ──────────────────────────────────────────────────
 
-/// Memory statistics for the dashboard.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryStats {
-    pub total: usize,
-    pub by_type: std::collections::HashMap<String, usize>,
-    pub by_source: std::collections::HashMap<String, usize>,
-    pub with_embedding: usize,
-    pub oldest: Option<String>,
-    pub newest: Option<String>,
-}
-
-/// Overall health state for the memory backend.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum MemoryHealthStatus {
-    Ok,
-    Warning,
-    Error,
-}
-
 /// Severity of a single memory health finding.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -508,750 +1081,6 @@ pub struct MemoryHealth {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_db_snapshot: Option<MemoryDbSnapshotArtifact>,
     pub issues: Vec<MemoryHealthIssue>,
-}
-
-/// Supported external memory provider families. These are additive provider
-/// adapters, not replacements for the local SQLite truth source.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ExternalMemoryProviderKind {
-    Mem0,
-    Zep,
-    Supermemory,
-    Honcho,
-    Hindsight,
-    OpenViking,
-    Custom,
-}
-
-impl ExternalMemoryProviderKind {
-    pub const ALL: [Self; 7] = [
-        Self::Mem0,
-        Self::Zep,
-        Self::Supermemory,
-        Self::Honcho,
-        Self::Hindsight,
-        Self::OpenViking,
-        Self::Custom,
-    ];
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Mem0 => "mem0",
-            Self::Zep => "zep",
-            Self::Supermemory => "supermemory",
-            Self::Honcho => "honcho",
-            Self::Hindsight => "hindsight",
-            Self::OpenViking => "open_viking",
-            Self::Custom => "custom",
-        }
-    }
-
-    pub fn capabilities(&self) -> ExternalMemoryProviderCapabilities {
-        // Keep this registry explicit: health, preflight and owner sync all
-        // project runtime readiness from this one table.
-        match self {
-            Self::Mem0
-            | Self::Zep
-            | Self::Supermemory
-            | Self::Honcho
-            | Self::Hindsight
-            | Self::OpenViking
-            | Self::Custom => ExternalMemoryProviderCapabilities {
-                adapter_available: true,
-                requires_endpoint: true,
-                supports_manual: true,
-                supports_pull: true,
-                supports_push: true,
-                supports_bidirectional: true,
-            },
-        }
-    }
-}
-
-/// External provider sync policy. `Off` is the default and the only policy
-/// that has no external IO. Active policies remain explicit opt-ins and do not
-/// change local prompt / recall semantics.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ExternalMemorySyncPolicy {
-    #[default]
-    Off,
-    Manual,
-    PullOnly,
-    PushOnly,
-    Bidirectional,
-}
-
-impl ExternalMemorySyncPolicy {
-    pub fn is_active(&self) -> bool {
-        !matches!(self, Self::Off)
-    }
-
-    pub fn data_flow(&self) -> ExternalMemoryProviderDataFlow {
-        match self {
-            Self::Off => ExternalMemoryProviderDataFlow::None,
-            Self::Manual => ExternalMemoryProviderDataFlow::Manual,
-            Self::PullOnly => ExternalMemoryProviderDataFlow::PullOnly,
-            Self::PushOnly => ExternalMemoryProviderDataFlow::PushOnly,
-            Self::Bidirectional => ExternalMemoryProviderDataFlow::Bidirectional,
-        }
-    }
-
-    pub fn sends_query_context(&self) -> bool {
-        matches!(self, Self::Manual | Self::PullOnly | Self::Bidirectional)
-    }
-
-    pub fn sends_local_memory(&self) -> bool {
-        matches!(self, Self::Manual | Self::PushOnly | Self::Bidirectional)
-    }
-
-    pub fn imports_external_memory(&self) -> bool {
-        matches!(self, Self::Manual | Self::PullOnly | Self::Bidirectional)
-    }
-
-    pub fn supported_by(&self, capabilities: &ExternalMemoryProviderCapabilities) -> bool {
-        match self {
-            Self::Off => true,
-            Self::Manual => capabilities.supports_manual,
-            Self::PullOnly => capabilities.supports_pull,
-            Self::PushOnly => capabilities.supports_push,
-            Self::Bidirectional => capabilities.supports_bidirectional,
-        }
-    }
-}
-
-/// Owner-visible data-flow projection for external provider policies. This is
-/// not an execution log; it separates user-selected policy intent from runtime
-/// adapter readiness so health consumers do not confuse planned sync with data
-/// actually being able to move.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ExternalMemoryProviderDataFlow {
-    #[default]
-    None,
-    Manual,
-    PullOnly,
-    PushOnly,
-    Bidirectional,
-}
-
-/// Runtime capability contract for an external provider family. This is health
-/// metadata, not user data and not a credential record.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalMemoryProviderCapabilities {
-    #[serde(default)]
-    pub adapter_available: bool,
-    #[serde(default)]
-    pub requires_endpoint: bool,
-    #[serde(default)]
-    pub supports_manual: bool,
-    #[serde(default)]
-    pub supports_pull: bool,
-    #[serde(default)]
-    pub supports_push: bool,
-    #[serde(default)]
-    pub supports_bidirectional: bool,
-}
-
-impl Default for ExternalMemoryProviderCapabilities {
-    fn default() -> Self {
-        Self {
-            adapter_available: false,
-            requires_endpoint: true,
-            supports_manual: false,
-            supports_pull: false,
-            supports_push: false,
-            supports_bidirectional: false,
-        }
-    }
-}
-
-/// Stable owner-facing reasons why an external provider cannot currently sync.
-/// These are diagnostics only; they do not perform or authorize any network IO.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ExternalMemoryProviderSyncBlockReason {
-    GlobalDisabled,
-    ProviderDisabled,
-    PolicyOff,
-    EndpointMissing,
-    PolicyUnsupported,
-    AdapterUnavailable,
-    LastError,
-}
-
-/// Persisted, non-secret provider config. Secrets must stay in the platform
-/// credential store or environment references when concrete adapters land.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalMemoryProviderConfig {
-    pub id: String,
-    pub kind: ExternalMemoryProviderKind,
-    pub display_name: String,
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub sync_policy: ExternalMemorySyncPolicy,
-    #[serde(default)]
-    pub endpoint_configured: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_sync_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
-}
-
-/// Global external memory provider switch. Default disabled so no user memory
-/// leaves the device unless a future owner UI explicitly opts in.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalMemoryProvidersConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub providers: Vec<ExternalMemoryProviderConfig>,
-}
-
-impl ExternalMemoryProvidersConfig {
-    pub fn normalized(mut self) -> Self {
-        self.providers.truncate(MAX_EXTERNAL_MEMORY_PROVIDERS);
-        let mut used_ids = HashSet::new();
-        self.providers = self
-            .providers
-            .into_iter()
-            .enumerate()
-            .map(|(index, provider)| normalize_external_provider(provider, index, &mut used_ids))
-            .collect();
-        self
-    }
-}
-
-/// Owner-visible health projection for one external provider config.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalMemoryProviderHealth {
-    pub id: String,
-    pub kind: ExternalMemoryProviderKind,
-    pub display_name: String,
-    pub enabled: bool,
-    pub sync_policy: ExternalMemorySyncPolicy,
-    pub status: MemoryHealthStatus,
-    #[serde(default)]
-    pub capabilities: ExternalMemoryProviderCapabilities,
-    #[serde(default = "default_true")]
-    pub policy_supported: bool,
-    #[serde(default)]
-    pub policy_data_flow: ExternalMemoryProviderDataFlow,
-    #[serde(default)]
-    pub runtime_data_flow: ExternalMemoryProviderDataFlow,
-    #[serde(default)]
-    pub runtime_sync_enabled: bool,
-    #[serde(default)]
-    pub sync_blocked: bool,
-    #[serde(default)]
-    pub sync_block_reasons: Vec<ExternalMemoryProviderSyncBlockReason>,
-    #[serde(default)]
-    pub sends_query_context: bool,
-    #[serde(default)]
-    pub sends_local_memory: bool,
-    #[serde(default)]
-    pub imports_external_memory: bool,
-    #[serde(default)]
-    pub requires_explicit_action: bool,
-    #[serde(default)]
-    pub automatic_sync: bool,
-    #[serde(default)]
-    pub endpoint_configured: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_sync_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
-}
-
-/// Owner-only dry-run action state for external memory sync. This is a
-/// preflight projection, not an execution result.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ExternalMemoryProviderPreflightAction {
-    Off,
-    Blocked,
-    WouldSync,
-}
-
-/// Owner-visible result status for a requested external provider sync run.
-/// This is distinct from preflight so future real adapters can report executed
-/// success/failure without changing the dry-run action contract.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ExternalMemoryProviderSyncStatus {
-    Off,
-    Blocked,
-    NoRuntimeAdapter,
-    Succeeded,
-    Failed,
-}
-
-/// One provider's owner-visible external sync preflight. It intentionally
-/// exposes counts and data-flow flags, never memory contents or credentials.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalMemoryProviderPreflight {
-    pub id: String,
-    pub kind: ExternalMemoryProviderKind,
-    pub display_name: String,
-    pub action: ExternalMemoryProviderPreflightAction,
-    pub dry_run_only: bool,
-    pub health: ExternalMemoryProviderHealth,
-    pub planned_data_flow: ExternalMemoryProviderDataFlow,
-    pub runtime_data_flow: ExternalMemoryProviderDataFlow,
-    pub planned_sends_query_context: bool,
-    pub planned_sends_local_memory: bool,
-    pub planned_imports_external_memory: bool,
-    pub runtime_sends_query_context: bool,
-    pub runtime_sends_local_memory: bool,
-    pub runtime_imports_external_memory: bool,
-    pub local_memory_candidate_count: usize,
-}
-
-/// One provider's owner-visible sync result. Counts are zero until a concrete
-/// adapter executes; blocked/no-adapter results must not imply any IO happened.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalMemoryProviderSyncResult {
-    pub id: String,
-    pub kind: ExternalMemoryProviderKind,
-    pub display_name: String,
-    pub status: ExternalMemoryProviderSyncStatus,
-    pub external_io_performed: bool,
-    pub preflight: ExternalMemoryProviderPreflight,
-    pub imported_memory_count: usize,
-    pub exported_memory_count: usize,
-    pub updated_memory_count: usize,
-    pub skipped_memory_count: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// Owner-only report for an external memory provider sync request. Current
-/// planned adapters return blocked/off results only; future real adapters must
-/// keep local SQLite as truth source and fill result counts after explicit IO.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalMemoryProviderSyncReport {
-    pub generated_at: String,
-    pub global_enabled: bool,
-    pub external_io_performed: bool,
-    pub local_memory_total: usize,
-    pub local_memory_with_embedding: usize,
-    #[serde(default)]
-    pub stats_unavailable: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stats_error: Option<String>,
-    pub runnable_provider_count: usize,
-    pub blocked_provider_count: usize,
-    pub executed_provider_count: usize,
-    pub succeeded_provider_count: usize,
-    pub failed_provider_count: usize,
-    pub providers: Vec<ExternalMemoryProviderSyncResult>,
-}
-
-/// Owner-only dry-run report for external memory sync. Future concrete
-/// adapters should keep this as the explicit preflight before any outbound IO.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalMemoryProviderPreflightReport {
-    pub generated_at: String,
-    pub global_enabled: bool,
-    pub dry_run_only: bool,
-    pub local_memory_total: usize,
-    pub local_memory_with_embedding: usize,
-    #[serde(default)]
-    pub stats_unavailable: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stats_error: Option<String>,
-    pub runnable_provider_count: usize,
-    pub blocked_provider_count: usize,
-    pub providers: Vec<ExternalMemoryProviderPreflight>,
-}
-
-impl ExternalMemoryProviderHealth {
-    pub fn from_config(config: &ExternalMemoryProviderConfig, global_enabled: bool) -> Self {
-        Self::from_config_with_capabilities(config, global_enabled, config.kind.capabilities())
-    }
-
-    pub fn from_config_with_capabilities(
-        config: &ExternalMemoryProviderConfig,
-        global_enabled: bool,
-        capabilities: ExternalMemoryProviderCapabilities,
-    ) -> Self {
-        let active = global_enabled && config.enabled && config.sync_policy.is_active();
-        let policy_supported = config.sync_policy.supported_by(&capabilities);
-        let endpoint_ready = !capabilities.requires_endpoint || config.endpoint_configured;
-        let runtime_sync_enabled =
-            active && policy_supported && capabilities.adapter_available && endpoint_ready;
-        let sync_block_reasons = external_provider_sync_block_reasons(
-            config,
-            global_enabled,
-            &capabilities,
-            policy_supported,
-            endpoint_ready,
-        );
-        let policy_data_flow = if active {
-            config.sync_policy.data_flow()
-        } else {
-            ExternalMemoryProviderDataFlow::None
-        };
-        let runtime_data_flow = if runtime_sync_enabled {
-            policy_data_flow.clone()
-        } else {
-            ExternalMemoryProviderDataFlow::None
-        };
-        let status = if !active {
-            MemoryHealthStatus::Ok
-        } else if !policy_supported
-            || !capabilities.adapter_available
-            || !endpoint_ready
-            || config.last_error.is_some()
-        {
-            MemoryHealthStatus::Warning
-        } else {
-            MemoryHealthStatus::Ok
-        };
-        Self {
-            id: config.id.clone(),
-            kind: config.kind.clone(),
-            display_name: config.display_name.clone(),
-            enabled: active,
-            sync_policy: config.sync_policy.clone(),
-            status,
-            capabilities,
-            policy_supported,
-            policy_data_flow,
-            runtime_data_flow,
-            runtime_sync_enabled,
-            sync_blocked: active && !runtime_sync_enabled,
-            sync_block_reasons,
-            sends_query_context: runtime_sync_enabled && config.sync_policy.sends_query_context(),
-            sends_local_memory: runtime_sync_enabled && config.sync_policy.sends_local_memory(),
-            imports_external_memory: runtime_sync_enabled
-                && config.sync_policy.imports_external_memory(),
-            requires_explicit_action: runtime_sync_enabled
-                && matches!(config.sync_policy, ExternalMemorySyncPolicy::Manual),
-            automatic_sync: runtime_sync_enabled
-                && matches!(
-                    config.sync_policy,
-                    ExternalMemorySyncPolicy::PullOnly
-                        | ExternalMemorySyncPolicy::PushOnly
-                        | ExternalMemorySyncPolicy::Bidirectional
-                ),
-            endpoint_configured: config.endpoint_configured,
-            last_sync_at: config.last_sync_at.clone(),
-            last_error: config.last_error.clone(),
-        }
-    }
-}
-
-impl ExternalMemoryProvidersConfig {
-    pub fn sync_preflight(&self, stats: &MemoryStats) -> ExternalMemoryProviderPreflightReport {
-        self.sync_preflight_with_stats_status(stats, None)
-    }
-
-    pub fn sync_preflight_with_stats_status(
-        &self,
-        stats: &MemoryStats,
-        stats_error: Option<String>,
-    ) -> ExternalMemoryProviderPreflightReport {
-        let providers = self
-            .providers
-            .iter()
-            .map(|provider| {
-                let health = ExternalMemoryProviderHealth::from_config(provider, self.enabled);
-                external_memory_provider_preflight(provider, health, self.enabled, stats)
-            })
-            .collect::<Vec<_>>();
-        let runnable_provider_count = providers
-            .iter()
-            .filter(|provider| provider.action == ExternalMemoryProviderPreflightAction::WouldSync)
-            .count();
-        let blocked_provider_count = providers
-            .iter()
-            .filter(|provider| provider.action == ExternalMemoryProviderPreflightAction::Blocked)
-            .count();
-        ExternalMemoryProviderPreflightReport {
-            generated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            global_enabled: self.enabled,
-            dry_run_only: true,
-            local_memory_total: stats.total,
-            local_memory_with_embedding: stats.with_embedding,
-            stats_unavailable: stats_error.is_some(),
-            stats_error,
-            runnable_provider_count,
-            blocked_provider_count,
-            providers,
-        }
-    }
-
-    pub fn sync_report(&self, stats: &MemoryStats) -> ExternalMemoryProviderSyncReport {
-        self.sync_report_with_stats_status(stats, None)
-    }
-
-    pub fn sync_report_with_stats_status(
-        &self,
-        stats: &MemoryStats,
-        stats_error: Option<String>,
-    ) -> ExternalMemoryProviderSyncReport {
-        let preflight = self.sync_preflight_with_stats_status(stats, stats_error);
-        external_memory_provider_sync_report_from_preflight(preflight)
-    }
-}
-
-fn external_memory_provider_sync_report_from_preflight(
-    preflight: ExternalMemoryProviderPreflightReport,
-) -> ExternalMemoryProviderSyncReport {
-    let providers = preflight
-        .providers
-        .into_iter()
-        .map(external_memory_provider_sync_result_from_preflight)
-        .collect::<Vec<_>>();
-    let external_io_performed = providers
-        .iter()
-        .any(|provider| provider.external_io_performed);
-    let executed_provider_count = providers
-        .iter()
-        .filter(|provider| provider.external_io_performed)
-        .count();
-    let succeeded_provider_count = providers
-        .iter()
-        .filter(|provider| provider.status == ExternalMemoryProviderSyncStatus::Succeeded)
-        .count();
-    let failed_provider_count = providers
-        .iter()
-        .filter(|provider| provider.status == ExternalMemoryProviderSyncStatus::Failed)
-        .count();
-    let blocked_provider_count = providers
-        .iter()
-        .filter(|provider| {
-            matches!(
-                provider.status,
-                ExternalMemoryProviderSyncStatus::Blocked
-                    | ExternalMemoryProviderSyncStatus::NoRuntimeAdapter
-            )
-        })
-        .count();
-
-    ExternalMemoryProviderSyncReport {
-        generated_at: preflight.generated_at,
-        global_enabled: preflight.global_enabled,
-        external_io_performed,
-        local_memory_total: preflight.local_memory_total,
-        local_memory_with_embedding: preflight.local_memory_with_embedding,
-        stats_unavailable: preflight.stats_unavailable,
-        stats_error: preflight.stats_error,
-        runnable_provider_count: preflight.runnable_provider_count,
-        blocked_provider_count,
-        executed_provider_count,
-        succeeded_provider_count,
-        failed_provider_count,
-        providers,
-    }
-}
-
-fn external_memory_provider_sync_result_from_preflight(
-    preflight: ExternalMemoryProviderPreflight,
-) -> ExternalMemoryProviderSyncResult {
-    let status = match &preflight.action {
-        ExternalMemoryProviderPreflightAction::Off => ExternalMemoryProviderSyncStatus::Off,
-        ExternalMemoryProviderPreflightAction::Blocked => ExternalMemoryProviderSyncStatus::Blocked,
-        ExternalMemoryProviderPreflightAction::WouldSync => {
-            // Fail closed until a concrete provider adapter owns this branch.
-            ExternalMemoryProviderSyncStatus::NoRuntimeAdapter
-        }
-    };
-    let error = if status == ExternalMemoryProviderSyncStatus::NoRuntimeAdapter {
-        Some("external memory provider runtime adapter is not wired".to_string())
-    } else {
-        None
-    };
-    ExternalMemoryProviderSyncResult {
-        id: preflight.id.clone(),
-        kind: preflight.kind.clone(),
-        display_name: preflight.display_name.clone(),
-        status,
-        external_io_performed: false,
-        preflight,
-        imported_memory_count: 0,
-        exported_memory_count: 0,
-        updated_memory_count: 0,
-        skipped_memory_count: 0,
-        error,
-    }
-}
-
-fn external_memory_provider_preflight(
-    provider: &ExternalMemoryProviderConfig,
-    health: ExternalMemoryProviderHealth,
-    global_enabled: bool,
-    stats: &MemoryStats,
-) -> ExternalMemoryProviderPreflight {
-    let active = global_enabled && provider.enabled && provider.sync_policy.is_active();
-    let action = if !active {
-        ExternalMemoryProviderPreflightAction::Off
-    } else if health.runtime_sync_enabled {
-        ExternalMemoryProviderPreflightAction::WouldSync
-    } else {
-        ExternalMemoryProviderPreflightAction::Blocked
-    };
-    let planned_sends_query_context = active && provider.sync_policy.sends_query_context();
-    let planned_sends_local_memory = active && provider.sync_policy.sends_local_memory();
-    let planned_imports_external_memory = active && provider.sync_policy.imports_external_memory();
-    ExternalMemoryProviderPreflight {
-        id: provider.id.clone(),
-        kind: provider.kind.clone(),
-        display_name: provider.display_name.clone(),
-        action,
-        dry_run_only: true,
-        planned_data_flow: if active {
-            provider.sync_policy.data_flow()
-        } else {
-            ExternalMemoryProviderDataFlow::None
-        },
-        runtime_data_flow: health.runtime_data_flow.clone(),
-        planned_sends_query_context,
-        planned_sends_local_memory,
-        planned_imports_external_memory,
-        runtime_sends_query_context: health.sends_query_context,
-        runtime_sends_local_memory: health.sends_local_memory,
-        runtime_imports_external_memory: health.imports_external_memory,
-        local_memory_candidate_count: if planned_sends_local_memory {
-            stats.total
-        } else {
-            0
-        },
-        health,
-    }
-}
-
-fn external_provider_sync_block_reasons(
-    config: &ExternalMemoryProviderConfig,
-    global_enabled: bool,
-    capabilities: &ExternalMemoryProviderCapabilities,
-    policy_supported: bool,
-    endpoint_ready: bool,
-) -> Vec<ExternalMemoryProviderSyncBlockReason> {
-    let mut reasons = Vec::new();
-    if !global_enabled {
-        reasons.push(ExternalMemoryProviderSyncBlockReason::GlobalDisabled);
-    }
-    if !config.enabled {
-        reasons.push(ExternalMemoryProviderSyncBlockReason::ProviderDisabled);
-    }
-    if !config.sync_policy.is_active() {
-        reasons.push(ExternalMemoryProviderSyncBlockReason::PolicyOff);
-    }
-    if config.sync_policy.is_active() {
-        if !endpoint_ready {
-            reasons.push(ExternalMemoryProviderSyncBlockReason::EndpointMissing);
-        }
-        if !policy_supported {
-            reasons.push(ExternalMemoryProviderSyncBlockReason::PolicyUnsupported);
-        }
-        if !capabilities.adapter_available {
-            reasons.push(ExternalMemoryProviderSyncBlockReason::AdapterUnavailable);
-        }
-        if config.last_error.is_some() {
-            reasons.push(ExternalMemoryProviderSyncBlockReason::LastError);
-        }
-    }
-    reasons
-}
-
-fn normalize_external_provider(
-    mut provider: ExternalMemoryProviderConfig,
-    index: usize,
-    used_ids: &mut HashSet<String>,
-) -> ExternalMemoryProviderConfig {
-    let fallback_id = format!("{}-{}", provider.kind.as_str(), index + 1);
-    let base_id = sanitize_external_provider_id(&provider.id)
-        .filter(|id| !id.is_empty())
-        .unwrap_or(fallback_id);
-    provider.id = unique_external_provider_id(base_id, used_ids);
-
-    provider.display_name = truncate_chars(
-        provider.display_name.trim(),
-        MAX_EXTERNAL_PROVIDER_DISPLAY_CHARS,
-    );
-    if provider.display_name.is_empty() {
-        provider.display_name = provider.kind.as_str().to_string();
-    }
-
-    provider.last_error = provider
-        .last_error
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| truncate_chars(value, MAX_EXTERNAL_PROVIDER_ERROR_CHARS));
-    provider.last_sync_at = provider
-        .last_sync_at
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| truncate_chars(value, MAX_EXTERNAL_PROVIDER_TIMESTAMP_CHARS));
-    provider
-}
-
-fn sanitize_external_provider_id(raw: &str) -> Option<String> {
-    let mut out = String::new();
-    let mut last_was_sep = false;
-    for ch in raw.trim().chars().flat_map(char::to_lowercase) {
-        let mapped = if ch.is_ascii_alphanumeric() {
-            Some(ch)
-        } else if matches!(ch, '-' | '_' | ' ' | '.' | '/') {
-            Some('-')
-        } else {
-            None
-        };
-        let Some(ch) = mapped else {
-            continue;
-        };
-        if ch == '-' {
-            if last_was_sep {
-                continue;
-            }
-            last_was_sep = true;
-        } else {
-            last_was_sep = false;
-        }
-        out.push(ch);
-        if out.len() >= MAX_EXTERNAL_PROVIDER_ID_CHARS {
-            break;
-        }
-    }
-    let trimmed = out.trim_matches('-').to_string();
-    (!trimmed.is_empty()).then_some(trimmed)
-}
-
-fn unique_external_provider_id(base: String, used_ids: &mut HashSet<String>) -> String {
-    if used_ids.insert(base.clone()) {
-        return base;
-    }
-    let prefix = base
-        .chars()
-        .take(MAX_EXTERNAL_PROVIDER_ID_CHARS.saturating_sub(4))
-        .collect::<String>();
-    for suffix in 2..=999usize {
-        let candidate = format!("{prefix}-{suffix}");
-        if used_ids.insert(candidate.clone()) {
-            return candidate;
-        }
-    }
-    let fallback = format!("provider-{}", used_ids.len() + 1);
-    used_ids.insert(fallback.clone());
-    fallback
-}
-
-fn truncate_chars(value: &str, max_chars: usize) -> String {
-    value.chars().take(max_chars).collect()
 }
 
 /// Owner-only repair actions for rebuildable memory indexes. Each action must
@@ -1874,281 +1703,6 @@ impl MemoryHealth {
     }
 }
 
-// ── Global Memory Extract Config ────────────────────────────────
-
-/// Global auto-extract configuration, stored in config.json `memoryExtract` field.
-/// Per-agent MemoryConfig can override these with Some(...) values.
-///
-/// Trigger logic (since last extraction):
-/// - Cooldown: elapsed time must >= `extract_time_threshold_secs` (prevents too-frequent extraction)
-/// - Trigger: token count >= `extract_token_threshold` OR message count >= `extract_message_threshold`
-/// Both cooldown AND trigger must be satisfied.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryExtractConfig {
-    /// Global long-term memory runtime switch. When false, the agent plane must
-    /// not inject, recall, auto-extract, flush, or write persistent memory.
-    /// Owner-plane management APIs remain available so users can inspect,
-    /// export, delete, or re-enable their existing data.
-    #[serde(default = "crate::default_true")]
-    pub enabled: bool,
-    #[serde(default = "crate::default_true")]
-    pub auto_extract: bool,
-    /// Deprecated — superseded by `modelOverride`. Kept for backward
-    /// compatibility: still read when `modelOverride` is unset, but the GUI
-    /// no longer writes these two fields.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extract_provider_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extract_model_id: Option<String>,
-    /// Model override for auto-extraction. `None` = fall through to the
-    /// deprecated `extractProviderId`/`extractModelId` pair (if both set) →
-    /// the current session's own model. Per-agent `memory.extractProviderId`/
-    /// `extractModelId` (`AgentModelConfig`) still takes precedence over all
-    /// of this when set — unchanged, not part of this reshape.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_override: Option<crate::provider::ActiveModel>,
-    /// Auto-extract memories before context compaction (Tier 3 summarization)
-    #[serde(default = "crate::default_true")]
-    pub flush_before_compact: bool,
-    /// Token accumulation threshold — trigger extraction when tokens since last extraction >= this (default: 8000)
-    #[serde(default = "default_extract_token_threshold")]
-    pub extract_token_threshold: usize,
-    /// Cooldown in seconds — extraction won't trigger until this much time has passed (default: 300 = 5 min)
-    #[serde(default = "default_extract_time_threshold_secs")]
-    pub extract_time_threshold_secs: u64,
-    /// Message count threshold — trigger extraction when messages since last extraction >= this (default: 10)
-    #[serde(default = "default_extract_message_threshold")]
-    pub extract_message_threshold: usize,
-    /// Idle timeout in seconds — trigger final extraction when session is idle for this long (default: 1800 = 30 min). 0 = disabled.
-    #[serde(default = "default_extract_idle_timeout_secs")]
-    pub extract_idle_timeout_secs: u64,
-    /// Phase B'2 — enable reflective extraction alongside factual extraction.
-    /// When true, each auto-extract pass asks the model to surface user
-    /// profile traits (communication style, work habits) and tags them
-    /// `profile` so they render in the `## User Profile` system-prompt section.
-    /// Default: true. Runs in the same side_query roundtrip as `facts`.
-    #[serde(default = "crate::default_true")]
-    pub enable_reflection: bool,
-    /// Next-gen Dreaming (beta) — also extract structured `memory_claims` +
-    /// `memory_evidence` alongside the legacy `facts`/`profile`, and dual-write
-    /// each claim's shadow into `memories` (linked via `memory_claim_links`).
-    /// Runs in the SAME side_query roundtrip as `facts` (a third `claims`
-    /// array). Default ON — the structured claim layer ships enabled so the
-    /// out-of-box experience builds claims / profile without manual opt-in;
-    /// also gates the Dashboard "Claims (beta)" view.
-    #[serde(default = "crate::default_true")]
-    pub extract_claims: bool,
-    /// Review-first learning mode. When enabled, auto-extracted structured
-    /// claims are written as `needs_review` first; their managed legacy shadows
-    /// stay hidden until the user approves the claim. Manual `save_memory`,
-    /// claim corrections, backfill, and restore flows keep their own policies.
-    #[serde(default)]
-    pub review_first: bool,
-}
-fn default_extract_token_threshold() -> usize {
-    8000
-}
-fn default_extract_time_threshold_secs() -> u64 {
-    300
-}
-fn default_extract_message_threshold() -> usize {
-    10
-}
-fn default_extract_idle_timeout_secs() -> u64 {
-    1800
-}
-
-impl Default for MemoryExtractConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            auto_extract: true,
-            extract_provider_id: None,
-            extract_model_id: None,
-            model_override: None,
-            flush_before_compact: true,
-            extract_token_threshold: default_extract_token_threshold(),
-            extract_time_threshold_secs: default_extract_time_threshold_secs(),
-            extract_message_threshold: default_extract_message_threshold(),
-            extract_idle_timeout_secs: default_extract_idle_timeout_secs(),
-            enable_reflection: true,
-            extract_claims: true,
-            review_first: false,
-        }
-    }
-}
-
-// ── LLM Memory Selection ──────────────────────────────────────
-
-/// LLM-based memory selection configuration, stored in config.json `memorySelection` field.
-/// When enabled, uses side_query() to select the most relevant memories for the
-/// current user message, reducing system prompt noise from irrelevant entries.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemorySelectionConfig {
-    /// Enable LLM-based memory selection (default: false, opt-in)
-    #[serde(default)]
-    pub enabled: bool,
-    /// Minimum candidate count before LLM selection kicks in (default: 8)
-    #[serde(default = "default_selection_threshold")]
-    pub threshold: usize,
-    /// Maximum memories to select (default: 5)
-    #[serde(default = "default_selection_max")]
-    pub max_selected: usize,
-}
-
-fn default_selection_threshold() -> usize {
-    8
-}
-fn default_selection_max() -> usize {
-    5
-}
-
-impl Default for MemorySelectionConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            threshold: 8,
-            max_selected: 5,
-        }
-    }
-}
-
-// ── Memory Section Budget ───────────────────────────────────────
-
-/// Per-section character budgets for the SQLite Layer 3 block of the
-/// system-prompt memory section.
-///
-/// Default allocation is 15/20/20/30/15 = 10_000 chars total, matching the
-/// default `MemoryBudgetConfig::total_chars`. `scaled_to` proportionally
-/// shrinks the five sections when the caller-provided cap is smaller than
-/// the sum (e.g., when Layer 1/2 consumed most of the total budget).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", default)]
-pub struct SqliteSectionBudgets {
-    /// Load-bearing: serde alias keeps pre-rename `config.json` / agent
-    /// overrides (`"aboutYou": ...`) deserialising into this field. Do not
-    /// remove until the back-compat window is officially closed.
-    #[serde(alias = "aboutYou")]
-    pub user_profile: usize,
-    pub about_user: usize,
-    pub preferences: usize,
-    pub project_context: usize,
-    pub references: usize,
-}
-
-impl Default for SqliteSectionBudgets {
-    fn default() -> Self {
-        Self {
-            user_profile: 1500,
-            about_user: 2000,
-            preferences: 2000,
-            project_context: 3000,
-            references: 1500,
-        }
-    }
-}
-
-impl SqliteSectionBudgets {
-    pub fn total(&self) -> usize {
-        self.user_profile
-            + self.about_user
-            + self.preferences
-            + self.project_context
-            + self.references
-    }
-
-    /// Return a copy whose five sections fit inside `cap`, proportionally
-    /// scaled from the configured values when they sum to more than `cap`.
-    /// Returns a zeroed-out struct when `cap == 0`.
-    pub fn scaled_to(&self, cap: usize) -> Self {
-        let t = self.total();
-        if t == 0 || cap == 0 {
-            return Self {
-                user_profile: 0,
-                about_user: 0,
-                preferences: 0,
-                project_context: 0,
-                references: 0,
-            };
-        }
-        if t <= cap {
-            return self.clone();
-        }
-        let ratio = cap as f64 / t as f64;
-        Self {
-            user_profile: (self.user_profile as f64 * ratio) as usize,
-            about_user: (self.about_user as f64 * ratio) as usize,
-            preferences: (self.preferences as f64 * ratio) as usize,
-            project_context: (self.project_context as f64 * ratio) as usize,
-            references: (self.references as f64 * ratio) as usize,
-        }
-    }
-}
-
-/// Controls how much of the system prompt the memory section is allowed to
-/// consume. Defaults tuned for a ~10K char / ~2.5K token memory block that
-/// hard-prioritises the Memory Guidelines epilogue and degrades gracefully
-/// (Agent core memory > Global core memory > SQLite summary) when the total
-/// budget is tighter than the individual per-layer caps.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", default)]
-pub struct MemoryBudgetConfig {
-    /// Hard upper bound on the entire memory section (Layer 1 + 2 + 3 + 4).
-    pub total_chars: usize,
-    /// Upper bound on each legacy `MEMORY.md` layer (Global / Agent) individually.
-    /// Actual injection is `min(core_memory_file_chars, remaining_total)`.
-    pub core_memory_file_chars: usize,
-    /// Per-entry truncation for rendered SQLite memory bullets (Layer 3).
-    pub sqlite_entry_max_chars: usize,
-    /// Per-section sub-budgets for the SQLite block.
-    pub sqlite_sections: SqliteSectionBudgets,
-}
-
-impl Default for MemoryBudgetConfig {
-    fn default() -> Self {
-        Self {
-            total_chars: 10_000,
-            core_memory_file_chars: 8_000,
-            sqlite_entry_max_chars: 500,
-            sqlite_sections: SqliteSectionBudgets::default(),
-        }
-    }
-}
-
-// ── Deduplication ───────────────────────────────────────────────
-
-/// Default dedup thresholds (RRF scores)
-pub const DEDUP_THRESHOLD_HIGH: f32 = 0.02; // Above this → duplicate, skip
-pub const DEDUP_THRESHOLD_MERGE: f32 = 0.012; // Between merge..high → update existing
-
-/// Configurable dedup thresholds, stored in config.json `dedup` field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DedupConfig {
-    #[serde(default = "default_dedup_high")]
-    pub threshold_high: f32,
-    #[serde(default = "default_dedup_merge")]
-    pub threshold_merge: f32,
-}
-
-fn default_dedup_high() -> f32 {
-    DEDUP_THRESHOLD_HIGH
-}
-fn default_dedup_merge() -> f32 {
-    DEDUP_THRESHOLD_MERGE
-}
-
-impl Default for DedupConfig {
-    fn default() -> Self {
-        Self {
-            threshold_high: DEDUP_THRESHOLD_HIGH,
-            threshold_merge: DEDUP_THRESHOLD_MERGE,
-        }
-    }
-}
-
 /// Result of adding a memory with deduplication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -2159,125 +1713,6 @@ pub enum AddResult {
     Duplicate { existing_id: i64, score: f32 },
     /// Updated existing entry with new content
     Updated { id: i64 },
-}
-
-// ── Hybrid Search Config ───────────────────────────────────────
-
-/// Configurable hybrid search weights, stored in config.json `hybridSearch` field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HybridSearchConfig {
-    /// Weight for vector similarity results (0.0-1.0)
-    #[serde(default = "default_vector_weight")]
-    pub vector_weight: f32,
-    /// Weight for FTS keyword results (0.0-1.0)
-    #[serde(default = "default_text_weight")]
-    pub text_weight: f32,
-    /// RRF constant k (higher = more equal weighting across ranks)
-    #[serde(default = "default_rrf_k")]
-    pub rrf_k: f64,
-}
-
-fn default_vector_weight() -> f32 {
-    0.6
-}
-fn default_text_weight() -> f32 {
-    0.4
-}
-fn default_rrf_k() -> f64 {
-    60.0
-}
-
-impl Default for HybridSearchConfig {
-    fn default() -> Self {
-        Self {
-            vector_weight: 0.6,
-            text_weight: 0.4,
-            rrf_k: 60.0,
-        }
-    }
-}
-
-// ── Temporal Decay Config ──────────────────────────────────────
-
-/// Temporal decay configuration for memory search scoring.
-/// Recent memories rank higher; pinned memories are exempt (evergreen).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TemporalDecayConfig {
-    /// Enable temporal decay (default: false)
-    #[serde(default)]
-    pub enabled: bool,
-    /// Half-life in days: after this many days, score is halved (default: 30)
-    #[serde(default = "default_half_life_days")]
-    pub half_life_days: f64,
-}
-
-fn default_half_life_days() -> f64 {
-    30.0
-}
-
-impl Default for TemporalDecayConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            half_life_days: 30.0,
-        }
-    }
-}
-
-// ── MMR Config ─────────────────────────────────────────────────
-
-/// MMR (Maximal Marginal Relevance) reranking config.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MmrConfig {
-    /// Enable MMR reranking (default: true)
-    #[serde(default = "crate::default_true")]
-    pub enabled: bool,
-    /// Lambda: 0 = max diversity, 1 = max relevance (default: 0.7)
-    #[serde(default = "default_mmr_lambda")]
-    pub lambda: f32,
-}
-
-fn default_mmr_lambda() -> f32 {
-    0.7
-}
-
-impl Default for MmrConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            lambda: 0.7,
-        }
-    }
-}
-
-// ── Embedding Cache Config ─────────────────────────────────────
-
-/// Configuration for caching computed embeddings to reduce API calls.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EmbeddingCacheConfig {
-    /// Enable embedding cache (default: true)
-    #[serde(default = "crate::default_true")]
-    pub enabled: bool,
-    /// Maximum number of cached entries (default: 10000)
-    #[serde(default = "default_max_cache_entries")]
-    pub max_entries: usize,
-}
-
-fn default_max_cache_entries() -> usize {
-    10000
-}
-
-impl Default for EmbeddingCacheConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            max_entries: 10000,
-        }
-    }
 }
 
 // ── Multimodal Config ──────────────────────────────────────────
@@ -2329,38 +1764,6 @@ pub fn modality_label(mime: &str) -> &'static str {
     }
 }
 
-/// Multimodal embedding configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MultimodalConfig {
-    /// Enable multimodal embedding (default: false)
-    #[serde(default)]
-    pub enabled: bool,
-    /// Supported modalities: "image", "audio"
-    #[serde(default = "default_modalities")]
-    pub modalities: Vec<String>,
-    /// Max file size in bytes (default: 10MB)
-    #[serde(default = "default_max_file_bytes")]
-    pub max_file_bytes: u64,
-}
-
-fn default_modalities() -> Vec<String> {
-    vec!["image".to_string(), "audio".to_string()]
-}
-fn default_max_file_bytes() -> u64 {
-    10 * 1024 * 1024
-} // 10MB
-
-impl Default for MultimodalConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            modalities: default_modalities(),
-            max_file_bytes: default_max_file_bytes(),
-        }
-    }
-}
-
 /// Result of a batch import operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2388,7 +1791,7 @@ mod tests {
         assert_eq!(ExternalMemoryProviderKind::ALL.len(), 7);
 
         for kind in ExternalMemoryProviderKind::ALL {
-            let capabilities = kind.capabilities();
+            let capabilities = external_provider_capabilities(kind);
             assert!(
                 capabilities.adapter_available,
                 "all registered provider kinds must have a runtime adapter"
@@ -2634,7 +2037,7 @@ mod tests {
             }],
         };
 
-        let report = cfg.sync_preflight(&stats);
+        let report = external_memory_sync_preflight(&cfg, &stats);
         assert!(report.dry_run_only);
         assert!(!report.stats_unavailable);
         assert_eq!(report.stats_error, None);
@@ -2686,7 +2089,7 @@ mod tests {
             }],
         };
 
-        let report = cfg.sync_report(&stats);
+        let report = external_memory_sync_report(&cfg, &stats);
 
         assert!(!report.external_io_performed);
         assert_eq!(report.local_memory_total, 42);
@@ -2809,8 +2212,11 @@ mod tests {
             }],
         };
 
-        let report =
-            cfg.sync_preflight_with_stats_status(&stats, Some("memory stats unavailable".into()));
+        let report = external_memory_sync_preflight_with_stats_status(
+            &cfg,
+            &stats,
+            Some("memory stats unavailable".into()),
+        );
 
         assert!(report.stats_unavailable);
         assert_eq!(
@@ -2885,11 +2291,26 @@ mod tests {
             supports_bidirectional: false,
         };
 
-        assert!(ExternalMemorySyncPolicy::Off.supported_by(&capabilities));
-        assert!(ExternalMemorySyncPolicy::Manual.supported_by(&capabilities));
-        assert!(ExternalMemorySyncPolicy::PullOnly.supported_by(&capabilities));
-        assert!(!ExternalMemorySyncPolicy::PushOnly.supported_by(&capabilities));
-        assert!(!ExternalMemorySyncPolicy::Bidirectional.supported_by(&capabilities));
+        assert!(sync_policy_supported_by(
+            &ExternalMemorySyncPolicy::Off,
+            &capabilities
+        ));
+        assert!(sync_policy_supported_by(
+            &ExternalMemorySyncPolicy::Manual,
+            &capabilities
+        ));
+        assert!(sync_policy_supported_by(
+            &ExternalMemorySyncPolicy::PullOnly,
+            &capabilities
+        ));
+        assert!(!sync_policy_supported_by(
+            &ExternalMemorySyncPolicy::PushOnly,
+            &capabilities
+        ));
+        assert!(!sync_policy_supported_by(
+            &ExternalMemorySyncPolicy::Bidirectional,
+            &capabilities
+        ));
     }
 
     #[test]

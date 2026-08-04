@@ -7,7 +7,7 @@
 > `audio_generate` 固定槽位配置（每 vendor 一个写死槽、每槽单模型、能力写死在 Rust trait），
 > 旧结构已直接 drop、无迁移。
 >
-> 代码入口：[`crates/ha-core/src/media_gen/`](../../crates/ha-core/src/media_gen/)。
+> 代码入口：配置面 [`crates/ha-core/src/media_gen/`](../../crates/ha-core/src/media_gen/)（crud / resolve / wire 类型），执行机器与两工具 [`crates/ha-media/src/`](../../crates/ha-media/src/)（阶段 4 迁出；ha-design / ha-pet 直接依赖，`execute_image`/`execute_audio` 仍是唯一入口）。
 
 ## 1. 定位与三层模型
 
@@ -143,8 +143,8 @@ audio 三份重复 failover 是本次重构消灭的对象）：
 
 | 消费方 | 入口 | operation |
 | --- | --- | --- |
-| 聊天 `image_generate` 工具 | `tools/image_generate/generate.rs` | `tool.image_generate` |
-| 聊天 `audio_generate` 工具 | `tools/audio_generate/mod.rs` | `tool.audio_generate` |
+| 聊天 `image_generate` 工具 | `ha-media/src/image_generate/generate.rs` | `tool.image_generate` |
+| 聊天 `audio_generate` 工具 | `ha-media/src/audio_generate/mod.rs` | `tool.audio_generate` |
 | design `image` 产物 + inpaint | `design/image.rs::generate_image_parts` | `design.image` |
 | design `audio` 产物 | `design/audio.rs::generate_audio_parts` | `design.audio` |
 

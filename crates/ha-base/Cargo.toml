@@ -1,0 +1,56 @@
+[package]
+name = "ha-base"
+version = "0.29.0"
+description = "Hope Agent foundation layer — paths, logging, platform primitives, security guards. Zero business logic, zero Tauri dependency."
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+# ha-base 是依赖图的最底层：它**不得**依赖 ha-core 或任何 ha-* 业务 crate。
+# 新增依赖前先问：这是「基础设施原语」还是「业务」？后者不属于这里。
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+rusqlite = { workspace = true }
+futures-util = { workspace = true }
+reqwest = { workspace = true }
+base64 = { workspace = true }
+dirs = { workspace = true }
+url = { workspace = true }
+tempfile = "3"
+libc = "0.2"
+sysinfo = "0.38"
+which = "8"
+portable-pty = "0.9"
+blake3 = "1.8.5"
+sha2 = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = { version = "0.6.4", features = ["std"] }
+objc2-foundation = { version = "0.3.2", features = [
+    "NSArray",
+    "NSDate",
+    "NSError",
+    "NSObject",
+    "NSRunLoop",
+    "NSString",
+] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true

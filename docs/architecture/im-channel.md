@@ -85,7 +85,7 @@ IM Channel 系统是 Hope Agent 的多渠道即时通讯接入层，允许用户
 
 ### 出站附件能力支持矩阵
 
-`supports_media: Vec<MediaType>` 决定 dispatcher 是否会把模型生成的图 / 音视频 / 文件以原生消息形式投递给该渠道。`Vec::new()` 时统一降级为"贴下载链接的纯文本兜底"（[`build_media_fallback_lines`](../../crates/ha-core/src/channel/worker/dispatcher.rs)）。
+`supports_media: Vec<MediaType>` 决定 dispatcher 是否会把模型生成的图 / 音视频 / 文件以原生消息形式投递给该渠道。`Vec::new()` 时统一降级为"贴下载链接的纯文本兜底"（[`build_media_fallback_lines`](../../crates/ha-channel/src/channel/worker/dispatcher.rs)）。
 
 | 渠道 | 状态 | 已支持 MediaType | 上行 API | 备注 |
 |------|------|------------------|---------|------|
@@ -102,7 +102,7 @@ IM Channel 系统是 Hope Agent 的多渠道即时通讯接入层，允许用户
 | **LINE** | ✅ 条件实现 | Photo, Audio, Voice | Reply/Push API 的 `image` / `audio` message object | 需要 `server.publicBaseUrl=https://...`；video 还缺独立 `previewImageUrl` 缩略图，走链接 |
 | **IRC** | ❌ 协议限制 | — | （IRC 纯文本协议） | 无原生二进制传输，永久走链接兜底；可选未来接 DCC SEND 但实用性低 |
 
-补齐参考实现：Telegram 走 SDK 内置 `InputFile`（[telegram/media.rs](../../crates/ha-core/src/channel/telegram/media.rs)），Discord 走单 POST multipart（[discord/media.rs](../../crates/ha-core/src/channel/discord/media.rs)），飞书走"上传 → 引用 key 发消息"两步（[feishu/media.rs](../../crates/ha-core/src/channel/feishu/media.rs)），WeChat 走"获取 CDN 上传 URL → AES 加密上传 → 引用消息项"自建加密链路（[wechat/media.rs](../../crates/ha-core/src/channel/wechat/media.rs)）。新增渠道时按平台 API 形态选最接近的范本套用 — 大多数 IM 平台属于 Discord 或飞书两类。
+补齐参考实现：Telegram 走 SDK 内置 `InputFile`（[telegram/media.rs](../../crates/ha-channel/src/channel/telegram/media.rs)），Discord 走单 POST multipart（[discord/media.rs](../../crates/ha-channel/src/channel/discord/media.rs)），飞书走"上传 → 引用 key 发消息"两步（[feishu/media.rs](../../crates/ha-channel/src/channel/feishu/media.rs)），WeChat 走"获取 CDN 上传 URL → AES 加密上传 → 引用消息项"自建加密链路（[wechat/media.rs](../../crates/ha-channel/src/channel/wechat/media.rs)）。新增渠道时按平台 API 形态选最接近的范本套用 — 大多数 IM 平台属于 Discord 或飞书两类。
 
 ---
 
@@ -545,14 +545,46 @@ ECB 块独立可流式；尾块在 EOF 前一直留在 `carry` 里，PKCS#7 unpa
 
 ## 模块拆分
 
+阶段 5 第五刀起分居两个 crate：**台账与契约留 kernel，机器在 ha-channel**。
+判断依据见 [backend-separation](backend-separation.md) 的 ha-channel 小节；
+kernel → 机器的唯一回调面是
+[`channel_hooks`](../../crates/ha-core/src/channel_hooks.rs)（十六槽原子注册）。
+
+**kernel 侧顺序守卫测试注入点**：`channel_hooks::drop_approval_by_request_id`
+在 `#[cfg(test)]` 下额外读一个 `test_seam::override_slot()`——kernel 里的
+`tools::approval` 测试可以经 `test_seam::install(...)` 装一个可控回调
+（例如首次调用阻塞），验证 `deny_pending_for_session` / `deny_all_pending`
+的「emit 全部先于任何 IM cleanup hook」这条顺序不变量（AGENTS.md「审批
+一致性 + fail-closed」红线在 kernel 侧的守卫）。序列化由 `test_seam::serial_guard()`
+承担，release build 里整个 seam 编译不出现。是拆分第五刀后 hold_text_pending_
+lock_for_test 跨 crate 不可引用的替代——不再需要 ha-channel/tests/ 集成
+测试补建 approval 顺序守卫（见 [backend-separation](backend-separation.md)
+遗留测试边一节）。
+
 ```
-crates/ha-core/src/channel/
+crates/ha-core/src/channel/          ← 台账 + 契约（kernel）
 ├── mod.rs              模块根入口，re-export 公共类型
-├── types.rs            核心数据类型（20+ struct/enum）
+├── types.rs            核心数据类型（20+ struct/enum；转发 ha-config-schema）
 ├── traits.rs           ChannelPlugin trait 定义 + chunk_text 辅助函数
 ├── config.rs           ChannelStoreConfig（配置存储）
-├── db.rs               ChannelDB（channel_conversations 表操作）
-├── registry.rs         ChannelRegistry（插件注册 + 账户生命周期）
+├── db.rs               ChannelDB（channel_conversations；evict_others +
+│                    session_evicted —— 双向 1:1 红线的执行点）
+├── registry.rs         ChannelRegistry（插件持有 + 账户生命周期转发）
+└── cancel.rs           流式取消注册表（绑 CHANNEL_CANCELS 全局）
+
+crates/ha-channel/src/
+├── lib.rs              wire()：channel_hooks 十六槽 + 35 个飞书工具注册
+├── im_mirror.rs        主对话 IM 实时镜像（自 chat_engine/ 迁出）
+├── tools/feishu/       35 个飞书业务工具 adapter（名字常量在 kernel）
+└── channel/            ← 机器
+├── mod.rs              模块根入口
+├── accounts.rs         账号 CRUD + 生命周期（auto-start / restart-on-change）；
+│                    add/update/remove_account 均走 `mutate_config_async
+│                    (("channels.<op>", "channel.accounts"), …)`，闭包内做
+│                    dup 校验 + 写、闭包外做 registry lifecycle（配置写红线 #7）
+├── attach_sync.rs      chat 接管后的补播（尽力而为；物理 detach 与
+│                    session_evicted 在 kernel 的 channel/db.rs）
+├── start_watchdog.rs   启动失败退避重试（user 操作永远胜过 watchdog）
 ├── worker/             入站消息分发器（MsgContext → Agent → Reply）
 │   ├── mod.rs          worker 入口 + spawn_dispatcher
 │   ├── dispatcher.rs   主分发循环（权限校验、agent_id 重算、媒体降级）
@@ -563,7 +595,6 @@ crates/ha-core/src/channel/
 │   ├── media.rs        媒体附件下载 / 出站附件 partition 与降级
 │   └── tests.rs        worker 单元测试
 ├── ws.rs               共享 WebSocket 工具（WsConnection + 重连退避）
-├── cancel.rs           流式取消注册表
 ├── process_manager.rs  外部子进程管理（Signal/iMessage 共享）
 ├── webhook_server.rs   嵌入式 Webhook HTTP 服务器（Google Chat/LINE 共享）
 ├── telegram/           Telegram（Long-polling, teloxide）
@@ -661,7 +692,7 @@ pub struct ChannelWorkerHandle {
 
 渠道的启动握手（Telegram `getMe` / Slack `auth.test` / 飞书 WS endpoint discovery 等）原先是一次性的：
 开机时 VPN / 系统代理 / Wi-Fi 还没就绪导致首次尝试失败，该渠道就一直是死的，直到用户自己发现并点重启。
-[`channel/start_watchdog.rs`](../../crates/ha-core/src/channel/start_watchdog.rs) 在内存里维护一张
+[`channel/start_watchdog.rs`](../../crates/ha-channel/src/channel/start_watchdog.rs) 在内存里维护一张
 "启动失败待重试"表，按退避计划重投，直到握手成功或用户显式介入。
 
 **公开 API 四个**，调用点全部收敛成一行，日志格式在模块内统一构造，避免 boot / add / update 三条路径漂移：
@@ -814,29 +845,29 @@ CREATE TABLE channel_conversations (
   - `update_session(...)` —— `/new` `/agent` 在 IM 内换 session 用,语义同 `attach_session`,只是更轻量
   - `detach_session(...)` —— 删除 attach 行(`/session exit` 用);1:1 下不需要 promote next
   - `get_conversation_by_session(session_id)` —— 取 session 的唯一 attach 行(若有);live mirror / `relay` / `/status` / cron / approval / ask_user 均通过此 helper 查 session 的 IM 入口
-- **events**:`channel:session_evicted { channelId, accountId, chatId, threadId, sessionId }` —— [`channel/worker/eviction_watcher.rs`](../../crates/ha-core/src/channel/worker/eviction_watcher.rs) 订阅后调对应 plugin 的 `send_message` 发硬编码英文带 emoji 的"this chat has been taken over by another endpoint"通知;`ChannelAccountConfig.notify_session_eviction`(默认 `true`) 可静音
+- **events**:`channel:session_evicted { channelId, accountId, chatId, threadId, sessionId }` —— [`channel/worker/eviction_watcher.rs`](../../crates/ha-channel/src/channel/worker/eviction_watcher.rs) 订阅后调对应 plugin 的 `send_message` 发硬编码英文带 emoji 的"this chat has been taken over by another endpoint"通知;`ChannelAccountConfig.notify_session_eviction`(默认 `true`) 可静音
 - **migration**:`migrate()` 检测旧 schema(无 `source` 列或还有 `is_primary` 列)直接 DROP TABLE 重建;IM worker 在下一条入站消息时重新创建对应行(按 user feedback「破坏性改动直接 drop,不留兼容路径」)
 
 ### Startup back-online notice
 
 每次进程冷启 / 升级 / launchd/systemd 自动拉起 / 崩溃恢复后,在 IM 端给最近活跃的对话发一条简短系统通知,让用户感知"服务回来了,可以继续发消息"。
 
-- **实现**:[`channel/worker/startup_watcher.rs`](../../crates/ha-core/src/channel/worker/startup_watcher.rs) `spawn_startup_notifier(registry)`,由 [`app_init.rs::spawn_channel_listeners`](../../crates/ha-core/src/app_init.rs) 在三模式(desktop / server / acp)统一入口的末尾调一次。**不订阅 EventBus**,直接在 spawn 内 sleep 3s 等 `start_watchdog::spawn_loop` 完成首轮 `start_account`,再扫一次最近活跃对话,逐 chat 发送。
+- **实现**:[`channel/worker/startup_watcher.rs`](../../crates/ha-channel/src/channel/worker/startup_watcher.rs) `spawn_startup_notifier(registry)`,由 [`app_init.rs::spawn_channel_listeners`](../../crates/ha-core/src/app_init.rs) 在三模式(desktop / server / acp)统一入口的末尾调一次。**不订阅 EventBus**,直接在 spawn 内 sleep 3s 等 `start_watchdog::spawn_loop` 完成首轮 `start_account`,再扫一次最近活跃对话,逐 chat 发送。
 - **运行时门**(全部满足才发送):
   - `runtime_lock::is_primary()` —— 同机 desktop + server 双开时只让 Primary 进程发,Secondary skip
   - `AppConfig.startup_notification.enabled`(默认 `true`)—— 全局开关,GUI 在通知设置面板
   - `HOPE_AGENT_CRASH_COUNT >= crash_loop_threshold`(默认 `3`)—— guardian 传入的崩溃计数器满足时整批静音,避免 crash-loop 风暴
 - **最近活跃对话查询**:[`ChannelDB::list_recent_active_conversations(window_secs, limit)`](../../crates/ha-core/src/channel/db.rs) JOIN `channel_conversations × sessions`,过滤 `incognito=0 && is_cron=0 && parent_session_id IS NULL`,按 `cc.updated_at DESC` 排序。**SQL 候选池与发送上限解耦**:SQL `LIMIT` 用内部常量 `CANDIDATE_HARD_CAP=500`(只是防御性大池子);真正的发送数上限 `cfg.global_max`(默认 30) 在 worker 应用层遍历时按 spawn 计数应用——cooldown / silenced / 缺账号 / 缺插件 这些 filter **不消耗** `global_max` 预算,所以前 30 条全在 cooldown 也不会饿死后面可发的 chat。每个 (channel, account, chat, thread) 在表中是唯一行(`uq_channel_conv_chat`),同一 bot 在 1 单聊 + N 群聊里各自都各收到一条。
 - **账号 readiness 等待**:每个 send task 进入 JoinSet 后先 poll [`registry.health(account_id).is_running`](../../crates/ha-core/src/channel/registry.rs),最多等 `ACCOUNT_READY_WAIT_SECS=30`(2s 间隔)。覆盖 OAuth-y 慢握手(Lark / Slack)+ watchdog 首轮失败稍后恢复的场景。超时则当作发送失败(不写 `mark_notified`,下次重启可补发)。
-- **去重**:per-chat sentinel [`startup_state.json`](../../crates/ha-core/src/channel/worker/startup_state.rs) 在 `~/.hope-agent/` 下记录 `last_notified[<ch>:<acc>:<chat>:<thread>] -> RFC3339`;30 min cooldown 内同一 chat 不重复(`cooldown_secs`)。复用 [`platform::write_secure_file`](../../crates/ha-core/src/platform/mod.rs)(tmp + fsync + 0600 + rename),prune 7 天前 entry 防文件膨胀。
+- **去重**:per-chat sentinel [`startup_state.json`](../../crates/ha-channel/src/channel/worker/startup_state.rs) 在 `~/.hope-agent/` 下记录 `last_notified[<ch>:<acc>:<chat>:<thread>] -> RFC3339`;30 min cooldown 内同一 chat 不重复(`cooldown_secs`)。复用 [`platform::write_secure_file`](../../crates/ha-base/src/platform/mod.rs)(tmp + fsync + 0600 + rename),prune 7 天前 entry 防文件膨胀。
 - **per-account 静音**:`ChannelAccountConfig.notify_startup`(默认 `true`),与 `notify_session_eviction` 同款。GUI 在「Channels → 编辑账号」对话框。
 - **文案**:硬编码英文带 emoji,与 `eviction_watcher` 一致(IM 服务器不带收件人 locale,backend 翻译会选错语言)。文本「📡 Hope Agent is back online. If you were waiting on a reply, send your last message again.」
 
 ### GUI ↔ IM live 流式镜像
 
-**实现**([`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)):desktop / HTTP 触发的 turn 在 `run_chat_engine` 起始调 `attach_im_live_mirror(session_id, source)`,查 `get_conversation_by_session(session_id)` 拿到 session 的 IM attach(1:1 后 0 或 1 个),拿对应 account 的 `im_reply_mode()` / `show_thinking()` + plugin `capabilities()`,spawn `spawn_channel_stream_task` 起 IM 流式预览任务,把 `ChannelStreamSink` 注册到 [`SinkRegistry`](../../crates/ha-core/src/chat_engine/sink_registry.rs)。引擎 `emit_stream_event` 末尾的 fan-out hook 在每帧把 streaming event 转发到 IM 流式预览任务,IM 用户实时看到 typewriter / per-round 边界 finalize / 媒体投递。
+**实现**([`ha-channel/src/im_mirror.rs`](../../crates/ha-channel/src/im_mirror.rs)):desktop / HTTP 触发的 turn 在 `run_chat_engine` 起始调 `attach_im_live_mirror(session_id, source)`,查 `get_conversation_by_session(session_id)` 拿到 session 的 IM attach(1:1 后 0 或 1 个),拿对应 account 的 `im_reply_mode()` / `show_thinking()` + plugin `capabilities()`,spawn `spawn_channel_stream_task` 起 IM 流式预览任务,把 `ChannelStreamSink` 注册到 [`SinkRegistry`](../../crates/ha-core/src/chat_engine/sink_registry.rs)。引擎 `emit_stream_event` 末尾的 fan-out hook 在每帧把 streaming event 转发到 IM 流式预览任务,IM 用户实时看到 typewriter / per-round 边界 finalize / 媒体投递。
 
-turn 收尾走 `finalize_im_live_mirror`:drop SinkHandle → 等 stream task 处理完 buffered 事件 → drain `RoundTextAccumulator` → 复用 dispatcher 的 [`deliver_split` / `deliver_final_only` / `deliver_preview_merged`](../../crates/ha-core/src/channel/worker/dispatcher.rs)(已解耦 `MsgContext`,接受 `chat_id / thread_id / reply_to_message_id: Option<&str>` 三参显式形态),按 `ImReplyMode`(`split / preview / final`)渲染——与 IM 入站 turn 完全对称。
+turn 收尾走 `finalize_im_live_mirror`:drop SinkHandle → 等 stream task 处理完 buffered 事件 → drain `RoundTextAccumulator` → 复用 dispatcher 的 [`deliver_split` / `deliver_final_only` / `deliver_preview_merged`](../../crates/ha-channel/src/channel/worker/dispatcher.rs)(已解耦 `MsgContext`,接受 `chat_id / thread_id / reply_to_message_id: Option<&str>` 三参显式形态),按 `ImReplyMode`(`split / preview / final`)渲染——与 IM 入站 turn 完全对称。
 
 **两个通道独立走自己的发送通路**:GUI 永远走 Tauri IPC stream / HTTP `chat:stream_delta` 广播,不受 `imReplyMode` 影响;`imReplyMode` 仅决定 IM 端的呈现形态(IM 入站 + GUI 镜像两侧共用同一份配置,行为对称)。
 
@@ -860,7 +891,7 @@ mirror 与入站共享同一份 chunk 管道(`send_text_chunks` → `markdown_to
 
 ### Attach catch-up:接管已有会话立刻看到上一轮
 
-入口 [`channel/attach_sync.rs::deliver_attach_catchup`](../../crates/ha-core/src/channel/attach_sync.rs)。两条 attach 路径(IM `/session <id>` slash + GUI `/handover` HTTP / Tauri command)在 `attach_session` 成功 + `channel:primary_changed` emit 之后、回执「已接管」消息之前各调一次。
+入口 [`channel/attach_sync.rs::deliver_attach_catchup`](../../crates/ha-channel/src/channel/attach_sync.rs)。两条 attach 路径(IM `/session <id>` slash + GUI `/handover` HTTP / Tauri command)在 `attach_session` 成功 + `channel:primary_changed` emit 之后、回执「已接管」消息之前各调一次。
 
 契约:
 
@@ -883,34 +914,34 @@ mirror 与入站共享同一份 chunk 管道(`send_text_chunks` → `markdown_to
 
 `/status` 末尾追加 **Attached IM Channel** 段,显示该 session 的 IM attach 行(1:1,0 或 1 行) —— channel / chat 标识 + `attached_at`。
 
-**知识空间访问(WS8)**:IM 默认零 KB 访问(D10)。放开走两层——账号级 `ChannelAccountConfig.settings.kbAccessOptIn`(桌面 Settings → 渠道,owner-only,默认关)开私聊;群聊还需 `kbAccessChats` 含该 chat(群内 `/kb on`)。判定 `crate::channel::im_kb_access_allowed`,账号查不到 / channel_id 不匹配 fail closed。即便开启,仍受 attach / incognito / 外部只读 cap 约束,且 IM-origin 子代理按 origin 账号判(不洗权限)。
+**知识空间访问(WS8)**:IM 默认零 KB 访问(D10)。放开走两层——账号级 `ChannelAccountConfig.settings.kbAccessOptIn`(桌面 Settings → 渠道,owner-only,默认关)开私聊;群聊还需 `kbAccessChats` 含该 chat(群内 `/kb on`)。判定 `crate::knowledge::im_kb_access_allowed`（它是 KB 闸门本身、不是渠道行为，随 `effective_kb_access` 住在 `knowledge::access`；`crate::channel::` 原路径再导出保 owner `/kb` 调用点），账号查不到 / channel_id 不匹配 fail closed。即便开启,仍受 attach / incognito / 外部只读 cap 约束,且 IM-origin 子代理按 origin 账号判(不洗权限)。
 
 ### 按钮回调路由(7 渠道单一真相源)
 
-支持按钮的 7 个渠道(Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat)对**无参 slash 命令**会弹 `arg_options` picker([`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs)),按钮 `callback_data = "slash:cmd arg"`。
+支持按钮的 7 个渠道(Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat)对**无参 slash 命令**会弹 `arg_options` picker([`channel/worker/slash.rs`](../../crates/ha-channel/src/channel/worker/slash.rs)),按钮 `callback_data = "slash:cmd arg"`。
 
 不支持按钮的 5 个渠道(WeChat / iMessage / IRC / Signal / WhatsApp)上,**`args_optional=false` + 有 `arg_options`** 的命令(`/thinking` / `/permission` / `/plan`)无参时会回一段 `Usage: /cmd <placeholder>` + 选项列表的文本提示,代替 handler 默认的 `Invalid X: \`\`` 错误,让用户能直接看到合法值并复制粘贴。`args_optional=true` 的命令(`/imreply` / `/sessions` / `/recap` / `/team` / `/awareness` / `/reason` 等)在这些渠道上保持原有 handler 路径不变 —— 它们的 handler 自带"无参 = 显示当前状态 / picker"分支。Skill 命令统一按 `args_optional=true` 处理(skill 默认无参可跑,不拦)。
 
-**统一入口**:[`channel/worker/slash_callback.rs::inject_slash_callback`](../../crates/ha-core/src/channel/worker/slash_callback.rs) ——
+**统一入口**:[`channel/worker/slash_callback.rs::inject_slash_callback`](../../crates/ha-channel/src/channel/worker/slash_callback.rs) ——
 签名 `(channel_id, account_id, chat_id, thread_id, sender_id, message_id, rest, inbound_tx, source)`。helper 内部用 `channel_db.get_chat_type` 查 `channel_conversations` (arg-picker 按钮永远在一条真实 inbound `/cmd` 之后,行已存在),缺行 fallback `Dm` (与 `ChatType::from_lowercase` 一致)。每个渠道在自己的 button-callback 入口先 `strip_prefix("slash:")`,再调 helper:
 
 | 渠道 | callback 入口 | chat_id 拼法 |
 |---|---|---|
-| Telegram | [`polling.rs::inject_slash_callback_from_query`](../../crates/ha-core/src/channel/telegram/polling.rs) | `msg.chat.id.0` |
-| Feishu | [`ws_event.rs::inject_slash_callback`](../../crates/ha-core/src/channel/feishu/ws_event.rs) (thin wrapper) | `context.open_chat_id` |
-| Discord | [`gateway.rs::INTERACTION_CREATE` type=3](../../crates/ha-core/src/channel/discord/gateway.rs) | `d.channel_id` |
-| Slack | [`socket.rs::handle_interactive_payload`](../../crates/ha-core/src/channel/slack/socket.rs) | `payload.channel.id` (含 thread_ts) |
-| QQ Bot | [`gateway.rs::INTERACTION_CREATE`](../../crates/ha-core/src/channel/qqbot/gateway.rs) | `c2c:{openid}` / `group:{openid}` / `channel:{id}` (与 `convert_*_message` 一致) |
-| LINE | [`webhook.rs::postback`](../../crates/ha-core/src/channel/line/webhook.rs) | group→`groupId` / room→`roomId` / DM→`userId` |
-| Google Chat | [`webhook.rs::CARD_CLICKED`](../../crates/ha-core/src/channel/googlechat/webhook.rs) | `space.name` (含 message thread.name) |
+| Telegram | [`polling.rs::inject_slash_callback_from_query`](../../crates/ha-channel/src/channel/telegram/polling.rs) | `msg.chat.id.0` |
+| Feishu | [`ws_event.rs::inject_slash_callback`](../../crates/ha-channel/src/channel/feishu/ws_event.rs) (thin wrapper) | `context.open_chat_id` |
+| Discord | [`gateway.rs::INTERACTION_CREATE` type=3](../../crates/ha-channel/src/channel/discord/gateway.rs) | `d.channel_id` |
+| Slack | [`socket.rs::handle_interactive_payload`](../../crates/ha-channel/src/channel/slack/socket.rs) | `payload.channel.id` (含 thread_ts) |
+| QQ Bot | [`gateway.rs::INTERACTION_CREATE`](../../crates/ha-channel/src/channel/qqbot/gateway.rs) | `c2c:{openid}` / `group:{openid}` / `channel:{id}` (与 `convert_*_message` 一致) |
+| LINE | [`webhook.rs::postback`](../../crates/ha-channel/src/channel/line/webhook.rs) | group→`groupId` / room→`roomId` / DM→`userId` |
+| Google Chat | [`webhook.rs::CARD_CLICKED`](../../crates/ha-channel/src/channel/googlechat/webhook.rs) | `space.name` (含 message thread.name) |
 
-**ack 协议**:Discord 用 type=6 DEFERRED_UPDATE_MESSAGE([`gateway.rs::ack_component_interaction`](../../crates/ha-core/src/channel/discord/gateway.rs)),QQ Bot 用 `PUT /interactions/{id}/responses` `code:0`([`QqBotApi::ack_interaction`](../../crates/ha-core/src/channel/qqbot/api.rs))——两者都是 fire-and-forget spawn,不阻塞 dispatcher。Slack / LINE / Google Chat 通过 webhook HTTP 200 响应自动 ack;Feishu / Telegram 通过各自原生路径 ack。
+**ack 协议**:Discord 用 type=6 DEFERRED_UPDATE_MESSAGE([`gateway.rs::ack_component_interaction`](../../crates/ha-channel/src/channel/discord/gateway.rs)),QQ Bot 用 `PUT /interactions/{id}/responses` `code:0`([`QqBotApi::ack_interaction`](../../crates/ha-channel/src/channel/qqbot/api.rs))——两者都是 fire-and-forget spawn,不阻塞 dispatcher。Slack / LINE / Google Chat 通过 webhook HTTP 200 响应自动 ack;Feishu / Telegram 通过各自原生路径 ack。
 
-非 `slash:` 前缀的 callback (`approval:` / `ask_user:`) 走 [`worker::ask_user::try_dispatch_interactive_callback`](../../crates/ha-core/src/channel/worker/ask_user.rs) 老路径,不变。
+非 `slash:` 前缀的 callback (`approval:` / `ask_user:`) 走 [`worker::ask_user::try_dispatch_interactive_callback`](../../crates/ha-channel/src/channel/worker/ask_user.rs) 老路径,不变。
 
 ### IM 渠道禁用命令
 
-**入口**:[`slash_commands/registry.rs::IM_DISABLED_COMMANDS`](../../crates/ha-core/src/slash_commands/registry.rs)。
+**入口**:[`slash_defs/registry.rs::IM_DISABLED_COMMANDS`](../../crates/ha-core/src/slash_defs/registry.rs)。
 
 ```rust
 pub const IM_DISABLED_COMMANDS: &[&str] = &["agent", "handover"];
@@ -975,7 +1006,7 @@ pub fn spawn_dispatcher(
 
 - **入站事件枚举**：分发器收 `InboundEvent`（`Message` / `Reaction` / `MessageEdited` / `MessageRecalled` / `Membership` / `ReadReceipt` 多变体），仅 `Message` 触发完整 chat round，其余变体当前仅 log
 - **并发处理 + 全局上限**：每条 `Message` 在独立 `tokio::spawn` 中处理，不阻塞其他消息；`Semaphore::new(MAX_CONCURRENT_INBOUND=20)` 的 owned permit 限全局在飞消息并发上限。整个 dispatcher 跑在专用线程自建的 tokio runtime 上
-- **斜杠命令拦截**：在调用 LLM 和写入 user turn 之前，`dispatch_slash_for_channel()` 检测以 `/` 开头的消息并转发给 `slash_commands::handlers::dispatch()`。`Reply` 类命令（`/help`、`/clear`、`/model`、`/status` 等）把原始 slash 与结果落为 `messages.role="event"`（command event 带 `displayAs="user"` 供 GUI 渲染成用户气泡），直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）将转换后的指令作为 `engine_message` 交给 LLM，并按真实对话 user turn 落库（详见 [斜杠命令系统](slash-commands.md)）
+- **斜杠命令拦截**：在调用 LLM 和写入 user turn 之前，`dispatch_slash_for_channel()` 检测以 `/` 开头的消息并经 `slash_hooks::dispatch()` 跳板转发给装配层 handler（IM 渠道**不得**直接 `use crate::slash_commands::…`，见 [backend-separation](backend-separation.md) 装配层小节）。`Reply` 类命令（`/help`、`/clear`、`/model`、`/status` 等）把原始 slash 与结果落为 `messages.role="event"`（command event 带 `displayAs="user"` 供 GUI 渲染成用户气泡），直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）将转换后的指令作为 `engine_message` 交给 LLM，并按真实对话 user turn 落库（详见 [斜杠命令系统](slash-commands.md)）
 - **Stop 只分入口、不分语义**：IM `/stop`、GUI 与 HTTP 都进入同一个 session-stop 编排，由共享服务统一翻转 Channel slash/preflight token 与 active-turn cancel，并清理审批、结构化问答及 runtime；不得只停 Channel preview，也不得在入口另写清理分支。Channel cancel registration 必须早于通用 slash dispatch，使 `/compact` 等尚未进入 Chat Engine 的长命令也可停止；`/stop` 自身不注册 token，且在审批/`ask_user` 文本回复解析前被识别为控制面消息，避免被吞作答案。Channel 只保留「如何定位当前 attach session、如何发送回执和流事件」的 transport 差异
 - **共享 ChatEngine**：调用 `chat_engine::run_chat_engine()` — 与 UI 聊天使用完全相同的 Agent 执行引擎，拥有相同的能力：流式输出、会话历史恢复、工具事件持久化、Failover 降级、Context compaction、Token 跟踪、异步记忆提取
 - **EventSink 抽象**：UI 聊天在桌面通过 `ChannelSink`（Tauri Channel）推流，在 HTTP 模式通过 `chat:stream_delta` EventBus 推到 `/ws/events`；IM 聊天通过 `ChannelStreamSink`（EventBus）推流到前端 + 累积 text_delta 发送 `channel:stream_delta` 事件
@@ -1023,7 +1054,7 @@ pub struct RoundTextAccumulator {
 
 #### 流式预览 Transport 三级优先级
 
-[`worker/streaming.rs`](../../crates/ha-core/src/channel/worker/streaming.rs) 的
+[`worker/streaming.rs`](../../crates/ha-channel/src/channel/worker/streaming.rs) 的
 `select_stream_preview_transport(chat_type, capabilities)` 是"这个 chat 用哪种方式渲染流式预览"的
 **唯一裁决点**，纯函数、只读 `ChatType` + `ChannelCapabilities`，三级择优、首个命中即返回：
 
@@ -1039,7 +1070,7 @@ pub struct RoundTextAccumulator {
 只有 Telegram，声明 `supports_card_stream: true` 的只有飞书 —— 其余渠道两个标志都是 `false`，
 直接走 `Message`（或无 `supports_edit` 时无预览）。
 
-调用方只有 [`worker/pipeline.rs`](../../crates/ha-core/src/channel/worker/pipeline.rs)（IM 入站与 GUI
+调用方只有 [`worker/pipeline.rs`](../../crates/ha-channel/src/channel/worker/pipeline.rs)（IM 入站与 GUI
 镜像共用同一条装配路径），且只在 `ImReplyMode::Preview | Split` 下调用 —— `Final` 恒 `None`。
 
 ##### 新增 cardkit 风格渠道的接线契约（红线）
@@ -1137,7 +1168,7 @@ stream task 是真正的"按 round 切"执行者。`spawn_channel_stream_task` �
 
 #### 消息分段（chunking）契约
 
-**统一管道**：所有 IM 出站文本（含入站回复、GUI mirror、catch-up、slash handler 直回、错误回复、media URL fallback）必须走 [`send_text_chunks`](../../crates/ha-core/src/channel/worker/dispatcher.rs)：`markdown_to_native(markdown)` → `chunk_message(native_text)` → 逐块 `plugin.send_message(chunk)`，第 0 块带 `reply_to_message_id`、最后一块挂 `buttons`（如有）。**禁止直接 `plugin.send_message(text=...)`** —— 新出站点必须复用 `send_text_chunks` 入口，否则长文本（model 在 tool 调用之间的解说、附件 URL 列表、`/recap` 输出等）会被平台拒绝 / 截断。
+**统一管道**：所有 IM 出站文本（含入站回复、GUI mirror、catch-up、slash handler 直回、错误回复、media URL fallback）必须走 [`send_text_chunks`](../../crates/ha-channel/src/channel/worker/dispatcher.rs)：`markdown_to_native(markdown)` → `chunk_message(native_text)` → 逐块 `plugin.send_message(chunk)`，第 0 块带 `reply_to_message_id`、最后一块挂 `buttons`（如有）。**禁止直接 `plugin.send_message(text=...)`** —— 新出站点必须复用 `send_text_chunks` 入口，否则长文本（model 在 tool 调用之间的解说、附件 URL 列表、`/recap` 输出等）会被平台拒绝 / 截断。
 
 **送达判定不是 HTTP 成功判定**：最终文本、inline-finalized split round 与媒体 fan-out 都汇总到 `DeliveryReport { attempted, succeeded, failures }`。`DeliveryResult.success=false`、edit 被业务拒绝、native media 失败或 transport `Err` 都不能记录成「Reply delivered」；edit 失败会回退发送完整新消息，媒体失败会回退下载链接，但仍保留 partial-failure 诊断。模型回复已成功落会话、最终 IM 投递却不完整时，dispatcher 写 `category=delivery_failed` 并向会话追加可见错误事件，避免 GUI 只看到日志里的假成功。这里刻意不做无幂等键的自动重试：超时后平台可能其实已经收件，盲重试会产生重复消息。
 
@@ -1163,7 +1194,7 @@ WeChat `sendMessage` 还必须解析 HTTP 200 的 JSON 响应：只有 `ret`（�
 **两个 byte 上限的语义区分**（不要混淆）：
 
 - `capabilities.streaming_preview_max_bytes`（[`channel/types.rs`](../../crates/ha-core/src/channel/types.rs)）：流式 preview 阶段「这条 preview 还塞得下整段 native_text 吗？」的判定阈值。比平台真实上限留 ~25% headroom（Telegram 3200 / Slack 3200 / Discord 1500）防 in-flight delta 撞临界。`build_stream_preview_payload` / `preview_carried_full_text` 用它决定要不要 fallback chunk-send。
-- `chunk_message` 内部 limit：chunk-send 一刀切多大，贴平台真实上限（Telegram 4096 / Slack 4000 / Discord 2000 / WhatsApp 65536 / IRC 512）。各渠道在 [`channel/<plugin>/mod.rs`](../../crates/ha-core/src/channel/) 里覆写；不覆写时默认走 `streaming_preview_max_bytes`（保守但安全）。
+- `chunk_message` 内部 limit：chunk-send 一刀切多大，贴平台真实上限（Telegram 4096 / Slack 4000 / Discord 2000 / WhatsApp 65536 / IRC 512）。各渠道在 [`channel/<plugin>/mod.rs`](../../crates/ha-channel/src/channel/) 里覆写；不覆写时默认走 `streaming_preview_max_bytes`（保守但安全）。
 - **不要把两者改成同一个值** —— preview 阶段的 headroom 是为防 in-flight 累积撞临界，chunk-send 是定稿一次性切，可以贴满。
 - `chunk_text` 默认实现按 UTF-8 byte 切（不是 char），`max_len` 单位 byte。`markdown_to_native` 在 chunk 之前执行，HTML / mrkdwn escape 膨胀后的 byte 数被 chunk 自身的 byte ceiling 兜底（4096 byte ≤ Telegram 4096 char 限制，CJK 还宽松得多）。新 plugin 加 native 渲染时不需要为 chunk size 单独考虑膨胀。
 
@@ -1397,9 +1428,9 @@ Discord 原生支持 Markdown，`markdown_to_native()` 直接透传原文。
 |------|---------|------|
 | 出站 | Photo, Video, Audio, Document | dispatcher 已按 `partition_media_by_channel` 把 Animation 自动降级为 Photo |
 
-- **大小上限**：`MAX_DISCORD_FILE_BYTES = 25 MiB`（[discord/media.rs](../../crates/ha-core/src/channel/discord/media.rs)），超限返回 Err 让 dispatcher 走"下载链接文本"兜底
-- **caption 处理**：`payload.text` 与每个 `OutboundMedia.caption` 在 [`merge_captions`](../../crates/ha-core/src/channel/discord/media.rs) 里合成单段 Discord `content`，避免拆条
-- **MIME 推断**：[channel/media_helpers.rs](../../crates/ha-core/src/channel/media_helpers.rs) 优先 URL Content-Type，回退按文件扩展名查内置表
+- **大小上限**：`MAX_DISCORD_FILE_BYTES = 25 MiB`（[discord/media.rs](../../crates/ha-channel/src/channel/discord/media.rs)），超限返回 Err 让 dispatcher 走"下载链接文本"兜底
+- **caption 处理**：`payload.text` 与每个 `OutboundMedia.caption` 在 [`merge_captions`](../../crates/ha-channel/src/channel/discord/media.rs) 里合成单段 Discord `content`，避免拆条
+- **MIME 推断**：[channel/media_helpers.rs](../../crates/ha-channel/src/channel/media_helpers.rs) 优先 URL Content-Type，回退按文件扩展名查内置表
 
 ---
 
@@ -1467,7 +1498,7 @@ Socket Mode 信封格式：`{envelope_id, type, payload}`，收到后立即 ACK 
 | 2. 发送图片 | `POST /open-apis/im/v1/messages?receive_id_type=chat_id` (`msg_type=image`, `content={"image_key": "..."}`) 或 `/messages/{id}/reply` |
 | 2. 发送文件 | 同上，`msg_type=file`, `content={"file_key": "..."}` |
 
-`MediaType` → 飞书 `file_type` 映射（[feishu/media.rs](../../crates/ha-core/src/channel/feishu/media.rs)）：
+`MediaType` → 飞书 `file_type` 映射（[feishu/media.rs](../../crates/ha-channel/src/channel/feishu/media.rs)）：
 
 | MediaType | 走 API | file_type |
 |-----------|--------|-----------|
@@ -1486,9 +1517,9 @@ Socket Mode 信封格式：`{envelope_id, type, payload}`，收到后立即 ACK 
 
 ### 流式打字机：cardkit 卡片流式（无"已编辑"标记）
 
-飞书的 `update_message` API 会在客户端给消息留下永久"已编辑"标记。为避免每条 LLM 流式回复都被打标，飞书插件在 `capabilities` 上声明 `supports_card_stream: true`，让 [`worker/streaming.rs`](../../crates/ha-core/src/channel/worker/streaming.rs) 选用 `StreamPreviewTransport::Card` 走 cardkit 路径。
+飞书的 `update_message` API 会在客户端给消息留下永久"已编辑"标记。为避免每条 LLM 流式回复都被打标，飞书插件在 `capabilities` 上声明 `supports_card_stream: true`，让 [`worker/streaming.rs`](../../crates/ha-channel/src/channel/worker/streaming.rs) 选用 `StreamPreviewTransport::Card` 走 cardkit 路径。
 
-**端点链路**（`base_url` 复用 [auth.rs:40-46](../../crates/ha-core/src/channel/feishu/auth.rs)，cn / intl 同形）：
+**端点链路**（`base_url` 复用 [auth.rs:40-46](../../crates/ha-channel/src/channel/feishu/auth.rs)，cn / intl 同形）：
 
 | 步骤 | API |
 |------|-----|
@@ -1497,7 +1528,7 @@ Socket Mode 信封格式：`{envelope_id, type, payload}`，收到后立即 ACK 
 | 3. 流式追加 | `PUT /open-apis/cardkit/v1/cards/{card_id}/elements/{element_id}/content`，body `{"content":"<完整文本>","sequence":<i64>}`，**sequence 必须严格单调递增** |
 | 4. 关闭流式 | `PATCH /open-apis/cardkit/v1/cards/{card_id}/settings`，body `{"settings":"{\"config\":{\"streaming_mode\":false}}","sequence":<i64>}`（best-effort，10 分钟也会自动关） |
 
-卡片 schema 2.0 主体见 [`api.rs::FeishuApi::build_streaming_card_body`](../../crates/ha-core/src/channel/feishu/api.rs)：单个 `markdown` 元素，`element_id="streaming_text"`（常量在 `api.rs::STREAMING_ELEMENT_ID`）。`config.streaming_mode=true` 让客户端显示打字机加载态。
+卡片 schema 2.0 主体见 [`api.rs::FeishuApi::build_streaming_card_body`](../../crates/ha-channel/src/channel/feishu/api.rs)：单个 `markdown` 元素，`element_id="streaming_text"`（常量在 `api.rs::STREAMING_ELEMENT_ID`）。`config.streaming_mode=true` 让客户端显示打字机加载态。
 
 **限制**：
 
@@ -1505,7 +1536,7 @@ Socket Mode 信封格式：`{envelope_id, type, payload}`，收到后立即 ACK 
 - 单文本上限：100,000 字符
 - 卡片有效期：14 天；流式模式 10 分钟自动关闭
 
-**错误码 → `CardStreamError` 分类**（见 [api.rs::card_stream_error_from_code](../../crates/ha-core/src/channel/feishu/api.rs)）：`300317 SequenceOutOfOrder` / `200750 Expired` / `200850 TimedOut` / `300309 NotEnabled` / `300311 NoPermission` / 其它 `Other(code= msg)`。
+**错误码 → `CardStreamError` 分类**（见 [api.rs::card_stream_error_from_code](../../crates/ha-channel/src/channel/feishu/api.rs)）：`300317 SequenceOutOfOrder` / `200750 Expired` / `200850 TimedOut` / `300309 NotEnabled` / `300311 NoPermission` / 其它 `Other(code= msg)`。
 
 **降级**：
 
@@ -1517,9 +1548,9 @@ Socket Mode 信封格式：`{envelope_id, type, payload}`，收到后立即 ACK 
 
 ask_user / approval 按钮也走 schema 2.0，但**不**走 cardkit API——按钮卡片是一次性、不需要后续 update 元素，所以直接把 schema 2.0 卡片 JSON 字符串化塞进 `POST /open-apis/im/v1/messages` 的 `content` 字段（`msg_type=interactive`）。一次 API call 完成。
 
-**端点**：复用 [`FeishuApi::send_interactive_card`](../../crates/ha-core/src/channel/feishu/api.rs)（同一个 helper 之前服务于 schema 1.0 卡片，现在 caller 切到 schema 2.0 卡片 JSON）。
+**端点**：复用 [`FeishuApi::send_interactive_card`](../../crates/ha-channel/src/channel/feishu/api.rs)（同一个 helper 之前服务于 schema 1.0 卡片，现在 caller 切到 schema 2.0 卡片 JSON）。
 
-**卡片骨架**：见 [`mod.rs::build_button_card_v2`](../../crates/ha-core/src/channel/feishu/mod.rs)。
+**卡片骨架**：见 [`mod.rs::build_button_card_v2`](../../crates/ha-channel/src/channel/feishu/mod.rs)。
 
 ```json
 {
@@ -1544,10 +1575,10 @@ ask_user / approval 按钮也走 schema 2.0，但**不**走 cardkit API——按
 }
 ```
 
-**回调路径**：用户点击按钮触发 `card.action.trigger` WS 事件；[`ws_event.rs::extract_hope_callback`](../../crates/ha-core/src/channel/feishu/ws_event.rs) 从 `event.action.value.hope_callback` 取出字符串，按前缀分两条路：
+**回调路径**：用户点击按钮触发 `card.action.trigger` WS 事件；[`ws_event.rs::extract_hope_callback`](../../crates/ha-channel/src/channel/feishu/ws_event.rs) 从 `event.action.value.hope_callback` 取出字符串，按前缀分两条路：
 
-- `slash:<cmd> <arg>`（无参 slash 命令的 arg picker，如 `/think` / `/permission`）→ [`inject_slash_callback`](../../crates/ha-core/src/channel/feishu/ws_event.rs) 从 envelope（`context.open_chat_id` / `operator.open_id` / `context.open_message_id`）合成一条 `text="/cmd arg"` 的 inbound `MsgContext`，丢回 `inbound_tx`，让 worker 走正常 slash 分发——和 [`telegram/polling.rs::convert_callback_query`](../../crates/ha-core/src/channel/telegram/polling.rs) 一致的回环。`chat_type` 通过 [`ChannelDB::get_chat_type`](../../crates/ha-core/src/channel/db.rs) 用 chat_id 反查既有 `channel_conversations` 行恢复（picker 按钮总是先于真实 `/cmd` inbound 出现，行已存在）；查不到回退 `Dm`（与 [`ChatType::from_lowercase`](../../crates/ha-core/src/channel/types.rs) 默认一致），避免 DM 用户按钮点击被误判为 Group 后走 mention-gating 或 wildcard group agent 路由
-- `approval:` / `ask_user:` → [`try_dispatch_interactive_callback`](../../crates/ha-core/src/channel/worker/ask_user.rs) 直接进 worker 内部的审批 / ask_user state machine
+- `slash:<cmd> <arg>`（无参 slash 命令的 arg picker，如 `/think` / `/permission`）→ [`inject_slash_callback`](../../crates/ha-channel/src/channel/feishu/ws_event.rs) 从 envelope（`context.open_chat_id` / `operator.open_id` / `context.open_message_id`）合成一条 `text="/cmd arg"` 的 inbound `MsgContext`，丢回 `inbound_tx`，让 worker 走正常 slash 分发——和 [`telegram/polling.rs::convert_callback_query`](../../crates/ha-channel/src/channel/telegram/polling.rs) 一致的回环。`chat_type` 通过 [`ChannelDB::get_chat_type`](../../crates/ha-core/src/channel/db.rs) 用 chat_id 反查既有 `channel_conversations` 行恢复（picker 按钮总是先于真实 `/cmd` inbound 出现，行已存在）；查不到回退 `Dm`（与 [`ChatType::from_lowercase`](../../crates/ha-core/src/channel/types.rs) 默认一致），避免 DM 用户按钮点击被误判为 Group 后走 mention-gating 或 wildcard group agent 路由
+- `approval:` / `ask_user:` → [`try_dispatch_interactive_callback`](../../crates/ha-channel/src/channel/worker/ask_user.rs) 直接进 worker 内部的审批 / ask_user state machine
 
 **关键约束**：
 - `behaviors[callback].value` 必须是 object，且 key/value 都是 string——schema 2.0 callback value 不支持裸字符串
@@ -1645,17 +1676,17 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 
 ### `/permission` 切换会话权限模式
 
-IM 用户可在渠道内直接发 `/permission default | smart | yolo`，命令在 [`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs) `SetToolPermission` 分支调用 `SessionDB::update_session_permission_mode` 写入 `SessionMeta.permission_mode`，并 emit `permission:mode_changed` 事件供桌面端订阅。命令必传参；`arg_options` 在支持按钮的渠道（Telegram / Discord 等）让无参 `/permission` 直接弹出 `default / smart / yolo` 三个内联按钮。查看当前模式走 `/status`（输出包含 `Permission Mode` 行）。详情见 [permission-system.md](permission-system.md)。
+IM 用户可在渠道内直接发 `/permission default | smart | yolo`，命令在 [`channel/worker/slash.rs`](../../crates/ha-channel/src/channel/worker/slash.rs) `SetToolPermission` 分支调用 `SessionDB::update_session_permission_mode` 写入 `SessionMeta.permission_mode`，并 emit `permission:mode_changed` 事件供桌面端订阅。命令必传参；`arg_options` 在支持按钮的渠道（Telegram / Discord 等）让无参 `/permission` 直接弹出 `default / smart / yolo` 三个内联按钮。查看当前模式走 `/status`（输出包含 `Permission Mode` 行）。详情见 [permission-system.md](permission-system.md)。
 
 ### Prompt 注入：IM attach 状态
 
-IM 入站消息触发的 turn 会继续通过 [`channel/worker/dispatcher.rs`](../../crates/ha-core/src/channel/worker/dispatcher.rs) 构造 `## IM Channel Context`，作为 `ChatEngineParams.extra_system_context` 注入本轮 prompt，包含 channel、chat type、chat id、sender 与 group/topic/channel 额外 system prompt。
+IM 入站消息触发的 turn 会继续通过 [`channel/worker/dispatcher.rs`](../../crates/ha-channel/src/channel/worker/dispatcher.rs) 构造 `## IM Channel Context`，作为 `ChatEngineParams.extra_system_context` 注入本轮 prompt，包含 channel、chat type、chat id、sender 与 group/topic/channel 额外 system prompt。
 
 除此之外，只要会话已绑定 IM chat，`build_system_prompt_with_session()` 会从 `SessionMeta.channel_info` 读取 `channel_conversations` join 结果，并在主 system prompt 中追加 `# IM Channel Attachment`。这个段落覆盖桌面 / HTTP 在同一 IM 绑定 session 里发起 turn 的场景：模型会知道回复可能被 GUI → IM mirror 发送到该 IM chat，因此需要注意 IM 受众与格式，但仍按普通任务正常执行。
 
 安全边界：`sender_name`、chat id 等 IM metadata 可能来自外部平台，不能作为可信 system/user 指令。`# IM Channel Attachment` 用单行 JSON 渲染这些字段，并明确标注为 untrusted routing/audience context；模型只能把字段值当作数据使用。
 
-**源码**：`crates/ha-core/src/channel/worker/approval.rs`
+**源码**：`crates/ha-channel/src/channel/worker/approval.rs`
 
 ---
 
@@ -1825,7 +1856,7 @@ interface ChannelAccountConfig {
 
 以 WebSocket 渠道为例：
 ```
-crates/ha-core/src/channel/{channel_name}/
+crates/ha-channel/src/channel/{channel_name}/
 ├── mod.rs          // {Channel}Plugin: impl ChannelPlugin
 ├── api.rs          // REST API 封装（reqwest）
 ├── auth.rs         // 可选：OAuth Token 管理（如需 app_id+secret 认证）
@@ -1843,12 +1874,14 @@ crates/ha-core/src/channel/{channel_name}/
 
 ### 3. 注册插件
 
-在 `crates/ha-core/src/channel/mod.rs` 添加 `pub mod {channel_name};`
+在 `crates/ha-channel/src/channel/mod.rs` 添加 `pub mod {channel_name};`
 
-在 `crates/ha-core/src/lib.rs` 的 setup 中添加：
+在 `crates/ha-channel/src/lib.rs` 的 `register_hooks()::install_plugins` 里添加：
 ```rust
 registry.register_plugin(Arc::new(channel::{channel_name}::{Channel}Plugin::new()));
 ```
+（阶段 5 第五刀起插件注册在特征 crate 的 `wire()`，不再在 `app_init`——
+kernel 只持有 `ChannelRegistry`，插件实现由 `channel_hooks` 的装配槽装入。）
 
 ### 4. 如需新增 ChannelId 枚举变体
 
@@ -1900,14 +1933,14 @@ flowchart TD
 | `crates/ha-core/src/channel/mod.rs` | 模块根 |
 | `crates/ha-core/src/channel/types.rs` | 核心数据类型（ChannelId 12+Custom 变体） |
 | `crates/ha-core/src/channel/traits.rs` | ChannelPlugin trait + chunk_text |
-| `crates/ha-core/src/channel/ws.rs` | 共享 WebSocket 工具（WsConnection + 退避） |
+| `crates/ha-channel/src/channel/ws.rs` | 共享 WebSocket 工具（WsConnection + 退避） |
 | `crates/ha-core/src/channel/config.rs` | 配置存储 |
 | `crates/ha-core/src/channel/db.rs` | 会话映射 DB |
 | `crates/ha-core/src/channel/registry.rs` | 插件注册表 |
-| `crates/ha-core/src/channel/worker/` | 入站分发器目录（`mod.rs` / `dispatcher.rs` / `approval.rs` / `ask_user.rs` / `slash.rs` / `streaming.rs` / `media.rs` / `tests.rs`） |
+| `crates/ha-channel/src/channel/worker/` | 入站分发器目录（`mod.rs` / `dispatcher.rs` / `approval.rs` / `ask_user.rs` / `slash.rs` / `streaming.rs` / `media.rs` / `tests.rs`） |
 | `crates/ha-core/src/channel/cancel.rs` | 流式取消注册表 |
-| `crates/ha-core/src/channel/process_manager.rs` | 外部子进程管理（Signal/iMessage 共享） |
-| `crates/ha-core/src/channel/webhook_server.rs` | 嵌入式 Webhook HTTP 服务器（axum, Google Chat/LINE 共享） |
+| `crates/ha-channel/src/channel/process_manager.rs` | 外部子进程管理（Signal/iMessage 共享） |
+| `crates/ha-channel/src/channel/webhook_server.rs` | 嵌入式 Webhook HTTP 服务器（axum, Google Chat/LINE 共享） |
 | `crates/ha-core/src/chat_engine/` | 共享聊天执行引擎 |
 
 ### 渠道插件文件

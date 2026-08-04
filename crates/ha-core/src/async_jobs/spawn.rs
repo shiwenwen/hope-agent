@@ -7,7 +7,7 @@ use super::db::JobsDB;
 use super::error::JobError;
 use super::injection;
 use super::types::{BackgroundJob, JobKind, JobOrigin, JobStatus};
-use crate::tools::{ToolExecContext, ASYNC_JOB_TIMEOUT_ARG};
+use crate::tool_defs::{ToolExecContext, ASYNC_JOB_TIMEOUT_ARG};
 
 const DEFAULT_PREVIEW_BYTES: usize = 4096;
 const CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
@@ -123,8 +123,10 @@ fn requested_job_timeout_secs(
         .and_then(|v| v.as_u64())
         .filter(|secs| *secs > 0)?;
 
-    if crate::tools::should_ignore_model_runtime_timeout_when_user_unlimited(configured_max_secs) {
-        crate::tools::audit_model_runtime_timeout_override(
+    if crate::tool_defs::should_ignore_model_runtime_timeout_when_user_unlimited(
+        configured_max_secs,
+    ) {
+        crate::tool_defs::audit_model_runtime_timeout_override(
             ctx,
             tool_name,
             ASYNC_JOB_TIMEOUT_ARG,
@@ -138,7 +140,7 @@ fn requested_job_timeout_secs(
     }
 
     let effective = clamp_job_timeout_secs(configured_max_secs, Some(requested));
-    crate::tools::audit_model_runtime_timeout_override(
+    crate::tool_defs::audit_model_runtime_timeout_override(
         ctx,
         tool_name,
         ASYNC_JOB_TIMEOUT_ARG,
@@ -225,7 +227,7 @@ pub(crate) fn spawn_explicit_job_with_id(
     {
         let pid_db = db.clone();
         let pid_job_id = job_id.clone();
-        ctx.pid_sink = Some(crate::tools::PidSink(std::sync::Arc::new(
+        ctx.pid_sink = Some(crate::tool_defs::PidSink(std::sync::Arc::new(
             move |pid: u32| {
                 let _ = pid_db.set_pid(&pid_job_id, pid as i64);
             },
@@ -235,7 +237,7 @@ pub(crate) fn spawn_explicit_job_with_id(
     // tail buffer so `job_status(action:status)` can show a *running* job's
     // latest output (BashOutput parity). `exec` is the only async tool that
     // streams; incognito jobs leave no tail (close-and-burn, like the spool).
-    if tool_name == crate::tools::TOOL_EXEC && !ctx.incognito {
+    if tool_name == crate::tool_defs::TOOL_EXEC && !ctx.incognito {
         super::output_tail::register(&job_id, super::output_tail::configured_bytes());
         ctx.output_tail_job_id = Some(job_id.clone());
     }
@@ -586,7 +588,7 @@ pub(crate) async fn dispatch_with_auto_background(
             });
             // R3 ①: register the tail ring now that the runtime is up, before the
             // tool streams (exec only; incognito leaves no tail, like the spool).
-            if name_w == crate::tools::TOOL_EXEC && !ctx_w.incognito {
+            if name_w == crate::tool_defs::TOOL_EXEC && !ctx_w.incognito {
                 super::output_tail::register(&job_id_w, super::output_tail::configured_bytes());
                 ctx_w.output_tail_job_id = Some(job_id_w.clone());
             }

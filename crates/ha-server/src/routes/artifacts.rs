@@ -8,11 +8,11 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
-use ha_core::artifacts::{
+use ha_core::blocking::run_blocking;
+use ha_design::artifacts::{
     ArtifactImportSource, ArtifactKind, ArtifactService, CreateArtifactInput, ListArtifactsInput,
     UpdateArtifactInput,
 };
-use ha_core::blocking::run_blocking;
 
 use crate::error::AppError;
 use crate::routes::file_serve::{apply_inline_media_headers, contained_canonical, HeaderOpts};

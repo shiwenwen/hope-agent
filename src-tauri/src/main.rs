@@ -19,6 +19,11 @@ struct ServerArgs {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    // 特征 crate 装配：必须先于任何 `init_runtime` 路径（GUI / server / acp /
+    // mcp 各分支）——init 尾部冻结工具注册表，之后再挂 `app_update` 会 panic。
+    // 单一来源在 `ha_server::wire_features()`；新增特征 crate 只需改那一处。
+    ha_server::wire_features();
+
     // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,
     // NOT persisted). Skips every tool-level approval gate for THIS launch only.
     // Applied before subcommand dispatch so GUI, server, and ACP modes all see it.
@@ -161,7 +166,7 @@ fn run_knowledge_mcp(args: &[String]) {
     ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("knowledge-mcp");
 
-    if let Err(e) = ha_core::knowledge::agent_mcp::run_stdio(options) {
+    if let Err(e) = ha_knowledge::knowledge::agent_mcp::run_stdio(options) {
         eprintln!("[knowledge-mcp] Server error: {}", e);
         std::process::exit(1);
     }
@@ -169,8 +174,8 @@ fn run_knowledge_mcp(args: &[String]) {
 
 fn parse_knowledge_mcp_args(
     args: &[String],
-) -> Option<ha_core::knowledge::agent_mcp::KnowledgeMcpOptions> {
-    let mut options = ha_core::knowledge::agent_mcp::KnowledgeMcpOptions::default();
+) -> Option<ha_knowledge::knowledge::agent_mcp::KnowledgeMcpOptions> {
+    let mut options = ha_knowledge::knowledge::agent_mcp::KnowledgeMcpOptions::default();
     for arg in args {
         match arg.as_str() {
             "--allow-proposals" => options.allow_proposals = true,
@@ -216,8 +221,9 @@ fn run_mcp(args: &[String]) {
     ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("mcp");
 
-    let providers: Vec<Box<dyn ha_core::mcp_server::ToolProvider>> =
-        vec![Box::new(ha_core::design::mcp_provider::DesignToolProvider)];
+    let providers: Vec<Box<dyn ha_core::mcp_server::ToolProvider>> = vec![Box::new(
+        ha_design::design::mcp_provider::DesignToolProvider,
+    )];
     if let Err(e) = ha_core::mcp_server::run_stdio(options, providers) {
         eprintln!("[mcp] Server error: {}", e);
         std::process::exit(1);

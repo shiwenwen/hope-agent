@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Context, Result};
-use ha_core::coding_eval::{self, CodingEvalFixture, GoldTaskPackRunInput};
-use ha_core::domain_eval::{self, RunDomainEvalFixtureInput};
+use ha_core::domain_eval::RunDomainEvalFixtureInput;
 use ha_core::memory::{claims, dreaming, SqliteMemoryBackend};
 use ha_core::session::SessionDB;
+use ha_eval_runtime::coding_eval::{self, CodingEvalFixture, GoldTaskPackRunInput};
 use ha_eval_spec::{
     read_json, resolve_contained, CaseResult, EvalAdapter, EvalCheck, EvalStatus, PlannedCase,
     PlannedSuite,
@@ -137,7 +137,7 @@ async fn run_coding_gold(
 async fn run_domain(temp: &Path, suite: &PlannedSuite, case: &PlannedCase) -> Result<CaseResult> {
     let _ = temp;
     let db = runtime_eval_db()?;
-    let fixture = domain_eval::deterministic_domain_eval_fixture(
+    let fixture = ha_improve::domain_eval::deterministic_domain_eval_fixture(
         db.as_ref(),
         &case.id,
         &format!("release-eval:{}", case.id),
@@ -149,7 +149,8 @@ async fn run_domain(temp: &Path, suite: &PlannedSuite, case: &PlannedCase) -> Re
         bail!("domain deterministic fixture unexpectedly contains agent/provider configuration");
     }
     let report =
-        SessionDB::run_domain_eval_fixture(db, RunDomainEvalFixtureInput { fixture }).await?;
+        ha_improve::domain_eval::run_domain_eval_fixture(db, RunDomainEvalFixtureInput { fixture })
+            .await?;
     let mut checks = report
         .checks
         .iter()
@@ -381,6 +382,9 @@ fn base_result(
 }
 
 fn runtime_eval_db() -> Result<Arc<SessionDB>> {
+    // 特征 crate 装配先于 init_runtime（冻结工具注册表前挂 app_update），
+    // 与 src-tauri / hope-agent-server 两个壳共用单一来源 wire_features()。
+    ha_server::wire_features();
     ha_core::init_runtime("eval");
     ha_core::get_session_db()
         .cloned()

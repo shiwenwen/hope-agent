@@ -32,7 +32,7 @@ Hope Agent 是一款本地运行的桌面 AI 助手，请重点关注以下方�
 
 - **凭据泄露**：API Key / OAuth token / 用户私密配置（`~/.hope-agent/credentials/`）从内存、日志、IPC、HTTP 响应、错误消息等通道意外暴露
 - **任意命令执行 / 沙箱绕过**：通过工具调用、技能脚本、MCP 服务器、Channel webhook 等渠道绕过权限引擎执行用户未授权的命令
-- **SSRF**：HTTP 出站请求绕过 [`security::ssrf::check_url`](crates/ha-core/src/security/ssrf.rs) 触达内网或元数据服务
+- **SSRF**：HTTP 出站请求绕过 [`security::ssrf::check_url`](crates/ha-base/src/security/ssrf.rs) 触达内网或元数据服务
 - **XSS / 提示注入**：会话历史、技能内容、第三方文档触达 webview 时的 DOM 注入
 - **签名 / 升级链**：Tauri Updater 验签绕过、updater 私钥相关
 - **HTTP/WS 守护进程**：`hope-agent server` 鉴权绕过、未鉴权数据访问
@@ -48,7 +48,7 @@ Hope Agent 是一款本地运行的桌面 AI 助手，请重点关注以下方�
 
 ### 隐私与日志
 
-Hope Agent 的[统一日志](crates/ha-core/src/logging.rs) 在写入前用 `redact_sensitive` 脱敏 API Key / OAuth Token / 长 base64 内容。**如果你发现日志泄露了任何凭据 / token / 用户私密配置**，请按上述渠道私密报告。
+Hope Agent 的[统一日志](crates/ha-base/src/logging/file_ops.rs) 在写入前用 `redact_sensitive` 脱敏 API Key / OAuth Token / 长 base64 内容。**如果你发现日志泄露了任何凭据 / token / 用户私密配置**，请按上述渠道私密报告。
 
 ---
 
@@ -80,7 +80,7 @@ Hope Agent is a locally-running desktop AI assistant. We are most interested in:
 
 - **Credential leakage**: API keys / OAuth tokens / private user config (`~/.hope-agent/credentials/`) leaking via memory, logs, IPC, HTTP responses, error messages
 - **Arbitrary command execution / sandbox bypass**: via tool calls, skill scripts, MCP servers, channel webhooks bypassing the permission engine
-- **SSRF**: outbound HTTP bypassing [`security::ssrf::check_url`](crates/ha-core/src/security/ssrf.rs) to reach internal networks or metadata services
+- **SSRF**: outbound HTTP bypassing [`security::ssrf::check_url`](crates/ha-base/src/security/ssrf.rs) to reach internal networks or metadata services
 - **XSS / prompt injection**: DOM injection through session history, skill content, third-party documents reaching the webview
 - **Signing / update chain**: Tauri Updater signature verification bypass, updater private key issues
 - **HTTP/WS daemon**: `hope-agent server` auth bypass, unauthenticated data access
@@ -96,4 +96,4 @@ Hope Agent is a locally-running desktop AI assistant. We are most interested in:
 
 ### Privacy and Logs
 
-Hope Agent's [unified logging](crates/ha-core/src/logging.rs) applies `redact_sensitive` before writing API keys / OAuth tokens / long base64 payloads. **If you find any log leaking credentials / tokens / private user config**, please report via the channel above.
+Hope Agent's [unified logging](crates/ha-base/src/logging/file_ops.rs) applies `redact_sensitive` before writing API keys / OAuth tokens / long base64 payloads. **If you find any log leaking credentials / tokens / private user config**, please report via the channel above.

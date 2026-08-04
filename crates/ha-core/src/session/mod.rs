@@ -1,4 +1,10 @@
 mod acp_db;
+pub mod design_hooks;
+mod design_threads;
+pub use design_threads::DesignChatThread;
+pub mod privacy;
+// ACP run 行类型（表随 kernel、类型随表）：供 ha-acp 特征 crate 原路径再导出
+pub use acp_db::{AcpRun, AcpRunStatus};
 mod artifacts;
 pub(crate) mod cleanup_watcher;
 pub(crate) mod db;
@@ -6,8 +12,10 @@ mod environment;
 pub(crate) mod events;
 pub mod export;
 mod helpers;
+pub(crate) use helpers::workspace_root;
 mod ide_context;
 mod pending;
+pub mod pet_activity;
 mod stream_persistence;
 mod subagent_db;
 mod tasks;
@@ -18,10 +26,11 @@ mod types;
 pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts, UrlSource};
 pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
-    LastAssistantTokens, ParentSessionFilter, ProjectFilter, SessionDB, SessionSearchResult,
-    SessionTypeFilter,
+    sanitize_fts_query, LastAssistantTokens, ParentSessionFilter, ProjectFilter, SessionDB,
+    SessionSearchResult, SessionTypeFilter,
 };
-pub(crate) use environment::{build_git_snapshot, load_git_diff_for_root};
+pub use environment::build_git_snapshot; // pub：ha-vcs git_control 消费
+pub(crate) use environment::load_git_diff_for_root;
 pub use environment::{
     load_session_environment, load_session_git_diff, WorkspaceEnvironmentSnapshot,
     WorkspaceGitCommit, WorkspaceGitDiff, WorkspaceGitFileAction, WorkspaceGitFileChange,

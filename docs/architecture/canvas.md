@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-15
 
-> **演进说明**：Canvas 现在是 [Artifacts 平台](artifacts.md) 的项目存储、运行与预览兼容层。新增长期管理、分析报告、验证或导出能力必须进入 `ha-core::artifacts`，不得继续扩张 Canvas 控制面。本文描述当前兼容实现；Artifact 身份、不可变版本、证据、Gallery 和交付契约以 Artifacts 文档为单一真相源。
+> **演进说明**：Canvas 现在是 [Artifacts 平台](artifacts.md) 的项目存储、运行与预览兼容层。新增长期管理、分析报告、验证或导出能力必须进入 `ha_design::artifacts`，不得继续扩张 Canvas 控制面。本文描述当前兼容实现；Artifact 身份、不可变版本、证据、Gallery 和交付契约以 Artifacts 文档为单一真相源。
 
 ## 目录
 
@@ -33,7 +33,7 @@ Canvas 是 Hope Agent 的**交互式可视化沙盒和 Artifact runtime**：模�
 1. **后端是文件生成器，前端是阅读容器**：所有 7 种兼容内容类型都在 Rust 端生成完整 `index.html`；renderer 无 CDN。Markdown 由 Rust 渲染，Mermaid/Chart 在没有前端 runtime 时生成语义 fallback，前端不拼接模板
 2. **session-aware 事件**：`canvas_show` 事件 payload 带 `sessionId`，前端只接受当前会话的事件，避免 cron / 子 Agent / IM 渠道触发的画布跨会话乱跳
 3. **沙盒强制**：iframe 只开 `allow-scripts`，无法访问父窗口；HTTP 服务静态文件路径走 `contained_canonical()` 双重校验
-4. **零 Tauri 业务依赖**：`tools/canvas/`、`canvas_db.rs` 与 `artifacts` 全在 `ha-core`，桌面壳与 server 各自做薄壳适配；分离窗口（detach）走 `WebviewWindow`，仅 Tauri 显示
+4. **零 Tauri 业务依赖**：`tool_canvas/`、`canvas_db.rs` 与 `artifacts` 全在 `ha-design` 特征 crate（依赖 ha-core），桌面壳与 server 各自做薄壳适配；分离窗口（detach）走 `WebviewWindow`，仅 Tauri 显示
 5. **Canvas mutation 只服务兼容记录**：旧 Canvas 更新后同步 Artifact façade；一旦记录由 Artifact control plane 管理，旧 update/restore/delete 被拒绝，必须使用带 `expected_version` 的 Artifact API
 
 ```mermaid
@@ -97,7 +97,7 @@ graph TD
             └── snapshot_YYYYMMDD_HHMMSS.png   # 每次 snapshot 动作落盘的 PNG
 ```
 
-路径解析入口集中在 [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) 的 `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir`：
+路径解析入口集中在 [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs) 的 `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir`：
 
 - `canvas_dir()` → `~/.hope-agent/canvas/`
 - `canvas_projects_dir()` → `…/canvas/projects/`
@@ -105,7 +105,7 @@ graph TD
 
 ### SQLite 表结构
 
-定义在 [`crates/ha-core/src/canvas_db.rs:74-105`](../../crates/ha-core/src/canvas_db.rs#L74-L105)：
+定义在 [`crates/ha-design/src/canvas_db.rs:74-105`](../../crates/ha-design/src/canvas_db.rs#L74-L105)：
 
 ```sql
 CREATE TABLE canvas_projects (
@@ -150,7 +150,7 @@ CREATE INDEX idx_canvas_projects_session    ON canvas_projects(session_id, updat
 
 ## 工具入口与 11 个动作
 
-工具定义在 [`crates/ha-core/src/tools/definitions/extra_tools.rs:74-141`](../../crates/ha-core/src/tools/definitions/extra_tools.rs#L74-L141)：`internal: true`（恒不需审批）、`background_policy: ForegroundOnly`（同步执行）、`deferred: false`（始终随核心工具集加载）。入口函数 [`tool_canvas`](../../crates/ha-core/src/tools/canvas/mod.rs#L115-L138) 按 `action` 字段路由到 11 个子函数。
+工具定义在 [`crates/ha-core/src/tool_defs/extra_tools.rs`](../../crates/ha-core/src/tool_defs/extra_tools.rs)：`internal: true`（恒不需审批）、`background_policy: ForegroundOnly`（同步执行）、`deferred: false`（始终随核心工具集加载）。入口函数 [`tool_canvas`](../../crates/ha-design/src/tool_canvas/mod.rs#L115-L138) 按 `action` 字段路由到 11 个子函数。
 
 | Action | 必填参数 | 写入 DB / 文件 | 触发事件 | 返回值 |
 | --- | --- | --- | --- | --- |
@@ -168,9 +168,9 @@ CREATE INDEX idx_canvas_projects_session    ON canvas_projects(session_id, updat
 
 **关键不变量：**
 
-- **content_type 不可变**：`update` / `restore` 不接受 `content_type` 参数，强制沿用 `create` 时的设置（[`tools/canvas/project.rs:84-92`](../../crates/ha-core/src/tools/canvas/project.rs#L84-L92)）。如果 LLM 要换类型只能 `delete` + `create`
+- **content_type 不可变**：`update` / `restore` 不接受 `content_type` 参数，强制沿用 `create` 时的设置（[`tool_canvas/project.rs:84-92`](../../crates/ha-design/src/tool_canvas/project.rs#L84-L92)）。如果 LLM 要换类型只能 `delete` + `create`
 - **restore 不是回退**：是从历史版本生成一个**新**的 v(N+1)，原版本 1..N 都不动；这样 prune 只看 `version_number` 倒序数 N，不会因为 restore 把"曾经的最新版"挤出窗口
-- **snapshot 的返回值**走 [`IMAGE_BASE64_PREFIX`](../../crates/ha-core/src/tools/browser/mod.rs)（与 browser 截图共用）；工具执行层会在普通会话里把内联图片 marker 物化为受管 `__IMAGE_FILE__`，Provider 请求前再作为多模态 image 输入
+- **snapshot 的返回值**走 [`IMAGE_BASE64_PREFIX`](../../crates/ha-core/src/tool_defs/names.rs)（与 browser 截图共用）；工具执行层会在普通会话里把内联图片 marker 物化为受管 `__IMAGE_FILE__`，Provider 请求前再作为多模态 image 输入
 - **export 的 PNG 格式**未实现：tool schema 列了 `enum: ["html", "markdown", "png"]` 但 `action_export` 只处理 html / markdown 两个分支，传 png 会 `Unsupported export format` 报错
 
 ### 创建路径详解
@@ -179,7 +179,7 @@ CREATE INDEX idx_canvas_projects_session    ON canvas_projects(session_id, updat
 flowchart TD
     TC["LLM tool_call → action_create"]
     DB["get_canvas_db() 懒打开（含 mkdir parent）"]
-    CP["project::create_project(...)（tools/canvas/project.rs:11-60）"]
+    CP["project::create_project(...)（tool_canvas/project.rs:11-60）"]
     CP1["uuid::new_v4() 生成 project_id"]
     CP2["paths::canvas_project_dir(id)"]
     CP3["renderer::write_project_files(...) 按 content_type 编译 index.html"]
@@ -193,7 +193,7 @@ flowchart TD
     CP --> CP1 --> CP2 --> CP3 --> CP4 --> CP5
 ```
 
-**`build_show_payload`** 把 `session_id` 嵌进去（[`tools/canvas/mod.rs:98-111`](../../crates/ha-core/src/tools/canvas/mod.rs#L98-L111)），前端用它过滤跨会话事件——cron 触发的 canvas_show 不会让用户当前会话弹出别人的画布。
+**`build_show_payload`** 把 `session_id` 嵌进去（[`tool_canvas/mod.rs:98-111`](../../crates/ha-design/src/tool_canvas/mod.rs#L98-L111)），前端用它过滤跨会话事件——cron 触发的 canvas_show 不会让用户当前会话弹出别人的画布。
 
 ---
 
@@ -213,7 +213,7 @@ flowchart TD
 
 ### messaging bridge（仅 `html` 注入）
 
-[`tools/canvas/renderer.rs:25-47`](../../crates/ha-core/src/tools/canvas/renderer.rs#L25-L47)：
+[`tool_canvas/renderer.rs:25-47`](../../crates/ha-design/src/tool_canvas/renderer.rs#L25-L47)：
 
 ```javascript
 window.addEventListener('message', function(event) {
@@ -233,7 +233,7 @@ window.addEventListener('message', function(event) {
 
 ### 源文件保留策略
 
-[`tools/canvas/renderer.rs:290-307`](../../crates/ha-core/src/tools/canvas/renderer.rs#L290-L307)：除了生成 `index.html`，还会**原样**写出用户提供的源（如果有）：
+[`tool_canvas/renderer.rs:290-307`](../../crates/ha-design/src/tool_canvas/renderer.rs#L290-L307)：除了生成 `index.html`，还会**原样**写出用户提供的源（如果有）：
 
 - `css` → `style.css`
 - `js` → `script.js`
@@ -315,14 +315,14 @@ snapshot 与 eval_js 是**对称的请求-响应**模式：工具发起请求 �
 
 ### 后端注册等待者
 
-[`tools/canvas/mod.rs:601-625`](../../crates/ha-core/src/tools/canvas/mod.rs#L601-L625) 维护两个进程级 `LazyLock<StdMutex<HashMap<requestId, oneshot::Sender<...>>>>`：
+[`tool_canvas/mod.rs:601-625`](../../crates/ha-design/src/tool_canvas/mod.rs#L601-L625) 维护两个进程级 `LazyLock<StdMutex<HashMap<requestId, oneshot::Sender<...>>>>`：
 
 ```rust
 static PENDING_SNAPSHOTS: LazyLock<…HashMap<String, oneshot::Sender<SnapshotData>>…>;
 static PENDING_EVALS:     LazyLock<…HashMap<String, oneshot::Sender<EvalResult>>…>;
 ```
 
-`action_snapshot` / `action_eval_js` 的标准流程（[`tools/canvas/mod.rs:386-528`](../../crates/ha-core/src/tools/canvas/mod.rs#L386-L528)）：
+`action_snapshot` / `action_eval_js` 的标准流程（[`tool_canvas/mod.rs:386-528`](../../crates/ha-design/src/tool_canvas/mod.rs#L386-L528)）：
 
 ```rust
 let request_id = Uuid::new_v4().to_string();
@@ -380,7 +380,7 @@ window.addEventListener("message", (event) => {
 })
 ```
 
-后端入口 [`canvas_submit_snapshot`](../../crates/ha-core/src/tools/canvas/mod.rs#L612-L625) 查 `HashMap` 取出 `oneshot::Sender` 并 `tx.send()`，`action_snapshot` 的 `rx.await` 即唤醒。
+后端入口 [`canvas_submit_snapshot`](../../crates/ha-design/src/tool_canvas/mod.rs#L612-L625) 查 `HashMap` 取出 `oneshot::Sender` 并 `tx.send()`，`action_snapshot` 的 `rx.await` 即唤醒。
 
 ### 时序
 
@@ -522,7 +522,7 @@ Canvas 仍监听 `hope-agent:close-canvas`，供自动打开 Browser 等互斥�
 
 ## HTTP 路由与 Tauri 命令对照
 
-每个能力都同时暴露 Tauri IPC（桌面）与 HTTP（server）两套接口，业务逻辑统一在 `ha_core::tools::canvas` 提供的 `pub async` 函数里。
+每个能力都同时暴露 Tauri IPC（桌面）与 HTTP（server）两套接口，业务逻辑统一在 `ha_design::tool_canvas` 提供的 `pub async` 函数里。
 
 | 能力 | Tauri 命令 | HTTP 路由 | Transport key |
 | --- | --- | --- | --- |
@@ -585,7 +585,7 @@ pub async fn serve_canvas_project_file(
 
 ## 配置项
 
-`AppConfig.canvas` 是 [`tools::canvas::CanvasConfig`](../../crates/ha-core/src/tools/canvas/mod.rs#L17-L62) 的实例，挂在 [`config/mod.rs`](../../crates/ha-core/src/config/mod.rs) 的 `pub canvas` 字段上，随主配置一起 cache。
+`AppConfig.canvas` 是 [`tools::canvas::CanvasConfig`](../../crates/ha-design/src/tool_canvas/mod.rs#L17-L62) 的实例，挂在 [`config/mod.rs`](../../crates/ha-core/src/config/mod.rs) 的 `pub canvas` 字段上，随主配置一起 cache。
 
 | 字段 | 默认 | 含义 | 风险等级 |
 | --- | --- | --- | --- |
@@ -599,7 +599,7 @@ pub async fn serve_canvas_project_file(
 读写：
 
 - 读：`crate::config::cached_config().canvas`（运行期全部点都走这条，零 IO）
-- 写：[`save_canvas_config`](../../crates/ha-core/src/tools/canvas/mod.rs#L651-L655) 走 `load_config()` + `save_config()` 老 API ——这与 [配置系统](config-system.md) 推荐的 `mutate_config` 不一致，属于已知技术债，建议后续迁移以避免 lost-update。
+- 写：[`save_canvas_config`](../../crates/ha-design/src/tool_canvas/mod.rs) 走 `mutate_config_async(("canvas", "design.tool_canvas"), …)`，与 [配置系统](config-system.md) 配置写红线 #7 一致——写全过程持全局 write lock、走 blocking pool，防 lost-update。
 
 按 [AGENTS.md "设置约定"](../../AGENTS.md) 的要求，新增的配置字段必须**同时**有 GUI 入口、`ha-settings` 工具分支与 SKILL.md 风险登记。Canvas 当前 GUI 在 [`CanvasSettingsPanel.tsx`](../../src/components/settings/CanvasSettingsPanel.tsx) 已齐全。
 
@@ -647,9 +647,9 @@ pub async fn serve_canvas_project_file(
 
 工具 schema `enum: ["html", "markdown", "png"]`，但 `action_export` 只 match `"html"` / `"markdown"`，传 `"png"` 报错 `Unsupported export format`。要支持 PNG 需复用 snapshot 的链路。
 
-### 4. `save_canvas_config` 不走 `mutate_config`
+### 4. ~~`save_canvas_config` 不走 `mutate_config`~~（已修）
 
-[`tools/canvas/mod.rs:651-655`](../../crates/ha-core/src/tools/canvas/mod.rs#L651-L655) 仍是 `load_config()` + 改字段 + `save_config()` 模式，与 [配置系统](config-system.md) 强制约定不符，存在 lost-update 风险。已登记为后续清理。
+历史遗留：`save_canvas_config` 曾走 `load_config()` + 改字段 + `save_config()` 模式，与 [配置系统](config-system.md) 配置写红线 #7 不符，存在 lost-update 风险。**2026-08 已迁至 `mutate_config_async(("canvas", "design.tool_canvas"), …)`**，同 review 一并修复 `ha-channel/accounts.rs` 三处 CRUD 等其余违反点。
 
 ### 5. session 生命周期由 Artifact façade 接管
 
@@ -663,17 +663,17 @@ pub async fn serve_canvas_project_file(
 
 ## 文件清单
 
-### 后端（ha-core）
+### 后端（ha-design）
 
 | 文件 | 角色 |
 | --- | --- |
-| [`crates/ha-core/src/canvas_db.rs`](../../crates/ha-core/src/canvas_db.rs) | SQLite schema + CRUD（`CanvasDB`、`CanvasProject`、`CanvasVersion`） |
-| [`crates/ha-core/src/tools/canvas/mod.rs`](../../crates/ha-core/src/tools/canvas/mod.rs) | 工具入口 `tool_canvas`、11 个 `action_*`、Pending channel 注册表、对外 API |
-| [`crates/ha-core/src/tools/canvas/project.rs`](../../crates/ha-core/src/tools/canvas/project.rs) | `create_project` / `update_project` / `delete_project` / `restore_version` 业务逻辑 |
-| [`crates/ha-core/src/tools/canvas/renderer.rs`](../../crates/ha-core/src/tools/canvas/renderer.rs) | 7 种 `build_*_page` 模板 + `write_project_files` 分发器 |
-| [`crates/ha-core/src/tools/definitions/extra_tools.rs`](../../crates/ha-core/src/tools/definitions/extra_tools.rs) | `get_canvas_tool()` 工具 schema 定义 |
+| [`crates/ha-design/src/canvas_db.rs`](../../crates/ha-design/src/canvas_db.rs) | SQLite schema + CRUD（`CanvasDB`、`CanvasProject`、`CanvasVersion`） |
+| [`crates/ha-design/src/tool_canvas/mod.rs`](../../crates/ha-design/src/tool_canvas/mod.rs) | 工具入口 `tool_canvas`、11 个 `action_*`、Pending channel 注册表、对外 API |
+| [`crates/ha-design/src/tool_canvas/project.rs`](../../crates/ha-design/src/tool_canvas/project.rs) | `create_project` / `update_project` / `delete_project` / `restore_version` 业务逻辑 |
+| [`crates/ha-design/src/tool_canvas/renderer.rs`](../../crates/ha-design/src/tool_canvas/renderer.rs) | 7 种 `build_*_page` 模板 + `write_project_files` 分发器 |
+| [`crates/ha-core/src/tool_defs/extra_tools.rs`](../../crates/ha-core/src/tool_defs/extra_tools.rs) | `get_canvas_tool()` 工具 schema 定义 |
 | [`crates/ha-core/src/tools/definitions/registry.rs`](../../crates/ha-core/src/tools/definitions/registry.rs) | 注册到 internal / async-capable 集合 |
-| [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) | `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir` |
+| [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs) | `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir` |
 | [`crates/ha-core/src/config/mod.rs`](../../crates/ha-core/src/config/mod.rs) | `AppConfig.canvas` 字段挂载 |
 
 ### 后端（ha-server / src-tauri）

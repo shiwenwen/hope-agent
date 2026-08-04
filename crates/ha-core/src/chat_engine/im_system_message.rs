@@ -5,7 +5,7 @@
 //! auto-disabled) onto IM as
 //! short standalone markdown messages. Format: emoji prefix +
 //! single-line italic body. Routed through
-//! [`crate::channel::worker::pipeline::StreamPipeline::system_notice_tx`]
+//! `ha_channel::channel::worker::pipeline::StreamPipeline::system_notice_tx`
 //! so notices land as their own IM message and don't tangle with the
 //! per-round LLM text accumulator.
 //!

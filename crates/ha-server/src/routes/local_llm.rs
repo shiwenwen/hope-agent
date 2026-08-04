@@ -9,13 +9,13 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use ha_core::local_llm::{
+use ha_core::provider::known_local_backends;
+use ha_local_llm::local_llm::{
     add_ollama_model_as_embedding_config, delete_ollama_model, detect_hardware, detect_ollama,
     detect_ollama_version, get_ollama_library_model, list_local_ollama_models, model_catalog,
     preload_ollama_model, recommend_model, register_ollama_model_as_provider,
     search_ollama_library, start_ollama, stop_ollama_model,
 };
-use ha_core::provider::known_local_backends;
 
 use crate::error::AppError;
 

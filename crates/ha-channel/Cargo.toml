@@ -1,0 +1,60 @@
+[package]
+name = "ha-channel"
+version = "0.29.0"
+description = "Hope Agent IM channel feature — 12 chat platform plugins, inbound worker pipeline, Feishu business tools"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[build-dependencies]
+# 只服务飞书长连接的 pbbp2 帧（`channel/feishu/proto.rs`）。随本 crate 自 ha-core
+# 迁入——kernel 因此甩掉这两个构建依赖。
+prost-build = "0.14"
+protoc-bin-vendored = "3"
+
+[dependencies]
+ha-base = { path = "../ha-base" }
+ha-config-schema = { path = "../ha-config-schema" }
+ha-core = { path = "../ha-core" }
+
+aes = "0.8"
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = "0.8"
+base64 = { workspace = true }
+blake3 = "1.8.5"
+chrono = { workspace = true }
+fancy-regex = { workspace = true }
+futures-util = { workspace = true }
+hmac = "0.12"
+jsonwebtoken = "9"
+lru = "0.12"
+md-5 = "0.10"
+native-tls = "0.2"
+once_cell = { workspace = true }
+prost = "0.14"
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+teloxide = { version = "0.17", features = ["macros", "throttle"], default-features = false }
+tokio = { workspace = true }
+tokio-native-tls = "0.3"
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+url = { workspace = true }
+urlencoding = "2"
+uuid = { workspace = true }
+which = "8"
+
+[dev-dependencies]
+ha-core = { path = "../ha-core", features = ["test-support"] }
+tempfile = "3"
+# 只在 `#[cfg(test)]` 里用（各 IM 插件的 REST 冒烟测试起本地 mock server）。
+wiremock = "0.6"
+
+[lints]
+workspace = true

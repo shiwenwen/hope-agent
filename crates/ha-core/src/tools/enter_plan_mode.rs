@@ -160,7 +160,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 ask_user::cancel_pending_ask_user_question_with_source(&request_id, "timeout")
                     .await;
                 let _ = ask_user::mark_group_answered(&request_id);
-                crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
+                crate::channel_hooks::drop_ask_user_by_request_id(&request_id).await;
                 ask_user::emit_ask_user_timed_out(
                     &request_id,
                     sid,
@@ -185,7 +185,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         rx.await.ok()
     };
     let _ = ask_user::mark_group_answered(&request_id);
-    crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
+    crate::channel_hooks::drop_ask_user_by_request_id(&request_id).await;
 
     let answers = match answers_opt {
         Some(a) => a,

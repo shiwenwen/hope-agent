@@ -2,8 +2,8 @@ use axum::extract::Path;
 use axum::Json;
 use serde::Deserialize;
 
-use ha_core::recap::api;
-use ha_core::recap::types::{GenerateMode, RecapReport, RecapReportSummary};
+use ha_dash::recap::api;
+use ha_dash::recap::types::{GenerateMode, RecapReport, RecapReportSummary};
 
 use crate::error::AppError;
 use ha_core::blocking::run_blocking;

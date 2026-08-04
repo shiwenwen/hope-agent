@@ -508,6 +508,45 @@ pub fn is_session_incognito(session_id: Option<&str>) -> bool {
     }
 }
 
+/// `WorkspaceScope::for_session` 的根解析器（经 `app_init` 注册进
+/// `filesystem::workspace` 的钩子）。错误分类与旧直调路径逐字一致：任何
+/// 「拿不到工作目录」（含 DB 未初始化 / 查询失败 / 会话不存在）都归
+/// bad_input "session has no working directory"；归档判定的 DB 故障才是
+/// internal。归档项目对文件浏览器只读。
+pub(crate) fn workspace_root(
+    session_id: &str,
+) -> std::result::Result<crate::filesystem::ResolvedRoot, crate::filesystem::FilesystemError> {
+    use crate::filesystem::{FilesystemError, ResolvedRoot};
+    let Some(dir) = effective_session_working_dir(Some(session_id)) else {
+        return Err(FilesystemError::bad_input(
+            "session has no working directory",
+        ));
+    };
+    let session_db =
+        crate::require_session_db().map_err(|e| FilesystemError::internal(e.to_string()))?;
+    let Some(session) = session_db
+        .get_session(session_id)
+        .map_err(|e| FilesystemError::internal(e.to_string()))?
+    else {
+        return Err(FilesystemError::bad_input("session not found"));
+    };
+    let archived = match session.project_id.as_deref() {
+        None => false,
+        Some(project_id) => {
+            let project_db = crate::get_project_db()
+                .ok_or_else(|| FilesystemError::internal("project db not initialized"))?;
+            project_db
+                .get(project_id)
+                .map_err(|e| FilesystemError::internal(e.to_string()))?
+                .is_some_and(|project| project.archived)
+        }
+    };
+    Ok(ResolvedRoot {
+        dir: std::path::PathBuf::from(dir),
+        read_only: archived,
+    })
+}
+
 /// Resolve the effective working directory for a session: session-level value
 /// if set, otherwise the parent project's directory (its explicitly selected
 /// `working_dir`, or its lazily-created default workspace). This is the single
@@ -534,8 +573,11 @@ pub fn effective_working_dir_for_meta(meta: &SessionMeta) -> Option<String> {
     // 无绑定则继续走下面的 project 分支（通常 None → 无工作目录段）。design 库句柄缓存，
     // 非设计会话经 kind 短路零成本（review F3/F5/F6：拆事件拷贝、改实时派生）。
     if meta.kind == crate::session::SessionKind::Design {
-        if let Some(dir) = crate::design::service::session_bound_code_dir(&meta.id) {
-            return Some(dir);
+        // 特征 crate 钩子（未 wire＝无绑定，走下方 project 分支）。
+        if let Some(hooks) = crate::session::design_hooks::design_session_hooks() {
+            if let Some(dir) = (hooks.bound_code_dir)(&meta.id) {
+                return Some(dir);
+            }
         }
     }
     let pid = meta.project_id.as_deref()?;

@@ -9,7 +9,7 @@ pub async fn searxng_docker_status() -> Result<docker::SearxngDockerStatus, CmdE
 }
 
 /// Deploy the SearXNG container. Progress is emitted via the shared
-/// `EventBus` under [`ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS`];
+/// `EventBus` under [`ha_vcs::docker::EVENT_SEARXNG_DEPLOY_PROGRESS`];
 /// the frontend listens for those events instead of receiving a Tauri Channel.
 #[tauri::command]
 pub async fn searxng_docker_deploy() -> Result<String, CmdError> {
@@ -17,7 +17,7 @@ pub async fn searxng_docker_deploy() -> Result<String, CmdError> {
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("EventBus not initialized"))?;
     let url =
-        docker::deploy(bus.emit_progress(ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS)).await?;
+        docker::deploy(bus.emit_progress(ha_vcs::docker::EVENT_SEARXNG_DEPLOY_PROGRESS)).await?;
     // Auto-save the URL into the SearXNG provider entry and mark as docker-managed
     let url_for_mut = url.clone();
     let _ = ha_core::config::mutate_config_async(

@@ -23,7 +23,7 @@ use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
 };
 use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat};
-use crate::tools::ToolProvider;
+use crate::tool_defs::ToolProvider;
 
 fn supports_native_tool_search(base_url: &str, model: &str) -> bool {
     if !base_url.contains("api.anthropic.com") {

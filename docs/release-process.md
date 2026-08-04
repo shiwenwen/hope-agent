@@ -38,13 +38,13 @@ PR（release notes + CHANGELOG + version bump）
 
 R2 排第一是**可达性**不是延迟：有一部分用户根本访问不了 `github.com`。
 
-两处配置必须逐项逐序相等：[`tauri.conf.json`](../src-tauri/tauri.conf.json) `plugins.updater.endpoints` ↔ [`manifest.rs`](../crates/ha-core/src/updater/manifest.rs) `UPDATE_MANIFEST_URLS`，由 [`scripts/verify-updater-endpoints.mjs`](../scripts/verify-updater-endpoints.mjs) 在 CI 与 pre-push 强制。
+两处配置必须逐项逐序相等：[`tauri.conf.json`](../src-tauri/tauri.conf.json) `plugins.updater.endpoints` ↔ [`manifest.rs`](../crates/ha-updater/src/manifest.rs) `UPDATE_MANIFEST_URLS`，由 [`scripts/verify-updater-endpoints.mjs`](../scripts/verify-updater-endpoints.mjs) 在 CI 与 pre-push 强制。
 
 GitHub 的 `releases/latest` 只解析**已 published 且非 prerelease** 的 Release，所以 draft 状态客户端拉不到。
 
 ### 0.4 版本号单一来源
 
-`package.json` 是唯一真相源，[`sync-version.mjs`](../scripts/sync-version.mjs) 同步到 `src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`ha-core` / `ha-server` / `ha-browser-host` / `ha-eval` 的 Cargo.toml 及 `Cargo.lock`。**禁止手改任何一处**。tag 触发后 [`verify-release-version.mjs`](../scripts/verify-release-version.mjs) 校验全部来源一致且与 tag 名匹配。
+`package.json` 是版本号唯一真相源，[scripts/sync-version.mjs](../scripts/sync-version.mjs) 把它同步到 [src-tauri/Cargo.toml](../src-tauri/Cargo.toml)、[src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json)、`ha-base`、`ha-config-schema`、`ha-core`、`ha-acp`、`ha-browser`、`ha-channel`、`ha-cron`、`ha-dash`、`ha-design`、`ha-eval-runtime`、`ha-improve`、`ha-knowledge`、`ha-local-llm`、`ha-mac`、`ha-mcp`、`ha-media`、`ha-pet`、`ha-skills`、`ha-updater`、`ha-vcs`、`ha-weather`、`ha-server`、`ha-browser-host`、`ha-eval` 及 `Cargo.lock`。**禁止手改任何一处**。CI 入口 [scripts/verify-release-version.mjs](../scripts/verify-release-version.mjs) 在 tag 触发后校验所有产品版本来源一致且与 tag 名匹配。
 
 ### 0.5 macOS 代码签名
 
@@ -438,7 +438,7 @@ dry-run 不改任何 GitHub 状态：不打 tag、不建 Release、不碰 latest
 |---|---|
 | [package.json](../package.json) | 版本号单一真相源 |
 | [src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json) | Tauri app 版本 + updater endpoints + pubkey |
-| [crates/ha-core/src/updater/manifest.rs](../crates/ha-core/src/updater/manifest.rs) | headless 侧 updater endpoints，与上一行必须逐项逐序相等 |
+| [crates/ha-updater/src/manifest.rs](../crates/ha-updater/src/manifest.rs) | headless 侧 updater endpoints，与上一行必须逐项逐序相等 |
 | [.github/workflows/release.yml](../.github/workflows/release.yml) | tag push 触发的发版 workflow，含 release notes 提取 |
 | [docs/release-notes/](release-notes/) | 双语 release notes，文件名 `vX.Y.Z[.en].md` |
 | [CHANGELOG.md](../CHANGELOG.md) | 用户视角变更日志，单行 entry + PR 引用 |

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 //
 // CI / pre-push sanity check: the Minisign pubkey embedded in
-// `crates/ha-core/src/updater/keys.rs::MINISIGN_PUBKEY_BASE64` must match
+// `crates/ha-updater/src/keys.rs::MINISIGN_PUBKEY_BASE64` must match
 // `src-tauri/tauri.conf.json#plugins.updater.pubkey`.
 //
 // Drift means the desktop bundle (`tauri-plugin-updater`) and the
-// headless self-update (`ha_core::updater`) verify against different
+// headless self-update (`ha_updater`) verify against different
 // keys — one of the two paths silently breaks. We refuse to ship a
 // release with that mismatch.
 //
@@ -20,7 +20,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 
 const tauriConfPath = path.join(repoRoot, "src-tauri/tauri.conf.json");
-const keysRsPath = path.join(repoRoot, "crates/ha-core/src/updater/keys.rs");
+const keysRsPath = path.join(repoRoot, "crates/ha-updater/src/keys.rs");
 
 function readPubkeyFromTauriConf() {
   const raw = fs.readFileSync(tauriConfPath, "utf8");
@@ -52,7 +52,7 @@ function main() {
   const fromRs = readPubkeyFromKeysRs();
   if (fromConf === fromRs) {
     console.log(
-      "[verify-updater-pubkey] OK — tauri.conf.json and ha-core/updater/keys.rs agree.",
+      "[verify-updater-pubkey] OK — tauri.conf.json and ha-updater/keys.rs agree.",
     );
     return 0;
   }
@@ -60,7 +60,7 @@ function main() {
     "[verify-updater-pubkey] DRIFT — desktop and headless updaters will verify against different Minisign keys.",
   );
   console.error(`  tauri.conf.json#plugins.updater.pubkey: ${fromConf}`);
-  console.error(`  ha-core/updater/keys.rs MINISIGN_PUBKEY_BASE64: ${fromRs}`);
+  console.error(`  ha-updater/keys.rs MINISIGN_PUBKEY_BASE64: ${fromRs}`);
   console.error(
     "  Resolve by syncing both literals to the same value (and regenerate latest.json with the matching private key if the key changed).",
   );

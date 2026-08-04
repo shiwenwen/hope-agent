@@ -351,12 +351,27 @@ pnpm tauri build       # 打生产包
 
 ## 项目结构
 
-Cargo Workspace 三 Crate 架构，核心业务逻辑全部在 `ha-core`：
+Cargo Workspace 分层多 Crate 架构：kernel 能力在 `ha-core`，独立特征业务在特征 crate（`ha-acp` / `ha-browser` / `ha-design` / `ha-mac` / `ha-mcp` / `ha-media` / `ha-pet` / `ha-updater` / `ha-vcs` / `ha-weather`，随 crate 拆分继续迁出）：
 
 ```
 crates/
-  ha-core/       Rust 核心库（零 Tauri 依赖）— 所有业务逻辑在这里
-  ha-server/     axum HTTP/WS 守护进程（薄壳）
+  ha-base/           基础设施底层（paths / logging / platform / security）
+  ha-config-schema/  AppConfig 配置 wire 类型（纯数据定义）
+  ha-core/           Rust 核心库（零 Tauri 依赖）— kernel 与大部分业务逻辑
+  ha-acp/            ACP 特征 crate（stdio server 模式 + 外部 agent 控制面）
+  ha-browser/        浏览器特征 crate（扩展 backend / CDP / browser 工具）
+  ha-design/         设计空间特征 crate（artifacts 存储 + 编译/导出 + 三工具）
+  ha-mac/            macOS 控制特征 crate（Accessibility / 截屏 / mac_control 工具）
+  ha-mcp/            MCP 客户端特征 crate（McpManager / transport / OAuth / 两工具）
+  ha-media/          媒体特征 crate（图/音生成 adapters + STT 引擎 + 两工具）
+  ha-pet/            桌面宠物特征 crate（sprite 库 / 导入 / creator / 活动投影）
+  ha-updater/        自升级特征 crate（依赖 ha-core，壳层 wire() 装配）
+  ha-vcs/            VCS/本地执行特征 crate（git 控制平面操作 + Docker 沙箱机器 + SearxNG 部署）
+  ha-weather/        天气特征 crate（依赖 ha-core，壳层 wire() 装配）
+  ha-server/         axum HTTP/WS 守护进程（薄壳）
+  ha-browser-host/   浏览器辅助进程
+  ha-eval-spec/      评测协议（不依赖 ha-core）
+  ha-eval/           评测 CLI
 src-tauri/       Tauri 桌面 Shell（薄壳）
 src/             React 19 + TypeScript 前端
 skills/          内置技能（随应用发行）
@@ -378,7 +393,7 @@ skills/          内置技能（随应用发行）
 ```bash
 pnpm dev:desktop                  # 默认桌面开发
 cargo check --workspace              # Rust 依赖 / 类型检查
-cargo test -p ha-core -p ha-server   # 核心测试
+cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-design -p ha-mac -p ha-mcp -p ha-media -p ha-pet -p ha-updater -p ha-vcs -p ha-weather -p ha-server   # 核心测试
 node scripts/sync-i18n.mjs --check   # 检查翻译缺失
 ```
 

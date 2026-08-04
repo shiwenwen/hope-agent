@@ -1,6 +1,6 @@
 # 命令行接口（CLI）
 
-> 返回 [文档索引](../README.md) | 关联文档：[Transport 运行模式](transport-modes.md) · [前后端分离架构](backend-separation.md) · [进程与并发模型](process-model.md) · [可靠性与崩溃自愈](reliability.md) · [ACP 协议](acp.md) | 关联源码：[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs) · [`crates/ha-core/src/service_install.rs`](../../crates/ha-core/src/service_install.rs) · [`crates/ha-core/src/onboarding/`](../../crates/ha-core/src/onboarding/)
+> 返回 [文档索引](../README.md) | 关联文档：[Transport 运行模式](transport-modes.md) · [前后端分离架构](backend-separation.md) · [进程与并发模型](process-model.md) · [可靠性与崩溃自愈](reliability.md) · [ACP 协议](acp.md) | 关联源码：[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs) · [`crates/ha-base/src/service_install.rs`](../../crates/ha-base/src/service_install.rs) · [`crates/ha-core/src/onboarding/`](../../crates/ha-core/src/onboarding/)
 
 Hope Agent 的所有运行模式共享同一个二进制 `hope-agent`。CLI 是分流入口：根据第一个非全局参数决定走桌面 GUI、HTTP/WS 守护进程、Knowledge MCP stdio、平台 MCP stdio、ACP stdio 协议，还是一次性的 OAuth 登录流程。本文是 CLI 子命令、参数与环境变量的完整参考——参数解析逻辑全部在 [`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)，手写 `std::env::args()` 不依赖 clap，行为以源码为准。
 
@@ -48,7 +48,7 @@ hope-agent knowledge-mcp [OPTIONS]
 
 - `knowledge_compile_propose`
 
-启动序列：`paths::ensure_dirs()` → `set_app_version()` → `init_runtime("knowledge-mcp")` → `knowledge::agent_mcp::run_stdio()`。MCP 层只做协议包装，所有行为复用 [`knowledge::agent_api`](../../crates/ha-core/src/knowledge/agent_api.rs)，因此 raw source 隔离、Review Diff、外部 root 只读与 stale-write guard 都与 HTTP/Tauri 出口一致。
+启动序列：`paths::ensure_dirs()` → `set_app_version()` → `init_runtime("knowledge-mcp")` → `knowledge::agent_mcp::run_stdio()`。MCP 层只做协议包装，所有行为复用 [`knowledge::agent_api`](../../crates/ha-knowledge/src/knowledge/agent_api.rs)，因此 raw source 隔离、Review Diff、外部 root 只读与 stale-write guard 都与 HTTP/Tauri 出口一致。
 
 ## `hope-agent mcp` 子命令
 
@@ -179,7 +179,7 @@ hope-agent server [SUBCOMMAND] [OPTIONS]
 
 ### `install` 平台行为
 
-[`crates/ha-core/src/service_install.rs`](../../crates/ha-core/src/service_install.rs)：
+[`crates/ha-base/src/service_install.rs`](../../crates/ha-base/src/service_install.rs)：
 
 | 平台    | 服务管理器     | 文件位置                                              | 说明                            |
 | ------- | -------------- | ----------------------------------------------------- | ------------------------------- |
@@ -282,7 +282,7 @@ CLI 直接消费或路径相关的环境变量。完整跨子系统列表分散�
 
 | 变量                              | 角色             | 说明                                                                                                                                |
 | --------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `HA_DATA_DIR`                     | 用户             | 覆盖数据根目录（默认 `~/.hope-agent/`）。**值整体当作根目录用**，不会再追加 `.hope-agent` 后缀；适合便携模式 / 集成测试。详见 [`paths.rs`](../../crates/ha-core/src/paths.rs) |
+| `HA_DATA_DIR`                     | 用户             | 覆盖数据根目录（默认 `~/.hope-agent/`）。**值整体当作根目录用**，不会再追加 `.hope-agent` 后缀；适合便携模式 / 集成测试。详见 [`paths.rs`](../../crates/ha-base/src/paths.rs) |
 | `HA_WEB_ROOT`                     | 用户（开发）     | server 模式下让 axum 静态托管指向本地 `dist/` 目录而不是嵌入产物——开发时改前端不用每次重打包。设置后会检查 `index.html` 是否存在，缺失则降级回嵌入产物 |
 | `HOPE_AGENT_CHILD`                | 内部（兼容）     | 等价于 `--child-mode`，给老 Guardian 路径留的兼容入口                                                                              |
 | `HOPE_AGENT_RECOVERED`            | 内部（Guardian） | Guardian 在 panic 重启子进程时设为 `"1"`，提示这是恢复启动                                                                          |
@@ -291,7 +291,7 @@ CLI 直接消费或路径相关的环境变量。完整跨子系统列表分散�
 
 ## 数据目录速查
 
-完整路径管理在 [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs)。所有路径相对 `HA_DATA_DIR` 或默认 `~/.hope-agent/`。
+完整路径管理在 [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs)。所有路径相对 `HA_DATA_DIR` 或默认 `~/.hope-agent/`。
 
 | 路径                              | 用途                                                |
 | --------------------------------- | --------------------------------------------------- |
@@ -332,13 +332,13 @@ CLI 直接消费或路径相关的环境变量。完整跨子系统列表分散�
 | `node scripts/sync-i18n.mjs --check`       | 检查各语言翻译缺失                                       | [`scripts/sync-i18n.mjs`](../../scripts/sync-i18n.mjs)               |
 | `node scripts/sync-i18n.mjs --apply`       | 从基础语言补齐缺失翻译                                   | 同上                                                                 |
 
-提交前自查脚本（[`AGENTS.md`](../../AGENTS.md) 强制）由 [`.husky/pre-push`](../../.husky/pre-push) 钩子在 `git push` 时跑：`cargo fmt --all --check`、`cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings`、`cargo test -p ha-core -p ha-server --locked`、`pnpm typecheck`、`pnpm lint`、`pnpm test`。
+提交前自查脚本（[`AGENTS.md`](../../AGENTS.md) 强制）由 [`.husky/pre-push`](../../.husky/pre-push) 钩子在 `git push` 时跑：`cargo fmt --all --check`、clippy / cargo test（覆盖全部非 Tauri Rust crate——kernel 四个 + 阶段 3 特征 crate，精确清单以 [.husky/pre-push](../../.husky/pre-push) 为单一真相源，新增 crate 只改那里）、`pnpm typecheck`、`pnpm lint`、`pnpm test`。
 
 ## 已知边界
 
 - **没有 clap 也没有 shell completion**：参数解析手写 `std::env::args()`，未知参数只 stderr 警告不报错（[`main.rs:168`](../../src-tauri/src/main.rs#L168) / [`main.rs:449`](../../src-tauri/src/main.rs#L449) / [`main.rs:500`](../../src-tauri/src/main.rs#L500)）。引入新参数前要么继续手写并维护本文档，要么切到 clap-derive
 - **桌面模式无顶层 `--help`**：`hope-agent --version` / `-V`（不带子命令）在 `main()` 顶层、子命令分发前就打印版本并退出（不会落到 Tauri 启动路径，详见上方「全局参数」表）；但顶层 `--help` 仍未实现，会被当成未知参数进入桌面启动流程。子命令级 `--version` / `--help` 只有 `server` 与 `acp` 实现了
-- **Windows 缺 `server install`**：[`service_install.rs`](../../crates/ha-core/src/service_install.rs) 的 install/uninstall/status/stop 在 Windows 上没有对应实现，运维需要自行用 Task Scheduler / NSSM 包装
+- **Windows 缺 `server install`**：[`service_install.rs`](../../crates/ha-base/src/service_install.rs) 的 install/uninstall/status/stop 在 Windows 上没有对应实现，运维需要自行用 Task Scheduler / NSSM 包装
 - **`server install` 不持久化 `--dangerously-skip-all-approvals`**：YOLO 是进程内 `AtomicBool`，不进 plist / unit；想让服务永远 YOLO 必须改 `AppConfig.permission.global_yolo`
 - **未知子命令静默落到默认路径**：`hope-agent typo` 不会报错，会被当成「桌面模式」启动 Tauri。这是手写 arg 解析的副作用，引入 clap 时一并修
 - **`server setup` OpenClaw 导入是单 yes/no 粒度**：CLI 一次性收纳所有可导入项（用 scan 默认值——target_id = source_id、`vibe = None`、所有可用文件全导）。GUI 支持 per-provider/per-agent 多选 + 重命名 + emoji 编辑，需要细粒度走 GUI

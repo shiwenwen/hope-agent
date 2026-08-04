@@ -1373,7 +1373,9 @@ impl SessionDB {
                     let _ = self.evaluate_goal(goal_id);
                 }
             }
-            if let Ok(Some(retro)) = self.ensure_coding_workflow_retro_for_run(&run) {
+            if let Ok(Some(retro)) =
+                crate::improve_hooks::ensure_coding_workflow_retro_for_run(self, &run)
+            {
                 let _ = self.append_workflow_event(
                     &run.id,
                     "coding_retro_recorded",

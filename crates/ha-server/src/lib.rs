@@ -26,6 +26,37 @@ pub mod ws;
 
 pub use config::ServerConfig;
 
+/// 特征 crate 装配序列——**所有二进制入口共用的单一来源**：
+/// `hope-agent` server binary、`server_smoke` 集成测试、`src-tauri` 的
+/// `main.rs`/`lib.rs` 与 `crates/ha-eval/src/adapters.rs` 都调这里。
+///
+/// **必须先于任何 `init_runtime` 路径**（server / acp / mcp 各分支）：init
+/// 尾部冻结工具注册表，之后再挂 handler 会 panic 或静默丢失。每个 `wire()`
+/// 自带 `Once`，重复调用安全。
+///
+/// 新增特征 crate 只需改这里一处 + 在每个壳的 `Cargo.toml` 加 path dep；
+/// 不要重新在 shell 里内联 `wire()` 序列（历史上 4 处各抄一份，新增功能时
+/// 漏改任一处就是 `app_update` 式 registry_freeze warn 加静默丢 handler）。
+pub fn wire_features() {
+    ha_updater::wire();
+    ha_weather::wire();
+    ha_acp::wire();
+    ha_mac::wire();
+    ha_design::wire();
+    ha_browser::wire();
+    ha_vcs::wire();
+    ha_mcp::wire();
+    ha_pet::wire();
+    ha_media::wire();
+    ha_local_llm::wire();
+    ha_dash::wire();
+    ha_channel::wire();
+    ha_knowledge::wire();
+    ha_skills::wire();
+    ha_improve::wire();
+    ha_cron::wire();
+}
+
 // ── AppContext ───────────────────────────────────────────────────
 
 /// Shared application state passed to all handlers via `State<Arc<AppContext>>`.
@@ -518,7 +549,8 @@ fn build_router_with_cors(
             get(routes::knowledge::kb_source_list)
                 .post(routes::knowledge::kb_source_import)
                 .layer(DefaultBodyLimit::max(
-                    (ha_core::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4 / 3)
+                    (ha_knowledge::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4
+                        / 3)
                         + 2 * 1024 * 1024,
                 )),
         )
@@ -533,7 +565,8 @@ fn build_router_with_cors(
         .route(
             "/knowledge/{kb_id}/sources/batch",
             post(routes::knowledge::kb_source_import_batch).layer(DefaultBodyLimit::max(
-                (ha_core::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4 / 3 * 3)
+                (ha_knowledge::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4 / 3
+                    * 3)
                     + 4 * 1024 * 1024,
             )),
         )

@@ -6,13 +6,26 @@ Hope Agent 内置斜杠命令系统，用户在**聊天输入框**或**任意 IM
 
 ## 架构概述
 
+代码分三层（crate-split 阶段 4 破环；`slash_commands` 门面 `pub use`
+再导出契约层，既有 `slash_commands::{types,parser,registry,fuzzy}::…`
+路径不变）：
+
 ```
-crates/ha-core/src/slash_commands/
-├── mod.rs          # Tauri 命令入口（list / execute / is_slash_command）
+crates/ha-core/src/slash_defs/      # 契约层（kernel）——对特征组零引用
 ├── types.rs        # 数据结构（SlashCommandDef / CommandResult / CommandAction）
 ├── parser.rs       # 解析器（"/" 前缀 → 命令名 + 参数）
-├── registry.rs     # 命令注册表（所有内置命令定义）
-└── handlers/       # 命令处理器（16 个子文件）
+├── registry.rs     # 命令注册表（所有内置命令定义 + IM_DISABLED_COMMANDS）
+├── fuzzy.rs        # 模糊匹配（/model、/project 选择器共用）
+├── history.rs      # slash 转录落库（append_slash_history_events）+ 命令显示文本
+└── mod.rs          # canonical_builtin_command_name / format_session_picker_line
+                    # / truncate_description
+
+crates/ha-core/src/slash_hooks.rs   # 分发三槽（装配层 → kernel / IM 的唯一回调面）
+                    # dispatch / menu_entries / skill_command_help
+
+crates/ha-core/src/slash_commands/  # 装配层（依赖图顶端，handler 调各特征）
+├── mod.rs          # Tauri 命令入口（list / execute / is_slash_command）
+└── handlers/       # 命令处理器（17 个子文件）
     ├── mod.rs      # dispatch 分发入口
     ├── session.rs  # 会话类命令（含 /sessions / /session / /handover）
     ├── model.rs    # 模型类命令
@@ -33,6 +46,14 @@ crates/ha-core/src/slash_commands/
 ```
 
 > **命令规模**：内置 40 条 + 动态技能命令（运行时合并）。
+
+> **为什么分三层**：handler 逐个调 skills / channel / cron / dashboard /
+> coding_improvement，`slash_commands` 因此位于依赖图**顶端**（装配层，与
+> `app_init` / `globals` 同列）。但 IM 渠道需要的绝大多数东西是契约物而非
+> 分发能力——命令表、wire 类型、解析、转录落库——那些下沉 kernel 后渠道
+> 直接用；只有真分发经 `slash_hooks` 三槽回调上去。**IM 渠道（未来的
+> ha-channel）不得 `use crate::slash_commands::…`**，否则拆 crate 时与装配层
+> 成环。详见 [backend-separation](backend-separation.md) 装配层小节。
 
 ### 处理流程
 
@@ -76,7 +97,7 @@ sequenceDiagram
     U->>W: 发送消息 "/model gpt-4o"
     W->>W: parser::is_command() → true
     W->>SC: dispatch_slash_for_channel(session_id, agent_id, "/model gpt-4o")
-    SC->>D: handlers::dispatch(state, ...)
+    SC->>D: slash_hooks::dispatch(...) → 装配层 handlers::dispatch
     D-->>SC: CommandResult { content, action: SwitchModel }
     alt action = PassThrough
         SC-->>W: PassThrough(engine_message)
@@ -378,11 +399,11 @@ stateDiagram-v2
 
 ## IM 渠道禁用清单
 
-部分桌面专属命令在 IM 渠道里既不显示菜单也不响应执行。**入口**：`crates/ha-core/src/slash_commands/registry.rs::IM_DISABLED_COMMANDS`，目前 = `["agent", "handover"]`。
+部分桌面专属命令在 IM 渠道里既不显示菜单也不响应执行。**入口**：`crates/ha-core/src/slash_defs/registry.rs::IM_DISABLED_COMMANDS`，目前 = `["agent", "handover"]`。
 
 | 命令 | 禁用原因 |
 |---|---|
-| `/agent` | IM dispatcher 每条入站消息从 channel-account / topic / group 配置重算 agent_id（[`channel/worker/dispatcher.rs::resolved_agent_id`](../../crates/ha-core/src/channel/worker/dispatcher.rs)），不读 `sessions.agent_id`。允许 `/agent` 会让会话标签和实际运行 agent 永久漂移——`/agent` 切完后回复「Switched to X」，下一轮入站消息又被 channel-account 配置拉回原 agent，是幻觉切换。改 IM agent 应去「设置 → IM Channel → account → Agent」或 topic/group override |
+| `/agent` | IM dispatcher 每条入站消息从 channel-account / topic / group 配置重算 agent_id（[`channel/worker/dispatcher.rs::resolved_agent_id`](../../crates/ha-channel/src/channel/worker/dispatcher.rs)），不读 `sessions.agent_id`。允许 `/agent` 会让会话标签和实际运行 agent 永久漂移——`/agent` 切完后回复「Switched to X」，下一轮入站消息又被 channel-account 配置拉回原 agent，是幻觉切换。改 IM agent 应去「设置 → IM Channel → account → Agent」或 topic/group override |
 | `/handover` | 「把当前 session 推到 IM chat」是 GUI 专属语义。在 IM 内部触发只会把 chat 自己的 session 推回自己，无意义。IM 端要切会话用 `/session <id>`（attach 已存在 session）或 `/sessions` 选择 |
 
 > **`/project` 已不在此列**——Phase A1 把 Project ↔ IM 反向认领删除后，IM 内 `/project <id>` 改走 `AssignProject` action 直接 UPDATE 当前 session 的 `project_id`，语义合理因此放行。
@@ -401,7 +422,7 @@ stateDiagram-v2
 | `/reason [on\|off]` | `ChannelAccountConfig.settings.showThinking` | 详见 [im-channel.md §Thinking 显示](im-channel.md) |
 | `/kb [on\|off]` | `ChannelAccountConfig.settings.kbAccessChats`（群聊 per-chat 确认；DM 仅报状态） | 群内 per-chat 确认 KB 访问，需账号级 `kbAccessOptIn` 开启；查不到 / 不匹配 fail closed。详见 [knowledge-base.md](knowledge-base.md) |
 
-**静默 dispatch 别名**：`handlers::dispatch` match arm 接受多个名字（如 `"thinking" \| "think"`、`"reason" \| "reasoning"`），但只有 canonical name 进 [`registry::all_commands`](../../crates/ha-core/src/slash_commands/registry.rs) 与 IM 菜单。`/think` 是 `/thinking` 的别名，`/reasoning` 是 `/reason` 的别名 —— 用户输入两者都能触发，但菜单只展示 canonical 命令，避免视觉冗余。
+**静默 dispatch 别名**：`handlers::dispatch` match arm 接受多个名字（如 `"thinking" \| "think"`、`"reason" \| "reasoning"`），但只有 canonical name 进 [`registry::all_commands`](../../crates/ha-core/src/slash_defs/registry.rs) 与 IM 菜单。`/think` 是 `/thinking` 的别名，`/reasoning` 是 `/reason` 的别名 —— 用户输入两者都能触发，但菜单只展示 canonical 命令，避免视觉冗余。
 
 **reserved 集合契约**：所有静默别名必须登记进 [`slash_commands::SILENT_BUILTIN_ALIASES`](../../crates/ha-core/src/slash_commands/mod.rs)；`builtin_command_names()` 把别名一并塞进 `HashSet<String>`，[`resolve_skill_command_names`](../../crates/ha-core/src/slash_commands/mod.rs) 用这个集合判断 skill 是否需要 `_skill` 后缀。漏登记 → 同名 skill 会被 dispatch 静默遮蔽（match arm 优先于 `_ => handle_skill_command`）。新增静默别名时务必更新 `SILENT_BUILTIN_ALIASES`。
 
@@ -486,7 +507,7 @@ Telegram (`setMyCommands`) 和 Discord (Application Commands API) 的命令菜�
 
 ### IM 渠道（按 `supports_buttons` 分流）
 
-入口 [`channel/worker/slash.rs::dispatch_slash_for_channel`](../../crates/ha-core/src/channel/worker/slash.rs)，无参短路按 `supports_buttons × args_optional` 矩阵分流：
+入口 [`channel/worker/slash.rs::dispatch_slash_for_channel`](../../crates/ha-channel/src/channel/worker/slash.rs)，无参短路按 `supports_buttons × args_optional` 矩阵分流：
 
 **支持按钮的 7 个渠道**（Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat）—— inline keyboard：
 

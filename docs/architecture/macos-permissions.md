@@ -1,6 +1,6 @@
 # 系统权限（macOS TCC）
 
-> 返回 [文档索引](../README.md) | 关联源码：[`crates/ha-core/src/permissions.rs`](../../crates/ha-core/src/permissions.rs)、[`crates/ha-core/src/platform/system_permissions.rs`](../../crates/ha-core/src/platform/system_permissions.rs)、[`crates/ha-core/src/platform/mod.rs`](../../crates/ha-core/src/platform/mod.rs)（facade）、Tauri 薄壳在 [`src-tauri/`](../../src-tauri/)、前端面板 [`src/components/settings/PermissionsPanel.tsx`](../../src/components/settings/PermissionsPanel.tsx)
+> 返回 [文档索引](../README.md) | 关联源码：[`crates/ha-base/src/permissions.rs`](../../crates/ha-base/src/permissions.rs)、[`crates/ha-base/src/platform/system_permissions.rs`](../../crates/ha-base/src/platform/system_permissions.rs)、[`crates/ha-base/src/platform/mod.rs`](../../crates/ha-base/src/platform/mod.rs)（facade）、Tauri 薄壳在 [`src-tauri/`](../../src-tauri/)、前端面板 [`src/components/settings/PermissionsPanel.tsx`](../../src/components/settings/PermissionsPanel.tsx)
 
 ## 概述
 
@@ -18,9 +18,9 @@
 
 | 文件 | 职责 |
 |---|---|
-| [`permissions.rs`](../../crates/ha-core/src/permissions.rs) | 子系统根：`PermissionDef` 静态目录 `PERMISSION_DEFS`（28 项）、v2/v1 双层 API、数据类型枚举、v1↔v2 legacy 映射纯函数、`blocking_with_timeout` 超时包装 |
-| [`platform/system_permissions.rs`](../../crates/ha-core/src/platform/system_permissions.rs) | 按 `target_os` 分 `macos` / `windows` / `linux` / `other` 四套 `mod imp`，仅 macOS 给出 framework 原生实现；非 macOS 的 `imp` 一律 `supported()=false` |
-| [`platform/mod.rs`](../../crates/ha-core/src/platform/mod.rs) | facade（`pub(crate)`）：`system_permissions_supported` / `system_permissions_platform_name` / `check_system_permission_item` / `request_system_permission_item` / `system_permission_raw_probe`（探针答复侧），把上层 `permissions.rs` 与平台 `imp` 解耦 |
+| [`permissions.rs`](../../crates/ha-base/src/permissions.rs) | 子系统根：`PermissionDef` 静态目录 `PERMISSION_DEFS`（28 项）、v2/v1 双层 API、数据类型枚举、v1↔v2 legacy 映射纯函数、`blocking_with_timeout` 超时包装 |
+| [`platform/system_permissions.rs`](../../crates/ha-base/src/platform/system_permissions.rs) | 按 `target_os` 分 `macos` / `windows` / `linux` / `other` 四套 `mod imp`，仅 macOS 给出 framework 原生实现；非 macOS 的 `imp` 一律 `supported()=false` |
+| [`platform/mod.rs`](../../crates/ha-base/src/platform/mod.rs) | facade（`pub(crate)`）：`system_permissions_supported` / `system_permissions_platform_name` / `check_system_permission_item` / `request_system_permission_item` / `system_permission_raw_probe`（探针答复侧），把上层 `permissions.rs` 与平台 `imp` 解耦 |
 
 `permissions.rs` 是领域层（权限目录 + 状态语义 + API），`platform/system_permissions.rs` 是平台原生实现层（framework 链接 + 探测）。上层永远经 `platform/mod.rs` 的 facade 调下层，不直接 `cfg` 进 imp。
 
@@ -208,7 +208,7 @@ UI 侧只在 `not_granted` / `not_determined` / `restricted` 出按钮：**`gran
 
 | 文件 | 角色 |
 |---|---|
-| [`crates/ha-core/src/permissions.rs`](../../crates/ha-core/src/permissions.rs) | 子系统根 + `PERMISSION_DEFS`（28 项）+ v2/v1 API + 枚举 + legacy 映射 + 超时包装 |
-| [`crates/ha-core/src/platform/system_permissions.rs`](../../crates/ha-core/src/platform/system_permissions.rs) | 四套 `imp`（macos/windows/linux/other），macOS framework 原生检查/请求/探测 |
-| [`crates/ha-core/src/platform/mod.rs`](../../crates/ha-core/src/platform/mod.rs) | facade：`system_permissions_*`（`pub(crate)`） |
+| [`crates/ha-base/src/permissions.rs`](../../crates/ha-base/src/permissions.rs) | 子系统根 + `PERMISSION_DEFS`（28 项）+ v2/v1 API + 枚举 + legacy 映射 + 超时包装 |
+| [`crates/ha-base/src/platform/system_permissions.rs`](../../crates/ha-base/src/platform/system_permissions.rs) | 四套 `imp`（macos/windows/linux/other），macOS framework 原生检查/请求/探测 |
+| [`crates/ha-base/src/platform/mod.rs`](../../crates/ha-base/src/platform/mod.rs) | facade：`system_permissions_*`（`pub(crate)`） |
 | [`src/components/settings/PermissionsPanel.tsx`](../../src/components/settings/PermissionsPanel.tsx) | Settings → Permissions 面板（Tauri-only，HTTP transport 无能力） |

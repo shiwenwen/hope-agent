@@ -28,7 +28,7 @@ static PENDING_CANCELS: LazyLock<Mutex<HashMap<String, String>>> =
 /// placeholder keyed to the same `claimed_at`), the flag starts already set so
 /// the run is cancelled at its first checkpoint. A placeholder for a different
 /// (earlier, since-finished) run is drained but does not set the flag.
-pub(crate) fn register(job_id: &str, claimed_at: &str) -> Arc<AtomicBool> {
+pub fn register(job_id: &str, claimed_at: &str) -> Arc<AtomicBool> {
     let targets_this_run = {
         let mut pending = PENDING_CANCELS.lock().unwrap_or_else(|p| p.into_inner());
         // Always drain (clears stale placeholders); honor only on an exact match.
@@ -49,7 +49,7 @@ pub(crate) fn register(job_id: &str, claimed_at: &str) -> Arc<AtomicBool> {
 /// the request was recorded — either by flipping a live flag, or (during the
 /// claim→register window) by leaving a run-keyed pending placeholder that
 /// [`register`] will pick up only for the matching run.
-pub(crate) fn cancel(job_id: &str, claimed_at: &str) -> bool {
+pub fn cancel(job_id: &str, claimed_at: &str) -> bool {
     // C09: only the Primary process claims+registers cron runs, so only there is a
     // claim→register window where a pending placeholder is legitimate. A
     // non-Primary cancel can't reach the run's live flag (it lives in the Primary's
@@ -98,7 +98,7 @@ fn cancel_with_pending(job_id: &str, claimed_at: &str, allow_pending: bool) -> b
 /// between this run clearing `running_at` and its guard dropping, and a blind
 /// `remove(job_id)` would clear that newer run's live flag — dropping a
 /// concurrent cancel targeting it.
-pub(crate) fn remove(job_id: &str, claimed_at: &str) {
+pub fn remove(job_id: &str, claimed_at: &str) {
     {
         let mut map = CANCELS.lock().unwrap_or_else(|p| p.into_inner());
         if matches!(map.get(job_id), Some((live_at, _)) if live_at.as_str() == claimed_at) {

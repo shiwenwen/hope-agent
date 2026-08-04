@@ -20,12 +20,15 @@ Hope Agent 的本地模型体系当前只实现 **Ollama** 后端，面向两类
 
 ## 代码分层
 
+本地模型能力自阶段 5 起住在独立特征 crate **ha-local-llm**（`ha_local_llm::local_llm` / `ha_local_llm::local_embedding`），**后台任务台账仍在 kernel** `ha_core::local_model_jobs`——它同时服务 memory reembed 与知识库 reembed，不是 Ollama 专属。壳层调 `ha_local_llm::wire()` 才会挂上默认模型自维护 watchdog。
+
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
-| 核心 Ollama 能力 | `crates/ha-core/src/local_llm/mod.rs` | 硬件探测、推荐模型、Ollama 安装/启动、`/api/pull` 流解析、快捷 LLM 注册 |
-| 本地模型管理 | `crates/ha-core/src/local_llm/management.rs` | 已安装模型聚合、Ollama Library 搜索/缓存、预加载/停止、删除、Provider/Embedding 配置写入 |
-| Embedding 快捷链路 | `crates/ha-core/src/local_embedding.rs` | Ollama Embedding 推荐模型、拉取、创建 Embedding 配置、设为默认记忆模型 |
-| 后台任务 | `crates/ha-core/src/local_model_jobs.rs` | 安装/下载 job 持久化、事件、日志、暂停/取消/重试 |
+| 核心 Ollama 能力 | `crates/ha-local-llm/src/local_llm/mod.rs` | 硬件探测、推荐模型、Ollama 安装/启动、`/api/pull` 流解析、快捷 LLM 注册 |
+| 本地模型管理 | `crates/ha-local-llm/src/local_llm/management.rs` | 已安装模型聚合、Ollama Library 搜索/缓存、预加载/停止、删除、Provider/Embedding 配置写入 |
+| Embedding 快捷链路 | `crates/ha-local-llm/src/local_embedding.rs` | Ollama Embedding 推荐模型、拉取、创建 Embedding 配置、设为默认记忆模型 |
+| 后台任务台账 | `crates/ha-core/src/local_model_jobs.rs` | job 持久化、事件、日志、暂停/取消（**通用**：kernel 的 memory reembed 与知识库 reembed 也用它记账，故留 kernel；台账那组入口对 ha-local-llm 是**公开跨 crate 契约**，新执行器只经它记账，别自开 DB 连接或绕过 `spawn_job`） |
+| 本地模型执行器 | `crates/ha-local-llm/src/local_llm/jobs.rs` | Ollama 安装 / pull / preload / 嵌入模型下载的实际跑批、进度处理、按 kind 分派的 retry |
 | Provider 去重写入 | `crates/ha-core/src/provider/local.rs` | known local backend catalog、Ollama Provider upsert/remove |
 | Embedding 配置 | `crates/ha-core/src/memory/embedding/config.rs` | `EmbeddingModelConfig` / `MemoryEmbeddingSelection` / signature |
 | 记忆向量后端 | `crates/ha-core/src/memory/sqlite/` | `embedding_signature`、cache signature、重建向量与搜索过滤 |

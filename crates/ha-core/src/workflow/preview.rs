@@ -206,8 +206,8 @@ fn preview_raw_call(
         "workflow.read" => preview_tool_call(
             raw.api,
             raw.line,
-            tools::TOOL_READ,
-            normalize_tool_args(tools::TOOL_READ, value.clone()),
+            crate::tool_defs::TOOL_READ,
+            normalize_tool_args(crate::tool_defs::TOOL_READ, value.clone()),
             optional_string(&value, "label"),
             session_context,
             calls,
@@ -215,8 +215,8 @@ fn preview_raw_call(
         "workflow.grep" => preview_tool_call(
             raw.api,
             raw.line,
-            tools::TOOL_GREP,
-            normalize_tool_args(tools::TOOL_GREP, value.clone()),
+            crate::tool_defs::TOOL_GREP,
+            normalize_tool_args(crate::tool_defs::TOOL_GREP, value.clone()),
             optional_string(&value, "label"),
             session_context,
             calls,
@@ -251,7 +251,7 @@ fn preview_raw_call(
                 Ok(args) => preview_tool_call(
                     raw.api,
                     raw.line,
-                    tools::TOOL_SUBAGENT,
+                    crate::tool_defs::TOOL_SUBAGENT,
                     args,
                     label,
                     session_context,
@@ -319,7 +319,7 @@ fn preview_validate(
                 preview_tool_call(
                     api.clone(),
                     line,
-                    tools::TOOL_EXEC,
+                    crate::tool_defs::TOOL_EXEC,
                     args,
                     label.clone(),
                     session_context,
@@ -542,7 +542,7 @@ fn dynamic_call(api: String, line: usize, reason: &str) -> WorkflowPermissionPre
 }
 
 fn normalize_tool_args(tool_name: &str, mut args: Value) -> Value {
-    if tool_name == tools::TOOL_EXEC {
+    if tool_name == crate::tool_defs::TOOL_EXEC {
         if let Value::Object(map) = &mut args {
             if !map.contains_key("command") {
                 if let Some(cmd) = map.get("cmd").cloned() {

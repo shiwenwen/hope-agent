@@ -20,7 +20,7 @@ pub(crate) type OnInjected = Arc<dyn Fn() + Send + Sync>;
 /// whether the source record is done (`Injected`), owned by the retry queue
 /// (`Queued`), or must stay pending for restart replay (`Abandoned`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum InjectionOutcome {
+pub enum InjectionOutcome {
     /// Parent turn ran (or the result was already fetched / all models failed
     /// terminally). `on_injected` has fired — nothing more to do.
     Injected,
@@ -220,7 +220,7 @@ fn parent_session_present(db: &crate::session::SessionDB, session_id: &str) -> b
 /// on it to write a `wakeup_trigger` marker instead of `subagent_result`.
 pub(crate) const WAKEUP_CHILD_AGENT_ID: &str = "wakeup";
 pub(crate) const PROCESS_NOTIFICATION_CHILD_AGENT_ID: &str = "process_notification";
-pub(crate) const LOOP_CHILD_AGENT_ID: &str = "loop";
+pub const LOOP_CHILD_AGENT_ID: &str = "loop";
 pub(crate) const WORKFLOW_CHILD_AGENT_ID: &str = "workflow";
 
 /// Outcome of waiting for a parent session to become idle before injecting.
@@ -285,7 +285,7 @@ async fn wait_for_session_idle(
 /// Backend-driven result injection: wait for idle, then run the parent agent with the push message.
 /// Respects user chat priority: waits if busy, cancels if user sends a new message, skips if
 /// the agent already fetched the result via check/result tool actions.
-pub(crate) async fn inject_and_run_parent(
+pub async fn inject_and_run_parent(
     parent_session_id: String,
     parent_agent_id: String,
     child_agent_id: String,
@@ -664,7 +664,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         // a short-lived current-thread runtime whose drop would cancel a spawned
         // finalize. `None` when there's no IM attach (desktop-only / no channel).
         let injection_mirror =
-            crate::chat_engine::im_mirror::attach_im_injection_mirror(&parent_session_id).await;
+            crate::channel_hooks::attach_injection_mirror(&parent_session_id).await;
 
         match crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
             session_id: parent_session_id.clone(),
@@ -741,14 +741,13 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 // G1: deliver the mirrored injection turn to IM (per imReplyMode).
                 // Awaited so it completes before this current-thread runtime drops.
                 if let Some(state) = injection_mirror {
-                    crate::chat_engine::im_mirror::finalize_im_live_mirror(state, &result.response)
-                        .await;
+                    state.finalize(&result.response).await;
                 }
                 // G2: if this is a cron run session, fan the injected result out to
                 // the cron job's delivery_targets (the inline run delivered its own
                 // response; a background job spawned during the run completes later
                 // and would otherwise reach nobody). No-op for non-cron sessions.
-                crate::cron::delivery::deliver_injection_for_session(
+                crate::cron_hooks::deliver_injection_for_session(
                     &parent_session_id,
                     &result.response,
                 )
@@ -769,8 +768,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 // injection sent no user-quote, so there's nothing orphaned; a
                 // cancel re-queues and re-delivers on the next idle attempt).
                 if let Some(state) = injection_mirror {
-                    crate::chat_engine::im_mirror::abort_im_live_mirror_with_body(state, None)
-                        .await;
+                    state.abort(None).await;
                 }
             }
         }

@@ -339,8 +339,8 @@ The following project context files have been loaded:
 
 **代码位置**：
 - Permission mode guidance：`crates/ha-core/src/system_prompt/constants.rs`
-- Execution mode section：`crates/ha-core/src/execution_mode.rs`
-- Workflow mode section：`crates/ha-core/src/workflow_mode.rs`
+- Execution mode section：`crates/ha-base/src/execution_mode.rs`
+- Workflow mode section：`crates/ha-base/src/workflow_mode.rs`
 - 动态注入顺序：`crates/ha-core/src/system_prompt/build.rs`
 - IM attachment section：`crates/ha-core/src/system_prompt/sections.rs`
 - 会话状态解析：`crates/ha-core/src/agent/config.rs`
@@ -748,5 +748,6 @@ OpenAI 官方端点使用包含 provider、model、prompt contract version、age
 | `crates/ha-core/src/plan/`                      | Plan Mode 提示词常量                                                      |
 | `crates/ha-core/src/context_compact/`           | 上下文压缩（5 层渐进式压缩 + 摘要 system prompt + 标识符保留）                      |
 | `crates/ha-core/src/user_config.rs`             | 用户上下文构建（name/role/birthday/timezone/...）                         |
-| `crates/ha-core/src/skills/`                    | 技能加载 + prompt 构建 + budget 管理                                      |
-| `crates/ha-core/src/tools/definitions/`         | 工具 JSON Schema 定义（发送给 LLM 的 function calling schema）            |
+| `crates/ha-skills/src/skills/`                  | 技能目录加载（扫描 + 解析 + budget 裁剪），经 `ha_core::skills_hooks::load_all_skills_with_budget` 回调 |
+| `crates/ha-core/src/skills/prompt.rs`           | 技能段渲染 `build_skills_prompt`（纯格式化，留 kernel）                   |
+| `crates/ha-core/src/tools/definitions/` + `tool_defs/` | 工具 JSON Schema 定义（发送给 LLM 的 function calling schema；前者全表汇编，后者单工具构造器与共享类型） |

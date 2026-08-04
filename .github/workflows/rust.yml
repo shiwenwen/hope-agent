@@ -158,7 +158,18 @@ jobs:
       # `Cargo.toml`'s `[workspace.lints.clippy]` with a rationale).
       - name: Clippy (deny warnings)
         if: env.RUN_RUST_CI == 'true'
-        run: cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
+        run: cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings
+
+      # eval-internal-tests 是 opt-in feature，横跨 ha-core / ha-eval-runtime /
+      # ha-improve 三个 crate。默认 --all-targets 不开这个 feature，改这三个
+      # crate 的 gated tests 后编译错误会静默 ship —— 阶段 5 第八刀实测：迁出
+      # 后 ha-improve 的 gated tests 34 处编译错误，全套门禁照样全绿。只做
+      # cargo check（不 test）：真正会 ship 的失效模式是编译不过，跑起来会撞
+      # 已知的存量断言失败（见 capability-eval.md）。本步骤不改任何 job 名字，
+      # 因此不需要同步 ruleset 的 required_status_checks。
+      - name: cargo check eval-internal-tests
+        if: env.RUN_RUST_CI == 'true'
+        run: cargo check -p ha-core -p ha-eval-runtime -p ha-improve --tests --features ha-core/eval-internal-tests,ha-eval-runtime/eval-internal-tests,ha-improve/eval-internal-tests --locked
 
   test:
     name: test (${{ matrix.os }})
@@ -239,9 +250,13 @@ jobs:
         if: env.RUN_RUST_CI == 'true' && runner.os != 'Windows'
         run: jq --version
 
-      # Only ha-core and ha-server are pure Rust and host tests. The Tauri
-      # shell crate (open-computer) pulls glib/webkit system libs that are
-      # expensive to install on Linux runners and carries no tests.
+      # 门禁覆盖全部非 Tauri 的 Rust crate（kernel：ha-base / ha-config-schema /
+      # ha-core / ha-server；特征：ha-acp / ha-browser / ha-channel / ha-cron / ha-dash /
+      # ha-design / ha-eval-runtime / ha-knowledge / ha-local-llm / ha-mac / ha-mcp /
+      # ha-media / ha-pet / ha-skills / ha-updater / ha-vcs / ha-weather，
+      # 与 .husky/pre-push 一一对应）。The Tauri shell crate (open-computer)
+      # pulls glib/webkit system libs that are expensive to install on Linux
+      # runners and carries no tests.
       # Build and execute in one Cargo invocation. Running `--no-run` first
       # caused Cargo to revisit the workspace test targets (and occasionally
       # relink them) in a second process, which is especially costly on the
@@ -253,7 +268,7 @@ jobs:
       # the remote A/B regressed Cargo compile time from 1212s to 1323s.
       - name: Run tests
         if: env.RUN_RUST_CI == 'true'
-        run: cargo test -p ha-core -p ha-server --locked --no-fail-fast --timings
+        run: cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked --no-fail-fast --timings
 
       - name: Upload Cargo timings
         if: always() && env.RUN_RUST_CI == 'true'

@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use ha_core::skills::{self, commands as core};
+use ha_skills::skills::{self, commands as core};
 
 use crate::error::AppError;
 use ha_core::blocking::run_blocking;
@@ -149,7 +149,7 @@ pub struct InstallDepBody {
 /// Gated on `AppConfig.skills.allow_remote_install` — returns 403 with a
 /// clear error when disabled, so the frontend can surface actionable guidance
 /// instead of a silent 404. The spawn core lives in
-/// [`ha_core::skills::commands::install_skill_dependency`]; the Tauri handler
+/// [`ha_skills::skills::commands::install_skill_dependency`]; the Tauri handler
 /// calls the same function without the gate (local user consent = clicking
 /// the button in the desktop GUI).
 pub async fn install_skill_dependency(

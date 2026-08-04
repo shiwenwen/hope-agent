@@ -1,0 +1,329 @@
+//! Context compaction configuration (`AppConfig.compact`).
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+fn default_soft_trim_ratio() -> f64 {
+    0.50
+}
+fn default_hard_clear_ratio() -> f64 {
+    0.70
+}
+fn default_preserve_recent_rounds() -> usize {
+    4
+}
+fn default_min_prunable_tool_chars() -> usize {
+    20_000
+}
+fn default_soft_trim_max_chars() -> usize {
+    6_000
+}
+fn default_soft_trim_head_chars() -> usize {
+    2_000
+}
+fn default_soft_trim_tail_chars() -> usize {
+    2_000
+}
+fn default_hard_clear_placeholder() -> String {
+    "[Old tool result content cleared]".into()
+}
+fn default_summarization_threshold() -> f64 {
+    0.85
+}
+fn default_identifier_policy() -> String {
+    "strict".into()
+}
+fn default_cache_ttl_secs() -> u64 {
+    300
+}
+fn default_summarization_timeout() -> u64 {
+    300
+}
+fn default_summary_max_tokens() -> u32 {
+    4096
+}
+fn default_max_history_share() -> f64 {
+    0.5
+}
+fn default_recovery_max_files() -> usize {
+    5
+}
+fn default_recovery_max_file_bytes() -> usize {
+    16_384
+}
+fn default_max_tool_result_context_share() -> f64 {
+    0.3
+}
+fn default_max_compaction_summary_chars() -> usize {
+    16_000
+}
+fn default_max_compaction_injected_context_share() -> f64 {
+    0.5
+}
+fn default_reactive_trigger_ratio() -> f64 {
+    0.75
+}
+
+/// Context compaction configuration, stored in config.json `compact` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactConfig {
+    // ── Global ──
+    /// Enable context compaction (default: true)
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+
+    // ── Cache TTL ──
+    /// Cache TTL throttle: skip Tier 2+ compaction if last compaction was within this many seconds.
+    /// 0 = disabled. Default: 300 (5 minutes). Max: 900 (15 minutes).
+    #[serde(default = "default_cache_ttl_secs")]
+    pub cache_ttl_secs: u64,
+
+    // ── Tool Policies ──
+    /// Per-tool compaction policy. Key: tool name, value: "eager" | "protect".
+    /// "eager": old results are cleared first (microcompaction).
+    /// "protect": results are exempt from pruning.
+    /// Tools not in this map use default compaction behavior.
+    #[serde(default = "default_tool_policies")]
+    pub tool_policies: HashMap<String, String>,
+
+    // ── Tier 1: Tool Result Truncation ──
+    /// Max share of context window a single tool result can occupy (default: 0.3, range: 0.1–0.6)
+    #[serde(default = "default_max_tool_result_context_share")]
+    pub max_tool_result_context_share: f64,
+
+    // ── Tier 2: Context Pruning ──
+    /// Soft trim trigger ratio (default: 0.50)
+    #[serde(default = "default_soft_trim_ratio")]
+    pub soft_trim_ratio: f64,
+    /// Hard clear trigger ratio (default: 0.70)
+    #[serde(default = "default_hard_clear_ratio")]
+    pub hard_clear_ratio: f64,
+    /// Protect recent N message rounds, expanding to the owning user turn only
+    /// when that does not swallow prior execution rounds from a long tool loop.
+    #[serde(default = "default_preserve_recent_rounds")]
+    pub preserve_recent_rounds: usize,
+    /// Skip hard clear if total prunable chars below this (default: 20_000)
+    #[serde(default = "default_min_prunable_tool_chars")]
+    pub min_prunable_tool_chars: usize,
+    /// Only soft-trim tool results larger than this (default: 6_000)
+    #[serde(default = "default_soft_trim_max_chars")]
+    pub soft_trim_max_chars: usize,
+    /// Head chars to keep during soft trim (default: 2_000)
+    #[serde(default = "default_soft_trim_head_chars")]
+    pub soft_trim_head_chars: usize,
+    /// Tail chars to keep during soft trim (default: 2_000)
+    #[serde(default = "default_soft_trim_tail_chars")]
+    pub soft_trim_tail_chars: usize,
+    /// Enable hard clear phase (default: true)
+    #[serde(default = "crate::default_true")]
+    pub hard_clear_enabled: bool,
+    /// Placeholder text for hard-cleared tool results
+    #[serde(default = "default_hard_clear_placeholder")]
+    pub hard_clear_placeholder: String,
+
+    // ── Tier 3: LLM Summarization ──
+    /// Deprecated — superseded by `modelOverride`. Format: "providerId:modelId".
+    /// Kept for backward compatibility: still parsed when `modelOverride` is
+    /// unset, but the GUI no longer writes this field.
+    #[serde(default)]
+    pub summarization_model: Option<String>,
+    /// Optional override model for summarization. `None` = use the
+    /// conversation's own model (with cache sharing) — this dedicated
+    /// provider deliberately fails fast with no cross-model degradation
+    /// (`FailoverPolicy::summarize_default`), so it does NOT fall through to
+    /// `function_models.automation` the way the other Phase 1 consumers do;
+    /// an unset override just means "don't use a dedicated Tier 3 model".
+    #[serde(default)]
+    pub model_override: Option<crate::provider::ActiveModel>,
+    /// Summarization trigger ratio (default: 0.85)
+    #[serde(default = "default_summarization_threshold")]
+    pub summarization_threshold: f64,
+    /// Identifier preservation policy: "strict" | "off" | "custom" (default: "strict")
+    #[serde(default = "default_identifier_policy")]
+    pub identifier_policy: String,
+    /// Custom identifier instructions (when policy is "custom")
+    #[serde(default)]
+    pub identifier_instructions: Option<String>,
+    /// Custom summarization instructions (appended to default prompt)
+    #[serde(default)]
+    pub custom_instructions: Option<String>,
+    /// Summarization timeout in seconds (default: 300)
+    #[serde(default = "default_summarization_timeout")]
+    pub summarization_timeout_secs: u64,
+    /// Max output tokens for summarization call (default: 4096)
+    #[serde(default = "default_summary_max_tokens")]
+    pub summary_max_tokens: u32,
+    /// Max share of context window for history during pruning (default: 0.5)
+    #[serde(default = "default_max_history_share")]
+    pub max_history_share: f64,
+    /// Max chars for compaction summary (default: 16000, range: 4000–64000)
+    #[serde(default = "default_max_compaction_summary_chars")]
+    pub max_compaction_summary_chars: usize,
+    /// Max combined share of context window for post-compaction injected artifacts
+    /// (summary + deterministic ledger + recovered files).
+    #[serde(default = "default_max_compaction_injected_context_share")]
+    pub max_compaction_injected_context_share: f64,
+
+    // ── Reactive Microcompact (Tier 0 in tool loop) ──
+    /// Enable reactive microcompaction in tool loop rounds (default: true).
+    /// When usage exceeds `reactive_trigger_ratio`, runs Tier 0 microcompaction
+    /// to clear ephemeral tool results before the next tool round, avoiding
+    /// emergency compaction when tool_results accumulate mid-loop.
+    #[serde(default = "crate::default_true")]
+    pub reactive_microcompact_enabled: bool,
+    /// Usage ratio threshold that triggers reactive microcompaction (default: 0.75).
+    /// Lower values compact earlier; higher values stay closer to emergency territory.
+    #[serde(default = "default_reactive_trigger_ratio")]
+    pub reactive_trigger_ratio: f64,
+
+    // ── Post-Compaction Recovery ──
+    /// Enable post-compaction file recovery after Tier 3 summarization (default: true).
+    /// Re-reads recently written/edited files from disk and injects their current
+    /// contents so the model doesn't need an extra read tool call.
+    #[serde(default = "crate::default_true")]
+    pub recovery_enabled: bool,
+    /// Max files to recover after compaction (default: 5)
+    #[serde(default = "default_recovery_max_files")]
+    pub recovery_max_files: usize,
+    /// Max bytes per recovered file (default: 16384 = 16KB)
+    #[serde(default = "default_recovery_max_file_bytes")]
+    pub recovery_max_file_bytes: usize,
+}
+
+/// 默认工具压缩策略。
+///
+/// 这里的 key 是 config.json `compact.toolPolicies` 的 wire 格式工具名。
+/// ha-core `tools/mod.rs` 的 `TOOL_*` 常量是这些名字的单一来源——schema 层
+/// 不能反向依赖 ha-core，故此处用字面量；ha-core `context_compact/config.rs`
+/// 的 `default_tool_policies_match_tool_name_constants` 测试锁死两边一致，
+/// 改任一侧工具名都会被它抓住。
+pub fn default_tool_policies() -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    // Eager: ephemeral/snapshot tools whose old results become stale quickly
+    for name in [
+        "ls",
+        "grep",
+        "find",
+        "process",
+        "sessions_list",
+        "agents_list",
+        "session_status",
+        "get_weather",
+        "tool_search",
+    ] {
+        m.insert(name.into(), "eager".into());
+    }
+    // Protect: tools whose results may be referenced later
+    for name in ["web_search", "web_fetch", "recall_memory", "memory_get"] {
+        m.insert(name.into(), "protect".into());
+    }
+    m
+}
+
+impl CompactConfig {
+    /// Effective Tier 3 dedicated-model reference as a `"providerId:modelId"`
+    /// string, for `agent::build_compaction_provider`: `modelOverride`
+    /// (new) → the deprecated `summarizationModel` string → `None` (use the
+    /// conversation's own model). Kept as a string at this boundary since
+    /// `build_compaction_provider` and its tests already parse that shape;
+    /// reshaping that as well isn't warranted for a single call-site format.
+    pub fn effective_summarization_model_ref(&self) -> Option<String> {
+        self.model_override
+            .as_ref()
+            .map(|m| format!("{}:{}", m.provider_id, m.model_id))
+            .or_else(|| self.summarization_model.clone())
+    }
+
+    /// Check if a tool is marked as "eager" (microcompact).
+    pub fn is_eager(&self, tool_name: &str) -> bool {
+        self.tool_policies
+            .get(tool_name)
+            .is_some_and(|v| v == "eager")
+    }
+
+    /// Check if a tool is marked as "protect" (exempt from pruning).
+    pub fn is_protected(&self, tool_name: &str) -> bool {
+        self.tool_policies
+            .get(tool_name)
+            .is_some_and(|v| v == "protect")
+    }
+
+    /// Get all eager tool names.
+    pub fn eager_tools(&self) -> Vec<&str> {
+        self.tool_policies
+            .iter()
+            .filter(|(_, v)| v.as_str() == "eager")
+            .map(|(k, _)| k.as_str())
+            .collect()
+    }
+
+    /// Clamp user-configurable values to safe ranges.
+    /// Called after deserialization to prevent misconfiguration.
+    pub fn clamp(&mut self) {
+        // cache_ttl_secs: 0–900 (0 = disabled, max 15 minutes)
+        self.cache_ttl_secs = self.cache_ttl_secs.min(900);
+
+        // max_tool_result_context_share: 0.1–0.6
+        // Too low → useful tool results get truncated; too high → single result crowds out context
+        self.max_tool_result_context_share = self.max_tool_result_context_share.clamp(0.1, 0.6);
+
+        // max_compaction_summary_chars: 4000–64000
+        // Too low → summaries lose critical context; too high → summary itself wastes context budget
+        self.max_compaction_summary_chars = self.max_compaction_summary_chars.clamp(4_000, 64_000);
+
+        // reactive_trigger_ratio: 0.50–0.95
+        // Below 0.50 overlaps with soft_trim_ratio; above 0.95 is too close to emergency territory.
+        self.reactive_trigger_ratio = self.reactive_trigger_ratio.clamp(0.50, 0.95);
+
+        // max_history_share: 0.10–0.90
+        self.max_history_share = self.max_history_share.clamp(0.10, 0.90);
+
+        // max_compaction_injected_context_share: 0.05–max_history_share.
+        // Summary + ledger + recovery must not immediately refill the context
+        // after a Tier 3 compaction.
+        self.max_compaction_injected_context_share = self
+            .max_compaction_injected_context_share
+            .clamp(0.05, self.max_history_share);
+
+        // preserve_recent_rounds: 1–12. The boundary expands to user-turn start,
+        // so values above 12 can protect too much history in tool-heavy turns.
+        self.preserve_recent_rounds = self.preserve_recent_rounds.clamp(1, 12);
+    }
+}
+
+impl Default for CompactConfig {
+    fn default() -> Self {
+        Self {
+            enabled: crate::default_true(),
+            cache_ttl_secs: default_cache_ttl_secs(),
+            tool_policies: default_tool_policies(),
+            max_tool_result_context_share: default_max_tool_result_context_share(),
+            soft_trim_ratio: default_soft_trim_ratio(),
+            hard_clear_ratio: default_hard_clear_ratio(),
+            preserve_recent_rounds: default_preserve_recent_rounds(),
+            min_prunable_tool_chars: default_min_prunable_tool_chars(),
+            soft_trim_max_chars: default_soft_trim_max_chars(),
+            soft_trim_head_chars: default_soft_trim_head_chars(),
+            soft_trim_tail_chars: default_soft_trim_tail_chars(),
+            hard_clear_enabled: crate::default_true(),
+            hard_clear_placeholder: default_hard_clear_placeholder(),
+            summarization_model: None,
+            model_override: None,
+            summarization_threshold: default_summarization_threshold(),
+            identifier_policy: default_identifier_policy(),
+            identifier_instructions: None,
+            custom_instructions: None,
+            summarization_timeout_secs: default_summarization_timeout(),
+            summary_max_tokens: default_summary_max_tokens(),
+            max_history_share: default_max_history_share(),
+            max_compaction_summary_chars: default_max_compaction_summary_chars(),
+            max_compaction_injected_context_share: default_max_compaction_injected_context_share(),
+            reactive_microcompact_enabled: crate::default_true(),
+            reactive_trigger_ratio: default_reactive_trigger_ratio(),
+            recovery_enabled: crate::default_true(),
+            recovery_max_files: default_recovery_max_files(),
+            recovery_max_file_bytes: default_recovery_max_file_bytes(),
+        }
+    }
+}

@@ -172,13 +172,13 @@ pub struct AskUserQuestionAnswer {
 
 ### 工具注册与描述
 
-**工具常量**：`crates/ha-core/src/tools/mod.rs`
+**工具常量**：`crates/ha-core/src/tool_defs/names.rs`
 
 ```rust
 pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 ```
 
-**Schema 定义**：`crates/ha-core/src/tools/definitions/plan_tools.rs` 中的 `get_ask_user_question_tool()`。关键声明：
+**Schema 定义**：`crates/ha-core/src/tool_defs/plan_tools.rs` 中的 `get_ask_user_question_tool()`。关键声明：
 
 | 字段 | 值 | 含义 |
 |------|-----|------|
@@ -186,14 +186,12 @@ pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 | `internal` | `true` | 系统工具，不可被 Agent `denied_tools` 关闭 |
 | `concurrent_safe` | `true` | 允许并发调度 |
 
-旧的 `deferred` / `always_load` 两个布尔字段已从 `ToolDefinition` 删除——三个旧 bool 现统一由 tier 派生（`is_always_load()` / `is_deferred_default()` 基于 `supports_deferred()`，定义在 `tools/definitions/types.rs`）。
+旧的 `deferred` / `always_load` 两个布尔字段已从 `ToolDefinition` 删除——三个旧 bool 现统一由 tier 派生（`is_always_load()` / `is_deferred_default()` 基于 `supports_deferred()`，定义在 `tool_defs/types.rs`）。
 
-工具在 `core_tools.rs` 通过 `tools.push(super::plan_tools::get_ask_user_question_tool())` 统一注入（schema 定义仍在 `plan_tools.rs` 因为工具在 Plan Mode 中也被使用，但工具本身不依赖 plan 模块）。dispatch 在 `tools/execution.rs`：
+工具在 `core_tools.rs` 通过 `tools.push(super::plan_tools::get_ask_user_question_tool())` 统一注入（schema 定义仍在 `plan_tools.rs` 因为工具在 Plan Mode 中也被使用，但工具本身不依赖 plan 模块）。dispatch 条目在 `tools/builtin_registry.rs`（静态 match 已反转为注册表，见 [tool-system](tool-system.md)）：
 
 ```rust
-TOOL_ASK_USER_QUESTION => {
-    Ok(ask_user_question::execute(args, ctx.session_id.as_deref()).await)
-}
+BuiltinToolEntry { name: super::TOOL_ASK_USER_QUESTION, aliases: &[], handler: tool_handler!(|args, ctx| Ok(ask_user_question::execute(args, ctx.session_id.as_deref()).await)) },
 ```
 
 **系统提示词注入**（两层设计）：
@@ -269,7 +267,7 @@ flowchart TD
 
 5. **最终清理**（`ask_user_question.rs`）：无论 Answered / Cancelled / TimedOut，都会：
    - `ask_user::mark_group_answered(&request_id)` 把 DB 行翻到 `answered`
-   - `channel::worker::ask_user::drop_pending_by_request_id(&request_id)` 清理 IM 端的 button/text pending map，防止僵尸条目累积
+   - `channel_hooks::drop_ask_user_by_request_id(&request_id)` 清理 IM 端的 button/text pending map，防止僵尸条目累积（阶段 5 第五刀起 kernel 一律经钩子调用，实现在 `ha-channel` 的 `worker/ask_user.rs`；未装配即 no-op）
 
 ### Pending Registry（内存 oneshot 注册表）
 
@@ -594,7 +592,7 @@ Server 模式下多客户端连接同一 session 时，已经"live"（内存有 
 
 ## IM 渠道集成
 
-整个 IM 路径集中在 `crates/ha-core/src/channel/worker/ask_user.rs`，镜像 `approval.rs` 的模式，二者共享统一的 dispatcher。
+整个 IM 路径集中在 `crates/ha-channel/src/channel/worker/ask_user.rs`，镜像 `approval.rs` 的模式，二者共享统一的 dispatcher。
 
 ### button 渠道 vs text-fallback 渠道
 
@@ -874,8 +872,8 @@ ask_user_question_timeout_enabled
 - `crates/ha-core/src/ask_user/types.rs` — `AskUserQuestion*` 数据结构
 - `crates/ha-core/src/ask_user/questions.rs` — 内存 pending registry、持久化 helper、事件常量
 - `crates/ha-core/src/tools/ask_user_question.rs` — 工具执行入口、超时处理、结果格式化
-- `crates/ha-core/src/tools/definitions/plan_tools.rs` — 工具 schema 定义
-- `crates/ha-core/src/tools/execution.rs` — dispatch 分派
+- `crates/ha-core/src/tool_defs/plan_tools.rs` — 工具 schema 定义
+- `crates/ha-core/src/tools/builtin_registry.rs` — dispatch 条目（execution.rs 查表分发）
 - `crates/ha-core/src/tools/definitions/registry.rs` — 并发安全标记
 - `crates/ha-core/src/session/db.rs` — `ask_user_questions` 表 CRUD
 - `crates/ha-core/src/app_init.rs` — listener 启动 + 启动清理 + 每日 purge
@@ -884,14 +882,14 @@ ask_user_question_timeout_enabled
 
 **IM 渠道**：
 
-- `crates/ha-core/src/channel/worker/ask_user.rs` — IM listener、button / text fallback、统一 dispatcher
-- `crates/ha-core/src/channel/worker/dispatcher.rs` — 消息路由前置钩子
-- `crates/ha-core/src/channel/worker/mod.rs` — 模块声明
-- `crates/ha-core/src/channel/telegram/polling.rs` — Telegram callback 接入
-- `crates/ha-core/src/channel/discord/gateway.rs` — Discord callback 接入
-- `crates/ha-core/src/channel/slack/socket.rs` — Slack callback 接入
-- `crates/ha-core/src/channel/qqbot/gateway.rs` — QQ Bot callback 接入
-- `crates/ha-core/src/channel/feishu/ws_event.rs` / `line/webhook.rs` / `googlechat/webhook.rs` — 其他渠道接入
+- `crates/ha-channel/src/channel/worker/ask_user.rs` — IM listener、button / text fallback、统一 dispatcher
+- `crates/ha-channel/src/channel/worker/dispatcher.rs` — 消息路由前置钩子
+- `crates/ha-channel/src/channel/worker/mod.rs` — 模块声明
+- `crates/ha-channel/src/channel/telegram/polling.rs` — Telegram callback 接入
+- `crates/ha-channel/src/channel/discord/gateway.rs` — Discord callback 接入
+- `crates/ha-channel/src/channel/slack/socket.rs` — Slack callback 接入
+- `crates/ha-channel/src/channel/qqbot/gateway.rs` — QQ Bot callback 接入
+- `crates/ha-channel/src/channel/feishu/ws_event.rs` / `line/webhook.rs` / `googlechat/webhook.rs` — 其他渠道接入
 
 **命令层（Tauri）**：
 

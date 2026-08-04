@@ -3,7 +3,7 @@ use crate::skills;
 use crate::AppState;
 use tauri::State;
 
-use ha_core::skills::commands as core;
+use ha_skills::skills::commands as core;
 
 const SOURCE: &str = "settings-ui";
 
@@ -28,8 +28,8 @@ pub async fn get_skill_detail(
 #[tauri::command]
 pub async fn list_mentionable_skills(
     _state: State<'_, AppState>,
-) -> Result<Vec<ha_core::skills::MentionableSkill>, CmdError> {
-    Ok(ha_core::skills::list_mentionable_skills())
+) -> Result<Vec<ha_skills::skills::MentionableSkill>, CmdError> {
+    Ok(ha_skills::skills::list_mentionable_skills())
 }
 
 #[tauri::command]
@@ -132,7 +132,7 @@ pub async fn get_skills_status(
 /// Install a skill dependency. Desktop path is unconditional — clicking the
 /// "Install" button in the native GUI is itself the user consent. The HTTP
 /// surface gates on `skills.allow_remote_install`; see
-/// [`ha_core::skills::commands::install_skill_dependency`] for the shared
+/// [`ha_skills::skills::commands::install_skill_dependency`] for the shared
 /// spawn logic.
 #[tauri::command]
 pub async fn install_skill_dependency(
@@ -202,7 +202,7 @@ pub async fn set_skills_auto_review_enabled(
 #[tauri::command]
 pub async fn get_skills_auto_review_config(
     _state: State<'_, AppState>,
-) -> Result<ha_core::skills::auto_review::SkillsAutoReviewConfig, CmdError> {
+) -> Result<ha_skills::skills::auto_review::SkillsAutoReviewConfig, CmdError> {
     Ok(core::get_auto_review_config_snapshot())
 }
 
@@ -210,7 +210,7 @@ pub async fn get_skills_auto_review_config(
 pub async fn set_skills_auto_review_config(
     patch: serde_json::Value,
     _state: State<'_, AppState>,
-) -> Result<ha_core::skills::auto_review::SkillsAutoReviewConfig, CmdError> {
+) -> Result<ha_skills::skills::auto_review::SkillsAutoReviewConfig, CmdError> {
     core::set_auto_review_config_patch(patch, SOURCE).map_err(Into::into)
 }
 
@@ -218,7 +218,7 @@ pub async fn set_skills_auto_review_config(
 pub async fn reset_skills_auto_review_config(
     fields: Option<Vec<String>>,
     _state: State<'_, AppState>,
-) -> Result<ha_core::skills::auto_review::SkillsAutoReviewConfig, CmdError> {
+) -> Result<ha_skills::skills::auto_review::SkillsAutoReviewConfig, CmdError> {
     core::reset_auto_review_config(fields, SOURCE).map_err(Into::into)
 }
 
@@ -233,7 +233,7 @@ pub async fn get_skills_auto_review_recent_rejects(
 #[tauri::command]
 pub async fn run_skills_curator_now(
     _state: State<'_, AppState>,
-) -> Result<ha_core::skills::auto_review::curator::CuratorReport, CmdError> {
+) -> Result<ha_skills::skills::auto_review::curator::CuratorReport, CmdError> {
     core::run_curator_pass_sync().map_err(Into::into)
 }
 

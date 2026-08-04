@@ -11,25 +11,17 @@
 //!
 //! See `docs/architecture/media-generation.md`.
 
-pub mod adapters;
-mod catalog;
-pub mod crud;
-mod execute;
-mod input;
-mod overview;
-pub mod probe;
-mod resolve;
-mod types;
-pub mod voices;
+//! 阶段 4 起为 kernel 配置面 facade：provider/链 CRUD（`crud`，
+//! mutate_config contract）、候选解析（`resolve`，纯配置函数）与 wire
+//! 类型再导出留 kernel；执行机器（adapters / execute / input / probe /
+//! catalog / overview / voices）与 `image_generate`·`audio_generate` 两
+//! 工具在特征 crate `ha-media`（ha-design 的图/音 artifact 表单直接依赖
+//! ha-media——「图/音生成必走 execute_image/execute_audio」红线的入口随
+//! 机器在特征侧，仍是唯一入口）。
 
-pub use catalog::{media_provider_templates, MediaProviderTemplate, OPENAI_TTS_VOICES};
-pub use execute::{
-    execute_audio, execute_image, AudioRequest, ImageRequest, MediaExecOutcome, UsageMeta,
-};
-pub use input::{decode_data_url, infer_resolution, load_input_image, load_input_images};
-pub use overview::{
-    media_gen_overview, MediaCandidateOverview, MediaFunctionOverview, MediaGenOverview,
-};
+pub mod crud;
+pub mod resolve;
+pub mod types;
 pub use resolve::{
     resolve_candidates, validate_image_request, ImageRequestSpec, ResolvedCandidate, CONFIG_HINT,
 };

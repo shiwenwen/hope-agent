@@ -141,7 +141,7 @@ pub struct PlanMeta {
 ### Plan 文件持久化
 
 - **路径**：`~/.hope-agent/plans/<agent_id>/<session_id>/plan-{YYYYMMDDTHHMMSSZ}-{nano}.md`，按 agent + session 双层子目录物理隔离。模型 ls 自己 session 的目录只看到自己的 plan 文件，跨 session 误读路径堵死（解决"模型 ls /plans 看到所有 session 旧文件，按时间戳挑最新的撞上别 session"的根因）
-- **目录构造**：[`paths::session_plans_dir(agent_id, session_id)`](../../crates/ha-core/src/paths.rs) — `agent_id` 与 `session_id` 都做 alphanum + `-` / `_` sanitize 防御 path traversal（深度防御，本身已是 slug/UUID）；[`file_io::session_plans_dir_for(session_id)`](../../crates/ha-core/src/plan/file_io.rs) 内部查 SessionDB 反查 agent_id，DB 缺失（极罕见 session-create vs first-write race）落 `_unknown_agent` bucket 不让写失败
+- **目录构造**：[`paths::session_plans_dir(agent_id, session_id)`](../../crates/ha-base/src/paths.rs) — `agent_id` 与 `session_id` 都做 alphanum + `-` / `_` sanitize 防御 path traversal（深度防御，本身已是 slug/UUID）；[`file_io::session_plans_dir_for(session_id)`](../../crates/ha-core/src/plan/file_io.rs) 内部查 SessionDB 反查 agent_id，DB 缺失（极罕见 session-create vs first-write race）落 `_unknown_agent` bucket 不让写失败
 - **老文件迁移**：[`plan::migrate_flat_plans_to_subdirs`](../../crates/ha-core/src/plan/file_io.rs) 在 `app_init::start_background_tasks` primary 块通过 `spawn_blocking` 跑——扫 `~/.hope-agent/plans/*.md` flat 文件，按文件名前 8 字符 short_id 反查 [`SessionDB::find_sessions_by_id_prefix`](../../crates/ha-core/src/session/db.rs)；唯一匹配 → mv 到 `<agent>/<session>/`；多重/未知匹配留 flat + warn 等人工核对。幂等可重复跑
 - **版本备份**：覆盖前自动 copy 到 `plan-{...}-v{N}.md`（同 session 子目录内），`N` 在内存 `PlanMeta.version` + 磁盘 `max_disk_version()` 取大者递增（重启后内存计数器重置不会覆盖老备份）
 - **写入入口**：`save_plan_file(session_id, content)` —— 唯一被 `submit_plan` 工具调用 + Tauri 命令 `save_plan_content` + HTTP `PUT /api/plan/{sid}/content`
@@ -310,7 +310,7 @@ sequenceDiagram
 | 斜杠命令 | `/plan enter / exit / approve / show` | [`slash_commands/handlers/plan.rs`](../../crates/ha-core/src/slash_commands/handlers/plan.rs) |
 | 桌面前端 | ChatInput Plan 按钮 → Tauri `set_plan_mode` | [`src-tauri/src/commands/plan.rs`](../../src-tauri/src/commands/plan.rs) |
 | HTTP 客户端 | `POST /api/plan/{sid}/mode {state}` | [`crates/ha-server/src/routes/plan.rs`](../../crates/ha-server/src/routes/plan.rs) |
-| IM 渠道 | `/plan` 斜杠命令通过 channel/worker/slash 路径 | [`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs) |
+| IM 渠道 | `/plan` 斜杠命令通过 channel/worker/slash 路径 | [`channel/worker/slash.rs`](../../crates/ha-channel/src/channel/worker/slash.rs) |
 
 **注意**：Tauri / HTTP 路径都显式 reject `state=="paused"`（保留拒绝逻辑作为客户端兼容兜底，避免外部 API 误用）。
 
@@ -350,11 +350,11 @@ Hope 的 Git Checkpoint + 通用任务覆盖是相对 claude-code/opencode 的�
 
 **工具实现**（`crates/ha-core/src/tools/`）：
 - `enter_plan_mode.rs` / `submit_plan.rs` / `ask_user_question.rs` / `task.rs`
-- 工具定义：`definitions/plan_tools.rs` / `definitions/task_tools.rs`
+- 工具定义：`tool_defs/plan_tools.rs` / `tool_defs/task_tools.rs`
 
 **斜杠命令**：
 - `crates/ha-core/src/slash_commands/handlers/plan.rs`
-- `crates/ha-core/src/slash_commands/types.rs`（CommandAction::EnterPlanMode / ExitPlanMode / ApprovePlan / ShowPlan）
+- `crates/ha-core/src/slash_defs/types.rs`（CommandAction::EnterPlanMode / ExitPlanMode / ApprovePlan / ShowPlan）
 
 **Tauri 命令**：
 - `src-tauri/src/commands/plan.rs`：`get_plan_mode` / `set_plan_mode` / `get_plan_content` / `save_plan_content` / `respond_ask_user_question` / `get_pending_ask_user_group` / `get_plan_versions` / `load_plan_version_content` / `restore_plan_version` / `plan_rollback` / `get_plan_checkpoint` / `get_plan_file_path` / `cancel_plan_subagent`
@@ -405,7 +405,7 @@ Hope 的 Git Checkpoint + 通用任务覆盖是相对 claude-code/opencode 的�
 - 解析端：[`src/components/chat/plan-mention/parsePlanMentions.ts`](../../src/components/chat/plan-mention/parsePlanMentions.ts) 正则 `/@plan:([0-9a-f]{4,16})(?::v(\d+))?/gi`，与现有 file-mention 不冲突（首 token `plan:` 前缀消歧）
 - 展开端：[`expandPlanMentions.ts`](../../src/components/chat/plan-mention/expandPlanMentions.ts) 调 `resolve_plan_mention` → 把 plan 文件作为 `text/markdown` attachment append 到 `attachments[]`，与 `expandMentionsToAttachments` 共用 dedup-by-file_path 路径
 
-**Dashboard Plan stats**：Plan 指标已并入“目标与执行 → Plan 与 Task”，由 [`dashboard/control_plane.rs`](../../crates/ha-core/src/dashboard/control_plane.rs) 按 created cohort 统计完成率、activeNow、状态/Agent/项目/趋势与精确 P50。旧 [`dashboard/plan_stats.rs`](../../crates/ha-core/src/dashboard/plan_stats.rs) 命令和 API 保留兼容。独立 Plans View 继续是只读历史页，负责正文、版本、`@plan` 引用与跳回会话，不重复承担统计。
+**Dashboard Plan stats**：Plan 指标已并入“目标与执行 → Plan 与 Task”，由 [`dashboard/control_plane.rs`](../../crates/ha-dash/src/dashboard/control_plane.rs) 按 created cohort 统计完成率、activeNow、状态/Agent/项目/趋势与精确 P50。旧 [`dashboard/plan_stats.rs`](../../crates/ha-dash/src/dashboard/plan_stats.rs) 命令和 API 保留兼容。独立 Plans View 继续是只读历史页，负责正文、版本、`@plan` 引用与跳回会话，不重复承担统计。
 
 ## 变更历史
 

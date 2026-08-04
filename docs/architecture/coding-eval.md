@@ -47,7 +47,7 @@ Phase 3.7 先把“可确定性回归”的能力钉住；Phase 3.8 继续把 wo
 
 | 位置 | 说明 |
 | --- | --- |
-| `crates/ha-core/src/coding_eval.rs` | 确定性 fixture harness，供测试和后续报告复用。 |
+| `crates/ha-eval-runtime/src/coding_eval.rs` | 确定性 fixture harness，供测试和后续报告复用（阶段 5 第四刀自 ha-core 迁出；wire 类型留 kernel `coding_eval_defs`，`ha_eval_runtime::coding_eval` glob 再导出，既有路径不变）。 |
 | `crates/ha-eval` | 独立专项评测入口；完整 fixture/Gold Pack 不进入默认 Cargo test。 |
 | `evals/suites/coding-control-plane/fixtures/*.json` | Phase 3.7-5.2 控制面、执行与任务级 canonical JSON fixture；Phase 5.5+ Gold Task Pack case 由 suite manifest 锁定、typed registry 物化。 |
 | `run_coding_task_eval_fixture` | Owner-plane Tauri command；输入完整 fixture JSON，返回 `FixtureReport`。 |

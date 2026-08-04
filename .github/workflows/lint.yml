@@ -38,7 +38,7 @@ jobs:
         run: pnpm test
 
       # Refuse the PR if the Minisign pubkey in `tauri.conf.json` drifts
-      # from the literal embedded in `ha-core/updater/keys.rs` — either
+      # from the literal embedded in `ha-updater/keys.rs` — either
       # one can be edited independently and the resulting self-update path
       # mismatch only surfaces at install time.
       - name: Updater pubkey sync check
@@ -65,6 +65,18 @@ jobs:
       # one language silently ships stale content.
       - name: User manual zh/en parity
         run: node scripts/check-docs-parity.mjs
+
+      # crate-split 阶段 4 红线：工具契约层 tool_defs 不得反向依赖分发层
+      # tools/（同 crate 内加回边照样编译，只有断言能守住）。脚本默认模式
+      # 零容忍，退出码非 0 即失败。
+      - name: Crate layering red line (tool_defs → tools)
+        run: node scripts/analyze-crate-deps.mjs > /dev/null
+
+      # 同一脚本 --tests 模式额外锁定 3 条登记的遗留测试边 + 测试图无环。
+      # 默认模式不扫 cfg(test) / #[test]，新增的测试回边会静默通过；这里
+      # 补上兜底。两个模式各约 0.2 秒。
+      - name: Crate layering red line (test edges)
+        run: node scripts/analyze-crate-deps.mjs --tests > /dev/null
 
       # Informational only for now: the repo carries ~3.3k historical missing
       # keys across the 10 non-baseline locales (en/zh are the source of truth).

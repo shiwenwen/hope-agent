@@ -253,7 +253,7 @@ fn rank_cost(currency: Option<crate::provider::Currency>, m: &ModelConfig) -> f6
         (ci, co) => {
             let raw = ci.unwrap_or(0.0) + co.unwrap_or(0.0);
             match currency {
-                Some(crate::provider::Currency::Cny) => raw / crate::dashboard::CNY_PER_USD,
+                Some(crate::provider::Currency::Cny) => raw / crate::provider::CNY_PER_USD,
                 _ => raw,
             }
         }

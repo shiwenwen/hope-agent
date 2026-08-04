@@ -42,8 +42,16 @@ if [ "$HA_RUN_RUST_CI" = "true" ]; then
   echo "[pre-push] cargo fmt --all --check"
   cargo fmt --all --check
 
-  echo "[pre-push] cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings"
-  cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
+  echo "[pre-push] cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings"
+  cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings
+  # eval-internal-tests 是 opt-in feature，横跨 ha-core / ha-eval-runtime /
+  # ha-improve 三个 crate（后两者转发 kernel 同名开关）。默认 --all-targets
+  # 不开这个 feature，改这三个 crate 的 gated tests 后编译错误会静默 ship
+  # —— 阶段 5 第八刀实测：迁出后 ha-improve 的 gated tests 34 处编译错误，
+  # 全套门禁照样全绿。只做 cargo check（不 test）：真正会 ship 的失效模式是
+  # 编译不过，跑起来会撞已知的存量断言失败（见 capability-eval.md）。
+  echo "[pre-push] pnpm check:eval-internal"
+  pnpm check:eval-internal
 else
   echo "[pre-push] frontend/docs-only diff — skipping Rust fmt, clippy, and tests"
 fi
@@ -54,11 +62,19 @@ pnpm typecheck
 echo "[pre-push] eslint"
 pnpm lint
 
-echo "[pre-push] verify-updater-pubkey (tauri.conf.json ↔ ha-core)"
+echo "[pre-push] verify-updater-pubkey (tauri.conf.json ↔ ha-updater)"
 node scripts/verify-updater-pubkey.mjs
 
-echo "[pre-push] verify-updater-endpoints (tauri.conf.json ↔ ha-core ↔ mirror PUBLIC_BASE)"
-node scripts/verify-updater-endpoints.mjs
+echo "[pre-push] crate layering red line (tool_defs → tools)"
+  node scripts/analyze-crate-deps.mjs > /dev/null
+
+echo "[pre-push] crate layering red line (test edges)"
+  # --tests mode locks the 3 registered legacy test edges + no cycles in the
+  # test graph. Default mode above skips cfg(test) so this is the only guard.
+  node scripts/analyze-crate-deps.mjs --tests > /dev/null
+
+  echo "[pre-push] verify-updater-endpoints (tauri.conf.json ↔ ha-updater ↔ mirror PUBLIC_BASE)"
+  node scripts/verify-updater-endpoints.mjs
 
 echo "[pre-push] vitest run"
 pnpm test
@@ -68,8 +84,8 @@ if [ "$HA_RUN_RUST_CI" != "true" ]; then
 elif [ "${HA_SKIP_PREPUSH_TEST:-}" = "1" ]; then
   echo "[pre-push] HA_SKIP_PREPUSH_TEST=1 — skipping cargo test"
 else
-  echo "[pre-push] cargo test -p ha-core -p ha-server --locked"
-  cargo test -p ha-core -p ha-server --locked
+  echo "[pre-push] cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked"
+  cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked
 fi
 
 echo "[pre-push] all checks passed"

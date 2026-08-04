@@ -1,8 +1,8 @@
 use crate::commands::CmdError;
-use ha_core::context_retrieval::{
+use ha_core::session::SessionIdeContext;
+use ha_eval_runtime::context_retrieval::{
     context_retrieval_for_session, ContextRetrievalInput, ContextRetrievalSnapshot,
 };
-use ha_core::session::SessionIdeContext;
 
 #[tauri::command]
 pub async fn get_context_retrieval(

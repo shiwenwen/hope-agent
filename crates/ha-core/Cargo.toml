@@ -8,24 +8,20 @@ repository.workspace = true
 edition.workspace = true
 build = "build.rs"
 
-[build-dependencies]
-prost-build = "0.14"
-protoc-bin-vendored = "3"
-
 [dependencies]
+ha-base = { path = "../ha-base" }
+ha-config-schema = { path = "../ha-config-schema" }
 ha-eval-spec = { path = "../ha-eval-spec" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-log = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 rusqlite = { workspace = true }
 reqwest = { workspace = true }
 futures-util = { workspace = true }
-sse-stream = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
 ring = "0.17"
@@ -40,7 +36,6 @@ url = { workspace = true }
 once_cell = { workspace = true }
 signal-hook = { workspace = true }
 arc-swap = { workspace = true }
-rmcp = { workspace = true }
 http = "1"
 
 # Non-workspace dependencies (core-specific)
@@ -56,8 +51,6 @@ pdfium-render = "0.9"
 calamine = "0.34"
 zip = "7"
 quick-xml = "0.39"
-scraper = "0.26.0"
-chromiumoxide = "0.9"
 # default-features=false 砍掉 readability 的 reqwest(0.11)抓取特性——只用它的纯
 # 离线正文抽取 extractor::extract()（web_fetch.rs，HTTP 我们自己用 reqwest 0.12）。
 # 连带消除整条重复的旧 HTTP 栈：reqwest 0.11 + hyper 0.14 + h2 0.3 + http 0.2 +
@@ -71,18 +64,7 @@ tiny_http = "0.12"
 urlencoding = "2"
 libc = "0.2"
 portable-pty = "0.9"
-bollard = "0.20"
 image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
-encoding_rs = "0.8"
-# oxc: pure-Rust JS/TS/JSX toolchain. Used by the design space to **backend-compile**
-# interactive `Component` artifacts (JSX/TSX → JS) so the iframe loads static
-# compiled output — zero in-browser compilation (design red line). No system libs.
-oxc_allocator = "0.138"
-oxc_parser = "0.138"
-oxc_span = "0.138"
-oxc_semantic = "0.138"
-oxc_transformer = "0.138"
-oxc_codegen = "0.138"
 # Desktop-only crates. Gated behind the `desktop-tools` feature so headless
 # server builds (e.g. the Docker image shipped from `ha-server`) don't pull
 # their Linux system libs (wayland / pipewire / gbm / egl / gtk-3).
@@ -93,35 +75,26 @@ xcap = { version = "0.9", optional = true }
 ignore = "0.4.25"
 glob = "0.3.3"
 similar = "2"
-teloxide = { version = "0.17", features = ["macros", "throttle"], default-features = false }
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
-native-tls = "0.2"
-tokio-native-tls = "0.3"
 hmac = "0.12"
-# WeChat iLink media CDN crypto — AES-128-ECB + MD5, pure Rust. Replaces the
-# former `openssl` dependency so openssl-sys is no longer compiled on Windows /
-# macOS (see the Linux-only `openssl` target dep below, kept solely to vendor
-# native-tls's OpenSSL on Linux).
+# `memory/backup.rs` 的备份加密。（WeChat iLink 媒体 CDN 的 AES-128-ECB + MD5
+# 已随 ha-channel 迁出，`md-5` / `teloxide` / `native-tls` / `tokio-native-tls`
+# / `jsonwebtoken` 一并从 kernel 移除——它们迁出后在 ha-core 里零引用。）
 aes = "0.8"
-md-5 = "0.10"
-jsonwebtoken = "9"
 axum = "0.8"
-prost = "0.14"
 lru = "0.12"
-minisign-verify = { workspace = true }
-tar = "0.4"
 flate2 = "1"
 blake3 = "1.8.5"
 rust-embed = { version = "8", features = ["include-exclude"] }
-pulldown-cmark = "0.13.4"
 notify = "8.2.0"
-unicode-normalization = "0.1.25"
 rquickjs = "0.12"
 rquickjs-serde = "0.6"
 
 [features]
 default = []
+# 跨 crate 测试设施（test_support 模块）；仅特征 crate dev-dependencies 使用。
+test-support = []
 # Heavy deterministic eval-only implementations are compiled by the dedicated
 # `hope-agent-eval` binary, never by the default PR test harness.
 eval-runner = []
@@ -151,8 +124,8 @@ windows-sys = { version = "0.52", features = [
     "Win32_System_Threading",
 ] }
 
-# Not a code dependency — the WeChat media crypto moved to the pure-Rust `aes`
-# + `md-5` crates above. On Linux, `native-tls` (reqwest / tokio-tungstenite)
+# Not a code dependency — the WeChat media crypto (pure-Rust `aes` + `md-5`)
+# moved out with ha-channel. On Linux, `native-tls` (reqwest / tokio-tungstenite)
 # links openssl-sys; the `vendored` feature here statically bundles OpenSSL so
 # the headless server bin (Docker image + bare Linux release) needs no system
 # libssl at runtime. Windows uses SChannel and macOS uses Security.framework,
@@ -163,6 +136,10 @@ openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
 wiremock = "0.6"
+# Compile-time trait-impl assertions（`assert_not_impl_all!` 用于
+# `CodexEvaluationSecret` 不得实现 Debug 的红线守卫）——已在 Cargo.lock 里被
+# 别的 crate 传递引入，改为直接声明零构建成本。
+static_assertions = "1"
 
 [lints]
 workspace = true

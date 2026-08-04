@@ -21,7 +21,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 use crate::session::{effective_working_dir_for_meta, SessionDB};
-use crate::tools::ToolExecContext;
+use crate::tool_defs::ToolExecContext;
 
 const REQUEST_TIMEOUT_SECS: u64 = 8;
 const SYNC_DIAGNOSTIC_SETTLE_MS: u64 = 350;

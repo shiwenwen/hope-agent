@@ -1,0 +1,87 @@
+//! The `skill` tool — model's preferred entry point to activate a skill.
+//!
+//! Replaces the older "model reads SKILL.md via `read`" pattern. By routing
+//! through a dedicated tool we can:
+//!   - Uniformly dispatch `context: fork` to a sub-agent (previously only
+//!     the `/skill-name` slash command did this).
+//!   - Pass arguments via `$ARGUMENTS` substitution in the inline path.
+//!   - Return a concise summary instead of dumping the full SKILL.md plus
+//!     every downstream tool_result into the main conversation.
+
+use anyhow::{anyhow, Result};
+use serde_json::Value;
+
+use ha_core::tools::ToolExecContext;
+
+mod fork;
+mod inline;
+
+use crate::skills::{self as skill_runtime, SkillEntry};
+
+/// Stable entry point for callers that need the same "read SKILL.md +
+/// `$ARGUMENTS` substitution" string the `skill` tool returns in inline mode.
+/// Used by the slash-command handler so `/skillname args` and the model's
+/// `skill({name, args})` tool call produce byte-identical activation text.
+pub async fn render_inline(entry: &SkillEntry, args: &str) -> anyhow::Result<String> {
+    inline::execute(entry, args).await
+}
+
+/// Entry point registered in `tools::execution::execute_tool_with_context`.
+pub async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("'name' is required (skill name to activate)"))?;
+
+    let invocation_args = args
+        .get("args")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+
+    let cfg = ha_core::config::cached_config();
+    let env_check = skill_runtime::skill_env_check_enabled_for_agent(
+        ctx.agent_id.as_deref(),
+        cfg.skill_env_check,
+    );
+    let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+
+    let entry = skills
+        .iter()
+        .find(|s| s.name == name || crate::skills::normalize_skill_command_name(&s.name) == name)
+        .ok_or_else(|| {
+            let catalog: Vec<&str> = skills.iter().map(|s| s.name.as_str()).take(20).collect();
+            anyhow!(
+                "Skill '{}' not found. Available: {}{}",
+                name,
+                catalog.join(", "),
+                if skills.len() > 20 { ", ..." } else { "" }
+            )
+        })?;
+
+    // disable_model_invocation skills are user-only (slash command); reject here.
+    if entry.disable_model_invocation == Some(true) {
+        return Err(anyhow!(
+            "Skill '{}' is marked disable-model-invocation and can only be run via slash command",
+            entry.name
+        ));
+    }
+
+    if env_check {
+        let detail = skill_runtime::check_requirements_detail(
+            &entry.requires,
+            cfg.skill_env.get(&entry.name),
+        );
+        if !detail.eligible {
+            return Ok(skill_runtime::format_requirements_diagnostic(
+                entry, &detail,
+            ));
+        }
+    }
+
+    if entry.context_mode.as_deref() == Some("fork") {
+        fork::execute(entry, invocation_args, ctx).await
+    } else {
+        inline::execute(entry, invocation_args).await
+    }
+}

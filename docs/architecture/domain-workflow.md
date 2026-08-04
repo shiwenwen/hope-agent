@@ -252,7 +252,7 @@ Workspace「通用任务工作台」也会在当前 session scope 下调用同�
 
 ## Context Retrieval 衔接
 
-Phase 7.3 起，`ha-core::context_retrieval` 会只读消费本模块的数据：
+Phase 7.3 起，`ha-eval-runtime::context_retrieval`（阶段 5 第四刀自 ha-core 迁出）会只读消费本模块的数据：
 
 - 从 `workflow_runs.kind = domain:<domain>`、`domain_evidence_items.domain`、显式 `domain/templateId` 或 Goal objective / criteria 推导 `domainContext`。
 - 把 `domain_evidence_items` 转成 document、email_thread、calendar_event、sheet_range、knowledge_note、web_source、decision、artifact 等候选。

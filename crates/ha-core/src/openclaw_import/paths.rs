@@ -51,9 +51,9 @@ fn dir_has_config(dir: &Path) -> bool {
     dir.join(CONFIG_FILENAME).exists() || dir.join(LEGACY_CONFIG_FILENAME).exists()
 }
 
-/// `PathBuf`-flavored thin wrapper over the shared `tools::expand_tilde`.
+/// `PathBuf`-flavored thin wrapper over the shared `crate::tool_defs::expand_tilde`.
 pub fn expand_tilde(path: &str) -> PathBuf {
-    PathBuf::from(crate::tools::expand_tilde(path))
+    PathBuf::from(crate::tool_defs::expand_tilde(path))
 }
 
 /// Default workspace directory inside the resolved state dir (matches

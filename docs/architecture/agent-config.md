@@ -94,7 +94,7 @@ Memory UX v2 的自动动态召回由全局 `memory.recall.enabled` 控制，**�
 
 ### 目录布局
 
-每个 Agent 一个目录 `~/.hope-agent/agents/{id}/`（[`paths::agent_dir`](../../crates/ha-core/src/paths.rs)）：
+每个 Agent 一个目录 `~/.hope-agent/agents/{id}/`（[`paths::agent_dir`](../../crates/ha-base/src/paths.rs)）：
 
 | 文件 | 内容 | 必读 |
 |---|---|---|
@@ -105,7 +105,7 @@ Memory UX v2 的自动动态召回由全局 `memory.recall.enabled` 控制，**�
 | `memory/MEMORY.md` | Agent 级核心记忆 canonical 文件 | 可选 |
 | `agents.md` / `identity.md` / `soul.md` | OpenClaw 4 文件模式（`openclaw_mode=true`）或 SoulMd 人格面（仅 `soul.md`）时读取 | 可选 |
 
-外加几个非 per-agent 目录目录：`~/.hope-agent/memory/MEMORY.md`（全局共享核心记忆 canonical 文件，[`paths::root_dir`](../../crates/ha-core/src/paths.rs)；旧 `~/.hope-agent/memory.md` 仅作兼容镜像）、`~/.hope-agent/{id}-home/`（命名 Agent home 目录，[`paths::agent_home_dir`](../../crates/ha-core/src/paths.rs)，`load_agent` 时 ensure 存在）、`~/.hope-agent/plans/{agent}/`（Agent 维度 plan 目录，见 [plan-mode.md](plan-mode.md)）、`~/.hope-agent/avatars/default-agent-logo.png`（内置品牌 logo，默认 Agent 头像）。
+外加几个非 per-agent 目录目录：`~/.hope-agent/memory/MEMORY.md`（全局共享核心记忆 canonical 文件，[`paths::root_dir`](../../crates/ha-base/src/paths.rs)；旧 `~/.hope-agent/memory.md` 仅作兼容镜像）、`~/.hope-agent/{id}-home/`（命名 Agent home 目录，[`paths::agent_home_dir`](../../crates/ha-base/src/paths.rs)，`load_agent` 时 ensure 存在）、`~/.hope-agent/plans/{agent}/`（Agent 维度 plan 目录，见 [plan-mode.md](plan-mode.md)）、`~/.hope-agent/avatars/default-agent-logo.png`（内置品牌 logo，默认 Agent 头像）。
 
 ### `AgentDefinition` 与 `load_agent` 流程
 
@@ -278,5 +278,5 @@ markdown 各文件如何进 system prompt（行为说明 / 人格 / soul / 记�
 | [`crates/ha-core/src/agent_loader.rs`](../../crates/ha-core/src/agent_loader.rs) | 磁盘装配 + CRUD + 模板 + `DEFAULT_AGENT_ID` / `is_main_agent` |
 | [`crates/ha-core/src/agent/resolver.rs`](../../crates/ha-core/src/agent/resolver.rs) | 7 级解析链 + `AgentSource` + `normalize_default_agent_id` |
 | [`crates/ha-core/src/agent/migration.rs`](../../crates/ha-core/src/agent/migration.rs) | legacy `default`→`ha-main` 一次性迁移 |
-| [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) | `agent_dir` / `agent_home_dir` / `avatars_dir` / `root_dir` 入口 |
+| [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs) | `agent_dir` / `agent_home_dir` / `avatars_dir` / `root_dir` 入口 |
 | [`crates/ha-server/src/routes/agents.rs`](../../crates/ha-server/src/routes/agents.rs) | `/api/agents/*` HTTP 路由 |

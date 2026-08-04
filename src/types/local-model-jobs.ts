@@ -77,7 +77,7 @@ export const LOCAL_MODEL_JOB_EVENTS = {
 
 /**
  * Backend `local_model:missing_alert` event payload. Mirrors
- * `crates/ha-core/src/local_llm/auto_maintainer.rs::LocalModelMissingAlert`.
+ * `crates/ha-local-llm/src/local_llm/auto_maintainer.rs::LocalModelMissingAlert`.
  */
 export interface LocalModelMissingAlert {
   kind: "chat" | "embedding"
@@ -170,7 +170,7 @@ const PHASE_KEY: Record<string, string> = {
   success: "settings.localLlm.phases.success",
   "register-provider": "settings.localLlm.phases.registerProvider",
   // Source of truth for these phase strings is in Rust:
-  //   - `crates/ha-core/src/local_embedding.rs::PHASE_SWITCHING_EMBEDDING_MODEL`
+  //   - `crates/ha-local-llm/src/local_embedding.rs::PHASE_SWITCHING_EMBEDDING_MODEL`
   //   - `crates/ha-core/src/memory/reembed_job.rs::PHASE_REEMBED_KEEP / PHASE_REEMBED_FRESH`
   // Drift between the two sides silently breaks the localized phase label.
   "switching-embedding-model": "settings.localEmbedding.phases.switchingEmbeddingModel",
@@ -179,7 +179,7 @@ const PHASE_KEY: Record<string, string> = {
   "reembed-keep": "settings.embedding.reembedJob.phaseKeep",
   "reembed-fresh": "settings.embedding.reembedJob.phaseFresh",
   "knowledge-reembed": "settings.knowledgeEmbedding.reembed.phase",
-  // Source of truth: `crates/ha-core/src/knowledge/reembed.rs::PHASE_KNOWLEDGE_INDEX_FILES`.
+  // Source of truth: `crates/ha-knowledge/src/knowledge/reembed.rs::PHASE_KNOWLEDGE_INDEX_FILES`.
   // Single-KB scope (bind a new space / per-KB Reindex) — file-granular
   // progress, as opposed to the KB-granular "knowledge-reembed" above.
   "knowledge-index-files": "knowledge.jobs.phaseIndex",

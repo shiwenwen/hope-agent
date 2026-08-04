@@ -60,7 +60,7 @@ Agent 层有开关，但即使开了，全局 provider 没配也不真正注入�
 
 ## 工具定义
 
-每个工具由 `ToolDefinition` 结构体定义（[`tools/definitions/types.rs`](../../crates/ha-core/src/tools/definitions/types.rs)）：
+每个工具由 `ToolDefinition` 结构体定义（[`tool_defs/types.rs`](../../crates/ha-core/src/tool_defs/types.rs)）：
 
 ```rust
 pub struct ToolDefinition {
@@ -86,7 +86,7 @@ pub struct ToolDefinition {
 
 ### ToolDefinition v2 元数据
 
-`ToolDefinition` 结构体本身保持小而稳定；v2 元数据通过 [`tools/definitions/metadata.rs`](../../crates/ha-core/src/tools/definitions/metadata.rs) 作为 sidecar 派生：
+`ToolDefinition` 结构体本身保持小而稳定；v2 元数据通过 [`tool_defs/metadata.rs`](../../crates/ha-core/src/tool_defs/metadata.rs) 作为 sidecar 派生：
 
 ```rust
 impl ToolDefinition {
@@ -177,9 +177,56 @@ impl ToolDefinition {
 
 ---
 
+## 分发注册表（阶段 2.5：静态 match 反转）
+
+`execute_tool_with_context` 的内置工具分发不再是 `execution.rs` 里的静态
+match，而是查表：
+
+- [`tools/registry.rs`](../../crates/ha-core/src/tools/registry.rs) —— 注册表
+  本体。`BuiltinToolHandler` = 无捕获 fn 指针 + boxed future；**冻结语义**：
+  `register_external_tools`（特征 crate 装配期注册）只允许在冻结前调用，
+  `init_runtime` 尾部 `freeze_now()` 主动冻结——冻结判定与注册队列消费在
+  **同一把锁下**（`Mutex<Option<Vec>>` 的 `take()`），杜绝「注册被静默吞掉
+  还返回 Ok」的 TOCTOU；冻结后注册返回 `Err`，重名在冻结时 panic（fail-loud）。
+- [`tools/builtin_registry.rs`](../../crates/ha-core/src/tools/builtin_registry.rs)
+  —— 全部内置条目（原 match 臂逐字迁移，含 `read_file`/`list_dir` 等历史
+  别名）。**新增内置工具在此加条目**，不要回填 match。
+- **规范名随条目冻结**：冻结表存 `(canonical_name, handler)`，执行门的
+  别名归一唯一入口是 `registry::canonical_name`（`execution.rs::
+  canonical_builtin_tool_name` 只是它的薄封装，**禁止再硬编码别名清单**
+  ——旧硬编码漏了 `list_dir`/`note_move`，漏网别名会以「无 ToolDefinition
+  的名字」滑过 fate 兜底）。deny / Skill / Plan allowlist 按「原名或规范名」
+  双判：deny 规范名即封其全部别名；allowlist 写别名或规范名均命中。
+- dispatch 顺序不变：查注册表 → `mcp__` 前缀走 MCP 子系统（逃逸口原位保留）
+  → Unknown tool。lookup 位于可见性 fate 兜底 / PreToolUse hook / 审批门
+  **之后**——注册表只是查表，不是新的执行入口。
+
+**与 [`tools/definitions/registry.rs`](../../crates/ha-core/src/tools/definitions/registry.rs)
+不是一回事**：后者是 `is_internal_tool` 等 ToolDefinition 元数据缓存；本表只管
+「名字 → 执行 handler」。
+
+**外部注册者**（特征 crate，壳二进制在 `init_runtime` 前调 `<crate>::wire()`
+——src-tauri main 与 mobile entry / hope-agent-server / ha-eval runner 四处）：
+`ha-updater` 的 `app_update`、`ha-weather` 的 `get_weather`、`ha-acp` 的 `acp_spawn`、`ha-mac` 的 `mac_control`、`ha-design` 的 `design` / `canvas` / `artifact`、`ha-browser` 的 `browser`、`ha-mcp` 的 `mcp_resource` / `mcp_prompt`。
+`freeze_now` 的反向守卫对「有 `ToolDefinition` 无 handler」记 warn（症状＝二进制
+忘调某特征 crate 的 `wire()`：schema 照常广告、dispatch 报 Unknown tool）。
+
+**外部注册契约（阶段 3 落地前必须遵守）**：注册 handler 必须同步提供
+`ToolDefinition`（schema / fate 元数据），否则 `resolve_tool_fate` 可见性兜底
+对该工具 no-op（`builtin_fate_error` 对无 definition 的名字返 `None`）——工具
+可执行但不受 `tools.allow/deny` 约束。`freeze_now` 对缺 definition 的规范名
+记 warn（`category="tools", source="registry_freeze"`），校验遍历**冻结后的
+全表**——外部注册项同样覆盖，不只查 builtin；builtin 侧另有测试强制
+（`registry::tests::every_builtin_canonical_name_has_a_definition`）。
+`workflow` 是唯一豁免：session-gated 注入、刻意不进 `all_dispatchable_tools`，
+但有独立 definition（`get_workflow_tool`）与专属可见性门。
+
+**刻意不反转**：`async_jobs::retry::is_retry_eligible`（代码级重试白名单红线）、
+`resolve_tool_fate` 决策表、审批 category 枚举、schema 定义——保持静态。
+
 ## 内置工具清单
 
-本节枚举 Hope Agent 当前内置的全部工具（源码：`crates/ha-core/src/tools/definitions/`）。
+本节枚举 Hope Agent 当前内置的全部工具（schema 源码：全表汇编在 `crates/ha-core/src/tools/definitions/`，单工具构造器与共享类型在 `crates/ha-core/src/tool_defs/`）。
 
 标记含义：
 
@@ -345,7 +392,7 @@ Path-aware 工具统一使用 `ToolExecContext` 解析默认路径：显式绝�
 |------|------|------|
 | `canvas` | 条件注入, internal | 在沙箱预览面板创建/管理可视化项目。`action`：`create` / `update` / `show` / `hide` / `snapshot`（截图当前渲染状态供模型分析）/ `eval_js`（执行 JS）/ `list` / `delete` / `versions` / `restore` / `export`。`content_type`：`html` / `markdown` / `code` / `svg` / `mermaid` / `chart`（Chart.js）/ `slides`。支持 `html` / `css` / `js` / `content` / `language` / `version_id` / `version_message` / 导出 `format`（`html`/`markdown`/`png`）。Plan Mode 默认禁用（在 `PLAN_MODE_DENIED_TOOLS`）。 |
 
-持久化：[`crates/ha-core/src/canvas_db.rs`](../../crates/ha-core/src/canvas_db.rs)（`Versions` 表 + `restore` 走版本历史）。
+持久化：[`crates/ha-design/src/canvas_db.rs`](../../crates/ha-design/src/canvas_db.rs)（`Versions` 表 + `restore` 走版本历史）。
 
 ### 14. 桌面集成
 
@@ -809,11 +856,11 @@ job 结算的终态状态由**类型派生**而非字符串再解析。`async_jo
 | `crates/ha-core/src/async_jobs/retention.rs` | `run_once` 单次清扫 + `spawn_background_loop` daily ticker，删 terminal 行 + 孤儿 spool 文件，`MAX_ORPHANS_PER_SWEEP=10_000` 兜底 |
 | `crates/ha-core/src/tools/job_status.rs` | `job_status` 工具实现（模型可见 snapshot；隐藏短 blocking 兼容路径走 `wait::register_waiter`） |
 | `crates/ha-core/src/tools/execution.rs` | `decide_async_path` + 三道闸路由 + `bypass_async_dispatch` 递归保护 |
-| `crates/ha-core/src/tools/definitions/types.rs` | `BackgroundPolicy` / action-level `ToolInvocationSemantics` + GenericJob schema 自动注入 |
+| `crates/ha-core/src/tool_defs/types.rs` | `BackgroundPolicy` / action-level `ToolInvocationSemantics` + GenericJob schema 自动注入 |
 | `crates/ha-core/src/system_prompt/sections.rs` | `build_async_tools_section` 教模型何时使用 async tool / 怎么解析 `<task-notification>` |
 | `crates/ha-core/src/config/mod.rs` | `AsyncToolsConfig` |
 | `crates/ha-core/src/agent_config.rs` | `AsyncToolPolicy` 枚举 + `CapabilitiesConfig.async_tool_policy` |
-| `crates/ha-core/src/paths.rs` | `async_jobs_db_path` / `async_jobs_dir` / `async_job_result_path` |
+| `crates/ha-base/src/paths.rs` | `async_jobs_db_path` / `async_jobs_dir` / `async_job_result_path` |
 
 ---
 
@@ -964,8 +1011,8 @@ Screenshot captured (...)
 | `crates/ha-core/src/agent/events.rs` | 把图片 marker 转换为各 Provider 的标准图片输入；解析失败、或编码失败（文件丢失 / 过大 / mime 不符）时降级为文本说明，绝不把内部 marker 回灌模型 |
 | `crates/ha-core/src/tools/execution.rs` | 大工具结果落盘；普通会话内联图片 marker 物化；对图片 marker 做完整性保护，避免截断后继续作为图片发送 |
 | `crates/ha-core/src/context_compact/truncation.rs` | Tier 1 截断时保护图片 marker，避免压缩阶段制造半截图片载荷 |
-| `crates/ha-core/src/tools/browser/snapshot.rs` | browser 截图保存为 session attachment，并用 `__MEDIA_ITEMS__` + `__IMAGE_FILE__` 同时服务 UI 和模型视觉 |
-| `crates/ha-core/src/tools/mac_control.rs` | `visual.observe` 把 macOS 受管截图包装为 `__IMAGE_FILE__`，供模型视觉定位 |
+| `crates/ha-browser/src/tool/mod.rs` | browser 截图保存为 session attachment，并用 `__MEDIA_ITEMS__` + `__IMAGE_FILE__` 同时服务 UI 和模型视觉 |
+| `crates/ha-mac/src/tool.rs` | `visual.observe` 把 macOS 受管截图包装为 `__IMAGE_FILE__`，供模型视觉定位 |
 
 ### 端到端流程图
 
@@ -1208,7 +1255,7 @@ flowchart TD
 |------|------|
 | **允许一次**（AllowOnce） | 本次放行，下次同样弹出 |
 | **始终允许**（AllowAlways） | Auto 模式：写入 `exec-approvals.json` allowlist；AskEveryTime 模式：等同于 AllowOnce（不写 allowlist） |
-| **拒绝**（Deny） | 工具返回类型化错误 [`ToolRejection::DeniedByUser`](../../crates/ha-core/src/tools/rejection.rs)，由 [`streaming_loop`](../../crates/ha-core/src/agent/streaming_loop.rs) 出口渲染为 `Tool error: Tool '<name>' execution denied by user. The tool did not execute and no side effects occurred. STOP what you are doing and wait for the user to tell you how to proceed.`；带 `Tool error:` 前缀触发 `is_error` 通道（UI 标红、warn 日志）|
+| **拒绝**（Deny） | 工具返回类型化错误 [`ToolRejection::DeniedByUser`](../../crates/ha-core/src/tool_defs/rejection.rs)，由 [`streaming_loop`](../../crates/ha-core/src/agent/streaming_loop.rs) 出口渲染为 `Tool error: Tool '<name>' execution denied by user. The tool did not execute and no side effects occurred. STOP what you are doing and wait for the user to tell you how to proceed.`；带 `Tool error:` 前缀触发 `is_error` 通道（UI 标红、warn 日志）|
 
 审批等待超时默认 5 分钟，可通过 `config.json` 的 `approvalTimeoutSecs` 配置，`0` 表示不限时。超时后的行为由 `approvalTimeoutAction` 控制：默认 `deny`，阻止工具执行；可选 `proceed`，记录 warning 后继续执行工具。
 
@@ -1413,9 +1460,9 @@ block-beta
 
 ## 飞书业务 toolset
 
-v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 / 云盘 / 知识库 / 审批 / 日历 / 联系人 / 招聘）做成 internal tools。本节记录当前已经实现的**工具系统契约**，具体 API 适配在 [`tools/feishu`](../../crates/ha-core/src/tools/feishu/)。
+v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 / 云盘 / 知识库 / 审批 / 日历 / 联系人 / 招聘）做成 internal tools。本节记录当前已经实现的**工具系统契约**，具体 API 适配在 [`tools/feishu`](../../crates/ha-channel/src/tools/feishu/)。
 
-**凭据复用**：所有 `feishu_*` tool 共享 [`tools::feishu::resolve_feishu_api`](../../crates/ha-core/src/tools/feishu/mod.rs)，从 [`cached_config().channels.accounts`](../../crates/ha-core/src/config/persistence.rs) 找出已配置的飞书账号，按账号 ID 缓存 [`FeishuAuth`](../../crates/ha-core/src/channel/feishu/auth.rs) —— 与 IM 渠道是否 `start_account` 解耦，**即使没有运行 WS 网关，业务 tool 也能用**。token mutex 共享，7200s 内不会双登。
+**凭据复用**：所有 `feishu_*` tool 共享 [`tools::feishu::resolve_feishu_api`](../../crates/ha-channel/src/tools/feishu/mod.rs)，从 [`cached_config().channels.accounts`](../../crates/ha-core/src/config/persistence.rs) 找出已配置的飞书账号，按账号 ID 缓存 [`FeishuAuth`](../../crates/ha-channel/src/channel/feishu/auth.rs) —— 与 IM 渠道是否 `start_account` 解耦，**即使没有运行 WS 网关，业务 tool 也能用**。token mutex 共享，7200s 内不会双登。
 
 **多账号路由**：每个 tool schema 都有可选 `account` 参数；零账号报错引导用户去 Settings → Channels；单账号自动选；多账号且未指定 `account` 时报错列出可选 ID。
 
@@ -1467,7 +1514,7 @@ v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 /
 | C9 | `feishu_hire_get_talent` | 查候选人详情（敏感） |
 | C9 | `feishu_hire_list_applications` | 列投递记录 |
 
-C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/tools/feishu/mod.rs) 追加自己的 tool 定义，本表持续 grow。
+C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-channel/src/tools/feishu/mod.rs) 追加自己的 tool 定义，本表持续 grow。
 
 **测试基线**：每个 `api_<module>.rs` 用 [`wiremock`](https://crates.io/crates/wiremock) 启动 mock HTTP server，覆盖 happy path + 飞书 envelope 错误码（如 `99991672` 权限不足）+ HTTP 5xx。`tools::feishu::*::execute_*` 单测验证参数缺失/类型错误的早期 `anyhow::Error` 路径。
 
@@ -1483,8 +1530,8 @@ C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/
 | `crates/ha-core/src/tools/execution.rs` | 统一审批门（`execute_tool_with_context`）、Plan Mode 路径检查 |
 | `crates/ha-core/src/tools/exec.rs` | exec 独立命令级审批逻辑 |
 | `crates/ha-core/src/tools/dispatch.rs` | **注入决策单一入口**：`resolve_tool_fate()` / `DispatchContext` / `ToolFate`、`all_dispatchable_tools()` LazyLock 静态目录、`is_globally_configured()` Tier 3 配置探针 |
-| `crates/ha-core/src/tools/definitions/types.rs` | `ToolDefinition` / `ToolTier` / `CoreSubclass` 定义；`to_api_metadata()` 渲染前端 settings UI 元数据 |
-| `crates/ha-core/src/tools/definitions/metadata.rs` | ToolDefinition v2 sidecar metadata：aliases/search_hints/effects/risk/input/render/permission/classifier |
+| `crates/ha-core/src/tool_defs/types.rs` | `ToolDefinition` / `ToolTier` / `CoreSubclass` 定义（契约层；`to_api_metadata()` 为 dispatch 层 extension trait `ToolDefinitionApiExt`，在 `tools/dispatch.rs`） |
+| `crates/ha-core/src/tool_defs/metadata.rs` | ToolDefinition v2 sidecar metadata：aliases/search_hints/effects/risk/input/render/permission/classifier |
 | `crates/ha-core/src/tools/definitions/registry.rs` | `is_internal_tool()` / `background_policy_for_tool()` / `is_generic_job_capable()` / `is_concurrent_safe()` —— 由 `dispatch::all_dispatchable_tools()` 派生的 LazyLock 缓存 |
 | `crates/ha-core/src/async_jobs/` | 异步 Tool 执行（types/db/spawn/injection），独立 `~/.hope-agent/background_jobs.db` |
 | `crates/ha-core/src/tools/job_status.rs` | `job_status` 工具：snapshot / 阻塞等待 per-job `Notify` + 100ms→×1.5→2s 退避轮询兜底 |
@@ -1499,5 +1546,5 @@ C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/
 | `src/components/chat/ChatInput.tsx` | 盾牌按钮 UI（三态切换） |
 | `src/components/chat/ApprovalDialog.tsx` | 审批弹窗 UI |
 | `src/components/settings/agent-panel/tabs/CapabilitiesTab.tsx` | Agent 能力配置 UI（工具注入 / 审批 / 技能） |
-| `crates/ha-core/src/channel/worker/approval.rs` | IM Channel 审批交互（EventBus 监听、按钮/文本发送、回调处理） |
+| `crates/ha-channel/src/channel/worker/approval.rs` | IM Channel 审批交互（EventBus 监听、按钮/文本发送、回调处理） |
 | `src/components/settings/channel-panel/EditAccountDialog.tsx` | Channel 设置中的 auto_approve_tools 开关 |

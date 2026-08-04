@@ -53,7 +53,7 @@ pub async fn cron_delete_job(id: String, state: State<'_, AppState>) -> Result<(
     let cron_db = state.cron_db.clone();
     let session_db = state.session_db.clone();
     ha_core::blocking::run_blocking(move || {
-        cron::delete_job_and_sessions(&cron_db, &session_db, &id)
+        ha_cron::cron::delete_job_and_sessions(&cron_db, &session_db, &id)
     })
     .await
     .map_err(Into::into)
@@ -87,7 +87,7 @@ pub async fn cron_run_now(id: String, state: State<'_, AppState>) -> Result<(), 
     }
     .ok_or_else(|| CmdError::msg("Job not found"))?;
 
-    cron::spawn_job_execution(state.cron_db.clone(), state.session_db.clone(), job);
+    ha_cron::cron::spawn_job_execution(state.cron_db.clone(), state.session_db.clone(), job);
     Ok(())
 }
 
@@ -114,7 +114,7 @@ pub async fn cron_get_run_logs(
     let cron_db = state.cron_db.clone();
     let session_db = state.session_db.clone();
     ha_core::blocking::run_blocking(move || {
-        cron::visible_cron_run_logs(&cron_db, &session_db, &job_id, limit, offset)
+        ha_cron::cron::visible_cron_run_logs(&cron_db, &session_db, &job_id, limit, offset)
     })
     .await
     .map_err(Into::into)
@@ -134,7 +134,7 @@ pub async fn cron_run_timeline(
     let cron_db = state.cron_db.clone();
     let session_db = state.session_db.clone();
     ha_core::blocking::run_blocking(move || {
-        cron::cron_run_timeline(&cron_db, &session_db, limit, offset)
+        ha_cron::cron::cron_run_timeline(&cron_db, &session_db, limit, offset)
     })
     .await
     .map_err(Into::into)

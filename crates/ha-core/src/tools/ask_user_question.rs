@@ -17,7 +17,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Execute the ask_user_question tool.
 /// Sends structured questions to the user and blocks until they respond or time out.
-pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
+///
+/// pub：结构化问答唯一入口（AGENTS.md 红线）——特征 crate 的工具 adapter
+/// （ha-updater `app_update` install/rollback 确认）从 crate 外复用，不 fork。
+pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
     let sid = match session_id {
         Some(s) => s,
         None => return "Error: no session context available".to_string(),
@@ -275,7 +278,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     // Final cleanup: mark persisted row answered and drop any IM-side pending
     // state so stale entries don't accumulate in the button/text maps.
     let _ = ask_user::mark_group_answered(&request_id);
-    crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
+    crate::channel_hooks::drop_ask_user_by_request_id(&request_id).await;
 
     // ElicitationResult hook (observation): the question group reached a
     // terminal state.
@@ -506,7 +509,7 @@ fn parse_text_value(value: &Value) -> Option<AskUserText> {
     }
 }
 
-pub(super) fn i18n_text(key: &str, params: Value, fallback: impl Into<String>) -> Value {
+pub fn i18n_text(key: &str, params: Value, fallback: impl Into<String>) -> Value {
     let params = params.as_object().cloned().unwrap_or_default();
     json!({
         "key": key,

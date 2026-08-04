@@ -21,6 +21,7 @@ use ha_core::permission::{SandboxMode, SessionMode};
 use ha_core::provider::{self, ActiveModel};
 use ha_core::session;
 use ha_core::tools;
+use ha_core::tools::dispatch::ToolDefinitionApiExt;
 
 use crate::error::AppError;
 use crate::{AppContext, UiRequestPolicy};
@@ -124,7 +125,7 @@ pub struct ChatRequest {
     /// session (mirrors `working_dir` / the Tauri `chat` command). No-op for
     /// incognito.
     #[serde(default)]
-    pub kb_attachments: Vec<ha_core::knowledge::types::KbAttachInput>,
+    pub kb_attachments: Vec<ha_knowledge::knowledge::types::KbAttachInput>,
     /// Tool-visibility scope (`"knowledge"`). Set by the knowledge-space sidebar
     /// chat to trim the injected tool set; `None` (default) for normal chats.
     #[serde(default)]
@@ -1022,7 +1023,7 @@ async fn chat_inner(
                 .await
                 .map_err(|e| AppError::bad_request(e.to_string()))?;
         }
-        ha_core::knowledge::service::apply_draft_attachments(
+        ha_knowledge::knowledge::service::apply_draft_attachments(
             &sid,
             body.incognito.unwrap_or(false),
             &body.kb_attachments,
@@ -1418,7 +1419,7 @@ async fn chat_inner(
     // when a UserPromptSubmit hook blocked the first message.
     if new_session_created && body.tool_scope.as_deref() == Some("knowledge") {
         if let Some(kb_id) = body.kb_attachments.first().map(|a| a.kb_id.clone()) {
-            ha_core::knowledge::service::mark_session_as_kb_thread(
+            ha_knowledge::knowledge::service::mark_session_as_kb_thread(
                 &sid,
                 &kb_id,
                 body.kb_anchor_note.as_deref(),
@@ -1430,7 +1431,7 @@ async fn chat_inner(
     // design thread anchored to the open project (mirrors the KB branch above).
     if new_session_created && body.tool_scope.as_deref() == Some("design") {
         if let Some(project_id) = body.design_project_id.as_deref() {
-            ha_core::design::service::mark_session_as_design_thread(&sid, project_id);
+            ha_design::design::service::mark_session_as_design_thread(&sid, project_id);
         }
     }
 

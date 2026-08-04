@@ -3,7 +3,7 @@
 
 Verifies the validator accepts every frontmatter field the runtime knows
 about (the allowlist in quick_validate.py must stay in sync with the Rust
-parser in crates/ha-core/src/skills/frontmatter.rs) and rejects shapes
+parser in crates/ha-skills/src/skills/frontmatter.rs) and rejects shapes
 that would fail at load time.
 """
 

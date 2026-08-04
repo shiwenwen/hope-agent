@@ -36,7 +36,7 @@ SOFTWARE.
 
 ---
 
-## Vendored Runtime (`crates/ha-core/src/design/assets/`)
+## Vendored Runtime (`crates/ha-design/src/design/assets/`)
 
 The design space's **interactive component** artifact form inlines the React 18
 production UMD runtime into the self-contained HTML it generates. These minified
@@ -44,8 +44,8 @@ runtime files are vendored verbatim (zero network at render time):
 
 | File | Source | Version |
 |---|---|---|
-| `crates/ha-core/src/design/assets/react.production.min.js` | [facebook/react](https://github.com/facebook/react) · `react` UMD | 18.3.1 |
-| `crates/ha-core/src/design/assets/react-dom.production.min.js` | [facebook/react](https://github.com/facebook/react) · `react-dom` UMD | 18.3.1 |
+| `crates/ha-design/src/design/assets/react.production.min.js` | [facebook/react](https://github.com/facebook/react) · `react` UMD | 18.3.1 |
+| `crates/ha-design/src/design/assets/react-dom.production.min.js` | [facebook/react](https://github.com/facebook/react) · `react-dom` UMD | 18.3.1 |
 
 ### React
 

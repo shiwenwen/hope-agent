@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use base64::Engine;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::execution::ToolExecContext;
@@ -8,8 +7,6 @@ use super::expand_tilde;
 use super::image_markers::{build_image_base64_marker, build_image_file_marker};
 use super::read::{detect_image_mime, resize_image_if_needed};
 
-/// Default maximum number of images per single tool call.
-const DEFAULT_MAX_IMAGES: usize = 10;
 /// Hard cap on max images (user cannot exceed this).
 pub(crate) const CAP_MAX_IMAGES: usize = 20;
 /// Maximum bytes to download for a remote image (10 MB).
@@ -19,26 +16,9 @@ const FETCH_TIMEOUT_SECS: u64 = 30;
 
 // ── Image Tool Config ───────────────────────────────────────────
 
-/// Persistent image tool configuration, stored in config.json
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImageToolConfig {
-    /// Maximum number of images per single tool call
-    #[serde(default = "default_max_images")]
-    pub max_images: usize,
-}
-
-fn default_max_images() -> usize {
-    DEFAULT_MAX_IMAGES
-}
-
-impl Default for ImageToolConfig {
-    fn default() -> Self {
-        Self {
-            max_images: DEFAULT_MAX_IMAGES,
-        }
-    }
-}
+// 类型已下沉 ha-config-schema：ImageToolConfig 及其 serde default helper。
+// 本模块是 pub(crate) 且 AppConfig 下沉后 ha-core 内已无按此路径的消费者，
+// 不再原地再导出（消费方直接经 `crate::config::AppConfig.image` 字段类型）。
 
 /// Effective per-call image cap: the configured value clamped to the hard cap.
 ///

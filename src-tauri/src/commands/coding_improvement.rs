@@ -27,9 +27,11 @@ pub async fn get_coding_trend_report(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<CodingTrendReport, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.coding_trend_report(&session_id, window_days))
-        .await
-        .map_err(Into::into)
+    db.run(move |db| {
+        ha_improve::coding_improvement::coding_trend_report(db, &session_id, window_days)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -38,9 +40,11 @@ pub async fn list_coding_improvement_proposals(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<Vec<CodingImprovementProposal>, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.list_coding_improvement_proposals(&session_id))
-        .await
-        .map_err(Into::into)
+    db.run(move |db| {
+        ha_improve::coding_improvement::list_coding_improvement_proposals(db, &session_id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -54,7 +58,8 @@ pub async fn generate_coding_improvement_proposals(
 ) -> Result<GenerateCodingImprovementProposalsResult, CmdError> {
     let db = app_state.session_db.clone();
     db.run(move |db| {
-        db.generate_coding_improvement_proposals_with_input(
+        ha_improve::coding_improvement::generate_coding_improvement_proposals_with_input(
+            db,
             &session_id,
             GenerateCodingImprovementProposalsInput {
                 window_days,
@@ -75,9 +80,15 @@ pub async fn distill_coding_improvement_proposals(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<DistillCodingImprovementResult, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.distill_coding_improvement_proposals(&session_id, window_days))
-        .await
-        .map_err(Into::into)
+    db.run(move |db| {
+        ha_improve::coding_improvement::distill_coding_improvement_proposals(
+            db,
+            &session_id,
+            window_days,
+        )
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -98,9 +109,11 @@ pub async fn preview_coding_improvement_proposal_action(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<CodingImprovementActionPlan, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.preview_coding_improvement_proposal_action(&proposal_id))
-        .await
-        .map_err(Into::into)
+    db.run(move |db| {
+        ha_improve::coding_improvement::preview_coding_improvement_proposal_action(db, &proposal_id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -109,9 +122,11 @@ pub async fn apply_coding_improvement_proposal(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<ApplyCodingImprovementProposalResult, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.apply_coding_improvement_proposal(&proposal_id))
-        .await
-        .map_err(Into::into)
+    db.run(move |db| {
+        ha_improve::coding_improvement::apply_coding_improvement_proposal(db, &proposal_id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -120,9 +135,14 @@ pub async fn preview_coding_improvement_proposal_promotion(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<CodingImprovementPromotionPlan, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.preview_coding_improvement_proposal_promotion(&proposal_id))
-        .await
-        .map_err(Into::into)
+    db.run(move |db| {
+        ha_improve::coding_improvement::preview_coding_improvement_proposal_promotion(
+            db,
+            &proposal_id,
+        )
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -131,9 +151,11 @@ pub async fn promote_coding_improvement_proposal(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<PromoteCodingImprovementProposalResult, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.promote_coding_improvement_proposal(&proposal_id))
-        .await
-        .map_err(Into::into)
+    db.run(move |db| {
+        ha_improve::coding_improvement::promote_coding_improvement_proposal(db, &proposal_id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -201,7 +223,7 @@ pub async fn create_coding_benchmark_campaign(
         std::mem::take(&mut input.gold_task_input.providers)
     } else {
         input.gold_task_input.providers.clear();
-        ha_core::evaluation::resolve_owner_provider_refs(&references)?
+        ha_eval_runtime::evaluation::resolve_owner_provider_refs(&references)?
     };
     let db = app_state.session_db.clone();
     let campaign = db
@@ -217,7 +239,7 @@ pub async fn create_coding_benchmark_campaign(
                 providers,
                 retry_failed_only: false,
             };
-            let _ = ha_core::coding_eval::run_benchmark_campaign(db, input).await;
+            let _ = ha_eval_runtime::coding_eval::run_benchmark_campaign(db, input).await;
         });
     }
     Ok(campaign)
@@ -274,10 +296,10 @@ pub async fn run_coding_benchmark_campaign(
             .iter()
             .filter_map(|model| Some((model.provider_id.clone()?, model.model_id.clone()?, None)))
             .collect::<Vec<_>>();
-        input.providers = ha_core::evaluation::resolve_owner_provider_refs(&references)?;
+        input.providers = ha_eval_runtime::evaluation::resolve_owner_provider_refs(&references)?;
     }
     tokio::spawn(async move {
-        let _ = ha_core::coding_eval::run_benchmark_campaign(db, input).await;
+        let _ = ha_eval_runtime::coding_eval::run_benchmark_campaign(db, input).await;
     });
     let db = app_state.session_db.clone();
     db.run(move |db| db.get_coding_benchmark_campaign(&campaign_id))
@@ -424,7 +446,7 @@ pub async fn evaluate_continuous_benchmark_gate(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<CodingContinuousBenchmarkGateReport, CmdError> {
     let db = app_state.session_db.clone();
-    db.run(move |db| db.evaluate_continuous_benchmark_gate(input))
+    db.run(move |db| ha_improve::coding_improvement::evaluate_continuous_benchmark_gate(db, input))
         .await
         .map_err(Into::into)
 }

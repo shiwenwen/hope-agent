@@ -15,7 +15,7 @@
 //! `sessions.context_json` are unaffected so subsequent context windows
 //! and desktop history stay clean.
 
-use crate::slash_commands::truncate_description;
+use crate::slash_defs::truncate_description;
 
 /// Hard char-count cap on the body included in the quote — keeps long
 /// prompts from monopolizing the IM message above the actual reply.

@@ -209,6 +209,49 @@ pub(crate) async fn load_codex_token_for_evaluation(
     )
 }
 
+/// 已按 `model-eval-codex-oauth.v1` schema 编码、可交给隔离评测运行时的 Codex 凭据。
+///
+/// **`secret` 是明文 JSON，内含 raw access token**——
+/// `config::encode_model_eval_codex_secret` 只做 schema 封装与有效性校验，
+/// 不加密。别把这个类型当成脱敏边界。
+///
+/// 它收窄的是**装配职责**而非凭据可见性：特征 crate 不再需要认识
+/// [`CodexEvaluationToken`]、不再自己决定编码方式与摘要口径，因此
+/// [`CodexEvaluationToken`] / [`load_codex_token_for_evaluation`] /
+/// `config::encode_model_eval_codex_secret` 三者得以保持 `pub(crate)`。
+/// 凭据本身照样流向 `ha-eval-runtime` 并进隔离运行时的 config——那条路径的
+/// 把关点在 `evaluation/provider_resolution.rs`（见 CODEOWNERS）。
+///
+/// 刻意不 derive `Debug`：避免被顺手 `{:?}` 进日志（AGENTS「凭据禁入日志」红线）。
+pub struct CodexEvaluationSecret {
+    /// `config::encode_model_eval_codex_secret` 的产物，直接进隔离 `config.json`。
+    /// **含 raw access token 明文**，见类型文档。
+    pub secret: String,
+    /// 账号标识的摘要，只用于「同一 Provider 不得混用不同凭据」的一致性校验。
+    pub account_id_digest: String,
+}
+
+/// 为本地真实模型评测铸一份 Codex 凭据。`required_validity_secs` 必须覆盖整个
+/// campaign——隔离运行时拿不到 refresh token，中途过期无法续期。
+///
+/// 与迁移前 `ha-eval-runtime` 侧自己拼 token → encode → digest 三步**逐位等价**，
+/// 只是把三步收进 kernel，让那三个 `pub(crate)` 项不必为跨 crate 调用放开。
+pub async fn mint_codex_evaluation_secret(
+    required_validity_secs: u64,
+) -> Result<CodexEvaluationSecret> {
+    let token = load_codex_token_for_evaluation(required_validity_secs).await?;
+    let secret = crate::config::encode_model_eval_codex_secret(
+        &token.access_token,
+        &token.account_id,
+        token.expires_at_ms,
+    )?;
+    let account_id_digest = ha_eval_spec::digest_serializable(&token.account_id)?;
+    Ok(CodexEvaluationSecret {
+        secret,
+        account_id_digest,
+    })
+}
+
 /// Check if token is expired (or within `REFRESH_MARGIN_MS` of expiry).
 pub fn is_token_expired(token: &TokenData) -> bool {
     match token.expires_at {
@@ -728,5 +771,46 @@ mod tests {
             expires_at: Some(123_000),
         };
         assert_eq!(effective_token_expiry(&token), Some(100_000));
+    }
+
+    // **AGENTS.md「凭据禁入日志」红线**：`CodexEvaluationSecret` 明确不
+    // derive `Debug` 以防被 `{:?}` 顺手打到日志（见类型 doc）。这里用
+    // `static_assertions::assert_not_impl_all!` 做 compile-time 守卫——
+    // 若将来给它 derive 了 `Debug`，本文件会**编译失败**（不是运行时失败，
+    // 是直接 build 断），比人肉 review 兜底更可靠。
+    // 具体到 `mint_codex_evaluation_secret_bails_inside_model_eval_mode`：
+    // 由于返回 Ok 侧不 Debug，测试也不能用 `.expect_err(...)`——手动 match
+    // 是本 assertion 的必然副产物，且合意（防凭据顺手 pretty-print 到日志）。
+    static_assertions::assert_not_impl_all!(CodexEvaluationSecret: std::fmt::Debug);
+
+    /// **`mint_codex_evaluation_secret` 有效性契约的下界守卫**：
+    /// `load_codex_token_for_evaluation` 在检测到 `HA_MODEL_EVAL_MODE=1`
+    /// 时**必须立刻 bail**——`oauth.rs:145-147` 明说「Codex evaluation
+    /// credentials must be resolved by the owner process」，即隔离评测运行
+    /// 时里的 Codex 凭据面**永远不能**在这条路径产生。
+    ///
+    /// 若这条早退失守（比如未来重构不小心把它挪到 owner check 之下），隔
+    /// 离运行时会试图读 owner 侧的 OAuth 文件、甚至走 refresh token——
+    /// 直接违反「HA_MODEL_EVAL_MODE 下不得读凭据」的隔离契约。这里就地拦。
+    #[tokio::test]
+    async fn mint_codex_evaluation_secret_bails_inside_model_eval_mode() {
+        let result = crate::test_support::with_env_vars_async(
+            &[("HA_MODEL_EVAL_MODE", std::path::Path::new("1"))],
+            || async { mint_codex_evaluation_secret(60).await },
+        )
+        .await;
+        // Deliberately avoid `.expect_err(...)`：`CodexEvaluationSecret` 刻意
+        // 不 impl Debug（见上方 `assert_not_impl_all!`），Result 的 `Ok` 侧无
+        // Debug 就用不了 `expect_err`——手动 match 是刚才那条守卫的必然副产物，
+        // 且合意：mint 若真的返回了 Ok，我们希望 test 干净地 panic 而不是把
+        // 凭据 pretty-print 到测试日志。
+        match result {
+            Err(err) => assert!(
+                err.to_string()
+                    .contains("must be resolved by the owner process"),
+                "错误信息应指出 mint 的边界，实际：{err}"
+            ),
+            Ok(_) => panic!("隔离评测运行时里 mint 必须立刻 bail，绝不去读 owner OAuth 文件"),
+        }
     }
 }

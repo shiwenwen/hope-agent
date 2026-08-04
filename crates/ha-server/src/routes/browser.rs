@@ -1,7 +1,7 @@
 //! REST routes for the embedded browser settings panel.
 
 use axum::{extract::Path, Json};
-use ha_core::browser_ui;
+use ha_browser::browser_ui;
 use serde::Deserialize;
 
 use crate::error::AppError;
@@ -12,20 +12,20 @@ pub async fn get_status() -> Result<Json<browser_ui::BrowserStatus>, AppError> {
 }
 
 /// `GET /api/browser/extension/status`
-pub async fn extension_status() -> Result<Json<ha_core::browser::BrowserExtensionStatus>, AppError>
-{
+pub async fn extension_status(
+) -> Result<Json<ha_browser::browser::BrowserExtensionStatus>, AppError> {
     Ok(Json(browser_ui::extension_status()))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct InstallNativeHostBody {
-    pub request: ha_core::browser::NativeHostInstallRequest,
+    pub request: ha_browser::browser::NativeHostInstallRequest,
 }
 
 /// `POST /api/browser/extension/install-native-host`
 pub async fn install_native_host_manifest(
     Json(body): Json<InstallNativeHostBody>,
-) -> Result<Json<ha_core::browser::NativeHostInstallResult>, AppError> {
+) -> Result<Json<ha_browser::browser::NativeHostInstallResult>, AppError> {
     browser_ui::install_native_host_manifest(body.request)
         .map(Json)
         .map_err(|e| AppError::bad_request(e.to_string()))
@@ -33,7 +33,7 @@ pub async fn install_native_host_manifest(
 
 /// `POST /api/browser/extension/stop-control`
 pub async fn stop_extension_control(
-) -> Result<Json<ha_core::browser::BrowserExtensionStopResult>, AppError> {
+) -> Result<Json<ha_browser::browser::BrowserExtensionStopResult>, AppError> {
     Ok(Json(browser_ui::stop_extension_control().await))
 }
 
@@ -110,12 +110,12 @@ pub struct CaptureFrameBody {
 
 pub async fn capture_frame(
     body: Option<Json<CaptureFrameBody>>,
-) -> Result<Json<Option<ha_core::browser::frame::BrowserFramePayload>>, AppError> {
+) -> Result<Json<Option<ha_browser::browser::frame::BrowserFramePayload>>, AppError> {
     let session_id = body
         .as_ref()
         .and_then(|Json(body)| body.session_id.as_deref());
     Ok(Json(
-        ha_core::browser::frame::capture_frame(session_id).await?,
+        ha_browser::browser::frame::capture_frame(session_id).await?,
     ))
 }
 
@@ -131,29 +131,35 @@ pub struct PanelNavigateBody {
 
 /// `POST /api/browser/panel-navigate`
 pub async fn panel_navigate(Json(body): Json<PanelNavigateBody>) -> Result<Json<()>, AppError> {
-    ha_core::browser_ui::panel_navigate(&body.op, body.url.as_deref(), body.session_id.as_deref())
-        .await?;
+    ha_browser::browser_ui::panel_navigate(
+        &body.op,
+        body.url.as_deref(),
+        body.session_id.as_deref(),
+    )
+    .await?;
     Ok(Json(()))
 }
 
 /// `POST /api/browser/spawn-user-chrome`
 pub async fn spawn_user_chrome(
-    Json(args): Json<ha_core::browser::user_attach::SpawnUserChromeArgs>,
-) -> Result<Json<ha_core::browser::user_attach::SpawnUserChromeResult>, AppError> {
-    ha_core::browser::user_attach::spawn_user_chrome(args)
+    Json(args): Json<ha_browser::browser::user_attach::SpawnUserChromeArgs>,
+) -> Result<Json<ha_browser::browser::user_attach::SpawnUserChromeResult>, AppError> {
+    ha_browser::browser::user_attach::spawn_user_chrome(args)
         .await
         .map(Json)
         .map_err(|e| AppError::bad_request(e.to_string()))
 }
 
 /// `GET /api/browser/doctor`
-pub async fn doctor() -> Result<Json<ha_core::browser::user_attach::BrowserDoctorReport>, AppError>
-{
-    Ok(Json(ha_core::browser::user_attach::browser_doctor().await))
+pub async fn doctor(
+) -> Result<Json<ha_browser::browser::user_attach::BrowserDoctorReport>, AppError> {
+    Ok(Json(
+        ha_browser::browser::user_attach::browser_doctor().await,
+    ))
 }
 
 /// `GET /api/browser/config`
-pub async fn get_config() -> Result<Json<ha_core::browser::BrowserConfig>, AppError> {
+pub async fn get_config() -> Result<Json<ha_browser::browser::BrowserConfig>, AppError> {
     Ok(Json(
         ha_core::config::cached_config()
             .browser
@@ -164,7 +170,7 @@ pub async fn get_config() -> Result<Json<ha_core::browser::BrowserConfig>, AppEr
 
 #[derive(Debug, Deserialize)]
 pub struct SetConfigBody {
-    pub config: ha_core::browser::BrowserConfig,
+    pub config: ha_browser::browser::BrowserConfig,
 }
 
 /// `POST /api/browser/config`
@@ -183,7 +189,7 @@ pub async fn set_config(
     .map_err(|e| AppError::bad_request(e.to_string()))?;
     // Force the next `acquire_backend()` to honor the new preference;
     // otherwise `ACTIVE_BACKEND` stays cached at the previous choice.
-    ha_core::browser::reset_backend().await;
+    ha_browser::browser::reset_backend().await;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -191,10 +197,10 @@ pub async fn set_config(
 ///
 /// Downloads + unpacks the pinned Chromium snapshot when the system has
 /// no Chrome. Progress events flow through
-/// [`ha_core::browser::runtime::install_with_event_bus_progress`] on the
+/// [`ha_browser::browser::runtime::install_with_event_bus_progress`] on the
 /// `browser:chromium_download_progress` channel for SSE/WS subscribers.
 pub async fn install_chromium_runtime() -> Result<Json<serde_json::Value>, AppError> {
-    let binary = ha_core::browser::runtime::install_with_event_bus_progress()
+    let binary = ha_browser::browser::runtime::install_with_event_bus_progress()
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::json!({

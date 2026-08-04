@@ -47,7 +47,7 @@ MCP 客户端把 hope-agent 变成一个 **MCP Host**——就像 Claude Desktop
 
 | 目标 | 具体表现 |
 |---|---|
-| **零 Tauri 依赖** | `crates/ha-core/src/mcp/` 不 `use tauri::*`；Tauri shell 和 axum server 通过 EventBus + `mcp::api` 调用 |
+| **零 Tauri 依赖** | `crates/ha-mcp/`（特征 crate，阶段 4 自 ha-core 迁出）不 `use tauri::*`；Tauri shell 和 axum server 通过 EventBus + `ha_mcp::api` 调用；kernel 面（命名约定/信任谓词/trampoline）在 `crates/ha-core/src/mcp/` |
 | **最小握手延迟** | Lazy connect（首次工具调用触发）+ `eager: bool` opt-in 预热 |
 | **可恢复性** | Watchdog 指数退避 + 401 → `NeedsAuth` 分流 + user-triggered Reconnect |
 | **成本意识** | MCP 工具默认 eager 注入，单个 server 可设置 `deferredTools=true` 后改走 `tool_search` 发现，避免大型 server 把数十/上百工具一次性塞进每轮请求 |
@@ -58,9 +58,9 @@ MCP 客户端把 hope-agent 变成一个 **MCP Host**——就像 Claude Desktop
 ## 模块拆分
 
 ```
-crates/ha-core/src/mcp/
-  mod.rs               // 公共 API; pub use McpManager, McpServerConfig, ..., 模块级 locate_server()
-  config.rs            // McpServerConfig / McpTransportSpec / McpOAuthConfig / McpGlobalSettings 反序列化
+crates/ha-mcp/src/
+  lib.rs               // 公共 API; pub use McpManager, McpServerConfig, ...; locate_server(); wire()
+  config.rs            // wire 类型再导出（定义在 ha-config-schema/src/mcp.rs）+ 名称/占位符 + validate_server_config
   registry.rs          // McpManager (全局 OnceLock), ServerHandle, ServerState, tool_index, ArcSwap<Vec<ToolDefinition>>
   client.rs            // ensure_connected / connect_now / refresh_catalog / disconnect / stderr tailer
   transport.rs         // 四种 transport 工厂 + 共享 helper (ssrf_gate_url / authorized_headers / classify_network_error)
@@ -73,7 +73,7 @@ crates/ha-core/src/mcp/
   credentials.rs       // McpCredentials 持久化（load/save/clear/needs_refresh）
   events.rs            // EventBus 事件常量 + emit 助手
   errors.rs            // McpError 分类（NotReady / Transport / Protocol / Auth / Timeout / ToolFailed / Blocked / Config）
-  api.rs               // Tauri/HTTP 共享 CRUD + OAuth trigger 入口（凭 `mcp::api::*` 在两侧对齐）
+  api.rs               // Tauri/HTTP 共享 CRUD + OAuth trigger 入口（凭 `ha_mcp::api::*` 在两侧对齐）
 ```
 
 **硬规则**：
@@ -99,7 +99,7 @@ stateDiagram-v2
     Ready --> Disabled: 配置 disable
 ```
 
-> 真实恢复路径经 `connect_now()` 直接进 `Connecting`（watchdog / 用户 Reconnect / OAuth 取新 token 后），`Idle` 仅由 `disconnect()` 或初始态到达；`Failed { retry_at }` 的退避调度在 [`watchdog.rs`](../../crates/ha-core/src/mcp/watchdog.rs)。
+> 真实恢复路径经 `connect_now()` 直接进 `Connecting`（watchdog / 用户 Reconnect / OAuth 取新 token 后），`Idle` 仅由 `disconnect()` 或初始态到达；`Failed { retry_at }` 的退避调度在 [`watchdog.rs`](../../crates/ha-mcp/src/watchdog.rs)。
 
 - **Ready** 携带 `tools: Vec<rmcp::Tool>`、`resources: Vec<rmcp::Resource>`、`prompts: Vec<rmcp::Prompt>` 三个 catalog 快照
 - **NeedsAuth** 的 `auth_url` 字段保留为空字符串；真实 PKCE URL 由 `oauth::authorize_server` 按点击动态生成
@@ -123,7 +123,7 @@ stateDiagram-v2
 
 ## 传输层
 
-四种 transport 在 [`transport.rs`](../../crates/ha-core/src/mcp/transport.rs) 里并列实现，分享三个 helper：`ssrf_gate_url` / `authorized_headers` / `classify_network_error`。
+四种 transport 在 [`transport.rs`](../../crates/ha-mcp/src/transport.rs) 里并列实现，分享三个 helper：`ssrf_gate_url` / `authorized_headers` / `classify_network_error`。
 
 ### stdio
 
@@ -146,7 +146,7 @@ stateDiagram-v2
 - **SSRF 两道门（红线）**：① GET URL 出站前 `ssrf_gate_url`；② server 返回的 `endpoint` URL 是 server-controlled、首次 POST 前经 `resolve_sse_endpoint`（相对路径按 base 解析）后**再过一次** `ssrf_gate_url`——防恶意 server 把 POST 引到内网
 - handshake 错误经 `classify_network_error(cfg_name, "SSE handshake", e)`，401/403 → `Auth` → `NeedsAuth`
 - 整个握手在 `do_connect` 的 `connect_timeout_secs` 内：server 不发 `endpoint` 就超时（`Timeout`），不会挂死
-- **代理绕行（loopback/私网）**：reqwest 会抓系统/环境代理但**不遵守 OS bypass 列表**（macOS `ExceptionsList` / `ExcludeSimpleHostnames`），导致「开代理连云端 LLM」时本地 MCP（`http://localhost:PORT`）被代理劫持 → 503。`build_mcp_http_client` 按 `host_bypasses_proxy(host)`（`localhost`/`*.localhost` + IPv4 loopback/private/link-local + IPv6 loopback/ULA/link-local）对本地目标 `.no_proxy()`，远程目标仍走代理。**仅 SSE 路径**——Streamable HTTP 走 rmcp 自带 reqwest（0.13，ha-core 是 0.12），无注入点，本地 Streamable HTTP + 代理仍会被劫持（已知限制，本地 MCP 绝大多数是 stdio / SSE，不为此引入第二个 reqwest 大版本）
+- **代理绕行（loopback/私网）**：reqwest 会抓系统/环境代理但**不遵守 OS bypass 列表**（macOS `ExceptionsList` / `ExcludeSimpleHostnames`），导致「开代理连云端 LLM」时本地 MCP（`http://localhost:PORT`）被代理劫持 → 503。`build_mcp_http_client` 按 `host_bypasses_proxy(host)`（`localhost`/`*.localhost` + IPv4 loopback/private/link-local + IPv6 loopback/ULA/link-local）对本地目标 `.no_proxy()`，远程目标仍走代理。**仅 SSE 路径**——Streamable HTTP 走 rmcp 自带 reqwest（0.13，ha-mcp 是 workspace 的 0.12），无注入点，本地 Streamable HTTP + 代理仍会被劫持（已知限制，本地 MCP 绝大多数是 stdio / SSE，不为此引入第二个 reqwest 大版本）
 
 ### WebSocket
 
@@ -174,7 +174,7 @@ stateDiagram-v2
 - **Server name 校验**：`^[a-z0-9_-]{1,32}$`，全配置唯一
 - **Tool name 归一化**：非 `[a-zA-Z0-9_-]` 剔除、截断到 64 字符（Claude / OpenAI 工具名上限）；碰撞后 `_2` `_3` 后缀
 
-### Schema 转换（[`catalog::rmcp_tool_to_definition`](../../crates/ha-core/src/mcp/catalog.rs)）
+### Schema 转换（[`catalog::rmcp_tool_to_definition`](../../crates/ha-mcp/src/catalog.rs)）
 
 - `inputSchema` 经 `normalize_input_schema` 处理：
   - `null` / 空 → 合成 `{ "type":"object", "properties":{} }`
@@ -189,12 +189,15 @@ stateDiagram-v2
 ### Dispatch 路径（[`tools/execution.rs`](../../crates/ha-core/src/tools/execution.rs)）
 
 ```rust
-name if crate::mcp::catalog::is_mcp_tool_name(n) => {
-    crate::mcp::invoke::call_tool(n, args, ctx).await
+// 内置工具先查注册表；MCP 逃逸口在其后（`mcp__` 前缀不进注册表）
+if let Some(handler) = super::registry::lookup(name) {
+    handler(args, ctx).await
+} else if crate::mcp::catalog::is_mcp_tool_name(name) {
+    crate::mcp::invoke::call_tool(name, args, ctx).await
 }
 ```
 
-[`invoke::call_tool`](../../crates/ha-core/src/mcp/invoke.rs) 执行：
+[`invoke::call_tool`](../../crates/ha-mcp/src/invoke.rs) 执行：
 1. 反查 `tool_index` → `(server_id, original_tool_name)`；找不到 → 带恢复指引的错误（"可能 server 离线"）
 2. 检查 server state — `Disabled` / `NeedsAuth` / `Failed` 都返回 actionable error
 3. 全局 + per-server semaphore acquire
@@ -209,7 +212,7 @@ MCP 工具的可见性分两层：
 - 全局 / server 级启用条件：`mcpGlobal.enabled=false` 时 MCP 元工具和动态工具都隐藏；动态 MCP 工具只有在 `mcpGlobal.enabled && server.enabled && !mcpGlobal.deniedServers.contains(server.name)` 时进入 live registry；任一条件变为 false 会从 schema cache / `tool_search` / 执行反查表中同步移除
 - Server 级工具过滤：`allowedTools` / `deniedTools` 以原始 MCP tool name 配置，catalog refresh 和配置热更新都会立刻重建该 server 的 schema cache 与执行反查表
 - Server 级 deferred：单个 MCP server 配置 `deferredTools=true` 时，该 server 的动态工具改由 `tool_search` 按需发现
-- 上下文级收紧：`denied_tools` / `skill_allowed_tools` / `plan_mode_allowed_tools` 通过 [`tools::tool_visible_with_filters`](../../crates/ha-core/src/tools/mod.rs) 生效
+- 上下文级收紧：`denied_tools` / `skill_allowed_tools` / `plan_mode_allowed_tools` 通过 [`tool_defs::tool_visible_with_filters`](../../crates/ha-core/src/tool_defs/scope.rs) 生效
 
 `capabilities.tools.allow/deny` 只表示非 Core 内置工具的开关覆盖，不再通过 `mcp__<server>__<tool>` 全限定名过滤动态 MCP 工具。
 
@@ -219,7 +222,7 @@ MCP 工具的可见性分两层：
 
 **Resources** 和 **Prompts** 是 MCP 服务器暴露的**被动数据**（不是工具调用）。客户端需要主动 `list` 发现、`read`/`get` 拉取。
 
-### Resources — [`resources.rs`](../../crates/ha-core/src/mcp/resources.rs)
+### Resources — [`resources.rs`](../../crates/ha-mcp/src/resources.rs)
 
 - `list_resources(server)` 读 `ServerState::Ready.resources` 缓存快照（不触发 network round-trip）
 - `read_resource(server, uri)` 通过 `handle.peer().read_resource(...)` 调远端 `resources/read`
@@ -227,7 +230,7 @@ MCP 工具的可见性分两层：
 - **blob 零分配验证**：`maybe_reencode` 用 charset-only scan 判断是否已合规 base64，避免 `BASE64.decode` 为 10 MiB blob 分配 7.5 MiB 临时缓冲
 - 内部 tool `mcp_resource(action=list|read, server, uri?)` 暴露给主对话
 
-### Prompts — [`prompts.rs`](../../crates/ha-core/src/mcp/prompts.rs)
+### Prompts — [`prompts.rs`](../../crates/ha-mcp/src/prompts.rs)
 
 - `list_prompts(server)` 读 cached 快照
 - `get_prompt(server, name, arguments)` 调 `prompts/get` RPC；`arguments` 非字符串值会显式返回错误（而不是静默 drop）
@@ -236,13 +239,13 @@ MCP 工具的可见性分两层：
 
 ### System prompt 注入
 
-[`catalog::system_prompt_snippet()`](../../crates/ha-core/src/mcp/catalog.rs) 在 `build_full_system_prompt` 末尾追加一小段 `# MCP Capabilities`，列出有 Ready catalog 的 server 名 + 指向 `mcp_resource` / `mcp_prompt` 工具。sync-safe 通过 `cached_tool_defs` ArcSwap 读取，不 await 任何锁；无 MCP server 时完全不注入。
+[`catalog::system_prompt_snippet()`](../../crates/ha-mcp/src/catalog.rs) 在 `build_full_system_prompt` 末尾追加一小段 `# MCP Capabilities`，列出有 Ready catalog 的 server 名 + 指向 `mcp_resource` / `mcp_prompt` 工具。sync-safe 通过 `cached_tool_defs` ArcSwap 读取，不 await 任何锁；无 MCP server 时完全不注入。
 
 ---
 
 ## OAuth 2.1 + PKCE
 
-[`oauth.rs`](../../crates/ha-core/src/mcp/oauth.rs) 独立实现，不依赖 `rmcp::auth_client`（rmcp 自带 reqwest 0.13，和 ha-core 的 reqwest 0.12 trait 冲突）。
+[`oauth.rs`](../../crates/ha-mcp/src/oauth.rs) 独立实现，不依赖 `rmcp::auth_client`（rmcp 自带 reqwest 0.13，和 ha-mcp 的 reqwest 0.12 trait 冲突）。
 
 ### Flow 时序
 
@@ -290,7 +293,7 @@ MCP 工具的可见性分两层：
 
 ## 凭据存储
 
-[`credentials.rs`](../../crates/ha-core/src/mcp/credentials.rs) + [`platform::write_secure_file`](../../crates/ha-core/src/platform/mod.rs) 配合。
+[`credentials.rs`](../../crates/ha-mcp/src/credentials.rs) + [`platform::write_secure_file`](../../crates/ha-base/src/platform/mod.rs) 配合。
 
 ### 文件布局
 
@@ -375,21 +378,21 @@ stdio server 是任意 binary，潜在命令执行入口：
 ### redirect 处理
 
 - **SSE**：`build_mcp_http_client` 用 `redirect::Policy::none()` **不跟 redirect**——SSRF 只校验了 pre-redirect 的 GET URL 与 server 返回的 endpoint，30x 可绕过 gate 弹到内网；reqwest 的 redirect 回调是同步的、跑不了异步 DNS 解析的 `check_url`，故直接不跟（GET 拿到 3xx 显式报错）。与 WebSocket 一致
-- **Streamable HTTP**：走 rmcp 自带 reqwest client（default redirect），每跳不重跑 SSRF（**已知 gap**——ha-core 无法配置 rmcp 内部 client 的 redirect policy，见上文「代理绕行」同源的 0.12/0.13 版本墙）
+- **Streamable HTTP**：走 rmcp 自带 reqwest client（default redirect），每跳不重跑 SSRF（**已知 gap**——ha-mcp 无法配置 rmcp 内部 client 的 redirect policy，见上文「代理绕行」同源的 0.12/0.13 版本墙）
 - **WebSocket**：`connect_async` **不**跟 HTTP redirect — RFC 6455 要求 101 Switching Protocols，3xx 直接算 handshake 失败，所以单次 SSRF 覆盖了全部 dial-out
 
 ---
 
 ## Dashboard Learning 埋点
 
-[`invoke::emit_learning`](../../crates/ha-core/src/mcp/invoke.rs) 在每次 MCP 工具调用完成后发一条 `learning_events` 记录，供 Dashboard Learning Tab 聚合。
+[`invoke::emit_learning`](../../crates/ha-mcp/src/invoke.rs) 在每次 MCP 工具调用完成后发一条 `learning_events` 记录，供 Dashboard Learning Tab 聚合。
 
 ### 事件类型
 
 - `EVT_MCP_TOOL_CALLED`（成功）
 - `EVT_MCP_TOOL_FAILED`（失败 / 超时 / `isError=true` / 协议错误）
 
-定义在 [`dashboard/learning.rs`](../../crates/ha-core/src/dashboard/learning.rs)。
+定义在 [`learning_events.rs`](../../crates/ha-core/src/learning_events.rs)（kernel 事件通道；`dashboard::learning` 保留原路径再导出）。
 
 ### Payload 约定
 
@@ -413,7 +416,7 @@ stdio server 是任意 binary，潜在命令执行入口：
 
 ### emit 语义
 
-- 通过 `dashboard::learning::emit` 的 `spawn_blocking` 路径写 SessionDB —— 不阻塞调用方
+- 通过 `learning_events::emit` 的 `spawn_blocking` 路径写 SessionDB —— 不阻塞调用方
 - 按 `session_id` 过滤后在 Dashboard Learning Tab 的"MCP 工具使用"卡片展示 Top-N server / tool / 平均 duration / 失败率
 - 无 session（e.g. cron 触发）事件仍落盘，只是 `session_id=NULL`
 
@@ -478,7 +481,7 @@ stdio server 是任意 binary，潜在命令执行入口：
 
 ## 事件总线
 
-MCP 子系统 emit 的事件（[`mcp/events.rs`](../../crates/ha-core/src/mcp/events.rs)）：
+MCP 子系统 emit 的事件（[`mcp/events.rs`](../../crates/ha-mcp/src/events.rs)）：
 
 | 事件名 | 触发点 | Payload |
 |---|---|---|
@@ -507,7 +510,7 @@ pub mcp_servers: Vec<McpServerConfig>,        // 全局 scope，落 ~/.hope-agen
 pub mcp_global: McpGlobalSettings,            // 全局开关、并发上限等
 ```
 
-### `McpServerConfig`（[`mcp/config.rs`](../../crates/ha-core/src/mcp/config.rs)）
+### `McpServerConfig`（[`mcp/config.rs`](../../crates/ha-mcp/src/config.rs)）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|

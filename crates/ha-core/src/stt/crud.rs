@@ -244,7 +244,8 @@ pub(crate) fn set_stt_default_language_in_config(
     language
 }
 
-pub(crate) fn add_stt_provider_in_config(
+// pub：ha-media stt 测试与 session 装配消费。
+pub fn add_stt_provider_in_config(
     store: &mut AppConfig,
     mut config: SttProviderConfig,
 ) -> SttProviderConfig {

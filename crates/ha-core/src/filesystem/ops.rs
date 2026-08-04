@@ -847,7 +847,7 @@ fn looks_binary(path: &Path) -> bool {
 /// snapshots) sniff binaries identically to path-based reads, instead of a
 /// weaker NUL-only check that misdetects GBK/Latin-1 source as text and then
 /// renders `from_utf8_lossy` garble.
-pub(crate) fn looks_binary_bytes(bytes: &[u8]) -> bool {
+pub fn looks_binary_bytes(bytes: &[u8]) -> bool {
     let slice = &bytes[..bytes.len().min(8192)];
     slice.contains(&0) || std::str::from_utf8(slice).is_err() && !is_valid_utf8_prefix(slice)
 }

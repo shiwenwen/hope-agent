@@ -45,8 +45,8 @@ macOS 控制能力只在桌面 Tauri 运行模式下真实可用。授权主体�
 ```mermaid
 graph TD
     Agent["Chat Engine / Tool Loop"]
-    Tool["ha-core::tools::mac_control"]
-    Core["ha-core::mac_control"]
+    Tool["ha-mac::tool"]
+    Core["ha-mac"]
     Bridge["MacControlBridge trait<br/>OnceLock registry"]
     Desktop["src-tauri macOS bridge<br/>authorized .app process"]
     Native["Accessibility / CoreGraphics / NSWorkspace / NSPasteboard / CGEvent / Apple Events"]
@@ -65,7 +65,7 @@ graph TD
 
 分层规则：
 
-- `ha-core` 定义公共类型、工具分发、权限风险分类、snapshot cache、错误统计、EventBus 事件和 bridge trait；不依赖 Tauri。
+- `ha-mac` 定义公共类型、工具分发、snapshot cache、错误统计、EventBus 事件和 bridge trait；权限风险分类（danger 判定 + `normalize_perform_ax_action`）与审批焦点 anchor 类型留 `ha-core`（kernel 安全代码不外迁）；不依赖 Tauri。
 - `src-tauri` 在 setup 期间注册 `Arc<dyn MacControlBridge>`，并在 macOS `.app` 进程内调用原生 API。
 - `ha-server` 只提供同形状 HTTP 路由；server/headless 没有 bridge，所有结果明确返回 `supported=false`。
 - 前端只通过 `Transport` 调用 Tauri/HTTP 命令，不直接调用原生 AX 或系统 API。
@@ -74,8 +74,8 @@ graph TD
 
 | 路径 | 职责 |
 | --- | --- |
-| `crates/ha-core/src/mac_control.rs` | 公共类型、bridge 注册、status/permissions/diagnostics/snapshot/elements/wait/apps/dock/spaces/windows/act/menu/clipboard/dialog/visual/capture_frame 入口、snapshot cache、截图文件 LRU、诊断 bundle、视觉坐标映射与 hit-test、错误统计 |
-| `crates/ha-core/src/tools/mac_control.rs` | builtin tool 的 `action` 分发，把模型参数映射到 `ha_core::mac_control::*` 请求 |
+| `crates/ha-mac/src/lib.rs` | 公共类型、bridge 注册、status/permissions/diagnostics/snapshot/elements/wait/apps/dock/spaces/windows/act/menu/clipboard/dialog/visual/capture_frame 入口、snapshot cache、截图文件 LRU、诊断 bundle、视觉坐标映射与 hit-test、错误统计 |
+| `crates/ha-mac/src/tool.rs` | builtin tool 的 `action` 分发，把模型参数映射到 `ha_mac::*` 请求 |
 | `crates/ha-core/src/tools/definitions/core_tools.rs` | `mac_control` tool schema、deferred/tool fate 元数据 |
 | `crates/ha-core/src/permission/engine.rs` | `mac_control` 只读、普通/隐私动作、高风险突变的审批分类 |
 | `crates/ha-core/src/tools/approval.rs` | `MacControlAction` / `MacControlDangerousAction` 审批 payload |
@@ -315,7 +315,7 @@ Annotated UI Map 规则：
 
 OCR 规则：
 
-- OCR 由 macOS Vision Framework 在 Tauri bridge 内执行；`ha-core` 只处理坐标映射、过滤和匹配。
+- OCR 由 macOS Vision Framework 在 Tauri bridge 内执行；`ha-mac` 只处理坐标映射、过滤和匹配。
 - Vision 返回的 normalized lower-left bounds 会转换成截图左上角 `image_pixels`，再用同一套 `boundsPoints + scale` 公式得到 `screenBounds`。
 - `visual.ocr` 只返回文字块；`visual.find_text` 在文字块中心点执行 AX hit-test，并为第一候选给出动作阶梯：支持 `AXPress` 的 AX 命中优先 `act.click`，坐标点击作为兜底。
 - `visual.find_text` 无匹配不是错误：`error=null`、`textMatches=[]`、`suggestedAction=null`。
@@ -622,7 +622,7 @@ OCR 规则：
 | `mac_control:frame` | `MacControlFramePayload`（含可选 `actionId`） | 最新截图帧，来自 `snapshot(includeScreenshot=true)`、`capture_frame` 或 action 后的 `capture_frame_for_action` |
 | `mac_control:action` | `ToolActionEvent`（[`tool_actions`](../../crates/ha-core/src/tool_actions.rs)） | `tool_mac_control` choke point 按白名单（`act` 非 dry_run / `windows` / `menu` / `dialog` / `dock` / `apps` / `spaces` / `clipboard` 的变更类 op）记录的逐步操作事件；type/paste/set_value/clipboard.set 文本脱敏只记长度 |
 
-action 事件 → 帧关联：mutating 成功（及 `act` 失败）后 fire-and-forget [`capture_frame_for_action`](../../crates/ha-core/src/mac_control.rs)——capture → stamp `actionId` → emit `mac_control:frame` → 内存降采样缩略图回填 ring buffer（**不走 `store_screenshot_jpeg`**，零落盘、incognito 安全）。历史经 `tool_recent_actions` 拉取，会话删除 / 焚毁即清。
+action 事件 → 帧关联：mutating 成功（及 `act` 失败）后 fire-and-forget [`capture_frame_for_action`](../../crates/ha-mac/src/lib.rs)——capture → stamp `actionId` → emit `mac_control:frame` → 内存降采样缩略图回填 ring buffer（**不走 `store_screenshot_jpeg`**，零落盘、incognito 安全）。历史经 `tool_recent_actions` 拉取，会话删除 / 焚毁即清。
 
 前端行为：
 
@@ -689,7 +689,7 @@ status -> snapshot/elements.find/wait -> apps/windows/act/menu/clipboard/dialog 
 
 轻量检查：
 
-- `cargo check -p ha-core --tests`
+- `cargo check -p ha-core -p ha-mac --tests`
 - `cargo check -p hope-agent`
 - `pnpm typecheck`
 - `git diff --check`

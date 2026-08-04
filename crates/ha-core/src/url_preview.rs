@@ -398,7 +398,7 @@ async fn fetch_favicon_url(favicon_url: &str) -> Result<Option<FaviconData>> {
         Ok(resp) => resp,
         Err(e) => {
             write_favicon_cache(favicon_url, None);
-            log::debug!("favicon fetch failed: {}", e);
+            app_debug!("url_preview", "favicon", "fetch failed: {}", e);
             return Ok(None);
         }
     };

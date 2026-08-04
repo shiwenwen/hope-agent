@@ -250,50 +250,9 @@ impl ApprovalResolutionSource {
     }
 }
 
-/// How a backgrounded tool call got authorized to run — the persistent audit
-/// counterpart to [`ApprovalResolutionSource`] (transient broadcast), sharing
-/// the same snake_case word table. Stored in the async-job `approval_origin`
-/// column so audits can tell a real human grant apart from a weaker
-/// timeout-proceed (TIMEOUT-2). Written by the exec async approval-reorder; the
-/// sync exec path / other origins are wired by later subtasks (F6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ApprovalOrigin {
-    /// User clicked Approve (once or always), or a prior AllowAlways prefix
-    /// matched — a real human grant.
-    User,
-    /// Approval dialog timed out and `approval_timeout_action=proceed` — a
-    /// weaker authorization than an explicit click.
-    TimeoutProceed,
-    /// An unattended surface (cron / headless-no-client / ACP-no-capability /
-    /// subagent-no-parent-surface) auto-proceeded because
-    /// `unattendedApprovalAction=proceed` — a weaker, non-human authorization,
-    /// recorded distinctly from a real `User` grant. A strict reason can never
-    /// reach here (it is force-denied). Epic D / F (TIMEOUT-1).
-    UnattendedProceed,
-    /// A YOLO session or global dangerous-skip bypassed the gate.
-    Yolo,
-    /// IM auto-approve account / slash-skill execution skipped all gates.
-    AutoApprove,
-    /// Async-job re-entry pre-approved at the outer engine gate.
-    ExternalPreApproved,
-    /// The permission engine allowed the command without prompting (safe for
-    /// the current session preset, not via YOLO).
-    PolicyAllow,
-}
-
-impl ApprovalOrigin {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::TimeoutProceed => "timeout_proceed",
-            Self::UnattendedProceed => "unattended_proceed",
-            Self::Yolo => "yolo",
-            Self::AutoApprove => "auto_approve",
-            Self::ExternalPreApproved => "external_pre_approved",
-            Self::PolicyAllow => "policy_allow",
-        }
-    }
-}
+// `ApprovalOrigin` 已归位 `crate::tool_defs::context`（ToolExecContext
+// 字段类型，随契约层走）；原路径再导出，本模块及 crate 外引用不变。
+pub use crate::tool_defs::ApprovalOrigin;
 
 /// Why a [`submit_approval_response`] call failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -668,10 +627,11 @@ pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResoluti
     // Publish every terminal event before the first blocking IM cleanup. Stop
     // bounds this whole routine with a timeout; if cleanup stalls, cancelling
     // here is safe because the approval is already denied and every surface
-    // has already been told to dismiss it. The exact request-id cleanup below
-    // remains a best-effort guard against stale IM text replies.
+    // has already been told to dismiss it. EventBus delivery is best-effort
+    // and the IM listener can lag, so clear its text-reply state directly as
+    // a best-effort guard against a stale prompt capturing a later chat msg.
     for request_id in cleanup_request_ids {
-        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
+        crate::channel_hooks::drop_approval_by_request_id(&request_id).await;
     }
     count
 }
@@ -700,7 +660,7 @@ pub async fn deny_all_pending(source: ApprovalResolutionSource) -> usize {
     // per-session path above: terminal events are non-negotiable; IM's
     // secondary text-reply cleanup is bounded best effort.
     for request_id in cleanup_request_ids {
-        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
+        crate::channel_hooks::drop_approval_by_request_id(&request_id).await;
     }
     count
 }
@@ -754,7 +714,7 @@ pub(crate) async fn is_command_allowed(command: &str) -> bool {
         .any(|pattern| cmd_trimmed.starts_with(pattern) || cmd_trimmed == *pattern)
 }
 
-pub(crate) fn approval_timeout_secs() -> u64 {
+pub fn approval_timeout_secs() -> u64 {
     let cfg = crate::config::cached_config();
     if cfg.permission.approval_timeout_enabled {
         cfg.permission.approval_timeout_secs
@@ -1135,7 +1095,7 @@ pub(crate) async fn check_and_request_approval(
             // Drop any IM-side pending entry — if this approval was being
             // surfaced on a channel without buttons, the user would
             // otherwise see the prompt linger forever.
-            crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
+            crate::channel_hooks::drop_approval_by_request_id(&request_id).await;
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "warn",
@@ -1160,7 +1120,7 @@ pub(crate) async fn check_and_request_approval(
             // `approval_timed_out` event below only carries the user-facing
             // "timed out" notification; cleanup is unconditional so cancel-
             // path and timeout-path stay symmetric.
-            crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
+            crate::channel_hooks::drop_approval_by_request_id(&request_id).await;
             // Notify subscribers so IM and desktop clients can clear stale
             // UI and tell the user the approval expired.
             // Compute the EFFECTIVE timeout decision FIRST. A strict reason
@@ -1397,11 +1357,30 @@ mod tests {
             .all(|candidate| candidate.request_id != request_id));
     }
 
-    /// Stop bounds approval cleanup with a short timeout. Even if the IM
-    /// text-reply registry is contended for that whole window, the authoritative
-    /// denial and cross-surface dismissal event must happen first.
+    /// AGENTS.md IM-channel 「审批一致性 + fail-closed」红线的 kernel 守卫：
+    /// 用户 Stop 时 `deny_pending_for_session` 必须先把每条待决审批的终态事件
+    /// （`emit_approval_resolved` + `emit_pending_interactions_changed`）
+    /// 全部发布，才能开始调 `channel_hooks::drop_approval_by_request_id`
+    /// 那个可能阻塞在 IM 侧锁上的 hook。
+    ///
+    /// 历史脉络：main `88a31095b` 加了同名 `user_stop_resolves_...` 测试，用
+    /// ha-channel `pub(crate) hold_text_pending_lock_for_test` 阻塞真实的
+    /// IM `TEXT_PENDING` mutex；拆分第五刀后 kernel 无法跨 crate 引用，测试
+    /// 被删。合并 main 时 `ab3b52d16` 抓到了该不变量的一次真实回归（HEAD 侧
+    /// 保循环内 hook 调用 + main 侧新加的循环外尾清理并存 = 双调用 + 顺序退
+    /// 化）。这里改经 `channel_hooks::test_seam` 直接注入一个阻塞回调，语义
+    /// 与旧测试等价，不需要放开 kernel `pub(crate)` 面。
+    ///
+    /// **同一模式的 `deny_all_pending`**（legacy / 全局 Stop）结构上与
+    /// `deny_pending_for_session` 逐字一致（相同的 emit 循环 + 相同的
+    /// `cleanup_request_ids` 尾清理），本测试守 fn 里代码模式，两处一起保
+    /// ——改一处必改另一处。`deny_all_pending` 会 drain 全局 `PENDING_APPROVALS`
+    /// 与并发运行的其它测试相互污染，故不单独立测试。
     #[tokio::test]
-    async fn user_stop_resolves_approval_before_im_cleanup_can_block() {
+    async fn user_stop_emits_all_terminal_events_before_first_im_hook_call() {
+        let _serial = crate::channel_hooks::test_seam::serial_guard().lock().await;
+
+        // Ensure the event bus is initialized (idempotent across tests).
         let bus = crate::globals::EVENT_BUS
             .get_or_init(|| {
                 let bus: std::sync::Arc<dyn crate::event_bus::EventBus> =
@@ -1411,76 +1390,122 @@ mod tests {
             .clone();
         let mut events = bus.subscribe();
 
-        let request_id = format!("approval-stop-order-{}", create_session_id());
+        // Blocking test hook: first invocation notifies + blocks until we
+        // release. Later invocations no-op (channel drained). Whichever
+        // request_id the loop cleans first will trip this; we only care that
+        // *any* hook call happens after all N emits.
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let started = std::sync::Arc::new(TokioMutex::new(Some(started_tx)));
+        let release = std::sync::Arc::new(TokioMutex::new(Some(release_rx)));
+        let _hook_guard =
+            crate::channel_hooks::test_seam::install(std::sync::Arc::new(move |_req_id| {
+                let started = started.clone();
+                let release = release.clone();
+                Box::pin(async move {
+                    if let Some(tx) = started.lock().await.take() {
+                        let _ = tx.send(());
+                    }
+                    if let Some(rx) = release.lock().await.take() {
+                        let _ = rx.await;
+                    }
+                })
+            }));
+
+        // Insert 3 pending approvals for one session (unique request_ids so we
+        // don't collide with parallel tests).
         let session_id = format!("session-stop-order-{}", create_session_id());
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        get_pending_approvals().lock().await.insert(
-            request_id.clone(),
-            PendingApprovalEntry {
-                sender,
-                request: ApprovalRequest {
-                    request_id: request_id.clone(),
-                    command: "blocked cleanup test".into(),
-                    cwd: "/tmp".into(),
-                    session_id: Some(session_id.clone()),
-                    reason: None,
-                    incognito: false,
-                    created_at_ms: 1_000,
-                    server_now_ms: 1_000,
-                    timeout_at_ms: None,
-                    timeout_secs: 0,
-                    timeout_action: crate::config::ApprovalTimeoutAction::Deny,
-                },
-            },
-        );
+        let request_ids: Vec<String> = (0..3)
+            .map(|_| format!("approval-stop-order-{}", create_session_id()))
+            .collect();
+        let mut receivers = Vec::with_capacity(3);
+        {
+            let mut pending = get_pending_approvals().lock().await;
+            for req_id in &request_ids {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                receivers.push(rx);
+                pending.insert(
+                    req_id.clone(),
+                    PendingApprovalEntry {
+                        sender: tx,
+                        request: ApprovalRequest {
+                            request_id: req_id.clone(),
+                            command: "blocked cleanup test".into(),
+                            cwd: "/tmp".into(),
+                            session_id: Some(session_id.clone()),
+                            reason: None,
+                            incognito: false,
+                            created_at_ms: 1_000,
+                            server_now_ms: 1_000,
+                            timeout_at_ms: None,
+                            timeout_secs: 0,
+                            timeout_action: crate::config::ApprovalTimeoutAction::Deny,
+                        },
+                    },
+                );
+            }
+        }
 
-        let (lock_acquired_tx, lock_acquired_rx) = tokio::sync::oneshot::channel();
-        let (release_lock_tx, release_lock_rx) = tokio::sync::oneshot::channel();
-        let lock_task = tokio::spawn(
-            crate::channel::worker::approval::hold_text_pending_lock_for_test(
-                lock_acquired_tx,
-                release_lock_rx,
-            ),
-        );
-        lock_acquired_rx.await.expect("IM cleanup lock acquired");
-
-        let stopped_session_id = session_id.clone();
+        // Fire the deny in background; it will block on the hook after all
+        // emits complete.
+        let sid = session_id.clone();
         let mut deny_task = tokio::spawn(async move {
-            deny_pending_for_session(&stopped_session_id, ApprovalResolutionSource::UserStop).await
+            deny_pending_for_session(&sid, ApprovalResolutionSource::UserStop).await
         });
 
-        assert_eq!(
-            tokio::time::timeout(std::time::Duration::from_secs(1), receiver)
+        // Wait for the hook to be entered (i.e., emit loop is fully done and
+        // the cleanup loop's first call has arrived and is blocked).
+        tokio::time::timeout(std::time::Duration::from_secs(1), started_rx)
+            .await
+            .expect("hook must be called within 1s")
+            .expect("hook started channel intact");
+
+        // All N Deny signals must have arrived on their senders already (sent
+        // synchronously in the emit loop before hook is called).
+        for rx in receivers {
+            let resp = tokio::time::timeout(std::time::Duration::from_millis(50), rx)
                 .await
-                .expect("approval denied before IM cleanup")
-                .expect("approval sender still active"),
-            ApprovalResponse::Deny
-        );
-        let resolved = tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                let event = events.recv().await.expect("event bus remains open");
-                if event.name == EVENT_APPROVAL_RESOLVED
-                    && event.payload.get("requestId").and_then(|v| v.as_str())
-                        == Some(request_id.as_str())
-                {
-                    break event;
+                .expect("sender not dropped");
+            assert_eq!(resp.expect("sender resolved"), ApprovalResponse::Deny);
+        }
+
+        // All N EVENT_APPROVAL_RESOLVED events must already be queued in the
+        // bus subscription (emitted synchronously in the emit loop before hook
+        // was called). Drain until we've seen all our request_ids.
+        let mut resolved_ids = Vec::new();
+        while resolved_ids.len() < 3 {
+            let ev = tokio::time::timeout(std::time::Duration::from_millis(200), events.recv())
+                .await
+                .expect("emit within 200ms")
+                .expect("event bus intact");
+            if ev.name == EVENT_APPROVAL_RESOLVED {
+                if let Some(id) = ev.payload.get("requestId").and_then(|v| v.as_str()) {
+                    if request_ids.iter().any(|rid| rid == id) {
+                        resolved_ids.push(id.to_string());
+                    }
                 }
             }
-        })
-        .await
-        .expect("approval resolved event emitted before IM cleanup");
-        assert_eq!(resolved.payload["source"], "user_stop");
-        assert_eq!(resolved.payload["decision"], "deny");
+        }
+        for rid in &request_ids {
+            assert!(
+                resolved_ids.contains(rid),
+                "expected emit for {rid}, saw {resolved_ids:?}"
+            );
+        }
+
+        // The deny task must still be blocked on the held hook — that's the
+        // whole point (proves the hook runs AFTER emit, not before).
         assert!(
             tokio::time::timeout(std::time::Duration::from_millis(20), &mut deny_task)
                 .await
                 .is_err(),
-            "cleanup should still be waiting on the deliberately held IM lock"
+            "cleanup should still be waiting on the deliberately held IM hook"
         );
 
-        release_lock_tx.send(()).expect("release IM cleanup lock");
-        assert_eq!(deny_task.await.expect("deny task completed"), 1);
-        lock_task.await.expect("lock task completed");
+        // Release and verify graceful completion.
+        release_tx.send(()).expect("release hook");
+        let count = deny_task.await.expect("deny task joined");
+        assert_eq!(count, 3);
     }
 
     /// Sidebar countdown: the per-session aggregate counts every pending

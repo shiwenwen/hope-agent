@@ -1,6 +1,6 @@
 use crate::commands::CmdError;
-use ha_core::recap::api;
-use ha_core::recap::types::{GenerateMode, RecapReport, RecapReportSummary};
+use ha_dash::recap::api;
+use ha_dash::recap::types::{GenerateMode, RecapReport, RecapReportSummary};
 
 #[tauri::command]
 pub async fn recap_generate(mode: GenerateMode) -> Result<RecapReport, CmdError> {

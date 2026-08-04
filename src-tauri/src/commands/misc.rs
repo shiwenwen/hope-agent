@@ -122,7 +122,7 @@ pub async fn open_url(url: String) -> Result<(), CmdError> {
     // `open::that` fails with kLSApplicationNotFoundErr (macOS) / equivalent.
     // Route them to a resolved Chrome process, which understands them.
     if is_browser_internal_url(&url) {
-        ha_core::browser::spawn::open_url_in_chrome(&url)
+        ha_browser::browser::spawn::open_url_in_chrome(&url)
             .context("Failed to open browser-internal URL")?;
         return Ok(());
     }

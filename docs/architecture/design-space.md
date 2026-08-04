@@ -4,7 +4,7 @@
 >
 > 设计空间是 Hope Agent 的 **agent 原生设计工作空间**：用户与模型协作，从一句话或参考图产出**自包含、可交付的设计产物**（网页 / 移动原型 / 演示文稿 / 仪表盘 / 海报 / 文档 / 邮件 / 图像 / 动效 / 音频 / 交互组件），以可复用的**品牌设计系统**为底座，在沙盒面板实时预览、可视化直接微调、版本管理、一键导出，并可经**工程轴**把设计系统一路交付到代码（多平台 Token 导出 / Figma 导入 / 代码交付包 / 绑定代码工程同步），与[知识空间](knowledge-base.md)、[项目](project.md)深度联动。侧边栏入口紧贴「知识空间」下方。
 >
-> 产品名 **设计空间**；代码标识 `design`（模块 `crates/ha-core/src/design/`、agent 工具 `design`、数据库 `design.db`、前端视图 `DesignView`、右侧面板与 i18n 命名空间 `design`）。产品名与代码标识**均不引用任何外部参考实现的名称**（品牌产品名仅作设计数据出现在品牌参考系统里，见 §6.3）。
+> 产品名 **设计空间**；代码标识 `design`（模块 `crates/ha-design/src/design/`（阶段 3 与 artifacts 合并迁出为特征 crate）、agent 工具 `design`、数据库 `design.db`、前端视图 `DesignView`、右侧面板与 i18n 命名空间 `design`）。产品名与代码标识**均不引用任何外部参考实现的名称**（品牌产品名仅作设计数据出现在品牌参考系统里，见 §6.3）。
 >
 > 本文是子系统设计与实现的单一真相源；跨 PR 必守的红线摘要另见 [AGENTS.md](../../AGENTS.md)。
 
@@ -44,7 +44,7 @@
 2. **产物为中心的稳定工作台，拒绝脆弱无限画布（对症"画布卡/不稳"）**：主编辑面是**单产物聚焦预览**（一个稳定 iframe + fit/百分比缩放下拉，纯 CSS 缩放，无自研 transform）；多产物概览用**纯 CSS grid 缩略图墙**（无平移 / 无自研缩放 / 无 pointer capture 逻辑）。从架构上根除卡顿与指针捕获泄漏类 bug。
 3. **可视化微调建立在纯 HTML 的确定性映射之上（对症"微调不好用"）**：产物是纯 HTML，渲染 DOM ≈ 源码结构，因此"选中元素→改属性→回写源码"是**确定性字节范围 patch**（渲染期注入稳定 `data-ds-oid`，回写走单一命中 + `expected` stale-write 守卫 + 撤销/重做）。旧版败在 JSX→React→DOM 的有损编译映射上，本版从源头绕开。
 4. **文件即真相源**：产物（`index.html` + 版本快照）与设计系统（`DESIGN.md` + `tokens.json`）都是磁盘上的真实文件；`design.db` 是**可重建的元数据注册表 / 索引**（删了能从磁盘全量重建）。对齐 [知识空间 D9](knowledge-base.md) 与 [项目](project.md) 既有红线。
-5. **核心逻辑全进 ha-core**（零 Tauri 依赖）：业务、渲染编排、token 编译、oid 回写、索引全在 `crates/ha-core/src/design/`；`src-tauri` / `ha-server` 只做薄壳。
+5. **核心逻辑全进后端特征 crate**（零 Tauri 依赖）：业务、渲染编排、token 编译、oid 回写、索引全在 `crates/ha-design/src/design/`（特征 crate，依赖 ha-core、壳层 `ha_design::wire()` 装配）；`src-tauri` / `ha-server` 只做薄壳。
 6. **Transport 双实现**：每个新 invoke 同时实现 Tauri + HTTP（见 [transport-modes.md](transport-modes.md)）。
 7. **设置三件套**：新增用户可调字段必须同 PR 具备 GUI 控件 + `ha-settings` 分支 + SKILL.md 登记（见 [AGENTS.md 设置约定](../../AGENTS.md)）。
 8. **安全等价于 Canvas**：iframe `sandbox="allow-scripts"`（无 same-origin）、静态托管三道闸、`eval`/脚本只在沙盒内、写盘走 `write_atomic` + 作用域闭合、出站走 `security::ssrf`。
@@ -94,8 +94,8 @@ graph TD
         TX["getTransport()<br/>Tauri invoke / HTTP COMMAND_MAP"]
     end
 
-    subgraph ha-core（零 Tauri 依赖）
-        TOOL["tools/design/<br/>agent 工具 design（多 action）"]
+    subgraph 后端（ha-design 特征 crate + ha-core kernel，零 Tauri 依赖）
+        TOOL["ha-design tool_design/<br/>agent 工具 design（多 action）"]
         SVC["design/service.rs<br/>owner 平面业务入口"]
         RENDER["design/renderer.rs<br/>自包含 HTML 编译 + inspector bridge 注入"]
         SYS["design/system.rs<br/>DESIGN.md 解析 → tokens.json → :root CSS 变量"]
@@ -168,7 +168,7 @@ graph TD
 
 内置设计系统与模板随 App 发行，源在仓库 `design-assets/`（`systems/` + `recipes/`），首启复制/懒加载到 managed 目录，用户可覆盖（优先级：project > managed > bundled，对齐技能来源模型）。
 
-路径解析集中在 [`paths.rs`](../../crates/ha-core/src/paths.rs)：`design_dir` / `design_systems_dir` / `design_projects_dir` / `design_project_dir(id)` / `design_artifact_dir(project_id, artifact_id)`。
+路径解析集中在 [`paths.rs`](../../crates/ha-base/src/paths.rs)：`design_dir` / `design_systems_dir` / `design_projects_dir` / `design_project_dir(id)` / `design_artifact_dir(project_id, artifact_id)`。
 
 ### 4.3 SQLite 表（`design.db`，元数据注册表）
 
@@ -285,7 +285,7 @@ planned ──→ generating ──→ ready
 
 ### 5.4 事件目录（as-built）
 
-后端 emit 7 个 `design:*` 事件（`design/service.rs` + `tools/design/mod.rs`），前端 `DesignView` 全部订阅；HTTP/WS 模式经 `WS /ws/events` 全量透传，两运行模式一致送达。payload 字段均 camelCase。
+后端 emit 7 个 `design:*` 事件（`design/service.rs` + `tool_design/mod.rs`），前端 `DesignView` 全部订阅；HTTP/WS 模式经 `WS /ws/events` 全量透传，两运行模式一致送达。payload 字段均 camelCase。
 
 | 事件 | 触发 | Payload | 前端反应 |
 | --- | --- | --- | --- |
@@ -552,7 +552,7 @@ owner/GUI 生成走**真 token 流式**——边生成边成形预览，而非�
 - **会话身份**：`SessionKind::Design`（`session/types.rs`）——持久化但从主侧栏 / `/sessions` / 全局 FTS 隐藏（`session/db.rs` 的隐藏谓词与 `knowledge` 同源，改为 `kind NOT IN ('knowledge','design')`）。**不是安全边界**。
 - **锚定表 `design_chat_threads`**（sessions.db，`session/db.rs` 建表）：`session_id`（PK，FK sessions ON DELETE CASCADE）+ `project_id`（**纯列，无跨库 FK**——设计项目行在 design.db）+ `created_at`。方法在 `design/threads.rs`（走全局 `SESSION_DB`，JOIN sessions/messages 供历史选择器）。设计项目删除时 `service::delete_project` 先 `thread_session_ids` 收集并删这些隐藏会话（显式级联，非 ON DELETE）。
 - **提升分支**：`chat` 命令新会话且 `tool_scope == "design"` 时，`mark_session_as_design_thread`（先建 thread 行再翻 `kind`，best-effort，镜像 KB 的 `mark_session_as_kb_thread`）锚到 `design_project_id`；前端仅在 auto-create send 携带（`useChatStream.draftDesignProjectId`）。Tauri + HTTP 双写；被 hook 阻断的首条消息丢弃僵尸会话（drop 分支含 `design`）。
-- **工具面收窄**：`ToolScope::Design`（`tools/mod.rs`，`is_design_scope_tool` 白名单 = `design` + `web_search`/`web_fetch`/`image_generate`/`audio_generate` + `recall_memory`/`memory_get`/`knowledge_recall` + 框架基础）——**纯 schema/可见性收窄，非安全边界**；`design` 工具仍受 `app_config.design.enabled` 门控、incognito fail-closed。
+- **工具面收窄**：`ToolScope::Design`（`tool_defs/scope.rs`，`is_design_scope_tool` 白名单 = `design` + `web_search`/`web_fetch`/`image_generate`/`audio_generate` + `recall_memory`/`memory_get`/`knowledge_recall` + 框架基础）——**纯 schema/可见性收窄，非安全边界**；`design` 工具仍受 `app_config.design.enabled` 门控、incognito fail-closed。
 - **项目解析**：`design` 工具经 `service::get_or_create_session_project` → **优先** `threads::project_for_session(session_id)` 命中锚定项目，未命中回落原「按 session 查/建草稿」逻辑（ACP 无 `SESSION_DB` 时静默回落）。
 - **当前产物上下文**：面板 `getExtraAttachments` 每轮注入一条不可见 `<design_context>` quote（project_id + 打开的 artifact id/title/kind + 设计系统名），让「改这个 / 当前 / restyle 它」落到用户正看的产物；结构化、非 system 指令，模型仍走 `design` 工具实际操作。
 - **owner 命令**：`design_chat_thread_get_cmd`（最近线程 SessionMeta，默认加载）/ `design_chat_threads_list_cmd`（历史分页 + FTS）——Tauri + HTTP `GET /api/design/projects/{projectId}/chat/{thread,threads}` + COMMAND_MAP，镜像 `kb_chat_thread*`。
@@ -718,7 +718,7 @@ brief 缺设计系统时，`design(action="propose_directions", brief)` 返回 N
 
 ## 15. HTTP 路由与 Tauri 命令对照
 
-每个能力同时暴露 Tauri IPC 与 HTTP，业务逻辑统一在 `ha_core::design::service`。（详表随实现填入 [api-reference.md](api-reference.md)。）
+每个能力同时暴露 Tauri IPC 与 HTTP，业务逻辑统一在 `ha_design::design::service`。（详表随实现填入 [api-reference.md](api-reference.md)。）
 
 | 能力 | Tauri 命令 | HTTP 路由 | Transport key |
 | --- | --- | --- | --- |
@@ -758,13 +758,13 @@ brief 缺设计系统时，`design(action="propose_directions", brief)` 返回 N
 
 | 文件 | 角色 |
 | --- | --- |
-| `crates/ha-core/src/design/{mod,service,db,renderer,system,patch,critique,export,recipe}.rs` | 核心：注册表 + 业务 + 渲染 + token 编译 + oid 回写 + 质量门 + 导出 + 模板 |
-| `crates/ha-core/src/design/{code_sync,code_watcher}.rs` | code→design 回灌：回执/收割/漂移检测 + notify 文件监听 |
-| `crates/ha-core/src/design/mcp_provider.rs` | design 的 MCP `ToolProvider`（平台 `hope-agent mcp` 首个 provider） |
+| `crates/ha-design/src/design/{mod,service,db,renderer,system,patch,critique,export,recipe}.rs` | 核心：注册表 + 业务 + 渲染 + token 编译 + oid 回写 + 质量门 + 导出 + 模板 |
+| `crates/ha-design/src/design/{code_sync,code_watcher}.rs` | code→design 回灌：回执/收割/漂移检测 + notify 文件监听 |
+| `crates/ha-design/src/design/mcp_provider.rs` | design 的 MCP `ToolProvider`（平台 `hope-agent mcp` 首个 provider） |
 | `crates/ha-core/src/mcp_server/mod.rs` | 平台级 MCP server host（stdio + ToolProvider 注册表，见 mcp-server.md） |
-| `crates/ha-core/src/tools/design/mod.rs` | `design` agent 工具（多 action 路由） |
-| `crates/ha-core/src/lib.rs` | `pub mod design;` + `pub mod mcp_server;` |
-| `crates/ha-core/src/paths.rs` | `design_dir` / `design_*_dir` |
+| `crates/ha-design/src/tool_design/mod.rs` | `design` agent 工具（多 action 路由） |
+| `crates/ha-design/src/lib.rs`（`pub mod design;`）+ `crates/ha-core/src/lib.rs`（`pub mod mcp_server;`） |
+| `crates/ha-base/src/paths.rs` | `design_dir` / `design_*_dir` |
 | `crates/ha-core/src/config/mod.rs` | `AppConfig.design` |
 | `crates/ha-server/src/routes/design.rs`（+ `routes/mod.rs` `pub mod` + `lib.rs` `.route`） | HTTP 薄壳 + 静态托管 |
 | `src-tauri/src/commands/design.rs`（+ `commands/mod.rs` `pub mod` + `lib.rs` `generate_handler!`） | Tauri 薄壳 |

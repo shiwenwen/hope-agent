@@ -11,7 +11,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use ha_core::stt::{
+use ha_media::stt::{
     self, ActiveSttModel, AudioPayload, KnownLocalSttBackend, SttModelConfig, SttProviderConfig,
     SttSessionManager, SttWriteError, Transcript, TranscriptOptions, MAX_BATCH_AUDIO_BYTES,
 };

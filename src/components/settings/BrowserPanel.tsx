@@ -127,7 +127,7 @@ interface LaunchOptions {
 type BrowserMode = "managed" | "user_attach"
 
 // Mirrors `BrowserBackendPreference` (snake_case serde) in
-// `crates/ha-core/src/browser/mod.rs`. `None`/unset on the wire = `extension_first`.
+// `crates/ha-browser/src/browser/mod.rs`. `None`/unset on the wire = `extension_first`.
 type BrowserBackendPreference = "extension_first" | "cdp_only" | "extension_only"
 
 // The three user-facing control methods. Derived from (and written back to)

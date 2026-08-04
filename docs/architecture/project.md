@@ -77,7 +77,7 @@ Project 是 Hope Agent 的**可选会话容器**，把多个会话聚成一个�
 
 - `CreateProjectInput`：`name` 必填，其余可选（含 `logo` / `working_dir` 等所有可写字段）
 - `UpdateProjectInput`：PATCH 语义，所有字段 `Option<_>`（`None`=不变，`Some("")`=清空）
-- `working_dir` 在 update 路径走 [`util::canonicalize_working_dir`](../../crates/ha-core/src/util.rs)（空串当清空，否则 canonicalize + `is_dir` 校验，不通过 `Err`）
+- `working_dir` 在 update 路径走 [`util::canonicalize_working_dir`](../../crates/ha-base/src/util.rs)（空串当清空，否则 canonicalize + `is_dir` 校验，不通过 `Err`）
 
 > 早期版本的 `ProjectFile` 类型 / `BoundChannel` 类型均已删除——文件改为工作目录真实文件，IM 反向认领已废弃。
 
@@ -130,7 +130,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
 
 > 用户在项目设置里**显式选了** `working_dir` 时，工作目录指向那个外部真实目录（不在 `projects/{id}/` 内），`projects/{id}/` 可能为空。
 
-路径由 [`paths.rs`](../../crates/ha-core/src/paths.rs) 集中管理：`projects_dir()` / `project_dir(id)` / `project_workspace_dir(id)`。工作目录解析的单一入口是 [`project::resolve_project_dir`](../../crates/ha-core/src/project/files.rs)（显式 `working_dir` 优先，否则 lazy 创建默认 workspace 并 `ensure_dir_canonical` 返回）。
+路径由 [`paths.rs`](../../crates/ha-base/src/paths.rs) 集中管理：`projects_dir()` / `project_dir(id)` / `project_workspace_dir(id)`。工作目录解析的单一入口是 [`project::resolve_project_dir`](../../crates/ha-core/src/project/files.rs)（显式 `working_dir` 优先，否则 lazy 创建默认 workspace 并 `ensure_dir_canonical` 返回）。
 
 ## 核心 API
 
@@ -209,7 +209,7 @@ session.working_dir 非空？      → 用之（会话级）
 
 ### 写入校验入口
 
-[`util::canonicalize_working_dir`](../../crates/ha-core/src/util.rs)（session / project 共用）：空串当清空（写 NULL），非空 → `canonicalize` + `is_dir` 校验，不通过 `Err`。
+[`util::canonicalize_working_dir`](../../crates/ha-base/src/util.rs)（session / project 共用）：空串当清空（写 NULL），非空 → `canonicalize` + `is_dir` 校验，不通过 `Err`。
 
 ### 消费点
 
@@ -237,7 +237,7 @@ session.working_dir 非空？      → 用之（会话级）
 | `/project <name>`（desktop / HTTP） | fuzzy 匹配 → `EnterProject` action → 前端创建项目作用域新会话 |
 | `/project <name>`（IM 会话） | fuzzy 匹配 → `AssignProject` action → channel worker 调 `set_session_project` 直接 UPDATE 现有 `sessions.project_id`，**不创建新 session** |
 
-> **IM 可用**：`/project` 在 IM 渠道**不再禁用**（早期曾因「IM 每条消息重算归属会拉回切换」而禁用，现已通过 `AssignProject` 真正落地到现有 session 解决）。当前 `IM_DISABLED_COMMANDS = ["agent", "handover"]`（[`slash_commands/registry.rs`](../../crates/ha-core/src/slash_commands/registry.rs)），不含 `project`。
+> **IM 可用**：`/project` 在 IM 渠道**不再禁用**（早期曾因「IM 每条消息重算归属会拉回切换」而禁用，现已通过 `AssignProject` 真正落地到现有 session 解决）。当前 `IM_DISABLED_COMMANDS = ["agent", "handover"]`（[`slash_defs/registry.rs`](../../crates/ha-core/src/slash_defs/registry.rs)），不含 `project`。
 
 ## System Prompt 注入
 
@@ -463,13 +463,13 @@ Sheet 左边缘支持鼠标左右拖拽调整宽度（键盘 `←/→` 同样可
 | [`crates/ha-core/src/memory/core_repository.rs`](../../crates/ha-core/src/memory/core_repository.rs) | 三层 Core Memory 的目录、frontmatter、索引、CRUD / 搜索、snapshot、迁移与并发真相源 |
 | [`crates/ha-core/src/project/memory.rs`](../../crates/ha-core/src/project/memory.rs) | Project Core Memory 兼容薄适配与旧 API 映射 |
 | [`crates/ha-core/src/project/reconcile.rs`](../../crates/ha-core/src/project/reconcile.rs) | 启动期跨 DB 孤儿记忆清理 |
-| [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) | `projects_dir` / `project_dir` / `project_workspace_dir` |
+| [`crates/ha-base/src/paths.rs`](../../crates/ha-base/src/paths.rs) | `projects_dir` / `project_dir` / `project_workspace_dir` |
 | [`crates/ha-core/src/session/db.rs`](../../crates/ha-core/src/session/db.rs) | `sessions.project_id` 迁移 + `ProjectFilter` + 绑定 API |
 | [`crates/ha-core/src/session/helpers.rs`](../../crates/ha-core/src/session/helpers.rs) | `effective_session_working_dir` 合并入口 |
 | [`crates/ha-core/src/filesystem/workspace.rs`](../../crates/ha-core/src/filesystem/workspace.rs) | `WorkspaceScope` 作用域闭合（`for_session` / `for_project` / `for_path`） |
 | [`crates/ha-core/src/filesystem/ops.rs`](../../crates/ha-core/src/filesystem/ops.rs) | 文件浏览器读写 ops |
 | [`crates/ha-core/src/agent/resolver.rs`](../../crates/ha-core/src/agent/resolver.rs) | 7 级 agent 解析链 + `_with_source` 调试入口 |
-| [`crates/ha-core/src/util.rs`](../../crates/ha-core/src/util.rs) | `canonicalize_working_dir`（session / project 共用写入校验） |
+| [`crates/ha-base/src/util.rs`](../../crates/ha-base/src/util.rs) | `canonicalize_working_dir`（session / project 共用写入校验） |
 | [`crates/ha-core/src/slash_commands/handlers/project.rs`](../../crates/ha-core/src/slash_commands/handlers/project.rs) | `/project` / `/projects` handler（`EnterProject` / `AssignProject` / `ShowProjectPicker`） |
 | [`src-tauri/src/commands/project.rs`](../../src-tauri/src/commands/project.rs) | Tauri 项目命令 + emit 事件 |
 | [`src-tauri/src/commands/project_fs.rs`](../../src-tauri/src/commands/project_fs.rs) | 文件浏览器 Tauri 命令 + preview-by-path |

@@ -1,6 +1,6 @@
 # 语音转写（STT）
 
-> 返回 [文档索引](../README.md) | 关联源码：[`crates/ha-core/src/stt/`](../../crates/ha-core/src/stt/)、[`src-tauri/src/commands/stt.rs`](../../src-tauri/src/commands/stt.rs)、[`crates/ha-server/src/routes/stt.rs`](../../crates/ha-server/src/routes/stt.rs)、IM 集成在 [`channel/types.rs`](../../crates/ha-core/src/channel/types.rs)
+> 返回 [文档索引](../README.md) | 关联源码：[`crates/ha-core/src/stt/`](../../crates/ha-core/src/stt/)（配置面）、[`crates/ha-media/src/stt/`](../../crates/ha-media/src/stt/)（执行机器）、[`src-tauri/src/commands/stt.rs`](../../src-tauri/src/commands/stt.rs)、[`crates/ha-server/src/routes/stt.rs`](../../crates/ha-server/src/routes/stt.rs)、IM 集成在 [`channel/types.rs`](../../crates/ha-core/src/channel/types.rs)
 
 ## 概述
 
@@ -16,7 +16,7 @@ STT（Speech-to-Text）是一个**独立配置、独立鉴权、独立错误分�
 
 ## 模块结构
 
-核心全在 `crates/ha-core/src/stt/`（零 Tauri 依赖）：
+配置面在 `crates/ha-core/src/stt/`、执行机器（provider 协议 / 流式会话 / failover 转写）在 `crates/ha-media/src/stt/`（特征 crate，阶段 4 迁出；两侧均零 Tauri 依赖）：
 
 | 文件 | 职责 |
 |---|---|
@@ -171,11 +171,12 @@ STT 归「**强制留 GUI 的例外**」同类（凭据安全）：
 |---|---|
 | [`crates/ha-core/src/stt/mod.rs`](../../crates/ha-core/src/stt/mod.rs) | 子系统根 + 公共 API + `voice_prefix_for_locale` |
 | [`crates/ha-core/src/stt/types.rs`](../../crates/ha-core/src/stt/types.rs) | 数据模型 + `SttProviderKind` + `masked()` + size 常量 |
-| [`crates/ha-core/src/stt/engine.rs`](../../crates/ha-core/src/stt/engine.rs) | 按 kind 分发 + `failover_transcribe_batch` + 桌面 / IM 链 |
+| [`crates/ha-core/src/stt/engine.rs`](../../crates/ha-core/src/stt/engine.rs) | 链解析（桌面 / IM）+ `resolve_active` + failover trampoline（真实现经 `register_stt_transcriber` 装配） |
+| [`crates/ha-media/src/stt/engine.rs`](../../crates/ha-media/src/stt/engine.rs) | 按 kind 分发 + `failover_transcribe_batch` 真实现 |
 | [`crates/ha-core/src/stt/errors.rs`](../../crates/ha-core/src/stt/errors.rs) | `SttError` + `is_retriable` |
 | [`crates/ha-core/src/stt/local.rs`](../../crates/ha-core/src/stt/local.rs) | 4 本地后端 catalog + probe + upsert |
-| [`crates/ha-core/src/stt/session.rs`](../../crates/ha-core/src/stt/session.rs) | `SttSessionManager` + `stt:*` 事件 + idle GC |
+| [`crates/ha-media/src/stt/session.rs`](../../crates/ha-media/src/stt/session.rs) | `SttSessionManager` + `stt:*` 事件 + idle GC（PrimaryOnly startup task） |
 | [`crates/ha-core/src/stt/crud.rs`](../../crates/ha-core/src/stt/crud.rs) | 唯一写入口 + `check_batch_capable` |
-| [`crates/ha-core/src/stt/providers/`](../../crates/ha-core/src/stt/providers/) | 10 协议实现 + 共享 batch / WS helper |
+| [`crates/ha-media/src/stt/providers/`](../../crates/ha-media/src/stt/providers/) | 10 协议实现 + 共享 batch / WS helper |
 | [`src-tauri/src/commands/stt.rs`](../../src-tauri/src/commands/stt.rs) | 20 Tauri 命令（unmasked） |
 | [`crates/ha-server/src/routes/stt.rs`](../../crates/ha-server/src/routes/stt.rs) | 17 HTTP 路由（masked） |

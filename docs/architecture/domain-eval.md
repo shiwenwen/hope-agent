@@ -2,7 +2,23 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.14 已实现；Phase 8.1 已补 Domain Operational Gate；Phase 8.2 的 Connector E2E Gate 落在 [Domain Workflow 控制平面](domain-workflow.md)；Phase 8.3 已补 Domain Soak Report。Dashboard Learning 已接入展示。本文记录 `ha-core::domain_eval` 的最终技术事实：通用领域 eval task registry、promoted domain eval case 导入、user/project calibration 与人工复核记录、deterministic trace scoring、trace / agent fixture runner、fixture run history、Domain Eval Campaign、Domain Campaign Leaderboard、Domain Campaign Learning Closure、Domain Readiness Gate、Domain Operational Gate、Domain Soak Report、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块 / Smoke Run Center / Campaign Center / Operational Gate / Soak Report。
+> 状态：Phase 7.14 已实现；Phase 8.1 已补 Domain Operational Gate；Phase 8.2 的 Connector E2E Gate 落在 [Domain Workflow 控制平面](domain-workflow.md)；Phase 8.3 已补 Domain Soak Report。Dashboard Learning 已接入展示。本文记录 `ha_improve::domain_eval`（机器）+ `ha_core::domain_eval`（台账）的最终技术事实：通用领域 eval task registry、promoted domain eval case 导入、user/project calibration 与人工复核记录、deterministic trace scoring、trace / agent fixture runner、fixture run history、Domain Eval Campaign、Domain Campaign Leaderboard、Domain Campaign Learning Closure、Domain Readiness Gate、Domain Operational Gate、Domain Soak Report、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块 / Smoke Run Center / Campaign Center / Operational Gate / Soak Report。
+
+## Crate 边界（阶段 5 第八刀）
+
+本子系统自 0.25 起横跨两个 crate，**分界线是「方法是否直接摸 `sessions.db`
+连接」**（对 `impl SessionDB` 做不动点，摸连接的与被摸连接者调用的全部留守）：
+
+| | 位置 | 内容 |
+|---|---|---|
+| **台账** | `crates/ha-core/src/domain_eval.rs` | wire 类型、行映射、`ensure_tables`，以及全部直接执行 SQL 的 `impl SessionDB` 方法 |
+| **机器** | `crates/ha-improve/src/domain_eval.rs` | 顶层入口——一处连接都不碰，只调台账的类型化方法 |
+
+固有 impl 不能跨 crate，所以上浮的方法在 ha-improve 里是自由函数
+`fn f(db: &SessionDB, …)`。`SessionDB::with_conn_internal` 仍是 `pub(crate)`，
+ha-improve 生产代码零连接触点。新增 owner 入口时：**SQL 写台账、编排写机器**。
+
+详见 [前后端分离架构](backend-separation.md) 的 ha-improve 小节。
 
 ## 目标
 
@@ -463,8 +479,15 @@ Dashboard Learning Tab 新增「General domain quality」区块：
 定向测试：
 
 ```bash
-cargo test -p ha-core domain_eval --locked
+# 台账侧（内置任务集 / case 导入 / calibration / leaderboard 三态）
+cargo test -p ha-core domain_eval --features eval-internal-tests --locked
+# 机器侧（fixture runner / campaign / 三道闸 / soak，22 个)
+cargo test -p ha-improve domain_eval --features eval-internal-tests --locked
 ```
+
+（第八刀后测试分居两个 crate；两侧多数在 `eval-internal-tests` 后面，**不开
+feature 就静默跑不到**。该 lane 不进门禁，已知存量失败见
+[capability-eval](capability-eval.md)。）
 
 覆盖：
 

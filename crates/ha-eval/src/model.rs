@@ -291,7 +291,7 @@ pub async fn execute(root: &Path, command: ModelCommands) -> Result<()> {
         } => {
             let trust =
                 trust_registry.unwrap_or_else(|| live_root(root).join("trust/evidence-keys.json"));
-            let verified = ha_core::evaluation::verify_evidence_bundle(&bundle, &trust)?;
+            let verified = ha_eval_runtime::evaluation::verify_evidence_bundle(&bundle, &trust)?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
