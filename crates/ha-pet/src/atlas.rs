@@ -359,10 +359,8 @@ fn synthesize_look_frame(
     for y in 0..CELL_HEIGHT {
         let numerator = if y <= full_shift_end {
             taper_height
-        } else if y >= anchor_y {
-            0
         } else {
-            anchor_y - y
+            anchor_y.saturating_sub(y)
         };
         let shift_x = rounded_scaled_offset(dx, numerator, taper_height);
         let shift_y = rounded_scaled_offset(dy, numerator, taper_height);
