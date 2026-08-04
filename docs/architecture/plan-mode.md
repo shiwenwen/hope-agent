@@ -1,59 +1,51 @@
-# Hope Agent Plan Mode 架构文档
+# Plan Mode 架构
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-05-02
+> 更新时间：2026-08-04
 
-## 目录
+## 关联源码
 
-- [概述](#概述)
-- [设计哲学：plan ≠ todo](#设计哲学plan--todo)
-- [状态机](#状态机)
-- [后端架构](#后端架构)
-  - [模块结构](#模块结构)
-  - [工具清单](#工具清单)
-  - [System Prompt 注入](#system-prompt-注入)
-  - [Plan 文件持久化](#plan-文件持久化)
-  - [Plan → Completed 的自动转换（task 驱动）](#plan--completed-的自动转换task-驱动)
-  - [Git Checkpoint](#git-checkpoint)
-- [前端架构](#前端架构)
-  - [usePlanMode Hook](#useplanmode-hook)
-  - [PlanPanel（右侧面板，单一职责）](#planpanel右侧面板单一职责)
-  - [PlanCardBlock（消息流摘要）](#plancardblock消息流摘要)
-  - [TaskBlock + TaskProgressPanel（进度展示）](#taskblock--taskprogresspanel进度展示)
-- [完整交互流程](#完整交互流程)
-- [入口一览](#入口一览)
-- [事件系统](#事件系统)
-- [与 Claude Code / OpenCode 对比](#与-claude-code--opencode-对比)
-- [文件清单](#文件清单)
+| 关注点 | 入口 |
+|---|---|
+| 状态机与元数据 | `crates/ha-core/src/plan/types.rs` |
+| 状态转移中枢（唯一副作用入口） | `crates/ha-core/src/plan/transition.rs` |
+| 内存 store / DB 恢复 | `crates/ha-core/src/plan/store.rs` |
+| Plan 文件读写 / 版本备份 | `crates/ha-core/src/plan/file_io.rs` |
+| 提交质量闸 | `crates/ha-core/src/plan/gates.rs` |
+| System Prompt 注入 | `crates/ha-core/src/agent/plan_context.rs` + `crates/ha-core/src/plan/constants.rs` |
+| Git checkpoint | `crates/ha-core/src/plan/git.rs` |
+| 跨会话只读索引 | `crates/ha-core/src/plan/index.rs` |
+| 前端状态与视图 | `src/components/chat/plan-mode/` |
 
 ---
 
 ## 概述
 
-Plan Mode 是 Hope Agent 的「先想清楚再做」工作模式：模型在动手前把 Context / Approach / Files / Reuse / Verification 写成 markdown 设计文档，用户审批后才进入实施阶段。设计文档（**plan**）是稳定契约，实施进度（**task**）走另一套独立工具——两份各司其职、零同步成本。
+Plan Mode 是「先想清楚再动手」的工作模式。模型在实施前，通过探索、提问、起草，把一份 markdown 设计文档写出来交给用户审批；只有审批通过才进入实施阶段。它服务的场景既包括编程（架构选型、多文件重构、新功能），也包括通用任务（写文章、做调研、整理资料、决策支持）。
 
-适用场景覆盖编程（架构选型、多文件重构、新功能）+ 通用任务（写文章、做调研、整理资料、决策支持）。
+整套系统围绕三个核心想法：
 
-**进入 Plan Mode 的核心契约：用户主权**。模型**不能自己转 state**——三条入口都最终由用户拍板：
+1. **plan 与 task 双轨分离**——设计文档（**plan**）是一份稳定契约，实施进度（**task**）是另一套独立机制。两者形态不同、生命周期不同，互不同步，因此不会漂移。
+2. **用户主权**——模型永远不能自己切换到 Plan Mode，进入的决定权始终在用户手里。
+3. **执行冻结**——一旦计划被审批，它在整个执行期内冻结为设计契约；想改方案只能重新进入 Plan Mode 走完整审批。
 
-1. **用户直接进入**：UI 工具栏 Plan 按钮 / `/plan enter` 斜杠命令 / 前端 `set_plan_mode` Tauri 命令 / HTTP API。用户已经表达意图，直接转 Planning state
-2. **模型建议 + 用户审批**：`enter_plan_mode` 工具——模型识别非 trivial 任务时调用，**工具内部触发 Yes/No 审批 dialog**，用户接受才转 state，用户拒绝就让模型继续直接做事
+## 核心思想：plan 不是 todo
 
-这跟 claude-code 的 `EnterPlanMode` 工具设计完全对齐——工具调用本身是"我建议进 plan mode 探索 X"的信号，不是"我现在转 state"的命令。
+一份计划文档承担了两种被反复混淆的职责：它既是「我打算怎么做」的**设计说明**，又常被顺手当成「做到哪一步了」的**进度清单**。把这两件事塞进同一份带 checkbox 的文件，会逼出两份互相矛盾的进度真相——文件里的勾选状态与进度追踪工具各说各话，谁也不权威。
 
-## 设计哲学：plan ≠ todo
+Plan Mode 的解法是彻底拆开两条轨道：
 
-借鉴 claude-code 和 opencode 的双轨分离：
-
-| 抽象 | 角色 | 工具 | 形态 | 生命周期 |
+| 轨道 | 角色 | 工具 | 形态 | 生命周期 |
 |---|---|---|---|---|
-| **plan.md** | 设计契约（用户审批的对象） | `submit_plan` | 自由 markdown，无 checkbox / 无 status 字段 | 审批后冻结，要改重进 Plan Mode |
-| **task list** | 实施进度（执行心电图） | `task_create` / `task_update` / `task_list` | 结构化 `{content, activeForm, status}`，三态 | 实施期动态推进，session 持久化 |
+| **plan.md** | 设计契约（用户审批的对象） | `submit_plan` | 自由 markdown，无 checkbox、无 status 字段 | 审批后冻结；要改重进 Plan Mode |
+| **task list** | 实施进度（执行心电图） | `task_create` / `task_update` / `task_list` | 结构化 `{content, activeForm, status}`，三态 | 实施期动态推进，随 session 持久化 |
 
-历史上 Hope 把这两个概念耦合（plan 文件带 checkbox + 后端 `PlanStep.status` 同步），导致模型既要 `update_plan_step` 又要 `task_update`，两份进度真相必然漂移。2026-05 重构彻底拆开：plan 退回纯设计文档形态，task 系统独占进度追踪。
+规则由 system prompt 直接约束模型：计划正文里**不得出现** markdown checkbox（`- [ ]` / `- [x]`）；细粒度的执行待办要等审批通过后，用 task 工具单独创建。plan 因此退回纯粹的、可读的执行指南；task 系统独占进度追踪。
 
 ## 状态机
+
+Plan Mode 是一个五态状态机。每个状态回答两个问题：模型此刻**能改哪些东西**，以及**进度如何追踪**。
 
 ```mermaid
 stateDiagram-v2
@@ -62,45 +54,143 @@ stateDiagram-v2
     Planning --> Review: submit_plan
     Review --> Executing: 用户 Approve
     Review --> Planning: 退回修订
-    Executing --> Completed: 全部 task 终态
-    Executing --> Planning: re-entry 修订计划
-    Completed --> Planning: re-entry 修订计划
+    Executing --> Completed: plan 期 task 全终态
+    Executing --> Planning: re-entry 修订
+    Completed --> Planning: re-entry 修订
     Planning --> Off: /plan exit
     Review --> Off: /plan exit
     Executing --> Off: /plan exit
     Completed --> Off: /plan exit
-    note right of Off: Off 是任何状态的 escape hatch（没有 Paused）
+    note right of Off
+      Off 是任何状态的逃生舱
+      （没有 Paused 状态）
+    end note
 ```
 
-| 状态 | 含义 | plan.md 可写 | 工具白名单 | 进度追踪 |
+| 状态 | 含义 | plan.md | 工具面 | 进度追踪 |
 |---|---|---|---|---|
-| **Off** | 不在 Plan Mode | — | 全部 | task_* 可选（>3 步任务建议用） |
-| **Planning** | 模型在制定计划 | ✅ 仅 plan.md | read / grep / glob / web_* / ask_user_question / write(plan only) / exec(approval) | 不追踪 |
-| **Review** | 用户审批中 | ❌ 锁 | 同 Planning | 不追踪 |
-| **Executing** | 已审批，实施中 | ❌ 冻结 | 全开 | **必须** task_* |
-| **Completed** | 全部 task 终态 | ❌ 永久只读 | 全开 | task list 历史保留 |
+| **Off** | 不在 Plan Mode | — | 全部工具 | task_* 可选（多步任务建议用） |
+| **Planning** | 模型在制定计划 | 可写（仅 plan 文件） | 只读探索 + 提问 + 提交（见下表白名单） | 不追踪 |
+| **Review** | 用户审批中 | 锁定 | 同 Planning | 不追踪 |
+| **Executing** | 已审批，实施中 | 冻结 | 全开 | **必须** task_* |
+| **Completed** | plan 期 task 全部终态 | 永久只读 | 全开 | task list 历史保留 |
 
-**没有 Paused 状态**——长时间挂起就 `/plan exit` 退出，需要时再 re-entry；想"暂停"就停止发消息。这是 claude-code 验证过的模式。
+**为什么没有 Paused 状态**：长时间挂起就 `/plan exit` 退出，需要时再重进；想暂停就停止发消息。省掉一个状态换来更简单的转移表。
 
-合法转移定义在 [`crates/ha-core/src/plan/types.rs::PlanModeState::is_valid_transition`](../../crates/ha-core/src/plan/types.rs)。Re-entry transition (`Executing → Planning` / `Completed → Planning`) 替代了之前的 `amend_plan` 工具，用户想在执行/完成后改方案就重进 Plan Mode 走完整审批流程。
+合法转移由 `PlanModeState::is_valid_transition` 裁决（`plan/types.rs`），要点：
+
+- 进入或离开 Plan Mode（任意状态 ↔ `Off`）**永远合法**——被取消/删除的会话需要逃生舱。
+- 同态「转移」（例如持久化往返后重新断言 `Planning`）永远允许。
+- 正常前进：`Planning → Review → Executing → Completed`，外加 `Review → Planning` 退回修订。
+- **Re-entry**：`Executing → Planning` 与 `Completed → Planning` 让用户在执行中或完成后重新规划——想改方案就重进 Plan Mode，老 plan 文件会被加载供增量编辑。
+- 其余组合一律拒绝，防止并发写者跳过 Review 检查点、或从 `Completed` 倒回 `Executing` 重跑已完成的步骤。
+
+非法转移在 `set_plan_state` 里被静默拒绝并打 warn，绝不落库。
+
+### Planning / Review 工具白名单
+
+Planning 与 Review 共用同一份工具允许清单（`PlanAgentConfig::default_config`，采用 allow-list：只有列出的工具可用）：
+
+| 类别 | 工具 | 约束 |
+|---|---|---|
+| 只读探索 | `read` `ls` `grep` `find` `lsp` `glob` `web_search` `web_fetch` | 自由使用 |
+| 受限执行 | `exec` | 每次调用需用户审批 |
+| 计划专属 | `ask_user_question` `submit_plan` | — |
+| 路径受限写 | `write` `edit` | **仅** `~/.hope-agent/plans/` 下的 `.md` 文件（`is_plan_mode_path_allowed` 判定） |
+| 记忆与委派 | `recall_memory` `memory_get` `subagent` | `subagent` 用于并行探索 |
+
+`write` / `edit` 之所以能在 Planning 出现，是靠「路径感知放行」：命中 plan 目录的写放行，其余路径拒绝。真正被无条件挡在门外的高危 mutation 工具集是 `PLAN_MODE_DENIED_TOOLS = [write, edit, apply_patch, canvas, artifact]`——它服务于子 agent 继承以及下文的「中途收紧」兜底。
+
+## 三条进入路径与用户主权
+
+进入 Plan Mode 的决定权始终在用户。三条路径最终都由用户拍板：
+
+```mermaid
+flowchart TD
+    A[用户直接进入] -->|UI Plan 按钮 / 斜杠命令 / API| P[Planning]
+    B[模型建议 enter_plan_mode] --> Q{弹 Yes/No dialog}
+    Q -->|Yes| P
+    Q -->|No 或超时| O[保持 Off，模型继续直接做]
+    style P fill:#2d6,color:#000
+    style O fill:#ddd,color:#000
+```
+
+- **用户直接进入**：工具栏 Plan 按钮、`/plan enter` 斜杠命令、Tauri `set_plan_mode` 命令、HTTP `POST /plan/{sid}/mode`。用户已经表达意图，直接转 Planning。
+- **模型建议 + 用户审批**：`enter_plan_mode` 工具。模型识别到值得先规划的非 trivial 任务时调用它，工具内部复用 `ask_user_question` 基础设施弹出 Yes/No 对话框；用户选「Enter Plan Mode」才转 Planning，选「Skip planning」则保持 Off、tool result 告知模型「用户决定直接做」。
+
+`enter_plan_mode` 的几个非显然行为：
+
+- **只拒 in-progress**：当前状态是 `Planning` / `Review` / `Executing` 时短路返回（不重复弹窗）；`Off` 是正常入口，`Completed` 是合法 re-entry（状态机允许 `Completed → Planning`），两者都会照常弹确认，让用户能基于上次 plan 重新规划后续任务。
+- **超时语义可配**：等待用户响应受 `AppConfig.ask_user_question_timeout_enabled` 控制。默认**永不超时**；开启后复用 `ask_user_question_timeout_secs`，超时按「Skip planning」保守处理——清 pending 状态、返回超时 message，让模型继续直接做。
+- **schema 下一轮才刷新**：工具接受后返回的文本明确告诉模型，当前 turn 的工具 schema 已经过时，Plan Agent 工具集（含 `submit_plan`）从**同一 turn 的下一轮**才可调用，直到 plan 被审批前 `write` / `edit` / `apply_patch` / `canvas` 全程不可用。
 
 ## 后端架构
 
-### 模块结构
+### 分层与模块
+
+Plan 子系统整体落在 `ha-core` kernel 里（零 Tauri 依赖）。业务逻辑集中在 `plan` 模块，各种壳（Tauri / HTTP / IM channel）只做薄薄的转发，前端靠事件订阅。
+
+```mermaid
+flowchart TB
+    subgraph shells[薄壳层]
+      T[Tauri commands/plan.rs]
+      H[ha-server routes/plan.rs]
+      C[ha-channel worker/slash.rs]
+    end
+    subgraph kernel[ha-core kernel · plan 模块]
+      TR[transition.rs<br/>状态转移中枢]
+      ST[store.rs<br/>内存 PLAN_STORE]
+      FIO[file_io.rs<br/>plan 文件读写]
+      GT[gates.rs<br/>质量闸]
+      GIT[git.rs<br/>checkpoint]
+      IDX[index.rs<br/>跨会话只读索引]
+      CTX[agent/plan_context.rs<br/>prompt 注入]
+    end
+    subgraph tools[计划相关工具]
+      EPM[enter_plan_mode]
+      SP[submit_plan]
+      AUQ[ask_user_question]
+      TASK[task_*]
+    end
+    DB[(sessions.db)]
+    FE[前端 usePlanMode + 视图]
+
+    T --> TR
+    H --> TR
+    C --> TR
+    EPM --> TR
+    SP --> GT --> FIO
+    SP --> TR
+    TASK -->|maybe_complete_plan| TR
+    TR --> ST
+    TR --> GIT
+    TR --> DB
+    TR -->|EventBus| FE
+    CTX --> ST
+    CTX --> FIO
+    IDX --> FIO
+    IDX --> DB
+```
+
+`plan` 模块的文件分工：
 
 ```
 crates/ha-core/src/plan/
-├── mod.rs           # 公开 re-export
-├── types.rs         # PlanModeState (5 态) + PlanMeta + PlanVersionInfo + PlanAgentConfig
-├── store.rs         # 内存 store + restore_from_db + checkpoint 决策
-├── file_io.rs       # plan 文件读写 + 版本备份
-├── git.rs           # Git checkpoint 创建/回滚/清理
-├── constants.rs     # PLAN_MODE_SYSTEM_PROMPT / PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX 等
-├── subagent.rs      # 计划子 Agent 注册（可选）
-└── tests.rs         # 状态机 + transition 单测
+├── mod.rs         # 公开 re-export
+├── types.rs       # PlanModeState（5 态）+ PlanMeta + PlanVersionInfo + PlanAgentConfig
+├── store.rs       # 内存 store（PLAN_STORE）+ restore_from_db + checkpoint 决策
+├── transition.rs  # transition_state（唯一副作用入口）+ maybe_complete_plan
+├── file_io.rs     # plan 文件读写 + 版本备份 + flat→subdir 迁移
+├── gates.rs       # 提交质量闸（check_plan_quality）
+├── git.rs         # git checkpoint 创建 / 回滚 / 清理
+├── constants.rs   # PLAN_MODE_SYSTEM_PROMPT / 各阶段 prompt / 工具集常量
+├── index.rs       # 跨会话只读索引（list_all_plans / resolve_plan_mention）
+├── subagent.rs    # 计划子 agent 注册（可选并行探索）
+└── tests.rs       # 状态机 + transition 单测
 ```
 
-`PlanMeta` 字段（删了 step / paused 后）：
+`PlanMeta` 是每个会话在内存 `PLAN_STORE` 中的元数据：
+
 ```rust
 pub struct PlanMeta {
     pub session_id: String,
@@ -109,142 +199,191 @@ pub struct PlanMeta {
     pub state: PlanModeState,
     pub created_at: String,
     pub updated_at: String,
-    pub version: u32,                   // 编辑递增，用于版本备份
-    pub checkpoint_ref: Option<String>, // git branch/stash ref
+    pub version: u32,                        // 每次保存/编辑递增，用于版本备份
+    pub checkpoint_ref: Option<String>,      // git branch ref
+    pub executing_started_at: Option<String>,// 最近一次进入 Executing 的时刻（自动收尾切片点）
 }
 ```
 
-### 工具清单
+### 状态转移中枢：transition_state
 
-| 工具 | 文件 | 作用 | 触发 |
-|---|---|---|---|
-| `enter_plan_mode` | [`tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs) | 模型**建议**进入 plan mode（带可选 `reason` 参数）。复用 `ask_user_question` 底层基础设施触发 Yes/No dialog；用户接受才转 Planning state；用户拒绝则保持 Off + tool result 告知模型"用户决定不进 plan mode"。Guard 只拒 in-progress 状态（Planning/Review/Executing），允许 `Off` / `Completed` 走完整审批流程（Completed 是状态机允许的 re-entry 路径，让用户能在做完一个 plan 后基于上次 plan 重新规划）。等待用户响应受 `AppConfig.ask_user_question_timeout_enabled` 控制：默认永不超时；开启后复用 `ask_user_question_timeout_secs`，超时按"Skip planning"默认处理（清 pending state + 返回超时 message）让模型继续直接做 | 模型建议 + 用户审批 |
-| `submit_plan` | [`tools/submit_plan.rs`](../../crates/ha-core/src/tools/submit_plan.rs) | Planning 末尾写入 plan 文件 + 转 Review state | 模型自主 |
-| `ask_user_question` | [`tools/ask_user_question.rs`](../../crates/ha-core/src/tools/ask_user_question.rs) | 制定计划期间向用户结构化提问（澄清需求/方案选择） | Planning 期 |
-| `task_create` / `task_update` / `task_list` | [`tools/task.rs`](../../crates/ha-core/src/tools/task.rs) | 进度追踪（实施期唯一进度真相） | Executing 期 |
+所有入口（UI / 斜杠 / 工具 / IM channel / HTTP）都经由 `transition_state` 切换状态，这样一整套副作用永远配套触发，不会有哪条路径漏做某一步。每个 caller 传入一个稳定的 `reason` 字符串（如 `"slash_exit"`、`"all_tasks_completed"`），它落进 `plan_mode_changed.reason` 供前端与埋点归因。
 
-**已删除的工具**：`update_plan_step`、`amend_plan`、`PlanStep` / `PlanStepStatus` 数据结构、`parser.rs` 整个文件——历史上这些用于 step level 进度追踪，现已被 task 系统取代。
+```mermaid
+flowchart TD
+    S[transition_state target reason] --> V{set_plan_state<br/>合法转移?}
+    V -->|否| REJ[返回 Rejected<br/>无下游副作用]
+    V -->|是| E1{target == Off?}
+    E1 -->|是| CX[取消活跃计划子 agent]
+    E1 -->|否| E2
+    CX --> E2{target == Executing?}
+    E2 -->|是| STAMP[stamp executing_started_at<br/>内存 + DB 列]
+    E2 -->|否| E3
+    STAMP --> E3{target ∈ Off / Completed?}
+    E3 -->|是| CLEAN[cleanup git checkpoint<br/>Completed 额外显式清 checkpoint_ref]
+    E3 -->|否| E4
+    CLEAN --> E4{需要建 checkpoint?}
+    E4 -->|是| MK[create_checkpoint_for_session]
+    E4 -->|否| P
+    MK --> P[持久化 plan_mode 到 DB]
+    P --> EM[emit plan_mode_changed]
+    EM --> DONE[返回 Applied]
+```
+
+要点：
+
+- **建 checkpoint 只发生在 `Review → Executing`**，且仅当 `should_create_execution_checkpoint` 判定尚无 checkpoint 时，避免重复建。
+- **`Completed` 与 `Off` 都会清理 git checkpoint**，但两者语义不同：`Off` 走 `set_plan_state` 的 `map.remove` 把整个 PlanMeta drop 掉，`checkpoint_ref` 自然消失；`Completed` 保留 PlanMeta，因此必须**额外显式**把 `meta.checkpoint_ref` 置 `None`，否则 `get_plan_checkpoint` 会返回一个 git 里已删的 branch，前端 Rollback 按钮可点却指向不存在的 ref。
+- `set_plan_state(Off)` 是唯一必然合法的边，所以「取消子 agent」这一步永远发生在合法转移之后。
 
 ### System Prompt 注入
 
-入口在 [`agent/plan_context.rs::resolve_plan_context_for_session`](../../crates/ha-core/src/agent/plan_context.rs)（核心逻辑在 ha-core，`src-tauri/src/commands/chat.rs` 只 early-resolve plan state 后委托进 chat_engine），按 plan state 分支：
+`resolve_plan_context_for_session`（`agent/plan_context.rs`）把后端的 `PlanModeState` 翻译成 chat engine 需要的整套输入：Plan agent 模式、路径允许清单、以及注入到 system prompt 的文本段。集中在这里，保证每个聊天入口——Tauri、HTTP、IM channel、cron、subagent——拿到完全一致的 Plan 行为。
 
-| State | 注入 prompt | 来源常量 |
+| 状态 | 注入 prompt | 来源 |
 |---|---|---|
-| Planning | 5 阶段规划工作流 + Restrictions + Re-entry Check + 推荐 plan 结构 | `PLAN_MODE_SYSTEM_PROMPT` |
-| Review | `# Plan Review` header + 待审批的 plan content | plan content（plan 文件中途消失时 fallback 到 `PLAN_MODE_SYSTEM_PROMPT`） |
-| Executing | "plan 已冻结" + "用 task_create 拆 todos + task_update 推进" + plan content | `PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX + plan_content` |
-| Completed | 总结指令 + plan content | `PLAN_COMPLETED_SYSTEM_PROMPT + plan_content` |
+| Off | 无 | — |
+| Planning | 规划工作流 + 限制条款 + Re-entry 检查 + 推荐 plan 结构 | `PLAN_MODE_SYSTEM_PROMPT` |
+| Review | `# Plan Review` header + 待审批 plan 正文 | plan 正文（文件中途消失时回退到 `PLAN_MODE_SYSTEM_PROMPT`） |
+| Executing | 「plan 已冻结，用 task 工具拆 todo + 推进」+ plan 正文 | `PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX` + 正文 |
+| Completed | 总结指令 + plan 正文 | `PLAN_COMPLETED_SYSTEM_PROMPT` + 正文 |
 
-**Re-entry Check 段**（`PLAN_MODE_SYSTEM_PROMPT` 顶部）强制模型进 plan mode 后**先读老 plan 文件**，按"同任务增量修订 / 不同任务覆盖"分支处理，对齐 claude-code 的 plan-mode-re-entry 设计。
+`PLAN_MODE_SYSTEM_PROMPT` 引导模型走一套规划工作流：深度探索（可派最多 3 个探索子 agent 并行）→ 需求澄清（用 `ask_user_question` 结构化提问）→ 方案设计 → 撰写计划 → 审批修订。顶部的 **Re-entry 检查**要求模型进 Plan Mode 后**先读老 plan 文件**，再判断「同任务增量修订」还是「不同任务重头覆盖」。
+
+**一个容易踩的坑**：chat engine 的 mid-turn 探针比较的是原始 `state`，而**不是**派生出来的 `mode`。因为 `Planning` 和 `Review` 都映射到同一个 `PlanAgent` 模式，`Completed` 和 `Off` 都映射到 `Off` 模式——如果只比 `mode`，就会漏掉 `Planning → Review` 和 `Completed → Off` 这两个转移，而它们的注入文本恰恰差别巨大（Review 内嵌刚提交的 plan 正文，Completed 内嵌已执行的 plan）。`PlanResolvedContext` 因此把原始 `state` 一并缓存在 agent 上。
+
+### 提交质量闸
+
+`submit_plan` 落盘前会先跑一道确定性质量闸 `check_plan_quality`（`gates.rs`）。计划不达标就**直接被拒**，返回一段可操作的反馈，不会写入文件、也不会转 Review。
+
+判定规则（纯字符串/标题检查，无 LLM）：
+
+| 级别 | code | 触发条件 |
+|---|---|---|
+| Error | `plan_too_short` | 正文 trim 后不足 80 字符 |
+| Error | `missing_context` | 缺 Context / 上下文 / 背景 标题 |
+| Error | `missing_steps` | 缺 Steps / Approach / 步骤 / 方案 / 实施 标题 |
+| Error | `missing_verification` | 缺 Verification / 验证 / 验收 标题 |
+| Error | `missing_critical_files` | 判定为「代码任务」却缺 Critical Files / 文件 标题 |
+| Warning | `missing_reuse` | 未点名可复用的既有代码/helper |
+| Warning | `missing_risks` | 未点出风险或边界情况 |
+
+只有 Error 会阻断提交（`GateReport::passed()` 只看 Error）；Warning 放行但会在反馈里提示。「代码任务」由关键词启发式判定（正文含 `code`/`implement`/`refactor`/`.rs`/`.ts`/`修复`/`重构` 等）。同一个 `gates.rs` 还提供 `check_workflow_script_draft` 供 workflow 脚本草稿复用，二者共享同一套 `GateReport` 形态。
 
 ### Plan 文件持久化
 
-- **路径**：`~/.hope-agent/plans/<agent_id>/<session_id>/plan-{YYYYMMDDTHHMMSSZ}-{nano}.md`，按 agent + session 双层子目录物理隔离。模型 ls 自己 session 的目录只看到自己的 plan 文件，跨 session 误读路径堵死（解决"模型 ls /plans 看到所有 session 旧文件，按时间戳挑最新的撞上别 session"的根因）
-- **目录构造**：[`paths::session_plans_dir(agent_id, session_id)`](../../crates/ha-base/src/paths.rs) — `agent_id` 与 `session_id` 都做 alphanum + `-` / `_` sanitize 防御 path traversal（深度防御，本身已是 slug/UUID）；[`file_io::session_plans_dir_for(session_id)`](../../crates/ha-core/src/plan/file_io.rs) 内部查 SessionDB 反查 agent_id，DB 缺失（极罕见 session-create vs first-write race）落 `_unknown_agent` bucket 不让写失败
-- **老文件迁移**：[`plan::migrate_flat_plans_to_subdirs`](../../crates/ha-core/src/plan/file_io.rs) 在 `app_init::start_background_tasks` primary 块通过 `spawn_blocking` 跑——扫 `~/.hope-agent/plans/*.md` flat 文件，按文件名前 8 字符 short_id 反查 [`SessionDB::find_sessions_by_id_prefix`](../../crates/ha-core/src/session/db.rs)；唯一匹配 → mv 到 `<agent>/<session>/`；多重/未知匹配留 flat + warn 等人工核对。幂等可重复跑
-- **版本备份**：覆盖前自动 copy 到 `plan-{...}-v{N}.md`（同 session 子目录内），`N` 在内存 `PlanMeta.version` + 磁盘 `max_disk_version()` 取大者递增（重启后内存计数器重置不会覆盖老备份）
-- **写入入口**：`save_plan_file(session_id, content)` —— 唯一被 `submit_plan` 工具调用 + Tauri 命令 `save_plan_content` + HTTP `PUT /api/plan/{sid}/content`
-- **读取入口**：`load_plan_file(session_id) -> Result<Option<String>>`
+- **路径**：`~/.hope-agent/plans/<agent_id>/<session_id>/plan-{YYYYMMDDTHHMMSSZ}-{nano}.md`，按 agent + session 双层子目录物理隔离。这样模型 `ls` 自己 session 的目录只会看到自己的 plan 文件，堵死了「`ls /plans` 看到所有 session 的旧文件、按时间戳挑最新的、结果撞上别 session 的计划」这类跨 session 串味。
+- **目录构造**：`paths::session_plans_dir(agent_id, session_id)`（`crates/ha-base/src/paths.rs`）对 `agent_id` 与 `session_id` 做 alphanum + `-` / `_` sanitize，作为 path traversal 的深度防御（它们本身已是 slug/UUID）。`file_io::session_plans_dir_for(session_id)` 内部查 SessionDB 反查 `agent_id`；DB 里暂时查不到（极罕见的 session 创建 vs 首次写入竞态）时落 `_unknown_agent` bucket，不让写失败。
+- **版本备份**：覆盖前自动把当前文件 copy 成 `plan-{...}-v{N}.md`（同 session 子目录内）。`N` 取内存 `PlanMeta.version` 与磁盘 `max_disk_version() + 1` 的较大者——重启后内存计数器会重置为 1，若不扫盘取大就会覆盖已有的 `-v1.md` 备份。
+- **老文件迁移**：`migrate_flat_plans_to_subdirs`（`file_io.rs`）在启动的后台任务里跑一次，扫 `~/.hope-agent/plans/*.md` 的旧 flat 文件，按文件名前 8 位 short_id 反查 `SessionDB::find_sessions_by_id_prefix`；唯一匹配就 mv 进 `<agent>/<session>/`，多重/未知匹配保留原地 + warn 等人工核对。幂等，可重复跑。
+- **写入入口**：`save_plan_file(session_id, content)`——被 `submit_plan` 工具、Tauri `save_plan_content`、HTTP `PUT /plan/{sid}/content` 共用。
+- **读取入口**：`load_plan_file(session_id) -> Result<Option<String>>`。
 
-### Plan → Completed 的自动转换（task 驱动）
+### Plan → Completed 的自动收尾（task 驱动）
 
-Executing 期间 plan **完成度的唯一信号源是 task 系统**——历史上由 `update_plan_step` 工具的"全 step 终态"自动收尾，那条路径已删，现在统一走 [`plan::maybe_complete_plan`](../../crates/ha-core/src/plan/transition.rs)（公开 helper）。两条 caller 共用同一 side effect：
+Executing 期间，「计划是否做完」的**唯一信号源是 task 系统**。统一收敛到公开 helper `maybe_complete_plan`（`transition.rs`）。三条 caller 共用同一副作用，无论最后一个 task 是谁关掉的，行为都一致：
 
-- **模型驱动路径** [`tools/task.rs::tool_task_update`](../../crates/ha-core/src/tools/task.rs)：模型调 `task_update(id, status: "completed")` 触发
-- **用户驱动路径** [`session::set_task_status_and_snapshot`](../../crates/ha-core/src/session/tasks.rs)：用户在 TaskProgressPanel 手动点完成（或 HTTP `PATCH /api/tasks/{id}/status`）触发
+- **模型驱动**：`tools/task.rs` 里模型调 `task_update(id, status: "completed")`。
+- **用户手动完成**：`session::set_task_status_and_snapshot`——用户在 TaskProgressPanel 点完成（或 HTTP `PATCH /api/tasks/{id}/status`）。
+- **用户删除任务**：`session::delete_task_and_snapshot`——删掉 plan 期最后一个未完成 task，等价于把它标完成，同样必须让 plan 收尾，否则 plan 会永远卡在 Executing（git checkpoint 不清理、`plan_mode_changed` 不发）。
 
-不论哪条路径，逻辑都是：
+`maybe_complete_plan` 的判定逻辑：
 
-1. 写入 task 状态 + emit `task_updated` 快照
-2. 若本次 status 是 `Completed` → 调 `maybe_complete_plan(session_id, &tasks)`
-3. helper 内部检测：
-   - 当前 plan state 是 `Executing`
-   - **plan-期 task 范围**内全部 task 终态（非空）—— 用 `PlanMeta.executing_started_at` 作为切片点过滤 `task.created_at >= start`，避免遗留 pending task 阻塞自动收尾或单纯完成旧 task 误触发完成
-4. 全满足 → `transition_state(Completed, "all_tasks_completed")` 走标准副作用包（cleanup git ref + 清 `meta.checkpoint_ref` + DB persist + emit `plan_mode_changed`）
+```mermaid
+flowchart TD
+    A[某 task 变更后调用] --> B{当前 plan state<br/>== Executing?}
+    B -->|否| STOP[no-op]
+    B -->|是| C{有 executing_started_at?}
+    C -->|有| D[按 created_at ≥ start<br/>切出 plan 期 task]
+    C -->|无 崩溃恢复兜底| E[退回全 session task]
+    D --> F{切片非空 且<br/>全部 Completed?}
+    E --> F
+    F -->|否| STOP
+    F -->|是| G[transition_state Completed<br/>all_tasks_completed]
+```
 
-**`executing_started_at` 持久化**：`PlanMeta.executing_started_at: Option<String>` 由 [`transition_state`](../../crates/ha-core/src/plan/transition.rs) 在转入 Executing 时 stamp（rfc3339 UTC），同时写到 `sessions.plan_executing_started_at` SQLite 列（migration `ALTER TABLE sessions ADD COLUMN plan_executing_started_at TEXT`）。`restore_from_db` 从 DB 读回 stamp 填到内存 PlanMeta，跨会话切换 / app 重启都能正确恢复切片起点；转 Off 时 DB 列清空。无 stamp（崩溃恢复等极端情况）回退到全 session 检查避免死锁——但 stamp 总会在正常流程中存在。
+**`executing_started_at` 的切片作用**是这套逻辑的关键。它在转入 Executing 时被 stamp（RFC3339 UTC），既写进内存 `PlanMeta`，也写进 `sessions.plan_executing_started_at` 列（`ALTER TABLE sessions ADD COLUMN plan_executing_started_at TEXT`）。`maybe_complete_plan` 用它把「全部 task 终态」的判断范围**限定在执行开始之后创建的 task**，一次挡住两个失败模式：
 
-**`plan_completed_at` 精确完成时间**：`sessions.plan_completed_at` 在进入 Completed 时写入；Completed → Off 归档时保留完成事实；重新进入 Planning 时清空，代表开启新 lifecycle。历史 completed 行不以 `sessions.updated_at` 回填，Dashboard 通过 `sampleCount / eligibleCount` 明示精确耗时覆盖率。Plan 索引以 `completedAt` 暴露该字段。
+1. 审批前遗留的 pending task 永远阻塞自动收尾；
+2. 单纯完成一个执行前的旧 task 误触发收尾（此时根本还没有 plan 期 task）。
 
-如果模型在 Executing 期没用 task 系统（比如直接做完一两步小事不拆 todos），plan 会停在 Executing 直到用户手动 `/plan exit` 或新一轮 `task_update` 触发自动收尾。这是有意的——task list 为空时无法判断"是否真的全做完"。
+`restore_from_db` 会从 DB 列把 stamp 读回内存，跨会话切换 / app 重启都能恢复切片起点；转 `Off` 时该列清空。没有 stamp（崩溃恢复等极端情况）才退回全 session 检查以避免死锁——正常流程里 stamp 总是存在。
+
+**精确完成时间 `plan_completed_at`**：`sessions.plan_completed_at` 在首次进入 Completed 时写入，进入 `Planning` 开启新 lifecycle 时清空，转 `Off` 归档时保留（不擦除完成事实）。历史 completed 行不用 `sessions.updated_at` 回填，Dashboard 以样本/合格计数明示精确耗时的覆盖率。跨会话索引以 `completedAt` 暴露该字段。
+
+**如果模型执行期不用 task 系统**（比如直接做完一两步小事、不拆 todo），plan 会停在 Executing，直到用户手动 `/plan exit` 或下一次 `task_update` 触发收尾。这是刻意的——task list 为空时无法判断「是否真的全做完」。
 
 ### Git Checkpoint
 
-Hope 比 claude-code / opencode 多的高价值能力：
+相比同类工具，Plan Mode 多了一层执行前的安全网：进入执行前在工作目录的 git 仓库里打一个 checkpoint，执行失败可整体回滚。
 
-- **创建时机**：`Review → Executing` 转移瞬间（仅当 `should_create_execution_checkpoint` 为 true，避免重复）
-- **机制**：在工作目录 git 仓库内创建一个临时 branch 或 stash，`PlanMeta.checkpoint_ref` 记录 ref name
-- **清理时机**：`Executing → Completed` 或 `→ Off`（`cleanup_checkpoint`），用户也可通过 `plan_rollback` 命令显式回滚到该点。**`Completed` 路径除了 `cleanup_checkpoint` 删 git ref 外还显式清 `meta.checkpoint_ref = None`**——`set_plan_state(Off)` 走 `map.remove` 整体 drop 不需要，但 `Completed` 保留 PlanMeta 必须显式清，否则 `get_plan_checkpoint` 返回 stale ref 导致前端 Rollback 按钮可点但 git ref 不存在
-- **入口**：`create_checkpoint_for_session` / `rollback_to_checkpoint` / `cleanup_checkpoint` 在 [`plan/git.rs`](../../crates/ha-core/src/plan/git.rs)；transition 一致性由 [`transition_state`](../../crates/ha-core/src/plan/transition.rs) 集中
+- **创建时机**：`Review → Executing` 转移瞬间，仅当尚无 checkpoint（`should_create_execution_checkpoint`）。
+- **机制**：在 HEAD 上创建一个临时 **branch**（不是 stash），命名 `hope-agent/checkpoint-{session_short}-{UTC_YYYYMMDDTHHMMSSZ}-{uuid8}`——UTC + UUID 尾巴避免 DST 与同秒跨设备撞名。branch 名记进 `PlanMeta.checkpoint_ref`。
+- **回滚**：`rollback_to_checkpoint` 执行 `git reset --hard <checkpoint_branch>` 撤销执行期全部改动，成功后删掉该 branch。用户可通过 `plan_rollback` 命令显式触发。
+- **清理**：`Executing → Completed` 或 `→ Off` 时 `cleanup_checkpoint` 删 branch（Completed 额外显式清 `checkpoint_ref`，见上文）。
+- 所有 git 调用都经 `git_command()` 包一层（Windows 上 `CREATE_NO_WINDOW` 防止控制台闪窗），入口 `create_checkpoint_for_session` / `rollback_to_checkpoint` / `cleanup_checkpoint` 在 `plan/git.rs`，转移一致性由 `transition_state` 统一保证。
 
-### Mid-turn Plan Mode 收紧（执行层 fallback）
+### 中途进入 Plan Mode 的执行层收紧
 
-**问题**：模型在普通会话（Off）turn 中途调 `enter_plan_mode` 工具且用户接受后，plan store 实时状态变为 Planning，但当前 turn 的 `AssistantAgent` 是 turn 起始时按 Off 构建的——`plan_agent_mode = Off` 字段不会刷新，turn 内剩余 tool_call 仍能调用 write/edit/apply_patch/canvas 改文件，违反 user-sovereignty 契约（用户同意"先规划"后期望文件不被修改）。
+**问题**：模型在普通会话（Off）的一个 turn 中途调 `enter_plan_mode` 且用户接受后，plan store 的实时状态已变为 Planning，但当前 turn 的 `AssistantAgent` 是在 turn 起始时按 Off 构建的——它的工具 schema 不会中途刷新，turn 内剩余的 tool_call 仍能调 `write` / `edit` / `apply_patch` / `canvas` 改文件，违反了用户「先规划」的意愿。
 
-**修复**：`resolve_tool_permission`（[`tools/execution.rs`](../../crates/ha-core/src/tools/execution.rs)）入口加 live state fallback：
+**修复**：`resolve_tool_permission`（`tools/execution.rs`）入口加一道实时状态兜底：
 
 ```text
-if !is_internal_tool
-   && ctx.plan_mode_allowed_tools.is_empty()        // turn 起始时 Off 快照
-   && live_plan_state ∈ {Planning, Review}          // 实时状态已切换
-   && tool_name ∈ PLAN_MODE_DENIED_TOOLS            // 高危 mutation 工具
-=> Decision::Deny { reason: "Plan Mode (state: ...) just entered this turn — '...' is denied." }
+若   非内部工具
+且   ctx.plan_mode_allowed_tools 为空          // turn 起始时是 Off 快照
+且   实时 plan 状态 ∈ {Planning, Review}        // 实时状态已切换
+且   tool_name ∈ PLAN_MODE_DENIED_TOOLS         // write/edit/apply_patch/canvas/artifact
+则   Deny，理由 "Plan Mode ... just entered this turn — '...' is denied."
 ```
 
-`enter_plan_mode` 工具 result 文本同步告知模型当前 turn schema 已 stale，让它主动收敛到 read-only 工具集（read / grep / glob / find / ls / lsp / web_* / ask_user_question / submit_plan）。下一条 user 消息触发新 agent 重建后走标准 PlanAgent 路径。
+`enter_plan_mode` 的 tool result 也同步告知模型「当前 turn schema 已过时」，引导它主动收敛到只读工具集。下一条 user 消息触发 agent 重建后，就走标准 PlanAgent 路径、不再需要这道兜底。
 
 ## 前端架构
 
+Plan Mode 在前端呈现为**三个各司其职、零重叠的视图**，加一个统一的状态 Hook：
+
+```mermaid
+flowchart LR
+    subgraph events[后端事件]
+      E1[plan_mode_changed]
+      E2[plan_submitted]
+      E3[ask_user_request]
+      E4[plan_subagent_status]
+      E5[task_updated]
+    end
+    E1 & E2 & E3 & E4 --> H[usePlanMode]
+    H --> PP[PlanPanel<br/>契约视图·纯 markdown]
+    H --> PC[PlanCardBlock<br/>消息流卡片入口]
+    E5 --> TB[TaskBlock<br/>历史快照]
+    E5 --> TP[TaskProgressPanel<br/>实时进度]
+```
+
 ### usePlanMode Hook
 
-[`src/components/chat/plan-mode/usePlanMode.ts`](../../src/components/chat/plan-mode/usePlanMode.ts) 维护 plan 相关 React state，订阅后端事件。
-
-返回值（已瘦身，删了 planSteps / progress / completedCount 等 step 派生字段）：
+`src/components/chat/plan-mode/usePlanMode.ts` 维护 plan 相关 React state 并订阅后端事件。它订阅 `plan_mode_changed` / `plan_submitted` / `ask_user_request`（含 `ask_user:resolved`、`ask_user_timed_out`）/ `plan_subagent_status`。返回值只含 plan 层字段——不含任何 step 派生的进度字段（那些属于 task 系统）：
 
 ```ts
 {
-  planState: PlanModeState           // 5 态
-  planContent: string                // plan 文件全文
-  showPanel: boolean                 // 右侧 PlanPanel 是否展开
-  planCardInfo: { title } | null     // submit_plan 后的卡片摘要
-  pendingQuestionGroup: ...          // ask_user_question 待答
-  planSubagentRunning: boolean       // 计划子 agent 状态
+  planState: PlanModeState      // 5 态
+  planContent: string           // plan 文件全文
+  showPanel: boolean            // 右侧 PlanPanel 是否展开
+  planCardInfo: { title } | null
+  pendingQuestionGroup: ...     // ask_user_question 待答
+  planSubagentRunning: boolean  // 计划子 agent 状态
   enterPlanMode / exitPlanMode / approvePlan / openPlanPanel: () => Promise
 }
 ```
 
-订阅事件：`plan_mode_changed` / `plan_submitted` / `ask_user_request` / `plan_subagent_status`。**不再订阅** `plan_step_updated` / `plan_amended` / `plan_content_updated`（这些事件已删）。
+### 三个视图
 
-### PlanPanel（右侧面板，单一职责）
+- **PlanPanel**（`PlanPanel.tsx`）——**契约视图**，只渲染 plan markdown。标题栏有版本历史 / Pop Out / 最大化 / 关闭；主体是 `<MarkdownRenderer content={planContent} />`；Review/Planning 状态下用户可选中段落给反馈（`<plan-inline-comment>` wrapper 提交回 LLM，见 `CommentPopover.tsx` + `planCommentMessage.ts`）；底部 action bar 按 state 显示 Approve / Resume / Rollback / Exit。它**不渲染** step list / 进度条 / 分组，进度交给 task 视图。
+- **PlanCardBlock**（`PlanCardBlock.tsx`）——`submit_plan` 后嵌入消息流的卡片，含标题 + 「View in panel」链接 + 可选摘要 + 按 state 的 action 按钮（review：Approve / Exit；executing：执行中；completed：完成）。
+- **TaskBlock + TaskProgressPanel**——进度独立于 Plan Mode，由 task 系统提供。`TaskBlock.tsx` 是消息流里的**历史快照**（每次 `task_*` 调用结果嵌入对应气泡）；`tasks/TaskProgressPanel.tsx` 是 ChatInput 上方的**实时面板**（渲染当前 session 全量 task list）。
 
-[`src/components/chat/plan-mode/PlanPanel.tsx`](../../src/components/chat/plan-mode/PlanPanel.tsx) **只渲染 plan markdown**——这是设计契约的视图。
+一句话记忆：PlanPanel = 契约视图，TaskProgressPanel = 实时视图，TaskBlock = 历史视图。
 
-- 标题栏：版本历史 / Pop Out / 最大化 / 关闭
-- 主体：`<MarkdownRenderer content={planContent} />`，所有状态都用 markdown 渲染
-- 评论功能：Review/Planning 状态下用户可选中段落给反馈（`<plan-inline-comment>` wrapper 提交回 LLM）
-- 底部 action bar：根据 state 显示「Approve」/「Resume」/「Rollback」/「Exit」按钮
-
-**不渲染 step list / progress bar / phase 分组**——任务进度由 TaskBlock + TaskProgressPanel 负责，避免三处重复。
-
-### PlanCardBlock（消息流摘要）
-
-[`src/components/chat/plan-mode/PlanCardBlock.tsx`](../../src/components/chat/plan-mode/PlanCardBlock.tsx) 是 `submit_plan` 后嵌入消息流的卡片，包含：
-
-- 标题 + 「View in panel」链接
-- 可选 `summary` 摘要行
-- Action 按钮（review 状态：Approve / Exit；executing：执行中；completed：完成）
-
-不再渲染 step phase 分组——简化为简单卡片入口。
-
-### TaskBlock + TaskProgressPanel（进度展示）
-
-进度独立于 Plan Mode，由 task 系统提供：
-
-- [`src/components/chat/message/TaskBlock.tsx`](../../src/components/chat/message/TaskBlock.tsx)：消息流里的**历史快照**，每次 `task_*` 工具调用结果嵌入对应消息气泡
-- [`src/components/chat/tasks/TaskProgressPanel.tsx`](../../src/components/chat/tasks/TaskProgressPanel.tsx)：ChatInput 上方的**实时进度面板**，渲染当前 session 全量 task list
-
-PlanPanel = 契约视图，TaskProgressPanel = 实时视图，TaskBlock = 历史视图。三者各司其职零重叠。
+Pop Out 出的独立窗口是 `src/PlanDetachedWindow.tsx`。
 
 ## 完整交互流程
 
@@ -257,30 +396,31 @@ sequenceDiagram
     participant T as Task System
     participant UI as Frontend
 
-    Note over U,UI: 1a. 用户直接进入（UI / 斜杠命令）
+    Note over U,UI: 1a. 用户直接进入
     U->>UI: /plan enter（或 ChatInput 按钮）
     UI->>P: set_plan_mode("planning")
     P->>UI: emit plan_mode_changed → 打开 PlanPanel
 
     Note over U,UI: 1b. 模型建议 + 用户审批（备选）
-    M->>U: 调 enter_plan_mode(reason)<br/>触发 Yes/No dialog
-    U-->>M: Yes → 转 Planning（同 1a）<br/>No → 保留 Off，模型继续直接做
+    M->>U: 调 enter_plan_mode(reason)，弹 Yes/No
+    U-->>M: Yes → 转 Planning；No/超时 → 保持 Off 继续做
 
     Note over M,FS: 2. Planning：探索 + 提问 + 起草
-    M->>FS: 读老 plan（Re-entry Check）
+    M->>FS: 读老 plan（Re-entry 检查）
     M->>U: ask_user_question（澄清需求）
     U-->>M: 回答
     M->>FS: write/edit plan.md（增量起草）
 
     Note over M,P: 3. Submit Plan
     M->>P: submit_plan(title, content)
+    P->>P: check_plan_quality 质量闸
     P->>FS: 落盘 + 备份老版本
     P->>UI: 转 Review + emit plan_submitted
 
     Note over U,UI: 4. Review：用户审批
     UI->>U: 渲染 PlanCardBlock + PlanPanel markdown
-    U->>UI: Approve（建 git checkpoint）
-    U-->>P: 转 Executing
+    U->>UI: Approve
+    UI->>P: 转 Executing（建 git checkpoint + stamp）
 
     Note over M,T: 5. Executing：拆 task + 推进
     M->>T: task_create([t1, t2, t3...])
@@ -291,124 +431,73 @@ sequenceDiagram
     end
 
     Note over U,P: 6a. 修订路径（Re-entry）
-    alt 用户在执行期想改方案
+    alt 用户想改方案
         U->>P: /plan enter（或模型再调 enter_plan_mode）
-        P-->>P: Executing → Planning（合法 transition）
-        Note over M,FS: 模型读老 plan，决定增量改 vs 覆盖
+        P-->>P: Executing/Completed → Planning
+        Note over M,FS: 模型读老 plan，增量改 vs 覆盖
     end
 
     Note over P,UI: 6b. 完成路径
-    M->>P: 全部 task 终态
+    T->>P: plan 期 task 全终态 → maybe_complete_plan
     P->>UI: emit plan_mode_changed (completed)
 ```
+
+## 跨会话 Plan 索引（只读）
+
+跨会话浏览、`@plan:` mention、Dashboard 统计共用同一个只读索引层（`plan/index.rs`），它**只读不写**。两个核心入口：
+
+- **`list_all_plans(filter)`**：扫 `~/.hope-agent/plans/<agent>/<session>/` 二级目录，对每个 session 取**当前 plan 文件**（排除 `-v{N}.md` 备份）+ 文件 ctime/mtime + version 总数；再用 `SessionDB::get_session` 反查 session 元信息（title / project_id / 持久化的 `plan_mode`）。运行时 state 优先从内存 `PLAN_STORE` 取，缺失才回退 `sessions.plan_mode`。session 行已删但 plan 文件残留时标 `orphan = true`。**无痕会话被排除**——incognito 是「关闭即焚」，plan 文件可能在 purge 前短暂残留，但绝不能出现在全局 Plans view 或 Dashboard 统计里（两者都消费此索引）。
+- **`resolve_plan_mention(short_id, version)`**：把 session id 前缀解析回唯一 `(session_id, agent_id, file_path)`；前缀不唯一/无匹配则报错。`version = 0` 选当前文件，`version > 0` 走 `list_plan_versions` 找对应 `-v{N}.md`。
+
+**为什么不引入独立 `plans` 索引表**：plan 的双源持久化（文件系统 + `sessions.plan_mode` 列）已经够用，当前 plan 规模下扫盘成本可以忽略；引入新表要额外的事件驱动写入 + 迁移 + 一致性风险，收益不值。真到 plan 破万级别再考虑。
+
+**`@plan:<short>:v<n>` mention 协议**：
+
+- 解析端 `parsePlanMentions.ts` 用正则 `/@plan:([0-9a-f]{4,16})(?::v(\d+))?/gi`，靠 `plan:` 前缀与普通 file-mention 消歧。
+- 展开端 `expandPlanMentions.ts` 调 `resolve_plan_mention`，把 plan 文件作为 `text/markdown` attachment append 进 `attachments[]`，与普通 mention 共用按 file_path 去重的路径。
+
+**Plans View 只读契约**（`src/components/plans/PlansView.tsx`）：右侧详情面板严格不暴露写接口——复用 `PlanPanel` 时传 `planState="off"` 且不传 `onApprove` / `onRequestChanges` / `onExit`，强制屏蔽编辑路径；版本列表的 restore 按钮也只在 `planning` / `review` 状态显示。
+
+**Dashboard Plan 统计**：Plan 指标并入「目标与执行 → Plan 与 Task」，由 `dashboard/control_plane.rs`（`ha-dash` crate）按 created cohort 统计完成率、activeNow、状态/Agent/项目/趋势与精确 P50。独立 Plans View 只负责正文、版本、`@plan` 引用与跳回会话，不重复承担统计。
 
 ## 入口一览
 
 | 路径 | 入口 | 实现 |
 |---|---|---|
-| 模型建议（带用户审批） | `enter_plan_mode` 工具 → 弹 Yes/No dialog → 用户接受才转 state | [`tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs) |
-| 斜杠命令 | `/plan enter / exit / approve / show` | [`slash_commands/handlers/plan.rs`](../../crates/ha-core/src/slash_commands/handlers/plan.rs) |
-| 桌面前端 | ChatInput Plan 按钮 → Tauri `set_plan_mode` | [`src-tauri/src/commands/plan.rs`](../../src-tauri/src/commands/plan.rs) |
-| HTTP 客户端 | `POST /api/plan/{sid}/mode {state}` | [`crates/ha-server/src/routes/plan.rs`](../../crates/ha-server/src/routes/plan.rs) |
-| IM 渠道 | `/plan` 斜杠命令通过 channel/worker/slash 路径 | [`channel/worker/slash.rs`](../../crates/ha-channel/src/channel/worker/slash.rs) |
+| 模型建议（带用户审批） | `enter_plan_mode` 工具 → 弹 Yes/No → 用户接受才转 state | `crates/ha-core/src/tools/enter_plan_mode.rs` |
+| 斜杠命令 | `/plan enter / exit / approve / show` | `crates/ha-core/src/slash_commands/handlers/plan.rs` |
+| 桌面前端 | ChatInput Plan 按钮 → Tauri `set_plan_mode` | `src-tauri/src/commands/plan.rs` |
+| HTTP 客户端 | `POST /api/plan/{sid}/mode {state}` | `crates/ha-server/src/routes/plan.rs` |
+| IM 渠道 | `/plan` 斜杠命令经 channel/worker/slash 路径 | `crates/ha-channel/src/channel/worker/slash.rs` |
 
-**注意**：Tauri / HTTP 路径都显式 reject `state=="paused"`（保留拒绝逻辑作为客户端兼容兜底，避免外部 API 误用）。
+Tauri / HTTP 路径都显式拒绝 `state=="paused"`（保留兼容兜底，避免外部 API 误用）。
 
 ## 事件系统
 
 | 事件 | 触发时机 | Payload | 消费者 |
 |---|---|---|---|
 | `plan_mode_changed` | state 切换 | `{sessionId, state, reason}` | usePlanMode → 更新 React state |
-| `plan_submitted` | submit_plan 工具调用 | `{sessionId, title}` | usePlanMode → 显示 PlanCardBlock + 打开 PlanPanel |
-| `ask_user_request` | ask_user_question 工具调用 | AskUserQuestionGroup | PlanPanel → 渲染问答 UI |
-| `plan_subagent_status` | 计划子 agent 状态变化 | `{sessionId, status, runId}` | usePlanMode → 显示 "calculating plan..." indicator |
-| `task_updated` | task_* 工具调用 | `{sessionId, tasks}` | TaskBlock + TaskProgressPanel |
+| `plan_submitted` | submit_plan 成功 | `{sessionId, title, content}` | usePlanMode → 显示 PlanCardBlock + 打开 PlanPanel |
+| `ask_user_request` | ask_user_question 调用 | AskUserQuestionGroup | PlanPanel → 渲染问答 UI |
+| `plan_subagent_status` | 计划子 agent 状态变化 | `{sessionId, status, runId}` | usePlanMode → 显示「calculating plan...」indicator |
+| `task_updated` | task_* 变更 | `{sessionId, tasks}` | TaskBlock + TaskProgressPanel |
 
-**已删除的事件**：`plan_step_updated` / `plan_amended` / `plan_content_updated`。
+## 差异化能力
 
-## 与 Claude Code / OpenCode 对比
+Plan Mode 与业界同类「先规划再执行」模式共享同一套骨架：自由 markdown 设计文档（无 checkbox）、plan 与进度双轨分离、执行期冻结、可重入修订。它额外提供两项能力：
 
-| 维度 | Hope（重构后） | Claude Code | OpenCode |
-|---|---|---|---|
-| Plan 形态 | 自由 markdown 设计文档（无 checkbox） | 自由 markdown 设计文档（无 checkbox） | 自由 markdown |
-| Plan 进度 | task 系统（独立） | TodoWrite（独立） | todowrite 工具 |
-| 双轨分离 | ✅ plan / task | ✅ plan / TodoWrite | ✅ plan / todowrite |
-| 工作模式 | 5 状态机（独立 mode） | Plan Mode（独立 mode） | 独立 plan agent（agent 切换） |
-| 模型建议入口 | ✅ `enter_plan_mode` 工具（带用户 Yes/No 审批） | ✅ `EnterPlanMode` 工具（带用户审批） | ❌ 用户切 agent |
-| Plan 冻结期 | Executing+Completed 全冻结 | 冻结，需 re-entry | plan agent permission deny edit |
-| Re-entry | ✅ `Executing/Completed → Planning` | ✅ system-reminder-plan-mode-re-entry | ✅ 切回 plan agent |
-| Git Checkpoint | ✅ 独有能力 | ❌ | ❌ |
-| 通用任务支持 | ✅ 5 类场景例子 | 编程为主 | 编程为主 |
-| Paused 状态 | ❌ 删除（用 exit/stop） | ❌ | ❌ |
+- **Git Checkpoint**——执行前自动打 branch，失败一键回滚，是同类工具通常没有的安全网。
+- **通用任务覆盖**——不局限于编程，system prompt 与示例同时覆盖调研、写作、决策等非代码任务。
 
-Hope 的 Git Checkpoint + 通用任务覆盖是相对 claude-code/opencode 的差异化优势。
+## 参考：接口清单
 
-## 文件清单
+**Tauri 命令**（`src-tauri/src/commands/plan.rs`）：
+`get_plan_mode` / `set_plan_mode` / `get_plan_content` / `save_plan_content` / `get_pending_ask_user_group` / `create_owner_ask_user_question` / `respond_ask_user_question` / `get_plan_versions` / `load_plan_version_content` / `restore_plan_version` / `plan_rollback` / `get_plan_checkpoint` / `get_plan_file_path` / `cancel_plan_subagent`；跨会话索引在 `plan_index.rs`（`list_plans` / `resolve_plan_mention`）。
 
-**后端核心**（`crates/ha-core/src/plan/`）：
-- `mod.rs` / `types.rs` / `store.rs` / `file_io.rs` / `git.rs` / `constants.rs` / `subagent.rs` / `tests.rs`
+**HTTP 路由**（`crates/ha-server/src/routes/plan.rs`，均挂 `/api` 前缀）：
+`/plan/{sid}/mode` · `/content` · `/versions` · `/version/restore` · `/plan/version/load` · `/plan/{sid}/rollback` · `/checkpoint` · `/file-path` · `/pending-ask-user` · `/cancel` · `/plan/list` · `/plan/resolve-mention`。
 
-**工具实现**（`crates/ha-core/src/tools/`）：
-- `enter_plan_mode.rs` / `submit_plan.rs` / `ask_user_question.rs` / `task.rs`
-- 工具定义：`tool_defs/plan_tools.rs` / `tool_defs/task_tools.rs`
+**斜杠命令动作**（`crates/ha-core/src/slash_defs/types.rs`）：
+`CommandAction::EnterPlanMode` / `ExitPlanMode` / `ApprovePlan` / `ShowPlan`。
 
-**斜杠命令**：
-- `crates/ha-core/src/slash_commands/handlers/plan.rs`
-- `crates/ha-core/src/slash_defs/types.rs`（CommandAction::EnterPlanMode / ExitPlanMode / ApprovePlan / ShowPlan）
-
-**Tauri 命令**：
-- `src-tauri/src/commands/plan.rs`：`get_plan_mode` / `set_plan_mode` / `get_plan_content` / `save_plan_content` / `respond_ask_user_question` / `get_pending_ask_user_group` / `get_plan_versions` / `load_plan_version_content` / `restore_plan_version` / `plan_rollback` / `get_plan_checkpoint` / `get_plan_file_path` / `cancel_plan_subagent`
-
-**HTTP 路由**：
-- `crates/ha-server/src/routes/plan.rs`：`/plan/{sid}/mode` / `/content` / `/versions` / `/version/load` / `/version/restore` / `/rollback` / `/checkpoint` / `/file-path` / `/pending-ask-user` / `/cancel`
-
-**前端核心**：
-- `src/components/chat/plan-mode/usePlanMode.ts`：状态 + 事件订阅
-- `src/components/chat/plan-mode/PlanPanel.tsx`：右侧面板（纯 markdown 渲染）
-- `src/components/chat/plan-mode/PlanCardBlock.tsx`：消息流卡片
-- `src/components/chat/plan-mode/CommentPopover.tsx` / `usePlanComment.ts`：inline 评论
-- `src/PlanDetachedWindow.tsx`：独立窗口（Pop Out）
-
-**Task 系统（进度追踪）**：
-- `src/components/chat/message/TaskBlock.tsx`：消息流历史
-- `src/components/chat/tasks/TaskProgressPanel.tsx` / `taskProgress.ts` / `useTaskProgressSnapshot.ts`：实时面板
-
-**已删除的文件**（历史参考）：
-- `crates/ha-core/src/tools/plan_step.rs`
-- `crates/ha-core/src/tools/amend_plan.rs`
-- `crates/ha-core/src/plan/parser.rs`
-- `src/components/chat/plan-mode/PlanStepItem.tsx`
-- `src/components/chat/plan-mode/PlanBlock.tsx`
-- `src/components/chat/plan-mode/PlanActionBar.tsx`
-- `src/components/chat/plan-mode/planParser.ts`
-
----
-
-## 历史 Plan 索引（只读）
-
-> 新增于 2026-05-11。
-
-跨会话浏览 / `@plan:` mention / Dashboard 统计共用同一索引层 [`crates/ha-core/src/plan/index.rs`](../../crates/ha-core/src/plan/index.rs)。两个核心入口：
-
-- `list_all_plans(filter: PlanIndexFilter)`：扫 `~/.hope-agent/plans/<agent>/<session>/` 二级目录，对每个 session 取**当前 plan 文件**（排除 `-v{N}.md` 备份）+ 文件 mtime + version 总数；再用 `SessionDB::get_session` 反查 session 元信息（title / project_id / 持久化的 `plan_mode`）。运行时 state 优先从内存 `PLAN_STORE` 取，缺失回退到 `sessions.plan_mode`。`orphan = true` 标识 session 行已删但 plan 文件残留。
-- `resolve_plan_mention(short_id, version)`：把前 4–16 位的 session id 前缀解析回唯一 `(session_id, agent_id, file_path)`。`version = 0` 选当前；`version > 0` 走 `list_plan_versions` 找 `-v{N}.md`。
-
-**为什么不引入 `plans` 索引表**：plan 双源持久化（文件系统 + `sessions.plan_mode`）已足够，扫盘成本在 < 5000 plan 规模下 < 50ms；引入新表需要事件驱动写 + 迁移脚本 + drift 风险，相对收益不值。如果未来 plan 总数破万，再做事件表迁移。
-
-**前端调用面**：
-- Tauri: `list_plans` / `resolve_plan_mention` ([`src-tauri/src/commands/plan_index.rs`](../../src-tauri/src/commands/plan_index.rs))
-- HTTP: `POST /api/plan/list` / `POST /api/plan/resolve-mention` ([`crates/ha-server/src/routes/plan.rs`](../../crates/ha-server/src/routes/plan.rs))
-
-**Plans View 只读契约**（[`src/components/plans/PlansView.tsx`](../../src/components/plans/PlansView.tsx)）：右侧详情面板**严格不暴露写接口**——复用 `PlanPanel` 时通过 `planState="off"` + 不传 `onApprove` / `onRequestChanges` / `onExit` 强制屏蔽编辑路径；版本列表里的 restore 按钮也仅在 `planning` / `review` 状态显示（详情见 [PlanPanel.tsx](../../src/components/chat/plan-mode/PlanPanel.tsx)）。
-
-**`@plan:<short>:v<n>` mention 协议**：
-- 解析端：[`src/components/chat/plan-mention/parsePlanMentions.ts`](../../src/components/chat/plan-mention/parsePlanMentions.ts) 正则 `/@plan:([0-9a-f]{4,16})(?::v(\d+))?/gi`，与现有 file-mention 不冲突（首 token `plan:` 前缀消歧）
-- 展开端：[`expandPlanMentions.ts`](../../src/components/chat/plan-mention/expandPlanMentions.ts) 调 `resolve_plan_mention` → 把 plan 文件作为 `text/markdown` attachment append 到 `attachments[]`，与 `expandMentionsToAttachments` 共用 dedup-by-file_path 路径
-
-**Dashboard Plan stats**：Plan 指标已并入“目标与执行 → Plan 与 Task”，由 [`dashboard/control_plane.rs`](../../crates/ha-dash/src/dashboard/control_plane.rs) 按 created cohort 统计完成率、activeNow、状态/Agent/项目/趋势与精确 P50。旧 [`dashboard/plan_stats.rs`](../../crates/ha-dash/src/dashboard/plan_stats.rs) 命令和 API 保留兼容。独立 Plans View 继续是只读历史页，负责正文、版本、`@plan` 引用与跳回会话，不重复承担统计。
-
-## 变更历史
-
-- **2026-05-11**：跨会话 plan 索引（`list_all_plans` / `resolve_plan_mention`）+ Plans 全局只读 view + `@plan:<short>:v<n>` mention 协议 + Dashboard Plan 统计。PlanPanel 版本按钮放开到所有 state，已归档 plan 可回看历史版本，restore 仍仅在 `planning` / `review` 可点。
-- **2026-05-02**：plan / task 解耦重构。Plan 退回纯设计文档（无 checkbox / 无 step status），task 系统独占进度追踪；删除 Paused 状态；删除 amend_plan / update_plan_step / PlanStep；新增 `enter_plan_mode` 工具（**建议+用户审批**语义，模型不能自己转 state，复用 ask_user_question 底层基础设施）；新增 task 全部完成时自动转 `Completed` state 路径（[`tools/task.rs::maybe_complete_plan`](../../crates/ha-core/src/tools/task.rs)）；PlanPanel 单一职责改为只渲染 markdown。同 PR 内三处 codex review 修复：(1) 执行层 mid-turn Plan Mode fallback——`resolve_tool_permission` 入口实时检查 plan store 兜住 turn 中切 plan mode 后剩余 schema 仍含 mutation 工具的漏洞；(2) `PlanMeta.executing_started_at` 时间戳 + `maybe_complete_plan` 按 plan-期 task 范围判定，避免遗留 pending task 阻塞自动收尾或误触发；(3) `transition_state` 在 Completed 路径显式清 `meta.checkpoint_ref` 避免 stale rollback ref
-- **2026-03-29**：六态状态机 + 双 Agent 模式（已废弃，见上述重构）
+**工具定义**：schema 在 `crates/ha-core/src/tool_defs/plan_tools.rs` 与 `task_tools.rs`；实现在 `crates/ha-core/src/tools/{enter_plan_mode,submit_plan,ask_user_question,task}.rs`。
