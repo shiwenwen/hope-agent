@@ -178,58 +178,6 @@ pub async fn drop_approval_by_request_id(request_id: &str) {
     }
 }
 
-/// 单一目的：让 kernel 侧的审批顺序测试可以在 kernel 内部就地写完，不必
-/// 反向依赖 ha-channel 的 `pub(crate) hold_text_pending_lock_for_test`
-/// 或搬到 `crates/ha-channel/tests/`（那要把大量 kernel `pub(crate)` 面
-/// 放开为 `pub`）。全部 `#[cfg(test)]`，生产不编。
-///
-/// 测试用法：
-/// ```ignore
-/// let _serial = channel_hooks::test_seam::serial_guard().lock().await;
-/// let _hook = channel_hooks::test_seam::install(Arc::new(|_id| Box::pin(async {
-///     // 阻塞 / 记录 / 计数 …
-/// })));
-/// deny_pending_for_session(&session_id, source).await;
-/// // 断言 …
-/// ```
-#[cfg(test)]
-pub(crate) mod test_seam {
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::sync::{Arc, OnceLock, RwLock};
-
-    pub(crate) type BoxedTestHook =
-        Arc<dyn Fn(&str) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
-
-    static OVERRIDE_SLOT: OnceLock<RwLock<Option<BoxedTestHook>>> = OnceLock::new();
-    static TEST_SERIAL: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-
-    pub(crate) fn override_slot() -> &'static RwLock<Option<BoxedTestHook>> {
-        OVERRIDE_SLOT.get_or_init(|| RwLock::new(None))
-    }
-
-    /// 多个测试共用同一 override slot，必须先取这把锁再 install，否则会互相
-    /// 覆盖（cargo test 默认并行）。
-    pub(crate) fn serial_guard() -> &'static tokio::sync::Mutex<()> {
-        TEST_SERIAL.get_or_init(|| tokio::sync::Mutex::new(()))
-    }
-
-    /// RAII：drop 时清 override，无论测试成功还是 panic 都不会留残留状态。
-    pub(crate) struct ApprovalHookGuard;
-    impl Drop for ApprovalHookGuard {
-        fn drop(&mut self) {
-            if let Some(slot) = OVERRIDE_SLOT.get() {
-                *slot.write().unwrap() = None;
-            }
-        }
-    }
-
-    pub(crate) fn install(hook: BoxedTestHook) -> ApprovalHookGuard {
-        *override_slot().write().unwrap() = Some(hook);
-        ApprovalHookGuard
-    }
-}
-
 /// 撤掉某会话全部审批待决卡片。未装配即 no-op。
 pub async fn drop_approval_for_session(session_id: &str) {
     if let Some(h) = hooks() {
@@ -345,5 +293,60 @@ pub async fn start_watchdog_register_failure(
 ) {
     if let Some(h) = hooks() {
         (h.start_watchdog_register_failure)(account, error).await;
+    }
+}
+
+/// 单一目的：让 kernel 侧的审批顺序测试可以在 kernel 内部就地写完，不必
+/// 反向依赖 ha-channel 的 `pub(crate) hold_text_pending_lock_for_test`
+/// 或搬到 `crates/ha-channel/tests/`（那要把大量 kernel `pub(crate)` 面
+/// 放开为 `pub`）。全部 `#[cfg(test)]`，生产不编。
+///
+/// 位置说明：本 module 放在文件末尾以避免触发 `clippy::items_after_test_module`
+/// ——`#[cfg(test)]` module 后不得再放生产项。
+///
+/// 测试用法：
+/// ```ignore
+/// let _serial = channel_hooks::test_seam::serial_guard().lock().await;
+/// let _hook = channel_hooks::test_seam::install(Arc::new(|_id| Box::pin(async {
+///     // 阻塞 / 记录 / 计数 …
+/// })));
+/// deny_pending_for_session(&session_id, source).await;
+/// // 断言 …
+/// ```
+#[cfg(test)]
+pub(crate) mod test_seam {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{Arc, OnceLock, RwLock};
+
+    pub(crate) type BoxedTestHook =
+        Arc<dyn Fn(&str) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+    static OVERRIDE_SLOT: OnceLock<RwLock<Option<BoxedTestHook>>> = OnceLock::new();
+    static TEST_SERIAL: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+    pub(crate) fn override_slot() -> &'static RwLock<Option<BoxedTestHook>> {
+        OVERRIDE_SLOT.get_or_init(|| RwLock::new(None))
+    }
+
+    /// 多个测试共用同一 override slot，必须先取这把锁再 install，否则会互相
+    /// 覆盖（cargo test 默认并行）。
+    pub(crate) fn serial_guard() -> &'static tokio::sync::Mutex<()> {
+        TEST_SERIAL.get_or_init(|| tokio::sync::Mutex::new(()))
+    }
+
+    /// RAII：drop 时清 override，无论测试成功还是 panic 都不会留残留状态。
+    pub(crate) struct ApprovalHookGuard;
+    impl Drop for ApprovalHookGuard {
+        fn drop(&mut self) {
+            if let Some(slot) = OVERRIDE_SLOT.get() {
+                *slot.write().unwrap() = None;
+            }
+        }
+    }
+
+    pub(crate) fn install(hook: BoxedTestHook) -> ApprovalHookGuard {
+        *override_slot().write().unwrap() = Some(hook);
+        ApprovalHookGuard
     }
 }

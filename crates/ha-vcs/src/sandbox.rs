@@ -20,7 +20,7 @@ use ha_core::truncate_utf8;
 use ignore::WalkBuilder;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{ErrorKind, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -2214,7 +2214,7 @@ impl Read for GuardedArchiveReader<'_> {
         // 忙循环烧 CPU 直到外层 spawn_blocking 被 drop。用 `Other` 让消费者
         // 把它当终态错误传播出去。
         check_isolated_archive_guard(self.deadline, self.cancellation_token)
-            .map_err(|error| std::io::Error::new(ErrorKind::Other, error.to_string()))?;
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
         self.file.read(buffer)
     }
 }
