@@ -110,7 +110,7 @@ pub async fn register_failure(account: &ChannelAccountConfig, error: &anyhow::Er
         (count, backoff, should_emit)
     };
 
-    ha_core::app_error!(
+    app_error!(
         "channel",
         "watchdog",
         "Channel auto-start failed for '{}' [{}/{}] (attempt {}): {} | hint: {} | next retry in {}s",
@@ -152,7 +152,7 @@ pub async fn cancel_pending(account_id: &str) {
     let mut pending = PENDING.lock().await;
     if pending.remove(account_id).is_some() {
         PENDING_COUNT.fetch_sub(1, Ordering::Relaxed);
-        ha_core::app_info!(
+        app_info!(
             "channel",
             "watchdog",
             "Cancelled pending auto-start retries for '{}' (user action)",
@@ -168,7 +168,7 @@ pub async fn mark_success(account_id: &str) {
     let mut pending = PENDING.lock().await;
     if let Some(entry) = pending.remove(account_id) {
         PENDING_COUNT.fetch_sub(1, Ordering::Relaxed);
-        ha_core::app_info!(
+        app_info!(
             "channel",
             "watchdog",
             "Channel '{}' recovered after {} retry attempt(s)",
@@ -183,7 +183,7 @@ pub fn spawn_loop(registry: Arc<ChannelRegistry>) {
         return;
     }
     tokio::spawn(async move {
-        ha_core::app_info!(
+        app_info!(
             "channel",
             "watchdog",
             "Channel auto-start retry watchdog started (sweep every {}s)",
@@ -233,7 +233,7 @@ async fn retry_one(registry: &Arc<ChannelRegistry>, account_id: &str) {
     }
 
     let owned = account.clone();
-    ha_core::app_info!(
+    app_info!(
         "channel",
         "watchdog",
         "Retrying channel auto-start for '{}' [{}/{}]",

@@ -168,7 +168,7 @@ async fn attach_im_live_mirror_inner(
         Ok(Some(c)) => c,
         Ok(None) => return None,
         Err(e) => {
-            ha_core::app_warn!(
+            app_warn!(
                 "channel",
                 "mirror",
                 "get_conversation_by_session({}) failed: {}",
@@ -256,7 +256,7 @@ pub(crate) async fn finalize_im_live_mirror(state: ImLiveMirrorState, response: 
     };
 
     if !attach_still_matches(&attach.session_id, attach.id) {
-        ha_core::app_info!(
+        app_info!(
             "channel",
             "mirror",
             "[{}] Skipped GUI mirror finalization to {} because attach moved",
@@ -370,7 +370,7 @@ pub(crate) async fn abort_im_live_mirror_with_body(state: ImLiveMirrorState, bod
         reply_to_message_id: None,
     };
     send_text_chunks(&plugin, &target, &body, None, &[]).await;
-    ha_core::app_info!(
+    app_info!(
         "channel",
         "mirror",
         "[{}] Aborted GUI mirror to {} — followed up with notice",

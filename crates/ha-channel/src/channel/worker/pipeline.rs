@@ -212,14 +212,14 @@ fn pipeline_outcome(
     let stream_outcome = match join_result {
         Ok(outcome) => outcome,
         Err(e) => {
-            ha_core::app_warn!("channel", "worker", "Streaming preview task failed: {}", e);
+            app_warn!("channel", "worker", "Streaming preview task failed: {}", e);
             StreamPreviewOutcome::default()
         }
     };
 
     let drained_rounds: Vec<RoundOutput> = {
         let mut guard = round_texts.lock().unwrap_or_else(|e| {
-            ha_core::app_warn!("channel", "worker", "round_texts poisoned: {}", e);
+            app_warn!("channel", "worker", "round_texts poisoned: {}", e);
             e.into_inner()
         });
         guard.drain()

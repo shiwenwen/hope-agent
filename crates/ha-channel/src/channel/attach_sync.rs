@@ -99,7 +99,7 @@ async fn deliver_attach_catchup_inner(
     let session_db = match ha_core::globals::get_session_db() {
         Some(db) => db,
         None => {
-            ha_core::app_warn!(
+            app_warn!(
                 "channel",
                 "attach_sync",
                 "session_db not initialised; skipping attach catch-up for {}",
@@ -137,7 +137,7 @@ async fn deliver_attach_catchup_inner(
     let messages = match session_db.load_session_messages_latest(session_id, CATCHUP_WINDOW) {
         Ok((msgs, _total, _has_more)) => msgs,
         Err(e) => {
-            ha_core::app_warn!(
+            app_warn!(
                 "channel",
                 "attach_sync",
                 "load_session_messages_latest({}) failed: {}",
@@ -232,7 +232,7 @@ async fn start_late_mirror(
         Ok(Some(conv)) => conv,
         Ok(None) => return false,
         Err(e) => {
-            ha_core::app_warn!(
+            app_warn!(
                 "channel",
                 "attach_sync",
                 "get_conversation_by_session({}) failed before late mirror: {}",
