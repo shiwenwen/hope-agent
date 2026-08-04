@@ -251,6 +251,94 @@ pub struct HealthResponse {
     pub phone: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
+    /// Canonical bridge implementation identifier (for example
+    /// `baileys`, `whatsmeow`, or `cloud-api`). Older bridges may omit it.
+    #[serde(
+        default,
+        alias = "bridgeImplementation",
+        alias = "library",
+        alias = "engine"
+    )]
+    pub implementation: Option<String>,
+    /// Bridge/engine version. A Baileys bridge must expose this so the
+    /// critical GHSA-qvv5-jq5g-4cgg minimum can be enforced at startup.
+    #[serde(default, alias = "bridgeVersion", alias = "libraryVersion")]
+    pub version: Option<String>,
+    /// Optional runtime capabilities advertised by newer bridge versions.
+    /// The current plugin keeps its conservative static capability set; the
+    /// discovery data is diagnostic until account-scoped capabilities exist.
+    #[serde(default)]
+    pub capabilities: BridgeCapabilities,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeCapabilities {
+    #[serde(default)]
+    pub supports_edit: bool,
+    #[serde(default)]
+    pub supports_unsend: bool,
+    #[serde(default)]
+    pub supports_buttons: bool,
+    #[serde(default)]
+    pub stable_user_ids: bool,
+}
+
+impl HealthResponse {
+    /// Reject known-vulnerable Baileys bridges before they can ingest or emit
+    /// messages. Unknown bridge implementations remain backward compatible;
+    /// once a bridge identifies itself as Baileys, a parseable patched version
+    /// is mandatory rather than silently assuming safety.
+    pub fn validate_security(&self) -> Result<()> {
+        let Some(implementation) = self
+            .implementation
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(());
+        };
+        let normalized = implementation.to_ascii_lowercase();
+        if !normalized.contains("baileys") && !normalized.contains("whiskeysockets") {
+            return Ok(());
+        }
+
+        let version = self
+            .version
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "WhatsApp Baileys bridge did not report its version; require >=6.7.22 or >=7.0.0-rc12"
+                )
+            })?;
+        if baileys_version_is_patched(version) {
+            return Ok(());
+        }
+
+        anyhow::bail!(
+            "WhatsApp Baileys bridge version '{}' is unsupported or vulnerable; require >=6.7.22 or >=7.0.0-rc12",
+            ha_core::truncate_utf8(version, 80)
+        )
+    }
+
+    pub fn capability_names(&self) -> Vec<&'static str> {
+        let mut names = Vec::new();
+        if self.capabilities.supports_edit {
+            names.push("edit");
+        }
+        if self.capabilities.supports_unsend {
+            names.push("unsend");
+        }
+        if self.capabilities.supports_buttons {
+            names.push("buttons");
+        }
+        if self.capabilities.stable_user_ids {
+            names.push("stable-user-ids");
+        }
+        names
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -331,7 +419,119 @@ pub struct BridgeAttachment {
 #[serde(rename_all = "camelCase")]
 pub struct SendResponse {
     #[serde(default)]
+    pub success: Option<bool>,
+    #[serde(default)]
     pub message_id: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
+}
+
+impl SendResponse {
+    pub fn delivery_error(&self) -> Option<String> {
+        if let Some(error) = self
+            .error
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(error.to_string());
+        }
+        if self.success == Some(false) {
+            return Some("WhatsApp bridge reported success=false".to_string());
+        }
+        None
+    }
+}
+
+fn baileys_version_is_patched(raw: &str) -> bool {
+    let mut version = raw.trim();
+    if let Some((_, suffix)) = version.rsplit_once('@') {
+        if !suffix.is_empty() {
+            version = suffix;
+        }
+    }
+    version = version.trim_start_matches(['v', 'V', '=']);
+    let version = version.split('+').next().unwrap_or(version);
+    let (core, prerelease) = version
+        .split_once('-')
+        .map_or((version, None), |(core, pre)| (core, Some(pre)));
+    let mut numbers = core.split('.');
+    let Some(major) = numbers.next().and_then(|v| v.parse::<u64>().ok()) else {
+        return false;
+    };
+    let Some(minor) = numbers.next().and_then(|v| v.parse::<u64>().ok()) else {
+        return false;
+    };
+    let Some(patch) = numbers.next().and_then(|v| v.parse::<u64>().ok()) else {
+        return false;
+    };
+    if numbers.next().is_some() {
+        return false;
+    }
+
+    match major {
+        0..=5 => false,
+        6 => minor > 7 || (minor == 7 && (patch > 22 || (patch == 22 && prerelease.is_none()))),
+        7 => {
+            if minor > 0 || patch > 0 || prerelease.is_none() {
+                return true;
+            }
+            let Some(pre) = prerelease else {
+                return true;
+            };
+            let lower = pre.to_ascii_lowercase();
+            let Some(rest) = lower.strip_prefix("rc") else {
+                return false;
+            };
+            rest.trim_start_matches(['.', '-'])
+                .parse::<u64>()
+                .map(|rc| rc >= 12)
+                .unwrap_or(false)
+        }
+        _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{baileys_version_is_patched, HealthResponse, SendResponse};
+
+    #[test]
+    fn baileys_security_floor_matches_advisory() {
+        for version in ["6.7.21", "6.7.22-beta.1", "7.0.0-rc11", "n/a"] {
+            assert!(!baileys_version_is_patched(version), "{version}");
+        }
+        for version in [
+            "6.7.22",
+            "6.8.0",
+            "7.0.0-rc12",
+            "v7.0.0-rc.14",
+            "7.0.0",
+            "@whiskeysockets/baileys@7.1.0",
+        ] {
+            assert!(baileys_version_is_patched(version), "{version}");
+        }
+    }
+
+    #[test]
+    fn identified_baileys_bridge_must_report_a_patched_version() {
+        let missing = HealthResponse {
+            implementation: Some("baileys".to_string()),
+            ..Default::default()
+        };
+        assert!(missing.validate_security().is_err());
+
+        let patched = HealthResponse {
+            implementation: Some("WhiskeySockets/Baileys".to_string()),
+            version: Some("7.0.0-rc14".to_string()),
+            ..Default::default()
+        };
+        patched.validate_security().unwrap();
+    }
+
+    #[test]
+    fn explicit_send_failure_is_not_delivery_success() {
+        let response: SendResponse = serde_json::from_str(r#"{"success":false}"#).unwrap();
+        assert!(response.delivery_error().is_some());
+    }
 }

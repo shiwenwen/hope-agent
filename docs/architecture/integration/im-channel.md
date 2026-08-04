@@ -121,13 +121,13 @@ graph TB
 | **Slack** | Socket Mode WebSocket | Bot Token + App Token | DM / Group / Channel | mrkdwn 格式、一次性 URL 重连 |
 | **飞书 / Lark** | WebSocket 事件订阅 | App ID + App Secret | DM / Group | OAuth Token 自动刷新、多域名、cardkit 卡片流式 |
 | **QQ Bot** | WebSocket Gateway | App ID + Client Secret | DM / Group / Channel | RESUME 重连、`QQBotAccessToken` 认证 |
-| **微信 / WeChat** | HTTP 长轮询（iLink） | 扫码登录 | DM | AES-128 媒体加密、输入指示、会话过期暂停 |
-| **WhatsApp** | HTTP 轮询（外部桥接） | Bridge URL + Token | DM / Group | 同 WeChat 桥接架构、扫码登录、媒体支持 |
+| **微信 / WeChat** | HTTP 长轮询（iLink） | 扫码登录 | DM | AES-128 媒体加密、输入指示、发送业务码 fail-closed |
+| **WhatsApp** | HTTP 轮询（外部桥接） | Bridge URL + Token | DM / Group | Bridge 身份/版本/能力发现、Baileys 安全门禁、媒体支持 |
 | **Signal** | SSE + HTTP RPC（signal-cli） | 手机号 + 链接设备 | DM / Group | 实时推送、撤回/回复/输入指示、需外部 signal-cli |
 | **iMessage** | JSON-RPC over stdio（imsg CLI） | macOS 本地数据库 | DM / Group | macOS 限定、imsg 子进程管理 |
 | **IRC** | TCP/TLS 直连 | Nick + NickServ | DM / Group | 原生 IRC 协议、PING/PONG 心跳、自动加入频道 |
 | **Google Chat** | Webhook + REST API | Service Account JWT | DM / Group | 嵌入式 Webhook 服务器、线程回复、需公网 URL |
-| **LINE** | Webhook + REST API | Channel Token + Secret | DM / Group | HMAC-SHA256 签名验证、Reply/Push 双模式、需公网 URL |
+| **LINE** | Webhook + REST API | Channel Token + Secret | DM / Group | HMAC-SHA256、Webhook 防重放、编辑/撤回事件、单聊 Loading |
 
 ### 出站附件能力
 
@@ -848,6 +848,25 @@ ask_user / approval 的**按钮卡片**也走 schema 2.0，但**不**走 cardkit
 - **chat_id 编码**：多端点用前缀区分——`c2c:{openid}` / `group:{group_openid}` / `channel:{channel_id}` / `dms:{guild_id}`。
 - **事件**：`C2C_MESSAGE_CREATE`→Dm、`GROUP_AT_MESSAGE_CREATE`→Group、`AT_MESSAGE_CREATE`→Channel、`DIRECT_MESSAGE_CREATE`→Dm。
 - **限制**：不支持 edit/unsend（API 不提供）。
+
+### WhatsApp Bridge
+
+WhatsApp 仍通过用户自部署的 HTTP Bridge 接入。`GET /api/health` 的兼容响应至少包含 `connected`，新版 Bridge 应额外返回 `accountName`、`implementation`、`version` 与 `capabilities`。
+
+- `implementation` 支持 `bridgeImplementation` / `library` / `engine` 兼容别名，`version` 支持 `bridgeVersion` / `libraryVersion`。
+- 一旦 Bridge 标识为 Baileys，启动、凭据校验与健康探测都会强制版本不低于 `6.7.22` 或 `7.0.0-rc12`；缺失、不可解析或更旧版本 fail-closed。依据是 [GHSA-qvv5-jq5g-4cgg](https://github.com/WhiskeySockets/Baileys/security/advisories/GHSA-qvv5-jq5g-4cgg)。未声明实现的旧 Bridge 暂保兼容，但启动时明确告警为“安全版本无法核验”。
+- 能力发现当前只用于诊断；在 `ChannelCapabilities` 支持 account-scoped 之前，不会把 Bridge 自报能力直接升级成执行权限。
+- `/api/send` 与 `/api/media` 若返回 `success=false`，即使 HTTP 为 2xx 也按投递失败处理。Bridge URL 进入日志前移除 userinfo、query 和 fragment，避免凭据随 URL 泄漏。
+
+### LINE
+
+LINE Webhook 在验签后执行三层入口保护：
+
+1. `mode=standby` 事件不进入 Hope Agent，避免与当前接管会话的 LINE Module 抢答。
+2. `webhookEventId` 进入账户级有界去重表，平台重投不会再次触发 Agent turn。
+3. `messageEdited` 按原消息 ID + `timestamp` 保留最新事件，乱序或相同时间戳重投会丢弃；事件映射到 `InboundEvent::MessageEdited`，只走 out-of-band 日志，不会把编辑文本当成第二条用户指令。`unsend` 同理映射为 `MessageRecalled`。
+
+单聊生成前的 `send_typing` 使用官方 `POST /v2/bot/chat/loading/start`，展示 60 秒 Loading Animation；群组/多人会话不调用该端点，失败仅记 debug，不影响主回复。协议字段以 [LINE Messaging API](https://developers.line.biz/en/reference/messaging-api/) 为准。
 
 ---
 

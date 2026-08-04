@@ -72,6 +72,7 @@ impl LineApi {
             .post(&url)
             .bearer_auth(&self.channel_access_token)
             .json(&body)
+            .timeout(std::time::Duration::from_secs(10))
             .send()
             .await
             .context("Failed to send POST /v2/bot/message/reply")?;
@@ -123,6 +124,31 @@ impl LineApi {
             );
         }
 
+        Ok(())
+    }
+
+    /// POST /v2/bot/chat/loading/start — display a best-effort waiting
+    /// animation in a one-on-one chat. LINE rejects group/room IDs.
+    pub async fn start_loading(&self, user_id: &str, loading_seconds: u8) -> Result<()> {
+        let body = loading_request_body(user_id, loading_seconds)?;
+        let url = format!("{}/v2/bot/chat/loading/start", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.channel_access_token)
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to send POST /v2/bot/chat/loading/start")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let resp_body = resp.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "LINE API POST /v2/bot/chat/loading/start returned {}: {}",
+                status,
+                ha_core::truncate_utf8(&resp_body, 512)
+            );
+        }
         Ok(())
     }
 
@@ -216,6 +242,19 @@ fn line_retry_key() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+fn loading_request_body(user_id: &str, loading_seconds: u8) -> Result<Value> {
+    if !user_id.starts_with('U') {
+        anyhow::bail!("LINE loading animation requires a one-on-one user id");
+    }
+    if !(5..=60).contains(&loading_seconds) || loading_seconds % 5 != 0 {
+        anyhow::bail!("LINE loadingSeconds must be a multiple of 5 from 5 through 60");
+    }
+    Ok(serde_json::json!({
+        "chatId": user_id,
+        "loadingSeconds": loading_seconds,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +264,14 @@ mod tests {
         let key = line_retry_key();
         let parsed = uuid::Uuid::parse_str(&key).unwrap();
         assert_eq!(parsed.to_string(), key);
+    }
+
+    #[test]
+    fn loading_animation_is_limited_to_dm_ids_and_valid_duration() {
+        let body = loading_request_body("U123", 60).unwrap();
+        assert_eq!(body["chatId"], "U123");
+        assert_eq!(body["loadingSeconds"], 60);
+        assert!(loading_request_body("C123", 60).is_err());
+        assert!(loading_request_body("U123", 7).is_err());
     }
 }

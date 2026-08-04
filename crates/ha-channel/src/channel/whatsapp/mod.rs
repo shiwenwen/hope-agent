@@ -136,11 +136,32 @@ impl ChannelPlugin for WhatsAppPlugin {
                 health.error.unwrap_or_else(|| "unknown error".to_string())
             ));
         }
+        health.validate_security()?;
 
         let account_name = health
             .account_name
             .clone()
             .unwrap_or_else(|| "WhatsApp".to_string());
+        let bridge_identity = match (health.implementation.as_deref(), health.version.as_deref()) {
+            (Some(implementation), Some(version)) => {
+                format!("{} {}", implementation.trim(), version.trim())
+            }
+            (Some(implementation), None) => implementation.trim().to_string(),
+            _ => "legacy/undisclosed".to_string(),
+        };
+        let advertised_capabilities = health.capability_names();
+        if health
+            .implementation
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(str::is_empty)
+        {
+            app_warn!(
+                "channel",
+                "whatsapp",
+                "WhatsApp bridge did not advertise implementation/version; Baileys security status cannot be verified"
+            );
+        }
 
         {
             let mut accounts = self.accounts.lock().await;
@@ -153,7 +174,18 @@ impl ChannelPlugin for WhatsAppPlugin {
             "WhatsApp account '{}' ({}) connected via bridge at {}",
             account.label,
             account_name,
-            base_url
+            sanitized_bridge_url_for_log(&base_url)
+        );
+        app_info!(
+            "channel",
+            "whatsapp",
+            "WhatsApp bridge identity={} capabilities={}",
+            ha_core::truncate_utf8(&ha_core::logging::redact_sensitive(&bridge_identity), 120),
+            if advertised_capabilities.is_empty() {
+                "none-advertised".to_string()
+            } else {
+                advertised_capabilities.join(",")
+            }
         );
 
         // Spawn polling loop
@@ -234,7 +266,7 @@ impl ChannelPlugin for WhatsAppPlugin {
                         payload.reply_to_message_id.as_deref(),
                     )
                     .await?;
-                if let Some(err) = resp.error {
+                if let Some(err) = resp.delivery_error() {
                     return Ok(DeliveryResult::err(err));
                 }
                 last_msg_id = Some(resp.message_id.unwrap_or_else(|| {
@@ -259,7 +291,7 @@ impl ChannelPlugin for WhatsAppPlugin {
         let reply_to = payload.reply_to_message_id.as_deref();
         let resp = api.send_message(chat_id, text, reply_to).await?;
 
-        if let Some(err) = resp.error {
+        if let Some(err) = resp.delivery_error() {
             return Ok(DeliveryResult::err(err));
         }
 
@@ -291,14 +323,17 @@ impl ChannelPlugin for WhatsAppPlugin {
         let api = WhatsAppApi::new(&base_url, token);
 
         match api.health().await {
-            Ok(health) => Ok(ChannelHealth {
-                is_running: false,
-                last_probe: Some(chrono::Utc::now().to_rfc3339()),
-                probe_ok: Some(health.connected),
-                error: health.error,
-                uptime_secs: None,
-                bot_name: health.account_name.or(health.phone),
-            }),
+            Ok(health) => {
+                let security_error = health.validate_security().err().map(|e| e.to_string());
+                Ok(ChannelHealth {
+                    is_running: false,
+                    last_probe: Some(chrono::Utc::now().to_rfc3339()),
+                    probe_ok: Some(health.connected && security_error.is_none()),
+                    error: security_error.or(health.error),
+                    uptime_secs: None,
+                    bot_name: health.account_name.or(health.phone),
+                })
+            }
             Err(err) => Ok(ChannelHealth {
                 is_running: false,
                 last_probe: Some(chrono::Utc::now().to_rfc3339()),
@@ -338,10 +373,35 @@ impl ChannelPlugin for WhatsAppPlugin {
                 health.error.unwrap_or_else(|| "unknown error".to_string())
             ));
         }
+        health.validate_security()?;
 
         Ok(health
             .account_name
             .or(health.phone)
             .unwrap_or_else(|| "WhatsApp".to_string()))
+    }
+}
+
+fn sanitized_bridge_url_for_log(base_url: &str) -> String {
+    let Ok(mut url) = url::Url::parse(base_url) else {
+        return "<invalid-url>".to_string();
+    };
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.set_query(None);
+    url.set_fragment(None);
+    url.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitized_bridge_url_for_log;
+
+    #[test]
+    fn bridge_url_log_context_drops_credentials_and_query() {
+        let sanitized = sanitized_bridge_url_for_log(
+            "https://user:secret@example.com/bridge?token=hidden#fragment",
+        );
+        assert_eq!(sanitized, "https://example.com/bridge");
     }
 }

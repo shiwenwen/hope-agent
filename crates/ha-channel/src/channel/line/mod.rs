@@ -4,7 +4,7 @@
 //! - **SDK / Reference**: <https://github.com/line/line-bot-sdk-go>
 //! - **Protocol**: HTTPS Webhook（HMAC-SHA256 签名）+ REST Reply/Push API；
 //!   replyToken 一次性，~30s/1min 有效
-//! - **Last reviewed**: 2026-05-20
+//! - **Last reviewed**: 2026-08-04
 
 pub mod api;
 pub mod format;
@@ -128,7 +128,7 @@ impl ChannelPlugin for LinePlugin {
             supports_reply: true,
             supports_threads: false,
             supports_media: vec![MediaType::Photo, MediaType::Audio, MediaType::Voice],
-            supports_typing: false,
+            supports_typing: true,
             supports_buttons: true,
             // LINE 文本上限 5000 字符；UTF-8 字节计算 CJK 占 3 bytes，4500 字节
             // 留余量
@@ -388,8 +388,25 @@ impl ChannelPlugin for LinePlugin {
         Ok(DeliveryResult::ok("push"))
     }
 
-    async fn send_typing(&self, _account_id: &str, _chat_id: &str) -> Result<()> {
-        // LINE does not support typing indicators via Messaging API
+    async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()> {
+        // The official loading animation only supports one-on-one user IDs.
+        if !chat_id.starts_with('U') {
+            return Ok(());
+        }
+        let (api, _) = match self.get_account_state(account_id).await {
+            Ok(state) => state,
+            Err(_) => return Ok(()),
+        };
+        if let Err(error) = api.start_loading(chat_id, 60).await {
+            // Typing/loading state is cosmetic and must not fail the turn.
+            app_debug!(
+                "channel",
+                "line",
+                "start_loading failed for user {}: {}",
+                chat_id,
+                error
+            );
+        }
         Ok(())
     }
 
