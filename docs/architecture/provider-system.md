@@ -129,7 +129,7 @@ flowchart TD
 
 模板里最值得记的是**协议归类**——大多数国内/聚合服务商都用 `openai-chat`（OpenAI 兼容），少数走原生 `anthropic`（MiniMax、Kimi Coding、Synthetic 等），OpenAI 官方与 GitHub Copilot 走 `openai-responses`。推理格式则跟着服务商走：智谱标 `zai`、通义/百炼标 `qwen`、Anthropic 系标 `anthropic`，其余多为 `openai`。这套"模板 → ApiType → ThinkingStyle"的映射就是新增服务商时要填对的三件事。
 
-### 1.6 Provider 写入契约（强制）
+### 1.6 Provider 写入契约
 
 所有对 `providers` 列表与 `active_model` 的写入，必须走 `crates/ha-core/src/provider/crud.rs` 的 helper——禁止在 Tauri / HTTP / onboarding / importer / local_llm 任何路径里直接 `providers.push` / `retain` 或手写 `active_model`。每个 helper 都带一个 `source: &'static str` 审计标签，并统一经 `mutate_config` 落盘（配置读写契约见 [config-system](config-system.md)）。
 
@@ -146,8 +146,6 @@ flowchart TD
 | `ensure_codex_provider_persisted(active, source)` | Codex Provider 构造期失败保活（配合 OAuth 重新登录） |
 
 删改 Provider 后 crud 会顺带跑 `repair_hard_deleted_model_references`：把因硬删除而悬空的 `active_model` / fallback 引用修好，避免下一轮 chat 指向不存在的模型。本地 LLM 安装路径另有专用入口 `upsert_known_local_provider_model`（在 `provider/local.rs`），按下节 catalog 的 host/port 去重。
-
-CR 阶段一旦看到直接操作 `cfg.providers` 数组或 `active_model` 字段，一律打回。
 
 ### 1.7 本地后端目录（Local Backend Catalog）
 
@@ -225,7 +223,7 @@ flowchart TD
   INIT --> CHAIN["2. 模型链解析<br/>见 §7.2 优先级"]
   CHAIN --> LOOP["3. 遍历模型链"]
 
-  LOOP --> BUILD["build_agent_for_model()"]
+  LOOP --> BUILD["build_agent_from_snapshot()"]
   BUILD --> RESTORE["restore_agent_context()<br/>从 DB 恢复 history"]
   RESTORE --> CHAT["agent.chat()"]
 
@@ -235,7 +233,7 @@ flowchart TD
   API --> PARSE["解析 SSE → 发射事件到前端"]
   PARSE --> TOOL{"有 tool_call?"}
   TOOL -->|是| EXEC["执行工具 → 回传结果"] --> PARSE
-  TOOL -->|否| SAVE["save_agent_context()"]
+  TOOL -->|否| SAVE["SessionDB::save_context()"]
   SAVE --> OK["返回 Ok(text)"]
 
   CHAT -->|失败| CLASSIFY["classify_error()"]
@@ -374,7 +372,7 @@ Hope Agent 始终用 `store: false` 调 Responses API。这个模式的语义是
 3. `parse_openai_sse` 的返回签名里根本没有 reasoning item
 4. `normalize_history_for_responses` 把任何残留的 `type: reasoning` item 一并跳过（兜底旧版本写下的 context_json）
 
-代价是每轮推理独立、少几秒 reasoning 时间，换来的是与 `store=false` stateless 语义完全对齐、不再出现 404。
+代价是每轮推理独立、少几秒 reasoning 时间，换来的是与 `store=false` stateless 语义完全对齐，回避上述 `rs_*` id 查无记录的 404。
 
 SSE 事件处理：
 
@@ -553,7 +551,8 @@ flowchart TD
 几个要点：
 
 - **ContextOverflow 不是终态**——它触发紧急压缩后重试同一模型，因为换一个上下文更小的模型只会更糟。
-- **Overloaded 覆盖一大票 5xx**（含 Cloudflare 的 521/522/524），以及 body 读到一半被截断（部分服务商高负载时会 200 头之后掐流，归到 Timeout）。
+- **Overloaded 覆盖一大票 5xx**（含 Cloudflare 的 521/522/524）。
+- **body 中途被截断**（部分服务商高负载时会先回 200 头、再掐断流）归到 **Timeout**，不进 Overloaded——匹配 `error decoding response body` / `connection closed before message completed` 关键词。
 - 还有一个 `EvaluationBudget` reason，专用于确定性评测触顶（"evaluation budget exhausted"），不属于线上降级路径。
 
 ### 7.2 模型链解析
@@ -587,10 +586,10 @@ flowchart TD
 ```mermaid
 flowchart TD
   START["开始模型链迭代"] --> MODEL["取下一个模型"]
-  MODEL --> BUILD["build_agent_for_model()"]
+  MODEL --> BUILD["build_agent_from_snapshot()"]
   BUILD --> CHAT["agent.chat()"]
 
-  CHAT -->|成功| SAVE["save_agent_context() → return Ok"]
+  CHAT -->|成功| SAVE["SessionDB::save_context() → return Ok"]
   CHAT -->|失败| CLASSIFY["classify_error()"]
 
   CLASSIFY -->|"ContextOverflow（首次）"| COMPACT["emergency_compact()"] --> CHAT
@@ -678,7 +677,7 @@ flowchart TD
 
   DONE["chat 完成后"] --> FKREM["flush 剩余 pending_thinking → INSERT thinking_block"]
   DONE --> ASST["INSERT assistant（content + thinking + tokens + model + ttft）"]
-  DONE --> CTX["save_agent_context() → UPDATE context_json"]
+  DONE --> CTX["SessionDB::save_context() → UPDATE context_json"]
 ```
 
 **消息角色**（`MessageRole` 枚举）：
@@ -696,7 +695,7 @@ flowchart TD
 
 ### 8.3 通道 2：context_json
 
-写入 `save_agent_context`：把 `agent.get_conversation_history()` 整体 `serde_json::to_string` 后 `UPDATE sessions SET context_json`。加载 `restore_agent_context`：`SELECT context_json` → 反序列化成 `Vec<Value>` → `agent.set_conversation_history()`。
+写入走 `SessionDB::save_context(session_id, context_json)`（另有 `save_context_at_revision` / `save_context_if_unchanged` 两个修订守卫变体，防并发覆盖）：把 `agent.get_conversation_history()` 整体 `serde_json::to_string` 后 `UPDATE sessions SET context_json`。加载走 `restore_agent_context`：`SELECT context_json` → 反序列化成 `Vec<Value>` → `agent.set_conversation_history()`。
 
 `context_json` 里的具体形态取决于**最后一次用的 Provider**——可能是 Anthropic content 数组、OpenAI Chat 的 `reasoning_content` 平铺、或 Responses 的 `type` items（其中 reasoning item 已按 §4.3 契约缺席）。正因如此，下一轮加载后必须先经 §6 的标准化，才能安全喂给可能不同的目标 Provider。
 
@@ -745,14 +744,14 @@ sequenceDiagram
   participant B as Model B (Anthropic)
 
   Note over A: 上一轮对话成功
-  A->>DB: save_agent_context()（context_json = Responses 格式）
+  A->>DB: SessionDB::save_context()（context_json = Responses 格式）
   A->>DB: INSERT messages（user + thinking_block + tool + assistant）
 
   Note over B: 下一轮 Model A 失败，降级到 B
   DB->>B: restore_agent_context()（加载 Responses 格式）
   B->>B: normalize_history_for_anthropic()<br/>reasoning 跳过 / message 提取 text
   B->>B: chat_anthropic() 成功
-  B->>DB: save_agent_context()（context_json 覆盖为 Anthropic 格式）
+  B->>DB: SessionDB::save_context()（context_json 覆盖为 Anthropic 格式）
 ```
 
 ### 8.6 附件存储
@@ -796,7 +795,7 @@ flowchart TD
     ENGINE --> RESOLVE["模型链解析（§7.2）"]
     RESOLVE --> LOOP["for model in chain"]
 
-    LOOP --> BUILD["build_agent_for_model()"]
+    LOOP --> BUILD["build_agent_from_snapshot()"]
     BUILD --> RESTORE["restore_agent_context() ◄── SessionDB"]
     RESTORE --> AGENT["agent.chat()"]
 
@@ -815,7 +814,7 @@ flowchart TD
     SSE --> TOOLQ{"tool_call?"}
     TOOLQ -->|是| TEXEC["execute_tool_with_context()"]
     TEXEC --> SSE
-    TOOLQ -->|否| SAVE["save_agent_context() → SessionDB"]
+    TOOLQ -->|否| SAVE["SessionDB::save_context() → SessionDB"]
 
     AGENT -->|失败| CLASSIFY["classify_error()"]
     CLASSIFY -->|retryable| BACKOFF["指数退避重试"] --> AGENT
@@ -828,7 +827,7 @@ flowchart TD
 
 ## 11. 视觉桥（Vision Bridge）
 
-主模型不支持视觉（`ProviderConfig::model_supports_vision(model_id) == false`，即模型 `input_types` 显式不含 `image`，如 DeepSeek 系列）却收到图片时，视觉桥用一个**单独配置**的视觉模型把图片转成文字描述注入主模型，替代"丢图 + `[image omitted]` 占位符"的旧行为。核心实现 `agent/vision_bridge.rs`。
+主模型不支持视觉（`ProviderConfig::model_supports_vision(model_id) == false`，即模型 `input_types` 显式不含 `image`，如 DeepSeek 系列）却收到图片时，视觉桥用一个**单独配置**的视觉模型把图片转成文字描述注入主模型；桥关闭时这张图只能被丢弃、留一个 `[image omitted]` 占位符。核心实现 `agent/vision_bridge.rs`。
 
 > `function_models.vision`（视觉桥）与 `function_models.automation`（后台一次性 LLM 调用的默认模型链）是同一个 `FunctionModelsConfig` 容器下平级的两个功能，互不影响。后者见 [模型 vs Agent 统一配置](automation-model.md)。
 
@@ -836,11 +835,11 @@ flowchart TD
 
 - `AppConfig.function_models.vision: Option<ActiveModel>`。**opt-in**：`None` = 视觉桥关闭（维持占位符行为），不做自动挑选。
 - 设置三件套：GUI 全局模型区 `ModelSelector`（过滤 `inputTypes` 含 `image`）、`ha-settings` 的 `function_models` category（纯模型引用无凭据、不 redact）、SKILL.md 登记。专用命令 `get_vision_model` / `set_vision_model`（Tauri + HTTP `GET`/`PUT /api/models/vision`）。
-- `vision_bridge::prepare(session_id)` 解析：取 `function_models.vision` → `find_provider` → 校验 `model_supports_vision` → 构建 vision agent → 绑定 session id（令 `KIND_VISION` 用量按 incognito 跳过）。任一步失败返回 `None`（桥关闭，回退占位符）。
+- `vision_bridge::prepare(session_id, incognito)` 解析：取 `function_models.vision` → `find_provider` → 校验 `model_supports_vision` → 构建 vision agent → 绑定 session id（`incognito` 由调用方传入，令 `KIND_VISION` 用量在无痕会话跳过入账）。任一步失败返回 `None`（桥关闭，回退占位符）。
 
 ### 11.2 流水线：memo-cache + 每轮临时 transform
 
-核心约束：tool loop 在内存 `conversation_history` 里逐轮追加、整体重发，且 `save_agent_context` 把它**原样序列化落 `context_json`**——所以**绝不能就地把图换成文字**（永久丢图、不可逆，日后换回视觉模型无法恢复）。
+核心约束：tool loop 在内存 `conversation_history` 里逐轮追加、整体重发，且 `SessionDB::save_context` 把它**原样序列化落 `context_json`**——所以**绝不能就地把图换成文字**（永久丢图、不可逆，日后换回视觉模型无法恢复）。
 
 方案 = **进程级 memo cache（异步填、每图一次）+ 每轮对临时 `api_messages` 副本做同步 rewrite**，`conversation_history` 保持原样可逆：
 
@@ -856,7 +855,7 @@ flowchart TD
 - **鲁棒回退**：未配置 / 不可解析 / 转述失败 / 超时 → 回退占位符，**绝不 hard-fail 整个 turn**。一次性提示事件 `{"type":"vision_bridge","status":"engaged"|"unavailable"}`（每 turn 最多一条；GUI banner + IM 双通道）。
 - **注入即 untrusted**：转录文本套 `<untrusted_external_data source="vision_bridge:image">` 信封 + 转义——图片里藏 `SYSTEM: ignore prior instructions…` 只能当数据、不当指令（对齐 `[[note]]` / 被动召回的处理）。
 - **incognito**：照常运行（图片可用性是核心功能），但对 `sessions.incognito != 0` 自动跳过用量入账；且**走 per-turn 临时缓存、绝不写全局共享缓存**（转录含敏感文字，关闭即焚 + 不跨会话命中）。全局缓存是有界 `TtlCache`（容量 256 + 6h TTL + LRU），非无界 HashMap。
-- **惰性构建 + 超时兜底**：`prepare` 只解析校验配置（不建 agent），vision agent 在首个真图 cache-miss 时才构建并 memoize 一 turn——纯文字 turn 永不白建。含图轮首次构建会同步跑 Codex OAuth 刷新（其自身无 timeout，曾是冻结向量），故整个构建套 `AGENT_BUILD_TIMEOUT = 20s`：超时即回退占位符，且**不写 memo**，下一轮重试——一次瞬时 OAuth 卡顿不永久禁用本 turn 的视觉桥。
+- **惰性构建 + 超时兜底**：`prepare` 只解析校验配置（不建 agent），vision agent 在首个真图 cache-miss 时才构建并 memoize 一 turn——纯文字 turn 永不白建。含图轮首次构建会同步跑 Codex OAuth 刷新（该刷新自身无 timeout，可能长时间阻塞本轮），故整个构建套 `AGENT_BUILD_TIMEOUT = 20s`：超时即回退占位符，且**不写 memo**，下一轮重试——一次瞬时 OAuth 卡顿不永久禁用本 turn 的视觉桥。
 - **取消可响应 + 不缓存**：`apply` 把"构建 + 并发转述"整体与取消信号 `tokio::select!` 竞速——用户 Stop 即腰斩在途工作、立即返回；被取消的图转述**绝不写缓存**（取消 ≠ 失败，须干净重试），并抑制 `unavailable` 提示（取消不是"视觉不可用"）。转述并发受 `Semaphore(MAX_CONCURRENT = 4)` + 每图 `TRANSCRIBE_TIMEOUT = 30s` 约束。
 - **扫描范围**：只处理 user / tool-result 消息，**跳过 assistant 消息**——其 tool_use / tool_call 参数可能形似图片块，改写会毁坏 tool 调用。
 - **防递归**：转述本身带图调视觉模型，`apply` 只在主对话 round head 挂接，**绝不在 side_query 路径触发**。

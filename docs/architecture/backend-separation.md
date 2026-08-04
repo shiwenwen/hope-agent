@@ -224,7 +224,7 @@ kernel 新代码一律 `crate::tool_defs::…`；`crate::tools` 门面全量再�
 | **ha-cron** | 调度器 / 执行器 / 投递 / 失败分类 / 时间线 / `manage_cron` 工具 | `cron/db.rs`（`CronDB`）、`schedule.rs`（`validate_schedule` 唯一裁决）、`cancel.rs`、`cron_defs` wire 类型；`loop_control` 与 `wakeup` 亦整体留 kernel | `cron_hooks` 三槽（起任务 / 取消 / subagent 注入回投）+ `manage_cron` 分发 + 调度器 PrimaryOnly startup task |
 | **ha-dash** | 用量总账聚合与 Insights、控制面（Goal / Workflow / Loop / Task / Plan）只读聚合、Coding 学习聚合、`/recap` 深度复盘 | `activity.rs`（`impl SessionDB` 扩展，Core 工具 `tools::goal` 消费，minimal/ACP 也须有数据） | 自开 `SQLITE_OPEN_READ_ONLY` 只读连接；`awareness::register_session_facet_lookup` + `recap_hooks::run_slash_recap` + facet 保留期清理 PrimaryOnly task |
 | **ha-eval-runtime** | coding 评测 fixture runner / gold task pack / strategy 对照、评测编排与制品仓（自带 `evals.db`）、任务感知只读上下文排序 | `coding_eval_defs`（契约层，kernel 的 coding_improvement 存的就是这些报告 JSON） | **零钩子**（kernel 对它零引用，能力面全经壳层）——因此**唯一没有 `wire()`** 的特征 crate |
-| **ha-local-llm** | Ollama 生命周期（检测 / 安装 / 启动 / 拉取 / 预载）、模型目录与硬件预算推荐、Library 元数据抓取、默认模型 watchdog、本地 embedding 后端与下载执行器 | `local_model_jobs`（通用后台任务台账，memory reembed 与知识库 reembed 共用，故留 kernel 才不让 knowledge 为记账依赖本 crate） | 一槽 watchdog PrimaryOnly startup task；**需切边为 0**——唯一不需要任何钩子倒转的特征 |
+| **ha-local-llm** | Ollama 生命周期（检测 / 安装 / 启动 / 拉取 / 预载）、模型目录与硬件预算推荐、Library 元数据抓取、默认模型 watchdog、本地 embedding 后端与下载执行器 | `local_model_jobs`（通用后台任务台账，memory reembed 与知识库 reembed 共用，故留 kernel 才不让 knowledge 为记账依赖本 crate） | 只注册一个 PrimaryOnly 启动任务（watchdog）；kernel 对它没有任何反向回调钩子——启动任务是特征往 kernel 注册，不是 kernel 回调特征 |
 | **ha-acp** | Hope 自身作 ACP stdio server（`hope-agent acp`）+ 外部 ACP agent 控制面（注册表 / 健康探测 / SessionManager / `acp_spawn` 工具） | `AgentAcpConfig`（下沉 `agent_config.rs`）、`AcpRun` / `AcpRunStatus`（下沉 `session/acp_db.rs`），特征侧原路径再导出 | `system_prompt::register_acp_binary_resolver`（prompt 段 binary 可用性）；`ACP_MANAGER` 全局随迁特征侧，kernel 的 `globals` 不再持有 |
 
 **特征之间的单向边**（无环）：ha-design → ha-browser / ha-media / ha-knowledge、ha-pet → ha-media、ha-local-llm → ha-knowledge、ha-eval-runtime → ha-improve。新增任何特征间边前先跑一次分析器脚本——成环会让后续拆分整个卡住。
@@ -515,7 +515,7 @@ const COMMAND_MAP = {
 
 选举是先到先得（FCFS），与运行形态无关；单独跑 ACP 时它自然成为 Primary。锁在进程退出 / panic / SIGKILL / 断电时由 OS 自动释放。后台任务变体按模式选 `start_background_tasks`（桌面 + server）或 `start_minimal_background_tasks`（acp），两者内部各自再按 `runtime_lock::is_primary()` gate 掉 Primary-only 部分。
 
-三种模式的完整启动入口、Primary 跑哪些 cleanup、tier-agnostic 与 Primary-only 后台任务清单，统一维护在 **[process-model.md](process-model.md)**（见 [§ 启动入口](process-model.md#启动入口桌面独占)、[§ Primary / Secondary 协作](process-model.md#primary--secondary-协作多进程并存)、[§ 跨模式能力对照](process-model.md#跨模式能力对照)）。
+三种模式的完整启动入口、Primary 跑哪些 cleanup、tier-agnostic 与 Primary-only 后台任务清单，统一维护在 **[process-model.md](process-model.md)**（见 [§ 启动入口](process-model.md#启动入口与两档后台任务)、[§ Primary / Secondary 协作](process-model.md#primary--secondary-协作多进程并存)、[§ 跨模式能力对照](process-model.md#跨模式能力对照)）。
 
 **这套选举解决的问题**：多个进程并存（如桌面 App + ACP daemon）时，若每个进程都跑一遍 startup cleanup，会互相踩踏——把对方活着的 subagent 标成失败、让 cron 双跑、把活的异步工具标成 Interrupted，最严重的是硬删对方的无痕会话。用 OS file lock 选出唯一 Primary，cleanup 就只由它做一次。
 

@@ -159,13 +159,13 @@ pending / needs_review 的内容 ⇒ 绝不进入任何 prompt / recall 路径
 
 ### 自动召回的 opt-in 迁移
 
-`configVersion=2` 标记了"自动召回改为显式 opt-in"这一契约。一个早期预览版曾把自动召回默认打开，因此升级需要一次版本化迁移，在首次成功读取旧配置后执行并立即持久化。核心难点是：旧磁盘上 `recall.enabled=true` 语义**歧义**——可能是用户主动开的，也可能是那个错误默认值。迁移用"是否有其它持久同意证据"来消歧：
+`configVersion=2` 标记了"自动召回为显式 opt-in"这一契约。核心难点是：旧磁盘上 `recall.enabled=true` 语义**歧义**——可能是用户主动开启，也可能只是继承了旧默认值，无法直接采信为同意。升级用一次版本化迁移消歧，在首次成功读取旧配置后执行并立即持久化，判据是"是否有其它持久同意证据"：
 
 | 旧磁盘状态 | 迁移结果 |
 |---|---|
 | 无 `memory` 字段 | 从旧 Extract / Budget 迁移；只有旧 `memorySelection.enabled=true`（LLM 语义选择是显式 opt-in）才视为既有召回同意 |
 | 未版本化且 `recall.enabled=false` | 保持关闭 |
-| 未版本化、`recall.enabled=true`、无其它同意证据 | 视为错误默认值，迁移为**关闭** |
+| 未版本化、`recall.enabled=true`、无其它同意证据 | 无法采信为主动同意，迁移为**关闭** |
 | 未版本化，但有 `userConfigured=true` / `memorySelection.enabled=true` / Deep enabled / mode=deep | 保留既有选择，写 `userConfigured=true` |
 | `configVersion>=2` | 原样保留，不重复猜测 |
 
@@ -192,7 +192,7 @@ effectiveTokens  = min(totalTokens, modelSafetyLimit, 16384)
 
 ## 三、Core Memory：三级作用域索引 + 主题文件
 
-Core Memory 是"始终记住"的载体。三个作用域共用 `CoreMemoryRepository`，canonical 索引文件名统一为大写 `MEMORY.md`：
+Core Memory 是"始终记住"的载体。三个作用域共用同一套仓库逻辑（`memory::core_repository` 模块），canonical 索引文件名统一为大写 `MEMORY.md`：
 
 ```text
 ~/.hope-agent/memory/MEMORY.md                        # Global
@@ -328,7 +328,7 @@ SQLite 后端用一写多读的连接布局：
 - **embedding cache 复用 memory backend 的 reader/writer**。`add` / `update` 必须**先**生成 embedding、完成 cache 读写，**再**取 memory writer；`search` 必须先生成 query embedding 再取 reader。持有 writer 时重入 cache writer 会**确定性自锁**；持有 reader 时再申请 cache reader 会**耗尽 4-reader 池死锁**。
 - **检索增强共用有界 blocking 槽位**（Active Memory / Procedure / graph trace / Knowledge recall / LLM 选择的本地候选读取）。槽位由底层 blocking closure 持有，上层 timeout 后未结束的请求**仍占槽**；新请求拿不到槽立即以 `retrieval_busy` 或空增强降级，不堆积不可取消的 `spawn_blocking`。
 
-检索增强一律 **fail-soft**：超时只丢当前增强层并写 trace，不阻断主回答。热路径各项超时见[附录：硬编码参数](#热路径可用性边界)。
+检索增强一律 **fail-soft**：超时只丢当前增强层并写 trace，不阻断主回答。热路径各项超时见[附录：硬编码参数](#附录-b硬编码参数)。
 
 ---
 
@@ -450,7 +450,7 @@ flowchart TD
 2. **vec0 ANN**：基于 `memories_vec` 的向量近邻，需 embedding provider 已配置。
 3. **trigram 字面检索**：主 FTS 无命中且 query ≥ 3 字符时，查 trigram shadow index，覆盖 CJK 连续片段和代码标识符中段；query 短于 3 字符或 shadow 不可用时才退回 bounded `LIKE`。
 
-**查询期硬边界**：`limit=0` 直接返回空；非零 `limit` 最大 200，单路候选最大 600。主 FTS / trigram 必须由虚拟表先产出 bounded rowid，再 JOIN 真相表做 scope / status / type / source 过滤；claim 路径用有意的 `CROSS JOIN` 固定虚拟表为驱动表，禁止 SQLite 从 broad status index 开始逐行探测 FTS——**这个连接顺序是 5 万条规模 p95 的红线，不是样式选择**（历史上普通 JOIN 曾把 claim 检索的 p95 拖到 17.6s）。
+**查询期硬边界**：`limit=0` 直接返回空；非零 `limit` 最大 200，单路候选最大 600。主 FTS / trigram 必须由虚拟表先产出 bounded rowid，再 JOIN 真相表做 scope / status / type / source 过滤；claim 路径用有意的 `CROSS JOIN` 固定虚拟表为驱动表，禁止 SQLite 从 broad status index 开始逐行探测 FTS——**这个连接顺序是 5 万条规模 p95 的红线，不是样式选择**。
 
 ### RRF 融合排序
 
@@ -474,7 +474,7 @@ rrf_score = vector_weight / (k + rank_vec)
 
 ### 真实规模回归
 
-`pnpm memory:benchmark` 跑 release-mode、隔离数据目录的确定性基准，默认各写 50,000 条 legacy memory 与 50,000 条 structured claim，建 8 维可判定向量，**不读写用户真实数据**。它覆盖四类 query（唯一英文 key、中文中段、公共词、纯语义同义词），报告 Recall/Precision@10、p50/p95、建库耗时和 DB 大小。质量门禁始终开启；`HA_MEMORY_BENCH_ENFORCE=1` 时八类 p95 还必须全部 ≤ 250ms。这套基准正是为了确定性地捕获前述 claim JOIN 性能塌方而存在，不能用纯小样本测试替代。
+`pnpm memory:benchmark` 跑 release-mode、隔离数据目录的确定性基准，默认各写 50,000 条 legacy memory 与 50,000 条 structured claim，建 8 维可判定向量，**不读写用户真实数据**。它覆盖四类 query（唯一英文 key、中文中段、公共词、纯语义同义词），报告 Recall/Precision@10、p50/p95、建库耗时和 DB 大小。质量门禁按 recall/precision 阻断；p95 250ms 只是 advisory 指标、不阻断（`suite.json` 里 `latencyBlocking=false` / `advisoryP95Ms=250`）。这套基准正是为了确定性地捕获前述 claim JOIN 性能塌方而存在，不能用纯小样本测试替代。
 
 ---
 
@@ -499,7 +499,7 @@ rrf_score = vector_weight / (k + rank_vec)
 | `api_base_url` / `api_key` / `api_model` / `api_dimensions` | `Option<…>` | provider 各自配置 |
 | `source` | `Option<String>` | 创建自哪个预设模板（GUI 一键安装用于回溯） |
 
-`EmbeddingProviderType` 只有两个变体——OpenAI `/v1/embeddings` 兼容（覆盖 OpenAI / Jina / Cohere / SiliconFlow / Voyage / Mistral / Ollama 等）和 Google Gemini（独立格式）。历史上的 `Local`（内嵌 ONNX/fastembed）和 `Auto` 均已移除；**本地 embedding 现在走"Ollama + OpenAI 兼容端点"**，Voyage / Mistral 也只是 `OpenaiCompatible` 下的预设模板，不再是独立 ProviderType。
+`EmbeddingProviderType` 只有两个变体——OpenAI `/v1/embeddings` 兼容（覆盖 OpenAI / Jina / Cohere / SiliconFlow / Voyage / Mistral / Ollama 等）和 Google Gemini（独立格式）。**本地 embedding 走"Ollama + OpenAI 兼容端点"**，没有内嵌 ONNX/fastembed 的独立 provider；Voyage / Mistral 也只是 `OpenaiCompatible` 下的预设模板，而非独立 ProviderType。
 
 ### EmbeddingSelection
 
@@ -568,7 +568,7 @@ Phase 常量 `PHASE_REEMBED_KEEP="reembed-keep"` / `PHASE_REEMBED_FRESH="reembed
 
 ## 八、动态召回（Dynamic Recall / Deep Recall）
 
-`MemoryRecallPlanner` 是自动动态召回的唯一产品编排入口。默认 `recall.enabled=false` 且旧 Agent Active Memory 未启用时：每个 user turn 只用会话固定的 Core 快照，不查 SQLite memory / claim / Profile / Procedure / Graph；模型仍可自主调 `recall_memory` / `memory_get`。
+自动动态召回的唯一产品编排入口是 `memory::recall_planner` 模块（自由函数 `plan_fast_recall`）。默认 `recall.enabled=false` 且旧 Agent Active Memory 未启用时：每个 user turn 只用会话固定的 Core 快照，不查 SQLite memory / claim / Profile / Procedure / Graph；模型仍可自主调 `recall_memory` / `memory_get`。
 
 用户显式开启全局自动召回后，每个非空 user turn 走一条确定性流程：
 
@@ -619,7 +619,7 @@ Memory Center 的"自动召回相关记忆"主开关控制所有 Agent 的默认
 | `review_first` | 是 | 批准后 | 所有自动 memory / claim 候选 | 否 |
 | `manual` | 否 | 仅显式保存 | 视显式操作 | 仅显式操作 |
 
-`关闭` 不是第四种 learning mode，而是独立的 `memory.enabled=false` 主开关：关闭走二次确认，Memory Overview 置顶显示"长期记忆已暂停"横幅，但 owner 平面的查看/导出/删除/导入/备份恢复仍可用（UI 必须说明这些操作不会自动重新启用 Agent 使用记忆）。
+`关闭` 不是第四种 learning mode，而是独立的 `memory.enabled=false` 主开关：关闭走二次确认，Memory Overview 置顶显示"长期记忆已暂停"横幅，但面向用户本人的管理界面（查看/导出/删除/导入/备份恢复）仍可用（UI 必须说明这些操作不会自动重新启用 Agent 使用记忆）。
 
 **Review-first / scope 缺失 / 敏感 / 冲突 / Core promotion proposal 共用 pending inbox**；pending 内容在批准前不参与普通召回、Profile 合成或 Prompt。
 
@@ -694,7 +694,7 @@ Dreaming 是**离线 LLM 评估器**：扫候选记忆 → 让小模型打分 �
 
 > 完整设计见 [`dreaming.md`](dreaming.md) 的「Lucid Review」节。
 
-用户对结构化 claim 的 approve / edit / reject / mark-outdated / move-scope / pin / forget 纠错——**纯 owner 平面、无 agent 工具面（模型不能自改自己的记忆）**，唯一入口 `claims::review`。每个动作落 `trigger=user_correction` 审计（before/after 完整字段快照）+ 发 `memory:claim_changed` 实时刷新 Dashboard；approve / edit 把 claim 提到 `user_confirmed`（confidence 0.95）。Review Inbox 从 `claim_list(status=needs_review)` 读队列，前端在读侧从 status / confidence / salience / scope / validity / conflict summary 派生"主要复核原因 + 风险信号"（冲突、低置信、推断、高影响、个人相关、全局范围等），**只服务 owner UI explainability，不暴露给 agent、不写 DB、不改注入/召回/dedup/状态迁移**。
+用户对结构化 claim 的 approve / edit / reject / mark-outdated / move-scope / pin / forget 纠错——**只对用户本人开放、无 agent 工具面（模型不能自改自己的记忆）**，唯一入口 `claims::review`。每个动作落 `trigger=user_correction` 审计（before/after 完整字段快照）+ 发 `memory:claim_changed` 实时刷新 Dashboard；approve / edit 把 claim 提到 `user_confirmed`（confidence 0.95）。Review Inbox 从 `claim_list(status=needs_review)` 读队列，前端在读侧从 status / confidence / salience / scope / validity / conflict summary 派生"主要复核原因 + 风险信号"（冲突、低置信、推断、高影响、个人相关、全局范围等），**只服务 owner UI explainability，不暴露给 agent、不写 DB、不改注入/召回/dedup/状态迁移**。
 
 自动治理与用户纠错的分工是一条硬边界：**Deep Resolver 冲突只在高置信写 `needs_review`、永不自动 supersede**；低置信 / 未知 relation / LLM 失败均 no-op。纠错唯一入口 `claims::review` 改 content 必 `reembed_claim`（否则下轮召回仍命中旧文本）。
 
@@ -905,11 +905,12 @@ Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_pr
 | `crates/ha-core/src/memory/sqlite/backend.rs` | SQLite 后端（表创建、连接池、WAL） |
 | `crates/ha-core/src/memory/sqlite/trait_impl.rs` | MemoryBackend trait 的 SQLite 实现 |
 | `crates/ha-core/src/memory/sqlite/prompt.rs` | 系统提示注入格式化 + `sanitize_for_prompt` 注入防护 |
-| `crates/ha-core/src/memory/embedding/` | Embedding 模块（config 预设模板、api_provider、fallback、factory、utils） |
+| `crates/ha-core/src/memory/embedding/` | Embedding 模块（config 预设模板、api_provider、factory、utils） |
 | `crates/ha-core/src/memory/mmr.rs` | MMR 多样性重排 |
 | `crates/ha-core/src/memory/selection.rs` | LLM 语义选择（prompt 构建 + 响应解析） |
 | `crates/ha-core/src/memory/recall_summary.rs` | 召回结果压成 ≤400 字符洞察段（opt-in） |
-| `crates/ha-core/src/memory/recall_planner.rs` | Retrieval Planner 跨源排序与预算 |
+| `crates/ha-core/src/memory/recall_planner.rs` | Fast / Deep Recall 编排（`plan_fast_recall`） |
+| `crates/ha-core/src/agent/retrieval_planner.rs` | Retrieval Planner 跨源排序、层状态账本（`rankingVersion=source_fusion_v2`） |
 | `crates/ha-core/src/memory/reembed_job.rs` | 向量重建后台任务（KeepExisting / DeleteAll + 取消） |
 | `crates/ha-core/src/memory/dreaming/` | 离线 LLM 评估器（scanner / scoring / promotion / narrative / triggers / pipeline / cron_loop / resolver / profile / context_pack / eval + `store::record_user_action` 纠错审计） |
 | `crates/ha-core/src/memory/claims/` | 结构化 claim 层（store 读 API + 纠错原语 / write 双写 + canonicalize / backfill / review 用户纠错闭环） |
