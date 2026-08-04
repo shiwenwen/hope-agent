@@ -62,8 +62,8 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 ## EventBus 事件清单
 
 所有事件由 `ha-core::EventBus` 发射（`BroadcastEventBus`，256 容量），桌面和 HTTP 两条桥各自订阅：
-- **Tauri 桥** `src-tauri/src/setup.rs:141` — subscriber 转 `app_handle.emit(name, payload)`
-- **HTTP 桥** `crates/ha-server/src/ws/events.rs:34` — subscriber 转 `/ws/events` 文本帧
+- **Tauri 桥** `src-tauri/src/setup.rs` — subscriber 转 `app_handle.emit(name, payload)`
+- **HTTP 桥** `crates/ha-server/src/ws/events.rs` — subscriber 转 `/ws/events` 文本帧
 
 ### 聊天与流式
 
@@ -180,7 +180,7 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 | `cron:run_completed` | ha-cron 的 cron/executor.rs |
 | `cron:unread_changed` | cron 未读聚合数变化（`cron_mark_all_read` 清除时发 `{ total: 0 }`）；前端 cron 未读 store 收到后刷新侧边栏角标 |
 | `session:unread_changed` | assistant 消息落库或任一会话水位线更新；payload `{ sessionId?: string, domain?: "regular"\|"channel"\|"cron" }` 只作精准失效提示，消费者必须重查各域权威值 |
-| `job:created` / `job:updated` / `job:progress` / `job:completed` / `job:mark_injected_failed` | **统一后台任务事件（R3，替代旧 `async_tool_job:*`）**。`async_jobs::events` 发射；kind-tagged（payload `{ job_id, kind: "tool"\|"group", tool, status, session_id }`），覆盖后台**工具 + Group** 生命周期。`created`=新任务出现（running/queued）；`updated`=非终态变化（如 cancelling）；`progress`=`{ job_id, kind, session_id, current, total }`（目前 Group 报 N/M 子完成）；`completed`=终态；`mark_injected_failed`=结果注入主对话失败告警 `{ job_id, error }`。**`subagent` kind 沿用 `subagent:*` 流**（不双发），R4 面板合并两路 + `job_status list`。 |
+| `job:created` / `job:updated` / `job:progress` / `job:completed` / `job:mark_injected_failed` | 统一后台任务事件（替代旧 `async_tool_job:*`）。`async_jobs::events` 发射；kind-tagged（payload `{ job_id, kind: "tool"\|"group", tool, status, session_id }`），覆盖后台**工具 + Group** 生命周期。`created`=新任务出现（running/queued）；`updated`=非终态变化（如 cancelling）；`progress`=`{ job_id, kind, session_id, current, total }`（目前 Group 报 N/M 子完成）；`completed`=终态；`mark_injected_failed`=结果注入主对话失败告警 `{ job_id, error }`。**`subagent` kind 沿用 `subagent:*` 流**（不双发），面板合并两路 + `job_status list`。 |
 | `app_update:progress` / `app_update:completed` | 自升级 (`app_update` 工具) 进度上报。`progress` payload `{ job_id, label, phase, percent?, written?, total? }`（每 5% / 1s 节流）；`completed` payload `{ job_id, status: "done"|"failed", outcome?, error? }`，详见 [`self-update.md`](self-update.md) |
 
 ### 项目（Project CRUD）
@@ -417,7 +417,7 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 | `kb_note_delete_cmd` | `DELETE /api/knowledge/{kbId}/note?path=` | ✅ (写闸门) |
 | `kb_note_rename_cmd` | `POST /api/knowledge/{kbId}/note/rename` | ✅ (写闸门 + **改写入站 `[[ ]]` 链接** #9，返回 `RenameOutcome`) |
 | `kb_list_dirs_cmd` | `GET /api/knowledge/{kbId}/dirs` | ✅ (含空目录，读盘) |
-| `kb_list_tags_cmd` | `GET /api/knowledge/{kbId}/tags` | ✅ (owner 平面，编辑器 `#tag` 补全词表) |
+| `kb_list_tags_cmd` | `GET /api/knowledge/{kbId}/tags` | ✅ (面向用户本人，编辑器 `#tag` 补全词表) |
 | `knowledge_embedding_get_cmd` | `GET /api/knowledge/embedding` | ✅ (D7 独立 selector 状态) |
 | `knowledge_embedding_set_default_cmd` | `POST /api/knowledge/embedding/set-default` | ✅ (装 embedder + 后台 KnowledgeReembed) |
 | `knowledge_embedding_disable_cmd` | `POST /api/knowledge/embedding/disable` | ✅ (pause 语义，清 index embedder) |
@@ -445,7 +445,7 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 | `kb_maintenance_status_cmd` | `GET /api/knowledge/maintenance/status` | ✅ (running 标志 + 上轮 report) |
 | `kb_maintenance_list_cmd` | `GET /api/knowledge/{kbId}/maintenance/proposals?status=` | ✅ (某 KB 的提案，可按 draft/applied/rejected/failed 过滤) |
 | `kb_maintenance_pending_count_cmd` | `GET /api/knowledge/{kbId}/maintenance/pending-count` | ✅ (待审提案数，维护面板徽章) |
-| `kb_maintenance_approve_cmd` | `POST /api/knowledge/maintenance/proposals/{id}/approve` | ✅ (批准并经 owner 平面落地，返回更新后的提案) |
+| `kb_maintenance_approve_cmd` | `POST /api/knowledge/maintenance/proposals/{id}/approve` | ✅ (批准并以用户本人身份落地，返回更新后的提案) |
 | `kb_maintenance_reject_cmd` | `POST /api/knowledge/maintenance/proposals/{id}/reject` | ✅ (忽略单条提案) |
 | `kb_maintenance_reject_all_cmd` | `POST /api/knowledge/{kbId}/maintenance/reject-all` | ✅ (清空某 KB 待审队列，返回清除数) |
 | `kb_maintenance_config_get_cmd` | `GET /api/knowledge/maintenance/config` | ✅ (维护配置，GUI 面板；也可经 `get_settings(knowledge_maintenance)` 读) |
@@ -465,7 +465,7 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 | `sprite_config_set_cmd` | `POST /api/knowledge/sprite/config` | ✅ (写精灵配置，clamp 后返回) |
 | `kb_source_import_batch_cmd` | `POST /api/knowledge/{kbId}/sources/batch` | ✅（资料舱批量导入；本地文件输入使用 `uploadId`，与 `content` / `dataBase64` / `url` 互斥；创建 import run + item 后返回 `running` run） |
 | `kb_source_import_session_attachment_cmd` | `POST /api/knowledge/{kbId}/sources/session-attachment` | ✅ (把已落到会话附件目录的聊天 / IM 附件归档为 raw source；后端校验 `sessionId + path` 位于该 session attachments dir，再复用文本 / PDF / DOCX / STT / OCR 导入链路) |
-| `kb_source_asset_link_cmd` | `GET /api/knowledge/{kbId}/sources/{sourceId}/assets/{original\|thumbnail}/link` | ✅ (返回 retained source asset metadata + owner-plane local path；文件流走同路径去掉 `/link`，可加 `?download=1`) |
+| `kb_source_asset_link_cmd` | `GET /api/knowledge/{kbId}/sources/{sourceId}/assets/{original\|thumbnail}/link` | ✅ (返回 retained source asset metadata + 用户本人可见的本地路径；文件流走同路径去掉 `/link`，可加 `?download=1`) |
 | `kb_source_import_runs_list_cmd` | `GET /api/knowledge/{kbId}/sources/import-runs?limit=` | ✅ (导入历史，limit 默认 20、钳 1..=200) |
 | `kb_source_import_run_detail_cmd` | `GET /api/knowledge/{kbId}/sources/import-runs/{runId}` | ✅ (导入 run 明细 + item 状态，不回显原始 `input_json`) |
 | `kb_source_import_retry_failed_cmd` | `POST /api/knowledge/{kbId}/sources/import-runs/{runId}/retry-failed` | ✅ (重试 failed item，校验 run 属于目标 KB，复用原 input_json) |
@@ -485,12 +485,12 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 | `knowledge_agent_expand_cmd` | `POST /api/knowledge/agent/expand` | ✅ (`knowledge.expand`；read token 允许；读取 note + related notes) |
 | `knowledge_agent_sources_cmd` | `POST /api/knowledge/agent/sources` | ✅ (`knowledge.sources`；read token 允许；list 默认 metadata/snippet，返回 `truncated`；只有显式 `sourceId + includeContent` 返回 source 全文) |
 | `knowledge_agent_compile_propose_cmd` | `POST /api/knowledge/agent/compile/propose` | ✅ (`knowledge.compile.propose`；owner API key required，read token 禁止；启动 compile run，仅产 Review Diff proposals，不直接写 `.md`) |
-| `kb_file_read_cmd` | `GET /api/knowledge/{kbId}/files/read?path=` | ✅ (纯 owner 平面 + scope contains) |
+| `kb_file_read_cmd` | `GET /api/knowledge/{kbId}/files/read?path=` | ✅ (仅面向用户本人 + scope contains) |
 | `kb_file_extract_cmd` | `GET /api/knowledge/{kbId}/files/extract?path=` | ✅ |
 | `kb_file_resolve_cmd` | —（Tauri-only，`convertFileSrc`） | N/A |
 | —（HTTP-only raw serve） | `GET /api/knowledge/{kbId}/files/raw?path=&download=` | N/A |
 
-KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fallback**——与 `/api/sessions/{id}/files/*` 物理隔离，不放宽其判定。外部绑定 vault 默认只读（写经 `WorkspaceScope::resolve_writable` 拒绝 + HTTP `allow_remote_writes` 闸门双拒）。agent 读笔记不经此端点，走 `note_*` 工具（`effective_kb_access` 校验）。`knowledge:changed` 事件 `{ kbId, op }` 经 EventBus fan-out 到两端前端。
+KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fallback**——与 `/api/sessions/{id}/files/*` 物理隔离，不放宽其判定。外部绑定 vault 默认只读（写经 `WorkspaceScope::resolve_writable` 拒绝 + HTTP `allow_remote_writes` 闸门双拒）。agent 读笔记不经此端点，走 `note_*` 工具（`effective_kb_access` 校验）。`knowledge:changed` 事件 `{ kbId, op }` 经 EventBus fan-out 到两端前端。
 
 **preview-by-path（文件操作统一）**：`preview_read_text` / `preview_extract` 按**绝对路径**读取，供 Markdown 链接 / 下挂文件 / 工作台产物文件统一预览。桌面信任本机路径直接读；HTTP 经 `/api/sessions/{id}/files/{read,extract}`，与既有 `/files/by-path` 共用授权 `authorized_canonical_file_path` = **被会话 tool 消息引用 ∪ 落在会话工作目录内**，二者皆非的主机任意路径一律 403。详见 [file-operations.md](./file-operations.md)。
 
@@ -565,7 +565,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `get_project_bootstrap_run` | `GET /api/project-bootstrap/{requestId}` | ✅ |
 | `cancel_project_bootstrap` | `POST /api/project-bootstrap/{requestId}/cancel` | ✅ |
 
-Managed Worktree owner API 管理 session-scoped durable git worktree。`create_managed_worktree` 拒绝 incognito session，默认在 `~/.hope-agent/worktrees/<repo-slug>/<wt-id>` 创建 detached worktree，并支持 `WorktreeCreate` hook 接管创建；`archive` 会记录 dirty snapshot，clean worktree 才 best-effort remove；`restore` 可重建已清理路径；生命周期兼容 `handoff` 只负责绑定父 session cwd，不复制 Git 改动。`chat` / `POST /api/chat` 的新项目草稿可带 `projectBootstrap`；Bootstrap 查询与取消接口用于断线恢复和停止准备。完整契约见 [Managed Worktree 控制平面](worktree.md)。
+Managed Worktree owner API 管理 session-scoped durable git worktree：`create_managed_worktree` 拒绝 incognito、默认在 `~/.hope-agent/worktrees/<repo-slug>/<wt-id>` 建 detached worktree（可由 `WorktreeCreate` hook 接管），`archive` 记 dirty snapshot 且 clean 才 best-effort remove，`restore` 重建已清理路径，`handoff` 只绑父 session cwd 不复制 Git 改动；`chat` / `POST /api/chat` 新项目草稿可带 `projectBootstrap`，配套查询 / 取消接口用于断线恢复。完整契约见 [Managed Worktree 控制平面](worktree.md)。
 
 `POST /api/chat` 的 `projectBootstrap` 可能执行本地分支切换或创建 Worktree，因此与 Git 写端点共用 `filesystem.allow_remote_writes` 默认关闭闸门，并在创建临时 Session 前返回 403；普通聊天以及 Bootstrap 状态查询/取消不受此闸门影响。
 
@@ -587,7 +587,7 @@ Managed Worktree owner API 管理 session-scoped durable git worktree。`create_
 | `handoff_session_git_cmd` | `POST /api/sessions/{id}/git/handoff` | ✅ |
 | `get_git_operation_run_cmd` | `GET /api/git-runs/{requestId}` | ✅ |
 
-所有端点只按 session 解析 cwd，不接受客户端指定仓库根目录。HTTP 写端点受 `filesystem.allow_remote_writes` 闸门；PR 网络读取通过已认证的本机 `gh` 获取当前 PR 详情、checks、顶层 reviews 与未解决 review threads，不接受客户端传入 PR 标识。Feedback 的 checks/comments 独立容错并分别返回截断和错误字段；PR 外部文本按不可信数据处理。“修复”只填入当前会话输入框，不自动发送或执行。自动合并必须携带 revision、合并方式和显式确认，存在冲突时拒绝，并纳入 `requestId` 幂等记录。完整 DTO、锁、幂等、Handoff 与失败恢复契约见 [Session Git 控制平面](git-control.md)。
+所有端点只按 session 解析 cwd、不接受客户端指定仓库根，HTTP 写端点受 `filesystem.allow_remote_writes` 闸门；PR 读取通过已认证的本机 `gh`（不接受客户端传 PR 标识），外部文本按不可信数据处理，“修复”只填入输入框不自动发送，自动合并须带 revision / 合并方式 / 显式确认并纳入 `requestId` 幂等、冲突时拒绝。完整 DTO、锁、幂等、Handoff 与失败恢复契约见 [Session Git 控制平面](git-control.md)。
 
 ### LSP / Diagnostics
 
@@ -596,9 +596,9 @@ Managed Worktree owner API 管理 session-scoped durable git worktree。`create_
 | `get_lsp_status` | `GET /api/sessions/{sessionId}/lsp/status` | ✅ |
 | `get_lsp_diagnostics` | `GET /api/sessions/{sessionId}/lsp/diagnostics` | ✅ |
 
-LSP owner API 返回当前 session working dir 对应 workspace 的 language server 状态和 diagnostics 快照。Agent 侧语义导航走 builtin `lsp` 工具；owner API 只服务 Workspace GUI / HTTP client 读取状态。无痕会话不启动 LSP，也不会注入 diagnostics prompt 后缀。完整契约见 [LSP 与语义代码智能](lsp.md)。
+LSP owner API 返回当前 session working dir 对应 workspace 的 language server 状态与 diagnostics 快照，只服务 Workspace GUI / HTTP client 读取（agent 侧语义导航走 builtin `lsp` 工具）；无痕会话不启动 LSP、不注入 diagnostics prompt 后缀。完整契约见 [LSP 与语义代码智能](lsp.md)。
 
-### Context Retrieval v2
+### 上下文检索
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
@@ -607,9 +607,7 @@ LSP owner API 返回当前 session working dir 对应 workspace 的 language ser
 | `save_session_ide_context` | `PUT /api/sessions/{sessionId}/ide-context` | ✅ |
 | `clear_session_ide_context` | `DELETE /api/sessions/{sessionId}/ide-context` | ✅ |
 
-Context Retrieval owner API 返回当前 session 的任务感知推荐上下文。后端聚合 Git diff、历史 artifacts、LSP diagnostics / workspace symbols、Review findings、Smart Verification steps、Goal evidence、tasks、Workflow ops、IDE/ACP context、file search v2 与 URL 来源，并按信号强度 + query boost 排序。Phase 7.3 起可选 `domain/templateId` 会启用 Domain Context Retrieval；未显式传入时也会从 `workflow_runs.kind=domain:<domain>`、domain evidence 或 Goal objective / criteria 推断 domain profile，返回 document / email thread / calendar event / sheet range / knowledge note / web source / decision / artifact 候选、`domainContext` 与 `accessIssues`。无工作目录时仍返回 Goal / Task / Workflow / Domain evidence 等通用候选，只跳过 workspace 信号；无痕会话返回空 snapshot。候选 `metadata.actions.focusPaths` 表示 GUI 可触发 focused review / verification，`metadata.domainActions` 表示引用 / evidence / 摘要 / ask-user / conflict / task 等领域动作入口，但查询本身仍只读。
-
-`session_ide_context` owner API 管理当前 session 的 IDE / ACP 快照：current file、selection、open tabs、active diagnostic、active symbol。HTTP `PUT` body 为 `{ "context": SessionIdeContext }`，以对齐 generic transport 的命令参数形态。它只作为 Review / Context 的推荐和 evidence 信号，不进入 system prompt；无痕会话拒绝持久化。完整契约见 [Context Retrieval v2](context-retrieval.md)。
+Context Retrieval owner API 返回当前 session 的任务感知推荐上下文（聚合 Git diff、artifacts、LSP diagnostics、Review / Verification / Goal / Task / Workflow 信号、文件搜索与 URL 来源，按信号强度 + query boost 排序），可选 `domain/templateId` 启用领域候选；查询本身只读，无工作目录时只跳过 workspace 信号、无痕会话返回空 snapshot。`session_ide_context` owner API 管理当前 session 的 IDE / ACP 快照（current file / selection / open tabs / active diagnostic / active symbol），只作为推荐和 evidence 信号、不进 system prompt，无痕会话拒绝持久化。完整契约见 [上下文检索](context-retrieval.md)。
 
 ### Review Engine
 
@@ -620,7 +618,7 @@ Context Retrieval owner API 返回当前 session 的任务感知推荐上下文�
 | `get_review_run` | `GET /api/review-runs/{runId}` | ✅ |
 | `update_review_finding_status` | `POST /api/review-findings/{findingId}/status` | ✅ |
 
-Review owner API 管理 durable local code review。`run_code_review` 读取当前 session workspace 的 uncommitted diff，按 `profiles[]` 生成 deterministic / optional Deep Review candidate findings，经 verifier 三态落 `review_findings`，并把 P0/P1 open finding 写回 Goal evidence。请求可带 `focusPaths[]`，用于在同一 local diff 内做 focused review；也可带 `ideContext`，用于本次 run 的 finding evidence 与 stats。无痕会话不创建 durable review run。完整契约见 [Review Engine 控制平面](review-engine.md)。
+Review owner API 管理 durable 本地代码复查：`run_code_review` 按 `profiles[]` 复查当前 session workspace 的 uncommitted diff，经 verifier 三态落 `review_findings` 并把 P0/P1 open finding 写回 Goal evidence，可带 `focusPaths[]` / `ideContext`；无痕会话不创建 durable run。完整契约见 [Review Engine 控制平面](review-engine.md)。
 
 ### Smart Verification
 
@@ -631,7 +629,7 @@ Review owner API 管理 durable local code review。`run_code_review` 读取当�
 | `run_smart_verification` | `POST /api/sessions/{sessionId}/verification-runs/run` | ✅ |
 | `get_verification_run` | `GET /api/verification-runs/{runId}` | ✅ |
 
-Smart Verification owner API 管理 durable validation run。`plan_smart_verification` 只持久化推荐命令；`run_smart_verification` 创建 running run 后后台执行低风险 auto-run steps，并把 `validation_passed` / `validation_failed` / `validation_completed` 写回 Goal evidence。请求可带 `focusPaths[]`，用于在同一 local diff 内选择 focused verification steps；无痕会话不创建 durable verification run。完整契约见 [Smart Verification 控制平面](verification-engine.md)。
+Smart Verification owner API 管理 durable 验证 run：`plan_smart_verification` 只持久化推荐命令，`run_smart_verification` 后台执行低风险 auto-run steps 并把 `validation_passed` / `validation_failed` / `validation_completed` 写回 Goal evidence，可带 `focusPaths[]`；无痕会话不创建 durable run。完整契约见 [Smart Verification 控制平面](verification-engine.md)。
 
 ### Domain Quality
 
@@ -641,7 +639,7 @@ Smart Verification owner API 管理 durable validation run。`plan_smart_verific
 | `run_domain_quality` | `POST /api/domain-quality-runs/run` | ✅ |
 | `get_domain_quality_run` | `GET /api/domain-quality-runs/{runId}` | ✅ |
 
-Domain Quality owner API 管理 durable non-coding review / verification run。`run_domain_quality` 基于 Domain Workflow template、domain evidence、approval gates 和输入 metadata 同步生成 `domain_quality_runs/checks/events`，并把 `domain_quality_passed` / `domain_quality_blocked` / `domain_quality_failed` / `domain_quality_needs_user` / `domain_quality_check` 写回 Goal evidence。请求可显式带 `templateId/templateVersion` 或 `domain`；未指定时优先使用 active / 指定 Goal 绑定的 `workflow_template_id/version`，run 与 stats 会保留 template id/version 便于审计。无工作目录也可运行；无痕会话拒绝持久化。高风险动作只有在 `sourceMetadata.requestedAction` 匹配 approval gate 或 `highRiskAction=true` 时要求 `explicitUserApproval`，缺失时 run 进入 `needs_user` 并阻塞 Goal。完整契约见 [Domain Quality 控制平面](domain-quality.md)。
+Domain Quality owner API 管理 durable 非编码复查 / 验证 run：`run_domain_quality` 基于 Domain Workflow template、domain evidence 和 approval gates 同步生成 `domain_quality_runs/checks/events` 并回写 Goal evidence，可显式带 `templateId/templateVersion` 或 `domain`；高风险动作命中 approval gate 或 `highRiskAction=true` 时要求 `explicitUserApproval`，缺失则进入 `needs_user` 阻塞 Goal；无痕会话拒绝持久化。完整契约见 [Domain Quality 控制平面](domain-quality.md)。
 
 ### Domain Eval / Quality Gate
 
@@ -664,7 +662,7 @@ Domain Quality owner API 管理 durable non-coding review / verification run。`
 | `evaluate_domain_quality_gate` | `POST /api/domain-quality-gate/evaluate` | ✅ |
 | `evaluate_domain_readiness_gate` | `POST /api/domain-readiness-gate/evaluate` | ✅ |
 
-Domain Eval owner API 管理 non-coding eval / gate。`list_domain_eval_tasks` 返回内置 15 个 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation task 以及显式导入的 active task，并附加 user/project calibration；`import_domain_eval_case` 把已晋升 `domain_eval_case` proposal 的 JSON artifact 导入 `domain_eval_tasks`；`record_domain_eval_calibration` / `list_domain_eval_calibrations` 记录与查询人工校准 / 复核历史；`run_domain_eval_task` 读取 Goal、Workflow、Domain Evidence 与 Domain Quality trace 做 deterministic scoring，并写入 `domain_eval_runs(source_type='live')`；`run_domain_eval_fixture` 支持 `executionMode="trace_fixture"` 和 `executionMode="agent"`：前者创建 `SessionKind::EvalFixture` session / goal / evidence / workflow / quality trace 后调用同一 scorer，后者要求 fixture 显式传 `execution.providers` / `execution.modelChain`，创建真实 user message + chat turn，经 `run_chat_engine` 执行后再进入同一 scorer，且不会自动写入 `fixture.evidence` / `fixture.workflow`，执行失败不写 eval run 但会写 `domain_eval_fixture_runs`；`create_domain_eval_campaign` / `run_domain_eval_campaign` 把多个 task × model/execution item 持久化为 durable campaign，可取消、可 retry failed/interrupted/cancelled item，并通过 item 指向最新 `fixtureRunId` / `evalRunId`；campaign history 只保存 provider/model/label，不保存 provider secret；`get_domain_eval_campaign_leaderboard` 按 provider/model/label/execution 聚合 campaign item，返回 rank、pass rate、average score、warnings 与可追溯 evidence；`generate_coding_improvement_proposals` 可用 `sourceType="domain_eval_campaign"` + campaign id 把 failed/cancelled/interrupted item 生成 `domain_eval_case` 与 `domain_guidance` draft proposal；`list_domain_eval_runs` 默认排除 `fixture_*` synthetic 数据，`list_domain_eval_fixture_runs` 专供 Dashboard Smoke Run Center；`evaluate_domain_quality_gate` 默认只读 live `domain_eval_runs`、`domain_quality_runs/checks` 与 evidence coverage，`includeSynthetic=true` 才纳入 fixture/smoke 数据，输出 `passed` / `failed` / `insufficient_data` 三态；`evaluate_domain_readiness_gate` 进一步只读 Quality Gate、Campaign、Leaderboard 和 Campaign Learning Closure，输出通用领域可交付 readiness 三态、blockers 与 recommended next steps，不自动生成 proposal、不自动 retry campaign。该 API 与 coding benchmark 分表、分路径、分 Dashboard 区块展示；无痕会话 fail-closed。完整契约见 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md)。
+Domain Eval owner API 管理非编码 eval / gate：task 列表（内置 15 个 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation task + 导入 task）、`trace_fixture` 与 `agent` 两种 fixture 执行、durable campaign（可取消 / retry）、leaderboard，以及 `evaluate_domain_quality_gate` / `evaluate_domain_readiness_gate` 三态（`passed` / `failed` / `insufficient_data`）只读守门。它与 coding benchmark 分表、分路径、分 Dashboard 区块，只做确定性只读打分、不自动生成 proposal / retry campaign，campaign history 不保存 provider secret，无痕会话 fail-closed。完整契约见 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md)。
 
 ### Coding Eval
 
@@ -675,11 +673,7 @@ Domain Eval owner API 管理 non-coding eval / gate。`list_domain_eval_tasks` �
 | `run_coding_eval_gold_task_pack` | `POST /api/coding-eval/gold-tasks/run` | ✅ |
 | `evaluate_coding_eval_strategy_effect` | `POST /api/coding-eval/strategy-effects/evaluate` | ✅ |
 
-Coding Eval owner API 运行一份完整 fixture JSON，创建临时 git repo 与真实 session / goal / task / workflow seed。`runs.execution.mode="agent"` 会按 fixture 提供的 `providers` / `modelChain` 调用 `run_chat_engine`，创建 user message + chat turn，让 agent 从 task prompt 开始执行；`mode="fixture_patch"` 用于无模型回归，只在执行阶段写入 `repo.changes`。随后 API 调用生产 Review / Smart Verification / Context Retrieval，并按 `fixture.task` 对候选 diff 做 task-level scoring。它返回 `FixtureReport`，可包含 `execution` / `task` report；`execution.toolCalls` / `metrics.executionToolCalls` 记录真实 tool message 名称，fixture 可用 `checks.execution.expectedToolCalls` / `minToolCalls` 断言模型确实调用了预期工具；`runs.task.recordEvalRun` 默认把结果写入 `coding_eval_runs(suite='task_level_coding_eval')` 供 Improvement Loop / Dashboard 消费。Phase 5.6 的 mock Responses 基线不访问外部服务，但会驱动真实 `write` 工具在临时 repo 产出 candidate diff。
-
-Gold Task Pack API 是 Phase 5.3 的批量入口：`list_coding_eval_gold_tasks` 返回内置 active gold task registry；`run_coding_eval_gold_task_pack` / `POST /api/coding-eval/gold-tasks/run` 接收 `{ "input": { "ids": [], "statuses": [], "taskTypes": [], "maxTasks": 2, "executionMode": "fixture_patch", "recordEvalRuns": true, "recordPackRun": true, "baselineKind": "deterministic_mock", "evaluateGoal": true } }`，把自动化 gold tasks materialize 成普通 fixture 后批量运行，返回 `GoldTaskPackReport`。默认只跑已自动化的 active cases，且默认走 `fixture_patch`，不访问外部模型。Phase 5.9 起可传 `executionMode="agent"`、`providers`、`modelChain`、`autoApproveTools=true` 跑受控外部模型基线；这会创建真实 chat turn，让模型通过工具产生 diff，再进入同一 scorer。Phase 5.7 起 `recordPackRun` 默认把 pack summary 写入 `coding_eval_pack_runs` 并返回 `packRunId`；外部真实模型基线必须用 `baselineKind="external_model"` 标明，且必须具备 agent execution 配置，不能只改标签。
-
-Strategy Effect API 是 Phase 5.4 的对比入口：`evaluate_coding_eval_strategy_effect` / `POST /api/coding-eval/strategy-effects/evaluate` 接收 `{ "input": { "strategyType": "workflow_policy", "baseline": GoldTaskPackReport, "candidate": GoldTaskPackReport, "recordRun": false } }`，返回 `StrategyEffectReport`。它只比较两份报告中的共同 case，candidate 漏掉 baseline case 视为回归风险，candidate 新增 case 只展示、不参与聚合；不跑模型、不执行项目命令。纯函数 `evaluate_strategy_effect()` 仍无 DB 副作用；owner API 仅在 `recordRun=true` 时写入 `coding_strategy_effect_runs` 并返回 `runId`。完整契约见 [Coding Eval 控制面评测](coding-eval.md)。
+Coding Eval owner API 在临时 git repo + 真实 session / goal / task / workflow seed 上运行完整 fixture JSON：`mode="agent"` 按 fixture 的 `providers` / `modelChain` 经 `run_chat_engine` 让模型产出 candidate diff，`mode="fixture_patch"` 用于无模型回归，随后调用生产 Review / Smart Verification / Context Retrieval 做 task-level 打分并可写 `coding_eval_runs`。Gold Task Pack API（`list_coding_eval_gold_tasks` / `run_coding_eval_gold_task_pack`）批量 materialize 内置 gold task，Strategy Effect API（`evaluate_coding_eval_strategy_effect`）纯函数比较两份 pack 报告的共同 case、不跑模型、不执行命令。外部真实模型基线必须显式标 `baselineKind="external_model"` 且带 agent 执行配置，不能只改标签。完整契约见 [Coding Eval 控制面评测](coding-eval.md)。
 
 ### Coding Improvement Loop
 
@@ -720,7 +714,7 @@ Strategy Effect API 是 Phase 5.4 的对比入口：`evaluate_coding_eval_strate
 | `list_benchmark_backlog` | `POST /api/coding-benchmark/backlog` | ✅ |
 | `update_benchmark_backlog_status` | `POST /api/coding-benchmark/backlog/status` | ✅ |
 
-Coding Improvement owner API 基于 durable Goal / Workflow / Review / Smart Verification / Coding Eval / transcript 数据生成 trend report、workflow retro、failure taxonomy、transcript distillation 和 proposal 队列。`generate_coding_improvement_proposals` 从 report 派生候选；`distill_coding_improvement_proposals` 显式扫描 transcript、tool error、workflow ops 与 failure feedback 后只写 `coding_improvement_proposals(status='draft')`；`preview_coding_improvement_proposal_action` 返回确定性 action plan；`apply_coding_improvement_proposal` 先原子 claim draft proposal，再仅应用成 reviewable draft artifact 或 managed draft skill，目标已存在或并发创建都 fail-closed，不直接修改 project guidance、AGENTS、memory 或生产 eval fixture。`preview_coding_improvement_proposal_promotion` / `promote_coding_improvement_proposal` 只对已应用草稿显式晋升，目标冲突 fail-closed。`evaluate_coding_eval_release_gate` 只读 pack / strategy / tool-call history，输出发布质量三态；`evaluate_coding_learning_generalization` 只读 promoted learning、pack history 和 strategy history，输出跨项目学习泛化三态；`get_coding_benchmark_center` 只读 pack history 并嵌入 release / generalization gate，输出 Benchmark Run Center 三态；Benchmark Campaign API 创建/运行/取消/重试 durable campaign，history 不保存 provider configs 或 API key；leaderboard / compare API 只读 campaign item history，并保留 campaign item / packRunId evidence；Benchmark Corpus API 只保存显式 owner-provided manifest，要求 import consent，并验证 active task 的来源、版本、成功标准、验证命令和 redaction 状态；Benchmark Report API 把 campaign / comparison / release benchmark 生成 Markdown / JSON / HTML snapshot，记录 report history，并允许 owner 显式标记 release evidence；Continuous Benchmark Gate API 只读 release evidence、campaign、corpus、leaderboard、backlog、可靠性和预算 history，输出持续发布守门结论；Benchmark Backlog API 把失败 campaign item 物化为可处理 backlog，并通过显式状态更新关闭。无痕会话 fail-closed。完整契约见 [Coding Improvement Loop](coding-improvement-loop.md)。
+Coding Improvement owner API 基于 durable Goal / Workflow / Review / Verification / Coding Eval / transcript 生成 trend report、failure taxonomy 和 proposal 队列：`generate_*` / `distill_*` 只写 `status='draft'` proposal，`apply_*` 原子 claim 后仅落 reviewable draft artifact 或 managed draft skill、不直改生产 guidance / AGENTS / memory / eval fixture，`promote_*` 仅对已应用草稿显式晋升（目标冲突 fail-closed）。Release / Generalization Gate、Benchmark Center、Campaign / Leaderboard / Corpus / Report / Continuous Gate / Backlog 一组 API 只读打分与守门，不自动 apply / promotion，history 不保存 provider secret，无痕会话 fail-closed。完整契约见 [Coding Improvement Loop](coding-improvement-loop.md)。
 
 ### Workflow Runs
 
@@ -739,7 +733,7 @@ Coding Improvement owner API 基于 durable Goal / Workflow / Review / Smart Ver
 | `get_workflow_mode` | `GET /api/sessions/{sessionId}/workflow-mode` | ✅ |
 | `set_workflow_mode` | `POST /api/sessions/{sessionId}/workflow-mode` | ✅ |
 
-Workflow Mode 是 session 级能力开关：开启后模型才会在后续回合看到 `workflow_run` 工具，并自行判断是否需要动态编排。Workflow owner API 管理 durable `workflow_runs`。`preview_workflow_script` 不落库，只返回 Script Gate + permission preview；`create_workflow_run` 会强制复用同一 preflight，Gate 不通过或 permission preview 有确定 deny 时拒绝创建，并可选接收 `worktreeId` 绑定 managed worktree、`goalCriterionId` 绑定 active Goal 的具体完成标准，默认 kind 为 `general.workflow`。`create_workflow_run(runImmediately=true)` / `run_workflow_run` / `approve_workflow_run` / `resume_workflow_run` 都先要求当前进程是 primary launcher，再把启动请求交给 runtime；API 返回值只表示 launch accepted，不承诺同步进入 `running`，真实进度以后续 `workflow:*` 事件和 snapshot 为准。`cancel_workflow_run` 会先转 `cancelled`，再 best-effort 取消 workflow-owned async tool / validation / subagent children。`list_workflow_watchdog_findings` 只读返回 `workflow_recoverable_owner` / `workflow_no_recent_progress` 诊断，供 GUI 和后续模型 status/trace 面提示“需要确认”，不触发恢复、不执行脚本、不绕过 primary-only。完整技术契约见 [Workflow Mode、Workflow Run 与 Execution Mode](workflow.md)。
+Workflow Mode 是 session 级能力开关：开启后模型才在后续回合看到 `workflow_run` 工具。Workflow owner API 管理 durable `workflow_runs`：`preview_workflow_script` 不落库只返回 Script Gate + permission preview，`create_workflow_run` 复用同一 preflight（Gate 不通过或有确定 deny 即拒创建），可绑定 `worktreeId` / `goalCriterionId`；`run` / `approve` / `resume` 均要求 primary launcher，返回值只表示 launch accepted、真实进度以 `workflow:*` 事件为准，`cancel` 先转 `cancelled` 再 best-effort 取消子 run；watchdog 只读诊断不恢复、不执行脚本。完整契约见 [Workflow Mode、Workflow Run 与 Execution Mode](workflow.md)。
 
 ### Goals
 
@@ -757,7 +751,7 @@ Workflow Mode 是 session 级能力开关：开启后模型才会在后续回合
 | `close_goal` | `POST /api/goals/{goalId}/close` | ✅ |
 | `append_goal_follow_up` | `POST /api/goals/{goalId}/follow-ups` | ✅ |
 
-Goal owner API 管理 session-scoped 顶层目标。`create_goal` 会拒绝 incognito session，并保证同一 session 只有一个 open Goal 或 pending closure Goal；`update_goal` 更新 objective / completion criteria 后清空旧 final audit，并让 `blocked` / `evaluating` / pending `completed` 回到 `active`；`append_goal_follow_up` 把非阻塞后续项写入 durable follow-up pool，规范化去重并拒绝 sealed 终态 Goal；`evaluate_goal` 基于 linked workflow runs、tasks、validation/diff/file evidence 与 budget snapshot 生成 deterministic final audit；`close_goal` 记录用户 closure decision（`accepted_v1` / `needs_strict_evidence` / `cancelled` / `superseded`），其中 `clear_goal` 走 `cancelled` closure 而不是只改 state。`list_goal_watchdog_findings` 只读返回 `goal_no_recent_progress` / `goal_stale_evaluating` 诊断：它复用 runner stop rules，且在 active workflow/task/background job 存在时不误报，不排 wakeup、不恢复、不修改 Goal。`create_workflow_run` 可接收可选 `goalId`，省略时自动绑定当前 open Goal 或 pending closure Goal；`create_workflow_run` / `create_loop_schedule` 可接收 `goalCriterionId`，后端校验 Goal revision 并把 criteria 快照写进 run/schedule/evidence metadata；创建前会执行 Goal budget hard stop，workflow 终态和关键 op 会 best-effort 回写 Goal link 并触发 audit。完整契约见 [Goal 控制平面](goal.md)。
+Goal owner API 管理 session-scoped 顶层目标：`create_goal` 拒绝 incognito 并保证同一 session 只有一个 open / pending-closure Goal，`update_goal` 改 objective / criteria 后清空旧 final audit，`append_goal_follow_up` 写非阻塞后续项、拒绝 sealed 终态，`evaluate_goal` 基于 linked runs / tasks / evidence / budget 生成 deterministic final audit，`close_goal` / `clear_goal` 记录 closure decision（`clear_goal` 走 `cancelled`），watchdog 只读诊断不恢复。`create_workflow_run` / `create_loop_schedule` 可带 `goalId` / `goalCriterionId` 绑定当前 Goal 的具体完成标准并把 criteria 快照写进 evidence metadata，创建前执行 Goal budget hard stop。完整契约见 [Goal 控制平面](goal.md)。
 
 ### Domain Workflow
 
@@ -769,7 +763,7 @@ Goal owner API 管理 session-scoped 顶层目标。`create_goal` 会拒绝 inco
 | `record_domain_evidence` | `POST /api/domain-evidence/record` | ✅ |
 | `list_domain_evidence` | `POST /api/domain-evidence` | ✅ |
 
-Domain Workflow owner API 是 Phase 7.1-7.2 的通用场景入口。`list_domain_workflow_templates` 合并内置 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation / Inbox / Project Ops 模板与用户/项目自定义模板；`save_domain_workflow_template` 要求 `explicitSaveConsent=true`，并禁止覆盖 built-in 同 id/version；`preview_domain_workflow` 从模板生成 `workflow.js` draft，走既有 Script Gate / permission preview，但不创建 run、不执行脚本；`record_domain_evidence` 写入通用 evidence，可把 `source_cited`、`claim_checked`、`user_decision`、`artifact_reviewed`、`data_quality_checked` 等 relation 链回 Goal，成功后通过 `domain_evidence:recorded` 事件通知 Workspace Context 与通用任务工作台刷新；`list_domain_evidence` 供 owner 面按 goal/session/project/domain/type 查询。无痕会话 fail-closed。完整契约见 [Domain Workflow 控制平面](domain-workflow.md)。
+Domain Workflow owner API 是通用（非编码）场景入口：`list_domain_workflow_templates` 合并内置（Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation / Inbox / Project Ops）与自定义模板，`save_domain_workflow_template` 要求 `explicitSaveConsent=true` 且禁改 built-in，`preview_domain_workflow` 只从模板出 draft（走 Script Gate / permission preview）、不建 run 不执行，`record_domain_evidence` / `list_domain_evidence` 写 / 查通用 evidence 并可链回 Goal（成功后 emit `domain_evidence:recorded`）。无痕会话 fail-closed。完整契约见 [Domain Workflow 控制平面](domain-workflow.md)。
 
 ### Loop Schedules
 
@@ -785,7 +779,7 @@ Domain Workflow owner API 是 Phase 7.1-7.2 的通用场景入口。`list_domain
 | `run_loop_schedule_now` | `POST /api/loops/{loopId}/run-now` | ✅ |
 | `update_loop_schedule_policy` | `PATCH /api/loops/{loopId}/policy` | ✅ |
 
-Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule` 会拒绝 incognito session，并要求绑定 open/pending closure Goal 或提供明确 recurring prompt；可选 `goalCriterionId` 会绑定当前 Goal 的具体完成标准；可选 `executionStrategy` 默认为 `continue`，触发时通过 parent injection 回到原会话；设为 `workflow` 时仅支持 interval loop，且要求绑定 Goal 已选择 Domain Workflow template，Cron tick 会创建并启动 `origin=loop:<loop_id>` 的 durable WorkflowRun，并继承 Loop 的 criteria 绑定。Loop v2 字段 `maxNoProgressRuns` / `maxFailures` / `backoffSecs` 默认 3 / 3 / 300s；run terminal 会写 `progress_state`、`progress_delta_json`、`no_progress_reason`、`scheduling_decision`，并基于 durable Goal evidence delta 做 backoff / blocked。`triggerKind=dynamic` 支持 prompt-only `/loop <prompt>` 和裸 `/loop` maintenance 入口：`triggerSpec={ fallbackSecs, fallbackUsed, maintenancePrompt? }`；模型每轮优先用 internal tools `loop_reschedule` / `loop_stop` 写 `loop_runs.trace_json.dynamicDecision`，兼容 marker `LOOP_RESCHEDULE_AFTER` / `LOOP_STOP` / `LOOP_BLOCKED`；缺决策只 fallback 一次，再缺则 blocked。裸 `/loop` 的默认 prompt 可来自 session working dir / Hope Agent home 的 `loop.md`（最多 25KB）或内置通用维护 prompt，且 maintenance Loop 会在每次 Cron trigger admission 前刷新该来源顺序；刷新后的来源 metadata 写入 `loop_runs.trace_json.maintenancePrompt`。`triggerKind=event` 接受内部 EventBus 白名单事件 `workflow:updated` / `goal:updated` / `task_updated`，`triggerSpec={ eventName, filters, debounceSecs }`；匹配事件会先写 durable tick，再通过 Cron immediate primary-only path 执行，并把 `eventContext` 写入 `loop_runs.trace_json`。`list_loop_schedules` / `get_loop_schedule` 派生返回 Cron `nextRunAt` / `cronStatus`，Event Loop 返回空 `nextRunAt` 与 `cronStatus=event`。`list_loop_watchdog_findings` 是只读高可用诊断：backing Cron 缺失返回 `loop_cron_missing`，最新 Loop run 仍是 `running` 但 Cron 已无 `running_at` 且超过 grace 返回 `loop_run_maybe_interrupted`，active Loop 到点超过 grace 但 Cron 未 running 且没有 active Loop run 返回 `loop_due_not_claimed`；它不修复、不触发 run、不绕过 primary-only。`run_loop_schedule_now` 复用 Cron immediate primary-only path，但只接受 active Loop，不绕过 paused / blocked；`update_loop_schedule_policy` 更新 Loop budget / guard，并同步 Cron `max_failures` / `job_timeout_secs`。Loop run 会写 `loop_runs` trace，绑定 Goal 时写 `loop_run` evidence；`pause/resume/stop` 同步暂停或恢复底层 Cron job（Event Loop 的底层 Cron job 保持 paused，只响应事件 watcher / active run-now）。模型侧 `loop_status` / `loop_reschedule` / `loop_stop` / `loop_record_progress` 只操作当前 session Loop 控制面，不开放 `manage_cron` 写权限。完整契约见 [Loop 控制平面](loop.md)。
+Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` 拒绝 incognito，要求绑定 open / pending-closure Goal 或明确 recurring prompt，可选 `goalCriterionId` / `executionStrategy`（默认 `continue`，`workflow` 时每次 tick 建并启动 `origin=loop:<id>` 的 durable WorkflowRun）；`maxNoProgressRuns` / `maxFailures` / `backoffSecs` 默认 3 / 3 / 300s，并基于 Goal evidence delta 做 backoff / blocked。三种 `triggerKind`：`interval` 定时、`dynamic`（prompt-only `/loop <prompt>` 与裸 `/loop` maintenance，模型经 `loop_reschedule` / `loop_stop` 自定节奏、缺决策只 fallback 一次）、`event`（订阅内部 EventBus 白名单事件，`triggerSpec={ eventName, filters, debounceSecs }`，经 Cron immediate primary-only path 执行）。派生返回 Cron `nextRunAt` / `cronStatus`，watchdog 只读诊断不恢复，`pause` / `resume` / `stop` 同步底层 Cron job；模型侧 `loop_*` 工具只操作当前 session Loop、不开放 `manage_cron` 写权限。事件白名单及各自 filter 字段的权威清单见 [Loop 控制平面](loop.md)。
 
 `export_session_cmd` / `GET /api/sessions/{sessionId}/export` 是两端**形态不对称**的特例：Tauri 端走 IPC，由前端先弹原生 save dialog 拿到 `output_path` 再传进来，后端写盘后返回最终路径字符串；HTTP 端走 GET 直接返回二进制流（`Content-Type` + `Content-Disposition: attachment; filename*=UTF-8''<percent>`），浏览器用 `URL.createObjectURL` + `<a download>` 触发下载。两端共用 [`ha_core::session::export::export_session`](../../crates/ha-core/src/session/export.rs) 序列化器，Query 参数 `format ∈ {md,json,html}` / `includeThinking` / `includeTools` 与 Tauri 命令的字段一一对应。前端 Transport 抽象 [`exportSession`](../../src/lib/transport.ts) 是这一对端点的统一入口，调用方不需要分支。
 
@@ -983,7 +977,7 @@ cancel handle。精确 `turnId` 不匹配时 fail closed，不得误停同 sessi
 | `list_design_code_bindings_cmd` | `GET /api/design/bindings?systemId=`（列出代码绑定） | ✅ |
 | `unbind_design_code_project_cmd` | `DELETE /api/design/bindings/{id}`（解绑，不删已写文件） | ✅ |
 | `get_design_project_code_binding_cmd` | `GET /api/design/projects/{id}/code-binding`（项目级代码仓库绑定状态：来源/生效目录/stale） | ✅ |
-| `set_design_project_code_binding_cmd` | `PUT /api/design/projects/{id}/code-binding`（设置/清除双源绑定，`codeDir` 与 `haProjectId` 互斥；owner 平面专属） | ✅ |
+| `set_design_project_code_binding_cmd` | `PUT /api/design/projects/{id}/code-binding`（设置/清除双源绑定，`codeDir` 与 `haProjectId` 互斥；仅面向用户本人） | ✅ |
 | `design_implement_to_code_cmd` | `POST /api/design/artifacts/{id}/implement`（组 handoff pack + 建实现会话，返回 `{sessionId, prompt, codeDir}`） | ✅ |
 | `design_check_code_drift_cmd` | `POST /api/design/projects/{id}/code-drift/check`（code→design 回灌：收割承接会话写盘 + 逐文件比对，标 `metadata.codeDrift`；body `{artifactId?}`） | ✅ |
 | `design_code_drift_changes_cmd` | `GET /api/design/artifacts/{id}/code-drift`（逐 stale 文件 diff 喂 DiffPanel + 带到对话 quote） | ✅ |
@@ -998,7 +992,7 @@ cancel handle。精确 `turnId` 不匹配时 fail closed，不得误停同 sessi
 | `save_design_system_cmd` | `POST /api/design/systems` | ✅ |
 | `extract_design_system_cmd` | `POST /api/design/systems/extract`（brief/codebase/url/image 反向提取；`image` 走 `run_vision` 真视觉 + 可选 `modelOverride` 单模型不降级） | ✅ |
 | `import_design_md_cmd` | `POST /api/design/systems/import`（导入 DESIGN.md 规范文本） | ✅ |
-| `import_figma_system_cmd` | `POST /api/design/systems/figma`（从 Figma 文件导入设计系统；owner 平面，令牌按次传不落盘） | ✅ |
+| `import_figma_system_cmd` | `POST /api/design/systems/figma`（从 Figma 文件导入设计系统；面向用户本人，令牌按次传不落盘） | ✅ |
 | `export_design_md_cmd` | `GET /api/design/systems/{id}/design-md`（导出为规范 DESIGN.md） | ✅ |
 | `export_design_tokens_cmd` | `GET /api/design/systems/{id}/tokens/export`（Token 导出多平台代码：CSS/SCSS/TS/Swift/Android XML/DTCG） | ✅ |
 | `propose_design_directions_cmd` | `POST /api/design/directions` | ✅ |
@@ -1080,9 +1074,9 @@ Artifact owner API 的完整不变量、输入白名单、本地导出与未来 
 Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用方必须在创建会话、写 turn / 注入消息等持久化副作用前取得外层 guard，`run_chat_engine` 入口再取得内层 backstop。删除与两层准入共用同一生命周期锁；禁止退化为“先 `ensure_agent_runnable`、落库后再进引擎”，否则检查与删除之间会留下 TOCTOU 窗口。删除重绑 Subagent allowlist 时，若 replacement 已在 denylist 必须同步移除（deny 优先于 allow）。
 | `save_agent_memory_md` | `PUT /api/agents/{id}/memory-md` | ✅ |
 | `dreaming_run_now` | `POST /api/dreaming/run` | ✅ |
-| `dreaming_run_resolver` | `POST /api/dreaming/resolver` | ✅ owner 平面；Deep resolver（phase=deep）：valid_until 过期确定性 expire + 同主谓多对象组 LLM 判定 duplicates→merge / conflict→needs_review / independent→no_op，绝不自动 supersede 或硬删 |
-| `dreaming_run_profile` | `POST /api/dreaming/profile/run` | ✅ owner 平面；Memory Profile 合成（phase=profile）：从 active claims 按 scope 规则式聚合（manual 触发额外 LLM 重写），写 `memory_profile_snapshots`（version=MAX+1）；受 `dreaming.profileSynthesis.enabled`（默认开）门控 |
-| `dreaming_list_profile_snapshots` | `GET /api/dreaming/profile` | ✅ owner 平面；每 scope 最新 profile 快照（只读视图，global/agent/project） |
+| `dreaming_run_resolver` | `POST /api/dreaming/resolver` | ✅ 面向用户本人；Deep resolver（phase=deep）：valid_until 过期确定性 expire + 同主谓多对象组 LLM 判定 duplicates→merge / conflict→needs_review / independent→no_op，绝不自动 supersede 或硬删 |
+| `dreaming_run_profile` | `POST /api/dreaming/profile/run` | ✅ 面向用户本人；Memory Profile 合成（phase=profile）：从 active claims 按 scope 规则式聚合（manual 触发额外 LLM 重写），写 `memory_profile_snapshots`（version=MAX+1）；受 `dreaming.profileSynthesis.enabled`（默认开）门控 |
+| `dreaming_list_profile_snapshots` | `GET /api/dreaming/profile` | ✅ 面向用户本人；每 scope 最新 profile 快照（只读视图，global/agent/project） |
 | `dreaming_list_diaries` | `GET /api/dreaming/diaries` | ✅ |
 | `dreaming_read_diary` | `GET /api/dreaming/diaries/{filename}` | ✅ |
 | `dreaming_is_running` | `GET /api/dreaming/status` | ✅ |
@@ -1090,13 +1084,13 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `dreaming_idle_status` | `GET /api/dreaming/idle-status` | ✅ |
 | `dreaming_list_runs` | `GET /api/dreaming/runs` | ✅ |
 | `dreaming_get_run` | `GET /api/dreaming/runs/{id}` | ✅ |
-| `dreaming_evidence_quote` | `GET /api/dreaming/evidence/quote` | ✅ owner 平面；incognito 来源归零（后端门控） |
+| `dreaming_evidence_quote` | `GET /api/dreaming/evidence/quote` | ✅ 面向用户本人；incognito 来源归零（后端门控） |
 | `claim_list` | `GET /api/claims` | ✅ 结构化 claim 只读（`scopeType`+`scopeId`/status/claimType 过滤；无效 scopeType → 400，不 fail-open；status 按 **effective** 计算并返回——`active` 且已过 `valid_until` 视为 `expired`，`status=active`/`expired` 过滤同步对齐） |
 | `claim_get` | `GET /api/claims/{id}` | ✅ claim + evidence + links（`status` 同为 effective 值） |
-| `claim_update` | `PATCH /api/claims/{id}` | ✅ owner 平面；用户纠错（Lucid Review §5.2）：edit content/triple/tags、改 status（approve→active / reject→archived / mark-outdated→expired / flag→needs_review）、move scope、pin/unpin（salience 越过 0.7 阈值）。写 `manual_correction` evidence（approve 用 `user_confirmed`）+ `user_correction` decision log + 发 `memory:claim_changed`；content 变更触发 re-embed。`id` 走 path（覆盖 body 的 `claimId`），其余字段为 body |
-| `claim_forget` | `POST /api/claims/{id}/forget` | ✅ owner 平面；`{permanent?,note?}`。`permanent=false`（默认）archive（保留 evidence 作审计，linked legacy memory 停止注入）；`true` 硬删 claim 图谱（claim+evidence+link+vector）+ 仅本 claim 独管的 legacy memory。写 decision log + 发 `memory:claim_changed` |
-| `memory_backfill_plan` | `GET /api/memory/backfill/plan` | ✅ owner 平面；dry-run 把 legacy memory 确定性映射为 claim 预览（精确计数 + 截断预览，不写） |
-| `memory_backfill_apply` | `POST /api/memory/backfill/apply` | ✅ owner 平面；确定性重扫，事务内 check（memory 存在 + 未 link，竞态/重入幂等→skipped）后写入 claim + `source_type=memory` evidence + **detached** link（不改变现有注入），仅 pinned 的 user/feedback 自动 active、其余 needs_review；返回 created/skipped/failed |
+| `claim_update` | `PATCH /api/claims/{id}` | ✅ 面向用户本人；用户纠错（Lucid Review §5.2）：edit content/triple/tags、改 status（approve→active / reject→archived / mark-outdated→expired / flag→needs_review）、move scope、pin/unpin（salience 越过 0.7 阈值）。写 `manual_correction` evidence（approve 用 `user_confirmed`）+ `user_correction` decision log + 发 `memory:claim_changed`；content 变更触发 re-embed。`id` 走 path（覆盖 body 的 `claimId`），其余字段为 body |
+| `claim_forget` | `POST /api/claims/{id}/forget` | ✅ 面向用户本人；`{permanent?,note?}`。`permanent=false`（默认）archive（保留 evidence 作审计，linked legacy memory 停止注入）；`true` 硬删 claim 图谱（claim+evidence+link+vector）+ 仅本 claim 独管的 legacy memory。写 decision log + 发 `memory:claim_changed` |
+| `memory_backfill_plan` | `GET /api/memory/backfill/plan` | ✅ 面向用户本人；dry-run 把 legacy memory 确定性映射为 claim 预览（精确计数 + 截断预览，不写） |
+| `memory_backfill_apply` | `POST /api/memory/backfill/apply` | ✅ 面向用户本人；确定性重扫，事务内 check（memory 存在 + 未 link，竞态/重入幂等→skipped）后写入 claim + `source_type=memory` evidence + **detached** link（不改变现有注入），仅 pinned 的 user/feedback 自动 active、其余 needs_review；返回 created/skipped/failed |
 | `scan_openclaw_agents` | `GET /api/agents/openclaw/scan` | ✅ legacy（agents-only） |
 | `import_openclaw_agents` | `POST /api/agents/openclaw/import` | ✅ legacy（agents-only） |
 | `scan_openclaw_full` | `GET /api/agents/openclaw/scan-full` | ✅ providers + agents + memories |
@@ -1213,7 +1207,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `set_ask_user_question_timeout` | `POST /api/config/ask-user-question-timeout` | ✅ |
 | `get_ask_user_question_timeout` | `GET /api/config/ask-user-question-timeout` | ✅ |
 
-`create_owner_ask_user_question` 创建 owner-plane durable elicitation：它复用 ask_user UI，但不等待模型工具 oneshot；请求自带 `ownerResponse`，用户通过 `respond_ask_user_question` 回答后由后端记录对应 durable evidence（当前用于 Context Retrieval 的 `user_decision`）。普通工具型 ask_user 仍要求 live in-memory receiver，owner-side question 则可跨会话切换和重启保留；incognito session 禁用。
+`create_owner_ask_user_question` 创建面向用户本人的 durable elicitation：它复用 ask_user UI，但不等待模型工具 oneshot；请求自带 `ownerResponse`，用户通过 `respond_ask_user_question` 回答后由后端记录对应 durable evidence（当前用于 Context Retrieval 的 `user_decision`）。普通工具型 ask_user 仍要求 live in-memory receiver，用户本人侧的问题则可跨会话切换和重启保留；incognito session 禁用。
 
 ### Cron
 
@@ -1294,7 +1288,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `update_benchmark_backlog_status` | `POST /api/coding-benchmark/backlog/status` | ✅ |
 | `dashboard_plan_stats` | `POST /api/dashboard/plan-stats` | ✅ |
 
-`dashboard_coding_improvement` 是只读全局学习聚合，按 DashboardFilter 返回 workflow / case eval / pack eval / strategy effect / tool-call failure / review / verification / proposal / retro 的 overview、timeline、project buckets、failure modes、tool call failures、proposal status、latest strategy effects 和 latest retros；`get_coding_benchmark_center` 进一步聚合 benchmark history、baseline buckets、recent runs、Release Gate 与 Generalization Gate；Benchmark Campaign API 为 Dashboard 提供 durable campaign 列表、Run/Cancel/Retry 控制和 item-level evidence；leaderboard / compare API 提供同 task pack / source / execution / baseline 下的 provider/model ranking；Benchmark Corpus API 为 Dashboard 提供 task pack import/list/validate/activate/archive 和 corpus health；Benchmark Report API 为 Dashboard 提供 report history、生成 Markdown / JSON / HTML snapshot、复制路径和 release evidence 标记；Continuous Gate / Backlog API 为 Dashboard 提供持续守门状态、阻塞原因、推荐下一步、失败 item 物化和 resolved 操作。它们都不生成 proposal、不 apply、不 promotion。
+`dashboard_coding_improvement` 是只读全局学习聚合（按 DashboardFilter 返回 workflow / eval / strategy / tool-call failure / review / verification / proposal / retro 的 overview、timeline、project buckets 等）；`get_coding_benchmark_center` 及 Benchmark Campaign / Leaderboard / Compare / Corpus / Report / Continuous Gate / Backlog 一组 API 为 Dashboard 提供 durable benchmark 历史、守门状态与 item-level evidence。它们都不生成 proposal、不 apply、不 promotion。
 
 `evaluate_coding_eval_release_gate` 接收 `{ "input": { "sessionId": "...", "projectId": "...", "windowDays": 30, "minPackRuns": 1, "minStrategyEffectRuns": 0, "minPackPassRate": 1.0, "requireExternalModelPack": false } }`，返回 `CodingEvalReleaseGateReport`。报告包含 `status = passed | failed | insufficient_data`、归一化 `thresholds`、pack / strategy / tool-call `summary` 和逐条 `checks`。它只读 `coding_eval_pack_runs`、`coding_strategy_effect_runs`、`coding_eval_runs`，不跑模型、不执行项目命令、不写 DB。
 
@@ -1663,7 +1657,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `get_tool_limits` | `GET /api/config/tool-limits` | ✅ |
 | `set_tool_limits` | `POST /api/config/tool-limits` | ✅ |
 
-### Permission（v2 权限/审批引擎）
+### Permission（权限/审批引擎）
 
 详见 [`docs/architecture/permission-system.md`](permission-system.md)。
 
@@ -1744,7 +1738,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `fs_list_dir` | `GET /api/filesystem/list-dir?path=<abs>` | ✅ |
-| `fs_search_files` | `GET /api/filesystem/search-files?root=<abs>&q=<query>&limit=50` | ✅；path-aware fuzzy v2（精确 / 前缀 / 多 token / 路径分段 / 驼峰词感知，subsequence 兜底） |
+| `fs_search_files` | `GET /api/filesystem/search-files?root=<abs>&q=<query>&limit=50` | ✅；path-aware fuzzy（精确 / 前缀 / 多 token / 路径分段 / 驼峰词感知，subsequence 兜底） |
 
 `list-dir` 列出服务器本地目录单层条目，供 HTTP 模式目录浏览器驱动 `set_session_working_dir`，以及聊天输入框 `@` mention popper 的"路径模式"。参数要求绝对路径，后端会 canonicalize 并校验 `is_dir`；无 `path` 参数时返回平台默认根（Unix: `/`，Windows: `USERPROFILE`）。响应 `{ path, parent, entries: [{ name, isDir, isSymlink, size, modifiedMs }], truncated }`，按目录优先 + 名字升序排序，单次最多 5000 条（超出 `truncated=true`）。
 
@@ -1800,12 +1794,12 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 
 | Tauri Command | 说明 |
 |---|---|
-| `check_system_permissions` | macOS 系统权限 v2 目录与状态查询 |
-| `request_system_permission` | macOS 系统权限 v2 请求/跳转 |
-| `reset_system_permission` | macOS 系统权限 v2 重置 TCC 记录（`tccutil`，白名单 3 项、仅打包应用；**owner/GUI-only，刻意无模型工具面**） |
-| `check_all_permissions` | 权限 v1 兼容包装 |
-| `check_permission` | 权限 v1 兼容包装 |
-| `request_permission` | 权限 v1 兼容包装 |
+| `check_system_permissions` | macOS 系统权限目录与状态查询 |
+| `request_system_permission` | macOS 系统权限请求/跳转 |
+| `reset_system_permission` | macOS 系统权限重置 TCC 记录（`tccutil`，白名单 3 项、仅打包应用；**owner/GUI-only，刻意无模型工具面**） |
+| `check_all_permissions` | 旧版权限接口兼容包装 |
+| `check_permission` | 旧版权限接口兼容包装 |
+| `request_permission` | 旧版权限接口兼容包装 |
 
 前端必须在 `supportsLocalFileOps()` / `isTauriMode()` 或等价的运行模式判定保护下调用，HTTP 模式应 gate 住相关 UI。
 
