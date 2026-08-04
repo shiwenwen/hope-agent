@@ -885,6 +885,7 @@
     "statusThinking": "思考モード",
     "statusUpdated": "更新日時",
     "stopReply": "返信を停止",
+    "stopGenerationDone": "生成を停止しました",
     "subagentFrom": "{{agent}} からの委任",
     "subagentResultCompleted": "完了しました",
     "workflowResultName": "ワークフロー",

@@ -885,6 +885,7 @@
     "statusThinking": "Thinking",
     "statusUpdated": "Updated",
     "stopReply": "Stop reply",
+    "stopGenerationDone": "Generation stopped",
     "subagentFrom": "Invoked by {{agent}}",
     "subagentResultCompleted": "Completed",
     "workflowResultName": "Workflow",

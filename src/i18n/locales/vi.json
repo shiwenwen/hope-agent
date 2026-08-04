@@ -885,6 +885,7 @@
     "statusThinking": "Suy nghĩ",
     "statusUpdated": "Cập nhật",
     "stopReply": "Dừng trả lời",
+    "stopGenerationDone": "Đã dừng tạo",
     "subagentFrom": "Được ủy quyền bởi {{agent}}",
     "subagentResultCompleted": "Đã hoàn tất",
     "workflowResultName": "Quy trình làm việc",

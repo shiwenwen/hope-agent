@@ -885,6 +885,7 @@
     "statusThinking": "التفكير",
     "statusUpdated": "آخر تحديث",
     "stopReply": "إيقاف الرد",
+    "stopGenerationDone": "تم إيقاف التوليد",
     "subagentFrom": "مفوّض من {{agent}}",
     "subagentResultCompleted": "اكتملت",
     "workflowResultName": "سير العمل",

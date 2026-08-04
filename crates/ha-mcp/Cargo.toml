@@ -1,6 +1,6 @@
 [package]
 name = "ha-mcp"
-version = "0.28.0"
+version = "0.29.0"
 description = "Hope Agent MCP client feature — McpManager registry, transports, OAuth, watchdog, mcp_resource/mcp_prompt tools"
 license.workspace = true
 authors.workspace = true
