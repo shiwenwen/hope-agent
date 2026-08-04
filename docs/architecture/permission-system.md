@@ -1,162 +1,182 @@
-# 权限 / 审批系统架构文档
+# 权限 / 审批系统
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-07-04
-
-## 目录
-
-- [概述](#概述)（含决策流程总览图）
-- [核心设计：一根信任度轴 + Plan 正交](#核心设计一根信任度轴--plan-正交)
-- [优先级矩阵](#优先级矩阵)
-- [数据模型](#数据模型)
-- [决策引擎（`permission::engine`）](#决策引擎permissionengine)
-- [Smart 模式：self_confidence + judge_model](#smart-模式self_confidence--judge_model)
-- [保护路径 / 危险命令 / 编辑命令](#保护路径--危险命令--编辑命令)
-- [免审批工具与可审批工具](#免审批工具与可审批工具)
-- [审批弹窗 UI](#审批弹窗-ui)
-- [HTTP 路由与 Tauri 命令对照](#http-路由与-tauri-命令对照)
-- [前端组件](#前端组件)
-- [配置项](#配置项)
-- [已知限制与边界](#已知限制与边界)
-- [文件清单](#文件清单)
+> 更新时间：2026-07-23
+>
+> 关联源码：
+> - 决策引擎：[`crates/ha-core/src/permission/`](../../crates/ha-core/src/permission/)（`engine.rs` / `mode.rs` / `judge.rs` / `allowlist.rs` / `approval_surface.rs` / 三个列表模块）
+> - 审批闸与广播：[`crates/ha-core/src/tools/approval.rs`](../../crates/ha-core/src/tools/approval.rs) · [`execution.rs`](../../crates/ha-core/src/tools/execution.rs) · [`exec.rs`](../../crates/ha-core/src/tools/exec.rs)
+> - Wire 类型：[`crates/ha-config-schema/src/permission.rs`](../../crates/ha-config-schema/src/permission.rs)
+> - 前端：[`src/components/chat/ApprovalDialog.tsx`](../../src/components/chat/ApprovalDialog.tsx) · [`approvalPolicy.ts`](../../src/components/chat/approvalPolicy.ts) · [`input/PermissionModeSwitcher.tsx`](../../src/components/chat/input/PermissionModeSwitcher.tsx)
 
 ---
 
-## 概述
+## 这个子系统解决什么问题
 
-Hope Agent 的权限/审批系统决定**每一次工具调用是否需要弹审批对话框**。设计目标是把以前散落在 8 套机制（`ToolPermissionMode` / `dangerous_skip_all_approvals` / `internal` flag / `auto_approve_tools` / `require_approval` / `exec` allowlist / Plan Mode allowlist / `approval_timeout`）里的判定逻辑收敛到**单一规则引擎 + 不同 preset**，参考 Claude Code 的 "unified rule engine + presets" 思路落地。
+Agent 每一步都可能调用工具：读文件、跑命令、编辑代码、操作真实浏览器、发飞书消息、删定时任务。其中一部分完全无害（读文件、查天气），一部分可以撤销（编辑工作区文件），还有一部分**不可逆或作用于 Hope Agent 掌控之外的系统**（`rm -rf /`、改真实日历、给别人发消息）。
 
-设计原则：
+权限系统回答一个问题：**这一次工具调用要不要先弹审批对话框让用户拍板？** 它是所有工具执行前的唯一闸门。
 
-1. **单入口判定**：所有工具调用走 `permission::engine::resolve_async(ctx) -> Decision`，返回 `Allow / Ask { reason } / Deny { reason }`
-2. **一根信任度轴**：从最严格到最宽松——Plan Mode > Default 模式 > Smart 模式 > Yolo 模式（session 级）+ 全局 YOLO（process 级）
-3. **Plan Mode 正交**：Plan Mode 是一种"工作模式"而非权限模式，能强行覆盖任何 YOLO 与 Smart override
-4. **保护层不可绕过**：保护路径 + 危险命令 + 高风险 macOS 控制 + raw CDP + 外部连接器写动作在非 YOLO 模式下强制弹审批且不能 AllowAlways；YOLO 模式只 warn 不弹
-5. **无痕禁持久化 AllowAlways**（Epic E / INCOG-6）：无痕会话的 AllowAlways 被 `allowlist::choose_scope` 强制为内存 `Session` scope（焚毁随 `clear_session_rules` 清除），绝不落 project / agent-home / global 磁盘；`exec` 走同一 `add_allow_always_for_call` 故自动覆盖。前端按 `ApprovalRequest.incognito` 隐藏「始终允许」按钮（UX 半），后端 `choose_scope` 是不可绕过的红线半。无痕「四旁路守卫」全貌见 [session.md](session.md#四旁路守卫epic-e)
-6. **clean break，不做迁移**：老的 `ToolPermissionMode` / `exec-approvals.json` / `auto_approve_tools` 等字段全部删除，老用户审批规则需要重新设置
+难点在于"要不要审批"取决于一堆交织的因素——会话当前的信任姿态、这个工具本身有多危险、目标路径是不是敏感、有没有人在屏幕前能回应、用户之前是否已经对同类操作放过行。这些维度交织在一起，一旦分散到彼此独立的开关里，整体行为就难以预测。
 
-```mermaid
-graph TD
-    Tool["Tool Call<br/>(name, args, ctx)"]
-    Engine["permission::engine::resolve_async"]
-    Plan{"Plan Mode<br/>active?"}
-    Yolo{"Global / Session<br/>YOLO?"}
-    Strict{"Protected Path /<br/>Dangerous Command /<br/>External Connector?"}
-    Mode{"session_mode"}
-    Default["Default 模式<br/>edit-class + edit-command<br/>browser control<br/>+ custom_approval_tools"]
-    Smart["Smart 模式<br/>_confidence + judge_model<br/>+ soft approval floor"]
-    Decision["Allow / Ask / Deny"]
+现在的设计把它们收敛成**一个规则引擎 + 若干预设姿态**：所有输入喂给同一个 `resolve` 函数，它按固定优先级逐层过滤，吐出三选一的结论。
 
-    Tool --> Engine
-    Engine --> Plan
-    Plan -- Yes --> Decision
-    Plan -- No --> Yolo
-    Yolo -- Yes --> Decision
-    Yolo -- No --> Strict
-    Strict -- Yes --> Decision
-    Strict -- No --> Mode
-    Mode -- Default --> Default
-    Mode -- Smart --> Smart
-    Default --> Decision
-    Smart --> Decision
+```rust
+pub enum Decision {
+    Allow,                     // 直接执行，不打扰用户
+    Ask { reason: AskReason }, // 弹审批框，附上"为什么要问"
+    Deny { reason: String },   // 直接拒绝并把原因回给模型
+}
 ```
 
+### 三条贯穿始终的设计原则
+
+- **单一入口**：工具调用只经 `permission::engine::resolve_async(ctx)` 一处判定，没有旁路。
+- **保护层不可被"信任"绕过**：无论会话多宽松，命中保护路径 / 危险命令 / 高危 macOS 控制 / raw CDP / 外部连接器写动作，都强制逐次确认——除非用户显式开了 YOLO（那是"我接受一切风险"的明示）。
+- **确证无人才自动放行（fail closed）**：没人能回应审批的场合（凌晨的定时任务、无客户端的 headless server），默认是拒绝而非静默放行；自动放行必须是用户显式选择的结果。
+
 ---
 
-## 核心设计：一根信任度轴 + Plan 正交
+## 决策流程总览
 
-### Session 模式三选一
+```mermaid
+flowchart TD
+    Tool["工具调用<br/>(name, args, ctx)"] --> Engine["engine::resolve_async"]
+    Engine --> Plan{"Plan Mode<br/>激活？"}
 
-每个会话独立携带一个 `permission_mode`，存于 `sessions.permission_mode` 列：
+    Plan -- "不在白名单" --> Deny["Deny"]
+    Plan -- "在白名单" --> PlanGate["过 strict 门 + ask_tools<br/>+ 软审批层"]
+    Plan -- "未激活" --> Internal{"Internal<br/>工具？"}
 
-| 模式 | 行为 | 谁该用 |
+    Internal -- Yes --> Allow["Allow"]
+    Internal -- No --> Yolo{"Global / Session<br/>YOLO？"}
+
+    Yolo -- Yes --> AllowWarn["Allow<br/>(strict 项只记审计日志)"]
+    Yolo -- No --> Strict{"保护路径 / 危险命令 /<br/>高危 mac / raw CDP /<br/>外部连接器写？"}
+
+    Strict -- 命中 --> Ask["Ask (strict)"]
+    Strict -- 未命中 --> AllowList{"AllowAlways<br/>规则命中？"}
+
+    AllowList -- Yes --> Allow
+    AllowList -- No --> Sandbox{"沙箱软放松<br/>适用？"}
+
+    Sandbox -- Yes --> Allow
+    Sandbox -- No --> Mode{"session_mode"}
+
+    Mode -- Default --> DefaultR["软审批层<br/>+ 自定义审批清单"]
+    Mode -- Smart --> SmartR["_confidence / 已编辑 /<br/>judge_model"]
+
+    PlanGate --> Decision["Allow / Ask"]
+    DefaultR --> Decision
+    SmartR --> Decision
+```
+
+上图是骨架；每一层的精确判据见下文[完整优先级链](#完整优先级链)。
+
+---
+
+## 四种权限姿态 + Plan 正交
+
+信任度是一根从严到宽的轴。会话姿态、进程级 YOLO、Plan Mode 各自落在这根轴的不同位置，其中 Plan Mode 是**正交**的——它不属于信任度轴，但能压住轴上的一切。
+
+```mermaid
+flowchart LR
+    subgraph axis["信任度轴（从严到宽）"]
+        direction LR
+        Default["Default<br/>硬编码必审 +<br/>自定义清单"]
+        Smart["Smart<br/>LLM 自报 / 裁判"]
+        Yolo["Session YOLO<br/>本会话全放行"]
+        Default --> Smart --> Yolo
+    end
+    GlobalYolo["Global YOLO<br/>(进程级)"] -.覆盖所有会话.-> axis
+    Plan["Plan Mode<br/>(正交工作模式)"] ==压住一切==> axis
+    Plan ==压住==> GlobalYolo
+```
+
+### 会话姿态（三选一）
+
+每个会话独立携带一个权限模式，存于 `sessions.permission_mode` 列。
+
+| 模式 | 行为 | 适合谁 |
 |------|------|--------|
-| **Default** | 硬编码"编辑类必审批" + Agent `custom_approval_tools` 叠加 | 大多数用户（傻瓜默认） |
-| **Smart** | `_confidence: "high"` 自报跳过 / `judge_model` LLM 决策 / `Both` 并联 | 进阶用户：信任 LLM 在熟悉项目内的判断 |
-| **Yolo** | 该 session 内全放行（仅 Plan Mode 仍能拦） | 一次性脚本会话、极信任场景 |
+| **Default** | 硬编码"编辑类必审" + Agent 自定义审批清单叠加 | 大多数用户（傻瓜默认） |
+| **Smart** | 模型自报 `_confidence:"high"` 跳过 / 独立 judge 模型裁决 / 两者并联 | 进阶用户：信任 LLM 在熟悉项目内的判断 |
+| **Yolo** | 本会话全放行（仅 Plan Mode 仍能拦） | 一次性脚本会话、极信任场景 |
 
-切换入口：聊天标题栏的 `PermissionModeSwitcher` dropdown。会话首次创建时按 `AgentConfig.capabilities.default_session_permission_mode → AppConfig 默认 → "default"` 解析初始值。
-
-## Session Sandbox Mode
-
-每个会话独立携带一个 `sandbox_mode`，存于 `sessions.sandbox_mode` 列。沙箱模式只决定执行位置和软审批放松，不改变权限引擎优先级：`Plan > Internal > YOLO > Protected/Dangerous/Strict > AllowAlways > Sandbox soft allow > Session preset > fallback`。
-
-| 模式 | 行为 | 审批语义 |
-|------|------|----------|
-| `off` | 宿主机执行 | 审批逻辑不变 |
-| `standard` | Docker 沙箱执行 | 审批不放松，兼容旧 `capabilities.sandbox=true` |
-| `isolated` | Docker 内执行，工作区先复制到临时隔离副本 | v1 不放松审批；隔离 diff 写回落地后再开放 |
-| `workspace` | Docker 直接挂载当前工作区 | workspace 内 `exec` 编辑命令可放松；直接文件工具仍审批 |
-| `trusted` | 沙箱内 exec 最大自治 | 同 `workspace`，strict 项仍每次审批：保护路径、危险命令、raw CDP、macOS 高危控制、外部连接器写动作等 |
-
-切换入口：聊天输入区 `PermissionModeSwitcher` 弹层内默认折叠的「沙箱」分区（选项列表复用 `SandboxModeSwitcher`）。会话首次创建时按 `AgentConfig.capabilities.default_sandbox_mode` 解析；该字段缺失时兼容旧布尔 `AgentConfig.capabilities.sandbox`（`true → standard`，`false → off`）。非 `off` 但 Docker 不可用时，工具执行 fail-closed 返回 `SandboxUnavailable`，不得静默回落到宿主机执行。
+切换入口是聊天标题栏的 `PermissionModeSwitcher` 下拉。会话首次创建时，初始值按 `AgentConfig.capabilities.default_session_permission_mode → AppConfig 默认 → Default` 解析。字符串取值 `default | smart | yolo`，未知值一律回落 `Default`（`SessionMode::parse_or_default`）。
 
 ### Global YOLO（进程级）
 
-`AppConfig.permission.global_yolo: bool` + CLI flag `--dangerously-skip-all-approvals`（OR 关系）。开启时**所有会话**都视作 YOLO，仅 Plan Mode 仍可拦截。命中保护路径 / 危险命令 / macOS 控制动作 / raw CDP / 外部连接器写动作时落 `app_warn!` 审计日志、不弹窗（语义：用户既然开了全局 YOLO 就是接受全部风险）。
+`AppConfig.permission.global_yolo` 与 CLI flag `--dangerously-skip-all-approvals` 是 OR 关系。开启时**所有会话**都视作 YOLO，仅 Plan Mode 仍能拦。命中保护路径 / 危险命令 / macOS 控制 / raw CDP / 外部连接器写动作时，落 `app_warn!` 审计日志但不弹窗——语义上，用户既然开了全局 YOLO，就是接受了全部风险。
 
-### Plan Mode（独立工作模式）
+### Plan Mode（正交工作模式）
 
-Plan Mode 不属于 permission_mode 三选一，而是**正交的工作模式**。激活后：
-- 只允许调用白名单内工具（`plan_mode_allowed_tools`）
-- 优先级**高于** YOLO——即使开了 Global YOLO 也拦得住
-- 决策路径：`Plan Mode active && tool_name ∉ whitelist → Decision::Deny`
+Plan Mode 不是第四种权限模式，而是一种**工作模式**：它限制"哪些工具能跑"，不是"跳过审批"。激活后：
 
-### 无人值守审批 surface（fail-closed，Epic D / DEADLOCK-1..5）
+- 不在白名单（`plan_mode_allowed_tools`）的工具直接 `Deny`；
+- 白名单内的工具仍要过 Internal / 保护路径 / 危险命令 / macOS 控制 / 外部连接器 / `ask_tools` / 软审批各层；
+- **优先级高于 YOLO**——即使开了 Global YOLO 也拦得住。默认 plan agent 把 `exec` 放进 `plan_mode_ask_tools`，于是即便工具在白名单里，规划期跑命令仍会逐次弹审批。
 
-引擎判出 `Ask` 后,审批会阻塞等人点 Allow/Deny。但有些入口**根本没有人能回应**:凌晨触发的 cron run、无 web 客户端也无 IM 会话的 headless server、未声明权限能力的 ACP 客户端、无 surface 的 subagent。历史上这些回合会永久挂死(随后被笼统的 whole-job timeout 掩盖根因)。
+细节见 [plan-mode](plan-mode.md)。
 
-[`permission::approval_surface`](../../crates/ha-core/src/permission/approval_surface.rs) 在**阻塞前**判定当前回合有没有审批 surface:
+### 沙箱模式（执行位置，正交于优先级）
 
-- 唯一入口 `evaluate_approval_surface(session_id) → Attended | Unattended(reason)`,由 `tools::approval::check_and_request_approval` 顶部调用——这是 exec 命令门与引擎 Ask 门**共用的单一 chokepoint**,在「注册 pending entry / 阻塞 oneshot」之前短路。
-- **可靠信号**:`SessionMeta.is_cron`(cron)、`SessionMeta.parent_session_id`(subagent)、IM attach(`channel_db.get_conversation_by_session` 权威查 + `channel_info` 兜底)、全局 `app_init::is_acp()` / `desktop_client_present()`(后者复用 `server_status::events_ws_count`——`/ws/events` 客户端数,`approval_required` 正走此总线广播;desktop 恒真)，以及仅由浏览器来源校验后的 `POST /api/chat/ui` server-owned worker 持有的 session-scoped `ReattachableUiSessionGuard`。该 guard 表示用户可重开页面恢复 pending Ask，不代表批准；后台 subagent 从入队到终态复制 child lease，结果回投及其重排队再持 parent lease，防止父 turn 结束后派生工作误降级为 Unattended；所有派生 lease 终态撤销，公共 API/Cron 不注册。
-- **保守红线:确证无人才判 Unattended**。任何可能 surface(desktop 窗口 / web 客户端 / IM attach)→ Attended,绝不误拒合法交互审批。**唯 cron 例外**:cron 会话被桌面交互弹窗按 currentSessionId 过滤,即便桌面也无可靠交互 surface → 始终 Unattended(合 DEADLOCK-4)。**cron 起的 subagent 同理(C03)**:子会话自身 `is_cron=false`,故 subagent 分支须在 desktop 短路**之前**沿 `parent_session_id` 链探测 cron 根(`subagent_chain_roots_at_cron`,纯核 `chain_roots_at_cron_with` 可单测),命中即 `Unattended(Cron)`;否则桌面打开时(单进程 desktop 恒真)会误判 Attended 而把一个永不渲染的弹窗静默挂到 `approval_timeout`。cron 根的链不会 IM-attached,故优先返回 Unattended 无歧义。
-- 4 个 `UnattendedReason`:`Cron` / `HeadlessNoClient` / `AcpNoPermissionCapability` / `SubagentNoParentSurface`。
-- **判 ACP 必须用 `is_acp()` 而非 `ChatSource`**——ACP 回合复用 `ChatSource::Http`,source 无法区分真 HTTP 客户端(D1 红线)。
-- **ACP 分支守卫测试**：`crates/ha-acp/tests/approval_fail_closed.rs` 用独立
-  test binary 设 `RUNTIME_ROLE="acp"`，端到端验证 capability=false 时
-  `evaluate_approval_surface(None)` 返 `Unattended(AcpNoPermissionCapability)`、
-  D7 `set_acp_permission_capable(true)` 后回 `Attended`。kernel 的
-  `acp_capability_toggle_flips_acp_surface` 只测 flag 的 pure round-trip，
-  真正走 `evaluate_approval_surface` 的 ACP 分支这条测试独家覆盖（因
-  `RUNTIME_ROLE` 是 `OnceLock`，unit test 共享 binary 无法设 "acp"）。
+每个会话另带一个 `sandbox_mode`（存 `sessions.sandbox_mode` 列）。沙箱只决定**在哪执行**以及是否放松软审批，**不改变**权限引擎的优先级——strict 门在任何沙箱模式下都照弹。
 
-Unattended 时按 `permission.unattended_approval_action` 处理:`Deny`(默认,fail-closed)→ `ToolRejection::denied_unattended`(结构化根因 + `fire_permission_denied`)即时拒绝;`Proceed` → 自动放行(比全局 YOLO 窄,仅在确证无人时触发)。两路都 emit `approval:unattended` 事件供遥测/UI 消费(payload 带 `strict` + `effective`,后者已计入 strict 覆盖)。**与 YOLO 正交**:YOLO 下引擎返 `Allow` 不发 `Ask`,根本到不了此预检——所以 headless 自动放行的正解是 YOLO 或 `unattended_approval_action=proceed`,而非旧的 `approval_timeout=proceed`(后者实为无限等)。
+| 模式 | 执行位置 | 审批语义 |
+|------|----------|----------|
+| `off` | 宿主机 | 审批逻辑不变 |
+| `standard` | Docker 沙箱 | 审批不放松（兼容旧 `capabilities.sandbox=true`） |
+| `isolated` | Docker + 工作区临时隔离副本 | 刻意**不**放松：exec 跑在跑完即删的副本里，放松会让编辑看似成功却被丢弃 |
+| `workspace` | Docker 挂载当前工作区 | workspace 内 `exec` 编辑命令可放松；直接文件工具仍审批 |
+| `trusted` | 沙箱内最大自治 | 同 `workspace`，strict 项（保护路径 / 危险命令 / raw CDP / 高危 mac / 外部连接器写）仍每次审批 |
 
-- **strict 原因绝不无人值守自动放行(TIMEOUT-1,与超时路对称)**:`Proceed` 仅对非 strict 原因生效。strict 原因(`AskReason::forbids_allow_always`)即便配了 `proceed` 也**强制 deny**——纯谓词 `unattended_effective_proceed(action, strict) = proceed && !strict`(`strict_reason_never_auto_proceeds_unattended` 单测守);走 deny 分支 `app_warn('permission','strict_unattended_deny')`。**封堵**:否则危险命令 / 受保护路径在 cron/headless 下被 `proceed` 击穿,exec 还会经此拿到 `exec_pre_approved=true` 跳内层门真执行。非 strict 的无人值守放行回 `ApprovalCheckError::UnattendedProceed`,两个 caller(`run_tool_approval` / exec)记 `ApprovalOrigin::UnattendedProceed`(区别于真人 `User`)。
-
-### Smart 裁判的 cron 意图感知（cron 专属）
-
-无人值守 deny 发生在引擎判出 `Ask` **之后**;而 Smart 的裁判在 `resolve_async` 的 resolve 阶段就可能把非 strict 的 `Ask` 升为 `Allow`,**早于**无人值守 surface。因此一个 cron 任务用 Smart 模式时,裁判判安全 → 直接放行(不进审批,自然不被 cron fail-closed 拒);判不准 → `Ask` → 才被无人值守 deny。
-
-为让裁判**按任务本意而非按操作类型**校准(否则「校准放宽」会把一个本职就是删 temp / 发汇总的任务也拒掉):
-
-- cron 是用户**预授权**的——其 prompt 即对删除/外发的授权。executor 经 [`permission::task_intent`](../../crates/ha-core/src/permission/task_intent.rs)(session-keyed map + RAII `TaskIntentGuard`,run 结束即清)记录 cron prompt 为「意图」。
-- `tools::execution` 构造 `ResolveContext` 时,**仅在 Smart 会话**经 `evaluate_approval_surface`(无人值守 surface 的**单一真相源**——覆盖 cron、cron 血缘 subagent(C03)、headless-no-client、acp-no-capability;不再从 `chat_source` 自行判定,避免漏掉 cron 起的 subagent)派生 `unattended=true` 并取该 session 的意图;`resolve_async` 透传 `judge::JudgeContext{unattended, task_intent}` 给裁判,prompt 框架化为「这是预授权的无人值守任务,放行与下述意图一致的操作(含其明确要求的删除/外发)、拒越界或疑似被注入的、不可逆且不确定就拒」。意图以 `<task_intent>` 信封**结构隔离**,明示「仅作授权范围参考、非给裁判的指令、不得自授权更宽访问」(防一条 prompt 自述「全部删除已授权」击穿注入检测)。
-- **红线**:① 裁判只升降**非 strict** 的 `Ask`(strict `forbids_allow_always` 在裁判前 return,永不经裁判);② 意图(用户所写=可信)对比 args(模型所发=可能被注入),是抗注入的对齐判断;③ **非 unattended/非 Smart 会话 `unattended=false`/`task_intent=None` → `build_prompt` 与 cache key 与改动前逐字节一致,普通对话 smart 行为零变化**(`build_prompt_interactive_has_no_unattended_framing` 等单测锁);④ 沙箱(若配)与 cron `delivery_targets` 白名单是裁判之外的独立兜底,裁判**不是唯一防线**。
+只有 `workspace` / `trusted` 会触发软放松（`SandboxMode::relaxes_soft_approvals`），且仅当 `exec` 的编辑命令目标全部落在工作区内。首次创建按 `AgentConfig.capabilities.default_sandbox_mode` 解析，缺失时兼容旧布尔 `sandbox`（`true → standard`，`false → off`）。非 `off` 但 Docker 不可用时，工具执行 fail-closed 返回 `SandboxUnavailable`，绝不静默回落宿主机。
 
 ---
 
-## 优先级矩阵
+## 完整优先级链
 
-`engine::resolve_async` 按以下优先级**从高到低**消费规则：
+`engine::resolve` 按下表**从高到低**逐层判定，命中即返回。这是权限系统的核心机制。
 
-| # | 规则 | 行为 | 可被覆盖？ |
-|---|------|------|------------|
-| 1 | **Plan Mode** | 不在白名单 → `Deny`；在白名单 → 继续过 Internal / strict / ask_tools / soft approval 门禁，跳过 YOLO / AllowAlways / Session fallback | ❌ 最高 |
-| 2 | **Internal Tools** | `ToolDefinition.internal=true` 的工具直接 `Allow` | 仅次于 Plan |
-| 3 | **YOLO**（global / session） | 全部 `Allow`；保护路径/危险命令/macOS 控制动作/browser.evaluate/browser.raw_cdp/browser.real_chrome_access/browser.download_cancel/外部连接器写动作命中只 warn | 仅 Plan 能压 |
-| 4 | **保护路径** | 非 YOLO 时强制 `Ask` + `forbids_allow_always=true` | 仅 YOLO / Plan |
-| 5 | **危险命令** | 非 YOLO 时强制 `Ask` + `forbids_allow_always=true` | 仅 YOLO / Plan |
-| 6 | **macOS 控制动作** | `mac_control` 普通/隐私动作 → `Ask`；高风险动作 → `Ask` + `forbids_allow_always=true` | 仅 YOLO / Plan |
-| 7 | **AllowAlways 累积** | 命中作用域规则 → `Allow`（v1 待 GUI 编辑入口） | 在第 7 层之内 |
-| 8 | **Session 模式 preset** | Default / Smart 各自展开 | — |
-| 9 | **兜底** | `Decision::Allow` | — |
+```mermaid
+flowchart TD
+    A["1 Plan Mode"] --> B["2 Internal 工具 → Allow"]
+    B --> C["3 YOLO → Allow (strict 只审计)"]
+    C --> D["4 保护路径 → Ask(strict)"]
+    D --> E["5 危险命令 → Ask(strict)"]
+    E --> F["6 高危 macOS 控制 → Ask(strict)"]
+    F --> G["7 raw CDP → Ask(strict)"]
+    G --> H["8 外部连接器写 → Ask(strict)"]
+    H --> I["9 AllowAlways 规则命中 → Allow"]
+    I --> J["10 普通/隐私 macOS 控制 → Ask (可 AllowAlways)"]
+    J --> K["11 沙箱软放松 → Allow"]
+    K --> L["12 Session preset：Default / Smart"]
+    L --> M["13 兜底 → Allow"]
+```
 
-**Default 模式展开**：edit-class 工具（`write/edit/apply_patch`）→ `Ask`；`exec` 命中编辑命令 → `Ask`；`browser.control.evaluate/raw_cdp/download_cancel`、`browser.tabs.open_user_tabs/claim/select(数字 extension tab id)`、`browser.observe.downloads` → 对应浏览器 AskReason；`agent_custom_approval_enabled && tool ∈ custom_approval_tools` → `Ask`。
+| # | 层 | 命中结果 | 可被谁覆盖 |
+|---|----|----------|------------|
+| 1 | **Plan Mode** | 不在白名单→`Deny`；在白名单→继续过下方各门（**跳过** YOLO / AllowAlways / mode preset） | 无（最高） |
+| 2 | **Internal 工具** | `ToolDefinition.internal=true` → `Allow` | 仅 Plan |
+| 3 | **YOLO**（global 或 session） | `Allow`；strict 项只打 `app_warn!` 审计、不改决策 | 仅 Plan |
+| 4 | **保护路径** | `Ask`（strict，禁 AllowAlways） | YOLO / Plan |
+| 5 | **危险命令** | `Ask`（strict） | YOLO / Plan |
+| 6 | **高危 macOS 控制** | `Ask`（strict）——仅"危险"动作在此层 | YOLO / Plan |
+| 7 | **raw CDP** | `Ask`（strict） | YOLO / Plan |
+| 8 | **外部连接器写动作** | `Ask`（strict） | YOLO / Plan |
+| 9 | **AllowAlways 累积规则** | 命中作用域规则 → `Allow` | 见下 |
+| 10 | **普通 / 隐私 macOS 控制** | `Ask`（可 AllowAlways） | AllowAlways 可放行 |
+| 11 | **沙箱软放松** | `workspace`/`trusted` 下 exec 编辑命令目标在工作区内 → `Allow` | — |
+| 12 | **Session 模式 preset** | Default / Smart 各自展开（见下） | — |
+| 13 | **兜底** | `Allow` | — |
 
-**Smart 模式展开**：① `_confidence:"high"`（仅 SelfConfidence/Both 策略） → `Allow`；② **确定性信任范围**——`write/edit/apply_patch` 的所有目标路径都是本会话已编辑过的文件 → `Allow`（与策略无关，不依赖模型自报；工作目录**不**单独给确定性放行）；③ 否则走"soft approval floor"（edit-class / edit-command / browser.evaluate/real_chrome_access/download_cancel，与 Default 共享但**不消费 custom_approval_tools**）→ `Ask`；async wrapper 只在非 strict Ask 时调 judge_model 看是否升级为 Allow / Deny。保护路径 / 危险命令 / raw CDP / 外部连接器写动作在模式分发或 smart judge 之前已拦截，故工作目录内的 `.env` 写入和真实外部系统修改等仍强制弹窗。
+**注意第 6 层与第 10 层的拆分**：macOS 控制动作被检查两次。**危险**动作（如 `apps.quit`、`windows.close`）在 AllowAlways 累加器**之前**（第 6 层，strict，永不常驻放行）；**普通 / 隐私**动作（如 `act.perform_action`、剪贴板读写）在 AllowAlways **之后**（第 10 层，可被常驻规则放行）。同理，raw CDP 与外部连接器写动作被刻意放在 AllowAlways 之前，正是为了让每个非 YOLO 姿态都对它们弹一次新的审批，绝不让一条 AllowAlways 常驻授权把 DevTools 全权或外部系统写权限永久放开。
+
+**Default 模式展开**：软审批层（`cron delete` → 编辑类工具 / exec 编辑命令 → 浏览器控制）命中 → `Ask`；再叠 Agent 自定义审批清单（开启且工具在列 → `AskReason::AgentCustomList`）。
+
+**Smart 模式展开**：① 模型自报 `_confidence:"high"`（且策略为 `SelfConfidence`/`Both`）→ `Allow`；② 本会话已编辑过的文件再次编辑 → `Allow`（确定性放行，见下）；③ 否则走软审批层（与 Default 共享但**不消费**自定义清单）→ `Ask`；④ async 包装器仅对**非 strict** 的 `Ask` 调 judge 模型看能否升为 `Allow` / `Deny`。strict 门在模式分发之前已拦截，所以工作区内的 `.env` 写入、真实外部系统修改等仍强制弹窗。
 
 ---
 
@@ -166,20 +186,24 @@ Unattended 时按 `permission.unattended_approval_action` 处理:`Deny`(默认,f
 
 ```
 crates/ha-core/src/permission/
-├── mod.rs                  // 入口 + Decision / AskReason 类型
-├── rules.rs                // PermissionRules + RuleSpec + ArgMatcher
-├── engine.rs               // resolve / resolve_async 决策入口
-├── protected_paths.rs      // 保护路径加载/匹配 + 默认值 const
-├── dangerous_commands.rs   // 危险命令加载/匹配 + 默认值 const
-├── edit_commands.rs        // 编辑命令加载/匹配 + 默认值 const
-├── pattern_match.rs        // 零分配 ASCII 大小写无关 substring 匹配
-├── list_store.rs           // 三个 list 模块共享的文件 IO + Arc cache 抽象
-├── allowlist.rs            // 多作用域 AllowAlways 类型骨架（v1 待 GUI 编辑）
-├── mode.rs                 // SessionMode + SmartModeConfig + SmartStrategy + JudgeModelConfig
-├── config.rs               // PermissionGlobalConfig + ApprovalTimeoutAction
-├── session_edits.rs        // Smart 模式会话级"已编辑文件"跟踪器（进程内，仅 Smart 读）
-└── judge.rs                // Smart 模式 judge_model side_query + 60s TTL cache
+├── mod.rs                // 入口 + Decision / AskReason 类型
+├── engine.rs            // resolve / resolve_async 决策入口（最大模块）
+├── mode.rs             // SessionMode + SandboxMode（Smart 类型再导出自 ha-config-schema）
+├── config.rs           // 全局审批配置的再导出 + 测试（类型在 ha-config-schema）
+├── rules.rs            // PermissionRules + RuleSpec + ArgMatcher（被 allowlist 消费）
+├── allowlist.rs        // 多作用域 AllowAlways：4 个作用域规则表 + choose_scope
+├── approval_surface.rs // 无人值守 surface 判定（evaluate_approval_surface）
+├── task_intent.rs      // cron 预授权意图跟踪（session-keyed + RAII guard）
+├── session_edits.rs    // Smart 模式"本会话已编辑文件"跟踪器（进程内）
+├── judge.rs            // Smart judge_model side_query + 60s TTL cache
+├── protected_paths.rs  // 保护路径加载/匹配 + 默认值 const
+├── dangerous_commands.rs // 危险命令加载/匹配 + 默认值 const
+├── edit_commands.rs    // 编辑命令加载/匹配 + 默认值 const
+├── list_store.rs       // 三个列表共享的文件 IO + Arc cache 抽象
+└── pattern_match.rs    // 零分配 ASCII 大小写无关 substring 匹配
 ```
+
+**wire 类型下沉**：会存进 `AppConfig` 或跨壳序列化的纯数据类型（`PermissionGlobalConfig`、`ApprovalTimeoutAction`、`UnattendedApprovalAction`、`SmartModeConfig`、`SmartStrategy`、`SmartFallback`、`JudgeModelConfig`）都落在 [`ha-config-schema`](../../crates/ha-config-schema/src/permission.rs)；`permission::mode` / `permission::config` 只做**原地再导出**保持 `crate::permission::*` 路径不变。判定逻辑、`SessionMode`、`SandboxMode` 仍在 `ha-core::permission`。
 
 ### 核心类型
 
@@ -192,343 +216,389 @@ pub enum Decision {
 }
 
 pub enum AskReason {
-    EditTool,
-    EditCommand { matched_pattern: String },
-    DangerousCommand { matched_pattern: String },
-    ProtectedPath { matched_path: String },
-    AgentCustomList,
-    SmartJudge { rationale: String },
-    BrowserEvaluate { script_preview: String },   // browser control.evaluate 执行任意 JS
-    BrowserRawCdp { method: String },              // browser control.raw_cdp 发送原始 CDP 命令
-    BrowserChromeAccess { action: String },        // browser 读取/接管真实 Chrome 状态
-    BrowserDownloadAction { action: String },      // browser control.download_cancel 中断真实 Chrome 下载
-    MacControlAction { action: String },
-    MacControlDangerousAction { action: String },
-    PlanModeAsk,
-    CronDelete,                                    // manage_cron action=delete：非 strict，但 gate 强制 AllowAlways 置灰（见下「Cron delete 审批」）
+    EditTool,                                        // write / edit / apply_patch
+    EditCommand { matched_pattern: String },         // exec 命中编辑命令
+    DangerousCommand { matched_pattern: String },    // exec 命中危险命令（strict）
+    ProtectedPath { matched_path: String },          // 命中保护路径（strict）
+    AgentCustomList,                                 // Agent 自定义审批清单
+    SmartJudge { rationale: String },                // judge 模型返回 ask
+    BrowserEvaluate { script_preview: String },      // 浏览器执行任意 JS
+    BrowserRawCdp { method: String },                // raw CDP 命令（strict）
+    BrowserChromeAccess { action: String },          // 读取/接管真实 Chrome 状态
+    BrowserDownloadAction { action: String },        // 中断真实 Chrome 下载
+    MacControlAction { action: String },             // macOS 普通/隐私控制
+    MacControlDangerousAction { action: String },    // macOS 高危控制（strict）
+    ExternalConnectorAction { connector: String, action: String }, // 外部系统写动作（strict）
+    PlanModeAsk,                                     // Plan 白名单但需逐次确认（strict）
+    CronDelete,                                      // manage_cron action=delete（非 strict 但抑制 AllowAlways）
 }
+```
 
+`AskReason` 共 **15 个变体**。其中一部分是 **strict** 原因——它们要求每次手动确认、AllowAlways 按钮置灰、且无人值守时永不自动放行。这个判据由单一谓词裁决：
+
+```rust
 impl AskReason {
-    /// 强制每次手动确认（保护路径 / 危险命令 / 高风险 macOS 控制 / raw CDP / 外部连接器写动作 / Plan-ask），AllowAlways 按钮置灰；
-    /// 这也是无人值守 fail-closed 的真相源——strict 原因即便配 Proceed 也强制 deny
     pub fn forbids_allow_always(&self) -> bool {
-        matches!(
-            self,
-            ProtectedPath { .. }
-                | DangerousCommand { .. }
-                | MacControlDangerousAction { .. }
-                | BrowserRawCdp { .. }
-                | PlanModeAsk
-        )
+        matches!(self,
+            AskReason::ProtectedPath { .. }
+                | AskReason::DangerousCommand { .. }
+                | AskReason::MacControlDangerousAction { .. }
+                | AskReason::BrowserRawCdp { .. }
+                | AskReason::ExternalConnectorAction { .. }
+                | AskReason::PlanModeAsk)
     }
-    // 注意：`CronDelete` 刻意 **NOT** 在 forbids_allow_always 里——它是非 strict（超时可按配置 proceed、
-    // Smart 可降级 judge），但仍由 `gate_cron_delete` 单独强制 `allow_always_forbidden=true` 抑制 AllowAlways
-    // （详见下「Cron delete 审批」）。这是「非 strict 但 bars AllowAlways」的唯一案例。
 }
+```
 
+`CronDelete` **刻意不在**这个集合里（它非 strict：超时可 proceed、Smart 可交 judge 降级），但仍由 cron 侧的 `gate_cron_delete` 单独抑制 AllowAlways——这是"非 strict 但禁 AllowAlways"的唯一案例，见下[Cron delete 审批](#cron-delete-审批)。
+
+```rust
 // permission/mode.rs
 pub enum SessionMode { Default, Smart, Yolo }
+pub enum SandboxMode { Off, Standard, Isolated, Workspace, Trusted }
+
+// ha-config-schema/src/permission.rs（再导出为 permission::mode::*）
 pub enum SmartStrategy { SelfConfidence, JudgeModel, Both }
 pub enum SmartFallback { Default, Ask, Allow }
-
 pub struct SmartModeConfig {
     pub strategy: SmartStrategy,
     pub judge_model: Option<JudgeModelConfig>,
     pub fallback: SmartFallback,
 }
-
 pub struct JudgeModelConfig {
-    pub provider_id: String,
+    pub provider_id: String,       // 引用 ProviderConfig.id
     pub model: String,
     pub extra_prompt: Option<String>,
 }
 ```
 
-### `AppConfig.permission`
+### 全局配置 `AppConfig.permission`
 
 ```rust
+// ha-config-schema/src/permission.rs
 pub struct PermissionGlobalConfig {
-    pub global_yolo: bool,                      // GUI + CLI flag 双入口
+    pub global_yolo: bool,                              // GUI + CLI flag 双入口
     pub smart: SmartModeConfig,
-    pub approval_timeout_enabled: bool,         // 审批是否自动超时
-    pub approval_timeout_secs: u64,             // 审批等待超时秒数
+    pub approval_timeout_enabled: bool,                // 审批是否自动超时
+    pub approval_timeout_secs: u64,                    // 等待超时秒数（0 = 无限等）
     pub approval_timeout_action: ApprovalTimeoutAction, // Deny / Proceed
-    pub unattended_approval_action: UnattendedApprovalAction, // Deny(默认) / Proceed,见「无人值守审批 surface」
-    pub im_approval_hint_throttle_secs: u64,    // IM 文本模式「你有 N 个待审批」nudge 节流,每 (account,chat) 每 N 秒一次,默认 60
+    pub unattended_approval_action: UnattendedApprovalAction, // Deny(默认) / Proceed
+    pub im_approval_hint_throttle_secs: u64,           // IM 文本模式"你有 N 个待审批"节流，默认 60
 }
 ```
 
-#### 审批超时 × strict 原因（Epic F / TIMEOUT-1）
+### 存储
 
-`approval_timeout_action=proceed` **只对非 strict 原因生效**。strict 原因(`AskReason::forbids_allow_always`:保护路径 / 危险命令 / 高危 macOS 控制 / raw CDP / 外部连接器写动作 / Plan-ask)超时**强制 deny**,无视 `proceed`——否则无人值守下危险操作会被超时自动放行。落点三处共用同一谓词:
-
-- `ApprovalCheckError::TimedOut { timeout_secs, strict }`:`check_and_request_approval` 在 `reason` 被移动前算出 `strict`(`ApprovalReasonKind::is_strict()`,镜像 `forbids_allow_always` 单一真相源,`reason_kind_is_strict_matches_ask_reason` 穷举断言一致)。
-- `run_tool_approval`(非 exec 工具)+ `exec_approval_timeout_outcome`(exec):strict + `proceed` → deny + `app_warn('permission','strict_timeout_deny')`。
-- 超时分支额外 emit 统一 `approval:resolved`(`ApprovalResolutionSource::{TimeoutDeny,TimeoutProceed}`,决议 = `strict || action=deny ? deny : proceed`)与 submit 路径对称撤窗。
-
-#### 审批授权来源审计(Epic F / TIMEOUT-2 + IMYOLO-1)
-
-- **`approval_origin`**:每个后台 job 的 `async_jobs.approval_origin` 列记录授权方式(`ApprovalOrigin`:`user` / `timeout_proceed` / `unattended_proceed` / `yolo` / `auto_approve` / `external_pre_approved` / `policy_allow`)。审批闸单点算出写入 spawn ctx:`run_tool_approval` 返回 origin(批准→`User`、非 strict 超时放行→`TimeoutProceed`、非 strict 无人值守放行→`UnattendedProceed`),exec 走 reorder,其余 bypass 由 spawn 前兜底(`external_pre_approved` / `auto_approve` / `policy_allow_origin` 区分 PolicyAllow 与 Yolo)。
-- **外部连接器写动作不被 auto-approve 静默绕过**:`auto_approve_tools`(IM auto-approve 账号 / skill 斜杠)和 trusted MCP `autoApprove` 对普通工具仍可跳过引擎，但 mutating connector tools 会由 `needs_permission_engine` 强制进入权限引擎，弹出 strict `ExternalConnectorAction`。只有 `external_pre_approved`(async 重入已在外层门审计)可跳过重复弹窗。
-- **`auto_approve_bypass` 探测**:`auto_approve_tools` 跳过普通引擎门时,若被跳过的调用本会命中其它 strict 原因,跑一次 no-enforce `resolve_tool_permission` 探测并 `app_warn('permission','auto_approve_bypass')`——纯审计不拦截(IM auto-approve 是 opt-in);显式排除 `external_pre_approved` 防重复告警。
-
-#### 多端审批一致性(Epic G / SURFACE-1~5 + MISC-11)
-
-一条审批可能同时呈现在多端(桌面弹窗 / Web / IM 按钮或文本),决议必须**单点广播、各端统一撤窗**,且只能由**有权的来源**应答。
-
-- **`approval:resolved` 统一撤窗(SURFACE-1)**:`submit_approval_response`(GUI/HTTP/IM)、超时(F4)、删会话(A-9)、eviction(G5)、前台 Stop 所有决议路径都 emit `approval:resolved {requestId, sessionId, decision, source}`。前端 `useApprovals` 订阅后按 `requestId` 撤窗;非本端(`locallyResolvedRef` 区分)且来源是另一交互端(`gui`/`http`/`im`)时 toast「已由他端处理」。`ApprovalResolutionSource` 全集（9）:`gui` / `http` / `im` / `session_deleted` / `timeout_deny` / `timeout_proceed` / `eviction` / `job_cancelled` / `user_stop`。Stop 必须 deny 目标会话 pending approvals（全局 Stop 则 drain 全部），因为 oneshot 审批等待不直接观察 chat cancel flag；否则停止后的旧弹窗仍可能授权工具执行。HTTP Stop 必须先收口这些交互，再执行可能失败的 runtime-task cancellation。两种 Stop drain 还必须直接调用 `channel_hooks::drop_approval_by_request_id`（阶段 5 第五刀起 kernel 侧统一经钩子，实现在 ha-channel），不能只依赖可能 `Lagged` 的 EventBus listener，否则 IM 文本审批状态会残留并劫持后续普通消息。
-- **snapshot 恢复是可靠性边界**:`PENDING_APPROVALS` 保存完整 `ApprovalRequest`（含 `created_at_ms` / `timeout_at_ms` / `timeout_secs` / effective `timeout_action`），owner 平面通过 Tauri `list_pending_approvals` / HTTP `GET /api/chat/approvals/pending` 读取权威快照。`useApprovals` 在 mount、transport resync、window focus、visibility 恢复以及提交结果不确定时对账；reconcile sequence 拒绝乱序响应，per-request event version 把请求期间新到的 `approval_required` 合并进快照，有界 terminal tombstone 防旧快照复活已终结请求。倒计时按请求绝对 deadline，而非弹窗出队时重启；快照刷新 `server_now_ms`，远程浏览器先换算本地 deadline，禁止假设客户端与服务器时钟同步。
-- **提交结果不确定时不乐观丢窗**:响应 RPC 成功可本地撤窗兜底；失败时保持当前授权可操作并立即 snapshot reconcile，以区分「请求未送达」与「后端已受理但响应丢失」。同一 request id 在调用未完成前禁止重复提交。
-- **IM listener 残留清理(SURFACE-2)**:`spawn_channel_approval_listener` 收到 `approval:resolved` 调 `drop_pending_by_request_id` 清 IM 端 `TEXT_PENDING`,杜绝旧 prompt 劫持后续消息。
-- **IM 应答来源 fail-closed(MISC-11 + SURFACE-3)**:按钮回调 `handle_approval_callback_with_source` 总是查 session + 校验来源,**缺源(None)直接拒**(fail-closed;共享 `validate_callback_source_for_session` 的 `None→Ok` 仅留给低风险 ask_user Q&A 路径);文本回复 `try_handle_approval_reply` submit 前复用同一 `validate_callback_source_for_session`,session 已改绑别的 chat 则拒 + `send_source_mismatch_notice`。
-- **chat 接管拒决(SURFACE-4)**:`eviction_watcher` 在 `notify_session_eviction` 门之前无条件——`pending_request_ids_for_session` 枚举 + 逐个 `submit_approval_response(Deny, source=eviction)` + `drop_pending_for_chat` 兜底,被踢 chat 的审批即时解阻塞、各端撤窗。
-
-### `AgentConfig.capabilities`（权限相关字段）
-
-```rust
-pub struct CapabilitiesConfig {
-    /// 是否启用「自定义工具审批」。关闭时 custom_approval_tools 全忽略。
-    /// 仅 Default 模式消费；Smart / Yolo 模式直接忽略整个机制。
-    pub enable_custom_tool_approval: bool,
-    /// 用户勾选的"额外需要审批"的工具名列表
-    pub custom_approval_tools: Vec<String>,
-    /// Agent 新建会话时的默认权限模式。`None` = 跟随全局
-    pub default_session_permission_mode: Option<SessionMode>,
-    /// Agent 新建会话时的默认沙箱模式。`None` = 兼容旧 sandbox bool
-    pub default_sandbox_mode: Option<SandboxMode>,
-    /// 旧 Docker 沙箱开关。仅在 default_sandbox_mode 为 None 时参与兼容映射。
-    pub sandbox: bool,
-}
-```
-
-### Session 表
+会话级状态落 `sessions` 表：
 
 ```sql
-ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default';
--- 取值：'default' | 'smart' | 'yolo'
+sessions.permission_mode  TEXT NOT NULL DEFAULT 'default'  -- default | smart | yolo
+sessions.sandbox_mode     TEXT NOT NULL DEFAULT 'off'      -- off | standard | isolated | workspace | trusted
 ```
 
-### 文件存储
+三个用户可编辑的模式列表落磁盘 JSON（缺失则用硬编码默认值）：
 
 | 文件 | 用途 |
 |------|------|
-| `~/.hope-agent/permission/protected-paths.json` | 用户编辑过的保护路径列表（缺失则用硬编码默认值） |
+| `~/.hope-agent/permission/protected-paths.json` | 保护路径列表 |
 | `~/.hope-agent/permission/dangerous-commands.json` | 危险命令模式列表 |
 | `~/.hope-agent/permission/edit-commands.json` | 编辑命令模式列表 |
 
-三个文件共享 `permission::list_store` 的 IO + 缓存抽象：`Arc<Vec<String>>` 单一所有权 + `RwLock<Option<Arc<...>>>` 缓存槽，热路径只 bump refcount 不复制。
+三者共用 `permission::list_store` 的 IO + 缓存抽象：`RwLock<Option<Arc<Vec<String>>>>` 缓存槽，热路径（`engine::resolve`）只 `Arc::clone` 一次 atomic refcount bump、不复制字符串；写盘经 tempfile + rename 原子落地并刷新缓存。API 为 `load_or_defaults` / `save` / `reset_to_defaults`。
 
 ---
 
-## 决策引擎（`permission::engine`）
+## 决策引擎
 
-### sync `resolve()` 入口
-
-```rust
-pub fn resolve(ctx: &ResolveContext<'_>) -> Decision
-```
-
-`ResolveContext` 18 字段，覆盖 tool 信息 + 模式状态 + Plan / YOLO / Agent / smart_config / unattended / task_intent。caller（`tools/execution.rs` + `tools/exec.rs`）每次 dispatch 构造一份。
-
-判定顺序严格按[优先级矩阵](#优先级矩阵)。**所有 sync 路径无 IO、无 LLM、可用于热路径**。
-
-### async `resolve_async()` 入口
+### sync `resolve()` 与 async `resolve_async()`
 
 ```rust
-pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision
+pub fn resolve(ctx: &ResolveContext<'_>) -> Decision;
+pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision;
 ```
 
-先调 sync `resolve()` 拿到 baseline；当：
-1. baseline 是 `Decision::Ask` 且 `reason.forbids_allow_always() == false`
-2. `session_mode == Smart` 且 strategy ∈ `{ JudgeModel, Both }`
-3. `smart_config.judge_model` 非 None
+`ResolveContext` 有 **18 个字段**，覆盖工具信息（`tool_name` / `args`）、会话姿态（`session_mode` / `sandbox_mode` / `global_yolo` / `plan_mode` + 两个白名单）、Agent 自定义审批开关与清单、AllowAlways 查找所需的 `session_id` / `project_id` / `agent_id` / `default_path`、`is_internal_tool`、`smart_config`，以及给 Smart 裁判用的 `unattended` + `task_intent`。调用方（`tools/execution.rs` 与 `tools/exec.rs`）每次 dispatch 构造一份。
 
-时调 `judge::judge()` 跑一次 LLM 判官；按 `SmartFallback` 降级处理超时/失败。
+`resolve_async` 先跑 sync `resolve()` 拿 baseline，仅当三条同时成立时才调 judge 模型：
 
-**性能保证**：非 Smart 会话 `cached_config()` 都不读，`smart_config: None` 让 `active_smart_strategy()` 直接返回 `None` 短路 async 分支——hot path 等价于 sync resolve + 一个零成本 `.await`。
+1. baseline 是 `Ask` 且 `reason.forbids_allow_always() == false`（非 strict）；
+2. `session_mode == Smart` 且策略 ∈ `{ JudgeModel, Both }`；
+3. `smart_config.judge_model` 非 `None`。
 
-### 重要的设计决策
+**热路径零开销**：非 Smart 会话根本不读 `cached_config()`；`active_smart_strategy()` 在非 Smart 时直接返回 `None`，短路整个 async 分支——等价于一次 sync resolve 加一个零成本 `.await`。
 
-- **engine 不依赖 AssistantAgent**：通过 `judge.rs` 内部调 `AssistantAgent::judge_one_shot` 静态方法，从 `cached_config().providers` 拿 ProviderConfig 自建 LLM 调用，不用主对话的 cache snapshot
-- **保护路径 / 危险命令在 sync 路径**：让 hot path 在 LLM 不可用时仍能正确强制审批
-- **macOS 控制动作在 sync 路径**：`mac_control` 的风险由 `action/op/path` 纯参数判断；普通/隐私动作弹审批，高风险动作禁用 AllowAlways
-- **浏览器控制在 soft approval floor**：`browser` 的 `action=control && op=evaluate/raw_cdp/download_cancel`、`action=tabs && op=open_user_tabs|claim|select(数字 extension tab id)`、`action=observe && kind=downloads` 进入对应 AskReason；Smart 的 `_confidence` / judge_model 可以自动放行这些 soft Ask；`evaluate` 的 SSRF 扫描仍由浏览器工具内部执行，不受审批模式影响
-- **raw CDP 与外部连接器写动作是 strict**：raw CDP 逐次确认且禁止 AllowAlways；外部连接器 mutating tools 逐次确认且禁止 AllowAlways。download cancel / real Chrome access 仍是普通软审批。
-- **YOLO 内仍跑风险检查**：保护路径 / 危险命令 / macOS 控制 / browser.evaluate / browser.raw_cdp / browser.real_chrome_access / browser.download_cancel / 外部连接器写动作只为打 `app_warn!` 审计日志，不改决策。
+### 软审批层（Default / Smart / Plan 共享）
+
+`resolve_soft_approval_layer` 是三种姿态复用的"软 Ask"来源，依次检查：
+
+```mermaid
+flowchart LR
+    S["软审批层"] --> C["cron delete"]
+    C --> E["编辑类工具<br/>+ exec 编辑命令"]
+    E --> B["浏览器控制<br/>evaluate / raw_cdp /<br/>chrome_access / download"]
+```
+
+Default 在软审批层之后再叠自定义审批清单；Smart 在软审批层之前先看 `_confidence` 与"已编辑文件"两条快速放行。
+
+### 为什么关键判断都在 sync 路径
+
+- **保护路径 / 危险命令 / macOS 控制在 sync**：让热路径在 LLM 不可用时仍能正确强制审批——安全兜底不依赖网络。
+- **引擎不依赖主对话 Agent**：judge 通过 `AssistantAgent::judge_one_shot` 静态方法（`agent/side_query.rs`），从 `cached_config().providers` 自建 LLM 调用，不复用主对话的 cache snapshot（避免污染会话 prefix），也不参与 failover / auth 轮换。
+- **浏览器 `evaluate` 的 SSRF 扫描**由浏览器工具内部执行，不受审批模式影响——即便 Smart 自动放行了软审批，SSRF 门照拦。
 
 ---
 
-## Smart 模式：self_confidence + judge_model
+## Smart 模式
+
+Smart 模式的核心想法是：**把"要不要审批"这个判断交给 LLM，而不是硬编码规则**——但只在 strict 门放行之后的"软"区间里，且给它三条独立的判据。
+
+```mermaid
+flowchart TD
+    Start["Smart 模式"] --> Conf{"_confidence:high<br/>且策略允许？"}
+    Conf -- Yes --> Allow["Allow"]
+    Conf -- No --> Edited{"目标全是<br/>本会话已编辑文件？"}
+    Edited -- Yes --> Allow
+    Edited -- No --> Floor["软审批层 → Ask"]
+    Floor --> Strict{"strict？"}
+    Strict -- Yes --> AskFinal["Ask (不经 judge)"]
+    Strict -- No --> Judge["judge 模型裁决"]
+    Judge --> Verdict["allow / ask / deny"]
+```
 
 ### 三种策略
 
-| Strategy | 行为 |
-|----------|------|
+| 策略 | 行为 |
+|------|------|
 | `SelfConfidence` | 只读 `args._confidence == "high"`，命中 → Allow；不命中 → fall through |
-| `JudgeModel` | 不看 _confidence，直接调 LLM judge |
-| `Both` | _confidence 优先；不命中再调 judge |
+| `JudgeModel` | 不看 `_confidence`，直接调 LLM judge |
+| `Both` | `_confidence` 优先；不命中再调 judge |
 
-### 已编辑文件确定性放行（与策略无关）
+### 确定性放行：已编辑过的文件（与策略无关）
 
-在 `_confidence` / judge 之外，Smart 对**文件编辑工具**（`write` / `edit` / `apply_patch`）额外做一层**确定性**放行（`engine::smart_edit_already_session_touched`）：当一次调用的**所有**目标路径都是**本会话已编辑过的文件**时直接 `Allow`，不依赖模型自报、不调 LLM——用户对该文件已经放行过一次，再编辑不必重复打断。
+在 `_confidence` / judge 之外，Smart 对文件编辑工具（`write` / `edit` / `apply_patch`）额外做一层**确定性**放行（`smart_edit_already_session_touched`）：当一次调用的**所有**目标路径都是**本会话已编辑过的文件**时直接 `Allow`——用户已经对该文件放行过一次，再编辑不必重复打断。这不依赖模型自报、不调 LLM。
 
-- **跟踪器**：`session_edits` 进程内（`permission/session_edits.rs`，`session_id → HashSet<PathBuf>`）记录每个被放行执行的编辑目标。
-- **记录点**：`tools/execution.rs::record_smart_session_edits`——仅在 **Smart 模式**下、且编辑工具**成功执行后**（`Ok` 分支）记录。失败的 write/edit/apply_patch 返回 `Err` 不记录；Plan Mode 拦截的编辑在 dispatch 前已 `Err` 返回，也不记录。**不跨模式记录**——Default / YOLO / auto-approve 下的编辑不会泄漏进 Smart 信任集，只有真正在 Smart 下放行并落地的编辑才计入（避免"切到 Smart 后此前未经 Smart 审视的编辑被静默信任"）。路径用 `rules::resolved_edit_target_paths` 解析为与引擎查询一致的规范绝对形式。
-- **生命周期**：`session/db.rs::delete_session` 删会话时调 `session_edits::clear` 清除该会话信任集（不跨会话存活、长跑 server 进程不累积）。
-- **`apply_patch` 多目标**：**全部**命中已编辑集才放行，任一未编辑过即落回 floor。
+- **跟踪器**：`session_edits`（进程内 `session_id → HashSet<PathBuf>`）。
+- **记录点**：`tools/execution.rs::record_smart_session_edits`——仅在 **Smart 模式下、编辑工具成功执行后**（`Ok` 分支）记录。失败的编辑、Plan Mode 拦下的编辑都不记；**不跨模式记录**（Default / YOLO / auto-approve 下的编辑不会泄漏进 Smart 信任集，避免"切到 Smart 后此前未经审视的编辑被静默信任"）。路径用 `rules::resolved_edit_target_paths` 解析成与引擎查询一致的规范绝对形式。
+- **生命周期**：会话删除时 `session/db.rs` 调 `session_edits::clear` 清除，不跨会话存活、长跑 server 进程不累积。
+- **多目标**：`apply_patch` 须**全部**命中已编辑集才放行，任一未编辑过即落回软审批层。
 
-**工作目录不单独给确定性放行**：目录内文件的**首次**写/编辑仍走判断——模型对常规目录内编辑自报 `_confidence:"high"` → 放行，对大范围覆盖 / 删除等高风险**不**自报 → 弹窗（或配了 judge_model 由它裁决）。目录外的写/编辑同理但提示词更保守。这样目录内"更松但保留判断闸门"，而非无条件静默。保护路径 / 危险命令在模式分发前已拦截，此层永远碰不到它们。**仅 Smart**——Default 仍逐次确认编辑。
+**工作目录本身不给确定性放行**：目录内文件的**首次**写 / 编辑仍走判断——模型对常规编辑自报 `_confidence:"high"` → 放行，对大范围覆盖 / 删除不自报 → 弹窗（或交 judge）。这样目录内"更松但保留判断闸门"，而非无条件静默。
 
 ### `_confidence` 自报字段
 
-模型在 tool_call args 里**主动**加 `_confidence: "high"` 表示"高度确信此次安全"。约束：
+模型在 tool_call args 里主动加 `_confidence:"high"` 表示"高度确信此次安全"。约束：
 
-- 工具 schema 不暴露这个字段——通过 system prompt（`build_permission_mode_guidance(SessionMode::Smart)`）引导
-- 命中 high 直接 Allow（除非命中保护路径 / 危险命令的 strict 层）
-- 字段缺失或值非 "high" 不命中，走 fallback
-- system prompt guidance 注入位置：`system_prompt/build.rs` 在 `TOOL_CALL_NARRATION_GUIDANCE` 之后；三种 `permission_mode` 都会注入当前模式说明，Smart 模式额外说明 `_confidence` 用法
+- 工具 schema **不暴露**这个字段——通过 system prompt（`build_permission_mode_guidance(SessionMode::Smart)`，注入位置在 `TOOL_CALL_NARRATION_GUIDANCE` 之后）引导；三种模式都会注入当前模式说明，Smart 额外说明 `_confidence` 用法。
+- 命中 `high` 直接 Allow，除非先命中 strict 层。
+- 字段缺失或值非 `"high"` 走 fallback。
 
 ### `judge_model` 独立 side_query
 
 `permission/judge.rs` 实现：
-- 用 `AssistantAgent::judge_one_shot(provider_config, model, prompt, max_tokens)` 跑 bare 模式 LLM 调用——**不复用主对话 cache**（避免污染会话 prefix），不参与 failover/auth 轮换
-- 5s 硬超时（`tokio::time::timeout`）
-- 60s TTL + 256 cap 的 LRU-ish 缓存：key = hash(tool_name, args_canonical, provider_id, model)
-- prompt 强约束 JSON 输出：`{"decision":"allow"|"ask"|"deny","reason":"..."}`
-- 解析用 `crate::extract_json_span(text, Some('{'))` 共享的 bracket-balanced 提取器，正确处理字符串字面量内含 `{}`
+
+- 用 `AssistantAgent::judge_one_shot(provider_config, model, prompt, max_tokens=256)` 跑 bare 模式 LLM 调用，不复用主对话 cache、不参与 failover / auth 轮换。
+- **5s 硬超时**（`tokio::time::timeout`）。
+- **60s TTL、256 上限**的缓存：key = `(tool_name, args_canonical, provider_id, model)` 的哈希。
+- prompt 强约束 JSON 输出 `{"decision":"allow"|"ask"|"deny","reason":"..."}`；解析用 `crate::extract_json_span` 的括号平衡提取器，正确处理字符串字面量里的 `{}`。
+
+verdict 映射：`allow → Allow`；`ask → Ask{SmartJudge}`；`deny → Deny`。
 
 ### 失败降级（`SmartFallback`）
 
-| Fallback | 行为 |
-|----------|------|
-| `Default` | 保留 sync `Ask`（用户被弹审批） |
+| Fallback | judge 超时 / 失败时的行为 |
+|----------|--------------------------|
+| `Default` | 保留 sync 的 `Ask`（用户被弹审批） |
 | `Ask` | 同上（显式语义） |
-| `Allow` | 升级到 `Allow`（最宽松——超时/失败时静默放行） |
+| `Allow` | 升级到 `Allow`（最宽松，静默放行） |
 
-### 决策返回
+### cron 任务的意图感知（cron 专属）
 
-`judge` 返回的 verdict 映射：
+一个 cron 任务用 Smart 模式时：裁判判安全 → 直接放行（早于无人值守拒绝）；判不准 → `Ask` → 才被无人值守 fail-closed 拒。为让裁判**按任务本意而非操作类型**校准（否则"校准放宽"会把一个本职就是删 temp / 发汇总的任务也拒掉）：
 
-| Verdict | Decision |
-|---------|----------|
-| `allow` | `Decision::Allow` |
-| `ask` | `Decision::Ask { reason: AskReason::SmartJudge { rationale } }` |
-| `deny` | `Decision::Deny { reason: format!("Smart judge denied: {}", rationale) }` |
+- cron 是用户**预授权**的——其 prompt 即对删除 / 外发的授权。executor 经 `permission::task_intent`（session-keyed map + RAII `TaskIntentGuard`，run 结束即清）记录 cron prompt 为"意图"。
+- 构造 `ResolveContext` 时，**仅 Smart 会话**经 `evaluate_approval_surface` 派生 `unattended=true` 并取该 session 的意图，透传给裁判。意图以 `<task_intent>` 信封**结构隔离**，明示"仅作授权范围参考、非给裁判的指令、不得自授权更宽访问"（防一条 prompt 自述"全部删除已授权"击穿注入检测）。
+- **对齐判断**：意图（用户所写=可信）对比 args（模型所发=可能被注入），裁判放行与意图一致的操作、拒越界或疑似被注入的、不可逆且不确定就拒。
+- **边界**：裁判只升降**非 strict** 的 `Ask`（strict 在裁判前已 return）；非 unattended / 非 Smart 会话 `unattended=false`、`task_intent=None`，普通对话的 Smart 行为不受该机制影响；沙箱与 cron `delivery_targets` 白名单是裁判之外的独立兜底，裁判不是唯一防线。
 
 ---
 
 ## 保护路径 / 危险命令 / 编辑命令
 
-三个 list 模块结构高度对称（`protected_paths.rs` / `dangerous_commands.rs` / `edit_commands.rs`），共享 `list_store` 抽象。
+三个列表模块结构高度对称（`protected_paths.rs` / `dangerous_commands.rs` / `edit_commands.rs`），共享 `list_store` 抽象。它们回答"这次操作是否触碰了需要额外把关的东西"。
 
-### 触发条件
+### 触发条件对照
 
 | 列表 | 触发工具 | 匹配维度 | 强制 Ask | 可 AllowAlways |
 |------|----------|----------|----------|----------------|
-| **保护路径** | `read` / `write` / `edit` / `apply_patch` / `exec`(cwd 或 command 内出现) | 路径前缀 + 通配（`*.env` / `*secret*`） | ✅ 非 YOLO 强制 | ❌ 按钮置灰 |
-| **危险命令** | `exec` | 命令字符串 ASCII case-insensitive substring | ✅ 非 YOLO 强制 | ❌ 按钮置灰 |
-| **编辑命令** | `exec` | 命令字符串 substring | 仅 Default 模式触发；Smart/YOLO 不消费 | ✅ 可 AllowAlways |
-| **macOS 控制** | `mac_control` | `action/op/path` 纯参数分类 | ✅ 普通/隐私/高风险动作 | 普通/隐私动作可；高风险置灰 |
-| **外部连接器写动作** | 内置 `feishu_*` 写工具 + 保守 MCP mutating tool 名 | `tool_name` + args 中的连接器/动作关键词 | ✅ 非 YOLO 强制 | ❌ 按钮置灰 |
+| **保护路径** | `read`/`write`/`edit`/`apply_patch`/`exec`（cwd 或 command 内出现） | 路径前缀 + 通配（`*.env`/`*secret*`） | 非 YOLO 强制（strict） | ❌ 置灰 |
+| **危险命令** | `exec` | 命令字符串 ASCII 大小写无关 substring | 非 YOLO 强制（strict） | ❌ 置灰 |
+| **编辑命令** | `exec` | 命令字符串 substring | 仅 Default 触发；Smart/YOLO 不消费 | ✅ 可 AllowAlways |
+| **macOS 控制** | `mac_control` | `action/op/path` 纯参数分类 | 普通/隐私/高危动作 | 普通/隐私可；高危置灰 |
+| **外部连接器写** | 内置 `feishu_*` 写工具 + 保守 MCP mutating 工具名 | `tool_name` + 连接器/动作关键词 | 非 YOLO 强制（strict） | ❌ 置灰 |
 
-`mac_control` 的只读动作（`status` / `permissions` / `snapshot` / `visual.*` / `elements.find` / `wait` / `apps.list` / `apps.frontmost` / `apps.installed` / `apps.search` / `dock.list` / `spaces.list` / `windows.list` / `act.dry_run` / `menu.list` / `menu.popover` / `dialog.inspect/list`）直接放行；普通突变和隐私敏感动作（例如 `act.perform_action`、`clipboard.get/set/clear`、安全 `dock.select_menu menuItem`）弹审批；高风险突变（例如 `apps.quit`、`windows.close`、危险菜单/dialog 词、`act.perform_action AXConfirm`、危险或 index-only `dock.select_menu`）禁用 AllowAlways。
+`mac_control` 的只读动作（`status` / `permissions` / `snapshot` / `visual.*` / `elements.find` / `apps.list` / `windows.list` / `menu.list` / `dialog.inspect` 等）直接放行；普通突变与隐私敏感动作（`act.perform_action`、剪贴板读写、安全 `dock.select_menu` 等）弹审批；高危突变（`apps.quit`、`windows.close`、`dialog.accept`、危险菜单/dialog 词、`act.perform_action AXConfirm` 等）禁 AllowAlways。
 
-外部连接器写动作由 `permission::engine::classify_external_connector_action` 识别。内置 Feishu / Lark 写工具走精确匹配；MCP / plugin 工具走保守启发，必须同时命中连接器名（如 Gmail、Calendar、Drive、Sheets、Slack、Notion、Jira、GitHub、Linear、Airtable、Salesforce、HubSpot、Feishu/Lark）和 mutating verb（send/create/update/delete/share/upload/submit/cancel/merge 等）。读类工具如 search/list/get 不命中。
+外部连接器写动作由 `permission::engine::classify_external_connector_action` 识别：内置 Feishu / Lark 写工具走精确匹配；MCP / plugin 工具走保守启发——必须**同时**命中连接器名（Gmail、Calendar、Drive、Sheets、Slack、Notion、Jira、GitHub、Linear、Airtable、Salesforce、HubSpot、Feishu/Lark 等）**和** mutating 动词（send/create/update/delete/share/upload/submit/cancel/merge 等）。读类工具（search/list/get）不命中。
 
-### 默认值
+> **一个易漏的坑**：编辑类工具（`AskReason::EditTool`）不止 `write`/`edit`/`apply_patch` 三个——飞书的 `feishu_drive_download_media` 也在其中，因为它会把任意字节写到模型指定的本地路径，必须跨过与 `write` 相同的审批栏。
 
-硬编码在每个模块的 `pub const DEFAULT_*` 数组里，"恢复默认"按钮重置为这些值。代表性条目：
+### 默认值（代表性条目）
 
-- **保护路径**：`~/.ssh/`, `~/.aws/`, `~/.gnupg/`, `/etc/`, `.env`, `.env.*`, `*secret*`, `*.pem`, `*.key`
-- **危险命令**：`rm -rf /`, `git push --force`, `git reset --hard`, `mkfs`, `dd if=.* of=/dev/`, `DROP TABLE`, `docker system prune -a`
-- **编辑命令**：`rm `, `mv `, `cp `, `sed -i`, `git commit`, `git add`, `npm install`, `cargo build`, `> `, `>> `
+硬编码在各模块的 `pub const DEFAULT_*` 数组里，"恢复默认"按钮重置为这些值：
 
-完整列表见 [`crates/ha-core/src/permission/protected_paths.rs`](../../crates/ha-core/src/permission/protected_paths.rs)、[`dangerous_commands.rs`](../../crates/ha-core/src/permission/dangerous_commands.rs)、[`edit_commands.rs`](../../crates/ha-core/src/permission/edit_commands.rs)。
+- **保护路径**：`~/.ssh/`、`~/.aws/`、`~/.gnupg/`、`~/.config/gh/`、`~/.hope-agent/credentials/`、`/etc/`、`/System/`、`/Library/`、`.env`、`.env.*`、`*secret*`、`*credential*`、`*.pem`、`*.key`、`*.p12`、`*.pfx`
+- **危险命令**：`rm -rf /`、`sudo rm`、`chmod -R 777`、`git push --force`、`git reset --hard`、`git clean -fdx`、`mkfs`、`dd if=.* of=/dev/`、`DROP TABLE`、`docker system prune -a`、`kubectl delete .* --all`
+- **编辑命令**：`rm `、`mv `、`cp `、`sed -i`、`git commit`、`git add`、`git merge`、`npm install`、`cargo build`、`> `、`>> `
 
-### 文件 IO + 缓存（`list_store`）
-
-```rust
-// permission/list_store.rs
-pub type Cache = RwLock<Option<Arc<Vec<String>>>>;
-
-pub fn load_or_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Arc<Vec<String>>;
-pub fn save_and_invalidate(cache: &Cache, file: &Path, patterns: &[String]) -> Result<()>;
-pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Result<Vec<String>>;
-```
-
-热路径（`engine::resolve`）只读 cache（`Arc::clone` 即一次 atomic refcount bump），mutator API（`set_*` / `reset_*` Tauri 命令）写盘后 invalidate cache。
-
-### 匹配性能
-
-`pattern_match.rs` 提供零分配 ASCII 大小写无关 substring 匹配——避免 `String::to_lowercase()` 每个 tool dispatch alloc 一份。
+完整列表见 [`protected_paths.rs`](../../crates/ha-core/src/permission/protected_paths.rs) / [`dangerous_commands.rs`](../../crates/ha-core/src/permission/dangerous_commands.rs) / [`edit_commands.rs`](../../crates/ha-core/src/permission/edit_commands.rs)。匹配用 `pattern_match.rs` 的零分配 ASCII 大小写无关 substring，避免每次 tool dispatch 都 `to_lowercase()` 分配。
 
 ---
 
-## 免审批工具与可审批工具
+## AllowAlways 多作用域
 
-### 免审批（基础核心，固定，UI 不显示开关）
+用户在审批框选"Allow Always"后，引擎把这次调用泛化成一条规则并持久化到合适的作用域；后续同类调用命中该规则即直接 `Allow`（优先级链第 9 层）。四个作用域：
 
-只读 / 元能力 / 应用自身数据 / 用户单向输出，无外部副作用。在 `ToolDefinition.internal=true` 标记，`engine::resolve` 在 Internal Tools 分支直接 `Allow`。
+| 作用域 | 存储 | 生命周期 |
+|--------|------|----------|
+| `Session` | 内存 | 随会话销毁 |
+| `Project` | 磁盘 | 项目级常驻 |
+| `AgentHome` | 磁盘 | 该 agent 常驻 |
+| `Global` | 磁盘 | 全局常驻 |
+
+作用域由 `allowlist::choose_scope` 按上下文自动选择，规则形态（`RuleSpec` / `ArgMatcher`，来自 `rules.rs`）决定倾向——命令前缀 / 域名通配倾向 `Global`，宽泛的整工具规则倾向 `Session`，有 project_id 优先 `Project`。
+
+**无痕会话禁持久化**：`choose_scope` 对无痕会话**强制**返回内存 `Session` 作用域——AllowAlways 绝不落 project / agent-home / global 磁盘，随会话焚毁（`clear_session_rules`，由 `session/cleanup_watcher.rs` 触发）而清。前端额外隐藏"始终允许"按钮（UX 层），后端 `choose_scope` 是不可绕过的兜底（应对任何仍发 AllowAlways 的非规范客户端）。无痕的旁路守卫全貌见 [session.md](session.md#焚毁旁路守卫)。
+
+> AllowAlways 通过审批框按钮真实落库（`add_allow_always_for_call`，`exec` 额外仍用旧的命令前缀 store）。目前缺的是一个**查看 / 撤销**已有常驻授权的设置面板；弹窗端的授予与命中都已生效。
+
+---
+
+## 无人值守 fail-closed
+
+引擎判出 `Ask` 后，审批会阻塞等人点 Allow / Deny。但有些回合**根本没人能回应**：凌晨触发的 cron run、无 web 客户端也无 IM 会话的 headless server、未声明权限能力的 ACP 客户端、无 surface 的 subagent。若不处理，这些回合会永久挂死。
+
+`permission::approval_surface` 在**阻塞前**判定当前回合有没有审批 surface：
+
+```mermaid
+flowchart TD
+    Ask["引擎判出 Ask"] --> Eval["evaluate_approval_surface(session_id)"]
+    Eval --> Surface{"有人能应答？"}
+    Surface -- "有（desktop / web / IM）" --> Attended["Attended → 正常阻塞等人"]
+    Surface -- "确证无人" --> Unattended["Unattended(reason)"]
+    Unattended --> Action{"unattended_approval_action"}
+    Action -- "Deny(默认)" --> DenyNow["即时拒绝 (fail-closed)"]
+    Action -- "Proceed" --> Chk{"strict 原因？"}
+    Chk -- Yes --> DenyStrict["强制 deny"]
+    Chk -- No --> Proceed["自动放行"]
+```
+
+- **唯一入口** `evaluate_approval_surface(session_id) → Attended | Unattended(reason)`，由 `tools::approval::check_and_request_approval` 顶部调用——这是 exec 命令门与引擎 Ask 门**共用的唯一 chokepoint**，在"注册 pending / 阻塞 oneshot"之前短路。
+- **可靠信号**：cron 会话标记、subagent 的 `parent_session_id`、IM attach、ACP 能力标记（`is_acp()` 判定）、desktop 窗口在场、以及仅由浏览器来源校验后的 server-owned worker 持有的 session-scoped `ReattachableUiSessionGuard`（表示用户可重开页面恢复 pending，不代表批准）。后台 subagent 从入队到终态复制 child lease，结果回投再持 parent lease，防止父 turn 结束后派生工作误降级为 Unattended。
+- **保守红线：确证无人才判 Unattended**。任何可能 surface（desktop / web / IM attach）→ Attended，绝不误拒合法交互审批。
+- **唯 cron 例外**：cron 会话即便桌面也无可靠交互 surface（弹窗按 currentSessionId 过滤，永不渲染）→ 始终 `Unattended(Cron)`。**cron 起的 subagent 同理**：子会话自身非 cron，故 subagent 分支须在 desktop 短路**之前**沿 `parent_session_id` 链探测 cron 根，命中即 `Unattended(Cron)`，否则桌面打开时会误判 Attended 而把永不渲染的弹窗挂到超时。
+- **4 个 `UnattendedReason`**：`Cron` / `HeadlessNoClient` / `AcpNoPermissionCapability` / `SubagentNoParentSurface`。
+
+Unattended 时按 `unattended_approval_action` 处理：`Deny`（默认，fail-closed）即时拒绝并 `fire_permission_denied`；`Proceed` 自动放行（比全局 YOLO 窄，仅在确证无人时触发）。两路都 emit `approval:unattended` 事件供遥测 / UI 消费。
+
+**与 YOLO 正交**：YOLO 下引擎返 `Allow` 不发 `Ask`，根本到不了此预检——所以 headless 自动放行的正解是 YOLO 或 `unattended_approval_action=proceed`。
+
+### strict 原因永不无人值守放行（与超时路对称）
+
+`Proceed` 仅对**非 strict** 原因生效。strict 原因（`AskReason::forbids_allow_always`）即便配了 `proceed` 也**强制 deny**——纯谓词 `unattended_effective_proceed(action, strict) = proceed && !strict`，走 deny 分支打 `app_warn('permission','strict_unattended_deny')`。否则危险命令 / 受保护路径会在 cron / headless 下被 `proceed` 击穿，exec 甚至会经此拿到 `exec_pre_approved=true` 跳内层门真执行。非 strict 的无人值守放行回 `ApprovalCheckError::UnattendedProceed`，两个 caller 记 `ApprovalOrigin::UnattendedProceed`（区别于真人 `User`）。
+
+---
+
+## 审批超时 × strict
+
+`approval_timeout_action=proceed` 同样**只对非 strict 原因生效**。strict 原因超时**强制 deny**，无视 `proceed`——否则无人值守下危险操作会被超时自动放行。三处落点共用同一谓词：
+
+- `ApprovalCheckError::TimedOut { timeout_secs, strict }`：`check_and_request_approval` 在 `reason` 被移动前算出 `strict`（`ApprovalReasonKind::is_strict()`，镜像 `forbids_allow_always`，一致性单测穷举断言两者相等）。
+- 非 exec 工具走 `run_tool_approval`、exec 走 `exec_approval_timeout_outcome`：strict + `proceed` → deny + `app_warn('permission','strict_timeout_deny')`。
+- 超时分支额外 emit 统一 `approval:resolved`（`ApprovalResolutionSource::{TimeoutDeny,TimeoutProceed}`）与 submit 路径对称撤窗。
+
+### 授权来源审计
+
+每个后台 job 的 `async_jobs.approval_origin` 列记录授权方式（`ApprovalOrigin`：`user` / `timeout_proceed` / `unattended_proceed` / `yolo` / `auto_approve` / `external_pre_approved` / `policy_allow`）。审批闸单点算出后写入 spawn ctx。
+
+- **外部连接器写动作不被 auto-approve 静默绕过**：`auto_approve_tools`（IM auto-approve 账号 / skill 斜杠）和 trusted MCP `autoApprove` 对普通工具仍可跳过引擎，但 mutating connector tools 由 `needs_permission_engine` 强制进引擎、弹 strict `ExternalConnectorAction`；只有 `external_pre_approved`（async 重入已在外层审计）可跳过重复弹窗。
+- **`auto_approve_bypass` 探测**：`auto_approve_tools` 跳过普通门时，若被跳过的调用本会命中其它 strict 原因，跑一次 no-enforce 探测并 `app_warn('permission','auto_approve_bypass')`——纯审计不拦截（IM auto-approve 是 opt-in），显式排除 `external_pre_approved` 防重复告警。
+
+---
+
+## 多端审批一致性
+
+一条审批可能同时呈现在多端（桌面弹窗 / Web / IM 按钮或文本），决议必须**单点广播、各端统一撤窗**，且只能由**有权的来源**应答。
+
+```mermaid
+flowchart TD
+    Decide["某端决议 / 超时 / 删会话 / eviction / Stop"] --> Emit["emit approval:resolved<br/>(requestId, sessionId, decision, source)"]
+    Emit --> GUI["桌面 useApprovals 按 requestId 撤窗"]
+    Emit --> Web["Web 撤窗"]
+    Emit --> IM["IM listener 清 TEXT_PENDING"]
+    GUI -.非本端且来源是另一交互端.-> Toast["toast 已由他端处理"]
+```
+
+- **`approval:resolved` 统一撤窗**：`submit_approval_response`（GUI/HTTP/IM）、超时、删会话、IM chat eviction、前台 Stop 所有决议路径都 emit。前端 `useApprovals` 订阅后按 `requestId` 撤窗，非本端且来源是另一交互端时 toast 提示。`ApprovalResolutionSource` 全集 **9 个**：`gui` / `http` / `im` / `session_deleted` / `timeout_deny` / `timeout_proceed` / `eviction` / `job_cancelled` / `user_stop`。
+- **Stop 必须 deny 目标会话 pending approvals**（全局 Stop 则 drain 全部），因为 oneshot 审批等待不直接观察 chat cancel flag；否则停止后的旧弹窗仍可能授权工具执行。HTTP Stop 先收口这些交互，再执行可能失败的 runtime-task 取消。两种 Stop drain 还必须直接调 `channel_hooks::drop_approval_by_request_id`（不依赖可能 `Lagged` 的 EventBus listener），否则 IM 文本审批状态会残留并劫持后续普通消息。
+- **snapshot 恢复是可靠性边界**：`PENDING_APPROVALS` 保存完整 `ApprovalRequest`（含 `created_at_ms` / `timeout_at_ms` / `timeout_secs` / effective `timeout_action`），面向用户本人的控制面经 Tauri `list_pending_approvals` / HTTP `GET /api/chat/approvals/pending` 读权威快照。`useApprovals` 在 mount、transport resync、window focus、visibility 恢复、提交结果不确定时对账；reconcile 拒绝乱序响应，有界 terminal tombstone 防旧快照复活已终结请求。倒计时按请求绝对 deadline（快照带 `server_now_ms`，远程浏览器先换算本地 deadline），不假设客户端与服务器时钟同步。
+- **提交结果不确定时不乐观丢窗**：响应 RPC 成功可本地撤窗兜底；失败时保持当前授权可操作并立即对账，区分"请求未送达"与"后端已受理但响应丢失"。同一 request id 在调用未完成前禁止重复提交。
+- **IM 应答来源 fail-closed**：按钮回调 `handle_approval_callback_with_source` 总是查 session + 校验来源，**缺源直接拒**（不复用低风险 ask_user 问答路径的 `None→Ok`）；文本回复 submit 前复用同一校验，session 已改绑别的 chat 则拒 + 通知。
+- **chat 接管拒决**：`eviction_watcher` 在通知门之前无条件枚举该 session 全部 pending 并逐个 `Deny(source=eviction)`，被踢 chat 的审批即时解阻塞、各端撤窗。
+
+---
+
+## 免审批与可审批工具
+
+### 免审批（Internal，固定，UI 无开关）
+
+只读 / 元能力 / 应用自身数据 / 用户单向输出，无外部副作用。在 `ToolDefinition.internal=true` 标记，引擎在第 2 层直接 `Allow`。以 `ToolDefinition.internal` 为准，代表性类别：
 
 | 类别 | 工具 |
 |------|------|
 | 文件读取/搜索 | `read` `ls` `grep` `find` |
 | 任务管理 | `task_create` `task_update` `task_list` |
-| Loop 控制 | `loop_status` `loop_reschedule` `loop_stop` `loop_record_progress`（仅操作当前 session Loop store / run trace / 受控 Cron 延迟或暂停，不开放通用 Cron 写权限） |
+| Loop 控制 | `loop_status` `loop_reschedule` `loop_stop` `loop_record_progress` |
 | 记忆 | `save_memory` `recall_memory` `memory_get` `update_memory` `delete_memory` `update_core_memory` |
 | 文档/通知 | `canvas` `send_notification` |
-| 多模态输入 | `pdf` `image`(视觉输入) `get_weather` |
-| Cron 管理 | `manage_cron`（**仅非 `delete` action 免审**——`action=delete` 单独重入引擎走审批，见下「Cron delete 审批」） |
+| 多模态输入 | `pdf` `image` `get_weather` |
+| Cron 管理 | `manage_cron`（**仅非 `delete` action 免审**，见下） |
 | Subagent / Team | `subagent` `team` |
 | Meta | `tool_search` `skill` `job_status` `runtime_cancel` `mcp_resource` `mcp_prompt` |
 | 用户交互 | `ask_user_question` |
 
-合计 **31 个**。
+### Cron delete 审批
 
-### Cron delete 审批（CronDelete，非 strict 但抑制 AllowAlways）
+`manage_cron` 整体标 `internal=true`，但 **`action=delete` 是唯一重入权限引擎的 action**（其余 action 维持免审）。delete 分支以 `is_internal=false` 调 `resolve_tool_permission`，引擎 `check_cron_delete`（落在软审批层，位于 YOLO 短路与 AllowAlways 累加器**之后**）发**非 strict** `AskReason::CronDelete`：
 
-`manage_cron` 整体标 `internal=true`，但 **`action=delete` 是唯一重入权限引擎的 action**（其余 action 维持 internal 免审）。delete 分支以 `is_internal=false` 调 [`resolve_tool_permission`](../../crates/ha-core/src/tools/execution.rs)，引擎 [`check_cron_delete`](../../crates/ha-core/src/permission/engine.rs)（落在 `resolve_soft_approval_layer`、YOLO 短路与 AllowAlways 累加器**之后**，作其首个检查）发**非 strict** `AskReason::CronDelete`：
+- **Default** 弹标准审批；**Smart** 交 judge 自决；**YOLO / global-yolo** 免审；**无人值守**按 `unattended_approval_action` fail-closed（默认 deny）。
+- **非 strict**：只约束 timeout / unattended 轴——超时不强制 deny、可按配置 proceed。
+- **但仍抑制 AllowAlways**：cron 侧 [`gate_cron_delete`](../../crates/ha-cron/src/tools/cron.rs) 对该审批单独强制 `allow_always_forbidden=true`，前端 `approvalBarsAllowAlways` 同步禁用按钮。原因：`manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**，一旦 AllowAlways 持久化便是"静默删除任意定时任务"的常驻授权。故每次 delete 都逐次确认、永不留常驻 grant——这是"非 strict 但禁 AllowAlways"的唯一案例。
 
-- **Default** 弹标准审批；**Smart** 交 judge 模型自决；**YOLO / global-yolo** 免审；**无人值守**（cron 自身 turn 内调用、无 surface）按 `unattended_approval_action` **fail-closed**（默认 deny）。
-- **非 strict**（刻意 NOT in `forbids_allow_always`）：只约束 timeout / unattended 轴——超时不强制 deny、可按配置 proceed，Smart 可降级 judge。这与 ProtectedPath / DangerousCommand / BrowserRawCdp 等 strict 原因不同。
-- **但仍抑制 AllowAlways（红线）**：[`gate_cron_delete`](../../crates/ha-cron/src/tools/cron.rs) 对该审批单独强制 `allow_always_forbidden=true`，前端 `barsAllowAlways`（[`ApprovalDialog.tsx`](../../src/components/chat/ApprovalDialog.tsx)）同步禁用按钮。原因：`manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**，一旦 AllowAlways 持久化便是「静默删除任意定时任务」的 id 无关常驻授权，且 `allows_tool_call` 会先于 `check_cron_delete` 命中而绕过本门。故每次 delete 都逐次确认、永不留常驻 grant——这是「非 strict 但 bars AllowAlways」的唯一案例。
-- `ApprovalReasonKind::CronDelete` + `ApprovalDialog.tsx` union + 12 语言 `approval.reasons.cron_delete` 三处同步（一致性单测锁后端两者）。完整 cron 侧逻辑（先取消在途 run 再删等）见 [`cron.md`](cron.md)「delete 审批」。
+后端一致性由 `ApprovalReasonKind::CronDelete` + `ApprovalDialog` union + 12 语言 `approval.reasons.cron_delete` 三处同步（单测锁后端两者）。完整 cron 侧逻辑（先取消在途 run 再删）见 [cron.md](cron.md)。
 
-### 可审批（出现在 Agent「自定义工具审批」勾选清单）
+### 可审批（Agent「自定义工具审批」勾选清单）
 
-不再有"全局 per-tool 默认开关"。Default 模式实际审批集 = **硬编码必审批 ∪ Agent 自定义勾选**。
+不存在"全局 per-tool 默认开关"。Default 模式实际审批集 = **硬编码必审 ∪ Agent 自定义勾选**。
 
-#### 硬编码必审批（不可关闭，YOLO 可 override）
+**硬编码必审**（不可关闭，YOLO 可 override）：`write`/`edit`/`apply_patch`、`exec` 命中编辑命令、`browser.control.evaluate/raw_cdp/download_cancel`、`browser` 真实 Chrome 状态访问（`tabs.open_user_tabs/claim/select`、`observe.downloads`）、`mac_control` 普通/隐私/高危动作。额外，连 YOLO 都覆盖不了的只有 Plan Mode：保护路径 + 危险命令 + 高危 mac + raw CDP + 外部连接器写动作在非 YOLO 下强制弹。
 
-| 触发 | 类别 |
+**自定义勾选可加**（`ApprovalTab` 内 `enable_custom_tool_approval` 开启后展示，共 **17 个内置项**）：
+
+| 类别 | 工具 |
 |------|------|
-| `write` / `edit` / `apply_patch` | 编辑类工具 |
-| `exec` 命中编辑命令模式 | 编辑命令 |
-| `browser` 的 `control.evaluate` | 浏览器任意 JavaScript |
-| `browser` 的 `control.raw_cdp` / `control.download_cancel` | 浏览器强能力 |
-| `browser` 的 `tabs.open_user_tabs/claim/select(数字 id)`、`observe.downloads` | 真实 Chrome 状态访问 |
-| `mac_control` 普通/隐私动作 | macOS 桌面控制 |
-| `mac_control` 高风险动作 | macOS 桌面控制（禁用 AllowAlways） |
+| 后台进程 | `process` |
+| 浏览器控制 | `browser` |
+| 配置变更 | `update_settings` `restore_settings_backup` |
+| 外发 | `send_attachment` `sessions_send` |
+| 付费 API | `image_generate` |
+| 启动外部进程 | `acp_spawn` |
+| 网络访问 | `web_fetch` `web_search` |
+| 跨会话只读 | `peek_sessions` `sessions_list` `sessions_history` `session_status` `agents_list` |
+| 设置查询 | `get_settings` `list_settings_backups` |
 
-额外（连 YOLO 都覆盖不了的暂只有 Plan Mode）：保护路径 + 危险命令 + 高风险 macOS 控制 + raw CDP + 外部连接器写动作在非 YOLO 下强制弹，其中高风险 macOS 控制包括 `apps.quit`、`windows.close`、`dialog.accept` 和命中危险词的 `menu.click`。
+MCP 工具不进自定义清单（避免展开过长），统一由 `McpServerConfig.auto_approve` server 级开关控制，且仅在该 server 标为 `trust_level = Trusted` 时生效。`mac_control` 也不进清单——它按 `action/op` 细分只读 / 普通-隐私 / 高危三类。
 
-#### 自定义勾选可加（Agent 配置「自定义工具审批」开启后展示）
-
-| 工具 | 类别 |
-|------|------|
-| `process` | 后台进程管理 |
-| `browser` | 浏览器控制 |
-| `update_settings` `restore_settings_backup` | 配置变更 |
-| `send_attachment` `sessions_send` | 外发 |
-| `image_generate` | 付费 API |
-| `acp_spawn` | 启动外部进程 |
-| `web_fetch` `web_search` | 网络访问 |
-| `peek_sessions` `sessions_list` `sessions_history` `session_status` `agents_list` | 跨会话只读 |
-| `get_settings` `list_settings_backups` | 设置查询 |
-
-合计 **17 个内置可加项**。MCP 工具不进 Agent 自定义清单（避免 N 项展开太长），统一由 `McpServerConfig.default_approval` 字段 server 级开关。`mac_control` 也不进入自定义勾选清单；它按 `action/op` 细分只读、普通/隐私动作和高风险突变。
-
-> **「自定义工具审批」仅 Default 模式生效**——Smart / Yolo 模式忽略整个机制。UI 显式提示用户。
+> **「自定义工具审批」仅 Default 模式生效**——Smart / Yolo 忽略整个机制，UI 显式提示。
 
 ---
 
@@ -536,119 +606,88 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 
 ### `ApprovalDialog.tsx`
 
-文件：[`src/components/chat/ApprovalDialog.tsx`](../../src/components/chat/ApprovalDialog.tsx)
-
-#### 元素
+文件：[`src/components/chat/ApprovalDialog.tsx`](../../src/components/chat/ApprovalDialog.tsx)。
 
 | 元素 | 来源 |
 |------|------|
-| 顶部图标（红 / 橙） | `isStrict = reason.kind ∈ {protected_path, dangerous_command, browser_raw_cdp, mac_control_dangerous_action, external_connector_action, plan_mode_ask}` 切红色 ShieldAlert |
-| 倒计时圆环（右上） | 读 `get_approval_timeout` + `get_approval_timeout_action` 配置；剩 ≤30s 变红 |
-| Reason banner（红 / 琥珀） | 后端经 `ApprovalRequest.reason: { kind, detail }` 透传，对 14 种 `AskReason` 渲染 i18n 文案 |
+| 顶部图标（红 / 橙） | strict 时红色 `ShieldAlert`，否则琥珀 `ShieldCheck` |
+| 倒计时圆环 | 读 `get_approval_timeout` + action 配置；按请求绝对 deadline，剩 ≤30s 变红 |
+| Reason banner | 后端经 `ApprovalRequest.reason: { kind, detail }` 透传，对 15 种 `AskReason` 渲染 i18n 文案 |
 | 工作目录 | `current.cwd`，等宽字体 |
 | 命令 / 操作摘要 | `current.command`（args 自动截断到 200 字符） |
-| 三按钮 | `Deny`（红） + `Allow Once`（默认聚焦） + `Allow Always`（strict 时置灰） |
+| 三按钮 | `Deny`（红）+ `Allow Once`（默认聚焦）+ `Allow Always`（strict / cron_delete 时置灰） |
 
-#### Strict 模式 UI 区别
-
-```ts
-const isStrict =
-  reason?.kind === "protected_path" ||
-  reason?.kind === "dangerous_command" ||
-  reason?.kind === "browser_raw_cdp" ||
-  reason?.kind === "mac_control_dangerous_action" ||
-  reason?.kind === "external_connector_action" ||
-  reason?.kind === "plan_mode_ask"
-```
-
-`isStrict=true` 时：
-- 顶部图标换红色 ShieldAlert
-- Allow Always 按钮 `disabled` + `title={t("approval.allowAlwaysDisabled")}`
-
-#### 倒计时实现
+**strict 判定已收敛到共享模块** [`src/components/chat/approvalPolicy.ts`](../../src/components/chat/approvalPolicy.ts)，供 `ApprovalDialog` 与桌面宠物审批卡 `PetApprovalCard` 共用，避免各端手抄：
 
 ```ts
-useEffect(() => {
-  if (!currentId || timeoutSecs === null || timeoutSecs <= 0) return
-  const startMs = Date.now()
-  const total = timeoutSecs
-  let id: number | null = null
-  const tick = () => {
-    const next = Math.max(0, total - Math.floor((Date.now() - startMs) / 1000))
-    setRemaining(next)
-    if (next <= 0 && id !== null) { window.clearInterval(id); id = null }
-  }
-  tick()
-  id = window.setInterval(tick, 1000)
-  return () => { if (id !== null) window.clearInterval(id) }
-}, [currentId, timeoutSecs])
-```
-
-`setState` 在 interval 回调里（不是 effect 体），满足 `react-hooks/set-state-in-effect` lint。剩 0s 自停 interval。
-
-### `ApprovalReasonPayload` 后端 → 前端
-
-`crates/ha-core/src/tools/approval.rs::ApprovalReasonPayload` 序列化为：
-
-```json
-{
-  "kind": "protected_path" | "edit_tool" | "edit_command" | "dangerous_command" | "agent_custom_list" | "smart_judge" | "browser_evaluate" | "browser_raw_cdp" | "browser_chrome_access" | "browser_download_action" | "mac_control_action" | "mac_control_dangerous_action" | "plan_mode_ask" | "cron_delete",
-  "detail": "可选明文"
+// approvalPolicy.ts
+export function isStrictApprovalReason(kind) {
+  return kind === "protected_path" || kind === "dangerous_command" ||
+    kind === "browser_raw_cdp" || kind === "mac_control_dangerous_action" ||
+    kind === "external_connector_action" || kind === "plan_mode_ask"
+}
+// strict 原因 + cron 删除都不许留常驻授权
+export function approvalBarsAllowAlways(kind) {
+  return isStrictApprovalReason(kind) || kind === "cron_delete"
 }
 ```
 
-`From<&AskReason>` 单一映射点，TS 类型 `ApprovalRequest.reason` 在 [`src/components/chat/ApprovalDialog.tsx:16`](../../src/components/chat/ApprovalDialog.tsx#L16) 与之对齐。
+`isStrictApprovalReason` 镜像后端 `ApprovalReasonKind::is_strict()`；`approvalBarsAllowAlways` 额外把 `cron_delete` 也置灰。strict 时顶部换红色 `ShieldAlert`，Allow Always 按钮 `disabled`。倒计时 `setState` 放在 interval 回调里（满足 `react-hooks/set-state-in-effect`），剩 0s 自停。
 
-### `PermissionModeSwitcher` 标题栏切换器
+### 后端 → 前端 reason 载荷
 
-文件：[`src/components/chat/input/PermissionModeSwitcher.tsx`](../../src/components/chat/input/PermissionModeSwitcher.tsx)
+`tools/approval.rs::ApprovalReasonPayload` 是扁平结构，前端 switch `kind` 即可，无需跑完整 enum matcher：
 
-三档下拉，每档独立色调（Default 灰 / Smart 琥珀 / Yolo 红）+ 图标（Shield / ShieldCheck / ShieldAlert）。点击后端经 `set_permission_mode` 持久化到 `sessions.permission_mode`。
+```json
+{ "kind": "…", "detail": "可选明文" }
+```
 
-### `GlobalYoloSection` 设置卡片
+`kind` 是 15 值的 `ApprovalReasonKind`（snake_case）：`edit_tool` `edit_command` `dangerous_command` `protected_path` `agent_custom_list` `smart_judge` `browser_evaluate` `browser_raw_cdp` `browser_chrome_access` `browser_download_action` `mac_control_action` `mac_control_dangerous_action` `external_connector_action` `plan_mode_ask` `cron_delete`。`From<&AskReason>` 是单一映射点，须与 `approvalPolicy.ts` 的 TS union 对齐（新增变体不同步会让前端缺 banner，TS 无法自动报错）。
 
-[`src/components/settings/approval-panel/GlobalYoloSection.tsx`](../../src/components/settings/approval-panel/GlobalYoloSection.tsx) 切换全局 YOLO；CLI flag 触发的"运行时强制 YOLO"额外渲染琥珀提示条（`status.cliFlag=true` 时）。
+### 切换器与设置
 
-### 斜杠命令入口 `/permission`
+- **`PermissionModeSwitcher`**（标题栏）：三档下拉，每档独立色调（Default 灰 / Smart 琥珀 / Yolo 红）+ 图标（Shield / ShieldCheck / ShieldAlert）；点击经 `set_permission_mode` 持久化。沙箱分区默认折叠、复用 `SandboxModeSwitcher`。
+- **`GlobalYoloSection`**（设置卡片）：切换全局 YOLO；CLI flag 触发的"运行时强制 YOLO"额外渲染琥珀提示条。
 
-桌面与 IM 共享同一份命令实现，处理器在 [`crates/ha-core/src/slash_commands/handlers/utility.rs`](../../crates/ha-core/src/slash_commands/handlers/utility.rs) `handle_permission`：
+### 斜杠命令 `/permission`
 
-- `/permission default | smart | yolo` —— 切换 `SessionMeta.permission_mode`，落点为 [`SessionDB::update_session_permission_mode`](../../crates/ha-core/src/session/db.rs)；
-  - 桌面端通过 `CommandAction::SetToolPermission` → `useChatStream.setPermissionMode` → `POST /api/chat/permission-mode` 写入；
-  - IM 端在 [`channel/worker/slash.rs`](../../crates/ha-channel/src/channel/worker/slash.rs) 的 `SetToolPermission` 分支直接调 SessionDB，并 emit EventBus 事件 `permission:mode_changed`（payload `{ sessionId, mode }`）供桌面端订阅刷新。
-- 命令必须传参：`arg_options` 在 IM 端按渠道能力分流——支持按钮的渠道（Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat）渲成 inline keyboard 三按钮选单（default / smart / yolo），不支持按钮的（WeChat / iMessage / IRC / Signal / WhatsApp）回 `Usage: /permission <mode>` + Options 文本列表，用户复制粘贴选项即可（[`channel/worker/slash.rs`](../../crates/ha-channel/src/channel/worker/slash.rs)）。桌面前端同样靠 `argOptions` 弹子菜单。
-- 查看当前模式走 `/status` 命令（输出里有 `Permission Mode` 行），或直接看桌面标题栏 `PermissionModeSwitcher` dropdown。
-- `IM_DISABLED_COMMANDS` 不含 `permission`，IM 内可直接调用。
+桌面与 IM 共享处理器 `slash_commands/handlers/utility.rs::handle_permission`：
 
-旧的 `auto / ask / full` 三档已彻底废弃——v1 期间这三个字符串值会被 `SessionMode::parse_or_default` 全部降级成 `Default`，且没有别名兼容。
+- `/permission default | smart | yolo` 切换会话模式，落点 `SessionDB::update_session_permission_mode`。桌面经 `CommandAction::SetToolPermission` → `POST /api/chat/permission-mode`；IM 端在 [`channel/worker/slash.rs`](../../crates/ha-channel/src/channel/worker/slash.rs) 直接调 SessionDB 并 emit `permission:mode_changed` 供桌面刷新。
+- 支持按钮的渠道（Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat）渲成三按钮选单；不支持的（WeChat / iMessage / IRC / Signal / WhatsApp）回 `Usage` + Options 文本。
+- 查看当前模式走 `/status`（输出含 `Permission Mode` 行）或看标题栏切换器。`IM_DISABLED_COMMANDS` 不含 `permission`。
+
+旧的 `auto / ask / full` 三档已废弃——`SessionMode::parse_or_default` 一律降级成 `Default`，无别名兼容。
 
 ---
 
 ## HTTP 路由与 Tauri 命令对照
 
-| Tauri Command | HTTP | 用途 |
-|---|---|---|
-| `set_permission_mode` | `POST /api/chat/permission-mode` | 切换会话 permission_mode（替代旧 `set_tool_permission_mode`） |
-| `get_global_yolo_status` | `GET /api/permission/global-yolo` | 返回 `{ cliFlag, configFlag, active }` 三态 |
-| `set_dangerous_skip_all_approvals` | `PUT /api/permission/global-yolo` | 切换 `AppConfig.permission.global_yolo` |
-| `get_smart_mode_config` | `GET /api/permission/smart` | 读 SmartModeConfig（strategy + judge_model + fallback） |
-| `set_smart_mode_config` | `PUT /api/permission/smart` | 写 SmartModeConfig |
-| `get_protected_paths` | `GET /api/permission/protected-paths` | 返回 `{ current, defaults }` |
-| `set_protected_paths` | `PUT /api/permission/protected-paths` | 全量替换 |
-| `reset_protected_paths` | `POST /api/permission/protected-paths/reset` | 恢复硬编码默认值 |
-| `get_dangerous_commands` | `GET /api/permission/dangerous-commands` | 同上结构 |
-| `set_dangerous_commands` | `PUT /api/permission/dangerous-commands` | 全量替换 |
-| `reset_dangerous_commands` | `POST /api/permission/dangerous-commands/reset` | 恢复默认 |
-| `get_edit_commands` | `GET /api/permission/edit-commands` | 同上结构 |
-| `set_edit_commands` | `PUT /api/permission/edit-commands` | 全量替换 |
-| `reset_edit_commands` | `POST /api/permission/edit-commands/reset` | 恢复默认 |
-| `get_approval_timeout` | `GET /api/config/approval-timeout` | 等待秒数（迁移到 `permission` 域，命令名保留兼容） |
-| `set_approval_timeout` | `POST /api/config/approval-timeout` | 同上 |
-| `get_approval_timeout_action` | `GET /api/config/approval-timeout-action` | `deny` / `proceed` |
-| `set_approval_timeout_action` | `POST /api/config/approval-timeout-action` | 同上 |
-| `respond_to_approval` | `POST /api/chat/approval` | 弹窗按钮回调（`allow_once` / `allow_always` / `deny`） |
+权限域专属命令落 [`src-tauri/src/commands/permission.rs`](../../src-tauri/src/commands/permission.rs)（12 个 Tauri 命令）与 [`crates/ha-server/src/routes/permission.rs`](../../crates/ha-server/src/routes/permission.rs)（12 个 HTTP 路由，镜像）。审批本身与超时配置分别落在 chat / config 路由域。
 
-后端实现：[`src-tauri/src/commands/permission.rs`](../../src-tauri/src/commands/permission.rs) + [`crates/ha-server/src/routes/permission.rs`](../../crates/ha-server/src/routes/permission.rs)（双壳镜像；后续可按需合并到 `permission::api` 模块）。
+| Tauri Command | HTTP | 用途 | 所在模块 |
+|---|---|---|---|
+| `get_global_yolo_status` | `GET /api/permission/global-yolo` | 返回 `{ cliFlag, configFlag, active }` | permission |
+| `set_dangerous_skip_all_approvals` | `POST /api/security/dangerous-skip-all-approvals` | 切换 `global_yolo` | misc |
+| `get_smart_mode_config` | `GET /api/permission/smart` | 读 SmartModeConfig | permission |
+| `set_smart_mode_config` | `PUT /api/permission/smart` | 写 SmartModeConfig | permission |
+| `get_protected_paths` | `GET /api/permission/protected-paths` | 返回 `{ current, defaults }` | permission |
+| `set_protected_paths` | `PUT /api/permission/protected-paths` | 全量替换 | permission |
+| `reset_protected_paths` | `POST /api/permission/protected-paths/reset` | 恢复默认 | permission |
+| `get_dangerous_commands` | `GET /api/permission/dangerous-commands` | 同上结构 | permission |
+| `set_dangerous_commands` | `PUT /api/permission/dangerous-commands` | 全量替换 | permission |
+| `reset_dangerous_commands` | `POST /api/permission/dangerous-commands/reset` | 恢复默认 | permission |
+| `get_edit_commands` | `GET /api/permission/edit-commands` | 同上结构 | permission |
+| `set_edit_commands` | `PUT /api/permission/edit-commands` | 全量替换 | permission |
+| `reset_edit_commands` | `POST /api/permission/edit-commands/reset` | 恢复默认 | permission |
+| `set_permission_mode` | `POST /api/chat/permission-mode` | 切换会话 permission_mode | chat |
+| `respond_to_approval` | `POST /api/chat/approval`（及 `/{request_id}`） | 弹窗按钮回调 | chat |
+| `get_approval_timeout` | `GET /api/config/approval-timeout` | 等待秒数 | config |
+| `set_approval_timeout` | `POST /api/config/approval-timeout` | 同上 | config |
+| `get_approval_timeout_action` | `GET /api/config/approval-timeout-action` | `deny` / `proceed` | config |
+| `set_approval_timeout_action` | `POST /api/config/approval-timeout-action` | 同上 | config |
+
+Tauri 命令增删须同步 `invoke_handler!`，HTTP 端点增删须同步 `build_router_with_cors`，两者任一改动同步 [api-reference](api-reference.md)。
 
 ---
 
@@ -657,114 +696,98 @@ useEffect(() => {
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | `ApprovalDialog` | `src/components/chat/ApprovalDialog.tsx` | 审批弹窗（倒计时 + reason banner + strict UI） |
-| `PermissionModeSwitcher` | `src/components/chat/input/PermissionModeSwitcher.tsx` | 标题栏 dropdown 切换 default/smart/yolo |
+| `approvalPolicy` | `src/components/chat/approvalPolicy.ts` | `ApprovalReasonKind` 类型 + strict / barsAllowAlways 共享谓词 |
+| `useApprovals` | `src/components/chat/hooks/useApprovals.ts` | 多端审批订阅 / 快照对账 hook |
+| `PermissionModeSwitcher` | `src/components/chat/input/PermissionModeSwitcher.tsx` | 标题栏 mode + sandbox 切换 |
+| `PetApprovalCard` | `src/components/pet/PetApprovalCard.tsx` | 桌面宠物审批卡（复用 approvalPolicy） |
 | `ApprovalPanel` | `src/components/settings/ApprovalPanel.tsx` | 「设置 → 权限」一级 tab 容器 |
-| `GlobalYoloSection` | `src/components/settings/approval-panel/GlobalYoloSection.tsx` | Global YOLO 开关 + CLI flag 提示 |
-| `SmartModeSection` | `src/components/settings/approval-panel/SmartModeSection.tsx` | strategy / judge_model / fallback 三段配置 |
-| `PatternListEditor` | `src/components/settings/approval-panel/PatternListEditor.tsx` | 三 list（保护路径 / 编辑命令 / 危险命令）的通用 CRUD UI（discriminator 模式） |
-| `ApprovalTimeoutSection` | `src/components/settings/approval-panel/ApprovalTimeoutSection.tsx` | 等待超时秒数 + 默认动作 |
-| `ApprovalTab` | `src/components/settings/agent-panel/tabs/ApprovalTab.tsx` | Agent 内「审批」tab：自定义工具审批开关 + 17 工具勾选 + 默认会话权限模式 |
-| `RadioPills` | `src/components/ui/radio-pills.tsx` | SmartMode strategy/fallback + ApprovalTimeout action 共享单选 pills |
+| `GlobalYoloSection` / `SmartModeSection` / `PatternListEditor` / `ApprovalTimeoutSection` / `UnattendedApprovalSection` | `src/components/settings/approval-panel/*.tsx` | YOLO / Smart / 三列表 CRUD / 超时 / 无人值守动作子卡片 |
+| `ApprovalTab` | `src/components/settings/agent-panel/tabs/ApprovalTab.tsx` | Agent「审批」tab：自定义审批开关 + 17 工具勾选 + 默认会话模式 |
+| `SessionMode` / `SandboxMode` | `src/types/chat.ts` | 会话模式与沙箱模式 TS 类型 |
 
 ---
 
-## 配置项
+## 配置项参考
 
 ### `AppConfig.permission`
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `global_yolo` | `bool` | `false` | 进程级强制 YOLO（与 CLI flag OR 关系） |
+| `global_yolo` | `bool` | `false` | 进程级强制 YOLO（与 CLI flag OR） |
 | `smart.strategy` | `SmartStrategy` | `SelfConfidence` | 三档策略 |
-| `smart.judge_model` | `Option<JudgeModelConfig>` | `None` | 仅 JudgeModel/Both 策略下消费 |
+| `smart.judge_model` | `Option<JudgeModelConfig>` | `None` | 仅 JudgeModel / Both 消费 |
 | `smart.fallback` | `SmartFallback` | `Default` | judge 不可达时降级 |
 | `approval_timeout_enabled` | `bool` | `false` | 是否启用审批自动超时；默认永不超时 |
-| `approval_timeout_secs` | `u64` | `300` | 启用自动超时后的审批等待秒数（`0` = 无限等） |
+| `approval_timeout_secs` | `u64` | `300` | 等待秒数（`0` = 无限等） |
 | `approval_timeout_action` | `ApprovalTimeoutAction` | `Deny` | 超时动作 |
+| `unattended_approval_action` | `UnattendedApprovalAction` | `Deny` | 无人值守动作（fail-closed） |
+| `im_approval_hint_throttle_secs` | `u64` | `60` | IM 文本"你有 N 个待审批"节流 |
 
-### `AgentConfig.capabilities`
-
-| 字段 | 类型 | 默认 | 说明 |
-|------|------|------|------|
-| `enable_custom_tool_approval` | `bool` | `false` | 关闭时 `custom_approval_tools` 列表全忽略 |
-| `custom_approval_tools` | `Vec<String>` | `[]` | 仅 Default 模式生效 |
-| `default_session_permission_mode` | `Option<SessionMode>` | `None` | 该 agent 新建会话的默认 mode |
-| `default_sandbox_mode` | `Option<SandboxMode>` | `None` | 该 agent 新建会话的默认 sandbox mode；`None` 兼容旧 `sandbox` 布尔 |
-| `sandbox` | `bool` | `false` | 旧 Docker 沙箱开关；仅在 `default_sandbox_mode=None` 时 `true → standard` |
-
-### `Session`
+### `AgentConfig.capabilities`（权限相关）
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `permission_mode` | `String` | `"default"` | 当前会话权限模式（`default` / `smart` / `yolo`） |
-| `sandbox_mode` | `String` | `"off"` | 当前会话沙箱模式（`off` / `standard` / `isolated` / `workspace` / `trusted`） |
+| `enable_custom_tool_approval` | `bool` | `false` | 关闭时 `custom_approval_tools` 全忽略；仅 Default 消费 |
+| `custom_approval_tools` | `Vec<String>` | `[]` | 用户勾选的额外必审工具 |
+| `default_session_permission_mode` | `Option<SessionMode>` | `None` | 新建会话默认模式，`None`=跟随全局 |
+| `default_sandbox_mode` | `Option<SandboxMode>` | `None` | 新建会话默认沙箱，`None`=兼容旧 `sandbox` 布尔 |
+| `sandbox` | `bool` | `false` | 旧 Docker 开关；仅在 `default_sandbox_mode=None` 时 `true→standard` |
+
+### `sessions` 表
+
+| 列 | 类型 | 默认 | 取值 |
+|----|------|------|------|
+| `permission_mode` | `TEXT` | `'default'` | `default` / `smart` / `yolo` |
+| `sandbox_mode` | `TEXT` | `'off'` | `off` / `standard` / `isolated` / `workspace` / `trusted` |
 
 ---
 
 ## 已知限制与边界
 
-1. **AllowAlways 多作用域持久化未连 GUI**（v1）：`permission/allowlist.rs` 暴露了 `AllowScope` enum + 类型骨架，但 GUI 编辑入口 + 4 个作用域文件 IO 都是骨架——弹窗按钮目前固定走 "Allow Once"，AllowAlways 行为仅作用在 exec 命令前缀 allowlist（旧的 `is_command_allowed` 路径，未升级）。下一版补：
-   - 编辑器 UI 在「设置 → 权限 → AllowAlways」
-   - 弹窗按上下文动态高亮 in-this-project / in-this-session / agent-home / globally
-
-2. **`smart_judge` 不复用主对话 prompt cache**：`judge_one_shot` 走 bare 模式，每次 cache miss 是完整 token 成本（60s TTL 摊销）。若要复用 system_prompt + history 前缀命中 prompt cache，需要把 agent 引用透传到 engine async 路径
-
-3. **`SessionMeta.permission_mode` 仍是 `String`**：消费方各自 `SessionMode::parse_or_default(&m.permission_mode)`。enum 已存在但未替换字段类型
-
-4. **权限模式 system prompt cache 失效**：`build_permission_mode_guidance` 注入位置在 `TOOL_CALL_NARRATION_GUIDANCE` 之后但仍在 prefix 里——session 切 mode 会作废静态前缀缓存一次。原 plan 描述的"作为 suffix cache block 不作废静态前缀"未实现（需要改 chat_round provider 适配，跨 4 个 provider）
-
-5. **判官 cache key 不规范化对象键序**：`args.to_string()` 哈希——同语义不同键序产生不同 cache key
-
-6. **不做老数据迁移**：`ToolPermissionMode` / `exec-approvals.json` / `auto_approve_tools` / `require_approval` 一律不读，重启后默认值生效，老用户审批规则需要重新设置
-
-7. **保护路径 project-level 叠加未实现**：v1 仅全局唯一文件 `~/.hope-agent/permission/protected-paths.json`，没有按项目分层（按需求看是否要做）
+1. **AllowAlways 缺查看 / 撤销 UI**：多作用域授予（session / project / agent-home / global）已通过弹窗按钮生效并落库，但还没有"设置 → 权限 → AllowAlways"面板来审阅或撤销已有常驻授权。`exec` 的 AllowAlways 另用旧的命令前缀 store。
+2. **judge 不复用主对话 prompt cache**：`judge_one_shot` 走 bare 模式，每次 cache miss 是完整 token 成本（60s TTL 摊销）。要复用 prefix 命中 prompt cache 需把 agent 引用透传进 engine async 路径。
+3. **权限模式 guidance 使静态前缀缓存作废一次**：`build_permission_mode_guidance` 注入在 prefix 里，切模式会作废一次静态前缀缓存。作为独立 suffix cache block 的方案需改 4 个 provider 适配，尚未做。
+4. **不做老数据迁移**：`ToolPermissionMode` / `exec-approvals.json` / `auto_approve_tools` / `require_approval` 一律不读，老用户审批规则须重新设置。
+5. **保护路径无项目级分层**：仅全局唯一文件 `~/.hope-agent/permission/protected-paths.json`，未按项目叠加。
 
 ---
 
 ## 文件清单
 
-### 后端（Rust）
+### 后端
 
 | 文件 | 角色 |
 |------|------|
 | `crates/ha-core/src/permission/mod.rs` | `Decision` + `AskReason` + 模块入口 |
-| `crates/ha-core/src/permission/engine.rs` | 决策引擎 sync `resolve` + async `resolve_async` |
-| `crates/ha-core/src/permission/judge.rs` | Smart judge_model side_query + 60s TTL cache |
-| `crates/ha-core/src/permission/mode.rs` | SessionMode + SmartModeConfig + SmartStrategy + SmartFallback + JudgeModelConfig |
-| `crates/ha-core/src/permission/config.rs` | PermissionGlobalConfig + ApprovalTimeoutAction |
-| `crates/ha-core/src/permission/protected_paths.rs` | 保护路径列表 + 默认值 |
-| `crates/ha-core/src/permission/dangerous_commands.rs` | 危险命令列表 + 默认值 |
-| `crates/ha-core/src/permission/edit_commands.rs` | 编辑命令列表 + 默认值 |
-| `crates/ha-core/src/permission/list_store.rs` | 三列表共享的文件 IO + Arc cache 抽象 |
-| `crates/ha-core/src/permission/pattern_match.rs` | 零分配 ASCII 大小写无关 substring 匹配 |
-| `crates/ha-core/src/permission/rules.rs` | PermissionRules + RuleSpec + ArgMatcher（v1 未消费） |
-| `crates/ha-core/src/permission/allowlist.rs` | AllowScope 类型骨架（v1 待 GUI 编辑入口） |
-| `crates/ha-core/src/tools/approval.rs` | ApprovalRequest/Response + ApprovalReasonPayload + check_and_request_approval |
-| `crates/ha-core/src/tools/execution.rs` | tool dispatch 入口，调 `engine::resolve_async` |
-| `crates/ha-core/src/tools/exec.rs` | exec 工具内置审批门 + 命令前缀 allowlist 兼容 |
+| `crates/ha-core/src/permission/engine.rs` | sync `resolve` + async `resolve_async` + 各 `check_*` 门 |
+| `crates/ha-core/src/permission/mode.rs` | `SessionMode` + `SandboxMode`（Smart 类型再导出） |
+| `crates/ha-core/src/permission/config.rs` | 全局配置再导出 + 测试 |
+| `crates/ha-core/src/permission/judge.rs` | Smart judge side_query + 60s TTL cache |
+| `crates/ha-core/src/permission/allowlist.rs` | 多作用域 AllowAlways：4 作用域规则表 + `choose_scope` |
+| `crates/ha-core/src/permission/rules.rs` | `PermissionRules` + `RuleSpec` + `ArgMatcher` |
+| `crates/ha-core/src/permission/approval_surface.rs` | 无人值守 surface 判定 |
+| `crates/ha-core/src/permission/task_intent.rs` | cron 预授权意图跟踪 |
+| `crates/ha-core/src/permission/session_edits.rs` | Smart "已编辑文件"跟踪器 |
+| `crates/ha-core/src/permission/{protected_paths,dangerous_commands,edit_commands}.rs` | 三列表 + 默认值 |
+| `crates/ha-core/src/permission/list_store.rs` | 列表共享 IO + Arc cache |
+| `crates/ha-core/src/permission/pattern_match.rs` | 零分配 substring 匹配 |
+| `crates/ha-config-schema/src/permission.rs` | `PermissionGlobalConfig` / `SmartModeConfig` 等 wire 类型 |
+| `crates/ha-core/src/tools/approval.rs` | `ApprovalRequest/Response` + `ApprovalReasonPayload` + `check_and_request_approval` + `approval:resolved` 广播 |
+| `crates/ha-core/src/tools/execution.rs` | tool dispatch 入口，调 `resolve_async` + 记录 smart session edits + AllowAlways 落库 |
+| `crates/ha-core/src/tools/exec.rs` | exec 内置审批门 + 命令前缀 allowlist 兼容 |
 | `crates/ha-core/src/agent/side_query.rs` | `judge_one_shot` 静态方法 |
-| `crates/ha-core/src/system_prompt/build.rs` | Permission mode guidance 注入位置 |
-| `crates/ha-core/src/system_prompt/constants.rs` | `build_permission_mode_guidance` |
-| `src-tauri/src/commands/permission.rs` | 12 个 Tauri 命令 |
-| `crates/ha-server/src/routes/permission.rs` | 12 个 HTTP 路由（镜像） |
+| `crates/ha-cron/src/tools/cron.rs` | `gate_cron_delete`（cron delete 审批的 AllowAlways 抑制） |
+| `src-tauri/src/commands/permission.rs` / `crates/ha-server/src/routes/permission.rs` | 12 Tauri 命令 / 12 HTTP 路由（镜像） |
 
 ### 前端
 
 | 文件 | 角色 |
 |------|------|
 | `src/components/chat/ApprovalDialog.tsx` | 审批弹窗 |
-| `src/components/chat/input/PermissionModeSwitcher.tsx` | 标题栏 mode dropdown |
-| `src/components/settings/ApprovalPanel.tsx` | 「设置 → 权限」一级 tab |
-| `src/components/settings/approval-panel/*.tsx` | YOLO / Smart / 三 list / Timeout 子卡片 |
-| `src/components/settings/agent-panel/tabs/ApprovalTab.tsx` | Agent 配置内「审批」tab |
-| `src/components/ui/radio-pills.tsx` | 共享单选 pills 组件 |
-| `src/types/chat.ts` | `SessionMode` / `ApprovalRequest.reason` 类型定义 |
-
-### 测试
-
-| 文件 | 覆盖 |
-|------|------|
-| `crates/ha-core/src/permission/engine.rs` (`#[cfg(test)] mod tests`) | sync + async resolve 测试，含 browser.evaluate/raw_cdp/real_chrome_access/download_cancel soft Ask |
-| `crates/ha-core/src/permission/judge.rs` (tests) | parse_response + cache 行为 |
-| `crates/ha-core/src/permission/{protected_paths,dangerous_commands,edit_commands,pattern_match,mode,rules,allowlist}.rs` | 模块自身的边界覆盖 |
-| 合计 | **50+ 个 permission unit test** |
+| `src/components/chat/approvalPolicy.ts` | strict / barsAllowAlways 共享谓词 + `ApprovalReasonKind` |
+| `src/components/chat/hooks/useApprovals.ts` | 多端订阅 / 快照对账 |
+| `src/components/chat/input/PermissionModeSwitcher.tsx` | 标题栏 mode + sandbox 切换 |
+| `src/components/pet/PetApprovalCard.tsx` | 宠物窗审批卡 |
+| `src/components/settings/ApprovalPanel.tsx` + `approval-panel/*.tsx` | 「设置 → 权限」面板 |
+| `src/components/settings/agent-panel/tabs/ApprovalTab.tsx` | Agent「审批」tab |
+| `src/types/chat.ts` | `SessionMode` / `SandboxMode` 类型 |
