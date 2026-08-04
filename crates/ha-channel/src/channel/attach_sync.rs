@@ -386,36 +386,18 @@ impl LateMirror {
                     metrics.report.succeeded,
                 );
             } else {
-                let failure = metrics
-                    .report
-                    .failures
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| "delivery result was incomplete".to_string());
-                app_warn!(
-                    "channel",
-                    "delivery_failed",
-                    "Late handover mirror failed for session {} turn {} (attempted={}, succeeded={}): {}",
-                    session_id,
-                    turn_id,
-                    metrics.report.attempted,
-                    metrics.report.succeeded,
-                    ha_core::logging::redact_sensitive(&failure),
+                let warn_context = format!(
+                    "Late handover mirror failed for session {} turn {}",
+                    session_id, turn_id,
                 );
-                let failed_session_id = session_id.clone();
-                let update_session_id = failed_session_id.clone();
-                let _ = session_db
-                    .run(move |db| {
-                        db.append_message(
-                            &failed_session_id,
-                            &ha_core::session::NewMessage::error_event(
-                                "⚠️ Hope finished the reply, but the late IM handover delivery failed or was incomplete.",
-                            )
-                            .with_source(ha_core::chat_engine::ChatSource::Channel),
-                        )
-                    })
-                    .await;
-                crate::channel::worker::emit_channel_update(&update_session_id);
+                crate::channel::worker::report_delivery_failure(
+                    &session_db,
+                    &session_id,
+                    &warn_context,
+                    "⚠️ Hope finished the reply, but the late IM handover delivery failed or was incomplete.",
+                    &metrics.report,
+                )
+                .await;
             }
             return;
         }

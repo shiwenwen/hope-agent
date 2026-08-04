@@ -279,39 +279,19 @@ pub(crate) async fn finalize_im_live_mirror(state: ImLiveMirrorState, response: 
             metrics.media_count,
             metrics.report.succeeded,
         );
-    } else {
-        let failure = metrics
-            .report
-            .failures
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "delivery result was incomplete".to_string());
-        app_warn!(
-            "channel",
-            "delivery_failed",
-            "[{}] GUI reply generated but IM mirror failed for session {} (attempted={}, succeeded={}): {}",
-            attach.channel_id,
-            attach.session_id,
-            metrics.report.attempted,
-            metrics.report.succeeded,
-            ha_core::logging::redact_sensitive(&failure),
+    } else if let Some(db) = ha_core::get_session_db() {
+        let warn_context = format!(
+            "[{}] GUI reply generated but IM mirror failed for session {}",
+            attach.channel_id, attach.session_id,
         );
-        if let Some(db) = ha_core::get_session_db() {
-            let failed_session_id = attach.session_id.clone();
-            let update_session_id = failed_session_id.clone();
-            let _ = db
-                .run(move |db| {
-                    db.append_message(
-                        &failed_session_id,
-                        &ha_core::session::NewMessage::error_event(
-                            "⚠️ The reply was generated in Hope, but its IM mirror delivery failed or was incomplete.",
-                        )
-                        .with_source(ChatSource::Channel),
-                    )
-                })
-                .await;
-            crate::channel::worker::emit_channel_update(&update_session_id);
-        }
+        crate::channel::worker::report_delivery_failure(
+            &db,
+            &attach.session_id,
+            &warn_context,
+            "⚠️ The reply was generated in Hope, but its IM mirror delivery failed or was incomplete.",
+            &metrics.report,
+        )
+        .await;
     }
 }
 

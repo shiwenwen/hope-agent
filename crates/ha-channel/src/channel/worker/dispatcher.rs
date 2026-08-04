@@ -310,7 +310,7 @@ fn spawn_cancelled_channel_message_rollback(
 }
 
 /// Notify the frontend that a channel session has new messages.
-pub(crate) fn emit_channel_update(session_id: &str) {
+pub(super) fn emit_channel_update(session_id: &str) {
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "channel:message_update",
@@ -1688,31 +1688,18 @@ async fn handle_inbound_message_inner(
                     metrics.report.succeeded,
                 );
             } else {
-                let failure = metrics
-                    .report
-                    .failures
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| "delivery result was incomplete".to_string());
-                app_warn!(
-                    "channel",
-                    "delivery_failed",
-                    "[{}] Reply generated but delivery failed for session {} (attempted={}, succeeded={}): {}",
-                    channel_id_str,
-                    session_id,
-                    metrics.report.attempted,
-                    metrics.report.succeeded,
-                    ha_core::logging::redact_sensitive(&failure),
+                let warn_context = format!(
+                    "[{}] Reply generated but delivery failed for session {}",
+                    channel_id_str, session_id,
                 );
-                let notice = ha_core::session::NewMessage::error_event(
+                super::report_delivery_failure(
+                    &session_db,
+                    &session_id,
+                    &warn_context,
                     "⚠️ The assistant reply was generated, but IM delivery failed or was incomplete. Check the Channel logs and resend if needed.",
+                    &metrics.report,
                 )
-                .with_source(ha_core::chat_engine::ChatSource::Channel);
-                let failed_delivery_session_id = session_id.clone();
-                let _ = session_db
-                    .run(move |db| db.append_message(&failed_delivery_session_id, &notice))
-                    .await;
-                emit_channel_update(&session_id);
+                .await;
             }
         }
         Err(e) => {
