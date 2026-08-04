@@ -803,7 +803,7 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `chat` | Bundled Transport：`POST /api/chat/ui`（浏览器来源校验；非 incognito 返回 202 ACK 后服务端托管）；公共 owner API：`POST /api/chat`（忽略 `uiSurface`、同步完成）；流式输出均经 `/ws/events` | ✅（已有会话可带 `editMessageId`，仅允许最后一条非排队 user 且旧 turn 已终止；旧分支回退、replacement user 落库、新 turn 登记同一事务提交并保留 Bundled UI surface） |
 | — | `GET /api/chat/turns/{turnId}` | ✅ 查询精确 ChatTurn 终态，供 202 ACK 后断线/竞态恢复 |
 | `queue_turn_user_message` | `POST /api/chat/turn-message` | ✅ 持久入队，附件在入队时转 session-owned 引用 |
-| `list_queued_turn_user_messages` | `GET /api/chat/turn-message/{sessionId}` | ✅ UI/恢复单一查询入口 |
+| `list_queued_turn_user_messages` | `GET /api/chat/turn-message/{sessionId}` | ✅ UI/恢复单一查询入口；backend-owned IM 行带 `managedBy: "channel"`，可展示但不可由客户端 edit/delete/insert/claim |
 | `update_queued_turn_user_message` | `PATCH /api/chat/turn-message` | ✅ CAS 拒绝 inserting/dispatching |
 | `delete_queued_turn_user_message` | `DELETE /api/chat/turn-message/{sessionId}/{requestId}` | ✅ CAS 拒绝 inserting/dispatching |
 | `insert_queued_turn_user_message` | `POST /api/chat/turn-message/insert` | ✅ 绑定活跃 turn 的工具边界 |

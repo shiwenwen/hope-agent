@@ -565,7 +565,7 @@ partial，再看到「上面那段被中断了」的 system event 解释。
 
 ## 用户消息持久队列
 
-忙时发送的用户消息以 `sessions.db.queued_turn_user_messages` 为唯一真相源，前端只持有当前会话投影，并在会话切换、窗口恢复和 `chat:turn_queue_changed` 后重新查询。队列按自增 `id` 保证会话内 FIFO，每会话硬上限 100 条。
+忙时发送的用户消息以 `sessions.db.queued_turn_user_messages` 为唯一真相源，前端只持有当前会话投影，并在会话切换、窗口恢复和 `chat:turn_queue_changed` 后重新查询。队列按自增 `id` 保证同一 owner 的会话内 FIFO，每会话硬上限 100 条。`source=desktop|http|channel` 同时标记执行所有权：Desktop / HTTP 行由对应客户端续发；Channel 行由后端泵续发，列表投影带 `managedBy="channel"`，GUI 只能观察，禁止编辑、删除、强插或误 claim。
 
 状态机：
 
@@ -573,10 +573,15 @@ partial，再看到「上面那段被中断了」的 system event 解释。
 - `waiting_tool_boundary`：绑定当前 `turn_id`，等待一批工具全部完成。
 - `inserting`：工具边界已原子 claim；编辑、删除、取消均 CAS 失败，避免 UI 假删除。
 - `dispatching`：正在创建下一独立回合；同样不可变。
+- `held_after_stop`：用户从 Desktop / HTTP / IM 任一入口显式 Stop 后冻结的 Channel 行；启动恢复与后端泵都不消费，下一条普通 IM 模型消息才按原 FIFO 恢复，并排在该批旧消息之后。
 
 普通续发只传 `queuedRequestId`。Desktop / HTTP 壳从 SQLite 取回真实正文、元数据和附件引用，防止刷新后依赖浏览器 `File` 对象，也避免 HTTP 列表暴露服务端绝对路径。用户消息落库时把 request id 写进 `messages.queue_request_id`（partial unique index）；启动恢复先删除已经存在对应消息的队列行，再将未提交的 `dispatching` 恢复为 `queued`、将未完成的工具插入恢复为 `fallback_after_reply`，实现崩溃后的 exactly-once 收敛。
 
-工具插入只在 `assistant + tool_result` 已完整写入 provider-native history 后 claim 并 drain；没有出现工具边界、用户停止或回合失败时，`StreamLifecycle::finish` 把剩余绑定项原子降级为 `fallback_after_reply`。消息和附件在首次入队时即持久化；上传图片只在队列表保存 session-owned `file_path`，不把 base64 大块长期写进 SQLite。
+工具插入只在 `assistant + tool_result` 已完整写入 provider-native history 后 claim 并 drain；插入落库与 Stop / turn 收尾通过 active-turn insertion gate 线性化，Stop 已赢时不能在其后偷偷提交用户消息。没有出现工具边界或回合失败时，`StreamLifecycle::finish` 把剩余绑定项原子降级为 `fallback_after_reply`；用户 Stop 则由共享 Stop 服务把 Channel 行转为 `held_after_stop`。消息和附件在首次入队时即持久化；上传图片只在队列表保存 session-owned `file_path`，不把 base64 大块长期写进 SQLite。
+
+Channel 忙时路径有两个出口：若当前是仍接受插入的 **Channel turn**，入队后只允许 FIFO 队首绑定其 `turn_id`，在下一安全工具边界把该用户消息加入正在运行的 provider history，并保证边界之后至少还有一轮模型调用；若已到最后一轮，round budget 增加一个终轮。Desktop / HTTP turn 不接受 Channel 插入，因为 owner 与 Channel 的权限、KB access 和审批上下文不同；此时队列由 `channel::worker::turn_queue` 后端泵在 owner turn 收尾后创建独立 Channel turn。该行持久化后才允许把下一行绑定到未来边界，避免一个 burst 在同一边界批量塞成一次无中间回复的 user turn。
+
+fresh dispatcher 与恢复泵共用全局模型并发 semaphore；同一 session 只允许一个泵，且存在 Channel backlog 时新 webhook 必须入队，不能越过已 claim 的队首。泵在 worker 启动时扫描恢复，领取并发 permit 后才 claim，处理后的 reconciliation 持续重试；并用 `messages.queue_request_id` 作为提交标记在“用户消息已落库但队列表清理/进程崩溃”的窄窗口 exactly-once 收敛。`channel_origin_json` 只存 channel/account/chat/thread/message 等最小路由字段，不存 provider token、`raw` webhook 或正文；正文和附件仍走队列表既有字段。
 
 接口必须保持双 Transport 对齐：Tauri commands 与 HTTP `GET/POST/PATCH/DELETE /api/chat/turn-message...` 同时提供 list / enqueue / edit / delete / insert / cancel。
 

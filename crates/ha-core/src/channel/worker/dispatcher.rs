@@ -1,6 +1,7 @@
+use anyhow::Context;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use tokio::sync::{mpsc, Semaphore};
+use std::sync::{Arc, LazyLock};
+use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 
 use crate::channel::db::ChannelDB;
 use crate::channel::registry::ChannelRegistry;
@@ -17,6 +18,8 @@ use super::streaming::{append_preview_round_text, PreviewHandle, CARD_ELEMENT_MA
 /// Maximum number of inbound messages processed concurrently.
 /// Prevents resource exhaustion (DB lock contention, API rate limits) during message bursts.
 const MAX_CONCURRENT_INBOUND: usize = 20;
+static CHANNEL_DISPATCH_SEMAPHORE: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(MAX_CONCURRENT_INBOUND)));
 const CONTROL_DELIVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const CANCELLED_MESSAGE_RETRY_MIN: std::time::Duration = std::time::Duration::from_millis(250);
 const CANCELLED_MESSAGE_RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(5);
@@ -25,6 +28,197 @@ async fn wait_for_channel_cancel(cancel: &AtomicBool) {
     while !cancel.load(Ordering::Acquire) {
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
+}
+
+pub(super) async fn acquire_channel_dispatch_permit() -> OwnedSemaphorePermit {
+    CHANNEL_DISPATCH_SEMAPHORE
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("Channel dispatch semaphore is never closed")
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn enqueue_channel_message(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account: &ChannelAccountConfig,
+    msg: &mut MsgContext,
+    session_db: &Arc<crate::session::SessionDB>,
+    session_id: &str,
+    engine_message: &str,
+    user_text: &str,
+    cancel: &Arc<AtomicBool>,
+    attempt_insert: bool,
+) -> anyhow::Result<()> {
+    let channel_id = msg.channel_id.to_string();
+    let origin = super::turn_queue::ChannelQueuedOrigin::from_message(msg);
+    let request_id = origin.request_id();
+    let consumed_request = request_id.clone();
+    if session_db
+        .run(move |db| db.queue_request_was_consumed(&consumed_request))
+        .await?
+    {
+        app_debug!(
+            "channel",
+            "turn_queue_dedup",
+            "Ignoring already-consumed queued IM request {}",
+            request_id
+        );
+        return Ok(());
+    }
+    let media_result = {
+        let hydration = plugin.materialize_pending_media(account, msg);
+        tokio::pin!(hydration);
+        tokio::select! {
+            biased;
+            _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+            result = &mut hydration => result,
+        }
+    };
+    if let Err(error) = media_result {
+        app_warn!(
+            "channel",
+            "turn_queue_media",
+            "[{}] Failed to materialize queued media {}: {}",
+            channel_id,
+            msg.message_id,
+            error
+        );
+    }
+    if cancel.load(Ordering::Acquire) {
+        return Ok(());
+    }
+
+    let queued_media = msg.media.clone();
+    let sid_for_files = session_id.to_string();
+    let request_for_files = request_id.clone();
+    let queued_attachments = crate::blocking::run_blocking(move || {
+        let mut queued_attachments =
+            convert_inbound_media_to_attachments(&queued_media, &sid_for_files);
+        for attachment in &mut queued_attachments {
+            if attachment.source.is_none() {
+                attachment.source = Some(crate::attachments::CHANNEL_QUEUE_SOURCE.to_string());
+            }
+        }
+        crate::attachments::persist_queued_chat_attachments(
+            &sid_for_files,
+            &request_for_files,
+            &mut queued_attachments,
+        )?;
+        anyhow::Ok(queued_attachments)
+    })
+    .await?;
+    let cleanup_attachments = queued_attachments.clone();
+    if cancel.load(Ordering::Acquire) {
+        crate::attachments::remove_discarded_queued_attachments(
+            session_id,
+            &request_id,
+            &cleanup_attachments,
+        );
+        return Ok(());
+    }
+    let queue_input = crate::session::NewQueuedTurnMessage {
+        request_id: request_id.clone(),
+        session_id: session_id.to_string(),
+        message: engine_message.to_string(),
+        display_text: Some(user_text.to_string()),
+        attachments: queued_attachments,
+        is_plan_trigger: false,
+        goal_trigger: false,
+        plan_comment: None,
+        plan_mode: None,
+        workflow_mode: None,
+        source: crate::session::QueuedTurnMessageSource::Channel,
+        channel_origin: Some(serde_json::to_value(origin)?),
+    };
+    let enqueue = session_db
+        .run(move |db| db.enqueue_turn_user_message(queue_input))
+        .await;
+    let outcome = match enqueue {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            crate::attachments::remove_discarded_queued_attachments(
+                session_id,
+                &request_id,
+                &cleanup_attachments,
+            );
+            let target = DeliveryTarget {
+                account_id: &account.id,
+                chat_id: &msg.chat_id,
+                thread_id: msg.thread_id.as_deref(),
+                reply_to_message_id: Some(&msg.message_id),
+            };
+            let notice = format!("⚠️ I couldn't queue this message: {error}");
+            let _ = send_text_chunks(plugin, &target, &notice, None, &[]).await;
+            return Ok(());
+        }
+    };
+    if !outcome.inserted {
+        crate::attachments::remove_discarded_queued_attachments(
+            session_id,
+            &request_id,
+            &cleanup_attachments,
+        );
+    }
+
+    // Close the enqueue-vs-Stop race. Either shared Stop sees this row in its
+    // DB transition, or this post-insert check observes the cancel flag and
+    // moves it to the same held state before any backend pump is kicked.
+    if cancel.load(Ordering::Acquire) {
+        let stopped_session_id = session_id.to_string();
+        session_db
+            .run(move |db| db.hold_channel_turn_messages_after_stop(&stopped_session_id))
+            .await?;
+        return Ok(());
+    }
+
+    if attempt_insert {
+        if let Some(active) = crate::chat_engine::active_turn::current(session_id) {
+            let sid = session_id.to_string();
+            let request = request_id.clone();
+            let active_turn_id = active.turn_id.clone();
+            let _ = session_db
+                .run(move |db| {
+                    crate::chat_engine::turn_injection::request_channel_insertion(
+                        db,
+                        &sid,
+                        &active_turn_id,
+                        &request,
+                    )
+                })
+                .await;
+        }
+    }
+    super::turn_queue::kick(session_id);
+    let target = DeliveryTarget {
+        account_id: &account.id,
+        chat_id: &msg.chat_id,
+        thread_id: msg.thread_id.as_deref(),
+        reply_to_message_id: Some(&msg.message_id),
+    };
+    let delivery = send_text_chunks(
+        plugin,
+        &target,
+        "⏳ Message queued. I'll add it at the next safe tool boundary, or continue with it after the current reply.",
+        None,
+        &[],
+    );
+    tokio::pin!(delivery);
+    tokio::select! {
+        biased;
+        _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+        result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
+            if result.is_err() {
+                app_warn!(
+                    "channel",
+                    "turn_queue_ack",
+                    "Timed out delivering queue acknowledgement for session {}",
+                    session_id
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 struct ChannelCancelHandleGuard {
@@ -40,6 +234,17 @@ impl Drop for ChannelCancelHandleGuard {
         ) {
             registry.remove(&self.session_id, registration_id);
         }
+    }
+}
+
+struct ChannelTurnInsertionGuard {
+    session_id: String,
+    turn_id: String,
+}
+
+impl Drop for ChannelTurnInsertionGuard {
+    fn drop(&mut self) {
+        crate::chat_engine::turn_injection::clear_turn(&self.session_id, &self.turn_id);
     }
 }
 
@@ -105,7 +310,7 @@ fn spawn_cancelled_channel_message_rollback(
 }
 
 /// Notify the frontend that a channel session has new messages.
-pub(super) fn emit_channel_update(session_id: &str) {
+pub(crate) fn emit_channel_update(session_id: &str) {
     if let Some(bus) = crate::get_event_bus() {
         bus.emit(
             "channel:message_update",
@@ -166,14 +371,14 @@ pub fn spawn_dispatcher(
                     "Inbound event dispatcher started (max_concurrent={})",
                     MAX_CONCURRENT_INBOUND
                 );
-                let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_INBOUND));
+                super::turn_queue::recover_all();
 
                 while let Some(event) = inbound_rx.recv().await {
                     match event {
                         InboundEvent::Message(msg) => {
                             let registry = registry.clone();
                             let channel_db = channel_db.clone();
-                            let permit = semaphore.clone().acquire_owned().await;
+                            let permit = acquire_channel_dispatch_permit().await;
 
                             // Handle each message in a separate task, limited by semaphore
                             tokio::spawn(async move {
@@ -284,8 +489,82 @@ fn log_read_receipt(ev: &ReadReceiptEvent) {
 async fn handle_inbound_message(
     registry: &ChannelRegistry,
     channel_db: &ChannelDB,
-    mut msg: MsgContext,
+    msg: MsgContext,
 ) -> anyhow::Result<()> {
+    handle_inbound_message_inner(registry, channel_db, msg, None).await
+}
+
+async fn discard_unroutable_channel_queue_record(
+    record: crate::session::QueuedTurnMessageRecord,
+    reason: &'static str,
+) -> anyhow::Result<()> {
+    let session_db =
+        crate::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
+    let session_id = record.session_id.clone();
+    let request_id = record.request_id.clone();
+    session_db
+        .run(move |db| {
+            // A malformed / no-longer-authorized row must never remain at the
+            // FIFO head merely because writing its diagnostic event failed.
+            db.remove_claimed_turn_message(&session_id, &request_id)?;
+            let notice = crate::session::NewMessage::error_event(reason)
+                .with_source(crate::chat_engine::ChatSource::Channel);
+            let _ = db.append_message(&session_id, &notice);
+            anyhow::Ok(())
+        })
+        .await?;
+    Ok(())
+}
+
+pub(super) async fn handle_queued_channel_message(
+    record: crate::session::QueuedTurnMessageRecord,
+) -> anyhow::Result<()> {
+    let origin = record
+        .channel_origin
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("queued Channel row has no routing origin"))
+        .and_then(|value| {
+            serde_json::from_value::<super::turn_queue::ChannelQueuedOrigin>(value)
+                .context("invalid queued Channel routing origin")
+        });
+    let mut msg = match origin.and_then(super::turn_queue::ChannelQueuedOrigin::into_message) {
+        Ok(msg) => msg,
+        Err(error) => {
+            app_warn!(
+                "channel",
+                "turn_queue_origin",
+                "Discarding invalid queued IM routing envelope for session {}: {}",
+                record.session_id,
+                crate::logging::redact_sensitive(&error.to_string())
+            );
+            discard_unroutable_channel_queue_record(
+                record,
+                "⚠️ A queued IM message could not be processed because its routing data was invalid.",
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+    msg.text = Some(
+        record
+            .display_text
+            .clone()
+            .unwrap_or_else(|| record.message.clone()),
+    );
+    let registry = crate::globals::get_channel_registry()
+        .ok_or_else(|| anyhow::anyhow!("Channel registry not initialized"))?;
+    let channel_db = crate::globals::get_channel_db()
+        .ok_or_else(|| anyhow::anyhow!("Channel DB not initialized"))?;
+    handle_inbound_message_inner(registry, channel_db, msg, Some(record)).await
+}
+
+async fn handle_inbound_message_inner(
+    registry: &ChannelRegistry,
+    channel_db: &ChannelDB,
+    mut msg: MsgContext,
+    queued_record: Option<crate::session::QueuedTurnMessageRecord>,
+) -> anyhow::Result<()> {
+    let is_queued_replay = queued_record.is_some();
     // Capture before approval/ask-user routing performs its first await. A
     // process-wide Stop that runs during those preludes must still reject this
     // inbound if it later reaches active-turn registration after the bounded
@@ -310,10 +589,13 @@ async fn handle_inbound_message(
     // `/stop` is control-plane input, never an approval answer or a custom
     // ask_user response. In particular, a free-form question used to consume
     // the literal "/stop" as its answer and leave the turn running.
-    let is_stop_command = is_stop_command(msg.text.as_deref());
+    let is_stop_command = !is_queued_replay && is_stop_command(msg.text.as_deref());
 
     // 0. Check if this message is a text-reply to a pending approval prompt
-    if !is_stop_command && super::approval::try_handle_approval_reply(&msg).await {
+    if !is_queued_replay
+        && !is_stop_command
+        && super::approval::try_handle_approval_reply(&msg).await
+    {
         app_info!(
             "channel",
             "worker",
@@ -326,12 +608,15 @@ async fn handle_inbound_message(
     // 0a. Not an approval reply, but a text-mode approval is still pending in
     // this chat — nudge the user once per minute so they don't accidentally
     // start a side conversation while the prompt is still open.
-    if !is_stop_command {
+    if !is_queued_replay && !is_stop_command {
         super::approval::maybe_send_pending_hint(&msg, registry).await;
     }
 
     // 0b. Check if this message is a text-reply to a pending ask_user_question
-    if !is_stop_command && super::ask_user::try_handle_ask_user_reply(&msg).await {
+    if !is_queued_replay
+        && !is_stop_command
+        && super::ask_user::try_handle_ask_user_reply(&msg).await
+    {
         app_info!(
             "channel",
             "worker",
@@ -351,17 +636,39 @@ async fn handle_inbound_message(
         store.channels.accounts.len(),
         msg.account_id
     );
-    let account = store
-        .channels
-        .find_account(&msg.account_id)
-        .ok_or_else(|| anyhow::anyhow!("Account '{}' not found in config", msg.account_id))?
-        .clone();
+    let account = match store.channels.find_account(&msg.account_id) {
+        Some(account) => account.clone(),
+        None if queued_record.is_some() => {
+            discard_unroutable_channel_queue_record(
+                queued_record.expect("checked queued record"),
+                "⚠️ A queued IM message was discarded because its Channel account no longer exists.",
+            )
+            .await?;
+            return Ok(());
+        }
+        None => {
+            return Err(anyhow::anyhow!(
+                "Account '{}' not found in config",
+                msg.account_id
+            ));
+        }
+    };
 
     // 2. Check access control
-    let plugin = registry
-        .get_plugin(&msg.channel_id)
-        .ok_or_else(|| anyhow::anyhow!("No plugin for channel: {}", msg.channel_id))?
-        .clone();
+    let plugin = match registry.get_plugin(&msg.channel_id) {
+        Some(plugin) => plugin.clone(),
+        None if queued_record.is_some() => {
+            discard_unroutable_channel_queue_record(
+                queued_record.expect("checked queued record"),
+                "⚠️ A queued IM message was discarded because its Channel plugin is unavailable.",
+            )
+            .await?;
+            return Ok(());
+        }
+        None => {
+            return Err(anyhow::anyhow!("No plugin for channel: {}", msg.channel_id));
+        }
+    };
 
     if !plugin.check_access(&account, &msg) {
         app_warn!(
@@ -372,6 +679,13 @@ async fn handle_inbound_message(
             msg.sender_id,
             msg.chat_id
         );
+        if let Some(record) = queued_record {
+            discard_unroutable_channel_queue_record(
+                record,
+                "⚠️ A queued IM message was discarded because Channel access is no longer allowed.",
+            )
+            .await?;
+        }
         return Ok(());
     }
 
@@ -399,6 +713,13 @@ async fn handle_inbound_message(
                 channel_id_str,
                 msg.chat_id
             );
+            if let Some(record) = queued_record {
+                discard_unroutable_channel_queue_record(
+                    record,
+                    "⚠️ A queued IM message was discarded because the mention policy changed.",
+                )
+                .await?;
+            }
             return Ok(());
         }
     } else if matches!(msg.chat_type, ChatType::Channel) {
@@ -414,6 +735,13 @@ async fn handle_inbound_message(
                 channel_id_str,
                 msg.chat_id
             );
+            if let Some(record) = queued_record {
+                discard_unroutable_channel_queue_record(
+                    record,
+                    "⚠️ A queued IM message was discarded because the mention policy changed.",
+                )
+                .await?;
+            }
             return Ok(());
         }
     }
@@ -465,23 +793,61 @@ async fn handle_inbound_message(
         ChatType::Dm => None,
     };
 
-    let session_id = channel_db.resolve_or_create_session(
-        &channel_id_str,
-        &msg.account_id,
-        &msg.chat_id,
-        msg.thread_id.as_deref(),
-        Some(&msg.sender_id),
-        msg.sender_name.as_deref(),
-        &msg.chat_type,
-        &agent_id,
-    )?;
+    let session_db =
+        crate::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
+    let session_id = if let Some(record) = queued_record.as_ref() {
+        let channel_db_for_lookup = channel_db.clone();
+        let lookup_session_id = record.session_id.clone();
+        let attach_matches = session_db
+            .run(move |_| channel_db_for_lookup.get_conversation_by_session(&lookup_session_id))
+            .await?
+            .is_some_and(|conversation| {
+                conversation.channel_id == channel_id_str
+                    && conversation.account_id == msg.account_id
+                    && conversation.chat_id == msg.chat_id
+                    && conversation.thread_id == msg.thread_id
+            });
+        if !attach_matches {
+            let remove_session_id = record.session_id.clone();
+            let remove_request_id = record.request_id.clone();
+            let _ = session_db
+                .run(move |db| {
+                    db.remove_claimed_turn_message(&remove_session_id, &remove_request_id)
+                })
+                .await;
+            let target = DeliveryTarget {
+                account_id: &account.id,
+                chat_id: &msg.chat_id,
+                thread_id: msg.thread_id.as_deref(),
+                reply_to_message_id: Some(&msg.message_id),
+            };
+            let _ = send_text_chunks(
+                &plugin,
+                &target,
+                "⚠️ This queued message was not processed because the conversation was attached elsewhere. Please send it again.",
+                None,
+                &[],
+            )
+            .await;
+            return Ok(());
+        }
+        record.session_id.clone()
+    } else {
+        channel_db.resolve_or_create_session(
+            &channel_id_str,
+            &msg.account_id,
+            &msg.chat_id,
+            msg.thread_id.as_deref(),
+            Some(&msg.sender_id),
+            msg.sender_name.as_deref(),
+            &msg.chat_type,
+            &agent_id,
+        )?
+    };
 
     // 4. Prepare inbound text. Reply-only slash commands (e.g. /status)
     // are persisted as event history below, but never as user turns and
     // never into model-facing context.
-    let session_db =
-        crate::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
-
     let user_text = msg
         .text
         .clone()
@@ -496,6 +862,9 @@ async fn handle_inbound_message(
     } else {
         crate::globals::get_channel_cancels().map(|registry| registry.register(&session_id))
     };
+    let channel_cancel_registration_id = channel_cancel_registration
+        .as_ref()
+        .map(|registration| registration.id.clone());
     let cancel = channel_cancel_registration
         .as_ref()
         .map(|registration| registration.cancel.clone())
@@ -509,7 +878,12 @@ async fn handle_inbound_message(
     // For PassThrough commands (e.g. skill invocations), use the transformed message as the
     // engine input so the LLM receives the skill instruction rather than the raw "/" text.
     let engine_message: String;
-    if crate::slash_commands::parser::is_command(&user_text) {
+    if let Some(record) = queued_record.as_ref() {
+        // Slash/control routing happened on original receipt. Replaying it
+        // would repeat side effects; only the already-normalized model input
+        // is allowed through the durable queue.
+        engine_message = record.message.clone();
+    } else if crate::slash_commands::parser::is_command(&user_text) {
         // Channels without inline-button support get the handler's verbose
         // no-arg text response instead of the (un-tappable) `Select an
         // option for /xxx:` shortcut.
@@ -630,13 +1004,181 @@ async fn handle_inbound_message(
         engine_message = user_text.clone();
     }
 
+    let resumed_held_messages = if !is_queued_replay {
+        let sid = session_id.clone();
+        let registration_id = channel_cancel_registration_id.clone();
+        let cancel_registry = crate::globals::get_channel_cancels().cloned();
+        session_db
+            .run(move |db| {
+                let Some((registry, registration_id)) =
+                    cancel_registry.as_ref().zip(registration_id.as_deref())
+                else {
+                    return Ok(0);
+                };
+                registry
+                    .with_registration_if_live(&sid, registration_id, || {
+                        db.resume_channel_turn_messages_after_stop(&sid)
+                    })
+                    .transpose()
+                    .map(|count| count.unwrap_or(0))
+            })
+            .await?
+            > 0
+    } else {
+        false
+    };
+    if resumed_held_messages {
+        // Resume is itself a durable state transition. Kick immediately so
+        // the older rows cannot remain stranded if staging the new inbound
+        // attachment or appending the tail row later fails.
+        super::turn_queue::kick(&session_id);
+    }
+
     if cancel.load(Ordering::Acquire) {
+        return Ok(());
+    }
+
+    // An idle session may still have a backend-owned FIFO head between the
+    // pump's DB claim and its active-turn admission (especially at restart).
+    // A fresh inbound must join behind that durable head rather than starting
+    // a newer turn merely because the in-memory active registry is empty.
+    if !is_queued_replay && !resumed_held_messages {
+        let sid = session_id.clone();
+        if session_db
+            .run(move |db| db.has_channel_turn_messages(&sid))
+            .await?
+        {
+            enqueue_channel_message(
+                &plugin,
+                &account,
+                &mut msg,
+                &session_db,
+                &session_id,
+                &engine_message,
+                &user_text,
+                &cancel,
+                false,
+            )
+            .await?;
+            return Ok(());
+        }
+    }
+
+    // Acquire before the user message becomes durable. Besides enforcing
+    // single-flight, this is the generation check that prevents an inbound
+    // which predates global Stop from leaking into the next turn's context.
+    // Queued replays retain their claim turn id; fresh messages mint one here.
+    let turn_id = queued_record
+        .as_ref()
+        .and_then(|record| record.turn_id.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire_foreground_request(
+        foreground_admission,
+        &session_id,
+        crate::chat_engine::stream_seq::ChatSource::Channel,
+        turn_id.clone(),
+        None,
+        cancel.clone(),
+    ) {
+        Ok(guard) => guard,
+        Err(e) => {
+            if is_queued_replay {
+                return Err(anyhow::anyhow!("queued IM session is still busy: {e}"));
+            }
+            if e.cancelled_by_global_stop() {
+                app_info!(
+                    "channel",
+                    "stop",
+                    "[{}] discarded inbound for session {} because it predated global Stop",
+                    channel_id_str,
+                    session_id
+                );
+                emit_channel_update(&session_id);
+                return Ok(());
+            }
+            app_info!(
+                "channel",
+                "worker",
+                "[{}] inbound for session {} queued: a turn is already active ({})",
+                channel_id_str,
+                session_id,
+                e
+            );
+
+            enqueue_channel_message(
+                &plugin,
+                &account,
+                &mut msg,
+                &session_db,
+                &session_id,
+                &engine_message,
+                &user_text,
+                &cancel,
+                !resumed_held_messages,
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+    let _insertion_lifecycle = ChannelTurnInsertionGuard {
+        session_id: session_id.clone(),
+        turn_id: turn_id.clone(),
+    };
+    if cancel.load(Ordering::Acquire) {
+        emit_channel_update(&session_id);
+        return Ok(());
+    }
+
+    if let Some(record) = queued_record.as_ref() {
+        let sid = session_id.clone();
+        let request_id = record.request_id.clone();
+        let claim_turn_id = turn_id.clone();
+        let registration_id = channel_cancel_registration_id.clone();
+        let cancel_registry = crate::globals::get_channel_cancels().cloned();
+        let claim_is_live = session_db
+            .run(move |db| {
+                let Some((registry, registration_id)) =
+                    cancel_registry.as_ref().zip(registration_id.as_deref())
+                else {
+                    return Ok(false);
+                };
+                registry
+                    .with_registration_if_live(&sid, registration_id, || {
+                        db.channel_dispatch_claim_is_active(&sid, &request_id, &claim_turn_id)
+                    })
+                    .transpose()
+                    .map(|active| active.unwrap_or(false))
+            })
+            .await?;
+        if !claim_is_live {
+            app_info!(
+                "channel",
+                "turn_queue_stop",
+                "Queued IM claim for session {} was held or cancelled before admission",
+                session_id
+            );
+            return Ok(());
+        }
+    }
+
+    if resumed_held_messages {
+        enqueue_channel_message(
+            &plugin,
+            &account,
+            &mut msg,
+            &session_db,
+            &session_id,
+            &engine_message,
+            &user_text,
+            &cancel,
+            false,
+        )
+        .await?;
         return Ok(());
     }
 
     // Typing and deferred media hydration are network-facing preparation, so
     // they must be inside the same cancellable lifetime as preflight/engine.
-    // `/stop` itself returns above before either wait.
     {
         let typing = plugin.send_typing(&account.id, &msg.chat_id);
         tokio::pin!(typing);
@@ -647,43 +1189,29 @@ async fn handle_inbound_message(
         }
     }
 
-    // Hydrate deferred-download attachments only after slash interception and
-    // cancel registration. Channels that download eagerly leave this as a
-    // no-op; failures remain non-fatal so surrounding text can still run.
-    let media_result = {
-        let hydration = plugin.materialize_pending_media(&account, &mut msg);
-        tokio::pin!(hydration);
-        tokio::select! {
-            biased;
-            _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
-            result = &mut hydration => result,
+    if !is_queued_replay {
+        let media_result = {
+            let hydration = plugin.materialize_pending_media(&account, &mut msg);
+            tokio::pin!(hydration);
+            tokio::select! {
+                biased;
+                _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
+                result = &mut hydration => result,
+            }
+        };
+        if let Err(e) = media_result {
+            app_warn!(
+                "channel",
+                "worker",
+                "[{}] Failed to materialize pending media for {} in {}: {}",
+                channel_id_str,
+                msg.message_id,
+                msg.chat_id,
+                e
+            );
         }
-    };
-    if let Err(e) = media_result {
-        app_warn!(
-            "channel",
-            "worker",
-            "[{}] Failed to materialize pending media for {} in {}: {}",
-            channel_id_str,
-            msg.message_id,
-            msg.chat_id,
-            e
-        );
     }
 
-    // 5b. Persist only messages that will enter the chat engine. Reply-only
-    // slash commands returned above after writing event history.
-    //
-    // Preflight chokepoint: pass-through in Phase 0.1; PR 1.2 runs the
-    // `UserPromptSubmit` hook here. The raw prompt is the persisted `user_text`
-    // (not the LLM-bound `engine_message`), keeping transcript + hook input
-    // consistent with what lands in history.
-    //
-    // The turn id is minted here rather than at the `try_acquire` in 5c below
-    // so the hook and engine use the same `prompt_id`. The Channel cancel
-    // registration above deliberately starts before preflight: `/stop` and the
-    // GUI button are the same operation even while a hook is still running.
-    let turn_id = uuid::Uuid::new_v4().to_string();
     let preflight = crate::agent::preflight::user_prompt_preflight_cancellable(
         crate::agent::preflight::PreflightArgs {
             session_id: &session_id,
@@ -706,111 +1234,68 @@ async fn handle_inbound_message(
     let effective_prompt = match preflight {
         crate::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => effective_prompt,
         crate::agent::preflight::PreflightOutcome::Block { reason } => {
-            // A UserPromptSubmit hook blocked the prompt: reply to the chat and
-            // record a UI-only event marker (excluded from LLM context); the
-            // prompt is neither persisted as a user message nor run.
             let notice = format!("🚫 {reason}");
-            let _ =
-                session_db.append_message(&session_id, &crate::session::NewMessage::event(&notice));
-            let notice_payload = ReplyPayload::text(&notice);
-            let delivery = plugin.send_message(&account.id, &msg.chat_id, &notice_payload);
-            tokio::pin!(delivery);
-            tokio::select! {
-                biased;
-                _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
-                result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
-                    if result.is_err() {
-                        app_warn!("channel", "worker", "Timed out delivering hook-block notice for session {}", session_id);
+            let blocked_session_id = session_id.clone();
+            let blocked_notice = notice.clone();
+            let blocked_request_id = queued_record
+                .as_ref()
+                .map(|record| record.request_id.clone());
+            let _ = session_db
+                .run(move |db| {
+                    if let Some(request_id) = blocked_request_id {
+                        db.remove_claimed_turn_message(&blocked_session_id, &request_id)?;
                     }
-                }
-            }
-            return Ok(());
-        }
-    };
-    if cancel.load(Ordering::Acquire) {
-        return Ok(());
-    }
-
-    // Acquire before the user message becomes durable. Besides enforcing
-    // single-flight, this is the generation check that prevents an inbound
-    // which predates global Stop from leaking into the next turn's context.
-    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire_foreground_request(
-        foreground_admission,
-        &session_id,
-        crate::chat_engine::stream_seq::ChatSource::Channel,
-        turn_id.clone(),
-        None,
-        cancel.clone(),
-    ) {
-        Ok(guard) => guard,
-        Err(e) => {
-            if e.cancelled_by_global_stop() {
-                app_info!(
-                    "channel",
-                    "stop",
-                    "[{}] discarded inbound for session {} because it predated global Stop",
-                    channel_id_str,
-                    session_id
-                );
-                emit_channel_update(&session_id);
-                return Ok(());
-            }
-            app_info!(
-                "channel",
-                "worker",
-                "[{}] inbound for session {} rejected: a turn is already active ({})",
-                channel_id_str,
-                session_id,
-                e
-            );
-            let busy_target = DeliveryTarget {
+                    db.append_message(
+                        &blocked_session_id,
+                        &crate::session::NewMessage::event(&blocked_notice)
+                            .with_source(crate::chat_engine::ChatSource::Channel),
+                    )?;
+                    anyhow::Ok(())
+                })
+                .await;
+            let target = DeliveryTarget {
                 account_id: &account.id,
                 chat_id: &msg.chat_id,
                 thread_id: msg.thread_id.as_deref(),
                 reply_to_message_id: Some(&msg.message_id),
             };
-            let delivery = send_text_chunks(
-                &plugin,
-                &busy_target,
-                "⏳ I'm still finishing your previous message. Please send this again shortly.",
-                None,
-                &[],
-            );
-            tokio::pin!(delivery);
-            tokio::select! {
-                biased;
-                _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
-                result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
-                    if result.is_err() {
-                        app_warn!("channel", "worker", "Timed out delivering busy notice for session {}", session_id);
-                    }
-                }
-            }
+            let _ = send_text_chunks(&plugin, &target, &notice, None, &[]).await;
             return Ok(());
         }
     };
     if cancel.load(Ordering::Acquire) {
-        emit_channel_update(&session_id);
         return Ok(());
     }
 
-    let mut attachments = convert_inbound_media_to_attachments(&msg.media, &session_id);
-    let user_attachments_meta =
-        match crate::attachments::persist_chat_user_attachments_meta(&session_id, &mut attachments)
-        {
-            Ok(meta) => meta,
-            Err(e) => {
-                app_warn!(
-                    "channel",
-                    "worker",
-                    "[{}] Failed to persist inbound attachment metadata for {}: {}",
-                    channel_id_str,
-                    session_id,
-                    e
-                );
-                None
-            }
-        };
+    let attachments = if let Some(record) = queued_record.as_ref() {
+        record.attachments.clone()
+    } else {
+        convert_inbound_media_to_attachments(&msg.media, &session_id)
+    };
+    let attachment_session_id = session_id.clone();
+    let (attachments, attachment_meta_result) = crate::blocking::run_blocking(move || {
+        let mut attachments = attachments;
+        let result = crate::attachments::persist_chat_user_attachments_meta(
+            &attachment_session_id,
+            &mut attachments,
+        );
+        (attachments, result)
+    })
+    .await;
+    let user_attachments_meta = match attachment_meta_result {
+        Ok(meta) => meta,
+        Err(e) => {
+            app_warn!(
+                "channel",
+                "worker",
+                "[{}] Failed to persist inbound attachment metadata for {}: {}",
+                channel_id_str,
+                session_id,
+                e
+            );
+            None
+        }
+    };
     if cancel.load(Ordering::Acquire) {
         return Ok(());
     }
@@ -841,6 +1326,7 @@ async fn handle_inbound_message(
     // workers and preserve restore-before-append ordering in one blocking task.
     let persist_session_id = session_id.clone();
     let persist_turn_id = turn_id.clone();
+    let queued_for_persist = queued_record.clone();
     let persist_result = session_db
         .run(move |db| {
             crate::chat_engine::active_turn::with_persistence_target(
@@ -848,7 +1334,11 @@ async fn handle_inbound_message(
                 &persist_turn_id,
                 || -> anyhow::Result<i64> {
                     db.set_session_archived(&persist_session_id, false)?;
-                    db.append_message(&persist_session_id, &user_msg)
+                    if let Some(record) = queued_for_persist.as_ref() {
+                        db.complete_inserted_turn_message(record, &user_msg)
+                    } else {
+                        db.append_message(&persist_session_id, &user_msg)
+                    }
                 },
             )
         })
@@ -860,11 +1350,19 @@ async fn handle_inbound_message(
         Ok(crate::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
             message_id,
         )) => {
-            spawn_cancelled_channel_message_rollback(
-                session_db.clone(),
-                session_id.clone(),
-                message_id,
-            );
+            if is_queued_replay {
+                // The backend queue pump had already promoted this row to the
+                // active user turn. A concurrent /stop owns the cancellation;
+                // keep the visible user message consumed instead of silently
+                // replaying it after the user explicitly stopped the turn.
+                emit_channel_update(&session_id);
+            } else {
+                spawn_cancelled_channel_message_rollback(
+                    session_db.clone(),
+                    session_id.clone(),
+                    message_id,
+                );
+            }
             return Ok(());
         }
         Ok(crate::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit) => {
@@ -1159,19 +1657,48 @@ async fn handle_inbound_message(
                 metrics = &mut delivery => metrics,
             };
 
-            app_info!(
-                "channel",
-                "worker",
-                "[{}] Reply sent to {} (mode={}, rounds={}, finalized_inline={}, text_chars={}, media={}, preview={})",
-                channel_id_str,
-                msg.chat_id,
-                outcome.reply_mode.as_str(),
-                outcome.drained_rounds.len(),
-                outcome.stream_outcome.finalized_rounds,
-                metrics.text_chars,
-                metrics.media_count,
-                outcome.preview_active,
-            );
+            if metrics.report.is_success() {
+                app_info!(
+                    "channel",
+                    "worker",
+                    "[{}] Reply delivered to {} (mode={}, rounds={}, finalized_inline={}, text_chars={}, media={}, preview={}, sends={})",
+                    channel_id_str,
+                    msg.chat_id,
+                    outcome.reply_mode.as_str(),
+                    outcome.drained_rounds.len(),
+                    outcome.stream_outcome.finalized_rounds,
+                    metrics.text_chars,
+                    metrics.media_count,
+                    outcome.preview_active,
+                    metrics.report.succeeded,
+                );
+            } else {
+                let failure = metrics
+                    .report
+                    .failures
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "delivery result was incomplete".to_string());
+                app_warn!(
+                    "channel",
+                    "delivery_failed",
+                    "[{}] Reply generated but delivery failed for session {} (attempted={}, succeeded={}): {}",
+                    channel_id_str,
+                    session_id,
+                    metrics.report.attempted,
+                    metrics.report.succeeded,
+                    crate::logging::redact_sensitive(&failure),
+                );
+                let notice = crate::session::NewMessage::error_event(
+                    "⚠️ The assistant reply was generated, but IM delivery failed or was incomplete. Check the Channel logs and resend if needed.",
+                )
+                .with_source(crate::chat_engine::ChatSource::Channel);
+                let failed_delivery_session_id = session_id.clone();
+                let _ = session_db
+                    .run(move |db| db.append_message(&failed_delivery_session_id, &notice))
+                    .await;
+                emit_channel_update(&session_id);
+            }
         }
         Err(e) => {
             app_error!(
@@ -1512,12 +2039,21 @@ pub(crate) async fn send_text_chunks(
     response: &str,
     preview: Option<&PreviewHandle>,
     buttons: &[Vec<InlineButton>],
-) {
+) -> DeliveryReport {
+    let mut report = DeliveryReport::default();
     let native_text = plugin.markdown_to_native(response);
     let chunks = plugin.chunk_message(&native_text);
+    if !response.trim().is_empty() && chunks.is_empty() {
+        report.attempted = 1;
+        report
+            .failures
+            .push("channel produced no outbound message chunks".to_string());
+        return report;
+    }
     let last_idx = chunks.len().saturating_sub(1);
 
     for (i, chunk) in chunks.iter().enumerate() {
+        report.attempted += 1;
         // Per-chunk throttle: same 50ms gap deliver_media_to_chat uses to
         // dodge Telegram / LINE / WeChat per-chat flood protections.
         if i > 0 {
@@ -1554,7 +2090,22 @@ pub(crate) async fn send_text_chunks(
                         .edit_message(target.account_id, target.chat_id, message_id, &payload)
                         .await
                     {
-                        Ok(result) => Ok(result),
+                        Ok(result) if result.success => Ok(result),
+                        Ok(result) => {
+                            app_warn!(
+                                "channel",
+                                "worker",
+                                "Preview edit was rejected, falling back to send: {}",
+                                crate::logging::redact_sensitive(
+                                    &result
+                                        .error
+                                        .unwrap_or_else(|| "platform rejected edit".to_string())
+                                )
+                            );
+                            plugin
+                                .send_message(target.account_id, target.chat_id, &payload)
+                                .await
+                        }
                         Err(e) => {
                             app_warn!(
                                 "channel",
@@ -1583,18 +2134,42 @@ pub(crate) async fn send_text_chunks(
         match delivery {
             Ok(r) => {
                 if !r.success {
-                    app_warn!(
-                        "channel",
-                        "worker",
-                        "Send failed: {}",
-                        r.error.unwrap_or_default()
+                    let error = crate::logging::redact_sensitive(
+                        &r.error
+                            .unwrap_or_else(|| "platform rejected message".to_string()),
                     );
+                    app_warn!("channel", "worker", "Send failed: {}", error);
+                    report.failures.push(error);
+                } else {
+                    report.succeeded += 1;
                 }
             }
             Err(e) => {
-                app_error!("channel", "worker", "Send error: {}", e);
+                let error = crate::logging::redact_sensitive(&e.to_string());
+                app_error!("channel", "worker", "Send error: {}", error);
+                report.failures.push(error);
             }
         }
+    }
+    report
+}
+
+#[derive(Debug, Default, Clone)]
+pub(crate) struct DeliveryReport {
+    pub attempted: usize,
+    pub succeeded: usize,
+    pub failures: Vec<String>,
+}
+
+impl DeliveryReport {
+    pub(super) fn merge(&mut self, other: DeliveryReport) {
+        self.attempted += other.attempted;
+        self.succeeded += other.succeeded;
+        self.failures.extend(other.failures);
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.failures.is_empty() && self.attempted == self.succeeded
     }
 }
 
@@ -1603,6 +2178,7 @@ pub(crate) async fn send_text_chunks(
 pub(crate) struct DeliveryMetrics {
     pub text_chars: usize,
     pub media_count: usize,
+    pub report: DeliveryReport,
 }
 
 /// `ImReplyMode::Split`: deliver each round in time order.
@@ -1633,7 +2209,8 @@ pub(super) async fn deliver_split(
 ) -> DeliveryMetrics {
     let mut metrics = DeliveryMetrics::default();
     if rounds.is_empty() {
-        send_final_reply(plugin, target, fallback_response, preview, &[], caps).await;
+        metrics.report =
+            send_final_reply(plugin, target, fallback_response, preview, &[], caps).await;
         metrics.text_chars = fallback_response.chars().count();
         return metrics;
     }
@@ -1667,7 +2244,7 @@ pub(super) async fn deliver_split(
                     None
                 },
             };
-            send_final_reply(
+            let report = send_final_reply(
                 plugin,
                 &final_target,
                 &round.text,
@@ -1676,6 +2253,7 @@ pub(super) async fn deliver_split(
                 caps,
             )
             .await;
+            metrics.report.merge(report);
             metrics.text_chars += round.text.chars().count();
             metrics.media_count += round.medias.len();
         } else {
@@ -1688,11 +2266,12 @@ pub(super) async fn deliver_split(
                     thread_id: target.thread_id,
                     reply_to_message_id: None,
                 };
-                send_text_chunks(plugin, &pre_target, &round.text, None, &[]).await;
+                let report = send_text_chunks(plugin, &pre_target, &round.text, None, &[]).await;
+                metrics.report.merge(report);
                 metrics.text_chars += round.text.chars().count();
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
-            deliver_media_to_chat(
+            let report = deliver_media_to_chat(
                 plugin,
                 target.account_id,
                 target.chat_id,
@@ -1701,6 +2280,7 @@ pub(super) async fn deliver_split(
                 caps,
             )
             .await;
+            metrics.report.merge(report);
             metrics.media_count += round.medias.len();
         }
     }
@@ -1729,10 +2309,11 @@ pub(super) async fn deliver_final_only(
         .collect();
     let media_count = all_media.len();
     let text_chars = final_text.chars().count();
-    send_final_reply(plugin, target, &final_text, None, &all_media, caps).await;
+    let report = send_final_reply(plugin, target, &final_text, None, &all_media, caps).await;
     DeliveryMetrics {
         text_chars,
         media_count,
+        report,
     }
 }
 
@@ -1770,10 +2351,11 @@ pub(super) async fn deliver_preview_merged(
         .collect();
     let media_count = all_media.len();
     let text_chars = final_text.chars().count();
-    send_final_reply(plugin, target, &final_text, preview, &all_media, caps).await;
+    let report = send_final_reply(plugin, target, &final_text, preview, &all_media, caps).await;
     DeliveryMetrics {
         text_chars,
         media_count,
+        report,
     }
 }
 
@@ -1813,7 +2395,8 @@ pub(crate) async fn send_final_reply(
     preview: Option<&PreviewHandle>,
     pending_media: &[crate::attachments::MediaItem],
     caps: &ChannelCapabilities,
-) {
+) -> DeliveryReport {
+    let mut report = DeliveryReport::default();
     let card_finalized = match preview {
         Some(PreviewHandle::Card {
             card_id,
@@ -1842,18 +2425,24 @@ pub(crate) async fn send_final_reply(
             Some(PreviewHandle::Card { .. }) => None,
             other => other,
         };
-        send_text_chunks(plugin, target, response, chunk_preview, &[]).await;
+        report.merge(send_text_chunks(plugin, target, response, chunk_preview, &[]).await);
+    } else {
+        report.attempted += 1;
+        report.succeeded += 1;
     }
 
-    deliver_media_to_chat(
-        plugin,
-        target.account_id,
-        target.chat_id,
-        target.thread_id,
-        pending_media,
-        caps,
-    )
-    .await;
+    report.merge(
+        deliver_media_to_chat(
+            plugin,
+            target.account_id,
+            target.chat_id,
+            target.thread_id,
+            pending_media,
+            caps,
+        )
+        .await,
+    );
+    report
 }
 
 /// Send a batch of media items through the channel, falling back to a text
@@ -1869,9 +2458,10 @@ pub(crate) async fn deliver_media_to_chat(
     thread_id: Option<&str>,
     items: &[crate::attachments::MediaItem],
     caps: &ChannelCapabilities,
-) {
+) -> DeliveryReport {
+    let mut report = DeliveryReport::default();
     if items.is_empty() {
-        return;
+        return report;
     }
 
     let channel_id = plugin.meta().id;
@@ -1886,6 +2476,7 @@ pub(crate) async fn deliver_media_to_chat(
     }
 
     for (it, t) in &deliverable_native_items {
+        report.attempted += 1;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let payload = ReplyPayload {
             text: None,
@@ -1898,20 +2489,33 @@ pub(crate) async fn deliver_media_to_chat(
         };
         match plugin.send_message(account_id, chat_id, &payload).await {
             Ok(r) if !r.success => {
+                let error = crate::logging::redact_sensitive(
+                    &r.error
+                        .unwrap_or_else(|| "platform rejected media".to_string()),
+                );
                 app_warn!(
                     "channel",
                     "worker",
                     "Media send failed ({}): {}",
                     it.name,
-                    r.error.unwrap_or_default()
+                    error
                 );
+                report.failures.push(error);
                 fallback_items.push(*it);
             }
             Err(e) => {
-                app_error!("channel", "worker", "Media send error ({}): {}", it.name, e);
+                let error = crate::logging::redact_sensitive(&e.to_string());
+                app_error!(
+                    "channel",
+                    "worker",
+                    "Media send error ({}): {}",
+                    it.name,
+                    error
+                );
+                report.failures.push(error);
                 fallback_items.push(*it);
             }
-            Ok(_) => {}
+            Ok(_) => report.succeeded += 1,
         }
     }
 
@@ -1925,8 +2529,9 @@ pub(crate) async fn deliver_media_to_chat(
             thread_id,
             reply_to_message_id: None,
         };
-        send_text_chunks(plugin, &target, &text, None, &[]).await;
+        report.merge(send_text_chunks(plugin, &target, &text, None, &[]).await);
     }
+    report
 }
 
 #[cfg(test)]
@@ -2328,17 +2933,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn final_preview_edit_error_falls_back_to_a_complete_send() {
+        let plugin_concrete = Arc::new(CountingPlugin::new(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            thread_id: None,
+            reply_to_message_id: Some("incoming"),
+        };
+
+        let report = send_text_chunks(
+            &plugin,
+            &target,
+            "complete answer",
+            Some(&PreviewHandle::Message {
+                message_id: "stale-preview".to_string(),
+            }),
+            &[],
+        )
+        .await;
+
+        assert!(report.is_success());
+        assert_eq!(
+            plugin_concrete.sends.lock().unwrap().as_slice(),
+            ["complete answer"]
+        );
+    }
+
+    #[tokio::test]
     async fn deliver_media_falls_back_when_native_send_fails() {
         let plugin_concrete = Arc::new(CountingPlugin::failing_media(4096));
         let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
         let items = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
         let caps = caps(vec![MediaType::Document]);
 
-        deliver_media_to_chat(&plugin, "acc", "chat", None, &items, &caps).await;
+        let report = deliver_media_to_chat(&plugin, "acc", "chat", None, &items, &caps).await;
 
         let sends = plugin_concrete.sends.lock().unwrap().clone();
         assert_eq!(sends.len(), 1);
         assert!(sends[0].contains("Attachments"));
         assert!(sends[0].contains("x.pdf"));
+        assert!(!report.is_success());
+        assert_eq!(report.attempted, 2);
+        assert_eq!(report.succeeded, 1);
+        assert_eq!(report.failures, vec!["native media failed"]);
     }
 }

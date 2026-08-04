@@ -87,6 +87,10 @@ pub(super) struct StreamPreviewOutcome {
     /// duplicate text or media; the caller's `drained_rounds[finalized_rounds..]`
     /// slice is what's left for it to deliver.
     pub finalized_rounds: usize,
+    /// Final-content delivery results for rounds completed inside the stream
+    /// task. Preview refreshes are excluded; only rounds the dispatcher will
+    /// skip as already delivered contribute here.
+    pub delivery_report: super::dispatcher::DeliveryReport,
 }
 
 pub(super) fn append_preview_round_text(accumulated: &mut String, text: &str, new_round: bool) {
@@ -211,6 +215,7 @@ pub(super) fn spawn_channel_stream_task(
         let mut in_tool_phase = false;
         // Number of rounds we've already shipped via per-round finalize.
         let mut finalized_rounds: usize = 0;
+        let mut delivery_report = super::dispatcher::DeliveryReport::default();
         let mut flush_schedule = StreamPreviewFlushSchedule::new(Instant::now());
 
         loop {
@@ -273,13 +278,14 @@ pub(super) fn spawn_channel_stream_task(
                                     // quote, or the turn's first real message
                                     // (round 1+) would lose it.
                                     let round_shipped_text = !accumulated.is_empty();
-                                    finalize_split_round(
+                                    let report = finalize_split_round(
                                         &plugin, &account_id, &chat_id,
                                         reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                                         &accumulated, draft_id, &mut preview_transport,
                                         &mut preview_message_id, &mut card_session,
                                         finalized_rounds, &round_texts, &capabilities,
                                     ).await;
+                                    delivery_report.merge(report);
                                     flush_schedule.mark_flushed(Instant::now());
                                     accumulated.clear();
                                     finalized_rounds += 1;
@@ -314,13 +320,14 @@ pub(super) fn spawn_channel_stream_task(
                             // it inline so the dispatcher has nothing left
                             // to do.
                             if in_tool_phase && split_streaming {
-                                finalize_split_round(
+                                let report = finalize_split_round(
                                     &plugin, &account_id, &chat_id,
                                     reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                                     &accumulated, draft_id, &mut preview_transport,
                                     &mut preview_message_id, &mut card_session,
                                     finalized_rounds, &round_texts, &capabilities,
                                 ).await;
+                                delivery_report.merge(report);
                                 accumulated.clear();
                                 preview_message_id = None;
                                 card_session = None;
@@ -366,6 +373,7 @@ pub(super) fn spawn_channel_stream_task(
         StreamPreviewOutcome {
             preview,
             finalized_rounds,
+            delivery_report,
         }
     })
 }
@@ -447,7 +455,8 @@ async fn finalize_split_round(
     round_idx: usize,
     round_texts: &Arc<Mutex<RoundTextAccumulator>>,
     capabilities: &ChannelCapabilities,
-) {
+) -> super::dispatcher::DeliveryReport {
+    let mut report = super::dispatcher::DeliveryReport::default();
     if !accumulated.is_empty() {
         send_stream_preview(
             plugin,
@@ -481,7 +490,14 @@ async fn finalize_split_round(
             thread_id,
             reply_to_message_id,
         };
-        super::dispatcher::send_text_chunks(plugin, &target, accumulated, None, &[]).await;
+        report.merge(
+            super::dispatcher::send_text_chunks(plugin, &target, accumulated, None, &[]).await,
+        );
+    } else if !accumulated.is_empty() {
+        // A preview handle only survives when the platform accepted the full
+        // final text. Count that visible message as this round's delivery.
+        report.attempted += 1;
+        report.succeeded += 1;
     }
 
     // 3. Transport-specific close. Best-effort: any error here is
@@ -524,16 +540,19 @@ async fn finalize_split_round(
         guard.round_medias(round_idx)
     };
     if !medias.is_empty() {
-        deliver_media_to_chat(
-            plugin,
-            account_id,
-            chat_id,
-            thread_id,
-            &medias,
-            capabilities,
-        )
-        .await;
+        report.merge(
+            deliver_media_to_chat(
+                plugin,
+                account_id,
+                chat_id,
+                thread_id,
+                &medias,
+                capabilities,
+            )
+            .await,
+        );
     }
+    report
 }
 
 /// Pure helper for the split-streaming round-finalize delivery decision.
@@ -662,12 +681,36 @@ async fn send_message_preview(
     payload: &ReplyPayload,
     preview_message_id: &mut Option<String>,
 ) {
-    if let Some(message_id) = preview_message_id.as_deref() {
-        if let Err(e) = plugin
-            .edit_message(account_id, chat_id, message_id, payload)
+    if let Some(message_id) = preview_message_id.clone() {
+        match plugin
+            .edit_message(account_id, chat_id, &message_id, payload)
             .await
         {
-            app_warn!("channel", "worker", "stream preview edit failed: {}", e);
+            Ok(result) if result.success => {}
+            Ok(result) => {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "stream preview edit failed: {}",
+                    crate::logging::redact_sensitive(
+                        &result
+                            .error
+                            .unwrap_or_else(|| "platform rejected edit".to_string())
+                    )
+                );
+                // A stale partial preview is not proof that the final text was
+                // delivered. Force a fresh complete-message fallback.
+                *preview_message_id = None;
+            }
+            Err(error) => {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "stream preview edit failed: {}",
+                    crate::logging::redact_sensitive(&error.to_string())
+                );
+                *preview_message_id = None;
+            }
         }
         return;
     }
@@ -677,16 +720,21 @@ async fn send_message_preview(
             if result.success {
                 *preview_message_id = result.message_id;
             } else {
-                app_warn!(
-                    "channel",
-                    "worker",
-                    "stream preview send failed: {}",
-                    result.error.unwrap_or_default()
+                let error = crate::logging::redact_sensitive(
+                    &result
+                        .error
+                        .unwrap_or_else(|| "platform rejected preview".to_string()),
                 );
+                app_warn!("channel", "worker", "stream preview send failed: {}", error);
             }
         }
         Err(e) => {
-            app_warn!("channel", "worker", "stream preview send failed: {}", e);
+            app_warn!(
+                "channel",
+                "worker",
+                "stream preview send failed: {}",
+                crate::logging::redact_sensitive(&e.to_string())
+            );
         }
     }
 }

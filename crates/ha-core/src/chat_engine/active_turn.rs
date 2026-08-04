@@ -604,6 +604,31 @@ pub fn with_insertion_target<T>(
     turn_id: &str,
     operation: impl FnOnce() -> T,
 ) -> Result<T, &'static str> {
+    with_insertion_target_for(session_id, turn_id, operation, |source| {
+        matches!(source, ChatSource::Desktop | ChatSource::Http)
+    })
+}
+
+/// Channel prompts carry a different permission / KB origin from owner
+/// Desktop and HTTP prompts. They may only steer an already-Channel turn;
+/// otherwise the durable queue creates a fresh least-privilege Channel turn
+/// after the owner turn finishes.
+pub(crate) fn with_channel_insertion_target<T>(
+    session_id: &str,
+    turn_id: &str,
+    operation: impl FnOnce() -> T,
+) -> Result<T, &'static str> {
+    with_insertion_target_for(session_id, turn_id, operation, |source| {
+        matches!(source, ChatSource::Channel)
+    })
+}
+
+fn with_insertion_target_for<T>(
+    session_id: &str,
+    turn_id: &str,
+    operation: impl FnOnce() -> T,
+    accepts_source: impl FnOnce(ChatSource) -> bool,
+) -> Result<T, &'static str> {
     let map = registry_lock();
     let Some(entry) = map.get(session_id) else {
         return Err("no active turn for session");
@@ -617,7 +642,7 @@ pub fn with_insertion_target<T>(
     if !entry.accepting_insertions {
         return Err("active turn is finishing");
     }
-    if !matches!(entry.source, ChatSource::Desktop | ChatSource::Http) {
+    if !accepts_source(entry.source) {
         return Err("active turn source does not support insertion");
     }
     Ok(operation())
@@ -1319,5 +1344,43 @@ mod tests {
             with_insertion_target(sid, "turn-insertion", || "late"),
             Err("active turn is finishing")
         );
+    }
+
+    #[test]
+    fn insertion_targets_do_not_cross_owner_and_channel_trust_domains() {
+        let _lock = test_lock();
+        let desktop_sid = "test-active-turn-desktop-insertion-domain";
+        {
+            let _guard = try_acquire(
+                desktop_sid,
+                ChatSource::Desktop,
+                "desktop-turn".to_string(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .unwrap();
+
+            assert_eq!(
+                with_insertion_target(desktop_sid, "desktop-turn", || "owner"),
+                Ok("owner")
+            );
+            assert!(
+                with_channel_insertion_target(desktop_sid, "desktop-turn", || "channel").is_err()
+            );
+        }
+
+        let channel_sid = "test-active-turn-channel-insertion-domain";
+        let _guard = try_acquire(
+            channel_sid,
+            ChatSource::Channel,
+            "channel-turn".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert_eq!(
+            with_channel_insertion_target(channel_sid, "channel-turn", || "channel"),
+            Ok("channel")
+        );
+        assert!(with_insertion_target(channel_sid, "channel-turn", || "owner").is_err());
     }
 }

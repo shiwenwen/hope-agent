@@ -388,8 +388,49 @@ pub async fn stop_session(
         })
         .await
     };
-    let ((), denied_approvals, cancelled_questions, runtime_result) =
-        tokio::join!(mark_turn, deny_approvals, cancel_questions, cancel_runtime);
+    let queue_db = db.clone();
+    let queue_session_id = session_id.to_string();
+    let hold_channel_queue = async move {
+        if !settle_session {
+            return 0;
+        }
+        let sid = queue_session_id.clone();
+        match tokio::time::timeout(
+            STOP_DB_MARK_TIMEOUT,
+            queue_db.run(move |db| db.hold_channel_turn_messages_after_stop(&sid)),
+        )
+        .await
+        {
+            Ok(Ok(count)) => count,
+            Ok(Err(error)) => {
+                crate::app_warn!(
+                    "chat",
+                    "stop_session",
+                    "Failed to hold queued IM messages for stopped session {}: {}",
+                    queue_session_id,
+                    error
+                );
+                0
+            }
+            Err(_) => {
+                crate::app_warn!(
+                    "chat",
+                    "stop_session",
+                    "Timed out after {}ms holding queued IM messages for stopped session {}",
+                    STOP_DB_MARK_TIMEOUT.as_millis(),
+                    queue_session_id
+                );
+                0
+            }
+        }
+    };
+    let ((), denied_approvals, cancelled_questions, runtime_result, held_channel_messages) = tokio::join!(
+        mark_turn,
+        deny_approvals,
+        cancel_questions,
+        cancel_runtime,
+        hold_channel_queue
+    );
     outcome.denied_approvals = denied_approvals;
     outcome.cancelled_questions = cancelled_questions;
     match runtime_result {
@@ -408,6 +449,7 @@ pub async fn stop_session(
 
     if settle_session {
         outcome.stopped = outcome.stopped
+            || held_channel_messages > 0
             || outcome.denied_approvals > 0
             || outcome.cancelled_questions > 0
             || outcome
@@ -421,11 +463,12 @@ pub async fn stop_session(
     crate::app_info!(
         "chat",
         "stop_session",
-        "Session stop settled: session={} expected_turn={:?} stopped={} turn_mismatch={} approvals_denied={} questions_cancelled={} runtime_cancellations={}",
+        "Session stop settled: session={} expected_turn={:?} stopped={} turn_mismatch={} held_channel_messages={} approvals_denied={} questions_cancelled={} runtime_cancellations={}",
         session_id,
         expected_turn_id,
         outcome.stopped,
         outcome.turn_mismatch,
+        held_channel_messages,
         outcome.denied_approvals,
         outcome.cancelled_questions,
         outcome.runtime_cancellations.len()
@@ -471,14 +514,15 @@ pub async fn stop_all_sessions(
     if let Some(registry) = crate::globals::get_channel_cancels() {
         stopped_sessions.extend(registry.cancel_all());
     }
-    let mark_turns = async {
+    let mark_db = db.clone();
+    let mark_turns = async move {
         if durable_turn_ids.is_empty() {
             return;
         }
         let turn_ids_for_mark = durable_turn_ids.clone();
         match tokio::time::timeout(
             STOP_DB_MARK_TIMEOUT,
-            db.run(move |db| {
+            mark_db.run(move |db| {
                 for turn_id in &turn_ids_for_mark {
                     if let Err(error) =
                         db.mark_chat_turn_cancelling(turn_id, ChatTurnInterruptReason::UserStop)
@@ -517,9 +561,44 @@ pub async fn stop_all_sessions(
         let snapshot = crate::runtime_tasks::snapshot_runtime_tasks_for_session(None).await?;
         crate::runtime_tasks::cancel_runtime_task_snapshot(snapshot).await
     });
+    let queue_db = db.clone();
+    let hold_channel_queues = async move {
+        match tokio::time::timeout(
+            STOP_DB_MARK_TIMEOUT,
+            queue_db.run(|db| db.hold_all_channel_turn_messages_after_stop()),
+        )
+        .await
+        {
+            Ok(Ok(session_ids)) => session_ids,
+            Ok(Err(error)) => {
+                crate::app_warn!(
+                    "chat",
+                    "stop_all_sessions",
+                    "Failed to hold queued IM messages during global Stop: {}",
+                    error
+                );
+                Vec::new()
+            }
+            Err(_) => {
+                crate::app_warn!(
+                    "chat",
+                    "stop_all_sessions",
+                    "Timed out after {}ms holding queued IM messages during global Stop",
+                    STOP_DB_MARK_TIMEOUT.as_millis()
+                );
+                Vec::new()
+            }
+        }
+    };
 
-    let ((), denied_approvals, cancelled_questions, runtime_result) =
-        tokio::join!(mark_turns, deny_approvals, cancel_questions, cancel_runtime);
+    let ((), denied_approvals, cancelled_questions, runtime_result, held_channel_sessions) = tokio::join!(
+        mark_turns,
+        deny_approvals,
+        cancel_questions,
+        cancel_runtime,
+        hold_channel_queues
+    );
+    stopped_sessions.extend(held_channel_sessions.iter().cloned());
     let mut outcome = StopAllOutcome {
         stopped: already_signalled || !stopped_sessions.is_empty(),
         stopped_session_count: stopped_sessions.len(),
@@ -550,9 +629,10 @@ pub async fn stop_all_sessions(
     crate::app_info!(
         "chat",
         "stop_all_sessions",
-        "Global stop settled: stopped={} sessions={} approvals_denied={} questions_cancelled={} runtime_cancellations={}",
+        "Global stop settled: stopped={} sessions={} held_channel_sessions={} approvals_denied={} questions_cancelled={} runtime_cancellations={}",
         outcome.stopped,
         outcome.stopped_session_count,
+        held_channel_sessions.len(),
         outcome.denied_approvals,
         outcome.cancelled_questions,
         outcome.runtime_cancellations.len()
@@ -627,6 +707,21 @@ mod tests {
                 .expect("session db"),
         );
         let session = db.create_session("ha-main").expect("session");
+        db.enqueue_turn_user_message(crate::session::NewQueuedTurnMessage {
+            request_id: "channel-queued-after-stop".to_string(),
+            session_id: session.id.clone(),
+            message: "next".to_string(),
+            display_text: Some("next".to_string()),
+            attachments: Vec::new(),
+            is_plan_trigger: false,
+            goal_trigger: false,
+            plan_comment: None,
+            plan_mode: None,
+            workflow_mode: None,
+            source: crate::session::QueuedTurnMessageSource::Channel,
+            channel_origin: Some(serde_json::json!({"channelId": "wechat"})),
+        })
+        .expect("enqueue channel row");
         let cancel = Arc::new(AtomicBool::new(false));
         let _guard = crate::chat_engine::active_turn::try_acquire(
             &session.id,
@@ -636,11 +731,19 @@ mod tests {
         )
         .expect("active turn");
 
-        let outcome = stop_session(db, &session.id, None, true).await;
+        let outcome = stop_session(db.clone(), &session.id, None, true).await;
 
         assert!(outcome.stopped);
         assert!(!outcome.turn_mismatch);
         assert!(cancel.load(Ordering::SeqCst));
+        let queued = db
+            .list_queued_turn_user_messages(&session.id)
+            .expect("list queue");
+        assert_eq!(queued.len(), 1);
+        assert_eq!(
+            queued[0].status,
+            crate::session::QueuedTurnMessageStatus::HeldAfterStop
+        );
     }
 
     #[tokio::test]
@@ -702,6 +805,8 @@ mod tests {
             plan_comment: None,
             plan_mode: None,
             workflow_mode: None,
+            source: crate::session::QueuedTurnMessageSource::Desktop,
+            channel_origin: None,
         })
         .expect("enqueue");
         db.claim_queued_turn_message_for_dispatch(&session.id, "queued-request", "stopped-turn")

@@ -59,6 +59,40 @@ pub fn request_insertion(
     })
 }
 
+pub(crate) fn request_channel_insertion(
+    db: &crate::session::SessionDB,
+    session_id: &str,
+    turn_id: &str,
+    request_id: &str,
+) -> anyhow::Result<QueueTurnUserMessageResult> {
+    let queued = match active_turn::with_channel_insertion_target(session_id, turn_id, || {
+        db.request_channel_turn_message_insertion(session_id, request_id, turn_id)
+    }) {
+        Ok(result) => result?,
+        Err(reason) => {
+            return Ok(QueueTurnUserMessageResult {
+                queued: false,
+                request_id: request_id.to_string(),
+                reason: Some(reason.to_string()),
+                item: db
+                    .get_queued_turn_user_message(session_id, request_id)?
+                    .as_ref()
+                    .map(crate::session::QueuedTurnMessageView::from),
+            });
+        }
+    };
+    let item = db
+        .get_queued_turn_user_message(session_id, request_id)?
+        .as_ref()
+        .map(crate::session::QueuedTurnMessageView::from);
+    Ok(QueueTurnUserMessageResult {
+        queued,
+        request_id: request_id.to_string(),
+        reason: (!queued).then(|| "queued message is no longer insertable".to_string()),
+        item,
+    })
+}
+
 pub fn cancel_insertion(
     db: &crate::session::SessionDB,
     session_id: &str,

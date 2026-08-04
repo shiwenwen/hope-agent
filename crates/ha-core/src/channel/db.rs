@@ -6,6 +6,7 @@ use super::types::ChatType;
 use crate::session::SessionDB;
 
 /// Manages the `channel_conversations` table that maps IM conversations to sessions.
+#[derive(Clone)]
 pub struct ChannelDB {
     session_db: Arc<SessionDB>,
 }
