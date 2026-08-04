@@ -36,5 +36,15 @@ zip = "7"
 blake3 = "1.8.5"
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+
 [lints]
 workspace = true

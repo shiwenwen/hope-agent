@@ -3077,6 +3077,8 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "windows-sys 0.52.0",
+ "winreg 0.52.0",
  "zip 7.2.0",
 ]
 
