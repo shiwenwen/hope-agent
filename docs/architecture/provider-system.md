@@ -2,231 +2,213 @@
 
 > 返回 [文档索引](../README.md)
 
-> 模型 Provider 系统、对话流程、Thinking/Reasoning 回传、Failover 降级、上下文管理的完整技术文档。
+本文讲清 Hope Agent 如何"接上任意一家大模型、把对话跑起来、并在出问题时优雅降级"。覆盖 Provider 配置系统、四种 API 协议的适配、Thinking/Reasoning 回传、Failover 模型链、以及对话数据的双轨落盘。
+
+---
+
+## 核心思想
+
+Hope Agent 要面对一个碎片化的现实：市面上有几十家大模型服务商，它们**协议不同**（Anthropic Messages、OpenAI Chat、OpenAI Responses、ChatGPT OAuth）、**表达"多想一会儿"的方式不同**（有的传 `reasoning_effort`，有的传 `thinking budget_tokens`，有的传 `enable_thinking`）、**流式事件格式不同**、**可靠性也参差不齐**（限流、过载、超时、上下文溢出随时可能发生）。
+
+整个子系统围绕四个关键设计把这份复杂性收敛掉：
+
+1. **协议归四类**。所有服务商无论叫什么名字，最终都归到 4 种 `ApiType` 之一。适配层只需实现四套请求构建 / SSE 解析 / 历史持久化，新增服务商只是往模板表里加一条配置。
+
+2. **对话历史只有一份、可按需变形**。`conversation_history` 是一段活在内存里的 JSON 消息序列。每个 Provider 在发请求前，把它**标准化**成自家 API 需要的形状。这样即使中途从一个服务商降级到另一个，历史也能无损转译过去。
+
+3. **失败是常态，用模型链兜底**。每一轮对话不是"调一个模型"，而是"走一条模型链"。执行器先给错误分类，再决定是**原地重试**、**紧急压缩后重试**、还是**跳到链上的下一个模型**。
+
+4. **展示与上下文两条落盘通道**。同一段对话以两种形态存进 SQLite：一条一行的 `messages` 表喂前端展示与搜索；整段序列化的 `context_json` 喂下一轮 API 调用。二者服务于完全不同的读取模式。
+
+理解了这四点，后面的所有细节都只是它们的展开。
+
+**关联源码**：`crates/ha-core/src/provider/`（Provider 配置与写入契约）、`crates/ha-core/src/agent/`（Agent 与四套适配器）、`crates/ha-core/src/failover/`（错误分类与执行器）、`crates/ha-core/src/chat_engine/`（对话主循环）、`crates/ha-core/src/session/`（持久化）、`crates/ha-config-schema/src/provider.rs`（配置 wire 类型）。
 
 ---
 
 ## 1. Provider 系统
 
-### 1.1 核心类型
+### 1.1 两个核心枚举
 
-**`crates/ha-core/src/provider/`**
+Provider 相关的 wire 类型（跨进程序列化的纯数据）住在 `crates/ha-config-schema/src/provider.rs`，`ha-core::provider` 原样再导出——脱敏 / 写入 helper 等带凭据的逻辑仍留在 `ha-core`。
+
+一切从两个枚举开始：**用什么协议说话**（`ApiType`）、**怎么表达推理强度**（`ThinkingStyle`）。
 
 ```mermaid
 graph LR
-  subgraph ApiType["ApiType (4 种协议)"]
-    A1["Anthropic<br/>/v1/messages"]
-    A2["OpenaiChat<br/>/v1/chat/completions"]
-    A3["OpenaiResponses<br/>/v1/responses"]
-    A4["Codex<br/>ChatGPT OAuth"]
+  subgraph ApiType["ApiType 协议类型（4 种）"]
+    A1["Anthropic<br/>POST /v1/messages"]
+    A2["OpenaiChat<br/>POST /v1/chat/completions"]
+    A3["OpenaiResponses<br/>POST /v1/responses"]
+    A4["Codex<br/>Responses 变体 + ChatGPT OAuth"]
   end
 
-  subgraph ThinkingStyle["ThinkingStyle (5 种格式)"]
+  subgraph ThinkingStyle["ThinkingStyle 推理参数格式（5 种）"]
     T1["Openai<br/>reasoning_effort"]
-    T2["Anthropic<br/>thinking budget_tokens"]
-    T3["Zai<br/>同 Anthropic"]
+    T2["Anthropic<br/>thinking.budget_tokens"]
+    T3["Zai<br/>暂同 Anthropic"]
     T4["Qwen<br/>enable_thinking"]
-    T5["None<br/>不发送"]
+    T5["None<br/>不发送任何推理参数"]
   end
 ```
 
-**`ProviderConfig`** — 单个 Provider 的完整配置：
+- `ApiType`（kebab-case 序列化：`anthropic` / `openai-chat` / `openai-responses` / `codex`）决定走哪套适配器。Codex 的默认端点是 `https://chatgpt.com/backend-api/codex`，其余三种默认指向各自官方域名。
+- `ThinkingStyle` 默认是 `Openai`。`Zai` 目前与 `Anthropic` 走同一套 `budget_tokens` 格式，单列出来是为将来 Z.AI 分化时留位置。
+
+### 1.2 ProviderConfig：一个服务商的完整配置
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | UUID | 唯一标识 |
+| `id` | String (UUID) | 唯一标识 |
 | `name` | String | 用户自定义显示名 |
 | `api_type` | ApiType | 协议类型 |
 | `base_url` | String | API 端点 |
-| `api_key` | String | 认证凭据（Codex 为空） |
+| `api_key` | String | 单密钥凭据（Codex 走 OAuth，此处为空）。遗留字段——多密钥场景优先用 `auth_profiles` |
+| `auth_profiles` | Vec\<AuthProfile\> | 多密钥档案：非空时取代 `api_key`，供限流/鉴权/计费错误时**自动轮换密钥** |
 | `models` | Vec\<ModelConfig\> | 可用模型列表 |
 | `enabled` | bool | 启用/禁用 |
-| `thinking_style` | ThinkingStyle | 推理参数格式 |
-| `currency` | Option\<Currency\> | 模型单价币种（`USD`/`CNY`），缺省 = USD。单价照厂商价目页**原文录入**，成本入账在 `dashboard::cost::resolve_cost` 单点按 `CNY_PER_USD` 换算成 USD——模板、GUI、导入导出均原样透传不换算。内置模板中 qwen / volcengine / tencent 标 CNY |
+| `user_agent` | String | 自定义 User-Agent 头（空串会被 `sanitize` 回落到默认值，避免部分网关对空 UA 返 403） |
+| `thinking_style` | ThinkingStyle | Provider 级推理参数格式 |
+| `allow_private_network` | bool | 显式允许 base_url 落到私网/环回地址（自托管 Ollama / LM Studio 用）；为 true 时前端保存会把该 host 追加进 SSRF 可信列表 |
+| `currency` | Option\<Currency\> | 模型单价币种（`USD` / `CNY`），缺省 = USD |
 
-**`ModelConfig`** — 单个模型的配置：
+**多密钥轮换（`auth_profiles`）** 是 Provider 系统里容易被忽略的一层能力：一个服务商下可以挂多个 `AuthProfile`（各带自己的 `label` / `api_key` / 可选 `base_url` 覆盖 / `enabled` 开关）。`effective_profiles()` 给出当轮可用的档案序——Codex 恒返回空（走 OAuth 不用 key），有 `auth_profiles` 时返回其中 enabled 的档案，否则把遗留 `api_key` 合成成一个默认档案。Failover 执行器就是在这个档案序上做限流/鉴权/计费错误后的密钥轮换。
+
+**币种与成本**：单价一律照厂商价目页**原文录入**，币种由 Provider 级 `currency` 声明。换算集中在 `dashboard::cost::resolve_cost` 一处，按 `CNY_PER_USD`（kernel 常量，当前 `7.0`，粗粒度只服务成本展示）折算成 USD；模板、GUI、导入导出全程透传数字不换算。内置模板中 qwen / volcengine / tencent 标 `CNY`。
+
+### 1.3 ModelConfig：一个模型的配置
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | String | 模型标识（如 `claude-sonnet-4-6`） |
-| `input_types` | Vec\<String\> | `["text", "image", "video"]` |
-| `context_window` | u32 | 上下文窗口（tokens） |
-| `max_tokens` | u32 | 最大输出 tokens |
+| `name` | String | 显示名（如 `Claude Sonnet 4.6`） |
+| `input_types` | Vec\<String\> | 支持的输入模态：`["text", "image", "video"]`；**空 = 未配置**（视为支持视觉，交给 API 判定）、非空但不含 `image` = 显式声明不支持视觉 |
+| `context_window` | u32 | 上下文窗口（tokens），默认 200_000 |
+| `max_tokens` | u32 | 最大输出 tokens，默认 8192 |
 | `reasoning` | bool | 是否支持推理 |
-| `thinking_style` | Option\<ThinkingStyle\> | 模型级 think 模式覆盖；`None` = 继承 Provider |
-| `cost_input` / `cost_output` | Option\<f64\> | 百万 token 定价，币种由 Provider 级 `currency` 声明。`None` = 未标价（厂商单价未知，成本回退内置估算表），`Some(0.0)` = 明确不按 token 计费（本地模型、包月端点，如实记 $0）——两者语义不同，勿混写 |
+| `thinking_style` | Option\<ThinkingStyle\> | 模型级覆盖；`None` = 继承 Provider 级 |
+| `cost_input` / `cost_output` | Option\<f64\> | 每百万 token 单价。`None` = 未标价（回退内置估算表），`Some(0.0)` = 明确不按 token 计费（本地模型、包月端点，如实记 $0）——两者语义不同，勿混写 |
 
-**实际生效顺序**
+**推理是否真正开启，是三段式解析的结果**（`effective_thinking_style_for_model`）：
 
-1. `reasoning == false` → 强制 `ThinkingStyle::None`
-2. 模型级 `thinking_style`
-3. Provider 级 `thinking_style`
+```mermaid
+flowchart TD
+  Q["某模型这一轮该用哪种 ThinkingStyle？"] --> R{"model.reasoning == false?"}
+  R -->|是| N["ThinkingStyle::None<br/>能力本身就不支持，硬关"]
+  R -->|否| M{"模型级 thinking_style 有值?"}
+  M -->|是| MM["用模型级覆盖"]
+  M -->|否| PP["用 Provider 级 thinking_style"]
+```
 
-因此“模型支持推理”与“当前是否真正发送 thinking 参数”是两个层次：前者由 `reasoning` 声明能力，后者由上述三段式解析决定。
+因此"模型支持推理"（`reasoning` 声明的**能力**）与"这一轮是否真的发送 thinking 参数"（三段式解析决定的**行为**）是两个层次，不要混为一谈。
 
-**`AppConfig`** — 全局配置根，持久化到 `~/.hope-agent/config.json`：
-- `providers`: 已注册的 Provider 列表
-- `active_model`: 当前选中的模型 `{providerId, modelId}`
-- `fallback_models`: 降级模型链
-- 子配置：`compact`、`notification`、`mediaGen`、`canvas`、`webSearch` 等
+`model_supports_vision(model_id)` 同理是 catalog 驱动、零 API 往返：查不到模型或 `input_types` 为空则默认支持（旧配置升级不静默丢视觉），非空且不含 `image` 则判定不支持——这正是[视觉桥](#11-视觉桥vision-bridge)的触发门。
 
-### 1.2 前端模板
+### 1.4 AppConfig：全局配置根
 
-**`src/components/settings/provider-setup/templates/`**
+持久化到 `~/.hope-agent/config.json`，与 Provider 相关的顶层字段：
 
-50 个内置 Provider 模板，392 个预设模型（实测 international 91 + china 61 + infrastructure 230 + local 10 = 392；按 `grep -c '^\s*id:' src/components/settings/provider-setup/templates/{international,china,infrastructure,local}.ts` 复核），分为四个模板文件：
+- `providers`：已注册的 Provider 列表
+- `active_model`：当前选中的模型 `{providerId, modelId}`
+- `fallback_models`：全局降级模型链
+- `proxy`：全局代理（`system` / `none` / `custom`），作用于所有出站 HTTP
+- 其余子配置（`compact` / `notification` / `mediaGen` / `webSearch` …）见各自文档
 
-- `international.ts` — 国际 Provider（8 个）
-- `china.ts` — 国内 Provider（11 个）
-- `infrastructure.ts` — 基础设施/聚合 Provider（26 个）
-- `local.ts` — 本地/自托管 Provider（5 个）
+### 1.5 前端模板
 
-#### 国际 Provider（`international.ts`）
+内置模板住在 `src/components/settings/provider-setup/templates/`，按用途分四个文件，用户在 GUI 里一键套用后即成为一份 `ProviderConfig`。当前约 **50 个内置 Provider、数百个预设模型**（模板文件是唯一权威，随版本增删）：
 
-| Provider | Key | API 类型 | baseUrl | 模型数 | 代表模型 |
-|----------|-----|---------|---------|:------:|---------|
-| **Anthropic** | `anthropic` | anthropic · think:anthropic | `https://api.anthropic.com` | 8 | Claude Fable 5, Claude Mythos 5, Claude Sonnet 5 …等 8 个 |
-| **Anthropic (Vertex AI)** | `anthropic-vertex` | anthropic · think:anthropic | `https://us-east5-aiplatform.googleapis.com` | 7 | Claude Fable 5, Claude Mythos 5, Claude Sonnet 5 …等 7 个 |
-| **OpenAI** | `openai` | openai-responses | `https://api.openai.com` | 20 | GPT-5.6, GPT-5.6 Sol, GPT-5.6 Terra …等 20 个 |
-| **OpenAI (Chat)** | `openai-chat` | openai-chat | `https://api.openai.com` | 20 | GPT-5.6, GPT-5.6 Sol, GPT-5.6 Terra …等 20 个 |
-| **DeepSeek** | `deepseek` | openai-chat | `https://api.deepseek.com` | 4 | DeepSeek V4 Flash, DeepSeek V4 Pro, DeepSeek Chat …等 4 个 |
-| **Google Gemini** | `google-gemini` | openai-chat | `https://generativelanguage.googleapis.com/v1beta/openai` | 7 | Gemini 3.5 Flash, Gemini 3.1 Pro Preview, Gemini 3.1 Flash Lite …等 7 个 |
-| **xAI** | `xai` | openai-chat | `https://api.x.ai/v1` | 16 | Grok 4.5, Grok 4.3, Grok 4.20 Beta Latest (Reasoning) …等 16 个 |
-| **Mistral** | `mistral` | openai-chat | `https://api.mistral.ai/v1` | 9 | Mistral Medium 3.5, Mistral Large, Mistral Medium 3.1 …等 9 个 |
+| 文件 | 类别 | Provider 数（约） | 特点 |
+|------|------|:---:|------|
+| `international.ts` | 国际 | 8 | Anthropic / OpenAI / Google / xAI / Mistral / DeepSeek 等一线厂商 |
+| `china.ts` | 国内 | 11 | Kimi / 通义千问 / 豆包 / 智谱 / MiniMax 等，多标 CNY 计价 |
+| `infrastructure.ts` | 基础设施 / 聚合 | 26 | OpenRouter / Groq / Together / Fireworks / 各类网关与 TEE 推理 |
+| `local.ts` | 本地 / 自托管 | 5 | Ollama / LiteLLM / vLLM / LM Studio / SGLang，指向 `127.0.0.1` |
 
-#### 国内 Provider（`china.ts`）
+> 精确复核：`grep -c '^\s*id:' src/components/settings/provider-setup/templates/{international,china,infrastructure,local}.ts` 数模型条目。
 
-| Provider | Key | API 类型 | baseUrl | 模型数 | 代表模型 |
-|----------|-----|---------|---------|:------:|---------|
-| **Moonshot AI (Kimi)** | `moonshot` | openai-chat | `https://api.moonshot.ai/v1` | 7 | Kimi K3, Kimi K2.7 Code, Kimi K2.6 …等 7 个 |
-| **通义千问 (Qwen)** | `qwen` | openai-chat · think:qwen | `https://dashscope.aliyuncs.com/compatible-mode` | 4 | Qwen Max, Qwen Plus, Qwen Turbo …等 4 个 |
-| **火山引擎 (豆包)** | `volcengine` | openai-chat | `https://ark.cn-beijing.volces.com/api/v3` | 5 | Doubao Seed Code, Doubao Seed 1.8, Kimi K2.5 …等 5 个 |
-| **智谱 AI (Z.AI)** | `zhipu` | openai-chat · think:zai | `https://open.bigmodel.cn/api/paas/v4` | 14 | GLM-5.2, GLM-5.1, GLM-5 …等 14 个 |
-| **MiniMax** | `minimax` | anthropic · think:anthropic | `https://api.minimax.io/anthropic` | 5 | MiniMax M3, MiniMax M2.7, MiniMax M2.7 Highspeed …等 5 个 |
-| **Kimi Coding** | `kimi-coding` | anthropic · think:anthropic | `https://api.kimi.com/coding/` | 5 | Kimi Code, Kimi K3, Kimi K3 (1M) …等 5 个 |
-| **小米 MiMo** | `xiaomi` | openai-chat | `https://api.xiaomimimo.com/v1` | 3 | Xiaomi MiMo V2 Pro, Xiaomi MiMo V2 Omni, Xiaomi MiMo V2 Flash |
-| **百度千帆** | `qianfan` | openai-chat | `https://qianfan.baidubce.com/v2` | 2 | DeepSeek V3.2, ERNIE 5.0 Thinking |
-| **ModelStudio (DashScope)** | `modelstudio` | openai-chat · think:qwen | `https://coding-intl.dashscope.aliyuncs.com/v1` | 11 | Qwen 3.7 Plus, Qwen 3.6 Plus, Qwen 3.5 Plus …等 11 个 |
-| **腾讯混元 (TokenHub)** | `tencent` | openai-chat | `https://tokenhub.tencentmaas.com/v1` | 2 | Hy3 (TokenHub), Hy3 Preview |
-| **阶跃星辰 (StepFun)** | `stepfun` | openai-chat | `https://api.stepfun.com/v1` | 3 | Step 3.7 Flash, Step 3.5 Flash, Step 3.5 Flash 2603 |
+模板里最值得记的是**协议归类**——大多数国内/聚合服务商都用 `openai-chat`（OpenAI 兼容），少数走原生 `anthropic`（MiniMax、Kimi Coding、Synthetic 等），OpenAI 官方与 GitHub Copilot 走 `openai-responses`。推理格式则跟着服务商走：智谱标 `zai`、通义/百炼标 `qwen`、Anthropic 系标 `anthropic`，其余多为 `openai`。这套"模板 → ApiType → ThinkingStyle"的映射就是新增服务商时要填对的三件事。
 
-#### 基础设施/聚合 Provider（`infrastructure.ts`）
+### 1.6 Provider 写入契约（强制）
 
-| Provider | Key | API 类型 | baseUrl | 模型数 | 代表模型 |
-|----------|-----|---------|---------|:------:|---------|
-| **OpenRouter** | `openrouter` | openai-chat | `https://openrouter.ai/api/v1` | 14 | OpenRouter Auto, Claude Opus 4.8, Claude Sonnet 4.6 …等 14 个 |
-| **Groq** | `groq` | openai-chat | `https://api.groq.com/openai` | 10 | Compound, Compound Mini, Llama 4 Scout 17B …等 10 个 |
-| **NVIDIA** | `nvidia` | openai-chat | `https://integrate.api.nvidia.com/v1` | 12 | NVIDIA Nemotron 3 Ultra 550B, NVIDIA Nemotron 3 Super 120B, GLM 5.2 …等 12 个 |
-| **Together AI** | `together` | openai-chat | `https://api.together.xyz/v1` | 11 | Kimi K2.6 FP4, DeepSeek V4 Pro, GLM 5.1 FP4 …等 11 个 |
-| **Hugging Face** | `huggingface` | openai-chat | `https://router.huggingface.co/v1` | 4 | DeepSeek V3.1, DeepSeek R1, Llama 3.3 70B Turbo …等 4 个 |
-| **BytePlus (海外火山)** | `byteplus` | openai-chat | `https://ark.ap-southeast.bytepluses.com/api/v3` | 3 | Seed 1.8, Kimi K2.5, GLM 4.7 |
-| **Chutes (TEE)** | `chutes` | openai-chat | `https://llm.chutes.ai/v1` | 47 | GLM-5 TEE, GLM-4.7 TEE, GLM-4.7 FP8 …等 47 个 |
-| **Fireworks AI** | `fireworks` | openai-chat | `https://api.fireworks.ai/inference/v1` | 2 | Kimi K2.6, Kimi K2.5 Turbo (Fire Pass) |
-| **Arcee** | `arcee` | openai-chat | `https://api.arcee.ai/api/v1` | 3 | Trinity Large Thinking, Trinity Large Preview, Trinity Mini 26B |
-| **Venice** | `venice` | openai-chat | `https://api.venice.ai/api/v1` | 38 | Claude Opus 4.6 (via Venice), Claude Sonnet 4.6 (via Venice), GPT-5.4 (via Venice) …等 38 个 |
-| **Synthetic** | `synthetic` | anthropic · think:anthropic | `https://api.synthetic.new/anthropic` | 11 | MiniMax M2.5, Kimi K2.5, Kimi K2 Thinking …等 11 个 |
-| **Vercel AI Gateway** | `vercel-ai-gateway` | openai-chat | `https://ai-gateway.vercel.sh` | 7 | Claude Opus 4.8, Claude Opus 4.6, Claude Sonnet 4.6 …等 7 个 |
-| **Cloudflare AI Gateway** | `cloudflare-ai` | openai-chat | `https://gateway.ai.cloudflare.com/v1/{accountId}/{gatewayId}` | 3 | Claude Opus 4.8, Claude Opus 4.7, Claude Sonnet 4.6 |
-| **Cerebras** | `cerebras` | openai-chat | `https://api.cerebras.ai/v1` | 4 | Z.ai GLM 4.7, GPT OSS 120B, Qwen 3 235B Instruct …等 4 个 |
-| **DeepInfra** | `deepinfra` | openai-chat | `https://api.deepinfra.com/v1/openai` | 8 | DeepSeek V4 Flash, DeepSeek V3.2, GLM-5.1 …等 8 个 |
-| **GitHub Copilot** | `github-copilot` | openai-responses | `https://api.individual.githubcopilot.com` | 14 | Claude Opus 4.8, Claude Opus 4.7, Claude Opus 4.6 …等 14 个 |
-| **GMI Cloud** | `gmi` | openai-chat | `https://api.gmi-serving.com/v1` | 6 | GPT-5.4, Claude Sonnet 4.6, Gemini 3.1 Flash Lite …等 6 个 |
-| **Novita AI** | `novita` | openai-chat | `https://api.novita.ai/openai/v1` | 6 | Kimi K2.5, MiniMax M2.7, GLM-5 …等 6 个 |
-| **OpenCode Zen** | `opencode` | openai-chat | `https://opencode.ai/zen/v1` | 4 | Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro …等 4 个 |
-| **OpenCode Zen Go** | `opencode-go` | openai-chat | `https://opencode.ai/zen/go/v1` | 2 | DeepSeek V4 Pro, DeepSeek V4 Flash |
-| **KiloCode** | `kilocode` | openai-chat | `https://api.kilo.ai/api/gateway/` | 1 | Kilo Auto |
-| **Cohere** | `cohere` | openai-chat | `https://api.cohere.ai/compatibility/v1` | 5 | Command A+, North Mini Code 1.0, Command A Reasoning …等 5 个 |
-| **Baseten** | `baseten` | openai-chat | `https://inference.baseten.co/v1` | 12 | DeepSeek V4 Pro, Kimi K2.7 Code, Kimi K2.6 …等 12 个 |
-| **LongCat** | `longcat` | openai-chat | `https://api.longcat.chat/openai` | 1 | LongCat 2.0 |
-| **Meta** | `meta` | openai-chat | `https://api.meta.ai/v1` | 1 | Muse Spark 1.1 |
-| **Featherless** | `featherless` | openai-chat | `https://api.featherless.ai/v1` | 1 | Qwen3 32B |
-
-#### 本地/自托管 Provider（`local.ts`）
-
-| Provider | Key | API 类型 | baseUrl | 模型数 | 代表模型 |
-|----------|-----|---------|---------|:------:|---------|
-| **LiteLLM** | `litellm` | openai-chat | `http://127.0.0.1:4000` | 1 | Your Model |
-| **Ollama** | `ollama` | openai-chat | `http://127.0.0.1:11434` | 6 | GLM 5.2 (云端), Kimi K2.5 (云端), MiniMax M2.7 (云端) …等 6 个 |
-| **vLLM** | `vllm` | openai-chat | `http://127.0.0.1:8000` | 1 | Your Model |
-| **LM Studio** | `lm-studio` | openai-chat | `http://127.0.0.1:1234` | 1 | Your Model |
-| **SGLang** | `sglang` | openai-chat | `http://127.0.0.1:30000` | 1 | Your Model |
-
-### 1.3 Provider Write Contract（强制）
-
-所有 Provider 列表与 `active_model` 写入必须走 `crates/ha-core/src/provider/crud.rs` 提供的 helper，禁止在 Tauri / HTTP / onboarding / importer / local_llm 等任何路径里直接 `providers.push` / `retain` / 手写 `active_model`：
+所有对 `providers` 列表与 `active_model` 的写入，必须走 `crates/ha-core/src/provider/crud.rs` 的 helper——禁止在 Tauri / HTTP / onboarding / importer / local_llm 任何路径里直接 `providers.push` / `retain` 或手写 `active_model`。每个 helper 都带一个 `source: &'static str` 审计标签，并统一经 `mutate_config` 落盘（配置读写契约见 [config-system](config-system.md)）。
 
 | Helper | 语义 |
 |---|---|
-| `add_provider(cfg)` | 生成新 id 并 append 到列表尾部（前端「新增后取最后一项」依赖此语义，不要破坏） |
-| `update_provider(id, mutator)` | 按 id 找到现有 Provider 并修改字段 |
-| `delete_provider(id)` | 删除 Provider，并清理可能挂在其上的 `active_model` |
-| `reorder_providers(order)` | 按给定 id 序列重排 |
-| `set_active_model(provider_id, model_id)` | 唯一允许修改 `active_model` 的入口 |
-| `add_and_activate_provider(cfg)` | 添加并把 active model 切到首个模型（onboarding 用） |
-| `add_many_providers(cfgs)` | 批量导入（importer 用） |
-| `ensure_codex_provider_persisted()` | Codex Provider 构造期失败保活（commit `99bc84a7`，配合 OAuth 重新登录） |
-| `upsert_known_local_provider_model(kind, ...)` | 本地 LLM 安装路径专用：按 [Local Backend Catalog](#14-local-backend-catalog) 的 host/port 去重，补模型、启用 Provider、设置 `allow_private_network`、切 active model |
+| `add_provider(cfg, source)` | 生成新 id 并 append 到列表尾部（前端"新增后取最后一项"依赖此语义） |
+| `add_and_activate_provider(cfg, model_id, source)` | 添加并把 active model 切到指定模型（onboarding 用） |
+| `add_many_providers(cfgs, source)` | 批量导入、保留各自 id（importer 用） |
+| `update_provider(cfg, source)` | 按 id 整体替换该 Provider；返回布尔=是否需要重建当前 Agent 缓存 |
+| `delete_provider(id, source)` | 删除 Provider，并清理挂在其上的 `active_model` / fallback 引用 |
+| `delete_providers_by_api_type(api_type, source)` | 按协议类型批量删除（如清空所有 Codex Provider） |
+| `reorder_providers(order, source)` | 按给定 id 序列重排 |
+| `set_active_model(provider_id, model_id, source)` | 唯一允许修改 `active_model` 的入口 |
+| `ensure_codex_provider_persisted(active, source)` | Codex Provider 构造期失败保活（配合 OAuth 重新登录） |
 
-Tauri / HTTP 命令一律只做薄壳，业务路径必须走以上 helper。CR / review 阶段一旦看到直接操作 `cfg.providers` 数组或 `active_model` 字段，必须打回。
+删改 Provider 后 crud 会顺带跑 `repair_hard_deleted_model_references`：把因硬删除而悬空的 `active_model` / fallback 引用修好，避免下一轮 chat 指向不存在的模型。本地 LLM 安装路径另有专用入口 `upsert_known_local_provider_model`（在 `provider/local.rs`），按下节 catalog 的 host/port 去重。
 
-### 1.4 Local Backend Catalog
+CR 阶段一旦看到直接操作 `cfg.providers` 数组或 `active_model` 字段，一律打回。
 
-本地后端目录硬编码在 `crates/ha-core/src/provider/local.rs`，当前条目：
+### 1.7 本地后端目录（Local Backend Catalog）
 
-| Kind | Host / Port | 备注 |
-|---|---|---|
-| `ollama` | `localhost:11434`（额外接受 `ollama.local`） | 本地大模型默认入口 |
-| `litellm` | `localhost:4000` | 统一 LLM 代理网关 |
-| `vllm` | `localhost:8000` | 高性能推理 |
-| `lm-studio` | `localhost:1234` | 桌面端本地推理 |
-| `sglang` | `localhost:30000` | 高性能推理 |
+自托管后端的已知端点硬编码在 `crates/ha-core/src/provider/local.rs::known_local_backends()`：
 
-匹配规则固定为「`apiType` 一致 + host/port 命中」，URL path 一律忽略——所以 `http://localhost:11434/v1` 也算 Ollama。Tauri 命令 `local_llm_known_backends` 与 HTTP `GET /api/local-llm/known-backends` 同步暴露此 catalog；前端判断"是否已配置本地后端"必须消费这个目录，禁止再写硬编码 regex。
+| Kind | 端口 | 接受的 host | 备注 |
+|---|:---:|---|---|
+| `ollama` | 11434 | `127.0.0.1` / `localhost` / `::1` / `ollama.local` | 本地大模型默认入口 |
+| `litellm` | 4000 | `127.0.0.1` / `localhost` / `::1` | 统一 LLM 代理网关 |
+| `vllm` | 8000 | 同上 | 高性能推理 |
+| `lm-studio` | 1234 | 同上 | 桌面端本地推理 |
+| `sglang` | 30000 | 同上 | 高性能推理 |
 
-本地 LLM 一键安装、模型拉取、Embedding 拉取等流程详见 [local-model-loading.md](./local-model-loading.md)。
+匹配规则固定为「`apiType` 一致 + host/port 命中」，URL path 一律忽略——所以 `http://localhost:11434/v1` 也算 Ollama。Tauri 命令 `local_llm_known_backends` 与 HTTP `GET /api/local-llm/known-backends` 同步暴露此目录；前端判断"是否已配置本地后端"必须消费它，禁止再写硬编码 regex。本地一键安装、模型拉取等流程详见 [local-model-loading.md](./local-model-loading.md)。
 
 ---
 
 ## 2. Agent 核心
 
-### 2.1 LlmProvider 枚举
+### 2.1 LlmProvider：把配置拍平成"能直接发请求的凭据 + 模型"
 
-**`crates/ha-core/src/agent/types.rs`**
+`crates/ha-core/src/agent/types.rs` 里的 `LlmProvider` 枚举，是 `ProviderConfig` 解析后的运行时形态——每个变体只携带发一次请求所需的最小信息：
 
 ```rust
 enum LlmProvider {
-    Anthropic { api_key, base_url, model },
-    OpenAIChat { api_key, base_url, model },
+    Anthropic       { api_key, base_url, model },
+    OpenAIChat      { api_key, base_url, model },
     OpenAIResponses { api_key, base_url, model },
-    Codex { access_token, account_id, model },
+    Codex           { access_token, account_id, model },  // OAuth，不带 api_key
 }
 ```
 
-### 2.2 AssistantAgent 结构体
+Codex 变体特殊：它不带 `api_key`，而是 `access_token` + `account_id`（ChatGPT OAuth）。这个差异一路贯穿到鉴权头、失败路径和 profile 轮换策略。
 
-**`crates/ha-core/src/agent/types.rs`**
+### 2.2 AssistantAgent：一次对话的完整运行时
 
-| 字段 | 说明 |
-|------|------|
-| `provider` | LlmProvider 枚举，决定走哪个 API |
-| `thinking_style` | ThinkingStyle，控制推理参数格式 |
-| `conversation_history` | `Mutex<Vec<JSON>>`，完整对话状态 |
-| `context_window` | 模型上下文窗口大小 |
-| `compact_config` | 上下文压缩配置 |
-| `denied_tools` | 深度分层工具策略 |
-| `plan_agent_mode` | Plan/Executing Agent 模式切换 |
+`AssistantAgent` 是对话的核心对象，字段很多（KB 访问范围、Plan 模式状态、记忆快照、awareness 后缀等都挂在上面）。与本文主题相关的几个：
 
-### 2.3 Chat 分发器
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `provider` | LlmProvider | 决定走哪套适配器 |
+| `thinking_style` | ThinkingStyle | 推理参数格式 |
+| `conversation_history` | `Mutex<Vec<Value>>` | 完整对话状态，跨 `chat()` 调用持久驻留 |
+| `context_window` | u32 | 模型上下文窗口 |
+| `compact_config` | CompactConfig | 上下文压缩配置 |
+| `denied_tools` | Vec\<String\> | 基于深度的工具策略 |
+| `plan_agent_mode` | `ArcSwap<PlanAgentMode>` | Plan / Executing 双 Agent 模式，用 ArcSwap 支持 turn 中途无锁切换 |
 
-**`crates/ha-core/src/agent/mod.rs`**
+关键约束：`conversation_history` 是**唯一一份对话真相**，活在内存里逐轮追加。它是"历史标准化"（第 6 节）和"双轨落盘"（第 8 节）共同围绕的对象。
+
+### 2.3 Chat 分发
+
+`agent.chat()`（`crates/ha-core/src/agent/mod.rs`）按 `provider` 变体分发到四套适配入口：
 
 ```mermaid
 flowchart LR
-  chat["agent.chat()"] --> match{match provider}
-  match -->|Anthropic| A["chat_anthropic()"]
-  match -->|OpenAIChat| B["chat_openai_chat()"]
-  match -->|OpenAIResponses| C["chat_openai_responses()"]
-  match -->|Codex| D["chat_openai()<br/>Responses + 重试"]
+  chat["agent.chat()"] --> M{"match provider"}
+  M -->|Anthropic| A["chat_anthropic()"]
+  M -->|OpenAIChat| B["chat_openai_chat()"]
+  M -->|OpenAIResponses| C["chat_openai_responses()"]
+  M -->|Codex| D["chat_openai()<br/>Responses 变体 + OAuth + 重试"]
 ```
 
 ---
@@ -235,68 +217,75 @@ flowchart LR
 
 ### 3.1 主流程
 
-**入口**：`src-tauri/src/commands/chat.rs`（桌面）/ `crates/ha-server/src/routes/chat.rs`（HTTP）→ 调用 `crates/ha-core/src/chat_engine/`
+对话的编排入口是 `chat_engine::run_chat_engine`（`crates/ha-core/src/chat_engine/engine.rs`）。桌面 `src-tauri/src/commands/chat.rs` 与 HTTP `crates/ha-server/src/routes/chat.rs` 都是薄壳，把请求转进同一个引擎，业务逻辑全在 `ha-core`。
 
 ```mermaid
 flowchart TD
   FE["前端 invoke('chat')"] --> INIT["1. Session 初始化<br/>新建/恢复 session + 处理附件"]
-  INIT --> CHAIN["2. 模型链解析<br/>Agent 配置 → primary + fallbacks"]
-  CHAIN --> LOOP["3. 模型链迭代"]
+  INIT --> CHAIN["2. 模型链解析<br/>见 §7.2 优先级"]
+  CHAIN --> LOOP["3. 遍历模型链"]
 
   LOOP --> BUILD["build_agent_for_model()"]
   BUILD --> RESTORE["restore_agent_context()<br/>从 DB 恢复 history"]
   RESTORE --> CHAT["agent.chat()"]
 
-  CHAT --> NORM["normalize_history<br/>跨 Provider 格式转换"]
-  NORM --> COMPACT["run_compaction_with_options<br/>上下文压缩 Tier 0-3"]
-  COMPACT --> API["HTTP POST SSE 流式请求"]
-  API --> PARSE["parse SSE → 发射事件到前端"]
+  CHAT --> NORM["normalize_history_*<br/>跨 Provider 格式转换"]
+  NORM --> COMPACT["run_compaction<br/>上下文压缩 Tier 0-4"]
+  COMPACT --> API["HTTP POST，SSE 流式"]
+  API --> PARSE["解析 SSE → 发射事件到前端"]
   PARSE --> TOOL{"有 tool_call?"}
   TOOL -->|是| EXEC["执行工具 → 回传结果"] --> PARSE
   TOOL -->|否| SAVE["save_agent_context()"]
-
   SAVE --> OK["返回 Ok(text)"]
 
   CHAT -->|失败| CLASSIFY["classify_error()"]
   CLASSIFY -->|retryable| RETRY["指数退避重试"] --> CHAT
   CLASSIFY -->|overflow| EMERGENCY["紧急压缩"] --> CHAT
   CLASSIFY -->|terminal| NEXT["跳下一模型"] --> BUILD
-  CLASSIFY -->|全部失败| ERR["返回 Err(error)"]
+  CLASSIFY -->|全部失败| ERR["返回 Err"]
 ```
 
-### 3.2 事件流 (Channel\<String\>)
+### 3.2 事件流
 
-Provider 通过 `on_delta` 回调实时推送 JSON 事件：
+Provider 通过 `on_delta` 回调实时推送 JSON 事件（`crates/ha-core/src/agent/events.rs`）。前端与 IM 都消费同一套事件：
 
-| 事件类型 | 字段 | 说明 |
+| 事件类型 | 关键字段 | 说明 |
 |---------|------|------|
-| `text_delta` | `content` | 增量文本 |
+| `text_delta` | `content` | 增量正文 |
 | `thinking_delta` | `content` | 增量推理内容 |
 | `tool_call` | `call_id`, `name`, `arguments` | 工具调用开始 |
+| `tool_call_args_rewritten` | `call_id`, `arguments` | 工具参数被就地改写（如路径规范化）后回投前端 |
 | `tool_result` | `call_id`, `result`, `duration_ms`, `is_error` | 工具执行结果 |
 | `usage` | `input_tokens`, `output_tokens`, `model`, `ttft_ms` | Token 用量 |
-| `context_compaction_progress` | `phase`, `kind` | live-only 压缩进度通知（GUI banner） |
-| `context_compacted` | `tier_applied`, `tokens_before`, `tokens_after`, `manifest` | 上下文压缩完成通知 |
-| `model_fallback` | `model`, `from_model`, `reason` | 模型降级通知 |
+| `round_limit_reached` | — | tool loop 触到轮数上限 |
+| `context_compaction_progress` | `phase`, `kind` | 压缩进度（仅 live，GUI banner） |
+| `context_compacted` | `tier_applied`, `tokens_before`, `tokens_after`, `manifest` | 压缩完成 |
+| `model_retry` | `model`, `attempt`, `reason` | 同模型重试（适配器/执行器发出，用户可见） |
+| `model_fallback` | `model`, `from_model`, `reason` | 跨模型降级 |
+
+`model_retry`（同一个模型再试一次）与 `model_fallback`（换到链上下一个模型）是两回事：前者是重试策略的产物，后者是失败降级的产物。
 
 ### 3.3 前端事件处理
 
-**`src/components/chat/useChatStream.ts`**
+`src/components/chat/useChatStream.ts`：
 
-- `text_delta` + `thinking_delta`：缓冲 + `requestAnimationFrame` 批量刷新（60fps）
-- `tool_call` → 先同步 flush 缓冲区 → 创建 ToolCallBlock 组件（pending 状态）
-- `tool_result` → 更新 ToolCallBlock（完成/错误状态）
-- `thinking_delta` → ThinkingBlock 组件（可折叠，自动展开配置）
+- `text_delta` + `thinking_delta`：缓冲 + `requestAnimationFrame` 批量刷新（约 60fps），避免每个 token 都触发 React 重渲染
+- `tool_call`：先同步 flush 缓冲区，再创建 pending 状态的 ToolCallBlock
+- `tool_result`：更新对应 ToolCallBlock 为完成/错误态
+- `thinking_delta`：渲染进可折叠的 ThinkingBlock
 
 ---
 
-## 4. Provider 实现详解
+## 4. 四种协议的适配实现
+
+每种 `ApiType` 都是「薄壳公开入口 + `*_adapter.rs` 实现」的两层结构：薄壳只暴露 `chat_*` 方法，adapter 负责请求体构建、SSE 解析和历史持久化。
 
 ### 4.1 Anthropic Messages API
 
-**`crates/ha-core/src/agent/providers/anthropic.rs`**（`chat_anthropic` 公开入口薄壳）+ **`anthropic_adapter.rs`**（请求体构建 / SSE 解析 / history 持久化实现）
+`agent/providers/anthropic.rs`（薄壳）+ `anthropic_adapter.rs`（实现）。
 
-**请求格式：**
+请求体：
+
 ```json
 {
   "model": "claude-sonnet-4-6",
@@ -309,173 +298,178 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 }
 ```
 
-> `cache_control` 用于 Prompt Cache 复用，详见 [Side Query 缓存架构](side-query.md)。
+`cache_control` 用于 Prompt Cache 复用，详见 [Side Query 缓存架构](side-query.md)。
 
-**History 格式（assistant 消息）：**
+assistant 历史里 thinking 块与 text、tool_use 并列存进 `content` 数组：
+
 ```json
 {
   "role": "assistant",
   "content": [
     { "type": "thinking", "thinking": "推理过程..." },
     { "type": "text", "text": "回复内容" },
-    { "type": "tool_use", "id": "call_123", "name": "read", "input": {...} }
+    { "type": "tool_use", "id": "call_123", "name": "read", "input": {} }
   ]
 }
 ```
 
-**Thinking 回传**：thinking 块写入 content 数组，下一轮原样回传给 API，保证多轮推理连贯。
+**Thinking 回传**：thinking 块原样留在 content 数组里，下一轮回传给 API，保证多轮推理连贯。
 
 ### 4.2 OpenAI Chat Completions API
 
-**`crates/ha-core/src/agent/providers/openai_chat.rs`**（`chat_openai_chat` 公开入口薄壳）+ **`openai_chat_adapter.rs`**（请求体构建 / SSE 解析 / history 持久化实现）
+`agent/providers/openai_chat.rs`（薄壳）+ `openai_chat_adapter.rs`（实现）。这是覆盖面最广的一套——绝大多数 OpenAI 兼容服务商都走它。
 
-**ThinkingStyle 分发（`apply_thinking_to_chat_body`，定义在 `crates/ha-core/src/agent/config.rs`）：**
+推理参数按 `ThinkingStyle` 分发（`apply_thinking_to_chat_body`，定义在 `agent/config.rs`）：
 
-| ThinkingStyle | 参数格式 | 适用 Provider |
+| ThinkingStyle | 参数形态 | 典型服务商 |
 |---------------|---------|-------------|
 | Openai | `reasoning_effort: "high"` | OpenAI、DeepSeek、Mistral、xAI 等 |
 | Anthropic | `thinking: { type: "enabled", budget_tokens: N }` | MiniMax、Kimi Coding |
 | Zai | 同 Anthropic | 智谱 Z.AI |
 | Qwen | `enable_thinking: true` | 通义千问、阿里云百炼 |
-| None | 不发送 | 自定义 Provider |
+| None | 不发送 | 不支持推理的 Provider |
 
-**Thinking 来源（两种）：**
-1. **`reasoning_content` 字段**（o3/o4-mini 等原生推理模型）→ 直接从 SSE delta 提取
-2. **`<think>` 标签**（Qwen/DeepSeek 等）→ `ThinkTagFilter` 状态机实时解析，分离 thinking 和 text
+**Thinking 有两种来源**：
 
-**History 格式（assistant 消息）：**
+1. **`reasoning_content` 字段**（原生推理模型）→ 直接从 SSE delta 提取
+2. **`<think>` 标签**（Qwen / DeepSeek 等把推理夹在正文标签里）→ `ThinkTagFilter` 状态机实时分离 thinking 与 text（见 §5.2）
+
+assistant 历史格式：
+
 ```json
 {
   "role": "assistant",
   "content": "回复内容",
   "reasoning_content": "推理过程...",
-  "tool_calls": [{ "id": "call_123", "type": "function", "function": { "name": "read", "arguments": "{...}" } }]
+  "tool_calls": [{ "id": "call_123", "type": "function", "function": { "name": "read", "arguments": "{}" } }]
 }
 ```
 
 ### 4.3 OpenAI Responses API
 
-**`crates/ha-core/src/agent/providers/openai_responses.rs`**（`chat_openai_responses` 公开入口薄壳）+ **`openai_responses_adapter.rs`**（请求体构建 / `parse_openai_sse` 解析 / history 持久化实现）
+`agent/providers/openai_responses.rs`（薄壳）+ `openai_responses_adapter.rs`（实现，SSE 解析入口 `parse_openai_sse`）。
 
-**请求格式：**
+请求体：
+
 ```json
 {
-  "model": "o3",
+  "model": "gpt-5.6",
   "store": false,
   "stream": true,
   "instructions": "系统提示词",
   "input": [...],
   "reasoning": { "effort": "high", "summary": "auto" },
-  "include": ["reasoning.encrypted_content"],
   "tools": [...]
 }
 ```
 
-**Reasoning item 不回传（`store: false` 红线）**
+#### reasoning item 从不回传（`store: false` 的硬约束）
 
-Hope Agent 始终用 `store: false` 调 Responses API。在这一模式下，服务端**不持久化** reasoning item，`rs_*` id 是一次性引用——下一轮请求只要带上历史 reasoning item，无论是否携带 `encrypted_content`，服务端都会按 id 查持久化记录并 404（`Item with id 'rs_xxx' not found. Items are not persisted when store is set to false.`）。
+Hope Agent 始终用 `store: false` 调 Responses API。这个模式的语义是**服务端不持久化 reasoning item**，`rs_*` id 只是一次性引用。于是产生一个尖锐的坑：下一轮请求只要带上历史里的 reasoning item，无论是否附 `encrypted_content`，服务端都会按 id 去查持久化记录，查不到就 404（`Item with id 'rs_xxx' not found. Items are not persisted when store is set to false.`）。
 
-因此契约是：**reasoning item 从不进入 `conversation_history`，从不参与下一轮 replay**。
+由此定下契约：**reasoning item 从不进入 `conversation_history`，从不参与下一轮 replay**。具体做法：
 
-1. 请求中**不再加** `include: ["reasoning.encrypted_content"]`（即便加了也不写回 history）
-2. SSE 中收到 reasoning 事件时，`response.reasoning_summary_text.delta` 流给前端做"思考可视化"，但其结构化的 reasoning item（id + encrypted_content）**就地丢弃**
-3. `parse_openai_sse` 返回签名不含 `reasoning_items`；`RoundOutcome` 也不再有该字段
-4. `normalize_history_for_responses` 把任何残留的 `type: reasoning` item 一并 `continue`（兜底，防御旧版本写下的 context_json）
-5. 每轮独立 reasoning 与 `store=false` 的 stateless 语义完全对齐——少几秒 reasoning 时间换稳定性
+1. 请求里**不加** `include: ["reasoning.encrypted_content"]`
+2. SSE 收到 reasoning 事件时，`response.reasoning_summary_text.delta` 流给前端做"思考可视化"，但结构化的 reasoning item（id + encrypted_content）**就地丢弃**
+3. `parse_openai_sse` 的返回签名里根本没有 reasoning item
+4. `normalize_history_for_responses` 把任何残留的 `type: reasoning` item 一并跳过（兜底旧版本写下的 context_json）
 
-**SSE 事件处理：**
+代价是每轮推理独立、少几秒 reasoning 时间，换来的是与 `store=false` stateless 语义完全对齐、不再出现 404。
+
+SSE 事件处理：
 
 | 事件 | 处理 |
 |------|------|
-| `response.reasoning_summary_text.delta` | → `emit_thinking_delta` + 累积（仅 UI 可视化） |
-| `response.reasoning_summary_part.done` | → 追加 `\n\n` 段落分隔 |
-| `response.output_text.delta` | → `emit_text_delta` + 累积 |
-| `response.output_item.added` (function_call) | → 创建 pending tool call |
-| `response.output_item.done` (reasoning) | → 丢弃结构化 item（thinking 已通过 delta 路径累积） |
-| `response.output_item.done` (function_call) | → 完成 tool call |
-| `response.completed` | → 提取 usage + fallback 文本提取 |
+| `response.reasoning_summary_text.delta` | `emit_thinking_delta` + 累积（仅 UI 可视化） |
+| `response.reasoning_summary_part.done` | 追加 `\n\n` 段落分隔 |
+| `response.output_text.delta` | `emit_text_delta` + 累积 |
+| `response.output_item.added` (function_call) | 创建 pending tool call |
+| `response.output_item.done` (reasoning) | 丢弃结构化 item |
+| `response.output_item.done` (function_call) | 完成 tool call |
+| `response.completed` | 提取 usage + 兜底文本提取 |
 
-**History 格式：**
+历史格式（注意 reasoning item 缺席）：
+
 ```json
 [
   { "role": "user", "content": "问题" },
   { "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "回复" }], "status": "completed" },
-  { "type": "function_call", "id": "fc_xxx", "call_id": "fc_xxx", "name": "read", "arguments": "{...}" },
+  { "type": "function_call", "id": "fc_xxx", "call_id": "fc_xxx", "name": "read", "arguments": "{}" },
   { "type": "function_call_output", "call_id": "fc_xxx", "output": "文件内容" }
 ]
 ```
 
 ### 4.4 Codex OAuth API
 
-**`crates/ha-core/src/agent/providers/codex.rs`**（`chat_openai`/Codex 公开入口薄壳）+ **`codex_adapter.rs`**（请求体构建 / 历史持久化实现，SSE 解析复用 Responses 的 `parse_openai_sse`）
+`agent/providers/codex.rs`（薄壳）+ `codex_adapter.rs`（实现，SSE 解析复用 Responses 的 `parse_openai_sse`）。请求/响应格式与 Responses API 相同，额外特性集中在**认证、模型目录与失败策略**：
 
-与 OpenAI Responses API 相同的请求/响应格式，额外特性：
-- **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` header
-- **终端登录入口**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，登录成功后写 `~/.hope-agent/credentials/auth.json` 并调用 `ensure_codex_provider_persisted(Always(DEFAULT_CODEX_MODEL_ID))`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>` 使用
-- **内置模型目录**：`agent::config::get_codex_models()` / `provider::helpers::default_codex_models()` / `provider::crud::default_codex_model_ids()` 三份列表必须同步（id 集合 + 顺序一致，后两者靠 `codex_noop_detects_existing_provider_and_active_model` 单测锁长度）；`DEFAULT_CODEX_MODEL_ID` 当前是 `gpt-5.6-terra`——不是列表里的旗舰 `gpt-5.6-sol`，因为 GPT-5.6 按 ChatGPT 套餐分级（Free/Go 只有 Terra，Sol 需付费套餐/workspace），而这个常量会通过 `ActiveModelUpdate::Always` 套到每个新登录账号，必须选所有 Codex 账号都有的那一档
-- **重试 / 降级**：Codex adapter 保留 3 次 transport retry（1s/2s/4s），每次通过流式 `model_retry` 提示用户，并注册精确 `recovery_id` 允许 GUI 跳过本次等待；adapter 不掌握外层模型链，故不提供“立即换模型”。executor 不再对 Codex 的 retryable 错误（含 Unknown）叠加同模型 retry，裸 500 / 504 也统一分类为 Overloaded，避免 adapter × executor 放大。executor 仍负责错误分类、上下文压缩、模型链降级与安全的整链恢复轮次；工具执行后所有会重放 operation 的恢复动作均 fail closed。OAuth 无 profile，恒不做 Key 轮换
-- **不参与 auth profile 轮换**：executor 内部硬编码 Codex Provider 跳过 profile 选择/轮换；Codex 凭据失败直接经标准失败路径走下一模型
-- **构造期失败保活**：Codex Provider 在 `crates/ha-core/src/provider/crud.rs::ensure_codex_provider_persisted`（commit `99bc84a7`）保证 token 缺失或构造异常时配置仍持久化，下次手动登录补回即可，不会被静默移除
-- **共享 SSE 解析**：调用 `parse_openai_sse()`（与 Responses API 共享）
+- **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` 头
+- **终端登录**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，成功后写 `~/.hope-agent/credentials/auth.json` 并调 `ensure_codex_provider_persisted(...)`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>`
+- **内置模型目录三处必须同步**：`agent::config::get_codex_models()` / `provider::helpers::default_codex_models()` / `provider::crud::default_codex_model_ids()`（id 集合 + 顺序一致，单测锁长度）。`DEFAULT_CODEX_MODEL_ID` 当前是 `gpt-5.6-terra`——**不是**列表里的旗舰 `gpt-5.6-sol`。原因：GPT-5.6 按 ChatGPT 套餐分级（Free/Go 只有 Terra，Sol 需付费套餐），而这个常量会通过 `ActiveModelUpdate::Always` 套到每个新登录账号，必须选所有 Codex 账号都有的那一档
+- **重试与降级**：Codex adapter 保留 3 次传输层 retry（1s/2s/4s），每次通过流式 `model_retry` 提示用户并注册 `recovery_id` 允许 GUI 跳过等待；adapter 不掌握外层模型链，故不提供"立即换模型"。执行器不再对 Codex 的 retryable 错误叠加同模型 retry，裸 500/504 也统一归为 Overloaded，避免 adapter × executor 放大重试
+- **不参与 profile 轮换**：OAuth 无 api_key profile，执行器硬编码跳过 Codex 的 profile 选择；凭据失败直接走标准失败路径到下一模型
+- **构造期失败保活**：`ensure_codex_provider_persisted` 保证 token 缺失或构造异常时配置仍持久化，下次手动登录即可补回，不会被静默移除
 
 ---
 
-## 5. Thinking/Reasoning 系统
+## 5. Thinking / Reasoning 系统
 
-### 5.1 推理参数映射
+### 5.1 推理强度映射
 
-**`crates/ha-core/src/agent/config.rs`**
+用户侧的推理强度是一个统一的六档标度：`none | minimal | low | medium | high | xhigh`（`agent/config.rs`）。它先经模型钳制，再按 `ThinkingStyle` 落成各家 API 的具体参数。
 
 ```mermaid
 flowchart TD
   INPUT["reasoning_effort<br/>none | minimal | low | medium | high | xhigh"]
   INPUT --> CLAMP["clamp_reasoning_effort(model, effort)"]
 
-  CLAMP -->|"GPT 5.1 mini"| C1["minimal/low → medium<br/>xhigh → high"]
-  CLAMP -->|"GPT 5.1"| C2["minimal → low<br/>xhigh → high"]
-  CLAMP -->|"其他"| C3["直接传递<br/>无效值 → medium"]
+  CLAMP -->|"model 含 5.1-codex-mini"| C1["minimal/low → medium<br/>xhigh → high"]
+  CLAMP -->|"model 含 5.1"| C2["minimal → low<br/>xhigh → high"]
+  CLAMP -->|"其他模型"| C3["直接传递<br/>无效值 → medium · none → 关"]
 
-  C1 & C2 & C3 --> STYLE{ThinkingStyle}
+  C1 & C2 & C3 --> STYLE{"ThinkingStyle"}
 
-  STYLE -->|Openai| S1["reasoning_effort<br/>'low' / 'medium' / 'high'"]
-  STYLE -->|Anthropic / Zai| S2["thinking budget<br/>low→1024 / medium→4096<br/>high→8192 / xhigh→16384"]
-  STYLE -->|Qwen| S3["enable_thinking<br/>any→true / none→false"]
+  STYLE -->|Openai| S1["reasoning_effort<br/>low / medium / high<br/>（xhigh 降为 high）"]
+  STYLE -->|Anthropic / Zai| S2["thinking budget_tokens<br/>low 1024 / medium 4096<br/>high 8192 / xhigh 16384"]
+  STYLE -->|Qwen| S3["enable_thinking<br/>任意档 true / none false"]
   STYLE -->|None| S4["不发送参数"]
 ```
 
+几个非显然点：Chat Completions 不认 `xhigh`，统一降为 `high`；Anthropic 的 `budget_tokens` 还会被钳到 `max_tokens - 1` 以下（API 要求 budget 小于请求的 max_tokens）；钳制的模型判定是按 id **子串包含**（`5.1-codex-mini`、`5.1`），不是精确等于。
+
 ### 5.2 ThinkTagFilter
 
-**`crates/ha-core/src/agent/types.rs`**
-
-有状态的流式解析器，用于从 Chat Completions 响应中提取 `<think>` 标签内的内容：
+`agent/types.rs` 里的有状态流式解析器，专门从 Chat Completions 响应中剥离 `<think>` 标签内的推理：
 
 ```mermaid
 flowchart LR
   INPUT["SSE chunk 流"] --> FILTER["ThinkTagFilter<br/>状态机"]
-  FILTER -->|"标签外"| TEXT["text 输出"]
-  FILTER -->|"标签内"| THINK["thinking 输出"]
+  FILTER -->|"标签外"| TEXT["→ text 输出"]
+  FILTER -->|"标签内"| THINK["→ thinking 输出"]
 ```
 
-- 支持 `<think>`、`<thinking>`、`<thought>` 标签（大小写不敏感）
-- 处理跨 chunk 边界的部分标签
-- 当 `reasoning_effort == "none"` 时丢弃 thinking 内容
+- 支持 `<think>` / `<thinking>` / `<thought>`（大小写不敏感）
+- 正确处理跨 chunk 边界被切断的部分标签
+- 当 `reasoning_effort == "none"` 时直接丢弃 thinking 内容
 
 ### 5.3 多轮 Thinking 回传
 
-每个 Provider 在 conversation_history 中保存 thinking 内容，确保下一轮对话时模型能看到之前的推理：
+每个 Provider 都把 thinking 内容保存进 `conversation_history`，好让下一轮模型看得到自己上一轮的推理。三家的存储形态各不相同：
 
 ```mermaid
 graph TB
   subgraph Anthropic
-    A["content: [<br/>  { type: 'thinking', thinking: '推理过程' },<br/>  { type: 'text', text: '回复' }<br/>]"]
+    A["content 数组内并列:<br/>{ type: 'thinking', thinking: '推理' }<br/>{ type: 'text', text: '回复' }"]
   end
   subgraph "OpenAI Chat"
-    B["{ role: 'assistant',<br/>  content: '回复',<br/>  reasoning_content: '推理过程' }"]
+    B["独立字段:<br/>{ content: '回复',<br/>  reasoning_content: '推理' }"]
   end
   subgraph "OpenAI Responses"
-    C["{ type: 'reasoning', id: 'rs_xxx',<br/>  encrypted_content: '...', summary: [...] }<br/>+<br/>{ type: 'message', role: 'assistant',<br/>  content: [{ type: 'output_text', text: '回复' }] }"]
+    C["reasoning item 不落历史<br/>（store:false，见 §4.3）<br/>只保留 output_text 消息"]
   end
 ```
+
+Responses 是唯一的例外：它的推理**不回传**，每轮从头独立。
 
 ---
 
@@ -483,63 +477,56 @@ graph TB
 
 ### 6.1 问题
 
-当 failover 降级或用户手动切换模型时，`conversation_history` 中可能包含**另一个 Provider 格式**的消息。例如 Responses API 的 `{ type: "reasoning" }` 项被发送给 Anthropic API 会导致错误。
+当 failover 降级或用户手动切换模型时，`conversation_history` 里可能残留**另一个 Provider 格式**的消息。比如把 Responses API 的 `{ type: "reasoning" }` 直接发给 Anthropic API 会直接报错。
 
-### 6.2 解决方案
+### 6.2 解决：读历史时按目标 Provider 变形
 
-**`crates/ha-core/src/agent/context.rs`** 中三个标准化函数，每个 Provider 在读取 history 时调用：
+`agent/context.rs` 里三个标准化函数，每个 Provider 在读取历史发请求前调用对应的一个：
 
 ```mermaid
 flowchart LR
-  H["conversation_history<br/>(混合格式)"]
-  H --> NA["normalize_for_anthropic()"]
-  H --> NC["normalize_for_chat()"]
-  H --> NR["normalize_for_responses()"]
+  H["conversation_history<br/>（可能混合格式）"]
+  H --> NA["normalize_history_for_anthropic()"]
+  H --> NC["normalize_history_for_chat()"]
+  H --> NR["normalize_history_for_responses()"]
 
   NA --> PA["Anthropic API<br/>role + content 数组"]
-  NC --> PC["Chat API<br/>role + string/reasoning_content"]
+  NC --> PC["Chat API<br/>role + string / reasoning_content"]
   NR --> PR["Responses API<br/>type items + role items"]
 ```
 
 **`normalize_history_for_anthropic()`**
 
-| 输入格式 | 转换 |
+| 输入形态 | 转换 |
 |---------|------|
-| `type: "reasoning"` (加密) | 跳过 |
-| `type: "function_call"` | 跳过（Anthropic 用 tool_use） |
-| `type: "function_call_output"` | 跳过 |
-| `type: "message"` (Responses) | 提取 output_text → `{ role, content: text }` |
-| `reasoning_content` 字段 (Chat) | 转为 `[{ type: "thinking" }, { type: "text" }]` 数组 |
+| `type: "reasoning"`（加密） | 跳过 |
+| `type: "function_call"` / `function_call_output` | 跳过（Anthropic 用 tool_use） |
+| `type: "message"`（Responses） | 提取 output_text → `{ role, content: text }` |
+| `reasoning_content` 字段（Chat） | 转成 `[{ type: "thinking" }, { type: "text" }]` |
 | 标准 role 消息 | 直通 |
 
 **`normalize_history_for_chat()`**
 
-| 输入格式 | 转换 |
+| 输入形态 | 转换 |
 |---------|------|
-| `type: "reasoning"` | 跳过 |
-| `type: "function_call"` / `function_call_output` | 跳过 |
-| `type: "message"` (Responses) | 提取 text → `{ role, content: text }` |
-| Anthropic content 数组 (thinking+text) | text → `content`，thinking → `reasoning_content` |
+| `type: "reasoning"` / `function_call` / `function_call_output` | 跳过 |
+| `type: "message"`（Responses） | 提取 text → `{ role, content: text }` |
+| Anthropic content 数组（thinking + text） | text → `content`，thinking → `reasoning_content` |
 | 标准 role 消息 | 直通 |
 
 **`normalize_history_for_responses()`**
 
-| 输入格式 | 转换 |
+| 输入形态 | 转换 |
 |---------|------|
 | 原生 Responses 项 | 直通 |
-| Anthropic tool_use/tool_result 数组 | 跳过（Responses 用 function_call） |
+| Anthropic tool_use / tool_result 数组 | 跳过（Responses 用 function_call） |
 | Anthropic content 数组 | 提取 text → `{ role, content: text }` |
 | `reasoning_content` 字段 | 移除 |
-| 标准 role 消息 | 直通 |
+| 任何残留 `type: reasoning` | 跳过（对齐 §4.3 契约） |
 
 ### 6.3 调用时机
 
-```rust
-// 每个 Provider 的 chat_* 方法开头：
-let mut messages = Self::normalize_history_for_anthropic(&self.conversation_history.lock().unwrap());
-let mut messages = Self::normalize_history_for_chat(&self.conversation_history.lock().unwrap());
-let mut input = Self::normalize_history_for_responses(&self.conversation_history.lock().unwrap());
-```
+每个 `chat_*` 方法开头即调用对应函数，把内存历史转成本轮 API 认的形状——历史本身不变，只是产出一份变形后的副本喂给这次请求。
 
 ---
 
@@ -547,55 +534,53 @@ let mut input = Self::normalize_history_for_responses(&self.conversation_history
 
 ### 7.1 错误分类
 
-**`crates/ha-core/src/failover/{mod,executor}.rs`**
+`failover/mod.rs` 的 `classify_error(error_text)` 把裸错误文本映射成 `FailoverReason`，再由这个 reason 决定重试还是降级：
 
 ```mermaid
 flowchart TD
-  ERR["classify_error(error_text)"] --> R{FailoverReason}
+  ERR["classify_error(error_text)"] --> R{"FailoverReason"}
 
-  R -->|"429"| RL["RateLimit<br/>同模型重试"]
-  R -->|"503/502/521"| OL["Overloaded<br/>同模型重试"]
-  R -->|"网络超时"| TO["Timeout<br/>同模型重试"]
-  R -->|"ContextOverflow"| CO["ContextOverflow<br/>紧急压缩 → 重试"]
-  R -->|"401/403"| AU["Auth<br/>跳下一模型"]
-  R -->|"402"| BI["Billing<br/>跳下一模型"]
-  R -->|"404"| NF["ModelNotFound<br/>跳下一模型"]
-  R -->|"其他"| UK["Unknown<br/>谨慎重试 2 次后跳下一模型"]
+  R -->|"429 / rate limit / throttl"| RL["RateLimit<br/>同模型重试（可轮换密钥）"]
+  R -->|"500/502/503/504/521/522/524 / overloaded"| OL["Overloaded<br/>同模型重试"]
+  R -->|"网络超时 / 连接错误 / body 中断"| TO["Timeout<br/>同模型重试"]
+  R -->|"上下文溢出关键词"| CO["ContextOverflow<br/>紧急压缩后重试（不降级）"]
+  R -->|"401/403 / unauthorized"| AU["Auth<br/>跳下一模型"]
+  R -->|"402 / quota / billing"| BI["Billing<br/>跳下一模型"]
+  R -->|"404 / model not found"| NF["ModelNotFound<br/>跳下一模型"]
+  R -->|"其他"| UK["Unknown<br/>谨慎重试后跳下一模型"]
 ```
+
+几个要点：
+
+- **ContextOverflow 不是终态**——它触发紧急压缩后重试同一模型，因为换一个上下文更小的模型只会更糟。
+- **Overloaded 覆盖一大票 5xx**（含 Cloudflare 的 521/522/524），以及 body 读到一半被截断（部分服务商高负载时会 200 头之后掐流，归到 Timeout）。
+- 还有一个 `EvaluationBudget` reason，专用于确定性评测触顶（"evaluation budget exhausted"），不属于线上降级路径。
 
 ### 7.2 模型链解析
 
+一轮对话到底用哪条模型链，由五级优先级决定（桌面 `commands/chat.rs` 与 HTTP `routes/chat.rs` 完全对称）：
+
 ```mermaid
 flowchart TD
-  AGENT["Agent 配置 (agent.json)<br/>primary + fallbacks + planModel"]
-  STORE["App Config (config.json)<br/>active_model + fallback_models"]
+  P1["1. Plan Mode plan_model<br/>（仅 Planning 阶段，临时降级到便宜模型）"]
+  P2["2. 本轮显式 model_override<br/>（仅 API 单轮覆盖）"]
+  P3["3. sessions.provider_id + model_id<br/>（Session 固定的首选模型）"]
+  P4["4. agent.model.primary<br/>（Agent 配置的首选）"]
+  P5["5. AppConfig.active_model<br/>（应用全局默认）"]
 
-  AGENT & STORE --> RESOLVE["resolve_model_chain()"]
-  RESOLVE --> CHAIN["模型链: [primary, fallback1, fallback2, ...]"]
-
-  PLAN{"Plan Mode?"} -->|"是"| PLANCHAIN["[plan_model, primary, fallback1, ...]"]
-  PLAN -->|"否"| CHAIN
-  OVERRIDE{"model_override?"} -->|"是"| OVERCHAIN["[override, fallback1, fallback2, ...]"]
-  OVERRIDE -->|"否"| SESSPIN{"session.provider_id<br/>+ model_id?"}
-  SESSPIN -->|"是"| PINCHAIN["[session_pin, fallback1, fallback2, ...]"]
-  SESSPIN -->|"否"| CHAIN
-
-  CHAIN --> ITERATE["for model in chain:<br/>build → restore → chat → save/fallback"]
+  P1 --> P2 --> P3 --> P4 --> P5
+  P5 --> RESOLVE["resolve_model_chain_with_preferred()<br/>→ [primary, fallback1, fallback2, ...]"]
 ```
 
-**chat 入口决策优先级（高到低）**（[`src-tauri/src/commands/chat.rs`](../../src-tauri/src/commands/chat.rs) / [`crates/ha-server/src/routes/chat.rs`](../../crates/ha-server/src/routes/chat.rs) 完全对称）：
+前三级决定"首选模型"（`preferred_model`），后两级是 `resolve_model_chain` 内部的兜底；解析结果再拼上 fallback 链形成完整迭代序。
 
-1. **Plan Mode `plan_model`**（仅 Planning 阶段，临时降级到便宜模型）
-2. **本轮显式 `model_override`**（仅 API 单轮覆盖；GUI 对已有会话不持续发送）
-3. **`sessions.provider_id` + `sessions.model_id`**（Session 创建时固定或由 `set_session_model` / HTTP PATCH / IM `/model` 更新的首选模型）
-4. **`agent.model.primary`**（Agent 配置的首选）
-5. **`AppConfig.active_model`**（应用全局默认，由「设置 → 模型」面板修改）
+几个不读代码看不出的行为：
 
-Session 创建时同时固定有效模型、温度与 Think；Agent/全局默认后续变化不反向影响已有 Session。fallback 只记录本轮实际模型与用量，**不得回写 Session 首选模型**，所以下一轮仍从原主模型开始。Provider 禁用时保留首选引用并临时跳过，重新启用即恢复；永久删除才清理全局、Agent 与 Session 的硬失效引用。
-
-尚未物化的 GUI 草稿通过 `sessionDefaults` 携带模型、温度与 Think，仅在首次创建 Session 时消费；兼容字段 `modelOverride` / `temperatureOverride` / `reasoningEffort` 保留为单轮 API 覆盖，不作为 GUI 的会话持久化通道。
-
-Agent 的字段独立继承：`primary=None` 跟随全局主模型，`fallbacks=[]` 跟随全局 fallback 链，`temperature=None` 与 `reasoning_effort=None` 分别跟随全局值。配置了 Agent fallbacks 后完全替代全局 fallbacks。
+- **Session 创建时就固定有效模型、温度与 Think**；Agent/全局默认之后再变，不反向影响已有 Session。
+- **fallback 只记录本轮实际用的模型和用量，绝不回写 Session 首选**——所以下一轮仍从原主模型重新开始。
+- **Provider 被禁用**时保留首选引用并临时跳过，重新启用即恢复；只有**永久删除**才清理全局 / Agent / Session 里的硬失效引用。
+- **GUI 草稿**通过 `sessionDefaults` 携带模型/温度/Think，仅在首次创建 Session 时消费；`modelOverride` / `temperatureOverride` / `reasoningEffort` 是单轮 API 覆盖，不作为 GUI 的会话持久化通道。
+- **Agent 字段独立继承全局**：`primary=None` 跟随全局主模型，`fallbacks=[]` 跟随全局 fallback 链，`temperature=None` / `reasoning_effort=None` 各自跟随全局值；一旦配了 Agent fallbacks 就**完全替代**全局 fallbacks。
 
 ### 7.3 重试策略
 
@@ -608,10 +593,10 @@ flowchart TD
   CHAT -->|成功| SAVE["save_agent_context() → return Ok"]
   CHAT -->|失败| CLASSIFY["classify_error()"]
 
-  CLASSIFY -->|ContextOverflow<br/>retry==0| COMPACT["emergency_compact()"] --> CHAT
-  CLASSIFY -->|retryable<br/>retry<2| BACKOFF["sleep(1s × 2^retry)"] --> CHAT
-  CLASSIFY -->|terminal| ABORT["return Err 立即终止"]
-  CLASSIFY -->|其他| NEXT{"还有模型?"}
+  CLASSIFY -->|"ContextOverflow（首次）"| COMPACT["emergency_compact()"] --> CHAT
+  CLASSIFY -->|"retryable 且未超次数"| BACKOFF["sleep(1s × 2^retry)"] --> CHAT
+  CLASSIFY -->|"terminal"| ABORT["return Err 立即终止"]
+  CLASSIFY -->|"其他"| NEXT{"还有模型?"}
 
   NEXT -->|是| MODEL
   NEXT -->|否| FAIL["return Err 全部失败"]
@@ -619,225 +604,139 @@ flowchart TD
 
 ---
 
-## 8. 数据落盘存储与加载
+## 8. 数据落盘：双轨存储
 
-### 8.0 双轨存储架构
+### 8.1 为什么是两条通道
 
-对话数据存在**两条并行的持久化通道**，服务于不同目的：
+对话数据以两种形态并行落进 `~/.hope-agent/sessions.db`（SQLite），服务于两种截然不同的读取模式：
 
 ```mermaid
 graph TB
-  subgraph DB["SessionDB (SQLite) ~/.hope-agent/sessions.db"]
-    direction TB
+  subgraph DB["SessionDB ~/.hope-agent/sessions.db"]
     subgraph CH1["通道 1: messages 表 — 面向前端展示"]
-      M1["每条消息独立一行<br/>user / assistant / tool / event"]
-      M2["逐条实时写入（流式回调中）"]
-      M3["前端 load_session_messages_latest_cmd 加载"]
-      M4["支持分页、FTS5 全文搜索"]
+      M1["每条消息独立一行<br/>user / assistant / tool / text_block / thinking_block / event"]
+      M2["流式回调中逐条实时写入"]
+      M3["前端分页加载 + FTS5 全文搜索 + token 统计"]
     end
     subgraph CH2["通道 2: sessions.context_json — 面向模型上下文"]
-      C1["整个 conversation_history<br/>序列化为 JSON 字符串"]
+      C1["整段 conversation_history 序列化为 JSON"]
       C2["对话成功结束后一次性写入"]
-      C3["restore_agent_context() 整体加载"]
-      C4["包含 Provider 特有格式<br/>reasoning items、thinking 块"]
+      C3["下一轮 restore_agent_context() 整体加载"]
+      C4["保留 Provider 特有格式，直接喂 API 无需转换"]
     end
   end
 ```
 
-**为什么需要两条通道？**
-- `messages` 表：行式结构，方便前端分页展示、搜索、统计 token 用量
-- `context_json` 列：保留完整的 Provider API 格式，直接喂给下一轮 API 调用，无需格式转换
+一句话：`messages` 是**行式的、给人看的**；`context_json` 是**整块的、给模型看的**。前者方便分页/搜索/统计，后者保留原始 API 形状省去每轮转换。
 
-### 8.1 通道 1：messages 表 — 逐条实时写入
+### 8.2 通道 1：messages 表
 
-**Schema（`crates/ha-core/src/session/db.rs`）：**
+Schema（`crates/ha-core/src/session/db.rs`，此处列出载荷相关列，实际还有 token 缓存计量、`tool_metadata`、`source`、持久化 run id 等运维列）：
 
 ```sql
 CREATE TABLE messages (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id      TEXT NOT NULL,
-  role            TEXT NOT NULL,      -- user|assistant|tool|text_block|thinking_block|event
-  content         TEXT DEFAULT '',     -- 消息文本内容
-  timestamp       TEXT NOT NULL,
-  attachments_meta TEXT,               -- 附件 JSON 元数据
-  model           TEXT,                -- 使用的模型 ID
-  tokens_in       INTEGER,             -- 输入 token 数
-  tokens_out      INTEGER,             -- 输出 token 数
-  reasoning_effort TEXT,               -- 推理强度
-  tool_call_id    TEXT,                -- 工具调用 ID
-  tool_name       TEXT,                -- 工具名
-  tool_arguments  TEXT,                -- 工具参数 JSON
-  tool_result     TEXT,                -- 工具结果
-  tool_duration_ms INTEGER,            -- 工具执行耗时
-  is_error        INTEGER DEFAULT 0,   -- 是否工具错误
-  thinking        TEXT,                -- 思维过程（独立列）
-  ttft_ms         INTEGER,             -- Time to First Token
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id       TEXT NOT NULL,
+  role             TEXT NOT NULL,     -- user|assistant|tool|text_block|thinking_block|event
+  content          TEXT NOT NULL DEFAULT '',
+  timestamp        TEXT NOT NULL,
+  attachments_meta TEXT,             -- 附件 JSON 元数据
+  model            TEXT,
+  tokens_in        INTEGER,
+  tokens_out       INTEGER,
+  reasoning_effort TEXT,
+  tool_call_id     TEXT,
+  tool_name        TEXT,
+  tool_arguments   TEXT,
+  tool_result      TEXT,
+  tool_duration_ms INTEGER,
+  is_error         INTEGER DEFAULT 0,
+  thinking         TEXT,             -- assistant 思维过程（独立列，经迁移追加）
+  ttft_ms          INTEGER,          -- Time to First Token
+  -- …外加 tokens_cache_creation/tokens_cache_read/tokens_in_last、tool_metadata、source 等
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 
--- FTS5 全文搜索（仅索引 user/assistant 消息）
+-- FTS5 全文搜索（仅索引 user/assistant 消息），insert/delete/update 三触发器保持同步
 CREATE VIRTUAL TABLE messages_fts USING fts5(content, content='messages', content_rowid='id');
-CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages
-  WHEN new.role IN ('user', 'assistant') AND length(new.content) > 0
-  BEGIN INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content); END;
 ```
 
-**写入时机（`crates/ha-core/src/chat_engine/context.rs`，由 Tauri 命令层 / HTTP 路由层调用）：**
+**写入时机**（`chat_engine`，由命令层/路由层驱动）：
 
 ```mermaid
 flowchart TD
   SSE["on_delta 回调（SSE 流式）"]
-  SSE -->|text_delta| PT["累积到 pending_text"]
-  SSE -->|thinking_delta| PK["累积到 pending_thinking"]
+  SSE -->|text_delta| PT["累积到 pending_text（内存）"]
+  SSE -->|thinking_delta| PK["累积到 pending_thinking（内存）"]
   SSE -->|tool_call| FLUSH["触发 flush"]
-  SSE -->|tool_result| UPDATE["update_tool_result()<br/>更新同一行 tool 记录"]
+  SSE -->|tool_result| UPD["update_tool_result()<br/>回填同一行 tool 记录"]
   SSE -->|usage| MEM["仅内存缓存 captured_usage"]
 
-  FLUSH --> FK["flush pending_thinking<br/>→ INSERT thinking_block"]
-  FLUSH --> FT["flush pending_text<br/>→ INSERT text_block"]
-  FLUSH --> IT["INSERT tool<br/>call_id, name, arguments"]
+  FLUSH --> FK["flush pending_thinking → INSERT thinking_block"]
+  FLUSH --> FT["flush pending_text → INSERT text_block"]
+  FLUSH --> IT["INSERT tool（call_id, name, arguments）"]
 
-  DONE["chat 完成后"] --> FKREM["flush 剩余 pending_thinking<br/>→ INSERT thinking_block"]
-  DONE --> ASST["INSERT assistant<br/>content + thinking + tokens + model + ttft"]
-  DONE --> CTX["save_agent_context()<br/>→ UPDATE context_json"]
+  DONE["chat 完成后"] --> FKREM["flush 剩余 pending_thinking → INSERT thinking_block"]
+  DONE --> ASST["INSERT assistant（content + thinking + tokens + model + ttft）"]
+  DONE --> CTX["save_agent_context() → UPDATE context_json"]
 ```
 
-**消息角色（`MessageRole` 枚举）：**
+**消息角色**（`MessageRole` 枚举）：
 
 | Role | 说明 | 写入时机 |
 |------|------|---------|
-| `user` | 用户输入 | chat 命令开始时 |
+| `user` | 用户输入 | chat 开始时 |
 | `assistant` | AI 最终回复 | chat 完成后 |
-| `tool` | 工具调用记录 | tool_call 事件时（result 后续更新） |
+| `tool` | 工具调用记录 | tool_call 时（result 后续回填） |
 | `text_block` | 中间文本片段 | tool_call 前 flush |
 | `thinking_block` | 中间思维片段 | tool_call 前 flush |
 | `event` | 系统事件（降级通知等） | failover / 错误时 |
 
-**为什么需要 text_block / thinking_block？**
+**为什么需要 text_block / thinking_block？** 多轮 tool loop 里，消息顺序是 `thinking → text → tool_call → tool_result → thinking → text → ...`。如果只在最后写一条 assistant 消息，中间这些片段与 tool_call 的时序关系就丢了。`text_block` / `thinking_block` 把多轮执行过程的完整时序保留下来。
 
-多轮 tool loop 中，消息顺序是：thinking → text → tool_call → tool_result → thinking → text → tool_call → ...
+### 8.3 通道 2：context_json
 
-如果只在最后写一条 assistant 消息，中间的 thinking/text 片段与 tool_call 的时序关系会丢失。`text_block` 和 `thinking_block` 保留了多轮执行过程中的完整时序。
+写入 `save_agent_context`：把 `agent.get_conversation_history()` 整体 `serde_json::to_string` 后 `UPDATE sessions SET context_json`。加载 `restore_agent_context`：`SELECT context_json` → 反序列化成 `Vec<Value>` → `agent.set_conversation_history()`。
 
-### 8.2 通道 2：context_json — 整体序列化
+`context_json` 里的具体形态取决于**最后一次用的 Provider**——可能是 Anthropic content 数组、OpenAI Chat 的 `reasoning_content` 平铺、或 Responses 的 `type` items（其中 reasoning item 已按 §4.3 契约缺席）。正因如此，下一轮加载后必须先经 §6 的标准化，才能安全喂给可能不同的目标 Provider。
 
-**Schema：**
-```sql
--- sessions 表的 context_json 列
-ALTER TABLE sessions ADD COLUMN context_json TEXT;
-```
-
-**写入（`save_agent_context`）：**
-```rust
-fn save_agent_context(db: &SessionDB, session_id: &str, agent: &AssistantAgent) {
-    let history: Vec<Value> = agent.get_conversation_history();
-    let json_str: String = serde_json::to_string(&history);
-    db.save_context(session_id, &json_str);
-    // → UPDATE sessions SET context_json = ?1 WHERE id = ?2
-}
-```
-
-**加载（`restore_agent_context`）：**
-```rust
-fn restore_agent_context(db: &SessionDB, session_id: &str, agent: &AssistantAgent) {
-    if let Some(json_str) = db.load_context(session_id) {
-        let history: Vec<Value> = serde_json::from_str(&json_str);
-        agent.set_conversation_history(history);
-    }
-    // → SELECT context_json FROM sessions WHERE id = ?1
-}
-```
-
-**context_json 中的数据格式（取决于最后使用的 Provider）：**
-
-```json
-// Anthropic 格式
-[
-  { "role": "user", "content": "你好" },
-  { "role": "assistant", "content": [
-    { "type": "thinking", "thinking": "用户在打招呼..." },
-    { "type": "text", "text": "你好！" }
-  ]},
-  { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "call_1", "content": "..." }] }
-]
-
-// OpenAI Responses 格式
-[
-  { "role": "user", "content": "你好" },
-  { "type": "reasoning", "id": "rs_xxx", "encrypted_content": "...", "summary": [...] },
-  { "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "你好！" }], "status": "completed" },
-  { "type": "function_call", "id": "fc_xxx", "call_id": "fc_xxx", "name": "read", "arguments": "{...}" },
-  { "type": "function_call_output", "call_id": "fc_xxx", "output": "文件内容" }
-]
-
-// OpenAI Chat 格式
-[
-  { "role": "system", "content": "..." },
-  { "role": "user", "content": "你好" },
-  { "role": "assistant", "content": "你好！", "reasoning_content": "用户在打招呼..." },
-  { "role": "assistant", "content": null, "tool_calls": [{ "id": "call_1", "type": "function", "function": { "name": "read", "arguments": "{...}" } }] },
-  { "role": "tool", "tool_call_id": "call_1", "content": "文件内容" }
-]
-```
-
-### 8.3 写入时序全景
+### 8.4 写入时序全景
 
 ```mermaid
 sequenceDiagram
   participant U as 用户
   participant FE as 前端
-  participant CMD as chat 命令
+  participant CMD as chat 引擎
   participant Agent as Agent
   participant DB as SessionDB
 
   U->>FE: 发送消息
   FE->>CMD: invoke("chat")
   CMD->>DB: 1. INSERT user 消息
-
   CMD->>Agent: agent.chat()
   activate Agent
-
-  loop Tool Loop (最多 20 轮)
-    Agent-->>FE: thinking_delta × N (内存累积)
-    Agent-->>FE: text_delta × N (内存累积)
+  loop Tool Loop
+    Agent-->>FE: thinking_delta × N（内存累积）
+    Agent-->>FE: text_delta × N（内存累积）
     Agent-->>FE: tool_call
     CMD->>DB: flush thinking → INSERT thinking_block
     CMD->>DB: flush text → INSERT text_block
-    CMD->>DB: INSERT tool (call_id, name, args)
+    CMD->>DB: INSERT tool（call_id, name, args）
     Agent->>Agent: 执行工具
     Agent-->>FE: tool_result
-    CMD->>DB: UPDATE tool (补 result + duration)
+    CMD->>DB: UPDATE tool（回填 result + duration）
   end
-
   Agent-->>FE: 流结束
   deactivate Agent
-
   CMD->>DB: 2. flush 剩余 thinking → INSERT thinking_block
-  CMD->>DB: 3. INSERT assistant (content + tokens + model + ttft)
-  CMD->>DB: 4. UPDATE context_json (序列化 conversation_history)
+  CMD->>DB: 3. INSERT assistant（content + tokens + model + ttft）
+  CMD->>DB: 4. UPDATE context_json（序列化 conversation_history）
   CMD->>FE: return Ok(text)
 ```
 
-### 8.4 加载时序
+### 8.5 Failover 场景下的存储交互
 
-```mermaid
-flowchart LR
-  subgraph "前端加载（展示用）"
-    FE1["invoke('load_session_messages_latest_cmd')"]
-    FE1 --> SQL1["SELECT * FROM messages<br/>WHERE session_id = ?<br/>ORDER BY id DESC LIMIT 50"]
-    SQL1 --> PARSE["parseSessionMessages()<br/>重建 contentBlocks 时序"]
-  end
-
-  subgraph "后端加载（模型上下文用）"
-    BE1["restore_agent_context()"]
-    BE1 --> SQL2["SELECT context_json<br/>FROM sessions WHERE id = ?"]
-    SQL2 --> DESER["JSON 反序列化<br/>→ Vec&lt;Value&gt;"]
-    DESER --> SET["agent.set_conversation_history()"]
-    SET --> NORM["normalize_history_for_*()<br/>转换为目标 Provider 格式"]
-  end
-```
-
-### 8.5 Failover 场景的存储交互
+跨 Provider 降级时，双轨存储与历史标准化协同工作：
 
 ```mermaid
 sequenceDiagram
@@ -845,81 +744,40 @@ sequenceDiagram
   participant DB as SessionDB
   participant B as Model B (Anthropic)
 
-  Note over A: 对话成功
-  A->>DB: save_agent_context()<br/>context_json = Responses 格式
-  A->>DB: INSERT messages (user + thinking_block + tool + assistant)
+  Note over A: 上一轮对话成功
+  A->>DB: save_agent_context()（context_json = Responses 格式）
+  A->>DB: INSERT messages（user + thinking_block + tool + assistant）
 
-  Note over B: 下一轮对话，Model A 失败，降级
-  DB->>B: restore_agent_context()<br/>加载 Responses 格式
-  B->>B: normalize_history_for_anthropic()<br/>reasoning→跳过, message→提取text
+  Note over B: 下一轮 Model A 失败，降级到 B
+  DB->>B: restore_agent_context()（加载 Responses 格式）
+  B->>B: normalize_history_for_anthropic()<br/>reasoning 跳过 / message 提取 text
   B->>B: chat_anthropic() 成功
-  B->>DB: save_agent_context()<br/>context_json 覆盖为 Anthropic 格式
+  B->>DB: save_agent_context()（context_json 覆盖为 Anthropic 格式）
 ```
 
 ### 8.6 附件存储
 
 ```
 ~/.hope-agent/
-  attachments/
-    {session_id}/
-      {uuid}.png        ← 图片文件
-      {uuid}.pdf        ← 文件附件
-  generated-images/
-    {timestamp}_{uuid}.png  ← AI 生成的图片
+  attachments/{session_id}/{uuid}.png    ← 用户上传的图片/文件
+  generated-images/{timestamp}_{uuid}.png ← AI 生成的图片
 ```
 
-- 附件在 chat 命令开始时保存到磁盘
-- `attachments_meta` JSON 存入 messages 表（名称、MIME、大小、路径）
-- Session 删除时级联清理附件目录
+附件在 chat 开始时落盘；`attachments_meta`（名称/MIME/大小/路径）存进 messages 表；Session 删除时级联清理附件目录。
 
 ---
 
 ## 9. 上下文管理
 
-### 9.1 上下文压缩
+Provider 系统作为压缩的**消费方**，只需保证两件事：消息格式标准化（§6）与 Token 计量准确。压缩本身是一套 **5 层渐进式**结构（详见 [context-compact.md](./context-compact.md)）：
 
-上下文压缩详见 [context-compact.md](./context-compact.md)。本系统采用 **5 层渐进式**结构：Tier 0 反应式微压缩（turn-start + tool-loop checkpoint 清理 `toolPolicies=eager` 的旧工具结果，cache-safe）+ Tier 1 工具结果截断 + Tier 2 上下文裁剪（软/硬）+ Tier 3 LLM 摘要 + Tier 4 ContextOverflow 应急恢复。Provider 系统作为消费方，只需保证消息格式标准化与 Token 计量准确；触发条件、cache-TTL 节流、mid-loop 频率地板、runtime ledger / recovery 注入和压缩策略全部由 `agent/context.rs` + `context_compact` 模块负责。
+- **Tier 0** 反应式微压缩（turn-start + tool-loop checkpoint 清理 eager 旧工具结果，cache-safe）
+- **Tier 1** 工具结果截断
+- **Tier 2** 上下文裁剪（软/硬）
+- **Tier 3** LLM 摘要
+- **Tier 4** ContextOverflow 应急恢复
 
-### 9.2 Summarization 消息格式处理
-
-**`crates/ha-core/src/context_compact/summarization.rs`**
-
-摘要构建时，需要正确处理所有 Provider 格式的消息：
-
-| 消息格式 | 摘要处理 |
-|---------|---------|
-| `type: "reasoning"` (加密) | 跳过（不可读） |
-| `type: "function_call"` | `[tool_call]: name(args_preview)` |
-| `type: "function_call_output"` | `[tool_result]: output_preview` |
-| `type: "message"` (Responses) | 提取 output_text → `[assistant]: text` |
-| Anthropic `thinking` 块 | `[assistant/thinking]: preview(300chars)` |
-| Anthropic `text` 块 | `[assistant]: text` |
-| Chat `reasoning_content` | `[assistant/thinking]: preview(300chars)` |
-| 简单字符串 content | `[role]: text` |
-| `tool_result` (Anthropic) | `[tool_result]: preview(500chars)` |
-
-### 9.3 Session 持久化
-
-**`crates/ha-core/src/session/db.rs`**
-
-```sql
--- 核心表结构
-sessions (id, title, agent_id, provider_id, model_id, plan_mode, plan_steps, ...)
-messages  (id, session_id, role, content, thinking, model, tokens_in, tokens_out,
-           tool_call_id, tool_name, tool_arguments, tool_result, tool_duration_ms, ttft_ms, ...)
-messages_fts (FTS5 全文搜索索引，覆盖 user/assistant 消息)
-```
-
-**上下文保存/恢复：**
-```rust
-// 保存：序列化 conversation_history 为 JSON 存入 DB
-save_agent_context(db, session_id, agent)
-  → agent.get_conversation_history() → JSON string → db.save_context()
-
-// 恢复：从 DB 加载 JSON 反序列化为 Vec<Value>
-restore_agent_context(db, session_id, agent)
-  → db.load_context() → Vec<Value> → agent.set_conversation_history()
-```
+触发条件、cache-TTL 节流、mid-loop 频率地板、runtime ledger / recovery 注入等全部由 `agent/context.rs` + `context_compact` 模块负责。摘要构建时会正确处理所有 Provider 格式的消息（`context_compact/summarization.rs`）：reasoning item 跳过、function_call 转 `[tool_call]`、Anthropic thinking 块截断预览等。
 
 ---
 
@@ -929,26 +787,27 @@ restore_agent_context(db, session_id, agent)
 flowchart TD
   subgraph Frontend["前端 (React)"]
     INPUT["ChatInput"] -->|"invoke('chat')"| INVOKE
-    STREAM["useChatStream"] -->|"Channel events"| RENDER
+    STREAM["useChatStream"] -->|"事件"| RENDER
     RENDER["MessageBubble / ThinkingBlock / ToolCallBlock"]
   end
 
-  subgraph Backend["后端 (Rust/Tauri)"]
-    INVOKE["commands/chat.rs"] --> RESOLVE["resolve_model_chain()"]
+  subgraph Backend["后端 (ha-core)"]
+    INVOKE["薄壳 commands/routes"] --> ENGINE["run_chat_engine()"]
+    ENGINE --> RESOLVE["模型链解析（§7.2）"]
     RESOLVE --> LOOP["for model in chain"]
 
     LOOP --> BUILD["build_agent_for_model()"]
     BUILD --> RESTORE["restore_agent_context() ◄── SessionDB"]
     RESTORE --> AGENT["agent.chat()"]
 
-    AGENT --> NORMALIZE["normalize_history_for_*()"]
-    NORMALIZE --> COMPACTION["run_compaction_with_options() Tier 0-3"]
+    AGENT --> NORMALIZE["normalize_history_*()"]
+    NORMALIZE --> COMPACTION["run_compaction() Tier 0-4"]
     COMPACTION --> PROVIDER{"match provider"}
 
     PROVIDER -->|Anthropic| P1["POST /v1/messages"]
     PROVIDER -->|OpenAIChat| P2["POST /v1/chat/completions"]
     PROVIDER -->|Responses| P3["POST /v1/responses"]
-    PROVIDER -->|Codex| P4["POST /codex/responses"]
+    PROVIDER -->|Codex| P4["POST codex/responses"]
 
     P1 & P2 & P3 & P4 --> SSE["SSE 解析"]
     SSE -->|"on_delta(event_json)"| STREAM
@@ -959,74 +818,74 @@ flowchart TD
     TOOLQ -->|否| SAVE["save_agent_context() → SessionDB"]
 
     AGENT -->|失败| CLASSIFY["classify_error()"]
-    CLASSIFY -->|retryable| BACKOFF["指数退避重试"]
-    BACKOFF --> AGENT
-    CLASSIFY -->|overflow| EMERGENCY["emergency_compact"]
-    EMERGENCY --> AGENT
+    CLASSIFY -->|retryable| BACKOFF["指数退避重试"] --> AGENT
+    CLASSIFY -->|overflow| EMERGENCY["emergency_compact"] --> AGENT
     CLASSIFY -->|skip| LOOP
   end
 ```
 
 ---
 
-## 11. 关键文件索引
+## 11. 视觉桥（Vision Bridge）
 
-| 模块 | 文件 | 职责 |
-|------|------|------|
-| Provider 配置 | `crates/ha-core/src/provider/` | ApiType、ThinkingStyle、ProviderConfig、模型链解析 |
-| Agent 核心 | `crates/ha-core/src/agent/mod.rs` | 构造器、chat 分发、系统提示词组装 |
-| Agent 类型 | `crates/ha-core/src/agent/types.rs` | LlmProvider、AssistantAgent、ThinkTagFilter |
-| Anthropic | `crates/ha-core/src/agent/providers/anthropic.rs` | Messages API + thinking 块回传 |
-| Chat Completions | `crates/ha-core/src/agent/providers/openai_chat.rs` | ThinkingStyle 分发 + reasoning_content 回传 |
-| Responses API | `crates/ha-core/src/agent/providers/openai_responses.rs`（薄壳）+ `openai_responses_adapter.rs`（实现） | Responses 请求构建 + `parse_openai_sse` 解析；`store: false` 下 reasoning item 就地丢弃、不请求 encrypted_content、不回传 |
-| Codex OAuth | `crates/ha-core/src/agent/providers/codex.rs` | Responses 变体 + 重试逻辑 |
-| 推理参数 | `crates/ha-core/src/agent/config.rs` | 5 种 ThinkingStyle 映射、effort 钳制 |
-| 内容构建 | `crates/ha-core/src/agent/content.rs` | 各 Provider 的用户消息格式构建 |
-| 事件发射 | `crates/ha-core/src/agent/events.rs` | text_delta、thinking_delta、tool_call 等 |
-| 上下文管理 | `crates/ha-core/src/agent/context.rs` | history 标准化、push_user_message、run_compaction |
-| 上下文压缩 | `crates/ha-core/src/context_compact/` + `crates/ha-core/src/agent/context.rs` | 5 层渐进式压缩 + mid-loop checkpoint + 摘要/ledger/recovery 编排 |
-| Failover | `crates/ha-core/src/failover/{mod,executor}.rs` | 错误分类、统一执行器（policy + provider 选择 + 退避 + Codex 不轮换） |
-| Session DB | `crates/ha-core/src/session/` | SQLite 持久化、消息 FTS 搜索 |
-| Chat 命令（桌面） | `src-tauri/src/commands/chat.rs` | Tauri 命令层：主流程编排、模型链迭代、上下文保存恢复 |
-| Chat 路由（HTTP） | `crates/ha-server/src/routes/chat.rs` | HTTP/WS 入口：REST API + WebSocket 流式推送 |
-| 前端模板 | `src/components/settings/provider-setup/templates/` | 44 个 Provider 模板（335 个预设模型） |
-| 前端 Hook | `src/components/chat/useChatStream.ts` | 事件处理、delta 批量刷新 |
-| Dashboard 定价 | `crates/ha-dash/src/dashboard/` | `estimate_cost()` 50+ 模型定价规则 |
+主模型不支持视觉（`ProviderConfig::model_supports_vision(model_id) == false`，即模型 `input_types` 显式不含 `image`，如 DeepSeek 系列）却收到图片时，视觉桥用一个**单独配置**的视觉模型把图片转成文字描述注入主模型，替代"丢图 + `[image omitted]` 占位符"的旧行为。核心实现 `agent/vision_bridge.rs`。
 
-## 12. 视觉桥（Vision Bridge，issue #434）
+> `function_models.vision`（视觉桥）与 `function_models.automation`（后台一次性 LLM 调用的默认模型链）是同一个 `FunctionModelsConfig` 容器下平级的两个功能，互不影响。后者见 [模型 vs Agent 统一配置](automation-model.md)。
 
-主模型不支持视觉（`ProviderConfig::model_supports_vision(model_id)==false`，即 `ModelConfig.input_types` 显式不含 `"image"`，如 DeepSeek 系列）却收到图片时，用一个**单独配置**的视觉模型把图片转成文字描述注入主模型，替代旧行为「丢图 + `[image omitted]` 占位符」。核心实现 [`agent/vision_bridge.rs`](../../crates/ha-core/src/agent/vision_bridge.rs)。
+### 11.1 配置与解析
 
-> `function_models.vision`（本节）与 `function_models.automation`（后台一次性 LLM 调用的默认模型链）是同一个 `FunctionModelsConfig` 容器下平级的两个功能，互不影响。后者的执行原语、15 个消费者清单见 [模型 vs Agent 统一配置](automation-model.md)。
+- `AppConfig.function_models.vision: Option<ActiveModel>`。**opt-in**：`None` = 视觉桥关闭（维持占位符行为），不做自动挑选。
+- 设置三件套：GUI 全局模型区 `ModelSelector`（过滤 `inputTypes` 含 `image`）、`ha-settings` 的 `function_models` category（纯模型引用无凭据、不 redact）、SKILL.md 登记。专用命令 `get_vision_model` / `set_vision_model`（Tauri + HTTP `GET`/`PUT /api/models/vision`）。
+- `vision_bridge::prepare(session_id)` 解析：取 `function_models.vision` → `find_provider` → 校验 `model_supports_vision` → 构建 vision agent → 绑定 session id（令 `KIND_VISION` 用量按 incognito 跳过）。任一步失败返回 `None`（桥关闭，回退占位符）。
 
-### 12.1 配置与解析
+### 11.2 流水线：memo-cache + 每轮临时 transform
 
-- `AppConfig.function_models.vision: Option<ActiveModel>`（`FunctionModelsConfig` 容器，camelCase `functionModels.vision`）。**opt-in**：`None` = 视觉桥关闭（维持占位符行为），不做自动挑选。
-- 设置三件套（MEDIUM）：GUI 全局模型区 `ModelSelector`（过滤 `inputTypes` 含 `image`）、`ha-settings` `function_models` category（纯模型引用无凭据、不 redact）、SKILL.md 登记。专用命令 `get_vision_model` / `set_vision_model`（Tauri + HTTP `GET`/`PUT /api/models/vision`）。
-- `vision_bridge::prepare(session_id)` 解析：取 `function_models.vision` → `find_provider` → 校验 `model_supports_vision` → `AssistantAgent::try_new_from_provider` → **`set_session_id(sid)`**（令 `KIND_VISION` 用量按 incognito 跳过）。任一步失败返回 `None`（桥关闭，调用方回退占位符）。
-
-### 12.2 流水线：memo-cache + 每轮临时 transform
-
-**决定性约束**：tool loop 在内存 `conversation_history` 里逐轮追加、整体重发（不每轮从 SQLite 重载），且 `save_agent_context` 把 `conversation_history` **原样序列化落 `context_json`**——所以**绝不能就地把图换成文字**（永久丢图、不可逆，日后换回视觉模型无法恢复）。
+核心约束：tool loop 在内存 `conversation_history` 里逐轮追加、整体重发，且 `save_agent_context` 把它**原样序列化落 `context_json`**——所以**绝不能就地把图换成文字**（永久丢图、不可逆，日后换回视觉模型无法恢复）。
 
 方案 = **进程级 memo cache（异步填、每图一次）+ 每轮对临时 `api_messages` 副本做同步 rewrite**，`conversation_history` 保持原样可逆：
 
-- 挂接点：[`streaming_loop.rs`](../../crates/ha-core/src/agent/streaming_loop.rs) **round head**，`prepare_messages_for_api(&messages)` 产出 `api_messages` 之后。`ResolvedVisionBridge::apply(&mut api_messages, fmt)`：
-  1. `collect_identities` 递归扫 `api_messages`，按 content 形态识别图片（**不读文件**，file marker 用路径作 identity）：用户图块 `{"type":"image"}`（Anthropic）/ `image_url`（OpenAI Chat）/ `input_image`（Responses·Codex）+ 工具结果 `__IMAGE_BASE64__` / `__IMAGE_FILE__` marker（`tools/image_markers.rs`）。
-  2. 对 cache miss（`(image_identity_hash, vision_model_id)` 未命中 / 失败 TTL 过期）**并发有界**转述（每图 `timeout`），填 cache。仅 miss 才 `encode_marker_image`（读盘）。
-  3. `rewrite` 递归把每张图换成 `[Image description: …]` 文本 part（fmt 相应 `text`/`input_text`）或占位符（转述失败）。
-- **单 round-head hook 统一两条路**：round 0 覆盖用户图，round N 覆盖上一轮 `append_round_to_history` 追加的工具图。memo cache 令重扫廉价（每图只转述一次，跨 round / 跨 turn）。
-- **provider 无关**：统一 transform 是唯一降级点，顺带覆盖 Anthropic/Responses/Codex（现状它们不降级、无视觉主模型会 400）。下游各 adapter 的 `expand_*_image_markers_for_api` 此时已无图可处理、自然 no-op（保留作 defense-in-depth）。
+1. 挂接点在 `streaming_loop.rs` 的 **round head**，`prepare_messages_for_api` 产出 `api_messages` 之后。`collect_identities` 递归识别图片（不读文件，用路径/hash 作 identity）：用户图块（各 Provider 的 `image` / `image_url` / `input_image`）+ 工具结果里的 `__IMAGE_BASE64__` / `__IMAGE_FILE__` marker。
+2. 对 cache miss 的图**并发有界**转述（每图超时约束），填 cache；仅 miss 才读盘编码。
+3. 递归把每张图换成 `[Image description: …]` 文本 part（或转述失败时的占位符）。
 
-### 12.3 转述调用与用量
+单个 round-head hook 统一覆盖两条路：round 0 覆盖用户图，round N 覆盖上一轮追加的工具图。memo cache 让重扫廉价（每图只转述一次，跨 round / 跨 turn）。这个统一 transform 是**唯一降级点**，provider 无关——下游各 adapter 的 `expand_*_image_markers_for_api` 此时已无图可处理，自然 no-op。
 
-- `AssistantAgent::transcribe_images_for_vision_bridge`（[`side_query.rs`](../../crates/ha-core/src/agent/side_query.rs)）：复用 `run_one_shot_with_attachments`（与 `independent_query_with_attachments` 同一带图 one_shot 路径），但记 **`KIND_VISION`**（非 `KIND_SIDE_QUERY`）→ Dashboard 单独统计「视觉」成本。**不走 failover**（单次 one_shot，失败即 `Err`）。
-- **鲁棒**：未配置 / 不可解析 / 转述失败 / 超时 → 回退占位符，**绝不 hard-fail 整个 turn**（超时在 `transcribe_images_for_vision_bridge` **内部**，令超时也记 ledger）。一次性提示事件 `{"type":"vision_bridge","status":"engaged"|"unavailable"}`（每 turn 最多一条；GUI banner + IM `im_system_message` 双通道）。
-- **注入即 untrusted（红线）**：转录文本含图片内逐字转录的可见文字，作 `<untrusted_external_data source="vision_bridge:image">` 信封注入 + 转义 `<`/`&`——图片藏 `SYSTEM: ignore prior instructions…` 只能作数据、不作指令（对齐 `[[note]]` / 被动召回红线）。
-- **incognito（红线）**：照常运行（图片可用性是核心功能），但 `set_session_id` + `model_usage.rs` 对 `sessions.incognito!=0` 自动跳过入账；且 **incognito 转录走 per-turn 临时缓存、绝不写全局共享缓存**（转录含敏感文字，关闭即焚 + 不跨会话/跨租户命中）。全局缓存是有界 `TtlCache`（256 cap + 6h TTL + LRU），非无界 HashMap。
-- **agent 惰性构建**：`prepare` 只解析 + 校验配置（廉价、不建 agent），vision agent 在 `apply` 首个真图 cache-miss 时才经 `try_new_from_provider().with_failover_context(prov)` 构建并 memoize 一 turn——纯文字 turn 永不白建 agent。`with_failover_context` 也让 `KIND_VISION` 事件带 provider 归因。
-- **build 超时兜底（红线）**：惰性单独不足以防主对话冻结——含图轮的**首次**构建仍会在关键路径同步跑 Codex OAuth 刷新（其自身无 timeout，曾是冻结向量）。故 `agent()` 的构建整体套 `tokio::time::timeout(AGENT_BUILD_TIMEOUT=20s)`：超时即 `app_warn` + 返 `None`（静默回退占位符），且 **`None`-init 不写 memo**（`OnceCell` 超时未初始化，下一轮重试）——一次瞬时 OAuth 卡顿不永久禁用本 turn 的视觉桥。
-- **取消可响应 + 不缓存（红线）**：`apply` 收 `cancel: &AtomicBool`，把「build（含上述超时）+ 并发转述」整体作 `work` future 经 `tokio::select!` 与 `poll_cancel(cancel)` **竞速**——用户 Stop 触发即腰斩在途 build/转述、`apply` 立即返回。被取消的图 transcription **绝不写缓存**（取消 ≠ 失败，须干净重试，不能像真失败那样缓存 `None` 抑制重试）；取消同时**抑制** `vision_bridge:unavailable` 一次性提示（取消不是「视觉不可用」，避免误导 banner）。转述并发受 `Semaphore(MAX_CONCURRENT=4)` + 每图 `TRANSCRIBE_TIMEOUT=30s` 约束。
+### 11.3 转述、用量与安全
+
+- **用量单独计**：转述复用带图 one_shot 路径，但记 `KIND_VISION`（非 `KIND_SIDE_QUERY`），Dashboard 单独统计"视觉"成本。**不走 failover**（单次 one_shot，失败即 `Err`）。
+- **鲁棒回退**：未配置 / 不可解析 / 转述失败 / 超时 → 回退占位符，**绝不 hard-fail 整个 turn**。一次性提示事件 `{"type":"vision_bridge","status":"engaged"|"unavailable"}`（每 turn 最多一条；GUI banner + IM 双通道）。
+- **注入即 untrusted**：转录文本套 `<untrusted_external_data source="vision_bridge:image">` 信封 + 转义——图片里藏 `SYSTEM: ignore prior instructions…` 只能当数据、不当指令（对齐 `[[note]]` / 被动召回的处理）。
+- **incognito**：照常运行（图片可用性是核心功能），但对 `sessions.incognito != 0` 自动跳过用量入账；且**走 per-turn 临时缓存、绝不写全局共享缓存**（转录含敏感文字，关闭即焚 + 不跨会话命中）。全局缓存是有界 `TtlCache`（容量 256 + 6h TTL + LRU），非无界 HashMap。
+- **惰性构建 + 超时兜底**：`prepare` 只解析校验配置（不建 agent），vision agent 在首个真图 cache-miss 时才构建并 memoize 一 turn——纯文字 turn 永不白建。含图轮首次构建会同步跑 Codex OAuth 刷新（其自身无 timeout，曾是冻结向量），故整个构建套 `AGENT_BUILD_TIMEOUT = 20s`：超时即回退占位符，且**不写 memo**，下一轮重试——一次瞬时 OAuth 卡顿不永久禁用本 turn 的视觉桥。
+- **取消可响应 + 不缓存**：`apply` 把"构建 + 并发转述"整体与取消信号 `tokio::select!` 竞速——用户 Stop 即腰斩在途工作、立即返回；被取消的图转述**绝不写缓存**（取消 ≠ 失败，须干净重试），并抑制 `unavailable` 提示（取消不是"视觉不可用"）。转述并发受 `Semaphore(MAX_CONCURRENT = 4)` + 每图 `TRANSCRIBE_TIMEOUT = 30s` 约束。
 - **扫描范围**：只处理 user / tool-result 消息，**跳过 assistant 消息**——其 tool_use / tool_call 参数可能形似图片块，改写会毁坏 tool 调用。
-- **防递归红线**：转述本身带图调视觉模型，`apply` 只在主对话 `run_streaming_chat` round head 挂接，**绝不在 side_query 路径触发**。
-- **已知限制**：① bridge 门只看静态 catalog `model_supports_vision`，被误标为支持视觉的模型（OpenAI 兼容代理常见）运行时 400 翻 `vision_runtime_disabled` 走旧降级、bridge 不介入；② side_query 缓存快照仍按旧降级折成 `[image omitted]`，与 bridge 改写的 `[Image description]` 不一致，bridge 活跃时 side_query prompt cache 可能 miss；③ 多图消息 round-head 转述串行受 `MAX_CONCURRENT=4` + 每图 30s 超时限。
+- **防递归**：转述本身带图调视觉模型，`apply` 只在主对话 round head 挂接，**绝不在 side_query 路径触发**。
+- **已知限制**：① 门只看静态 catalog，被误标支持视觉的模型（OpenAI 兼容代理常见）运行时会 400 翻旧降级、桥不介入；② side_query 缓存快照仍按旧降级折成 `[image omitted]`，与桥改写的 `[Image description]` 不一致，桥活跃时 side_query prompt cache 可能 miss；③ 多图消息 round-head 转述受 `MAX_CONCURRENT` + 每图 30s 超时限。
+
+---
+
+## 12. 关键文件索引
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| Provider wire 类型 | `crates/ha-config-schema/src/provider.rs` | ApiType / ThinkingStyle / ProviderConfig / ModelConfig / AuthProfile / ModelChain / ProxyConfig |
+| Provider 写入 & 目录 | `crates/ha-core/src/provider/{crud,local,helpers}.rs` | 写入契约 helper、本地后端目录、模型链解析、脱敏 |
+| Agent 核心 | `crates/ha-core/src/agent/mod.rs` | 构造器、chat 分发、系统提示词组装 |
+| Agent 类型 | `crates/ha-core/src/agent/types.rs` | LlmProvider、AssistantAgent、ThinkTagFilter |
+| Anthropic | `agent/providers/anthropic.rs` + `anthropic_adapter.rs` | Messages API + thinking 块回传 |
+| Chat Completions | `agent/providers/openai_chat.rs` + `openai_chat_adapter.rs` | ThinkingStyle 分发 + reasoning_content / `<think>` 回传 |
+| Responses API | `agent/providers/openai_responses.rs` + `openai_responses_adapter.rs` | Responses 请求 + `parse_openai_sse`；`store:false` 下 reasoning item 就地丢弃 |
+| Codex OAuth | `agent/providers/codex.rs` + `codex_adapter.rs` | Responses 变体 + OAuth + 传输重试 |
+| 推理参数 | `crates/ha-core/src/agent/config.rs` | 5 种 ThinkingStyle 映射、effort 钳制、Codex 模型目录 |
+| 内容构建 | `crates/ha-core/src/agent/content.rs` | 各 Provider 的用户消息格式构建 |
+| 事件发射 | `crates/ha-core/src/agent/events.rs` | text_delta / thinking_delta / tool_call 等 |
+| 历史标准化 | `crates/ha-core/src/agent/context.rs` | 三个 normalize 函数、push_user_message、run_compaction |
+| 视觉桥 | `crates/ha-core/src/agent/vision_bridge.rs` | 图片转述注入、memo cache、超时/取消兜底 |
+| 上下文压缩 | `crates/ha-core/src/context_compact/` | 5 层渐进式压缩 + 摘要 / ledger / recovery 编排 |
+| Failover | `crates/ha-core/src/failover/{mod,executor}.rs` | 错误分类、统一执行器（policy + provider 选择 + 退避 + Codex 不轮换） |
+| Session DB | `crates/ha-core/src/session/` | SQLite 持久化、messages FTS 搜索、context_json |
+| Chat 引擎 | `crates/ha-core/src/chat_engine/` | 主流程编排、模型链迭代、事件与持久化 |
+| Chat 薄壳 | `src-tauri/src/commands/chat.rs` · `crates/ha-server/src/routes/chat.rs` | 桌面命令层 / HTTP·WS 入口 |
+| 前端模板 | `src/components/settings/provider-setup/templates/` | 内置 Provider 模板（四类文件） |
+| 前端 Hook | `src/components/chat/useChatStream.ts` | 事件处理、delta 批量刷新 |
+| 成本定价 | `crates/ha-dash/src/dashboard/cost.rs` | `resolve_cost` / `estimate_cost`：单价换算 + 内置估算表 |
