@@ -142,12 +142,12 @@ graph TD
 
 ### 3.2 两个控制面（物理隔离）
 
-设计空间的所有入口分两个平面，彼此隔离：
+设计空间的所有入口分两侧，彼此隔离：
 
 - **面向用户本人的控制面（owner 侧）**：走 Tauri IPC / HTTP，入口在 `service.rs`。本机 / API key 即信任，负责 GUI 的项目/产物/系统 CRUD、可视化编辑回写、导出、部署、代码绑定——**刻意不经 agent 访问检查**。
-- **模型能调用的工具（agent 平面）**：`design` 工具，模型侧的生成与操作全走它，受权限引擎和无痕 / 访问约束裁决。涉及外部工程写入或凭据的动作**只在 owner 侧**，不进模型 schema，防注入提权。
+- **模型能调用的工具（agent 侧）**：`design` 工具，模型侧的生成与操作全走它，受权限引擎和无痕 / 访问约束裁决。涉及外部工程写入或凭据的动作**只在 owner 侧**，不进模型 schema，防注入提权。
 
-这条隔离与[知识空间](knowledge-base.md)的双平面、canvas 的 owner 面同构。
+这条隔离与[知识空间](knowledge-base.md)的两侧模型、canvas 的 owner 面同构。
 
 ---
 
@@ -476,7 +476,7 @@ sequenceDiagram
 | **Android XML** | `<color>`（`#rrggbbaa` → ARGB `#aarrggbb`）/ `<dimen>`（px→dp、rem/em→dp×16）/ `<item>` |
 | **DTCG** | Design Tokens Community Group 标准 JSON（`$value`/`$type` 嵌套） |
 
-类型推断 `classify(name, value)` 是纯启发式（颜色 / 尺寸 / 时长 / 字体族 / 字重 / 数值 / 其它，值优先、名称兜底）。**降级不产坏文件**：非 hex 颜色 / 无 Android 等价的视口单位降级为注释或字符串资源，绝不产出编译不过的文件；空 token 也产出合法骨架。两个平面都可用：owner GUI 导出对话框（Tabs × 6 + 复制 + 下载）、agent `export_tokens[, format]`（缺省全部、`format` 取单个）。
+类型推断 `classify(name, value)` 是纯启发式（颜色 / 尺寸 / 时长 / 字体族 / 字重 / 数值 / 其它，值优先、名称兜底）。**降级不产坏文件**：非 hex 颜色 / 无 Android 等价的视口单位降级为注释或字符串资源，绝不产出编译不过的文件；空 token 也产出合法骨架。两侧都可用：owner GUI 导出对话框（Tabs × 6 + 复制 + 下载）、agent `export_tokens[, format]`（缺省全部、`format` 取单个）。
 
 ### 6.8 设计变量可视化编辑
 

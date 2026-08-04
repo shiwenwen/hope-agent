@@ -30,11 +30,11 @@
 
 ---
 
-## 核心思想：一个工具，两个平面
+## 核心思想：一个工具，两种问答
 
 理解这个子系统的关键，是它其实服务**两类完全不同的等待语义**，共用同一套数据结构、事件和 UI：
 
-| | 工具平面（tool-plane） | Owner 平面（owner-plane） |
+| | 工具侧（模型发起） | Owner 侧（面向用户本人） |
 |---|---|---|
 | 谁发起 | 模型调用 `ask_user_question` 工具 | 面向用户本人的控制面代码直接建题（如 domain workflow 让用户补证据） |
 | 谁在等 | tool loop 里一个**内存 oneshot channel** | **没有内存接收端**——靠 DB 行 + 超时任务存活 |
@@ -43,16 +43,16 @@
 | `request_id` 形态 | 8 字符短 UUID（`create_session_id()`） | `auq_<uuid>` |
 | `source` | `plan` / `subagent` / `normal` / skill id | `owner` |
 
-这个二分法解释了后面几乎所有"看起来重复"的机制：为什么内存注册表和 DB 行要**双轨并存**（识别僵尸）、为什么启动清理要区别对待两种行、为什么 owner 平面额外有一套超时任务和 terminal gate。
+这个二分法解释了后面几乎所有"看起来重复"的机制：为什么内存注册表和 DB 行要**双轨并存**（识别僵尸）、为什么启动清理要区别对待两种行、为什么 owner 侧额外有一套超时任务和 terminal gate。
 
 ```mermaid
 flowchart TB
-    subgraph TP["工具平面 — 模型发问"]
+    subgraph TP["工具侧 — 模型发问"]
         M["模型调用<br/>ask_user_question"] --> EX["tools/ask_user_question.rs<br/>execute()"]
         EX --> ONE["内存 oneshot<br/>PENDING_ASK_USER_QUESTIONS"]
         EX -.阻塞等待.-> RX["rx.await"]
     end
-    subgraph OP["Owner 平面 — 控制面发问"]
+    subgraph OP["Owner 侧 — 控制面发问"]
         OW["create_owner_ask_user_question"] --> POQ["persist_owner_question"]
         POQ --> OT["owner 超时任务<br/>OWNER_ASK_USER_TIMEOUT_TASKS"]
     end
@@ -66,7 +66,7 @@ flowchart TB
     SUB -->|未命中 → owner| EVID["record_domain_evidence<br/>落 durable evidence"]
 ```
 
-> 本文正文以**工具平面**为主线（最常见），owner 平面在每处差异点单独标注。owner 平面的 evidence 语义细节见 [domain-workflow](domain-workflow.md)。
+> 本文正文以**工具侧**为主线（最常见），owner 侧在每处差异点单独标注。owner 侧的 evidence 语义细节见 [domain-workflow](domain-workflow.md)。
 
 ---
 
@@ -76,9 +76,9 @@ flowchart TB
 - **Group**：一组一起呈现的问题，共享 `context`、`source`、`timeout_at` 和有效 `timeout_secs`。
 - **Question**：组内单题，有独立 `question_id`、选项列表、`multi_select`、`input_kind`、`timeout_secs`、`default_values`。
 - **Option**：单个选项，可挂 `description` / `recommended` / `preview`（富预览）/ `card`（设计方向卡）。
-- **Pending Oneshot**：工具平面的内存接收端 `{ sender, session_id }`，注册在 `PENDING_ASK_USER_QUESTIONS` map 里，键为 `request_id`。session 维度用于 Stop / 删会话时定向唤醒所有阻塞中的工具调用。
+- **Pending Oneshot**：工具侧的内存接收端 `{ sender, session_id }`，注册在 `PENDING_ASK_USER_QUESTIONS` map 里，键为 `request_id`。session 维度用于 Stop / 删会话时定向唤醒所有阻塞中的工具调用。
 - **Persisted Group**：同一个 group 同步写入 SQLite，status 为 `pending` / `answered`。内存 oneshot 与 DB 行**双轨存在**，是为了在崩溃 / 重启后识别「有 DB 记录但无内存接收端」的僵尸行。
-- **Owner Timeout Task**：owner 平面专属的可重建超时任务，不依赖 oneshot，进程重启后按剩余 deadline 重新武装。
+- **Owner Timeout Task**：owner 侧专属的可重建超时任务，不依赖 oneshot，进程重启后按剩余 deadline 重新武装。
 
 ---
 
@@ -138,7 +138,7 @@ pub struct AskUserQuestionGroup {
     pub timeout_at: Option<u64>,             // unix 秒；None = 无超时
     pub timeout_secs: Option<u64>,           // 有效 wall-clock，供重启后准确发 timeout event
     pub server_now: Option<u64>,             // 生成 / 读取时的服务端 unix 秒，前端用它消除客户端时钟偏移
-    pub owner_response: Option<AskUserOwnerResponse>,  // 存在 = owner 平面，见下
+    pub owner_response: Option<AskUserOwnerResponse>,  // 存在 = owner 侧，见下
 }
 
 pub struct AskUserQuestionAnswer {
@@ -150,9 +150,9 @@ pub struct AskUserQuestionAnswer {
 
 同一 request 的答案是 `Vec<AskUserQuestionAnswer>`，一次性提交。
 
-### Owner 平面专属类型
+### Owner 侧专属类型
 
-`owner_response` 字段是区分两个平面的开关：**存在即 owner 平面**。它描述"用户答复后要落什么 durable 结果"：
+`owner_response` 字段是区分两侧的开关：**存在即 owner 侧**。它描述"用户答复后要落什么 durable 结果"：
 
 ```rust
 pub struct AskUserOwnerResponse {
@@ -206,7 +206,7 @@ pub struct AskUserTimedOutPayload {
 
 ## 工具执行流程
 
-[`tools/ask_user_question.rs`](../../crates/ha-core/src/tools/ask_user_question.rs) 的 `execute(args, session_id)` 是工具平面的入口，也是全局唯一的结构化问答实现——特征 crate 的确认弹窗（如 `ha-updater` 的 `app_update` install/rollback）从 crate 外复用它、不 fork。
+[`tools/ask_user_question.rs`](../../crates/ha-core/src/tools/ask_user_question.rs) 的 `execute(args, session_id)` 是工具侧的入口，也是全局唯一的结构化问答实现——特征 crate 的确认弹窗（如 `ha-updater` 的 `app_update` install/rollback）从 crate 外复用它、不 fork。
 
 ```mermaid
 flowchart TD
@@ -279,26 +279,26 @@ ask_user_question_timeout_enabled
 [`ask_user/questions.rs`](../../crates/ha-core/src/ask_user/questions.rs) 持有三个进程内静态表：
 
 ```rust
-// 工具平面：唯一的有效接收端
+// 工具侧：唯一的有效接收端
 static PENDING_ASK_USER_QUESTIONS: OnceLock<TokioMutex<HashMap<String, PendingAskUserQuestion>>>;
-// owner 平面：可重建的超时任务（AbortHandle + session_id）
+// owner 侧：可重建的超时任务（AbortHandle + session_id）
 static OWNER_ASK_USER_TIMEOUT_TASKS: OnceLock<Mutex<HashMap<String, OwnerTimeoutTask>>>;
-// owner 平面：序列化每次终态转换的门（回答 vs 超时只能有一个赢家）
+// owner 侧：序列化每次终态转换的门（回答 vs 超时只能有一个赢家）
 static OWNER_ASK_USER_TERMINAL_GATES: OnceLock<Mutex<HashMap<String, Arc<TokioMutex<()>>>>>;
 ```
 
-### 工具平面 oneshot map 的操作
+### 工具侧 oneshot map 的操作
 
 | 调用点 | 动作 |
 |--------|------|
 | `register_ask_user_question(request_id, session_id, sender)` | 工具执行期间插入 |
-| `submit_ask_user_question_response(request_id, answers)` | 回传答案：命中则移除并 `send`；**未命中则回落 owner 平面** |
+| `submit_ask_user_question_response(request_id, answers)` | 回传答案：命中则移除并 `send`；**未命中则回落 owner 侧** |
 | `cancel_pending_ask_user_question(request_id)` | 单请求取消：移除并 drop sender（触发 `rx.await` 返 `Err`） |
 | `cancel_pending_ask_user_questions_for_session(session_id, source)` | Stop / 删会话时定向 drain 该 session 的 live 工具请求 |
 | `cancel_all_pending_ask_user_questions(source)` | 全局 Stop 时 drain 全部 live 工具请求 |
 | `is_ask_user_question_live(request_id)` | 过滤僵尸 DB 行时查是否仍有内存接收端 |
 
-每条终态路径都会：翻 DB 行 → 发 `ask_user:resolved` → `emit_pending_interactions_changed`（更新侧边栏待办计数）。注意 `cancel_pending_ask_user_questions_for_session` 刻意**只 drain 工具平面**——owner 平面是 durable workflow 状态，不该被一次前台 Stop 抹掉。
+每条终态路径都会：翻 DB 行 → 发 `ask_user:resolved` → `emit_pending_interactions_changed`（更新侧边栏待办计数）。注意 `cancel_pending_ask_user_questions_for_session` 刻意**只 drain 工具侧**——owner 侧是 durable workflow 状态，不该被一次前台 Stop 抹掉。
 
 ### 僵尸行过滤
 
@@ -370,7 +370,7 @@ CREATE INDEX IF NOT EXISTS idx_ask_user_status  ON ask_user_questions(status);
 
 **ACP 模式**（`start_minimal_background_tasks`）：只做启动一次性的那三步清理，**不起每日 purge 循环**——ACP 是 IDE 拉起的单会话短命进程，长周期 timer 会漏文件句柄。
 
-清理逻辑对两个平面区别对待：工具行的内存 oneshot 在进程启动时必然为空，所以失去接收端的工具 pending 行只能翻 answered；owner 行带 durable response handler、不依赖 oneshot，必须保留并按剩余 deadline 重建幂等超时任务，已经到期的立即竞争原子终态转换。启动清理是 primary-only（Secondary 进程会误清桌面仍 live 的 pending）。
+清理逻辑对两侧区别对待：工具行的内存 oneshot 在进程启动时必然为空，所以失去接收端的工具 pending 行只能翻 answered；owner 行带 durable response handler、不依赖 oneshot，必须保留并按剩余 deadline 重建幂等超时任务，已经到期的立即竞争原子终态转换。启动清理是 primary-only（Secondary 进程会误清桌面仍 live 的 pending）。
 
 数据保留窗口固定 **7 天**，目前不可配置。
 
@@ -586,7 +586,7 @@ pub ask_user_question_timeout_secs: u64,               // 默认 0 = 永不超�
 
 **僵尸行识别**。内存 oneshot 与 DB 行双轨：读路径经 `is_ask_user_question_live` 过滤只返 live 行；重启后 `expire_pending_ask_user_groups` 只翻工具行，owner 行保留并重建超时任务。
 
-**终态唯一赢家**。owner 平面的回答与超时共享一把 terminal gate，`mark_ask_user_timed_out` 做原子 `pending → answered` 转换，失败方不得重复发事件或写 evidence；owner answer 的 evidence + terminal status 在同一 SQLite 事务提交，`timeout=0` 也走 per-request terminal gate。
+**终态唯一赢家**。owner 侧的回答与超时共享一把 terminal gate，`mark_ask_user_timed_out` 做原子 `pending → answered` 转换，失败方不得重复发事件或写 evidence；owner answer 的 evidence + terminal status 在同一 SQLite 事务提交，`timeout=0` 也走 per-request terminal gate。
 
 **会话级隔离**。前端查 `group.sessionId !== currentSessionId`；IM listener 用 `get_conversation_by_session` 精确路由回原发渠道，非 IM / 不存在的 session 静默跳过。
 
@@ -632,7 +632,7 @@ pub ask_user_question_timeout_secs: u64,               // 默认 0 = 永不超�
 - 何时该问 / 何时自查的思维框架：[prompt-system](prompt-system.md#human-in-the-loop)
 - 工具注册表与 tier 派生：[tool-system](tool-system.md)
 - 富输入 / 设计方向卡的消费方：[design-space](design-space.md)
-- owner 平面 evidence 语义：[domain-workflow](domain-workflow.md)
+- owner 侧 evidence 语义：[domain-workflow](domain-workflow.md)
 - 问答生命周期 hook（elicitation）：[hooks](hooks.md)
 - 跨模式后台任务分档：[process-model](process-model.md)
 - Tauri 命令 / HTTP 路由清单：[api-reference](api-reference.md)

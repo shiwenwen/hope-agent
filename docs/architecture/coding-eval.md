@@ -248,7 +248,7 @@ report 同步进入 `FixtureReport.task` 与 `FixtureReport.metrics`（`task_out
 
 | 范围 | 类型 | 主题 |
 | --- | --- | --- |
-| `CE-BUG-001..005` | `bugfix` | tool_search parsing、Plan execution guidance、preview-by-path 鉴权、async zero 语义、Knowledge owner/agent 平面。 |
+| `CE-BUG-001..005` | `bugfix` | tool_search parsing、Plan execution guidance、preview-by-path 鉴权、async zero 语义、Knowledge owner/agent 两侧。 |
 | `CE-TEST-001..004` | `test_gap` | Plan 状态机非法转移、ToolDefinition visibility、incognito preview、workflow repair-loop 停机。 |
 | `CE-FE-001..004` | `frontend_ts` | Workspace copy、loop/mode entry、FileKind fallback、PlanPanel i18n 只读文案。 |
 | `CE-RUST-001..003` | `rust_logic` | ToolDefinition safety metadata、WorkflowRun trace 边界、validation selector。 |

@@ -186,7 +186,7 @@ flowchart TB
 | `watcher.rs` | `notify` watcher（debounce 800ms，仅 `.md`，per-KB 线程，外部 vault 实时同步） |
 | `search.rs` | chunk 级 FTS + vec → RRF → MMR → 聚合回 note；`similar_notes` 向量 KNN。算法复用 memory，独立 store |
 | `graph.rs` | 链接图谱构建（纯变换）：全图 / ego 子图 / 按度数截断 |
-| `service.rs` | owner 平面操作（GUI / HTTP）：list / read / save / delete / rename / backlinks / search / broken_links / orphans / graph / ai_rewrite / 维护配置，不经 `effective_kb_access` |
+| `service.rs` | owner 侧操作（GUI / HTTP）：list / read / save / delete / rename / backlinks / search / broken_links / orphans / graph / ai_rewrite / 维护配置，不经 `effective_kb_access` |
 | `source.rs` | 资料舱：多种来源导入、STT / OCR、SSRF-gated fetch、去重、版本链、外部镜像、批量导入流水线、相似治理、媒体留存 |
 | `compile.rs` | Knowledge Compiler：读 source + 相关笔记经资料整理 Agent side_query 产结构化 Markdown，转成 proposal；approve 才 apply |
 | `schema.rs` | Schema Profile / Evidence：默认 profile、source refs / claim 级出处解析、`knowledge_evidence_refs` / `_claims` 派生索引、coverage score、source→claim 反查 |
@@ -201,16 +201,16 @@ flowchart TB
 
 ---
 
-## 七、两个鉴权平面与访问裁决
+## 七、两条鉴权路线与访问裁决
 
-知识空间有两个**物理隔离**的鉴权平面：
+知识空间有两条**物理隔离**的鉴权路线：
 
-| 平面 | 在哪层 | 主体 / 鉴权 |
+| 路线 | 在哪层 | 主体 / 鉴权 |
 |---|---|---|
 | **Owner / 管理** | HTTP 端点 / Tauri 命令（`service.rs`） | 面向用户本人：桌面本机信任 / HTTP API key = owner-equivalent；看自己**所有** KB，**不经 attach** |
 | **Agent / session** | 模型能调用的工具（`note_*`，进程内） | turn 内的 agent；必过 `effective_kb_access(ctx)`（session + source + 全链 cap + incognito） |
 
-KB 文件预览端点 `/api/knowledge/{kb_id}/files/*` 是**纯 owner 平面**，无 session 参数、无 fallback，与 `/api/sessions/{id}/files/*` 互不放宽。`note_*` 工具读笔记不经 HTTP 端点，进程内直接返回内容。
+KB 文件预览端点 `/api/knowledge/{kb_id}/files/*` 是**纯 owner 侧**，无 session 参数、无 fallback，与 `/api/sessions/{id}/files/*` 互不放宽。`note_*` 工具读笔记不经 HTTP 端点，进程内直接返回内容。
 
 ### 访问裁决 `effective_kb_access`
 
@@ -358,7 +358,7 @@ flowchart LR
 
 ## 十三、资料舱 → 编译审阅 → Evidence
 
-这三块共同实现第三节的 Knowledge Compiler 流水线，全在 owner 平面，agent 无 `source_*` / `compile_*` 工具。
+这三块共同实现第三节的 Knowledge Compiler 流水线，全在 owner 侧，agent 无 `source_*` / `compile_*` 工具。
 
 ### 资料舱（Raw Source）
 
@@ -383,7 +383,7 @@ flowchart LR
 
 ### 编译审阅（Compile Review）
 
-编译 run 与 proposal 是 owner 平面的审阅队列，落 `sessions.db`，fingerprint 幂等。[`compile.rs`](../../crates/ha-knowledge/src/knowledge/compile.rs) 读 source + 相关笔记，经 `AppConfig.knowledge_compile.agent_id` 指定的资料整理 Agent（未设则继承全局默认 Agent）发 side_query 生成结构化 Markdown，转成 `CreateNote` / `PatchNote` / `SetFrontmatter` / `AppendLink` / `CreateMoc` proposal。**LLM 只产 proposal，approve 前绝不写 `.md`**；apply 统一走 `service::note_save`、当前磁盘 BLAKE3 stale-write guard、外部 root 写 opt-in 闸。
+编译 run 与 proposal 是 owner 侧的审阅队列，落 `sessions.db`，fingerprint 幂等。[`compile.rs`](../../crates/ha-knowledge/src/knowledge/compile.rs) 读 source + 相关笔记，经 `AppConfig.knowledge_compile.agent_id` 指定的资料整理 Agent（未设则继承全局默认 Agent）发 side_query 生成结构化 Markdown，转成 `CreateNote` / `PatchNote` / `SetFrontmatter` / `AppendLink` / `CreateMoc` proposal。**LLM 只产 proposal，approve 前绝不写 `.md`**；apply 统一走 `service::note_save`、当前磁盘 BLAKE3 stale-write guard、外部 root 写 opt-in 闸。
 
 ### Evidence 派生索引
 
@@ -472,7 +472,7 @@ flowchart LR
 - **写盘一律原子化**：所有笔记写经 `platform::write_atomic`（同目录 temp → fsync → 原子 rename），**禁止回退 `fs::write` 直写**；stale-write guard 比**磁盘当前 raw BLAKE3**（不比 `note.content_hash` 索引缓存）。
 - **`index.db` 含明文 chunk 片段**（敏感度等同 `.md`，随数据目录权限走），**绝不存 API Key / Token / 凭据**。
 - **注入即非可信**：`[[note]]` 注入与被动召回套 `<untrusted_external_data>` 信封 + 来源 + 截断，永不提升为 system 指令。
-- **两鉴权平面物理隔离**：owner 平面（HTTP / Tauri）不经 `effective_kb_access` 看全部 KB；agent 平面（`note_*`）必过 `effective_kb_access`。`/api/knowledge/agent/*` 也是 owner 平面，必须由 Bearer 保护；MCP / 外部集成不得绕过 `agent_api.rs` 另开读写路径。
+- **两条鉴权路线物理隔离**：owner 侧（HTTP / Tauri，面向用户本人）不经 `effective_kb_access` 看全部 KB；agent 侧（`note_*`，模型工具）必过 `effective_kb_access`。`/api/knowledge/agent/*` 也是 owner 侧，必须由 Bearer 保护；MCP / 外部集成不得绕过 `agent_api.rs` 另开读写路径。
 - **Raw Source 隔离**：资料舱 source 不注入 prompt、不进 `note_search` / `knowledge_recall`；内部 `stored_path` 始终是 Hope 管理目录的真相源；外部 raw 镜像只是 opt-in 的文本快照副本（原子写 + 相对路径逃逸校验 + canonical root containment，不镜像原始媒体，失败不阻断内部导入）。URL 导入 / refresh 必过 `security::ssrf::check_url`，重定向与最终 URL 复检；浏览器采集只读当前受控 tab、不后端重 fetch，refresh 默认要求当前 tab URL 与原 source URL（忽略 fragment）匹配。
 - **Compile / Query Filing 隔离**：编译与归档只落 proposal，approve 前不写 `.md`；approve 时仍走外部 root read-only cap + 磁盘 raw BLAKE3 stale-write guard；失败 proposal 标 `failed` 供复核。
 - **Schema / Evidence 只读**：`schema.rs` 只读 note/source registry 生成 profile / refs / lint / coverage；`knowledge_evidence_refs` / `_claims` 是从 `.md` 派生的可重建索引，不是真相源，不注入 prompt、不 gate agent 执行、不绕过 `note_save` 写入链。

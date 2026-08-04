@@ -383,7 +383,7 @@ SQLite 只保存 experiment / campaign / trial / import / baseline / annotation 
 
 统一 History 同时读取新 `evals.db` 与现有 `sessions.db` 中的 Coding / Domain Campaign，但 legacy source 始终标 `LegacyLocal`，详情由各自 adapter 解析。Hope Core 的 trial 查询除脱敏 `ModelTrialResult` 外，还从已验证 evidence 返回该 trial 实际采用的 `budget` 与 `timeoutSeconds`，供 Owner UI 展示"实际值 / 上限"与精确触发维度；这些字段仍不含 Prompt、模型正文或工具 payload。没有完整 evidence 的异常旧记录只返回已落库标量摘要，**禁止把缺失轨迹伪造成 0 或完整详情**。Overview 只汇总总 trial、infra、已完成 campaign 和已知费用，不跨异构评分器算一个"全局任务成功率"。
 
-**平面隔离**：Tauri owner 平面提供 catalog / readiness / model options、preview / start / cancel / retry、history / detail / trial、compare / trends、pin / annotation、baseline、signed / unverified import 与 local export。HTTP / WS 平面只开放脱敏只读的 history / query；真实模型 preview / run / cancel / retry / import / export 默认固定拒绝，避免远程 API 绕过桌面 Sidecar 和本机文件选择。
+**两侧隔离**：Tauri owner 侧（面向用户本人）提供 catalog / readiness / model options、preview / start / cancel / retry、history / detail / trial、compare / trends、pin / annotation、baseline、signed / unverified import 与 local export。HTTP / WS 侧只开放脱敏只读的 history / query；真实模型 preview / run / cancel / retry / import / export 默认固定拒绝，避免远程 API 绕过桌面 Sidecar 和本机文件选择。
 
 **资源解析 fail closed**：正式桌面包通过 Tauri Resource resolver 取得 `evals/live`，只执行产品二进制同目录的随包 Sidecar；任一资源或 Sidecar 缺失时，在发送 Provider 凭据前 fail closed。只有 `debug_assertions` 开发构建允许从当前 checkout 回退到 `evals/live` 和 `target/debug/hope-agent-eval`。Headless Server 不扫描 exe ancestor / cwd；若要让 HTTP 只读查询刷新签名状态，管理员必须显式设置绝对、已 canonicalize、不含 symlink 的 `HA_EVAL_TRUST_REGISTRY_PATH`，未配置或无效时统一 fail closed 为 key missing。
 

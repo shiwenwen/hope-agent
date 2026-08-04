@@ -395,7 +395,7 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 
 ### Knowledge Base（知识空间）
 
-**Owner / 管理平面**——全局 API key 持有者 = owner-equivalent，看自己全部 KB，**不经 `effective_kb_access`**（那是 agent `note_*` 工具平面）。Knowledge Agent read token 只在 owner API key 保护开启时生效，只允许下表中的 `knowledge_agent_{search,read,expand,sources}_cmd` HTTP 路由，不能访问 compile/propose 或任何管理端点；若 server 处于 no-auth 模式，read token 不会单独启用鉴权。详见 [knowledge-base.md](./knowledge-base.md)（实现 + 设计契约 D1–D20）。
+**Owner / 管理面**——全局 API key 持有者 = owner-equivalent，看自己全部 KB，**不经 `effective_kb_access`**（那是 agent `note_*` 工具侧）。Knowledge Agent read token 只在 owner API key 保护开启时生效，只允许下表中的 `knowledge_agent_{search,read,expand,sources}_cmd` HTTP 路由，不能访问 compile/propose 或任何管理端点；若 server 处于 no-auth 模式，read token 不会单独启用鉴权。详见 [knowledge-base.md](./knowledge-base.md)（实现 + 设计契约 D1–D20）。
 
 | Tauri 命令 | HTTP 路由 | 对齐 |
 |---|---|---|
@@ -1757,7 +1757,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `terminal_resize` | `POST /api/terminals/{terminalId}/resize` | ✅ 更新 PTY 行列 |
 | `terminal_close` | `DELETE /api/terminals/{terminalId}` | ✅ 终止 shell 并移除会话 |
 
-终端是高权限 owner 写平面，HTTP 端点必须保留在 Bearer 保护的 `/api` 路由内，并统一要求 `filesystem.allowRemoteWrites=true`；不得向 Knowledge Agent 只读 token、公开路由开放或绕过远程写入门。生命周期、上限和重放协议详见 [terminal.md](terminal.md)。
+终端是高权限 owner 写入面，HTTP 端点必须保留在 Bearer 保护的 `/api` 路由内，并统一要求 `filesystem.allowRemoteWrites=true`；不得向 Knowledge Agent 只读 token、公开路由开放或绕过远程写入门。生命周期、上限和重放协议详见 [terminal.md](terminal.md)。
 
 ### First-run onboarding wizard
 

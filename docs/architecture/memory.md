@@ -722,7 +722,7 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 
 ## 十三、健康诊断与保守修复
 
-Owner 平面通过 `memory_health` / `GET /api/memory/health` 读取只读诊断（**不自动修复、不进 agent 工具面**），覆盖：SQLite `PRAGMA quick_check`、待重嵌入数量、各 FTS（`memories_fts` / `memories_literal_fts` / `memory_claims_fts` / `memory_claims_literal_fts` / `memory_evidence_fts`）缺口、claim without evidence、orphan evidence / link、Dreaming stale run / lock，以及 Deep Resolver backlog。字面 shadow 缺行分别用 `memory_literal_fts_missing_rows` / `claim_literal_fts_missing_rows` 报告——它们可由对应 FTS repair 重建，**不改正文真相源**。有过期/冲突候选时只加 `info` issue，不把正常治理 backlog 误报为系统故障。
+面向用户本人的管理面通过 `memory_health` / `GET /api/memory/health` 读取只读诊断（**不自动修复、不进 agent 工具面**），覆盖：SQLite `PRAGMA quick_check`、待重嵌入数量、各 FTS（`memories_fts` / `memories_literal_fts` / `memory_claims_fts` / `memory_claims_literal_fts` / `memory_evidence_fts`）缺口、claim without evidence、orphan evidence / link、Dreaming stale run / lock，以及 Deep Resolver backlog。字面 shadow 缺行分别用 `memory_literal_fts_missing_rows` / `claim_literal_fts_missing_rows` 报告——它们可由对应 FTS repair 重建，**不改正文真相源**。有过期/冲突候选时只加 `info` issue，不把正常治理 backlog 误报为系统故障。
 
 `memory_repair` / `POST /api/memory/repair` 触发保守动作：
 
