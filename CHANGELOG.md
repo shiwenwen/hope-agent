@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **宠物生成默认升级为 Codex v2**：Create 默认生成带 16 个顺时针注视方向的 8×11 精灵图，同时保留 v1 选项；宠物库里的已有 v1 可一键生成并切换到非破坏式 v2 副本，原 v1 仍可继续使用或导出。
+
 ## [0.29.0] - 2026-08-04
 
 ### Fixed

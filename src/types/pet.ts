@@ -112,3 +112,8 @@ export interface PetImportPreview {
   packageHash: string
   duplicatePetRef?: PetRef
 }
+
+export interface PetUpgradeResult {
+  pet: PetSummary
+  upgraded: boolean
+}

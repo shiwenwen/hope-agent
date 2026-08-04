@@ -12332,9 +12332,20 @@
       "name": "名称",
       "shortDescription": "简短描述（可选）",
       "prompt": "希望宠物长什么样？",
+      "version": "精灵图版本",
+      "versionV2": "v2 · 推荐",
+      "versionV1": "v1 · 旧版兼容",
+      "versionV2Description": "包含 Codex v2 使用的 16 个顺时针注视方向。",
+      "versionV1Description": "为旧版客户端生成原始九行精灵图。",
       "generate": "生成预览",
       "generating": "正在创建预览…",
       "failed": "无法创建这只宠物"
+    },
+    "upgrade": {
+      "action": "升级到 v2",
+      "upgraded": "已创建 v2 副本，原 v1 宠物仍保留。",
+      "alreadyExists": "宠物库中已有这个 v2 升级版本。",
+      "failed": "无法将这只宠物升级到 v2"
     },
     "export": {
       "action": "导出给 Codex",

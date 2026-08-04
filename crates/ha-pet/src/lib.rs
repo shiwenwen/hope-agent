@@ -29,7 +29,7 @@ pub use import::{
     cancel_import_preview, commit_import, discover_codex_candidates, preview_import,
     preview_import_async, preview_thumbnail, preview_token_thumbnail,
 };
-pub use store::{delete_pet, export_codex_package, list_pets, restore_pet};
+pub use store::{delete_pet, export_codex_package, list_pets, restore_pet, upgrade_pet_to_v2};
 pub use types::*;
 
 /// Patch the user-facing Pet configuration through the shared config mutation
@@ -84,6 +84,49 @@ pub async fn update_config(
         );
     }
     Ok(event_config)
+}
+
+/// Replace a selected pet only if it still matches the expected source. The
+/// comparison and persisted update share the library lock with ordinary pet
+/// selection, so an upgrade can never overwrite a newer user choice.
+pub(crate) async fn replace_selected_pet_if(
+    expected_pet_ref: PetRef,
+    selected_pet_ref: PetRef,
+    source: &'static str,
+) -> anyhow::Result<bool> {
+    let event_config = ha_core::blocking::run_blocking(move || {
+        let _library_guard = store::acquire_library_lock()?;
+        if ha_core::config::cached_config().pet.selected_pet_ref != expected_pet_ref {
+            return Ok(None);
+        }
+        let available = list_pets()?
+            .pets
+            .iter()
+            .any(|pet| pet.pet_ref == selected_pet_ref);
+        if !available {
+            anyhow::bail!("pet_not_found");
+        }
+        ha_core::config::mutate_config(("pet", source), move |store| {
+            store.pet.selected_pet_ref = selected_pet_ref;
+            Ok(store.pet.clone())
+        })
+        .map(Some)
+    })
+    .await?;
+    let Some(event_config) = event_config else {
+        return Ok(false);
+    };
+    if let Some(bus) = ha_core::globals::get_event_bus() {
+        bus.emit(
+            "pet:config_changed",
+            serde_json::json!({
+                "enabled": event_config.enabled,
+                "selectedPetRef": event_config.selected_pet_ref,
+                "source": source,
+            }),
+        );
+    }
+    Ok(true)
 }
 
 /// 幂等装配：注册 kernel 的 pet 配置更新钩子（`ha_core::pet::update_config`

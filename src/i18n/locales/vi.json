@@ -12332,9 +12332,20 @@
       "name": "Tên",
       "shortDescription": "Mô tả ngắn (không bắt buộc)",
       "prompt": "Bạn muốn thú cưng trông như thế nào?",
+      "version": "Phiên bản bảng sprite",
+      "versionV2": "v2 · Khuyên dùng",
+      "versionV1": "v1 · Cũ",
+      "versionV2Description": "Bao gồm 16 hướng nhìn theo chiều kim đồng hồ của Codex v2.",
+      "versionV1Description": "Tạo bảng sprite chín hàng ban đầu cho máy khách cũ.",
       "generate": "Tạo bản xem trước",
       "generating": "Đang tạo bản xem trước…",
       "failed": "Không thể tạo thú cưng này"
+    },
+    "upgrade": {
+      "action": "Nâng cấp lên v2",
+      "upgraded": "Đã tạo bản sao v2. Thú cưng v1 gốc vẫn được giữ lại.",
+      "alreadyExists": "Bản nâng cấp v2 này đã có trong thư viện.",
+      "failed": "Không thể nâng cấp thú cưng này lên v2"
     },
     "export": {
       "action": "Xuất cho Codex",

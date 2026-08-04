@@ -160,6 +160,20 @@ pub async fn create_preview(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpgradeV2Body {
+    pub request: ha_pet::PetUpgradeRequest,
+}
+
+pub async fn upgrade_v2(
+    Json(body): Json<UpgradeV2Body>,
+) -> Result<Json<ha_pet::PetUpgradeResult>, AppError> {
+    ha_pet::upgrade_pet_to_v2(body.request)
+        .await
+        .map(Json)
+        .map_err(bad_request)
+}
+
+#[derive(Debug, Deserialize)]
 pub struct PreviewBody {
     pub request: ha_pet::PetImportPreviewRequest,
 }

@@ -12332,9 +12332,20 @@
       "name": "Nome",
       "shortDescription": "Descrição curta (opcional)",
       "prompt": "Como deve ser o seu mascote?",
+      "version": "Versão da folha de sprites",
+      "versionV2": "v2 · Recomendada",
+      "versionV1": "v1 · Legada",
+      "versionV2Description": "Inclui as 16 direções de olhar no sentido horário usadas pelo Codex v2.",
+      "versionV1Description": "Cria o atlas original de nove linhas para clientes antigos.",
       "generate": "Gerar pré-visualização",
       "generating": "A criar pré-visualização…",
       "failed": "Não foi possível criar este mascote"
+    },
+    "upgrade": {
+      "action": "Atualizar para v2",
+      "upgraded": "Foi criada uma cópia v2. O mascote v1 original continua disponível.",
+      "alreadyExists": "Esta atualização v2 já está na sua biblioteca.",
+      "failed": "Não foi possível atualizar este mascote para v2"
     },
     "export": {
       "action": "Exportar para Codex",

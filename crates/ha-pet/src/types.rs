@@ -196,6 +196,26 @@ pub struct PetCreateRequest {
     #[serde(default)]
     pub description: Option<String>,
     pub prompt: String,
+    #[serde(default = "default_create_sprite_version")]
+    pub sprite_version_number: PetSpriteVersion,
+}
+
+fn default_create_sprite_version() -> PetSpriteVersion {
+    PetSpriteVersion::V2
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PetUpgradeRequest {
+    pub pet_ref: PetRef,
+    pub expected_package_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PetUpgradeResult {
+    pub pet: PetSummary,
+    pub upgraded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -361,7 +381,25 @@ pub struct InstalledSprite {
 mod tests {
     use serde_json::json;
 
-    use super::{PetImportSource, PetNavigationTarget};
+    use super::{PetCreateRequest, PetImportSource, PetNavigationTarget, PetSpriteVersion};
+
+    #[test]
+    fn create_request_defaults_to_v2_and_keeps_explicit_v1() {
+        let default: PetCreateRequest = serde_json::from_value(json!({
+            "displayName": "Hope",
+            "prompt": "robot firefly"
+        }))
+        .unwrap();
+        assert_eq!(default.sprite_version_number, PetSpriteVersion::V2);
+
+        let legacy: PetCreateRequest = serde_json::from_value(json!({
+            "displayName": "Hope",
+            "prompt": "robot firefly",
+            "spriteVersionNumber": 1
+        }))
+        .unwrap();
+        assert_eq!(legacy.sprite_version_number, PetSpriteVersion::V1);
+    }
 
     #[test]
     fn import_sources_use_camel_case_variant_fields_on_the_wire() {

@@ -12332,9 +12332,20 @@
       "name": "이름",
       "shortDescription": "짧은 설명(선택 사항)",
       "prompt": "펫이 어떤 모습이면 좋을까요?",
+      "version": "스프라이트 버전",
+      "versionV2": "v2 · 권장",
+      "versionV1": "v1 · 레거시",
+      "versionV2Description": "Codex v2의 시계 방향 16개 시선 방향을 포함합니다.",
+      "versionV1Description": "이전 클라이언트용 기존 9행 아틀라스를 만듭니다.",
       "generate": "미리보기 생성",
       "generating": "미리보기 만드는 중…",
       "failed": "이 펫을 만들 수 없습니다"
+    },
+    "upgrade": {
+      "action": "v2로 업그레이드",
+      "upgraded": "v2 복사본을 만들었습니다. 원본 v1 펫도 유지됩니다.",
+      "alreadyExists": "이 v2 업그레이드는 이미 라이브러리에 있습니다.",
+      "failed": "이 펫을 v2로 업그레이드할 수 없습니다"
     },
     "export": {
       "action": "Codex용으로 내보내기",

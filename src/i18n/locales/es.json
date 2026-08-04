@@ -12332,9 +12332,20 @@
       "name": "Nombre",
       "shortDescription": "Descripción breve (opcional)",
       "prompt": "¿Qué aspecto debería tener tu mascota?",
+      "version": "Versión de sprites",
+      "versionV2": "v2 · Recomendada",
+      "versionV1": "v1 · Heredada",
+      "versionV2Description": "Incluye las 16 direcciones de mirada en sentido horario de Codex v2.",
+      "versionV1Description": "Crea el atlas original de nueve filas para clientes antiguos.",
       "generate": "Generar vista previa",
       "generating": "Creando vista previa…",
       "failed": "No se pudo crear esta mascota"
+    },
+    "upgrade": {
+      "action": "Actualizar a v2",
+      "upgraded": "Se creó una copia v2. La mascota v1 original sigue disponible.",
+      "alreadyExists": "Esta actualización v2 ya está en tu biblioteca.",
+      "failed": "No se pudo actualizar esta mascota a v2"
     },
     "export": {
       "action": "Exportar para Codex",

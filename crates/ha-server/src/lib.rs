@@ -1041,6 +1041,7 @@ fn build_router_with_cors(
             get(routes::pet::preview_thumbnail),
         )
         .route("/pets/create/preview", post(routes::pet::create_preview))
+        .route("/pets/upgrade-v2", post(routes::pet::upgrade_v2))
         .route("/pets/import/commit", post(routes::pet::import_commit))
         .route("/pets/delete", post(routes::pet::delete))
         .route("/pets/restore", post(routes::pet::restore))

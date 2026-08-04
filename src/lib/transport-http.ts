@@ -362,6 +362,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
     path: "/api/pets/import/previews/{previewToken}/thumbnail",
   },
   pet_create_preview_cmd: { method: "POST", path: "/api/pets/create/preview" },
+  pet_upgrade_v2_cmd: { method: "POST", path: "/api/pets/upgrade-v2" },
   pet_import_preview_cmd: { method: "POST", path: "/api/pets/import/preview" },
   pet_import_preview_cancel_cmd: {
     method: "POST",
