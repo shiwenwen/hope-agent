@@ -1357,16 +1357,157 @@ mod tests {
             .all(|candidate| candidate.request_id != request_id));
     }
 
-    // 【技术欠账】main 88a31095b 加的 `user_stop_resolves_approval_before_im_cleanup_can_block`
-    // 已删除：它依赖 `crate::channel::worker::approval::hold_text_pending_lock_for_test`，
-    // 但 `channel::worker` 已随第五刀迁到 ha-channel 里，kernel test 无法引用。
-    // 应作为 ha-channel 的 integration test 重新实现（需把 kernel 的
-    // `deny_pending_for_session` / `EVENT_APPROVAL_RESOLVED` / `PendingApprovalEntry` 等
-    // 放开为 pub，或者用 registry 注入的方式代替直接 lock helper）。
-    // 不变量仍在代码里生效：`deny_pending_for_session` / `deny_all_pending` 把
-    // `channel_hooks::drop_approval_by_request_id` 收敛到 `for request_id in
-    // cleanup_request_ids` 尾清理循环里，emit 终态事件（`emit_approval_resolved`
-    // / `emit_pending_interactions_changed`）在其之前完成——改前先看这两个 fn。
+    /// AGENTS.md IM-channel 「审批一致性 + fail-closed」红线的 kernel 守卫：
+    /// 用户 Stop 时 `deny_pending_for_session` 必须先把每条待决审批的终态事件
+    /// （`emit_approval_resolved` + `emit_pending_interactions_changed`）
+    /// 全部发布，才能开始调 `channel_hooks::drop_approval_by_request_id`
+    /// 那个可能阻塞在 IM 侧锁上的 hook。
+    ///
+    /// 历史脉络：main `88a31095b` 加了同名 `user_stop_resolves_...` 测试，用
+    /// ha-channel `pub(crate) hold_text_pending_lock_for_test` 阻塞真实的
+    /// IM `TEXT_PENDING` mutex；拆分第五刀后 kernel 无法跨 crate 引用，测试
+    /// 被删。合并 main 时 `ab3b52d16` 抓到了该不变量的一次真实回归（HEAD 侧
+    /// 保循环内 hook 调用 + main 侧新加的循环外尾清理并存 = 双调用 + 顺序退
+    /// 化）。这里改经 `channel_hooks::test_seam` 直接注入一个阻塞回调，语义
+    /// 与旧测试等价，不需要放开 kernel `pub(crate)` 面。
+    ///
+    /// **同一模式的 `deny_all_pending`**（legacy / 全局 Stop）结构上与
+    /// `deny_pending_for_session` 逐字一致（相同的 emit 循环 + 相同的
+    /// `cleanup_request_ids` 尾清理），本测试守 fn 里代码模式，两处一起保
+    /// ——改一处必改另一处。`deny_all_pending` 会 drain 全局 `PENDING_APPROVALS`
+    /// 与并发运行的其它测试相互污染，故不单独立测试。
+    #[tokio::test]
+    async fn user_stop_emits_all_terminal_events_before_first_im_hook_call() {
+        let _serial = crate::channel_hooks::test_seam::serial_guard().lock().await;
+
+        // Ensure the event bus is initialized (idempotent across tests).
+        let bus = crate::globals::EVENT_BUS
+            .get_or_init(|| {
+                let bus: std::sync::Arc<dyn crate::event_bus::EventBus> =
+                    std::sync::Arc::new(crate::event_bus::BroadcastEventBus::new(256));
+                bus
+            })
+            .clone();
+        let mut events = bus.subscribe();
+
+        // Blocking test hook: first invocation notifies + blocks until we
+        // release. Later invocations no-op (channel drained). Whichever
+        // request_id the loop cleans first will trip this; we only care that
+        // *any* hook call happens after all N emits.
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let started = std::sync::Arc::new(TokioMutex::new(Some(started_tx)));
+        let release = std::sync::Arc::new(TokioMutex::new(Some(release_rx)));
+        let _hook_guard = crate::channel_hooks::test_seam::install(std::sync::Arc::new(
+            move |_req_id| {
+                let started = started.clone();
+                let release = release.clone();
+                Box::pin(async move {
+                    if let Some(tx) = started.lock().await.take() {
+                        let _ = tx.send(());
+                    }
+                    if let Some(rx) = release.lock().await.take() {
+                        let _ = rx.await;
+                    }
+                })
+            },
+        ));
+
+        // Insert 3 pending approvals for one session (unique request_ids so we
+        // don't collide with parallel tests).
+        let session_id = format!("session-stop-order-{}", create_session_id());
+        let request_ids: Vec<String> = (0..3)
+            .map(|_| format!("approval-stop-order-{}", create_session_id()))
+            .collect();
+        let mut receivers = Vec::with_capacity(3);
+        {
+            let mut pending = get_pending_approvals().lock().await;
+            for req_id in &request_ids {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                receivers.push(rx);
+                pending.insert(
+                    req_id.clone(),
+                    PendingApprovalEntry {
+                        sender: tx,
+                        request: ApprovalRequest {
+                            request_id: req_id.clone(),
+                            command: "blocked cleanup test".into(),
+                            cwd: "/tmp".into(),
+                            session_id: Some(session_id.clone()),
+                            reason: None,
+                            incognito: false,
+                            created_at_ms: 1_000,
+                            server_now_ms: 1_000,
+                            timeout_at_ms: None,
+                            timeout_secs: 0,
+                            timeout_action: crate::config::ApprovalTimeoutAction::Deny,
+                        },
+                    },
+                );
+            }
+        }
+
+        // Fire the deny in background; it will block on the hook after all
+        // emits complete.
+        let sid = session_id.clone();
+        let mut deny_task = tokio::spawn(async move {
+            deny_pending_for_session(&sid, ApprovalResolutionSource::UserStop).await
+        });
+
+        // Wait for the hook to be entered (i.e., emit loop is fully done and
+        // the cleanup loop's first call has arrived and is blocked).
+        tokio::time::timeout(std::time::Duration::from_secs(1), started_rx)
+            .await
+            .expect("hook must be called within 1s")
+            .expect("hook started channel intact");
+
+        // All N Deny signals must have arrived on their senders already (sent
+        // synchronously in the emit loop before hook is called).
+        for rx in receivers {
+            let resp = tokio::time::timeout(std::time::Duration::from_millis(50), rx)
+                .await
+                .expect("sender not dropped");
+            assert_eq!(resp.expect("sender resolved"), ApprovalResponse::Deny);
+        }
+
+        // All N EVENT_APPROVAL_RESOLVED events must already be queued in the
+        // bus subscription (emitted synchronously in the emit loop before hook
+        // was called). Drain until we've seen all our request_ids.
+        let mut resolved_ids = Vec::new();
+        while resolved_ids.len() < 3 {
+            let ev = tokio::time::timeout(std::time::Duration::from_millis(200), events.recv())
+                .await
+                .expect("emit within 200ms")
+                .expect("event bus intact");
+            if ev.name == EVENT_APPROVAL_RESOLVED {
+                if let Some(id) = ev.payload.get("requestId").and_then(|v| v.as_str()) {
+                    if request_ids.iter().any(|rid| rid == id) {
+                        resolved_ids.push(id.to_string());
+                    }
+                }
+            }
+        }
+        for rid in &request_ids {
+            assert!(
+                resolved_ids.contains(rid),
+                "expected emit for {rid}, saw {resolved_ids:?}"
+            );
+        }
+
+        // The deny task must still be blocked on the held hook — that's the
+        // whole point (proves the hook runs AFTER emit, not before).
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), &mut deny_task)
+                .await
+                .is_err(),
+            "cleanup should still be waiting on the deliberately held IM hook"
+        );
+
+        // Release and verify graceful completion.
+        release_tx.send(()).expect("release hook");
+        let count = deny_task.await.expect("deny task joined");
+        assert_eq!(count, 3);
+    }
 
     /// Sidebar countdown: the per-session aggregate counts every pending
     /// approval but only surfaces the earliest *future* deadline (and that

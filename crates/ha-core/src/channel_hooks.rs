@@ -158,9 +158,75 @@ pub async fn drop_ask_user_for_session(session_id: &str) {
 }
 
 /// 撤掉某个审批请求在 IM 侧的待决卡片。未装配即 no-op。
+///
+/// **测试注入点**（`#[cfg(test)]` only）：kernel 测试可以经 `test_seam::install`
+/// 装一个自定回调（例如阻塞回调），覆写默认的 hook 分派——用于验证
+/// `deny_pending_for_session` / `deny_all_pending` 的终态事件排序（即
+/// AGENTS.md IM channel 「审批一致性 + fail-closed」红线）。生产构建里
+/// `#[cfg(test)]` 分支根本不编译，无副作用。
 pub async fn drop_approval_by_request_id(request_id: &str) {
+    #[cfg(test)]
+    {
+        let hook = test_seam::override_slot().read().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(request_id).await;
+            return;
+        }
+    }
     if let Some(h) = hooks() {
         (h.drop_approval_by_request_id)(request_id).await;
+    }
+}
+
+/// 单一目的：让 kernel 侧的审批顺序测试可以在 kernel 内部就地写完，不必
+/// 反向依赖 ha-channel 的 `pub(crate) hold_text_pending_lock_for_test`
+/// 或搬到 `crates/ha-channel/tests/`（那要把大量 kernel `pub(crate)` 面
+/// 放开为 `pub`）。全部 `#[cfg(test)]`，生产不编。
+///
+/// 测试用法：
+/// ```ignore
+/// let _serial = channel_hooks::test_seam::serial_guard().lock().await;
+/// let _hook = channel_hooks::test_seam::install(Arc::new(|_id| Box::pin(async {
+///     // 阻塞 / 记录 / 计数 …
+/// })));
+/// deny_pending_for_session(&session_id, source).await;
+/// // 断言 …
+/// ```
+#[cfg(test)]
+pub(crate) mod test_seam {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{Arc, OnceLock, RwLock};
+
+    pub(crate) type BoxedTestHook =
+        Arc<dyn Fn(&str) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+    static OVERRIDE_SLOT: OnceLock<RwLock<Option<BoxedTestHook>>> = OnceLock::new();
+    static TEST_SERIAL: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+    pub(crate) fn override_slot() -> &'static RwLock<Option<BoxedTestHook>> {
+        OVERRIDE_SLOT.get_or_init(|| RwLock::new(None))
+    }
+
+    /// 多个测试共用同一 override slot，必须先取这把锁再 install，否则会互相
+    /// 覆盖（cargo test 默认并行）。
+    pub(crate) fn serial_guard() -> &'static tokio::sync::Mutex<()> {
+        TEST_SERIAL.get_or_init(|| tokio::sync::Mutex::new(()))
+    }
+
+    /// RAII：drop 时清 override，无论测试成功还是 panic 都不会留残留状态。
+    pub(crate) struct ApprovalHookGuard;
+    impl Drop for ApprovalHookGuard {
+        fn drop(&mut self) {
+            if let Some(slot) = OVERRIDE_SLOT.get() {
+                *slot.write().unwrap() = None;
+            }
+        }
+    }
+
+    pub(crate) fn install(hook: BoxedTestHook) -> ApprovalHookGuard {
+        *override_slot().write().unwrap() = Some(hook);
+        ApprovalHookGuard
     }
 }
 
