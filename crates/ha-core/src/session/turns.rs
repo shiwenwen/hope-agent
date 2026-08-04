@@ -3,6 +3,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use super::db::SessionDB;
+use super::types::NewMessage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -117,6 +118,13 @@ pub struct ChatTurn {
     pub ui_surface: Option<crate::pet::ChatUiSurface>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UiChatDispatchRecord {
+    pub request_fingerprint: String,
+    pub session_id: String,
+    pub turn_id: String,
+}
+
 impl SessionDB {
     pub(crate) fn ensure_chat_turns_table(conn: &rusqlite::Connection) -> Result<()> {
         conn.execute_batch(
@@ -134,6 +142,8 @@ impl SessionDB {
                 ended_at TEXT,
                 updated_at TEXT NOT NULL,
                 ui_surface TEXT,
+                client_request_id TEXT,
+                request_fingerprint TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_chat_turns_session_started
@@ -149,13 +159,27 @@ impl SessionDB {
         {
             conn.execute_batch("ALTER TABLE chat_turns ADD COLUMN ui_surface TEXT;")?;
         }
+        if conn
+            .prepare("SELECT client_request_id FROM chat_turns LIMIT 1")
+            .is_err()
+        {
+            conn.execute_batch("ALTER TABLE chat_turns ADD COLUMN client_request_id TEXT;")?;
+        }
+        if conn
+            .prepare("SELECT request_fingerprint FROM chat_turns LIMIT 1")
+            .is_err()
+        {
+            conn.execute_batch("ALTER TABLE chat_turns ADD COLUMN request_fingerprint TEXT;")?;
+        }
         // Drop the pre-release draft name once, then keep the final index
         // stable. Rebuilding a potentially large turn index on every startup
         // would make Pet's additive migration unnecessarily expensive.
         conn.execute_batch(
             "DROP INDEX IF EXISTS idx_chat_turns_ui_surface_session_started;
              CREATE INDEX IF NOT EXISTS idx_chat_turns_session_surface_started
-                 ON chat_turns(session_id, ui_surface, started_at DESC);",
+                 ON chat_turns(session_id, ui_surface, started_at DESC);
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_turns_client_request_id
+                 ON chat_turns(client_request_id) WHERE client_request_id IS NOT NULL;",
         )?;
         Ok(())
     }
@@ -198,6 +222,35 @@ impl SessionDB {
         user_message_id: Option<i64>,
         ui_surface: Option<crate::pet::ChatUiSurface>,
     ) -> Result<ChatTurn> {
+        self.create_chat_turn_with_id_surface_dispatch(
+            id,
+            session_id,
+            source,
+            stream_id,
+            user_message_id,
+            ui_surface,
+            None,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_chat_turn_with_id_surface_dispatch(
+        &self,
+        id: &str,
+        session_id: &str,
+        source: &str,
+        stream_id: Option<&str>,
+        user_message_id: Option<i64>,
+        ui_surface: Option<crate::pet::ChatUiSurface>,
+        client_request_id: Option<&str>,
+        request_fingerprint: Option<&str>,
+    ) -> Result<ChatTurn> {
+        if client_request_id.is_some() != request_fingerprint.is_some() {
+            anyhow::bail!(
+                "UI chat dispatch identity requires both client_request_id and request_fingerprint"
+            );
+        }
         let conn = self
             .conn
             .lock()
@@ -223,8 +276,8 @@ impl SessionDB {
             "INSERT INTO chat_turns (
                 id, session_id, source, status, interrupt_reason, stream_id,
                 user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
-                ui_surface
-             ) VALUES (?1, ?2, ?3, 'running', NULL, ?4, ?5, NULL, NULL, ?6, NULL, ?6, ?7)",
+                ui_surface, client_request_id, request_fingerprint
+             ) VALUES (?1, ?2, ?3, 'running', NULL, ?4, ?5, NULL, NULL, ?6, NULL, ?6, ?7, ?8, ?9)",
             params![
                 id,
                 session_id,
@@ -233,6 +286,8 @@ impl SessionDB {
                 user_message_id,
                 now,
                 ui_surface.map(crate::pet::ChatUiSurface::as_str),
+                client_request_id,
+                request_fingerprint,
             ],
         )?;
         let turn = ChatTurn {
@@ -255,6 +310,178 @@ impl SessionDB {
             crate::pet::emit_activity_changed();
         }
         Ok(turn)
+    }
+
+    /// Atomically persist an inbound message and its running chat turn. The UI
+    /// dispatch id lives on the turn in the same transaction, so a lost ACK or
+    /// process restart can never leave a replayable message without its
+    /// idempotency record.
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_message_and_create_chat_turn_with_id_surface_dispatch(
+        &self,
+        id: &str,
+        session_id: &str,
+        source: &str,
+        stream_id: Option<&str>,
+        message: &NewMessage,
+        ui_surface: Option<crate::pet::ChatUiSurface>,
+        client_request_id: Option<&str>,
+        request_fingerprint: Option<&str>,
+    ) -> Result<(i64, ChatTurn)> {
+        if client_request_id.is_some() != request_fingerprint.is_some() {
+            anyhow::bail!(
+                "UI chat dispatch identity requires both client_request_id and request_fingerprint"
+            );
+        }
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction()?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let timestamp = if message.timestamp.is_empty() {
+            now.as_str()
+        } else {
+            message.timestamp.as_str()
+        };
+        let pet_relevant = ui_surface.is_some()
+            || tx
+                .query_row(
+                    "SELECT ui_surface IS NOT NULL
+                       FROM chat_turns
+                      WHERE session_id = ?1
+                      ORDER BY started_at DESC, id DESC
+                      LIMIT 1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .unwrap_or(false);
+
+        tx.execute(
+            "INSERT INTO messages (session_id, role, content, timestamp,
+                attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                tool_call_id, tool_name, tool_arguments, tool_result,
+                tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, source,
+                queue_request_id, persistence_run_id, logical_block_seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+            params![
+                session_id,
+                message.role.as_str(),
+                message.content,
+                timestamp,
+                message.attachments_meta,
+                message.model,
+                message.tokens_in,
+                message.tokens_out,
+                message.reasoning_effort,
+                message.tool_call_id,
+                message.tool_name,
+                message.tool_arguments,
+                message.tool_result,
+                message.tool_duration_ms,
+                message.is_error.map(|value| if value { 1i64 } else { 0i64 }),
+                message.thinking,
+                message.ttft_ms,
+                message.tokens_in_last,
+                message.tokens_cache_creation,
+                message.tokens_cache_read,
+                message.tool_metadata,
+                message.stream_status,
+                message.source,
+                message.queue_request_id,
+                message.persistence_run_id,
+                message.logical_block_seq,
+            ],
+        )?;
+        let message_id = tx.last_insert_rowid();
+        tx.execute(
+            "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
+            params![now, session_id],
+        )?;
+        tx.execute(
+            "INSERT INTO chat_turns (
+                id, session_id, source, status, interrupt_reason, stream_id,
+                user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
+                ui_surface, client_request_id, request_fingerprint
+             ) VALUES (?1, ?2, ?3, 'running', NULL, ?4, ?5, NULL, NULL, ?6, NULL, ?6, ?7, ?8, ?9)",
+            params![
+                id,
+                session_id,
+                source,
+                stream_id,
+                message_id,
+                now,
+                ui_surface.map(crate::pet::ChatUiSurface::as_str),
+                client_request_id,
+                request_fingerprint,
+            ],
+        )?;
+        if let Some(request_id) = message.queue_request_id.as_deref() {
+            let consumed = tx.execute(
+                "DELETE FROM queued_turn_user_messages
+                  WHERE session_id = ?1 AND request_id = ?2
+                    AND turn_id = ?3 AND status = 'dispatching'",
+                params![session_id, request_id, id],
+            )?;
+            if consumed != 1 {
+                anyhow::bail!("queued message dispatch was not owned by this turn");
+            }
+        }
+        tx.commit()?;
+        drop(conn);
+
+        self.mirror_persisted_message_for_hooks(session_id, message_id, message, timestamp);
+        if let Some(request_id) = message.queue_request_id.as_deref() {
+            super::turn_queue::emit_changed(session_id, Some(request_id), "dispatched");
+        }
+        if pet_relevant {
+            crate::pet::emit_activity_changed();
+        }
+        Ok((
+            message_id,
+            ChatTurn {
+                id: id.to_string(),
+                session_id: session_id.to_string(),
+                source: source.to_string(),
+                status: ChatTurnStatus::Running,
+                interrupt_reason: None,
+                stream_id: stream_id.map(ToOwned::to_owned),
+                user_message_id: Some(message_id),
+                assistant_message_id: None,
+                error: None,
+                started_at: now.clone(),
+                ended_at: None,
+                updated_at: now,
+                ui_surface,
+            },
+        ))
+    }
+
+    pub fn get_ui_chat_dispatch(
+        &self,
+        client_request_id: &str,
+    ) -> Result<Option<UiChatDispatchRecord>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.query_row(
+            "SELECT request_fingerprint, session_id, id
+               FROM chat_turns
+              WHERE client_request_id = ?1",
+            params![client_request_id],
+            |row| {
+                Ok(UiChatDispatchRecord {
+                    request_fingerprint: row.get(0)?,
+                    session_id: row.get(1)?,
+                    turn_id: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
     }
 
     pub fn get_chat_turn(&self, turn_id: &str) -> Result<Option<ChatTurn>> {
@@ -615,6 +842,57 @@ mod tests {
             Some(ChatTurnInterruptReason::CrashRecovery)
         );
         assert!(persisted.ended_at.is_some());
+    }
+
+    #[test]
+    fn ui_chat_dispatch_identity_survives_reopen_and_is_unique() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let session_id;
+        {
+            let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+            let session = db
+                .create_session_with_project("ha-main", None, None)
+                .unwrap();
+            session_id = session.id.clone();
+            let (message_id, turn) = db
+                .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                    "turn-1",
+                    &session.id,
+                    "http",
+                    None,
+                    &NewMessage::user("first request"),
+                    Some(crate::pet::ChatUiSurface::MainChat),
+                    Some("request-1"),
+                    Some("fingerprint-1"),
+                )
+                .unwrap();
+            assert_eq!(turn.user_message_id, Some(message_id));
+        }
+
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        assert_eq!(
+            db.get_ui_chat_dispatch("request-1").unwrap(),
+            Some(UiChatDispatchRecord {
+                request_fingerprint: "fingerprint-1".to_string(),
+                session_id: session_id.clone(),
+                turn_id: "turn-1".to_string(),
+            })
+        );
+        let duplicate = db.append_message_and_create_chat_turn_with_id_surface_dispatch(
+            "turn-2",
+            &session_id,
+            "http",
+            None,
+            &NewMessage::user("must roll back"),
+            Some(crate::pet::ChatUiSurface::MainChat),
+            Some("request-1"),
+            Some("fingerprint-1"),
+        );
+        assert!(duplicate.is_err(), "request id must be globally unique");
+        let messages = db.load_session_messages(&session_id).unwrap();
+        assert_eq!(messages.len(), 1, "duplicate message insert must roll back");
+        assert_eq!(messages[0].content, "first request");
     }
 
     #[test]

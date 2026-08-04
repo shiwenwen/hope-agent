@@ -74,6 +74,24 @@ impl ChannelCancelRegistry {
             .collect()
     }
 
+    /// Run a short synchronous state transition only while this exact inbound
+    /// registration is still live and uncancelled. Session/global Stop takes
+    /// the same registry mutex before setting every flag, so the transition is
+    /// ordered before Stop (and its later DB hold wins) or rejected after it.
+    pub fn with_registration_if_live<T>(
+        &self,
+        session_id: &str,
+        registration_id: &str,
+        operation: impl FnOnce() -> T,
+    ) -> Option<T> {
+        let map = self.lock_flags();
+        let flag = map.get(session_id)?.get(registration_id)?;
+        if flag.load(Ordering::SeqCst) {
+            return None;
+        }
+        Some(operation())
+    }
+
     /// Remove exactly one completed inbound registration.
     pub fn remove(&self, session_id: &str, registration_id: &str) {
         let mut map = self.lock_flags();
@@ -118,5 +136,20 @@ mod tests {
 
         assert_eq!(registry.cancel_all(), vec!["session-2".to_string()]);
         assert!(other.cancel.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn live_registration_gate_rejects_work_after_stop() {
+        let registry = ChannelCancelRegistry::new();
+        let registration = registry.register("session-1");
+        assert_eq!(
+            registry.with_registration_if_live("session-1", &registration.id, || 7),
+            Some(7)
+        );
+        assert!(registry.cancel("session-1"));
+        assert_eq!(
+            registry.with_registration_if_live("session-1", &registration.id, || 9),
+            None
+        );
     }
 }

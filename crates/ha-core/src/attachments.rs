@@ -20,6 +20,10 @@ use crate::paths;
 pub const TEMP_SESSION_ID: &str = "_temp";
 pub const PASTED_TEXT_SOURCE: &str = "pasted_text";
 pub const MESSAGE_QUOTE_SOURCE: &str = "message_quote";
+/// Files staged by the backend-owned IM FIFO. They behave like normal user
+/// attachments after the queue row is consumed, but remain safely removable
+/// while the row is only a durable draft.
+pub const CHANNEL_QUEUE_SOURCE: &str = "channel_queue";
 pub const MAX_CHAT_ATTACHMENTS: usize = 64;
 pub const MAX_AVATAR_BYTES: usize = 10 * 1024 * 1024;
 /// Static compatibility ceiling for pre-chunked chat uploads and Base64 wire
@@ -645,7 +649,7 @@ pub fn persist_queued_chat_attachments(
         if attachment.file_path.is_some()
             && matches!(
                 attachment.source.as_deref(),
-                Some("upload") | Some(PASTED_TEXT_SOURCE)
+                Some("upload") | Some(PASTED_TEXT_SOURCE) | Some(CHANNEL_QUEUE_SOURCE)
             )
         {
             if let Some(path) = attachment.file_path.as_deref().map(PathBuf::from) {
@@ -703,7 +707,7 @@ pub fn remove_discarded_queued_attachments(
     for attachment in attachments {
         if !matches!(
             attachment.source.as_deref(),
-            Some("upload") | Some(PASTED_TEXT_SOURCE)
+            Some("upload") | Some(PASTED_TEXT_SOURCE) | Some(CHANNEL_QUEUE_SOURCE)
         ) {
             continue;
         }
@@ -918,7 +922,10 @@ fn copy_session_attachment(
 }
 
 fn is_user_upload_source(source: Option<&str>) -> bool {
-    matches!(source, None | Some("upload") | Some(PASTED_TEXT_SOURCE))
+    matches!(
+        source,
+        None | Some("upload") | Some(PASTED_TEXT_SOURCE) | Some(CHANNEL_QUEUE_SOURCE)
+    )
 }
 
 fn user_attachment_meta(att: &Attachment, size: u64, path: &Path, source: Option<&str>) -> Value {
@@ -1331,6 +1338,50 @@ mod tests {
                 .join("attachments")
                 .join("session-text-only")
                 .exists());
+        });
+    }
+
+    #[test]
+    fn channel_queue_attachment_is_durable_without_base64_and_removed_on_discard() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let mut attachments = vec![Attachment {
+                name: "channel-image.png".to_string(),
+                mime_type: "image/png".to_string(),
+                source: Some(CHANNEL_QUEUE_SOURCE.to_string()),
+                data: Some("aGVsbG8=".to_string()),
+                file_path: None,
+                upload_id: None,
+                quote_lines: None,
+                quote_role: None,
+            }];
+
+            persist_queued_chat_attachments(
+                "session-channel-queue",
+                "request/with/slashes",
+                &mut attachments,
+            )
+            .expect("persist channel queue attachment");
+
+            assert!(attachments[0].data.is_none());
+            let queued_path = PathBuf::from(
+                attachments[0]
+                    .file_path
+                    .as_deref()
+                    .expect("queue attachment path"),
+            );
+            assert!(queued_path.exists());
+            assert!(queued_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("queue_request_with_slashes_")));
+
+            remove_discarded_queued_attachments(
+                "session-channel-queue",
+                "request/with/slashes",
+                &attachments,
+            );
+            assert!(!queued_path.exists());
         });
     }
 

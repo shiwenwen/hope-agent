@@ -30,6 +30,17 @@ pub fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+/// Stable SHA-256 digest encoded as lowercase hexadecimal.
+///
+/// Use this for durable fingerprints that must compare across process restarts
+/// and binary upgrades. In-memory hashers such as `DefaultHasher` deliberately
+/// make no stability guarantee and therefore must not back persisted identity.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 /// Trim `opt` and return it if non-empty; otherwise return `fallback`. Used when
 /// an optional override ("display text", "override title", ...) should win over
 /// a mandatory default only when the caller actually supplied meaningful text.

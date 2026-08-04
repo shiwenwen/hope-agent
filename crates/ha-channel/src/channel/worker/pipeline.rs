@@ -241,7 +241,7 @@ pub(crate) async fn deliver_rounds(
     outcome: &PipelineOutcome,
     response: &str,
 ) -> DeliveryMetrics {
-    match outcome.reply_mode {
+    let mut metrics = match outcome.reply_mode {
         ImReplyMode::Split => {
             deliver_split(
                 plugin,
@@ -275,7 +275,11 @@ pub(crate) async fn deliver_rounds(
             )
             .await
         }
-    }
+    };
+    metrics
+        .report
+        .merge(outcome.stream_outcome.delivery_report.clone());
+    metrics
 }
 
 /// Deliver a complete final response through a pipeline that may have
@@ -291,7 +295,7 @@ pub(crate) async fn deliver_full_response(
     response: &str,
     media: &[ha_core::attachments::MediaItem],
 ) -> DeliveryMetrics {
-    if response.trim().is_empty() {
+    let report = if response.trim().is_empty() {
         deliver_media_to_chat(
             plugin,
             target.account_id,
@@ -300,7 +304,7 @@ pub(crate) async fn deliver_full_response(
             media,
             &outcome.capabilities,
         )
-        .await;
+        .await
     } else {
         send_final_reply(
             plugin,
@@ -310,12 +314,17 @@ pub(crate) async fn deliver_full_response(
             media,
             &outcome.capabilities,
         )
-        .await;
-    }
-    DeliveryMetrics {
+        .await
+    };
+    let mut metrics = DeliveryMetrics {
         text_chars: response.chars().count(),
         media_count: media.len(),
-    }
+        report,
+    };
+    metrics
+        .report
+        .merge(outcome.stream_outcome.delivery_report.clone());
+    metrics
 }
 
 #[cfg(test)]

@@ -131,23 +131,25 @@ impl WeChatApi {
         context_token: Option<&str>,
     ) -> Result<String> {
         let message_id = format!("hope-agent-wechat-{}", Uuid::new_v4().simple());
-        self.post_json(
-            "ilink/bot/sendmessage",
-            json!({
-                "msg": {
-                    "from_user_id": "",
-                    "to_user_id": to_user_id,
-                    "client_id": message_id,
-                    "message_type": MESSAGE_TYPE_BOT,
-                    "message_state": 2,
-                    "item_list": item_list,
-                    "context_token": context_token,
-                },
-                "base_info": base_info(),
-            }),
-            15_000,
-        )
-        .await?;
+        let response = self
+            .post_json(
+                "ilink/bot/sendmessage",
+                json!({
+                    "msg": {
+                        "from_user_id": "",
+                        "to_user_id": to_user_id,
+                        "client_id": message_id,
+                        "message_type": MESSAGE_TYPE_BOT,
+                        "message_state": 2,
+                        "item_list": item_list,
+                        "context_token": context_token,
+                    },
+                    "base_info": base_info(),
+                }),
+                15_000,
+            )
+            .await?;
+        validate_send_message_response(&response)?;
         Ok(message_id)
     }
 
@@ -294,6 +296,37 @@ impl WeChatApi {
 
         Ok(response_text)
     }
+}
+
+fn validate_send_message_response(response_text: &str) -> Result<()> {
+    let value: serde_json::Value =
+        serde_json::from_str(response_text).context("WeChat sendMessage returned invalid JSON")?;
+    if !value.is_object() {
+        anyhow::bail!("WeChat sendMessage returned a non-object JSON body");
+    }
+    let business_code = |name: &str| -> Result<i64> {
+        match value.get(name) {
+            None | Some(serde_json::Value::Null) => Ok(0),
+            Some(code) => code
+                .as_i64()
+                .ok_or_else(|| anyhow::anyhow!("WeChat sendMessage returned invalid {name}")),
+        }
+    };
+    let ret = business_code("ret")?;
+    let errcode = business_code("errcode")?;
+    if ret == 0 && errcode == 0 {
+        return Ok(());
+    }
+    let errmsg = value
+        .get("errmsg")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    Err(anyhow::anyhow!(
+        "WeChat sendMessage rejected: ret={} errcode={} errmsg={}",
+        ret,
+        errcode,
+        ha_core::truncate_utf8(&ha_core::logging::redact_sensitive(errmsg), 200)
+    ))
 }
 
 fn join_url(base_url: &str, endpoint: &str) -> Result<String> {
@@ -508,4 +541,32 @@ pub struct GetConfigResponse {
     pub errmsg: Option<String>,
     #[serde(default)]
     pub typing_ticket: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_send_message_response;
+
+    #[test]
+    fn http_200_business_error_is_not_delivery_success() {
+        let error = validate_send_message_response(
+            r#"{"ret":-14,"errcode":-14,"errmsg":"session timeout"}"#,
+        )
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("ret=-14"));
+        assert!(message.contains("errcode=-14"));
+    }
+
+    #[test]
+    fn omitted_business_codes_default_to_success() {
+        validate_send_message_response(r#"{"message_id":"ok"}"#).unwrap();
+    }
+
+    #[test]
+    fn malformed_success_body_is_rejected() {
+        assert!(validate_send_message_response("not-json").is_err());
+        assert!(validate_send_message_response("[]").is_err());
+        assert!(validate_send_message_response(r#"{"ret":"0"}"#).is_err());
+    }
 }

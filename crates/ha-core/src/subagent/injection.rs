@@ -67,6 +67,9 @@ pub(super) struct PendingInjection {
     /// Carried so a deferred injection still marks its source done when the
     /// queued attempt eventually lands. `None` for subagent runs.
     pub on_injected: Option<OnInjected>,
+    /// Keeps a verified first-party HTTP UI approval path alive while this
+    /// parent follow-up waits behind a foreground turn.
+    pub reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
 }
 
 /// Drain and re-trigger pending injections for a session.
@@ -107,7 +110,7 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
                 Ok(rt) => {
                     // Outcome is ignored here: a successful run fires the carried
                     // `on_injected` internally, and a re-cancel re-queues itself.
-                    let _ = rt.block_on(inject_and_run_parent(
+                    let _ = rt.block_on(inject_and_run_parent_with_ui_guard(
                         t.parent_session_id,
                         t.parent_agent_id,
                         t.child_agent_id,
@@ -115,6 +118,7 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
                         t.push_message,
                         t.session_db,
                         t.on_injected,
+                        t.reattachable_ui_guard,
                     ));
                 }
                 Err(e) => app_error!(
@@ -290,6 +294,33 @@ pub async fn inject_and_run_parent(
     session_db: Arc<crate::session::SessionDB>,
     on_injected: Option<OnInjected>,
 ) -> InjectionOutcome {
+    inject_and_run_parent_with_ui_guard(
+        parent_session_id,
+        parent_agent_id,
+        child_agent_id,
+        run_id,
+        push_message,
+        session_db,
+        on_injected,
+        None,
+    )
+    .await
+}
+
+/// Variant used by first-party UI descendant work. The lease is moved into
+/// `PENDING_INJECTIONS` whenever delivery is deferred, so closing/reloading the
+/// browser never converts a later parent follow-up approval into unattended.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn inject_and_run_parent_with_ui_guard(
+    parent_session_id: String,
+    parent_agent_id: String,
+    child_agent_id: String,
+    run_id: String,
+    push_message: String,
+    session_db: Arc<crate::session::SessionDB>,
+    on_injected: Option<OnInjected>,
+    reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
+) -> InjectionOutcome {
     use crate::provider;
 
     // 0. Skip if the parent agent already fetched this result via check/result tool
@@ -348,6 +379,7 @@ pub async fn inject_and_run_parent(
                         push_message,
                         session_db,
                         on_injected,
+                        reattachable_ui_guard,
                     });
                     return InjectionOutcome::Queued;
                 }
@@ -413,6 +445,7 @@ pub async fn inject_and_run_parent(
                         push_message,
                         session_db,
                         on_injected,
+                        reattachable_ui_guard,
                     });
                     InjectionOutcome::Queued
                 }
@@ -786,6 +819,7 @@ pub async fn inject_and_run_parent(
                     push_message,
                     session_db,
                     on_injected,
+                    reattachable_ui_guard,
                 });
                 true
             }

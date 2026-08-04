@@ -28,6 +28,8 @@ sysinfo = "0.38"
 which = "8"
 portable-pty = "0.9"
 blake3 = "1.8.5"
+# util::sha256_hex（durable 指纹用）——原住 ha-core，随 util.rs 下沉进 ha-base
+sha2 = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"

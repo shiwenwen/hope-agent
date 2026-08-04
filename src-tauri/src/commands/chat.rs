@@ -167,6 +167,8 @@ pub async fn queue_turn_user_message(
         plan_comment,
         plan_mode,
         workflow_mode,
+        source: ha_core::session::QueuedTurnMessageSource::Desktop,
+        channel_origin: None,
     };
     let item_result = state
         .session_db
@@ -1005,6 +1007,8 @@ pub async fn chat(
                             &turn_id,
                             ha_core::chat_engine::ChatSource::Desktop.as_str(),
                             ui_surface_for_turn,
+                            None,
+                            None,
                         )?;
                         return Ok(Some(replacement_id));
                     }

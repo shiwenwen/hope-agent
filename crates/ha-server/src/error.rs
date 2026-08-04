@@ -4,6 +4,7 @@ use serde_json::json;
 
 /// Unified error type for the HTTP server.
 /// Carries an explicit status code instead of guessing from error message text.
+#[derive(Debug, Clone)]
 pub struct AppError {
     pub status: StatusCode,
     pub message: String,

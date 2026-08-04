@@ -23,6 +23,8 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = "0.8"
 base64 = { workspace = true }
+# turn_queue.rs 用 blake3 生成 channel session_id 稳定摘要（主分支合并进来）
+blake3 = "1.8.5"
 chrono = { workspace = true }
 fancy-regex = { workspace = true }
 futures-util = { workspace = true }

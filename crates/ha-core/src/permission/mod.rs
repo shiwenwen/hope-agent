@@ -29,7 +29,11 @@ pub mod rules;
 pub mod session_edits;
 pub mod task_intent;
 
-pub use approval_surface::{evaluate_approval_surface, ApprovalSurface, UnattendedReason};
+pub use approval_surface::{
+    evaluate_approval_surface, register_reattachable_ui_child_session,
+    register_reattachable_ui_session, ApprovalSurface, ReattachableUiSessionGuard,
+    UnattendedReason,
+};
 pub use config::{ApprovalTimeoutAction, PermissionGlobalConfig, UnattendedApprovalAction};
 pub use mode::{JudgeModelConfig, SandboxMode, SessionMode, SmartModeConfig, SmartStrategy};
 

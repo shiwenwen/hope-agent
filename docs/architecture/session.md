@@ -272,8 +272,10 @@ CREATE TABLE queued_turn_user_messages (
     goal_trigger             INTEGER NOT NULL DEFAULT 0,
     plan_comment_json        TEXT,
     options_json             TEXT,                            -- planMode / workflowMode 等重放参数
+    source                   TEXT NOT NULL DEFAULT 'desktop', -- desktop / http / channel
+    channel_origin_json      TEXT,                            -- IM 最小无凭据路由信封；非 Channel 为 NULL
     mode                     TEXT NOT NULL DEFAULT 'queue',
-    status                   TEXT NOT NULL DEFAULT 'queued',
+    status                   TEXT NOT NULL DEFAULT 'queued',  -- 另含 held_after_stop
     created_at               TEXT NOT NULL,
     updated_at               TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE

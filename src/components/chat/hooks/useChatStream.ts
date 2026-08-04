@@ -226,6 +226,7 @@ interface PendingSend {
     | "inserting"
     | "dispatching"
     | "fallback_after_reply"
+    | "held_after_stop"
   options?: SendOptions
   attachedFiles?: DraftAttachment[]
   quotes?: PendingFileQuote[]
@@ -236,6 +237,7 @@ interface PendingSend {
   goalTrigger?: boolean
   planComment?: { selectedText: string; comment: string }
   editable?: boolean
+  managedBy?: "channel"
 }
 
 interface QueuedTurnMessageView {
@@ -251,8 +253,15 @@ interface QueuedTurnMessageView {
   planComment?: { selectedText: string; comment: string }
   planMode?: string
   workflowMode?: string
+  managedBy?: "channel"
   mode: "queue" | "force_insert"
-  status: "queued" | "waiting_tool_boundary" | "inserting" | "dispatching" | "fallback_after_reply"
+  status:
+    | "queued"
+    | "waiting_tool_boundary"
+    | "inserting"
+    | "dispatching"
+    | "fallback_after_reply"
+    | "held_after_stop"
   createdAt: string
   updatedAt: string
 }
@@ -663,7 +672,13 @@ export function useChatStream({
       isPlanTrigger: item.isPlanTrigger,
       goalTrigger: item.goalTrigger,
       planComment: item.planComment,
-      editable: !item.displayText && !item.isPlanTrigger && !item.goalTrigger && !item.planComment,
+      managedBy: item.managedBy,
+      editable:
+        item.managedBy !== "channel" &&
+        !item.displayText &&
+        !item.isPlanTrigger &&
+        !item.goalTrigger &&
+        !item.planComment,
     }),
     [],
   )
@@ -706,6 +721,7 @@ export function useChatStream({
       !pending.isPlanTrigger &&
       !pending.goalTrigger &&
       !pending.planComment &&
+      pending.managedBy !== "channel" &&
       (pending.status === "queued" || pending.status === "fallback_after_reply") &&
       pending.mode !== "force_insert",
     [],
@@ -726,6 +742,7 @@ export function useChatStream({
     isPlanTrigger: pending.isPlanTrigger,
     goalTrigger: pending.goalTrigger,
     editable: pending.editable,
+    managedBy: pending.managedBy,
   }))
   const setPendingMessage = useCallback<React.Dispatch<React.SetStateAction<string | null>>>(
     (value) => {
@@ -2262,7 +2279,7 @@ export function useChatStream({
     async (id: string, text: string): Promise<boolean> => {
       const item = pendingSendsRef.current.find((pending) => pending.id === id)
       const next = text.trim()
-      if (!item || !next || item.status === "saving") return false
+      if (!item || item.managedBy === "channel" || !next || item.status === "saving") return false
       const changed = await getTransport().call<boolean>("update_queued_turn_user_message", {
         sessionId: item.sessionId,
         requestId: id,
@@ -2278,7 +2295,7 @@ export function useChatStream({
   const discardPendingSend = useCallback(
     async (id: string) => {
       const item = pendingSendsRef.current.find((pending) => pending.id === id)
-      if (!item) return
+      if (!item || item.managedBy === "channel") return
       if (item.status === "saving") {
         updatePendingSends((prev) => prev.filter((pending) => pending.id !== id))
         return
@@ -2297,6 +2314,7 @@ export function useChatStream({
       const item = pendingSendsRef.current.find((pending) => pending.id === id)
       if (
         !item ||
+        item.managedBy === "channel" ||
         loading ||
         (item.status !== "queued" && item.status !== "fallback_after_reply")
       ) {
