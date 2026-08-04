@@ -772,4 +772,47 @@ mod tests {
         };
         assert_eq!(effective_token_expiry(&token), Some(100_000));
     }
+
+    // **AGENTS.md「凭据禁入日志」红线**：`CodexEvaluationSecret` 明确不
+    // derive `Debug` 以防被 `{:?}` 顺手打到日志（见类型 doc）。这里用
+    // `static_assertions::assert_not_impl_all!` 做 compile-time 守卫——
+    // 若将来给它 derive 了 `Debug`，本文件会**编译失败**（不是运行时失败，
+    // 是直接 build 断），比人肉 review 兜底更可靠。
+    // 具体到 `mint_codex_evaluation_secret_bails_inside_model_eval_mode`：
+    // 由于返回 Ok 侧不 Debug，测试也不能用 `.expect_err(...)`——手动 match
+    // 是本 assertion 的必然副产物，且合意（防凭据顺手 pretty-print 到日志）。
+    static_assertions::assert_not_impl_all!(CodexEvaluationSecret: std::fmt::Debug);
+
+    /// **`mint_codex_evaluation_secret` 有效性契约的下界守卫**：
+    /// `load_codex_token_for_evaluation` 在检测到 `HA_MODEL_EVAL_MODE=1`
+    /// 时**必须立刻 bail**——`oauth.rs:145-147` 明说「Codex evaluation
+    /// credentials must be resolved by the owner process」，即隔离评测运行
+    /// 时里的 Codex 凭据面**永远不能**在这条路径产生。
+    ///
+    /// 若这条早退失守（比如未来重构不小心把它挪到 owner check 之下），隔
+    /// 离运行时会试图读 owner 侧的 OAuth 文件、甚至走 refresh token——
+    /// 直接违反「HA_MODEL_EVAL_MODE 下不得读凭据」的隔离契约。这里就地拦。
+    #[tokio::test]
+    async fn mint_codex_evaluation_secret_bails_inside_model_eval_mode() {
+        let result = crate::test_support::with_env_vars_async(
+            &[("HA_MODEL_EVAL_MODE", std::path::Path::new("1"))],
+            || async { mint_codex_evaluation_secret(60).await },
+        )
+        .await;
+        // Deliberately avoid `.expect_err(...)`：`CodexEvaluationSecret` 刻意
+        // 不 impl Debug（见上方 `assert_not_impl_all!`），Result 的 `Ok` 侧无
+        // Debug 就用不了 `expect_err`——手动 match 是刚才那条守卫的必然副产物，
+        // 且合意：mint 若真的返回了 Ok，我们希望 test 干净地 panic 而不是把
+        // 凭据 pretty-print 到测试日志。
+        match result {
+            Err(err) => assert!(
+                err.to_string()
+                    .contains("must be resolved by the owner process"),
+                "错误信息应指出 mint 的边界，实际：{err}"
+            ),
+            Ok(_) => panic!(
+                "隔离评测运行时里 mint 必须立刻 bail，绝不去读 owner OAuth 文件"
+            ),
+        }
+    }
 }

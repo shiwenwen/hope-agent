@@ -1021,6 +1021,93 @@ mod parse_tests {
             .contains("credential has an invalid shape"));
     }
 
+    /// `encode_model_eval_codex_secret` 是 kernel 唯一的凭据出口
+    /// （`mint_codex_evaluation_secret` 内部调用），它把明文 access token
+    /// 封成 JSON 交给隔离评测运行时。`validate_model_eval_codex_credential`
+    /// 是它的形状守卫——每一条边界都是「若失守 → 有理由不该 mint 的凭据被
+    /// mint 出去」，例如：
+    ///
+    /// - 太短 → 明显不是真 token，可能是错误的 fallback 值
+    /// - 太长 → 意外拼接了别的东西（例如整份 config），凭据以外的内容顺流
+    /// - 空 account_id → 之后的「同 Provider 不得混用不同凭据」一致性校验
+    ///   会永远命中（digest 相同）
+    /// - `\0` / `\r` / `\n` → JSON 编码后可以被下游解析器错切、或穿过日志脱敏
+    ///
+    /// 上面 `model_eval_codex_secret_rejects_expired_access_token` 已经守
+    /// expired 分支，本 test 覆盖其余每一条 branch，确保任何单点松动都会
+    /// 被抓到——future 编辑改边界值时也必须同步这里。
+    #[test]
+    fn encode_model_eval_codex_secret_enforces_credential_shape_bounds() {
+        let future_ms = (chrono::Utc::now().timestamp_millis() as u64) + 3_600_000;
+
+        let cases: &[(&str, String, String)] = &[
+            ("access token 太短（<24）", "short".into(), "account-eval".into()),
+            (
+                "access token 太长（>16 KiB）",
+                "x".repeat(16 * 1024 + 1),
+                "account-eval".into(),
+            ),
+            (
+                "account_id 空",
+                "codex-access-token-for-isolated-local-eval".into(),
+                String::new(),
+            ),
+            (
+                "account_id 太长（>512）",
+                "codex-access-token-for-isolated-local-eval".into(),
+                "a".repeat(513),
+            ),
+            (
+                "access token 含 NUL",
+                "codex-access-token-for-isolated-local\0eval".into(),
+                "account-eval".into(),
+            ),
+            (
+                "access token 含 CR",
+                "codex-access-token-for-isolated-local\reval".into(),
+                "account-eval".into(),
+            ),
+            (
+                "access token 含 LF",
+                "codex-access-token-for-isolated-local\neval".into(),
+                "account-eval".into(),
+            ),
+            (
+                "account_id 含 NUL",
+                "codex-access-token-for-isolated-local-eval".into(),
+                "account\0eval".into(),
+            ),
+            (
+                "account_id 含 CR",
+                "codex-access-token-for-isolated-local-eval".into(),
+                "account\reval".into(),
+            ),
+            (
+                "account_id 含 LF",
+                "codex-access-token-for-isolated-local-eval".into(),
+                "account\neval".into(),
+            ),
+        ];
+
+        for (label, token, account_id) in cases {
+            let err = encode_model_eval_codex_secret(token, account_id, future_ms)
+                .err()
+                .unwrap_or_else(|| panic!("{label}: 期望 bail，实际 encode 成功"));
+            assert!(
+                err.to_string().contains("credential has an invalid shape"),
+                "{label}: 错误信息应统一走 shape 通道，实际：{err}"
+            );
+        }
+
+        // 反面：合法输入必须成功，防止 test 因过度收紧误报。
+        assert!(encode_model_eval_codex_secret(
+            "codex-access-token-for-isolated-local-eval",
+            "account-eval-only",
+            future_ms,
+        )
+        .is_ok());
+    }
+
     #[test]
     fn plain_json_parses() {
         let (cfg, migrations) =

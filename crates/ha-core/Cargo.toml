@@ -136,6 +136,10 @@ openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
 wiremock = "0.6"
+# Compile-time trait-impl assertions（`assert_not_impl_all!` 用于
+# `CodexEvaluationSecret` 不得实现 Debug 的红线守卫）——已在 Cargo.lock 里被
+# 别的 crate 传递引入，改为直接声明零构建成本。
+static_assertions = "1"
 
 [lints]
 workspace = true
