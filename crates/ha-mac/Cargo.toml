@@ -1,6 +1,6 @@
 [package]
 name = "ha-mac"
-version = "0.27.0"
+version = "0.28.0"
 description = "Hope Agent macOS control feature — Accessibility / screenshot / focus + mac_control tool"
 license.workspace = true
 authors.workspace = true

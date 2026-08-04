@@ -1,6 +1,6 @@
 [package]
 name = "ha-vcs"
-version = "0.27.0"
+version = "0.28.0"
 description = "Hope Agent VCS & local-exec feature — git control plane operations, Docker/WSL sandbox machinery, SearxNG Docker deploy"
 license.workspace = true
 authors.workspace = true

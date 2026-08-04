@@ -1,6 +1,6 @@
 [package]
 name = "ha-channel"
-version = "0.27.0"
+version = "0.28.0"
 description = "Hope Agent IM channel feature — 12 chat platform plugins, inbound worker pipeline, Feishu business tools"
 license.workspace = true
 authors.workspace = true
@@ -23,7 +23,6 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = "0.8"
 base64 = { workspace = true }
-# turn_queue.rs 用 blake3 生成 channel session_id 稳定摘要（主分支合并进来）
 blake3 = "1.8.5"
 chrono = { workspace = true }
 fancy-regex = { workspace = true }

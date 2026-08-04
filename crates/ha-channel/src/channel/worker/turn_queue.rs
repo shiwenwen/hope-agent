@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::channel::types::{ChatType, MsgContext};
+use ha_core::channel::types::{ChatType, MsgContext};
 
 static PUMPING_SESSIONS: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
@@ -81,7 +81,7 @@ impl ChannelQueuedOrigin {
 
     pub(super) fn into_message(self) -> anyhow::Result<MsgContext> {
         Ok(MsgContext {
-            channel_id: crate::channel::types::ChannelId::from_storage_str(&self.channel_id)?,
+            channel_id: ha_core::channel::types::ChannelId::from_storage_str(&self.channel_id)?,
             account_id: self.account_id,
             sender_id: self.sender_id,
             sender_name: self.sender_name,
@@ -262,7 +262,7 @@ async fn run_pump(session_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::channel::types::ChannelId;
+    use ha_core::channel::types::ChannelId;
 
     #[test]
     fn queued_origin_does_not_persist_raw_provider_payload() {

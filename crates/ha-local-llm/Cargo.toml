@@ -1,6 +1,6 @@
 [package]
 name = "ha-local-llm"
-version = "0.27.0"
+version = "0.28.0"
 description = "Hope Agent local model feature — Ollama lifecycle, model catalog, hardware budget, embedding backend"
 license.workspace = true
 authors.workspace = true

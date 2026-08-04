@@ -1,6 +1,6 @@
 [package]
 name = "ha-base"
-version = "0.27.0"
+version = "0.28.0"
 description = "Hope Agent foundation layer — paths, logging, platform primitives, security guards. Zero business logic, zero Tauri dependency."
 license.workspace = true
 authors.workspace = true
@@ -28,7 +28,6 @@ sysinfo = "0.38"
 which = "8"
 portable-pty = "0.9"
 blake3 = "1.8.5"
-# util::sha256_hex（durable 指纹用）——原住 ha-core，随 util.rs 下沉进 ha-base
 sha2 = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]

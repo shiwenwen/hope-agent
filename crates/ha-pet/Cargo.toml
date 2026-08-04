@@ -1,6 +1,6 @@
 [package]
 name = "ha-pet"
-version = "0.27.0"
+version = "0.28.0"
 description = "Hope Agent desktop pet feature — sprite package store, import/creator, activity projection"
 license.workspace = true
 authors.workspace = true
