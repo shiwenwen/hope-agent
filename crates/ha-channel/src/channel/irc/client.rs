@@ -748,6 +748,7 @@ impl IrcClient {
                         sender_id: sender_nick.to_string(),
                         sender_name: Some(sender_nick.to_string()),
                         sender_username: Some(sender_nick.to_string()),
+                        sender_tenant_id: None,
                         chat_id,
                         chat_type,
                         chat_title: if target.starts_with('#') || target.starts_with('&') {

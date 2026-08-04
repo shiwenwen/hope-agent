@@ -123,6 +123,7 @@ impl ChannelPlugin for QqBotPlugin {
                 MediaType::Animation,
             ],
             supports_card_stream: false,
+            native_reply: None,
         }
     }
 

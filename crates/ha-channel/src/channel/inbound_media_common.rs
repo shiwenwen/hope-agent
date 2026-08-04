@@ -279,6 +279,7 @@ mod tests {
             sender_id: "u1".into(),
             sender_name: None,
             sender_username: None,
+            sender_tenant_id: None,
             chat_id: "c1".into(),
             chat_type: ChatType::Dm,
             chat_title: None,

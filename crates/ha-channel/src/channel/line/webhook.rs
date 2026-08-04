@@ -636,6 +636,7 @@ async fn handle_message_event(
         sender_id: user_id.clone(),
         sender_name,
         sender_username: None,
+        sender_tenant_id: None,
         chat_id,
         chat_type,
         chat_title: None,

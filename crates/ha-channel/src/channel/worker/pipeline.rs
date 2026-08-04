@@ -15,10 +15,14 @@ use super::dispatcher::{
     send_final_reply, DeliveryMetrics,
 };
 use super::streaming::{
-    select_stream_preview_transport, spawn_channel_stream_task, StreamPreviewOutcome,
+    abort_native_preview, select_stream_preview_transport, spawn_channel_stream_task,
+    PreviewHandle, StreamPreviewOutcome,
 };
 use ha_core::channel::traits::ChannelPlugin;
-use ha_core::channel::types::{ChannelAccountConfig, ChannelCapabilities, ChatType, ImReplyMode};
+use ha_core::channel::types::{
+    ChannelAccountConfig, ChannelCapabilities, ChatType, ImReplyMode, ReplyAbortReason,
+    ReplyStreamTarget,
+};
 use ha_core::chat_engine::{ChannelStreamSink, EventSink, RoundOutput, RoundTextAccumulator};
 
 /// Coordinates of one IM chat the pipeline writes to. All fields are
@@ -28,9 +32,40 @@ use ha_core::chat_engine::{ChannelStreamSink, EventSink, RoundOutput, RoundTextA
 pub(crate) struct DeliveryTarget<'a> {
     pub account_id: &'a str,
     pub chat_id: &'a str,
+    pub chat_type: &'a ChatType,
     pub thread_id: Option<&'a str>,
     /// `None` when there's no inbound message to reply to (live mirror).
     pub reply_to_message_id: Option<&'a str>,
+    pub recipient_user_id: Option<&'a str>,
+    pub recipient_tenant_id: Option<&'a str>,
+}
+
+impl DeliveryTarget<'_> {
+    pub(crate) fn to_reply_stream_target(&self) -> ReplyStreamTarget {
+        ReplyStreamTarget {
+            account_id: self.account_id.to_string(),
+            chat_id: self.chat_id.to_string(),
+            chat_type: self.chat_type.clone(),
+            thread_id: self.thread_id.map(str::to_string),
+            reply_to_message_id: self.reply_to_message_id.map(str::to_string),
+            recipient_user_id: self.recipient_user_id.map(str::to_string),
+            recipient_tenant_id: self.recipient_tenant_id.map(str::to_string),
+        }
+    }
+}
+
+impl<'a> From<&'a ReplyStreamTarget> for DeliveryTarget<'a> {
+    fn from(target: &'a ReplyStreamTarget) -> Self {
+        Self {
+            account_id: &target.account_id,
+            chat_id: &target.chat_id,
+            chat_type: &target.chat_type,
+            thread_id: target.thread_id.as_deref(),
+            reply_to_message_id: target.reply_to_message_id.as_deref(),
+            recipient_user_id: target.recipient_user_id.as_deref(),
+            recipient_tenant_id: target.recipient_tenant_id.as_deref(),
+        }
+    }
 }
 
 /// Handles to a running stream pipeline. The caller plugs `event_sink`
@@ -43,6 +78,7 @@ pub(crate) struct StreamPipeline {
     reply_mode: ImReplyMode,
     capabilities: ChannelCapabilities,
     preview_active: bool,
+    native_preview: Option<PreviewHandle>,
 }
 
 /// Drained outputs from a finished pipeline. Borrow into
@@ -70,21 +106,26 @@ pub(crate) struct PipelineOutcome {
 pub(crate) fn spawn_stream_pipeline(
     plugin: &Arc<dyn ChannelPlugin>,
     account: &ChannelAccountConfig,
-    chat_type: &ChatType,
     session_id: &str,
     target: &DeliveryTarget<'_>,
+    history_complete: bool,
     broadcast_to_bus: bool,
 ) -> StreamPipeline {
     let reply_mode = account.im_reply_mode();
     let capabilities = plugin.capabilities();
     let max_msg_len = capabilities.streaming_preview_max_bytes.unwrap_or(4096);
     let preview_transport = match reply_mode {
-        ImReplyMode::Preview | ImReplyMode::Split => {
-            select_stream_preview_transport(chat_type, &capabilities)
-        }
+        ImReplyMode::Preview | ImReplyMode::Split => select_stream_preview_transport(
+            &target.to_reply_stream_target(),
+            &capabilities,
+            history_complete,
+        ),
         ImReplyMode::Final => None,
     };
     let preview_active = preview_transport.is_some();
+    let native_preview = preview_transport
+        .as_ref()
+        .and_then(|transport| transport.native_preview_handle());
 
     // `EventSink::send` is synchronous. A bounded `try_send` would silently
     // drop bursty text deltas while the preview task awaits IM network IO,
@@ -102,10 +143,7 @@ pub(crate) fn spawn_stream_pipeline(
         event_rx,
         system_notice_rx,
         plugin.clone(),
-        target.account_id.to_string(),
-        target.chat_id.to_string(),
-        target.reply_to_message_id.map(str::to_string),
-        target.thread_id.map(str::to_string),
+        target.to_reply_stream_target(),
         preview_transport,
         max_msg_len,
         reply_mode,
@@ -129,6 +167,7 @@ pub(crate) fn spawn_stream_pipeline(
         reply_mode,
         capabilities,
         preview_active,
+        native_preview,
     }
 }
 
@@ -149,6 +188,7 @@ pub(crate) async fn await_stream_pipeline(pipeline: StreamPipeline) -> PipelineO
         reply_mode,
         capabilities,
         preview_active,
+        native_preview,
     } = pipeline;
     drop(event_sink);
 
@@ -158,7 +198,9 @@ pub(crate) async fn await_stream_pipeline(pipeline: StreamPipeline) -> PipelineO
         reply_mode,
         capabilities,
         preview_active,
+        native_preview,
     )
+    .await
 }
 
 /// Await an inbound pipeline while the owning Channel turn remains live.
@@ -177,6 +219,7 @@ pub(crate) async fn await_stream_pipeline_until_cancel(
         reply_mode,
         capabilities,
         preview_active,
+        native_preview,
     } = pipeline;
     drop(event_sink);
 
@@ -187,33 +230,73 @@ pub(crate) async fn await_stream_pipeline_until_cancel(
                 tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             }
         } => {
-            stream_task.abort();
+            let mut detach_native_task = false;
+            if let Some(preview) = native_preview.as_ref() {
+                let abort = abort_native_preview(preview, ReplyAbortReason::Cancelled);
+                let abort_timed_out = tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    abort,
+                )
+                .await
+                .is_err();
+                if abort_timed_out {
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "Timed out aborting native reply stream after cancellation"
+                    );
+                    // A timeout itself is proof that a provider mutation or
+                    // abort may still own the native handle. Detach the task
+                    // so its terminal handoff cannot be cancelled midway.
+                    detach_native_task = true;
+                }
+            }
+            if !detach_native_task {
+                stream_task.abort();
+            }
             return None;
         }
         result = &mut stream_task => result,
     };
 
-    Some(pipeline_outcome(
-        join_result,
-        round_texts,
-        reply_mode,
-        capabilities,
-        preview_active,
-    ))
+    Some(
+        pipeline_outcome(
+            join_result,
+            round_texts,
+            reply_mode,
+            capabilities,
+            preview_active,
+            native_preview,
+        )
+        .await,
+    )
 }
 
-fn pipeline_outcome(
+async fn pipeline_outcome(
     join_result: Result<StreamPreviewOutcome, tokio::task::JoinError>,
     round_texts: Arc<Mutex<RoundTextAccumulator>>,
     reply_mode: ImReplyMode,
     capabilities: ChannelCapabilities,
     preview_active: bool,
+    native_preview: Option<PreviewHandle>,
 ) -> PipelineOutcome {
     let stream_outcome = match join_result {
         Ok(outcome) => outcome,
         Err(e) => {
             app_warn!("channel", "worker", "Streaming preview task failed: {}", e);
-            StreamPreviewOutcome::default()
+            if let Some(preview) = native_preview {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    abort_native_preview(&preview, ReplyAbortReason::Failed),
+                )
+                .await;
+                StreamPreviewOutcome {
+                    preview: Some(preview),
+                    ..StreamPreviewOutcome::default()
+                }
+            } else {
+                StreamPreviewOutcome::default()
+            }
         }
     };
 
@@ -241,45 +324,93 @@ pub(crate) async fn deliver_rounds(
     outcome: &PipelineOutcome,
     response: &str,
 ) -> DeliveryMetrics {
-    let mut metrics = match outcome.reply_mode {
-        ImReplyMode::Split => {
-            deliver_split(
-                plugin,
-                target,
-                &outcome.drained_rounds,
-                response,
-                outcome.stream_outcome.preview.as_ref(),
-                outcome.stream_outcome.finalized_rounds,
-                &outcome.capabilities,
-            )
-            .await
-        }
-        ImReplyMode::Final => {
-            deliver_final_only(
-                plugin,
-                target,
-                &outcome.drained_rounds,
-                response,
-                &outcome.capabilities,
-            )
-            .await
-        }
-        ImReplyMode::Preview => {
-            deliver_preview_merged(
-                plugin,
-                target,
-                &outcome.drained_rounds,
-                response,
-                outcome.stream_outcome.preview.as_ref(),
-                &outcome.capabilities,
-            )
-            .await
+    let native_whole_turn = matches!(
+        outcome.stream_outcome.preview.as_ref(),
+        Some(PreviewHandle::Native { .. })
+    );
+    let mut metrics = if native_whole_turn {
+        deliver_preview_merged(
+            plugin,
+            target,
+            &outcome.drained_rounds,
+            response,
+            outcome.stream_outcome.preview.as_ref(),
+            &outcome.capabilities,
+        )
+        .await
+    } else {
+        match outcome.reply_mode {
+            ImReplyMode::Split => {
+                deliver_split(
+                    plugin,
+                    target,
+                    &outcome.drained_rounds,
+                    response,
+                    outcome.stream_outcome.preview.as_ref(),
+                    outcome.stream_outcome.finalized_rounds,
+                    &outcome.capabilities,
+                )
+                .await
+            }
+            ImReplyMode::Final => {
+                deliver_final_only(
+                    plugin,
+                    target,
+                    &outcome.drained_rounds,
+                    response,
+                    &outcome.capabilities,
+                )
+                .await
+            }
+            ImReplyMode::Preview => {
+                deliver_preview_merged(
+                    plugin,
+                    target,
+                    &outcome.drained_rounds,
+                    response,
+                    outcome.stream_outcome.preview.as_ref(),
+                    &outcome.capabilities,
+                )
+                .await
+            }
         }
     };
     metrics
         .report
         .merge(outcome.stream_outcome.delivery_report.clone());
     metrics
+}
+
+/// Explicitly terminate a native preview when a caller cannot enter normal
+/// final delivery (attach moved, turn failed, or mirror aborted). Legacy
+/// previews have no provider-owned terminal handle and remain unchanged.
+pub(crate) async fn abort_pipeline_outcome(
+    outcome: &PipelineOutcome,
+    reason: ReplyAbortReason,
+) -> bool {
+    if let Some(preview) = outcome.stream_outcome.preview.as_ref() {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            abort_native_preview(preview, reason),
+        )
+        .await
+        {
+            Ok(safely_aborted) => safely_aborted,
+            Err(_) => {
+                // The provider terminal call owns the stream in a detached
+                // task once the handle is available. Bound only the caller's
+                // wait; never cancel or duplicate the remote mutation.
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Timed out waiting for native reply stream termination"
+                );
+                false
+            }
+        }
+    } else {
+        true
+    }
 }
 
 /// Deliver a complete final response through a pipeline that may have
@@ -296,15 +427,7 @@ pub(crate) async fn deliver_full_response(
     media: &[ha_core::attachments::MediaItem],
 ) -> DeliveryMetrics {
     let report = if response.trim().is_empty() {
-        deliver_media_to_chat(
-            plugin,
-            target.account_id,
-            target.chat_id,
-            target.thread_id,
-            media,
-            &outcome.capabilities,
-        )
-        .await
+        deliver_media_to_chat(plugin, target, media, &outcome.capabilities).await
     } else {
         send_final_reply(
             plugin,
@@ -312,6 +435,8 @@ pub(crate) async fn deliver_full_response(
             response,
             outcome.stream_outcome.preview.as_ref(),
             media,
+            &[],
+            false,
             &outcome.capabilities,
         )
         .await
@@ -355,8 +480,10 @@ mod tests {
                 supports_buttons: false,
                 streaming_preview_max_bytes: None,
                 supports_card_stream: false,
+                native_reply: None,
             },
             preview_active: false,
+            native_preview: None,
         };
         let cancel = AtomicBool::new(true);
 

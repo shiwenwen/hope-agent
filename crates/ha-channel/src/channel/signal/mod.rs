@@ -165,6 +165,7 @@ impl ChannelPlugin for SignalPlugin {
             supports_buttons: false,
             streaming_preview_max_bytes: None,
             supports_card_stream: false,
+            native_reply: None,
         }
     }
 

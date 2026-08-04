@@ -187,6 +187,7 @@ impl ChannelPlugin for TelegramPlugin {
             // 比 4096 字符宽松，但 emoji 多时会反向超限。3200 字节留余量。
             streaming_preview_max_bytes: Some(3200),
             supports_card_stream: false,
+            native_reply: None,
         }
     }
 

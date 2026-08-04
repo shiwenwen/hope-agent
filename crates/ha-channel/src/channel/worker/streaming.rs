@@ -1,9 +1,11 @@
+use futures_util::FutureExt;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
 use super::dispatcher::deliver_media_to_chat;
-use ha_core::channel::traits::ChannelPlugin;
+use ha_core::channel::traits::{ChannelPlugin, ChannelReplyStream};
 use ha_core::channel::types::*;
 use ha_core::chat_engine::RoundTextAccumulator;
 
@@ -43,8 +45,28 @@ impl StreamPreviewFlushSchedule {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) type SharedNativeReplySession =
+    Arc<tokio::sync::Mutex<Option<Box<dyn ChannelReplyStream>>>>;
+
+pub(super) const NATIVE_SELECTED: u8 = 0;
+pub(super) const NATIVE_OPENING: u8 = 1;
+pub(super) const NATIVE_ACTIVE: u8 = 2;
+pub(super) const NATIVE_BROKEN: u8 = 3;
+pub(super) const NATIVE_AMBIGUOUS: u8 = 4;
+pub(super) const NATIVE_TERMINAL: u8 = 5;
+pub(super) const NATIVE_ABORTING: u8 = 6;
+
+#[derive(Clone)]
 pub(super) enum StreamPreviewTransport {
+    /// Canonical provider-owned streaming lifecycle. This is selected before
+    /// all legacy transports when the fully resolved target is eligible.
+    Native {
+        target: ReplyStreamTarget,
+        capabilities: NativeReplyCapabilities,
+        legacy_capabilities: ChannelCapabilities,
+        session: SharedNativeReplySession,
+        state: Arc<AtomicU8>,
+    },
     /// Telegram-style draft API: `send_draft` repeatedly with the same
     /// `draft_id`. Free of edit-rate limits, leaves no "edited" marker.
     Draft,
@@ -57,14 +79,58 @@ pub(super) enum StreamPreviewTransport {
     Card,
 }
 
+impl std::fmt::Debug for StreamPreviewTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Native { state, .. } => f
+                .debug_struct("Native")
+                .field("state", &state.load(Ordering::Acquire))
+                .finish_non_exhaustive(),
+            Self::Draft => f.write_str("Draft"),
+            Self::Message => f.write_str("Message"),
+            Self::Card => f.write_str("Card"),
+        }
+    }
+}
+
+impl PartialEq for StreamPreviewTransport {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::Draft, Self::Draft)
+                | (Self::Message, Self::Message)
+                | (Self::Card, Self::Card)
+                | (Self::Native { .. }, Self::Native { .. })
+        )
+    }
+}
+
+impl Eq for StreamPreviewTransport {}
+
+impl StreamPreviewTransport {
+    pub(super) fn native_preview_handle(&self) -> Option<PreviewHandle> {
+        match self {
+            Self::Native { session, state, .. } => Some(PreviewHandle::Native {
+                session: session.clone(),
+                state: state.clone(),
+            }),
+            _ => None,
+        }
+    }
+}
+
 /// Persistent identity for the rendered preview, returned to the caller so
 /// `send_final_reply` can finalize using the matching path.
 ///
 /// Visibility is `pub(crate)` so reused-by-attach-sync helpers in the
 /// dispatcher can take an `Option<&PreviewHandle>` parameter without
 /// dragging the worker's internal types into the public API surface.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) enum PreviewHandle {
+    Native {
+        session: SharedNativeReplySession,
+        state: Arc<AtomicU8>,
+    },
     /// `edit_message` rewrites this message_id at finalization.
     Message { message_id: String },
     /// Card-stream session. `broken=true` means an irrecoverable update
@@ -76,6 +142,140 @@ pub(crate) enum PreviewHandle {
         sequence: i64,
         broken: bool,
     },
+}
+
+impl std::fmt::Debug for PreviewHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Native { state, .. } => f
+                .debug_struct("Native")
+                .field("state", &state.load(Ordering::Acquire))
+                .finish_non_exhaustive(),
+            Self::Message { message_id } => f
+                .debug_struct("Message")
+                .field("message_id", message_id)
+                .finish(),
+            Self::Card {
+                card_id,
+                element_id,
+                sequence,
+                broken,
+            } => f
+                .debug_struct("Card")
+                .field("card_id", card_id)
+                .field("element_id", element_id)
+                .field("sequence", sequence)
+                .field("broken", broken)
+                .finish(),
+        }
+    }
+}
+
+fn spawn_native_abort(
+    stream: Box<dyn ChannelReplyStream>,
+    reason: ReplyAbortReason,
+    state: Arc<AtomicU8>,
+    success_state: u8,
+) -> tokio::task::JoinHandle<bool> {
+    state.store(NATIVE_ABORTING, Ordering::Release);
+    tokio::spawn(async move {
+        match std::panic::AssertUnwindSafe(stream.abort(reason))
+            .catch_unwind()
+            .await
+        {
+            Ok(Ok(())) => {
+                state.store(success_state, Ordering::Release);
+                true
+            }
+            Ok(Err(error)) => {
+                state.store(NATIVE_AMBIGUOUS, Ordering::Release);
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Native reply abort failed: {}",
+                    ha_core::logging::redact_sensitive(&error.to_string())
+                );
+                false
+            }
+            Err(_) => {
+                state.store(NATIVE_AMBIGUOUS, Ordering::Release);
+                // Panic payloads can contain arbitrary adapter data; never
+                // format them into logs or the public delivery error.
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Native reply abort adapter panicked; terminal outcome is ambiguous"
+                );
+                false
+            }
+        }
+    })
+}
+
+async fn await_native_abort_result(state: &AtomicU8) -> bool {
+    loop {
+        match state.load(Ordering::Acquire) {
+            NATIVE_TERMINAL => return true,
+            NATIVE_AMBIGUOUS | NATIVE_BROKEN => return false,
+            _ => tokio::time::sleep(Duration::from_millis(10)).await,
+        }
+    }
+}
+
+pub(crate) async fn abort_native_preview(
+    preview: &PreviewHandle,
+    reason: ReplyAbortReason,
+) -> bool {
+    let PreviewHandle::Native { session, state } = preview else {
+        return true;
+    };
+    loop {
+        let current = state.load(Ordering::Acquire);
+        match current {
+            NATIVE_ABORTING => return await_native_abort_result(state).await,
+            NATIVE_BROKEN | NATIVE_AMBIGUOUS => return false,
+            NATIVE_TERMINAL => return true,
+            NATIVE_SELECTED | NATIVE_OPENING | NATIVE_ACTIVE => {
+                if state
+                    .compare_exchange(
+                        current,
+                        NATIVE_TERMINAL,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    break;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    let stream = session.lock().await.take();
+    if let Some(stream) = stream {
+        let abort_task = spawn_native_abort(stream, reason, state.clone(), NATIVE_TERMINAL);
+        match abort_task.await {
+            Err(error) => {
+                state.store(NATIVE_AMBIGUOUS, Ordering::Release);
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Native reply abort task failed ambiguously: {}",
+                    error
+                );
+                false
+            }
+            Ok(result) => result,
+        }
+    } else {
+        match state.load(Ordering::Acquire) {
+            NATIVE_ABORTING => await_native_abort_result(state).await,
+            NATIVE_BROKEN | NATIVE_AMBIGUOUS => false,
+            NATIVE_TERMINAL => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -105,6 +305,107 @@ pub(super) fn append_preview_round_text(accumulated: &mut String, text: &str, ne
         accumulated.push('\n');
     }
     accumulated.push_str(text);
+}
+
+#[derive(Default)]
+pub(super) struct NativeFrameState {
+    pub(super) acknowledged_bytes: usize,
+    pub(super) revision: u64,
+    pub(super) phase: Option<ReplyStreamPhase>,
+    pub(super) tasks: SafeTaskTracker,
+    pub(super) last_acknowledged_at: Option<Instant>,
+}
+
+#[derive(Default)]
+pub(super) struct SafeTaskTracker {
+    pub(super) tasks: Vec<ReplyStreamTask>,
+}
+
+#[derive(serde::Deserialize)]
+struct SafeToolEvent {
+    #[serde(rename = "type")]
+    kind: String,
+    call_id: Option<String>,
+    name: Option<String>,
+    is_error: Option<bool>,
+    duration_ms: Option<u64>,
+}
+
+impl SafeTaskTracker {
+    pub(super) fn observe(&mut self, event_json: &str) -> bool {
+        let Ok(event) = serde_json::from_str::<SafeToolEvent>(event_json) else {
+            return false;
+        };
+        let Some(call_id) = event.call_id.filter(|id| !id.is_empty()) else {
+            return false;
+        };
+        let id = format!(
+            "tool-{}",
+            &blake3::hash(call_id.as_bytes()).to_hex().as_str()[..16]
+        );
+        match event.kind.as_str() {
+            "tool_call" => {
+                if let Some(task) = self.tasks.iter_mut().find(|task| task.id == id) {
+                    task.status = ReplyStreamTaskStatus::InProgress;
+                    task.details = Some("工具正在运行".to_string());
+                    return true;
+                }
+                if self.tasks.len() >= 64 {
+                    return false;
+                }
+                let raw_name = event.name.as_deref().unwrap_or("工具").trim();
+                let title = if raw_name.is_empty() {
+                    "工具".to_string()
+                } else {
+                    ha_core::truncate_utf8(raw_name, 128).to_string()
+                };
+                self.tasks.push(ReplyStreamTask {
+                    id,
+                    title,
+                    status: ReplyStreamTaskStatus::InProgress,
+                    details: Some("工具正在运行".to_string()),
+                });
+                true
+            }
+            "tool_result" => {
+                let Some(task) = self.tasks.iter_mut().find(|task| task.id == id) else {
+                    return false;
+                };
+                let failed = event.is_error.unwrap_or(false);
+                task.status = if failed {
+                    ReplyStreamTaskStatus::Error
+                } else {
+                    ReplyStreamTaskStatus::Complete
+                };
+                task.details = Some(match (failed, event.duration_ms) {
+                    (true, Some(ms)) => format!("工具执行失败（耗时 {} 毫秒）", ms),
+                    (true, None) => "工具执行失败".to_string(),
+                    (false, Some(ms)) => format!("工具已完成（耗时 {} 毫秒）", ms),
+                    (false, None) => "工具已完成".to_string(),
+                });
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn snapshot(&self, supported: bool) -> Vec<ReplyStreamTask> {
+        if supported {
+            self.tasks.clone()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+fn truncate_chars(value: &str, max: Option<u32>) -> String {
+    let Some(max) = max.map(|value| value as usize) else {
+        return value.to_string();
+    };
+    if value.chars().count() <= max {
+        return value.to_string();
+    }
+    value.chars().take(max).collect()
 }
 
 /// Spawn a background task that receives streaming events from the chat engine
@@ -142,13 +443,7 @@ pub(super) fn spawn_channel_stream_task(
     mut event_rx: mpsc::UnboundedReceiver<String>,
     mut system_notice_rx: mpsc::UnboundedReceiver<String>,
     plugin: Arc<dyn ChannelPlugin>,
-    account_id: String,
-    chat_id: String,
-    // Mutable: the reply quote belongs to the first message of the turn only.
-    // After round 0 ships, this is cleared so later rounds reply un-quoted (see
-    // the round-boundary finalize below).
-    mut reply_to_message_id: Option<String>,
-    thread_id: Option<String>,
+    target: ReplyStreamTarget,
     preview_transport: Option<StreamPreviewTransport>,
     max_msg_len: usize,
     reply_mode: ImReplyMode,
@@ -156,6 +451,13 @@ pub(super) fn spawn_channel_stream_task(
     capabilities: ChannelCapabilities,
 ) -> tokio::task::JoinHandle<StreamPreviewOutcome> {
     tokio::spawn(async move {
+        let account_id = target.account_id.clone();
+        let chat_id = target.chat_id.clone();
+        let thread_id = target.thread_id.clone();
+        // Mutable: the reply quote belongs to the first legacy message of the
+        // turn only. Native Split deliberately remains one stream for the
+        // entire Agent turn and never enters per-round finalization.
+        let mut reply_to_message_id = target.reply_to_message_id.clone();
         let Some(mut preview_transport) = preview_transport else {
             // No preview transport (Final mode or non-streaming channel):
             // drain `event_rx` while still shipping system notices as their
@@ -164,9 +466,7 @@ pub(super) fn spawn_channel_stream_task(
             loop {
                 tokio::select! {
                     notice = system_notice_rx.recv() => match notice {
-                        Some(body) => send_system_notice_now(
-                            &plugin, &account_id, &chat_id, thread_id.as_deref(), &body
-                        ).await,
+                        Some(body) => send_system_notice_now(&plugin, &target, &body).await,
                         None => break,
                     },
                     event = event_rx.recv() => {
@@ -175,19 +475,10 @@ pub(super) fn spawn_channel_stream_task(
                 }
             }
             // Drain anything still buffered after either channel closed.
-            drain_system_notices(
-                &mut system_notice_rx,
-                &plugin,
-                &account_id,
-                &chat_id,
-                thread_id.as_deref(),
-            )
-            .await;
+            drain_system_notices(&mut system_notice_rx, &plugin, &target).await;
             while event_rx.recv().await.is_some() {}
             return StreamPreviewOutcome::default();
         };
-
-        let split_streaming = matches!(reply_mode, ImReplyMode::Split);
 
         // Telegram animates draft updates that share the same `draft_id`.
         // Inbound turns reuse the user's incoming message id; live mirror
@@ -208,6 +499,8 @@ pub(super) fn spawn_channel_stream_task(
         let mut preview_message_id: Option<String> = None;
         let mut card_session: Option<CardSession> = None;
         let mut dirty = false;
+        let mut native_frame_state = NativeFrameState::default();
+        let mut native_phase = ReplyStreamPhase::Generating;
         // Tracks "saw a tool_call but not yet the next text_delta" — the
         // signal that the current round has closed and the next text_delta
         // (under split-streaming) must finalize this round before starting
@@ -219,10 +512,7 @@ pub(super) fn spawn_channel_stream_task(
         let mut flush_schedule = StreamPreviewFlushSchedule::new(Instant::now());
 
         loop {
-            // Check the clock before polling the receiver. If model deltas
-            // arrive continuously, this prevents the preview flush from being
-            // starved until EOF.
-            if flush_schedule.should_flush(dirty, !accumulated.is_empty(), Instant::now()) {
+            if native_keepalive_due(&preview_transport, &native_frame_state, Instant::now()) {
                 send_stream_preview(
                     &plugin,
                     &account_id,
@@ -235,6 +525,34 @@ pub(super) fn spawn_channel_stream_task(
                     &mut preview_transport,
                     &mut preview_message_id,
                     &mut card_session,
+                    &mut native_frame_state,
+                    native_phase,
+                )
+                .await;
+                continue;
+            }
+            // Check the clock before polling the receiver. If model deltas
+            // arrive continuously, this prevents the preview flush from being
+            // starved until EOF.
+            if flush_schedule.should_flush(
+                dirty,
+                !accumulated.is_empty() || is_native_transport(&preview_transport),
+                Instant::now(),
+            ) {
+                send_stream_preview(
+                    &plugin,
+                    &account_id,
+                    &chat_id,
+                    reply_to_message_id.as_deref(),
+                    thread_id.as_deref(),
+                    max_msg_len,
+                    &accumulated,
+                    draft_id,
+                    &mut preview_transport,
+                    &mut preview_message_id,
+                    &mut card_session,
+                    &mut native_frame_state,
+                    native_phase,
                 )
                 .await;
                 dirty = false;
@@ -250,9 +568,7 @@ pub(super) fn spawn_channel_stream_task(
                         // collide with `accumulated` / `preview_message_id`.
                         // Closed channel just means the engine dropped its
                         // sender; keep the loop running on `event_rx`.
-                        send_system_notice_now(
-                            &plugin, &account_id, &chat_id, thread_id.as_deref(), &body
-                        ).await;
+                        send_system_notice_now(&plugin, &target, &body).await;
                     }
                 }
                 event = event_rx.recv() => {
@@ -264,7 +580,20 @@ pub(super) fn spawn_channel_stream_task(
                             // checks rarer-needle-first.
                             if event_str.contains("\"type\":\"tool_call\"") {
                                 in_tool_phase = true;
+                                if is_native_transport(&preview_transport) {
+                                    native_frame_state.tasks.observe(&event_str);
+                                    native_phase = ReplyStreamPhase::RunningTools;
+                                    dirty = true;
+                                }
+                            } else if event_str.contains("\"type\":\"tool_result\"") {
+                                if is_native_transport(&preview_transport) {
+                                    native_frame_state.tasks.observe(&event_str);
+                                    native_phase = ReplyStreamPhase::Generating;
+                                    dirty = true;
+                                }
                             } else if let Some(text) = extract_text_delta(&event_str) {
+                                let split_streaming = matches!(reply_mode, ImReplyMode::Split)
+                                    && !is_native_transport(&preview_transport);
                                 if in_tool_phase && split_streaming {
                                     // Round just ended: flush + close current
                                     // preview, deliver this round's media,
@@ -279,7 +608,7 @@ pub(super) fn spawn_channel_stream_task(
                                     // (round 1+) would lose it.
                                     let round_shipped_text = !accumulated.is_empty();
                                     let report = finalize_split_round(
-                                        &plugin, &account_id, &chat_id,
+                                        &plugin, &target,
                                         reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                                         &accumulated, draft_id, &mut preview_transport,
                                         &mut preview_message_id, &mut card_session,
@@ -301,17 +630,21 @@ pub(super) fn spawn_channel_stream_task(
                                 }
                                 let new_preview_round = in_tool_phase && !split_streaming;
                                 in_tool_phase = false;
+                                native_phase = ReplyStreamPhase::Generating;
                                 append_preview_round_text(&mut accumulated, &text, new_preview_round);
                                 dirty = true;
                             }
                         }
                         None => {
+                            let split_streaming = matches!(reply_mode, ImReplyMode::Split)
+                                && !is_native_transport(&preview_transport);
                             if dirty && !accumulated.is_empty() {
                                 send_stream_preview(
                                     &plugin, &account_id, &chat_id,
                                     reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                                     &accumulated, draft_id, &mut preview_transport,
                                     &mut preview_message_id, &mut card_session,
+                                    &mut native_frame_state, native_phase,
                                 ).await;
                             }
                             // Split mode + model ended on a tool_call: the
@@ -321,7 +654,7 @@ pub(super) fn spawn_channel_stream_task(
                             // to do.
                             if in_tool_phase && split_streaming {
                                 let report = finalize_split_round(
-                                    &plugin, &account_id, &chat_id,
+                                    &plugin, &target,
                                     reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                                     &accumulated, draft_id, &mut preview_transport,
                                     &mut preview_message_id, &mut card_session,
@@ -333,40 +666,72 @@ pub(super) fn spawn_channel_stream_task(
                                 card_session = None;
                                 finalized_rounds += 1;
                             }
+                            if is_native_transport(&preview_transport)
+                                && (dirty
+                                    || native_frame_state.revision > 0
+                                    || !native_frame_state.tasks.tasks.is_empty())
+                            {
+                                native_phase = ReplyStreamPhase::Finalizing;
+                                send_stream_preview(
+                                    &plugin, &account_id, &chat_id,
+                                    reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
+                                    &accumulated, draft_id, &mut preview_transport,
+                                    &mut preview_message_id, &mut card_session,
+                                    &mut native_frame_state, native_phase,
+                                ).await;
+                            }
                             drain_system_notices(
-                                &mut system_notice_rx, &plugin, &account_id, &chat_id,
-                                thread_id.as_deref(),
+                                &mut system_notice_rx, &plugin, &target,
                             ).await;
                             break;
                         }
                     }
                 }
 
-                _ = tokio::time::sleep_until(flush_schedule.next_at()), if dirty && !accumulated.is_empty() => {
-                    if dirty && !accumulated.is_empty() {
+                _ = tokio::time::sleep_until(flush_schedule.next_at()), if dirty && (!accumulated.is_empty() || is_native_transport(&preview_transport)) => {
+                    if dirty && (!accumulated.is_empty() || is_native_transport(&preview_transport)) {
                         send_stream_preview(
                             &plugin, &account_id, &chat_id,
                             reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                             &accumulated, draft_id, &mut preview_transport,
                             &mut preview_message_id, &mut card_session,
+                            &mut native_frame_state, native_phase,
                         ).await;
                         dirty = false;
                         flush_schedule.mark_flushed(Instant::now());
                     }
                 }
+
+                _ = tokio::time::sleep(Duration::from_millis(500)), if is_native_transport(&preview_transport) => {}
             }
         }
 
-        let preview = match (&card_session, &preview_message_id) {
-            (Some(session), _) => Some(PreviewHandle::Card {
-                card_id: session.card_id.clone(),
-                element_id: session.element_id.clone(),
-                sequence: session.sequence,
-                broken: session.broken,
+        let preview = match &preview_transport {
+            StreamPreviewTransport::Native { session, state, .. } => Some(PreviewHandle::Native {
+                session: session.clone(),
+                state: state.clone(),
             }),
-            (None, Some(message_id)) => Some(PreviewHandle::Message {
-                message_id: message_id.clone(),
-            }),
+            StreamPreviewTransport::Card if card_session.is_some() => {
+                let session = card_session.as_ref().expect("checked above");
+                Some(PreviewHandle::Card {
+                    card_id: session.card_id.clone(),
+                    element_id: session.element_id.clone(),
+                    sequence: session.sequence,
+                    broken: session.broken,
+                })
+            }
+            StreamPreviewTransport::Message if preview_message_id.is_some() => {
+                Some(PreviewHandle::Message {
+                    message_id: preview_message_id.as_ref().expect("checked above").clone(),
+                })
+            }
+            StreamPreviewTransport::Draft if preview_message_id.is_some() => {
+                Some(PreviewHandle::Message {
+                    // Drafts normally do not persist a message id; retain the
+                    // legacy defensive branch if an adapter supplied one.
+                    message_id: preview_message_id.as_ref().expect("checked above").clone(),
+                })
+            }
             _ => None,
         };
 
@@ -385,17 +750,11 @@ pub(super) fn spawn_channel_stream_task(
 /// log — system notices are best-effort UX, not data integrity.
 async fn send_system_notice_now(
     plugin: &Arc<dyn ChannelPlugin>,
-    account_id: &str,
-    chat_id: &str,
-    thread_id: Option<&str>,
+    native_target: &ReplyStreamTarget,
     body: &str,
 ) {
-    let target = super::pipeline::DeliveryTarget {
-        account_id,
-        chat_id,
-        thread_id,
-        reply_to_message_id: None,
-    };
+    let mut target = super::pipeline::DeliveryTarget::from(native_target);
+    target.reply_to_message_id = None;
     super::dispatcher::send_text_chunks(plugin, &target, body, None, &[]).await;
 }
 
@@ -405,12 +764,10 @@ async fn send_system_notice_now(
 async fn drain_system_notices(
     rx: &mut mpsc::UnboundedReceiver<String>,
     plugin: &Arc<dyn ChannelPlugin>,
-    account_id: &str,
-    chat_id: &str,
-    thread_id: Option<&str>,
+    target: &ReplyStreamTarget,
 ) {
     while let Ok(body) = rx.try_recv() {
-        send_system_notice_now(plugin, account_id, chat_id, thread_id, &body).await;
+        send_system_notice_now(plugin, target, &body).await;
     }
 }
 
@@ -442,8 +799,7 @@ async fn drain_system_notices(
 #[allow(clippy::too_many_arguments)]
 async fn finalize_split_round(
     plugin: &Arc<dyn ChannelPlugin>,
-    account_id: &str,
-    chat_id: &str,
+    native_target: &ReplyStreamTarget,
     reply_to_message_id: Option<&str>,
     thread_id: Option<&str>,
     max_msg_len: usize,
@@ -456,8 +812,11 @@ async fn finalize_split_round(
     round_texts: &Arc<Mutex<RoundTextAccumulator>>,
     capabilities: &ChannelCapabilities,
 ) -> super::dispatcher::DeliveryReport {
+    let account_id = native_target.account_id.as_str();
+    let chat_id = native_target.chat_id.as_str();
     let mut report = super::dispatcher::DeliveryReport::default();
     if !accumulated.is_empty() {
+        let mut native_frame_state = NativeFrameState::default();
         send_stream_preview(
             plugin,
             account_id,
@@ -470,12 +829,14 @@ async fn finalize_split_round(
             preview_transport,
             preview_message_id,
             card_session,
+            &mut native_frame_state,
+            ReplyStreamPhase::Generating,
         )
         .await;
     }
 
     let preview_carried_text = preview_carried_full_text(
-        *preview_transport,
+        preview_transport,
         accumulated,
         plugin.markdown_to_native(accumulated).len(),
         preview_message_id.as_deref(),
@@ -484,12 +845,9 @@ async fn finalize_split_round(
     );
 
     if !preview_carried_text {
-        let target = super::pipeline::DeliveryTarget {
-            account_id,
-            chat_id,
-            thread_id,
-            reply_to_message_id,
-        };
+        let mut target = super::pipeline::DeliveryTarget::from(native_target);
+        target.thread_id = thread_id;
+        target.reply_to_message_id = reply_to_message_id;
         report.merge(
             super::dispatcher::send_text_chunks(plugin, &target, accumulated, None, &[]).await,
         );
@@ -540,17 +898,8 @@ async fn finalize_split_round(
         guard.round_medias(round_idx)
     };
     if !medias.is_empty() {
-        report.merge(
-            deliver_media_to_chat(
-                plugin,
-                account_id,
-                chat_id,
-                thread_id,
-                &medias,
-                capabilities,
-            )
-            .await,
-        );
+        let media_target = super::pipeline::DeliveryTarget::from(native_target);
+        report.merge(deliver_media_to_chat(plugin, &media_target, &medias, capabilities).await);
     }
     report
 }
@@ -568,7 +917,7 @@ async fn finalize_split_round(
 /// oversized content or never opened (initial send/edit error, oversized
 /// from the first delta).
 pub(super) fn preview_carried_full_text(
-    transport: StreamPreviewTransport,
+    transport: &StreamPreviewTransport,
     accumulated: &str,
     accumulated_native_len: usize,
     preview_message_id: Option<&str>,
@@ -579,6 +928,7 @@ pub(super) fn preview_carried_full_text(
         return true;
     }
     match transport {
+        StreamPreviewTransport::Native { .. } => false,
         StreamPreviewTransport::Message => {
             preview_message_id.is_some() && accumulated_native_len <= max_msg_len
         }
@@ -623,10 +973,28 @@ pub(super) fn extract_text_delta(event_str: &str) -> Option<String> {
 }
 
 pub(super) fn select_stream_preview_transport(
-    chat_type: &ChatType,
+    target: &ReplyStreamTarget,
     capabilities: &ChannelCapabilities,
+    history_complete: bool,
 ) -> Option<StreamPreviewTransport> {
-    if matches!(chat_type, ChatType::Dm) && capabilities.supports_draft {
+    if let Some(native) = capabilities.native_reply.as_ref() {
+        let target_eligible = native.preview_chat_types.contains(&target.chat_type)
+            && (!native.requires_reply_anchor || target.reply_to_message_id.is_some())
+            && (!native.requires_recipient_user_id || target.recipient_user_id.is_some())
+            && (!native.requires_recipient_tenant_id || target.recipient_tenant_id.is_some());
+        let history_eligible =
+            history_complete || !matches!(native.update_mode, ReplyStreamUpdateMode::Append);
+        if target_eligible && history_eligible {
+            return Some(StreamPreviewTransport::Native {
+                target: target.clone(),
+                capabilities: native.clone(),
+                legacy_capabilities: capabilities.clone(),
+                session: Arc::new(tokio::sync::Mutex::new(None)),
+                state: Arc::new(AtomicU8::new(NATIVE_SELECTED)),
+            });
+        }
+    }
+    if matches!(target.chat_type, ChatType::Dm) && capabilities.supports_draft {
         return Some(StreamPreviewTransport::Draft);
     }
     if capabilities.supports_card_stream {
@@ -636,6 +1004,295 @@ pub(super) fn select_stream_preview_transport(
         return Some(StreamPreviewTransport::Message);
     }
     None
+}
+
+fn select_legacy_preview_transport(
+    target: &ReplyStreamTarget,
+    capabilities: &ChannelCapabilities,
+) -> Option<StreamPreviewTransport> {
+    if matches!(target.chat_type, ChatType::Dm) && capabilities.supports_draft {
+        return Some(StreamPreviewTransport::Draft);
+    }
+    if capabilities.supports_card_stream {
+        return Some(StreamPreviewTransport::Card);
+    }
+    if capabilities.supports_edit {
+        return Some(StreamPreviewTransport::Message);
+    }
+    None
+}
+
+fn is_native_transport(transport: &StreamPreviewTransport) -> bool {
+    matches!(transport, StreamPreviewTransport::Native { .. })
+}
+
+fn native_keepalive_due(
+    transport: &StreamPreviewTransport,
+    frame_state: &NativeFrameState,
+    now: Instant,
+) -> bool {
+    let StreamPreviewTransport::Native {
+        capabilities,
+        state,
+        ..
+    } = transport
+    else {
+        return false;
+    };
+    if state.load(Ordering::Acquire) != NATIVE_ACTIVE {
+        return false;
+    }
+    let (Some(last), Some(refresh_secs)) = (
+        frame_state.last_acknowledged_at,
+        capabilities.refresh_after_secs,
+    ) else {
+        return false;
+    };
+    now >= last + Duration::from_secs(refresh_secs.max(1))
+}
+
+fn safe_open_fallback(kind: ReplyStreamErrorKind) -> bool {
+    matches!(
+        kind,
+        ReplyStreamErrorKind::Unsupported
+            | ReplyStreamErrorKind::InvalidTarget
+            | ReplyStreamErrorKind::InvalidContent
+            | ReplyStreamErrorKind::Rejected
+            | ReplyStreamErrorKind::RateLimited
+            | ReplyStreamErrorKind::Transient
+    )
+}
+
+/// Claim the one legal `Selected -> Opening` transition without ever
+/// overwriting a concurrent cancellation's terminal state.
+pub(super) fn try_begin_native_open(state: &AtomicU8) -> bool {
+    state
+        .compare_exchange(
+            NATIVE_SELECTED,
+            NATIVE_OPENING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_ok()
+}
+
+enum NativeFlushResult {
+    Acknowledged,
+    Skipped,
+    Fallback,
+}
+
+pub(super) fn build_native_frame(
+    accumulated: &str,
+    frame_state: &NativeFrameState,
+    capabilities: &NativeReplyCapabilities,
+    phase: ReplyStreamPhase,
+) -> ReplyStreamFrame {
+    let unacknowledged = accumulated
+        .get(frame_state.acknowledged_bytes..)
+        .unwrap_or_default();
+    let markdown_delta = truncate_chars(unacknowledged, capabilities.max_delta_chars);
+    let acknowledged_end = frame_state
+        .acknowledged_bytes
+        .saturating_add(markdown_delta.len())
+        .min(accumulated.len());
+    let snapshot_source = if matches!(capabilities.update_mode, ReplyStreamUpdateMode::Append) {
+        accumulated.get(..acknowledged_end).unwrap_or(accumulated)
+    } else {
+        accumulated
+    };
+    ReplyStreamFrame {
+        revision: frame_state.revision.saturating_add(1),
+        markdown_snapshot: truncate_chars(snapshot_source, capabilities.max_snapshot_chars),
+        markdown_delta,
+        phase,
+        tasks: frame_state
+            .tasks
+            .snapshot(capabilities.supports_task_updates),
+        plan_title: capabilities.supports_plan_updates.then(|| {
+            match phase {
+                ReplyStreamPhase::Generating => "正在生成回复",
+                ReplyStreamPhase::RunningTools => "正在执行任务",
+                ReplyStreamPhase::Finalizing => "正在整理结果",
+            }
+            .to_string()
+        }),
+    }
+}
+
+pub(super) fn acknowledge_native_frame(
+    frame_state: &mut NativeFrameState,
+    frame: &ReplyStreamFrame,
+    update_mode: ReplyStreamUpdateMode,
+) {
+    frame_state.acknowledged_bytes = if matches!(update_mode, ReplyStreamUpdateMode::Append) {
+        frame_state
+            .acknowledged_bytes
+            .saturating_add(frame.markdown_delta.len())
+    } else {
+        frame_state
+            .acknowledged_bytes
+            .max(frame.markdown_snapshot.len())
+    };
+    frame_state.revision = frame.revision;
+    frame_state.phase = Some(frame.phase);
+    frame_state.last_acknowledged_at = Some(Instant::now());
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn flush_native_preview(
+    plugin: &Arc<dyn ChannelPlugin>,
+    target: &ReplyStreamTarget,
+    capabilities: &NativeReplyCapabilities,
+    session: &SharedNativeReplySession,
+    state: &Arc<AtomicU8>,
+    accumulated: &str,
+    phase: ReplyStreamPhase,
+    frame_state: &mut NativeFrameState,
+) -> NativeFlushResult {
+    let lifecycle = state.load(Ordering::Acquire);
+    if matches!(
+        lifecycle,
+        NATIVE_BROKEN | NATIVE_AMBIGUOUS | NATIVE_TERMINAL
+    ) {
+        return NativeFlushResult::Skipped;
+    }
+
+    let frame = build_native_frame(accumulated, frame_state, capabilities, phase);
+    if lifecycle == NATIVE_SELECTED {
+        if !try_begin_native_open(state) {
+            return NativeFlushResult::Skipped;
+        }
+        // Hold the exact shared slot while opening. Cancellation waits on this
+        // same lock (bounded by the pipeline's 3 second deadline), preventing
+        // an accepted session from being installed after an abort completed.
+        let mut guard = session.lock().await;
+        if state.load(Ordering::Acquire) != NATIVE_OPENING {
+            return NativeFlushResult::Skipped;
+        }
+        match plugin.open_reply_stream(target, &frame).await {
+            Ok(stream) => {
+                if state.load(Ordering::Acquire) == NATIVE_TERMINAL {
+                    state.store(NATIVE_ABORTING, Ordering::Release);
+                    drop(guard);
+                    if !spawn_native_abort(
+                        stream,
+                        ReplyAbortReason::Cancelled,
+                        state.clone(),
+                        NATIVE_TERMINAL,
+                    )
+                    .await
+                    .unwrap_or(false)
+                    {
+                        state.store(NATIVE_AMBIGUOUS, Ordering::Release);
+                    }
+                    return NativeFlushResult::Skipped;
+                }
+                *guard = Some(stream);
+                state.store(NATIVE_ACTIVE, Ordering::Release);
+                drop(guard);
+                acknowledge_native_frame(frame_state, &frame, capabilities.update_mode);
+                NativeFlushResult::Acknowledged
+            }
+            Err(error) if safe_open_fallback(error.kind) => {
+                state.store(NATIVE_TERMINAL, Ordering::Release);
+                drop(guard);
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Native reply open rejected safely; using legacy preview: {}",
+                    ha_core::logging::redact_sensitive(&error.to_string())
+                );
+                NativeFlushResult::Fallback
+            }
+            Err(error) => {
+                // Ambiguous and every unlisted kind suppress fallback: a
+                // provider-visible stream may already exist.
+                state.store(NATIVE_AMBIGUOUS, Ordering::Release);
+                drop(guard);
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Native reply open outcome is unsafe to retry: {}",
+                    ha_core::logging::redact_sensitive(&error.to_string())
+                );
+                NativeFlushResult::Skipped
+            }
+        }
+    } else if lifecycle == NATIVE_ACTIVE {
+        let mut guard = session.lock().await;
+        if state.load(Ordering::Acquire) != NATIVE_ACTIVE {
+            return NativeFlushResult::Skipped;
+        }
+        let Some(stream) = guard.as_mut() else {
+            if state.load(Ordering::Acquire) != NATIVE_TERMINAL {
+                state.store(NATIVE_BROKEN, Ordering::Release);
+            }
+            return NativeFlushResult::Skipped;
+        };
+        match stream.push(&frame).await {
+            Ok(()) => {
+                if state.load(Ordering::Acquire) == NATIVE_TERMINAL {
+                    let stream = guard.take();
+                    state.store(NATIVE_ABORTING, Ordering::Release);
+                    drop(guard);
+                    if let Some(stream) = stream {
+                        // Detached terminal handoff: cancellation may stop
+                        // polling this stream task immediately after the lock
+                        // becomes available, but the provider abort continues.
+                        drop(spawn_native_abort(
+                            stream,
+                            ReplyAbortReason::Cancelled,
+                            state.clone(),
+                            NATIVE_TERMINAL,
+                        ));
+                    }
+                    return NativeFlushResult::Skipped;
+                }
+                drop(guard);
+                acknowledge_native_frame(frame_state, &frame, capabilities.update_mode);
+                NativeFlushResult::Acknowledged
+            }
+            Err(error) => {
+                let cancelled = state.load(Ordering::Acquire) == NATIVE_TERMINAL;
+                let ambiguous = matches!(error.kind, ReplyStreamErrorKind::Ambiguous);
+                let terminal_state = if cancelled {
+                    NATIVE_TERMINAL
+                } else if ambiguous {
+                    NATIVE_AMBIGUOUS
+                } else {
+                    NATIVE_BROKEN
+                };
+                let stream = guard.take();
+                state.store(NATIVE_ABORTING, Ordering::Release);
+                drop(guard);
+                if let Some(stream) = stream {
+                    drop(spawn_native_abort(
+                        stream,
+                        if cancelled {
+                            ReplyAbortReason::Cancelled
+                        } else {
+                            ReplyAbortReason::Failed
+                        },
+                        state.clone(),
+                        terminal_state,
+                    ));
+                } else {
+                    state.store(terminal_state, Ordering::Release);
+                }
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Native reply push failed{}: {}",
+                    if ambiguous { " ambiguously" } else { "" },
+                    ha_core::logging::redact_sensitive(&error.to_string())
+                );
+                NativeFlushResult::Skipped
+            }
+        }
+    } else {
+        NativeFlushResult::Skipped
+    }
 }
 
 pub(super) fn should_fallback_from_draft_error(error: &str) -> bool {
@@ -833,7 +1490,49 @@ async fn send_stream_preview(
     preview_transport: &mut StreamPreviewTransport,
     preview_message_id: &mut Option<String>,
     card_session: &mut Option<CardSession>,
+    native_frame_state: &mut NativeFrameState,
+    native_phase: ReplyStreamPhase,
 ) {
+    let native = match preview_transport {
+        StreamPreviewTransport::Native {
+            target,
+            capabilities,
+            legacy_capabilities,
+            session,
+            state,
+        } => Some((
+            target.clone(),
+            capabilities.clone(),
+            legacy_capabilities.clone(),
+            session.clone(),
+            state.clone(),
+        )),
+        _ => None,
+    };
+    if let Some((target, capabilities, legacy_capabilities, session, state)) = native {
+        match flush_native_preview(
+            plugin,
+            &target,
+            &capabilities,
+            &session,
+            &state,
+            text,
+            native_phase,
+            native_frame_state,
+        )
+        .await
+        {
+            NativeFlushResult::Fallback => {
+                let Some(fallback) = select_legacy_preview_transport(&target, &legacy_capabilities)
+                else {
+                    return;
+                };
+                *preview_transport = fallback;
+            }
+            NativeFlushResult::Acknowledged | NativeFlushResult::Skipped => return,
+        }
+    }
+
     // Lazy native-format payload for Draft / Message paths. The Card path
     // sends the raw markdown directly (cardkit markdown elements don't
     // want HTML conversion), so it skips this builder unless it has to
@@ -850,6 +1549,7 @@ async fn send_stream_preview(
     };
 
     match preview_transport {
+        StreamPreviewTransport::Native { .. } => unreachable!("native branch returned above"),
         StreamPreviewTransport::Draft => {
             let Some(payload) = build_payload() else {
                 return;

@@ -5,6 +5,27 @@ use tokio_util::sync::CancellationToken;
 
 use super::types::*;
 
+/// One platform-native rich-reply streaming session.
+///
+/// The session owns all provider-specific identifiers and sequencing state.
+/// Consuming `commit` / `abort` makes terminal delivery explicit and prevents
+/// callers from accidentally reusing a closed stream.
+#[async_trait]
+pub trait ChannelReplyStream: Send {
+    async fn push(&mut self, frame: &ReplyStreamFrame)
+        -> std::result::Result<(), ReplyStreamError>;
+
+    async fn commit(
+        self: Box<Self>,
+        final_reply: &RichReply,
+    ) -> std::result::Result<RichReplyReceipt, ReplyStreamError>;
+
+    async fn abort(
+        self: Box<Self>,
+        reason: ReplyAbortReason,
+    ) -> std::result::Result<(), ReplyStreamError>;
+}
+
 /// Core channel plugin contract.
 ///
 /// Each IM channel (Telegram, Discord, Slack, etc.) implements this trait.
@@ -53,6 +74,33 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Send a typing indicator. Implementations should handle keepalive
     /// internally if the platform requires periodic refresh.
     async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()>;
+
+    /// Open a platform-native rich-reply stream. Returning `Ok` confirms that
+    /// `first` was accepted exactly once; callers advance both revision and
+    /// delta cursors before invoking [`ChannelReplyStream::push`]. Returning
+    /// `Err(Ambiguous)` means acceptance is unknown and must never trigger an
+    /// automatic duplicate send. The default preserves compatibility for
+    /// channels that only implement legacy previews.
+    async fn open_reply_stream(
+        &self,
+        _target: &ReplyStreamTarget,
+        _first: &ReplyStreamFrame,
+    ) -> std::result::Result<Box<dyn ChannelReplyStream>, ReplyStreamError> {
+        Err(ReplyStreamError::unsupported(
+            "native reply streaming not supported by this channel",
+        ))
+    }
+
+    /// Send a canonical rich final reply without opening a preview stream.
+    async fn send_rich_reply(
+        &self,
+        _target: &ReplyStreamTarget,
+        _reply: &RichReply,
+    ) -> std::result::Result<RichReplyReceipt, ReplyStreamError> {
+        Err(ReplyStreamError::unsupported(
+            "rich replies not supported by this channel",
+        ))
+    }
 
     /// Send a message draft for streaming (e.g. Telegram's sendMessageDraft).
     ///

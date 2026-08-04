@@ -120,7 +120,219 @@ pub struct ChannelCapabilities {
     /// Currently only Feishu (cardkit) implements this.
     #[serde(default)]
     pub supports_card_stream: bool,
+    /// Native rich-reply streaming contract exposed by this channel.
+    /// `None` keeps the legacy draft/card/message preview paths active.
+    #[serde(default)]
+    pub native_reply: Option<NativeReplyCapabilities>,
 }
+
+// ── Native Reply Streaming ────────────────────────────────────
+
+/// Target-scoped native reply capabilities. Unlike the legacy preview flags,
+/// these limits describe the platform's native streaming/rich-message API and
+/// are intentionally independent from `streaming_preview_max_bytes`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeReplyCapabilities {
+    #[serde(default)]
+    pub preview_chat_types: Vec<ChatType>,
+    #[serde(default)]
+    pub final_chat_types: Vec<ChatType>,
+    pub update_mode: ReplyStreamUpdateMode,
+    /// Requirements below apply to `open_reply_stream` only. Standalone final
+    /// rich replies are gated independently by `final_chat_types` and the
+    /// adapter's target preflight.
+    #[serde(default)]
+    pub requires_reply_anchor: bool,
+    #[serde(default)]
+    pub requires_recipient_user_id: bool,
+    #[serde(default)]
+    pub requires_recipient_tenant_id: bool,
+    #[serde(default)]
+    pub supports_task_updates: bool,
+    #[serde(default)]
+    pub supports_plan_updates: bool,
+    /// The adapter can compile canonical Markdown into provider-native
+    /// structured blocks. This never authorizes callers to pass arbitrary
+    /// provider block JSON through the common contract.
+    #[serde(default)]
+    pub supports_blocks: bool,
+    /// Media kinds that the native rich-reply endpoint can embed into the
+    /// canonical final document. Items outside this list stay on the legacy
+    /// media delivery path.
+    #[serde(default)]
+    pub embedded_media_types: Vec<MediaType>,
+    #[serde(default)]
+    pub refresh_after_secs: Option<u64>,
+    #[serde(default)]
+    pub max_snapshot_chars: Option<u32>,
+    #[serde(default)]
+    pub max_delta_chars: Option<u32>,
+}
+
+/// How a native stream consumes text updates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReplyStreamUpdateMode {
+    /// Each push contains only text not accepted by earlier pushes.
+    Append,
+    /// Each push replaces the currently visible draft with a full snapshot.
+    Snapshot,
+}
+
+/// Fully resolved destination for a native stream or rich final reply.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ReplyStreamTarget {
+    pub account_id: String,
+    pub chat_id: String,
+    pub chat_type: ChatType,
+    pub thread_id: Option<String>,
+    pub reply_to_message_id: Option<String>,
+    pub recipient_user_id: Option<String>,
+    /// Platform-neutral tenant/workspace identity for the recipient. Slack
+    /// Connect maps this to `recipient_team_id`; single-tenant channels leave
+    /// it unset.
+    pub recipient_tenant_id: Option<String>,
+}
+
+/// One revision of an in-flight native reply.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ReplyStreamFrame {
+    /// Strictly increasing within one stream, including keepalive refreshes.
+    /// A successful `open_reply_stream` consumes its first revision; later
+    /// `push` calls must use larger values. A keepalive repeats the acknowledged
+    /// snapshot/task state with an empty delta under a fresh revision.
+    pub revision: u64,
+    /// Canonical full Markdown at this revision. Snapshot adapters consume
+    /// this field; append adapters ignore it.
+    pub markdown_snapshot: String,
+    /// Canonical Markdown accepted since the preceding acknowledged revision.
+    /// Append adapters consume this field; snapshot adapters ignore it.
+    pub markdown_delta: String,
+    pub phase: ReplyStreamPhase,
+    /// Complete, locally generated, user-safe task snapshot for this revision.
+    /// Adapters diff it against their last ACK. It must never contain tool
+    /// arguments, raw results, credentials, file contents, or private paths.
+    pub tasks: Vec<ReplyStreamTask>,
+    /// Complete user-safe plan heading; `None` means no plan is displayed.
+    pub plan_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplyStreamPhase {
+    Generating,
+    RunningTools,
+    Finalizing,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ReplyStreamTask {
+    pub id: String,
+    pub title: String,
+    pub status: ReplyStreamTaskStatus,
+    pub details: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplyStreamTaskStatus {
+    Pending,
+    InProgress,
+    Complete,
+    Error,
+}
+
+/// Canonical final reply passed to a channel's native rich-message endpoint.
+#[derive(Clone)]
+pub struct RichReply {
+    pub markdown: String,
+    /// Authorized outbound media offered to the native rich-message adapter.
+    /// The adapter reports consumed indices in [`RichReplyReceipt`]; all
+    /// remaining items are delivered through the legacy media path.
+    pub media: Vec<OutboundMedia>,
+    /// A successful native receipt confirms that all actions were delivered;
+    /// adapters that cannot preserve them must return `InvalidContent` before
+    /// the terminal mutation and must never silently truncate actions.
+    pub buttons: Vec<Vec<InlineButton>>,
+}
+
+/// Successful result of committing a native rich reply. Provider rejection,
+/// transport failure, and delivery ambiguity are always returned as a typed
+/// [`ReplyStreamError`], never encoded inside this receipt.
+#[derive(Clone)]
+pub struct RichReplyReceipt {
+    /// Identifier of the last persisted native message. Adapters that split a
+    /// long rich document return the final segment's identifier.
+    pub message_id: String,
+    /// Successful native embeds, expressed as indices into `RichReply.media`.
+    /// Invalid or duplicate indices are ignored by the worker.
+    pub consumed_media: Vec<usize>,
+}
+
+impl RichReplyReceipt {
+    pub fn text_only(message_id: impl Into<String>) -> Self {
+        Self {
+            message_id: message_id.into(),
+            consumed_media: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplyAbortReason {
+    Cancelled,
+    Failed,
+    Detached,
+}
+
+/// Classification used by the worker to make retry and fallback decisions
+/// without depending on provider-specific error codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplyStreamErrorKind {
+    Unsupported,
+    InvalidTarget,
+    InvalidContent,
+    Rejected,
+    RateLimited,
+    Transient,
+    Expired,
+    Ambiguous,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ReplyStreamError {
+    pub kind: ReplyStreamErrorKind,
+    pub message: String,
+}
+
+impl ReplyStreamError {
+    pub fn new(kind: ReplyStreamErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+
+    pub fn unsupported(message: impl Into<String>) -> Self {
+        Self::new(ReplyStreamErrorKind::Unsupported, message)
+    }
+}
+
+impl std::fmt::Display for ReplyStreamError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::fmt::Debug for ReplyStreamError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplyStreamError")
+            .field("kind", &self.kind)
+            .field("message", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl std::error::Error for ReplyStreamError {}
 
 // ── Card Stream Handle ───────────────────────────────────────────
 // Resource identifiers returned from a `create_card_stream` call.
@@ -179,6 +391,11 @@ pub struct MsgContext {
     pub sender_id: String,
     pub sender_name: Option<String>,
     pub sender_username: Option<String>,
+    /// Sender's tenant/workspace identity when the platform exposes one
+    /// (notably Slack Connect). Kept separate from `account_id`, which names
+    /// the local bot configuration rather than the remote user's workspace.
+    #[serde(default)]
+    pub sender_tenant_id: Option<String>,
     pub chat_id: String,
     pub chat_type: ChatType,
     pub chat_title: Option<String>,

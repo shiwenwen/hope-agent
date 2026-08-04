@@ -110,8 +110,30 @@ async fn deliver_attach_catchup_inner(
     };
 
     let active_turn = active_desktop_or_http_turn(session_id);
+    let conversation = ha_core::globals::get_channel_db()
+        .and_then(|db| db.get_conversation_by_session(session_id).ok().flatten())
+        .filter(|conv| {
+            conv.account_id == account.id
+                && conv.chat_id == chat_id
+                && conv.thread_id.as_deref() == thread_id
+        });
+    let chat_type = conversation
+        .as_ref()
+        .map(|conv| ChatType::from_lowercase(&conv.chat_type))
+        .unwrap_or(ChatType::Dm);
+    let target = DeliveryTarget {
+        account_id: &account.id,
+        chat_id,
+        chat_type: &chat_type,
+        thread_id,
+        reply_to_message_id: None,
+        recipient_user_id: conversation
+            .as_ref()
+            .and_then(|conv| conv.sender_id.as_deref()),
+        recipient_tenant_id: None,
+    };
     if kind == AttachKind::Handover {
-        send_handover_notice(plugin, account, chat_id, thread_id, active_turn.is_some()).await;
+        send_handover_notice(plugin, &target, active_turn.is_some()).await;
     }
 
     if let Some(active) = active_turn {
@@ -161,12 +183,6 @@ async fn deliver_attach_catchup_inner(
     //    inbound message to quote, so `reply_to_message_id=None` and
     //    `preview=None` (no live preview to edit).
     if !snapshot.text.is_empty() {
-        let target = DeliveryTarget {
-            account_id: &account.id,
-            chat_id,
-            thread_id,
-            reply_to_message_id: None,
-        };
         send_text_chunks(plugin, &target, &snapshot.text, None, &[]).await;
     }
 
@@ -175,15 +191,7 @@ async fn deliver_attach_catchup_inner(
     //    `local_path` through the plugin's normal native-vs-fallback
     //    partition (same path used by every live IM round delivery).
     if !snapshot.medias.is_empty() {
-        deliver_media_to_chat(
-            plugin,
-            &account.id,
-            chat_id,
-            thread_id,
-            &snapshot.medias,
-            &caps,
-        )
-        .await;
+        deliver_media_to_chat(plugin, &target, &snapshot.medias, &caps).await;
     }
 }
 
@@ -196,9 +204,7 @@ fn active_desktop_or_http_turn(
 
 async fn send_handover_notice(
     plugin: &Arc<dyn ChannelPlugin>,
-    account: &ChannelAccountConfig,
-    chat_id: &str,
-    thread_id: Option<&str>,
+    target: &DeliveryTarget<'_>,
     in_flight: bool,
 ) {
     let text = if in_flight {
@@ -206,13 +212,7 @@ async fn send_handover_notice(
     } else {
         "📨 Session handed over from Hope Agent."
     };
-    let target = DeliveryTarget {
-        account_id: &account.id,
-        chat_id,
-        thread_id,
-        reply_to_message_id: None,
-    };
-    send_text_chunks(plugin, &target, text, None, &[]).await;
+    send_text_chunks(plugin, target, text, None, &[]).await;
 }
 
 async fn start_late_mirror(
@@ -251,18 +251,21 @@ async fn start_late_mirror(
     let Some(mirror_guard) = try_claim_mirror_attach(session_id, attach.id) else {
         return true;
     };
+    let chat_type = ChatType::from_lowercase(&attach.chat_type);
 
     if let Some(quote) = latest_user_quote(&session_db, session_id, active.source) {
         let target = DeliveryTarget {
             account_id: &account.id,
             chat_id,
+            chat_type: &chat_type,
             thread_id,
             reply_to_message_id: None,
+            recipient_user_id: attach.sender_id.as_deref(),
+            recipient_tenant_id: None,
         };
         send_text_chunks(plugin, &target, quote.trim_end(), None, &[]).await;
     }
 
-    let chat_type = ChatType::from_lowercase(&attach.chat_type);
     let mut mirror_account = account.clone();
     if matches!(mirror_account.im_reply_mode(), ImReplyMode::Split) {
         mirror_account.set_im_reply_mode(ImReplyMode::Preview);
@@ -271,17 +274,14 @@ async fn start_late_mirror(
     let target = DeliveryTarget {
         account_id: &account.id,
         chat_id,
+        chat_type: &chat_type,
         thread_id,
         reply_to_message_id: None,
+        recipient_user_id: attach.sender_id.as_deref(),
+        recipient_tenant_id: None,
     };
-    let pipeline = spawn_stream_pipeline(
-        plugin,
-        &mirror_account,
-        &chat_type,
-        session_id,
-        &target,
-        false,
-    );
+    let pipeline =
+        spawn_stream_pipeline(plugin, &mirror_account, session_id, &target, false, false);
     let guarded_sink = guarded_mirror_sink(
         session_id.to_string(),
         attach.id,
@@ -300,7 +300,9 @@ async fn start_late_mirror(
         turn_id: active.turn_id,
         attach_id: attach.id,
         chat_id: chat_id.to_string(),
+        chat_type,
         thread_id: thread_id.map(str::to_string),
+        recipient_user_id: attach.sender_id.clone(),
     };
     tokio::spawn(async move {
         mirror.run().await;
@@ -319,7 +321,9 @@ struct LateMirror {
     turn_id: String,
     attach_id: i64,
     chat_id: String,
+    chat_type: ChatType,
     thread_id: Option<String>,
+    recipient_user_id: Option<String>,
 }
 
 impl LateMirror {
@@ -335,7 +339,9 @@ impl LateMirror {
             turn_id,
             attach_id,
             chat_id,
+            chat_type,
             thread_id,
+            recipient_user_id,
         } = self;
 
         let mut detached = false;
@@ -354,14 +360,22 @@ impl LateMirror {
         drop(sink_handle);
         let outcome = await_stream_pipeline(pipeline).await;
         if detached || !attach_still_matches(&session_id, attach_id) {
+            crate::channel::worker::pipeline::abort_pipeline_outcome(
+                &outcome,
+                ha_core::channel::types::ReplyAbortReason::Detached,
+            )
+            .await;
             return;
         }
 
         let target = DeliveryTarget {
             account_id: &account.id,
             chat_id: &chat_id,
+            chat_type: &chat_type,
             thread_id: thread_id.as_deref(),
             reply_to_message_id: None,
+            recipient_user_id: recipient_user_id.as_deref(),
+            recipient_tenant_id: None,
         };
 
         let turn = session_db.get_chat_turn(&turn_id).ok().flatten();
@@ -402,6 +416,17 @@ impl LateMirror {
             return;
         }
 
+        let safely_aborted = crate::channel::worker::pipeline::abort_pipeline_outcome(
+            &outcome,
+            ha_core::channel::types::ReplyAbortReason::Failed,
+        )
+        .await;
+        // A failed/timeout terminal request may already have reached the
+        // provider. Do not follow it with a legacy error message or users can
+        // receive both the native terminal state and a duplicate failure.
+        if !safely_aborted {
+            return;
+        }
         if let Some(turn) = turn {
             if matches!(turn.status, ChatTurnStatus::Failed) {
                 let body = turn

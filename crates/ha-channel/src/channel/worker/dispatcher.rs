@@ -10,10 +10,14 @@ use ha_core::channel::types::*;
 
 use super::media::{convert_inbound_media_to_attachments, transcribe_inbound_voice_attachments};
 use super::pipeline::{
-    await_stream_pipeline_until_cancel, deliver_rounds, spawn_stream_pipeline, DeliveryTarget,
+    abort_pipeline_outcome, await_stream_pipeline_until_cancel, deliver_rounds,
+    spawn_stream_pipeline, DeliveryTarget,
 };
 use super::slash::{dispatch_slash_for_channel, ChannelSlashOutcome};
-use super::streaming::{append_preview_round_text, PreviewHandle, CARD_ELEMENT_MAX_CHARS};
+use super::streaming::{
+    append_preview_round_text, PreviewHandle, CARD_ELEMENT_MAX_CHARS, NATIVE_ACTIVE,
+    NATIVE_AMBIGUOUS, NATIVE_BROKEN, NATIVE_SELECTED, NATIVE_TERMINAL,
+};
 
 /// Maximum number of inbound messages processed concurrently.
 /// Prevents resource exhaustion (DB lock contention, API rate limits) during message bursts.
@@ -145,8 +149,11 @@ async fn enqueue_channel_message(
             let target = DeliveryTarget {
                 account_id: &account.id,
                 chat_id: &msg.chat_id,
+                chat_type: &msg.chat_type,
                 thread_id: msg.thread_id.as_deref(),
                 reply_to_message_id: Some(&msg.message_id),
+                recipient_user_id: Some(&msg.sender_id),
+                recipient_tenant_id: msg.sender_tenant_id.as_deref(),
             };
             let notice = format!("⚠️ I couldn't queue this message: {error}");
             let _ = send_text_chunks(plugin, &target, &notice, None, &[]).await;
@@ -193,8 +200,11 @@ async fn enqueue_channel_message(
     let target = DeliveryTarget {
         account_id: &account.id,
         chat_id: &msg.chat_id,
+        chat_type: &msg.chat_type,
         thread_id: msg.thread_id.as_deref(),
         reply_to_message_id: Some(&msg.message_id),
+        recipient_user_id: Some(&msg.sender_id),
+        recipient_tenant_id: msg.sender_tenant_id.as_deref(),
     };
     let delivery = send_text_chunks(
         plugin,
@@ -820,8 +830,11 @@ async fn handle_inbound_message_inner(
             let target = DeliveryTarget {
                 account_id: &account.id,
                 chat_id: &msg.chat_id,
+                chat_type: &msg.chat_type,
                 thread_id: msg.thread_id.as_deref(),
                 reply_to_message_id: Some(&msg.message_id),
+                recipient_user_id: Some(&msg.sender_id),
+                recipient_tenant_id: msg.sender_tenant_id.as_deref(),
             };
             let _ = send_text_chunks(
                 &plugin,
@@ -959,8 +972,11 @@ async fn handle_inbound_message_inner(
                 let slash_target = DeliveryTarget {
                     account_id: &account.id,
                     chat_id: &msg.chat_id,
+                    chat_type: &msg.chat_type,
                     thread_id: msg.thread_id.as_deref(),
                     reply_to_message_id: Some(&msg.message_id),
+                    recipient_user_id: Some(&msg.sender_id),
+                    recipient_tenant_id: msg.sender_tenant_id.as_deref(),
                 };
                 let delivery = send_text_chunks(&plugin, &slash_target, &content, None, &buttons);
                 tokio::pin!(delivery);
@@ -985,8 +1001,11 @@ async fn handle_inbound_message_inner(
                 let err_target = DeliveryTarget {
                     account_id: &account.id,
                     chat_id: &msg.chat_id,
+                    chat_type: &msg.chat_type,
                     thread_id: msg.thread_id.as_deref(),
                     reply_to_message_id: Some(&msg.message_id),
+                    recipient_user_id: Some(&msg.sender_id),
+                    recipient_tenant_id: msg.sender_tenant_id.as_deref(),
                 };
                 let delivery = send_text_chunks(&plugin, &err_target, &error_reply, None, &[]);
                 tokio::pin!(delivery);
@@ -1271,8 +1290,11 @@ async fn handle_inbound_message_inner(
             let target = DeliveryTarget {
                 account_id: &account.id,
                 chat_id: &msg.chat_id,
+                chat_type: &msg.chat_type,
                 thread_id: msg.thread_id.as_deref(),
                 reply_to_message_id: Some(&msg.message_id),
+                recipient_user_id: Some(&msg.sender_id),
+                recipient_tenant_id: msg.sender_tenant_id.as_deref(),
             };
             let _ = send_text_chunks(&plugin, &target, &notice, None, &[]).await;
             return Ok(());
@@ -1549,19 +1571,15 @@ async fn handle_inbound_message_inner(
     let target = DeliveryTarget {
         account_id: &account.id,
         chat_id: &msg.chat_id,
+        chat_type: &msg.chat_type,
         thread_id: msg.thread_id.as_deref(),
         reply_to_message_id: Some(msg.message_id.as_str()),
+        recipient_user_id: Some(&msg.sender_id),
+        recipient_tenant_id: msg.sender_tenant_id.as_deref(),
     };
     // Inbound IM turns broadcast on `channel:stream_delta` so the GUI can
     // mirror the IM session live.
-    let pipeline = spawn_stream_pipeline(
-        &plugin,
-        &account,
-        &msg.chat_type,
-        &session_id,
-        &target,
-        true,
-    );
+    let pipeline = spawn_stream_pipeline(&plugin, &account, &session_id, &target, true, true);
     let event_sink = pipeline.event_sink.clone();
     let reasoning_effort = Some(runtime_defaults.reasoning_effort);
 
@@ -1660,6 +1678,10 @@ async fn handle_inbound_message_inner(
             let metrics = tokio::select! {
                 biased;
                 _ = wait_for_channel_cancel(cancel.as_ref()) => {
+                    let _ = tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        abort_pipeline_outcome(&outcome, ReplyAbortReason::Cancelled),
+                    ).await;
                     app_info!(
                         "channel",
                         "stop",
@@ -1729,8 +1751,11 @@ async fn handle_inbound_message_inner(
             let err_target = DeliveryTarget {
                 account_id: &account.id,
                 chat_id: &msg.chat_id,
+                chat_type: &msg.chat_type,
                 thread_id: msg.thread_id.as_deref(),
                 reply_to_message_id: Some(&msg.message_id),
+                recipient_user_id: Some(&msg.sender_id),
+                recipient_tenant_id: msg.sender_tenant_id.as_deref(),
             };
             let error_delivery = send_error_reply(
                 &plugin,
@@ -1742,6 +1767,10 @@ async fn handle_inbound_message_inner(
             tokio::select! {
                 biased;
                 _ = wait_for_channel_cancel(cancel.as_ref()) => {
+                    let _ = tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        abort_pipeline_outcome(&outcome, ReplyAbortReason::Cancelled),
+                    ).await;
                     app_info!(
                         "channel",
                         "stop",
@@ -1945,10 +1974,16 @@ async fn send_error_reply(
     preview: Option<&PreviewHandle>,
     error_text: &str,
 ) {
+    if let Some(native @ PreviewHandle::Native { .. }) = preview {
+        if !super::streaming::abort_native_preview(native, ReplyAbortReason::Failed).await {
+            return;
+        }
+    }
     let chunk_preview = match preview {
         // Card path: pass `None` so chunk-send opens a fresh message;
         // half-rendered card is left to auto-close.
         Some(PreviewHandle::Card { .. }) => None,
+        Some(PreviewHandle::Native { .. }) => None,
         other => other,
     };
     send_text_chunks(plugin, target, error_text, chunk_preview, &[]).await;
@@ -2211,8 +2246,17 @@ pub(super) async fn deliver_split(
 ) -> DeliveryMetrics {
     let mut metrics = DeliveryMetrics::default();
     if rounds.is_empty() {
-        metrics.report =
-            send_final_reply(plugin, target, fallback_response, preview, &[], caps).await;
+        metrics.report = send_final_reply(
+            plugin,
+            target,
+            fallback_response,
+            preview,
+            &[],
+            &[],
+            false,
+            caps,
+        )
+        .await;
         metrics.text_chars = fallback_response.chars().count();
         return metrics;
     }
@@ -2239,12 +2283,15 @@ pub(super) async fn deliver_split(
             let final_target = DeliveryTarget {
                 account_id: target.account_id,
                 chat_id: target.chat_id,
+                chat_type: target.chat_type,
                 thread_id: target.thread_id,
                 reply_to_message_id: if finalized_rounds == 0 {
                     target.reply_to_message_id
                 } else {
                     None
                 },
+                recipient_user_id: target.recipient_user_id,
+                recipient_tenant_id: target.recipient_tenant_id,
             };
             let report = send_final_reply(
                 plugin,
@@ -2252,6 +2299,8 @@ pub(super) async fn deliver_split(
                 &round.text,
                 preview,
                 &round.medias,
+                &[],
+                false,
                 caps,
             )
             .await;
@@ -2265,23 +2314,18 @@ pub(super) async fn deliver_split(
                 let pre_target = DeliveryTarget {
                     account_id: target.account_id,
                     chat_id: target.chat_id,
+                    chat_type: target.chat_type,
                     thread_id: target.thread_id,
                     reply_to_message_id: None,
+                    recipient_user_id: target.recipient_user_id,
+                    recipient_tenant_id: target.recipient_tenant_id,
                 };
                 let report = send_text_chunks(plugin, &pre_target, &round.text, None, &[]).await;
                 metrics.report.merge(report);
                 metrics.text_chars += round.text.chars().count();
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
-            let report = deliver_media_to_chat(
-                plugin,
-                target.account_id,
-                target.chat_id,
-                target.thread_id,
-                &round.medias,
-                caps,
-            )
-            .await;
+            let report = deliver_media_to_chat(plugin, target, &round.medias, caps).await;
             metrics.report.merge(report);
             metrics.media_count += round.medias.len();
         }
@@ -2311,7 +2355,17 @@ pub(super) async fn deliver_final_only(
         .collect();
     let media_count = all_media.len();
     let text_chars = final_text.chars().count();
-    let report = send_final_reply(plugin, target, &final_text, None, &all_media, caps).await;
+    let report = send_final_reply(
+        plugin,
+        target,
+        &final_text,
+        None,
+        &all_media,
+        &[],
+        true,
+        caps,
+    )
+    .await;
     DeliveryMetrics {
         text_chars,
         media_count,
@@ -2353,7 +2407,17 @@ pub(super) async fn deliver_preview_merged(
         .collect();
     let media_count = all_media.len();
     let text_chars = final_text.chars().count();
-    let report = send_final_reply(plugin, target, &final_text, preview, &all_media, caps).await;
+    let report = send_final_reply(
+        plugin,
+        target,
+        &final_text,
+        preview,
+        &all_media,
+        &[],
+        false,
+        caps,
+    )
+    .await;
     DeliveryMetrics {
         text_chars,
         media_count,
@@ -2390,15 +2454,198 @@ pub(super) fn merge_preview_round_texts(rounds: &[ha_core::chat_engine::RoundOut
 ///   markdown-to-native rendered response into chunks and `send_message` each
 ///   one. For `Message`, the first chunk replaces the existing preview via
 ///   `edit_message` (with `send_message` as a fallback).
+async fn run_native_commit(
+    stream: Box<dyn ha_core::channel::traits::ChannelReplyStream>,
+    reply: RichReply,
+) -> Result<RichReplyReceipt, Option<ReplyStreamError>> {
+    tokio::spawn(async move { stream.commit(&reply).await })
+        .await
+        .map_err(|error| {
+            Some(ReplyStreamError::new(
+                ReplyStreamErrorKind::Ambiguous,
+                format!("native commit task failed: {error}"),
+            ))
+        })?
+        .map_err(Some)
+}
+
+async fn run_native_send(
+    plugin: Arc<dyn ChannelPlugin>,
+    target: ReplyStreamTarget,
+    reply: RichReply,
+) -> Result<RichReplyReceipt, Option<ReplyStreamError>> {
+    tokio::spawn(async move { plugin.send_rich_reply(&target, &reply).await })
+        .await
+        .map_err(|error| {
+            Some(ReplyStreamError::new(
+                ReplyStreamErrorKind::Ambiguous,
+                format!("native final task failed: {error}"),
+            ))
+        })?
+        .map_err(Some)
+}
+
 pub(crate) async fn send_final_reply(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
     response: &str,
     preview: Option<&PreviewHandle>,
     pending_media: &[ha_core::attachments::MediaItem],
+    buttons: &[Vec<InlineButton>],
+    allow_standalone_native: bool,
     caps: &ChannelCapabilities,
 ) -> DeliveryReport {
     let mut report = DeliveryReport::default();
+
+    if let Some(native_caps) = caps.native_reply.as_ref() {
+        let stream_target = target.to_reply_stream_target();
+        let channel_id = plugin.meta().id;
+        let limited_media = &pending_media[..pending_media.len().min(MAX_MEDIA_PER_TURN)];
+        if pending_media.len() > MAX_MEDIA_PER_TURN {
+            app_warn!(
+                "channel",
+                "worker",
+                "Dropping {} media item(s) — over MAX_MEDIA_PER_TURN={}",
+                pending_media.len() - MAX_MEDIA_PER_TURN,
+                MAX_MEDIA_PER_TURN
+            );
+        }
+        let mut offered_media = Vec::new();
+        let mut offered_original_indices = Vec::new();
+        for (index, item) in limited_media.iter().enumerate() {
+            let media_type = classify_media_type(item);
+            if native_caps.embedded_media_types.contains(&media_type)
+                && native_media_supported_for_target(&channel_id, target.chat_id, item)
+            {
+                offered_media.push(to_outbound_media(item, media_type, &channel_id));
+                offered_original_indices.push(index);
+            }
+        }
+        let rich_reply = RichReply {
+            markdown: response.to_string(),
+            media: offered_media,
+            buttons: buttons.to_vec(),
+        };
+
+        let native_result = match preview {
+            Some(PreviewHandle::Native { session, state }) => match state.load(Ordering::Acquire) {
+                NATIVE_AMBIGUOUS | NATIVE_BROKEN | NATIVE_TERMINAL => Some((Err(None), false)),
+                NATIVE_ACTIVE => {
+                    let stream = session.lock().await.take();
+                    state.store(NATIVE_TERMINAL, Ordering::Release);
+                    match stream {
+                        Some(stream) => {
+                            Some((run_native_commit(stream, rich_reply.clone()).await, false))
+                        }
+                        None => Some((Err(None), false)),
+                    }
+                }
+                NATIVE_SELECTED => {
+                    state.store(NATIVE_TERMINAL, Ordering::Release);
+                    if native_caps.final_chat_types.contains(target.chat_type) {
+                        Some((
+                            run_native_send(
+                                plugin.clone(),
+                                stream_target.clone(),
+                                rich_reply.clone(),
+                            )
+                            .await,
+                            true,
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                _ => Some((Err(None), false)),
+            },
+            _ if preview.is_none()
+                && allow_standalone_native
+                && native_caps.final_chat_types.contains(target.chat_type) =>
+            {
+                Some((
+                    run_native_send(plugin.clone(), stream_target.clone(), rich_reply.clone())
+                        .await,
+                    true,
+                ))
+            }
+            _ => None,
+        };
+
+        if let Some((native_result, allow_safe_fallback)) = native_result {
+            match native_result {
+                Ok(receipt) => {
+                    report.attempted += 1;
+                    report.succeeded += 1;
+                    let mut consumed = std::collections::HashSet::new();
+                    let mut seen_receipt_indices = std::collections::HashSet::new();
+                    for offered_index in receipt.consumed_media {
+                        if !seen_receipt_indices.insert(offered_index) {
+                            app_warn!(
+                                "channel",
+                                "worker",
+                                "Native rich reply receipt repeated consumed media index {}",
+                                offered_index
+                            );
+                            continue;
+                        }
+                        match offered_original_indices.get(offered_index) {
+                            Some(original_index) => {
+                                consumed.insert(*original_index);
+                            }
+                            None => app_warn!(
+                                "channel",
+                                "worker",
+                                "Native rich reply receipt returned out-of-range media index {} (offered={})",
+                                offered_index,
+                                offered_original_indices.len()
+                            ),
+                        }
+                    }
+                    let remaining: Vec<_> = limited_media
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, _)| !consumed.contains(index))
+                        .map(|(_, item)| item.clone())
+                        .collect();
+                    report.merge(deliver_media_to_chat(plugin, target, &remaining, caps).await);
+                    return report;
+                }
+                Err(Some(error))
+                    if allow_safe_fallback
+                        && !matches!(error.kind, ReplyStreamErrorKind::Ambiguous) =>
+                {
+                    let error = ha_core::logging::redact_sensitive(&error.to_string());
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "Native final reply failed safely; using legacy delivery: {}",
+                        error
+                    );
+                    // Continue into the complete legacy text + media path.
+                }
+                Err(Some(error)) => {
+                    report.attempted += 1;
+                    let error = ha_core::logging::redact_sensitive(&error.to_string());
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "Native final reply outcome is ambiguous; suppressing fallback: {}",
+                        error
+                    );
+                    report.failures.push(error);
+                    return report;
+                }
+                Err(None) => {
+                    report.attempted += 1;
+                    report
+                        .failures
+                        .push("native reply terminal outcome was ambiguous".to_string());
+                    return report;
+                }
+            }
+        }
+    }
+
     let card_finalized = match preview {
         Some(PreviewHandle::Card {
             card_id,
@@ -2427,23 +2674,13 @@ pub(crate) async fn send_final_reply(
             Some(PreviewHandle::Card { .. }) => None,
             other => other,
         };
-        report.merge(send_text_chunks(plugin, target, response, chunk_preview, &[]).await);
+        report.merge(send_text_chunks(plugin, target, response, chunk_preview, buttons).await);
     } else {
         report.attempted += 1;
         report.succeeded += 1;
     }
 
-    report.merge(
-        deliver_media_to_chat(
-            plugin,
-            target.account_id,
-            target.chat_id,
-            target.thread_id,
-            pending_media,
-            caps,
-        )
-        .await,
-    );
+    report.merge(deliver_media_to_chat(plugin, target, pending_media, caps).await);
     report
 }
 
@@ -2455,9 +2692,7 @@ pub(crate) async fn send_final_reply(
 /// inline per-round delivery.
 pub(crate) async fn deliver_media_to_chat(
     plugin: &Arc<dyn ChannelPlugin>,
-    account_id: &str,
-    chat_id: &str,
-    thread_id: Option<&str>,
+    target: &DeliveryTarget<'_>,
     items: &[ha_core::attachments::MediaItem],
     caps: &ChannelCapabilities,
 ) -> DeliveryReport {
@@ -2470,7 +2705,7 @@ pub(crate) async fn deliver_media_to_chat(
     let (native_items, mut fallback_items) = partition_media_by_channel(items, caps);
     let mut deliverable_native_items = Vec::with_capacity(native_items.len());
     for (it, t) in native_items {
-        if native_media_supported_for_target(&channel_id, chat_id, it) {
+        if native_media_supported_for_target(&channel_id, target.chat_id, it) {
             deliverable_native_items.push((it, t));
         } else {
             fallback_items.push(it);
@@ -2486,10 +2721,13 @@ pub(crate) async fn deliver_media_to_chat(
             reply_to_message_id: None,
             parse_mode: None,
             buttons: Vec::new(),
-            thread_id: thread_id.map(|s| s.to_string()),
+            thread_id: target.thread_id.map(str::to_string),
             draft_id: None,
         };
-        match plugin.send_message(account_id, chat_id, &payload).await {
+        match plugin
+            .send_message(target.account_id, target.chat_id, &payload)
+            .await
+        {
             Ok(r) if !r.success => {
                 let error = ha_core::logging::redact_sensitive(
                     &r.error
@@ -2525,13 +2763,16 @@ pub(crate) async fn deliver_media_to_chat(
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         // Route through send_text_chunks so an oversized URL list (lots of
         // attachments × long URLs) is split per the channel's chunk ceiling.
-        let target = DeliveryTarget {
-            account_id,
-            chat_id,
-            thread_id,
+        let fallback_target = DeliveryTarget {
+            account_id: target.account_id,
+            chat_id: target.chat_id,
+            chat_type: target.chat_type,
+            thread_id: target.thread_id,
             reply_to_message_id: None,
+            recipient_user_id: target.recipient_user_id,
+            recipient_tenant_id: target.recipient_tenant_id,
         };
-        report.merge(send_text_chunks(plugin, &target, &text, None, &[]).await);
+        report.merge(send_text_chunks(plugin, &fallback_target, &text, None, &[]).await);
     }
     report
 }
@@ -2622,6 +2863,7 @@ mod tests {
             supports_buttons: false,
             streaming_preview_max_bytes: None,
             supports_card_stream: false,
+            native_reply: None,
         }
     }
 
@@ -2857,8 +3099,11 @@ mod tests {
         let target = DeliveryTarget {
             account_id: "acc",
             chat_id: "chat",
+            chat_type: &ChatType::Dm,
             thread_id: None,
             reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
         };
         let pre_final_text = "A".repeat(200);
         let rounds = vec![
@@ -2916,8 +3161,11 @@ mod tests {
         let target = DeliveryTarget {
             account_id: "acc",
             chat_id: "chat",
+            chat_type: &ChatType::Dm,
             thread_id: None,
             reply_to_message_id: Some("m1"),
+            recipient_user_id: None,
+            recipient_tenant_id: None,
         };
 
         // Nothing finalized inline (finalized_rounds = 0): the final round is
@@ -2942,8 +3190,11 @@ mod tests {
         let target = DeliveryTarget {
             account_id: "acc",
             chat_id: "chat",
+            chat_type: &ChatType::Dm,
             thread_id: None,
             reply_to_message_id: Some("incoming"),
+            recipient_user_id: None,
+            recipient_tenant_id: None,
         };
 
         let report = send_text_chunks(
@@ -2970,8 +3221,17 @@ mod tests {
         let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
         let items = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
         let caps = caps(vec![MediaType::Document]);
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
 
-        let report = deliver_media_to_chat(&plugin, "acc", "chat", None, &items, &caps).await;
+        let report = deliver_media_to_chat(&plugin, &target, &items, &caps).await;
 
         let sends = plugin_concrete.sends.lock().unwrap().clone();
         assert_eq!(sends.len(), 1);

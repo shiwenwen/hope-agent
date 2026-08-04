@@ -180,6 +180,7 @@ impl ChannelPlugin for FeishuPlugin {
             supports_buttons: true,
             streaming_preview_max_bytes: Some(4096),
             supports_card_stream: true,
+            native_reply: None,
         }
     }
 

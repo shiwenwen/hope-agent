@@ -191,8 +191,11 @@ async fn attach_im_live_mirror_inner(
     let target = DeliveryTarget {
         account_id: &attach.account_id,
         chat_id: &attach.chat_id,
+        chat_type: &chat_type,
         thread_id: attach.thread_id.as_deref(),
         reply_to_message_id: None,
+        recipient_user_id: attach.sender_id.as_deref(),
+        recipient_tenant_id: None,
     };
 
     // Emit the user-message quote as its own IM message before the stream
@@ -216,7 +219,7 @@ async fn attach_im_live_mirror_inner(
     // The originating Desktop / Http turn already drives the
     // `chat:stream_delta` path; suppress the secondary sink's bus emit so
     // the GUI doesn't render every frame twice.
-    let pipeline = spawn_stream_pipeline(&plugin, &account, &chat_type, session_id, &target, false);
+    let pipeline = spawn_stream_pipeline(&plugin, &account, session_id, &target, true, false);
     let guarded_sink = guarded_mirror_sink(
         session_id.to_string(),
         attach.id,
@@ -248,14 +251,23 @@ pub(crate) async fn finalize_im_live_mirror(state: ImLiveMirrorState, response: 
 
     let outcome = await_stream_pipeline(pipeline).await;
 
+    let chat_type = ChatType::from_lowercase(&attach.chat_type);
     let target = DeliveryTarget {
         account_id: &attach.account_id,
         chat_id: &attach.chat_id,
+        chat_type: &chat_type,
         thread_id: attach.thread_id.as_deref(),
         reply_to_message_id: None,
+        recipient_user_id: attach.sender_id.as_deref(),
+        recipient_tenant_id: None,
     };
 
     if !attach_still_matches(&attach.session_id, attach.id) {
+        crate::channel::worker::pipeline::abort_pipeline_outcome(
+            &outcome,
+            ha_core::channel::types::ReplyAbortReason::Detached,
+        )
+        .await;
         app_info!(
             "channel",
             "mirror",
@@ -334,7 +346,18 @@ pub(crate) async fn abort_im_live_mirror_with_body(state: ImLiveMirrorState, bod
     } = state;
 
     drop(sink_handle);
-    let _outcome = await_stream_pipeline(pipeline).await;
+    let outcome = await_stream_pipeline(pipeline).await;
+    let abort_reason = if body.is_some() {
+        ha_core::channel::types::ReplyAbortReason::Failed
+    } else {
+        ha_core::channel::types::ReplyAbortReason::Cancelled
+    };
+
+    let safely_aborted =
+        crate::channel::worker::pipeline::abort_pipeline_outcome(&outcome, abort_reason).await;
+    if !safely_aborted {
+        return;
+    }
 
     let Some(body) = body else { return };
     if !quote_sent {
@@ -343,11 +366,15 @@ pub(crate) async fn abort_im_live_mirror_with_body(state: ImLiveMirrorState, bod
     if !attach_still_matches(&attach.session_id, attach.id) {
         return;
     }
+    let chat_type = ChatType::from_lowercase(&attach.chat_type);
     let target = DeliveryTarget {
         account_id: &attach.account_id,
         chat_id: &attach.chat_id,
+        chat_type: &chat_type,
         thread_id: attach.thread_id.as_deref(),
         reply_to_message_id: None,
+        recipient_user_id: attach.sender_id.as_deref(),
+        recipient_tenant_id: None,
     };
     send_text_chunks(&plugin, &target, &body, None, &[]).await;
     app_info!(

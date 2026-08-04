@@ -94,13 +94,12 @@ pub async fn run_socket_mode(
                 reconnect_attempt = 0;
                 ws
             }
-            Err(e) => {
+            Err(_) => {
                 app_error!(
                     "channel",
                     "slack::socket",
-                    "WebSocket connect failed for account '{}': {}",
-                    account_id,
-                    e
+                    "WebSocket connect failed for account '{}'",
+                    account_id
                 );
                 if reconnect_attempt >= MAX_RECONNECT_ATTEMPTS {
                     app_error!(
@@ -245,7 +244,8 @@ async fn handle_envelope(
         "events_api" => {
             if let Some(payload) = envelope.get("payload") {
                 if let Some(event) = payload.get("event") {
-                    handle_event(event, account_id, bot_id, inbound_tx).await;
+                    let outer_team_id = payload.get("team_id").and_then(|v| v.as_str());
+                    handle_event(event, outer_team_id, account_id, bot_id, inbound_tx).await;
                 }
             }
         }
@@ -295,6 +295,7 @@ async fn handle_envelope(
 /// Handle a Slack Events API event.
 async fn handle_event(
     event: &serde_json::Value,
+    outer_team_id: Option<&str>,
     account_id: &str,
     bot_id: &str,
     inbound_tx: &mpsc::Sender<InboundEvent>,
@@ -317,7 +318,9 @@ async fn handle_event(
                 return;
             }
 
-            if let Some(msg_ctx) = convert_slack_event(event, account_id, bot_id, false) {
+            if let Some(msg_ctx) =
+                convert_slack_event(event, outer_team_id, account_id, bot_id, false)
+            {
                 if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                     app_warn!(
                         "channel",
@@ -336,7 +339,9 @@ async fn handle_event(
                 }
             }
 
-            if let Some(msg_ctx) = convert_slack_event(event, account_id, bot_id, true) {
+            if let Some(msg_ctx) =
+                convert_slack_event(event, outer_team_id, account_id, bot_id, true)
+            {
                 if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                     app_warn!(
                         "channel",
@@ -401,6 +406,10 @@ async fn handle_slash_command(
         sender_id: user_id.to_string(),
         sender_name: user_name.map(|s| s.to_string()),
         sender_username: user_name.map(|s| s.to_string()),
+        sender_tenant_id: resolve_sender_tenant_id(
+            payload,
+            payload.get("team_id").and_then(|v| v.as_str()),
+        ),
         chat_id: channel_id.to_string(),
         chat_type,
         chat_title: None,
@@ -530,6 +539,7 @@ async fn handle_interactive_payload(
 /// Convert a Slack event JSON to a normalized MsgContext.
 fn convert_slack_event(
     event: &serde_json::Value,
+    outer_team_id: Option<&str>,
     account_id: &str,
     bot_id: &str,
     is_mention: bool,
@@ -580,6 +590,7 @@ fn convert_slack_event(
         sender_id: user.to_string(),
         sender_name: None, // Would need users.info call - skip for now
         sender_username: None,
+        sender_tenant_id: resolve_sender_tenant_id(event, outer_team_id),
         chat_id: channel.to_string(),
         chat_type,
         chat_title: None,
@@ -592,6 +603,27 @@ fn convert_slack_event(
         was_mentioned,
         raw,
     })
+}
+
+/// Resolve the sender's workspace for Slack Connect-aware reply routing.
+/// Event-local identity wins because the outer Events API `team_id` names the
+/// app installation workspace, which may differ from the remote sender's.
+fn resolve_sender_tenant_id(
+    payload: &serde_json::Value,
+    outer_team_id: Option<&str>,
+) -> Option<String> {
+    payload
+        .get("user_team")
+        .and_then(|v| v.as_str())
+        .filter(|id| !id.is_empty())
+        .or_else(|| {
+            payload
+                .get("source_team")
+                .and_then(|v| v.as_str())
+                .filter(|id| !id.is_empty())
+        })
+        .or_else(|| outer_team_id.filter(|id| !id.is_empty()))
+        .map(str::to_string)
 }
 
 /// Parse a Slack timestamp string ("1234567890.123456") into a DateTime.
@@ -682,6 +714,29 @@ mod tests {
     fn file_share_subtype_is_not_skipped() {
         assert!(!should_skip_message_subtype(Some("file_share")));
         assert!(should_skip_message_subtype(Some("bot_message")));
+    }
+
+    #[test]
+    fn sender_tenant_prefers_user_then_source_then_outer_team() {
+        let event = serde_json::json!({
+            "user_team": "T-user",
+            "source_team": "T-source",
+        });
+        assert_eq!(
+            resolve_sender_tenant_id(&event, Some("T-outer")).as_deref(),
+            Some("T-user")
+        );
+
+        let event = serde_json::json!({ "source_team": "T-source" });
+        assert_eq!(
+            resolve_sender_tenant_id(&event, Some("T-outer")).as_deref(),
+            Some("T-source")
+        );
+
+        assert_eq!(
+            resolve_sender_tenant_id(&serde_json::json!({}), Some("T-outer")).as_deref(),
+            Some("T-outer")
+        );
     }
 
     #[test]

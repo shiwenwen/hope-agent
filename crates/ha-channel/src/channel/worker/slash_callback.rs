@@ -51,6 +51,7 @@ pub async fn inject_slash_callback(
         sender_id: sender_id.to_string(),
         sender_name: None,
         sender_username: None,
+        sender_tenant_id: None,
         chat_id: chat_id.to_string(),
         chat_type,
         chat_title: None,

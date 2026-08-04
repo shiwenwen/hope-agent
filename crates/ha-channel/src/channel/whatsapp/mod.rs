@@ -115,6 +115,7 @@ impl ChannelPlugin for WhatsAppPlugin {
             supports_buttons: false,
             streaming_preview_max_bytes: Some(65536),
             supports_card_stream: false,
+            native_reply: None,
         }
     }
 

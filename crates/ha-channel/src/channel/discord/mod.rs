@@ -194,6 +194,7 @@ impl ChannelPlugin for DiscordPlugin {
             // "Invalid Form Body" content_too_long
             streaming_preview_max_bytes: Some(1500),
             supports_card_stream: false,
+            native_reply: None,
         }
     }
 
