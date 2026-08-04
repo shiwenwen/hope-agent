@@ -9,9 +9,10 @@ pub(crate) mod slash_callback;
 mod startup_state;
 pub(crate) mod startup_watcher;
 mod streaming;
+mod turn_queue;
 
 pub use dispatcher::spawn_dispatcher;
-pub(crate) use dispatcher::{deliver_media_to_chat, send_text_chunks};
+pub(crate) use dispatcher::{deliver_media_to_chat, emit_channel_update, send_text_chunks};
 pub use eviction_watcher::spawn_channel_eviction_watcher;
 pub use startup_watcher::spawn_startup_notifier;
 

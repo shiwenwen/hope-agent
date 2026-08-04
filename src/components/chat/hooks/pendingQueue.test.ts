@@ -23,6 +23,19 @@ describe("durable pending queue projection", () => {
     expect(nextDispatchablePending(items)?.id).toBe("first")
   })
 
+  test("never lets the GUI claim a backend-managed Channel row", () => {
+    const items = [
+      {
+        id: "channel-first",
+        sessionId: "s",
+        status: "queued" as const,
+        managedBy: "channel" as const,
+      },
+      { id: "desktop-next", sessionId: "s", status: "queued" as const },
+    ]
+    expect(nextDispatchablePending(items)?.id).toBe("desktop-next")
+  })
+
   test("allows a durable attachment-only row to reach the backend", () => {
     expect(hasSendableChatPayload("", false, false, "queued-request")).toBe(true)
     expect(hasSendableChatPayload("", false, false)).toBe(false)

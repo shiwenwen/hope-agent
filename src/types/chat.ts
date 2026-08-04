@@ -72,6 +72,7 @@ export type PendingSendStatus =
   | "inserting"
   | "dispatching"
   | "fallback_after_reply"
+  | "held_after_stop"
 
 export interface PendingSendPreview {
   id: string
@@ -85,6 +86,9 @@ export interface PendingSendPreview {
   isPlanTrigger?: boolean
   goalTrigger?: boolean
   editable?: boolean
+  /** Backend-owned rows are visible for status only; the GUI must not claim,
+   * edit, delete, or force-insert them. */
+  managedBy?: "channel"
 }
 
 export interface MessageAttachment {

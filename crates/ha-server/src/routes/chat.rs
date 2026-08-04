@@ -2013,6 +2013,8 @@ pub async fn queue_turn_user_message(
         plan_comment: body.plan_comment,
         plan_mode: body.plan_mode,
         workflow_mode: body.workflow_mode,
+        source: ha_core::session::QueuedTurnMessageSource::Http,
+        channel_origin: None,
     };
     let item_result = ctx
         .session_db

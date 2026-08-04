@@ -54,8 +54,8 @@ pub use tasks::{
 };
 pub use turn_queue::{
     EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage, QueuedTurnMessageMode,
-    QueuedTurnMessageRecord, QueuedTurnMessageStatus, QueuedTurnMessageView,
-    EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
+    QueuedTurnMessageRecord, QueuedTurnMessageSource, QueuedTurnMessageStatus,
+    QueuedTurnMessageView, EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
 };
 pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{

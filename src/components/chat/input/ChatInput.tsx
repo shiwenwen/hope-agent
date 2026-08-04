@@ -1669,7 +1669,9 @@ export default function ChatInput({
         : []
   const pendingVisibleItems = pendingExpanded ? pendingQueueItems : pendingQueueItems.slice(0, 2)
   const nextSendablePendingId = pendingQueueItems.find(
-    (item) => item.status === "queued" || item.status === "fallback_after_reply",
+    (item) =>
+      item.managedBy !== "channel" &&
+      (item.status === "queued" || item.status === "fallback_after_reply"),
   )?.id
   const hasPendingQueue = pendingQueueItems.length > 0
   const topStripBase =
@@ -1710,6 +1712,8 @@ export default function ChatInput({
         return t("chat.pendingDispatching", "正在发送")
       case "fallback_after_reply":
         return t("chat.pendingFallbackAfterReply", "回复后发送")
+      case "held_after_stop":
+        return t("channels.stopped", "已停止")
       case "queued":
       default:
         return t("chat.pendingQueuedShort", "排队中")
@@ -1731,6 +1735,8 @@ export default function ChatInput({
         return t("chat.pendingInsertingTip", "已进入工具完成边界，暂时不能编辑或删除。")
       case "dispatching":
         return t("chat.pendingDispatchingTip", "正在从持久队列创建新的对话回合。")
+      case "held_after_stop":
+        return t("chat.stopGenerationDone", "生成已停止")
       case "queued":
       default:
         return t("chat.pendingQueuedTip", "已加入待发送队列，将在当前回复结束后发送。")
@@ -2169,11 +2175,14 @@ export default function ChatInput({
                       ? onDiscardPending?.()
                       : onDiscardPendingItem?.(item.id)
                   const readonly =
+                    item.managedBy === "channel" ||
                     item.status === "saving" ||
                     item.status === "inserting" ||
                     item.status === "dispatching"
                   const canCancelForce =
-                    item.mode === "force_insert" && item.status === "waiting_tool_boundary"
+                    item.managedBy !== "channel" &&
+                    item.mode === "force_insert" &&
+                    item.status === "waiting_tool_boundary"
                   const canSendNow =
                     !loading &&
                     item.id === nextSendablePendingId &&

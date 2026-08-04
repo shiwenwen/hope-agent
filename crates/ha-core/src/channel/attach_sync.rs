@@ -374,15 +374,49 @@ impl LateMirror {
             let metrics =
                 deliver_full_response(&plugin, &target, &outcome, &snapshot.text, &snapshot.medias)
                     .await;
-            crate::app_info!(
-                "channel",
-                "attach_sync",
-                "Delivered late handover mirror for session {} turn {} (text_chars={}, media={})",
-                session_id,
-                turn_id,
-                metrics.text_chars,
-                metrics.media_count,
-            );
+            if metrics.report.is_success() {
+                crate::app_info!(
+                    "channel",
+                    "attach_sync",
+                    "Delivered late handover mirror for session {} turn {} (text_chars={}, media={}, sends={})",
+                    session_id,
+                    turn_id,
+                    metrics.text_chars,
+                    metrics.media_count,
+                    metrics.report.succeeded,
+                );
+            } else {
+                let failure = metrics
+                    .report
+                    .failures
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "delivery result was incomplete".to_string());
+                crate::app_warn!(
+                    "channel",
+                    "delivery_failed",
+                    "Late handover mirror failed for session {} turn {} (attempted={}, succeeded={}): {}",
+                    session_id,
+                    turn_id,
+                    metrics.report.attempted,
+                    metrics.report.succeeded,
+                    crate::logging::redact_sensitive(&failure),
+                );
+                let failed_session_id = session_id.clone();
+                let update_session_id = failed_session_id.clone();
+                let _ = session_db
+                    .run(move |db| {
+                        db.append_message(
+                            &failed_session_id,
+                            &crate::session::NewMessage::error_event(
+                                "⚠️ Hope finished the reply, but the late IM handover delivery failed or was incomplete.",
+                            )
+                            .with_source(crate::chat_engine::ChatSource::Channel),
+                        )
+                    })
+                    .await;
+                crate::channel::worker::emit_channel_update(&update_session_id);
+            }
             return;
         }
 

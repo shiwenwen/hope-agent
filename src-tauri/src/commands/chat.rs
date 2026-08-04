@@ -166,6 +166,8 @@ pub async fn queue_turn_user_message(
         plan_comment,
         plan_mode,
         workflow_mode,
+        source: ha_core::session::QueuedTurnMessageSource::Desktop,
+        channel_origin: None,
     };
     let item_result = state
         .session_db
