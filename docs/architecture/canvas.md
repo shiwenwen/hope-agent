@@ -599,7 +599,7 @@ pub async fn serve_canvas_project_file(
 读写：
 
 - 读：`crate::config::cached_config().canvas`（运行期全部点都走这条，零 IO）
-- 写：[`save_canvas_config`](../../crates/ha-design/src/tool_canvas/mod.rs#L651-L655) 走 `load_config()` + `save_config()` 老 API ——这与 [配置系统](config-system.md) 推荐的 `mutate_config` 不一致，属于已知技术债，建议后续迁移以避免 lost-update。
+- 写：[`save_canvas_config`](../../crates/ha-design/src/tool_canvas/mod.rs) 走 `mutate_config_async(("canvas", "design.tool_canvas"), …)`，与 [配置系统](config-system.md) 配置写红线 #7 一致——写全过程持全局 write lock、走 blocking pool，防 lost-update。
 
 按 [AGENTS.md "设置约定"](../../AGENTS.md) 的要求，新增的配置字段必须**同时**有 GUI 入口、`ha-settings` 工具分支与 SKILL.md 风险登记。Canvas 当前 GUI 在 [`CanvasSettingsPanel.tsx`](../../src/components/settings/CanvasSettingsPanel.tsx) 已齐全。
 
@@ -647,9 +647,9 @@ pub async fn serve_canvas_project_file(
 
 工具 schema `enum: ["html", "markdown", "png"]`，但 `action_export` 只 match `"html"` / `"markdown"`，传 `"png"` 报错 `Unsupported export format`。要支持 PNG 需复用 snapshot 的链路。
 
-### 4. `save_canvas_config` 不走 `mutate_config`
+### 4. ~~`save_canvas_config` 不走 `mutate_config`~~（已修）
 
-[`tool_canvas/mod.rs:651-655`](../../crates/ha-design/src/tool_canvas/mod.rs#L651-L655) 仍是 `load_config()` + 改字段 + `save_config()` 模式，与 [配置系统](config-system.md) 强制约定不符，存在 lost-update 风险。已登记为后续清理。
+历史遗留：`save_canvas_config` 曾走 `load_config()` + 改字段 + `save_config()` 模式，与 [配置系统](config-system.md) 配置写红线 #7 不符，存在 lost-update 风险。**2026-08 已迁至 `mutate_config_async(("canvas", "design.tool_canvas"), …)`**，同 review 一并修复 `ha-channel/accounts.rs` 三处 CRUD 等其余违反点。
 
 ### 5. session 生命周期由 Artifact façade 接管
 

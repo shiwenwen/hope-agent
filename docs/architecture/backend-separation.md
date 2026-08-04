@@ -218,6 +218,17 @@ trait 挂在分发侧——`ToolDefinition::to_api_metadata` 因为要读
 > / `normalize_call_variant` 全表遍历断言。`cfg(test)` 不进 release 依赖图，
 > 但 `tools/` 真正上浮为特征 crate 时 `cargo test` 仍要编——届时随
 > crate-split 方案 §6 的通用做法挪进 `tests/` 集成测试。
+>
+> **`tests/` 集成测试 pattern（跨 crate 装配 / 全局状态触发场景专用）**：
+> `RUNTIME_ROLE` 是 `OnceLock<&'static str>` 首写为准；kernel unit test
+> 共享一个 test binary，一旦被固化为非目标 role 就无法在同 binary 里再
+> 切分支。因此需要触发特定 role 的测试（e.g. `is_acp()` / `is_desktop()`
+> 分支）必须走 `crates/ha-<x>/tests/` integration test——自带独立 binary
+> = 独立 OnceLock，可以干净地 `set_runtime_role(...)` 到目标值。已确立
+> 前例：`ha-updater/tests/updater_e2e.rs`、`ha-mcp/tests/mcp_e2e.rs`、
+> `ha-server/tests/server_smoke.rs`、`ha-improve/tests/loop_gate_integration.rs`、
+> `ha-acp/tests/approval_fail_closed.rs`。绝大多数特征 crate 无需 tests/
+> 目录，仅 kernel state 触发或跨 crate 装配契约验证时才建。
 
 **自动守卫**：同 crate 内加一条回边照样编译，光靠 review 守不住——
 [`scripts/analyze-crate-deps.mjs`](../../scripts/analyze-crate-deps.mjs)
@@ -345,9 +356,15 @@ skills**；除 improve 外全部落地（improve 只拆出了 ha-eval-runtime �
   实时以 `node scripts/analyze-crate-deps.mjs` 输出为准。
   ha-core **不知道**任何特征 crate 存在——kernel 需要特征
   行为的点全部倒转为注册钩子（工具分发条目 / 启动任务 / 专用 fn-pointer 钩子）。
-- **装配**：每个调 `init_runtime` 的二进制在 init 前调 `<crate>::wire()`
-  （幂等）。工具 `ToolDefinition` 仍在 ha-core（schema 目录阶段 4 才动），
-  漏 wire 由 `registry_freeze` warn 兜底（有 definition 无 handler）。
+- **装配（composition root）**：每个调 `init_runtime` 的二进制在 init 前调
+  [`ha_server::wire_features()`](../../crates/ha-server/src/lib.rs)——**单一
+  来源**，按序调 `ha_updater::wire()` + 17 个特征 crate 的 `wire()`。**别在
+  shell 里内联 `wire()` 序列**（历史 4 处各抄一份，新增特征 crate 时漏改
+  任一处即静默丢 handler，`registry_freeze` warn 是最后兜底）。新增特征
+  crate = 改 `wire_features()` 一处 + 三个壳（src-tauri / ha-eval /
+  hope-agent server）的 `Cargo.toml` 加 path dep。工具 `ToolDefinition`
+  仍在 ha-core（schema 目录阶段 4 才动），漏 wire 由 `registry_freeze` warn
+  兜底（有 definition 无 handler）。
 - **装配任务三档**：`register_init_task(fn)`（`init_runtime` 主体内消费，
   **所有 role** 执行、tokio runtime 不保证存在——无条件子系统装配，如 acp
   的 SessionManager 创建）；`register_startup_task(StartupStage, fn)` 两档
@@ -519,9 +536,16 @@ skills**；除 improve 外全部落地（improve 只拆出了 ha-eval-runtime �
   不需要 `register_external_tool_definitions`。
   **三处 `pub(crate)` 放开**：`local_model_jobs::spawn_job_with_target_kb_ids`
   与 `file_extract::render_pdf_bytes_isolated`（唯一消费者随迁，台账 / pdfium
-  绑定本体留 kernel）；`browser_hooks` 则**不放开整组**，只新增一个公开薄封装
-  `capture_active_tab()`——ha-knowledge 的网页收藏只需要这一项，`BrowserHooks`
-  结构体仍不出 kernel。
+  绑定本体留 kernel）；`browser_hooks` 则**不放开整组**——`BrowserHooks`
+  结构体仍不出 kernel，只以四个公开薄封装承担 kernel↔ha-browser 边界：
+  `capture_active_tab()`（ha-knowledge 网页收藏，未 wire 时 `bail!` fail
+  explicit）、`spawn_broker()` / `schedule_turn_finalize()` /
+  `cleanup_session()`（kernel 内三个消费点，未 wire 时静默 no-op 并 OnceLock
+  首次 `app_warn!("browser","hooks.<slot>",…)` 让 headless 部署审计新增
+  二进制漏 wire 时可 grep）。同期 `improve_hooks::ensure_coding_workflow_
+  retro_for_run` 未 wire 也走 OnceLock 首次 `app_warn!("improve","hooks",…)`
+  ——所有 kernel 反向 hook 里唯一「durable 表写 + Ok(None) 默认」组合，warn
+  是审计线索。
   **新增两条兄弟间单向边**：`ha-local-llm -> ha-knowledge`（embedding 模型就位
   后触发知识库 reembed，方向与拆分前一致）、`ha-design -> ha-knowledge`
   （设计空间的笔记落库与 `require_write` 写门）。

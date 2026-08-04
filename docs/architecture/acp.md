@@ -685,4 +685,12 @@ crates/ha-acp/src/lib.rs     # 特征 crate 根：pub mod acp / acp_control + wi
                              #  prompt binary resolver；src-tauri 经
                              #  pub use ha_acp::acp 保住 app_lib::acp:: 路径）
 crates/ha-acp/src/tool.rs    # acp_spawn 工具 adapter（ToolDefinition 留 ha-core）
+crates/ha-acp/tests/
+└── approval_fail_closed.rs # AGENTS.md「无人值守 fail-closed」在 ACP 侧的
+                            # 首个 integration test：设 RUNTIME_ROLE="acp"、
+                            # 验证 evaluate_approval_surface 未声明 permission
+                            # capability 时返回 Unattended(AcpNoPermissionCapability)、
+                            # D7 声明后回 Attended。用独立 test binary 是因为
+                            # kernel RUNTIME_ROLE 是 OnceLock，unit test 共享
+                            # binary 无法干净设 "acp" 分支。
 ```

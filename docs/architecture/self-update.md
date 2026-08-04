@@ -10,7 +10,7 @@ Hope Agent 是单 binary 多形态产品（桌面 GUI / `hope-agent server` 守�
 
 自升级是**独立特征 crate `ha-updater`**（首个自 ha-core 迁出的特征，依赖 ha-core，零 Tauri 依赖）。装配契约：
 
-- **每个调 `ha_core::init_runtime` 的二进制必须先调 [`ha_updater::wire()`](../../crates/ha-updater/src/lib.rs)**（当前四处：`src-tauri/src/main.rs`、`src-tauri/src/lib.rs`（mobile entry 兜底）、`crates/ha-server/src/bin/hope-agent.rs`、`crates/ha-eval/src/adapters.rs`）。`wire()` 做两件事：把 `app_update` 分发条目经 `register_external_tools` 挂进工具注册表（init 尾部冻结，晚了 panic）；把 `auto_check::spawn_auto_update_loop` 登记为 `register_startup_task` 启动任务（在 init 原时序点执行）。幂等。
+- **每个调 `ha_core::init_runtime` 的二进制必须先调 [`ha_server::wire_features()`](../../crates/ha-server/src/lib.rs)**（composition root，内部按序调 [`ha_updater::wire()`](../../crates/ha-updater/src/lib.rs) + 17 个特征 crate 的 `wire()`）。当前四处调用点：`src-tauri/src/main.rs`、`src-tauri/src/lib.rs`（mobile entry 兜底）、`crates/ha-server/src/bin/hope-agent.rs`、`crates/ha-eval/src/adapters.rs`。`ha_updater::wire()` 做两件事：把 `app_update` 分发条目经 `register_external_tools` 挂进工具注册表（init 尾部冻结，晚了 panic）；把 `auto_check::spawn_auto_update_loop` 登记为 `register_startup_task` 启动任务（在 init 原时序点执行）。幂等（每个 wire 内 `std::sync::Once`）。
 - **漏接的症状与兜底**：`app_update` 的 `ToolDefinition` 留在 ha-core（`tool_defs/update_tools.rs`），漏 wire 时 schema 照常广告、dispatch 报 Unknown tool——`freeze_now` 对「有 definition 无 handler」记 `registry_freeze` warn（启动期信号，见 [tool-system](tool-system.md)）。
 - `AutoUpdateConfig` wire 类型在 ha-config-schema（`AppConfig.auto_update`），`ha_updater::AutoUpdateConfig` 再导出；`ha-settings` 读写分支留在 ha-core（只碰 config，不碰 updater 行为）。
 

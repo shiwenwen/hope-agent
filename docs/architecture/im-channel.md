@@ -542,6 +542,17 @@ ECB 块独立可流式；尾块在 EOF 前一直留在 `carry` 里，PKCS#7 unpa
 kernel → 机器的唯一回调面是
 [`channel_hooks`](../../crates/ha-core/src/channel_hooks.rs)（十六槽原子注册）。
 
+**kernel 侧顺序守卫测试注入点**：`channel_hooks::drop_approval_by_request_id`
+在 `#[cfg(test)]` 下额外读一个 `test_seam::override_slot()`——kernel 里的
+`tools::approval` 测试可以经 `test_seam::install(...)` 装一个可控回调
+（例如首次调用阻塞），验证 `deny_pending_for_session` / `deny_all_pending`
+的「emit 全部先于任何 IM cleanup hook」这条顺序不变量（AGENTS.md「审批
+一致性 + fail-closed」红线在 kernel 侧的守卫）。序列化由 `test_seam::serial_guard()`
+承担，release build 里整个 seam 编译不出现。是拆分第五刀后 hold_text_pending_
+lock_for_test 跨 crate 不可引用的替代——不再需要 ha-channel/tests/ 集成
+测试补建 approval 顺序守卫（见 [backend-separation](backend-separation.md)
+遗留测试边一节）。
+
 ```
 crates/ha-core/src/channel/          ← 台账 + 契约（kernel）
 ├── mod.rs              模块根入口，re-export 公共类型
@@ -559,7 +570,10 @@ crates/ha-channel/src/
 ├── tools/feishu/       35 个飞书业务工具 adapter（名字常量在 kernel）
 └── channel/            ← 机器
 ├── mod.rs              模块根入口
-├── accounts.rs         账号 CRUD + 生命周期（auto-start / restart-on-change）
+├── accounts.rs         账号 CRUD + 生命周期（auto-start / restart-on-change）；
+│                    add/update/remove_account 均走 `mutate_config_async
+│                    (("channels.<op>", "channel.accounts"), …)`，闭包内做
+│                    dup 校验 + 写、闭包外做 registry lifecycle（配置写红线 #7）
 ├── attach_sync.rs      chat 接管后的补播（尽力而为；物理 detach 与
 │                    session_evicted 在 kernel 的 channel/db.rs）
 ├── start_watchdog.rs   启动失败退避重试（user 操作永远胜过 watchdog）

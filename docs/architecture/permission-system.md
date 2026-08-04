@@ -114,6 +114,13 @@ Plan Mode 不属于 permission_mode 三选一，而是**正交的工作模式**�
 - **保守红线:确证无人才判 Unattended**。任何可能 surface(desktop 窗口 / web 客户端 / IM attach)→ Attended,绝不误拒合法交互审批。**唯 cron 例外**:cron 会话被桌面交互弹窗按 currentSessionId 过滤,即便桌面也无可靠交互 surface → 始终 Unattended(合 DEADLOCK-4)。**cron 起的 subagent 同理(C03)**:子会话自身 `is_cron=false`,故 subagent 分支须在 desktop 短路**之前**沿 `parent_session_id` 链探测 cron 根(`subagent_chain_roots_at_cron`,纯核 `chain_roots_at_cron_with` 可单测),命中即 `Unattended(Cron)`;否则桌面打开时(单进程 desktop 恒真)会误判 Attended 而把一个永不渲染的弹窗静默挂到 `approval_timeout`。cron 根的链不会 IM-attached,故优先返回 Unattended 无歧义。
 - 4 个 `UnattendedReason`:`Cron` / `HeadlessNoClient` / `AcpNoPermissionCapability` / `SubagentNoParentSurface`。
 - **判 ACP 必须用 `is_acp()` 而非 `ChatSource`**——ACP 回合复用 `ChatSource::Http`,source 无法区分真 HTTP 客户端(D1 红线)。
+- **ACP 分支守卫测试**：`crates/ha-acp/tests/approval_fail_closed.rs` 用独立
+  test binary 设 `RUNTIME_ROLE="acp"`，端到端验证 capability=false 时
+  `evaluate_approval_surface(None)` 返 `Unattended(AcpNoPermissionCapability)`、
+  D7 `set_acp_permission_capable(true)` 后回 `Attended`。kernel 的
+  `acp_capability_toggle_flips_acp_surface` 只测 flag 的 pure round-trip，
+  真正走 `evaluate_approval_surface` 的 ACP 分支这条测试独家覆盖（因
+  `RUNTIME_ROLE` 是 `OnceLock`，unit test 共享 binary 无法设 "acp"）。
 
 Unattended 时按 `permission.unattended_approval_action` 处理:`Deny`(默认,fail-closed)→ `ToolRejection::denied_unattended`(结构化根因 + `fire_permission_denied`)即时拒绝;`Proceed` → 自动放行(比全局 YOLO 窄,仅在确证无人时触发)。两路都 emit `approval:unattended` 事件供遥测/UI 消费(payload 带 `strict` + `effective`,后者已计入 strict 覆盖)。**与 YOLO 正交**:YOLO 下引擎返 `Allow` 不发 `Ask`,根本到不了此预检——所以 headless 自动放行的正解是 YOLO 或 `unattended_approval_action=proceed`,而非旧的 `approval_timeout=proceed`(后者实为无限等)。
 

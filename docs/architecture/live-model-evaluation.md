@@ -492,6 +492,16 @@ eval-model-campaign.v1 → 内容寻址 artifact → evals.db 索引
 
 协议、App profile/request/plan、runtime/provenance/compatibility、bundle/trust 类型在轻量 `ha-eval-spec`；编排、存储、历史、查询和 Provider 解析在 `ha-eval-runtime::evaluation`；Codex 凭据只经 kernel 单一出口 `ha_core::oauth::mint_codex_evaluation_secret` 取得（load → encode → digest 三步收在 kernel，特征 crate 不认识 `CodexEvaluationToken`；但返回的 secret 是**含 raw access token 的明文 JSON**，不是脱敏边界）；Tauri 只发现安装包内 product/Sidecar/assets、实现进程 runtime 和 owner command；重执行器继续留在 `ha-eval`。这保证普通 `ha-core` / `ha-server` 测试不会链接 Runner、scenario pack 或真实模型代码。
 
+**凭据面三层守卫**（AGENTS.md「凭据禁入日志」红线的执行点）：① 编译期
+`static_assertions::assert_not_impl_all!(CodexEvaluationSecret: Debug)`——若
+未来给它 derive `Debug`，本文件直接编译失败（防被 `{:?}` 顺手打到日志）；
+② 运行期 `mint_codex_evaluation_secret` 在 `HA_MODEL_EVAL_MODE=1` 下**立刻
+bail**——隔离评测运行时里绝不读 owner OAuth 文件；③ 形状边界
+`encode_model_eval_codex_secret` 拒短 token / 长 token / 空 account_id /
+长 account_id / 含 NUL/CR/LF（token 与 account_id 各半），10 case 表驱动
+`encode_model_eval_codex_secret_enforces_credential_shape_bounds` 全覆盖。
+三条改一条必看另两条。
+
 Sidecar 第一个事件必须是 hello，包含 `eval-app-control.v1` 协议、产品版本、runner digest、asset root/version-lock digest、OS/arch 和 adapter 能力。App 重新计算 Sidecar 二进制 hash，并以自己的产品版本和资源 digest 回执；任一不匹配都拒绝执行。stdout 只允许有序 JSONL 控制事件，日志走 stderr；seq 重复或倒退、未知事件、握手超时和 event stream 意外关闭均 fail closed。
 
 ### 14.2 App profile、计划与预算
