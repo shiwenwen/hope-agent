@@ -53,7 +53,7 @@ mutate_config(("canvas", "settings-ui"), |cfg| {
 
 `reason: (category, source)` 是一个二元组，贯穿备份与事件：
 
-- `category` —— 改的是哪个子系统，例如 `"canvas"` / `"image_generate"` / `"hooks"` / `"security.ssrf"` / `"filesystem"`（远程写闸门 `allowRemoteWrites`）。各子系统的完整字段、默认值、范围与硬上限见 [file-operations.md](file-operations.md#大小配置与硬上限)。
+- `category` —— 改的是哪个子系统，例如 `"canvas"` / `"media_gen.defaults"` / `"hooks"` / `"security.ssrf"` / `"filesystem"`（远程写闸门 `allowRemoteWrites`）。各子系统的完整字段、默认值、范围与硬上限见 [file-operations.md](file-operations.md#大小配置与硬上限)。
 - `source` —— 从哪触发，例如 `"settings-ui"` / `"http"` / `"oauth-finalize"` / `"cron"` / `"slash-channel"`。
 
 这对字段有两个去处：作为 autosave 备份文件的 tag（备份面板据此显示"谁在何时改了什么"），以及作为 `config:changed` 事件的 payload（前端据此知道该刷新哪个面板）。
@@ -160,7 +160,7 @@ flowchart TD
 
 写盘前的 autosave 快照原语住在 [`config/autosave.rs`](../../crates/ha-core/src/config/autosave.rs)，由 persistence **直接调用**。它必须**无条件**执行：`hope-agent server setup` 与两个 server 入口都在 `init_runtime` 之前（或完全绕过它）就会写 config，任何"装配期才注册"的钩子在这些路径上都会静默失效——因此写前快照不走注入，而是硬编码在写路径里。
 
-- `mutate_config` 用 `scope_save_reason((category, source))` 给当次快照打标签，于是备份面板上看到的是 `theme/settings-ui`、`image_generate/settings-ui`、`active_model/slash-channel` 这样的人类可读标签，而不是一排 `unknown/unknown`。
+- `mutate_config` 用 `scope_save_reason((category, source))` 给当次快照打标签，于是备份面板上看到的是 `theme/settings-ui`、`media_gen.defaults/settings-ui`、`active_model/slash-channel` 这样的人类可读标签，而不是一排 `unknown/unknown`。
 - autosave 目录 `~/.hope-agent/backups/autosave/` 按文件数滚动保留，文件名含 `(timestamp, kind, category, source)`。
 - 完整的备份 / 恢复 / autosave 列表逻辑在 [`backup.rs`](../../crates/ha-core/src/backup.rs)（依赖 memory / event_bus），它把 `scope_save_reason` / `snapshot_before_write` 再导出，保持旧调用路径不变。详见 [backup-autosave.md](backup-autosave.md)。
 
