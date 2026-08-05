@@ -1155,17 +1155,14 @@ fn dispatch_parent_result_delivery_blocking(
                 reattachable_ui_guard,
                 None,
             ));
-            match outcome {
-                super::injection::InjectionOutcome::Abandoned => {
-                    // Pre-provider failures must not strand the durable source
-                    // in `injecting`. The state predicate preserves an armed
-                    // no-replay fence if one exists.
-                    super::injection::release_unarmed_injection_source(
-                        release_receipt.as_ref(),
-                        &release_run_id,
-                    );
-                }
-                _ => {}
+            if outcome == super::injection::InjectionOutcome::Abandoned {
+                // Pre-provider failures must not strand the durable source
+                // in `injecting`. The state predicate preserves an armed
+                // no-replay fence if one exists.
+                super::injection::release_unarmed_injection_source(
+                    release_receipt.as_ref(),
+                    &release_run_id,
+                );
             }
         }
         Err(error) => {
