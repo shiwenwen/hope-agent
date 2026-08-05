@@ -91,6 +91,43 @@ impl QqBotPlugin {
     }
 }
 
+fn validate_qqbot_buttons(
+    buttons: &[Vec<InlineButton>],
+) -> std::result::Result<(), ReplyStreamError> {
+    if buttons.is_empty() {
+        return Ok(());
+    }
+    if buttons.len() > 5 || buttons.iter().any(|row| row.is_empty() || row.len() > 5) {
+        return Err(ReplyStreamError::new(
+            ReplyStreamErrorKind::InvalidContent,
+            "QQ Bot keyboards require 1 to 5 non-empty rows with at most 5 buttons per row",
+        ));
+    }
+    for button in buttons.iter().flatten() {
+        let label_chars = button.text.chars().count();
+        if label_chars == 0 || label_chars > 64 || button.text.chars().any(char::is_control) {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "QQ Bot button labels must contain 1 to 64 printable characters",
+            ));
+        }
+        if button.url.is_some() {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "QQ Bot URL actions are not enabled by this adapter",
+            ));
+        }
+        let callback = button.callback_id();
+        if callback.is_empty() || callback.len() > 1_024 || callback.chars().any(char::is_control) {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "QQ Bot callback data must contain 1 to 1024 UTF-8 bytes",
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl ChannelPlugin for QqBotPlugin {
     fn meta(&self) -> ChannelMeta {
@@ -232,6 +269,7 @@ impl ChannelPlugin for QqBotPlugin {
         chat_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
+        validate_qqbot_buttons(&payload.buttons)?;
         let api = self.get_api(account_id).await?;
         let scope = QqChatScope::parse(chat_id)?;
         let msg_id = payload.reply_to_message_id.as_deref();
@@ -255,6 +293,19 @@ impl ChannelPlugin for QqBotPlugin {
         }
         // group / channel / dms typing 不支持 — silently ignore
         Ok(())
+    }
+
+    fn supports_reply_buttons(&self, _account_id: &str, chat_id: &str) -> bool {
+        QqChatScope::parse(chat_id)
+            .map(|scope| scope.supports_native_keyboard())
+            .unwrap_or(false)
+    }
+
+    fn validate_reply_buttons(
+        &self,
+        buttons: &[Vec<InlineButton>],
+    ) -> std::result::Result<(), ReplyStreamError> {
+        validate_qqbot_buttons(buttons)
     }
 
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {
@@ -503,5 +554,19 @@ fn qq_file_type(media_type: &MediaType) -> Option<u32> {
         MediaType::Video | MediaType::Animation => Some(api::QqBotApi::FILE_TYPE_VIDEO),
         MediaType::Voice | MediaType::Audio => Some(api::QqBotApi::FILE_TYPE_VOICE),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interactive_buttons_are_target_scoped() {
+        let plugin = QqBotPlugin::new();
+        assert!(plugin.supports_reply_buttons("account", "c2c:user"));
+        assert!(plugin.supports_reply_buttons("account", "group:group"));
+        assert!(!plugin.supports_reply_buttons("account", "channel:channel"));
+        assert!(!plugin.supports_reply_buttons("account", "dms:guild"));
     }
 }

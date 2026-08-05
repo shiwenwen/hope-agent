@@ -413,6 +413,58 @@ impl JobsDB {
         Ok(())
     }
 
+    /// Cross-process write-ahead claim used only after an IM mirror has
+    /// attached. `false` means another process already fenced this source and
+    /// the caller must not enter the parent engine.
+    pub fn claim_injection_no_replay(&self, job_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let changed = conn.execute(
+            "UPDATE background_jobs SET injected=1 WHERE job_id=?1 AND injected=0",
+            params![job_id],
+        )?;
+        Ok(changed == 1)
+    }
+
+    /// Atomically fence every member of a merged notification batch from
+    /// startup replay before an attached IM mirror enters the engine.
+    pub fn mark_injected_batch(&self, job_ids: &[String]) -> Result<()> {
+        if job_ids.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        for job_id in job_ids {
+            tx.execute(
+                "UPDATE background_jobs SET injected=1 WHERE job_id=?1",
+                params![job_id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// All-or-none cross-process claim for one merged IM notification. A
+    /// partially claimed batch would let startup replay a suffix independently,
+    /// so any non-winner rolls the whole transaction back.
+    pub fn claim_injection_batch_no_replay(&self, job_ids: &[String]) -> Result<bool> {
+        if job_ids.is_empty() {
+            return Ok(true);
+        }
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        for job_id in job_ids {
+            let changed = tx.execute(
+                "UPDATE background_jobs SET injected=1 WHERE job_id=?1 AND injected=0",
+                params![job_id],
+            )?;
+            if changed != 1 {
+                return Ok(false);
+            }
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Record the OS pid of a running job's spawned child process (I3), so a
     /// crash/restart can detect and terminate orphaned process trees. Only
     /// touches still-active rows. Returns whether a row was updated.

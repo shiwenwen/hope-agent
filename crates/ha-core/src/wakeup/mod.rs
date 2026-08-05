@@ -21,11 +21,12 @@
 //! - **Restart recovery** (`replay_pending`) is **Primary-only** (mirrors
 //!   `async_jobs::replay_pending_jobs`): it re-arms unfired rows; past-due ones
 //!   fire immediately. Secondary processes don't re-arm shared rows.
-//! - **Delivery** marks the row fired only when the injection actually lands
-//!   (via the `on_injected` callback). An abandoned injection (parent never went
-//!   idle within the announce window) leaves the row unfired for the next
-//!   replay. Cross-process double-delivery is best-effort-deduped the same way
-//!   the async-job injection pipeline is (per-process in-flight set).
+//! - **Delivery** normally deletes the row only when the injection lands. When
+//!   an IM mirror attaches, a durable `fired=1` write-ahead claim happens before
+//!   engine deltas can mutate the provider; restart recovery deliberately skips
+//!   that tombstone even if the process crashes before ordinary settlement.
+//!   Confirmed cancellation can still retry from the process-local injection
+//!   queue, but crash recovery favors at-most-once IM delivery over duplication.
 //! - **Incognito** wakeups are in-memory only (no row) — close-and-burn.
 
 pub(crate) mod db;
@@ -400,14 +401,24 @@ fn fire(
             .build()
         {
             Ok(rt) => {
-                let on_injected: crate::subagent::injection::OnInjected = {
-                    let jid = id_for_mark.clone();
-                    Arc::new(move || {
+                let id_for_arm = id_for_mark.clone();
+                let id_for_settle = id_for_mark.clone();
+                let on_injected = crate::subagent::injection::OnInjected::new(
+                    move || {
                         if persisted {
-                            delete_delivered_with_retry(&jid);
+                            claim_no_replay_with_retry(&id_for_arm)
+                        } else {
+                            Ok(())
                         }
-                    })
-                };
+                    },
+                    move || {
+                        if persisted {
+                            delete_delivered_with_retry(&id_for_settle)
+                        } else {
+                            Ok(())
+                        }
+                    },
+                );
                 let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
                     session_id,
                     agent_id,
@@ -442,14 +453,12 @@ fn release_delivering(id: &str) {
 }
 
 /// Delete a delivered wakeup row with retry — mirrors `async_jobs::injection::
-/// mark_injected_with_retry`'s robustness. Deleting on delivery (rather than
-/// flag-flipping) is the ONLY durable guard against a restart re-arming an
-/// already-delivered wakeup (the per-process DELIVERING set is empty on a fresh
-/// boot) AND auto-GCs the row (delivered wakeups are transient, no history
-/// value). A silently-swallowed delete failure would cause a duplicate, billed
-/// `<wakeup>` turn after the next Primary restart, so retry transient SQLite
-/// errors and log loudly if all fail.
-fn delete_delivered_with_retry(id: &str) {
+/// mark_injected_with_retry`'s robustness. Ordinary delivery deletes and
+/// auto-GCs the row; an IM write-ahead claim first sets `fired=1`, so even a
+/// failed delete remains excluded from restart replay. Without an IM claim, a
+/// silently-swallowed delete failure could still cause a duplicate billed turn,
+/// so retry transient SQLite errors and log loudly if all fail.
+fn delete_delivered_with_retry(id: &str) -> anyhow::Result<()> {
     const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
     let Some(db) = get_wakeup_db() else {
         app_error!(
@@ -458,7 +467,7 @@ fn delete_delivered_with_retry(id: &str) {
             "Cannot delete delivered wakeup {}: wakeup DB not initialized (may re-fire on restart)",
             id
         );
-        return;
+        anyhow::bail!("wakeup DB is not initialized");
     };
     let mut last_err: Option<String> = None;
     for (attempt, delay_ms) in BACKOFFS_MS.iter().enumerate() {
@@ -466,7 +475,7 @@ fn delete_delivered_with_retry(id: &str) {
             std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
         }
         match db.delete(id) {
-            Ok(()) => return,
+            Ok(()) => return Ok(()),
             Err(e) => {
                 last_err = Some(e.to_string());
                 app_warn!(
@@ -480,13 +489,52 @@ fn delete_delivered_with_retry(id: &str) {
             }
         }
     }
+    let error = last_err.unwrap_or_else(|| "unknown".to_string());
     app_error!(
         "wakeup",
         "fire",
         "delete delivered wakeup {} failed after all retries ({}); it may re-fire (duplicate turn) on next Primary restart",
         id,
-        last_err.unwrap_or_default()
+        &error
     );
+    anyhow::bail!("delete delivered wakeup failed after retries: {error}")
+}
+
+/// Persist the IM at-most-once fence before the parent engine can emit a
+/// provider-visible delta. A false CAS means another process already owns the
+/// wakeup and this attempt must abort locally.
+fn claim_no_replay_with_retry(id: &str) -> anyhow::Result<()> {
+    const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
+    let Some(db) = get_wakeup_db() else {
+        anyhow::bail!("wakeup DB is not initialized");
+    };
+    let mut last_err: Option<String> = None;
+    for (attempt, delay_ms) in BACKOFFS_MS.iter().enumerate() {
+        if *delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
+        }
+        match db.claim_no_replay(id) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {
+                anyhow::bail!("wakeup {id} is already fenced by another IM injection owner")
+            }
+            Err(error) => {
+                last_err = Some(error.to_string());
+                app_warn!(
+                    "wakeup",
+                    "fire",
+                    "claim no-replay wakeup {} attempt {} failed: {}",
+                    id,
+                    attempt + 1,
+                    error
+                );
+            }
+        }
+    }
+    anyhow::bail!(
+        "claim no-replay wakeup failed after retries: {}",
+        last_err.unwrap_or_else(|| "unknown".to_string())
+    )
 }
 
 /// Build the injected `<wakeup>` user message carrying the agent's own note.

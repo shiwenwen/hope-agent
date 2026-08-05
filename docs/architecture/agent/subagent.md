@@ -344,8 +344,9 @@ sequenceDiagram
 - **空闲等待三态**：`wait_for_session_idle(session_id, max_wait, should_abort)` 返回 `Idle`（父空闲，可注入）/ `Aborted`（结果已被 fetch，放弃注入）/ `TimedOut`（父忙到超时）三态，便于单测覆盖。
 - **空闲门超时不丢弃**：父会话忙到 `announce_timeout`（Agent 可配 `subagents.announce_timeout_secs`，默认 120s）仍未空闲时，注入**携 `on_injected` 重排队进 `PENDING_INJECTIONS`**，在长前台 turn 结束时（`ChatSessionGuard::drop`）重试。这对 Group 合并注入尤其关键（它没有基于重启的 `injected=0` 兜底），因此不会永久丢失。
 - **重试保证**：被取消 / 忙等超时的注入进 `PENDING_INJECTIONS`；`ChatSessionGuard::drop` 归零时 `flush_pending_injections` **每次只取一个**重试（保持串行）。
+- **IM at-most-once fence**：仅 mirror attach 成功时，在 parent engine 首个 delta 前把对应 subagent / async job / wakeup / workflow milestone replay source持久化为 no-replay；arm 失败不启动 engine。`Confirmed` 取消仍携同一 receipt 在当前进程队列重试，但崩溃不恢复该重试；`Unsafe` 保留 fence，避免不确定 provider mutation 在重启后被重复投递。无 mirror 路径保持原有 at-least-once startup replay。
 - **可重连审批租约**：来自 Bundled HTTP UI 的后台 child 在排队与执行期间持有自己的 `ReattachableUiSessionGuard`；终态回投时无缝换成 parent lease，注入被取消 / 忙等则随 `PendingInjection` 一起移动。父 turn、页面、WebSocket 谁先结束都不会让后续审批误判为无人值守；cron / 公共 API 不产生该租约。
-- **后台完成回投外部面**：注入 turn 成功后，若父会话 attach 了 IM，经 `channel_hooks::attach_injection_mirror` 拿到的 live mirror **必须 await** 其 `finalize`（注入跑在短命 current-thread runtime 上，`spawn` 出去的 finalize 会被腰斩）；cron 会话经 `cron_hooks::deliver_injection_for_session` 反查其 `delivery_targets` 下发。这两条外部投递都由注册进 kernel 的 hook 表转交对应子系统，`ha-core` 不反向依赖 IM / cron crate。
+- **后台完成回投外部面**：注入 turn 成功后，若父会话 attach 了 IM，经 `channel_hooks::attach_injection_mirror` 拿到的 live mirror **必须 await** 其 `finalize`（注入跑在短命 current-thread runtime 上，`spawn` 出去的 finalize 会被腰斩）；engine 失败时用静态脱敏文案终态化当前 IM preview，用户消息抢占导致中断时则先标记“将自动重试”再入队；若结果已被 parent 主动 fetched，明确标记不重试并将该次视为 `Injected`。cron 会话经 `cron_hooks::deliver_injection_for_session` 反查其 `delivery_targets` 下发。这两条外部投递都由注册进 kernel 的 hook 表转交对应子系统，`ha-core` 不反向依赖 IM / cron crate。
 - **跳过已读**：显式 `check / result / wait` 或续跑先把 `subagent_result_deliveries` durable 置 `suppressed`，再写 `FETCHED_RUN_IDS` 作同进程快速取消信号；启动重放只认 durable 行，不把内存集合当真相源。
 
 ### 异步工具任务复用同一注入管道

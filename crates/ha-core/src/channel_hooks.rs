@@ -32,12 +32,38 @@
 //!
 //! **镜像一族返回 `None`**——等价于「本会话没有 attach 到任何 IM chat」，
 //! 与迁移前 `attach_im_live_mirror` 查不到 attach 时的返回值相同。
+//! 已 attach 镜像的异常终态返回 [`ImLiveMirrorAbortStatus`]：可能自动重放同一
+//! 逻辑结果的调用方必须消费它，`Unsafe` 时禁止重试。
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::OnceLock;
 
 type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Whether an abnormal IM mirror terminal is known to have settled. Callers
+/// that may replay the same logical result must only do so after `Confirmed`;
+/// `Unsafe` means a persistent provider mutation may still be visible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use = "automatic replay is safe only after a confirmed IM mirror terminal"]
+pub enum ImLiveMirrorAbortStatus {
+    Confirmed,
+    Unsafe,
+}
+
+impl ImLiveMirrorAbortStatus {
+    pub fn is_confirmed(self) -> bool {
+        matches!(self, Self::Confirmed)
+    }
+
+    pub fn from_confirmed(confirmed: bool) -> Self {
+        if confirmed {
+            Self::Confirmed
+        } else {
+            Self::Unsafe
+        }
+    }
+}
 
 /// 一次已挂起的 IM 实时镜像。
 ///
@@ -49,7 +75,8 @@ pub trait ImLiveMirror: Send {
     /// 正常收尾：把最终回答投递到 IM 会话。
     fn finalize<'a>(self: Box<Self>, response: &'a str) -> BoxFut<'a, ()>;
     /// 异常收尾（取消 / 失败）：`body` 为 `None` 时只撤引用、不追加正文。
-    fn abort(self: Box<Self>, body: Option<String>) -> BoxFut<'static, ()>;
+    /// 返回值是后续重放同一逻辑结果的安全闸，不能忽略后继续自动重试。
+    fn abort(self: Box<Self>, body: Option<String>) -> BoxFut<'static, ImLiveMirrorAbortStatus>;
 }
 
 /// 上一条用户消息的快照，用于在 IM 侧渲染引用前缀。字段与迁移前

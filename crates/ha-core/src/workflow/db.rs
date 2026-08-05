@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
@@ -2256,6 +2256,74 @@ impl SessionDB {
             }
         }
         Ok(false)
+    }
+
+    /// Atomically claim one workflow milestone for an attached IM injection
+    /// and append its durable at-most-once fence. Startup recovery already
+    /// treats matching suppression events as settled, so a crash after this
+    /// write cannot replay an ambiguous provider mutation. `false` means
+    /// another process settled or fenced the same source first.
+    pub fn claim_workflow_milestone_injection_no_replay(
+        &self,
+        run_id: &str,
+        source_event_type: &str,
+        source_event_seq: i64,
+        injection_run_id: &str,
+        child_run_id: Option<&str>,
+    ) -> Result<bool> {
+        let payload = json!({
+            "sourceEventType": source_event_type,
+            "sourceEventSeq": source_event_seq,
+            "injectionRunId": injection_run_id,
+            "childRunId": child_run_id,
+            "reason": "im_mirror_at_most_once_armed",
+        });
+        let payload_json = bounded_event_payload(payload)?;
+        let now = now_rfc3339();
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let already_settled: bool = tx.query_row(
+            "SELECT EXISTS (
+                 SELECT 1
+                   FROM workflow_events
+                  WHERE run_id = ?1
+                    AND type IN (
+                        'workflow_milestone_injection_delivered',
+                        'workflow_milestone_injection_suppressed'
+                    )
+                    AND json_extract(payload_json, '$.sourceEventType') = ?2
+                    AND json_extract(payload_json, '$.sourceEventSeq') = ?3
+             )",
+            params![run_id, source_event_type, source_event_seq],
+            |row| row.get(0),
+        )?;
+        if already_settled {
+            return Ok(false);
+        }
+        let seq: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM workflow_events WHERE run_id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )?;
+        tx.execute(
+            "INSERT INTO workflow_events (run_id, seq, type, payload_json, created_at)
+             VALUES (?1, ?2, 'workflow_milestone_injection_suppressed', ?3, ?4)",
+            params![run_id, seq, payload_json, now],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.commit()?;
+
+        let event = WorkflowEvent {
+            id,
+            run_id: run_id.to_string(),
+            seq,
+            event_type: "workflow_milestone_injection_suppressed".to_string(),
+            payload: serde_json::from_str(&payload_json)?,
+            created_at: now,
+        };
+        drop(conn);
+        events::emit_event("workflow:event", &event);
+        Ok(true)
     }
 
     pub fn list_pending_workflow_milestone_injections(

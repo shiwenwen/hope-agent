@@ -41,11 +41,10 @@ pub(crate) struct ImLiveMirrorState {
     pipeline: StreamPipeline,
     plugin: Arc<dyn ChannelPlugin>,
     attach: ChannelConversation,
-    /// Whether `attach` already pushed a user-quote message into the IM
-    /// chat. Drives the abort path: if `true` and the engine cancels /
-    /// fails before `finalize`, we follow up with an "interrupted"
-    /// notice so the IM thread doesn't show a dangling quote with no
-    /// answer underneath it.
+    /// Whether `attach` already pushed a user-quote message into the IM chat.
+    /// Kept for terminal diagnostics; failure delivery cannot be gated on it
+    /// because ParentInjection intentionally has no quote while its assistant
+    /// preview may already be visible.
     quote_sent: bool,
 }
 
@@ -310,16 +309,11 @@ pub(crate) async fn finalize_im_live_mirror(state: ImLiveMirrorState, response: 
 /// Drain + clean up a live mirror without a final response. Called from
 /// engine cancel / final-failure paths in place of `finalize_im_live_mirror`.
 ///
-/// If `attach_im_live_mirror` already emitted a user-quote message into
-/// the IM chat, follow up with a short notice so the thread doesn't show
-/// a dangling quote with no answer underneath:
-/// - `error: None` ↔ user actively cancelled — emit [`CANCEL_NOTICE`].
-/// - `error: Some(ctx)` ↔ real failure — emit a per-class friendly
-///   error built by [`format_im_engine_error`].
-///
-/// If no quote was sent (no `LastUserSnapshot`, or `build_user_quote_prefix`
-/// returned `None`), there's nothing visible to orphan — drain the
-/// pipeline and bail without polluting the chat.
+/// `body: Some(_)` finalizes the currently visible preview with bounded,
+/// caller-rendered terminal copy. This also applies when there is no user quote:
+/// ParentInjection deliberately omits the quote, but its assistant preview can
+/// already be visible and must not be left dangling before a retry.
+/// `body: None` remains the no-follow-up cancellation path.
 ///
 /// Like `finalize`, drops the sink handle first so the stream task
 /// observes channel-close cleanly, then awaits the pipeline.
@@ -335,7 +329,10 @@ pub(crate) async fn finalize_im_live_mirror(state: ImLiveMirrorState, response: 
 /// build an `ImLiveMirrorState` from a `ChatSource::Desktop`/`Http`
 /// turn) never instantiate this state at all, so this is the sole
 /// entry point.
-pub(crate) async fn abort_im_live_mirror_with_body(state: ImLiveMirrorState, body: Option<String>) {
+pub(crate) async fn abort_im_live_mirror_with_body(
+    state: ImLiveMirrorState,
+    body: Option<String>,
+) -> ha_core::channel_hooks::ImLiveMirrorAbortStatus {
     let ImLiveMirrorState {
         sink_handle,
         _mirror_guard,
@@ -347,24 +344,21 @@ pub(crate) async fn abort_im_live_mirror_with_body(state: ImLiveMirrorState, bod
 
     drop(sink_handle);
     let outcome = await_stream_pipeline(pipeline).await;
-    let abort_reason = if body.is_some() {
-        ha_core::channel::types::ReplyAbortReason::Failed
-    } else {
-        ha_core::channel::types::ReplyAbortReason::Cancelled
+    let Some(body) = body else {
+        let confirmed = crate::channel::worker::pipeline::abort_pipeline_outcome_for_replay(
+            &outcome,
+            ha_core::channel::types::ReplyAbortReason::Cancelled,
+        )
+        .await;
+        return ha_core::channel_hooks::ImLiveMirrorAbortStatus::from_confirmed(confirmed);
     };
-
-    let safely_aborted =
-        crate::channel::worker::pipeline::abort_pipeline_outcome(&outcome, abort_reason).await;
-    if !safely_aborted {
-        return;
-    }
-
-    let Some(body) = body else { return };
-    if !quote_sent {
-        return;
-    }
     if !attach_still_matches(&attach.session_id, attach.id) {
-        return;
+        let confirmed = crate::channel::worker::pipeline::abort_pipeline_outcome_for_replay(
+            &outcome,
+            ha_core::channel::types::ReplyAbortReason::Failed,
+        )
+        .await;
+        return ha_core::channel_hooks::ImLiveMirrorAbortStatus::from_confirmed(confirmed);
     }
     let chat_type = ChatType::from_lowercase(&attach.chat_type);
     let target = DeliveryTarget {
@@ -376,14 +370,22 @@ pub(crate) async fn abort_im_live_mirror_with_body(state: ImLiveMirrorState, bod
         recipient_user_id: attach.sender_id.as_deref(),
         recipient_tenant_id: None,
     };
-    send_text_chunks(&plugin, &target, &body, None, &[]).await;
+    let report =
+        crate::channel::worker::pipeline::deliver_error_reply(&plugin, &target, &outcome, &body)
+            .await;
+    let terminal_confirmed = report.is_success()
+        && !report.unsafe_to_continue
+        && crate::channel::worker::pipeline::error_terminal_allows_replay(&outcome);
     app_info!(
         "channel",
         "mirror",
-        "[{}] Aborted GUI mirror to {} — followed up with notice",
+        "[{}] Aborted GUI mirror to {} — error terminal success={} quote_sent={}",
         attach.channel_id,
         attach.chat_id,
+        terminal_confirmed,
+        quote_sent,
     );
+    ha_core::channel_hooks::ImLiveMirrorAbortStatus::from_confirmed(terminal_confirmed)
 }
 
 // ── kernel 回调面适配 ────────────────────────────────────────────────
@@ -402,7 +404,13 @@ impl ha_core::channel_hooks::ImLiveMirror for ImLiveMirrorState {
     fn abort(
         self: Box<Self>,
         body: Option<String>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = ha_core::channel_hooks::ImLiveMirrorAbortStatus>
+                + Send
+                + 'static,
+        >,
+    > {
         Box::pin(async move { abort_im_live_mirror_with_body(*self, body).await })
     }
 }

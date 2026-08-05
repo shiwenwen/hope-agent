@@ -6,7 +6,7 @@
 //! and retry machinery with no duplication.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 use super::types::JobStatus;
 
@@ -238,7 +238,7 @@ fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>)
                 jobs.len()
             );
             for j in &jobs {
-                mark_injected_with_retry(&j.job_id);
+                let _ = mark_injected_with_retry(&j.job_id);
             }
             return;
         }
@@ -318,14 +318,12 @@ fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>)
             .build()
         {
             Ok(rt) => {
-                let on_injected: crate::subagent::injection::OnInjected = {
-                    let ids = ids_for_injected;
-                    Arc::new(move || {
-                        for id in &ids {
-                            mark_injected_with_retry(id);
-                        }
-                    })
-                };
+                let ids_for_arm = ids_for_injected.clone();
+                let ids_for_settle = ids_for_injected;
+                let on_injected = crate::subagent::injection::OnInjected::new(
+                    move || claim_batch_no_replay_with_retry(&ids_for_arm),
+                    move || mark_injected_batch_with_retry(&ids_for_settle),
+                );
                 let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
                     session_id,
                     parent_agent_id,
@@ -417,7 +415,7 @@ pub fn dispatch_injection(
                 &session_id,
                 &job_id
             );
-            mark_injected_with_retry(&job_id);
+            let _ = mark_injected_with_retry(&job_id);
             return;
         }
         // Transient lookup failure: don't drop a real job on a momentary glitch.
@@ -487,10 +485,12 @@ pub fn dispatch_injection(
                 // `Abandoned` WITHOUT firing it, so the row stays un-injected and
                 // `replay_pending_jobs()` retries it on the next restart
                 // (MISC-15: an abandoned injection must not look delivered).
-                let on_injected: crate::subagent::injection::OnInjected = {
-                    let jid = job_id_for_db.clone();
-                    Arc::new(move || mark_injected_with_retry(&jid))
-                };
+                let job_id_for_arm = job_id_for_db.clone();
+                let job_id_for_settle = job_id_for_db.clone();
+                let on_injected = crate::subagent::injection::OnInjected::new(
+                    move || claim_no_replay_with_retry(&job_id_for_arm),
+                    move || mark_injected_with_retry(&job_id_for_settle),
+                );
                 let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
                     session_id,
                     parent_agent_id,
@@ -526,7 +526,7 @@ pub fn dispatch_injection(
 /// log an error and emit an EventBus alarm — the row will be replayed on
 /// the next `replay_pending_jobs()` sweep, creating a duplicate
 /// `<task-notification>` injection, so surfacing the failure matters.
-fn mark_injected_with_retry(job_id: &str) {
+fn mark_injected_with_retry(job_id: &str) -> anyhow::Result<()> {
     const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
     let Some(jdb) = crate::async_jobs::get_async_jobs_db() else {
         app_error!(
@@ -535,7 +535,7 @@ fn mark_injected_with_retry(job_id: &str) {
             "Cannot mark job {} injected: async_jobs DB is not initialized",
             job_id
         );
-        return;
+        anyhow::bail!("async_jobs DB is not initialized");
     };
     let mut last_err: Option<String> = None;
     for (attempt, delay_ms) in BACKOFFS_MS.iter().enumerate() {
@@ -543,7 +543,7 @@ fn mark_injected_with_retry(job_id: &str) {
             std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
         }
         match jdb.mark_injected(job_id) {
-            Ok(()) => return,
+            Ok(()) => return Ok(()),
             Err(e) => {
                 last_err = Some(e.to_string());
                 app_warn!(
@@ -567,6 +567,114 @@ fn mark_injected_with_retry(job_id: &str) {
         &err
     );
     super::events::emit_mark_injected_failed(job_id, &err);
+    anyhow::bail!("mark_injected failed after retries: {err}")
+}
+
+/// Persist the ordinary terminal receipt for a merged injection as one
+/// transaction. A partial batch would be replayed as unrelated notifications
+/// after restart, so the whole set succeeds or remains retryable together.
+fn mark_injected_batch_with_retry(job_ids: &[String]) -> anyhow::Result<()> {
+    const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
+    let Some(jdb) = crate::async_jobs::get_async_jobs_db() else {
+        anyhow::bail!("async_jobs DB is not initialized");
+    };
+    let mut last_err: Option<String> = None;
+    for (attempt, delay_ms) in BACKOFFS_MS.iter().enumerate() {
+        if *delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
+        }
+        match jdb.mark_injected_batch(job_ids) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last_err = Some(error.to_string());
+                app_warn!(
+                    "async_jobs",
+                    "injection",
+                    "mark_injected_batch({} jobs) attempt {} failed: {}",
+                    job_ids.len(),
+                    attempt + 1,
+                    error
+                );
+            }
+        }
+    }
+    let error = last_err.unwrap_or_else(|| "unknown".to_string());
+    for job_id in job_ids {
+        super::events::emit_mark_injected_failed(job_id, &error);
+    }
+    anyhow::bail!("mark_injected_batch failed after retries: {error}")
+}
+
+/// Write-ahead cross-process claim for one IM-backed injection. `false` is a
+/// durable ownership conflict rather than a transient SQLite error, so it must
+/// abort before the engine can emit provider-visible deltas.
+fn claim_no_replay_with_retry(job_id: &str) -> anyhow::Result<()> {
+    const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
+    let Some(jdb) = crate::async_jobs::get_async_jobs_db() else {
+        anyhow::bail!("async_jobs DB is not initialized");
+    };
+    let mut last_err: Option<String> = None;
+    for (attempt, delay_ms) in BACKOFFS_MS.iter().enumerate() {
+        if *delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
+        }
+        match jdb.claim_injection_no_replay(job_id) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {
+                anyhow::bail!("job {job_id} is already fenced by another IM injection owner")
+            }
+            Err(error) => {
+                last_err = Some(error.to_string());
+                app_warn!(
+                    "async_jobs",
+                    "injection",
+                    "claim_injection_no_replay({}) attempt {} failed: {}",
+                    job_id,
+                    attempt + 1,
+                    error
+                );
+            }
+        }
+    }
+    anyhow::bail!(
+        "claim_injection_no_replay failed after retries: {}",
+        last_err.unwrap_or_else(|| "unknown".to_string())
+    )
+}
+
+/// All-or-none variant for a merged IM notification.
+fn claim_batch_no_replay_with_retry(job_ids: &[String]) -> anyhow::Result<()> {
+    const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
+    let Some(jdb) = crate::async_jobs::get_async_jobs_db() else {
+        anyhow::bail!("async_jobs DB is not initialized");
+    };
+    let mut last_err: Option<String> = None;
+    for (attempt, delay_ms) in BACKOFFS_MS.iter().enumerate() {
+        if *delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
+        }
+        match jdb.claim_injection_batch_no_replay(job_ids) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {
+                anyhow::bail!("one or more jobs are already fenced by another IM injection owner")
+            }
+            Err(error) => {
+                last_err = Some(error.to_string());
+                app_warn!(
+                    "async_jobs",
+                    "injection",
+                    "claim_injection_batch_no_replay({} jobs) attempt {} failed: {}",
+                    job_ids.len(),
+                    attempt + 1,
+                    error
+                );
+            }
+        }
+    }
+    anyhow::bail!(
+        "claim_injection_batch_no_replay failed after retries: {}",
+        last_err.unwrap_or_else(|| "unknown".to_string())
+    )
 }
 
 /// Format the user-visible message that gets injected back into the parent

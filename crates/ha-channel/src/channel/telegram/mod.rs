@@ -3,13 +3,15 @@
 //! - **Official API**: <https://core.telegram.org/bots/api>
 //! - **SDK / Reference**: teloxide 0.17 — <https://github.com/teloxide/teloxide>
 //! - **Protocol**: HTTPS long-polling (`getUpdates`) over teloxide `Bot`
-//! - **Last reviewed**: 2026-05-20
+//! - **Last reviewed**: 2026-08-05
 
 pub mod api;
 pub mod format;
 pub mod inbound_media;
 pub mod media;
+mod native;
 pub mod polling;
+mod rich;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -19,7 +21,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use api::TelegramBotApi;
-use ha_core::channel::traits::ChannelPlugin;
+use ha_core::channel::traits::{ChannelPlugin, ChannelReplyStream};
 use ha_core::channel::types::*;
 
 /// Running account state.
@@ -187,7 +189,33 @@ impl ChannelPlugin for TelegramPlugin {
             // 比 4096 字符宽松，但 emoji 多时会反向超限。3200 字节留余量。
             streaming_preview_max_bytes: Some(3200),
             supports_card_stream: false,
-            native_reply: None,
+            native_reply: Some(NativeReplyCapabilities {
+                // sendRichMessageDraft is private-chat only and expires after
+                // 30 seconds; sendRichMessage persists the independent final
+                // across Telegram's normal DM/group/forum surfaces.
+                preview_chat_types: vec![ChatType::Dm],
+                final_chat_types: vec![ChatType::Dm, ChatType::Group, ChatType::Forum],
+                update_mode: ReplyStreamUpdateMode::Snapshot,
+                preview_persistence: ReplyStreamPreviewPersistence::Ephemeral,
+                requires_reply_anchor: false,
+                requires_recipient_user_id: false,
+                requires_recipient_tenant_id: false,
+                supports_task_updates: false,
+                supports_plan_updates: false,
+                supports_blocks: true,
+                embedded_media_types: vec![
+                    MediaType::Photo,
+                    MediaType::Video,
+                    MediaType::Audio,
+                    MediaType::Voice,
+                    MediaType::Animation,
+                ],
+                max_embedded_media_items: Some(50),
+                // Keep the 30-second draft alive without turning every text
+                // delta into a provider mutation.
+                refresh_after_secs: Some(20),
+                max_delta_chars: None,
+            }),
         }
     }
 
@@ -280,6 +308,7 @@ impl ChannelPlugin for TelegramPlugin {
         chat_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
+        native::validate_reply_buttons(&payload.buttons)?;
         let api = self.get_api(account_id).await?;
         let chat_id_num: i64 = chat_id
             .parse()
@@ -368,6 +397,41 @@ impl ChannelPlugin for TelegramPlugin {
             .parse()
             .map_err(|_| anyhow::anyhow!("Invalid chat_id: {}", chat_id))?;
         api.send_typing(chat_id_num).await
+    }
+
+    fn validate_reply_buttons(
+        &self,
+        buttons: &[Vec<InlineButton>],
+    ) -> std::result::Result<(), ReplyStreamError> {
+        native::validate_reply_buttons(buttons)
+    }
+
+    async fn open_reply_stream(
+        &self,
+        target: &ReplyStreamTarget,
+        first: &ReplyStreamFrame,
+    ) -> std::result::Result<Box<dyn ChannelReplyStream>, ReplyStreamError> {
+        let api = self.get_api(&target.account_id).await.map_err(|error| {
+            ReplyStreamError::new(
+                ReplyStreamErrorKind::Transient,
+                ha_core::logging::redact_sensitive(&error.to_string()),
+            )
+        })?;
+        native::open_reply_stream(api, target, first).await
+    }
+
+    async fn send_rich_reply(
+        &self,
+        target: &ReplyStreamTarget,
+        reply: &RichReply,
+    ) -> std::result::Result<RichReplyReceipt, ReplyStreamError> {
+        let api = self.get_api(&target.account_id).await.map_err(|error| {
+            ReplyStreamError::new(
+                ReplyStreamErrorKind::Transient,
+                ha_core::logging::redact_sensitive(&error.to_string()),
+            )
+        })?;
+        native::send_rich_reply(api, target, reply).await
     }
 
     async fn send_draft(

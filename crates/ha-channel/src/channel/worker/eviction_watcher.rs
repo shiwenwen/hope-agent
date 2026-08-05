@@ -84,17 +84,29 @@ pub fn spawn_channel_eviction_watcher(registry: Arc<ChannelRegistry>) {
                 .map(str::to_string);
 
             // G5 (SURFACE-4): the chat was taken over while its session stayed
-            // active. Any approval prompted on this chat can no longer be answered
-            // here — deny each pending approval (so the blocked tool turn unblocks
-            // and every surface dismisses) and clear the chat's text-reply stack.
+            // active. Any approval captured on the evicted attach can no longer be
+            // answered here — deny only those exact stale identities (so a delayed
+            // event cannot reject replacement/core-only approvals) and clear their
+            // corresponding text-reply entries.
             // Runs BEFORE the `notify_session_eviction` gate below: the cleanup is
             // unconditional; only the user-facing "taken over" notice is gated.
             if let Some(session_id) = payload
                 .get(payload_keys::SESSION_ID)
                 .and_then(|v| v.as_str())
             {
-                let pending = ha_core::tools::pending_request_ids_for_session(session_id).await;
-                for request_id in &pending {
+                // ask_user has no tool-side approval to deny. Remove only
+                // entries whose captured attach id is no longer live, so a
+                // delayed eviction event cannot clear a replacement chat's
+                // newly registered prompt for the same session.
+                crate::channel::worker::ask_user::drop_stale_pending_for_session(session_id).await;
+                let core_pending =
+                    ha_core::tools::pending_request_ids_for_session(session_id).await;
+                let cleanup = crate::channel::worker::approval::take_stale_pending_for_session(
+                    session_id,
+                    &core_pending,
+                )
+                .await;
+                for request_id in &cleanup.request_ids {
                     let _ = ha_core::tools::submit_approval_response(
                         request_id,
                         ha_core::tools::ApprovalResponse::Deny,
@@ -102,17 +114,25 @@ pub fn spawn_channel_eviction_watcher(registry: Arc<ChannelRegistry>) {
                     )
                     .await;
                 }
-                if !pending.is_empty() {
+                if !cleanup.request_ids.is_empty() {
                     app_info!(
                         "channel",
                         "eviction_watcher",
                         "denied {} pending approval(s) on evicted chat for session {}",
-                        pending.len(),
+                        cleanup.request_ids.len(),
+                        session_id
+                    );
+                }
+                if cleanup.skipped_without_identity > 0 {
+                    app_info!(
+                        "channel",
+                        "eviction_watcher",
+                        "left {} core approval(s) without matching IM attach identity to owner/timeout for session {}",
+                        cleanup.skipped_without_identity,
                         session_id
                     );
                 }
             }
-            crate::channel::worker::approval::drop_pending_for_chat(account_id, chat_id).await;
 
             let store = ha_core::config::cached_config();
             let account = match store.channels.find_account(account_id) {

@@ -1117,20 +1117,15 @@ fn dispatch_parent_result_delivery_blocking(
         run.error.as_deref(),
         run.terminal_reason,
     );
+    let arm_db = db.clone();
+    let arm_run_id = run.run_id.clone();
     let delivery_db = db.clone();
     let delivery_run_id = run.run_id.clone();
     let on_injected: Option<super::injection::OnInjected> = (!incognito).then(|| {
-        Arc::new(move || {
-            if let Err(error) = delivery_db.mark_subagent_result_delivered(&delivery_run_id) {
-                crate::app_warn!(
-                    "subagent",
-                    "delivery",
-                    "failed to mark result delivery for run {}: {}",
-                    delivery_run_id,
-                    error
-                );
-            }
-        }) as super::injection::OnInjected
+        super::injection::OnInjected::new(
+            move || arm_db.arm_subagent_result_delivery_no_replay(&arm_run_id),
+            move || delivery_db.mark_subagent_result_delivered(&delivery_run_id),
+        )
     });
     match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -1146,6 +1141,7 @@ fn dispatch_parent_result_delivery_blocking(
                 db,
                 on_injected,
                 reattachable_ui_guard,
+                None,
             ));
         }
         Err(error) => crate::app_error!(

@@ -8,13 +8,119 @@ use super::{
     PENDING_INJECTIONS, SESSION_IDLE_NOTIFY,
 };
 
-/// Callback fired exactly once, on the dedicated injection OS-thread, when an
-/// injection reaches its terminal **Injected** state (the parent turn ran and
-/// persisted, the result was already consumed, or it failed terminally). Tool
-/// jobs pass a closure that marks the `background_jobs` row injected; subagent
-/// runs pass `None`. Carried through the re-queue so a deferred injection still
-/// marks its source done when the queued attempt eventually lands.
-pub(crate) type OnInjected = Arc<dyn Fn() + Send + Sync>;
+type InjectionReceiptStep = Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync>;
+
+/// Durable source receipt carried with an injection and all of its in-process
+/// retries.
+///
+/// An attached IM mirror can perform a persistent provider mutation before the
+/// parent turn settles. It therefore calls `arm_no_replay` before starting the
+/// engine. That write must make startup recovery skip this source; a confirmed
+/// cancellation may still retry from [`PENDING_INJECTIONS`] in this process,
+/// but a crash deliberately loses that automatic retry rather than duplicate an
+/// IM reply. `settle` records an ordinary terminal landing and must be
+/// idempotent because fetched/cancel races can converge on the same source.
+#[derive(Clone)]
+pub struct OnInjected {
+    arm_no_replay: InjectionReceiptStep,
+    settle: InjectionReceiptStep,
+    no_replay_armed: Arc<AtomicBool>,
+}
+
+impl OnInjected {
+    pub(crate) fn new(
+        arm_no_replay: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+        settle: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            arm_no_replay: Arc::new(arm_no_replay),
+            settle: Arc::new(settle),
+            no_replay_armed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Use one idempotent durable write for both phases (for example,
+    /// `background_jobs.injected = 1`).
+    pub(crate) fn idempotent(
+        step: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        let step: InjectionReceiptStep = Arc::new(step);
+        Self {
+            arm_no_replay: step.clone(),
+            settle: step,
+            no_replay_armed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn arm_no_replay(&self) -> anyhow::Result<()> {
+        if self.no_replay_armed.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        (self.arm_no_replay)()?;
+        self.no_replay_armed.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    fn is_no_replay_armed(&self) -> bool {
+        self.no_replay_armed.load(Ordering::Acquire)
+    }
+
+    fn settle(&self) -> anyhow::Result<()> {
+        (self.settle)()
+    }
+}
+
+fn settle_injection_source(receipt: Option<&OnInjected>, run_id: &str) {
+    let Some(receipt) = receipt else { return };
+    if let Err(error) = receipt.settle() {
+        app_error!(
+            "subagent",
+            "inject",
+            "Failed to persist terminal source receipt for run {}: {}",
+            run_id,
+            crate::logging::redact_sensitive(&error.to_string())
+        );
+    }
+}
+
+/// Establish the durable replay owner, persist the parent injection row, then
+/// prepare the engine call in that strict order.
+///
+/// `persist` must contain every durable parent-session mutation that identifies
+/// this attempt. A cross-process CAS loser (or any arm error) never invokes it,
+/// and `start_engine` is invoked only after both arm and persistence succeed.
+/// The receipt deliberately remains armed when persistence fails: callers must
+/// treat that as a safe terminal failure instead of reviving startup replay.
+fn arm_source_persist_then<T>(
+    mirror_attached: bool,
+    receipt: Option<&OnInjected>,
+    persist: impl FnOnce() -> anyhow::Result<()>,
+    start_engine: impl FnOnce(bool) -> T,
+) -> anyhow::Result<T> {
+    let mut no_replay_armed = receipt.is_some_and(OnInjected::is_no_replay_armed);
+    if mirror_attached {
+        if let Some(receipt) = receipt {
+            receipt.arm_no_replay()?;
+            no_replay_armed = true;
+        }
+    }
+    persist()?;
+    Ok(start_engine(no_replay_armed))
+}
+
+/// Preserve retry idempotency without treating a failed dedup lookup as
+/// "missing". In particular, a read error must not fall through to append a
+/// second parent row.
+fn persist_parent_injection_row_if_missing(
+    already_written: impl FnOnce() -> anyhow::Result<bool>,
+    append: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    if already_written()? {
+        Ok(())
+    } else {
+        append()
+    }
+}
 
 /// Result of one `inject_and_run_parent` attempt. Lets the caller decide
 /// whether the source record is done (`Injected`), owned by the retry queue
@@ -22,7 +128,9 @@ pub(crate) type OnInjected = Arc<dyn Fn() + Send + Sync>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InjectionOutcome {
     /// Parent turn ran (or the result was already fetched / all models failed
-    /// terminally). `on_injected` has fired — nothing more to do.
+    /// terminally), or a pre-engine persistence failure safely terminated an
+    /// already-armed source. The source is settled, or its durable no-replay
+    /// fence remains armed — nothing more should be replayed.
     Injected,
     /// Deferred: another injection holds the session, or the user pre-empted
     /// this turn. The task was pushed to `PENDING_INJECTIONS` (carrying its
@@ -31,10 +139,37 @@ pub enum InjectionOutcome {
     Queued,
     /// Could not persist or re-queue the attempt (a poisoned `PENDING_INJECTIONS`
     /// lock — the only remaining path here now that the idle-timeout re-queues as
-    /// `Queued`). Nothing persisted, `on_injected` NOT fired — the source row
-    /// stays un-injected so `replay_pending_jobs()` retries it on the next
-    /// restart (MISC-15: an abandoned injection must not look delivered).
+    /// `Queued`), or a pre-engine durable arm failure. Unless another process
+    /// already owns the source, its replay marker remains pending for restart
+    /// recovery (MISC-15: an abandoned injection must not look delivered). An
+    /// unarmed parent-row read/write failure follows this path as well.
     Abandoned,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InjectionImTerminal {
+    Failed,
+    InterruptedWillRetry,
+    InterruptedConsumed,
+}
+
+impl InjectionImTerminal {
+    /// Static, user-facing IM copy only. Raw provider / model errors must never
+    /// cross this boundary because they may contain credentials or request
+    /// details. Detailed diagnostics remain in the local session event below.
+    fn body(self) -> &'static str {
+        match self {
+            Self::Failed => {
+                "⚠️ **Background follow-up failed** — this reply has stopped. Please try again later."
+            }
+            Self::InterruptedWillRetry => {
+                "⏸️ **Background follow-up interrupted** — a new message took priority. It will retry automatically when the conversation is idle."
+            }
+            Self::InterruptedConsumed => {
+                "⏹️ **Background follow-up stopped** — the result was already retrieved in this conversation, so it will not retry."
+            }
+        }
+    }
 }
 
 struct ParentInjectionSink {
@@ -72,37 +207,64 @@ pub(super) struct PendingInjection {
     pub reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
 }
 
-/// Drain and re-trigger pending injections for a session.
+fn claim_next_pending_injection(
+    queue: &mut Vec<PendingInjection>,
+    injecting: &mut std::collections::HashSet<String>,
+    session_id: &str,
+) -> Option<PendingInjection> {
+    if injecting.contains(session_id) {
+        return None;
+    }
+    let task = queue
+        .iter()
+        .position(|task| task.parent_session_id == session_id)
+        .map(|index| queue.remove(index));
+    if task.is_some() {
+        injecting.insert(session_id.to_string());
+    }
+    task
+}
+
+/// Claim and re-trigger the next pending injection for a session.
 /// Called from ChatSessionGuard::drop when a user chat completes.
 pub(crate) fn flush_pending_injections(session_id: &str) {
-    let tasks: Vec<PendingInjection> = {
-        let mut queue = match PENDING_INJECTIONS.lock() {
-            Ok(q) => q,
-            Err(p) => p.into_inner(),
+    loop {
+        // Atomically (under the established INJECTING -> PENDING lock order)
+        // remove one matching task and reserve the session for it. Without the
+        // preclaim, two concurrent CleanupGuard / ChatSessionGuard drops could
+        // dequeue A and B before either spawned runtime registered itself,
+        // rotating the same-session FIFO suffix when B re-queued.
+        let task = {
+            let mut injecting = INJECTING_SESSIONS.lock().unwrap_or_else(|p| p.into_inner());
+            let mut queue = match PENDING_INJECTIONS.lock() {
+                Ok(q) => q,
+                Err(p) => p.into_inner(),
+            };
+            claim_next_pending_injection(&mut queue, &mut injecting, session_id)
         };
-        let mut remaining = Vec::new();
-        let mut to_run = Vec::new();
-        for task in queue.drain(..) {
-            if task.parent_session_id == session_id {
-                to_run.push(task);
-            } else {
-                remaining.push(task);
-            }
-        }
-        *queue = remaining;
-        to_run
-    };
+        let Some(task) = task else { return };
 
-    for task in tasks {
         // Skip if already fetched, and clean up the entry
-        {
+        let already_fetched = {
             let mut set = FETCHED_RUN_IDS.lock().unwrap_or_else(|p| p.into_inner());
-            if set.remove(&task.run_id) {
-                continue;
-            }
+            set.remove(&task.run_id)
+        };
+        if already_fetched {
+            INJECTING_SESSIONS
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(session_id);
+            continue;
         }
         let t = task.clone();
+        let preclaimed_cleanup = CleanupGuard {
+            session_id: t.parent_session_id.clone(),
+        };
         std::thread::spawn(move || {
+            // Own the dequeue-time session reservation until the async
+            // injection returns. If thread/runtime construction fails, dropping
+            // the captured guard still releases the claim and advances FIFO.
+            let mut preclaimed_cleanup = Some(preclaimed_cleanup);
             match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -119,6 +281,7 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
                         t.session_db,
                         t.on_injected,
                         t.reattachable_ui_guard,
+                        preclaimed_cleanup.take(),
                     ));
                 }
                 Err(e) => app_error!(
@@ -129,7 +292,7 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
                 ),
             }
         });
-        break; // Only re-trigger one at a time; next one queues on completion
+        return; // Next task stays queued until this one's CleanupGuard fires.
     }
 }
 
@@ -303,6 +466,7 @@ pub async fn inject_and_run_parent(
         session_db,
         on_injected,
         None,
+        None,
     )
     .await
 }
@@ -320,8 +484,12 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
     session_db: Arc<crate::session::SessionDB>,
     on_injected: Option<OnInjected>,
     reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
+    preclaimed_cleanup: Option<CleanupGuard>,
 ) -> InjectionOutcome {
     use crate::provider;
+
+    let session_preclaimed = preclaimed_cleanup.is_some();
+    let mut _cleanup = preclaimed_cleanup;
 
     // 0. Skip if the parent agent already fetched this result via check/result tool
     {
@@ -334,9 +502,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 &run_id
             );
             set.remove(&run_id); // Clean up — no longer needed
-            if let Some(cb) = on_injected.as_ref() {
-                cb();
-            }
+            settle_injection_source(on_injected.as_ref(), &run_id);
             return InjectionOutcome::Injected;
         }
     }
@@ -353,14 +519,12 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             &parent_session_id,
             &run_id
         );
-        if let Some(cb) = on_injected.as_ref() {
-            cb();
-        }
+        settle_injection_source(on_injected.as_ref(), &run_id);
         return InjectionOutcome::Injected;
     }
 
     // Guard: if another injection is active for this session, queue for later
-    {
+    if !session_preclaimed {
         let mut guard = INJECTING_SESSIONS.lock().unwrap_or_else(|p| p.into_inner());
         if guard.contains(&parent_session_id) {
             app_info!(
@@ -389,10 +553,10 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             }
         }
         guard.insert(parent_session_id.clone());
+        _cleanup = Some(CleanupGuard {
+            session_id: parent_session_id.clone(),
+        });
     }
-    let _cleanup = CleanupGuard {
-        session_id: parent_session_id.clone(),
-    };
 
     // 1. Wait for parent session to become idle (event-driven with timeout
     // fallback). The idle gate (`ACTIVE_CHAT_SESSIONS`) is now populated by
@@ -461,9 +625,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 "Run {} fetched while waiting, skipping",
                 &run_id
             );
-            if let Some(cb) = on_injected.as_ref() {
-                cb();
-            }
+            settle_injection_source(on_injected.as_ref(), &run_id);
             return InjectionOutcome::Injected;
         }
     }
@@ -474,9 +636,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         .unwrap_or_else(|p| p.into_inner())
         .contains(&run_id)
     {
-        if let Some(cb) = on_injected.as_ref() {
-            cb();
-        }
+        settle_injection_source(on_injected.as_ref(), &run_id);
         return InjectionOutcome::Injected;
     }
 
@@ -545,7 +705,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "error".into(),
             parent_session_id: parent_session_id.clone(),
-            run_id,
+            run_id: run_id.clone(),
             push_message: None,
             delta: None,
             error: Some("No model configured for parent agent".into()),
@@ -553,14 +713,20 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         // Persistent misconfiguration: mark injected so a restart doesn't
         // re-inject in a loop. The tool output is still saved to disk; only
         // the notification is dropped, and the parent can't run without a model.
-        if let Some(cb) = on_injected.as_ref() {
-            cb();
-        }
+        settle_injection_source(on_injected.as_ref(), &run_id);
         return InjectionOutcome::Injected;
     }
 
     let mut last_error = String::new();
     let mut succeeded = false;
+    // Captured at the engine-error boundary so the IM terminal copy and the
+    // later queue decision use the same fetched/not-fetched observation.
+    let mut cancelled_while_running_fetched: Option<bool> = None;
+    let mut engine_failed_without_cancel = false;
+    let mut im_terminal_safe_for_retry = true;
+    let mut source_no_replay_armed = on_injected
+        .as_ref()
+        .is_some_and(OnInjected::is_no_replay_armed);
 
     // E2 / DELETE-3 / INCOG-3 backstop (post-idle): the most dangerous window —
     // the session can be deleted or burned *during* the idle wait above. Re-check
@@ -573,9 +739,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             &parent_session_id,
             &run_id
         );
-        if let Some(cb) = on_injected.as_ref() {
-            cb();
-        }
+        settle_injection_source(on_injected.as_ref(), &run_id);
         return InjectionOutcome::Injected;
     }
 
@@ -603,49 +767,6 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
     // becoming unattributed background usage.
     let _eval_injection_guard = crate::eval_context::retain_session(&parent_session_id);
 
-    // Write the push user row BEFORE agent.chat() so intermediate rows
-    // streamed from the callback land between it and the final assistant
-    // row in id order — `parseSessionMessages` on the frontend groups
-    // pending tool/text blocks under the next assistant, so user → tool*
-    // → assistant ordering is load-bearing. Idempotent across re-queued
-    // attempts (cancelled injections are retried via PENDING_INJECTIONS).
-    let user_msg_already_written = session_db
-        .has_injection_user_msg(&parent_session_id, &run_id)
-        .unwrap_or(false);
-    if !user_msg_already_written {
-        let mut user_msg = crate::session::NewMessage::user(&push_message)
-            .with_source(crate::chat_engine::ChatSource::ParentInjection);
-        // Tag the injected row so the frontend renders it as the right kind of
-        // system chip. A self-scheduled wakeup (R10) is a *trigger*, not a
-        // sub-agent *result* — stamping `subagent_result` made it render as a
-        // misleading green "completed" pill with the note dropped, so wakeups
-        // get their own `wakeup_trigger` marker (mirrors cron's `cron_trigger`).
-        // The `run_id` MUST stay in the meta even for wakeups: the re-queue
-        // idempotency guard `has_injection_user_msg` matches on `"run_id":"…"`,
-        // so dropping it would defeat dedup and append a duplicate `<wakeup>`
-        // row (+ a second billed turn) every time a wakeup turn is cancelled and
-        // re-queued. The frontend only checks `wakeup_trigger` presence, so the
-        // extra field is invisible to it.
-        let meta = if child_agent_id == WAKEUP_CHILD_AGENT_ID {
-            serde_json::json!({ "wakeup_trigger": { "run_id": &run_id } })
-        } else if child_agent_id == LOOP_CHILD_AGENT_ID {
-            serde_json::json!({ "loop_trigger": { "run_id": &run_id } })
-        } else if child_agent_id == PROCESS_NOTIFICATION_CHILD_AGENT_ID {
-            serde_json::json!({ "process_notification": { "run_id": &run_id } })
-        } else if child_agent_id == WORKFLOW_CHILD_AGENT_ID {
-            serde_json::json!({ "workflow_result": { "run_id": &run_id } })
-        } else {
-            serde_json::json!({
-                "subagent_result": {
-                    "run_id": &run_id,
-                    "agent_id": &child_agent_id,
-                }
-            })
-        };
-        user_msg.attachments_meta = Some(meta.to_string());
-        let _ = session_db.append_message(&parent_session_id, &user_msg);
-    }
-
     if cancel.load(Ordering::SeqCst) {
         app_info!(
             "subagent",
@@ -666,7 +787,16 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         let injection_mirror =
             crate::channel_hooks::attach_injection_mirror(&parent_session_id).await;
 
-        match crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
+        // Attach first to determine whether this attempt has an external IM
+        // mutation surface. If so, claim its durable replay source before
+        // writing *any* parent user row; a cross-process CAS loser must leave
+        // the session untouched. With no mirror, this deliberately skips the
+        // arm and retains the existing at-least-once restart contract.
+        let resolved_reasoning_effort = parent_agent_def
+            .as_ref()
+            .and_then(|def| def.config.model.reasoning_effort.clone())
+            .or(crate::agent::live_reasoning_effort(None).await);
+        let engine_params = crate::chat_engine::ChatEngineParams {
             session_id: parent_session_id.clone(),
             agent_id: parent_agent_id.clone(),
             turn_id: None,
@@ -683,10 +813,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 .or(store.temperature),
             compact_config: store.compact.clone(),
             extra_system_context: None,
-            reasoning_effort: parent_agent_def
-                .as_ref()
-                .and_then(|def| def.config.model.reasoning_effort.clone())
-                .or(crate::agent::live_reasoning_effort(None).await),
+            reasoning_effort: resolved_reasoning_effort,
             cancel: cancel.clone(),
             plan_context_override: None,
             skill_allowed_tools: Vec::new(),
@@ -708,9 +835,97 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 parent_session_id: parent_session_id.clone(),
                 run_id: run_id.clone(),
             }),
-        })
-        .await
-        {
+        };
+        let engine_result = arm_source_persist_then(
+            injection_mirror.is_some(),
+            on_injected.as_ref(),
+            || {
+                // Write the push user row BEFORE agent.chat() so intermediate
+                // rows streamed from the callback land between it and the final
+                // assistant row. Re-queued attempts retain the run_id and reuse
+                // this idempotency guard.
+                persist_parent_injection_row_if_missing(
+                    || session_db.has_injection_user_msg(&parent_session_id, &run_id),
+                    || {
+                        let mut user_msg = crate::session::NewMessage::user(&push_message)
+                            .with_source(crate::chat_engine::ChatSource::ParentInjection);
+                        // A wakeup is a trigger rather than a subagent result.
+                        // Every shape retains run_id because the dedup lookup
+                        // above uses it to recognize confirmed in-process retries.
+                        let meta = if child_agent_id == WAKEUP_CHILD_AGENT_ID {
+                            serde_json::json!({ "wakeup_trigger": { "run_id": &run_id } })
+                        } else if child_agent_id == LOOP_CHILD_AGENT_ID {
+                            serde_json::json!({ "loop_trigger": { "run_id": &run_id } })
+                        } else if child_agent_id == PROCESS_NOTIFICATION_CHILD_AGENT_ID {
+                            serde_json::json!({ "process_notification": { "run_id": &run_id } })
+                        } else if child_agent_id == WORKFLOW_CHILD_AGENT_ID {
+                            serde_json::json!({ "workflow_result": { "run_id": &run_id } })
+                        } else {
+                            serde_json::json!({
+                                "subagent_result": {
+                                    "run_id": &run_id,
+                                    "agent_id": &child_agent_id,
+                                }
+                            })
+                        };
+                        user_msg.attachments_meta = Some(meta.to_string());
+                        session_db
+                            .append_injection_user_msg_if_missing(
+                                &parent_session_id,
+                                &run_id,
+                                &user_msg,
+                            )
+                            .map(|_| ())
+                    },
+                )
+            },
+            |armed| {
+                source_no_replay_armed = armed;
+                crate::chat_engine::run_chat_engine(engine_params)
+            },
+        );
+        let engine = match engine_result {
+            Ok(engine) => engine,
+            Err(error) => {
+                let durable_no_replay_armed = on_injected
+                    .as_ref()
+                    .is_some_and(OnInjected::is_no_replay_armed);
+                app_error!(
+                    "subagent",
+                    "inject",
+                    "Failed to prepare parent injection for run {} (no_replay_armed={}): {}",
+                    &run_id,
+                    durable_no_replay_armed,
+                    crate::logging::redact_sensitive(&error.to_string())
+                );
+                if let Some(state) = injection_mirror {
+                    let _ = state.abort(None).await;
+                }
+                emit_parent_stream_event(&ParentAgentStreamEvent {
+                    event_type: "error".into(),
+                    parent_session_id,
+                    run_id,
+                    push_message: None,
+                    delta: None,
+                    error: Some(
+                        "Background follow-up was not started because its delivery state could not be saved"
+                            .into(),
+                    ),
+                });
+                // Never settle here. If arm succeeded, its durable no-replay
+                // fence is the terminal safety decision; reviving the source
+                // could duplicate a provider-side reply after a crash. Without
+                // such a fence (including the no-mirror path), leave the source
+                // pending for the existing at-least-once restart replay.
+                return if durable_no_replay_armed {
+                    InjectionOutcome::Injected
+                } else {
+                    InjectionOutcome::Abandoned
+                };
+            }
+        };
+
+        match engine.await {
             Ok(result) => {
                 // run_chat_engine returning Ok means the reply was persisted.
                 // Mark succeeded unconditionally — even if cancel flipped to
@@ -754,21 +969,40 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 .await;
             }
             Err(e) => {
-                if cancel.load(Ordering::SeqCst) {
+                let was_cancelled = cancel.load(Ordering::SeqCst);
+                let fetched_while_active = was_cancelled
+                    && FETCHED_RUN_IDS
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .contains(&run_id);
+                let terminal = if was_cancelled {
+                    cancelled_while_running_fetched = Some(fetched_while_active);
                     app_info!(
                         "subagent",
                         "inject",
-                        "Injection cancelled (error path) for session {}",
-                        &parent_session_id
+                        "Injection cancelled (error path) for session {} (result_fetched={})",
+                        &parent_session_id,
+                        fetched_while_active
                     );
+                    if fetched_while_active {
+                        InjectionImTerminal::InterruptedConsumed
+                    } else {
+                        InjectionImTerminal::InterruptedWillRetry
+                    }
                 } else {
+                    engine_failed_without_cancel = true;
                     last_error = e;
-                }
-                // G1: drain + tear down the IM mirror (no follow-up notice — the
-                // injection sent no user-quote, so there's nothing orphaned; a
-                // cancel re-queues and re-delivers on the next idle attempt).
+                    InjectionImTerminal::Failed
+                };
+                // G1: a ParentInjection has no user-quote, but its Message/Card
+                // preview can already be visible. Terminate that same preview
+                // identity with bounded static copy before a retry can create a
+                // second reply. Native mirrors use their provider abort path.
                 if let Some(state) = injection_mirror {
-                    state.abort(None).await;
+                    im_terminal_safe_for_retry = state
+                        .abort(Some(terminal.body().to_string()))
+                        .await
+                        .is_confirmed();
                 }
             }
         }
@@ -776,7 +1010,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
 
     // All models failed (not cancelled): surface a terminal event row so
     // the log doesn't show a silent user push without a response.
-    if !succeeded && !cancel.load(Ordering::SeqCst) {
+    if engine_failed_without_cancel {
         let _ = session_db.append_message(
             &parent_session_id,
             &crate::session::NewMessage::error_event(&format!("[injection failed] {}", last_error))
@@ -788,15 +1022,48 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
     // the reply, so even if cancel was set after the run completed, we must
     // not re-queue (would duplicate the sub-agent completion in the parent
     // conversation).
-    let was_cancelled = !succeeded && cancel.load(Ordering::SeqCst);
-    let fetched_while_active = FETCHED_RUN_IDS
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .contains(&run_id);
-    if was_cancelled && fetched_while_active {
-        if let Some(cb) = on_injected.as_ref() {
-            cb();
-        }
+    let was_cancelled =
+        !succeeded && !engine_failed_without_cancel && cancel.load(Ordering::SeqCst);
+    let fetched_while_active = cancelled_while_running_fetched.unwrap_or_else(|| {
+        FETCHED_RUN_IDS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(&run_id)
+    });
+    if was_cancelled && !im_terminal_safe_for_retry {
+        // A persistent provider mutation may still be visible. Starting a new
+        // mirror for this result would risk partial + full double delivery, so
+        // keep the write-ahead source fence armed. The durable child/job result
+        // remains inspectable, but neither the current process nor startup
+        // recovery may send it again automatically.
+        app_warn!(
+            "subagent",
+            "inject",
+            "Injection for run {} was cancelled but its IM mirror terminal is unconfirmed; automatic retry suppressed",
+            &run_id
+        );
+        crate::eval_context::record_lifecycle_event(
+            Some(&parent_session_id),
+            "handoff",
+            "agent.result_injected",
+            Some(&run_id),
+            "terminal_ambiguous_no_replay",
+            0,
+        );
+        emit_parent_stream_event(&ParentAgentStreamEvent {
+            event_type: "error".into(),
+            parent_session_id,
+            run_id,
+            push_message: None,
+            delta: None,
+            error: Some(
+                "Cancelled: previous IM reply could not be closed safely; automatic retry was suppressed"
+                    .into(),
+            ),
+        });
+        InjectionOutcome::Injected
+    } else if was_cancelled && fetched_while_active {
+        settle_injection_source(on_injected.as_ref(), &run_id);
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "done".into(),
             parent_session_id,
@@ -841,14 +1108,17 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         });
         if requeued {
             InjectionOutcome::Queued
+        } else if source_no_replay_armed {
+            // The provider terminal is confirmed, but the in-memory queue could
+            // not accept ownership. Do not revive the already-armed durable
+            // replay source; at-most-once wins over an automatic duplicate.
+            InjectionOutcome::Injected
         } else {
             // Couldn't re-queue (poisoned): leave the source pending for replay.
             InjectionOutcome::Abandoned
         }
     } else if succeeded {
-        if let Some(cb) = on_injected.as_ref() {
-            cb();
-        }
+        settle_injection_source(on_injected.as_ref(), &run_id);
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "done".into(),
             parent_session_id,
@@ -861,9 +1131,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
     } else {
         // All models failed: a terminal error row was persisted above. Mark
         // injected so the failure isn't re-injected on every restart.
-        if let Some(cb) = on_injected.as_ref() {
-            cb();
-        }
+        settle_injection_source(on_injected.as_ref(), &run_id);
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "error".into(),
             parent_session_id,
@@ -901,6 +1169,213 @@ mod tests {
         assert!(msg.contains("<task>read &lt;file&gt; &amp; report</task>"));
         assert!(msg.contains("<result>\nok &lt;done&gt; &amp; safe\n</result>"));
         assert!(!msg.contains("BEGIN_SUBAGENT_RESULT"));
+    }
+
+    #[test]
+    fn injection_im_terminal_copy_is_static_and_describes_retry_semantics() {
+        let failed = InjectionImTerminal::Failed.body();
+        let retry = InjectionImTerminal::InterruptedWillRetry.body();
+        let consumed = InjectionImTerminal::InterruptedConsumed.body();
+
+        assert!(failed.contains("failed"));
+        assert!(retry.contains("retry automatically"));
+        assert!(consumed.contains("will not retry"));
+
+        // The IM copy is selected from a closed enum and never interpolates the
+        // raw engine error, provider response, token, or request URL.
+        for body in [failed, retry, consumed] {
+            assert!(!body.contains("sk-test-secret"));
+            assert!(!body.contains("provider.example"));
+        }
+    }
+
+    #[test]
+    fn durable_arm_failure_never_persists_parent_row_or_starts_engine() {
+        let steps = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let arm_steps = steps.clone();
+        let receipt = OnInjected::new(
+            move || {
+                arm_steps.lock().unwrap().push("arm");
+                anyhow::bail!("durable CAS lost")
+            },
+            || Ok(()),
+        );
+        let persist_steps = steps.clone();
+        let engine_steps = steps.clone();
+
+        let result = arm_source_persist_then(
+            true,
+            Some(&receipt),
+            move || {
+                persist_steps.lock().unwrap().push("persist-parent-row");
+                Ok(())
+            },
+            move |_| engine_steps.lock().unwrap().push("start-engine"),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(*steps.lock().unwrap(), ["arm"]);
+        assert!(!receipt.is_no_replay_armed());
+    }
+
+    #[test]
+    fn armed_parent_dedup_read_failure_skips_append_and_engine() {
+        let receipt = OnInjected::new(|| Ok(()), || Ok(()));
+        let append_called = Arc::new(AtomicBool::new(false));
+        let append_flag = append_called.clone();
+        let engine_started = Arc::new(AtomicBool::new(false));
+        let engine_flag = engine_started.clone();
+
+        let result = arm_source_persist_then(
+            true,
+            Some(&receipt),
+            || {
+                persist_parent_injection_row_if_missing(
+                    || anyhow::bail!("dedup read failed"),
+                    move || {
+                        append_flag.store(true, Ordering::SeqCst);
+                        Ok(())
+                    },
+                )
+            },
+            move |_| engine_flag.store(true, Ordering::SeqCst),
+        );
+
+        assert!(result.is_err());
+        assert!(!append_called.load(Ordering::SeqCst));
+        assert!(!engine_started.load(Ordering::SeqCst));
+        assert!(receipt.is_no_replay_armed());
+    }
+
+    #[test]
+    fn armed_parent_write_failure_keeps_fence_and_never_starts_engine() {
+        let steps = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let arm_steps = steps.clone();
+        let receipt = OnInjected::new(
+            move || {
+                arm_steps.lock().unwrap().push("arm");
+                Ok(())
+            },
+            || Ok(()),
+        );
+        let persist_steps = steps.clone();
+        let engine_steps = steps.clone();
+
+        let result = arm_source_persist_then(
+            true,
+            Some(&receipt),
+            move || {
+                persist_parent_injection_row_if_missing(
+                    || {
+                        persist_steps.lock().unwrap().push("read-parent-row");
+                        Ok(false)
+                    },
+                    || {
+                        persist_steps.lock().unwrap().push("persist-parent-row");
+                        anyhow::bail!("parent row write failed")
+                    },
+                )
+            },
+            move |_| engine_steps.lock().unwrap().push("start-engine"),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            *steps.lock().unwrap(),
+            ["arm", "read-parent-row", "persist-parent-row"]
+        );
+        assert!(receipt.is_no_replay_armed());
+    }
+
+    #[test]
+    fn no_mirror_keeps_source_replayable_until_parent_turn_settles() {
+        let steps = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let arm_steps = steps.clone();
+        let receipt = OnInjected::new(
+            move || {
+                arm_steps.lock().unwrap().push("arm");
+                Ok(())
+            },
+            || Ok(()),
+        );
+        let persist_steps = steps.clone();
+        let engine_steps = steps.clone();
+
+        let armed = arm_source_persist_then(
+            false,
+            Some(&receipt),
+            move || {
+                persist_steps.lock().unwrap().push("persist-parent-row");
+                Ok(())
+            },
+            move |armed| {
+                engine_steps.lock().unwrap().push("start-engine");
+                armed
+            },
+        )
+        .unwrap();
+
+        assert!(!armed);
+        assert_eq!(
+            *steps.lock().unwrap(),
+            ["persist-parent-row", "start-engine"]
+        );
+        assert!(!receipt.is_no_replay_armed());
+    }
+
+    #[test]
+    fn pending_flush_claims_one_and_preserves_same_session_fifo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(crate::session::SessionDB::open(&tmp.path().join("s.db")).unwrap());
+        let pending = |session: &str, run: &str| PendingInjection {
+            parent_session_id: session.to_string(),
+            parent_agent_id: "ha-main".to_string(),
+            child_agent_id: "helper".to_string(),
+            run_id: run.to_string(),
+            push_message: "done".to_string(),
+            session_db: db.clone(),
+            on_injected: None,
+            reattachable_ui_guard: None,
+        };
+        let mut queue = vec![
+            pending("s1", "run-1"),
+            pending("s2", "run-2"),
+            pending("s1", "run-3"),
+        ];
+        let mut injecting = std::collections::HashSet::new();
+
+        assert_eq!(
+            claim_next_pending_injection(&mut queue, &mut injecting, "s1")
+                .unwrap()
+                .run_id,
+            "run-1"
+        );
+        assert_eq!(
+            queue
+                .iter()
+                .map(|task| task.run_id.as_str())
+                .collect::<Vec<_>>(),
+            ["run-2", "run-3"]
+        );
+        assert!(
+            claim_next_pending_injection(&mut queue, &mut injecting, "s1").is_none(),
+            "a concurrent flush must not dequeue the same-session suffix"
+        );
+        assert_eq!(
+            queue
+                .iter()
+                .map(|task| task.run_id.as_str())
+                .collect::<Vec<_>>(),
+            ["run-2", "run-3"]
+        );
+        injecting.remove("s1");
+        assert_eq!(
+            claim_next_pending_injection(&mut queue, &mut injecting, "s1")
+                .unwrap()
+                .run_id,
+            "run-3"
+        );
+        assert_eq!(queue[0].run_id, "run-2");
     }
 
     // R2 (§5.4): the idle gate must park completion injection behind a live

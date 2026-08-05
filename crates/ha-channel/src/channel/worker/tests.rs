@@ -47,6 +47,7 @@ fn native_caps(update_mode: ReplyStreamUpdateMode) -> NativeReplyCapabilities {
         preview_chat_types: vec![ChatType::Dm],
         final_chat_types: vec![ChatType::Dm],
         update_mode,
+        preview_persistence: ReplyStreamPreviewPersistence::Persistent,
         requires_reply_anchor: true,
         requires_recipient_user_id: true,
         requires_recipient_tenant_id: true,
@@ -54,8 +55,8 @@ fn native_caps(update_mode: ReplyStreamUpdateMode) -> NativeReplyCapabilities {
         supports_plan_updates: true,
         supports_blocks: true,
         embedded_media_types: vec![MediaType::Photo],
+        max_embedded_media_items: None,
         refresh_after_secs: Some(5),
-        max_snapshot_chars: None,
         max_delta_chars: Some(4),
     }
 }
@@ -165,12 +166,69 @@ fn native_open_claim_never_overwrites_a_terminal_cancel() {
 }
 
 #[tokio::test]
+async fn ephemeral_native_abort_consumes_broken_and_ambiguous_preview_states() {
+    for initial_state in [NATIVE_BROKEN, NATIVE_AMBIGUOUS] {
+        let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(initial_state));
+        let terminal_owner = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+        let preview = PreviewHandle::Native {
+            session: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            state: state.clone(),
+            terminal_owner: terminal_owner.clone(),
+            preview_persistence: ReplyStreamPreviewPersistence::Ephemeral,
+        };
+
+        assert!(abort_native_preview(&preview, ReplyAbortReason::Failed).await);
+        assert!(!try_claim_native_final(&terminal_owner));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::Acquire),
+            NATIVE_TERMINAL
+        );
+    }
+}
+
+#[tokio::test]
+async fn native_final_claim_blocks_a_racing_abort() {
+    let terminal_owner = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+    let preview = PreviewHandle::Native {
+        session: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+        state: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(NATIVE_ACTIVE)),
+        terminal_owner: terminal_owner.clone(),
+        preview_persistence: ReplyStreamPreviewPersistence::Ephemeral,
+    };
+
+    assert!(try_claim_native_final(&terminal_owner));
+    assert!(!abort_native_preview(&preview, ReplyAbortReason::Failed).await);
+    assert!(!try_claim_native_final(&terminal_owner));
+}
+
+#[tokio::test]
+async fn persistent_native_abort_keeps_broken_and_ambiguous_preview_states_unsafe() {
+    for initial_state in [NATIVE_BROKEN, NATIVE_AMBIGUOUS] {
+        let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(initial_state));
+        let preview = PreviewHandle::Native {
+            session: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            state: state.clone(),
+            terminal_owner: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+        };
+
+        assert!(!abort_native_preview(&preview, ReplyAbortReason::Failed).await);
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::Acquire),
+            initial_state
+        );
+    }
+}
+
+#[tokio::test]
 async fn native_abort_waits_for_existing_aborting_state_without_overwriting_it() {
     let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(NATIVE_ABORTING));
     let session: SharedNativeReplySession = std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let preview = PreviewHandle::Native {
         session,
         state: state.clone(),
+        terminal_owner: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0)),
+        preview_persistence: ReplyStreamPreviewPersistence::Persistent,
     };
     let completing_state = state.clone();
     tokio::spawn(async move {
@@ -183,6 +241,135 @@ async fn native_abort_waits_for_existing_aborting_state_without_overwriting_it()
         state.load(std::sync::atomic::Ordering::Acquire),
         NATIVE_AMBIGUOUS
     );
+}
+
+#[tokio::test]
+async fn native_abort_existing_aborting_state_times_out_boundedly() {
+    let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(NATIVE_ABORTING));
+    let preview = PreviewHandle::Native {
+        session: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+        state: state.clone(),
+        terminal_owner: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0)),
+        preview_persistence: ReplyStreamPreviewPersistence::Ephemeral,
+    };
+
+    let safely_aborted = tokio::time::timeout(
+        Duration::from_millis(250),
+        abort_native_preview_with_timeout(
+            &preview,
+            ReplyAbortReason::Failed,
+            Duration::from_millis(5),
+        ),
+    )
+    .await
+    .expect("native abort wait must remain bounded");
+
+    assert!(safely_aborted);
+    assert_eq!(
+        state.load(std::sync::atomic::Ordering::Acquire),
+        NATIVE_ABORTING
+    );
+}
+
+struct ControlledAbortStream {
+    release: tokio::sync::oneshot::Receiver<()>,
+}
+
+#[async_trait]
+impl ChannelReplyStream for ControlledAbortStream {
+    async fn push(
+        &mut self,
+        _frame: &ReplyStreamFrame,
+    ) -> std::result::Result<(), ReplyStreamError> {
+        Ok(())
+    }
+
+    async fn commit(
+        self: Box<Self>,
+        _final_reply: &RichReply,
+    ) -> std::result::Result<RichReplyReceipt, ReplyStreamError> {
+        unreachable!("not used by abort timeout test")
+    }
+
+    async fn abort(
+        self: Box<Self>,
+        _reason: ReplyAbortReason,
+    ) -> std::result::Result<(), ReplyStreamError> {
+        let _ = self.release.await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn native_abort_task_timeout_detaches_provider_cleanup() {
+    let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(NATIVE_ACTIVE));
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let session: SharedNativeReplySession = std::sync::Arc::new(tokio::sync::Mutex::new(Some(
+        Box::new(ControlledAbortStream {
+            release: release_rx,
+        }),
+    )));
+    let preview = PreviewHandle::Native {
+        session: session.clone(),
+        state: state.clone(),
+        terminal_owner: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0)),
+        preview_persistence: ReplyStreamPreviewPersistence::Ephemeral,
+    };
+
+    let safely_aborted = tokio::time::timeout(
+        Duration::from_millis(250),
+        abort_native_preview_with_timeout(
+            &preview,
+            ReplyAbortReason::Failed,
+            Duration::from_millis(5),
+        ),
+    )
+    .await
+    .expect("native abort task wait must remain bounded");
+
+    assert!(safely_aborted);
+    assert!(session.lock().await.is_none());
+    assert_eq!(
+        state.load(std::sync::atomic::Ordering::Acquire),
+        NATIVE_ABORTING
+    );
+
+    release_tx
+        .send(())
+        .expect("detached abort task should still own its receiver");
+    tokio::time::timeout(Duration::from_millis(250), async {
+        while state.load(std::sync::atomic::Ordering::Acquire) != NATIVE_TERMINAL {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("detached provider cleanup should still complete");
+}
+
+#[tokio::test]
+async fn ephemeral_abort_bounds_session_lock_wait_and_keeps_error_lane_safe() {
+    let session: SharedNativeReplySession = std::sync::Arc::new(tokio::sync::Mutex::new(None));
+    let held = session.lock().await;
+    let preview = PreviewHandle::Native {
+        session: session.clone(),
+        state: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(NATIVE_ACTIVE)),
+        terminal_owner: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0)),
+        preview_persistence: ReplyStreamPreviewPersistence::Ephemeral,
+    };
+
+    let safely_aborted = tokio::time::timeout(
+        Duration::from_millis(250),
+        abort_native_preview_with_timeout(
+            &preview,
+            ReplyAbortReason::Failed,
+            Duration::from_millis(5),
+        ),
+    )
+    .await
+    .expect("native session lock wait must remain bounded");
+
+    assert!(safely_aborted);
+    drop(held);
 }
 
 struct PanicAbortStream;
@@ -219,6 +406,8 @@ async fn native_abort_adapter_panic_becomes_ambiguous() {
     let preview = PreviewHandle::Native {
         session,
         state: state.clone(),
+        terminal_owner: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0)),
+        preview_persistence: ReplyStreamPreviewPersistence::Persistent,
     };
 
     assert!(!abort_native_preview(&preview, ReplyAbortReason::Failed).await);
@@ -271,9 +460,8 @@ fn append_frame_acknowledges_only_the_emitted_utf8_safe_prefix() {
 }
 
 #[test]
-fn snapshot_frame_caps_chinese_and_emoji_by_chars_and_acks_snapshot_bytes() {
-    let mut capabilities = native_caps(ReplyStreamUpdateMode::Snapshot);
-    capabilities.max_snapshot_chars = Some(4);
+fn snapshot_frame_keeps_full_unicode_document_and_acks_snapshot_bytes() {
+    let capabilities = native_caps(ReplyStreamUpdateMode::Snapshot);
     let mut state = NativeFrameState::default();
     let frame = build_native_frame(
         "你🙂好世界",
@@ -281,10 +469,10 @@ fn snapshot_frame_caps_chinese_and_emoji_by_chars_and_acks_snapshot_bytes() {
         &capabilities,
         ReplyStreamPhase::Generating,
     );
-    assert_eq!(frame.markdown_snapshot, "你🙂好世");
-    assert_eq!(frame.markdown_delta, "你🙂好世");
+    assert_eq!(frame.markdown_snapshot, "你🙂好世界");
+    assert!(frame.markdown_delta.is_empty());
     acknowledge_native_frame(&mut state, &frame, capabilities.update_mode);
-    assert_eq!(state.acknowledged_bytes, "你🙂好世".len());
+    assert_eq!(state.acknowledged_bytes, "你🙂好世界".len());
 }
 
 #[test]
@@ -419,8 +607,9 @@ fn preview_carries_text_for_message_when_message_exists_and_fits() {
     assert!(preview_carried_full_text(
         &StreamPreviewTransport::Message,
         "hello world",
-        11,
+        "hello world",
         Some("msg-1"),
+        Some("hello world"),
         None,
         4096,
     ));
@@ -432,11 +621,26 @@ fn preview_does_not_carry_text_for_message_when_oversized() {
     // though a preview message exists, the latest edits were silently
     // dropped by `build_stream_preview_payload`. The stream task MUST
     // chunk-send so the user sees the full text.
+    let native = "x".repeat(4097);
     assert!(!preview_carried_full_text(
         &StreamPreviewTransport::Message,
         "long",
-        4097,
+        &native,
         Some("msg-1"),
+        Some(&native),
+        None,
+        4096,
+    ));
+}
+
+#[test]
+fn preview_does_not_carry_text_after_an_unacknowledged_edit() {
+    assert!(!preview_carried_full_text(
+        &StreamPreviewTransport::Message,
+        "new snapshot",
+        "new snapshot",
+        Some("msg-1"),
+        Some("older acknowledged snapshot"),
         None,
         4096,
     ));
@@ -449,7 +653,8 @@ fn preview_does_not_carry_text_for_message_when_no_message_was_created() {
     assert!(!preview_carried_full_text(
         &StreamPreviewTransport::Message,
         "any",
-        100,
+        "any",
+        None,
         None,
         None,
         4096,
@@ -461,7 +666,8 @@ fn preview_carries_text_for_card_when_session_active_and_under_cardkit_cap() {
     assert!(preview_carried_full_text(
         &StreamPreviewTransport::Card,
         "feishu narration",
-        16,
+        "feishu narration",
+        None,
         None,
         Some(false), // session active, not broken
         4096,
@@ -470,12 +676,13 @@ fn preview_carries_text_for_card_when_session_active_and_under_cardkit_cap() {
 
 #[test]
 fn preview_does_not_carry_text_for_card_when_session_broken() {
-    // Mid-stream `update_card_element` failed → broken=true. Card
-    // content lags; chunk-send the full round to recover.
+    // Mid-stream `update_card_element` failed → broken=true. This helper must
+    // never claim full delivery; the enclosing unsafe report stops fallback.
     assert!(!preview_carried_full_text(
         &StreamPreviewTransport::Card,
         "narration",
-        9,
+        "narration",
+        None,
         None,
         Some(true),
         4096,
@@ -491,7 +698,8 @@ fn preview_does_not_carry_text_for_draft_ever() {
     assert!(!preview_carried_full_text(
         &StreamPreviewTransport::Draft,
         "short",
-        5,
+        "short",
+        None,
         None,
         None,
         4096,
@@ -509,7 +717,7 @@ fn preview_carries_empty_round_trivially() {
         StreamPreviewTransport::Draft,
     ] {
         assert!(
-            preview_carried_full_text(&transport, "", 0, None, None, 4096),
+            preview_carried_full_text(&transport, "", "", None, None, None, 4096),
             "empty accumulated should always count as 'carried' for {:?}",
             transport,
         );

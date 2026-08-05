@@ -334,7 +334,10 @@ pub(crate) async fn finalize_turn_context(
         if let Some(state) = im_mirror {
             let body = copy::im_notice(&reason);
             tokio::spawn(async move {
-                state.abort(Some(body)).await;
+                // This path never replays the logical result; it only reports
+                // the terminal asynchronously, so the confirmation status has
+                // no downstream retry decision to gate.
+                let _ = state.abort(Some(body)).await;
             });
             outcome.im_notice_dispatched = true;
         }

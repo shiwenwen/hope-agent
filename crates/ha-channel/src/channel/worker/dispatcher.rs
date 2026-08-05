@@ -13,10 +13,11 @@ use super::pipeline::{
     abort_pipeline_outcome, await_stream_pipeline_until_cancel, deliver_rounds,
     spawn_stream_pipeline, DeliveryTarget,
 };
-use super::slash::{dispatch_slash_for_channel, ChannelSlashOutcome};
+use super::slash::{dispatch_slash_for_channel, render_slash_button_fallback, ChannelSlashOutcome};
 use super::streaming::{
-    append_preview_round_text, PreviewHandle, CARD_ELEMENT_MAX_CHARS, NATIVE_ACTIVE,
-    NATIVE_AMBIGUOUS, NATIVE_BROKEN, NATIVE_SELECTED, NATIVE_TERMINAL,
+    append_preview_round_text, claim_unopened_native_error, fail_native_preview,
+    try_claim_native_final, PreviewHandle, CARD_ELEMENT_MAX_CHARS, NATIVE_ACTIVE, NATIVE_AMBIGUOUS,
+    NATIVE_BROKEN, NATIVE_OPENING, NATIVE_SELECTED, NATIVE_TERMINAL,
 };
 
 /// Maximum number of inbound messages processed concurrently.
@@ -902,7 +903,7 @@ async fn handle_inbound_message_inner(
         // Channels without inline-button support get the handler's verbose
         // no-arg text response instead of the (un-tappable) `Select an
         // option for /xxx:` shortcut.
-        let supports_buttons = plugin.capabilities().supports_buttons;
+        let supports_buttons = plugin.supports_reply_buttons(&account.id, &msg.chat_id);
         let slash_dispatch = dispatch_slash_for_channel(
             channel_db,
             &plugin,
@@ -926,10 +927,20 @@ async fn handle_inbound_message_inner(
         };
         match slash_outcome {
             Ok(ChannelSlashOutcome::Reply {
-                content,
+                mut content,
                 new_session_id,
-                buttons,
+                mut buttons,
             }) => {
+                if let Err(error) = plugin.validate_reply_buttons(&buttons) {
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "Slash picker failed provider button preflight; using text options: {}",
+                        ha_core::logging::redact_sensitive(&error.to_string())
+                    );
+                    content = render_slash_button_fallback(&content, &buttons);
+                    buttons.clear();
+                }
                 let effective_sid = new_session_id.as_deref().unwrap_or(&session_id);
                 if new_session_id.is_none() {
                     let history_db = session_db.clone();
@@ -984,8 +995,16 @@ async fn handle_inbound_message_inner(
                     biased;
                     _ = wait_for_channel_cancel(cancel.as_ref()) => return Ok(()),
                     result = tokio::time::timeout(CONTROL_DELIVERY_TIMEOUT, &mut delivery) => {
-                        if result.is_err() {
-                            app_warn!("channel", "worker", "Timed out delivering slash reply for session {}", effective_sid);
+                        match result {
+                            Ok(report) if !report.is_success() => app_warn!(
+                                "channel",
+                                "worker",
+                                "Slash reply delivery was incomplete for session {}: {} failure(s)",
+                                effective_sid,
+                                report.failures.len()
+                            ),
+                            Ok(_) => {}
+                            Err(_) => app_warn!("channel", "worker", "Timed out delivering slash reply for session {}", effective_sid),
                         }
                     }
                 }
@@ -1757,12 +1776,8 @@ async fn handle_inbound_message_inner(
                 recipient_user_id: Some(&msg.sender_id),
                 recipient_tenant_id: msg.sender_tenant_id.as_deref(),
             };
-            let error_delivery = send_error_reply(
-                &plugin,
-                &err_target,
-                outcome.stream_outcome.preview.as_ref(),
-                &body,
-            );
+            let error_delivery =
+                super::pipeline::deliver_error_reply(&plugin, &err_target, &outcome, &body);
             tokio::pin!(error_delivery);
             tokio::select! {
                 biased;
@@ -1791,11 +1806,22 @@ async fn handle_inbound_message_inner(
     Ok(())
 }
 
-/// Max number of media items delivered per IM turn. Protects against a
-/// runaway tool call blasting the channel. Excess items are logged and
-/// silently dropped (the user will still see the link in the text summary
-/// if the model appended one).
+/// Max number of media items attempted as standalone legacy provider sends in
+/// one IM turn. The remaining ordered suffix is retained as link fallback.
 const MAX_MEDIA_PER_TURN: usize = 5;
+
+/// Hard safety ceiling for provider-native rich replies. Individual adapters
+/// advertise a lower/equal budget through `max_embedded_media_items`; keeping
+/// a common ceiling prevents a bad capability declaration from turning one
+/// model turn into an unbounded upload batch.
+const MAX_NATIVE_MEDIA_PER_TURN: usize = 50;
+
+fn native_media_budget(caps: &NativeReplyCapabilities) -> usize {
+    caps.max_embedded_media_items
+        .map(usize::from)
+        .unwrap_or(0)
+        .min(MAX_NATIVE_MEDIA_PER_TURN)
+}
 
 /// Hard-limit text appended to the final reply when the channel can't
 /// deliver a media item natively (LINE/IRC without public URL, unsupported
@@ -1836,43 +1862,22 @@ fn classify_media_type(it: &ha_core::attachments::MediaItem) -> MediaType {
     MediaType::Document
 }
 
-/// Split MediaItems into (native-supported, fallback) buckets based on the
-/// channel's advertised capabilities. Unsupported items fall through to a
-/// text link — the dispatcher appends them to the final reply.
-///
-/// Exposed at module level (rather than hidden inside `send_final_reply`)
-/// so tests can pin down the partition behavior without spinning up a
-/// full channel plugin.
-pub(super) fn partition_media_by_channel<'a>(
-    items: &'a [ha_core::attachments::MediaItem],
+/// Resolve the provider media type for one legacy attachment without changing
+/// its position in the ordered delivery sequence.
+fn legacy_native_media_type(
+    item: &ha_core::attachments::MediaItem,
     caps: &ChannelCapabilities,
-) -> (
-    Vec<(&'a ha_core::attachments::MediaItem, MediaType)>,
-    Vec<&'a ha_core::attachments::MediaItem>,
-) {
-    let mut native = Vec::new();
-    let mut fallback = Vec::new();
-    for it in items.iter().take(MAX_MEDIA_PER_TURN) {
-        let t = classify_media_type(it);
-        if caps.supports_media.contains(&t) {
-            native.push((it, t));
-        } else if t == MediaType::Animation && caps.supports_media.contains(&MediaType::Photo) {
-            // Animation → Photo fallback for channels without native GIF support.
-            native.push((it, MediaType::Photo));
-        } else {
-            fallback.push(it);
-        }
+) -> Option<MediaType> {
+    let classified = classify_media_type(item);
+    if caps.supports_media.contains(&classified) {
+        Some(classified)
+    } else if classified == MediaType::Animation && caps.supports_media.contains(&MediaType::Photo)
+    {
+        // Animation → Photo fallback for channels without native GIF support.
+        Some(MediaType::Photo)
+    } else {
+        None
     }
-    if items.len() > MAX_MEDIA_PER_TURN {
-        app_warn!(
-            "channel",
-            "worker",
-            "Dropping {} media item(s) — over MAX_MEDIA_PER_TURN={}",
-            items.len() - MAX_MEDIA_PER_TURN,
-            MAX_MEDIA_PER_TURN
-        );
-    }
-    (native, fallback)
 }
 
 fn configured_public_base_url(require_https: bool) -> Option<String> {
@@ -1962,38 +1967,117 @@ fn to_outbound_media(
     }
 }
 
-/// Replace the current preview (if any) with an error reply, routing through
-/// `send_text_chunks` so long error text (rare but possible — formatted
-/// engine traces) is markdown-to-native rendered + chunked. We don't try to
-/// keep cardkit alive on the error path — the user should see a plain text
-/// error attached to their original message; the half-rendered card auto-
-/// closes server-side after 10 minutes.
-async fn send_error_reply(
+enum CardFinalizeOutcome {
+    Confirmed,
+    Unsafe(String),
+}
+
+/// Replace the current preview (if any) with an error reply. Native and card
+/// previews retain terminal ownership: if their mutation cannot be confirmed,
+/// no fresh message is sent because it could duplicate accepted content.
+pub(super) async fn send_error_reply(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
     preview: Option<&PreviewHandle>,
     error_text: &str,
-) {
-    if let Some(native @ PreviewHandle::Native { .. }) = preview {
-        if !super::streaming::abort_native_preview(native, ReplyAbortReason::Failed).await {
-            return;
+) -> DeliveryReport {
+    if let Some(native @ PreviewHandle::Native { state, .. }) = preview {
+        if claim_unopened_native_error(native) {
+            // No provider identity exists: this is the one native-preview state
+            // where a standalone error is both necessary and provably safe.
+            return send_text_chunks(plugin, target, error_text, None, &[]).await;
         }
+        if matches!(
+            state.load(Ordering::Acquire),
+            NATIVE_OPENING | NATIVE_AMBIGUOUS
+        ) {
+            let _ = super::streaming::abort_native_preview(native, ReplyAbortReason::Failed).await;
+            return DeliveryReport {
+                attempted: 1,
+                succeeded: 0,
+                failures: vec![
+                    "native preview identity is opening or ambiguous; standalone error suppressed"
+                        .to_string(),
+                ],
+                unsafe_to_continue: true,
+            };
+        }
+        let confirmed = fail_native_preview(native, error_text).await;
+        return DeliveryReport {
+            attempted: 1,
+            succeeded: usize::from(confirmed),
+            failures: (!confirmed)
+                .then(|| {
+                    "native preview error terminal could not be confirmed; standalone fallback suppressed"
+                        .to_string()
+                })
+                .into_iter()
+                .collect(),
+            unsafe_to_continue: !confirmed,
+        };
     }
-    let chunk_preview = match preview {
-        // Card path: pass `None` so chunk-send opens a fresh message;
-        // half-rendered card is left to auto-close.
-        Some(PreviewHandle::Card { .. }) => None,
-        Some(PreviewHandle::Native { .. }) => None,
-        other => other,
-    };
-    send_text_chunks(plugin, target, error_text, chunk_preview, &[]).await;
+    if let Some(PreviewHandle::Card {
+        card_id,
+        element_id,
+        sequence,
+        broken,
+    }) = preview
+    {
+        if *broken {
+            app_warn!(
+                "channel",
+                "worker",
+                "Suppressing error fallback for an ambiguous visible card"
+            );
+            return DeliveryReport {
+                attempted: 1,
+                succeeded: 0,
+                failures: vec![
+                    "visible card preview is ambiguous; error fallback suppressed".to_string(),
+                ],
+                unsafe_to_continue: true,
+            };
+        }
+        return match finalize_card_stream(
+            plugin,
+            target.account_id,
+            card_id,
+            element_id,
+            *sequence,
+            error_text,
+        )
+        .await
+        {
+            CardFinalizeOutcome::Confirmed => DeliveryReport {
+                attempted: 1,
+                succeeded: 1,
+                failures: Vec::new(),
+                unsafe_to_continue: false,
+            },
+            CardFinalizeOutcome::Unsafe(error) => {
+                let error = ha_core::logging::redact_sensitive(&error);
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Unable to finalize visible card with error reply: {}",
+                    error
+                );
+                DeliveryReport {
+                    attempted: 1,
+                    succeeded: 0,
+                    failures: vec![error],
+                    unsafe_to_continue: true,
+                }
+            }
+        };
+    }
+    send_text_chunks(plugin, target, error_text, preview, &[]).await
 }
 
 /// Write the full response into the streaming card and close streaming.
-/// Returns `true` on success — caller skips the chunked-text path. Returns
-/// `false` (after a best-effort `close_card_stream`) when the response is
-/// too large or `update_card_element` fails; caller must deliver the full
-/// response via `send_message` to avoid silent truncation.
+/// Once a card is visible, any unconfirmed final update is unsafe to retry as
+/// a fresh message. `Unsafe` therefore stops all later text/media/action
+/// mutations for the turn; server-side expiry clears the streaming indicator.
 async fn finalize_card_stream(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
@@ -2001,20 +2085,19 @@ async fn finalize_card_stream(
     element_id: &str,
     sequence: i64,
     response: &str,
-) -> bool {
+) -> CardFinalizeOutcome {
     let response_chars = response.chars().count();
     if response_chars > CARD_ELEMENT_MAX_CHARS {
         app_warn!(
             "channel",
             "worker",
-            "Final response too large for card element ({} chars > {}), falling back to text chunks",
+            "Final response too large for visible card element ({} chars > {}); suppressing duplicate fallback",
             response_chars,
             CARD_ELEMENT_MAX_CHARS
         );
-        let _ = plugin
-            .close_card_stream(account_id, card_id, sequence)
-            .await;
-        return false;
+        return CardFinalizeOutcome::Unsafe(format!(
+            "visible card final snapshot has {response_chars} characters; maximum is {CARD_ELEMENT_MAX_CHARS}"
+        ));
     }
 
     if let Err(e) = plugin
@@ -2024,16 +2107,11 @@ async fn finalize_card_stream(
         app_warn!(
             "channel",
             "worker",
-            "Final card update failed (seq={}): {} — falling back to text chunks",
+            "Final card update outcome is ambiguous (seq={}): {}; suppressing duplicate fallback",
             sequence,
             e
         );
-        // Best-effort close so the streaming indicator stops. Errors here
-        // are cosmetic — the 10-minute auto-close is the safety net.
-        let _ = plugin
-            .close_card_stream(account_id, card_id, sequence + 1)
-            .await;
-        return false;
+        return CardFinalizeOutcome::Unsafe(format!("update_card_element (seq={sequence}): {e}"));
     }
 
     if let Err(e) = plugin
@@ -2051,7 +2129,7 @@ async fn finalize_card_stream(
         );
     }
 
-    true
+    CardFinalizeOutcome::Confirmed
 }
 
 /// Split the response into native-rendered chunks and deliver them via
@@ -2078,6 +2156,19 @@ pub(crate) async fn send_text_chunks(
     buttons: &[Vec<InlineButton>],
 ) -> DeliveryReport {
     let mut report = DeliveryReport::default();
+    if let Err(error) = plugin.validate_reply_buttons(buttons) {
+        let error = ha_core::logging::redact_sensitive(&error.to_string());
+        app_warn!(
+            "channel",
+            "worker",
+            "Outbound actions failed provider preflight: {}",
+            error
+        );
+        report.attempted = 1;
+        report.failures.push(error);
+        report.unsafe_to_continue = true;
+        return report;
+    }
     let native_text = plugin.markdown_to_native(response);
     let chunks = plugin.chunk_message(&native_text);
     if !response.trim().is_empty() && chunks.is_empty() {
@@ -2085,6 +2176,7 @@ pub(crate) async fn send_text_chunks(
         report
             .failures
             .push("channel produced no outbound message chunks".to_string());
+        report.unsafe_to_continue = true;
         return report;
     }
     let last_idx = chunks.len().saturating_sub(1);
@@ -2132,27 +2224,24 @@ pub(crate) async fn send_text_chunks(
                             app_warn!(
                                 "channel",
                                 "worker",
-                                "Preview edit was rejected, falling back to send: {}",
+                                "Preview final edit was not acknowledged; suppressing duplicate send: {}",
                                 ha_core::logging::redact_sensitive(
                                     &result
                                         .error
-                                        .unwrap_or_else(|| "platform rejected edit".to_string())
+                                        .as_deref()
+                                        .unwrap_or("platform rejected edit")
                                 )
                             );
-                            plugin
-                                .send_message(target.account_id, target.chat_id, &payload)
-                                .await
+                            Ok(result)
                         }
                         Err(e) => {
                             app_warn!(
                                 "channel",
                                 "worker",
-                                "Failed to finalize preview via edit, falling back to send: {}",
+                                "Preview final edit outcome is ambiguous; suppressing duplicate send: {}",
                                 e
                             );
-                            plugin
-                                .send_message(target.account_id, target.chat_id, &payload)
-                                .await
+                            Err(e)
                         }
                     }
                 }
@@ -2177,6 +2266,8 @@ pub(crate) async fn send_text_chunks(
                     );
                     app_warn!("channel", "worker", "Send failed: {}", error);
                     report.failures.push(error);
+                    report.unsafe_to_continue = true;
+                    break;
                 } else {
                     report.succeeded += 1;
                 }
@@ -2185,6 +2276,8 @@ pub(crate) async fn send_text_chunks(
                 let error = ha_core::logging::redact_sensitive(&e.to_string());
                 app_error!("channel", "worker", "Send error: {}", error);
                 report.failures.push(error);
+                report.unsafe_to_continue = true;
+                break;
             }
         }
     }
@@ -2196,6 +2289,10 @@ pub(crate) struct DeliveryReport {
     pub attempted: usize,
     pub succeeded: usize,
     pub failures: Vec<String>,
+    /// The ordered delivery sequence cannot safely continue: either a
+    /// non-idempotent outcome is ambiguous or a required prefix/fallback send
+    /// failed. Later suffix/media/action sends must stop.
+    pub unsafe_to_continue: bool,
 }
 
 impl DeliveryReport {
@@ -2203,6 +2300,7 @@ impl DeliveryReport {
         self.attempted += other.attempted;
         self.succeeded += other.succeeded;
         self.failures.extend(other.failures);
+        self.unsafe_to_continue |= other.unsafe_to_continue;
     }
 
     pub fn is_success(&self) -> bool {
@@ -2321,13 +2419,21 @@ pub(super) async fn deliver_split(
                     recipient_tenant_id: target.recipient_tenant_id,
                 };
                 let report = send_text_chunks(plugin, &pre_target, &round.text, None, &[]).await;
+                let can_continue = !report.unsafe_to_continue;
                 metrics.report.merge(report);
                 metrics.text_chars += round.text.chars().count();
+                if !can_continue {
+                    return metrics;
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
             let report = deliver_media_to_chat(plugin, target, &round.medias, caps).await;
+            let can_continue = !report.unsafe_to_continue;
             metrics.report.merge(report);
             metrics.media_count += round.medias.len();
+            if !can_continue {
+                return metrics;
+            }
         }
     }
     metrics
@@ -2447,13 +2553,15 @@ pub(super) fn merge_preview_round_texts(rounds: &[ha_core::chat_engine::RoundOut
 /// Text routing is decided by `preview`:
 /// - `Card { broken: false, .. }`: write the **entire** raw response into the
 ///   card element in one shot (cardkit elements hold ~100k chars, far above
-///   any IM per-send byte ceiling), then close streaming. On any failure
-///   (response oversize, update error, etc.) the card is closed best-effort
-///   and we fall through to plain text chunks below.
-/// - Anything else (`Message`, `Card{broken:true}`, `None`): split the
+///   any IM per-send byte ceiling), then close streaming. Once the card is
+///   visible, oversize/update failure is terminal and suppresses any fresh
+///   fallback that could duplicate an accepted update.
+/// - `Card { broken: true, .. }`: fail closed without another mutation.
+/// - Anything else (`Message`, `None`): split the
 ///   markdown-to-native rendered response into chunks and `send_message` each
 ///   one. For `Message`, the first chunk replaces the existing preview via
-///   `edit_message` (with `send_message` as a fallback).
+///   `edit_message`; an unacknowledged edit is never duplicated through a
+///   fresh send because the legacy result has no zero-mutation proof.
 async fn run_native_commit(
     stream: Box<dyn ha_core::channel::traits::ChannelReplyStream>,
     reply: RichReply,
@@ -2485,6 +2593,66 @@ async fn run_native_send(
         .map_err(Some)
 }
 
+fn safe_final_fallback(kind: ReplyStreamErrorKind) -> bool {
+    matches!(
+        kind,
+        ReplyStreamErrorKind::Unsupported
+            | ReplyStreamErrorKind::InvalidTarget
+            | ReplyStreamErrorKind::InvalidContent
+            | ReplyStreamErrorKind::Rejected
+            | ReplyStreamErrorKind::RateLimited
+            | ReplyStreamErrorKind::Transient
+    )
+}
+
+fn validate_native_receipt(
+    receipt: &RichReplyReceipt,
+    offered_media: usize,
+) -> std::result::Result<usize, String> {
+    if receipt.message_id.trim().is_empty() {
+        return Err("native rich reply returned an empty message identifier".to_string());
+    }
+    let is_prefix = receipt
+        .consumed_media
+        .iter()
+        .copied()
+        .eq(0..receipt.consumed_media.len())
+        && receipt.consumed_media.len() <= offered_media;
+    if !is_prefix {
+        return Err(format!(
+            "native rich reply returned a non-prefix media receipt (consumed={:?}, offered={offered_media})",
+            receipt.consumed_media
+        ));
+    }
+    Ok(receipt.consumed_media.len())
+}
+
+/// Inline actions must remain the visually terminal element of a reply. When
+/// media is delivered through a later legacy lane, send the actions as their
+/// own final message after every media/fallback message has settled.
+async fn deliver_deferred_buttons(
+    plugin: &Arc<dyn ChannelPlugin>,
+    target: &DeliveryTarget<'_>,
+    buttons: &[Vec<InlineButton>],
+) -> DeliveryReport {
+    if buttons.is_empty() {
+        return DeliveryReport::default();
+    }
+    let action_target = DeliveryTarget {
+        account_id: target.account_id,
+        chat_id: target.chat_id,
+        chat_type: target.chat_type,
+        thread_id: target.thread_id,
+        // The content reply already carries the inbound anchor. Repeating it
+        // on the terminal action row adds visual noise and can fork threads on
+        // providers that distinguish reply anchors from thread identifiers.
+        reply_to_message_id: None,
+        recipient_user_id: target.recipient_user_id,
+        recipient_tenant_id: target.recipient_tenant_id,
+    };
+    send_text_chunks(plugin, &action_target, "Actions", None, buttons).await
+}
+
 pub(crate) async fn send_final_reply(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
@@ -2496,68 +2664,157 @@ pub(crate) async fn send_final_reply(
     caps: &ChannelCapabilities,
 ) -> DeliveryReport {
     let mut report = DeliveryReport::default();
+    if let Err(error) = plugin.validate_reply_buttons(buttons) {
+        if let Some(native @ PreviewHandle::Native { .. }) = preview {
+            let _ = super::streaming::abort_native_preview(native, ReplyAbortReason::Failed).await;
+        }
+        let error = ha_core::logging::redact_sensitive(&error.to_string());
+        app_warn!(
+            "channel",
+            "worker",
+            "Final reply actions failed provider preflight: {}",
+            error
+        );
+        report.attempted = 1;
+        report.failures.push(error);
+        report.unsafe_to_continue = true;
+        return report;
+    }
+    let response_has_text = !response.trim().is_empty();
+    let legacy_preview_needs_terminal_actions = matches!(
+        preview,
+        Some(PreviewHandle::Message { .. } | PreviewHandle::Card { .. })
+    );
+    let defer_buttons = !buttons.is_empty()
+        && (!pending_media.is_empty()
+            || legacy_preview_needs_terminal_actions
+            || !response_has_text);
+    let content_buttons = if defer_buttons { &[] } else { buttons };
 
     if let Some(native_caps) = caps.native_reply.as_ref() {
         let stream_target = target.to_reply_stream_target();
         let channel_id = plugin.meta().id;
-        let limited_media = &pending_media[..pending_media.len().min(MAX_MEDIA_PER_TURN)];
-        if pending_media.len() > MAX_MEDIA_PER_TURN {
-            app_warn!(
-                "channel",
-                "worker",
-                "Dropping {} media item(s) — over MAX_MEDIA_PER_TURN={}",
-                pending_media.len() - MAX_MEDIA_PER_TURN,
-                MAX_MEDIA_PER_TURN
-            );
-        }
+        let embedded_media_limit = native_media_budget(native_caps);
         let mut offered_media = Vec::new();
         let mut offered_original_indices = Vec::new();
-        for (index, item) in limited_media.iter().enumerate() {
+        for (index, item) in pending_media.iter().take(embedded_media_limit).enumerate() {
             let media_type = classify_media_type(item);
             if native_caps.embedded_media_types.contains(&media_type)
                 && native_media_supported_for_target(&channel_id, target.chat_id, item)
             {
                 offered_media.push(to_outbound_media(item, media_type, &channel_id));
                 offered_original_indices.push(index);
+            } else {
+                // Native content is delivered before the legacy media lane.
+                // Offering only a contiguous prefix preserves the user's
+                // original attachment order across both lanes.
+                break;
             }
         }
         let rich_reply = RichReply {
             markdown: response.to_string(),
             media: offered_media,
-            buttons: buttons.to_vec(),
+            buttons: content_buttons.to_vec(),
         };
 
         let native_result = match preview {
-            Some(PreviewHandle::Native { session, state }) => match state.load(Ordering::Acquire) {
-                NATIVE_AMBIGUOUS | NATIVE_BROKEN | NATIVE_TERMINAL => Some((Err(None), false)),
-                NATIVE_ACTIVE => {
-                    let stream = session.lock().await.take();
-                    state.store(NATIVE_TERMINAL, Ordering::Release);
-                    match stream {
-                        Some(stream) => {
-                            Some((run_native_commit(stream, rich_reply.clone()).await, false))
+            Some(PreviewHandle::Native {
+                session,
+                state,
+                terminal_owner,
+                preview_persistence: ReplyStreamPreviewPersistence::Ephemeral,
+            }) => {
+                if !try_claim_native_final(terminal_owner) {
+                    return DeliveryReport {
+                        attempted: 1,
+                        succeeded: 0,
+                        failures: vec![
+                            "native reply terminal mutation was already claimed".to_string()
+                        ],
+                        unsafe_to_continue: true,
+                    };
+                }
+                // Preview state is never a durable delivery outcome for an
+                // ephemeral stream. Use the existing stream as the terminal
+                // commit carrier when available; if open never produced one,
+                // send the independent rich final through the plugin.
+                let stream = session.lock().await.take();
+                state.store(NATIVE_TERMINAL, Ordering::Release);
+                if native_caps.final_chat_types.contains(target.chat_type) {
+                    Some((
+                        match stream {
+                            Some(stream) => run_native_commit(stream, rich_reply.clone()).await,
+                            None => {
+                                run_native_send(
+                                    plugin.clone(),
+                                    stream_target.clone(),
+                                    rich_reply.clone(),
+                                )
+                                .await
+                            }
+                        },
+                        true,
+                    ))
+                } else {
+                    if let Some(stream) = stream {
+                        // Capability selection requires preview types to be a
+                        // subset of final types. Keep this defensive mismatch
+                        // cleanup detached so a future adapter regression can
+                        // neither hang nor cancel legacy final delivery.
+                        drop(tokio::spawn(async move {
+                            let _ = stream.abort(ReplyAbortReason::Detached).await;
+                        }));
+                    }
+                    None
+                }
+            }
+            Some(PreviewHandle::Native {
+                session,
+                state,
+                terminal_owner,
+                ..
+            }) => {
+                if !try_claim_native_final(terminal_owner) {
+                    return DeliveryReport {
+                        attempted: 1,
+                        succeeded: 0,
+                        failures: vec![
+                            "native reply terminal mutation was already claimed".to_string()
+                        ],
+                        unsafe_to_continue: true,
+                    };
+                }
+                match state.load(Ordering::Acquire) {
+                    NATIVE_AMBIGUOUS | NATIVE_BROKEN | NATIVE_TERMINAL => Some((Err(None), false)),
+                    NATIVE_ACTIVE => {
+                        let stream = session.lock().await.take();
+                        state.store(NATIVE_TERMINAL, Ordering::Release);
+                        match stream {
+                            Some(stream) => {
+                                Some((run_native_commit(stream, rich_reply.clone()).await, false))
+                            }
+                            None => Some((Err(None), false)),
                         }
-                        None => Some((Err(None), false)),
                     }
-                }
-                NATIVE_SELECTED => {
-                    state.store(NATIVE_TERMINAL, Ordering::Release);
-                    if native_caps.final_chat_types.contains(target.chat_type) {
-                        Some((
-                            run_native_send(
-                                plugin.clone(),
-                                stream_target.clone(),
-                                rich_reply.clone(),
-                            )
-                            .await,
-                            true,
-                        ))
-                    } else {
-                        None
+                    NATIVE_SELECTED => {
+                        state.store(NATIVE_TERMINAL, Ordering::Release);
+                        if native_caps.final_chat_types.contains(target.chat_type) {
+                            Some((
+                                run_native_send(
+                                    plugin.clone(),
+                                    stream_target.clone(),
+                                    rich_reply.clone(),
+                                )
+                                .await,
+                                true,
+                            ))
+                        } else {
+                            None
+                        }
                     }
+                    _ => Some((Err(None), false)),
                 }
-                _ => Some((Err(None), false)),
-            },
+            }
             _ if preview.is_none()
                 && allow_standalone_native
                 && native_caps.final_chat_types.contains(target.chat_type) =>
@@ -2575,45 +2832,36 @@ pub(crate) async fn send_final_reply(
             match native_result {
                 Ok(receipt) => {
                     report.attempted += 1;
-                    report.succeeded += 1;
-                    let mut consumed = std::collections::HashSet::new();
-                    let mut seen_receipt_indices = std::collections::HashSet::new();
-                    for offered_index in receipt.consumed_media {
-                        if !seen_receipt_indices.insert(offered_index) {
-                            app_warn!(
-                                "channel",
-                                "worker",
-                                "Native rich reply receipt repeated consumed media index {}",
-                                offered_index
-                            );
-                            continue;
-                        }
-                        match offered_original_indices.get(offered_index) {
-                            Some(original_index) => {
-                                consumed.insert(*original_index);
+                    let consumed_prefix_len =
+                        match validate_native_receipt(&receipt, offered_original_indices.len()) {
+                            Ok(consumed) => consumed,
+                            Err(error) => {
+                                app_warn!("channel", "worker", "{}", error);
+                                // The provider has already accepted the terminal
+                                // mutation. Do not risk duplicate/reordered media or
+                                // actions after a malformed adapter receipt.
+                                report.failures.push(error);
+                                report.unsafe_to_continue = true;
+                                return report;
                             }
-                            None => app_warn!(
-                                "channel",
-                                "worker",
-                                "Native rich reply receipt returned out-of-range media index {} (offered={})",
-                                offered_index,
-                                offered_original_indices.len()
-                            ),
-                        }
-                    }
-                    let remaining: Vec<_> = limited_media
+                        };
+                    report.succeeded += 1;
+                    let remaining: Vec<_> = pending_media
                         .iter()
                         .enumerate()
-                        .filter(|(index, _)| !consumed.contains(index))
+                        .filter(|(index, _)| *index >= consumed_prefix_len)
                         .map(|(_, item)| item.clone())
                         .collect();
-                    report.merge(deliver_media_to_chat(plugin, target, &remaining, caps).await);
+                    let media_report =
+                        deliver_media_to_chat(plugin, target, &remaining, caps).await;
+                    let can_continue = !media_report.unsafe_to_continue;
+                    report.merge(media_report);
+                    if defer_buttons && can_continue {
+                        report.merge(deliver_deferred_buttons(plugin, target, buttons).await);
+                    }
                     return report;
                 }
-                Err(Some(error))
-                    if allow_safe_fallback
-                        && !matches!(error.kind, ReplyStreamErrorKind::Ambiguous) =>
-                {
+                Err(Some(error)) if allow_safe_fallback && safe_final_fallback(error.kind) => {
                     let error = ha_core::logging::redact_sensitive(&error.to_string());
                     app_warn!(
                         "channel",
@@ -2633,6 +2881,7 @@ pub(crate) async fn send_final_reply(
                         error
                     );
                     report.failures.push(error);
+                    report.unsafe_to_continue = true;
                     return report;
                 }
                 Err(None) => {
@@ -2640,21 +2889,22 @@ pub(crate) async fn send_final_reply(
                     report
                         .failures
                         .push("native reply terminal outcome was ambiguous".to_string());
+                    report.unsafe_to_continue = true;
                     return report;
                 }
             }
         }
     }
 
-    let card_finalized = match preview {
-        Some(PreviewHandle::Card {
-            card_id,
-            element_id,
-            sequence,
-            broken: false,
-            ..
-        }) => {
-            finalize_card_stream(
+    let card_finalized = if response_has_text {
+        match preview {
+            Some(PreviewHandle::Card {
+                card_id,
+                element_id,
+                sequence,
+                broken: false,
+                ..
+            }) => match finalize_card_stream(
                 plugin,
                 target.account_id,
                 card_id,
@@ -2663,33 +2913,81 @@ pub(crate) async fn send_final_reply(
                 response,
             )
             .await
+            {
+                CardFinalizeOutcome::Confirmed => true,
+                CardFinalizeOutcome::Unsafe(error) => {
+                    report.attempted += 1;
+                    report
+                        .failures
+                        .push(ha_core::logging::redact_sensitive(&error));
+                    report.unsafe_to_continue = true;
+                    return report;
+                }
+            },
+            Some(PreviewHandle::Card { broken: true, .. }) => {
+                report.attempted += 1;
+                report.failures.push(
+                    "visible card preview is in an ambiguous state; duplicate fallback suppressed"
+                        .to_string(),
+                );
+                report.unsafe_to_continue = true;
+                return report;
+            }
+            _ => false,
         }
-        _ => false,
+    } else {
+        false
     };
 
-    if !card_finalized {
-        // Half-rendered card stays in chat (cardkit auto-closes after 10
-        // min); deliver a fresh, complete text reply via send_message.
-        let chunk_preview = match preview {
-            Some(PreviewHandle::Card { .. }) => None,
-            other => other,
-        };
-        report.merge(send_text_chunks(plugin, target, response, chunk_preview, buttons).await);
-    } else {
+    if response_has_text && !card_finalized {
+        let chunk_preview = preview;
+        let text_report =
+            send_text_chunks(plugin, target, response, chunk_preview, content_buttons).await;
+        let can_continue = !text_report.unsafe_to_continue;
+        report.merge(text_report);
+        if !can_continue {
+            return report;
+        }
+    } else if card_finalized {
         report.attempted += 1;
         report.succeeded += 1;
     }
 
-    report.merge(deliver_media_to_chat(plugin, target, pending_media, caps).await);
+    let media_report = deliver_media_to_chat(plugin, target, pending_media, caps).await;
+    let can_continue = !media_report.unsafe_to_continue;
+    report.merge(media_report);
+    if defer_buttons && can_continue {
+        report.merge(deliver_deferred_buttons(plugin, target, buttons).await);
+    }
     report
 }
 
-/// Send a batch of media items through the channel, falling back to a text
-/// download link for unsupported MIME types. Each `send_message` is followed
-/// by a 50 ms gap to stay under per-chat rate limits — Telegram and LINE
-/// both flood-protect tight loops. Used by `send_final_reply`, the
-/// `Split`-mode dispatcher's per-round fan-out, and the stream task's
-/// inline per-round delivery.
+async fn deliver_media_fallback_links(
+    plugin: &Arc<dyn ChannelPlugin>,
+    target: &DeliveryTarget<'_>,
+    items: &[&ha_core::attachments::MediaItem],
+) -> DeliveryReport {
+    let Some(text) = build_media_fallback_lines(items) else {
+        return DeliveryReport::default();
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let fallback_target = DeliveryTarget {
+        account_id: target.account_id,
+        chat_id: target.chat_id,
+        chat_type: target.chat_type,
+        thread_id: target.thread_id,
+        reply_to_message_id: None,
+        recipient_user_id: target.recipient_user_id,
+        recipient_tenant_id: target.recipient_tenant_id,
+    };
+    send_text_chunks(plugin, &fallback_target, &text, None, &[]).await
+}
+
+/// Send media in original attachment order. At most five items are attempted
+/// as standalone provider media; the remaining suffix is retained as link
+/// fallback instead of being dropped. Any attempted send without a confirmed
+/// success stops the ordered sequence: legacy `DeliveryResult` has no typed
+/// zero-delivery proof, so retrying as a link could duplicate accepted media.
 pub(crate) async fn deliver_media_to_chat(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
@@ -2702,22 +3000,31 @@ pub(crate) async fn deliver_media_to_chat(
     }
 
     let channel_id = plugin.meta().id;
-    let (native_items, mut fallback_items) = partition_media_by_channel(items, caps);
-    let mut deliverable_native_items = Vec::with_capacity(native_items.len());
-    for (it, t) in native_items {
-        if native_media_supported_for_target(&channel_id, target.chat_id, it) {
-            deliverable_native_items.push((it, t));
-        } else {
-            fallback_items.push(it);
+    for (index, it) in items.iter().enumerate() {
+        if index >= MAX_MEDIA_PER_TURN {
+            let suffix = items[index..].iter().collect::<Vec<_>>();
+            let fallback = deliver_media_fallback_links(plugin, target, &suffix).await;
+            report.merge(fallback);
+            return report;
         }
-    }
 
-    for (it, t) in &deliverable_native_items {
+        let Some(native_type) = legacy_native_media_type(it, caps)
+            .filter(|_| native_media_supported_for_target(&channel_id, target.chat_id, it))
+        else {
+            let fallback = deliver_media_fallback_links(plugin, target, &[it]).await;
+            let can_continue = !fallback.unsafe_to_continue;
+            report.merge(fallback);
+            if !can_continue {
+                return report;
+            }
+            continue;
+        };
+
         report.attempted += 1;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let payload = ReplyPayload {
             text: None,
-            media: vec![to_outbound_media(it, t.clone(), &channel_id)],
+            media: vec![to_outbound_media(it, native_type, &channel_id)],
             reply_to_message_id: None,
             parse_mode: None,
             buttons: Vec::new(),
@@ -2741,7 +3048,12 @@ pub(crate) async fn deliver_media_to_chat(
                     error
                 );
                 report.failures.push(error);
-                fallback_items.push(*it);
+                // `success=false` is a generic negative result, not proof
+                // that the provider performed no mutation. Without a typed
+                // zero-delivery acknowledgement, link fallback could duplicate
+                // an accepted attachment.
+                report.unsafe_to_continue = true;
+                return report;
             }
             Err(e) => {
                 let error = ha_core::logging::redact_sensitive(&e.to_string());
@@ -2753,26 +3065,11 @@ pub(crate) async fn deliver_media_to_chat(
                     error
                 );
                 report.failures.push(error);
-                fallback_items.push(*it);
+                report.unsafe_to_continue = true;
+                return report;
             }
             Ok(_) => report.succeeded += 1,
         }
-    }
-
-    if let Some(text) = build_media_fallback_lines(&fallback_items) {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        // Route through send_text_chunks so an oversized URL list (lots of
-        // attachments × long URLs) is split per the channel's chunk ceiling.
-        let fallback_target = DeliveryTarget {
-            account_id: target.account_id,
-            chat_id: target.chat_id,
-            chat_type: target.chat_type,
-            thread_id: target.thread_id,
-            reply_to_message_id: None,
-            recipient_user_id: target.recipient_user_id,
-            recipient_tenant_id: target.recipient_tenant_id,
-        };
-        report.merge(send_text_chunks(plugin, &fallback_target, &text, None, &[]).await);
     }
     report
 }
@@ -2892,37 +3189,27 @@ mod tests {
     }
 
     #[test]
-    fn partitions_by_capabilities() {
-        let items = vec![
-            mk_item("a.png", "image/png", MediaKind::Image),
-            mk_item("a.mp4", "video/mp4", MediaKind::File),
-            mk_item("a.pdf", "application/pdf", MediaKind::File),
-        ];
-        // Channel supports only Photo.
-        let (native, fallback) = partition_media_by_channel(&items, &caps(vec![MediaType::Photo]));
-        assert_eq!(native.len(), 1);
-        assert_eq!(native[0].1, MediaType::Photo);
-        assert_eq!(fallback.len(), 2);
+    fn legacy_media_capability_classification_is_per_item() {
+        let photo = mk_item("a.png", "image/png", MediaKind::Image);
+        let video = mk_item("a.mp4", "video/mp4", MediaKind::File);
+        let document = mk_item("a.pdf", "application/pdf", MediaKind::File);
+        let capabilities = caps(vec![MediaType::Photo]);
+
+        assert_eq!(
+            legacy_native_media_type(&photo, &capabilities),
+            Some(MediaType::Photo)
+        );
+        assert_eq!(legacy_native_media_type(&video, &capabilities), None);
+        assert_eq!(legacy_native_media_type(&document, &capabilities), None);
     }
 
     #[test]
     fn animation_falls_back_to_photo_when_channel_lacks_animation() {
-        let items = vec![mk_item("a.gif", "image/gif", MediaKind::Image)];
-        let (native, fallback) = partition_media_by_channel(&items, &caps(vec![MediaType::Photo]));
-        assert_eq!(native.len(), 1);
-        assert_eq!(native[0].1, MediaType::Photo);
-        assert!(fallback.is_empty());
-    }
-
-    #[test]
-    fn drops_media_beyond_max_per_turn() {
-        let items: Vec<_> = (0..(MAX_MEDIA_PER_TURN + 3))
-            .map(|i| mk_item(&format!("f{}.pdf", i), "application/pdf", MediaKind::File))
-            .collect();
-        let (native, fallback) =
-            partition_media_by_channel(&items, &caps(vec![MediaType::Document]));
-        assert_eq!(native.len(), MAX_MEDIA_PER_TURN);
-        assert!(fallback.is_empty());
+        let animation = mk_item("a.gif", "image/gif", MediaKind::Image);
+        assert_eq!(
+            legacy_native_media_type(&animation, &caps(vec![MediaType::Photo])),
+            Some(MediaType::Photo)
+        );
     }
 
     #[test]
@@ -2980,12 +3267,61 @@ mod tests {
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
+    struct RecordingErrorTerminalStream {
+        errors: Arc<Mutex<Vec<String>>>,
+        reject: bool,
+    }
+
+    #[async_trait]
+    impl ha_core::channel::traits::ChannelReplyStream for RecordingErrorTerminalStream {
+        async fn push(
+            &mut self,
+            _frame: &ReplyStreamFrame,
+        ) -> std::result::Result<(), ReplyStreamError> {
+            Ok(())
+        }
+
+        async fn commit(
+            self: Box<Self>,
+            _final_reply: &RichReply,
+        ) -> std::result::Result<RichReplyReceipt, ReplyStreamError> {
+            unreachable!("error-terminal contract must not call commit")
+        }
+
+        async fn fail(
+            self: Box<Self>,
+            error_text: &str,
+        ) -> std::result::Result<(), ReplyStreamError> {
+            self.errors.lock().unwrap().push(error_text.to_string());
+            if self.reject {
+                Err(ReplyStreamError::new(
+                    ReplyStreamErrorKind::Ambiguous,
+                    "synthetic ambiguous native terminal",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn abort(
+            self: Box<Self>,
+            _reason: ReplyAbortReason,
+        ) -> std::result::Result<(), ReplyStreamError> {
+            unreachable!("visible error terminal must not degrade to plain abort")
+        }
+    }
+
     struct CountingPlugin {
         max_bytes: usize,
         sends: Mutex<Vec<String>>,
+        delivery_order: Mutex<Vec<&'static str>>,
         reply_tos: Mutex<Vec<Option<String>>>,
         send_count: AtomicUsize,
         fail_media: bool,
+        error_media: bool,
+        reject_buttons: bool,
+        native_media_limit: Option<u16>,
+        rich_media_count: AtomicUsize,
     }
 
     impl CountingPlugin {
@@ -2993,9 +3329,14 @@ mod tests {
             Self {
                 max_bytes,
                 sends: Mutex::new(Vec::new()),
+                delivery_order: Mutex::new(Vec::new()),
                 reply_tos: Mutex::new(Vec::new()),
                 send_count: AtomicUsize::new(0),
                 fail_media: false,
+                error_media: false,
+                reject_buttons: false,
+                native_media_limit: None,
+                rich_media_count: AtomicUsize::new(0),
             }
         }
 
@@ -3003,9 +3344,59 @@ mod tests {
             Self {
                 max_bytes,
                 sends: Mutex::new(Vec::new()),
+                delivery_order: Mutex::new(Vec::new()),
                 reply_tos: Mutex::new(Vec::new()),
                 send_count: AtomicUsize::new(0),
                 fail_media: true,
+                error_media: false,
+                reject_buttons: false,
+                native_media_limit: None,
+                rich_media_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn erroring_media(max_bytes: usize) -> Self {
+            Self {
+                max_bytes,
+                sends: Mutex::new(Vec::new()),
+                delivery_order: Mutex::new(Vec::new()),
+                reply_tos: Mutex::new(Vec::new()),
+                send_count: AtomicUsize::new(0),
+                fail_media: false,
+                error_media: true,
+                reject_buttons: false,
+                native_media_limit: None,
+                rich_media_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn rejecting_buttons(max_bytes: usize) -> Self {
+            Self {
+                max_bytes,
+                sends: Mutex::new(Vec::new()),
+                delivery_order: Mutex::new(Vec::new()),
+                reply_tos: Mutex::new(Vec::new()),
+                send_count: AtomicUsize::new(0),
+                fail_media: false,
+                error_media: false,
+                reject_buttons: true,
+                native_media_limit: None,
+                rich_media_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn native_media(max_bytes: usize, limit: u16) -> Self {
+            Self {
+                max_bytes,
+                sends: Mutex::new(Vec::new()),
+                delivery_order: Mutex::new(Vec::new()),
+                reply_tos: Mutex::new(Vec::new()),
+                send_count: AtomicUsize::new(0),
+                fail_media: false,
+                error_media: false,
+                reject_buttons: false,
+                native_media_limit: Some(limit),
+                rich_media_count: AtomicUsize::new(0),
             }
         }
 
@@ -3031,6 +3422,24 @@ mod tests {
             let mut c = caps(Vec::new());
             c.chat_types = vec![ChatType::Dm];
             c.streaming_preview_max_bytes = Some(self.max_bytes);
+            c.native_reply = self
+                .native_media_limit
+                .map(|limit| NativeReplyCapabilities {
+                    preview_chat_types: Vec::new(),
+                    final_chat_types: vec![ChatType::Dm],
+                    update_mode: ReplyStreamUpdateMode::Snapshot,
+                    preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+                    requires_reply_anchor: false,
+                    requires_recipient_user_id: false,
+                    requires_recipient_tenant_id: false,
+                    supports_task_updates: false,
+                    supports_plan_updates: false,
+                    supports_blocks: true,
+                    embedded_media_types: vec![MediaType::Document],
+                    max_embedded_media_items: Some(limit),
+                    refresh_after_secs: None,
+                    max_delta_chars: None,
+                });
             c
         }
 
@@ -3054,8 +3463,21 @@ mod tests {
             payload: &ReplyPayload,
         ) -> Result<DeliveryResult> {
             let n = self.send_count.fetch_add(1, Ordering::SeqCst) + 1;
+            self.delivery_order
+                .lock()
+                .unwrap()
+                .push(if !payload.buttons.is_empty() {
+                    "buttons"
+                } else if !payload.media.is_empty() {
+                    "media"
+                } else {
+                    "text"
+                });
             if !payload.media.is_empty() && self.fail_media {
                 return Ok(DeliveryResult::err("native media failed"));
+            }
+            if !payload.media.is_empty() && self.error_media {
+                anyhow::bail!("ambiguous native media error");
             }
             if let Some(text) = payload.text.as_ref() {
                 self.sends.lock().unwrap().push(text.clone());
@@ -3069,6 +3491,39 @@ mod tests {
 
         async fn send_typing(&self, _account_id: &str, _chat_id: &str) -> Result<()> {
             Ok(())
+        }
+
+        fn validate_reply_buttons(
+            &self,
+            _buttons: &[Vec<InlineButton>],
+        ) -> std::result::Result<(), ReplyStreamError> {
+            if self.reject_buttons {
+                Err(ReplyStreamError::new(
+                    ReplyStreamErrorKind::InvalidContent,
+                    "synthetic invalid buttons",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn send_rich_reply(
+            &self,
+            _target: &ReplyStreamTarget,
+            reply: &RichReply,
+        ) -> std::result::Result<RichReplyReceipt, ReplyStreamError> {
+            if self.native_media_limit.is_none() {
+                return Err(ReplyStreamError::unsupported(
+                    "synthetic native final is disabled",
+                ));
+            }
+            self.delivery_order.lock().unwrap().push("native");
+            self.rich_media_count
+                .store(reply.media.len(), Ordering::SeqCst);
+            Ok(RichReplyReceipt {
+                message_id: "native-final".to_string(),
+                consumed_media: (0..reply.media.len()).collect(),
+            })
         }
 
         async fn probe(&self, _account: &ChannelAccountConfig) -> Result<ChannelHealth> {
@@ -3086,6 +3541,144 @@ mod tests {
         async fn validate_credentials(&self, _credentials: &serde_json::Value) -> Result<String> {
             Ok("test-bot".to_string())
         }
+    }
+
+    #[tokio::test]
+    async fn native_error_terminates_same_stream_without_standalone_send() {
+        let terminal_errors = Arc::new(Mutex::new(Vec::new()));
+        let session: super::super::streaming::SharedNativeReplySession = Arc::new(
+            tokio::sync::Mutex::new(Some(Box::new(RecordingErrorTerminalStream {
+                errors: terminal_errors.clone(),
+                reject: false,
+            }))),
+        );
+        let preview = PreviewHandle::Native {
+            session,
+            state: Arc::new(std::sync::atomic::AtomicU8::new(NATIVE_ACTIVE)),
+            terminal_owner: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+        };
+        let concrete = Arc::new(CountingPlugin::new(4096));
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: Some("incoming"),
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+
+        let report = send_error_reply(&plugin, &target, Some(&preview), "terminal error").await;
+
+        assert!(report.is_success());
+        assert_eq!(
+            terminal_errors.lock().unwrap().as_slice(),
+            ["terminal error"]
+        );
+        assert!(
+            concrete.sends.lock().unwrap().is_empty(),
+            "native error terminal must not open a standalone legacy message"
+        );
+        assert_eq!(concrete.send_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn selected_native_error_sends_exactly_one_safe_standalone() {
+        let state = Arc::new(std::sync::atomic::AtomicU8::new(NATIVE_SELECTED));
+        let terminal_owner = Arc::new(std::sync::atomic::AtomicU8::new(0));
+        let preview = PreviewHandle::Native {
+            session: Arc::new(tokio::sync::Mutex::new(None)),
+            state: state.clone(),
+            terminal_owner: terminal_owner.clone(),
+            preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+        };
+        let concrete = Arc::new(CountingPlugin::new(4096));
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: Some("incoming"),
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+
+        let report = send_error_reply(&plugin, &target, Some(&preview), "terminal error").await;
+
+        assert!(report.is_success());
+        assert_eq!(
+            concrete.sends.lock().unwrap().as_slice(),
+            ["terminal error"]
+        );
+        assert_eq!(concrete.send_count.load(Ordering::SeqCst), 1);
+        assert_eq!(state.load(Ordering::Acquire), NATIVE_TERMINAL);
+        assert!(!try_claim_native_final(&terminal_owner));
+    }
+
+    #[tokio::test]
+    async fn opening_or_ambiguous_native_error_never_uses_standalone() {
+        for lifecycle in [NATIVE_OPENING, NATIVE_AMBIGUOUS] {
+            let preview = PreviewHandle::Native {
+                session: Arc::new(tokio::sync::Mutex::new(None)),
+                state: Arc::new(std::sync::atomic::AtomicU8::new(lifecycle)),
+                terminal_owner: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+                preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+            };
+            let concrete = Arc::new(CountingPlugin::new(4096));
+            let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+            let target = DeliveryTarget {
+                account_id: "acc",
+                chat_id: "chat",
+                chat_type: &ChatType::Dm,
+                thread_id: None,
+                reply_to_message_id: Some("incoming"),
+                recipient_user_id: None,
+                recipient_tenant_id: None,
+            };
+
+            let report = send_error_reply(&plugin, &target, Some(&preview), "terminal error").await;
+
+            assert!(!report.is_success());
+            assert!(report.unsafe_to_continue);
+            assert_eq!(concrete.send_count.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn ambiguous_native_error_suppresses_standalone_fallback() {
+        let session: super::super::streaming::SharedNativeReplySession = Arc::new(
+            tokio::sync::Mutex::new(Some(Box::new(RecordingErrorTerminalStream {
+                errors: Arc::new(Mutex::new(Vec::new())),
+                reject: true,
+            }))),
+        );
+        let preview = PreviewHandle::Native {
+            session,
+            state: Arc::new(std::sync::atomic::AtomicU8::new(NATIVE_ACTIVE)),
+            terminal_owner: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+        };
+        let concrete = Arc::new(CountingPlugin::new(4096));
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: Some("incoming"),
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+
+        let report = send_error_reply(&plugin, &target, Some(&preview), "terminal error").await;
+
+        assert!(!report.is_success());
+        assert!(report.unsafe_to_continue);
+        assert!(concrete.sends.lock().unwrap().is_empty());
+        assert_eq!(concrete.send_count.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -3184,7 +3777,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn final_preview_edit_error_falls_back_to_a_complete_send() {
+    async fn final_preview_edit_error_suppresses_an_ambiguous_duplicate_send() {
         let plugin_concrete = Arc::new(CountingPlugin::new(4096));
         let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
         let target = DeliveryTarget {
@@ -3208,15 +3801,13 @@ mod tests {
         )
         .await;
 
-        assert!(report.is_success());
-        assert_eq!(
-            plugin_concrete.sends.lock().unwrap().as_slice(),
-            ["complete answer"]
-        );
+        assert!(!report.is_success());
+        assert!(report.unsafe_to_continue);
+        assert!(plugin_concrete.sends.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
-    async fn deliver_media_falls_back_when_native_send_fails() {
+    async fn unacknowledged_media_send_suppresses_unsafe_link_fallback() {
         let plugin_concrete = Arc::new(CountingPlugin::failing_media(4096));
         let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
         let items = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
@@ -3234,12 +3825,359 @@ mod tests {
         let report = deliver_media_to_chat(&plugin, &target, &items, &caps).await;
 
         let sends = plugin_concrete.sends.lock().unwrap().clone();
-        assert_eq!(sends.len(), 1);
-        assert!(sends[0].contains("Attachments"));
-        assert!(sends[0].contains("x.pdf"));
+        assert!(sends.is_empty());
         assert!(!report.is_success());
-        assert_eq!(report.attempted, 2);
-        assert_eq!(report.succeeded, 1);
+        assert!(report.unsafe_to_continue);
+        assert_eq!(report.attempted, 1);
+        assert_eq!(report.succeeded, 0);
         assert_eq!(report.failures, vec!["native media failed"]);
+    }
+
+    #[test]
+    fn native_media_budget_is_explicit_and_bounded() {
+        let mut native = NativeReplyCapabilities {
+            preview_chat_types: Vec::new(),
+            final_chat_types: Vec::new(),
+            update_mode: ReplyStreamUpdateMode::Snapshot,
+            preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+            requires_reply_anchor: false,
+            requires_recipient_user_id: false,
+            requires_recipient_tenant_id: false,
+            supports_task_updates: false,
+            supports_plan_updates: false,
+            supports_blocks: true,
+            embedded_media_types: vec![MediaType::Photo],
+            max_embedded_media_items: None,
+            refresh_after_secs: None,
+            max_delta_chars: None,
+        };
+        assert_eq!(native_media_budget(&native), 0);
+
+        native.max_embedded_media_items = Some(50);
+        assert_eq!(native_media_budget(&native), 50);
+
+        native.max_embedded_media_items = Some(u16::MAX);
+        assert_eq!(native_media_budget(&native), MAX_NATIVE_MEDIA_PER_TURN);
+    }
+
+    #[test]
+    fn native_receipt_requires_message_id_and_ordered_media_prefix() {
+        let valid = RichReplyReceipt {
+            message_id: "m1".to_string(),
+            consumed_media: vec![0, 1],
+        };
+        assert_eq!(validate_native_receipt(&valid, 2), Ok(2));
+
+        let empty_message_id = RichReplyReceipt {
+            message_id: "  ".to_string(),
+            consumed_media: Vec::new(),
+        };
+        assert!(validate_native_receipt(&empty_message_id, 0).is_err());
+
+        for malformed in [vec![1, 0], vec![0, 0], vec![0, 2], vec![0, 1, 2]] {
+            let receipt = RichReplyReceipt {
+                message_id: "m1".to_string(),
+                consumed_media: malformed,
+            };
+            assert!(validate_native_receipt(&receipt, 2).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn native_media_cap_keeps_the_full_legacy_suffix() {
+        let plugin_concrete = Arc::new(CountingPlugin::native_media(4096, 50));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let media: Vec<_> = (0..55)
+            .map(|index| mk_item(&format!("f{index}.pdf"), "application/pdf", MediaKind::File))
+            .collect();
+        let capabilities = plugin.capabilities();
+
+        let report = send_final_reply(
+            &plugin,
+            &target,
+            "complete answer",
+            None,
+            &media,
+            &[],
+            true,
+            &capabilities,
+        )
+        .await;
+
+        assert!(report.is_success());
+        assert_eq!(plugin_concrete.rich_media_count.load(Ordering::SeqCst), 50);
+        assert_eq!(
+            plugin_concrete.delivery_order.lock().unwrap().as_slice(),
+            ["native", "text", "text", "text", "text", "text"]
+        );
+        let sends = plugin_concrete.sends.lock().unwrap().join("\n");
+        for name in ["f50.pdf", "f51.pdf", "f52.pdf", "f53.pdf", "f54.pdf"] {
+            assert!(sends.contains(name));
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_deferred_buttons_fail_before_any_terminal_mutation() {
+        let plugin_concrete = Arc::new(CountingPlugin::rejecting_buttons(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: Some("incoming"),
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let media = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
+        let buttons = vec![vec![InlineButton {
+            text: "invalid".to_string(),
+            callback_data: Some("invalid".to_string()),
+            url: None,
+        }]];
+
+        let report = send_final_reply(
+            &plugin,
+            &target,
+            "complete answer",
+            None,
+            &media,
+            &buttons,
+            false,
+            &caps(vec![MediaType::Document]),
+        )
+        .await;
+
+        assert!(!report.is_success());
+        assert!(report.unsafe_to_continue);
+        assert_eq!(report.attempted, 1);
+        assert_eq!(plugin_concrete.send_count.load(Ordering::SeqCst), 0);
+        assert!(plugin_concrete.delivery_order.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn ambiguous_media_error_stops_fallback_and_terminal_buttons() {
+        let plugin_concrete = Arc::new(CountingPlugin::erroring_media(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: Some("thread"),
+            reply_to_message_id: Some("incoming"),
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let media = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
+        let buttons = vec![vec![InlineButton {
+            text: "Continue".to_string(),
+            callback_data: Some("continue".to_string()),
+            url: None,
+        }]];
+
+        let report = send_final_reply(
+            &plugin,
+            &target,
+            "complete answer",
+            None,
+            &media,
+            &buttons,
+            false,
+            &caps(vec![MediaType::Document]),
+        )
+        .await;
+
+        assert!(!report.is_success());
+        assert!(report.unsafe_to_continue);
+        assert_eq!(
+            plugin_concrete.delivery_order.lock().unwrap().as_slice(),
+            ["text", "media"]
+        );
+        assert_eq!(
+            plugin_concrete.sends.lock().unwrap().as_slice(),
+            ["complete answer"]
+        );
+    }
+
+    #[tokio::test]
+    async fn mixed_legacy_media_preserves_fallback_then_native_order() {
+        let plugin_concrete = Arc::new(CountingPlugin::new(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let media = vec![
+            mk_item("first.png", "image/png", MediaKind::Image),
+            mk_item("second.pdf", "application/pdf", MediaKind::File),
+        ];
+
+        let report =
+            deliver_media_to_chat(&plugin, &target, &media, &caps(vec![MediaType::Document])).await;
+
+        assert!(report.is_success());
+        assert_eq!(
+            plugin_concrete.delivery_order.lock().unwrap().as_slice(),
+            ["text", "media"]
+        );
+        let sends = plugin_concrete.sends.lock().unwrap();
+        assert_eq!(sends.len(), 1);
+        assert!(sends[0].contains("first.png"));
+    }
+
+    #[tokio::test]
+    async fn legacy_media_over_five_retains_the_ordered_suffix_as_links() {
+        let plugin_concrete = Arc::new(CountingPlugin::new(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let media: Vec<_> = (0..8)
+            .map(|index| mk_item(&format!("f{index}.pdf"), "application/pdf", MediaKind::File))
+            .collect();
+
+        let report =
+            deliver_media_to_chat(&plugin, &target, &media, &caps(vec![MediaType::Document])).await;
+
+        assert!(report.is_success());
+        assert_eq!(
+            plugin_concrete.delivery_order.lock().unwrap().as_slice(),
+            ["media", "media", "media", "media", "media", "text"]
+        );
+        let sends = plugin_concrete.sends.lock().unwrap();
+        assert_eq!(sends.len(), 1);
+        for name in ["f5.pdf", "f6.pdf", "f7.pdf"] {
+            assert!(sends[0].contains(name));
+        }
+    }
+
+    #[tokio::test]
+    async fn media_only_final_skips_the_empty_text_lane() {
+        let plugin_concrete = Arc::new(CountingPlugin::new(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let media = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
+
+        let report = send_final_reply(
+            &plugin,
+            &target,
+            "",
+            None,
+            &media,
+            &[],
+            false,
+            &caps(vec![MediaType::Document]),
+        )
+        .await;
+
+        assert!(report.is_success());
+        assert_eq!(
+            plugin_concrete.delivery_order.lock().unwrap().as_slice(),
+            ["media"]
+        );
+    }
+
+    #[tokio::test]
+    async fn media_only_unsupported_item_uses_link_without_empty_message() {
+        let plugin_concrete = Arc::new(CountingPlugin::new(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let media = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
+
+        let report = send_final_reply(
+            &plugin,
+            &target,
+            "",
+            None,
+            &media,
+            &[],
+            false,
+            &caps(Vec::new()),
+        )
+        .await;
+
+        assert!(report.is_success());
+        assert_eq!(
+            plugin_concrete.delivery_order.lock().unwrap().as_slice(),
+            ["text"]
+        );
+        assert!(plugin_concrete.sends.lock().unwrap()[0].contains("x.pdf"));
+    }
+
+    #[tokio::test]
+    async fn final_buttons_follow_all_legacy_media() {
+        let plugin_concrete = Arc::new(CountingPlugin::new(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            chat_type: &ChatType::Dm,
+            thread_id: Some("thread"),
+            reply_to_message_id: Some("incoming"),
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let media = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
+        let buttons = vec![vec![InlineButton {
+            text: "Continue".to_string(),
+            callback_data: Some("continue".to_string()),
+            url: None,
+        }]];
+        let caps = caps(vec![MediaType::Document]);
+
+        let report = send_final_reply(
+            &plugin,
+            &target,
+            "complete answer",
+            None,
+            &media,
+            &buttons,
+            false,
+            &caps,
+        )
+        .await;
+
+        assert!(report.is_success());
+        assert_eq!(
+            plugin_concrete.delivery_order.lock().unwrap().as_slice(),
+            ["text", "media", "buttons"]
+        );
+        assert_eq!(plugin_concrete.last_reply_to(), Some(None));
     }
 }

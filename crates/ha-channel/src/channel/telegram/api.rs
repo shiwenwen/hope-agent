@@ -1,5 +1,8 @@
-use crate::channel::types::InlineButton;
+use crate::channel::types::{InlineButton, ReplyStreamError, ReplyStreamErrorKind};
 use anyhow::{Context, Result};
+use ha_core::security::http_stream::read_bytes_capped;
+use serde::Deserialize;
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use teloxide::adaptors::{throttle::Limits, Throttle};
@@ -12,6 +15,127 @@ use teloxide::types::{
 
 type ThrottledBot = Throttle<Bot>;
 
+/// `sendRichMessage` returns a complete `Message`, including the accepted rich
+/// document. A legal 32,768-character payload can exceed 128 KiB after UTF-8,
+/// JSON structure, 500 blocks, and media metadata. Keep a bounded 2 MiB window
+/// plus one sentinel byte so valid acknowledgements are not misclassified as
+/// ambiguous while hostile/custom endpoints still cannot grow memory without
+/// limit.
+const TELEGRAM_RICH_RESPONSE_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+/// A named multipart upload referenced from a rich-message body as
+/// `attach://<name>`.
+pub(crate) struct RichUpload {
+    pub(crate) name: String,
+    pub(crate) filename: String,
+    pub(crate) mime_type: Option<String>,
+    pub(crate) bytes: Vec<u8>,
+}
+
+impl std::fmt::Debug for RichUpload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RichUpload")
+            .field("name", &self.name)
+            .field("filename", &self.filename)
+            .field("mime_type", &self.mime_type)
+            .field("bytes_len", &self.bytes.len())
+            .finish()
+    }
+}
+
+/// Minimal projection of the `Message` returned by `sendRichMessage`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RichApiMessage {
+    pub(crate) message_id: i64,
+}
+
+/// Telegram's structured error hints. They are diagnostic only: rich-message
+/// mutations are deliberately never retried by this API layer.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub(crate) struct TelegramRichResponseParameters {
+    #[serde(default)]
+    pub(crate) migrate_to_chat_id: Option<i64>,
+    #[serde(default)]
+    pub(crate) retry_after: Option<u64>,
+}
+
+/// Delivery-aware error returned by the raw rich-message endpoints.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct TelegramRichApiError {
+    pub(crate) kind: ReplyStreamErrorKind,
+    pub(crate) http_status: Option<u16>,
+    pub(crate) error_code: Option<i64>,
+    pub(crate) parameters: TelegramRichResponseParameters,
+    message: String,
+}
+
+impl TelegramRichApiError {
+    fn new(
+        kind: ReplyStreamErrorKind,
+        http_status: Option<u16>,
+        error_code: Option<i64>,
+        parameters: TelegramRichResponseParameters,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            http_status,
+            error_code,
+            parameters,
+            message: ha_core::logging::redact_sensitive(&message.into()),
+        }
+    }
+
+    fn invalid_content(message: impl Into<String>) -> Self {
+        Self::new(
+            ReplyStreamErrorKind::InvalidContent,
+            None,
+            None,
+            TelegramRichResponseParameters::default(),
+            message,
+        )
+    }
+
+    pub(crate) fn into_reply_stream_error(self) -> ReplyStreamError {
+        ReplyStreamError::new(self.kind, self.message)
+    }
+}
+
+impl std::fmt::Display for TelegramRichApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::fmt::Debug for TelegramRichApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TelegramRichApiError")
+            .field("kind", &self.kind)
+            .field("http_status", &self.http_status)
+            .field("error_code", &self.error_code)
+            .field("parameters", &self.parameters)
+            .field("message", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl std::error::Error for TelegramRichApiError {}
+
+type TelegramRichApiResult<T> = std::result::Result<T, TelegramRichApiError>;
+
+#[derive(Debug, Deserialize)]
+struct TelegramRichEnvelope {
+    ok: Option<bool>,
+    #[serde(default)]
+    result: Option<serde_json::Value>,
+    #[serde(default)]
+    error_code: Option<i64>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    parameters: Option<TelegramRichResponseParameters>,
+}
+
 /// Thin wrapper around teloxide's `Bot` to isolate framework details.
 pub struct TelegramBotApi {
     bot: ThrottledBot,
@@ -23,6 +147,10 @@ pub struct TelegramBotApi {
     /// + cleanup) instead of teloxide's downloader which has neither.
     http_client: reqwest::Client,
     draft_preview_enabled: AtomicBool,
+    // The official cloud endpoint tracks the current Bot API. A custom root
+    // has no capability endpoint, so it conservatively uses the 10.1 HTML
+    // representation instead of assuming 10.2 structured blocks.
+    prefers_rich_blocks: bool,
 }
 
 impl TelegramBotApi {
@@ -36,6 +164,7 @@ impl TelegramBotApi {
     /// `bot.set_api_url(url)`），与官方注释"respects custom apiRoot"对齐。
     pub async fn new(token: &str, proxy_url: Option<&str>, api_root: Option<&str>) -> Result<Self> {
         let api_root = validate_api_root(api_root).await?;
+        let prefers_rich_blocks = api_root.is_none();
 
         // Build a custom reqwest client with timeouts.
         // connect_timeout: fail fast if the server is unreachable (10s)
@@ -68,12 +197,20 @@ impl TelegramBotApi {
             bot,
             http_client: client,
             draft_preview_enabled: AtomicBool::new(true),
+            prefers_rich_blocks,
         })
     }
 
     /// Get the underlying teloxide Bot reference.
     pub fn bot(&self) -> &Bot {
         self.bot.inner()
+    }
+
+    /// Use Bot API 10.2 structured blocks only for the official cloud root.
+    /// Custom roots have no version/capability endpoint and remain on the
+    /// Bot API 10.1 Rich HTML shape.
+    pub(crate) fn prefers_rich_blocks(&self) -> bool {
+        self.prefers_rich_blocks
     }
 
     /// Verify the bot token and return bot info.
@@ -106,14 +243,20 @@ impl TelegramBotApi {
             req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
         }
         if !buttons.is_empty() {
-            let keyboard = build_inline_keyboard(buttons);
+            // Fail locally before the one non-idempotent mutation. Never
+            // replace an invalid destination with an unrelated URL.
+            let keyboard = build_inline_keyboard(buttons)?;
             req = req.reply_markup(keyboard);
         }
 
         req.await.map_err(|e| self.request_error("sendMessage", e))
     }
 
-    /// Send a text message with optional inline buttons, falling back to plain text if parse mode fails.
+    /// Send formatter-produced safe HTML exactly once.
+    ///
+    /// The legacy method name is retained for call-site compatibility, but a
+    /// mutation must never be followed by a fallback send: timeout, transport,
+    /// and 5xx errors can all arrive after Telegram accepted the first message.
     pub async fn send_text_with_fallback(
         &self,
         chat_id: i64,
@@ -122,26 +265,15 @@ impl TelegramBotApi {
         thread_id: Option<i32>,
         buttons: &[Vec<InlineButton>],
     ) -> Result<teloxide::types::Message> {
-        // Try with HTML first
-        match self
-            .send_text(
-                chat_id,
-                text,
-                Some(TgParseMode::Html),
-                reply_to,
-                thread_id,
-                buttons,
-            )
-            .await
-        {
-            Ok(msg) => Ok(msg),
-            Err(_) => {
-                // Fallback: strip HTML tags and send as plain text
-                let plain = strip_html_tags(text);
-                self.send_text(chat_id, &plain, None, reply_to, thread_id, buttons)
-                    .await
-            }
-        }
+        self.send_text(
+            chat_id,
+            text,
+            Some(TgParseMode::Html),
+            reply_to,
+            thread_id,
+            buttons,
+        )
+        .await
     }
 
     /// Send a typing indicator (chat action).
@@ -179,6 +311,151 @@ impl TelegramBotApi {
             .await
             .map_err(|e| self.request_error("deleteMessage", e))?;
         Ok(())
+    }
+
+    /// Stream a partial rich message. The endpoint accepts JSON only; direct
+    /// uploads and unresolved `attach://` references are rejected locally.
+    /// `Ok(false)` is a negative acknowledgement: callers must not open or
+    /// advance a preview stream unless the returned value is `true`.
+    pub(crate) async fn send_rich_message_draft(
+        &self,
+        body: serde_json::Value,
+    ) -> TelegramRichApiResult<bool> {
+        ensure_rich_body_object(&body)?;
+        if !collect_attach_names(&body)?.is_empty() {
+            return Err(TelegramRichApiError::invalid_content(
+                "Telegram sendRichMessageDraft does not support direct file uploads",
+            ));
+        }
+
+        let method = "sendRichMessageDraft";
+        let url = self.rich_method_url(method);
+        let request = self.http_client.post(url).json(&body);
+        let envelope = self.execute_rich_request(method, request).await?;
+        envelope
+            .result
+            .and_then(|result| result.as_bool())
+            .ok_or_else(|| {
+                self.rich_ambiguous_error(
+                    method,
+                    "success response did not contain a Boolean result",
+                )
+            })
+    }
+
+    /// Persist a rich message using JSON when no upload is present, otherwise
+    /// multipart/form-data. `body` is the complete Bot API request body.
+    pub(crate) async fn send_rich_message(
+        &self,
+        body: serde_json::Value,
+        uploads: Vec<RichUpload>,
+    ) -> TelegramRichApiResult<RichApiMessage> {
+        validate_rich_upload_contract(&body, &uploads)?;
+
+        let method = "sendRichMessage";
+        let url = self.rich_method_url(method);
+        let request = if uploads.is_empty() {
+            self.http_client.post(url).json(&body)
+        } else {
+            let form = build_rich_multipart_form(body, uploads)?;
+            self.http_client.post(url).multipart(form)
+        };
+        let envelope = self.execute_rich_request(method, request).await?;
+        let message_id = envelope
+            .result
+            .and_then(|result| result.get("message_id").and_then(serde_json::Value::as_i64))
+            .ok_or_else(|| {
+                self.rich_ambiguous_error(method, "success response did not contain a message_id")
+            })?;
+        Ok(RichApiMessage { message_id })
+    }
+
+    fn rich_method_url(&self, method: &str) -> String {
+        let api_url_owned = self.bot.inner().api_url();
+        let api_url = api_url_owned.as_str().trim_end_matches('/');
+        format!("{}/bot{}/{}", api_url, self.bot.inner().token(), method)
+    }
+
+    /// Execute one non-idempotent Telegram mutation exactly once.
+    async fn execute_rich_request(
+        &self,
+        method: &str,
+        request: reqwest::RequestBuilder,
+    ) -> TelegramRichApiResult<TelegramRichEnvelope> {
+        let response = request.send().await.map_err(|error| {
+            self.rich_ambiguous_error(method, &format!("request failed: {error}"))
+        })?;
+        let status = response.status();
+
+        // 5xx and redirects can arrive after the upstream accepted a mutation.
+        // Never parse them into a fallback-safe error and never retry.
+        if status.is_server_error() || (!status.is_success() && !status.is_client_error()) {
+            return Err(telegram_rich_ambiguous_response_error(
+                method,
+                status,
+                &format!("returned HTTP {status}"),
+                self.bot.inner().token(),
+            ));
+        }
+
+        let bytes =
+            match read_bytes_capped(response, TELEGRAM_RICH_RESPONSE_MAX_BYTES.saturating_add(1))
+                .await
+            {
+                Ok(bytes) => bytes,
+                Err(_) if status.is_client_error() => {
+                    return Err(telegram_rich_rejection_error(
+                        method,
+                        status,
+                        None,
+                        self.bot.inner().token(),
+                    ));
+                }
+                Err(error) => {
+                    return Err(telegram_rich_ambiguous_response_error(
+                        method,
+                        status,
+                        &format!("could not read the response: {error}"),
+                        self.bot.inner().token(),
+                    ));
+                }
+            };
+
+        if bytes.len() > TELEGRAM_RICH_RESPONSE_MAX_BYTES {
+            // A 4xx proves Telegram rejected the request even if its diagnostic
+            // body is hostile or oversized. A 2xx body is part of the mutation
+            // acknowledgement, so truncation makes the outcome ambiguous.
+            if status.is_client_error() {
+                return Err(telegram_rich_rejection_error(
+                    method,
+                    status,
+                    None,
+                    self.bot.inner().token(),
+                ));
+            }
+            return Err(telegram_rich_ambiguous_response_error(
+                method,
+                status,
+                "response body exceeded the safe size limit",
+                self.bot.inner().token(),
+            ));
+        }
+
+        decode_telegram_rich_envelope(method, status, &bytes, self.bot.inner().token())
+    }
+
+    fn rich_ambiguous_error(&self, method: &str, detail: &str) -> TelegramRichApiError {
+        let detail = redact_telegram_error(detail, self.bot.inner().token());
+        TelegramRichApiError::new(
+            ReplyStreamErrorKind::Ambiguous,
+            None,
+            None,
+            TelegramRichResponseParameters::default(),
+            format!(
+                "Telegram {method} delivery outcome is ambiguous: {}",
+                ha_core::truncate_utf8(&detail, 1000)
+            ),
+        )
     }
 
     /// Send a message draft for streaming (Bot API 9.3+).
@@ -545,6 +822,289 @@ fn redact_telegram_error(message: &str, token: &str) -> String {
     ha_core::logging::redact_sensitive(&without_token)
 }
 
+fn ensure_rich_body_object(body: &serde_json::Value) -> TelegramRichApiResult<()> {
+    if body.is_object() {
+        Ok(())
+    } else {
+        Err(TelegramRichApiError::invalid_content(
+            "Telegram rich-message request body must be a JSON object",
+        ))
+    }
+}
+
+fn valid_attach_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn collect_attach_names(body: &serde_json::Value) -> TelegramRichApiResult<BTreeSet<String>> {
+    // InputRichMessage can contain InputMedia objects at arbitrary nesting
+    // depths. Only these InputMedia fields accept `attach://`; rich text,
+    // captions, callback data, and other ordinary strings do not.
+    fn is_file_reference_field(name: &str) -> bool {
+        matches!(name, "media" | "thumbnail" | "cover" | "photo")
+    }
+
+    fn visit(
+        value: &serde_json::Value,
+        field_name: Option<&str>,
+        names: &mut BTreeSet<String>,
+    ) -> TelegramRichApiResult<()> {
+        match value {
+            serde_json::Value::String(value) => {
+                if field_name.is_some_and(is_file_reference_field) {
+                    let Some(name) = value.strip_prefix("attach://") else {
+                        return Ok(());
+                    };
+                    if !valid_attach_name(name) {
+                        return Err(TelegramRichApiError::invalid_content(
+                            "Telegram rich-message attachment name must match [A-Za-z0-9_-]{1,64}",
+                        ));
+                    }
+                    names.insert(name.to_string());
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    visit(value, field_name, names)?;
+                }
+            }
+            serde_json::Value::Object(values) => {
+                for (name, value) in values {
+                    visit(value, Some(name), names)?;
+                }
+            }
+            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            }
+        }
+        Ok(())
+    }
+
+    ensure_rich_body_object(body)?;
+    let mut names = BTreeSet::new();
+    if let Some(rich_message) = body.get("rich_message") {
+        visit(rich_message, None, &mut names)?;
+    }
+    Ok(names)
+}
+
+fn validate_rich_upload_contract(
+    body: &serde_json::Value,
+    uploads: &[RichUpload],
+) -> TelegramRichApiResult<()> {
+    ensure_rich_body_object(body)?;
+    let references = collect_attach_names(body)?;
+    let top_level = body.as_object().expect("body shape checked above");
+    let mut upload_names = BTreeSet::new();
+
+    for upload in uploads {
+        if !valid_attach_name(&upload.name) {
+            return Err(TelegramRichApiError::invalid_content(
+                "Telegram rich-message upload name must match [A-Za-z0-9_-]{1,64}",
+            ));
+        }
+        if !upload_names.insert(upload.name.clone()) {
+            return Err(TelegramRichApiError::invalid_content(
+                "Telegram rich-message upload names must be unique",
+            ));
+        }
+        if top_level.contains_key(&upload.name) {
+            return Err(TelegramRichApiError::invalid_content(
+                "Telegram rich-message upload name conflicts with a request field",
+            ));
+        }
+        if upload.filename.is_empty() || upload.filename.chars().any(char::is_control) {
+            return Err(TelegramRichApiError::invalid_content(
+                "Telegram rich-message upload filename is invalid",
+            ));
+        }
+        if upload.bytes.is_empty() {
+            return Err(TelegramRichApiError::invalid_content(
+                "Telegram rich-message uploads must not be empty",
+            ));
+        }
+    }
+
+    if references != upload_names {
+        return Err(TelegramRichApiError::invalid_content(
+            "Telegram rich-message attach references and multipart uploads must match exactly",
+        ));
+    }
+    Ok(())
+}
+
+fn rich_multipart_text_fields(
+    body: &serde_json::Value,
+) -> TelegramRichApiResult<Vec<(String, String)>> {
+    ensure_rich_body_object(body)?;
+    let mut fields = Vec::new();
+    for (name, value) in body.as_object().expect("body shape checked above") {
+        let value = match value {
+            serde_json::Value::Null => continue,
+            serde_json::Value::String(value) => value.clone(),
+            serde_json::Value::Bool(value) => value.to_string(),
+            serde_json::Value::Number(value) => value.to_string(),
+            serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+                serde_json::to_string(value).map_err(|_| {
+                    TelegramRichApiError::invalid_content(
+                        "Telegram rich-message request contains an invalid JSON field",
+                    )
+                })?
+            }
+        };
+        fields.push((name.clone(), value));
+    }
+    Ok(fields)
+}
+
+fn build_rich_multipart_form(
+    body: serde_json::Value,
+    uploads: Vec<RichUpload>,
+) -> TelegramRichApiResult<reqwest::multipart::Form> {
+    // Keep this validation inside the builder as a second boundary even when
+    // callers have already selected multipart via `send_rich_message`.
+    validate_rich_upload_contract(&body, &uploads)?;
+    let mut form = reqwest::multipart::Form::new();
+    for (name, value) in rich_multipart_text_fields(&body)? {
+        form = form.text(name, value);
+    }
+    for upload in uploads {
+        let mut part = reqwest::multipart::Part::bytes(upload.bytes).file_name(upload.filename);
+        if let Some(mime_type) = upload
+            .mime_type
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            part = part.mime_str(mime_type).map_err(|_| {
+                TelegramRichApiError::invalid_content(
+                    "Telegram rich-message upload MIME type is invalid",
+                )
+            })?;
+        }
+        form = form.part(upload.name, part);
+    }
+    Ok(form)
+}
+
+fn classify_telegram_rejection(code: i64) -> ReplyStreamErrorKind {
+    match code {
+        404 => ReplyStreamErrorKind::Unsupported,
+        429 => ReplyStreamErrorKind::RateLimited,
+        500..=599 => ReplyStreamErrorKind::Ambiguous,
+        _ => ReplyStreamErrorKind::Rejected,
+    }
+}
+
+fn telegram_rich_ambiguous_response_error(
+    method: &str,
+    status: reqwest::StatusCode,
+    detail: &str,
+    token: &str,
+) -> TelegramRichApiError {
+    let detail = redact_telegram_error(detail, token);
+    TelegramRichApiError::new(
+        ReplyStreamErrorKind::Ambiguous,
+        Some(status.as_u16()),
+        None,
+        TelegramRichResponseParameters::default(),
+        format!(
+            "Telegram {method} delivery outcome is ambiguous: {}",
+            ha_core::truncate_utf8(&detail, 1000)
+        ),
+    )
+}
+
+fn telegram_rich_rejection_error(
+    method: &str,
+    status: reqwest::StatusCode,
+    envelope: Option<&TelegramRichEnvelope>,
+    token: &str,
+) -> TelegramRichApiError {
+    let error_code = envelope.and_then(|envelope| envelope.error_code);
+    let classification_code = if status.is_client_error() {
+        i64::from(status.as_u16())
+    } else {
+        error_code.unwrap_or_default()
+    };
+    let parameters = envelope
+        .and_then(|envelope| envelope.parameters.clone())
+        .unwrap_or_default();
+    let description = envelope
+        .and_then(|envelope| envelope.description.as_deref())
+        .map(|description| redact_telegram_error(description, token));
+    let detail = description
+        .as_deref()
+        .map(|description| ha_core::truncate_utf8(description, 500))
+        .unwrap_or("request was rejected");
+
+    TelegramRichApiError::new(
+        classify_telegram_rejection(classification_code),
+        Some(status.as_u16()),
+        error_code,
+        parameters,
+        format!("Telegram {method} rejected the request (HTTP {status}): {detail}"),
+    )
+}
+
+fn decode_telegram_rich_envelope(
+    method: &str,
+    status: reqwest::StatusCode,
+    body: &[u8],
+    token: &str,
+) -> TelegramRichApiResult<TelegramRichEnvelope> {
+    if status.is_server_error() || (!status.is_success() && !status.is_client_error()) {
+        return Err(telegram_rich_ambiguous_response_error(
+            method,
+            status,
+            &format!("returned HTTP {status}"),
+            token,
+        ));
+    }
+
+    if status.is_client_error() {
+        let envelope = serde_json::from_slice::<TelegramRichEnvelope>(body).ok();
+        return Err(telegram_rich_rejection_error(
+            method,
+            status,
+            envelope.as_ref(),
+            token,
+        ));
+    }
+
+    let envelope = serde_json::from_slice::<TelegramRichEnvelope>(body).map_err(|_| {
+        telegram_rich_ambiguous_response_error(
+            method,
+            status,
+            "returned a non-JSON success response",
+            token,
+        )
+    })?;
+    match envelope.ok {
+        Some(false) => Err(telegram_rich_rejection_error(
+            method,
+            status,
+            Some(&envelope),
+            token,
+        )),
+        Some(true) if envelope.result.is_some() => Ok(envelope),
+        Some(true) => Err(telegram_rich_ambiguous_response_error(
+            method,
+            status,
+            "success response did not contain a result",
+            token,
+        )),
+        None => Err(telegram_rich_ambiguous_response_error(
+            method,
+            status,
+            "response did not contain the ok field",
+            token,
+        )),
+    }
+}
+
 fn build_send_message_draft_body(
     chat_id: i64,
     text: &str,
@@ -577,52 +1137,278 @@ fn send_message_draft_soft_degrades(status: reqwest::StatusCode) -> bool {
 }
 
 /// Convert our `InlineButton` rows into teloxide's `InlineKeyboardMarkup`.
-fn build_inline_keyboard(buttons: &[Vec<InlineButton>]) -> InlineKeyboardMarkup {
+fn build_inline_keyboard(buttons: &[Vec<InlineButton>]) -> Result<InlineKeyboardMarkup> {
     let rows: Vec<Vec<InlineKeyboardButton>> = buttons
         .iter()
-        .map(|row| {
+        .map(|row| -> Result<Vec<InlineKeyboardButton>> {
             row.iter()
-                .map(|b| {
+                .map(|b| -> Result<InlineKeyboardButton> {
                     if let Some(ref url) = b.url {
-                        InlineKeyboardButton::url(
-                            b.text.clone(),
-                            url.parse()
-                                .unwrap_or_else(|_| "https://example.com".parse().unwrap()),
-                        )
+                        let url = url.parse().context("Invalid Telegram inline button URL")?;
+                        Ok(InlineKeyboardButton::url(b.text.clone(), url))
                     } else {
                         let cb = b.callback_data.clone().unwrap_or_else(|| b.text.clone());
-                        InlineKeyboardButton::callback(b.text.clone(), cb)
+                        Ok(InlineKeyboardButton::callback(b.text.clone(), cb))
                     }
                 })
                 .collect()
         })
-        .collect();
-    InlineKeyboardMarkup::new(rows)
-}
-
-/// Strip HTML tags from text (simple implementation for fallback).
-fn strip_html_tags(html: &str) -> String {
-    let mut result = String::with_capacity(html.len());
-    let mut in_tag = false;
-    for ch in html.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => result.push(ch),
-            _ => {}
-        }
-    }
-    result
+        .collect::<Result<_>>()?;
+    Ok(InlineKeyboardMarkup::new(rows))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        build_send_message_draft_body, parse_api_root, redact_telegram_error,
-        send_message_draft_soft_degrades, validate_api_root_with_policy,
+        build_inline_keyboard, build_send_message_draft_body, collect_attach_names,
+        decode_telegram_rich_envelope, parse_api_root, redact_telegram_error,
+        rich_multipart_text_fields, send_message_draft_soft_degrades,
+        validate_api_root_with_policy, validate_rich_upload_contract, RichUpload,
     };
+    use crate::channel::types::InlineButton;
+    use crate::channel::types::ReplyStreamErrorKind;
     use ha_core::security::ssrf::SsrfPolicy;
     use reqwest::StatusCode;
+
+    fn upload(name: &str) -> RichUpload {
+        RichUpload {
+            name: name.to_string(),
+            filename: "image.png".to_string(),
+            mime_type: Some("image/png".to_string()),
+            bytes: vec![1, 2, 3],
+        }
+    }
+
+    #[test]
+    fn rich_multipart_fields_preserve_full_body_and_callback_data() {
+        let body = serde_json::json!({
+            "chat_id": -100123,
+            "callback_query_id": "callback-1",
+            "disable_notification": true,
+            "rich_message": {
+                "blocks": [{
+                    "type": "photo",
+                    "photo": {"type": "photo", "media": "attach://image_1"}
+                }]
+            },
+            "reply_markup": {
+                "inline_keyboard": [[{"text": "Continue", "callback_data": "next:1"}]]
+            },
+            "omitted": null,
+        });
+
+        validate_rich_upload_contract(&body, &[upload("image_1")]).unwrap();
+        let fields = rich_multipart_text_fields(&body)
+            .unwrap()
+            .into_iter()
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        assert_eq!(fields["chat_id"], "-100123");
+        assert_eq!(fields["callback_query_id"], "callback-1");
+        assert_eq!(fields["disable_notification"], "true");
+        assert!(!fields.contains_key("omitted"));
+        let markup: serde_json::Value = serde_json::from_str(&fields["reply_markup"]).unwrap();
+        assert_eq!(markup["inline_keyboard"][0][0]["callback_data"], "next:1");
+        let rich_message: serde_json::Value =
+            serde_json::from_str(&fields["rich_message"]).unwrap();
+        assert_eq!(
+            rich_message["blocks"][0]["photo"]["media"],
+            "attach://image_1"
+        );
+    }
+
+    #[test]
+    fn rich_upload_contract_is_bidirectional_and_names_are_strict() {
+        let body = serde_json::json!({
+            "chat_id": 1,
+            "rich_message": {
+                "media": [{
+                    "id": "photo-1",
+                    "media": {"type": "photo", "media": "attach://photo_1"}
+                }]
+            }
+        });
+
+        assert!(validate_rich_upload_contract(&body, &[upload("photo_1")]).is_ok());
+        assert_eq!(
+            collect_attach_names(&body).unwrap(),
+            std::collections::BTreeSet::from(["photo_1".to_string()])
+        );
+        assert_eq!(
+            validate_rich_upload_contract(&body, &[]).unwrap_err().kind,
+            ReplyStreamErrorKind::InvalidContent
+        );
+        assert_eq!(
+            validate_rich_upload_contract(&body, &[upload("photo_1"), upload("extra")])
+                .unwrap_err()
+                .kind,
+            ReplyStreamErrorKind::InvalidContent
+        );
+        assert_eq!(
+            validate_rich_upload_contract(&body, &[upload("photo_1"), upload("photo_1")])
+                .unwrap_err()
+                .kind,
+            ReplyStreamErrorKind::InvalidContent
+        );
+
+        let invalid = serde_json::json!({
+            "rich_message": {
+                "media": [{
+                    "id": "bad",
+                    "media": {"type": "photo", "media": "attach://bad.name"}
+                }]
+            }
+        });
+        assert_eq!(
+            collect_attach_names(&invalid).unwrap_err().kind,
+            ReplyStreamErrorKind::InvalidContent
+        );
+    }
+
+    #[test]
+    fn rich_attachment_scan_ignores_text_and_covers_input_media_file_fields() {
+        let body = serde_json::json!({
+            "chat_id": 1,
+            "rich_message": {
+                "html": "<p>Literal attach://body text</p>",
+                "blocks": [{
+                    "type": "video",
+                    "video": {
+                        "type": "video",
+                        "media": "attach://video_1",
+                        "thumbnail": "attach://thumb_1",
+                        "cover": "attach://cover_1"
+                    },
+                    "caption": {"text": "attach://caption_text"}
+                }]
+            },
+            "reply_markup": {
+                "inline_keyboard": [[{
+                    "text": "Continue",
+                    "callback_data": "attach://callback_text"
+                }]]
+            }
+        });
+
+        assert_eq!(
+            collect_attach_names(&body).unwrap(),
+            std::collections::BTreeSet::from([
+                "cover_1".to_string(),
+                "thumb_1".to_string(),
+                "video_1".to_string(),
+            ])
+        );
+
+        let text_only = serde_json::json!({
+            "media": "attach://unrelated_top_level_field",
+            "rich_message": {
+                "html": "attach://ordinary_text",
+                "blocks": [{"type": "paragraph", "text": "attach://also_text"}]
+            },
+            "reply_markup": {
+                "inline_keyboard": [[{"callback_data": "attach://callback"}]]
+            }
+        });
+        assert!(collect_attach_names(&text_only).unwrap().is_empty());
+        assert!(validate_rich_upload_contract(&text_only, &[]).is_ok());
+    }
+
+    #[test]
+    fn rich_envelopes_parse_minimal_results_and_structured_parameters() {
+        let message = decode_telegram_rich_envelope(
+            "sendRichMessage",
+            StatusCode::OK,
+            br#"{"ok":true,"result":{"message_id":922337}}"#,
+            "token",
+        )
+        .unwrap();
+        assert_eq!(message.result.unwrap()["message_id"], 922337);
+
+        let draft = decode_telegram_rich_envelope(
+            "sendRichMessageDraft",
+            StatusCode::OK,
+            br#"{"ok":true,"result":true}"#,
+            "token",
+        )
+        .unwrap();
+        assert_eq!(draft.result.unwrap(), true);
+
+        let token = "123456:secret";
+        let body = format!(
+            r#"{{"ok":false,"error_code":429,"description":"retry bot{token}","parameters":{{"migrate_to_chat_id":-100123,"retry_after":7}}}}"#
+        );
+        let error = decode_telegram_rich_envelope(
+            "sendRichMessage",
+            StatusCode::OK,
+            body.as_bytes(),
+            token,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind, ReplyStreamErrorKind::RateLimited);
+        assert_eq!(error.error_code, Some(429));
+        assert_eq!(error.parameters.migrate_to_chat_id, Some(-100123));
+        assert_eq!(error.parameters.retry_after, Some(7));
+        assert!(!error.to_string().contains(token));
+        assert!(!format!("{error:?}").contains(token));
+
+        // Some reverse proxies preserve Telegram's JSON error envelope while
+        // rewriting the HTTP status to 200. A provider-side 5xx still means
+        // the mutation outcome is unknown and must never unlock legacy replay.
+        let error = decode_telegram_rich_envelope(
+            "sendRichMessage",
+            StatusCode::OK,
+            br#"{"ok":false,"error_code":500,"description":"upstream failure"}"#,
+            token,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind, ReplyStreamErrorKind::Ambiguous);
+        assert_eq!(error.error_code, Some(500));
+    }
+
+    #[test]
+    fn rich_delivery_classification_is_conservative() {
+        let unsupported = decode_telegram_rich_envelope(
+            "sendRichMessage",
+            StatusCode::NOT_FOUND,
+            b"not-json",
+            "token",
+        )
+        .unwrap_err();
+        assert_eq!(unsupported.kind, ReplyStreamErrorKind::Unsupported);
+
+        let rejected = decode_telegram_rich_envelope(
+            "sendRichMessage",
+            StatusCode::BAD_REQUEST,
+            br#"{"ok":false,"description":"bad body"}"#,
+            "token",
+        )
+        .unwrap_err();
+        assert_eq!(rejected.kind, ReplyStreamErrorKind::Rejected);
+
+        for (status, body) in [
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                br#"{"ok":false}"#.as_slice(),
+            ),
+            (StatusCode::OK, b"not-json".as_slice()),
+            (StatusCode::OK, br#"{"ok":true}"#.as_slice()),
+        ] {
+            let error = decode_telegram_rich_envelope("sendRichMessage", status, body, "token")
+                .unwrap_err();
+            assert_eq!(error.kind, ReplyStreamErrorKind::Ambiguous);
+        }
+    }
+
+    #[test]
+    fn legacy_keyboard_rejects_invalid_urls_instead_of_substituting_a_destination() {
+        let buttons = vec![vec![InlineButton {
+            text: "Open".to_string(),
+            callback_data: None,
+            url: Some("not a url".to_string()),
+        }]];
+
+        assert!(build_inline_keyboard(&buttons).is_err());
+    }
 
     #[test]
     fn send_message_draft_body_only_uses_supported_fields() {

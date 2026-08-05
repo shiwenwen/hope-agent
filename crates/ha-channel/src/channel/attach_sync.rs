@@ -416,27 +416,46 @@ impl LateMirror {
             return;
         }
 
-        let safely_aborted = crate::channel::worker::pipeline::abort_pipeline_outcome(
-            &outcome,
-            ha_core::channel::types::ReplyAbortReason::Failed,
-        )
-        .await;
-        // A failed/timeout terminal request may already have reached the
-        // provider. Do not follow it with a legacy error message or users can
-        // receive both the native terminal state and a duplicate failure.
-        if !safely_aborted {
-            return;
-        }
         if let Some(turn) = turn {
             if matches!(turn.status, ChatTurnStatus::Failed) {
                 let body = turn
                     .error
                     .as_deref()
-                    .map(|e| format!("⚠️ Reply failed: {}", e))
-                    .unwrap_or_else(|| "⚠️ Reply failed.".to_string());
-                send_text_chunks(&plugin, &target, &body, None, &[]).await;
+                    .map(|raw| {
+                        let reason = ha_core::failover::classify_error(raw);
+                        ha_core::chat_engine::im_error_message::format_im_engine_error(
+                            ha_core::chat_engine::im_error_message::ImErrorContext {
+                                reason,
+                                raw,
+                                // A late-handover turn snapshot no longer carries the
+                                // exact provider chain. Keep the generic auth guidance;
+                                // never guess the Codex-specific re-authorization path.
+                                is_codex_auth: false,
+                            },
+                        )
+                    })
+                    .unwrap_or_else(|| "⚠️ **Something went wrong**.".to_string());
+                let report = crate::channel::worker::pipeline::deliver_error_reply(
+                    &plugin, &target, &outcome, &body,
+                )
+                .await;
+                if !report.is_success() {
+                    app_warn!(
+                        "channel",
+                        "attach_sync",
+                        "Late handover error terminal was incomplete for session {} turn {}",
+                        session_id,
+                        turn_id
+                    );
+                }
+                return;
             }
         }
+        let _ = crate::channel::worker::pipeline::abort_pipeline_outcome(
+            &outcome,
+            ha_core::channel::types::ReplyAbortReason::Failed,
+        )
+        .await;
     }
 }
 

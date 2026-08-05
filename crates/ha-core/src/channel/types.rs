@@ -139,6 +139,13 @@ pub struct NativeReplyCapabilities {
     #[serde(default)]
     pub final_chat_types: Vec<ChatType>,
     pub update_mode: ReplyStreamUpdateMode,
+    /// Whether acknowledged preview revisions are already durable messages or
+    /// merely an expiring visualization whose `commit` performs a separate
+    /// persistent mutation. A preview-only failure cannot suppress the
+    /// ephemeral stream's durable final lane, while an ambiguous persistent
+    /// commit still must not be retried.
+    #[serde(default)]
+    pub preview_persistence: ReplyStreamPreviewPersistence,
     /// Requirements below apply to `open_reply_stream` only. Standalone final
     /// rich replies are gated independently by `final_chat_types` and the
     /// adapter's target preflight.
@@ -162,10 +169,14 @@ pub struct NativeReplyCapabilities {
     /// media delivery path.
     #[serde(default)]
     pub embedded_media_types: Vec<MediaType>,
+    /// Maximum number of media items that can be embedded into one native
+    /// final reply. `None` means the adapter does not advertise an embedding
+    /// budget; callers must not interpret it as unlimited. Missing values from
+    /// older serialized capabilities therefore remain conservatively disabled.
+    #[serde(default)]
+    pub max_embedded_media_items: Option<u16>,
     #[serde(default)]
     pub refresh_after_secs: Option<u64>,
-    #[serde(default)]
-    pub max_snapshot_chars: Option<u32>,
     #[serde(default)]
     pub max_delta_chars: Option<u32>,
 }
@@ -178,6 +189,20 @@ pub enum ReplyStreamUpdateMode {
     Append,
     /// Each push replaces the currently visible draft with a full snapshot.
     Snapshot,
+}
+
+/// Delivery semantics of the provider-owned preview before `commit`.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReplyStreamPreviewPersistence {
+    /// Accepted preview revisions may already be user-visible durable content.
+    /// Falling back after acceptance could duplicate the reply.
+    #[default]
+    Persistent,
+    /// Preview revisions expire automatically and `commit` is an independent
+    /// persistent send. A preview failure may abandon further refreshes, but
+    /// it never makes the durable final ineligible.
+    Ephemeral,
 }
 
 /// Fully resolved destination for a native stream or rich final reply.
@@ -204,7 +229,9 @@ pub struct ReplyStreamFrame {
     /// snapshot/task state with an empty delta under a fresh revision.
     pub revision: u64,
     /// Canonical full Markdown at this revision. Snapshot adapters consume
-    /// this field; append adapters ignore it.
+    /// this field; append adapters ignore it. This value is never clipped:
+    /// provider-specific visible-window limits belong inside the adapter so a
+    /// snapshot implementation never has to depend on delta reconstruction.
     pub markdown_snapshot: String,
     /// Canonical Markdown accepted since the preceding acknowledged revision.
     /// Append adapters consume this field; snapshot adapters ignore it.
@@ -263,8 +290,11 @@ pub struct RichReplyReceipt {
     /// Identifier of the last persisted native message. Adapters that split a
     /// long rich document return the final segment's identifier.
     pub message_id: String,
-    /// Successful native embeds, expressed as indices into `RichReply.media`.
-    /// Invalid or duplicate indices are ignored by the worker.
+    /// Successful native embeds, expressed as a unique contiguous prefix of
+    /// indices into `RichReply.media` (`[0, 1, .., n]`). This keeps attachment
+    /// order stable when the worker delivers the remaining suffix through the
+    /// legacy lane. A malformed/non-prefix receipt is terminally fail-closed:
+    /// the worker will not risk duplicating provider-accepted media.
     pub consumed_media: Vec<usize>,
 }
 
@@ -293,6 +323,10 @@ pub enum ReplyStreamErrorKind {
     InvalidContent,
     Rejected,
     RateLimited,
+    /// A temporary failure that occurred before any provider mutation was
+    /// issued, so a caller may safely choose another delivery lane. Timeouts,
+    /// disconnects, 5xx responses, or unreadable acknowledgements are always
+    /// [`Self::Ambiguous`], never `Transient`.
     Transient,
     Expired,
     Ambiguous,
@@ -628,6 +662,10 @@ pub struct ChannelHealth {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Legacy outbound result. `success=true` is a confirmed acknowledgement;
+/// `success=false` is only a generic failure and does **not** prove that the
+/// provider performed no mutation. Callers must not automatically retry a
+/// non-idempotent send from this value alone.
 pub struct DeliveryResult {
     pub success: bool,
     pub message_id: Option<String>,

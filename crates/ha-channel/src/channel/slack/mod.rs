@@ -25,6 +25,7 @@ use api::{
 };
 use ha_core::channel::traits::{chunk_text, ChannelPlugin, ChannelReplyStream};
 use ha_core::channel::types::*;
+use url::Url;
 
 /// Slack Block Kit `action_id` fields are limited to 255 characters.
 pub(crate) const SLACK_ACTION_ID_MAX_CHARS: usize = 255;
@@ -128,36 +129,57 @@ fn validate_slack_buttons(
     button_rows: &[Vec<InlineButton>],
 ) -> std::result::Result<usize, ReplyStreamError> {
     let required_blocks = slack_required_action_blocks(button_rows);
-    if required_blocks > SLACK_FINAL_BLOCKS_MAX {
+    if button_rows.iter().any(Vec::is_empty) || required_blocks >= SLACK_FINAL_BLOCKS_MAX {
         return Err(ReplyStreamError::new(
             ReplyStreamErrorKind::InvalidContent,
-            "Slack reply buttons exceed the 50-block limit",
+            "Slack reply buttons require non-empty rows and must leave one block for message content",
         ));
     }
 
     for button in button_rows.iter().flatten() {
         let text_chars = button.text.chars().count();
-        if text_chars == 0 || text_chars > SLACK_BUTTON_TEXT_MAX_CHARS {
+        if text_chars == 0
+            || text_chars > SLACK_BUTTON_TEXT_MAX_CHARS
+            || button.text.chars().any(char::is_control)
+        {
             return Err(ReplyStreamError::new(
                 ReplyStreamErrorKind::InvalidContent,
                 "Slack button text must contain 1 to 75 characters",
             ));
         }
-        if button.callback_id().chars().count() > SLACK_BUTTON_VALUE_MAX_CHARS {
+        let callback = button.callback_id();
+        if callback.is_empty()
+            || callback.chars().count() > SLACK_BUTTON_VALUE_MAX_CHARS
+            || callback.chars().any(char::is_control)
+        {
             return Err(ReplyStreamError::new(
                 ReplyStreamErrorKind::InvalidContent,
                 "Slack button value exceeds the 2000-character limit",
             ));
         }
-        if button
-            .url
-            .as_deref()
-            .is_some_and(|url| url.chars().count() > SLACK_BUTTON_URL_MAX_CHARS)
-        {
-            return Err(ReplyStreamError::new(
-                ReplyStreamErrorKind::InvalidContent,
-                "Slack button URL exceeds the 3000-character limit",
-            ));
+        if let Some(raw_url) = button.url.as_deref() {
+            if raw_url.chars().count() > SLACK_BUTTON_URL_MAX_CHARS {
+                return Err(ReplyStreamError::new(
+                    ReplyStreamErrorKind::InvalidContent,
+                    "Slack button URL exceeds the 3000-character limit",
+                ));
+            }
+            let parsed = Url::parse(raw_url).map_err(|_| {
+                ReplyStreamError::new(
+                    ReplyStreamErrorKind::InvalidContent,
+                    "Slack button URL is invalid",
+                )
+            })?;
+            if !matches!(parsed.scheme(), "http" | "https")
+                || parsed.host_str().is_none()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+            {
+                return Err(ReplyStreamError::new(
+                    ReplyStreamErrorKind::InvalidContent,
+                    "Slack button URL must be credential-free HTTP(S)",
+                ));
+            }
         }
     }
 
@@ -508,10 +530,41 @@ impl ChannelReplyStream for SlackReplyStream {
         Ok(RichReplyReceipt::text_only(stopped.ts))
     }
 
+    async fn fail(self: Box<Self>, error_text: &str) -> std::result::Result<(), ReplyStreamError> {
+        let terminal_text = if error_text.trim().is_empty() {
+            "⚠️ Reply generation failed."
+        } else {
+            error_text
+        };
+        let mut chunks = vec![SlackStreamChunk::MarkdownText(format!(
+            "\n\n{terminal_text}"
+        ))];
+        chunks.extend(self.tasks.values().filter_map(|task| {
+            matches!(
+                task.status,
+                ReplyStreamTaskStatus::Pending | ReplyStreamTaskStatus::InProgress
+            )
+            .then(|| {
+                let mut failed_task = task.clone();
+                failed_task.status = ReplyStreamTaskStatus::Error;
+                failed_task.details = Some("生成中断".to_string());
+                slack_task_chunk(&failed_task)
+            })
+        }));
+        self.api
+            .chat_stop_stream(&self.channel, &self.ts, &chunks, &[])
+            .await
+            .map_err(map_slack_stream_error)?;
+        Ok(())
+    }
+
     async fn abort(
         self: Box<Self>,
         reason: ReplyAbortReason,
     ) -> std::result::Result<(), ReplyStreamError> {
+        // `chat.stopStream` acknowledges terminal ownership only. Slack keeps
+        // the previously appended markdown visible, so callers must not treat
+        // this success as proof that replaying the full logical result is safe.
         let (marker, task_details) = match reason {
             ReplyAbortReason::Cancelled => ("\n\n_已停止_", "已停止"),
             ReplyAbortReason::Failed => ("\n\n_生成中断_", "生成中断"),
@@ -580,6 +633,7 @@ impl ChannelPlugin for SlackPlugin {
                 preview_chat_types: vec![ChatType::Dm, ChatType::Group, ChatType::Channel],
                 final_chat_types: vec![ChatType::Dm, ChatType::Group, ChatType::Channel],
                 update_mode: ReplyStreamUpdateMode::Append,
+                preview_persistence: ReplyStreamPreviewPersistence::Persistent,
                 requires_reply_anchor: true,
                 requires_recipient_user_id: true,
                 requires_recipient_tenant_id: true,
@@ -587,8 +641,8 @@ impl ChannelPlugin for SlackPlugin {
                 supports_plan_updates: true,
                 supports_blocks: true,
                 embedded_media_types: Vec::new(),
+                max_embedded_media_items: None,
                 refresh_after_secs: None,
-                max_snapshot_chars: None,
                 max_delta_chars: Some(SLACK_STREAM_MARKDOWN_MAX_CHARS as u32),
             }),
         }
@@ -679,6 +733,7 @@ impl ChannelPlugin for SlackPlugin {
         chat_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
+        validate_slack_buttons(&payload.buttons)?;
         let api = self.get_api(account_id).await?;
         let thread_ts = payload.thread_id.as_deref();
 
@@ -712,6 +767,13 @@ impl ChannelPlugin for SlackPlugin {
     async fn send_typing(&self, _account_id: &str, _chat_id: &str) -> Result<()> {
         // Slack doesn't have a persistent typing API for bots.
         Ok(())
+    }
+
+    fn validate_reply_buttons(
+        &self,
+        buttons: &[Vec<InlineButton>],
+    ) -> std::result::Result<(), ReplyStreamError> {
+        validate_slack_buttons(buttons).map(|_| ())
     }
 
     async fn open_reply_stream(
@@ -983,7 +1045,10 @@ impl ChannelPlugin for SlackPlugin {
     }
 
     fn chunk_message(&self, text: &str) -> Vec<String> {
-        chunk_text(text, 4000)
+        // A Block Kit section is capped at 3000 chars. Keeping each legacy
+        // chunk within one section makes the button preflight's reserved body
+        // block exact instead of allowing the final chunk to be truncated.
+        chunk_text(text, SLACK_SECTION_TEXT_MAX_CHARS)
     }
 
     async fn validate_credentials(&self, credentials: &serde_json::Value) -> Result<String> {
@@ -1027,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn slack_button_blocks_group_at_25_and_cap_at_50_blocks() {
+    fn slack_button_blocks_group_at_25_and_reserve_one_body_block() {
         let make_buttons = |count: usize| {
             (0..count)
                 .map(|index| InlineButton {
@@ -1046,18 +1111,18 @@ mod tests {
         assert_eq!(grouped[1]["elements"].as_array().unwrap().len(), 25);
         assert_eq!(grouped[2]["elements"].as_array().unwrap().len(), 1);
 
-        let capped = slack_final_blocks(&[make_buttons(1_250)])
+        let capped = slack_final_blocks(&[make_buttons(1_225)])
             .ok()
-            .expect("1,250 buttons should fit in 50 blocks");
-        assert_eq!(capped.len(), SLACK_FINAL_BLOCKS_MAX);
+            .expect("1,225 buttons should fit in 49 action blocks");
+        assert_eq!(capped.len(), SLACK_FINAL_BLOCKS_MAX - 1);
         assert!(capped
             .iter()
             .all(|block| block["elements"].as_array().unwrap().len() <= 25));
 
-        let overflow = slack_final_blocks(&[make_buttons(1_251)]).unwrap_err();
+        let overflow = slack_final_blocks(&[make_buttons(1_226)]).unwrap_err();
         assert_eq!(overflow.kind, ReplyStreamErrorKind::InvalidContent);
-        let legacy_capped = slack_actions_blocks(&[make_buttons(1_251)], 50);
-        assert_eq!(legacy_capped.len(), 50);
+        let legacy_capped = slack_actions_blocks(&[make_buttons(1_226)], 49);
+        assert_eq!(legacy_capped.len(), 49);
     }
 
     #[test]
@@ -1082,6 +1147,12 @@ mod tests {
             "Docs".to_string(),
             None,
             Some("x".repeat(3_001)),
+        ))
+        .is_err());
+        assert!(validate_slack_buttons(&make_button(
+            "Docs".to_string(),
+            None,
+            Some("javascript:alert(1)".to_string()),
         ))
         .is_err());
     }

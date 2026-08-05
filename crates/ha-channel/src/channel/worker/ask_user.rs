@@ -13,12 +13,20 @@ use tokio::sync::Mutex;
 use ha_core::ask_user::{
     self as ask_user_mod, AskUserQuestionAnswer, AskUserQuestionGroup, AskUserTimedOutPayload,
 };
-use ha_core::channel::db::ChannelDB;
+use ha_core::channel::db::{ChannelConversation, ChannelDB};
 use ha_core::channel::registry::ChannelRegistry;
-use ha_core::channel::types::{ChannelId, InlineButton, ReplyPayload};
+use ha_core::channel::types::{ChannelId, ChatType, InlineButton, ReplyPayload};
+
+use super::dispatcher::send_text_chunks;
+use super::pipeline::DeliveryTarget;
 
 /// Callback data prefix for ask_user buttons across all channels.
 pub(crate) const ASK_USER_PREFIX: &str = "ask_user:";
+
+/// Telegram's Bot API caps `callback_data` at 64 UTF-8 bytes. Keeping the
+/// shared ask_user protocol within that strictest limit makes the same button
+/// payload portable across every adapter.
+const ASK_USER_CALLBACK_MAX_BYTES: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct InteractiveCallbackSource {
@@ -51,52 +59,128 @@ fn normalized_thread(thread_id: Option<&str>) -> Option<&str> {
     thread_id.map(str::trim).filter(|s| !s.is_empty())
 }
 
-pub fn validate_callback_source_for_session(
-    session_id: &str,
-    callback_source: Option<&InteractiveCallbackSource>,
-    source: &'static str,
-) -> anyhow::Result<()> {
-    let Some(callback_source) = callback_source else {
-        // Permissive on a missing source — Telegram no-message callbacks (>48h-old
-        // / inline buttons) legitimately carry no chat context and can't be
-        // validated. This is acceptable for the lower-risk ask_user Q&A path; the
-        // security-sensitive *approval* path fails closed at its own caller
-        // (`handle_approval_callback_with_source`, MISC-11) and never passes None
-        // here, so this branch can't weaken approvals.
-        return Ok(());
-    };
-    let channel_db = ha_core::globals::get_channel_db()
-        .ok_or_else(|| anyhow::anyhow!("ChannelDB not initialized for IM callback validation"))?;
-    let Some(conversation) = channel_db.get_conversation_by_session(session_id)? else {
-        return Err(anyhow::anyhow!(
-            "No channel conversation attached to session {}",
-            session_id
-        ));
-    };
+/// Identity of the exact `channel_conversations` attach that received an
+/// interactive prompt. Route fields alone are insufficient because the same
+/// chat can detach and later reattach to the same session; the row id makes
+/// that new attach a distinct authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InteractiveAttachIdentity {
+    session_id: String,
+    attach_id: i64,
+    channel_id: String,
+    account_id: String,
+    chat_id: String,
+    thread_id: Option<String>,
+}
 
-    let expected_channel_id = callback_source.channel_id.to_string();
-    let expected_thread = normalized_thread(conversation.thread_id.as_deref());
-    let source_thread = normalized_thread(callback_source.thread_id.as_deref());
-    if conversation.channel_id != expected_channel_id
-        || conversation.account_id != callback_source.account_id
-        || conversation.chat_id != callback_source.chat_id
-        || expected_thread != source_thread
-    {
-        return Err(anyhow::anyhow!(
-            "Interactive callback source mismatch from {}: expected {}:{}:{}:{:?}, got {}:{}:{}:{:?}",
-            source,
-            conversation.channel_id,
-            conversation.account_id,
-            conversation.chat_id,
-            expected_thread,
-            expected_channel_id,
-            callback_source.account_id,
-            callback_source.chat_id,
-            source_thread,
-        ));
+impl InteractiveAttachIdentity {
+    pub(crate) fn from_conversation(
+        session_id: &str,
+        conversation: &ChannelConversation,
+    ) -> anyhow::Result<Self> {
+        if conversation.session_id != session_id {
+            return Err(anyhow::anyhow!(
+                "Interactive attach session mismatch: requested {}, row belongs to {}",
+                session_id,
+                conversation.session_id
+            ));
+        }
+        Ok(Self {
+            session_id: session_id.to_string(),
+            attach_id: conversation.id,
+            channel_id: conversation.channel_id.clone(),
+            account_id: conversation.account_id.clone(),
+            chat_id: conversation.chat_id.clone(),
+            thread_id: normalized_thread(conversation.thread_id.as_deref()).map(str::to_string),
+        })
     }
 
-    Ok(())
+    pub(crate) fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    pub(crate) fn matches_chat(&self, account_id: &str, chat_id: &str) -> bool {
+        self.account_id == account_id && self.chat_id == chat_id
+    }
+
+    fn matches_conversation(&self, conversation: &ChannelConversation) -> bool {
+        self.attach_id == conversation.id
+            && self.session_id == conversation.session_id
+            && self.channel_id == conversation.channel_id
+            && self.account_id == conversation.account_id
+            && self.chat_id == conversation.chat_id
+            && self.thread_id.as_deref() == normalized_thread(conversation.thread_id.as_deref())
+    }
+
+    fn validate_source(
+        &self,
+        callback_source: Option<&InteractiveCallbackSource>,
+        source: &'static str,
+    ) -> anyhow::Result<()> {
+        let callback_source = callback_source.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Interactive callback from {source} is missing source context for session {}",
+                self.session_id
+            )
+        })?;
+        let source_channel_id = callback_source.channel_id.to_string();
+        let source_thread = normalized_thread(callback_source.thread_id.as_deref());
+        if self.channel_id != source_channel_id
+            || self.account_id != callback_source.account_id
+            || self.chat_id != callback_source.chat_id
+            || self.thread_id.as_deref() != source_thread
+        {
+            return Err(anyhow::anyhow!(
+                "Interactive callback source mismatch from {} for attach {}: expected {}:{}:{}:{:?}, got {}:{}:{}:{:?}",
+                source,
+                self.attach_id,
+                self.channel_id,
+                self.account_id,
+                self.chat_id,
+                self.thread_id,
+                source_channel_id,
+                callback_source.account_id,
+                callback_source.chat_id,
+                source_thread,
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_live_with_db(
+        &self,
+        channel_db: &ChannelDB,
+        source: &'static str,
+    ) -> anyhow::Result<()> {
+        let Some(conversation) = channel_db.get_conversation_by_session(&self.session_id)? else {
+            return Err(anyhow::anyhow!(
+                "No channel conversation attached to session {} while validating {}",
+                self.session_id,
+                source
+            ));
+        };
+        if !self.matches_conversation(&conversation) {
+            return Err(anyhow::anyhow!(
+                "Interactive attach {} is no longer live for session {} while validating {}",
+                self.attach_id,
+                self.session_id,
+                source
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_source_live(
+        &self,
+        callback_source: Option<&InteractiveCallbackSource>,
+        source: &'static str,
+    ) -> anyhow::Result<()> {
+        self.validate_source(callback_source, source)?;
+        let channel_db = ha_core::globals::get_channel_db().ok_or_else(|| {
+            anyhow::anyhow!("ChannelDB not initialized for IM callback validation")
+        })?;
+        self.validate_live_with_db(&channel_db, source)
+    }
 }
 
 // ── Pending state for in-progress IM answers ─────────────────────
@@ -113,11 +197,12 @@ struct QuestionProgress {
 struct PendingAskUser {
     request_id: String,
     group: AskUserQuestionGroup,
+    attach_identity: InteractiveAttachIdentity,
     progress: HashMap<String, QuestionProgress>,
 }
 
 impl PendingAskUser {
-    fn new(group: AskUserQuestionGroup) -> Self {
+    fn new(group: AskUserQuestionGroup, attach_identity: InteractiveAttachIdentity) -> Self {
         let mut progress = HashMap::new();
         for q in &group.questions {
             progress.insert(q.question_id.clone(), QuestionProgress::default());
@@ -125,6 +210,7 @@ impl PendingAskUser {
         Self {
             request_id: group.request_id.clone(),
             group,
+            attach_identity,
             progress,
         }
     }
@@ -160,19 +246,113 @@ impl PendingAskUser {
     }
 }
 
-/// Pending button-based ask_user groups keyed by request_id.
-static BUTTON_PENDING: OnceLock<Mutex<HashMap<String, PendingAskUser>>> = OnceLock::new();
+/// Exact IM route that is allowed to answer a pending question through an
+/// ordinary text message. Including channel and thread prevents a prompt in
+/// one provider/topic from consuming an unrelated chat turn that happens to
+/// reuse the same account/chat identifiers.
+pub(crate) type InteractiveRouteKey = (String, String, String, Option<String>);
 
-fn get_button_pending() -> &'static Mutex<HashMap<String, PendingAskUser>> {
-    BUTTON_PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+pub(crate) fn interactive_route_key(
+    channel_id: &ChannelId,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+) -> InteractiveRouteKey {
+    (
+        channel_id.to_string(),
+        account_id.to_string(),
+        chat_id.to_string(),
+        normalized_thread(thread_id).map(str::to_string),
+    )
 }
 
-/// Pending text-reply ask_user groups keyed by (account_id, chat_id) — LIFO.
-static TEXT_PENDING: OnceLock<Mutex<HashMap<(String, String), Vec<PendingAskUser>>>> =
-    OnceLock::new();
+/// Canonical pending state. Button callbacks and ordinary IM replies resolve
+/// through separate indices, but mutate the same `PendingAskUser` value under
+/// one lock. This makes completion/cancellation remove both entry points
+/// atomically and avoids cross-map lock ordering entirely.
+#[derive(Default)]
+struct PendingAskUserState {
+    by_request: HashMap<String, PendingAskUser>,
+    by_route: HashMap<InteractiveRouteKey, Vec<String>>,
+}
 
-fn get_text_pending() -> &'static Mutex<HashMap<(String, String), Vec<PendingAskUser>>> {
-    TEXT_PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+impl PendingAskUserState {
+    fn insert(&mut self, route: InteractiveRouteKey, pending: PendingAskUser) {
+        let request_id = pending.request_id.clone();
+        self.remove(&request_id);
+        self.by_request.insert(request_id.clone(), pending);
+        let route_requests = self.by_route.entry(route).or_default();
+        route_requests.retain(|candidate| candidate != &request_id);
+        route_requests.push(request_id);
+    }
+
+    fn remove(&mut self, request_id: &str) -> Option<PendingAskUser> {
+        let pending = self.by_request.remove(request_id);
+        self.by_route.retain(|_, request_ids| {
+            request_ids.retain(|candidate| candidate != request_id);
+            !request_ids.is_empty()
+        });
+        pending
+    }
+
+    fn remove_for_session(&mut self, session_id: &str) {
+        let request_ids = self
+            .by_request
+            .iter()
+            .filter(|(_, pending)| pending.group.session_id == session_id)
+            .map(|(request_id, _)| request_id.clone())
+            .collect::<Vec<_>>();
+        for request_id in request_ids {
+            self.remove(&request_id);
+        }
+    }
+
+    fn is_expired(&self, request_id: &str, now: u64) -> bool {
+        self.by_request
+            .get(request_id)
+            .and_then(|pending| pending.group.timeout_at)
+            .is_some_and(|timeout_at| timeout_at > 0 && now >= timeout_at)
+    }
+
+    /// Return the most recently registered live request for one exact route.
+    /// Expired/missing ids are removed from both indices before lookup.
+    fn latest_for_route(&mut self, route: &InteractiveRouteKey, now: u64) -> Option<String> {
+        let request_ids = self.by_route.get(route)?.clone();
+        for request_id in request_ids {
+            if !self.by_request.contains_key(&request_id) || self.is_expired(&request_id, now) {
+                self.remove(&request_id);
+            }
+        }
+        self.by_route
+            .get(route)
+            .and_then(|request_ids| request_ids.last())
+            .cloned()
+    }
+}
+
+fn validate_pending_attach_for_source(
+    state: &PendingAskUserState,
+    request_id: &str,
+    expected_identity: &InteractiveAttachIdentity,
+    callback_source: Option<&InteractiveCallbackSource>,
+    source: &'static str,
+) -> anyhow::Result<()> {
+    let pending = state
+        .by_request
+        .get(request_id)
+        .ok_or_else(|| anyhow::anyhow!("No pending ask_user with id {request_id}"))?;
+    if pending.attach_identity != *expected_identity {
+        return Err(anyhow::anyhow!(
+            "ask_user attach identity changed for request {request_id}"
+        ));
+    }
+    expected_identity.validate_source_live(callback_source, source)
+}
+
+static ASK_USER_PENDING: OnceLock<Mutex<PendingAskUserState>> = OnceLock::new();
+
+fn get_pending_state() -> &'static Mutex<PendingAskUserState> {
+    ASK_USER_PENDING.get_or_init(|| Mutex::new(PendingAskUserState::default()))
 }
 
 /// Current UNIX seconds, for comparing against `AskUserQuestionGroup.timeout_at`.
@@ -188,14 +368,10 @@ fn now_secs() -> u64 {
 /// instead of mutating a dead group.
 async fn drop_if_expired(request_id: &str) -> bool {
     let now = now_secs();
-    let mut map = get_button_pending().lock().await;
-    let expired = map
-        .get(request_id)
-        .and_then(|p| p.group.timeout_at)
-        .map(|t| t > 0 && now >= t)
-        .unwrap_or(false);
+    let mut state = get_pending_state().lock().await;
+    let expired = state.is_expired(request_id, now);
     if expired {
-        map.remove(request_id);
+        state.remove(request_id);
     }
     expired
 }
@@ -205,37 +381,63 @@ async fn drop_if_expired(request_id: &str) -> bool {
 /// question group is cancelled, timed out, or answered through a non-IM
 /// channel, so stale entries don't accumulate.
 pub async fn drop_pending_by_request_id(request_id: &str) {
-    {
-        let mut map = get_button_pending().lock().await;
-        map.remove(request_id);
-    }
-    {
-        let mut map = get_text_pending().lock().await;
-        let mut empty_keys = Vec::new();
-        for (key, list) in map.iter_mut() {
-            list.retain(|p| p.request_id != request_id);
-            if list.is_empty() {
-                empty_keys.push(key.clone());
-            }
-        }
-        for k in empty_keys {
-            map.remove(&k);
-        }
-    }
+    get_pending_state().lock().await.remove(request_id);
 }
 
 /// Remove every pending ask_user entry owned by a deleted/purged session.
 pub async fn drop_pending_for_session(session_id: &str) {
-    {
-        let mut map = get_button_pending().lock().await;
-        map.retain(|_, pending| pending.group.session_id != session_id);
+    get_pending_state()
+        .lock()
+        .await
+        .remove_for_session(session_id);
+}
+
+/// Remove only ask_user prompts whose exact attach has been evicted. The
+/// eviction event can be observed after a replacement chat has already
+/// registered its own prompt, so clearing the whole session would race and
+/// delete valid replacement state.
+pub async fn drop_stale_pending_for_session(session_id: &str) {
+    let candidates = {
+        let state = get_pending_state().lock().await;
+        state
+            .by_request
+            .iter()
+            .filter(|(_, pending)| pending.attach_identity.session_id() == session_id)
+            .map(|(request_id, pending)| (request_id.clone(), pending.attach_identity.clone()))
+            .collect::<Vec<_>>()
+    };
+    if candidates.is_empty() {
+        return;
     }
-    {
-        let mut map = get_text_pending().lock().await;
-        map.retain(|_, list| {
-            list.retain(|pending| pending.group.session_id != session_id);
-            !list.is_empty()
-        });
+
+    let Some(channel_db) = ha_core::globals::get_channel_db() else {
+        // The watcher normally runs only after ChannelDB initialization. If
+        // that invariant is broken, fail closed rather than retain a stale
+        // control-message consumer.
+        drop_pending_for_session(session_id).await;
+        return;
+    };
+    let stale = candidates
+        .into_iter()
+        .filter(|(_, identity)| {
+            identity
+                .validate_live_with_db(&channel_db, "ask_user_eviction")
+                .is_err()
+        })
+        .collect::<Vec<_>>();
+    if stale.is_empty() {
+        return;
+    }
+
+    let mut state = get_pending_state().lock().await;
+    for (request_id, identity) in stale {
+        let still_same_attach = state
+            .by_request
+            .get(&request_id)
+            .is_some_and(|pending| pending.attach_identity == identity);
+        if still_same_attach {
+            state.remove(&request_id);
+        }
     }
 }
 
@@ -257,9 +459,9 @@ fn current_locale() -> &'static str {
 
 /// Render the prompt text for a group. Includes context and all questions with
 /// their options numbered so the user can reference them either via button or
-/// text reply. Each field is individually truncated, and the full prompt is
-/// clamped to ~3500 bytes so it fits inside the strictest IM payload limit
-/// (Discord 2000 / Telegram 4096 / Slack 3000 / LINE 5000).
+/// text reply. Each field is individually truncated; the complete prompt goes
+/// through the common chunker so later questions/options are never clipped to
+/// one provider's single-message limit.
 fn format_prompt(group: &AskUserQuestionGroup) -> String {
     format_prompt_for_locale(group, current_locale())
 }
@@ -291,7 +493,7 @@ fn format_prompt_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Strin
             }
         }
     }
-    ha_core::truncate_utf8(&out, 3500).to_string()
+    out
 }
 
 /// Build a marker like "1a" / "2b" for question `qi` option `oi`.
@@ -300,7 +502,7 @@ fn option_marker(qi: usize, oi: usize) -> String {
     format!("{}{}", qi + 1, letter)
 }
 
-/// Extra hint text sent to channels without button support.
+/// Extra text-reply hint sent alongside both button and text-only prompts.
 fn text_reply_hint(group: &AskUserQuestionGroup) -> String {
     text_reply_hint_for_locale(group, current_locale())
 }
@@ -311,18 +513,18 @@ fn text_reply_hint_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Str
         tr(
             locale,
             [
-                "\n请用 `1a`（单选）或 `1a,1c`（多选）这样的选项标记回复。完成后输入 `done`。",
-                "\n請用 `1a`（單選）或 `1a,1c`（多選）這樣的選項標記回覆。完成後輸入 `done`。",
-                "\nReply with option markers like `1a` (single-select) or `1a,1c` (multi-select). Type `done` when finished.",
-                "\n`1a`（単一選択）や `1a,1c`（複数選択）のような選択肢マーカーで返信してください。完了したら `done` と入力してください。",
-                "\n`1a`(단일 선택) 또는 `1a,1c`(다중 선택) 같은 옵션 표시로 답장하세요. 완료되면 `done`을 입력하세요.",
-                "\nResponde con marcadores de opción como `1a` (selección única) o `1a,1c` (selección múltiple). Escribe `done` al terminar.",
-                "\nResponda com marcadores de opção como `1a` (seleção única) ou `1a,1c` (seleção múltipla). Digite `done` ao terminar.",
-                "\nОтветьте маркерами вариантов вроде `1a` (один выбор) или `1a,1c` (несколько вариантов). Введите `done`, когда закончите.",
-                "\nرد بعلامات الخيارات مثل `1a` (اختيار واحد) أو `1a,1c` (اختيارات متعددة). اكتب `done` عند الانتهاء.",
-                "\n`1a` (tek seçim) veya `1a,1c` (çoklu seçim) gibi seçenek işaretleriyle yanıtlayın. Bitirince `done` yazın.",
-                "\nTrả lời bằng ký hiệu lựa chọn như `1a` (chọn một) hoặc `1a,1c` (chọn nhiều). Nhập `done` khi hoàn tất.",
-                "\nBalas dengan penanda pilihan seperti `1a` (pilihan tunggal) atau `1a,1c` (berbilang pilihan). Taip `done` apabila selesai.",
+                "\n请用 `1a`（单选）或 `1a,1c`（多选）这样的选项标记回复，也可直接输入自由文本作为 Other 回答。完成后输入 `done`。",
+                "\n請用 `1a`（單選）或 `1a,1c`（多選）這樣的選項標記回覆，也可直接輸入自由文字作為 Other 回答。完成後輸入 `done`。",
+                "\nReply with option markers like `1a` (single-select) or `1a,1c` (multi-select), or type free text as an Other answer. Type `done` when finished.",
+                "\n`1a`（単一選択）や `1a,1c`（複数選択）のような選択肢マーカーで返信するか、Other の回答として自由テキストを入力してください。完了したら `done` と入力してください。",
+                "\n`1a`(단일 선택) 또는 `1a,1c`(다중 선택) 같은 옵션 표시로 답장하거나 Other 답변으로 자유 텍스트를 입력하세요. 완료되면 `done`을 입력하세요.",
+                "\nResponde con marcadores de opción como `1a` (selección única) o `1a,1c` (selección múltiple), o escribe texto libre como respuesta Other. Escribe `done` al terminar.",
+                "\nResponda com marcadores de opção como `1a` (seleção única) ou `1a,1c` (seleção múltipla), ou digite texto livre como resposta Other. Digite `done` ao terminar.",
+                "\nОтветьте маркерами вариантов вроде `1a` (один выбор) или `1a,1c` (несколько вариантов), либо введите свободный текст как ответ Other. Введите `done`, когда закончите.",
+                "\nرد بعلامات الخيارات مثل `1a` (اختيار واحد) أو `1a,1c` (اختيارات متعددة)، أو اكتب نصا حرا كإجابة Other. اكتب `done` عند الانتهاء.",
+                "\n`1a` (tek seçim) veya `1a,1c` (çoklu seçim) gibi seçenek işaretleriyle yanıtlayın ya da Other yanıtı olarak serbest metin yazın. Bitirince `done` yazın.",
+                "\nTrả lời bằng ký hiệu lựa chọn như `1a` (chọn một) hoặc `1a,1c` (chọn nhiều), hoặc nhập văn bản tự do làm câu trả lời Other. Nhập `done` khi hoàn tất.",
+                "\nBalas dengan penanda pilihan seperti `1a` (pilihan tunggal) atau `1a,1c` (berbilang pilihan), atau taip teks bebas sebagai jawapan Other. Taip `done` apabila selesai.",
             ],
         )
         .to_string()
@@ -349,6 +551,13 @@ fn text_reply_hint_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Str
 }
 
 /// Build inline button rows for button-capable channels.
+///
+/// Callback payloads carry only stable question/option indices. Current
+/// request ids are at most 36 bytes (`auq_` + simple UUID), so even the longest
+/// select payload stays below Telegram's 64-byte callback-data ceiling. The
+/// provider preflight remains a second boundary if a future producer changes
+/// that request-id contract.
+///
 /// Each question's options form one row; multi-select questions get a
 /// trailing "Done" button row.
 fn build_buttons(group: &AskUserQuestionGroup) -> Vec<Vec<InlineButton>> {
@@ -369,8 +578,8 @@ fn build_buttons_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Vec<V
             row.push(InlineButton {
                 text: format!("[{marker}] {text}"),
                 callback_data: Some(format!(
-                    "{}{}:select:{}:{}",
-                    ASK_USER_PREFIX, group.request_id, q.question_id, opt.value
+                    "{}{}:s:{qi}:{oi}",
+                    ASK_USER_PREFIX, group.request_id
                 )),
                 url: None,
             });
@@ -385,10 +594,7 @@ fn build_buttons_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Vec<V
         if q.multi_select {
             rows.push(vec![InlineButton {
                 text: done_button_text(locale, qi + 1),
-                callback_data: Some(format!(
-                    "{}{}:done:{}",
-                    ASK_USER_PREFIX, group.request_id, q.question_id
-                )),
+                callback_data: Some(format!("{}{}:d:{qi}", ASK_USER_PREFIX, group.request_id)),
                 url: None,
             }]);
         }
@@ -396,10 +602,18 @@ fn build_buttons_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Vec<V
     // Top-level cancel
     rows.push(vec![InlineButton {
         text: cancel_button_text(locale).to_string(),
-        callback_data: Some(format!("{}{}:cancel", ASK_USER_PREFIX, group.request_id)),
+        callback_data: Some(format!("{}{}:c", ASK_USER_PREFIX, group.request_id)),
         url: None,
     }]);
     rows
+}
+
+fn buttons_fit_callback_limit(buttons: &[Vec<InlineButton>]) -> bool {
+    buttons.iter().flatten().all(|button| {
+        button.callback_data.as_deref().is_some_and(|callback| {
+            !callback.is_empty() && callback.len() <= ASK_USER_CALLBACK_MAX_BYTES
+        })
+    })
 }
 
 fn question_from_ai_title(locale: &str) -> &'static str {
@@ -557,6 +771,22 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
                     continue;
                 }
             };
+            let attach_identity = match InteractiveAttachIdentity::from_conversation(
+                &group.session_id,
+                &conversation,
+            ) {
+                Ok(identity) => identity,
+                Err(error) => {
+                    app_warn!(
+                        "channel",
+                        "ask_user",
+                        "Invalid ask_user attach identity for {}: {}",
+                        group.request_id,
+                        error
+                    );
+                    continue;
+                }
+            };
 
             let store = ha_core::config::cached_config();
             let account_config = match store.channels.find_account(&conversation.account_id) {
@@ -571,65 +801,122 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 Err(_) => continue,
             };
 
-            let supports_buttons = registry
-                .get_plugin(&channel_id)
-                .map(|p| p.capabilities().supports_buttons)
-                .unwrap_or(false);
+            let Some(plugin) = registry.get_plugin(&channel_id) else {
+                app_warn!(
+                    "channel",
+                    "ask_user",
+                    "No channel plugin available for ask_user prompt ({})",
+                    channel_id
+                );
+                continue;
+            };
+            let supports_buttons =
+                plugin.supports_reply_buttons(&conversation.account_id, &conversation.chat_id);
 
-            // A pure free-text question (`input_kind` text/textarea → empty
-            // `options`) has nothing to render as buttons; on a button channel
-            // it would show only [Cancel] and typed replies would leak as a new
-            // chat turn (BUTTON_PENDING has no free-text capture). So fall the
-            // WHOLE group back to the numbered-text path (which routes replies
-            // through TEXT_PENDING as custom_input) whenever any question lacks
-            // options — otherwise a free-text question is silently unanswerable.
-            let use_buttons =
-                supports_buttons && group.questions.iter().all(|q| !q.options.is_empty());
+            // Button-capable prompts keep the same ordinary-text route as their
+            // buttons. Pure text/textarea questions can therefore render a
+            // Cancel button while the user's next IM message supplies `Other`.
+            let candidate_buttons = build_buttons(&group);
+            let callbacks_fit = buttons_fit_callback_limit(&candidate_buttons);
+            if supports_buttons && !callbacks_fit {
+                app_warn!(
+                    "channel",
+                    "ask_user",
+                    "ask_user callback data exceeds the portable {}-byte limit; using text interaction",
+                    ASK_USER_CALLBACK_MAX_BYTES
+                );
+            }
+            let use_buttons = supports_buttons
+                && callbacks_fit
+                && match plugin.validate_reply_buttons(&candidate_buttons) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        app_warn!(
+                            "channel",
+                            "ask_user",
+                            "Button prompt failed provider preflight; using text interaction: {}",
+                            ha_core::logging::redact_sensitive(&error.to_string())
+                        );
+                        false
+                    }
+                };
 
             let prompt_text = format_prompt(&group);
+            let prompt_with_hint = format!("{}{}", prompt_text, text_reply_hint(&group));
+
+            // Register one canonical object plus its exact text-reply route for
+            // both rendering modes. Callback and text handlers now mutate this
+            // same value and terminal removal clears both indices atomically.
+            let route = interactive_route_key(
+                &channel_id,
+                &conversation.account_id,
+                &conversation.chat_id,
+                conversation.thread_id.as_deref(),
+            );
+            get_pending_state().lock().await.insert(
+                route,
+                PendingAskUser::new(group.clone(), attach_identity.clone()),
+            );
 
             let payload = if use_buttons {
-                // Register pending state keyed by request_id.
-                {
-                    let mut pending = get_button_pending().lock().await;
-                    pending.insert(group.request_id.clone(), PendingAskUser::new(group.clone()));
-                }
                 ReplyPayload {
-                    text: Some(prompt_text),
-                    buttons: build_buttons(&group),
+                    text: Some(prompt_with_hint),
+                    buttons: candidate_buttons,
                     thread_id: conversation.thread_id.clone(),
                     ..ReplyPayload::text("")
                 }
             } else {
-                // Register for text-reply routing.
-                {
-                    let key = (
-                        conversation.account_id.clone(),
-                        conversation.chat_id.clone(),
-                    );
-                    let mut pending = get_text_pending().lock().await;
-                    pending
-                        .entry(key)
-                        .or_default()
-                        .push(PendingAskUser::new(group.clone()));
-                }
-                let text = format!("{}{}", prompt_text, text_reply_hint(&group));
                 ReplyPayload {
-                    text: Some(text),
+                    text: Some(prompt_with_hint),
                     thread_id: conversation.thread_id.clone(),
                     ..ReplyPayload::text("")
                 }
             };
 
-            if let Err(e) = registry
-                .send_reply(&account_config, &conversation.chat_id, &payload)
-                .await
+            let chat_type = ChatType::from_lowercase(&conversation.chat_type);
+            let target = DeliveryTarget {
+                account_id: &account_config.id,
+                chat_id: &conversation.chat_id,
+                chat_type: &chat_type,
+                thread_id: conversation.thread_id.as_deref(),
+                reply_to_message_id: None,
+                recipient_user_id: conversation.sender_id.as_deref(),
+                recipient_tenant_id: None,
+            };
+            if let Err(error) =
+                attach_identity.validate_live_with_db(&channel_db, "ask_user_prompt_send")
             {
+                drop_pending_by_request_id(&group.request_id).await;
                 app_warn!(
                     "channel",
                     "ask_user",
-                    "Failed to send ask_user prompt to channel: {}",
-                    e
+                    "Skipped ask_user prompt for a stale attach ({}): {}",
+                    group.request_id,
+                    error
+                );
+                continue;
+            }
+            // A database identity check cannot be atomic with an external
+            // provider send: handover can still occur after this check and
+            // before the provider accepts the request. Eviction cleanup and
+            // the response-side identity guard close that residual window.
+            let report = send_text_chunks(
+                &plugin,
+                &target,
+                payload.text.as_deref().unwrap_or_default(),
+                None,
+                &payload.buttons,
+            )
+            .await;
+            if !report.is_success() {
+                // A partially/fully failed prompt must not consume the user's
+                // next ordinary chat message through an invisible stale route.
+                drop_pending_by_request_id(&group.request_id).await;
+                app_warn!(
+                    "channel",
+                    "ask_user",
+                    "Failed to send ask_user prompt to channel ({} failure(s))",
+                    report.failures.len()
                 );
             }
         }
@@ -821,9 +1108,150 @@ fn ask_user_callback_answered(locale: &str) -> &'static str {
     )
 }
 
+fn ask_user_callback_incomplete(locale: &str) -> &'static str {
+    tr(
+        locale,
+        [
+            "还需要回答其余问题",
+            "還需要回答其餘問題",
+            "Please answer the remaining questions",
+            "残りの質問に回答してください",
+            "남은 질문에 답해 주세요",
+            "Responde las preguntas restantes",
+            "Responda às perguntas restantes",
+            "Ответьте на оставшиеся вопросы",
+            "يرجى الإجابة عن الأسئلة المتبقية",
+            "Lütfen kalan soruları yanıtlayın",
+            "Vui lòng trả lời các câu hỏi còn lại",
+            "Sila jawab soalan yang masih belum dijawab",
+        ],
+    )
+}
+
+fn ask_user_source_mismatch(locale: &str) -> &'static str {
+    tr(
+        locale,
+        [
+            "ℹ️ 这个问题现在属于另一个会话，不能从这里回答。请在当前显示问题提示的聊天里回复。",
+            "ℹ️ 這個問題目前屬於另一個對話，不能從這裡回答。請在目前顯示問題提示的聊天中回覆。",
+            "ℹ️ This question belongs to a different conversation now and can't be answered from here. Reply in the chat where the question prompt currently appears.",
+            "ℹ️ この質問は現在別の会話に属しているため、ここからは回答できません。質問プロンプトが表示されているチャットで返信してください。",
+            "ℹ️ 이 질문은 이제 다른 대화에 속해 있어 여기서 답할 수 없습니다. 질문 프롬프트가 표시된 채팅에서 답해 주세요.",
+            "ℹ️ Esta pregunta ahora pertenece a otra conversación y no puede responderse desde aquí. Responde en el chat donde aparece la pregunta.",
+            "ℹ️ Esta pergunta agora pertence a outra conversa e não pode ser respondida daqui. Responda no chat onde a pergunta aparece.",
+            "ℹ️ Этот вопрос теперь относится к другому разговору, и здесь на него нельзя ответить. Ответьте в чате, где показан вопрос.",
+            "ℹ️ هذا السؤال ينتمي الآن إلى محادثة أخرى ولا يمكن الرد عليه من هنا. أجب في الدردشة التي يظهر فيها السؤال.",
+            "ℹ️ Bu soru artık farklı bir konuşmaya ait ve buradan yanıtlanamaz. Sorunun göründüğü sohbette yanıtlayın.",
+            "ℹ️ Câu hỏi này hiện thuộc một cuộc trò chuyện khác và không thể trả lời từ đây. Hãy trả lời trong cuộc trò chuyện đang hiển thị câu hỏi.",
+            "ℹ️ Soalan ini kini milik perbualan lain dan tidak boleh dijawab dari sini. Balas dalam sembang tempat soalan dipaparkan.",
+        ],
+    )
+}
+
+async fn send_text_reply_feedback(msg: &ha_core::channel::types::MsgContext, text: &str) {
+    let Some(registry) = ha_core::globals::get_channel_registry() else {
+        app_warn!(
+            "channel",
+            "ask_user",
+            "Cannot send ask_user text feedback before ChannelRegistry initialization"
+        );
+        return;
+    };
+    let account = {
+        let store = ha_core::config::cached_config();
+        store.channels.find_account(&msg.account_id).cloned()
+    };
+    let Some(account) = account else {
+        app_warn!(
+            "channel",
+            "ask_user",
+            "Cannot send ask_user text feedback: account {} is unavailable",
+            msg.account_id
+        );
+        return;
+    };
+    let payload = ReplyPayload {
+        text: Some(text.to_string()),
+        thread_id: msg.thread_id.clone(),
+        ..ReplyPayload::text("")
+    };
+    if let Err(error) = registry.send_reply(&account, &msg.chat_id, &payload).await {
+        app_warn!(
+            "channel",
+            "ask_user",
+            "Failed to send ask_user text feedback: {}",
+            ha_core::logging::redact_sensitive(&error.to_string())
+        );
+    }
+}
+
 // ── Text-reply handler (channels without buttons) ─────────────────
 
-/// Try to interpret an inbound IM message as an ask_user text reply.
+fn question_accepts_custom_input(question: &ha_core::ask_user::AskUserQuestion) -> bool {
+    question.allow_custom || matches!(question.input_kind.as_deref(), Some("text" | "textarea"))
+}
+
+/// Apply an ordinary IM message as an Other/free-text answer. Prefer the first
+/// unanswered question. If all questions already have button selections, only
+/// accept one unambiguous custom target. Multi-select preserves its selected
+/// values (matching the GUI), while single-select Other replaces its option.
+fn apply_text_custom_input(pending: &mut PendingAskUser, text: &str) -> bool {
+    let unanswered = pending
+        .group
+        .questions
+        .iter()
+        .enumerate()
+        .find_map(|(index, question)| {
+            if !question_accepts_custom_input(question) {
+                return None;
+            }
+            let progress = pending
+                .progress
+                .get(&question.question_id)
+                .cloned()
+                .unwrap_or_default();
+            (progress.selected.is_empty() && progress.custom_input.is_none()).then_some(index)
+        });
+
+    let question_index = unanswered.or_else(|| {
+        let mut candidates =
+            pending
+                .group
+                .questions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, question)| {
+                    if !question_accepts_custom_input(question) {
+                        return None;
+                    }
+                    let has_custom_input = pending
+                        .progress
+                        .get(&question.question_id)
+                        .and_then(|progress| progress.custom_input.as_ref())
+                        .is_some();
+                    (!has_custom_input).then_some(index)
+                });
+        let only = candidates.next()?;
+        candidates.next().is_none().then_some(only)
+    });
+
+    let Some(question_index) = question_index else {
+        return false;
+    };
+    let question = &pending.group.questions[question_index];
+    let progress = pending
+        .progress
+        .entry(question.question_id.clone())
+        .or_default();
+    if !question.multi_select {
+        progress.selected.clear();
+    }
+    progress.custom_input = Some(text.to_string());
+    true
+}
+
+/// Try to interpret an inbound IM message as an ask_user text reply on any
+/// channel, including button-capable providers.
 /// Returns `true` if the message was consumed.
 ///
 /// Accepted reply formats:
@@ -841,39 +1269,158 @@ pub async fn try_handle_ask_user_reply(msg: &ha_core::channel::types::MsgContext
         return false;
     }
 
-    let key = (msg.account_id.clone(), msg.chat_id.clone());
-    let mut pending_map = get_text_pending().lock().await;
-    let entry = match pending_map.get_mut(&key) {
-        Some(v) if !v.is_empty() => v,
-        _ => return false,
+    let route = interactive_route_key(
+        &msg.channel_id,
+        &msg.account_id,
+        &msg.chat_id,
+        msg.thread_id.as_deref(),
+    );
+    let (request_id, attach_identity) = {
+        let mut state = get_pending_state().lock().await;
+        // Operate on the most recent group for this exact channel/account/chat/
+        // thread route. Lookup atomically evicts expired groups first, so a late
+        // text reply cannot re-animate timed-out tool state.
+        let Some(request_id) = state.latest_for_route(&route, now_secs()) else {
+            return false;
+        };
+        let Some(attach_identity) = state
+            .by_request
+            .get(&request_id)
+            .map(|pending| pending.attach_identity.clone())
+        else {
+            state.remove(&request_id);
+            return false;
+        };
+        (request_id, attach_identity)
     };
-    // Evict expired groups before operating — mirrors `drop_if_expired` for
-    // the text-reply code path so a late reply can't re-animate a dead
-    // question group when the tool-side cleanup is lagging.
-    let now = now_secs();
-    entry.retain(|p| p.group.timeout_at.map_or(true, |t| t == 0 || now < t));
-    if entry.is_empty() {
-        pending_map.remove(&key);
+
+    // The session may have been handed over after this prompt was rendered.
+    // Revalidate the live session→chat binding exactly like button callbacks;
+    // consume mismatched control text so it cannot leak into a different turn.
+    let reply_source = InteractiveCallbackSource::new(
+        msg.channel_id.clone(),
+        msg.account_id.clone(),
+        msg.chat_id.clone(),
+        msg.thread_id.as_deref(),
+    );
+    if let Err(error) = attach_identity.validate_source_live(Some(&reply_source), "text_reply") {
+        let mut state = get_pending_state().lock().await;
+        if state
+            .by_request
+            .get(&request_id)
+            .is_some_and(|pending| pending.attach_identity == attach_identity)
+        {
+            state.remove(&request_id);
+        }
+        drop(state);
+        app_warn!(
+            "channel",
+            "ask_user",
+            "Text ask_user reply source mismatch for {}: {}",
+            request_id,
+            ha_core::logging::redact_sensitive(&error.to_string())
+        );
+        send_text_reply_feedback(msg, ask_user_source_mismatch(current_locale())).await;
+        return true;
+    }
+
+    let mut state = get_pending_state().lock().await;
+    // Callback validation performs synchronous DB work outside the pending
+    // lock. Recheck liveness/latest ownership after reacquiring it so a timeout,
+    // cancellation, or newer prompt cannot be crossed by this reply.
+    if state.latest_for_route(&route, now_secs()).as_deref() != Some(request_id.as_str()) {
         return false;
     }
-    // Operate on the most recent group (LIFO).
-    let last_idx = entry.len() - 1;
-    let current = &mut entry[last_idx];
+    if let Err(error) = validate_pending_attach_for_source(
+        &state,
+        &request_id,
+        &attach_identity,
+        Some(&reply_source),
+        "text_reply_consume",
+    ) {
+        state.remove(&request_id);
+        drop(state);
+        app_warn!(
+            "channel",
+            "ask_user",
+            "Text ask_user reply lost attach ownership before consume ({}): {}",
+            request_id,
+            ha_core::logging::redact_sensitive(&error.to_string())
+        );
+        send_text_reply_feedback(msg, ask_user_source_mismatch(current_locale())).await;
+        return true;
+    }
 
     let lowered = text.to_lowercase();
     if lowered == "cancel" {
-        let request_id = current.request_id.clone();
-        entry.pop();
-        if entry.is_empty() {
-            pending_map.remove(&key);
+        let Some(_) = state.remove(&request_id) else {
+            return false;
+        };
+        drop(state);
+        if let Err(error) =
+            attach_identity.validate_source_live(Some(&reply_source), "text_reply_cancel")
+        {
+            app_warn!(
+                "channel",
+                "ask_user",
+                "Skipped ask_user cancellation after attach changed ({}): {}",
+                request_id,
+                ha_core::logging::redact_sensitive(&error.to_string())
+            );
+            send_text_reply_feedback(msg, ask_user_source_mismatch(current_locale())).await;
+            return true;
         }
-        drop(pending_map);
         ask_user_mod::cancel_pending_ask_user_question(&request_id).await;
         return true;
     }
 
-    let should_finish =
-        lowered == "done" || !current.group.questions.iter().any(|q| q.multi_select);
+    if lowered == "done" {
+        let complete = state
+            .by_request
+            .get(&request_id)
+            .is_some_and(PendingAskUser::is_complete);
+        if !complete {
+            // Consume the control word but retain the canonical pending group.
+            // Return a localized explanation through the same IM route instead
+            // of submitting an incomplete group or leaking "done" as a turn.
+            drop(state);
+            send_text_reply_feedback(msg, ask_user_callback_incomplete(current_locale())).await;
+            return true;
+        }
+        let Some(pending) = state.remove(&request_id) else {
+            return false;
+        };
+        drop(state);
+        if let Err(error) =
+            attach_identity.validate_source_live(Some(&reply_source), "text_reply_submit")
+        {
+            app_warn!(
+                "channel",
+                "ask_user",
+                "Skipped ask_user submit after attach changed ({}): {}",
+                request_id,
+                ha_core::logging::redact_sensitive(&error.to_string())
+            );
+            send_text_reply_feedback(msg, ask_user_source_mismatch(current_locale())).await;
+            return true;
+        }
+        let answers = pending.into_answers();
+        if let Err(e) = ask_user_mod::submit_ask_user_question_response(&request_id, answers).await
+        {
+            app_warn!(
+                "channel",
+                "ask_user",
+                "Failed to submit ask_user answers ({}): {}",
+                request_id,
+                e
+            );
+        }
+        return true;
+    }
+
+    let Some(current) = state.by_request.get_mut(&request_id) else {
+        return false;
+    };
 
     // Try to parse option markers. A reply like "1a,1c" splits into markers.
     let mut parsed_any = false;
@@ -895,6 +1442,7 @@ pub async fn try_handle_ask_user_reply(msg: &ha_core::channel::types::MsgContext
                         }
                     } else {
                         prog.selected = vec![value];
+                        prog.custom_input = None;
                     }
                     parsed_any = true;
                 }
@@ -902,39 +1450,39 @@ pub async fn try_handle_ask_user_reply(msg: &ha_core::channel::types::MsgContext
         }
     }
 
-    // If nothing parsed and there's exactly one question needing a custom answer,
-    // treat the whole text as a custom input for the first unanswered question.
+    // If no marker was parsed, route the whole text through the same Other /
+    // free-text progress used by button callbacks.
     if !parsed_any {
-        if let Some(first_unanswered) = current.group.questions.iter().find(|q| {
-            let prog = current
-                .progress
-                .get(&q.question_id)
-                .cloned()
-                .unwrap_or_default();
-            prog.selected.is_empty() && prog.custom_input.is_none()
-        }) {
-            if first_unanswered.allow_custom {
-                let qid = first_unanswered.question_id.clone();
-                let prog = current.progress.entry(qid).or_default();
-                prog.custom_input = Some(text.clone());
-                parsed_any = true;
-            }
-        }
+        parsed_any = apply_text_custom_input(current, &text);
     }
 
     if !parsed_any {
         return false;
     }
 
-    if should_finish && current.is_complete() {
-        let request_id = current.request_id.clone();
-        let Some(pending) = entry.pop() else {
-            return false;
-        };
-        if entry.is_empty() {
-            pending_map.remove(&key);
+    let should_finish =
+        !current.group.questions.iter().any(|q| q.multi_select) && current.is_complete();
+    let pending_for_submit = if should_finish {
+        state.remove(&request_id)
+    } else {
+        None
+    };
+    drop(state);
+
+    if let Some(pending) = pending_for_submit {
+        if let Err(error) =
+            attach_identity.validate_source_live(Some(&reply_source), "text_reply_submit")
+        {
+            app_warn!(
+                "channel",
+                "ask_user",
+                "Skipped ask_user submit after attach changed ({}): {}",
+                request_id,
+                ha_core::logging::redact_sensitive(&error.to_string())
+            );
+            send_text_reply_feedback(msg, ask_user_source_mismatch(current_locale())).await;
+            return true;
         }
-        drop(pending_map);
         let answers = pending.into_answers();
         if let Err(e) = ask_user_mod::submit_ask_user_question_response(&request_id, answers).await
         {
@@ -974,9 +1522,203 @@ pub fn is_ask_user_callback(data: &str) -> bool {
     data.starts_with(ASK_USER_PREFIX)
 }
 
-/// Parse an `ask_user:{request_id}:select:{question_id}:{option_value}` or
-/// `ask_user:{request_id}:done:{question_id}` or `ask_user:{request_id}:cancel`
-/// callback and update pending state / submit when complete.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum QuestionLookup {
+    Index(usize),
+    LegacyId(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum OptionLookup {
+    Index(usize),
+    LegacyValue(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AskUserCallbackAction {
+    Select {
+        question: QuestionLookup,
+        option: OptionLookup,
+    },
+    Done {
+        question: QuestionLookup,
+    },
+    Cancel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedAskUserCallback {
+    request_id: String,
+    action: AskUserCallbackAction,
+}
+
+fn parse_callback_index(raw: &str, field: &str) -> anyhow::Result<usize> {
+    raw.parse::<usize>()
+        .map_err(|_| anyhow::anyhow!("Invalid {field}: {raw}"))
+}
+
+/// Parse the compact index protocol and retain read compatibility with button
+/// messages sent by an older process during a rolling restart.
+fn parse_ask_user_callback(callback_data: &str) -> anyhow::Result<ParsedAskUserCallback> {
+    let rest = callback_data
+        .strip_prefix(ASK_USER_PREFIX)
+        .ok_or_else(|| anyhow::anyhow!("Not an ask_user callback"))?;
+    let mut head = rest.splitn(3, ':');
+    let request_id = head
+        .next()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Missing request_id"))?
+        .to_string();
+    let action = head
+        .next()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Missing action"))?;
+    let tail = head.next();
+
+    let action = match action {
+        "c" | "cancel" if tail.is_none() => AskUserCallbackAction::Cancel,
+        "s" => {
+            let (question, option) = tail
+                .and_then(|tail| tail.split_once(':'))
+                .ok_or_else(|| anyhow::anyhow!("Missing question/option index"))?;
+            AskUserCallbackAction::Select {
+                question: QuestionLookup::Index(parse_callback_index(question, "question index")?),
+                option: OptionLookup::Index(parse_callback_index(option, "option index")?),
+            }
+        }
+        "d" => AskUserCallbackAction::Done {
+            question: QuestionLookup::Index(parse_callback_index(
+                tail.ok_or_else(|| anyhow::anyhow!("Missing question index"))?,
+                "question index",
+            )?),
+        },
+        "select" => {
+            let (question_id, option_value) = tail
+                .and_then(|tail| tail.split_once(':'))
+                .ok_or_else(|| anyhow::anyhow!("Missing legacy question/option value"))?;
+            if question_id.is_empty() || option_value.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Legacy question_id and option_value must be non-empty"
+                ));
+            }
+            AskUserCallbackAction::Select {
+                question: QuestionLookup::LegacyId(question_id.to_string()),
+                option: OptionLookup::LegacyValue(option_value.to_string()),
+            }
+        }
+        "done" => AskUserCallbackAction::Done {
+            question: QuestionLookup::LegacyId(
+                tail.filter(|value| !value.is_empty())
+                    .ok_or_else(|| anyhow::anyhow!("Missing legacy question_id"))?
+                    .to_string(),
+            ),
+        },
+        _ => return Err(anyhow::anyhow!("Unknown ask_user action: {action}")),
+    };
+
+    Ok(ParsedAskUserCallback { request_id, action })
+}
+
+fn resolve_question_index(
+    pending: &PendingAskUser,
+    lookup: &QuestionLookup,
+) -> anyhow::Result<usize> {
+    match lookup {
+        QuestionLookup::Index(index) => {
+            if *index >= pending.group.questions.len() {
+                return Err(anyhow::anyhow!(
+                    "ask_user question index {} is out of range (questions={})",
+                    index,
+                    pending.group.questions.len()
+                ));
+            }
+            Ok(*index)
+        }
+        QuestionLookup::LegacyId(question_id) => pending
+            .group
+            .questions
+            .iter()
+            .position(|question| question.question_id == *question_id)
+            .ok_or_else(|| anyhow::anyhow!("Unknown ask_user question_id {question_id}")),
+    }
+}
+
+fn resolve_option_index(
+    pending: &PendingAskUser,
+    question_index: usize,
+    lookup: &OptionLookup,
+) -> anyhow::Result<usize> {
+    let question = pending.group.questions.get(question_index).ok_or_else(|| {
+        anyhow::anyhow!("ask_user question index {question_index} is out of range")
+    })?;
+    match lookup {
+        OptionLookup::Index(index) => {
+            if *index >= question.options.len() {
+                return Err(anyhow::anyhow!(
+                    "ask_user option index {} is out of range for question {} (options={})",
+                    index,
+                    question_index,
+                    question.options.len()
+                ));
+            }
+            Ok(*index)
+        }
+        OptionLookup::LegacyValue(option_value) => question
+            .options
+            .iter()
+            .position(|option| option.value == *option_value)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Unknown ask_user option value for question {}",
+                    question.question_id
+                )
+            }),
+    }
+}
+
+fn apply_callback_selection(
+    pending: &mut PendingAskUser,
+    question_lookup: &QuestionLookup,
+    option_lookup: &OptionLookup,
+) -> anyhow::Result<()> {
+    let question_index = resolve_question_index(pending, question_lookup)?;
+    let option_index = resolve_option_index(pending, question_index, option_lookup)?;
+    let question = &pending.group.questions[question_index];
+    let question_id = question.question_id.clone();
+    let option_value = question.options[option_index].value.clone();
+    let multi_select = question.multi_select;
+    let progress = pending.progress.entry(question_id).or_default();
+    if multi_select {
+        if progress.selected.contains(&option_value) {
+            progress.selected.retain(|value| value != &option_value);
+        } else {
+            progress.selected.push(option_value);
+        }
+    } else {
+        progress.selected = vec![option_value];
+        progress.custom_input = None;
+    }
+    Ok(())
+}
+
+fn validate_done_question(
+    pending: &PendingAskUser,
+    question_lookup: &QuestionLookup,
+) -> anyhow::Result<()> {
+    let question_index = resolve_question_index(pending, question_lookup)?;
+    let question = &pending.group.questions[question_index];
+    if !question.multi_select {
+        return Err(anyhow::anyhow!(
+            "ask_user Done is valid only for a multi-select question"
+        ));
+    }
+    Ok(())
+}
+
+/// Parse a compact `ask_user:{request_id}:s:{question_index}:{option_index}` /
+/// `:d:{question_index}` / `:c` callback (plus the legacy id/value format),
+/// update canonical pending state, and submit only when the whole group is
+/// complete.
 ///
 /// Returns a short human-readable label for UI feedback.
 pub async fn handle_ask_user_callback_with_source(
@@ -984,28 +1726,21 @@ pub async fn handle_ask_user_callback_with_source(
     callback_source: Option<InteractiveCallbackSource>,
     source: &'static str,
 ) -> anyhow::Result<String> {
-    let rest = callback_data
-        .strip_prefix(ASK_USER_PREFIX)
-        .ok_or_else(|| anyhow::anyhow!("Not an ask_user callback"))?;
+    let parsed = parse_ask_user_callback(callback_data)?;
+    let request_id = parsed.request_id;
 
-    let mut parts = rest.splitn(4, ':');
-    let request_id = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Missing request_id"))?
-        .to_string();
-    let action = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Missing action"))?;
-
-    if callback_source.is_some() {
-        let session_id = {
-            let map = get_button_pending().lock().await;
-            map.get(&request_id)
-                .map(|pending| pending.group.session_id.clone())
-                .ok_or_else(|| anyhow::anyhow!("No pending ask_user with id {}", request_id))?
-        };
-        validate_callback_source_for_session(&session_id, callback_source.as_ref(), source)?;
-    }
+    // Compact and legacy callbacks share the same fail-closed source boundary.
+    // A missing source is not accepted: live ask_user prompts are short-lived,
+    // so Telegram's >48h callback-without-message compatibility is irrelevant.
+    let attach_identity = {
+        let state = get_pending_state().lock().await;
+        state
+            .by_request
+            .get(&request_id)
+            .map(|pending| pending.attach_identity.clone())
+            .ok_or_else(|| anyhow::anyhow!("No pending ask_user with id {}", request_id))?
+    };
+    attach_identity.validate_source_live(callback_source.as_ref(), source)?;
 
     // Defense-in-depth: if the group's timeout has elapsed but the tool-side
     // cleanup hasn't run yet, drop the stale pending entry and surface a clear
@@ -1018,53 +1753,52 @@ pub async fn handle_ask_user_callback_with_source(
     }
 
     let locale = current_locale();
-    match action {
-        "cancel" => {
-            get_button_pending().lock().await.remove(&request_id);
+    match parsed.action {
+        AskUserCallbackAction::Cancel => {
+            let pending = {
+                let mut state = get_pending_state().lock().await;
+                validate_pending_attach_for_source(
+                    &state,
+                    &request_id,
+                    &attach_identity,
+                    callback_source.as_ref(),
+                    source,
+                )?;
+                state.remove(&request_id)
+            };
+            if pending.is_none() {
+                return Err(anyhow::anyhow!(
+                    "No pending ask_user with id {}",
+                    request_id
+                ));
+            }
+            attach_identity.validate_source_live(callback_source.as_ref(), source)?;
             ask_user_mod::cancel_pending_ask_user_question(&request_id).await;
             Ok(ask_user_callback_cancelled(locale).to_string())
         }
-        "select" => {
-            let question_id = parts
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("Missing question_id"))?
-                .to_string();
-            let option_value = parts
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("Missing option_value"))?
-                .to_string();
-
+        AskUserCallbackAction::Select { question, option } => {
             let (should_submit, pending_for_submit) = {
-                let mut map = get_button_pending().lock().await;
-                let Some(pending) = map.get_mut(&request_id) else {
+                let mut state = get_pending_state().lock().await;
+                let Some(pending) = state.by_request.get_mut(&request_id) else {
                     return Err(anyhow::anyhow!(
                         "No pending ask_user with id {}",
                         request_id
                     ));
                 };
-                let q = pending
-                    .group
-                    .questions
-                    .iter()
-                    .find(|q| q.question_id == question_id)
-                    .cloned();
-                if let Some(q) = q {
-                    let prog = pending.progress.entry(question_id.clone()).or_default();
-                    if q.multi_select {
-                        if prog.selected.contains(&option_value) {
-                            prog.selected.retain(|v| v != &option_value);
-                        } else {
-                            prog.selected.push(option_value);
-                        }
-                    } else {
-                        prog.selected = vec![option_value];
-                    }
+                if pending.attach_identity != attach_identity {
+                    return Err(anyhow::anyhow!(
+                        "ask_user attach identity changed for request {}",
+                        request_id
+                    ));
                 }
+                attach_identity.validate_source_live(callback_source.as_ref(), source)?;
+                apply_callback_selection(pending, &question, &option)?;
                 // Single-select complete → submit; multi-select waits for "done".
                 let has_multi = pending.group.questions.iter().any(|q| q.multi_select);
-                if !has_multi && pending.is_complete() {
-                    let p = map.remove(&request_id);
-                    (true, p)
+                let should_submit = !has_multi && pending.is_complete();
+                if should_submit {
+                    let pending = state.remove(&request_id);
+                    (true, pending)
                 } else {
                     (false, None)
                 }
@@ -1072,6 +1806,7 @@ pub async fn handle_ask_user_callback_with_source(
 
             if should_submit {
                 if let Some(pending) = pending_for_submit {
+                    attach_identity.validate_source_live(callback_source.as_ref(), source)?;
                     let answers = pending.into_answers();
                     ask_user_mod::submit_ask_user_question_response(&request_id, answers).await?;
                     return Ok(ask_user_callback_answered(locale).to_string());
@@ -1079,20 +1814,35 @@ pub async fn handle_ask_user_callback_with_source(
             }
             Ok(ask_user_callback_selected(locale).to_string())
         }
-        "done" => {
-            let mut map = get_button_pending().lock().await;
-            let Some(pending) = map.remove(&request_id) else {
-                return Err(anyhow::anyhow!(
-                    "No pending ask_user with id {}",
-                    request_id
-                ));
+        AskUserCallbackAction::Done { question } => {
+            let pending = {
+                let mut state = get_pending_state().lock().await;
+                let Some(pending) = state.by_request.get(&request_id) else {
+                    return Err(anyhow::anyhow!(
+                        "No pending ask_user with id {}",
+                        request_id
+                    ));
+                };
+                if pending.attach_identity != attach_identity {
+                    return Err(anyhow::anyhow!(
+                        "ask_user attach identity changed for request {}",
+                        request_id
+                    ));
+                }
+                attach_identity.validate_source_live(callback_source.as_ref(), source)?;
+                validate_done_question(pending, &question)?;
+                if !pending.is_complete() {
+                    return Ok(ask_user_callback_incomplete(locale).to_string());
+                }
+                state
+                    .remove(&request_id)
+                    .ok_or_else(|| anyhow::anyhow!("No pending ask_user with id {}", request_id))?
             };
-            drop(map);
+            attach_identity.validate_source_live(callback_source.as_ref(), source)?;
             let answers = pending.into_answers();
             ask_user_mod::submit_ask_user_question_response(&request_id, answers).await?;
             Ok(ask_user_callback_answered(locale).to_string())
         }
-        _ => Err(anyhow::anyhow!("Unknown ask_user action: {}", action)),
     }
 }
 
@@ -1133,12 +1883,203 @@ pub fn try_dispatch_interactive_callback(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_marker;
+    use super::{
+        apply_callback_selection, apply_text_custom_input, build_buttons_for_locale,
+        buttons_fit_callback_limit, parse_ask_user_callback, parse_marker, validate_done_question,
+        AskUserCallbackAction, InteractiveAttachIdentity, InteractiveCallbackSource, OptionLookup,
+        PendingAskUser, PendingAskUserState, QuestionLookup, ASK_USER_CALLBACK_MAX_BYTES,
+    };
+    use ha_core::ask_user::AskUserQuestionGroup;
+    use ha_core::channel::db::ChannelConversation;
+    use ha_core::channel::types::ChannelId;
+
+    fn sample_conversation(attach_id: i64) -> ChannelConversation {
+        ChannelConversation {
+            id: attach_id,
+            channel_id: "telegram".to_string(),
+            account_id: "account".to_string(),
+            chat_id: "chat".to_string(),
+            thread_id: None,
+            session_id: "session-1".to_string(),
+            sender_id: None,
+            sender_name: None,
+            chat_type: "dm".to_string(),
+            source: "inbound".to_string(),
+            attached_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    fn sample_attach_identity() -> InteractiveAttachIdentity {
+        InteractiveAttachIdentity::from_conversation("session-1", &sample_conversation(7))
+            .expect("sample attach identity")
+    }
+
+    fn sample_group() -> AskUserQuestionGroup {
+        serde_json::from_value(serde_json::json!({
+            "requestId": format!("auq_{}", "a".repeat(32)),
+            "sessionId": "session-1",
+            "questions": [
+                {
+                    "questionId": "question-id-that-must-not-enter-the-callback-payload",
+                    "text": "Choose any",
+                    "options": [{
+                        "value": "option-value-that-must-not-enter-the-callback-payload",
+                        "label": "A"
+                    }],
+                    "allowCustom": true,
+                    "multiSelect": true
+                },
+                {
+                    "questionId": "q2",
+                    "text": "Choose one",
+                    "options": [{ "value": "b", "label": "B" }],
+                    "allowCustom": true,
+                    "multiSelect": false
+                }
+            ]
+        }))
+        .expect("sample ask_user group must deserialize")
+    }
 
     #[test]
     fn parse_marker_rejects_unicode_without_panicking() {
         assert_eq!(parse_marker("你好"), None);
         assert_eq!(parse_marker("1好"), None);
         assert_eq!(parse_marker("10c"), Some((9, 2)));
+    }
+
+    #[test]
+    fn compact_callbacks_use_indices_and_fit_telegram_limit() {
+        let group = sample_group();
+        let buttons = build_buttons_for_locale(&group, "en-US");
+        assert!(buttons_fit_callback_limit(&buttons));
+        for callback in buttons
+            .iter()
+            .flatten()
+            .filter_map(|button| button.callback_data.as_deref())
+        {
+            assert!(callback.len() <= ASK_USER_CALLBACK_MAX_BYTES);
+            assert!(!callback.contains("question-id-that"));
+            assert!(!callback.contains("option-value-that"));
+        }
+        assert!(buttons.iter().flatten().any(|button| {
+            button.callback_data.as_deref()
+                == Some("ask_user:auq_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:s:0:0")
+        }));
+    }
+
+    #[test]
+    fn callback_parser_accepts_compact_and_legacy_protocols() {
+        let compact = parse_ask_user_callback("ask_user:req:s:1:2").unwrap();
+        assert_eq!(
+            compact.action,
+            AskUserCallbackAction::Select {
+                question: QuestionLookup::Index(1),
+                option: OptionLookup::Index(2),
+            }
+        );
+
+        let legacy = parse_ask_user_callback("ask_user:req:select:q2:b").unwrap();
+        assert_eq!(
+            legacy.action,
+            AskUserCallbackAction::Select {
+                question: QuestionLookup::LegacyId("q2".to_string()),
+                option: OptionLookup::LegacyValue("b".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn callback_indices_fail_closed_and_done_requires_complete_group() {
+        let mut pending = PendingAskUser::new(sample_group(), sample_attach_identity());
+        assert!(apply_callback_selection(
+            &mut pending,
+            &QuestionLookup::Index(99),
+            &OptionLookup::Index(0)
+        )
+        .is_err());
+        assert!(apply_callback_selection(
+            &mut pending,
+            &QuestionLookup::Index(0),
+            &OptionLookup::Index(99)
+        )
+        .is_err());
+
+        apply_callback_selection(
+            &mut pending,
+            &QuestionLookup::Index(0),
+            &OptionLookup::Index(0),
+        )
+        .unwrap();
+        validate_done_question(&pending, &QuestionLookup::Index(0)).unwrap();
+        assert!(!pending.is_complete());
+
+        apply_callback_selection(
+            &mut pending,
+            &QuestionLookup::Index(1),
+            &OptionLookup::Index(0),
+        )
+        .unwrap();
+        assert!(pending.is_complete());
+        assert!(validate_done_question(&pending, &QuestionLookup::Index(1)).is_err());
+    }
+
+    #[test]
+    fn button_and_text_paths_share_progress_and_terminal_removal() {
+        let mut group = sample_group();
+        group.questions.truncate(1);
+        let request_id = group.request_id.clone();
+        let route = (
+            "telegram".to_string(),
+            "account".to_string(),
+            "chat".to_string(),
+            None,
+        );
+        let mut state = PendingAskUserState::default();
+        state.insert(
+            route.clone(),
+            PendingAskUser::new(group, sample_attach_identity()),
+        );
+
+        let pending = state.by_request.get_mut(&request_id).unwrap();
+        apply_callback_selection(pending, &QuestionLookup::Index(0), &OptionLookup::Index(0))
+            .unwrap();
+        assert!(apply_text_custom_input(pending, "Other value"));
+        let progress = pending.progress.values().next().unwrap();
+        assert_eq!(progress.selected.len(), 1);
+        assert_eq!(progress.custom_input.as_deref(), Some("Other value"));
+
+        assert_eq!(
+            state.latest_for_route(&route, 0).as_deref(),
+            Some(request_id.as_str())
+        );
+        assert!(state.remove(&request_id).is_some());
+        assert!(state.by_request.is_empty());
+        assert!(state.by_route.is_empty());
+    }
+
+    #[test]
+    fn ask_user_callback_requires_source_context() {
+        let error = sample_attach_identity()
+            .validate_source(None, "test")
+            .expect_err("missing callback source must fail closed");
+        assert!(error.to_string().contains("missing source context"));
+    }
+
+    #[test]
+    fn attach_identity_binds_row_id_and_exact_callback_route() {
+        let identity = sample_attach_identity();
+        assert!(identity.matches_conversation(&sample_conversation(7)));
+        assert!(!identity.matches_conversation(&sample_conversation(8)));
+
+        let source = InteractiveCallbackSource::new(ChannelId::Telegram, "account", "chat", None);
+        identity
+            .validate_source(Some(&source), "test")
+            .expect("exact route should validate");
+        let wrong_chat =
+            InteractiveCallbackSource::new(ChannelId::Telegram, "account", "other", None);
+        assert!(identity.validate_source(Some(&wrong_chat), "test").is_err());
     }
 }

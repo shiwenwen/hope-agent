@@ -1,8 +1,72 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::Value;
+use std::fmt;
 
 use crate::channel::rate_limit::with_rate_limit_retry;
+
+/// Failure classification for the non-idempotent LINE reply endpoint.
+///
+/// A push fallback is safe only when LINE explicitly rejects the reply token.
+/// Transport failures and all other responses have an ambiguous delivery
+/// outcome and must not trigger a second send.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LineReplyError {
+    InvalidReplyToken { detail: String },
+    Ambiguous { detail: String },
+}
+
+impl LineReplyError {
+    pub fn allows_push_fallback(&self) -> bool {
+        matches!(self, Self::InvalidReplyToken { .. })
+    }
+
+    fn ambiguous(detail: impl Into<String>) -> Self {
+        Self::Ambiguous {
+            detail: detail.into(),
+        }
+    }
+}
+
+impl fmt::Display for LineReplyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidReplyToken { detail } => {
+                write!(f, "LINE explicitly rejected the reply token: {detail}")
+            }
+            Self::Ambiguous { detail } => {
+                write!(f, "LINE reply delivery outcome is ambiguous: {detail}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LineReplyError {}
+
+fn classify_reply_response_error(status: reqwest::StatusCode, body: &str) -> LineReplyError {
+    let explicitly_invalid_reply_token = status == reqwest::StatusCode::BAD_REQUEST
+        && serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .as_deref()
+            == Some("Invalid reply token");
+
+    let detail = format!(
+        "LINE API POST /v2/bot/message/reply returned {}: {}",
+        status,
+        ha_core::truncate_utf8(body, 512)
+    );
+    if explicitly_invalid_reply_token {
+        LineReplyError::InvalidReplyToken { detail }
+    } else {
+        LineReplyError::ambiguous(detail)
+    }
+}
 
 /// LINE Messaging API client.
 pub struct LineApi {
@@ -60,7 +124,11 @@ impl LineApi {
     /// POST /v2/bot/message/reply - Reply to a message using a reply token.
     ///
     /// The reply token is valid for only ~1 minute after the webhook event.
-    pub async fn reply_message(&self, reply_token: &str, messages: Vec<Value>) -> Result<()> {
+    pub async fn reply_message(
+        &self,
+        reply_token: &str,
+        messages: Vec<Value>,
+    ) -> std::result::Result<(), LineReplyError> {
         let url = format!("{}/v2/bot/message/reply", self.base_url);
         let body = serde_json::json!({
             "replyToken": reply_token,
@@ -75,16 +143,20 @@ impl LineApi {
             .timeout(std::time::Duration::from_secs(10))
             .send()
             .await
-            .context("Failed to send POST /v2/bot/message/reply")?;
+            .map_err(|error| {
+                LineReplyError::ambiguous(format!(
+                    "failed to send POST /v2/bot/message/reply: {error}"
+                ))
+            })?;
 
         let status = resp.status();
         if !status.is_success() {
-            let resp_body = resp.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "LINE API POST /v2/bot/message/reply returned {}: {}",
-                status,
-                ha_core::truncate_utf8(&resp_body, 512)
-            );
+            let resp_body = resp.text().await.map_err(|error| {
+                LineReplyError::ambiguous(format!(
+                    "failed to read LINE reply error response ({status}): {error}"
+                ))
+            })?;
+            return Err(classify_reply_response_error(status, &resp_body));
         }
 
         Ok(())
@@ -273,5 +345,37 @@ mod tests {
         assert_eq!(body["loadingSeconds"], 60);
         assert!(loading_request_body("C123", 60).is_err());
         assert!(loading_request_body("U123", 7).is_err());
+    }
+
+    #[test]
+    fn invalid_reply_token_is_the_only_response_that_allows_push_fallback() {
+        let error = classify_reply_response_error(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"message":"Invalid reply token"}"#,
+        );
+
+        assert!(error.allows_push_fallback());
+        assert!(matches!(error, LineReplyError::InvalidReplyToken { .. }));
+    }
+
+    #[test]
+    fn other_reply_rejections_have_ambiguous_delivery_outcomes() {
+        let cases = [
+            (
+                reqwest::StatusCode::BAD_REQUEST,
+                r#"{"message":"The request body has 1 error(s)"}"#,
+            ),
+            (
+                reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+                r#"{"message":"Invalid reply token"}"#,
+            ),
+            (reqwest::StatusCode::BAD_REQUEST, "not-json"),
+        ];
+
+        for (status, body) in cases {
+            let error = classify_reply_response_error(status, body);
+            assert!(!error.allows_push_fallback());
+            assert!(matches!(error, LineReplyError::Ambiguous { .. }));
+        }
     }
 }

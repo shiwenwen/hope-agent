@@ -3118,6 +3118,7 @@ dependencies = [
  "prost",
  "prost-build",
  "protoc-bin-vendored",
+ "pulldown-cmark",
  "rand 0.9.5",
  "regex",
  "reqwest 0.12.28",

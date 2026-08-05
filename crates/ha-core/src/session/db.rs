@@ -237,6 +237,67 @@ fn unread_domain_for_session(conn: &Connection, session_id: &str) -> Result<Opti
     }))
 }
 
+fn insert_message_row(
+    conn: &Connection,
+    session_id: &str,
+    msg: &NewMessage,
+    timestamp: &str,
+) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO messages (session_id, role, content, timestamp,
+            attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+            tool_call_id, tool_name, tool_arguments, tool_result,
+            tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+            tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, source,
+            queue_request_id, persistence_run_id, logical_block_seq)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+        params![
+            session_id,
+            msg.role.as_str(),
+            msg.content,
+            timestamp,
+            msg.attachments_meta,
+            msg.model,
+            msg.tokens_in,
+            msg.tokens_out,
+            msg.reasoning_effort,
+            msg.tool_call_id,
+            msg.tool_name,
+            msg.tool_arguments,
+            msg.tool_result,
+            msg.tool_duration_ms,
+            msg.is_error.map(|value| if value { 1i64 } else { 0i64 }),
+            msg.thinking,
+            msg.ttft_ms,
+            msg.tokens_in_last,
+            msg.tokens_cache_creation,
+            msg.tokens_cache_read,
+            msg.tool_metadata,
+            msg.stream_status,
+            msg.source,
+            msg.queue_request_id,
+            msg.persistence_run_id,
+            msg.logical_block_seq,
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+fn injection_user_msg_exists(conn: &Connection, session_id: &str, run_id: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(
+        "SELECT 1 FROM messages
+         WHERE session_id = ?1
+           AND role = 'user'
+           AND attachments_meta LIKE ?2
+         LIMIT 1",
+    )?;
+    // The attachments_meta JSON always renders run_id as a bare string
+    // key-value pair. Matching the quoted form avoids false positives from
+    // tokens that happen to contain the id as a substring.
+    let pattern = format!("%\"run_id\":\"{}\"%", run_id);
+    Ok(stmt.exists(params![session_id, pattern])?)
+}
+
 /// Notify every connected UI that the durable read state may have changed.
 /// `domain` is an invalidation hint only; consumers still re-query their own
 /// authoritative aggregate instead of trusting an event count.
@@ -3890,45 +3951,7 @@ impl SessionDB {
             &msg.timestamp
         };
 
-        conn.execute(
-            "INSERT INTO messages (session_id, role, content, timestamp,
-                attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
-                tool_call_id, tool_name, tool_arguments, tool_result,
-                tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, source,
-                queue_request_id, persistence_run_id, logical_block_seq)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
-            params![
-                session_id,
-                msg.role.as_str(),
-                msg.content,
-                timestamp,
-                msg.attachments_meta,
-                msg.model,
-                msg.tokens_in,
-                msg.tokens_out,
-                msg.reasoning_effort,
-                msg.tool_call_id,
-                msg.tool_name,
-                msg.tool_arguments,
-                msg.tool_result,
-                msg.tool_duration_ms,
-                msg.is_error.map(|b| if b { 1i64 } else { 0i64 }),
-                msg.thinking,
-                msg.ttft_ms,
-                msg.tokens_in_last,
-                msg.tokens_cache_creation,
-                msg.tokens_cache_read,
-                msg.tool_metadata,
-                msg.stream_status,
-                msg.source,
-                msg.queue_request_id,
-                msg.persistence_run_id,
-                msg.logical_block_seq,
-            ],
-        )?;
-
-        let msg_id = conn.last_insert_rowid();
+        let msg_id = insert_message_row(&conn, session_id, msg, timestamp)?;
 
         // Update session's updated_at
         conn.execute(
@@ -4423,19 +4446,51 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT 1 FROM messages
-             WHERE session_id = ?1
-               AND role = 'user'
-               AND attachments_meta LIKE ?2
-             LIMIT 1",
+        injection_user_msg_exists(&conn, session_id, run_id)
+    }
+
+    /// Atomically append an injected `user` row if its run marker is absent.
+    ///
+    /// The second dedup check closes concurrent retry races after the caller's
+    /// optimistic [`Self::has_injection_user_msg`] lookup. INSERT, session touch,
+    /// and commit share one transaction so a reported write failure cannot
+    /// leave a partial user row that would suppress a later safe retry.
+    pub(crate) fn append_injection_user_msg_if_missing(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        msg: &NewMessage,
+    ) -> Result<bool> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        if injection_user_msg_exists(&tx, session_id, run_id)? {
+            tx.commit()?;
+            return Ok(false);
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let timestamp = if msg.timestamp.is_empty() {
+            now.as_str()
+        } else {
+            msg.timestamp.as_str()
+        };
+        let msg_id = insert_message_row(&tx, session_id, msg, timestamp)?;
+        let touched = tx.execute(
+            "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
+            params![now, session_id],
         )?;
-        // The attachments_meta JSON always renders run_id as a bare string
-        // key-value pair. Matching the quoted form avoids false positives
-        // from tokens that happen to contain the id as a substring.
-        let pattern = format!("%\"run_id\":\"{}\"%", run_id);
-        let exists = stmt.exists(params![session_id, pattern])?;
-        Ok(exists)
+        if touched != 1 {
+            anyhow::bail!("parent injection session disappeared before message commit");
+        }
+        let resolved_ts = timestamp.to_string();
+        tx.commit()?;
+        drop(conn);
+
+        self.mirror_persisted_message_for_hooks(session_id, msg_id, msg, &resolved_ts);
+        Ok(true)
     }
 
     /// Update session title.
@@ -6972,6 +7027,57 @@ mod tests {
             .expect("read durable synchronous mode");
         assert_eq!(journal, "wal");
         assert_eq!(synchronous, 2);
+    }
+
+    #[test]
+    fn injection_user_append_rolls_back_on_touch_failure_and_stays_idempotent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = SessionDB::open_ephemeral_for_test(&path).expect("open db");
+        let session = db.create_session("ha-main").expect("create session");
+
+        {
+            let conn = db.conn.lock().expect("lock connection");
+            conn.execute_batch(
+                "CREATE TRIGGER fail_injection_session_touch
+                 BEFORE UPDATE OF updated_at ON sessions
+                 BEGIN
+                   SELECT RAISE(ABORT, 'forced session touch failure');
+                 END;",
+            )
+            .expect("install failure trigger");
+        }
+
+        let failed_run = "injection-atomic-failure";
+        let mut failed = NewMessage::user("failed injection");
+        failed.attachments_meta =
+            Some(serde_json::json!({ "subagent_result": { "run_id": failed_run } }).to_string());
+        assert!(db
+            .append_injection_user_msg_if_missing(&session.id, failed_run, &failed)
+            .is_err());
+        assert!(!db
+            .has_injection_user_msg(&session.id, failed_run)
+            .expect("read rolled-back marker"));
+
+        {
+            let conn = db.conn.lock().expect("lock connection");
+            conn.execute_batch("DROP TRIGGER fail_injection_session_touch;")
+                .expect("remove failure trigger");
+        }
+
+        let delivered_run = "injection-atomic-idempotent";
+        let mut delivered = NewMessage::user("delivered injection");
+        delivered.attachments_meta =
+            Some(serde_json::json!({ "subagent_result": { "run_id": delivered_run } }).to_string());
+        assert!(db
+            .append_injection_user_msg_if_missing(&session.id, delivered_run, &delivered)
+            .expect("append first copy"));
+        assert!(!db
+            .append_injection_user_msg_if_missing(&session.id, delivered_run, &delivered)
+            .expect("skip duplicate copy"));
+        assert!(db
+            .has_injection_user_msg(&session.id, delivered_run)
+            .expect("read delivered marker"));
     }
 
     fn set_session_updated_at(db: &SessionDB, session_id: &str, updated_at: &str) {

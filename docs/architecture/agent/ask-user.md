@@ -458,13 +458,13 @@ IM 路径集中在 [`worker/ask_user.rs`](../../../crates/ha-channel/src/channel
 
 ### 按钮渠道 vs 文本兜底
 
-按 `ChannelCapabilities.supports_buttons` 分两类：
+先用 target-aware `ChannelPlugin::supports_reply_buttons(account, chat)` 判断，再对完整 button payload 调 `validate_reply_buttons`。任一预检失败都在网络请求前回退到完整文本交互：
 
 | supports_buttons = true（inline button） | supports_buttons = false（文本兜底） |
 |---|---|
 | Telegram · Discord · Slack · Feishu · QQ Bot · LINE · Google Chat | WeChat · Signal · iMessage · IRC · WhatsApp |
 
-`spawn_channel_ask_user_listener` 里的分流条件是 `supports_buttons && 所有问题都有 options`——**没有选项的题（`text` / `textarea`）即使在按钮渠道也走文本兜底**，否则只会显示一个 `[Cancel]` 而让用户的文本回复漏成一条新消息。命中按钮分支注册到 `BUTTON_PENDING` 发 `{text, buttons}`，否则注册到 `TEXT_PENDING` 发纯文本 + 提示。
+`spawn_channel_ask_user_listener` 先构造完整按钮，再同时检查 target 能力、callback 字节预算和 provider payload 校验。两种呈现模式都注册同一个 `PendingAskUser`；request index 与 exact-route index 只是同一对象的两个入口。**没有选项的题（`text` / `textarea`）即使在按钮渠道也走文本兜底**，否则只会显示一个 `[Cancel]` 而让用户的文本回复漏成一条新消息。
 
 ### Prompt 格式化与字节预算
 
@@ -485,23 +485,23 @@ IM 路径集中在 [`worker/ask_user.rs`](../../../crates/ha-channel/src/channel
 `build_buttons` 生成 2D 按钮数组，`callback_data` 走命名空间 `ask_user:`（与 approval 的 `approval:` 严格区分）：
 
 ```
-ask_user:{request_id}:select:{question_id}:{option_value}   // 普通选项
-ask_user:{request_id}:done:{question_id}                    // multi-select 完成
-ask_user:{request_id}:cancel                                // 整体取消
+ask_user:{request_id}:s:{question_index}:{option_index}  // 普通选项
+ask_user:{request_id}:d:{question_index}                 // multi-select 完成
+ask_user:{request_id}:c                                  // 整体取消
 ```
 
-布局：每题选项按顺序填、满 3 个换行（Telegram 友好的短行）；不满 3 的独占一行；`multi_select` 题追加一行 `✅ Done with Q{N}`；所有题填完追加一行 `❌ Cancel`。按钮显示文本形如 `[1a] ★ 标签`，`option_marker(qi, oi)` 生成 `qi` 十进制 + `oi` 单字母（`a..z`）的编号，text 兜底和 button callback 共享这套记号。
+布局：每题选项按顺序填、满 3 个换行（Telegram 友好的短行）；不满 3 的独占一行；`multi_select` 题追加一行 `✅ Done with Q{N}`；所有题填完追加一行 `❌ Cancel`。按钮显示文本形如 `[1a] ★ 标签`，`option_marker(qi, oi)` 生成 `qi` 十进制 + `oi` 单字母（`a..z`）的编号。全部 callback 受 Telegram 最严的 64-byte 上限；超限则发送前回退文本。旧 `select/done/cancel` 格式仅作滚动重启期读取兼容，同样经过 identity、timeout 与越界检查。
 
 ### 文本回复解析
 
-`try_handle_ask_user_reply(msg)` 是 dispatcher 前置钩子，在消息当成普通输入之前尝试消费。接收键 `(account_id, chat_id) → Vec<PendingAskUser>` 按 **LIFO** 处理（总对最新一组作答）。解析顺序：
+`try_handle_ask_user_reply(msg)` 是 dispatcher 前置钩子，在消息当成普通输入之前尝试消费。`PendingAskUserState` 用 request index 与 `(channel_id, account_id, chat_id, normalized_thread)` exact-route index 指向同一 `PendingAskUser`。每个对象还捕获 `channel_conversations.id + session + exact route` 的 `InteractiveAttachIdentity`；同群不同 topic 不会互相选中。解析顺序：
 
 1. **`cancel`**（忽略大小写）：弹最新 pending，`cancel_pending_ask_user_question` 撤 oneshot
 2. **逗号 / 空白分隔的 marker**（`1a`、`1a,1c`、`1a 1b`）：`parse_marker` 逐个转 `(qi, oi)` 写入对应题——多选追加去重、单选覆盖保留最后一个
-3. **`done`**（忽略大小写）：触发完成检查
-4. **都没解析到 → 自由文本兜底**：写入第一个"未选也无 custom"的题的 `custom_input`
+3. **`done`**（忽略大小写）：只在整组 `is_complete()` 时 submit；未完整则保留 pending 并回复提示
+4. **都没解析到 → 自由文本兜底**：优先填入第一个允许 custom 且未作答的问题；若已有选项，只在剩下唯一无歧义 custom 目标时接受。多选保留 `selected + custom_input`，单选 Other 清空旧选项
 
-`parse_marker` 是 1-based（`1a → (0,0)`，`10c → (9,2)`），`qi == 0` 直接拒绝，非 ASCII 尾字母返 `None`（不 panic）。完成条件 `should_finish = (text == "done") || 无任何 multi_select`，且 `is_complete()` 要求每题至少一个 selected 或 custom_input；满足后 `into_answers()` 转结构、调 `submit_ask_user_question_response` 回传。
+`parse_marker` 是 1-based（`1a → (0,0)`，`10c → (9,2)`），`qi == 0` 直接拒绝，非 ASCII 尾字母返 `None`（不 panic）。完成条件是每题至少一个 selected 或 custom_input；没有多选题时最后一题完整后自动 submit，含多选时由 `done` / 按钮触发整组检查。完成、取消、超时或 prompt 投递失败都在同一锁下同时撤掉 request/route 两个入口。submit 前再复验 attach identity；来源缺失或 handover 后回复均 fail-closed。
 
 ### 统一 dispatcher 与接入点
 

@@ -5,7 +5,7 @@
 //! via EventBus and terminal exits are injected back into the owning chat as a
 //! `<process-notification>` message.
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 use serde_json::json;
 
@@ -128,6 +128,10 @@ pub(crate) fn on_process_exited(session: ProcessSession) {
             .build()
         {
             Ok(rt) => {
+                let on_injected = crate::subagent::injection::OnInjected::idempotent(move || {
+                    mark_observed_local(&process_id);
+                    Ok(())
+                });
                 let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
                     parent_session_id,
                     parent_agent_id,
@@ -135,7 +139,7 @@ pub(crate) fn on_process_exited(session: ProcessSession) {
                     run_id,
                     push_message,
                     db,
-                    Some(Arc::new(move || mark_observed_local(&process_id))),
+                    Some(on_injected),
                 ));
                 if matches!(
                     outcome,

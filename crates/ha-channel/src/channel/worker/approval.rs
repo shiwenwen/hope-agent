@@ -5,8 +5,8 @@
 //! to the IM channel (with buttons if supported, text fallback otherwise), and
 //! routes the user's response back to `submit_approval_response()`.
 
-use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use tokio::sync::Mutex;
@@ -20,7 +20,7 @@ use ha_core::tools::{
 };
 use ha_core::ttl_cache::TtlCache;
 
-use std::sync::Arc;
+use super::ask_user::{interactive_route_key, InteractiveAttachIdentity, InteractiveRouteKey};
 
 /// Callback data prefix for approval buttons across all channels.
 const APPROVAL_PREFIX: &str = "approval:";
@@ -34,13 +34,49 @@ struct PendingTextApproval {
     forbids_allow_always: bool,
 }
 
-/// Registry of pending text-reply approvals, keyed by (account_id, chat_id).
-/// Only used for channels that don't support buttons.
-static TEXT_PENDING: OnceLock<Mutex<HashMap<(String, String), Vec<PendingTextApproval>>>> =
+/// Registry of pending text-reply approvals, keyed by the exact
+/// (channel, account, chat, normalized thread) route. Only used for channels
+/// that don't support buttons.
+static TEXT_PENDING: OnceLock<Mutex<HashMap<InteractiveRouteKey, Vec<PendingTextApproval>>>> =
     OnceLock::new();
 
-fn get_text_pending() -> &'static Mutex<HashMap<(String, String), Vec<PendingTextApproval>>> {
+fn get_text_pending() -> &'static Mutex<HashMap<InteractiveRouteKey, Vec<PendingTextApproval>>> {
     TEXT_PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Exact attach identity for every IM approval prompt, including channels
+/// that use buttons and therefore have no `TEXT_PENDING` entry.
+static APPROVAL_ATTACH_IDENTITIES: OnceLock<StdMutex<HashMap<String, InteractiveAttachIdentity>>> =
+    OnceLock::new();
+
+fn get_approval_attach_identities() -> &'static StdMutex<HashMap<String, InteractiveAttachIdentity>>
+{
+    APPROVAL_ATTACH_IDENTITIES.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn with_approval_attach_identities<R>(
+    f: impl FnOnce(&mut HashMap<String, InteractiveAttachIdentity>) -> R,
+) -> R {
+    let mut identities = get_approval_attach_identities()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut identities)
+}
+
+fn register_approval_attach_identity(request_id: &str, identity: InteractiveAttachIdentity) {
+    with_approval_attach_identities(|identities| {
+        identities.insert(request_id.to_string(), identity);
+    });
+}
+
+fn approval_attach_identity(request_id: &str) -> Option<InteractiveAttachIdentity> {
+    with_approval_attach_identities(|identities| identities.get(request_id).cloned())
+}
+
+fn remove_approval_attach_identity(request_id: &str) {
+    with_approval_attach_identities(|identities| {
+        identities.remove(request_id);
+    });
 }
 
 /// Throttle for the "you have N pending approvals" hint — one nudge per
@@ -67,56 +103,134 @@ fn hint_throttle_duration() -> Duration {
 /// otherwise resolved without an IM reply, so stale entries don't
 /// accumulate. Mirrors [`super::ask_user::drop_pending_by_request_id`].
 pub async fn drop_pending_by_request_id(request_id: &str) {
-    let mut map = get_text_pending().lock().await;
-    let mut empty_keys = Vec::new();
-    for (key, list) in map.iter_mut() {
-        list.retain(|p| p.request_id != request_id);
-        if list.is_empty() {
-            empty_keys.push(key.clone());
+    {
+        let mut map = get_text_pending().lock().await;
+        let mut empty_keys = Vec::new();
+        for (key, list) in map.iter_mut() {
+            list.retain(|p| p.request_id != request_id);
+            if list.is_empty() {
+                empty_keys.push(key.clone());
+            }
+        }
+        for k in empty_keys {
+            map.remove(&k);
         }
     }
-    for k in empty_keys {
-        map.remove(&k);
-    }
+    remove_approval_attach_identity(request_id);
 }
 
-/// Drop all pending text-reply approval state for a whole session. Called by
-/// the session cleanup watcher on delete / purge: resolves the session →
-/// (account, chat) IM conversation and clears that chat's `TEXT_PENDING` stack,
-/// so a deleted session leaves no stale IM approval entries that could hijack a
-/// later reply (SURFACE-2 / INCOG-4). No-op when the session has no attached IM
-/// conversation.
+/// Drop all pending approval identities and matching text-reply entries for a
+/// whole session. Called by the session cleanup watcher on delete / purge so a
+/// deleted session leaves no stale IM approval consumer (SURFACE-2 / INCOG-4).
 pub async fn drop_pending_for_session(session_id: &str) {
-    let Some(channel_db) = ha_core::globals::get_channel_db() else {
+    let request_ids = with_approval_attach_identities(|identities| {
+        let request_ids = identities
+            .iter()
+            .filter(|(_, identity)| identity.session_id() == session_id)
+            .map(|(request_id, _)| request_id.clone())
+            .collect::<HashSet<_>>();
+        identities.retain(|request_id, _| !request_ids.contains(request_id));
+        request_ids
+    });
+    if request_ids.is_empty() {
         return;
-    };
-    let conv = match channel_db.get_conversation_by_session(session_id) {
-        Ok(Some(c)) => c,
-        Ok(None) => return,
-        Err(e) => {
-            app_warn!(
-                "channel",
-                "approval",
-                "drop_pending_for_session lookup failed for {}: {}",
-                session_id,
-                e
-            );
-            return;
-        }
-    };
-    let key = (conv.account_id, conv.chat_id);
-    get_text_pending().lock().await.remove(&key);
+    }
+    let mut map = get_text_pending().lock().await;
+    map.retain(|_, list| {
+        list.retain(|pending| !request_ids.contains(&pending.request_id));
+        !list.is_empty()
+    });
 }
 
-/// Drop all pending text-reply approval state for a specific (account, chat).
+/// Drop all pending approval state for every route in a specific account/chat.
 /// Backstop for the IM eviction watcher (G5 / SURFACE-4): after denying each
 /// pending approval tool-side, clear the chat's `TEXT_PENDING` stack so a stale
 /// text entry can't hijack a later reply in the taken-over chat. Takes the chat
 /// coordinates directly (the evicted attach row is already gone from the DB, so
 /// `drop_pending_for_session` can't resolve it).
 pub async fn drop_pending_for_chat(account_id: &str, chat_id: &str) {
-    let key = (account_id.to_string(), chat_id.to_string());
-    get_text_pending().lock().await.remove(&key);
+    with_approval_attach_identities(|identities| {
+        identities.retain(|_, identity| !identity.matches_chat(account_id, chat_id));
+    });
+    get_text_pending()
+        .lock()
+        .await
+        .retain(|route, _| route.1.as_str() != account_id || route.2.as_str() != chat_id);
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct EvictedApprovalCleanup {
+    pub(crate) request_ids: Vec<String>,
+    pub(crate) skipped_without_identity: usize,
+}
+
+/// Atomically take the IM approvals that can be proven to belong to an
+/// already-evicted attach. A delayed eviction event must not deny a new
+/// approval created on the replacement attach for the same session.
+///
+/// Core approvals without a matching IM identity are deliberately left to
+/// their owner surface / normal timeout: they may never have been delivered to
+/// IM, and denying them would not be attributable to this eviction. This is
+/// fail-closed for IM because both text and callback consumption require the
+/// identity. If ChannelDB itself is unavailable, every captured IM identity is
+/// treated as stale because its authority cannot be proven live.
+pub(crate) async fn take_stale_pending_for_session(
+    session_id: &str,
+    core_request_ids: &[String],
+) -> EvictedApprovalCleanup {
+    let (candidates, skipped_without_identity) = with_approval_attach_identities(|identities| {
+        let mut candidates = Vec::new();
+        let mut skipped = 0;
+        for request_id in core_request_ids {
+            match identities.get(request_id) {
+                Some(identity) if identity.session_id() == session_id => {
+                    candidates.push((request_id.clone(), identity.clone()));
+                }
+                _ => skipped += 1,
+            }
+        }
+        (candidates, skipped)
+    });
+
+    let stale = match ha_core::globals::get_channel_db() {
+        Some(channel_db) => candidates
+            .into_iter()
+            .filter(|(_, identity)| {
+                identity
+                    .validate_live_with_db(&channel_db, "approval_eviction")
+                    .is_err()
+            })
+            .collect::<Vec<_>>(),
+        None => candidates,
+    };
+
+    let request_ids = with_approval_attach_identities(|identities| {
+        let mut request_ids = Vec::new();
+        for (request_id, expected_identity) in stale {
+            let still_same_attach = identities
+                .get(&request_id)
+                .is_some_and(|identity| *identity == expected_identity);
+            if still_same_attach {
+                identities.remove(&request_id);
+                request_ids.push(request_id);
+            }
+        }
+        request_ids
+    });
+
+    if !request_ids.is_empty() {
+        let request_ids_set = request_ids.iter().collect::<HashSet<_>>();
+        let mut pending = get_text_pending().lock().await;
+        pending.retain(|_, list| {
+            list.retain(|entry| !request_ids_set.contains(&entry.request_id));
+            !list.is_empty()
+        });
+    }
+
+    EvictedApprovalCleanup {
+        request_ids,
+        skipped_without_identity,
+    }
 }
 
 // ── Approval button builder ──────────────────────────────────────
@@ -1322,6 +1436,20 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                     continue;
                 }
             };
+            let attach_identity =
+                match InteractiveAttachIdentity::from_conversation(session_id, &conversation) {
+                    Ok(identity) => identity,
+                    Err(error) => {
+                        app_warn!(
+                            "channel",
+                            "approval",
+                            "Invalid approval attach identity for {}: {}",
+                            request.request_id,
+                            error
+                        );
+                        continue;
+                    }
+                };
 
             // Load account config
             let store = ha_core::config::cached_config();
@@ -1337,10 +1465,25 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 Err(_) => continue,
             };
 
-            let supports_buttons = registry
-                .get_plugin(&channel_id)
-                .map(|p| p.capabilities().supports_buttons)
-                .unwrap_or(false);
+            let plugin = registry.get_plugin(&channel_id);
+            let buttons = build_approval_buttons(&request.request_id, request.reason.as_ref());
+            let supports_buttons = plugin.as_ref().is_some_and(|plugin| {
+                plugin.supports_reply_buttons(&conversation.account_id, &conversation.chat_id)
+                    && match plugin.validate_reply_buttons(&buttons) {
+                        Ok(()) => true,
+                        Err(error) => {
+                            app_warn!(
+                                "channel",
+                                "approval",
+                                "Approval buttons failed provider preflight; using text interaction: {}",
+                                ha_core::logging::redact_sensitive(&error.to_string())
+                            );
+                            false
+                        }
+                }
+            });
+
+            register_approval_attach_identity(&request.request_id, attach_identity.clone());
 
             // Send the approval prompt to the IM channel
             let payload = if supports_buttons {
@@ -1349,7 +1492,7 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                         &request.command,
                         request.reason.as_ref(),
                     )),
-                    buttons: build_approval_buttons(&request.request_id, request.reason.as_ref()),
+                    buttons,
                     thread_id: conversation.thread_id.clone(),
                     ..ReplyPayload::text("")
                 }
@@ -1357,9 +1500,11 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 // Register for text-reply routing. Compute stack_depth inside
                 // the same lock so the rendered prompt's "N pending" line
                 // matches what `try_handle_approval_reply` will see.
-                let key = (
-                    conversation.account_id.clone(),
-                    conversation.chat_id.clone(),
+                let key = interactive_route_key(
+                    &channel_id,
+                    &conversation.account_id,
+                    &conversation.chat_id,
+                    conversation.thread_id.as_deref(),
                 );
                 let stack_depth = {
                     let mut pending = get_text_pending().lock().await;
@@ -1384,16 +1529,51 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 }
             };
 
-            if let Err(e) = registry
-                .send_reply(&account_config, &conversation.chat_id, &payload)
-                .await
+            if let Err(error) =
+                attach_identity.validate_live_with_db(&channel_db, "approval_prompt_send")
             {
+                drop_pending_by_request_id(&request.request_id).await;
                 app_warn!(
                     "channel",
                     "approval",
-                    "Failed to send approval prompt to channel: {}",
-                    e
+                    "Skipped approval prompt for a stale attach ({}): {}",
+                    request.request_id,
+                    error
                 );
+                continue;
+            }
+            // The live DB check and the external provider mutation cannot be
+            // one atomic operation. Handover can still happen after this point
+            // but before provider acceptance; eviction cleanup plus the
+            // response-side attach-id guard are the backstops for that window.
+            match registry
+                .send_reply(&account_config, &conversation.chat_id, &payload)
+                .await
+            {
+                Ok(result) if result.success => {}
+                Ok(result) => {
+                    drop_pending_by_request_id(&request.request_id).await;
+                    app_warn!(
+                        "channel",
+                        "approval",
+                        "Approval prompt was not acknowledged by channel: {}",
+                        ha_core::logging::redact_sensitive(
+                            result
+                                .error
+                                .as_deref()
+                                .unwrap_or("unknown delivery failure")
+                        )
+                    );
+                }
+                Err(error) => {
+                    drop_pending_by_request_id(&request.request_id).await;
+                    app_warn!(
+                        "channel",
+                        "approval",
+                        "Failed to send approval prompt to channel: {}",
+                        ha_core::logging::redact_sensitive(&error.to_string())
+                    );
+                }
             }
         }
     });
@@ -1554,7 +1734,12 @@ pub async fn try_handle_approval_reply(msg: &ha_core::channel::types::MsgContext
         return false;
     };
 
-    let key = (msg.account_id.clone(), msg.chat_id.clone());
+    let key = interactive_route_key(
+        &msg.channel_id,
+        &msg.account_id,
+        &msg.chat_id,
+        msg.thread_id.as_deref(),
+    );
     // Snapshot the available tags before popping so we can build a
     // helpful "did you mean" reply when the suffix doesn't match.
     enum TextReplySelection {
@@ -1631,39 +1816,47 @@ pub async fn try_handle_approval_reply(msg: &ha_core::channel::types::MsgContext
     };
     let request_id = entry.request_id;
 
-    // G3 (SURFACE-3): mirror the button path's session<->chat check. The
-    // TEXT_PENDING entry is keyed by (account, chat), but the pending approval's
-    // session may have been re-attached to a DIFFERENT chat since the prompt was
-    // sent (1:1 handover/takeover). Verify the replying conversation still owns
-    // the approval's session before submitting; on mismatch, notify + consume
-    // (don't leak the reply to the LLM, don't resolve from the wrong chat).
+    let Some(attach_identity) = approval_attach_identity(&request_id) else {
+        app_warn!(
+            "channel",
+            "approval",
+            "Text approval reply has no attach identity for {}",
+            request_id
+        );
+        drop_pending_by_request_id(&request_id).await;
+        send_source_mismatch_notice(msg, &request_id).await;
+        return true;
+    };
+
+    // Bind the core approval request and this response to the exact attach row
+    // that received the prompt. A route-only check would accept a detach +
+    // reattach of the same chat/session pair.
     match ha_core::tools::pending_approval_session_id(&request_id).await {
+        Ok(Some(session_id)) if session_id == attach_identity.session_id() => {}
         Ok(Some(session_id)) => {
-            let reply_source = super::ask_user::InteractiveCallbackSource::new(
-                msg.channel_id.clone(),
-                msg.account_id.clone(),
-                msg.chat_id.clone(),
-                msg.thread_id.as_deref(),
+            app_warn!(
+                "channel",
+                "approval",
+                "Text approval session/attach mismatch for {}: core={}, attach={}",
+                request_id,
+                session_id,
+                attach_identity.session_id()
             );
-            if let Err(e) = super::ask_user::validate_callback_source_for_session(
-                &session_id,
-                Some(&reply_source),
-                "text_reply",
-            ) {
-                app_warn!(
-                    "channel",
-                    "approval",
-                    "Text approval reply source mismatch for {}: {}",
-                    request_id,
-                    e
-                );
-                send_source_mismatch_notice(msg, &request_id).await;
-                return true;
-            }
+            drop_pending_by_request_id(&request_id).await;
+            send_source_mismatch_notice(msg, &request_id).await;
+            return true;
         }
-        // No session id recorded — can't validate. Fall through to submit;
-        // submit_approval_response itself returns NotPending if it's already gone.
-        Ok(None) => {}
+        Ok(None) => {
+            app_warn!(
+                "channel",
+                "approval",
+                "Text approval {} has no core session; refusing unvalidated reply",
+                request_id
+            );
+            drop_pending_by_request_id(&request_id).await;
+            send_source_mismatch_notice(msg, &request_id).await;
+            return true;
+        }
         Err(e) => {
             app_warn!(
                 "channel",
@@ -1672,13 +1865,37 @@ pub async fn try_handle_approval_reply(msg: &ha_core::channel::types::MsgContext
                 request_id,
                 e
             );
+            drop_pending_by_request_id(&request_id).await;
             send_source_mismatch_notice(msg, &request_id).await;
             return true;
         }
     }
 
-    match submit_approval_response(&request_id, parsed.response, ApprovalResolutionSource::Im).await
+    let reply_source = super::ask_user::InteractiveCallbackSource::new(
+        msg.channel_id.clone(),
+        msg.account_id.clone(),
+        msg.chat_id.clone(),
+        msg.thread_id.as_deref(),
+    );
+    if let Err(error) =
+        attach_identity.validate_source_live(Some(&reply_source), "approval_text_consume")
     {
+        app_warn!(
+            "channel",
+            "approval",
+            "Text approval reply source mismatch for {}: {}",
+            request_id,
+            ha_core::logging::redact_sensitive(&error.to_string())
+        );
+        drop_pending_by_request_id(&request_id).await;
+        send_source_mismatch_notice(msg, &request_id).await;
+        return true;
+    }
+
+    let result =
+        submit_approval_response(&request_id, parsed.response, ApprovalResolutionSource::Im).await;
+    remove_approval_attach_identity(&request_id);
+    match result {
         Ok(()) => true,
         Err(e) => {
             // Approval already expired (5-min timeout) — don't consume the message
@@ -1807,11 +2024,17 @@ pub async fn maybe_send_pending_hint(
     msg: &ha_core::channel::types::MsgContext,
     registry: &ChannelRegistry,
 ) {
-    let key = (msg.account_id.clone(), msg.chat_id.clone());
+    let route = interactive_route_key(
+        &msg.channel_id,
+        &msg.account_id,
+        &msg.chat_id,
+        msg.thread_id.as_deref(),
+    );
+    let throttle_key = (msg.account_id.clone(), msg.chat_id.clone());
 
     let stack_depth = {
         let pending = get_text_pending().lock().await;
-        pending.get(&key).map(|list| list.len()).unwrap_or(0)
+        pending.get(&route).map(|list| list.len()).unwrap_or(0)
     };
     if stack_depth == 0 {
         return;
@@ -1821,10 +2044,13 @@ pub async fn maybe_send_pending_hint(
     // `TtlCache` bounds memory (capacity 1024) so long-running IM
     // deployments don't accumulate one entry per ever-seen (account, chat).
     let throttle = get_hint_throttle();
-    if throttle.get(&key, hint_throttle_duration()).is_some() {
+    if throttle
+        .get(&throttle_key, hint_throttle_duration())
+        .is_some()
+    {
         return;
     }
-    throttle.put(key, ());
+    throttle.put(throttle_key, ());
 
     let store = ha_core::config::cached_config();
     let locale = ha_core::i18n::effective_ui_locale(&store);
@@ -2056,30 +2282,27 @@ pub async fn handle_approval_callback_with_source(
         _ => return Err(anyhow::anyhow!("Unknown approval action: {}", action)),
     };
 
-    // G2 (MISC-11): an approval callback MUST carry a verifiable source so we can
-    // confirm it came from the chat that received the prompt — otherwise a click
-    // from a different conversation could resolve someone else's approval.
-    // Fail-closed: look up the session and validate ALWAYS; a missing source
-    // (`None`) can't be validated, so refuse. Safe for approvals — we just sent
-    // the prompt message, so a real button click always carries it (Telegram's
-    // no-message-callback edge only affects >48h-old / inline buttons, never a
-    // live 5-min approval prompt). The shared `validate_callback_source_for_session`
-    // keeps its permissive `None → Ok` for the *ask_user* path (Telegram
-    // no-message Q&A answers are lower-risk and out of MISC-11 scope); approvals
-    // gate here instead so that change can't regress ask_user.
+    // Approval callbacks fail closed unless both the core request and the live
+    // conversation still point at the exact attach row that received the
+    // prompt. A missing callback source cannot satisfy that boundary.
+    let attach_identity = approval_attach_identity(request_id).ok_or_else(|| {
+        anyhow::anyhow!("Pending approval {} has no IM attach identity", request_id)
+    })?;
     let session_id = ha_core::tools::pending_approval_session_id(request_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Pending approval {} has no session id", request_id))?;
-    let Some(source_ref) = callback_source.as_ref() else {
+    if session_id != attach_identity.session_id() {
         return Err(anyhow::anyhow!(
-            "Approval callback from {} has no source to validate against session {}; refusing (MISC-11 fail-closed)",
-            source,
-            session_id
+            "Pending approval {} session/attach mismatch: core={}, attach={}",
+            request_id,
+            session_id,
+            attach_identity.session_id()
         ));
-    };
-    super::ask_user::validate_callback_source_for_session(&session_id, Some(source_ref), source)?;
+    }
+    attach_identity.validate_source_live(callback_source.as_ref(), source)?;
 
     submit_approval_response(request_id, response, ApprovalResolutionSource::Im).await?;
+    remove_approval_attach_identity(request_id);
     Ok(label.to_string())
 }
 
@@ -2091,6 +2314,23 @@ pub fn is_approval_callback(data: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn text_route(account_id: &str, chat_id: &str) -> InteractiveRouteKey {
+        text_route_in_thread(account_id, chat_id, None)
+    }
+
+    fn text_route_in_thread(
+        account_id: &str,
+        chat_id: &str,
+        thread_id: Option<&str>,
+    ) -> InteractiveRouteKey {
+        interactive_route_key(
+            &ha_core::channel::types::ChannelId::Telegram,
+            account_id,
+            chat_id,
+            thread_id,
+        )
+    }
 
     fn smart(detail: Option<&str>) -> ApprovalReasonPayload {
         reason(ApprovalReasonKind::SmartJudge, detail)
@@ -2382,7 +2622,7 @@ mod tests {
 
     #[tokio::test]
     async fn text_pending_list_pop_is_lifo_for_bare_verb() {
-        let key = ("acct-lifo".to_string(), "chat-lifo".to_string());
+        let key = text_route("acct-lifo", "chat-lifo");
         {
             let mut pending = get_text_pending().lock().await;
             pending
@@ -2421,7 +2661,7 @@ mod tests {
 
     #[tokio::test]
     async fn text_pending_id_tag_position_match_routes_to_non_top() {
-        let key = ("acct-suffix".to_string(), "chat-suffix".to_string());
+        let key = text_route("acct-suffix", "chat-suffix");
         {
             let mut pending = get_text_pending().lock().await;
             pending
@@ -2470,9 +2710,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn text_pending_routes_isolate_topics_in_the_same_chat() {
+        let topic_a = text_route_in_thread("acct-topic", "chat-topic", Some("101"));
+        let topic_b = text_route_in_thread("acct-topic", "chat-topic", Some("202"));
+        {
+            let mut pending = get_text_pending().lock().await;
+            pending
+                .entry(topic_a.clone())
+                .or_default()
+                .push(PendingTextApproval {
+                    request_id: "topic-a-request".to_string(),
+                    forbids_allow_always: false,
+                });
+            pending
+                .entry(topic_b.clone())
+                .or_default()
+                .push(PendingTextApproval {
+                    request_id: "topic-b-request".to_string(),
+                    forbids_allow_always: false,
+                });
+        }
+
+        let popped = get_text_pending()
+            .lock()
+            .await
+            .get_mut(&topic_b)
+            .and_then(Vec::pop)
+            .expect("topic B reply must select topic B approval");
+        assert_eq!(popped.request_id, "topic-b-request");
+
+        let mut pending = get_text_pending().lock().await;
+        let topic_a_pending = pending
+            .get(&topic_a)
+            .expect("topic A approval must remain isolated");
+        assert_eq!(topic_a_pending[0].request_id, "topic-a-request");
+        pending.remove(&topic_a);
+        pending.remove(&topic_b);
+    }
+
+    #[tokio::test]
     async fn drop_pending_by_request_id_clears_across_chats() {
-        let key_a = ("acct-drop".to_string(), "chat-a".to_string());
-        let key_b = ("acct-drop".to_string(), "chat-b".to_string());
+        let key_a = text_route("acct-drop", "chat-a");
+        let key_b = text_route("acct-drop", "chat-b");
         {
             let mut pending = get_text_pending().lock().await;
             pending
@@ -2519,8 +2798,8 @@ mod tests {
     #[tokio::test]
     async fn drop_pending_for_chat_clears_only_target_chat() {
         // G5 (SURFACE-4): eviction clears the taken-over chat's text stack only.
-        let evicted = ("acct-evict".to_string(), "chat-evicted".to_string());
-        let other = ("acct-evict".to_string(), "chat-other".to_string());
+        let evicted = text_route("acct-evict", "chat-evicted");
+        let other = text_route("acct-evict", "chat-other");
         {
             let mut pending = get_text_pending().lock().await;
             pending

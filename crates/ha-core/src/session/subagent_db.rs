@@ -889,7 +889,9 @@ impl SessionDB {
                 state = 'suppressed',
                 suppress_reason = excluded.suppress_reason,
                 delivered_at = excluded.delivered_at
-              WHERE subagent_result_deliveries.state IN ('pending', 'injecting')",
+              WHERE subagent_result_deliveries.state IN (
+                    'pending', 'injecting', 'injecting_no_replay'
+              )",
             params![reason, now, run_id],
         )?;
         Ok(())
@@ -910,6 +912,39 @@ impl SessionDB {
         Ok(changed == 1)
     }
 
+    /// Write-ahead fence for an injection whose attached IM mirror is about to
+    /// enter the engine. Startup recovery must not replay this row: a provider
+    /// mutation may have become visible even if the process died before the
+    /// terminal callback ran. Re-queued attempts in the current process retain
+    /// the same receipt and may settle this state normally.
+    pub fn arm_subagent_result_delivery_no_replay(&self, run_id: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "UPDATE subagent_result_deliveries
+                SET state = 'injecting_no_replay',
+                    suppress_reason = 'im_mirror_at_most_once_armed',
+                    last_error = NULL
+              WHERE run_id = ?1 AND state = 'injecting'",
+            params![run_id],
+        )?;
+        if changed == 1 {
+            return Ok(());
+        }
+        let state = conn
+            .query_row(
+                "SELECT state FROM subagent_result_deliveries WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        anyhow::bail!(
+            "subagent result delivery {run_id} was not claimable for IM no-replay arm (state={state:?})"
+        )
+    }
+
     pub fn mark_subagent_result_delivered(&self, run_id: &str) -> Result<()> {
         let conn = self
             .conn
@@ -918,7 +953,9 @@ impl SessionDB {
         conn.execute(
             "UPDATE subagent_result_deliveries
                 SET state = 'delivered', delivered_at = ?1, last_error = NULL
-              WHERE run_id = ?2 AND state IN ('pending', 'injecting')",
+              WHERE run_id = ?2 AND state IN (
+                    'pending', 'injecting', 'injecting_no_replay'
+              )",
             params![chrono::Utc::now().to_rfc3339(), run_id],
         )?;
         Ok(())
@@ -1553,6 +1590,44 @@ mod tests {
         );
         db.suppress_subagent_result_delivery("run-delivery", "explicitly_consumed")
             .unwrap();
+        assert!(db
+            .reset_and_list_pending_subagent_deliveries()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn im_no_replay_arm_survives_startup_recovery_and_can_settle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        let parent = db.create_session("ha-main").unwrap();
+        let child = db
+            .create_session_with_parent("helper", Some(&parent.id))
+            .unwrap();
+        let mut delivery = run("run-im-armed", &child.id, SubagentStatus::Running);
+        delivery.parent_session_id = parent.id.clone();
+        delivery.owner_id = parent.id;
+        db.insert_subagent_run(&delivery).unwrap();
+        db.update_subagent_status(
+            "run-im-armed",
+            SubagentStatus::Completed,
+            Some("done"),
+            None,
+            None,
+            Some(1),
+        )
+        .unwrap();
+
+        assert!(db.claim_subagent_result_delivery("run-im-armed").unwrap());
+        db.arm_subagent_result_delivery_no_replay("run-im-armed")
+            .unwrap();
+        assert!(db
+            .reset_and_list_pending_subagent_deliveries()
+            .unwrap()
+            .is_empty());
+
+        // A confirmed in-process retry may still land and close the armed row.
+        db.mark_subagent_result_delivered("run-im-armed").unwrap();
         assert!(db
             .reset_and_list_pending_subagent_deliveries()
             .unwrap()

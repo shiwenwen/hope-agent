@@ -983,6 +983,24 @@ fn render_project_picker_text(
     lines.join("\n")
 }
 
+/// Provider button limits vary by target. When a generated slash picker does
+/// not pass adapter preflight, preserve every option as a copyable slash
+/// command instead of dropping rows or failing the whole control reply.
+pub(super) fn render_slash_button_fallback(content: &str, buttons: &[Vec<InlineButton>]) -> String {
+    let mut lines = vec![content.to_string(), String::new(), "Options:".to_string()];
+    for button in buttons.iter().flatten() {
+        let label = button.text.replace(['\r', '\n'], " ");
+        let callback = button.callback_id();
+        if let Some(command) = callback.strip_prefix("slash:") {
+            let command = command.replace(['\r', '\n'], " ");
+            lines.push(format!("- {} — `/{}`", label, command));
+        } else {
+            lines.push(format!("- {}", label));
+        }
+    }
+    lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1016,5 +1034,17 @@ mod tests {
         assert!(!kb_write_denied_for_sender("off", &admins, "carol"));
         // Unknown arg is not a write → not gated (handler will reject it).
         assert!(!kb_write_denied_for_sender("garbage", &admins, "bob"));
+    }
+
+    #[test]
+    fn slash_button_fallback_preserves_copyable_commands() {
+        let buttons = vec![vec![InlineButton {
+            text: "Fast".to_string(),
+            callback_data: Some("slash:model fast-model".to_string()),
+            url: None,
+        }]];
+        let rendered = render_slash_button_fallback("Pick one:", &buttons);
+        assert!(rendered.contains("Fast"));
+        assert!(rendered.contains("`/model fast-model`"));
     }
 }

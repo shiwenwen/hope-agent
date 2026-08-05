@@ -8,8 +8,8 @@ use super::types::*;
 /// One platform-native rich-reply streaming session.
 ///
 /// The session owns all provider-specific identifiers and sequencing state.
-/// Consuming `commit` / `abort` makes terminal delivery explicit and prevents
-/// callers from accidentally reusing a closed stream.
+/// Consuming `commit` / `fail` / `abort` makes terminal delivery explicit and
+/// prevents callers from accidentally reusing a closed stream.
 #[async_trait]
 pub trait ChannelReplyStream: Send {
     async fn push(&mut self, frame: &ReplyStreamFrame)
@@ -19,6 +19,15 @@ pub trait ChannelReplyStream: Send {
         self: Box<Self>,
         final_reply: &RichReply,
     ) -> std::result::Result<RichReplyReceipt, ReplyStreamError>;
+
+    /// Terminate this exact native stream with a user-visible error. Adapters
+    /// should keep the terminal on the same provider identity when possible;
+    /// callers must not consume the stream with `abort` and then open a legacy
+    /// standalone error message. The default preserves a static in-stream
+    /// terminal for adapters that cannot render custom error text.
+    async fn fail(self: Box<Self>, _error_text: &str) -> std::result::Result<(), ReplyStreamError> {
+        self.abort(ReplyAbortReason::Failed).await
+    }
 
     async fn abort(
         self: Box<Self>,
@@ -74,6 +83,32 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Send a typing indicator. Implementations should handle keepalive
     /// internally if the platform requires periodic refresh.
     async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()>;
+
+    /// Whether this concrete account/chat target supports interactive reply
+    /// buttons. The default mirrors the static capability; adapters with
+    /// scope-dependent APIs must override it so callers can choose a text
+    /// interaction before registering callback-only pending state.
+    fn supports_reply_buttons(&self, _account_id: &str, _chat_id: &str) -> bool {
+        self.capabilities().supports_buttons
+    }
+
+    /// Validate terminal inline actions without performing a platform
+    /// mutation. The worker invokes this before final text/media delivery so
+    /// adapters can reject provider-specific limits atomically, including
+    /// when actions must be deferred until after a legacy media suffix.
+    fn validate_reply_buttons(
+        &self,
+        buttons: &[Vec<InlineButton>],
+    ) -> std::result::Result<(), ReplyStreamError> {
+        if buttons.is_empty() {
+            Ok(())
+        } else {
+            Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::Unsupported,
+                "channel adapter has not declared a validated button contract",
+            ))
+        }
+    }
 
     /// Open a platform-native rich-reply stream. Returning `Ok` confirms that
     /// `first` was accepted exactly once; callers advance both revision and

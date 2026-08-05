@@ -11,8 +11,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use super::dispatcher::{
-    deliver_final_only, deliver_media_to_chat, deliver_preview_merged, deliver_split,
-    send_final_reply, DeliveryMetrics,
+    deliver_final_only, deliver_preview_merged, deliver_split, send_error_reply, send_final_reply,
+    DeliveryMetrics, DeliveryReport,
 };
 use super::streaming::{
     abort_native_preview, select_stream_preview_transport, spawn_channel_stream_task,
@@ -21,7 +21,7 @@ use super::streaming::{
 use ha_core::channel::traits::ChannelPlugin;
 use ha_core::channel::types::{
     ChannelAccountConfig, ChannelCapabilities, ChatType, ImReplyMode, ReplyAbortReason,
-    ReplyStreamTarget,
+    ReplyStreamPreviewPersistence, ReplyStreamTarget,
 };
 use ha_core::chat_engine::{ChannelStreamSink, EventSink, RoundOutput, RoundTextAccumulator};
 
@@ -79,6 +79,7 @@ pub(crate) struct StreamPipeline {
     capabilities: ChannelCapabilities,
     preview_active: bool,
     native_preview: Option<PreviewHandle>,
+    native_preview_relinquished: Option<Arc<AtomicBool>>,
 }
 
 /// Drained outputs from a finished pipeline. Borrow into
@@ -126,6 +127,9 @@ pub(crate) fn spawn_stream_pipeline(
     let native_preview = preview_transport
         .as_ref()
         .and_then(|transport| transport.native_preview_handle());
+    let native_preview_relinquished = preview_transport
+        .as_ref()
+        .and_then(|transport| transport.native_preview_relinquished_flag());
 
     // `EventSink::send` is synchronous. A bounded `try_send` would silently
     // drop bursty text deltas while the preview task awaits IM network IO,
@@ -168,6 +172,7 @@ pub(crate) fn spawn_stream_pipeline(
         capabilities,
         preview_active,
         native_preview,
+        native_preview_relinquished,
     }
 }
 
@@ -189,6 +194,7 @@ pub(crate) async fn await_stream_pipeline(pipeline: StreamPipeline) -> PipelineO
         capabilities,
         preview_active,
         native_preview,
+        native_preview_relinquished,
     } = pipeline;
     drop(event_sink);
 
@@ -199,6 +205,7 @@ pub(crate) async fn await_stream_pipeline(pipeline: StreamPipeline) -> PipelineO
         capabilities,
         preview_active,
         native_preview,
+        native_preview_relinquished,
     )
     .await
 }
@@ -220,6 +227,7 @@ pub(crate) async fn await_stream_pipeline_until_cancel(
         capabilities,
         preview_active,
         native_preview,
+        native_preview_relinquished,
     } = pipeline;
     drop(event_sink);
 
@@ -233,21 +241,21 @@ pub(crate) async fn await_stream_pipeline_until_cancel(
             let mut detach_native_task = false;
             if let Some(preview) = native_preview.as_ref() {
                 let abort = abort_native_preview(preview, ReplyAbortReason::Cancelled);
-                let abort_timed_out = tokio::time::timeout(
+                let safely_aborted = tokio::time::timeout(
                     std::time::Duration::from_secs(3),
                     abort,
                 )
-                .await
-                .is_err();
-                if abort_timed_out {
+                .await;
+                if !matches!(safely_aborted, Ok(true)) {
                     app_warn!(
                         "channel",
                         "worker",
-                        "Timed out aborting native reply stream after cancellation"
+                        "Native reply abort did not settle safely after cancellation; detaching stream task"
                     );
-                    // A timeout itself is proof that a provider mutation or
-                    // abort may still own the native handle. Detach the task
-                    // so its terminal handoff cannot be cancelled midway.
+                    // A timeout or explicit unsafe result means a provider
+                    // mutation may still own the session lock/handle. Detach
+                    // the task so it can observe Terminal and hand off abort
+                    // after the in-flight open/push returns.
                     detach_native_task = true;
                 }
             }
@@ -267,6 +275,7 @@ pub(crate) async fn await_stream_pipeline_until_cancel(
             capabilities,
             preview_active,
             native_preview,
+            native_preview_relinquished,
         )
         .await,
     )
@@ -279,19 +288,56 @@ async fn pipeline_outcome(
     capabilities: ChannelCapabilities,
     preview_active: bool,
     native_preview: Option<PreviewHandle>,
+    native_preview_relinquished: Option<Arc<AtomicBool>>,
 ) -> PipelineOutcome {
     let stream_outcome = match join_result {
         Ok(outcome) => outcome,
         Err(e) => {
             app_warn!("channel", "worker", "Streaming preview task failed: {}", e);
-            if let Some(preview) = native_preview {
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_secs(3),
-                    abort_native_preview(&preview, ReplyAbortReason::Failed),
-                )
-                .await;
+            if native_preview_relinquished
+                .as_ref()
+                .is_some_and(|flag| flag.load(Ordering::Acquire))
+            {
+                // The task crossed from native into a legacy transport, whose
+                // message/card identity and delivery ledger live inside that
+                // task. A panic loses those facts. Never revive the stale
+                // native handle or open a standalone final reply.
+                StreamPreviewOutcome {
+                    delivery_report: DeliveryReport {
+                        attempted: 1,
+                        succeeded: 0,
+                        failures: vec![format!(
+                            "streaming preview task failed after native preview was relinquished; delivery state is unknown: {e}"
+                        )],
+                        unsafe_to_continue: true,
+                    },
+                    ..StreamPreviewOutcome::default()
+                }
+            } else if let Some(preview) = native_preview {
+                // Preview infrastructure does not know the engine terminal
+                // outcome. Preserve the native handle for both persistent
+                // and ephemeral transports so eventual engine success can
+                // claim FINAL, while engine failure/cancellation claims
+                // ABORT. Pre-claiming here could swallow a successful reply.
                 StreamPreviewOutcome {
                     preview: Some(preview),
+                    ..StreamPreviewOutcome::default()
+                }
+            } else if preview_active {
+                // A legacy preview task owns message/card identifiers and the
+                // per-round delivery ledger internally. A panic loses that
+                // evidence, so replaying from round zero could duplicate an
+                // accepted mutation. Fail closed until the ledger is moved to
+                // shared state rather than guessing that no preview existed.
+                StreamPreviewOutcome {
+                    delivery_report: DeliveryReport {
+                        attempted: 1,
+                        succeeded: 0,
+                        failures: vec![format!(
+                            "legacy streaming preview task failed; delivery state is unknown: {e}"
+                        )],
+                        unsafe_to_continue: true,
+                    },
                     ..StreamPreviewOutcome::default()
                 }
             } else {
@@ -324,6 +370,23 @@ pub(crate) async fn deliver_rounds(
     outcome: &PipelineOutcome,
     response: &str,
 ) -> DeliveryMetrics {
+    if outcome.stream_outcome.delivery_report.unsafe_to_continue {
+        let finalized = outcome
+            .stream_outcome
+            .finalized_rounds
+            .min(outcome.drained_rounds.len());
+        return DeliveryMetrics {
+            text_chars: outcome.drained_rounds[..finalized]
+                .iter()
+                .map(|round| round.text.chars().count())
+                .sum(),
+            media_count: outcome.drained_rounds[..finalized]
+                .iter()
+                .map(|round| round.medias.len())
+                .sum(),
+            report: outcome.stream_outcome.delivery_report.clone(),
+        };
+    }
     let native_whole_turn = matches!(
         outcome.stream_outcome.preview.as_ref(),
         Some(PreviewHandle::Native { .. })
@@ -413,6 +476,82 @@ pub(crate) async fn abort_pipeline_outcome(
     }
 }
 
+/// Abort a pipeline specifically as a prerequisite for replaying the same
+/// logical result. Unlike [`abort_pipeline_outcome`], a legacy preview or an
+/// already-finalized split round is not considered safe merely because there
+/// is no provider-owned native handle to abort: that content remains visible
+/// and replay would create partial + full double delivery.
+pub(crate) async fn abort_pipeline_outcome_for_replay(
+    outcome: &PipelineOutcome,
+    reason: ReplyAbortReason,
+) -> bool {
+    if outcome.stream_outcome.delivery_report.unsafe_to_continue {
+        let _ = abort_pipeline_outcome(outcome, reason).await;
+        return false;
+    }
+
+    match outcome.stream_outcome.preview.as_ref() {
+        Some(PreviewHandle::Native {
+            preview_persistence,
+            ..
+        }) => {
+            let terminal_confirmed = abort_pipeline_outcome(outcome, reason).await;
+            terminal_confirmed
+                && matches!(
+                    preview_persistence,
+                    ReplyStreamPreviewPersistence::Ephemeral
+                )
+        }
+        Some(PreviewHandle::Message { .. } | PreviewHandle::Card { .. }) => false,
+        None => {
+            outcome.stream_outcome.finalized_rounds == 0
+                && outcome.stream_outcome.delivery_report.succeeded == 0
+        }
+    }
+}
+
+/// Whether a confirmed, in-place error terminal removed the old partial well
+/// enough for the same logical result to be retried later. Message/Card
+/// terminals replace their preview, and ephemeral native previews expire.
+/// Persistent append streams (Slack) only stop: their old markdown remains
+/// visible even when the provider acknowledges the terminal mutation.
+pub(crate) fn error_terminal_allows_replay(outcome: &PipelineOutcome) -> bool {
+    !matches!(
+        outcome.stream_outcome.preview.as_ref(),
+        Some(PreviewHandle::Native {
+            preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+            ..
+        })
+    )
+}
+
+/// Finalize a failed turn through the same preview identity used while it was
+/// streaming. A prior ambiguous legacy/native mutation is a turn-wide fuse:
+/// terminate a provider-owned native handle if possible, but never open a
+/// fresh error message that could race or duplicate the unknown outcome.
+pub(crate) async fn deliver_error_reply(
+    plugin: &Arc<dyn ChannelPlugin>,
+    target: &DeliveryTarget<'_>,
+    outcome: &PipelineOutcome,
+    error_text: &str,
+) -> DeliveryReport {
+    let mut report = outcome.stream_outcome.delivery_report.clone();
+    if report.unsafe_to_continue {
+        let _ = abort_pipeline_outcome(outcome, ReplyAbortReason::Failed).await;
+        return report;
+    }
+    report.merge(
+        send_error_reply(
+            plugin,
+            target,
+            outcome.stream_outcome.preview.as_ref(),
+            error_text,
+        )
+        .await,
+    );
+    report
+}
+
 /// Deliver a complete final response through a pipeline that may have
 /// attached after the turn had already started. Unlike [`deliver_rounds`],
 /// this intentionally ignores `drained_rounds` for text reconstruction:
@@ -426,21 +565,24 @@ pub(crate) async fn deliver_full_response(
     response: &str,
     media: &[ha_core::attachments::MediaItem],
 ) -> DeliveryMetrics {
-    let report = if response.trim().is_empty() {
-        deliver_media_to_chat(plugin, target, media, &outcome.capabilities).await
-    } else {
-        send_final_reply(
-            plugin,
-            target,
-            response,
-            outcome.stream_outcome.preview.as_ref(),
-            media,
-            &[],
-            false,
-            &outcome.capabilities,
-        )
-        .await
-    };
+    if outcome.stream_outcome.delivery_report.unsafe_to_continue {
+        return DeliveryMetrics {
+            text_chars: 0,
+            media_count: 0,
+            report: outcome.stream_outcome.delivery_report.clone(),
+        };
+    }
+    let report = send_final_reply(
+        plugin,
+        target,
+        response,
+        outcome.stream_outcome.preview.as_ref(),
+        media,
+        &[],
+        true,
+        &outcome.capabilities,
+    )
+    .await;
     let mut metrics = DeliveryMetrics {
         text_chars: response.chars().count(),
         media_count: media.len(),
@@ -456,6 +598,25 @@ pub(crate) async fn deliver_full_response(
 mod tests {
     use super::*;
 
+    fn empty_capabilities() -> ChannelCapabilities {
+        ChannelCapabilities {
+            chat_types: Vec::new(),
+            supports_polls: false,
+            supports_reactions: false,
+            supports_draft: false,
+            supports_edit: false,
+            supports_unsend: false,
+            supports_reply: false,
+            supports_threads: false,
+            supports_media: Vec::new(),
+            supports_typing: false,
+            supports_buttons: false,
+            streaming_preview_max_bytes: None,
+            supports_card_stream: false,
+            native_reply: None,
+        }
+    }
+
     #[tokio::test]
     async fn cancelled_pipeline_does_not_wait_for_a_stuck_preview_task() {
         let pipeline = StreamPipeline {
@@ -466,24 +627,10 @@ mod tests {
             }),
             round_texts: Arc::new(Mutex::new(RoundTextAccumulator::default())),
             reply_mode: ImReplyMode::Final,
-            capabilities: ChannelCapabilities {
-                chat_types: Vec::new(),
-                supports_polls: false,
-                supports_reactions: false,
-                supports_draft: false,
-                supports_edit: false,
-                supports_unsend: false,
-                supports_reply: false,
-                supports_threads: false,
-                supports_media: Vec::new(),
-                supports_typing: false,
-                supports_buttons: false,
-                streaming_preview_max_bytes: None,
-                supports_card_stream: false,
-                native_reply: None,
-            },
+            capabilities: empty_capabilities(),
             preview_active: false,
             native_preview: None,
+            native_preview_relinquished: None,
         };
         let cancel = AtomicBool::new(true);
 
@@ -495,5 +642,170 @@ mod tests {
         .expect("cancelled pipeline must return promptly");
 
         assert!(outcome.is_none());
+    }
+
+    #[tokio::test]
+    async fn legacy_preview_task_panic_fails_closed() {
+        let pipeline = StreamPipeline {
+            event_sink: Arc::new(ha_core::chat_engine::NoopEventSink),
+            stream_task: tokio::spawn(async {
+                panic!("synthetic preview failure");
+            }),
+            round_texts: Arc::new(Mutex::new(RoundTextAccumulator::default())),
+            reply_mode: ImReplyMode::Preview,
+            capabilities: empty_capabilities(),
+            preview_active: true,
+            native_preview: None,
+            native_preview_relinquished: None,
+        };
+
+        let outcome = await_stream_pipeline(pipeline).await;
+
+        assert!(outcome.stream_outcome.delivery_report.unsafe_to_continue);
+        assert_eq!(outcome.stream_outcome.delivery_report.attempted, 1);
+        assert!(outcome.stream_outcome.preview.is_none());
+    }
+
+    #[tokio::test]
+    async fn relinquished_native_preview_task_panic_does_not_revive_native_handle() {
+        let pipeline = StreamPipeline {
+            event_sink: Arc::new(ha_core::chat_engine::NoopEventSink),
+            stream_task: tokio::spawn(async {
+                panic!("synthetic post-fallback failure");
+            }),
+            round_texts: Arc::new(Mutex::new(RoundTextAccumulator::default())),
+            reply_mode: ImReplyMode::Preview,
+            capabilities: empty_capabilities(),
+            preview_active: true,
+            native_preview: Some(PreviewHandle::Native {
+                session: Arc::new(tokio::sync::Mutex::new(None)),
+                state: Arc::new(std::sync::atomic::AtomicU8::new(
+                    super::super::streaming::NATIVE_SELECTED,
+                )),
+                terminal_owner: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+                preview_persistence:
+                    ha_core::channel::types::ReplyStreamPreviewPersistence::Persistent,
+            }),
+            native_preview_relinquished: Some(Arc::new(AtomicBool::new(true))),
+        };
+
+        let outcome = await_stream_pipeline(pipeline).await;
+
+        assert!(outcome.stream_outcome.delivery_report.unsafe_to_continue);
+        assert_eq!(outcome.stream_outcome.delivery_report.attempted, 1);
+        assert!(outcome.stream_outcome.preview.is_none());
+        assert!(outcome.stream_outcome.delivery_report.failures[0]
+            .contains("native preview was relinquished"));
+    }
+
+    #[tokio::test]
+    async fn replay_requires_proof_that_no_legacy_partial_is_visible() {
+        let base = PipelineOutcome {
+            stream_outcome: StreamPreviewOutcome::default(),
+            drained_rounds: Vec::new(),
+            reply_mode: ImReplyMode::Preview,
+            capabilities: empty_capabilities(),
+            preview_active: true,
+        };
+        assert!(abort_pipeline_outcome_for_replay(&base, ReplyAbortReason::Cancelled).await);
+
+        let message_preview = PipelineOutcome {
+            stream_outcome: StreamPreviewOutcome {
+                preview: Some(PreviewHandle::Message {
+                    message_id: "visible".to_string(),
+                }),
+                ..StreamPreviewOutcome::default()
+            },
+            ..base
+        };
+        assert!(
+            !abort_pipeline_outcome_for_replay(&message_preview, ReplyAbortReason::Cancelled).await
+        );
+
+        let finalized_split = PipelineOutcome {
+            stream_outcome: StreamPreviewOutcome {
+                finalized_rounds: 1,
+                ..StreamPreviewOutcome::default()
+            },
+            ..PipelineOutcome {
+                stream_outcome: StreamPreviewOutcome::default(),
+                drained_rounds: Vec::new(),
+                reply_mode: ImReplyMode::Split,
+                capabilities: empty_capabilities(),
+                preview_active: true,
+            }
+        };
+        assert!(
+            !abort_pipeline_outcome_for_replay(&finalized_split, ReplyAbortReason::Cancelled).await
+        );
+    }
+
+    #[tokio::test]
+    async fn persistent_native_terminal_ack_is_not_replay_safe() {
+        let persistent = PipelineOutcome {
+            stream_outcome: StreamPreviewOutcome {
+                preview: Some(PreviewHandle::Native {
+                    session: Arc::new(tokio::sync::Mutex::new(None)),
+                    state: Arc::new(std::sync::atomic::AtomicU8::new(
+                        super::super::streaming::NATIVE_ACTIVE,
+                    )),
+                    terminal_owner: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+                    preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+                }),
+                ..StreamPreviewOutcome::default()
+            },
+            drained_rounds: Vec::new(),
+            reply_mode: ImReplyMode::Preview,
+            capabilities: empty_capabilities(),
+            preview_active: true,
+        };
+
+        assert!(abort_pipeline_outcome(&persistent, ReplyAbortReason::Cancelled).await);
+        assert!(!error_terminal_allows_replay(&persistent));
+
+        let replay_attempt = PipelineOutcome {
+            stream_outcome: StreamPreviewOutcome {
+                preview: Some(PreviewHandle::Native {
+                    session: Arc::new(tokio::sync::Mutex::new(None)),
+                    state: Arc::new(std::sync::atomic::AtomicU8::new(
+                        super::super::streaming::NATIVE_ACTIVE,
+                    )),
+                    terminal_owner: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+                    preview_persistence: ReplyStreamPreviewPersistence::Persistent,
+                }),
+                ..StreamPreviewOutcome::default()
+            },
+            drained_rounds: Vec::new(),
+            reply_mode: ImReplyMode::Preview,
+            capabilities: empty_capabilities(),
+            preview_active: true,
+        };
+        assert!(
+            !abort_pipeline_outcome_for_replay(&replay_attempt, ReplyAbortReason::Cancelled).await
+        );
+    }
+
+    #[tokio::test]
+    async fn ephemeral_native_terminal_remains_replay_safe() {
+        let outcome = PipelineOutcome {
+            stream_outcome: StreamPreviewOutcome {
+                preview: Some(PreviewHandle::Native {
+                    session: Arc::new(tokio::sync::Mutex::new(None)),
+                    state: Arc::new(std::sync::atomic::AtomicU8::new(
+                        super::super::streaming::NATIVE_ACTIVE,
+                    )),
+                    terminal_owner: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+                    preview_persistence: ReplyStreamPreviewPersistence::Ephemeral,
+                }),
+                ..StreamPreviewOutcome::default()
+            },
+            drained_rounds: Vec::new(),
+            reply_mode: ImReplyMode::Preview,
+            capabilities: empty_capabilities(),
+            preview_active: true,
+        };
+
+        assert!(error_terminal_allows_replay(&outcome));
+        assert!(abort_pipeline_outcome_for_replay(&outcome, ReplyAbortReason::Cancelled).await);
     }
 }

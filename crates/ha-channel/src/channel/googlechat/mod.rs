@@ -107,6 +107,88 @@ impl GoogleChatPlugin {
     }
 }
 
+fn google_chat_button_cards(buttons: &[Vec<InlineButton>]) -> Vec<serde_json::Value> {
+    let widgets = buttons
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "buttonList": {
+                    "buttons": row.iter().map(|button| {
+                        serde_json::json!({
+                            "text": &button.text,
+                            "onClick": {
+                                "action": {
+                                    "function": button.callback_id(),
+                                }
+                            }
+                        })
+                    }).collect::<Vec<_>>()
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    vec![serde_json::json!({
+        "cardId": "approval",
+        "card": {
+            "sections": [{
+                "widgets": widgets
+            }]
+        }
+    })]
+}
+
+fn validate_google_chat_buttons(
+    buttons: &[Vec<InlineButton>],
+) -> std::result::Result<(), ReplyStreamError> {
+    if buttons.is_empty() {
+        return Ok(());
+    }
+    let total = buttons.iter().map(Vec::len).sum::<usize>();
+    if buttons.len() > 100 || buttons.iter().any(Vec::is_empty) || total == 0 || total > 100 {
+        return Err(ReplyStreamError::new(
+            ReplyStreamErrorKind::InvalidContent,
+            "Google Chat cards require 1 to 100 buttons in non-empty rows",
+        ));
+    }
+    for button in buttons.iter().flatten() {
+        let label_chars = button.text.chars().count();
+        if label_chars == 0 || label_chars > 128 || button.text.chars().any(char::is_control) {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "Google Chat button labels must contain 1 to 128 printable characters",
+            ));
+        }
+        if button.url.is_some() {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "Google Chat URL actions are not enabled by this adapter",
+            ));
+        }
+        let callback = button.callback_id();
+        if callback.is_empty() || callback.len() > 256 || callback.chars().any(char::is_control) {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "Google Chat callback data must contain 1 to 256 UTF-8 bytes",
+            ));
+        }
+    }
+    let encoded_bytes = serde_json::to_vec(&google_chat_button_cards(buttons))
+        .map_err(|_| {
+            ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "Google Chat button card could not be encoded",
+            )
+        })?
+        .len();
+    if encoded_bytes > 32 * 1024 {
+        return Err(ReplyStreamError::new(
+            ReplyStreamErrorKind::InvalidContent,
+            "Google Chat button card exceeds the 32 KiB payload limit",
+        ));
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl ChannelPlugin for GoogleChatPlugin {
     fn meta(&self) -> ChannelMeta {
@@ -253,6 +335,7 @@ impl ChannelPlugin for GoogleChatPlugin {
         chat_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
+        validate_google_chat_buttons(&payload.buttons)?;
         let api = self.get_api(account_id).await?;
 
         if let Some(ref text) = payload.text {
@@ -264,34 +347,7 @@ impl ChannelPlugin for GoogleChatPlugin {
             let cards_v2 = if payload.buttons.is_empty() {
                 None
             } else {
-                let button_widgets: Vec<_> = payload
-                    .buttons
-                    .iter()
-                    .flatten()
-                    .map(|b| {
-                        serde_json::json!({
-                            "buttonList": {
-                                "buttons": [{
-                                    "text": &b.text,
-                                    "onClick": {
-                                        "action": {
-                                            "function": b.callback_id(),
-                                        }
-                                    }
-                                }]
-                            }
-                        })
-                    })
-                    .collect();
-
-                Some(vec![serde_json::json!({
-                    "cardId": "approval",
-                    "card": {
-                        "sections": [{
-                            "widgets": button_widgets
-                        }]
-                    }
-                })])
+                Some(google_chat_button_cards(&payload.buttons))
             };
 
             let thread_key = payload.thread_id.as_deref();
@@ -315,6 +371,13 @@ impl ChannelPlugin for GoogleChatPlugin {
     async fn send_typing(&self, _account_id: &str, _chat_id: &str) -> Result<()> {
         // Google Chat does not support typing indicators for bots
         Ok(())
+    }
+
+    fn validate_reply_buttons(
+        &self,
+        buttons: &[Vec<InlineButton>],
+    ) -> std::result::Result<(), ReplyStreamError> {
+        validate_google_chat_buttons(buttons)
     }
 
     async fn edit_message(

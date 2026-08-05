@@ -106,6 +106,43 @@ impl LinePlugin {
     }
 }
 
+fn validate_line_buttons(
+    buttons: &[Vec<InlineButton>],
+) -> std::result::Result<(), ReplyStreamError> {
+    if buttons.is_empty() {
+        return Ok(());
+    }
+    if buttons.iter().any(Vec::is_empty) || buttons.iter().map(Vec::len).sum::<usize>() > 4 {
+        return Err(ReplyStreamError::new(
+            ReplyStreamErrorKind::InvalidContent,
+            "LINE buttons require 1 to 4 non-empty actions",
+        ));
+    }
+    for button in buttons.iter().flatten() {
+        let label_chars = button.text.chars().count();
+        if label_chars == 0 || label_chars > 20 || button.text.chars().any(char::is_control) {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "LINE button labels must contain 1 to 20 printable characters",
+            ));
+        }
+        if button.url.is_some() {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "LINE URL actions are not enabled by this adapter",
+            ));
+        }
+        let callback = button.callback_id();
+        if callback.is_empty() || callback.len() > 300 || callback.chars().any(char::is_control) {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "LINE postback data must contain 1 to 300 UTF-8 bytes",
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl ChannelPlugin for LinePlugin {
     fn meta(&self) -> ChannelMeta {
@@ -249,6 +286,7 @@ impl ChannelPlugin for LinePlugin {
         chat_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
+        validate_line_buttons(&payload.buttons)?;
         let (api, reply_tokens) = self.get_account_state(account_id).await?;
 
         let text = payload.text.clone().unwrap_or_default();
@@ -311,7 +349,6 @@ impl ChannelPlugin for LinePlugin {
                 .buttons
                 .iter()
                 .flatten()
-                .take(3)
                 .map(|b| {
                     serde_json::json!({
                         "type": "postback",
@@ -320,9 +357,10 @@ impl ChannelPlugin for LinePlugin {
                     })
                 })
                 .collect();
+            let alt_text = ha_core::truncate_utf8(alt, 1500);
             messages.push(serde_json::json!({
                 "type": "template",
-                "altText": alt,
+                "altText": alt_text,
                 "template": {
                     "type": "buttons",
                     "text": inner_text,
@@ -371,14 +409,22 @@ impl ChannelPlugin for LinePlugin {
                     );
                     return Ok(DeliveryResult::ok("reply"));
                 }
-                Err(e) => {
-                    // Reply token expired or invalid, fall through to push
+                Err(error) if error.allows_push_fallback() => {
                     app_debug!(
                         "channel",
                         "line",
-                        "Reply token failed (falling back to push): {}",
-                        e
+                        "Reply token was explicitly rejected; falling back to push: {}",
+                        ha_core::logging::redact_sensitive(&error.to_string())
                     );
+                }
+                Err(error) => {
+                    app_warn!(
+                        "channel",
+                        "line",
+                        "Reply delivery outcome is ambiguous; suppressing push fallback: {}",
+                        ha_core::logging::redact_sensitive(&error.to_string())
+                    );
+                    return Err(error.into());
                 }
             }
         }
@@ -409,6 +455,13 @@ impl ChannelPlugin for LinePlugin {
             );
         }
         Ok(())
+    }
+
+    fn validate_reply_buttons(
+        &self,
+        buttons: &[Vec<InlineButton>],
+    ) -> std::result::Result<(), ReplyStreamError> {
+        validate_line_buttons(buttons)
     }
 
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {

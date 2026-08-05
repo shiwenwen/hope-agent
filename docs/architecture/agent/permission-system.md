@@ -542,8 +542,8 @@ flowchart TD
 - **Stop 必须 deny 目标会话 pending approvals**（全局 Stop 则 drain 全部），因为 oneshot 审批等待不直接观察 chat cancel flag；否则停止后的旧弹窗仍可能授权工具执行。HTTP Stop 先收口这些交互，再执行可能失败的 runtime-task 取消。两种 Stop drain 还必须直接调 `channel_hooks::drop_approval_by_request_id`（不依赖可能 `Lagged` 的 EventBus listener），否则 IM 文本审批状态会残留并劫持后续普通消息。
 - **snapshot 恢复是可靠性边界**：`PENDING_APPROVALS` 保存完整 `ApprovalRequest`（含 `created_at_ms` / `timeout_at_ms` / `timeout_secs` / effective `timeout_action`），面向用户本人的控制面经 Tauri `list_pending_approvals` / HTTP `GET /api/chat/approvals/pending` 读权威快照。`useApprovals` 在 mount、transport resync、window focus、visibility 恢复、提交结果不确定时对账；reconcile 拒绝乱序响应，有界 terminal tombstone 防旧快照复活已终结请求。倒计时按请求绝对 deadline（快照带 `server_now_ms`，远程浏览器先换算本地 deadline），不假设客户端与服务器时钟同步。
 - **提交结果不确定时不乐观丢窗**：响应 RPC 成功可本地撤窗兜底；失败时保持当前授权可操作并立即对账，区分"请求未送达"与"后端已受理但响应丢失"。同一 request id 在调用未完成前禁止重复提交。
-- **IM 应答来源 fail-closed**：按钮回调 `handle_approval_callback_with_source` 总是查 session + 校验来源，**缺源直接拒**（不复用低风险 ask_user 问答路径的 `None→Ok`）；文本回复 submit 前复用同一校验，session 已改绑别的 chat 则拒 + 通知。
-- **chat 接管拒决**：`eviction_watcher` 在通知门之前无条件枚举该 session 全部 pending 并逐个 `Deny(source=eviction)`，被踢 chat 的审批即时解阻塞、各端撤窗。
+- **IM 应答来源 fail-closed**：审批与 ask_user 共享 `InteractiveAttachIdentity`，捕获 `channel_conversations.id + session + channel/account/chat/thread`。prompt 发送前、文本消费前、按钮 submit 前都必须仍命中这一具体 attach；**缺 source（None）两类交互都直接拒绝**。文本 pending 按完整 `(channel, account, chat, normalized_thread)` 分区，同群不同 topic 不会互相选中或吞答复。
+- **chat 接管拒决**：`eviction_watcher` 在通知门之前查找 core pending，但只对“有 IM identity 且所捕获 attach 已不再 live”的请求原子 take 后 `submit_approval_response(Deny, source=eviction)`。无 identity 的 GUI/HTTP/core-only 请求不能归因给旧 chat，留给 owner 或 timeout 收口；延迟到达的旧 eviction 不得误拒 replacement attach 上的新审批。
 
 ---
 

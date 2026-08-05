@@ -819,6 +819,14 @@ fn spawn_workflow_milestone_injection(
     let parent_session_id = run.session_id.clone();
     let parent_agent_id = session.agent_id.clone();
     let session_db = db.clone();
+    let armed_db = db.clone();
+    let armed_run_id = run.id.clone();
+    let armed_event_type = event_type.to_string();
+    let armed_injection_run_id = injection_run_id.clone();
+    let armed_child_run_id = payload
+        .get("childRunId")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
     let delivered_db = db.clone();
     let delivered_run_id = run.id.clone();
     let delivered_event_type = event_type.to_string();
@@ -827,56 +835,66 @@ fn spawn_workflow_milestone_injection(
         .get("childRunId")
         .and_then(Value::as_str)
         .map(ToOwned::to_owned);
-    let on_injected: crate::subagent::injection::OnInjected = Arc::new(move || {
-        if let Some(child_run_id) = delivered_child_run_id.as_deref() {
-            if delivered_db
-                .workflow_agent_result_handled(&delivered_run_id, child_run_id)
-                .unwrap_or(false)
-            {
-                if !delivered_db
-                    .workflow_milestone_injection_settled(
+    let on_injected = crate::subagent::injection::OnInjected::new(
+        move || {
+            if armed_db.claim_workflow_milestone_injection_no_replay(
+                &armed_run_id,
+                &armed_event_type,
+                event_seq,
+                &armed_injection_run_id,
+                armed_child_run_id.as_deref(),
+            )? {
+                Ok(())
+            } else {
+                bail!("workflow milestone already has a durable delivery owner")
+            }
+        },
+        move || {
+            if let Some(child_run_id) = delivered_child_run_id.as_deref() {
+                if delivered_db.workflow_agent_result_handled(&delivered_run_id, child_run_id)? {
+                    if !delivered_db.workflow_milestone_injection_settled(
                         &delivered_run_id,
                         &delivered_event_type,
                         event_seq,
-                    )
-                    .unwrap_or(false)
-                {
-                    let _ = delivered_db.append_workflow_event(
-                        &delivered_run_id,
-                        "workflow_milestone_injection_suppressed",
-                        json!({
-                            "sourceEventType": delivered_event_type,
-                            "sourceEventSeq": event_seq,
-                            "injectionRunId": delivered_injection_run_id,
-                            "childRunId": child_run_id,
-                            "reason": "agent_result_consumed_while_injection_pending",
-                        }),
-                    );
+                    )? {
+                        delivered_db.append_workflow_event(
+                            &delivered_run_id,
+                            "workflow_milestone_injection_suppressed",
+                            json!({
+                                "sourceEventType": &delivered_event_type,
+                                "sourceEventSeq": event_seq,
+                                "injectionRunId": &delivered_injection_run_id,
+                                "childRunId": child_run_id,
+                                "reason": "agent_result_consumed_while_injection_pending",
+                            }),
+                        )?;
+                    }
+                    return Ok(());
                 }
-                return;
             }
-        }
-        let _ = delivered_db.append_workflow_event(
-            &delivered_run_id,
-            "workflow_milestone_injection_delivered",
-            json!({
-                "sourceEventType": delivered_event_type,
-                "sourceEventSeq": event_seq,
-                "injectionRunId": delivered_injection_run_id,
-            }),
-        );
-        if let Some(child_run_id) = delivered_child_run_id.as_deref() {
-            let _ = delivered_db.append_workflow_event(
+            delivered_db.append_workflow_event(
                 &delivered_run_id,
-                "workflow_agent_result_consumed",
+                "workflow_milestone_injection_delivered",
                 json!({
-                    "api": "checkpoint_injection",
-                    "childRunIds": [child_run_id],
+                    "sourceEventType": &delivered_event_type,
+                    "sourceEventSeq": event_seq,
+                    "injectionRunId": &delivered_injection_run_id,
                 }),
-            );
-            crate::subagent::mark_run_fetched(child_run_id);
-        }
-    });
+            )?;
+            if let Some(child_run_id) = delivered_child_run_id.as_deref() {
+                delivered_db.append_workflow_event(
+                    &delivered_run_id,
+                    "workflow_agent_result_consumed",
+                    json!({
+                        "api": "checkpoint_injection",
+                        "childRunIds": [child_run_id],
+                    }),
+                )?;
+                crate::subagent::mark_run_fetched(child_run_id);
+            }
+            Ok(())
+        },
+    );
 
     std::thread::spawn(move || {
         match tokio::runtime::Builder::new_current_thread()
