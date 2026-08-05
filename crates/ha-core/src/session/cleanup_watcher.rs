@@ -192,13 +192,14 @@ async fn cleanup_session(
         .await;
     }
 
-    // A-9: drop stale IM text-reply approval state for this session (SURFACE-2).
-    crate::channel_hooks::drop_approval_for_session(session_id).await;
-    // SURFACE-2: the session-keyed drop above can't resolve the chat once the
-    // `channel_conversations` row is FK-cascade-deleted, so also drop by the IM
-    // coordinates captured pre-delete (no-op when the session wasn't IM-attached).
+    // A-9 / SURFACE-2: drop stale IM approval state for this deleted session.
+    // When pre-delete chat coordinates are available, use them as an additional
+    // identity check. Never clean the whole chat: distinct Telegram topics or
+    // Slack threads can share these coordinates while mapping to other sessions.
     if let Some((account_id, chat_id)) = &im_chat {
-        crate::channel_hooks::drop_approval_for_chat(account_id, chat_id).await;
+        crate::channel_hooks::drop_approval_for_session_chat(session_id, account_id, chat_id).await;
+    } else {
+        crate::channel_hooks::drop_approval_for_session(session_id).await;
     }
 
     // A-9: clear per-session allowlist rules so they don't linger (INCOG-7).

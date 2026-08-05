@@ -203,8 +203,8 @@ pub struct ChannelHooks {
     pub drop_approval_by_request_id: for<'a> fn(&'a str) -> BoxFut<'a, ()>,
     /// `worker::approval::drop_pending_for_session`
     pub drop_approval_for_session: for<'a> fn(&'a str) -> BoxFut<'a, ()>,
-    /// `worker::approval::drop_pending_for_chat`
-    pub drop_approval_for_chat: for<'a> fn(&'a str, &'a str) -> BoxFut<'a, ()>,
+    /// `worker::approval::drop_pending_for_session_chat`
+    pub drop_approval_for_session_chat: for<'a> fn(&'a str, &'a str, &'a str) -> BoxFut<'a, ()>,
     /// `chat_engine::im_mirror::attach_im_live_mirror`。`source` 传
     /// [`crate::chat_engine::stream_seq::ChatSource`]——**门在特征侧**
     /// （只有 Desktop / Http 才镜像），与迁移前逐位一致。
@@ -315,10 +315,11 @@ pub async fn drop_approval_for_session(session_id: &str) {
     }
 }
 
-/// 撤掉某 IM chat 下全部审批待决卡片（chat 接管 / eviction 用）。未装配即 no-op。
-pub async fn drop_approval_for_chat(account_id: &str, chat_id: &str) {
+/// 按 deleted session + 预删除 chat 坐标撤掉审批待决卡片。chat 坐标只作附加
+/// 身份校验，不能跨 topic/thread 清理同一 chat 的其他 session。未装配即 no-op。
+pub async fn drop_approval_for_session_chat(session_id: &str, account_id: &str, chat_id: &str) {
     if let Some(h) = hooks() {
-        (h.drop_approval_for_chat)(account_id, chat_id).await;
+        (h.drop_approval_for_session_chat)(session_id, account_id, chat_id).await;
     }
 }
 

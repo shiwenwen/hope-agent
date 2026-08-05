@@ -142,20 +142,31 @@ pub async fn drop_pending_for_session(session_id: &str) {
     });
 }
 
-/// Drop all pending approval state for every route in a specific account/chat.
-/// Backstop for the IM eviction watcher (G5 / SURFACE-4): after denying each
-/// pending approval tool-side, clear the chat's `TEXT_PENDING` stack so a stale
-/// text entry can't hijack a later reply in the taken-over chat. Takes the chat
-/// coordinates directly (the evicted attach row is already gone from the DB, so
-/// `drop_pending_for_session` can't resolve it).
-pub async fn drop_pending_for_chat(account_id: &str, chat_id: &str) {
-    with_approval_attach_identities(|identities| {
-        identities.retain(|_, identity| !identity.matches_chat(account_id, chat_id));
+/// Drop pending approval state proven to belong to one deleted session and its
+/// pre-delete account/chat coordinates. The session fence is mandatory:
+/// Telegram topics and Slack threads can share an account/chat while belonging
+/// to different sessions, so chat-wide cleanup would invalidate unrelated live
+/// prompts.
+pub async fn drop_pending_for_session_chat(session_id: &str, account_id: &str, chat_id: &str) {
+    let request_ids = with_approval_attach_identities(|identities| {
+        let request_ids = identities
+            .iter()
+            .filter(|(_, identity)| {
+                identity.session_id() == session_id && identity.matches_chat(account_id, chat_id)
+            })
+            .map(|(request_id, _)| request_id.clone())
+            .collect::<HashSet<_>>();
+        identities.retain(|request_id, _| !request_ids.contains(request_id));
+        request_ids
     });
-    get_text_pending()
-        .lock()
-        .await
-        .retain(|route, _| route.1.as_str() != account_id || route.2.as_str() != chat_id);
+    if request_ids.is_empty() {
+        return;
+    }
+    let mut pending = get_text_pending().lock().await;
+    pending.retain(|_, list| {
+        list.retain(|entry| !request_ids.contains(&entry.request_id));
+        !list.is_empty()
+    });
 }
 
 #[derive(Debug, Default)]
@@ -2796,40 +2807,78 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn drop_pending_for_chat_clears_only_target_chat() {
-        // G5 (SURFACE-4): eviction clears the taken-over chat's text stack only.
-        let evicted = text_route("acct-evict", "chat-evicted");
-        let other = text_route("acct-evict", "chat-other");
+    async fn drop_pending_for_session_chat_preserves_other_topic_sessions() {
+        let deleted = text_route_in_thread("acct-shared", "chat-shared", Some("101"));
+        let sibling = text_route_in_thread("acct-shared", "chat-shared", Some("202"));
+        let deleted_request_id = "deleted-session-request";
+        let sibling_request_id = "sibling-session-request";
+        let conversation =
+            |id, session_id: &str, thread_id: &str| ha_core::channel::db::ChannelConversation {
+                id,
+                channel_id: "telegram".to_string(),
+                account_id: "acct-shared".to_string(),
+                chat_id: "chat-shared".to_string(),
+                thread_id: Some(thread_id.to_string()),
+                session_id: session_id.to_string(),
+                sender_id: None,
+                sender_tenant_id: None,
+                sender_name: None,
+                chat_type: "group".to_string(),
+                source: "inbound".to_string(),
+                attached_at: None,
+                created_at: String::new(),
+                updated_at: String::new(),
+            };
+        register_approval_attach_identity(
+            deleted_request_id,
+            InteractiveAttachIdentity::from_conversation(
+                "session-deleted",
+                &conversation(101, "session-deleted", "101"),
+            )
+            .unwrap(),
+        );
+        register_approval_attach_identity(
+            sibling_request_id,
+            InteractiveAttachIdentity::from_conversation(
+                "session-sibling",
+                &conversation(202, "session-sibling", "202"),
+            )
+            .unwrap(),
+        );
         {
             let mut pending = get_text_pending().lock().await;
             pending
-                .entry(evicted.clone())
+                .entry(deleted.clone())
                 .or_default()
                 .push(PendingTextApproval {
-                    request_id: "evicted-req".to_string(),
+                    request_id: deleted_request_id.to_string(),
                     forbids_allow_always: false,
                 });
             pending
-                .entry(other.clone())
+                .entry(sibling.clone())
                 .or_default()
                 .push(PendingTextApproval {
-                    request_id: "other-req".to_string(),
+                    request_id: sibling_request_id.to_string(),
                     forbids_allow_always: false,
                 });
         }
 
-        drop_pending_for_chat("acct-evict", "chat-evicted").await;
+        drop_pending_for_session_chat("session-deleted", "acct-shared", "chat-shared").await;
 
         let mut pending = get_text_pending().lock().await;
         assert!(
-            pending.get(&evicted).is_none(),
-            "evicted chat's text stack should be cleared",
+            pending.get(&deleted).is_none(),
+            "the deleted session's topic should be cleared",
         );
         assert!(
-            pending.get(&other).is_some(),
-            "other chat must be untouched",
+            pending.get(&sibling).is_some(),
+            "another session in the same chat must be untouched",
         );
-        pending.remove(&other);
+        assert!(approval_attach_identity(deleted_request_id).is_none());
+        assert!(approval_attach_identity(sibling_request_id).is_some());
+        pending.remove(&sibling);
+        drop(pending);
+        remove_approval_attach_identity(sibling_request_id);
     }
 
     #[test]
