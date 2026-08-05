@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   }),
   completeAction: null as null | ((action: string) => void),
   petSpriteVersion: 2 as 1 | 2,
+  petAssetLoading: false,
+  petAssetFailed: false,
   approvals: [] as Array<Record<string, unknown>>,
   layoutOverride: null as null | {
     mode: "none" | "bubble" | "tray" | "menu"
@@ -82,11 +84,14 @@ vi.mock("@/components/chat/hooks/useApprovals", () => ({
 }))
 
 vi.mock("@/components/pet/hooks/usePetAssetUrl", () => ({
-  usePetAssetUrl: (assetId: string | null) => ({
-    src: assetId ?? "pet-loading",
-    loading: false,
-    failed: false,
-  }),
+  usePetAssetUrl: (assetId: string | null) => {
+    const usingFallback = !assetId || mocks.petAssetLoading || mocks.petAssetFailed
+    return {
+      src: usingFallback ? "pet-loading" : assetId,
+      loading: mocks.petAssetLoading,
+      failed: mocks.petAssetFailed,
+    }
+  },
 }))
 
 vi.mock("@/components/pet/hooks/usePetAnimator", async (importOriginal) => ({
@@ -158,6 +163,8 @@ beforeEach(() => {
   mocks.listeners.clear()
   mocks.completeAction = null
   mocks.petSpriteVersion = 2
+  mocks.petAssetLoading = false
+  mocks.petAssetFailed = false
   mocks.approvals = []
   mocks.layoutOverride = null
   mocks.petSnapshot = {
@@ -211,6 +218,28 @@ describe("PetWindow pointer interactions", () => {
     expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "pet-loading")
     expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11")
   })
+
+  test.each([
+    { state: "loading", loading: true, failed: false },
+    { state: "failed", loading: false, failed: true },
+  ])(
+    "uses v2 fallback geometry while a selected v1 asset is $state",
+    async ({ loading, failed }) => {
+      mocks.petSpriteVersion = 1
+      mocks.petAssetLoading = loading
+      mocks.petAssetFailed = failed
+
+      render(<PetWindow />)
+      const pet = petButton()
+      await waitFor(() => {
+        fireEvent.pointerEnter(pet)
+        expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "wave")
+      })
+
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "pet-loading")
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11")
+    },
+  )
 
   test("suppresses the synthetic click after dragging without poisoning the next click", async () => {
     render(<PetWindow />)

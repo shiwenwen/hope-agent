@@ -830,7 +830,7 @@ export default function PetWindow() {
             <AnimatedPetSprite
               src={petAsset.src}
               action={action}
-              rowCount={isV1Pet ? 9 : 11}
+              rowCount={petAsset.loading || petAsset.failed ? 11 : isV1Pet ? 9 : 11}
               lookTarget={action === "idle" ? lookTarget : null}
               dimmed={petAsset.loading || petAsset.failed || snapshot.stale}
               onActionComplete={(completed) => {
