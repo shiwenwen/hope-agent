@@ -105,6 +105,105 @@ fn terminal_turn_state(
         .map(|turn| (turn.status, turn.interrupt_reason, turn.error))
 }
 
+/// Consume an attached GUI / HTTP mirror and terminate its existing preview
+/// through the channel-owned abort path. The engine never waits on remote IM
+/// I/O: desktop completion remains independent, while the owned mirror state
+/// guarantees the same Message / Card / Native identity is used for the
+/// terminal mutation.
+///
+/// Returning the task makes the helper directly testable. Production callers
+/// intentionally detach it because these paths never replay the logical turn.
+fn abort_im_mirror_in_background(
+    im_mirror: &mut Option<Box<dyn crate::channel_hooks::ImLiveMirror>>,
+    session_id: &str,
+    reason: &TerminationReason,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let state = im_mirror.take()?;
+    let body = finalize::copy::im_notice(reason);
+    let session_id = session_id.to_string();
+    // Construct the channel-owned future before spawning. `abort` synchronously
+    // detaches the session fan-out sink, so a subsequent turn cannot race its
+    // first delta into this terminal generation while the task waits to poll.
+    let abort = state.abort(Some(body));
+    Some(tokio::spawn(async move {
+        let status = abort.await;
+        if !status.is_confirmed() {
+            app_warn!(
+                "channel",
+                "mirror",
+                "IM mirror abnormal terminal could not be confirmed for session {}",
+                session_id
+            );
+        }
+    }))
+}
+
+fn abort_im_mirror_after_internal_error(
+    im_mirror: &mut Option<Box<dyn crate::channel_hooks::ImLiveMirror>>,
+    session_id: &str,
+    message: &str,
+) -> Option<tokio::task::JoinHandle<()>> {
+    abort_im_mirror_in_background(
+        im_mirror,
+        session_id,
+        &TerminationReason::Other {
+            message: message.to_string(),
+        },
+    )
+}
+
+/// Consume a completed mirror, synchronously detach its stream sink while
+/// constructing the channel future, then move only that detached future to the
+/// background task.
+fn finalize_im_mirror_in_background(
+    im_mirror: &mut Option<Box<dyn crate::channel_hooks::ImLiveMirror>>,
+    response: String,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let state = im_mirror.take()?;
+    let finalize = state.finalize(response);
+    Some(tokio::spawn(finalize))
+}
+
+/// Reconstruct the closest public termination taxonomy when another owner
+/// (Stop watchdog / request guard) has already finalized `chat_turns` while
+/// the provider future is unwinding. This keeps IM copy aligned with the GUI
+/// event instead of collapsing every external terminal into an internal error.
+fn mirror_reason_from_terminal_state(
+    status: session::ChatTurnStatus,
+    interrupt: Option<session::ChatTurnInterruptReason>,
+    error: Option<&str>,
+) -> TerminationReason {
+    let detail = error
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("turn was finalized by another runtime owner")
+        .to_string();
+    match interrupt {
+        Some(session::ChatTurnInterruptReason::UserStop) => TerminationReason::UserStop,
+        Some(
+            session::ChatTurnInterruptReason::RuntimeCancel
+            | session::ChatTurnInterruptReason::ToolCancel,
+        ) => TerminationReason::RuntimeCancel,
+        Some(session::ChatTurnInterruptReason::Shutdown) => TerminationReason::Shutdown,
+        Some(session::ChatTurnInterruptReason::CrashRecovery) => TerminationReason::Crash,
+        Some(session::ChatTurnInterruptReason::NoProfile) => TerminationReason::NoProfileAvailable,
+        Some(session::ChatTurnInterruptReason::ProviderFailed) => {
+            TerminationReason::ProviderFailed {
+                last_kind: failover::classify_error(&detail),
+                last_message: detail,
+                // The terminal DB projection does not retain the exact
+                // provider/API identity. Never guess the Codex-specific hint.
+                is_codex_auth: false,
+            }
+        }
+        Some(session::ChatTurnInterruptReason::CompactionFailed) => {
+            TerminationReason::CompactionFailed { detail }
+        }
+        Some(session::ChatTurnInterruptReason::Unknown) | None => TerminationReason::Other {
+            message: format!("turn ended with status {}: {detail}", status.as_str()),
+        },
+    }
+}
+
 fn turn_accepts_stream_event(
     db: &session::SessionDB,
     session_id: &str,
@@ -874,9 +973,28 @@ pub(crate) async fn run_chat_engine_classified(
     // IM-mirror prefers the friendly `display_text` (e.g. `Using skill **X**...`
     // rendered for `/skill` invocations) so attached IM chats see what the
     // desktop user saw, not the raw `[SYSTEM:...]` prompt fed to the model.
+    // A normal Desktop / HTTP turn has a durable `turn_id`; the stream id is
+    // the stable per-run fallback for internal callers that do not create a
+    // chat-turn row. Pass it explicitly so the channel layer never has to
+    // race the active-turn registry to infer this mirror generation.
+    let im_mirror_generation = turn_id
+        .clone()
+        .map(crate::channel_hooks::ImLiveMirrorGeneration::Turn)
+        .or_else(|| {
+            stream_lifecycle
+                .stream_id
+                .clone()
+                .map(crate::channel_hooks::ImLiveMirrorGeneration::Stream)
+        })
+        .unwrap_or_else(|| {
+            crate::channel_hooks::ImLiveMirrorGeneration::Stream(
+                durability.persistence_run_id().to_string(),
+            )
+        });
     let mut im_mirror = crate::channel_hooks::attach_live_mirror(
         &session_id,
         source,
+        im_mirror_generation,
         Some(crate::channel_hooks::LastUserSnapshot {
             source: source.as_str().to_string(),
             text: crate::util::non_empty_trim_or(display_text.as_deref(), &message).to_owned(),
@@ -1457,9 +1575,19 @@ pub(crate) async fn run_chat_engine_classified(
                                         Some(message.clone()),
                                     );
                                     stream_lifecycle.finish();
+                                    let _ = abort_im_mirror_after_internal_error(
+                                        &mut im_mirror,
+                                        &session_id,
+                                        &message,
+                                    );
                                     return Err(message.into());
                                 }
                                 durability.mark_interrupted(terminal.as_str());
+                                let mirror_reason = mirror_reason_from_terminal_state(
+                                    terminal,
+                                    Some(interrupt),
+                                    turn.error.as_deref(),
+                                );
                                 stream_lifecycle.set_terminal(
                                     terminal,
                                     Some(interrupt),
@@ -1467,6 +1595,11 @@ pub(crate) async fn run_chat_engine_classified(
                                 );
                                 stream_lifecycle.finish();
                                 schedule_browser_turn_finalize(source, &session_id);
+                                let _ = abort_im_mirror_in_background(
+                                    &mut im_mirror,
+                                    &session_id,
+                                    &mirror_reason,
+                                );
                                 return Ok(ChatEngineResult {
                                     response,
                                     model_used: Some(model_ref.clone()),
@@ -1484,16 +1617,24 @@ pub(crate) async fn run_chat_engine_classified(
                     // well as inside the provider loop. Otherwise a late Stop
                     // races through the normal completed transaction.
                     if !abort_on_cancel && persist_final_error_event {
-                        durability
-                            .flush(FlushReason::FinalEnd)
-                            .await
-                            .map_err(|error| {
-                                format!("pre-final durability barrier failed: {error}")
-                            })?;
-                        durability
-                            .reconcile_spool_to_sqlite()
-                            .await
-                            .map_err(|error| format!("pre-final spool import failed: {error}"))?;
+                        if let Err(error) = durability.flush(FlushReason::FinalEnd).await {
+                            let message = format!("pre-final durability barrier failed: {error}");
+                            let _ = abort_im_mirror_after_internal_error(
+                                &mut im_mirror,
+                                &session_id,
+                                &message,
+                            );
+                            return Err(message.into());
+                        }
+                        if let Err(error) = durability.reconcile_spool_to_sqlite().await {
+                            let message = format!("pre-final spool import failed: {error}");
+                            let _ = abort_im_mirror_after_internal_error(
+                                &mut im_mirror,
+                                &session_id,
+                                &message,
+                            );
+                            return Err(message.into());
+                        }
                     }
 
                     if !abort_on_cancel
@@ -1541,6 +1682,11 @@ pub(crate) async fn run_chat_engine_classified(
                                 Some(message.clone()),
                             );
                             stream_lifecycle.finish();
+                            let _ = abort_im_mirror_after_internal_error(
+                                &mut im_mirror,
+                                &session_id,
+                                &message,
+                            );
                             return Err(message.into());
                         }
                     };
@@ -1552,6 +1698,11 @@ pub(crate) async fn run_chat_engine_classified(
                             Some(message.clone()),
                         );
                         stream_lifecycle.finish();
+                        let _ = abort_im_mirror_after_internal_error(
+                            &mut im_mirror,
+                            &session_id,
+                            &message,
+                        );
                         return Err(message.into());
                     }
 
@@ -1638,8 +1789,19 @@ pub(crate) async fn run_chat_engine_classified(
                     // second model call.
                     crate::eval_context::enrich_usage_metadata(&mut ledger_event);
 
-                    let context_json = serde_json::to_string(&agent.get_conversation_history())
-                        .map_err(|error| format!("serialize final context failed: {error}"))?;
+                    let context_json =
+                        match serde_json::to_string(&agent.get_conversation_history()) {
+                            Ok(context_json) => context_json,
+                            Err(error) => {
+                                let message = format!("serialize final context failed: {error}");
+                                let _ = abort_im_mirror_after_internal_error(
+                                    &mut im_mirror,
+                                    &session_id,
+                                    &message,
+                                );
+                                return Err(message.into());
+                            }
+                        };
                     let commit = session::CommitAssistantTurn {
                         run_id: durability
                             .is_persistent()
@@ -1685,6 +1847,11 @@ pub(crate) async fn run_chat_engine_classified(
                                 Some(message.clone()),
                             );
                             stream_lifecycle.finish();
+                            let _ = abort_im_mirror_after_internal_error(
+                                &mut im_mirror,
+                                &session_id,
+                                &message,
+                            );
                             return Err(message.into());
                         }
                     };
@@ -1698,12 +1865,7 @@ pub(crate) async fn run_chat_engine_classified(
                     // delay the remote chat's finalization. It runs in the
                     // background so slow IM network calls never hold the GUI
                     // path open.
-                    if let Some(state) = im_mirror.take() {
-                        let mirror_response = response.clone();
-                        tokio::spawn(async move {
-                            state.finalize(&mirror_response).await;
-                        });
-                    }
+                    let _ = finalize_im_mirror_in_background(&mut im_mirror, response.clone());
 
                     // The user-visible response is complete once the final
                     // assistant row is durable. End the frontend stream here;
@@ -1861,9 +2023,16 @@ pub(crate) async fn run_chat_engine_classified(
                     if let Some((status, interrupt, error)) =
                         terminal_turn_state(&db, turn_id.as_deref())
                     {
+                        let mirror_reason =
+                            mirror_reason_from_terminal_state(status, interrupt, error.as_deref());
                         stream_lifecycle.set_terminal(status, interrupt, error);
                         stream_lifecycle.finish();
                         schedule_browser_turn_finalize(source, &session_id);
+                        let _ = abort_im_mirror_in_background(
+                            &mut im_mirror,
+                            &session_id,
+                            &mirror_reason,
+                        );
                         return Ok(ChatEngineResult {
                             response: String::new(),
                             model_used: Some(model_ref.clone()),
@@ -2019,9 +2188,16 @@ pub(crate) async fn run_chat_engine_classified(
                     if let Some((status, interrupt, error)) =
                         terminal_turn_state(&db, turn_id.as_deref())
                     {
+                        let mirror_reason =
+                            mirror_reason_from_terminal_state(status, interrupt, error.as_deref());
                         stream_lifecycle.set_terminal(status, interrupt, error);
                         stream_lifecycle.finish();
                         schedule_browser_turn_finalize(source, &session_id);
+                        let _ = abort_im_mirror_in_background(
+                            &mut im_mirror,
+                            &session_id,
+                            &mirror_reason,
+                        );
                         return Ok(ChatEngineResult {
                             response: String::new(),
                             model_used: Some(model_ref.clone()),
@@ -2399,11 +2575,7 @@ pub(crate) async fn run_chat_engine_classified(
         // the UI is not reported as indefinitely active in this process.
         durability.mark_interrupted("persistence_unavailable");
     }
-    if let Some(state) = im_mirror.take() {
-        tokio::spawn(async move {
-            state.finalize("").await;
-        });
-    }
+    let _ = abort_im_mirror_in_background(&mut im_mirror, &session_id, &reason);
     stream_lifecycle.set_terminal(
         terminal_status,
         Some(terminal_interrupt),
@@ -2655,7 +2827,10 @@ fn configure_agent(
 
 #[cfg(test)]
 mod stream_lifecycle_tests {
-    use std::sync::atomic::AtomicBool;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
 
     use super::*;
     use crate::context_compact::CompactConfig;
@@ -2664,6 +2839,127 @@ mod stream_lifecycle_tests {
     use tempfile::TempDir;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    struct RecordingImMirror {
+        detached: Arc<AtomicBool>,
+        finalized: Arc<AtomicBool>,
+        aborted_bodies: Arc<Mutex<Vec<Option<String>>>>,
+    }
+
+    impl crate::channel_hooks::ImLiveMirror for RecordingImMirror {
+        fn finalize(
+            self: Box<Self>,
+            _response: String,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+            self.detached.store(true, Ordering::SeqCst);
+            let finalized = self.finalized.clone();
+            Box::pin(async move {
+                finalized.store(true, Ordering::SeqCst);
+            })
+        }
+
+        fn abort(
+            self: Box<Self>,
+            body: Option<String>,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = crate::channel_hooks::ImLiveMirrorAbortStatus> + Send + 'static,
+            >,
+        > {
+            self.detached.store(true, Ordering::SeqCst);
+            let aborted_bodies = self.aborted_bodies.clone();
+            Box::pin(async move {
+                aborted_bodies
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(body);
+                crate::channel_hooks::ImLiveMirrorAbortStatus::Confirmed
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn abnormal_terminal_consumes_live_mirror_through_abort_once() {
+        let detached = Arc::new(AtomicBool::new(false));
+        let finalized = Arc::new(AtomicBool::new(false));
+        let aborted_bodies = Arc::new(Mutex::new(Vec::new()));
+        let mut mirror: Option<Box<dyn crate::channel_hooks::ImLiveMirror>> =
+            Some(Box::new(RecordingImMirror {
+                detached: detached.clone(),
+                finalized: finalized.clone(),
+                aborted_bodies: aborted_bodies.clone(),
+            }));
+        let reason = TerminationReason::NoProfileAvailable;
+
+        let task = abort_im_mirror_in_background(&mut mirror, "mirror-test", &reason)
+            .expect("attached mirror should spawn an abort task");
+        assert!(
+            mirror.is_none(),
+            "terminal owner must be consumed immediately"
+        );
+        assert!(
+            detached.load(Ordering::SeqCst),
+            "abort must detach before the spawned future is polled"
+        );
+        task.await.expect("abort task should complete");
+
+        assert!(!finalized.load(Ordering::SeqCst));
+        assert_eq!(
+            *aborted_bodies
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            vec![Some(finalize::copy::im_notice(&reason))]
+        );
+        assert!(abort_im_mirror_in_background(&mut mirror, "mirror-test", &reason).is_none());
+    }
+
+    #[tokio::test]
+    async fn completed_terminal_detaches_before_background_poll() {
+        let detached = Arc::new(AtomicBool::new(false));
+        let finalized = Arc::new(AtomicBool::new(false));
+        let mut mirror: Option<Box<dyn crate::channel_hooks::ImLiveMirror>> =
+            Some(Box::new(RecordingImMirror {
+                detached: detached.clone(),
+                finalized: finalized.clone(),
+                aborted_bodies: Arc::new(Mutex::new(Vec::new())),
+            }));
+
+        let task = finalize_im_mirror_in_background(&mut mirror, "done".to_string())
+            .expect("attached mirror should spawn a finalize task");
+        assert!(mirror.is_none());
+        assert!(
+            detached.load(Ordering::SeqCst),
+            "finalize must detach before the spawned future is polled"
+        );
+        task.await.expect("finalize task should complete");
+        assert!(finalized.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn external_terminal_reason_preserves_user_stop_and_provider_failure() {
+        assert!(matches!(
+            mirror_reason_from_terminal_state(
+                session::ChatTurnStatus::Interrupted,
+                Some(session::ChatTurnInterruptReason::UserStop),
+                None,
+            ),
+            TerminationReason::UserStop
+        ));
+
+        let provider = mirror_reason_from_terminal_state(
+            session::ChatTurnStatus::Failed,
+            Some(session::ChatTurnInterruptReason::ProviderFailed),
+            Some("429 rate limit"),
+        );
+        assert!(matches!(
+            provider,
+            TerminationReason::ProviderFailed {
+                last_kind: failover::FailoverReason::RateLimit,
+                is_codex_auth: false,
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn finish_marks_stream_inactive_before_scope_drop() {

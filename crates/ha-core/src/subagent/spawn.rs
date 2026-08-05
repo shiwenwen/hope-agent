@@ -409,9 +409,10 @@ pub async fn resume_subagent(
     // Reading a terminal run in order to continue it also consumes that result;
     // suppress a late duplicate auto-injection from the source run.
     if source.delivery_kind == crate::subagent::SubagentDeliveryKind::Parent {
-        // `insert_resumed_subagent_run` suppressed the durable delivery in the
-        // same transaction that created this continuation. Only the in-memory
-        // cancellation signal remains here.
+        // `insert_resumed_subagent_run` atomically suppressed a still-pending
+        // durable delivery (and refused to race an active one) in the same
+        // transaction that created this continuation. Only the process-local
+        // fast path remains here, chiefly for incognito delivery.
         super::mark_run_fetched_in_memory(source_run_id);
     }
     Ok(run_id)
@@ -1117,27 +1118,33 @@ fn dispatch_parent_result_delivery_blocking(
         run.error.as_deref(),
         run.terminal_reason,
     );
+    let arm_db = db.clone();
+    let arm_run_id = run.run_id.clone();
     let delivery_db = db.clone();
     let delivery_run_id = run.run_id.clone();
+    let release_db = db.clone();
+    let release_run_id = run.run_id.clone();
+    let release_callback_run_id = run.run_id.clone();
     let on_injected: Option<super::injection::OnInjected> = (!incognito).then(|| {
-        Arc::new(move || {
-            if let Err(error) = delivery_db.mark_subagent_result_delivered(&delivery_run_id) {
-                crate::app_warn!(
-                    "subagent",
-                    "delivery",
-                    "failed to mark result delivery for run {}: {}",
-                    delivery_run_id,
-                    error
-                );
-            }
-        }) as super::injection::OnInjected
+        super::injection::OnInjected::new(
+            move || arm_db.arm_subagent_result_delivery_no_replay(&arm_run_id),
+            move || delivery_db.mark_subagent_result_delivered(&delivery_run_id),
+        )
+        .with_primary_handoff()
+        .with_release_unarmed(move || {
+            release_db.release_subagent_result_delivery_claim(
+                &release_callback_run_id,
+                "Parent injection abandoned before no-replay arm; waiting for a later sweep",
+            )
+        })
     });
+    let release_receipt = on_injected.clone();
     match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => {
-            let _ = runtime.block_on(inject_and_run_parent_with_ui_guard(
+            let outcome = runtime.block_on(inject_and_run_parent_with_ui_guard(
                 run.parent_session_id,
                 run.parent_agent_id,
                 run.child_agent_id,
@@ -1146,14 +1153,30 @@ fn dispatch_parent_result_delivery_blocking(
                 db,
                 on_injected,
                 reattachable_ui_guard,
+                None,
             ));
+            if outcome == super::injection::InjectionOutcome::Abandoned {
+                // Pre-provider failures must not strand the durable source
+                // in `injecting`. The state predicate preserves an armed
+                // no-replay fence if one exists.
+                super::injection::release_unarmed_injection_source(
+                    release_receipt.as_ref(),
+                    &release_run_id,
+                );
+            }
         }
-        Err(error) => crate::app_error!(
-            "subagent",
-            "delivery",
-            "failed to build runtime for result delivery: {}",
-            error
-        ),
+        Err(error) => {
+            crate::app_error!(
+                "subagent",
+                "delivery",
+                "failed to build runtime for result delivery: {}",
+                error
+            );
+            super::injection::release_unarmed_injection_source(
+                release_receipt.as_ref(),
+                &release_run_id,
+            );
+        }
     }
     true
 }

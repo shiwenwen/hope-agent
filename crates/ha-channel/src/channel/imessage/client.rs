@@ -519,6 +519,7 @@ impl IMessageClient {
             sender_id: sender.to_string(),
             sender_name,
             sender_username: Some(sender.to_string()),
+            sender_tenant_id: None,
             chat_id,
             chat_type,
             chat_title,

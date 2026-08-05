@@ -229,6 +229,7 @@ fn convert_update(account_id: &str, update: WeChatMessage) -> Option<MsgContext>
         sender_id: sender_id.clone(),
         sender_name: None,
         sender_username: None,
+        sender_tenant_id: None,
         chat_id,
         chat_type: ChatType::Dm,
         chat_title: None,

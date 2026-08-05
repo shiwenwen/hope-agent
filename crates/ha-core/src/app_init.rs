@@ -311,6 +311,10 @@ pub fn init_runtime(role: &'static str) {
     // initialised; commit C8 wires the cleanup + single-owner loop
     // gating against `runtime_lock::is_primary()`.
     let tier = crate::runtime_lock::acquire_or_secondary_for(role);
+    crate::channel_hooks::configure_im_delivery_ownership(
+        crate::runtime_role(),
+        tier == crate::runtime_lock::Tier::Primary,
+    );
 
     // Bootstrap a default EventBus if no caller pre-installed one. Tauri
     // shell installs its own bridged bus before `.manage(...)`; the HTTP
@@ -543,7 +547,11 @@ pub fn init_runtime(role: &'static str) {
     // also has a per-row updated_at < now-60s SQL guard added in this
     // commit (see purge_orphan_incognito_sessions).
     if crate::runtime_lock::is_primary() {
-        // Clean up orphan sub-agent runs from previous app session
+        // Clean up orphan sub-agent runs and converge their durable delivery
+        // states. Ordinary pending ParentInjection dispatch is deliberately
+        // deferred to background ownership/readiness; armed
+        // `injecting_no_replay` rows remain fail-closed because process
+        // liveness cannot be inferred without a durable owner token.
         subagent::cleanup_orphan_runs(&session_db);
 
         // Clean up orphan team members from previous app session
@@ -1034,11 +1042,207 @@ fn spawn_embedding_init() {
     });
 }
 
+/// Run the two durable ParentInjection replay sources as an idempotent sweep.
+/// Each source resolves its own IM binding/readiness: no attach proceeds
+/// GUI-only, a running account mirrors normally, and an enabled-but-unavailable
+/// account leaves that source pending. Both functions are synchronous SQLite
+/// walkers that only spawn their actual injectors, so keep the walk itself off
+/// the async runtime worker.
+async fn replay_recovered_parent_injections(session_db: Arc<SessionDB>) {
+    crate::blocking::run_blocking(move || {
+        subagent::replay_pending_parent_deliveries(&session_db);
+        crate::async_jobs::JobManager::replay_pending_injections();
+    })
+    .await;
+}
+
+struct DurableReplaySweepPermit<'a>(&'a AtomicBool);
+
+impl Drop for DurableReplaySweepPermit<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+fn try_acquire_durable_replay_sweep(running: &AtomicBool) -> Option<DurableReplaySweepPermit<'_>> {
+    running
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        )
+        .ok()
+        .map(|_| DurableReplaySweepPermit(running))
+}
+
+static DURABLE_PARENT_INJECTION_REPLAY_SWEEP_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// Start one idempotent durable replay sweep without overlapping an earlier
+/// tick. Source-level CAS remains the correctness boundary; this process-local
+/// single-flight guard avoids unnecessary SQLite contention and log reordering
+/// when a walk takes longer than the five-second handoff interval.
+fn spawn_durable_parent_injection_replay_sweep() {
+    if crate::channel_hooks::im_delivery_ownership()
+        != crate::channel_hooks::ImDeliveryOwnership::LocalOwner
+    {
+        return;
+    }
+    let Some(_permit) =
+        try_acquire_durable_replay_sweep(&DURABLE_PARENT_INJECTION_REPLAY_SWEEP_RUNNING)
+    else {
+        return;
+    };
+    let Some(session_db) = SESSION_DB.get().cloned() else {
+        app_error!(
+            "channel",
+            "handoff",
+            "Session DB unavailable; durable ParentInjection handoff sweep deferred"
+        );
+        return;
+    };
+    tokio::spawn(async move {
+        let _permit = _permit;
+        replay_recovered_parent_injections(session_db).await;
+    });
+}
+
+static DELIVERY_SURFACE_REPLAY_LISTENER_STARTED: AtomicBool = AtomicBool::new(false);
+
+/// Successful starts and persisted disable/removal mutations converge through
+/// one delivery-surface event. The one-shot startup DB sweep has already put
+/// unavailable sources into the unified per-session FIFO with a Channel gate,
+/// so later events only open matching gates. A low-frequency pure durable
+/// sweep is also retained as the cross-process Secondary→Primary handoff
+/// backstop; it never runs startup recovery/reset logic.
+fn spawn_delivery_surface_replay_listener() {
+    if crate::channel_hooks::im_delivery_ownership()
+        != crate::channel_hooks::ImDeliveryOwnership::LocalOwner
+        || DELIVERY_SURFACE_REPLAY_LISTENER_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
+        return;
+    }
+    let Some(bus) = crate::globals::get_event_bus() else {
+        DELIVERY_SURFACE_REPLAY_LISTENER_STARTED.store(false, std::sync::atomic::Ordering::SeqCst);
+        app_error!(
+            "channel",
+            "startup",
+            "EventBus unavailable; delivery-surface parent injection sweeps disabled"
+        );
+        return;
+    };
+    let mut rx = bus.subscribe();
+    tokio::spawn(async move {
+        let mut durable_handoff = tokio::time::interval(std::time::Duration::from_secs(5));
+        durable_handoff.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        durable_handoff.tick().await; // consume the immediate first tick
+        loop {
+            tokio::select! {
+                _ = durable_handoff.tick() => {
+                    spawn_durable_parent_injection_replay_sweep();
+                }
+                received = rx.recv() => match received {
+                    Ok(event)
+                        if event.name == channel::registry::DELIVERY_SURFACE_STATE_CHANGED_EVENT =>
+                    {
+                        if let Some(account_id) = event
+                            .payload
+                            .get("accountId")
+                            .and_then(serde_json::Value::as_str)
+                        {
+                            crate::subagent::injection::flush_channel_pending_injections(Some(
+                                account_id,
+                            ));
+                        } else {
+                            app_warn!(
+                                "channel",
+                                "startup",
+                                "Ignoring delivery-surface event without accountId"
+                            );
+                        }
+                    }
+                    Ok(_) => {}
+                    // A missed delivery-surface event is indistinguishable from
+                    // other lag here. Open every in-memory Channel gate; each
+                    // retry re-resolves the live surface before mutation.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        crate::subagent::injection::flush_channel_pending_injections(None);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
+    });
+}
+
+/// Primary/full-runtime startup coordinator. Recover and sweep durable sources
+/// before starting accounts: GUI-only sources proceed immediately, while each
+/// enabled binding enters the unified FIFO behind its own Channel gate. Account
+/// starts then run concurrently and open their exact gates as soon as each one
+/// succeeds, so one slow/broken account cannot delay healthy peers.
+async fn start_channels_then_replay_parent_injections(
+    registry: Arc<channel::ChannelRegistry>,
+    session_db: Arc<SessionDB>,
+    accounts: Vec<channel::types::ChannelAccountConfig>,
+) {
+    if crate::channel_hooks::im_delivery_ownership()
+        != crate::channel_hooks::ImDeliveryOwnership::LocalOwner
+    {
+        app_error!(
+            "channel",
+            "startup",
+            "Refusing channel startup/durable replay without LocalOwner capability"
+        );
+        return;
+    }
+    // State convergence precedes replay so terminal jobs newly classified as
+    // interrupted participate in this process's single durable sweep.
+    crate::blocking::run_blocking(crate::async_jobs::JobManager::recover_interrupted).await;
+    replay_recovered_parent_injections(session_db).await;
+
+    let account_count = accounts.len();
+    let mut starts = tokio::task::JoinSet::new();
+    for account in accounts {
+        let registry = registry.clone();
+        starts.spawn(async move {
+            if registry.health(&account.id).await.is_running {
+                return;
+            }
+            if let Err(error) = registry.start_account(&account).await {
+                // A concurrent manual start can win between the health probe
+                // and start_account's worker check. The winning success already
+                // emitted the precise surface event.
+                if !registry.health(&account.id).await.is_running {
+                    crate::channel_hooks::start_watchdog_register_failure(&account, &error).await;
+                }
+            }
+        });
+    }
+    while let Some(result) = starts.join_next().await {
+        if let Err(error) = result {
+            app_error!(
+                "channel",
+                "startup",
+                "Channel account startup task failed: {}",
+                error
+            );
+        }
+    }
+
+    app_info!(
+        "channel",
+        "startup",
+        "Completed concurrent initial start attempts for {} enabled channel account(s)",
+        account_count
+    );
+}
+
 pub async fn start_background_tasks() {
     let primary = crate::runtime_lock::is_primary();
 
     // Tier-agnostic: EventBus subscription is multi-subscriber-safe.
     spawn_channel_listeners();
+    spawn_delivery_surface_replay_listener();
 
     // Tier-agnostic: local Chrome Extension broker（特征钩子——未 wire 不起，
     // 首次未命中 wrapper 内部打一次 warn 便于 headless 部署审计）。
@@ -1240,39 +1444,47 @@ pub async fn start_background_tasks() {
             }
         });
 
-        // Auto-start enabled channel accounts. Two processes auto-starting
-        // the same Telegram bot would fight over its webhook; users still
-        // start accounts manually via the API/UI in any tier. Boot failures
-        // are picked up by `channel::start_watchdog` and retried in the
-        // background until success or user action.
-        if let Some(registry) = CHANNEL_REGISTRY.get() {
-            let registry = registry.clone();
-            crate::channel_hooks::spawn_start_watchdog_loop(registry.clone());
-            let store = crate::config::cached_config();
-            tokio::spawn(async move {
-                for account in store.channels.enabled_accounts() {
-                    if let Err(e) = registry.start_account(account).await {
-                        crate::channel_hooks::start_watchdog_register_failure(account, &e).await;
-                    }
-                }
-            });
+        // Sweep durable ParentInjection sources, then auto-start enabled
+        // channel accounts concurrently. Two processes
+        // auto-starting the same Telegram bot would fight over its webhook,
+        // hence the surrounding Primary gate. Failed handshakes stay in the
+        // watchdog; they defer only sources bound to that account, not healthy
+        // accounts or GUI-only sessions.
+        if crate::channel_hooks::im_delivery_ownership()
+            == crate::channel_hooks::ImDeliveryOwnership::LocalOwner
+        {
+            if let (Some(registry), Some(session_db)) = (CHANNEL_REGISTRY.get(), SESSION_DB.get()) {
+                let registry = registry.clone();
+                let session_db = session_db.clone();
+                crate::channel_hooks::spawn_start_watchdog_loop(registry.clone());
+                let store = crate::config::cached_config();
+                let accounts = store
+                    .channels
+                    .enabled_accounts()
+                    .into_iter()
+                    .cloned()
+                    .collect();
+                tokio::spawn(start_channels_then_replay_parent_injections(
+                    registry, session_db, accounts,
+                ));
+            } else {
+                // init_runtime populates both globals. If that invariant
+                // breaks, fail closed rather than settling an IM-bound source
+                // through a non-owner process. Unrelated background services
+                // must still start.
+                app_error!(
+                    "channel",
+                    "startup",
+                    "Channel registry/session DB unavailable; durable parent injection replay deferred"
+                );
+            }
         }
 
-        // Replay async tool jobs left over from the previous process: mark
-        // `running` rows as interrupted (their host process is gone) and inject
-        // any terminal-but-not-injected results back into their parent sessions.
-        // Primary-only: a Secondary process running this would flip the
-        // Primary's still-running tools to Interrupted.
-        //
-        // **Ordering invariant**: `recover_startup_session_state` ran
-        // synchronously during `init_runtime` (before this background-task
-        // bring-up), so by the time `replay_pending_jobs` starts, every
-        // stale chat_turn has already been finalized (sentinel-aware
-        // Shutdown / Crash) and any `ParentInjection` turn that the
-        // replay schedules will see a coherent `context_json`.
-        tokio::spawn(async move {
-            crate::async_jobs::JobManager::replay_pending();
-        });
+        // Async-job process-state recovery + initial ParentInjection sweep now
+        // live in the Channel startup coordinator above. The coordinator also
+        // preserves the existing ordering invariant: synchronous
+        // `recover_startup_session_state` completed in `init_runtime` before
+        // this function can run, so replay sees coherent `context_json`.
         crate::workflow::spawn_startup_recovery_if_primary();
         crate::local_model_jobs::replay_interrupted_jobs();
 
@@ -1428,7 +1640,9 @@ pub async fn start_background_tasks() {
 pub async fn start_minimal_background_tasks() {
     let primary = crate::runtime_lock::is_primary();
 
-    // EventBus listeners — multi-subscriber-safe, tier-agnostic.
+    // EventBus listeners — multi-subscriber-safe, tier-agnostic. ACP and other
+    // minimal roles never own local IM delivery, so they intentionally do not
+    // install the delivery-surface queue listener.
     spawn_channel_listeners();
 
     // Local Chrome Extension broker（特征钩子；minimal/ACP 也起，保持
@@ -1501,11 +1715,12 @@ pub async fn start_minimal_background_tasks() {
             }
         });
 
-        // Replay leftover async tool jobs. Primary-only: a Secondary ACP
-        // booting alongside an active desktop would flip the desktop's
-        // running tools to Interrupted.
+        // Minimal/ACP roles have `ImDeliveryOwnership::Disabled`: they may
+        // converge interrupted job state, but must not claim/consume durable
+        // ParentInjection rows because an IM-bound source would look Absent and
+        // be incorrectly settled GUI-only. A future LocalOwner performs replay.
         tokio::spawn(async move {
-            crate::async_jobs::JobManager::replay_pending();
+            crate::blocking::run_blocking(crate::async_jobs::JobManager::recover_interrupted).await;
         });
         crate::workflow::spawn_startup_recovery_if_primary();
         crate::local_model_jobs::replay_interrupted_jobs();
@@ -2143,6 +2358,21 @@ mod tests {
             let db = Arc::new(SessionDB::open(&path).expect("open session db"));
             f(db)
         })
+    }
+
+    #[test]
+    fn durable_replay_sweep_is_process_local_single_flight() {
+        let running = AtomicBool::new(false);
+        let first = try_acquire_durable_replay_sweep(&running).expect("first sweep owns permit");
+        assert!(
+            try_acquire_durable_replay_sweep(&running).is_none(),
+            "a slow sweep must suppress overlapping ticker work"
+        );
+        drop(first);
+        assert!(
+            try_acquire_durable_replay_sweep(&running).is_some(),
+            "normal completion/drop must re-arm the next ticker"
+        );
     }
 
     #[test]

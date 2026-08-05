@@ -370,6 +370,7 @@ impl ChannelPlugin for WeChatPlugin {
             // 被切多条 + 多媒体共发时刷屏。
             streaming_preview_max_bytes: Some(1500),
             supports_card_stream: false,
+            native_reply: None,
         }
     }
 

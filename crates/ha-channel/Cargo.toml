@@ -34,6 +34,7 @@ md-5 = "0.10"
 native-tls = "0.2"
 once_cell = { workspace = true }
 prost = "0.14"
+pulldown-cmark = "0.13.4"
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }

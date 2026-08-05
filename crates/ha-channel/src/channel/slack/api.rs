@@ -5,6 +5,95 @@ use std::time::Duration;
 use crate::channel::media_helpers::MaterializedMedia;
 use crate::channel::rate_limit::with_rate_limit_retry;
 
+pub(crate) const SLACK_STREAM_MARKDOWN_MAX_CHARS: usize = 12_000;
+const SLACK_STREAM_FIELD_MAX_CHARS: usize = 256;
+
+/// Slack-native stream chunks. Keeping this enum private to the Slack adapter
+/// prevents Block Kit/Web API JSON from leaking into the channel contract.
+#[derive(Debug, Clone)]
+pub enum SlackStreamChunk {
+    MarkdownText(String),
+    PlanUpdate {
+        title: String,
+    },
+    TaskUpdate {
+        id: String,
+        title: String,
+        status: SlackStreamTaskStatus,
+        details: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SlackStreamTaskStatus {
+    Pending,
+    InProgress,
+    Complete,
+    Error,
+}
+
+impl SlackStreamTaskStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::InProgress => "in_progress",
+            Self::Complete => "complete",
+            Self::Error => "error",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlackStreamApiErrorKind {
+    Unsupported,
+    InvalidTarget,
+    InvalidContent,
+    Rejected,
+    RateLimited,
+    Transient,
+    Expired,
+    Ambiguous,
+}
+
+pub struct SlackStreamApiError {
+    pub kind: SlackStreamApiErrorKind,
+    message: String,
+}
+
+impl SlackStreamApiError {
+    fn new(kind: SlackStreamApiErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: ha_core::logging::redact_sensitive(&message.into()),
+        }
+    }
+}
+
+impl std::fmt::Debug for SlackStreamApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SlackStreamApiError")
+            .field("kind", &self.kind)
+            .field("message", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl std::fmt::Display for SlackStreamApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for SlackStreamApiError {}
+
+pub type SlackStreamApiResult<T> = std::result::Result<T, SlackStreamApiError>;
+
+#[derive(Debug, Clone)]
+pub struct SlackStreamMessage {
+    pub channel: String,
+    pub ts: String,
+}
+
 /// Slack Web API client.
 ///
 /// Uses the bot token (xoxb-...) for all API calls except `connections_open`,
@@ -39,6 +128,13 @@ struct PostMessageData {
     ts: Option<String>,
 }
 
+/// Shared response fields from chat.startStream/appendStream/stopStream.
+#[derive(Debug, Deserialize)]
+struct StreamMessageData {
+    channel: Option<String>,
+    ts: Option<String>,
+}
+
 /// Response from `apps.connections.open`.
 #[derive(Debug, Deserialize)]
 struct ConnectionsOpenData {
@@ -59,6 +155,157 @@ struct CompleteUploadData {
 #[derive(Debug, Deserialize)]
 struct CompletedFile {
     id: Option<String>,
+}
+
+fn redact_slack_error(message: &str, token: &str) -> String {
+    let message = ha_core::logging::redact_sensitive(message);
+    if token.is_empty() {
+        message
+    } else {
+        message.replace(token, "[REDACTED]")
+    }
+}
+
+fn truncate_stream_field(value: &str) -> String {
+    value.chars().take(SLACK_STREAM_FIELD_MAX_CHARS).collect()
+}
+
+fn split_stream_markdown(markdown: &str) -> Vec<String> {
+    if markdown.is_empty() {
+        return Vec::new();
+    }
+
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_chars = 0usize;
+    for ch in markdown.chars() {
+        if current_chars == SLACK_STREAM_MARKDOWN_MAX_CHARS {
+            chunks.push(std::mem::take(&mut current));
+            current_chars = 0;
+        }
+        current.push(ch);
+        current_chars += 1;
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
+}
+
+fn stream_chunks_json(chunks: &[SlackStreamChunk]) -> Vec<serde_json::Value> {
+    let mut values = Vec::new();
+    for chunk in chunks {
+        match chunk {
+            SlackStreamChunk::MarkdownText(markdown) => {
+                values.extend(split_stream_markdown(markdown).into_iter().map(|part| {
+                    serde_json::json!({
+                        "type": "markdown_text",
+                        "text": part,
+                    })
+                }));
+            }
+            SlackStreamChunk::PlanUpdate { title } => {
+                let title = truncate_stream_field(title);
+                if !title.is_empty() {
+                    values.push(serde_json::json!({
+                        "type": "plan_update",
+                        "title": title,
+                    }));
+                }
+            }
+            SlackStreamChunk::TaskUpdate {
+                id,
+                title,
+                status,
+                details,
+            } => {
+                let id = truncate_stream_field(id);
+                let title = truncate_stream_field(title);
+                if id.is_empty() || title.is_empty() {
+                    continue;
+                }
+                let mut value = serde_json::json!({
+                    "type": "task_update",
+                    "id": id,
+                    "title": title,
+                    "status": status.as_str(),
+                });
+                if let Some(details) = details.as_deref().filter(|value| !value.is_empty()) {
+                    value["details"] = serde_json::Value::String(truncate_stream_field(details));
+                }
+                values.push(value);
+            }
+        }
+    }
+    values
+}
+
+fn stop_stream_body(
+    channel: &str,
+    ts: &str,
+    chunks: &[serde_json::Value],
+    blocks: &[serde_json::Value],
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "channel": channel,
+        "ts": ts,
+    });
+    if !chunks.is_empty() {
+        body["chunks"] = serde_json::Value::Array(chunks.to_vec());
+    }
+    if !blocks.is_empty() {
+        body["blocks"] = serde_json::Value::Array(blocks.to_vec());
+    }
+    body
+}
+
+fn classify_stream_error_code(code: &str) -> SlackStreamApiErrorKind {
+    match code {
+        "deprecated_endpoint"
+        | "enterprise_is_restricted"
+        | "method_deprecated"
+        | "method_not_supported_for_channel_type"
+        | "channel_type_not_supported"
+        | "not_supported" => SlackStreamApiErrorKind::Unsupported,
+        "channel_not_found"
+        | "not_in_channel"
+        | "thread_not_found"
+        | "invalid_thread_ts"
+        | "missing_recipient_user_id"
+        | "missing_recipient_team_id" => SlackStreamApiErrorKind::InvalidTarget,
+        "invalid_arguments"
+        | "invalid_blocks"
+        | "invalid_chunks"
+        | "msg_too_long"
+        | "no_text"
+        | "msg_blocks_invalid"
+        | "msg_blocks_too_long"
+        | "msg_blocks_too_many" => SlackStreamApiErrorKind::InvalidContent,
+        "message_not_found" | "message_stream_not_found" | "stream_not_found" => {
+            SlackStreamApiErrorKind::Expired
+        }
+        "rate_limited" | "ratelimited" => SlackStreamApiErrorKind::RateLimited,
+        "access_denied"
+        | "account_inactive"
+        | "ekm_access_denied"
+        | "invalid_auth"
+        | "missing_scope"
+        | "no_permission"
+        | "not_allowed_token_type"
+        | "not_authed"
+        | "org_login_required"
+        | "restricted_action"
+        | "team_access_not_granted"
+        | "token_expired"
+        | "token_revoked" => SlackStreamApiErrorKind::Rejected,
+        "fatal_error" | "internal_error" | "request_timeout" | "service_unavailable" => {
+            SlackStreamApiErrorKind::Ambiguous
+        }
+        // Unknown Slack failures cannot prove that the mutating request had
+        // no effect. Treating them as retryable/fallback-safe risks duplicate
+        // replies when Slack accepted the stream before returning the error.
+        _ => SlackStreamApiErrorKind::Ambiguous,
+    }
 }
 
 impl SlackApi {
@@ -114,13 +361,20 @@ impl SlackApi {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| anyhow!("Slack API request failed for {}: {}", method, e))
+                .map_err(|error| {
+                    anyhow!(
+                        "Slack API request failed for {}: {}",
+                        method,
+                        redact_slack_error(&error.to_string(), token)
+                    )
+                })
         })
         .await?;
 
         let status = resp.status();
         if !status.is_success() {
             let body_text = resp.text().await.unwrap_or_default();
+            let body_text = redact_slack_error(&body_text, token);
             return Err(anyhow!(
                 "Slack API {} returned HTTP {}: {}",
                 method,
@@ -129,19 +383,221 @@ impl SlackApi {
             ));
         }
 
-        let slack_resp: SlackResponse<T> = resp
-            .json()
-            .await
-            .map_err(|e| anyhow!("Failed to parse Slack API response for {}: {}", method, e))?;
+        let slack_resp: SlackResponse<T> = resp.json().await.map_err(|error| {
+            anyhow!(
+                "Failed to parse Slack API response for {}: {}",
+                method,
+                redact_slack_error(&error.to_string(), token)
+            )
+        })?;
 
         if !slack_resp.ok {
             let error = slack_resp.error.unwrap_or_else(|| "unknown_error".into());
-            return Err(anyhow!("Slack API {} error: {}", method, error));
+            return Err(anyhow!(
+                "Slack API {} error: {}",
+                method,
+                redact_slack_error(&error, token)
+            ));
         }
 
         slack_resp
             .data
             .ok_or_else(|| anyhow!("Slack API {} returned ok but no data", method))
+    }
+
+    /// Stream API requests share the ordinary Slack 429 handling, but retain
+    /// an explicit delivery-ambiguity boundary for non-idempotent appends.
+    async fn slack_stream_post<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        body: serde_json::Value,
+        ambiguous_message: &'static str,
+    ) -> SlackStreamApiResult<T> {
+        let url = format!("https://slack.com/api/{}", method);
+        let auth_header = format!("Bearer {}", self.bot_token);
+        let response = with_rate_limit_retry(3, || async {
+            self.client
+                .post(&url)
+                .header("Authorization", &auth_header)
+                .header("Content-Type", "application/json; charset=utf-8")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|error| {
+                    anyhow!(
+                        "Slack stream request failed for {}: {}",
+                        method,
+                        redact_slack_error(&error.to_string(), &self.bot_token)
+                    )
+                })
+        })
+        .await
+        .map_err(|error| {
+            SlackStreamApiError::new(
+                SlackStreamApiErrorKind::Ambiguous,
+                format!(
+                    "{}: {}",
+                    ambiguous_message,
+                    redact_slack_error(&error.to_string(), &self.bot_token)
+                ),
+            )
+        })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let kind = if status.as_u16() == 429 {
+                SlackStreamApiErrorKind::RateLimited
+            } else if status == reqwest::StatusCode::REQUEST_TIMEOUT || status.is_server_error() {
+                // A mutating stream call may already have been applied before
+                // Slack generated its 5xx response. Replaying it is unsafe.
+                SlackStreamApiErrorKind::Ambiguous
+            } else {
+                SlackStreamApiErrorKind::Rejected
+            };
+            return Err(SlackStreamApiError::new(
+                kind,
+                format!("Slack API {} returned HTTP {}", method, status),
+            ));
+        }
+
+        let slack_response: SlackResponse<T> = response.json().await.map_err(|error| {
+            // A 2xx response whose representation cannot be decoded gives us
+            // no safe basis for replaying a mutating stream call.
+            SlackStreamApiError::new(
+                SlackStreamApiErrorKind::Ambiguous,
+                format!(
+                    "{}: {}",
+                    ambiguous_message,
+                    redact_slack_error(&error.to_string(), &self.bot_token)
+                ),
+            )
+        })?;
+
+        if !slack_response.ok {
+            let code = slack_response
+                .error
+                .unwrap_or_else(|| "unknown_error".to_string());
+            return Err(SlackStreamApiError::new(
+                classify_stream_error_code(&code),
+                format!("Slack API {} error: {}", method, code),
+            ));
+        }
+
+        slack_response.data.ok_or_else(|| {
+            SlackStreamApiError::new(
+                SlackStreamApiErrorKind::Ambiguous,
+                format!("{}: response contained no data", ambiguous_message),
+            )
+        })
+    }
+
+    /// Start a Slack-native reply stream. Markdown is sent as canonical
+    /// Markdown, not converted to Slack's legacy mrkdwn dialect.
+    pub async fn chat_start_stream(
+        &self,
+        channel: &str,
+        thread_ts: &str,
+        recipient_user_id: &str,
+        recipient_team_id: &str,
+        chunks: &[SlackStreamChunk],
+    ) -> SlackStreamApiResult<SlackStreamMessage> {
+        let chunks = stream_chunks_json(chunks);
+        if chunks.is_empty() {
+            return Err(SlackStreamApiError::new(
+                SlackStreamApiErrorKind::InvalidContent,
+                "Slack chat.startStream requires at least one non-empty chunk",
+            ));
+        }
+        let body = serde_json::json!({
+            "channel": channel,
+            "thread_ts": thread_ts,
+            "recipient_user_id": recipient_user_id,
+            "recipient_team_id": recipient_team_id,
+            "task_display_mode": "dense",
+            "chunks": chunks,
+        });
+        let data: StreamMessageData = self
+            .slack_stream_post(
+                "chat.startStream",
+                body,
+                "Slack chat.startStream outcome is ambiguous",
+            )
+            .await?;
+        let ts = data.ts.ok_or_else(|| {
+            SlackStreamApiError::new(
+                SlackStreamApiErrorKind::Ambiguous,
+                "Slack chat.startStream outcome is ambiguous: response contained no ts",
+            )
+        })?;
+        Ok(SlackStreamMessage {
+            channel: data.channel.unwrap_or_else(|| channel.to_string()),
+            ts,
+        })
+    }
+
+    /// Append only newly accepted content. A transport failure is ambiguous:
+    /// Slack may have appended the suffix even though its response was lost,
+    /// so this method deliberately does not retry such failures.
+    pub async fn chat_append_stream(
+        &self,
+        channel: &str,
+        ts: &str,
+        chunks: &[SlackStreamChunk],
+    ) -> SlackStreamApiResult<()> {
+        let chunks = stream_chunks_json(chunks);
+        if chunks.is_empty() {
+            return Ok(());
+        }
+        let body = serde_json::json!({
+            "channel": channel,
+            "ts": ts,
+            "chunks": chunks,
+        });
+        let data: StreamMessageData = self
+            .slack_stream_post(
+                "chat.appendStream",
+                body,
+                "Slack chat.appendStream outcome is ambiguous",
+            )
+            .await?;
+        if data.ts.is_none() {
+            return Err(SlackStreamApiError::new(
+                SlackStreamApiErrorKind::Ambiguous,
+                "Slack chat.appendStream outcome is ambiguous: response contained no ts",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Stop a stream, optionally flushing remaining chunks and rendering final
+    /// Block Kit actions below the streamed Markdown.
+    pub async fn chat_stop_stream(
+        &self,
+        channel: &str,
+        ts: &str,
+        chunks: &[SlackStreamChunk],
+        blocks: &[serde_json::Value],
+    ) -> SlackStreamApiResult<SlackStreamMessage> {
+        let chunks = stream_chunks_json(chunks);
+        let body = stop_stream_body(channel, ts, &chunks, blocks);
+
+        let data: StreamMessageData = self
+            .slack_stream_post(
+                "chat.stopStream",
+                body,
+                "Slack chat.stopStream outcome is ambiguous",
+            )
+            .await?;
+        let response_ts = data.ts.ok_or_else(|| {
+            SlackStreamApiError::new(
+                SlackStreamApiErrorKind::Ambiguous,
+                "Slack chat.stopStream outcome is ambiguous: response contained no ts",
+            )
+        })?;
+        Ok(SlackStreamMessage {
+            channel: data.channel.unwrap_or_else(|| channel.to_string()),
+            ts: response_ts,
+        })
     }
 
     /// Call `auth.test` to validate the bot token.
@@ -180,13 +636,23 @@ impl SlackApi {
             .ok_or_else(|| anyhow!("chat.postMessage returned ok but no ts"))
     }
 
-    /// Update an existing message.
-    pub async fn chat_update(&self, channel: &str, ts: &str, text: &str) -> Result<()> {
-        let body = serde_json::json!({
+    /// Update an existing message, explicitly replacing its blocks when the
+    /// caller supplies a block list (including an empty list).
+    pub async fn chat_update(
+        &self,
+        channel: &str,
+        ts: &str,
+        text: &str,
+        blocks: Option<&[serde_json::Value]>,
+    ) -> Result<()> {
+        let mut body = serde_json::json!({
             "channel": channel,
             "ts": ts,
             "text": text,
         });
+        if let Some(blocks) = blocks {
+            body["blocks"] = serde_json::Value::Array(blocks.to_vec());
+        }
 
         let _: serde_json::Value = self.slack_post("chat.update", body).await?;
         Ok(())
@@ -298,10 +764,13 @@ impl SlackApi {
             .multipart(form)
             .send()
             .await
-            .map_err(|e| anyhow!("Slack external upload request failed: {}", e))?;
+            // The reqwest error can include Slack's one-time signed upload
+            // URL. Keep that capability out of surfaced/logged error text.
+            .map_err(|_| anyhow!("Slack external upload request failed"))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
+            let body = ha_core::logging::redact_sensitive(&body);
             return Err(anyhow!(
                 "Slack external upload returned HTTP {}: {}",
                 status,
@@ -402,7 +871,135 @@ fn validate_slack_upload_url(upload_url: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{complete_upload_body, validate_slack_upload_url};
+    use super::{
+        classify_stream_error_code, complete_upload_body, split_stream_markdown, stop_stream_body,
+        stream_chunks_json, validate_slack_upload_url, SlackResponse, SlackStreamApiErrorKind,
+        SlackStreamChunk, SlackStreamTaskStatus, StreamMessageData,
+        SLACK_STREAM_MARKDOWN_MAX_CHARS,
+    };
+
+    #[test]
+    fn stream_markdown_chunks_are_unicode_safe() {
+        let markdown = format!("{}🙂中文", "a".repeat(SLACK_STREAM_MARKDOWN_MAX_CHARS - 1));
+        let chunks = split_stream_markdown(&markdown);
+
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].chars().count(), SLACK_STREAM_MARKDOWN_MAX_CHARS);
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.is_char_boundary(chunk.len())));
+        assert_eq!(chunks.concat(), markdown);
+    }
+
+    #[test]
+    fn stream_chunks_preserve_markdown_and_encode_task_plan() {
+        let values = stream_chunks_json(&[
+            SlackStreamChunk::MarkdownText("**bold** `code`".to_string()),
+            SlackStreamChunk::PlanUpdate {
+                title: "检查实现".to_string(),
+            },
+            SlackStreamChunk::TaskUpdate {
+                id: "tool-1".to_string(),
+                title: "读取文件".to_string(),
+                status: SlackStreamTaskStatus::InProgress,
+                details: Some("处理中".to_string()),
+            },
+        ]);
+
+        assert_eq!(values[0]["type"], "markdown_text");
+        assert_eq!(values[0]["text"], "**bold** `code`");
+        assert_eq!(values[1]["type"], "plan_update");
+        assert_eq!(values[1]["title"], "检查实现");
+        assert_eq!(values[2]["type"], "task_update");
+        assert_eq!(values[2]["id"], "tool-1");
+        assert_eq!(values[2]["status"], "in_progress");
+        assert_eq!(values[2]["details"], "处理中");
+    }
+
+    #[test]
+    fn stream_error_codes_are_classified_for_worker_fallback() {
+        for code in [
+            "deprecated_endpoint",
+            "enterprise_is_restricted",
+            "method_deprecated",
+        ] {
+            assert_eq!(
+                classify_stream_error_code(code),
+                SlackStreamApiErrorKind::Unsupported,
+                "{code} must allow a safe legacy fallback"
+            );
+        }
+        assert_eq!(
+            classify_stream_error_code("method_not_supported_for_channel_type"),
+            SlackStreamApiErrorKind::Unsupported
+        );
+        assert_eq!(
+            classify_stream_error_code("channel_not_found"),
+            SlackStreamApiErrorKind::InvalidTarget
+        );
+        assert_eq!(
+            classify_stream_error_code("invalid_chunks"),
+            SlackStreamApiErrorKind::InvalidContent
+        );
+        assert_eq!(
+            classify_stream_error_code("message_stream_not_found"),
+            SlackStreamApiErrorKind::Expired
+        );
+        assert_eq!(
+            classify_stream_error_code("ratelimited"),
+            SlackStreamApiErrorKind::RateLimited
+        );
+        assert_eq!(
+            classify_stream_error_code("internal_error"),
+            SlackStreamApiErrorKind::Ambiguous
+        );
+        assert_eq!(
+            classify_stream_error_code("missing_recipient_team_id"),
+            SlackStreamApiErrorKind::InvalidTarget
+        );
+        assert_eq!(
+            classify_stream_error_code("msg_blocks_too_many"),
+            SlackStreamApiErrorKind::InvalidContent
+        );
+        assert_eq!(
+            classify_stream_error_code("missing_scope"),
+            SlackStreamApiErrorKind::Rejected
+        );
+        assert_eq!(
+            classify_stream_error_code("future_unknown_error"),
+            SlackStreamApiErrorKind::Ambiguous
+        );
+    }
+
+    #[test]
+    fn stop_stream_body_omits_empty_optional_fields() {
+        let empty = stop_stream_body("C123", "1710000000.000100", &[], &[]);
+        assert!(empty.get("chunks").is_none());
+        assert!(empty.get("blocks").is_none());
+
+        let chunks = vec![serde_json::json!({
+            "type": "markdown_text",
+            "text": "done",
+        })];
+        let blocks = vec![serde_json::json!({"type": "actions", "elements": []})];
+        let populated = stop_stream_body("C123", "1710000000.000100", &chunks, &blocks);
+        assert_eq!(populated["chunks"], serde_json::Value::Array(chunks));
+        assert_eq!(populated["blocks"], serde_json::Value::Array(blocks));
+    }
+
+    #[test]
+    fn stream_response_flattens_channel_and_ts() {
+        let response: SlackResponse<StreamMessageData> =
+            serde_json::from_value(serde_json::json!({
+                "ok": true,
+                "channel": "C123",
+                "ts": "1710000000.000100",
+            }))
+            .expect("stream response should deserialize");
+        let data = response.data.expect("stream response should contain data");
+        assert_eq!(data.channel.as_deref(), Some("C123"));
+        assert_eq!(data.ts.as_deref(), Some("1710000000.000100"));
+    }
 
     #[test]
     fn complete_upload_body_includes_share_target_and_comment() {

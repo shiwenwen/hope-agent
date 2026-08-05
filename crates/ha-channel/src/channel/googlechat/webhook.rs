@@ -317,6 +317,7 @@ async fn handle_message_event(
         sender_id: sender_name_str,
         sender_name: sender_display_name,
         sender_username: None,
+        sender_tenant_id: None,
         chat_id: space_name,
         chat_type,
         chat_title: space_display_name,

@@ -32,12 +32,76 @@
 //!
 //! **镜像一族返回 `None`**——等价于「本会话没有 attach 到任何 IM chat」，
 //! 与迁移前 `attach_im_live_mirror` 查不到 attach 时的返回值相同。
+//! 已 attach 镜像的异常终态返回 [`ImLiveMirrorAbortStatus`]：可能自动重放同一
+//! 逻辑结果的调用方必须消费它，`Unsafe` 时禁止重试。
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::OnceLock;
 
 type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Which process, if any, owns live IM delivery for attached sessions.
+///
+/// Only a long-running desktop/server Primary may retain ParentInjection work
+/// while its local account worker starts. A desktop/server Secondary delegates
+/// durable work to the Primary instead of building a second local queue. Short
+/// lived/interop roles have no IM delivery surface at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImDeliveryOwnership {
+    LocalOwner,
+    RemoteOwner,
+    Disabled,
+}
+
+static IM_DELIVERY_OWNERSHIP: OnceLock<ImDeliveryOwnership> = OnceLock::new();
+
+fn classify_im_delivery_ownership(role: Option<&str>, primary: bool) -> ImDeliveryOwnership {
+    match role {
+        Some("desktop" | "server") if primary => ImDeliveryOwnership::LocalOwner,
+        Some("desktop" | "server") => ImDeliveryOwnership::RemoteOwner,
+        _ => ImDeliveryOwnership::Disabled,
+    }
+}
+
+/// Record the process capability immediately after runtime-role/tier election.
+/// First-write-wins, matching both underlying process singletons.
+pub(crate) fn configure_im_delivery_ownership(role: Option<&str>, primary: bool) {
+    let _ = IM_DELIVERY_OWNERSHIP.set(classify_im_delivery_ownership(role, primary));
+}
+
+/// Return the process-local IM delivery owner. Before runtime initialization we
+/// fail closed as `Disabled` (not a hidden local queue in tests/library users).
+pub fn im_delivery_ownership() -> ImDeliveryOwnership {
+    IM_DELIVERY_OWNERSHIP
+        .get()
+        .copied()
+        .unwrap_or(ImDeliveryOwnership::Disabled)
+}
+
+/// Whether an abnormal IM mirror terminal is known to have settled. Callers
+/// that may replay the same logical result must only do so after `Confirmed`;
+/// `Unsafe` means a persistent provider mutation may still be visible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use = "automatic replay is safe only after a confirmed IM mirror terminal"]
+pub enum ImLiveMirrorAbortStatus {
+    Confirmed,
+    Unsafe,
+}
+
+impl ImLiveMirrorAbortStatus {
+    pub fn is_confirmed(self) -> bool {
+        matches!(self, Self::Confirmed)
+    }
+
+    pub fn from_confirmed(confirmed: bool) -> Self {
+        if confirmed {
+            Self::Confirmed
+        } else {
+            Self::Unsafe
+        }
+    }
+}
 
 /// 一次已挂起的 IM 实时镜像。
 ///
@@ -46,10 +110,66 @@ type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// 全是私有的，engine 也确实一个都没碰）。因此这里用 trait object 收口，
 /// 镜像状态整体留在 ha-channel。
 pub trait ImLiveMirror: Send {
-    /// 正常收尾：把最终回答投递到 IM 会话。
-    fn finalize<'a>(self: Box<Self>, response: &'a str) -> BoxFut<'a, ()>;
+    /// 正常收尾：把最终回答投递到 IM 会话。实现必须在本方法返回 future
+    /// **之前**同步撤掉 stream sink，避免后台 future 尚未 poll 时吞到下一轮 delta。
+    fn finalize(self: Box<Self>, response: String) -> BoxFut<'static, ()>;
     /// 异常收尾（取消 / 失败）：`body` 为 `None` 时只撤引用、不追加正文。
-    fn abort(self: Box<Self>, body: Option<String>) -> BoxFut<'static, ()>;
+    /// 返回值是后续重放同一逻辑结果的安全闸，不能忽略后继续自动重试。
+    /// 与 `finalize` 相同，stream sink 必须在返回 future 前同步撤掉。
+    fn abort(self: Box<Self>, body: Option<String>) -> BoxFut<'static, ImLiveMirrorAbortStatus>;
+}
+
+/// Result of trying to attach one logical turn to its IM mirror.
+///
+/// `Busy` is deliberately distinct from `Absent`: the former means this exact
+/// turn generation already owns a mirror (for example the LateMirror won the
+/// race with the engine-side attach), while the latter proves there is no IM
+/// delivery surface. `Unavailable` means a binding exists but its channel is
+/// not ready, so replayable work must remain pending. Callers that arm an
+/// at-most-once replay fence must not collapse these states.
+pub enum ImLiveMirrorAttach {
+    Absent,
+    /// A durable IM binding exists, but its enabled account/channel worker is
+    /// not ready to mutate the remote message yet. Replay-capable callers must
+    /// leave their source pending and try again after channel startup.
+    Unavailable {
+        account_id: Option<String>,
+    },
+    /// This process holds the Secondary runtime tier (including an interop
+    /// role whose IM ownership itself is `Disabled`). A source explicitly
+    /// covered by the periodic Primary sweep surfaces a terminal delegation
+    /// diagnostic and abandons its local claim; a process-local source instead
+    /// falls back to GUI-only injection so its only copy is not lost. Neither
+    /// path mutates IM here, regardless of whether a worker was manually
+    /// started locally.
+    DeferredToPrimary {
+        account_id: Option<String>,
+    },
+    Busy,
+    Attached(Box<dyn ImLiveMirror>),
+}
+
+impl ImLiveMirrorAttach {
+    /// Whether this logical turn already has, or just acquired, an IM delivery
+    /// surface. `Busy` counts as present because another owner for the same
+    /// generation is responsible for its terminal mutation.
+    pub fn has_delivery_surface(&self) -> bool {
+        matches!(self, Self::Busy | Self::Attached(_))
+    }
+
+    pub fn is_unavailable(&self) -> bool {
+        matches!(self, Self::Unavailable { .. })
+    }
+
+    pub fn into_attached(self) -> Option<Box<dyn ImLiveMirror>> {
+        match self {
+            Self::Attached(mirror) => Some(mirror),
+            Self::Absent
+            | Self::Unavailable { .. }
+            | Self::DeferredToPrimary { .. }
+            | Self::Busy => None,
+        }
+    }
 }
 
 /// 上一条用户消息的快照，用于在 IM 侧渲染引用前缀。字段与迁移前
@@ -59,6 +179,15 @@ pub struct LastUserSnapshot {
     pub source: String,
     pub text: String,
     pub attachment_count: usize,
+}
+
+/// Stable engine-owned identity used to fence session-wide mirror fan-out.
+/// Normal Desktop/HTTP calls use the durable chat turn; callers without a
+/// turn row fall back to the stream lifecycle id rather than an inferred
+/// active-turn snapshot.
+pub enum ImLiveMirrorGeneration {
+    Turn(String),
+    Stream(String),
 }
 
 /// 十六槽**原子注册**：撤窗 5 + IM 实时镜像 2 + 账号开关 1 + watchdog 2 + 装配 6。
@@ -74,18 +203,19 @@ pub struct ChannelHooks {
     pub drop_approval_by_request_id: for<'a> fn(&'a str) -> BoxFut<'a, ()>,
     /// `worker::approval::drop_pending_for_session`
     pub drop_approval_for_session: for<'a> fn(&'a str) -> BoxFut<'a, ()>,
-    /// `worker::approval::drop_pending_for_chat`
-    pub drop_approval_for_chat: for<'a> fn(&'a str, &'a str) -> BoxFut<'a, ()>,
+    /// `worker::approval::drop_pending_for_session_chat`
+    pub drop_approval_for_session_chat: for<'a> fn(&'a str, &'a str, &'a str) -> BoxFut<'a, ()>,
     /// `chat_engine::im_mirror::attach_im_live_mirror`。`source` 传
     /// [`crate::chat_engine::stream_seq::ChatSource`]——**门在特征侧**
     /// （只有 Desktop / Http 才镜像），与迁移前逐位一致。
     pub attach_live_mirror: for<'a> fn(
         &'a str,
         crate::chat_engine::stream_seq::ChatSource,
+        ImLiveMirrorGeneration,
         Option<LastUserSnapshot>,
-    ) -> BoxFut<'a, Option<Box<dyn ImLiveMirror>>>,
+    ) -> BoxFut<'a, ImLiveMirrorAttach>,
     /// `chat_engine::im_mirror::attach_im_injection_mirror`
-    pub attach_injection_mirror: for<'a> fn(&'a str) -> BoxFut<'a, Option<Box<dyn ImLiveMirror>>>,
+    pub attach_injection_mirror: for<'a> fn(&'a str, &'a str) -> BoxFut<'a, ImLiveMirrorAttach>,
     /// `channel::accounts::set_account_auto_transcribe_voice`
     pub set_account_auto_transcribe_voice: fn(&str, bool, &'static str) -> anyhow::Result<bool>,
     /// `channel::start_watchdog::mark_success`——账号起来了，撤掉重试退避。
@@ -185,10 +315,11 @@ pub async fn drop_approval_for_session(session_id: &str) {
     }
 }
 
-/// 撤掉某 IM chat 下全部审批待决卡片（chat 接管 / eviction 用）。未装配即 no-op。
-pub async fn drop_approval_for_chat(account_id: &str, chat_id: &str) {
+/// 按 deleted session + 预删除 chat 坐标撤掉审批待决卡片。chat 坐标只作附加
+/// 身份校验，不能跨 topic/thread 清理同一 chat 的其他 session。未装配即 no-op。
+pub async fn drop_approval_for_session_chat(session_id: &str, account_id: &str, chat_id: &str) {
     if let Some(h) = hooks() {
-        (h.drop_approval_for_chat)(account_id, chat_id).await;
+        (h.drop_approval_for_session_chat)(session_id, account_id, chat_id).await;
     }
 }
 
@@ -196,20 +327,34 @@ pub async fn drop_approval_for_chat(account_id: &str, chat_id: &str) {
 pub async fn attach_live_mirror(
     session_id: &str,
     source: crate::chat_engine::stream_seq::ChatSource,
+    generation: ImLiveMirrorGeneration,
     last_user: Option<LastUserSnapshot>,
 ) -> Option<Box<dyn ImLiveMirror>> {
     match hooks() {
-        Some(h) => (h.attach_live_mirror)(session_id, source, last_user).await,
+        Some(h) => (h.attach_live_mirror)(session_id, source, generation, last_user)
+            .await
+            .into_attached(),
         None => None,
     }
 }
 
-/// 为注入回投挂一次 IM 镜像。未装配 / 本会话未 attach 即 `None`。
-pub async fn attach_injection_mirror(session_id: &str) -> Option<Box<dyn ImLiveMirror>> {
+/// 为注入回投挂一次 IM 镜像。`generation_id` 是稳定的 source run id；同一
+/// generation 的重复 attach 返回 `Busy`，不同 generation 可与上一轮后台
+/// finalize 并存。
+pub async fn attach_injection_mirror(session_id: &str, generation_id: &str) -> ImLiveMirrorAttach {
     match hooks() {
-        Some(h) => (h.attach_injection_mirror)(session_id).await,
-        None => None,
+        Some(h) => (h.attach_injection_mirror)(session_id, generation_id).await,
+        None => ImLiveMirrorAttach::Absent,
     }
+}
+
+/// Notify the kernel that this account's persisted/running delivery surface
+/// may now resolve differently. Feature-crate account mutations call this only
+/// after config persistence; registry startup calls the same EventBus contract.
+/// Manual stop deliberately does not call it because an enabled-but-stopped
+/// account remains `Unavailable`, not GUI-only `Absent`.
+pub fn notify_delivery_surface_state_changed(account_id: &str) {
+    crate::channel::registry::emit_delivery_surface_state_changed(account_id);
 }
 
 /// 改某 IM 账号的「语音自动转写」开关（`ha-settings` 能力面用）。
@@ -348,5 +493,35 @@ pub(crate) mod test_seam {
     pub(crate) fn install(hook: BoxedTestHook) -> ApprovalHookGuard {
         *override_slot().write().unwrap() = Some(hook);
         ApprovalHookGuard
+    }
+
+    #[test]
+    fn im_delivery_ownership_is_role_and_tier_scoped() {
+        use super::{classify_im_delivery_ownership, ImDeliveryOwnership};
+
+        for role in ["desktop", "server"] {
+            assert_eq!(
+                classify_im_delivery_ownership(Some(role), true),
+                ImDeliveryOwnership::LocalOwner
+            );
+            assert_eq!(
+                classify_im_delivery_ownership(Some(role), false),
+                ImDeliveryOwnership::RemoteOwner
+            );
+        }
+        for role in ["acp", "test", "mcp", "knowledge-mcp", "eval"] {
+            assert_eq!(
+                classify_im_delivery_ownership(Some(role), true),
+                ImDeliveryOwnership::Disabled
+            );
+            assert_eq!(
+                classify_im_delivery_ownership(Some(role), false),
+                ImDeliveryOwnership::Disabled
+            );
+        }
+        assert_eq!(
+            classify_im_delivery_ownership(None, true),
+            ImDeliveryOwnership::Disabled
+        );
     }
 }

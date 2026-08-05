@@ -207,6 +207,7 @@ fn convert_bridge_message(account_id: &str, msg: BridgeMessage) -> Option<MsgCon
         sender_id,
         sender_name,
         sender_username: None,
+        sender_tenant_id: None,
         chat_id,
         chat_type,
         chat_title,

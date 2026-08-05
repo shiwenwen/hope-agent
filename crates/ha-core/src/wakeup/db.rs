@@ -120,6 +120,19 @@ impl WakeupDB {
         }))
     }
 
+    /// Cross-process write-ahead claim for a wakeup whose attached IM mirror
+    /// is about to enter the parent engine. The fired row is deliberately kept
+    /// as a tombstone until ordinary settlement deletes it; a crash after this
+    /// claim must not let restart recovery replay an ambiguous provider write.
+    pub fn claim_no_replay(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let changed = conn.execute(
+            "UPDATE wakeups SET fired = 1 WHERE id = ?1 AND fired = 0",
+            params![id],
+        )?;
+        Ok(changed == 1)
+    }
+
     /// Reassign every unfired wakeup from one Agent to another and return the
     /// exact rows changed so a surrounding lifecycle transaction can perform
     /// conditional compensation if a later step fails.
@@ -234,6 +247,24 @@ mod tests {
             pending.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(),
             ["w1"]
         );
+    }
+
+    #[test]
+    fn im_no_replay_claim_survives_restart_scan_until_settlement() {
+        let db = temp_db();
+        db.insert(&mk("w-im", "s1", 200)).unwrap();
+
+        assert!(db.claim_no_replay("w-im").unwrap());
+        assert!(
+            !db.claim_no_replay("w-im").unwrap(),
+            "the durable CAS must admit only one IM injector"
+        );
+        assert!(db.list_pending().unwrap().is_empty());
+        assert!(db.get_pending("w-im").unwrap().is_none());
+
+        // An in-process confirmed retry can still settle the tombstone.
+        db.delete("w-im").unwrap();
+        assert!(db.list_pending().unwrap().is_empty());
     }
 
     #[test]

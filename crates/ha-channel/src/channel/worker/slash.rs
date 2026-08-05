@@ -51,6 +51,7 @@ pub(super) async fn dispatch_slash_for_channel(
     agent_id: &str,
     text: &str,
     sender_id: &str,
+    sender_tenant_id: Option<&str>,
     supports_buttons: bool,
 ) -> Result<ChannelSlashOutcome, anyhow::Error> {
     use ha_core::slash_defs::parser;
@@ -485,23 +486,40 @@ pub(super) async fn dispatch_slash_for_channel(
         Some(CommandAction::AttachToSession {
             session_id: target_sid,
         }) => {
-            if let Err(e) = channel_db.attach_session(
+            // Reserve destination provider order, then publish the binding and
+            // fix its active generation/message watermark in one DB boundary.
+            let catchup = crate::channel::attach_sync::prepare_attach_catchup(
+                &target_sid,
                 channel_id,
                 account_id,
                 chat_id,
                 thread_id,
-                &target_sid,
-                ATTACH_SOURCE_ATTACH,
-                None,
-                None,
-                chat_type,
-            ) {
-                return Ok(ChannelSlashOutcome::Reply {
-                    content: format!("Attach failed: {}", e),
-                    new_session_id: None,
-                    buttons: vec![],
-                });
-            }
+            );
+            let attach_db = channel_db.clone();
+            let attach_chat_type = chat_type.clone();
+            let attach_sender_id = sender_id.to_string();
+            let attach_sender_tenant_id = sender_tenant_id.map(str::to_string);
+            let catchup = match ha_core::blocking::run_blocking(move || {
+                catchup.attach(
+                    &attach_db,
+                    ATTACH_SOURCE_ATTACH,
+                    Some(&attach_sender_id),
+                    attach_sender_tenant_id.as_deref(),
+                    None,
+                    &attach_chat_type,
+                )
+            })
+            .await
+            {
+                Ok(catchup) => catchup,
+                Err(e) => {
+                    return Ok(ChannelSlashOutcome::Reply {
+                        content: format!("Attach failed: {}", e),
+                        new_session_id: None,
+                        buttons: vec![],
+                    });
+                }
+            };
             // Replay the latest completed turn (assistant text + media) to
             // this chat so the user attaching mid-conversation isn't
             // dropped into a session with zero visible context. Best-effort
@@ -513,6 +531,7 @@ pub(super) async fn dispatch_slash_for_channel(
                 &target_sid,
                 chat_id,
                 thread_id,
+                catchup,
             )
             .await;
             // Future inbound from this chat now resolves to `target_sid`;
@@ -983,6 +1002,24 @@ fn render_project_picker_text(
     lines.join("\n")
 }
 
+/// Provider button limits vary by target. When a generated slash picker does
+/// not pass adapter preflight, preserve every option as a copyable slash
+/// command instead of dropping rows or failing the whole control reply.
+pub(super) fn render_slash_button_fallback(content: &str, buttons: &[Vec<InlineButton>]) -> String {
+    let mut lines = vec![content.to_string(), String::new(), "Options:".to_string()];
+    for button in buttons.iter().flatten() {
+        let label = button.text.replace(['\r', '\n'], " ");
+        let callback = button.callback_id();
+        if let Some(command) = callback.strip_prefix("slash:") {
+            let command = command.replace(['\r', '\n'], " ");
+            lines.push(format!("- {} — `/{}`", label, command));
+        } else {
+            lines.push(format!("- {}", label));
+        }
+    }
+    lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1016,5 +1053,17 @@ mod tests {
         assert!(!kb_write_denied_for_sender("off", &admins, "carol"));
         // Unknown arg is not a write → not gated (handler will reject it).
         assert!(!kb_write_denied_for_sender("garbage", &admins, "bob"));
+    }
+
+    #[test]
+    fn slash_button_fallback_preserves_copyable_commands() {
+        let buttons = vec![vec![InlineButton {
+            text: "Fast".to_string(),
+            callback_data: Some("slash:model fast-model".to_string()),
+            url: None,
+        }]];
+        let rendered = render_slash_button_fallback("Pick one:", &buttons);
+        assert!(rendered.contains("Fast"));
+        assert!(rendered.contains("`/model fast-model`"));
     }
 }

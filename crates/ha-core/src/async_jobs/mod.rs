@@ -395,12 +395,11 @@ pub(crate) fn purge_jobs_for_session(session_id: &str) -> u64 {
     }
 }
 
-/// Replay logic invoked from `start_background_tasks`:
-///   1. Mark every job left in `running` as `interrupted` (the underlying
-///      process did not survive the restart).
-///   2. Re-dispatch any terminal-but-not-injected jobs back to their parent
-///      sessions.
-pub(crate) fn replay_pending_jobs() {
+/// Mark every job left in `running` as `interrupted` because its underlying
+/// process did not survive the restart. This state convergence is safe before
+/// channel startup; only the subsequent ParentInjection dispatch needs the IM
+/// readiness barrier.
+pub(crate) fn recover_interrupted_jobs() {
     let db = match get_async_jobs_db() {
         Some(db) => db.clone(),
         None => return,
@@ -455,35 +454,54 @@ pub(crate) fn replay_pending_jobs() {
         ),
     }
 
+    // H6: terminal-but-uninjected rows from the previous process never had
+    // their terminal hook fired (process died before finalize, or they were
+    // just marked interrupted above). Fire those hooks in this one-shot
+    // startup phase, not in the repeatable account-readiness injection sweep;
+    // otherwise every failed-account retry would duplicate hook side effects.
     match db.list_pending_injection() {
         Ok(rows) => {
             for job in rows {
-                // H6: this row is terminal but un-injected — it never had its
-                // terminal hook fired (process died before finalize, or it was
-                // just marked `interrupted` above). Fire it now so async
-                // terminals stay visible to hooks across restarts (HOOKS-1/4).
-                // Not double-fired in the normal path: a finalized job is
-                // injected=true and excluded by `list_pending_injection`; only
-                // crash/restart survivors reach here.
-                {
-                    let (is_error, is_interrupt) = job.status.terminal_hook_flags();
-                    let detail = if is_error {
-                        job.error.as_deref().unwrap_or("")
-                    } else {
-                        job.result_preview.as_deref().unwrap_or("")
-                    };
-                    crate::hooks::fire_async_job_terminal(
-                        job.session_id.as_deref(),
-                        job.agent_id.as_deref(),
-                        &job.tool_name,
-                        job.tool_call_id.as_deref(),
-                        &job.job_id,
-                        is_error,
-                        is_interrupt,
-                        detail,
-                    );
-                }
+                let (is_error, is_interrupt) = job.status.terminal_hook_flags();
+                let detail = if is_error {
+                    job.error.as_deref().unwrap_or("")
+                } else {
+                    job.result_preview.as_deref().unwrap_or("")
+                };
+                crate::hooks::fire_async_job_terminal(
+                    job.session_id.as_deref(),
+                    job.agent_id.as_deref(),
+                    &job.tool_name,
+                    job.tool_call_id.as_deref(),
+                    &job.job_id,
+                    is_error,
+                    is_interrupt,
+                    detail,
+                );
+            }
+        }
+        Err(e) => app_warn!(
+            "async_jobs",
+            "replay",
+            "Failed to list pending terminal hooks on startup: {}",
+            e
+        ),
+    }
+}
 
+/// Re-dispatch terminal-but-not-injected jobs back to their parent sessions.
+/// Each attempt resolves its own parent session's IM binding: unavailable
+/// enabled accounts leave only their bound jobs pending, while GUI-only and
+/// healthy-account jobs can proceed. The pure list/in-flight-claim shape makes
+/// this safe after every account-start notification.
+pub(crate) fn replay_pending_job_injections() {
+    let db = match get_async_jobs_db() {
+        Some(db) => db.clone(),
+        None => return,
+    };
+    match db.list_pending_injection() {
+        Ok(rows) => {
+            for job in rows {
                 if job.status == JobStatus::Cancelled {
                     let _ = db.mark_injected(&job.job_id);
                     continue;
@@ -512,4 +530,12 @@ pub(crate) fn replay_pending_jobs() {
             e
         ),
     }
+}
+
+/// Full replay helper retained for tests and non-startup callers that already
+/// establish their own delivery prerequisites. App startup uses the two phases
+/// above so only durable state recovery can precede channel readiness.
+pub(crate) fn replay_pending_jobs() {
+    recover_interrupted_jobs();
+    replay_pending_job_injections();
 }

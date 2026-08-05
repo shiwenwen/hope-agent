@@ -105,10 +105,11 @@ fn clamp_max_concurrent(raw: u32) -> usize {
 
 // ── Global statics (used by injection, mailbox, helpers) ────────
 
-/// Global set tracking which parent sessions currently have an active backend injection.
-/// Prevents concurrent double-injection for the same session.
-static INJECTING_SESSIONS: std::sync::LazyLock<Mutex<HashSet<String>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
+/// Per-session active backend injection identity. The run id both serialises
+/// distinct injections and coalesces a duplicate durable sweep for the exact
+/// source already running.
+static INJECTING_SESSIONS: std::sync::LazyLock<Mutex<HashMap<String, String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Sessions currently in one or more user-initiated chat() calls.
 /// Injection must wait until the session is idle.
@@ -121,17 +122,56 @@ pub static ACTIVE_CHAT_SESSIONS: std::sync::LazyLock<Mutex<HashMap<String, usize
 pub(crate) struct ActiveInjection {
     pub(crate) run_id: String,
     pub(crate) cancel: Arc<AtomicBool>,
+    /// Shared initial/late IM-mirror handoff. The coordinator owns the durable
+    /// receipt and closes terminal-vs-install races without keeping the global
+    /// active-injection registry locked across provider I/O.
+    pub(crate) im_mirror: Arc<injection::ActiveInjectionMirrorCoordinator>,
 }
 
 pub(crate) static INJECTION_CANCELS: std::sync::LazyLock<Mutex<HashMap<String, ActiveInjection>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Current ParentInjection generation for a session. IM mirror sinks use this
+/// as a read-only per-frame fence so a terminal generation cannot consume the
+/// next injection's deltas from the session-wide sink registry.
+pub fn active_injection_run_id(session_id: &str) -> Option<String> {
+    INJECTION_CANCELS
+        .lock()
+        .ok()?
+        .get(session_id)
+        .map(|active| active.run_id.clone())
+}
+
+/// Whether one ParentInjection generation still owns the session or is queued
+/// for an in-process retry. Late IM mirrors use this broader lifecycle fence so
+/// a cancellation/retry of the same logical run does not prematurely detach
+/// and let a second mirror claim the generation.
+pub fn injection_generation_is_live(session_id: &str, run_id: &str) -> bool {
+    let active = INJECTING_SESSIONS
+        .lock()
+        .map(|injecting| injecting.get(session_id).is_some_and(|id| id == run_id))
+        .unwrap_or(false);
+    if active {
+        return true;
+    }
+    PENDING_INJECTIONS
+        .lock()
+        .map(|pending| {
+            pending
+                .iter()
+                .any(|task| task.parent_session_id == session_id && task.run_id == run_id)
+        })
+        .unwrap_or(false)
+}
 
 /// Run IDs whose results have been read by the parent agent via check/result tool actions.
 /// If a run_id is here, auto-injection is skipped.
 static FETCHED_RUN_IDS: std::sync::LazyLock<Mutex<HashSet<String>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
 
-/// Queue of injection tasks that were cancelled (user sent new message) and need retry.
+/// Unified per-session FIFO for idle retries and IM-readiness-gated
+/// ParentInjection work. Keeping one queue prevents a newer ready task from
+/// bypassing an older task blocked on its Channel delivery surface.
 static PENDING_INJECTIONS: std::sync::LazyLock<Mutex<Vec<injection::PendingInjection>>> =
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
@@ -221,6 +261,7 @@ pub use cancel::SubagentCancelRegistry;
 // 机器一同迁出。durable 抑制仍走 `SessionDB::suppress_subagent_result_delivery`，
 // 这里只是进程内快路径。
 pub use helpers::mark_run_fetched_in_memory;
+pub(crate) use helpers::replay_pending_parent_deliveries;
 pub use helpers::{cleanup_orphan_runs, mark_run_fetched, take_runs_fetched};
 pub use mailbox::{ChatSessionGuard, SubagentMailboxMessage, SUBAGENT_MAILBOX};
 pub(crate) use mention::resolve_inline_agent_mentions;

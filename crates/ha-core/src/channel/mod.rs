@@ -39,5 +39,5 @@ pub use config::ChannelStoreConfig;
 pub use crate::knowledge::im_kb_access_allowed;
 pub use db::ChannelDB;
 pub use registry::ChannelRegistry;
-pub use traits::ChannelPlugin;
+pub use traits::{ChannelPlugin, ChannelReplyStream};
 pub use types::*;

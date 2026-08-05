@@ -100,6 +100,56 @@ fn build_button_card_v2(
     })
 }
 
+fn validate_feishu_buttons(
+    buttons: &[Vec<InlineButton>],
+) -> std::result::Result<(), ReplyStreamError> {
+    if buttons.is_empty() {
+        return Ok(());
+    }
+    let total = buttons.iter().map(Vec::len).sum::<usize>();
+    if buttons.iter().any(Vec::is_empty) || total == 0 || total > 60 {
+        return Err(ReplyStreamError::new(
+            ReplyStreamErrorKind::InvalidContent,
+            "Feishu cards require 1 to 60 buttons in non-empty rows",
+        ));
+    }
+    for button in buttons.iter().flatten() {
+        let label_chars = button.text.chars().count();
+        if label_chars == 0 || label_chars > 75 || button.text.chars().any(char::is_control) {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "Feishu button labels must contain 1 to 75 printable characters",
+            ));
+        }
+        if button.url.is_some() {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "Feishu URL actions are not enabled by this adapter",
+            ));
+        }
+        let callback = button.callback_id();
+        if callback.is_empty() || callback.len() > 1_024 || callback.chars().any(char::is_control) {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "Feishu callback data must contain 1 to 1024 UTF-8 bytes",
+            ));
+        }
+    }
+    validate_feishu_card_payload(&build_button_card_v2(None, buttons))
+}
+
+fn validate_feishu_card_payload(
+    card: &serde_json::Value,
+) -> std::result::Result<(), ReplyStreamError> {
+    if card.to_string().len() > 30 * 1024 {
+        return Err(ReplyStreamError::new(
+            ReplyStreamErrorKind::InvalidContent,
+            "Feishu button card exceeds the 30 KiB safe payload budget",
+        ));
+    }
+    Ok(())
+}
+
 /// Feishu (飞书) / Lark channel plugin implementation.
 pub struct FeishuPlugin {
     accounts: Mutex<HashMap<String, RunningAccount>>,
@@ -180,6 +230,7 @@ impl ChannelPlugin for FeishuPlugin {
             supports_buttons: true,
             streaming_preview_max_bytes: Some(4096),
             supports_card_stream: true,
+            native_reply: None,
         }
     }
 
@@ -245,6 +296,17 @@ impl ChannelPlugin for FeishuPlugin {
         chat_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
+        validate_feishu_buttons(&payload.buttons)?;
+        // Preflight the exact card before any network mutation (including
+        // media). The public button validator cannot see the companion text,
+        // but Feishu counts both in the same interactive-card payload.
+        let button_card = if payload.buttons.is_empty() {
+            None
+        } else {
+            let card = build_button_card_v2(payload.text.as_deref(), &payload.buttons);
+            validate_feishu_card_payload(&card)?;
+            Some(card)
+        };
         let api = self.get_account(account_id).await?;
 
         // Dispatcher 一般每次只塞一个 media（[`partition_media_by_channel`]），
@@ -260,8 +322,7 @@ impl ChannelPlugin for FeishuPlugin {
             }
         }
 
-        if !payload.buttons.is_empty() {
-            let card = build_button_card_v2(payload.text.as_deref(), &payload.buttons);
+        if let Some(card) = button_card {
             let reply_to = payload.reply_to_message_id.as_deref();
             let msg_id = api.send_interactive_card(chat_id, card, reply_to).await?;
             return Ok(DeliveryResult::ok(msg_id));
@@ -283,6 +344,13 @@ impl ChannelPlugin for FeishuPlugin {
     async fn send_typing(&self, _account_id: &str, _chat_id: &str) -> Result<()> {
         // Feishu does not support typing indicators
         Ok(())
+    }
+
+    fn validate_reply_buttons(
+        &self,
+        buttons: &[Vec<InlineButton>],
+    ) -> std::result::Result<(), ReplyStreamError> {
+        validate_feishu_buttons(buttons)
     }
 
     async fn edit_message(
@@ -570,5 +638,18 @@ mod tests {
             columns[0]["elements"][0]["behaviors"][0]["value"]["hope_callback"],
             "RawText"
         );
+    }
+
+    #[test]
+    fn complete_button_card_budget_includes_companion_text() {
+        let buttons = vec![vec![InlineButton {
+            text: "OK".to_string(),
+            callback_data: Some("approval:req:allow_once".to_string()),
+            url: None,
+        }]];
+
+        assert!(validate_feishu_buttons(&buttons).is_ok());
+        let oversized = build_button_card_v2(Some(&"x".repeat(31 * 1024)), &buttons);
+        assert!(validate_feishu_card_payload(&oversized).is_err());
     }
 }

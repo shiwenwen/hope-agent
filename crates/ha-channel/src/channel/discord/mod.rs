@@ -15,7 +15,7 @@ pub mod media;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use api::DiscordApi;
 use ha_core::channel::traits::{chunk_text, ChannelPlugin};
 use ha_core::channel::types::*;
+use url::Url;
 
 /// Running account state for a Discord bot.
 struct RunningAccount {
@@ -155,6 +156,70 @@ impl DiscordPlugin {
     }
 }
 
+fn validate_discord_buttons(
+    buttons: &[Vec<InlineButton>],
+) -> std::result::Result<(), ReplyStreamError> {
+    if buttons.is_empty() {
+        return Ok(());
+    }
+    if buttons.len() > 5 || buttons.iter().any(|row| row.is_empty() || row.len() > 5) {
+        return Err(ReplyStreamError::new(
+            ReplyStreamErrorKind::InvalidContent,
+            "Discord buttons require 1 to 5 non-empty rows with at most 5 buttons per row",
+        ));
+    }
+    let mut custom_ids = HashSet::new();
+    for button in buttons.iter().flatten() {
+        let label_chars = button.text.chars().count();
+        if label_chars == 0 || label_chars > 80 || button.text.chars().any(char::is_control) {
+            return Err(ReplyStreamError::new(
+                ReplyStreamErrorKind::InvalidContent,
+                "Discord button labels must contain 1 to 80 printable characters",
+            ));
+        }
+        if let Some(raw_url) = button.url.as_deref() {
+            if button.callback_data.is_some() || raw_url.chars().count() > 512 {
+                return Err(ReplyStreamError::new(
+                    ReplyStreamErrorKind::InvalidContent,
+                    "Discord link buttons require one URL action of at most 512 characters",
+                ));
+            }
+            let parsed = Url::parse(raw_url).map_err(|_| {
+                ReplyStreamError::new(
+                    ReplyStreamErrorKind::InvalidContent,
+                    "Discord button URL is invalid",
+                )
+            })?;
+            if !matches!(parsed.scheme(), "http" | "https")
+                || parsed.host_str().is_none()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+            {
+                return Err(ReplyStreamError::new(
+                    ReplyStreamErrorKind::InvalidContent,
+                    "Discord button URL must be credential-free HTTP(S)",
+                ));
+            }
+        } else {
+            let custom_id = button.callback_id();
+            let chars = custom_id.chars().count();
+            if chars == 0 || chars > 100 || custom_id.chars().any(char::is_control) {
+                return Err(ReplyStreamError::new(
+                    ReplyStreamErrorKind::InvalidContent,
+                    "Discord button custom_id must contain 1 to 100 printable characters",
+                ));
+            }
+            if !custom_ids.insert(custom_id) {
+                return Err(ReplyStreamError::new(
+                    ReplyStreamErrorKind::InvalidContent,
+                    "Discord button custom_id values must be unique",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl ChannelPlugin for DiscordPlugin {
     fn meta(&self) -> ChannelMeta {
@@ -194,6 +259,7 @@ impl ChannelPlugin for DiscordPlugin {
             // "Invalid Form Body" content_too_long
             streaming_preview_max_bytes: Some(1500),
             supports_card_stream: false,
+            native_reply: None,
         }
     }
 
@@ -303,6 +369,7 @@ impl ChannelPlugin for DiscordPlugin {
         chat_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
+        validate_discord_buttons(&payload.buttons)?;
         let api = self.get_api(account_id).await?;
 
         let reply_to = payload.reply_to_message_id.as_deref();
@@ -312,29 +379,36 @@ impl ChannelPlugin for DiscordPlugin {
         let components: Option<Vec<serde_json::Value>> = if payload.buttons.is_empty() {
             None
         } else {
-            Some(vec![serde_json::json!({
-                "type": 1, // ACTION_ROW
-                "components": payload.buttons.iter().flatten().map(|b| {
-                    if let Some(ref url) = b.url {
-                        // Link button (style=5)
+            Some(
+                payload
+                    .buttons
+                    .iter()
+                    .map(|row| {
                         serde_json::json!({
-                            "type": 2,
-                            "style": 5,
-                            "label": b.text,
-                            "url": url,
+                            "type": 1, // ACTION_ROW
+                            "components": row.iter().map(|button| {
+                                if let Some(ref url) = button.url {
+                                    // Link button (style=5)
+                                    serde_json::json!({
+                                        "type": 2,
+                                        "style": 5,
+                                        "label": button.text,
+                                        "url": url,
+                                    })
+                                } else {
+                                    // Interactive button (style=1 PRIMARY)
+                                    serde_json::json!({
+                                        "type": 2,
+                                        "style": 1,
+                                        "label": button.text,
+                                        "custom_id": button.callback_id(),
+                                    })
+                                }
+                            }).collect::<Vec<_>>()
                         })
-                    } else {
-                        // Interactive button (style=1 PRIMARY)
-                        let custom_id = b.callback_data.clone().unwrap_or_else(|| b.text.clone());
-                        serde_json::json!({
-                            "type": 2,
-                            "style": 1,
-                            "label": b.text,
-                            "custom_id": custom_id,
-                        })
-                    }
-                }).collect::<Vec<_>>()
-            })])
+                    })
+                    .collect(),
+            )
         };
 
         if !payload.media.is_empty() {
@@ -374,6 +448,13 @@ impl ChannelPlugin for DiscordPlugin {
     async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()> {
         let api = self.get_api(account_id).await?;
         api.trigger_typing(chat_id).await
+    }
+
+    fn validate_reply_buttons(
+        &self,
+        buttons: &[Vec<InlineButton>],
+    ) -> std::result::Result<(), ReplyStreamError> {
+        validate_discord_buttons(buttons)
     }
 
     async fn edit_message(

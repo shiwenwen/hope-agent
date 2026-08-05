@@ -305,28 +305,31 @@ pub async fn channel_handover_session(
         .map(crate::channel::types::ChatType::from_lowercase)
         .unwrap_or(crate::channel::types::ChatType::Dm);
 
-    {
-        let channel_id = channel_id.clone();
-        let account_id = account_id.clone();
-        let chat_id = chat_id.clone();
-        let session_id = session_id.clone();
-        let thread_id = thread_id.clone();
+    // Reserve provider order before publishing the new binding. The consumed
+    // reservation fixes the active generation and replay watermark atomically
+    // with that durable attach.
+    let catchup = ha_channel::channel::attach_sync::prepare_attach_catchup(
+        &session_id,
+        &channel_id,
+        &account_id,
+        &chat_id,
+        thread_id.as_deref(),
+    );
+
+    let catchup = {
         run_blocking(move || {
-            channel_db.attach_session(
-                &channel_id,
-                &account_id,
-                &chat_id,
-                thread_id.as_deref(),
-                &session_id,
+            catchup.attach(
+                &channel_db,
                 ha_core::channel::db::ATTACH_SOURCE_HANDOVER,
+                None,
                 None,
                 None,
                 &resolved_chat_type,
             )
         })
         .await
-        .map_err(|e| CmdError::msg(format!("Handover failed: {}", e)))?;
-    }
+        .map_err(|e| CmdError::msg(format!("Handover failed: {}", e)))?
+    };
 
     // Replay the latest assistant turn (text + media) so the receiving
     // IM chat isn't dropped into a session with zero visible context.
@@ -347,6 +350,7 @@ pub async fn channel_handover_session(
                     &session_id,
                     &chat_id,
                     thread_id.as_deref(),
+                    catchup,
                 )
                 .await;
             }

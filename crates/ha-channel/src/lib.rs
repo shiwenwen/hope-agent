@@ -83,9 +83,13 @@ fn register_hooks() {
     fn drop_approval_for_session(sid: &str) -> Fut<'_> {
         Box::pin(channel::worker::approval::drop_pending_for_session(sid))
     }
-    fn drop_approval_for_chat<'a>(account_id: &'a str, chat_id: &'a str) -> Fut<'a> {
-        Box::pin(channel::worker::approval::drop_pending_for_chat(
-            account_id, chat_id,
+    fn drop_approval_for_session_chat<'a>(
+        session_id: &'a str,
+        account_id: &'a str,
+        chat_id: &'a str,
+    ) -> Fut<'a> {
+        Box::pin(channel::worker::approval::drop_pending_for_session_chat(
+            session_id, account_id, chat_id,
         ))
     }
     fn watchdog_mark_success(id: &str) -> Fut<'_> {
@@ -155,7 +159,7 @@ fn register_hooks() {
         drop_ask_user_for_session,
         drop_approval_by_request_id,
         drop_approval_for_session,
-        drop_approval_for_chat,
+        drop_approval_for_session_chat,
         attach_live_mirror: im_mirror::attach_live_hook,
         attach_injection_mirror: im_mirror::attach_injection_hook,
         set_account_auto_transcribe_voice: set_auto_transcribe,

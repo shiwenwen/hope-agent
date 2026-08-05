@@ -255,6 +255,7 @@ async fn convert_message(
         sender_id,
         sender_name,
         sender_username,
+        sender_tenant_id: None,
         chat_id: msg.chat.id.0.to_string(),
         chat_type,
         chat_title: msg.chat.title().map(|t| t.to_string()),

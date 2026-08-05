@@ -770,6 +770,7 @@ async fn handle_message_event(
         sender_id,
         sender_name: None,
         sender_username: None,
+        sender_tenant_id: None,
         chat_id,
         chat_type,
         chat_title: None,

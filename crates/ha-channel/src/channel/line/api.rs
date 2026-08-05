@@ -1,8 +1,80 @@
 use anyhow::{Context, Result};
-use reqwest::Client;
+use reqwest::{Client, RequestBuilder};
 use serde_json::Value;
+use std::{fmt, time::Duration};
 
 use crate::channel::rate_limit::with_rate_limit_retry;
+
+/// Bound requests that sit on the synchronous reply path. In particular,
+/// cosmetic loading indicators must never delay the chat engine indefinitely.
+const LINE_TIME_SENSITIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn with_time_sensitive_timeout(request: RequestBuilder) -> RequestBuilder {
+    request.timeout(LINE_TIME_SENSITIVE_REQUEST_TIMEOUT)
+}
+
+/// Failure classification for the non-idempotent LINE reply endpoint.
+///
+/// A push fallback is safe only when LINE explicitly rejects the reply token.
+/// Transport failures and all other responses have an ambiguous delivery
+/// outcome and must not trigger a second send.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LineReplyError {
+    InvalidReplyToken { detail: String },
+    Ambiguous { detail: String },
+}
+
+impl LineReplyError {
+    pub fn allows_push_fallback(&self) -> bool {
+        matches!(self, Self::InvalidReplyToken { .. })
+    }
+
+    fn ambiguous(detail: impl Into<String>) -> Self {
+        Self::Ambiguous {
+            detail: detail.into(),
+        }
+    }
+}
+
+impl fmt::Display for LineReplyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidReplyToken { detail } => {
+                write!(f, "LINE explicitly rejected the reply token: {detail}")
+            }
+            Self::Ambiguous { detail } => {
+                write!(f, "LINE reply delivery outcome is ambiguous: {detail}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LineReplyError {}
+
+fn classify_reply_response_error(status: reqwest::StatusCode, body: &str) -> LineReplyError {
+    let explicitly_invalid_reply_token = status == reqwest::StatusCode::BAD_REQUEST
+        && serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .as_deref()
+            == Some("Invalid reply token");
+
+    let detail = format!(
+        "LINE API POST /v2/bot/message/reply returned {}: {}",
+        status,
+        ha_core::truncate_utf8(body, 512)
+    );
+    if explicitly_invalid_reply_token {
+        LineReplyError::InvalidReplyToken { detail }
+    } else {
+        LineReplyError::ambiguous(detail)
+    }
+}
 
 /// LINE Messaging API client.
 pub struct LineApi {
@@ -60,30 +132,39 @@ impl LineApi {
     /// POST /v2/bot/message/reply - Reply to a message using a reply token.
     ///
     /// The reply token is valid for only ~1 minute after the webhook event.
-    pub async fn reply_message(&self, reply_token: &str, messages: Vec<Value>) -> Result<()> {
+    pub async fn reply_message(
+        &self,
+        reply_token: &str,
+        messages: Vec<Value>,
+    ) -> std::result::Result<(), LineReplyError> {
         let url = format!("{}/v2/bot/message/reply", self.base_url);
         let body = serde_json::json!({
             "replyToken": reply_token,
             "messages": messages,
         });
 
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.channel_access_token)
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send POST /v2/bot/message/reply")?;
+        let resp = with_time_sensitive_timeout(
+            self.client
+                .post(&url)
+                .bearer_auth(&self.channel_access_token)
+                .json(&body),
+        )
+        .send()
+        .await
+        .map_err(|error| {
+            LineReplyError::ambiguous(format!(
+                "failed to send POST /v2/bot/message/reply: {error}"
+            ))
+        })?;
 
         let status = resp.status();
         if !status.is_success() {
-            let resp_body = resp.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "LINE API POST /v2/bot/message/reply returned {}: {}",
-                status,
-                ha_core::truncate_utf8(&resp_body, 512)
-            );
+            let resp_body = resp.text().await.map_err(|error| {
+                LineReplyError::ambiguous(format!(
+                    "failed to read LINE reply error response ({status}): {error}"
+                ))
+            })?;
+            return Err(classify_reply_response_error(status, &resp_body));
         }
 
         Ok(())
@@ -123,6 +204,32 @@ impl LineApi {
             );
         }
 
+        Ok(())
+    }
+
+    /// POST /v2/bot/chat/loading/start — display a best-effort waiting
+    /// animation in a one-on-one chat. LINE rejects group/room IDs.
+    pub async fn start_loading(&self, user_id: &str, loading_seconds: u8) -> Result<()> {
+        let body = loading_request_body(user_id, loading_seconds)?;
+        let url = format!("{}/v2/bot/chat/loading/start", self.base_url);
+        let resp = with_time_sensitive_timeout(
+            self.client
+                .post(&url)
+                .bearer_auth(&self.channel_access_token)
+                .json(&body),
+        )
+        .send()
+        .await
+        .context("Failed to send POST /v2/bot/chat/loading/start")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let resp_body = resp.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "LINE API POST /v2/bot/chat/loading/start returned {}: {}",
+                status,
+                ha_core::truncate_utf8(&resp_body, 512)
+            );
+        }
         Ok(())
     }
 
@@ -216,6 +323,19 @@ fn line_retry_key() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+fn loading_request_body(user_id: &str, loading_seconds: u8) -> Result<Value> {
+    if !user_id.starts_with('U') {
+        anyhow::bail!("LINE loading animation requires a one-on-one user id");
+    }
+    if !(5..=60).contains(&loading_seconds) || loading_seconds % 5 != 0 {
+        anyhow::bail!("LINE loadingSeconds must be a multiple of 5 from 5 through 60");
+    }
+    Ok(serde_json::json!({
+        "chatId": user_id,
+        "loadingSeconds": loading_seconds,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +345,60 @@ mod tests {
         let key = line_retry_key();
         let parsed = uuid::Uuid::parse_str(&key).unwrap();
         assert_eq!(parsed.to_string(), key);
+    }
+
+    #[test]
+    fn loading_animation_is_limited_to_dm_ids_and_valid_duration() {
+        let body = loading_request_body("U123", 60).unwrap();
+        assert_eq!(body["chatId"], "U123");
+        assert_eq!(body["loadingSeconds"], 60);
+        assert!(loading_request_body("C123", 60).is_err());
+        assert!(loading_request_body("U123", 7).is_err());
+    }
+
+    #[test]
+    fn time_sensitive_line_requests_have_a_bounded_timeout() {
+        let request = with_time_sensitive_timeout(
+            Client::new().post("https://api.line.me/v2/bot/chat/loading/start"),
+        )
+        .build()
+        .unwrap();
+
+        assert_eq!(
+            request.timeout(),
+            Some(&LINE_TIME_SENSITIVE_REQUEST_TIMEOUT)
+        );
+    }
+
+    #[test]
+    fn invalid_reply_token_is_the_only_response_that_allows_push_fallback() {
+        let error = classify_reply_response_error(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"message":"Invalid reply token"}"#,
+        );
+
+        assert!(error.allows_push_fallback());
+        assert!(matches!(error, LineReplyError::InvalidReplyToken { .. }));
+    }
+
+    #[test]
+    fn other_reply_rejections_have_ambiguous_delivery_outcomes() {
+        let cases = [
+            (
+                reqwest::StatusCode::BAD_REQUEST,
+                r#"{"message":"The request body has 1 error(s)"}"#,
+            ),
+            (
+                reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+                r#"{"message":"Invalid reply token"}"#,
+            ),
+            (reqwest::StatusCode::BAD_REQUEST, "not-json"),
+        ];
+
+        for (status, body) in cases {
+            let error = classify_reply_response_error(status, body);
+            assert!(!error.allows_push_fallback());
+            assert!(matches!(error, LineReplyError::Ambiguous { .. }));
+        }
     }
 }
