@@ -323,6 +323,7 @@ pub async fn channel_handover_session(
                 ha_core::channel::db::ATTACH_SOURCE_HANDOVER,
                 None,
                 None,
+                None,
                 &resolved_chat_type,
             )
         })

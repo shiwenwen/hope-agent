@@ -343,7 +343,7 @@ pub async fn handover(Json(body): Json<HandoverBody>) -> Result<Json<Value>, App
         let db = channel_db()?;
         let source = ha_core::channel::db::ATTACH_SOURCE_HANDOVER;
         ha_core::blocking::run_blocking(move || {
-            catchup.attach(&db, source, None, None, &resolved_chat_type)
+            catchup.attach(&db, source, None, None, None, &resolved_chat_type)
         })
         .await
         .map_err(|e| AppError::internal(format!("Handover failed: {}", e)))?
