@@ -203,6 +203,15 @@ afterEach(() => {
 })
 
 describe("PetWindow pointer interactions", () => {
+  test("uses v2 row geometry while the built-in pet manifest is loading", () => {
+    mocks.call.mockImplementation(() => new Promise(() => undefined))
+
+    render(<PetWindow />)
+
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "pet-loading")
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11")
+  })
+
   test("suppresses the synthetic click after dragging without poisoning the next click", async () => {
     render(<PetWindow />)
     const pet = petButton()
@@ -232,7 +241,7 @@ describe("PetWindow pointer interactions", () => {
       value: () => ({ left: 0, top: 0, width: 100, height: 100 }),
     })
     await waitFor(() =>
-      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11"),
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "builtin/hope-default"),
     )
 
     fireEvent.click(pet)
@@ -292,7 +301,7 @@ describe("PetWindow pointer interactions", () => {
       value: () => ({ left: 0, top: 0, width: 100, height: 100 }),
     })
     await waitFor(() =>
-      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11"),
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "builtin/hope-default"),
     )
     vi.useFakeTimers()
 
@@ -344,7 +353,7 @@ describe("PetWindow pointer interactions", () => {
       value: hitTest,
     })
     await waitFor(() =>
-      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11"),
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "builtin/hope-default"),
     )
     vi.useFakeTimers()
 
@@ -394,7 +403,9 @@ describe("PetWindow pointer interactions", () => {
       configurable: true,
       value: () => ({ left: 0, top: 0, width: 100, height: 100 }),
     })
-    await waitFor(() => expect(mocks.call).toHaveBeenCalledWith("pet_list_cmd"))
+    await waitFor(() =>
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "builtin/hope-default"),
+    )
 
     fireEvent.pointerMove(pet, { clientX: 50, clientY: 0 })
     expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "0")
