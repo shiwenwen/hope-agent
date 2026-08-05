@@ -12353,7 +12353,7 @@
       "failed": "このペットをエクスポートできませんでした"
     },
     "window": {
-      "interact": "Nori とふれあう",
+      "interact": "{{name}} とふれあう",
       "tuckAway": "ペットをしまう"
     },
     "bubble": {

@@ -12353,7 +12353,7 @@
       "failed": "Could not export this pet"
     },
     "window": {
-      "interact": "Interact with Nori",
+      "interact": "Interact with {{name}}",
       "tuckAway": "Tuck away pet"
     },
     "bubble": {

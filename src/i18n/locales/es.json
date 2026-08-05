@@ -12353,7 +12353,7 @@
       "failed": "No se pudo exportar esta mascota"
     },
     "window": {
-      "interact": "Interactuar con Nori",
+      "interact": "Interactuar con {{name}}",
       "tuckAway": "Guardar mascota"
     },
     "bubble": {

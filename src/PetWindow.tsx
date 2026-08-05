@@ -106,6 +106,7 @@ export default function PetWindow() {
   const petAsset = usePetAssetUrl(selectedPet?.assetId ?? null)
   const isV1Pet = selectedPet?.manifest.spriteVersionNumber === 1
   const isV2Pet = selectedPet?.manifest.spriteVersionNumber === 2
+  const petDisplayName = selectedPet?.manifest.displayName ?? "Nori"
   const clearHoverGreeting = useCallback(() => {
     if (hoverGreetingTimer.current === null) return
     clearTimeout(hoverGreetingTimer.current)
@@ -824,7 +825,10 @@ export default function PetWindow() {
             onPointerMove={handlePointerMove}
             onPointerUp={finishPetDrag}
             onContextMenu={handlePetContextMenu}
-            aria-label={t("pet.window.interact", { defaultValue: "Interact with Nori" })}
+            aria-label={t("pet.window.interact", {
+              name: petDisplayName,
+              defaultValue: "Interact with {{name}}",
+            })}
             className="h-auto w-auto cursor-grab rounded-2xl bg-transparent p-1 hover:bg-transparent active:cursor-grabbing"
           >
             <AnimatedPetSprite
@@ -841,7 +845,10 @@ export default function PetWindow() {
           {menuOpen && (
             <div
               role="menu"
-              aria-label={t("pet.window.interact", { defaultValue: "Pet actions" })}
+              aria-label={t("pet.window.interact", {
+                name: petDisplayName,
+                defaultValue: "Interact with {{name}}",
+              })}
               className="pointer-events-auto absolute left-1/2 top-1/2 z-20 flex max-w-[116px] -translate-x-1/2 -translate-y-1/2 items-center gap-0.5 rounded-full border border-border/60 bg-popover/90 p-0.5 shadow-md backdrop-blur-md"
             >
               <Button

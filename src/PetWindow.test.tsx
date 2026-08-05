@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   }),
   completeAction: null as null | ((action: string) => void),
   petSpriteVersion: 2 as 1 | 2,
+  petDisplayName: "Nori",
   petAssetLoading: false,
   petAssetFailed: false,
   approvals: [] as Array<Record<string, unknown>>,
@@ -53,7 +54,8 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key,
+    t: (key: string, options?: { defaultValue?: string; name?: string }) =>
+      (options?.defaultValue ?? key).replace("{{name}}", options?.name ?? "{{name}}"),
   }),
 }))
 
@@ -164,6 +166,7 @@ beforeEach(() => {
   mocks.listeners.clear()
   mocks.completeAction = null
   mocks.petSpriteVersion = 2
+  mocks.petDisplayName = "Nori"
   mocks.petAssetLoading = false
   mocks.petAssetFailed = false
   mocks.approvals = []
@@ -188,7 +191,10 @@ beforeEach(() => {
             petRef: "builtin:hope-default",
             builtin: true,
             assetId: "builtin/hope-default",
-            manifest: { spriteVersionNumber: mocks.petSpriteVersion },
+            manifest: {
+              displayName: mocks.petDisplayName,
+              spriteVersionNumber: mocks.petSpriteVersion,
+            },
           },
         ],
       })
@@ -218,6 +224,14 @@ describe("PetWindow pointer interactions", () => {
 
     expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "pet-loading")
     expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11")
+  })
+
+  test("announces the selected pet display name", async () => {
+    mocks.petDisplayName = "Mochi"
+
+    render(<PetWindow />)
+
+    expect(await screen.findByRole("button", { name: "Interact with Mochi" })).toBeInTheDocument()
   })
 
   test.each([

@@ -12353,7 +12353,7 @@
       "failed": "Tidak dapat mengeksport haiwan ini"
     },
     "window": {
-      "interact": "Berinteraksi dengan Nori",
+      "interact": "Berinteraksi dengan {{name}}",
       "tuckAway": "Simpan haiwan"
     },
     "bubble": {

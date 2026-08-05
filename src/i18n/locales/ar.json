@@ -12353,7 +12353,7 @@
       "failed": "تعذر تصدير هذا الحيوان"
     },
     "window": {
-      "interact": "تفاعل مع Nori",
+      "interact": "تفاعل مع {{name}}",
       "tuckAway": "إخفاء الحيوان"
     },
     "bubble": {
