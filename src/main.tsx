@@ -16,6 +16,7 @@ import {
   listenEnhancedFocusIndicators,
   loadEnhancedFocusIndicators,
 } from "./lib/focus-indicator-preference"
+import { restoreConfiguredRemoteTransport } from "./lib/transport-provider"
 
 discardTokenFromUrl()
 installDesktopContextMenuGuard()
@@ -48,6 +49,11 @@ if (windowType === "pet") {
 // await 当前一种 locale，毫秒级本地资源）。i18nReady 内部已 try/catch，chunk 失败
 // 也会 resolve（回退 en），渲染绝不会被卡死。
 void i18nReady.finally(async () => {
+  try {
+    await restoreConfiguredRemoteTransport()
+  } catch (error) {
+    logger.warn("transport", "main::restoreRemote", "saved remote server is unavailable", error)
+  }
   await loadEnhancedFocusIndicators()
   listenEnhancedFocusIndicators()
 

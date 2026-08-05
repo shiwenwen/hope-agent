@@ -71,6 +71,7 @@ impl Phase {
 }
 
 pub fn emit_phase(job_id: &str, phase: Phase) {
+    super::remote_update::record_progress_sync(job_id, phase.as_str(), None);
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "app_update:progress",
@@ -302,6 +303,10 @@ pub async fn install(
     }
 
     emit_phase(job_id, Phase::Restarting);
+    // Persist the restart boundary for owner-plane jobs before this process can
+    // be terminated by the service manager. Tool-driven jobs are not present
+    // in the durable tracker, so this is a cheap no-op for them.
+    super::remote_update::mark_restart_pending(job_id).await?;
     // NOTE: do NOT call `stop_if_running` here — `restart_service`
     // already does atomic kill+restart on every platform
     // (launchctl kickstart -k / systemctl --user restart / schtasks

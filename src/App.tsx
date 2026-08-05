@@ -30,6 +30,7 @@ import { PortalScopeProvider } from "@/components/ui/portal-scope"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import ServerUpdateNotice from "@/components/common/ServerUpdateNotice"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import type { SettingsSection } from "@/components/settings/types"
 import type { AgentTab } from "@/components/settings/agent-panel/types"
@@ -1622,6 +1623,7 @@ export default function App() {
                   </div>
                 </div>
               )}
+              <ServerUpdateNotice />
             </div>
           </div>
         </LightboxProvider>

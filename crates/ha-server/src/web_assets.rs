@@ -151,9 +151,23 @@ fn build_response(path: &str, asset: Asset, headers: &HeaderMap) -> Response<Bod
     let mime = HeaderValue::from_str(mime.as_ref())
         .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
 
+    // The HTML entry point must be revalidated after a server self-update so
+    // it can reference the new content-hashed bundles. Vite assets are safe to
+    // cache forever because their filenames change with their contents.
+    let cache_control = if path == "index.html" {
+        "no-cache"
+    } else if path.starts_with("assets/") {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
     let builder = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime);
+        .header(header::CONTENT_TYPE, mime)
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(cache_control),
+        );
 
     if !asset.compressed {
         return builder

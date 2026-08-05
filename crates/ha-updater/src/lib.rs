@@ -43,6 +43,7 @@ pub mod download;
 pub mod keys;
 pub mod manifest;
 pub mod package_manager;
+pub mod remote_update;
 pub mod self_contained;
 pub mod service_control;
 pub mod signature;
@@ -96,7 +97,7 @@ pub fn wire() {
 }
 
 pub use config::AutoUpdateConfig;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use source_detector::InstallSource;
 
@@ -147,7 +148,7 @@ pub struct CheckOutcome {
     pub bare_binary_available: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RecommendedPath {
     /// Desktop is in the foreground — route to `tauri-plugin-updater`.

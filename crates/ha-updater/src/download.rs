@@ -281,6 +281,10 @@ async fn ssrf_check(url: &str) -> Result<()> {
 }
 
 fn emit_progress(job_id: &str, label: &str, written: u64, total: Option<u64>, phase: &str) {
+    let percent = total
+        .map(|t| ((written * 100) / t.max(1)) as u32)
+        .unwrap_or(0);
+    super::remote_update::record_progress_sync(job_id, phase, Some(percent));
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "app_update:progress",
@@ -290,9 +294,7 @@ fn emit_progress(job_id: &str, label: &str, written: u64, total: Option<u64>, ph
                 "phase": phase,
                 "written": written,
                 "total": total,
-                "percent": total
-                    .map(|t| ((written * 100) / t.max(1)) as u32)
-                    .unwrap_or(0),
+                "percent": percent,
             }),
         );
     }

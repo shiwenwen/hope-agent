@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   confirmTransportChange,
-  getTransport,
+  getClientUserConfig,
   prepareRemoteTransport,
+  saveClientUserConfig,
 } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
@@ -74,15 +75,12 @@ export function RemoteConnectPanel({
       const finalKey = remoteApiKey.trim() || null
       const prepared = await prepareRemoteTransport(trimmedUrl, finalKey)
       try {
-        const current = getTransport()
-        const full = await current.call<Record<string, unknown>>("get_user_config")
-        await current.call("save_user_config", {
-          config: {
-            ...full,
-            serverMode: "remote",
-            remoteServerUrl: trimmedUrl,
-            remoteApiKey: finalKey,
-          },
+        const full = await getClientUserConfig()
+        await saveClientUserConfig({
+          ...full,
+          serverMode: "remote",
+          remoteServerUrl: trimmedUrl,
+          remoteApiKey: finalKey,
         })
         prepared.activate()
       } catch (error) {
