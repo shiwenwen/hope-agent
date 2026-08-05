@@ -472,7 +472,7 @@ async fn execute(job: RemoteUpdateJob, plan: PendingPlan) {
                 // If it returns first (or no managed service exists), keep the
                 // durable state at awaiting_restart; only the new process may
                 // claim success after its version matches the target.
-                return Ok(());
+                Ok(())
             }
             RecommendedPath::PackageManager => {
                 crate::self_contained::emit_phase(
@@ -497,7 +497,7 @@ async fn execute(job: RemoteUpdateJob, plan: PendingPlan) {
                     crate::self_contained::Phase::Restarting,
                 );
                 crate::service_control::restart_service()?;
-                return Ok(());
+                Ok(())
             }
             _ => anyhow::bail!("安装计划的更新路径不可远程执行"),
         }
