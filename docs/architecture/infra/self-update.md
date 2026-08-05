@@ -176,7 +176,7 @@ GUI 入口在「设置 → 关于 → 自动更新」，命令 `get_auto_update_
 - `prepare` 会重新拉 manifest，并创建 5 分钟有效、绑定当前 `serverInstanceId` 的一次性 plan。`confirm` 只接受 `planId`；客户端不能提交下载 URL、命令、安装路径或 package-manager 参数。服务端版本变化、进程重启、plan 复用或过期均 fail closed。
 - `prepare` / `confirm` 即使位于 Bearer 保护路由内，仍要求 Server Owner Token **确实启用**；危险逃生模式下的无鉴权 HTTP 服务不得远程触发自更新。
 - Docker 在推荐层和执行层双重拒绝容器内 binary swap，仅返回拉取新镜像并重建容器的说明。其它 `ManualPrompt` 也只展示指引，不提供一键执行。
-- SelfContained 在调用 service restart 前持久化 `awaiting_restart`。新进程启动后若运行版本等于 job 目标版本，将任务协调为 `succeeded`；否则记为 `failed/restart_failed`，保留恢复线索。
+- SelfContained 在调用 service restart 前持久化 `awaiting_restart`。服务管理器拒绝重启时立即记为 `failed`；新进程启动后若运行版本等于 job 目标版本，将任务协调为 `succeeded`；否则记为 `failed/restart_failed`，保留恢复线索。
 - 前端用公共 `/api/health` 的 `version` 验证重启结果。Tauri remote 只恢复 HTTP/WS 连接，不 relaunch 本机应用；由同一 server 提供静态资源的同源 Web 在目标版本上线后 reload，`index.html` 使用 `Cache-Control: no-cache`，哈希 asset 使用 immutable cache。
 - Tauri 首屏前从本地 `UserConfig` 恢复已保存的 remote transport；远端不可用时留在 embedded IPC，让用户仍可进入设置修复连接。
 

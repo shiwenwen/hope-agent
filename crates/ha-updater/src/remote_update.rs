@@ -462,7 +462,7 @@ async fn execute(job: RemoteUpdateJob, plan: PendingPlan) {
     let result: Result<()> = async {
         match plan.public.path {
             RecommendedPath::SelfContained => {
-                crate::self_contained::install(
+                crate::self_contained::install_for_remote(
                     &job.job_id,
                     Some(&job.target_version),
                     Some(plan.manifest),

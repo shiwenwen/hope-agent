@@ -49,11 +49,6 @@ if (windowType === "pet") {
 // await 当前一种 locale，毫秒级本地资源）。i18nReady 内部已 try/catch，chunk 失败
 // 也会 resolve（回退 en），渲染绝不会被卡死。
 void i18nReady.finally(async () => {
-  try {
-    await restoreConfiguredRemoteTransport()
-  } catch (error) {
-    logger.warn("transport", "main::restoreRemote", "saved remote server is unavailable", error)
-  }
   await loadEnhancedFocusIndicators()
   listenEnhancedFocusIndicators()
 
@@ -116,4 +111,15 @@ void i18nReady.finally(async () => {
       </AuthGate>
     </StrictMode>,
   )
+
+  // A saved remote server may be offline. Defer its network handshake until
+  // after the first paint so the local desktop UI and connection settings stay
+  // available instead of leaving the window blank while it times out.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      void restoreConfiguredRemoteTransport().catch((error) => {
+        logger.warn("transport", "main::restoreRemote", "saved remote server is unavailable", error)
+      })
+    })
+  })
 })

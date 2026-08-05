@@ -230,6 +230,26 @@ pub async fn install(
     target_version: Option<&str>,
     preloaded_manifest: Option<Manifest>,
 ) -> Result<InstallOutcome> {
+    install_with_restart_requirement(job_id, target_version, preloaded_manifest, false).await
+}
+
+/// Install a remote-owner update. Unlike tool-driven updates, the durable
+/// remote job must become terminal when the service manager rejects restart;
+/// otherwise it would block every later remote update attempt.
+pub async fn install_for_remote(
+    job_id: &str,
+    target_version: Option<&str>,
+    preloaded_manifest: Option<Manifest>,
+) -> Result<InstallOutcome> {
+    install_with_restart_requirement(job_id, target_version, preloaded_manifest, true).await
+}
+
+async fn install_with_restart_requirement(
+    job_id: &str,
+    target_version: Option<&str>,
+    preloaded_manifest: Option<Manifest>,
+    require_restart_success: bool,
+) -> Result<InstallOutcome> {
     let StagedBuild {
         extracted,
         extras,
@@ -315,12 +335,18 @@ pub async fn install(
     // `exit(0)`, and systemd's `Restart=on-failure` would NOT pull
     // us back up after a clean exit — the service would stay
     // stopped with the new binary in place.
-    let restart = service_control::restart_service().ok();
+    let restart_result = service_control::restart_service();
 
     backup::prune();
     // The swap consumed the staged build; drop it so it isn't "reused" later.
     super::staging::prune(None);
     emit_phase(job_id, Phase::Done);
+
+    let restart = if require_restart_success {
+        Some(restart_result.context("restart updated service")?)
+    } else {
+        restart_result.ok()
+    };
 
     Ok(InstallOutcome {
         from_version,
