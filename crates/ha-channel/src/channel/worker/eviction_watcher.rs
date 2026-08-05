@@ -20,9 +20,36 @@ use std::sync::Arc;
 
 use super::pipeline::DeliveryTarget;
 use super::provider_lane::{reserve_provider_lane, ProviderMutationGuard, ProviderMutationOutcome};
-use ha_core::channel::db::{payload_keys, EVENT_CHANNEL_SESSION_EVICTED};
+use ha_core::channel::db::{payload_keys, ChannelDB, EVENT_CHANNEL_SESSION_EVICTED};
 use ha_core::channel::registry::ChannelRegistry;
 use ha_core::channel::types::{ChatType, ParseMode, ReplyPayload};
+
+fn route_is_detached(
+    channel_db: &ChannelDB,
+    channel_id: &str,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+) -> bool {
+    matches!(
+        channel_db.get_session(channel_id, account_id, chat_id, thread_id),
+        Ok(None)
+    )
+}
+
+/// Revalidate the exact route after its provider-lane predecessor completes.
+/// Missing/unreadable registry state fails closed: a stale takeover notice is
+/// less harmful to suppress than to deliver into a newly attached session.
+fn evicted_route_still_detached(
+    channel_id: &str,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+) -> bool {
+    ha_core::globals::get_channel_db().is_some_and(|channel_db| {
+        route_is_detached(channel_db, channel_id, account_id, chat_id, thread_id)
+    })
+}
 
 /// Spawn the EventBus subscriber that turns `channel:session_evicted`
 /// events into a system message on the evicted chat. No-op when the
@@ -181,10 +208,21 @@ pub fn spawn_channel_eviction_watcher(registry: Arc<ChannelRegistry>) {
                 recipient_tenant_id: None,
             };
             let provider_lane = reserve_provider_lane(&lane_target);
+            let validity_channel_id = channel_id_str.to_string();
+            let validity_account_id = account.id.clone();
+            let validity_chat_id = chat_id.to_string();
+            let validity_thread_id = thread_id.clone();
             let provider_guard = ProviderMutationGuard::new(
                 provider_lane.waiter(),
                 provider_lane.task_hold(),
-                Arc::new(|| true),
+                Arc::new(move || {
+                    evicted_route_still_detached(
+                        &validity_channel_id,
+                        &validity_account_id,
+                        &validity_chat_id,
+                        validity_thread_id.as_deref(),
+                    )
+                }),
             );
 
             let reply = ReplyPayload {
@@ -230,4 +268,95 @@ pub fn spawn_channel_eviction_watcher(registry: Arc<ChannelRegistry>) {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ha_core::channel::db::ATTACH_SOURCE_HANDOVER;
+    use ha_core::session::SessionDB;
+
+    #[test]
+    fn eviction_notice_route_is_valid_only_while_detached() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let session_db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&temp.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        let channel_db = ChannelDB::new(session_db.clone());
+        channel_db.migrate().expect("migrate channel db");
+
+        let evicted_session = session_db
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create evicted session");
+        channel_db
+            .attach_session(
+                "telegram",
+                "account",
+                "chat",
+                Some("topic-101"),
+                &evicted_session.id,
+                ATTACH_SOURCE_HANDOVER,
+                None,
+                None,
+                None,
+                &ChatType::Group,
+            )
+            .expect("attach original route");
+        channel_db
+            .attach_session(
+                "telegram",
+                "account",
+                "other-chat",
+                Some("topic-202"),
+                &evicted_session.id,
+                ATTACH_SOURCE_HANDOVER,
+                None,
+                None,
+                None,
+                &ChatType::Group,
+            )
+            .expect("evict original route");
+
+        assert!(route_is_detached(
+            &channel_db,
+            "telegram",
+            "account",
+            "chat",
+            Some("topic-101")
+        ));
+
+        let replacement_session = session_db
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create replacement session");
+        channel_db
+            .attach_session(
+                "telegram",
+                "account",
+                "chat",
+                Some("topic-101"),
+                &replacement_session.id,
+                ATTACH_SOURCE_HANDOVER,
+                None,
+                None,
+                None,
+                &ChatType::Group,
+            )
+            .expect("reattach evicted route");
+
+        assert!(!route_is_detached(
+            &channel_db,
+            "telegram",
+            "account",
+            "chat",
+            Some("topic-101")
+        ));
+        assert!(route_is_detached(
+            &channel_db,
+            "telegram",
+            "account",
+            "chat",
+            Some("topic-999")
+        ));
+    }
 }
