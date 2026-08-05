@@ -4,13 +4,32 @@ use crate::session::SessionDB;
 
 use super::injection::flush_pending_injections;
 use super::types::{ParentAgentStreamEvent, SubagentEvent};
-use super::INJECTING_SESSIONS;
+use super::{INJECTING_SESSIONS, PENDING_INJECTIONS};
 
 // ── Startup Recovery ────────────────────────────────────────────
 
+static SUBAGENT_STARTUP_RECOVERY_ONCE: std::sync::Once = std::sync::Once::new();
+
+fn run_startup_recovery_once(gate: &std::sync::Once, recovery: impl FnOnce()) {
+    gate.call_once(recovery);
+}
+
 /// Clean up orphan sub-agent runs left in non-terminal state
-/// (queued/spawning/running) from a previous app session. Called once at startup.
+/// (queued/spawning/running) from a previous app session. Called once during
+/// synchronous Primary init, before any recovered ParentInjection is allowed to
+/// run.
+///
+/// Delivery-state convergence intentionally happens here while dispatch is
+/// deferred to [`replay_pending_parent_deliveries`]: ordinary interrupted
+/// `injecting` claims return to startup replay, while `injecting_no_replay`
+/// remains fenced because this process cannot prove another process is dead.
 pub fn cleanup_orphan_runs(session_db: &Arc<SessionDB>) {
+    run_startup_recovery_once(&SUBAGENT_STARTUP_RECOVERY_ONCE, || {
+        cleanup_orphan_runs_inner(session_db)
+    });
+}
+
+fn cleanup_orphan_runs_inner(session_db: &Arc<SessionDB>) {
     match session_db.cleanup_orphan_subagent_runs() {
         Ok(affected) if affected > 0 => {
             app_warn!(
@@ -30,7 +49,24 @@ pub fn cleanup_orphan_runs(session_db: &Arc<SessionDB>) {
         }
         _ => {}
     }
-    match session_db.reset_and_list_pending_subagent_deliveries() {
+    match session_db.recover_subagent_result_deliveries_on_startup() {
+        Ok(()) => {}
+        Err(error) => app_error!(
+            "subagent",
+            "delivery",
+            "Failed to prepare pending parent result deliveries for startup replay: {}",
+            error
+        ),
+    }
+}
+
+/// Dispatch ordinary pending parent deliveries after the Primary channel
+/// startup/account-readiness sweeps run. This is a pure list + per-row CAS:
+/// unlike one-shot startup convergence, it never rewrites an active
+/// `injecting`/`injecting_no_replay` owner and is therefore safe to call after
+/// every account start.
+pub(crate) fn replay_pending_parent_deliveries(session_db: &Arc<SessionDB>) {
+    match session_db.list_pending_subagent_deliveries() {
         Ok(runs) => {
             for run in runs {
                 super::spawn::dispatch_parent_result_delivery(&run.run_id, session_db.clone());
@@ -125,27 +161,68 @@ pub fn take_runs_fetched(run_ids: &[String]) -> usize {
     run_ids.iter().filter(|id| set.remove(*id)).count()
 }
 
-/// RAII guard that removes a session from INJECTING_SESSIONS when dropped.
+pub(super) fn release_injection_owner(
+    injecting: &mut std::collections::HashMap<String, String>,
+    session_id: &str,
+    run_id: &str,
+) -> bool {
+    if injecting.get(session_id).map(String::as_str) != Some(run_id) {
+        return false;
+    }
+    injecting.remove(session_id);
+    true
+}
+
+/// RAII guard that removes only its exact `(session, run)` owner from
+/// INJECTING_SESSIONS when dropped. A stale guard must never clear a newer run.
 pub(crate) struct CleanupGuard {
     pub session_id: String,
+    pub run_id: String,
 }
 
 impl Drop for CleanupGuard {
     fn drop(&mut self) {
-        if let Ok(mut guard) = INJECTING_SESSIONS.lock() {
-            guard.remove(&self.session_id);
-        }
+        // Keep the established INJECTING -> PENDING lock order. A concurrent
+        // new B must observe either this active owner or the queued A at the
+        // head; it must never slip through the release-to-flush gap.
+        let released = {
+            let mut injecting = INJECTING_SESSIONS
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let _pending = PENDING_INJECTIONS
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            release_injection_owner(&mut injecting, &self.session_id, &self.run_id)
+        };
         // Re-trigger next pending injection for this session (serial execution)
-        flush_pending_injections(&self.session_id);
+        if released {
+            flush_pending_injections(&self.session_id);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{mark_run_fetched, take_runs_fetched};
+    use super::{mark_run_fetched, run_startup_recovery_once, take_runs_fetched};
     use crate::subagent::{ActiveInjection, INJECTION_CANCELS};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    #[test]
+    fn startup_recovery_gate_runs_exactly_once_under_concurrency() {
+        let gate = std::sync::Once::new();
+        let calls = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    run_startup_recovery_once(&gate, || {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                    });
+                });
+            }
+        });
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn fetched_run_cancels_only_the_matching_active_injection() {
@@ -162,6 +239,9 @@ mod tests {
                 ActiveInjection {
                     run_id: target_run.clone(),
                     cancel: target_cancel.clone(),
+                    im_mirror: Arc::new(
+                        crate::subagent::injection::ActiveInjectionMirrorCoordinator::new(None),
+                    ),
                 },
             );
             active.insert(
@@ -169,6 +249,9 @@ mod tests {
                 ActiveInjection {
                     run_id: other_run,
                     cancel: other_cancel.clone(),
+                    im_mirror: Arc::new(
+                        crate::subagent::injection::ActiveInjectionMirrorCoordinator::new(None),
+                    ),
                 },
             );
         }

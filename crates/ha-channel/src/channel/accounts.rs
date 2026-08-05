@@ -100,6 +100,20 @@ pub struct UpdateAccountParams {
     pub security: Option<SecurityConfig>,
 }
 
+/// Whether a completed config mutation can make a previously parked delivery
+/// resolve as GUI-only `Absent`. Enabling does not notify here: the surface is
+/// still `Unavailable` until `ChannelRegistry::start_account` succeeds and
+/// emits the same event. `None` means the persisted account was removed.
+fn persisted_change_makes_delivery_surface_absent(
+    previous_enabled: Option<bool>,
+    persisted_enabled: Option<bool>,
+) -> bool {
+    match (previous_enabled, persisted_enabled) {
+        (Some(true), Some(false)) | (Some(_), None) => true,
+        _ => false,
+    }
+}
+
 /// Create a new channel account, persist it, and auto-start if enabled.
 /// Returns the generated account id.
 pub async fn add_account(
@@ -246,6 +260,14 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
     )
     .await?;
 
+    // Persistence is the boundary: after this point attach re-reads the
+    // account as disabled and safely resolves queued work GUI-only. Notify
+    // before stopping the worker so a slow plugin shutdown cannot strand the
+    // readiness-only queue. A direct/manual stop never reaches this branch.
+    if persisted_change_makes_delivery_surface_absent(Some(was_enabled), Some(updated.enabled)) {
+        ha_core::channel_hooks::notify_delivery_surface_state_changed(account_id);
+    }
+
     if let Some(registry) = ha_core::get_channel_registry() {
         if was_enabled && !updated.enabled {
             let _ = registry.stop_account(account_id).await;
@@ -298,20 +320,33 @@ pub async fn remove_account(account_id: &str) -> Result<()> {
     }
 
     let account_id_owned = account_id.to_string();
-    let removed_channel_id = ha_core::config::mutate_config_async(
+    let removed_account = ha_core::config::mutate_config_async(
         ("channels.remove", "channel.accounts"),
         move |store| {
             let removed = store
                 .channels
                 .find_account(&account_id_owned)
-                .map(|a| a.channel_id.clone());
+                .map(|a| (a.channel_id.clone(), a.enabled));
             store.channels.accounts.retain(|a| a.id != account_id_owned);
             Ok(removed)
         },
     )
     .await?;
 
-    if matches!(removed_channel_id, Some(ChannelId::WeChat)) {
+    // The config no longer exposes this delivery surface. Emit before
+    // best-effort provider-specific cleanup so a cleanup error cannot strand
+    // work that was parked while the account still existed and was enabled.
+    if persisted_change_makes_delivery_surface_absent(
+        removed_account.as_ref().map(|(_, enabled)| *enabled),
+        None,
+    ) {
+        ha_core::channel_hooks::notify_delivery_surface_state_changed(account_id);
+    }
+
+    if matches!(
+        removed_account.as_ref().map(|(channel_id, _)| channel_id),
+        Some(ChannelId::WeChat)
+    ) {
         super::wechat::clear_persisted_account_state(account_id).map_err(|e| anyhow!("{}", e))?;
     }
 
@@ -365,6 +400,34 @@ fn preserve_kb_access_chats(new_settings: &mut serde_json::Value, on_disk: &serd
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn only_persisted_absence_rechecks_a_parked_delivery_surface() {
+        assert!(persisted_change_makes_delivery_surface_absent(
+            Some(true),
+            Some(false)
+        ));
+        assert!(persisted_change_makes_delivery_surface_absent(
+            Some(true),
+            None
+        ));
+        assert!(persisted_change_makes_delivery_surface_absent(
+            Some(false),
+            None
+        ));
+
+        // Enabling waits for start_account success; an enabled manual stop is
+        // not a persisted absence and must remain Unavailable.
+        assert!(!persisted_change_makes_delivery_surface_absent(
+            Some(false),
+            Some(true)
+        ));
+        assert!(!persisted_change_makes_delivery_surface_absent(
+            Some(true),
+            Some(true)
+        ));
+        assert!(!persisted_change_makes_delivery_surface_absent(None, None));
+    }
 
     #[test]
     fn preserves_on_disk_kb_access_chats_over_stale_snapshot() {

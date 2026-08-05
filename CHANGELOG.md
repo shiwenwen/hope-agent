@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Slack 与 Telegram 回复升级为平台原生流式体验**：生成过程会持续更新同一条回复；Slack 可同步呈现计划、任务进度与交互按钮，Telegram 支持原生草稿流与富文本、媒体、按钮定稿；平台明确不支持时会安全回退，投递结果不确定时不会重复补发。 (#623)
+
 ### Changed
 
 - **宠物生成默认升级为 Codex v2**：Create 默认生成带 16 个顺时针注视方向的 8×11 精灵图，同时保留 v1 选项；宠物库里的已有 v1 可一键生成并切换到非破坏式 v2 副本，原 v1 仍可继续使用或导出。

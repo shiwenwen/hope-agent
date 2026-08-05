@@ -332,25 +332,22 @@ pub async fn handover(Json(body): Json<HandoverBody>) -> Result<Json<Value>, App
         .unwrap_or(ChatType::Dm);
 
     let body = std::sync::Arc::new(body);
-    {
+    let catchup = ha_channel::channel::attach_sync::prepare_attach_catchup(
+        &body.session_id,
+        &body.channel_id,
+        &body.account_id,
+        &body.chat_id,
+        body.thread_id.as_deref(),
+    );
+    let catchup = {
         let db = channel_db()?;
-        let body = body.clone();
+        let source = ha_core::channel::db::ATTACH_SOURCE_HANDOVER;
         ha_core::blocking::run_blocking(move || {
-            db.attach_session(
-                &body.channel_id,
-                &body.account_id,
-                &body.chat_id,
-                body.thread_id.as_deref(),
-                &body.session_id,
-                ha_core::channel::db::ATTACH_SOURCE_HANDOVER,
-                None,
-                None,
-                &resolved_chat_type,
-            )
+            catchup.attach(&db, source, None, None, &resolved_chat_type)
         })
         .await
-        .map_err(|e| AppError::internal(format!("Handover failed: {}", e)))?;
-    }
+        .map_err(|e| AppError::internal(format!("Handover failed: {}", e)))?
+    };
 
     // Replay the latest assistant turn (text + media) so the receiving IM
     // chat isn't left with zero context — same catch-up the IM-side
@@ -361,6 +358,7 @@ pub async fn handover(Json(body): Json<HandoverBody>) -> Result<Json<Value>, App
         &body.account_id,
         &body.chat_id,
         body.thread_id.as_deref(),
+        catchup,
     )
     .await;
 
@@ -377,6 +375,7 @@ async fn deliver_handover_catchup(
     account_id: &str,
     chat_id: &str,
     thread_id: Option<&str>,
+    catchup: ha_channel::channel::attach_sync::AttachedCatchupReservation,
 ) {
     let registry = match registry() {
         Ok(r) => r,
@@ -406,7 +405,7 @@ async fn deliver_handover_catchup(
         None => return,
     };
     ha_channel::channel::attach_sync::deliver_handover_catchup(
-        &plugin, &account, session_id, chat_id, thread_id,
+        &plugin, &account, session_id, chat_id, thread_id, catchup,
     )
     .await;
 }

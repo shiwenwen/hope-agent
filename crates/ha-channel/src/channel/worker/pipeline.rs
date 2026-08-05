@@ -14,8 +14,12 @@ use super::dispatcher::{
     deliver_final_only, deliver_preview_merged, deliver_split, send_error_reply, send_final_reply,
     DeliveryMetrics, DeliveryReport,
 };
+use super::provider_lane::{
+    reserve_provider_lane, ProviderLaneLease, ProviderLaneTaskHold, ProviderLaneWaiter,
+    ProviderMutationGuard,
+};
 use super::streaming::{
-    abort_native_preview, select_stream_preview_transport, spawn_channel_stream_task,
+    abort_native_preview_with_lane, select_stream_preview_transport, spawn_channel_stream_task,
     PreviewHandle, StreamPreviewOutcome,
 };
 use ha_core::channel::traits::ChannelPlugin;
@@ -38,6 +42,275 @@ pub(crate) struct DeliveryTarget<'a> {
     pub reply_to_message_id: Option<&'a str>,
     pub recipient_user_id: Option<&'a str>,
     pub recipient_tenant_id: Option<&'a str>,
+}
+
+const MIRROR_ACCOUNT_READY_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+const MIRROR_ACCOUNT_READY_POLL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Account-worker gate evaluated inside the provider lane.  Foreground
+/// Desktop/HTTP mirrors can be created while startup is still connecting the
+/// IM account; their engine sink starts buffering immediately while this gate
+/// waits in the background.
+pub(crate) enum PipelineAccountReadiness {
+    RequireRunning { account_id: String },
+    WaitForRunning { account_id: String },
+}
+
+impl PipelineAccountReadiness {
+    fn remains_configured(&self) -> bool {
+        let account_id = self.account_id();
+        ha_core::config::cached_config()
+            .channels
+            .find_account(account_id)
+            .is_some_and(|account| account.enabled)
+    }
+
+    async fn is_running_now(&self) -> bool {
+        let account_id = match self {
+            Self::RequireRunning { account_id } | Self::WaitForRunning { account_id } => account_id,
+        };
+        let Some(registry) = ha_core::globals::get_channel_registry() else {
+            return false;
+        };
+        registry.health(account_id).await.is_running
+    }
+
+    async fn wait_until_running(&self) -> bool {
+        if !matches!(self, Self::WaitForRunning { .. }) {
+            return self.is_running_now().await;
+        }
+        let deadline = tokio::time::Instant::now() + MIRROR_ACCOUNT_READY_WAIT;
+        loop {
+            if !self.remains_configured() {
+                return false;
+            }
+            if self.is_running_now().await {
+                return true;
+            }
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            tokio::time::sleep(MIRROR_ACCOUNT_READY_POLL.min(deadline - now)).await;
+        }
+    }
+
+    fn account_id(&self) -> &str {
+        match self {
+            Self::RequireRunning { account_id } | Self::WaitForRunning { account_id } => account_id,
+        }
+    }
+}
+
+/// Prefix work that must happen before a mirror may mutate its provider
+/// target.  Deltas and system notices can enter the pipeline while this waits;
+/// the unbounded receivers retain them until the quote/prefix has landed.
+pub(crate) struct StreamPipelinePrelude {
+    lane_waiter: ProviderLaneWaiter,
+    provider_guard: ProviderMutationGuard,
+    readiness: Option<PipelineAccountReadiness>,
+    initial_notices: Vec<String>,
+    quote: Option<String>,
+    quote_sent: Arc<AtomicBool>,
+}
+
+impl StreamPipelinePrelude {
+    fn ordered_only(provider_lane: &ProviderLaneLease) -> Self {
+        Self::new(
+            provider_lane.waiter(),
+            provider_lane.task_hold(),
+            None,
+            Vec::new(),
+            None,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|| true),
+        )
+    }
+
+    pub(crate) fn new(
+        lane_waiter: ProviderLaneWaiter,
+        lane_task_hold: ProviderLaneTaskHold,
+        readiness: Option<PipelineAccountReadiness>,
+        initial_notices: Vec<String>,
+        quote: Option<String>,
+        quote_sent: Arc<AtomicBool>,
+        still_valid: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Self {
+        Self {
+            provider_guard: ProviderMutationGuard::new(
+                lane_waiter.clone(),
+                lane_task_hold,
+                still_valid,
+            ),
+            lane_waiter,
+            readiness,
+            initial_notices,
+            quote,
+            quote_sent,
+        }
+    }
+
+    fn provider_guard(&self) -> ProviderMutationGuard {
+        self.provider_guard.clone()
+    }
+
+    pub(super) async fn run(
+        self,
+        plugin: &Arc<dyn ChannelPlugin>,
+        target: &ha_core::channel::types::ReplyStreamTarget,
+    ) -> (DeliveryReport, ProviderMutationGuard) {
+        let Self {
+            lane_waiter,
+            provider_guard,
+            readiness,
+            initial_notices,
+            quote,
+            quote_sent,
+        } = self;
+        // Start account readiness and predecessor waiting together. A failed
+        // readiness/validity check returns immediately even if the predecessor
+        // is stuck. The linked lane chain retains this cancelled node until
+        // that predecessor completes, so successors still cannot overtake it.
+        let readiness_wait = async {
+            match readiness.as_ref() {
+                Some(readiness) => readiness.wait_until_running().await,
+                None => true,
+            }
+        };
+        tokio::pin!(readiness_wait);
+        let lane_wait = lane_waiter.wait_turn();
+        tokio::pin!(lane_wait);
+        let mut readiness_complete = false;
+        let mut lane_complete = false;
+        let mut validity_tick = tokio::time::interval(std::time::Duration::from_millis(100));
+        validity_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        while !readiness_complete || !lane_complete {
+            tokio::select! {
+                ready = &mut readiness_wait, if !readiness_complete => {
+                    if !ready {
+                        let account = readiness
+                            .as_ref()
+                            .map(PipelineAccountReadiness::account_id)
+                            .unwrap_or("unknown");
+                        return (
+                            DeliveryReport {
+                                failures: vec![format!(
+                                    "IM account {account} was not running at mirror delivery time"
+                                )],
+                                unsafe_to_continue: true,
+                                ..DeliveryReport::default()
+                            },
+                            provider_guard,
+                        );
+                    }
+                    readiness_complete = true;
+                }
+                () = &mut lane_wait, if !lane_complete => lane_complete = true,
+                _ = validity_tick.tick() => {
+                    if !provider_guard.is_valid_async().await {
+                        return (
+                            DeliveryReport {
+                                failures: vec![
+                                    "IM mirror attach changed before provider delivery".to_string()
+                                ],
+                                unsafe_to_continue: true,
+                                ..DeliveryReport::default()
+                            },
+                            provider_guard,
+                        );
+                    }
+                    if readiness
+                        .as_ref()
+                        .is_some_and(|readiness| !readiness.remains_configured())
+                    {
+                        let account = readiness
+                            .as_ref()
+                            .map(PipelineAccountReadiness::account_id)
+                            .unwrap_or("unknown");
+                        return (
+                            DeliveryReport {
+                                failures: vec![format!(
+                                    "IM account {account} was removed or disabled before mirror delivery"
+                                )],
+                                unsafe_to_continue: true,
+                                ..DeliveryReport::default()
+                            },
+                            provider_guard,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Re-probe at the actual mutation boundary: an account may have become
+        // ready after its timer elapsed while waiting for a slow predecessor,
+        // or may have stopped after an earlier successful probe.
+        let running_now = match readiness.as_ref() {
+            Some(readiness) => readiness.remains_configured() && readiness.is_running_now().await,
+            None => true,
+        };
+        if !running_now {
+            let account = readiness
+                .as_ref()
+                .map(PipelineAccountReadiness::account_id)
+                .unwrap_or("unknown");
+            return (
+                DeliveryReport {
+                    failures: vec![format!(
+                        "IM account {account} was not running at mirror delivery time"
+                    )],
+                    unsafe_to_continue: true,
+                    ..DeliveryReport::default()
+                },
+                provider_guard,
+            );
+        }
+        if !provider_guard.is_valid_async().await {
+            return (
+                DeliveryReport {
+                    failures: vec!["IM mirror attach changed before provider delivery".to_string()],
+                    unsafe_to_continue: true,
+                    ..DeliveryReport::default()
+                },
+                provider_guard,
+            );
+        }
+
+        let target = DeliveryTarget::from(target);
+        let mut report = DeliveryReport::default();
+        for notice in initial_notices {
+            let mut notice_report = super::dispatcher::send_text_chunks_with_guard(
+                plugin,
+                &target,
+                &notice,
+                None,
+                &[],
+                Some(&provider_guard),
+            )
+            .await;
+            // A prefix is a separate message identity.  Its ambiguous failure
+            // must be diagnosed, but cannot fuse the assistant's own preview /
+            // final identity as a duplicate risk.
+            notice_report.unsafe_to_continue = false;
+            report.merge(notice_report);
+        }
+        if let Some(quote) = quote.filter(|body| !body.trim().is_empty()) {
+            let mut quote_report = super::dispatcher::send_text_chunks_with_guard(
+                plugin,
+                &target,
+                quote.trim_end(),
+                None,
+                &[],
+                Some(&provider_guard),
+            )
+            .await;
+            let quote_delivered = quote_report.is_success();
+            quote_report.unsafe_to_continue = false;
+            report.merge(quote_report);
+            quote_sent.store(quote_delivered, Ordering::Release);
+        }
+        (report, provider_guard)
+    }
 }
 
 impl DeliveryTarget<'_> {
@@ -70,7 +343,9 @@ impl<'a> From<&'a ReplyStreamTarget> for DeliveryTarget<'a> {
 
 /// Handles to a running stream pipeline. The caller plugs `event_sink`
 /// into the chat engine, then hands the rest back to
-/// [`await_stream_pipeline`] when the engine returns.
+/// [`await_stream_pipeline`] when the engine returns.  The physical-target
+/// provider lane moves with it into [`PipelineOutcome`] and therefore remains
+/// held through the caller's final/error/abort delivery.
 pub(crate) struct StreamPipeline {
     pub event_sink: Arc<dyn EventSink>,
     stream_task: JoinHandle<StreamPreviewOutcome>,
@@ -80,6 +355,8 @@ pub(crate) struct StreamPipeline {
     preview_active: bool,
     native_preview: Option<PreviewHandle>,
     native_preview_relinquished: Option<Arc<AtomicBool>>,
+    provider_guard: Option<ProviderMutationGuard>,
+    _provider_lane: Option<ProviderLaneLease>,
 }
 
 /// Drained outputs from a finished pipeline. Borrow into
@@ -92,6 +369,22 @@ pub(crate) struct PipelineOutcome {
     pub(super) reply_mode: ImReplyMode,
     pub(super) capabilities: ChannelCapabilities,
     pub(super) preview_active: bool,
+    provider_guard: Option<ProviderMutationGuard>,
+    _provider_lane: Option<ProviderLaneLease>,
+}
+
+impl PipelineOutcome {
+    fn provider_guard(&self) -> Option<&ProviderMutationGuard> {
+        self.provider_guard.as_ref()
+    }
+
+    /// Whether the streaming/prelude phase attempted any visible provider
+    /// mutation before terminal delivery took ownership. Catch-up mirrors use
+    /// this to decide whether an exact generation must retain its no-replay
+    /// tombstone even when no durable terminal snapshot exists.
+    pub(crate) fn has_provider_attempts(&self) -> bool {
+        self.stream_outcome.delivery_report.attempted > 0
+    }
 }
 
 /// Spawn the IM streaming-preview task and build a `ChannelStreamSink`
@@ -112,10 +405,56 @@ pub(crate) fn spawn_stream_pipeline(
     history_complete: bool,
     broadcast_to_bus: bool,
 ) -> StreamPipeline {
+    let provider_lane = reserve_provider_lane(target);
+    let prelude = StreamPipelinePrelude::ordered_only(&provider_lane);
+    spawn_stream_pipeline_inner(
+        plugin,
+        account,
+        session_id,
+        target,
+        history_complete,
+        broadcast_to_bus,
+        Some(provider_lane),
+        Some(prelude),
+    )
+}
+
+pub(crate) fn spawn_stream_pipeline_with_prelude(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account: &ChannelAccountConfig,
+    session_id: &str,
+    target: &DeliveryTarget<'_>,
+    history_complete: bool,
+    broadcast_to_bus: bool,
+    provider_lane: ProviderLaneLease,
+    prelude: StreamPipelinePrelude,
+) -> StreamPipeline {
+    spawn_stream_pipeline_inner(
+        plugin,
+        account,
+        session_id,
+        target,
+        history_complete,
+        broadcast_to_bus,
+        Some(provider_lane),
+        Some(prelude),
+    )
+}
+
+fn spawn_stream_pipeline_inner(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account: &ChannelAccountConfig,
+    session_id: &str,
+    target: &DeliveryTarget<'_>,
+    history_complete: bool,
+    broadcast_to_bus: bool,
+    provider_lane: Option<ProviderLaneLease>,
+    prelude: Option<StreamPipelinePrelude>,
+) -> StreamPipeline {
     let reply_mode = account.im_reply_mode();
     let capabilities = plugin.capabilities();
     let max_msg_len = capabilities.streaming_preview_max_bytes.unwrap_or(4096);
-    let preview_transport = match reply_mode {
+    let mut preview_transport = match reply_mode {
         ImReplyMode::Preview | ImReplyMode::Split => select_stream_preview_transport(
             &target.to_reply_stream_target(),
             &capabilities,
@@ -123,6 +462,10 @@ pub(crate) fn spawn_stream_pipeline(
         ),
         ImReplyMode::Final => None,
     };
+    let provider_guard = prelude.as_ref().map(StreamPipelinePrelude::provider_guard);
+    if let Some(transport) = preview_transport.as_mut() {
+        transport.set_provider_guard(provider_guard.clone());
+    }
     let preview_active = preview_transport.is_some();
     let native_preview = preview_transport
         .as_ref()
@@ -153,6 +496,7 @@ pub(crate) fn spawn_stream_pipeline(
         reply_mode,
         round_texts.clone(),
         capabilities.clone(),
+        prelude,
     );
 
     let event_sink: Arc<dyn EventSink> = Arc::new(ChannelStreamSink::new(
@@ -173,6 +517,8 @@ pub(crate) fn spawn_stream_pipeline(
         preview_active,
         native_preview,
         native_preview_relinquished,
+        provider_guard,
+        _provider_lane: provider_lane,
     }
 }
 
@@ -195,6 +541,8 @@ pub(crate) async fn await_stream_pipeline(pipeline: StreamPipeline) -> PipelineO
         preview_active,
         native_preview,
         native_preview_relinquished,
+        provider_guard,
+        _provider_lane,
     } = pipeline;
     drop(event_sink);
 
@@ -206,6 +554,8 @@ pub(crate) async fn await_stream_pipeline(pipeline: StreamPipeline) -> PipelineO
         preview_active,
         native_preview,
         native_preview_relinquished,
+        provider_guard,
+        _provider_lane,
     )
     .await
 }
@@ -228,6 +578,8 @@ pub(crate) async fn await_stream_pipeline_until_cancel(
         preview_active,
         native_preview,
         native_preview_relinquished,
+        provider_guard,
+        _provider_lane,
     } = pipeline;
     drop(event_sink);
 
@@ -240,7 +592,11 @@ pub(crate) async fn await_stream_pipeline_until_cancel(
         } => {
             let mut detach_native_task = false;
             if let Some(preview) = native_preview.as_ref() {
-                let abort = abort_native_preview(preview, ReplyAbortReason::Cancelled);
+                let abort = abort_native_preview_with_lane(
+                    preview,
+                    ReplyAbortReason::Cancelled,
+                    provider_guard.clone(),
+                );
                 let safely_aborted = tokio::time::timeout(
                     std::time::Duration::from_secs(3),
                     abort,
@@ -276,6 +632,8 @@ pub(crate) async fn await_stream_pipeline_until_cancel(
             preview_active,
             native_preview,
             native_preview_relinquished,
+            provider_guard,
+            _provider_lane,
         )
         .await,
     )
@@ -289,6 +647,8 @@ async fn pipeline_outcome(
     preview_active: bool,
     native_preview: Option<PreviewHandle>,
     native_preview_relinquished: Option<Arc<AtomicBool>>,
+    provider_guard: Option<ProviderMutationGuard>,
+    provider_lane: Option<ProviderLaneLease>,
 ) -> PipelineOutcome {
     let stream_outcome = match join_result {
         Ok(outcome) => outcome,
@@ -360,6 +720,8 @@ async fn pipeline_outcome(
         reply_mode,
         capabilities,
         preview_active,
+        provider_guard,
+        _provider_lane: provider_lane,
     }
 }
 
@@ -391,6 +753,7 @@ pub(crate) async fn deliver_rounds(
         outcome.stream_outcome.preview.as_ref(),
         Some(PreviewHandle::Native { .. })
     );
+    let provider_guard = outcome.provider_guard();
     let mut metrics = if native_whole_turn {
         deliver_preview_merged(
             plugin,
@@ -399,6 +762,7 @@ pub(crate) async fn deliver_rounds(
             response,
             outcome.stream_outcome.preview.as_ref(),
             &outcome.capabilities,
+            provider_guard,
         )
         .await
     } else {
@@ -412,6 +776,7 @@ pub(crate) async fn deliver_rounds(
                     outcome.stream_outcome.preview.as_ref(),
                     outcome.stream_outcome.finalized_rounds,
                     &outcome.capabilities,
+                    provider_guard,
                 )
                 .await
             }
@@ -422,6 +787,7 @@ pub(crate) async fn deliver_rounds(
                     &outcome.drained_rounds,
                     response,
                     &outcome.capabilities,
+                    provider_guard,
                 )
                 .await
             }
@@ -433,6 +799,7 @@ pub(crate) async fn deliver_rounds(
                     response,
                     outcome.stream_outcome.preview.as_ref(),
                     &outcome.capabilities,
+                    provider_guard,
                 )
                 .await
             }
@@ -454,7 +821,7 @@ pub(crate) async fn abort_pipeline_outcome(
     if let Some(preview) = outcome.stream_outcome.preview.as_ref() {
         match tokio::time::timeout(
             std::time::Duration::from_secs(3),
-            abort_native_preview(preview, reason),
+            abort_native_preview_with_lane(preview, reason, outcome.provider_guard().cloned()),
         )
         .await
         {
@@ -546,6 +913,7 @@ pub(crate) async fn deliver_error_reply(
             target,
             outcome.stream_outcome.preview.as_ref(),
             error_text,
+            outcome.provider_guard(),
         )
         .await,
     );
@@ -581,6 +949,7 @@ pub(crate) async fn deliver_full_response(
         &[],
         true,
         &outcome.capabilities,
+        outcome.provider_guard(),
     )
     .await;
     let mut metrics = DeliveryMetrics {
@@ -597,6 +966,13 @@ pub(crate) async fn deliver_full_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use ha_core::channel::types::{
+        ChannelHealth, ChannelId, ChannelMeta, DeliveryResult, InboundEvent, MsgContext,
+        ReplyPayload, SecurityConfig,
+    };
+    use tokio_util::sync::CancellationToken;
 
     fn empty_capabilities() -> ChannelCapabilities {
         ChannelCapabilities {
@@ -617,6 +993,369 @@ mod tests {
         }
     }
 
+    struct PreludeRecordingPlugin {
+        sends: Mutex<Vec<String>>,
+        fail_next_send: AtomicBool,
+    }
+
+    impl PreludeRecordingPlugin {
+        fn new() -> Self {
+            Self {
+                sends: Mutex::new(Vec::new()),
+                fail_next_send: AtomicBool::new(false),
+            }
+        }
+
+        fn failing_first_send() -> Self {
+            Self {
+                sends: Mutex::new(Vec::new()),
+                fail_next_send: AtomicBool::new(true),
+            }
+        }
+
+        fn sends(&self) -> Vec<String> {
+            self.sends.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl ChannelPlugin for PreludeRecordingPlugin {
+        fn meta(&self) -> ChannelMeta {
+            ChannelMeta {
+                id: ChannelId::Custom("prelude-test".to_string()),
+                display_name: "Prelude test".to_string(),
+                description: String::new(),
+                version: "0".to_string(),
+            }
+        }
+
+        fn capabilities(&self) -> ChannelCapabilities {
+            empty_capabilities()
+        }
+
+        async fn start_account(
+            &self,
+            _account: &ChannelAccountConfig,
+            _inbound_tx: mpsc::Sender<InboundEvent>,
+            _cancel: CancellationToken,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn stop_account(&self, _account_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn send_message(
+            &self,
+            _account_id: &str,
+            _chat_id: &str,
+            payload: &ReplyPayload,
+        ) -> Result<DeliveryResult> {
+            if self.fail_next_send.swap(false, Ordering::AcqRel) {
+                anyhow::bail!("synthetic ambiguous prefix failure");
+            }
+            if let Some(text) = payload.text.as_ref() {
+                self.sends.lock().unwrap().push(text.clone());
+            }
+            Ok(DeliveryResult::ok("message"))
+        }
+
+        async fn send_typing(&self, _account_id: &str, _chat_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn probe(&self, _account: &ChannelAccountConfig) -> Result<ChannelHealth> {
+            Ok(ChannelHealth::default())
+        }
+
+        fn check_access(&self, _account: &ChannelAccountConfig, _msg: &MsgContext) -> bool {
+            true
+        }
+
+        fn markdown_to_native(&self, markdown: &str) -> String {
+            markdown.to_string()
+        }
+
+        async fn validate_credentials(&self, _credentials: &serde_json::Value) -> Result<String> {
+            Ok("test".to_string())
+        }
+    }
+
+    fn final_mode_account(id: &str) -> ChannelAccountConfig {
+        ChannelAccountConfig {
+            id: id.to_string(),
+            channel_id: ChannelId::Custom("prelude-test".to_string()),
+            label: "Prelude test".to_string(),
+            enabled: true,
+            agent_id: None,
+            credentials: serde_json::Value::Null,
+            settings: serde_json::json!({"imReplyMode": "final"}),
+            security: SecurityConfig::default(),
+            auto_approve_tools: false,
+            notify_session_eviction: true,
+            notify_startup: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn mirror_quote_prelude_buffers_delta_without_blocking_the_engine_sink() {
+        let suffix = uuid::Uuid::new_v4();
+        let account_id = format!("prelude-account-{suffix}");
+        let chat_id = format!("prelude-chat-{suffix}");
+        let session_id = format!("prelude-session-{suffix}");
+        let chat_type = ChatType::Dm;
+        let target = DeliveryTarget {
+            account_id: &account_id,
+            chat_id: &chat_id,
+            chat_type: &chat_type,
+            thread_id: Some("thread"),
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let predecessor = super::super::provider_lane::reserve_provider_lane(&target);
+        let mirror_lane = super::super::provider_lane::reserve_provider_lane(&target);
+        let concrete = Arc::new(PreludeRecordingPlugin::new());
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+        let quote_sent = Arc::new(AtomicBool::new(false));
+        let prelude = StreamPipelinePrelude::new(
+            mirror_lane.waiter(),
+            mirror_lane.task_hold(),
+            None,
+            Vec::new(),
+            Some("> 💬 buffered question".to_string()),
+            quote_sent.clone(),
+            Arc::new(|| true),
+        );
+        let pipeline = spawn_stream_pipeline_with_prelude(
+            &plugin,
+            &final_mode_account(&account_id),
+            &session_id,
+            &target,
+            true,
+            false,
+            mirror_lane,
+            prelude,
+        );
+
+        // EventSink::send remains synchronous while the provider task waits.
+        // The delta must be retained, and no provider mutation may overtake the
+        // predecessor or the quote.
+        pipeline
+            .event_sink
+            .send(r#"{"type":"text_delta","content":"buffered answer"}"#);
+        let mut pipeline_task = tokio::spawn(await_stream_pipeline(pipeline));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(30), &mut pipeline_task,)
+                .await
+                .is_err(),
+            "provider task must remain behind the predecessor while deltas buffer"
+        );
+        assert!(concrete.sends().is_empty());
+
+        drop(predecessor);
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(1), pipeline_task)
+            .await
+            .expect("pipeline should resume after predecessor")
+            .expect("pipeline task should not panic");
+        assert!(quote_sent.load(Ordering::Acquire));
+        assert_eq!(
+            outcome
+                .drained_rounds
+                .iter()
+                .map(|round| round.text.as_str())
+                .collect::<Vec<_>>(),
+            ["buffered answer"]
+        );
+
+        let metrics = deliver_rounds(&plugin, &target, &outcome, "buffered answer").await;
+        assert!(metrics.report.is_success());
+        assert_eq!(
+            concrete.sends(),
+            ["> 💬 buffered question", "buffered answer"]
+        );
+    }
+
+    #[tokio::test]
+    async fn mirror_quote_failure_is_diagnostic_but_does_not_fuse_assistant_final() {
+        let suffix = uuid::Uuid::new_v4();
+        let account_id = format!("prefix-failure-account-{suffix}");
+        let chat_id = format!("prefix-failure-chat-{suffix}");
+        let session_id = format!("prefix-failure-session-{suffix}");
+        let target = DeliveryTarget {
+            account_id: &account_id,
+            chat_id: &chat_id,
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let mirror_lane = super::super::provider_lane::reserve_provider_lane(&target);
+        let concrete = Arc::new(PreludeRecordingPlugin::failing_first_send());
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+        let quote_sent = Arc::new(AtomicBool::new(false));
+        let prelude = StreamPipelinePrelude::new(
+            mirror_lane.waiter(),
+            mirror_lane.task_hold(),
+            None,
+            Vec::new(),
+            Some("> 💬 prefix".to_string()),
+            quote_sent.clone(),
+            Arc::new(|| true),
+        );
+        let pipeline = spawn_stream_pipeline_with_prelude(
+            &plugin,
+            &final_mode_account(&account_id),
+            &session_id,
+            &target,
+            true,
+            false,
+            mirror_lane,
+            prelude,
+        );
+        pipeline
+            .event_sink
+            .send(r#"{"type":"text_delta","content":"assistant final"}"#);
+
+        let outcome = await_stream_pipeline(pipeline).await;
+        assert!(!outcome.stream_outcome.delivery_report.unsafe_to_continue);
+        assert!(!outcome.stream_outcome.delivery_report.failures.is_empty());
+        assert!(!quote_sent.load(Ordering::Acquire));
+
+        let metrics = deliver_rounds(&plugin, &target, &outcome, "assistant final").await;
+        assert_eq!(concrete.sends(), ["assistant final"]);
+        assert!(
+            !metrics.report.is_success(),
+            "prefix failure remains visible in diagnostics"
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_prelude_exits_before_stuck_predecessor_and_drops_buffered_delta() {
+        let suffix = uuid::Uuid::new_v4();
+        let account_id = format!("invalid-prelude-account-{suffix}");
+        let chat_id = format!("invalid-prelude-chat-{suffix}");
+        let session_id = format!("invalid-prelude-session-{suffix}");
+        let target = DeliveryTarget {
+            account_id: &account_id,
+            chat_id: &chat_id,
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let predecessor = super::super::provider_lane::reserve_provider_lane(&target);
+        let mirror_lane = super::super::provider_lane::reserve_provider_lane(&target);
+        let concrete = Arc::new(PreludeRecordingPlugin::new());
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+        let prelude = StreamPipelinePrelude::new(
+            mirror_lane.waiter(),
+            mirror_lane.task_hold(),
+            None,
+            Vec::new(),
+            Some("> stale quote".to_string()),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|| false),
+        );
+        let pipeline = spawn_stream_pipeline_with_prelude(
+            &plugin,
+            &final_mode_account(&account_id),
+            &session_id,
+            &target,
+            true,
+            false,
+            mirror_lane,
+            prelude,
+        );
+        pipeline
+            .event_sink
+            .send(r#"{"type":"text_delta","content":"stale buffered answer"}"#);
+
+        // Invalidity is independent of a stuck predecessor. The cancelled
+        // lane node remains linked, but no old-target provider write may run.
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            await_stream_pipeline(pipeline),
+        )
+        .await
+        .expect("invalid prelude should fail closed without waiting for predecessor");
+        assert!(outcome.stream_outcome.delivery_report.unsafe_to_continue);
+
+        let metrics = deliver_rounds(&plugin, &target, &outcome, "stale buffered answer").await;
+        assert!(metrics.report.unsafe_to_continue);
+        assert!(concrete.sends().is_empty());
+
+        drop(outcome);
+        drop(predecessor);
+    }
+
+    #[tokio::test]
+    async fn production_pipeline_lane_holds_inbound_successor_until_outer_terminal_drops() {
+        let suffix = uuid::Uuid::new_v4();
+        let account_id = format!("inbound-lane-account-{suffix}");
+        let chat_id = format!("inbound-lane-chat-{suffix}");
+        let chat_type = ChatType::Dm;
+        let target = DeliveryTarget {
+            account_id: &account_id,
+            chat_id: &chat_id,
+            chat_type: &chat_type,
+            thread_id: Some("thread"),
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let concrete = Arc::new(PreludeRecordingPlugin::new());
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+        let account = final_mode_account(&account_id);
+
+        let first = spawn_stream_pipeline(
+            &plugin,
+            &account,
+            &format!("inbound-first-{suffix}"),
+            &target,
+            true,
+            false,
+        );
+        first
+            .event_sink
+            .send(r#"{"type":"text_delta","content":"first"}"#);
+        let first_outcome = await_stream_pipeline(first).await;
+
+        let second = spawn_stream_pipeline(
+            &plugin,
+            &account,
+            &format!("inbound-second-{suffix}"),
+            &target,
+            true,
+            false,
+        );
+        second
+            .event_sink
+            .send(r#"{"type":"text_delta","content":"second"}"#);
+        let mut second_task = tokio::spawn(await_stream_pipeline(second));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(30), &mut second_task,)
+                .await
+                .is_err(),
+            "stream EOF must not release the first pipeline's outer terminal lane"
+        );
+
+        let first_metrics = deliver_rounds(&plugin, &target, &first_outcome, "first").await;
+        assert!(first_metrics.report.is_success());
+        drop(first_outcome);
+
+        let second_outcome = tokio::time::timeout(std::time::Duration::from_secs(1), second_task)
+            .await
+            .expect("second inbound pipeline should resume after first terminal drop")
+            .expect("second pipeline task should not panic");
+        let second_metrics = deliver_rounds(&plugin, &target, &second_outcome, "second").await;
+        assert!(second_metrics.report.is_success());
+        assert_eq!(concrete.sends(), ["first", "second"]);
+    }
+
     #[tokio::test]
     async fn cancelled_pipeline_does_not_wait_for_a_stuck_preview_task() {
         let pipeline = StreamPipeline {
@@ -631,6 +1370,8 @@ mod tests {
             preview_active: false,
             native_preview: None,
             native_preview_relinquished: None,
+            provider_guard: None,
+            _provider_lane: None,
         };
         let cancel = AtomicBool::new(true);
 
@@ -657,6 +1398,8 @@ mod tests {
             preview_active: true,
             native_preview: None,
             native_preview_relinquished: None,
+            provider_guard: None,
+            _provider_lane: None,
         };
 
         let outcome = await_stream_pipeline(pipeline).await;
@@ -687,6 +1430,8 @@ mod tests {
                     ha_core::channel::types::ReplyStreamPreviewPersistence::Persistent,
             }),
             native_preview_relinquished: Some(Arc::new(AtomicBool::new(true))),
+            provider_guard: None,
+            _provider_lane: None,
         };
 
         let outcome = await_stream_pipeline(pipeline).await;
@@ -706,6 +1451,8 @@ mod tests {
             reply_mode: ImReplyMode::Preview,
             capabilities: empty_capabilities(),
             preview_active: true,
+            provider_guard: None,
+            _provider_lane: None,
         };
         assert!(abort_pipeline_outcome_for_replay(&base, ReplyAbortReason::Cancelled).await);
 
@@ -733,6 +1480,8 @@ mod tests {
                 reply_mode: ImReplyMode::Split,
                 capabilities: empty_capabilities(),
                 preview_active: true,
+                provider_guard: None,
+                _provider_lane: None,
             }
         };
         assert!(
@@ -758,6 +1507,8 @@ mod tests {
             reply_mode: ImReplyMode::Preview,
             capabilities: empty_capabilities(),
             preview_active: true,
+            provider_guard: None,
+            _provider_lane: None,
         };
 
         assert!(abort_pipeline_outcome(&persistent, ReplyAbortReason::Cancelled).await);
@@ -779,6 +1530,8 @@ mod tests {
             reply_mode: ImReplyMode::Preview,
             capabilities: empty_capabilities(),
             preview_active: true,
+            provider_guard: None,
+            _provider_lane: None,
         };
         assert!(
             !abort_pipeline_outcome_for_replay(&replay_attempt, ReplyAbortReason::Cancelled).await
@@ -803,6 +1556,8 @@ mod tests {
             reply_mode: ImReplyMode::Preview,
             capabilities: empty_capabilities(),
             preview_active: true,
+            provider_guard: None,
+            _provider_lane: None,
         };
 
         assert!(error_terminal_allows_replay(&outcome));

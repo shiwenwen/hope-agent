@@ -5,6 +5,7 @@ mod dispatcher;
 pub(crate) mod eviction_watcher;
 mod media;
 pub(crate) mod pipeline;
+pub(crate) mod provider_lane;
 mod slash;
 pub(crate) mod slash_callback;
 mod startup_state;
@@ -14,7 +15,7 @@ mod turn_queue;
 
 pub(crate) use delivery_report::report_delivery_failure;
 pub use dispatcher::spawn_dispatcher;
-pub(crate) use dispatcher::{deliver_media_to_chat, send_text_chunks};
+pub(crate) use dispatcher::{deliver_media_to_chat_with_guard, send_text_chunks_with_guard};
 pub use eviction_watcher::spawn_channel_eviction_watcher;
 pub use startup_watcher::spawn_startup_notifier;
 

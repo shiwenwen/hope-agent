@@ -40,6 +40,19 @@ pub struct ChannelConversation {
     pub updated_at: String,
 }
 
+/// Stable handover boundary captured while publishing an IM attach.
+///
+/// All fields are produced under the same `SessionDB` connection mutex as
+/// the durable `channel_conversations` update. Callers can therefore combine
+/// the in-memory snapshot with the fixed message watermark without leaving a
+/// process-local gap before the new attach becomes visible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChannelAttachBoundary<T> {
+    pub captured: T,
+    pub message_watermark: Option<i64>,
+    pub same_binding: bool,
+}
+
 /// Source-of-attach values stored in `channel_conversations.source`. Use these
 /// constants instead of inline strings so a typo trips the compiler.
 pub const ATTACH_SOURCE_INBOUND: &str = "inbound";
@@ -143,6 +156,134 @@ fn chat_type_str(chat_type: &ChatType) -> &'static str {
         ChatType::Forum => "forum",
         ChatType::Channel => "channel",
     }
+}
+
+fn attached_session_locked(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+) -> Result<Option<String>> {
+    let session_id = if let Some(tid) = thread_id {
+        conn.query_row(
+            "SELECT session_id FROM channel_conversations \
+             WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
+            params![channel_id, account_id, chat_id, tid],
+            |row| row.get(0),
+        )
+        .optional()?
+    } else {
+        conn.query_row(
+            "SELECT session_id FROM channel_conversations \
+             WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
+            params![channel_id, account_id, chat_id],
+            |row| row.get(0),
+        )
+        .optional()?
+    };
+    Ok(session_id)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn attach_session_locked(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+    session_id: &str,
+    source: &str,
+    sender_id: Option<&str>,
+    sender_name: Option<&str>,
+    chat_type: &ChatType,
+) -> Result<Vec<Evictee>> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let chat_type_s = chat_type_str(chat_type);
+
+    // 1. Physically detach any chat currently bound to the target
+    //    session that isn't the incoming chat — 1:1 invariant.
+    //    Each evictee gets a "you've been taken over" notice after the
+    //    caller drops the connection lock.
+    let evicted = evict_others(conn, session_id, channel_id, account_id, chat_id, thread_id)?;
+
+    // 2. UPDATE the existing chat row, or INSERT a new one. If the
+    //    incoming chat was previously attached to another session, the
+    //    UPDATE silently relocates it (the source session is now
+    //    headless — no notice to send because the only attach row was
+    //    this chat itself).
+    let updated = if let Some(tid) = thread_id {
+        conn.execute(
+            "UPDATE channel_conversations \
+             SET session_id = ?1, source = ?2, attached_at = ?3, \
+                 sender_id = COALESCE(?4, sender_id), \
+                 sender_name = COALESCE(?5, sender_name), \
+                 chat_type = ?6, updated_at = ?3 \
+             WHERE channel_id = ?7 AND account_id = ?8 AND chat_id = ?9 AND thread_id = ?10",
+            params![
+                session_id,
+                source,
+                now,
+                sender_id,
+                sender_name,
+                chat_type_s,
+                channel_id,
+                account_id,
+                chat_id,
+                tid,
+            ],
+        )?
+    } else {
+        conn.execute(
+            "UPDATE channel_conversations \
+             SET session_id = ?1, source = ?2, attached_at = ?3, \
+                 sender_id = COALESCE(?4, sender_id), \
+                 sender_name = COALESCE(?5, sender_name), \
+                 chat_type = ?6, updated_at = ?3 \
+             WHERE channel_id = ?7 AND account_id = ?8 AND chat_id = ?9 AND thread_id IS NULL",
+            params![
+                session_id,
+                source,
+                now,
+                sender_id,
+                sender_name,
+                chat_type_s,
+                channel_id,
+                account_id,
+                chat_id,
+            ],
+        )?
+    };
+
+    if updated == 0 {
+        conn.execute(
+            "INSERT INTO channel_conversations \
+                (channel_id, account_id, chat_id, thread_id, session_id, sender_id, \
+                 sender_name, chat_type, source, attached_at, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
+            params![
+                channel_id,
+                account_id,
+                chat_id,
+                thread_id,
+                session_id,
+                sender_id,
+                sender_name,
+                chat_type_s,
+                source,
+                now,
+            ],
+        )?;
+    }
+
+    // 3. Make the attached session non-incognito (channel has external
+    //    counterparty whose messages must persist).
+    conn.execute(
+        "UPDATE sessions SET incognito = 0 WHERE id = ?1 AND incognito = 1",
+        params![session_id],
+    )?;
+
+    Ok(evicted)
 }
 
 fn row_to_conversation(row: &rusqlite::Row) -> rusqlite::Result<ChannelConversation> {
@@ -634,96 +775,86 @@ impl ChannelDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let now = chrono::Utc::now().to_rfc3339();
-        let chat_type_s = chat_type_str(chat_type);
-
-        // 1. Physically detach any chat currently bound to the target
-        //    session that isn't the incoming chat — 1:1 invariant.
-        //    Each evictee gets a "you've been taken over" notice via
-        //    EVENT_CHANNEL_SESSION_EVICTED after we drop the lock.
-        let evicted = evict_others(
-            &conn, session_id, channel_id, account_id, chat_id, thread_id,
-        )?;
-
-        // 2. UPDATE the existing chat row, or INSERT a new one. If the
-        //    incoming chat was previously attached to another session, the
-        //    UPDATE silently relocates it (the source session is now
-        //    headless — no notice to send because the only attach row was
-        //    this chat itself).
-        let updated = if let Some(tid) = thread_id {
-            conn.execute(
-                "UPDATE channel_conversations \
-                 SET session_id = ?1, source = ?2, attached_at = ?3, \
-                     sender_id = COALESCE(?4, sender_id), \
-                     sender_name = COALESCE(?5, sender_name), \
-                     chat_type = ?6, updated_at = ?3 \
-                 WHERE channel_id = ?7 AND account_id = ?8 AND chat_id = ?9 AND thread_id = ?10",
-                params![
-                    session_id,
-                    source,
-                    now,
-                    sender_id,
-                    sender_name,
-                    chat_type_s,
-                    channel_id,
-                    account_id,
-                    chat_id,
-                    tid,
-                ],
-            )?
-        } else {
-            conn.execute(
-                "UPDATE channel_conversations \
-                 SET session_id = ?1, source = ?2, attached_at = ?3, \
-                     sender_id = COALESCE(?4, sender_id), \
-                     sender_name = COALESCE(?5, sender_name), \
-                     chat_type = ?6, updated_at = ?3 \
-                 WHERE channel_id = ?7 AND account_id = ?8 AND chat_id = ?9 AND thread_id IS NULL",
-                params![
-                    session_id,
-                    source,
-                    now,
-                    sender_id,
-                    sender_name,
-                    chat_type_s,
-                    channel_id,
-                    account_id,
-                    chat_id,
-                ],
-            )?
-        };
-
-        if updated == 0 {
-            conn.execute(
-                "INSERT INTO channel_conversations \
-                    (channel_id, account_id, chat_id, thread_id, session_id, sender_id, \
-                     sender_name, chat_type, source, attached_at, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
-                params![
-                    channel_id,
-                    account_id,
-                    chat_id,
-                    thread_id,
-                    session_id,
-                    sender_id,
-                    sender_name,
-                    chat_type_s,
-                    source,
-                    now,
-                ],
-            )?;
-        }
-
-        // 3. Make the attached session non-incognito (channel has external
-        //    counterparty whose messages must persist).
-        conn.execute(
-            "UPDATE sessions SET incognito = 0 WHERE id = ?1 AND incognito = 1",
-            params![session_id],
+        let evicted = attach_session_locked(
+            &conn,
+            channel_id,
+            account_id,
+            chat_id,
+            thread_id,
+            session_id,
+            source,
+            sender_id,
+            sender_name,
+            chat_type,
         )?;
 
         drop(conn);
         emit_evictions(&evicted, session_id);
         Ok(())
+    }
+
+    /// Attach a chat and return a replay boundary from the same connection
+    /// critical section that publishes the durable attach.
+    ///
+    /// While holding the `SessionDB` connection mutex this method, in order:
+    /// checks whether the exact chat already targets `session_id`, invokes
+    /// `capture_in_memory`, reads `MAX(messages.id)` for `session_id`, and
+    /// persists the attach. This closes the process-local gap between a live
+    /// turn snapshot, the static message snapshot watermark, and attach
+    /// visibility.
+    ///
+    /// **`capture_in_memory` may only read in-memory state. It must not call
+    /// any `SessionDB` / `ChannelDB` method or otherwise touch this database**,
+    /// because the connection mutex is held while the callback runs.
+    #[allow(clippy::too_many_arguments)]
+    pub fn attach_session_with_boundary<T>(
+        &self,
+        channel_id: &str,
+        account_id: &str,
+        chat_id: &str,
+        thread_id: Option<&str>,
+        session_id: &str,
+        source: &str,
+        sender_id: Option<&str>,
+        sender_name: Option<&str>,
+        chat_type: &ChatType,
+        capture_in_memory: impl FnOnce() -> T,
+    ) -> Result<ChannelAttachBoundary<T>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let same_binding =
+            attached_session_locked(&conn, channel_id, account_id, chat_id, thread_id)?.as_deref()
+                == Some(session_id);
+        let captured = capture_in_memory();
+        let message_watermark = conn.query_row(
+            "SELECT MAX(id) FROM messages WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get::<_, Option<i64>>(0),
+        )?;
+        let evicted = attach_session_locked(
+            &conn,
+            channel_id,
+            account_id,
+            chat_id,
+            thread_id,
+            session_id,
+            source,
+            sender_id,
+            sender_name,
+            chat_type,
+        )?;
+
+        drop(conn);
+        emit_evictions(&evicted, session_id);
+        Ok(ChannelAttachBoundary {
+            captured,
+            message_watermark,
+            same_binding,
+        })
     }
 
     /// Remove the attach row for (channel, account, chat, thread). Returns
@@ -787,7 +918,7 @@ impl ChannelDB {
 #[cfg(test)]
 mod recent_active_tests {
     use super::*;
-    use crate::session::SessionDB;
+    use crate::session::{NewMessage, SessionDB};
     use chrono::{Duration, Utc};
 
     fn temp_db_path(name: &str) -> std::path::PathBuf {
@@ -864,6 +995,75 @@ mod recent_active_tests {
             params![session_id],
         )
         .expect("mark incognito");
+    }
+
+    #[test]
+    fn attach_boundary_captures_target_watermark_and_same_binding() {
+        let db = open_db("attach-boundary");
+        let agent = crate::agent_loader::DEFAULT_AGENT_ID;
+        let target = db.session.create_session(agent).expect("target session");
+        let other = db.session.create_session(agent).expect("other session");
+
+        let target_watermark = db
+            .session
+            .append_message(&target.id, &NewMessage::user("target message"))
+            .expect("append target message");
+        let other_watermark = db
+            .session
+            .append_message(&other.id, &NewMessage::user("other message"))
+            .expect("append other message");
+        assert!(other_watermark > target_watermark);
+
+        let boundary = db
+            .channel
+            .attach_session_with_boundary(
+                "telegram",
+                "account",
+                "chat",
+                None,
+                &target.id,
+                ATTACH_SOURCE_HANDOVER,
+                None,
+                None,
+                &ChatType::Dm,
+                || "captured-in-memory",
+            )
+            .expect("attach with boundary");
+
+        assert_eq!(boundary.captured, "captured-in-memory");
+        assert_eq!(boundary.message_watermark, Some(target_watermark));
+        assert!(!boundary.same_binding);
+        assert_eq!(
+            db.channel
+                .get_session("telegram", "account", "chat", None)
+                .expect("read attached session")
+                .as_deref(),
+            Some(target.id.as_str())
+        );
+
+        let later_watermark = db
+            .session
+            .append_message(&target.id, &NewMessage::assistant("later reply"))
+            .expect("append later message");
+        let reboundary = db
+            .channel
+            .attach_session_with_boundary(
+                "telegram",
+                "account",
+                "chat",
+                None,
+                &target.id,
+                ATTACH_SOURCE_HANDOVER,
+                None,
+                None,
+                &ChatType::Dm,
+                || 42_u8,
+            )
+            .expect("reattach with boundary");
+
+        assert_eq!(reboundary.captured, 42);
+        assert_eq!(reboundary.message_watermark, Some(later_watermark));
+        assert!(reboundary.same_binding);
     }
 
     #[test]

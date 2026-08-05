@@ -485,23 +485,37 @@ pub(super) async fn dispatch_slash_for_channel(
         Some(CommandAction::AttachToSession {
             session_id: target_sid,
         }) => {
-            if let Err(e) = channel_db.attach_session(
+            // Reserve destination provider order, then publish the binding and
+            // fix its active generation/message watermark in one DB boundary.
+            let catchup = crate::channel::attach_sync::prepare_attach_catchup(
+                &target_sid,
                 channel_id,
                 account_id,
                 chat_id,
                 thread_id,
-                &target_sid,
-                ATTACH_SOURCE_ATTACH,
-                None,
-                None,
-                chat_type,
-            ) {
-                return Ok(ChannelSlashOutcome::Reply {
-                    content: format!("Attach failed: {}", e),
-                    new_session_id: None,
-                    buttons: vec![],
-                });
-            }
+            );
+            let attach_db = channel_db.clone();
+            let attach_chat_type = chat_type.clone();
+            let catchup = match ha_core::blocking::run_blocking(move || {
+                catchup.attach(
+                    &attach_db,
+                    ATTACH_SOURCE_ATTACH,
+                    None,
+                    None,
+                    &attach_chat_type,
+                )
+            })
+            .await
+            {
+                Ok(catchup) => catchup,
+                Err(e) => {
+                    return Ok(ChannelSlashOutcome::Reply {
+                        content: format!("Attach failed: {}", e),
+                        new_session_id: None,
+                        buttons: vec![],
+                    });
+                }
+            };
             // Replay the latest completed turn (assistant text + media) to
             // this chat so the user attaching mid-conversation isn't
             // dropped into a session with zero visible context. Best-effort
@@ -513,6 +527,7 @@ pub(super) async fn dispatch_slash_for_channel(
                 &target_sid,
                 chat_id,
                 thread_id,
+                catchup,
             )
             .await;
             // Future inbound from this chat now resolves to `target_sid`;

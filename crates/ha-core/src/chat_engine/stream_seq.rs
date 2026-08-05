@@ -297,6 +297,15 @@ pub fn stream_id(session_id: &str) -> Option<String> {
     map.get(session_id).map(|e| e.stream_id.clone())
 }
 
+/// Atomic source + stream-id snapshot for an active session. Consumers that
+/// claim a generation-specific side sink must not combine separate source and
+/// id reads across a stream replacement race.
+pub fn stream_identity(session_id: &str) -> Option<(ChatSource, String)> {
+    let map = registry().lock().expect("stream_seq registry poisoned");
+    map.get(session_id)
+        .map(|entry| (entry.source, entry.stream_id.clone()))
+}
+
 /// Whether the session is currently registered (run_chat is running).
 pub fn is_active(session_id: &str) -> bool {
     let map = registry().lock().expect("stream_seq registry poisoned");

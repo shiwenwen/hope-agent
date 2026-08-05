@@ -13,11 +13,13 @@ use super::pipeline::{
     abort_pipeline_outcome, await_stream_pipeline_until_cancel, deliver_rounds,
     spawn_stream_pipeline, DeliveryTarget,
 };
+use super::provider_lane::{ProviderMutationGuard, ProviderMutationOutcome};
 use super::slash::{dispatch_slash_for_channel, render_slash_button_fallback, ChannelSlashOutcome};
 use super::streaming::{
-    append_preview_round_text, claim_unopened_native_error, fail_native_preview,
-    try_claim_native_final, PreviewHandle, CARD_ELEMENT_MAX_CHARS, NATIVE_ACTIVE, NATIVE_AMBIGUOUS,
-    NATIVE_BROKEN, NATIVE_OPENING, NATIVE_SELECTED, NATIVE_TERMINAL,
+    abort_native_preview_with_lane, append_preview_round_text, claim_unopened_native_error,
+    fail_native_preview_with_lane, try_claim_native_final, PreviewHandle, CARD_ELEMENT_MAX_CHARS,
+    NATIVE_ACTIVE, NATIVE_AMBIGUOUS, NATIVE_BROKEN, NATIVE_OPENING, NATIVE_SELECTED,
+    NATIVE_TERMINAL,
 };
 
 /// Maximum number of inbound messages processed concurrently.
@@ -1980,18 +1982,32 @@ pub(super) async fn send_error_reply(
     target: &DeliveryTarget<'_>,
     preview: Option<&PreviewHandle>,
     error_text: &str,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> DeliveryReport {
     if let Some(native @ PreviewHandle::Native { state, .. }) = preview {
         if claim_unopened_native_error(native) {
             // No provider identity exists: this is the one native-preview state
             // where a standalone error is both necessary and provably safe.
-            return send_text_chunks(plugin, target, error_text, None, &[]).await;
+            return send_text_chunks_with_guard(
+                plugin,
+                target,
+                error_text,
+                None,
+                &[],
+                provider_guard,
+            )
+            .await;
         }
         if matches!(
             state.load(Ordering::Acquire),
             NATIVE_OPENING | NATIVE_AMBIGUOUS
         ) {
-            let _ = super::streaming::abort_native_preview(native, ReplyAbortReason::Failed).await;
+            let _ = abort_native_preview_with_lane(
+                native,
+                ReplyAbortReason::Failed,
+                provider_guard.cloned(),
+            )
+            .await;
             return DeliveryReport {
                 attempted: 1,
                 succeeded: 0,
@@ -2002,7 +2018,8 @@ pub(super) async fn send_error_reply(
                 unsafe_to_continue: true,
             };
         }
-        let confirmed = fail_native_preview(native, error_text).await;
+        let confirmed =
+            fail_native_preview_with_lane(native, error_text, provider_guard.cloned()).await;
         return DeliveryReport {
             attempted: 1,
             succeeded: usize::from(confirmed),
@@ -2045,6 +2062,7 @@ pub(super) async fn send_error_reply(
             element_id,
             *sequence,
             error_text,
+            provider_guard,
         )
         .await
         {
@@ -2071,7 +2089,7 @@ pub(super) async fn send_error_reply(
             }
         };
     }
-    send_text_chunks(plugin, target, error_text, preview, &[]).await
+    send_text_chunks_with_guard(plugin, target, error_text, preview, &[], provider_guard).await
 }
 
 /// Write the full response into the streaming card and close streaming.
@@ -2085,6 +2103,7 @@ async fn finalize_card_stream(
     element_id: &str,
     sequence: i64,
     response: &str,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> CardFinalizeOutcome {
     let response_chars = response.chars().count();
     if response_chars > CARD_ELEMENT_MAX_CHARS {
@@ -2100,10 +2119,41 @@ async fn finalize_card_stream(
         ));
     }
 
-    if let Err(e) = plugin
-        .update_card_element(account_id, card_id, element_id, response, sequence)
-        .await
-    {
+    let update_plugin = plugin.clone();
+    let update_account = account_id.to_string();
+    let update_card = card_id.to_string();
+    let update_element = element_id.to_string();
+    let update_response = response.to_string();
+    let update = async move {
+        update_plugin
+            .update_card_element(
+                &update_account,
+                &update_card,
+                &update_element,
+                &update_response,
+                sequence,
+            )
+            .await
+    };
+    let update_result = match run_guarded_provider_mutation(provider_guard, update).await {
+        ProviderMutationOutcome::Completed(result) => result,
+        ProviderMutationOutcome::Invalid => {
+            // The guarded update future was never polled, so there is no
+            // in-flight sequence mutation. Close the existing card with the
+            // last confirmed sequence, bypassing only attach validity.
+            close_confirmed_card_stream(plugin, account_id, card_id, sequence, provider_guard)
+                .await;
+            return CardFinalizeOutcome::Unsafe(
+                "IM mirror attach changed before card final update".to_string(),
+            );
+        }
+        ProviderMutationOutcome::TaskFailed => {
+            return CardFinalizeOutcome::Unsafe(
+                "card final update task failed; provider outcome is ambiguous".to_string(),
+            );
+        }
+    };
+    if let Err(e) = update_result {
         app_warn!(
             "channel",
             "worker",
@@ -2114,22 +2164,50 @@ async fn finalize_card_stream(
         return CardFinalizeOutcome::Unsafe(format!("update_card_element (seq={sequence}): {e}"));
     }
 
-    if let Err(e) = plugin
-        .close_card_stream(account_id, card_id, sequence + 1)
-        .await
-    {
-        // Card content was committed; close failure is cosmetic (10-min
-        // auto-close is the safety net), no fallback needed.
+    close_confirmed_card_stream(plugin, account_id, card_id, sequence + 1, provider_guard).await;
+
+    CardFinalizeOutcome::Confirmed
+}
+
+async fn close_confirmed_card_stream(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    card_id: &str,
+    sequence: i64,
+    provider_guard: Option<&ProviderMutationGuard>,
+) {
+    let close_plugin = plugin.clone();
+    let close_account = account_id.to_string();
+    let close_card = card_id.to_string();
+    let close = async move {
+        close_plugin
+            .close_card_stream(&close_account, &close_card, sequence)
+            .await
+    };
+    let close_result = match provider_guard {
+        Some(guard) => match guard.submit_cleanup(close).wait().await {
+            ProviderMutationOutcome::Completed(result) => result,
+            ProviderMutationOutcome::Invalid => {
+                Err(anyhow::anyhow!("card cleanup checked live validity"))
+            }
+            ProviderMutationOutcome::TaskFailed => {
+                Err(anyhow::anyhow!("provider card close task failed"))
+            }
+        },
+        None => close.await,
+    };
+    if let Err(error) = close_result {
+        // A confirmed update already owns the visible content. Close failure
+        // is cosmetic (provider expiry remains the safety net) and must never
+        // trigger a duplicate standalone fallback.
         app_warn!(
             "channel",
             "worker",
             "close_card_stream failed (seq={}): {}",
-            sequence + 1,
-            e
+            sequence,
+            ha_core::logging::redact_sensitive(&error.to_string())
         );
     }
-
-    CardFinalizeOutcome::Confirmed
 }
 
 /// Split the response into native-rendered chunks and deliver them via
@@ -2148,12 +2226,37 @@ async fn finalize_card_stream(
 /// Visible to the rest of the crate so attach catch-up + future mirror
 /// paths can reuse the same chunk-aware `markdown_to_native` →
 /// `chunk_message` → `send_message` sequence used by the live dispatcher.
+async fn run_guarded_provider_mutation<T, Fut>(
+    provider_guard: Option<&ProviderMutationGuard>,
+    mutation: Fut,
+) -> ProviderMutationOutcome<T>
+where
+    T: Send + 'static,
+    Fut: std::future::Future<Output = T> + Send + 'static,
+{
+    match provider_guard {
+        Some(guard) => guard.run(mutation).await,
+        None => ProviderMutationOutcome::Completed(mutation.await),
+    }
+}
+
 pub(crate) async fn send_text_chunks(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
     response: &str,
     preview: Option<&PreviewHandle>,
     buttons: &[Vec<InlineButton>],
+) -> DeliveryReport {
+    send_text_chunks_with_guard(plugin, target, response, preview, buttons, None).await
+}
+
+pub(crate) async fn send_text_chunks_with_guard(
+    plugin: &Arc<dyn ChannelPlugin>,
+    target: &DeliveryTarget<'_>,
+    response: &str,
+    preview: Option<&PreviewHandle>,
+    buttons: &[Vec<InlineButton>],
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> DeliveryReport {
     let mut report = DeliveryReport::default();
     if let Err(error) = plugin.validate_reply_buttons(buttons) {
@@ -2215,13 +2318,21 @@ pub(crate) async fn send_text_chunks(
         let delivery = if i == 0 {
             match preview {
                 Some(PreviewHandle::Message { message_id }) => {
-                    match plugin
-                        .edit_message(target.account_id, target.chat_id, message_id, &payload)
-                        .await
-                    {
-                        Ok(result) if result.success => Ok(result),
-                        Ok(result) => {
-                            app_warn!(
+                    let plugin = plugin.clone();
+                    let account_id = target.account_id.to_string();
+                    let chat_id = target.chat_id.to_string();
+                    let message_id = message_id.clone();
+                    let payload = payload.clone();
+                    let mutation = async move {
+                        plugin
+                            .edit_message(&account_id, &chat_id, &message_id, &payload)
+                            .await
+                    };
+                    match run_guarded_provider_mutation(provider_guard, mutation).await {
+                        ProviderMutationOutcome::Completed(result) => match result {
+                            Ok(result) if result.success => Ok(result),
+                            Ok(result) => {
+                                app_warn!(
                                 "channel",
                                 "worker",
                                 "Preview final edit was not acknowledged; suppressing duplicate send: {}",
@@ -2232,29 +2343,82 @@ pub(crate) async fn send_text_chunks(
                                         .unwrap_or("platform rejected edit")
                                 )
                             );
-                            Ok(result)
-                        }
-                        Err(e) => {
-                            app_warn!(
+                                Ok(result)
+                            }
+                            Err(e) => {
+                                app_warn!(
                                 "channel",
                                 "worker",
                                 "Preview final edit outcome is ambiguous; suppressing duplicate send: {}",
                                 e
                             );
-                            Err(e)
+                                Err(e)
+                            }
+                        },
+                        ProviderMutationOutcome::Invalid => {
+                            report
+                                .failures
+                                .push("IM mirror attach changed before text edit".to_string());
+                            report.unsafe_to_continue = true;
+                            break;
+                        }
+                        ProviderMutationOutcome::TaskFailed => {
+                            report.failures.push(
+                                "text edit task failed; provider outcome is ambiguous".to_string(),
+                            );
+                            report.unsafe_to_continue = true;
+                            break;
                         }
                     }
                 }
                 _ => {
-                    plugin
-                        .send_message(target.account_id, target.chat_id, &payload)
-                        .await
+                    let plugin = plugin.clone();
+                    let account_id = target.account_id.to_string();
+                    let chat_id = target.chat_id.to_string();
+                    let mutation =
+                        async move { plugin.send_message(&account_id, &chat_id, &payload).await };
+                    match run_guarded_provider_mutation(provider_guard, mutation).await {
+                        ProviderMutationOutcome::Completed(result) => result,
+                        ProviderMutationOutcome::Invalid => {
+                            report
+                                .failures
+                                .push("IM mirror attach changed before text send".to_string());
+                            report.unsafe_to_continue = true;
+                            break;
+                        }
+                        ProviderMutationOutcome::TaskFailed => {
+                            report.failures.push(
+                                "text send task failed; provider outcome is ambiguous".to_string(),
+                            );
+                            report.unsafe_to_continue = true;
+                            break;
+                        }
+                    }
                 }
             }
         } else {
-            plugin
-                .send_message(target.account_id, target.chat_id, &payload)
-                .await
+            let plugin = plugin.clone();
+            let account_id = target.account_id.to_string();
+            let chat_id = target.chat_id.to_string();
+            let mutation =
+                async move { plugin.send_message(&account_id, &chat_id, &payload).await };
+            match run_guarded_provider_mutation(provider_guard, mutation).await {
+                ProviderMutationOutcome::Completed(result) => result,
+                ProviderMutationOutcome::Invalid => {
+                    report
+                        .failures
+                        .push("IM mirror attach changed before text send".to_string());
+                    report.unsafe_to_continue = true;
+                    break;
+                }
+                ProviderMutationOutcome::TaskFailed => {
+                    report
+                        .failures
+                        .push("text send task failed; provider outcome is ambiguous".to_string());
+                    report.unsafe_to_continue = true;
+                    break;
+                }
+            }
         };
 
         match delivery {
@@ -2341,6 +2505,7 @@ pub(super) async fn deliver_split(
     preview: Option<&PreviewHandle>,
     finalized_rounds: usize,
     caps: &ChannelCapabilities,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> DeliveryMetrics {
     let mut metrics = DeliveryMetrics::default();
     if rounds.is_empty() {
@@ -2353,6 +2518,7 @@ pub(super) async fn deliver_split(
             &[],
             false,
             caps,
+            provider_guard,
         )
         .await;
         metrics.text_chars = fallback_response.chars().count();
@@ -2400,6 +2566,7 @@ pub(super) async fn deliver_split(
                 &[],
                 false,
                 caps,
+                provider_guard,
             )
             .await;
             metrics.report.merge(report);
@@ -2418,7 +2585,15 @@ pub(super) async fn deliver_split(
                     recipient_user_id: target.recipient_user_id,
                     recipient_tenant_id: target.recipient_tenant_id,
                 };
-                let report = send_text_chunks(plugin, &pre_target, &round.text, None, &[]).await;
+                let report = send_text_chunks_with_guard(
+                    plugin,
+                    &pre_target,
+                    &round.text,
+                    None,
+                    &[],
+                    provider_guard,
+                )
+                .await;
                 let can_continue = !report.unsafe_to_continue;
                 metrics.report.merge(report);
                 metrics.text_chars += round.text.chars().count();
@@ -2427,7 +2602,14 @@ pub(super) async fn deliver_split(
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
-            let report = deliver_media_to_chat(plugin, target, &round.medias, caps).await;
+            let report = deliver_media_to_chat_with_guard(
+                plugin,
+                target,
+                &round.medias,
+                caps,
+                provider_guard,
+            )
+            .await;
             let can_continue = !report.unsafe_to_continue;
             metrics.report.merge(report);
             metrics.media_count += round.medias.len();
@@ -2449,6 +2631,7 @@ pub(super) async fn deliver_final_only(
     rounds: &[ha_core::chat_engine::RoundOutput],
     fallback_response: &str,
     caps: &ChannelCapabilities,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> DeliveryMetrics {
     let final_text: String = rounds
         .last()
@@ -2470,6 +2653,7 @@ pub(super) async fn deliver_final_only(
         &[],
         true,
         caps,
+        provider_guard,
     )
     .await;
     DeliveryMetrics {
@@ -2496,6 +2680,7 @@ pub(super) async fn deliver_preview_merged(
     fallback_response: &str,
     preview: Option<&PreviewHandle>,
     caps: &ChannelCapabilities,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> DeliveryMetrics {
     let final_text: String = if rounds.is_empty() {
         fallback_response.to_string()
@@ -2522,6 +2707,7 @@ pub(super) async fn deliver_preview_merged(
         &[],
         false,
         caps,
+        provider_guard,
     )
     .await;
     DeliveryMetrics {
@@ -2565,8 +2751,53 @@ pub(super) fn merge_preview_round_texts(rounds: &[ha_core::chat_engine::RoundOut
 async fn run_native_commit(
     stream: Box<dyn ha_core::channel::traits::ChannelReplyStream>,
     reply: RichReply,
+    provider_guard: Option<ProviderMutationGuard>,
 ) -> Result<RichReplyReceipt, Option<ReplyStreamError>> {
-    tokio::spawn(async move { stream.commit(&reply).await })
+    if let Some(provider_guard) = provider_guard {
+        enum CommitOutcome {
+            Committed(std::result::Result<RichReplyReceipt, ReplyStreamError>),
+            Detached(std::result::Result<(), ReplyStreamError>),
+        }
+
+        // This mutation already owns a persistent remote stream. A normal
+        // guarded submission would skip polling when the attach becomes
+        // invalid and merely drop the handle, leaving the remote stream open.
+        // Decide commit-vs-abort inside the process-lifetime job instead.
+        let validity = provider_guard.clone();
+        let mutation = async move {
+            let still_valid = validity.is_valid_async().await;
+            if still_valid {
+                CommitOutcome::Committed(stream.commit(&reply).await)
+            } else {
+                CommitOutcome::Detached(stream.abort(ReplyAbortReason::Detached).await)
+            }
+        };
+        return match provider_guard
+            .submit_resilient_cleanup(mutation, |_| async {})
+            .wait()
+            .await
+        {
+            ProviderMutationOutcome::Completed(CommitOutcome::Committed(result)) => {
+                result.map_err(Some)
+            }
+            ProviderMutationOutcome::Completed(CommitOutcome::Detached(result)) => {
+                if let Err(error) = result {
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "Failed to abort stale native reply before final commit: {}",
+                        ha_core::logging::redact_sensitive(&error.to_string())
+                    );
+                }
+                Err(None)
+            }
+            // Invalid is unreachable for the cleanup variant, but remains a
+            // fail-closed arm if that executor contract changes.
+            ProviderMutationOutcome::Invalid | ProviderMutationOutcome::TaskFailed => Err(None),
+        };
+    }
+    let mutation = async move { stream.commit(&reply).await };
+    tokio::spawn(mutation)
         .await
         .map_err(|error| {
             Some(ReplyStreamError::new(
@@ -2581,8 +2812,16 @@ async fn run_native_send(
     plugin: Arc<dyn ChannelPlugin>,
     target: ReplyStreamTarget,
     reply: RichReply,
+    provider_guard: Option<ProviderMutationGuard>,
 ) -> Result<RichReplyReceipt, Option<ReplyStreamError>> {
-    tokio::spawn(async move { plugin.send_rich_reply(&target, &reply).await })
+    let mutation = async move { plugin.send_rich_reply(&target, &reply).await };
+    if let Some(provider_guard) = provider_guard {
+        return match provider_guard.submit(mutation).wait().await {
+            ProviderMutationOutcome::Completed(result) => result.map_err(Some),
+            ProviderMutationOutcome::Invalid | ProviderMutationOutcome::TaskFailed => Err(None),
+        };
+    }
+    tokio::spawn(mutation)
         .await
         .map_err(|error| {
             Some(ReplyStreamError::new(
@@ -2634,6 +2873,7 @@ async fn deliver_deferred_buttons(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
     buttons: &[Vec<InlineButton>],
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> DeliveryReport {
     if buttons.is_empty() {
         return DeliveryReport::default();
@@ -2650,7 +2890,15 @@ async fn deliver_deferred_buttons(
         recipient_user_id: target.recipient_user_id,
         recipient_tenant_id: target.recipient_tenant_id,
     };
-    send_text_chunks(plugin, &action_target, "Actions", None, buttons).await
+    send_text_chunks_with_guard(
+        plugin,
+        &action_target,
+        "Actions",
+        None,
+        buttons,
+        provider_guard,
+    )
+    .await
 }
 
 pub(crate) async fn send_final_reply(
@@ -2662,11 +2910,17 @@ pub(crate) async fn send_final_reply(
     buttons: &[Vec<InlineButton>],
     allow_standalone_native: bool,
     caps: &ChannelCapabilities,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> DeliveryReport {
     let mut report = DeliveryReport::default();
     if let Err(error) = plugin.validate_reply_buttons(buttons) {
         if let Some(native @ PreviewHandle::Native { .. }) = preview {
-            let _ = super::streaming::abort_native_preview(native, ReplyAbortReason::Failed).await;
+            let _ = abort_native_preview_with_lane(
+                native,
+                ReplyAbortReason::Failed,
+                provider_guard.cloned(),
+            )
+            .await;
         }
         let error = ha_core::logging::redact_sensitive(&error.to_string());
         app_warn!(
@@ -2743,12 +2997,20 @@ pub(crate) async fn send_final_reply(
                 if native_caps.final_chat_types.contains(target.chat_type) {
                     Some((
                         match stream {
-                            Some(stream) => run_native_commit(stream, rich_reply.clone()).await,
+                            Some(stream) => {
+                                run_native_commit(
+                                    stream,
+                                    rich_reply.clone(),
+                                    provider_guard.cloned(),
+                                )
+                                .await
+                            }
                             None => {
                                 run_native_send(
                                     plugin.clone(),
                                     stream_target.clone(),
                                     rich_reply.clone(),
+                                    provider_guard.cloned(),
                                 )
                                 .await
                             }
@@ -2761,9 +3023,17 @@ pub(crate) async fn send_final_reply(
                         // subset of final types. Keep this defensive mismatch
                         // cleanup detached so a future adapter regression can
                         // neither hang nor cancel legacy final delivery.
-                        drop(tokio::spawn(async move {
+                        let abort = async move {
                             let _ = stream.abort(ReplyAbortReason::Detached).await;
-                        }));
+                        };
+                        if let Some(provider_guard) = provider_guard {
+                            // Submission is synchronous and survives this
+                            // caller/runtime; dropping the ticket only drops
+                            // the result receiver.
+                            drop(provider_guard.submit_cleanup(abort));
+                        } else {
+                            drop(tokio::spawn(abort));
+                        }
                     }
                     None
                 }
@@ -2790,9 +3060,15 @@ pub(crate) async fn send_final_reply(
                         let stream = session.lock().await.take();
                         state.store(NATIVE_TERMINAL, Ordering::Release);
                         match stream {
-                            Some(stream) => {
-                                Some((run_native_commit(stream, rich_reply.clone()).await, false))
-                            }
+                            Some(stream) => Some((
+                                run_native_commit(
+                                    stream,
+                                    rich_reply.clone(),
+                                    provider_guard.cloned(),
+                                )
+                                .await,
+                                false,
+                            )),
                             None => Some((Err(None), false)),
                         }
                     }
@@ -2804,6 +3080,7 @@ pub(crate) async fn send_final_reply(
                                     plugin.clone(),
                                     stream_target.clone(),
                                     rich_reply.clone(),
+                                    provider_guard.cloned(),
                                 )
                                 .await,
                                 true,
@@ -2820,8 +3097,13 @@ pub(crate) async fn send_final_reply(
                 && native_caps.final_chat_types.contains(target.chat_type) =>
             {
                 Some((
-                    run_native_send(plugin.clone(), stream_target.clone(), rich_reply.clone())
-                        .await,
+                    run_native_send(
+                        plugin.clone(),
+                        stream_target.clone(),
+                        rich_reply.clone(),
+                        provider_guard.cloned(),
+                    )
+                    .await,
                     true,
                 ))
             }
@@ -2852,12 +3134,20 @@ pub(crate) async fn send_final_reply(
                         .filter(|(index, _)| *index >= consumed_prefix_len)
                         .map(|(_, item)| item.clone())
                         .collect();
-                    let media_report =
-                        deliver_media_to_chat(plugin, target, &remaining, caps).await;
+                    let media_report = deliver_media_to_chat_with_guard(
+                        plugin,
+                        target,
+                        &remaining,
+                        caps,
+                        provider_guard,
+                    )
+                    .await;
                     let can_continue = !media_report.unsafe_to_continue;
                     report.merge(media_report);
                     if defer_buttons && can_continue {
-                        report.merge(deliver_deferred_buttons(plugin, target, buttons).await);
+                        report.merge(
+                            deliver_deferred_buttons(plugin, target, buttons, provider_guard).await,
+                        );
                     }
                     return report;
                 }
@@ -2911,6 +3201,7 @@ pub(crate) async fn send_final_reply(
                 element_id,
                 *sequence,
                 response,
+                provider_guard,
             )
             .await
             {
@@ -2941,8 +3232,15 @@ pub(crate) async fn send_final_reply(
 
     if response_has_text && !card_finalized {
         let chunk_preview = preview;
-        let text_report =
-            send_text_chunks(plugin, target, response, chunk_preview, content_buttons).await;
+        let text_report = send_text_chunks_with_guard(
+            plugin,
+            target,
+            response,
+            chunk_preview,
+            content_buttons,
+            provider_guard,
+        )
+        .await;
         let can_continue = !text_report.unsafe_to_continue;
         report.merge(text_report);
         if !can_continue {
@@ -2953,11 +3251,12 @@ pub(crate) async fn send_final_reply(
         report.succeeded += 1;
     }
 
-    let media_report = deliver_media_to_chat(plugin, target, pending_media, caps).await;
+    let media_report =
+        deliver_media_to_chat_with_guard(plugin, target, pending_media, caps, provider_guard).await;
     let can_continue = !media_report.unsafe_to_continue;
     report.merge(media_report);
     if defer_buttons && can_continue {
-        report.merge(deliver_deferred_buttons(plugin, target, buttons).await);
+        report.merge(deliver_deferred_buttons(plugin, target, buttons, provider_guard).await);
     }
     report
 }
@@ -2966,6 +3265,7 @@ async fn deliver_media_fallback_links(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
     items: &[&ha_core::attachments::MediaItem],
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> DeliveryReport {
     let Some(text) = build_media_fallback_lines(items) else {
         return DeliveryReport::default();
@@ -2980,7 +3280,7 @@ async fn deliver_media_fallback_links(
         recipient_user_id: target.recipient_user_id,
         recipient_tenant_id: target.recipient_tenant_id,
     };
-    send_text_chunks(plugin, &fallback_target, &text, None, &[]).await
+    send_text_chunks_with_guard(plugin, &fallback_target, &text, None, &[], provider_guard).await
 }
 
 /// Send media in original attachment order. At most five items are attempted
@@ -2988,11 +3288,22 @@ async fn deliver_media_fallback_links(
 /// fallback instead of being dropped. Any attempted send without a confirmed
 /// success stops the ordered sequence: legacy `DeliveryResult` has no typed
 /// zero-delivery proof, so retrying as a link could duplicate accepted media.
+#[cfg(test)]
 pub(crate) async fn deliver_media_to_chat(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
     items: &[ha_core::attachments::MediaItem],
     caps: &ChannelCapabilities,
+) -> DeliveryReport {
+    deliver_media_to_chat_with_guard(plugin, target, items, caps, None).await
+}
+
+pub(crate) async fn deliver_media_to_chat_with_guard(
+    plugin: &Arc<dyn ChannelPlugin>,
+    target: &DeliveryTarget<'_>,
+    items: &[ha_core::attachments::MediaItem],
+    caps: &ChannelCapabilities,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> DeliveryReport {
     let mut report = DeliveryReport::default();
     if items.is_empty() {
@@ -3003,7 +3314,8 @@ pub(crate) async fn deliver_media_to_chat(
     for (index, it) in items.iter().enumerate() {
         if index >= MAX_MEDIA_PER_TURN {
             let suffix = items[index..].iter().collect::<Vec<_>>();
-            let fallback = deliver_media_fallback_links(plugin, target, &suffix).await;
+            let fallback =
+                deliver_media_fallback_links(plugin, target, &suffix, provider_guard).await;
             report.merge(fallback);
             return report;
         }
@@ -3011,7 +3323,8 @@ pub(crate) async fn deliver_media_to_chat(
         let Some(native_type) = legacy_native_media_type(it, caps)
             .filter(|_| native_media_supported_for_target(&channel_id, target.chat_id, it))
         else {
-            let fallback = deliver_media_fallback_links(plugin, target, &[it]).await;
+            let fallback =
+                deliver_media_fallback_links(plugin, target, &[it], provider_guard).await;
             let can_continue = !fallback.unsafe_to_continue;
             report.merge(fallback);
             if !can_continue {
@@ -3031,11 +3344,16 @@ pub(crate) async fn deliver_media_to_chat(
             thread_id: target.thread_id.map(str::to_string),
             draft_id: None,
         };
-        match plugin
-            .send_message(target.account_id, target.chat_id, &payload)
-            .await
-        {
-            Ok(r) if !r.success => {
+        let media_plugin = plugin.clone();
+        let media_account = target.account_id.to_string();
+        let media_chat = target.chat_id.to_string();
+        let mutation = async move {
+            media_plugin
+                .send_message(&media_account, &media_chat, &payload)
+                .await
+        };
+        match run_guarded_provider_mutation(provider_guard, mutation).await {
+            ProviderMutationOutcome::Completed(Ok(r)) if !r.success => {
                 let error = ha_core::logging::redact_sensitive(
                     &r.error
                         .unwrap_or_else(|| "platform rejected media".to_string()),
@@ -3055,7 +3373,7 @@ pub(crate) async fn deliver_media_to_chat(
                 report.unsafe_to_continue = true;
                 return report;
             }
-            Err(e) => {
+            ProviderMutationOutcome::Completed(Err(e)) => {
                 let error = ha_core::logging::redact_sensitive(&e.to_string());
                 app_error!(
                     "channel",
@@ -3068,7 +3386,21 @@ pub(crate) async fn deliver_media_to_chat(
                 report.unsafe_to_continue = true;
                 return report;
             }
-            Ok(_) => report.succeeded += 1,
+            ProviderMutationOutcome::Completed(Ok(_)) => report.succeeded += 1,
+            ProviderMutationOutcome::Invalid => {
+                report
+                    .failures
+                    .push("IM mirror attach changed before media send".to_string());
+                report.unsafe_to_continue = true;
+                return report;
+            }
+            ProviderMutationOutcome::TaskFailed => {
+                report
+                    .failures
+                    .push("media send task failed; provider outcome is ambiguous".to_string());
+                report.unsafe_to_continue = true;
+                return report;
+            }
         }
     }
     report
@@ -3570,7 +3902,8 @@ mod tests {
             recipient_tenant_id: None,
         };
 
-        let report = send_error_reply(&plugin, &target, Some(&preview), "terminal error").await;
+        let report =
+            send_error_reply(&plugin, &target, Some(&preview), "terminal error", None).await;
 
         assert!(report.is_success());
         assert_eq!(
@@ -3606,7 +3939,8 @@ mod tests {
             recipient_tenant_id: None,
         };
 
-        let report = send_error_reply(&plugin, &target, Some(&preview), "terminal error").await;
+        let report =
+            send_error_reply(&plugin, &target, Some(&preview), "terminal error", None).await;
 
         assert!(report.is_success());
         assert_eq!(
@@ -3639,7 +3973,8 @@ mod tests {
                 recipient_tenant_id: None,
             };
 
-            let report = send_error_reply(&plugin, &target, Some(&preview), "terminal error").await;
+            let report =
+                send_error_reply(&plugin, &target, Some(&preview), "terminal error", None).await;
 
             assert!(!report.is_success());
             assert!(report.unsafe_to_continue);
@@ -3673,7 +4008,8 @@ mod tests {
             recipient_tenant_id: None,
         };
 
-        let report = send_error_reply(&plugin, &target, Some(&preview), "terminal error").await;
+        let report =
+            send_error_reply(&plugin, &target, Some(&preview), "terminal error", None).await;
 
         assert!(!report.is_success());
         assert!(report.unsafe_to_continue);
@@ -3711,7 +4047,7 @@ mod tests {
         ];
         let caps = plugin.capabilities();
 
-        let _ = deliver_split(&plugin, &target, &rounds, "fallback", None, 0, &caps).await;
+        let _ = deliver_split(&plugin, &target, &rounds, "fallback", None, 0, &caps, None).await;
 
         let sends = plugin_concrete.sends.lock().unwrap().clone();
 
@@ -3765,14 +4101,34 @@ mod tests {
         // the turn's first outbound message, so it carries the quote.
         let p0 = Arc::new(CountingPlugin::new(4096));
         let dyn0: Arc<dyn ChannelPlugin> = p0.clone();
-        let _ = deliver_split(&dyn0, &target, &rounds, "fb", None, 0, &dyn0.capabilities()).await;
+        let _ = deliver_split(
+            &dyn0,
+            &target,
+            &rounds,
+            "fb",
+            None,
+            0,
+            &dyn0.capabilities(),
+            None,
+        )
+        .await;
         assert_eq!(p0.last_reply_to(), Some(Some("m1".to_string())));
 
         // Stream task already shipped (and quoted) round 0 inline
         // (finalized_rounds = 1): the trailing round must not stack a 2nd quote.
         let p1 = Arc::new(CountingPlugin::new(4096));
         let dyn1: Arc<dyn ChannelPlugin> = p1.clone();
-        let _ = deliver_split(&dyn1, &target, &rounds, "fb", None, 1, &dyn1.capabilities()).await;
+        let _ = deliver_split(
+            &dyn1,
+            &target,
+            &rounds,
+            "fb",
+            None,
+            1,
+            &dyn1.capabilities(),
+            None,
+        )
+        .await;
         assert_eq!(p1.last_reply_to(), Some(None));
     }
 
@@ -3910,6 +4266,7 @@ mod tests {
             &[],
             true,
             &capabilities,
+            None,
         )
         .await;
 
@@ -3954,6 +4311,7 @@ mod tests {
             &buttons,
             false,
             &caps(vec![MediaType::Document]),
+            None,
         )
         .await;
 
@@ -3993,6 +4351,7 @@ mod tests {
             &buttons,
             false,
             &caps(vec![MediaType::Document]),
+            None,
         )
         .await;
 
@@ -4095,6 +4454,7 @@ mod tests {
             &[],
             false,
             &caps(vec![MediaType::Document]),
+            None,
         )
         .await;
 
@@ -4129,6 +4489,7 @@ mod tests {
             &[],
             false,
             &caps(Vec::new()),
+            None,
         )
         .await;
 
@@ -4170,6 +4531,7 @@ mod tests {
             &buttons,
             false,
             &caps,
+            None,
         )
         .await;
 
@@ -4179,5 +4541,256 @@ mod tests {
             ["text", "media", "buttons"]
         );
         assert_eq!(plugin_concrete.last_reply_to(), Some(None));
+    }
+
+    struct CommitCleanupStream {
+        commits: Arc<AtomicUsize>,
+        detached_aborts: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl ha_core::channel::traits::ChannelReplyStream for CommitCleanupStream {
+        async fn push(
+            &mut self,
+            _frame: &ReplyStreamFrame,
+        ) -> std::result::Result<(), ReplyStreamError> {
+            unreachable!("commit cleanup test does not push")
+        }
+
+        async fn commit(
+            self: Box<Self>,
+            _final_reply: &RichReply,
+        ) -> std::result::Result<RichReplyReceipt, ReplyStreamError> {
+            self.commits.fetch_add(1, Ordering::AcqRel);
+            unreachable!("stale native stream must not commit")
+        }
+
+        async fn abort(
+            self: Box<Self>,
+            reason: ReplyAbortReason,
+        ) -> std::result::Result<(), ReplyStreamError> {
+            assert_eq!(reason, ReplyAbortReason::Detached);
+            self.detached_aborts.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_native_commit_aborts_existing_stream_instead_of_dropping_handle() {
+        let suffix = uuid::Uuid::new_v4();
+        let account_id = format!("stale-commit-account-{suffix}");
+        let chat_id = format!("stale-commit-chat-{suffix}");
+        let target = DeliveryTarget {
+            account_id: &account_id,
+            chat_id: &chat_id,
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let lane = super::super::provider_lane::reserve_provider_lane(&target);
+        let provider_guard =
+            ProviderMutationGuard::new(lane.waiter(), lane.task_hold(), Arc::new(|| false));
+        let commits = Arc::new(AtomicUsize::new(0));
+        let detached_aborts = Arc::new(AtomicUsize::new(0));
+        let stream = Box::new(CommitCleanupStream {
+            commits: commits.clone(),
+            detached_aborts: detached_aborts.clone(),
+        });
+
+        let result = run_native_commit(
+            stream,
+            RichReply {
+                markdown: "final".to_string(),
+                media: Vec::new(),
+                buttons: Vec::new(),
+            },
+            Some(provider_guard),
+        )
+        .await;
+
+        assert!(matches!(result, Err(None)));
+        assert_eq!(commits.load(Ordering::Acquire), 0);
+        assert_eq!(detached_aborts.load(Ordering::Acquire), 1);
+        drop(lane);
+    }
+
+    struct CardFinalizationPlugin {
+        fail_update: bool,
+        updates: AtomicUsize,
+        closes: Mutex<Vec<i64>>,
+    }
+
+    impl CardFinalizationPlugin {
+        fn new(fail_update: bool) -> Self {
+            Self {
+                fail_update,
+                updates: AtomicUsize::new(0),
+                closes: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ChannelPlugin for CardFinalizationPlugin {
+        fn meta(&self) -> ChannelMeta {
+            ChannelMeta {
+                id: ChannelId::Custom("card-finalization-test".to_string()),
+                display_name: "Card finalization test".to_string(),
+                description: String::new(),
+                version: "0".to_string(),
+            }
+        }
+
+        fn capabilities(&self) -> ChannelCapabilities {
+            caps(Vec::new())
+        }
+
+        async fn start_account(
+            &self,
+            _account: &ChannelAccountConfig,
+            _inbound_tx: mpsc::Sender<InboundEvent>,
+            _cancel: CancellationToken,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn stop_account(&self, _account_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn send_message(
+            &self,
+            _account_id: &str,
+            _chat_id: &str,
+            _payload: &ReplyPayload,
+        ) -> Result<DeliveryResult> {
+            unreachable!("card finalization test does not send messages")
+        }
+
+        async fn send_typing(&self, _account_id: &str, _chat_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn update_card_element(
+            &self,
+            _account_id: &str,
+            _card_id: &str,
+            _element_id: &str,
+            _content: &str,
+            _sequence: i64,
+        ) -> std::result::Result<(), CardStreamError> {
+            self.updates.fetch_add(1, Ordering::AcqRel);
+            if self.fail_update {
+                Err(CardStreamError::Other(
+                    "synthetic ambiguous update".to_string(),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn close_card_stream(
+            &self,
+            _account_id: &str,
+            _card_id: &str,
+            sequence: i64,
+        ) -> Result<()> {
+            self.closes.lock().unwrap().push(sequence);
+            Ok(())
+        }
+
+        async fn probe(&self, _account: &ChannelAccountConfig) -> Result<ChannelHealth> {
+            Ok(ChannelHealth::default())
+        }
+
+        fn check_access(&self, _account: &ChannelAccountConfig, _msg: &MsgContext) -> bool {
+            true
+        }
+
+        fn markdown_to_native(&self, markdown: &str) -> String {
+            markdown.to_string()
+        }
+
+        async fn validate_credentials(&self, _credentials: &serde_json::Value) -> Result<String> {
+            Ok("test".to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_card_final_update_closes_last_confirmed_sequence() {
+        let suffix = uuid::Uuid::new_v4();
+        let account_id = format!("invalid-card-account-{suffix}");
+        let chat_id = format!("invalid-card-chat-{suffix}");
+        let target = DeliveryTarget {
+            account_id: &account_id,
+            chat_id: &chat_id,
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let lane = super::super::provider_lane::reserve_provider_lane(&target);
+        let provider_guard =
+            ProviderMutationGuard::new(lane.waiter(), lane.task_hold(), Arc::new(|| false));
+        let concrete = Arc::new(CardFinalizationPlugin::new(false));
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+
+        let outcome = finalize_card_stream(
+            &plugin,
+            &account_id,
+            "card",
+            "element",
+            7,
+            "final",
+            Some(&provider_guard),
+        )
+        .await;
+
+        assert!(matches!(outcome, CardFinalizeOutcome::Unsafe(_)));
+        assert_eq!(concrete.updates.load(Ordering::Acquire), 0);
+        assert_eq!(concrete.closes.lock().unwrap().as_slice(), [7]);
+        drop(provider_guard);
+        drop(lane);
+    }
+
+    #[tokio::test]
+    async fn ambiguous_card_final_update_never_appends_close_mutation() {
+        let suffix = uuid::Uuid::new_v4();
+        let account_id = format!("ambiguous-card-account-{suffix}");
+        let chat_id = format!("ambiguous-card-chat-{suffix}");
+        let target = DeliveryTarget {
+            account_id: &account_id,
+            chat_id: &chat_id,
+            chat_type: &ChatType::Dm,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let lane = super::super::provider_lane::reserve_provider_lane(&target);
+        let provider_guard =
+            ProviderMutationGuard::new(lane.waiter(), lane.task_hold(), Arc::new(|| true));
+        let concrete = Arc::new(CardFinalizationPlugin::new(true));
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+
+        let outcome = finalize_card_stream(
+            &plugin,
+            &account_id,
+            "card",
+            "element",
+            7,
+            "final",
+            Some(&provider_guard),
+        )
+        .await;
+
+        assert!(matches!(outcome, CardFinalizeOutcome::Unsafe(_)));
+        assert_eq!(concrete.updates.load(Ordering::Acquire), 1);
+        assert!(concrete.closes.lock().unwrap().is_empty());
+        drop(provider_guard);
+        drop(lane);
     }
 }

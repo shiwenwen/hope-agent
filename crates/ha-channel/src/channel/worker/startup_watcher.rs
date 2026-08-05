@@ -34,11 +34,13 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Utc};
 use tokio::task::JoinSet;
 
+use super::pipeline::DeliveryTarget;
+use super::provider_lane::{reserve_provider_lane, ProviderMutationGuard, ProviderMutationOutcome};
 use super::startup_state::{conv_key, StartupState};
 use ha_core::channel::config::ChannelStoreConfig;
 use ha_core::channel::db::ChannelConversation;
 use ha_core::channel::registry::ChannelRegistry;
-use ha_core::channel::types::{ChannelId, ParseMode, ReplyPayload};
+use ha_core::channel::types::{ChannelId, ChatType, ParseMode, ReplyPayload};
 
 /// How long to wait after the channel registry is up before fanning out.
 /// Lets `start_watchdog::spawn_loop` enter its first start_account pass.
@@ -267,6 +269,8 @@ pub fn spawn_startup_notifier(registry: Arc<ChannelRegistry>) {
             let channel_id_str = conv.channel_id.clone();
             let account_id = conv.account_id.clone();
             let chat_id = conv.chat_id.clone();
+            let thread_id = conv.thread_id.clone();
+            let chat_type = ChatType::from_lowercase(&conv.chat_type);
             let registry_for_task = registry.clone();
             tasks.spawn(async move {
                 // Per-account readiness gate. The first `start_account`
@@ -292,7 +296,45 @@ pub fn spawn_startup_notifier(registry: Arc<ChannelRegistry>) {
                     }
                     tokio::time::sleep(ACCOUNT_READY_POLL_INTERVAL).await;
                 }
-                let result = plugin.send_message(&account_id, &chat_id, &reply).await;
+                // Readiness comes before reservation so a broken account does
+                // not block live traffic for 30 seconds. Once ready, the
+                // notice joins the same per-target FIFO as every turn/mirror.
+                let target = DeliveryTarget {
+                    account_id: &account_id,
+                    chat_id: &chat_id,
+                    chat_type: &chat_type,
+                    thread_id: thread_id.as_deref(),
+                    reply_to_message_id: None,
+                    recipient_user_id: None,
+                    recipient_tenant_id: None,
+                };
+                let provider_lane = reserve_provider_lane(&target);
+                let provider_guard = ProviderMutationGuard::new(
+                    provider_lane.waiter(),
+                    provider_lane.task_hold(),
+                    Arc::new(|| true),
+                );
+                let send_plugin = plugin.clone();
+                let send_account = account_id.clone();
+                let send_chat = chat_id.clone();
+                let result = match provider_guard
+                    .run(async move {
+                        send_plugin
+                            .send_message(&send_account, &send_chat, &reply)
+                            .await
+                    })
+                    .await
+                {
+                    ProviderMutationOutcome::Completed(result) => result,
+                    ProviderMutationOutcome::Invalid => {
+                        Err(anyhow::anyhow!("startup notice provider target invalid"))
+                    }
+                    ProviderMutationOutcome::TaskFailed => {
+                        Err(anyhow::anyhow!("startup notice provider task failed"))
+                    }
+                };
+                drop(provider_guard);
+                drop(provider_lane);
                 (key, channel_id_str, account_id, chat_id, result)
             });
         }

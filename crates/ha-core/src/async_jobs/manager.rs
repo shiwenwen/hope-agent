@@ -453,6 +453,18 @@ impl JobManager {
         super::replay_pending_jobs()
     }
 
+    /// Primary-startup phase 1: converge jobs whose worker process disappeared.
+    /// This performs no ParentInjection and may run before IM accounts are ready.
+    pub(crate) fn recover_interrupted() {
+        super::recover_interrupted_jobs()
+    }
+
+    /// Primary-startup phase 2: dispatch durable terminal results after the
+    /// channel-account readiness barrier has opened.
+    pub(crate) fn replay_pending_injections() {
+        super::replay_pending_job_injections()
+    }
+
     /// The per-process (tier-agnostic) queue scheduler loop — promotes queued
     /// jobs into freed slots. Idempotent: at most one loop runs per process.
     pub async fn run_scheduler() {

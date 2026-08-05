@@ -158,9 +158,11 @@ flowchart LR
 | --- | --- |
 | `subagent_threads` | 稳定 thread、owner、lifecycle、`current_run_id`、`lease_epoch` |
 | `subagent_dispatches` | steer / resume 指令的 accepted / delivered / refused 审计与排队恢复 provenance |
-| `subagent_result_deliveries` | 普通父会话结果的 pending / delivered / suppressed 单赢 CAS；启动时只重放未完成交付 |
+| `subagent_result_deliveries` | 普通父会话结果的 `pending / injecting / injecting_no_replay / delivered / suppressed` CAS；启动只恢复可证明安全的普通 claim |
 
-**精确一次投递的关键**：run 终态与普通 parent 的 delivery 行在**同一事务**写入（`update_subagent_status_with_reason` 内，当 `status.is_terminal() && status != Killed && delivery_kind='parent' && owner_kind='parent_session'` 且父会话非无痕时，`INSERT OR IGNORE` 一条 `pending` 交付行）；而显式 `check / result / wait` 或续跑会先 durable `suppress`，再触发进程内取消信号。于是 app 在「子已完成但父未收到」窗口崩溃时可安全重放，而已消费的结果不会因重启重复回注。
+**精确一次投递的关键**：run 终态与普通 parent delivery 在同一事务写入。显式 `check / result / wait` 对 `pending` 立即 suppress；若 claim 已 active，只写 durable consume request，由 claim owner 收尾为 `suppressed`。续跑事务只准抢占仍为 `pending` 的 predecessor；遇 `injecting` / `injecting_no_replay` 必须 fail closed，等当前 injector 到终态后重试。
+
+Primary 启动把带 consume request 的普通 `injecting` 收敛为 `suppressed`，其余普通 claim 重置 `pending`；`injecting_no_replay` 可能已经跨过 IM provider mutation 边界，且新 Primary 无法证明旧 Secondary owner 已退出，因此既不 replay 也不自动 terminalize。已消费或可能外显的结果不会因重启重复回注。
 
 ### 终止原因与续跑判定
 
@@ -302,9 +304,9 @@ sequenceDiagram
     Sub->>DB: 单赢 CAS pending→injecting<br/>无痕跳过 durable 行
     Sub->>Inj: 独立 OS 线程 + current-thread runtime
 
-    Note over DB,Inj: check/result/wait/续跑先把 delivery durable suppress<br/>FETCHED_RUN_IDS 只作同进程快速取消信号
+    Note over DB,Inj: check/result/wait 对 active claim 只记 consume request<br/>续跑只 suppress pending；active fail closed
 
-    Inj->>Inj: 检查 INJECTING_SESSIONS（同会话互斥）
+    Inj->>Inj: 检查 INJECTING_SESSIONS[session] → run_id
     alt 已有注入进行中
         Inj->>Queue: 加入 PENDING_INJECTIONS 后直接返回
     end
@@ -333,21 +335,21 @@ sequenceDiagram
     else 所有模型失败
         Inj->>FE: emit error(All models failed) · 落终态事件行
     end
-    Note over Inj: CleanupGuard drop → flush_pending_injections（串行取下一个）
+    Note over Inj: CleanupGuard 仅释放精确 (session, run) owner<br/>→ flush_pending_injections（串行取下一个）
 ```
 
 ### 注入流程的关键设计
 
 - **独立线程**：注入跑在 `std::thread::spawn` + 独立 `current_thread` tokio runtime 中，规避 `inject_and_run_parent → agent.chat() → spawn_subagent → tokio::spawn` 的 `Send` 循环依赖。分发本身在 `spawn.rs::dispatch_parent_result_delivery` 里起线程。
-- **串行注入**：同一父会话同一时刻只有一个注入在执行（`INJECTING_SESSIONS` 互斥），多个完成的子 Agent 排队串行。
+- **串行注入与统一 FIFO**：`INJECTING_SESSIONS` 保存 `session_id → active run_id`；同 `(session, run)` 的周期重复 dispatch 直接合并，不同 run 才排队。Ready 与 Channel-readiness gate 共用 FIFO，blocked head 不得被后来者绕过；active retry 回到本 session 队首。`CleanupGuard` 只能释放自己的 identity，旧 guard 不能清掉新 owner。
 - **用户永远优先**：`ChatSessionGuard::new()` 一建立就设置该会话在 `INJECTION_CANCELS` 里的 cancel flag，取消正在进行的注入——用户一发消息，在途注入立即让路。
 - **空闲等待三态**：`wait_for_session_idle(session_id, max_wait, should_abort)` 返回 `Idle`（父空闲，可注入）/ `Aborted`（结果已被 fetch，放弃注入）/ `TimedOut`（父忙到超时）三态，便于单测覆盖。
-- **空闲门超时不丢弃**：父会话忙到 `announce_timeout`（Agent 可配 `subagents.announce_timeout_secs`，默认 120s）仍未空闲时，注入**携 `on_injected` 重排队进 `PENDING_INJECTIONS`**，在长前台 turn 结束时（`ChatSessionGuard::drop`）重试。这对 Group 合并注入尤其关键（它没有基于重启的 `injected=0` 兜底），因此不会永久丢失。
-- **重试保证**：被取消 / 忙等超时的注入进 `PENDING_INJECTIONS`；`ChatSessionGuard::drop` 归零时 `flush_pending_injections` **每次只取一个**重试（保持串行）。
-- **IM at-most-once fence**：仅 mirror attach 成功时，在 parent engine 首个 delta 前把对应 subagent / async job / wakeup / workflow milestone replay source持久化为 no-replay；arm 失败不启动 engine。`Confirmed` 取消仍携同一 receipt 在当前进程队列重试，但崩溃不恢复该重试；`Unsafe` 保留 fence，避免不确定 provider mutation 在重启后被重复投递。无 mirror 路径保持原有 at-least-once startup replay。
+- **空闲门超时不丢弃**：父会话忙到 `announce_timeout` 仍未空闲时，携 receipt 重排队；Group 等无 durable replay 的来源也不会永久丢失。会话 delete/purge 同时清掉 Ready 与 Channel-gated 项，避免稍后 idle/surface 事件复活 ghost turn。
+- **IM at-most-once fence**：mirror attach 成功后、engine 首个 delta 前先 arm source 为 no-replay；arm 失败不启动 engine。`Confirmed` 取消可携同一 receipt 在当前进程重试，崩溃不恢复；`Unsafe` 保留 fence。armed delivery 会阻止 continuation，只有 claim owner 的确定性终态可释放。
+- **IM owner 与 handoff**：仅 desktop/server Primary 是 `LocalOwner`，可等待 account、安装 listener 并做 startup/5s durable sweep。Secondary 在查 attach 前返回 `DeferredToPrimary`，但只有显式 `.with_primary_handoff()` 且被周期 sweep 覆盖的普通 subagent/async job 才委托；workflow/wakeup/group/process-local 来源必须 GUI-only 本地注入，不能丢掉唯一副本。ACP/test/MCP/eval 不 claim replay。
 - **可重连审批租约**：来自 Bundled HTTP UI 的后台 child 在排队与执行期间持有自己的 `ReattachableUiSessionGuard`；终态回投时无缝换成 parent lease，注入被取消 / 忙等则随 `PendingInjection` 一起移动。父 turn、页面、WebSocket 谁先结束都不会让后续审批误判为无人值守；cron / 公共 API 不产生该租约。
-- **后台完成回投外部面**：注入 turn 成功后，若父会话 attach 了 IM，经 `channel_hooks::attach_injection_mirror` 拿到的 live mirror **必须 await** 其 `finalize`（注入跑在短命 current-thread runtime 上，`spawn` 出去的 finalize 会被腰斩）；engine 失败时用静态脱敏文案终态化当前 IM preview，用户消息抢占导致中断时则先标记“将自动重试”再入队；若结果已被 parent 主动 fetched，明确标记不重试并将该次视为 `Injected`。cron 会话经 `cron_hooks::deliver_injection_for_session` 反查其 `delivery_targets` 下发。这两条外部投递都由注册进 kernel 的 hook 表转交对应子系统，`ha-core` 不反向依赖 IM / cron crate。
-- **跳过已读**：显式 `check / result / wait` 或续跑先把 `subagent_result_deliveries` durable 置 `suppressed`，再写 `FETCHED_RUN_IDS` 作同进程快速取消信号；启动重放只认 durable 行，不把内存集合当真相源。
+- **后台完成回投外部面**：注入 turn 若 attach IM，必须在同一 future await mirror terminal（短命 runtime 上 `spawn(finalize)` 会被腰斩）；初始 attach 与运行中 LateMirror/rebind 由 per-run coordinator 原子交接，late installer 先退役旧 owner、arm 同一 receipt、再安装新 mirror，terminal 不能穿过交接窗口。engine 失败用脱敏正文终态化当前 identity；用户抢占仅在 `Confirmed` 时重排。cron 仍经 hook 反查 `delivery_targets`，kernel 不反向依赖 IM / cron crate。
+- **跳过已读**：显式读取对 pending 立即 suppress，对 active 只写 consume request并用 `FETCHED_RUN_IDS` 快速取消；owner 收尾再收敛。continuation 只原子消费 pending，启动重放只认 durable 行。
 
 ### 异步工具任务复用同一注入管道
 
@@ -364,7 +366,7 @@ sequenceDiagram
 | 去重真相 | `subagent_result_deliveries` CAS；`FETCHED_RUN_IDS` 仅进程内 | `dispatching_set()` in-flight HashSet + `mark_injected` DB flag |
 | 持久化 | `sessions.db` 的 `subagent_runs` | 独立 `~/.hope-agent/background_jobs.db` + spool |
 
-设计要点：注入路径**只此一处**，`inject_and_run_parent` 不感知调用方是 SubagentRun 还是 async_jobs，「等空闲 → 取消 → 串行重试」语义自动继承；前端据 `child_agent_id` 的 `tool_job:` 前缀区分两类来源；两者只共享「注入」这一段代码，各自的持久化物理隔离。来源：`async_jobs/injection.rs`、`subagent/injection.rs`。
+设计要点：注入路径**只此一处**。async_jobs 单条与 batch 在入队前一次性 claim 全部 job id，claim 随 receipt 穿过 Channel/idle FIFO；真正注入前重读 live row，仅 `terminal && injected=false` 可继续，缺行、读错、非终态或已注入均 fail-closed。前端据 `tool_job:` 区分来源，两类持久化仍物理隔离。
 
 ## 并发排队
 
@@ -466,7 +468,7 @@ sequenceDiagram
 | 名称 | 类型 | 用途 |
 |------|------|------|
 | `ACTIVE_CHAT_SESSIONS` | `Mutex<HashMap<String, usize>>` | 有前台 turn 在跑的会话 → 引用计数（支持同会话多 guard 重叠） |
-| `INJECTING_SESSIONS` | `Mutex<HashSet<String>>` | 当前正在注入的父会话集合（互斥） |
+| `INJECTING_SESSIONS` | `Mutex<HashMap<String, String>>` | 父会话 → active run identity；同 run 合并、不同 run 互斥 |
 | `INJECTION_CANCELS` | `Mutex<HashMap<String, ActiveInjection>>` | 每会话的活跃注入及其取消 flag；`ActiveInjection { run_id, cancel }` 记录 source run，使显式读取只取消对应 source、不误伤同会话其他后台结果 |
 | `FETCHED_RUN_IDS` | `Mutex<HashSet<String>>` | 已消费结果的进程内快速取消信号；durable 真相源是 `subagent_result_deliveries` |
 | `PENDING_INJECTIONS` | `Mutex<Vec<PendingInjection>>` | 被取消 / 忙等超时的注入重试队列 |
@@ -500,7 +502,7 @@ sequenceDiagram
 - **单 turn 串行**：`insert_resumed_subagent_run` 在同一 SQLite 事务内校验 source 是 thread 当前终态、owner / lifecycle 一致、该 child session 无 `queued|spawning|running` run，再递增 epoch、插入新行、切换 current attempt，防两个续跑并发写同一对话历史。
 - **权限重判**：工具层要求 source 的 `parent_session_id` 等于当前会话，并按当前父 Agent 的 capability / delegation allowlist 重新校验；core 再校验 child session 的 parent / agent 身份。Agent 已禁用或删除时 fail closed。
 - **实时安全状态**：续跑重新计算当前父会话的 Plan 限制、`denied_tools`、模型链、timeout 与 KB origin，不复活旧 run 的瞬时执行状态；附件作为新 turn 输入。若 source 仍非终态，调用方必须用 `steer`。
-- **排队 / 注入不分叉**：新 run 复用既有并发计数、`Queued` 队列、cancel / mailbox 与后台任务单向投影。续跑事务同时 suppress source 的 pending parent delivery，避免旧结果晚到重复注入。
+- **排队 / 注入不分叉**：新 run 复用既有并发计数、`Queued` 队列、cancel / mailbox 与后台任务单向投影。续跑事务只 suppress source 的 pending parent delivery；active claim 必须拒绝续跑并等待终态，不能与 injector 竞速。
 
 **委派权限校验**（`check_subagent_delegation_allowed`，`do_spawn` 与 `batch_spawn` 共用、fail-closed）：父 Agent 的 `subagents.enabled` 能力门必须开；目标子 Agent 必须在 `subagents` 允许列表内（`is_agent_allowed`）；父 Agent 定义加载失败时**拒绝**而非放行。
 
@@ -596,7 +598,7 @@ flowchart TD
 | `crates/ha-core/src/subagent/cancel.rs` | `SubagentCancelRegistry`：register / cancel / cancel_all_for_session / remove |
 | `crates/ha-core/src/subagent/mailbox.rs` | `SubagentMailbox`（register / push / drain / remove）、`ChatSessionGuard`（RAII） |
 | `crates/ha-core/src/subagent/mention.rs` | `resolve_inline_agent_mentions`：解析用户消息里的 `@agent` 内联提及 |
-| `crates/ha-core/src/subagent/helpers.rs` | `emit_subagent_event` / `emit_parent_stream_event` / `truncate_str` / `CleanupGuard` / `cleanup_orphan_runs` / `mark_run_fetched` |
+| `crates/ha-core/src/subagent/helpers.rs` | `emit_subagent_event` / `emit_parent_stream_event` / `truncate_str` / `CleanupGuard`（精确释放 session/run owner）/ `cleanup_orphan_runs` / `mark_run_fetched` |
 | `crates/ha-core/src/session/subagent_db.rs` | SQLite 台账：run / thread / dispatch / delivery 读写、终态 choke point、活跃计数、启动 sweep |
 | `crates/ha-core/src/tools/subagent.rs` | 工具接口层：canonical send、spawn / query / cancel / batch / wait 与 resume / steer alias、owner 校验、异步 DB 路由 |
 | `crates/ha-core/src/async_jobs/{manager,db,approval_projection_watcher}.rs` | 统一后台任务单向投影、Group 编排、内层审批投影 |

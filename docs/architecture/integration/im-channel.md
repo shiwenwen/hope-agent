@@ -116,9 +116,9 @@ graph TB
 
 | 渠道 | 传输方式 | 认证 | ChatType | 特色 |
 |------|---------|------|----------|------|
-| **Telegram** | Long-polling（teloxide） | Bot Token | DM / Group / Forum | 功能最全：Draft 流式、编辑/删除、媒体、斜杠命令同步 |
+| **Telegram** | Long-polling（teloxide） | Bot Token | DM / Group / Forum | Bot API Rich Draft / Rich Message、结构化 blocks、富媒体、编辑/删除、斜杠命令同步 |
 | **Discord** | WebSocket Gateway | Bot Token | DM / Group / Forum / Channel | Application Commands 同步、RESUME 重连、原生媒体 multipart |
-| **Slack** | Socket Mode WebSocket | Bot Token + App Token | DM / Group / Channel | mrkdwn 格式、一次性 URL 重连 |
+| **Slack** | Socket Mode WebSocket | Bot Token + App Token | DM / Group / Channel | 原生 reply stream、dense 任务/计划进度、Slack Connect、一次性 URL 重连 |
 | **飞书 / Lark** | WebSocket 事件订阅 | App ID + App Secret | DM / Group | OAuth Token 自动刷新、多域名、cardkit 卡片流式 |
 | **QQ Bot** | WebSocket Gateway | App ID + Client Secret | DM / Group / Channel | RESUME 重连、`QQBotAccessToken` 认证 |
 | **微信 / WeChat** | HTTP 长轮询（iLink） | 扫码登录 | DM | AES-128 媒体加密、输入指示、发送业务码 fail-closed |
@@ -184,6 +184,12 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     // 出站
     async fn send_message(&self, account_id, chat_id, payload) -> Result<DeliveryResult>;
     async fn send_typing(&self, account_id, chat_id) -> Result<()>;
+    fn supports_reply_buttons(&self, account_id, chat_id) -> bool;
+    fn validate_reply_buttons(&self, buttons) -> Result<(), ReplyStreamError>;
+    async fn open_reply_stream(&self, target, first)
+        -> Result<Box<dyn ChannelReplyStream>, ReplyStreamError>;
+    async fn send_rich_reply(&self, target, reply)
+        -> Result<RichReplyReceipt, ReplyStreamError>;
     async fn send_draft(...) -> Result<()>;                 // 默认 not supported
     async fn edit_message(...) -> Result<DeliveryResult>;   // 默认 not supported
     async fn delete_message(...) -> Result<()>;             // 默认 not supported
@@ -210,7 +216,32 @@ pub trait ChannelPlugin: Send + Sync + 'static {
 }
 ```
 
-大量方法带**默认实现**，让「只支持文本」的渠道不必手写一堆 `Err`。特别是**卡片流式的 4 个方法默认全部返回 `Err`**：一个渠道要接入 cardkit 式流式，只需覆写这 4 个方法并把 `capabilities().supports_card_stream` 翻成 `true`，无需改动分发器里的任何分支（详见[流式预览](#流式预览-transport)）。
+大量方法带**默认实现**，让「只支持文本」的渠道不必手写一堆 `Err`。`open_reply_stream` / `send_rich_reply` 默认返回 typed `Unsupported`，旧插件会继续走 Draft / Card / Message；卡片流式 4 个方法也默认返回 `Err`，新 cardkit 风格渠道只需覆写 trait 并声明 capability，不得给分发器另开平台分支。
+
+`supports_reply_buttons(account, chat)` 是 target-aware 能力门，默认回落静态 `supports_buttons`；QQ Bot 这类 endpoint 能力不同的插件必须覆写。`validate_reply_buttons` 是首个终态 mutation 前的无副作用 compiler/preflight：空按钮默认通过，非空默认 `Unsupported`。实现按钮的 adapter 必须让 validator 与 serializer 共用同一套 row / element / payload / URL 限制，并在 raw `send_message` 入口重复校验，禁止 `.take()` 式静默截断。
+
+### ChannelReplyStream 原生流式契约
+
+Slack / Telegram 的原生流是 provider 侧有状态资源。插件持有 stream / message / draft ID、序列号与 API client，worker 只操作跨平台生命周期：
+
+```rust
+#[async_trait]
+pub trait ChannelReplyStream: Send {
+    async fn push(&mut self, frame: &ReplyStreamFrame) -> Result<(), ReplyStreamError>;
+    async fn commit(self: Box<Self>, final_reply: &RichReply)
+        -> Result<RichReplyReceipt, ReplyStreamError>;
+    async fn fail(self: Box<Self>, error_text: &str) -> Result<(), ReplyStreamError>;
+    async fn abort(self: Box<Self>, reason: ReplyAbortReason) -> Result<(), ReplyStreamError>;
+}
+```
+
+生命周期固定为 `open(first) → push* → commit | fail | abort`：
+
+- `open_reply_stream(..., first)` 返回 `Ok` 即确认首帧已接收，后续 revision 严格递增，不能再 push 首帧。`Append` 只消费未 ACK 的 `markdown_delta`；`Snapshot` 只消费完整 `markdown_snapshot`，公共层不裁剪它。
+- `commit` / `fail` / `abort` 消费 handle，成功、模型错误、取消和 detach 竞争同一个 terminal owner；终态必须落在同一 provider identity，不能 abort 后另发一条 legacy 错误。外层有界等待超时只能 detach 清理接力，不能 hard-abort 已接受的 provider future。
+- `RichReply { markdown, media, buttons }` 是 canonical final。成功 receipt 的 `consumed_media` 必须是原附件序列的连续前缀 `[0..N)`；worker 只把后缀交给 legacy media lane。越界、重复、空洞或空 message id 都是终态 contract violation，禁止猜测后补发。
+- `ReplyStreamErrorKind` 只按送达语义分类。`Unsupported / InvalidTarget / InvalidContent / Rejected / RateLimited` 仅在 adapter 能证明零 mutation 时允许降级；`Transient` 也只准表示 provider mutation 之前的本地失败。timeout、断连、5xx、响应不可解析或未知状态一律 `Ambiguous`，禁止重试和换 transport 补发。
+- `ReplyStreamTarget` / frame / rich reply / receipt 都是进程内契约，不进 DB / IPC / 日志。任务与计划只投影 opaque ID、短标题和粗粒度状态，严禁 tool arguments/result、路径、凭据、原始 provider error 或 chain-of-thought。
 
 ### MsgContext（入站消息）
 
@@ -223,6 +254,7 @@ pub struct MsgContext {
     pub sender_id: String,                // 发送者平台 ID
     pub sender_name: Option<String>,
     pub sender_username: Option<String>,  // @username
+    pub sender_tenant_id: Option<String>, // workspace / tenant（Slack Connect）
     pub chat_id: String,                  // 聊天/群组 ID
     pub chat_type: ChatType,              // Dm / Group / Forum / Channel
     pub chat_title: Option<String>,
@@ -291,6 +323,24 @@ pub struct ChannelCapabilities {
     pub supports_buttons: bool,        // 交互按钮（审批 / picker）
     pub streaming_preview_max_bytes: Option<usize>,  // 流式 preview byte 预算
     pub supports_card_stream: bool,    // cardkit 卡片流式（仅飞书）
+    pub native_reply: Option<NativeReplyCapabilities>, // 原生流 / rich final
+}
+
+pub struct NativeReplyCapabilities {
+    pub preview_chat_types: Vec<ChatType>,
+    pub final_chat_types: Vec<ChatType>,
+    pub update_mode: ReplyStreamUpdateMode, // Append | Snapshot
+    pub preview_persistence: ReplyStreamPreviewPersistence, // Persistent | Ephemeral
+    pub requires_reply_anchor: bool,
+    pub requires_recipient_user_id: bool,
+    pub requires_recipient_tenant_id: bool,
+    pub supports_task_updates: bool,
+    pub supports_plan_updates: bool,
+    pub supports_blocks: bool,
+    pub embedded_media_types: Vec<MediaType>,
+    pub max_embedded_media_items: Option<u16>,
+    pub refresh_after_secs: Option<u64>,
+    pub max_delta_chars: Option<u32>,
 }
 ```
 
@@ -302,6 +352,8 @@ pub struct ChannelCapabilities {
 - `chunk_message`：定稿时一刀切多大，各插件覆写成平台真实上限（Telegram 4096 / Slack 4000 / Discord 2000 / WhatsApp 65536 / IRC 512），不覆写时回落到 `streaming_preview_max_bytes`（保守但安全）。
 
 两者详见[消息分段契约](#消息分段契约)。
+
+`native_reply` 与三个 legacy capability 共同参与 transport 选择。preview 必须同时命中 `preview_chat_types` 与 `final_chat_types`，并在联网前满足全部 `requires_*` 坐标；`final_chat_types` 还独立控制无 stream 时的 `send_rich_reply`。`Persistent` preview 任一 ACK 都可能已成持久内容，open 后不得换 lane；`Ephemeral` preview 可自然过期，但它的独立 commit 若为 `Ambiguous` 仍不能补发。`max_embedded_media_items=None` 表示**未声明预算**，不是无限；Native 只拿连续可嵌入前缀，剩余附件保序留给 legacy lane。
 
 ### SecurityConfig
 
@@ -620,7 +672,13 @@ flowchart LR
 
 ### Attach catch-up：接管即刻看到上一轮
 
-两条 attach 路径（IM `/session <id>` slash 与 GUI handover）在 attach 成功后、回执「已接管」之前，各调一次 [`attach_sync.rs::deliver_attach_catchup`](../../../crates/ha-channel/src/channel/attach_sync.rs)：把最近一轮已完成的 assistant final text + 该轮 tool_result 媒体回填给新接管的 chat（语义对应 `ImReplyMode::Final`，不带 `reply_to`）。若原触发端的回合此刻仍在跑，回填末尾追加一条「回复正在生成，稍后到达」的系统提示。catch-up 是消息层行为，失败只 warn，不影响 attach 本身。
+两条 attach 路径（IM `/session <id>` 与 GUI / HTTP handover）都必须先调用 `prepare_attach_catchup` 按物理 target 预留 provider lane，再且只能消费 `AttachCatchupReservation::attach` 发布 binding。该 typestate 转换在同一个 `SessionDB` connection 临界区内依次采样 active generation、固定 `messages.id` 水位线并提交 durable attach；attach 失败只 Drop reservation，不产生 provider mutation，普通 `attach_session` 不能构造后续投递所需的 `AttachedCatchupReservation`。IM `/session` await catch-up 后才发命令确认，保证确认不越过 snapshot；GUI / HTTP handover 把持有 lane 的工作交给进程生命周期 executor 后立即返回，慢 provider 不阻塞界面或 request，也不因 request runtime 消失而丢投递。
+
+[`attach_sync.rs`](../../../crates/ha-channel/src/channel/attach_sync.rs) 在 DB 临界区内、发布新 binding 前采样 `active_before` 并固定 `messages.id` 水位线与其内最近完成轮次，attach 成功后再采样 `active_after`：
+
+- 无 active turn 时，只回填水位线以内的 assistant final text + 同轮 tool_result media（`Final` 语义、无 `reply_to`）。active 采样之后才启动的回合，在查询 IM binding 时会被同一个 DB mutex 挡到 attach 提交之后，因而走普通 live mirror 并排在 catch-up lane 后面；不存在 `W → attach` 间完整结束后静默漏投或被 static/live 双发的窗口。
+- Desktop / HTTP 或 ParentInjection 正在执行时，不重放半截 snapshot，而是为该 exact turn/run generation 注册 `LateMirror`。若水位线前的 A 在第二次采样前结束（包括 A→B），仍按 A 的 exact `turn_id` / `run_id` anchor 补齐终态，B 留给正常 engine mirror；handover notice / user quote 在同一 provider prelude 先发，随后承接剩余 delta，终态读取在下一条 user 行前截断，不能混入后续回合。
+- catch-up 仍是 best-effort 消息层行为；失败只 warn，不回滚已经成功的 attach。
 
 ### GUI ↔ IM 实时镜像
 
@@ -629,9 +687,19 @@ flowchart LR
 - `run_chat_engine` 起始调 `attach_im_live_mirror(session_id, source)`，用 `get_conversation_by_session` 拿到 session 的 IM attach（1:1 后 0 或 1 个），起一个 IM 流式预览任务并把 sink 注册进引擎。引擎每帧把 streaming event fan-out 到该任务，IM 用户实时看到打字机 / 逐轮边界 / 媒体投递。
 - 回合收尾走 `finalize_im_live_mirror`，复用 dispatcher 的 `deliver_split / deliver_final_only / deliver_preview_merged`，按账号的 `ImReplyMode` 渲染——与 IM 入站回合完全对称。
 - **两条通道各走各的发送通路**：GUI 永远走 Tauri IPC / HTTP 广播，不受 `imReplyMode` 影响；`imReplyMode` 只决定 IM 端呈现。
-- **source filter**：引擎入口的自动 attach 对 `Subagent / ParentInjection / Channel / Cron` 直接 no-op（IM 入站自己有完整管线，subagent 不该外溢到 IM）。唯一例外是 `ParentInjection`：后台 job / subagent / group 完成的注入回合由 [`subagent::injection::inject_and_run_parent`](../../../crates/ha-core/src/subagent/injection.rs) 走 `attach_im_injection_mirror` **自驱动镜像并 await finalize**——注入跑在短命 current-thread runtime 上，引擎里 `spawn(finalize)` 会被腰斩，故必须在同一 future 内 await。这样父会话若绑了 IM chat，后台完成结果也能按 `imReplyMode` 回投 IM。
+- 自动 attach 只接 Desktop / HTTP 主回合；Channel / Cron / Subagent 不外溢。`ParentInjection` 是显式例外，由 [`inject_and_run_parent`](../../../crates/ha-core/src/subagent/injection.rs) 自驱动 attach，并在同一 future 内 await terminal——它运行在短命 current-thread runtime，不能把 finalize 随手 `spawn` 出去。
 
-镜像消息会在正文前加一段 user 引用块（markdown blockquote，首行 `> 💬 `，超 240 字符截断，有附件补 `> [📎 N attachments]`）。引用**只在镜像 chunk 拼接，不写回 `messages` 表**——持久化的 assistant 消息保持干净，后续 LLM 上下文不被引用块污染。
+**Provider mutation lane。** [`worker/provider_lane.rs`](../../../crates/ha-channel/src/channel/worker/provider_lane.rs) 按 `(account_id, chat_id, thread_id)` 同步预留 FIFO，顺序取决于 pipeline / catch-up 创建时刻，而非 Tokio task 首次 poll。IM inbound、GUI/HTTP mirror、LateMirror、catch-up、eviction 与 startup notice 共用这条 lane；stream task 与外层 terminal delivery 都释放后，下一代才可写。取消的排队节点仍保留为传递屏障，不能让后来者越过在途 predecessor；不同物理 target 仍并行。
+
+实际 provider future 交给进程生命周期 executor。每个**新** mutation 在前序完成后用 `spawn_blocking` live-check 当前 attach，失效则不 poll；已经拿到 Native/Card handle 的 abort/close 是旧目标上的 lane-only cleanup，不再被新 attach 拦掉。caller 在排队期消失时不启动新的可见 mutation；若 mutation 已经开始并返回 handle，executor 会先清理 handle 再释放 lane。
+
+**Generation 与 handover fence。** GUI/HTTP delta 热路径只检查 exact turn/stream generation 与 `(session, attach_id, generation)` 进程内 claim，不碰 SQLite，保证 GUI 首 token 不被 IM 阻塞。同 generation 的不同 attach claim 可以并存，防旧 attach 在异步 DB lookup 后反向淘汰新 claim；真正的 provider boundary 再以 live DB attach fail-closed。claim 是 `Active → Completed` 状态机：发生过 provider terminal/ambiguous mutation 后保留 5 分钟、至多 4096 条的 tombstone，挡住「普通 mirror 已完成并 Drop，LateMirror 随后重抢同 generation」的双发；零 mutation、attach moved 与允许同 receipt 重排的 ParentInjection `Confirmed` abort 才 release。终态同步撤 sink 后交给后台 future，成功、错误、取消和 external terminal 只消费该 generation 一次，下一轮 delta 不会串进旧 mirror。
+
+user quote 不是拼进 assistant final 的前缀，而是在 provider prelude 中发送的**独立消息 identity**：首行 `> 💬 `、超 240 字符截断，有附件补 `> [📎 N attachments]`。它不写 `messages` / `context_json`，也不阻塞 GUI delta；quote 自身失败进入 `DeliveryReport`，但不会把 assistant final 误判成已 mutation。只有 account unavailable 或 attach 已变化这类零 provider mutation 的 prelude blocked 才禁止后续 IM 写。
+
+**ParentInjection no-replay 与重绑。** 初始 attach、运行中 LateMirror 和 handover rebind 由 core 的单一 coordinator 原子交接 terminal ownership；新的 binding 先取得 generation claim、退役旧 handle、arm 同一份 no-replay receipt，再安装 mirror，终态不能从两者之间穿过。仅普通 subagent result / async_jobs 显式声明可被 5 秒 Primary sweep 重新发现；其它 workflow / wakeup / group / process-local 来源在 Secondary 必须降为 GUI-only，不能假装 handoff 后丢掉唯一副本。desktop/server Primary 是唯一 `LocalOwner`；Secondary 在查账号/attach 前返回 `DeferredToPrimary`，ACP/test/MCP/eval 不安装 listener、不 claim startup replay，也不做 IM mutation。
+
+所有 transport 都显式收尾：已打开 Native/Message/Card preview 后，engine error、用户取消或 attach 移走不能只 Drop handle，也不能另发一条 fresh fallback。外层最多等待 3 秒，超时后让进程 executor 接力原 identity；只有明确 `Confirmed` 的取消才可在当前进程重排同一 receipt，`Unsafe`/timeout/ambiguous 保留 no-replay fence，防重启后重复回投。
 
 ### 冷启后的 back online 通知
 
@@ -697,7 +765,7 @@ pub fn spawn_dispatcher(registry, channel_db, mut inbound_rx: mpsc::Receiver<Inb
 
 | Mode | 行为 |
 |------|------|
-| `Split`（默认） | 每 round 的解说与该 round 的媒体按时序作为独立消息发送（解说 → 该 round 媒体 → 下一 round 解说 → ...）。流式渠道下每 round 都是真正的打字机；非流式渠道每条解说一次性发。 |
+| `Split`（默认） | Legacy transport 按 round 投递解说与媒体；Native 在整个 turn 只开一条 stream，用安全的 task / plan 状态表达工具阶段，最终只 commit 一次。非流式渠道每条解说一次性发。 |
 | `Final` | 丢弃中间 round 解说，只发最后 round 的 text + 末尾发所有媒体。无流式预览。 |
 | `Preview` | 流式渠道用预览 transport 渲染合并文本——单条不断增长的消息，跨 tool round 补一个 `\n`，媒体末尾发。非流式渠道无预览可用，自动降级等同 `Final`。 |
 
@@ -724,20 +792,23 @@ pub struct RoundTextAccumulator {
 
 ### 流式预览 Transport
 
-「这个 chat 用哪种方式渲染流式预览」由 [`streaming.rs::select_stream_preview_transport`](../../../crates/ha-channel/src/channel/worker/streaming.rs) 唯一裁决——纯函数，只读 `ChatType` + `ChannelCapabilities`，三级择优、首个命中即返回：
+「这个 chat 用哪种方式渲染流式预览」由 [`streaming.rs::select_stream_preview_transport`](../../../crates/ha-channel/src/channel/worker/streaming.rs) 唯一裁决。它同时检查真实 target、capability 与输入历史覆盖，四级择优、首个命中即返回：
 
 | 优先级 | Transport | 命中条件 | 机制 | 代价 |
 |---|---|---|---|---|
-| 1 | `Draft` | `Dm` **且** `supports_draft` | 反复 `send_draft` 复用同一 `draft_id` | 无速率限制、不留「已编辑」；**草稿不是真消息** |
-| 2 | `Card` | `supports_card_stream` | cardkit 原地改单个元素 | 宿主消息从不被 edit，无「已编辑」 |
-| 3 | `Message` | `supports_edit` | 首条 `send_message` + 后续 `edit_message` | 多数渠道通用，但宿主消息会被标「已编辑」 |
-| — | `None` | 三者皆不满足 | 不渲染预览 | dispatcher 走一次性 `send_message` |
+| 1 | `Native` | preview + final chat type 都命中，`requires_*` 坐标齐全；Append 另要求完整历史 | `open_reply_stream → push* → commit/fail/abort` | 平台原生流与 rich final；终态 exactly-once |
+| 2 | `Draft` | `Dm` **且** `supports_draft` | 反复 `send_draft` 复用同一 `draft_id` | 不留「已编辑」；**草稿不是真消息** |
+| 3 | `Card` | `supports_card_stream` | cardkit 原地改单个元素 | 宿主消息不被 edit |
+| 4 | `Message` | `supports_edit` | 首条 `send_message` + 后续 `edit_message` | 通用，但宿主消息常有「已编辑」标记 |
+| — | `None` | 四者皆不满足 | 不渲染预览 | dispatcher 走 standalone final |
 
-当前声明 `supports_draft: true` 的只有 Telegram，`supports_card_stream: true` 的只有飞书，其余渠道两个标志都 `false`，直接走 `Message`（或无 `supports_edit` 时无预览）。**Draft 的 DM 限制是平台约束**：Telegram `sendMessageDraft` 只在私聊可用，所以群聊/论坛即使声明了 `supports_draft` 也落到下一级。
+Native 不能只看 `ChatType`：真实 reply anchor、recipient user / tenant 等必需坐标缺一就在联网前落到 legacy。Slack Append 需要完整 turn 起点，LateMirror 的 tail-only 历史不能冒充完整 append cursor；Snapshot adapter 不依赖旧 delta 重建，可接管当前完整快照。Draft 的 DM 限制同样是平台约束，Telegram 群聊/论坛会继续落到下一级。
 
 ```mermaid
 flowchart TD
     START["选流式预览 transport"]
+    D0{"Native target + coverage 合法?"}
+    NATIVE["Native（Slack / Telegram Rich）"]
     D1{"Dm 且 supports_draft?"}
     D2{"supports_card_stream?"}
     D3{"supports_edit?"}
@@ -745,7 +816,9 @@ flowchart TD
     CARD["Card（飞书 cardkit）"]
     MSG["Message（edit 通用）"]
     NONE["None：无预览，一次性发"]
-    START --> D1
+    START --> D0
+    D0 -->|是| NATIVE
+    D0 -->|否| D1
     D1 -->|是| DRAFT
     D1 -->|否| D2
     D2 -->|是| CARD
@@ -754,28 +827,33 @@ flowchart TD
     D3 -->|否| NONE
 ```
 
-**新增 cardkit 风格渠道的接线契约**：Card 路径不是给 `streaming.rs` 加分支，而是靠 trait 上那 4 个默认返回 `Err` 的方法。插件覆写它们、把 `supports_card_stream` 翻成 `true`，就自动进 Card 分支；不覆写的渠道保持默认 `Err`，`supports_card_stream=false` 让它们连分支都不进。**只实现这 4 个方法，别改 `select_stream_preview_transport`。** `update_card_element` 单独返回分类的 `CardStreamError`（`SequenceOutOfOrder` / `Expired` / `TimedOut` / `NotEnabled` / `NoPermission` / `Other`），让 stream task 能在不硬编码平台错误码的前提下区分「本地恢复 / 立即降级 / 放弃会话」。
+新增 Native 或 Card adapter 只扩展 `ChannelPlugin` 默认方法并声明 capability，**不得改 selector 写平台 match**。`CardStreamError` 保留平台诊断分类，但已可见 Card 的 worker 决策不靠错误文案猜送达状态。
 
 ### 逐级降级：内容不丢是最后一道闸
 
-三种 transport 各自的失败都**不冒泡成回合失败**，而是就地降级，最坏兜底到 chunk-send：
+降级只允许发生在**能证明 provider 尚未接收持久内容**的边界。`preview_persistence=Ephemeral` 的临时预览可以停止刷新并等待自然过期，但它不放宽独立 final commit 的送达判定。
 
 - **Draft → Message**（运行期改写）：`send_draft` 报错时经 `should_fallback_from_draft_error` 判定是否属于「这个渠道/chat 根本不支持草稿」（错误串命中一组收窄的白名单），命中才把 transport 就地改写为 `Message` 并用同 payload 重发；不命中只当瞬时错误 warn，保持 `Draft`——网络抖动不该让整条回合永久掉出草稿路径。
-- **Card → Message**（仅创建期）：`create_card_stream` / `send_card_message` 任一失败即改写为 `Message` 重发（此时卡片尚未出现，降级无痕）。中途 `update_card_element` 失败走另一条路——翻 `broken = true` 并返回 `Ok(())` 保持循环，由定稿阶段处理。
-- **任意 transport → chunk-send**：预览路径会**静默丢弃**超长文本（`build_stream_preview_payload` 在超预算时返回 `None`），且把发送/编辑错误降为 log-only warning。所以「预览跑过」**不等于**「内容已送达」。纯函数 `preview_carried_full_text` 显式判定这件事，返回 `false` 时调用方必须自己 `send_text_chunks(accumulated)`：
+- **Native → legacy**：只在 `open` 尚未成功且 typed error 证明零送达时允许。open 成功后，push / commit / fail / abort 的失败都留在原 identity；`Ambiguous` 禁止补文本、媒体或按钮。
+- **Card → Message**：仅 `create_card_stream` 失败可降级，因为卡片尚未挂到 chat。`send_card_message` 已是首个可见 mutation；其 error / `success=false`、后续 update error、最终快照超 100,000 字符都置 `unsafe_to_continue`，停止后续文本/媒体/按钮。只有最终 update ACK 后才 close；未确认 update 不追加 close，等待平台 TTL 自动关。
+- **Message 原位定稿**：首次 send 必须 ACK success 且给出非空 message id；每次 edit 只在 ACK 后推进快照。最终文本不一致时继续写同一个 id，edit error / `success=false` / 缺 id 都不得 fresh send。
+- **任意 legacy → chunk-send**：只在尚无可见载体、预览因预算未创建时可用。纯函数 `preview_carried_full_text` 判定是否安全跳过 fallback：
 
   | Transport | 判为「预览已承载全文」 |
   |---|---|
   | 任意 | `accumulated` 为空时短路 `true`（无内容可丢） |
-  | `Message` | 预览消息 id 存在**且** native 文本 `<= max_msg_len` |
+  | `Message` | message id 存在、native 文本未超预算，且最后 ACK 快照与完整文本一致 |
   | `Card` | 卡片会话存在且未 broken **且**字符数 `<= CARD_ELEMENT_MAX_CHARS` |
   | `Draft` | 非空文本恒 `false`——草稿是输入中指示符，永远需要一次真正的 `send_message` |
 
 ### 消息分段契约
 
-**统一管道**：所有 IM 出站文本（入站回复、GUI 镜像、catch-up、slash 直回、错误回复、媒体 URL fallback）必须走 [`send_text_chunks`](../../../crates/ha-channel/src/channel/worker/dispatcher.rs)：`markdown_to_native` → `chunk_message` → 逐块 `send_message`，第 0 块带 `reply_to_message_id`、最后一块挂 `buttons`。**禁止直接 `plugin.send_message(text=...)`**——否则长文本（工具间解说、附件 URL 列表、`/recap` 输出）会被平台拒绝/截断。
+出站分两条公共管道：
 
-**送达判定不是 HTTP 成功判定**：最终文本、inline-finalized split round 与媒体 fan-out 汇总到 `DeliveryReport { attempted, succeeded, failures }`。`DeliveryResult.success=false`、edit 被业务拒绝、native media 失败或 transport `Err` 都不能记成「已送达」；edit 失败会回退发完整新消息，媒体失败会回退下载链接，但保留 partial-failure 诊断。模型回复已落会话、IM 投递却不完整时，dispatcher 写 `category=delivery_failed` 并向会话追加可见错误事件，避免 GUI 只看到日志里的假成功。这里刻意不做无幂等键的自动重试：超时后平台可能其实已经收件，盲重试会产生重复消息。
+- **Native lane**：canonical Markdown revision 直接走 `open/push/commit`，无 active stream 的 rich final 走 `send_rich_reply`。adapter 自管 char/block/节流限制，不能先过 `markdown_to_native + chunk_message`，否则会破坏 Append cursor 与跨 delta Markdown 状态。
+- **Legacy lane**：未命中 Native 或 Native 在首个 mutation 前明确拒绝的文本，走 [`send_text_chunks`](../../../crates/ha-channel/src/channel/worker/dispatcher.rs)：`markdown_to_native` → `chunk_message` → 逐块 `send_message`，首块带 reply anchor，末块挂 buttons。GUI mirror、catch-up、slash、错误与 URL fallback 也走它；受控的短系统/交互旁路除外。
+
+**送达判定不是 HTTP 成功判定**：final、split round 与媒体 fan-out 汇总到 `DeliveryReport { attempted, succeeded, failures, unsafe_to_continue }`。只有 `DeliveryResult.success=true` 是 ACK；`success=false` 不证明零 mutation。媒体一旦尝试后未获明确成功，停止后续附件、fallback 与 buttons，不能改发链接；按钮也必须在首个终态 mutation 前完整预检。模型回复已落会话、IM 投递不完整时，dispatcher 记 `delivery_failed` 并追加会话可见错误事件。无 provider idempotency key 的 timeout 不自动重试，避免双发。
 
 `chunk_text` 默认按 UTF-8 byte 切（不是 char），`markdown_to_native` 在 chunk 之前执行，HTML/mrkdwn escape 膨胀后的 byte 数被 chunk 自身的 byte ceiling 兜底——新 plugin 加 native 渲染时不必为膨胀单独考虑。微信 `sendMessage` 是个特例：它必须解析 HTTP 200 的 JSON，只有 `ret`（兼容 `errcode`）为 `0` 才算成功，非零码或非 JSON body 作为 delivery error 上返；其它 iLink POST 保持各自的 response decoder，不套全局 JSON validator。
 
@@ -802,6 +880,13 @@ show_thinking 与 reply mode 正交，都在 round 文本层面工作，三态�
 
 Bot API 的 token 天然在 URL path，所有 Telegram request error 进 watchdog/UI/日志前须按当前 token 精确脱敏。
 
+**Rich Draft / Rich Message**（`native.rs` + `rich.rs`）把公共 `ChannelReplyStream` 映射到 `sendRichMessageDraft` / `sendRichMessage`：
+
+- DM 用稳定非零 `draft_id` 做 `Snapshot` 临时预览，20 秒续期；abort 不发网络请求，草稿自然过期，持久 final 独立发送。Group / Forum 只用 rich final，所有 segment 保留 thread，reply anchor 只挂首段。
+- canonical Markdown 先编译为受控 IR，再渲染 typed blocks 或安全 HTML；每个 `InputRichMessage` 的 `blocks/html/markdown` 三选一。官方 endpoint 用 Rich blocks，自定义 `apiRoot` 保守走 Rich HTML；原始 HTML 只作文本 escape，不允许模型透传 Telegram JSON。
+- final 在 block 边界 lossless 分段；前段一旦成功，后段失败升级为 `Ambiguous`，禁止全文走 legacy 重发。Photo / Video / Audio / Voice / Animation 仅在确认支持 blocks 时提供连续前缀给 Native，Document / Sticker、超预算或自定义 endpoint 的媒体保序留给 legacy。
+- 按钮在首个 mutation 前校验 action 二选一、URL scheme/credentials、callback 1–64 bytes 与非空 row。timeout、断连、5xx、不可解析/缺 result 均为 `Ambiguous`；明确 NACK/4xx 才是零送达。旧 `sendMessageDraft` 仅作 Native 预检失败后的 legacy lane，两套草稿不能并行。
+
 **群组消息过滤**：群里仅响应 ① 回复 bot 的消息、② @mention bot、③ `/` 命令、④ mention entity 命中 bot。私聊全处理（受 DmPolicy 约束）。
 
 **Markdown → Telegram HTML**（`format.rs`）：`**bold**`→`<b>`、`` `code` ``→`<code>`、代码块→`<pre><code class="language-…">`、`[text](url)`→`<a>`、`## Heading`→`<b>` 降级。HTML 发送失败时自动剥标签以纯文本重发。
@@ -820,7 +905,10 @@ Bot API 的 token 天然在 URL path，所有 Telegram request error 进 watchdo
 ### Slack
 
 - **认证**：Bot Token（`xoxb-`）调 API + App Token（`xapp-`）走 Socket Mode；**传输**：`POST apps.connections.open` 拿一次性 WSS URL，断连后必须重新 open、不可复用。
-- **格式（mrkdwn）**：`**bold**`→`*bold*`、`~~strike~~`→`~strike~`、`[text](url)`→`<url|text>`，代码块/inline/blockquote 不变。
+- **原生流**：`chat.startStream → appendStream* → stopStream` 映射 whole-turn `ChannelReplyStream`，`split` 也不按 tool round 重开。Append 只发送上次 ACK 后的新 Markdown，单 chunk 最多 12,000 Unicode 字符；dense `task_update` / `plan_update` 只含脱敏的标题与状态，按钮只在 stop 的 terminal blocks 出现。第一批不在 stream 内上传文件，stop ACK 后复用既有 v2 upload lane。
+- **target / Slack Connect**：start 必须锚真实用户 `thread_ts`（现有 thread 优先，否则 inbound message id），并携同一入站事件的 recipient user + tenant pair。GUI attach 没有持久 tenant / 真 anchor 时联网前回落 legacy，不造 bot 消息冒充锚点。
+- **送达错误**：timeout、断连、非 JSON/缺 `ok`、`internal_error` / `fatal_error` 都是 `Ambiguous`，不重试、不改发 `chat.postMessage`；明确 `deprecated_endpoint` / `method_deprecated` / `enterprise_is_restricted` 证明 stream 未执行，映射 `Unsupported` 后可安全降级。429 只在平台明确未接受时按 `Retry-After` 有界重试。
+- **Legacy mrkdwn**：只有 `chat.postMessage` / `chat.update` 兼容路径做 `**bold**`→`*bold*`、`~~strike~~`→`~strike~`、`[text](url)`→`<url|text>`；Native `markdown_text` 保留 canonical Markdown。
 - **事件**：Socket Mode 信封 `{envelope_id, type, payload}`，收到立即 ACK。`event.type=message` / `app_mention`（后者 was_mentioned=true）/ `slash_commands`。
 
 ### 飞书 / Lark
@@ -838,7 +926,7 @@ Bot API 的 token 天然在 URL path，所有 Telegram request error 进 watchdo
 | 流式追加 | `PUT /cardkit/v1/cards/{id}/elements/{element_id}/content`，`sequence` **必须严格单调递增** |
 | 关闭流式 | `PATCH /cardkit/v1/cards/{id}/settings` 关 `streaming_mode`（best-effort，10 分钟也会自动关） |
 
-限制：单卡片 10 calls/sec、单文本 100,000 字符、卡片 14 天有效、流式 10 分钟自动关。错误码映射 `CardStreamError`：`300317`→SequenceOutOfOrder、`200750`→Expired、`200850`→TimedOut、`300309`→NotEnabled、`300311`→NoPermission。**不做 sequence 重试**——`300317` 通常意味着本地与服务端不同步，直接 broken 比无谓重试更稳。
+限制：单卡片 10 calls/sec、单文本 100,000 字符、卡片 14 天有效、流式 10 分钟自动关。错误码映射 `CardStreamError`：`300317`→SequenceOutOfOrder、`200750`→Expired、`200850`→TimedOut、`300309`→NotEnabled、`300311`→NoPermission。**不做 sequence 重试**。仅 create 失败可降级；send 已把卡片挂到 chat，此后任何未确认 update / 超限都 fail-closed，且不追加 close mutation，等待 TTL 自动关。
 
 ask_user / approval 的**按钮卡片**也走 schema 2.0，但**不**走 cardkit API——按钮卡片一次性、不需后续 update，直接把卡片 JSON 塞进 `im/v1/messages` 的 `content`（`msg_type=interactive`）一次发完。回调走 `card.action.trigger` WS 事件，从 `event.action.value.hope_callback` 取字符串按前缀分流（`slash:` 回环 / `approval:` `ask_user:` 进状态机）。
 
@@ -866,7 +954,7 @@ LINE Webhook 在验签后执行三层入口保护：
 2. `webhookEventId` 进入账户级有界去重表，平台重投不会再次触发 Agent turn。
 3. `messageEdited` 按原消息 ID + `timestamp` 保留最新事件，乱序或相同时间戳重投会丢弃；事件映射到 `InboundEvent::MessageEdited`，只走 out-of-band 日志，不会把编辑文本当成第二条用户指令。`unsend` 同理映射为 `MessageRecalled`。
 
-单聊生成前的 `send_typing` 使用官方 `POST /v2/bot/chat/loading/start`，展示 60 秒 Loading Animation；群组/多人会话不调用该端点，失败仅记 debug，不影响主回复。协议字段以 [LINE Messaging API](https://developers.line.biz/en/reference/messaging-api/) 为准。
+单聊生成前的 `send_typing` 使用官方 `POST /v2/bot/chat/loading/start`，展示 60 秒 Loading Animation；请求自身限时 10 秒，群组/多人会话不调用，失败仅记 debug，不影响主回复。协议字段以 [LINE Messaging API](https://developers.line.biz/en/reference/messaging-api/) 为准。
 
 ---
 
@@ -898,9 +986,9 @@ LINE Webhook 在验签后执行三层入口保护：
 
 一条审批可能同时挂在 IM 与桌面/Web，决议与应答必须跨端一致、来源可信：
 
-- **来源 fail-closed**：按钮回调 `handle_approval_callback_with_source` 总是查 session + 校验来源 chat，**缺源直接拒**——别的会话点一下不能批掉你的审批。文本回复 submit 前复用同一 `validate_callback_source_for_session`：审批的 session 若已 handover 改绑别的 chat，旧 chat 的回复被拒并提示去原 chat 应答。Telegram 无-message callback 传 `None` 的合法路径只保留给低风险 ask_user Q&A，approval 一律 fail-closed。
+- **来源 fail-closed**：approval 与 ask_user 都捕获 `InteractiveAttachIdentity`（attach row id + session/channel/account/chat/thread），prompt 发送、文本消费和按钮 submit 前复验同一 identity，**缺源直接拒**。同群不同 topic 按完整 route 隔离；handover 后旧 chat 的回复会被消费并提示去当前问题所在 chat，不能变成普通模型消息。
 - **任一端决议即撤窗**：所有决议路径 emit `approval:resolved`，listener 收到后清掉本端待审批残留（杜绝旧 prompt 劫持后续消息），前端按 `requestId` 撤窗。
-- **chat 接管拒决残留**：`eviction_watcher` 在 `notify_session_eviction` 门**之前**无条件枚举该 session 的 pending 审批逐个 `Deny`——被接管的 chat 不再残留可被误应答的审批。
+- **chat 接管拒决残留**：`eviction_watcher` 在 notify 门前只 take + deny「带 IM identity 且该 identity 已失效」的旧审批 / ask_user。无 identity 的请求留给原 owner/timeout；延迟旧 eviction 不能误拒 replacement attach 新建的交互。
 
 ### 自动审批与绕过审计
 
@@ -955,6 +1043,8 @@ flowchart TD
 ```
 
 每个运行中账户由一个 `ChannelWorkerHandle { account_id, channel_id, cancel: CancellationToken, started_at }` 跟踪（`uptime_secs()` 由 `started_at` 算出）。停止靠取消 `CancellationToken` 让所有后台任务优雅退出。12 个插件的注册不在 app 启动代码里，而是由 `ha-channel::wire()` 通过 `channel_hooks` 的 `install_plugins` 槽注入——内核只持有 `ChannelRegistry`，不 import 任何插件实现。
+
+自动启动只由 desktop/server Primary（`ImDeliveryOwnership::LocalOwner`）执行：启动期先收敛 interrupted source、恢复普通 delivery claim 并立即扫一次 durable ParentInjection，再并发启动全部 enabled account。每个账号成功后发精确的 `delivery_surface_state_changed(account_id)`，只打开同账号与 unknown gate，不等待其它慢账号。listener 另有 5 秒 durable handoff sweep，使用 `MissedTickBehavior::Skip` + 进程内 single-flight；一次 SQLite walk 超过周期时不会叠加下一轮。Secondary 与 ACP/test/MCP/eval 均不自动启账号、不安装 listener、不做 startup replay。
 
 ### 启动失败重试 watchdog
 
@@ -1128,7 +1218,7 @@ crates/ha-channel/src/channel/{name}/
 | 文件 | 说明 |
 |---|---|
 | `types.rs` | 运行时类型（`MsgContext` / `ReplyPayload` / `ChannelCapabilities` / `InboundEvent` 等）；配置类类型转发 `ha-config-schema` |
-| `traits.rs` | `ChannelPlugin` trait + `chunk_text` 辅助 |
+| `traits.rs` | `ChannelPlugin` / `ChannelReplyStream` 契约 + `chunk_text` 辅助 |
 | `db.rs` | `ChannelDB`：`channel_conversations` 映射、1:1 attach 与 eviction |
 | `registry.rs` | `ChannelRegistry`：插件持有 + 账户生命周期 |
 | `config.rs` | `ChannelStoreConfig` 存储 |
@@ -1145,7 +1235,7 @@ crates/ha-channel/src/channel/{name}/
 | `channel/accounts.rs` | 账号 CRUD + 生命周期（auto-start / restart-on-change） |
 | `channel/attach_sync.rs` | chat 接管后的 catch-up 回填 |
 | `channel/start_watchdog.rs` | 启动失败退避重试 |
-| `channel/worker/` | 入站分发器（`dispatcher` / `approval` / `ask_user` / `slash` / `slash_callback` / `streaming` / `pipeline` / `media` / `turn_queue` / `eviction_watcher` / `startup_watcher` / `delivery_report`） |
+| `channel/worker/` | 入站分发器与 provider FIFO（`dispatcher` / `streaming` / `pipeline` / `provider_lane` / `approval` / `ask_user` / `turn_queue` / watchers 等） |
 | `channel/inbound_media_common.rs` | 入站附件延迟物化共用骨架 |
 | `channel/ws.rs` · `webhook_server.rs` · `process_manager.rs` | 共享 WebSocket / 嵌入式 Webhook / 外部子进程 |
 
@@ -1153,7 +1243,7 @@ crates/ha-channel/src/channel/{name}/
 
 | 渠道 | 文件 |
 |------|------|
-| Telegram | `telegram/{mod,api,format,media,inbound_media,polling}.rs` |
+| Telegram | `telegram/{mod,api,native,rich,format,media,inbound_media,polling}.rs` |
 | 微信 | `wechat/{mod,api,login,media,inbound_media,polling}.rs` |
 | Discord | `discord/{mod,api,format,media,inbound_media,gateway}.rs` |
 | Slack | `slack/{mod,api,format,media,inbound_media,socket}.rs` |

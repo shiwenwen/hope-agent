@@ -261,7 +261,10 @@ fn stop_stream_body(
 
 fn classify_stream_error_code(code: &str) -> SlackStreamApiErrorKind {
     match code {
-        "method_not_supported_for_channel_type"
+        "deprecated_endpoint"
+        | "enterprise_is_restricted"
+        | "method_deprecated"
+        | "method_not_supported_for_channel_type"
         | "channel_type_not_supported"
         | "not_supported" => SlackStreamApiErrorKind::Unsupported,
         "channel_not_found"
@@ -915,6 +918,17 @@ mod tests {
 
     #[test]
     fn stream_error_codes_are_classified_for_worker_fallback() {
+        for code in [
+            "deprecated_endpoint",
+            "enterprise_is_restricted",
+            "method_deprecated",
+        ] {
+            assert_eq!(
+                classify_stream_error_code(code),
+                SlackStreamApiErrorKind::Unsupported,
+                "{code} must allow a safe legacy fallback"
+            );
+        }
         assert_eq!(
             classify_stream_error_code("method_not_supported_for_channel_type"),
             SlackStreamApiErrorKind::Unsupported

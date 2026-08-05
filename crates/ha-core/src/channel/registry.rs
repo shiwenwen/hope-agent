@@ -7,6 +7,23 @@ use tokio_util::sync::CancellationToken;
 use super::traits::ChannelPlugin;
 use super::types::*;
 
+pub(crate) const DELIVERY_SURFACE_STATE_CHANGED_EVENT: &str =
+    "channel:delivery_surface_state_changed";
+
+/// Notify the Primary delivery coordinator that resolving this account's IM
+/// surface may now produce a different result. Successful starts can turn
+/// `Unavailable` into `Attached`; a persisted disable/removal can turn it into
+/// `Absent`. Consumers re-resolve from live state rather than trusting an event
+/// subtype, so duplicate notifications are harmless.
+pub(crate) fn emit_delivery_surface_state_changed(account_id: &str) {
+    if let Some(bus) = crate::get_event_bus() {
+        bus.emit(
+            DELIVERY_SURFACE_STATE_CHANGED_EVENT,
+            serde_json::json!({ "accountId": account_id }),
+        );
+    }
+}
+
 /// Handle to a running channel account worker.
 pub struct ChannelWorkerHandle {
     pub account_id: String,
@@ -117,6 +134,11 @@ impl ChannelRegistry {
             account.label,
             account.channel_id
         );
+        // A queued ParentInjection may have inspected this exact binding while
+        // the account was unavailable. EventBus keeps ChannelRegistry
+        // independent of the injection implementation; the Primary listener
+        // re-resolves this account's queued delivery surfaces.
+        emit_delivery_surface_state_changed(&account.id);
         Ok(())
     }
 

@@ -12,10 +12,11 @@ use super::types::JobStatus;
 
 /// In-flight dispatch set. A job_id present here means another task in this
 /// process has already called `dispatch_injection` for it and is either still
-/// running injection or waiting for `mark_injected` to commit. Entries are
-/// removed unconditionally once the dispatch thread exits, so a crashed or
-/// cancelled dispatch won't pin the job forever — it'll be retried on the
-/// next `replay_pending_jobs()` sweep.
+/// running injection, queued in the unified ParentInjection FIFO, or waiting
+/// for its durable arm/settle callback. The short-lived dispatch thread
+/// transfers ownership into `OnInjected`; entries are released only after a
+/// successful durable callback, an explicit pre-arm abandon/purge, or an
+/// unwind/setup failure guarded by `DispatchClaimGuard`.
 fn dispatching_set() -> &'static Mutex<HashSet<String>> {
     static DISPATCHING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     DISPATCHING.get_or_init(|| Mutex::new(HashSet::new()))
@@ -35,6 +36,95 @@ fn try_claim_dispatch(job_id: &str) -> bool {
 fn release_dispatch(job_id: &str) {
     let mut guard = dispatching_set().lock().unwrap_or_else(|p| p.into_inner());
     guard.remove(job_id);
+}
+
+fn durable_row_allows_dispatch(status: JobStatus, injected: bool) -> bool {
+    status.is_terminal() && !injected
+}
+
+/// Combine the process-local in-flight claim with a live durable-state check.
+/// A periodic sweep/merge buffer may hold a stale `injected=0` snapshot while
+/// another attempt settles and releases its process claim. Re-reading after
+/// claiming prevents that stale snapshot from starting a second parent turn.
+/// Read/missing-state failures release and fail closed; a later sweep retries.
+fn try_claim_pending_dispatch(job_id: &str) -> bool {
+    if !try_claim_dispatch(job_id) {
+        return false;
+    }
+    let pending = match super::get_async_jobs_db() {
+        Some(db) => match db.load(job_id) {
+            Ok(Some(job)) => durable_row_allows_dispatch(job.status, job.injected),
+            Ok(None) => {
+                app_debug!(
+                    "async_jobs",
+                    "injection",
+                    "Skipping dispatch for missing job {}",
+                    job_id
+                );
+                false
+            }
+            Err(error) => {
+                app_warn!(
+                    "async_jobs",
+                    "injection",
+                    "Failed to re-check durable injection state for job {}: {}; deferring",
+                    job_id,
+                    error
+                );
+                false
+            }
+        },
+        None => {
+            app_warn!(
+                "async_jobs",
+                "injection",
+                "Async jobs DB unavailable while claiming injection for job {}; deferring",
+                job_id
+            );
+            false
+        }
+    };
+    if !pending {
+        release_dispatch(job_id);
+    }
+    pending
+}
+
+fn release_dispatches(job_ids: &[String]) {
+    let mut guard = dispatching_set().lock().unwrap_or_else(|p| p.into_inner());
+    for job_id in job_ids {
+        guard.remove(job_id);
+    }
+}
+
+/// Releases freshly claimed dispatch ids if setup panics/fails before their
+/// ownership is transferred into an `OnInjected` receipt. A normal return
+/// disarms the guard after the receipt has either settled, abandoned, or moved
+/// into the unified pending FIFO.
+struct DispatchClaimGuard {
+    job_ids: Vec<String>,
+    armed: bool,
+}
+
+impl DispatchClaimGuard {
+    fn new(job_ids: Vec<String>) -> Self {
+        Self {
+            job_ids,
+            armed: true,
+        }
+    }
+
+    fn transfer_to_receipt(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for DispatchClaimGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            release_dispatches(&self.job_ids);
+        }
+    }
 }
 
 // ── Completion merge window (R4) ───────────────────────────────────────────
@@ -257,7 +347,7 @@ fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>)
     // startup replay) is dropped from this batch, not double-injected.
     let mut claimed: Vec<PendingJobInjection> = Vec::with_capacity(jobs.len());
     for j in jobs {
-        if try_claim_dispatch(&j.job_id) {
+        if try_claim_pending_dispatch(&j.job_id) {
             claimed.push(j);
         } else {
             app_debug!(
@@ -303,15 +393,7 @@ fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>)
     let ids_for_injected = claimed_ids;
 
     std::thread::spawn(move || {
-        struct DispatchGuard(Vec<String>);
-        impl Drop for DispatchGuard {
-            fn drop(&mut self) {
-                for id in &self.0 {
-                    release_dispatch(id);
-                }
-            }
-        }
-        let _guard = DispatchGuard(ids_for_release);
+        let mut dispatch_claim = DispatchClaimGuard::new(ids_for_release);
 
         match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -319,11 +401,18 @@ fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>)
         {
             Ok(rt) => {
                 let ids_for_arm = ids_for_injected.clone();
-                let ids_for_settle = ids_for_injected;
+                let ids_for_settle = ids_for_injected.clone();
+                let ids_for_process_release = ids_for_injected;
                 let on_injected = crate::subagent::injection::OnInjected::new(
                     move || claim_batch_no_replay_with_retry(&ids_for_arm),
                     move || mark_injected_batch_with_retry(&ids_for_settle),
-                );
+                )
+                .with_primary_handoff()
+                .with_process_dispatch_release(move || {
+                    release_dispatches(&ids_for_process_release)
+                });
+                let release_receipt = on_injected.clone();
+                let receipt_run_id = run_id.clone();
                 let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
                     session_id,
                     parent_agent_id,
@@ -333,6 +422,20 @@ fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>)
                     session_db,
                     Some(on_injected),
                 ));
+                if matches!(
+                    outcome,
+                    crate::subagent::injection::InjectionOutcome::Abandoned
+                ) {
+                    crate::subagent::injection::release_unarmed_injection_source(
+                        Some(&release_receipt),
+                        &receipt_run_id,
+                    );
+                }
+                // A queued attempt transferred these ids into the receipt now
+                // held by PendingInjection. Successful arm/settle callbacks
+                // already released them; a failed DB callback intentionally
+                // keeps them claimed until process restart.
+                dispatch_claim.transfer_to_receipt();
                 if matches!(
                     outcome,
                     crate::subagent::injection::InjectionOutcome::Abandoned
@@ -435,11 +538,11 @@ pub fn dispatch_injection(
     // Deduplicate in-flight dispatches inside this process. Replay on startup
     // + a late EventBus retry for the same terminal job could otherwise fire
     // two threads racing the same injection.
-    if !try_claim_dispatch(&job_id) {
+    if !try_claim_pending_dispatch(&job_id) {
         app_debug!(
             "async_jobs",
             "injection",
-            "Job {} already has an in-flight dispatch; skipping duplicate",
+            "Job {} is already in-flight or no longer durably pending; skipping duplicate",
             &job_id
         );
         return;
@@ -463,15 +566,10 @@ pub fn dispatch_injection(
     let db_clone = session_db.clone();
 
     std::thread::spawn(move || {
-        // Ensure the dispatch slot is released no matter how we exit
-        // (success, panic-free error, or runtime build failure).
-        struct DispatchGuard(String);
-        impl Drop for DispatchGuard {
-            fn drop(&mut self) {
-                release_dispatch(&self.0);
-            }
-        }
-        let _guard = DispatchGuard(job_id_for_release);
+        // Runtime setup/panic keeps an emergency release guard. Normal queued
+        // ownership is transferred into the receipt instead of ending with
+        // this short-lived dispatch thread.
+        let mut dispatch_claim = DispatchClaimGuard::new(vec![job_id_for_release]);
 
         match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -487,10 +585,17 @@ pub fn dispatch_injection(
                 // (MISC-15: an abandoned injection must not look delivered).
                 let job_id_for_arm = job_id_for_db.clone();
                 let job_id_for_settle = job_id_for_db.clone();
+                let job_id_for_process_release = job_id_for_db.clone();
                 let on_injected = crate::subagent::injection::OnInjected::new(
                     move || claim_no_replay_with_retry(&job_id_for_arm),
                     move || mark_injected_with_retry(&job_id_for_settle),
-                );
+                )
+                .with_primary_handoff()
+                .with_process_dispatch_release(move || {
+                    release_dispatch(&job_id_for_process_release)
+                });
+                let release_receipt = on_injected.clone();
+                let receipt_run_id = job_id.clone();
                 let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
                     session_id,
                     parent_agent_id,
@@ -500,6 +605,16 @@ pub fn dispatch_injection(
                     db_clone,
                     Some(on_injected),
                 ));
+                if matches!(
+                    outcome,
+                    crate::subagent::injection::InjectionOutcome::Abandoned
+                ) {
+                    crate::subagent::injection::release_unarmed_injection_source(
+                        Some(&release_receipt),
+                        &receipt_run_id,
+                    );
+                }
+                dispatch_claim.transfer_to_receipt();
                 if matches!(
                     outcome,
                     crate::subagent::injection::InjectionOutcome::Abandoned
@@ -844,6 +959,14 @@ mod tests {
     }
 
     #[test]
+    fn durable_dispatch_filter_rejects_stale_or_nonterminal_rows() {
+        assert!(durable_row_allows_dispatch(JobStatus::Completed, false));
+        assert!(durable_row_allows_dispatch(JobStatus::Failed, false));
+        assert!(!durable_row_allows_dispatch(JobStatus::Completed, true));
+        assert!(!durable_row_allows_dispatch(JobStatus::Running, false));
+    }
+
+    #[test]
     fn merged_message_wraps_every_task_with_aggregate_counts() {
         let jobs = vec![
             pending("job-a", JobStatus::Completed),
@@ -866,5 +989,52 @@ mod tests {
         assert_eq!(msg.matches("<task-notification>").count(), 3);
         // The failure carries its error through into its block.
         assert!(msg.contains("<error>boom</error>"));
+    }
+
+    #[test]
+    fn queued_batch_claims_coalesce_periodic_individual_sweep() {
+        let suffix = uuid::Uuid::new_v4();
+        let batch_ids = vec![
+            format!("queued-batch-a-{suffix}"),
+            format!("queued-batch-b-{suffix}"),
+        ];
+        let unrelated = format!("queued-batch-unrelated-{suffix}");
+        for job_id in &batch_ids {
+            assert!(try_claim_dispatch(job_id));
+        }
+
+        // Model dispatch_merged_injection's successful transfer into a queued
+        // PendingInjection: the emergency thread guard no longer owns release,
+        // while the carried receipt retains every member's dispatch claim.
+        let mut setup_guard = DispatchClaimGuard::new(batch_ids.clone());
+        let ids_for_release = batch_ids.clone();
+        let receipt = crate::subagent::injection::OnInjected::new(|| Ok(()), || Ok(()))
+            .with_process_dispatch_release(move || release_dispatches(&ids_for_release));
+        setup_guard.transfer_to_receipt();
+        drop(setup_guard);
+
+        for job_id in &batch_ids {
+            assert!(
+                !try_claim_dispatch(job_id),
+                "the five-second individual sweep must coalesce job {job_id} while its batch is queued"
+            );
+        }
+        assert!(
+            try_claim_dispatch(&unrelated),
+            "a different normal job must retain independent FIFO admission"
+        );
+        release_dispatch(&unrelated);
+
+        crate::subagent::injection::release_unarmed_injection_source(
+            Some(&receipt),
+            "queued-batch-test",
+        );
+        for job_id in &batch_ids {
+            assert!(
+                try_claim_dispatch(job_id),
+                "an abandoned/purged batch must release job {job_id} for later replay"
+            );
+            release_dispatch(job_id);
+        }
     }
 }

@@ -284,18 +284,25 @@ fn insert_message_row(
 }
 
 fn injection_user_msg_exists(conn: &Connection, session_id: &str, run_id: &str) -> Result<bool> {
+    Ok(injection_user_msg_id(conn, session_id, run_id)?.is_some())
+}
+
+fn injection_user_msg_id(conn: &Connection, session_id: &str, run_id: &str) -> Result<Option<i64>> {
     let mut stmt = conn.prepare(
-        "SELECT 1 FROM messages
+        "SELECT id FROM messages
          WHERE session_id = ?1
            AND role = 'user'
            AND attachments_meta LIKE ?2
+         ORDER BY id DESC
          LIMIT 1",
     )?;
     // The attachments_meta JSON always renders run_id as a bare string
     // key-value pair. Matching the quoted form avoids false positives from
     // tokens that happen to contain the id as a substring.
     let pattern = format!("%\"run_id\":\"{}\"%", run_id);
-    Ok(stmt.exists(params![session_id, pattern])?)
+    stmt.query_row(params![session_id, pattern], |row| row.get(0))
+        .optional()
+        .map_err(Into::into)
 }
 
 /// Notify every connected UI that the durable read state may have changed.
@@ -3558,6 +3565,56 @@ impl SessionDB {
         Ok((messages, total, has_more))
     }
 
+    /// Fix a message-row watermark for a point-in-time replay.
+    ///
+    /// Callers must feed the returned id into
+    /// [`Self::load_session_messages_latest_through`]. Keeping the upper bound
+    /// explicit prevents a slow provider-lane wait from pulling a newer turn
+    /// into an attach snapshot.
+    pub fn latest_session_message_id(&self, session_id: &str) -> Result<Option<i64>> {
+        let conn = self.read_conn()?;
+        conn.query_row(
+            "SELECT MAX(id) FROM messages WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+    }
+
+    /// Load the latest aligned message window at or before a fixed row-id
+    /// watermark. Rows committed after `through_id` are never observed.
+    pub fn load_session_messages_latest_through(
+        &self,
+        session_id: &str,
+        through_id: i64,
+        limit: u32,
+    ) -> Result<Vec<SessionMessage>> {
+        let conn = self.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
+             FROM messages
+             WHERE session_id = ?1 AND id <= ?2
+             ORDER BY id DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![session_id, through_id, limit], |row| {
+            Self::row_to_session_message(row)
+        })?;
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row?);
+        }
+        messages.reverse();
+        Self::align_window_to_user_boundary(&conn, session_id, &mut messages)?;
+        // `align_window_to_user_boundary` only prepends older rows, so the
+        // explicit upper watermark remains intact.
+        Ok(messages)
+    }
+
     /// Load messages before a given message id (for "load more" / scroll up).
     ///
     /// Returns `(messages_in_asc_order, has_more)`. The window is aligned so
@@ -4447,6 +4504,19 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         injection_user_msg_exists(&conn, session_id, run_id)
+    }
+
+    /// Return the persisted user-row anchor for one ParentInjection generation.
+    ///
+    /// Feature crates use this typed lookup to finalize a late IM mirror from
+    /// the exact injected turn. Looking up the session's latest user row would
+    /// race a following GUI/HTTP turn and could mirror the wrong answer.
+    pub fn injection_user_message_id(&self, session_id: &str, run_id: &str) -> Result<Option<i64>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        injection_user_msg_id(&conn, session_id, run_id)
     }
 
     /// Atomically append an injected `user` row if its run marker is absent.
@@ -7030,6 +7100,41 @@ mod tests {
     }
 
     #[test]
+    fn fixed_message_watermark_excludes_a_later_completed_turn() {
+        let path = temp_db_path("attach-watermark");
+        let db = SessionDB::open_ephemeral_for_test(&path).expect("open db");
+        let session = db.create_session("ha-main").expect("create session");
+        db.append_message(&session.id, &NewMessage::user("u1"))
+            .expect("append u1");
+        let a1 = db
+            .append_message(&session.id, &NewMessage::assistant("a1"))
+            .expect("append a1");
+        let watermark = db
+            .latest_session_message_id(&session.id)
+            .expect("read watermark")
+            .expect("watermark");
+        assert_eq!(watermark, a1);
+
+        db.append_message(&session.id, &NewMessage::user("u2"))
+            .expect("append u2");
+        db.append_message(&session.id, &NewMessage::assistant("a2"))
+            .expect("append a2");
+
+        let captured = db
+            .load_session_messages_latest_through(&session.id, watermark, 50)
+            .expect("load fixed snapshot");
+        assert!(captured.iter().all(|message| message.id <= watermark));
+        assert_eq!(
+            captured
+                .iter()
+                .rev()
+                .find(|message| matches!(message.role, crate::session::MessageRole::Assistant))
+                .map(|message| message.content.as_str()),
+            Some("a1")
+        );
+    }
+
+    #[test]
     fn injection_user_append_rolls_back_on_touch_failure_and_stays_idempotent() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
@@ -7078,6 +7183,17 @@ mod tests {
         assert!(db
             .has_injection_user_msg(&session.id, delivered_run)
             .expect("read delivered marker"));
+        let delivered_id = db
+            .injection_user_message_id(&session.id, delivered_run)
+            .expect("read injection anchor")
+            .expect("injection anchor");
+        assert_eq!(
+            db.get_message(delivered_id)
+                .expect("read anchored message")
+                .expect("anchored message")
+                .content,
+            "delivered injection"
+        );
     }
 
     fn set_session_updated_at(db: &SessionDB, session_id: &str, updated_at: &str) {

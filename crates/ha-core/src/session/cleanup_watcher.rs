@@ -218,6 +218,24 @@ async fn cleanup_session(
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
+    // ParentInjection retries retain DB/source receipts and optional UI leases
+    // in memory. Remove both Ready and Channel-gated entries for the deleted
+    // session (plus cascade-deleted descendants) before any later idle/surface
+    // event can resurrect a ghost turn.
+    let mut purged_injections = crate::subagent::injection::purge_pending_for_session(session_id);
+    for child_sid in &descendant_session_ids {
+        purged_injections += crate::subagent::injection::purge_pending_for_session(child_sid);
+    }
+    if purged_injections > 0 {
+        app_debug!(
+            "session",
+            "cleanup_watcher",
+            "purged {} pending parent injection(s) for deleted session {}",
+            purged_injections,
+            session_id
+        );
+    }
+
     // R10: cancel + delete the session's scheduled wakeups (both delete and
     // burn) — a gone session must not be woken back to life, and the live timer
     // shouldn't linger. Incognito wakeups are in-memory only; this aborts them.

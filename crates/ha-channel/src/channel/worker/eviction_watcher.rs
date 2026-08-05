@@ -18,9 +18,11 @@
 
 use std::sync::Arc;
 
+use super::pipeline::DeliveryTarget;
+use super::provider_lane::{reserve_provider_lane, ProviderMutationGuard, ProviderMutationOutcome};
 use ha_core::channel::db::{payload_keys, EVENT_CHANNEL_SESSION_EVICTED};
 use ha_core::channel::registry::ChannelRegistry;
-use ha_core::channel::types::{ParseMode, ReplyPayload};
+use ha_core::channel::types::{ChatType, ParseMode, ReplyPayload};
 
 /// Spawn the EventBus subscriber that turns `channel:session_evicted`
 /// events into a system message on the evicted chat. No-op when the
@@ -164,6 +166,27 @@ pub fn spawn_channel_eviction_watcher(registry: Arc<ChannelRegistry>) {
                 ha_core::i18n::effective_ui_locale(&store),
             );
 
+            // Reserve before detaching the send task. This eviction notice is
+            // part of the same physical-provider sequence as any old mirror
+            // cleanup, so it cannot appear and then be overwritten by a late
+            // edit/push from the evicted generation.
+            let lane_chat_type = ChatType::Dm;
+            let lane_target = DeliveryTarget {
+                account_id: &account.id,
+                chat_id,
+                chat_type: &lane_chat_type,
+                thread_id: thread_id.as_deref(),
+                reply_to_message_id: None,
+                recipient_user_id: None,
+                recipient_tenant_id: None,
+            };
+            let provider_lane = reserve_provider_lane(&lane_target);
+            let provider_guard = ProviderMutationGuard::new(
+                provider_lane.waiter(),
+                provider_lane.task_hold(),
+                Arc::new(|| true),
+            );
+
             let reply = ReplyPayload {
                 text: Some(plugin.markdown_to_native(evicted_text)),
                 thread_id,
@@ -174,19 +197,35 @@ pub fn spawn_channel_eviction_watcher(registry: Arc<ChannelRegistry>) {
             let chat_id_owned = chat_id.to_string();
             let account_id_owned = account.id.clone();
             let channel_id_owned = channel_id_str.to_string();
-            tokio::spawn(async move {
-                if let Err(e) = plugin
+            let mutation = async move {
+                plugin
                     .send_message(&account_id_owned, &chat_id_owned, &reply)
                     .await
-                {
-                    app_warn!(
+            };
+            let ticket = provider_guard.submit(mutation);
+            tokio::spawn(async move {
+                let _provider_lane = provider_lane;
+                match ticket.wait().await {
+                    ProviderMutationOutcome::Completed(Ok(_)) => {}
+                    ProviderMutationOutcome::Completed(Err(error)) => app_warn!(
                         "channel",
                         "eviction_watcher",
-                        "send_message failed for {}/{}: {}",
+                        "send_message failed for {}: {}",
                         channel_id_owned,
-                        chat_id_owned,
-                        e
-                    );
+                        error
+                    ),
+                    ProviderMutationOutcome::Invalid => app_warn!(
+                        "channel",
+                        "eviction_watcher",
+                        "eviction notice provider target became invalid for {}",
+                        channel_id_owned
+                    ),
+                    ProviderMutationOutcome::TaskFailed => app_warn!(
+                        "channel",
+                        "eviction_watcher",
+                        "eviction notice provider task failed for {}",
+                        channel_id_owned
+                    ),
                 }
             });
         }

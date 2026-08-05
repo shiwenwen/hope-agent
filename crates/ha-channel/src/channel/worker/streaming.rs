@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
-use super::dispatcher::deliver_media_to_chat;
+use super::provider_lane::{ProviderMutationGuard, ProviderMutationOutcome};
 use ha_core::channel::traits::{ChannelPlugin, ChannelReplyStream};
 use ha_core::channel::types::*;
 use ha_core::chat_engine::RoundTextAccumulator;
@@ -81,6 +81,9 @@ pub(super) enum StreamPreviewTransport {
         /// explicit abort/error. This is separate from preview lifecycle state
         /// because both paths can legitimately leave that state `Terminal`.
         terminal_owner: Arc<AtomicU8>,
+        /// Keeps the physical-target lane reserved for detached native abort
+        /// handoffs spawned from inside the stream task.
+        provider_guard: Option<ProviderMutationGuard>,
     },
     /// Telegram-style draft API: `send_draft` repeatedly with the same
     /// `draft_id`. Free of edit-rate limits, leaves no "edited" marker.
@@ -129,6 +132,16 @@ impl PartialEq for StreamPreviewTransport {
 impl Eq for StreamPreviewTransport {}
 
 impl StreamPreviewTransport {
+    pub(super) fn set_provider_guard(&mut self, provider_guard: Option<ProviderMutationGuard>) {
+        if let Self::Native {
+            provider_guard: guard,
+            ..
+        } = self
+        {
+            *guard = provider_guard;
+        }
+    }
+
     pub(super) fn native_preview_handle(&self) -> Option<PreviewHandle> {
         match self {
             Self::Native {
@@ -206,6 +219,7 @@ impl std::fmt::Debug for PreviewHandle {
                 element_id,
                 sequence,
                 broken,
+                ..
             } => f
                 .debug_struct("Card")
                 .field("card_id", card_id)
@@ -277,25 +291,48 @@ fn spawn_native_terminal(
     action: NativeTerminalAction,
     state: Arc<AtomicU8>,
     success_state: u8,
+    provider_guard: Option<ProviderMutationGuard>,
 ) -> tokio::task::JoinHandle<bool> {
     state.store(NATIVE_ABORTING, Ordering::Release);
-    tokio::spawn(async move {
-        let terminal = match action {
-            NativeTerminalAction::Abort(reason) => {
+    let terminal_state = state.clone();
+    let validity_guard = provider_guard.clone();
+    let mutation = async move {
+        let (terminal, visible_terminal) = match action {
+            NativeTerminalAction::Abort(reason) => (
                 std::panic::AssertUnwindSafe(stream.abort(reason))
                     .catch_unwind()
-                    .await
-            }
+                    .await,
+                true,
+            ),
             NativeTerminalAction::Error(error_text) => {
-                std::panic::AssertUnwindSafe(stream.fail(&error_text))
-                    .catch_unwind()
-                    .await
+                let still_valid = match validity_guard {
+                    Some(guard) => guard.is_valid_async().await,
+                    None => true,
+                };
+                if still_valid {
+                    (
+                        std::panic::AssertUnwindSafe(stream.fail(&error_text))
+                            .catch_unwind()
+                            .await,
+                        true,
+                    )
+                } else {
+                    // The target moved after the stream was opened. Consume
+                    // the existing handle with cleanup, but never render a new
+                    // visible error into the stale chat.
+                    (
+                        std::panic::AssertUnwindSafe(stream.abort(ReplyAbortReason::Detached))
+                            .catch_unwind()
+                            .await,
+                        false,
+                    )
+                }
             }
         };
         match terminal {
             Ok(Ok(())) => {
                 state.store(success_state, Ordering::Release);
-                true
+                visible_terminal
             }
             Ok(Err(error)) => {
                 state.store(NATIVE_AMBIGUOUS, Ordering::Release);
@@ -319,7 +356,30 @@ fn spawn_native_terminal(
                 false
             }
         }
-    })
+    };
+    // Submission is synchronous. Even if the current runtime is destroyed
+    // before the returned JoinHandle gets its first poll, a guarded provider
+    // terminal is already owned by the process-lifetime executor.
+    if let Some(provider_guard) = provider_guard {
+        // Both branches consume an already-open provider handle. The job
+        // itself chooses visible fail vs detached abort from live validity.
+        let guarded_ticket = provider_guard.submit_cleanup(mutation);
+        tokio::spawn(async move {
+            match guarded_ticket.wait().await {
+                ProviderMutationOutcome::Completed(result) => result,
+                ProviderMutationOutcome::Invalid => {
+                    terminal_state.store(success_state, Ordering::Release);
+                    false
+                }
+                ProviderMutationOutcome::TaskFailed => {
+                    terminal_state.store(NATIVE_AMBIGUOUS, Ordering::Release);
+                    false
+                }
+            }
+        })
+    } else {
+        tokio::spawn(mutation)
+    }
 }
 
 fn spawn_native_abort(
@@ -327,12 +387,14 @@ fn spawn_native_abort(
     reason: ReplyAbortReason,
     state: Arc<AtomicU8>,
     success_state: u8,
+    provider_guard: Option<ProviderMutationGuard>,
 ) -> tokio::task::JoinHandle<bool> {
     spawn_native_terminal(
         stream,
         NativeTerminalAction::Abort(reason),
         state,
         success_state,
+        provider_guard,
     )
 }
 
@@ -393,30 +455,66 @@ async fn await_native_abort_task(
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn abort_native_preview(
     preview: &PreviewHandle,
     reason: ReplyAbortReason,
 ) -> bool {
-    abort_native_preview_with_timeout(preview, reason, NATIVE_ABORT_WAIT_TIMEOUT).await
+    abort_native_preview_with_timeout_and_lane(preview, reason, NATIVE_ABORT_WAIT_TIMEOUT, None)
+        .await
 }
 
+#[cfg(test)]
 pub(super) async fn abort_native_preview_with_timeout(
     preview: &PreviewHandle,
     reason: ReplyAbortReason,
     wait_timeout: Duration,
 ) -> bool {
-    finish_native_preview_with_timeout(preview, NativeTerminalAction::Abort(reason), wait_timeout)
-        .await
+    abort_native_preview_with_timeout_and_lane(preview, reason, wait_timeout, None).await
+}
+
+pub(crate) async fn abort_native_preview_with_lane(
+    preview: &PreviewHandle,
+    reason: ReplyAbortReason,
+    provider_guard: Option<ProviderMutationGuard>,
+) -> bool {
+    abort_native_preview_with_timeout_and_lane(
+        preview,
+        reason,
+        NATIVE_ABORT_WAIT_TIMEOUT,
+        provider_guard,
+    )
+    .await
+}
+
+async fn abort_native_preview_with_timeout_and_lane(
+    preview: &PreviewHandle,
+    reason: ReplyAbortReason,
+    wait_timeout: Duration,
+    provider_guard: Option<ProviderMutationGuard>,
+) -> bool {
+    finish_native_preview_with_timeout(
+        preview,
+        NativeTerminalAction::Abort(reason),
+        wait_timeout,
+        provider_guard,
+    )
+    .await
 }
 
 /// Terminate a native preview with a visible error through the same consumed
 /// stream handle. Unlike a plain abort, an ephemeral preview expiring is not
 /// enough: the adapter must acknowledge the persistent error terminal.
-pub(crate) async fn fail_native_preview(preview: &PreviewHandle, error_text: &str) -> bool {
+pub(crate) async fn fail_native_preview_with_lane(
+    preview: &PreviewHandle,
+    error_text: &str,
+    provider_guard: Option<ProviderMutationGuard>,
+) -> bool {
     finish_native_preview_with_timeout(
         preview,
         NativeTerminalAction::Error(error_text.to_string()),
         NATIVE_ABORT_WAIT_TIMEOUT,
+        provider_guard,
     )
     .await
 }
@@ -449,6 +547,7 @@ async fn finish_native_preview_with_timeout(
     preview: &PreviewHandle,
     action: NativeTerminalAction,
     wait_timeout: Duration,
+    provider_guard: Option<ProviderMutationGuard>,
 ) -> bool {
     let PreviewHandle::Native {
         session,
@@ -523,7 +622,13 @@ async fn finish_native_preview_with_timeout(
     };
     if let Some(stream) = stream {
         let allows_ephemeral_expiry = action.allows_ephemeral_expiry();
-        let terminal_task = spawn_native_terminal(stream, action, state.clone(), NATIVE_TERMINAL);
+        let terminal_task = spawn_native_terminal(
+            stream,
+            action,
+            state.clone(),
+            NATIVE_TERMINAL,
+            provider_guard,
+        );
         let provider_acknowledged =
             await_native_abort_task(terminal_task, state, wait_timeout).await;
         provider_acknowledged
@@ -714,11 +819,28 @@ pub(super) fn spawn_channel_stream_task(
     reply_mode: ImReplyMode,
     round_texts: Arc<Mutex<RoundTextAccumulator>>,
     capabilities: ChannelCapabilities,
+    prelude: Option<super::pipeline::StreamPipelinePrelude>,
 ) -> tokio::task::JoinHandle<StreamPreviewOutcome> {
     tokio::spawn(async move {
         let account_id = target.account_id.clone();
         let chat_id = target.chat_id.clone();
         let thread_id = target.thread_id.clone();
+        let (prelude_report, provider_guard) = if let Some(prelude) = prelude {
+            let (report, guard) = prelude.run(&plugin, &target).await;
+            (report, Some(guard))
+        } else {
+            (
+                super::dispatcher::DeliveryReport::default(),
+                // Unit-only/manual pipelines may omit provider ordering.
+                None,
+            )
+        };
+        if prelude_report.unsafe_to_continue {
+            return StreamPreviewOutcome {
+                delivery_report: prelude_report,
+                ..StreamPreviewOutcome::default()
+            };
+        }
         // Mutable: the reply quote belongs to the first legacy message of the
         // turn only. Native Split deliberately remains one stream for the
         // entire Agent turn and never enters per-round finalization.
@@ -731,7 +853,9 @@ pub(super) fn spawn_channel_stream_task(
             loop {
                 tokio::select! {
                     notice = system_notice_rx.recv() => match notice {
-                        Some(body) => send_system_notice_now(&plugin, &target, &body).await,
+                        Some(body) => send_system_notice_now(
+                            &plugin, &target, &body, provider_guard.as_ref()
+                        ).await,
                         None => break,
                     },
                     event = event_rx.recv() => {
@@ -740,9 +864,18 @@ pub(super) fn spawn_channel_stream_task(
                 }
             }
             // Drain anything still buffered after either channel closed.
-            drain_system_notices(&mut system_notice_rx, &plugin, &target).await;
+            drain_system_notices(
+                &mut system_notice_rx,
+                &plugin,
+                &target,
+                provider_guard.as_ref(),
+            )
+            .await;
             while event_rx.recv().await.is_some() {}
-            return StreamPreviewOutcome::default();
+            return StreamPreviewOutcome {
+                delivery_report: prelude_report,
+                ..StreamPreviewOutcome::default()
+            };
         };
 
         // Telegram animates draft updates that share the same `draft_id`.
@@ -774,7 +907,7 @@ pub(super) fn spawn_channel_stream_task(
         let mut in_tool_phase = false;
         // Number of rounds we've already shipped via per-round finalize.
         let mut finalized_rounds: usize = 0;
-        let mut delivery_report = super::dispatcher::DeliveryReport::default();
+        let mut delivery_report = prelude_report;
         let mut flush_schedule = StreamPreviewFlushSchedule::new(Instant::now());
 
         loop {
@@ -794,6 +927,7 @@ pub(super) fn spawn_channel_stream_task(
                     &mut card_session,
                     &mut native_frame_state,
                     native_phase,
+                    provider_guard.as_ref(),
                 )
                 .await
                 {
@@ -825,6 +959,7 @@ pub(super) fn spawn_channel_stream_task(
                     &mut card_session,
                     &mut native_frame_state,
                     native_phase,
+                    provider_guard.as_ref(),
                 )
                 .await
                 {
@@ -844,7 +979,9 @@ pub(super) fn spawn_channel_stream_task(
                         // collide with `accumulated` / `preview_message_id`.
                         // Closed channel just means the engine dropped its
                         // sender; keep the loop running on `event_rx`.
-                        send_system_notice_now(&plugin, &target, &body).await;
+                        send_system_notice_now(
+                            &plugin, &target, &body, provider_guard.as_ref()
+                        ).await;
                     }
                 }
                 event = event_rx.recv() => {
@@ -890,6 +1027,7 @@ pub(super) fn spawn_channel_stream_task(
                                         &mut preview_message_id, &mut message_preview_ack,
                                         &mut card_session,
                                         finalized_rounds, &round_texts, &capabilities,
+                                        provider_guard.as_ref(),
                                     ).await;
                                     let halt_delivery = report.unsafe_to_continue;
                                     delivery_report.merge(report);
@@ -927,6 +1065,7 @@ pub(super) fn spawn_channel_stream_task(
                                     &mut preview_message_id, &mut message_preview_ack,
                                     &mut card_session,
                                     &mut native_frame_state, native_phase,
+                                    provider_guard.as_ref(),
                                 ).await {
                                     delivery_report.merge(failure);
                                     break;
@@ -945,6 +1084,7 @@ pub(super) fn spawn_channel_stream_task(
                                     &mut preview_message_id, &mut message_preview_ack,
                                     &mut card_session,
                                     finalized_rounds, &round_texts, &capabilities,
+                                    provider_guard.as_ref(),
                                 ).await;
                                 let halt_delivery = report.unsafe_to_continue;
                                 delivery_report.merge(report);
@@ -970,6 +1110,7 @@ pub(super) fn spawn_channel_stream_task(
                                     &mut preview_message_id, &mut message_preview_ack,
                                     &mut card_session,
                                     &mut native_frame_state, native_phase,
+                                    provider_guard.as_ref(),
                                 ).await {
                                     delivery_report.merge(failure);
                                     break;
@@ -977,6 +1118,7 @@ pub(super) fn spawn_channel_stream_task(
                             }
                             drain_system_notices(
                                 &mut system_notice_rx, &plugin, &target,
+                                provider_guard.as_ref(),
                             ).await;
                             break;
                         }
@@ -992,6 +1134,7 @@ pub(super) fn spawn_channel_stream_task(
                             &mut preview_message_id, &mut message_preview_ack,
                             &mut card_session,
                             &mut native_frame_state, native_phase,
+                            provider_guard.as_ref(),
                         ).await {
                             delivery_report.merge(failure);
                             break;
@@ -1059,10 +1202,19 @@ async fn send_system_notice_now(
     plugin: &Arc<dyn ChannelPlugin>,
     native_target: &ReplyStreamTarget,
     body: &str,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) {
     let mut target = super::pipeline::DeliveryTarget::from(native_target);
     target.reply_to_message_id = None;
-    super::dispatcher::send_text_chunks(plugin, &target, body, None, &[]).await;
+    super::dispatcher::send_text_chunks_with_guard(
+        plugin,
+        &target,
+        body,
+        None,
+        &[],
+        provider_guard,
+    )
+    .await;
 }
 
 /// Drain any system notices buffered when `event_rx` closed in the same
@@ -1072,9 +1224,10 @@ async fn drain_system_notices(
     rx: &mut mpsc::UnboundedReceiver<String>,
     plugin: &Arc<dyn ChannelPlugin>,
     target: &ReplyStreamTarget,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) {
     while let Ok(body) = rx.try_recv() {
-        send_system_notice_now(plugin, target, &body).await;
+        send_system_notice_now(plugin, target, &body, provider_guard).await;
     }
 }
 
@@ -1120,6 +1273,7 @@ async fn finalize_split_round(
     round_idx: usize,
     round_texts: &Arc<Mutex<RoundTextAccumulator>>,
     capabilities: &ChannelCapabilities,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> super::dispatcher::DeliveryReport {
     let account_id = native_target.account_id.as_str();
     let chat_id = native_target.chat_id.as_str();
@@ -1141,6 +1295,7 @@ async fn finalize_split_round(
             card_session,
             &mut native_frame_state,
             ReplyStreamPhase::Generating,
+            provider_guard,
         )
         .await
         {
@@ -1173,12 +1328,13 @@ async fn finalize_split_round(
         } else {
             None
         };
-        let text_report = super::dispatcher::send_text_chunks(
+        let text_report = super::dispatcher::send_text_chunks_with_guard(
             plugin,
             &target,
             accumulated,
             message_preview.as_ref(),
             &[],
+            provider_guard,
         )
         .await;
         can_continue = !text_report.unsafe_to_continue;
@@ -1192,21 +1348,20 @@ async fn finalize_split_round(
 
     // 3. Transport-specific close. Best-effort: any error here is
     //    cosmetic (the text is already delivered above), so log + continue.
+    //    Close is an existing-handle cleanup and deliberately ignores a moved
+    //    attach; updates and any fresh sends above still validate the target.
     if let StreamPreviewTransport::Card = preview_transport {
         if let Some(session) = card_session.take() {
             if !session.broken {
-                if let Err(e) = plugin
-                    .close_card_stream(account_id, &session.card_id, session.sequence)
-                    .await
-                {
-                    app_warn!(
-                        "channel",
-                        "worker",
-                        "split-streaming close_card_stream failed (seq={}): {}",
-                        session.sequence,
-                        e
-                    );
-                }
+                close_confirmed_card_session(
+                    plugin,
+                    account_id,
+                    &session.card_id,
+                    session.sequence,
+                    provider_guard,
+                    "split-streaming",
+                )
+                .await;
             }
         }
     }
@@ -1236,7 +1391,16 @@ async fn finalize_split_round(
     };
     if !medias.is_empty() {
         let media_target = super::pipeline::DeliveryTarget::from(native_target);
-        report.merge(deliver_media_to_chat(plugin, &media_target, &medias, capabilities).await);
+        report.merge(
+            super::dispatcher::deliver_media_to_chat_with_guard(
+                plugin,
+                &media_target,
+                &medias,
+                capabilities,
+                provider_guard,
+            )
+            .await,
+        );
     }
     report
 }
@@ -1299,6 +1463,88 @@ struct CardSession {
     broken: bool,
 }
 
+/// Cardkit create is sequence-less. Both the first explicit update and a
+/// close performed before any update therefore use sequence 1.
+const CARD_INITIAL_CONFIRMED_SEQUENCE: i64 = 1;
+
+/// Close only when no card update is in flight and `sequence` is known to be
+/// the next legal value. Existing-handle cleanup deliberately skips attach
+/// validity, but ambiguous/broken updates never call this helper and rely on
+/// provider TTL instead of risking an out-of-order close.
+async fn close_confirmed_card_session(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    card_id: &str,
+    sequence: i64,
+    provider_guard: Option<&ProviderMutationGuard>,
+    context: &'static str,
+) {
+    let close_plugin = plugin.clone();
+    let close_account = account_id.to_string();
+    let close_card = card_id.to_string();
+    let close = async move {
+        close_plugin
+            .close_card_stream(&close_account, &close_card, sequence)
+            .await
+    };
+    let result = match provider_guard {
+        Some(guard) => match guard.submit_cleanup(close).wait().await {
+            ProviderMutationOutcome::Completed(result) => result,
+            ProviderMutationOutcome::Invalid => {
+                Err(anyhow::anyhow!("card cleanup checked live validity"))
+            }
+            ProviderMutationOutcome::TaskFailed => {
+                Err(anyhow::anyhow!("provider card close task failed"))
+            }
+        },
+        None => close.await,
+    };
+    if let Err(error) = result {
+        app_warn!(
+            "channel",
+            "worker",
+            "{} close_card_stream failed (seq={}): {}",
+            context,
+            sequence,
+            ha_core::logging::redact_sensitive(&error.to_string())
+        );
+    }
+}
+
+/// A successful card attach is the first visible mutation. If the stream task
+/// disappears before it can install the returned delivery in `CardSession`,
+/// the resilient provider job invokes this callback while it still owns the
+/// physical-target lane. Only `success=true` is an acknowledgement: every
+/// other legacy result is ambiguous and must be left for provider TTL cleanup.
+async fn cleanup_abandoned_card_attach(
+    plugin: Arc<dyn ChannelPlugin>,
+    account_id: String,
+    card_id: String,
+    attach_result: anyhow::Result<DeliveryResult>,
+) {
+    if !matches!(&attach_result, Ok(delivery) if delivery.success) {
+        app_warn!(
+            "channel",
+            "worker",
+            "Abandoned card attach was not acknowledged; leaving card open for provider TTL cleanup"
+        );
+        return;
+    }
+
+    if let Err(error) = plugin
+        .close_card_stream(&account_id, &card_id, CARD_INITIAL_CONFIRMED_SEQUENCE)
+        .await
+    {
+        app_warn!(
+            "channel",
+            "worker",
+            "abandoned confirmed card attach close_card_stream failed (seq={}): {}",
+            CARD_INITIAL_CONFIRMED_SEQUENCE,
+            ha_core::logging::redact_sensitive(&error.to_string())
+        );
+    }
+}
+
 /// Extract text from a `text_delta` event JSON string.
 pub(super) fn extract_text_delta(event_str: &str) -> Option<String> {
     let event: serde_json::Value = serde_json::from_str(event_str).ok()?;
@@ -1334,6 +1580,7 @@ pub(super) fn select_stream_preview_transport(
                 state: Arc::new(AtomicU8::new(NATIVE_SELECTED)),
                 native_preview_relinquished: Arc::new(AtomicBool::new(false)),
                 terminal_owner: Arc::new(AtomicU8::new(NATIVE_TERMINAL_UNCLAIMED)),
+                provider_guard: None,
             });
         }
     }
@@ -1423,6 +1670,30 @@ enum NativeFlushResult {
     Acknowledged,
     Skipped,
     Fallback,
+    Blocked,
+}
+
+enum NativePushJobOutcome {
+    Returned {
+        stream: Box<dyn ChannelReplyStream>,
+        result: Result<(), ReplyStreamError>,
+    },
+    Detached,
+}
+
+async fn abort_abandoned_native_stream(stream: Box<dyn ChannelReplyStream>, state: Arc<AtomicU8>) {
+    state.store(NATIVE_ABORTING, Ordering::Release);
+    let aborted = std::panic::AssertUnwindSafe(stream.abort(ReplyAbortReason::Detached))
+        .catch_unwind()
+        .await;
+    state.store(
+        if matches!(aborted, Ok(Ok(()))) {
+            NATIVE_TERMINAL
+        } else {
+            NATIVE_AMBIGUOUS
+        },
+        Ordering::Release,
+    );
 }
 
 pub(super) fn build_native_frame(
@@ -1501,6 +1772,7 @@ async fn flush_native_preview(
     accumulated: &str,
     phase: ReplyStreamPhase,
     frame_state: &mut NativeFrameState,
+    provider_guard: Option<ProviderMutationGuard>,
 ) -> NativeFlushResult {
     let lifecycle = state.load(Ordering::Acquire);
     if matches!(
@@ -1515,15 +1787,47 @@ async fn flush_native_preview(
         if !try_begin_native_open(state) {
             return NativeFlushResult::Skipped;
         }
-        // Hold the exact shared slot while opening. Cancellation waits on this
-        // same lock (bounded by the pipeline's 3 second deadline), preventing
-        // an accepted session from being installed after an abort completed.
+        // Hold the exact shared slot while the process-lifetime executor owns
+        // the open. If this caller/runtime disappears, the resilient ticket
+        // consumes an accepted stream with a detached abort before releasing
+        // the physical-target lane.
         let mut guard = session.lock().await;
         if state.load(Ordering::Acquire) != NATIVE_OPENING {
             return NativeFlushResult::Skipped;
         }
-        match plugin.open_reply_stream(target, &frame).await {
-            Ok(stream) => {
+        let open_plugin = plugin.clone();
+        let open_target = target.clone();
+        let open_frame = frame.clone();
+        let open = async move {
+            open_plugin
+                .open_reply_stream(&open_target, &open_frame)
+                .await
+        };
+        let open_outcome = match provider_guard.as_ref() {
+            Some(provider_guard) => {
+                let cleanup_state = state.clone();
+                provider_guard
+                    .submit_resilient(open, move |result| async move {
+                        if let Ok(stream) = result {
+                            abort_abandoned_native_stream(stream, cleanup_state).await;
+                        } else if let Err(error) = result {
+                            cleanup_state.store(
+                                if safe_open_fallback(error.kind) {
+                                    NATIVE_TERMINAL
+                                } else {
+                                    NATIVE_AMBIGUOUS
+                                },
+                                Ordering::Release,
+                            );
+                        }
+                    })
+                    .wait()
+                    .await
+            }
+            None => ProviderMutationOutcome::Completed(open.await),
+        };
+        match open_outcome {
+            ProviderMutationOutcome::Completed(Ok(stream)) => {
                 if state.load(Ordering::Acquire) == NATIVE_TERMINAL {
                     state.store(NATIVE_ABORTING, Ordering::Release);
                     drop(guard);
@@ -1532,6 +1836,7 @@ async fn flush_native_preview(
                         ReplyAbortReason::Cancelled,
                         state.clone(),
                         NATIVE_TERMINAL,
+                        provider_guard.clone(),
                     );
                     if !await_native_abort_task(abort_task, state, NATIVE_ABORT_WAIT_TIMEOUT).await
                     {
@@ -1545,7 +1850,7 @@ async fn flush_native_preview(
                 acknowledge_native_frame(frame_state, &frame, capabilities.update_mode);
                 NativeFlushResult::Acknowledged
             }
-            Err(error) if safe_open_fallback(error.kind) => {
+            ProviderMutationOutcome::Completed(Err(error)) if safe_open_fallback(error.kind) => {
                 state.store(NATIVE_TERMINAL, Ordering::Release);
                 drop(guard);
                 app_warn!(
@@ -1556,7 +1861,7 @@ async fn flush_native_preview(
                 );
                 NativeFlushResult::Fallback
             }
-            Err(error) => {
+            ProviderMutationOutcome::Completed(Err(error)) => {
                 if matches!(
                     capabilities.preview_persistence,
                     ReplyStreamPreviewPersistence::Ephemeral
@@ -1586,42 +1891,96 @@ async fn flush_native_preview(
                 );
                 NativeFlushResult::Skipped
             }
+            ProviderMutationOutcome::Invalid => {
+                state.store(NATIVE_TERMINAL, Ordering::Release);
+                NativeFlushResult::Blocked
+            }
+            ProviderMutationOutcome::TaskFailed => {
+                state.store(NATIVE_AMBIGUOUS, Ordering::Release);
+                NativeFlushResult::Blocked
+            }
         }
     } else if lifecycle == NATIVE_ACTIVE {
         let mut guard = session.lock().await;
         if state.load(Ordering::Acquire) != NATIVE_ACTIVE {
             return NativeFlushResult::Skipped;
         }
-        let Some(stream) = guard.as_mut() else {
+        let Some(mut stream) = guard.take() else {
             if state.load(Ordering::Acquire) != NATIVE_TERMINAL {
                 state.store(NATIVE_BROKEN, Ordering::Release);
             }
             return NativeFlushResult::Skipped;
         };
-        match stream.push(&frame).await {
-            Ok(()) => {
+        let push_frame = frame.clone();
+        let push_validity = provider_guard.clone();
+        let push_state = state.clone();
+        let push = async move {
+            let still_valid = match push_validity {
+                Some(validity) => validity.is_valid_async().await,
+                None => true,
+            };
+            if !still_valid {
+                abort_abandoned_native_stream(stream, push_state).await;
+                return NativePushJobOutcome::Detached;
+            }
+            let result = match std::panic::AssertUnwindSafe(stream.push(&push_frame))
+                .catch_unwind()
+                .await
+            {
+                Ok(result) => result,
+                Err(_) => Err(ReplyStreamError::new(
+                    ReplyStreamErrorKind::Ambiguous,
+                    "native push adapter panicked",
+                )),
+            };
+            NativePushJobOutcome::Returned { stream, result }
+        };
+        let push_outcome = match provider_guard.as_ref() {
+            Some(provider_guard) => {
+                let cleanup_state = state.clone();
+                provider_guard
+                    .submit_resilient_cleanup(push, move |outcome| async move {
+                        if let NativePushJobOutcome::Returned { stream, .. } = outcome {
+                            abort_abandoned_native_stream(stream, cleanup_state).await;
+                        }
+                    })
+                    .wait()
+                    .await
+            }
+            None => ProviderMutationOutcome::Completed(push.await),
+        };
+        match push_outcome {
+            ProviderMutationOutcome::Completed(NativePushJobOutcome::Detached) => {
+                state.store(NATIVE_TERMINAL, Ordering::Release);
+                NativeFlushResult::Blocked
+            }
+            ProviderMutationOutcome::Completed(NativePushJobOutcome::Returned {
+                stream,
+                result: Ok(()),
+            }) => {
                 if state.load(Ordering::Acquire) == NATIVE_TERMINAL {
-                    let stream = guard.take();
                     state.store(NATIVE_ABORTING, Ordering::Release);
                     drop(guard);
-                    if let Some(stream) = stream {
-                        // Detached terminal handoff: cancellation may stop
-                        // polling this stream task immediately after the lock
-                        // becomes available, but the provider abort continues.
-                        drop(spawn_native_abort(
-                            stream,
-                            ReplyAbortReason::Cancelled,
-                            state.clone(),
-                            NATIVE_TERMINAL,
-                        ));
-                    }
+                    // Submission happens synchronously inside the helper, so
+                    // runtime teardown cannot strand the consumed handle.
+                    drop(spawn_native_abort(
+                        stream,
+                        ReplyAbortReason::Cancelled,
+                        state.clone(),
+                        NATIVE_TERMINAL,
+                        provider_guard.clone(),
+                    ));
                     return NativeFlushResult::Skipped;
                 }
+                *guard = Some(stream);
                 drop(guard);
                 acknowledge_native_frame(frame_state, &frame, capabilities.update_mode);
                 NativeFlushResult::Acknowledged
             }
-            Err(error) => {
+            ProviderMutationOutcome::Completed(NativePushJobOutcome::Returned {
+                stream,
+                result: Err(error),
+            }) => {
                 let cancelled = state.load(Ordering::Acquire) == NATIVE_TERMINAL;
                 if !cancelled
                     && matches!(
@@ -1633,6 +1992,7 @@ async fn flush_native_preview(
                     // terminal commit carrier. No more preview mutations are
                     // attempted, and the independent final remains available.
                     state.store(NATIVE_BROKEN, Ordering::Release);
+                    *guard = Some(stream);
                     drop(guard);
                     app_warn!(
                         "channel",
@@ -1650,23 +2010,19 @@ async fn flush_native_preview(
                 } else {
                     NATIVE_BROKEN
                 };
-                let stream = guard.take();
                 state.store(NATIVE_ABORTING, Ordering::Release);
                 drop(guard);
-                if let Some(stream) = stream {
-                    drop(spawn_native_abort(
-                        stream,
-                        if cancelled {
-                            ReplyAbortReason::Cancelled
-                        } else {
-                            ReplyAbortReason::Failed
-                        },
-                        state.clone(),
-                        terminal_state,
-                    ));
-                } else {
-                    state.store(terminal_state, Ordering::Release);
-                }
+                drop(spawn_native_abort(
+                    stream,
+                    if cancelled {
+                        ReplyAbortReason::Cancelled
+                    } else {
+                        ReplyAbortReason::Failed
+                    },
+                    state.clone(),
+                    terminal_state,
+                    provider_guard,
+                ));
                 app_warn!(
                     "channel",
                     "worker",
@@ -1675,6 +2031,10 @@ async fn flush_native_preview(
                     ha_core::logging::redact_sensitive(&error.to_string())
                 );
                 NativeFlushResult::Skipped
+            }
+            ProviderMutationOutcome::Invalid | ProviderMutationOutcome::TaskFailed => {
+                state.store(NATIVE_AMBIGUOUS, Ordering::Release);
+                NativeFlushResult::Blocked
             }
         }
     } else {
@@ -1727,6 +2087,24 @@ fn unsafe_preview_delivery(error: String) -> super::dispatcher::DeliveryReport {
     }
 }
 
+async fn run_provider_mutation<T, Fut>(
+    provider_guard: Option<&ProviderMutationGuard>,
+    mutation: Fut,
+) -> ProviderMutationOutcome<T>
+where
+    T: Send + 'static,
+    Fut: std::future::Future<Output = T> + Send + 'static,
+{
+    match provider_guard {
+        Some(guard) => guard.run(mutation).await,
+        None => ProviderMutationOutcome::Completed(mutation.await),
+    }
+}
+
+fn blocked_preview_delivery(reason: &str) -> super::dispatcher::DeliveryReport {
+    unsafe_preview_delivery(reason.to_string())
+}
+
 async fn send_message_preview(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
@@ -1734,16 +2112,23 @@ async fn send_message_preview(
     payload: &ReplyPayload,
     preview_message_id: &mut Option<String>,
     message_preview_ack: &mut Option<String>,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> Option<super::dispatcher::DeliveryReport> {
     if let Some(message_id) = preview_message_id.clone() {
-        match plugin
-            .edit_message(account_id, chat_id, &message_id, payload)
-            .await
-        {
-            Ok(result) if result.success => {
+        let plugin = plugin.clone();
+        let account_id = account_id.to_string();
+        let chat_id = chat_id.to_string();
+        let payload_owned = payload.clone();
+        let edit = async move {
+            plugin
+                .edit_message(&account_id, &chat_id, &message_id, &payload_owned)
+                .await
+        };
+        match run_provider_mutation(provider_guard, edit).await {
+            ProviderMutationOutcome::Completed(Ok(result)) if result.success => {
                 *message_preview_ack = payload.text.clone();
             }
-            Ok(result) => {
+            ProviderMutationOutcome::Completed(Ok(result)) => {
                 app_warn!(
                     "channel",
                     "worker",
@@ -1758,7 +2143,7 @@ async fn send_message_preview(
                 // Retain the same id so a later revision can only retry the
                 // idempotent edit, never create a duplicate preview message.
             }
-            Err(error) => {
+            ProviderMutationOutcome::Completed(Err(error)) => {
                 app_warn!(
                     "channel",
                     "worker",
@@ -1768,12 +2153,31 @@ async fn send_message_preview(
                 // A transport error may arrive after the edit was accepted.
                 // Keep the id and suppress any fresh-message fallback.
             }
+            ProviderMutationOutcome::Invalid => {
+                return Some(blocked_preview_delivery(
+                    "IM mirror attach changed before preview edit",
+                ));
+            }
+            ProviderMutationOutcome::TaskFailed => {
+                return Some(blocked_preview_delivery(
+                    "preview edit task failed; provider outcome is ambiguous",
+                ));
+            }
         }
         return None;
     }
 
-    match plugin.send_message(account_id, chat_id, payload).await {
-        Ok(result) if result.success => {
+    let plugin = plugin.clone();
+    let account_id = account_id.to_string();
+    let chat_id = chat_id.to_string();
+    let payload_owned = payload.clone();
+    let send = async move {
+        plugin
+            .send_message(&account_id, &chat_id, &payload_owned)
+            .await
+    };
+    match run_provider_mutation(provider_guard, send).await {
+        ProviderMutationOutcome::Completed(Ok(result)) if result.success => {
             if let Some(message_id) = result.message_id.filter(|id| !id.trim().is_empty()) {
                 *preview_message_id = Some(message_id);
                 *message_preview_ack = payload.text.clone();
@@ -1785,7 +2189,7 @@ async fn send_message_preview(
                 Some(unsafe_preview_delivery(error))
             }
         }
-        Ok(result) => {
+        ProviderMutationOutcome::Completed(Ok(result)) => {
             let error = ha_core::logging::redact_sensitive(
                 result
                     .error
@@ -1795,11 +2199,17 @@ async fn send_message_preview(
             app_warn!("channel", "worker", "stream preview send failed: {}", error);
             Some(unsafe_preview_delivery(error))
         }
-        Err(e) => {
+        ProviderMutationOutcome::Completed(Err(e)) => {
             let error = ha_core::logging::redact_sensitive(&e.to_string());
             app_warn!("channel", "worker", "stream preview send failed: {}", error);
             Some(unsafe_preview_delivery(error))
         }
+        ProviderMutationOutcome::Invalid => Some(blocked_preview_delivery(
+            "IM mirror attach changed before preview send",
+        )),
+        ProviderMutationOutcome::TaskFailed => Some(blocked_preview_delivery(
+            "preview send task failed; provider outcome is ambiguous",
+        )),
     }
 }
 
@@ -1807,6 +2217,7 @@ enum CardPreviewError {
     SafeBeforeAttach(String),
     AmbiguousAttach(String),
     VisibleMutation(String),
+    Blocked(String),
 }
 
 /// Lazy-create the card on first preview, then update its single
@@ -1822,6 +2233,7 @@ async fn send_card_preview(
     thread_id: Option<&str>,
     raw_text: &str,
     card_session: &mut Option<CardSession>,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> Result<(), CardPreviewError> {
     if raw_text.is_empty() {
         return Ok(());
@@ -1847,20 +2259,21 @@ async fn send_card_preview(
             ));
         }
         let next_seq = session.sequence;
-        match plugin
-            .update_card_element(
-                account_id,
-                &session.card_id,
-                &session.element_id,
-                raw_text,
-                next_seq,
-            )
-            .await
-        {
-            Ok(()) => {
+        let update_plugin = plugin.clone();
+        let update_account = account_id.to_string();
+        let card_id = session.card_id.clone();
+        let element_id = session.element_id.clone();
+        let raw_text = raw_text.to_string();
+        let update = async move {
+            update_plugin
+                .update_card_element(&update_account, &card_id, &element_id, &raw_text, next_seq)
+                .await
+        };
+        match run_provider_mutation(provider_guard, update).await {
+            ProviderMutationOutcome::Completed(Ok(())) => {
                 session.sequence = next_seq + 1;
             }
-            Err(e) => {
+            ProviderMutationOutcome::Completed(Err(e)) => {
                 let error = format!("update_card_element (seq={next_seq}): {e}");
                 app_warn!(
                     "channel",
@@ -1872,24 +2285,125 @@ async fn send_card_preview(
                 session.broken = true;
                 return Err(CardPreviewError::VisibleMutation(error));
             }
+            ProviderMutationOutcome::Invalid => {
+                // `run_provider_mutation` did not poll the update future, so
+                // the last confirmed sequence is still safe for a detached
+                // lane-only close of this old physical card.
+                close_confirmed_card_session(
+                    plugin,
+                    account_id,
+                    &session.card_id,
+                    next_seq,
+                    provider_guard,
+                    "blocked card update",
+                )
+                .await;
+                return Err(CardPreviewError::Blocked(
+                    "IM mirror attach changed before card update".to_string(),
+                ));
+            }
+            ProviderMutationOutcome::TaskFailed => {
+                session.broken = true;
+                return Err(CardPreviewError::VisibleMutation(
+                    "card update task failed; provider outcome is ambiguous".to_string(),
+                ));
+            }
         }
         return Ok(());
     }
 
-    let handle = plugin
-        .create_card_stream(account_id, raw_text)
-        .await
-        .map_err(|e| CardPreviewError::SafeBeforeAttach(format!("create_card_stream: {e}")))?;
-    let delivery = plugin
-        .send_card_message(
-            account_id,
-            chat_id,
-            &handle.card_id,
-            reply_to_message_id,
-            thread_id,
-        )
-        .await
-        .map_err(|e| CardPreviewError::AmbiguousAttach(format!("send_card_message: {e}")))?;
+    let plugin_for_create = plugin.clone();
+    let account_for_create = account_id.to_string();
+    let text_for_create = raw_text.to_string();
+    let create = async move {
+        plugin_for_create
+            .create_card_stream(&account_for_create, &text_for_create)
+            .await
+    };
+    let handle = match run_provider_mutation(provider_guard, create).await {
+        ProviderMutationOutcome::Completed(Ok(handle)) => handle,
+        ProviderMutationOutcome::Completed(Err(error)) => {
+            return Err(CardPreviewError::SafeBeforeAttach(format!(
+                "create_card_stream: {error}"
+            )));
+        }
+        ProviderMutationOutcome::Invalid => {
+            return Err(CardPreviewError::Blocked(
+                "IM mirror attach changed before card creation".to_string(),
+            ));
+        }
+        ProviderMutationOutcome::TaskFailed => {
+            return Err(CardPreviewError::SafeBeforeAttach(
+                "card creation task failed".to_string(),
+            ));
+        }
+    };
+    let plugin_for_attach = plugin.clone();
+    let account_for_attach = account_id.to_string();
+    let chat_for_attach = chat_id.to_string();
+    let card_for_attach = handle.card_id.clone();
+    let reply_for_attach = reply_to_message_id.map(str::to_string);
+    let thread_for_attach = thread_id.map(str::to_string);
+    let attach = async move {
+        plugin_for_attach
+            .send_card_message(
+                &account_for_attach,
+                &chat_for_attach,
+                &card_for_attach,
+                reply_for_attach.as_deref(),
+                thread_for_attach.as_deref(),
+            )
+            .await
+    };
+    let attach_outcome = match provider_guard {
+        Some(provider_guard) => {
+            let cleanup_plugin = plugin.clone();
+            let cleanup_account = account_id.to_string();
+            let cleanup_card = handle.card_id.clone();
+            provider_guard
+                .submit_resilient(attach, move |result| {
+                    cleanup_abandoned_card_attach(
+                        cleanup_plugin,
+                        cleanup_account,
+                        cleanup_card,
+                        result,
+                    )
+                })
+                .wait()
+                .await
+        }
+        None => ProviderMutationOutcome::Completed(attach.await),
+    };
+    let delivery = match attach_outcome {
+        ProviderMutationOutcome::Completed(Ok(delivery)) => delivery,
+        ProviderMutationOutcome::Completed(Err(error)) => {
+            return Err(CardPreviewError::AmbiguousAttach(format!(
+                "send_card_message: {error}"
+            )));
+        }
+        ProviderMutationOutcome::Invalid => {
+            // The attach future was never polled. The provider-created card
+            // has no concurrent sequence mutation, so it can be closed at the
+            // initial confirmed sequence before abandoning the old target.
+            close_confirmed_card_session(
+                plugin,
+                account_id,
+                &handle.card_id,
+                CARD_INITIAL_CONFIRMED_SEQUENCE,
+                provider_guard,
+                "blocked card attach",
+            )
+            .await;
+            return Err(CardPreviewError::Blocked(
+                "IM mirror attach changed before card attach".to_string(),
+            ));
+        }
+        ProviderMutationOutcome::TaskFailed => {
+            return Err(CardPreviewError::AmbiguousAttach(
+                "card attach task failed; provider outcome is ambiguous".to_string(),
+            ));
+        }
+    };
     if !delivery.success {
         return Err(CardPreviewError::AmbiguousAttach(format!(
             "send_card_message failed: {}",
@@ -1901,7 +2415,7 @@ async fn send_card_preview(
         element_id: handle.element_id,
         // Initial content was set during create. First explicit update
         // starts at sequence=1 (cardkit treats create as sequence-less).
-        sequence: 1,
+        sequence: CARD_INITIAL_CONFIRMED_SEQUENCE,
         broken: false,
     });
     Ok(())
@@ -1923,6 +2437,7 @@ async fn send_stream_preview(
     card_session: &mut Option<CardSession>,
     native_frame_state: &mut NativeFrameState,
     native_phase: ReplyStreamPhase,
+    provider_guard: Option<&ProviderMutationGuard>,
 ) -> Option<super::dispatcher::DeliveryReport> {
     let native = match preview_transport {
         StreamPreviewTransport::Native {
@@ -1932,6 +2447,7 @@ async fn send_stream_preview(
             session,
             state,
             native_preview_relinquished,
+            provider_guard,
             ..
         } => Some((
             target.clone(),
@@ -1940,6 +2456,7 @@ async fn send_stream_preview(
             session.clone(),
             state.clone(),
             native_preview_relinquished.clone(),
+            provider_guard.clone(),
         )),
         _ => None,
     };
@@ -1950,6 +2467,7 @@ async fn send_stream_preview(
         session,
         state,
         native_preview_relinquished,
+        native_provider_guard,
     )) = native
     {
         match flush_native_preview(
@@ -1961,6 +2479,7 @@ async fn send_stream_preview(
             text,
             native_phase,
             native_frame_state,
+            provider_guard.cloned().or(native_provider_guard),
         )
         .await
         {
@@ -1975,6 +2494,11 @@ async fn send_stream_preview(
                     return None;
                 };
                 *preview_transport = fallback;
+            }
+            NativeFlushResult::Blocked => {
+                return Some(blocked_preview_delivery(
+                    "IM mirror attach changed before native preview mutation",
+                ));
             }
             NativeFlushResult::Acknowledged | NativeFlushResult::Skipped => return None,
         }
@@ -2001,8 +2525,20 @@ async fn send_stream_preview(
             let Some(payload) = build_payload() else {
                 return None;
             };
-            if let Err(e) = plugin.send_draft(account_id, chat_id, &payload).await {
-                if should_fallback_from_draft_error(&e.to_string()) {
+            let draft_plugin = plugin.clone();
+            let draft_account = account_id.to_string();
+            let draft_chat = chat_id.to_string();
+            let draft_payload = payload.clone();
+            let draft = async move {
+                draft_plugin
+                    .send_draft(&draft_account, &draft_chat, &draft_payload)
+                    .await
+            };
+            match run_provider_mutation(provider_guard, draft).await {
+                ProviderMutationOutcome::Completed(Ok(())) => {}
+                ProviderMutationOutcome::Completed(Err(e))
+                    if should_fallback_from_draft_error(&e.to_string()) =>
+                {
                     app_warn!(
                         "channel",
                         "worker",
@@ -2017,10 +2553,22 @@ async fn send_stream_preview(
                         &payload,
                         preview_message_id,
                         message_preview_ack,
+                        provider_guard,
                     )
                     .await;
-                } else {
+                }
+                ProviderMutationOutcome::Completed(Err(e)) => {
                     app_warn!("channel", "worker", "send_draft failed: {}", e);
+                }
+                ProviderMutationOutcome::Invalid => {
+                    return Some(blocked_preview_delivery(
+                        "IM mirror attach changed before draft update",
+                    ));
+                }
+                ProviderMutationOutcome::TaskFailed => {
+                    return Some(blocked_preview_delivery(
+                        "draft update task failed; provider outcome is ambiguous",
+                    ));
                 }
             }
             None
@@ -2034,6 +2582,7 @@ async fn send_stream_preview(
                 thread_id,
                 text,
                 card_session,
+                provider_guard,
             )
             .await
             {
@@ -2058,6 +2607,7 @@ async fn send_stream_preview(
                                 &payload,
                                 preview_message_id,
                                 message_preview_ack,
+                                provider_guard,
                             )
                             .await
                         }
@@ -2090,6 +2640,7 @@ async fn send_stream_preview(
                     );
                     Some(unsafe_preview_delivery(error))
                 }
+                Err(CardPreviewError::Blocked(error)) => Some(blocked_preview_delivery(&error)),
             }
         }
         StreamPreviewTransport::Message => {
@@ -2103,9 +2654,289 @@ async fn send_stream_preview(
                 &payload,
                 preview_message_id,
                 message_preview_ack,
+                provider_guard,
             )
             .await
         }
         StreamPreviewTransport::Disabled => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use tokio::sync::{mpsc, oneshot};
+    use tokio_util::sync::CancellationToken;
+
+    use super::super::pipeline::DeliveryTarget;
+    use super::super::provider_lane::reserve_provider_lane;
+
+    #[derive(Clone, Copy)]
+    enum AttachCompletion {
+        Confirmed,
+        Ambiguous,
+        UnconfirmedDelivery,
+        TaskPanic,
+    }
+
+    struct AbandonedCardAttachPlugin {
+        completion: AttachCompletion,
+        attach_started: Mutex<Option<oneshot::Sender<()>>>,
+        attach_release: Mutex<Option<oneshot::Receiver<()>>>,
+        closes: Mutex<Vec<i64>>,
+    }
+
+    impl AbandonedCardAttachPlugin {
+        fn new(
+            completion: AttachCompletion,
+        ) -> (Arc<Self>, oneshot::Receiver<()>, oneshot::Sender<()>) {
+            let (started_tx, started_rx) = oneshot::channel();
+            let (release_tx, release_rx) = oneshot::channel();
+            (
+                Arc::new(Self {
+                    completion,
+                    attach_started: Mutex::new(Some(started_tx)),
+                    attach_release: Mutex::new(Some(release_rx)),
+                    closes: Mutex::new(Vec::new()),
+                }),
+                started_rx,
+                release_tx,
+            )
+        }
+
+        fn closes(&self) -> Vec<i64> {
+            self.closes
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
+    }
+
+    #[async_trait]
+    impl ChannelPlugin for AbandonedCardAttachPlugin {
+        fn meta(&self) -> ChannelMeta {
+            ChannelMeta {
+                id: ChannelId::Custom("abandoned-card-attach-test".to_string()),
+                display_name: "Abandoned card attach test".to_string(),
+                description: String::new(),
+                version: "0".to_string(),
+            }
+        }
+
+        fn capabilities(&self) -> ChannelCapabilities {
+            ChannelCapabilities {
+                chat_types: vec![ChatType::Dm],
+                supports_polls: false,
+                supports_reactions: false,
+                supports_draft: false,
+                supports_edit: false,
+                supports_unsend: false,
+                supports_reply: false,
+                supports_threads: false,
+                supports_media: Vec::new(),
+                supports_typing: false,
+                supports_buttons: false,
+                streaming_preview_max_bytes: None,
+                supports_card_stream: true,
+                native_reply: None,
+            }
+        }
+
+        async fn start_account(
+            &self,
+            _account: &ChannelAccountConfig,
+            _inbound_tx: mpsc::Sender<InboundEvent>,
+            _cancel: CancellationToken,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn stop_account(&self, _account_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn send_message(
+            &self,
+            _account_id: &str,
+            _chat_id: &str,
+            _payload: &ReplyPayload,
+        ) -> Result<DeliveryResult> {
+            unreachable!("card attach test does not send text messages")
+        }
+
+        async fn send_typing(&self, _account_id: &str, _chat_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn create_card_stream(
+            &self,
+            _account_id: &str,
+            _initial_text: &str,
+        ) -> Result<CardStreamHandle> {
+            Ok(CardStreamHandle {
+                card_id: "card".to_string(),
+                element_id: "element".to_string(),
+            })
+        }
+
+        async fn send_card_message(
+            &self,
+            _account_id: &str,
+            _chat_id: &str,
+            _card_id: &str,
+            _reply_to_message_id: Option<&str>,
+            _thread_id: Option<&str>,
+        ) -> Result<DeliveryResult> {
+            if let Some(started) = self
+                .attach_started
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take()
+            {
+                let _ = started.send(());
+            }
+            let release = self
+                .attach_release
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take()
+                .expect("attach release receiver");
+            let _ = release.await;
+            match self.completion {
+                AttachCompletion::Confirmed => Ok(DeliveryResult::ok("message")),
+                AttachCompletion::Ambiguous => anyhow::bail!("synthetic ambiguous attach"),
+                AttachCompletion::UnconfirmedDelivery => {
+                    Ok(DeliveryResult::err("synthetic unconfirmed delivery"))
+                }
+                AttachCompletion::TaskPanic => panic!("synthetic card attach panic"),
+            }
+        }
+
+        async fn close_card_stream(
+            &self,
+            _account_id: &str,
+            _card_id: &str,
+            sequence: i64,
+        ) -> Result<()> {
+            self.closes
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(sequence);
+            Ok(())
+        }
+
+        async fn probe(&self, _account: &ChannelAccountConfig) -> Result<ChannelHealth> {
+            Ok(ChannelHealth::default())
+        }
+
+        fn check_access(&self, _account: &ChannelAccountConfig, _msg: &MsgContext) -> bool {
+            true
+        }
+
+        fn markdown_to_native(&self, markdown: &str) -> String {
+            markdown.to_string()
+        }
+
+        async fn validate_credentials(&self, _credentials: &serde_json::Value) -> Result<String> {
+            Ok("test".to_string())
+        }
+    }
+
+    async fn run_abandoned_card_attach(completion: AttachCompletion) -> Vec<i64> {
+        let suffix = uuid::Uuid::new_v4();
+        let account_id = format!("card-abandon-account-{suffix}");
+        let chat_id = format!("card-abandon-chat-{suffix}");
+        let chat_type = ChatType::Dm;
+        let target = DeliveryTarget {
+            account_id: &account_id,
+            chat_id: &chat_id,
+            chat_type: &chat_type,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let lane = reserve_provider_lane(&target);
+        let provider_guard =
+            ProviderMutationGuard::new(lane.waiter(), lane.task_hold(), Arc::new(|| true));
+        let (concrete, attach_started, attach_release) = AbandonedCardAttachPlugin::new(completion);
+        let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+        let task_plugin = plugin.clone();
+        let task_guard = provider_guard.clone();
+        let task_account = account_id.clone();
+        let task_chat = chat_id.clone();
+        let stream_task = tokio::spawn(async move {
+            let mut card_session = None;
+            let _ = send_card_preview(
+                &task_plugin,
+                &task_account,
+                &task_chat,
+                None,
+                None,
+                "initial content",
+                &mut card_session,
+                Some(&task_guard),
+            )
+            .await;
+        });
+
+        tokio::time::timeout(Duration::from_secs(1), attach_started)
+            .await
+            .expect("card attach should start on the process executor")
+            .expect("card attach should signal start");
+        stream_task.abort();
+        let _ = stream_task.await;
+        drop(provider_guard);
+        drop(lane);
+
+        let successor = reserve_provider_lane(&target);
+        let successor_waiter = successor.waiter();
+        let mut successor_wait = Box::pin(successor_waiter.wait_turn());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), &mut successor_wait)
+                .await
+                .is_err(),
+            "abandoned attach must retain the provider lane until it settles"
+        );
+
+        attach_release.send(()).expect("settle card attach");
+        tokio::time::timeout(Duration::from_secs(1), successor_wait)
+            .await
+            .expect("successor should enter after attach cleanup decision");
+        drop(successor);
+        concrete.closes()
+    }
+
+    #[tokio::test]
+    async fn abandoned_confirmed_card_attach_closes_at_initial_sequence() {
+        assert_eq!(
+            run_abandoned_card_attach(AttachCompletion::Confirmed).await,
+            vec![CARD_INITIAL_CONFIRMED_SEQUENCE]
+        );
+    }
+
+    #[tokio::test]
+    async fn abandoned_ambiguous_card_attach_relies_on_provider_ttl() {
+        assert!(run_abandoned_card_attach(AttachCompletion::Ambiguous)
+            .await
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn abandoned_unconfirmed_card_delivery_relies_on_provider_ttl() {
+        assert!(
+            run_abandoned_card_attach(AttachCompletion::UnconfirmedDelivery)
+                .await
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn abandoned_failed_card_attach_task_relies_on_provider_ttl() {
+        assert!(run_abandoned_card_attach(AttachCompletion::TaskPanic)
+            .await
+            .is_empty());
     }
 }

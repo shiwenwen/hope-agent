@@ -120,6 +120,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 详见 [subagent](docs/architecture/agent/subagent.md) / [agent-team](docs/architecture/agent/agent-team.md) / [cron](docs/architecture/infra/cron.md) / [background-jobs](docs/architecture/agent/background-jobs.md)。
 
 - **后台 subagent / Group 投影单向**：`subagent_runs` 为真相源，投影不持正文、不反写，排除 plan/team/hook 内部 spawn 与 incognito（durable 表，守关闭即焚）；同步只走 `SessionDB::update_subagent_status`，取消走 `subagent::request_cancel_run`（刻意不跑工具 job 的 hook/注入，勿并入统一取消）。`batch_spawn` 建 group 前预校验全部 task（否则漏交付），取消先标 group 终态再取消子 run
+- **Subagent continuation 不抢在途回投**：续跑事务只准 suppress 尚未 claim 的 `pending` parent delivery；遇 `injecting` / `injecting_no_replay` 必须 fail closed，禁靠进程内 cancel 与跨进程 injector 竞速。显式消费 active delivery 只持久记录 consume request，由 claim owner 收尾为 `suppressed`；Primary 启动仅重置未消费的普通 `injecting`，no-replay arm 在无 owner 终止证明时保持 fail-closed、绝不自动 terminalize
 - `TeamTemplateMember.description` 注入子 session 身份段
 - **Cron 投递白名单**：`delivery_targets` 须命中 `channel_conversations`——模型显式给的未命中目标创建期 `bail!`，投递期再查、未命中或 DB 不可用 fail-closed 跳过。白名单即边界（刻意不叠 SSRF）
 - **Cron delete 审批**：`manage_cron action=delete` 唯一非 internal action，刻意抑制 AllowAlways——matcher 只按 `action` 不含 `id`，持久化即「删任意任务」常驻授权。owner 三入口走 `cron::delete_job_and_sessions`；新增审批原因同步 `ApprovalReasonKind` + `ApprovalDialog.tsx` union + 全语言文案
@@ -229,11 +230,11 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 详见 [im-channel](docs/architecture/integration/im-channel.md)。
 
-- **审批一致性 + fail-closed（红线）**：所有决议路径（submit/超时/删会话/eviction）必须 emit `approval:resolved` 统一撤窗；按钮回调缺源即拒（**不复用 ask_user 的 `None→Ok`**）、文本回复 submit 前校验 session↔chat、chat 接管在 notify 门**前**拒决该 session 全部 pending；`auto_approve_tools`（opt-in）跳门时命中 strict 须 `app_warn('permission','auto_approve_bypass')`——**纯审计不拦截**
+- **审批一致性 + fail-closed（红线）**：所有决议路径（submit/超时/删会话/eviction）必须 emit `approval:resolved` 统一撤窗；approval / ask_user 捕获并复验 exact `InteractiveAttachIdentity`，按钮回调缺源即拒（**不复用 ask_user 的 `None→Ok`**）、文本 submit 前校验完整 route；chat 接管在 notify 门**前**只拒决 identity 已失效的旧 pending，禁误拒 replacement attach 新请求；`auto_approve_tools`（opt-in）跳门时命中 strict 须 `app_warn('permission','auto_approve_bypass')`——**纯审计不拦截**
 - **事件匹配用 `contains` 不用 `starts_with`（红线）**：`emit_tool_result` 的 `json!`+`BTreeMap` 键按**字母序**排（`call_id` 恒首位），锚 `{"type":...` 的 fast-path **永不触发**
 - **`channel_conversations` 双向 1:1（红线）**：一 chat ↔ 一 session，接管即物理 detach 旧 attach + emit `channel:session_evicted`；读写一律走 [`channel/db.rs`](crates/ha-core/src/channel/db.rs) helper，**禁止直接写表**
 - **注入回投须在同一 future 内 await finalize**：`inject_and_run_parent` 自驱动镜像（注入跑短命 runtime，`spawn(finalize)` 会被腰斩）；空闲门超时**不丢弃**，重排队进 `PENDING_INJECTIONS`
-- **单一入口勿另起**：流式预览选路走 `select_stream_preview_transport`，新卡片风格靠 `ChannelPlugin` default=`Err` trait 方法扩展；auto-start 失败重试走 [`channel/start_watchdog.rs`](crates/ha-channel/src/channel/start_watchdog.rs)（**user 操作永远胜过 watchdog**），勿自写退避
+- **单一入口勿另起**：流式预览选路走 `select_stream_preview_transport`，新卡片风格靠 `ChannelPlugin` default=`Err` trait 方法扩展；assistant / mirror / catch-up / eviction / startup 的 provider 写统一经 `worker/provider_lane.rs` 按物理 target 预留顺序，实际 future 交给进程生命周期 executor，禁 request runtime 取消已接受 mutation；attach catch-up 必须先 `prepare_attach_catchup` 预留 lane，再且只能消费 `AttachCatchupReservation::attach`，由同一 DB 临界区完成 active generation + message watermark capture 与 durable attach，禁 plain attach 后 capture（极短 turn 会漏投或 live/static 双发）；exact generation 的 provider terminal 须保留有界 `Completed` tombstone，只有零 mutation / attach moved / ParentInjection `Confirmed` abort 可 release，禁 Guard Drop 直接忘记已投终态；新内容每次写前 live-check attach，旧 handle 的 abort / close 只做 lane-only cleanup；Card 未确认 update 不得 close；native mutation 只有能证明平台零送达的拒绝才准降级，timeout / 断连 / 5xx / 未知码一律 `Ambiguous` 禁补发；cosmetic typing/loading 必有有界超时、不得阻塞主回复；auto-start 失败重试走 [`channel/start_watchdog.rs`](crates/ha-channel/src/channel/start_watchdog.rs)（**user 操作永远胜过 watchdog**），勿自写退避
 
 ### 跨会话 / 全局
 

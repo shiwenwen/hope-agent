@@ -1,9 +1,17 @@
 use anyhow::{Context, Result};
-use reqwest::Client;
+use reqwest::{Client, RequestBuilder};
 use serde_json::Value;
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use crate::channel::rate_limit::with_rate_limit_retry;
+
+/// Bound requests that sit on the synchronous reply path. In particular,
+/// cosmetic loading indicators must never delay the chat engine indefinitely.
+const LINE_TIME_SENSITIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn with_time_sensitive_timeout(request: RequestBuilder) -> RequestBuilder {
+    request.timeout(LINE_TIME_SENSITIVE_REQUEST_TIMEOUT)
+}
 
 /// Failure classification for the non-idempotent LINE reply endpoint.
 ///
@@ -135,19 +143,19 @@ impl LineApi {
             "messages": messages,
         });
 
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.channel_access_token)
-            .json(&body)
-            .timeout(std::time::Duration::from_secs(10))
-            .send()
-            .await
-            .map_err(|error| {
-                LineReplyError::ambiguous(format!(
-                    "failed to send POST /v2/bot/message/reply: {error}"
-                ))
-            })?;
+        let resp = with_time_sensitive_timeout(
+            self.client
+                .post(&url)
+                .bearer_auth(&self.channel_access_token)
+                .json(&body),
+        )
+        .send()
+        .await
+        .map_err(|error| {
+            LineReplyError::ambiguous(format!(
+                "failed to send POST /v2/bot/message/reply: {error}"
+            ))
+        })?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -204,14 +212,15 @@ impl LineApi {
     pub async fn start_loading(&self, user_id: &str, loading_seconds: u8) -> Result<()> {
         let body = loading_request_body(user_id, loading_seconds)?;
         let url = format!("{}/v2/bot/chat/loading/start", self.base_url);
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.channel_access_token)
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send POST /v2/bot/chat/loading/start")?;
+        let resp = with_time_sensitive_timeout(
+            self.client
+                .post(&url)
+                .bearer_auth(&self.channel_access_token)
+                .json(&body),
+        )
+        .send()
+        .await
+        .context("Failed to send POST /v2/bot/chat/loading/start")?;
         let status = resp.status();
         if !status.is_success() {
             let resp_body = resp.text().await.unwrap_or_default();
@@ -345,6 +354,20 @@ mod tests {
         assert_eq!(body["loadingSeconds"], 60);
         assert!(loading_request_body("C123", 60).is_err());
         assert!(loading_request_body("U123", 7).is_err());
+    }
+
+    #[test]
+    fn time_sensitive_line_requests_have_a_bounded_timeout() {
+        let request = with_time_sensitive_timeout(
+            Client::new().post("https://api.line.me/v2/bot/chat/loading/start"),
+        )
+        .build()
+        .unwrap();
+
+        assert_eq!(
+            request.timeout(),
+            Some(&LINE_TIME_SENSITIVE_REQUEST_TIMEOUT)
+        );
     }
 
     #[test]

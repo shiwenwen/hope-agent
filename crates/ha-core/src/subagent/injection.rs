@@ -1,7 +1,9 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use super::helpers::{emit_parent_stream_event, truncate_str, CleanupGuard};
+use super::helpers::{
+    emit_parent_stream_event, release_injection_owner, truncate_str, CleanupGuard,
+};
 use super::types::{ParentAgentStreamEvent, SubagentStatus};
 use super::{
     ActiveInjection, ACTIVE_CHAT_SESSIONS, FETCHED_RUN_IDS, INJECTING_SESSIONS, INJECTION_CANCELS,
@@ -24,10 +26,26 @@ type InjectionReceiptStep = Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync>;
 pub struct OnInjected {
     arm_no_replay: InjectionReceiptStep,
     settle: InjectionReceiptStep,
+    release_unarmed: Option<InjectionReceiptStep>,
+    /// Optional process-local dispatch claim retained across FIFO deferral.
+    ///
+    /// Async-job replay uses this to keep every source job in an in-flight set
+    /// while a merged ParentInjection is queued. Release is deliberately tied
+    /// to a successful durable arm/settle, or to an explicit pre-arm abandon;
+    /// a failed terminal DB write must not reopen the five-second sweep and
+    /// immediately duplicate a turn that already reached the GUI.
+    release_process_dispatch: Option<Arc<dyn Fn() + Send + Sync>>,
+    durable_handoff: bool,
     no_replay_armed: Arc<AtomicBool>,
+    arm_lock: Arc<std::sync::Mutex<()>>,
+    unarmed_released: Arc<AtomicBool>,
+    process_dispatch_released: Arc<AtomicBool>,
 }
 
 impl OnInjected {
+    /// Construct a receipt without assuming that the five-second Primary sweep
+    /// can rediscover it. Only source families explicitly covered by that sweep
+    /// may opt in through [`Self::with_primary_handoff`].
     pub(crate) fn new(
         arm_no_replay: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
         settle: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
@@ -35,12 +53,51 @@ impl OnInjected {
         Self {
             arm_no_replay: Arc::new(arm_no_replay),
             settle: Arc::new(settle),
+            release_unarmed: None,
+            release_process_dispatch: None,
+            durable_handoff: false,
             no_replay_armed: Arc::new(AtomicBool::new(false)),
+            arm_lock: Arc::new(std::sync::Mutex::new(())),
+            unarmed_released: Arc::new(AtomicBool::new(false)),
+            process_dispatch_released: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    /// Use one idempotent durable write for both phases (for example,
-    /// `background_jobs.injected = 1`).
+    /// Add an idempotent rollback for a source claim that is abandoned before
+    /// its no-replay fence is armed. Durable implementations must predicate the
+    /// write on their ordinary in-flight state and never release an armed one.
+    pub(crate) fn with_release_unarmed(
+        mut self,
+        release: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        self.release_unarmed = Some(Arc::new(release));
+        self
+    }
+
+    /// Retain a process-local source claim for this receipt's complete queued
+    /// lifecycle. The callback must be idempotent and non-blocking: it is also
+    /// called synchronously when session cleanup purges a queued task.
+    pub(crate) fn with_process_dispatch_release(
+        mut self,
+        release: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        self.release_process_dispatch = Some(Arc::new(release));
+        self
+    }
+
+    /// Declare that this source is rediscoverable by the periodic Primary
+    /// ParentInjection sweep (currently ordinary subagent results and
+    /// async_jobs only). Keep this explicit: a durable workflow/wakeup row that
+    /// is replayed only at startup is not a live Secondary→Primary handoff.
+    pub(crate) fn with_primary_handoff(mut self) -> Self {
+        self.durable_handoff = true;
+        self
+    }
+
+    /// Use one idempotent process-local step for both phases. This does not
+    /// advertise a durable cross-process replay source; a
+    /// Secondary must preserve the callback by running GUI-only locally rather
+    /// than abandoning it for a Primary that cannot rediscover it.
     pub(crate) fn idempotent(
         step: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
     ) -> Self {
@@ -48,7 +105,13 @@ impl OnInjected {
         Self {
             arm_no_replay: step.clone(),
             settle: step,
+            release_unarmed: None,
+            release_process_dispatch: None,
+            durable_handoff: false,
             no_replay_armed: Arc::new(AtomicBool::new(false)),
+            arm_lock: Arc::new(std::sync::Mutex::new(())),
+            unarmed_released: Arc::new(AtomicBool::new(false)),
+            process_dispatch_released: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -56,8 +119,19 @@ impl OnInjected {
         if self.no_replay_armed.load(Ordering::Acquire) {
             return Ok(());
         }
+        let _arm = self
+            .arm_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("injection no-replay arm lock poisoned"))?;
+        // A late installer and the core engine boundary may race this method.
+        // Re-check under the shared clone-stable lock so the durable CAS/callback
+        // runs once; failures leave the flag false and remain retryable.
+        if self.no_replay_armed.load(Ordering::Acquire) {
+            return Ok(());
+        }
         (self.arm_no_replay)()?;
         self.no_replay_armed.store(true, Ordering::Release);
+        self.release_process_dispatch();
         Ok(())
     }
 
@@ -65,8 +139,835 @@ impl OnInjected {
         self.no_replay_armed.load(Ordering::Acquire)
     }
 
+    fn supports_durable_handoff(&self) -> bool {
+        self.durable_handoff
+    }
+
     fn settle(&self) -> anyhow::Result<()> {
-        (self.settle)()
+        (self.settle)()?;
+        self.release_process_dispatch();
+        Ok(())
+    }
+
+    fn release_unarmed(&self) -> anyhow::Result<()> {
+        self.release_process_dispatch();
+        if self.is_no_replay_armed() || self.release_unarmed.is_none() {
+            return Ok(());
+        }
+        if self
+            .unarmed_released
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let result = (self.release_unarmed.as_ref().expect("checked above"))();
+        if result.is_err() {
+            self.unarmed_released.store(false, Ordering::Release);
+        }
+        result
+    }
+
+    fn release_process_dispatch(&self) {
+        let Some(release) = self.release_process_dispatch.as_ref() else {
+            return;
+        };
+        if self
+            .process_dispatch_released
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            release();
+        }
+    }
+}
+
+#[derive(Clone)]
+enum ActiveInjectionMirrorTerminal {
+    Finalize(String),
+    Abort(Option<String>),
+}
+
+enum ActiveInjectionMirrorPhase {
+    /// The injection owner has not resolved its initial IM attach yet. A late
+    /// installer may not overtake this phase.
+    Initializing,
+    /// A binding change requested a late install while the initial channel hook
+    /// was still resolving. The reservation waits; an initial `Absent` hands it
+    /// the slot, while an initial `Attached` is published for the late token to
+    /// retain or replace according to the attach-generation claim.
+    LateRequested,
+    /// The initial attach was `Absent`; a same-process late attach may reserve
+    /// the slot once the ParentInjection stream is visible.
+    Open,
+    Installing,
+    Installed(Box<dyn crate::channel_hooks::ImLiveMirror>),
+    /// The initial hook returned an owner after a late reservation. Keep it
+    /// quarantined until that reservation either commits its newer generation
+    /// or drops without winning the claim.
+    LateReplacing(Box<dyn crate::channel_hooks::ImLiveMirror>),
+    TerminalPendingReplacement {
+        terminal: ActiveInjectionMirrorTerminal,
+        previous: Box<dyn crate::channel_hooks::ImLiveMirror>,
+    },
+    TerminalPendingInstall(ActiveInjectionMirrorTerminal),
+    /// A rebind installer disappeared after terminal ownership moved to it.
+    /// The old mirror must only be retired; the caller then reattaches the
+    /// current durable binding instead of delivering to that stale target.
+    RetiringForBackstop(Box<dyn crate::channel_hooks::ImLiveMirror>),
+    Completing,
+    Completed(crate::channel_hooks::ImLiveMirrorAbortStatus),
+    Closed,
+}
+
+/// Per-attempt initial/late ParentInjection IM mirror handoff.
+///
+/// The global active-injection map owns one `Arc`; a late-install reservation
+/// owns another. Consequently terminal cleanup may remove the map entry without
+/// losing a concurrently arming installer. No provider future runs under this
+/// mutex.
+pub(crate) struct ActiveInjectionMirrorCoordinator {
+    phase: std::sync::Mutex<ActiveInjectionMirrorPhase>,
+    terminal_notify: tokio::sync::Notify,
+    /// Late binding changes that observed an installer/terminal already in
+    /// flight. Registration and phase transitions are serialized by `phase`;
+    /// the atomic lets terminal completion inspect the count without adding a
+    /// second lock-order edge.
+    late_retry_waiters: AtomicUsize,
+    receipt: Option<OnInjected>,
+}
+
+impl ActiveInjectionMirrorCoordinator {
+    pub(crate) fn new(receipt: Option<OnInjected>) -> Self {
+        Self {
+            phase: std::sync::Mutex::new(ActiveInjectionMirrorPhase::Initializing),
+            terminal_notify: tokio::sync::Notify::new(),
+            late_retry_waiters: AtomicUsize::new(0),
+            receipt,
+        }
+    }
+
+    fn resolve_initial(&self, mirror: Option<Box<dyn crate::channel_hooks::ImLiveMirror>>) -> bool {
+        let Ok(mut phase) = self.phase.lock() else {
+            return false;
+        };
+        *phase = match (
+            std::mem::replace(&mut *phase, ActiveInjectionMirrorPhase::Closed),
+            mirror,
+        ) {
+            (ActiveInjectionMirrorPhase::Initializing, Some(mirror)) => {
+                ActiveInjectionMirrorPhase::Installed(mirror)
+            }
+            (ActiveInjectionMirrorPhase::LateRequested, Some(mirror)) => {
+                ActiveInjectionMirrorPhase::LateReplacing(mirror)
+            }
+            (ActiveInjectionMirrorPhase::Initializing, None) => ActiveInjectionMirrorPhase::Open,
+            (ActiveInjectionMirrorPhase::LateRequested, None) => {
+                ActiveInjectionMirrorPhase::Installing
+            }
+            (previous, mirror) => {
+                drop(mirror);
+                *phase = previous;
+                return false;
+            }
+        };
+        self.terminal_notify.notify_waiters();
+        true
+    }
+
+    fn close_initial(&self) {
+        let mut changed = false;
+        if let Ok(mut phase) = self.phase.lock() {
+            if matches!(
+                *phase,
+                ActiveInjectionMirrorPhase::Initializing
+                    | ActiveInjectionMirrorPhase::LateRequested
+                    | ActiveInjectionMirrorPhase::Open
+            ) {
+                *phase = ActiveInjectionMirrorPhase::Closed;
+                changed = true;
+            }
+        }
+        if changed {
+            self.terminal_notify.notify_waiters();
+        }
+    }
+
+    fn reserve_late(self: &Arc<Self>) -> LateInjectionMirrorReservation {
+        let Ok(mut phase) = self.phase.lock() else {
+            return LateInjectionMirrorReservation::Stale;
+        };
+        match std::mem::replace(&mut *phase, ActiveInjectionMirrorPhase::Closed) {
+            ActiveInjectionMirrorPhase::Initializing => {
+                *phase = ActiveInjectionMirrorPhase::LateRequested;
+                LateInjectionMirrorReservation::Reserved(LateInjectionMirrorInstall {
+                    coordinator: self.clone(),
+                    previous: None,
+                    claimed_binding: false,
+                    finished: false,
+                })
+            }
+            ActiveInjectionMirrorPhase::Open => {
+                *phase = ActiveInjectionMirrorPhase::Installing;
+                LateInjectionMirrorReservation::Reserved(LateInjectionMirrorInstall {
+                    coordinator: self.clone(),
+                    previous: None,
+                    claimed_binding: false,
+                    finished: false,
+                })
+            }
+            ActiveInjectionMirrorPhase::Installed(previous) => {
+                // Rebind handoff: temporarily take the old owner. If the new
+                // attach proves identical (`try_claim` => Busy), token Drop
+                // restores it; otherwise the installer aborts it before the new
+                // target becomes the sole terminal owner.
+                *phase = ActiveInjectionMirrorPhase::Installing;
+                LateInjectionMirrorReservation::Reserved(LateInjectionMirrorInstall {
+                    coordinator: self.clone(),
+                    previous: Some(previous),
+                    claimed_binding: false,
+                    finished: false,
+                })
+            }
+            previous @ (ActiveInjectionMirrorPhase::LateRequested
+            | ActiveInjectionMirrorPhase::Installing
+            | ActiveInjectionMirrorPhase::LateReplacing(_)
+            | ActiveInjectionMirrorPhase::TerminalPendingReplacement { .. }
+            | ActiveInjectionMirrorPhase::RetiringForBackstop(_)
+            | ActiveInjectionMirrorPhase::Completing
+            | ActiveInjectionMirrorPhase::TerminalPendingInstall(_)) => {
+                *phase = previous;
+                self.late_retry_waiters.fetch_add(1, Ordering::AcqRel);
+                LateInjectionMirrorReservation::Busy(LateInjectionMirrorRetry {
+                    coordinator: self.clone(),
+                    registered: true,
+                })
+            }
+            previous @ (ActiveInjectionMirrorPhase::Completed(_)
+            | ActiveInjectionMirrorPhase::Closed) => {
+                *phase = previous;
+                LateInjectionMirrorReservation::Stale
+            }
+        }
+    }
+}
+
+/// Closes an unresolved initial attach when the parent-injection attempt exits
+/// before the channel hook can publish `Attached` or `Absent`.
+///
+/// The coordinator is visible to binding-change callbacks as soon as it enters
+/// `INJECTION_CANCELS`. A callback can therefore reserve the late slot while an
+/// earlier validation step is still running. Every exit after registration
+/// must wake that reservation; once the initial result is accepted, however,
+/// the resulting `Open`/`Installed` owner must remain available until terminal
+/// delivery.
+struct InitialInjectionMirrorResolutionGuard {
+    coordinator: Arc<ActiveInjectionMirrorCoordinator>,
+    pending: bool,
+}
+
+impl InitialInjectionMirrorResolutionGuard {
+    fn new(coordinator: Arc<ActiveInjectionMirrorCoordinator>) -> Self {
+        Self {
+            coordinator,
+            pending: true,
+        }
+    }
+
+    fn resolve(&mut self, mirror: Option<Box<dyn crate::channel_hooks::ImLiveMirror>>) -> bool {
+        let accepted = self.coordinator.resolve_initial(mirror);
+        if accepted {
+            self.pending = false;
+        }
+        accepted
+    }
+
+    fn close(&mut self) {
+        if self.pending {
+            self.coordinator.close_initial();
+            self.pending = false;
+        }
+    }
+}
+
+impl Drop for InitialInjectionMirrorResolutionGuard {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+/// Result of reserving the only late-mirror slot for an active injection.
+pub enum LateInjectionMirrorReservation {
+    Reserved(LateInjectionMirrorInstall),
+    /// Another late install or terminal mutation currently owns the slot.
+    /// Awaiting this token atomically converts the registered retry into the
+    /// next reservation, so terminal handling cannot slip through the gap and
+    /// finalize an intermediate attach.
+    Busy(LateInjectionMirrorRetry),
+    Stale,
+}
+
+/// Registered retry for a binding change that arrived while another late
+/// mirror transition was in flight.
+pub struct LateInjectionMirrorRetry {
+    coordinator: Arc<ActiveInjectionMirrorCoordinator>,
+    registered: bool,
+}
+
+impl LateInjectionMirrorRetry {
+    pub async fn wait(mut self) -> LateInjectionMirrorReservation {
+        loop {
+            let coordinator = self.coordinator.clone();
+            let notified = coordinator.terminal_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let outcome = {
+                let Ok(mut phase) = coordinator.phase.lock() else {
+                    self.unregister();
+                    return LateInjectionMirrorReservation::Stale;
+                };
+                match std::mem::replace(&mut *phase, ActiveInjectionMirrorPhase::Closed) {
+                    ActiveInjectionMirrorPhase::Initializing => {
+                        *phase = ActiveInjectionMirrorPhase::LateRequested;
+                        self.unregister_locked();
+                        Some(LateInjectionMirrorReservation::Reserved(
+                            LateInjectionMirrorInstall {
+                                coordinator: coordinator.clone(),
+                                previous: None,
+                                claimed_binding: false,
+                                finished: false,
+                            },
+                        ))
+                    }
+                    ActiveInjectionMirrorPhase::Open => {
+                        *phase = ActiveInjectionMirrorPhase::Installing;
+                        self.unregister_locked();
+                        Some(LateInjectionMirrorReservation::Reserved(
+                            LateInjectionMirrorInstall {
+                                coordinator: coordinator.clone(),
+                                previous: None,
+                                claimed_binding: false,
+                                finished: false,
+                            },
+                        ))
+                    }
+                    ActiveInjectionMirrorPhase::Installed(previous) => {
+                        *phase = ActiveInjectionMirrorPhase::Installing;
+                        self.unregister_locked();
+                        Some(LateInjectionMirrorReservation::Reserved(
+                            LateInjectionMirrorInstall {
+                                coordinator: coordinator.clone(),
+                                previous: Some(previous),
+                                claimed_binding: false,
+                                finished: false,
+                            },
+                        ))
+                    }
+                    previous @ (ActiveInjectionMirrorPhase::LateRequested
+                    | ActiveInjectionMirrorPhase::Installing
+                    | ActiveInjectionMirrorPhase::LateReplacing(_)
+                    | ActiveInjectionMirrorPhase::TerminalPendingReplacement {
+                        ..
+                    }
+                    | ActiveInjectionMirrorPhase::TerminalPendingInstall(_)
+                    | ActiveInjectionMirrorPhase::RetiringForBackstop(_)
+                    | ActiveInjectionMirrorPhase::Completing) => {
+                        *phase = previous;
+                        None
+                    }
+                    previous @ (ActiveInjectionMirrorPhase::Completed(_)
+                    | ActiveInjectionMirrorPhase::Closed) => {
+                        *phase = previous;
+                        self.unregister_locked();
+                        Some(LateInjectionMirrorReservation::Stale)
+                    }
+                }
+            };
+            if let Some(outcome) = outcome {
+                self.coordinator.terminal_notify.notify_waiters();
+                return outcome;
+            }
+            notified.as_mut().await;
+        }
+    }
+
+    fn unregister_locked(&mut self) {
+        if self.registered {
+            self.coordinator
+                .late_retry_waiters
+                .fetch_sub(1, Ordering::AcqRel);
+            self.registered = false;
+        }
+    }
+
+    fn unregister(&mut self) {
+        let coordinator = self.coordinator.clone();
+        if let Ok(_phase) = coordinator.phase.lock() {
+            self.unregister_locked();
+        }
+        coordinator.terminal_notify.notify_waiters();
+    }
+}
+
+impl Drop for LateInjectionMirrorRetry {
+    fn drop(&mut self) {
+        self.unregister();
+    }
+}
+
+/// Reservation held while ha-channel validates the binding, arms the durable
+/// receipt and constructs a provider pipeline.
+pub struct LateInjectionMirrorInstall {
+    coordinator: Arc<ActiveInjectionMirrorCoordinator>,
+    previous: Option<Box<dyn crate::channel_hooks::ImLiveMirror>>,
+    /// Set only after ha-channel successfully claims the replacement attach
+    /// generation. From that point on Drop must never restore an older target.
+    claimed_binding: bool,
+    finished: bool,
+}
+
+impl LateInjectionMirrorInstall {
+    /// Close an old attach owner before installing a rebind replacement. The
+    /// abort synchronously detaches its sink; awaiting the returned future
+    /// settles any already-visible provider preview before the new target can
+    /// become terminal owner.
+    pub async fn retire_previous(&mut self) -> bool {
+        self.claimed_binding = true;
+        loop {
+            let notified = self.coordinator.terminal_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let ready = match self.coordinator.phase.lock() {
+                Ok(mut phase) => {
+                    match std::mem::replace(&mut *phase, ActiveInjectionMirrorPhase::Closed) {
+                        ActiveInjectionMirrorPhase::LateRequested => {
+                            *phase = ActiveInjectionMirrorPhase::LateRequested;
+                            None
+                        }
+                        ActiveInjectionMirrorPhase::Installed(previous) => {
+                            *phase = ActiveInjectionMirrorPhase::Installing;
+                            self.previous = Some(previous);
+                            Some(true)
+                        }
+                        ActiveInjectionMirrorPhase::LateReplacing(previous) => {
+                            *phase = ActiveInjectionMirrorPhase::Installing;
+                            self.previous = Some(previous);
+                            Some(true)
+                        }
+                        ActiveInjectionMirrorPhase::TerminalPendingReplacement {
+                            terminal,
+                            previous,
+                        } => {
+                            *phase = ActiveInjectionMirrorPhase::TerminalPendingInstall(terminal);
+                            self.previous = Some(previous);
+                            Some(true)
+                        }
+                        previous @ (ActiveInjectionMirrorPhase::Installing
+                        | ActiveInjectionMirrorPhase::TerminalPendingInstall(_)) => {
+                            *phase = previous;
+                            Some(true)
+                        }
+                        previous => {
+                            *phase = previous;
+                            Some(false)
+                        }
+                    }
+                }
+                Err(_) => Some(false),
+            };
+            match ready {
+                Some(ready) => {
+                    if !ready {
+                        return false;
+                    }
+                    break;
+                }
+                None => notified.as_mut().await,
+            }
+        }
+
+        let Some(previous) = self.previous.take() else {
+            return true;
+        };
+        let status = previous.abort(None).await;
+        if status.is_confirmed() {
+            return true;
+        }
+        self.finished = true;
+        if let Ok(mut phase) = self.coordinator.phase.lock() {
+            *phase = ActiveInjectionMirrorPhase::Completed(status);
+        }
+        self.coordinator.terminal_notify.notify_waiters();
+        false
+    }
+
+    /// Persist the same no-replay fence used by the initial IM attach. This is
+    /// mandatory before a late pipeline can perform its first provider write.
+    pub async fn arm_no_replay(&mut self, run_id: &str) -> bool {
+        // This also atomically takes over an initial mirror that resolved after
+        // the late reservation. The replacement attach has already won its
+        // generation claim, so the stale owner must be detached first.
+        if !self.retire_previous().await {
+            return false;
+        }
+        arm_injection_mirror_receipt(&self.coordinator, run_id).await
+    }
+
+    /// Install a fully constructed late mirror. If the engine reached terminal
+    /// state while the provider pipeline was being prepared, this method owns
+    /// that terminal and completes it before returning.
+    pub async fn install(mut self, mirror: Box<dyn crate::channel_hooks::ImLiveMirror>) -> bool {
+        if !self.retire_previous().await {
+            self.finished = true;
+            let _ = mirror.abort(None).await;
+            if let Ok(mut phase) = self.coordinator.phase.lock() {
+                *phase = ActiveInjectionMirrorPhase::Completed(
+                    crate::channel_hooks::ImLiveMirrorAbortStatus::Unsafe,
+                );
+            }
+            self.coordinator.terminal_notify.notify_waiters();
+            return false;
+        }
+        enum InstallAction {
+            Stored,
+            Complete(
+                ActiveInjectionMirrorTerminal,
+                Box<dyn crate::channel_hooks::ImLiveMirror>,
+            ),
+            Reject(Box<dyn crate::channel_hooks::ImLiveMirror>),
+        }
+        let action = match self.coordinator.phase.lock() {
+            Ok(mut phase) => {
+                match std::mem::replace(&mut *phase, ActiveInjectionMirrorPhase::Closed) {
+                    ActiveInjectionMirrorPhase::Installing => {
+                        *phase = ActiveInjectionMirrorPhase::Installed(mirror);
+                        InstallAction::Stored
+                    }
+                    ActiveInjectionMirrorPhase::TerminalPendingInstall(terminal) => {
+                        *phase = ActiveInjectionMirrorPhase::Completing;
+                        InstallAction::Complete(terminal, mirror)
+                    }
+                    previous => {
+                        *phase = previous;
+                        InstallAction::Reject(mirror)
+                    }
+                }
+            }
+            Err(_) => InstallAction::Reject(mirror),
+        };
+
+        self.finished = true;
+        let (terminal, mirror) = match action {
+            InstallAction::Stored => {
+                // Wake a binding change that arrived while this pipeline was
+                // being built. Its retry remains registered until it
+                // atomically takes the next slot.
+                self.coordinator.terminal_notify.notify_waiters();
+                return true;
+            }
+            InstallAction::Complete(terminal, mirror) => (terminal, mirror),
+            InstallAction::Reject(mirror) => {
+                let _ = mirror.abort(None).await;
+                return false;
+            }
+        };
+        let status = apply_injection_mirror_terminal(mirror, terminal).await;
+        if let Ok(mut phase) = self.coordinator.phase.lock() {
+            *phase = if self.coordinator.late_retry_waiters.load(Ordering::Acquire) > 0 {
+                // A newer binding arrived while this terminal future was in
+                // flight. Provider-side guards make the old target a no-op
+                // after the DB rebind; reopen so the same core terminal lands
+                // on the registered latest target.
+                ActiveInjectionMirrorPhase::Open
+            } else {
+                ActiveInjectionMirrorPhase::Completed(status)
+            };
+        }
+        self.coordinator.terminal_notify.notify_waiters();
+        true
+    }
+}
+
+async fn arm_injection_mirror_receipt(
+    coordinator: &ActiveInjectionMirrorCoordinator,
+    run_id: &str,
+) -> bool {
+    let Some(receipt) = coordinator.receipt.clone() else {
+        // Process-local sources have no durable restart path.
+        return true;
+    };
+    let arm_run_id = run_id.to_string();
+    let result = crate::blocking::run_blocking(move || receipt.arm_no_replay()).await;
+    if let Err(error) = result {
+        app_error!(
+            "subagent",
+            "inject::late_im_arm",
+            "Failed to arm late IM delivery for run {}: {}",
+            arm_run_id,
+            crate::logging::redact_sensitive(&error.to_string())
+        );
+        return false;
+    }
+    true
+}
+
+impl Drop for LateInjectionMirrorInstall {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        let notify = if let Ok(mut phase) = self.coordinator.phase.lock() {
+            *phase = match std::mem::replace(&mut *phase, ActiveInjectionMirrorPhase::Closed) {
+                ActiveInjectionMirrorPhase::LateRequested if !self.claimed_binding => {
+                    ActiveInjectionMirrorPhase::Initializing
+                }
+                ActiveInjectionMirrorPhase::LateRequested => ActiveInjectionMirrorPhase::Closed,
+                ActiveInjectionMirrorPhase::LateReplacing(previous) if !self.claimed_binding => {
+                    ActiveInjectionMirrorPhase::Installed(previous)
+                }
+                ActiveInjectionMirrorPhase::LateReplacing(previous) => {
+                    ActiveInjectionMirrorPhase::RetiringForBackstop(previous)
+                }
+                ActiveInjectionMirrorPhase::TerminalPendingReplacement {
+                    terminal: _,
+                    previous,
+                } if !self.claimed_binding => ActiveInjectionMirrorPhase::Installed(previous),
+                ActiveInjectionMirrorPhase::TerminalPendingReplacement {
+                    terminal: _,
+                    previous,
+                } => ActiveInjectionMirrorPhase::RetiringForBackstop(previous),
+                ActiveInjectionMirrorPhase::Installing => match self.previous.take() {
+                    Some(previous) if !self.claimed_binding => {
+                        ActiveInjectionMirrorPhase::Installed(previous)
+                    }
+                    Some(previous) => ActiveInjectionMirrorPhase::RetiringForBackstop(previous),
+                    None => ActiveInjectionMirrorPhase::Open,
+                },
+                ActiveInjectionMirrorPhase::TerminalPendingInstall(_) => {
+                    match self.previous.take() {
+                        Some(previous) => ActiveInjectionMirrorPhase::RetiringForBackstop(previous),
+                        None if self.claimed_binding => ActiveInjectionMirrorPhase::Closed,
+                        None => ActiveInjectionMirrorPhase::Completed(
+                            crate::channel_hooks::ImLiveMirrorAbortStatus::Unsafe,
+                        ),
+                    }
+                }
+                previous => previous,
+            };
+            // Any unfinished reservation can be the predecessor a registered
+            // retry is waiting on, including an unclaimed same-binding path.
+            true
+        } else {
+            false
+        };
+        if notify {
+            self.coordinator.terminal_notify.notify_waiters();
+        }
+    }
+}
+
+/// Atomically reserve the late mirror slot for one exact active generation.
+pub fn reserve_active_injection_im_mirror(
+    session_id: &str,
+    run_id: &str,
+) -> LateInjectionMirrorReservation {
+    let coordinator = INJECTION_CANCELS.lock().ok().and_then(|active| {
+        active
+            .get(session_id)
+            .filter(|entry| entry.run_id == run_id)
+            .map(|entry| entry.im_mirror.clone())
+    });
+    coordinator
+        .map(|coordinator| coordinator.reserve_late())
+        .unwrap_or(LateInjectionMirrorReservation::Stale)
+}
+
+async fn apply_injection_mirror_terminal(
+    mirror: Box<dyn crate::channel_hooks::ImLiveMirror>,
+    terminal: ActiveInjectionMirrorTerminal,
+) -> crate::channel_hooks::ImLiveMirrorAbortStatus {
+    match terminal {
+        ActiveInjectionMirrorTerminal::Finalize(response) => {
+            mirror.finalize(response).await;
+            crate::channel_hooks::ImLiveMirrorAbortStatus::Confirmed
+        }
+        ActiveInjectionMirrorTerminal::Abort(body) => mirror.abort(body).await,
+    }
+}
+
+enum CoordinatorTerminal {
+    Complete(
+        Box<dyn crate::channel_hooks::ImLiveMirror>,
+        ActiveInjectionMirrorTerminal,
+    ),
+    RetireForBackstop(Box<dyn crate::channel_hooks::ImLiveMirror>),
+    Wait,
+    Done(crate::channel_hooks::ImLiveMirrorAbortStatus),
+    NoMirror,
+}
+
+async fn terminalize_coordinated_injection_mirror(
+    coordinator: &Arc<ActiveInjectionMirrorCoordinator>,
+    terminal: ActiveInjectionMirrorTerminal,
+) -> Option<crate::channel_hooks::ImLiveMirrorAbortStatus> {
+    loop {
+        let notified = coordinator.terminal_notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        let action = {
+            let Ok(mut phase) = coordinator.phase.lock() else {
+                return Some(crate::channel_hooks::ImLiveMirrorAbortStatus::Unsafe);
+            };
+            match std::mem::replace(&mut *phase, ActiveInjectionMirrorPhase::Closed) {
+                ActiveInjectionMirrorPhase::Installed(mirror)
+                    if coordinator.late_retry_waiters.load(Ordering::Acquire) > 0 =>
+                {
+                    *phase = ActiveInjectionMirrorPhase::Installed(mirror);
+                    CoordinatorTerminal::Wait
+                }
+                ActiveInjectionMirrorPhase::Installed(mirror) => {
+                    *phase = ActiveInjectionMirrorPhase::Completing;
+                    CoordinatorTerminal::Complete(mirror, terminal.clone())
+                }
+                ActiveInjectionMirrorPhase::LateReplacing(previous) => {
+                    *phase = ActiveInjectionMirrorPhase::TerminalPendingReplacement {
+                        terminal: terminal.clone(),
+                        previous,
+                    };
+                    CoordinatorTerminal::Wait
+                }
+                ActiveInjectionMirrorPhase::TerminalPendingReplacement {
+                    terminal: existing,
+                    previous,
+                } => {
+                    *phase = ActiveInjectionMirrorPhase::TerminalPendingReplacement {
+                        terminal: existing,
+                        previous,
+                    };
+                    CoordinatorTerminal::Wait
+                }
+                ActiveInjectionMirrorPhase::Installing => {
+                    *phase = ActiveInjectionMirrorPhase::TerminalPendingInstall(terminal.clone());
+                    CoordinatorTerminal::Wait
+                }
+                ActiveInjectionMirrorPhase::TerminalPendingInstall(existing) => {
+                    *phase = ActiveInjectionMirrorPhase::TerminalPendingInstall(existing);
+                    CoordinatorTerminal::Wait
+                }
+                ActiveInjectionMirrorPhase::Completing => {
+                    *phase = ActiveInjectionMirrorPhase::Completing;
+                    CoordinatorTerminal::Wait
+                }
+                ActiveInjectionMirrorPhase::RetiringForBackstop(mirror) => {
+                    *phase = ActiveInjectionMirrorPhase::Completing;
+                    CoordinatorTerminal::RetireForBackstop(mirror)
+                }
+                ActiveInjectionMirrorPhase::Completed(status) => {
+                    *phase = ActiveInjectionMirrorPhase::Completed(status);
+                    CoordinatorTerminal::Done(status)
+                }
+                ActiveInjectionMirrorPhase::Open
+                    if coordinator.late_retry_waiters.load(Ordering::Acquire) > 0 =>
+                {
+                    *phase = ActiveInjectionMirrorPhase::Open;
+                    CoordinatorTerminal::Wait
+                }
+                ActiveInjectionMirrorPhase::Initializing
+                | ActiveInjectionMirrorPhase::LateRequested
+                | ActiveInjectionMirrorPhase::Open
+                | ActiveInjectionMirrorPhase::Closed => {
+                    *phase = ActiveInjectionMirrorPhase::Closed;
+                    CoordinatorTerminal::NoMirror
+                }
+            }
+        };
+        match action {
+            CoordinatorTerminal::Complete(mirror, terminal) => {
+                let status = apply_injection_mirror_terminal(mirror, terminal).await;
+                let mut retry = false;
+                if let Ok(mut phase) = coordinator.phase.lock() {
+                    if coordinator.late_retry_waiters.load(Ordering::Acquire) > 0 {
+                        *phase = ActiveInjectionMirrorPhase::Open;
+                        retry = true;
+                    } else {
+                        *phase = ActiveInjectionMirrorPhase::Completed(status);
+                    }
+                }
+                coordinator.terminal_notify.notify_waiters();
+                if retry {
+                    continue;
+                }
+                return Some(status);
+            }
+            CoordinatorTerminal::RetireForBackstop(mirror) => {
+                let _ = mirror.abort(None).await;
+                let mut retry = false;
+                if let Ok(mut phase) = coordinator.phase.lock() {
+                    if coordinator.late_retry_waiters.load(Ordering::Acquire) > 0 {
+                        *phase = ActiveInjectionMirrorPhase::Open;
+                        retry = true;
+                    } else {
+                        *phase = ActiveInjectionMirrorPhase::Closed;
+                    }
+                }
+                coordinator.terminal_notify.notify_waiters();
+                if retry {
+                    continue;
+                }
+                return None;
+            }
+            CoordinatorTerminal::Wait => notified.as_mut().await,
+            CoordinatorTerminal::Done(status) => return Some(status),
+            CoordinatorTerminal::NoMirror => return None,
+        }
+    }
+}
+
+/// Complete the shared mirror when present; otherwise perform one Primary-side
+/// terminal reattach. The backstop covers a binding written by another process
+/// (or a lost attach notification) after this injection's initial `Absent`.
+/// It runs before the durable source is settled and arms no-replay before the
+/// first final provider mutation.
+async fn terminalize_injection_im_delivery(
+    session_id: &str,
+    run_id: &str,
+    coordinator: &Arc<ActiveInjectionMirrorCoordinator>,
+    terminal: ActiveInjectionMirrorTerminal,
+) -> crate::channel_hooks::ImLiveMirrorAbortStatus {
+    if let Some(status) =
+        terminalize_coordinated_injection_mirror(coordinator, terminal.clone()).await
+    {
+        return status;
+    }
+
+    let attach = crate::channel_hooks::attach_injection_mirror(session_id, run_id).await;
+    match attach {
+        crate::channel_hooks::ImLiveMirrorAttach::Attached(mirror) => {
+            if !arm_injection_mirror_receipt(coordinator, run_id).await {
+                let _ = mirror.abort(None).await;
+                return crate::channel_hooks::ImLiveMirrorAbortStatus::Unsafe;
+            }
+            apply_injection_mirror_terminal(mirror, terminal).await
+        }
+        crate::channel_hooks::ImLiveMirrorAttach::Busy => {
+            // A coordinator-managed installer would have put the phase in
+            // `Installing`, making the first branch wait for it. Reaching Busy
+            // here means an uncoordinated/stale provider claim exists; never
+            // report it safe for automatic replay.
+            app_warn!(
+                "subagent",
+                "inject::terminal_im_backstop",
+                "Terminal IM attach for session {} run {} found an uncoordinated busy generation",
+                session_id,
+                run_id
+            );
+            crate::channel_hooks::ImLiveMirrorAbortStatus::Unsafe
+        }
+        crate::channel_hooks::ImLiveMirrorAttach::Absent
+        | crate::channel_hooks::ImLiveMirrorAttach::Unavailable { .. }
+        | crate::channel_hooks::ImLiveMirrorAttach::DeferredToPrimary { .. } => {
+            crate::channel_hooks::ImLiveMirrorAbortStatus::Confirmed
+        }
     }
 }
 
@@ -81,6 +982,33 @@ fn settle_injection_source(receipt: Option<&OnInjected>, run_id: &str) {
             crate::logging::redact_sensitive(&error.to_string())
         );
     }
+}
+
+pub(crate) fn release_unarmed_injection_source(receipt: Option<&OnInjected>, run_id: &str) {
+    let Some(receipt) = receipt else { return };
+    if let Err(error) = receipt.release_unarmed() {
+        app_error!(
+            "subagent",
+            "inject",
+            "Failed to release unarmed source claim for run {}: {}",
+            run_id,
+            crate::logging::redact_sensitive(&error.to_string())
+        );
+    }
+}
+
+fn release_retry_source_if_abandoned(
+    outcome: InjectionOutcome,
+    receipt: Option<&OnInjected>,
+    run_id: &str,
+) {
+    if matches!(outcome, InjectionOutcome::Abandoned) {
+        release_unarmed_injection_source(receipt, run_id);
+    }
+}
+
+fn can_defer_to_primary(receipt: Option<&OnInjected>) -> bool {
+    receipt.is_some_and(OnInjected::supports_durable_handoff)
 }
 
 /// Establish the durable replay owner, persist the parent injection row, then
@@ -132,17 +1060,17 @@ pub enum InjectionOutcome {
     /// already-armed source. The source is settled, or its durable no-replay
     /// fence remains armed — nothing more should be replayed.
     Injected,
-    /// Deferred: another injection holds the session, or the user pre-empted
-    /// this turn. The task was pushed to `PENDING_INJECTIONS` (carrying its
-    /// `on_injected`); the next flush owns the retry. Caller must NOT mark the
-    /// source injected.
+    /// Deferred: another injection holds the session, the user pre-empted this
+    /// turn, or its IM delivery surface is not ready. The task lives in the
+    /// unified per-session FIFO; the matching flush owns the retry. Caller must
+    /// NOT mark the source injected.
     Queued,
-    /// Could not persist or re-queue the attempt (a poisoned `PENDING_INJECTIONS`
-    /// lock — the only remaining path here now that the idle-timeout re-queues as
-    /// `Queued`), or a pre-engine durable arm failure. Unless another process
-    /// already owns the source, its replay marker remains pending for restart
-    /// recovery (MISC-15: an abandoned injection must not look delivered). An
-    /// unarmed parent-row read/write failure follows this path as well.
+    /// Could not safely hand the attempt to this process (for example a
+    /// pre-engine durable arm failure or delegation to the Primary). Unless
+    /// another process already owns the source, its replay marker remains
+    /// pending for restart recovery (MISC-15: an abandoned injection must not
+    /// look delivered). An unarmed parent-row read/write failure follows this
+    /// path as well.
     Abandoned,
 }
 
@@ -200,29 +1128,217 @@ pub(super) struct PendingInjection {
     pub push_message: String,
     pub session_db: Arc<crate::session::SessionDB>,
     /// Carried so a deferred injection still marks its source done when the
-    /// queued attempt eventually lands. `None` for subagent runs.
+    /// queued attempt eventually lands. `None` means this result has no durable
+    /// receipt and must never be abandoned for cross-process replay.
     pub on_injected: Option<OnInjected>,
     /// Keeps a verified first-party HTTP UI approval path alive while this
     /// parent follow-up waits behind a foreground turn.
     pub reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
+    /// Readiness gate at this task's exact FIFO position. A blocked head must
+    /// not be skipped in favour of a later task for the same session.
+    gate: PendingInjectionGate,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PendingInjectionGate {
+    Ready,
+    Channel { account_id: Option<String> },
+}
+
+fn same_pending_identity(left: &PendingInjection, right: &PendingInjection) -> bool {
+    left.parent_session_id == right.parent_session_id && left.run_id == right.run_id
+}
+
+/// A newly discovered B always joins the tail; if A is currently active or
+/// already pending for that session, admission must not let B bypass it.
+fn enqueue_new_pending_tail(queue: &mut Vec<PendingInjection>, task: PendingInjection) {
+    if !queue
+        .iter()
+        .any(|queued| same_pending_identity(queued, &task))
+    {
+        queue.push(task);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InjectionAdmission {
+    Claimed,
+    Queued,
+    Coalesced,
+}
+
+/// Decide one fresh dispatch under the caller's shared INJECTING -> PENDING
+/// critical section. An exact active/pending identity is already owned and is
+/// coalesced; a distinct run for the same session joins the FIFO tail.
+fn admit_or_enqueue_injection(
+    injecting: &mut std::collections::HashMap<String, String>,
+    queue: &mut Vec<PendingInjection>,
+    task: &PendingInjection,
+) -> InjectionAdmission {
+    let session_id = task.parent_session_id.clone();
+    let run_id = task.run_id.clone();
+    if injecting
+        .get(&session_id)
+        .is_some_and(|active_run| active_run == &run_id)
+        || queue
+            .iter()
+            .any(|queued| same_pending_identity(queued, &task))
+    {
+        return InjectionAdmission::Coalesced;
+    }
+    if injecting.contains_key(&session_id)
+        || queue
+            .iter()
+            .any(|queued| queued.parent_session_id == session_id)
+    {
+        enqueue_new_pending_tail(queue, task.clone());
+        return InjectionAdmission::Queued;
+    }
+    injecting.insert(session_id, run_id);
+    InjectionAdmission::Claimed
+}
+
+/// Active A retries before every B that arrived while A owned the session.
+/// Remove a defensive duplicate first, then insert at the first same-session
+/// position (or the global tail when A has no suffix).
+fn enqueue_active_retry_front(queue: &mut Vec<PendingInjection>, task: PendingInjection) {
+    queue.retain(|queued| !same_pending_identity(queued, &task));
+    let index = queue
+        .iter()
+        .position(|queued| queued.parent_session_id == task.parent_session_id)
+        .unwrap_or(queue.len());
+    queue.insert(index, task);
+}
+
+/// Queue an active attempt without opening an admission gap. Every caller uses
+/// the global INJECTING -> PENDING lock order, so a concurrent new B either
+/// observes A active and appends, or observes A already at the FIFO head.
+fn requeue_active_injection(task: PendingInjection) {
+    let _injecting = INJECTING_SESSIONS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut queue = PENDING_INJECTIONS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    enqueue_active_retry_front(&mut queue, task);
+}
+
+fn open_channel_gates(
+    queue: &mut [PendingInjection],
+    ready_account_id: Option<&str>,
+) -> Vec<String> {
+    let mut sessions = std::collections::HashSet::new();
+    for task in queue {
+        let PendingInjectionGate::Channel { account_id } = &task.gate else {
+            continue;
+        };
+        let matches_ready = ready_account_id
+            .is_none_or(|ready| account_id.as_deref().is_none_or(|account| account == ready));
+        if matches_ready {
+            task.gate = PendingInjectionGate::Ready;
+            sessions.insert(task.parent_session_id.clone());
+        }
+    }
+    sessions.into_iter().collect()
+}
+
+/// Open matching Channel gates after a delivery-surface event. `Some(id)`
+/// selects that account plus unknown bindings; `None` is reserved for a lagged
+/// full recheck. Tasks stay in their original FIFO positions.
+pub(crate) fn flush_channel_pending_injections(ready_account_id: Option<&str>) {
+    let sessions = {
+        let mut pending = PENDING_INJECTIONS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        open_channel_gates(&mut pending, ready_account_id)
+    };
+    for session_id in sessions {
+        flush_pending_injections(&session_id);
+    }
+}
+
+fn persisted_surface_releases_channel_gate(
+    persisted_enabled: Option<bool>,
+    account_is_running: bool,
+) -> bool {
+    match persisted_enabled {
+        None | Some(false) => true,
+        Some(true) => account_is_running,
+    }
+}
+
+/// Close start/disable/remove event-before-enqueue after a task acquires its
+/// Channel gate. Unknown account ids stay blocked: repeatedly opening them
+/// without a resolvable surface would turn an infrastructure failure into a
+/// tight retry loop.
+async fn channel_gate_should_recheck_now(account_id: Option<&str>) -> bool {
+    let Some(account_id) = account_id else {
+        return false;
+    };
+    let persisted_enabled = crate::config::cached_config()
+        .channels
+        .find_account(account_id)
+        .map(|account| account.enabled);
+    let account_is_running = if persisted_enabled == Some(true) {
+        match crate::globals::get_channel_registry() {
+            Some(registry) => registry.health(account_id).await.is_running,
+            None => false,
+        }
+    } else {
+        false
+    };
+    persisted_surface_releases_channel_gate(persisted_enabled, account_is_running)
 }
 
 fn claim_next_pending_injection(
     queue: &mut Vec<PendingInjection>,
-    injecting: &mut std::collections::HashSet<String>,
+    injecting: &mut std::collections::HashMap<String, String>,
     session_id: &str,
 ) -> Option<PendingInjection> {
-    if injecting.contains(session_id) {
+    if injecting.contains_key(session_id) {
         return None;
     }
-    let task = queue
+    let index = queue
         .iter()
-        .position(|task| task.parent_session_id == session_id)
-        .map(|index| queue.remove(index));
-    if task.is_some() {
-        injecting.insert(session_id.to_string());
+        .position(|task| task.parent_session_id == session_id)?;
+    if queue[index].gate != PendingInjectionGate::Ready {
+        return None;
     }
-    task
+    let task = queue.remove(index);
+    injecting.insert(session_id.to_string(), task.run_id.clone());
+    Some(task)
+}
+
+/// Drop every deferred ParentInjection for a deleted/purged session. This
+/// includes both ordinary idle retries and Channel-gated work because they now
+/// share one ownership/FIFO structure.
+pub(crate) fn purge_pending_for_session(session_id: &str) -> usize {
+    let mut queue = PENDING_INJECTIONS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    purge_pending_from_queue(&mut queue, session_id)
+}
+
+fn purge_pending_from_queue(queue: &mut Vec<PendingInjection>, session_id: &str) -> usize {
+    let before = queue.len();
+    let mut process_claims = Vec::new();
+    queue.retain(|task| {
+        if task.parent_session_id == session_id {
+            if let Some(receipt) = task.on_injected.as_ref() {
+                process_claims.push(receipt.clone());
+            }
+            false
+        } else {
+            true
+        }
+    });
+    // This callback is constrained to process-local, non-blocking cleanup. Do
+    // not call `release_unarmed` here: subagent receipts may write SQLite, and
+    // this function is reached from the async session-cleanup watcher.
+    for receipt in process_claims {
+        receipt.release_process_dispatch();
+    }
+    before.saturating_sub(queue.len())
 }
 
 /// Claim and re-trigger the next pending injection for a session.
@@ -250,15 +1366,22 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
             set.remove(&task.run_id)
         };
         if already_fetched {
-            INJECTING_SESSIONS
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .remove(session_id);
+            let released = {
+                let mut injecting = INJECTING_SESSIONS.lock().unwrap_or_else(|p| p.into_inner());
+                let _queue = PENDING_INJECTIONS.lock().unwrap_or_else(|p| p.into_inner());
+                release_injection_owner(&mut injecting, session_id, &task.run_id)
+            };
+            if !released {
+                return;
+            }
             continue;
         }
         let t = task.clone();
+        let retry_receipt = t.on_injected.clone();
+        let retry_run_id = t.run_id.clone();
         let preclaimed_cleanup = CleanupGuard {
             session_id: t.parent_session_id.clone(),
+            run_id: t.run_id.clone(),
         };
         std::thread::spawn(move || {
             // Own the dequeue-time session reservation until the async
@@ -270,9 +1393,7 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
                 .build()
             {
                 Ok(rt) => {
-                    // Outcome is ignored here: a successful run fires the carried
-                    // `on_injected` internally, and a re-cancel re-queues itself.
-                    let _ = rt.block_on(inject_and_run_parent_with_ui_guard(
+                    let outcome = rt.block_on(inject_and_run_parent_with_ui_guard(
                         t.parent_session_id,
                         t.parent_agent_id,
                         t.child_agent_id,
@@ -283,13 +1404,25 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
                         t.reattachable_ui_guard,
                         preclaimed_cleanup.take(),
                     ));
+                    // A pre-provider failure consumes this retry task without
+                    // firing its receipt. Release only an ordinary unarmed
+                    // source claim; the callback and shared armed bit both
+                    // refuse `injecting_no_replay`.
+                    release_retry_source_if_abandoned(
+                        outcome,
+                        retry_receipt.as_ref(),
+                        &retry_run_id,
+                    );
                 }
-                Err(e) => app_error!(
-                    "subagent",
-                    "inject",
-                    "Failed to build runtime for retry: {}",
-                    e
-                ),
+                Err(e) => {
+                    app_error!(
+                        "subagent",
+                        "inject",
+                        "Failed to build runtime for retry: {}",
+                        e
+                    );
+                    release_unarmed_injection_source(retry_receipt.as_ref(), &retry_run_id);
+                }
             }
         });
         return; // Next task stays queued until this one's CleanupGuard fires.
@@ -523,38 +1656,59 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         return InjectionOutcome::Injected;
     }
 
-    // Guard: if another injection is active for this session, queue for later
+    // Admit against both active ownership and the existing FIFO under one lock
+    // critical section. A new B must never claim the session while an older A
+    // is queued (including a Channel-gated A).
     if !session_preclaimed {
-        let mut guard = INJECTING_SESSIONS.lock().unwrap_or_else(|p| p.into_inner());
-        if guard.contains(&parent_session_id) {
-            app_info!(
-                "subagent",
-                "inject",
-                "Session {} already has active injection, queuing for later",
-                &parent_session_id
-            );
-            match PENDING_INJECTIONS.lock() {
-                Ok(mut queue) => {
-                    queue.push(PendingInjection {
-                        parent_session_id,
-                        parent_agent_id,
-                        child_agent_id,
-                        run_id,
-                        push_message,
-                        session_db,
-                        on_injected,
-                        reattachable_ui_guard,
-                    });
-                    return InjectionOutcome::Queued;
-                }
-                // Couldn't enqueue (poisoned): leave the source pending for
-                // replay rather than firing on_injected on a dropped task.
-                Err(_) => return InjectionOutcome::Abandoned,
+        let mut injecting = INJECTING_SESSIONS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut queue = PENDING_INJECTIONS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let admission = admit_or_enqueue_injection(
+            &mut injecting,
+            &mut queue,
+            &PendingInjection {
+                parent_session_id: parent_session_id.clone(),
+                parent_agent_id: parent_agent_id.clone(),
+                child_agent_id: child_agent_id.clone(),
+                run_id: run_id.clone(),
+                push_message: push_message.clone(),
+                session_db: session_db.clone(),
+                on_injected: on_injected.clone(),
+                reattachable_ui_guard: reattachable_ui_guard.clone(),
+                gate: PendingInjectionGate::Ready,
+            },
+        );
+        match admission {
+            InjectionAdmission::Coalesced => {
+                app_debug!(
+                    "subagent",
+                    "inject",
+                    "Coalesced duplicate parent injection for session {} run {}",
+                    &parent_session_id,
+                    &run_id
+                );
+                return InjectionOutcome::Queued;
             }
+            InjectionAdmission::Queued => {
+                app_info!(
+                    "subagent",
+                    "inject",
+                    "Session {} already has a different active/pending injection; queued run {}",
+                    &parent_session_id,
+                    &run_id
+                );
+                return InjectionOutcome::Queued;
+            }
+            InjectionAdmission::Claimed => {}
         }
-        guard.insert(parent_session_id.clone());
+        drop(queue);
+        drop(injecting);
         _cleanup = Some(CleanupGuard {
             session_id: parent_session_id.clone(),
+            run_id: run_id.clone(),
         });
     }
 
@@ -599,24 +1753,18 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 &parent_session_id,
                 &run_id
             );
-            return match PENDING_INJECTIONS.lock() {
-                Ok(mut queue) => {
-                    queue.push(PendingInjection {
-                        parent_session_id,
-                        parent_agent_id,
-                        child_agent_id,
-                        run_id,
-                        push_message,
-                        session_db,
-                        on_injected,
-                        reattachable_ui_guard,
-                    });
-                    InjectionOutcome::Queued
-                }
-                // Couldn't re-queue (poisoned): leave the source pending for
-                // restart replay rather than firing on_injected on a dropped task.
-                Err(_) => InjectionOutcome::Abandoned,
-            };
+            requeue_active_injection(PendingInjection {
+                parent_session_id,
+                parent_agent_id,
+                child_agent_id,
+                run_id,
+                push_message,
+                session_db,
+                on_injected,
+                reattachable_ui_guard,
+                gate: PendingInjectionGate::Ready,
+            });
+            return InjectionOutcome::Queued;
         }
         IdleWait::Aborted => {
             app_info!(
@@ -642,12 +1790,17 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
 
     // 2. Register cancel flag — user's chat() will set this to abort the injection
     let cancel = Arc::new(AtomicBool::new(false));
+    let im_mirror_coordinator =
+        Arc::new(ActiveInjectionMirrorCoordinator::new(on_injected.clone()));
+    let mut initial_im_mirror_resolution =
+        InitialInjectionMirrorResolutionGuard::new(im_mirror_coordinator.clone());
     if let Ok(mut map) = INJECTION_CANCELS.lock() {
         map.insert(
             parent_session_id.clone(),
             ActiveInjection {
                 run_id: run_id.clone(),
                 cancel: cancel.clone(),
+                im_mirror: im_mirror_coordinator.clone(),
             },
         );
     }
@@ -724,10 +1877,6 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
     let mut cancelled_while_running_fetched: Option<bool> = None;
     let mut engine_failed_without_cancel = false;
     let mut im_terminal_safe_for_retry = true;
-    let mut source_no_replay_armed = on_injected
-        .as_ref()
-        .is_some_and(OnInjected::is_no_replay_armed);
-
     // E2 / DELETE-3 / INCOG-3 backstop (post-idle): the most dangerous window —
     // the session can be deleted or burned *during* the idle wait above. Re-check
     // before writing the push row or running a billed turn against a dead session.
@@ -784,8 +1933,117 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         // out, so we drive it here and AWAIT finalize/abort below — this runs on
         // a short-lived current-thread runtime whose drop would cancel a spawned
         // finalize. `None` when there's no IM attach (desktop-only / no channel).
-        let injection_mirror =
-            crate::channel_hooks::attach_injection_mirror(&parent_session_id).await;
+        let injection_attach =
+            crate::channel_hooks::attach_injection_mirror(&parent_session_id, &run_id).await;
+        let injection_has_delivery_surface = match injection_attach {
+            crate::channel_hooks::ImLiveMirrorAttach::Absent => {
+                let _ = initial_im_mirror_resolution.resolve(None);
+                false
+            }
+            crate::channel_hooks::ImLiveMirrorAttach::Attached(mirror) => {
+                if !initial_im_mirror_resolution.resolve(Some(mirror)) {
+                    app_error!(
+                        "subagent",
+                        "inject",
+                        "Initial IM mirror coordinator rejected attached generation for session {} run {}",
+                        &parent_session_id,
+                        &run_id
+                    );
+                    return InjectionOutcome::Abandoned;
+                }
+                true
+            }
+            crate::channel_hooks::ImLiveMirrorAttach::Unavailable { account_id } => {
+                initial_im_mirror_resolution.close();
+                // A durable IM binding exists, but its account worker is still
+                // starting. Do not append the parent row, arm no-replay, or
+                // settle its receipt. Every source shape (including in-memory
+                // process/group notifications) waits in the same per-session
+                // FIFO behind a Channel gate; durable sources retain their
+                // original crash recovery.
+                app_info!(
+                    "subagent",
+                    "inject",
+                    "IM mirror unavailable for parent session {}; queuing run {} for account readiness",
+                    &parent_session_id,
+                    &run_id
+                );
+                let health_account_id = account_id.clone();
+                requeue_active_injection(PendingInjection {
+                    parent_session_id,
+                    parent_agent_id,
+                    child_agent_id,
+                    run_id,
+                    push_message,
+                    session_db,
+                    on_injected,
+                    reattachable_ui_guard,
+                    gate: PendingInjectionGate::Channel { account_id },
+                });
+
+                // Close event-before-enqueue: account startup may have emitted
+                // its event just before this task acquired the FIFO. Re-check
+                // both readiness directions: running opens Attached; a
+                // persisted remove/disable opens GUI-only Absent.
+                if channel_gate_should_recheck_now(health_account_id.as_deref()).await {
+                    flush_channel_pending_injections(health_account_id.as_deref());
+                }
+                return InjectionOutcome::Queued;
+            }
+            crate::channel_hooks::ImLiveMirrorAttach::DeferredToPrimary { account_id } => {
+                if !can_defer_to_primary(on_injected.as_ref()) {
+                    // Group merges, hook feedback, process notifications, and
+                    // similar process-local sources have no durable row the
+                    // Primary sweep can rediscover. Preserve their only copy by
+                    // running the parent turn locally without an IM mutation.
+                    app_warn!(
+                        "subagent",
+                        "inject",
+                        "Parent injection run {} has no durable Primary handoff; continuing GUI-only in Secondary (account={})",
+                        &run_id,
+                        account_id.as_deref().unwrap_or("unknown")
+                    );
+                    let _ = initial_im_mirror_resolution.resolve(None);
+                    false
+                } else {
+                    initial_im_mirror_resolution.close();
+                    app_info!(
+                        "subagent",
+                        "inject",
+                        "Deferring parent injection run {} to Primary IM owner (account={})",
+                        &run_id,
+                        account_id.as_deref().unwrap_or("unknown")
+                    );
+                    emit_parent_stream_event(&ParentAgentStreamEvent {
+                        event_type: "error".into(),
+                        parent_session_id,
+                        run_id,
+                        push_message: None,
+                        delta: None,
+                        error: Some(
+                            "Background follow-up was deferred because durable IM delivery is owned by the Primary process"
+                                .into(),
+                        ),
+                    });
+                    return InjectionOutcome::Abandoned;
+                }
+            }
+            crate::channel_hooks::ImLiveMirrorAttach::Busy => {
+                // A binding change may have claimed this exact generation while
+                // the initial channel hook was resolving. The shared coordinator
+                // owns its terminal handoff, so this is a delivery surface — not
+                // a duplicate parent-model attempt to abandon.
+                app_info!(
+                    "subagent",
+                    "inject",
+                    "IM mirror generation already owned for parent session {} run {}; continuing with external terminal owner",
+                    &parent_session_id,
+                    &run_id
+                );
+                let _ = initial_im_mirror_resolution.resolve(None);
+                true
+            }
+        };
 
         // Attach first to determine whether this attempt has an external IM
         // mutation surface. If so, claim its durable replay source before
@@ -837,7 +2095,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             }),
         };
         let engine_result = arm_source_persist_then(
-            injection_mirror.is_some(),
+            injection_has_delivery_surface,
             on_injected.as_ref(),
             || {
                 // Write the push user row BEFORE agent.chat() so intermediate
@@ -879,10 +2137,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                     },
                 )
             },
-            |armed| {
-                source_no_replay_armed = armed;
-                crate::chat_engine::run_chat_engine(engine_params)
-            },
+            |_armed| crate::chat_engine::run_chat_engine(engine_params),
         );
         let engine = match engine_result {
             Ok(engine) => engine,
@@ -898,9 +2153,11 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                     durable_no_replay_armed,
                     crate::logging::redact_sensitive(&error.to_string())
                 );
-                if let Some(state) = injection_mirror {
-                    let _ = state.abort(None).await;
-                }
+                let _ = terminalize_coordinated_injection_mirror(
+                    &im_mirror_coordinator,
+                    ActiveInjectionMirrorTerminal::Abort(None),
+                )
+                .await;
                 emit_parent_stream_event(&ParentAgentStreamEvent {
                     event_type: "error".into(),
                     parent_session_id,
@@ -955,9 +2212,13 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 );
                 // G1: deliver the mirrored injection turn to IM (per imReplyMode).
                 // Awaited so it completes before this current-thread runtime drops.
-                if let Some(state) = injection_mirror {
-                    state.finalize(&result.response).await;
-                }
+                let _ = terminalize_injection_im_delivery(
+                    &parent_session_id,
+                    &run_id,
+                    &im_mirror_coordinator,
+                    ActiveInjectionMirrorTerminal::Finalize(result.response.clone()),
+                )
+                .await;
                 // G2: if this is a cron run session, fan the injected result out to
                 // the cron job's delivery_targets (the inline run delivered its own
                 // response; a background job spawned during the run completes later
@@ -998,12 +2259,14 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 // preview can already be visible. Terminate that same preview
                 // identity with bounded static copy before a retry can create a
                 // second reply. Native mirrors use their provider abort path.
-                if let Some(state) = injection_mirror {
-                    im_terminal_safe_for_retry = state
-                        .abort(Some(terminal.body().to_string()))
-                        .await
-                        .is_confirmed();
-                }
+                im_terminal_safe_for_retry = terminalize_injection_im_delivery(
+                    &parent_session_id,
+                    &run_id,
+                    &im_mirror_coordinator,
+                    ActiveInjectionMirrorTerminal::Abort(Some(terminal.body().to_string())),
+                )
+                .await
+                .is_confirmed();
             }
         }
     }
@@ -1076,22 +2339,17 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
     } else if was_cancelled {
         // Re-queue for retry after the user's chat completes, carrying
         // on_injected so the eventual landing still marks the source done.
-        let requeued = match PENDING_INJECTIONS.lock() {
-            Ok(mut queue) => {
-                queue.push(PendingInjection {
-                    parent_session_id: parent_session_id.clone(),
-                    parent_agent_id: parent_agent_id.clone(),
-                    child_agent_id,
-                    run_id: run_id.clone(),
-                    push_message,
-                    session_db,
-                    on_injected,
-                    reattachable_ui_guard,
-                });
-                true
-            }
-            Err(_) => false,
-        };
+        requeue_active_injection(PendingInjection {
+            parent_session_id: parent_session_id.clone(),
+            parent_agent_id: parent_agent_id.clone(),
+            child_agent_id,
+            run_id: run_id.clone(),
+            push_message,
+            session_db,
+            on_injected,
+            reattachable_ui_guard,
+            gate: PendingInjectionGate::Ready,
+        });
         app_info!(
             "subagent",
             "inject",
@@ -1106,17 +2364,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             delta: None,
             error: Some("Cancelled: user started new chat, will retry when idle".into()),
         });
-        if requeued {
-            InjectionOutcome::Queued
-        } else if source_no_replay_armed {
-            // The provider terminal is confirmed, but the in-memory queue could
-            // not accept ownership. Do not revive the already-armed durable
-            // replay source; at-most-once wins over an automatic duplicate.
-            InjectionOutcome::Injected
-        } else {
-            // Couldn't re-queue (poisoned): leave the source pending for replay.
-            InjectionOutcome::Abandoned
-        }
+        InjectionOutcome::Queued
     } else if succeeded {
         settle_injection_source(on_injected.as_ref(), &run_id);
         emit_parent_stream_event(&ParentAgentStreamEvent {
@@ -1147,6 +2395,433 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[derive(Default)]
+    struct MirrorProbe {
+        finalized: Arc<AtomicUsize>,
+        aborted: Arc<AtomicUsize>,
+    }
+
+    struct ProbeMirror {
+        probe: MirrorProbe,
+    }
+
+    impl crate::channel_hooks::ImLiveMirror for ProbeMirror {
+        fn finalize(
+            self: Box<Self>,
+            _response: String,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+            Box::pin(async move {
+                self.probe.finalized.fetch_add(1, Ordering::SeqCst);
+            })
+        }
+
+        fn abort(
+            self: Box<Self>,
+            _body: Option<String>,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = crate::channel_hooks::ImLiveMirrorAbortStatus>
+                    + Send
+                    + 'static,
+            >,
+        > {
+            Box::pin(async move {
+                self.probe.aborted.fetch_add(1, Ordering::SeqCst);
+                crate::channel_hooks::ImLiveMirrorAbortStatus::Confirmed
+            })
+        }
+    }
+
+    fn probe_mirror(probe: &MirrorProbe) -> Box<dyn crate::channel_hooks::ImLiveMirror> {
+        Box::new(ProbeMirror {
+            probe: MirrorProbe {
+                finalized: probe.finalized.clone(),
+                aborted: probe.aborted.clone(),
+            },
+        })
+    }
+
+    #[test]
+    fn no_replay_arm_is_single_flight_across_receipt_clones() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let receipt = OnInjected::new(
+            {
+                let calls = calls.clone();
+                move || {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    Ok(())
+                }
+            },
+            || Ok(()),
+        );
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let receipt = receipt.clone();
+                scope.spawn(move || receipt.arm_no_replay().expect("arm receipt"));
+            }
+        });
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn late_request_waits_for_initial_absent_without_losing_wakeup() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        let LateInjectionMirrorReservation::Reserved(mut install) = coordinator.reserve_late()
+        else {
+            panic!("late reservation");
+        };
+        let arm = tokio::spawn(async move {
+            let armed = install.arm_no_replay("run-a").await;
+            (armed, install)
+        });
+        tokio::task::yield_now().await;
+        assert!(coordinator.resolve_initial(None));
+        let (armed, install) = tokio::time::timeout(std::time::Duration::from_secs(1), arm)
+            .await
+            .expect("arm wakeup")
+            .expect("arm task");
+        assert!(armed);
+
+        let probe = MirrorProbe::default();
+        assert!(install.install(probe_mirror(&probe)).await);
+        let status = terminalize_coordinated_injection_mirror(
+            &coordinator,
+            ActiveInjectionMirrorTerminal::Finalize("done".into()),
+        )
+        .await;
+        assert!(status.is_some_and(|status| status.is_confirmed()));
+        assert_eq!(probe.finalized.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn closing_initial_attach_wakes_waiting_late_reservation() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        let LateInjectionMirrorReservation::Reserved(mut install) = coordinator.reserve_late()
+        else {
+            panic!("late reservation");
+        };
+        let arm = tokio::spawn(async move { install.arm_no_replay("run-closed").await });
+        tokio::task::yield_now().await;
+
+        coordinator.close_initial();
+
+        let armed = tokio::time::timeout(std::time::Duration::from_secs(1), arm)
+            .await
+            .expect("close wakeup")
+            .expect("arm task");
+        assert!(!armed);
+    }
+
+    #[tokio::test]
+    async fn unresolved_initial_guard_wakes_late_reservation_on_early_exit() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        let initial = InitialInjectionMirrorResolutionGuard::new(coordinator.clone());
+        let LateInjectionMirrorReservation::Reserved(mut install) = coordinator.reserve_late()
+        else {
+            panic!("late reservation");
+        };
+        let arm = tokio::spawn(async move { install.arm_no_replay("run-early-exit").await });
+        tokio::task::yield_now().await;
+
+        // Models any return between registration in `INJECTION_CANCELS` and
+        // completion of the initial channel attach.
+        drop(initial);
+
+        let armed = tokio::time::timeout(std::time::Duration::from_secs(1), arm)
+            .await
+            .expect("guard wakeup")
+            .expect("arm task");
+        assert!(!armed);
+    }
+
+    #[tokio::test]
+    async fn resolved_initial_guard_preserves_attached_terminal_owner() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        let probe = MirrorProbe::default();
+        {
+            let mut initial = InitialInjectionMirrorResolutionGuard::new(coordinator.clone());
+            assert!(initial.resolve(Some(probe_mirror(&probe))));
+        }
+
+        let status = terminalize_coordinated_injection_mirror(
+            &coordinator,
+            ActiveInjectionMirrorTerminal::Finalize("done".into()),
+        )
+        .await;
+        assert!(status.is_some_and(|status| status.is_confirmed()));
+        assert_eq!(probe.finalized.load(Ordering::SeqCst), 1);
+        assert_eq!(probe.aborted.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn terminal_waits_for_reserved_late_install_and_finalizes_once() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        assert!(coordinator.resolve_initial(None));
+        let LateInjectionMirrorReservation::Reserved(mut install) = coordinator.reserve_late()
+        else {
+            panic!("late reservation");
+        };
+        assert!(install.arm_no_replay("run-terminal-race").await);
+
+        let terminal_coordinator = coordinator.clone();
+        let terminal = tokio::spawn(async move {
+            terminalize_coordinated_injection_mirror(
+                &terminal_coordinator,
+                ActiveInjectionMirrorTerminal::Finalize("done".into()),
+            )
+            .await
+        });
+        tokio::task::yield_now().await;
+        let probe = MirrorProbe::default();
+        assert!(install.install(probe_mirror(&probe)).await);
+        let status = tokio::time::timeout(std::time::Duration::from_secs(1), terminal)
+            .await
+            .expect("terminal wakeup")
+            .expect("terminal task");
+        assert!(status.is_some_and(|status| status.is_confirmed()));
+        assert_eq!(probe.finalized.load(Ordering::SeqCst), 1);
+        assert_eq!(probe.aborted.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn rebind_retires_old_owner_before_new_owner_gets_terminal() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        let old = MirrorProbe::default();
+        let new = MirrorProbe::default();
+        assert!(coordinator.resolve_initial(Some(probe_mirror(&old))));
+        let LateInjectionMirrorReservation::Reserved(mut install) = coordinator.reserve_late()
+        else {
+            panic!("replacement reservation");
+        };
+        assert!(install.arm_no_replay("run-rebind").await);
+        assert!(install.retire_previous().await);
+        assert_eq!(old.aborted.load(Ordering::SeqCst), 1);
+        assert!(install.install(probe_mirror(&new)).await);
+
+        let status = terminalize_coordinated_injection_mirror(
+            &coordinator,
+            ActiveInjectionMirrorTerminal::Finalize("new target".into()),
+        )
+        .await;
+        assert!(status.is_some_and(|status| status.is_confirmed()));
+        assert_eq!(old.finalized.load(Ordering::SeqCst), 0);
+        assert_eq!(new.finalized.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn overlapping_rebind_busy_retries_before_terminal_consumes_intermediate_owner() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        let first = MirrorProbe::default();
+        let intermediate = MirrorProbe::default();
+        let latest = MirrorProbe::default();
+        assert!(coordinator.resolve_initial(Some(probe_mirror(&first))));
+
+        let LateInjectionMirrorReservation::Reserved(mut install_intermediate) =
+            coordinator.reserve_late()
+        else {
+            panic!("intermediate reservation");
+        };
+        assert!(install_intermediate.retire_previous().await);
+        assert_eq!(first.aborted.load(Ordering::SeqCst), 1);
+
+        let LateInjectionMirrorReservation::Busy(latest_retry) = coordinator.reserve_late() else {
+            panic!("latest rebind must register a retry while B installs");
+        };
+        assert!(
+            install_intermediate
+                .install(probe_mirror(&intermediate))
+                .await
+        );
+
+        let terminal_coordinator = coordinator.clone();
+        let terminal = tokio::spawn(async move {
+            terminalize_coordinated_injection_mirror(
+                &terminal_coordinator,
+                ActiveInjectionMirrorTerminal::Finalize("latest target".into()),
+            )
+            .await
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(intermediate.finalized.load(Ordering::SeqCst), 0);
+
+        let LateInjectionMirrorReservation::Reserved(mut install_latest) =
+            tokio::time::timeout(std::time::Duration::from_secs(1), latest_retry.wait())
+                .await
+                .expect("latest retry wakeup")
+        else {
+            panic!("latest retry reservation");
+        };
+        assert!(install_latest.retire_previous().await);
+        assert_eq!(intermediate.aborted.load(Ordering::SeqCst), 1);
+        assert!(install_latest.install(probe_mirror(&latest)).await);
+
+        let status = tokio::time::timeout(std::time::Duration::from_secs(1), terminal)
+            .await
+            .expect("terminal wakeup")
+            .expect("terminal task");
+        assert!(status.is_some_and(|status| status.is_confirmed()));
+        assert_eq!(first.finalized.load(Ordering::SeqCst), 0);
+        assert_eq!(intermediate.finalized.load(Ordering::SeqCst), 0);
+        assert_eq!(latest.finalized.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn late_claim_takes_over_initial_attach_that_resolves_stale() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        let old = MirrorProbe::default();
+        let new = MirrorProbe::default();
+        let LateInjectionMirrorReservation::Reserved(mut install) = coordinator.reserve_late()
+        else {
+            panic!("replacement reservation");
+        };
+
+        // The late path has already claimed the newer attach generation when
+        // the slower initial hook returns an older target.
+        assert!(coordinator.resolve_initial(Some(probe_mirror(&old))));
+        let terminal_coordinator = coordinator.clone();
+        let terminal = tokio::spawn(async move {
+            terminalize_coordinated_injection_mirror(
+                &terminal_coordinator,
+                ActiveInjectionMirrorTerminal::Finalize("new target".into()),
+            )
+            .await
+        });
+        loop {
+            let pending = coordinator.phase.lock().is_ok_and(|phase| {
+                matches!(
+                    *phase,
+                    ActiveInjectionMirrorPhase::TerminalPendingReplacement { .. }
+                )
+            });
+            if pending {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(old.finalized.load(Ordering::SeqCst), 0);
+
+        assert!(install.retire_previous().await);
+        assert_eq!(old.aborted.load(Ordering::SeqCst), 1);
+        assert!(install.arm_no_replay("run-stale-initial").await);
+        assert!(install.install(probe_mirror(&new)).await);
+
+        let status = tokio::time::timeout(std::time::Duration::from_secs(1), terminal)
+            .await
+            .expect("terminal wakeup")
+            .expect("terminal task");
+        assert!(status.is_some_and(|status| status.is_confirmed()));
+        assert_eq!(old.finalized.load(Ordering::SeqCst), 0);
+        assert_eq!(new.finalized.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn unclaimed_late_reservation_keeps_initial_terminal_owner() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        let old = MirrorProbe::default();
+        let LateInjectionMirrorReservation::Reserved(install) = coordinator.reserve_late() else {
+            panic!("late reservation");
+        };
+        assert!(coordinator.resolve_initial(Some(probe_mirror(&old))));
+
+        let terminal_coordinator = coordinator.clone();
+        let terminal = tokio::spawn(async move {
+            terminalize_coordinated_injection_mirror(
+                &terminal_coordinator,
+                ActiveInjectionMirrorTerminal::Finalize("initial target".into()),
+            )
+            .await
+        });
+        loop {
+            let pending = coordinator.phase.lock().is_ok_and(|phase| {
+                matches!(
+                    *phase,
+                    ActiveInjectionMirrorPhase::TerminalPendingReplacement { .. }
+                )
+            });
+            if pending {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        // Models the newer path losing `try_claim` with Busy.
+        drop(install);
+        let status = tokio::time::timeout(std::time::Duration::from_secs(1), terminal)
+            .await
+            .expect("terminal wakeup")
+            .expect("terminal task");
+        assert!(status.is_some_and(|status| status.is_confirmed()));
+        assert_eq!(old.finalized.load(Ordering::SeqCst), 1);
+        assert_eq!(old.aborted.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn failed_rebind_arm_does_not_restore_retired_owner() {
+        let receipt = OnInjected::new(|| Err(anyhow::anyhow!("temporary arm failure")), || Ok(()));
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(Some(receipt)));
+        let old = MirrorProbe::default();
+        assert!(coordinator.resolve_initial(Some(probe_mirror(&old))));
+        let LateInjectionMirrorReservation::Reserved(mut install) = coordinator.reserve_late()
+        else {
+            panic!("replacement reservation");
+        };
+
+        assert!(install.retire_previous().await);
+        assert!(!install.arm_no_replay("run-arm-failed").await);
+        drop(install);
+
+        let status = terminalize_coordinated_injection_mirror(
+            &coordinator,
+            ActiveInjectionMirrorTerminal::Finalize("current target".into()),
+        )
+        .await;
+        assert!(status.is_none());
+        assert_eq!(old.finalized.load(Ordering::SeqCst), 0);
+        assert_eq!(old.aborted.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn dropped_rebind_installer_retires_old_and_requests_backstop() {
+        let coordinator = Arc::new(ActiveInjectionMirrorCoordinator::new(None));
+        let old = MirrorProbe::default();
+        assert!(coordinator.resolve_initial(Some(probe_mirror(&old))));
+        let LateInjectionMirrorReservation::Reserved(install) = coordinator.reserve_late() else {
+            panic!("replacement reservation");
+        };
+
+        let terminal_coordinator = coordinator.clone();
+        let terminal = tokio::spawn(async move {
+            terminalize_coordinated_injection_mirror(
+                &terminal_coordinator,
+                ActiveInjectionMirrorTerminal::Finalize("old target".into()),
+            )
+            .await
+        });
+        loop {
+            let pending = coordinator.phase.lock().is_ok_and(|phase| {
+                matches!(
+                    *phase,
+                    ActiveInjectionMirrorPhase::TerminalPendingInstall(_)
+                )
+            });
+            if pending {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        drop(install);
+
+        let status = tokio::time::timeout(std::time::Duration::from_secs(1), terminal)
+            .await
+            .expect("terminal wakeup")
+            .expect("terminal task");
+        assert!(status.is_none());
+        assert_eq!(old.finalized.load(Ordering::SeqCst), 0);
+        assert_eq!(old.aborted.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn subagent_push_message_uses_xmlish_payload_and_escapes_text() {
@@ -1324,6 +2999,134 @@ mod tests {
     }
 
     #[test]
+    fn queued_retry_abandon_releases_only_an_unarmed_claim() {
+        let releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let release_counter = releases.clone();
+        let receipt = OnInjected::new(|| Ok(()), || Ok(())).with_release_unarmed(move || {
+            release_counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
+
+        release_retry_source_if_abandoned(
+            InjectionOutcome::Abandoned,
+            Some(&receipt),
+            "run-unarmed",
+        );
+        release_retry_source_if_abandoned(
+            InjectionOutcome::Abandoned,
+            Some(&receipt),
+            "run-unarmed",
+        );
+        assert_eq!(
+            releases.load(Ordering::SeqCst),
+            1,
+            "release callback must be idempotent"
+        );
+
+        let armed_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let armed_release_counter = armed_releases.clone();
+        let armed = OnInjected::new(|| Ok(()), || Ok(())).with_release_unarmed(move || {
+            armed_release_counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
+        armed.arm_no_replay().unwrap();
+        release_retry_source_if_abandoned(InjectionOutcome::Abandoned, Some(&armed), "run-armed");
+        assert_eq!(
+            armed_releases.load(Ordering::SeqCst),
+            0,
+            "an armed no-replay source must never be released"
+        );
+    }
+
+    #[test]
+    fn process_dispatch_claim_follows_queued_injected_and_abandoned_outcomes() {
+        let queued_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let queued_counter = queued_releases.clone();
+        let queued =
+            OnInjected::new(|| Ok(()), || Ok(())).with_process_dispatch_release(move || {
+                queued_counter.fetch_add(1, Ordering::SeqCst);
+            });
+        assert_eq!(
+            queued_releases.load(Ordering::SeqCst),
+            0,
+            "moving a receipt into PendingInjection must retain its dispatch claim"
+        );
+
+        let settled_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let settled_counter = settled_releases.clone();
+        let settled =
+            OnInjected::new(|| Ok(()), || Ok(())).with_process_dispatch_release(move || {
+                settled_counter.fetch_add(1, Ordering::SeqCst);
+            });
+        settled.settle().unwrap();
+        assert_eq!(settled_releases.load(Ordering::SeqCst), 1);
+
+        let armed_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let armed_counter = armed_releases.clone();
+        let armed =
+            OnInjected::new(|| Ok(()), || Ok(())).with_process_dispatch_release(move || {
+                armed_counter.fetch_add(1, Ordering::SeqCst);
+            });
+        armed.arm_no_replay().unwrap();
+        assert_eq!(armed_releases.load(Ordering::SeqCst), 1);
+
+        let abandoned_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let abandoned_counter = abandoned_releases.clone();
+        let abandoned =
+            OnInjected::new(|| Ok(()), || Ok(())).with_process_dispatch_release(move || {
+                abandoned_counter.fetch_add(1, Ordering::SeqCst);
+            });
+        release_retry_source_if_abandoned(
+            InjectionOutcome::Abandoned,
+            Some(&abandoned),
+            "run-abandoned",
+        );
+        assert_eq!(abandoned_releases.load(Ordering::SeqCst), 1);
+
+        let failed_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let failed_counter = failed_releases.clone();
+        let failed = OnInjected::new(
+            || anyhow::bail!("arm failed"),
+            || anyhow::bail!("settle failed"),
+        )
+        .with_process_dispatch_release(move || {
+            failed_counter.fetch_add(1, Ordering::SeqCst);
+        });
+        assert!(failed.arm_no_replay().is_err());
+        assert!(failed.settle().is_err());
+        assert_eq!(
+            failed_releases.load(Ordering::SeqCst),
+            0,
+            "a failed durable callback must keep the process claim pinned against the next sweep"
+        );
+
+        // Keep the queued receipt alive through the end of the assertions; its
+        // plain Drop is intentionally not a release event.
+        drop(queued);
+        assert_eq!(queued_releases.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn primary_handoff_requires_a_durable_replay_receipt() {
+        assert!(
+            !can_defer_to_primary(None),
+            "receipt-free Group/hook callbacks have no Primary replay source"
+        );
+        let process_local = OnInjected::idempotent(|| Ok(()));
+        assert!(
+            !can_defer_to_primary(Some(&process_local)),
+            "a process notification callback is not a durable handoff"
+        );
+        let default_receipt = OnInjected::new(|| Ok(()), || Ok(()));
+        assert!(
+            !can_defer_to_primary(Some(&default_receipt)),
+            "durable storage alone does not imply periodic Primary discovery"
+        );
+        let periodic_source = OnInjected::new(|| Ok(()), || Ok(())).with_primary_handoff();
+        assert!(can_defer_to_primary(Some(&periodic_source)));
+    }
+
+    #[test]
     fn pending_flush_claims_one_and_preserves_same_session_fifo() {
         let tmp = tempfile::tempdir().unwrap();
         let db = Arc::new(crate::session::SessionDB::open(&tmp.path().join("s.db")).unwrap());
@@ -1336,13 +3139,14 @@ mod tests {
             session_db: db.clone(),
             on_injected: None,
             reattachable_ui_guard: None,
+            gate: PendingInjectionGate::Ready,
         };
         let mut queue = vec![
             pending("s1", "run-1"),
             pending("s2", "run-2"),
             pending("s1", "run-3"),
         ];
-        let mut injecting = std::collections::HashSet::new();
+        let mut injecting = std::collections::HashMap::new();
 
         assert_eq!(
             claim_next_pending_injection(&mut queue, &mut injecting, "s1")
@@ -1376,6 +3180,281 @@ mod tests {
             "run-3"
         );
         assert_eq!(queue[0].run_id, "run-2");
+    }
+
+    #[test]
+    fn unified_fifo_never_bypasses_a_blocked_head() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(crate::session::SessionDB::open(&tmp.path().join("s.db")).unwrap());
+        let task = |session_id: &str, run_id: &str, gate: PendingInjectionGate| PendingInjection {
+            parent_session_id: session_id.to_string(),
+            parent_agent_id: "ha-main".to_string(),
+            child_agent_id: "helper".to_string(),
+            run_id: run_id.to_string(),
+            push_message: "done".to_string(),
+            session_db: db.clone(),
+            on_injected: None,
+            reattachable_ui_guard: None,
+            gate,
+        };
+        let mut durable_task = task(
+            "session-a",
+            "run-a",
+            PendingInjectionGate::Channel {
+                account_id: Some("account-a".to_string()),
+            },
+        );
+        durable_task.on_injected = Some(OnInjected::new(|| Ok(()), || Ok(())));
+        let mut pending = vec![
+            durable_task,
+            task("session-a", "run-b", PendingInjectionGate::Ready),
+            task(
+                "session-b",
+                "run-c",
+                PendingInjectionGate::Channel {
+                    account_id: Some("account-b".to_string()),
+                },
+            ),
+            task(
+                "session-unknown",
+                "run-unknown",
+                PendingInjectionGate::Channel { account_id: None },
+            ),
+        ];
+        let mut injecting = std::collections::HashMap::new();
+
+        assert!(
+            claim_next_pending_injection(&mut pending, &mut injecting, "session-a").is_none(),
+            "ready B must not bypass channel-blocked A"
+        );
+
+        let opened = open_channel_gates(&mut pending, Some("account-b"));
+        assert!(opened.contains(&"session-b".to_string()));
+        assert!(opened.contains(&"session-unknown".to_string()));
+        assert!(
+            claim_next_pending_injection(&mut pending, &mut injecting, "session-a").is_none(),
+            "an unrelated account event must leave A blocked"
+        );
+
+        let opened = open_channel_gates(&mut pending, Some("account-a"));
+        assert_eq!(opened, ["session-a".to_string()]);
+        let first = claim_next_pending_injection(&mut pending, &mut injecting, "session-a")
+            .expect("account A event opens FIFO head");
+        assert_eq!(first.run_id, "run-a");
+        assert!(first.on_injected.is_some(), "receipt must stay with A");
+        injecting.remove("session-a");
+        assert_eq!(
+            claim_next_pending_injection(&mut pending, &mut injecting, "session-a")
+                .unwrap()
+                .run_id,
+            "run-b"
+        );
+    }
+
+    #[test]
+    fn active_retry_returns_to_same_session_head_and_new_work_dedups_at_tail() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(crate::session::SessionDB::open(&tmp.path().join("s.db")).unwrap());
+        let task = |session: &str, run: &str, gate: PendingInjectionGate| PendingInjection {
+            parent_session_id: session.to_string(),
+            parent_agent_id: "ha-main".to_string(),
+            child_agent_id: "helper".to_string(),
+            run_id: run.to_string(),
+            push_message: "done".to_string(),
+            session_db: db.clone(),
+            on_injected: None,
+            reattachable_ui_guard: None,
+            gate,
+        };
+        let mut queue = vec![
+            task("other", "x", PendingInjectionGate::Ready),
+            task("session", "b", PendingInjectionGate::Ready),
+            task("session", "c", PendingInjectionGate::Ready),
+        ];
+        enqueue_active_retry_front(
+            &mut queue,
+            task(
+                "session",
+                "a",
+                PendingInjectionGate::Channel {
+                    account_id: Some("account".to_string()),
+                },
+            ),
+        );
+        assert_eq!(
+            queue
+                .iter()
+                .filter(|task| task.parent_session_id == "session")
+                .map(|task| task.run_id.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
+
+        enqueue_new_pending_tail(
+            &mut queue,
+            task("session", "b", PendingInjectionGate::Ready),
+        );
+        enqueue_new_pending_tail(
+            &mut queue,
+            task("session", "d", PendingInjectionGate::Ready),
+        );
+        assert_eq!(
+            queue
+                .iter()
+                .filter(|task| task.parent_session_id == "session")
+                .map(|task| task.run_id.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b", "c", "d"]
+        );
+    }
+
+    #[test]
+    fn active_identity_duplicate_dispatch_coalesces_without_entering_retry_tail() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(crate::session::SessionDB::open(&tmp.path().join("s.db")).unwrap());
+        let task = |run: &str| PendingInjection {
+            parent_session_id: "session".to_string(),
+            parent_agent_id: "ha-main".to_string(),
+            child_agent_id: "helper".to_string(),
+            run_id: run.to_string(),
+            push_message: "done".to_string(),
+            session_db: db.clone(),
+            on_injected: None,
+            reattachable_ui_guard: None,
+            gate: PendingInjectionGate::Ready,
+        };
+        let mut injecting =
+            std::collections::HashMap::from([("session".to_string(), "run-a".to_string())]);
+        let mut queue = vec![task("run-b")];
+
+        assert_eq!(
+            admit_or_enqueue_injection(&mut injecting, &mut queue, &task("run-a")),
+            InjectionAdmission::Coalesced
+        );
+        assert_eq!(
+            queue
+                .iter()
+                .map(|pending| pending.run_id.as_str())
+                .collect::<Vec<_>>(),
+            ["run-b"],
+            "a duplicate sweep for active retry A must not enter the FIFO tail"
+        );
+
+        assert_eq!(
+            admit_or_enqueue_injection(&mut injecting, &mut queue, &task("run-c")),
+            InjectionAdmission::Queued
+        );
+        assert_eq!(
+            queue
+                .iter()
+                .map(|pending| pending.run_id.as_str())
+                .collect::<Vec<_>>(),
+            ["run-b", "run-c"],
+            "a distinct run still preserves FIFO admission"
+        );
+    }
+
+    #[test]
+    fn cleanup_releases_only_its_exact_active_owner() {
+        let mut injecting =
+            std::collections::HashMap::from([("session".to_string(), "new-owner".to_string())]);
+
+        assert!(!release_injection_owner(
+            &mut injecting,
+            "session",
+            "stale-owner"
+        ));
+        assert_eq!(
+            injecting.get("session").map(String::as_str),
+            Some("new-owner")
+        );
+        assert!(release_injection_owner(
+            &mut injecting,
+            "session",
+            "new-owner"
+        ));
+        assert!(!injecting.contains_key("session"));
+    }
+
+    #[test]
+    fn purge_removes_ready_and_channel_gated_tasks_for_only_one_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(crate::session::SessionDB::open(&tmp.path().join("s.db")).unwrap());
+        let task = |session: &str, run: &str, gate: PendingInjectionGate| PendingInjection {
+            parent_session_id: session.to_string(),
+            parent_agent_id: "ha-main".to_string(),
+            child_agent_id: "helper".to_string(),
+            run_id: run.to_string(),
+            push_message: "done".to_string(),
+            session_db: db.clone(),
+            on_injected: None,
+            reattachable_ui_guard: None,
+            gate,
+        };
+        let process_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let process_releases_for_receipt = process_releases.clone();
+        let mut claimed = task("gone", "ready", PendingInjectionGate::Ready);
+        claimed.on_injected = Some(
+            OnInjected::new(|| Ok(()), || Ok(())).with_process_dispatch_release(move || {
+                process_releases_for_receipt.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+        let mut queue = vec![
+            claimed,
+            task(
+                "gone",
+                "blocked",
+                PendingInjectionGate::Channel {
+                    account_id: Some("account".to_string()),
+                },
+            ),
+            task("keep", "ready", PendingInjectionGate::Ready),
+        ];
+
+        assert_eq!(purge_pending_from_queue(&mut queue, "gone"), 2);
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].parent_session_id, "keep");
+        assert_eq!(
+            process_releases.load(Ordering::SeqCst),
+            1,
+            "session cleanup must not leak a queued async-job dispatch claim"
+        );
+    }
+
+    #[test]
+    fn enqueue_recheck_opens_running_removed_or_disabled_surfaces() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(crate::session::SessionDB::open(&tmp.path().join("s.db")).unwrap());
+        for (case, persisted_enabled, running, should_open) in [
+            ("running", Some(true), true, true),
+            ("disabled", Some(false), false, true),
+            ("removed", None, false, true),
+            ("still-starting", Some(true), false, false),
+        ] {
+            let mut queue = vec![PendingInjection {
+                parent_session_id: format!("session-{case}"),
+                parent_agent_id: "ha-main".to_string(),
+                child_agent_id: "helper".to_string(),
+                run_id: format!("run-{case}"),
+                push_message: "done".to_string(),
+                session_db: db.clone(),
+                on_injected: None,
+                reattachable_ui_guard: None,
+                gate: PendingInjectionGate::Channel {
+                    account_id: Some("account".to_string()),
+                },
+            }];
+            if persisted_surface_releases_channel_gate(persisted_enabled, running) {
+                open_channel_gates(&mut queue, Some("account"));
+            }
+            let session_id = queue[0].parent_session_id.clone();
+            let mut injecting = std::collections::HashMap::new();
+            assert_eq!(
+                claim_next_pending_injection(&mut queue, &mut injecting, &session_id).is_some(),
+                should_open,
+                "event-before-enqueue recheck case: {case}"
+            );
+        }
     }
 
     // R2 (§5.4): the idle gate must park completion injection behind a live
