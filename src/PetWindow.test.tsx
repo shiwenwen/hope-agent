@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     })
   }),
   completeAction: null as null | ((action: string) => void),
+  petSpriteVersion: 2 as 1 | 2,
   approvals: [] as Array<Record<string, unknown>>,
   layoutOverride: null as null | {
     mode: "none" | "bubble" | "tray" | "menu"
@@ -81,7 +82,11 @@ vi.mock("@/components/chat/hooks/useApprovals", () => ({
 }))
 
 vi.mock("@/components/pet/hooks/usePetAssetUrl", () => ({
-  usePetAssetUrl: () => ({ src: "pet.png", loading: false, failed: false }),
+  usePetAssetUrl: (assetId: string | null) => ({
+    src: assetId ?? "pet-loading",
+    loading: false,
+    failed: false,
+  }),
 }))
 
 vi.mock("@/components/pet/hooks/usePetAnimator", async (importOriginal) => ({
@@ -101,12 +106,16 @@ vi.mock("@/components/pet/hooks/usePetWindowLayout", () => ({
 
 vi.mock("@/components/pet/PetSprite", () => ({
   AnimatedPetSprite: ({
+    src,
     action,
     lookTarget,
+    rowCount,
     onActionComplete,
   }: {
+    src: string
     action: string
     lookTarget?: string | number | null
+    rowCount: number
     onActionComplete?: (action: string) => void
   }) => {
     mocks.completeAction = onActionComplete ?? null
@@ -114,8 +123,10 @@ vi.mock("@/components/pet/PetSprite", () => ({
       <span
         aria-hidden="true"
         data-testid="pet-sprite"
+        data-src={src}
         data-action={action}
         data-look={lookTarget ?? "none"}
+        data-row-count={rowCount}
       >
         pet
       </span>
@@ -146,6 +157,7 @@ beforeEach(() => {
   mocks.windowMoved = null
   mocks.listeners.clear()
   mocks.completeAction = null
+  mocks.petSpriteVersion = 2
   mocks.approvals = []
   mocks.layoutOverride = null
   mocks.petSnapshot = {
@@ -168,7 +180,7 @@ beforeEach(() => {
             petRef: "builtin:hope-default",
             builtin: true,
             assetId: "builtin/hope-default",
-            manifest: { spriteVersionNumber: 2 },
+            manifest: { spriteVersionNumber: mocks.petSpriteVersion },
           },
         ],
       })
@@ -249,9 +261,102 @@ describe("PetWindow pointer interactions", () => {
     expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
   })
 
-  test("plays the hover wave action and restores the business animation after completion", () => {
+  test("greets only after the pointer stops in the v2 neutral zone", async () => {
     render(<PetWindow />)
     const pet = petButton()
+    const main = screen.getByRole("main")
+    Object.defineProperty(pet, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11"),
+    )
+    vi.useFakeTimers()
+
+    fireEvent.pointerMove(main, { clientX: 50, clientY: 0 })
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "0")
+
+    fireEvent.pointerEnter(pet, { clientX: 50, clientY: 50 })
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "neutral")
+
+    fireEvent.pointerMove(pet, { clientX: 50, clientY: 0 })
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "0")
+
+    act(() => vi.advanceTimersByTime(700))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+
+    fireEvent.pointerMove(pet, { clientX: 50, clientY: 50 })
+    act(() => vi.advanceTimersByTime(400))
+    fireEvent.pointerMove(pet, { clientX: 51, clientY: 50 })
+
+    act(() => vi.advanceTimersByTime(699))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "wave")
+
+    act(() => mocks.completeAction?.("wave"))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "neutral")
+
+    fireEvent.pointerMove(pet, { clientX: 100, clientY: 50 })
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "4")
+    act(() => vi.advanceTimersByTime(700))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+
+    fireEvent.pointerLeave(pet, { clientX: 100, clientY: 50, relatedTarget: main })
+  })
+
+  test("uses the same delayed v2 greeting for the inactive-window bridge", async () => {
+    render(<PetWindow />)
+    const pet = petButton()
+    Object.defineProperty(pet, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+    })
+    const hitTest = vi.fn<() => Element | null>(() => pet)
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: hitTest,
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11"),
+    )
+    vi.useFakeTimers()
+
+    act(() => mocks.listeners.get("pet:inactive_pointer")?.({ inside: true, x: 50, y: 50 }))
+
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "neutral")
+    act(() => vi.advanceTimersByTime(400))
+    act(() => mocks.listeners.get("pet:inactive_pointer")?.({ inside: true, x: 51, y: 50 }))
+    act(() => vi.advanceTimersByTime(699))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "wave")
+
+    act(() => mocks.listeners.get("pet:inactive_pointer")?.({ inside: true, x: 100, y: 50 }))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "4")
+    act(() => vi.advanceTimersByTime(700))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+
+    hitTest.mockReturnValue(screen.getByRole("main"))
+    act(() => mocks.listeners.get("pet:inactive_pointer")?.({ inside: true, x: 50, y: 50 }))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "neutral")
+    act(() => vi.advanceTimersByTime(700))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+  })
+
+  test("retains the hover wave fallback for v1 pets", async () => {
+    mocks.petSpriteVersion = 1
+    render(<PetWindow />)
+    const pet = petButton()
+    await waitFor(() =>
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "builtin/hope-default"),
+    )
 
     fireEvent.pointerEnter(pet)
     expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "wave")

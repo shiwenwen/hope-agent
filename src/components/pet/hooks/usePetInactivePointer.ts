@@ -18,6 +18,12 @@ export interface PetInactiveHoverTarget {
   pet: boolean
 }
 
+export type PetInactivePointerCallback = (
+  x: number | null,
+  y: number | null,
+  target: PetInactiveHoverTarget,
+) => void
+
 const EMPTY_TARGET: PetInactiveHoverTarget = {
   activityId: null,
   action: null,
@@ -50,7 +56,7 @@ export function resolvePetInactiveHoverTarget(x: number, y: number): PetInactive
  * hover target without synthesizing mouse events or stealing application focus.
  */
 export function usePetInactivePointer(
-  onPointer?: (x: number | null, y: number | null) => void,
+  onPointer?: PetInactivePointerCallback,
 ): PetInactiveHoverTarget {
   const [target, setTarget] = useState<PetInactiveHoverTarget>(EMPTY_TARGET)
   const onPointerRef = useRef(onPointer)
@@ -64,8 +70,8 @@ export function usePetInactivePointer(
       getTransport().listen(PET_INACTIVE_POINTER_EVENT, (raw) => {
         const payload = parsePayload<PetInactivePointerEvent>(raw)
         const inside = payload?.inside && Number.isFinite(payload.x) && Number.isFinite(payload.y)
-        onPointerRef.current?.(inside ? payload.x : null, inside ? payload.y : null)
         const next = inside ? resolvePetInactiveHoverTarget(payload.x, payload.y) : EMPTY_TARGET
+        onPointerRef.current?.(inside ? payload.x : null, inside ? payload.y : null, next)
         setTarget((current) => (sameTarget(current, next) ? current : next))
       }),
     [],
