@@ -55,6 +55,7 @@
 
 | 文档                                          | 说明                                | 关联源码                  |
 | ------------------------------------------- | --------------------------------- | --------------------- |
+| [Agent Control 统一控制面](architecture/agent/agent-control.md) | Goal / Workflow / Loop / Task / Background Job 五条控制线的只读投影（`AutonomyActivity`）、按角色拆分的自治 Prompt 契约、预算 / 无痕 / 权限 / 恢复 / 非劣化横切保证；不引入第六套生命周期 | `activity.rs`, `system_prompt/` |
 | [Plan Mode](architecture/agent/plan-mode.md)      | 5 状态机、plan = 设计契约 + task = 进度真相双轨分离、enter_plan_mode 模型主动入口、Git Checkpoint 回滚 | `plan/`, `tools/enter_plan_mode.rs`, `tools/submit_plan.rs`, `tools/task.rs` |
 | [Workspace Control Panel](architecture/agent/workspace.md) | 主聊天右侧工作台：Environment / Goal / Session / Progress / Workflow / Loop / Background Jobs / Output / Sources / Knowledge / Advanced Diagnostics 的信息架构、输入框联动、多语言与 UI 验收契约 | `components/chat/workspace/`, `components/chat/input/ChatInput.tsx` |
 | [Goal 控制平面](architecture/agent/goal.md) | 长任务顶层目标：目标陈述、完成标准、状态机、证据链、最终审计、Runtime / Runner、完成报告、Workflow / Loop 绑定与工作台 Goal 区块 | `goal/`, `workflow/`, `components/chat/workspace/` |
