@@ -151,6 +151,12 @@ pub struct NativeReplyCapabilities {
     /// adapter's target preflight.
     #[serde(default)]
     pub requires_reply_anchor: bool,
+    /// Whether a non-empty [`ReplyStreamTarget::thread_id`] satisfies
+    /// `requires_reply_anchor` for `open_reply_stream`. Providers must opt in:
+    /// supporting threads generally does not imply that the native streaming
+    /// API accepts a thread id as its reply anchor.
+    #[serde(default)]
+    pub supports_thread_anchor: bool,
     #[serde(default)]
     pub requires_recipient_user_id: bool,
     #[serde(default)]

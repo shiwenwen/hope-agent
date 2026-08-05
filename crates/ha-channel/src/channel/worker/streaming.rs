@@ -1573,9 +1573,18 @@ pub(super) fn select_stream_preview_transport(
     history_complete: bool,
 ) -> Option<StreamPreviewTransport> {
     if let Some(native) = capabilities.native_reply.as_ref() {
+        let has_reply_anchor = target
+            .reply_to_message_id
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+            || (native.supports_thread_anchor
+                && target
+                    .thread_id
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty()));
         let target_eligible = native.preview_chat_types.contains(&target.chat_type)
             && native.final_chat_types.contains(&target.chat_type)
-            && (!native.requires_reply_anchor || target.reply_to_message_id.is_some())
+            && (!native.requires_reply_anchor || has_reply_anchor)
             && (!native.requires_recipient_user_id || target.recipient_user_id.is_some())
             && (!native.requires_recipient_tenant_id || target.recipient_tenant_id.is_some());
         let history_eligible =

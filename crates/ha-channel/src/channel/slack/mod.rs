@@ -635,6 +635,7 @@ impl ChannelPlugin for SlackPlugin {
                 update_mode: ReplyStreamUpdateMode::Append,
                 preview_persistence: ReplyStreamPreviewPersistence::Persistent,
                 requires_reply_anchor: true,
+                supports_thread_anchor: true,
                 requires_recipient_user_id: true,
                 requires_recipient_tenant_id: true,
                 supports_task_updates: true,

@@ -198,6 +198,7 @@ impl ChannelPlugin for TelegramPlugin {
                 update_mode: ReplyStreamUpdateMode::Snapshot,
                 preview_persistence: ReplyStreamPreviewPersistence::Ephemeral,
                 requires_reply_anchor: false,
+                supports_thread_anchor: false,
                 requires_recipient_user_id: false,
                 requires_recipient_tenant_id: false,
                 supports_task_updates: false,

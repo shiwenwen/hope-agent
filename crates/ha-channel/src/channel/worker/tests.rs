@@ -49,6 +49,7 @@ fn native_caps(update_mode: ReplyStreamUpdateMode) -> NativeReplyCapabilities {
         update_mode,
         preview_persistence: ReplyStreamPreviewPersistence::Persistent,
         requires_reply_anchor: true,
+        supports_thread_anchor: false,
         requires_recipient_user_id: true,
         requires_recipient_tenant_id: true,
         supports_task_updates: true,
@@ -144,6 +145,40 @@ fn native_preview_has_priority_only_for_a_complete_target() {
     missing_tenant.recipient_tenant_id = None;
     assert_eq!(
         select_stream_preview_transport(&missing_tenant, &capabilities, true),
+        Some(StreamPreviewTransport::Draft),
+    );
+}
+
+#[test]
+fn native_preview_uses_thread_anchor_only_when_declared() {
+    let mut capabilities = caps(true, true, true);
+    let mut native = native_caps(ReplyStreamUpdateMode::Append);
+    native.supports_thread_anchor = true;
+    capabilities.native_reply = Some(native.clone());
+
+    let mut threaded = target(ChatType::Dm);
+    threaded.reply_to_message_id = None;
+    threaded.thread_id = Some("thread-ts".to_string());
+    assert!(matches!(
+        select_stream_preview_transport(&threaded, &capabilities, true),
+        Some(StreamPreviewTransport::Native { .. })
+    ));
+
+    native.supports_thread_anchor = false;
+    capabilities.native_reply = Some(native);
+    assert_eq!(
+        select_stream_preview_transport(&threaded, &capabilities, true),
+        Some(StreamPreviewTransport::Draft),
+    );
+
+    capabilities
+        .native_reply
+        .as_mut()
+        .expect("native capabilities")
+        .supports_thread_anchor = true;
+    threaded.thread_id = Some(String::new());
+    assert_eq!(
+        select_stream_preview_transport(&threaded, &capabilities, true),
         Some(StreamPreviewTransport::Draft),
     );
 }
