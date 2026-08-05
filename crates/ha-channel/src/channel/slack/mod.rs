@@ -1103,16 +1103,14 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        let grouped = slack_final_blocks(&[make_buttons(51)])
-            .ok()
-            .expect("51 buttons should fit in three blocks");
+        let grouped =
+            slack_final_blocks(&[make_buttons(51)]).expect("51 buttons should fit in three blocks");
         assert_eq!(grouped.len(), 3);
         assert_eq!(grouped[0]["elements"].as_array().unwrap().len(), 25);
         assert_eq!(grouped[1]["elements"].as_array().unwrap().len(), 25);
         assert_eq!(grouped[2]["elements"].as_array().unwrap().len(), 1);
 
         let capped = slack_final_blocks(&[make_buttons(1_225)])
-            .ok()
             .expect("1,225 buttons should fit in 49 action blocks");
         assert_eq!(capped.len(), SLACK_FINAL_BLOCKS_MAX - 1);
         assert!(capped

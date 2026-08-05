@@ -2546,9 +2546,7 @@ async fn send_stream_preview(
     match preview_transport {
         StreamPreviewTransport::Native { .. } => unreachable!("native branch returned above"),
         StreamPreviewTransport::Draft => {
-            let Some(payload) = build_payload() else {
-                return None;
-            };
+            let payload = build_payload()?;
             let draft_plugin = plugin.clone();
             let draft_account = account_id.to_string();
             let draft_chat = chat_id.to_string();
@@ -2668,9 +2666,7 @@ async fn send_stream_preview(
             }
         }
         StreamPreviewTransport::Message => {
-            let Some(payload) = build_payload() else {
-                return None;
-            };
+            let payload = build_payload()?;
             send_message_preview(
                 plugin,
                 account_id,

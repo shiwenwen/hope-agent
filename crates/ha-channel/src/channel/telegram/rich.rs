@@ -423,7 +423,7 @@ enum Block {
         start: Option<u64>,
         items: Vec<ListItem>,
     },
-    BlockQuote(Vec<Block>),
+    Quote(Vec<Block>),
     Table {
         rows: Vec<TableRow>,
     },
@@ -441,7 +441,7 @@ impl Block {
                 .flat_map(|item| &item.blocks)
                 .map(Self::text_chars)
                 .sum(),
-            Self::BlockQuote(blocks) => blocks.iter().map(Self::text_chars).sum(),
+            Self::Quote(blocks) => blocks.iter().map(Self::text_chars).sum(),
             Self::Table { rows } => rows
                 .iter()
                 .flat_map(|row| &row.cells)
@@ -458,7 +458,7 @@ impl Block {
                     .map(|item| 1 + item.blocks.iter().map(Self::block_count).sum::<usize>())
                     .sum::<usize>()
             }
-            Self::BlockQuote(blocks) => 1 + blocks.iter().map(Self::block_count).sum::<usize>(),
+            Self::Quote(blocks) => 1 + blocks.iter().map(Self::block_count).sum::<usize>(),
             Self::Table { rows } => 1 + rows.len(),
             Self::Paragraph(_)
             | Self::Heading { .. }
@@ -579,7 +579,7 @@ fn nodes_to_blocks(nodes: Vec<Node>) -> Result<Vec<Block>, RichCompileError> {
             }
             Node::Container(Container::BlockQuote, children) => {
                 flush_pending(&mut pending, &mut blocks);
-                blocks.push(Block::BlockQuote(nodes_to_blocks(children)?));
+                blocks.push(Block::Quote(nodes_to_blocks(children)?));
             }
             Node::Container(Container::List(start), children) => {
                 flush_pending(&mut pending, &mut blocks);
@@ -883,7 +883,7 @@ fn append_block_plain(block: &Block, output: &mut String) {
         }
         Block::Pre { text, .. } | Block::Math(text) => output.push_str(text),
         Block::Divider => output.push_str("---"),
-        Block::BlockQuote(blocks) => {
+        Block::Quote(blocks) => {
             for (index, block) in blocks.iter().enumerate() {
                 if index > 0 {
                     output.push('\n');
@@ -1011,7 +1011,7 @@ fn block_to_value(block: &Block) -> Value {
                 "items": items,
             })
         }
-        Block::BlockQuote(blocks) => json!({
+        Block::Quote(blocks) => json!({
             "type": "blockquote",
             "blocks": blocks.iter().map(block_to_value).collect::<Vec<_>>(),
         }),
@@ -1162,7 +1162,7 @@ fn render_blocks_html(blocks: &[Block], html: &mut String) {
             }
             Block::Divider => html.push_str("<hr/>"),
             Block::List { start, items } => render_list_html(*start, items, html),
-            Block::BlockQuote(blocks) => {
+            Block::Quote(blocks) => {
                 html.push_str("<blockquote>");
                 render_blocks_html(blocks, html);
                 html.push_str("</blockquote>");

@@ -108,10 +108,10 @@ fn persisted_change_makes_delivery_surface_absent(
     previous_enabled: Option<bool>,
     persisted_enabled: Option<bool>,
 ) -> bool {
-    match (previous_enabled, persisted_enabled) {
-        (Some(true), Some(false)) | (Some(_), None) => true,
-        _ => false,
-    }
+    matches!(
+        (previous_enabled, persisted_enabled),
+        (Some(true), Some(false)) | (Some(_), None)
+    )
 }
 
 /// Create a new channel account, persist it, and auto-start if enabled.
