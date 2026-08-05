@@ -1,6 +1,6 @@
 //! Browser automation subsystem.
 //!
-//! See [`docs/architecture/browser.md`](../../../docs/architecture/browser.md)
+//! See [`docs/architecture/core/browser.md`](../../../docs/architecture/core/browser.md)
 //! for the cross-PR contract. Public surface:
 //!
 //! - [`backend::BrowserBackend`] — trait the CDP backend implements; reserved

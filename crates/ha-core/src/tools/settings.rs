@@ -179,7 +179,17 @@ fn risk_level(category: &str) -> &'static str {
         Some("read_only") => "low",
         None if category == "all" => "low",
         Some(risk) => risk,
-        None => "medium",
+        None => {
+            // An unregistered category can only reach here if a read/write handler
+            // arm exists without a matching SETTINGS_CATEGORY_RISKS entry. That is a
+            // registration bug: a HIGH category would silently downgrade to medium and
+            // lose its write-before-confirmation. Loud in dev/CI, still safe in release.
+            debug_assert!(
+                false,
+                "settings category `{category}` has no SETTINGS_CATEGORY_RISKS entry"
+            );
+            "medium"
+        }
     }
 }
 
@@ -1778,23 +1788,39 @@ mod tests {
 
     #[test]
     fn risk_level_high_categories() {
-        for cat in [
-            "proxy",
-            "shortcuts",
-            "skills",
+        // Golden HIGH set (single source: SETTINGS_CATEGORY_RISKS). Bidirectional —
+        // adding, removing, or re-leveling any HIGH category fails here and forces a
+        // conscious review. A HIGH category slipping to medium silently loses its
+        // write-before-confirmation, so this set is security-relevant.
+        let mut high = categories_with_risk("high");
+        high.sort_unstable();
+        let mut expected = vec![
             "acp_control",
-            "skill_env",
+            "auto_update",
+            "browser",
+            "dangerous_commands",
+            "edit_commands",
+            "external_memory_providers",
+            "filesystem",
+            "knowledge_maintenance",
+            "knowledge_media_retention",
+            "mcp_global",
+            "protected_paths",
+            "proxy",
             "security",
             "security.ssrf",
+            "shortcuts",
+            "skill_env",
+            "skills",
             "smart_mode",
-            "mcp_global",
-            "knowledge_maintenance",
-            "browser",
-            "protected_paths",
-            "edit_commands",
-            "dangerous_commands",
-            "external_memory_providers",
-        ] {
+            "unattended_approval",
+        ];
+        expected.sort_unstable();
+        assert_eq!(
+            high, expected,
+            "HIGH-risk category set changed — review whether any category was silently up/down-graded"
+        );
+        for cat in high {
             assert_eq!(risk_level(cat), "high", "{cat} should be high risk");
         }
     }
@@ -1827,18 +1853,26 @@ mod tests {
         // Read-only categories report `low` because the model cannot mutate them
         // through this tool — the BLOCKED_UPDATE_CATEGORIES check rejects writes
         // before risk_level is even consulted.
-        for cat in [
+        let expected = [
             "active_model",
-            "fallback_models",
+            "active_stt_model",
             "channels",
+            "embedding",
+            "fallback_models",
+            "hooks",
             "mcp_servers",
             "server",
-            "embedding",
-            "hooks",
-            "stt_providers",
-            "active_stt_model",
             "stt_fallback_models",
-        ] {
+            "stt_providers",
+        ];
+        // Golden read_only set: adding/removing one fails here and forces review —
+        // read_only is the exemption from the GUI-only credential rule.
+        let mut ro = categories_with_risk("read_only");
+        ro.sort_unstable();
+        let mut exp = expected.to_vec();
+        exp.sort_unstable();
+        assert_eq!(ro, exp, "read_only category set changed — review");
+        for cat in expected {
             assert_eq!(risk_level(cat), "low", "{cat} should be low (read-only)");
         }
     }

@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ha_config_schema::pet::{PetConfig, PetRef};
 
 /// 主对话投影边界的第一方 UI 表面标记（`chat_turns.ui_surface` 列）。
-/// 语义与红线见 AGENTS「桌面宠物」段与 docs/architecture/pet.md。
+/// 语义与红线见 AGENTS「桌面宠物」段与 docs/architecture/core/pet.md。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatUiSurface {

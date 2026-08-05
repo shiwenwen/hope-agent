@@ -9,7 +9,7 @@
 //! them resolve candidates and execute through this module so failover,
 //! capability validation, and usage accounting live in exactly one place.
 //!
-//! See `docs/architecture/media-generation.md`.
+//! See `docs/architecture/infra/media-generation.md`.
 
 //! 阶段 4 起为 kernel 配置面 facade：provider/链 CRUD（`crud`，
 //! mutate_config contract）、候选解析（`resolve`，纯配置函数）与 wire

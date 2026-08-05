@@ -328,7 +328,7 @@ pub struct KnowledgeBrowserSourceImportInput {
 /// forward-compatible without changing the wire shape. `PartiallyExtracted`
 /// (scanned-PDF OCR fallback) means a per-page ledger (`knowledge_source_
 /// ocr_pages`) governs whether the source is retryable — see
-/// docs/architecture/knowledge-base.md.
+/// docs/architecture/core/knowledge-base.md.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KnowledgeSourceStatus {

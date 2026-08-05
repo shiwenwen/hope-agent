@@ -3,7 +3,7 @@
  *
  * 形态：首页（项目墙）↔ 工作室（产物库 + 单产物稳定预览）。
  * 刻意**不做无限画布**——多产物概览用纯 CSS grid 缩略图墙，单产物聚焦用一个
- * 稳定 iframe + CSS 缩放，从架构上规避旧版画布卡顿。见 docs/architecture/design-space.md。
+ * 稳定 iframe + CSS 缩放，从架构上规避旧版画布卡顿。见 docs/architecture/infra/design-space.md。
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"

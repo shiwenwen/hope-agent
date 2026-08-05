@@ -1,7 +1,7 @@
 //! Core hook data structures: events, inputs, outputs, decisions.
 //!
 //! Field-level aligned with the Claude Code hooks protocol (see
-//! `docs/architecture/hooks.md`). Event names use PascalCase
+//! `docs/architecture/agent/hooks.md`). Event names use PascalCase
 //! (`SessionStart`, `PreToolUse`); the common input fields are flattened into
 //! each event's JSON payload using snake_case; hook stdout (`HookOutput`) uses
 //! camelCase to match the official body schema.

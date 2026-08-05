@@ -24,7 +24,7 @@
 //! Pass `None` for any level you do not have in scope (e.g. desktop flows
 //! pass `None` for every IM-related level).
 //!
-//! See [`docs/architecture/api-reference.md`] and `AGENTS.md` for the full
+//! See [`docs/architecture/system/api-reference.md`] and `AGENTS.md` for the full
 //! contract.
 
 // 这四个都是 `AppConfig` 可达的 wire 类型，定义处在 ha-config-schema

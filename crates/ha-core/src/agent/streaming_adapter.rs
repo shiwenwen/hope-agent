@@ -9,7 +9,7 @@
 //!
 //! Phase 2 of the LLM call unification — Phase 1 was [`super::llm_adapter`]
 //! for one-shot side-query / summarization calls. See
-//! `docs/architecture/side-query.md` for the architecture overview.
+//! `docs/architecture/agent/side-query.md` for the architecture overview.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

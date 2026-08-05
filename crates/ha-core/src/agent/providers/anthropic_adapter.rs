@@ -5,7 +5,7 @@
 //! + stop_reason), and history persistence in Anthropic's content-block shape.
 //!
 //! Phase 2 of the LLM call unification — the public tool loop lives in
-//! [`super::super::streaming_loop`]. See `docs/architecture/side-query.md`.
+//! [`super::super::streaming_loop`]. See `docs/architecture/agent/side-query.md`.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

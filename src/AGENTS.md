@@ -8,13 +8,13 @@
 
 - 函数式组件 + hooks；UI 一律用 `src/components/ui/`（shadcn/ui），不用原生表单控件；样式只用 Tailwind utility class，**不写行内 style / 自定义 CSS**；别名 `@/` → `src/`
 - **动效优先复用 shadcn/ui / Radix / Tailwind 内置 utility**，确认不够用才手写
-- **Tooltip 必须用 [@/components/ui/tooltip](components/ui/tooltip.tsx)**（优先 `<IconTip>`），**禁止原生 `title`**——唯一例外是 markdown 绝对路径链接的 anchor（一条消息可渲染上百个），见 [../docs/architecture/prompt-system.md](../docs/architecture/prompt-system.md)
+- **Tooltip 必须用 [@/components/ui/tooltip](components/ui/tooltip.tsx)**（优先 `<IconTip>`），**禁止原生 `title`**——唯一例外是 markdown 绝对路径链接的 anchor（一条消息可渲染上百个），见 [../docs/architecture/core/prompt-system.md](../docs/architecture/core/prompt-system.md)
 - 保存按钮统一三态（`saving`→`saved` 绿 2s→`failed` 红 2s）；Think / Tool 流式块设 `max-height` 内滚 + 自动滚底 + 显示耗时
 - 避免不必要的重渲染（`React.memo` / `useMemo` / `useCallback`）
 
 ## UI 表单控件与焦点
 
-详见 [../docs/architecture/ui-interaction-system.md](../docs/architecture/ui-interaction-system.md)（组件路由表 / 表面 token / 焦点协议 / 登记的例外）。
+详见 [../docs/architecture/core/ui-interaction-system.md](../docs/architecture/core/ui-interaction-system.md)（组件路由表 / 表面 token / 焦点协议 / 登记的例外）。
 
 - **表单控件只走公共入口**（`SearchInput` / `Input` / `Textarea` / Radix `Select` / `ModelSelector` / `ModelChainEditor` / `NumberInput` / `DeferredNumberInput` / `RadioPills` / `TogglePills`），禁止裸 `<select>`、裸 `<input type="number">`、`Input type="number"`、`NativeSelect`。
 - **表面与焦点单一来源**：复用 `FLAT_CONTROL_SURFACE_CLASS`（只许覆盖尺寸 / 布局 / 排版）；组件不得自加 `focus:ring-*` / `focus:border-*`，焦点服从 `src/index.css` 全局协议。

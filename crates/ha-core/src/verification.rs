@@ -1715,7 +1715,7 @@ fn is_api_surface_path(lower: &str) -> bool {
     lower == "src-tauri/src/lib.rs"
         || lower == "crates/ha-server/src/lib.rs"
         || lower == "src/lib/transport-http.ts"
-        || lower == "docs/architecture/api-reference.md"
+        || lower == "docs/architecture/system/api-reference.md"
 }
 
 fn is_docs_or_markdown_path(lower: &str) -> bool {

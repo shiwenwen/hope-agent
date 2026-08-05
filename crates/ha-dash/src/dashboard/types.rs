@@ -85,7 +85,7 @@ pub struct TokenByKind {
 
 /// Fine-grained purpose-tag breakdown of the same ledger `TokenByKind` groups
 /// by `kind`. `operation` is the free-form purpose tag threaded through
-/// `ModelUsageEvent.operation` (see docs/architecture/automation-model.md
+/// `ModelUsageEvent.operation` (see docs/architecture/core/automation-model.md
 /// §2.5); `domain` is derived from it (see `operation_domain` in
 /// queries.rs) purely by string-splitting, not a lookup table.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

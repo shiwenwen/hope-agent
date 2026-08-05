@@ -30,7 +30,7 @@ use std::time::Duration;
 /// consequence — a stale-but-200 mirror manifest reports "no update"
 /// instead of falling through — is bounded by the short Cache-Control the
 /// mirror workflow sets and by that workflow writing the manifest only
-/// after every referenced URL verified. See docs/architecture/self-update.md.
+/// after every referenced URL verified. See docs/architecture/infra/self-update.md.
 pub const UPDATE_MANIFEST_URLS: &[&str] = &[
     "https://repo.hopeagent.ai/download/latest.json",
     "https://github.com/shiwenwen/hope-agent/releases/latest/download/latest.json",

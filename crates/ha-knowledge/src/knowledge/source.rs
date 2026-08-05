@@ -1623,7 +1623,7 @@ async fn ocr_image_bytes(
 // fail. This closes that gap with per-page tracking + retry: each page is
 // OCR'd independently (`knowledge_source_ocr_pages`, one row per page), so
 // a handful of failing pages in a 40-page scan don't force redoing the
-// whole document. See docs/architecture/knowledge-base.md for the full
+// whole document. See docs/architecture/core/knowledge-base.md for the full
 // design (why per-page vs. file-level, why always-async, why in-place
 // snapshot updates instead of the normal dedupe/version-chain path).
 

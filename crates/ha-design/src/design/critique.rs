@@ -2,7 +2,7 @@
 //!
 //! 对产物做**品牌契合 / 可访问性 / 视觉层次 / 可用性 / 性能**五维评审，返回每维评分
 //! （0–10）+ 总分 + 可执行修复。走 [side_query](../../agent/side_query.rs) 降本
-//! （复用分析 agent）。见 docs/architecture/design-space.md §11.1。
+//! （复用分析 agent）。见 docs/architecture/infra/design-space.md §11.1。
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

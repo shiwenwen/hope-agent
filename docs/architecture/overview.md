@@ -1,12 +1,14 @@
 # Hope Agent 系统架构总览
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-03
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-23
 
 ## 系统定位
 
-基于 Rust 的本地 AI 助手，支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio。核心设计目标：**复杂逻辑全部在后端分层 crate**（ha-base 基础设施 ← ha-config-schema 配置 wire 类型 ← ha-core 核心业务 ← 特征 crate（`ha-updater` 起，随 crate 拆分逐个迁出、壳层 `wire()` 装配）——全部零 Tauri 依赖），前端只负责展示和交互，Tauri 和 HTTP 服务都是薄壳。
+Hope Agent 是一个基于 Rust 的本地 AI 助手，同一个二进制支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio（供 IDE 直连）。
 
-> 分层 crate 架构详细设计见 [前后端分离架构](backend-separation.md)
+它的核心设计原则只有一条：**所有业务逻辑都在与界面无关的后端 crate 里，前端和 Tauri / HTTP 服务都只是薄壳。** 后端本身是一组分层的 crate——底层是基础设施，往上是核心业务 kernel，再往上是一个个可独立迁出的「特征 crate」（一个子系统一个）。这些 crate **全部零 Tauri 依赖**，因此同一套业务能力可以被桌面、服务器、CLI 三种入口复用。
+
+分层架构的完整设计见 [前后端分离架构](system/backend-separation.md)。
 
 ## 技术栈
 
@@ -21,117 +23,61 @@
 | 存储 | SQLite (WAL) + FTS5 + vec0 向量扩展 |
 | 多语言 | i18next (12 种语言) |
 
-## 架构全景
+## 分层架构
+
+一张图看懂 crate 分层——请求从前端进来，经 Transport 抽象层落到某个薄壳，薄壳再调用后端 crate：
 
 ```mermaid
 graph TD
-    subgraph Frontend["Frontend (React 19)"]
-        ChatUI["ChatUI"]
-        Settings["Settings"]
-        Dashboard_UI["Dashboard"]
-        CronUI["CronUI"]
-        ChannelUI["ChannelUI"]
+    subgraph FE["前端 (React 19)"]
+        UI["ChatUI · Settings · Dashboard · Cron · Channel"]
     end
+    UI -->|"getTransport()"| TP["Transport 抽象层<br/>Tauri IPC 或 HTTP/WS"]
+    TP --> SH
 
-    ChatUI & Settings & Dashboard_UI & CronUI & ChannelUI -->|"getTransport()"| Transport["Transport 抽象层"]
-
-    Transport -->|"Tauri 模式"| IPC["Tauri IPC<br/>(invoke + Channel)"]
-    Transport -->|"Web 模式"| HTTP["HTTP REST + WS<br/>(:8420)"]
-
-    IPC --> TauriShell
-    HTTP --> OcServer
-
-    subgraph TauriShell["src-tauri (桌面薄壳)"]
-        Commands["~430 Tauri Commands"]
-        TauriSetup["setup.rs<br/>内嵌 HTTP 服务"]
+    subgraph SH["薄壳层"]
+        direction LR
+        TAURI["src-tauri（桌面 GUI）"]
+        SERVER["ha-server（HTTP/WS）"]
     end
+    SH -->|"wire() 装配"| BE
 
-    subgraph OcServer["ha-server (HTTP/WS)"]
-        Router["axum Router<br/>~430 REST 端点"]
-        WSHandler["WebSocket<br/>/ws/events"]
+    subgraph BE["后端分层 crate（全部零 Tauri 依赖）"]
+        direction TB
+        FEAT["特征 crate ×18 —— 各子系统的业务机器<br/>ha-cron · ha-channel · ha-knowledge · ha-design · ha-mcp · ha-media · …"]
+        CORE["ha-core（kernel）<br/>Chat Engine · Agent · Tools · Memory · Session · 各子系统的台账与契约"]
+        SCHEMA["ha-config-schema —— AppConfig 全部 wire 类型"]
+        BASE["ha-base —— paths · logging · platform · security · permissions"]
+        FEAT --> CORE --> SCHEMA --> BASE
     end
-
-    Commands --> ChatEngine
-    Router --> ChatEngine
-    TauriSetup -.->|"spawn"| OcServer
-
-    subgraph OcCore["ha-core (核心业务逻辑，零 Tauri 依赖)"]
-        ChatEngine["Chat Engine"]
-        ChatEngine --> Agent["Agent (4 种 API)"]
-        ChatEngine --> Tools["Tools (~50 个)"]
-        ChatEngine --> Memory["Memory"]
-        ChatEngine --> Knowledge["Knowledge (知识空间)"]
-        ChatEngine --> PlanMode["Plan Mode"]
-        ChatEngine --> Goal["Goal<br/>(objective + evidence)"]
-        ChatEngine --> Project["Project / Working Dir"]
-        ChatEngine --> Workflow["Workflow"]
-        Goal --> Workflow
-        ChatEngine --> DomainWorkflow["Domain Workflow"]
-        ChatEngine --> DomainQuality["Domain Quality"]
-        ChatEngine --> DomainEval["Domain Eval / Gate"]
-        DomainWorkflow --> Goal
-        DomainWorkflow --> Workflow
-        DomainQuality --> Goal
-        DomainEval --> DomainQuality
-        EventBus["EventBus<br/>(broadcast)"]
-        Channel["Channel (12 渠道)"]
-        Cron["Cron"]
-        ACP["ACP (stdio)"]
-        Channel & Cron & ACP --> ChatEngine
-    end
-
-    subgraph OcFeat["特征 crate（阶段 3 起逐个迁出）"]
-        Updater["ha-updater<br/>manifest / 验签 / swap + app_update 工具"]
-        Weather["ha-weather<br/>Open-Meteo / 缓存 + get_weather 工具"]
-        AcpFeat["ha-acp<br/>ACP stdio server + acp_spawn 控制面"]
-        MacFeat["ha-mac<br/>Accessibility / 截屏 + mac_control 工具"]
-        DesignFeat["ha-design<br/>设计空间 + artifacts + 三工具"]
-        BrowserFeat["ha-browser<br/>扩展/CDP backend + browser 工具"]
-        VcsFeat["ha-vcs<br/>git 操作面 + Docker 沙箱机器 + SearXNG"]
-        McpFeat["ha-mcp<br/>McpManager / transport / OAuth + 两工具"]
-        PetFeat["ha-pet<br/>sprite 库 / 导入 / 活动投影"]
-        MediaFeat["ha-media<br/>图/音生成 adapters + STT 引擎 + 两工具"]
-        LocalLlmFeat["ha-local-llm<br/>Ollama 生命周期 / 模型目录 / 本地 embedding"]
-        DashFeat["ha-dash<br/>用量 Insights / 控制面聚合 / recap 报告<br/>(只读：SQLITE_OPEN_READ_ONLY)"]
-        CronFeat["ha-cron<br/>调度器 / 执行器 / 投递 + manage_cron<br/>(台账 CronDB 留 kernel)"]
-        EvalRtFeat["ha-eval-runtime<br/>coding 评测 runner / 评测编排 / 上下文排序<br/>(无 wire()：kernel 零引用)"]
-        ChannelFeat["ha-channel<br/>12 个 IM 插件 / worker 分发 / 飞书工具<br/>(台账 ChannelDB + registry 留 kernel)"]
-        KnowledgeFeat["ha-knowledge<br/>index.db 检索 / 解析编译 / 维护流水线 + 24 工具<br/>(台账 KnowledgeRegistry + 裁决 access 留 kernel)"]
-        SkillsFeat["ha-skills<br/>内置技能解包 / SKILL.md 发现解析 / 创作 / auto-review + skill 工具<br/>(契约 SkillEntry + 台账 activation 留 kernel)"]
-        ImproveFeat["ha-improve<br/>提案队列 / 领域评测跑批 / 质量复核 / 四道闸 + soak<br/>(124 个摸连接的方法留 kernel，只上浮 34 个零连接入口)"]
-    end
-    Updater -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    Weather -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    AcpFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    MacFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    DesignFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    VcsFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    McpFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    PetFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    MediaFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    DesignFeat -.->|"特征间单向依赖<br/>（execute_image/audio）"| MediaFeat
-    PetFeat -.->|"特征间单向依赖<br/>（creator 生图）"| MediaFeat
-    BrowserFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    DesignFeat -.->|"特征间单向依赖<br/>（Chrome PDF/截图）"| BrowserFeat
-    LocalLlmFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    LocalLlmFeat -.->|"Provider 注册"| Agent
-    DashFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    CronFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    EvalRtFeat -->|"依赖 ha-core<br/>无 wire()：kernel 零引用，壳层直接调"| Tools
-    ChannelFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    KnowledgeFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    DesignFeat -.->|"特征间单向依赖<br/>（笔记落库 / require_write 写门）"| KnowledgeFeat
-    LocalLlmFeat -.->|"特征间单向依赖<br/>（embedding 就位触发 reembed）"| KnowledgeFeat
-    SkillsFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    ImproveFeat -->|"依赖 ha-core<br/>壳层 wire() 装配"| Tools
-    EvalRtFeat -.->|"兄弟单向边<br/>提案流水线 / 趋势报表"| ImproveFeat
-
-    EventBus -.->|"subscriber"| IPC
-    EventBus -.->|"subscriber"| WSHandler
-
 ```
 
-> Tauri 命令、HTTP 端点、工具数量是会增长的活数据；以 [API 参考](api-reference.md) 为单一真相源，其它文档不重复维护精确数字。
+**「机器」迁出、「台账」留在 kernel。** 拆分不是把整个子系统整体搬走：每个特征 crate 拿走的是业务*机器*（调度、检索、生成这些逻辑），而子系统的*台账*——对 `sessions.db` 的 SQL 访问、wire 类型、纯谓词——恒留在 ha-core kernel，由 kernel 独占数据库的不变量与事务边界。kernel 需要特征 crate 的能力时，只经 `*_hooks` 注册槽反向回调，不直接依赖它们。
+
+### 特征 crate 一览
+
+| 特征 crate | 职责 |
+|---|---|
+| ha-updater | 自升级：manifest / 验签 / 二进制替换 |
+| ha-weather | 天气：Open-Meteo 拉取 + 缓存 |
+| ha-acp | ACP：stdio server + 运行时控制面 |
+| ha-mac | macOS 控制：Accessibility 快照 / 截屏 |
+| ha-design | 设计空间 + Artifacts + Canvas |
+| ha-browser | 浏览器自动化：扩展 / CDP 双 backend |
+| ha-vcs | 版本控制：git 操作面 + Docker 沙箱 + SearXNG |
+| ha-mcp | MCP 客户端：transport / OAuth |
+| ha-pet | 桌面宠物：sprite 库 / 导入 / 活动投影 |
+| ha-media | 媒体生成：图 / 音 adapter + STT 引擎 |
+| ha-local-llm | 本地模型：Ollama 生命周期 / 模型目录 / 本地 embedding |
+| ha-dash | 数据大盘：用量 Insights / 控制面聚合 / Recap（只读连接取数） |
+| ha-cron | 定时任务：调度器 / 执行器 / 投递 |
+| ha-eval-runtime | 评测运行时：coding 评测 runner / 编排 |
+| ha-channel | IM 渠道：多个渠道插件 / worker 分发 |
+| ha-knowledge | 知识空间：检索 / 编译 / 维护流水线 |
+| ha-skills | 技能：解包 / 发现 / 创作 / auto-review |
+| ha-improve | 学习闭环：提案队列 / 领域评测 / 质量复核 |
+
+> Tauri 命令、HTTP 端点、工具数量是会增长的活数据；准确数字见 [API 参考](system/api-reference.md)。
 
 ## 核心数据流
 
@@ -147,7 +93,7 @@ flowchart TD
 
     F --> G["解析 tool_calls"]
     G --> H{"有 tool_calls?"}
-    H -- Yes --> I["Tool Loop (默认不限轮次 max_tool_rounds=0，可在 Agent 能力配置上限)"]
+    H -- Yes --> I["Tool Loop (默认不限轮次，可在 Agent 配置里设上限)"]
     I --> J{"concurrent_safe?"}
     J -- Yes --> K["并发安全组<br/>join_all() 并行执行"]
     J -- No --> L["串行组<br/>for loop 逐个执行"]
@@ -182,187 +128,99 @@ flowchart TD
 
 ```
 
-## 模块依赖关系
+## 运行时关系
+
+分层图讲「代码怎么组织」，这张图讲「跑起来后各部分怎么协作」——四类会话入口都汇入 Chat Engine，长任务交给控制平面编排，编排产出的证据再喂给评测与学习闭环：
 
 ```mermaid
-graph LR
-    ChatEngine["ChatEngine"] --> Agent["Agent"]
-    Agent --> Provider["Provider (4 种 API)"]
-    Provider --> Failover["Failover"]
-    Agent --> ToolLoop["Tool Loop"]
-    ToolLoop --> Tools["Tools (~50 个 + MCP 动态)"]
-    Agent --> SideQuery["Side Query Cache"]
-    Agent --> ContextCompact["Context Compact (5 层)"]
+graph TD
+    subgraph Entry["会话入口"]
+        direction LR
+        Chat["主对话"]
+        IM["IM Channel"]
+        Cron["Cron"]
+        ACP["ACP"]
+    end
+    Entry --> CE["Chat Engine —— 对话编排 + Tool Loop"]
 
-    ChatEngine --> SessionDB["Session DB<br/>(消息持久化 + FTS5)"]
-    ChatEngine --> Memory["Memory<br/>(记忆注入 + 自动提取)"]
-    ChatEngine --> Knowledge["Knowledge<br/>(知识空间双链笔记)"]
-    Knowledge --> KbIndex["knowledge/index.db<br/>(chunk FTS+vec 缓存)"]
-    ChatEngine --> SystemPrompt["System Prompt<br/>(13 段组装)"]
-    ChatEngine --> ProjectCtx["Project / Working Dir"]
-    ChatEngine --> Awareness["Behavior Awareness"]
-    ChatEngine --> PlanMode["Plan Mode (5 态 FSM)"]
-    ChatEngine --> Goal["Goal<br/>(目标 + 证据链)"]
-    ChatEngine --> Workflow["Workflow<br/>(durable script runs)"]
-    ChatEngine --> ContextRetrieval["Context Retrieval<br/>(coding + domain context)"]
-    ChatEngine --> Review["Review Engine"]
-    ChatEngine --> Verification["Smart Verification"]
-    ChatEngine --> DomainWorkflow["Domain Workflow<br/>(template + evidence)"]
-    ChatEngine --> DomainQuality["Domain Quality<br/>(non-coding review)"]
-    ChatEngine --> DomainEval["Domain Eval / Gate"]
-    DomainWorkflow --> Goal
-    DomainWorkflow --> Workflow
-    DomainQuality --> Goal
-    DomainEval --> DomainQuality
-    PlanMode --> Subagent["Subagent (spawn + inject)"]
-    Goal --> Workflow
-    Workflow --> Subagent
-    Workflow --> AsyncJobs["Async Jobs"]
-    Subagent --> Team["Agent Team"]
+    CE --> Agent["Agent<br/>Provider · Failover · Side Query · 上下文压缩"]
+    Agent -.->|"注册为 Provider"| LocalLLM["Local LLM (Ollama)"]
+    CE --> Tools["Tools"]
+    Tools -.->|"动态工具命名空间"| MCP["MCP 客户端"]
+    CE --> Store["持久化 & 上下文<br/>Session · Memory · Knowledge · Project · Awareness · System Prompt"]
 
-    Channel["Channel"] --> ChatEngine
-    Cron["Cron"] --> ChatEngine
-    ACP["ACP"] --> ChatEngine
-    LocalLLM["Local LLM"] -.->|"Ollama Provider 注册"| Provider
-    MCP["MCP 客户端"] -.->|"动态工具命名空间"| ToolLoop
-    Dashboard["Dashboard"] --> SessionDB
-    Dashboard --> LogDB["Log DB"]
-    Dashboard --> CronDB["Cron DB"]
-    Dashboard --> DomainEval
-    Logging["Logging"] -.->|"非阻塞双写"| AllModules["全模块"]
+    CE --> CP
+    subgraph CP["控制平面（长任务编排）"]
+        direction LR
+        Goal["Goal 目标"] --> WF["Workflow"]
+        Plan["Plan Mode"] --> Sub["Subagent"]
+        WF --> Sub --> Team["Agent Team"]
+        WF --> AJ["Async Jobs"]
+        CR["Context Retrieval"] --> RV["Review / Verification"]
+    end
 
+    CP --> Domain
+    subgraph Domain["通用（非编程）场景"]
+        direction LR
+        DWF["Domain Workflow"] --> DQ["Domain Quality"] --> DE["Domain Eval"]
+    end
+
+    CP -.->|"产出证据 / 复盘"| Learn["评测 + 学习闭环<br/>ha-eval-runtime · ha-improve"]
+    Domain -.-> Learn
+    Dash["Dashboard"] -.->|"跨库只读聚合"| Store
+    Dash -.-> Learn
 ```
+
+图里每个节点都有独立文档，细粒度契约见对应子系统页。
 
 ## 项目（Project）与会话工作目录
 
-侧边栏将「会话」和「项目」并列为一等节点，项目是会话分组容器并承载持久化的项目级上下文：
+侧边栏里「会话」和「项目」是并列的一等节点。项目是一组会话的容器，同时承载一份持久的项目级上下文——工作目录、项目记忆、项目指令。
 
-- **项目文件 = 工作目录真实文件**：上传文件直接落项目工作目录（无 `project_files` 表 / 无文本提取注入 / 无 `project_read_file` 工具）；模型靠 `# Working Directory` 段的顶层文件清单 + `read` 工具按需感知
-- **记忆优先级**：Project > Agent > Global，预算紧张时项目记忆最先保留；属项目的会话默认把自动提取的记忆写入 Project scope
-- **默认工作目录**：`Project.working_dir` 是该项目下会话的默认工作目录；运行时合并优先级 `session.working_dir > project.working_dir > 不注入`，**lazy resolve**——改项目工作目录立即对未单独设置的已有会话生效。合并入口 `session::helpers::effective_session_working_dir`，被 system prompt、`exec` / `read` / `write` 的相对路径解析共同消费
-- **IM 路由（无反向认领，Phase A1）**：项目不再认领 channel-account；IM 入站消息默认归 `project_id = NULL`，要归项目从 IM chat 内 `/project <id>` 显式触发，channel worker 调 `set_session_project` 直接改现有 session 不创建新行。Agent 解析按"显式 → 项目 → topic → group → tg-channel → channel-account → AppConfig → 默认"7 级链 (`agent::resolver::resolve_default_agent_id_full`)
-- **`/project [name]` 斜杠命令**：无参列项目选择器，有参直接进入对应项目新会话
-- **删除级联**：unassign 会话 → 删项目行 → `rm -rf projects/{id}/`（含默认 workspace；用户显式选的外部目录不删）→ 删项目记忆（跨 `memory.db` 单独执行）
+一个项目绑定一个工作目录，该目录下的会话默认都在这里读写文件。上传到项目的文件直接落在这个真实目录里，没有单独的文件表，也不做文本提取注入——模型通过工作目录的顶层文件清单加 `read` 工具按需感知。改动项目工作目录会立即对该项目下未单独设置目录的会话生效（延迟解析，不是创建时固化）。
 
-详见 [Project 系统](project.md)。
+项目记忆的优先级高于 Agent 和全局记忆，预算紧张时最先保留；属于项目的会话默认把自动提取的记忆写进项目作用域。
+
+删除项目会连带删掉它自建的工作目录和项目记忆（都在 `projects/{id}/` 目录树内），但绝不会碰用户显式指定的外部目录。
+
+详见 [Project 系统](core/project.md)。
 
 ## 知识空间（Knowledge Base）
 
-侧边栏一级导航「知识空间」，是与聊天、Project 平级的**第四种知识容器**——本地优先、AI 原生的双链笔记子系统。笔记是真实 `.md` 文件（唯一真相源），`~/.hope-agent/knowledge/index.db` 只是 chunk 级 FTS5 + 向量的可重建缓存（删了能从 `.md` 全量重建）；KB 注册表与访问绑定落 `sessions.db`（真相源，D9）。
+「知识空间」是与聊天、Project 平级的第四种知识容器：一个本地优先、AI 原生的双链笔记子系统。笔记就是磁盘上真实的 `.md` 文件（唯一真相源），可以直接绑定现成的 Obsidian / Logseq vault（默认只读，可显式放开写），文件层面与它们非破坏性共存。`knowledge/index.db` 只是检索用的缓存，删掉能从 `.md` 全量重建。
 
-- **AI 原生读写**：agent 经 `note_*` 工具对知识库有完整 CRUD / 链接 / 图谱 / 检索 / 自主维护能力，并能把碎片记忆提炼成结构化笔记——区别于 Obsidian / Logseq「AI 是插件」的形态
-- **默认 deny + 显式 attach**：访问唯一经 `effective_kb_access`（source-aware + 调用链 cap），incognito 零访问、IM 默认禁用（账号级 opt-in）；owner 管理平面与 agent 工具平面物理隔离（D10）
-- **本地优先可移植**：可绑定现成 Obsidian / Logseq vault（默认只读，opt-in 放开写）+ `notify` watcher 实时同步；与两者文件级 + 公共语法子集非破坏性共存
-- **检索独立旗舰**：chunk FTS + 向量 RRF + MMR，独立 store、独立 embedding selector，**绝不折进 `recall_memory`**（D7）
+和 Obsidian / Logseq「AI 是插件」的形态相反，这里 AI 是一等公民：agent 通过 `note_*` 工具对笔记有完整的增删改查、双链、图谱、检索能力，还能把零散记忆提炼成结构化笔记。访问默认拒绝、需显式 attach，无痕会话零访问。检索走独立的全文加向量混合链路，和记忆系统物理隔离、互不干扰。
 
-详见 [知识空间（Knowledge Base）](knowledge-base.md)。
+详见 [知识空间（Knowledge Base）](core/knowledge-base.md)。
 
 ## 本地模型加载
 
-ha-local-llm 的 `local_llm/` 模块（阶段 5 自 ha-core 迁出）通过 Ollama 的 OpenAI 兼容端点（`http://127.0.0.1:11434/v1/chat/completions`）将本地模型注册为 Provider，启用 `allow_private_network`。模型目录硬编码 Qwen3.6 / Gemma 4 默认量化的 on-disk 大小，根据可用内存（macOS 统一内存 / Windows + Linux 优先 dGPU VRAM 取所选轴 60%，再扣 1 GiB runtime buffer；常量 `RECOMMENDATION_BUDGET_PERCENT=60`）从大到小推荐适配模型；Ollama 进程不由 app 接管。安装、模型拉取、Embedding 拉取统一走 **kernel 侧**的 `local_model_jobs.rs` 通用后台任务台账（执行器在特征 crate，台账留 ha-core——memory / 知识库 reembed 共用），事件通道 `local_model_job:created` / `:updated` / `:log` / `:completed`。详见 [本地模型加载](local-model-loading.md)。
+`ha-local-llm` 特征 crate 把本地 Ollama 当作一个 Provider 接入（走 Ollama 的 OpenAI 兼容端点）。它内置一份模型目录，按机器可用内存或显存预留出一定余量后，从大到小推荐能跑得动的模型；Ollama 进程由用户自己管理，app 不接管其生命周期。安装、模型拉取、Embedding 下载都走后台任务异步执行——这里正好体现前面说的「机器 / 台账」分工：执行逻辑在特征 crate，而后台任务台账留在 kernel（和记忆、知识库的向量重建共用同一套任务表）。详见 [本地模型加载](core/local-model-loading.md)。
 
 ## 存储架构
 
 | 数据库 | 路径 | 用途 |
 |--------|------|------|
 | sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、Goal/Event/Link、WorkflowRun/Op/Event、Subagent/ACP/Team 运行记录 |
-| memory.db | `~/.hope-agent/memory.db` | 记忆条目 + FTS5 + vec0 向量 + embedding cache |
+| memory.db | `~/.hope-agent/memory.db` | 记忆条目、Dreaming claim、情节记忆，配 FTS5 + vec0 索引与 embedding 缓存（**Core Memory 正文不在这里**，见下行） |
+| Core Memory `.md` | `memory/`、`agents/{id}/memory/`、`projects/{id}/memory/` | 全局 / Agent / 项目三个作用域各一份 Core Memory：`MEMORY.md` 索引 + `topics/*.md` 主题笔记，磁盘 `.md` 为唯一真相源（不入库） |
 | knowledge/index.db | `~/.hope-agent/knowledge/index.db` | 知识空间 chunk 索引（FTS5 + vec0），可重建缓存；笔记 `.md` 真相在 `knowledge/{id}/notes/` 或外部 vault，registry 在 sessions.db |
 | logs.db | `~/.hope-agent/logs.db` | 结构化日志（可查询/过滤） |
 | cron.db | `~/.hope-agent/cron.db` | 定时任务 + 执行日志 |
-| background_jobs.db | `~/.hope-agent/background_jobs.db` | 统一后台任务缓存（exec / web_search / image_generate / audio_generate 后台化 + subagent/group 投影） |
+| wakeups.db | `~/.hope-agent/wakeups.db` | Agent 自排程唤醒 |
+| background_jobs.db | `~/.hope-agent/background_jobs.db` | 统一后台任务缓存（exec / web_search / 图音生成后台化 + subagent/group 投影） |
+| design/design.db | `~/.hope-agent/design/design.db` | 设计空间注册表，可从磁盘产物重建 |
 | local_model_jobs.db | `~/.hope-agent/local_model_jobs.db` | 本地模型安装 / 拉取后台任务 |
 | local_llm_library_cache.db | `~/.hope-agent/local_llm_library_cache.db` | Ollama Library 搜索 / Tag 元数据缓存 |
 | recap/recap.db | `~/.hope-agent/recap/recap.db` | 会话深度复盘缓存 |
 | canvas/canvas.db | `~/.hope-agent/canvas/canvas.db` | Canvas 画布数据 |
 | config.json | `~/.hope-agent/config.json` | Provider 配置、模型链、全局设置 |
 | agent.json | `~/.hope-agent/agents/{id}/agent.json` | 每 Agent 独立配置 |
-| projects/ | `~/.hope-agent/projects/{id}/` | 项目工作目录（默认 workspace；真实文件。项目记忆在 memory.db，不在此） |
+| projects/ | `~/.hope-agent/projects/{id}/` | 项目目录：`workspace/` 默认工作区（真实文件）+ `memory/` 项目记忆（`.md`）。删项目即 `rm -rf` 整个目录，记忆随之删除 |
 | credentials/ | `~/.hope-agent/credentials/` | OAuth token、MCP server 凭据（0600 原子写） |
 
-所有路径通过 `paths.rs` 集中管理，统一在 `~/.hope-agent/` 目录下。配置读写**强制走** `cached_config()` / `mutate_config()`，禁止重新引入 `Mutex<AppConfig>` 或 load+save 手动克隆模式（详见 [配置系统](config-system.md)）。
+所有路径由 `paths.rs` 集中管理，统一挂在 `~/.hope-agent/` 下（完整清单见 [CLI 文档的数据目录速查](system/cli.md#数据目录速查)）。配置的读写都经过一层带缓存的统一入口，避免各处手动加载再保存造成竞争（详见 [配置系统](infra/config-system.md)）。
 
 ## 文档导航
 
-各模块详细架构见对应文档（与 [文档索引](../README.md) 一致）：
-
-### 系统架构
-
-| 模块 | 文档 |
-|------|------|
-| 三层架构 / EventBus / Transport | [前后端分离架构](backend-separation.md) |
-| Tauri / HTTP / ACP 三种入口 | [Transport 运行模式](transport-modes.md) |
-| 进程清单 / Guardian 协议 | [进程与并发模型](process-model.md) |
-| Tauri ↔ HTTP 命令对照 | [API 参考](api-reference.md) |
-
-### 核心模块
-
-| 模块 | 文档 |
-|------|------|
-| 对话编排 & 流式输出 | [Chat Engine](chat-engine.md) |
-| Provider & Failover | [Provider 系统](provider-system.md) |
-| 本地模型加载（Ollama） | [本地模型加载](local-model-loading.md) |
-| 提示词 13 段组装 | [提示词系统](prompt-system.md) |
-| 工具定义/执行/权限 | [工具系统](tool-system.md) |
-| 表单控件 / 焦点 / 菜单 / Tooltip | [UI 交互与表面设计系统](ui-interaction-system.md) |
-| 上下文压缩 5 层 + mid-loop checkpoint | [上下文压缩](context-compact.md) |
-| 会话 & 消息持久化 | [Session 系统](session.md) |
-| 项目容器 & 默认工作目录 | [Project 系统](project.md) |
-| 记忆检索 & 提取 | [记忆系统](memory.md) |
-| 知识空间双链笔记 & 检索 | [知识空间（Knowledge Base）](knowledge-base.md) |
-
-### 控制平面
-
-| 模块 | 文档 |
-|------|------|
-| Goal 顶层目标与完成审计 | [Goal 控制平面](goal.md) |
-| Workspace / 工作台总览 | [Workspace Control Panel](workspace.md) |
-| Durable Workflow / Execution Mode | [Workflow Mode、Workflow Run 与 Execution Mode](workflow.md) |
-| Loop 持续触发 | [Loop 控制平面](loop.md) |
-| Managed Worktree | [Managed Worktree 控制平面](worktree.md) |
-| LSP / Diagnostics / Symbol Context | [LSP 与语义代码智能](lsp.md) |
-| Review Engine | [Review Engine 控制平面](review-engine.md) |
-| Smart Verification | [Smart Verification 控制平面](verification-engine.md) |
-| Context Retrieval v2 | [Context Retrieval v2](context-retrieval.md) |
-| Coding Eval / Benchmark | [Coding Eval 控制面评测](coding-eval.md) |
-| Coding Improvement / Learning Loop | [Coding Improvement Loop](coding-improvement-loop.md) |
-| Domain Workflow / General Evidence | [Domain Workflow 控制平面](domain-workflow.md) |
-| Domain Quality review / verification | [Domain Quality 控制平面](domain-quality.md) |
-| Domain Eval / General Quality Gate | [Domain Eval 与 Quality Gate 控制平面](domain-eval.md) |
-
-### Agent 能力
-
-| 模块 | 文档 |
-|------|------|
-| Plan 5 态状态机 | [Plan Mode](plan-mode.md) |
-| Ask User 结构化问答 | [Ask User](ask-user.md) |
-| 技能发现 & 隔离 | [技能系统](skill-system.md) |
-| 子 Agent 系统 | [Subagent](subagent.md) |
-| 多 Agent 协作 | [Agent Team](agent-team.md) |
-| Side Query 缓存 | [Side Query](side-query.md) |
-| 跨会话行为感知 | [行为感知](behavior-awareness.md) |
-| 错误分类 & Profile 轮换 | [Failover 系统](failover.md) |
-
-### 接入层
-
-| 模块 | 文档 |
-|------|------|
-| IM 渠道插件 | [IM Channel](im-channel.md) |
-| ACP IDE 直连 | [ACP 协议](acp.md) |
-| 斜杠命令 | [斜杠命令](slash-commands.md) |
-| MCP 客户端 | [MCP 客户端](mcp.md) |
-
-### 基础设施
-
-| 模块 | 文档 |
-|------|------|
-| 媒体生成 | [媒体生成](media-generation.md) |
-| 定时任务 | [Cron 调度](cron.md) |
-| Sandbox 架构 | [Sandbox](sandbox.md) |
-| 数据大盘 / Learning 质量门 | [Dashboard](dashboard.md) |
-| Recap 深度复盘 | [Recap](recap.md) |
-| 日志系统 | [Logging](logging.md) |
-| 可靠性 / Guardian / Crash Journal | [可靠性与崩溃自愈](reliability.md) |
-| 配置读写 contract | [配置系统](config-system.md) |
-| SSRF / Dangerous Mode / 凭据 | [安全子系统](security.md) |
-| 跨平台抽象层 | [跨平台抽象层](platform.md) |
+完整的模块清单与逐篇说明见 [技术文档索引](../README.md)；本篇只负责讲清系统整体如何运转，索引不在此重复维护。

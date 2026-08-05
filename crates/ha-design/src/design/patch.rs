@@ -9,7 +9,7 @@
 //! - `apply_style_patch`：合并 inline style 到目标元素 start tag。
 //! - `apply_text_patch`：替换目标元素的**内部文本**（bridge 只对叶子元素开放）。
 //!
-//! 见 docs/architecture/design-space.md §7。
+//! 见 docs/architecture/infra/design-space.md §7。
 
 use serde::{Deserialize, Serialize};
 
