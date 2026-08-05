@@ -2518,7 +2518,7 @@ pub(super) async fn deliver_split(
             preview,
             &[],
             &[],
-            false,
+            preview.is_none(),
             caps,
             provider_guard,
         )
@@ -2566,7 +2566,7 @@ pub(super) async fn deliver_split(
                 preview,
                 &round.medias,
                 &[],
-                false,
+                preview.is_none(),
                 caps,
                 provider_guard,
             )
@@ -2707,7 +2707,7 @@ pub(super) async fn deliver_preview_merged(
         preview,
         &all_media,
         &[],
-        false,
+        preview.is_none(),
         caps,
         provider_guard,
     )
@@ -4018,6 +4018,72 @@ mod tests {
         assert!(report.unsafe_to_continue);
         assert!(concrete.sends.lock().unwrap().is_empty());
         assert_eq!(concrete.send_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn no_preview_preview_and_split_modes_use_native_final() {
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "group",
+            chat_type: &ChatType::Group,
+            thread_id: None,
+            reply_to_message_id: None,
+            recipient_user_id: None,
+            recipient_tenant_id: None,
+        };
+        let rounds = vec![RoundOutput {
+            text: "complete answer".to_string(),
+            medias: Vec::new(),
+        }];
+
+        for mode in [ImReplyMode::Preview, ImReplyMode::Split] {
+            let concrete = Arc::new(CountingPlugin::native_media(4096, 0));
+            let plugin: Arc<dyn ChannelPlugin> = concrete.clone();
+            let mut capabilities = plugin.capabilities();
+            let native = capabilities
+                .native_reply
+                .as_mut()
+                .expect("native capabilities");
+            native.preview_chat_types = vec![ChatType::Dm];
+            native.final_chat_types = vec![ChatType::Group];
+
+            let metrics = match mode {
+                ImReplyMode::Preview => {
+                    deliver_preview_merged(
+                        &plugin,
+                        &target,
+                        &rounds,
+                        "fallback",
+                        None,
+                        &capabilities,
+                        None,
+                    )
+                    .await
+                }
+                ImReplyMode::Split => {
+                    deliver_split(
+                        &plugin,
+                        &target,
+                        &rounds,
+                        "fallback",
+                        None,
+                        0,
+                        &capabilities,
+                        None,
+                    )
+                    .await
+                }
+                ImReplyMode::Final => unreachable!("test covers preview-bearing modes"),
+            };
+
+            assert!(metrics.report.is_success(), "mode={mode:?}");
+            assert_eq!(
+                concrete.delivery_order.lock().unwrap().as_slice(),
+                ["native"],
+                "mode={mode:?}"
+            );
+            assert_eq!(concrete.send_count.load(Ordering::SeqCst), 0);
+        }
     }
 
     #[tokio::test]
