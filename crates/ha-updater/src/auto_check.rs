@@ -116,6 +116,14 @@ async fn run_check_once(cfg: &AutoUpdateConfig) {
             return;
         }
     };
+    if let Err(e) = super::remote_update::record_check(outcome.clone(), manifest.clone()).await {
+        app_warn!(
+            "self_update",
+            "auto_check",
+            "failed to persist remote update snapshot: {}",
+            e
+        );
+    }
     if !outcome.has_update {
         app_debug!(
             "self_update",
@@ -187,6 +195,14 @@ async fn run_check_once(cfg: &AutoUpdateConfig) {
                 );
                 if let Some(bus) = ha_core::get_event_bus() {
                     bus.emit("app_update:staged", json!({ "version": staged_version }));
+                }
+                if let Err(e) = super::remote_update::record_staged(staged_version).await {
+                    app_warn!(
+                        "self_update",
+                        "auto_check",
+                        "failed to persist staged update snapshot: {}",
+                        e
+                    );
                 }
             }
             Err(e) => app_warn!(

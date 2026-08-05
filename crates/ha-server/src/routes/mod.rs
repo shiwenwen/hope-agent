@@ -3,6 +3,7 @@ pub mod helpers;
 
 pub mod acp;
 pub mod agents;
+pub mod app_update;
 pub mod artifacts;
 pub mod attachments;
 pub mod auth;

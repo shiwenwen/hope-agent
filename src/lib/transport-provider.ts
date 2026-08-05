@@ -166,6 +166,23 @@ export function isCurrentHttpTransportFor(baseUrl: string): boolean {
   return instance instanceof HttpTransport && instance.matchesBaseUrl(baseUrl);
 }
 
+/** Active remote/server transport, or null while the desktop uses local IPC. */
+export function getActiveHttpTransport(): HttpTransport | null {
+  const active = getTransport();
+  return active instanceof HttpTransport ? active : null;
+}
+
+/** Connection preferences belong to the local desktop shell, not its remote backend. */
+export async function getClientUserConfig(): Promise<Record<string, unknown>> {
+  const transport = isTauriMode() ? new TauriTransport() : getTransport();
+  return transport.call<Record<string, unknown>>("get_user_config");
+}
+
+export async function saveClientUserConfig(config: Record<string, unknown>): Promise<void> {
+  const transport = isTauriMode() ? new TauriTransport() : getTransport();
+  await transport.call("save_user_config", { config });
+}
+
 export interface PreparedRemoteTransport {
   /** Publish the already-validated client as the application singleton. */
   activate(): void;
@@ -224,6 +241,24 @@ export async function prepareRemoteTransport(
       next.dispose();
     },
   };
+}
+
+let remoteRestoreStarted = false;
+
+/** Restore the desktop's saved remote connection before the first React render. */
+export async function restoreConfiguredRemoteTransport(): Promise<boolean> {
+  if (!isTauriMode() || remoteRestoreStarted) return instance instanceof HttpTransport;
+  remoteRestoreStarted = true;
+  const local = new TauriTransport();
+  const config = await local.call<Record<string, unknown>>("get_user_config");
+  if (config.serverMode !== "remote") return false;
+  const baseUrl =
+    typeof config.remoteServerUrl === "string" ? config.remoteServerUrl.trim() : "";
+  if (!baseUrl) return false;
+  const apiKey = typeof config.remoteApiKey === "string" ? config.remoteApiKey : null;
+  const prepared = await prepareRemoteTransport(baseUrl, apiKey);
+  prepared.activate();
+  return true;
 }
 
 /**

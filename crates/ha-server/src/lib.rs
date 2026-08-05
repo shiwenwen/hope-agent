@@ -271,6 +271,11 @@ fn build_router_with_cors(
     // Protected API routes
     let api = Router::new()
         .route("/server/status", get(routes::server_status::server_status))
+        .route("/app-update/status", get(routes::app_update::status))
+        .route("/app-update/check", post(routes::app_update::check))
+        .route("/app-update/prepare", post(routes::app_update::prepare))
+        .route("/app-update/confirm", post(routes::app_update::confirm))
+        .route("/app-update/jobs/{job_id}", get(routes::app_update::job))
         .route(
             "/auth/token/rotate",
             post(routes::auth::rotate_server_owner_token),

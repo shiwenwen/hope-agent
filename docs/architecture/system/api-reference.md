@@ -6,12 +6,12 @@
 
 Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运行环境自动在 Tauri IPC 和 HTTP/WebSocket 之间切换。本文档把两条通道上的**每一条接口**列成一一对应的表格，并标记对齐状态。
 
-## 数据来源（截至 2026-08-02）
+## 数据来源（截至 2026-08-05）
 
 | 源 | 位置 | 数量 |
 |---|---|---|
 | Tauri 命令 | `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` | **1128** |
-| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **1059** |
+| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **1068** |
 | 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **1108** |
 | WebSocket 端点 | `crates/ha-server/src/ws/` | **1** |
 | EventBus 事件 | 全代码 `emit_event` 调用 | **59+** |
@@ -21,7 +21,7 @@ Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运�
 | 分类 | 数量 | 说明 |
 |---|---|---|
 | ✅ 两端完全对齐（在 COMMAND_MAP 中） | 1108 | 常规请求/响应命令，以及 HTTP-only 的 bound raw ticket 命令 |
-| 🔧 特殊处理（不在 COMMAND_MAP 但 HTTP 已实现，走专用 Transport 方法） | 15 | multipart/二进制流/保存对话框类接口，以及 HTTP-only 的短时 transport ticket 基础设施 |
+| 🔧 特殊处理（不在 COMMAND_MAP 但 HTTP 已实现，走专用 Transport 方法） | 16 | multipart/二进制流/保存对话框类接口、HTTP-only 的短时 transport ticket 基础设施，以及远程服务端更新控制面 |
 | 🖥️ Desktop-only / Tauri-only（HTTP 无对应） | 10 | macOS / legacy 系统权限探测（5 条）+ `project_fs_resolve` / `kb_file_resolve_cmd`（`convertFileSrc`）+ Dock / tray 未读提示 + browser-side save-as |
 | ❌ HTTP 路由存在但 COMMAND_MAP 漏写 | 0 | — |
 | ❌ HTTP 路由完全缺失 | 0 | — |
@@ -83,6 +83,17 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 | `approval_required` | tools/approval.rs | `{ requestId, command, cwd, sessionId }` |
 | `ask_user_request` | tools/ask_user_question.rs | 结构化问答组 |
 | `session_pending_interactions_changed` | 审批 + ask_user 合流 | `{ sessionId, count }` |
+
+### 系统更新
+
+| 事件名 | 触发点 | Payload 关键字段 |
+|---|---|---|
+| `app_update:available` | headless 自动检查发现新版 | `{ currentVersion, version, notes?, pubDate?, recommendedPath }` |
+| `app_update:staged` | SelfContained 静默预下载完成 | `{ version }` |
+| `app_update:progress` | 下载字节或安装阶段变化 | `{ job_id, phase, label, percent?, written?, total? }` |
+| `app_update:completed` | 更新任务终态 | `{ job_id, status, error?, targetVersion?, remote? }` |
+
+事件只负责低延迟提示，不重放。Web / 远程桌面首次连接、重连或 lag 后必须重读 `GET /api/app-update/status`；跨服务重启的状态以 `~/.hope-agent/updater/remote-update-state.json` 为准。
 
 ### 计划模式
 
@@ -1348,11 +1359,16 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `save_notification_config` | `PUT /api/config/notification` | ✅ |
 | `get_auto_update_config` | `GET /api/config/auto-update` | ✅ |
 | `set_auto_update_config` | `PUT /api/config/auto-update` | ✅ |
+| — | `GET /api/app-update/status` | HTTP-only：读取远程服务更新快照、活动任务与最近任务 |
+| — | `POST /api/app-update/check` | HTTP-only：立即检查远程服务更新并持久化快照 |
+| — | `POST /api/app-update/prepare` | HTTP-only、Owner Token 必须启用：创建 5 分钟、进程绑定的一次性安装计划 |
+| — | `POST /api/app-update/confirm` | HTTP-only、Owner Token 必须启用：消费一次性计划并启动持久化更新任务；请求体只含 `planId` |
+| — | `GET /api/app-update/jobs/{jobId}` | HTTP-only：按 ID 重读持久化任务，供断线/重启恢复 |
 | `get_startup_notification_config` | `GET /api/config/startup-notification` | ✅ |
 | `save_startup_notification_config` | `PUT /api/config/startup-notification` | ✅ |
 | `get_server_config` | `GET /api/config/server` | ✅ |
 | `save_server_config` | `PUT /api/config/server` | ✅ |
-| `get_server_runtime_status` | `GET /api/server/status` | ✅ (免鉴权) — 返回 `{ boundAddr, startedAt, uptimeSecs, startupError, eventsWsCount, chatWsCount, localDesktopClient, activeChatStreams, activeChatCounts: { desktop, http, channel, total } }`。`activeChatStreams` 是 `activeChatCounts.total` 的 back-compat 别名（在跑的 `run_chat_engine` 数量）。`chatWsCount` 当前仍是独立的 `Arc<AtomicU32>` 计数器（`crates/ha-core/src/server_status.rs::chat_ws_counter`），per-session chat WS 端点已下线但 counter 字段未拆——历史遗留，目前没有 handler 在递增，实测恒为 0。`localDesktopClient` 在 Tauri 命令恒 `true`（桌面 webview 通过 IPC 与后端通信，不走 WS），HTTP 路由恒 `false`，前端把它计入"活跃连接" |
+| `get_server_runtime_status` | `GET /api/server/status` | ✅（Owner 保护面）— 返回 `{ boundAddr, startedAt, uptimeSecs, startupError, eventsWsCount, chatWsCount, localDesktopClient, activeChatStreams, activeChatCounts: { desktop, http, channel, total } }`。`activeChatStreams` 是 `activeChatCounts.total` 的 back-compat 别名（在跑的 `run_chat_engine` 数量）。`chatWsCount` 当前仍是独立的 `Arc<AtomicU32>` 计数器（`crates/ha-core/src/server_status.rs::chat_ws_counter`），per-session chat WS 端点已下线但 counter 字段未拆——历史遗留，目前没有 handler 在递增，实测恒为 0。`localDesktopClient` 在 Tauri 命令恒 `true`（桌面 webview 通过 IPC 与后端通信，不走 WS），HTTP 路由恒 `false`，前端把它计入"活跃连接" |
 | `get_proxy_config` | `GET /api/config/proxy` | ✅ |
 | `save_proxy_config` | `PUT /api/config/proxy` | ✅ |
 | `get_shortcut_config` | `GET /api/config/shortcuts` | ✅ |
@@ -1788,7 +1804,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 
 ## 已知不对齐项
 
-截至 2026-08-02 三端差集为 26 条：§7.3 的 6 条 Desktop-only 系统权限命令、§7.3.1 的 12 条 HTTP 已实现但走专用 Transport 方法、3 条 HTTP-only transport ticket 基础设施，以及 `project_fs_resolve` / `kb_file_resolve_cmd` / `set_dock_badge_cmd` / `set_tray_unread_cmd` / `save_exported_file` 5 条 Tauri-only 命令。没有“HTTP 漏写 COMMAND_MAP”或“HTTP 路由缺失”的破口；COMMAND_MAP 每一条顶层命令都能在 `tauri::generate_handler!` 找到对应命令。
+截至 2026-08-05 三端差集为 31 条：§7.3 的 6 条 Desktop-only 系统权限命令、§7.3.1 的 12 条 HTTP 已实现但走专用 Transport 方法、3 条 HTTP-only transport ticket 基础设施、5 条 HTTP-only 远程服务更新端点，以及 `project_fs_resolve` / `kb_file_resolve_cmd` / `set_dock_badge_cmd` / `set_tray_unread_cmd` / `save_exported_file` 5 条 Tauri-only 命令。没有“HTTP 漏写 COMMAND_MAP”或“HTTP 路由缺失”的破口；COMMAND_MAP 每一条顶层命令都能在 `tauri::generate_handler!` 找到对应命令。
 
 ### §7.3 Desktop-only（Tauri 专属，合法缺失，6 条）
 
@@ -1858,7 +1874,7 @@ awk 'BEGIN{flag=0} /tauri::generate_handler!\[/{flag=1;next} flag&&/^[[:space:]]
     src-tauri/src/lib.rs | grep -vE '^[[:space:]]*//|^[[:space:]]*$' | \
     grep -oE '::[a-z_][a-zA-Z0-9_]*,?[[:space:]]*$' | tr -d ':, ' | sort -u | wc -l
 
-# 2. HTTP 路由总数（截至 2026-08-02：1058）
+# 2. HTTP 路由总数（截至 2026-08-05：1068）
 grep -cE '^[[:space:]]+\.route\(' crates/ha-server/src/lib.rs
 
 # 3. COMMAND_MAP 条目数（截至 2026-07-30：1107，不含闭合 `}` 的行）

@@ -16,6 +16,7 @@ import {
   listenEnhancedFocusIndicators,
   loadEnhancedFocusIndicators,
 } from "./lib/focus-indicator-preference"
+import { restoreConfiguredRemoteTransport } from "./lib/transport-provider"
 
 discardTokenFromUrl()
 installDesktopContextMenuGuard()
@@ -110,4 +111,15 @@ void i18nReady.finally(async () => {
       </AuthGate>
     </StrictMode>,
   )
+
+  // A saved remote server may be offline. Defer its network handshake until
+  // after the first paint so the local desktop UI and connection settings stay
+  // available instead of leaving the window blank while it times out.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      void restoreConfiguredRemoteTransport().catch((error) => {
+        logger.warn("transport", "main::restoreRemote", "saved remote server is unavailable", error)
+      })
+    })
+  })
 })

@@ -2117,6 +2117,61 @@ export class HttpTransport implements Transport {
     return this.baseUrl === normalizeHttpBaseUrl(candidate)
   }
 
+  /** Stable target used by the remote-service updater and its reconnect UI. */
+  getBaseUrl(): string {
+    return this.baseUrl
+  }
+
+  /**
+   * Owner-plane request for the server process updater. This deliberately
+   * accepts only the fixed app-update API family: callers cannot turn it into
+   * an arbitrary authenticated fetch primitive.
+   */
+  async requestAppUpdate<T>(
+    path: string,
+    init: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal } = {},
+  ): Promise<T> {
+    if (!/^\/api\/app-update(?:\/|$)/.test(path)) {
+      throw new Error("Only /api/app-update requests are allowed")
+    }
+    const auth = this.authSnapshot()
+    const headers: Record<string, string> = {}
+    if (auth.apiKey) headers.Authorization = `Bearer ${auth.apiKey}`
+    let body: string | undefined
+    if (init.body !== undefined) {
+      headers["Content-Type"] = "application/json"
+      body = JSON.stringify(init.body)
+    }
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: init.method ?? "GET",
+      headers,
+      body,
+      signal: init.signal,
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "")
+      this.handleAuthFailure(response.status, auth.revision)
+      throw new HttpTransportResponseError(
+        response.status,
+        `[HttpTransport] ${init.method ?? "GET"} ${path} returned ${response.status}: ${detail}`,
+      )
+    }
+    return (await response.json()) as T
+  }
+
+  /** Public health probe used to verify the target version after restart. */
+  async probeHealth(signal?: AbortSignal): Promise<{ status: string; version: string }> {
+    const response = await fetch(`${this.baseUrl}/api/health`, {
+      signal,
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+    if (!response.ok) throw new Error(`Health probe failed (${response.status})`)
+    return (await response.json()) as { status: string; version: string }
+  }
+
   /** Update the API key at runtime. */
   setApiKey(key: string | null): void {
     this.credentialRevision += 1

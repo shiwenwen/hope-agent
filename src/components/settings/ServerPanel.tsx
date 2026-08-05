@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, type ReactNode } from "react"
 import {
+  getClientUserConfig,
   getTransport,
   isCurrentHttpTransportFor,
   useTransport,
@@ -8,6 +9,7 @@ import {
   activateCurrentHttpOwnerToken,
   confirmTransportChange,
   prepareRemoteTransport,
+  saveClientUserConfig,
   switchToEmbedded,
   type PreparedRemoteTransport,
 } from "@/lib/transport-provider"
@@ -153,7 +155,7 @@ export default function ServerPanel() {
     let cancelled = false
 
     Promise.all([
-      getTransport().call<Record<string, unknown>>("get_user_config"),
+      getClientUserConfig(),
       getTransport().call<Record<string, unknown>>("get_server_config"),
     ])
       .then(([userCfg, serverCfg]) => {
@@ -313,14 +315,12 @@ export default function ServerPanel() {
       // Persist connection preferences only after the new server credential
       // is active locally and the remote destination has accepted it. A failed
       // validation must leave durable mode, URL, and credential unchanged.
-      const full = await getTransport().call<Record<string, unknown>>("get_user_config")
-      await getTransport().call("save_user_config", {
-        config: {
-          ...full,
-          serverMode: config.serverMode,
-          remoteServerUrl: config.remoteServerUrl || null,
-          remoteApiKey: effectiveRemoteApiKey,
-        },
+      const full = await getClientUserConfig()
+      await saveClientUserConfig({
+        ...full,
+        serverMode: config.serverMode,
+        remoteServerUrl: config.remoteServerUrl || null,
+        remoteApiKey: effectiveRemoteApiKey,
       })
 
       // Switch transport based on mode
@@ -436,10 +436,8 @@ export default function ServerPanel() {
       try {
         await activateCurrentHttpOwnerToken(result.token)
         if (config.serverMode === "remote") {
-          const full = await getTransport().call<Record<string, unknown>>("get_user_config")
-          await getTransport().call("save_user_config", {
-            config: { ...full, remoteApiKey: result.token },
-          })
+          const full = await getClientUserConfig()
+          await saveClientUserConfig({ ...full, remoteApiKey: result.token })
           setConfig((previous) => ({ ...previous, remoteApiKey: result.token }))
           setSavedSnapshot((previous) => {
             const snapshot = JSON.parse(previous || JSON.stringify(config)) as ServerConfig

@@ -12,8 +12,9 @@ import {
 } from "@/components/ui/dialog"
 import {
   confirmTransportChange,
-  getTransport,
+  getClientUserConfig,
   prepareRemoteTransport,
+  saveClientUserConfig,
 } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { Globe, Loader2, Wifi } from "lucide-react"
@@ -82,15 +83,12 @@ export function RemoteConnectDialog({
       const finalKey = apiKey.trim() || null
       const prepared = await prepareRemoteTransport(finalUrl, finalKey)
       try {
-        const current = getTransport()
-        const full = await current.call<Record<string, unknown>>("get_user_config")
-        await current.call("save_user_config", {
-          config: {
-            ...full,
-            serverMode: "remote",
-            remoteServerUrl: finalUrl,
-            remoteApiKey: finalKey,
-          },
+        const full = await getClientUserConfig()
+        await saveClientUserConfig({
+          ...full,
+          serverMode: "remote",
+          remoteServerUrl: finalUrl,
+          remoteApiKey: finalKey,
         })
         prepared.activate()
       } catch (error) {

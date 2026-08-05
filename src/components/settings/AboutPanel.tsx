@@ -20,13 +20,14 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import ServerUpdateNotice from "@/components/common/ServerUpdateNotice"
 import { HOPE_AGENT_URLS, useAppVersion } from "@/lib/appMeta"
 import { openHelpWindow } from "@/lib/manual/openHelpWindow"
 import {
   checkForDesktopUpdate,
   getAutoUpdateConfig,
-  invalidateAutoUpdateConfig,
   isDesktopUpdaterAvailable,
+  setAutoUpdateConfig,
   setPendingUpdate as setGlobalPendingUpdate,
   subscribeManualCheckRequests,
   type AutoUpdateConfig,
@@ -107,8 +108,7 @@ export default function AboutPanel({ onOpenUpdateHistory }: { onOpenUpdateHistor
     setAutoCfg(next)
     setAutoSaving(true)
     try {
-      await getTransport().call("set_auto_update_config", { config: next })
-      invalidateAutoUpdateConfig()
+      await setAutoUpdateConfig(next)
       setAutoSaveStatus("saved")
       setTimeout(() => setAutoSaveStatus("idle"), 2000)
     } catch (err) {
@@ -450,6 +450,8 @@ export default function AboutPanel({ onOpenUpdateHistory }: { onOpenUpdateHistor
             </div>
           </div>
         </section>
+
+        <ServerUpdateNotice variant="panel" />
 
         {autoCfg && (
           <section className="rounded-[24px] border border-border/70 bg-card px-6 py-5">
