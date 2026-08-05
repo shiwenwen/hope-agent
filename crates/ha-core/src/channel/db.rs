@@ -28,6 +28,9 @@ pub struct ChannelConversation {
     pub thread_id: Option<String>,
     pub session_id: String,
     pub sender_id: Option<String>,
+    /// Provider tenant/workspace identity associated with the sender. Slack
+    /// needs this team id to select native streaming for desktop/HTTP mirrors.
+    pub sender_tenant_id: Option<String>,
     pub sender_name: Option<String>,
     pub chat_type: String,
     /// How this attach was created: `"inbound"` (auto, IM message), `"attach"`
@@ -195,6 +198,7 @@ fn attach_session_locked(
     session_id: &str,
     source: &str,
     sender_id: Option<&str>,
+    sender_tenant_id: Option<&str>,
     sender_name: Option<&str>,
     chat_type: &ChatType,
 ) -> Result<Vec<Evictee>> {
@@ -215,16 +219,18 @@ fn attach_session_locked(
     let updated = if let Some(tid) = thread_id {
         conn.execute(
             "UPDATE channel_conversations \
-             SET session_id = ?1, source = ?2, attached_at = ?3, \
+                 SET session_id = ?1, source = ?2, attached_at = ?3, \
                  sender_id = COALESCE(?4, sender_id), \
-                 sender_name = COALESCE(?5, sender_name), \
-                 chat_type = ?6, updated_at = ?3 \
-             WHERE channel_id = ?7 AND account_id = ?8 AND chat_id = ?9 AND thread_id = ?10",
+                 sender_tenant_id = COALESCE(?5, sender_tenant_id), \
+                 sender_name = COALESCE(?6, sender_name), \
+                 chat_type = ?7, updated_at = ?3 \
+             WHERE channel_id = ?8 AND account_id = ?9 AND chat_id = ?10 AND thread_id = ?11",
             params![
                 session_id,
                 source,
                 now,
                 sender_id,
+                sender_tenant_id,
                 sender_name,
                 chat_type_s,
                 channel_id,
@@ -236,16 +242,18 @@ fn attach_session_locked(
     } else {
         conn.execute(
             "UPDATE channel_conversations \
-             SET session_id = ?1, source = ?2, attached_at = ?3, \
+                 SET session_id = ?1, source = ?2, attached_at = ?3, \
                  sender_id = COALESCE(?4, sender_id), \
-                 sender_name = COALESCE(?5, sender_name), \
-                 chat_type = ?6, updated_at = ?3 \
-             WHERE channel_id = ?7 AND account_id = ?8 AND chat_id = ?9 AND thread_id IS NULL",
+                 sender_tenant_id = COALESCE(?5, sender_tenant_id), \
+                 sender_name = COALESCE(?6, sender_name), \
+                 chat_type = ?7, updated_at = ?3 \
+             WHERE channel_id = ?8 AND account_id = ?9 AND chat_id = ?10 AND thread_id IS NULL",
             params![
                 session_id,
                 source,
                 now,
                 sender_id,
+                sender_tenant_id,
                 sender_name,
                 chat_type_s,
                 channel_id,
@@ -259,8 +267,8 @@ fn attach_session_locked(
         conn.execute(
             "INSERT INTO channel_conversations \
                 (channel_id, account_id, chat_id, thread_id, session_id, sender_id, \
-                 sender_name, chat_type, source, attached_at, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
+                 sender_tenant_id, sender_name, chat_type, source, attached_at, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?11)",
             params![
                 channel_id,
                 account_id,
@@ -268,6 +276,7 @@ fn attach_session_locked(
                 thread_id,
                 session_id,
                 sender_id,
+                sender_tenant_id,
                 sender_name,
                 chat_type_s,
                 source,
@@ -295,17 +304,18 @@ fn row_to_conversation(row: &rusqlite::Row) -> rusqlite::Result<ChannelConversat
         thread_id: row.get(4)?,
         session_id: row.get(5)?,
         sender_id: row.get(6)?,
-        sender_name: row.get(7)?,
-        chat_type: row.get(8)?,
-        source: row.get(9)?,
-        attached_at: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        sender_tenant_id: row.get(7)?,
+        sender_name: row.get(8)?,
+        chat_type: row.get(9)?,
+        source: row.get(10)?,
+        attached_at: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
 const FULL_COLS: &str =
-    "id, channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, \
+    "id, channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_tenant_id, sender_name, \
      chat_type, source, attached_at, created_at, updated_at";
 
 impl ChannelDB {
@@ -352,6 +362,7 @@ impl ChannelDB {
                 thread_id TEXT,
                 session_id TEXT NOT NULL,
                 sender_id TEXT,
+                sender_tenant_id TEXT,
                 sender_name TEXT,
                 chat_type TEXT NOT NULL DEFAULT 'dm',
                 source TEXT NOT NULL DEFAULT 'inbound',
@@ -375,6 +386,19 @@ impl ChannelDB {
                 ON channel_conversations(channel_id, account_id, chat_id);",
         )?;
 
+        // Preserve modern 1:1 attach rows created before provider tenant
+        // identity became durable. Dropping this table would detach every IM
+        // chat, so this migration is deliberately additive.
+        if conn
+            .prepare("SELECT sender_tenant_id FROM channel_conversations LIMIT 1")
+            .is_err()
+        {
+            conn.execute(
+                "ALTER TABLE channel_conversations ADD COLUMN sender_tenant_id TEXT",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -388,6 +412,7 @@ impl ChannelDB {
         chat_id: &str,
         thread_id: Option<&str>,
         sender_id: Option<&str>,
+        sender_tenant_id: Option<&str>,
         sender_name: Option<&str>,
         chat_type: &ChatType,
         agent_id: &str,
@@ -416,12 +441,14 @@ impl ChannelDB {
                 "UPDATE channel_conversations \
                  SET updated_at = ?1, \
                      sender_id = COALESCE(?2, sender_id), \
-                     sender_name = COALESCE(?3, sender_name) \
-                 WHERE channel_id = ?4 AND account_id = ?5 AND chat_id = ?6 \
-                   AND (thread_id IS ?7 OR (?7 IS NULL AND thread_id IS NULL))",
+                     sender_tenant_id = COALESCE(?3, sender_tenant_id), \
+                     sender_name = COALESCE(?4, sender_name) \
+                 WHERE channel_id = ?5 AND account_id = ?6 AND chat_id = ?7 \
+                   AND (thread_id IS ?8 OR (?8 IS NULL AND thread_id IS NULL))",
                 params![
                     now,
                     sender_id,
+                    sender_tenant_id,
                     sender_name,
                     channel_id,
                     account_id,
@@ -455,6 +482,7 @@ impl ChannelDB {
                 "threadId": thread_id,
                 "chatType": format!("{:?}", chat_type).to_lowercase(),
                 "senderName": sender_name,
+                "senderTenantId": sender_tenant_id,
             }
         });
         let conn = self
@@ -472,9 +500,9 @@ impl ChannelDB {
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO channel_conversations \
-                (channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, \
+                (channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_tenant_id, sender_name, \
                  chat_type, source, attached_at, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?11)",
             params![
                 channel_id,
                 account_id,
@@ -482,6 +510,7 @@ impl ChannelDB {
                 thread_id,
                 session_id,
                 sender_id,
+                sender_tenant_id,
                 sender_name,
                 chat_type_str(chat_type),
                 ATTACH_SOURCE_INBOUND,
@@ -648,7 +677,7 @@ impl ChannelDB {
         // qualify every column with `cc.` here. Column order must match
         // `row_to_conversation`.
         let sql = "SELECT cc.id, cc.channel_id, cc.account_id, cc.chat_id, cc.thread_id, \
-                          cc.session_id, cc.sender_id, cc.sender_name, cc.chat_type, \
+                          cc.session_id, cc.sender_id, cc.sender_tenant_id, cc.sender_name, cc.chat_type, \
                           cc.source, cc.attached_at, cc.created_at, cc.updated_at \
                    FROM channel_conversations cc \
                    JOIN sessions s ON s.id = cc.session_id \
@@ -767,6 +796,7 @@ impl ChannelDB {
         session_id: &str,
         source: &str,
         sender_id: Option<&str>,
+        sender_tenant_id: Option<&str>,
         sender_name: Option<&str>,
         chat_type: &ChatType,
     ) -> Result<()> {
@@ -784,6 +814,7 @@ impl ChannelDB {
             session_id,
             source,
             sender_id,
+            sender_tenant_id,
             sender_name,
             chat_type,
         )?;
@@ -816,6 +847,7 @@ impl ChannelDB {
         session_id: &str,
         source: &str,
         sender_id: Option<&str>,
+        sender_tenant_id: Option<&str>,
         sender_name: Option<&str>,
         chat_type: &ChatType,
         capture_in_memory: impl FnOnce() -> T,
@@ -844,6 +876,7 @@ impl ChannelDB {
             session_id,
             source,
             sender_id,
+            sender_tenant_id,
             sender_name,
             chat_type,
         )?;
@@ -1025,6 +1058,7 @@ mod recent_active_tests {
                 ATTACH_SOURCE_HANDOVER,
                 None,
                 None,
+                None,
                 &ChatType::Dm,
                 || "captured-in-memory",
             )
@@ -1056,6 +1090,7 @@ mod recent_active_tests {
                 ATTACH_SOURCE_HANDOVER,
                 None,
                 None,
+                None,
                 &ChatType::Dm,
                 || 42_u8,
             )
@@ -1064,6 +1099,58 @@ mod recent_active_tests {
         assert_eq!(reboundary.captured, 42);
         assert_eq!(reboundary.message_watermark, Some(later_watermark));
         assert!(reboundary.same_binding);
+    }
+
+    #[test]
+    fn sender_tenant_survives_session_reattach() {
+        let db = open_db("sender-tenant-reattach");
+        let agent = crate::agent_loader::DEFAULT_AGENT_ID;
+        let original_session = db
+            .channel
+            .resolve_or_create_session(
+                "slack",
+                "account",
+                "channel",
+                Some("thread"),
+                Some("user"),
+                Some("team"),
+                Some("Sender"),
+                &ChatType::Channel,
+                agent,
+            )
+            .expect("resolve Slack session");
+        let original = db
+            .channel
+            .get_conversation_by_session(&original_session)
+            .expect("read original attach")
+            .expect("original attach");
+        assert_eq!(original.sender_tenant_id.as_deref(), Some("team"));
+
+        let replacement = db
+            .session
+            .create_session(agent)
+            .expect("replacement session");
+        db.channel
+            .attach_session(
+                "slack",
+                "account",
+                "channel",
+                Some("thread"),
+                &replacement.id,
+                ATTACH_SOURCE_HANDOVER,
+                None,
+                None,
+                None,
+                &ChatType::Channel,
+            )
+            .expect("reattach Slack conversation");
+
+        let rebound = db
+            .channel
+            .get_conversation_by_session(&replacement.id)
+            .expect("read rebound attach")
+            .expect("rebound attach");
+        assert_eq!(rebound.sender_tenant_id.as_deref(), Some("team"));
     }
 
     #[test]

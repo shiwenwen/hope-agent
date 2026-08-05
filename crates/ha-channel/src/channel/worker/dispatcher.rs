@@ -857,6 +857,7 @@ async fn handle_inbound_message_inner(
             &msg.chat_id,
             msg.thread_id.as_deref(),
             Some(&msg.sender_id),
+            msg.sender_tenant_id.as_deref(),
             msg.sender_name.as_deref(),
             &msg.chat_type,
             &agent_id,
@@ -919,6 +920,7 @@ async fn handle_inbound_message_inner(
             &agent_id,
             &user_text,
             &msg.sender_id,
+            msg.sender_tenant_id.as_deref(),
             supports_buttons,
         );
         tokio::pin!(slash_dispatch);

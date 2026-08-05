@@ -89,6 +89,7 @@ impl AttachCatchupReservation {
         channel_db: &ChannelDB,
         source: &str,
         sender_id: Option<&str>,
+        sender_tenant_id: Option<&str>,
         sender_name: Option<&str>,
         chat_type: &ChatType,
     ) -> anyhow::Result<AttachedCatchupReservation> {
@@ -108,6 +109,7 @@ impl AttachCatchupReservation {
             &session_id,
             source,
             sender_id,
+            sender_tenant_id,
             sender_name,
             chat_type,
             || active_attached_reply(&session_id),
@@ -392,7 +394,7 @@ async fn deliver_attach_catchup_inner(
         thread_id,
         reply_to_message_id: None,
         recipient_user_id: conversation.sender_id.as_deref(),
-        recipient_tenant_id: None,
+        recipient_tenant_id: conversation.sender_tenant_id.as_deref(),
     };
     let handover_notice =
         (kind == AttachKind::Handover).then(|| handover_notice_text(active.is_some()).to_string());
@@ -884,7 +886,7 @@ async fn start_late_mirror(
         thread_id,
         reply_to_message_id: None,
         recipient_user_id: attach.sender_id.as_deref(),
-        recipient_tenant_id: None,
+        recipient_tenant_id: attach.sender_tenant_id.as_deref(),
     };
     let quote_sent = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let prelude_session_id = session_id.to_string();
@@ -942,6 +944,7 @@ async fn start_late_mirror(
             chat_type,
             thread_id: thread_id.map(str::to_string),
             recipient_user_id: attach.sender_id.clone(),
+            recipient_tenant_id: attach.sender_tenant_id.clone(),
         };
         tokio::spawn(async move {
             mirror.run().await;
@@ -961,6 +964,7 @@ async fn start_late_mirror(
             chat_type,
             thread_id: thread_id.map(str::to_string),
             recipient_user_id: attach.sender_id.clone(),
+            recipient_tenant_id: attach.sender_tenant_id.clone(),
         };
         if !attach_still_matches_async(session_id, attach.id).await {
             let _ = ha_core::channel_hooks::ImLiveMirror::abort(Box::new(mirror), None).await;
@@ -991,6 +995,7 @@ struct LateMirror {
     chat_type: ChatType,
     thread_id: Option<String>,
     recipient_user_id: Option<String>,
+    recipient_tenant_id: Option<String>,
 }
 
 impl LateMirror {
@@ -1009,6 +1014,7 @@ impl LateMirror {
             chat_type,
             thread_id,
             recipient_user_id,
+            recipient_tenant_id,
         } = self;
 
         let mut detached = false;
@@ -1042,7 +1048,7 @@ impl LateMirror {
             thread_id: thread_id.as_deref(),
             reply_to_message_id: None,
             recipient_user_id: recipient_user_id.as_deref(),
-            recipient_tenant_id: None,
+            recipient_tenant_id: recipient_tenant_id.as_deref(),
         };
 
         let turn_db = session_db.clone();
@@ -1174,6 +1180,7 @@ struct LateInjectionMirror {
     chat_type: ChatType,
     thread_id: Option<String>,
     recipient_user_id: Option<String>,
+    recipient_tenant_id: Option<String>,
 }
 
 struct DetachedLateInjectionMirror {
@@ -1189,6 +1196,7 @@ struct DetachedLateInjectionMirror {
     chat_type: ChatType,
     thread_id: Option<String>,
     recipient_user_id: Option<String>,
+    recipient_tenant_id: Option<String>,
 }
 
 impl LateInjectionMirror {
@@ -1207,6 +1215,7 @@ impl LateInjectionMirror {
             chat_type,
             thread_id,
             recipient_user_id,
+            recipient_tenant_id,
         } = self;
         // ImLiveMirror requires synchronous detach before returning its future;
         // otherwise the terminal generation can consume the next turn's delta.
@@ -1224,6 +1233,7 @@ impl LateInjectionMirror {
             chat_type,
             thread_id,
             recipient_user_id,
+            recipient_tenant_id,
         }
     }
 }
@@ -1243,6 +1253,7 @@ impl DetachedLateInjectionMirror {
             chat_type,
             thread_id,
             recipient_user_id,
+            recipient_tenant_id,
         } = self;
         let outcome = await_stream_pipeline(pipeline).await;
         if !attach_still_matches_async(&session_id, attach_id).await {
@@ -1293,7 +1304,7 @@ impl DetachedLateInjectionMirror {
             thread_id: thread_id.as_deref(),
             reply_to_message_id: None,
             recipient_user_id: recipient_user_id.as_deref(),
-            recipient_tenant_id: None,
+            recipient_tenant_id: recipient_tenant_id.as_deref(),
         };
         let metrics =
             deliver_full_response(&plugin, &target, &outcome, &snapshot.text, &snapshot.medias)
@@ -1342,6 +1353,7 @@ impl DetachedLateInjectionMirror {
             chat_type,
             thread_id,
             recipient_user_id,
+            recipient_tenant_id,
         } = self;
         let outcome = await_stream_pipeline(pipeline).await;
         if !attach_still_matches_async(&session_id, attach_id).await {
@@ -1370,7 +1382,7 @@ impl DetachedLateInjectionMirror {
             thread_id: thread_id.as_deref(),
             reply_to_message_id: None,
             recipient_user_id: recipient_user_id.as_deref(),
-            recipient_tenant_id: None,
+            recipient_tenant_id: recipient_tenant_id.as_deref(),
         };
         let report = crate::channel::worker::pipeline::deliver_error_reply(
             &plugin, &target, &outcome, &body,

@@ -51,6 +51,7 @@ pub(super) async fn dispatch_slash_for_channel(
     agent_id: &str,
     text: &str,
     sender_id: &str,
+    sender_tenant_id: Option<&str>,
     supports_buttons: bool,
 ) -> Result<ChannelSlashOutcome, anyhow::Error> {
     use ha_core::slash_defs::parser;
@@ -496,11 +497,14 @@ pub(super) async fn dispatch_slash_for_channel(
             );
             let attach_db = channel_db.clone();
             let attach_chat_type = chat_type.clone();
+            let attach_sender_id = sender_id.to_string();
+            let attach_sender_tenant_id = sender_tenant_id.map(str::to_string);
             let catchup = match ha_core::blocking::run_blocking(move || {
                 catchup.attach(
                     &attach_db,
                     ATTACH_SOURCE_ATTACH,
-                    None,
+                    Some(&attach_sender_id),
+                    attach_sender_tenant_id.as_deref(),
                     None,
                     &attach_chat_type,
                 )

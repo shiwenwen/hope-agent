@@ -1902,6 +1902,7 @@ mod tests {
             thread_id: None,
             session_id: "session-1".to_string(),
             sender_id: None,
+            sender_tenant_id: None,
             sender_name: None,
             chat_type: "dm".to_string(),
             source: "inbound".to_string(),

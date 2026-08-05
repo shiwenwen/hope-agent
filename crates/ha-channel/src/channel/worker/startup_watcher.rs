@@ -37,6 +37,7 @@ use tokio::task::JoinSet;
 use super::pipeline::DeliveryTarget;
 use super::provider_lane::{reserve_provider_lane, ProviderMutationGuard, ProviderMutationOutcome};
 use super::startup_state::{conv_key, StartupState};
+use crate::im_mirror::attach_still_matches;
 use ha_core::channel::config::ChannelStoreConfig;
 use ha_core::channel::db::ChannelConversation;
 use ha_core::channel::registry::ChannelRegistry;
@@ -270,6 +271,8 @@ pub fn spawn_startup_notifier(registry: Arc<ChannelRegistry>) {
             let account_id = conv.account_id.clone();
             let chat_id = conv.chat_id.clone();
             let thread_id = conv.thread_id.clone();
+            let attach_id = conv.id;
+            let attached_session_id = conv.session_id.clone();
             let chat_type = ChatType::from_lowercase(&conv.chat_type);
             let registry_for_task = registry.clone();
             tasks.spawn(async move {
@@ -309,10 +312,12 @@ pub fn spawn_startup_notifier(registry: Arc<ChannelRegistry>) {
                     recipient_tenant_id: None,
                 };
                 let provider_lane = reserve_provider_lane(&target);
+                let still_valid =
+                    Arc::new(move || attach_still_matches(&attached_session_id, attach_id));
                 let provider_guard = ProviderMutationGuard::new(
                     provider_lane.waiter(),
                     provider_lane.task_hold(),
-                    Arc::new(|| true),
+                    still_valid,
                 );
                 let send_plugin = plugin.clone();
                 let send_account = account_id.clone();
@@ -429,6 +434,7 @@ mod pick_targets_tests {
             thread_id: None,
             session_id: format!("sess-{chat_id}"),
             sender_id: None,
+            sender_tenant_id: None,
             sender_name: None,
             chat_type: "dm".to_string(),
             source: "inbound".to_string(),

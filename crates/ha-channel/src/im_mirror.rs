@@ -564,7 +564,7 @@ async fn attach_im_live_mirror_inner(
         thread_id: attach.thread_id.as_deref(),
         reply_to_message_id: None,
         recipient_user_id: attach.sender_id.as_deref(),
-        recipient_tenant_id: None,
+        recipient_tenant_id: attach.sender_tenant_id.as_deref(),
     };
 
     // Reserve provider order synchronously, then let the pipeline wait/send
@@ -663,7 +663,7 @@ async fn finalize_im_live_mirror(state: DetachedImLiveMirrorState, response: &st
         thread_id: attach.thread_id.as_deref(),
         reply_to_message_id: None,
         recipient_user_id: attach.sender_id.as_deref(),
-        recipient_tenant_id: None,
+        recipient_tenant_id: attach.sender_tenant_id.as_deref(),
     };
 
     if !attach_still_matches_async(&attach.session_id, attach.id).await {
@@ -819,7 +819,7 @@ async fn abort_im_live_mirror_with_body(
         thread_id: attach.thread_id.as_deref(),
         reply_to_message_id: None,
         recipient_user_id: attach.sender_id.as_deref(),
-        recipient_tenant_id: None,
+        recipient_tenant_id: attach.sender_tenant_id.as_deref(),
     };
     let report =
         crate::channel::worker::pipeline::deliver_error_reply(&plugin, &target, &outcome, &body)
