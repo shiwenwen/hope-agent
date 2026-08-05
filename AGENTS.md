@@ -34,7 +34,7 @@
 
 用户可调配置须同时有 GUI 入口与 `ha-settings` 能力；新增/改 `AppConfig`/`UserConfig` 可调字段**同一 PR 三处缺一不可**：① `src/components/settings/` 面板；② `crates/ha-core/src/tools/settings.rs` 读写分支 + `SETTINGS_CATEGORY_RISKS` 风险级 + `core_tools.rs` `category` enum，**携密只读项还须加 `BLOCKED_UPDATE_CATEGORIES` + `read_category` redact（只加读＝凭据可写）**；③ `skills/ha-settings/SKILL.md` 风险表。
 
-- **漏登记风险级不报错**：`risk_level()` 静默回落 `medium`，HIGH（安全/凭据/权限，全表见 SKILL.md）失去**写前二次确认**。
+- **风险级单一登记 + 守卫**：`SETTINGS_CATEGORY_RISKS` 是风险级唯一来源（schema 由它派生）；HIGH / read_only 集合有 golden 测试钉住（改任一项即 fail 逼复核），`risk_level()` 撞未登记 category 触 `debug_assert`——别让 HIGH（安全/凭据/权限，全表见 SKILL.md）静默降级 medium 丢**写前二次确认**。
 - **只读例外双理由（红线）**：凭据安全**或**运行时稳定性——`active_model`/`fallback_models` 不携密、无重副作用仍恒 GUI-only（须与 provider 状态/agent 重建协同），**别当误挡解封**；Provider 列表与 API Key 更严：无 category、禁新增入口。
 - **凭据必脱敏（红线）**：带凭据新字段须接入 `redact_*_value`（否则 LLM 拿 history 当 leak 通道）；只覆盖非空串（保住「未设」vs「已清空」）。
 - **读写 contract（红线）**：读 `cached_config()`、写 `mutate_config((category, source), …)`；禁 `Mutex<AppConfig>` / `load_config()`+`save_config()` 克隆-改-存。详见 [config-system](docs/architecture/infra/config-system.md)。
