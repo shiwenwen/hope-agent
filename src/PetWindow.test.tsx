@@ -90,6 +90,7 @@ vi.mock("@/components/pet/hooks/usePetAssetUrl", () => ({
       src: usingFallback ? "pet-loading" : assetId,
       loading: mocks.petAssetLoading,
       failed: mocks.petAssetFailed,
+      fallback: usingFallback,
     }
   },
 }))

@@ -8,6 +8,7 @@ export function usePetAssetUrl(assetId: string | null): {
   src: string
   loading: boolean
   failed: boolean
+  fallback: boolean
 } {
   const [resolved, setResolved] = useState<{
     assetId: string
@@ -38,12 +39,17 @@ export function usePetAssetUrl(assetId: string | null): {
     }
   }, [assetId])
 
-  if (!assetId) return { src: builtinPetUrl, loading: false, failed: false }
+  if (!assetId) return { src: builtinPetUrl, loading: false, failed: false, fallback: true }
   if (import.meta.env.DEV && assetId === BUILTIN_DEBUG_PET_ASSET_ID) {
-    return { src: debugPetUrl, loading: false, failed: false }
+    return { src: debugPetUrl, loading: false, failed: false, fallback: false }
   }
   if (resolved?.assetId !== assetId) {
-    return { src: builtinPetUrl, loading: true, failed: false }
+    return { src: builtinPetUrl, loading: true, failed: false, fallback: true }
   }
-  return { src: resolved.src, loading: false, failed: resolved.failed }
+  return {
+    src: resolved.src,
+    loading: false,
+    failed: resolved.failed,
+    fallback: resolved.failed,
+  }
 }

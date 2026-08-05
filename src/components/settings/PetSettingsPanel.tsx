@@ -198,7 +198,7 @@ function LazyPetPreview({ pet }: { pet: PetSummary }) {
           src={asset.src}
           row={0}
           frame={0}
-          rowCount={pet.manifest.spriteVersionNumber === 2 ? 11 : 9}
+          rowCount={asset.fallback || pet.manifest.spriteVersionNumber === 2 ? 11 : 9}
           dimmed={asset.loading || asset.failed}
         />
       ) : (

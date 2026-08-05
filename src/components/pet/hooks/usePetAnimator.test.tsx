@@ -66,6 +66,23 @@ describe("usePetAnimator", () => {
     expect(screen.getByTestId("frame")).toHaveTextContent("0:6")
   })
 
+  test("keeps the idle base frame static for v2 look targets under reduced motion", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    )
+    const onComplete = vi.fn()
+    const { rerender } = render(<Harness action="idle" lookTarget={4} onComplete={onComplete} />)
+
+    expect(screen.getByTestId("frame")).toHaveTextContent("0:0")
+    rerender(<Harness action="idle" lookTarget={12} onComplete={onComplete} />)
+    expect(screen.getByTestId("frame")).toHaveTextContent("0:0")
+  })
+
   test("completes wave only after three full four-frame cycles", () => {
     const onComplete = vi.fn()
     render(<Harness action="wave" onComplete={onComplete} />)

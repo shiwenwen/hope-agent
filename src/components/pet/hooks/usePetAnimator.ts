@@ -164,7 +164,7 @@ export function usePetAnimator(
     }
   }, [action, lookTarget, reducedMotion])
 
-  if (action === "idle" && lookTarget !== null) {
+  if (!reducedMotion && action === "idle" && lookTarget !== null) {
     if (lookTarget === "neutral") return { row: 0, frame: 6 }
     const direction = Math.max(0, Math.min(15, Math.trunc(lookTarget)))
     return { row: 9 + Math.floor(direction / 8), frame: direction % 8 }
