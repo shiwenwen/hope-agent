@@ -38,7 +38,7 @@ static DEBUG_BUILTIN_PACKAGE: OnceLock<ValidatedPetPackage> = OnceLock::new();
 
 // The project-bound asset is generated specifically for Hope Agent and is not
 // copied from Codex.  It is validated by the same atlas code as custom pets.
-const BUILTIN_SPRITE: &[u8] = include_bytes!("../../../src/assets/pets/hope-default.png");
+const BUILTIN_SPRITE: &[u8] = include_bytes!("../../../src/assets/pets/hope-default.webp");
 #[cfg(debug_assertions)]
 const DEBUG_BUILTIN_SPRITE: &[u8] = include_bytes!("../../../src/assets/pets/hope-debug.png");
 
@@ -62,11 +62,14 @@ fn random_token() -> String {
 
 fn builtin_manifest() -> PetManifest {
     PetManifest {
-        id: "hope-default".to_string(),
-        display_name: "Hope".to_string(),
-        description: Some("A tiny robotic firefly companion.".to_string()),
-        sprite_version_number: super::types::PetSpriteVersion::V1,
-        spritesheet_path: "spritesheet.png".to_string(),
+        id: "nori".to_string(),
+        display_name: "Nori".to_string(),
+        description: Some(
+            "Nori is a playful white baby seal with clean, consistently scaled v2 animations."
+                .to_string(),
+        ),
+        sprite_version_number: super::types::PetSpriteVersion::V2,
+        spritesheet_path: "spritesheet.webp".to_string(),
     }
 }
 
@@ -631,6 +634,17 @@ pub(crate) fn emit_library_changed() {
 #[cfg(all(test, debug_assertions))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_builtin_is_nori_v2() {
+        let pet = builtin_summary().expect("load default builtin summary");
+        assert_eq!(pet.pet_ref.0, BUILTIN_DEFAULT_PET_REF);
+        assert_eq!(pet.asset_id, "builtin/hope-default");
+        assert_eq!(pet.manifest.id, "nori");
+        assert_eq!(pet.manifest.display_name, "Nori");
+        assert_eq!(pet.manifest.sprite_version_number.number(), 2);
+        assert_eq!(pet.manifest.spritesheet_path, "spritesheet.webp");
+    }
 
     #[test]
     fn development_library_includes_the_debug_builtin() {

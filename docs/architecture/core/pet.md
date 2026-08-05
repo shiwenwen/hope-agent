@@ -263,15 +263,15 @@ hover 单条气泡才显示左上角关闭与右侧快捷动作：Running 同时
 
 typed navigation 由主 App 壳消费：Regular 回主聊天 session，Knowledge 恢复知识空间 thread，Design 恢复 design project + thread。PetWindow 不拼 URL，也不把专属对话伪装成 Regular。
 
-精灵动画分两层仲裁：**业务状态循环**（Idle / Working / Waiting / Sad / Celebrate）和**指针一次性动作**（hover Wave、click Jump）；拖拽左右 Run 优先级最高。固定顺序是 `Drag > Click > Hover > 业务状态 > Idle`，一次性动作完整播放后恢复业务状态，宠物自身移动不重复触发。
+精灵动画分三层仲裁：**业务状态循环**（Idle / Running / Waiting / Failed / Review）、**指针一次性动作**（hover Wave、click Jump）与 **v2 Idle 注视**；拖拽左右 Run 优先级最高。固定顺序是 `Drag > Click > Hover > 业务状态 > v2 Look > Idle`，一次性动作完整播放后恢复业务状态，宠物自身移动不重复触发。
 
 ---
 
 ## 精灵图、存储与导入
 
-宠物渲染兼容 Codex 的 sprite atlas 布局：显式支持 v1 `1536×1872`（8 帧 × 9 行）和 v2 `1536×2288`（8 帧 × 11 行），单格 `192×208`。v2 前 9 行与 v1 动作完全相同，第 9–10 行（零基）按「正上方 0° 起、顺时针」保存 16 个注视方向。渲染用 SVG `viewBox` + atlas 坐标而非 Canvas / WebGL，且不复制 Codex 内置的专有素材。
+宠物渲染兼容 Codex 的 sprite atlas 布局：显式支持 v1 `1536×1872`（8 帧 × 9 行）和 v2 `1536×2288`（8 帧 × 11 行），单格 `192×208`。v2 前 9 行与 v1 动作相同，另在 row 0 / column 6 保存 neutral/front 帧，第 9–10 行（零基）按「正上方 0° 起、顺时针」保存 16 个注视方向。PetWindow 同时消费前台 DOM 与 macOS 失焦指针桥的窗口内坐标：业务 action 优先，Idle 时按相对宠物中心的向量量化到 16 向，中心 deadzone 使用 neutral 帧；v1 不读取这些扩展格。渲染用 SVG `viewBox` + atlas 坐标而非 Canvas / WebGL，且不复制 Codex 内置的专有素材。
 
-内置的 Hope 精灵编译进应用；自定义包位于 `~/.hope-agent/pets/`。包里 `pet.json` 只保留 Codex 兼容的 `id`、`displayName`、`description`、`spriteVersionNumber`、`spritesheetPath`（后两项缺省为 `1` 和 `spritesheet.webp`）；Hope 自己的来源、source kind 与 hash 单独放 `hope.json`。
+内置 Nori 精灵以 v2 WebP 编译进应用，并继续使用稳定引用 `builtin:hope-default`，避免升级应用后让既有选择失效；自定义包位于 `~/.hope-agent/pets/`。包里 `pet.json` 只保留 Codex 兼容的 `id`、`displayName`、`description`、`spriteVersionNumber`、`spritesheetPath`（后两项缺省为 `1` 和 `spritesheet.webp`）；Hope 自己的来源、source kind 与 hash 单独放 `hope.json`。
 
 | 约束 | 值 | 说明 |
 | --- | --- | --- |
@@ -315,7 +315,7 @@ flowchart LR
 | --- | --- |
 | 路径 | manifest / sprite 全部 canonicalize；拒绝 absolute、`..`、symlink escape、设备文件；资源必须落在包目录内 |
 | zip | 32 MiB 总量、64 entry、深度 8 上限，拒绝 symlink 条目、重复条目和超额展开 |
-| 图片 | magic bytes + 有界解码，sprite ≤ 20 MiB；仅 PNG / WebP |
+| 图片 | magic bytes + 有界解码，sprite ≤ 20 MiB；仅 PNG / WebP；已使用格不得缺帧或近乎不透明，未使用格必须透明；v2 必须有 neutral 与 16 个方向格 |
 | URL | 仅 HTTPS，每一跳走 Strict SSRF 检查，最多 5 次 redirect，流式读取限制解压后 bytes |
 | preview token | 256-bit 随机、短期 capability；本地 commit 重读并比对 hash，URL / upload commit 用已缓存 bytes 不二次联网 |
 | token 消费 | 只在所有请求副作用成功后消费，失败可幂等重试（安装是内容寻址、幂等）；cancel 幂等，立即释放 cache 与绑定 upload lease |
@@ -331,18 +331,18 @@ Create 是设置里由用户本人显式触发的媒体生成，不注册成 Age
 
 1. 按 magic bytes 解码并限制源图尺寸；已有明显透明度时保留原 alpha。
 2. 只有四角背景色一致且图像基本不透明时，才移除与图像边缘连通的近似背景色；不做全图颜色抠除，避免误删角色内部同色细节。
-3. 按 alpha 内容边界裁剪并缩放到单格安全区，随后用固定的位移、缩放、翻转和 bob 参数合成 9 行 × 8 帧动作。选择 v1 时结果为 `1536×1872` PNG；默认 v2 时完整保留这 9 行，再以 alpha 内容最多的 Idle 帧为基准，保持下半身锚定、仅将上部轮廓向目标方向渐进形变，确定性合成 16 个顺时针注视姿态，结果为 `1536×2288` PNG——方向帧不平移或镜像整只宠物，避免光标跨方向时整体跳动。
+3. 按 alpha 内容边界裁剪并缩放到单格安全区，随后用固定的位移、缩放、翻转和 bob 参数按官方各行动作帧数合成前 9 行，所有未使用格保持透明。选择 v1 时结果为 `1536×1872` PNG；默认 v2 时保留全部已使用动作帧，把 alpha 内容最多的 Idle 帧复制到 row 0 / column 6 作为 neutral，再以它为基准保持下半身锚定、仅将上部轮廓向目标方向渐进形变，确定性合成 16 个顺时针注视姿态，结果为 `1536×2288` PNG——方向帧不平移或镜像整只宠物，避免光标跨方向时整体跳动。
 4. 生成包继续走与外部导入相同的 atlas validator、preview capability 和人工确认；校验失败不安装，用户取消不留下最终包。
 
-因此 Creator 的"动画"是本地可复现的 pose 合成，并不代表媒体模型分别生成了 72 / 88 帧。改背景判定、裁剪、pose、方向顺序或行顺序时，creator / atlas 单测与本节要一起动。
+因此 Creator 的"动画"是本地可复现的 pose 合成，并不代表媒体模型分别生成了 57 / 74 个已使用帧。改背景判定、裁剪、pose、方向顺序或行顺序时，creator / atlas 单测与本节要一起动。
 
-已有 v1 的「升级到 v2」同样走确定性 atlas 变换：先检查客户端传入的 `expectedPackageHash` 防陈旧操作，逐像素保留原 9 行，再追加 16 个方向格并通过统一 validator。升级安装为 content-addressed 的 v2 副本，不覆盖 v1；若 v1 原本被选中，只有 v2 副本持久化成功后才切换选择。重复点击命中同一 package hash 时，幂等复用已有 v2 副本。
+已有 v1 的「升级到 v2」同样走确定性 atlas 变换：先检查客户端传入的 `expectedPackageHash` 防陈旧操作，逐像素保留全部已使用动作帧，清理旧版本曾容许的未使用格内容与透明 RGB 残留，补 neutral 后再追加 16 个方向格并通过统一 validator。升级安装为 content-addressed 的 v2 副本，不覆盖 v1；若 v1 原本被选中，只有 v2 副本持久化成功后才切换选择。重复点击命中同一 package hash 时，幂等复用已有 v2 副本。
 
 ### 调试宠物（仅 Debug 构建）
 
-Debug 构建额外注入内置 `builtin:hope-debug`：v1 atlas 每格用纯色背景并精确标注英文状态、中文状态、零基 row / frame，同行各帧用同色系明暗变化，便于同时观察动作仲裁与计时器是否推进。行契约固定为 `Idle/空闲`、`Run Right/向右跑`、`Run Left/向左跑`、`Wave/挥手`、`Jump/跳跃`、`Sad/难过`、`Waiting/等待`、`Working/工作中`、`Celebrate/庆祝`，资源由 `scripts/generate-debug-pet.py` 确定性生成。
+Debug 构建额外注入内置 `builtin:hope-debug`：v1 atlas 每个**已使用**格用纯色背景并精确标注英文状态、中文状态、零基 row / frame，契约未使用格保持透明；同行各帧用同色系明暗变化，便于同时观察动作仲裁与计时器是否推进。行契约固定为 `Idle/空闲`、`Run Right/向右跑`、`Run Left/向左跑`、`Wave/挥手`、`Jump/跳跃`、`Failed/失败`、`Waiting/等待`、`Running/运行中`、`Review/审阅`，资源由 `scripts/generate-debug-pet.py` 确定性生成。
 
-它的注册、内嵌 asset resolver 和导出分支都受 Rust `debug_assertions` 门控，renderer 直连 asset 受 `import.meta.env.DEV` 门控。Release 的库、选择校验和 asset API 都不识别它；若开发配置残留引用，Release 按既有 selected-unavailable 逻辑回退 Hope，不迁移用户配置。
+它的注册、内嵌 asset resolver 和导出分支都受 Rust `debug_assertions` 门控，renderer 直连 asset 受 `import.meta.env.DEV` 门控。Release 的库、选择校验和 asset API 都不识别它；若开发配置残留引用，Release 按既有 selected-unavailable 逻辑回退 Nori，不迁移用户配置。
 
 ---
 
@@ -413,6 +413,6 @@ Tauri commands 与 HTTP routes 一一对应，详见 [API 参考](../system/api-
 
 | 层级 | 覆盖 |
 | --- | --- |
-| Core 确定性测试 | v1 / v2 尺寸、manifest 缺省与动作行；路径 / symlink / zip / URL 上限和 SSRF；preview→commit 陈旧检测、hash 去重、并发锁、staging、trash / restore；四态优先级、最新 `ui_surface` allowlist、历史 NULL 和非主对话排除；终态 boundary / read watermark；asset resolver 与 HTTP 路径不泄露 |
-| React 测试 | atlas 裁切与 reduced-motion；Running snapshot + delta / seq 去重、Markdown 纯文本；多气泡、黄色待处理数字、hover 回复 / 停止、Ask 单题分页、审批撤窗；PetOnly / Overlay / Dragging、latest-wins bounds、180ms 收展、阴影安全区、4px click / drag 抑制、失焦 pointer bridge；逐 boundary 未读刷新；批量拖拽 preview 与 Blob URL revoke |
+| Core 确定性测试 | v1 / v2 尺寸、manifest 缺省、动作帧数、unused transparency、v2 neutral 与升级规范化；路径 / symlink / zip / URL 上限和 SSRF；preview→commit 陈旧检测、hash 去重、并发锁、staging、trash / restore；四态优先级、最新 `ui_surface` allowlist、历史 NULL 和非主对话排除；终态 boundary / read watermark；asset resolver 与 HTTP 路径不泄露 |
+| React 测试 | atlas 裁切、16 向指针量化、neutral deadzone 与 reduced-motion；Running snapshot + delta / seq 去重、Markdown 纯文本；多气泡、黄色待处理数字、hover 回复 / 停止、Ask 单题分页、审批撤窗；PetOnly / Overlay / Dragging、latest-wins bounds、180ms 收展、阴影安全区、4px click / drag 抑制、失焦 pointer bridge；逐 boundary 未读刷新；批量拖拽 preview 与 Blob URL revoke |
 | 桌面 smoke | macOS 多 Space / 全屏 / Retina / 失焦 hover，Windows 多显示器 / DPI / 透明点击区，Linux compositor 透明与置顶降级；四角、长 CJK / 英文、字体放大、多活动滚动、拖拽中更新、拔插显示器和重启恢复；主窗口隐藏时常驻、应用退出无孤儿窗口 |

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import builtinPetUrl from "@/assets/pets/hope-default.png"
+import builtinPetUrl from "@/assets/pets/hope-default.webp"
 import debugPetUrl from "@/assets/pets/hope-debug.png"
 import { BUILTIN_DEBUG_PET_ASSET_ID } from "@/types/pet"
 

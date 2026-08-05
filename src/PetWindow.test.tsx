@@ -121,7 +121,7 @@ import PetWindow from "./PetWindow"
 
 function petButton(): HTMLButtonElement {
   const button = screen.getByRole("button", {
-    name: "Interact with Hope pet",
+    name: "Interact with Nori",
   }) as HTMLButtonElement
   Object.defineProperty(button, "setPointerCapture", {
     configurable: true,

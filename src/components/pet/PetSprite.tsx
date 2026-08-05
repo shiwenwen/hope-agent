@@ -1,5 +1,5 @@
 import { memo, useState } from "react"
-import builtinPetUrl from "@/assets/pets/hope-default.png"
+import builtinPetUrl from "@/assets/pets/hope-default.webp"
 import { usePetAnimator, type PetAction } from "@/components/pet/hooks/usePetAnimator"
 
 const CELL_WIDTH = 192
@@ -25,7 +25,7 @@ export const PetSprite = memo(function PetSprite({
 }: PetSpriteProps) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
   const usingFallback = failedSrc === src
-  const renderedRowCount = usingFallback ? 9 : rowCount
+  const renderedRowCount = usingFallback ? 11 : rowCount
   return (
     <svg
       viewBox={`0 0 ${CELL_WIDTH} ${CELL_HEIGHT}`}

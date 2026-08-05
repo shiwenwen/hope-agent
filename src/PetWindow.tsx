@@ -724,7 +724,7 @@ export default function PetWindow() {
             onPointerMove={handlePointerMove}
             onPointerUp={finishPetDrag}
             onContextMenu={handlePetContextMenu}
-            aria-label={t("pet.window.interact", { defaultValue: "Interact with Hope pet" })}
+            aria-label={t("pet.window.interact", { defaultValue: "Interact with Nori" })}
             className="h-auto w-auto cursor-grab rounded-2xl bg-transparent p-1 hover:bg-transparent active:cursor-grabbing"
           >
             <AnimatedPetSprite
