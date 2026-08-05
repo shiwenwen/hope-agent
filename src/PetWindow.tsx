@@ -20,7 +20,12 @@ import { PetApprovalCard } from "@/components/pet/PetApprovalCard"
 import { PetAskUserCard } from "@/components/pet/PetAskUserCard"
 import { PetBubble, type PetReplyDispatch } from "@/components/pet/PetBubble"
 import { AnimatedPetSprite } from "@/components/pet/PetSprite"
-import { actionForStatus, type PetAction } from "@/components/pet/hooks/usePetAnimator"
+import {
+  actionForStatus,
+  lookTargetForPointer,
+  type PetAction,
+  type PetLookTarget,
+} from "@/components/pet/hooks/usePetAnimator"
 import { usePetActivity } from "@/components/pet/hooks/usePetActivity"
 import { usePetAssetUrl } from "@/components/pet/hooks/usePetAssetUrl"
 import { usePetStreamPreviews } from "@/components/pet/hooks/usePetStreamPreviews"
@@ -69,6 +74,7 @@ export default function PetWindow() {
   const [dragging, setDragging] = useState(false)
   const [dragAction, setDragAction] = useState<PetAction | null>(null)
   const [pointerAction, setPointerAction] = useState<PetAction | null>(null)
+  const [lookTarget, setLookTarget] = useState<PetLookTarget>(null)
   const [askGroups, setAskGroups] = useState<Map<string, AskUserQuestionGroup>>(new Map())
   const [dismissedActivityKeys, setDismissedActivityKeys] = useState<Set<string>>(new Set())
   const measureRef = useRef<HTMLDivElement>(null)
@@ -85,13 +91,13 @@ export default function PetWindow() {
   const nativeDragTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const suppressNextPetClick = useRef(false)
   const inactivePetWasHovered = useRef(false)
-  const inactiveHover = usePetInactivePointer()
 
   const selectedPet = useMemo(() => {
     const selected = library?.pets.find((pet) => pet.petRef === config?.selectedPetRef)
     return selected ?? library?.pets.find((pet) => pet.builtin) ?? null
   }, [config?.selectedPetRef, library])
   const petAsset = usePetAssetUrl(selectedPet?.assetId ?? null)
+  const isV2Pet = selectedPet?.manifest.spriteVersionNumber === 2
   const streamPreviews = usePetStreamPreviews(snapshot.activities)
   const visibleActivities = useMemo(
     () =>
@@ -410,6 +416,31 @@ export default function PetWindow() {
     setDragAction(null)
   }, [])
 
+  const updateLookTarget = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!isV2Pet || dragging || pointerGesture.current?.dragged) {
+        setLookTarget(null)
+        return
+      }
+      const rect = petButtonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const next = lookTargetForPointer(clientX, clientY, rect)
+      setLookTarget((current) => (current === next ? current : next))
+    },
+    [dragging, isV2Pet],
+  )
+  const inactivePointerLook = useCallback(
+    (x: number | null, y: number | null) => {
+      if (x === null || y === null) {
+        setLookTarget(null)
+        return
+      }
+      updateLookTarget(x, y)
+    },
+    [updateLookTarget],
+  )
+  const inactiveHover = usePetInactivePointer(inactivePointerLook)
+
   useEffect(
     () => getTransport().listen(PET_NATIVE_DRAG_ENDED_EVENT, finishPetDrag),
     [finishPetDrag],
@@ -453,6 +484,7 @@ export default function PetWindow() {
     suppressNextPetClick.current = true
     flushSync(() => {
       setPointerAction(null)
+      setLookTarget(null)
       setMenuOpen(false)
       setDragging(true)
       setDragAction(dx < 0 ? "run_left" : "run_right")
@@ -659,6 +691,8 @@ export default function PetWindow() {
   return (
     <main
       className="relative h-screen w-screen overflow-hidden bg-transparent"
+      onPointerMove={(event) => updateLookTarget(event.clientX, event.clientY)}
+      onPointerLeave={() => setLookTarget(null)}
       onPointerDown={(event) => {
         if (menuOpen && event.target === event.currentTarget) closeMenu()
       }}
@@ -730,7 +764,8 @@ export default function PetWindow() {
             <AnimatedPetSprite
               src={petAsset.src}
               action={action}
-              rowCount={selectedPet?.manifest.spriteVersionNumber === 2 ? 11 : 9}
+              rowCount={isV2Pet ? 11 : 9}
+              lookTarget={action === "idle" ? lookTarget : null}
               dimmed={petAsset.loading || petAsset.failed || snapshot.stale}
               onActionComplete={(completed) => {
                 setPointerAction((current) => (current === completed ? null : current))

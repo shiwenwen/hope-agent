@@ -13,6 +13,8 @@ pub const V2_HEIGHT: u32 = CELL_HEIGHT * 11;
 pub const LOOK_DIRECTION_COUNT: usize = 16;
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 pub const MAX_SPRITE_BYTES: usize = 20 * 1024 * 1024;
+pub(super) const STANDARD_FRAME_COUNTS: [u32; 9] = [6, 8, 8, 4, 5, 8, 6, 6, 6];
+const MIN_USED_FRAME_PIXELS: usize = 50;
 
 #[derive(Debug, Clone)]
 pub struct ValidatedPetPackage {
@@ -211,10 +213,11 @@ pub fn validate_package(
         if !decoded.color().has_alpha() {
             issues.push(PetValidationIssue {
                 code: "sprite_missing_alpha".to_string(),
-                severity: PetValidationSeverity::Warning,
+                severity: PetValidationSeverity::Error,
                 message: "spritesheet has no alpha channel".to_string(),
             });
         }
+        validate_frame_layout(&decoded.to_rgba8(), inferred, &mut issues);
     }
 
     manifest.spritesheet_path = format!("spritesheet.{extension}");
@@ -239,9 +242,102 @@ pub fn validate_package(
     })
 }
 
-/// Upgrade a validated Codex v1 atlas to v2 without changing its nine action
-/// rows. The appended cells follow the v2 direction contract: index 0 looks
-/// up and the remaining cells advance clockwise through rows 9 and 10.
+fn validate_frame_layout(
+    atlas: &image::RgbaImage,
+    version: Option<PetSpriteVersion>,
+    issues: &mut Vec<PetValidationIssue>,
+) {
+    let Some(version) = version else { return };
+    let row_count = version.row_count();
+    let cell_pixels = (CELL_WIDTH * CELL_HEIGHT) as usize;
+    let mut transparent_rgb_residue = 0usize;
+
+    for pixel in atlas.pixels() {
+        if pixel[3] == 0 && pixel.0[..3] != [0, 0, 0] {
+            transparent_rgb_residue += 1;
+        }
+    }
+
+    for row in 0..row_count {
+        let frame_count = if row < 9 {
+            STANDARD_FRAME_COUNTS[row as usize]
+        } else {
+            8
+        };
+        for column in 0..8 {
+            let used = column < frame_count
+                || (version == PetSpriteVersion::V2 && row == 0 && column == 6);
+            let mut visible = 0usize;
+            for y in row * CELL_HEIGHT..(row + 1) * CELL_HEIGHT {
+                for x in column * CELL_WIDTH..(column + 1) * CELL_WIDTH {
+                    if atlas.get_pixel(x, y)[3] > 0 {
+                        visible += 1;
+                    }
+                }
+            }
+            if used && visible < MIN_USED_FRAME_PIXELS {
+                issues.push(PetValidationIssue {
+                    code: "sprite_frame_missing".to_string(),
+                    severity: PetValidationSeverity::Error,
+                    message: format!(
+                        "used frame at row {row}, column {column} is empty or too sparse ({visible} pixels)"
+                    ),
+                });
+            } else if !used && visible != 0 {
+                issues.push(PetValidationIssue {
+                    code: "sprite_unused_frame_not_transparent".to_string(),
+                    severity: PetValidationSeverity::Error,
+                    message: format!(
+                        "unused frame at row {row}, column {column} must be transparent ({visible} visible pixels)"
+                    ),
+                });
+            } else if used && visible * 100 > cell_pixels * 95 {
+                issues.push(PetValidationIssue {
+                    code: "sprite_frame_background_opaque".to_string(),
+                    severity: PetValidationSeverity::Error,
+                    message: format!(
+                        "used frame at row {row}, column {column} is nearly opaque; the sprite background must be transparent"
+                    ),
+                });
+            }
+        }
+    }
+
+    if transparent_rgb_residue > 0 {
+        issues.push(PetValidationIssue {
+            code: "sprite_transparent_rgb_residue".to_string(),
+            severity: PetValidationSeverity::Error,
+            message: format!(
+                "spritesheet has {transparent_rgb_residue} fully transparent pixels with non-zero RGB residue"
+            ),
+        });
+    }
+}
+
+fn clear_unused_standard_cells(atlas: &mut image::RgbaImage) {
+    for (row, frame_count) in STANDARD_FRAME_COUNTS.into_iter().enumerate() {
+        for column in frame_count..8 {
+            for y in row as u32 * CELL_HEIGHT..(row as u32 + 1) * CELL_HEIGHT {
+                for x in column * CELL_WIDTH..(column + 1) * CELL_WIDTH {
+                    atlas.put_pixel(x, y, image::Rgba([0, 0, 0, 0]));
+                }
+            }
+        }
+    }
+}
+
+pub(super) fn clear_transparent_rgb(atlas: &mut image::RgbaImage) {
+    for pixel in atlas.pixels_mut() {
+        if pixel[3] == 0 {
+            *pixel = image::Rgba([0, 0, 0, 0]);
+        }
+    }
+}
+
+/// Upgrade a validated Codex v1 atlas to v2 without changing any used action
+/// frame. Row 0, column 6 receives the v2 neutral frame, and the appended
+/// cells follow the direction contract: index 0 looks up and the remaining
+/// cells advance clockwise through rows 9 and 10.
 ///
 /// A v1 package does not contain separate head poses, so the deterministic
 /// upgrader derives a conservative look loop from the most populated idle
@@ -259,7 +355,7 @@ pub fn upgrade_v1_atlas_to_v2(sprite_bytes: &[u8]) -> Result<Vec<u8>> {
 
     let mut upgraded = image::RgbaImage::new(ATLAS_WIDTH, V2_HEIGHT);
     image::imageops::replace(&mut upgraded, &source, 0, 0);
-    let idle = (0..8)
+    let idle = (0..STANDARD_FRAME_COUNTS[0])
         .map(|column| {
             let cell =
                 image::imageops::crop_imm(&source, column * CELL_WIDTH, 0, CELL_WIDTH, CELL_HEIGHT)
@@ -273,6 +369,12 @@ pub fn upgrade_v1_atlas_to_v2(sprite_bytes: &[u8]) -> Result<Vec<u8>> {
     if !idle.pixels().any(|pixel| pixel[3] > 8) {
         anyhow::bail!("pet_upgrade_idle_missing");
     }
+    // Older Hope versions accepted atlases with populated unused cells and
+    // transparent RGB residue. Normalize both so one-click upgrades produce
+    // a strict Codex v2 package while preserving every used v1 action frame.
+    clear_unused_standard_cells(&mut upgraded);
+    // Codex v2 reserves row 0, column 6 as the neutral/front look frame.
+    image::imageops::replace(&mut upgraded, &idle, i64::from(6 * CELL_WIDTH), 0);
     let (visible_top, visible_bottom) = visible_vertical_bounds(&idle)
         .ok_or_else(|| anyhow::anyhow!("pet_upgrade_idle_missing"))?;
     const OFFSETS: [(i32, i32); LOOK_DIRECTION_COUNT] = [
@@ -305,6 +407,7 @@ pub fn upgrade_v1_atlas_to_v2(sprite_bytes: &[u8]) -> Result<Vec<u8>> {
             (target_row * CELL_HEIGHT).into(),
         );
     }
+    clear_transparent_rgb(&mut upgraded);
 
     let mut output = Cursor::new(Vec::new());
     image::DynamicImage::ImageRgba8(upgraded).write_to(&mut output, image::ImageFormat::Png)?;
@@ -416,6 +519,54 @@ pub fn idle_animation_strip_png(package: &ValidatedPetPackage) -> Result<Vec<u8>
 mod tests {
     use super::*;
 
+    fn manifest(version: PetSpriteVersion) -> PetManifest {
+        PetManifest {
+            id: "test-pet".to_string(),
+            display_name: "Test Pet".to_string(),
+            description: None,
+            sprite_version_number: version,
+            spritesheet_path: "spritesheet.png".to_string(),
+        }
+    }
+
+    fn compliant_atlas(version: PetSpriteVersion) -> image::RgbaImage {
+        let mut atlas = image::RgbaImage::new(ATLAS_WIDTH, version.row_count() * CELL_HEIGHT);
+        for row in 0..version.row_count() {
+            let frame_count = if row < 9 {
+                STANDARD_FRAME_COUNTS[row as usize]
+            } else {
+                8
+            };
+            for column in 0..frame_count {
+                for y in 80..90 {
+                    for x in 90..100 {
+                        atlas.put_pixel(
+                            column * CELL_WIDTH + x,
+                            row * CELL_HEIGHT + y,
+                            image::Rgba([20, 80, 160, 255]),
+                        );
+                    }
+                }
+            }
+        }
+        if version == PetSpriteVersion::V2 {
+            for y in 80..90 {
+                for x in 90..100 {
+                    atlas.put_pixel(6 * CELL_WIDTH + x, y, image::Rgba([20, 80, 160, 255]));
+                }
+            }
+        }
+        atlas
+    }
+
+    fn encode_png(atlas: image::RgbaImage) -> Vec<u8> {
+        let mut encoded = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(atlas)
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        encoded.into_inner()
+    }
+
     #[test]
     fn versions_match_codex_dimensions() {
         assert_eq!(infer_version(1536, 1872), Some(PetSpriteVersion::V1));
@@ -424,7 +575,45 @@ mod tests {
     }
 
     #[test]
-    fn v1_upgrade_preserves_actions_and_appends_clockwise_look_rows() {
+    fn validator_enforces_used_unused_and_v2_neutral_cells() {
+        let valid_v1 = validate_package(
+            manifest(PetSpriteVersion::V1),
+            encode_png(compliant_atlas(PetSpriteVersion::V1)),
+        )
+        .unwrap();
+        assert!(valid_v1.issues.is_empty(), "{:?}", valid_v1.issues);
+
+        let mut invalid_v2 = compliant_atlas(PetSpriteVersion::V2);
+        for y in 0..CELL_HEIGHT {
+            for x in 0..CELL_WIDTH {
+                invalid_v2.put_pixel(6 * CELL_WIDTH + x, y, image::Rgba([0, 0, 0, 0]));
+            }
+        }
+        invalid_v2.put_pixel(7 * CELL_WIDTH, 0, image::Rgba([255, 0, 0, 255]));
+        let invalid_v2 =
+            validate_package(manifest(PetSpriteVersion::V2), encode_png(invalid_v2)).unwrap();
+        assert!(invalid_v2
+            .issues
+            .iter()
+            .any(|issue| issue.code == "sprite_frame_missing"));
+        assert!(invalid_v2
+            .issues
+            .iter()
+            .any(|issue| issue.code == "sprite_unused_frame_not_transparent"));
+    }
+
+    #[test]
+    fn v1_upgrade_normalizes_legacy_unused_cells_and_transparent_rgb() {
+        let mut legacy = compliant_atlas(PetSpriteVersion::V1);
+        legacy.put_pixel(0, 0, image::Rgba([200, 10, 30, 0]));
+        legacy.put_pixel(7 * CELL_WIDTH, 0, image::Rgba([255, 0, 0, 255]));
+        let upgraded = upgrade_v1_atlas_to_v2(&encode_png(legacy)).unwrap();
+        let package = validate_package(manifest(PetSpriteVersion::V2), upgraded).unwrap();
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
+    }
+
+    #[test]
+    fn v1_upgrade_preserves_used_actions_and_adds_neutral_and_look_rows() {
         let source = image::RgbaImage::from_fn(ATLAS_WIDTH, V1_HEIGHT, |x, y| {
             let local_x = x % CELL_WIDTH;
             if x == 0 && y == 0 {
@@ -455,12 +644,21 @@ mod tests {
         let upgraded = upgrade_v1_atlas_to_v2(&encoded.into_inner()).unwrap();
         let upgraded = image::load_from_memory(&upgraded).unwrap().to_rgba8();
         assert_eq!(upgraded.dimensions(), (ATLAS_WIDTH, V2_HEIGHT));
-        assert_eq!(
-            image::imageops::crop_imm(&upgraded, 0, 0, ATLAS_WIDTH, V1_HEIGHT).to_image(),
-            source
-        );
         let idle =
             image::imageops::crop_imm(&source, CELL_WIDTH, 0, CELL_WIDTH, CELL_HEIGHT).to_image();
+        let mut expected_actions = source.clone();
+        clear_unused_standard_cells(&mut expected_actions);
+        clear_transparent_rgb(&mut expected_actions);
+        image::imageops::replace(&mut expected_actions, &idle, i64::from(6 * CELL_WIDTH), 0);
+        assert_eq!(
+            image::imageops::crop_imm(&upgraded, 0, 0, ATLAS_WIDTH, V1_HEIGHT).to_image(),
+            expected_actions
+        );
+        assert_eq!(
+            image::imageops::crop_imm(&upgraded, 6 * CELL_WIDTH, 0, CELL_WIDTH, CELL_HEIGHT)
+                .to_image(),
+            idle
+        );
         let mut look_frames = Vec::new();
         for direction in 0..LOOK_DIRECTION_COUNT {
             let row = 9 + direction as u32 / 8;

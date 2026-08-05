@@ -15,14 +15,12 @@ const mocks = vi.hoisted(() => ({
   startChat: vi.fn(() => Promise.resolve("ok")),
   startDragging: vi.fn(() => Promise.resolve()),
   windowMoved: null as null | ((event: { payload: { x: number; y: number } }) => void),
-  onMoved: vi.fn(
-    (handler: (event: { payload: { x: number; y: number } }) => void) => {
-      mocks.windowMoved = handler
-      return Promise.resolve(() => {
-        if (mocks.windowMoved === handler) mocks.windowMoved = null
-      })
-    },
-  ),
+  onMoved: vi.fn((handler: (event: { payload: { x: number; y: number } }) => void) => {
+    mocks.windowMoved = handler
+    return Promise.resolve(() => {
+      if (mocks.windowMoved === handler) mocks.windowMoved = null
+    })
+  }),
   completeAction: null as null | ((action: string) => void),
   approvals: [] as Array<Record<string, unknown>>,
   layoutOverride: null as null | {
@@ -86,7 +84,8 @@ vi.mock("@/components/pet/hooks/usePetAssetUrl", () => ({
   usePetAssetUrl: () => ({ src: "pet.png", loading: false, failed: false }),
 }))
 
-vi.mock("@/components/pet/hooks/usePetAnimator", () => ({
+vi.mock("@/components/pet/hooks/usePetAnimator", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/pet/hooks/usePetAnimator")>()),
   actionForStatus: () => "idle",
 }))
 
@@ -103,14 +102,21 @@ vi.mock("@/components/pet/hooks/usePetWindowLayout", () => ({
 vi.mock("@/components/pet/PetSprite", () => ({
   AnimatedPetSprite: ({
     action,
+    lookTarget,
     onActionComplete,
   }: {
     action: string
+    lookTarget?: string | number | null
     onActionComplete?: (action: string) => void
   }) => {
     mocks.completeAction = onActionComplete ?? null
     return (
-      <span aria-hidden="true" data-testid="pet-sprite" data-action={action}>
+      <span
+        aria-hidden="true"
+        data-testid="pet-sprite"
+        data-action={action}
+        data-look={lookTarget ?? "none"}
+      >
         pet
       </span>
     )
@@ -156,7 +162,16 @@ beforeEach(() => {
       return Promise.resolve({ selectedPetRef: "builtin:hope-default" })
     }
     if (command === "pet_list_cmd") {
-      return Promise.resolve({ pets: [] })
+      return Promise.resolve({
+        pets: [
+          {
+            petRef: "builtin:hope-default",
+            builtin: true,
+            assetId: "builtin/hope-default",
+            manifest: { spriteVersionNumber: 2 },
+          },
+        ],
+      })
     }
     if (command === "get_pending_ask_user_group") return Promise.resolve(null)
     return Promise.resolve(undefined)
@@ -243,6 +258,25 @@ describe("PetWindow pointer interactions", () => {
 
     act(() => mocks.completeAction?.("wave"))
     expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+  })
+
+  test("feeds pointer direction and the neutral deadzone into v2 look frames", async () => {
+    render(<PetWindow />)
+    const pet = petButton()
+    Object.defineProperty(pet, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+    })
+    await waitFor(() => expect(mocks.call).toHaveBeenCalledWith("pet_list_cmd"))
+
+    fireEvent.pointerMove(pet, { clientX: 50, clientY: 0 })
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "0")
+
+    fireEvent.pointerMove(pet, { clientX: 50, clientY: 50 })
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "neutral")
+
+    fireEvent.pointerLeave(screen.getByRole("main"))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "none")
   })
 
   test("switches the stack control between a collapse chevron and conversation count", async () => {

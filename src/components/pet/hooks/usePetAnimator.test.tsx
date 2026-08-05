@@ -2,10 +2,24 @@
 
 import { act, cleanup, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
-import { usePetAnimator, type PetAction } from "./usePetAnimator"
+import {
+  actionForStatus,
+  lookTargetForPointer,
+  usePetAnimator,
+  type PetAction,
+  type PetLookTarget,
+} from "./usePetAnimator"
 
-function Harness({ action, onComplete }: { action: PetAction; onComplete: (action: PetAction) => void }) {
-  const animation = usePetAnimator(action, onComplete)
+function Harness({
+  action,
+  onComplete,
+  lookTarget = null,
+}: {
+  action: PetAction
+  onComplete: (action: PetAction) => void
+  lookTarget?: PetLookTarget
+}) {
+  const animation = usePetAnimator(action, onComplete, lookTarget)
   return <span data-testid="frame">{`${animation.row}:${animation.frame}`}</span>
 }
 
@@ -28,6 +42,30 @@ afterEach(() => {
 })
 
 describe("usePetAnimator", () => {
+  test("maps business statuses to the official Codex action rows", () => {
+    expect(actionForStatus("blocked")).toBe("failed")
+    expect(actionForStatus("needs_input")).toBe("waiting")
+    expect(actionForStatus("running")).toBe("running")
+    expect(actionForStatus("ready")).toBe("review")
+  })
+
+  test("maps pointer vectors clockwise across the two v2 look rows", () => {
+    const rect = { left: 0, top: 0, width: 100, height: 100 }
+    expect(lookTargetForPointer(50, 0, rect)).toBe(0)
+    expect(lookTargetForPointer(100, 50, rect)).toBe(4)
+    expect(lookTargetForPointer(50, 100, rect)).toBe(8)
+    expect(lookTargetForPointer(0, 50, rect)).toBe(12)
+    expect(lookTargetForPointer(50, 50, rect)).toBe("neutral")
+
+    const onComplete = vi.fn()
+    const { rerender } = render(<Harness action="idle" lookTarget={0} onComplete={onComplete} />)
+    expect(screen.getByTestId("frame")).toHaveTextContent("9:0")
+    rerender(<Harness action="idle" lookTarget={8} onComplete={onComplete} />)
+    expect(screen.getByTestId("frame")).toHaveTextContent("10:0")
+    rerender(<Harness action="idle" lookTarget="neutral" onComplete={onComplete} />)
+    expect(screen.getByTestId("frame")).toHaveTextContent("0:6")
+  })
+
   test("completes wave only after three full four-frame cycles", () => {
     const onComplete = vi.fn()
     render(<Harness action="wave" onComplete={onComplete} />)
