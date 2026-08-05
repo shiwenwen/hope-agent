@@ -6,7 +6,7 @@
 //! (reconcile-from-config, reconnect, shutdown) go through this single
 //! owner to avoid split-brain between transport state and catalog state.
 //!
-//! See `docs/architecture/mcp.md` for the full state machine.
+//! See `docs/architecture/integration/mcp.md` for the full state machine.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};

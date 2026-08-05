@@ -9,7 +9,7 @@
 //! the PRD's "evolve the lineage in place" contract; the persisted table / DB
 //! file are `background_jobs`.
 //!
-//! See `docs/architecture/tool-system.md` and AGENTS.md for the higher-level
+//! See `docs/architecture/core/tool-system.md` and AGENTS.md for the higher-level
 //! design. The user-facing entry points are:
 //!
 //! - `run_in_background: true` on any `BackgroundPolicy::GenericJob` tool

@@ -12,7 +12,7 @@
 //! The signing test lives close to the verifier in
 //! `crates/ha-updater/src/signature.rs` (smoke) and the install
 //! pipeline itself is covered by the manual end-to-end matrix in
-//! `docs/architecture/self-update.md`.
+//! `docs/architecture/infra/self-update.md`.
 
 use ha_updater::manifest::{self, ArchiveKind};
 use std::fs;

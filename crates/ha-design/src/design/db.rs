@@ -2,7 +2,7 @@
 //!
 //! 表是**元数据注册表 / 可重建索引**：产物正文（`index.html` / `source/`）与
 //! 设计系统正文（`SYSTEM.md`）在磁盘，`reindex` 可从磁盘全量重建（对齐知识空间
-//! "索引可重建" 红线，见 `docs/architecture/design-space.md` §4）。
+//! "索引可重建" 红线，见 `docs/architecture/infra/design-space.md` §4）。
 
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension};

@@ -12,12 +12,12 @@
 | 文档                                            | 说明                                                                                     |
 | --------------------------------------------- | -------------------------------------------------------------------------------------- |
 | [系统架构总览](architecture/overview.md)            | 技术栈、架构全景图、核心数据流、模块依赖、存储架构                                                              |
-| [前后端分离架构](architecture/backend-separation.md) | 分层 crate 架构（ha-base / ha-config-schema / ha-core / 特征 crate / 薄壳）、运行模式、EventBus、Transport 层、Guardian 保活、HTTP API 端点、初始化流程、多客户端支持 |
-| [Transport 运行模式](architecture/transport-modes.md) | Tauri / HTTP / ACP 三种入口、Transport 方法差异、chat streaming 路径、EventBus 事件目录 |
-| [命令行接口（CLI）](architecture/cli.md)         | `hope-agent` 二进制运行模式（桌面 / server / knowledge-mcp / acp / auth）的子命令、参数、退出码、环境变量、数据目录速查 |
-| [进程与并发模型](architecture/process-model.md)      | 四层进程清单：二进制运行模式 · 独立 OS 线程 · 长驻 tokio 任务 · 动态子进程；Guardian 父子协议、退出路径、排查指引 |
-| [内嵌终端](architecture/terminal.md) | 底部交互式 PTY、多标签生命周期、Tauri/HTTP 双 Transport、输出重放与安全边界 |
-| [API 参考](architecture/api-reference.md) | Tauri 命令 ↔ HTTP/WS 完整对照表 + EventBus 事件清单 + Transport 方法对照 + 已知不对齐项 + 新增接口 checklist（具体计数以代码为准，文档自带验证脚本） |
+| [前后端分离架构](architecture/system/backend-separation.md) | 分层 crate 架构（ha-base / ha-config-schema / ha-core / 特征 crate / 薄壳）、运行模式、EventBus、Transport 层、Guardian 保活、HTTP API 端点、初始化流程、多客户端支持 |
+| [Transport 运行模式](architecture/system/transport-modes.md) | Tauri / HTTP / ACP 三种入口、Transport 方法差异、chat streaming 路径、EventBus 事件目录 |
+| [命令行接口（CLI）](architecture/system/cli.md)         | `hope-agent` 二进制运行模式（桌面 / server / knowledge-mcp / acp / auth）的子命令、参数、退出码、环境变量、数据目录速查 |
+| [进程与并发模型](architecture/system/process-model.md)      | 四层进程清单：二进制运行模式 · 独立 OS 线程 · 长驻 tokio 任务 · 动态子进程；Guardian 父子协议、退出路径、排查指引 |
+| [内嵌终端](architecture/system/terminal.md) | 底部交互式 PTY、多标签生命周期、Tauri/HTTP 双 Transport、输出重放与安全边界 |
+| [API 参考](architecture/system/api-reference.md) | Tauri 命令 ↔ HTTP/WS 完整对照表 + EventBus 事件清单 + Transport 方法对照 + 已知不对齐项 + 新增接口 checklist（具体计数以代码为准，文档自带验证脚本） |
 | [Knowledge Agent Access](integrations/knowledge-agent-access.md) | 外部 agent 接入指南：`hope-agent knowledge-mcp`、只读 HTTP token、curl smoke 示例 |
 
 
@@ -28,26 +28,26 @@
 
 | 文档                                             | 说明                                                  | 关联源码                                           |
 | ---------------------------------------------- | --------------------------------------------------- | ---------------------------------------------- |
-| [Chat Engine](architecture/chat-engine.md)     | 对话编排入口、流式事件协议、Failover 集成、记忆提取门控                    | `chat_engine/`                                 |
-| [Provider 系统](architecture/provider-system.md) | 4 种 API 类型、Provider 模板、Failover 策略、Thinking 系统、Provider Write Contract、Local Backend Catalog | `provider/`, `failover/`, `agent/providers/` |
-| [模型 vs Agent 统一配置](architecture/automation-model.md) | 后台一次性 LLM 调用的统一执行原语（纯文本与带图两种入口）、全局默认模型链、跨模型降级与按用途的用量标签，以及所有接入这套原语的后台消费者 | `automation/`, ha-dash 的 `recap/`, `memory/{dreaming,recall_summary}.rs`, `knowledge/{compile,source,service,types}.rs`, `knowledge/maintenance/`, ha-skills 的 `skills/auto_review/`, `hooks/runner/prompt.rs`, `sprite/`, `tools/note.rs`, `agent/mod.rs`（awareness 提取） |
-| [主 LLM OAuth](architecture/llm-oauth.md) | Codex 主对话 OAuth 登录（PKCE + 本地回调）、token 刷新与并发去抖、凭据落 `auth.json`、登出清理、与 MCP OAuth 隔离 | `oauth.rs` |
-| [本地模型加载](architecture/local-model-loading.md) | Ollama 本地模型搜索/下载/加载/删除、后台任务、Provider 注册、Embedding 配置与记忆向量重建 | ha-local-llm 的 `local_llm/`·`local_embedding.rs`, ha-core 的 `local_model_jobs.rs`·`memory/embedding/` |
-| [语音转写（STT）](architecture/stt.md)             | 独立配置语音转写引擎：8 wire 协议（OpenAI multipart / chat-completions ASR / 5 种 WebSocket）、桌面 batch + 流式会话、IM 自动转写、4 本地后端一键接入、Failover 链与 size/SSRF 红线 | `ha-core/src/stt/`（配置面）, `crates/ha-media/src/stt/`（执行机器）, `commands/stt.rs`, `routes/stt.rs` |
-| [提示词系统](architecture/prompt-system.md)         | System Prompt 多段组装、工具描述、行为指导                        | `system_prompt/`                               |
-| [工具系统](architecture/tool-system.md)            | 工具定义、Tool Loop 并发/串行执行、结果持久化、四维权限控制                 | `tools/`                                       |
-| [文件操作统一](architecture/file-operations.md)     | 三处文件（Markdown 链接 / 下挂文件 / 工作台产物）统一操作策略、本机 vs 远端行为矩阵、右侧内置预览面板、preview-by-path 双壳后端与会话鉴权 | `lib/fileActions.ts`, `lib/fileKind.ts`, `components/chat/files/`, `filesystem/ops.rs` |
-| [UI 交互与表面设计系统](architecture/ui-interaction-system.md) | 主侧栏工作区生命周期、知识 / 设计独立窗口、搜索、选择、数字输入、模型选择、焦点、菜单、悬浮弹层和 Tooltip 的组件入口、视觉 token、动效与无障碍红线 | `App.tsx`, `SpaceDetachedWindow.tsx`, `components/ui/`, `lib/input-modality.ts`, `lib/focus-indicator-preference.ts`, `index.css` |
-| [桌面宠物（Pet）](architecture/pet.md) | 主对话 allowlist 四态投影、动态透明窗口、气泡栈/交互卡、Codex v1/v2 导入导出、Creator 与 deep link 安全边界 | `crates/ha-pet/`(kernel 面 `ha-core/src/pet.rs`), `pet_window.rs`, `PetWindow.tsx`, `components/pet/` |
-| [浏览器自动化](architecture/browser.md)            | 8-action 表面、CDP / chrome-devtools-mcp 双 backend、stale-ref 自恢复、BrowserPanel 实时镜像、SSRF 守卫 | `crates/ha-browser/`(browser / tool / browser_state), `components/chat/BrowserPanel.tsx` |
-| [macOS 控制](architecture/macos-control.md)        | 原生 macOS GUI 控制子系统：权限 readiness、AX snapshot、display/window 截图、App/窗口/元素/菜单/dialog 操作与审批分类 | `crates/ha-mac/`, `src-tauri/src/macos_control.rs` |
-| [上下文压缩](architecture/context-compact.md)       | 5 层渐进式压缩、API-Round 分组保护、mid-loop checkpoint、runtime ledger 与文件恢复 | `context_compact/` / `agent/context.rs`        |
-| [Session 系统](architecture/session.md)          | 会话 + 消息持久化、FTS5 搜索、无痕会话关闭即焚、会话级工作目录、自动会话标题、Subagent/ACP 运行记录 | `session/`, `session_title.rs`                 |
-| [Project 系统](architecture/project.md)          | 会话分组容器、项目记忆/工作目录/指令、7 级 Agent 解析、`/project` 命令、侧边栏树状渲染 | `project/`                                     |
-| [Agent 配置与解析链](architecture/agent-config.md) | `agent.json` 磁盘真相源、AgentConfig 能力/记忆/委派模型、运行时装配、7 级默认 Agent 解析链、legacy `default`→`ha-main` 迁移 | `agent_config.rs`, `agent_loader.rs`, `agent/resolver.rs`, `agent/migration.rs` |
-| [记忆系统](architecture/memory.md)                 | Core Memory、SQLite + FTS5 + vec0 混合检索、默认关闭的动态召回（Fast / Deep Recall）、自动提取、Dreaming、Recall Summary、向量重建 | `memory/`                                      |
-| [Dreaming 子系统](architecture/dreaming.md)        | 离线固化 + 结构化 claim 长期记忆：数据模型、Light / Deep / Profile pipeline、动态召回接入、Lucid Review 纠错闭环、确定性评测、面向用户本人的管理 API | `memory/dreaming/`, `memory/claims/`           |
-| [知识空间（Knowledge Base）](architecture/knowledge-base.md) | 真实 `.md` 双链笔记 + index.db 可重建缓存（chunk FTS+向量 RRF/MMR 检索）、Wikilink/反链/标签/块引用、图谱视图 + transclusion、`note_*` 工具 + `effective_kb_access` 双鉴权平面、外部 vault 绑定（默认只读 / opt-in 可写）+ notify watcher、CM6 五模式编辑器、Layer 2 自主维护 | ha-knowledge 的 `knowledge/`·`tools/note.rs` + kernel 的 `knowledge/{registry,access,types}.rs`, `components/knowledge/` |
+| [Chat Engine](architecture/core/chat-engine.md)     | 对话编排入口、流式事件协议、Failover 集成、记忆提取门控                    | `chat_engine/`                                 |
+| [Provider 系统](architecture/core/provider-system.md) | 4 种 API 类型、Provider 模板、Failover 策略、Thinking 系统、Provider Write Contract、Local Backend Catalog | `provider/`, `failover/`, `agent/providers/` |
+| [模型 vs Agent 统一配置](architecture/core/automation-model.md) | 后台一次性 LLM 调用的统一执行原语（纯文本与带图两种入口）、全局默认模型链、跨模型降级与按用途的用量标签，以及所有接入这套原语的后台消费者 | `automation/`, ha-dash 的 `recap/`, `memory/{dreaming,recall_summary}.rs`, `knowledge/{compile,source,service,types}.rs`, `knowledge/maintenance/`, ha-skills 的 `skills/auto_review/`, `hooks/runner/prompt.rs`, `sprite/`, `tools/note.rs`, `agent/mod.rs`（awareness 提取） |
+| [主 LLM OAuth](architecture/core/llm-oauth.md) | Codex 主对话 OAuth 登录（PKCE + 本地回调）、token 刷新与并发去抖、凭据落 `auth.json`、登出清理、与 MCP OAuth 隔离 | `oauth.rs` |
+| [本地模型加载](architecture/core/local-model-loading.md) | Ollama 本地模型搜索/下载/加载/删除、后台任务、Provider 注册、Embedding 配置与记忆向量重建 | ha-local-llm 的 `local_llm/`·`local_embedding.rs`, ha-core 的 `local_model_jobs.rs`·`memory/embedding/` |
+| [语音转写（STT）](architecture/core/stt.md)             | 独立配置语音转写引擎：8 wire 协议（OpenAI multipart / chat-completions ASR / 5 种 WebSocket）、桌面 batch + 流式会话、IM 自动转写、4 本地后端一键接入、Failover 链与 size/SSRF 红线 | `ha-core/src/stt/`（配置面）, `crates/ha-media/src/stt/`（执行机器）, `commands/stt.rs`, `routes/stt.rs` |
+| [提示词系统](architecture/core/prompt-system.md)         | System Prompt 多段组装、工具描述、行为指导                        | `system_prompt/`                               |
+| [工具系统](architecture/core/tool-system.md)            | 工具定义、Tool Loop 并发/串行执行、结果持久化、四维权限控制                 | `tools/`                                       |
+| [文件操作统一](architecture/core/file-operations.md)     | 三处文件（Markdown 链接 / 下挂文件 / 工作台产物）统一操作策略、本机 vs 远端行为矩阵、右侧内置预览面板、preview-by-path 双壳后端与会话鉴权 | `lib/fileActions.ts`, `lib/fileKind.ts`, `components/chat/files/`, `filesystem/ops.rs` |
+| [UI 交互与表面设计系统](architecture/core/ui-interaction-system.md) | 主侧栏工作区生命周期、知识 / 设计独立窗口、搜索、选择、数字输入、模型选择、焦点、菜单、悬浮弹层和 Tooltip 的组件入口、视觉 token、动效与无障碍红线 | `App.tsx`, `SpaceDetachedWindow.tsx`, `components/ui/`, `lib/input-modality.ts`, `lib/focus-indicator-preference.ts`, `index.css` |
+| [桌面宠物（Pet）](architecture/core/pet.md) | 主对话 allowlist 四态投影、动态透明窗口、气泡栈/交互卡、Codex v1/v2 导入导出、Creator 与 deep link 安全边界 | `crates/ha-pet/`(kernel 面 `ha-core/src/pet.rs`), `pet_window.rs`, `PetWindow.tsx`, `components/pet/` |
+| [浏览器自动化](architecture/core/browser.md)            | 8-action 表面、CDP / chrome-devtools-mcp 双 backend、stale-ref 自恢复、BrowserPanel 实时镜像、SSRF 守卫 | `crates/ha-browser/`(browser / tool / browser_state), `components/chat/BrowserPanel.tsx` |
+| [macOS 控制](architecture/core/macos-control.md)        | 原生 macOS GUI 控制子系统：权限 readiness、AX snapshot、display/window 截图、App/窗口/元素/菜单/dialog 操作与审批分类 | `crates/ha-mac/`, `src-tauri/src/macos_control.rs` |
+| [上下文压缩](architecture/core/context-compact.md)       | 5 层渐进式压缩、API-Round 分组保护、mid-loop checkpoint、runtime ledger 与文件恢复 | `context_compact/` / `agent/context.rs`        |
+| [Session 系统](architecture/core/session.md)          | 会话 + 消息持久化、FTS5 搜索、无痕会话关闭即焚、会话级工作目录、自动会话标题、Subagent/ACP 运行记录 | `session/`, `session_title.rs`                 |
+| [Project 系统](architecture/core/project.md)          | 会话分组容器、项目记忆/工作目录/指令、7 级 Agent 解析、`/project` 命令、侧边栏树状渲染 | `project/`                                     |
+| [Agent 配置与解析链](architecture/core/agent-config.md) | `agent.json` 磁盘真相源、AgentConfig 能力/记忆/委派模型、运行时装配、7 级默认 Agent 解析链、legacy `default`→`ha-main` 迁移 | `agent_config.rs`, `agent_loader.rs`, `agent/resolver.rs`, `agent/migration.rs` |
+| [记忆系统](architecture/core/memory.md)                 | Core Memory、SQLite + FTS5 + vec0 混合检索、默认关闭的动态召回（Fast / Deep Recall）、自动提取、Dreaming、Recall Summary、向量重建 | `memory/`                                      |
+| [Dreaming 子系统](architecture/core/dreaming.md)        | 离线固化 + 结构化 claim 长期记忆：数据模型、Light / Deep / Profile pipeline、动态召回接入、Lucid Review 纠错闭环、确定性评测、面向用户本人的管理 API | `memory/dreaming/`, `memory/claims/`           |
+| [知识空间（Knowledge Base）](architecture/core/knowledge-base.md) | 真实 `.md` 双链笔记 + index.db 可重建缓存（chunk FTS+向量 RRF/MMR 检索）、Wikilink/反链/标签/块引用、图谱视图 + transclusion、`note_*` 工具 + `effective_kb_access` 双鉴权平面、外部 vault 绑定（默认只读 / opt-in 可写）+ notify watcher、CM6 五模式编辑器、Layer 2 自主维护 | ha-knowledge 的 `knowledge/`·`tools/note.rs` + kernel 的 `knowledge/{registry,access,types}.rs`, `components/knowledge/` |
 
 
 ## Agent 能力
@@ -55,35 +55,35 @@
 
 | 文档                                          | 说明                                | 关联源码                  |
 | ------------------------------------------- | --------------------------------- | --------------------- |
-| [Plan Mode](architecture/plan-mode.md)      | 5 状态机、plan = 设计契约 + task = 进度真相双轨分离、enter_plan_mode 模型主动入口、Git Checkpoint 回滚 | `plan/`, `tools/enter_plan_mode.rs`, `tools/submit_plan.rs`, `tools/task.rs` |
-| [Workspace Control Panel](architecture/workspace.md) | 主聊天右侧工作台：Environment / Goal / Session / Progress / Workflow / Loop / Background Jobs / Output / Sources / Knowledge / Advanced Diagnostics 的信息架构、输入框联动、多语言与 UI 验收契约 | `components/chat/workspace/`, `components/chat/input/ChatInput.tsx` |
-| [Goal 控制平面](architecture/goal.md) | 长任务顶层目标：目标陈述、完成标准、状态机、证据链、最终审计、Runtime / Runner、完成报告、Workflow / Loop 绑定与工作台 Goal 区块 | `goal/`, `workflow/`, `components/chat/workspace/` |
-| [Workflow Mode、Workflow Run 与 Execution Mode](architecture/workflow.md) | Durable `workflow.js` 执行编排、WorkflowRun/Op/Event 三表、QuickJS host API、replay、permission preview、模型自主 create/status/trace/control/followup、阶段注入、pause/resume/cancel、Workspace Workflow section | `workflow/`, `execution_mode.rs`, `components/chat/workspace/` |
-| [Domain Workflow 控制平面](architecture/domain-workflow.md) | 通用（非编程）场景的工作流模板体系：模板注册表、草稿预览、证据留存与 Goal 链接、产物导出与连接器动作守卫，覆盖研究 / 写作 / 数据分析 / 会议准备 / 知识梳理 / 收件箱 / 项目运营等场景 | `domain_workflow.rs`, `goal/`, `workflow/`, `context_retrieval.rs`, `components/chat/workspace/` |
-| [Domain Quality 控制平面](architecture/domain-quality.md) | 通用领域的复核 / 验证：基于领域工作流模板与证据生成可留存的质量检查，失败或需用户确认时写回 Goal 阻塞证据，并在工作台「领域复核」区块展示；同时作为领域学习的输入信号 | ha-improve 的 `domain_quality.rs` + kernel 的 `domain_quality.rs`（台账）, `goal/`, `components/chat/workspace/` |
-| [Domain Eval 与 Quality Gate 控制平面](architecture/domain-eval.md) | 通用领域的确定性评测与质量门：基于目标、工作流、领域证据与复核结果做打分、质量守门、可交付判断与长期运行稳定性审计，在 Dashboard 独立展示 | ha-improve 的 `domain_eval.rs`·`domain_quality.rs` + kernel 同名台账, `domain_workflow.rs`, `components/dashboard/learning/` |
-| [Loop 控制平面](architecture/loop.md) | 真实 `/loop`：复用 Cron 的可靠调度，按时间/条件/事件或 dynamic self-paced 触发原会话，记录 loop_schedules / loop_runs trace，支持模型侧 `loop_*` 工具、status / pause / resume / stop / run history / progress guard | `loop_control.rs`（kernel）, ha-cron 的 `cron/`, `components/chat/workspace/` |
-| [Managed Worktree 控制平面](architecture/worktree.md) | Durable git worktree 隔离环境：创建/恢复/归档/交接、Workflow 绑定执行、Subagent 隔离、WorktreeCreate/Remove hooks、Workspace GUI 控制 | `worktree.rs`, `workflow/`, `subagent/`, `components/chat/workspace/` |
-| [Session Git 控制平面](architecture/git-control.md) | Session-scoped Git snapshot/diff、stage/unstage/discard、分支、commit/push、GitHub PR checks/review comments 与 Local/Worktree 安全 Handoff | `ha-vcs (git_control.rs)`, `ha-core (git_control.rs 簿记)`, `commands/git_control.rs`, `routes/git_control.rs`, `GitControlCard.tsx`, `DiffPanel.tsx` |
-| [LSP 与语义代码智能](architecture/lsp.md) | Language Server Protocol 控制面：语义导航工具、诊断缓存、文件修改后同步、动态 diagnostics prompt 后缀、Workspace 诊断面板 | `lsp.rs`, `tools/lsp.rs`, `components/chat/workspace/` |
-| [Review Engine 控制平面](architecture/review-engine.md) | Durable 本地代码审查：review run/finding/event、profiles、Deep Review 降级、symbol/IDE evidence、Goal evidence、Workspace 代码审查面板与 `/review` | `review.rs`, `slash_commands/`, `components/chat/workspace/` |
-| [Smart Verification 控制平面](architecture/verification-engine.md) | Durable 智能验证选择：基于 diff/项目规则推荐最小检查、后台执行低风险 step、Goal validation evidence、Workspace 验证区块 | `verification.rs`, `components/chat/workspace/` |
-| [上下文检索（Context Retrieval）](architecture/context-retrieval.md) | 任务感知的上下文推荐与行动入口：聚合 Git diff、历史产物、诊断与符号、复核发现、目标证据、任务、URL 来源与领域上下文，并可在候选项上就地触发聚焦复核 / 验证或领域动作 | `context_retrieval.rs`, `lsp.rs`, `components/chat/workspace/` |
-| [Coding Eval 控制面评测](architecture/coding-eval.md) | 编程控制面的确定性评测：在临时 git 仓库里用真实的会话 / 目标 / 任务 / 工作流上下文，回归复核、验证、上下文检索、改进闭环的协同质量，并可从任务提示执行 agent 后评估候选 diff 与策略改动的效果 | ha-eval-runtime 的 `coding_eval.rs`, ha-improve 的 `coding_improvement.rs` + kernel 台账, `evals/suites/coding-control-plane/` |
-| [专项能力评测基础设施](architecture/capability-eval.md) | 本地独立确定性 Runner、suite/policy/schema、稳定分片与诊断 evidence；完整评测不进入 PR、pre-push、GitHub Actions 或发布门禁 | `ha-eval-spec`, `ha-eval`, `evals/` |
-| [真实模型与复杂任务评测](architecture/live-model-evaluation.md) | 本地真实 Provider Campaign：桌面 Evaluation Center、不可变计划、任务完成/工具/耗时/Token/费用指标、Goal/Workflow/Async/Subagent 归因、对比趋势与本地历史；远端 Runner 和发布门禁当前暂停 | `ha-eval-runtime::evaluation`, `ha-eval-spec::model`, `hope-agent-eval model`, `evals/live/` |
-| [Coding Improvement Loop](architecture/coding-improvement-loop.md) | 质量趋势与学习闭环：从目标 / 工作流 / 复核 / 验证 / 评测 / 转录等数据生成趋势报告、工作流复盘与改进提案，可预览 / 应用 / 晋升为评测、工作流、指导、技能等草稿，并在 Dashboard 学习页提供基准运行中心与全局、项目级学习视图 | ha-improve 的 `coding_improvement.rs`·`domain_quality.rs` + kernel 同名台账, ha-dash 的 `dashboard/coding_improvement.rs`, ha-eval-runtime 的 `coding_eval.rs`, `components/chat/workspace/`, `components/dashboard/learning/` |
-| [权限/审批系统](architecture/permission-system.md) | 统一规则引擎 + Default/Smart/Yolo 三模式、Plan 正交、保护路径/危险命令/编辑命令三 list、Smart judge_model + self_confidence、审批弹窗倒计时 | `permission/`, `tools/approval.rs` |
-| [Hooks 系统](architecture/hooks.md)          | 事件 → 可拔插处理器，字段级对齐 Claude Code 协议；28 事件（24 触发 + 4 保留）+ 5 种 handler（command/http/mcp_tool/prompt/agent）+ user/managed/project/local 四 scope UNION + 配置热重载 + JSONL transcript 镜像 | `hooks/`, `agent/preflight.rs` |
-| [Ask User](architecture/ask-user.md)        | 通用结构化问答工具、preview 并排对比、超时回退、IM 渠道集成    | `tools/ask_user_question.rs`, `plan/questions.rs`, `channel/worker/ask_user.rs` |
-| [技能系统](architecture/skill-system.md)        | SKILL.md 发现、懒加载、工具隔离、Fork 模式      | ha-skills 的 `skills/`·`tools/skill/` + kernel 的 `skills/{types,activation,requirements,prompt,slash}.rs`·`skills_hooks.rs` |
-| [内置用户手册（帮助中心）](architecture/help-center.md) | `docs/user-guide/` rust-embed 单一来源；GUI 独立窗口（bundle/search 命令）+ agent 镜像路径（`ha-manual` skill）；slug 三方一致契约、指纹 marker 镜像、双语 parity 守卫 | `manual/`, `src/components/help/`, `skills/ha-manual/` |
-| [子 Agent 系统](architecture/subagent.md)      | 稳定 Thread / 不可变 Attempt、spawn/send/steer/resume、owner+epoch fencing、durable dispatch / parent delivery、启动恢复、Mailbox、并发队列、Group 与 UI attempt timeline | `subagent/`, `tools/subagent.rs`, `components/chat/subagent/` |
-| [后台任务（Background Jobs）](architecture/background-jobs.md) | 统一后台任务模型（Tool/Subagent/Group）：`JobManager` 门面、两层并发硬配额 + 公平调度、重试、后台 exec 审批 park、output_tail、完成合并注入、owner 面板与端点、`AsyncToolsConfig` | `async_jobs/`, `runtime_tasks.rs` |
-| [Agent Team](architecture/agent-team.md)     | 多 Agent 协作团队、双向通信、Kanban 任务看板、用户自定义模板（内置模板已移除） | `team/`               |
-| [Side Query 缓存](architecture/side-query.md) | 复用 prompt cache 降低侧查询成本 90%       | `agent/side_query.rs` |
-| [行为感知](architecture/behavior-awareness.md) | 动态 suffix 注入、三层触发器、LLM Digest、prompt cache 双断点 | `awareness/` |
-| [Failover 系统](architecture/failover.md) | 错误分类、Profile 轮换 + Cooldown + Sticky LRU、退避重试、ContextOverflow 上交 | `failover/` |
+| [Plan Mode](architecture/agent/plan-mode.md)      | 5 状态机、plan = 设计契约 + task = 进度真相双轨分离、enter_plan_mode 模型主动入口、Git Checkpoint 回滚 | `plan/`, `tools/enter_plan_mode.rs`, `tools/submit_plan.rs`, `tools/task.rs` |
+| [Workspace Control Panel](architecture/agent/workspace.md) | 主聊天右侧工作台：Environment / Goal / Session / Progress / Workflow / Loop / Background Jobs / Output / Sources / Knowledge / Advanced Diagnostics 的信息架构、输入框联动、多语言与 UI 验收契约 | `components/chat/workspace/`, `components/chat/input/ChatInput.tsx` |
+| [Goal 控制平面](architecture/agent/goal.md) | 长任务顶层目标：目标陈述、完成标准、状态机、证据链、最终审计、Runtime / Runner、完成报告、Workflow / Loop 绑定与工作台 Goal 区块 | `goal/`, `workflow/`, `components/chat/workspace/` |
+| [Workflow Mode、Workflow Run 与 Execution Mode](architecture/agent/workflow.md) | Durable `workflow.js` 执行编排、WorkflowRun/Op/Event 三表、QuickJS host API、replay、permission preview、模型自主 create/status/trace/control/followup、阶段注入、pause/resume/cancel、Workspace Workflow section | `workflow/`, `execution_mode.rs`, `components/chat/workspace/` |
+| [Domain Workflow 控制平面](architecture/agent/domain-workflow.md) | 通用（非编程）场景的工作流模板体系：模板注册表、草稿预览、证据留存与 Goal 链接、产物导出与连接器动作守卫，覆盖研究 / 写作 / 数据分析 / 会议准备 / 知识梳理 / 收件箱 / 项目运营等场景 | `domain_workflow.rs`, `goal/`, `workflow/`, `context_retrieval.rs`, `components/chat/workspace/` |
+| [Domain Quality 控制平面](architecture/agent/domain-quality.md) | 通用领域的复核 / 验证：基于领域工作流模板与证据生成可留存的质量检查，失败或需用户确认时写回 Goal 阻塞证据，并在工作台「领域复核」区块展示；同时作为领域学习的输入信号 | ha-improve 的 `domain_quality.rs` + kernel 的 `domain_quality.rs`（台账）, `goal/`, `components/chat/workspace/` |
+| [Domain Eval 与 Quality Gate 控制平面](architecture/agent/domain-eval.md) | 通用领域的确定性评测与质量门：基于目标、工作流、领域证据与复核结果做打分、质量守门、可交付判断与长期运行稳定性审计，在 Dashboard 独立展示 | ha-improve 的 `domain_eval.rs`·`domain_quality.rs` + kernel 同名台账, `domain_workflow.rs`, `components/dashboard/learning/` |
+| [Loop 控制平面](architecture/agent/loop.md) | 真实 `/loop`：复用 Cron 的可靠调度，按时间/条件/事件或 dynamic self-paced 触发原会话，记录 loop_schedules / loop_runs trace，支持模型侧 `loop_*` 工具、status / pause / resume / stop / run history / progress guard | `loop_control.rs`（kernel）, ha-cron 的 `cron/`, `components/chat/workspace/` |
+| [Managed Worktree 控制平面](architecture/agent/worktree.md) | Durable git worktree 隔离环境：创建/恢复/归档/交接、Workflow 绑定执行、Subagent 隔离、WorktreeCreate/Remove hooks、Workspace GUI 控制 | `worktree.rs`, `workflow/`, `subagent/`, `components/chat/workspace/` |
+| [Session Git 控制平面](architecture/agent/git-control.md) | Session-scoped Git snapshot/diff、stage/unstage/discard、分支、commit/push、GitHub PR checks/review comments 与 Local/Worktree 安全 Handoff | `ha-vcs (git_control.rs)`, `ha-core (git_control.rs 簿记)`, `commands/git_control.rs`, `routes/git_control.rs`, `GitControlCard.tsx`, `DiffPanel.tsx` |
+| [LSP 与语义代码智能](architecture/agent/lsp.md) | Language Server Protocol 控制面：语义导航工具、诊断缓存、文件修改后同步、动态 diagnostics prompt 后缀、Workspace 诊断面板 | `lsp.rs`, `tools/lsp.rs`, `components/chat/workspace/` |
+| [Review Engine 控制平面](architecture/agent/review-engine.md) | Durable 本地代码审查：review run/finding/event、profiles、Deep Review 降级、symbol/IDE evidence、Goal evidence、Workspace 代码审查面板与 `/review` | `review.rs`, `slash_commands/`, `components/chat/workspace/` |
+| [Smart Verification 控制平面](architecture/agent/verification-engine.md) | Durable 智能验证选择：基于 diff/项目规则推荐最小检查、后台执行低风险 step、Goal validation evidence、Workspace 验证区块 | `verification.rs`, `components/chat/workspace/` |
+| [上下文检索（Context Retrieval）](architecture/agent/context-retrieval.md) | 任务感知的上下文推荐与行动入口：聚合 Git diff、历史产物、诊断与符号、复核发现、目标证据、任务、URL 来源与领域上下文，并可在候选项上就地触发聚焦复核 / 验证或领域动作 | `context_retrieval.rs`, `lsp.rs`, `components/chat/workspace/` |
+| [Coding Eval 控制面评测](architecture/agent/coding-eval.md) | 编程控制面的确定性评测：在临时 git 仓库里用真实的会话 / 目标 / 任务 / 工作流上下文，回归复核、验证、上下文检索、改进闭环的协同质量，并可从任务提示执行 agent 后评估候选 diff 与策略改动的效果 | ha-eval-runtime 的 `coding_eval.rs`, ha-improve 的 `coding_improvement.rs` + kernel 台账, `evals/suites/coding-control-plane/` |
+| [专项能力评测基础设施](architecture/agent/capability-eval.md) | 本地独立确定性 Runner、suite/policy/schema、稳定分片与诊断 evidence；完整评测不进入 PR、pre-push、GitHub Actions 或发布门禁 | `ha-eval-spec`, `ha-eval`, `evals/` |
+| [真实模型与复杂任务评测](architecture/agent/live-model-evaluation.md) | 本地真实 Provider Campaign：桌面 Evaluation Center、不可变计划、任务完成/工具/耗时/Token/费用指标、Goal/Workflow/Async/Subagent 归因、对比趋势与本地历史；远端 Runner 和发布门禁当前暂停 | `ha-eval-runtime::evaluation`, `ha-eval-spec::model`, `hope-agent-eval model`, `evals/live/` |
+| [Coding Improvement Loop](architecture/agent/coding-improvement-loop.md) | 质量趋势与学习闭环：从目标 / 工作流 / 复核 / 验证 / 评测 / 转录等数据生成趋势报告、工作流复盘与改进提案，可预览 / 应用 / 晋升为评测、工作流、指导、技能等草稿，并在 Dashboard 学习页提供基准运行中心与全局、项目级学习视图 | ha-improve 的 `coding_improvement.rs`·`domain_quality.rs` + kernel 同名台账, ha-dash 的 `dashboard/coding_improvement.rs`, ha-eval-runtime 的 `coding_eval.rs`, `components/chat/workspace/`, `components/dashboard/learning/` |
+| [权限/审批系统](architecture/agent/permission-system.md) | 统一规则引擎 + Default/Smart/Yolo 三模式、Plan 正交、保护路径/危险命令/编辑命令三 list、Smart judge_model + self_confidence、审批弹窗倒计时 | `permission/`, `tools/approval.rs` |
+| [Hooks 系统](architecture/agent/hooks.md)          | 事件 → 可拔插处理器，字段级对齐 Claude Code 协议；28 事件（24 触发 + 4 保留）+ 5 种 handler（command/http/mcp_tool/prompt/agent）+ user/managed/project/local 四 scope UNION + 配置热重载 + JSONL transcript 镜像 | `hooks/`, `agent/preflight.rs` |
+| [Ask User](architecture/agent/ask-user.md)        | 通用结构化问答工具、preview 并排对比、超时回退、IM 渠道集成    | `tools/ask_user_question.rs`, `plan/questions.rs`, `channel/worker/ask_user.rs` |
+| [技能系统](architecture/agent/skill-system.md)        | SKILL.md 发现、懒加载、工具隔离、Fork 模式      | ha-skills 的 `skills/`·`tools/skill/` + kernel 的 `skills/{types,activation,requirements,prompt,slash}.rs`·`skills_hooks.rs` |
+| [内置用户手册（帮助中心）](architecture/agent/help-center.md) | `docs/user-guide/` rust-embed 单一来源；GUI 独立窗口（bundle/search 命令）+ agent 镜像路径（`ha-manual` skill）；slug 三方一致契约、指纹 marker 镜像、双语 parity 守卫 | `manual/`, `src/components/help/`, `skills/ha-manual/` |
+| [子 Agent 系统](architecture/agent/subagent.md)      | 稳定 Thread / 不可变 Attempt、spawn/send/steer/resume、owner+epoch fencing、durable dispatch / parent delivery、启动恢复、Mailbox、并发队列、Group 与 UI attempt timeline | `subagent/`, `tools/subagent.rs`, `components/chat/subagent/` |
+| [后台任务（Background Jobs）](architecture/agent/background-jobs.md) | 统一后台任务模型（Tool/Subagent/Group）：`JobManager` 门面、两层并发硬配额 + 公平调度、重试、后台 exec 审批 park、output_tail、完成合并注入、owner 面板与端点、`AsyncToolsConfig` | `async_jobs/`, `runtime_tasks.rs` |
+| [Agent Team](architecture/agent/agent-team.md)     | 多 Agent 协作团队、双向通信、Kanban 任务看板、用户自定义模板（内置模板已移除） | `team/`               |
+| [Side Query 缓存](architecture/agent/side-query.md) | 复用 prompt cache 降低侧查询成本 90%       | `agent/side_query.rs` |
+| [行为感知](architecture/agent/behavior-awareness.md) | 动态 suffix 注入、三层触发器、LLM Digest、prompt cache 双断点 | `awareness/` |
+| [Failover 系统](architecture/agent/failover.md) | 错误分类、Profile 轮换 + Cooldown + Sticky LRU、退避重试、ContextOverflow 上交 | `failover/` |
 
 
 ## 接入层
@@ -91,11 +91,11 @@
 
 | 文档                                     | 说明                                            | 关联源码                   |
 | -------------------------------------- | --------------------------------------------- | ---------------------- |
-| [IM 渠道系统](architecture/im-channel.md)  | 12 个渠道插件（Telegram/WeChat/Discord 等）、消息路由、媒体管道 | `channel/`             |
-| [ACP 协议](architecture/acp.md)          | IDE 直连（NDJSON over stdio）、会话生命周期、事件映射         | `crates/ha-acp/` |
-| [斜杠命令](architecture/slash-commands.md) | 6 类命令、双派发路径（UI/IM）、CommandAction 副作用          | `slash_defs/`, `slash_hooks.rs`, `slash_commands/` |
-| [MCP 客户端](architecture/mcp.md)         | 四种 transport（stdio/HTTP/SSE/WebSocket）、OAuth 2.1+PKCE、Resources/Prompts、凭据 0600、SSRF 硬约束、Learning 埋点 | `crates/ha-mcp/`（kernel 面 `ha-core/src/mcp/`） |
-| [MCP Server（平台）](architecture/mcp-server.md) | `hope-agent mcp` stdio server：把子系统暴露给外部 agent；共享 host + `ToolProvider` 注册表（design 首个 provider）、默认只读 + `--allow-writes`、active-context | `mcp_server/`, `design/mcp_provider.rs` |
+| [IM 渠道系统](architecture/integration/im-channel.md)  | 12 个渠道插件（Telegram/WeChat/Discord 等）、消息路由、媒体管道 | `channel/`             |
+| [ACP 协议](architecture/integration/acp.md)          | IDE 直连（NDJSON over stdio）、会话生命周期、事件映射         | `crates/ha-acp/` |
+| [斜杠命令](architecture/integration/slash-commands.md) | 6 类命令、双派发路径（UI/IM）、CommandAction 副作用          | `slash_defs/`, `slash_hooks.rs`, `slash_commands/` |
+| [MCP 客户端](architecture/integration/mcp.md)         | 四种 transport（stdio/HTTP/SSE/WebSocket）、OAuth 2.1+PKCE、Resources/Prompts、凭据 0600、SSRF 硬约束、Learning 埋点 | `crates/ha-mcp/`（kernel 面 `ha-core/src/mcp/`） |
+| [MCP Server（平台）](architecture/integration/mcp-server.md) | `hope-agent mcp` stdio server：把子系统暴露给外部 agent；共享 host + `ToolProvider` 注册表（design 首个 provider）、默认只读 + `--allow-writes`、active-context | `mcp_server/`, `design/mcp_provider.rs` |
 
 
 ## 基础设施
@@ -103,25 +103,25 @@
 
 | 文档                                        | 说明                                 | 关联源码                    |
 | ----------------------------------------- | ---------------------------------- | ----------------------- |
-| [媒体生成](architecture/media-generation.md)  | 统一图/音生成服务商体系：服务商→多模型→功能默认链、数据驱动能力、统一 failover 执行器（video 模态预留） | `ha-core/src/media_gen/`（配置面）, `crates/ha-media/src/`（执行机器+两工具） |
-| [Canvas 子系统](architecture/canvas.md)     | 7 种内容类型沙盒预览、版本快照、snapshot/eval 双向通道、独立窗口、HTTP 静态托管 | `crates/ha-design/`（tool_canvas / canvas_db） |
-| [设计空间（Design Space）](architecture/design-space.md) | agent 原生设计工作空间：11 类自包含产物（web/mobile/deck/dashboard/poster/document/email/image/motion/audio/component）、品牌设计系统 + token 编译、稳定单产物预览（无画布）、oid 确定性可视化微调、一键导出 HTML/PNG/PDF/PPTX/MP4/ZIP、5 维质量门 + 反 slop 自查、**工程轴**（多平台 Token 导出 / Figma 导入 / 代码交付包 / 绑定代码工程同步）、与知识空间/项目联动 | `crates/ha-design/`, `components/design/` |
-| [Artifacts 产物平台](architecture/artifacts.md) | Canvas façade、不可变版本、Gallery、Data Analytics、离线本地导出与未来 Publisher Guard | `crates/ha-design/`（artifacts / tool_artifact）, `components/artifacts/` |
-| [Cron 调度](architecture/cron.md)           | 定时任务调度、Agent 执行、Failover、指数退避      | ha-cron 的 `cron/` + kernel 的 `cron/db.rs`·`schedule.rs` |
-| [Sandbox 架构](architecture/sandbox.md) | 会话级 Docker 执行沙箱、权限放松矩阵、Docker 平台引导、SearXNG 容器管理 | `ha-vcs (sandbox.rs · docker/)`, `ha-core (sandbox.rs 配置面)`, `permission/` |
-| [Dashboard](architecture/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标、Learning Tab、coding release/generalization gate 与 general domain quality gate | ha-dash 的 `dashboard/`, `components/dashboard/learning/` |
-| [Recap 深度复盘](architecture/recap.md)      | 逐会话 LLM facet 提取、量化+语义融合报告、HTML 导出 | `recap/`                |
-| [日志系统](architecture/logging.md)           | 非阻塞双写、敏感数据脱敏、文件轮转                  | `logging/`              |
-| [可靠性与崩溃自愈](architecture/reliability.md) | Guardian 父子三层保活、退出码协议、Crash Journal、Self-Diagnosis prompt + Auto-Fix 覆盖范围、子系统 watchdog | `guardian.rs`, `crash_journal.rs`, `self_diagnosis.rs`, `service_install.rs` |
-| [自诊断与问题上报](architecture/self-diagnosis-issue-reporting.md) | 对话式自我理解：`ha-self-diagnosis` 技能（fork 隔离的自学习 / 排障流程）+ `issue_report` 工具，用户/会话触发、不跑后台健康扫描 | `tools/issue_report.rs`, `skills/ha-self-diagnosis/` |
-| [配置系统](architecture/config-system.md)     | `cached_config` / `mutate_config`、ArcSwap 快照、写锁串行化、`config:changed` 事件 | `config/`               |
-| [备份 / 自动快照](architecture/backup-autosave.md) | 配置安全网：写盘前单文件 autosave（保留 50）+ 崩溃阈值全量备份（保留 5）、reason 标签、回滚自快照、与 updater 备份隔离 | `backup.rs`             |
-| [首次启动向导](architecture/onboarding.md) | 首启引导状态机、预设 Provider/模型、apply 落地经 provider CRUD + config contract、owner 命令面 | `onboarding/`           |
-| [OpenClaw 导入](architecture/openclaw-import.md) | 从 OpenClaw 迁移 agents/providers/memory：扫描预览 → 选择性导入三段式、provider 去重、`MEMORY.md` 合并 + SQLite chunk 入库 | `openclaw_import/`      |
-| [安全子系统](architecture/security.md)         | SSRF 三档 policy、`trusted_hosts`、Metadata IP 硬拒、Dangerous Mode (YOLO)、HTTP 响应封顶 | `security/`             |
-| [跨平台抽象层](architecture/platform.md)       | OS 适配入口集合（进程组 kill、安全文件写、shell 命令、系统代理探测、Chrome 定位、advisory lock、GPU 探测、原子 binary swap 等）、Unix/Windows 双实现 | `platform/`             |
-| [系统权限（macOS TCC）](architecture/macos-permissions.md) | TCC 权限探测/请求（辅助功能/录屏/自动化/麦克风/相机/文件夹）、catalog 元数据、按 id 派发原生 prompt 或设置跳转、跨平台 cfg 桩 | `permissions.rs`        |
-| [自升级](architecture/self-update.md)        | 三档路径（Tauri bundle / 包管理器 / 自包含 binary swap）、Minisign 单一 pubkey、`app_update` 工具 + `ha-self-update` skill、bare-binary 发布产物 | `crates/ha-updater/`, `src-tauri/src/commands/update_bridge.rs` |
+| [媒体生成](architecture/infra/media-generation.md)  | 统一图/音生成服务商体系：服务商→多模型→功能默认链、数据驱动能力、统一 failover 执行器（video 模态预留） | `ha-core/src/media_gen/`（配置面）, `crates/ha-media/src/`（执行机器+两工具） |
+| [Canvas 子系统](architecture/infra/canvas.md)     | 7 种内容类型沙盒预览、版本快照、snapshot/eval 双向通道、独立窗口、HTTP 静态托管 | `crates/ha-design/`（tool_canvas / canvas_db） |
+| [设计空间（Design Space）](architecture/infra/design-space.md) | agent 原生设计工作空间：11 类自包含产物（web/mobile/deck/dashboard/poster/document/email/image/motion/audio/component）、品牌设计系统 + token 编译、稳定单产物预览（无画布）、oid 确定性可视化微调、一键导出 HTML/PNG/PDF/PPTX/MP4/ZIP、5 维质量门 + 反 slop 自查、**工程轴**（多平台 Token 导出 / Figma 导入 / 代码交付包 / 绑定代码工程同步）、与知识空间/项目联动 | `crates/ha-design/`, `components/design/` |
+| [Artifacts 产物平台](architecture/infra/artifacts.md) | Canvas façade、不可变版本、Gallery、Data Analytics、离线本地导出与未来 Publisher Guard | `crates/ha-design/`（artifacts / tool_artifact）, `components/artifacts/` |
+| [Cron 调度](architecture/infra/cron.md)           | 定时任务调度、Agent 执行、Failover、指数退避      | ha-cron 的 `cron/` + kernel 的 `cron/db.rs`·`schedule.rs` |
+| [Sandbox 架构](architecture/infra/sandbox.md) | 会话级 Docker 执行沙箱、权限放松矩阵、Docker 平台引导、SearXNG 容器管理 | `ha-vcs (sandbox.rs · docker/)`, `ha-core (sandbox.rs 配置面)`, `permission/` |
+| [Dashboard](architecture/infra/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标、Learning Tab、coding release/generalization gate 与 general domain quality gate | ha-dash 的 `dashboard/`, `components/dashboard/learning/` |
+| [Recap 深度复盘](architecture/infra/recap.md)      | 逐会话 LLM facet 提取、量化+语义融合报告、HTML 导出 | `recap/`                |
+| [日志系统](architecture/infra/logging.md)           | 非阻塞双写、敏感数据脱敏、文件轮转                  | `logging/`              |
+| [可靠性与崩溃自愈](architecture/infra/reliability.md) | Guardian 父子三层保活、退出码协议、Crash Journal、Self-Diagnosis prompt + Auto-Fix 覆盖范围、子系统 watchdog | `guardian.rs`, `crash_journal.rs`, `self_diagnosis.rs`, `service_install.rs` |
+| [自诊断与问题上报](architecture/infra/self-diagnosis-issue-reporting.md) | 对话式自我理解：`ha-self-diagnosis` 技能（fork 隔离的自学习 / 排障流程）+ `issue_report` 工具，用户/会话触发、不跑后台健康扫描 | `tools/issue_report.rs`, `skills/ha-self-diagnosis/` |
+| [配置系统](architecture/infra/config-system.md)     | `cached_config` / `mutate_config`、ArcSwap 快照、写锁串行化、`config:changed` 事件 | `config/`               |
+| [备份 / 自动快照](architecture/infra/backup-autosave.md) | 配置安全网：写盘前单文件 autosave（保留 50）+ 崩溃阈值全量备份（保留 5）、reason 标签、回滚自快照、与 updater 备份隔离 | `backup.rs`             |
+| [首次启动向导](architecture/infra/onboarding.md) | 首启引导状态机、预设 Provider/模型、apply 落地经 provider CRUD + config contract、owner 命令面 | `onboarding/`           |
+| [OpenClaw 导入](architecture/infra/openclaw-import.md) | 从 OpenClaw 迁移 agents/providers/memory：扫描预览 → 选择性导入三段式、provider 去重、`MEMORY.md` 合并 + SQLite chunk 入库 | `openclaw_import/`      |
+| [安全子系统](architecture/infra/security.md)         | SSRF 三档 policy、`trusted_hosts`、Metadata IP 硬拒、Dangerous Mode (YOLO)、HTTP 响应封顶 | `security/`             |
+| [跨平台抽象层](architecture/infra/platform.md)       | OS 适配入口集合（进程组 kill、安全文件写、shell 命令、系统代理探测、Chrome 定位、advisory lock、GPU 探测、原子 binary swap 等）、Unix/Windows 双实现 | `platform/`             |
+| [系统权限（macOS TCC）](architecture/infra/macos-permissions.md) | TCC 权限探测/请求（辅助功能/录屏/自动化/麦克风/相机/文件夹）、catalog 元数据、按 id 派发原生 prompt 或设置跳转、跨平台 cfg 桩 | `permissions.rs`        |
+| [自升级](architecture/infra/self-update.md)        | 三档路径（Tauri bundle / 包管理器 / 自包含 binary swap）、Minisign 单一 pubkey、`app_update` 工具 + `ha-self-update` skill、bare-binary 发布产物 | `crates/ha-updater/`, `src-tauri/src/commands/update_bridge.rs` |
 
 
 ## 平台支持

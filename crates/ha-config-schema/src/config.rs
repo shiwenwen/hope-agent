@@ -1556,7 +1556,7 @@ pub struct AppConfig {
     /// Configured Model Context Protocol (MCP) servers. Each entry describes
     /// a stdio / http / sse / ws endpoint that contributes tools (and later
     /// prompts / resources) to the main conversation catalog. See
-    /// `docs/architecture/mcp.md` for the full subsystem overview.
+    /// `docs/architecture/integration/mcp.md` for the full subsystem overview.
     #[serde(default)]
     pub mcp_servers: Vec<crate::mcp::McpServerConfig>,
 

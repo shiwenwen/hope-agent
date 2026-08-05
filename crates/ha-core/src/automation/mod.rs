@@ -1,5 +1,5 @@
 //! Shared execution path for background/automation LLM tasks — the "model"
-//! side of the model-vs-Agent split (see `docs/architecture/automation-model.md`).
+//! side of the model-vs-Agent split (see `docs/architecture/core/automation-model.md`).
 //!
 //! Recap, Dreaming, Knowledge Compile, Skills auto_review, the Hooks `prompt`
 //! handler, Smart mode judge, session title, memory extraction, and the

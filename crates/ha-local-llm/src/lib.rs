@@ -17,7 +17,7 @@
 //! 装配契约与其它特征 crate 相同：每个调 `ha_core::init_runtime` 的二进制
 //! 必须先调 [`wire()`]。
 //!
-//! [backend-separation]: ../../../docs/architecture/backend-separation.md
+//! [backend-separation]: ../../../docs/architecture/system/backend-separation.md
 
 // `app_*!` 系宏由 ha-base 导出（与 ha-core / ha-media 同一接法）。
 #[macro_use]

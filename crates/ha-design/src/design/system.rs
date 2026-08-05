@@ -2,7 +2,7 @@
 //!
 //! 一个设计系统 = `DESIGN.md`（**DESIGN.md 规范** 9 段 prose + Token 表，真相源，供 LLM
 //! grounding，见 `design_md.rs`）+ `tokens.json`（CSS 变量，渲染器注入产物 `:root`）。
-//! 见 docs/architecture/design-space.md §6。
+//! 见 docs/architecture/infra/design-space.md §6。
 //!
 //! 内置系统在此**代码内定义**：6 套原创原型语言 + 一批品牌风格参考（`brands.rs`，对各
 //! 品牌公开视觉语言的独立再诠释，渲染附免责声明、非官方），首次访问懒 seed 到 managed

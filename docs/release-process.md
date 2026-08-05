@@ -293,7 +293,7 @@ download/
 - **临时目录一律落在 `$RUNNER_TEMP` 下，禁用裸相对路径**。`assets/` 曾经是裸路径，于是和仓库自带的 `assets/` 目录合并，把 `alpha-logo.png`、`transparency-logo.png` 当作发布产物镜像了上去。
 - **`latest/` 别名不能带 immutable 头**。那些文件名每版复用，长 TTL 会让边缘把旧安装包钉住一年。别名由 [`mirror-latest-aliases.mjs`](../scripts/mirror-latest-aliases.mjs) 按规则剥版本号派生，但 README 实际链接的 8 个名字在 `REQUIRED_ALIASES` 里硬登记——规则失灵时报错，而不是发布一堆 404。两侧对齐由 `check-release-paths.mjs` 在 PR 时守。
 - **`notes` 里的 GitHub 链接会被改写成镜像域名**（只改 R2 那份 manifest，仓库源文件不动，§1.1(a) 的绝对 URL 规则不变）。`notes` 是应用内「发现新版」弹窗正文，中英切换与 CHANGELOG 两条链接对目标用户就是死链。链到 `REQUIRED` 之外的文档时 workflow fail-closed。
-- **签名原样复制、绝不重算**。信任模型见 [self-update](architecture/self-update.md#manifest-端点链r2-镜像优先github-兜底)。
+- **签名原样复制、绝不重算**。信任模型见 [self-update](architecture/infra/self-update.md#manifest-端点链r2-镜像优先github-兜底)。
 
 > 存储成本：一版约 1.5 GB，R2 存储 $0.015/GB·月、egress 免费，按每月 3 版算一年累积约 55 GB（每月 < $1）。刻意全部保留不做清理——现有 R2 发布路径全程只用 `copy` 不用 `sync` 就是为了「绝不删除」，加删除逻辑要单独定义失败语义。
 

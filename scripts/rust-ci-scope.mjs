@@ -123,7 +123,7 @@ function selfTest() {
   for (const path of [
     "src/components/ChatInput.tsx",
     "public/favicon.png",
-    "docs/architecture/session.md",
+    "docs/architecture/core/session.md",
     "README.md",
     ".github/CODEOWNERS",
     "tsconfig.json",

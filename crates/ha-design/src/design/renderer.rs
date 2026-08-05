@@ -1,6 +1,6 @@
 //! 产物渲染器：把产物源（body/css/js）编译为**自包含 `index.html`**。
 //!
-//! 核心分水岭（见 `docs/architecture/design-space.md` §5）：**编译只在 ha-core 后端，浏览器
+//! 核心分水岭（见 `docs/architecture/infra/design-space.md` §5）：**编译只在 ha-core 后端，浏览器
 //! 零编译/零打包/零 JIT**——iframe 只加载已编译落盘的静态 `index.html`（旧版 atelier 因
 //! in-browser 编译白屏被推倒重做）。9 静态 kind + audio 是纯自包含 HTML；`component`（交互式
 //! React）经 `super::compile`（oxc 后端编译 JSX→JS）+ [`build_component_html`] 内联 vendored

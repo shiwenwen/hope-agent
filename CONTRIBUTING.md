@@ -168,7 +168,7 @@ node scripts/sync-i18n.mjs --apply   # 从模板补齐
 - 新增 / 删除功能、命令、模块 → `CHANGELOG.md`
 - 子系统架构变化 → `docs/architecture/<name>.md`
 - 新增架构级能力 → `docs/architecture/` 新建 + `docs/README.md` 索引
-- 改 Tauri 命令 / HTTP 路由 → [`docs/architecture/api-reference.md`](docs/architecture/api-reference.md)
+- 改 Tauri 命令 / HTTP 路由 → [`docs/architecture/system/api-reference.md`](docs/architecture/system/api-reference.md)
 - 修 README 任一语言 → 同 PR 同步另一语言（`README.md` ↔ `README.en.md`）
 - 修 Release Notes → 同 PR 内中英双份
 

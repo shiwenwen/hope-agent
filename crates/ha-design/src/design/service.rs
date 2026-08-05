@@ -1,7 +1,7 @@
 //! 设计空间 owner 平面业务入口（Tauri / HTTP 薄壳统一调用）。
 //!
 //! owner 平面 = 本机 / API key 信任，负责 UI 的项目/产物 CRUD、可视化编辑回写、
-//! 导出——**不经 agent 访问检查**（见 `docs/architecture/design-space.md` §3）。
+//! 导出——**不经 agent 访问检查**（见 `docs/architecture/infra/design-space.md` §3）。
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};

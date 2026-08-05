@@ -8,7 +8,7 @@ Hope Agent 是一个基于 Rust 的本地 AI 助手，同一个二进制支持�
 
 它的核心设计原则只有一条：**所有业务逻辑都在与界面无关的后端 crate 里，前端和 Tauri / HTTP 服务都只是薄壳。** 后端本身是一组分层的 crate——底层是基础设施，往上是核心业务 kernel，再往上是一个个可独立迁出的「特征 crate」（一个子系统一个）。这些 crate **全部零 Tauri 依赖**，因此同一套业务能力可以被桌面、服务器、CLI 三种入口复用。
 
-分层架构的完整设计见 [前后端分离架构](backend-separation.md)。
+分层架构的完整设计见 [前后端分离架构](system/backend-separation.md)。
 
 ## 技术栈
 
@@ -77,7 +77,7 @@ graph TD
 | ha-skills | 技能：解包 / 发现 / 创作 / auto-review |
 | ha-improve | 学习闭环：提案队列 / 领域评测 / 质量复核 |
 
-> Tauri 命令、HTTP 端点、工具数量是会增长的活数据；准确数字见 [API 参考](api-reference.md)。
+> Tauri 命令、HTTP 端点、工具数量是会增长的活数据；准确数字见 [API 参考](system/api-reference.md)。
 
 ## 核心数据流
 
@@ -183,7 +183,7 @@ graph TD
 
 删除项目会连带删掉它自建的工作目录和项目记忆（都在 `projects/{id}/` 目录树内），但绝不会碰用户显式指定的外部目录。
 
-详见 [Project 系统](project.md)。
+详见 [Project 系统](core/project.md)。
 
 ## 知识空间（Knowledge Base）
 
@@ -191,11 +191,11 @@ graph TD
 
 和 Obsidian / Logseq「AI 是插件」的形态相反，这里 AI 是一等公民：agent 通过 `note_*` 工具对笔记有完整的增删改查、双链、图谱、检索能力，还能把零散记忆提炼成结构化笔记。访问默认拒绝、需显式 attach，无痕会话零访问。检索走独立的全文加向量混合链路，和记忆系统物理隔离、互不干扰。
 
-详见 [知识空间（Knowledge Base）](knowledge-base.md)。
+详见 [知识空间（Knowledge Base）](core/knowledge-base.md)。
 
 ## 本地模型加载
 
-`ha-local-llm` 特征 crate 把本地 Ollama 当作一个 Provider 接入（走 Ollama 的 OpenAI 兼容端点）。它内置一份模型目录，按机器可用内存或显存预留出一定余量后，从大到小推荐能跑得动的模型；Ollama 进程由用户自己管理，app 不接管其生命周期。安装、模型拉取、Embedding 下载都走后台任务异步执行——这里正好体现前面说的「机器 / 台账」分工：执行逻辑在特征 crate，而后台任务台账留在 kernel（和记忆、知识库的向量重建共用同一套任务表）。详见 [本地模型加载](local-model-loading.md)。
+`ha-local-llm` 特征 crate 把本地 Ollama 当作一个 Provider 接入（走 Ollama 的 OpenAI 兼容端点）。它内置一份模型目录，按机器可用内存或显存预留出一定余量后，从大到小推荐能跑得动的模型；Ollama 进程由用户自己管理，app 不接管其生命周期。安装、模型拉取、Embedding 下载都走后台任务异步执行——这里正好体现前面说的「机器 / 台账」分工：执行逻辑在特征 crate，而后台任务台账留在 kernel（和记忆、知识库的向量重建共用同一套任务表）。详见 [本地模型加载](core/local-model-loading.md)。
 
 ## 存储架构
 
@@ -219,7 +219,7 @@ graph TD
 | projects/ | `~/.hope-agent/projects/{id}/` | 项目目录：`workspace/` 默认工作区（真实文件）+ `memory/` 项目记忆（`.md`）。删项目即 `rm -rf` 整个目录，记忆随之删除 |
 | credentials/ | `~/.hope-agent/credentials/` | OAuth token、MCP server 凭据（0600 原子写） |
 
-所有路径由 `paths.rs` 集中管理，统一挂在 `~/.hope-agent/` 下（完整清单见 [CLI 文档的数据目录速查](cli.md#数据目录速查)）。配置的读写都经过一层带缓存的统一入口，避免各处手动加载再保存造成竞争（详见 [配置系统](config-system.md)）。
+所有路径由 `paths.rs` 集中管理，统一挂在 `~/.hope-agent/` 下（完整清单见 [CLI 文档的数据目录速查](system/cli.md#数据目录速查)）。配置的读写都经过一层带缓存的统一入口，避免各处手动加载再保存造成竞争（详见 [配置系统](infra/config-system.md)）。
 
 ## 文档导航
 

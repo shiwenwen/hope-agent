@@ -21,7 +21,7 @@
 //! backend-side method blocklists, and — in this file — per-method payload SSRF
 //! scanning for `Runtime.evaluate` / `Runtime.callFunctionOn` / `Page.navigate`
 //! all apply. Do not drop the scans in `control_raw_cdp` as redundant. The four
-//! gates and their rationale live in `docs/architecture/browser.md`; the method
+//! gates and their rationale live in `docs/architecture/core/browser.md`; the method
 //! blocklists, and why `Network.*` is enumerated instead of prefix-blocked, are
 //! documented on `BLOCKED_RAW_CDP_METHODS`.
 

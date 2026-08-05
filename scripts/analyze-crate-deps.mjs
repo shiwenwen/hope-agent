@@ -364,7 +364,7 @@ if (WITH_TESTS) {
 // `tools/` 中转，`tools/` 才能随特征 crate 上浮。**同 crate 内加一条回边照样
 // 编译通过**，所以只靠 review 守不住——这里断言到底，回归即非零退出。
 // 契约见 AGENTS.md「工具契约层 tool_defs 与分发层 tools 单向」与
-// docs/architecture/backend-separation.md 的 tool_defs 小节。
+// docs/architecture/system/backend-separation.md 的 tool_defs 小节。
 //
 // 默认（生产边）：零容忍。`--tests`：只放行文档登记的 3 条遗留测试边
 // （types.rs / metadata.rs 的全表断言），多一条就报错——新增测试边请直接
@@ -688,7 +688,7 @@ if (report.featureScc.length) {
   }
   console.error(
     "  兄弟间单向边合法、成环不合法：把回边下沉 kernel typed port / 注册钩子，" +
-      "或重新分组。详见 docs/architecture/backend-separation.md「破环完成」小节。",
+      "或重新分组。详见 docs/architecture/system/backend-separation.md「破环完成」小节。",
   )
   process.exit(1)
 }

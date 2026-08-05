@@ -1,7 +1,7 @@
 //! `design` agent 工具：模型自主创建 / 迭代设计产物。
 //!
 //! agent 平面入口——逻辑复用 owner 平面 `crate::design::service`（Phase 3 访问门控
-//! 从简，Phase 6 接入设计系统注入与访问裁决）。见 docs/architecture/design-space.md §8。
+//! 从简，Phase 6 接入设计系统注入与访问裁决）。见 docs/architecture/infra/design-space.md §8。
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};

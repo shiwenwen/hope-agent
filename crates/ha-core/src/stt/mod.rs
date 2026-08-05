@@ -6,7 +6,7 @@
 //! and a multi-protocol provider surface (OpenAI multipart, SSE, Deepgram /
 //! AssemblyAI / Azure / Volcengine / iFlytek WebSockets).
 //!
-//! See `docs/architecture/stt.md` for the subsystem design.
+//! See `docs/architecture/core/stt.md` for the subsystem design.
 
 pub mod crud;
 pub mod engine;

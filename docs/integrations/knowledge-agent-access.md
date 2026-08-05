@@ -1,6 +1,6 @@
 # Knowledge Agent Access
 
-> 返回 [文档索引](../README.md) | 关联：[知识空间架构](../architecture/knowledge-base.md) · [CLI](../architecture/cli.md) · [API 参考](../architecture/api-reference.md)
+> 返回 [文档索引](../README.md) | 关联：[知识空间架构](../architecture/core/knowledge-base.md) · [CLI](../architecture/system/cli.md) · [API 参考](../architecture/system/api-reference.md)
 
 知识空间可以暴露给外部 agent，但默认保持只读。推荐优先用 MCP；HTTP 适合脚本、CI 或已经有 Hope Agent server 的远程部署。
 

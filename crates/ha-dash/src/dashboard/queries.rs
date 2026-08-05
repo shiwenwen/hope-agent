@@ -143,7 +143,7 @@ pub fn query_overview(_log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<
 /// taking the substring before the first '.' (or the whole string for bare
 /// tags like "session_title"/"recall_summary" that have no dot). Pure string
 /// split — NOT a hardcoded lookup table — so newly added purpose tags (see
-/// docs/architecture/automation-model.md §2.5) bucket correctly with zero
+/// docs/architecture/core/automation-model.md §2.5) bucket correctly with zero
 /// code changes here. Also naturally buckets the "kind-level generic"
 /// operation tags (e.g. "agent.side_query" -> "agent", "permission_judge" ->
 /// "permission_judge"), so by_operation/by_domain cover the whole ledger, not

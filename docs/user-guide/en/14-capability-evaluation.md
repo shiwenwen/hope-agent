@@ -234,4 +234,4 @@ Local export is always unsigned. Editing `source` or SHA fields in JSON cannot p
 - Learn the everyday Goal, Workflow, and Loop controls → [08 · Autonomous Tasks](08-autonomous-tasks.md)
 - Learn Sub-Agents, Teams, and concurrent jobs → [09 · Multi-Agent & Scheduled Tasks](09-multi-agent-and-scheduling.md)
 - View the ordinary token/cost ledger and system health → [12 · Projects & Insights](12-projects-and-insights.md)
-- For the evidence protocol and Runner architecture → [Real-model and complex-task evaluation](../../architecture/live-model-evaluation.md)
+- For the evidence protocol and Runner architecture → [Real-model and complex-task evaluation](../../architecture/agent/live-model-evaluation.md)

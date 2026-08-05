@@ -1,7 +1,7 @@
 //! 设计空间（Design Space）子系统。
 //!
 //! agent 原生设计工作空间：自包含 HTML 产物 + 品牌设计系统 + 稳定预览 +
-//! 可视化微调 + 一键导出。完整架构见 `docs/architecture/design-space.md`。
+//! 可视化微调 + 一键导出。完整架构见 `docs/architecture/infra/design-space.md`。
 //!
 //! **零 Tauri 依赖**：业务全在此，`src-tauri` / `ha-server` 只做薄壳。
 

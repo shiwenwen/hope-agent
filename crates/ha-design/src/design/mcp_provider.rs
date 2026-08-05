@@ -6,7 +6,7 @@
 //! **红线**：`--allow-writes` 才暴露写工具；**恒不暴露** implement_to_code / 代码绑定写 /
 //! deploy / share / delete_project / delete_artifact / save_to_knowledge / extract_system
 //! （scoped_local_path 以会话为根，MCP 无会话无法安全界定读根）/ export_*（写 Downloads）——
-//! 外部 agent 不得经 MCP 写用户代码仓库、对外发布或删除容器。见 docs/architecture/mcp-server.md。
+//! 外部 agent 不得经 MCP 写用户代码仓库、对外发布或删除容器。见 docs/architecture/integration/mcp-server.md。
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};

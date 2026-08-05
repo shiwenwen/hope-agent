@@ -97,7 +97,7 @@ export interface DashboardTokenData {
 
 /**
  * `domain` is a code-defined, ever-growing set of purpose-tag prefixes (see
- * docs/architecture/automation-model.md §2.5) — too many to keep a 12-locale
+ * docs/architecture/core/automation-model.md §2.5) — too many to keep a 12-locale
  * translation in sync with every new tag. This gives every domain a readable
  * fallback label with zero i18n keys required; `t("dashboard.operationDomain.
  * ${domain}", humanizeDomain(domain))` can still override individual domains

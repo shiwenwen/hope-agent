@@ -1035,7 +1035,7 @@ impl AcpAgent {
         // owns), so this id is minted purely to give `UserPromptSubmit` a
         // `prompt_id`. ACP's *in-turn* hooks still report `None` — closing that
         // needs ACP to hold a real active turn, tracked as a follow-up in
-        // docs/architecture/hooks.md §2.4.
+        // docs/architecture/agent/hooks.md §2.4.
         let turn_id = uuid::Uuid::new_v4().to_string();
         let effective_prompt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()

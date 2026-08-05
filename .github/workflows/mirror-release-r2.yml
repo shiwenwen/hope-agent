@@ -39,7 +39,7 @@ name: Mirror Release to R2
 # or a stale version advertisement. This says nothing about the manual
 # download links: those installers are run by OS tooling and never reach that
 # verifier, exactly as with manual downloads from GitHub.
-# See docs/architecture/self-update.md.
+# See docs/architecture/infra/self-update.md.
 #
 # Triggers:
 #   - release.published — auto-fires after a draft Release is manually

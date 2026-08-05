@@ -32,7 +32,7 @@ const SESSION_IDLE_TIMEOUT_SECS: u64 = 300;
 /// while sparing ~95% of mutex writes vs touching it every call.
 const LAST_ACTIVE_COALESCE: u32 = 32;
 
-/// EventBus event names. See `docs/architecture/stt.md`.
+/// EventBus event names. See `docs/architecture/core/stt.md`.
 pub const EVENT_TRANSCRIPT_PARTIAL: &str = "stt:transcript_partial";
 pub const EVENT_TRANSCRIPT_FINAL: &str = "stt:transcript_final";
 pub const EVENT_SESSION_ERROR: &str = "stt:session_error";
