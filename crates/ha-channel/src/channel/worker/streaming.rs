@@ -941,7 +941,11 @@ pub(super) fn spawn_channel_stream_task(
             // starved until EOF.
             if flush_schedule.should_flush(
                 dirty,
-                !accumulated.is_empty() || is_native_transport(&preview_transport),
+                preview_has_renderable_content(
+                    &preview_transport,
+                    &accumulated,
+                    &native_frame_state,
+                ),
                 Instant::now(),
             ) {
                 if let Some(failure) = send_stream_preview(
@@ -1101,6 +1105,11 @@ pub(super) fn spawn_channel_stream_task(
                                 && (dirty
                                     || native_frame_state.revision > 0
                                     || !native_frame_state.tasks.tasks.is_empty())
+                                && preview_has_renderable_content(
+                                    &preview_transport,
+                                    &accumulated,
+                                    &native_frame_state,
+                                )
                             {
                                 native_phase = ReplyStreamPhase::Finalizing;
                                 if let Some(failure) = send_stream_preview(
@@ -1125,8 +1134,8 @@ pub(super) fn spawn_channel_stream_task(
                     }
                 }
 
-                _ = tokio::time::sleep_until(flush_schedule.next_at()), if dirty && (!accumulated.is_empty() || is_native_transport(&preview_transport)) => {
-                    if dirty && (!accumulated.is_empty() || is_native_transport(&preview_transport)) {
+                _ = tokio::time::sleep_until(flush_schedule.next_at()), if dirty && preview_has_renderable_content(&preview_transport, &accumulated, &native_frame_state) => {
+                    if dirty && preview_has_renderable_content(&preview_transport, &accumulated, &native_frame_state) {
                         if let Some(failure) = send_stream_preview(
                             &plugin, &account_id, &chat_id,
                             reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
@@ -1614,6 +1623,21 @@ fn select_legacy_preview_transport(
 
 fn is_native_transport(transport: &StreamPreviewTransport) -> bool {
     matches!(transport, StreamPreviewTransport::Native { .. })
+}
+
+pub(super) fn preview_has_renderable_content(
+    transport: &StreamPreviewTransport,
+    accumulated: &str,
+    frame_state: &NativeFrameState,
+) -> bool {
+    match transport {
+        StreamPreviewTransport::Native { capabilities, .. } => {
+            !accumulated.is_empty()
+                || (capabilities.supports_task_updates && !frame_state.tasks.tasks.is_empty())
+                || capabilities.supports_plan_updates
+        }
+        _ => !accumulated.is_empty(),
+    }
 }
 
 fn native_keepalive_due(

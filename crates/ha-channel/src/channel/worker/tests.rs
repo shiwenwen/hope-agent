@@ -560,6 +560,42 @@ fn stream_preview_flush_schedule_starts_fast_then_uses_safe_cadence() {
 }
 
 #[test]
+fn native_tool_only_frame_requires_a_supported_projection() {
+    let mut native = native_caps(ReplyStreamUpdateMode::Snapshot);
+    native.supports_task_updates = false;
+    native.supports_plan_updates = false;
+    let mut capabilities = caps(true, true, false);
+    capabilities.native_reply = Some(native.clone());
+    let mut frame_state = NativeFrameState::default();
+    assert!(frame_state
+        .tasks
+        .observe(r#"{"type":"tool_call","call_id":"call-1","name":"web_fetch"}"#,));
+    let transport = select_stream_preview_transport(&target(ChatType::Dm), &capabilities, true)
+        .expect("native transport");
+
+    assert!(
+        !preview_has_renderable_content(&transport, "", &frame_state),
+        "Telegram-style native drafts must not open for an unsupported tool-only frame"
+    );
+    assert!(preview_has_renderable_content(
+        &transport,
+        "visible text",
+        &frame_state
+    ));
+
+    native.supports_task_updates = true;
+    capabilities.native_reply = Some(native);
+    let supported_transport =
+        select_stream_preview_transport(&target(ChatType::Dm), &capabilities, true)
+            .expect("native transport");
+    assert!(preview_has_renderable_content(
+        &supported_transport,
+        "",
+        &frame_state
+    ));
+}
+
+#[test]
 fn append_preview_round_text_inserts_line_break_between_rounds() {
     let mut accumulated = "我把头像文件直接发给你。".to_string();
     append_preview_round_text(&mut accumulated, "已发送。", true);
