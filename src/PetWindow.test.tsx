@@ -224,6 +224,28 @@ describe("PetWindow pointer interactions", () => {
     expect(mocks.call).toHaveBeenCalledWith("pet_focus_target_cmd", { target: null })
   })
 
+  test("keeps a click-triggered v2 jump while pointer tracking continues", async () => {
+    render(<PetWindow />)
+    const pet = petButton()
+    Object.defineProperty(pet, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-row-count", "11"),
+    )
+
+    fireEvent.click(pet)
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "jump")
+
+    fireEvent.pointerMove(pet, { clientX: 100, clientY: 50 })
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "jump")
+
+    act(() => mocks.completeAction?.("jump"))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "4")
+  })
+
   test("paints and updates the running direction throughout the native drag", () => {
     vi.useFakeTimers()
     const frames: FrameRequestCallback[] = []

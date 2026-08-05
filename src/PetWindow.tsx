@@ -458,7 +458,7 @@ export default function PetWindow() {
     (clientX: number, clientY: number, overPet: boolean) => {
       const next = updateLookTarget(clientX, clientY)
       if (!isV2Pet) return
-      setPointerAction(null)
+      setPointerAction((current) => (current === "wave" ? null : current))
       if (overPet && next === "neutral" && !dragging && !pointerGesture.current?.dragged) {
         scheduleV2HoverGreeting()
       } else {
