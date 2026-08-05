@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { parsePayload } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 
@@ -18,6 +18,12 @@ export interface PetInactiveHoverTarget {
   pet: boolean
 }
 
+export type PetInactivePointerCallback = (
+  x: number | null,
+  y: number | null,
+  target: PetInactiveHoverTarget,
+) => void
+
 const EMPTY_TARGET: PetInactiveHoverTarget = {
   activityId: null,
   action: null,
@@ -31,10 +37,8 @@ function sameTarget(a: PetInactiveHoverTarget, b: PetInactiveHoverTarget): boole
 export function resolvePetInactiveHoverTarget(x: number, y: number): PetInactiveHoverTarget {
   const element = document.elementFromPoint(x, y)
   if (!element) return EMPTY_TARGET
-  const activityId = element.closest<HTMLElement>("[data-pet-activity-id]")?.dataset
-    .petActivityId
-  const rawAction = element.closest<HTMLElement>("[data-pet-hover-action]")?.dataset
-    .petHoverAction
+  const activityId = element.closest<HTMLElement>("[data-pet-activity-id]")?.dataset.petActivityId
+  const rawAction = element.closest<HTMLElement>("[data-pet-hover-action]")?.dataset.petHoverAction
   const action: PetInactiveHoverAction = ["dismiss", "reply", "stop"].includes(rawAction ?? "")
     ? (rawAction as PetInactiveHoverAction)
     : null
@@ -51,17 +55,23 @@ export function resolvePetInactiveHoverTarget(x: number, y: number): PetInactive
  * this window; resolve them against the live DOM and expose a small declarative
  * hover target without synthesizing mouse events or stealing application focus.
  */
-export function usePetInactivePointer(): PetInactiveHoverTarget {
+export function usePetInactivePointer(
+  onPointer?: PetInactivePointerCallback,
+): PetInactiveHoverTarget {
   const [target, setTarget] = useState<PetInactiveHoverTarget>(EMPTY_TARGET)
+  const onPointerRef = useRef(onPointer)
+
+  useEffect(() => {
+    onPointerRef.current = onPointer
+  }, [onPointer])
 
   useEffect(
     () =>
       getTransport().listen(PET_INACTIVE_POINTER_EVENT, (raw) => {
         const payload = parsePayload<PetInactivePointerEvent>(raw)
-        const next =
-          payload?.inside && Number.isFinite(payload.x) && Number.isFinite(payload.y)
-            ? resolvePetInactiveHoverTarget(payload.x, payload.y)
-            : EMPTY_TARGET
+        const inside = payload?.inside && Number.isFinite(payload.x) && Number.isFinite(payload.y)
+        const next = inside ? resolvePetInactiveHoverTarget(payload.x, payload.y) : EMPTY_TARGET
+        onPointerRef.current?.(inside ? payload.x : null, inside ? payload.y : null, next)
         setTarget((current) => (sameTarget(current, next) ? current : next))
       }),
     [],

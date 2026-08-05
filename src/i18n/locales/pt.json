@@ -12353,7 +12353,7 @@
       "failed": "Não foi possível exportar este mascote"
     },
     "window": {
-      "interact": "Interagir com o pet do Hope",
+      "interact": "Interagir com {{name}}",
       "tuckAway": "Guardar mascote"
     },
     "bubble": {

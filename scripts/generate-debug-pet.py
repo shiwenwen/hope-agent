@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Generate the development-only Pet animation diagnostics atlas.
 
-Each Codex v1 cell has a solid state colour plus exact bilingual state and
-zero-based row/frame labels. The committed PNG is deterministic for a given
-font and lets developers see both the selected action row and frame cadence.
+Each used Codex v1 cell has a solid state colour plus exact bilingual state
+and zero-based row/frame labels. Contractually unused cells stay transparent.
+The committed PNG is deterministic for a given font and lets developers see
+both the selected action row and frame cadence.
 """
 
 from __future__ import annotations
@@ -23,11 +24,12 @@ ROWS = [
     ("RUN LEFT", "向左跑", (13, 148, 136)),
     ("WAVE", "挥手", (124, 58, 237)),
     ("JUMP", "跳跃", (202, 91, 10)),
-    ("SAD", "难过", (220, 38, 38)),
+    ("FAILED", "失败", (220, 38, 38)),
     ("WAITING", "等待", (79, 70, 229)),
-    ("WORKING", "工作中", (2, 132, 199)),
-    ("CELEBRATE", "庆祝", (219, 39, 119)),
+    ("RUNNING", "运行中", (2, 132, 199)),
+    ("REVIEW", "审阅", (219, 39, 119)),
 ]
+FRAME_COUNTS = (6, 8, 8, 4, 5, 8, 6, 6, 6)
 
 FONT_CANDIDATES = [
     Path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
@@ -77,7 +79,7 @@ def generate(output: Path, font_path: Path) -> None:
     muted_white = (255, 255, 255, 210)
 
     for row, (english, chinese, colour) in enumerate(ROWS):
-        for frame in range(FRAME_COUNT):
+        for frame in range(FRAME_COUNTS[row]):
             x = frame * CELL_WIDTH
             y = row * CELL_HEIGHT
             draw.rectangle((x, y, x + CELL_WIDTH - 1, y + CELL_HEIGHT - 1), fill=shade(colour, frame))

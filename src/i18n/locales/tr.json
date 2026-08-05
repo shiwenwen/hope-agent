@@ -12353,7 +12353,7 @@
       "failed": "Bu evcil hayvan dışa aktarılamadı"
     },
     "window": {
-      "interact": "Hope evcil hayvanıyla etkileşime geç",
+      "interact": "{{name}} ile etkileşime geç",
       "tuckAway": "Evcil hayvanı kaldır"
     },
     "bubble": {

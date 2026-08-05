@@ -12353,7 +12353,7 @@
       "failed": "이 펫을 내보낼 수 없습니다"
     },
     "window": {
-      "interact": "Hope 펫과 상호작용",
+      "interact": "{{name}}와 상호작용",
       "tuckAway": "펫 숨기기"
     },
     "bubble": {

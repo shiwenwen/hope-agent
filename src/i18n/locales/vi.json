@@ -12353,7 +12353,7 @@
       "failed": "Không thể xuất thú cưng này"
     },
     "window": {
-      "interact": "Tương tác với thú cưng Hope",
+      "interact": "Tương tác với {{name}}",
       "tuckAway": "Cất thú cưng"
     },
     "bubble": {

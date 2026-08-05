@@ -1,6 +1,10 @@
 import { memo, useState } from "react"
-import builtinPetUrl from "@/assets/pets/hope-default.png"
-import { usePetAnimator, type PetAction } from "@/components/pet/hooks/usePetAnimator"
+import builtinPetUrl from "@/assets/pets/hope-default.webp"
+import {
+  usePetAnimator,
+  type PetAction,
+  type PetLookTarget,
+} from "@/components/pet/hooks/usePetAnimator"
 
 const CELL_WIDTH = 192
 const CELL_HEIGHT = 208
@@ -25,7 +29,7 @@ export const PetSprite = memo(function PetSprite({
 }: PetSpriteProps) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
   const usingFallback = failedSrc === src
-  const renderedRowCount = usingFallback ? 9 : rowCount
+  const renderedRowCount = usingFallback ? 11 : rowCount
   return (
     <svg
       viewBox={`0 0 ${CELL_WIDTH} ${CELL_HEIGHT}`}
@@ -52,6 +56,7 @@ interface AnimatedPetSpriteProps {
   src: string
   action: PetAction
   rowCount: 1 | 9 | 11
+  lookTarget?: PetLookTarget
   dimmed?: boolean
   onActionComplete?: (action: PetAction) => void
 }
@@ -61,10 +66,11 @@ export const AnimatedPetSprite = memo(function AnimatedPetSprite({
   src,
   action,
   rowCount,
+  lookTarget = null,
   dimmed,
   onActionComplete,
 }: AnimatedPetSpriteProps) {
-  const animation = usePetAnimator(action, onActionComplete)
+  const animation = usePetAnimator(action, onActionComplete, rowCount === 11 ? lookTarget : null)
   return (
     <PetSprite
       src={src}

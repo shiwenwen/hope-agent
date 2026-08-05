@@ -20,11 +20,19 @@ import { PetApprovalCard } from "@/components/pet/PetApprovalCard"
 import { PetAskUserCard } from "@/components/pet/PetAskUserCard"
 import { PetBubble, type PetReplyDispatch } from "@/components/pet/PetBubble"
 import { AnimatedPetSprite } from "@/components/pet/PetSprite"
-import { actionForStatus, type PetAction } from "@/components/pet/hooks/usePetAnimator"
+import {
+  actionForStatus,
+  lookTargetForPointer,
+  type PetAction,
+  type PetLookTarget,
+} from "@/components/pet/hooks/usePetAnimator"
 import { usePetActivity } from "@/components/pet/hooks/usePetActivity"
 import { usePetAssetUrl } from "@/components/pet/hooks/usePetAssetUrl"
 import { usePetStreamPreviews } from "@/components/pet/hooks/usePetStreamPreviews"
-import { usePetInactivePointer } from "@/components/pet/hooks/usePetInactivePointer"
+import {
+  usePetInactivePointer,
+  type PetInactiveHoverTarget,
+} from "@/components/pet/hooks/usePetInactivePointer"
 import { usePetWindowLayout, type PetOverlayMode } from "@/components/pet/hooks/usePetWindowLayout"
 import { logger } from "@/lib/logger"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED, type ChatStartArgs } from "@/lib/transport"
@@ -38,6 +46,7 @@ type PetInteraction =
 
 const NATIVE_DRAG_PRESENTATION_MS = 34
 const PET_NATIVE_DRAG_ENDED_EVENT = "pet:native_drag_ended"
+const V2_HOVER_GREETING_DELAY_MS = 700
 
 function sessionIdForTarget(target: PetNavigationTarget): string {
   return target.sessionId
@@ -69,6 +78,7 @@ export default function PetWindow() {
   const [dragging, setDragging] = useState(false)
   const [dragAction, setDragAction] = useState<PetAction | null>(null)
   const [pointerAction, setPointerAction] = useState<PetAction | null>(null)
+  const [lookTarget, setLookTarget] = useState<PetLookTarget>(null)
   const [askGroups, setAskGroups] = useState<Map<string, AskUserQuestionGroup>>(new Map())
   const [dismissedActivityKeys, setDismissedActivityKeys] = useState<Set<string>>(new Set())
   const measureRef = useRef<HTMLDivElement>(null)
@@ -83,15 +93,34 @@ export default function PetWindow() {
   const dragWindowX = useRef<number | null>(null)
   const nativeDragFrame = useRef<number | null>(null)
   const nativeDragTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hoverGreetingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const suppressNextPetClick = useRef(false)
+  const domPetHovered = useRef(false)
+  const inactivePetHovered = useRef(false)
   const inactivePetWasHovered = useRef(false)
-  const inactiveHover = usePetInactivePointer()
 
   const selectedPet = useMemo(() => {
     const selected = library?.pets.find((pet) => pet.petRef === config?.selectedPetRef)
     return selected ?? library?.pets.find((pet) => pet.builtin) ?? null
   }, [config?.selectedPetRef, library])
   const petAsset = usePetAssetUrl(selectedPet?.assetId ?? null)
+  const isV1Pet = selectedPet?.manifest.spriteVersionNumber === 1
+  const isV2Pet = selectedPet?.manifest.spriteVersionNumber === 2
+  const petDisplayName = selectedPet?.manifest.displayName ?? "Nori"
+  const clearHoverGreeting = useCallback(() => {
+    if (hoverGreetingTimer.current === null) return
+    clearTimeout(hoverGreetingTimer.current)
+    hoverGreetingTimer.current = null
+  }, [])
+  const scheduleV2HoverGreeting = useCallback(() => {
+    clearHoverGreeting()
+    hoverGreetingTimer.current = setTimeout(() => {
+      hoverGreetingTimer.current = null
+      if (!domPetHovered.current && !inactivePetHovered.current) return
+      if (pointerGesture.current?.dragged) return
+      setPointerAction((current) => current ?? "wave")
+    }, V2_HOVER_GREETING_DELAY_MS)
+  }, [clearHoverGreeting])
   const streamPreviews = usePetStreamPreviews(snapshot.activities)
   const visibleActivities = useMemo(
     () =>
@@ -369,6 +398,7 @@ export default function PetWindow() {
   )
 
   const handlePetClick = () => {
+    clearHoverGreeting()
     const suppress = suppressNextPetClick.current || pointerGesture.current?.dragged
     suppressNextPetClick.current = false
     pointerGesture.current = null
@@ -389,6 +419,7 @@ export default function PetWindow() {
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return
+    clearHoverGreeting()
     suppressNextPetClick.current = false
     pointerGesture.current = { x: event.clientX, y: event.clientY, dragged: false }
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -409,6 +440,50 @@ export default function PetWindow() {
     setDragging(false)
     setDragAction(null)
   }, [])
+
+  const updateLookTarget = useCallback(
+    (clientX: number, clientY: number): PetLookTarget => {
+      if (!isV2Pet || dragging || pointerGesture.current?.dragged) {
+        setLookTarget(null)
+        return null
+      }
+      const rect = petButtonRef.current?.getBoundingClientRect()
+      if (!rect) return null
+      const next = lookTargetForPointer(clientX, clientY, rect)
+      setLookTarget((current) => (current === next ? current : next))
+      return next
+    },
+    [dragging, isV2Pet],
+  )
+  const handleV2PointerMotion = useCallback(
+    (clientX: number, clientY: number, overPet: boolean) => {
+      const next = updateLookTarget(clientX, clientY)
+      if (!isV2Pet) return
+      setPointerAction((current) => (current === "wave" ? null : current))
+      if (overPet && next === "neutral" && !dragging && !pointerGesture.current?.dragged) {
+        scheduleV2HoverGreeting()
+      } else {
+        clearHoverGreeting()
+      }
+    },
+    [clearHoverGreeting, dragging, isV2Pet, scheduleV2HoverGreeting, updateLookTarget],
+  )
+  const inactivePointerLook = useCallback(
+    (x: number | null, y: number | null, target: PetInactiveHoverTarget) => {
+      inactivePetHovered.current = target.pet
+      if (x === null || y === null) {
+        clearHoverGreeting()
+        if (isV2Pet) {
+          setPointerAction((current) => (current === "wave" ? null : current))
+        }
+        setLookTarget(domPetHovered.current && isV2Pet ? "neutral" : null)
+        return
+      }
+      handleV2PointerMotion(x, y, target.pet)
+    },
+    [clearHoverGreeting, handleV2PointerMotion, isV2Pet],
+  )
+  const inactiveHover = usePetInactivePointer(inactivePointerLook)
 
   useEffect(
     () => getTransport().listen(PET_NATIVE_DRAG_ENDED_EVENT, finishPetDrag),
@@ -448,11 +523,13 @@ export default function PetWindow() {
     const dx = event.clientX - gesture.x
     const dy = event.clientY - gesture.y
     if (Math.hypot(dx, dy) < 4) return
+    clearHoverGreeting()
     gesture.dragged = true
     dragWindowX.current = null
     suppressNextPetClick.current = true
     flushSync(() => {
       setPointerAction(null)
+      setLookTarget(null)
       setMenuOpen(false)
       setDragging(true)
       setDragAction(dx < 0 ? "run_left" : "run_right")
@@ -478,13 +555,15 @@ export default function PetWindow() {
     () => () => {
       if (nativeDragFrame.current !== null) cancelAnimationFrame(nativeDragFrame.current)
       if (nativeDragTimer.current !== null) clearTimeout(nativeDragTimer.current)
+      clearHoverGreeting()
     },
-    [],
+    [clearHoverGreeting],
   )
 
   const handlePetContextMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
+    clearHoverGreeting()
     pointerGesture.current = null
     suppressNextPetClick.current = false
     setPointerAction(null)
@@ -541,14 +620,16 @@ export default function PetWindow() {
   const action = dragAction ?? pointerAction ?? actionForStatus(snapshot.dominant)
 
   useEffect(() => {
-    const shouldWave = inactiveHover.pet && !inactivePetWasHovered.current && !dragging
+    const enteredPet = inactiveHover.pet && !inactivePetWasHovered.current
     inactivePetWasHovered.current = inactiveHover.pet
-    if (!shouldWave) return
-    const frame = requestAnimationFrame(() => {
-      setPointerAction((current) => current ?? "wave")
-    })
+    if (dragging) {
+      clearHoverGreeting()
+      return
+    }
+    if (!inactiveHover.pet || !enteredPet || !isV1Pet) return
+    const frame = requestAnimationFrame(() => setPointerAction((current) => current ?? "wave"))
     return () => cancelAnimationFrame(frame)
-  }, [dragging, inactiveHover.pet])
+  }, [clearHoverGreeting, dragging, inactiveHover.pet, isV1Pet])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -659,6 +740,17 @@ export default function PetWindow() {
   return (
     <main
       className="relative h-screen w-screen overflow-hidden bg-transparent"
+      onPointerMove={(event) =>
+        handleV2PointerMotion(event.clientX, event.clientY, domPetHovered.current)
+      }
+      onPointerLeave={() => {
+        domPetHovered.current = false
+        clearHoverGreeting()
+        if (isV2Pet) {
+          setPointerAction((current) => (current === "wave" ? null : current))
+        }
+        setLookTarget(null)
+      }}
       onPointerDown={(event) => {
         if (menuOpen && event.target === event.currentTarget) closeMenu()
       }}
@@ -717,20 +809,33 @@ export default function PetWindow() {
             type="button"
             variant="ghost"
             onClick={handlePetClick}
-            onPointerEnter={() => {
-              if (!dragging && !pointerAction) setPointerAction("wave")
+            onPointerEnter={(event) => {
+              domPetHovered.current = true
+              if (isV2Pet) {
+                handleV2PointerMotion(event.clientX, event.clientY, true)
+              } else if (!dragging && !pointerAction && isV1Pet) {
+                setPointerAction("wave")
+              }
+            }}
+            onPointerLeave={(event) => {
+              domPetHovered.current = false
+              handleV2PointerMotion(event.clientX, event.clientY, false)
             }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={finishPetDrag}
             onContextMenu={handlePetContextMenu}
-            aria-label={t("pet.window.interact", { defaultValue: "Interact with Hope pet" })}
+            aria-label={t("pet.window.interact", {
+              name: petDisplayName,
+              defaultValue: "Interact with {{name}}",
+            })}
             className="h-auto w-auto cursor-grab rounded-2xl bg-transparent p-1 hover:bg-transparent active:cursor-grabbing"
           >
             <AnimatedPetSprite
               src={petAsset.src}
               action={action}
-              rowCount={selectedPet?.manifest.spriteVersionNumber === 2 ? 11 : 9}
+              rowCount={petAsset.fallback ? 11 : isV1Pet ? 9 : 11}
+              lookTarget={action === "idle" ? lookTarget : null}
               dimmed={petAsset.loading || petAsset.failed || snapshot.stale}
               onActionComplete={(completed) => {
                 setPointerAction((current) => (current === completed ? null : current))
@@ -740,7 +845,10 @@ export default function PetWindow() {
           {menuOpen && (
             <div
               role="menu"
-              aria-label={t("pet.window.interact", { defaultValue: "Pet actions" })}
+              aria-label={t("pet.window.interact", {
+                name: petDisplayName,
+                defaultValue: "Interact with {{name}}",
+              })}
               className="pointer-events-auto absolute left-1/2 top-1/2 z-20 flex max-w-[116px] -translate-x-1/2 -translate-y-1/2 items-center gap-0.5 rounded-full border border-border/60 bg-popover/90 p-0.5 shadow-md backdrop-blur-md"
             >
               <Button

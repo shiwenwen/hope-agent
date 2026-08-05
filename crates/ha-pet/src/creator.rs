@@ -5,8 +5,8 @@ use anyhow::{Context, Result};
 use image::{ImageFormat, Rgba, RgbaImage};
 
 use super::atlas::{
-    portable_pet_id, sanitize_text, upgrade_v1_atlas_to_v2, validate_package, ATLAS_WIDTH,
-    CELL_HEIGHT, CELL_WIDTH, V1_HEIGHT,
+    clear_transparent_rgb, portable_pet_id, sanitize_text, upgrade_v1_atlas_to_v2,
+    validate_package, ATLAS_WIDTH, CELL_HEIGHT, CELL_WIDTH, STANDARD_FRAME_COUNTS, V1_HEIGHT,
 };
 use super::types::{PetCreateRequest, PetImportPreview, PetManifest, PetSpriteVersion};
 
@@ -186,7 +186,7 @@ fn build_atlas(source: &[u8], version: PetSpriteVersion) -> Result<Vec<u8>> {
     );
     let mut atlas = RgbaImage::new(ATLAS_WIDTH, V1_HEIGHT);
     for row in 0..9 {
-        for frame in 0..8 {
+        for frame in 0..STANDARD_FRAME_COUNTS[row as usize] {
             let (dx, dy, scale, flip) = pose(row, frame);
             let width = ((base.width() as f32 * scale).round() as u32).max(1);
             let height = ((base.height() as f32 * scale).round() as u32).max(1);
@@ -214,6 +214,7 @@ fn build_atlas(source: &[u8], version: PetSpriteVersion) -> Result<Vec<u8>> {
             image::imageops::overlay(&mut atlas, &frame_image, x, y);
         }
     }
+    clear_transparent_rgb(&mut atlas);
     let mut output = Cursor::new(Vec::new());
     image::DynamicImage::ImageRgba8(atlas).write_to(&mut output, ImageFormat::Png)?;
     let v1 = output.into_inner();
@@ -305,10 +306,34 @@ mod tests {
             image::load_from_memory(&v1).unwrap().dimensions(),
             (ATLAS_WIDTH, V1_HEIGHT)
         );
+        let v1_package = validate_package(
+            PetManifest {
+                id: "generated-v1".to_string(),
+                display_name: "Generated v1".to_string(),
+                description: None,
+                sprite_version_number: PetSpriteVersion::V1,
+                spritesheet_path: "spritesheet.png".to_string(),
+            },
+            v1,
+        )
+        .unwrap();
+        assert!(v1_package.issues.is_empty(), "{:?}", v1_package.issues);
         let v2 = build_atlas(&source, PetSpriteVersion::V2).unwrap();
         assert_eq!(
             image::load_from_memory(&v2).unwrap().dimensions(),
             (ATLAS_WIDTH, super::super::atlas::V2_HEIGHT)
         );
+        let v2_package = validate_package(
+            PetManifest {
+                id: "generated-v2".to_string(),
+                display_name: "Generated v2".to_string(),
+                description: None,
+                sprite_version_number: PetSpriteVersion::V2,
+                spritesheet_path: "spritesheet.png".to_string(),
+            },
+            v2,
+        )
+        .unwrap();
+        assert!(v2_package.issues.is_empty(), "{:?}", v2_package.issues);
     }
 }

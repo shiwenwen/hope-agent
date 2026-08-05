@@ -12353,7 +12353,7 @@
       "failed": "无法导出这只宠物"
     },
     "window": {
-      "interact": "与 Hope 宠物互动",
+      "interact": "与 {{name}} 互动",
       "tuckAway": "收起宠物"
     },
     "bubble": {
