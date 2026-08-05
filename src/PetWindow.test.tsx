@@ -255,6 +255,25 @@ describe("PetWindow pointer interactions", () => {
     expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-look", "4")
   })
 
+  test("keeps a click-triggered v2 jump when the pointer leaves the pet window", async () => {
+    render(<PetWindow />)
+    const pet = petButton()
+    const main = screen.getByRole("main")
+    await waitFor(() =>
+      expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "builtin/hope-default"),
+    )
+
+    fireEvent.click(pet)
+    fireEvent.pointerLeave(main)
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "jump")
+
+    act(() => mocks.listeners.get("pet:inactive_pointer")?.({ inside: false, x: 0, y: 0 }))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "jump")
+
+    act(() => mocks.completeAction?.("jump"))
+    expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-action", "idle")
+  })
+
   test("paints and updates the running direction throughout the native drag", () => {
     vi.useFakeTimers()
     const frames: FrameRequestCallback[] = []

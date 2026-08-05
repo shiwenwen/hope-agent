@@ -472,7 +472,9 @@ export default function PetWindow() {
       inactivePetHovered.current = target.pet
       if (x === null || y === null) {
         clearHoverGreeting()
-        if (isV2Pet) setPointerAction(null)
+        if (isV2Pet) {
+          setPointerAction((current) => (current === "wave" ? null : current))
+        }
         setLookTarget(domPetHovered.current && isV2Pet ? "neutral" : null)
         return
       }
@@ -743,7 +745,9 @@ export default function PetWindow() {
       onPointerLeave={() => {
         domPetHovered.current = false
         clearHoverGreeting()
-        if (isV2Pet) setPointerAction(null)
+        if (isV2Pet) {
+          setPointerAction((current) => (current === "wave" ? null : current))
+        }
         setLookTarget(null)
       }}
       onPointerDown={(event) => {
