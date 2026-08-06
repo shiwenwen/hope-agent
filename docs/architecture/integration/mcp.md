@@ -184,7 +184,7 @@ stateDiagram-v2
 
 **熔断**：连续失败达到 `consecutiveFailureCircuitBreaker`（默认 10）后，`retry_at` 被推到 `now + autoReconnectAfterCircuitSecs`（默认 1800s = 30min）以压制日志噪声；用户手动 Reconnect 随时绕过。
 
-**断开 / 关闭**：`client::disconnect(handle)` 取出 `RunningService` 后 `running.cancel().await`。stdio 子进程的终止由 rmcp 的 `TokioChildProcess` 负责，本模块不自己发 SIGTERM/SIGKILL。
+**断开 / 关闭**：`client::disconnect(handle)` 取出 `RunningService` 后 `running.cancel().await`。stdio transport 的 `BoundedChildOutput` 持有 `kill_on_drop=true` 的子进程句柄；transport 被取消 / 丢弃时由 Tokio 终止子进程，本模块不另发 SIGTERM/SIGKILL。
 
 **并发上限**（两层独立 semaphore，`invoke::call_tool` 依次 `acquire_owned`）：
 
@@ -202,15 +202,15 @@ stateDiagram-v2
 ```mermaid
 flowchart LR
     cfg["transport.kind"] --> sw{kind?}
-    sw -->|Stdio| stdio["子进程 + env 白名单<br/>不涉网络，跳过 SSRF"]
-    sw -->|StreamableHttp| http["POST initialize<br/>ssrf_gate_url 一道"]
-    sw -->|Sse| sse["GET SSE → 读 endpoint 事件<br/>ssrf_gate_url 两道"]
+    sw -->|Stdio| stdio["子进程 + env 白名单<br/>4 MiB JSON-RPC 行上限"]
+    sw -->|StreamableHttp| http["POST initialize<br/>SSRF + 4 MiB body/event 上限"]
+    sw -->|Sse| sse["GET SSE → 读 endpoint 事件<br/>双 SSRF + 4 MiB event 上限"]
     sw -->|WebSocket| ws["ws→http 重写 → ssrf_gate_url<br/>+ 帧大小上限 + yield 预算"]
 ```
 
 ### stdio
 
-- `build_stdio_client` 经 `rmcp::transport::TokioChildProcess` 启动子进程；命令**不过 shell**，args 作为独立 argv 传入
+- `build_stdio_client` 直接启动 `kill_on_drop` 子进程并用 rmcp 的有界 `JsonRpcMessageCodec` 接线；命令**不过 shell**，args 作为独立 argv 传入
 - 子进程只继承 9 个白名单 env（`HOME` / `USER` / `PATH` / `LANG` / `LC_ALL` / `TZ` / `TMPDIR` / `TEMP` / `TMP`）+ `cfg.env` 显式声明，支持 `${VAR}` 占位符展开
 - stderr 独立 tailer → `app_warn!` 输出：单行截断 4 KiB、每 10s 最多 100 行、超出汇总为一条 `[suppressed N lines over 10s]`
 
@@ -228,7 +228,7 @@ Streamable HTTP 和 SSE 是**两套 wire 协议，不能互相路由**：Streama
 - `build_sse_client`：GET SSE URL → 读到 `endpoint` 事件拿 session 化的 POST URL → 之后 client→server 走 POST 到该 URL、server→client 走 SSE `message` 帧
 - **SSRF 两道门**：① GET URL 出站前 `ssrf_gate_url`；② server 返回的 `endpoint` 是 server-controlled 的，首次 POST 前经 `resolve_sse_endpoint`（相对路径按 base 解析）后**再过一次** `ssrf_gate_url`。第二道校验拦的是恶意 server 把 POST 引到内网的路径，省不得
 - 整个握手在 `connect_timeout_secs` 内完成；server 不发 `endpoint` 就超时（`Timeout`），不会挂死
-- **代理绕行（本地 MCP）**：reqwest 会抓系统/环境代理但**不遵守 OS bypass 列表**（macOS `ExceptionsList` / `ExcludeSimpleHostnames`），导致"开代理连云端 LLM"时本地 MCP（`http://localhost:PORT`）被代理劫持 → 503。`build_mcp_http_client` 按 `host_bypasses_proxy(host)`（`localhost` / `*.localhost` + IPv4 loopback/private/link-local + IPv6 loopback/ULA/link-local）对本地目标 `.no_proxy()`，远程目标仍走代理。**仅 SSE 路径有此修正**——Streamable HTTP 走 rmcp 自带的 reqwest（0.13，而 ha-mcp 用 workspace 的 0.12），没有注入点，本地 Streamable HTTP + 代理仍会被劫持（已知限制；本地 MCP 绝大多数是 stdio / SSE，不为此引入第二个 reqwest 大版本）
+- **代理绕行（本地 MCP）**：reqwest 会抓系统/环境代理但**不遵守 OS bypass 列表**（macOS `ExceptionsList` / `ExcludeSimpleHostnames`），导致"开代理连云端 LLM"时本地 MCP（`http://localhost:PORT`）被代理劫持 → 503。Streamable HTTP 与 legacy SSE 都经 `build_mcp_http_client`，按 `host_bypasses_proxy(host)`（`localhost` / `*.localhost` + IPv4 loopback/private/link-local + IPv6 loopback/ULA/link-local）对本地目标 `.no_proxy()`，远程目标仍走代理；前者由 `BoundedMcpHttpClient` 实现 rmcp 的 client trait，避免使用 rmcp 内置的无上限 reqwest adapter。
 
 ### WebSocket
 
@@ -237,6 +237,10 @@ Streamable HTTP 和 SSE 是**两套 wire 协议，不能互相路由**：Streama
 - **scheme 重写**：ws→http / wss→https 供 SSRF 分类（`security::ssrf` 只认 http/https）
 - **帧大小硬上限**：`max_message_size=4 MiB`、`max_frame_size=1 MiB`（tungstenite 默认 64/16 MiB 对 JSON-RPC 过宽松）
 - **`poll_next` yield 预算**：连续丢弃 64 帧（ping/pong/close/malformed）后 `wake_by_ref() + Pending`，防恶意 server 用无效帧洪水饿死调度器
+
+### 入站消息上限
+
+四种 transport 都在 serde / SSE event 物化前执行 `MAX_INBOUND_MESSAGE_BYTES=4 MiB` 硬上限：stdio 用 `JsonRpcMessageCodec::new_with_max_length` 限单行；Streamable HTTP 在读取 JSON body 时同时检查 `Content-Length` 与流式累计字节，SSE 字节流在空行边界重置逐 event 预算；WebSocket 复用同一常量限制 message。超限会终止当前 transport / 请求并进入现有失败与退避路径。Catalog 的 512 项上限负责**条目数 / 翻页数**，本上限负责**单页或单项的字节体积**，两层缺一不可。
 
 ### 共享 helper
 
@@ -506,8 +510,7 @@ stdio server 是任意二进制、潜在命令执行入口：
 
 三种网络 transport 对 HTTP 30x 的处理各不相同，核心诉求一致——**别让一个 redirect 把已过 SSRF 的请求弹到内网**：
 
-- **SSE**：`build_mcp_http_client` 用 `redirect::Policy::none()` **不跟 redirect**。SSRF 只校验了 pre-redirect 的 GET URL 与 server 返回的 endpoint，30x 可绕过 gate；而 reqwest 的 redirect 回调是同步的、跑不了需要异步 DNS 解析的 `check_url`，故直接不跟（拿到 3xx 显式报错）
-- **Streamable HTTP**：走 rmcp 自带 reqwest（default redirect），每跳不重跑 SSRF——**已知 gap**（ha-mcp 无法配置 rmcp 内部 client 的 redirect policy，与上文"代理绕行"同源于 0.12/0.13 版本墙）
+- **HTTP / SSE**：二者共用的 `build_mcp_http_client` 设置 `redirect::Policy::none()`，**不跟 redirect**。SSRF 只校验 pre-redirect URL（legacy SSE 还会校验 server 返回的 endpoint）；而 reqwest 的 redirect 回调是同步的、跑不了需要异步 DNS 解析的 `check_url`，故拿到 3xx 直接报错
 - **WebSocket**：`connect_async` 不跟 HTTP redirect——RFC 6455 要求 101 Switching Protocols，3xx 直接算握手失败，所以单次 SSRF 覆盖了全部 dial-out
 
 ---
