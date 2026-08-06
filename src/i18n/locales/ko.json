@@ -369,6 +369,7 @@
       "continueInNewSession": "새 세션에서 계속",
       "continuedFrom": "이어받음",
       "created": "새 세션에서 계속합니다",
+      "createdButNotOpened": "포크 `{{id}}`가 생성되었지만 열지 못했습니다. 세션 목록에서 선택해 계속하세요.",
       "failed": "새 세션에서 계속할 수 없습니다",
       "sourceFallback": "원본 세션"
     },

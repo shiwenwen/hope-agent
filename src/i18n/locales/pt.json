@@ -369,6 +369,7 @@
       "continueInNewSession": "Continuar em uma nova sessão",
       "continuedFrom": "Continuação de",
       "created": "Continuado em uma nova sessão",
+      "createdButNotOpened": "A ramificação `{{id}}` foi criada, mas não pôde ser aberta. Selecione-a na lista de sessões para continuar.",
       "failed": "Não foi possível continuar em uma nova sessão",
       "sourceFallback": "sessão original"
     },

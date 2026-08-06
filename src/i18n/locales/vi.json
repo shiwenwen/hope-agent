@@ -369,6 +369,7 @@
       "continueInNewSession": "Tiếp tục trong phiên mới",
       "continuedFrom": "Tiếp nối từ",
       "created": "Đã tiếp tục trong phiên mới",
+      "createdButNotOpened": "Đã tạo nhánh `{{id}}` nhưng không thể mở. Hãy chọn nhánh đó trong danh sách phiên để tiếp tục.",
       "failed": "Không thể tiếp tục trong phiên mới",
       "sourceFallback": "phiên gốc"
     },

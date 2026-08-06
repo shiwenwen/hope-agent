@@ -369,6 +369,7 @@
       "continueInNewSession": "Yeni oturumda devam et",
       "continuedFrom": "Devam edilen kaynak",
       "created": "Yeni oturumda devam ediliyor",
+      "createdButNotOpened": "`{{id}}` çatalı oluşturuldu ancak açılamadı. Devam etmek için oturum listesinden seçin.",
       "failed": "Yeni oturumda devam edilemedi",
       "sourceFallback": "kaynak oturum"
     },

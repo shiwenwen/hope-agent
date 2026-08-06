@@ -369,6 +369,7 @@
       "continueInNewSession": "在新會話中繼續",
       "continuedFrom": "接續自",
       "created": "已在新會話中繼續",
+      "createdButNotOpened": "分支 `{{id}}` 已建立，但未能開啟。請從會話列表中選擇它繼續。",
       "failed": "無法在新會話中繼續",
       "sourceFallback": "原會話"
     },

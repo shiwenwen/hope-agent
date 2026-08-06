@@ -2488,7 +2488,15 @@ export default function ChatScreen({
           try {
             await reloadSessions()
             const switched = await rawHandleSwitchSession(action.sessionId)
-            if (!switched) break
+            if (!switched) {
+              toast.warning(
+                t("chat.fork.createdButNotOpened", {
+                  id: action.sessionId.slice(0, 8),
+                  defaultValue: "分支 `{{id}}` 已创建，但未能打开。请从会话列表中选择它继续。",
+                }),
+              )
+              break
+            }
             toast.success(
               t("chat.fork.created", {
                 defaultValue: "已在新会话中继续",

@@ -369,6 +369,7 @@
       "continueInNewSession": "Continue in new session",
       "continuedFrom": "Continued from",
       "created": "Continued in a new session",
+      "createdButNotOpened": "Fork `{{id}}` was created but not opened. Select it from the session list to continue.",
       "failed": "Couldn't continue in a new session",
       "sourceFallback": "source session"
     },
