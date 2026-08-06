@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use futures_util::stream::{self, StreamExt};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::{MutexGuard, OnceCell};
-use tokio::time::{timeout, Duration};
+use tokio::sync::{Mutex, MutexGuard, OnceCell};
+use tokio::time::{timeout, timeout_at, Duration, Instant};
 
 use super::errors::{McpError, McpResult};
 use super::events::{emit_catalog_refreshed, emit_server_status};
@@ -29,6 +29,10 @@ const CATALOG_DISCOVERY_CONCURRENCY: usize = 4;
 /// servers. Workers that outlive this aggregate deadline remain detached and
 /// continue publishing ready catalogs in the background.
 const CATALOG_DISCOVERY_WAIT_SECS: u64 = 30;
+/// Only one all-server discovery pass may own handle snapshots and connection
+/// work at a time. Waiters share the same aggregate deadline and disappear on
+/// timeout instead of spawning duplicate workers behind per-server locks.
+static CATALOG_DISCOVERY_LOCK: Mutex<()> = Mutex::const_new(());
 
 /// One process-wide startup barrier. A failed eager handshake still completes
 /// the barrier: normal chat must not synchronously retry an unavailable MCP
@@ -80,9 +84,25 @@ async fn warm_catalogs(eager_only: bool, source: &'static str) {
         return;
     }
 
+    let foreground_deadline = Instant::now() + Duration::from_secs(CATALOG_DISCOVERY_WAIT_SECS);
+    let discovery_guard = match timeout_at(foreground_deadline, CATALOG_DISCOVERY_LOCK.lock()).await
+    {
+        Ok(guard) => guard,
+        Err(_) => {
+            ha_core::app_info!(
+                "mcp",
+                "catalog_discovery_join_deadline",
+                "MCP catalog discovery from {} reached the aggregate {}s deadline while an existing worker was still active; that shared worker continues in background",
+                source,
+                CATALOG_DISCOVERY_WAIT_SECS
+            );
+            return;
+        }
+    };
     let handles: Vec<Arc<ServerHandle>> = manager.servers.read().await.values().cloned().collect();
     let server_count = handles.len();
     let worker = tokio::spawn(async move {
+        let _discovery_guard = discovery_guard;
         stream::iter(handles)
             .for_each_concurrent(CATALOG_DISCOVERY_CONCURRENCY, |handle| async move {
                 let cfg = handle.config.read().await.clone();
@@ -116,12 +136,7 @@ async fn warm_catalogs(eager_only: bool, source: &'static str) {
             })
             .await;
     });
-    match await_catalog_worker(
-        worker,
-        Duration::from_secs(CATALOG_DISCOVERY_WAIT_SECS),
-    )
-    .await
-    {
+    match await_catalog_worker(worker, foreground_deadline).await {
         Ok(true) => {}
         Ok(false) => ha_core::app_warn!(
             "mcp",
@@ -147,9 +162,9 @@ async fn warm_catalogs(eager_only: bool, source: &'static str) {
 /// background.
 async fn await_catalog_worker(
     worker: tokio::task::JoinHandle<()>,
-    deadline: Duration,
+    deadline: Instant,
 ) -> Result<bool, tokio::task::JoinError> {
-    match timeout(deadline, worker).await {
+    match timeout_at(deadline, worker).await {
         Ok(joined) => joined.map(|()| true),
         Err(_) => Ok(false),
     }
@@ -313,13 +328,26 @@ pub async fn disconnect(handle: &ServerHandle) -> McpResult<()> {
 /// and rebuild the manager's tool index entries for it. The `Ready`
 /// catalog snapshot is replaced in place; other servers' entries in
 /// the index are untouched.
-/// Hard cap on tools per server. A malicious or buggy MCP server could
-/// advertise millions of entries via `list_tools`; without a cap, the
-/// reverse index + schema cache + `Ready` state's embedded Vec would
-/// allocate unbounded memory + every LLM request would spend time
-/// filtering the giant list. 512 is generous for any legitimate
-/// catalog (the biggest public servers ship ~50).
-const TOOLS_PER_SERVER_CAP: usize = 512;
+/// Hard cap per catalog primitive. A malicious or buggy MCP server could
+/// advertise millions of tools/resources/prompts; without a cap, the atomic
+/// snapshot and `Ready` state would allocate unbounded memory. 512 per kind is
+/// generous for legitimate servers while keeping bootstrap memory bounded.
+const CATALOG_ENTRIES_PER_KIND_CAP: usize = 512;
+
+fn truncate_catalog_entries<T>(entries: &mut Vec<T>, server_name: &str, kind: &str) {
+    if entries.len() <= CATALOG_ENTRIES_PER_KIND_CAP {
+        return;
+    }
+    ha_core::app_warn!(
+        "mcp",
+        &format!("{}:catalog", server_name),
+        "Server advertised {} {} entries; truncating to the per-kind cap of {}",
+        entries.len(),
+        kind,
+        CATALOG_ENTRIES_PER_KIND_CAP
+    );
+    entries.truncate(CATALOG_ENTRIES_PER_KIND_CAP);
+}
 
 pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
     let cfg = handle.config.read().await.clone();
@@ -335,22 +363,15 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
         .list_all_tools()
         .await
         .map_err(|e| rmcp_service_err(&cfg.name, "list_tools", e))?;
-    if tools.len() > TOOLS_PER_SERVER_CAP {
-        ha_core::app_warn!(
-            "mcp",
-            &format!("{}:catalog", cfg.name),
-            "Server advertised {} tools; truncating to the per-server cap of {}",
-            tools.len(),
-            TOOLS_PER_SERVER_CAP
-        );
-        tools.truncate(TOOLS_PER_SERVER_CAP);
-    }
+    truncate_catalog_entries(&mut tools, &cfg.name, "tools");
 
     // Resources / prompts are optional per spec; an `InvalidRequest` /
     // method-not-found is NOT a real failure — it just means the server
     // doesn't expose that primitive.
-    let resources = peer.list_all_resources().await.unwrap_or_default();
-    let prompts = peer.list_all_prompts().await.unwrap_or_default();
+    let mut resources = peer.list_all_resources().await.unwrap_or_default();
+    truncate_catalog_entries(&mut resources, &cfg.name, "resources");
+    let mut prompts = peer.list_all_prompts().await.unwrap_or_default();
+    truncate_catalog_entries(&mut prompts, &cfg.name, "prompts");
 
     let tool_count = tools.len();
     let resource_count = resources.len();
@@ -565,9 +586,10 @@ mod tests {
             worker_completed.store(true, Ordering::Release);
         });
 
-        let completed_in_time = await_catalog_worker(worker, Duration::from_millis(1))
-            .await
-            .unwrap();
+        let completed_in_time =
+            await_catalog_worker(worker, Instant::now() + Duration::from_millis(1))
+                .await
+                .unwrap();
         assert!(!completed_in_time);
 
         gate.notify_one();
@@ -578,5 +600,14 @@ mod tests {
         })
         .await
         .expect("detached catalog worker should keep running after the caller deadline");
+    }
+
+    #[test]
+    fn every_catalog_kind_is_capped() {
+        let mut entries = (0..600).collect::<Vec<_>>();
+        truncate_catalog_entries(&mut entries, "fixture", "resources");
+        assert_eq!(entries.len(), CATALOG_ENTRIES_PER_KIND_CAP);
+        assert_eq!(entries[0], 0);
+        assert_eq!(entries[CATALOG_ENTRIES_PER_KIND_CAP - 1], 511);
     }
 }

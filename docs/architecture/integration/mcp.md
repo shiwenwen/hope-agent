@@ -176,7 +176,7 @@ stateDiagram-v2
 
 **为什么 Auth 错误单独一条分支？** 401/403 的正确恢复动作是"用户点 Authorize"而非"watchdog 傻重试"。把 server 留在 `NeedsAuth` 而不是 `Failed`，可以避免拿着一个已坏的 token 疯狂刷新。
 
-**启动策略**：默认 lazy connect 以省冷启时间，但动态工具名本身依赖 `tools/list`，不能靠“首次动态调用”自举。因此 `tool_search` 在检索前通过 MCP hook 对尚无 catalog 的 server 做至多 4 路并发发现；`mcp_resource` / `mcp_prompt` 也会先确保目标 server 已连接。整批发现的前台等待上限固定为 30s，不随 server 数量线性增长；超时时已发布 catalog 立即可用，未完成 worker 脱离前台继续后台发现。`eager=true` 的 server 在子系统初始化后立即异步 `ensure_connected`，不等待 watchdog 首个 15s tick；首个 provider 请求在组装 schema 前等待同一个进程级 `OnceCell` 启动屏障。无论本轮连接成功或失败，该屏障都只完成一次，普通聊天后续轮次不再同步重试不可达 server；配置热更新只触发后台 warm-up，Primary 的持续恢复交给 watchdog，ACP 仍可由 `tool_search` 显式重试。
+**启动策略**：默认 lazy connect 以省冷启时间，但动态工具名本身依赖 `tools/list`，不能靠“首次动态调用”自举。因此 `tool_search` 在检索前通过 MCP hook 对尚无 catalog 的 server 做至多 4 路并发发现；`mcp_resource` / `mcp_prompt` 也会先确保目标 server 已连接。整批发现由进程级异步锁保证只有一个 active worker，前台等待上限固定为 30s（等锁也计入），不随 server 数量线性增长；超时时已发布 catalog 立即可用，唯一未完成 worker 脱离前台继续后台发现。`eager=true` 的 server 在子系统初始化后立即异步 `ensure_connected`，不等待 watchdog 首个 15s tick；首个 provider 请求在组装 schema 前等待同一个进程级 `OnceCell` 启动屏障。无论本轮连接成功或失败，该屏障都只完成一次，普通聊天后续轮次不再同步重试不可达 server；配置热更新只触发后台 warm-up，Primary 的持续恢复交给 watchdog，ACP 仍可由 `tool_search` 显式重试。
 
 **Catalog 发布**：动态工具反查索引、Provider Schema 列表、已完成 catalog 的 server 集合属于同一代 `CatalogSnapshot`，经 manager 级更新锁串行合并后一次 `ArcSwap` 发布。禁止分别写 `tool_index` / schema cache：多 server 同时 refresh 的 read-modify-write 会丢掉另一 server，分步发布还会制造“Schema 已见但不可 dispatch”窗口。零工具 server 也记为 cataloged，避免系统提示持续把它误报为“尚未发现”；连接重试仍由 live `ServerState` + backoff 决定。
 
@@ -191,7 +191,7 @@ stateDiagram-v2
 - 全局：`McpGlobalSettings.max_concurrent_calls`（默认 8）
 - 每 server：`McpServerConfig.max_concurrent_calls`（默认 4）
 
-**工具数上限**：单个 server 的 catalog 超过 `TOOLS_PER_SERVER_CAP`（512）会被截断并记一条 warn，防止一个失控 server 淹没工具表。
+**Catalog 数量上限**：单个 server 的 tools / resources / prompts 分别超过 `CATALOG_ENTRIES_PER_KIND_CAP`（512）时截断并记 warn，防止一个失控 server 在普通 discovery 中淹没原子快照与 `Ready` 状态。
 
 ---
 
