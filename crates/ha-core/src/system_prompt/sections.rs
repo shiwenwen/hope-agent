@@ -180,43 +180,6 @@ fn deferred_mcp_server_names(
         .collect()
 }
 
-#[cfg(test)]
-mod deferred_mcp_server_tests {
-    use super::deferred_mcp_server_names;
-
-    fn server(name: &str, deferred_tools: bool) -> crate::mcp::McpServerConfig {
-        serde_json::from_value(serde_json::json!({
-            "id": format!("id-{name}"),
-            "name": name,
-            "enabled": true,
-            "transport": { "kind": "stdio", "command": "true" },
-            "deferredTools": deferred_tools
-        }))
-        .expect("valid MCP server fixture")
-    }
-
-    #[test]
-    fn recommended_mode_advertises_dynamic_mcp_servers_for_tool_search() {
-        let mut app = crate::config::AppConfig::default();
-        app.mcp_servers = vec![server("github", false)];
-
-        assert_eq!(deferred_mcp_server_names(&app, true), vec!["github"]);
-    }
-
-    #[test]
-    fn non_recommended_modes_only_advertise_server_opt_ins() {
-        let mut app = crate::config::AppConfig::default();
-        app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
-        app.mcp_servers = vec![server("github", false), server("linear", true)];
-
-        assert_eq!(deferred_mcp_server_names(&app, true), vec!["linear"]);
-
-        app.mcp_global.denied_servers = vec!["linear".into()];
-        assert!(deferred_mcp_server_names(&app, true).is_empty());
-        assert!(deferred_mcp_server_names(&app, false).is_empty());
-    }
-}
-
 /// Build the async-tools usage guide section. Emitted whenever the global
 /// `async_tools` feature is enabled — the model needs the `job_status` /
 /// `<task-notification>` vocabulary regardless of agent-level policy.
@@ -861,4 +824,48 @@ fn build_working_dir_file_listing(path: &str) -> Option<String> {
         out.push_str(&format!("\n- … ({} more)", total - MAX_ENTRIES));
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod deferred_mcp_server_tests {
+    use super::deferred_mcp_server_names;
+
+    fn server(name: &str, deferred_tools: bool) -> crate::mcp::McpServerConfig {
+        serde_json::from_value(serde_json::json!({
+            "id": format!("id-{name}"),
+            "name": name,
+            "enabled": true,
+            "transport": { "kind": "stdio", "command": "true" },
+            "deferredTools": deferred_tools
+        }))
+        .expect("valid MCP server fixture")
+    }
+
+    #[test]
+    fn recommended_mode_advertises_dynamic_mcp_servers_for_tool_search() {
+        let app = crate::config::AppConfig {
+            mcp_servers: vec![server("github", false)],
+            ..Default::default()
+        };
+
+        assert_eq!(deferred_mcp_server_names(&app, true), vec!["github"]);
+    }
+
+    #[test]
+    fn non_recommended_modes_only_advertise_server_opt_ins() {
+        let mut app = crate::config::AppConfig {
+            deferred_tools: crate::config::DeferredToolsConfig {
+                mode: Some(crate::config::DeferredToolsMode::Disabled),
+                ..Default::default()
+            },
+            mcp_servers: vec![server("github", false), server("linear", true)],
+            ..Default::default()
+        };
+
+        assert_eq!(deferred_mcp_server_names(&app, true), vec!["linear"]);
+
+        app.mcp_global.denied_servers = vec!["linear".into()];
+        assert!(deferred_mcp_server_names(&app, true).is_empty());
+        assert!(deferred_mcp_server_names(&app, false).is_empty());
+    }
 }
