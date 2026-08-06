@@ -40,6 +40,22 @@ pub use credentials::McpCredentials;
 pub use errors::{McpError, McpResult};
 pub use registry::{McpManager, ServerHandle, ServerState, ServerStatusSnapshot, ToolIndexEntry};
 
+/// Preserve catalog generation identity while MCP is globally disabled and no
+/// manager exists. Kernel callers compare this `Arc` by pointer to detect real
+/// catalog refreshes between tool rounds.
+static EMPTY_TOOL_DEFINITIONS: std::sync::OnceLock<
+    std::sync::Arc<Vec<ha_core::tools::ToolDefinition>>,
+> = std::sync::OnceLock::new();
+
+fn tool_definitions_snapshot() -> std::sync::Arc<Vec<ha_core::tools::ToolDefinition>> {
+    match McpManager::global() {
+        Some(manager) => manager.mcp_tool_definitions(),
+        None => EMPTY_TOOL_DEFINITIONS
+            .get_or_init(|| std::sync::Arc::new(Vec::new()))
+            .clone(),
+    }
+}
+
 /// Hot-sync the MCP runtime from the current cached app config.
 ///
 /// This handles both steady-state edits (`McpManager` already exists) and
@@ -161,12 +177,6 @@ pub fn wire() {
         fn spawn_watchdog() {
             watchdog::spawn_watchdog_loop();
         }
-        fn tool_definitions() -> std::sync::Arc<Vec<ha_core::tools::ToolDefinition>> {
-            match McpManager::global() {
-                Some(mgr) => mgr.mcp_tool_definitions(),
-                None => std::sync::Arc::new(Vec::new()),
-            }
-        }
         fn ensure_tool_catalogs(
             eager_only: bool,
         ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
@@ -210,7 +220,7 @@ pub fn wire() {
         ha_core::mcp_hooks::register_mcp_hooks(ha_core::mcp_hooks::McpHooks {
             init_subsystem,
             spawn_watchdog,
-            tool_definitions,
+            tool_definitions: tool_definitions_snapshot,
             ensure_tool_catalogs,
             has_pending_catalogs,
             tool_server_config,
@@ -220,4 +230,18 @@ pub fn wire() {
         })
         .expect("ha_mcp::wire() registers the mcp hooks exactly once");
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disabled_catalog_snapshot_keeps_pointer_identity() {
+        assert!(McpManager::global().is_none());
+        let first = tool_definitions_snapshot();
+        let second = tool_definitions_snapshot();
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
+        assert!(first.is_empty());
+    }
 }

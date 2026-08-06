@@ -191,7 +191,7 @@ stateDiagram-v2
 - 全局：`McpGlobalSettings.max_concurrent_calls`（默认 8）
 - 每 server：`McpServerConfig.max_concurrent_calls`（默认 4）
 
-**Catalog 数量上限**：单个 server 的 tools / resources / prompts 分别超过 `CATALOG_ENTRIES_PER_KIND_CAP`（512）时截断并记 warn，防止一个失控 server 在普通 discovery 中淹没原子快照与 `Ready` 状态。
+**Catalog 数量上限**：单个 server 的 tools / resources / prompts 分别达到 `CATALOG_ENTRIES_PER_KIND_CAP`（512）后立即停止翻页，确认仍有条目时记 warn，防止一个失控 server 在普通 discovery 的分页阶段或原子 `Ready` 快照中无限累积数据。
 
 ---
 

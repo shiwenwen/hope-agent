@@ -9,9 +9,10 @@
 //! initial catalog (tools + resources + prompts) and atomically publishes it
 //! through the manager's `CatalogSnapshot`.
 
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 use futures_util::stream::{self, StreamExt};
+use rmcp::model::PaginatedRequestParams;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{Mutex, MutexGuard, OnceCell};
 use tokio::time::{timeout, timeout_at, Duration, Instant};
@@ -329,24 +330,48 @@ pub async fn disconnect(handle: &ServerHandle) -> McpResult<()> {
 /// catalog snapshot is replaced in place; other servers' entries in
 /// the index are untouched.
 /// Hard cap per catalog primitive. A malicious or buggy MCP server could
-/// advertise millions of tools/resources/prompts; without a cap, the atomic
-/// snapshot and `Ready` state would allocate unbounded memory. 512 per kind is
-/// generous for legitimate servers while keeping bootstrap memory bounded.
+/// advertise millions of tools/resources/prompts across many pages; without a
+/// cap, both pagination and the atomic `Ready` snapshot would accumulate them
+/// in memory. 512 per kind is generous for legitimate servers while keeping
+/// bootstrap memory bounded.
 const CATALOG_ENTRIES_PER_KIND_CAP: usize = 512;
 
-fn truncate_catalog_entries<T>(entries: &mut Vec<T>, server_name: &str, kind: &str) {
-    if entries.len() <= CATALOG_ENTRIES_PER_KIND_CAP {
-        return;
+async fn collect_catalog_entries<T, Page, E, Fetch, FetchFuture, Split>(
+    mut fetch_page: Fetch,
+    mut split_page: Split,
+) -> Result<(Vec<T>, bool), E>
+where
+    Fetch: FnMut(Option<PaginatedRequestParams>) -> FetchFuture,
+    FetchFuture: Future<Output = Result<Page, E>>,
+    Split: FnMut(Page) -> (Vec<T>, Option<String>),
+{
+    let mut entries = Vec::with_capacity(CATALOG_ENTRIES_PER_KIND_CAP);
+    let mut cursor = None;
+
+    loop {
+        let page = fetch_page(Some(PaginatedRequestParams::default().with_cursor(cursor))).await?;
+        let (page_entries, next_cursor) = split_page(page);
+        let remaining = CATALOG_ENTRIES_PER_KIND_CAP - entries.len();
+        let page_exceeds_cap = page_entries.len() > remaining;
+        entries.extend(page_entries.into_iter().take(remaining));
+
+        let reached_cap = entries.len() == CATALOG_ENTRIES_PER_KIND_CAP;
+        let truncated = page_exceeds_cap || (reached_cap && next_cursor.is_some());
+        if reached_cap || next_cursor.is_none() {
+            return Ok((entries, truncated));
+        }
+        cursor = next_cursor;
     }
+}
+
+fn warn_catalog_truncated(server_name: &str, kind: &str) {
     ha_core::app_warn!(
         "mcp",
         &format!("{}:catalog", server_name),
-        "Server advertised {} {} entries; truncating to the per-kind cap of {}",
-        entries.len(),
+        "Server advertised more than the per-kind cap of {} {} entries; pagination stopped at the cap",
+        CATALOG_ENTRIES_PER_KIND_CAP,
         kind,
-        CATALOG_ENTRIES_PER_KIND_CAP
     );
-    entries.truncate(CATALOG_ENTRIES_PER_KIND_CAP);
 }
 
 pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
@@ -359,19 +384,37 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
     }
     let peer = handle.peer().await?;
 
-    let mut tools = peer
-        .list_all_tools()
-        .await
-        .map_err(|e| rmcp_service_err(&cfg.name, "list_tools", e))?;
-    truncate_catalog_entries(&mut tools, &cfg.name, "tools");
+    let (tools, tools_truncated) = collect_catalog_entries(
+        |params| peer.list_tools(params),
+        |result| (result.tools, result.next_cursor),
+    )
+    .await
+    .map_err(|e| rmcp_service_err(&cfg.name, "list_tools", e))?;
+    if tools_truncated {
+        warn_catalog_truncated(&cfg.name, "tools");
+    }
 
     // Resources / prompts are optional per spec; an `InvalidRequest` /
     // method-not-found is NOT a real failure — it just means the server
     // doesn't expose that primitive.
-    let mut resources = peer.list_all_resources().await.unwrap_or_default();
-    truncate_catalog_entries(&mut resources, &cfg.name, "resources");
-    let mut prompts = peer.list_all_prompts().await.unwrap_or_default();
-    truncate_catalog_entries(&mut prompts, &cfg.name, "prompts");
+    let (resources, resources_truncated) = collect_catalog_entries(
+        |params| peer.list_resources(params),
+        |result| (result.resources, result.next_cursor),
+    )
+    .await
+    .unwrap_or_default();
+    if resources_truncated {
+        warn_catalog_truncated(&cfg.name, "resources");
+    }
+    let (prompts, prompts_truncated) = collect_catalog_entries(
+        |params| peer.list_prompts(params),
+        |result| (result.prompts, result.next_cursor),
+    )
+    .await
+    .unwrap_or_default();
+    if prompts_truncated {
+        warn_catalog_truncated(&cfg.name, "prompts");
+    }
 
     let tool_count = tools.len();
     let resource_count = resources.len();
@@ -602,12 +645,32 @@ mod tests {
         .expect("detached catalog worker should keep running after the caller deadline");
     }
 
-    #[test]
-    fn every_catalog_kind_is_capped() {
-        let mut entries = (0..600).collect::<Vec<_>>();
-        truncate_catalog_entries(&mut entries, "fixture", "resources");
+    #[tokio::test]
+    async fn catalog_pagination_stops_at_cap() {
+        struct Page {
+            entries: Vec<usize>,
+            next_cursor: Option<String>,
+        }
+
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let fetch_calls = calls.clone();
+        let (entries, truncated) = collect_catalog_entries(
+            move |_| {
+                let page_index = fetch_calls.fetch_add(1, Ordering::Relaxed);
+                std::future::ready(Ok::<_, ()>(Page {
+                    entries: (page_index * 300..(page_index + 1) * 300).collect(),
+                    next_cursor: Some((page_index + 1).to_string()),
+                }))
+            },
+            |page| (page.entries, page.next_cursor),
+        )
+        .await
+        .expect("fixture pages should collect");
+
+        assert!(truncated);
         assert_eq!(entries.len(), CATALOG_ENTRIES_PER_KIND_CAP);
         assert_eq!(entries[0], 0);
         assert_eq!(entries[CATALOG_ENTRIES_PER_KIND_CAP - 1], 511);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
     }
 }
